@@ -3,6 +3,7 @@ package wm.damage.phone
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -14,13 +15,26 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import wm.damage.core.bastion.AlertDelivery
+import wm.damage.core.bastion.AlertRecord
+import wm.damage.core.bastion.AlertState
+import wm.damage.core.bastion.BastionRows
+import wm.damage.core.bastion.FilePlaceStore
+import wm.damage.core.bastion.HomeWatch
+import wm.damage.core.bastion.PhoneAlerts
+import wm.damage.core.bastion.PlaceWatch
+import wm.damage.core.bastion.RemoteBastion
+import wm.damage.core.bastion.Severity
 import wm.damage.core.comp.Journal
+import wm.damage.core.net.ReachGate
+import wm.damage.core.net.Side
 import wm.damage.core.content.RemoteContent
 import wm.damage.core.replica.ReplicaServer
 import wm.damage.core.shell.Chrome
@@ -92,6 +106,14 @@ class ShellService : Service() {
     private var musicPlayer: wm.damage.phone.music.AndroidMusicPlayer? = null
     private var remoteIcons: RemoteIcons? = null
     private var remoteSync: wm.damage.core.sync.RemoteSync? = null
+    /** Build W, package D: the bus watcher's phone side, per stack. [remoteBastion] is read by the Acknowledge
+     *  button's intent on the main thread ([onStartCommand]), hence volatile. */
+    @Volatile private var remoteBastion: RemoteBastion? = null
+    private var netState: NetState? = null
+    private var homeWatchJob: Job? = null
+    /** Build W, package F: presence from the phone's own position, per stack (its updates stop in [stopStack]). */
+    private var placeWatch: PlaceWatch? = null
+    private var placeJob: Job? = null
     @Volatile var remoteDriving = false
         private set
     @Volatile var statusLine: String = "starting"
@@ -324,6 +346,7 @@ class ShellService : Service() {
         // load() later merges harmlessly (strictly-newer in-memory wins).
         persistence.load()
         val sh = Shell(text, t, persistence, dataDir.resolve("journal.jsonl"), scope)
+        sh.loopClock = AndroidLoopClock         // build W, package G (E4): the `slow` note's clocks
         sh.buildTag = "apk ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"
         shell = sh
 
@@ -407,6 +430,25 @@ class ShellService : Service() {
             dataDir.resolve("icons"), scope, onLoaded = { sh.requestRepaint() })
         remoteIcons = ri
         sh.iconSource = ri
+        // Build W, package D (R6 P12; the spec's D2): the bus watcher's phone side. The PC reads the hub and keeps
+        // the alerts; this copy hands every change to delivery — the glasses through the shell's host entry, the
+        // phone's shade through [busAlerts] (its own channels, never `onUrgent` and never Global `Phone
+        // notifications`) — and "home unreachable" weighs the channel's last frame against the phone's own network.
+        val delivery = AlertDelivery(sh, busAlerts, phoneOn = { prefs.phoneAlerts })
+        // Build W, package F (W-decisions G): the phone's own position says home or away; it learns where the bus is
+        // while the PC sees its link on the bus network. OFF until precise location is allowed all the time; the
+        // position stays on the phone (a file in the no-backup directory, which Auto Backup never copies) and only
+        // the word and the fix's age go to the PC, on the table asks below.
+        val place = PlaceWatch(AndroidPlaceSource(this), FilePlaceStore(noBackupFilesDir.toPath().resolve(PLACE_FILE)),
+            enabled = { prefs.presenceLocation }, say = { line -> sh.journalNote("place", line) })
+        placeWatch = place
+        placeJob = place.start(scope)
+        val rb = RemoteBastion(prefs.host, prefs.contentPort, prefs.token, scope, dataDir.resolve("wincache/bastion"), delivery,
+            place = place)
+        remoteBastion = rb
+        val net = NetState(this)
+        netState = net
+        homeWatchJob = HomeWatch({ rb.lastHeardMs() }, net, { prefs.homeUnreachableMin }, delivery).start(scope)
         // verdict 21: urgent internal notices reach the phone ONLY when the
         // Global "Phone notifications" switch is on; the shell's own box
         // already shows them on glass
@@ -430,6 +472,27 @@ class ShellService : Service() {
                 current = { if (prefs.target == Prefs.Target.GLASSES) "glasses" else "sim" },
                 apply = { v -> switchTarget(if (v == "glasses") Prefs.Target.GLASSES else Prefs.Target.SIM) }),
         )
+        // Build W (the spec's §2(d), the lead's decision B.3): the Settings category "Bastion", built ONCE per stack —
+        // Settings matches a staged row by identity. `Phone · alerts` and `Home unreachable` are the phone's own rows,
+        // kept in [Prefs] (never in ShellSettings, never synced); the shared rows and Acknowledge are BastionRows'.
+        sh.hostCategories = listOf(BastionRows.category(sh, listOf(
+            HostSetting("Phone · alerts", listOf("on", "off"),
+                current = { if (prefs.phoneAlerts) "on" else "off" },
+                // fix round 1: the change reconciles the shade at once (off withdraws, on posts what is raised silently)
+                apply = { v -> prefs.setPhoneAlerts(v == "on"); delivery.phoneRowChanged(v == "on", rb.raised()) }),
+            HostSetting("Home unreachable", Prefs.HOME_UNREACHABLE_OPTIONS,
+                current = { Prefs.homeUnreachableLabel(prefs.homeUnreachableMin) },
+                apply = { v -> prefs.setHomeUnreachableMin(Prefs.homeUnreachableMinutes(v)) }),
+            // package F (G.5): display-only — the phone's own reading ("location: not allowed …", "location: home (fix
+            // 3 min old)"); never a coordinate or a distance (G.6). Named `Position`, not `Presence`: Global already
+            // has a `Presence` row (the rows at rest), which this is not
+            HostSetting("Position", { listOf(place.stateLine()) }, { place.stateLine() },
+                { /* display-only: a tap keeps nothing */ }),
+            HostSetting("Presence · location", listOf("off", "on"),
+                current = { if (prefs.presenceLocation) "on" else "off" },
+                // the change takes effect at once, off the loop (the tick may start or stop the platform's updates)
+                apply = { v -> prefs.setPresenceLocation(v == "on"); scope.launch(Dispatchers.IO) { place.tick() } }),
+        ), rb, scope))
 
         val name = target.name.lowercase()
         val k = ShellKeeper(sh, t, scope,
@@ -464,6 +527,10 @@ class ShellService : Service() {
             }
         }
 
+        // Build W (the lead's decision B.4; the spec's D6): ONE reach gate for the phone's two listeners — a connection
+        // that did not arrive on loopback or the tailnet is closed unread, and said (paced) in the log and the journal
+        val reach = ReachGate(Side.PHONE, sink = { line -> Log.w("reach", line); sh.journalNote("reach", line) })
+
         // the browser replica: the same mirror, from any browser on the tailnet
         try {
             val rs = ReplicaServer(prefs.replicaPort, prefs.token, { mirror }, { replicaStatus() },
@@ -474,7 +541,7 @@ class ShellService : Service() {
                     if (shell?.devProbe(n, v) != true)
                         transport?.devProbe(n, v) ?: Log.w("service", "probe $n=$v with no transport")
                 },
-                journalPath = { filesDir.toPath().resolve("journal.jsonl") })
+                journalPath = { filesDir.toPath().resolve("journal.jsonl") }, reach = reach)
             rs.start()
             replica = rs
         } catch (e: Exception) {
@@ -493,7 +560,8 @@ class ShellService : Service() {
                             wantsRadio = Prefs(this).target == Prefs.Target.GLASSES && !destroyed,
                             driving = transport?.state?.value?.started == true,
                             line = displayStatus())
-                    })
+                    },
+                    reach = reach)
                 server.start()
                 seamServer = server
             } catch (e: Exception) {
@@ -567,6 +635,19 @@ class ShellService : Service() {
         remoteIcons = null
         try { remoteSync?.close() } catch (e: Exception) { Log.w("service", "sync close: ${e.message}") }
         remoteSync = null
+        // build W: taken out first, so an Acknowledge tap from here on answers "Damage is restarting"
+        val rb = remoteBastion
+        remoteBastion = null
+        try { rb?.close() } catch (e: Exception) { Log.w("service", "bastion close: ${e.message}") }
+        homeWatchJob?.cancel()
+        homeWatchJob = null
+        try { netState?.close() } catch (e: Exception) { Log.w("service", "network state close: ${e.message}") }
+        netState = null
+        // package F: the position updates are removed with the stack (PlaceWatch.close → AndroidPlaceSource.stop)
+        placeJob?.cancel()
+        placeJob = null
+        try { placeWatch?.close() } catch (e: Exception) { Log.w("service", "place close: ${e.message}") }
+        placeWatch = null
         scope.cancel()
         transport = null
         mirror = null
@@ -693,7 +774,42 @@ class ShellService : Service() {
         transport?.injectText(line) ?: Log.w("service", "typed line with no transport")
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_ACK) onAcknowledgeTap(intent)
+        return START_STICKY
+    }
+
+    /**
+     * Build W (the lead's decision B.3; the spec's D4): a bus alert notification's Acknowledge button. Acknowledge is an
+     * action on the alert — the channel's `ack {id, episode}` — sent on the running stack's scope off the main thread;
+     * the notification then says the answer. The PC's `acked` event updates it again through the push. Out of reach
+     * nothing is queued and nothing is retried: the button stays, so a later tap can try again.
+     */
+    private fun onAcknowledgeTap(intent: Intent) {
+        val id = intent.getStringExtra(EXTRA_ALERT_ID)
+        val episode = intent.getLongExtra(EXTRA_EPISODE, -1L)
+        if (id == null || episode < 0) {
+            Log.e("bastion", "an Acknowledge tap that names no alert (id $id, episode $episode) — nothing sent")
+            return
+        }
+        val rb = remoteBastion
+        if (rb == null) {
+            Log.w("bastion", "Acknowledge $id episode $episode: no stack is running — not sent")
+            ackAnswer(id, episode, "not acknowledged — Damage is restarting", keepButton = true)
+            return
+        }
+        scope.launch(Dispatchers.IO) {
+            val (text, done) = try {
+                val a = rb.ack(id, episode)
+                if (a.ok) "acknowledged" to true else "not acknowledged — ${a.reason ?: "the alert is ${a.state.wire}"}" to true
+            } catch (e: Exception) {
+                Log.w("bastion", "Acknowledge $id episode $episode did not reach home: ${e.message}")
+                "not acknowledged — home not answering" to false
+            }
+            Log.i("bastion", "Acknowledge (the phone's notification) $id episode $episode: $text")
+            ackAnswer(id, episode, text, keepButton = !done)
+        }
+    }
 
     override fun onDestroy() {
         // NEVER block the main thread on transport teardown (ANR): state saves
@@ -726,7 +842,119 @@ class ShellService : Service() {
         nm.createNotificationChannel(
             NotificationChannel(CHANNEL_BATTERY, "Glasses battery", NotificationManager.IMPORTANCE_DEFAULT),
         )
+        // Build W (the lead's decision A.4): the bus watcher's three channels, beside "Glasses battery" and, like it,
+        // never behind Global `Phone notifications` — the phone-owned `Phone · alerts` row and Android's own page for
+        // each channel are what turn them off. An urgent alert is the one at HIGH (heads-up).
+        nm.createNotificationChannel(
+            NotificationChannel(CHANNEL_BUS, "Bus alerts", NotificationManager.IMPORTANCE_DEFAULT),
+        )
+        nm.createNotificationChannel(
+            NotificationChannel(CHANNEL_BUS_URGENT, "Bus alerts · urgent", NotificationManager.IMPORTANCE_HIGH),
+        )
+        nm.createNotificationChannel(
+            NotificationChannel(CHANNEL_HOME, "Home unreachable", NotificationManager.IMPORTANCE_DEFAULT),
+        )
         return nm
+    }
+
+    /**
+     * The phone's shade as the bus watcher's delivery uses it (`PhoneAlerts`, build W). One notification per alert,
+     * tagged `bastion:<id>` under one id, so [PhoneAlerts.shownIds] reads the shade itself; one fixed notification for
+     * "home unreachable". Called from the watcher's coroutines on any thread; `NotificationManager` is safe on each.
+     */
+    private val busAlerts = object : PhoneAlerts {
+        override fun show(rec: AlertRecord, kind: AlertDelivery.Kind, body: String, silent: Boolean) =
+            busNotification(rec, body, silent)
+
+        override fun cancel(id: String) = synchronized(busLock) { channels().cancel(BUS_TAG + id, BUS_NOTIF_ID) }
+
+        override fun shownIds(): Set<String> =
+            channels().activeNotifications.filter { it.id == BUS_NOTIF_ID && it.tag?.startsWith(BUS_TAG) == true }
+                .map { it.tag.removePrefix(BUS_TAG) }.toSet()
+
+        override fun homeShow(text: String, silent: Boolean) = homeNotification(text, silent)
+
+        override fun homeCancel() = channels().cancel(HOME_NOTIF_ID)
+    }
+
+    /** One posting and one answer at a time on a bus notification: [ackAnswer] reads the shown one and re-posts it. */
+    private val busLock = Any()
+
+    /** The phone will not show a notification on [channel]: the app's notifications are off, or that channel is.
+     *  `notify()` then does nothing, with no error — so it is said in the log. */
+    private fun shadeOff(nm: NotificationManager, channel: String): Boolean =
+        nm.getNotificationChannel(channel)?.importance == NotificationManager.IMPORTANCE_NONE ||
+            !NotificationManagerCompat.from(this).areNotificationsEnabled()
+
+    /** A bus alert's notification: on "Bus alerts · urgent" for an urgent one, else "Bus alerts"; the body whole
+     *  (big-text style); an Acknowledge button while the alert is RAISED; [silent] = an update without a sound or a
+     *  heads-up (adopted, acknowledged). A repeat that is not silent alerts again. */
+    private fun busNotification(rec: AlertRecord, body: String, silent: Boolean) = synchronized(busLock) {
+        val nm = channels()
+        val urgent = rec.severity == Severity.URGENT
+        val channel = if (urgent) CHANNEL_BUS_URGENT else CHANNEL_BUS
+        if (shadeOff(nm, channel))
+            Log.w("bastion", "bus alert ${rec.id}: the phone will not show it — notifications are off for Damage or for its ${if (urgent) "Bus alerts · urgent" else "Bus alerts"} channel")
+        val b = NotificationCompat.Builder(this, channel)
+            .setSmallIcon(R.drawable.ic_damage)
+            .setContentTitle(if (urgent) "Bus alert · urgent" else "Bus alert")
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))     // never cut to one line
+            .setPriority(if (urgent) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT)
+            .setSilent(silent)
+            .setOnlyAlertOnce(silent)
+            .addExtras(android.os.Bundle().apply { putLong(EXTRA_EPISODE, rec.episode) })
+        if (rec.state == AlertState.RAISED)
+            b.addAction(0, "Acknowledge", ackIntent(rec.id, rec.episode))
+        nm.notify(BUS_TAG + rec.id, BUS_NOTIF_ID, b.build())
+    }
+
+    /** The Acknowledge button's intent: this service with [ACTION_ACK], the alert's id and episode. The pair is also
+     *  the intent's DATA, so two alerts never share one PendingIntent: the platform matches a PendingIntent by its
+     *  request code and its intent WITHOUT the extras, and FLAG_UPDATE_CURRENT would hand one alert's button the other's
+     *  extras on a request-code collision. */
+    private fun ackIntent(id: String, episode: Long): PendingIntent =
+        PendingIntent.getService(this, 31 * id.hashCode() + episode.hashCode(),
+            Intent(this, ShellService::class.java).setAction(ACTION_ACK)
+                .setData(android.net.Uri.Builder().scheme("damage-ack").opaquePart("$id/$episode").build())
+                .putExtra(EXTRA_ALERT_ID, id).putExtra(EXTRA_EPISODE, episode),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+
+    /** The answer to an Acknowledge tap, on the notification it came from: the shown notification of [id] — when it is
+     *  still [episode]'s — is posted again silently with [text] under its title, and without its button unless
+     *  [keepButton] (a tap that may work later). A notification gone or of a newer episode is left alone, said. */
+    private fun ackAnswer(id: String, episode: Long, text: String, keepButton: Boolean) = synchronized(busLock) {
+        val nm = channels()
+        val shown = nm.activeNotifications.firstOrNull { it.id == BUS_NOTIF_ID && it.tag == BUS_TAG + id }
+        if (shown == null) {
+            Log.i("bastion", "Acknowledge $id: $text — its notification is no longer shown")
+            return@synchronized
+        }
+        val showing = shown.notification.extras.getLong(EXTRA_EPISODE, -1L)
+        if (showing != episode) {
+            Log.i("bastion", "Acknowledge $id episode $episode: $text — the notification shows episode $showing now; left as it is")
+            return@synchronized
+        }
+        val b = Notification.Builder.recoverBuilder(this, shown.notification).setSubText(text).setOnlyAlertOnce(true)
+        if (!keepButton) b.setActions()
+        nm.notify(BUS_TAG + id, BUS_NOTIF_ID, b.build())
+    }
+
+    /** "Home unreachable" (build W): one fixed id, no action; [silent] = an update without a sound or a heads-up. */
+    private fun homeNotification(text: String, silent: Boolean) {
+        val nm = channels()
+        if (shadeOff(nm, CHANNEL_HOME))
+            Log.w("bastion", "home unreachable: the phone will not show it — notifications are off for Damage or for its Home unreachable channel")
+        nm.notify(HOME_NOTIF_ID,
+            NotificationCompat.Builder(this, CHANNEL_HOME)
+                .setSmallIcon(R.drawable.ic_damage)
+                .setContentTitle("Home unreachable")
+                .setContentText(text)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .setSilent(silent)
+                .setOnlyAlertOnce(silent)
+                .build())
     }
 
     /** The low-battery latch closed at [pct] (`Shell.onGlassesBattery`). One fixed id, so a later one
@@ -817,9 +1045,22 @@ class ShellService : Service() {
         /** 0.64: the low-battery notification. 1 is the foreground notification, 1000-1063 the urgent
          *  ones, 0xD02E the boot receiver's. */
         private const val BATTERY_NOTIF_ID = 2
+        /** Build W: every bus alert's notification (one per alert, by its tag), and "home unreachable". */
+        private const val BUS_NOTIF_ID = 3
+        private const val HOME_NOTIF_ID = 4
+        private const val BUS_TAG = "bastion:"
         private const val CHANNEL = "damage"
         private const val CHANNEL_URGENT = "damage-urgent"
         private const val CHANNEL_BATTERY = "damage-battery"
+        private const val CHANNEL_BUS = "damage-bus"
+        private const val CHANNEL_BUS_URGENT = "damage-bus-urgent"
+        private const val CHANNEL_HOME = "damage-home"
+        /** The Acknowledge button's intent (build W). */
+        private const val ACTION_ACK = "wm.damage.phone.ACK"
+        private const val EXTRA_ALERT_ID = "wm.damage.phone.alertId"
+        private const val EXTRA_EPISODE = "wm.damage.phone.episode"
+        /** Build W, package F: the learned bus position, under `noBackupFilesDir` (never in a backup). */
+        private const val PLACE_FILE = "bus-place.txt"
         private const val ERROR_NOTICE_GAP_MS = 10_000L
         /** Distinct error notices one tag may raise per gap; the rest stay in logcat. */
         private const val ERROR_NOTICES_PER_TAG = 3
@@ -866,4 +1107,25 @@ class Prefs(context: Context) {
      *  missing grant stays visible in the status line instead. */
     val dozeAsked: Boolean get() = p.getBoolean("dozeAsked", false)
     fun setDozeAsked() = p.edit().putBoolean("dozeAsked", true).apply()
+
+    /** Build W (the spec's §2(d), the lead's decision B.3): the phone's own rows of the Settings category "Bastion" —
+     *  kept here, never in ShellSettings, never synced. `Phone · alerts`: the bus alerts in the phone's shade. */
+    val phoneAlerts: Boolean get() = p.getBoolean("phoneAlerts", true)
+    fun setPhoneAlerts(on: Boolean) = p.edit().putBoolean("phoneAlerts", on).apply()
+
+    /** `Home unreachable`: minutes without a word from home (while the phone is online) before it is said; 0 = off. */
+    val homeUnreachableMin: Int get() = p.getInt("homeUnreachableMin", 10)
+    fun setHomeUnreachableMin(min: Int) = p.edit().putInt("homeUnreachableMin", min).apply()
+
+    /** Build W, package F (G.5): `Presence · location` — the phone's own position as the second signal of
+     *  `damage.phone`. On by default; nothing runs until precise location is allowed all the time. */
+    val presenceLocation: Boolean get() = p.getBoolean("presenceLocation", true)
+    fun setPresenceLocation(on: Boolean) = p.edit().putBoolean("presenceLocation", on).apply()
+
+    companion object {
+        /** The `Home unreachable` row's options, and their minutes (off = 0). */
+        val HOME_UNREACHABLE_OPTIONS = listOf("off", "5 min", "10 min", "15 min", "30 min")
+        fun homeUnreachableLabel(min: Int): String = if (min <= 0) "off" else "$min min"
+        fun homeUnreachableMinutes(label: String): Int = if (label == "off") 0 else label.removeSuffix(" min").toInt()
+    }
 }

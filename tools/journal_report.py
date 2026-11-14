@@ -184,13 +184,15 @@ def main(paths, since_ms=0, glasslog=False):
     f = lines_of(paths, spans)
     sub, done, notes, presents, bad = {}, [], [], [], 0
     done_in = []                             # the submit's `in` flag for each `done` row, kept beside it
+    done_inwait = []                         # package G (E3): the submit's `inWaitMs`, beside it (None before 0.66)
     failed = []          # completed flushes that did NOT succeed — refusals, link-loss completions
     lines_read = 0
     joined = []                              # the submit record each completed flush was joined to
     early_params = []     # link-parameter notes before --since still set the column
     early_power = None    # the last `power` note before --since: the state in force when the window opens
     early_batt = None     # and the last `battery` note before it: the level in force (never a step)
-    times = []            # every record's time inside the window, in file order (the by-state report)
+    times = []            # every record's time inside the window, in time order (the by-state report)
+    recs, late = [], []
     for line in f:
         if not line.strip(): continue
         lines_read += 1
@@ -199,6 +201,19 @@ def main(paths, since_ms=0, glasslog=False):
         if isinstance(r.get('t'), (int, float)):
             if spans[-1][1] is None: spans[-1][1] = r['t']
             spans[-1][2] = r['t']
+        if isinstance(r.get('late'), (int, float)): late.append(r['late'])
+        recs.append(r)
+    # Build W, package G (E2, APK 0.66+): a record's `t` is the time of its event, and a line written a second or
+    # more after it says `late` — a failed start's notes were journaled at the failure, up to 500 s on. Read in the
+    # order of their events: a stable sort on `t` (a record with none keeps the time of the one before it), which
+    # the bisect over `times` and the stretches below assume.
+    last_t = [0]
+    def at(r):
+        if isinstance(r.get('t'), (int, float)): last_t[0] = r['t']
+        return last_t[0]
+    keyed = [(at(r), r) for r in recs]
+    keyed.sort(key=lambda kr: kr[0])
+    for _, r in keyed:
         if r.get('t', 0) < since_ms:
             if r.get('ev') == 'note' and r.get('kind') == 'link' and 'connection parameters' in r.get('detail', ''):
                 early_params = [r]
@@ -217,6 +232,7 @@ def main(paths, since_ms=0, glasslog=False):
             s['id'] = r['id']; s['doneT'] = r['t']; s['ackMs'] = r['ackMs']
             joined.append(s)                     # the submit THIS done was joined to, not the last per id
             done_in.append(s.get('in') if isinstance(s.get('in'), int) and s.get('in') >= 0 else None)
+            done_inwait.append(s.get('inWaitMs') if isinstance(s.get('inWaitMs'), int) and s.get('inWaitMs') >= 0 else None)
             done.append((r['t'], r['bytes'], r['ackMs'], s.get('via', '?'), s.get('handleMs'), s.get('assembleMs'), s.get('label', '?'), s.get('t')))
         elif ev == 'note': notes.append(r)
         elif ev == 'present': presents.append(r)
@@ -232,6 +248,9 @@ def main(paths, since_ms=0, glasslog=False):
                 print(f'  ({"stdin" if name == "-" else name} starts before {pn} ends: lines of the two interleave; '
                       'a flush both files hold is counted twice below)')
     if bad: print(f'({bad} unreadable line(s) skipped)')
+    if late:
+        print(f'({len(late)} line(s) written a second or more after their event (`late`, APK 0.66+; the largest '
+              f'{max(late) / 1000:.0f} s): read in the order of their events)')
     if lines_read and bad == lines_read:
         # a bad token or a service that is down reads as a clean report of a quiet day otherwise
         print('every line was unreadable — this is not a journal (a bad token? the service down?)')
@@ -247,6 +266,7 @@ def main(paths, since_ms=0, glasslog=False):
     order = sorted(range(len(done)), key=lambda i: done[i][7] if done[i][7] is not None else done[i][0])
     done = [done[i] for i in order]
     done_in = [done_in[i] for i in order]
+    done_inwait = [done_inwait[i] for i in order]
     if not done:
         # a window with no flush still has the glasses' own records to show (a self-test run, a
         # quiet shell): the refusals, the transfers and the battery (2026-09-15, second review)
@@ -385,7 +405,7 @@ def main(paths, since_ms=0, glasslog=False):
     # with every process, so a table keyed by id read one session's flag for another's flush.
     prev_in = None                           # the `in` flag of the flush before this one
     split_by_in = any(i is not None for i in done_in)
-    for (t, b, a, via, hm, am, lab, ts), started in zip(done, done_in):
+    for (t, b, a, via, hm, am, lab, ts), started, inw in zip(done, done_in, done_inwait):
         # not gestures — and they must not extend one either: leaving `prev_t` on an atlas chunk
         # glued the next real gesture onto the burst before it and lost that gesture's own first
         # flush, the number `WINDOWS.md` §6 judges a window by (2026-09-15, the third review)
@@ -406,7 +426,9 @@ def main(paths, since_ms=0, glasslog=False):
             # the old rows cannot be split, and under the plain label they would put the idle
             # ticks back into the gesture row — listed apart, named for what they are
             name = lab if started == 1 else f'{lab} (no input)' if started == 0 else f'{lab} (flag not journaled)' if split_by_in else lab
-            cur = [name, b, a, 0, 0, t - ts]
+            # package G (E3): "input -> done" = the time the ring event waited in the shell for a window slot
+            # (`inWaitMs`, APK 0.66+) plus submit -> done; None where the journal does not say
+            cur = [name, b, a, 0, 0, t - ts, (t - ts + inw) if inw is not None else None]
         cur[3] += 1; cur[4] += b
         prev_t = ts
         prev_in = started
@@ -420,12 +442,15 @@ def main(paths, since_ms=0, glasslog=False):
         print('\ntime to first visible change per gesture (bursts by first-flush label; median / p90):')
         print('  "wait" is submit -> done, what the gesture actually waited; "ack" is the link\'s own')
         print('  share of it (the lane\'s clock starts when it dequeues, so a backed-up link hides there).')
-        print(f'  {"label":28s} {"bursts":>6s}  {"first bytes":>14s}  {"first wait ms":>14s}  {"first ack ms":>14s}  {"flushes":>7s}  {"burst bytes":>11s}')
+        print('  "input->done" adds the time a ring event waited in the shell for a window slot before its')
+        print('  flush was submitted (APK 0.66+; "-" where the journal does not say) -- WAIT does not hold it.')
+        print(f'  {"label":28s} {"bursts":>6s}  {"first bytes":>14s}  {"first wait ms":>14s}  {"input->done ms":>14s}  {"first ack ms":>14s}  {"flushes":>7s}  {"burst bytes":>11s}')
         for lab, v in sorted(bursts.items(), key=lambda kv: -len(kv[1])):
             fb = [x[1] for x in v]; fa = [x[2] for x in v]; n = [x[3] for x in v]; tb = [x[4] for x in v]
-            fw = [x[5] for x in v]
+            fw = [x[5] for x in v]; fi = [x[6] for x in v if x[6] is not None]
+            idone = f'{med(fi):6d} / {p90(fi):5d}' if fi else f'{"-":>6s} / {"-":>5s}'
             base = BASELINE_FIRST_BYTES.get(str(lab)) if since_ms == 0 and not split_by_in else None
-            print(f'  {str(lab):28s} {len(v):6d}  {med(fb):6d} / {p90(fb):5d}  {med(fw):6d} / {p90(fw):5d}  {med(fa):6d} / {p90(fa):5d}  {med(n):7d}  {med(tb):11d}'
+            print(f'  {str(lab):28s} {len(v):6d}  {med(fb):6d} / {p90(fb):5d}  {med(fw):6d} / {p90(fw):5d}  {idone}  {med(fa):6d} / {p90(fa):5d}  {med(n):7d}  {med(tb):11d}'
                   + (f'   (§57 baseline {base[0]} / {base[1]} B)' if base else ''))
         if since_ms:
             print('  (the §57 byte baseline is over the whole journal since 08-31; it is not printed '
@@ -603,15 +628,40 @@ def present_report(presents):
         for h in sorted(byhour):
             v = byhour[h]; print(f'  {h}  n={len(v):5d}  transfer {med(v):6d} / {p90(v):6d} µs')
 
+SIM_BUILD = re.compile(r'\bvia sim\b')
+
+def sim_readings(notes):
+    """Build W, package G (G-design §5): the `battery` notes of a SIMULATOR session — between a `build … via sim`
+    note and the next `power down` or `build` note (the model's fixed level, 87 % on 2026-11-12, is no reading of
+    the glasses). `notes` in time order; returns their ids, for both battery tables to leave out."""
+    out, in_sim = set(), False
+    for n in notes:
+        k, d = n.get('kind'), n.get('detail', '')
+        if k == 'build': in_sim = bool(SIM_BUILD.search(d))
+        elif k == 'power' and d.startswith('down'): in_sim = False
+        elif k == 'battery' and in_sim: out.add(id(n))
+    return out
+
 def battery_report(notes):
     """§49 (M0.6): the glasses' battery from `battery` notes ("glasses 61% charging").
     A stretch is a run of readings with no charging; its drain is the level lost
-    over its hours. Stretches under 30 minutes or 2 points are not rated."""
-    pts = []
+    over its hours. Stretches under 30 minutes or 2 points are not rated.
+    Build W, package G (G-design §5): a `case` note reading `in case 1` ends a stretch as a charging reading does,
+    and no stretch opens until the first reading after the next `power` note that is not `down` (in the case the
+    level reads 100 % while it tops up — 2026-11-12's 7.3 %/h began there); a simulator session's readings are
+    left out (`sim_readings`)."""
+    pts, stream = [], []                   # the readings; and (t, level, ends a stretch) in time order
+    sim, held = sim_readings(notes), False
     for n in notes:
-        if n.get('kind') != 'battery': continue
-        m = re.match(r'glasses (\d+)%( charging)?', n.get('detail', ''))
-        if m: pts.append((n['t'], int(m.group(1)), bool(m.group(2))))
+        k, d = n.get('kind'), n.get('detail', '')
+        if k == 'case' and 'in case 1' in d:
+            held = True; stream.append((n['t'], None, True)); continue
+        if k == 'power' and not d.startswith('down'): held = False; continue
+        if k != 'battery' or id(n) in sim: continue
+        m = re.match(r'glasses (\d+)%( charging)?', d)
+        if m:
+            pts.append((n['t'], int(m.group(1)), bool(m.group(2))))
+            stream.append((n['t'], int(m.group(1)), bool(m.group(2)) or held))
     if not pts: return
     pts.sort()
     print(f'\nglasses battery ({len(pts)} changes, {pts[0][1]}% → {pts[-1][1]}%): discharging stretches')
@@ -626,7 +676,7 @@ def battery_report(notes):
         rate = f'{lost / h:6.1f}' if h >= 0.5 and lost >= 2 else '     -'
         print(f'  {datetime.datetime.fromtimestamp(st[0][0]/1000):%m-%d %H:%M}    {datetime.datetime.fromtimestamp(st[-1][0]/1000):%m-%d %H:%M}    {h:6.1f} {st[0][1]:4d}→{st[-1][1]:3d} % {rate}')
     GAP_MS = 2 * 3600 * 1000       # no reading for two hours: the glasses were away, not draining
-    for t, lvl, chg in pts:
+    for t, lvl, chg in stream:
         if chg or (stretch and t - stretch[-1][0] > GAP_MS):
             flush(stretch); stretch = []
         if not chg:
@@ -692,8 +742,9 @@ def power_report(notes, seed=None, seed_batt=None, times=None, since_ms=0):
         if iv: iv[-1][1] = t; iv[-1][4] = lvl
         iv.append([t, end_t, st, lvl, None])
     rd = []                                # (t, level, charging) in time order
+    sim = sim_readings(notes)              # package G (G-design §5): a simulator session's level is no reading
     for n in ([seed_batt] if seed_batt is not None else []) + notes:
-        if n.get('kind') != 'battery': continue
+        if n.get('kind') != 'battery' or id(n) in sim: continue
         m = re.match(r'glasses (\d+)%( charging)?', n.get('detail', ''))
         if m: rd.append((n['t'], int(m.group(1)), bool(m.group(2))))
     rd.sort()
@@ -937,6 +988,23 @@ def selftest():
          and 'mirrorMs' not in line(p, 'split (') and 'loop:' not in listed, line(p, 'mirror scan') or line(p, 'split ('))
     case('P6 (LC-2): the rows the scans compared print, per scan', '1320 rows, 120 a scan' in line(p, 'mirror scans compared'),
          line(p, 'mirror scans compared'))
+    # Build W, package G (the lead's decision H; G-design §5, §2): the battery line and the event times. Synthetic notes.
+    c = run(['battery-case-in.jsonl'])[1]
+    s = line(c, datetime.datetime.fromtimestamp((1800000000000 + 3060000) / 1000).strftime('%m-%d %H:%M'))
+    case('G §5 (1): readings in the charging case do not open a stretch; it opens after the next power note '
+         '(98 → 82 % over 4.0 h = 4.0 %/h, not 100 → 82 from the case)', '98→ 82' in s and s.split()[-1] == '4.0', s or line(c, 'glasses battery ('))
+    m = run(['battery-sim.jsonl'])[1]
+    case('G §5 (2): a simulator session\'s battery reading is in neither table (4 readings; 4 % left out across the '
+         '`down`, not 13)', '(4 changes' in line(m, 'glasses battery (') and '  left out: 4 % fell' in m,
+         line(m, 'glasses battery (') + ' / ' + line(m, 'left out:'))
+    e2 = run(['late-e2.jsonl'])[1]
+    case('G §2: a line written late is read in the order of its event (lit 3.00 h: process 1 closed at its last '
+         'record, 2 h, not at the late line\'s 1.5 h), and the report says how many came late',
+         row(e2, 'lit') is not None and row(e2, 'lit')[0] == '3.00' and '1 line(s) written a second or more after' in e2,
+         line(e2, 'lit ') + ' / ' + line(e2, '1 line(s)'))
+    i3 = run(['inwait-e3.jsonl'])[1]
+    case('G §3: a gesture that waited 2,000 ms in the shell for a slot reads input->done 2900 beside its wait of 900',
+         line(i3, 'WINDOW ').split()[5:9] == ['900', '/', '900', '2900'], line(i3, 'WINDOW '))
     missed = 0
     for name, holds, said in results:
         print(('ok    ' if holds else 'MISS  ') + name + ('' if holds else '\n        said: ' + (said or '(no such line)')))

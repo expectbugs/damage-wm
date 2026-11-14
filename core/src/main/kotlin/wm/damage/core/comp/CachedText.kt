@@ -287,6 +287,14 @@ class GlyphAtlas(private val base: TextRasterizer, val v2: Boolean = false, val 
      *  shares one box height: the firmware draws a string's records at one top y and checks no
      *  height, so a face whose metrics moved since its first glyph is refused loudly. */
     private fun render(spec: FontSpec, codes: java.util.BitSet): Face {
+        val t0 = System.nanoTime()
+        try { return renderTimed(spec, codes) } finally {
+            wm.damage.core.text.TextProfile.faceRenders.incrementAndGet()          // package G (E4): the `slow` note's count
+            wm.damage.core.text.TextProfile.faceRenderNs.addAndGet(System.nanoTime() - t0)
+        }
+    }
+
+    private fun renderTimed(spec: FontSpec, codes: java.util.BitSet): Face {
         val h = boxHeight(spec)
         val f = faces.getOrPut(spec) {
             // the tofu: a hollow box — a missing glyph must look wrong, not like nothing

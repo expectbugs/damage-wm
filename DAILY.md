@@ -6,25 +6,26 @@ beardos since 2026-09-21 (DNS moved from Tailscale to the VPN): wherever a line 
 phone's Tailscale address (`tailscale status | grep aphone`).**
 
 **As built.** `REPLAN.md` §14 (2026-11-12) rules the PC the owner of every window's state, with the phone keeping a
-working copy, and PC-direct BLE a manual choice, never automatic; the code reaches the first at step S1 and the second
-with the alert watcher, W (`REPLAN.md` §15, §16.1), so until then the standby and the two-way sync below are what runs.
+working copy, and PC-direct BLE a manual choice, never automatic. The second is in the code since the alert watcher, W
+(APK 0.66 and its PC deploy, `HANDOFF.md` §79): the service never drives by itself. The first arrives at step S1; until
+then the two-way sync below is what runs.
 
 ## The moving parts
 
 | piece | job | kept alive by |
 |---|---|---|
 | **phone APK** (Target = glasses) | THE driver — owns the BLE radio and runs the shell; serves the seam :7402 (status probe + explicit dev claims) and the replica :7403 | foreground service + wakelock + Doze exemption + `BootReceiver` (reboot/update) |
-| **beardos `damage` service** | data host + standby: books, tmux, state sync, the window channel :7401 (Files · Torrents · Music · Feed, theme icons), the media endpoint :7404, the PC replica :7403, the setup page :7300 (`/setup` + `/damage-apk`, G2CC's URL and token kept); probes the phone every 5 s and drives PC-direct BLE ONLY while the APK is unreachable for 30 s AND both arms advertise to its adapter (`HANDOFF.md` §47, §72); a busy port is retried every 5 s; the JVM exits on its first OutOfMemoryError and supervise-daemon restarts it (`-Xmx2g`), and a stop that hangs is ended with SIGKILL after 30 s (`retry`, §72) | OpenRC `/etc/init.d/damage` (supervise-daemon, `default` runlevel, `--no-preview`, `auto` = standby; after `postgresql-17` / `qdrant` / `qbittorrent`, `~/.local/bin` on PATH for the Ask lane's `claude`, `--enable-native-access` for the Postgres socket driver — 2026-09-10) |
+| **beardos `damage` service** | data host: books, tmux, state sync, the window channel :7401 (Files · Torrents · Music · Feed · `bastion`, theme icons), the media endpoint :7404, the PC replica :7403, the setup page :7300 (`/setup` + `/damage-apk`, G2CC's URL and token kept); since 0.66's deploy also the bus alert watcher (the hub read every 10 s when `haUrl` is set), `damage.phone` once a minute, the nightly copy at `backupAt` into `backupDir`, and the reach gate on every listener; probes the phone's seam every 5 s for its status line and never drives on its own — PC-direct BLE only by hand (`drive=ble` / `drive=auto`, below); a busy port is retried every 5 s; the JVM exits on its first OutOfMemoryError and supervise-daemon restarts it (`-Xmx2g`), and a stop that hangs is ended with SIGKILL after 30 s (`retry`, §72) | OpenRC `/etc/init.d/damage` (supervise-daemon, `default` runlevel, `--no-preview`, `auto` = standby; after `postgresql-17` / `qdrant` / `qbittorrent`, `~/.local/bin` on PATH for the Ask lane's `claude`, `--enable-native-access` for the Postgres socket driver — 2026-09-10) |
 | **beardos `qbittorrent` service** | the Torrents backend: `qbittorrent-nox` on Adam's own profile (`~/.config/qBittorrent`), Web API `127.0.0.1:8090` | OpenRC `qbittorrent` (Gentoo's script + `/etc/conf.d/qbittorrent`, `default` runlevel, 2026-09-10) |
 
 **Who drives when** (automatic, event-driven, pacing not timeouts): APK up → the phone shell drives — home,
 work, LTE; PC reachability decides how CAPABLE it is (live library, tmux, sync), never who drives, and
 gestures and frames never leave the phone. PC unreachable → nothing changes on glass; content degrades to
-the caches, staleness is said (`PC gone/Nm`), sync resumes on reconnect (last-write-wins both ways). APK
-unreachable for 6 probes (~30 s) AND both arms seen advertising to beardos's adapter → the PC starts its own BLE
-stack; when the APK returns the PC stops it (the handback: one repaint). **Since §72 (deployed 2026-11-09): Target = Sim
-is a choice and never a claim, an adapter that cannot scan (beardos's hci0 is rfkill-blocked) never claims, and
-a claim that fails 6 starts in a row is given back.** The phone's shelf answers from its cache at once while
+the caches, staleness is said (`PC gone/Nm`), sync resumes on reconnect (last-write-wins both ways); the bus
+alerts say "home unreachable" after the phone's set minutes. APK unreachable → **since 0.66's PC deploy nothing takes
+the glasses by itself**: the status line says "phone unreachable … PC-direct BLE is manual (drive=ble)". (Before it,
+`b833713`'s standby claimed after six probes with both arms seen; beardos's hci0 being rfkill-blocked held it.) The
+phone's shelf answers from its cache at once while
 the PC is out of reach. Reboot either machine → both restart themselves. **State sync:** reading
 positions, settings and every window blob flow between phone and PC whenever both are up — most recent wins,
 per key.
@@ -34,7 +35,7 @@ per key.
 (1) Sideload from the setup page; grant Bluetooth ×2 + notifications + the battery exemption. (2) Keep the
 G2CC bridge app Disconnected (a second central). (3) Phone first light with NOTHING on beardos holding the
 pair (`sudo rc-service damage stop`), flip Target → glasses. (4) `sudo rc-service damage start` → the log
-says `standby up (§19)`. Keep the APK current with the PC (`REMINDER.md` says which build is installed and
+says `data host up (auto: the phone drives; …)` (0.66's jar; `standby up (§19)` before it). Keep the APK current with the PC (`REMINDER.md` says which build is installed and
 staged): a pre-0.15 APK cannot be status-probed and a pre-0.10 one carries no sync client.
 
 ## Music (2026-09-02, `MUSIC.md`) — the phone plays, the PC serves
@@ -99,8 +100,9 @@ without writing a row.
   server is RETIRED** (`HANDOFF.md` §44) — never start it by hand: it would take :7300 from the setup page
   and rewrite the adaptive playlists. ⚠ :7401 is a framed channel, not HTTP — an HTTP probe ends a session
   loudly (`frame length … out of range`); probe :7403 for liveness.
-- Logs: `~/.damage/damage.log` (the service; the standby narration), `~/.damage/journal.jsonl` (the PC's flush
-  journal, only while a PC stack drives), phone `adb logcat | grep ' damage/'` (the tags are `damage/<tag>`) + the on-phone status line.
+- Logs: `~/.damage/damage.log` (the service: the data host's narration; from 0.66 the watcher under the tag
+  `bastion`, `damage.phone` under `presence`, refused connections under `reach`), `~/.damage/journal.jsonl` (the PC's
+  flush journal while a PC stack drives; from 0.66 also the `reach` and `presence` notes), phone `adb logcat | grep ' damage/'` (the tags are `damage/<tag>`) + the on-phone status line.
   **From 0.64 (both hosts) the journal is renamed at a process start once past 64 MiB** to
   `journal-YYYYMMDD-HHMMSS.jsonl` beside it, and the fresh live file starts with a `journal` note naming the archive;
   nothing is deleted. The phone serves the archives (`/journals`, and `/journal?…&name=` for one);
@@ -114,7 +116,7 @@ without writing a row.
   without `&tail=` and its process ends (`HANDOFF.md` §71): drop `&tail=` only on 0.61+.** It shows the ack curve by hour (with the connection
   parameters in force per hour since §47: `105/4` is the slow set, `15/1` the fast) and radio path, CPU
   per flush, the cache's account, **time to first visible change per gesture** (the number a window is judged
-  by), the `link`/`keeper` notes. The daily driver's real curve; the PC journal's is the standby's. From 0.64 it also
+  by), the `link`/`keeper` notes. The daily driver's real curve; the PC journal's is a manual PC stack's. From 0.64 it also
   prints the glasses' battery by state (lit, the shell's silent, rest, the firmware's Silent Mode) and a candidate
   block, "panel transfers against frames counted"; the notes list shows `wear`, `case`, `sid`, `rest`, `lowbatt`.
 - **The phone's log, no adb** (APK 0.41+, §42): `curl -s 'http://aphone:7403/log?token=…&tail=400'` (the last
@@ -173,7 +175,7 @@ without writing a row.
 - Remote tmux hosts ride one multiplexed ssh connection (`~/.damage/ssh-*` control sockets, 60 s persist) — a
   stale socket there is safe to delete.
 - Views while headless: the phone screen or replica (`http://aphone:7403/?token=…`); the PC replica
-  (`http://beardos:7403/…`) shows the standby status, a live mirror only while the PC's own BLE stack drives.
+  (`http://beardos:7403/…`) shows the data host's status, a live mirror only while a manual PC stack drives.
 - **Deploying a new PC build:** `./gradlew :desktop:stageJar && sudo rc-service damage restart` — never touches
   the display (the PC claims nothing). The service runs the stable `~/.damage/damage.jar`; never replace the
   jar under a running instance.
@@ -194,7 +196,8 @@ without writing a row.
   `tmuxSnippets`, `tmuxWaitPatterns`); on-glass settings in Settings → Tmux. The wait alert works for ANY pane,
   a TAP on it opens the session's live view, a quiet host says so on EVERY level and in Main's row (§28–§30).
 - **Hand-editing `config.json`** is safe (§28): an unreadable file (a stray comma) is left as it is and the
-  service runs on defaults for that start with a loud log line; fix and restart. Every HOST-need window on the
+  service runs on defaults for that start with a loud log line; fix and restart. The 0.66 keys default off
+  (`haUrl` and `backupDir` empty; the bus watcher section below). Every HOST-need window on the
   phone (Tmux, Files, Torrents, Reader content, Music, Feed) rides this service — :7401, plus :7404 for Music.
 - "Scans forever" while the phone says Connected → the stale-ACL recovery is still **toggle phone Bluetooth**
   (the scan fails loudly and rides the ON edge back in).
@@ -220,13 +223,62 @@ without writing a row.
   while the service runs hands over to it and exits — `sudo rc-service qbittorrent stop` first, or use the Web
   UI. The tracker cookie is `~/.damage/tl-cookies.json`; the announced set `~/.damage/torrents.json`.
 
+## The bus watcher (APK 0.66, `HANDOFF.md` §79) — it reads the hub, never writes to it
+
+- **Config keys** (`~/.damage/config.json`, read at start; a restart picks up a change; all off until set):
+  `haUrl` (the hub's base URL, `http://<hub>:<port>`; empty = the watcher is off, said at start) · `haTokenFile` (the
+  PATH of a file holding the hub's token, read once, trimmed, never logged — no token goes into `config.json`) ·
+  `haRulesFile` (default `<dataDir>/bastion-rules.json`) · `haPollSec` (10) · `haSilentMin` (5: "hub not answering"
+  after this many minutes) · `backupDir` (the nightly copy's folder; empty = off; it must already exist) ·
+  `backupKeep` (14) · `backupAt` (`03:30`) · `reachOpen` (false; `true` turns the listeners' reach gate off — the way
+  back if it ever refuses his own network; said at start).
+- **The rule file** (`bastion-rules.json`, gitignored data, never under a tracked path; read once at start; a missing
+  file = no rules, said; a bad rule refuses only itself and raises `watcher.rule.<id>`). With made-up ids:
+
+  ```json
+  {"rules": [
+    {"id": "fresh-low", "entity": "sensor.fresh_tank", "kind": "below", "at": 20, "clearAt": 25, "forMin": 5,
+     "text": "Fresh tank low", "repeatMin": 120},
+    {"id": "fresh-change-away", "entity": "sensor.fresh_tank", "kind": "change", "at": 3, "forMin": 10,
+     "when": {"entity": "damage.phone", "equals": "away"}, "text": "Fresh tank changed while away"},
+    {"id": "level-quiet", "entity": "sensor.example_level", "kind": "unavailable", "forMin": 30,
+     "text": "Level sensor not reporting", "severity": "urgent"}
+  ]}
+  ```
+
+  Every rule: `id` (lower-case letters, digits, `_ . -`; not `watcher.…`), `entity`, `kind`, `text`, `forMin`,
+  `repeatMin` (0 = said once), `severity` (`normal` · `urgent`: every 10 min until acknowledged, passes quiet hours),
+  `note`, `when` (`{entity, equals | notEquals}`: a hub entity, or `damage.phone` = `home` / `away`). By kind: `above` /
+  `below` take `at` and `clearAt` (the band); `equals` / `notEquals` take `value`; `unavailable` and `stale` need
+  `forMin` above 0; `change` takes `at` (the size, in the entity's units), `direction` (`any` · `up` · `down`) and
+  optionally `withinMin` (1–1440). An edit applies at the next start; a severity edit from the alert's next episode.
+  **Rules guarded on `damage.phone` stay out until one `damage.phone unknown -> home (by the connection path: direct,
+  on the network of …)` line has been read with him at the bus** (§79.9).
+- **Reading the state:** Settings → Bastion → `Watcher` on the glasses or the phone (the PC watcher's state line, or
+  "home not answering"); `grep -E ' (bastion|presence|reach): ' ~/.damage/damage.log`; the alerts themselves in
+  `~/.damage/alerts.json`. The phone: `Position` (the location state, words only), `place` notes in its journal.
+- **The glasses from the PC by hand** (his call, like every `glassdrive.py` line): set the phone's Target to Sim
+  first (nothing warns when both want the radio); beardos's adapter is rfkill-blocked on purpose — unblock it for the
+  session and block it again after; then `python3 tools/glassdrive.py localhost TOKEN probe:drive=ble` against the PC
+  replica (:7403); back with `probe:drive=auto`. Each use is a `keeper` note and a log line.
+- **The nightly copy:** into `backupDir` as `damage-YYYYMMDD-HHMMSS/` (state files only: `state.json`, `torrents.json`,
+  `alerts.json`, the rules file, the feed's sources and binge lists, the pending uncaught record); 14 kept; a failed
+  run raises a notice on the glasses and phone. A restore is a manual copy back with the service stopped.
+- **The phone (0.66):** channels "Bus alerts", "Bus alerts · urgent", "Home unreachable" (Android settings → Damage →
+  notifications); the Acknowledge button on a bus alert; the app's "location" button (precise location, then "Allow
+  all the time") turns on presence from the phone; `Presence · location` turns it off. Global `Quiet hours` (default
+  off) holds normal bus alerts and releases them at the end.
+- **Journal notes (0.66):** PC `reach` (a refused connection, once per source per minute) and `presence` (each change
+  of `damage.phone` and which signal decided); phone `place`, `heap3` (free memory at four points of a start), `cue`,
+  `slow`; a line marked `late` was written a second or more after its event.
+
 ## What was verified vs what awaits glass
 
 The §13 hardware pass ran 2026-08-31 (`HANDOFF.md` §13); the §19 re-shape is
 test-pinned (`SyncTest` ×6; since 0.64 `SyncToleranceTest` for the 2 s tolerance) and seen live (`sync-host: peer attached to the sync channel`; a phone-side
 `window.tmux` record applied store-direct while the PC shell was in standby). **Still awaiting a deliberate
-glass test:** a real standby engagement (stop the APK at the desk → the PC BLE-drives after ~30 s, six probes, once both arms advertise to its adapter — hci0 must be unblocked first → restart
-the APK → handback; moot once the alert watcher, W, makes PC-direct BLE manual only) and the sync feel across a driver swap (a book position following the swap). **Games
+glass test:** the sync feel across a driver swap (a book position following the swap); the standby engagement test is
+moot since W made PC-direct BLE manual (`drive=ble` by hand is its replacement, below). **Games
 (`HOLDEM.md`) needs nothing from ops** — no host, no provider, no channel; its state is the shell's own store
 (`window.games`, `window.games.world`, `window.games.bankroll`, `window.games.table`,
 `window.games.char.<id>`) and syncs like every other window's. ⚠ Its layouts and card art have never been seen

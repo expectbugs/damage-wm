@@ -1,14 +1,14 @@
 # Damage — implementation notes
 
-What runs and how, as built at `b833713` (APK 0.65 and the PC service). Each build's record is `HANDOFF.md`; the
-current battery counts are `REMINDER.md`'s; operations are `DAILY.md`.
+What runs and how, as built for APK 0.66 (`HANDOFF.md` §79; built on `wip/066` — the deploy is recorded in §79.12).
+Each build's record is `HANDOFF.md`; the current battery counts are `REMINDER.md`'s; operations are `DAILY.md`.
 
-**The topology as built** (`HANDOFF.md` §19): **the phone shell drives (radio and shell, while the APK is up); the
-OpenRC `damage` service is the data provider — content + tmux + last-write-wins state sync on the content port — and
-a standby that drives PC-direct BLE only while the APK is away.** **Ruled to change (`REPLAN.md` §14, 2026-11-12):**
-the PC owns every window's state and the phone keeps a working copy (the two-way stamped sync is replaced —
-`CONTRACT.md` §9.7), and PC-direct BLE becomes a manual choice, never automatic (§14.4). The code reaches the first at
-step S1 and the second with the alert watcher, W (`REPLAN.md` §15, §16.1); until then it does what this file says.
+**The topology as built** (`HANDOFF.md` §19, §79): **the phone shell drives (radio and shell, while the APK is up); the
+OpenRC `damage` service is the data provider — content + tmux + last-write-wins state sync on the content port, the
+bus alert watcher — and since W it never drives by itself: PC-direct BLE is a manual choice** (`--transport ble`, the
+replica probe `drive=ble`, the PC shell's `Target` row). **Ruled to change (`REPLAN.md` §14, 2026-11-12):** the PC
+owns every window's state and the phone keeps a working copy (the two-way stamped sync is replaced — `CONTRACT.md`
+§9.7); the code reaches that at step S1 (`REPLAN.md` §16.1); until then it does what this file says.
 
 One `:core` library holds the shell, the byte-exact glass simulator, the compositor and every window (Main · Settings
 · Reader · Tmux · Files · Torrents · Music · Games · Feed) on the CFW display contract (modes 3/6/8/9, the 11–15
@@ -95,7 +95,11 @@ core/       wm.damage.core.geom       panel constants, Rect, the runtime lint ga
             wm.damage.core.windows.feed     FeedModel, FeedHttp (+ PacedHttp), FeedXml, Fetchers, Extract,
                                       Strips, FeedStore, FeedEngine (both hosts), FeedProvider, FeedNet,
                                       FeedWindow, ScriptedFeed
-            wm.damage.core.net        WinNet — the §16.10 window channel (wreq/wres + blob answers + wpush)
+            wm.damage.core.net        WinNet — the §16.10 window channel (wreq/wres + blob answers + wpush);
+                                      Reach + ReachGate — the listeners' reach gate (build W)
+            wm.damage.core.bastion    the bus alert watcher (build W): HaReader, AlertRule, RuleEval,
+                                      AlertStore, BastionWatcher + BastionService + PhonePresence (the PC),
+                                      RemoteBastion, AlertDelivery, HomeWatch, BastionRows, PlaceWatch (the phone)
             wm.damage.core.sync       SyncNet/RemoteSync — LWW state sync
             wm.damage.core.util       Log · Exec (subprocess runner, stderr drained concurrently) · Http
                                       (HttpURLConnection, no timeouts, multipart) · InstanceLock ·
@@ -108,12 +112,14 @@ desktop/    AWT rasterizer · Swing lens preview (integer-scaled, default 4×; k
             ThemeIcons (Papirus-Dark from xfconf, rsvg-convert, mem+disk cache, serves the phone) · PgDb ·
             MusicPlugins · MusicCheck · ScriptedMusic · ScriptedTmux · ScriptedTorrents · GamesCheck ·
             CardSheet · FeedCheck · SelfCheck · Snapshot · SetupServer (/setup + /damage-apk on :7300) ·
-            BlueZLink/BlueZTransport (PC-direct BLE) · StandbyPolicy + StandbyScan (the standby)
+            BlueZLink/BlueZTransport (PC-direct BLE, manual) · StandbyPolicy (the data host's probe of
+            the phone; never drives) · NightlyCopy (build W)
 audio/      the enrichment package taken over from G2CC (Adam's code) + viz.py — run on G2CC's venv for now
 phone/      foreground ShellService, on-screen lens view (touch = ring), AndroidText (bundled OFL/Apache
             fonts), BleTransport (LIVE since 2026-08-31), transport seam server, wakelock + Doze exemption +
             BootReceiver, DamageApp (the uncaught-error record), §9.3 urgent phone notifications, RemoteIcons,
-            AndroidMusicPlayer, MusicListener, SpotifyRemote, TrackCache
+            AndroidMusicPlayer, MusicListener, SpotifyRemote, TrackCache · build W: the three bus-alert
+            channels + Acknowledge, NetState, AndroidPlaceSource, the "location" button (MainActivity)
 ```
 
 ## The mirror, the keeper and the replicas (the finishing build, `HANDOFF.md` §8)
@@ -143,7 +149,7 @@ mouse, on a pixel-exact replica.*
   tears it down. `HandoverTest` ×4 (`preludeAcks == 1` across claim / silent death / release / pause / resume).
 - **The arbitration** (`transport/PathTransport.kt`: concurrent attempts over the candidate paths, first to start
   wins, a refused path disabled for the run) is built by no host since §19 (`DesktopStack.transport` in `desktop/Main.kt`: `auto` builds
-  no stack — it is the STANDBY policy; `sim` / `ble` / `remote` build one transport each); the class and
+  no stack — it is the data host, which since W never starts one; `sim` / `ble` / `remote` build one transport each); the class and
   `PathTransportTest` remain. `--transport remote` is the explicit claim-and-drive dev override.
 - **The phone**: `BleTransport` on G2CC's driver + the reference's sequence (RIGHT then LEFT, `retry(10, 500)`,
   MTU 512 checked ≥ 245, priority HIGH, cached pair addresses, RSSI poll); `ShellService` on the keeper (a seam
@@ -151,7 +157,8 @@ mouse, on a pixel-exact replica.*
 - **PC-direct BLE** (`desktop/BlueZLink.kt`, `BlueZTransport.kt`): `bluez-dbus` 0.3.5 + `dbus-java` 5.2.0 (both
   MIT) on the system bus; `Device1.Connect` called raw so a refusal keeps its reason; MTU from
   `Properties.Get`; notifications from `PropertiesChanged(Value)`; `Connected=false` ends the session.
-  Unit-tested over a fake link whose far end is the firmware model; the STANDBY path since §19.
+  Unit-tested over a fake link whose far end is the firmware model; manual only since W (`--transport ble`, the
+  replica probe `drive=ble`, the PC shell's `Target` row; `drive=auto` hands back to the data host).
 - **The seam carries the mirror**: `RemoteTransportServer` streams changed row ranges of both panels through
   one ordered outbox, so a panel update precedes the `done` of its flush (`RemoteTransportClient.mirror`,
   display-only).
@@ -159,8 +166,21 @@ mouse, on a pixel-exact replica.*
   still belongs to true-1× renders or glass) and the browser page (`replica/ReplicaServer.kt` — dependency-free
   HTTP + RFC 6455, token-gated, dirty-row panel frames + 1 Hz status; `replica.html`), served by the desktop
   (`replicaPort` 7403) and the phone.
+- **The reach gate** (`core/…/net/ReachGate.kt` over `Reach.classify`, build W; `CONTRACT.md` §10.9): every listener
+  (content host, media endpoint, replica, setup page; on the phone the replica and the seam) closes, unread, a
+  connection that did not arrive on loopback, the tailnet (100.64.0.0/10, fd7a:115c:a1e0::/48) or — PC only — a
+  private or link-local address on an interface that is not point-to-point (the bus network; a tunnel's private
+  address is refused). A gate on the accepted socket, not a bind, so an interface that comes up later works. A refusal
+  is said once per source per minute (the PC journals it as a `reach` note under `runShell`; `hostOnly` logs it).
+  `reachOpen: true` turns it off on the PC and says so at start. Three known gaps, in `Reach`'s KDoc: a peer of a
+  tunnel reaching the LAN address; a mobile carrier's shared range equal to the tailnet's on the phone; a global IPv6
+  address arriving on the bus network is refused as public. The shared token still guards every path.
+  `tools/check_apk_wiring.py` fails a listener built in main code without a `reach` argument.
 - **Host-supplied Settings rows** (`HostSetting`): the display target on both hosts — staged on scroll, applied
-  on tap, reverted on double-tap; applying rebuilds the stack.
+  on tap, reverted on double-tap; applying rebuilds the stack. **Host categories** (`Shell.hostCategories`, build W):
+  a category a host supplies before its window exists — the phone's "Bastion" (`bastion/BastionRows.kt`); a window
+  built later returns the same row ids and wins by name. Shared rows in it go through `Shell.sharedRow`
+  (`ShellSettings`, synced); the phone's own rows live in its preferences, never synced.
 - **Decision 6**: an ORDINARY notification arriving while the wheel, the context menu or the keyboard is open
   waits behind it; an EMERGENCY cancels the surface (the keyboard's draft kept) and shows first.
 - **Long-press defaults off** (2026-08-30, `DESIGN.md` §1.2/§1.3): a bare long-press is a no-op everywhere. The
@@ -173,7 +193,7 @@ mouse, on a pixel-exact replica.*
 Desktop (the sim standing in for glass; also serves `~/books` to the phone):
 
 ```
-./gradlew :desktop:run                        # AUTO = STANDBY (§19): data host (content+tmux+sync) + replica; probes the phone, BLE-drives ONLY while the APK is away (as built; manual only from the alert watcher W, REPLAN.md §14.4, §16.1) — stop the service first (exit 4 otherwise)
+./gradlew :desktop:run                        # AUTO (§19, §79): data host (content+tmux+sync+the bus watcher) + replica; probes the phone for its status line and never drives by itself — PC-direct BLE by hand with the replica probe drive=ble — stop the service first (exit 4 otherwise)
 ./gradlew :desktop:run --args="--help"   # the usage text; an argument the program does not know is refused (exit 2) and nothing starts; one entry point per line
 ./gradlew :desktop:run --args="--transport sim"   # the simulator in-process (development) — stop the service first (exit 4 otherwise)
 ./gradlew :desktop:run --args="--transport ble"   # PC-direct BLE only (manual) — stop the service first (exit 4 otherwise)
@@ -187,7 +207,7 @@ Desktop (the sim standing in for glass; also serves `~/books` to the phone):
 ./gradlew :desktop:run --args="--card-render" # the card sheets into design/shots/cards/ at true 1x
 ./gradlew :desktop:run --args="--feed-check [DIR] [live]"  # the feed engine over the captured fixtures; `live` = one paced fetch per source, read-only, temp dir
 ./gradlew :desktop:run --args="--host-only"   # content host alone (books + tmux + sync + setup page, no stack ever) — stop the service first (exit 4 otherwise)
-./gradlew :desktop:test                       # 35 tests: the BlueZ glue over the fake link, the argument parser (CliTest), the config file's safety, SetupServer, the standby policy, the status cell's fit, the epub check, theme icons, the xkcd PNG through the decoder
+./gradlew :desktop:test                       # 44 tests: the BlueZ glue over the fake link, the argument parser (CliTest), the config file's safety, SetupServer, the standby policy, the nightly copy, the status cell's fit, the epub check, theme icons, the xkcd PNG through the decoder
 ```
 
 Preview: mouse wheel scroll · left click tap · right click double-tap · press-and-hold long-press · keys
@@ -210,12 +230,23 @@ another process holds the data directory) ahead of the record's install, the jou
 `ShellService.onCreate` runs its start steps ahead of `startStack`, caught as one (a fault there is one ERROR line and
 the stack starts). The phone half has not been read on the device.
 
+**The journal from APK 0.66 (`HANDOFF.md` §79, package G).** A transport event carries its own time (`t`), and a line
+written a second or more after its event says `late`; `journal_report.py` sorts by event time. Submit records gain
+`inWaitMs` (a gesture's wait in the shell behind a full window), `win` (the window id) and `mode`; the report's
+per-gesture table gains `input->done ms` beside `first wait ms`, and a battery line by state. New notes: `slow` (a loop
+message of a second or more: thread CPU against wall and collector time), `cue` (a change of field 14 in an unasked
+09-01 block, and every sid-0x0d frame while the state says silent), `heap3` (below), `place` (the phone's position
+watch: words and ages only), and on the PC `reach` and `presence`.
+
 Config in `~/.damage/config.json` — books dir, ports, token (generated on first run; must match
 `damage-secrets.properties` before building the APK), the phone host, the cached pair addresses, the tmux
 hosts/quick keys/snippets/wait patterns, `qbtUrl` + the TorrentLeech credentials, the `music*` keys of
-`MUSIC.md` §9.7 and `mediaPort`, `feedSources`/`feedUserAgent`/`feedDataDir`, `setupPort`/`setupToken`; the
-`Config` class in `desktop/Main.kt` is the key list. An UNREADABLE file runs defaults for that start, loudly,
-and is never rewritten.
+`MUSIC.md` §9.7 and `mediaPort`, `feedSources`/`feedUserAgent`/`feedDataDir`, `setupPort`/`setupToken`; the bus
+watcher's `haUrl`/`haTokenFile` (a path: the token is read from that file, never a value here)/`haRulesFile`
+(default `<dataDir>/bastion-rules.json`)/`haPollSec`/`haSilentMin`, the nightly copy's
+`backupDir`/`backupKeep`/`backupAt`, and `reachOpen` (true turns the listeners' reach gate off) — each defaults off
+or to the value `DAILY.md` names; the `Config` class in `desktop/Main.kt` is the key list. An UNREADABLE file runs
+defaults for that start, loudly, and is never rewritten.
 
 Phone:
 
@@ -234,13 +265,13 @@ SIM target is the on-phone dev mode. Run the APK build in its OWN gradle invocat
 STABLE `~/.damage/damage.jar`, which the OpenRC service `/etc/init.d/damage` runs in `auto`. Deploying, and stopping
 the service before any `:desktop:run` dev session, are `DAILY.md`'s.
 
-## Configurations wired today (as built; `REPLAN.md` §14 changes the first two at step S1, the third with the alert watcher W)
+## Configurations wired today (as built; `REPLAN.md` §14 changes the first two at step S1)
 
 | configuration | how |
 |---|---|
-| **app + home PC** (the default — §10.1 row 1 as INTENDED, §19) | APK (Target = glasses) DRIVES; the `damage` service is the data host: live library, tmux, state sync. The PC never claims |
-| app alone | the APK with no PC reachable: its own shell, cached library + cached books, staleness said; sync catches up on reconnect |
-| PC-direct BLE (the rare case; manual only from the alert watcher W, `REPLAN.md` §14.4, §16.1) | auto's standby (the next section's last bullet: six probes, 30 s, of an UNREACHABLE APK and both arms seen) starts a BLE stack and hands back on the APK's return; or `--transport ble` manually |
+| **app + home PC** (the default — §10.1 row 1 as INTENDED, §19) | APK (Target = glasses) DRIVES; the `damage` service is the data host: live library, tmux, state sync, the bus watcher. The PC never claims |
+| app alone | the APK with no PC reachable: its own shell, cached library + cached books, staleness said; sync catches up on reconnect; the bus alerts say "home unreachable" after the phone's set minutes |
+| PC-direct BLE (the rare case; manual only since W, `REPLAN.md` §14.4, `HANDOFF.md` §79) | by hand: the replica probe `drive=ble` on the service (back with `drive=auto`), the PC shell's `Target` row, or `--transport ble` in a dev run. Nothing starts it by itself |
 | PC drives through the phone | `--transport remote` ONLY — the explicit dev override (the old daily mode, kept for development) |
 | laptop-direct with the simulator | `:desktop:run --args="--transport sim"` — the development environment |
 | browser replica | `http://<desktop-or-phone>:7403/?token=…` from any machine on the tailnet — the PHONE's is the live view in the default configuration |
@@ -261,15 +292,15 @@ the service before any `:desktop:run` dev session, are `DAILY.md`'s.
   otherwise freshen the key from the LIVE window first, then apply, then live-apply. The driving shell's state is newest by construction, so sync flows driver → idle.
 - **The seam status probe** (`SeamProbe` / `Ctl t="status"`): a non-claiming "does the APK want the radio?"; an
   old APK answers `busy`, read as YES.
-- **Desktop `auto` = STANDBY**: one process-wide store feeding the sync channel and any stack; probe every 5 s;
-  a claim needs six probes of an UNREACHABLE APK AND both arms seen advertising to the adapter (`StandbyPolicy`,
-  `StandbyScan`: §47, §72), every claim, refusal and give-back a `keeper` journal note. A reachable APK on
-  Target≠glasses never causes a claim, and neither does an adapter that cannot scan (it says why once per cause and
-  looks again every probe; §47: a phone that is only unreachable over the network still holds the arms). A claim
-  whose keeper fails 6 starts in a row is given back (`ShellKeeper.failedStarts`), and the next claim's debounce
-  doubles per give-back in a row, up to 60 probes ≈ 5 min (`StandbyPolicy.claimDebounce`). APK back → stop it (the lease fails open and the phone
-  re-choreographs). A BlueZ-less machine stands by as data host only, loudly. Every server retries a busy port
-  every 5 s (`bindOrRetry`). `SyncTest` ×6, `SyncToleranceTest` and `StandbyPolicyTest` ×6 pin it.
+- **Desktop `auto` = the data host** (since W; `StandbyPolicy`, R6 §5): one process-wide store feeding the sync
+  channel and any stack; it probes the phone's seam every 5 s for the status line ("data host · phone drives",
+  "· the APK chose Target≠glasses", "· phone unreachable 2m · PC-direct BLE is manual (drive=ble)") and nothing else:
+  `StandbyPolicy.Action` has no member that starts a stack, so no probe answer can. A manual stack (`drive=ble`, the
+  `Target` row) runs until `drive=auto`; a stack found up in `auto` (its stop dropped by a switch in progress) is
+  stopped. Every `drive=` use is a `keeper` journal note. The automatic claim, its scan (`StandbyScan`), its debounce
+  and its give-back were deleted (on 2026-11-06 the claim took the glasses from a phone set to Target=Sim, §72). Every
+  server retries a busy port every 5 s (`bindOrRetry`). `SyncTest` ×6, `SyncToleranceTest` and `StandbyPolicyTest`
+  pin it.
 
 ## The phone's liveness and the seam heartbeat (`HANDOFF.md` §13)
 
@@ -287,9 +318,86 @@ the service before any `:desktop:run` dev session, are `DAILY.md`'s.
   still-hunting scan is re-issued every 20 min, under Android's ~30-min silent downgrade to opportunistic.
 - **Distribution**: `./gradlew :phone:stageApk` → `~/.damage/damage-wm.apk`; since 2026-09-10
   `desktop/SetupServer.kt` serves `/setup` + `/damage-apk` on :7300 with G2CC's URL, token and Tailscale-only
-  gate (`setupPort` / `setupToken` in `config.json`, `HANDOFF.md` §44).
+  gate (`setupPort` / `setupToken` in `config.json`, `HANDOFF.md` §44) — behind the listeners' reach gate first
+  (build W), then its own Tailscale-or-loopback check.
 - The capability gate refuses any firmware without an `EVENCFW` string. Compass, IMU, wear detection: per
   `DESIGN.md` §7 — a placeholder compass cell until the mode-10 feed exists; head tracking defaults OFF.
+
+## The bus alert watcher, presence and the nightly copy (build W, APK 0.66, `HANDOFF.md` §79)
+
+A reader on the PC that only READS his own home hub and raises notices on his glasses and phone (R6 as amended by the
+lead's decisions; `CONTRACT.md` §7, §11.2; `BASTION.md` F13). Rules and the config's keys: `DAILY.md`.
+
+- **The reader** (`HaReader`): one `Http.request("GET", …)` site in the package (lint RO001), paths limited to the
+  health check and the rules' own entities (a closed set). The token is read once at start from the file `haTokenFile`
+  names (five answers: ok, missing, empty, unreadable, malformed; trimmed, never logged). `haUrl` empty or the token
+  unusable → the watcher is off, says why at start, and raises its built-in alert if `haUrl` is set.
+- **The watcher** (`BastionWatcher`, both host builders): a round every `haPollSec` (10 s); liveness without timeouts —
+  a round still in flight after 60 s is said and the next starts beside it, never more than two; a late answer for an
+  older round is dropped and said. Rules from `bastion-rules.json` (`haRulesFile`), read once at start; a bad rule
+  refuses only itself. Kinds (`RuleEval`, one pure step): `above` / `below` with `clearAt` hysteresis, `equals` /
+  `notEquals`, `unavailable`, `stale` (the report stamp unchanged for `forMin`, on the PC's clock), `change` (a
+  baseline at arming, re-taken on acknowledge and kept in `alerts.json`, or with `withinMin` the value from a ring of
+  one sample a minute; blind for `withinMin` after a start). A `when` guard on any rule: judged only while it holds;
+  its end resets the clocks and baseline and clears the alert; no reading (unreadable, `unavailable`, `unknown`) holds
+  everything. Built-in alerts `watcher.*`: the hub not answering for `haSilentMin`, a refused token (polling stops
+  until a restart), the token file, the rules file, `watcher.rule.<id>` (a refused rule), `watcher.entity.<entity>`
+  (a 404, or `haSilentMin` of failed reads while the hub answers), the store, the nightly copy. **The watcher's own
+  trouble never ends an alert:** a rules file with a problem retires nothing, a refused rule's alert is held, and a
+  repeat-only tick runs whenever the store holds a raised alert, the watcher on or off. The state line
+  (`stateLine()`) goes to the `table` answer (the phone's `Watcher` row) and the PC log (tag `bastion`).
+- **The store** (`AlertStore`, `alerts.json`): CLEAR → RAISED → ACKED → CLEAR with an episode per raise; `severity`
+  `normal` (said once, or every `repeatMin`) or `urgent` (every ten minutes until acknowledged, passes quiet hours; a
+  severity edit applies from the next episode). The epoch (minted when the file is created or recreated after an
+  unreadable one) and the last event `seq` live in the file; the event ring (200) is memory, so a `table {since,
+  epoch}` older than the ring answers `truncated` with the whole table.
+- **The channel** (`BastionService`): the `bastion` window service on the content port, always up: `table {since,
+  epoch, presence}` → the table, the state line and `bus`; `ack {id, episode}` (an action on the alert, the store's
+  alone: no hub request); pushed `event`s from ONE sender coroutine.
+- **The phone** (`RemoteBastion`, `AlertDelivery`, `HomeWatch`; wired in `ShellService`): a first-contact reconcile
+  from the table (adopt and list, never pop old ones); a `table` ask every 15 s keeps the last-heard clock moving; a
+  truncated answer is reconciled and sets `lastSeq`; every re-ask is paced (5 s, else the next ping); an unapplied push
+  is journaled once per reason per connection. One record drives the glasses notice
+  (`Shell.notifyFromHost(…, gatedBy = "Bastion")`, gated by the category's own rows, never by `Notify · Damage`) and
+  the Android notification (channels "Bus alerts", "Bus alerts · urgent", "Home unreachable"; an Acknowledge button
+  that sends `ack`; not behind Global `Phone notifications`). Quiet hours (Global, shared; default off) hold a NORMAL
+  raise or repeat and release each still-raised alert once at the end, "since HH:MM"; a NORMAL clear inside them is
+  dropped and its notification cancelled silently; a held alert is released at the first answer after a start.
+  `Phone · alerts` off cancels the bus notifications at once; on re-posts every raised alert silently. "Home
+  unreachable" after the phone's set minutes with no answer, said only while the phone itself is online (`NetState`, a
+  network callback). The category's rows: `Watcher` · `Notify · alerts` · `Notify · cleared` · `Phone · alerts` ·
+  `Home unreachable` · `Position` · `Presence · location` · `Acknowledge`.
+- **Presence, `damage.phone`** (`home` · `away` · `unknown`, usable only in a `when`). On the PC (`PhonePresence`, both
+  host builders): once a minute `tailscale status --json` (a local command through `Exec`, one at a time, never
+  waited on) for the configured phone's peer — the path signal is `home` when direct to a private address on one of
+  the PC's non-point-to-point networks, `away` after 15 minutes relayed or public, `unknown` otherwise (an idle peer
+  included). The phone's report rides each `table` ask (`presence {word, fixAgeMs}`; none, `unknown` or older than 2 min
+  counts as no report); each answer carries `bus` (the path signal alone). Combined: `home` if either says home; `away`
+  if the phone says away, or with no report the path far for 15 minutes; else `unknown`. Each change is one log line
+  and, under `runShell`, a `presence` note saying which signal decided; the lines carry no address or port.
+- **The phone's position** (`PlaceWatch` over `AndroidPlaceSource`): the passive and network providers, about every 10
+  minutes and 100 m (no GPS asked for, no Play services; the service's foreground types unchanged), only with precise
+  location allowed "all the time" (the app's "location" button asks in two steps) and the `Presence · location` row
+  on. Learning: a fix ≤ 100 m accurate taken while `bus` is true becomes the one CANDIDATE (a later fix as accurate or
+  better replaces it); it is stored once a `bus: true` answer arrives to a table ask SENT 150 s or more after the fix
+  (`LEARN_CONFIRM_MS`, inferred; measured at the ask); `bus: false` or the channel's end drops it. The bus position is
+  `noBackupFilesDir/bus-place.txt` (left out of Android's backup), never sent. Judging: home within 300 m, away beyond
+  500 m, the band between keeps the last word; a fix coarser than 200 m is ignored; no permission, no usable fix
+  younger than 30 min or no stored position → `unknown`. **No coordinate or distance leaves `PlaceWatch`** — journal, log, channel, PC
+  (`PlacePrivacyTest` refuses any number with a distance unit); `place` notes carry words and ages.
+- **The nightly copy** (`desktop/NightlyCopy.kt`, both host builders): state files only, an allowlist — `state.json`,
+  `state.json.bad`, `torrents.json`, `alerts.json`, `uncaught-pending.txt`, the rules file as `bastion-rules.json`,
+  the feed's `sources/` and `binge/`; never journals, `phone-journal/`, `trash/`, `config.json`, caches or the music
+  database. Into `<backupDir>/damage-YYYYMMDD-HHMMSS.partial/`, renamed when whole; an unchanged file is hard-linked to
+  the previous copy. The configured folder is never created (an unmounted disk must not take the copy onto the root
+  disk). After a good copy, folders named exactly `damage-YYYYMMDD-HHMMSS` beyond `backupKeep` (14) are deleted,
+  oldest first; nothing else is touched. At `backupAt` (03:30) daily, plus one catch-up after a start when the newest
+  copy is stale; a file that vanishes during the walk is skipped and said in the run's line. A failed run is a log
+  error and the built-in alert; the next good copy clears it.
+- **`heap3`** (the first flash's rider, `FIRMWARE.md` §5.7): at every session start the free-memory fields of the
+  telemetry record at four points — `pre-create` (the reset check's record, no extra read), `lease`, `atlas` (after
+  the read-back), `first-frame` — journaled as `heap3` notes; the three reads are the existing telemetry read, none in
+  Silent Mode, an unanswered one said and never waited on; off on instant test transports.
 
 ## Feed + comics (2026-09-09, FEED.md — one engine on both hosts, a deliberate switchback)
 
@@ -502,7 +610,9 @@ a flush on the same arm), a release is never struck. At the session's first ACQU
 whether both arms were inside `LEASE_CARRY_WINDOW_MS` (the firmware's 87.9 s expiry less a 10 s margin) and puts the answer and
 the per-arm gaps in `LinkState.leaseCarried` / `leaseCarry` (over the seam too). Since §59 (2026-09-15, the
 right lens rebooted inside the window and refused every cached draw): the start reads RIGHT's uptime before
-the lease (`noteUptime`), a reboot since that arm's last acquire refuses the carry ("R reset N s ago"), and so
+the lease (`noteUptime`; since 0.66 a reading one wrap of the 32-bit tick counter on from the prediction, ±10 s, is
+the wrap — a `keeper` note, no reset; the counter wraps about 2026-12-06), a reboot since that arm's last acquire
+refuses the carry ("R reset N s ago"), and so
 does a LEFT supervision timeout (a reboot there cannot be read) or a RIGHT one on a build without telemetry. `Shell.atlasAtSessionStart`
 keeps the atlas when the transport says so, cached text is on, the session is not adopted and the last
 cache write through the transport was this shell's (`FlushRequest.writer` = the shell's tag →
@@ -664,6 +774,18 @@ Seven rounds of independent review after the first build (every candidate verifi
 simulation before a fix) found ~70 real defects; the reviews since (`HANDOFF.md` §25–§42) added to the list.
 These mechanisms are load-bearing and easy to break by accident:
 
+- **Build W's (APK 0.66, `HANDOFF.md` §79; `research/mutations-79-watcher.json`, 106 entries).** The hub is only
+  read: one GET site and RO001. The watcher's own trouble never ends an alert (a rules file with a problem retires
+  nothing; a refused rule's alert is held; the repeat-only tick runs on or off). The alert store owns its epoch and
+  `seq`; a truncated answer is reconciled, never a silent gap; every phone re-ask is paced. The reach gate sits on the
+  accepted socket before a byte is read, on every listener of both hosts (`check_apk_wiring.py` holds the phone's);
+  `reachOpen` is the way back. The nightly copy never creates its folder and deletes only by its exact name pattern.
+  `StandbyPolicy.Action` has no member that starts a stack. `PlaceWatch` stores a position only on a confirmation from
+  an ask sent 150 s or more after the fix, and no coordinate or distance leaves it; presence lines carry no address.
+  The start that rests: `carrierUp` defaults true; the pump's `carrierUp` guard and the shell's start read are one
+  pair; the rest says no notice, enables no atlas and commits no lease carry; both start sites test the session again
+  after `started = true`; the awake start's `startwire/` expectations are written by the test from an older tree,
+  never by hand. `noteUptime` reads the tick counter's wrap as a wrap.
 - **APK 0.64's (`HANDOFF.md` §76).** The compositor: the base's rule is made by the
   reference walk (`hole`); `settled` in the plan loop; one proof per grown box per assemble (`failedProofs`); a
   batch's sub-messages are budgeted, 254 given out and one kept for the hint (`Compositor.subsLeft`; `batch-count`).
@@ -684,8 +806,8 @@ These mechanisms are load-bearing and easy to break by accident:
   kind in `Shell.keepWhileDown`: `FlushDone` must stay queued (the in-flight, atlas and staging bookkeeping) and
   `Text` too. `holdPushes()` belongs at EVERY `running = false`. The Reader's restore and scan are one job each. Do
   not drop `FlushDone`, do not post a held push outside the lock, do not add a plain `runOnShell` to a listener that
-  keeps pushing. Music Mode's visualizer frame tick is keyed (`music.vizframe`, 0.65 P7 item 3). The PC standby claims only when `StandbyPolicy.shouldClaim` says so: the phone unreachable AND both
-  arms seen.
+  keeps pushing. Music Mode's visualizer frame tick is keyed (`music.vizframe`, 0.65 P7 item 3). Since build W the PC's `auto`
+  never claims: `StandbyPolicy.Action` has no member that starts a stack (`shouldClaim` and `StandbyScan` are gone).
 
 - **The latency build (§40)** — chrome's telemetry cells repaint only when `allowTelemetry` (`Chrome.sync`); a
   notch's first flush is the translation — the lens repaint is posted one message on
@@ -744,7 +866,16 @@ These mechanisms are load-bearing and easy to break by accident:
   event (consumed); a cache write in flight and a read-back on its way are dropped at the entry with no keyframe;
   `decode` / `mirror/decode` are expected while asleep. Notes: `rest` and `power`; a rebuild refused while the shell
   is awake is a `keeper` note ("session rebuild refused by the transport (…) — not asleep, so no check asks again:
-  the session goes on as it is"), asleep a `rest` or `silent` note by the reason. `RestModeTest`.
+  the session goes on as it is"), asleep a `rest` or `silent` note by the reason. `RestModeTest`. **A start that rests
+  (0.66, `HANDOFF.md` §79 package G):** a start whose own READ says Silent Mode (`CfwTransportBase.start`, step 1c)
+  completes asleep with no carrier — no CREATE, lease, cache size, flags, warmup or fid clear — and writes
+  `LinkState.carrierUp` false (default true; it crosses the seam in `WireState`); `Shell.startLocked` sleeps on it
+  (not an adopted session, which the adopted branch rebuilds), says no notice, enables no atlas, and the transport
+  commits no lease carry; the push off rebuilds. Both start sites test the session again after `started = true`. The
+  simulator answers no CREATE in Silent Mode (`createAnsweredWhileSilent`, default false). `SilentStartTest` (its
+  `anAwakeStartWritesWhatItWroteBefore` compares an awake start's messages with `src/test/resources/startwire/`,
+  written from `930e6b3`; never edit those files by hand). A start whose READ leaves out field 14 while the glasses
+  are silent still waits at the CREATE (never seen: n=13).
 - **The latency pass (§32)** — pixel-identical: the journal's submit line carries `via` / `handleMs` /
   `assembleMs`; `Compositor.compress` is memoised for ONE assemble; both rasterizers cache measures and coverage
   masks (`core/text/GlyphCaches.kt`); `Wrap.wrap` decides from an additive estimate outside a ±24 px band and
@@ -890,8 +1021,8 @@ Every review's pins were run against the unfixed tree and watched to fail before
   full runs (§49.6: the window flips to comic #1, which `ScriptedFeed` cannot serve; the trigger is unknown).
 - `./gradlew :desktop:test` — the BlueZ glue over a fake link (`BlueZTransportTest`), `CliTest` (the argument list),
   `ConfigTest` (an unreadable `config.json` is left untouched, a tokenless one completed), `SetupServerTest`,
-  `StandbyPolicyTest`, `StatusCellFitTest`, `EpubCheckTest`, `ThemeIconsTest`, `FeedStripsTest` (the real xkcd PNG
-  through the decoder).
+  `StandbyPolicyTest`, `NightlyCopyTest` (build W), `StatusCellFitTest`, `EpubCheckTest`, `ThemeIconsTest`,
+  `FeedStripsTest` (the real xkcd PNG through the decoder).
 - `--selfcheck` — the whole stack scripted end to end with real fonts: ink budgets, input grammar, persistence
   byte-behaviour, zero faults/failed flushes/sticky flags. **The per-lens TRUTH oracle runs on EVERY settle**
   (`oracleRuns >= 100` keeps it from quietly stopping); it found the Music Mode card's overrun and both chrome
@@ -917,7 +1048,9 @@ Every review's pins were run against the unfixed tree and watched to fail before
   `38-music-mode-480-bars`, `39-music-mode-288-scope`; `10-silent.png` draws no status line and IS
   byte-stable — the useful canary.
 - `tools/lint.py` gates the repo at 0 findings: SYM001/SYM002 (drawn strings and every Kotlin string literal against
-  the locked faces), SEC001 (no token in a log line), GEO (the cells `DESIGN.md` §2.3 declares, through
+  the locked faces), SEC001 (no token in a log line), RO001 (the bus watcher's package, `core/…/bastion/`, reads the
+  hub through exactly one `Http.request("GET", …)` site, with no write-method literal and no other HTTP client),
+  GEO (the cells `DESIGN.md` §2.3 declares, through
   `tools/geometry.py`) and BUD (the ink of the renders); `--selftest` names the rules it covers. The runtime rules
   (stereo pairs, the rect budget, fid order, the frame walls) are not lint's: `core`'s `geom` package checks them on
   every emit (the Python copy retired at `HANDOFF.md` §65).

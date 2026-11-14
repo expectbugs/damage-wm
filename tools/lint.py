@@ -9,6 +9,9 @@ nothing.
     SYM002  a KOTLIN string literal contains one (the shell's own drawing code)
     SEC001  a KOTLIN string literal inside a `Log.` call interpolates a name ending in `token`
             (a config secret is never displayed; damage.log is 0644)
+    RO001   the bus watcher's package (core/…/bastion/) only READS the home hub: exactly one
+            `Http.request(` whose method is the literal "GET", no POST/PUT/PATCH/DELETE literal,
+            no other HTTP client (build W, R6 §2)
     GEO000-003, GEO007  the cells DESIGN.md §2.3 declares (tools/geometry.py)
     BUD000, BUD005-007  ink budgets measured from design/shots
 
@@ -464,6 +467,164 @@ def check_kotlin_secrets(path: Path) -> list[str]:
     return findings
 
 
+# RO001 — the bus watcher only READS Adam's home hub (build W, R6 §2 and P17; the lead's decision E.3).
+#
+# Context: Damage's PC reads his own home hub to raise notices on his glasses and phone; it never writes to
+# it. "Only reads" is held in code by `HaReader` (one private `get`, no method or body parameter) and held
+# HERE across the whole package, so a later file cannot add a second way in. Over every `*.kt` under
+# `core/src/main/kotlin/wm/damage/core/bastion/` (comments skipped, string literals read as literals):
+# exactly ONE `Http.request(` site in the package, its first argument the literal "GET" (no template, no
+# name, no reference `Http::request`); no string literal equal, in any case, to POST/PUT/PATCH/DELETE; and no
+# other HTTP client in code (`openConnection`, `openStream`, `HttpURLConnection`, `java.net.http`). Runs on the
+# repo run only (the rule is about the package as a whole).
+RO_DIR = "core/src/main/kotlin/wm/damage/core/bastion"
+RO_VERBS = {"POST", "PUT", "PATCH", "DELETE"}
+RO_SITE = re.compile(r"(?<![A-Za-z0-9_])Http\s*(?:\.|::)\s*request(?![A-Za-z0-9_])")
+RO_CLIENTS = re.compile(r"(?<![A-Za-z0-9_])(openConnection|openStream|HttpURLConnection|java\.net\.http)(?![A-Za-z0-9_])")
+
+
+def _kotlin_code(src: str):
+    """(code, literals) for RO001: `code` is the source with comments and char literals blanked and every
+    string literal's own text blanked (its opening quote kept at its offset; a template's `${…}` code stays
+    code); `literals` maps each literal's opening offset to (line, text, templated, end offset). The walk is
+    `_kotlin_strings`'s (block comments nest here, as Kotlin's do); `\\uXXXX` escapes are decoded."""
+    n = len(src)
+    out = list(src)
+    lits: dict[int, tuple[int, str, bool, int]] = {}
+    st = [0, 1]                                      # position, line
+
+    def blank(i: int, j: int) -> None:
+        for k in range(i, min(j, n)):
+            if out[k] != "\n":
+                out[k] = " "
+
+    def code(in_template: bool) -> None:
+        depth = 0
+        while st[0] < n:
+            i = st[0]
+            c = src[i]
+            if c == "\n":
+                st[1] += 1; st[0] = i + 1; continue
+            if c == "'":
+                j = i + 1
+                if j < n and src[j] == "\\":
+                    j += 1
+                    if j < n and src[j] == "u":
+                        j += 4
+                j += 1
+                if j < n and src[j] == "'":
+                    blank(i, j + 1); st[0] = j + 1; continue
+                st[0] = i + 1; continue
+            if src.startswith("//", i):
+                j = src.find("\n", i)
+                j = n if j < 0 else j
+                blank(i, j); st[0] = j; continue
+            if src.startswith("/*", i):
+                j, nest = i + 2, 1
+                while j < n and nest:
+                    if src.startswith("/*", j):
+                        nest += 1; j += 2; continue
+                    if src.startswith("*/", j):
+                        nest -= 1; j += 2; continue
+                    if src[j] == "\n":
+                        st[1] += 1
+                    j += 1
+                blank(i, j); st[0] = j; continue
+            if src.startswith('"""', i):
+                st[0] = i + 3; literal(i, True); continue
+            if c == '"':
+                st[0] = i + 1; literal(i, False); continue
+            if in_template:
+                if c == "{":
+                    depth += 1
+                elif c == "}":
+                    if depth == 0:
+                        st[0] = i + 1; return
+                    depth -= 1
+            st[0] = i + 1
+
+    def literal(open_at: int, raw: bool) -> None:
+        line, buf, templated = st[1], [], False
+        blank(open_at + 1, st[0])                    # a raw literal's second and third quotes
+        while st[0] < n:
+            i = st[0]
+            c = src[i]
+            if raw and src.startswith('"""', i):
+                j = i
+                while j < n and src[j] == '"':
+                    j += 1
+                buf.append('"' * (j - i - 3))
+                blank(i, j); st[0] = j; break
+            if not raw and c == '"':
+                blank(i, i + 1); st[0] = i + 1; break
+            if c == "$" and i + 1 < n and src[i + 1] == "{":
+                templated = True
+                blank(i, i + 2); st[0] = i + 2
+                code(in_template=True)
+                blank(st[0] - 1, st[0])              # the template's closing brace
+                continue
+            if c == "$" and i + 1 < n and (src[i + 1].isalpha() or src[i + 1] == "_"):
+                templated = True
+            if not raw and c == "\\" and i + 1 < n:
+                e, h = src[i + 1], src[i + 2:i + 6]
+                if e == "u" and len(h) == 4 and all(x in "0123456789abcdefABCDEF" for x in h):
+                    buf.append(chr(int(h, 16))); blank(i, i + 6); st[0] = i + 6; continue
+                buf.append(e); blank(i, i + 2); st[0] = i + 2; continue
+            if c == "\n":
+                st[1] += 1
+                if not raw:
+                    st[0] = i + 1; break
+            buf.append(c); blank(i, i + 1); st[0] = i + 1
+        lits[open_at] = (line, "".join(buf), templated, st[0])
+
+    code(in_template=False)
+    return "".join(out), lits
+
+
+def check_readonly(pkg: Path) -> list[str]:
+    files = sorted(pkg.rglob("*.kt")) if pkg.is_dir() else []
+    if not files:
+        return []
+    findings, sites = [], []
+    for path in files:
+        src = path.read_text(encoding="utf-8", errors="replace")
+        code, lits = _kotlin_code(src)
+
+        def line_of(off: int) -> int:
+            return code.count("\n", 0, off) + 1
+
+        def skip(j: int) -> int:
+            while j < len(code) and code[j].isspace():
+                j += 1
+            return j
+
+        for m in RO_SITE.finditer(code):
+            ln = line_of(m.start())
+            sites.append(f"{path}:{ln}")
+            j = skip(m.end())
+            lit = lits.get(skip(j + 1)) if j < len(code) and code[j] == "(" else None
+            ok = lit is not None and lit[1] == "GET" and not lit[2] and skip(lit[3]) < len(code) \
+                and code[skip(lit[3])] in ",)"
+            if not ok:
+                findings.append(
+                    f"{path}:{ln}: RO001 an Http.request whose method is not the literal \"GET\"\n"
+                    f"    -> the bus watcher only reads the hub: the one request site passes \"GET\" and nothing else")
+        for off, (ln, text, _, _) in lits.items():
+            if text.upper() in RO_VERBS:
+                findings.append(
+                    f"{path}:{ln}: RO001 a string literal {text!r} in the bus watcher's package\n"
+                    f"    -> the bus watcher only reads the hub; a write method has no place here")
+        for m in RO_CLIENTS.finditer(code):
+            findings.append(
+                f"{path}:{line_of(m.start())}: RO001 {m.group(1)} in the bus watcher's package\n"
+                f"    -> the hub is read only through HaReader's one Http.request(\"GET\", ...) site")
+    if len(sites) != 1:
+        findings.append(
+            f"{pkg}: RO001 {len(sites)} Http.request sites in the bus watcher's package, exactly one wanted "
+            f"(HaReader.get){': ' + ', '.join(sites) if sites else ''}")
+    return findings
+
+
 # ---------------------------------------------------------------------------
 # GEO — validate the geometry the spec DECLARES. DESIGN.md §2.3's cell table is the
 # current source of truth for the shell's layout, and it is machine-readable. Both real
@@ -640,6 +801,38 @@ def selftest() -> int:
     finally:
         tmp.unlink()
 
+    # RO001 (build W, R6 T19): synthetic packages only. A clean one — the one GET site, with POST, a second
+    # Http.request and openConnection named only in comments and a longer string — stays silent; a second
+    # Http.request, a "POST" literal, a non-literal method and an openConnection each fire.
+    import shutil
+    clean = ('/* Http.request("POST", u) and openConnection are named in a comment only */\n'
+             'class R(private val base: String) {\n'
+             '    // a second Http.request("GET", x) in a line comment\n'
+             '    private fun get(path: String) = Http.request("GET", base + path, mapOf("Connection" to "close"))\n'
+             '    val note = "POST is never sent; openConnection is not used"\n'
+             '    val q = \'"\'; val t = "after a char literal"\n'
+             '}\n')
+    ro_cases = {
+        "clean": {"R.kt": clean},
+        "a second Http.request": {"R.kt": clean, "S.kt": 'fun s(u: String) = Http.request("GET", u)\n'},
+        "a \"POST\" literal": {"R.kt": clean, "S.kt": 'val m = "post"\n'},
+        "a non-literal method": {"R.kt": clean.replace('Http.request("GET",', 'Http.request(method,')},
+        "an openConnection": {"R.kt": clean, "S.kt": 'fun s(u: java.net.URL) = u.openConnection()\n'},
+    }
+    ro_hits = {}
+    for label, files in ro_cases.items():
+        d = Path(tempfile.mkdtemp(prefix="ro001-"))
+        try:
+            for name, text in files.items():
+                (d / name).write_text(text, encoding="utf-8")
+            ro_hits[label] = check_readonly(d)
+        finally:
+            shutil.rmtree(d)
+    cases.append(("RO001 a clean package is silent",
+                  ["ok"] if not ro_hits["clean"] else ro_hits["clean"], "ok"))
+    for label in ("a second Http.request", "a \"POST\" literal", "a non-literal method", "an openConnection"):
+        cases.append((f"RO001 {label}", ro_hits[label], "RO001"))
+
     ok = True
     for label, got, expect in cases:
         hit = any(expect in g for g in got)
@@ -670,6 +863,7 @@ RULE_IDS = {
     "BUD000", "BUD005", "BUD006", "BUD007",
     "SYM001", "SYM002",
     "SEC001",
+    "RO001",
 }
 
 
@@ -728,6 +922,8 @@ def main() -> int:
             kt.extend(sorted(r.rglob("*.kt")) if r.is_dir() else ([r] if r.suffix == ".kt" else []))
     findings += [f for path in kt for f in check_kotlin(path, cov)]
     findings += [f for path in kt for f in check_kotlin_secrets(path)]
+    if not args.paths:
+        findings += check_readonly(Path(__file__).resolve().parent.parent / RO_DIR)
     if not args.paths and not args.no_geometry:
         root = Path(__file__).resolve().parent.parent
         findings += check_design_table(root / "DESIGN.md")

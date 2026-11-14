@@ -35,14 +35,13 @@ import wm.damage.core.windows.reader.ReaderWindow
 /**
  * The PC program. Modes (`--transport`):
  *
- *   auto     THE DEFAULT — STANDBY (HANDOFF.md §19, the corrected §8.1
- *            reading): the PHONE SHELL is the primary driver; this process
- *            serves data (content host + state sync + replica) and probes the
- *            phone's seam on a 5 s pacing. Only when the APK is absent — or
- *            reachable and saying Target≠glasses — for two consecutive probes
- *            does it start a PC-direct BLE stack; the moment the APK wants
- *            the radio back, the stack stops (the handback) and the phone's
- *            keeper reconnects with its normal choreography
+ *   auto     THE DEFAULT — the DATA HOST (HANDOFF.md §19; build W, REPLAN.md
+ *            §14): the PHONE SHELL drives; this process serves data (content
+ *            host + state sync + replica) and probes the phone's seam on a 5 s
+ *            pacing for its status line. It never takes the glasses by itself:
+ *            PC-direct BLE is a manual choice — `--transport ble`, the replica
+ *            probe `drive=ble` (back with `drive=auto`) or the PC shell's
+ *            Target row (StandbyPolicy)
  *   sim      the byte-exact firmware model in-process — the development
  *            environment (DESIGN.md §10.8)
  *   ble      PC-direct BLE over BlueZ only (laptop-direct with real glasses)
@@ -154,7 +153,8 @@ internal val USAGE: String = """
            desktop --help | -h
 
     Without an ENTRY the shell starts; without any argument, in auto with the preview window.
-      --transport MODE    auto    standby (the default): the phone drives, this serves the data
+      --transport MODE    auto    the data host (the default): the phone drives; PC-direct BLE
+                                  only by --transport ble or the replica probe drive=ble
                           sim     the firmware model in-process (development)
                           ble     PC-direct BLE
                           remote  drive through the phone's transport
@@ -365,6 +365,23 @@ data class Config(
      *  the glasses, so a `glassdrive` walk of the simulator exercises the paths the phone runs.
      *  Nothing but the sim stack reads it; the service's standby and the BLE stack never do. */
     val simContract: Int = 0,
+    /** Build W (R6; the lead's decisions A.1, A.5, A.6, B.4): the PC's reader of his home hub — it only READS.
+     *  `haUrl` empty = the watcher is off, said at start. The hub's token is read from the file
+     *  `haTokenFile` names (a file he already keeps; never a value in this file, never logged); the rules
+     *  from `haRulesFile` (empty = `<dataDir>/bastion-rules.json`). Both are read once at start. */
+    val haUrl: String = "",
+    val haTokenFile: String = "",
+    val haRulesFile: String = "",
+    val haPollSec: Int = 10,
+    val haSilentMin: Int = 5,
+    /** The nightly copy of the state files (dec. A.2): `backupDir` empty = off, said at start; the folder is
+     *  never created. `backupAt` is the local wall-clock time, HH:MM. */
+    val backupDir: String = "",
+    val backupKeep: Int = 14,
+    val backupAt: String = "03:30",
+    /** Dec. B.4: true turns the listeners' reach gate OFF (every listener answers on every interface) — the
+     *  way back if the gate misjudges the network; said at start. */
+    val reachOpen: Boolean = false,
 ) {
     /** The PC-side feed engine (FEED.md §3.6): the configured sources on
      *  their pacer, articles extracted ahead, strips through AWT. */
@@ -396,12 +413,13 @@ data class Config(
         return lib
     }
 
-    /** The setup page + the APK route on [setupPort] (SetupServer). */
-    fun setupServer(): SetupServer = SetupServer(setupPort, setupToken.ifEmpty { token }, Path.of(dataDir).resolve("damage-wm.apk"))
+    /** The setup page + the APK route on [setupPort] (SetupServer), behind the PC's reach gate. */
+    fun setupServer(reach: wm.damage.core.net.ReachGate): SetupServer =
+        SetupServer(setupPort, setupToken.ifEmpty { token }, Path.of(dataDir).resolve("damage-wm.apk"), reach = reach)
 
-    /** The media endpoint on [mediaPort], bound like the content port. */
-    fun mediaServer(lib: wm.damage.core.windows.music.LocalMusicLibrary): wm.damage.core.windows.music.MediaServer =
-        wm.damage.core.windows.music.MediaServer(mediaPort, token) { id, p -> lib.resolveMedia(id, p) }
+    /** The media endpoint on [mediaPort], bound like the content port, behind the PC's reach gate. */
+    fun mediaServer(lib: wm.damage.core.windows.music.LocalMusicLibrary, reach: wm.damage.core.net.ReachGate): wm.damage.core.windows.music.MediaServer =
+        wm.damage.core.windows.music.MediaServer(mediaPort, token, reach) { id, p -> lib.resolveMedia(id, p) }
 
     /** The PC-side torrents provider: qBittorrent over loopback + the tracker
      *  session (null tracker = browse/search say so loudly). */
@@ -411,6 +429,62 @@ data class Config(
             if (torrentleechUser.isNotEmpty()) wm.damage.core.windows.torrents.TorrentLeech(
                 torrentleechUser, torrentleechPass, Path.of(dataDir).resolve("tl-cookies.json")) else null,
             Path.of(dataDir), scope)
+
+    /** Build W: the alert store (`alerts.json` in the data directory; its epoch and sequence persist, dec. B.3). */
+    fun alertStore(): wm.damage.core.bastion.AlertStore =
+        wm.damage.core.bastion.AlertStore(Path.of(dataDir).resolve("alerts.json"))
+
+    /** The watcher's rules file: `haRulesFile`, or `<dataDir>/bastion-rules.json` (the `feedDataDir` shape). */
+    fun rulesPath(): Path = Path.of(haRulesFile.ifEmpty { "$dataDir/bastion-rules.json" })
+
+    /** The feed engine's directory (the `feedEngine` resolution above). */
+    fun feedDir(): Path = Path.of(feedDataDir.ifEmpty { "$dataDir/feed" })
+
+    /** The reader of his home hub for this start ([wm.damage.core.bastion.BastionWatcher.build]): the token file
+     *  and the rules read ONCE; says at start whether it runs and why not. An off watcher answers its reason as
+     *  its state line and runs no loop. */
+    fun bastionWatcher(store: wm.damage.core.bastion.AlertStore, scope: CoroutineScope,
+                       presence: wm.damage.core.bastion.PhonePresence?): wm.damage.core.bastion.BastionWatcher =
+        wm.damage.core.bastion.BastionWatcher.build(haUrl, haTokenFile, rulesPath(), haPollSec, haSilentMin, store, scope,
+            presence = presence)
+
+    /** Build W, package E (dec. F.3): the built-in value `damage.phone` — once a minute the local Tailscale daemon's
+     *  status (`tailscale status --json`, a local read) for the peer at [phoneHost]. [say] takes the one line written
+     *  at every change of the value (the log line is the class's own). Started by the caller. */
+    fun phonePresence(scope: CoroutineScope, say: (String) -> Unit): wm.damage.core.bastion.PhonePresence =
+        wm.damage.core.bastion.PhonePresence(phoneHost, wm.damage.core.bastion.PhonePresence::runTailscale,
+            wm.damage.core.bastion.PhonePresence::interfaceNets, scope, say = say)
+
+    /** The nightly copy, or null when it is off (said at start). A `backupAt` or `backupKeep` it cannot use is
+     *  said and raises the copy's alert, so a copy that never runs is never silent. */
+    fun nightlyCopy(store: wm.damage.core.bastion.AlertStore, scope: CoroutineScope): NightlyCopy? {
+        val copyAlert = wm.damage.core.bastion.BastionWatcher.COPY
+        if (backupDir.isEmpty()) {
+            Log.i("backup", "nightly copy off: no backupDir in ${path()}")
+            if (store.stateOf(copyAlert) != wm.damage.core.bastion.AlertState.CLEAR) store.clear(copyAlert)
+            return null
+        }
+        val at = try { java.time.LocalTime.parse(backupAt) } catch (e: Exception) { null }
+        val why = when {
+            at == null -> "backupAt \"$backupAt\" is not a time of day as HH:MM"
+            backupKeep < 1 -> "backupKeep $backupKeep is below 1"
+            else -> null
+        }
+        if (why != null || at == null) {
+            Log.e("backup", "nightly copy off: $why - fix ${path()} and restart")
+            store.raise(copyAlert, wm.damage.core.bastion.Severity.NORMAL,
+                "Nightly copy off: $why. Fix the config and restart Damage.", "", builtIn = true)
+            return null
+        }
+        return NightlyCopy(Path.of(dataDir), Path.of(backupDir), backupKeep, at, rulesPath(), feedDir(), store, scope)
+    }
+
+    /** Dec. B.4: the PC's reach gate, ONE per process (every listener shares its refusal pacing). [sink] takes the
+     *  paced refusal lines. `reachOpen` turns it off, said here once. */
+    fun reachGate(sink: (String) -> Unit): wm.damage.core.net.ReachGate {
+        if (reachOpen) Log.w("reach", "listener reach gate OFF (reachOpen) — every listener answers on every interface")
+        return wm.damage.core.net.ReachGate(wm.damage.core.net.Side.PC, open = reachOpen, sink = sink)
+    }
 
     fun tmuxHostList(): List<wm.damage.core.windows.tmux.TmuxHostCfg> =
         listOf(wm.damage.core.windows.tmux.TmuxHostCfg(localHostLabel())) + tmuxHosts
@@ -546,8 +620,8 @@ internal fun epubCheckStatus(dir: Path, say: (String) -> Unit): Int {
  *  one BlueZ check that is allowed before first light (HANDOFF.md §8.1 #2). */
 /** The setup page next to the content host — loud, never fatal, on a bind
  *  failure (another instance, or G2CC's retired server started by hand). */
-private fun startSetup(cfg: Config, scope: CoroutineScope): SetupServer? = try {
-    cfg.setupServer().also { s -> bindOrRetry(scope, "setup page", cfg.setupPort) { s.start() } }
+private fun startSetup(cfg: Config, scope: CoroutineScope, reach: wm.damage.core.net.ReachGate): SetupServer? = try {
+    cfg.setupServer(reach).also { s -> bindOrRetry(scope, "setup page", cfg.setupPort) { s.start() } }
 } catch (e: Exception) {
     Log.e("damage", "setup page failed to start on :${cfg.setupPort} (G2CC's server still up?)", e)
     null
@@ -589,10 +663,10 @@ internal fun bindOrRetry(scope: CoroutineScope, what: String, port: Int, onBound
 /** The music library + its media endpoint, or null (loudly) when Postgres
  *  is not reachable at start — the rest of the host keeps serving. The
  *  catalog builds on the first request (or the first driver's cursor). */
-private fun startMusic(cfg: Config, scope: CoroutineScope): wm.damage.core.windows.music.LocalMusicLibrary? = try {
+private fun startMusic(cfg: Config, scope: CoroutineScope, reach: wm.damage.core.net.ReachGate): wm.damage.core.windows.music.LocalMusicLibrary? = try {
     val lib = cfg.musicLibrary(scope)
     lib.db.migrate()
-    cfg.mediaServer(lib).also { m -> bindOrRetry(scope, "media endpoint", cfg.mediaPort) { m.start() } }
+    cfg.mediaServer(lib, reach).also { m -> bindOrRetry(scope, "media endpoint", cfg.mediaPort) { m.start() } }
     scope.launch(Dispatchers.IO) {
         // the rule-managed playlists first (MUSIC.md §9.8 — G2CC's boot refresh,
         // ours since 2026-09-10), then the catalog picks up what moved
@@ -628,6 +702,9 @@ private suspend fun hostOnly(cfg: Config) {
     // directory another process holds ends this start here (exit 4, one stderr line)
     InstanceLock.claimOrExit(Path.of(cfg.dataDir))
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    // build W (dec. B.4): one reach gate for every listener; host-only has no journal writer, so its
+    // refusal lines go to the log alone
+    val reach = cfg.reachGate { line -> Log.w("reach", line) }
     val tmux = wm.damage.core.windows.tmux.LocalTmuxProvider(cfg.tmuxHostList(), cfg.tmuxConfig(), scope)
     // host-only still syncs (§19.2): the store is the data, no shell needed
     val store = Persistence(Path.of(cfg.dataDir).resolve("state.json"))
@@ -636,18 +713,29 @@ private suspend fun hostOnly(cfg: Config) {
         Path.of(cfg.booksDir), Path.of(cfg.dataDir).resolve("trash"), AwtImages())
     val themeIcons = ThemeIcons(AwtImages(), Path.of(cfg.dataDir).resolve("icons"))
     val torrents = cfg.torrentsProvider(scope)
-    val music = startMusic(cfg, scope)
+    val music = startMusic(cfg, scope, reach)
     val feed = cfg.feedEngine(scope)
+    // build W: the alert store, the reader of his hub and the nightly copy — as in the service's runShell
+    val alerts = cfg.alertStore()
+    // package E (dec. F.3): damage.phone; host-only has no journal writer, so its changes go to the log alone
+    val presence = cfg.phonePresence(scope) { }
+    val watcher = cfg.bastionWatcher(alerts, scope, presence)
+    // package F (W-decisions G.3): the phone's reports reach damage.phone and its path signal goes back to the phone
+    val bastion = wm.damage.core.bastion.BastionService(alerts, watcher::stateLine, scope, presence)
     val host = ContentHostServer(LocalContent(Path.of(cfg.booksDir)), cfg.contentPort, cfg.token,
         tmux = tmux, sync = wm.damage.core.sync.SyncPeer(store),
         win = mapOf("files" to wm.damage.core.windows.files.FilesService(filesProvider),
             "torrents" to wm.damage.core.windows.torrents.TorrentsService(torrents),
-            "feed" to wm.damage.core.windows.feed.FeedService(feed)) +
+            "feed" to wm.damage.core.windows.feed.FeedService(feed),
+            "bastion" to bastion) +
             (music?.let { mapOf("music" to wm.damage.core.windows.music.MusicService(it)) } ?: emptyMap()),
-        icons = themeIcons)
+        icons = themeIcons, reach = reach)
     bindOrRetry(scope, "content host", cfg.contentPort) { host.start() }   // §72, as in the standby host
-    startSetup(cfg, scope)
-    Log.i("damage", "content host only — serving ${cfg.booksDir} + tmux + sync + files + torrents + music + feed + icons on :${cfg.contentPort}; Ctrl-C to stop")
+    startSetup(cfg, scope, reach)
+    watcher.start()
+    presence.start()
+    cfg.nightlyCopy(alerts, scope)?.start()
+    Log.i("damage", "content host only — serving ${cfg.booksDir} + tmux + sync + files + torrents + music + feed + bastion + icons on :${cfg.contentPort}; Ctrl-C to stop")
     kotlinx.coroutines.awaitCancellation()
 }
 
@@ -709,6 +797,7 @@ class DesktopStack(
         val dataDir = Path.of(cfg.dataDir)
         val persistence = sharedStore ?: Persistence(dataDir.resolve("state.json"))
         shell = Shell(text, transport, persistence, dataDir.resolve("journal.jsonl"), scope)
+        shell.loopClock = JvmLoopClock          // build W, package G (E4): the `slow` note's clocks (host-only runs no shell)
         shell.buildTag = "desktop " + (DesktopStack::class.java.getResource("/damage-build.txt")?.readText()?.trim() ?: "unstamped")
         shell.iconSource = themeIcons
         val content = LocalContent(Path.of(cfg.booksDir))
@@ -823,7 +912,7 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
     val text = wm.damage.core.comp.CachedText(AwtText())   // §40: every draw passes through the recorder
     val keeperStatus = java.util.concurrent.atomic.AtomicReference("starting")
     val switchNote = java.util.concurrent.atomic.AtomicReference("")
-    val standbyNote = java.util.concurrent.atomic.AtomicReference("standby: probing the phone")
+    val standbyNote = java.util.concurrent.atomic.AtomicReference("data host · probing the phone")
     val switching = java.util.concurrent.atomic.AtomicBoolean(false)
     // §19: `auto` IS the standby policy — the phone shell is primary; manual
     // modes (sim | ble | remote) disable it for the run of that mode
@@ -865,19 +954,34 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
     // The process-wide music library (MUSIC.md): Postgres/Qdrant/the caches
     // + the media endpoint on :mediaPort; the local shell's window mirrors
     // the phone's player, the phone's library rides the win channel
-    val musicLibrary = startMusic(cfg, tmuxScope)
+    // build W (dec. B.4): one reach gate for every listener this process opens; its paced refusal lines go to
+    // the log and the journal (a `reach` note)
+    val reach = cfg.reachGate { line ->
+        Log.w("reach", line)
+        Journal.appendNote(journalFile, "reach", line)
+    }
+    val musicLibrary = startMusic(cfg, tmuxScope, reach)
     // The process-wide feed engine (FEED.md §3.6): the configured sources on
     // their pacer, articles ahead, strips through AWT; the local window reads
     // it directly and the phone through the window channel
     val feedEngine = cfg.feedEngine(tmuxScope)
+    // build W: the process-wide alert store, the reader of his hub (it only reads) and the channel the phone
+    // takes the alerts from — the same in hostOnly
+    val alertStore = cfg.alertStore()
+    // package E (dec. F.3): damage.phone, every change of it one log line and one journal note (`presence`)
+    val phonePresence = cfg.phonePresence(tmuxScope) { line -> Journal.appendNote(journalFile, "presence", line) }
+    val bastionWatcher = cfg.bastionWatcher(alertStore, tmuxScope, phonePresence)
+    // package F (W-decisions G.3): the phone's reports reach damage.phone and its path signal goes back to the phone
+    val bastionService = wm.damage.core.bastion.BastionService(alertStore, bastionWatcher::stateLine, tmuxScope, phonePresence)
 
     val host = ContentHostServer(LocalContent(Path.of(cfg.booksDir)), cfg.contentPort, cfg.token,
         tmux = tmuxProvider, sync = syncPeer,
         win = mapOf("files" to wm.damage.core.windows.files.FilesService(filesProvider),
             "torrents" to wm.damage.core.windows.torrents.TorrentsService(torrentsProvider),
-            "feed" to wm.damage.core.windows.feed.FeedService(feedEngine)) +
+            "feed" to wm.damage.core.windows.feed.FeedService(feedEngine),
+            "bastion" to bastionService) +
             (musicLibrary?.let { mapOf("music" to wm.damage.core.windows.music.MusicService(it)) } ?: emptyMap()),
-        icons = themeIcons)
+        icons = themeIcons, reach = reach)
     // §72: a busy port is retried on pacing until it frees (the stuck 10-20 JVM held all four
     // on 2026-11-07, and the instance started beside it served nothing while "started")
     val hostBound = java.util.concurrent.atomic.AtomicBoolean(false)
@@ -887,7 +991,10 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
     } catch (e: Exception) {
         Log.e("damage", "content host failed to start on :${cfg.contentPort}", e)
     }
-    startSetup(cfg, this)
+    startSetup(cfg, this, reach)
+    bastionWatcher.start()
+    phonePresence.start()
+    cfg.nightlyCopy(alertStore, tmuxScope)?.start()
 
     lateinit var build: (String) -> DesktopStack
     // ONE mutation path for the running stack, shared by manual switches and
@@ -946,127 +1053,46 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
         first.start()
     }
 
-    // THE STANDBY LOOP (§19.2). Probe the phone's seam on pacing: the APK
-    // wanting the radio (or an APK too old to be asked) keeps the PC out;
-    // absent-or-idle for STANDBY_DEBOUNCE consecutive probes AND both arms
-    // advertising to this adapter (§47) starts a plain BLE stack; the APK's
-    // return stops it — the handback.
-    val standbyScan = StandbyScan(cfg)
+    // THE STANDBY LOOP (§19.2; build W, R6 §5, the lead's decision A.9). In `auto` the PC is the data
+    // host and never takes the glasses: PC-direct BLE is manual (`--transport ble`, the replica probe
+    // `drive=ble`, the Target row). The loop probes the phone's seam on pacing for the status line and
+    // "the phone is back"; the one thing it may do is stop a PC stack found up in `auto` (a manual stack
+    // whose stop was dropped by a switch already in progress). StandbyPolicy.step decides, and its Action
+    // has no member that starts a stack. A manual stack is never probed for.
     // Never closed: it holds the file open for the life of the process. Were a second process on
     // this data directory to set the file aside at its start, these notes would follow the bytes
     // into the archive until this process ends (`Journal.rotateAtStart`). The daily setup never
     // runs two (the service is stopped before a dev session).
     val standbyJournal = Journal(Path.of(cfg.dataDir).resolve("journal.jsonl"))
     launch(Dispatchers.IO) {
-        var absentStreak = 0
-        var bleBroken = false
-        var notAdvertisingSaid = false
-        var choseNotToSaid = false
-        var giveBacks = 0          // §72: give-backs in a row, for the claim's backoff
+        var state = StandbyPolicy.State()
         while (isActive) {
-            if (standbyOn.get()) {
-                if (!hostBound.get()) {
-                    // another instance holds the content port (R3#8): it is
-                    // probably ALSO running this standby policy — two claims
-                    // would be two centrals on one adapter. Data-host-only.
-                    standbyNote.set("standby: content port busy — another instance? not claiming")
-                    delay(STANDBY_PROBE_MS)
-                    continue
+            val standby = standbyOn.get()
+            if (standby && !hostBound.get()) {
+                // another instance holds the content port (R3#8): it probably runs this loop too
+                standbyNote.set(StandbyPolicy.PORT_BUSY)
+            } else {
+                val r = if (standby) wm.damage.core.transport.SeamProbe.probe(
+                    remoteHost ?: cfg.phoneHost, cfg.transportPort, cfg.token) else null
+                val step = StandbyPolicy.step(r?.let { StandbyPolicy.phoneOf(it) }, state, standby,
+                    stackHeld = stack() != null,
+                    detail = (r as? wm.damage.core.transport.SeamProbe.Result.Reachable)?.detail ?: "",
+                    probeMs = STANDBY_PROBE_MS)
+                state = step.state
+                val a = step.action
+                for (line in a.said) {
+                    Log.i("damage", line)
+                    standbyJournal.note("keeper", line)
                 }
-                if (bleBroken && switchNote.get().isEmpty()) bleBroken = false   // a manual round-trip cleared it
-                if (switchNote.get().startsWith("switch to ble failed") && !bleBroken) {
-                    bleBroken = true
-                    Log.e("damage", "PC-direct BLE unavailable on this machine — standing by as the data host only")
-                    standbyNote.set("standby: data host only (no usable BLE)")
-                }
-                val r = wm.damage.core.transport.SeamProbe.probe(
-                    remoteHost ?: cfg.phoneHost, cfg.transportPort, cfg.token)
-                val phone = StandbyPolicy.phoneOf(r)
-                if (phone == StandbyPolicy.Phone.DRIVES) {
-                    if (absentStreak > 0) {
-                        // §47: the return is a fact for the journal too — the
-                        // relay dropped the phone for this long
-                        val gone = absentStreak * STANDBY_PROBE_MS / 1000
-                        Log.i("damage", "standby: the phone is back after $absentStreak missed probe(s) (~$gone s)")
-                        standbyJournal.note("keeper", "standby: the phone is back after $absentStreak missed probe(s) (~$gone s)")
+                if (standby) standbyNote.set(a.status)
+                when (a) {
+                    is StandbyPolicy.Action.Narrate -> {}
+                    // a switch in progress owns the slot (swapStack says the drop): the next probe asks again
+                    is StandbyPolicy.Action.Handback -> if (!switching.get() && standbyOn.get()) {
+                        Log.w("damage", a.stopping)
+                        standbyJournal.note("keeper", a.stopping)
+                        swapStack(null, "auto never drives: the PC stack left up is stopped")
                     }
-                    absentStreak = 0
-                    notAdvertisingSaid = false
-                    choseNotToSaid = false
-                    giveBacks = 0
-                    standbyScan.stop()
-                    val d = (r as wm.damage.core.transport.SeamProbe.Result.Reachable).detail
-                    standbyNote.set("standby: phone drives" + (d.takeIf { it.isNotEmpty() }?.let { " · $it" } ?: ""))
-                    if (stack() != null && standbyOn.get())
-                        swapStack(null, "handback — the APK wants the radio")
-                } else if (phone == StandbyPolicy.Phone.CHOSE_NOT_TO) {
-                    // §72, Adam's ruling D1 (2026-11-07): a REACHABLE APK on Target≠glasses chose
-                    // to leave the glasses alone (Sim: reading on the phone without them,
-                    // 2026-11-06). A choice is not an absence: never a claim.
-                    absentStreak = 0
-                    notAdvertisingSaid = false
-                    standbyScan.stop()
-                    standbyNote.set(if (stack() != null) "standby: the APK chose Target≠glasses — the PC keeps the claim it already holds"
-                        else "standby: the APK chose Target≠glasses — the glasses are left alone")
-                    if (!choseNotToSaid) {
-                        choseNotToSaid = true
-                        Log.i("damage", "standby: the APK is reachable and says Target≠glasses — a choice, not an absence: not claiming (§72)")
-                        standbyJournal.note("keeper", "standby: the APK says Target≠glasses — not claiming (§72)")
-                    }
-                } else if (!bleBroken) {
-                    choseNotToSaid = false
-                    absentStreak++
-                    val why = "the APK is unreachable"
-                    // §72: the debounce doubles per give-back in a row (StandbyPolicy.claimDebounce)
-                    val debounce = StandbyPolicy.claimDebounce(giveBacks, STANDBY_DEBOUNCE, STANDBY_DEBOUNCE_CAP)
-                    if (stack() == null) {
-                        if (absentStreak < debounce) {
-                            standbyNote.set("standby: $why ($absentStreak/$debounce)")
-                        } else {
-                            // §47 (2026-09-12): a phone that is only unreachable over
-                            // the network is still driving the glasses — nine such
-                            // claims in two days, every one handed straight back. The
-                            // arms advertise only once the phone has let go of them.
-                            // §72: and only an adapter that can SEE them may claim — a
-                            // scan that cannot run (null) never claims (StandbyPolicy).
-                            val seen = standbyScan.armsAdvertising()
-                            if (StandbyPolicy.shouldClaim(phone, absentStreak, debounce, seen)) {
-                                standbyNote.set("standby → PC-direct BLE ($why, both arms advertise)")
-                                Log.i("damage", "standby: $why for $absentStreak probes and both arms advertise — starting the PC BLE stack")
-                                standbyJournal.note("keeper", "standby claim: $why for $absentStreak probes, both arms advertising")
-                                standbyScan.stop()
-                                swapStack("ble", "standby: $why")
-                            } else if (seen == null) {
-                                // StandbyScan said why, once per cause
-                                standbyNote.set("standby: $why ($absentStreak probes) — this adapter cannot scan; not claiming")
-                            } else {
-                                standbyNote.set("standby: $why ($absentStreak probes) — the arms are not advertising here; not claiming")
-                                if (!notAdvertisingSaid) {
-                                    notAdvertisingSaid = true
-                                    Log.i("damage", "standby: $why for $absentStreak probes, but the arms are not advertising to this adapter — the phone still holds them; not claiming")
-                                    standbyJournal.note("keeper", "standby: $why for $absentStreak probes — arms not advertising, not claiming")
-                                }
-                            }
-                        }
-                    }
-                }
-                // §72 fix 2: a standby claim whose starts keep failing goes back to standby
-                // (which claims again only on sight) instead of retrying for the life of the
-                // process — 2026-11-06's 876 attempts on a powered-off adapter
-                val held = stack()
-                if (held != null && held.keeper.state == wm.damage.core.shell.ShellKeeper.State.RUNNING) giveBacks = 0
-                if (held != null && !switching.get() &&
-                    StandbyPolicy.shouldGiveBack(held.keeper.failedStarts, STANDBY_GIVEBACK_FAILS)) {
-                    val n = held.keeper.failedStarts
-                    val last = held.keeper.lastReason
-                    giveBacks++
-                    absentStreak = 0       // the next claim's debounce counts from here
-                    val next = StandbyPolicy.claimDebounce(giveBacks, STANDBY_DEBOUNCE, STANDBY_DEBOUNCE_CAP)
-                    Log.w("damage", "standby: the claim failed $n starts in a row (last: $last) — giving it back; the next claim " +
-                        "needs both arms seen again after $next absent probes (give-back $giveBacks in a row)")
-                    standbyJournal.note("keeper", "standby give-back $giveBacks: $n failed starts in a row (last: $last); next claim after $next probes")
-                    standbyNote.set("standby: the claim could not drive ($last) — standing by")
-                    swapStack(null, "standby give-back: $n failed starts in a row")
                 }
             }
             delay(STANDBY_PROBE_MS)      // pacing between probes, not a timeout
@@ -1107,6 +1133,21 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
         Log.i("damage", "running WITHOUT the preview window (--no-preview): the phone screen and " +
             "the browser replica are the views; stop with SIGTERM (the shutdown hook saves state)")
     }
+    /** Build W (R6 §5, the lead's decision A.9): the replica probe `drive=ble|auto` — PC-direct BLE by hand, and back
+     *  to the data host. Offered BEFORE the shell and the transport see a probe; every use is journaled. */
+    fun driveProbe(v: String) {
+        val m = StandbyPolicy.driveOf(v)
+        if (m == null) {
+            Log.w("damage", "probe drive=$v: not a mode this probe takes (ble | auto)")
+            standbyJournal.note("keeper", "drive=$v refused: the probe takes ble or auto")
+            return
+        }
+        val line = if (m == "ble") "drive=ble (replica probe): PC-direct BLE by hand — the PC drives until drive=auto"
+            else "drive=auto (replica probe): back to the data host — the phone drives"
+        Log.i("damage", line)
+        standbyJournal.note("keeper", line)
+        switchTo(m)
+    }
     // the browser replica on the tailnet
     val replica = ReplicaServer(cfg.replicaPort, cfg.token, { stack()?.transport?.mirror }, {
         val st = stack()?.transport?.state?.value
@@ -1115,16 +1156,17 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
             connected = st?.connected ?: false, started = st?.started ?: false, leaseHeld = st?.leaseHeld ?: false,
             ackMs = st?.ackMsEma?.toInt() ?: 0, bytesPerSec = st?.bytesPerSecEma?.toInt() ?: 0,
             driver = stack()?.let { "PC shell (${it.mode})" }
-                ?: if (standbyOn.get()) "standby (phone drives)" else "none",
+                ?: if (standbyOn.get()) "data host (phone drives)" else "none",
             note = note().ifEmpty { statusText() },
         )
     }, onInput = { t -> stack()?.transport?.injectInput(t) },
         onText = { line -> stack()?.transport?.injectText(line) },
         // 0.64: a probe is offered to the SHELL first (`rest=on|off` is its own, `Shell.devProbe`), then
         // to the transport; with no stack (standby, the phone drives) neither exists to take it
-        onProbe = { n, v -> stack()?.let { if (!it.shell.devProbe(n, v)) it.transport.devProbe(n, v) }
+        onProbe = { n, v -> if (n == "drive") driveProbe(v)
+            else stack()?.let { if (!it.shell.devProbe(n, v)) it.transport.devProbe(n, v) }
             ?: Log.w("damage", "probe $n=$v: no shell stack on this host (the phone drives)") },
-        journalPath = { Path.of(cfg.dataDir).resolve("journal.jsonl") })
+        journalPath = { Path.of(cfg.dataDir).resolve("journal.jsonl") }, reach = reach)
     try {
         bindOrRetry(this, "browser replica", cfg.replicaPort) { replica.start() }   // §72
     } catch (e: Exception) {
@@ -1132,7 +1174,7 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
     }
 
     Log.i("damage", if (mode == "auto")
-        "standby up (§19: the phone shell is primary) — data host on :${cfg.contentPort}, probing ${remoteHost ?: cfg.phoneHost}:${cfg.transportPort}"
+        "data host up (auto: the phone drives; PC-direct BLE only by --transport ble or drive=ble) — content on :${cfg.contentPort}, probing ${remoteHost ?: cfg.phoneHost}:${cfg.transportPort}"
     else
         "shell up in $mode mode — books from ${cfg.booksDir}, journal in ${cfg.dataDir}")
     Log.i("damage", "preview: wheel/click/right-click/hold = ring · Tab lens · B both")
@@ -1142,17 +1184,9 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
     kotlinx.coroutines.awaitCancellation()
 }
 
-/** Standby pacing (§19.2): probe cadence, and how many consecutive
- *  absent-or-idle probes it takes before the PC starts its own BLE stack —
- *  the debounce that rides out an APK restart or update. Six since §47
- *  (30 s): two rode out nothing on a relayed tailnet that dropped the
- *  phone for 10 s at a time; the arms' advertising is the real gate. */
+/** The data host's probe pacing (§19.2): how often `auto` asks the phone's seam how it is, for the status line
+ *  and "the phone is back". Since build W nothing is claimed on an answer (StandbyPolicy). */
 private const val STANDBY_PROBE_MS = 5_000L
-private const val STANDBY_DEBOUNCE = 6
-/** §72: failed starts in a row after which a standby claim goes back to standby. */
-private const val STANDBY_GIVEBACK_FAILS = 6
-/** §72: the longest a claim's debounce grows after give-backs in a row: 60 probes ≈ 5 min. */
-private const val STANDBY_DEBOUNCE_CAP = 60
 /** §72: pacing between attempts to bind a busy port. */
 private const val BIND_RETRY_MS = 5_000L
 

@@ -470,6 +470,13 @@ each re-priced from the build before; §16.5's rows stand as recommended (S1 in 
 S2; no weekly ceiling — the lead reads his usage screen's two percentages itself before and after each build and
 reports them); the `CLAUDE.md` changes of the pruning pass are applied, with the one shared Quiet hours row in Global.
 
+**W built (2026-11-13; `HANDOFF.md` §79).** APK 0.66 on the local branch `wip/066`, with three packages his words and
+the first-day read added during the build (change rules and "while away", presence from the phone's position, the
+first-day fixes). Measured over its first two runs: 47.0 units, about 9 h of wall clock, 14,033 inserted lines of
+which 11,917 product + test — **3.9 units per 1,000 product + test lines against the 15–22 this plan uses** (the
+estimate below was 65–110 units and 12–20 h). **S1-1 is next and is re-priced from W's rate at its sitting** (§16.4's
+re-fit); one build is one point, and S1-1's moved lines have no measured rate yet.
+
 **The text below is the plan as put to him.** The order, the cuts and the recommendations are the
 lead's; §16.5 holds what only he can answer. Every size here is an estimate (inferred) unless it says measured, and
 nothing was measured on his devices. "Units" are the weighted usage units of §8 (per million tokens: cache reads 0.1,

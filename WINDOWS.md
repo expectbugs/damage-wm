@@ -56,8 +56,10 @@ A window built after the re-plan's steps is described once for every interface (
   (`Shell` refuses it and says so); a live row that does nothing is a silent failure.
 - **Notification toggles live in the app's own Settings category** (Adam, 2026-09-01): the window gates its own
   `notifyInternal` calls on its rows (the Tmux `Alerts` shape); Global keeps only `Notify · Damage`, and
-  `Notify · Damage` never gates a notice that names its app (0.65, `HANDOFF.md` §77). `CONTRACT.md` §6 adds one
-  shared `Quiet hours` row to Global, built with the alert watcher (its §14 (b), his to veto).
+  `Notify · Damage` never gates a notice that names its app (0.65, `HANDOFF.md` §77). A HOST category's notice
+  (`Shell.notifyFromHost`, `Notice.gatedBy`; build W's Bastion) is gated by that category's own rows, never by
+  `Notify · Damage`. `CONTRACT.md` §6 adds one shared `Quiet hours` row to Global, built with the alert watcher (APK
+  0.66, `HANDOFF.md` §79; its §14 (b), his to veto).
 - 🔴 **Every window works well at all four heights — 288 / 352 / 416 / 480 — and its size is adjustable in
   Settings** (Adam, 2026-09-02: *"This is important."*): each level's layout specified per height in the
   window's record, the per-app Size row not optional, snapshot scenes at 288 and 480 at least.
@@ -283,8 +285,9 @@ per screen.
    `HANDOFF.md` §42.0):** a window list notch 540 B / 108 ms median (p90 2.1 KB / 229 ms), a Main notch 716 B /
    117 ms (p90 247 ms) — first-ACK figures; since §64.4 a window is judged by the report's `first wait ms` column
    (`REMINDER.md`, Measured on glass), which on the reference journal read 230 ms median / 1,004 p90 against the
-   ack's 75 / 523. A notch whose first flush is over ~1 KB or whose first visible change is over ~250 ms
-   at the median has a defect to find, not a link to blame.
+   ack's 75 / 523. From APK 0.66 the report's `input->done ms` beside it adds the wait in the shell behind a full
+   window, which `first wait ms` does not hold (`HANDOFF.md` §79). A notch whose first flush is over ~1 KB or whose
+   first visible change is over ~250 ms at the median has a defect to find, not a link to blame.
 8. **The shell owes you the rest** — the cache on every plane, the depth ladder, translation detection,
    first-flush ordering and `Slide fill`, telemetry off the first flush, the page traffic sleeping with the
    glasses, the keeper's rebuilds. Never re-implement one in a window; if a window seems to need one, the

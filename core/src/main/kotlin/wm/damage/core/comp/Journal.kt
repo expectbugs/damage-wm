@@ -62,7 +62,13 @@ class Journal(private val path: Path?) : AutoCloseable {
         /** §73: 1 when the pump that assembled this flush followed a ring event or a typed line —
          *  a gesture's own flush — 0 for an idle tick, a push or an animation frame; -1 unsaid.
          *  The report's per-gesture table was 91 % idle chrome ticks without it (2026-11-09). */
-        val input: Int = -1)
+        val input: Int = -1,
+        /** Build W, package G (E3): for a gesture's flush (`input` 1), how long the ring event waited in the shell
+         *  for a window slot before this submit — from the loop's taking of its message to here; 0 when it went at
+         *  once, -1 on any other flush. The report's WAIT (submit → done) never held this. */
+        val inWaitMs: Long = -1,
+        /** Package G (E4): the focused window's id and the shell's mode at the submit ("" unsaid). */
+        val win: String = "", val mode: String = "")
 
     fun flushSubmitted(id: Long, a: Compositor.Assembled, label: String,
         via: String = "?", timing: Timing = Timing()) =
@@ -98,7 +104,8 @@ class Journal(private val path: Path?) : AutoCloseable {
             """"via":${json(via)},"handleMs":${tm.handleMs},"handlerMs":${tm.handlerMs},"mirrorMs":${tm.mirrorMs},""" +
             """"assembleMs":${tm.assembleMs},"truthMs":${tm.truthMs},"compressMs":${tm.compressMs},"compressN":${tm.compressN},""" +
             """"slidesMs":${tm.slidesMs},"chromeMs":${tm.chromeMs},"overlaysMs":${tm.overlaysMs},"textMs":${tm.textMs},""" +
-            """"cached":${tm.cached},"cacheMiss":${json(tm.cacheMiss)},"staged":${tm.staged},"unpacked":${tm.unpacked},"in":${tm.input},"ops":[$ops]}""")
+            """"cached":${tm.cached},"cacheMiss":${json(tm.cacheMiss)},"staged":${tm.staged},"unpacked":${tm.unpacked},"in":${tm.input},""" +
+            """"inWaitMs":${tm.inWaitMs},"win":${json(tm.win)},"mode":${json(tm.mode)},"ops":[$ops]}""")
     }
 
     fun flushDone(id: Long, ok: Boolean, ackMs: Long, bytes: Int, error: String?) {
@@ -110,12 +117,16 @@ class Journal(private val path: Path?) : AutoCloseable {
      *  it while the PRESENTED flag is armed — the number the eye waits for, which the ack
      *  never carried (the ack precedes the transfer). One line per present; the feature is
      *  armed for measurement sessions, not all day, so the journal stays small. */
-    fun present(seq: Long, workerUs: Long, copyUs: Long, transferUs: Long, path: Long = 0) {
-        write("""{"t":${System.currentTimeMillis()},"ev":"present","seq":$seq,"workerUs":$workerUs,"copyUs":$copyUs,"transferUs":$transferUs,"path":$path}""")
+    fun present(seq: Long, workerUs: Long, copyUs: Long, transferUs: Long, path: Long = 0, atMs: Long = 0) {
+        val (t, late) = stamp(atMs)
+        write("""{"t":$t,"ev":"present","seq":$seq,"workerUs":$workerUs,"copyUs":$copyUs,"transferUs":$transferUs,"path":$path$late}""")
     }
 
-    fun note(kind: String, detail: String) {
-        write(noteLine(kind, detail))
+    /** [atMs] (build W, package G, E2): when the thing the line records happened, if the caller knows it (a transport
+     *  event's own time); 0 = now. Written as the record's `t`, and as `"late":<ms>` when the line is written
+     *  [LATE_MS] or more after it — a reader sorts by `t` (`tools/journal_report.py` does at load). */
+    fun note(kind: String, detail: String, atMs: Long = 0) {
+        write(noteLine(kind, detail, atMs))
     }
 
     @Synchronized
@@ -171,9 +182,22 @@ class Journal(private val path: Path?) : AutoCloseable {
         private val touched = ConcurrentHashMap<Path, Int>()
         private fun keyOf(p: Path): Path = p.toAbsolutePath().normalize()
 
+        /** Package G (E2): a line written this long or more after the event it records says so (`late`). */
+        const val LATE_MS = 1_000L
+
+        /** The record's `t` and its `,"late":N` tail (empty when on time) for an event at [atMs]; 0 = now. */
+        private fun stamp(atMs: Long): Pair<Long, String> {
+            val now = System.currentTimeMillis()
+            if (atMs <= 0L) return now to ""
+            val late = now - atMs
+            return atMs to (if (late >= LATE_MS) ""","late":$late""" else "")
+        }
+
         /** One `note` line (no newline) — the one definition of its form, for [note] and [appendNote]. */
-        private fun noteLine(kind: String, detail: String): String =
-            """{"t":${System.currentTimeMillis()},"ev":"note","kind":${json(kind)},"detail":${json(detail)}}"""
+        private fun noteLine(kind: String, detail: String, atMs: Long = 0): String {
+            val (t, late) = stamp(atMs)
+            return """{"t":$t,"ev":"note","kind":${json(kind)},"detail":${json(detail)}$late}"""
+        }
 
         /** RFC 8259: ALL C0 controls must be escaped — exception messages carry
          *  \r and \t, and one bad line would break the replay tooling exactly at

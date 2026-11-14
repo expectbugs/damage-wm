@@ -236,13 +236,17 @@ class FidRingStartTest {
         assertTrue(t.state.value.glassesSilent, "the start's READ said Silent Mode")
         assertEquals(0, clears.get(), "no ring clear reaches glasses in Silent Mode")
         stopped(t, seen)
-        assertEquals(1, seen.controlNotes("fid-ring clear not sent").size, "the start says why: ${seen.notes}")
+        // build W, package G (the lead's decision H, row E1): a start whose READ says Silent Mode rests before the
+        // CREATE, so the clear's own "not sent" note is not reached; the rest's keeper note names the fid clear
+        assertEquals(1, seen.notes.count { it.first == "keeper" && "start rests" in it.second && "fid clear" in it.second },
+            "the start says why: ${seen.notes}")
     }
 
     @Test
     fun aRingClearRefusedUnderSilentModeIsOneNoteAndTheStartCompletes(): Unit = runBlocking {
         val glass = GlassFirmwareSim()
         glass.reportSilentRestored = false               // this READ does not carry the state
+        glass.createAnsweredWhileSilent = true           // package G: the model's earlier answer, so the start reaches the clear
         glass.setSilent(true, push = false)
         val (t, seen) = rig(glass)
         val clears = AtomicInteger(0)

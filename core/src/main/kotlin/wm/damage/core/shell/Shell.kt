@@ -295,6 +295,13 @@ class Shell(
     /** Rows the host appends to Settings (the display target); set before start. */
     @Volatile var hostSettings: List<HostSetting> = emptyList()
 
+    /** Build W (R6 P11, option A): Settings categories the HOST supplies for a feature that has no window yet — the
+     *  phone's "Bastion" (the bus alert watcher, `bastion/BastionRows.kt`). Set before start. Listed after the
+     *  windows' categories unless a registered window has the same name (case-insensitive): the window wins, so a
+     *  Bastion window built later returns the same rows and nothing migrates ([settingsApps]). Each category's
+     *  rows must be ONE stable list: Settings matches a staged row by identity. */
+    @Volatile var hostCategories: List<Pair<String, List<HostSetting>>> = emptyList()
+
     /** §9.3: the phone is the out-of-band error channel — urgent internal
      *  notices also fire this hook (the APK raises a real phone notification). */
     @Volatile var onUrgent: ((source: String, body: String) -> Unit)? = null
@@ -337,9 +344,25 @@ class Shell(
         /** [dropped] runs INSTEAD of [action] when the message reaches a
          *  stopped loop: a caller awaiting an answer must get one either way,
          *  or it waits for ever (review §30 — `sampleIdle`'s own hazard). */
-        data class Run(val dropped: (() -> Unit)? = null, val action: () -> Unit) : Msg()
+        data class Run(val dropped: (() -> Unit)? = null,
+            /** Build W, package G (E4): where it was posted from, for the `slow` note ("" untagged). */
+            val tag: String = "", val action: () -> Unit) : Msg()
         data class Shutdown(val done: CompletableDeferred<Unit>) : Msg()
         object Pump : Msg()
+    }
+
+    /**
+     * Build W (R6 P11, option A): a notice from a HOST feature that has a Settings category ([hostCategories]) but no
+     * window — the phone's bus alert watcher (`bastion/AlertDelivery.kt`, `bastion/HomeWatch.kt`). That category's
+     * own rows gated it before it got here, and [gatedBy] names the category, so Global `Notify · Damage` does not
+     * gate it ([noticeAllowed]). It names no app: a tap only dismisses it. Never the host's urgent hook. Safe from
+     * any thread (posted to the loop). A `Shell` member, not a [ShellServices] one, so the windows' contract and
+     * its test fakes keep their shape.
+     */
+    fun notifyFromHost(source: String, body: String, thread: String, gatedBy: String) {
+        val c = wallClock()
+        post(Msg.Notice(Notifications.Notice("DAMAGE · $source", thread.ifEmpty { source }, body, c.hhmm,
+            emergency = false, gatedBy = gatedBy)))
     }
 
     val services: ShellServices = object : ShellServices {
@@ -472,7 +495,7 @@ class Shell(
             return true
         }
 
-        override fun runOnShell(action: () -> Unit) = post(Msg.Run(action = action))
+        override fun runOnShell(action: () -> Unit) = post(Msg.Run(tag = "runOnShell", action = action))
 
         // §72: while no session is live, the latest action per key is HELD (an older one
         // replaced, moved to the end so the flush keeps the order of the last updates) and
@@ -485,7 +508,7 @@ class Shell(
                 }
                 // posted under the lock: a push can never overtake the held ones that
                 // releaseHeldPushes is posting (the second review's ordering finding)
-                post(Msg.Run(action = action))
+                post(Msg.Run(tag = key, action = action))
             }
         }
 
@@ -558,7 +581,7 @@ class Shell(
             n = held.size
             // posted UNDER the lock (non-blocking: the channel is unlimited), so a keyed push
             // arriving now lands behind every held one, never ahead of an older value
-            for (a in held.values) post(Msg.Run(action = a))
+            for ((k, a) in held) post(Msg.Run(tag = k, action = a))
             held.clear()
             superseded = supersededWhileDown
             supersededWhileDown = 0
@@ -593,8 +616,9 @@ class Shell(
      *    the next session's chrome wants the newest level. The latch is not replayed: a held
      *    reading is posted BEHIND the readings the next start itself queues, so a replayed
      *    "19 %, not charging" could follow a live "19 %, charging" and say it a second time.
-     *  - Note, Presented, Link and Fault are facts for the journal. They are journaled now, so
-     *    they also carry the time they happened.
+     *  - Note, Presented, Link and Fault are facts for the journal, journaled now. Package G (E2): each carries the
+     *    time the transport built it (`atMs`), which the line's `t` is — during a start the events wait for the
+     *    loop or for a failure's drain, up to the whole start (500 s on 2026-11-12), so "now" was not their time.
      *  - Input, Lease, SilentMode, DiagFlags and Wear describe a session that is gone. The
      *    next start re-reads the transport's state. Delivered late, a stale `Lease(held=false)`
      *    raised "lease lost" and requested a rebuild in the new session, and a stale
@@ -608,7 +632,7 @@ class Shell(
                 // no session runs, so nothing can be painted: the host's own path is the only one
                 val said = batteryReading(ev, canPaint = false)
                 if (said.verdict == BatteryLatch.Verdict.SAY)
-                    journal.note("lowbatt", "said at ${ev.glassesPct}% — " + lowbattWhere(said, canPaint = false, asleep = false, down = true))
+                    journal.note("lowbatt", "said at ${ev.glassesPct}% — " + lowbattWhere(said, canPaint = false, asleep = false, down = true), ev.atMs)
                 synchronized(heldLock) {
                     // a session went live meanwhile: queue it as usual. `handleTransport` judges it a
                     // second time, which is NONE for the latch on the same reading — nothing repeats
@@ -616,10 +640,11 @@ class Shell(
                     holdLatestLocked("shell.battery") { if (!batterySeenThisSession) applyBatteryToChrome(ev) }
                 }
             }
-            is TransportEvent.Note -> journal.note(ev.kind, ev.detail)
-            is TransportEvent.Presented -> journal.present(ev.seq, ev.workerUs, ev.copyUs, ev.transferUs, ev.path)
-            is TransportEvent.Link -> journal.note("link", if (ev.connected) "up: ${ev.detail}" else "DOWN: ${ev.detail}")
-            is TransportEvent.Fault -> journal.note("fault", "${ev.what}: ${ev.detail} (no session running)")
+            // package G (E2): each with the time the transport built it — the line is written now, and says `late`
+            is TransportEvent.Note -> journal.note(ev.kind, ev.detail, ev.atMs)
+            is TransportEvent.Presented -> journal.present(ev.seq, ev.workerUs, ev.copyUs, ev.transferUs, ev.path, ev.atMs)
+            is TransportEvent.Link -> journal.note("link", if (ev.connected) "up: ${ev.detail}" else "DOWN: ${ev.detail}", ev.atMs)
+            is TransportEvent.Fault -> journal.note("fault", "${ev.what}: ${ev.detail} (no session running)", ev.atMs)
             is TransportEvent.Input, is TransportEvent.Lease, is TransportEvent.SilentMode,
             is TransportEvent.DiagFlags, is TransportEvent.Wear -> transEventsDroppedWhileDown.incrementAndGet()
         }
@@ -823,6 +848,22 @@ class Shell(
         }
     }
 
+    /**
+     * Settings' per-app categories, read on every render. Per-app (2026-08-31): every registered window gets one —
+     * its own rows plus the shell's font/size/style/depth rows (Settings itself renders the global style, so it
+     * contributes only its own rows — none). Then each HOST category ([hostCategories], build W) whose name equals
+     * no registered window's name, case-insensitive — the window wins.
+     */
+    internal fun settingsApps(): List<Pair<String, List<HostSetting>>> {
+        val own = windows.mapNotNull { w ->
+            val rows = w.appSettings() +
+                (if (w === settingsWindow) emptyList() else styleRowsFor(w.id))
+            rows.takeIf { it.isNotEmpty() }?.let { w.name to it }
+        }
+        val host = hostCategories.filter { (name, _) -> windows.none { it.name.equals(name, ignoreCase = true) } }
+        return own + host
+    }
+
     // ------------------------------------------------------------------ set-up
     fun register(w: DamageWindow) {
         // the sub-record key scheme parses `window.<id>.<subKey>` at the FIRST
@@ -914,15 +955,7 @@ class Shell(
             settingsWindow = SettingsWindow(chromeText, { settings }, { applySettings(it) },
                 // the shell's own global font rows lead the host's rows
                 { globalFontRows + hostSettings },
-                // per-app categories (2026-08-31): every registered window gets
-                // one — its own rows plus the shell's font/size/style/depth
-                // rows (Settings itself renders the global style, so it
-                // contributes only its own rows — none)
-                { windows.mapNotNull { w ->
-                    val rows = w.appSettings() +
-                        (if (w === settingsWindow) emptyList() else styleRowsFor(w.id))
-                    rows.takeIf { it.isNotEmpty() }?.let { w.name to it }
-                } })
+                { settingsApps() })
             register(settingsWindow)
         }
         for (w in windows) w.onRegistered(services)
@@ -1113,8 +1146,17 @@ class Shell(
         batterySeenThisSession = false        // 0.64: this session's loop has handled no battery reading yet
         v2RefusedThisSession = false          // the start arms DRAW2 afresh, and the atlas check reads it again
         val atStart = transport.state.value   // ONE read for the two decisions below
-        if (atStart.glassesSilent)
-            enterSleep(SleepReason.SILENT, "the glasses say Silent Mode is on (the READ at session start)")
+        // Build W, package G (G-design §1): a start whose READ said Silent Mode completes with no carrier
+        // (`LinkState.carrierUp` false) — asleep here even when a push off has cleared `glassesSilent` since the
+        // start rested and before this read: that push's `SilentMode(false)` is queued behind this and wakes the
+        // shell into a rebuild. NOT for an ADOPTED session (its events while no shell ran were dropped, so no wake is
+        // queued): with no carrier it holds no lease either, and the branch below rebuilds it at once.
+        // Fix round 2 (R2.2): a start that RESTED (no carrier) says no notice — on glass a start in the case never
+        // reached this line before package G, and with it every start in the case (the install, an app restart, a
+        // reconnect) would post the urgent Silent Mode notice. An awake start that reads Silent Mode here (a push ON
+        // in the start's tail) still says it, as a push ON in a live session does.
+        if (atStart.glassesSilent || (!atStart.carrierUp && !adopted))
+            enterSleep(SleepReason.SILENT, "the glasses say Silent Mode is on (the READ at session start)", notice = atStart.carrierUp)
         else if (adopted && atStart.started && !atStart.leaseHeld) {
             // 0.64 (the P4 review's finding 4): this start ADOPTED a live session (a keeper resume, a
             // handback) whose lease is not held and whose glasses do not say Silent Mode — the session of a
@@ -1167,6 +1209,7 @@ class Shell(
             journal.note("build", buildTag.ifEmpty { "unstamped host" } + " · session start via ${transport.state.value.transportName}")
             linkRegimeSessionStart(adopted)
             inputAwaitsSlot = false; inputFlushPending = false     // a gesture of the last session flags nothing here
+            inputWaitSince = -1L                                  // package G (E3), with the flag
             // P5 item 1 (twice-read F1 = boundary-clear F2): a completion carries no session, only its id. What the
             // last session left in flight is cleared here — its answers, kept while down or late from a lane, are
             // journaled when they come and judged by nobody (`completeFlush`); every start composes the whole
@@ -1178,7 +1221,11 @@ class Shell(
             atlasAtSessionStart(adopted)
             composeFullSurface()
             comp.requestKeyframe()
-            if (settings.cachedText == "on") post(Msg.Run { atlasEnable() })
+            // fix round 2 (R2.4): only an AWAKE start enables the atlas. A start that rests has no flags in force
+            // (`draw2` false): it built a v1 atlas and moved the layout metric, every window re-wrapped while asleep,
+            // and the wake's session moved it back and re-wrapped again before its first flush. Every wake is a
+            // session start (`wakeGlasses`, `wakeFromRest`), and that start enables it
+            if (settings.cachedText == "on" && sleep == null) post(Msg.Run { atlasEnable() })
             if (notifications.showNextIfIdle()) {
                 if (quiet) scheduleSilentDismiss() else scheduleGrace()
                 updatePlanes()   // the restored box enters the plane map now (round 3 S3)
@@ -1312,6 +1359,7 @@ class Shell(
             if (pumpPriority) inputFlushPending = true
             mirrorNsThisMsg = 0L
             textNsAtMsgStart = wm.damage.core.text.TextProfile.drawNs.get()
+            val slowFrom = SlowFrom(loopClock, current?.id, mode)       // package G (E4): read only if the handler is slow
             val handlerT0 = System.nanoTime()
             if (!running && m !is Msg.Shutdown) {
                 // R2 (RE-4's class): an answer that throws must not end the loop with this message counted
@@ -1385,6 +1433,7 @@ class Shell(
                 raiseFault("loop", "ERROR handling ${m::class.simpleName}: ${e.message ?: e::class.simpleName} — restart when convenient", urgent = true, source = "shell")
             }
             handlerNsThisMsg = System.nanoTime() - handlerT0
+            if (handlerNsThisMsg >= SLOW_HANDLER_NS) noteSlow(m, handlerNsThisMsg, slowFrom)
             // P6 item 1 (LC-7): every handled message's time, whether or not its turn submits
             loopCost.getOrPut(if (m is Msg.Trans) m.ev.javaClass else m.javaClass) { LoopCost() }.add(handlerNsThisMsg)
             val pumpT0 = System.nanoTime()
@@ -2349,8 +2398,9 @@ class Shell(
             // is gated by that app's own rows in its own Settings category, never by a Global row
             // (P7 item 1, OS-1). Inside this arm, not ahead of the `when`: an `appId` on an SMS or MAIL
             // notice does not get it past `Notify · SMS` / `Notify · Mail`. An answer to Adam's own gesture
-            // (`Notice.answer`, P7 item 2) is not a courtesy event either.
-            "DAMAGE" -> n.appId != null || n.answer || settings.notifyDamage
+            // (`Notice.answer`, P7 item 2) is not a courtesy event either. A host category's notice
+            // (`Notice.gatedBy`, build W: the bus watcher's "Bastion") was gated by that category's own rows.
+            "DAMAGE" -> n.appId != null || n.answer || n.gatedBy != null || settings.notifyDamage
             else -> true
         }
     }
@@ -2485,7 +2535,7 @@ class Shell(
                     // the queue as the record that the level was crossed.
                     if (canPaint) post(Msg.Notice(Notifications.Notice("DAMAGE · glasses", "battery",
                         "glasses battery $pct% — time to charge", wallClock().hhmm, fault = true)))
-                    journal.note("lowbatt", "said at $pct% — " + lowbattWhere(said, canPaint, asleep, down = false))
+                    journal.note("lowbatt", "said at $pct% — " + lowbattWhere(said, canPaint, asleep, down = false), ev.atMs)
                 }
             }
             // 0.64 build 1 of rest mode READS only (`DESIGN.md` §0): a wear report acts on nothing here —
@@ -2531,7 +2581,7 @@ class Shell(
                 // §41: the arm and the reason reach the journal — thirteen
                 // alternating-arm session rebuilds in one day (2026-09-06)
                 // had left no trace but a "characteristic gone" fault
-                journal.note("link", if (ev.connected) "up: ${ev.detail}" else "DOWN: ${ev.detail}")
+                journal.note("link", if (ev.connected) "up: ${ev.detail}" else "DOWN: ${ev.detail}", ev.atMs)
                 chromeDirty = true
             }
             is TransportEvent.DiagFlags -> {
@@ -2555,9 +2605,9 @@ class Shell(
                     // already on its way at the release is how one gets there. Raised as a fault it was
                     // a notice waiting in the queue for the wake. The kind follows the sleep's reason
                     // (finding 11): a rest writes no `silent` note.
-                    journal.note(sleepKind(), "refused while asleep (${ev.what}): ${ev.detail}")
+                    journal.note(sleepKind(), "refused while asleep (${ev.what}): ${ev.detail}", ev.atMs)
                 } else {
-                    journal.note("fault", "${ev.what}: ${ev.detail}")
+                    journal.note("fault", "${ev.what}: ${ev.detail}", ev.atMs)
                     // with the link down or the session rebuilding the cell already says so, and a
                     // fault of the ending session would only wait in the queue as a stale box; an
                     // `imgres` is a refused image — never answered with a box's images (§36), its
@@ -2568,14 +2618,14 @@ class Shell(
                 }
             }
             is TransportEvent.Note -> {
-                journal.note(ev.kind, ev.detail)   // a fact: the journal only
+                journal.note(ev.kind, ev.detail, ev.atMs)   // a fact: the journal only (E2: with its own time)
                 if (ev.kind == "link") noteLinkRegime()   // §47: the transport's own parameter facts
                 // the one dev probe that is the shell's (the ledger lives here): the transport journals
                 // every probe as this note and sends nothing for this one
                 if (ev.kind == "probe" && ev.detail == "cache=miscount") probeCacheMiscount()
             }
             is TransportEvent.Presented ->         // FIRMWARE.md §3 (F1.3): a panel transfer timed on the glasses; §4: its path
-                journal.present(ev.seq, ev.workerUs, ev.copyUs, ev.transferUs, ev.path)
+                journal.present(ev.seq, ev.workerUs, ev.copyUs, ev.transferUs, ev.path, ev.atMs)
         }
     }
 
@@ -2842,8 +2892,10 @@ class Shell(
             ct.atlas = atlas
             // §73: the layout metric lays out for the atlas's contract (which codes a run may
             // hold, so which pairs kern). It moves only when a session's contract differs from
-            // the last atlas's — never on the daily path — and every layout made under the other
-            // rule is re-derived: accented text re-measured in place was cut by its own fit.
+            // the last atlas's — never on the daily path: a start that rests (Silent Mode, no
+            // flags in force) builds no atlas (fix round 2, R2.4; the wake's session does) — and
+            // every layout made under the other rule is re-derived: accented text re-measured in
+            // place was cut by its own fit.
             if (ct.metricV2 != st.draw2) {
                 ct.metricV2 = st.draw2
                 if (rederive && ct.cacheMetric) {
@@ -3495,7 +3547,8 @@ class Shell(
         atlasBytesSent += chunk.size
         // §42: the chunk is a flush like any other in the journal — with its label
         // and transport — so the report prices the upload where it happened
-        journal.flushSubmitted(id, comp.epoch, listOf(write), "ATLAS", st.transportName)
+        journal.flushSubmitted(id, comp.epoch, listOf(write), "ATLAS", st.transportName,
+            Journal.Timing(win = current?.id ?: "", mode = mode.name))     // package G (E4): on every submit record
         journal.note("atlas", "chunk of ${chunk.size} B submitted as flush $id (${atlasQueue.size} to go)")
         return true
     }
@@ -3857,7 +3910,8 @@ class Shell(
         }
         rec.state = StagedRecord.State.SENT
         stageInFlight = id; stageInFlightRec = rec; stageInFlightWrites = ops.size
-        journal.flushSubmitted(id, comp.epoch, ops, "STAGE", st.transportName)
+        journal.flushSubmitted(id, comp.epoch, ops, "STAGE", st.transportName,
+            Journal.Timing(win = current?.id ?: "", mode = mode.name))     // package G (E4): on every submit record
         journal.note("stage", "${rec.key} (${rec.encoded.size} B at ${rec.off}) submitted as flush $id in ${ops.size} write(s)")
     }
 
@@ -4401,8 +4455,9 @@ class Shell(
      *  a note, nothing else — that mode is the stronger sleep and its exit ends the firmware's page.
      *  Silent Mode coming on during a rest: the SAME sleep under the stronger reason — nothing is
      *  released twice, this episode's pacing loop goes on under the Silent rule, the Silent notice is
-     *  said; the rest is over as a rest (the push OFF wakes into a painting session). */
-    private fun enterSleep(reason: SleepReason, why: String) {
+     *  said; the rest is over as a rest (the push OFF wakes into a painting session).
+     *  [notice] false: the Silent notice is not said (fix round 2, R2.2: a start that rested). */
+    private fun enterSleep(reason: SleepReason, why: String, notice: Boolean = true) {
         val was = sleep                                         // ONE read: every branch decides from it
         if (was == reason) return
         if (was == SleepReason.SILENT) {
@@ -4441,7 +4496,7 @@ class Shell(
         if (reason == SleepReason.SILENT) {
             journal.note("silent", "glasses asleep — $why; no frames until they wake")
             Log.w("shell", "the glasses are silent ($why): frames stop, the lease is released; a check every ${silentPacingMs / 1000} s")
-            saySilentOnce(why)
+            if (notice) saySilentOnce(why)
         } else {
             // a rest paints nothing by definition and posts no notice: a box posted here could only
             // be seen after the wake, when it is no longer true
@@ -4830,9 +4885,60 @@ class Shell(
     /** §73: a ring event's pump found the window full; the next flush submitted is that gesture's
      *  (the journal's `in`). Set only there — a gesture that painted nothing leaves no mark. */
     private var inputAwaitsSlot = false
+    /** Build W, package G (E3): the loop's entry time of the ring event whose pump first found the window full
+     *  (-1: none waits). Set with [inputAwaitsSlot] — only the first such pump of a gesture — and cleared wherever it
+     *  is; the gesture's flush carries `inWaitMs` = its submit less this. Loop-only; journal only. */
+    private var inputWaitSince = -1L
     private var slidesNs = 0L
     private var chromeNs = 0L
     private var overlaysNs = 0L
+
+    /** Build W, package G (the lead's decision H, row E4; G-design §4): the host's clocks for the `slow` note; null
+     *  = none (a tool's shell), and the note writes -1 for each figure, said once. Set by the host before start. */
+    @Volatile var loopClock: LoopClock? = null
+    /** The once-per-process line that this host's clocks cannot answer (loop-only). */
+    private var slowClockSaid = false
+
+    /** What a loop message started from, for the `slow` note: the thread, its CPU and the collector's time, the face
+     *  renders so far, the window and the mode. A few reads per message (`clock_gettime` and counters); the note is
+     *  built only for a handler of [SLOW_HANDLER_NS] or more. */
+    private class SlowFrom(val clock: LoopClock?, val win: String?, val mode: Mode) {
+        val thread: Thread = Thread.currentThread()
+        val cpuNs = clock?.threadCpuNs() ?: -1L
+        val gcMs = clock?.gcMs() ?: -1L
+        val faces = wm.damage.core.text.TextProfile.faceRenders.get()
+        val facesNs = wm.damage.core.text.TextProfile.faceRenderNs.get()
+    }
+
+    /** E4 (2026-11-12 21:27:52: one ring event held the loop 1,140 ms, and ten handlers of 382-1,241 ms in a day; the
+     *  journal named no window): one `slow` note for a message that held the loop [SLOW_HANDLER_NS] or more — what it
+     *  was (a transport event's kind, a `Run`'s tag), the window and mode before → after, the thread's CPU time
+     *  against the wall (CPU close to wall = computation; far under = waiting), the collector's time during it, and
+     *  the faces rendered. Journal only; no fix rides on it. LOOP-ONLY. */
+    private fun noteSlow(m: Msg, ns: Long, from: SlowFrom) {
+        val ms = ns / 1_000_000
+        val sameThread = Thread.currentThread() === from.thread
+        val cpuNow = from.clock?.threadCpuNs() ?: -1L
+        val cpuMs = if (from.cpuNs >= 0 && cpuNow >= 0 && sameThread) (cpuNow - from.cpuNs) / 1_000_000 else -1L
+        val gcNow = from.clock?.gcMs() ?: -1L
+        val gcMs = if (from.gcMs >= 0 && gcNow >= 0) gcNow - from.gcMs else -1L
+        if ((from.cpuNs < 0 || gcNow < 0) && !slowClockSaid) {
+            slowClockSaid = true
+            journal.note("slow", "this host's clocks do not answer (" + (if (from.clock == null) "none set" else
+                listOfNotNull("thread CPU".takeIf { from.cpuNs < 0 }, "collector".takeIf { gcNow < 0 }).joinToString(" and ")) +
+                "): the figure reads -1 in every slow note of this process")
+        }
+        val what = when (m) {
+            is Msg.Trans -> "transport ${m.ev.javaClass.simpleName}"
+            is Msg.Run -> "Run " + m.tag.ifEmpty { "(untagged)" }
+            else -> m.javaClass.simpleName
+        }
+        val faces = wm.damage.core.text.TextProfile.faceRenders.get() - from.faces
+        val facesMs = (wm.damage.core.text.TextProfile.faceRenderNs.get() - from.facesNs) / 1_000_000
+        journal.note("slow", "handler $ms ms: $what · window ${from.win ?: "-"} → ${current?.id ?: "-"} · mode ${from.mode} → $mode · " +
+            "thread CPU $cpuMs ms of $ms wall" + (if (!sameThread) " (the handler moved threads: no CPU figure)" else "") +
+            " · collector $gcMs ms · faces rendered $faces in $facesMs ms")
+    }
 
     /** APK 0.65, P6 item 1 (the loop-cost sweep's LC-7): a count, a total and a maximum, in ns. */
     private class LoopCost {
@@ -5177,6 +5283,17 @@ class Shell(
                 { v -> applySettings(settings.copy(linkPriority = v)) }),
         )
     }
+
+    /**
+     * Build W (dec. B.3): a row for a HOST category ([hostCategories]) whose value is a SHARED setting — a field of
+     * [ShellSettings], synced as `shell.settings`, so the PC holds it too (`Notify · alerts`, `Notify · cleared`).
+     * The Settings window calls [HostSetting.apply] on the loop (its tap), and the change goes through
+     * [applySettings] like every Global row's. Build each row ONCE and keep it: Settings matches a staged row by
+     * identity.
+     */
+    fun sharedRow(name: String, options: List<String>, current: (ShellSettings) -> String,
+        set: (ShellSettings, String) -> ShellSettings): HostSetting =
+        HostSetting(name, options, { current(settings) }, { v -> applySettings(set(settings, v)) })
 
     /** Settings → <app>: font/size/style + depth rows, one STABLE set per
      *  window id (the Settings window matches staged rows by identity). */
@@ -5755,7 +5872,8 @@ class Shell(
         // fills, per-lens draws and a hint for lenses that no longer had DRAW2 in force.
         val st = transport.state.value
         comp.v2 = st.draw2 && !v2RefusedThisSession   // contract 2 (`FIRMWARE.md` §4): fills, the reseed, the hint
-        if (!running || !st.started) return
+        // package G (G-design §1): a session with no carrier (a start that rested in Silent Mode) takes no frame
+        if (!running || !st.started || !st.carrierUp) return
         // a cache write that was not this shell's landed in the live cache mid-session (the self-test's
         // `live:` writes, 2026-09-15 review): the atlas's bytes on the glasses are no longer what it
         // packed, so nothing draws from them — pixels until the next session or a Cached text toggle
@@ -5775,7 +5893,10 @@ class Shell(
         val cap = if (pumpPriority || yieldReserve) st.window else maxOf(1, st.window - 1)
         val room = st.inFlight < cap
         if (!room) {              // FlushDone re-pumps; §5.13 coalescing happens here
-            if (pumpPriority) inputAwaitsSlot = true      // §73: the flush that follows is still this gesture's
+            if (pumpPriority) {
+                inputAwaitsSlot = true      // §73: the flush that follows is still this gesture's
+                if (inputWaitSince < 0) inputWaitSince = loopSince     // package G (E3): when the gesture began to wait
+            }
             return
         }
 
@@ -5886,7 +6007,7 @@ class Shell(
         //    current (slides settle, the notice unfurls, chrome syncs) and
         //    NOTHING is sent; the wake keyframe carries all of it.
         if (glassesSilent) {
-            inputAwaitsSlot = false
+            inputAwaitsSlot = false; inputWaitSince = -1L
             if (animated || slides.any { it.active } || switcher.spinning || notifications.animating) post(Msg.Pump)
             return
         }
@@ -5931,6 +6052,10 @@ class Shell(
                         staged = comp.stagedRectsThisAssemble,
                         unpacked = (cachedText?.unpackedDrawn ?: 0L).let { now -> (now - unpackedAtLastFlush).also { unpackedAtLastFlush = now } },
                         input = (if (pumpPriority || inputAwaitsSlot) 1 else 0).also { inputAwaitsSlot = false },
+                        // package G (E3, E4): the gesture's wait in the shell for a slot, and what was on screen
+                        inWaitMs = (if (pumpPriority || inputWaitSince >= 0) (if (inputWaitSince >= 0) System.currentTimeMillis() - inputWaitSince else 0L)
+                            else -1L).also { inputWaitSince = -1L },
+                        win = current?.id ?: "", mode = mode.name,
                         slidesMs = slidesNs / 1_000_000, chromeMs = chromeNs / 1_000_000, overlaysMs = overlaysNs / 1_000_000,
                         textMs = (wm.damage.core.text.TextProfile.drawNs.get() - textNsAtMsgStart) / 1_000_000))
                 } catch (e: IllegalStateException) {
@@ -5954,7 +6079,7 @@ class Shell(
             // room, and nothing to send: a gesture that met a full window painted nothing after
             // all (or its paint went out with an earlier flush) — the flag is not left standing
             // for whatever flushes next (an idle tick, a push), which no ring event started
-            inputAwaitsSlot = false
+            inputAwaitsSlot = false; inputWaitSince = -1L
             // 6. nothing pending: the lowest-priority work — the cache count's reading
             //    (0.64), the atlas's next chunk (§40), then a staged strip (§66), then
             //    the preview settle
@@ -6337,6 +6462,7 @@ class Shell(
             put("emergency", n.emergency)
             put("appId", n.appId ?: "")
             put("target", n.target ?: "")
+            put("gatedBy", n.gatedBy ?: "")
             put("read", n.read)
         })
     }
@@ -6355,6 +6481,7 @@ class Shell(
                     emergency = o["emergency"]?.jsonPrimitive?.booleanOrNull ?: false,
                     appId = o["appId"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotEmpty() },
                     target = o["target"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotEmpty() },
+                    gatedBy = o["gatedBy"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotEmpty() },
                 ))
             } catch (ex: Exception) {
                 Log.w("shell", "unreadable persisted notice skipped: ${ex.message}")
@@ -6407,6 +6534,8 @@ class Shell(
          *  read by the 60 s device-info poll, so a check between polls would
          *  learn nothing new. */
         const val SILENT_PACING_MS = 60_000L
+        /** Package G (E4): a loop message whose handler held the loop this long or more gets a `slow` note. */
+        const val SLOW_HANDLER_NS = 250_000_000L
         /** One `silent` note per this many pacing checks while asleep (§42): an
          *  hour at the 60 s pacing. */
         const val SILENT_CHECKS_PER_NOTE = 60

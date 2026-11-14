@@ -1,0 +1,9 @@
+{"t": 1800000000000, "ev": "note", "kind": "process", "detail": "apk 0.66 (66) pid 1"}
+{"t": 1800000000001, "ev": "note", "kind": "power", "detail": "lit"}
+{"t": 1800003600000, "ev": "note", "kind": "battery", "detail": "glasses 97%"}
+{"t": 1800007200000, "ev": "note", "kind": "keeper", "detail": "start failed: test"}
+{"t": 1800005400000, "ev": "note", "kind": "battery", "detail": "glasses 96%", "late": 1800000}
+{"t": 1800036000000, "ev": "note", "kind": "process", "detail": "apk 0.66 (66) pid 2"}
+{"t": 1800036000001, "ev": "note", "kind": "power", "detail": "lit 90%"}
+{"t": 1800039600000, "ev": "note", "kind": "battery", "detail": "glasses 85%"}
+{"t": 1800039600001, "ev": "note", "kind": "power", "detail": "down"}

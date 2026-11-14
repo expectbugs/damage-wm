@@ -6,6 +6,20 @@
          Android 14+, so the service can start even before the user grants the
          Bluetooth runtime permissions (review round 1: launch crash-loop) -->
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+    <!-- Build W: "home unreachable" is said only while the phone itself is online — NetState follows
+         the validated networks with a network callback, which needs this normal permission
+         (tools/check_apk_wiring.py reads the merged manifest for it). -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Build W, package F (W-decisions G.4, G.5): presence from the phone's own position.
+         Precise location (with coarse, as the platform requires them together) and
+         background location ("Allow all the time"): location read from the shell
+         service, whose foreground types stay connectedDevice|mediaPlayback, is
+         background access. Nothing runs until both are granted (the app's
+         "location" button asks in two steps). No FOREGROUND_SERVICE_LOCATION:
+         the service's types do not change. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />

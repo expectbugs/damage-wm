@@ -135,6 +135,9 @@ data class WireState(
     // P5 item 19 (the one-sibling sweep's OS-8): the connection parameters as numbers (§47), which the shell's
     // slow-link regime reads at once; an older peer reads 0.0 / 0, "not reported" (`Shell.paramsSlow` tests > 0)
     val linkIntervalMs: Double = 0.0, val linkLatency: Int = 0,
+    // build W, package G: whether the far end's session has its carrier (a start that rested in Silent Mode has
+    // none); an older peer reads true, "up", as before
+    val carrierUp: Boolean = true,
 )
 
 // named on both sides: the two classes order their fields differently, and a
@@ -148,7 +151,7 @@ private fun LinkState.toWire() = WireState(connected = connected, started = star
     damageContract = damageContract, damageFeatures = damageFeatures, flagsInForce = flagsInForce, cacheSize = cacheSize,
     floorSamples = floorSamples, transferSamples = transferSamples,
     worn = worn, wearSwitch = wearSwitch,
-    linkIntervalMs = linkIntervalMs, linkLatency = linkLatency)
+    linkIntervalMs = linkIntervalMs, linkLatency = linkLatency, carrierUp = carrierUp)
 
 private fun WireState.toState() = LinkState(connected = connected, started = started, leaseHeld = leaseHeld,
     inFlight = inFlight, window = window, ackMsEma = ackMsEma, bytesPerSecEma = bytesPerSecEma,
@@ -158,7 +161,7 @@ private fun WireState.toState() = LinkState(connected = connected, started = sta
     damageContract = damageContract, damageFeatures = damageFeatures, flagsInForce = flagsInForce, cacheSize = cacheSize,
     worn = worn, wearSwitch = wearSwitch,
     floorSamples = floorSamples, transferSamples = transferSamples,
-    linkIntervalMs = linkIntervalMs, linkLatency = linkLatency,
+    linkIntervalMs = linkIntervalMs, linkLatency = linkLatency, carrierUp = carrierUp,
     capability = capability, rssiDbm = rssiDbm, transportName = "remote:$transportName", detail = detail)
 
 private fun DataOutputStream.send(c: Ctl, blob: ByteArray? = null) {
@@ -670,6 +673,10 @@ class RemoteTransportServer(
      *  Null (an unwired host) reads as wanting it — the conservative answer:
      *  a PC must never contend with an APK it cannot ask. */
     private val statusFor: (() -> SeamStatus)? = null,
+    /** Build W (the lead's decision B.4, package D): the listeners' reach gate — a connection that did not arrive
+     *  on loopback or the tailnet is closed unread. The strict phone side by default; the phone passes its own gate
+     *  (the journal's sink). The token below still guards every connection the gate admits. */
+    private val reach: wm.damage.core.net.ReachGate = wm.damage.core.net.ReachGate(wm.damage.core.net.Side.PHONE),
 ) : AutoCloseable {
     @Volatile private var server: ServerSocket? = null
     @Volatile private var running = false
@@ -690,6 +697,11 @@ class RemoteTransportServer(
                 val client = try { s.accept() } catch (e: Exception) {
                     if (running) Log.e("transport-server", "accept failed", e)
                     break
+                }
+                // the reach gate, before a byte is read (build W, dec. B.4): a refusal is closed unread
+                if (!reach.admit(client, "transport seam")) {
+                    try { client.close() } catch (e: Exception) { Log.w("transport-server", "closing a refused connection: ${e.message}") }
+                    continue
                 }
                 accepted.add(client)
                 Thread({

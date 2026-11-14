@@ -37,7 +37,24 @@ It checks, and prints one line each:
      replica `onProbe`) offer a probe to `Shell.devProbe` first and to the transport only when the shell
      says it is not its own — `rest=on|off` is the shell's, and a route that skips the shell builds and
      runs and answers `rest` with "not a probe this transport runs".
-Checks 3-7 read the sources as text: they catch a line removed or moved, not a wrong meaning. The
+  8. (build W, package D) the bus alert watcher reaches the phone and the PC: `channels()` creates "Bus alerts"
+     (default), "Bus alerts · urgent" (high) and "Home unreachable" (default); `busNotification` and
+     `homeNotification` post on them and nothing of the path reads `Phone notifications` or `onUrgent`;
+     `startStack` builds the delivery over that shade; `stopStack` closes the watcher's copy (`RemoteBastion`),
+     its judge (`HomeWatch`) and `NetState`; the source and merged manifests ask for `ACCESS_NETWORK_STATE` (the
+     network callback needs it); `onStartCommand` routes the notification's Acknowledge (`ACTION_ACK`) to the
+     channel's `ack`; both PC builders build the alert store and the nightly copy after the directory's claim and
+     put `"bastion"` in their content host's window map (4b, 4c); every listener built in main code passes a reach
+     gate (the selfcheck's loopback replica keeps the strict default by name); and the desktop's replica offers a
+     `drive=` probe to the standby before the shell sees it.
+  9. (build W, package F) presence from the phone's own position: the source manifest asks for coarse, fine and
+     background location and NOT for `FOREGROUND_SERVICE_LOCATION`, and the shell service's foreground types stay
+     `connectedDevice|mediaPlayback` (W-decisions G.5: they change only if the platform's documentation says so);
+     the merged manifest holds the three; `startStack` builds the position watch over the platform adapter and
+     hands it to the channel's copy; `stopStack` stops it, and that stop reaches `removeUpdates` (`PlaceWatch.close`
+     -> `AndroidPlaceSource.stop`); the adapter asks only the passive and network providers (no GPS provider, no
+     fused provider); and none of the adapter's log calls names a coordinate, a distance or an accuracy (G.6).
+Checks 3-9 read the sources as text: they catch a line removed or moved, not a wrong meaning. The
 text is read with its comments blanked by one pass that knows a string from a comment (`blank_comments`).
 
 A build output OLDER than the source manifest is judged by content, not refused by its time: when the
@@ -186,6 +203,69 @@ def callers(root, owner, name):
     return sorted(out)
 
 
+def permissions(manifest):
+    """The `android:name`s of a text manifest's <uses-permission> elements. Raises `ET.ParseError` for a file that is
+    not XML (the caller says it as a line)."""
+    return {e.get(ANDROID + 'name') for e in ET.parse(manifest).getroot().findall('uses-permission')}
+
+
+NET_STATE = 'android.permission.ACCESS_NETWORK_STATE'
+# build W, package F: presence from the phone's own position (W-decisions G.4-G.6)
+LOCATION = ('android.permission.ACCESS_COARSE_LOCATION', 'android.permission.ACCESS_FINE_LOCATION',
+            'android.permission.ACCESS_BACKGROUND_LOCATION')
+FGS_LOCATION = 'android.permission.FOREGROUND_SERVICE_LOCATION'
+SHELL_TYPES = 'connectedDevice|mediaPlayback'
+PLACE_SRC = 'phone/src/main/kotlin/wm/damage/phone/AndroidPlaceSource.kt'
+PLACE_CORE = 'core/src/main/kotlin/wm/damage/core/bastion/PlaceWatch.kt'
+
+
+def service_types(manifest, name):
+    """The `android:foregroundServiceType` of a text manifest's <service android:name=`name`>, or None."""
+    app = ET.parse(manifest).getroot().find('application')
+    for svc in ([] if app is None else app.findall('service')):
+        if svc.get(ANDROID + 'name') == name:
+            return svc.get(ANDROID + 'foregroundServiceType')
+    return None
+# The listener classes (build W, dec. B.4): each takes a reach gate; a construction in main code passes one, except the
+# selfcheck's replica on loopback, which keeps the strict default on purpose.
+LISTENERS = ('ContentHostServer', 'MediaServer', 'ReplicaServer', 'RemoteTransportServer', 'SetupServer')
+DEFAULT_GATE_OK = {('desktop/src/main/kotlin/wm/damage/desktop/SelfCheck.kt', 'ReplicaServer')}
+
+
+def call_args(code, i):
+    """The text between the parenthesis at `code[i]` and its match: strings ("…", with escapes) are skipped whole, so
+    a parenthesis inside one is not counted. A trailing lambda is not part of it. None when no match is found."""
+    depth, j = 0, i
+    while j < len(code):
+        c = code[j]
+        if c == '"':
+            j += 1
+            while j < len(code) and code[j] != '"':
+                j += 2 if code[j] == '\\' else 1
+        elif c == '(':
+            depth += 1
+        elif c == ')':
+            depth -= 1
+            if depth == 0:
+                return code[i + 1:j]
+        j += 1
+    return None
+
+
+def listener_constructions(root):
+    """[(file relative to root, class, its argument text or None)] of every construction of a listener class in main
+    sources (a declaration `class X(` is not one)."""
+    out = []
+    for src in MAIN_SOURCES:
+        for path in sorted(glob.glob(os.path.join(root, src, '**', '*.kt'), recursive=True)):
+            code = kotlin_code(path)
+            for m in re.finditer(r'(?<![\w])(%s)\(' % '|'.join(LISTENERS), code):
+                if re.search(r'\bclass\s+$', code[:m.start()]):
+                    continue
+                out.append((os.path.relpath(path, root), m.group(1), call_args(code, m.end() - 1)))
+    return out
+
+
 def check(root=ROOT, say=print):
     """Runs every check on the tree at `root`. Returns the exit status."""
     failed, unjudged, notes = [], [], []
@@ -208,6 +288,17 @@ def check(root=ROOT, say=print):
         src_why = 'phone/src/main/AndroidManifest.xml cannot be read (%s: %s)' % (type(e).__name__, e)
     src_names = src_name in (APP, '.' + APP.rsplit('.', 1)[1])
     line(src_names, 'the source manifest names %s as the application' % APP, src_why)
+    if src_time is not None:
+        line(NET_STATE in permissions(src_manifest), 'the source manifest asks for %s (build W: the phone\'s own network)' % NET_STATE,
+             'no <uses-permission android:name="%s"/> in phone/src/main/AndroidManifest.xml' % NET_STATE)
+        src_perms = permissions(src_manifest)
+        lacking = [p for p in LOCATION if p not in src_perms]
+        line(not lacking and FGS_LOCATION not in src_perms,
+             'the source manifest asks for coarse, fine and background location and not %s (build W, package F)' % FGS_LOCATION,
+             ('it lacks ' + ', '.join(lacking)) if lacking else 'it asks for %s: the service\'s types do not change' % FGS_LOCATION)
+        types = service_types(src_manifest, '.ShellService')
+        line(types == SHELL_TYPES, 'the shell service\'s foreground types stay %s (build W, package F)' % SHELL_TYPES,
+             'its foregroundServiceType is %r' % types)
 
     def stale(what, path, agrees):
         """An output older than the source manifest is judged by CONTENT, not refused by time (RF-7). Gradle
@@ -235,6 +326,7 @@ def check(root=ROOT, say=print):
     else:
         try:
             name = application_name(merged[0])
+            merged_perms = permissions(merged[0])
         except ET.ParseError as e:
             # a build output that cannot be read is not judged (R2: it ended as a Python fault)
             unjudged.append('the merged manifest %s is not XML (%s): run :phone:assembleDebug'
@@ -243,6 +335,11 @@ def check(root=ROOT, say=print):
         if merged and not stale('the merged manifest', merged[0], src_names and name == APP):
             line(name == APP, 'the merged manifest names %s as the application' % APP,
                  'android:name is %r in %s' % (name, os.path.relpath(merged[0], root)))
+            line(NET_STATE in merged_perms, 'the permission %s is in the merged manifest' % NET_STATE,
+                 'no such <uses-permission> in %s' % os.path.relpath(merged[0], root))
+            lacking = [p for p in LOCATION if p not in merged_perms]
+            line(not lacking, 'the location permissions of build W, package F are in the merged manifest',
+                 'it lacks %s' % ', '.join(lacking))
 
     # 2. the APK itself
     apk = os.path.join(root, 'phone/build/outputs/apk/debug/phone-debug.apk')
@@ -288,20 +385,33 @@ def check(root=ROOT, say=print):
     main_kt = kotlin_code(os.path.join(root, 'desktop/src/main/kotlin/wm/damage/desktop/Main.kt'))
     run = body_of(main_kt, 'private fun runShell(')
     steps = ['InstanceLock.claimOrExit(', 'UncaughtRecord.install(', 'Journal.rotateAtStart(', 'Journal.archivesSaid(', 'UncaughtRecord.installedLine(',
-             'UncaughtRecord.takePending(', 'Persistence(', 'ContentHostServer(', 'Journal(']
+             'UncaughtRecord.takePending(', 'Persistence(', 'cfg.alertStore()', 'ContentHostServer(', 'cfg.nightlyCopy(', 'Journal(']
     at = [run.find(s) if run else -1 for s in steps]
     missing = [s for s, i in zip(steps, at) if i < 0]
     line(not missing and at == sorted(at), 'runShell: the data directory claimed, then record, rotation, the archives counted, record in place, pickup — '
-         'before the store, the host and any journal writer',
+         'before the store, the alert store, the host, the nightly copy and any journal writer',
          ('missing ' + ', '.join(missing)) if missing else 'out of order: ' + ' < '.join(s for _, s in sorted(zip(at, steps))))
+
+    def bastion_in_host(body):
+        """Build W: the content host this builder constructs carries the `bastion` window channel."""
+        i = body.find('ContentHostServer(') if body else -1
+        args = call_args(body, i + len('ContentHostServer')) if i >= 0 else None
+        return bool(args) and '"bastion" to' in args
+    line(bastion_in_host(run), 'runShell: its content host serves the "bastion" window channel', 'no "bastion" to … in its ContentHostServer(…)')
 
     # 4c. --host-only claims the directory before its providers, its store and its host (the same store, ports, engines)
     host = body_of(main_kt, 'private suspend fun hostOnly(')
-    steps = ['InstanceLock.claimOrExit(', 'LocalTmuxProvider(', 'Persistence(', 'startMusic(', 'ContentHostServer(']
+    steps = ['InstanceLock.claimOrExit(', 'LocalTmuxProvider(', 'Persistence(', 'startMusic(', 'cfg.alertStore()', 'ContentHostServer(', 'cfg.nightlyCopy(']
     at = [host.find(s) if host else -1 for s in steps]
     missing = [s for s, i in zip(steps, at) if i < 0]
-    line(not missing and at == sorted(at), 'hostOnly: the data directory claimed before its providers, its store and its host',
+    line(not missing and at == sorted(at), 'hostOnly: the data directory claimed before its providers, its store, its alert store, its host and its nightly copy',
          ('missing ' + ', '.join(missing)) if missing else 'out of order: ' + ' < '.join(s for _, s in sorted(zip(at, steps))))
+    line(bastion_in_host(host), 'hostOnly: its content host serves the "bastion" window channel', 'no "bastion" to … in its ContentHostServer(…)')
+    # build W, package F: the phone's reports reach damage.phone, and its path signal goes back, in both builders
+    line('BastionService(alertStore, bastionWatcher::stateLine, tmuxScope, phonePresence)' in run,
+         'runShell: the bastion channel carries the phone\'s presence reports to damage.phone', 'its BastionService(…) is not given phonePresence')
+    line('BastionService(alerts, watcher::stateLine, scope, presence)' in host,
+         'hostOnly: the bastion channel carries the phone\'s presence reports to damage.phone', 'its BastionService(…) is not given presence')
 
     # 5. who calls the two start-only functions
     want = {('Journal', 'rotateAtStart'): [('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'runShell'),
@@ -352,6 +462,80 @@ def check(root=ROOT, say=print):
         line(0 <= a < b, '%s: the probe route offers a probe to the shell, then to the transport' % os.path.basename(path),
              'no onProbe = { … } route' if not route else 'the route is ' + ' '.join(route.split()))
 
+    # 8. build W, package D: the bus alert watcher's wiring (the spec's D9, R6 P17 / T18). A shell whose delivery nothing
+    #    builds, a channel nothing creates or a listener with no gate all build and run.
+    chans = body_of(svc_code, 'private fun channels()') or ''
+    for const, title, imp in (('CHANNEL_BUS', 'Bus alerts', 'DEFAULT'), ('CHANNEL_BUS_URGENT', 'Bus alerts · urgent', 'HIGH'),
+                              ('CHANNEL_HOME', 'Home unreachable', 'DEFAULT')):
+        want = 'NotificationChannel(%s, "%s", NotificationManager.IMPORTANCE_%s)' % (const, title, imp)
+        line(want in chans, 'channels() creates the %s channel at the %s importance' % (title, imp.lower()), 'no %s in channels()' % want)
+    bus = body_of(svc_code, 'private fun busNotification(') or ''
+    home = body_of(svc_code, 'private fun homeNotification(') or ''
+    i = svc_code.find('private val busAlerts = object : PhoneAlerts {')
+    shade = svc_code[i:svc_code.find('\n    }\n', i)] if i >= 0 else ''
+    behind = [w for w in ('phoneNotifications', 'onUrgent', 'urgentNotification') if w in bus + home + shade]
+    line(bool(bus) and bool(home) and bool(shade) and 'Builder(this, channel)' in bus and 'CHANNEL_BUS_URGENT else CHANNEL_BUS' in bus
+         and 'BUS_NOTIF_ID' in bus and 'Builder(this, CHANNEL_HOME)' in home and 'HOME_NOTIF_ID' in home
+         and 'busNotification(' in shade and 'homeNotification(' in shade and not behind,
+         'the bus alerts and "home unreachable" post on their own channels, not behind `Phone notifications` or `onUrgent`',
+         ('they read ' + ', '.join(behind)) if behind else 'busNotification / homeNotification / the busAlerts shade are missing or post elsewhere')
+    line('AlertDelivery(sh, busAlerts' in stack and 'RemoteBastion(' in stack and 'HomeWatch(' in stack and 'NetState(this)' in stack
+         and 'sh.hostCategories = listOf(BastionRows.category(' in stack,
+         'ShellService.startStack builds the delivery over the phone\'s shade, the channel\'s copy, the judge and the Bastion category',
+         'one of AlertDelivery(sh, busAlerts …), RemoteBastion(, HomeWatch(, NetState(this), sh.hostCategories = … is not in startStack')
+    # fix round 1 of build W: the `Phone · alerts` row's change reconciles the shade at once
+    line('delivery.phoneRowChanged(' in stack,
+         'ShellService.startStack: the Phone · alerts row reconciles the shade when it changes',
+         'no delivery.phoneRowChanged( in startStack (the row would leave the shade as it was)')
+    stop = body_of(svc_code, 'private fun stopStack()') or ''
+    gone = [w for w in ('remoteBastion = null', 'rb?.close()', 'homeWatchJob?.cancel()', 'netState?.close()') if w not in stop]
+    line(not gone, 'ShellService.stopStack closes RemoteBastion, stops HomeWatch and unregisters NetState',
+         'not in stopStack: ' + ', '.join(gone))
+    # 9. build W, package F: presence from the phone's own position. A watch nothing stops keeps the platform's
+    #    updates after the stack; a log line with a coordinate in it builds and runs.
+    line('PlaceWatch(AndroidPlaceSource(this)' in stack and 'placeJob = place.start(scope)' in stack and 'place = place)' in stack,
+         'ShellService.startStack builds the position watch over the platform adapter and hands it to the channel\'s copy',
+         'one of PlaceWatch(AndroidPlaceSource(this) …, placeJob = place.start(scope), RemoteBastion(… place = place) is not in startStack')
+    try:
+        place_src = kotlin_code(os.path.join(root, PLACE_SRC))
+        place_core = kotlin_code(os.path.join(root, PLACE_CORE))
+    except OSError as e:
+        place_src = place_core = ''
+        line(False, 'the position adapter and watch can be read', '%s: %s' % (type(e).__name__, e))
+    pstop = body_of(place_src, 'override fun stop()') or ''
+    pclose = body_of(place_core, 'override fun close()') or ''
+    gone = [w for w in ('placeJob?.cancel()', 'placeWatch?.close()') if w not in stop]
+    line(not gone and 'source.stop()' in pclose and 'removeUpdates(' in pstop,
+         'ShellService.stopStack removes the position updates (PlaceWatch.close -> AndroidPlaceSource.stop -> removeUpdates)',
+         ('not in stopStack: ' + ', '.join(gone)) if gone else 'PlaceWatch.close does not call source.stop() or AndroidPlaceSource.stop has no removeUpdates(')
+    pstart = body_of(place_src, 'override fun start(') or ''
+    asked = set(re.findall(r'LocationManager\.(\w+_PROVIDER)', pstart))
+    others = [w for w in ('GPS_PROVIDER', 'FUSED_PROVIDER', 'com.google.android.gms') if w in place_src]
+    line(asked == {'PASSIVE_PROVIDER', 'NETWORK_PROVIDER'} and 'requestLocationUpdates(' in pstart and not others,
+         'the position adapter asks only the passive and network providers (no GPS, no fused provider, no Play services)',
+         'it names %s' % ', '.join(sorted(asked) + others))
+    leaks = []
+    for m in re.finditer(r'(?<![\w.])Log\.[diwe]\(', place_src):
+        args = call_args(place_src, m.end() - 1) or ''
+        if re.search(r'latitude|longitude|accuracy|\bloc\b|fixOf\(|Fix\(', args):
+            leaks.append(' '.join(args.split())[:80])
+    line(bool(place_src) and not leaks, 'none of the position adapter\'s log calls names a coordinate, a distance or an accuracy',
+         'it logs ' + ' | '.join(leaks) if leaks else 'the adapter cannot be read')
+    cmd = body_of(svc_code, 'override fun onStartCommand(') or ''
+    tap = body_of(svc_code, 'private fun onAcknowledgeTap(') or ''
+    line('ACTION_ACK' in cmd and 'onAcknowledgeTap(' in cmd and '.ack(id, episode)' in tap and 'Dispatchers.IO' in tap,
+         'onStartCommand routes the notification\'s Acknowledge to the channel\'s ack, off the main thread',
+         'no ACTION_ACK → onAcknowledgeTap → .ack(id, episode) on Dispatchers.IO')
+    ungated = ['%s (%s)' % (f, c) for f, c, args in listener_constructions(root)
+               if (f, c) not in DEFAULT_GATE_OK and (args is None or not re.search(r'\breach\b', args))]
+    line(not ungated, 'every listener built in main code passes a reach gate', 'built with no gate: ' + ', '.join(ungated))
+    main_code = kotlin_code(os.path.join(root, 'desktop/src/main/kotlin/wm/damage/desktop/Main.kt'))
+    i = main_code.find('onProbe = {')
+    route = main_code[i:main_code.find('\n', main_code.find('Log.w(', i))] if i >= 0 else ''
+    a, b = route.find('if (n == "drive") driveProbe(v)'), route.find('it.shell.devProbe(n, v)')
+    line(0 <= a < b, 'Main.kt: the replica offers a drive= probe to the standby before the shell',
+         'no onProbe = { … } route' if not route else 'the route is ' + ' '.join(route.split()))
+
     for n in notes:
         say('note  ' + n)
     for u in unjudged:
@@ -374,12 +558,15 @@ def selftest():
     scrap = os.path.join(root, 'Snippet.kt')
     missed, cases = 0, 0
 
-    def outputs(named=True, at=T):
-        """The stand-in build outputs, with or without the application's name in them, last written at `at`."""
+    def outputs(named=True, at=T, net=True, loc=True):
+        """The stand-in build outputs, with or without the application's name in them (and the network and location
+        permissions in the merged manifest), last written at `at`."""
         for f in (merged, apk):
             os.makedirs(os.path.dirname(f), exist_ok=True)
-        open(merged, 'w').write('<manifest xmlns:android="http://schemas.android.com/apk/res/android"><application%s/></manifest>'
-                                % (' android:name="%s"' % APP if named else ''))
+        perms = ([NET_STATE] if net else []) + (list(LOCATION) if loc else [])
+        open(merged, 'w').write('<manifest xmlns:android="http://schemas.android.com/apk/res/android">%s<application%s/></manifest>'
+                                % (''.join('<uses-permission android:name="%s"/>' % p for p in perms),
+                                   ' android:name="%s"' % APP if named else ''))
         with zipfile.ZipFile(apk, 'w') as z:
             z.writestr('classes.dex', b'..' + (('L' + APP.replace('.', '/') + ';').encode() if named else b'') + b'..')
             z.writestr('AndroidManifest.xml', (APP if named else 'wm.damage.phone.MainActivity').encode('utf-16-le'))
@@ -515,6 +702,60 @@ def selftest():
              [n for n in ['exit %r, not 2' % (code,) if code != 2 else '',
                           'said %r' % said(out, 'FAIL', 'NOT JUDGED') if not [l for l in said(out, 'NOT JUDGED') if 'merged manifest' in l and 'XML' in l] else ''] if n])
         outputs()
+
+        # build W, package D: the network permission and the listeners' gate
+        source(real, T - 3600)
+        outputs(net=False)
+        code, out = run()
+        case('build W: a merged manifest without ACCESS_NETWORK_STATE is a FAIL line (exit 1)',
+             [n for n in ['exit %d, not 1' % code if code != 1 else '',
+                          'said %r' % said(out, 'FAIL') if said(out, 'FAIL') != ['FAIL  the permission %s is in the merged manifest: no such <uses-permission> in '
+                          'phone/build/intermediates/merged_manifests/debug/processDebugManifest/AndroidManifest.xml' % NET_STATE] else ''] if n])
+        # build W, package F: the location permissions, the service's types, the adapter's providers and log lines
+        outputs(loc=False)
+        code, out = run()
+        case('build W, package F: a merged manifest without the location permissions is a FAIL line (exit 1)',
+             [n for n in ['exit %d, not 1' % code if code != 1 else '',
+                          'said %r' % said(out, 'FAIL') if said(out, 'FAIL') != ['FAIL  the location permissions of build W, package F are '
+                          'in the merged manifest: it lacks %s' % ', '.join(LOCATION)] else ''] if n])
+        outputs()
+        source(real.replace('connectedDevice|mediaPlayback', 'connectedDevice|mediaPlayback|location'), T - 3600)
+        code, out = run()
+        case('build W, package F: a location type added to the shell service is a FAIL line (exit 1)',
+             [n for n in ['exit %d, not 1' % code if code != 1 else '',
+                          'said %r' % said(out, 'FAIL') if not said(out, 'FAIL  the shell service\'s foreground types stay') else ''] if n])
+        source(real, T - 3600)
+        place = os.path.join(root, PLACE_SRC)
+        kept = open(place, encoding='utf-8').read()
+        for title, edit, want in (
+                ('a log call that names a coordinate', ('Log.w(TAG, "the $p location provider', 'Log.w(TAG, "${loc.latitude} the $p location provider'),
+                 'FAIL  none of the position adapter\'s log calls'),
+                ('a GPS provider asked for', ('LocationManager.NETWORK_PROVIDER)', 'LocationManager.NETWORK_PROVIDER, LocationManager.GPS_PROVIDER)'),
+                 'FAIL  the position adapter asks only'),
+                ('a stop that removes nothing', ('try { lm?.removeUpdates(l) }', 'try { lm?.toString() }'),
+                 'FAIL  ShellService.stopStack removes the position updates')):
+            assert kept.count(edit[0]) == 1, edit[0]
+            open(place, 'w', encoding='utf-8').write(kept.replace(edit[0], edit[1]))
+            code, out = run()
+            case('build W, package F: %s is a FAIL line (exit 1)' % title,
+                 [n for n in ['exit %d, not 1' % code if code != 1 else '',
+                              'said %r' % said(out, 'FAIL') if not said(out, want) else ''] if n])
+        open(place, 'w', encoding='utf-8').write(kept)
+
+        outputs()
+        gate = 'every listener built in main code passes a reach gate'
+        tool_with('        val r = wm.damage.core.replica.ReplicaServer(1, "(t", { null }, { wm.damage.core.replica.ReplicaServer.Status() })')
+        code, out = run()
+        case('build W: a listener built with no gate is a FAIL line naming its file (a parenthesis inside a string is not counted)',
+             [n for n in ['exit %d, not 1' % code if code != 1 else '',
+                          'said %r' % said(out, 'FAIL') if said(out, 'FAIL') != ['FAIL  %s: built with no gate: '
+                          'core/src/main/kotlin/wm/damage/core/util/SelftestTool.kt (ReplicaServer)' % gate] else ''] if n])
+        tool_with('        val r = wm.damage.core.replica.ReplicaServer(1, "(t", { null }, { wm.damage.core.replica.ReplicaServer.Status() },\n'
+                  '            reach = g)')
+        code, out = run()
+        case('...the same construction with a gate passes',
+             [n for n in ['exit %d, not 0' % code if code else '', 'said %r' % said(out, 'FAIL') if said(out, 'FAIL') else ''] if n])
+        os.remove(tool)
 
         source(real, T - 3600)
         tool_with('        val accept = "*/*"\n        Journal.rotateAtStart(p)')

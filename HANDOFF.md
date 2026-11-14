@@ -7468,6 +7468,331 @@ his weekly meter did not move a whole percent across the pass's second half.
 waste it), and go with your recommendations for anything else. I'm headed to work so try to automate the build and
 get a lot done please." The plan's calls stand as recommended (`REPLAN.md` §16 head); `CLAUDE.md` takes the pruning
 pass's changes and names the Quiet hours row among Global's; the alert watcher's build (W, APK 0.66) starts on the
-local branch `wip/066`. His weekly meters at the start, read by the lead (`private/tools/usage_read.sh`): all models
-55 %, the largest model 74 %.
+local branch `wip/066`. His weekly meters were read by the lead at the start (`private/tools/usage_read.sh`).
+
+## 79. APK 0.66 built: the bus alert watcher (W), presence, and the first-day fixes of 0.64 and 0.65 (2026-11-13)
+
+Context for the reader: a personal device, the published patch method, display-rendering work. Adam's own window
+manager for his own glasses, phone and PC on his own network; this section records an unattended build on his
+machines: a reader on his PC that only READS his own home hub and raises notices on his glasses and phone, with the
+riders and the fixes the first days of 0.64 and 0.65 asked for. **Every number below is measured on the simulator (the
+desktop JVM and the model of the firmware) or on the PC unless it says otherwise; 79.5 is read from his glasses and
+phone (the phone's journal).** As written, APK 0.66 (versionCode 66) is built and verified on the local branch
+`wip/066` — **not merged, not pushed, not staged, not installed; the PC service still runs `b833713` (§77.12).**
+No stage sent anything to the glasses, the phone or the hub; nothing was flashed. His home's details (the hub's
+address, its entity ids, the first rules) are in the gitignored `private/` and nowhere in this record.
+
+The build ran on `wip/066` from `c9963e3` (his go, §78's tail): `3ce172a` … `3fa9b93`, then this record and the version
+commit. Three unattended runs, one stage at a time, each stage Claude Opus at xhigh effort: (1) packages A–D, a
+verification, general review pass 1; (2) fix round 1, packages E, F and G (added during the build by his words and by
+the first-day read), verification 2, general review pass 2; (3) fix round 2, a focused read of what that round added,
+verification 3 with the watcher's mutation sweep and the whole battery, these records. The lead's rulings are the
+session's `W-decisions.md` (A–H2), `W-R1-decisions.md` and `W-R2-decisions.md`; the stage reports and the reviews sit
+beside them in the session's scratch directory, not in the repo.
+
+**The lead's calls that Adam may want to reverse** (each is a default or one line of a ruling):
+1. **Quiet hours default off**, and in this build the row governs only the watcher's notices and "home unreachable";
+   every other notice follows at S1-2's notice record (`CONTRACT.md` §7.3).
+2. **Nothing is marked urgent in the first rule set** (a draft in `private/`). An urgent rule repeats every ten minutes
+   until acknowledged and passes quiet hours.
+3. **Presence by location is off until he grants it**: the app's "location" button, precise location, "Allow all the
+   time". Approximate location is refused (it cannot place him inside 300 m).
+4. **A start that rests says no notice** (R2.2): a session started with the glasses in Silent Mode stays quiet; a push
+   ON during a live session still says it once.
+5. **The away-guarded change rules stay out of the installed rule file** until `damage.phone` is seen to read `home`
+   with him home (79.9 item 2).
+6. The rules live in their own file, read once at start (no hot reload; a missing file = no rules); the hub's token is
+   read from a file he already keeps (`haTokenFile`; `config.json` holds no token for it).
+7. Defaults: hub poll 10 s; "not answering" after 5 min; "home unreachable" after 10 min; the nightly copy at 03:30,
+   14 kept, off until `backupDir` is set; the listeners' reach gate on (`reachOpen` false).
+8. The phone's channels: "Bus alerts" (default importance), "Bus alerts · urgent" (high), "Home unreachable"
+   (default); none behind Global `Phone notifications`.
+9. The bus position is learned only from a fix confirmed by a later answer (150 s, `LEARN_CONFIRM_MS`, the lead's
+   number, inferred), kept in a file the platform leaves out of backup, and never sent; home within 300 m, away beyond
+   500 m, the band between keeps the last answer.
+10. Two first-day faults are measured, not fixed: a gesture behind staging writes (a fix would reorder the image lane)
+    and a loop message of a second or more (no fix on this evidence).
+
+### 79.1 His words (2026-11-13)
+
+- The go (~13:20): §78's tail.
+- On the hub: he re-added the power system to his hub himself. Alert levels for the battery: "40 and 20 seem ok". A
+  waste-water level alert from 70 % ("on a non-flat site … 70 could mean very full").
+- Change over time (~14:35): "if grey or fresh tanks change by more than 3% while I'm at work or away from bus,
+  meaning a potential leak or issue. Stuff like that" → package E.
+- Presence (~14:50): "use location awareness on my phone, via the Damage app, to detect where I am and compare it to
+  where the bus is … at some point it should be able to auto detect" → package F: the app learns the bus's position
+  while the phone is on the bus network, and positions stay on the phone.
+- He used 0.64 and 0.65 on 11-12 and offered the journal → the first-day read (79.5) → package G.
+- His corrections: at 14:16 the glasses were still in Silent Mode — he left it about 14:38 (that is 11-13: the
+  journal's wake at 14:38:32; on 11-12 the READ of 14:18:21 already found them awake); the glasses have no control to
+  restart them ("restart" in a record means the app's session); on 11-12 at about 14:18 he switched the app to the
+  simulator and back "because DamageWM didn't take over the glasses after I exited silent mode" (79.2 G, 79.5).
+
+### 79.2 What 0.66 is, package by package
+
+**A — the core model** (`3ce172a`). `core/…/bastion/`: `HaReader` (the hub reader: one `Http.request("GET", …)` site;
+paths limited to the health check and the rules' own entities; the token file read with five answers — ok, missing,
+empty, unreadable, malformed — and never printed); `AlertRule` / `RulesFile` (the rule model and its file; a bad rule
+refuses only itself); `RuleEval` (one pure decision per rule and reading: `above` / `below` with a clear band,
+`equals` / `notEquals`, `unavailable`, `stale`); `AlertStore` (`alerts.json`: CLEAR → RAISED → ACKED → CLEAR with
+episodes; the epoch and the last event `seq` kept in the file, so a restart keeps both; a ring of 200 events; a
+`table {since, epoch}` older than the ring is answered `truncated` with the whole table, a snapshot instead of a
+silent gap). `core/…/net/Reach.kt`: one pure function decides a listener's reach. Lint **RO001**: the package holds
+exactly one GET site, no write-method literal and no other HTTP client.
+
+**B — the PC host** (`9211ecc`). `BastionWatcher`: polls every `haPollSec`; liveness without timeouts (a round still in
+flight is said after 60 s, at most two run); built-in alerts `watcher.*` for the hub not answering, a refused token
+(polling stops until a restart with a good file), the token file, the rules file, the store and the nightly copy.
+`BastionService`: the `bastion` window channel on the content port (`table`, `ack`, and pushed `event`s from one
+sender). `ReachGate` on every PC listener: content host, media endpoint, replica, setup page (the page keeps its own
+tailnet-or-loopback check after the gate). `NightlyCopy` (79.3). Nine config keys. Wired in both host builders.
+
+**C — the phone's half, in core** (`91dff66`). `RemoteBastion` (the channel's client: a first-contact reconcile and a
+`table` ask every 15 s that keeps the last-heard clock moving), `AlertDelivery` (the glasses notice through
+`Shell.notifyFromHost(…, gatedBy = "Bastion")` and the Android notification, from one record), `QuietHours` (the one
+shared Global row), `HomeWatch` ("home unreachable"), `BastionRows` (the Settings category before the window).
+
+**D — the phone, the standby, the riders** (`5500e71`). The APK: three channels and the notification's Acknowledge
+button (`ack {id, episode}`); the phone's own rows in its preferences; `NetState` ("home unreachable" is said only
+while the phone itself is online); the reach gate on the phone's replica and seam. **PC-direct Bluetooth is manual:**
+`StandbyPolicy.Action` has no member that starts a stack; the automatic claim, its scan (`StandbyScan`), its debounce
+and its give-back are deleted; `--transport ble`, the replica probe `drive=ble` (back with `drive=auto`) and the PC
+shell's `Target` row are the only ways in. The first flash's rider: the `heap3` notes. The watcher's mutation list.
+
+**E — change rules and "while away"** (`b942cfd`). A `when` guard on any rule (`{entity, equals | notEquals}`): the
+rule is judged only while it holds; its end resets the clocks and clears the alert; no reading arms nothing and clears
+nothing. The kind `change` (`at`, `direction`, `forMin`; a baseline taken at arming, re-taken on acknowledge and kept
+in `alerts.json`, or with `withinMin` the value that many minutes ago from a ring kept in memory). The built-in value
+`damage.phone` (`home` · `away` · `unknown`): once a minute the PC reads its own Tailscale daemon's status (`tailscale
+status --json`, a local command) for the configured phone's path — `home` when it is direct to a private address on
+one of the PC's non-point-to-point networks, `away` after 15 minutes relayed or public, `unknown` otherwise (an idle
+peer included). `unknown` never arms a guard.
+
+**F — presence from the phone's position** (`930e6b3`). `PlaceWatch` over `AndroidPlaceSource` (the passive and
+network providers, about every 10 minutes and 100 m; no GPS asked for, no Play services, the service's foreground
+types unchanged, per the platform documentation the stage read first). The phone learns the bus's position from fixes
+taken while the PC's path read says home, judges home and away against it, and sends the PC only the word and the
+fix's age on its `table` ask; each answer carries `bus` (the path signal). The PC combines: `home` if either says home;
+`away` if the phone says away, or with no current report (none, `unknown`, older than 2 min) the path far for 15
+minutes. The app's "location" button asks in the two steps the platform requires; the `Position` and `Presence ·
+location` rows.
+
+**G — first-day fixes** (`3347fdc`; 79.5 is why). **A start that rests:** a start whose own READ says Silent Mode
+completes asleep with no carrier — no CREATE, lease, cache size, flags, warmup or fid clear; `LinkState.carrierUp`
+false; `Shell.startLocked` sleeps on it (an adopted session is rebuilt instead) and the existing wake (the push off)
+rebuilds the session. The simulator gains `createAnsweredWhileSilent` (default false: no CREATE answered in Silent
+Mode); the nine failed starts were reproduced on the old tree first; an awake start's messages are compared byte for
+byte with `930e6b3`'s (`SilentStartTest.anAwakeStartWritesWhatItWroteBefore`, the heap reads off; 9 / 11 / 17
+packets). **H2's trace** (the wake he had to force on 11-12): a Silent Mode off cue arriving at each of six points of a
+start in progress ends with the shell awake or rebuilding, on the old tree and the new — no point loses it, and the
+11-12 exit sent no cue the parser reads (the check at 14:17:08 still read silent; the unasked 09-01 block of
+14:17:05.9 carried no field 14). Inferred from the code and the journal; nothing was built on a guess, and the new
+`cue` notes catch the next one. **Event times:** transport events carry their own time; a line written a second or
+more after it says `late`; the report sorts by event time. **Reads only:** `inWaitMs` (a gesture's wait in the shell
+behind a full window) and the report's `input->done ms`; the window id on every flush; a `slow` note (thread CPU
+against wall and collector time) for a loop message of a second or more; `cue` notes for a change of field 14 in
+unasked 09-01 blocks and every sid-0x0d frame while silent. **The report's battery line** by state. **The tick
+counter's wrap:** `noteUptime` reads a value one wrap on from the prediction (±10 s) as the wrap, not a reset; the
+glasses' counter reaches 2^32 about 2026-12-06, so 0.66 must be on the phone before then.
+
+**Fix round 1** (`0425a51`), **fix round 2** (`15ea564`) and **verification 3** (`3fa9b93`): 79.6.
+
+### 79.3 What is new, where
+
+- **To the glasses:** an awake start writes what `930e6b3` wrote (the byte comparison, heap reads aside), plus the
+  `heap3` reads: at every session start, the telemetry read 0.64 already sends once a minute while painting, at three
+  points (after the lease, after the atlas is up and read back, after the first frame's ack), and the reset check's
+  record (already read before the CREATE) as a fourth note, `pre-create`. None in Silent Mode; an unanswered read is
+  said and nothing waits on it. A start in Silent Mode writes less than before: its READ, then nothing until the wake.
+  Fix round 2's bound held: nothing in it writes more than `1bfa025`.
+- **Phone:** the Settings category "Bastion" — `Watcher` (display-only: the PC watcher's state line, or "home not
+  answering") · `Notify · alerts` · `Notify · cleared` (shared rows) · `Phone · alerts` · `Home unreachable` (off,
+  5–30 min, 10 by default) · `Position` (display-only) · `Presence · location` · `Acknowledge` (— / all raised (N): the
+  presenter of the `ack` action until notices carry actions; listed for S1-5). Global `Quiet hours` (off · 21–06 ·
+  22–07 · 23–07 · 00–08, default off). Three channels beside "Glasses battery"; the Acknowledge button; the "location"
+  button on the app's screen; four permissions (network state; coarse, fine and background location).
+- **PC:** the `bastion` channel always; the watcher reads the hub only when `haUrl` and a readable token file are set
+  (otherwise it is off and says why at start); `damage.phone` once a minute; the nightly copy only when `backupDir` is
+  set; the reach gate on every listener; the standby as data host only. Config keys: `haUrl`, `haTokenFile`,
+  `haRulesFile`, `haPollSec`, `haSilentMin`, `backupDir`, `backupKeep`, `backupAt`, `reachOpen` (`DAILY.md`).
+- **Journal:** notes `reach` and `presence` (PC); `place`, `heap3`, `cue`, `slow` (phone); fields `t`, `late`,
+  `inWaitMs`, `win`, `mode`; the report's `input->done ms` column and its battery line.
+- **Files:** `alerts.json` and `bastion-rules.json` in the PC's data directory; `bus-place.txt` in the phone's
+  no-backup directory; the nightly copies, `damage-YYYYMMDD-HHMMSS/`, in `backupDir`.
+- **Records:** `IMPLEMENTATION.md` (what runs and how, and its "Review hardening"), `DAILY.md` (the keys, the rule
+  file, the state, the glasses by hand), `CONTRACT.md` §6, §7.3, §10.9 and §11.2, `BASTION.md` F13 and B-39,
+  `REPLAN.md` §16, `DESIGN.md` and `WINDOWS.md` (the Quiet hours row), `CLAUDE.md` (RO001, the standby, the category).
+
+### 79.4 The numbers (verification 3, `3fa9b93`'s tree; simulator and PC)
+
+| gate | result |
+|---|---|
+| `:core:test` | 1160 of 1160 in 155 classes (1023 at 0.65), one background command, 15 min 12 s; no rate miss |
+| `:desktop:test` | 44 (35 at 0.65) |
+| `desktop --selfcheck` | 485 PASS, three times |
+| `desktop --snapshot` | 57 renders; against verification 2's set only live content differs (the clock, the link readout, disk free in 11, the visualizer in 38/39) |
+| `tools/lint.py` | 0 findings (36 python + 196 kotlin); `--selftest` exits 0 with 8 of 13 rules covered |
+| `:phone:assembleDebug`, then `tools/check_apk_wiring.py` | builds; 40 lines, all ok (17 at 0.65) |
+| the tools' self-tests | `mutate_core.py` 45 · `journal_report.py` 23 · `journal_pull.py` 26 · `check_apk_wiring.py` 34 |
+| the watcher's mutation list | `research/mutations-79-watcher.json`: 106 entries, 106 CAUGHT, each for its stated reason (14 lists in all) |
+| content checks | 73 books, 2580 of 2604 images decode; `--music-check`, `--games-check`, `--feed-check` pass |
+| the awake start | byte-identical to `930e6b3`'s; expectation files untouched since `3347fdc` |
+
+Every pin of the build was watched failing on its disabled tree (each stage's pins table). Not measured: anything on
+the phone's Android side (no phone unit tests exist; the wiring gate holds the pieces' presence).
+
+### 79.5 The first read of 0.64 and 0.65 on his glasses (measured, the phone's journal; read 11-13)
+
+Read offline from the phone's journal pulled 11-13 at 15:00 (16,667 lines); the read, its numbers and the lead's
+correction at its head are in the gitignored `private/journal/first-day-064-065.md`. M, phone path, unless marked.
+- 0.64 installed 11-12 12:52:05, 0.65 installed 11-12 20:59:33 (the journal's `process` notes). No uncaught error;
+  6,250 flushes, none failed.
+- **0.64's first 84 minutes were nine failed starts of about 499 s each with the glasses asleep in the case**: the
+  start's READ said Silent Mode, the CREATE was re-sent every 2 s and never answered, and each start failed. This is
+  the reason for package G's start that rests.
+- 0.65's `07 00` start step works (no `control` note at its two starts) and the refusal record an earlier session left
+  is gone from the next reading on.
+- WINDOW first wait, median / p90: 108 / 293 ms on 0.64 (n=509), 128 / 395 ms on 0.65 (n=219). Seven gestures on 0.65
+  had a first wait of 0.8 s or more (none on 0.64): one behind the start's atlas, five in one minute beside large
+  staging writes, the rest beside repacks — package G's `inWaitMs` measures this. No flush gap at the sync handshakes.
+- Battery 8.0 %/h on 0.64 (T2's band 7.4–7.8). 0.65 has 1.26 awake hours in the file (the glasses were in Silent
+  Mode from 22:14 to 14:38 the next day), so T2 cannot close on this data. The glasses were up 25.3 days at the read.
+- Whether the 11-12 wake cue was never sent or arrived unread stays open; package G's trace found no point of a start
+  that loses it (79.2 G).
+
+### 79.6 The verifications, the reviews and the fix rounds (a line each)
+
+- **Verification 1** (`6e52bed`): every decision read in the code; the one silent catch (`NetState.close`) now says
+  the platform's refusal.
+- **Review pass 1** (tree `6e52bed`; one MUST, two SHOULD, six NOTE) → **fix round 1** (`0425a51`):
+  - R1.1: with the phone ahead of the store it re-asked for the table with no pacing and dropped new alerts. Now a
+    truncated answer is reconciled and sets `lastSeq`; every re-ask is paced (5 s, else the 15 s ping); a dropped
+    push is journaled once per reason per connection.
+  - R1.2: the watcher's state line was shown nowhere, and an entity whose reads kept failing raised nothing. Now
+    `watcher.entity.<entity>` raises after `haSilentMin` of failed reads and clears on a good one; the `Watcher` row.
+  - R1.3 (with verification 1's urgent-repeat item): the watcher's own trouble ended alerts. Fixed as one class: a
+    rules file with a problem retires nothing, a refused rule's alert is held with `watcher.rule.<id>`, and a
+    repeat-only tick runs whenever the store holds a raised alert, the watcher on or off.
+  - The notes: a file that vanishes during the nightly copy's walk is skipped and said; `Phone · alerts` reconciles
+    the shade at once; `Heap3Test` decides on a latch; the snapshot scene `37-music-settings` shows Settings · music
+    again (it showed Games · standings, from before this build). Left as they are: an ask never answered on an open
+    connection (the last-heard clock says it), a severity edit applying from the next episode, a global IPv6 address
+    on the bus network refused as public (the reach gate's third known gap; `reachOpen` is the way back).
+- **Verification 2** (`1bfa025`): the position privacy test refuses any number with a distance unit (it had missed
+  the home band's line).
+- **Review pass 2** (the last general pass; three SHOULD, five NOTE) → **fix round 2** (`15ea564`):
+  - R2.1: a learned bus position could be taken up to about 80 s after the phone left the bus network. Now a fix on
+    the bus is a candidate, stored once a later `bus: true` answer confirms it; `bus: false` or the channel's end drops it.
+  - R2.2: every start that rests said the urgent Silent Mode notice. Now it says nothing.
+  - R2.3: the phone's path address and port went into the PC log and journal. Fixed at six sites: the presence lines
+    say why, with no address or port.
+  - R2.4: a start that rests enabled the atlas and flipped the layout metric. Now only an awake start enables it.
+  - R2.5: the rest cleared the lease-carry evidence. Now the rest commits no carry, so the evidence reaches the wake's
+    start as before G (the read came out the direction the ruling allowed).
+  - R2.6: a link end between the session check and `started = true` could leave the state saying started. Both start
+    sites now test the session again after the write; `onLinkDown` clears `running` and moves the epoch before its
+    own state write, so the test sees it. Not pinned: no seam reaches the gap.
+  - R2.7: `stop()` writes a RELEASE into a session that rested. **Stopped at its read, not built:** a rested session
+    reads `leaseRequested` false while the glasses may still hold the previous session's lease (up to 87.9 s), so the
+    proposed condition could skip a RELEASE that is owed. `stop()` is as before.
+  - R2.8: H2's row 3 renamed for what it runs on this tree (an awake start, a push ON then OFF after the CREATE's ack,
+    ends on a rebuilt session).
+- **The focused read** of fix round 2's mechanisms: R2.2, R2.4, R2.5 and R2.6 sound; one defect, D1 — an answer to an
+  ask sent before the fix, arriving 150 s or more after it, still confirmed it. **Verification 3** (`3fa9b93`) narrowed
+  R2.1's own test: the age is read at the ASK the answer replies to (`minOf(askedAt, clock()) - fix.at ≥ 150 s`), no
+  new state. So learning is: a candidate, stored once a `bus: true` answer arrives to a table ask SENT 150 s or more
+  after the fix. It also fixed a harness race (79.8). C1, a cost of R2.1 as ruled, is in 79.7.
+- **The bound** on fix round 2 held: `1bfa025..3fa9b93` adds no send to either queue.
+
+### 79.7 Not built
+
+Not in W by decision (the lead's D, and the packages' own lists): anything that writes to the hub; guarded actions;
+hub scripts; the WebSocket subscription; rule hot-reload; an on-glass acknowledge beyond the Settings row; the Bastion
+window, live values, graphs; any other interface; an ack queue while home is away (a tap out of reach answers "not
+acknowledged"); glasses notices while the PC drives (the PC shell has no Bastion category); the replica page button
+for `drive=` and any warning when the phone and the PC both want the radio; database dumps and restore tooling (a
+restore is a manual copy back); quiet hours for the other windows' notices (S1-2); the device-approval access model
+(S1-1); a mutation runner for `desktop/` (its pins were watched by hand).
+- E: learning what is normal; rates per hour as a unit; presence from the hub (its person record has not changed since
+  October); modes set by hand (S3); a second built-in value (the `damage.` prefix is reserved).
+- F: the bus's own position from a device on it; named places; a map; any position history; an on-glass presence
+  notice; an immediate report on a word change (it rides the next 15 s ask); a phone-side test of
+  `AndroidPlaceSource` (phone/ has no unit tests; the wiring check reads its text).
+- G: a second wake cue; a paced rebuild while resting; the rule that lets a gesture go ahead of unsent staging writes
+  (it reorders the image lane); any fix for the slow loop message; the firmware's one-value edge (a deadline of
+  exactly 0), a flash and his call; event times across the seam (the PC stamps receipt).
+- **F1's narrow R1.1 case:** a stale truncated answer reconciled when the store's seq overtakes the phone's ahead
+  cursor during one ask. It needs the store's file replaced by an older one under the same epoch, then a second
+  coincidence inside one ask; the cost is one notice said again.
+- **G's stale `SilentMode(true)`:** an awake shell put to sleep and rebuilt once, inside one round trip of a start (a
+  RELEASE to both arms, the urgent notice, a rebuild). Dropping a Silent Mode event that disagrees with the current
+  state would also drop the ON of a real ON-then-OFF, the pair that tells the shell to rebuild a session the glasses
+  have ended; a needless rebuild costs less than a missed one.
+- **A start whose READ leaves out field 14 while the glasses are in Silent Mode still waits at the CREATE:** every READ
+  on record carried the field (n=13).
+- R2.7 and an R2.6 pin (79.6). `atlasAtSessionStart` still resets the atlas at a rested start: one atlas upload after
+  an in-case wake inside the lease window.
+- **C1** (the focused read): a still phone can stop learning after one `bus: false` or one failed connect within the
+  150 s window, because the platform sends no update within 100 m; verification 3 adds at most one ping (15 s). It
+  stands beside the owed read of how often Android delivers a position (79.9). Also not built: dropping the candidate
+  when the updates stop (a fix taken on the bus can still be confirmed after the row goes off; on `1bfa025` it was
+  stored at once).
+- The PC stamps the phone's report at receipt (2 min fresh): a late ask's word counts as fresh until the next ask,
+  about 15 s later. The status read's failure line carries `tailscale status`'s own error text into the PC log;
+  whether that text can name a path address is not read (U).
+- F1: a normal alert does not repeat while its rules file has a problem or its rule is refused (`watcher.rule.<id>`
+  says so; urgent alerts keep repeating); a missing rules file retires every rule alert (no file means no rules); the
+  nightly copy's walk-time and `sizeOf` sites are not pinned (no seam).
+- Accepted deviations: E — an idle peer reads `unknown`. F — the position in a no-backup file, precise location
+  required, a fix coarser than 200 m ignored and one coarser than 100 m not learned, a report older than 2 min treated
+  as none, the row named `Position`. G — the shell's start read leaves out adopted sessions; the pump's `carrierUp`
+  guard and the start read are one pair in the mutation list. C — a held alert is released at the first answer after a
+  start, not at load. Lint's `--selftest` exits 0 with rules uncovered; RO001 is held by its three detection pins.
+
+### 79.8 Stage slips and harness lessons
+
+- **A slip:** the agent that read the first-day journal published its report as a private page on claude.ai by mistake
+  while applying edits. The page is private to his account; its removal waits for his word.
+- Fix round 2's commit message says "eighteen" mutation entries; the true count is fourteen added and one corrected.
+  Commits are not amended. Every stage's commit trailer names the model it ran on, not the line the briefs gave.
+- **A wait on a side effect written under a lock does not order a value decided after the lock:** `PlacePrivacyTest`
+  waited for the stored file and read the word in the gap, so the sweep's F24 failed for the wrong reason. The test
+  now waits for the word too (shown by widening the gap; 20 of 20 after).
+- No snapshot scene shows Settings → Global or the Bastion category: two stages rendered them at 1× with a temporary
+  test, deleted after. A scene for each would let `--snapshot` watch them.
+
+### 79.9 For Adam: owed on his glasses and phone by the first days of 0.66
+
+1. The first in-case start on 0.66: does it rest with no CREATE, does the wake arrive, how long it takes.
+2. Whether a phone at the bus shows a direct private path (`damage.phone unknown -> home (by the connection path …)`
+   in the PC log, or the `presence` note) before any away-guarded rule is switched on. Inferred, never read: if his
+   home path shows as relayed, `damage.phone` reads only `unknown` or `away` at home, and the phone never learns the bus.
+3. How often Android delivers a position in the background (the `place` notes, the `Position` row).
+4. The tick counter's wrap about 2026-12-06: 0.66 must be installed before then.
+5. First seen on his phone: the three channels, the Acknowledge button and its answer, the network-state callback, the
+   `Watcher` row, the `Phone · alerts` shade reconcile; the `heap3` notes at each start (C1's need).
+6. The reads G added: `input->done ms` against `first wait ms`; any `slow` or `late` line; `cue` notes.
+
+His calls are `REMINDER.md`'s list.
+
+### 79.10 How the build ran, and its size (measured)
+
+Run 1: 21.0 weighted units for 8,160 inserted lines; run 2: 26.0 units for 5,873; run 3: 11.5 units for 1,537 — 58.5
+in all, against the plan's 65–110 for a W without packages E, F and G (a unit = one million tokens weighted
+input 1, cache write 1.25, cache read 0.1, output 5). About 9 h of wall clock from the first stage's brief (13:27) to
+verification 3's commit (22:29), the lead's rulings between runs included. By `git diff --numstat` over runs 1–2: product
++5,879, tests +6,038, mutation lists +1,543, tools +573 — 3.3 units per 1,000 inserted lines, 3.9 per 1,000 product +
+test lines. The plan (`REPLAN.md` §16.2, inferred from 0.64 and 0.65) priced 15–22 units per 1,000 product + test lines
+and W at 12–20 h and 65–110 units. One build is one point; S1-1 is re-priced from it at its sitting.
+
+### 79.11 What is next
+
+1. The lead: the merge of `wip/066` onto `main`, the push, `:phone:stageApk` (0.66), the PC deploy first (79.12).
+2. Adam installs 0.66 (his word), presses "location" if he wants presence, and the first days' reads follow (79.9).
+3. Then step S1-1 (`REPLAN.md` §16), re-priced from W's measured rate.
+
+### 79.12 The merge, the staging and the PC deploy
+
+(the lead writes this after the deploy)
 

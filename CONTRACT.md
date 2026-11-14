@@ -371,7 +371,9 @@ A row: `{id, label, category, scope, type choice · number · bool · text, opti
   nothing migrates. Glasses rows sit under a Glasses category and, on the glasses, in each app's category as today;
   device rows under the device's own category.
 - **Rows that are actions become actions** with a kind and a confirm: Reset progress (`W/reader/ReaderWindow.kt:114`),
-  Rescan, Pre-transcode, Update. A setting change is an op of the register kind (§2.4).
+  Rescan, Pre-transcode, Update, and the Bastion category's `Acknowledge` row (built in W, APK 0.66: the glasses'
+  presenter of `ack {id, episode}` until notices carry actions; it moves at S1-5). A setting change is an op of the
+  register kind (§2.4).
 - **Power-saving rows** (§14.1 R12: nice by default, power saving as settings) are ordinary rows tagged `power`, kept
   with what they slow — the glasses' under Glasses, a device's under that device, an app's (Tmux pace, Torrents poll,
   Feed images) under the app. A "Power saving" view lists every tagged row; every default is the nicer value.
@@ -419,7 +421,9 @@ by an urgent record until acknowledged and by a camera on a detection outside qu
 records raised after its **notice cursor** — a cursor of its own, apart from the record's `seq` and the sources'
 versions (§9.3); on first contact it adopts and lists, never pops old ones (the Torrents rule,
 `W/torrents/TorrentsNet.kt:229-247`). **Quiet hours** (one shared row, §6) hold `NORMAL` records and release them
-together at the end; `URGENT` passes. **An urgent alert repeats every ten minutes until acknowledged** (§15 D4); a
+together at the end; `URGENT` passes. As built in W (APK 0.66, the watcher's notices and "home unreachable" only): each
+still-raised alert is released once, its text saying since when; a `NORMAL` clear inside the hours is dropped and its
+phone notification cancelled silently; a phone restart releases at its first answer from the PC. **An urgent alert repeats every ten minutes until acknowledged** (§15 D4); a
 repeat schedule on the PC is pacing, not a timeout. No rule depends on which interface he is using. A window's
 recorded delivery verdict stands: Tmux alerts pop on the glasses only (`TMUX.md` verdict 3, "no phone fallback"), so
 Tmux has no `Phone ·` row; whether they pop on the desk is asked when S2 builds the desk's rows.
@@ -621,15 +625,17 @@ nothing guards read-only, low-value content, and no new account, token or step i
    and sends nothing. A re-approval from a device already listed offers to replace its old row (`end{replaced}`).
 9. **Listeners.** Every PC listener is bound or gated to loopback, the tailnet and the bus network, every phone listener
    to loopback and the tailnet (§15 A1); a gate checks the arriving interface before reading a byte (the setup page's
-   pattern, `D/SetupServer.kt:21-33`) and journals a refusal. The watcher's build brings today's listeners to this rule.
-   The shared token stays on every path it gates today — nothing is rotated and no tool changes; the device secret
-   gates the new web interface listener only:
+   pattern, `D/SetupServer.kt:21-33`) and journals a refusal. **Built in W (APK 0.66, `HANDOFF.md` §79) for today's
+   listeners on both hosts:** one gate (`core/…/net/ReachGate.kt`) on the accepted socket, a refusal closed unread and
+   said once per source per minute (`reach` notes on the PC); `reachOpen` turns it off on the PC; its three known gaps
+   are in `Reach`'s KDoc. The shared token stays on every path it gates today — nothing is rotated and no tool changes;
+   the device secret gates the new web interface listener only:
 
-| listener (role) | host | reach after §15 A1 | credential |
+| listener (role) | host | reach after §15 A1 (built in W for the rows that exist today) | credential |
 |---|---|---|---|
-| the content port: book, icon, tmux, sync and window lanes, and the new `app` lane | PC | loopback, tailnet, bus network | the shared token, as today (its holder is his phone, at full); on loopback the local secret for `local` |
+| the content port: book, icon, tmux, sync and window lanes (`bastion` among them), and the new `app` lane | PC | loopback, tailnet, bus network | the shared token, as today (its holder is his phone, at full); on loopback the local secret for `local` |
 | the music media endpoint | PC | loopback, tailnet, bus network | the shared token, as today |
-| the setup page | PC | tailnet and loopback, as today | none for the page; the shared token on its APK route, as today |
+| the setup page | PC | the gate's reach first, then its own tailnet-or-loopback check, as today | none for the page; the shared token on its APK route, as today |
 | the browser replica, with its input, probe, journal and log routes | PC and phone | the host's reach | the shared token, as today (the tools carry it unchanged) |
 | the transport seam and its status probe | phone | loopback, tailnet | the shared token, as today |
 | the web interface: pages, WebSocket, blobs (new) | PC | loopback, tailnet, bus network | the device secret (items 1–5) |
@@ -673,7 +679,7 @@ window through `tools/glassdrive.py` when he is there (`REMINDER.md`: every glas
 | menus and confirms fed from actions into `MenuSurface` and today's confirm shapes | K's popover family (`POPOVER.md` §4) | the actions and confirm specs are final; only the drawing goes |
 | glasses renditions as named blobs | K may keep or move them | today's code behind a name; nothing new |
 | the sync channel, kept for unconverted windows | removed at S1's end | nothing new built into it, and no bridge between old and new keys (§9.7) |
-| the watcher's phone half (`RemoteBastion`, its Android reconcile), built before S1 | the generic mirror and notice delivery | the watcher is built to this contract's rules where they are already fixed: its table, notification tags and `ack{id, episode}` as an action on the alert in §7.1's shape; its epoch kept in the alert store, never the process start (§9.3); the phone's rows (`Phone · alerts`, `Home unreachable`) in the phone's own preferences from the start (§6); the one shared Quiet hours row (§6), built once in a named category — so S1 swaps the carrier and keeps the model |
+| the watcher's phone half (`RemoteBastion`, its Android reconcile), built before S1 | the generic mirror and notice delivery | the watcher is built to this contract's rules where they are already fixed: its table, notification tags and `ack{id, episode}` as an action on the alert in §7.1's shape; its epoch kept in the alert store, never the process start (§9.3); the phone's rows (`Phone · alerts`, `Home unreachable`, and from package F `Presence · location`) in the phone's own preferences from the start (§6); the one shared Quiet hours row (§6), built once, in Global beside `Notify · Damage` — so S1 swaps the carrier and keeps the model (built in W, APK 0.66, `HANDOFF.md` §79) |
 | the web client, window by window | S2 lays it out for the TV and the phone screen | one client rendering the vocabulary kind by kind, its data behind the `WindowSource` seam (§9.1); per-window code only for canvases |
 
 ### 11.3 Mapping today's contract to the new one (`S/WindowContract.kt`)

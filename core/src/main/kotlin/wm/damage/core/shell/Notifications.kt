@@ -42,6 +42,11 @@ class Notifications(private val text: TextRasterizer) {
          *  whatever Global `Notify · Damage` says. Not a fault: no episode, and a tap only dismisses it. Not
          *  saved — a restored notice does not pass the gate again. */
         val answer: Boolean = false,
+        /** Build W (R6 P11, option A): the HOST Settings category whose own rows already gated this notice
+         *  (`"Bastion"`, the bus alert watcher, which has a category before it has a window — `Shell.hostCategories`,
+         *  `Shell.notifyFromHost`). Shown whatever Global `Notify · Damage` says, like an app's notice; it names no
+         *  app, so a tap only dismisses it. Saved and restored with the notice. */
+        val gatedBy: String? = null,
     )
 
     private val queue = ArrayDeque<Notice>()

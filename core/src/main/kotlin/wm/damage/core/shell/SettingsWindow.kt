@@ -108,6 +108,13 @@ class SettingsWindow(
         // Notification toggles live in each APP's category (Adam, 2026-09-01 —
         // `WINDOWS.md` §1); Global keeps only the WM's own events
         Entry("Notify · Damage", { onOff(get().notifyDamage) }, { s, d -> s.copy(notifyDamage = d > 0) }),
+        // the one shared notice-policy row (build W, dec. B.2; CONTRACT.md §7.3, §14 (b)); in this build it holds
+        // the bus watcher's notices and "home unreachable" only (QuietHours); S1-2's notice record applies it to
+        // every notice — nothing about it moves then. Cycles like Keyboard.
+        Entry("Quiet hours", { QuietHours.label(get().quietHours) }, { s, d ->
+            val qs = ShellSettings.QUIET_HOURS
+            s.copy(quietHours = qs[(qs.indexOf(s.quietHours).coerceAtLeast(0) + d).mod(qs.size)])
+        }),
         // MUSIC.md verdict 21: the APK-wide switch for phone notifications
         // (errors go to the glasses and the log; the foreground one stays)
         Entry("Phone notifications", { onOff(get().phoneNotifications) }, { s, d -> s.copy(phoneNotifications = d > 0) }),

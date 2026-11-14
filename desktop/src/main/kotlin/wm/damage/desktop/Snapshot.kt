@@ -395,25 +395,6 @@ object Snapshot {
             waitFor("music mode exit ($h)") { !shell.exclusiveMode }
             settle(shell)
         }
-        shell.services.runOnShell { musicWin.appSettings().first { it.name == "Size" }.apply("global") }
-        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // → Main
-        settle(shell)
-        // Settings → Music (the Main cursor sits on the Music row; Settings is one notch down)
-        shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)
-        settle(shell)
-        shell.postGesture(EvenHubMsg.EV_CLICK)
-        settle(shell)
-        repeat(5) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }   // Global, Reader, Tmux, Files, Torrents, Music
-        settle(shell)
-        shell.postGesture(EvenHubMsg.EV_CLICK)
-        settle(shell)
-        save(sim, out, "37-music-settings")
-        repeat(2) { shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK) }    // → categories → Main
-        settle(shell)
-        shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)     // cursor home (Reader)
-        settle(shell)
-
-        // ---------------------------------------------------------------- Games
         // Walk Main's cursor by COMMITTING and checking rather than by counting
         // rows: the row order is the registration order and one new window
         // silently shifts every count (the 2026-09-03 menu-row lesson).
@@ -432,10 +413,28 @@ object Snapshot {
                 if (shell.currentWindowId() == id) return
                 toMain()
                 shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)
-                settle(shell, "games")
+                settle(shell, "walk-to-$id")
             }
             failures.add("could not reach the '$id' window from Main")
         }
+
+        shell.services.runOnShell { musicWin.appSettings().first { it.name == "Size" }.apply("global") }
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // → Main
+        settle(shell)
+        // Settings → Music, both by NAME (build W fix round 1): Settings is reached by committing and checking, and
+        // the category through Settings' own `cat:` deep link. Counting rows ("Settings is one notch down", then five
+        // categories) drew Games · standings under this name once Games was registered after Music.
+        toWindow("settings")
+        shell.services.runOnShell { shell.services.openWindow("settings", "cat:Music") }
+        waitFor("settings · music") { shell.currentWindowId() == "settings" && shell.isQuiescent() }
+        settle(shell)
+        save(sim, out, "37-music-settings")
+        repeat(2) { shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK) }    // → categories → Main
+        settle(shell)
+        shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)     // cursor home (Reader)
+        settle(shell)
+
+        // ---------------------------------------------------------------- Games
         /** Rest the Games-root cursor on the row NAMED [label] — by name,
          *  never by counting: the root gained a row once already. */
         suspend fun gamesRow(label: String) {

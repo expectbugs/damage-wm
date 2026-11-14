@@ -190,6 +190,12 @@ class RemoteWin(
     @Volatile private var running = true
     @Volatile var stateLine: String = "connecting to $host…"
         private set
+    /** Build W (R6 P14, §4): when the host last sent ANY frame on this channel — `wup`, `wres`, `wpush` and the
+     *  in-band refusal `err` alike (a bad token or an old PC still answered) — in this process's wall-clock ms;
+     *  0 until the first frame. A failed connect never moves it. The phone's "home unreachable" judge reads it
+     *  (`bastion/HomeWatch.kt`); [stateLine]'s `offlineSince` does not fit, as it counts a refusal as down. */
+    @Volatile var lastHeardMs: Long = 0L
+        private set
     private val nextId = AtomicLong(1)
     private val pending = ConcurrentHashMap<Long, CompletableFuture<Answer>>()
     @Volatile private var sockRef: Socket? = null
@@ -212,6 +218,7 @@ class RemoteWin(
                     out = o
                     while (true) {
                         val w = inp.readWireFrame()
+                        lastHeardMs = System.currentTimeMillis()   // every frame, BEFORE the `err` throw below (R6 P14)
                         // healthy only on a KNOWN-GOOD frame (R3#2 + R4#3):
                         // flipping on ANY frame — the "err" refusal included —
                         // re-created the flap-and-relog cycle on the in-band

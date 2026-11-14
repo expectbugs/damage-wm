@@ -21,9 +21,11 @@ governs) → `FIRMWARE.md` (wins on the FIRMWARE CONTRACT)**.
 
 ## Gates
 
-- `python3 tools/lint.py` after any geometry, layout or drawn-string change: SYM002 checks every Kotlin string literal,
-  GEO the cells `DESIGN.md` declares, BUD the ink of the renders. `--selftest` passes and names the rules it does not
-  cover; the repo run exits 0. The runtime rules (stereo pairs, the rect budget, fid order, the frame walls) are
+- `python3 tools/lint.py` after any geometry, layout or drawn-string change, and after any change under
+  `core/…/bastion/`: SYM002 checks every Kotlin string literal, RO001 that the bus watcher's package only reads the hub
+  (one `Http.request("GET", …)` site, no write-method literal, no other HTTP client), GEO the cells `DESIGN.md`
+  declares, BUD the ink of the renders. `--selftest` passes and names the rules it does not cover; the repo run exits
+  0. The runtime rules (stereo pairs, the rect budget, fid order, the frame walls) are
   `core`'s `geom` package (`Geometry.kt`, `FidTracker.kt`), checked on every emit and pinned by `GeometryTest`, the
   emit's refusals by `EmitRulesTest`.
 - `python3 design/render_shots.py` after any design change; read the numbers. Everything renders at **true 1× 640×480**:
@@ -89,13 +91,15 @@ and holds only the contract (`FIRMWARE.md`). **Never flash without Adam's in-the
 
 **Topology, ruled 2026-11-12 (`REPLAN.md` §14; `CONTRACT.md` §2): the PC is the system** — it owns every window's state
 and every interface connects to it; the phone keeps a working copy, draws the glasses and carries on when the PC is out
-of reach; **PC-direct BLE is a manual choice, never automatic.** The code reaches that with the alert watcher (manual
-BLE) and step S1 (`REPLAN.md` §15, §16). **What runs until then (`HANDOFF.md` §19):** the **phone APK drives** (radio and
-shell); the OpenRC `damage` service on beardos is the **data provider** and a **standby** that drives PC-direct BLE only
-while the APK is away; the PC never claims in daily use (`--transport remote` is the dev override). Detect the CFW by the
-`EVENCFW/` string and the DamageCaps field, never the version. App layer: Main · Settings · Reader · Tmux · Files ·
-Torrents · Music · Games · Feed (`WINDOWS.md` the conversion checklist; `TMUX.md`, `TORRENTS.md`, `MUSIC.md`,
-`HOLDEM.md`, `FEED.md` the per-window records; `POPOVER.md` a spec, not built).
+of reach; **PC-direct BLE is a manual choice, never automatic.** The alert watcher made PC-direct BLE manual in code
+(APK 0.66, `HANDOFF.md` §79); step S1 brings the rest (`REPLAN.md` §15, §16). **What runs until then (`HANDOFF.md` §19,
+§79):** the **phone APK drives** (radio and shell); the OpenRC `damage` service on beardos is the **data provider** (and
+the bus alert watcher) and never drives by itself — PC-direct BLE only by hand (the replica probe `drive=ble`, back with
+`drive=auto`; the PC shell's `Target` row; `--transport ble`); `--transport remote` is the dev override. Detect the CFW
+by the `EVENCFW/` string and the DamageCaps field, never the version. App layer: Main · Settings · Reader · Tmux ·
+Files · Torrents · Music · Games · Feed, and the Bastion Settings category (a host category: the watcher's rows before
+its window, `core/…/bastion/BastionRows.kt`) (`WINDOWS.md` the conversion checklist; `TMUX.md`, `TORRENTS.md`,
+`MUSIC.md`, `HOLDEM.md`, `FEED.md` the per-window records; `POPOVER.md` a spec, not built).
 
 **Rules from the whole-codebase reviews (`HANDOFF.md` §25–§36) that bind every change:**
 - **A rect a paint returns is a promise.** Size every band from the face's MEASURED ink (`ascent + descent`), never a

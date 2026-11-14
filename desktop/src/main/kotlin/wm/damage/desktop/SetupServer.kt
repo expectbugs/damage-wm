@@ -40,6 +40,9 @@ class SetupServer(
     private val apk: Path,
     /** May the page answer on this server-side address? Injected for the tests. */
     private val interfaceAllowed: (InetAddress) -> Boolean = ::tailscaleOrLoopback,
+    /** Build W (dec. B.4): the listeners' common gate, before a byte is read. The page KEEPS its own stricter
+     *  check above (Tailscale or loopback only, a 403 that is said); this one closes a refused arrival unread. */
+    private val reach: wm.damage.core.net.ReachGate = wm.damage.core.net.ReachGate(wm.damage.core.net.Side.PHONE),
 ) : AutoCloseable {
     @Volatile private var server: ServerSocket? = null
     @Volatile private var running = false
@@ -55,6 +58,10 @@ class SetupServer(
         Thread({
             while (running) {
                 val c = try { s.accept() } catch (e: Exception) { if (running) Log.e(TAG, "accept failed", e); break }
+                if (!reach.admit(c, "setup page")) {
+                    try { c.close() } catch (e: Exception) { Log.w(TAG, "closing a refused connection: ${e.message}") }
+                    continue
+                }
                 Thread({ serve(c) }, "setup-${c.inetAddress}").apply { isDaemon = true }.start()
             }
         }, "setup-server").apply { isDaemon = true }.start()

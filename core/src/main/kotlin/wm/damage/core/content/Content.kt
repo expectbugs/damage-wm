@@ -159,6 +159,8 @@ class ContentHostServer(
     private val win: Map<String, wm.damage.core.net.WinService> = emptyMap(),
     /** Theme icons served to the phone (`{"t":"icon",...}` → gray blob). */
     private val icons: IconResolver? = null,
+    /** Build W (dec. B.4): which arrivals are answered at all; the strict default refuses the bus network. */
+    private val reach: wm.damage.core.net.ReachGate = wm.damage.core.net.ReachGate(wm.damage.core.net.Side.PHONE),
 ) : AutoCloseable {
     @Volatile private var server: ServerSocket? = null
     @Volatile private var running = false
@@ -175,12 +177,18 @@ class ContentHostServer(
                     if (running) Log.e("content-host", "accept failed", e)
                     break
                 }
+                // the reach gate, before a byte is read (build W, dec. B.4): a refusal is closed unread
+                if (!reach.admit(client, "content host")) { closeRefused(client); continue }
                 clients.add(client)
                 Thread({
                     try { serve(client) } finally { clients.remove(client) }
                 }, "content-client-${client.inetAddress}").apply { isDaemon = true }.start()
             }
         }, "content-host").apply { isDaemon = true }.start()
+    }
+
+    private fun closeRefused(sock: Socket) {
+        try { sock.close() } catch (e: Exception) { Log.w("content-host", "closing a refused connection: ${e.message}") }
     }
 
     private fun serve(sock: Socket) {

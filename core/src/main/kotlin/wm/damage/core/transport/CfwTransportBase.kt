@@ -319,6 +319,15 @@ abstract class CfwTransportBase(
     @Volatile var pollTelemetry: Boolean? = null
     private fun pollTelemetryOn(): Boolean = pollTelemetry ?: !instant
 
+    /** Build W, the rider for the first flash (the lead's decisions B.5 and E.1; `FIRMWARE.md` §5.7): the glasses'
+     *  free memory journaled as `heap3` notes at four points of every session start — `pre-create` (the reset
+     *  check's own record), `lease`, `atlas` (the read-back's own record) and `first-frame`. Two of the four are
+     *  one TELEMETRY read each, launched and never awaited. Null = on wherever the transport runs at its real
+     *  pace, off on an instant test transport — the `pollTelemetry` shape: those tests count telemetry reads, and
+     *  an extra read would answer their waits by another route. A test sets it. */
+    @Volatile var heapReads: Boolean? = null
+    private fun heapReadsOn(): Boolean = heapReads ?: !instant
+
     private fun nextTelemetryId(): Int {
         var id: Int
         do { id = telemetryIds.incrementAndGet() and 0xFFFF } while (id == 0)   // 0 is the FLAGS ops' echo
@@ -395,6 +404,60 @@ abstract class CfwTransportBase(
         } catch (e: Exception) { null } finally { reask.cancel(); telemetryWaiters.remove(id, waiter) }
         ended?.let { throw it }
         return t
+    }
+
+    // ---- heap3 (build W, the rider for the first flash; see [heapReads]) ------------------------------------------
+
+    /** The session's `atlas` and `first-frame` points, said once each; reset at every start. */
+    private val heapAtlasSaid = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val heapFirstFrameSaid = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    /** One `heap3` note from a record already read ([t]): fields 7/8/9 (free KiB of arenas 13/20/27), 18 (the cache's
+     *  size), 2 (uptime, in ms) and 12 (lease ticks left). A field the record leaves out reads `?` (the cache: `none`). */
+    private fun heapLine(point: String, t: DamageMsg.Telemetry): String =
+        "point=$point id=${t.requestId ?: "?"} a13=${t.fields[7] ?: "?"} a20=${t.fields[8] ?: "?"} a27=${t.fields[9] ?: "?"} " +
+            "cache=${t.cacheSize ?: "none"} uptime=${t.uptimeMs ?: "?"} lease=${t.leaseTicksLeft ?: "?"}"
+
+    /** A point whose record the start already holds (`pre-create`: the reset check's; `atlas`: the read-back's) —
+     *  journaled, no request of its own. */
+    private fun heapRecord(point: String, t: DamageMsg.Telemetry) {
+        if (heapReadsOn()) emitNote("heap3", heapLine(point, t))
+    }
+
+    /** A point that reads (`lease`, `first-frame`): one TELEMETRY read of session [epoch], LAUNCHED — nothing in the
+     *  start or the image lane waits on it. It ends with its answer, three asks unanswered, a write that fails, or the
+     *  session's end (the sweep), and the note says which. Not read — and said — in the firmware's Silent Mode, while
+     *  the shell has let the lease go (the page traffic sleeps, §42), or on a build that does not answer telemetry:
+     *  ONE read of the state decides. */
+    private fun heapPoint(epoch: Long, point: String) {
+        if (!heapReadsOn()) return
+        val st = _state.value
+        val why = when {
+            damageCaps?.has(DamageMsg.FEATURE_TELEMETRY) != true -> "this build does not answer telemetry"
+            st.glassesSilent -> "Silent Mode"
+            !pageTrafficWanted(st) -> "the shell has let the lease go (the page traffic sleeps)"
+            else -> null
+        }
+        if (why != null) { emitNote("heap3", "point=$point not read: $why"); return }
+        scope.launch {
+            val line = try {
+                val t = telemetryRead(epoch, label = "heap3 $point", askBound = COUNT_ASK_BOUND)
+                if (t == null) "point=$point not read: the session ended first" else heapLine(point, t)
+            } catch (e: ReadingEnded) {
+                if (e.asks > 0) "point=$point not answered after ${e.asks} asks" else "point=$point not read: ${e.message}"
+            }
+            emitNote("heap3", line)
+        }
+    }
+
+    /** The read-back's answer of session [epoch]: its first one is the `atlas` point. */
+    private fun heapAtlas(epoch: Long, t: DamageMsg.Telemetry) {
+        if (epoch == sessionEpoch.get() && heapReadsOn() && heapAtlasSaid.compareAndSet(false, true)) heapRecord("atlas", t)
+    }
+
+    /** A flush of session [epoch] acknowledged: the session's first is the `first-frame` point. */
+    private fun heapFirstFrame(epoch: Long) {
+        if (epoch == sessionEpoch.get() && heapReadsOn() && heapFirstFrameSaid.compareAndSet(false, true)) heapPoint(epoch, "first-frame")
     }
 
 
@@ -491,8 +554,9 @@ abstract class CfwTransportBase(
      *  and remembered (phone clock) for the carry decision and the hold-back rule. Comparing the
      *  two readings alone (2026-09-14, corrected the same day) misses a reset once the glasses
      *  have been up longer than they were at the previous read — the case right after a flash.
-     *  (The tick wraps at 2^32, 49.7 days: a wrap reads as a reset; the phone time is the wall
-     *  clock: a forward jump past the slack between two reads reads the same way.)
+     *  (The tick wraps at 2^32, 49.7 days: since package G a reading one wrap on from the prediction is
+     *  said as the wrap, not a reset; the phone time is the wall clock: a forward jump past the slack
+     *  between two reads reads as a reset.)
      *  Since 0.64 it runs for every RIGHT record, the poll's once a minute too, and more readings cannot
      *  make a false reset (R2, RG-8): a reading falls short of the prediction only by the two clocks'
      *  drift and by how much later its reply arrived than the last one's, and a reply cannot arrive later
@@ -504,6 +568,19 @@ abstract class CfwTransportBase(
         val prev = lastUptime
         if (prev != null) {
             val predicted = prev.first + (now - prev.second)
+            // Build W, package G (the lead's decision H, row E7; G-design §6): the tick is a u32 (RAM 0x20074a34,
+            // `~/damage-cfw` cfw_context.h:257; telemetry field 2 sends it raw, damage_ext.c:366), so its reading
+            // comes round to 0 every 2^32 ticks, 49.7 days — at about 2026-12-06 20:58 on the glasses' present boot.
+            // A reading that falls where the prediction lands one wrap on is the wrap, not a reset: said, kept in
+            // the new frame, and no reset time is set (a false reset turned DRAW2 off for every later session
+            // through the hold-back rule, and cost an atlas upload through the carry). A real reboot inside the
+            // slack of the wrap would be read as the wrap.
+            if (uptime < prev.first && kotlin.math.abs(uptime + TICK_WRAP_MS - predicted) <= RESET_SLACK_MS) {
+                emitNote("keeper", "the glasses' tick wrapped (not a reset): uptime ${uptime / 1000} s, was ${prev.first / 1000} s " +
+                    "${(now - prev.second) / 1000} s ago — 2^32 ticks, ${TICK_WRAP_MS / 1000} s")
+                lastUptime = uptime to now
+                return
+            }
             if (uptime < prev.first || uptime + RESET_SLACK_MS < predicted) {
                 lastResetAtMs = now - uptime                       // the reset's time on the phone's clock
                 emitNote("keeper", "the glasses reset: uptime ${uptime / 1000} s, was ${prev.first / 1000} s ${(now - prev.second) / 1000} s ago")
@@ -528,10 +605,10 @@ abstract class CfwTransportBase(
      *  longer than they were at the previous read — the case right after a flash, where every
      *  uptime is short and the rule matters most. [RESET_SLACK_MS] covers the two clocks'
      *  drift and the reply's latency; a reset hides inside it only if the glasses reset within
-     *  that long of booting. (The tick wraps at 2^32 ms, 49.7 days: a wrap reads as a reset —
-     *  a note, and a hold-back only if an arming preceded it within [HOLD_BACK_MS]. The phone
-     *  time is [nowMs], the wall clock: a forward jump of more than the slack between two
-     *  reads reads the same way.) */
+     *  that long of booting. (The tick wraps at 2^32 ticks, 49.7 days: since package G [noteUptime]
+     *  says a wrap as a wrap and sets no reset, so it holds nothing back. The phone time is [nowMs],
+     *  the wall clock: a forward jump of more than the slack between two reads reads as a reset —
+     *  a note, and a hold-back only if an arming preceded it within [HOLD_BACK_MS].) */
     private suspend fun armFeatures(epoch: Long, extra: Int = 0, withhold: Int = 0) {
         var extraLeft = extra
         // P5 item 7: [withhold] keeps bits of the wish this session must not arm (DRAW2 where the start decided against
@@ -1289,8 +1366,39 @@ abstract class CfwTransportBase(
             WearMsg.SID -> onWearFrame(arm, frame)
             CaseMsg.SID -> onCaseFrame(arm, frame)
             // ...and a service this router has no branch for was dropped with no line: named once per session
-            else -> noteUnhandled(frame.sid, arm, frame)
+            else -> {
+                // package G (G-design §1, the journal-only cue read): service 0x0d is unread; one of its frames came
+                // on 2026-11-12 before the CREATE's answer at the exit from Silent Mode, and the once-per-session line
+                // below hid the rest. While the state says Silent Mode every one is journaled. Nothing acts on it.
+                if (frame.sid == SID_UNREAD_0D && _state.value.glassesSilent) {
+                    val text = "sid 0x0d from ${arm.name.first()}, flag 0x%02x, ${frame.payload.size} B, while the state says Silent Mode: "
+                        .format(frame.flag) + hex(frame.payload) + " — journal only; nothing acts on it"
+                    Log.i(name, "cue: $text")
+                    emitNote("cue", text)
+                }
+                noteUnhandled(frame.sid, arm, frame)
+            }
         }
+    }
+
+    /** Package G (G-design §1, the journal-only cue read): whether field 14 was in the last device-info block of
+     *  this session that was NOT a READ's answer; null = none yet. Cleared at [start]. The two arms' notify threads
+     *  may write at once (one change said twice is harmless). Nothing keys on it but the note. */
+    @Volatile private var lastUnaskedSilentField: Boolean? = null
+
+    /** An unasked device-info block (an `09-01` — 2026-11-12 14:17:05: one without field 14 came after the exit and
+     *  no push did) whose field-14 presence differs from the last such block's, while the state says Silent Mode: one
+     *  `cue` note. Journal only — it decides whether a second wake cue would be safe; nothing acts on it. */
+    private fun noteUnaskedWhileSilent(info: SettingsMsg.DeviceInfo, frameName: String) {
+        val present = info.silentRestored != null
+        val last = lastUnaskedSilentField
+        lastUnaskedSilentField = present
+        if (last == present || !_state.value.glassesSilent) return
+        val was = when (last) { null -> "the session's first such block"; true -> "it was present in the last"; false -> "it was absent from the last" }
+        val text = "an unasked $frameName block while the state says Silent Mode: field 14 " +
+            (info.silentRestored?.let { "present = $it" } ?: "absent") + " ($was) — journal only; nothing acts on it"
+        Log.i(name, "cue: $text")
+        emitNote("cue", text)
     }
 
     // ------------------------------------------------------------------ 0.64: wear, case, unknown services
@@ -1480,6 +1588,7 @@ abstract class CfwTransportBase(
             if (deviceInfoSaid == key) return      // a doubled note on a race between two frames is harmless
             deviceInfoSaid = key
         } else {
+            if (flag != SettingsMsg.FLAG_RESPONSE) noteUnaskedWhileSilent(info, frameName)   // package G: an unasked frame, before the once-per-shape rule
             val capLine = synchronized(deviceInfoShapesSaid) {
                 if (Triple(flag, cmd, key) in deviceInfoShapesSaid) return
                 if (deviceInfoShapesSaid.size < DEVICE_INFO_SHAPES_MAX) { deviceInfoShapesSaid.add(Triple(flag, cmd, key)); false }
@@ -1757,11 +1866,14 @@ abstract class CfwTransportBase(
         // 0.64: the wear report and the wear-detection switch are the session's too (a report of
         // the last link must not read as this one's state; "first" is "nothing reported yet"), and
         // so is what the notes below have already said once.
-        synchronized(stateLock) { _state.value = _state.value.copy(glassesSilent = false, worn = null, wearSwitch = null) }
+        // Build W, package G: and the carrier is not up until this session's CREATE is answered (`LinkState.carrierUp`).
+        synchronized(stateLock) { _state.value = _state.value.copy(glassesSilent = false, worn = null, wearSwitch = null, carrierUp = false) }
         deviceInfoSaid = null
+        lastUnaskedSilentField = null                                 // package G: the journal-only cue read's last block
         synchronized(deviceInfoShapesSaid) { deviceInfoShapesSaid.clear(); deviceInfoShapesCapped = false }
         synchronized(telemetryIdsSeen) { telemetryIdsSeen.clear(); telemetrySecondCopySaid = false }
         unhandledSaid.clear()
+        heapAtlasSaid.set(false); heapFirstFrameSaid.set(false)      // build W: heap3's points are the session's
         // §73: the estimator starts over with the session, and the state says so in the same
         // step — the readings it held timed a link that is gone, and a regime read from them
         // stood for hours (2026-11-09: SLOW from before 08:47 to 12:06 on one stale number)
@@ -1929,6 +2041,46 @@ abstract class CfwTransportBase(
                     (if (epoch != sessionEpoch.get()) "the session ended" else "a re-ask could not be written to RIGHT"))
                 resetCheckCache = t.cacheSize
                 resetCheckRead = true
+                heapRecord("pre-create", t)       // build W (dec. E.1): this record is heap3's first point, no new read
+            } else if (heapReadsOn()) emitNote("heap3", "point=pre-create not read: this build does not answer telemetry")
+
+            // 1c. Build W, package G (G-design §1; the lead's decision H, row E1): a start whose own READ says Silent
+            //     Mode completes ASLEEP, with no carrier. On 2026-11-12 nine starts in the charging case re-sent the
+            //     CREATE every 2 s for about 500 s each and none was answered until the msgId counter came round and
+            //     failed the first copy (which of the standing explanations holds is not decided; this does not
+            //     depend on it). Nothing below goes to a pair in Silent Mode — no CREATE, lease, cache size, flags,
+            //     warmup or fid clear, no logger switch, no feature arming, no radio request — and the shell sleeps on
+            //     `carrierUp` false; the push off wakes it into a rebuild, as every wake is (§38). `leaseWanted` goes
+            //     false here, under the lock and inside `startInProgress`, so the shell's sleep writes no RELEASE for
+            //     a lease never taken. ONE read of the state: `glassesSilent` was cleared at this start's top, so a
+            //     true here is this session's READ (or a push since). An awake READ takes none of this.
+            val silentAtRead = _state.value.glassesSilent
+            if (silentAtRead) {
+                synchronized(stateLock) { leaseWanted = false }
+                heapPoint(epoch, "lease")       // build W's heap3: says "not read" (Silent Mode, or the lease let go) and reads nothing
+                emitNote("keeper", "start rests: the start's READ says Silent Mode — no CREATE, lease, cache size, flags, " +
+                    "warmup or fid clear; the push off rebuilds the session")
+                // the session must still be THIS one (the same test the painting start makes below)
+                if (epoch != sessionEpoch.get() || !running) throw LintError("the session ended before the start rested — the start does not complete")
+                updateState { it.copy(started = true, leaseHeld = false, carrierUp = false, detail = "") }
+                // fix round 2 (R2.6): a link end between the test above and that write wrote its own `started = false`
+                // first, and the write above stood over it — the keeper polls `started` and never rebuilds. The link
+                // end clears `running` and moves the epoch BEFORE its state write (`onLinkDown`, `stop`), so a second
+                // test here sees every end whose write the line above could have covered
+                if (epoch != sessionEpoch.get() || !running) {
+                    updateState { it.copy(started = false, carrierUp = false) }
+                    throw LintError("the session ended as the start rested — the start does not complete")
+                }
+                startInProgress = false
+                // fix round 2 (R2.5): NO `commitLeaseCarry()` here — no ACQUIRE went out, so no carry was decided, and
+                // a commit would spend the evidence (an arm's reboot-like link end, "the last start did not complete")
+                // that must reach the next real decision, the wake's start: before package G a start in Silent Mode
+                // never completed, and that evidence reached it. Dropping the commit can only refuse a carry more often
+                emitNote("wear", "query not sent: the glasses say Silent Mode is on — the session the wake rebuilds asks")   // the painting start's words
+                val caps = damageCaps
+                emitNote("glass", if (caps == null) "no DamageCaps field: an upstream g2flash build"
+                    else "DamageCaps contract ${caps.contract} features 0x${caps.features.toString(16)}")
+                return
             }
 
             // 2. Carrier CREATE — image container + the full-screen dummy text
@@ -1959,6 +2111,7 @@ abstract class CfwTransportBase(
             }
             if (created.errorCode != null)
                 throw LintError("carrier CREATE rejected: ${created.statusText} (${created.errorCode})")
+            updateState { it.copy(carrierUp = true) }       // package G: the carrier is up (`LinkState.carrierUp`)
 
             // 3. FB lease, BOTH arms (display_copy_hook runs per lens). The
             //    write is awaited: a lease that never reached the wire would
@@ -1969,6 +2122,7 @@ abstract class CfwTransportBase(
             leaseRequested = true
             controlQueue.trySend(CtlWork.Lease(epoch, SettingsMsg.OP_FB_ACQUIRE, leaseWritten))
             leaseWritten.await()
+            heapPoint(epoch, "lease")             // build W: heap3's second point — launched, never awaited
 
             // 3b. Contract 2 (`FIRMWARE.md` §4): the cache's size for the session and DRAW2 armed
             //     BEFORE the shell paints — its atlas is a v2 layout written with mode 19 and
@@ -2048,6 +2202,11 @@ abstract class CfwTransportBase(
             // dead session and the rollback below never runs (2026-09-15, second review)
             if (epoch != sessionEpoch.get() || !running) throw LintError("the session ended during the warmup or the fid-ring clear — the start does not complete")
             updateState { it.copy(started = true, leaseHeld = true, detail = "") }
+            // fix round 2 (R2.6): the same second test as the rest's — a link end between the test above and that write
+            if (epoch != sessionEpoch.get() || !running) {
+                updateState { it.copy(started = false, carrierUp = false) }
+                throw LintError("the session ended as the start completed — the start does not complete")
+            }
             startInProgress = false
             commitLeaseCarry()                // §54: the shell acts on this session's carry decision now
             // What this build offers the radio (the phone asks for LE 2M on a bit-6 build): asked
@@ -2108,7 +2267,7 @@ abstract class CfwTransportBase(
                     Log.w(name, "disconnect after failed start: ${d.message}")
                 }
                 if (teeMirror) mirrorSim.linkReset()
-                updateState { it.copy(connected = false, started = false, leaseHeld = false, detail = "") }
+                updateState { it.copy(connected = false, started = false, leaseHeld = false, carrierUp = false, detail = "") }
             }
             throw e
         }
@@ -2317,7 +2476,10 @@ abstract class CfwTransportBase(
     override suspend fun cacheCheck(): DamageMsg.Telemetry? {
         if (!started) return null
         if (damageCaps?.has(DamageMsg.FEATURE_TELEMETRY) != true) return null
-        return telemetryRead(sessionEpoch.get(), op = DamageMsg.OP_CACHE_INFO, label = "atlas check")
+        val epoch = sessionEpoch.get()
+        val t = telemetryRead(epoch, op = DamageMsg.OP_CACHE_INFO, label = "atlas check")
+        if (t != null) heapAtlas(epoch, t)       // build W: the session's first answer is heap3's `atlas` point
+        return t
     }
 
     override suspend fun telemetry(label: String): DamageMsg.Telemetry? {
@@ -2429,7 +2591,7 @@ abstract class CfwTransportBase(
         // P5 item 16: under the mirror's monitor, after the epoch moved (this stop's first line) — see writePacket
         if (teeMirror) synchronized(mirrorSim) { mirrorSim.linkReset() }
         sayStaleTees("at the stop")
-        updateState { it.copy(started = false, leaseHeld = false, connected = false, detail = "") }
+        updateState { it.copy(started = false, leaseHeld = false, connected = false, carrierUp = false, detail = "") }
         if (!_events.tryEmit(TransportEvent.Link(false, "$name stopped")))
             Log.e(name, "Link(false) after stop DROPPED (buffer full)")
         }
@@ -2545,7 +2707,7 @@ abstract class CfwTransportBase(
         // P5 item 2 (boundary-clear F1, its fix 3): the state says ended BEFORE the sweep fails the work in flight —
         // the shell judges each swept failure by `linkUpAndSteady()`, and a loop that handled one before this flip
         // read a steady link and counted the link end toward a resync or a halt
-        updateState { it.copy(connected = false, started = false, leaseHeld = false, flagsInForce = 0) }
+        updateState { it.copy(connected = false, started = false, leaseHeld = false, flagsInForce = 0, carrierUp = false) }
         sweepSession("link down: $reason")
         // P5 item 16: under the mirror's monitor, after the epoch moved above — a packet of the message in progress
         // that is written after this is not applied (writePacket); the next stop or start says how many
@@ -2813,6 +2975,8 @@ abstract class CfwTransportBase(
                     updateEma(ackMs, bytes, sample)
                     done?.complete(Unit)
                     if (flushId >= 0) _events.emit(TransportEvent.FlushDone(flushId, true, ackMs, bytes))
+                    // build W: the session's first acknowledged flush is heap3's `first-frame` point (a launched read)
+                    if (flushId >= 0 && sample != null) heapFirstFrame(sample.epoch)
                 }
             } catch (e: Exception) {
                 close()
@@ -3189,6 +3353,8 @@ abstract class CfwTransportBase(
          *  can eat a settings READ sent while it settles a previous session's
          *  context. Pacing, not a timeout — the gate never exits on time. */
         private const val CAPABILITY_REASK_MS = 2_000L
+        /** Package G: a service this router has no branch for, journaled frame by frame while the state says Silent Mode. */
+        private const val SID_UNREAD_0D = 0x0d
         /** R3 (review 2, 2A-2): asks of one cache-count reading before it ends unanswered — the first and
          *  two re-asks, where the 0.64 journal line was written. A count, not a clock. */
         private const val COUNT_ASK_BOUND = 3
@@ -3199,6 +3365,9 @@ abstract class CfwTransportBase(
          *  well inside it; a reset can hide inside it only if the glasses reset within this
          *  long of booting. */
         private const val RESET_SLACK_MS = 10_000L
+        /** Package G (E7): 2^32 ticks in ms as `Telemetry.uptimeMs` converts them (ticks × 1000 / 1024) — 4,194,304,000,
+         *  where the glasses' u32 tick comes round to 0 (`~/damage-cfw` cfw_context.h:257, damage_ext.c:366). */
+        const val TICK_WRAP_MS = 4_294_967_296L * 1000 / 1024
 
         /** 0.64: how much of a frame a bounded note or `Log` line prints — enough for any short status
          *  message whole; the byte count is printed, so a longer frame is not passed off as complete. Since R2

@@ -1,0 +1,3 @@
+{"t": 1800000000000, "ev": "note", "kind": "keeper", "detail": "starting"}
+{"t": 1800000001000, "ev": "submit", "id": 1, "epoch": 1, "label": "WINDOW", "via": "ble", "handleMs": 40, "handlerMs": 30, "mirrorMs": 0, "assembleMs": 10, "truthMs": 2, "compressMs": 3, "compressN": 1, "slidesMs": 0, "chromeMs": 0, "overlaysMs": 0, "textMs": 1, "cached": 0, "cacheMiss": "", "staged": 0, "unpacked": 0, "in": 1, "inWaitMs": 2000, "ops": []}
+{"t": 1800000001900, "ev": "done", "id": 1, "ok": true, "ackMs": 800, "bytes": 1000}

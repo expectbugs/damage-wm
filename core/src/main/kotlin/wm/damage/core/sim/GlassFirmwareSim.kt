@@ -401,6 +401,15 @@ class GlassFirmwareSim() : LensPanels {
      *  is written once the shell has released the lease for a sleep, whatever was queued before. */
     @Volatile var acquiresSeen = 0
         private set
+    /** EvenHub CREATEs received, answered or not (build W, package G), for the start-in-Silent-Mode pins. */
+    @Volatile var createsSeen = 0
+        private set
+    /** Build W, package G (G-design §1): whether a CREATE that arrives in Silent Mode is answered. False is the
+     *  glass reading of 2026-11-12 — nine starts in the charging case re-sent the CREATE every 2 s, about 2,240
+     *  copies, and none was answered while the READ said Silent Mode; the one answered came at the exit. Which
+     *  of the standing explanations holds (Silent Mode itself, the case, answers held until the exit) is not
+     *  decided; the model takes the plainest. True gives back the model's earlier answer. */
+    @Volatile var createAnsweredWhileSilent = false
 
     /** Whether READ responses carry `silentModeSwitchRestored` (field 4.14).
      *  Stock firmware may omit it; a test withholds it to exercise the
@@ -527,6 +536,12 @@ class GlassFirmwareSim() : LensPanels {
         val msgId = msgIdRaw.toInt()
         when (cmd) {
             EvenHubMsg.CMD_CREATE -> {
+                createsSeen++
+                if (silentMode && !createAnsweredWhileSilent) {
+                    // no layout, no ack: the start's re-sends come round to the first copy's msgId and fail it
+                    diag.event("silent", "CREATE msgId $msgId in Silent Mode — not answered (createAnsweredWhileSilent = false)")
+                    return
+                }
                 if (!preludeSeen) {
                     diag.event("launch", "CREATE with no connect prelude — acked, but the page never " +
                         "becomes active (modeled strict; the firmware's requirement is unverified)")

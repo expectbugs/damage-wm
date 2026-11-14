@@ -493,8 +493,9 @@ intersect, the same decision on both lenses.
   §67). Nothing per tick. **Per PLAY:** the `self` captures, priced against the save-under pool (48 KiB per lens, §4
   mode 23) together with the slots. **Per mode 25:** a transient inflate (§5.9).
 - **Measured before C1's budget is fixed:** arena 13's free memory (fields 7–9) before the carrier CREATE, after it
-  and after the first frame (an APK change, `REPLAN.md` §5), then fields 27–29 on the candidate with the cache at 160
-  and at 256. Modeled today (`HANDOFF.md` §67): ≈ 130 KiB free at 256, ≈ 82 with the pool full, before a mode-25
+  and after the first frame (an APK change, `REPLAN.md` §5; built in APK 0.66 as the journal's `heap3` notes at four
+  points of a start — `pre-create`, `lease`, `atlas`, `first-frame` — none read in Silent Mode, `HANDOFF.md` §79.2),
+  then fields 27–29 on the candidate with the cache at 160 and at 256. Modeled today (`HANDOFF.md` §67): ≈ 130 KiB free at 256, ≈ 82 with the pool full, before a mode-25
   decode's ≈ 40–56 KiB; the self-test's 150 KiB scratch needs a session at ≤ 160.
 - **Short:** a refusal and nothing written — 7 over the pool, 11 an allocation failed — with notify outcome 2 at
   once; the phone draws that motion as today's frames. No op ever writes past an allocation.

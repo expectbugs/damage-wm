@@ -11,38 +11,96 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import wm.damage.core.transport.SeamProbe
-import wm.damage.core.util.Log
+import wm.damage.desktop.StandbyPolicy.Action
 import wm.damage.desktop.StandbyPolicy.Phone
 
 /**
- * `HANDOFF.md` §72 (2026-11-08): the PC standby must never claim glasses it cannot see, never
- * claim them from a phone that chose Target≠glasses, never keep retrying a claim that cannot
- * drive, and never run "started" on a port another instance holds. On 2026-11-06 it did the
- * first two on a powered-off adapter, then 876 failed starts ran its heap out.
+ * Build W's rider (the spec's T15; R6 §5; the lead's decision A.9): PC-direct Bluetooth is a manual choice. In `auto`
+ * the PC is the data host — no probe answer, however long the phone stays away, starts a stack; a manual stack
+ * (`drive=ble`, `--transport ble`, the Target row) is never stopped by a probe; `drive=auto` puts the data host back,
+ * and a stack found up in `auto` is stopped.
  *
- * The decisions are new functions, so these pins are watched to fail under mutations that put
- * the old behaviour back (the record lists them).
+ * Order of work (protocol rule 4): the loop was first extracted into [StandbyPolicy.step] WITH the old `Claim` (six
+ * unreachable probes and both arms seen); [aPhoneAwayForeverNeverStartsAStack] was watched failing on it, then
+ * `Claim` was removed. The record's pins table lists the run.
+ *
+ * Earlier pins kept: the probe's answer mapped to the phone's intent, and a busy port bound once it frees (§72).
  */
 class StandbyPolicyTest {
 
+    private val probe = 5_000L
+
+    /** [n] probes of [phone] from [s] in `auto`, every action collected. */
+    private fun probes(phone: Phone, n: Int, s: StandbyPolicy.State = StandbyPolicy.State(), stackHeld: Boolean = false):
+        Pair<StandbyPolicy.State, List<Action>> {
+        var st = s
+        val out = ArrayList<Action>()
+        repeat(n) {
+            val step = StandbyPolicy.step(phone, st, standby = true, stackHeld = stackHeld, probeMs = probe)
+            st = step.state
+            out += step.action
+        }
+        return st to out
+    }
+
     @Test
-    fun aClaimNeedsAnAbsentPhoneAndBothArmsSeen() {
-        val d = 6
-        // the only claim: unreachable for the debounce AND both arms seen advertising here
-        assertTrue(StandbyPolicy.shouldClaim(Phone.UNREACHABLE, 6, d, armsAdvertising = true))
-        assertTrue(StandbyPolicy.shouldClaim(Phone.UNREACHABLE, 40, d, armsAdvertising = true))
-        // 2026-11-06: an adapter that cannot scan used to claim on the debounce alone
-        assertFalse(StandbyPolicy.shouldClaim(Phone.UNREACHABLE, 40, d, armsAdvertising = null),
-            "an adapter that cannot scan sees nothing and must not claim")
-        assertFalse(StandbyPolicy.shouldClaim(Phone.UNREACHABLE, 40, d, armsAdvertising = false),
-            "arms that do not advertise are still held by the phone")
-        assertFalse(StandbyPolicy.shouldClaim(Phone.UNREACHABLE, 5, d, armsAdvertising = true), "inside the debounce")
-        // Adam's ruling D1: a reachable phone on Target≠glasses is a choice, never a claim
-        for (seen in listOf(true, false, null))
-            assertFalse(StandbyPolicy.shouldClaim(Phone.CHOSE_NOT_TO, 40, d, seen),
-                "a phone reading in Sim mode must never lose its glasses to the PC (seen=$seen)")
-        for (seen in listOf(true, false, null))
-            assertFalse(StandbyPolicy.shouldClaim(Phone.DRIVES, 40, d, seen))
+    fun aPhoneAwayForeverNeverStartsAStack() {
+        // a day of probes with the phone unreachable: 2026-11-06's claim came after six, with both arms seen
+        val (st, actions) = probes(Phone.UNREACHABLE, 17_280)
+        assertTrue(actions.all { it is Action.Narrate }, "every answer only narrates: ${actions.filter { it !is Action.Narrate }.take(3)}")
+        assertEquals(17_280, st.absentStreak)
+        assertEquals("data host · phone unreachable 24h0m · PC-direct BLE is manual (drive=ble)", actions.last().status)
+        assertEquals("data host · phone unreachable 5s · PC-direct BLE is manual (drive=ble)", actions.first().status)
+        assertTrue(actions.all { it.said.isEmpty() }, "an absence says nothing until it ends")
+        // and a phone that chose Target≠glasses, or drives, never starts one either
+        for (p in listOf(Phone.CHOSE_NOT_TO, Phone.DRIVES))
+            assertTrue(probes(p, 100).second.all { it is Action.Narrate }, "$p")
+    }
+
+    @Test
+    fun thePhonesReturnIsSaidOnceWithItsLength() {
+        val (away, _) = probes(Phone.UNREACHABLE, 12)
+        val back = StandbyPolicy.step(Phone.DRIVES, away, standby = true, stackHeld = false, detail = "driving", probeMs = probe)
+        assertEquals(listOf("standby: the phone is back after 12 missed probe(s) (~60 s)"), back.action.said)
+        assertEquals("data host · phone drives · driving", back.action.status)
+        assertEquals(0, back.state.absentStreak)
+        val again = StandbyPolicy.step(Phone.DRIVES, back.state, standby = true, stackHeld = false, probeMs = probe)
+        assertEquals(emptyList(), again.action.said, "said once")
+        // a choice is said once per run of such answers, never as an absence
+        val (_, chose) = probes(Phone.CHOSE_NOT_TO, 3)
+        assertEquals(listOf(1, 0, 0), chose.map { it.said.size })
+        assertEquals("data host · the APK chose Target≠glasses", chose.last().status)
+    }
+
+    /** A manual stack (`drive=ble`): the loop passes no answer (none is asked) and no step ever stops it, whatever
+     *  the phone would say. */
+    @Test
+    fun aManualStackSurvivesProbesAndIsNeverHandedBack() {
+        for (p in listOf(Phone.DRIVES, Phone.CHOSE_NOT_TO, Phone.UNREACHABLE, null)) {
+            var st = StandbyPolicy.State(absentStreak = 40)
+            repeat(50) {
+                val step = StandbyPolicy.step(p, st, standby = false, stackHeld = true, probeMs = probe)
+                assertTrue(step.action is Action.Narrate, "a manual stack is never handed back ($p)")
+                st = step.state
+            }
+            assertEquals(StandbyPolicy.State(), st, "the next `auto` starts its count afresh")
+        }
+    }
+
+    /** `drive=auto` puts the data host back: a stack still up in `auto` is stopped at the next probe, whatever the
+     *  phone says; `drive=` takes only `ble` and `auto`. */
+    @Test
+    fun driveAutoEndsAManualStack() {
+        assertEquals("ble", StandbyPolicy.driveOf("ble"))
+        assertEquals("auto", StandbyPolicy.driveOf("auto"))
+        for (v in listOf("sim", "remote", "", "BLE", "on")) assertNull(StandbyPolicy.driveOf(v), v)
+        for (p in Phone.entries) {
+            val step = StandbyPolicy.step(p, StandbyPolicy.State(), standby = true, stackHeld = true, probeMs = probe)
+            assertTrue(step.action is Action.Handback, "a stack up in auto is stopped ($p)")
+            assertTrue(step.action.status.endsWith("stopping the PC stack (auto never drives)"), step.action.status)
+        }
+        assertTrue(StandbyPolicy.step(Phone.DRIVES, StandbyPolicy.State(), standby = true, stackHeld = false, probeMs = probe)
+            .action is Action.Narrate, "nothing up, nothing to stop")
     }
 
     @Test
@@ -52,71 +110,6 @@ class StandbyPolicyTest {
             "an APK too old to be asked is read conservatively, as before")
         assertEquals(Phone.CHOSE_NOT_TO, StandbyPolicy.phoneOf(SeamProbe.Result.Reachable(false, false, "")))
         assertEquals(Phone.UNREACHABLE, StandbyPolicy.phoneOf(SeamProbe.Result.Unreachable))
-    }
-
-    @Test
-    fun theClaimBacksOffAfterGiveBacks() {
-        assertEquals(6, StandbyPolicy.claimDebounce(0, 6, 60), "no give-back: the plain 30 s debounce")
-        assertEquals(12, StandbyPolicy.claimDebounce(1, 6, 60))
-        assertEquals(24, StandbyPolicy.claimDebounce(2, 6, 60))
-        assertEquals(60, StandbyPolicy.claimDebounce(4, 6, 60), "capped at 5 min of probes")
-        assertEquals(60, StandbyPolicy.claimDebounce(1_000, 6, 60), "never overflows")
-    }
-
-    @Test
-    fun aClaimThatCannotDriveIsGivenBack() {
-        assertFalse(StandbyPolicy.shouldGiveBack(0, 6))
-        assertFalse(StandbyPolicy.shouldGiveBack(5, 6))
-        assertTrue(StandbyPolicy.shouldGiveBack(6, 6), "six failed starts in a row: back to standby")
-        assertTrue(StandbyPolicy.shouldGiveBack(876, 6))
-    }
-
-    /** A BlueZ link whose adapter can be switched off and on, and whose peers can advertise. */
-    private class FakeLink(val adapterName: String = "hci-test-${System.nanoTime()}") : BlueZLink {
-        @Volatile var powered = false
-        @Volatile var advertising = false
-        var discovery = false
-        var startCalls = 0
-        var closed = 0
-        override fun adapter() = BlueZLink.Adapter("/org/bluez/hci0", adapterName, "C4:BD:E5:2E:C9:75", powered)
-        override fun startDiscovery() {
-            startCalls++
-            if (!powered) throw IllegalStateException("StartDiscovery refused on /org/bluez/hci0: Resource Not Ready")
-            discovery = true
-        }
-        override fun stopDiscovery() { discovery = false }
-        override fun discovering() = discovery
-        override fun peers(): List<BlueZLink.Peer> = if (!advertising) emptyList() else listOf(
-            BlueZLink.Peer("/org/bluez/hci0/dev_1", "D8:AE:E7:C1:FA:4D", "Even G2_32_L_C1FA4D", connected = false, servicesResolved = false, rssi = -60),
-            BlueZLink.Peer("/org/bluez/hci0/dev_2", "E4:87:77:65:CD:50", "Even G2_32_R_65CD50", connected = false, servicesResolved = false, rssi = -61))
-        override fun connect(devicePath: String) = throw UnsupportedOperationException()
-        override fun disconnect(devicePath: String) = throw UnsupportedOperationException()
-        override fun probe(devicePath: String) = throw UnsupportedOperationException()
-        override fun characteristics(devicePath: String) = throw UnsupportedOperationException()
-        override fun startNotify(charPath: String) = throw UnsupportedOperationException()
-        override fun write(charPath: String, value: ByteArray) = throw UnsupportedOperationException()
-        override fun mtu(charPath: String): Int? = null
-        override fun rssi(devicePath: String): Int? = null
-        override fun listen(l: (BlueZLink.Event) -> Unit) {}
-        override fun close() { closed++ }
-    }
-
-    @Test
-    fun aPoweredOffAdapterNeverClaimsAndScansAgainWhenSwitchedOn() {
-        val link = FakeLink()
-        val scan = StandbyScan(Config(), newLink = { link })
-        fun said() = Log.recent().count { "cannot scan for the arms" in it && link.adapterName in it }
-        val before = said()
-        // powered off (beardos's hci0 is rfkill-blocked): every probe answers null, said ONCE
-        repeat(5) { assertNull(scan.armsAdvertising(), "a powered-off adapter cannot scan") }
-        assertEquals(0, link.startCalls, "the powered state is read, not tested by failing a discovery start")
-        assertEquals(1, said() - before, "said once, not every 5 s")
-        // switched on: not sticky — the next probe starts a scan, the one after judges what it sees
-        link.powered = true
-        assertEquals(false, scan.armsAdvertising(), "the first probe after power-on starts the scan")
-        assertEquals(false, scan.armsAdvertising(), "nothing advertising yet")
-        link.advertising = true
-        assertEquals(true, scan.armsAdvertising(), "both arms seen: now a claim may happen")
     }
 
     @Test

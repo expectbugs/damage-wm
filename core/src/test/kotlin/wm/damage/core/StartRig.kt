@@ -20,7 +20,7 @@ import wm.damage.core.wire.Pb
  *  - [onNotify] sees each packet the model sends back: the packet (or a replacement), or null to lose it.
  *  - [disconnectGate]: while set, `disconnectLink()` waits on it — the phone's two disconnects in turn.
  */
-internal class StartRig(val glass: GlassFirmwareSim, scope: CoroutineScope, private val clock: () -> Long = System::currentTimeMillis,
+internal open class StartRig(val glass: GlassFirmwareSim, scope: CoroutineScope, private val clock: () -> Long = System::currentTimeMillis,
                         private val instantPacing: Boolean = true) :
     CfwTransportBase(scope, "start-rig") {
     /** P5 verify: false gives the product's paced bounds (the stall tick's 10 s) to a pin that holds an ack by hand. */

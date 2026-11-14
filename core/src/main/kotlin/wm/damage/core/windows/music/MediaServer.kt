@@ -27,6 +27,9 @@ import wm.damage.core.util.Log
 class MediaServer(
     private val port: Int,
     private val token: String,
+    /** Build W (dec. B.4): which arrivals are answered at all; the strict default refuses the bus network.
+     *  Before [resolve], so the callers' trailing lambda still names the resolver. */
+    private val reach: wm.damage.core.net.ReachGate = wm.damage.core.net.ReachGate(wm.damage.core.net.Side.PHONE),
     /** The file + MIME for a track under a profile — may transcode; throws
      *  when the track or file is gone (answered as 404 with the reason). */
     private val resolve: (trackId: Int, profile: AudioProfile) -> Pair<Path, String>,
@@ -43,6 +46,11 @@ class MediaServer(
             Log.i("media", "media endpoint on :$port")
             while (running) {
                 val c = try { s.accept() } catch (e: Exception) { if (running) Log.e("media", "accept failed", e); break }
+                // the reach gate, before a byte is read (build W, dec. B.4): a refusal is closed unread
+                if (!reach.admit(c, "media endpoint")) {
+                    try { c.close() } catch (e: Exception) { Log.w("media", "closing a refused connection: ${e.message}") }
+                    continue
+                }
                 clients.add(c)
                 Thread({ try { serve(c) } finally { clients.remove(c) } }, "media-${c.inetAddress}").apply { isDaemon = true }.start()
             }

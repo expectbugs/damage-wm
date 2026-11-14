@@ -288,6 +288,9 @@ class SilentGlassesTest {
      * `startLocked` past `transport.start()` and outside both its catches: `running` stayed set and every retry
      * read "shell already started". `raiseFault` already wraps the same hook. Fixed: the same try; the start
      * completes asleep and the notice still goes up.
+     * Build W fix round 2 (R2.2): a start that RESTS (its READ says Silent Mode) says no notice any more, so the start
+     * path reaches the hook only when the push ON lands in an awake start's tail — after `transport.start()` returned
+     * and before the shell's one read of the state (the seam `SilentStartTest` uses). The test puts it there.
      */
     @Test
     fun aThrowingUrgentHookDoesNotEndASilentStart(): Unit = runBlocking {
@@ -295,12 +298,16 @@ class SilentGlassesTest {
         val tmp = Files.createTempDirectory("damage-silent-hook")
         try {
             val sim = GlassFirmwareSim()
-            val transport = SimTransport(sim, scope, SimTransport.Timing(instant = true))
+            val transport = object : StartRig(sim, scope) {
+                override suspend fun start(warmupFrame: ByteArray) {
+                    super.start(warmupFrame)
+                    sim.setSilent(true)                         // the push ON in the start's tail: the shell's read says so
+                }
+            }
             val shell = Shell(FakeText(), transport, Persistence(tmp.resolve("state.json")), tmp.resolve("journal.jsonl"), scope)
             shell.silentPacingMs = 60_000
             val rang = java.util.concurrent.atomic.AtomicInteger()
             shell.onUrgent = { _, _ -> rang.incrementAndGet(); throw IllegalStateException("test: the host's notification call failed") }
-            sim.setSilent(true)                                 // before the session: the start's READ says so
             shell.start()
             assertTrue(shell.glassesAsleep, "the session started asleep")
             assertEquals(1, rang.get(), "the hook was called once, for the Silent Mode notice")

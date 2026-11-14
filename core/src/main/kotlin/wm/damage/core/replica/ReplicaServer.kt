@@ -89,6 +89,8 @@ class ReplicaServer(
      *  `journal` note naming the archive that holds what came before it; a tail
      *  never spans the two files. */
     private val journalPath: () -> Path? = { null },
+    /** Build W (dec. B.4): which arrivals are answered at all; the strict default refuses the bus network. */
+    private val reach: wm.damage.core.net.ReachGate = wm.damage.core.net.ReachGate(wm.damage.core.net.Side.PHONE),
 ) : AutoCloseable {
 
     data class Status(
@@ -119,6 +121,11 @@ class ReplicaServer(
                 val sock = try { s.accept() } catch (e: Exception) {
                     if (running) Log.e("replica", "accept failed", e)
                     break
+                }
+                // the reach gate, before a byte is read (build W, dec. B.4): a refusal is closed unread
+                if (!reach.admit(sock, "browser replica")) {
+                    try { sock.close() } catch (e: Exception) { Log.w("replica", "closing a refused connection: ${e.message}") }
+                    continue
                 }
                 Thread({ serve(sock) }, "replica-${sock.inetAddress}").apply { isDaemon = true }.start()
             }

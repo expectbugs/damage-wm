@@ -1,0 +1,14 @@
+{"t": 1800000000000, "ev": "note", "kind": "keeper", "detail": "starting"}
+{"t": 1800000000001, "ev": "note", "kind": "power", "detail": "lit"}
+{"t": 1800000060000, "ev": "note", "kind": "battery", "detail": "glasses 80%"}
+{"t": 1800003600000, "ev": "note", "kind": "battery", "detail": "glasses 78%"}
+{"t": 1800003700000, "ev": "note", "kind": "build", "detail": "0.65 (65) \u00b7 session start via sim"}
+{"t": 1800003700100, "ev": "note", "kind": "power", "detail": "lit"}
+{"t": 1800003700200, "ev": "note", "kind": "battery", "detail": "glasses 87%"}
+{"t": 1800003800000, "ev": "note", "kind": "power", "detail": "down"}
+{"t": 1800003900000, "ev": "note", "kind": "keeper", "detail": "starting"}
+{"t": 1800003900100, "ev": "note", "kind": "build", "detail": "0.65 (65) \u00b7 session start via ble"}
+{"t": 1800003900200, "ev": "note", "kind": "power", "detail": "lit 78%"}
+{"t": 1800007200000, "ev": "note", "kind": "battery", "detail": "glasses 74%"}
+{"t": 1800010800000, "ev": "note", "kind": "battery", "detail": "glasses 72%"}
+{"t": 1800010800001, "ev": "note", "kind": "mark", "detail": "end"}

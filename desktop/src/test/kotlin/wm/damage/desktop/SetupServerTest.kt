@@ -94,4 +94,31 @@ class SetupServerTest {
         assertTrue(SetupServer.isTailscaleInterface("tailscale0") && !SetupServer.isTailscaleInterface("enp7s0"))
         assertTrue(SetupServer.same("abc", "abc") && !SetupServer.same("abc", "abd") && !SetupServer.same("", "a"))
     }
+
+    /** Build W (dec. B.4; the spec's T26-B for the setup page): the listeners' reach gate is on this one too — a
+     *  refused arrival is closed before a byte is read (EOF; the page's handler would wait for the request) and
+     *  said; an admitted one still meets the page's own Tailscale-or-loopback check. */
+    @Test
+    fun theReachGateClosesARefusalUnreadBeforeThePagesOwnCheck() {
+        val dir = Files.createTempDirectory("setup4")
+        val apk = dir.resolve("damage-wm.apk")
+        Files.write(apk, ByteArray(10))
+        val allow = java.util.concurrent.atomic.AtomicBoolean(false)
+        val lines = java.util.concurrent.CopyOnWriteArrayList<String>()
+        val gate = wm.damage.core.net.ReachGate(wm.damage.core.net.Side.PC, sink = { lines += it },
+            classify = { _, _, _ -> wm.damage.core.net.Reach.Verdict(allow.get(), "test", "refused by the test") })
+        val s = SetupServer(0, "tok-en", apk, { false }, reach = gate)
+        s.start()
+        try {
+            java.net.Socket("127.0.0.1", s.boundPort).use { c ->
+                c.soTimeout = 5_000                      // the test's own bound; a server with no gate would wait here
+                assertEquals(-1, c.getInputStream().read(), "a refused arrival is closed unread")
+            }
+            assertTrue(lines.any { it.startsWith("reach: setup page refused 127.0.0.1") }, "$lines")
+            allow.set(true)
+            assertEquals(403, get("http://127.0.0.1:${s.boundPort}/setup").first, "admitted: the page's own check still holds")
+        } finally {
+            s.close()
+        }
+    }
 }

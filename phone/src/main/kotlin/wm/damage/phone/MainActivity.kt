@@ -35,6 +35,13 @@ import wm.damage.core.wire.EvenHubMsg
  * Bluetooth pair is what lets the banked GLASSES target ever come alive.
  * The service starts after the request resolves either way — the sim target
  * needs none of them.
+ *
+ * Build W, package F (W-decisions G.5): the "location" button asks for the
+ * phone's position in the platform's two steps — precise location first (fine
+ * with coarse, one request), then "Allow all the time" on its own (Android 11+
+ * ignores a request for both at once and sends the second to a settings page).
+ * Location is never asked for at start: nothing about it runs until both are
+ * granted here.
  */
 class MainActivity : ComponentActivity() {
 
@@ -56,6 +63,45 @@ class MainActivity : ComponentActivity() {
             maybeRequestDozeExemption()
             startShellService()
         }
+
+    /** Step 1 of 2 (package F): precise location, requested together with coarse as the platform requires. */
+    private val foregroundLocation =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
+            if (grants[Manifest.permission.ACCESS_FINE_LOCATION] == true) askBackgroundLocation()
+            else status.text = "location: precise location not allowed — presence from the phone stays off"
+        }
+
+    /** Step 2 of 2: "Allow all the time" (background location), asked on its own. */
+    private val backgroundLocation =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            status.text = if (granted) "location: allowed all the time — presence from the phone starts within a minute"
+                else "location: not allowed all the time — presence from the phone stays off"
+        }
+
+    private fun granted(permission: String) = checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
+
+    /** The "location" button: whichever of the two steps is still owed. */
+    private fun requestLocation() {
+        when {
+            !granted(Manifest.permission.ACCESS_FINE_LOCATION) -> foregroundLocation.launch(arrayOf(
+                Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+            !granted(Manifest.permission.ACCESS_BACKGROUND_LOCATION) -> askBackgroundLocation()
+            else -> status.text = "location: allowed all the time (the Bastion settings' Position row shows it)"
+        }
+    }
+
+    /** Before step 2, what it is for and the settings option's own label (the platform's guidance for Android 11+). */
+    private fun askBackgroundLocation() {
+        val label = packageManager.backgroundPermissionOptionLabel
+        AlertDialog.Builder(this)
+            .setTitle("Presence from the phone's position")
+            .setMessage("Damage can tell whether you are at the bus from this phone's position while it runs in the " +
+                "background. The next page asks for \"$label\". The position stays on this phone: only home, away " +
+                "or unknown goes to the PC.")
+            .setPositiveButton("continue") { _, _ -> backgroundLocation.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION) }
+            .setNegativeButton("not now", null)
+            .show()
+    }
 
     private fun dozeExempt(): Boolean =
         getSystemService(PowerManager::class.java)?.isIgnoringBatteryOptimizations(packageName) == true
@@ -122,6 +168,8 @@ class MainActivity : ComponentActivity() {
                 try { startActivity(wm.damage.phone.music.MusicListener.settingsIntent(this@MainActivity)) }
                 catch (e: Exception) { status.text = "notification-access page unavailable: ${e.message}" }
             })
+            // build W, package F: presence from the phone's position, asked in the platform's two steps
+            addView(smallButton("location") { requestLocation() })
         }
         root.addView(bar, FrameLayout.LayoutParams(-1, -2, Gravity.TOP))
         setContentView(root)

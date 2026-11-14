@@ -32,6 +32,10 @@ class GlyphMask(val w: Int, val h: Int, val cov: ByteArray)
 object TextProfile {
     @JvmStatic val drawNs = java.util.concurrent.atomic.AtomicLong(0)
     @JvmStatic val measureNs = java.util.concurrent.atomic.AtomicLong(0)
+    /** Build W, package G (E4): the cached-text recorder's face renders (`CachedText.render`, a face's glyphs drawn
+     *  for the atlas) and their time — the shell's `slow` note says how many a slow message built. */
+    @JvmStatic val faceRenders = java.util.concurrent.atomic.AtomicLong(0)
+    @JvmStatic val faceRenderNs = java.util.concurrent.atomic.AtomicLong(0)
 }
 
 class MeasureCache(private val maxEntries: Int = 16_384) {

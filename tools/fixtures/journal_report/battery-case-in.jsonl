@@ -1,0 +1,13 @@
+{"t": 1800000000000, "ev": "note", "kind": "keeper", "detail": "starting"}
+{"t": 1800000000001, "ev": "note", "kind": "power", "detail": "lit"}
+{"t": 1800000002000, "ev": "note", "kind": "case", "detail": "R flag 0x01: level 78%, charging 1, lid 1, in case 1, error 0 (cmd 1, 0801)"}
+{"t": 1800000003000, "ev": "note", "kind": "battery", "detail": "glasses 100% charging"}
+{"t": 1800000004000, "ev": "note", "kind": "battery", "detail": "glasses 100%"}
+{"t": 1800001800000, "ev": "note", "kind": "battery", "detail": "glasses 100%"}
+{"t": 1800003000000, "ev": "note", "kind": "power", "detail": "fw-silent 100%"}
+{"t": 1800003060000, "ev": "note", "kind": "battery", "detail": "glasses 98%"}
+{"t": 1800006660000, "ev": "note", "kind": "battery", "detail": "glasses 94%"}
+{"t": 1800010260000, "ev": "note", "kind": "battery", "detail": "glasses 90%"}
+{"t": 1800013860000, "ev": "note", "kind": "battery", "detail": "glasses 86%"}
+{"t": 1800017460000, "ev": "note", "kind": "battery", "detail": "glasses 82%"}
+{"t": 1800017460001, "ev": "note", "kind": "mark", "detail": "end"}

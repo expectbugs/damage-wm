@@ -125,6 +125,18 @@ data class ShellSettings(
     val notifyMusic: Boolean = true,
     val notifyDamage: Boolean = true,
 
+    /** Build W (the lead's decision B.3): the bus alert watcher's glasses notices — `Notify · alerts` (a raise and
+     *  its repeats) and `Notify · cleared` — rows of the host category "Bastion" (`bastion/BastionRows.kt`), SHARED
+     *  (synced as `shell.settings`). The phone's own `Phone · alerts` and `Home unreachable` rows are the phone's
+     *  preferences, never here. Additive: an old record reads the defaults. */
+    val notifyAlerts: Boolean = true,
+    val notifyCleared: Boolean = true,
+
+    /** Build W (dec. B.2; `CONTRACT.md` §7.3, §14 (b)): the ONE shared quiet-hours row, in Global beside
+     *  `Notify · Damage` — a [QuietHours] preset id, default `off`. This build applies it to the bus watcher's
+     *  notices and "home unreachable" only; step S1-2's notice record applies it to every notice. */
+    val quietHours: String = QuietHours.OFF,
+
     /** MUSIC.md verdict 21 (2026-09-02): the APK stops posting errors to the
      *  phone — they go to the glasses' notices and the log; the one
      *  permanent foreground notification stays. OFF by default. Additive. */
@@ -185,6 +197,7 @@ data class ShellSettings(
         cachedText = if (cachedText in CACHED_TEXT) cachedText else "off",
         pageStaging = if (pageStaging in PAGE_STAGING) pageStaging else "on",
         linkPriority = if (linkPriority in LINK_PRIORITIES) linkPriority else "high",
+        quietHours = if (quietHours in QUIET_HOURS) quietHours else QuietHours.OFF,
     )
 
     companion object {
@@ -221,6 +234,8 @@ data class ShellSettings(
         val PAGE_STAGING = listOf("off", "on")
         /** The radio's connection priority (§47, 2026-09-12): the Global row's order. */
         val LINK_PRIORITIES = listOf("high", "balanced")
+        /** The quiet-hours presets' stored ids, in the Global row's order (build W, dec. B.2). */
+        val QUIET_HOURS: List<String> = QuietHours.IDS
         fun fromJson(o: JsonObject?): ShellSettings =
             if (o == null) ShellSettings()
             else try {

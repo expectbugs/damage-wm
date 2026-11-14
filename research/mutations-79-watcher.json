@@ -1,0 +1,1836 @@
+[
+ {
+  "id": "W1-a-request-that-is-not-a-get",
+  "file": "bastion/HaReader.kt",
+  "edits": [
+   [
+    "val r = Http.request(\"GET\", base + path, headers)",
+    "val r = Http.request(\"POST\", base + path, headers)"
+   ]
+  ],
+  "tests": [
+   "*HaReaderTest.everyRequestIsAGetWithNoBodyToAnAllowedPath"
+  ],
+  "expect": [
+   "everyRequestIsAGetWithNoBodyToAnAllowedPath"
+  ],
+  "note": "R6 T1: the reader only READS the hub — its one request site sends GET; a POST is seen by the stand-in hub"
+ },
+ {
+  "id": "W2-a-path-outside-the-set",
+  "file": "bastion/HaReader.kt",
+  "edits": [
+   [
+    "if (path !in allowed) throw PathRefused(path)",
+    "if (false) throw PathRefused(path)"
+   ]
+  ],
+  "tests": [
+   "*HaReaderTest.aPathOutsideTheSetNeverReachesTheHub"
+  ],
+  "expect": [
+   "aPathOutsideTheSetNeverReachesTheHub"
+  ],
+  "note": "R6 T2: only the rules' entities are read; without the check another path reaches the stand-in hub"
+ },
+ {
+  "id": "W3-the-clear-compares-with-at",
+  "file": "bastion/RuleEval.kt",
+  "edits": [
+   [
+    "v <= rule.clearAt!! -> Cond.CLEAR",
+    "v < rule.at!! -> Cond.CLEAR"
+   ]
+  ],
+  "tests": [
+   "*RuleEvalTest.aFlapInsideTheHysteresisBandRaisesOnce"
+  ],
+  "expect": [
+   "aFlapInsideTheHysteresisBandRaisesOnce"
+  ],
+  "note": "R6 T5: the hysteresis band — a clear judged on `at` makes a value flapping inside the band raise and clear by turns"
+ },
+ {
+  "id": "W4-the-formin-clock-not-restarted",
+  "file": "bastion/RuleEval.kt",
+  "edits": [
+   [
+    "val reset = prior.copy(trueSince = null, noReadingSince = null)",
+    "val reset = prior.copy(noReadingSince = null)"
+   ]
+  ],
+  "tests": [
+   "*RuleEvalTest.aFalseReadingRestartsForMin"
+  ],
+  "expect": [
+   "aFalseReadingRestartsForMin"
+  ],
+  "note": "R6 T5: a reading that does not meet the condition restarts forMin; without the reset the alert raises early"
+ },
+ {
+  "id": "W5-last-updated-read-first",
+  "file": "bastion/RuleEval.kt",
+  "edits": [
+   [
+    "it.lastReported ?: it.lastUpdated",
+    "it.lastUpdated ?: it.lastReported"
+   ]
+  ],
+  "tests": [
+   "*RuleEvalTest.staleReadsLastReportedFirst"
+  ],
+  "expect": [
+   "staleReadsLastReportedFirst"
+  ],
+  "note": "R6 T5: `stale` reads last_reported first (it moves on every report); read the other way a sensor that still reports is judged stale"
+ },
+ {
+  "id": "W6-a-repeat-while-acknowledged",
+  "file": "bastion/AlertStore.kt",
+  "edits": [
+   [
+    "if (e.state != AlertState.RAISED) continue",
+    "if (e.state == AlertState.CLEAR) continue"
+   ]
+  ],
+  "tests": [
+   "*AlertStoreTest.repeatsFollowSeverityAndNeverWhileAcknowledged"
+  ],
+  "expect": [
+   "repeatsFollowSeverityAndNeverWhileAcknowledged"
+  ],
+  "note": "R6 T6 (dec. B.1): an acknowledged alert never repeats; with the test on CLEAR only, repeats fire while acknowledged"
+ },
+ {
+  "id": "W7-the-load-forgets-the-episode",
+  "file": "bastion/AlertStore.kt",
+  "edits": [
+   [
+    "                episode = a.episode,\n",
+    "                episode = 0,\n"
+   ]
+  ],
+  "tests": [
+   "*AlertStoreTest.theEpochAndTheSequenceSurviveAReload"
+  ],
+  "expect": [
+   "theEpochAndTheSequenceSurviveAReload"
+  ],
+  "note": "R6 T6 (dec. B.3): a restart keeps each alert's episode; loaded as 0, an acknowledgement names the wrong episode"
+ },
+ {
+  "id": "W8-a-late-answer-applied",
+  "file": "bastion/BastionWatcher.kt",
+  "edits": [
+   [
+    "if (attempt <= last) {",
+    "if (false) {"
+   ]
+  ],
+  "tests": [
+   "*WatcherLivenessTest.aLateAnswerNeverOverwritesANewerOne"
+  ],
+  "expect": [
+   "aLateAnswerNeverOverwritesANewerOne"
+  ],
+  "note": "R6 T7: liveness without timeouts — a late answer of an older round never overwrites a newer one"
+ },
+ {
+  "id": "W9-no-skip-while-a-round-is-in-flight",
+  "file": "bastion/BastionWatcher.kt",
+  "edits": [
+   [
+    "            else -> {}                     // still asking: skip this tick",
+    "            else -> launchRound()"
+   ]
+  ],
+  "tests": [
+   "*WatcherLivenessTest.aStuckRoundIsSaidAndOneMoreGoesBesideItNeverAThird"
+  ],
+  "expect": [
+   "aStuckRoundIsSaidAndOneMoreGoesBesideItNeverAThird"
+  ],
+  "note": "R6 T7: a tick while a round is in flight skips; without the skip rounds pile up beside a stuck one"
+ },
+ {
+  "id": "W10-the-refused-token-not-latched",
+  "file": "bastion/HaReader.kt",
+  "edits": [
+   [
+    "if (refusedStatus != 0) throw TokenRefused(refusedStatus)",
+    "if (false) throw TokenRefused(refusedStatus)"
+   ]
+  ],
+  "tests": [
+   "*HaReaderTest.aRefusedTokenLatches"
+  ],
+  "expect": [
+   "aRefusedTokenLatches"
+  ],
+  "note": "R6 T8: after a 401/403 no further request goes to the hub until a restart"
+ },
+ {
+  "id": "W11-first-contact-says-everything",
+  "file": "bastion/RemoteBastion.kt",
+  "edits": [
+   [
+    "            if (delivery.adopt(r, shown) == AlertDelivery.Outcome.HELD) s.heldSince = r.raisedAt\n",
+    "            delivery.alert(r, AlertDelivery.Kind.RAISED)\n"
+   ]
+  ],
+  "tests": [
+   "*BastionReconcileTest.firstContactAdoptsWithoutANoticeThenSaysEachChangeOnce"
+  ],
+  "expect": [
+   "firstContactAdoptsWithoutANoticeThenSaysEachChangeOnce"
+  ],
+  "note": "R6 W11 / the spec's T22: first contact adopts the PC's alerts without a glasses notice; delivered as raises, each is said again"
+ },
+ {
+  "id": "W12-the-refusal-does-not-move-last-heard",
+  "file": "net/WinNet.kt",
+  "edits": [
+   [
+    "                        lastHeardMs = System.currentTimeMillis()   // every frame, BEFORE the `err` throw below (R6 P14)\n",
+    "                        if (w.t != \"err\") lastHeardMs = System.currentTimeMillis()\n"
+   ]
+  ],
+  "tests": [
+   "*RemoteWinLastHeardTest.everyFrameMovesItAndTheRefusalToo"
+  ],
+  "expect": [
+   "everyFrameMovesItAndTheRefusalToo"
+  ],
+  "note": "R6 T10: every frame the PC sends, the `err` refusal included, is a word from home for \"home unreachable\""
+ },
+ {
+  "id": "W13-the-clock-ignores-coming-online",
+  "file": "bastion/HomeWatch.kt",
+  "edits": [
+   [
+    "val from = maxOf(heard, since, startMs)",
+    "val from = maxOf(heard, startMs)"
+   ]
+  ],
+  "tests": [
+   "*HomeWatchTest.comingOnlineAfterHoursOfflineStartsTheClockThen"
+  ],
+  "expect": [
+   "comingOnlineAfterHoursOfflineStartsTheClockThen"
+  ],
+  "note": "R6 T11: the clock runs only while the phone is online; without validatedSince, coming online after hours offline raises at once"
+ },
+ {
+  "id": "W14-said-while-the-phone-is-offline",
+  "file": "bastion/HomeWatch.kt",
+  "edits": [
+   [
+    "if (raisedAt == 0L && thr > 0 && validated && !blocked) {",
+    "if (raisedAt == 0L && thr > 0 && !blocked) {"
+   ]
+  ],
+  "tests": [
+   "*HomeWatchTest.silentWhileOfflineOrBlocked"
+  ],
+  "expect": [
+   "silentWhileOfflineOrBlocked"
+  ],
+  "note": "R6 T11: a phone that is itself offline never says \"home unreachable\""
+ },
+ {
+  "id": "W15-a-host-category-notice-behind-notify-damage",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "\"DAMAGE\" -> n.appId != null || n.answer || n.gatedBy != null || settings.notifyDamage",
+    "\"DAMAGE\" -> n.appId != null || n.answer || settings.notifyDamage"
+   ]
+  ],
+  "tests": [
+   "*BastionGateTest.aHostCategoryNoticePassesNotifyDamageOffAndACourtesyNoticeDoesNot"
+  ],
+  "expect": [
+   "aHostCategoryNoticePassesNotifyDamageOffAndACourtesyNoticeDoesNot"
+  ],
+  "note": "R6 T12: a host category's notice is gated by its own rows, never by Notify · Damage"
+ },
+ {
+  "id": "W16-a-category-listed-twice",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "val host = hostCategories.filter { (name, _) -> windows.none { it.name.equals(name, ignoreCase = true) } }",
+    "val host = hostCategories"
+   ]
+  ],
+  "tests": [
+   "*HostCategoryTest.aWindowOfTheSameNameWins"
+  ],
+  "expect": [
+   "aWindowOfTheSameNameWins"
+  ],
+  "note": "R6 T13: a registered window of the category's name wins; without the de-dup Settings lists the category twice"
+ },
+ {
+  "id": "D1-heap3-read-in-silent-mode",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            st.glassesSilent -> \"Silent Mode\"\n",
+    ""
+   ],
+   [
+    "            !pageTrafficWanted(st) -> \"the shell has let the lease go (the page traffic sleeps)\"\n",
+    "            !leaseWanted -> \"the shell has let the lease go (the page traffic sleeps)\"\n"
+   ]
+  ],
+  "tests": [
+   "*Heap3Test.aStartInSilentModeReadsNoPoint"
+  ],
+  "expect": [
+   "aStartInSilentModeReadsNoPoint"
+  ],
+  "note": "Package D, T27 (dec. B.5): no heap3 read goes to glasses in Silent Mode — both terms that hold it back are taken out (either alone is held by the other)"
+ },
+ {
+  "id": "D2-heap3-awaited-by-the-start",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        scope.launch {\n            val line = try {\n                val t = telemetryRead(epoch, label = \"heap3 $point\"",
+    "        kotlinx.coroutines.runBlocking {\n            val line = try {\n                val t = telemetryRead(epoch, label = \"heap3 $point\""
+   ]
+  ],
+  "tests": [
+   "*Heap3Test.theStartAndTheLaneNeverWaitForAPoint"
+  ],
+  "expect": [
+   "theStartAndTheLaneNeverWaitForAPoint"
+  ],
+  "note": "Package D, T27: a heap3 point is launched, never awaited — the start returns while its lease read is unanswered"
+ },
+ {
+  "id": "D3-heap3-on-for-instant-transports",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "private fun heapReadsOn(): Boolean = heapReads ?: !instant",
+    "private fun heapReadsOn(): Boolean = heapReads ?: true"
+   ]
+  ],
+  "tests": [
+   "*Heap3Test.theDefaultIsOffOnAnInstantTransportAndOnAtTheRealPace"
+  ],
+  "expect": [
+   "theDefaultIsOffOnAnInstantTransportAndOnAtTheRealPace"
+  ],
+  "note": "Package D, T27: the knob is off on an instant test transport with it left alone (those tests count telemetry reads)"
+ },
+ {
+  "id": "D4-heap3-points-not-the-sessions",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        heapAtlasSaid.set(false); heapFirstFrameSaid.set(false)",
+    ""
+   ]
+  ],
+  "tests": [
+   "*Heap3Test.aSecondSessionSaysItsOwnPoints"
+  ],
+  "expect": [
+   "aSecondSessionSaysItsOwnPoints"
+  ],
+  "note": "Package D, T27: the atlas and first-frame points are said once per SESSION; not reset at the start, a second session says neither"
+ },
+ {
+  "id": "D5-the-seam-ungated",
+  "file": "transport/RemoteTransport.kt",
+  "edits": [
+   [
+    "if (!reach.admit(client, \"transport seam\")) {",
+    "if (false) {"
+   ]
+  ],
+  "tests": [
+   "*ReachSweepTest.theTransportSeamClosesARefusalUnread"
+  ],
+  "expect": [
+   "theTransportSeamClosesARefusalUnread"
+  ],
+  "note": "Package D, T26-D (dec. B.4): the phone's transport seam closes, unread, a connection that did not arrive on loopback or the tailnet"
+ },
+ {
+  "id": "F1-a-truncated-answer-refused-as-behind",
+  "file": "bastion/RemoteBastion.kt",
+  "edits": [
+   [
+    "        if (!a.truncated && epoch != 0L && a.epoch == epoch && a.seq < lastSeq) {",
+    "        if (epoch != 0L && a.epoch == epoch && a.seq < lastSeq) {"
+   ]
+  ],
+  "tests": [
+   "*BastionReaskTest.thePhoneAheadOfTheStoreIsReconciledFromTheTruncatedAnswer"
+  ],
+  "expect": [
+   "thePhoneAheadOfTheStoreIsReconciledFromTheTruncatedAnswer"
+  ],
+  "note": "fix round 1 (R1.1): with the phone ahead of the store, the truncated answer refused as 'behind' is asked again for the same answer and the cursor never moves"
+ },
+ {
+  "id": "F2-a-dropped-push-said-every-time",
+  "file": "bastion/RemoteBastion.kt",
+  "edits": [
+   [
+    "        if (!dropSaid.add(reason)) return",
+    "        dropSaid.add(reason)"
+   ]
+  ],
+  "tests": [
+   "*BastionReaskTest.aPushAtOrBelowTheCursorIsDroppedAndSaidOncePerReason"
+  ],
+  "expect": [
+   "aPushAtOrBelowTheCursorIsDroppedAndSaidOncePerReason"
+  ],
+  "note": "fix round 1 (R1.1): a push not applied is journaled once per reason per connection; without the said-set a duplicate is journaled twice"
+ },
+ {
+  "id": "F3-a-reask-unpaced",
+  "file": "bastion/RemoteBastion.kt",
+  "edits": [
+   [
+    "        if (last != Long.MIN_VALUE && now >= last && now - last < reaskPacingMs) return",
+    "        if (false) return"
+   ]
+  ],
+  "tests": [
+   "*BastionReaskTest.everyReaskIsPacedNeverAnImmediateLoop"
+  ],
+  "expect": [
+   "everyReaskIsPacedNeverAnImmediateLoop"
+  ],
+  "note": "fix round 1 (R1.1): every re-ask is paced; without the spacing an answer that asks again loops thousands of asks per ping"
+ },
+ {
+  "id": "F4-an-entity-failing-never-said",
+  "file": "bastion/BastionWatcher.kt",
+  "edits": [
+   [
+    "                if (now - since >= silentMs) {",
+    "                if (false) {"
+   ]
+  ],
+  "tests": [
+   "*WatcherLivenessTest.anEntityWhoseReadsKeepFailingIsSaidAfterSilentMin"
+  ],
+  "expect": [
+   "anEntityWhoseReadsKeepFailingIsSaidAfterSilentMin"
+  ],
+  "note": "fix round 1 (R1.2a): an entity whose reads keep failing while the hub answers raises watcher.entity.<e> after haSilentMin"
+ },
+ {
+  "id": "F5-a-rules-file-problem-retires",
+  "file": "bastion/BastionWatcher.kt",
+  "edits": [
+   [
+    "            if (problem == null) store.retire(",
+    "            if (true) store.retire("
+   ]
+  ],
+  "tests": [
+   "*WatcherStartTest.theWatchersOwnTroubleNeverEndsAnAlert"
+  ],
+  "expect": [
+   "theWatchersOwnTroubleNeverEndsAnAlert"
+  ],
+  "note": "fix round 1 (R1.3): a rules file that is not JSON retires nothing; retiring on it clears alerts whose conditions still hold"
+ },
+ {
+  "id": "F6-a-refused-rule-retired",
+  "file": "bastion/BastionWatcher.kt",
+  "edits": [
+   [
+    " + load.refused.map { it.id })",
+    ")"
+   ]
+  ],
+  "tests": [
+   "*WatcherStartTest.theWatchersOwnTroubleNeverEndsAnAlert"
+  ],
+  "expect": [
+   "theWatchersOwnTroubleNeverEndsAnAlert"
+  ],
+  "note": "fix round 1 (R1.3): a refused rule's id stays live (its alert held); without it the refusal clears the alert"
+ },
+ {
+  "id": "F7-an-off-watcher-starts-no-loop",
+  "file": "bastion/BastionWatcher.kt",
+  "edits": [
+   [
+    "        if (loop != null) return",
+    "        if (reader == null || loop != null) return"
+   ]
+  ],
+  "tests": [
+   "*WatcherStartTest.anOffWatcherStillRepeatsAnUrgentAlert"
+  ],
+  "expect": [
+   "anOffWatcherStillRepeatsAnUrgentAlert"
+  ],
+  "note": "fix round 1 (R1.3, W-verify 7.1): an off watcher's loop runs repeat-only; with no loop an urgent alert stops repeating"
+ },
+ {
+  "id": "F8-an-off-tick-skips-the-repeats",
+  "file": "bastion/BastionWatcher.kt",
+  "edits": [
+   [
+    "        store.dueRepeats(now, repeatMs)\n        if (reader == null) return         // off: repeat-only",
+    "        if (reader == null) return         // off: repeat-only\n        store.dueRepeats(now, repeatMs)"
+   ]
+  ],
+  "tests": [
+   "*WatcherStartTest.anOffWatcherStillRepeatsAnUrgentAlert"
+  ],
+  "expect": [
+   "anOffWatcherStillRepeatsAnUrgentAlert"
+  ],
+  "note": "fix round 1 (R1.3): the repeats are asked before an off tick returns"
+ },
+ {
+  "id": "F9-the-watcher-row-stale-while-down",
+  "file": "bastion/RemoteBastion.kt",
+  "edits": [
+   [
+    "        !chanUp -> HOME_DOWN",
+    "        false -> HOME_DOWN"
+   ]
+  ],
+  "tests": [
+   "*AckActionTest.theWatcherRowShowsThePcsStateLine"
+  ],
+  "expect": [
+   "theWatcherRowShowsThePcsStateLine"
+  ],
+  "note": "fix round 1 (R1.2b): the Watcher row says 'home not answering' while the channel is down, not the last line"
+ },
+ {
+  "id": "F10-no-watcher-row",
+  "file": "bastion/BastionRows.kt",
+  "edits": [
+   [
+    "            watcherRow(rb),\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*AckActionTest.theWatcherRowShowsThePcsStateLine"
+  ],
+  "expect": [
+   "theWatcherRowShowsThePcsStateLine"
+  ],
+  "note": "fix round 1 (R1.2b): the Bastion category's first row is the display-only Watcher row"
+ },
+ {
+  "id": "F11-phone-row-off-leaves-the-shade",
+  "file": "bastion/AlertDelivery.kt",
+  "edits": [
+   [
+    "            for (id in shownIds()) cancel(id)",
+    "            Unit"
+   ]
+  ],
+  "tests": [
+   "*AlertDeliveryTest.thePhoneRowReconcilesTheShadeAtOnce"
+  ],
+  "expect": [
+   "thePhoneRowReconcilesTheShadeAtOnce"
+  ],
+  "note": "fix round 1 (note 8): Phone · alerts off withdraws the bus notifications at once"
+ },
+ {
+  "id": "F12-phone-row-on-posts-nothing",
+  "file": "bastion/AlertDelivery.kt",
+  "edits": [
+   [
+    "        for (r in raised) phoneShow(r, Kind.ADOPT, body(r, Kind.ADOPT), silent = true)",
+    "        Unit"
+   ]
+  ],
+  "tests": [
+   "*AlertDeliveryTest.thePhoneRowReconcilesTheShadeAtOnce"
+  ],
+  "expect": [
+   "thePhoneRowReconcilesTheShadeAtOnce"
+  ],
+  "note": "fix round 1 (note 8): Phone · alerts on posts every RAISED alert silently"
+ },
+ {
+  "id": "E1-the-guards-end-resets-nothing",
+  "file": "bastion/RuleEval.kt",
+  "edits": [
+   [
+    "GuardRead.ENDED -> return EvalState() to (if (prior.raised) Decision.CLEAR else Decision.HOLD)",
+    "GuardRead.ENDED -> return prior.copy(raised = false) to (if (prior.raised) Decision.CLEAR else Decision.HOLD)"
+   ]
+  ],
+  "tests": [
+   "*ChangeRuleTest.theGuardArmsResetsAndClears",
+   "*WatcherGuardTest.aGuardIsReadFromTheHubAndItsEndClearsWithWordsSayingSo"
+  ],
+  "expect": [
+   "theGuardArmsResetsAndClears",
+   "aGuardIsReadFromTheHubAndItsEndClearsWithWordsSayingSo"
+  ],
+  "note": "dec. F.1, the guard reset: a guard that ends clears the alert but, mutated, keeps the forMin clock and the change rule's baseline, so the next arming goes on from before"
+ },
+ {
+  "id": "E2-a-guard-with-no-reading-judges-the-rule",
+  "file": "bastion/RuleEval.kt",
+  "edits": [
+   [
+    "GuardRead.NO_READING -> return prior.copy(guardNoReadingSince = prior.guardNoReadingSince ?: now) to Decision.HOLD",
+    "GuardRead.NO_READING -> {}"
+   ]
+  ],
+  "tests": [
+   "*ChangeRuleTest.aGuardWithNoReadingNeitherArmsNorClears",
+   "*WatcherGuardTest.aGuardOnDamagePhoneFollowsThePresenceValueAndUnknownNeverArms"
+  ],
+  "expect": [
+   "aGuardWithNoReadingNeitherArmsNorClears",
+   "aGuardOnDamagePhoneFollowsThePresenceValueAndUnknownNeverArms"
+  ],
+  "note": "dec. F.1: a guard with no reading neither arms nor clears; mutated, the rule is judged as if the guard held"
+ },
+ {
+  "id": "E3-the-baseline-not-retaken-on-acknowledge",
+  "file": "bastion/RuleEval.kt",
+  "edits": [
+   [
+    "if (held == null || (ackedAt > 0L && p.baselineAt < ackedAt)) {",
+    "if (held == null) {"
+   ]
+  ],
+  "tests": [
+   "*ChangeRuleTest.theBaselineIsTakenAtArmingAndAgainAfterAnAcknowledge",
+   "*WatcherGuardTest.anAcknowledgeReTakesTheBaseline"
+  ],
+  "expect": [
+   "theBaselineIsTakenAtArmingAndAgainAfterAnAcknowledge",
+   "anAcknowledgeReTakesTheBaseline"
+  ],
+  "note": "dec. F.2, the baseline re-take: after an acknowledge the next reading is the baseline, so a change he has seen stops and the next one raises a new episode"
+ },
+ {
+  "id": "E4-away-without-the-fifteen-minute-hold",
+  "file": "bastion/PhonePresence.kt",
+  "edits": [
+   [
+    "if (now - path.since >= AWAY_HOLD_MS) Value(AWAY, BY_PATH, \"${path.why} for $min min\")",
+    "if (true) Value(AWAY, BY_PATH, \"${path.why} for $min min\")"
+   ]
+  ],
+  "tests": [
+   "*PhonePresenceTest.homeAtOnceAwayAfterFifteenMinutesOfAFarPathUnknownOtherwise",
+   "*WatcherGuardTest.aGuardOnDamagePhoneFollowsThePresenceValueAndUnknownNeverArms"
+  ],
+  "expect": [
+   "homeAtOnceAwayAfterFifteenMinutesOfAFarPathUnknownOtherwise",
+   "aGuardOnDamagePhoneFollowsThePresenceValueAndUnknownNeverArms"
+  ],
+  "note": "dec. F.3, the 15-minute hold: a relayed or public path is away only after fifteen minutes of it; mutated, the first relayed read is away"
+ },
+ {
+  "id": "E5-the-baseline-not-saved",
+  "file": "bastion/AlertStore.kt",
+  "edits": [
+   [
+    "e.repeatNo, e.text, e.value, e.builtIn, e.baseline, e.baselineAt)",
+    "e.repeatNo, e.text, e.value, e.builtIn, null, 0)"
+   ]
+  ],
+  "tests": [
+   "*WatcherGuardTest.theBaselineSurvivesARestartAndIsDroppedWhenTheGuardIsFalseThere"
+  ],
+  "expect": [
+   "theBaselineSurvivesARestartAndIsDroppedWhenTheGuardIsFalseThere"
+  ],
+  "note": "dec. F.2: the baseline is kept in alerts.json, so a restart during an away period does not re-arm from a later value"
+ },
+ {
+  "id": "E6-the-saved-baseline-not-seeded",
+  "file": "bastion/BastionWatcher.kt",
+  "edits": [
+   [
+    "evals[r.id] = EvalState.seeded(store.stateOf(r.id) != AlertState.CLEAR, saved?.first, saved?.second ?: 0L)",
+    "evals[r.id] = EvalState.seeded(store.stateOf(r.id) != AlertState.CLEAR)"
+   ]
+  ],
+  "tests": [
+   "*WatcherGuardTest.theBaselineSurvivesARestartAndIsDroppedWhenTheGuardIsFalseThere"
+  ],
+  "expect": [
+   "theBaselineSurvivesARestartAndIsDroppedWhenTheGuardIsFalseThere"
+  ],
+  "note": "dec. F.2: the watcher starts from the saved baseline; mutated, it re-arms at the first reading after the restart"
+ },
+ {
+  "id": "E7-the-guard-entity-outside-the-path-set",
+  "file": "bastion/BastionWatcher.kt",
+  "edits": [
+   [
+    "HaReader(haUrl, read.token, load.rules.flatMap { it.hubEntities }.distinct())",
+    "HaReader(haUrl, read.token, load.rules.map { it.entity }.distinct())"
+   ]
+  ],
+  "tests": [
+   "*WatcherGuardTest.aGuardIsReadFromTheHubAndItsEndClearsWithWordsSayingSo"
+  ],
+  "expect": [
+   "aGuardIsReadFromTheHubAndItsEndClearsWithWordsSayingSo"
+  ],
+  "note": "dec. F.1: a guard's hub entity joins the reader's closed path set; mutated, its read is refused before any request and the guard never reads"
+ },
+ {
+  "id": "E8-unknown-is-a-state-for-a-guard",
+  "file": "bastion/BastionWatcher.kt",
+  "edits": [
+   [
+    "private val NO_READING = setOf(\"unavailable\", PhonePresence.UNKNOWN)",
+    "private val NO_READING = setOf(\"unavailable\")"
+   ]
+  ],
+  "tests": [
+   "*WatcherGuardTest.aGuardOnDamagePhoneFollowsThePresenceValueAndUnknownNeverArms"
+  ],
+  "expect": [
+   "aGuardOnDamagePhoneFollowsThePresenceValueAndUnknownNeverArms"
+  ],
+  "note": "dec. F.3: unknown never arms a guard; mutated, a notEquals-home guard arms on unknown"
+ },
+ {
+  "id": "E9-a-sample-across-a-gap",
+  "file": "bastion/BastionWatcher.kt",
+  "edits": [
+   [
+    "return if (target - s.at <= SAMPLE_GAP_MS) s else null",
+    "return s"
+   ]
+  ],
+  "tests": [
+   "*WatcherGuardTest.withinMinIsBlindAfterAStartThenComparesWithTheSampleFromThen"
+  ],
+  "expect": [
+   "withinMinIsBlindAfterAStartThenComparesWithTheSampleFromThen"
+  ],
+  "note": "dec. F.2, withinMin: the value that many minutes ago; mutated, a sample from before a gap in the readings stands for it"
+ },
+ {
+  "id": "E10-down-counts-both-ways",
+  "file": "bastion/RuleEval.kt",
+  "edits": [
+   [
+    "Direction.DOWN -> -d",
+    "Direction.DOWN -> kotlin.math.abs(d)"
+   ]
+  ],
+  "tests": [
+   "*ChangeRuleTest.aChangeRaisesAtAtInItsDirectionAndHoldsForMin"
+  ],
+  "expect": [
+   "aChangeRaisesAtAtInItsDirectionAndHoldsForMin"
+  ],
+  "note": "dec. F.2, direction: down counts only a fall"
+ },
+ {
+  "id": "E11-no-tolerance-for-decimal-readings",
+  "file": "bastion/RuleEval.kt",
+  "edits": [
+   [
+    "return size >= at - at * 1e-9",
+    "return size >= at"
+   ]
+  ],
+  "tests": [
+   "*ChangeRuleTest.aChangeRaisesAtAtInItsDirectionAndHoldsForMin"
+  ],
+  "expect": [
+   "aChangeRaisesAtAtInItsDirectionAndHoldsForMin"
+  ],
+  "note": "dec. F.2, 'by at or more': 4.1 - 1.1 is 2.9999999999999996 in binary and must count as 3"
+ },
+ {
+  "id": "E12-an-idle-peer-has-a-path",
+  "file": "bastion/PhonePresence.kt",
+  "edits": [
+   [
+    "if (!bool(peer, \"Active\")) return none(\"no traffic with the phone lately, so no current path\")",
+    "// mutated"
+   ]
+  ],
+  "tests": [
+   "*PhonePresenceTest.theStatusReadDecidesThePath"
+  ],
+  "expect": [
+   "theStatusReadDecidesThePath"
+  ],
+  "note": "the path is read only for an active peer (an idle one shows no direct address and its home DERP region, which reads as relayed)"
+ },
+ {
+  "id": "E13-home-on-any-private-address",
+  "file": "bastion/PhonePresence.kt",
+  "edits": [
+   [
+    "val net = nets.firstOrNull { inNet(a, it) }",
+    "val net = nets.firstOrNull()"
+   ]
+  ],
+  "tests": [
+   "*PhonePresenceTest.theStatusReadDecidesThePath"
+  ],
+  "expect": [
+   "theStatusReadDecidesThePath"
+  ],
+  "note": "dec. F.3: home only when the path address is inside one of the PC's (up, not point-to-point) networks"
+ },
+ {
+  "id": "E14-two-status-reads-at-once",
+  "file": "bastion/PhonePresence.kt",
+  "edits": [
+   [
+    "if (!running.compareAndSet(false, true)) {",
+    "if (running.getAndSet(true) && false) {"
+   ]
+  ],
+  "tests": [
+   "*PhonePresenceTest.aReadStillRunningIsSkippedAndSaidNeverTwoAtOnce"
+  ],
+  "expect": [
+   "aReadStillRunningIsSkippedAndSaidNeverTwoAtOnce"
+  ],
+  "note": "dec. F.3, the hub's liveness rule: a read still running is skipped and said, never two at once"
+ },
+ {
+  "id": "E15-a-guard-on-no-reading-accepted",
+  "file": "bastion/AlertRule.kt",
+  "edits": [
+   [
+    "if (value in ABSENT) return \"\\\"$value\\\" is no reading, so a guard on it could never decide\"",
+    "// mutated"
+   ]
+  ],
+  "tests": [
+   "*ChangeRuleTest.theWhenAndTheChangeKindAreParsedAndCheckedField"
+  ],
+  "expect": [
+   "theWhenAndTheChangeKindAreParsedAndCheckedField"
+  ],
+  "note": "dec. F.1: unavailable and unknown are no reading, so a guard comparing with them is refused at load"
+ },
+ {
+  "id": "E16-a-gone-rules-baseline-kept",
+  "file": "bastion/AlertStore.kt",
+  "edits": [
+   [
+    "for ((id, e) in alerts) if (e.baseline != null && id !in liveIds) {",
+    "for ((id, e) in alerts) if (false) {"
+   ]
+  ],
+  "tests": [
+   "*WatcherGuardTest.aGoneRulesBaselineIsDroppedAtStart"
+  ],
+  "expect": [
+   "aGoneRulesBaselineIsDroppedAtStart"
+  ],
+  "note": "a rule removed from a readable rules file takes its saved baseline with it (retire at start)"
+ },
+ {
+  "id": "F1-learns-off-the-bus-network",
+  "file": "bastion/PlaceWatch.kt",
+  "edits": [
+   [
+    "if (since != null && f.at >= since && acc <= LEARN_ACCURACY_M) {",
+    "if (f.at >= (since ?: 0L) && acc <= LEARN_ACCURACY_M) {"
+   ]
+  ],
+  "tests": [
+   "*PlaceWatchTest.theBusIsLearnedOnlyFromFixesTakenOnTheBusNetwork"
+  ],
+  "expect": [
+   "theBusIsLearnedOnlyFromFixesTakenOnTheBusNetwork"
+  ],
+  "note": "the bus's position is learned only while the PC says the phone is on the bus network (G.1)"
+ },
+ {
+  "id": "F2-learns-a-fix-from-before-the-signal",
+  "file": "bastion/PlaceWatch.kt",
+  "edits": [
+   [
+    "if (since != null && f.at >= since && acc <= LEARN_ACCURACY_M) {",
+    "if (since != null && acc <= LEARN_ACCURACY_M) {"
+   ]
+  ],
+  "tests": [
+   "*PlaceWatchTest.theBusIsLearnedOnlyFromFixesTakenOnTheBusNetwork"
+  ],
+  "expect": [
+   "theBusIsLearnedOnlyFromFixesTakenOnTheBusNetwork"
+  ],
+  "note": "only a fix TAKEN since the on-bus run began is learned (a cached fix handed over late is not)"
+ },
+ {
+  "id": "F3-learns-a-coarse-fix",
+  "file": "bastion/PlaceWatch.kt",
+  "edits": [
+   [
+    "if (since != null && f.at >= since && acc <= LEARN_ACCURACY_M) {",
+    "if (since != null && f.at >= since) {"
+   ]
+  ],
+  "tests": [
+   "*PlaceWatchTest.theBusIsLearnedOnlyFromFixesTakenOnTheBusNetwork"
+  ],
+  "expect": [
+   "theBusIsLearnedOnlyFromFixesTakenOnTheBusNetwork"
+  ],
+  "note": "a fix coarser than 100 m is not taken as the bus's position (a call of package F)"
+ },
+ {
+  "id": "F4-home-band-too-wide",
+  "file": "bastion/PlaceWatch.kt",
+  "edits": [
+   [
+    "            d <= HOME_M -> PhonePresence.HOME to age",
+    "            d <= AWAY_M -> PhonePresence.HOME to age"
+   ]
+  ],
+  "tests": [
+   "*PlaceWatchTest.homeWithin300mAwayBeyond500mTheBandKeepsTheLastWord"
+  ],
+  "expect": [
+   "homeWithin300mAwayBeyond500mTheBandKeepsTheLastWord"
+  ],
+  "note": "home within 300 m (G.2)"
+ },
+ {
+  "id": "F5-away-band-too-near",
+  "file": "bastion/PlaceWatch.kt",
+  "edits": [
+   [
+    "            d > AWAY_M -> PhonePresence.AWAY to age",
+    "            d > HOME_M -> PhonePresence.AWAY to age"
+   ]
+  ],
+  "tests": [
+   "*PlaceWatchTest.homeWithin300mAwayBeyond500mTheBandKeepsTheLastWord"
+  ],
+  "expect": [
+   "homeWithin300mAwayBeyond500mTheBandKeepsTheLastWord"
+  ],
+  "note": "away beyond 500 m (G.2)"
+ },
+ {
+  "id": "F6-the-band-forgets",
+  "file": "bastion/PlaceWatch.kt",
+  "edits": [
+   [
+    "            else -> word to age                         // the band between keeps the last word",
+    "            else -> PhonePresence.UNKNOWN to age"
+   ]
+  ],
+  "tests": [
+   "*PlaceWatchTest.homeWithin300mAwayBeyond500mTheBandKeepsTheLastWord"
+  ],
+  "expect": [
+   "homeWithin300mAwayBeyond500mTheBandKeepsTheLastWord"
+  ],
+  "note": "the band between 300 and 500 m keeps the last word (G.2)"
+ },
+ {
+  "id": "F7-stale-fix-counts",
+  "file": "bastion/PlaceWatch.kt",
+  "edits": [
+   [
+    "        val f = last?.takeIf { now - it.at < FRESH_MS && it.at - now < FRESH_MS }",
+    "        val f = last?.takeIf { now - it.at < 2 * FRESH_MS && it.at - now < FRESH_MS }"
+   ]
+  ],
+  "tests": [
+   "*PlaceWatchTest.aFixThirtyMinutesOldIsNoFix"
+  ],
+  "expect": [
+   "aFixThirtyMinutesOldIsNoFix"
+  ],
+  "note": "a fix 30 minutes old is no fix (G.2)"
+ },
+ {
+  "id": "F8-starts-without-permission",
+  "file": "bastion/PlaceWatch.kt",
+  "edits": [
+   [
+    "            if (!on || !allowed) {",
+    "            if (!on) {"
+   ]
+  ],
+  "tests": [
+   "*PlaceWatchTest.permissionAbsentRevokedRefusedAndTheStacksStop"
+  ],
+  "expect": [
+   "permissionAbsentRevokedRefusedAndTheStacksStop"
+  ],
+  "note": "nothing starts without the permission, and a revocation stops the updates at the next tick (G.5)"
+ },
+ {
+  "id": "F9-refusal-not-said-as-refused",
+  "file": "bastion/PlaceWatch.kt",
+  "edits": [
+   [
+    "        } catch (e: SecurityException) {",
+    "        } catch (e: IllegalStateException) {"
+   ]
+  ],
+  "tests": [
+   "*PlaceWatchTest.permissionAbsentRevokedRefusedAndTheStacksStop"
+  ],
+  "expect": [
+   "permissionAbsentRevokedRefusedAndTheStacksStop"
+  ],
+  "note": "a SecurityException from the platform is caught and said as the platform's refusal (G.5)"
+ },
+ {
+  "id": "F10-refusal-said-every-minute",
+  "file": "bastion/PlaceWatch.kt",
+  "edits": [
+   [
+    "            first = failure != reason",
+    "            first = true"
+   ]
+  ],
+  "tests": [
+   "*PlaceWatchTest.permissionAbsentRevokedRefusedAndTheStacksStop"
+  ],
+  "expect": [
+   "permissionAbsentRevokedRefusedAndTheStacksStop"
+  ],
+  "note": "a start that keeps failing for the same reason is said once"
+ },
+ {
+  "id": "F11-late-callback-taken",
+  "file": "bastion/PlaceWatch.kt",
+  "edits": [
+   [
+    "            if (!listening) return                       // a late callback after the updates stopped",
+    "            if (false) return"
+   ]
+  ],
+  "tests": [
+   "*PlaceWatchTest.permissionAbsentRevokedRefusedAndTheStacksStop"
+  ],
+  "expect": [
+   "permissionAbsentRevokedRefusedAndTheStacksStop"
+  ],
+  "note": "a fix that arrives after the updates stopped is not taken"
+ },
+ {
+  "id": "F12-coarse-fix-decides",
+  "file": "bastion/PlaceWatch.kt",
+  "edits": [
+   [
+    "        if (acc == null || !acc.isFinite() || acc > BAND_ACCURACY_M) {",
+    "        if (acc == null || !acc.isFinite() || acc > 1000f) {"
+   ]
+  ],
+  "tests": [
+   "*PlaceWatchTest.homeWithin300mAwayBeyond500mTheBandKeepsTheLastWord"
+  ],
+  "expect": [
+   "homeWithin300mAwayBeyond500mTheBandKeepsTheLastWord"
+  ],
+  "note": "a fix coarser than 200 m cannot place the phone in the home band and is not used (a call of package F)"
+ },
+ {
+  "id": "F13-close-leaves-updates",
+  "file": "bastion/PlaceWatch.kt",
+  "edits": [
+   [
+    "            synchronized(lock) { listening = false }\n            try { source.stop() }",
+    "            synchronized(lock) { listening = false }\n            try { }"
+   ]
+  ],
+  "tests": [
+   "*PlaceWatchTest.permissionAbsentRevokedRefusedAndTheStacksStop"
+  ],
+  "expect": [
+   "permissionAbsentRevokedRefusedAndTheStacksStop"
+  ],
+  "note": "the stack's stop removes the platform's updates (G.7's wiring line reads the rest of the path)"
+ },
+ {
+  "id": "F14-tick-after-close-starts",
+  "file": "bastion/PlaceWatch.kt",
+  "edits": [
+   [
+    "        if (closed) return@synchronized",
+    "        if (false) return@synchronized"
+   ]
+  ],
+  "tests": [
+   "*PlaceWatchTest.permissionAbsentRevokedRefusedAndTheStacksStop"
+  ],
+  "expect": [
+   "permissionAbsentRevokedRefusedAndTheStacksStop"
+  ],
+  "note": "a tick after the stack's stop starts nothing"
+ },
+ {
+  "id": "F15-phone-home-ignored",
+  "file": "bastion/PhonePresence.kt",
+  "edits": [
+   [
+    "                said?.word == HOME -> Value(HOME, BY_PHONE, phoneWhy(said))",
+    "                said?.word == \"never\" -> Value(HOME, BY_PHONE, phoneWhy(said))"
+   ]
+  ],
+  "tests": [
+   "*PresenceCombineTest.theCombinationTable"
+  ],
+  "expect": [
+   "theCombinationTable"
+  ],
+  "note": "home if the phone's report says home (G.3)"
+ },
+ {
+  "id": "F16-phone-away-ignored",
+  "file": "bastion/PhonePresence.kt",
+  "edits": [
+   [
+    "                said?.word == AWAY -> Value(AWAY, BY_PHONE, phoneWhy(said))",
+    "                said?.word == \"never\" -> Value(AWAY, BY_PHONE, phoneWhy(said))"
+   ]
+  ],
+  "tests": [
+   "*PresenceCombineTest.theCombinationTable",
+   "*PresenceCombineTest.eachChangeIsOneLineNamingTheSignalThatDecided"
+  ],
+  "expect": [
+   "theCombinationTable",
+   "eachChangeIsOneLineNamingTheSignalThatDecided"
+  ],
+  "note": "away if the phone reports away, at once (G.3)"
+ },
+ {
+  "id": "F17-stale-report-counts",
+  "file": "bastion/PhonePresence.kt",
+  "edits": [
+   [
+    "            val said = phone?.takeIf { it.word != UNKNOWN && abs(now - it.at) <= REPORT_FRESH_MS }",
+    "            val said = phone?.takeIf { it.word != UNKNOWN }"
+   ]
+  ],
+  "tests": [
+   "*PresenceCombineTest.theCombinationTable",
+   "*PresenceCombineTest.eachChangeIsOneLineNamingTheSignalThatDecided"
+  ],
+  "expect": [
+   "theCombinationTable",
+   "eachChangeIsOneLineNamingTheSignalThatDecided"
+  ],
+  "note": "a report older than two minutes on the PC's clock is no report (a call of package F)"
+ },
+ {
+  "id": "F18-future-report-kept",
+  "file": "bastion/PhonePresence.kt",
+  "edits": [
+   [
+    "abs(now - it.at) <= REPORT_FRESH_MS",
+    "(now - it.at) <= REPORT_FRESH_MS"
+   ]
+  ],
+  "tests": [
+   "*PresenceCombineTest.theCombinationTable"
+  ],
+  "expect": [
+   "theCombinationTable"
+  ],
+  "note": "a report from the PC's future (its clock stepped back) does not stay fresh"
+ },
+ {
+  "id": "F19-path-home-not-first",
+  "file": "bastion/PhonePresence.kt",
+  "edits": [
+   [
+    "                path.kind == PathKind.HOME -> Value(HOME, BY_PATH, path.why)\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*PresenceCombineTest.theCombinationTable"
+  ],
+  "expect": [
+   "theCombinationTable"
+  ],
+  "note": "home if the connection path says home, whatever the phone reports (G.3)"
+ },
+ {
+  "id": "F20-bus-flag-from-the-value",
+  "file": "bastion/BastionService.kt",
+  "edits": [
+   [
+    "bus = presence?.onBusNetwork()",
+    "bus = presence?.let { it.word == PhonePresence.HOME }"
+   ]
+  ],
+  "tests": [
+   "*PresenceCombineTest.theTableHandsTheReportOverAndAnswersThePathSignalAlone"
+  ],
+  "expect": [
+   "theTableHandsTheReportOverAndAnswersThePathSignalAlone"
+  ],
+  "note": "the answer's bus flag is the path signal alone, never the value the phone's own report made (G.1)"
+ },
+ {
+  "id": "F21-bad-word-reaches-presence",
+  "file": "bastion/BastionService.kt",
+  "edits": [
+   [
+    "            word == null || word !in PhonePresence.WORDS -> \"its word is not home, away or unknown\"",
+    "            word == null -> \"its word is not home, away or unknown\""
+   ]
+  ],
+  "tests": [
+   "*PresenceCombineTest.theTableHandsTheReportOverAndAnswersThePathSignalAlone"
+  ],
+  "expect": [
+   "theTableHandsTheReportOverAndAnswersThePathSignalAlone"
+  ],
+  "note": "a report whose word is not one of the three is said once and ignored; the table is answered"
+ },
+ {
+  "id": "F22-report-not-handed-over",
+  "file": "bastion/BastionService.kt",
+  "edits": [
+   [
+    "            args[\"presence\"]?.let { takePresence(it) }\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*PresenceCombineTest.theTableHandsTheReportOverAndAnswersThePathSignalAlone"
+  ],
+  "expect": [
+   "theTableHandsTheReportOverAndAnswersThePathSignalAlone"
+  ],
+  "note": "the table ask's report reaches damage.phone (G.3)"
+ },
+ {
+  "id": "F23-distance-in-the-state-line",
+  "file": "bastion/PlaceWatch.kt",
+  "edits": [
+   [
+    "            d > AWAY_M -> PhonePresence.AWAY to age",
+    "            d > AWAY_M -> PhonePresence.AWAY to \"$age, ${d.toInt()} m\""
+   ]
+  ],
+  "tests": [
+   "*PlacePrivacyTest.noCoordinateAndNoDistanceLeaveThePhone"
+  ],
+  "expect": [
+   "noCoordinateAndNoDistanceLeaveThePhone"
+  ],
+  "note": "no distance in a state line or a journal line (G.6)"
+ },
+ {
+  "id": "F24-coordinate-in-the-journal",
+  "file": "bastion/PlaceWatch.kt",
+  "edits": [
+   [
+    "    override fun toString(): String = \"Fix(taken at $at)\"",
+    "    override fun toString(): String = \"Fix($lat, $lon)\""
+   ],
+   [
+    "            val line = \"location: the bus's position is taken from the phone's fixes while it is on the bus network\"",
+    "            val line = \"location: the bus's position is taken from the phone's fixes while it is on the bus network ($committed)\""
+   ]
+  ],
+  "tests": [
+   "*PlacePrivacyTest.noCoordinateAndNoDistanceLeaveThePhone",
+   "*PlaceWatchTest.theStoredPositionSurvivesARestartAndItsTextIsNeverSaid"
+  ],
+  "expect": [
+   "noCoordinateAndNoDistanceLeaveThePhone",
+   "theStoredPositionSurvivesARestartAndItsTextIsNeverSaid"
+  ],
+  "note": "no coordinate in a log or journal line, and a fix prints none (G.6) (fix round 2: the line moved into onBus, where the fix confirmed is `committed`)"
+ },
+ {
+  "id": "F25-extra-key-in-the-report",
+  "file": "bastion/PlaceWatch.kt",
+  "edits": [
+   [
+    "        put(\"word\", word)\n",
+    "        put(\"word\", word); put(\"taken\", System.currentTimeMillis())\n"
+   ]
+  ],
+  "tests": [
+   "*PlacePrivacyTest.noCoordinateAndNoDistanceLeaveThePhone"
+  ],
+  "expect": [
+   "noCoordinateAndNoDistanceLeaveThePhone"
+  ],
+  "note": "the report carries its word and the fix's age, nothing else (G.6)"
+ },
+ {
+  "id": "F26-report-not-sent",
+  "file": "bastion/RemoteBastion.kt",
+  "edits": [
+   [
+    "                    if (rep != null) put(\"presence\", rep.toJson())",
+    "                    if (rep != null && rep.word == \"never\") put(\"presence\", rep.toJson())"
+   ]
+  ],
+  "tests": [
+   "*PlacePrivacyTest.noCoordinateAndNoDistanceLeaveThePhone"
+  ],
+  "expect": [
+   "noCoordinateAndNoDistanceLeaveThePhone"
+  ],
+  "note": "every table ask carries the phone's report (G.2)"
+ },
+ {
+  "id": "F27-bus-flag-not-read",
+  "file": "bastion/RemoteBastion.kt",
+  "edits": [
+   [
+    "        place?.onBus(a.bus == true, sentAt)",
+    "        place?.onBus(false, sentAt)"
+   ]
+  ],
+  "tests": [
+   "*PlacePrivacyTest.noCoordinateAndNoDistanceLeaveThePhone"
+  ],
+  "expect": [
+   "noCoordinateAndNoDistanceLeaveThePhone"
+  ],
+  "note": "the answer's bus flag reaches the phone's watch (G.1)"
+ },
+ {
+  "id": "F28-channel-end-keeps-learning",
+  "file": "bastion/RemoteBastion.kt",
+  "edits": [
+   [
+    "            if (!chanUp) place?.onBus(false, clock())",
+    "            if (false) place?.onBus(false, clock())"
+   ]
+  ],
+  "tests": [
+   "*PlacePrivacyTest.theChannelsEndStopsTheLearning"
+  ],
+  "expect": [
+   "theChannelsEndStopsTheLearning"
+  ],
+  "note": "the channel's end stops the learning at once (G.1)"
+ },
+ {
+  "id": "G1-start-rests-on-a-silent-read",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            if (silentAtRead) {\n                synchronized(stateLock) { leaseWanted = false }",
+    "            if (false && silentAtRead) {\n                synchronized(stateLock) { leaseWanted = false }"
+   ]
+  ],
+  "tests": [
+   "*SilentStartTest.aStartInSilentModeCompletesAsleepAndThePushOffRebuildsIt"
+  ],
+  "expect": [
+   "aStartInSilentModeCompletesAsleepAndThePushOffRebuildsIt"
+  ],
+  "note": "a start whose READ says Silent Mode completes asleep with no carrier (package G, E1)"
+ },
+ {
+  "id": "G2-shell-sleeps-on-no-carrier",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (atStart.glassesSilent || (!atStart.carrierUp && !adopted))",
+    "        if (atStart.glassesSilent)"
+   ]
+  ],
+  "tests": [
+   "*SilentStartTest.aWakeBetweenTheRestAndTheShellsReadRebuildsWithNoImageIntoTheRest"
+  ],
+  "expect": [
+   "aWakeBetweenTheRestAndTheShellsReadRebuildsWithNoImageIntoTheRest"
+  ],
+  "note": "the shell's start read sleeps on a rested session even after a push off cleared glassesSilent (package G, E1/H2 point 4)"
+ },
+ {
+  "id": "G3-pump-no-carrier-with-G2",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (atStart.glassesSilent || (!atStart.carrierUp && !adopted))",
+    "        if (atStart.glassesSilent)"
+   ],
+   [
+    "        if (!running || !st.started || !st.carrierUp) return",
+    "        if (!running || !st.started) return"
+   ]
+  ],
+  "tests": [
+   "*SilentStartTest.aWakeBetweenTheRestAndTheShellsReadRebuildsWithNoImageIntoTheRest"
+  ],
+  "expect": [
+   "aWakeBetweenTheRestAndTheShellsReadRebuildsWithNoImageIntoTheRest"
+  ],
+  "note": "the pump's carrierUp guard, removed WITH the start read (alone it is backed by G2 and no test fails): an image went into the rested session"
+ },
+ {
+  "id": "G4-carrier-up-at-the-create-ack",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            updateState { it.copy(carrierUp = true) }       // package G",
+    "            // package G"
+   ]
+  ],
+  "tests": [
+   "*SilentStartTest.aStartInSilentModeCompletesAsleepAndThePushOffRebuildsIt"
+  ],
+  "expect": [
+   "aStartInSilentModeCompletesAsleepAndThePushOffRebuildsIt"
+  ],
+  "note": "the CREATE's ack sets carrierUp; without it every start sleeps"
+ },
+ {
+  "id": "G5-cue-read-says-a-change",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        if (last == present || !_state.value.glassesSilent) return",
+    "        if (true || last == present || !_state.value.glassesSilent) return"
+   ]
+  ],
+  "tests": [
+   "*SilentStartTest.theCueReadJournalsUnaskedBlocksAndService0dWhileSilent"
+  ],
+  "expect": [
+   "theCueReadJournalsUnaskedBlocksAndService0dWhileSilent"
+  ],
+  "note": "the journal-only cue read says an unasked block's field-14 change while silent"
+ },
+ {
+  "id": "G6-adopted-rested-rebuilds-at-once",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (atStart.glassesSilent || (!atStart.carrierUp && !adopted))",
+    "        if (atStart.glassesSilent || !atStart.carrierUp)"
+   ]
+  ],
+  "tests": [
+   "*SilentStartTest.anAdoptedRestedSessionTakesNoFrameBeforeItsRebuild"
+  ],
+  "expect": [
+   "anAdoptedRestedSessionTakesNoFrameBeforeItsRebuild"
+  ],
+  "note": "an adopted rested session with the glasses awake is rebuilt at once, not slept on (package G deviation from the design's literal form)"
+ },
+ {
+  "id": "G7-journal-writes-the-event-time",
+  "file": "comp/Journal.kt",
+  "edits": [
+   [
+    "            if (atMs <= 0L) return now to \"\"",
+    "            if (true || atMs <= 0L) return now to \"\""
+   ]
+  ],
+  "tests": [
+   "*EventTimeTest*"
+  ],
+  "expect": [
+   "aLineCarriesItsEventsTimeAndSaysWhenItIsLate",
+   "aFailedStartsNotesCarryTheTimeTheyHappened"
+  ],
+  "note": "a journal line's t is its event's time, and late says the gap (package G, E2)"
+ },
+ {
+  "id": "G8-drain-passes-the-event-time",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            is TransportEvent.Note -> journal.note(ev.kind, ev.detail, ev.atMs)",
+    "            is TransportEvent.Note -> journal.note(ev.kind, ev.detail)"
+   ]
+  ],
+  "tests": [
+   "*EventTimeTest.aFailedStartsNotesCarryTheTimeTheyHappened"
+  ],
+  "expect": [
+   "aFailedStartsNotesCarryTheTimeTheyHappened"
+  ],
+  "note": "a failed start's drain journals a note with its own time (E2)"
+ },
+ {
+  "id": "G9-tick-wrap-is-no-reset",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            if (uptime < prev.first && kotlin.math.abs(uptime + TICK_WRAP_MS - predicted) <= RESET_SLACK_MS) {",
+    "            if (false && uptime < prev.first && kotlin.math.abs(uptime + TICK_WRAP_MS - predicted) <= RESET_SLACK_MS) {"
+   ]
+  ],
+  "tests": [
+   "*TickWrapTest*"
+  ],
+  "expect": [
+   "aWrapIsAWrapAndARealResetAcrossTheSameBoundaryIsStillAReset",
+   "aWrapAfterAnArmingHoldsNothingBack"
+  ],
+  "note": "the glasses' u32 tick coming round is said as a wrap, not a reset, and holds nothing back (E7)"
+ },
+ {
+  "id": "G10-input-wait-since-kept",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                if (inputWaitSince < 0) inputWaitSince = loopSince     // package G (E3): when the gesture began to wait",
+    "                // removed"
+   ]
+  ],
+  "tests": [
+   "*LoopReadsTest.aGestureThatWaitedForASlotSaysHowLong"
+  ],
+  "expect": [
+   "aGestureThatWaitedForASlotSaysHowLong"
+  ],
+  "note": "a gesture that met a full window keeps its loop-entry time for inWaitMs (E3)"
+ },
+ {
+  "id": "G11-slow-note",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            if (handlerNsThisMsg >= SLOW_HANDLER_NS) noteSlow(m, handlerNsThisMsg, slowFrom)",
+    "            // removed"
+   ]
+  ],
+  "tests": [
+   "*LoopReadsTest.aSlowHandlerIsOneNoteWithItsTagAndItsCpuAgainstTheWall"
+  ],
+  "expect": [
+   "aSlowHandlerIsOneNoteWithItsTagAndItsCpuAgainstTheWall"
+  ],
+  "note": "a handler of 250 ms or more is one slow note (E4)"
+ },
+ {
+  "id": "V1-home-distance-in-the-word",
+  "file": "bastion/PlaceWatch.kt",
+  "edits": [
+   [
+    "d <= HOME_M -> PhonePresence.HOME to age",
+    "d <= HOME_M -> PhonePresence.HOME to \"$age, ${d.toInt()} m\""
+   ]
+  ],
+  "tests": [
+   "*PlacePrivacyTest.noCoordinateAndNoDistanceLeaveThePhone"
+  ],
+  "expect": [
+   "noCoordinateAndNoDistanceLeaveThePhone"
+  ],
+  "note": "G.6 (verify stage 2): no distance leaves the phone, the home band's included; the home fix sits 0 m from the bus, so only the test's any-distance search sees it (F23's 2,345 m search did not)"
+ },
+ {
+  "id": "R2.1a-a-candidate-confirmed-at-once",
+  "file": "bastion/PlaceWatch.kt",
+  "edits": [
+   [
+    "if (c != null && minOf(askedAt, clock()) - c.at >= LEARN_CONFIRM_MS) {",
+    "if (c != null) {"
+   ]
+  ],
+  "tests": [
+   "*PlaceWatchTest.aFixIsTheBusPositionOnlyOnceALaterAnswerConfirmsIt",
+   "*PlaceWatchTest.theBusIsLearnedOnlyFromFixesTakenOnTheBusNetwork",
+   "*PlacePrivacyTest.noCoordinateAndNoDistanceLeaveThePhone"
+  ],
+  "expect": [
+   "aFixIsTheBusPositionOnlyOnceALaterAnswerConfirmsIt",
+   "theBusIsLearnedOnlyFromFixesTakenOnTheBusNetwork",
+   "noCoordinateAndNoDistanceLeaveThePhone"
+  ],
+  "note": "fix round 2 (R2.1): the confirm step — a fix is the bus's position only once a bus:true answer arrives LEARN_CONFIRM_MS after it was taken; without it the stale bus:true answer 15 s after a fix taken while leaving saves it"
+ },
+ {
+  "id": "R2.1b-bus-false-keeps-the-candidate",
+  "file": "bastion/PlaceWatch.kt",
+  "edits": [
+   [
+    "                candidate = null                         // R2.1: a `bus:false` answer or the channel's end drops it",
+    "                // (the candidate kept)"
+   ]
+  ],
+  "tests": [
+   "*PlaceWatchTest.aFixIsTheBusPositionOnlyOnceALaterAnswerConfirmsIt"
+  ],
+  "expect": [
+   "aFixIsTheBusPositionOnlyOnceALaterAnswerConfirmsIt"
+  ],
+  "note": "fix round 2 (R2.1): a bus:false answer and the channel's end (both onBus(false)) drop the candidate; kept, it is confirmed by the next run's first bus:true answer"
+ },
+ {
+  "id": "R2.1c-a-coarser-fix-replaces-the-candidate",
+  "file": "bastion/PlaceWatch.kt",
+  "edits": [
+   [
+    "if (c == null || (f.at >= c.at && acc <= (c.accuracyM ?: Float.MAX_VALUE))) candidate = f",
+    "if (c == null || f.at >= c.at) candidate = f"
+   ]
+  ],
+  "tests": [
+   "*PlaceWatchTest.aFixIsTheBusPositionOnlyOnceALaterAnswerConfirmsIt"
+  ],
+  "expect": [
+   "aFixIsTheBusPositionOnlyOnceALaterAnswerConfirmsIt"
+  ],
+  "note": "fix round 2 (R2.1): only a later fix as accurate or better replaces the candidate; a coarser one restarting its clock leaves nothing confirmed"
+ },
+ {
+  "id": "R2.1d-a-later-fix-does-not-replace",
+  "file": "bastion/PlaceWatch.kt",
+  "edits": [
+   [
+    "if (c == null || (f.at >= c.at && acc <= (c.accuracyM ?: Float.MAX_VALUE))) candidate = f",
+    "if (c == null) candidate = f"
+   ]
+  ],
+  "tests": [
+   "*PlaceWatchTest.aFixIsTheBusPositionOnlyOnceALaterAnswerConfirmsIt"
+  ],
+  "expect": [
+   "aFixIsTheBusPositionOnlyOnceALaterAnswerConfirmsIt"
+  ],
+  "note": "fix round 2 (R2.1): a later fix as accurate replaces the candidate and its clock starts again; kept, the first fix is confirmed while the newer one is 50 s old"
+ },
+ {
+  "id": "R2.2a-a-rested-start-says-the-notice",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "(the READ at session start)\", notice = atStart.carrierUp)",
+    "(the READ at session start)\", notice = true)"
+   ]
+  ],
+  "tests": [
+   "*SilentStartTest.aStartThatRestsSaysNoNoticeAndAPushOnInALiveSessionStillDoes"
+  ],
+  "expect": [
+   "aStartThatRestsSaysNoNoticeAndAPushOnInALiveSessionStillDoes"
+  ],
+  "note": "fix round 2 (R2.2): a start that rests says no notice; with the flag forced on, the urgent Silent Mode notice goes to the glasses' queue and the urgent hook at every start in the case"
+ },
+ {
+  "id": "R2.2b-the-flag-silences-a-live-push-on",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            if (notice) saySilentOnce(why)",
+    "            if (false) saySilentOnce(why)"
+   ]
+  ],
+  "tests": [
+   "*SilentStartTest.aStartThatRestsSaysNoNoticeAndAPushOnInALiveSessionStillDoes"
+  ],
+  "expect": [
+   "aStartThatRestsSaysNoNoticeAndAPushOnInALiveSessionStillDoes"
+  ],
+  "note": "fix round 2 (R2.2): the flag skips the notice only for the start that rested; a push ON in a live session still says it once"
+ },
+ {
+  "id": "R2.4-a-rested-start-enables-the-atlas",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "if (settings.cachedText == \"on\" && sleep == null) post(Msg.Run { atlasEnable() })",
+    "if (settings.cachedText == \"on\") post(Msg.Run { atlasEnable() })"
+   ]
+  ],
+  "tests": [
+   "*SilentStartTest.aStartThatRestsBuildsNoAtlasAndTheWakeEnablesIt"
+  ],
+  "expect": [
+   "aStartThatRestsBuildsNoAtlasAndTheWakeEnablesIt"
+  ],
+  "note": "fix round 2 (R2.4): only an awake start enables the atlas; a rested one built a v1 atlas, moved the metric to contract 1 and re-laid out every window while asleep"
+ },
+ {
+  "id": "R2.5-the-rest-commits-the-carry",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "                startInProgress = false\n                // fix round 2 (R2.5)",
+    "                startInProgress = false\n                commitLeaseCarry()\n                // fix round 2 (R2.5)"
+   ]
+  ],
+  "tests": [
+   "*SilentStartTest.evidenceFromBeforeARestedStartIsReadAtTheWakesStart"
+  ],
+  "expect": [
+   "evidenceFromBeforeARestedStartIsReadAtTheWakesStart"
+  ],
+  "note": "fix round 2 (R2.5): the rest decides no carry and commits none; a commit there cleared LEFT's reboot-like link end and the wake's start read the acquire as a renewal on both arms"
+ },
+ {
+  "id": "R2.3a-the-bus-path-address-said",
+  "file": "bastion/PhonePresence.kt",
+  "edits": [
+   [
+    "if (net != null) PathRead(PathKind.HOME, \"direct, on the network of ${net.iface}\")",
+    "if (net != null) PathRead(PathKind.HOME, \"direct, on the network of ${net.iface}\", \"direct, $cur on the network of ${net.iface}\")"
+   ]
+  ],
+  "tests": [
+   "*PhonePresenceTest.noPathAddressOrPortInTheLogTheJournalOrTheStateLine"
+  ],
+  "expect": [
+   "noPathAddressOrPortInTheLogTheJournalOrTheStateLine"
+  ],
+  "note": "fix round 2 (R2.3): no path address or port in the PC's log, the journal's change line or the state line — the phone's address on the bus network"
+ },
+ {
+  "id": "R2.3b-the-public-path-address-said",
+  "file": "bastion/PhonePresence.kt",
+  "edits": [
+   [
+    "\"public\" -> PathRead(PathKind.FAR, \"direct to a public address\")",
+    "\"public\" -> PathRead(PathKind.FAR, \"direct to a public address\", \"direct, $cur (a public address)\")"
+   ]
+  ],
+  "tests": [
+   "*PhonePresenceTest.noPathAddressOrPortInTheLogTheJournalOrTheStateLine"
+  ],
+  "expect": [
+   "noPathAddressOrPortInTheLogTheJournalOrTheStateLine"
+  ],
+  "note": "fix round 2 (R2.3): no path address or port in the PC's log, the journal's change line or the state line — the public address of the network he is on (a coarse position by lookup)"
+ },
+ {
+  "id": "R2.3c-the-off-network-private-address-said",
+  "file": "bastion/PhonePresence.kt",
+  "edits": [
+   [
+    "else PathRead(PathKind.NONE, \"direct to a private address on no network of this PC\")",
+    "else PathRead(PathKind.NONE, \"direct to a private address on no network of this PC\", \"direct, $cur: a private address on no network of this PC's\")"
+   ]
+  ],
+  "tests": [
+   "*PhonePresenceTest.noPathAddressOrPortInTheLogTheJournalOrTheStateLine"
+  ],
+  "expect": [
+   "noPathAddressOrPortInTheLogTheJournalOrTheStateLine"
+  ],
+  "note": "fix round 2 (R2.3): no path address or port in the PC's log, the journal's change line or the state line — the private address on no network of this PC (that case says exactly so, no address)"
+ },
+ {
+  "id": "R2.3d-another-class-of-address-said",
+  "file": "bastion/PhonePresence.kt",
+  "edits": [
+   [
+    "else -> PathRead(PathKind.NONE, \"the path address is ${v.cls}\")",
+    "else -> PathRead(PathKind.NONE, \"the path address is ${v.cls}\", \"direct, $cur (${v.why})\")"
+   ]
+  ],
+  "tests": [
+   "*PhonePresenceTest.noPathAddressOrPortInTheLogTheJournalOrTheStateLine"
+  ],
+  "expect": [
+   "noPathAddressOrPortInTheLogTheJournalOrTheStateLine"
+  ],
+  "note": "fix round 2 (R2.3): no path address or port in the PC's log, the journal's change line or the state line — an address of another class (the tailnet's range in the fixture)"
+ },
+ {
+  "id": "R2.3e-an-address-not-understood-quoted",
+  "file": "bastion/PhonePresence.kt",
+  "edits": [
+   [
+    "?: return PathRead(PathKind.NONE, \"the path address is not understood\")",
+    "?: return PathRead(PathKind.NONE, \"the path address is not understood\", \"the path address \\\"$cur\\\" is not understood\")"
+   ]
+  ],
+  "tests": [
+   "*PhonePresenceTest.noPathAddressOrPortInTheLogTheJournalOrTheStateLine"
+  ],
+  "expect": [
+   "noPathAddressOrPortInTheLogTheJournalOrTheStateLine"
+  ],
+  "note": "fix round 2 (R2.3): no path address or port in the PC's log, the journal's change line or the state line — the text of an address that is not understood"
+ },
+ {
+  "id": "R2.3f-the-peer-relay-address-said",
+  "file": "bastion/PhonePresence.kt",
+  "edits": [
+   [
+    "return PathRead(PathKind.FAR, \"through a peer relay\")",
+    "return PathRead(PathKind.FAR, \"through a peer relay\", \"through the peer relay $peerRelay\")"
+   ]
+  ],
+  "tests": [
+   "*PhonePresenceTest.noPathAddressOrPortInTheLogTheJournalOrTheStateLine"
+  ],
+  "expect": [
+   "noPathAddressOrPortInTheLogTheJournalOrTheStateLine"
+  ],
+  "note": "fix round 2 (R2.3): no path address or port in the PC's log, the journal's change line or the state line — the peer relay's address and port"
+ },
+ {
+  "id": "V3-D1a-the-confirm-age-read-at-the-answer",
+  "file": "bastion/PlaceWatch.kt",
+  "edits": [
+   [
+    "if (c != null && minOf(askedAt, clock()) - c.at >= LEARN_CONFIRM_MS) {",
+    "if (c != null && clock() - c.at >= LEARN_CONFIRM_MS) {"
+   ]
+  ],
+  "tests": [
+   "*PlaceWatchTest.aLateAnswerConfirmsOnlyWhatItsAskCould"
+  ],
+  "expect": [
+   "aLateAnswerConfirmsOnlyWhatItsAskCould"
+  ],
+  "note": "verify 3 (the focused read's D1): the confirm age is read at the ask the answer replies to; read at the answer's arrival (fix round 2's form), a held-back answer to an ask sent before an away fix saves it"
+ },
+ {
+  "id": "V3-D1b-the-ask-time-ahead-of-the-clock",
+  "file": "bastion/PlaceWatch.kt",
+  "edits": [
+   [
+    "if (c != null && minOf(askedAt, clock()) - c.at >= LEARN_CONFIRM_MS) {",
+    "if (c != null && askedAt - c.at >= LEARN_CONFIRM_MS) {"
+   ]
+  ],
+  "tests": [
+   "*PlaceWatchTest.aLateAnswerConfirmsOnlyWhatItsAskCould"
+  ],
+  "expect": [
+   "aLateAnswerConfirmsOnlyWhatItsAskCould"
+  ],
+  "note": "verify 3: the ask's time never counts past now (a clock set back between the ask and its answer), so the measure is only ever narrower than fix round 2's"
+ },
+ {
+  "id": "V3-D1c-the-answer-carries-its-arrival",
+  "file": "bastion/RemoteBastion.kt",
+  "edits": [
+   [
+    "        place?.onBus(a.bus == true, sentAt)",
+    "        place?.onBus(a.bus == true, clock())"
+   ]
+  ],
+  "tests": [
+   "*PlacePrivacyTest.anAnswerReachesTheWatchWithTheTimeItsAskWasSent"
+  ],
+  "expect": [
+   "anAnswerReachesTheWatchWithTheTimeItsAskWasSent"
+  ],
+  "note": "verify 3 (the focused read's D1): the answer reaches the place watch with its ask's send time; the arrival time instead ages a late answer from when it lands"
+ }
+]

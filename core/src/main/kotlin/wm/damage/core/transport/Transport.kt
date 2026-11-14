@@ -294,7 +294,11 @@ sealed class TransportEvent {
     data class Lease(val held: Boolean, val detail: String) : TransportEvent()
 
     /** Link up/down. Down fails all outstanding flushes. */
-    data class Link(val connected: Boolean, val detail: String) : TransportEvent()
+    data class Link(val connected: Boolean, val detail: String,
+        /** Build W, package G (E2): when the event was built, on the emitting thread — the journal's clock
+         *  (`System.currentTimeMillis`), not the transport's `nowMs()`, which tests fake. The journal writes it as
+         *  the record's `t`, and `late` when the line is written a second or more after it. */
+        val atMs: Long = System.currentTimeMillis()) : TransportEvent()
 
     /** CFW sticky diagnostic flags observed (f_dup/f_skip/f_reorder/f_snap_of).
      *  Any true flag is a hard error during bring-up (§9.2). */
@@ -308,16 +312,23 @@ sealed class TransportEvent {
         val glassesPct: Int? = null,
         val glassesCharging: Boolean? = null,
         val ringPct: Int? = null,
+        /** Package G (E2): when the reading was built — as [Link.atMs]. */
+        val atMs: Long = System.currentTimeMillis(),
     ) : TransportEvent()
 
     /** A transport-layer problem worth surfacing (decode failure, e0-02 abort,
      *  session bump, capability mismatch). Never swallowed. */
-    data class Fault(val what: String, val detail: String) : TransportEvent()
+    data class Fault(val what: String, val detail: String,
+        /** Package G (E2): when the fault was built — as [Link.atMs]. */
+        val atMs: Long = System.currentTimeMillis()) : TransportEvent()
 
     /** A transport-layer FACT for the journal (2026-09-05, §34): recorded,
      *  never a status or a notice — a control message the firmware ate and a
      *  re-send answered is the first one. Faults stay faults. */
-    data class Note(val kind: String, val detail: String) : TransportEvent()
+    data class Note(val kind: String, val detail: String,
+        /** Package G (E2): when the note was built — as [Link.atMs]. A failed start's notes were journaled at the
+         *  failure, up to 500 s after they happened (2026-11-12); they now carry their own time. */
+        val atMs: Long = System.currentTimeMillis()) : TransportEvent()
 
     /** The firmware's Silent Mode, as the glasses push it (§36): while [on]
      *  the firmware refuses every image, so the shell stops sending. */
@@ -334,7 +345,9 @@ sealed class TransportEvent {
      *  present count. Journaled as a `present` record; never a status. */
     data class Presented(val seq: Long, val workerUs: Long, val copyUs: Long, val transferUs: Long,
         /** Contract 2: 0 the full refresh, 1 the hinted rows (mode 24). */
-        val path: Long = 0) : TransportEvent()
+        val path: Long = 0,
+        /** Package G (E2): when the notify was read — as [Link.atMs]. */
+        val atMs: Long = System.currentTimeMillis()) : TransportEvent()
 }
 
 data class LinkState(
@@ -375,6 +388,11 @@ data class LinkState(
     val linkLatency: Int = 0,
     /** The firmware's Silent Mode as last pushed or read (§36). */
     val glassesSilent: Boolean = false,
+    /** Build W, package G (G-design §1): this session's carrier CREATE was answered. The CFW transport writes false
+     *  at every start's top (with [glassesSilent]), at a failed start, a stop and a link end, and true when the
+     *  CREATE's ack arrives; a start whose own READ says Silent Mode completes with it false (no CREATE, no lease)
+     *  and the shell sleeps on it. True by default, so a transport that never writes it changes nothing. */
+    val carrierUp: Boolean = true,
     /** The glasses' last wear report THIS session (service 0x10); null = no report this session. Cleared
      *  at every session start with [glassesSilent] (`CfwTransportBase.start`): a report describes the
      *  session it came in on. The CFW transport keeps it past a session's end until the next start;

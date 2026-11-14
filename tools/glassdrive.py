@@ -19,6 +19,8 @@ into the journal as `glasslog` notes, `probe:phy=2m|1m` the radio PHY ask; APK
 is added to the shell's cache-write ledger, so the count reads one short and the notice, the one re-send and the
 keyframe run on glass; nothing new on the wire), `probe:flags=clear|probe|0xNNNN`, `probe:selftest=begin|end|step:HEX|live:HEX`, `probe:cachesize=64..160`,
 `probe:diag=clear` — mode 7 sub 0: the sticky diagnostics, the fid ring and the refusal record;
+on the PC's replica only (build W): `probe:drive=ble|auto` — PC-direct BLE by hand, and back to the data host (`auto`
+never takes the glasses by itself), journaled as a `keeper` note, on Adam's word only;
 APK 0.64+: `probe:wear=query` — one wear-state query (op 7, both arms), its answer a `wear` journal note, on
 Adam's word only when the host drives the glasses; and, on a SIMULATOR target only (the model's knobs, nothing
 on a radio — a host driving the glasses says it runs no such probe):
