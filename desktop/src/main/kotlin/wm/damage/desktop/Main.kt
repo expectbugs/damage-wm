@@ -710,8 +710,16 @@ private fun startWeb(cfg: Config, scope: CoroutineScope, reach: wm.damage.core.n
     }
     // this machine's own name, read once (a failed read leaves the configured names and the arriving address)
     val own = try { java.net.InetAddress.getLocalHost().hostName } catch (e: Exception) {
-        Log.w("web", "this machine's name could not be read (${e::class.simpleName}); webHosts and the arriving address still serve")
-        null
+        // The first deploy (2026-11-14): this PC's own name does not resolve, so the lookup throws and a page asked
+        // for by that name was refused (403). The kernel's name needs no resolver.
+        val kernel = try { Files.readString(Path.of("/proc/sys/kernel/hostname")).trim() } catch (e2: Exception) { "" }
+        if (kernel.isNotEmpty()) {
+            Log.i("web", "this machine's name read from the kernel (the resolver has none for it)")
+            kernel
+        } else {
+            Log.w("web", "this machine's name could not be read (${e::class.simpleName}); webHosts and the arriving address still serve")
+            null
+        }
     }
     val docs = wm.damage.core.windows.reader.ReaderDocs(readerCore::pathOf)
     val blobs = wm.damage.core.web.ReaderBlobs(readerCore, docs)
