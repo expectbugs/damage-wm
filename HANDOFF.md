@@ -7479,6 +7479,8 @@ riders and the fixes the first days of 0.64 and 0.65 asked for. **Every number b
 desktop JVM and the model of the firmware) or on the PC unless it says otherwise; 79.5 is read from his glasses and
 phone (the phone's journal).** As written, APK 0.66 (versionCode 66) is built and verified on the local branch
 `wip/066` — **not merged, not pushed, not staged, not installed; the PC service still runs `b833713` (§77.12).**
+**(That was the state when 79.1–79.11 were written; 79.12 is what followed the same night: merged, pushed, staged, the
+PC deployed.)**
 No stage sent anything to the glasses, the phone or the hub; nothing was flashed. His home's details (the hub's
 address, its entity ids, the first rules) are in the gitignored `private/` and nowhere in this record.
 
@@ -7566,7 +7568,8 @@ nothing. The kind `change` (`at`, `direction`, `forMin`; a baseline taken at arm
 in `alerts.json`, or with `withinMin` the value that many minutes ago from a ring kept in memory). The built-in value
 `damage.phone` (`home` · `away` · `unknown`): once a minute the PC reads its own Tailscale daemon's status (`tailscale
 status --json`, a local command) for the configured phone's path — `home` when it is direct to a private address on
-one of the PC's non-point-to-point networks, `away` after 15 minutes relayed or public, `unknown` otherwise (an idle
+one of the PC's non-point-to-point networks (widened the same night by ruling R3.1 to any private address routed from
+the PC outside its tunnels' networks, 79.12), `away` after 15 minutes relayed or public, `unknown` otherwise (an idle
 peer included). `unknown` never arms a guard.
 
 **F — presence from the phone's position** (`930e6b3`). `PlaceWatch` over `AndroidPlaceSource` (the passive and
@@ -7792,7 +7795,47 @@ and W at 12–20 h and 65–110 units. One build is one point; S1-1 is re-priced
 2. Adam installs 0.66 (his word), presses "location" if he wants presence, and the first days' reads follow (79.9).
 3. Then step S1-1 (`REPLAN.md` §16), re-priced from W's measured rate.
 
-### 79.12 The merge, the staging and the PC deploy
+### 79.12 The merge, the staging and the PC deploy (2026-11-13, 22:50–24:00; the lead)
 
-(the lead writes this after the deploy)
+- **Verification 3's left items:** ruled as 79.7 lists them (the cost C1 accepted, R2.7 left stopped); nothing more
+  was built from them.
+- **Merge and push.** `wip/066` was squashed onto `main` as `90342fe` and pushed. Counted over the added lines and the
+  commit messages before the push: 0 of the config file's values, 0 of the hub's URL, host or token, 0 of his mail
+  address, 0 real entity ids of his hub (15 entity-shaped ids, all made up), 0 coordinates; every address-shaped
+  string is a fixture's.
+- **APK 0.66 staged** at 22:54 (`~/.damage/damage-wm.apk`: versionCode 66, the signing certificate of 0.65); 0.65's
+  APK and the `b833713` jar are in `~/.damage/backup/`. **Staged, not installed as far as this record knows:
+  installing is his, and the journal's `process` note is the only source for what runs.**
+- **Config and rules (the PC, his data directory).** Three keys were added to `config.json` (`haUrl`, `haTokenFile` —
+  the file he named on 11-13 — and `backupDir`); the file as it was is `backup/config.json.pre-066`. The first rule
+  file holds 17 rules, none urgent; the four guarded on `damage.phone` are held back (head, item 5). Before the deploy
+  one read of the hub (a GET) was evaluated against the 17: none would have been raised.
+- **PC deploy 1, 22:54:36, `90342fe`** (M, the service's log): 30 lines in the first minute, no `[W]`/`[E]`, no token
+  value; "17 kept, 0 refused"; "bus watcher on: every 10 s"; the phone attached on its six channels; `alerts.json`
+  created (seq 0, no alert); the nightly copy's catch-up run at 23:04:38 copied 10 files.
+- **The first read of presence on his network (M), and ruling R3.1.** Within ten minutes the phone's path read
+  "direct to a public address", then `unknown -> home (… on the network of <iface>)`, then `home -> unknown (direct to
+  a private address on no network of this PC)`: at the bus the phone's direct path alternates between the PC's own
+  network and a second private network that routes to it. Under decision F.3 the `bus` word flips with it and R2.1's
+  candidate is dropped at each flip, so the phone would not have learned the bus position. **R3.1 (the lead,
+  `e955a98`, PC code only):** `home` = a direct path to an address on one of the PC's non-point-to-point networks, or
+  to any other private address (10/8, 172.16/12, 192.168/16, fc00::/7, fe80::/10) outside the networks of the PC's
+  point-to-point interfaces. That this opens no false `home` is reasoned, not measured (`PhonePresence`'s KDoc has
+  the argument). Its gate: core 1,161 tests, 0 failed on the second full run — the first had one miss,
+  `GamesWindowTest.everyActionConfirmsAndTheCursorRestsOnCancel` ("did not converge"; 3 of 3 alone; a class this
+  change does not touch; a NEW rate miss, 1 in 2 full runs) — desktop 44, `--selfcheck` ×2, lint 0, the phone module
+  compiles; the watcher's list has 114 entries, the 28 presence ones caught, one written as having no test
+  (`interfaceNets` reads the PC's real interfaces). **The staged APK 0.66 is `90342fe`'s and was not rebuilt**: the
+  phone runs none of the changed code.
+- **PC deploy 2, 23:55:32, `e955a98`** (the `90342fe` jar kept in `backup/`): 30 lines, no `[W]`/`[E]`; the store's
+  epoch kept across the restart; `damage.phone unknown -> home (by the connection path: direct, to a private address
+  routed from this PC)`; the six channels attached.
+- **Seen by the R3 stage, not built:** a direct path to a GLOBAL IPv6 address reads public before the PC's networks
+  are checked, so a bus network that handed out global IPv6 would read `away` after 15 minutes with him home (the PC
+  held no global IPv6 address at the read); 169.254/16 and fec0::/10 off the PC's networks read `unknown`; a
+  link-local path may name another interface in its words.
+- **Still owed:** 79.9 whole. Of its item on presence, `home` is now read (above); `away` over a day of his is not,
+  and the four away-guarded rules stay out until it is.
+- **Size, whole:** runs 1–3 58.5 units, the R3 stage 1.9 — 60.4 for build W (79.10's weighting), the lead's own
+  turns not counted.
 

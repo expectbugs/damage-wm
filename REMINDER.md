@@ -10,8 +10,9 @@ Phase 2 and the protocol, §48 the fork). Firmware facts: `CLAIMS.md` → `resea
 
 ## Where we are (2026-11-13)
 
-**APK 0.66 (versionCode 66) is built and verified on the local branch `wip/066`: not merged, not pushed, not staged,
-not deployed** (§79; the lead's merge, staging and PC deploy are §79.12 once done). It holds the alert watcher (a
+**APK 0.66 (versionCode 66) is merged and pushed (`90342fe`) and STAGED since 11-13 22:54 — installing is his; the PC
+service runs `e955a98` (0.66's tree plus ruling R3.1, PC code only) since 11-13 23:55:32** (§79, its §79.12 the merge,
+the staging and the two PC deploys). It holds the alert watcher (a
 reader on the PC that only reads his own home hub and raises notices on his glasses and phone), presence (`damage.phone`
 from the connection path and the phone's own position), manual PC-direct Bluetooth, the listeners' reach gate, the
 nightly state copy, and package G's first-day fixes (a start in Silent Mode rests; the tick wrap; new journal reads).
@@ -21,7 +22,7 @@ nightly state copy, and package G's first-day fixes (a start in Silent Mode rest
 |---|---|---|
 | glasses | the fork's Phase 2 build on both lenses since 2026-09-16: pin `48172b62…` = Phase 1 + modes 17–24, op 5, status 3–5, fields 23–26, the partial path, the three link edits; 32 sites; reports `2.2.6.10` — detect by `EVENCFW/` and DamageCaps (`contract 2 features 0x7f`), never the version; archived with its logs in `fws/2.2.6.10-cfw-48172b62/`; up 25.3 days at the 11-13 journal read (M). **Rollback:** Phase 1's `fws/2.2.6.10-cfw-c5e4f8b7/` (a5d1c31's `…-d4054ab1/` and stock behind it) | M, §65, §79.5 |
 | phone | **APK 0.65** (`b833713`) installed 11-12 20:59:33; 0.64 from 11-12 12:52:05 (the journal's `process` notes). **A build is read from the journal's `process` note, never inferred** — he installs from the setup page without saying so | M, §79.5 |
-| PC service | OpenRC `damage` runs `b833713` since 11-12 16:58:26 — data host and standby. **Its standby can still take the glasses by itself** (the phone absent six probes, both arms seen); the PC's adapter being off holds it. 0.66's PC deploy ends that: the PC then never drives by itself | M, §77.12 |
+| PC service | OpenRC `damage` runs `e955a98` since 11-13 23:55:32 — data host and the bus watcher (reads the hub every 10 s, read-only; 17 rules, none urgent, the four away-guarded ones held back; the nightly copy at 03:30). It never drives the glasses by itself (PC-direct BLE is a manual choice). `damage.phone` read `home` at the deploy; `away` not yet read | M, §79.12 |
 | fork | `~/damage-cfw` at `f20bac9` plus the local commit `f9ba7c6` (host tooling, pin unchanged), not pushed — his push | as of §77.12 |
 
 - **If 0.66 misbehaves:** Global `Cached text` off is the switch for the drawing path; the watcher's notices have their
@@ -32,7 +33,8 @@ nightly state copy, and package G's first-day fixes (a start in Silent Mode rest
 - **A journal tail with no flushes = the shell asleep in the firmware's Silent Mode, not a fault** (his every drive:
   the both-temple press, worn; the case stays home). From 0.66 a start in the case rests (its READ, no CREATE) and
   says no notice; the push off rebuilds the session.
-- **The current counts, 0.66's final battery (simulator; §79.4):** core 1160 in 155 classes (one background command,
+- **The current counts, 0.66's final battery (simulator; §79.4; after R3.1 core 1161, the watcher's list 114, and a
+  new rate miss: `GamesWindowTest.everyActionConfirms…`, 1 in 2 full runs, §79.12):** core 1160 in 155 classes (one background command,
   15 min; one plain command is past a ten-minute tool limit) · desktop 44 · `--selfcheck` 485 ×3 · 57 renders · lint 0
   (36 + 196) · wiring 40 ok · tool self-tests 45/23/26/34 (mutate_core / journal_report / journal_pull /
   check_apk_wiring) · 14 mutation lists (`79-watcher` 106 entries, all caught) · 34 vectors · 73 books, 2580/2604
@@ -41,21 +43,21 @@ nightly state copy, and package G's first-day fixes (a start in Silent Mode rest
 
 ## Next
 
-1. **The lead:** merge `wip/066` onto `main`, push, `:phone:stageApk` (0.66, 0.65 kept in `~/.damage/backup/`), the PC
-   deploy FIRST (the PC's watcher before the phone's half), the first rules from the draft in `private/` with his look,
-   the state lines — §79.12.
+1. **Done 11-13 night (§79.12):** merged, pushed, 0.66 staged (0.65 and the earlier jars in `~/.damage/backup/`), the
+   PC deployed twice (the second for ruling R3.1), the first rule file installed from the draft in `private/` — his
+   look at the rules, and which are urgent, is still owed.
 2. **Adam installs 0.66** (his word); then, if he wants presence, the app's "location" button (precise location, then
    "Allow all the time"). Before 2026-12-06 in any case: the glasses' tick counter wraps then and only 0.66 reads it.
 3. **The first days of 0.66, read-only, from the phone's journal and the PC's log** (§79.9): the first in-case start
-   (does it rest with no CREATE, does the wake arrive, how long); **one `damage.phone unknown -> home (by the connection
-   path …)` line with him at the bus before any away-guarded rule is switched on** (if his home path reads relayed,
-   presence never reads home); how often Android delivers a position (`place` notes, the `Position` row); the three
+   (does it rest with no CREATE, does the wake arrive, how long); **`damage.phone` read `home` on 11-13 (§79.12, after R3.1); it has not yet been read `away` — one day of his
+   with both, then the four away-guarded rules go into the rule file**; how often Android delivers a position (`place` notes, the `Position` row); the three
    channels, the Acknowledge button, the `Watcher` row, the shade reconcile; the `heap3` notes; `input->done ms`
    against `first wait ms`, any `slow` / `late` / `cue` line. Still owed from before: the Music time tick's
    `handlerMs` like for like (Global `Cached text` off, then on, Music playing — his switch).
-4. **Then step S1-1** (core and Reader, `REPLAN.md` §16.1), **re-priced from W's measured rate** before its go: runs
-   1–2 measured 47.0 units for 11,917 product + test lines, 3.9 per 1,000 against the plan's 15–22 (§79.10); one build
-   is one point.
+4. **Then step S1-1** (core and Reader, `REPLAN.md` §16.1), **re-priced from W's measured rate**: W whole measured
+   60.4 units, about 3.8 per 1,000 inserted lines against the plan's 15–22 (§79.10, §79.12); one build is one point.
+   Its spec stage was started 11-13 night (read-only; the session's `build067/S1-1-spec.md`); the lead rules its open
+   questions and re-states the size before a build stage runs.
 
 **His calls** (list kept here once): installing an APK; granting location "Allow all the time"; every
 `tools/glassdrive.py` line; the wear-detection switch; a phone-side Silent Mode write; any flash; rotating the token;
