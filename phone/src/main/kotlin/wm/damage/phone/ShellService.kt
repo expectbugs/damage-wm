@@ -22,6 +22,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import wm.damage.core.app.AppClient
+import wm.damage.core.app.AppHost
+import wm.damage.core.app.CoreExecutor
+import wm.damage.core.app.WorkingCopy
 import wm.damage.core.bastion.AlertDelivery
 import wm.damage.core.bastion.AlertRecord
 import wm.damage.core.bastion.AlertState
@@ -114,6 +118,17 @@ class ShellService : Service() {
     /** Build W, package F: presence from the phone's own position, per stack (its updates stop in [stopStack]). */
     private var placeWatch: PlaceWatch? = null
     private var placeJob: Job? = null
+    /** Build S1-1, P3 (`CONTRACT.md` §2.2, §9.6): the phone's core executor, its working copy of the PC's record and
+     *  the `app` lane that feeds it — built once in [onCreate], kept across stack rebuilds (the per-stack [scope] is
+     *  cancelled at each), closed at the end of [onDestroy]. No window reads the copy yet (Reader does from P4). */
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var coreExecutor: CoreExecutor? = null
+    @Volatile private var workingCopy: WorkingCopy? = null
+    /** The PC's address, port and credential the app lane was built with: a stack built with others reconnects it. */
+    private var appLink: Triple<String, Int, String>? = null
+    /** S1-1 P4: Reader's source over the working copy and its presenter, built per stack, closed in [stopStack]. */
+    private var readerSource: wm.damage.core.app.LocalWindowSource? = null
+    private var readerGlasses: wm.damage.core.windows.reader.ReaderGlasses? = null
     @Volatile var remoteDriving = false
         private set
     @Volatile var statusLine: String = "starting"
@@ -212,6 +227,8 @@ class ShellService : Service() {
             Log.e("process", "a start step before the stack did not finish (the journal's rotation, the record's " +
                 "line, the last run's pickup or the earlier exits) — the stack starts all the same", t)
         }
+        // S1-1 P3: before the first stack, so the stack finds the copy (and reconnects its lane if the PC moved)
+        startWorkingCopy(dir, journalFile)
         try {
             startStack(Prefs(this).target)
         } finally {
@@ -320,6 +337,10 @@ class ShellService : Service() {
     private fun startStack(target: Prefs.Target) {
         val prefs = Prefs(this)
         val dataDir = filesDir.toPath()
+        // S1-1 P3: the working copy outlives the stack; its app lane follows the PC's address and credential
+        workingCopy?.let { wc ->
+            if (appLink != Triple(prefs.host, prefs.contentPort, prefs.token)) wc.reconnect(appClientFor(prefs, wc))
+        }
         runningTarget = target
         if (target == Prefs.Target.GLASSES) acquireWakeLock()
 
@@ -359,9 +380,28 @@ class ShellService : Service() {
             onNotice = { detail -> sh.services.notifyInternal("content", detail) },
             onLibraryChanged = { onLibraryChanged() },
         )
-        val reader = ReaderWindow(text, rc, scope, AndroidImages())
+        // Build S1-1 P4: Reader's core over the PC's books (RemoteContent: its cache and fetch unchanged), its state
+        // read from the working copy (the PC's record, with this phone's waiting ops on top). The phone's own Reader
+        // records from before the conversion go into the copy's queue once, after the window is registered and its
+        // presenter listens (fix round 1, ruling 1.5 (a): a loss answered sooner had no one to say it; the ledger
+        // beside them in this store says what was offered). Without a copy (it could not start, said there), Reader
+        // runs on a record of its own in memory as before, from this store's local copy.
+        val wc = workingCopy
+        val reader = if (wc != null) {
+            val core = wm.damage.core.windows.reader.ReaderCore(rc, scope)
+            val src = wm.damage.core.app.LocalWindowSource(core, wc)
+            readerSource = src
+            wm.damage.core.windows.reader.ReaderGlasses(text, core, src, scope, AndroidImages(),
+                device = wc.device, buildsLine = { wc.client?.contractState?.line(core.window) })
+        } else {
+            ReaderWindow(text, rc, scope, AndroidImages())
+        }
+        readerGlasses = reader
         onLibraryChanged = { reader.libraryChanged() }
         sh.register(reader)
+        if (wc != null) wm.damage.core.windows.reader.ReaderMigration.onCopy(wc, persistence) { line ->
+            Journal.appendNote(dataDir.resolve("journal.jsonl"), "migrate", line)
+        }
         // State sync (HANDOFF.md §19.2): the PC pushes/receives stamped state
         // records over the content port, most-recent wins. Records reach the
         // live shell (freshen → LWW → live-apply) or, when it is not running,
@@ -621,6 +661,11 @@ class ShellService : Service() {
         }
         try { tmuxProvider?.close() } catch (e: Exception) { Log.w("service", "tmux provider close: ${e.message}") }
         tmuxProvider = null
+        // S1-1 P4: the presenter leaves the source, and the source the working copy (which outlives the stack)
+        try { readerGlasses?.detach() } catch (e: Exception) { Log.w("service", "reader detach: ${e.message}") }
+        readerGlasses = null
+        try { readerSource?.close() } catch (e: Exception) { Log.w("service", "reader source close: ${e.message}") }
+        readerSource = null
         try { filesProvider?.close() } catch (e: Exception) { Log.w("service", "files provider close: ${e.message}") }
         try { torrentsProvider?.close() } catch (e: Exception) { Log.w("service", "torrents provider close: ${e.message}") }
         try { feedProvider?.close() } catch (e: Exception) { Log.w("service", "feed provider close: ${e.message}") }
@@ -652,6 +697,47 @@ class ShellService : Service() {
         transport = null
         mirror = null
         releaseWakeLock()
+    }
+
+    /**
+     * Build S1-1, P3: the core executor, the working copy (loaded on the executor, off the main thread: `copy.json`,
+     * `queue.jsonl` under `workcopy/`) and its app lane, once per service. A failure here is said (the sink raises the
+     * notice) and the stack starts all the same: no window reads the copy yet.
+     */
+    private fun startWorkingCopy(dir: java.nio.file.Path, journalFile: java.nio.file.Path) {
+        try {
+            val ex = CoreExecutor()
+            coreExecutor = ex
+            val wc = WorkingCopy(dir.resolve("workcopy"), AppHost.WINDOWS, ex,
+                note = { line -> Journal.appendNote(journalFile, "workcopy", line) })
+            workingCopy = wc
+            wc.start(appClientFor(Prefs(this), wc))
+        } catch (e: Exception) {
+            Log.e("workcopy", "the working copy could not be started (${e::class.simpleName}: ${e.message}); " +
+                "the stack starts without it", e)
+        }
+    }
+
+    /** The app lane to the PC [prefs] names, on the service's scope; the address it names is kept in [appLink]. */
+    private fun appClientFor(prefs: Prefs, wc: WorkingCopy): (String) -> AppClient {
+        val link = Triple(prefs.host, prefs.contentPort, prefs.token)
+        appLink = link
+        return { stream -> AppClient(link.first, link.second, AppClient.Credential.Token(link.third), stream, wc, serviceScope) }
+    }
+
+    /** At the service's end, after the last stack: the lane ends, the copy saves what it has not and its writers
+     *  finish what they were handed, then the executor and the service's scope end. */
+    private fun closeWorkingCopy() {
+        val wc = workingCopy
+        workingCopy = null
+        try {
+            wc?.close()
+        } catch (e: Exception) {
+            Log.e("workcopy", "the working copy did not close cleanly", e)
+        }
+        coreExecutor?.shutdown()
+        coreExecutor = null
+        serviceScope.cancel()
     }
 
     /** Rebuild the stack on [target] on a worker thread, one rebuild at a time. */
@@ -822,7 +908,10 @@ class ShellService : Service() {
             // the sink stays for the stop itself: a failure in the final save or
             // the disconnect must still reach the person (round 3, b3-1)
             try { stopStack() } catch (e: Exception) { Log.e("service", "shutdown failed", e) }
-            finally { sink?.let { Log.removeSink(it) } }
+            finally {
+                closeWorkingCopy()
+                sink?.let { Log.removeSink(it) }
+            }
         }, "damage-shutdown").start()
         super.onDestroy()
     }

@@ -1,0 +1,340 @@
+package wm.damage.core.app
+
+import java.io.DataInputStream
+import java.io.DataOutputStream
+import java.net.Socket
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.put
+import wm.damage.core.util.Log
+
+/*
+ * Context for the reader: Damage is Adam's own window manager for his own glasses, phone and PC on his own network.
+ * Build S1-1, package P2 (`CONTRACT.md` §9.3, §13 (b) "paced ping", "cursors", "contract version per window"; the
+ * spec's §2 P2 and §3 "`AppClient` connection"): the Kotlin peer of the `app` lane, in `RemoteWin`'s shape
+ * (`net/WinNet.kt`): one connection, reconnected on pacing for ever; the content port's hello (`proto: 1`), then the
+ * lane's own (`proto: 2`). Each `welcome` asks the listener what to subscribe, with its cursors.
+ *
+ * Reach is decided by the paced ping alone: at each ping tick, a ping still unanswered from the tick before means the
+ * PC is out of reach (said once, the connection closed so the next one starts); any answer — a `pong`, or a fresh
+ * `welcome` — means it is back. A failed write or a failed connect decides nothing: the ping it took with it goes
+ * unanswered and the next tick judges it. An old PC (its in-band refusal of the lane) and a PC on another lane
+ * protocol are survived quietly: said once per run of them, retried on a longer pacing, every window on different
+ * builds ([Contracts.State.Known.oldPc]). Every callback runs on the reading thread: hand off, never block.
+ */
+class AppClient(
+    private val host: String,
+    private val port: Int,
+    private val credential: Credential,
+    /** This device's stream (minted once and kept by the caller, C§2.4). */
+    private val stream: String,
+    private val listener: Listener,
+    private val scope: CoroutineScope,
+    private val contracts: Map<String, Int> = Contracts.MINE,
+    private val retryPacingMs: Long = 2_000,
+    /** After a refusal (an old PC, another lane protocol, a refused credential): nothing changes until a deploy. */
+    private val refusedPacingMs: Long = 30_000,
+    /** 0 = no ping task (a test calls [pingTick]). */
+    private val pingEveryMs: Long = 15_000,
+    private val clock: () -> Long = { System.currentTimeMillis() },
+) : AutoCloseable {
+
+    sealed class Credential {
+        /** The shared token (his phone, C§10.9). */
+        data class Token(val token: String) : Credential() {
+            override fun toString() = "Token(…)"
+        }
+
+        /** The local secret, on loopback only (the PC's command line and companion, C§10.6). */
+        data class Local(val secret: String) : Credential() {
+            override fun toString() = "Local(…)"
+        }
+    }
+
+    /** The PC as the paced ping last judged it. */
+    sealed class Reach {
+        object Unknown : Reach() {
+            override fun toString() = "Unknown"
+        }
+
+        object Up : Reach() {
+            override fun toString() = "Up"
+        }
+
+        /** Out of reach since the ping that went unanswered was sent. */
+        data class Down(val since: Long) : Reach()
+    }
+
+    /** A subscription to make on a connection: a scope and the client's cursor in it (null = first contact). */
+    data class Sub(val scope: String, val cursor: Cursor?)
+
+    interface Listener {
+        /** What to subscribe on the connection [w] opened, with the cursors the caller holds. */
+        fun subs(w: Welcome): List<Sub> = emptyList()
+
+        /** After the subscriptions went out: resend queued ops here ([send]). */
+        fun welcome(w: Welcome) {}
+        fun snap(s: Snap) {}
+        fun change(c: Chg) {}
+        fun answer(a: Ans) {}
+
+        /** The PC ended the connection with [reason] (`slow`, `proto`, `not open`, `shutting down`). */
+        fun ended(reason: String) {}
+        fun reach(r: Reach) {}
+        fun contracts(s: Contracts.State) {}
+
+        /** After each paced ping went out (or was counted as sent): the wire's pacing, for what waits on it (P3: the
+         *  queue's head after a "retry" refusal, an append that failed). */
+        fun pinged(k: Long) {}
+    }
+
+    @Volatile var reach: Reach = Reach.Unknown
+        private set
+
+    @Volatile var contractState: Contracts.State = Contracts.State.Unknown
+        private set
+
+    /** The live connection's `welcome`, or null while there is none. */
+    @Volatile var welcome: Welcome? = null
+        private set
+
+    /** A state line for the log and a diagnosis row: empty while connected. */
+    @Volatile var stateLine: String = "connecting to $host…"
+        private set
+
+    @Volatile private var running = true
+    @Volatile private var out: DataOutputStream? = null
+    @Volatile private var sockRef: Socket? = null
+    private val writeLock = Any()
+
+    private val pingLock = Any()
+    private var pingK = 0L
+    /** The ping sent at the last tick and not answered yet, and when it was sent. */
+    private var outstanding: Long? = null
+    private var outstandingAt = 0L
+
+    private val loop: Job = scope.launch(Dispatchers.IO) { connectLoop() }
+    private val pinger: Job? = if (pingEveryMs <= 0) null else scope.launch {
+        while (isActive && running) {
+            delay(pingEveryMs)                // the wire's pacing, not a bound on any work
+            pingTick()
+        }
+    }
+
+    /** Sends [o] on the live connection; false (the caller keeps it) when there is none or the write failed. */
+    fun send(o: Op): Boolean = write(AppWire.op(o))
+
+    fun subscribe(scope: String, cursor: Cursor?): Boolean = write(AppWire.sub(scope, cursor))
+
+    fun unsubscribe(scope: String): Boolean = write(AppWire.unsub(scope))
+
+    /**
+     * One paced decision (C§9.3): a ping still unanswered from the last tick means the PC is out of reach — said once
+     * and the connection closed, so the next starts — and a new ping goes out (or is counted as sent when there is no
+     * connection to carry it: the next tick judges it the same way).
+     */
+    fun pingTick() {
+        val down: Reach.Down?
+        val k: Long
+        synchronized(pingLock) {
+            down = if (outstanding != null && reach !is Reach.Down) Reach.Down(outstandingAt) else null
+            if (down != null) reach = down
+            // a run of unanswered pings is dated by its first
+            if (outstanding == null) outstandingAt = clock()
+            k = ++pingK
+            outstanding = k
+        }
+        if (down != null) {
+            Log.w(TAG, "the PC at $host is out of reach: ping ${k - 1} went unanswered")
+            say { listener.reach(down) }
+            closeSocket()
+        }
+        write(AppWire.ping(k))
+        say { listener.pinged(k) }
+    }
+
+    override fun close() {
+        running = false
+        write(AppWire.end("closing"))
+        loop.cancel()
+        pinger?.cancel()
+        closeSocket()
+    }
+
+    // ---- the connection ----
+
+    private suspend fun connectLoop() {
+        var refusedSaid = false
+        var downSaid = false
+        while (scope.isActive && running) {
+            var pacing = retryPacingMs
+            try {
+                Socket(host, port).use { sock ->
+                    sockRef = sock
+                    sock.tcpNoDelay = true
+                    sock.keepAlive = true   // OS liveness probing on an idle link, not a bound on work
+                    val inp = DataInputStream(sock.getInputStream().buffered())
+                    val o = DataOutputStream(sock.getOutputStream().buffered())
+                    synchronized(writeLock) {
+                        // the content port's hello stays proto 1 (dec. A.4); then the lane's own, one frame
+                        AppWire.write(o, AppWire.encode(contentHello()))
+                        AppWire.write(o, AppWire.encode(AppWire.hello(stream, contracts)))
+                    }
+                    out = o
+                    while (true) {
+                        val f = AppWire.read(inp)
+                        when (val t = AppWire.type(f)) {
+                            "welcome" -> {
+                                val w = AppWire.parseWelcome(f)
+                                if (w.proto != AppWire.PROTO) {
+                                    pacing = refusedPacingMs
+                                    differentBuilds("lane protocol ${w.proto}, not ${AppWire.PROTO}")
+                                    return@use
+                                }
+                                welcome = w
+                                refusedSaid = false
+                                downSaid = false
+                                setState("")
+                                answered()
+                                val known = Contracts.State.Known(Contracts.compare(contracts, w.contracts))
+                                if (known != contractState) {
+                                    contractState = known
+                                    say { listener.contracts(known) }
+                                }
+                                for (s in say({ listener.subs(w) }) ?: emptyList()) write(AppWire.sub(s.scope, s.cursor))
+                                say { listener.welcome(w) }
+                            }
+                            "snap" -> AppWire.parseSnap(f).let { say { listener.snap(it) } }
+                            "chg" -> AppWire.parseChg(f).let { say { listener.change(it) } }
+                            "ans" -> AppWire.parseAns(f).let { say { listener.answer(it) } }
+                            "pong" -> {
+                                lastPong = AppWire.num(f, "k")
+                                answered()
+                            }
+                            "end" -> {
+                                val reason = text(f, "reason") ?: "no reason"
+                                val detail = text(f, "detail")
+                                Log.w(TAG, "the PC ended the app lane: $reason${detail?.let { " ($it)" } ?: ""}")
+                                if (reason == AppWire.END_PROTO) {
+                                    pacing = refusedPacingMs
+                                    differentBuilds(detail ?: reason)
+                                }
+                                say { listener.ended(reason) }
+                                return@use
+                            }
+                            // an in-band refusal: the credential, or an old PC that has no app lane
+                            "err" -> {
+                                val detail = text(f, "detail") ?: ""
+                                pacing = refusedPacingMs
+                                if (!refusedSaid) {
+                                    refusedSaid = true
+                                    Log.w(TAG, "the PC at $host refused the app lane ($detail); asked again every ${refusedPacingMs / 1000} s")
+                                }
+                                if (detail.startsWith("bad token")) setState("the PC refused this device's credential")
+                                else differentBuilds(detail)
+                                return@use
+                            }
+                            else -> Log.w(TAG, "unknown app message '$t' ignored")
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                if (running && !downSaid) {
+                    downSaid = true
+                    Log.w(TAG, "app lane to $host down: ${e::class.simpleName}: ${e.message}")
+                }
+            }
+            out = null
+            sockRef = null
+            welcome = null
+            if (stateLine.isEmpty()) setState("not connected to $host")
+            if (!running) return
+            delay(pacing)                     // pacing between attempts, not a timeout
+        }
+    }
+
+    private fun contentHello(): JsonObject = buildJsonObject {
+        put("t", "hello")
+        when (credential) {
+            is Credential.Token -> put("token", credential.token)
+            is Credential.Local -> { put("token", ""); put("local", credential.secret) }
+        }
+        put("proto", 1)
+    }
+
+    /** The PC answered: a pong or a fresh welcome. */
+    private fun answered() {
+        val back: Boolean
+        synchronized(pingLock) {
+            outstanding = null
+            back = reach != Reach.Up
+            reach = Reach.Up
+        }
+        if (back) say { listener.reach(Reach.Up) }
+    }
+
+    /** The PC speaks no app lane this build can use: every window this side converts is on different builds. */
+    private fun differentBuilds(why: String) {
+        val known = Contracts.State.Known(Contracts.compare(contracts, emptyMap()), oldPc = true)
+        setState("PC on a build without this app lane ($why)")
+        if (known != contractState) {
+            contractState = known
+            say { listener.contracts(known) }
+        }
+    }
+
+    /** One frame on the live connection; false when there is none or the write failed. A failure closes the
+     *  socket (the reading side then reconnects) and decides nothing about reach. */
+    private fun write(frame: JsonObject): Boolean {
+        val o = out ?: return failed("not connected")
+        return try {
+            synchronized(writeLock) { AppWire.write(o, AppWire.encode(frame)) }
+            true
+        } catch (e: Exception) {
+            closeSocket()
+            failed("${e::class.simpleName}: ${e.message}")
+        }
+    }
+
+    /** The number of the last ping the PC answered (a diagnosis row). */
+    @Volatile var lastPong: Long = 0
+        private set
+
+    /** The last write that failed and why (a diagnosis row; never a reach decision). */
+    @Volatile var lastWriteFailure: String = ""
+        private set
+
+    private fun failed(why: String): Boolean {
+        lastWriteFailure = why
+        return false
+    }
+
+    private fun closeSocket() {
+        try { sockRef?.close() } catch (e: Exception) { Log.w(TAG, "closing the app lane: ${e.message}") }
+    }
+
+    private fun setState(s: String) {
+        stateLine = s
+    }
+
+    private fun <T> say(f: () -> T): T? = try {
+        f()
+    } catch (e: Exception) {
+        Log.e(TAG, "an app lane listener failed", e)
+        null
+    }
+
+    private fun text(f: JsonObject, k: String): String? = (f[k] as? JsonPrimitive)?.contentOrNull
+
+    private companion object {
+        const val TAG = "app-client"
+    }
+}

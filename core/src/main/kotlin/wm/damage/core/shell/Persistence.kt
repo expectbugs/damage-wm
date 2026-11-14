@@ -252,14 +252,7 @@ class Persistence(private val file: Path) {
      *  the store; a unique tmp so two writers could never interleave even if
      *  the executor were ever widened. */
     private fun writeNow(encoded: String): Boolean = try {
-        file.parent?.let { Files.createDirectories(it) }
-        val tmp = file.resolveSibling(file.fileName.toString() + ".${System.nanoTime()}.tmp")
-        Files.writeString(tmp, encoded)
-        try {
-            Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
-        } finally {
-            Files.deleteIfExists(tmp)
-        }
+        writeAtomic(file, encoded)
         true
     } catch (e: Exception) {
         Log.e("persist", "state save FAILED — state will not survive restart", e)
@@ -315,6 +308,30 @@ class Persistence(private val file: Path) {
     }
 
     companion object {
+        /** The one atomic write of a whole file: a unique temp file beside [file], moved over it in one step, so an
+         *  interruption never leaves half a file under the real name. [sync] forces the temp file's bytes to disk
+         *  before the move (the PC record's saver, S1-1 P1: a log set aside after a save must not outlive a
+         *  record.json a crash emptied). Throws what the write throws; the temp file never outlives the call. */
+        fun writeAtomic(file: Path, text: String, sync: Boolean = false) {
+            file.toAbsolutePath().parent?.let { Files.createDirectories(it) }
+            val tmp = file.resolveSibling(file.fileName.toString() + ".${System.nanoTime()}.tmp")
+            try {
+                if (sync) {
+                    java.nio.channels.FileChannel.open(tmp, java.nio.file.StandardOpenOption.CREATE_NEW,
+                        java.nio.file.StandardOpenOption.WRITE).use { ch ->
+                        val buf = java.nio.ByteBuffer.wrap(text.toByteArray(Charsets.UTF_8))
+                        while (buf.hasRemaining()) ch.write(buf)
+                        ch.force(true)
+                    }
+                } else {
+                    Files.writeString(tmp, text)
+                }
+                Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+            } finally {
+                Files.deleteIfExists(tmp)
+            }
+        }
+
         /** A peer whose clock runs ahead must not permanently win every key:
          *  incoming stamps are clamped to now + this. */
         const val FUTURE_SLOP_MS = 60_000L
@@ -331,8 +348,19 @@ class Persistence(private val file: Path) {
 
         /** Which keys travel between PC and phone (§19.2): settings and the
          *  window blobs. `shell.state` (focused window, mode, cursor, notices)
-         *  is per-device UI and never syncs. */
+         *  is per-device UI and never syncs. Build S1-1 P4 (C§9.7 item 2): a
+         *  converted window's keys leave the channel — Reader's (`window.reader`
+         *  and `window.reader.*`) are the glasses' local row and the copy an
+         *  older build reads; its shared state is the PC record's. */
         fun syncable(key: String): Boolean =
-            key == "shell.settings" || key.startsWith("window.")
+            key == "shell.settings" || (key.startsWith("window.") && !converted(key))
+
+        /** Build S1-1: the windows whose state the PC record holds (their keys never sync). */
+        private val CONVERTED = listOf("reader")
+
+        private fun converted(key: String): Boolean {
+            val id = key.removePrefix("window.").substringBefore('.')
+            return id in CONVERTED
+        }
     }
 }

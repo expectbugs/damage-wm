@@ -30,7 +30,7 @@ class Review20260905Test {
         val store = Persistence(tmp.resolve("state.json"))
         val transport = SimTransport(GlassFirmwareSim(), scope, SimTransport.Timing(instant = true))
         val shell = Shell(FakeText(), transport, store, null, scope)
-        val win = GamesWindow(FakeText(), scope)
+        val win = GamesWindow(FakeText(), scope, worldSeed = 1L)   /* S1-1 fix round 2, ruling 1.9: a scripted scene pins its seed */
 
         init { shell.register(win) }
 

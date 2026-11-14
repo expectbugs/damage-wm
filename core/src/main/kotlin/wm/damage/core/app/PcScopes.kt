@@ -1,0 +1,150 @@
+package wm.damage.core.app
+
+import java.util.concurrent.CopyOnWriteArrayList
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import wm.damage.core.windows.reader.ReaderCore
+import wm.damage.core.windows.reader.ReaderDocs
+
+/*
+ * Context for the reader: Damage is Adam's own window manager for his own glasses, phone and PC on his own network.
+ * Build S1-1, package P7 (the spec's §2 P7 "Kotlin side"; `CONTRACT.md` §3.1, §5, §9.2; `INTERFACES.md` W-01, W-21,
+ * W-30): the PC-served scopes the web client reads beside the record —
+ *  - `desc/main`: Main's cards (converted windows only: one card, Reader, P§16.3 item 11), each with its summary, and
+ *    the device names a page shows for a writer (`who`); described again when Reader's record moves;
+ *  - `desc/reader`: Reader's description (the shelf's root, the actions with their levels);
+ *  - `reader/<level>`: one of Reader's levels — `shelf`, `folder:<path>`, `book:<id>` (its chapters and text length),
+ *    and `book:<id>/part:<n>`, one spine part as `CONTRACT.md` §3.2's document;
+ *  - `diag`: the diagnosis (W-21, level full): the record's epoch and `seq`, the live connections, the versions, the PC
+ *    log's tail.
+ * A page follows places, bookmarks and the book read most recently through the record's own scope (`reader`), so the
+ * shelf is not described again at every save point; it is described again when the shelf scan or the reader index
+ * moves. A part never changes while its file does not, so it is described once per ask.
+ */
+class PcScopes(
+    private val host: AppHost,
+    private val reader: ReaderCore,
+    private val docs: ReaderDocs,
+    /** The device table's names by device id (Main's `who`). */
+    private val names: () -> Map<String, String> = { emptyMap() },
+    /** The diagnosis' own lines (connections, the bundle); null = no diagnosis served. */
+    private val diag: (() -> JsonObject)? = null,
+    private val minLevel: (String) -> String = AppHost::minLevel,
+) : AppNet.Described {
+    private val listeners = CopyOnWriteArrayList<() -> Unit>()
+
+    init {
+        reader.addShelfListener { _, _ -> moved() }
+        reader.index?.addListener { moved() }
+    }
+
+    private fun moved() {
+        for (l in listeners) l()
+    }
+
+    override fun addListener(l: () -> Unit) {
+        listeners += l
+    }
+
+    override fun gate(scope: String): AppNet.Gate? = when {
+        // fix round 2, ruling 2.1: the service scans its shelf at its start only; a visit to the shelf, or to Main's
+        // card that counts it, asks for a scan (on the scan's own IO job, unless one is running; its listener describes
+        // both again). Never from `describe`: the scan's listener calls it, so the scan would repeat without end
+        scope == MAIN -> AppNet.Gate(null, Levels.VIEW).also { reader.libraryChanged() }
+        scope == READER -> AppNet.Gate(ReaderCore.WINDOW, minLevel(ReaderCore.WINDOW)).also { reader.libraryChanged() }
+        scope == READER || scope.startsWith(LEVEL) -> AppNet.Gate(ReaderCore.WINDOW, minLevel(ReaderCore.WINDOW))
+        scope == DIAG && diag != null -> AppNet.Gate(null, Levels.FULL)
+        else -> null
+    }
+
+    override fun follows(scope: String, c: Change?): Boolean = when {
+        c == null -> scope == MAIN || scope == READER || (scope.startsWith(LEVEL) && partOf(scope) == null)
+        // the summary names the book read most recently and its place
+        else -> scope == MAIN && c.effect.items.keys.any { it.startsWith(Record.prefix(ReaderCore.WINDOW)) }
+    }
+
+    override fun describe(scope: String): JsonObject? {
+        if (scope == DIAG) return diag?.invoke()?.let { JsonObject(it + base()) }
+        val st = state()
+        return when {
+            scope == MAIN -> main(st)
+            scope == READER -> reader.describe(st)
+            scope.startsWith(LEVEL) -> partOf(scope)?.let { (book, n) -> docs.part(book, n)?.let { d ->
+                JsonObject(d + ("book" to JsonPrimitive(book)))
+            } } ?: reader.level(st, scope.removePrefix(LEVEL))
+            else -> null
+        }
+    }
+
+    private fun state(): WindowState {
+        val (_, _, e) = host.read(ReaderCore.WINDOW)
+        return WindowState(ReaderCore.WINDOW, e.items, e.colls)
+    }
+
+    /** The record's place and the versions, for the diagnosis. */
+    private fun base(): Map<String, kotlinx.serialization.json.JsonElement> {
+        val (epoch, seq, _) = host.read(ReaderCore.WINDOW)
+        return mapOf(
+            "epoch" to JsonPrimitive(epoch),
+            "seq" to JsonPrimitive(seq),
+            "contracts" to buildJsonObject { for ((w, v) in Contracts.MINE.toSortedMap()) put(w, v) },
+            "log" to buildJsonArray { for (l in wm.damage.core.util.Log.recent(LOG_TAIL)) add(JsonPrimitive(l)) },
+        )
+    }
+
+    /** Main's cards (C§3.1 per window: id, name, icon, minimum level, availability, summary). */
+    private fun main(st: WindowState): JsonObject = buildJsonObject {
+        put("id", "main")
+        put("name", "Main")
+        put("cards", buildJsonArray {
+            add(buildJsonObject {
+                put("window", ReaderCore.WINDOW)
+                put("name", "Reader")
+                put("icon", "book")
+                put("min", minLevel(ReaderCore.WINDOW))
+                val state = reader.libraryState
+                put("availability", when (state) {
+                    "ok" -> "live"
+                    "loading" -> "loading"
+                    else -> "unavailable"
+                })
+                if (state != "ok") put("reason", state)
+                put("summary", summary(st))
+            })
+        })
+        put("who", buildJsonObject { for ((id, name) in names().toSortedMap()) put(id, name) })
+    }
+
+    /** Reader's summary: the book read most recently with its progress, else the shelf's size. */
+    private fun summary(st: WindowState): JsonObject = buildJsonObject {
+        val shelf = reader.library
+        val recent = ReaderCore.recent(st)?.let { id -> shelf.firstOrNull { it.id == id } }
+        if (recent == null) {
+            put("line", if (shelf.isEmpty()) "no books on the shelf" else "${shelf.size} books")
+            return@buildJsonObject
+        }
+        val fraction = reader.index?.entry(recent.file, recent.bytes)?.fraction(ReaderCore.placeOf(st, recent.id))
+        put("book", recent.id)
+        put("line", recent.title + (fraction?.let { " · ${Math.round(it * 100)}%" } ?: ""))
+        fraction?.let { put("progress", it) }
+    }
+
+    companion object {
+        const val MAIN = "desc/main"
+        const val READER = "desc/reader"
+        const val DIAG = "diag"
+        /** A Reader level: `reader/` + the level's address. */
+        const val LEVEL = "reader/"
+        /** The PC log's lines the diagnosis carries. */
+        const val LOG_TAIL = 300
+
+        private val PART = Regex("^reader/book:([0-9a-f]{1,64})/part:(\\d{1,6})$")
+
+        /** A part scope as (book, n), or null. */
+        fun partOf(scope: String): Pair<String, Int>? =
+            PART.matchEntire(scope)?.let { it.groupValues[1] to it.groupValues[2].toInt() }
+    }
+}

@@ -75,6 +75,9 @@ import wm.damage.core.windows.games.roster.Roster
 class GamesWindow(
     private val text: TextRasterizer,
     private val bg: CoroutineScope,
+    /** A new world's seed: null (every host) takes it from [clock]; a harness's scripted scene pins it (S1-1 fix round
+     *  1, ruling 1.9: `CLAUDE.md`'s "a scripted scene pins its seed"). Never a trailing parameter: [clock] is. */
+    private val worldSeed: Long? = null,
     /** Injected so a harness can drive the pacer without wall-clock waits. */
     private val clock: () -> Long = { System.currentTimeMillis() },
 ) : DamageWindow("games", "Games", IconKind.GAMES) {
@@ -292,7 +295,7 @@ class GamesWindow(
     private fun seedWorld() {
         roster.humanId = ME
         if (roster.worldSeed == 0L) {
-            roster.worldSeed = Rng.mix(clock() xor 0x6A_11EDL)
+            roster.worldSeed = worldSeed ?: Rng.mix(clock() xor 0x6A_11EDL)
             Log.i("games", "a new world, seed ${roster.worldSeed}")
         }
         me()

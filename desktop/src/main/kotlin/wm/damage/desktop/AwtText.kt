@@ -44,16 +44,7 @@ class AwtText(private val contentScaleProvider: () -> Double = { 1.0 }) : TextRa
         }
     }
 
-    private fun fcMatch(family: String, bold: Boolean): String? {
-        val style = if (bold) "Bold" else "Regular"
-        val out = ProcessBuilder("fc-match", "-f", "%{family[0]}|%{file}", "$family:style=$style")
-            .redirectErrorStream(true).start().inputStream.readBytes().toString(Charsets.UTF_8)
-        if ("|" !in out) return null
-        val (got, path) = out.split("|", limit = 2)
-        // fc-match substitutes silently when a family is missing; reject substitutes
-        return if (got.split(" ").first().lowercase() == family.split(" ").first().lowercase()) path.trim()
-        else null
-    }
+    private fun fcMatch(family: String, bold: Boolean): String? = fcMatchFile(family, bold)
 
     private fun xHeightRatio(f: Font): Double {
         val big = f.deriveFont(100f)
@@ -149,4 +140,17 @@ class AwtText(private val contentScaleProvider: () -> Double = { 1.0 }) : TextRa
         /** DejaVu Sans's measured x-height ratio — the §Type baseline. */
         const val BASE_XHEIGHT = 0.550
     }
+}
+
+/** The file of [family]'s regular or bold face as fontconfig resolves it, or null when only a substitute is
+ *  installed (fc-match substitutes silently when a family is missing; substitutes are rejected). Also the web
+ *  listener's `/font/` source (build S1-1 P7: the glass theme in the glasses' own faces). */
+internal fun fcMatchFile(family: String, bold: Boolean): String? {
+    val style = if (bold) "Bold" else "Regular"
+    val out = ProcessBuilder("fc-match", "-f", "%{family[0]}|%{file}", "$family:style=$style")
+        .redirectErrorStream(true).start().inputStream.readBytes().toString(Charsets.UTF_8)
+    if ("|" !in out) return null
+    val (got, path) = out.split("|", limit = 2)
+    return if (got.split(" ").first().lowercase() == family.split(" ").first().lowercase()) path.trim()
+    else null
 }

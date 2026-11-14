@@ -29,6 +29,26 @@ From S1 the PC owns every window's state, each window splits into a core and a g
 these sections rely on is replaced (`CONTRACT.md` §2, §9.7); `CONTRACT.md` §11.3 maps today's contract row by row.
 A window built after the re-plan's steps is described once for every interface (`CONTRACT.md` §3, §12).
 
+**What converting Reader taught** (S1-1, APK 0.67, `HANDOFF.md` §80; how it runs: `IMPLEMENTATION.md`'s S1-1 section):
+- **A converted window is a core plus a glasses presenter.** `ReaderCore` (a `WindowCore`: describe, level, actions,
+  drafts) sits on a `WindowSource` (`LocalWindowSource` over `HostBackend` on the PC, `WorkingCopy` on the phone);
+  `ReaderGlasses` keeps today's levels, cursors, paint and layout and writes only at today's save points.
+  `ReaderWindow(…)` stays as the compatibility factory over a `MemoryRecord`, so tools, `SelfCheck` and the old tests
+  build it unchanged.
+- **The judge comes first:** a snapshot scene for every row the window shows (Reader gained Settings → Reader before any
+  product edit), a base rendered twice from the parent commit with the shelf's listing hash AND its command, then
+  `tools/snapdiff.py` in both arrangements (`DIR/phone/` renders the window over a working copy). A clock-relative age
+  in a scene is a declared live cell with its own selftest case.
+- **The migration:** once per host, every old record offered as an op expecting `PreConversion(old stamp)`, with a
+  ledger beside the local copy (`window.<id>.conv`) so a downgrade's later writes are offered again;
+  `ReaderMigrationTest`'s two deploy orders and its fourth case (a web write after the PC's conversion) are the proof's
+  shape; the window's keys leave the sync channel (`Persistence.CONVERTED`) with the phone's inbound filter.
+- **The defect classes the reviews found** (§80.6): a write no input made (a relayout, a reload, a page load), a loss
+  told to no one, what clears a standing offer (`Go there`), a number used twice in one stream (two tabs). The
+  continuity test of §3 step 6 becomes the arrangements test (`ReaderArrangementsTest`).
+- **Levels per action** (`ActionLevels`; Reader's `levelOf`), checked by the PC at apply time; the web's dims are a
+  courtesy.
+
 ---
 
 ## 1. The bar every window meets

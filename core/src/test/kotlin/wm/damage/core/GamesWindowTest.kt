@@ -40,7 +40,11 @@ class GamesWindowTest {
         val store = Persistence(tmp.resolve("state.json"))
         val transport = SimTransport(GlassFirmwareSim(), scope, SimTransport.Timing(instant = true))
         val shell = Shell(FakeText(), transport, store, null, scope)
-        val win = GamesWindow(FakeText(), scope)
+        // S1-1 fix round 1, ruling 1.9: the scene pins its world seed (a scripted scene pins its seed). A seed from the
+        // clock dealt, on 2 of seeds 1..300 (53 and 123), a first hand where he is the big blind and everyone folds to
+        // him: he wins it without acting, the result stays up until he acts (verdict 29), and `your turn` never came
+        // (the one recorded miss, build066/W-R3-built.md:132)
+        val win = GamesWindow(FakeText(), scope, worldSeed = SEED)
 
         init {
             if (height != 480) store.put("shell.settings", ShellSettings(heightMode = height).toJson())
@@ -384,7 +388,7 @@ class GamesWindowTest {
             val store2 = Persistence(tmp.resolve("state.json"))
             val t2 = SimTransport(GlassFirmwareSim(), scope2, SimTransport.Timing(instant = true))
             val shell2 = Shell(FakeText(), t2, store2, null, scope2)
-            val win2 = GamesWindow(FakeText(), scope2)
+            val win2 = GamesWindow(FakeText(), scope2, worldSeed = SEED)   // ruling 1.9 (the world comes from the store)
             shell2.register(win2)
             shell2.start()
             val t0 = System.currentTimeMillis()
@@ -483,4 +487,9 @@ class GamesWindowTest {
     }
 
     private suspend fun await(r: Rig, what: String, cond: () -> Boolean) = r.await(what, cond = cond)
+
+    private companion object {
+        /** The rig's world (ruling 1.9): one whose first hands reach his turn; seeds 53 and 123 do not. */
+        const val SEED = 1L
+    }
 }

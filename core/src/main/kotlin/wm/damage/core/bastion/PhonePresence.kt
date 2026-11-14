@@ -19,6 +19,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
 import wm.damage.core.net.Reach
 import wm.damage.core.net.Side
 import wm.damage.core.util.Exec
@@ -121,6 +122,13 @@ class PhonePresence(
     @Volatile private var runningSince = 0L
     private var loop: Job? = null
 
+    /** Build S1-1 P6 (C§10.1): tailnet address → the peer's short name, from the last status read; the web
+     *  listener's approval row shows it. Empty before a read; a miss refuses nothing. */
+    @Volatile private var names: Map<String, String> = emptyMap()
+
+    /** The tailnet's short name for [addr], or null (not a tailnet peer, or no status read yet). */
+    fun tailnetName(addr: java.net.InetAddress): String? = names[addr.hostAddress]
+
     /** `home`, `away` or `unknown`: what a guard on `damage.phone` compares. */
     val word: String get() = synchronized(lock) { value.word }
 
@@ -157,7 +165,9 @@ class PhonePresence(
         scope.launch(Dispatchers.IO) {
             try {
                 val read = try {
-                    read(status(), phone, localNets())
+                    val json = status()
+                    names = namesOf(json)
+                    read(json, phone, localNets())
                 } catch (e: Exception) {
                     PathRead(PathKind.NONE, "the status read failed (${e::class.simpleName})",
                         "the status read failed (${e::class.simpleName}: ${e.message ?: "no detail"})")
@@ -358,6 +368,24 @@ class PhonePresence(
         }
 
         private fun none(why: String) = PathRead(PathKind.NONE, why)
+
+        /** Every peer's (and this machine's own) tailnet addresses → its short name, from one status read (pure);
+         *  empty when the status does not parse. */
+        fun namesOf(json: String): Map<String, String> {
+            val root = try { Json.parseToJsonElement(json) as? JsonObject } catch (e: Exception) { null } ?: return emptyMap()
+            val out = HashMap<String, String>()
+            val nodes = (root["Peer"] as? JsonObject)?.values.orEmpty() + listOfNotNull(root["Self"])
+            for (n in nodes) {
+                val o = n as? JsonObject ?: continue
+                val name = str(o, "DNSName").substringBefore('.')
+                if (name.isEmpty()) continue
+                for (ip in (o["TailscaleIPs"] as? JsonArray).orEmpty()) {
+                    val a = (ip as? JsonPrimitive)?.contentOrNull ?: continue
+                    literal(a)?.let { b -> out[java.net.InetAddress.getByAddress(b).hostAddress] = name }
+                }
+            }
+            return out
+        }
 
         /** R3.1's private ranges, the only ones a path off the PC's networks may read `home` on: IPv4 10/8, 172.16/12,
          *  192.168/16; IPv6 unique-local fc00::/7 and link-local fe80::/10. Asked only of an address [Reach] put in its

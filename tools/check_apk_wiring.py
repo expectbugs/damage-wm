@@ -27,7 +27,10 @@ It checks, and prints one line each:
      nowhere else in main code (the phone's `ShellService.onCreate` / `DamageApp.onCreate`, the
      desktop's `runShell`): a tool entry (`--selfcheck`, `--snapshot`, the `--*-check` entries) or
      `--host-only` must never rename the service's journal; `InstanceLock.claimOrExit` from `runShell`
-     and `hostOnly` only (a tool that claimed the directory would exit while the service runs);
+     and `hostOnly` only (a tool that claimed the directory would exit while the service runs); and (build
+     S1-1, dec. D.3) `AppHost.atProcessStart` from `runShell` and `hostOnly` only, after the alert store and
+     before the content host, whose `app` lane serves it (a tool that opened the PC record could set its log
+     aside and would write `record.json`);
   6. (0.64 P4) the low glasses battery reaches the phone: `ShellService.startStack` sets the shell's
      `onGlassesBattery` hook — it shows and withdraws the notification and is not behind `Phone
      notifications` — `channels()` creates the "Glasses battery" channel at the default importance, and
@@ -198,9 +201,24 @@ def callers(root, owner, name):
             for m in re.finditer(pattern, code):
                 if code[:m.start()].endswith('fun '):
                     continue                                   # its own declaration
-                fun = re.findall(r'^[ \t]*(?:(?:private|internal|override|suspend|public) )*fun (\w+)', code[:m.start()], re.M)
-                out.append((os.path.relpath(path, root), fun[-1] if fun else '?'))
+                out.append((os.path.relpath(path, root), enclosing_fun(code, m.start())))
     return sorted(out)
+
+
+def enclosing_fun(code, at):
+    """The name of the function a use at `code[at]` sits in: the nearest declaration before it, passing over a local
+    function written on one line (`fun stack() = stackRef.get()` inside `runShell`: build S1-1 found a call after it
+    named `stack`) and a block function whose body (found by its indentation, as `body_of` does) closed before `at`.
+    When none is left, the nearest declaration, as before."""
+    decls = list(re.finditer(r'^([ \t]*)(?:(?:private|internal|override|suspend|public) )*fun (\w+)[^\n]*', code[:at], re.M))
+    for d in reversed(decls):
+        line = d.group(0).rstrip()
+        if not line.endswith('{') and re.search(r'\)\s*(?::[^={]+)?=\s*\S', line):
+            continue                                       # one line, an expression body: it encloses nothing after it
+        end = code.find('\n' + d.group(1) + '}', d.end())
+        if end < 0 or end > at:
+            return d.group(2)
+    return decls[-1].group(2) if decls else '?'
 
 
 def permissions(manifest):
@@ -372,11 +390,11 @@ def check(root=ROOT, say=print):
     # 4. the order in ShellService.onCreate
     svc = body_of(kotlin_code(os.path.join(root, 'phone/src/main/kotlin/wm/damage/phone/ShellService.kt')), 'override fun onCreate()')
     steps = ['Log.addSink(', 'startForeground(', 'Journal.rotateAtStart(', 'Journal.archivesSaid(', 'UncaughtRecord.installedLine(',
-             'UncaughtRecord.takePending(', 'startStack(', 'Log.e("uncaught", it)', 'raiseHostFault("process", it)']
+             'UncaughtRecord.takePending(', 'startWorkingCopy(', 'startStack(', 'Log.e("uncaught", it)', 'raiseHostFault("process", it)']
     at = [svc.find(s) if svc else -1 for s in steps]
     missing = [s for s, i in zip(steps, at) if i < 0]
     line(not missing and at == sorted(at), 'ShellService.onCreate: sink, foreground, rotation, the archives counted for the process note, record in place, '
-         'pickup, stack, then the last run\'s line (logged, then raised as a `process` fault)',
+         'pickup, the working copy, stack, then the last run\'s line (logged, then raised as a `process` fault)',
          ('missing ' + ', '.join(missing)) if missing else 'out of order: ' + ' < '.join(s for _, s in sorted(zip(at, steps))))
 
     # 4b. the same order at the desktop's start, ahead of the store and the content host — and FIRST the claim of
@@ -385,11 +403,12 @@ def check(root=ROOT, say=print):
     main_kt = kotlin_code(os.path.join(root, 'desktop/src/main/kotlin/wm/damage/desktop/Main.kt'))
     run = body_of(main_kt, 'private fun runShell(')
     steps = ['InstanceLock.claimOrExit(', 'UncaughtRecord.install(', 'Journal.rotateAtStart(', 'Journal.archivesSaid(', 'UncaughtRecord.installedLine(',
-             'UncaughtRecord.takePending(', 'Persistence(', 'cfg.alertStore()', 'ContentHostServer(', 'cfg.nightlyCopy(', 'Journal(']
+             'UncaughtRecord.takePending(', 'Persistence(', 'cfg.alertStore()', 'AppHost.atProcessStart(', 'WebAccess.atProcessStart(',
+             'ContentHostServer(', 'startWeb(', 'cfg.nightlyCopy(', 'Journal(']
     at = [run.find(s) if run else -1 for s in steps]
     missing = [s for s, i in zip(steps, at) if i < 0]
     line(not missing and at == sorted(at), 'runShell: the data directory claimed, then record, rotation, the archives counted, record in place, pickup — '
-         'before the store, the alert store, the host, the nightly copy and any journal writer',
+         'before the store, the alert store, the PC record, the host, the nightly copy and any journal writer',
          ('missing ' + ', '.join(missing)) if missing else 'out of order: ' + ' < '.join(s for _, s in sorted(zip(at, steps))))
 
     def bastion_in_host(body):
@@ -399,14 +418,29 @@ def check(root=ROOT, say=print):
         return bool(args) and '"bastion" to' in args
     line(bastion_in_host(run), 'runShell: its content host serves the "bastion" window channel', 'no "bastion" to … in its ContentHostServer(…)')
 
+    def app_in_host(body):
+        """Build S1-1 (P2): the content host this builder constructs carries the `app` lane over the record it opened;
+        (P6) that lane is the one the web listener shares, it serves the device table, and the content host takes the
+        local secret from the start's access state."""
+        i = body.find('ContentHostServer(') if body else -1
+        args = call_args(body, i + len('ContentHostServer')) if i >= 0 else None
+        return (bool(args) and 'app = appNet' in args and 'localSecret = web::localSecret' in args
+                and 'val appNet = wm.damage.core.app.AppNet(appHost, devices = web.core)' in body
+                and re.search(r'startWeb\(cfg, [a-zA-Z]+, reach, web, appNet,', body) is not None)
+    line(app_in_host(run), 'runShell: its content host serves the "app" lane over the record it opened, shared with the web listener, with the local secret',
+         'no val appNet = …AppNet(appHost, devices = web.core) given to its ContentHostServer(… app = appNet, localSecret = web::localSecret) and startWeb(…)')
+
     # 4c. --host-only claims the directory before its providers, its store and its host (the same store, ports, engines)
     host = body_of(main_kt, 'private suspend fun hostOnly(')
-    steps = ['InstanceLock.claimOrExit(', 'LocalTmuxProvider(', 'Persistence(', 'startMusic(', 'cfg.alertStore()', 'ContentHostServer(', 'cfg.nightlyCopy(']
+    steps = ['InstanceLock.claimOrExit(', 'LocalTmuxProvider(', 'Persistence(', 'startMusic(', 'cfg.alertStore()', 'AppHost.atProcessStart(',
+             'WebAccess.atProcessStart(', 'ContentHostServer(', 'startWeb(', 'cfg.nightlyCopy(']
     at = [host.find(s) if host else -1 for s in steps]
     missing = [s for s, i in zip(steps, at) if i < 0]
-    line(not missing and at == sorted(at), 'hostOnly: the data directory claimed before its providers, its store, its alert store, its host and its nightly copy',
+    line(not missing and at == sorted(at), 'hostOnly: the data directory claimed before its providers, its store, its alert store, its PC record, its host and its nightly copy',
          ('missing ' + ', '.join(missing)) if missing else 'out of order: ' + ' < '.join(s for _, s in sorted(zip(at, steps))))
     line(bastion_in_host(host), 'hostOnly: its content host serves the "bastion" window channel', 'no "bastion" to … in its ContentHostServer(…)')
+    line(app_in_host(host), 'hostOnly: its content host serves the "app" lane over the record it opened, shared with the web listener, with the local secret',
+         'no val appNet = …AppNet(appHost, devices = web.core) given to its ContentHostServer(… app = appNet, localSecret = web::localSecret) and startWeb(…)')
     # build W, package F: the phone's reports reach damage.phone, and its path signal goes back, in both builders
     line('BastionService(alertStore, bastionWatcher::stateLine, tmuxScope, phonePresence)' in run,
          'runShell: the bastion channel carries the phone\'s presence reports to damage.phone', 'its BastionService(…) is not given phonePresence')
@@ -421,12 +455,36 @@ def check(root=ROOT, say=print):
             # R2 (RE-3): the PC's two starts on a data directory, and never a tool — a tool that claimed it would
             # exit while the service runs
             ('InstanceLock', 'claimOrExit'): [('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'hostOnly'),
-                                              ('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'runShell')]}
+                                              ('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'runShell')],
+            # build S1-1 (dec. D.3): the PC record opens at the PC's two process starts, never from a tool flag —
+            # opening it may set its log aside and writes record.json and the sequence file
+            ('AppHost', 'atProcessStart'): [('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'hostOnly'),
+                                            ('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'runShell')],
+            # build S1-1 (P6): the local secret is written and the device table read at the PC's two process starts,
+            # and the web listener opened there, never from a tool flag (--selfcheck, --snapshot, the checks); the
+            # secret is read by the start's access state and by the device commands' client alone
+            ('WebAccess', 'atProcessStart'): [('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'hostOnly'),
+                                              ('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'runShell')],
+            ('Main', 'startWeb'): [('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'hostOnly'),
+                                   ('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'runShell')],
+            ('LocalSecret', 'ensure'): [('core/src/main/kotlin/wm/damage/core/web/WebAccess.kt', 'atProcessStart')],
+            ('LocalSecret', 'read'): [('core/src/main/kotlin/wm/damage/core/app/DeviceCli.kt', 'run'),
+                                      ('core/src/main/kotlin/wm/damage/core/web/WebAccess.kt', 'localSecret')],
+            ('DeviceCli', 'run'): [('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'main')]}
+    said_as = {'InstanceLock': 'two PC starts (runShell, hostOnly)', 'AppHost': 'two PC starts (runShell, hostOnly)',
+               'WebAccess': 'two PC starts (runShell, hostOnly)', 'Main': 'two PC starts (runShell, hostOnly)',
+               'LocalSecret': 'start\'s access state (and the device commands\' client)', 'DeviceCli': 'command line\'s main'}
     for (owner, name), expect in want.items():
         got = callers(root, owner, name)
-        line(got == sorted(expect), '%s.%s is called from the %s only' % (owner, name,
-             'two PC starts (runShell, hostOnly)' if owner == 'InstanceLock' else 'two process starts'),
+        line(got == sorted(expect), '%s.%s is called from the %s only' % (owner, name, said_as.get(owner, 'two process starts')),
              'called from ' + (', '.join('%s (%s)' % c for c in got) or 'nowhere'))
+    # build S1-1 (P6): the device table's file is named only where the start opens it and where the nightly copy lists it
+    named = sorted(os.path.relpath(p, root) for src in MAIN_SOURCES
+                   for p in glob.glob(os.path.join(root, src, '**', '*.kt'), recursive=True)
+                   if re.search(r'(?<!\w)Devices\.FILE\b', kotlin_code(p)))
+    line(named == ['core/src/main/kotlin/wm/damage/core/web/WebAccess.kt', 'desktop/src/main/kotlin/wm/damage/desktop/NightlyCopy.kt'],
+         'the device table (Devices.FILE) is named by the start\'s access state and the nightly copy only',
+         'named in ' + (', '.join(named) or 'nowhere'))
 
     # 6. the low-battery notification (0.64 P4): the shell's latch reaches the phone through a hook only
     #    startStack can set, on a channel only channels() can create — a shell with no hook builds and runs
@@ -535,6 +593,32 @@ def check(root=ROOT, say=print):
     a, b = route.find('if (n == "drive") driveProbe(v)'), route.find('it.shell.devProbe(n, v)')
     line(0 <= a < b, 'Main.kt: the replica offers a drive= probe to the standby before the shell',
          'no onProbe = { … } route' if not route else 'the route is ' + ' '.join(route.split()))
+
+    # 10. build S1-1, P3: the working copy, its core executor and its app lane are the SERVICE's — built once from
+    #     onCreate, kept across stack rebuilds, closed at the service's end. One built or closed per stack drops the
+    #     queue's in-memory ops and the lane at every rebuild; one never closed keeps its threads after the service.
+    wc_start = body_of(svc_code, 'private fun startWorkingCopy(') or ''
+    wc_lane = body_of(svc_code, 'private fun appClientFor(') or ''
+    wc_close = body_of(svc_code, 'private fun closeWorkingCopy()') or ''
+    destroy = body_of(svc_code, 'override fun onDestroy()') or ''
+    per_stack = [w for w in ('WorkingCopy(', 'CoreExecutor(', 'AppClient(', 'closeWorkingCopy(', 'workingCopy?.close(', 'coreExecutor?.shutdown(')
+                 if re.search(r'(?<![\w])' + re.escape(w), stack + stop)]
+    line('CoreExecutor(' in wc_start and 'WorkingCopy(' in wc_start and '.start(appClientFor(' in wc_start
+         and 'AppClient(' in wc_lane and 'serviceScope)' in wc_lane
+         and 'wc?.close()' in wc_close and 'coreExecutor?.shutdown()' in wc_close and 'serviceScope.cancel()' in wc_close
+         and 'closeWorkingCopy()' in destroy and not per_stack,
+         'ShellService keeps the working copy, its core executor and its app lane for the service: built in onCreate, '
+         'closed in onDestroy, neither in startStack nor in stopStack (S1-1 P3)',
+         ('per stack: ' + ', '.join(per_stack)) if per_stack else
+         'startWorkingCopy / appClientFor / closeWorkingCopy / onDestroy do not build and close them as the service\'s')
+
+    # 11. build S1-1, fix round 1, ruling 1.5 (a): Reader's one-time migration goes into the working copy only once
+    #     the window is registered and its presenter listens; a loss answered before then had no one to say it.
+    reg, mig = stack.find('sh.register(reader)'), stack.find('ReaderMigration.onCopy(')
+    line(0 <= reg < mig, 'ShellService.startStack: Reader\'s migration runs after the window is registered (S1-1 fix '
+         'round 1, ruling 1.5 (a))',
+         'no ReaderMigration.onCopy( in startStack' if mig < 0 else 'no sh.register(reader) in startStack' if reg < 0
+         else 'the migration runs before the window is registered')
 
     for n in notes:
         say('note  ' + n)
@@ -772,7 +856,49 @@ def selftest():
         code, out = run()
         case('RF-7: a call on one line after a "http://…" literal is seen (two slashes inside a string open no comment)',
              [n for n in ['exit %d, not 1' % code if code != 1 else '', 'said %r' % said(out, 'FAIL') if not said(out, seen) else ''] if n])
+
+        # build S1-1 (dec. D.3): a tool that opens the PC record is named
+        opened = ('FAIL  AppHost.atProcessStart is called from the two PC starts (runShell, hostOnly) only: called from '
+                  'core/src/main/kotlin/wm/damage/core/util/SelftestTool.kt (run), ')
+        tool_with('        wm.damage.core.app.AppHost.atProcessStart(p, kotlinx.coroutines.GlobalScope, wm.damage.core.app.RecordAlerts.NONE, null)')
+        code, out = run()
+        case('S1-1: a tool that opens the PC record is a FAIL line naming it (exit 1)',
+             [n for n in ['exit %d, not 1' % code if code != 1 else '', 'said %r' % said(out, 'FAIL') if not said(out, opened) else ''] if n])
         os.remove(tool)
+
+        # build S1-1 (P6): a tool that writes the local secret, or opens the web listener's access state, is named
+        tool_with('        wm.damage.core.web.LocalSecret.ensure(p)')
+        code, out = run()
+        case('S1-1 P6: a tool that writes the local secret is a FAIL line naming it (exit 1)',
+             [n for n in ['exit %d, not 1' % code if code != 1 else '',
+                          'said %r' % said(out, 'FAIL') if not said(out, 'FAIL  LocalSecret.ensure is called from the start\'s access state (and the device '
+                          'commands\' client) only: called from core/src/main/kotlin/wm/damage/core/util/SelftestTool.kt (run), ') else ''] if n])
+        tool_with('        wm.damage.core.web.WebAccess.atProcessStart(p) { }')
+        code, out = run()
+        case('S1-1 P6: a tool that opens the web access state (the device table) is a FAIL line naming it (exit 1)',
+             [n for n in ['exit %d, not 1' % code if code != 1 else '',
+                          'said %r' % said(out, 'FAIL') if not said(out, 'FAIL  WebAccess.atProcessStart is called from the two PC starts (runShell, hostOnly) only: '
+                          'called from core/src/main/kotlin/wm/damage/core/util/SelftestTool.kt (run), ') else ''] if n])
+        tool_with('        val f = p.resolve(wm.damage.core.web.Devices.FILE)')
+        code, out = run()
+        case('S1-1 P6: a tool that names the device table\'s file is a FAIL line (exit 1)',
+             [n for n in ['exit %d, not 1' % code if code != 1 else '',
+                          'said %r' % said(out, 'FAIL') if not said(out, 'FAIL  the device table (Devices.FILE) is named by') else ''] if n])
+        os.remove(tool)
+
+        # build S1-1, P3: the working copy closed with each stack is named
+        svc_path = os.path.join(root, 'phone/src/main/kotlin/wm/damage/phone/ShellService.kt')
+        svc_kept = open(svc_path, encoding='utf-8').read()
+        anchor = '    private fun stopStack() {\n'
+        assert svc_kept.count(anchor) == 1, anchor
+        open(svc_path, 'w', encoding='utf-8').write(svc_kept.replace(anchor, anchor + '        closeWorkingCopy()\n'))
+        code, out = run()
+        case('S1-1 P3: a working copy closed with each stack is a FAIL line (exit 1)',
+             [n for n in ['exit %d, not 1' % code if code != 1 else '',
+                          'said %r' % said(out, 'FAIL') if said(out, 'FAIL') != ['FAIL  ShellService keeps the working copy, its core '
+                          'executor and its app lane for the service: built in onCreate, closed in onDestroy, neither in startStack nor in '
+                          'stopStack (S1-1 P3): per stack: closeWorkingCopy('] else ''] if n])
+        open(svc_path, 'w', encoding='utf-8').write(svc_kept)
 
         # the reader of Kotlin text itself: what must stay, what must be blanked, and nothing may move
         q3 = '"' * 3

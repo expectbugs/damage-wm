@@ -13,9 +13,20 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
+import wm.damage.core.app.Answer
+import wm.damage.core.app.Expect
+import wm.damage.core.app.Item
+import wm.damage.core.app.Op
+import wm.damage.core.app.SourceListener
+import wm.damage.core.app.WindowSource
+import wm.damage.core.app.WindowState
 import wm.damage.core.content.BookMeta
 import wm.damage.core.content.ContentProvider
 import wm.damage.core.geom.Rect
+import wm.damage.core.shell.AnchorCursor
 import wm.damage.core.gfx.Gray8
 import wm.damage.core.gfx.IconKind
 import wm.damage.core.gfx.IconPaint
@@ -34,8 +45,27 @@ import wm.damage.core.text.TextRasterizer
 import wm.damage.core.text.Wrap
 import wm.damage.core.util.Log
 
+/** The name the window had before its conversion, kept for the sites that name its type (the test sites, `--selfcheck`). */
+typealias ReaderWindow = ReaderGlasses
+
 /**
- * READER — the ereader window. Three levels: library (list) -> book (document,
+ * The compatibility factory (build S1-1 P4, the spec's §2 P4): Reader as it was built before its conversion — a
+ * [ReaderCore] over [content], a source over a record of its own in memory, and the glasses' presenter over that. The
+ * test sites, `--selfcheck` and the snapshot judge's first arrangement build Reader this way; the hosts build the core
+ * on their own record (the PC's, or the phone's working copy).
+ */
+fun ReaderWindow(
+    text: TextRasterizer,
+    content: ContentProvider,
+    bg: CoroutineScope,
+    images: wm.damage.core.gfx.ImageDecoder? = null,
+): ReaderGlasses {
+    val core = ReaderCore(content, bg)
+    return ReaderGlasses(text, core, wm.damage.core.app.LocalWindowSource(core, wm.damage.core.app.MemoryRecord(ReaderCore.ACTIONS)), bg, images)
+}
+
+/**
+ * READER on the glasses — the ereader window's presenter. Three levels: library (list) -> book (document,
  * Alegreya per the locked §Type table, endless scroll) -> actions (list, the
  * §4.6 wrap-to-end pattern: tap in the document descends to actions).
  *
@@ -44,15 +74,32 @@ import wm.damage.core.util.Log
  * book/topLine/level combination (review round 1). Reading positions are
  * per-book CHARACTER offsets — monotonic by construction, so restore lands on
  * the right line — and survive book switches, font rescales and restarts (§9.1).
+ *
+ * Build S1-1 P4 (`CONTRACT.md` §2.4, §2.6, §11.1): the shelf, each book's place and bookmark and the glasses' Reader
+ * rows are Reader's [core]'s, read through [source] (the PC's record, or the phone's working copy). The fields below
+ * stay as this presenter's optimistic state; what it changed goes to the source as ops at today's save points
+ * ([saveSubState]: 2 s after input, on leaving the book, at a stop — dec. A.10). Another device's place for the open
+ * book never moves the page (dec. A.2): an entry (a session start, the switcher, a restore, an open) takes it, and
+ * meanwhile the actions level offers `Go there`. The glasses' row (level, cursors, the open book, the folder) stays
+ * in the local `window.reader` keys in today's shape, unsynced (dec. A.11); those keys double as the copy an older
+ * build reads after a downgrade, with the `conv` sub-record beside them saying what this build wrote (the migration's
+ * ledger, `ReaderMigration`).
  */
-class ReaderWindow(
+class ReaderGlasses(
     private val text: TextRasterizer,
-    private val content: ContentProvider,
+    val core: ReaderCore,
+    val source: WindowSource,
     private val bg: CoroutineScope,
     /** Platform image decoding (2026-08-31, ebook images) — null (tests, a
      *  host without one) degrades every image to a visible placeholder line. */
     private val images: wm.damage.core.gfx.ImageDecoder? = null,
+    /** This device's name in the record (`local` on the PC, `phone` on the phone): a write by it is its own echo. */
+    private val device: String = wm.damage.core.app.Peer.LOCAL.device,
+    /** "PC and phone on different builds for Reader" while the two builds differ (the phone), else null. */
+    private val buildsLine: () -> String? = { null },
+    private val zone: java.time.ZoneId = java.time.ZoneId.systemDefault(),
 ) : DamageWindow("reader", "Reader", IconKind.READER) {
+    private val content: ContentProvider get() = core.content
 
     /** Every measure/draw goes through the per-app style (Style.kt) — wrap
      *  and render agree by construction. */
@@ -127,11 +174,18 @@ class ReaderWindow(
             ?: offsets.keys.firstOrNull { it == title }   // the id-shown fallback row
             ?: run { Log.w("reader", "reset progress: no tracked book called '$title'"); return }
         offsets.remove(id)
+        // S1-1 P4: the record's place goes too (a removal expecting the revision this view sees); one the record does
+        // not hold (a place only in the local copy) has nothing to remove there
+        val seen = source.state().itemNamed(ReaderCore.placeItem(id))
+        if (seen != null && !seen.gone) source.act(ReaderCore.resetDraft(id, seen.rev))
+        sentOff.remove(id)
+        expectFor[id] = Expect.Any
+        confirmed[id] = JsonNull
         // resetting the OPEN book also closes it: saveState's rememberPosition
         // would re-track it on the next save, and a reset book should count as
         // a first open again (the chapter picker included)
         if (book?.meta?.id == id) {
-            bookmarkOffset = -1
+            movedPlace = null
             book = null
             docModel.topLine = 0
             level = Level_.LIBRARY
@@ -144,8 +198,28 @@ class ReaderWindow(
     private var book: Loaded? = null
     /** Reading position per book id, as CHARACTER offsets (§9.1). */
     private val offsets = HashMap<String, Int>()
-    private var bookmarkOffset = -1
+    /** S1-1 P4: one bookmark per book (C§12: the bookmark gains a book id; it was one offset for every book). */
+    private val bookmarks = HashMap<String, Int>()
     private var openingId: String? = null
+
+    // ---- S1-1 P4: this view's knowledge of the record (shell loop only) ----
+    /** Per book, the place offset last sent to the source (or taken from it): a save point sends a place that moved
+     *  since. Absent = nothing sent, so a place held only locally goes at the next save point. */
+    private val sentOff = HashMap<String, Int>()
+    /** Per book, what the next place op expects to find (C§2.4 position): the place this view last took or sent; the
+     *  standing place after a loss, so reading on never loses twice. Absent = nothing there ([Expect.Value] null). */
+    private val expectFor = HashMap<String, Expect>()
+    /** Per book, the record's place this view knows to be its own or taken (JsonNull = known removed). A record place
+     *  that is neither is another device's: an entry takes it, and the open book offers `Go there` until then. Kept in
+     *  the `conv` sub-record, so it holds across a process restart. */
+    private val confirmed = HashMap<String, JsonElement>()
+    /** Another device's place for the OPEN book, not taken (dec. A.2): the actions level's `Go there` row. */
+    private var movedPlace: ReaderAnchor? = null
+    /** The glasses' Reader rows and bookmarks as last sent to the source (or taken from it). */
+    private var sentRows: Triple<Int, Boolean, Int>? = null
+    private val sentMarks = HashMap<String, Int>()
+    private val libCursorAnchor = AnchorCursor()
+    private val actCursorAnchor = AnchorCursor()
     /** §72 (2026-11-08): the one book restore in flight, and its generation. A newer restore
      *  cancels the older, and a result whose generation is not the latest is dropped. */
     @Volatile private var restoreJob: Job? = null
@@ -191,7 +265,7 @@ class ReaderWindow(
         /** Decoded, scaled, 16-level-quantized ebook images (2026-08-31),
          *  each padded to whole line boxes so image LINES blit exact strips. */
         val imgs: List<Gray8> = emptyList(),
-        /** [ReaderWindow.layoutEpoch] when the wrap started. */
+        /** [ReaderGlasses.layoutEpoch] when the wrap started. */
         val epoch: Int = 0,
     ) {
         data class Line(
@@ -316,19 +390,23 @@ class ReaderWindow(
     }
 
     override fun summary(): Summary {
+        // S1-1 P4 (C§9.7 item 2): while the PC and this device run different builds for Reader, the detail says so
+        // (each host then reads from its own copy) — in place of the author: the one thing to know
+        val builds = buildsLine()
         val b = book ?: return Summary(
             when (libraryState) {
                 "ok" -> "${library.size} books"
                 "loading" -> "library loading"
                 else -> libraryState
             },
+            detail = builds ?: "",
             more = library.size > 1,
         )
         val page = b.pageOf(docModel.topLine)
         val pct = docModel.topLine.toDouble() / maxOf(1, b.lines.size - 1)
         return Summary(
             "${b.meta.title} · p.$page/${b.pages} · ${(pct * 100).toInt()}%",
-            detail = if (b.book.author.isEmpty()) b.meta.title else b.book.author,
+            detail = builds ?: if (b.book.author.isEmpty()) b.meta.title else b.book.author,
             progress = pct.coerceIn(0.0, 1.0),
         )
     }
@@ -388,7 +466,7 @@ class ReaderWindow(
     }
 
     override fun onRegistered(ctx: ShellServices) {
-        services = ctx
+        attach(ctx)
         // the Main lens read "library loading" from boot until the window
         // was first opened — a claim about a scan nobody had started (review
         // §28 #5). Scan now; the activation re-scan below is skipped while
@@ -399,12 +477,13 @@ class ReaderWindow(
     }
 
     override fun onActivate(ctx: ShellServices, from: ActivationSource) {
-        services = ctx
+        attach(ctx)
         // Adam's rule, 2026-09-04 (HOLDEM.md §3): from MAIN the window shows
         // its ROOT — the shelf — while the reading position stays exactly
         // where it is (it lives in the per-book sub-records, so tapping the
         // book again lands on the same line). Every other source resumes.
-        if (from == ActivationSource.MAIN) goRoot()
+        // S1-1 P4 (dec. A.2): every other source is an entry, and takes another device's place for the open book
+        if (from == ActivationSource.MAIN) goRoot() else enterOpenBook()
         // always re-scan on activation (round 3 R2): the scan is what keeps
         // the host-link banner truthful, and the shelf stays up while it runs
         // — unless one is in flight already (the registration scan)
@@ -485,8 +564,10 @@ class ReaderWindow(
                     // (review 2026-09-01 F8 — the stale capture then
                     // out-stamped the peer's progress via rememberPosition)
                     docModel.topLine = re.lineAtOffset(offsets[b.meta.id] ?: keep)
+                    // fix round 1, ruling 1.2: the new line's start is not a place he made — a relayout sends nothing
+                    seat(re)
                     ensureCurrentLayout()
-                    services?.requestRender(this@ReaderWindow)
+                    services?.requestRender(this@ReaderGlasses)
                 }
             } catch (e: Exception) {
                 Log.e("reader", "re-layout failed", e)
@@ -495,12 +576,9 @@ class ReaderWindow(
     }
 
     // ------------------------------------------------------------------ library
-    /** A shelf scan is running; set and cleared on the shell loop. */
-    /** §72: the library scan in flight, if any. "In flight" is the scan's own job, not a flag
-     *  its completion clears: a completion lost at a session's end (drained behind a Shutdown)
-     *  must not stop every later scan (the second review's finding). */
-    @Volatile private var scanJob: kotlinx.coroutines.Job? = null
-    private fun scanRunning(): Boolean = scanJob?.isActive == true
+    /** §72: the library scan in flight is the core's own job ([ReaderCore.scanRunning]): a completion lost at a
+     *  session's end (drained behind a Shutdown) must not stop every later scan (the second review's finding). */
+    private fun scanRunning(): Boolean = core.scanRunning()
 
     /** §72: the content source found a changed listing (a book added on the PC): scan again,
      *  unless a scan is already on its way. Any thread. */
@@ -510,26 +588,79 @@ class ReaderWindow(
 
     private fun refreshLibrary() {
         libraryState = "loading"
-        val keep = library          // a failed re-scan keeps the shelf we have
-        scanJob = bg.launch(Dispatchers.IO) {
-            var lib: List<BookMeta> = keep
-            var state: String
-            try {
-                lib = content.library()
-                state = if (lib.isEmpty()) "no books found" else "ok"
-            } catch (e: Exception) {
-                Log.e("reader", "library scan failed", e)
-                state = "library error: ${e.message}"
+        core.refreshLibrary()       // a failed re-scan keeps the shelf we have (the core's)
+    }
+
+    /** The core's scan result, on its thread: keyed (§72) — a listing supersedes the older ones; while no session
+     *  is live only the latest is held. */
+    private val onShelf: (List<BookMeta>, String) -> Unit = { lib, state ->
+        services?.runOnShell("reader.library") {
+            library = lib
+            libraryState = state
+            if (level == Level_.LIBRARY) libCursorAnchor.resolve(shelfIds())?.let { libModel.cursor = it }
+            services?.requestRender(this@ReaderGlasses)
+        }
+    }
+
+    /** The source's changes and answers, on the core executor: handed to the shell loop (keyed for changes — the state
+     *  is whole, the newest suffices). */
+    private val onSource = object : SourceListener {
+        override fun changed(state: WindowState, keys: Set<String>) {
+            services?.runOnShell("reader.source") {
+                if (fromSource(source.state(), entry = false)) services?.requestRender(this@ReaderGlasses)
             }
-            // keyed (§72): a listing supersedes the older ones — while no session is
-            // live only the latest is held, and it clears the in-flight mark when it runs
-            services?.runOnShell("reader.library") {
-                library = lib
-                libraryState = state
-                services?.requestRender(this@ReaderWindow)
+        }
+
+        override fun answered(op: Op, answer: Answer) {
+            // fix round 2, ruling 1.2: a loss stays with this view until it has been said (one before the shell's
+            // services, one whose post a Shutdown's drain dropped, one posted while no session runs)
+            val s = synchronized(unsaid) {
+                if (answer is Answer.Lost) unsaid[op.id] = op to answer
+                services
+            }
+            if (s == null) {
+                // fix round 2, ruling 1.7: a refusal for good is never told to no one (no notice is kept for it)
+                if (answer is Answer.Refused && answer.code != Answer.RETRY && answer.code != Answer.GAP)
+                    Log.e("reader", "the record refused ${op.action} of ${op.targets} before the shell started: ${answer.reason}")
+                return
+            }
+            if (answer is Answer.Lost) sayUnsaid(s) else s.runOnShell { onAnswer(op, answer) }
+        }
+    }
+
+    /** Losses handed to this view and not yet said (fix round 1, ruling 1.5; round 2, ruling 1.2). */
+    private val unsaid = LinkedHashMap<wm.damage.core.app.OpId, Pair<Op, Answer>>()
+
+    /** Posts every loss not yet said, now and at each session start ([attach]); the first run of one says it and only
+     *  then tells the source, which stops keeping it; a later run finds it gone. */
+    private fun sayUnsaid(s: ShellServices) {
+        for ((op, a) in synchronized(unsaid) { unsaid.values.toList() }) s.runOnShell {
+            if (synchronized(unsaid) { unsaid.remove(op.id) } != null) {
+                onAnswer(op, a)
+                source.said(op)
             }
         }
     }
+
+    /** At the registration and at every session start (the shell registers its windows again at each). */
+    private fun attach(ctx: ShellServices) {
+        synchronized(unsaid) { services = ctx }
+        sayUnsaid(ctx)
+    }
+
+    init {
+        core.addShelfListener(onShelf)
+        source.addListener(onSource)
+    }
+
+    /** At a stack's end: the core and the source outlive this presenter on the PC (one per process). */
+    fun detach() {
+        core.removeShelfListener(onShelf)
+        source.removeListener(onSource)
+    }
+
+    /** The library level's row ids, as the cursor's anchor names them: folders first, then books (the paint order). */
+    private fun shelfIds(): List<String> = shelf().let { s -> s.folders.map { "folder:$it" } + s.books.map { "book:${it.id}" } }
 
     private fun paintLibRow(g: Gray8, i: Int, r: Rect, dim: Boolean) {
         val s = shelf()
@@ -629,9 +760,15 @@ class ReaderWindow(
                         return@runOnShell
                     }
                     openingId = null
+                    // S1-1 P4: an open is an entry (dec. A.2): another device's place for this book is taken now
+                    takeShared(meta.id)
+                    movedPlace = null
                     book = loaded
+                    // the book read most recently anywhere (C§12 open; arrival order, dec. A.9)
+                    source.act(ReaderCore.openDraft(meta.id))
                     val saved = offsets[meta.id]
                     docModel.topLine = loaded.lineAtOffset(saved ?: 0)
+                    seat(loaded)
                     // FIRST open of a book with real chapters: pick where to
                     // start (2026-08-31). Row 0 is "From the beginning";
                     // double-tap backs out to the shelf, never a shortcut.
@@ -645,7 +782,7 @@ class ReaderWindow(
                         services?.setOperation("reading")
                     }
                     ensureCurrentLayout()
-                    services?.requestRender(this@ReaderWindow)
+                    services?.requestRender(this@ReaderGlasses)
                 }
             } catch (e: Exception) {
                 Log.e("reader", "open ${meta.title} failed", e)
@@ -664,7 +801,7 @@ class ReaderWindow(
                         services?.setOperation("idle")
                         services?.notifyInternal("reader", "could not open ${meta.title}: ${e.message}", answer = true)
                     }   // else: the user already abandoned this open — logged above
-                    services?.requestRender(this@ReaderWindow)
+                    services?.requestRender(this@ReaderGlasses)
                 }
             }
         }
@@ -815,16 +952,37 @@ class ReaderWindow(
     private fun actions(): List<Pair<String, String>> {
         val b = book ?: return listOf("Library" to "back to the shelf")
         val pct = (docModel.topLine * 100 / maxOf(1, b.lines.size - 1))
-        return listOf(
+        val bm = bookmarks[b.meta.id]
+        // S1-1 P4 (dec. A.2): while another device's place for this book stands, untaken, `Go there` comes first
+        val go = goThere(b)?.let { m -> listOf("Go there" to "p.${b.pageOf(b.lineAtOffset(m.offset))} · ${movedWho()}") }
+        return (go ?: emptyList()) + listOf(
             "Resume" to "back to the page",
             "Chapters" to "${b.book.chapters.size}",
             "Jump forward" to "+10%",
             "Jump back" to "-10%",
             "Bookmark here" to "p.${b.pageOf(docModel.topLine)} · $pct%",
-            "Go to bookmark" to if (bookmarkOffset >= 0) "saved" else "none set",
+            "Go to bookmark" to if (bm != null && bm >= 0) "saved" else "none set",
             "Library" to "back to the shelf",
         )
     }
+
+    /** Test and status introspection: the actions level's row labels, in order. */
+    fun actionLabels(): List<String> = actions().map { it.first }
+
+    /** Test introspection: the actions level's rows, label and detail. */
+    internal fun actionRows(): List<Pair<String, String>> = actions()
+
+    /** Test introspection: the width the open book was laid out for (0 = no book). */
+    internal fun laidOutWidth(): Int = book?.width ?: 0
+
+    /** Another device's place for the open book [b], when it is not where the page already is. */
+    private fun goThere(b: Loaded): ReaderAnchor? =
+        movedPlace?.takeIf { m -> b.lineAtOffset(m.offset) != docModel.topLine.coerceIn(0, b.lines.size - 1) }
+
+    private var movedBy = ""
+    private var movedAt = 0L
+
+    private fun movedWho(): String = "${who(movedBy)} ${hhmm(movedAt)}"
 
     private fun paintActRow(g: Gray8, i: Int, r: Rect, dim: Boolean) {
         // getOrNull, like every other row painter here: the action list SHRINKS
@@ -846,6 +1004,12 @@ class ReaderWindow(
     private fun commitAction(i: Int) {
         val b = book ?: run { level = Level_.LIBRARY; return }
         when (actions().getOrNull(i)?.first) {
+            "Go there" -> {
+                // dec. A.2: committing it takes the shared place
+                goThere(b)?.let { m -> take(b.meta.id, m, JsonPrimitive(m.format())) }
+                movedPlace = null
+                level = Level_.BOOK
+            }
             "Resume" -> level = Level_.BOOK
             "Chapters" -> {
                 level = Level_.CHAPTERS
@@ -861,11 +1025,12 @@ class ReaderWindow(
                 level = Level_.BOOK
             }
             "Bookmark here" -> {
-                bookmarkOffset = b.lines[docModel.topLine.coerceIn(0, b.lines.size - 1)].offset
+                // per book from S1-1 (C§12); it reaches the record at the next save point
+                bookmarks[b.meta.id] = b.lines[docModel.topLine.coerceIn(0, b.lines.size - 1)].offset
                 level = Level_.BOOK
             }
             "Go to bookmark" -> {
-                if (bookmarkOffset >= 0) docModel.topLine = b.lineAtOffset(bookmarkOffset)
+                bookmarks[b.meta.id]?.takeIf { it >= 0 }?.let { docModel.topLine = b.lineAtOffset(it) }
                 level = Level_.BOOK
             }
             "Library" -> {
@@ -876,54 +1041,374 @@ class ReaderWindow(
         }
     }
 
+    // ------------------------------------------------------------------ the record (S1-1 P4)
+    /**
+     * The record's state into this view: another device's write is taken where nothing on screen moves — every book
+     * but the open one, the glasses' rows, the bookmarks — and for the open book only at an [entry]; meanwhile the
+     * open book's moved place is offered (`Go there`). This device's own writes are only noted ([confirmed]): the
+     * view holds them already, or newer. True when something drawn changed.
+     */
+    private fun fromSource(st: WindowState, entry: Boolean): Boolean {
+        var drawn = false
+        val openId = book?.meta?.id
+        val p = wm.damage.core.app.Record.key(ReaderCore.WINDOW, "place.")
+        for ((k, it) in st.items) if (k.startsWith(p)) {
+            val id = k.removePrefix(p)
+            drawn = placeFrom(id, it, take = entry || id != openId) || drawn
+        }
+        val b = wm.damage.core.app.Record.key(ReaderCore.WINDOW, "bookmark.")
+        for ((k, it) in st.items) if (k.startsWith(b) && it.by != device) {
+            val id = k.removePrefix(b)
+            val v: JsonElement = if (it.gone) JsonNull else it.value
+            if (sentMarkVal[id] == v) continue
+            sentMarkVal[id] = v
+            val a = ReaderAnchor.parse((v as? JsonPrimitive)?.takeIf { p2 -> p2.isString }?.content)
+            if (a == null) bookmarks.remove(id) else bookmarks[id] = a.offset
+            drawn = drawn || (id == openId && level == Level_.ACTIONS)
+        }
+        for (row in listOf(ReaderCore.SCROLL_LINES, ReaderCore.SCROLL_ACCEL, ReaderCore.SIZE)) {
+            val it = st.itemNamed(row) ?: continue
+            if (it.by == device || it.gone || sentRowVal[row] == it.value) continue
+            sentRowVal[row] = it.value
+            setRow(row, it.value)
+        }
+        return drawn
+    }
+
+    /** One book's place from the record. [take] = it may move this view (an entry, or a book not on screen). */
+    private fun placeFrom(id: String, it: Item, take: Boolean): Boolean {
+        val v: JsonElement = if (it.gone) JsonNull else it.value
+        if (it.by == device) {
+            confirmed[id] = v
+            // the record holds this device's place: another device's place offered for the open book has gone from it
+            // (R1 2.2's class, the focused read's S1). A loss after this offers it again (lost()).
+            if (movedPlace == null || book?.meta?.id != id) return false
+            movedPlace = null
+            return level == Level_.ACTIONS
+        }
+        if (confirmed[id] == v) return false
+        val openNow = book?.meta?.id == id
+        if (!take) {
+            // dec. A.2: the open book's page stays; the actions level offers the place
+            val a = ReaderAnchor.parse((v as? JsonPrimitive)?.takeIf { p -> p.isString }?.content)
+            movedPlace = a
+            movedBy = it.by
+            movedAt = it.at
+            return level == Level_.ACTIONS
+        }
+        if (it.gone) {
+            confirmed[id] = JsonNull
+            offsets.remove(id)
+            sentOff.remove(id)
+            expectFor[id] = Expect.Any
+            if (openNow) {
+                // a reset elsewhere, met at an entry: the open book closes and counts as a first open again (the
+                // local reset's semantics)
+                movedPlace = null
+                book = null
+                docModel.topLine = 0
+                level = Level_.LIBRARY
+                services?.setOperation("idle")
+                Log.i("reader", "progress of the open book was reset by ${who(it.by)} — back to the shelf")
+                return true
+            }
+            return false
+        }
+        val a = ReaderAnchor.parse((v as? JsonPrimitive)?.takeIf { p -> p.isString }?.content) ?: run {
+            Log.w("reader", "the record's place for $id is not a place ($v) — kept as it was")
+            return false
+        }
+        take(id, a, v)
+        return openNow
+    }
+
+    /** Take [a] (the record's [v]) as this view's place for [id]; the open book's page moves to it. */
+    private fun take(id: String, a: ReaderAnchor, v: JsonElement) {
+        confirmed[id] = v
+        offsets[id] = a.offset
+        sentOff[id] = a.offset
+        expectFor[id] = Expect.Value(v)
+        val b = book
+        if (b != null && b.meta.id == id) {
+            movedPlace = null
+            val line = b.lineAtOffset(a.offset)
+            if (line != docModel.topLine) docModel.topLine = line
+            seat(b)
+        }
+    }
+
+    /**
+     * The open book [b]'s page was just set from its place by an entry (an open, a restore, a place taken): the place
+     * becomes the start of the line the page shows — what the next save point would record — and that is not a change
+     * this view makes, so it is not sent. Without this a taken place went back to the record a few characters earlier
+     * at the next save point: a write no input made.
+     */
+    private fun seat(b: Loaded) {
+        val id = b.meta.id
+        val off = offsets[id] ?: return
+        val lineOff = b.lines.getOrNull(docModel.topLine.coerceIn(0, b.lines.size - 1))?.offset ?: return
+        if (lineOff == off) return
+        if (sentOff[id] == off) sentOff[id] = lineOff
+        offsets[id] = lineOff
+    }
+
+    /** An entry into [id] (an open, a restore): another device's place for it is taken now. */
+    private fun takeShared(id: String) {
+        val it = source.state().itemNamed(ReaderCore.placeItem(id)) ?: return
+        placeFrom(id, it, take = true)
+    }
+
+    /** An entry while a book is open (the switcher, a restore, a session start on this instance). */
+    private fun enterOpenBook() {
+        val id = book?.meta?.id ?: return
+        takeShared(id)
+        movedPlace = null
+    }
+
+    private fun setRow(row: String, v: JsonElement) {
+        val p = v as? JsonPrimitive ?: return
+        when (row) {
+            ReaderCore.SCROLL_LINES -> p.intOrNull?.let { scrollLines = it.coerceIn(1, 8) }
+            ReaderCore.SCROLL_ACCEL -> p.booleanOrNull?.let { scrollAccel = it }
+            ReaderCore.SIZE -> p.intOrNull?.let { h ->
+                heightPref = if (h == 0) null else wm.damage.core.shell.ShellSettings.HEIGHTS.minByOrNull { kotlin.math.abs(it - h) }
+            }
+        }
+    }
+
+    private fun rowValues(): Map<String, JsonElement> = mapOf(
+        ReaderCore.SCROLL_LINES to JsonPrimitive(scrollLines),
+        ReaderCore.SCROLL_ACCEL to JsonPrimitive(scrollAccel),
+        ReaderCore.SIZE to JsonPrimitive(heightPref ?: 0),
+    )
+
+    private val sentRowVal = HashMap<String, JsonElement>()
+    private val sentMarkVal = HashMap<String, JsonElement>()
+
+    /** What this view changed since it last sent, as ops (dec. A.10: at today's save points only). Each returns at
+     *  once; the source answers later ([onAnswer]). */
+    private fun sendChanges() {
+        val st = source.state()
+        val b = book
+        for ((id, off) in offsets) {
+            if (sentOff[id] == off) continue
+            val at = if (b != null && b.meta.id == id) ReaderAnchor.at(b.book.text, off) else ReaderAnchor(off)
+            source.act(ReaderCore.placeDraft(id, at, expectFor[id] ?: ReaderCore.expectSeen(st.itemNamed(ReaderCore.placeItem(id)))))
+            sentOff[id] = off
+            expectFor[id] = Expect.Value(JsonPrimitive(at.format()))
+        }
+        for ((id, off) in bookmarks) {
+            val at = if (b != null && b.meta.id == id) ReaderAnchor.at(b.book.text, off) else ReaderAnchor(off)
+            val v = JsonPrimitive(at.format())
+            val sent = sentMarkVal[id]
+            if (sent != null && ReaderAnchor.parse((sent as? JsonPrimitive)?.contentOrNull)?.offset == off) continue
+            if (sent == null && ReaderCore.bookmarkOf(st, id)?.offset == off) {
+                sentMarkVal[id] = st.itemNamed(ReaderCore.bookmarkItem(id))!!.value
+                continue
+            }
+            val expect = sent?.let { Expect.Value(it) } ?: ReaderCore.expectSeen(st.itemNamed(ReaderCore.bookmarkItem(id)))
+            source.act(ReaderCore.bookmarkDraft(id, at, expect))
+            sentMarkVal[id] = v
+        }
+        for ((row, v) in rowValues()) {
+            val sent = sentRowVal[row]
+            if (sent == v) continue
+            val held = st.itemNamed(row)
+            if (sent == null && (held?.value ?: DEFAULT_ROWS[row]) == v) {
+                sentRowVal[row] = v       // the record (or its default) already says so
+                continue
+            }
+            source.act(ReaderCore.setDraft(row, v, sent?.let { Expect.Value(it) } ?: ReaderCore.expectSeen(held)))
+            sentRowVal[row] = v
+        }
+    }
+
+    /** An answer to one of this view's ops, on the shell loop (C§4.4). A loss is said under Reader's name as the
+     *  answer to the input that made it (dec. A.2), with both values. */
+    private fun onAnswer(op: Op, a: Answer) {
+        if (op.window != ReaderCore.WINDOW) return
+        val target = op.targets.firstOrNull() ?: return
+        when (a) {
+            is Answer.Lost -> for (loss in a.losses) lost(op, loss.item, loss)
+            is Answer.Seen -> if (target.startsWith("place.")) confirmed[target.removePrefix("place.")] = op.result
+            is Answer.Refused -> {
+                // not taken (`retry`: the log could not be written; `gap`: numbered behind one that was not): the next
+                // save point sends it again — the PC's own presenter has no queue to send it from. Fix round 2, ruling
+                // 1.4: it changed nothing, so that send expects what this op expected (unless the view has taken or
+                // sent another place since), and nothing is said. Any other refusal is for good, and said.
+                forgetSent(target)
+                if (a.code == Answer.RETRY || a.code == Answer.GAP) {
+                    val id = target.removePrefix("place.")
+                    if (target.startsWith("place.") && expectFor[id] == Expect.Value(op.result)) expectFor[id] = op.expect
+                } else {
+                    Log.e("reader", "the record refused ${op.action} of $target: ${a.reason}")
+                    services?.notifyInternal("reader", "${op.action} not saved: ${a.reason}", answer = true)
+                }
+            }
+            Answer.Sent -> {}
+        }
+    }
+
+    private fun forgetSent(target: String) {
+        when {
+            target.startsWith("place.") -> sentOff.remove(target.removePrefix("place."))
+            target.startsWith("bookmark.") -> sentMarkVal.remove(target.removePrefix("bookmark."))
+            else -> sentRowVal.remove(target)
+        }
+    }
+
+    private fun lost(op: Op, target: String, loss: wm.damage.core.app.Loss) {
+        val standing = if (loss.gone) JsonNull else loss.standing
+        val whoAt = "${who(loss.by)} (${hhmm(loss.at)})"
+        var say = true
+        val body = when {
+            target.startsWith("place.") -> {
+                val id = target.removePrefix("place.")
+                val mine = placeWords(id, loss.mine)
+                // fix round 2, ruling 1.3: said once per (book, standing place, this place) — the migrated op in flight
+                // and a session start's own op of the same place lose with the same two
+                say = placeLossesSaid.add(Triple(id, placeKey(standing), placeKey(loss.mine)))
+                while (placeLossesSaid.size > 1_000) placeLossesSaid.remove(placeLossesSaid.first())
+                // C§2.4: the view has been given the standing place, so its next input expects it and applies. Fix
+                // round 2, ruling 1.1: it has not TAKEN it (the page stays, dec. A.2; a book not open keeps its place
+                // until the change comes), so [confirmed] — and the ledger's `known` — keep what the view holds: an
+                // entry or the change then takes the standing place, and a restart seeds nothing from it
+                expectFor[id] = if (loss.gone) Expect.Any else Expect.Value(standing)
+                if (op.action == ReaderCore.RESET) {
+                    confirmed[id] = standing      // a lost reset takes the standing place (below)
+                    ReaderAnchor.parse((standing as? JsonPrimitive)?.contentOrNull)?.let { s ->
+                        offsets[id] = s.offset
+                        sentOff[id] = s.offset
+                    }
+                    "progress not reset: ${who(loss.by)} read on (${hhmm(loss.at)})"
+                } else if (loss.gone) {
+                    "progress of this book was reset by $whoAt; this place, $mine, was not applied"
+                } else if (standing == JsonNull) {
+                    // the record holds no place for the book (a restored record): the next input sends it again
+                    "this place, $mine, was not applied: the PC holds no place for this book now; reading on sends it again"
+                } else {
+                    if (book?.meta?.id == id) {
+                        movedPlace = ReaderAnchor.parse((standing as? JsonPrimitive)?.contentOrNull)
+                        movedBy = loss.by
+                        movedAt = loss.at
+                    }
+                    "${who(loss.by)} read on to ${placeWords(id, standing)} (${hhmm(loss.at)}); this place, $mine, was not applied"
+                }
+            }
+            target.startsWith("bookmark.") -> {
+                val id = target.removePrefix("bookmark.")
+                sentMarkVal[id] = standing
+                val s = ReaderAnchor.parse((standing as? JsonPrimitive)?.contentOrNull)
+                if (s == null) bookmarks.remove(id) else bookmarks[id] = s.offset
+                "bookmark not applied: set by $whoAt"
+            }
+            else -> {
+                sentRowVal[target] = standing
+                if (!loss.gone) setRow(target, standing)
+                "Reader ${target.removePrefix("glasses.")} not applied: $standing, set by $whoAt"
+            }
+        }
+        if (say) {
+            Log.w("reader", "not applied ($target): $body")
+            services?.notifyInternal("reader", body, answer = true)
+        } else Log.i("reader", "a loss of $target said already, not said again: $body")
+        services?.requestRender(this)
+    }
+
+    /** The place losses said (ruling 1.3), the last 1,000. */
+    private val placeLossesSaid = LinkedHashSet<Triple<String, String, String>>()
+
+    /** A place's identity in [placeLossesSaid]: its character offset (an anchor's quoted text aside). */
+    private fun placeKey(v: JsonElement): String = ReaderAnchor.parse((v as? JsonPrimitive)?.contentOrNull)?.offset?.toString() ?: v.toString()
+
+    /** A place in words for a notice: its page in the open book, else its character offset. */
+    private fun placeWords(id: String, v: JsonElement): String {
+        val a = ReaderAnchor.parse((v as? JsonPrimitive)?.contentOrNull) ?: return "none"
+        val b = book
+        return if (b != null && b.meta.id == id) "p.${b.pageOf(b.lineAtOffset(a.offset))}" else "character ${a.offset}"
+    }
+
+    private fun who(device: String): String = when (device) {
+        wm.damage.core.app.Peer.LOCAL.device -> "the PC"
+        wm.damage.core.app.Peer.PHONE.device -> "the phone"
+        ReaderMigration.DEVICE -> "an earlier build"
+        "" -> "another device"
+        // fix round 1, ruling 1.4: a browser's device id is `web-` and six hex digits (`web/Devices.kt`)
+        else -> if (device.startsWith("web-")) "a browser" else device
+    }
+
+    private fun hhmm(at: Long): String =
+        java.time.Instant.ofEpochMilli(at).atZone(zone).toLocalTime().let { "%d:%02d".format(it.hour, it.minute) }
+
     // ------------------------------------------------------------------ persist
+    /** The glasses' row (dec. A.11: local, unsynced, today's shape — also the copy an older build reads). */
     override fun saveState(): JsonObject = buildJsonObject {
         rememberPosition()
         put("level", level.name)
         put("libCursor", libModel.cursor)
         put("actCursor", actModel.cursor)
-        put("bookId", book?.meta?.id ?: "")
-        put("bookmark", bookmarkOffset)
+        // the shared index-to-anchor helper (C§11.1): the row each cursor rests on, beside the index
+        put("libAnchor", AnchorCursor.saveAnchor(if (level == Level_.LIBRARY) shelfIds() else emptyList(), libModel.cursor))
+        put("actAnchor", AnchorCursor.saveAnchor(if (level == Level_.ACTIONS) actions().map { it.first } else emptyList(), actModel.cursor))
+        val openId = book?.meta?.id ?: ""
+        put("bookId", openId)
+        put("bookmark", bookmarks[openId] ?: -1)
         put("folder", folder)
         put("scrollLines", scrollLines)
         put("scrollAccel", scrollAccel)
         put("heightPref", heightPref ?: 0)   // 0 = global
-        // per-book positions moved to SUB-RECORDS (§16.4a, 2026-09-01):
-        // `window.reader.book.<id>` each — two devices reading DIFFERENT books
-        // no longer clobber each other's positions under LWW.
-        // ⚠ TRANSITIONAL: the legacy whole-map still writes so a peer on the
-        // pre-sub-record build (the installed 0.15 APK) and this build keep
-        // ONE main-record shape — dropping it mid-fleet made every save
-        // re-stamp against the other side's shape forever (review 2026-09-01
-        // F3). Remove once the phone runs ≥0.16.
+        // per-book positions moved to SUB-RECORDS (§16.4a, 2026-09-01);
+        // the whole-map is still written for an older build's restore
         put("offsets", buildJsonObject { for ((k, v) in offsets) put(k, v) })
     }
 
-    /** §16.4a: one record per book — the sub-key is the stable book id. */
+    /**
+     * The save point (dec. A.10): what this view changed goes to the source as ops, then the local copy in today's
+     * shape — one record per book (§16.4a) — and `conv`, the record of what this build wrote into that copy (the
+     * migration's ledger: a later start offers again only what an older build wrote there since) with the record's
+     * places this view knows as its own or taken.
+     */
     override fun saveSubState(): Map<String, JsonObject> {
         rememberPosition()
-        return offsets.entries.associate { (id, off) ->
-            "book.$id" to buildJsonObject { put("off", off) }
-        }
+        sendChanges()
+        val out = LinkedHashMap<String, JsonObject>()
+        for ((id, off) in offsets) out["book.$id"] = buildJsonObject { put("off", off) }
+        out[ReaderMigration.LEDGER] = ReaderMigration.ledgerOf(
+            offsets, book?.meta?.id ?: "", bookmarks[book?.meta?.id ?: ""] ?: -1, scrollLines, scrollAccel,
+            heightPref ?: 0, confirmed)
+        return out
     }
 
-    /** A per-book record — at restore or LIVE from sync. An empty blob is the
-     *  removal tombstone (a progress reset on the peer): mirror the local
-     *  reset's semantics — the map entry goes, and the OPEN book closes so it
-     *  counts as a first open again. A live position for the OPEN book moves
-     *  the page — the "continue on the next device" experience (§16.4). */
+    /** A per-book record at a session start (the local copy; Reader's keys no longer sync, S1-1). An empty blob is
+     *  the removal tombstone: the map entry goes, and the OPEN book closes so it counts as a first open again. The
+     *  ledger brings back which record places this view knew as its own or taken (a process restart). */
     override fun restoreSubState(subKey: String, state: JsonObject) {
+        if (subKey == ReaderMigration.LEDGER) {
+            val st = source.state()
+            for ((id, v) in ReaderMigration.knownOf(state)) if (id !in confirmed) {
+                confirmed[id] = v
+                // the next place expects what the record holds: what this view knew, when the record still holds it;
+                // otherwise (another device moved it — an entry takes it — or a restored record lost it) it is not
+                // seeded here, and the next save point sends the local place expecting the record's own
+                val held = st.itemNamed(ReaderCore.placeItem(id))?.let { if (it.gone) JsonNull else it.value }
+                if (held != v) continue
+                ReaderAnchor.parse((v as? JsonPrimitive)?.contentOrNull)?.let { a ->
+                    sentOff.putIfAbsent(id, a.offset)
+                    expectFor.putIfAbsent(id, Expect.Value(v))
+                }
+            }
+            return
+        }
         if (!subKey.startsWith("book.")) return
         val id = subKey.removePrefix("book.")
         val off = state["off"]?.jsonPrimitive?.intOrNull
         if (off == null) {
             if (offsets.remove(id) != null && book?.meta?.id == id) {
-                bookmarkOffset = -1
                 book = null
                 docModel.topLine = 0
                 level = Level_.LIBRARY
                 services?.setOperation("idle")
-                Log.i("reader", "progress of the open book was reset on the peer — back to the shelf")
+                Log.i("reader", "progress of the open book was reset — back to the shelf")
             }
             return
         }
@@ -931,7 +1416,7 @@ class ReaderWindow(
         val b = book
         // any level with this book loaded (review 2026-09-01 F9): parked at
         // ACTIONS/CHAPTERS, a stale topLine would be re-stamped by the next
-        // rememberPosition and revert the peer's newer progress
+        // rememberPosition and revert the newer progress
         if (b != null && b.meta.id == id) {
             val line = b.lineAtOffset(off)
             if (line != docModel.topLine) docModel.topLine = line
@@ -956,10 +1441,8 @@ class ReaderWindow(
         services?.setOperation("finding book")
         bg.launch(Dispatchers.IO) {
             val meta = try {
-                // §72: a cached listing may predate a book just added on the PC: an explicit open
-                // that misses asks the source itself before saying "not in the library"
-                content.library().firstOrNull { it.id == id }
-                    ?: content.library(fresh = true).firstOrNull { it.id == id }
+                // the core's lookup (S1-1 P4): §72, a cached listing that misses asks the source itself
+                (core.resolve(target) as? ReaderCore.Resolved.Book)?.meta
             } catch (e: Exception) {
                 Log.e("reader", "deep-link library scan failed", e)
                 null
@@ -978,25 +1461,17 @@ class ReaderWindow(
                 } else if (!startOpen(meta)) {
                     services?.notifyInternal("reader", "couldn't open ${meta.title} — another book is opening", answer = true)
                 }
-                services?.requestRender(this@ReaderWindow)
+                services?.requestRender(this@ReaderGlasses)
             }
         }
         return true
     }
 
-    /** Transitional (remove with the legacy offsets field at phone ≥ 0.16):
-     *  marks the legacy-map merge as live-authoritative — see R2#7 below. */
-    private var liveMapApply = false
-
-    override fun restoreStateLive(state: JsonObject) {
-        liveMapApply = true
-        try { restoreState(state) } finally { liveMapApply = false }
-    }
-
     override fun restoreState(state: JsonObject) {
         libModel.cursor = state["libCursor"]?.jsonPrimitive?.intOrNull ?: 0
         actModel.cursor = state["actCursor"]?.jsonPrimitive?.intOrNull ?: 0
-        bookmarkOffset = state["bookmark"]?.jsonPrimitive?.intOrNull ?: -1
+        libCursorAnchor.restore(state["libAnchor"]?.jsonPrimitive?.contentOrNull)
+        actCursorAnchor.restore(state["actAnchor"]?.jsonPrimitive?.contentOrNull)
         folder = state["folder"]?.jsonPrimitive?.contentOrNull ?: ""
         scrollLines = (state["scrollLines"]?.jsonPrimitive?.intOrNull ?: 5).coerceIn(1, 8)
         scrollAccel = state["scrollAccel"]?.jsonPrimitive?.booleanOrNull ?: false
@@ -1006,37 +1481,22 @@ class ReaderWindow(
             0 -> null
             else -> wm.damage.core.shell.ShellSettings.HEIGHTS.minByOrNull { kotlin.math.abs(it - h) }
         }
-        // legacy migration (pre-§16.4a stores and older peers). At BOOT the
-        // whole-map key seeds only books the sub-records have not already
-        // restored (same-epoch dual-write: sub-records are the newer
-        // authority). On a LIVE apply (R2#7) the incoming map already WON
-        // last-write-wins for the main key, and an old peer writes only the
-        // map — skip-if-present let a stale local entry beat the peer's newer
-        // position and then re-stamp it backwards. Accepted residual: with
-        // two ACTIVE shells an old peer's map save can carry a book it did
-        // not touch (the Sub#F4 dual-live boundary); goes with the
-        // transitional field at phone ≥ 0.16.
-        (state["offsets"] as? JsonObject)?.let { o ->
-            for ((k, v) in o) if (liveMapApply || k !in offsets) {
-                v.jsonPrimitive.intOrNull?.let { offsets[k] = it }
-            }
-            // the OPEN book's screen position re-seats like restoreSubState's
-            // (R3d#1): without it, the next rememberPosition re-stamps the
-            // STALE line over the just-applied newer offset and the
-            // regression syncs fleet-wide
-            if (liveMapApply) book?.let { b ->
-                offsets[b.meta.id]?.let { off ->
-                    val line = b.lineAtOffset(off)
-                    if (line != docModel.topLine) docModel.topLine = line
-                }
-            }
-        }
         val id = state["bookId"]?.jsonPrimitive?.contentOrNull
         val lvl = state["level"]?.jsonPrimitive?.contentOrNull
+        // the copy's one bookmark belongs to the book it names (C§12); the record's, when it holds one, wins below
+        state["bookmark"]?.jsonPrimitive?.intOrNull?.takeIf { it >= 0 && !id.isNullOrEmpty() }?.let { bookmarks.putIfAbsent(id!!, it) }
+        // The legacy whole-map (`offsets`) is no longer read here: it is the migration's input (`ReaderMigration`,
+        // dec. A.13), and the per-book records restored before this call hold every place.
+        // S1-1 P4: a session start is an entry (dec. A.2): the record's state comes in, the open book's place included
+        fromSource(source.state(), entry = true)
+        if (library.isNotEmpty() && level == Level_.LIBRARY) libCursorAnchor.resolve(shelfIds())?.let { libModel.cursor = it }
         // P7 item 6 (OS-5): a session start on the SAME instance with this book open (every link end, Silent wake and
         // rebuild) ran the job below — the library, the file, the parse and the whole layout, on IO — and `apply` then
         // dropped the result ("superseded"). The open book is the restore; nothing to do (the style path's sibling, §73)
-        if (book?.meta?.id == id && (level == Level_.BOOK || level == Level_.ACTIONS)) return
+        if (book?.meta?.id == id && (level == Level_.BOOK || level == Level_.ACTIONS)) {
+            movedPlace = null
+            return
+        }
         // Restoring MODE, not just position (§9.1): reopen the book we were in,
         // at the exact LEVEL we were in (ACTIONS included — losing the level is
         // the Tmux failure class §9.1 #1 names).
@@ -1069,12 +1529,15 @@ class ReaderWindow(
                         }
                         library = lib
                         libraryState = "ok"
+                        // a restore is an entry (dec. A.2): the record's place for the book, when another device moved it
+                        takeShared(id)
+                        movedPlace = null
                         book = loaded
                         val saved = offsets[id]
                         if (saved == null && loaded.book.chapters.size >= 2) {
                             // the position vanished while we were reopening (a
-                            // synced progress-RESET tombstone racing this
-                            // restore — review 2026-09-01 F9): honor the reset
+                            // progress-RESET racing this restore — review
+                            // 2026-09-01 F9): honor the reset
                             // — first-open chapter picker, not page 1 in BOOK
                             docModel.topLine = 0
                             level = Level_.CHAPTERS
@@ -1083,7 +1546,9 @@ class ReaderWindow(
                             services?.setOperation("pick a chapter")
                         } else {
                             docModel.topLine = loaded.lineAtOffset(saved ?: 0)
+                            seat(loaded)
                             level = if (lvl == "ACTIONS") Level_.ACTIONS else Level_.BOOK
+                            if (level == Level_.ACTIONS) actCursorAnchor.resolve(actions().map { it.first })?.let { actModel.cursor = it }
                             services?.setOperation("reading")
                         }
                         ensureCurrentLayout()
@@ -1092,7 +1557,7 @@ class ReaderWindow(
                     services?.runOnShell("reader.restore") {
                         if (gen != restoreGen.get()) return@runOnShell   // a newer restore owns the book
                         apply()
-                        services?.requestRender(this@ReaderWindow)
+                        services?.requestRender(this@ReaderGlasses)
                     } ?: run {
                         // services not attached yet (restore precedes activation):
                         // apply directly — the shell loop has not started reading
@@ -1129,5 +1594,12 @@ class ReaderWindow(
     companion object {
         /** Rows of leading in a line box beyond the face's own ink. */
         const val LINE_LEADING = 2
+
+        /** The glasses' Reader rows when the record holds none (today's defaults). */
+        private val DEFAULT_ROWS: Map<String, JsonElement> = mapOf(
+            ReaderCore.SCROLL_LINES to JsonPrimitive(ReaderCore.DEFAULT_SCROLL_LINES),
+            ReaderCore.SCROLL_ACCEL to JsonPrimitive(false),
+            ReaderCore.SIZE to JsonPrimitive(0),
+        )
     }
 }

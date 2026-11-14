@@ -39,6 +39,8 @@ class EpubCheckTest {
             val said = ArrayList<String>()
             assertEquals(0, epubCheckStatus(tmp) { said.add(it) }, "one good book passes: $said")
             assertTrue(said.first() == "1 books in $tmp", "the count names DIR: $said")
+            // build S1-1, P5: the book's document is checked against today's text and its counts are said
+            assertTrue(said.any { it.startsWith("documents across the shelf: 41 blocks (41 para)") }, "the documents line: $said")
         } finally { tmp.toFile().deleteRecursively() }
     }
 }

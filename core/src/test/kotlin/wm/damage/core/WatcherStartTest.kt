@@ -18,6 +18,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.junit.After
+import wm.damage.core.app.RecordAlerts
 import wm.damage.core.bastion.AlertState
 import wm.damage.core.bastion.AlertStore
 import wm.damage.core.bastion.BastionWatcher
@@ -232,6 +233,26 @@ class WatcherStartTest {
         } finally {
             hub.stop(0)
         }
+    }
+
+    /** Build S1-1, dec. D.2: the PC record's alerts (`record.` ids) are Damage's own, as the watcher's are: a watcher
+     *  start — off, or running over a rules file that does not name them — keeps one raised before it, while a gone
+     *  rule's alert is still retired. */
+    @Test
+    fun aRecordAlertSurvivesAWatcherStart() {
+        val dir = Files.createTempDirectory("watcher-record")
+        val store = AlertStore(dir.resolve("alerts.json"))
+        RecordAlerts.of(store).raise(RecordAlerts.LOG, "Record: the operation log could not be written (test).")
+        store.raise("gone_rule", Severity.NORMAL, "A rule no file names", "1")
+        BastionWatcher.build("", "", rules(dir, good), 10, 5, store, scope)
+        assertEquals(AlertState.RAISED, store.stateOf(RecordAlerts.LOG), "an off watcher keeps the record's alert")
+        assertEquals(AlertState.CLEAR, store.stateOf("gone_rule"))
+        store.raise("gone_rule", Severity.NORMAL, "A rule no file names", "1")
+        val token = dir.resolve("token").also { Files.writeString(it, TOKEN) }
+        val w = BastionWatcher.build("http://127.0.0.1:1", token.toString(), rules(dir, good), 10, 5, store, scope)
+        assertTrue(w.on)
+        assertEquals(AlertState.RAISED, store.stateOf(RecordAlerts.LOG), "a running watcher keeps the record's alert")
+        assertEquals(AlertState.CLEAR, store.stateOf("gone_rule"), "a gone rule's alert is still retired")
     }
 
     companion object {

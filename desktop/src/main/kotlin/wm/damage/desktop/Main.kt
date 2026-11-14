@@ -57,6 +57,7 @@ import wm.damage.core.windows.reader.ReaderWindow
  *   --selfcheck · --snapshot [DIR] · --epub-check [DIR] · --music-check · --games-check [deep]
  *   --feed-check [DIR] [live] · --card-render [DIR]
  *   --host-only · --ble-info
+ *   --devices · --approve CODE LEVEL · --deny CODE · --revoke ID   (client calls to the running service, S1-1 P6)
  *   --help | -h
  *
  * `--no-preview` runs any transport mode headless (no Swing, no X) — the
@@ -74,7 +75,12 @@ import wm.damage.core.windows.reader.ReaderWindow
  * as unknown, so it cannot be reached before the other two exist.
  */
 fun main(args: Array<String>) {
-    val code = runCli(args, System.out, System.err) { cli ->
+    // build S1-1 P6 (dec. A.6): a device command is a client of the RUNNING service on loopback — the config is read
+    // for the content port and the data directory's local secret; nothing is started, bound or claimed
+    val code = runCli(args, System.out, System.err, client = { c ->
+        val cfg = Config.load()
+        wm.damage.core.app.DeviceCli.run(c.cmd, cfg.contentPort, Path.of(cfg.dataDir), System.out, System.err)
+    }) { cli ->
         // --no-preview: the all-day service mode (DAILY.md) — no Swing window, no
         // X needed; the phone screen and the browser replica are the views. Set
         // BEFORE any AWT class loads so the JVM commits to headless.
@@ -126,6 +132,10 @@ internal sealed interface Cli {
     data class BleInfo(override val headless: Boolean = false) : Run
     data class HostOnly(override val headless: Boolean = false) : Run
 
+    /** Build S1-1 P6 (dec. A.6): a device command — a client call to the running service over loopback with the local
+     *  secret, an exit status of its own; never a [Run] (nothing starts). */
+    data class Client(val cmd: wm.damage.core.app.DeviceCli.Command) : Cli
+
     companion object {
         /** Where a tool writes or reads when no directory follows its flag — the values `main`
          *  held inline before [parseArgs]. */
@@ -144,12 +154,14 @@ internal val CLI_FLAGS: List<String> = listOf(
     "--transport", "--remote", "--sim", "--ble", "--no-preview",
     "--selfcheck", "--snapshot", "--epub-check", "--music-check", "--games-check", "--feed-check", "--card-render",
     "--host-only", "--ble-info",
+    "--devices", "--approve", "--deny", "--revoke",
     "--help", "-h")
 
 /** What `--help` prints, and what follows the line that names a refused argument. */
 internal val USAGE: String = """
     usage: desktop [--transport MODE [--remote HOST] | --remote HOST | --sim | --ble] [--no-preview]
            desktop ENTRY [--no-preview]
+           desktop DEVICE-COMMAND
            desktop --help | -h
 
     Without an ENTRY the shell starts; without any argument, in auto with the preview window.
@@ -174,6 +186,13 @@ internal val USAGE: String = """
       --card-render [DIR]        the card sheets at 1x (default: ${Cli.CARD_DIR})
       --host-only                the content host alone, no shell
       --ble-info                 the BlueZ adapter and the devices it knows, no discovery
+
+    DEVICE-COMMAND, one at a time: asks the running service on loopback with the local secret; nothing starts.
+      --devices                  the approved devices, and the pages waiting with their codes
+      --approve CODE LEVEL       approve the page waiting under CODE at view, control or full
+      --deny CODE                refuse the page waiting under CODE
+      --revoke ID                remove an approved device; its pages are told and closed
+    Exit 0 done, 1 refused by the service, 3 the service or its local secret not reachable.
 
     An argument that is not listed here is refused with exit $CLI_REFUSED, and nothing starts.
     The shell and --host-only exit ${InstanceLock.EXIT_HELD} when another process holds the data directory
@@ -208,6 +227,7 @@ internal fun parseArgs(args: Array<String>): Cli {
     var shellOnly: String? = null                // the first flag only the shell reads
     var transport: String? = null
     var remote: String? = null
+    var client: Pair<String, Cli.Client>? = null // a device command, under its flag (build S1-1 P6)
     var i = 0
     // the argument after the flag at i when it is that flag's value: there, not blank, not a flag
     fun value(): String? = args.getOrNull(i + 1)?.takeIf { it.isNotBlank() && !it.startsWith("-") }?.also { i++ }
@@ -241,6 +261,23 @@ internal fun parseArgs(args: Array<String>): Cli {
             }
             "--remote" -> { remote = value() ?: return Cli.Refused("--remote needs a host"); null }
             "--sim", "--ble", "--no-preview" -> null
+            "--devices", "--approve", "--deny", "--revoke" -> {
+                val c = when (a) {
+                    "--devices" -> wm.damage.core.app.DeviceCli.Command.List
+                    "--approve" -> {
+                        val code = value() ?: return Cli.Refused("--approve needs a CODE and a LEVEL (view | control | full)")
+                        val level = value() ?: return Cli.Refused("--approve needs a LEVEL after the CODE (view | control | full)")
+                        if (!wm.damage.core.app.Levels.valid(level)) return Cli.Refused("--approve: '$level' is not view, control or full")
+                        wm.damage.core.app.DeviceCli.Command.Approve(code, level)
+                    }
+                    "--deny" -> wm.damage.core.app.DeviceCli.Command.Deny(value() ?: return Cli.Refused("--deny needs a CODE"))
+                    else -> wm.damage.core.app.DeviceCli.Command.Revoke(value() ?: return Cli.Refused("--revoke needs a device ID"))
+                }
+                client?.let { return Cli.Refused("${it.first} and $a: one device command at a time") }
+                client = a to Cli.Client(c)
+                i++
+                continue
+            }
             // CLI_FLAGS names a flag this function has no branch for
             else -> return Cli.Refused("unknown argument '$a'")
         }
@@ -249,6 +286,12 @@ internal fun parseArgs(args: Array<String>): Cli {
             entry = a to run
         } else if (a != "--no-preview" && shellOnly == null) shellOnly = a
         i++
+    }
+    client?.let { (flag, c) ->
+        entry?.let { return Cli.Refused("${it.first} and $flag: one entry point at a time") }
+        shellOnly?.let { return Cli.Refused("$it does not apply to $flag") }
+        if (headless) return Cli.Refused("--no-preview does not apply to $flag")
+        return c
     }
     entry?.let { (flag, run) ->
         shellOnly?.let { return Cli.Refused("$it does not apply to $flag") }
@@ -282,10 +325,12 @@ internal fun unknownStackMode(mode: String): String =
  * not called for the first two, so when they return nothing was read, bound or drawn.
  */
 internal fun runCli(args: Array<String>, out: java.io.PrintStream, err: java.io.PrintStream,
-                    start: (Cli.Run) -> Unit): Int =
+                    client: ((Cli.Client) -> Int)? = null, start: (Cli.Run) -> Unit): Int =
     when (val cli = parseArgs(args)) {
         Cli.Usage -> { out.println(USAGE); 0 }
         is Cli.Refused -> { err.println("desktop: ${cli.what}"); err.println(USAGE); CLI_REFUSED }
+        // build S1-1 P6: a device command's own exit status; with no [client] (a test) nothing is called
+        is Cli.Client -> client?.invoke(cli) ?: run { err.println("desktop: device commands are not run from here"); CLI_REFUSED }
         is Cli.Run -> { start(cli); 0 }
     }
 
@@ -382,6 +427,12 @@ data class Config(
     /** Dec. B.4: true turns the listeners' reach gate OFF (every listener answers on every interface) — the
      *  way back if the gate misjudges the network; said at start. */
     val reachOpen: Boolean = false,
+    /** Build S1-1 P6 (dec. B.3; `CONTRACT.md` §10): the web interface listener's port; 0 = off, said at start. On
+     *  by default, behind the reach gate, and with no approved device it serves only the page bundle and the pairing
+     *  socket. `webHosts`: the names a page may be opened under beyond `localhost`, this machine's own name and the
+     *  address a request arrives on (his tailnet name lives in this file, never in the tree). */
+    val webPort: Int = wm.damage.core.web.WebServer.DEFAULT_PORT,
+    val webHosts: List<String> = listOf(),
 ) {
     /** The PC-side feed engine (FEED.md §3.6): the configured sources on
      *  their pacer, articles extracted ahead, strips through AWT. */
@@ -590,10 +641,22 @@ internal fun epubCheckStatus(dir: Path, say: (String) -> Unit): Int {
     var imgTotal = 0
     var imgDecoded = 0
     val dec = AwtImages()
+    // build S1-1, P5: each book's document (the web's) is checked against today's text, and what it drops is counted
+    val docCounts = wm.damage.core.windows.reader.EpubDoc.Counts()
+    var docBlocks = 0
+    val docKinds = sortedMapOf<String, Int>()
     for (b in lib) {
         try {
             val t0 = System.currentTimeMillis()
             val book = wm.damage.core.windows.reader.Epub.load(Path.of(b.file))
+            val doc = wm.damage.core.windows.reader.EpubDoc.load(Path.of(b.file))
+            doc.checkText(book.text)?.let { why ->
+                bad++
+                say("  FAIL ${b.file}: the document is not today's text — $why")
+            }
+            docCounts.add(doc.counts)
+            docBlocks += doc.blocks.size
+            for (k in doc.blocks) docKinds.merge(k.kind.wire, 1, Int::plus)
             // decode every referenced image with the real decoder (2026-08-31):
             // an undecodable one shows as a placeholder, not a failure — but say so
             var ok = 0
@@ -613,6 +676,7 @@ internal fun epubCheckStatus(dir: Path, say: (String) -> Unit): Int {
         }
     }
     if (imgTotal > 0) say("images across the shelf: $imgDecoded/$imgTotal decode")
+    say("documents across the shelf: $docBlocks blocks (${docKinds.entries.joinToString(", ") { "${it.value} ${it.key}" }}) · ${docCounts.line()}")
     return if (bad > 0) 1 else 0
 }
 
@@ -625,6 +689,63 @@ private fun startSetup(cfg: Config, scope: CoroutineScope, reach: wm.damage.core
 } catch (e: Exception) {
     Log.e("damage", "setup page failed to start on :${cfg.setupPort} (G2CC's server still up?)", e)
     null
+}
+
+/**
+ * Build S1-1 P6 (dec. B.3): the web interface listener on `webPort` behind the process's reach gate, serving the
+ * page bundle, the pairing socket, the `app` lane under the device secret and Reader's blobs; `webPort` 0 = off, said.
+ * Both host builders call it; no tool flag does.
+ *
+ * Build S1-1 P7: the lane also serves the PC's own scopes the web client reads beside the record (`PcScopes`: Main's
+ * cards, Reader's description and levels, one spine part, the diagnosis), sharing one `ReaderDocs` with the blobs, and
+ * the listener serves the glasses' faces (`/font/`, resolved by fontconfig as the desktop's text does, once each).
+ */
+private fun startWeb(cfg: Config, scope: CoroutineScope, reach: wm.damage.core.net.ReachGate, web: wm.damage.core.web.WebAccess,
+                     app: wm.damage.core.app.AppNet, appHost: wm.damage.core.app.AppHost,
+                     readerCore: wm.damage.core.windows.reader.ReaderCore,
+                     presence: wm.damage.core.bastion.PhonePresence): wm.damage.core.web.WebServer? {
+    if (cfg.webPort == 0) {
+        Log.i("web", "web interface off: webPort is 0 in ${Config.path()}")
+        return null
+    }
+    // this machine's own name, read once (a failed read leaves the configured names and the arriving address)
+    val own = try { java.net.InetAddress.getLocalHost().hostName } catch (e: Exception) {
+        Log.w("web", "this machine's name could not be read (${e::class.simpleName}); webHosts and the arriving address still serve")
+        null
+    }
+    val docs = wm.damage.core.windows.reader.ReaderDocs(readerCore::pathOf)
+    val blobs = wm.damage.core.web.ReaderBlobs(readerCore, docs)
+    val stamp = "desktop " + (DesktopStack::class.java.getResource("/damage-build.txt")?.readText()?.trim() ?: "unstamped")
+    app.attach(wm.damage.core.app.PcScopes(appHost, readerCore, docs,
+        names = { web.devices.rows().filter { !it.revoked }.associate { it.id to it.name } },
+        diag = { kotlinx.serialization.json.buildJsonObject {
+            put("build", kotlinx.serialization.json.JsonPrimitive(stamp))
+            put("connections", kotlinx.serialization.json.JsonArray(app.connectionLines().map { kotlinx.serialization.json.JsonPrimitive(it) }))
+        } }))
+    return try {
+        web.server(cfg.webPort, reach, cfg.webHosts + listOfNotNull(own, own?.substringBefore('.')), app, blobs, presence::tailnetName,
+            webFonts())
+            .also { s -> bindOrRetry(scope, "web interface", cfg.webPort) { s.start() } }
+    } catch (e: Exception) {
+        Log.e("damage", "web interface failed to start on :${cfg.webPort}", e)
+        null
+    }
+}
+
+/** Build S1-1 P7: the glasses' faces for the web's glass theme, each resolved by fontconfig once (as `AwtText` resolves
+ *  them); a face that is not installed is said once and answered 404. */
+private fun webFonts(): wm.damage.core.web.FontSource {
+    val found = java.util.concurrent.ConcurrentHashMap<String, java.util.Optional<Path>>()
+    return wm.damage.core.web.FontSource { name ->
+        found.computeIfAbsent(name) {
+            val face = wm.damage.core.text.Face.entries.firstOrNull { f -> name.startsWith(f.name.lowercase() + "-") }
+            val file = face?.let { f -> try { fcMatchFile(f.family, name.endsWith("-bold")) } catch (e: Exception) {
+                Log.w("web", "fc-match for ${f.family} failed (${e::class.simpleName}: ${e.message})"); null
+            } }
+            if (file == null) Log.w("web", "the face $name is not installed on this PC; the glass theme falls back to the page's own")
+            java.util.Optional.ofNullable(file?.let { Path.of(it) })
+        }.orElse(null)
+    }
 }
 
 /** §72 (2026-11-08): start a server, or, when its port is taken (another instance still holding
@@ -722,6 +843,23 @@ private suspend fun hostOnly(cfg: Config) {
     val watcher = cfg.bastionWatcher(alerts, scope, presence)
     // package F (W-decisions G.3): the phone's reports reach damage.phone and its path signal goes back to the phone
     val bastion = wm.damage.core.bastion.BastionService(alerts, watcher::stateLine, scope, presence)
+    // build S1-1 (P2, dec. D.3): the PC's record, opened at this process start as in runShell, and the `app` lane on
+    // the content port; host-only has no journal writer, so the record's notes go to the log alone
+    val appHost = wm.damage.core.app.AppHost.atProcessStart(Path.of(cfg.dataDir), scope,
+        wm.damage.core.app.RecordAlerts.of(alerts), null)
+    // build S1-1 (P6): the local secret (written when missing) and the device table, at this process start as in
+    // runShell; the `app` lane, shared by the content host and the web listener, serves the device table at full
+    val web = wm.damage.core.web.WebAccess.atProcessStart(Path.of(cfg.dataDir)) { line -> Log.i("web", line) }
+    val appNet = wm.damage.core.app.AppNet(appHost, devices = web.core)
+    // build S1-1 (P4, the spec's §4): Reader's records from before its conversion become record items once (the
+    // ledger beside them says what was offered), and Reader's core sits on the record for every presenter (P6 serves it)
+    wm.damage.core.windows.reader.ReaderMigration.onHost(appHost, store) { }
+    // build S1-1 (P5): with the PC's reader index (`reader-index.json`, a cache: not in the nightly copy), walked one
+    // book at a time after each shelf scan; the first scan is here, so the index is current before a web page asks
+    val readerCore = wm.damage.core.windows.reader.ReaderCore(LocalContent(Path.of(cfg.booksDir)), scope,
+        wm.damage.core.windows.reader.ReaderIndex(Path.of(cfg.dataDir).resolve("reader-index.json"), scope))
+    readerCore.refreshLibrary()
+    Log.i("damage", "Reader's core on the PC record (${readerCore.window}); no presenter in host-only")
     val host = ContentHostServer(LocalContent(Path.of(cfg.booksDir)), cfg.contentPort, cfg.token,
         tmux = tmux, sync = wm.damage.core.sync.SyncPeer(store),
         win = mapOf("files" to wm.damage.core.windows.files.FilesService(filesProvider),
@@ -729,13 +867,14 @@ private suspend fun hostOnly(cfg: Config) {
             "feed" to wm.damage.core.windows.feed.FeedService(feed),
             "bastion" to bastion) +
             (music?.let { mapOf("music" to wm.damage.core.windows.music.MusicService(it)) } ?: emptyMap()),
-        icons = themeIcons, reach = reach)
+        icons = themeIcons, reach = reach, app = appNet, localSecret = web::localSecret)
     bindOrRetry(scope, "content host", cfg.contentPort) { host.start() }   // §72, as in the standby host
     startSetup(cfg, scope, reach)
+    startWeb(cfg, scope, reach, web, appNet, appHost, readerCore, presence)
     watcher.start()
     presence.start()
     cfg.nightlyCopy(alerts, scope)?.start()
-    Log.i("damage", "content host only — serving ${cfg.booksDir} + tmux + sync + files + torrents + music + feed + bastion + icons on :${cfg.contentPort}; Ctrl-C to stop")
+    Log.i("damage", "content host only — serving ${cfg.booksDir} + tmux + sync + files + torrents + music + feed + bastion + icons + app on :${cfg.contentPort}; Ctrl-C to stop")
     kotlinx.coroutines.awaitCancellation()
 }
 
@@ -773,6 +912,9 @@ class DesktopStack(
     /** The process-wide feed engine (FEED.md §3.6) — the local window reads
      *  it directly; the phone reads it over the window channel. Null in tools. */
     private val feed: wm.damage.core.windows.feed.FeedProvider? = null,
+    /** Build S1-1 P4: Reader's process-wide core and the source on the PC record its presenter reads (device
+     *  `local`); null in tools, which build Reader the way it was built before (`ReaderWindow`, a record in memory). */
+    private val reader: Pair<wm.damage.core.windows.reader.ReaderCore, wm.damage.core.app.WindowSource>? = null,
 ) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private fun ble(): Transport = BlueZTransport(BlueZDbus(), scope,
@@ -792,6 +934,8 @@ class DesktopStack(
     }
     val shell: Shell
     val keeper: ShellKeeper
+    /** The core and source outlive the stack: its presenter leaves their listeners at the stop. */
+    private val readerGlasses: wm.damage.core.windows.reader.ReaderGlasses
 
     init {
         val dataDir = Path.of(cfg.dataDir)
@@ -800,8 +944,10 @@ class DesktopStack(
         shell.loopClock = JvmLoopClock          // build W, package G (E4): the `slow` note's clocks (host-only runs no shell)
         shell.buildTag = "desktop " + (DesktopStack::class.java.getResource("/damage-build.txt")?.readText()?.trim() ?: "unstamped")
         shell.iconSource = themeIcons
-        val content = LocalContent(Path.of(cfg.booksDir))
-        shell.register(ReaderWindow(text, content, scope, AwtImages()))
+        readerGlasses = reader?.let { (core, source) ->
+            wm.damage.core.windows.reader.ReaderGlasses(text, core, source, scope, AwtImages())
+        } ?: ReaderWindow(text, LocalContent(Path.of(cfg.booksDir)), scope, AwtImages())
+        shell.register(readerGlasses)
         tmux?.let { tmuxWindow = wm.damage.core.windows.tmux.TmuxWindow(text, it, scope).also(shell::register) }
         files?.let {
             shell.register(wm.damage.core.windows.files.FilesWindow(text, it, scope, AwtImages(),
@@ -826,6 +972,7 @@ class DesktopStack(
 
     private var tmuxWindow: wm.damage.core.windows.tmux.TmuxWindow? = null
 
+
     private var torrentsWindow: wm.damage.core.windows.torrents.TorrentsWindow? = null
 
     private var musicWindow: wm.damage.core.windows.music.MusicWindow? = null
@@ -842,6 +989,7 @@ class DesktopStack(
                 // the providers outlive this stack: detach even when the stop
                 // threw, or the leak returns on the failure path (R2-W12)
                 tmuxWindow?.detach()
+                readerGlasses.detach()     // S1-1 P4: the process-wide core and source outlive this stack
                 torrentsWindow?.detach()   // a leaked listener fed a dead shell's queue every poll (P1)
                 musicWindow?.detach()
                 feedWindow?.detach()
@@ -973,6 +1121,29 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
     val bastionWatcher = cfg.bastionWatcher(alertStore, tmuxScope, phonePresence)
     // package F (W-decisions G.3): the phone's reports reach damage.phone and its path signal goes back to the phone
     val bastionService = wm.damage.core.bastion.BastionService(alertStore, bastionWatcher::stateLine, tmuxScope, phonePresence)
+    // build S1-1 (P2, dec. D.3): the PC's record (`record.json`, `oplog.jsonl`, the sequence file in the data
+    // directory), opened here at the process start and never from a tool, and the `app` lane that serves it on the
+    // content port; its failures raise built-in alerts under the alert store's reserved `record.` prefix
+    val appHost = wm.damage.core.app.AppHost.atProcessStart(dataDir, tmuxScope,
+        wm.damage.core.app.RecordAlerts.of(alertStore), journalFile)
+    // build S1-1 (P6): the local secret (written when missing; it lets the command line act as device `local` on
+    // loopback) and the device table, at this process start and never from a tool; each line a `web` journal note.
+    // The `app` lane is shared by the content host and the web listener and serves the device table at full
+    val web = wm.damage.core.web.WebAccess.atProcessStart(dataDir) { line ->
+        Log.i("web", line)
+        Journal.appendNote(journalFile, "web", line)
+    }
+    val appNet = wm.damage.core.app.AppNet(appHost, devices = web.core)
+    // build S1-1 (P4, the spec's §4): Reader's records from before its conversion become record items once (the
+    // ledger beside them says what was offered; a `migrate` note says what happened), before any presenter reads the
+    // record; then Reader's core on the record, and the source every stack's glasses presenter reads (device `local`)
+    wm.damage.core.windows.reader.ReaderMigration.onHost(appHost, store) { line -> Journal.appendNote(journalFile, "migrate", line) }
+    // build S1-1 (P5): with the PC's reader index, as in host-only (its first scan here, the index walked after it)
+    val readerCore = wm.damage.core.windows.reader.ReaderCore(LocalContent(Path.of(cfg.booksDir)), tmuxScope,
+        wm.damage.core.windows.reader.ReaderIndex(dataDir.resolve("reader-index.json"), tmuxScope))
+    readerCore.refreshLibrary()
+    val readerSource = wm.damage.core.app.LocalWindowSource(readerCore,
+        wm.damage.core.app.HostBackend(appHost, wm.damage.core.app.Peer.LOCAL.device, wm.damage.core.app.OpQueue.newStream()))
 
     val host = ContentHostServer(LocalContent(Path.of(cfg.booksDir)), cfg.contentPort, cfg.token,
         tmux = tmuxProvider, sync = syncPeer,
@@ -981,7 +1152,7 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
             "feed" to wm.damage.core.windows.feed.FeedService(feedEngine),
             "bastion" to bastionService) +
             (musicLibrary?.let { mapOf("music" to wm.damage.core.windows.music.MusicService(it)) } ?: emptyMap()),
-        icons = themeIcons, reach = reach)
+        icons = themeIcons, reach = reach, app = appNet, localSecret = web::localSecret)
     // §72: a busy port is retried on pacing until it frees (the stuck 10-20 JVM held all four
     // on 2026-11-07, and the instance started beside it served nothing while "started")
     val hostBound = java.util.concurrent.atomic.AtomicBoolean(false)
@@ -992,6 +1163,7 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
         Log.e("damage", "content host failed to start on :${cfg.contentPort}", e)
     }
     startSetup(cfg, this, reach)
+    startWeb(cfg, this, reach, web, appNet, appHost, readerCore, phonePresence)
     bastionWatcher.start()
     phonePresence.start()
     cfg.nightlyCopy(alertStore, tmuxScope)?.start()
@@ -1045,7 +1217,8 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
     }
     build = { m -> DesktopStack(cfg, m, remoteHost, text, onStatus = { keeperStatus.set(it) },
         onSwitch = { switchTo(it) }, tmux = tmuxProvider, sharedStore = store,
-        files = filesProvider, themeIcons = themeIcons, torrents = torrentsProvider, music = musicLibrary, feed = feedEngine) }
+        files = filesProvider, themeIcons = themeIcons, torrents = torrentsProvider, music = musicLibrary, feed = feedEngine,
+        reader = readerCore to readerSource) }
 
     if (mode != "auto") {
         val first = build(mode)

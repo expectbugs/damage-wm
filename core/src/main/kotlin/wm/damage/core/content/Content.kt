@@ -104,6 +104,9 @@ private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 @Serializable private data class Probe(val t: String = "")
 
 @Serializable private data class Hello(val t: String = "hello", val token: String, val proto: Int = 1)
+/** The hello as the host reads it (build S1-1, P2): the shared token, or on a loopback arrival the local secret in
+ *  `local` (C§10.6). The clients' own [Hello] is unchanged, so nothing new is sent to an old host. */
+@Serializable private data class HostHello(val t: String = "hello", val token: String = "", val proto: Int = 1, val local: String = "")
 @Serializable private data class LibraryMsg(val t: String = "library", val books: List<BookMeta>)
 @Serializable private data class GetMsg(val t: String = "get", val id: String)
 @Serializable private data class BlobMsg(val t: String = "blob", val id: String, val len: Long)
@@ -142,6 +145,13 @@ private fun DataInputStream.readJson(maxLen: Int = 4 shl 20): String {
     return b.toString(Charsets.UTF_8)
 }
 
+/** Constant-time comparison of two secrets' bytes (C§10.2): no early exit on the first byte that differs. */
+private fun sameSecret(a: String, b: String): Boolean = wm.damage.core.util.Secrets.same(a, b)
+
+/** Both ends of [sock] are loopback addresses. */
+private fun arrivedOnLoopback(sock: Socket): Boolean =
+    sock.localAddress?.isLoopbackAddress == true && sock.inetAddress?.isLoopbackAddress == true
+
 /** Serves the library over TCP. One thread per connection; token required.
  *  When a [tmux] provider is present, a connection that sends `{"t":"tmux"}`
  *  after the hello becomes a persistent tmux channel (TmuxNet.serve) — same
@@ -161,6 +171,16 @@ class ContentHostServer(
     private val icons: IconResolver? = null,
     /** Build W (dec. B.4): which arrivals are answered at all; the strict default refuses the bus network. */
     private val reach: wm.damage.core.net.ReachGate = wm.damage.core.net.ReachGate(wm.damage.core.net.Side.PHONE),
+    /** Build S1-1, P2 (C§9.1): the `app` lane — a connection that sends `{"t":"app",…}` after the hello becomes a
+     *  client of the PC's record. Null: refused in band, as an old host refuses it. */
+    private val app: wm.damage.core.app.AppNet? = null,
+    /** C§10.6: the local secret, read once per hello (a file deleted under a running client refuses its next
+     *  hello); null = none, and no hello is taken as the device `local`. */
+    private val localSecret: () -> String? = { null },
+    /** Whether a connection arrived on loopback, where alone the local secret is taken; tests model another arrival. */
+    private val onLoopback: (Socket) -> Boolean = ::arrivedOnLoopback,
+    /** The address to bind; null = every address, as today (the reach gate judges each arrival). Tests bind loopback. */
+    private val bindAddress: java.net.InetAddress? = null,
 ) : AutoCloseable {
     @Volatile private var server: ServerSocket? = null
     @Volatile private var running = false
@@ -168,7 +188,7 @@ class ContentHostServer(
 
     fun start() {
         running = true
-        val s = ServerSocket(port)
+        val s = ServerSocket(port, 50, bindAddress)
         server = s
         Thread({
             Log.i("content-host", "serving library on :$port")
@@ -187,6 +207,9 @@ class ContentHostServer(
         }, "content-host").apply { isDaemon = true }.start()
     }
 
+    /** The bound port (a test binds port 0), or the configured one before [start]. */
+    val boundPort: Int get() = server?.localPort ?: port
+
     private fun closeRefused(sock: Socket) {
         try { sock.close() } catch (e: Exception) { Log.w("content-host", "closing a refused connection: ${e.message}") }
     }
@@ -196,10 +219,20 @@ class ContentHostServer(
             sock.use {
                 val inp = DataInputStream(it.getInputStream().buffered())
                 val out = DataOutputStream(it.getOutputStream().buffered())
-                val hello = json.decodeFromString(Hello.serializer(), inp.readJson())
-                if (hello.token != token) {
+                val hello = json.decodeFromString(HostHello.serializer(), inp.readJson())
+                // the shared token as today (its holder is his phone, C§10.9), then on a loopback arrival only the
+                // local secret as the device `local` (C§10.6); both compared in constant time
+                val local = if (hello.local.isEmpty()) null else localSecret()
+                val peer = when {
+                    sameSecret(hello.token, token) -> wm.damage.core.app.Peer.PHONE
+                    local != null && local.isNotEmpty() && onLoopback(sock) && sameSecret(hello.local, local) ->
+                        wm.damage.core.app.Peer.LOCAL
+                    else -> null
+                }
+                if (peer == null) {
                     out.sendJson(json.encodeToString(ErrMsg.serializer(), ErrMsg(detail = "bad token")))
-                    Log.w("content-host", "rejected ${sock.inetAddress}: bad token")
+                    Log.w("content-host", "rejected ${sock.inetAddress}: bad token" +
+                        if (hello.local.isNotEmpty()) " (a local secret, ${if (onLoopback(sock)) "not this PC's" else "off loopback"})" else "")
                     return
                 }
                 if (hello.proto != 1) {
@@ -234,6 +267,18 @@ class ContentHostServer(
                             // the connection belongs to the sync channel now;
                             // serve() blocks until the peer leaves (§19.2)
                             wm.damage.core.sync.SyncNet.serve(sock, inp, out, sp, line)
+                            return
+                        }
+                        "app" -> {
+                            // build S1-1 (P2): the connection becomes a client of the PC's record; this frame is
+                            // the lane's own hello (`proto: 2`, dec. A.4)
+                            val lane = app
+                            if (lane == null) {
+                                out.sendJson(json.encodeToString(ErrMsg.serializer(),
+                                    ErrMsg(detail = "this host serves no app lane")))
+                                continue
+                            }
+                            lane.serve(sock, inp, out, line, peer)
                             return
                         }
                         "win" -> {

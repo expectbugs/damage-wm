@@ -805,7 +805,7 @@ class RemoteTransportServer(
             if (hello.t == "status") {
                 // a probe, not a claim: answer and leave — the driver slot,
                 // onRemoteDriver and the local shell are never touched (§19.2)
-                if (hello.token != token) {
+                if (!wm.damage.core.util.Secrets.same(hello.token, token)) {   // C§10.2: constant time (S1-1 P6)
                     out.send(Ctl(t = "busy", detail = "bad token"))
                     return
                 }
@@ -814,7 +814,7 @@ class RemoteTransportServer(
                 out.send(Ctl(t = "status", ok = st.wantsRadio, connected = st.driving, detail = st.line))
                 return
             }
-            if (hello.t != "hello" || hello.token != token) {
+            if (hello.t != "hello" || !wm.damage.core.util.Secrets.same(hello.token, token)) {
                 out.send(Ctl(t = "busy", detail = "bad token"))
                 return
             }

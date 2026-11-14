@@ -223,11 +223,11 @@ class AlertStore(private val file: Path, private val clock: () -> Long = { Syste
         out
     }
 
-    /** At load: an alert that is up but whose rule is gone (and is not one of the watcher's own) is cleared, and a
-     *  gone rule's baseline is dropped. */
+    /** At load: an alert that is up but whose rule is gone (and is not Damage's own — the watcher's, the record's:
+     *  [AlertRule.reserved], dec. D.2) is cleared, and a gone rule's baseline is dropped. */
     fun retire(liveIds: Set<String>): List<AlertEvent> = synchronized(lock) {
         val gone = alerts.filter { (id, e) ->
-            e.state != AlertState.CLEAR && !id.startsWith(AlertRule.BUILT_IN_PREFIX) && id !in liveIds
+            e.state != AlertState.CLEAR && !AlertRule.reserved(id) && id !in liveIds
         }.keys.toList()
         val out = gone.mapNotNull { clearLocked(it) }
         var dropped = false

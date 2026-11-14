@@ -7,15 +7,17 @@ phone's Tailscale address (`tailscale status | grep aphone`).**
 
 **As built.** `REPLAN.md` §14 (2026-11-12) rules the PC the owner of every window's state, with the phone keeping a
 working copy, and PC-direct BLE a manual choice, never automatic. The second is in the code since the alert watcher, W
-(APK 0.66 and its PC deploy, `HANDOFF.md` §79): the service never drives by itself. The first arrives at step S1; until
-then the two-way sync below is what runs.
+(APK 0.66 and its PC deploy, `HANDOFF.md` §79): the service never drives by itself. The first begins with S1-1 (APK
+0.67, `HANDOFF.md` §80; built, not yet deployed as this is written): Reader runs on a record on the PC with the
+phone's working copy, and a browser page reads it (the section below); every other window syncs as below.
 
 ## The moving parts
 
 | piece | job | kept alive by |
 |---|---|---|
 | **phone APK** (Target = glasses) | THE driver — owns the BLE radio and runs the shell; serves the seam :7402 (status probe + explicit dev claims) and the replica :7403 | foreground service + wakelock + Doze exemption + `BootReceiver` (reboot/update) |
-| **beardos `damage` service** | data host: books, tmux, state sync, the window channel :7401 (Files · Torrents · Music · Feed · `bastion`, theme icons), the media endpoint :7404, the PC replica :7403, the setup page :7300 (`/setup` + `/damage-apk`, G2CC's URL and token kept); since 0.66's deploy also the bus alert watcher (the hub read every 10 s when `haUrl` is set), `damage.phone` once a minute, the nightly copy at `backupAt` into `backupDir`, and the reach gate on every listener; probes the phone's seam every 5 s for its status line and never drives on its own — PC-direct BLE only by hand (`drive=ble` / `drive=auto`, below); a busy port is retried every 5 s; the JVM exits on its first OutOfMemoryError and supervise-daemon restarts it (`-Xmx2g`), and a stop that hangs is ended with SIGKILL after 30 s (`retry`, §72) | OpenRC `/etc/init.d/damage` (supervise-daemon, `default` runlevel, `--no-preview`, `auto` = standby; after `postgresql-17` / `qdrant` / `qbittorrent`, `~/.local/bin` on PATH for the Ask lane's `claude`, `--enable-native-access` for the Postgres socket driver — 2026-09-10) |
+| **beardos `damage` service** | data host: books, tmux, state sync, the window channel :7401 (Files · Torrents · Music · Feed · `bastion`, theme icons), the media endpoint :7404, the PC replica :7403, the setup page :7300 (`/setup` + `/damage-apk`, G2CC's URL and token kept); since 0.66's deploy also the bus alert watcher (the hub read every 10 s when `haUrl` is set), `damage.phone` once a minute, the nightly copy at `backupAt` into `backupDir`, and the reach gate on every listener; from 0.67's deploy also Reader's record (`record.json` + `oplog.jsonl`) and the
+web listener :7405; probes the phone's seam every 5 s for its status line and never drives on its own — PC-direct BLE only by hand (`drive=ble` / `drive=auto`, below); a busy port is retried every 5 s; the JVM exits on its first OutOfMemoryError and supervise-daemon restarts it (`-Xmx2g`), and a stop that hangs is ended with SIGKILL after 30 s (`retry`, §72) | OpenRC `/etc/init.d/damage` (supervise-daemon, `default` runlevel, `--no-preview`, `auto` = standby; after `postgresql-17` / `qdrant` / `qbittorrent`, `~/.local/bin` on PATH for the Ask lane's `claude`, `--enable-native-access` for the Postgres socket driver — 2026-09-10) |
 | **beardos `qbittorrent` service** | the Torrents backend: `qbittorrent-nox` on Adam's own profile (`~/.config/qBittorrent`), Web API `127.0.0.1:8090` | OpenRC `qbittorrent` (Gentoo's script + `/etc/conf.d/qbittorrent`, `default` runlevel, 2026-09-10) |
 
 **Who drives when** (automatic, event-driven, pacing not timeouts): APK up → the phone shell drives — home,
@@ -26,9 +28,10 @@ alerts say "home unreachable" after the phone's set minutes. APK unreachable →
 the glasses by itself**: the status line says "phone unreachable … PC-direct BLE is manual (drive=ble)". (Before it,
 `b833713`'s standby claimed after six probes with both arms seen; beardos's hci0 being rfkill-blocked held it.) The
 phone's shelf answers from its cache at once while
-the PC is out of reach. Reboot either machine → both restart themselves. **State sync:** reading
-positions, settings and every window blob flow between phone and PC whenever both are up — most recent wins,
-per key.
+the PC is out of reach. Reboot either machine → both restart themselves. **State sync:** settings and every
+window blob flow between phone and PC whenever both are up — most recent wins, per key; from 0.67 Reader's places,
+bookmarks and rows are not synced but sent to the PC's record as ops (queued on the phone while the PC is out of
+reach).
 
 ## One-time setup (for a re-pair or a fresh phone; done 2026-08-31)
 
@@ -263,7 +266,8 @@ without writing a row.
   session and block it again after; then `python3 tools/glassdrive.py localhost TOKEN probe:drive=ble` against the PC
   replica (:7403); back with `probe:drive=auto`. Each use is a `keeper` note and a log line.
 - **The nightly copy:** into `backupDir` as `damage-YYYYMMDD-HHMMSS/` (state files only: `state.json`, `torrents.json`,
-  `alerts.json`, the rules file, the feed's sources and binge lists, the pending uncaught record); 14 kept; a failed
+  `alerts.json`, the rules file, the feed's sources and binge lists, the pending uncaught record; from 0.67
+  `record.json` and `devices.json`); 14 kept; a failed
   run raises a notice on the glasses and phone. A restore is a manual copy back with the service stopped.
 - **The phone (0.66):** channels "Bus alerts", "Bus alerts · urgent", "Home unreachable" (Android settings → Damage →
   notifications); the Acknowledge button on a bus alert; the app's "location" button (precise location, then "Allow
@@ -272,6 +276,36 @@ without writing a row.
 - **Journal notes (0.66):** PC `reach` (a refused connection, once per source per minute) and `presence` (each change
   of `damage.phone` and which signal decided); phone `place`, `heap3` (free memory at four points of a start), `cue`,
   `slow`; a line marked `late` was written a second or more after its event.
+
+## Reader's record and the web listener (APK 0.67, `HANDOFF.md` §80)
+
+- **The page:** `http://beardos:7405/` (or `/w/reader`) from the tailnet, the bus network or the PC itself. The first
+  visit from a browser shows a code; approve it from the PC: `java -jar ~/.damage/damage.jar --devices` (the waiting
+  codes with the address and tailnet name, the approved devices with their ids), then `… --approve CODE full` (or
+  `view`, `control`). Later browsers: approve from the devices page of an approved one (pick the row and a level). Also
+  `--deny CODE` (the page is told) and `--revoke ID` (its connections end, the page says it was removed). The commands
+  ask the RUNNING service over loopback with `local.secret` and start nothing; exit 0 done, 1 refused (the reason
+  printed), 3 the service not reachable or no usable local secret.
+- **Config keys:** `webPort` (7405; 0 = off, said at start) · `webHosts` (names a page may use beyond `localhost`, this
+  machine's own name and the arriving address — the tailnet's full `….ts.net` name goes here). `Host` and `Origin` are
+  checked on every request; a page opened under another name is refused 403.
+- **Files in `~/.damage`:** `record.json` (the PC record: Reader's places, bookmarks, the book read most recently, the
+  glasses rows), `oplog.jsonl` (one line per op; set aside whole as `oplog-YYYYMMDD-HHMMSS.jsonl` at a start once past
+  64 MiB or holding a bad line, never deleted), `record.seq` (the epoch and the last `seq`), `reader-index.json` (a
+  cache of each book's length, chapters and cover; deleting it costs one walk of the shelf at the next start),
+  `devices.json` (the approved browsers, written at the first approval), `local.secret` (mode 600; a file others could
+  read is refused; no command rotates it — stop the service, remove it, start, and a new one is written). The nightly
+  copy takes `record.json` and `devices.json` only. A `record.json` that does not read is kept as `.bad` (then `.bad.2`,
+  …).
+- **Reading the record's state:** the `record` line at each start in `damage.log` (`opened: epoch E (kept | new: why),
+  seq S, N line(s) replayed past C, …`) and its journal note; `migrate` lines (the first start of 0.67 on each host
+  writes one with its counts; Reader's keys no longer sync, an older peer's ignored with one log line per key per
+  connection); `web` lines (the local secret's state, the device count, the port); the diagnosis page (epoch, seq,
+  contracts, connections, the log's last 300 lines; level full); built-in alerts `record.log`, `record.save`,
+  `record.seq`, `record.replay` on the glasses and phone. The service owns `record.json`: read it, never edit it by hand.
+- **The phone (0.67):** `workcopy/copy.json` and `workcopy/queue.jsonl` in the app's data directory; `workcopy` and
+  `migrate` journal notes. Against an older PC, Main's Reader row says "PC and phone on different builds for Reader" and
+  the phone reads from its copy.
 
 ## What was verified vs what awaits glass
 

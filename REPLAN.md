@@ -477,6 +477,20 @@ which 11,917 product + test — **3.9 units per 1,000 product + test lines again
 estimate below was 65–110 units and 12–20 h). **S1-1 is next and is re-priced from W's rate at its sitting** (§16.4's
 re-fit); one build is one point, and S1-1's moved lines have no measured rate yet.
 
+**S1-1 built (2026-11-14; `HANDOFF.md` §80).** APK 0.67 on the local branch `wip/067`: the PC record behind its
+operation log, the `app` lane, the phone's working copy and queue, Reader converted with its migration, the web
+listener with access and the command line, the web client's shell and Reader pages; the glasses pixel-identical in both
+arrangements of the judge. Not merged, staged or deployed as written. Measured: runs 1–3 66.7 units for 21,408 inserted
+lines (27.1 · 22.9 · 16.7), about 3.1 units per 1,000 inserted lines; run 4: 21.1 — **87.8 units in all** for 23,464 inserted lines, 4.6 per 1,000
+product + test lines (W: 3.9). Moved lines: ≈160
+(`HttpWs` ≈106, Reader ≈40, `fcMatch` ≈10), not the ≈1,800 of §16.2's row (decision A.1 priced ≈420). **S1-2 with
+S1-3 is next** (deploy 2). **§16.2 re-fitted from W and S1-1 (two points; the lead's own turns are outside
+these figures):** the line counts of §16.2 held, its rate did not — 4–5 units and about 0.8 h per 1,000 product + test
+lines, against the 15–22 units it took from 0.64 and 0.65. At that rate: S1-2 26–52 units and 5–8 h; S1-3 22–44 and
+5–7 h; S1-4 20–41 and 4–7 h; S1-5 24–49 and 5–8 h; S1-1 itself measured 87.8 units and about 15 h against the row's
+205–520 and 39–92. The table below is kept as put to him; read its hours and units columns through this paragraph. The
+firmware rows (C1, C2) have no build at this rate yet and are not re-fitted.
+
 **The text below is the plan as put to him.** The order, the cuts and the recommendations are the
 lead's; §16.5 holds what only he can answer. Every size here is an estimate (inferred) unless it says measured, and
 nothing was measured on his devices. "Units" are the weighted usage units of §8 (per million tokens: cache reads 0.1,

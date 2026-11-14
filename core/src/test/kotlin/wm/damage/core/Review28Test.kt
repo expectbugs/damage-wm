@@ -481,7 +481,7 @@ class Review28SwitcherTest {
             val text = wm.damage.core.text.StyledText(ScalingText()) {
                 wm.damage.core.text.StyleTransform(scale = 1.2).apply(it)
             }
-            val a = GamesWindow(FakeText(), scope)
+            val a = GamesWindow(FakeText(), scope, worldSeed = 1L)   /* S1-1 fix round 2, ruling 1.9: a scripted scene pins its seed */
             val b = wm.damage.core.windows.reader.ReaderWindow(FakeText(), wm.damage.core.content.LocalContent(tmp), scope)
             val sw = wm.damage.core.shell.Switcher(text)
             sw.openWith(a, listOf(a, b))

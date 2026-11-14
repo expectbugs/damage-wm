@@ -34,7 +34,11 @@ import wm.damage.core.util.UncaughtRecord
  * (build W, R6 §6; the lead's decision A.2), so a lost disk or a bad write costs at most a day.
  *
  * **What is copied — these and nothing else** (dec. A.2): from the data directory `state.json`,
- * `state.json.bad`, `torrents.json`, `alerts.json` and `uncaught-pending.txt`; the rules file (at the
+ * `state.json.bad`, `torrents.json`, `alerts.json`, `uncaught-pending.txt`, the PC record `record.json` and the web
+ * interface's device table `devices.json` (build S1-1 P4 and P6, dec. D.1 and E.5: Reader's places live in the record
+ * from this build, and a restored table keeps his approvals; never `local.secret`; never the sequence file, so a
+ * restored record is seen as a restore, and never the operation log, which is replayed into the record and
+ * can be large); the rules file (at the
  * configured `haRulesFile`) as `bastion-rules.json`; the feed's `sources/` and `binge/` folders (the
  * feed directory resolved from `feedDataDir`, `FeedStore`) as `feed/sources/` and `feed/binge/`. A
  * source that does not exist is skipped and listed in the run's line. Journals, `phone-journal/`,
@@ -96,6 +100,8 @@ class NightlyCopy(
         Source(dataDir.resolve("torrents.json"), "torrents.json"),
         Source(dataDir.resolve("alerts.json"), "alerts.json"),
         Source(dataDir.resolve(UncaughtRecord.PENDING), UncaughtRecord.PENDING),
+        Source(dataDir.resolve(wm.damage.core.app.AppHost.RECORD_FILE), wm.damage.core.app.AppHost.RECORD_FILE),
+        Source(dataDir.resolve(wm.damage.core.web.Devices.FILE), wm.damage.core.web.Devices.FILE),
         Source(rulesPath, "bastion-rules.json"),
         Source(feedDir.resolve("sources"), "feed/sources"),
         Source(feedDir.resolve("binge"), "feed/binge"),

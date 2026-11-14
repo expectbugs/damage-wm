@@ -41,7 +41,23 @@ object Epub {
 
     fun isEpub(p: Path): Boolean = p.fileName.toString().lowercase().endsWith(".epub")
 
-    fun load(path: Path): Book {
+    fun load(path: Path): Book = extract(path, readImages = true, keepMarkup = false).book
+
+    /** One spine document that contributed text (build S1-1, P5): its resolved zip path, its markup with the image
+     *  tokens in place (the input of [htmlToText]; kept only when asked) and its span of [Book.text]. */
+    internal class Part(val path: String, val markup: String?, val offset: Int, val length: Int)
+
+    /** [Book] (its [Book.images] empty when no image bytes were read), its contributing spine documents in order, and
+     *  the cover's zip path: the OPF's cover entry when the archive holds it, else null (the caller falls back to the
+     *  first image). */
+    internal class Extract(val book: Book, val parts: List<Part>, val cover: String?)
+
+    /**
+     * Today's text pipeline, whole (build S1-1, P5 moved [load]'s body here unchanged): [readImages] false reads no
+     * image's bytes (the reader index and the document: the image tokens in the text are the same either way, since a
+     * token stands for every reference, read or not); [keepMarkup] keeps each part's markup for the document's walk.
+     */
+    internal fun extract(path: Path, readImages: Boolean, keepMarkup: Boolean): Extract {
         if (path.fileName.toString().lowercase().endsWith(".txt")) {
             // UTF-8 first; a large share of plain-text books are Latin-1 — a
             // strict decode threw "Input length = 1" at the whole file
@@ -54,7 +70,9 @@ object Epub {
                 Log.i("epub", "$path is not UTF-8 — decoding as ISO-8859-1")
                 String(bytes, Charsets.ISO_8859_1)
             }
-            return Book(path.fileName.toString().removeSuffix(".txt"), "", normalize(raw))
+            val text = normalize(raw)
+            return Extract(Book(path.fileName.toString().removeSuffix(".txt"), "", text),
+                listOf(Part("", null, 0, text.length)), null)
         }
         ZipFile(path.toFile()).use { zip ->
             fun read(name: String): String? {
@@ -96,7 +114,7 @@ object Epub {
             }
 
             val images = HashMap<String, ByteArray>()
-            val parts = ArrayList<Pair<String, String>>()      // resolved path -> text
+            val parts = ArrayList<Triple<String, String, String?>>()      // resolved path -> text, markup when kept
             var missing = 0
             for (idref in spine) {
                 val href = items[idref]
@@ -106,9 +124,10 @@ object Epub {
                 if (doc == null) { missing++; continue }
                 // image references become token paragraphs BEFORE the tag
                 // strip (2026-08-31); their bytes are read while the zip is open
-                val withImages = extractImages(doc, norm.substringBeforeLast('/', ""), ::readBytes, images, path)
+                val withImages = extractImages(doc, norm.substringBeforeLast('/', ""),
+                    if (readImages) ::readBytes else null, images, path)
                 val t = normalize(htmlToText(withImages))
-                if (t.isNotBlank()) parts.add(norm to t)
+                if (t.isNotBlank()) parts.add(Triple(norm, t, if (keepMarkup) withImages else null))
             }
             if (missing > 0) Log.w("epub", "$path: $missing of ${spine.size} spine documents " +
                 "could not be read — that text is MISSING from the book")
@@ -117,18 +136,36 @@ object Epub {
             val tocTitles = tocTitles(::read, opf, opfDir)
             val sb = StringBuilder()
             val chapters = ArrayList<Chapter>()
-            for ((docPath, t) in parts) {
+            val spans = ArrayList<Part>()
+            for ((docPath, t, markup) in parts) {
                 if (sb.isNotEmpty()) sb.append("\n\n")
                 chapters.add(Chapter(
                     tocTitles[docPath] ?: fallbackTitle(t, chapters.size + 1), sb.length))
+                spans.add(Part(docPath, markup, sb.length, t.length))
                 sb.append(t)
             }
             if (images.isNotEmpty()) {
                 val total = images.values.sumOf { it.size }
                 Log.i("epub", "$path: ${images.size} image(s), ${total / 1024} KB raw")
             }
-            return Book(title.trim(), author.trim(), sb.toString(), chapters, images)
+            val cover = coverPath(opf, opfDir, items)?.takeIf { zip.getEntry(it) != null || zip.getEntry(urlDecode(it)) != null }
+            return Extract(Book(title.trim(), author.trim(), sb.toString(), chapters, images), spans, cover)
         }
+    }
+
+    /** The OPF's cover entry as a resolved zip path: EPUB 3's manifest item with `properties="cover-image"`, else
+     *  EPUB 2's `<meta name="cover" content="<item id>">`; null when the OPF names none. */
+    private fun coverPath(opf: String, opfDir: String, items: Map<String, String>): String? {
+        for (m in Regex("""<(?:\w+:)?item\b[^>]*>""").findAll(opf)) {
+            val props = attr(m.value, "properties") ?: continue
+            if ("cover-image" in props.split(' ')) attr(m.value, "href")?.let { return resolvePath(opfDir, unescape(it).substringBefore('#')) }
+        }
+        for (m in Regex("""<(?:\w+:)?meta\b[^>]*>""").findAll(opf)) {
+            if (attr(m.value, "name") != "cover") continue
+            val href = attr(m.value, "content")?.let { items[it] } ?: continue
+            return resolvePath(opfDir, unescape(href).substringBefore('#'))
+        }
+        return null
     }
 
     /** Replace `<img src>` / SVG `<image (xlink:)href>` with [IMG_TOKEN]
@@ -138,7 +175,7 @@ object Epub {
     private fun extractImages(
         html: String,
         docDir: String,
-        readBytes: (String) -> ByteArray?,
+        readBytes: ((String) -> ByteArray?)?,
         sink: MutableMap<String, ByteArray>,
         bookPath: Path,
     ): String = Regex("""<(?:img|(?:\w+:)?image)\b[^>]*>""", RegexOption.IGNORE_CASE).replace(html) { m ->
@@ -151,7 +188,8 @@ object Epub {
             }
             else -> {
                 val p = resolvePath(docDir, unescape(src).substringBefore('#'))
-                if (p !in sink) {
+                // build S1-1, P5: no reader, no read (the index and the document hold no image bytes)
+                if (readBytes != null && p !in sink) {
                     val b = readBytes(urlDecode(p)) ?: readBytes(p)
                     when {
                         b == null -> Log.w("epub", "$bookPath: image '$p' is not in the archive")
@@ -248,12 +286,12 @@ object Epub {
             ?.let { unescape(it) }?.takeIf { it.isNotBlank() }
 
     /** An attribute value, either quote style. */
-    private fun attr(tag: String, name: String): String? =
+    internal fun attr(tag: String, name: String): String? =
         Regex("""\b$name\s*=\s*("([^"]*)"|'([^']*)')""").find(tag)
             ?.let { it.groupValues[2].ifEmpty { it.groupValues[3] } }
             ?.takeIf { it.isNotEmpty() }
 
-    private fun urlDecode(s: String): String = try {
+    internal fun urlDecode(s: String): String = try {
         java.net.URLDecoder.decode(s, "UTF-8")
     } catch (e: Exception) {
         s
@@ -278,16 +316,25 @@ object Epub {
      *  or line breaks, inline markup becomes its text, entities decoded. */
     fun htmlToText(html: String): String {
         var s = html
-        s = Regex("""<(script|style|head|title)\b[\s\S]*?</\1>""", RegexOption.IGNORE_CASE).replace(s, " ")
-        s = Regex("""<!--[\s\S]*?-->""").replace(s, " ")
+        s = DROPPED.replace(s, " ")
+        s = COMMENT.replace(s, " ")
         // block-level boundaries -> paragraph breaks
-        s = Regex("""</(p|div|h[1-6]|li|blockquote|tr|section|article)>""", RegexOption.IGNORE_CASE)
-            .replace(s, "\n\n")
-        s = Regex("""<br\s*/?>""", RegexOption.IGNORE_CASE).replace(s, "\n")
-        s = Regex("""<hr\s*/?>""", RegexOption.IGNORE_CASE).replace(s, "\n\n* * *\n\n")
-        s = Regex("""<[^>]+>""").replace(s, "")
+        s = BLOCK_END.replace(s, "\n\n")
+        s = BREAK.replace(s, "\n")
+        s = RULE.replace(s, "\n\n$RULE_TEXT\n\n")
+        s = TAG.replace(s, "")
         return unescape(s)
     }
+
+    // [htmlToText]'s patterns, shared with the document's markup walk (build S1-1, P5: `EpubDoc`) so that the walk
+    // writes the characters this pipeline writes; one place, so an edit here moves both
+    internal val DROPPED = Regex("""<(script|style|head|title)\b[\s\S]*?</\1>""", RegexOption.IGNORE_CASE)
+    internal val COMMENT = Regex("""<!--[\s\S]*?-->""")
+    internal val BLOCK_END = Regex("""</(p|div|h[1-6]|li|blockquote|tr|section|article)>""", RegexOption.IGNORE_CASE)
+    internal val BREAK = Regex("""<br\s*/?>""", RegexOption.IGNORE_CASE)
+    internal val RULE = Regex("""<hr\s*/?>""", RegexOption.IGNORE_CASE)
+    internal val TAG = Regex("""<[^>]+>""")
+    internal const val RULE_TEXT = "* * *"
 
     /** The XML five + the Latin-1 set + common typographic entities — matching
      *  the shell's Latin-1 glyph policy. Unknown names stay literal AND are
@@ -414,6 +461,15 @@ object Epub {
                 "U+2011, zero-width formatters) \u2014 see Epub.fold")
         }
         return out.toString()
+    }
+
+    /** One character as [fold] writes it (build S1-1, P5: the document's alignment folds its walk the same way):
+     *  null when [fold] drops it. */
+    internal fun foldChar(c: Char): Char? = when {
+        c in ZERO_WIDTH -> null
+        c == '\u2011' -> '-'
+        c.code in 0x80..0x9F -> CP1252[c.code] ?: '\uFFFD'
+        else -> c
     }
 
     private fun needsFold(c: Char): Boolean =

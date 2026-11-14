@@ -55,9 +55,10 @@ class NightlyCopyTest {
         }
 
         init {
-            for (n in listOf("state.json", "state.json.bad", "torrents.json", "uncaught-pending.txt",
-                    // never copied
-                    "journal.jsonl", "journal-20261101-000000.jsonl", "config.json", "tl-cookies.json", "instance.lock",
+            for (n in listOf("state.json", "state.json.bad", "torrents.json", "uncaught-pending.txt", "record.json", "devices.json",
+                    // never copied (build S1-1, dec. D.1: the PC record's sequence file and operation log stay out;
+                    // P6: the local secret too)
+                    "record.seq", "oplog.jsonl", "local.secret", "journal.jsonl", "journal-20261101-000000.jsonl", "config.json", "tl-cookies.json", "instance.lock",
                     "damage-wm.apk", "state.json.tmp", "damage.log")) write(data.resolve(n), "content of $n")
             for (n in listOf("phone-journal/journal.jsonl", "trash/manifest.json", "media-cache/a.ogg",
                     "tunes/b.mp3", "icons/i.png", "feed/sources/default.json")) write(data.resolve(n), "content of $n")
@@ -84,7 +85,7 @@ class NightlyCopyTest {
         assertTrue(c.copyNow("test"))
         val made = c.copies().single()
         assertEquals(setOf("state.json", "state.json.bad", "torrents.json", "alerts.json", "uncaught-pending.txt",
-            "bastion-rules.json", "feed/sources/s.json", "feed/binge/b.json"), filesIn(made),
+            "record.json", "devices.json", "bastion-rules.json", "feed/sources/s.json", "feed/binge/b.json"), filesIn(made),
             "the copy holds the allowlist only: no journal, phone-journal, trash, config, cache, icon, cookie, lock or APK")
         assertEquals("{\"rules\":[]}", Files.readString(made.resolve("bastion-rules.json")), "the configured rules file")
         assertEquals("content of sources/s.json", Files.readString(made.resolve("feed/sources/s.json")),

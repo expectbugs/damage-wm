@@ -187,6 +187,7 @@ object SyncNet {
         // can be taken for it; every later frame's is taken at its length prefix (readWire)
         val helloAt = now()
         var skew = 0L      // clientClock - ourNow at the last handshake
+        val saidIgnored = HashSet<String>()
         fun normalize(t: Long) = shifted(t, skew)
 
         fun handshake(w: SWire, at: Long) {
@@ -244,7 +245,12 @@ object SyncNet {
                 when (w.t) {
                     "sync" -> handshake(w, got.at)  // the client's periodic re-handshake
                     "syncrec" -> for (r in w.records) {
-                        if (!Persistence.syncable(r.k)) { Log.w("sync-host", "unsyncable key '${r.k}' ignored"); continue }
+                        // S1-1 P4: an older phone still pushes Reader's keys (`window.reader*`), which no longer sync;
+                        // said once per key per connection, never once per record
+                        if (!Persistence.syncable(r.k)) {
+                            if (saidIgnored.add(r.k)) Log.w("sync-host", "unsyncable key '${r.k}' ignored (said once per connection)")
+                            continue
+                        }
                         peer.applier(r.k, r.v, normalize(r.t))
                     }
                     else -> Log.w("sync-host", "unknown sync control '${w.t}' ignored")
@@ -335,6 +341,22 @@ class RemoteSync(
     /** A peer's stamp on this side's clock (a 0 stays 0). */
     private fun local(t: Long) = shifted(t, skew)
 
+    /** The keys an older host sent that no longer sync, each said once per connection. */
+    private val saidIgnored = HashSet<String>()
+
+    /**
+     * One record from the host, applied only when its key syncs (S1-1 P4, the spec's §4 "Old PC, new APK"): an older
+     * PC still sends Reader's records (`window.reader*`) at every handshake, and applied they would land in the
+     * glasses' local row, which is this device's alone now. Called on the connection's reading thread only.
+     */
+    private fun applyIn(r: SRec) {
+        if (!Persistence.syncable(r.k)) {
+            if (saidIgnored.add(r.k)) Log.w("sync", "'${r.k}' from $host does not sync any more — ignored (said once per connection)")
+            return
+        }
+        peer.applier(r.k, r.v, local(r.t))
+    }
+
     private suspend fun connectLoop() {
         while (scope.isActive && running) {
             var attached = false
@@ -348,6 +370,7 @@ class RemoteSync(
                     val hello = json.encodeToString(Hello.serializer(), Hello(token = token)).toByteArray(Charsets.UTF_8)
                     synchronized(o) { o.writeInt(hello.size); o.write(hello); o.flush() }
                     peer.store.syncConnectionStarted()
+                    saidIgnored.clear()
                     o.sendWire(handshakeWire(), now)
                     // the sender: drains queued pushes off the listener's thread
                     outbox.clear()
@@ -391,15 +414,15 @@ class RemoteSync(
                                             SyncNet.describeKeys(w.records.map { it.k }, theirs, "there", mine, "here") +
                                             "; newer here: " + SyncNet.describeKeys(w.want, mine, "here", emptyMap<String, Long>(), ""))
                                     }
-                                    for (r in w.records) peer.applier(r.k, r.v, local(r.t))
+                                    for (r in w.records) applyIn(r)
                                     if (w.want.isNotEmpty()) {
-                                        val recs = w.want.mapNotNull { k ->
+                                        val recs = w.want.filter { Persistence.syncable(it) }.mapNotNull { k ->
                                             peer.store.record(k)?.let { (v, t) -> SRec(k, v, t) }
                                         }
                                         if (recs.isNotEmpty()) o.sendWire(SWire(t = "syncrec", records = recs), now)
                                     }
                                 }
-                                "syncrec" -> for (r in w.records) peer.applier(r.k, r.v, local(r.t))
+                                "syncrec" -> for (r in w.records) applyIn(r)
                                 // a host running WITHOUT a sync peer answers the request
                                 // in-band: treat it like an old host — retry at pacing
                                 "err" -> throw java.io.IOException("host refused the sync channel")

@@ -133,7 +133,7 @@ class MediaServer(
                 val out = BufferedOutputStream(it.getOutputStream(), 64 * 1024)
                 val req = readRequest(inp) ?: return
                 if (req.method != "GET" && req.method != "HEAD") { reply(out, 405, "Method Not Allowed", "text/plain", "GET only".toByteArray()); return }
-                if (req.query["token"] != token) {
+                if (!wm.damage.core.util.Secrets.same(req.query["token"], token)) {   // C§10.2: constant time (S1-1 P6)
                     Log.w("media", "refused ${sock.inetAddress}: bad token")
                     reply(out, 403, "Forbidden", "text/plain", "bad token".toByteArray()); return
                 }

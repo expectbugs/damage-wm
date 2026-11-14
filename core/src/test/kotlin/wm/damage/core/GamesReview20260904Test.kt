@@ -58,7 +58,7 @@ class GamesReview20260904Test {
         // full bankrolls — free money on every start.
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {
-            val w = GamesWindow(FakeText(), scope)
+            val w = GamesWindow(FakeText(), scope, worldSeed = 1L)   /* S1-1 fix round 2, ruling 1.9: a scripted scene pins its seed */
             w.onRegistered(Svc)
             assertEquals(0, w.roster.characters.size,
                 "registration must not populate the roster — the restore has not run yet")
@@ -246,7 +246,7 @@ class GamesReview20260904Test {
         try {
             val transport = SimTransport(GlassFirmwareSim(), scope, SimTransport.Timing(instant = true))
             val shell = Shell(FakeText(), transport, Persistence(tmp.resolve("s.json")), null, scope)
-            val w = GamesWindow(FakeText(), scope)
+            val w = GamesWindow(FakeText(), scope, worldSeed = 1L)   /* S1-1 fix round 2, ruling 1.9: a scripted scene pins its seed */
             shell.register(w)
             shell.start()
             shell.postGesture(EvenHubMsg.EV_CLICK)          // Main → Games
@@ -281,7 +281,7 @@ class GamesReview20260904Test {
         try {
             val transport = SimTransport(GlassFirmwareSim(), scope, SimTransport.Timing(instant = true))
             val shell = Shell(FakeText(), transport, Persistence(tmp.resolve("s.json")), null, scope)
-            val w = GamesWindow(FakeText(), scope)
+            val w = GamesWindow(FakeText(), scope, worldSeed = 1L)   /* S1-1 fix round 2, ruling 1.9: a scripted scene pins its seed */
             shell.register(w)
             shell.start()
             shell.postGesture(EvenHubMsg.EV_CLICK)

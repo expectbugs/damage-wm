@@ -671,7 +671,9 @@ object SelfCheck {
         awaitTrue("reopening a book mid-session restores its position (§9.1)") {
             (reader.summary().progress ?: 0.0) > 0.0
         }
-        val posBefore = reader.saveSubState().toString()   // §16.4a: per-book sub-records
+        // §16.4a: per-book sub-records. Build S1-1 P4: the books' records only — the `conv` record beside them is the
+        // migration's ledger and holds the record's places as this view knows them, which an op in flight moves
+        val posBefore = reader.saveSubState().filterKeys { it.startsWith("book.") }.toString()
         shell.stop()
         torrentsWin.detach()                                // the stack-stop rule, mirrored (review P1)
         musicWin.detach()
@@ -713,7 +715,7 @@ object SelfCheck {
         awaitTrue("restored reader reopens its book (mode, not just position §9.1)") {
             reader2.levelDepth() >= 2
         }
-        val posAfter = reader2.saveSubState().toString()
+        val posAfter = reader2.saveSubState().filterKeys { it.startsWith("book.") }.toString()
         check("reading position survives restart ($posBefore -> $posAfter)", posBefore == posAfter)
         shell2.stop()
         scope2.cancel()

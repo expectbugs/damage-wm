@@ -211,31 +211,36 @@ class SubstrateTest {
             writeBook(tmp.resolve("books"))
             val content = LocalContent(tmp.resolve("books"))
             val id = content.library().single().id
-            val reader = ReaderWindow(FakeText(), content, scope)
 
-            // a legacy main record carrying the whole offsets map migrates in
-            reader.restoreState(buildJsonObject {
-                put("level", "LIBRARY")
-                put("offsets", buildJsonObject { put(id, 1234); put("gone-book", 7) })
-            })
+            // build S1-1 P4 (dec. A.13): the shadow shape — one record per book, in today's shape — is still what
+            // the presenter writes (the local copy an older build reads); a record restored comes back out whole
+            val reader = ReaderWindow(FakeText(), content, scope)
+            reader.restoreSubState("book.$id", buildJsonObject { put("off", 1234) })
+            reader.restoreSubState("book.gone-book", buildJsonObject { put("off", 7) })
+            reader.restoreState(buildJsonObject { put("level", "LIBRARY") })
             val subs = reader.saveSubState()
             assertEquals(1234, subs["book.$id"]!!["off"]!!.jsonPrimitive.intOrNull)
             assertEquals(7, subs["book.gone-book"]!!["off"]!!.jsonPrimitive.intOrNull)
-            // TRANSITIONAL (review F3): the legacy map still writes so the
-            // 0.15 APK and this build keep one main-record shape — remove
-            // this (and saveState's field) once the phone runs ≥0.16
+            // the legacy whole-map still writes, for an older build's restore
             assertTrue(reader.saveState()["offsets"] != null)
 
-            // a sub-record beats the legacy map on restore order (subs first)
-            val r2 = ReaderWindow(FakeText(), content, scope)
-            r2.restoreSubState("book.$id", buildJsonObject { put("off", 999) })
-            r2.restoreState(buildJsonObject {
+            // the legacy-map half is migration input now: a book with no record of its own takes the map's entry,
+            // and a book's own record beats the map
+            val store = Persistence(tmp.resolve("state.json"))
+            store.put("window.reader.book.$id", buildJsonObject { put("off", 999) })
+            store.put("window.reader", buildJsonObject {
                 put("level", "LIBRARY")
-                put("offsets", buildJsonObject { put(id, 5) })
+                put("offsets", buildJsonObject { put(id, 5); put("legacy-only", 42) })
             })
-            assertEquals(999, r2.saveSubState()["book.$id"]!!["off"]!!.jsonPrimitive.intOrNull)
+            val plan = wm.damage.core.windows.reader.ReaderMigration.plan(store)
+            val offered = plan.offers.filter { it.action == "place" }.associate {
+                it.targets.single() to wm.damage.core.windows.reader.ReaderAnchor.parse(it.result.jsonPrimitive.content)!!.offset
+            }
+            assertEquals(mapOf("place.$id" to 999, "place.legacy-only" to 42), offered)
 
             // the removal tombstone drops the entry
+            val r2 = ReaderWindow(FakeText(), content, scope)
+            r2.restoreSubState("book.$id", buildJsonObject { put("off", 999) })
             r2.restoreSubState("book.$id", JsonObject(emptyMap()))
             assertEquals(null, r2.saveSubState()["book.$id"])
         } finally {
@@ -412,65 +417,8 @@ class SubstrateTest {
 
     // -------------------------------------------------------- the continuity gate
 
-    @Test
-    fun continuityBookPositionFollowsAcrossShells(): Unit = runBlocking {
-        val tmp = Files.createTempDirectory("damage-substrate-continuity")
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val port = freePort()
-        var host: ContentHostServer? = null
-        var client: RemoteSync? = null
-        try {
-            writeBook(tmp.resolve("books"))
-            val content = LocalContent(tmp.resolve("books"))
-            val id = content.library().single().id
-
-            // shell A reads to a position and stops (the driving device)
-            val storeA = Persistence(tmp.resolve("a.json"))
-            run {
-                val shA = Shell(FakeText(), SimTransport(GlassFirmwareSim(), scope,
-                    SimTransport.Timing(instant = true)), storeA, null, scope)
-                val readerA = ReaderWindow(FakeText(), content, scope)
-                shA.register(readerA)
-                shA.start()
-                shA.postGesture(EvenHubMsg.EV_CLICK)                    // into Reader
-                awaitTrue("A's library") { readerA.summary().line.contains("book") }
-                shA.postGesture(EvenHubMsg.EV_CLICK)                    // open the book
-                awaitTrue("A opens the book") { readerA.title().contains("p.") }
-                repeat(25) { shA.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }
-                awaitTrue("A scrolled") { (readerA.summary().progress ?: 0.0) > 0.0 }
-                shA.stop()
-            }
-            val posA = storeA.get("window.reader.book.$id")!!["off"]!!.jsonPrimitive.intOrNull!!
-            assertTrue(posA > 0, "A recorded a real position")
-
-            // the position syncs to store B (PC ⇄ phone shape)
-            val storeB = Persistence(tmp.resolve("b.json"))
-            host = ContentHostServer(content, port, "tok", sync = SyncPeer(storeA))
-            host.start()
-            client = RemoteSync("127.0.0.1", port, "tok", scope, SyncPeer(storeB), retryPacingMs = 200)
-            awaitTrue("the per-book record reached B") {
-                storeB.get("window.reader.book.$id")?.get("off")?.jsonPrimitive?.intOrNull == posA
-            }
-
-            // shell B starts on its own store: SAME book, SAME position —
-            // "start reading on my glasses, continue on my phone" (Adam, §16.4)
-            val shB = Shell(FakeText(), SimTransport(GlassFirmwareSim(), scope,
-                SimTransport.Timing(instant = true)), storeB, null, scope)
-            val readerB = ReaderWindow(FakeText(), content, scope)
-            shB.register(readerB)
-            shB.start()
-            awaitTrue("B restores the open book") { readerB.title().contains("p.") }
-            awaitTrue("B is at A's position") {
-                readerB.saveSubState()["book.$id"]?.get("off")?.jsonPrimitive?.intOrNull == posA
-            }
-            shB.stop()
-        } finally {
-            client?.close()
-            host?.close()
-            scope.cancel()
-            tmp.toFile().deleteRecursively()
-        }
-    }
+    // `continuityBookPositionFollowsAcrossShells` is retired (build S1-1 P4, dec. A.13): a book's place no longer
+    // crosses the sync channel; `ReaderArrangementsTest` holds the place across devices through the PC record.
 
     /** A shell over [content] with the Reader registered, its store in [tmp]; notify settings from [settings]. */
     private fun readerShell(tmp: java.nio.file.Path, content: wm.damage.core.content.ContentProvider, scope: CoroutineScope,

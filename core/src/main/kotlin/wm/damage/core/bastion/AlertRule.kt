@@ -127,6 +127,14 @@ data class AlertRule(
         const val URGENT_REPEAT_MS = 600_000L
         /** The ids of the watcher's own alerts (hub not answering, token refused, a refused rule, …). */
         const val BUILT_IN_PREFIX = "watcher."
+        /** The ids of the PC record's alerts (`app/AppHost.kt`'s `RecordAlerts`: the log, the save, the sequence
+         *  file; build S1-1, dec. D.2). */
+        const val RECORD_PREFIX = "record."
+        /** Ids no rule may take and no rules file retires: alerts Damage raises about itself. */
+        val RESERVED_PREFIXES = listOf(BUILT_IN_PREFIX, RECORD_PREFIX)
+
+        /** True when [id] is under a reserved prefix: Damage's own alert, never a rule's. */
+        fun reserved(id: String): Boolean = RESERVED_PREFIXES.any { id.startsWith(it) }
         val ID = Regex("^[a-z0-9_.-]+$")
 
         /** Damage's own values live in the `damage` domain (no hub has one); usable only in a `when`. */
@@ -210,8 +218,9 @@ object RulesFile {
                 refused += RefusedRule(place, "no usable id (lower-case letters, digits, '_', '.' and '-')")
                 continue
             }
-            if (id.startsWith(AlertRule.BUILT_IN_PREFIX)) {
-                refused += RefusedRule(id, "ids starting \"${AlertRule.BUILT_IN_PREFIX}\" are the watcher's own")
+            if (AlertRule.reserved(id)) {
+                val p = AlertRule.RESERVED_PREFIXES.first { id.startsWith(it) }
+                refused += RefusedRule(id, "ids starting \"$p\" are Damage's own")
                 continue
             }
             val first = firstAt[id]

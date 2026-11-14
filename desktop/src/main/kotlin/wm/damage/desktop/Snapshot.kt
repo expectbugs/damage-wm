@@ -21,7 +21,6 @@ import wm.damage.core.shell.Shell
 import wm.damage.core.sim.GlassFirmwareSim
 import wm.damage.core.transport.SimTransport
 import wm.damage.core.wire.EvenHubMsg
-import wm.damage.core.windows.reader.ReaderWindow
 
 /**
  * Drive the real shell through its surfaces and save what the LEFT LENS PANEL
@@ -37,7 +36,10 @@ object Snapshot {
     fun run(cfg: Config, outDir: Path): Nothing {
         Files.createDirectories(outDir)
         try {
-            runBlocking { script(cfg, outDir) }
+            runBlocking {
+                script(cfg, outDir)
+                phoneArrangement(cfg, outDir)
+            }
         } catch (e: Throwable) {
             e.printStackTrace()
             failures.add("snapshot run crashed: $e")
@@ -77,7 +79,13 @@ object Snapshot {
             val c = icons.completions()
             shell.isQuiescent() && icons.pending() == 0 && icons.completions() == c
         }
-        val reader = ReaderWindow(text, LocalContent(books), scope, AwtImages())
+        // the snapshot judge's PC arrangement (`CONTRACT.md` §11.1; build S1-1 P4): Reader's presenter over a source on
+        // a PC record — a scratch one in this run's temp directory, never the service's
+        val pcRecord = wm.damage.core.app.AppHost.inScratchDir(Files.createDirectories(tmp.resolve("record")))
+        val pcCore = wm.damage.core.windows.reader.ReaderCore(LocalContent(books), scope)
+        val reader = wm.damage.core.windows.reader.ReaderGlasses(text, pcCore,
+            wm.damage.core.app.LocalWindowSource(pcCore, wm.damage.core.app.HostBackend(pcRecord,
+                wm.damage.core.app.Peer.LOCAL.device, wm.damage.core.app.OpQueue.newStream())), scope, AwtImages())
         shell.register(reader)
         val tmuxWin = wm.damage.core.windows.tmux.TmuxWindow(text, ScriptedTmux(), scope)
         shell.register(tmuxWin)
@@ -131,77 +139,7 @@ object Snapshot {
         }
         shell.start()
         iconsSettled()   // the first wave of resolves lands before any scene
-        settle(shell)
-        save(sim, out, "01-main-active")
-
-        shell.postGesture(EvenHubMsg.EV_CLICK)          // into Reader (library)
-        settle(shell)
-        waitFor("library loads") { reader.summary().line.contains("book") }
-        settle(shell)
-        save(sim, out, "02-reader-library")
-
-        // Open the focused row. Since 2026-08-31 that row can be a FOLDER
-        // (they sort first) and a first open lands on the CHAPTER PICKER —
-        // walk both, deterministically, by what the title says.
-        shell.postGesture(EvenHubMsg.EV_CLICK)
-        settle(shell)
-        if (reader.title().startsWith("library")) {     // it was a folder: open its first book
-            shell.postGesture(EvenHubMsg.EV_CLICK)
-            settle(shell)
-        }
-        waitFor("book opens") { !reader.title().startsWith("library") && reader.title() != "opening" }
-        settle(shell)
-        if (reader.title().endsWith("chapters")) {      // the first-open picker: from the beginning
-            save(sim, out, "03b-reader-chapters")
-            shell.postGesture(EvenHubMsg.EV_CLICK)
-            settle(shell)
-        }
-        waitFor("book page") { reader.title().contains("p.") }
-        settle(shell)
-        save(sim, out, "03-reader-book")
-
-        repeat(12) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }
-        settle(shell)
-        save(sim, out, "04-reader-scrolled")
-
-        shell.postGesture(EvenHubMsg.EV_CLICK)          // actions level
-        settle(shell)
-        save(sim, out, "05-reader-actions")
-        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
-        settle(shell)
-
-        shell.postGesture(EvenHubMsg.EV_RING_LONG_PRESS)   // the chord opens the switcher (§1.3)
-        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
-        settle(shell)
-        save(sim, out, "06-switcher")
-        shell.postGesture(EvenHubMsg.EV_RING_LONG_PRESS)   // cancel
-        settle(shell)
-
-        shell.postNotice(wm.damage.core.shell.Notifications.Notice(
-            "SMS · MOM", "t1", "on my way, should be there in about twenty minutes", "14:32"))
-        settle(shell)
-        save(sim, out, "07-notification-arrived")
-        delay(3_000)
-        settle(shell)
-        save(sim, out, "08-notification-focused")
-        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // dismiss + read
-        settle(shell)
-
-        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // book -> library (maybe inside a folder)
-        settle(shell)
-        // Ascend to the library ROOT deterministically (§3a: double-tap
-        // ascends a folder) — the old fixed two-tap walk stopped reaching
-        // Main once the shelf grew folders, and 09/10 quietly showed the
-        // wrong surfaces (caught by the tmux scene's waitFor, 2026-08-31).
-        var ascend = 0
-        while (reader.title() != "library" && ascend++ < 6) {
-            shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
-            settle(shell)
-        }
-        waitFor("library root") { reader.title() == "library" }
-        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // library -> Main
-        settle(shell)
-        save(sim, out, "09-main-back")
+        readerScenes(shell, sim, reader, out)
 
         // Tmux (TMUX.md): sessions, the live SGR grid with context rows and
         // the inverted cursor, the wrapped history, the keys level
@@ -429,6 +367,9 @@ object Snapshot {
         waitFor("settings · music") { shell.currentWindowId() == "settings" && shell.isQuiescent() }
         settle(shell)
         save(sim, out, "37-music-settings")
+        // Settings → Reader (build S1-1 P4, `HANDOFF.md` §79.8: no scene showed it), by the same `cat:` deep link,
+        // so the Reader conversion's rows are watched by the snapshot judge
+        readerSettingsScene(shell, sim, out)
         repeat(2) { shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK) }    // → categories → Main
         settle(shell)
         shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)     // cursor home (Reader)
@@ -579,8 +520,203 @@ object Snapshot {
         save(sim, out, "10-silent")
 
         shell.stop()
+        reader.detach()
+        pcRecord.close()
         scope.cancel()
         tmp.toFile().deleteRecursively()
+    }
+
+    /**
+     * The snapshot judge's phone arrangement (`CONTRACT.md` §11.1; build S1-1 spec §5): Reader's scenes rendered again,
+     * into `DIR/phone/`, with Reader's presenter over the phone's working copy — fed by an `AppClient` from a content
+     * host on loopback that serves a scratch PC record over the same books, and the book bytes through `RemoteContent`
+     * into a temp cache. Every other window is built as in the first arrangement, so Main and the switcher are the same.
+     * Each render is compared with the same base scene (`tools/snapdiff.py BASE DIR/phone --subset`).
+     */
+    private suspend fun phoneArrangement(cfg: Config, outRoot: Path) {
+        val out = Files.createDirectories(outRoot.resolve("phone"))
+        val tmp = Files.createTempDirectory("damage-snap-phone")
+        val books = Path.of(cfg.booksDir)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val token = "snapshot-" + java.util.UUID.randomUUID()
+        // the PC: a scratch record and its app lane, on loopback port 0
+        val pcRecord = wm.damage.core.app.AppHost.inScratchDir(Files.createDirectories(tmp.resolve("pc")))
+        val net = wm.damage.core.app.AppNet(pcRecord)
+        // bound to loopback, and gated like every listener (build W): the strict gate answers loopback only here
+        val host = wm.damage.core.content.ContentHostServer(LocalContent(books), 0, token, app = net,
+            reach = wm.damage.core.net.ReachGate(wm.damage.core.net.Side.PHONE),
+            bindAddress = java.net.InetAddress.getLoopbackAddress())
+        host.start()
+        // the phone: its core executor, working copy and lane
+        val ex = wm.damage.core.app.CoreExecutor("damage-core-phone")
+        val wc = wm.damage.core.app.WorkingCopy(tmp.resolve("workcopy"), wm.damage.core.app.AppHost.WINDOWS, ex)
+        wc.start { stream ->
+            wm.damage.core.app.AppClient("127.0.0.1", host.boundPort, wm.damage.core.app.AppClient.Credential.Token(token),
+                stream, wc, scope)
+        }
+        val sim = GlassFirmwareSim()
+        val transport = SimTransport(sim, scope, SimTransport.Timing(instant = true))
+        val text = wm.damage.core.comp.CachedText(AwtText())
+        val shell = Shell(text, transport, Persistence(tmp.resolve("state.json")), null, scope)
+        val before = snapShell
+        snapShell = shell
+        val icons = ThemeIcons(AwtImages(), tmp.resolve("icons"), onLoaded = { shell.requestRepaint() })
+        shell.iconSource = icons
+        suspend fun iconsSettled() = waitFor("theme icons settled (phone)") {
+            val c = icons.completions()
+            shell.isQuiescent() && icons.pending() == 0 && icons.completions() == c
+        }
+        var onLibraryChanged: () -> Unit = {}
+        val rc = wm.damage.core.content.RemoteContent("127.0.0.1", host.boundPort, token, tmp.resolve("bookcache"),
+            onLibraryChanged = { onLibraryChanged() })
+        val core = wm.damage.core.windows.reader.ReaderCore(rc, scope)
+        val source = wm.damage.core.app.LocalWindowSource(core, wc)
+        val reader = wm.damage.core.windows.reader.ReaderGlasses(text, core, source, scope, AwtImages(),
+            device = wc.device, buildsLine = { wc.client?.contractState?.line(core.window) })
+        onLibraryChanged = { reader.libraryChanged() }
+        shell.register(reader)
+        // every other window as in the first arrangement (the same order, the same scripted sources, the same seed)
+        shell.register(wm.damage.core.windows.tmux.TmuxWindow(text, ScriptedTmux(), scope))
+        shell.register(wm.damage.core.windows.files.FilesWindow(text,
+            wm.damage.core.windows.files.LocalFilesProvider(books, tmp.resolve("trash"), AwtImages()),
+            scope, AwtImages(), initialBooksDir = cfg.booksDir))
+        shell.register(wm.damage.core.windows.torrents.TorrentsWindow(text, ScriptedTorrents(), scope))
+        val musicLib = ScriptedMusic()
+        val musicClock: () -> Long = { System.currentTimeMillis() }
+        shell.register(wm.damage.core.windows.music.MusicWindow(text, musicLib,
+            wm.damage.core.windows.music.SimMusicPlayer(musicLib, musicClock), scope, clock = musicClock))
+        val gamesWin = wm.damage.core.windows.games.GamesWindow(text, scope)
+        gamesWin.roster.worldSeed = 20260905L
+        shell.register(gamesWin)
+        shell.register(wm.damage.core.windows.feed.FeedWindow(text, wm.damage.core.windows.feed.ScriptedFeed(), scope))
+        try {
+            shell.start()
+            // the phone's shelf comes over the lane: the first arrangement's scan lands before its first scene, so this
+            // one waits for the listing and for the PC's first answer before scene 01
+            waitFor("the phone's shelf") { reader.summary().line.endsWith(" books") }
+            waitFor("the PC's record on the phone") { wc.client?.contractState is wm.damage.core.app.Contracts.State.Known }
+            iconsSettled()
+            readerScenes(shell, sim, reader, out)
+            // Settings, reached by committing and checking (as `toWindow` does), then its Reader category
+            for (k in 0 until 12) {
+                shell.postGesture(EvenHubMsg.EV_CLICK)
+                settle(shell, "commit-settings-phone")
+                if (shell.currentWindowId() == "settings") break
+                var guard = 0
+                while (shell.currentWindowId() != null && guard++ < 10) {
+                    shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+                    settle(shell, "back-to-main-phone")
+                }
+                shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)
+                settle(shell, "walk-to-settings-phone")
+            }
+            if (shell.currentWindowId() != "settings") failures.add("phone arrangement: could not reach Settings from Main")
+            readerSettingsScene(shell, sim, out)
+            val line = wc.client?.contractState?.line(core.window)
+            if (line != null) failures.add("phone arrangement: the builds differ ($line)")
+        } finally {
+            shell.stop()
+            reader.detach()
+            source.close()
+            wc.close()
+            ex.shutdown()
+            host.close()
+            net.close()
+            pcRecord.close()
+            scope.cancel()
+            snapShell = before
+            tmp.toFile().deleteRecursively()
+        }
+    }
+
+    /**
+     * Reader's scenes, 01 to 09 (the spec's §5: Main's Reader row, the library, the chapters, the book, scrolled, the
+     * actions, the switcher, the notice over the book, Main again) — the same steps in both arrangements of the judge.
+     * The shell has started and its first wave of icons has landed.
+     */
+    private suspend fun readerScenes(shell: Shell, sim: GlassFirmwareSim, reader: wm.damage.core.windows.reader.ReaderGlasses, out: Path) {
+        settle(shell)
+        save(sim, out, "01-main-active")
+
+        shell.postGesture(EvenHubMsg.EV_CLICK)          // into Reader (library)
+        settle(shell)
+        waitFor("library loads") { reader.summary().line.contains("book") }
+        settle(shell)
+        save(sim, out, "02-reader-library")
+
+        // Open the focused row. Since 2026-08-31 that row can be a FOLDER
+        // (they sort first) and a first open lands on the CHAPTER PICKER —
+        // walk both, deterministically, by what the title says.
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        settle(shell)
+        if (reader.title().startsWith("library")) {     // it was a folder: open its first book
+            shell.postGesture(EvenHubMsg.EV_CLICK)
+            settle(shell)
+        }
+        waitFor("book opens") { !reader.title().startsWith("library") && reader.title() != "opening" }
+        settle(shell)
+        if (reader.title().endsWith("chapters")) {      // the first-open picker: from the beginning
+            save(sim, out, "03b-reader-chapters")
+            shell.postGesture(EvenHubMsg.EV_CLICK)
+            settle(shell)
+        }
+        waitFor("book page") { reader.title().contains("p.") }
+        settle(shell)
+        save(sim, out, "03-reader-book")
+
+        repeat(12) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }
+        settle(shell)
+        save(sim, out, "04-reader-scrolled")
+
+        shell.postGesture(EvenHubMsg.EV_CLICK)          // actions level
+        settle(shell)
+        save(sim, out, "05-reader-actions")
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+        settle(shell)
+
+        shell.postGesture(EvenHubMsg.EV_RING_LONG_PRESS)   // the chord opens the switcher (§1.3)
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+        settle(shell)
+        save(sim, out, "06-switcher")
+        shell.postGesture(EvenHubMsg.EV_RING_LONG_PRESS)   // cancel
+        settle(shell)
+
+        shell.postNotice(wm.damage.core.shell.Notifications.Notice(
+            "SMS · MOM", "t1", "on my way, should be there in about twenty minutes", "14:32"))
+        settle(shell)
+        save(sim, out, "07-notification-arrived")
+        delay(3_000)
+        settle(shell)
+        save(sim, out, "08-notification-focused")
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // dismiss + read
+        settle(shell)
+
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // book -> library (maybe inside a folder)
+        settle(shell)
+        // Ascend to the library ROOT deterministically (§3a: double-tap
+        // ascends a folder) — the old fixed two-tap walk stopped reaching
+        // Main once the shelf grew folders, and 09/10 quietly showed the
+        // wrong surfaces (caught by the tmux scene's waitFor, 2026-08-31).
+        var ascend = 0
+        while (reader.title() != "library" && ascend++ < 6) {
+            shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+            settle(shell)
+        }
+        waitFor("library root") { reader.title() == "library" }
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // library -> Main
+        settle(shell)
+        save(sim, out, "09-main-back")
+
+    }
+
+    /** The Settings → Reader scene (37b), by Settings' `cat:` deep link, from wherever the shell is in Settings. */
+    private suspend fun readerSettingsScene(shell: Shell, sim: GlassFirmwareSim, out: Path) {
+        val readerCat = java.util.concurrent.atomic.AtomicReference<Boolean?>(null)
+        shell.services.runOnShell { readerCat.set(shell.services.openWindow("settings", "cat:Reader")) }
+        waitFor("settings · reader") { readerCat.get() != null && shell.currentWindowId() == "settings" && shell.isQuiescent() }
+        if (readerCat.get() != true) failures.add("Settings has no Reader category (the cat:Reader deep link was refused)")
+        settle(shell)
+        save(sim, out, "37b-reader-settings")
     }
 
     /**

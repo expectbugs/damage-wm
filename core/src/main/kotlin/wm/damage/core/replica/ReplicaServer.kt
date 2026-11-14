@@ -8,14 +8,11 @@ import java.io.InputStreamReader
 import java.io.OutputStream
 import java.net.ServerSocket
 import java.net.Socket
-import java.net.URLDecoder
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardOpenOption
-import java.security.MessageDigest
-import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.atomic.AtomicBoolean
@@ -146,12 +143,13 @@ class ReplicaServer(
         try {
             val inp = DataInputStream(sock.getInputStream().buffered())
             val out = sock.getOutputStream()
-            val req = readRequest(inp) ?: return
+            val req = HttpWs.readRequest(inp) ?: return
             val (method, target) = req
             val path = target.substringBefore('?')
-            val query = queryOf(target)
+            val query = HttpWs.queryOf(target)
             if (method != "GET") { reply(out, 405, "text/plain", "GET only"); return }
-            if (query["token"] != token) {
+            // C§10.2 (build S1-1, P6): the shared token compared in constant time
+            if (!wm.damage.core.util.Secrets.same(query["token"], token)) {
                 if (path != "/favicon.ico")
                     Log.w("replica", "rejected ${sock.inetAddress}: bad or missing token on $path")
                 reply(out, 403, "text/plain", "token required: open the page from the program's printed link"); return
@@ -194,9 +192,7 @@ class ReplicaServer(
                     if (key == null || !req.headers["upgrade"].equals("websocket", true)) {
                         reply(out, 400, "text/plain", "websocket upgrade expected"); return
                     }
-                    out.write(("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
-                        "Sec-WebSocket-Accept: ${acceptKey(key)}\r\n\r\n").toByteArray(Charsets.ISO_8859_1))
-                    out.flush()
+                    HttpWs.switching(out, key)
                     val c = Client(sock, inp, out)
                     clients.add(c)
                     try { c.run() } finally { clients.remove(c); c.close() }
@@ -218,60 +214,9 @@ class ReplicaServer(
         }
     }
 
-    private class Request(val method: String, val target: String, val headers: Map<String, String>) {
-        operator fun component1() = method
-        operator fun component2() = target
-    }
+    private fun reply(out: OutputStream, code: Int, type: String, body: String) = HttpWs.reply(out, code, type, body)
 
-    private fun readRequest(inp: DataInputStream): Request? {
-        val first = readLine(inp) ?: return null
-        val parts = first.split(' ')
-        if (parts.size < 2) throw IOException("bad request line '$first'")
-        val headers = HashMap<String, String>()
-        while (true) {
-            val line = readLine(inp) ?: return null
-            if (line.isEmpty()) break
-            val i = line.indexOf(':')
-            if (i > 0) headers[line.substring(0, i).trim().lowercase()] = line.substring(i + 1).trim()
-        }
-        return Request(parts[0], parts[1], headers)
-    }
-
-    /** One ISO-8859-1 header line (CRLF-terminated); null at EOF. */
-    private fun readLine(inp: DataInputStream): String? {
-        val sb = StringBuilder()
-        while (true) {
-            val b = inp.read()
-            if (b < 0) return if (sb.isEmpty()) null else sb.toString()
-            if (b == '\n'.code) return sb.toString().trimEnd('\r')
-            sb.append(b.toChar())
-            if (sb.length > 8192) throw IOException("header line too long")
-        }
-    }
-
-    private fun queryOf(target: String): Map<String, String> {
-        val q = target.substringAfter('?', "")
-        if (q.isEmpty()) return emptyMap()
-        return q.split('&').mapNotNull { kv ->
-            val i = kv.indexOf('=')
-            if (i < 0) null else URLDecoder.decode(kv.substring(0, i), "UTF-8") to URLDecoder.decode(kv.substring(i + 1), "UTF-8")
-        }.toMap()
-    }
-
-    private fun reply(out: OutputStream, code: Int, type: String, body: String) =
-        replyBytes(out, code, type, body.toByteArray(Charsets.UTF_8))
-
-    private fun head(out: OutputStream, code: Int, type: String, length: Long) {
-        val reason = when (code) { 200 -> "OK"; 400 -> "Bad Request"; 403 -> "Forbidden"; 404 -> "Not Found"; else -> "Error" }
-        out.write(("HTTP/1.1 $code $reason\r\nContent-Type: $type\r\nContent-Length: $length\r\nConnection: close\r\n\r\n")
-            .toByteArray(Charsets.ISO_8859_1))
-    }
-
-    private fun replyBytes(out: OutputStream, code: Int, type: String, b: ByteArray) {
-        head(out, code, type, b.size.toLong())
-        out.write(b)
-        out.flush()
-    }
+    private fun head(out: OutputStream, code: Int, type: String, length: Long) = HttpWs.head(out, code, type, length)
 
     /** The journal STREAMED from disk (2026-11-04, `HANDOFF.md` §71): the whole
      *  file, or the whole lines that start inside its last [tail] bytes (a
@@ -523,61 +468,28 @@ class ReplicaServer(
         clients.clear()
     }
 
-    private class Frame(val opcode: Int, val payload: ByteArray)
-
-    /** Read one client frame (masked per RFC 6455); null at EOF. Fragments
-     *  (FIN=0 or continuation) are refused loudly. */
-    private fun readFrame(inp: DataInputStream): Frame? {
-        val b0 = inp.read(); if (b0 < 0) return null
-        val b1 = inp.read(); if (b1 < 0) return null
-        val fin = b0 and 0x80 != 0
-        val opcode = b0 and 0x0F
-        if (!fin || opcode == 0) throw IOException("fragmented websocket message (unsupported)")
-        val masked = b1 and 0x80 != 0
-        var len = (b1 and 0x7F).toLong()
-        if (len == 126L) len = inp.readUnsignedShort().toLong()
-        else if (len == 127L) len = inp.readLong()
-        if (len < 0 || len > MAX_CLIENT_FRAME) throw IOException("client frame of $len B refused")
-        if (!masked) throw IOException("unmasked client frame (RFC 6455 requires a mask)")
-        val mask = ByteArray(4); inp.readFully(mask)
-        val payload = ByteArray(len.toInt()); inp.readFully(payload)
-        for (i in payload.indices) payload[i] = (payload[i].toInt() xor mask[i and 3].toInt()).toByte()
-        return Frame(opcode, payload)
-    }
+    /** Read one client frame (masked per RFC 6455); null at EOF. Fragments (FIN=0 or continuation) are refused
+     *  loudly ([HttpWs.readFrame], shared with the web listener since build S1-1 P6). */
+    private fun readFrame(inp: DataInputStream): WsFrame? = HttpWs.readFrame(inp, MAX_CLIENT_FRAME)
 
     companion object {
-        const val OP_TEXT = 1
-        const val OP_BINARY = 2
-        const val OP_CLOSE = 8
-        const val OP_PING = 9
-        const val OP_PONG = 10
+        const val OP_TEXT = HttpWs.OP_TEXT
+        const val OP_BINARY = HttpWs.OP_BINARY
+        const val OP_CLOSE = HttpWs.OP_CLOSE
+        const val OP_PING = HttpWs.OP_PING
+        const val OP_PONG = HttpWs.OP_PONG
         private const val MAX_CLIENT_FRAME = 64 * 1024L
         /** One read of a streamed journal (§71): the only journal bytes in memory at once. */
         private const val JOURNAL_CHUNK = 64 * 1024
         private const val NL = '\n'.code.toByte()
-        private const val WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
         private val STATUS = Any()
         private val END = Any()
 
-        /** RFC 6455 §4.2.2: base64(SHA-1(key + GUID)). */
-        fun acceptKey(key: String): String {
-            val sha = MessageDigest.getInstance("SHA-1").digest((key.trim() + WS_GUID).toByteArray(Charsets.ISO_8859_1))
-            return Base64.getEncoder().encodeToString(sha)
-        }
+        /** RFC 6455 §4.2.2 ([HttpWs.acceptKey]). */
+        fun acceptKey(key: String): String = HttpWs.acceptKey(key)
 
-        /** A server→client frame (unmasked), FIN set. */
-        fun frame(opcode: Int, payload: ByteArray): ByteArray {
-            val n = payload.size
-            val header = when {
-                n < 126 -> byteArrayOf((0x80 or opcode).toByte(), n.toByte())
-                n < 65536 -> byteArrayOf((0x80 or opcode).toByte(), 126.toByte(), (n shr 8).toByte(), (n and 0xFF).toByte())
-                else -> ByteArray(10).also {
-                    it[0] = (0x80 or opcode).toByte(); it[1] = 127.toByte()
-                    for (i in 0 until 8) it[2 + i] = (n.toLong() shr (8 * (7 - i))).toByte()
-                }
-            }
-            return header + payload
-        }
+        /** A server→client frame (unmasked), FIN set ([HttpWs.frame]). */
+        fun frame(opcode: Int, payload: ByteArray): ByteArray = HttpWs.frame(opcode, payload)
 
         fun gestureOf(ev: String?): Int? = when (ev) {
             "tap" -> EvenHubMsg.EV_CLICK

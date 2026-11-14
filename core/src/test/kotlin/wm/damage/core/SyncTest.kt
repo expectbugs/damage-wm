@@ -125,6 +125,7 @@ class SyncTest {
 
     @Test
     fun handshakeConvergesBothWays_andLivePushesFlow(): Unit = runBlocking {
+        // build S1-1 P4 (dec. A.13): the sample key is another window's — Reader's keys no longer sync
         val tmp = Files.createTempDirectory("damage-sync-net")
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val port = freePort()
@@ -133,7 +134,7 @@ class SyncTest {
         try {
             val storeA = Persistence(tmp.resolve("a.json"))      // the PC side
             val storeB = Persistence(tmp.resolve("b.json"))      // the phone side
-            storeA.put("window.reader", blob(10))                // newer on A
+            storeA.put("window.feed", blob(10))                // newer on A
             delay(5)
             storeB.put("shell.settings", blob(20))               // newer on B
             storeB.put("shell.state", blob(99))                  // must NEVER travel
@@ -142,13 +143,13 @@ class SyncTest {
             host.start()
             client = RemoteSync("127.0.0.1", port, "tok", scope, SyncPeer(storeB), retryPacingMs = 200)
 
-            awaitTrue("A's record reached B") { storeB.get("window.reader") == blob(10) }
+            awaitTrue("A's record reached B") { storeB.get("window.feed") == blob(10) }
             awaitTrue("B's record reached A") { storeA.get("shell.settings") == blob(20) }
             assertNull(storeA.get("shell.state"), "shell.state is per-device and never syncs")
 
             // live push, both directions
-            storeB.put("window.reader", blob(11))
-            awaitTrue("B's live change reached A") { storeA.get("window.reader") == blob(11) }
+            storeB.put("window.feed", blob(11))
+            awaitTrue("B's live change reached A") { storeA.get("window.feed") == blob(11) }
             storeA.put("shell.settings", blob(21))
             awaitTrue("A's live change reached B") { storeB.get("shell.settings") == blob(21) }
         } finally {
@@ -170,10 +171,10 @@ class SyncTest {
             host = ContentHostServer(LocalContent(tmp), port, "tok", sync = null)
             host.start()
             val store = Persistence(tmp.resolve("b.json"))
-            store.put("window.reader", blob(1))
+            store.put("window.feed", blob(1))
             client = RemoteSync("127.0.0.1", port, "tok", scope, SyncPeer(store), retryPacingMs = 100)
             delay(600)      // several refusal round trips
-            assertEquals(blob(1), store.get("window.reader"), "the store is untouched and the client lives")
+            assertEquals(blob(1), store.get("window.feed"), "the store is untouched and the client lives")
         } finally {
             client?.close()
             host?.close()

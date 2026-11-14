@@ -7839,3 +7839,362 @@ and W at 12–20 h and 65–110 units. One build is one point; S1-1 is re-priced
 - **Size, whole:** runs 1–3 58.5 units, the R3 stage 1.9 — 60.4 for build W (79.10's weighting), the lead's own
   turns not counted.
 
+## 80. APK 0.67 built: the shared window core, Reader converted and the web listener (build S1-1, 2026-11-14)
+
+Context for the reader: a personal device, the published patch method, display-rendering work. Adam's own window
+manager for his own glasses, phone and PC on his own network; this section records an unattended build on his
+machines: the PC becomes the owner of Reader's state, the phone keeps a working copy, and a new listener on the PC
+serves a browser interface. **Every number below is measured on the simulator (the desktop JVM and the model of the
+firmware) or on the PC unless it says otherwise. Nothing of this build has run on his glasses or his phone, and nobody
+has looked at the web pages in a browser** (beardos has no Chromium; the pages' logic is held by `node --test` and
+their protocol by `WebProtocolTest`). As written, APK 0.67 (versionCode 67) is built and verified on the local branch
+`wip/067` — **not merged, not pushed, not staged, not installed; the PC service still runs `e955a98` (§79.12).** No
+stage sent anything to the glasses, the phone, the hub or the running service's ports; nothing was flashed. His home's
+details and his shelf's titles are nowhere in this record.
+
+The build ran on `wip/067` from `4ded994` (= `main`): `06948cc` … `e54b40c`, then this record and the version commit.
+Four unattended runs, one stage at a time, each stage Claude Opus at xhigh effort: (1) packages P1–P4, then the halfway
+check; (2) P5–P7, a verification and general review 1 (two readers: the state path, the web path); (3) fix round 1 in
+two stages (F1a the state path, F1b the web path) and general review 2 (two readers); (4) fix round 2 in two stages
+(F2a, F2b), a focused read of what the fix rounds added, the last stage (its two SHOULDs, the whole-list mutation sweep, the
+end gate) and these records. The lead's rulings are the session's `S1-1-decisions.md` (A–E), `S1-1-R1-decisions.md`
+and `S1-1-R2-decisions.md`; the spec, the stage reports and the reviews sit beside them in the session's scratch
+directory, not in the repo.
+
+**The lead's calls that Adam may want to reverse** (each is a default or one line of a ruling):
+1. **`Go there` instead of a page that follows** (A.2, `CONTRACT.md` §2.6). A place read on another device never moves
+   the open page, on the glasses or on the web. `Go there` is the first row of Reader's Actions until he takes it or
+   reads on; the first place sent from that view loses and is said once with both places; reading on then applies. A
+   session start (a wake, a rebuild, the switcher, a restore) is an entry and takes the shared place. 0.66 moves the
+   page.
+2. **The web listener is on by default** (B.3) at port 7405 (`webPort`; 0 = off), behind the reach gate, `Host` and
+   `Origin` checked; with no approved device it serves only the page bundle and the pairing socket.
+3. **Pairing by a short code**, his desk browser approved once from the command line (`--approve CODE full`; A.5, A.6),
+   later browsers from the desk's devices page by picking a level. No captcha, no rate limit beyond the code's own, no
+   second factor (his word on proportion, 2026-11-13).
+4. **A browser's place written after the conversion is never replaced by an older build's record** (R1 §5): a book read
+   in the browser between the PC deploy and the APK install keeps the browser's place; the phone's is said once and
+   offered with `Go there`.
+5. **The PC first, then the APK** (E.7): between the two, Reader's places do not cross between the phone and the PC (the
+   new PC ignores the old sync keys); the install's migration then judges them, newer wins, the loser is said once.
+6. **A place in words on the web is the percent of the book** (P7, R1 §3); the glasses keep saying the page.
+7. **No cross-tab lock** (R1 §4; Web Locks need a secure context, which the plain-HTTP page is not): two tabs of one
+   browser are one device, and the tab scrolled last writes the place with no notice (R2 §3).
+8. **Fragment links inside a spine part are not links in this build** (A.8): a link to another spine document jumps to
+   that document's start; the 367 fragment links on his shelf are dropped and counted by `--epub-check`; http(s) links
+   leave the book, marked.
+9. **The PC walks the shelf** at each process start (P5; ≈12 s of CPU over 73 books, modeled from `--epub-check`, not
+   measured on the service) and lists it again when a page subscribes the shelf or Main's card (F2b's class sweep: one
+   listing per page welcome), so a book added after the start appears.
+10. **The judge declares a Feed comic's meta line live** (the last stage): scene 64's age is wall-clock time, so that
+    line is no longer compared. Reverting it means accepting a named difference of about 230 px at every comparison.
+11. **On the web the book's text is not greyed while the PC is out of reach** (only its toolbar); a place read meanwhile
+    is sent once when it answers again (P7, F2b).
+
+### 80.1 His words
+
+The go of 2026-11-13 is §78's tail and §79.1 ("Go on the next stages, no ceiling … automate the build"). No new ruling
+of his was needed for S1-1: it was built to `REPLAN.md` §14–§16 and `CONTRACT.md`.
+
+### 80.2 What S1-1 is, and what he will meet
+
+- **The PC owns Reader's state.** Each book's place, its bookmark, the book read most recently and Reader's glasses rows
+  are items in a record on the PC (`record.json`) behind an operation log (`oplog.jsonl`). Every change is one op,
+  judged by `CONTRACT.md` §2.4's one merge rule and written to the log before it is answered.
+- **The phone keeps a working copy** with an on-disk queue. A gesture still paints from the phone: no network or disk
+  before its first flush. Places become ops at today's save points (2 s after input, on leaving the book, at a stop) and
+  go to the PC when it answers; with the PC out of reach the phone reads on and the queue drains on return.
+- **A browser interface** on port 7405: Home, the shelf as a cover grid with progress, a book in Damage's own text
+  (emphasis, links, pictures, chapters), the place shared with the glasses, bookmark here and reset progress; pairing by
+  a short code; a devices page (approve, deny, rename, revoke); a diagnosis page (epoch, seq, connections, versions, the
+  PC log's tail).
+- **Reader is the first window converted**: a core (`ReaderCore`) on the record and a glasses presenter
+  (`ReaderGlasses`) that is today's paint code. Every other window syncs as at 0.66.
+- **On the glasses** the one change he will feel is call 1. Everything else is pixel-identical (80.5: the snapshot
+  judge, both arrangements). A lost place reads "the phone read on to p.212 (14:02); this place, p.180, was not
+  applied"; a browser is named "a browser".
+
+### 80.3 The packages
+
+**P1 — the record** (`06948cc`; wired nowhere). `core/…/app/`: `Op` (expectations Value · Rev · Occurrence ·
+PreConversion · Any; answers Sent · Seen · Refused · Lost), `Record`, `Merge` (pure, per target; kinds create,
+register, position, order, remove, whole), `Streams` (per-stream high-water and the last 1,000 answers), `ChangeRing`
+(1,000, memory only), `OpLog` (each line appended and forced before the answer), `SeqFile` (`record.seq`, outside the
+nightly copy), `RecordStore` (`record.json`, its own writer thread, forced before the move), `CoreExecutor` (one thread,
+`damage-core`), `AppHost`. A failed append answers `Refused(retry)` and is said (log, a `record` journal note, the
+alert `record.log`).
+
+**P2 — the `app` lane** (`b26a373`). `AppWire`, `AppNet` (one sender thread and a bounded outbox per connection; every
+step that touches the record runs on the executor), `AppClient`, `Contracts` (`reader: 1`). It rides the content port;
+its hello carries `proto: 2` after the port's own `proto: 1` hello (A.4), so 0.66 and the running service answer it as
+an unknown request and nothing is half-understood. Both PC builders open the record through `AppHost.atProcessStart`
+only, which `check_apk_wiring.py` holds (D.3). Alerts under `record.` survive a watcher start (D.2).
+
+**P3 — the working copy** (`48d6367`). `WindowSource` (the seam: state, description, level, `act` returning at once),
+`LocalWindowSource` + `HostBackend` (the PC's own presenter, device `local`), `OpQueue` (`workcopy/queue.jsonl`, one
+writer thread, an op sent only once its line landed, coalescing into the last unsent op), `WorkingCopy`
+(`workcopy/copy.json`; the PC's state plus this device's unanswered ops). Built once per service in
+`ShellService.onCreate`, never per stack. `ans` gained `epoch` and `seq` with no version bump: the lane had not shipped
+(E.4).
+
+**P4 — Reader converted** (`ec490fb`, `5b64b16`, `c6d2fe3`). `ReaderCore` (the shelf, items, actions, description),
+`ReaderGlasses` (`git mv` of `ReaderWindow.kt`: today's view, paint, open, restore and layout, now over the record),
+`ReaderMigration` (once per host, with the ledger `window.reader.conv`), `ReaderAnchor` (`@c<offset>.<extractor>~<a
+32-character quote>`), `AnchorCursor`, `MemoryRecord` (behind the compatibility factory `ReaderWindow(…)` that tools and
+tests build). Reader's keys left the sync channel (`Persistence.CONVERTED`); the phone applies only syncable inbound
+keys. The judge: `--snapshot` gained a Settings → Reader scene and a phone arrangement (`ReaderGlasses` over a
+`WorkingCopy` fed from a loopback content host) in `DIR/phone/`; `tools/snapdiff.py` compares each scene pixel for pixel
+with a base rendered before any product edit, masked by the base pair's union and declared live cells. `record.json`
+joined the nightly copy (D.1).
+
+**P5 — the document and the index** (`55815f9`, `8106c7a`; PC only). `Epub.extract` behind `Epub.load`, today's text
+unchanged (a throwaway hash of all 73 books' text, chapters and images matched before and after); `EpubDoc` (blocks and
+spans over today's text, typed by a markup walk aligned onto it; 0 realignments on the shelf); `ReaderIndex`
+(`reader-index.json`: each book's length, chapters and cover, one book at a time, no image bytes — §72's heap episodes
+are why, B.1); `ReaderDocs` (the last two parsed books). `--epub-check` checks every book's document against today's
+text.
+
+**P6 — the web listener and access** (`2c21812`). `core/…/web/`: `WebServer` (port 7405, the reach gate before a byte,
+the replica's HTTP and WebSocket codec moved to `replica/HttpWs.kt`), `Access` (`Host` and `Origin`), `Devices`
+(`devices.json`: SHA-256 hashes, constant-time compares, waiting pages, single-use claims, approve, deny, rename,
+revoke, replace), `LocalSecret` (`local.secret`, mode 0600, created once), `Blobs` (Range, nosniff, sandbox), `Bundle`;
+`app/Levels` (view, control, full, checked by the PC at apply time), `DevicesCore`, `DeviceCli` (`--devices`, `--approve
+CODE LEVEL`, `--deny CODE`, `--revoke ID`: client calls to the running service over loopback with the local secret;
+exit 0, 1 or 3). `devices.json` joined the nightly copy (E.5); the remaining credential compares went to
+`Secrets.same`.
+
+**P7 — the web client** (`1a27519`). `core/src/main/resources/web/`: plain ES modules to a Chromium 108 floor, no inline
+script or style, nothing fetched from outside the machine; the shell, Home, Reader, devices, diagnosis and settings
+views; themes system, dark, light and glass in the glasses' four faces (`/font/…`, approved devices only).
+`app/PcScopes` (`desc/main`, `desc/reader`, `reader/<level>`, `reader/book:<id>/part:<n>`, `diag` at level full) on one
+describer thread. Tests: `WebProtocolTest`, `BundleTest` and `node --test` over the pure modules (A.7).
+
+### 80.4 What is new, where
+
+- **To the glasses:** no message added, removed or reordered (80.5). The behaviour change is call 1.
+- **Phone (0.67):** a second connection to the PC's content port (the `app` lane, a ping every 15 s); `workcopy/` in the
+  app's data directory; Reader's places, bookmarks and rows sent as ops; `migrate` and `workcopy` journal notes. Against
+  an older PC the lane is refused in band, the phone reads on from its copy, and Main's Reader row says "PC and phone on
+  different builds for Reader".
+- **PC:** the record and its log at every process start; the `app` lane on the content port; the web listener on
+  `webPort` (`webHosts` for an extra name such as the tailnet's full name); the device commands; the shelf walked into
+  `reader-index.json`. Journal notes `record` (each start: epoch, seq, lines replayed), `migrate`, `web`.
+- **Files in the PC's data directory:** `record.json`, `oplog.jsonl` (set aside whole past 64 MiB at a start, never
+  deleted), `record.seq`, `reader-index.json` (a cache), `local.secret` (mode 0600); `devices.json` is written at the
+  first redeemed approval. The nightly copy takes `record.json` and `devices.json`, never `record.seq`, `oplog.jsonl` or
+  `local.secret`.
+- **Records:** `CONTRACT.md` corrected as built (§2.2, §2.4–§2.6, §3.2, §4.2, §9.2–§9.4, §9.7, §10, §12, §13 (b));
+  `IMPLEMENTATION.md` (its S1-1 section, the module map, "Review hardening"); `DAILY.md` (the page, the commands, the
+  keys, the files); `REPLAN.md` §16; `WINDOWS.md` (what converting Reader taught); `CLAUDE.md` (the battery).
+
+### 80.5 The numbers (the end gate on `e54b40c`'s code; simulator and PC)
+
+| gate | result |
+|---|---|
+| `:core:cleanTest :core:test --no-build-cache` (one background command) | 1,355 tests in 184 classes, 0 failed, 14 min 58 s, no rate miss (1,161 after §79.12's R3.1) |
+| `:desktop:test` | 45 in 10 classes (44 at 0.66) |
+| `desktop --selfcheck` | 484 PASS lines, three times — the same 484 as 0.66's tree (its record's 485 counted the summary line) |
+| `desktop --snapshot` against the base, `snapdiff --mask` | 58 scenes (57 + Settings → Reader) and 11 Reader scenes in `phone/`: **0 px outside the mask** in both arrangements, three renders (idle, idle, under load) |
+| `--epub-check ~/books` | 73 of 73 books; every book's document is today's text; 2580/2604 images; 302,912 blocks; 19,556 spans placed, 0 dropped; 288 http(s) links, 2,078 in-book jumps; 0 realignments |
+| `--music-check`, `--games-check`, `--feed-check` (fixtures) | pass (20, all, 15) |
+| `tools/lint.py` | 0 findings (37 python + 234 kotlin) |
+| `:phone:assembleDebug`, then `tools/check_apk_wiring.py` | builds; 51 lines, all ok (40 at 0.66) |
+| `node --test 'core/src/test/js/*.test.mjs'` (node v26.3.0) | 31 tests in 3 files, all pass |
+| the tools' self-tests | `mutate_core.py` 45 · `journal_report.py` 23 · `journal_pull.py` 26 · `check_apk_wiring.py` 39 · `snapdiff.py` 17 |
+| the mutation list `research/mutations-80-s1-1.json` | 181 entries: 176 CAUGHT, each for its stated reason (every `why` line read); 5 declared NO PIN; 0 not caught (15 lists in all) |
+| the JavaScript guards (outside `mutate_core.py`) | 15 watched failing by hand on the final tree, one guard at a time |
+| `~/.damage` after the runs | no `record.*`, `oplog*`, `workcopy`, `devices.json`, `local.secret` or `reader-index.json` |
+
+Every pin of the build was watched failing on its disabled tree (each stage's pins table). **The judge is proven
+sensitive:** verification 1 put one throwaway pixel in `ReaderGlasses.paintBookLine`; `snapdiff` reported 1 px outside
+the mask in four Reader scenes on each arrangement and exited 1; a fresh render after the revert judged 0 px. Its limit:
+no scene shows a moved place, so `Go there` and the loss notice on the glasses are judged by `ReaderPositionTest` and
+`ReaderArrangementsTest`. Not measured: anything on the phone's Android side, and anything a browser renders.
+
+### 80.6 The verification, the reviews and the fix rounds (numbers and classes)
+
+- **The halfway check** after P4 (E): 27.1 units for 11,052 lines; 0 px outside the mask; `ReaderMigrationTest` proved
+  no place lost in both deploy orders and the fourth case (a web place after the PC's conversion), so A.3's stop did not
+  apply. P4's narrowing of `--selfcheck`'s restart compare to the `book.*` records stands (E.1).
+- **Verification 1** (`1a27519`): the whole end gate green; the judge's sensitivity (80.5); E.1's pin watched failing;
+  the Hold'em rate 0 misses in 60 isolated or loaded runs, with the recorded miss's wait (`your turn`) and the rig's
+  clock-taken seed named. One gap no gate read: a migration loss said to him on the phone (an inferred race in
+  `ShellService`'s start order) → R1 1.5.
+- **General review 1** (tree `1a27519`; the state path 1 MUST, 2 SHOULD, 6 NOTE; the web path 1 MUST, 2 SHOULD, 9 NOTE)
+  → **fix round 1** (`19a1be7`, `b3e0378`). Both MUSTs lost a place:
+  - a place read on 0.67 that joined the unsent migration op kept that op's old stamp, so it could lose to the PC's copy
+    of the same old record (R1 1.1). Now the stamp becomes the joining place's time when its value differs; an equal
+    value keeps it, because the session start's own unchanged send must not make an older place newer. Class: every
+    site that builds or rewrites a `PreConversion` expectation (both hosts' migrations, the bookmark and row migrations,
+    the downgrade's re-offer).
+  - two tabs of one browser shared a stream but counted separately, so one tab's op was answered as already handled
+    while the page said it was done (R1 2.1). Now one counter per stream in local storage, read, incremented and written
+    in one step; the PC refuses a repeated `n` whose op differs (`invalid`, said in words) while a true retry keeps the
+    held answer. Class: a number used twice in one stream.
+  - The SHOULDs: a relayout makes no place op (1.2); a place an older build wrote after a downgrade is judged against
+    the value this device last knew (`Value(known)`, 1.3); a web device is named "a browser" (1.4); the web withdraws
+    `Go there` once the record holds its own place (2.2).
+  - The class "a loss is never told to no one" (1.5): the phone's migration runs after the presenter listens; a loss
+    with no presenter is kept with the copy and handed to the next; an op the welcome's high-water settles is read
+    against the PC's not-applied mark. Also 1.7 (a log that cannot open: nothing saved, every op `retry`, the alert) and
+    the web notes (keepalive on every socket, focus kept on a redraw, nothing cut, a blob that fails answered 413 or 500,
+    the revoke race checked again after registration, an outside link marked, an unreadable device table frozen, a kept
+    toast never pushed out).
+- **General review 2** (tree `b3e0378`; the state path 1 MUST, 5 NOTE; the web path 2 SHOULD, 7 NOTE) → **fix round 2**
+  (`72d1e34`, `db5caec`). The MUST lost a place: after a lost place the view wrote the standing value into its ledger's
+  `known` as if it had taken it, so a restart or a stack rebuild applied the losing place over the other device's with
+  no input and nothing said (R2 1.1). The write is deleted. Class: a write into the view's taken or own value without
+  taking it. Also: a kept loss ends at its saying, not at its hand-off (1.2); a place loss is said once per (book,
+  standing place, this place) (1.3); a retry or gap on the PC's presenter is not said as a loss (1.4); a missing
+  `record.json` beside set-aside logs replays them oldest first and raises `record.replay`, never overwriting a `.bad`
+  (1.5); while the log is closed the lane refuses record subscriptions (1.6); a refusal with no presenter is journaled
+  (1.7); on the web the shelf is listed again on a page visit (2.1), the stored counter is keyed by stream with a floor
+  (2.2), and the notes of 2.3 and 2.4 (one renumbering per gap, `approve` on a frozen table refused, `open` sent only on
+  input, a place read out of reach sent on return, the replace sibling of the revoke race, a bad request line said by
+  its length).
+- **The focused read** (tree `db5caec`; 0 MUST, 2 SHOULD, 7 NOTE) → **the last stage**: `918d24c` withdraws `Go there` on
+  the glasses once the record holds this device's own place (R1 2.2's twin, missed there) and stops a reload of an
+  address that names a place from writing it (only routed input saves); `f8c589b` tightened R1 2.2's JavaScript pin,
+  which passed with its own guard disabled; `e54b40c` is the judge's comic cell (call 10).
+- **The Games rate miss of §79.12 is explained.** The rig took its world seed from the clock; a sweep of seeds 1–300
+  found two (53 and 123) that deal a hand he wins as the big blind without acting, so it is never his turn and the wait
+  `your turn` does not converge. `GamesWindow(worldSeed)` (null = the clock, as in production); the rig pins seed 1,
+  and the other Games scenes pin theirs (R2 1.9). Seed 53 reproduces the recorded miss word for word.
+- **The bound held** every round: 0 px outside the mask in both arrangements at every stage from P4, and nothing
+  changed what is written to the glasses.
+
+### 80.7 The lead's decisions, each once with its reason
+
+- A.1 ≈420 lines moved, `Shell.kt`'s app core not moved: nothing in S1-1 needs it (measured: ≈40 moved into
+  `ReaderCore`, the rest of Reader stays in the presenter as the contract's §11.3 says). A.2 call 1: `CONTRACT.md` §2.6.
+  A.3 a migrated place expects `PreConversion(old stamp)`, with the ledger: without it a migrated place always applies
+  (a newer web place overwritten) or always loses (noise on every book). A.4 `proto: 2` is the lane's own: a port-level
+  2 would cut an old PC off every lane. A.5 the bundle and the pairing socket answer without the device secret: the
+  waiting page comes before any secret exists. A.6 the four device commands are client calls: the `desktop` binary
+  starts nothing for them. A.7 `node --test`, no packages, no browser. A.8 call 8: fragment targets need an id → offset
+  map. A.9 "the book read most recently" is `Expect.Any`: as a register it would say "not applied" whenever two devices
+  open different books. A.10 a place becomes an op at today's save points: today's op count and timing, nothing new on a
+  first flush. A.11 the glasses' row stays local in today's shape until S1-5; it is also the downgrade copy. A.12 and
+  D.1 `record.json` and `oplog.jsonl` are separate from `state.json` (written from other threads); the log is set aside
+  past 64 MiB, never deleted; the sequence file stays out of the nightly copy so a restored record is seen as a restore.
+  A.13 three named expectation changes (two `SyncTest` cases take another window's key; `SubstrateTest`'s continuity
+  test retired for `ReaderArrangementsTest`; its legacy-map half became migration input). A.14 the halfway check after
+  P4, where the judge and the migration show. A.15 not built by design (80.8).
+- B.1 the failure-envelope fills (the retry refusal, the inbound sync filter, the shelf one book at a time). B.2 the
+  snapshot base and its shelf listing. B.3 call 2. B.4 no model call in code or tests. B.5 the Hold'em rate measured
+  first, nothing changed until R1 1.9. B.6 the version by the records stage. B.7 the cut-first order: the phone's
+  whole-shelf prefetch and the moved-book alias were cut (to S1-2); the diagnosis page W-21 was built.
+- D.2 the reserved alert prefixes `watcher.` and `record.`; D.3 P1's calls accepted, the record opened only at a
+  process start; D.4 a stage never ends its turn while a command it started is running (80.9).
+- E.1 the narrowed compare (the ledger's survival is `ReaderMigrationTest`'s); E.2 two named review questions, both
+  found real by review 1 and built as R1 1.1 and 1.2; E.3 P2's and P3's Not-built items stand (review 1: none grows
+  without bound); E.4 the `ans` addition; E.5 P6 owns the secret's wiring, the levels and `devices.json`; E.6 call 1 on
+  the web, in the glasses' words; E.7 call 5; E.8 run 2's shape.
+- Accepted as built (R1 §3): P5's shelf scan; the Feed article's age as a live cell; port 7405, `local.secret`, the
+  device commands; the book's text not greyed out of reach, the percent in words, progress computed in the page, no
+  PC-served scopes when `webPort` is 0.
+
+### 80.8 Not built
+
+- **By ruling (R1 §4):** a cross-tab lock. `Apply mine` on a loss. Fragment targets inside a spine part (367 such links
+  on his shelf are not links in this build), image alt text, the table block kind, an index on the phone. The
+  whole-shelf prefetch on the phone and the moved-book alias. Renditions, uploads, a whole-EPUB blob, HTTP keep-alive, a
+  command to rotate the local secret, dropping a revoked device's stream rows. P2's and P3's six items (review A: none
+  grows without bound). No one has looked at the pages in a browser: the first look is Adam's sitting.
+- **By ruling (R2 §3):** F1a's item 2 (a bookmark or row set on the new build while its migrate op waits can lose to an
+  older one when the PC's copy differs: three coincidences, and it is said). F1a's item 5 (a place applied then
+  overwritten said as not applied, on a re-sent identical place). F1b's item 1 (two tabs of one browser are one device:
+  the tab he scrolls last writes the place; no notice). F1b's item 5 (the shelf rebuilds its card elements at every
+  description; his look decides). F1b's item 6 (the JavaScript pins have no standing mutation entries; watched failing
+  by hand).
+- **By design (A.15, the spec's §1):** log-under-lease, guarded confirms, `iface`/`instr` reports, the PC notice record,
+  viewers and live values, paged collections, uploads and renditions (S1-2); every other window's conversion (S1-2 to
+  S1-5); the phone app's own screen, its page cache, the companion, the TV's set (S2).
+- **The packages' own lists:** P1 — a whole write naming an id the record lacks is not refused, tombstones are never
+  compacted (no S1-1 window writes collections). P2 — per-stream answer records kept when a hello says the old stream
+  closed; the PC does not end a client that stopped pinging (TCP keepalive or a full outbox ends it); no `record.json`
+  save and no `end{shutting down}` at an orderly stop (the next start's replay covers it). P3 — the away line drawn
+  anywhere (S2); per-window streams (a `contract` refusal holds the device's whole stream: S1-4); a process end between a
+  new epoch's `welcome` and its snapshot does not answer the losers (the welcome's note names their count); a refused
+  subscription on the phone only logged; the large-snapshot rebuild only half off the executor. P5 — the `table` block.
+  P6 — a book-original blob, per-device settings, the TV's set. P7 — a "copy a link to here" action; a single-file
+  book's part is one large frame (the outbox caps frames, not bytes).
+- **Declared NO PIN (5):** `S1-dirty-tail-not-cut` (needs a truncate that fails), `S1-record-not-forced` (differs only
+  across a power loss), `S1-secret-plain-equals` (a timing difference), `S1F-loss-told-twice` (no path hands one op's
+  loss on twice in one process), `S1F2-presenter-runs-one-loss-twice` (needs two posts of one bookmark or row loss).
+- **The focused read's NOTEs and the fix rounds' unruled "Found" items, ruled by the lead after the last run** (the
+  session's `S1-1-R3-decisions.md`; no further read was started, protocol 5):
+  - **Built (R3.1, the one item):** `WorkingCopy.pumpNow` read its two held flags once, before the send loop, so a
+    `retry` or `contract` answer handled while the loop ran made it send that op again at once instead of at the next
+    ping (order kept; the PC's stream numbers make a second send harmless).
+    `WorkingCopyTest.aRetryAndTheGapsBehindItAreSentAgainInOrderAtTheNextPing` missed 5 runs in 20 alone; the loop now
+    reads the flags after each take and puts the op back, and the class passed 30 runs of 30. Not pinned beyond that
+    rate (two threads, no seam).
+  - **Not built, each needing the PC's log to fail to write or open** (a state that already raises `record.log` and
+    refuses changes until a restart): N4 a late `retry` or `gap` can reuse one of the PC presenter's numbers; N5 R2 1.4's
+    guard covers `expectFor` but not `forgetSent`; F2a 3 a retried `reset` on the PC's presenter is never sent again;
+    F2a 4 the welcome's high-waters come from `record.json` alone; F2a 5 R2 1.4's same-item chain; F2a 6 the set-aside
+    logs are opened read-write.
+  - **Not built, narrow:** N1 a session stop queued right behind a loss's notice can drop the notice (the place itself
+    is right; a second post is a new mechanism after the last read); N6 R2 1.3's key hides a second loss with the same
+    two places (the first notice said both); F2b 1 R2 2.2's residual (site data cleared under two open tabs, then a PC
+    restart); F2b 6 the replica's malformed-frame line quotes a JSON error's text (past the token check; no token
+    travels in a frame).
+  - **Carried to S1-2's web work as its first items** (the pages have not been looked at in a browser yet): N2 the
+    retry timer sends after `closed()` told the view `ended`; N3 the closed-log refusal tells a browser it "keeps its
+    own copy" (`AppHost.LOG_CLOSED`); N7 the devices page keeps a stale reach reason; F2b 3 the retry sibling of 2.3
+    (1); F2b 4 a re-approval under the same device id fires no `storage` event; F2b 5 the reconnect order.
+
+### 80.9 Stage slips and harness lessons
+
+- **P1 returned with its core suite still running and nothing committed**; the lead ran the rest of its gate on the
+  unchanged tree and committed it (D.4: a stage never ends its turn while a command it started runs).
+- P6's own wait loop matched itself with `pgrep -f` and never ended; the stage stopped it (the sweep had already
+  finished and restored the tree).
+- **The base's `~/books` listing hash was recorded without its command**; P5–P7 compared by modification time
+  instead, and verification 1 recorded a command that can be rebuilt (the session's `v1/books-listing.cmd`). A judge's
+  base carries the command that made its hash. The base renders sit in the session's scratch directory: a later build
+  renders its own base from its parent commit before any product edit (the spec's §5).
+- **Two Feed scenes carry wall-clock ages** and moved the judge (626 px in scene 67 at P5, about 230 px in scene 64 at
+  the last stage): each is a declared live cell with a selftest case watched failing. The last stage told timing from
+  its own change by rendering the same tree idle and under load.
+- **A pin written in the same pass as its code passed with its guard disabled, twice** (P4's `S1-entry-takes-own-echo`,
+  R1 2.2's JavaScript pin); both were rewritten until they failed for their stated reason.
+- The JavaScript is outside `mutate_core.py`: its guards have no standing entries and were watched by hand (R2 §3).
+- F2b's commit message says three mutation entries were re-anchored; the true count is two. Commits are not amended.
+- `node` here is v26.3.0 (`~/.claude/CLAUDE.md` says v24.14.0; A.7 said Node 24); `node --test DIR` does not take a
+  directory on 26, hence the glob form. The global file is his to change.
+
+### 80.10 For Adam: the first sitting, and what is owed
+
+The install notes are `REMINDER.md`'s ("The first sitting of 0.67"). Owed on his devices at that sitting: the `migrate`
+notes on both hosts and his current book's place unchanged on the glasses; the desk browser approved; every visual item
+of the pages (the shelf grid at a phone's and a desk's width, the cover crop, the cover-less cards' colours, the glass
+theme and its faces, the bottom bar, toasts and chapter drawer on a phone, the reading column, whether scroll anchoring
+holds the place while images above it load, where the place lands at the top-left in quotes and list items, the
+waiting screen, the confirm); the place both ways and `Go there` on the glasses; the phone's browser approved from the
+desk; the PC out of reach once. Still owed from 0.66's first days: §79.9.
+
+### 80.11 How the build ran, and its size (measured)
+
+Run 1: 27.1 weighted units for 11,052 inserted lines; run 2: 22.9 for 8,581; run 3: 16.7 for 1,775 — 66.7 for runs 1–3
+(a unit = one million tokens weighted input 1, cache write 1.25, cache read 0.1, output 5), about 3.1 units per 1,000
+inserted lines (W: 3.3, §79.10). Run 4 (fix round 2, the focused read, the last stage, these records): 21.1 units for
+2,318 inserted lines, documents included — **87.8 units in all** for 23,464 inserted lines (`4ded994..2f6e650`), 3.7 per
+1,000 inserted lines and 4.6 per 1,000 product + test lines (W: 3.9). The lead's own turns are outside these figures. By `git diff --numstat 4ded994..e54b40c`: product Kotlin +9,138 / −355, the web client +2,465, tests +7,476
+(Kotlin and JavaScript), the mutation list +3,131, tools +501 — 22,711 inserted lines. Wall clock from the decisions
+(00:30) to the last stage's report (15:36), the lead's rulings between runs included: about 15 h. The plan
+(`REPLAN.md` §16.2) priced S1-1 at 205–520 units and 39–92 h. The plan's figure re-fitted
+(two builds, two points): 4–5 units and about 0.8 h per 1,000 product + test lines; the line counts of §16.2's row held
+(product 11,600 against 7,800–12,100, tests 7,476 against 6,000–9,600), the rate did not (`REPLAN.md` §16's head).
+
+### 80.12 What is next
+
+1. The lead: the merge of `wip/067`, the push, the PC deploy first, then `:phone:stageApk` (0.67) (80.13).
+2. Adam's first sitting (`REMINDER.md`'s install notes); 0.66's first-days reads are still owed (§79.9).
+3. S1-2 with S1-3 (deploy 2, `REPLAN.md` §16.1), at the re-fitted rate; its web work starts with 80.8's carried items.
+
+### 80.13 The merge, the staging and the PC deploy
+
+(the lead writes this after the deploy)
+

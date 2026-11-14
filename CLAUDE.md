@@ -49,8 +49,9 @@ governs) → `FIRMWARE.md` (wins on the FIRMWARE CONTRACT)**.
   --snapshot DIR` (look at the renders; run it, and any harness you suspect, more than once) · `--epub-check ~/books` ·
   `--music-check` · `--games-check` · `--feed-check` (`live` fetches the real sites once, read-only) · `tools/lint.py` ·
   `./gradlew :phone:assembleDebug` **in its own gradle invocation**, then `python3 tools/check_apk_wiring.py` (exit 0) ·
-  the tools' `--selftest` (`research/mutate_core.py`, `tools/journal_report.py`, `tools/journal_pull.py`,
-  `tools/check_apk_wiring.py`). After a card-art change also `--card-render`. Deploy = `./gradlew :desktop:stageJar &&
+  `node --test 'core/src/test/js/*.test.mjs'` · the tools' `--selftest` (`research/mutate_core.py`,
+  `tools/journal_report.py`, `tools/journal_pull.py`, `tools/check_apk_wiring.py`, `tools/snapdiff.py`). After a
+  card-art change also `--card-render`. Deploy = `./gradlew :desktop:stageJar &&
   sudo rc-service damage restart` (`DAILY.md`); a PC deploy never touches the display. Stop the service before any
   `:desktop:run` dev session. Never rebuild the jar under a running instance. `REMINDER.md` carries the current counts.
 
@@ -92,7 +93,8 @@ and holds only the contract (`FIRMWARE.md`). **Never flash without Adam's in-the
 **Topology, ruled 2026-11-12 (`REPLAN.md` §14; `CONTRACT.md` §2): the PC is the system** — it owns every window's state
 and every interface connects to it; the phone keeps a working copy, draws the glasses and carries on when the PC is out
 of reach; **PC-direct BLE is a manual choice, never automatic.** The alert watcher made PC-direct BLE manual in code
-(APK 0.66, `HANDOFF.md` §79); step S1 brings the rest (`REPLAN.md` §15, §16). **What runs until then (`HANDOFF.md` §19,
+(APK 0.66, `HANDOFF.md` §79); step S1 brings the rest (`REPLAN.md` §15, §16): its first piece, S1-1, converted Reader
+onto the PC record and built the web listener at APK 0.67 (`HANDOFF.md` §80). **What runs until then (`HANDOFF.md` §19,
 §79):** the **phone APK drives** (radio and shell); the OpenRC `damage` service on beardos is the **data provider** (and
 the bus alert watcher) and never drives by itself — PC-direct BLE only by hand (the replica probe `drive=ble`, back with
 `drive=auto`; the PC shell's `Target` row; `--transport ble`); `--transport remote` is the dev override. Detect the CFW

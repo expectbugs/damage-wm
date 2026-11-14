@@ -5,7 +5,7 @@ firmware he installed with the published patch method; it runs on his own phone,
 his tailnet and the network of the bus he lives in. This file is display and interface design: how each window
 describes what it shows and can do, so that the glasses, a web page, the phone app's own screen, the kitchen TV and the
 desktop each present it, and how every interface connects to the PC that holds the state. Plain wording throughout
-(`CLAUDE.md`). Documents only: nothing here is built.
+(`CLAUDE.md`). Documents only; what S1-1 built (APK 0.67, `HANDOFF.md` §80) is corrected below as built.
 
 **Status: IN FORCE for the build plan (2026-11-13).** The three rows of §14 (a) are taken as recommended on Adam's
 word of that day ("I trust your recommendations for the open stuff") and were shown to him the same hour; he can
@@ -63,8 +63,9 @@ with the service, glasses session or not (today window state advances only on a 
 transport, `S/Shell.kt:1062,1192`, and the standby PC builds no window, `D/Main.kt:701-703`). The phone runs the same
 cores on its own executor, started with `ShellService`: whole for the away list; for the others, over their
 Damage-owned records beside a mirror of the outside program (Tmux, Files, Torrents, Bastion; Feed per §14 (a) row 1).
-Both sit behind one `WindowSource` — `desc` (immutable snapshots), `level(addr)`, `act(op) → Answer`, `live(src,
-need)` — so a presenter cannot tell which it has. A rebuild after a large `snap` (the catalog, the shelf) is computed
+Both sit behind one `WindowSource` — `desc` (immutable snapshots), `level(addr)`, `act(op)`, which returns at once
+(the answer comes through the source's change flow), `live(src, need)` — so a presenter cannot tell which it has. A
+rebuild after a large `snap` (the catalog, the shelf) is computed
 off the executor and swapped in whole, so no apply waits behind it (today one loop does both, `S/Shell.kt:1390-1403`).
 
 ### 2.3 A gesture on the glasses: the first flush never crosses the network (`WINDOWS.md` §6.1)
@@ -103,7 +104,11 @@ who set it and when, and an offer to apply the losing value as a new op. No op i
   never repeats in a stream. The PC keeps per stream the highest `n` handled — the high-water, written in the op's
   journal line (§9.7) — and its last 1,000 answers; an op at or below it is answered from that record (or "already
   handled" with the current state) and never re-applied; a gap is refused "expected 8" and the client resends.
-  `welcome` carries each stream's high-water, and a client drops the pending ops it covers before rebuilding.
+  `welcome` carries each stream's high-water, and a client drops the pending ops it covers before rebuilding. A
+  browser's tabs share its stream and count from one number kept per stream in local storage
+  (`damage.stream.next.<stream>`); a tab never numbers below one past its own last number; two ops answered `gap` on
+  one connection are numbered once from the gap. An op at a handled `n` whose window, action, items or value differ
+  from the op that `n` answered is refused (`invalid`, in words), never answered as that op.
 - **Never queued.** Live, outbound and guarded ops take no place in a stream or its gap check: each carries the
   connection it was sent on, `(device, conn, k)`; the PC refuses one from an ended connection; one left unanswered at
   its connection's end shows "not known whether it ran — see the state" and is never resent. A key sent at a known
@@ -111,14 +116,17 @@ who set it and when, and an offer to apply the losing value as a new op. No op i
 - **Result, not recipe.** An op carries what it made — the shuffled order, every created id as `<stream>.<n>.<k>`, the
   explicit ids marked read — so a replay makes the same state on any host (today shuffle is unseeded,
   `W/music/QueueEngine.kt:22-26,43-54`, and mark all read marks what the window holds, `W/feed/FeedWindow.kt:920-929`).
-- **Coalescing** only into an op never sent; a sent op's body is frozen. **Order** is arrival at the PC's executor; no
-  device clock orders anything (today's stamps, `S/Persistence.kt:320-330`, retire with sync, §9.7).
+- **Coalescing** only into an op never sent; a sent op's body is frozen; a place that joins an unsent pre-conversion op
+  (§9.7 item 2) with another value takes the joining time as its stamp (never earlier), an equal value keeps it.
+  **Order** is arrival at the PC's executor; no device clock orders anything (today's stamps,
+  `S/Persistence.kt:320-330`, retire with sync, §9.7).
 
 | kind | example | `expect` carries | loses when | what is shown |
 |---|---|---|---|---|
 | create | a Buy item, a queue entry, an event, a log line | nothing; each id `<stream>.<n>.<k>`, minted by the creating device | never (a replay is a no-op) | — |
 | register | a tick, read mark, flag, pin, mute, mode, a text, the chosen output, a volume, a setting | the value the device saw; for a tick, untick or snooze of a recurring item, its occurrence | the PC holds a third value, or that occurrence is no longer the open one | "not applied — you: done (phone 13:50) · standing: open, unticked at the desk 14:02" or "done at the desk 14:02" · `Apply mine` · `Keep` |
-| position | a book place, an article anchor, a binge place — written only by input | the position seen; an unsent position op coalesces with the next for the item, keeping the first `expect` | another device moved it | the view stays where he reads: "the desk read on to ch. 9 (14:02); this place, ch. 12, was not applied" · `Go there` |
+| most recent | the book read most recently (S1-1) | nothing (`Any`): arrival order | never | — |
+| position | a book place, an article anchor, a binge place — written only by input; a register's pre-conversion value (a bookmark, a glasses row) migrates as Reader's `migrate` action, judged as a position by its old stamp | the position seen; an unsent position op coalesces with the next for the item, keeping the first `expect` | another device moved it | the view stays where he reads: "the desk read on to ch. 9 (14:02); this place, ch. 12, was not applied" · `Go there` |
 | order | queue or list order | the item's revision seen | another device moved or removed it, or its anchor entry is gone | "not moved: the desk moved it at 14:02" |
 | remove | to trash, a queue entry removed | the item's revision seen | another device wrote the item since | "not dropped: changed at the desk 14:02" · `Drop anyway` |
 | whole collection | clear or replace the queue | the collection's revision seen | anything was added since | "not cleared: 3 added at the desk since 14:02" · `Apply anyway` |
@@ -142,7 +150,9 @@ when first opened, `C/content/Content.kt:546-591`); Music the catalog (its first
 the prefetched tracks and the pinned playlists (not built). The away line (`INTERFACES.md` P-04) says which windows are
 live, the PC's age, "N changes waiting", "N not applied". On return the phone resumes from its cursor (§9.3), takes the
 PC's changes, sends its queue in order (§2.3 step 3). The phone app's own screen works from the same copy (§9.1). A
-browser or the TV has no queue: last snapshot greyed, actions dim.
+browser or the TV has no queue: last snapshot greyed, actions dim. As built for the web (S1-1): a `retry` past the
+page's one resend is said in the page's words; a place read while the PC was out of reach is sent once when it answers
+again; a book's text stays readable (only its toolbar greys).
 
 ### 2.6 Shared, per interface; continue here and send to
 
@@ -153,7 +163,13 @@ one copy (§14.2). The line, fixed here for every window (§12 gives each field)
   open; the place inside each item is ONE copy on the PC, written only by input (§2.4 position). A screen that opens
   Reader with nothing open starts at the book read most recently anywhere. Nothing changes what a screen shows without
   input on it — "continue here" and "send to" are the deliberate ways; a view whose item's place moved elsewhere stays
-  and offers `Go there`. Now playing is one playback, the same everywhere; a Hold'em table is held by one screen (§2.7).
+  and offers `Go there`. As built for Reader (S1-1): an entry (a session start, the switcher, a restore, an open) takes
+  another device's place — never this device's own older one — and writes nothing back; after a lost place the view has
+  not taken the standing place (an entry or the change takes it), and a place loss is said once per (book, standing
+  place, this place); `Go there` is withdrawn once the record holds this device's own place, on the glasses and on the
+  web, and a reset elsewhere or a save lost to a reset offers nothing; on the web a place in words is the percent of the
+  book (the glasses say the page). Now playing is one playback, the same everywhere; a Hold'em table is held by one
+  screen (§2.7).
   Entering by the switcher or a restore shows the open item at its shared place; from Main, the root
   (`S/WindowContract.kt:9-23`).
 - **Per interface:** the window in front, recency, which item each view has open, each view's level path, cursor and
@@ -225,7 +241,7 @@ one copy (§14.2). The line, fixed here for every window (§12 gives each field)
 | **item** | `id` (stable), `kind`, `title`, typed `fields` (§3.3), `icon`, `badges`, `progress`, `check` none · open · done, `dim{reason}`, `group`, `actions` (ids), `notApplied` (§2.4) | every row on every list |
 | **collection** | `id`, item kind, `inline` items or `paged{count (or unknown: the tracker's listing is endless), version, sorts, filters}` queried by anchor, `groups[{id, title}]`, `empty` text, `rev` (whole-collection ops, §2.4) | lists; the Music catalog (~3 k rows) and Feed items are paged |
 | **section** | `id`, `title`, item ids | Overdue · Today · In the cart; Feed's sources |
-| **document** | `id`, `extractor` version, `blocks[{id, kind: heading(level) · para · item(depth) · quote · mono · image · rule · table, spans[{text, marks: em · strong · code · link(href)}], charStart, charEnd}]`, `toc[{title, block}]`, `sourceUrl`; a `href` is http or https only and opens outside the app's page | Reader, Feed articles and comments, torrent pages (NFO = mono), Files' text and PDF text, Hold'em and Tmux history |
+| **document** | `id`, `extractor` version, `blocks[{id, kind: heading(level) · para · item(depth) · quote · mono · image · rule · table, spans[{text, marks: em · strong · code · link(href)}], charStart, charEnd}]`, `toc[{title, block}]`, `sourceUrl`; a `href` is http or https only and opens outside the app's page. As built for Reader (S1-1): a block's `level` is a heading's level or an item's depth; an image block names its blob in `ref`; an in-book link carries `jump` (an anchor at another spine document's start) instead of an `href` | Reader, Feed articles and comments, torrent pages (NFO = mono), Files' text and PDF text, Hold'em and Tmux history |
 | **value** | `id`, `label`, number or text, `unit`, `system`, `band` normal · attention · alarm, `asOf` (source time), `receivedAt` (PC clock), `source`, `staleAfter`, `state` live · stale · lastKnown, `reason`, `corrected` | bus values, PC figures, speeds, a battery, per-source health |
 | **series** | `key`, `span`, `step`, `unit`; points fetched by range; a gap is an explicit null; event marks from the action log | graphs (`BASTION.md` B-08, B-11…B-14) |
 | **event** | `id`, `title`, `start` (instant or date), `end` or `length`, `allDay`, `zone`, `kind`, `ref` | calendar, detections, the action log |
@@ -298,7 +314,9 @@ id (`W/music/MusicModel.kt:168-173`) · Settings' navigation is per interface (t
 
 Reading effects — mark read, the book read most recently, dismiss a notice — are reversible register ops on Damage's own
 records at level view, the one place a level sits below its kind's default: they are the reading itself, apply at once
-and queue away (§2.3); the TV makes none (§10.4). A stale value is never
+and queue away (§2.3); the TV makes none (§10.4). On the web, `open` is sent on an input that opens a book (a card,
+Continue, a link, back and forward), never on a page load, a reload, a restored tab or a reconnect; an address that
+names a place shows it and saves it only when input routed there (S1-1). A stale value is never
 the base of a guarded action: its confirm shows the target's present state with its age, and the action is dim past the
 value's `staleAfter` (`INTERFACES.md` §6).
 
@@ -479,27 +497,29 @@ identity, and it works away from home. S1's web client takes its data behind tha
 
 | dir | message | fields |
 |---|---|---|
-| → | `hello` | `proto: 2`, credentials (§10), `stream`, `contracts{window: version}`, `iface{kind, slot}`, a page's `bundle{version, hash}` |
+| → | `hello` | on the `app` lane: the frame that asks for the lane, `{t: app, proto: 2, stream, contracts}`, after the content port's own `proto: 1` hello (S1-1); credentials (§10), `contracts{window: version}`, `iface{kind, slot}`, a page's `bundle{version, hash}`; a page's hello may carry `name` and `replaces`, and without a device secret it is answered `pending` |
 | ← | `pending` | `code`: the waiting state of an unapproved page (§10.3) |
 | ← | `approved` | `claim`: single use, redeemed by one HTTP request that sets the cookie (§10.3) |
-| ← | `welcome` | `device`, `level`, `set?` (§10.4), `conn`, `pcClock`, `epoch`, `highWater{stream: n}`, `contracts{window: version}`, `bundle{version, hash, protoRange}` |
-| → | `sub` / `unsub` | `scope` (a window, a level address, a page of a collection, a live source), `cursor?` (a `seq`, a source scope's `version`, or the notice cursor), `need` |
-| ← | `snap` | `scope`, `epoch`, `seq` or the source's `version`, the description or level |
+| ← | `welcome` | `device`, `level`, `set?` (§10.4), `conn`, `pcClock`, `epoch`, `highWater{stream: n}`, `contracts{window: version}`, `bundle{version, hash, protoRange}` (only on the web listener) |
+| → | `sub` / `unsub` | `scope` (a window, a level address, a page of a collection, a live source; as built, a PC-served scope: `desc/<window>`, `<window>/<target>` (Reader's `shelf`, `folder:<path>`, `book:<id>`, `book:<id>/part:<n>`), `diag` (level full) — each answered `snap{scope, desc}`, outside the record's order), `cursor?` (a `seq`, a source scope's `version`, or the notice cursor), `need` |
+| ← | `snap` | `scope`, `epoch`, `seq` or the source's `version`, the description or level; or, for a PC-served scope (`devices`, `desc/…`), `desc` with no `seq` |
 | ← | `chg` | `epoch`, `seq` (or `version`), `origin{device, stream, n` or `conn, k}?`, `patches[{addr, set or remove}]` |
-| → / ← | `op` / `ans` | §2.4 / `stream` and `n`, or `conn` and `k`; §4.4 |
+| → / ← | `op` / `ans` | §2.4 / `stream` and `n`, or `conn` and `k`, or `scope` (a refused subscription); §4.4; `ans` carries `epoch` and `seq`, the record's place once the op is in it, and a client draws the op until a state at or past it has arrived |
 | ← | `confirm` | a guarded request's confirm, worded on the PC: `id`, text, the target's present state with its age (§4.3) |
 | ← | `instr` | a send-to for this interface: `id`, the view (§2.6) |
 | → | `iface` | this interface's own state (§2.6), coalesced, naming the last `instr` applied |
 | → / ← | `ping` / `pong` | `k`, on the wire's pacing (§9.3) |
 | ← | `live` | `src`, `sseq`, a frame (terminal, position, a value) |
-| ← | `end` | `reason`: revoked · denied · replaced · bundle-too-old · shutting down |
+| ← | `end` | `reason`: revoked · denied · replaced · bundle-too-old · shutting down · slow · proto · not open (S1-1 sends all but two: `shutting down` is defined but no orderly stop sends it yet; bundle-too-old is not built) |
 
 ### 9.3 Snapshot, ordered changes, cursors, resume
 
 One total order for the record on the PC: every applied change gets the next `seq`, written with its op in the journal
-line before it is answered or published (§9.7), so it continues across restarts. The `epoch` names the record store,
-minted when the store is created, at a start that finds an incomplete last journal line, and at a start that finds the
-store older than the last `seq` it published — kept in the **sequence file**, a small file beside the store and outside
+line before it is answered or published (§9.7), so it continues across restarts (as built, every journal line takes the
+next `seq`, a same-value op and a refusal for good included; its change carries no patches). The `epoch` names the
+record store, minted when the store is created, at a start that finds an incomplete last journal line, a journal line
+that does not decode, or a sequence file missing or of another epoch, and at a start that finds the store older than
+the last `seq` it published — kept in the **sequence file**, a small file beside the store and outside
 the nightly copy (a restore from the nightly copy looks exactly so); never at a process start (Torrents' epoch is its
 provider's start time, `W/torrents/LocalTorrentsProvider.kt:53`, as its ring is not persisted). The PC keeps recent
 changes in a ring. **Source snapshots** (transfers, sessions, listings, Feed items, the catalog) are outside that order,
@@ -507,7 +527,8 @@ versioned per scope (Torrents' `version` + `since`, `W/torrents/TorrentsNet.kt:2
 the ring. **Notices** travel on a cursor of their own (§7.3).
 
 - **First contact:** `snap` per subscribed scope; the client adopts `seq`, each version and the notice cursor, and pops
-  nothing old.
+  nothing old. As built: a change is sent per scope, and only when it holds an entry of that scope; a client ignores a
+  `chg` at or below its cursor; a `snap` carries the `seq` whose effects it holds.
 - **Reconnect:** `sub` with the cursor. Same epoch and `seq` inside the ring → the changes since, in order; otherwise a
   fresh `snap`, never a silent gap (Torrents' `truncated` becomes "send the snapshot"). A source scope whose version
   moved sends its snapshot. After a new epoch, pending ops that expect values are judged on those values; ops expecting
@@ -524,7 +545,10 @@ the ring. **Notices** travel on a cursor of their own (§7.3).
 `GET /blob/<id>` on the web interface listener serves the original (book, cover, comic, photo, track, camera still, a
 download) with Range, under the device secret. Every blob answer carries `X-Content-Type-Options: nosniff` and
 `Content-Security-Policy: sandbox`, and `Content-Disposition: attachment` for any type outside a short list of image,
-audio and video types (SVG is not on the list), so no file the PC serves runs script as the app's page.
+audio and video types (SVG is not on the list), so no file the PC serves runs script as the app's page. As built
+(S1-1, Reader's covers and images only): a blob past the size served is answered 413 with the reason, one that cannot
+be read 500 with the reason; `GET /w/…` answers the page; `GET /font/<face>-<weight>` serves the glasses' four faces
+to an approved device.
 `GET /blob/<id>?r=<rendition>` serves a form a presenter names — the glasses' strips, gray thumbnails, 4-bit art — made
 on the PC by today's code (`W/feed/Strips.kt`, Files' `thumb`, `W/music/Art.kt:46-68`), so the glasses' picture and the
 phone's CPU cost stay as they are. `PUT /blob/upload/<op>` streams to a temp file renamed when complete; a cut-off
@@ -555,19 +579,25 @@ Today two stamped stores sync per key, last write wins, the loser refused with n
 (`S/Persistence.kt:190-215`; `HANDOFF.md` §19.1 rule 5), retired for the design by §14.2; each store is one JSON file
 written whole and asynchronously (`S/Persistence.kt:290-315`), 2 s after an input (`S/Shell.kt:2459-2462`). In S1:
 
-1. **The first piece** builds the PC record (today's `Persistence` store, keys `rec.<window>.<item>` holding value,
-   `rev`, `by`, `at`; inside the nightly copy) behind an **append-only operation journal**: one line per op holding the
-   op, its effect, its `seq` and its stream's high-water, written before the answer and before the change is
-   published; the whole store saved from it on pacing (temp-and-move), after which the lines it covers are dropped; the
-   sequence file (§9.3); the core executor, §9.2's wire, the device table, and the phone's working-copy store with its
+1. **The first piece** builds the PC record (`record.json`, written by the record's saver only through `Persistence`'s
+   atomic write; keys `rec.<window>.<item>` holding value, `rev`, `by`, `at`) behind an **append-only operation
+   journal** (`oplog.jsonl`): one line per op holding the op, its effect, its `seq` and its stream's high-water, written
+   before the answer and before the change is published; the whole store saved from it on pacing (temp-and-move); a
+   start replays only the lines past the covered `seq`, and `oplog.jsonl` is set aside whole at a process start once a
+   save covers it and it is past 64 MiB or holds a bad line, never deleted; the sequence file (§9.3; `record.seq`).
+   `record.json` and `devices.json` are in the nightly copy, `record.seq` and `oplog.jsonl` never; the core executor,
+   §9.2's wire, the device table, and the phone's working-copy store with its
    queue file (§2.3).
 2. **Each window's conversion** takes its keys off the sync channel (`syncable()`, `S/Persistence.kt:335-336`, stops
    matching `window.<id>`). `hello` carries a contract version per window; while PC and phone differ for a window, Main
    and the window's status line say "PC and phone on different builds for Reader", and each host runs that window from
    its own copy until both match. A conversion is deployed as one of his sittings: the PC deploy and the APK install
    together. At its first converted start each host migrates its own old records once; the phone's reach the PC as
-   ordinary ops with their expectations, a losing one said like any other. Unconverted windows sync as today; nothing
-   new is built into the sync channel.
+   ordinary ops with their expectations, a losing one said like any other. As built for Reader (S1-1): each host's
+   migration offers its old records once, as `PreConversion(old stamp)`; the ledger `window.reader.conv` beside the
+   local copy says what this build wrote there, so a later start offers only what an older build wrote since; a place
+   an older build wrote after a downgrade is judged against the record value this device last knew (`Value`), else by
+   its old stamp. Unconverted windows sync as today; nothing new is built into the sync channel.
 3. **The last conversion** removes `SyncNet`, `RemoteSync` and the stamps; `shell.settings` is split by scope (§6) and
    `shell.state` is the glasses' interface row (§2.6). `SyncTest`, `SyncToleranceTest` and the stamp parts of
    `SubstrateTest` retire with what they pin, replaced by tests of §2.4.
@@ -587,7 +617,10 @@ nothing guards read-only, low-value content, and no new account, token or step i
    "token-gated, Tailscale-only content seam" is amended by his reach ruling (§14.3 #3: the tailnet and the bus network).
 2. **The device table** on the PC: `{id, name, kind, level, set?, tailnetName?, secretHash, approvedAt, approvedBy,
    lastSeen, revoked}`. A secret is 32 random bytes, stored only as its SHA-256, compared in constant time (two servers
-   compare with `!=` today, `C/replica/ReplicaServer.kt:147`, `W/music/MediaServer.kt:128`).
+   compare with `!=` today, `C/replica/ReplicaServer.kt:147`, `W/music/MediaServer.kt:128`). As built (S1-1): every
+   credential compare is constant-time (`util/Secrets`); a device name holds at most 40 characters — a longer rename is
+   refused with the reason, a waiting page's own longer name is not used (it waits as `a browser`), never cut; a
+   `devices.json` that cannot be read at a start freezes the table as one that does not decode.
 3. **Approval, once, from a trusted interface** (§15 A2). An unknown device's page gets the waiting screen only:
    `pending{code}`, a short code in an unambiguous alphabet. A pending row with the same code and the tailnet name or
    the address appears on every full interface; he picks the row and a level (no typing), or denies it (`end{denied}`).
@@ -596,7 +629,10 @@ nothing guards read-only, low-value content, and no new account, token or step i
    an HttpOnly cookie; no `Secure` over plain HTTP), re-set on each visit so it never reaches Chromium's 400-day cap. A
    pending request lives while its connection is open — no cap, no queue, no timer (not a Bluetooth, render or input
    path, so the no-timeouts rule does not reach it). A Kotlin peer keeps its credential in its preferences, never in the
-   build. **The first approval** comes from the command line or the companion (item 6).
+   build. **The first approval** comes from the command line or the companion (item 6). As built (S1-1): the device
+   row is written when the claim is redeemed, and approval keeps only the claim's hash; the redemption is `POST
+   /pair/claim` and needs the PC's own Origin; an approval while the device table cannot be written (frozen at a start)
+   is refused with that reason.
 4. **Levels.** `view` reads, with the reading effects (§4.2); `control` adds reversible and irreversible actions inside
    Damage, "send to" and "continue here"; `full` adds Tmux, Files, Feed's fetches, guarded bus actions and anything that
    reaches outside (§15 A2). His phone and PC are full. A window's description and each live source carry a minimum
@@ -613,19 +649,26 @@ nothing guards read-only, low-value content, and no new account, token or step i
    his browser could otherwise open a WebSocket to the PC; CORS does not cover WebSockets — inferred), and the device
    secret must be present — reads, subscriptions, blobs and the upgrade included. Then, on every listener, the PC checks
    every op, subscription, live attach and blob against the device's level or fixed set at apply time and answers
-   `Refused` with the reason; a client's dim is a courtesy, never the check.
+   `Refused` with the reason; a client's dim is a courtesy, never the check. As built (S1-1): `Host` is one of the
+   configured names (`webHosts`), this machine's own name, `localhost`, or the arriving address, with the listener's
+   port; `Origin` exactly `http://` + that Host.
 6. **The local secret**, a file readable only by his user and written by the service, authorizes the companion and the
-   `damage` command line on loopback as device `local`, level full; loopback alone is not trusted. It keeps other users
+   `damage` command line on loopback as device `local`, level full, in the content hello's `local` field, taken on a
+   loopback arrival only; loopback alone is not trusted. It keeps other users
    out and nothing more.
 7. **The helper's endpoint** is loopback only: it checks `Host` as item 5 does, refuses any request carrying an `Origin`
    header, and takes the per-run bearer the service writes into the helper's MCP config only in a header. The service
    refuses the helper unless the CLI's stream-json start event lists only the list operations as its tools (H-01).
 8. **Revocation** deletes the secret's hash and closes the device's connections with the reason (`end{revoked}`; the
    page says "this device was removed — approve it again"); its unsent ops are refused; a revoked phone keeps its copy
-   and sends nothing. A re-approval from a device already listed offers to replace its old row (`end{replaced}`).
+   and sends nothing. A re-approval from a device already listed offers to replace its old row (`end{replaced}`). As
+   built (S1-1): replace = a waiting page naming the device id it remembers (`replaces`); a level change is a
+   re-approval; a connection whose welcome comes after its device was revoked, or approved again (a new secret for the
+   same row), is ended at the welcome (`end{revoked}`, `end{replaced}`).
 9. **Listeners.** Every PC listener is bound or gated to loopback, the tailnet and the bus network, every phone listener
    to loopback and the tailnet (§15 A1); a gate checks the arriving interface before reading a byte (the setup page's
-   pattern, `D/SetupServer.kt:21-33`) and journals a refusal. **Built in W (APK 0.66, `HANDOFF.md` §79) for today's
+   pattern, `D/SetupServer.kt:21-33`) and journals a refusal; every socket the web listener holds has TCP keepalive.
+   **Built in W (APK 0.66, `HANDOFF.md` §79) for today's
    listeners on both hosts:** one gate (`core/…/net/ReachGate.kt`) on the accepted socket, a refusal closed unread and
    said once per source per minute (`reach` notes on the PC); `reachOpen` turns it off on the PC; its three known gaps
    are in `Reach`'s KDoc. The shared token stays on every path it gates today — nothing is rotated and no tool changes;
@@ -638,7 +681,7 @@ nothing guards read-only, low-value content, and no new account, token or step i
 | the setup page | PC | the gate's reach first, then its own tailnet-or-loopback check, as today | none for the page; the shared token on its APK route, as today |
 | the browser replica, with its input, probe, journal and log routes | PC and phone | the host's reach | the shared token, as today (the tools carry it unchanged) |
 | the transport seam and its status probe | phone | loopback, tailnet | the shared token, as today |
-| the web interface: pages, WebSocket, blobs (new) | PC | loopback, tailnet, bus network | the device secret (items 1–5) |
+| the web interface: pages, WebSocket, blobs (built in S1-1: port 7405, `webPort`) | PC | loopback, tailnet, bus network | the device secret (items 1–5) |
 | the helper's endpoint (new) | PC | loopback | the per-run bearer (item 7) |
 
 ## 11. The glasses in step S1
@@ -722,7 +765,7 @@ glasses-scope (§6).
 |---|---|---|---|---|---|
 | **Main** | PC; working copy; away: the working copies' summaries and the PC windows' last ones with their ages — today's "unavailable offline" becomes the last state with its age, his ruling (§14.3 #2), not a regression | one collection: item `{window id, name, icon, summary, attention, availability}`, plus the Reminders headline (`INTERFACES.md` W-28); cursor = window id (an index today, `S/Shell.kt:6262`) | open (v) | Presence, rest, lens (glasses) | — |
 | **Settings** | PC; working copy; away: every row | categories → rows → adjust (staging per interface); anchors `cat:`, `row:` | set a row (r, C; ⏸ for shared and glasses rows; device rows stay local); action rows become actions | — | — |
-| **Reader** | PC, which parses books to serve blocks and percent (it serves bytes only today, `C/content/Content.kt:270-307`); working copy with the whole shelf; away: full | shelf (folders nest) → chapters → book (document) → actions; book `{id, title, author, bytes, folder, fraction}`, folder, chapter `{title, anchor}` | open (v; sets the book read most recently), the place (r, C, ⏸, position; written only by input), bookmark here (r, ⏸; it gains a book id, `W/reader/ReaderWindow.kt:147,864-868`), jump (v), rescan (r), reset progress (i, C, ⏸, cancel first as built) | Scroll step, Scroll accel, Size (glasses) | answers only |
+| **Reader** | PC, which parses books to serve blocks and percent (it serves bytes only today, `C/content/Content.kt:270-307`); working copy with the whole shelf; away: full | shelf (folders nest) → chapters → book (document) → actions; book `{id, title, author, bytes, folder, fraction}`, folder, chapter `{title, anchor}`; as built (S1-1), the PC's reader index (`reader-index.json`, a cache read one book at a time with no image bytes) gives each card its `fraction` and `cover`, and the book's level its chapters `{title, anchor}` | open (v; sets the book read most recently), the place (r, ⏸, position, level view as built; written only by input), bookmark here (r, C as built, ⏸; it gains a book id, `W/reader/ReaderWindow.kt:147,864-868`), jump (v), rescan (r), reset progress (i, C, ⏸, cancel first as built) | Scroll step, Scroll accel, Size (glasses) | answers only |
 | **Tmux** | PC; **min F** (§15 A2); mirror (the session list and each session's last frame, on disk); away: last state with age, keys dim, a mute applies and queues | sessions → live (terminal) ⇄ history → keys · snippets · windows · session actions; session `{host, name, windows, attached, activity, waiting, lastLine}`, window `{idx, name, active, bell}` | all F: quick key (l, unconfirmed as built; under an alert it carries the occurrence, §2.4), snippet (l, unconfirmed as built), typed line (l, confirm), raw keys (l, keyboard interfaces, §15 B4), new session (i), rename (i, text, confirm), select window and fit pane (r: they change tmux for every attached client, and the same action undoes them), end session (i, confirm, cancel at rest), mute (r, ⏸) | Alerts (shared), Update (device: a requested pace, §8), Context rows, Size (glasses) | the alert edge, raised once on the PC by the status poll that runs with no viewer, thread `host/session`, gated by Alerts and the mute set; it survives a disconnect (lost today, `W/tmux/TmuxNet.kt:124-126`); "<host> quiet" as a value (§8) |
 | **Files** | PC; **min F** (§10.4); mirror (today's ≤200 listings); away: cached with age; the clipboard, sort and hidden apply and queue | locations → browse (paged) → view (document, or images) · trash; location `{path, label, kind, total, free}`, entry `{name, dir, size, mtime}`, trash entry `{id, name, origPath, size, at}` | open, open in Reader (v; answers an address), open on the desk (send-to the companion), copy and cut (r, ⏸; the clipboard is shared), sort and hidden (r, ⏸; shared, `INTERFACES.md` §3), paste, rename, new folder, upload (jobs), to trash and restore (r), delete forever (i, double confirm), download (v), stats (a job); one job at a time per PC, with progress (today one per window instance, `W/files/FilesWindow.kt:98-100`) | Size (glasses) | answers |
 | **Torrents** | PC; mirror (the cached snapshot); away: snapshot with age, actions dim, its recents apply and queue | transfers (cursor follows the hash) → details · categories → listing (paged, count unknown) → torrent page (NFO mono) → add; transfer (23 typed fields, `W/torrents/TorrentsModel.kt:13-57`), tracker item, category, file | start, stop, recheck (r, C, many), delete keeping files (i, C, confirm), delete with files (i, F, double), search, browse, account (o, F; search unconfirmed, its recorded exemption, `TORRENTS.md` §3.1), add, add stopped (o, F, confirm), open in Files (v; dim below full), open on the desk (r, F; send-to; full because it opens a file with the desktop's own opener); a fast poll for any `focus` viewer, and in S1 the idle snapshots go on feeding the speed sparkline (§8) | Notify · done, · errors (shared), Poll (device), Size (glasses) | done and error, raised once on the PC, thread = hash; the torrent client's reach as a value (§8) |
@@ -781,27 +824,27 @@ succeeds · (c) the guard's identity · (d) other tasks reaching it · (e) one r
 
 | new piece | (a) | (b) | (c) | (d) | (e) | (f) |
 |---|---|---|---|---|---|---|
-| op queue (phone) | no session, lease or link end clears it; an op leaves only on its answer or when `welcome`'s high-water covers it; a lost store means a new stream, said | resent from the oldest unanswered on each `welcome`; no timer | `(device, stream, n)`; a new stream starts at 1 and cannot collide | the presenter paints, the writer thread appends, the wire task sends only landed lines | the next `n` read once per op | a page's stream (no file); the helper's run stream; the PC's journal |
-| operation journal (PC) | survives restarts; a whole save of the store covers its lines, which are then dropped; an incomplete last line at a start → a new epoch | a failed append: the op is neither answered nor published, the failure is said (log, state line, built-in alert), and the client's resend retries it | `(stream, n)` and `seq`, in the line | the core executor alone appends; the saver reads on pacing | one append per op | the phone's queue file; the sequence file; the alert store |
+| op queue (phone) | no session, lease or link end clears it; an op leaves only on its answer or when `welcome`'s high-water covers it; a lost store means a new stream, said | resent from the oldest unanswered on each `welcome`; no timer; as built, after `Refused(retry)` the head goes again at the next paced ping, `contract` holds the stream until the next `welcome`, and a PC whose high-water is below the oldest op held (a restored record) gets the waiting ops in a new stream, said; a loss is kept with the copy (saved) until a presenter has said it, and handed to each presenter meanwhile — a stack rebuild or a process end hands it again (a second saying after a process end is accepted); an op the high-water covers is read against the PC's not-applied mark in the state that follows; a refusal for good with no presenter is journaled | `(device, stream, n)`; a new stream starts at 1 and cannot collide | the presenter paints, the writer thread appends, the wire task sends only landed lines | the next `n` read once per op | a page's stream (no file); the helper's run stream; the PC's journal |
+| operation journal (PC) | survives restarts; a whole save of the store covers its lines, and a start replays only the lines past it (as built, the log is set aside whole at a start past 64 MiB or with a bad line, never deleted); an incomplete last line at a start → a new epoch | a failed append answers the op `Refused(retry)`, leaves no line and publishes nothing; the failure is said (log, `record` journal note, built-in alert `record.log`), and the client resends the same op | `(stream, n)` and `seq`, in the line | the core executor alone appends; the saver reads on pacing | one append per op | the phone's queue file; the sequence file; the alert store |
 | per-stream high-water | lives as long as its stream's record (below) | written in the op's journal line, so it lands with the op or not at all | `(device, stream)` | the executor writes; `welcome` reads | once per op; once per `welcome` | the answer record; the gap check |
 | interface rows and per-stream answer records | one per browser profile, interface and helper run; dropped on the device's revocation, or when a client's `hello` says it closed its old stream | — | `(device, iface)`, `(device, stream)` | the executor | once per `hello` | the glasses' row on the driving device |
-| working copy | survives APK restarts and stack rebuilds on disk; a new epoch → fresh snapshot, pending ops kept | §2.3 step 3 on every answer or change | item id + `rev`/`by` | the core executor only; rebuilds computed off it and swapped in whole; presenters read immutable snapshots | one snapshot per paint | every window's own records; the away list whole; the mirrors |
+| working copy | survives APK restarts and stack rebuilds on disk; a new epoch → fresh snapshot, pending ops kept (as built, ops expecting a revision leave at the new epoch's `welcome` and are answered as lost with the new snapshot's standing value) | §2.3 step 3 on every answer or change | item id + `rev`/`by` | the core executor only; rebuilds computed off it and swapped in whole; presenters read immutable snapshots | one snapshot per paint | every window's own records; the away list whole; the mirrors |
 | cursors: `(epoch, seq)`, a source's `version`, the notice cursor | persisted beside the copy; moved only by a later change or a snapshot | a resume outside the ring, or a moved version, falls back to a snapshot | the store's epoch, not a process start (§9.3); the notice cursor apart, so source churn never decides whether a notice pops | the wire's read task | once per `sub` | every client: pages, phone, companion |
-| PC record and `seq` | survives restarts; a new epoch per §9.3 | a failed save is said and retried on the next pacing tick; the journal holds what it has not covered | `rec.<window>.<item>` | the saver reads the journal; the wire reads published snapshots | once per op | the change ring; the answer record |
+| PC record and `seq` | survives restarts; a new epoch per §9.3 | a failed save is said and retried on the next pacing tick; the journal holds what it has not covered; as built, a start whose log does not open or replay saves nothing and answers every op `retry`, its alert saying changes are refused until the service is restarted, and while the log is closed the lane refuses a subscription to the record or a window's scope with the reason (the PC's own pages still served); a start with no readable `record.json` replays the logs set aside beside it first, oldest first, and raises `record.replay`; an unreadable `record.json` is kept as `.bad`, `.bad.2`, … | `rec.<window>.<item>` | the saver reads the journal; the wire reads published snapshots | once per op | the change ring; the answer record |
 | sequence file | never cleared; outside the nightly copy; missing at a start → a new epoch | written by the journal's writer before a change is published; a failed write stops publishing, said | the highest `seq` published | the journal's writer alone | read once at a start | the alert store's epoch |
-| contract version per window | changes only with a deploy or an install; compared at every `hello` | a mismatch is said on Main and the window's status line until both match; no timer | `(window, version)` | the hello task; the executor reads the result | once per `hello` | the bundle's `protoRange`; the old sync keys of unconverted windows |
-| approval request | its connection's end, approve, deny | none: a person approves | the code shown on both screens | the web listener's threads; the device table under one lock | once per approval | the command line's approve; tailnet and bus-network arrivals alike |
+| contract version per window | changes only with a deploy or an install; compared at every `hello` | a mismatch is said on Main and the window's status line until both match; no timer; as built, the PC refuses a mismatched window's subscription and ops (`contract`: no number taken; the op waits) and leaves it out of the `record` scope | `(window, version)` | the hello task; the executor reads the result | once per `hello` | the bundle's `protoRange`; the old sync keys of unconverted windows |
+| approval request | its connection's end, approve, deny | none: a person approves; as built, a failed write of the table undoes the change and answers the caller, and a bad file is set aside, or the table frozen | the code shown on both screens | the web listener's threads; the device table under one lock | once per approval | the command line's approve; tailnet and bus-network arrivals alike |
 | claim value | single use: void once redeemed, or when its waiting connection ends unredeemed (the approval is then dropped and the page asks again) | none: the page redeems it once | the claim, stored as its hash | the web listener's threads, under the device table's lock | once per redemption | the cookie it sets; the Kotlin peers' credentials |
 | per-device secret | revocation or replacement only; the cookie re-set on each visit | — | its hash; constant-time compare | every request thread of the web listener | once per request | the cookie, the blob routes |
 | minimum level and the level check | carried by each description and live source; changes only with a build | — | the device's level or set against the window's and the source's minimum | the executor (ops); the wire tasks (subscriptions, attaches, blobs) | the device's level read once per request | op, subscription, live attach, blob; send-to targets; the TV's set |
 | confirm request (guarded) | confirmed or cancelled on any screen, or withdrawn by its requester; not kept across a PC restart (its requester is answered "not confirmed"); void on the showing screen's connection end | none: a person confirms; a hub script that never shows its effect stays "sent · waiting" (§4.4) | `(request id, allowlist entry)`, worded on the PC | the executor; every full screen shows it | the target's state read once when shown, with its age | a tap's request, the command line's, the helper's |
-| paced ping | per connection; a new connection starts a new count | a ping unanswered when the next is due marks the PC out of reach; the next answer clears it | `(conn, k)` | the wire task alone | one decision per pacing tick | every client; the phone's reminder rule does not depend on it (§7.4) |
+| paced ping | per connection; a new connection starts a new count | a ping unanswered when the next is due marks the PC out of reach; the next answer clears it (as built, a fresh `welcome` is an answer; the pong is answered through the core executor) | `(conn, k)` | the wire task alone | one decision per pacing tick | every client; the phone's reminder rule does not depend on it (§7.4) |
 | send-to instruction | applied, refused, or its target not connected (refused, said) | answered from the target's report naming the last instruction applied | `(target iface, id)` | the target's input queue alone applies it | once | continue here; the glasses' row |
 | notice record | `DISMISSED`, `ACKED`, `CLEARED`; history to day files; occurrences persist across restarts | a record an interface did not show is in its next snapshot | `(id, occurrence)`; a stale occurrence is a no-op; a repeat is the same occurrence | cores raise, interfaces dismiss and acknowledge from input — all through the executor | once per decision | phone-origin records, Android tags, desktop notification ids, the TV takeover |
 | viewer count | its view's end or its connection's end | the paced ping unanswered when the next is due ends the connection | `(iface, view, src)` | the wire's tasks register; the source reads the maximum | the pace read once per tick | Tmux frames, Torrents poll, the music position, the TV's glance |
 | Games lease | moved only by "continue here" | an absent holder's hands after a take are refused, said (its confirm said so) | `(table, holder)`, `actionCount` | the holder's executor alone advances the table and the economy | once per decision | the bankroll, world and character records the engine writes |
 | page bundle cache | replaced whole after a complete swap | a failed fetch keeps the running set, said | `hash` | the app's fetch task; the WebView reads only a complete set | once per `welcome` | the APK's fallback set |
-| local secret file | written by the service at its first start, created readable only by his user in one step; rewritten only by an explicit command; deleted under a running companion → its next `hello` is refused, said in its menu, and the service writes a new one at its next start | — | the file's contents, compared in constant time | the service writes; the companion and the command line read | once per connection | the helper's bearer |
+| local secret file | written by the service at its first start, created readable only by his user in one step; a file another user could read is refused (said), never rewritten; rewritten only by an explicit command (none built in S1-1); deleted under a running companion → its next `hello` is refused, said in its menu, and the service writes a new one at its next start | — | the file's contents, compared in constant time | the service writes; the companion and the command line read | once per connection | the helper's bearer |
 | helper's bearer | one per run; cleared (its file removed, its hash dropped) when the run ends; only the current run's is accepted | — | the bearer, compared in constant time, in a header only | the service writes; the endpoint reads | once per request | the local secret |
 
 ## 14. Decisions

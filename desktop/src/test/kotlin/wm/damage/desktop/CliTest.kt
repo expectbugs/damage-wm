@@ -3,6 +3,7 @@ package wm.damage.desktop
 import java.io.ByteArrayOutputStream
 import java.io.PrintStream
 import kotlin.test.Test
+import wm.damage.core.app.DeviceCli
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
@@ -146,6 +147,40 @@ class CliTest {
         val r = run("--snapshot", "out")
         assertEquals(listOf<Cli.Run>(Cli.Snapshot("out")), r.started)
         assertEquals(0, r.code)
+    }
+
+    /** Build S1-1 P6 (dec. A.6): a device command is a client call with its values, its own exit status and nothing
+     *  started; a missing value, a level that is not one, or a device command beside anything else is refused. */
+    @Test
+    fun theDeviceCommandsAreClientCallsThatStartNothing() {
+        assertEquals<Cli>(Cli.Client(DeviceCli.Command.List), parse("--devices"))
+        assertEquals<Cli>(Cli.Client(DeviceCli.Command.Approve("K7P4MX", "full")), parse("--approve", "K7P4MX", "full"))
+        assertEquals<Cli>(Cli.Client(DeviceCli.Command.Deny("K7P4MX")), parse("--deny", "K7P4MX"))
+        assertEquals<Cli>(Cli.Client(DeviceCli.Command.Revoke("web-3fa2c1")), parse("--revoke", "web-3fa2c1"))
+        assertTrue(refused("--approve", "K7P4MX").contains("LEVEL"))
+        assertTrue(refused("--approve", "K7P4MX", "admin").contains("not view, control or full"))
+        assertTrue(refused("--approve").contains("CODE"))
+        assertTrue(refused("--deny").contains("CODE"))
+        assertTrue(refused("--revoke").contains("ID"))
+        refused("--devices", "--selfcheck")
+        refused("--selfcheck", "--devices")
+        refused("--devices", "--sim")
+        refused("--devices", "--no-preview")
+        refused("--devices", "--deny", "K7P4MX")
+        refused("--approve", "K7P4MX", "full", "extra")
+        // runCli hands it to its client and returns the client's status; start is never called
+        val out = java.io.ByteArrayOutputStream()
+        val handed = ArrayList<Cli.Client>()
+        val started = ArrayList<Cli.Run>()
+        val code = runCli(arrayOf("--deny", "K7P4MX"), PrintStream(out, true), PrintStream(out, true),
+            client = { handed += it; 1 }) { started += it }
+        assertEquals(1, code)
+        assertEquals(listOf(Cli.Client(DeviceCli.Command.Deny("K7P4MX"))), handed)
+        assertTrue(started.isEmpty())
+        // without a client (as in every other test here) nothing is called
+        val r = run("--devices")
+        assertEquals(CLI_REFUSED, r.code)
+        assertTrue(r.started.isEmpty())
     }
 
     @Test

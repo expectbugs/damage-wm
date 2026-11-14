@@ -1,0 +1,21 @@
+# The web client's files (build S1-1; CONTRACT.md §9.5): one path per line, relative to this folder. The PC serves
+# exactly these and hashes them into the bundle's `hash`; BundleTest checks that every file a page references is here.
+index.html
+style.css
+icon.svg
+js/app.mjs
+js/address.mjs
+js/anchor.mjs
+js/confirm.mjs
+js/conn.mjs
+js/dom.mjs
+js/focus.mjs
+js/proto.mjs
+js/reader-model.mjs
+js/record.mjs
+js/stream.mjs
+js/views/devices.mjs
+js/views/diag.mjs
+js/views/home.mjs
+js/views/reader.mjs
+js/views/settings.mjs

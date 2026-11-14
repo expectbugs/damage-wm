@@ -131,4 +131,14 @@ class RuleParseTest {
             dir.toFile().deleteRecursively()
         }
     }
+
+    /** Build S1-1, dec. D.2: `record.` is the PC record's prefix, as `watcher.` is the watcher's; a near name is not. */
+    @Test
+    fun theRecordsPrefixIsRefusedToo() {
+        val load = RulesFile.parse("""{"rules":[
+            {"id":"record.log","entity":"sensor.fresh_tank","kind":"unavailable","forMin":5,"text":"x"},
+            {"id":"recorder_on","entity":"sensor.fresh_tank","kind":"unavailable","forMin":5,"text":"y"}]}""")
+        assertEquals(listOf("record.log"), load.refused.map { it.id })
+        assertEquals(listOf("recorder_on"), load.rules.map { it.id })
+    }
 }
