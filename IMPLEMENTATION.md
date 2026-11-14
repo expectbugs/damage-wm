@@ -370,8 +370,10 @@ lead's decisions; `CONTRACT.md` §7, §11.2; `BASTION.md` F13). Rules and the co
 - **Presence, `damage.phone`** (`home` · `away` · `unknown`, usable only in a `when`). On the PC (`PhonePresence`, both
   host builders): once a minute `tailscale status --json` (a local command through `Exec`, one at a time, never
   waited on) for the configured phone's peer — the path signal is `home` when direct to a private address on one of
-  the PC's non-point-to-point networks, `away` after 15 minutes relayed or public, `unknown` otherwise (an idle peer
-  included). The phone's report rides each `table` ask (`presence {word, fixAgeMs}`; none, `unknown` or older than 2 min
+  the PC's non-point-to-point networks, or (ruling R3.1) to any other private address (10/8, 172.16/12, 192.168/16,
+  fc00::/7, fe80::/10) outside its point-to-point interfaces' networks: the bus's second network is routed from the PC,
+  a tunnel's range is not the bus; `away` after 15 minutes relayed or public, `unknown` otherwise (an idle peer, a
+  tunnel's range and the tailnet's own ranges included). The phone's report rides each `table` ask (`presence {word, fixAgeMs}`; none, `unknown` or older than 2 min
   counts as no report); each answer carries `bus` (the path signal alone). Combined: `home` if either says home; `away`
   if the phone says away, or with no report the path far for 15 minutes; else `unknown`. Each change is one log line
   and, under `runShell`, a `presence` note saying which signal decided; the lines carry no address or port.

@@ -781,8 +781,8 @@
   "file": "bastion/PhonePresence.kt",
   "edits": [
    [
-    "val net = nets.firstOrNull { inNet(a, it) }",
-    "val net = nets.firstOrNull()"
+    "val net = nets.firstOrNull { !it.pointToPoint && inNet(a, it) }",
+    "val net = nets.firstOrNull { !it.pointToPoint }"
    ]
   ],
   "tests": [
@@ -791,7 +791,7 @@
   "expect": [
    "theStatusReadDecidesThePath"
   ],
-  "note": "dec. F.3: home only when the path address is inside one of the PC's (up, not point-to-point) networks"
+  "note": "dec. F.3, kept by R3.1: 'on the network of <iface>' only when the path address is inside one of the PC's (up, not point-to-point) networks; mutated, a private address off them reads 'on the network of' the first one, not 'routed from this PC'"
  },
  {
   "id": "E14-two-status-reads-at-once",
@@ -1685,8 +1685,8 @@
   "file": "bastion/PhonePresence.kt",
   "edits": [
    [
-    "if (net != null) PathRead(PathKind.HOME, \"direct, on the network of ${net.iface}\")",
-    "if (net != null) PathRead(PathKind.HOME, \"direct, on the network of ${net.iface}\", \"direct, $cur on the network of ${net.iface}\")"
+    "net != null -> PathRead(PathKind.HOME, \"direct, on the network of ${net.iface}\")",
+    "net != null -> PathRead(PathKind.HOME, \"direct, on the network of ${net.iface}\", \"direct, $cur on the network of ${net.iface}\")"
    ]
   ],
   "tests": [
@@ -1719,8 +1719,8 @@
   "file": "bastion/PhonePresence.kt",
   "edits": [
    [
-    "else PathRead(PathKind.NONE, \"direct to a private address on no network of this PC\")",
-    "else PathRead(PathKind.NONE, \"direct to a private address on no network of this PC\", \"direct, $cur: a private address on no network of this PC's\")"
+    "routedPrivate(a) -> PathRead(PathKind.HOME, \"direct, to a private address routed from this PC\")",
+    "routedPrivate(a) -> PathRead(PathKind.HOME, \"direct, to a private address routed from this PC\", \"direct, $cur: a private address routed from this PC\")"
    ]
   ],
   "tests": [
@@ -1729,7 +1729,7 @@
   "expect": [
    "noPathAddressOrPortInTheLogTheJournalOrTheStateLine"
   ],
-  "note": "fix round 2 (R2.3): no path address or port in the PC's log, the journal's change line or the state line — the private address on no network of this PC (that case says exactly so, no address)"
+  "note": "fix round 2 (R2.3): no path address or port in the PC's log, the journal's change line or the state line — the private address on no network of this PC, home since R3.1 ('routed from this PC', no address)"
  },
  {
   "id": "R2.3d-another-class-of-address-said",
@@ -1781,6 +1781,144 @@
    "noPathAddressOrPortInTheLogTheJournalOrTheStateLine"
   ],
   "note": "fix round 2 (R2.3): no path address or port in the PC's log, the journal's change line or the state line — the peer relay's address and port"
+ },
+ {
+  "id": "R3.1a-a-tunnel-network-taken-for-the-pcs",
+  "file": "bastion/PhonePresence.kt",
+  "edits": [
+   [
+    "val net = nets.firstOrNull { !it.pointToPoint && inNet(a, it) }",
+    "val net = nets.firstOrNull { inNet(a, it) }"
+   ]
+  ],
+  "tests": [
+   "*PhonePresenceTest.theStatusReadDecidesThePath"
+  ],
+  "expect": [
+   "theStatusReadDecidesThePath"
+  ],
+  "note": "R3.1: the PC's own network is a non-point-to-point interface's; mutated, a private address in a tunnel's network reads home 'on the network of' the tunnel"
+ },
+ {
+  "id": "R3.1b-the-tunnel-exclusion-skipped",
+  "file": "bastion/PhonePresence.kt",
+  "edits": [
+   [
+    "tunnel != null -> PathRead(PathKind.NONE,",
+    "tunnel != null && false -> PathRead(PathKind.NONE,"
+   ]
+  ],
+  "tests": [
+   "*PhonePresenceTest.theStatusReadDecidesThePath"
+  ],
+  "expect": [
+   "theStatusReadDecidesThePath"
+  ],
+  "note": "R3.1: a private address inside a point-to-point interface's network is a tunnel, not the bus, and reads unknown; mutated, it reads home as routed from this PC"
+ },
+ {
+  "id": "R3.1c-an-off-network-private-address-not-home",
+  "file": "bastion/PhonePresence.kt",
+  "edits": [
+   [
+    "routedPrivate(a) -> PathRead(PathKind.HOME,",
+    "false -> PathRead(PathKind.HOME,"
+   ]
+  ],
+  "tests": [
+   "*PhonePresenceTest.theStatusReadDecidesThePath",
+   "*PhonePresenceTest.aPathAlternatingBetweenTheBusNetworksStaysHome"
+  ],
+  "expect": [
+   "theStatusReadDecidesThePath",
+   "aPathAlternatingBetweenTheBusNetworksStaysHome"
+  ],
+  "note": "R3.1 (dec. F.3's rule back): a private address routed from the PC is home; mutated, the bus's second network reads unknown and the alternating path flips damage.phone and the bus word"
+ },
+ {
+  "id": "R3.1d-a-private-class-outside-the-list-home",
+  "file": "bastion/PhonePresence.kt",
+  "edits": [
+   [
+    "routedPrivate(a) -> PathRead(PathKind.HOME,",
+    "true -> PathRead(PathKind.HOME,"
+   ]
+  ],
+  "tests": [
+   "*PhonePresenceTest.theStatusReadDecidesThePath"
+  ],
+  "expect": [
+   "theStatusReadDecidesThePath"
+  ],
+  "note": "R3.1's list: an IPv4 link-local or old IPv6 site-local address on no network of the PC's is not one of its ranges; mutated, it reads home"
+ },
+ {
+  "id": "R3.1e-the-exclusion-before-the-pcs-network",
+  "file": "bastion/PhonePresence.kt",
+  "edits": [
+   [
+    "net != null -> PathRead(PathKind.HOME,",
+    "net != null && tunnel == null -> PathRead(PathKind.HOME,"
+   ]
+  ],
+  "tests": [
+   "*PhonePresenceTest.theStatusReadDecidesThePath"
+  ],
+  "expect": [
+   "theStatusReadDecidesThePath"
+  ],
+  "note": "R3.1's order: the PC's own network is decided first; mutated, a link-local path (every interface's fe80::/64, a tunnel's too) reads as the tunnel's"
+ },
+ {
+  "id": "R3.1f-interface-nets-marks-no-tunnel",
+  "file": "bastion/PhonePresence.kt",
+  "edits": [
+   [
+    "out += LocalNet(ni.name, a, prefix, p2p)",
+    "out += LocalNet(ni.name, a, prefix, false)"
+   ]
+  ],
+  "tests": [
+   "*PhonePresenceTest"
+  ],
+  "expect": [
+   "<no pin: interfaceNets reads the JVM's real interface list, which no test supplies; the classifier's use of the mark is pinned by R3.1a and R3.1b>"
+  ],
+  "note": "R3.1: the real provider marks a point-to-point interface's networks; mutated, a tunnel's range is the PC's own network on the service (named in W-R3-built.md)"
+ },
+ {
+  "id": "R2.3g-the-tunnel-path-address-said",
+  "file": "bastion/PhonePresence.kt",
+  "edits": [
+   [
+    "\"direct to a private address on the network of ${tunnel.iface}, a point-to-point interface: a tunnel, not the bus\")",
+    "\"direct to a private address on the network of ${tunnel.iface}, a point-to-point interface: a tunnel, not the bus\", \"direct, $cur in the network of ${tunnel.iface}\")"
+   ]
+  ],
+  "tests": [
+   "*PhonePresenceTest.noPathAddressOrPortInTheLogTheJournalOrTheStateLine"
+  ],
+  "expect": [
+   "noPathAddressOrPortInTheLogTheJournalOrTheStateLine"
+  ],
+  "note": "R2.3 over R3.1's new words: no path address or port in any line — a private address in a tunnel's network"
+ },
+ {
+  "id": "R2.3h-the-unlisted-private-address-said",
+  "file": "bastion/PhonePresence.kt",
+  "edits": [
+   [
+    "else -> PathRead(PathKind.NONE, \"direct to an IPv4 link-local or old IPv6 site-local address on no network of this PC\")",
+    "else -> PathRead(PathKind.NONE, \"direct to an IPv4 link-local or old IPv6 site-local address on no network of this PC\", \"direct, $cur on no network of this PC\")"
+   ]
+  ],
+  "tests": [
+   "*PhonePresenceTest.noPathAddressOrPortInTheLogTheJournalOrTheStateLine"
+  ],
+  "expect": [
+   "noPathAddressOrPortInTheLogTheJournalOrTheStateLine"
+  ],
+  "note": "R2.3 over R3.1's new words: no path address or port in any line — an IPv4 link-local address on no network of this PC"
  },
  {
   "id": "V3-D1a-the-confirm-age-read-at-the-answer",

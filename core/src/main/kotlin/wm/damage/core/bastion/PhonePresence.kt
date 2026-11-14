@@ -33,21 +33,35 @@ import wm.damage.core.util.Log
  * Once a minute ([PERIOD_MS]) the PC reads its own Tailscale daemon's status (`tailscale status
  * --json`: a local read over the daemon's own socket; no request leaves the PC) and finds the peer
  * whose tailnet address is the configured phone's (`phoneHost`; a MagicDNS short name is matched to
- * the peer's DNS name). The connection path decides ([read]):
- * - `home`: the peer is online and active and its current path is DIRECT to a private address inside
- *   the network of one of the PC's interfaces that is up and not point-to-point (the phone is on the
- *   bus network);
+ * the peer's DNS name). The connection path decides ([read]; ruling R3.1 of 2026-11-13 replaces dec.
+ * F.3's home rule):
+ * - `home`: the peer is online and active and its current path is DIRECT to (a) an address inside the
+ *   network of one of the PC's interfaces that is up, not loopback and not point-to-point ("direct,
+ *   on the network of <iface>"), or (b) any other private address — IPv4 10/8, 172.16/12, 192.168/16;
+ *   IPv6 unique-local fc00::/7 or link-local fe80::/10 — that is NOT inside the network of one of the
+ *   PC's point-to-point interfaces ("direct, to a private address routed from this PC"). (a) is
+ *   decided first, so an address inside both kinds of network (every interface's fe80::/64) is (a);
  * - `away`: the peer is online and active and its path is relayed or direct to a public address, and
  *   has been for [AWAY_HOLD_MS] (15 minutes);
  * - `unknown` otherwise: the command missing or failing, the daemon not running, the peer absent,
  *   offline or idle (an idle peer has no current path: the CLI itself names a path only for an active
- *   one), a private path address on no network of the PC's, a path that just changed, or a read still
- *   running. `unknown` never arms a guard (it is no reading, [RuleEval]).
+ *   one), a private address inside a point-to-point interface's network (a tunnel with a private range
+ *   is not the bus), an IPv4 link-local or old IPv6 site-local address on no network of the PC's (not
+ *   in R3.1's list), an address in the tailnet's own ranges (100.64/10 is not private here), a path
+ *   that just changed, or a read still running. `unknown` never arms a guard (it is no reading,
+ *   [RuleEval]).
  *
- * That a phone on the bus network shows a private path address is INFERRED (dec. F.3): the lead reads
- * the log for it once with Adam home before a rule guarded on `damage.phone` is switched on. Every
- * change of the value is one log line and one [say] line (the journal's `presence` note on the
- * service); a change of the path that does not change the value is one log line.
+ * Measured (R3, 2026-11-13, grade M): at the bus the phone's direct path alternates, minute to minute,
+ * between a private address on the PC's own network and one on a second private network that routes to
+ * the PC (two networks at the bus, one behind the other); under dec. F.3 the second read `unknown`, so
+ * (b) counts it. That (b) opens no false `home` is REASONED, not measured: a direct path needs the PC's
+ * packets to reach the phone's own address with no address translation toward the phone, and the PC
+ * never leaves the bus, so a private address answers from the PC only on a network routed from the bus's
+ * own router (the bus's networks, or the private network the bus is plugged into at a site); a phone on
+ * some other private network cannot answer there, and another device at the same address cannot complete
+ * the daemon's authenticated handshake. Every change of the value is one log line and one [say] line
+ * (the journal's `presence` note on the service); a change of the path that does not change the value is
+ * one log line.
  *
  * **Liveness as the hub's requests, no timeout:** the command runs on its own coroutine; a tick that
  * finds a read still running skips, says so, and counts as no reading (the value goes `unknown`);
@@ -65,15 +79,17 @@ class PhonePresence(
     /** Runs the status read and returns its standard output; throws when it cannot run or fails ([runTailscale]
      *  on the PC; a stand-in returning fixture JSON in tests — the real command is never run by a test). */
     private val status: () -> String,
-    /** The PC's networks that can be the bus network ([interfaceNets]). */
+    /** The PC's networks ([interfaceNets]): those of its up, non-loopback interfaces, a point-to-point one marked
+     *  (R3.1: the networks that can be the bus's, and the tunnels' networks that are excluded from it). */
     private val localNets: () -> List<LocalNet>,
     private val scope: CoroutineScope,
     private val clock: () -> Long = { System.currentTimeMillis() },
     /** One line per change of the value (the service writes it to the journal; host-only has no journal). */
     private val say: (String) -> Unit = {},
 ) {
-    /** One network of the PC: an interface that is up and not point-to-point, an address on it and its prefix. */
-    class LocalNet(val iface: String, val addr: ByteArray, val prefix: Int)
+    /** One network of the PC: an interface that is up and not loopback, an address on it and its prefix;
+     *  [pointToPoint] marks a tunnel's network, which is never the bus (R3.1's exclusion list). */
+    class LocalNet(val iface: String, val addr: ByteArray, val prefix: Int, val pointToPoint: Boolean = false)
 
     enum class PathKind { HOME, FAR, NONE }
 
@@ -189,8 +205,9 @@ class PhonePresence(
         }
     }
 
-    /** Package E's signal alone, for the phone's learning (G.1): the last read found a direct path to a private address
-     *  on one of this PC's networks. Never the combined value: the phone's own report must not teach it. */
+    /** Package E's signal alone, for the phone's learning (G.1): the last read found a direct path that reads `home`
+     *  (R3.1: a private address on one of this PC's networks, or routed from it outside its tunnels' networks). Never
+     *  the combined value: the phone's own report must not teach it. */
     fun onBusNetwork(): Boolean = synchronized(lock) { path.kind == PathKind.HOME }
 
     /** Under [lock]: decides the value at [now]; returns the change line, or null when the word stays. */
@@ -271,24 +288,28 @@ class PhonePresence(
             return String(r.stdout, Charsets.UTF_8)
         }
 
-        /** The PC's networks that can be the bus network: every address of every interface that is up, not
-         *  loopback and not point-to-point (a tunnel with a private address is not the bus; dec. B.4's rule). */
+        /** The PC's networks: every address of every interface that is up and not loopback, each marked with
+         *  whether its interface is point-to-point. A non-point-to-point one can be the bus network; a
+         *  point-to-point one (a tunnel with a private address is not the bus; dec. B.4's rule) is R3.1's
+         *  exclusion list. Read from the JVM's interface list at every read; no config key. */
         fun interfaceNets(): List<LocalNet> {
             val out = ArrayList<LocalNet>()
             for (ni in NetworkInterface.getNetworkInterfaces()?.toList().orEmpty()) {
-                if (!ni.isUp || ni.isLoopback || ni.isPointToPoint) continue
+                if (!ni.isUp || ni.isLoopback) continue
+                val p2p = ni.isPointToPoint
                 for (ia in ni.interfaceAddresses) {
                     val a = ia.address?.address ?: continue
                     val prefix = ia.networkPrefixLength.toInt()
-                    if (prefix in 1..a.size * 8) out += LocalNet(ni.name, a, prefix)
+                    if (prefix in 1..a.size * 8) out += LocalNet(ni.name, a, prefix, p2p)
                 }
             }
             return out
         }
 
         /**
-         * One status read (pure): the phone's peer and its path. [json] is the daemon's status; [phone] the
-         * configured phone; [nets] the PC's networks ([interfaceNets]). Field names as `tailscale status --json`
+         * One status read (pure): the phone's peer and its path (the home rule: R3.1, the class KDoc). [json] is
+         * the daemon's status; [phone] the configured phone; [nets] the PC's networks, the point-to-point ones
+         * marked ([interfaceNets]). Field names as `tailscale status --json`
          * writes them (read on the PC, tailscale 1.104): `BackendState`; `Peer` → `{TailscaleIPs, DNSName, Online,
          * Active, CurAddr ("ip:port", "[v6]:port"), Relay (the DERP region), PeerRelay}`.
          */
@@ -315,10 +336,16 @@ class PhonePresence(
                 val v = Reach.classify(a, false, Side.PC)
                 return when (v.cls) {
                     "public" -> PathRead(PathKind.FAR, "direct to a public address")
-                    "bus" -> {
-                        val net = nets.firstOrNull { inNet(a, it) }
-                        if (net != null) PathRead(PathKind.HOME, "direct, on the network of ${net.iface}")
-                        else PathRead(PathKind.NONE, "direct to a private address on no network of this PC")
+                    "bus" -> {                                   // R3.1, in its order: the PC's own network first
+                        val net = nets.firstOrNull { !it.pointToPoint && inNet(a, it) }
+                        val tunnel = nets.firstOrNull { it.pointToPoint && inNet(a, it) }
+                        when {
+                            net != null -> PathRead(PathKind.HOME, "direct, on the network of ${net.iface}")
+                            tunnel != null -> PathRead(PathKind.NONE,
+                                "direct to a private address on the network of ${tunnel.iface}, a point-to-point interface: a tunnel, not the bus")
+                            routedPrivate(a) -> PathRead(PathKind.HOME, "direct, to a private address routed from this PC")
+                            else -> PathRead(PathKind.NONE, "direct to an IPv4 link-local or old IPv6 site-local address on no network of this PC")
+                        }
                     }
                     else -> PathRead(PathKind.NONE, "the path address is ${v.cls}")
                 }
@@ -331,6 +358,18 @@ class PhonePresence(
         }
 
         private fun none(why: String) = PathRead(PathKind.NONE, why)
+
+        /** R3.1's private ranges, the only ones a path off the PC's networks may read `home` on: IPv4 10/8, 172.16/12,
+         *  192.168/16; IPv6 unique-local fc00::/7 and link-local fe80::/10. Asked only of an address [Reach] put in its
+         *  `bus` class, so the tailnet's own ranges (100.64/10, and its fd7a:115c:a1e0::/48 inside fc00::/7) never
+         *  reach it; an IPv4 link-local (169.254/16) or old IPv6 site-local (fec0::/10) address, which that class
+         *  also holds, is not in R3.1's list. An IPv4-mapped literal already arrives as four bytes ([literal]: the
+         *  JDK returns it as IPv4). */
+        private fun routedPrivate(a: ByteArray): Boolean {
+            fun u(i: Int) = a[i].toInt() and 0xFF
+            return if (a.size == 4) u(0) == 10 || (u(0) == 172 && (u(1) and 0xF0) == 16) || (u(0) == 192 && u(1) == 168)
+            else a.size == 16 && ((u(0) and 0xFE) == 0xFC || (u(0) == 0xFE && (u(1) and 0xC0) == 0x80))
+        }
 
         private fun str(o: JsonObject, key: String): String =
             (o[key] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: ""

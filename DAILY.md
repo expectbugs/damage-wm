@@ -253,7 +253,8 @@ without writing a row.
   `forMin` above 0; `change` takes `at` (the size, in the entity's units), `direction` (`any` · `up` · `down`) and
   optionally `withinMin` (1–1440). An edit applies at the next start; a severity edit from the alert's next episode.
   **Rules guarded on `damage.phone` stay out until one `damage.phone unknown -> home (by the connection path: direct,
-  on the network of …)` line has been read with him at the bus** (§79.9).
+  on the network of …)` or `(by the connection path: direct, to a private address routed from this PC)` line has been
+  read with him at the bus** (§79.9; the second form is ruling R3.1's, for the bus's second network).
 - **Reading the state:** Settings → Bastion → `Watcher` on the glasses or the phone (the PC watcher's state line, or
   "home not answering"); `grep -E ' (bastion|presence|reach): ' ~/.damage/damage.log`; the alerts themselves in
   `~/.damage/alerts.json`. The phone: `Position` (the location state, words only), `place` notes in its journal.
