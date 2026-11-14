@@ -9,8 +9,9 @@ number (§65 Phase 2 and the protocol, §48 the fork). Firmware facts: `CLAIMS.m
 
 ## Where we are (2026-11-14)
 
-**S1-1 (APK 0.67, versionCode 67) is built and verified on the local branch `wip/067` — NOT merged, NOT staged, NOT
-deployed; nothing of it has run on his glasses or phone, and nobody has looked at its pages in a browser** (§80). The PC
+**S1-1 (APK 0.67, versionCode 67) is merged and pushed (`7214a23`, then `1758262`), the PC service runs it since
+2026-11-14 16:27:30, and APK 0.67 is STAGED — not installed as far as this record knows; nothing of it has run on his
+glasses or phone, and nobody has looked at its pages in a browser** (§80, its 80.13 the deploy). The PC
 owns Reader's state (a record behind an operation log), the phone keeps a working copy with an on-disk queue that still
 answers a gesture's first flush, a web listener on the PC (port 7405) serves a browser interface, and Reader is the
 first window converted. The glasses are pixel-identical except one change he will feel: a place read on another device
@@ -23,7 +24,7 @@ S1-1 built, S1-2 with S1-3 next.
 | glasses | the fork's Phase 2 build on both lenses since 2026-09-16: pin `48172b62…` = Phase 1 + modes 17–24, op 5, status 3–5, fields 23–26, the partial path, the three link edits; 32 sites; reports `2.2.6.10` — detect by `EVENCFW/` and DamageCaps (`contract 2 features 0x7f`), never the version; archived with its logs in `fws/2.2.6.10-cfw-48172b62/`; up 25.3 days at the 11-13 journal read (M). **Rollback:** Phase 1's `fws/2.2.6.10-cfw-c5e4f8b7/` (a5d1c31's `…-d4054ab1/` and stock behind it) | M, §65, §79.5 |
 | phone | **APK 0.65** (`b833713`) installed 11-12 20:59:33 as of the last journal read; 0.66 staged. **A build is read from the journal's `process` note, never inferred** — he installs from the setup page without saying so | M, §79.5 |
 | PC service | OpenRC `damage` runs `e955a98` since 11-13 23:55:32 — data host and the bus watcher (reads the hub every 10 s, read-only; 17 rules, none urgent, the four away-guarded ones held back; the nightly copy at 03:30). It never drives the glasses by itself (PC-direct BLE is a manual choice). `damage.phone` read `home` at the deploy; `away` not yet read | M, §79.12 |
-| S1-1 | `wip/067` from `4ded994` (= `main`): `06948cc` … `e54b40c`, the records and the version commit; the whole battery green | simulator and PC, §80.5 |
+| S1-1 | `main` `7214a23` (the squash of `wip/067`) and `1758262`; the whole battery green; the PC service runs it | simulator and PC, §80.5; the PC's first start, §80.13 |
 | fork | `~/damage-cfw` at `f20bac9` plus the local commit `f9ba7c6` (host tooling, pin unchanged), not pushed — his push | as of §77.12 |
 
 - **If 0.66 or 0.67 misbehaves:** Global `Cached text` off is the switch for the drawing path; the watcher's notices
@@ -44,28 +45,27 @@ S1-1 built, S1-2 with S1-3 next.
 
 ## Next
 
-1. **The lead:** §80.8's NOTEs N1–N7 and its unruled Found items are its to rule; then the merge of `wip/067`, the push,
-   the PC deploy first, staging 0.67 (§80.13).
-2. **Adam's first sitting of 0.67** (below): the PC deploy and his install together (`CONTRACT.md` §9.7 item 2).
-3. **The first days of 0.66** (§79.9, read-only; 0.66 or later on the phone before the tick wrap of 2026-12-06): the
+1. **Adam's first sitting of 0.67** (below): his install, his desk browser, his look at the pages. The PC is already
+   deployed (§80.13); until his install Reader's places do not cross between the phone and the PC.
+2. **The first days of 0.66** (§79.9, read-only; 0.66 or later on the phone before the tick wrap of 2026-12-06): the
    in-case start; **`damage.phone` read `home`, not yet `away` — a day of his with both, then the four away-guarded
    rules go in**; Android's position rate; the channels, Acknowledge, `Watcher`; `heap3`; `input->done ms`. Still owed:
    the Music time tick's `handlerMs` like for like (Global `Cached text` off, then on, Music playing — his switch).
-4. **Then S1-2 with S1-3** (deploy 2, `REPLAN.md` §16.1), re-priced from S1-1's measured size (§80.11).
+3. **Then S1-2 with S1-3** (deploy 2, `REPLAN.md` §16.1), at the re-fitted rate (§80.11; `REPLAN.md` §16's head); its web work starts with §80.8's carried items.
 
 ## The first sitting of 0.67 (his; the install notes)
 
-- **The PC first** (the lead's `./gradlew :desktop:stageJar && sudo rc-service damage restart`). Its first start writes
-  into `~/.damage` `record.json`, `oplog.jsonl`, `record.seq`, `reader-index.json` (after the first walk of the shelf,
-  ≈12 s of CPU, modeled) and `local.secret` (mode 600); `devices.json` comes with the first approval. Port 7405 opens
-  behind the reach gate. Journal notes `record`, `migrate`, `web`.
+- **The PC is done** (§80.13, 11-14 16:25): its first start wrote `record.json`, `oplog.jsonl`, `record.seq`,
+  `reader-index.json` and `local.secret` (mode 600) into `~/.damage` and moved 16 places and 3 rows into the record, none
+  refused; `devices.json` comes with the first approval. Port 7405 is open behind the reach gate.
 - **Between the PC deploy and his install, Reader's places do not cross between the phone and the PC** (the new PC
   ignores the old sync keys); the install's migration then judges them: newer wins between the phone's and the PC's old
   records, the loser said once. A book read in the BROWSER between the two keeps the browser's place (a place written
   after the conversion is never replaced by an older build's record); the phone's is said once and offered with `Go
   there`.
 - **His install**; then the `migrate` notes on both hosts and his current book's place unchanged on the glasses.
-- **His desk browser:** `http://beardos:7405/` shows a code; `java -jar ~/.damage/damage.jar --devices` lists it, `…
+- **His desk browser:** `http://localhost:7405/` shows a code (the PC's own name does not resolve on the PC; from
+  another device the PC's name or its tailnet address, port 7405); `java -jar ~/.damage/damage.jar --devices` lists it, `…
   --approve CODE full` approves it (`DAILY.md`). Then the shelf and a book (chapters, emphasis, links, pictures); the
   place both ways (read at the desk → the glasses' next Reader entry lands there; read on the glasses → the page offers
   `Go there`); every visual item §80.10 lists.

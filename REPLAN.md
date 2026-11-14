@@ -477,10 +477,10 @@ which 11,917 product + test — **3.9 units per 1,000 product + test lines again
 estimate below was 65–110 units and 12–20 h). **S1-1 is next and is re-priced from W's rate at its sitting** (§16.4's
 re-fit); one build is one point, and S1-1's moved lines have no measured rate yet.
 
-**S1-1 built (2026-11-14; `HANDOFF.md` §80).** APK 0.67 on the local branch `wip/067`: the PC record behind its
+**S1-1 built (2026-11-14; `HANDOFF.md` §80).** APK 0.67 (`main` `7214a23`; the PC deployed and the APK staged 11-14, §80.13): the PC record behind its
 operation log, the `app` lane, the phone's working copy and queue, Reader converted with its migration, the web
 listener with access and the command line, the web client's shell and Reader pages; the glasses pixel-identical in both
-arrangements of the judge. Not merged, staged or deployed as written. Measured: runs 1–3 66.7 units for 21,408 inserted
+arrangements of the judge. Measured: runs 1–3 66.7 units for 21,408 inserted
 lines (27.1 · 22.9 · 16.7), about 3.1 units per 1,000 inserted lines; run 4: 21.1 — **87.8 units in all** for 23,464 inserted lines, 4.6 per 1,000
 product + test lines (W: 3.9). Moved lines: ≈160
 (`HttpWs` ≈106, Reader ≈40, `fcMatch` ≈10), not the ≈1,800 of §16.2's row (decision A.1 priced ≈420). **S1-2 with

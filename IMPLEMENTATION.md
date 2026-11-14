@@ -1,7 +1,7 @@
 # Damage — implementation notes
 
-What runs and how, as built for APK 0.67 (`HANDOFF.md` §80; built on `wip/067`, not yet deployed — 0.66's deploy is
-§79.12).
+What runs and how, as built for APK 0.67 (`HANDOFF.md` §80; the PC service runs it since 2026-11-14, the APK is staged —
+§80.13).
 Each build's record is `HANDOFF.md`; the current battery counts are `REMINDER.md`'s; operations are `DAILY.md`.
 
 **The topology as built** (`HANDOFF.md` §19, §79): **the phone shell drives (radio and shell, while the APK is up); the

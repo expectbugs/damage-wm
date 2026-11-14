@@ -279,7 +279,8 @@ without writing a row.
 
 ## Reader's record and the web listener (APK 0.67, `HANDOFF.md` §80)
 
-- **The page:** `http://beardos:7405/` (or `/w/reader`) from the tailnet, the bus network or the PC itself. The first
+- **The page:** `http://localhost:7405/` (or `/w/reader`) on the PC itself; from the tailnet or the bus network the
+  PC's name or its address, port 7405 (a name the listener does not know as its own is answered 403: `webHosts`). The first
   visit from a browser shows a code; approve it from the PC: `java -jar ~/.damage/damage.jar --devices` (the waiting
   codes with the address and tailnet name, the approved devices with their ids), then `… --approve CODE full` (or
   `view`, `control`). Later browsers: approve from the devices page of an approved one (pick the row and a level). Also

@@ -8190,11 +8190,35 @@ inserted lines (W: 3.3, §79.10). Run 4 (fix round 2, the focused read, the last
 
 ### 80.12 What is next
 
-1. The lead: the merge of `wip/067`, the push, the PC deploy first, then `:phone:stageApk` (0.67) (80.13).
+1. Done (80.13): merged, pushed, the PC deployed, 0.67 staged.
 2. Adam's first sitting (`REMINDER.md`'s install notes); 0.66's first-days reads are still owed (§79.9).
 3. S1-2 with S1-3 (deploy 2, `REPLAN.md` §16.1), at the re-fitted rate; its web work starts with 80.8's carried items.
 
-### 80.13 The merge, the staging and the PC deploy
+### 80.13 The merge, the staging and the PC deploy (2026-11-14, the lead's)
 
-(the lead writes this after the deploy)
+Under his go of 11-13 (80.1) and decision E.7 (the PC first), told to him three times that day with no word back.
+
+- **The gate once more on R3.1's tree** (80.8): the working-copy class 30 runs of 30; core 1,355 in 184 classes, 0
+  failed; desktop 45; `--selfcheck` ×2; 0 px outside the mask in both arrangements; lint 0; the APK build, wiring 51 ok;
+  181 of 181 mutation entries apply.
+- **Merged and pushed:** `wip/067` squashed onto `main` as `7214a23` (137 files, +23,494 / −623). The added lines and
+  the message were searched before the push for config values, the hub's address and token, mail, real entity ids,
+  coordinates, private addresses, usage percentages and shelf titles: none (two made-up fixture addresses in a test).
+- **The PC deployed at 16:25:30.** Kept first in `~/.damage/backup/`: `state.json`, the journal, the running jar and
+  APK 0.66. The first start: a new record (seq 0), `local.secret` created (mode 600), **16 places and 3 rows offered
+  by the PC's migration, 19 applied, 0 not applied**, the ledger written, the web listener up, the watcher on with its
+  17 rules, no `[E]`; the phone attached on its six channels. `reader-index.json` was written within the first
+  seconds.
+- **Found by that start, fixed, deployed again at 16:27:30 (`1758262`):** `[W] web: this machine's name could not be
+  read`. The PC's own name does not resolve on it, so the listener knew no name and answered a page asked for by that
+  name with 403 (localhost and the arriving address served). The failed lookup now reads the kernel's name. Checked on
+  the service: its name and localhost 200, another name 403. The second start kept the record (seq 19, 19 entries, no
+  second migration), 0 `[W]`, 0 `[E]`, the phone attached again. Not pinned (`startWeb` has no seam). The same lookup
+  feeds the Tmux host label (`Config.localHostLabel`), which therefore reads `local` on this PC: not changed, because
+  it would change what the glasses draw; his call.
+- **APK 0.67 staged** at 16:25 (versionCode 67, the same signing certificate as 0.66). Not installed as far as this
+  record knows; installing is his.
+- **Not done:** no page was opened in a browser (three status-only requests from the PC to its own listener), no
+  device was approved, nothing was sent to the glasses or the hub beyond the watcher's reads.
+- **Size:** 80.11's 87.8 units are the agents'. The lead's turns and this deploy are outside that figure.
 
