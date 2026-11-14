@@ -8222,3 +8222,78 @@ Under his go of 11-13 (80.1) and decision E.7 (the PC first), told to him three 
   device was approved, nothing was sent to the glasses or the hub beyond the watcher's reads.
 - **Size:** 80.11's 87.8 units are the agents'. The lead's turns and this deploy are outside that figure.
 
+## 81. C1's design pass, part 2: the challenge ruled, section 5 corrected (2026-11-14)
+
+Context for the reader: a personal device, the published patch method, display-rendering work. Adam's own window manager
+for his own glasses; a documents-only pass on the fork's next piece (C1: motion programs, mode 26, its riders,
+`FIRMWARE.md` §5). Nothing was built, flashed or sent anywhere; no fork tool ran; firmware facts are offline
+instruction-level reads of the stock 2.2.6.10 image or of the fork's sources. The working files (the challenge, the
+prep, the lead's rulings, the focused read, the apply report) are in the gitignored `private/c1-design/`. `FIRMWARE.md`
+§5 carries the result; this does not restate it.
+
+**The three owed reads (the prep; addresses in §5.2).** a2: the display gate is a binary semaphore with no owner; the
+type-6 path (a 2,000-tick stock timer while the panel is on) runs the copy hook after the panel's recovery branch and
+gives the gate with no take — **the gate does not exclude the copy hook** (how often on his pair: U). a3: the display
+task's stack is 0x800 B, the installed hook's frame 152 B, its stock path a tail call; today's worst ≈ 1.78 KiB (I).
+a10: the link item is the call at `0x004774AE`, its test at `0x00476F4E`; latency is only logged.
+
+| # | ruling | mechanism or reason |
+|---|---|---|
+| 1 | build as corrected | the engine's busy word, not the gate, excludes the copy hook; the ui_task lets it down before any present it queues; the hook never waits or blocks while holding it |
+| 2 | build | a present on the hook's stock path draws nothing and ends every drawing instance, no notify: nothing plans a step that cannot be drawn |
+| 3 | leave | ruling 1 covers the hazard; the challenge's form adds refusals that differ between the lenses |
+| 4 | build, narrowed | "held until the program ends" had no mechanism and leaves §5; the phone CLOSEs an instance, same batch, before a write that meets its area |
+| 5 | build (wording) | CLOSE empties the slot whatever the lens was drawing; only the notify depends on timing |
+| 6 | build | the display task's stack check is a step of the fork's `tools/verify.py`; no image change |
+| 7 | build, the prep's form | no osTimer: the engine thread waits on its own flag until the next step is due; the lead reads that wait as pacing under the no-timeouts rule |
+| 8 | build, captures in the cache | PLAY carries `cap` (14 → 16 B); nothing allocated per PLAY; the class of one-lens refusals named (§5.7) |
+| 9 | build | a null check on the gate handle, then a try with wait 0 |
+| 10 | build | notify 114 from the refresh hook after the gate is given, never from the copy hook (the stock sender can wait) |
+| 11 | build as corrected | the survival check's three constraints; the free check first; the uptime shape a fallback, its miss stated |
+| 12 | build, narrowed | two read ranges per instance (program, records and tables; captures) for close-on-meet |
+| 13 | build | a track total over 255 steps refused (12); a disarm closes nothing |
+| 14 | build | the link item's citation corrected; a new site, unflagged |
+| 15 | build | §5.2's table corrections (Tmr Svc's depth in words, osTimerNew's malloc, static creation) |
+| 16 | build the text fixes | engine vectors follow a `tick` op; `N` masks fields 9 and 11; "a live keyframe"; no self-test form |
+| 17 | build | a capture is bounded by the cache space the phone reserves (320 B a row at 640 wide) |
+| 18 | build | a fold rhythm near 2 s would point at the panel status check: expected, not shown |
+| 19 | build | the panel is not timing-free; the simulator treats a drawing area as unknown until RIGHT's notify or the nominal end |
+
+**The focused read.** No mechanism unsound. Rulings 2, 8, 10, 12: sound with wording, applied (the `fb == 0` in-frame
+copy; capture bytes are per lens, never named as a program, record or table, not counted in field 17; one owed notify
+body per slot; a RETARGET replaces the first range, refused (5) when it meets the capture range). Rulings 1 and 7:
+unsound-correctable, corrected by the reader in paragraph text, applied as given — **not yet ruled by the lead.** Ruling
+1: a claim by plain exchange erases PENDING, and a release point freeing on its own task is safe only under three
+unstated conditions; tasks above the display task exist (input and ring 46, audio 47, BLE 48–49) and time slicing is on
+at 44 (V `0x0045516E`). Now every claim is a compare-exchange from IDLE, a release point decides inside a short section
+masked to BASEPRI 0x30, the holder settles while the word reads PENDING (as the release point decided: CACHE_KEEP) and
+frees after; a folding hook clears the outstanding mark. Ruling 7: the cited facts hold (V), but a plan from t0, P and T
+alone either repeats a zero wait while a refresh is outstanding or never redraws a folded step T. Now it reads d (the
+last step drawn), waits `max(1, signed due − now)`, and one period while a refresh is outstanding.
+
+**The two reads owed before the build, done offline (the focused read).** Ruling 11: no value that differs at every boot
+is held in RAM — the file system's boot count (V `0x00476332`–`0x0047636E`) and the KV store's are stack temporaries at
+boot, the reset cause is not unique, the OS tick restarts at 0 (not read: the system timer across a software reset,
+uninitialised SRAM); the uptime shape stands. Ruling 14: the stock update handler asks again on every class mismatch and
+after every rejection (intervals and addresses in §5.9), so, as read, **edit (3) asks again without bound on the
+installed build**, and the link item adds one case: a phone that rejects the 7.5-ms request is asked every ≈ 29 s. After
+a connect the send path asks for 0xA3 only at an opening interval of 90 ms or more; else untraced event callers ask
+first. Glass only: whether his phone rejects; whether an unchanged grant raises an update event (§74 item 7: none
+journaled, which fits either).
+
+**For Adam:** (1) the step timing is a timed wait on the thread's own flag, read by the lead as pacing under his "no
+timeouts" rule (the osTimer form's command queue can be full and its retry needs the same kind of wait); (2) a write
+into a moving area now cuts that motion short; (3) LEFT-only memory refusals go unreported today in modes 3/6/12/19/23 —
+C1 adds none per PLAY, one site per mode-25 message; (4) his calls, unchanged: any read or probe on the glasses, a
+restart provoked on them (ruling 11's check), the three firmware calls at their flashes, any flash; (5) rulings 1 and 7
+stand on the reader's corrections; ruling 1's adds a short interrupt-masked section at each release point (without it
+the release points' tasks must be named, a read not done offline); (6) edit (3)'s re-ask: carry its correction in C1 (a
+candidate: the immediate at `0x0047859C`, other effects unread) or drop the link item — the prep's condition for asking
+him is met; (7) C1's size after the corrections (the prep: about +5–10 % on `REPLAN.md` §16.2's C1 row) goes to him with
+the build's go.
+
+**Not built / not decided.** Nothing built, no vector written, the fork untouched, `CLAIMS.md` unchanged (no grade
+moved). Not decided: the lead's word on the two corrections; edit (3) and the link item; whether the masked section also
+closes the scratch's and slots' release window. Unread offline: the release points' tasks, heap 13's lock, the stock
+sender past the link-request branch. `FIRMWARE.md` §6 (C2) still draws local instances "under the gate" (§6.2, §6.4,
+§6.10): for C2's challenge.

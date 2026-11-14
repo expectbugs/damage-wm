@@ -259,6 +259,9 @@ private SID on Phase 4) — after the glyph-subset packing has been read for a d
 Global `Motion` row (off · subtle · full, and speed) replacing `Slide frames` and `Slide fill`; first
 programs: list slide with ease-out, bounce at the edges, Main's recede/pan/advance (phone-started for
 now), wheel spin, popover reveal/cover, Hold'em deal slide and flip.
+*Ruled 2026-11-14 (`HANDOFF.md` §81): the firmware holds no phone write back — the phone CLOSEs an instance, in the
+same batch, before a write that meets its area (waiting for RIGHT's last-step notify stays an option); the firmware
+contract is `FIRMWARE.md` §5.*
 
 **Test stop T3:** vectors · self-test · motion-check strips · Adam's on-glass feel session (lens
 match, comfort of the depth pop, speed) · a soak day with the battery readout. **Exit:** no visible
