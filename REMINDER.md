@@ -53,9 +53,9 @@ S1-1 built, S1-2 with S1-3 next.
    the Music time tick's `handlerMs` like for like (Global `Cached text` off, then on, Music playing — his switch).
 3. **Then S1-2 with S1-3** (deploy 2, `REPLAN.md` §16.1), at the re-fitted rate (§80.11; `REPLAN.md` §16's head); its web work starts with §80.8's carried items.
 4. **C1, the first flash (beside S1):** the design pass's second part is done (§81) — the challenge's 19 findings
-   ruled, `FIRMWARE.md` §5 corrected; documents only. Owed before C1's build: the lead's word on rulings 1 and 7, which
-   stand on the focused reader's corrections; Adam's call on edit (3)'s re-ask (carry its correction in C1 or drop the
-   link item, §81). The build waits for his go, with its size put to him.
+   ruled, `FIRMWARE.md` §5 corrected; documents only. Rulings 1 and 7 stand on the focused reader's corrections (the lead's word
+   given; C1's build reads them first, §81). Owed before C1's build: Adam's call on edit (3)'s re-ask (carry its
+   correction in C1 or drop the link item, §81; the lead recommends dropping it). The build waits for his go, with its size put to him.
 
 ## The first sitting of 0.67 (his; the install notes)
 

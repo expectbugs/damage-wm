@@ -8262,7 +8262,8 @@ a10: the link item is the call at `0x004774AE`, its test at `0x00476F4E`; latenc
 **The focused read.** No mechanism unsound. Rulings 2, 8, 10, 12: sound with wording, applied (the `fb == 0` in-frame
 copy; capture bytes are per lens, never named as a program, record or table, not counted in field 17; one owed notify
 body per slot; a RETARGET replaces the first range, refused (5) when it meets the capture range). Rulings 1 and 7:
-unsound-correctable, corrected by the reader in paragraph text, applied as given — **not yet ruled by the lead.** Ruling
+unsound-correctable, corrected by the reader in paragraph text, applied as given — **ruled by the lead afterwards:
+both stand as §5's text** (below). Ruling
 1: a claim by plain exchange erases PENDING, and a release point freeing on its own task is safe only under three
 unstated conditions; tasks above the display task exist (input and ring 46, audio 47, BLE 48–49) and time slicing is on
 at 44 (V `0x0045516E`). Now every claim is a compare-exchange from IDLE, a release point decides inside a short section
@@ -8286,14 +8287,23 @@ timeouts" rule (the osTimer form's command queue can be full and its retry needs
 into a moving area now cuts that motion short; (3) LEFT-only memory refusals go unreported today in modes 3/6/12/19/23 —
 C1 adds none per PLAY, one site per mode-25 message; (4) his calls, unchanged: any read or probe on the glasses, a
 restart provoked on them (ruling 11's check), the three firmware calls at their flashes, any flash; (5) rulings 1 and 7
-stand on the reader's corrections; ruling 1's adds a short interrupt-masked section at each release point (without it
+stand on the reader's corrections, accepted by the lead; ruling 1's adds a short interrupt-masked section at each release point (without it
 the release points' tasks must be named, a read not done offline); (6) edit (3)'s re-ask: carry its correction in C1 (a
 candidate: the immediate at `0x0047859C`, other effects unread) or drop the link item — the prep's condition for asking
 him is met; (7) C1's size after the corrections (the prep: about +5–10 % on `REPLAN.md` §16.2's C1 row) goes to him with
 the build's go.
 
+**The lead's word on the two corrections (after the read).** Both stand. They are a reader's own mechanisms and no
+one has read them since (protocol 5: the last pass is unreviewed by construction), so C1's build opens with them: its
+first review pass reads the compare-exchange claim, the masked section and the plan from `d` before anything else, its
+vectors pin the plan as a pure function, and **the masked section holds a test and a write and no call** — checked at
+instruction level in the built image before any flashing conversation (a step for the fork's `tools/verify.py`). Edit
+(3) and the link item are Adam's (the lead's recommendation: leave the link item out of C1, since the engine does not
+need it, and read edit (3)'s re-ask on the glasses first). Size: three agents, 8.7 units (the prep 3.2, the focused read
+3.8, the apply 1.7); the lead's turns are outside that figure.
+
 **Not built / not decided.** Nothing built, no vector written, the fork untouched, `CLAIMS.md` unchanged (no grade
-moved). Not decided: the lead's word on the two corrections; edit (3) and the link item; whether the masked section also
+moved). Not decided: edit (3) and the link item (his); whether the masked section also
 closes the scratch's and slots' release window. Unread offline: the release points' tasks, heap 13's lock, the stock
 sender past the link-request branch. `FIRMWARE.md` §6 (C2) still draws local instances "under the gate" (§6.2, §6.4,
 §6.10): for C2's challenge.
