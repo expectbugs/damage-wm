@@ -136,8 +136,8 @@ object TextureCache {
      */
     class Builder(val v2: Boolean = false, val capacity: Int = CfwModes.TEXTURE_CACHE_SIZE) {
         init {
-            if (v2 && capacity !in CfwModes.TEXTURE_CACHE_SIZE..CfwModes.CACHE2_MAX)
-                throw LintError("a v2 cache of $capacity B is not 64..160 KiB")
+            if (v2 && capacity !in CfwModes.TEXTURE_CACHE_SIZE..CfwModes.CACHE2_MAX_RIDERS)
+                throw LintError("a v2 cache of $capacity B is not 64..256 KiB")
             if (!v2 && capacity != CfwModes.TEXTURE_CACHE_SIZE)
                 throw LintError("a v1 cache is ${CfwModes.TEXTURE_CACHE_SIZE} B, not $capacity")
         }

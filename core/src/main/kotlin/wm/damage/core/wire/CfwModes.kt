@@ -147,13 +147,15 @@ object CfwModes {
      *  grew to 3/6/9/13/14/15 with g2flash a5d1c31 — so a cached icon or a line of
      *  cached glyphs rides in the SAME single flush as the pixel deltas, which is
      *  the whole point of batching. Of those, only mode 3 burns a fid. */
-    fun batch(subs: List<ByteArray>): ByteArray {
+    /** [engine]: the batch may carry mode 26 too — only where ENGINE is in force (`FIRMWARE.md` §5.5: "allowed alone
+     *  or as a mode-8 sub-message"); a build without the engine has no handler for it. */
+    fun batch(subs: List<ByteArray>, engine: Boolean = false): ByteArray {
         if (subs.isEmpty()) throw LintError("empty mode-8 batch")
         if (subs.size > 0xFF) throw LintError("mode-8 count ${subs.size} exceeds the u8 field")
         for ((i, s) in subs.withIndex()) {
             if (s.isEmpty()) throw LintError("mode-8 sub $i empty")
             val m = s[0].toInt() and 0x7F
-            if (m !in BATCH_SUBMODES)
+            if (m !in BATCH_SUBMODES && !(engine && m == MOTION_MODE))
                 throw LintError("mode-8 sub $i is mode $m; the firmware accepts only " +
                     "shadow ops ${BATCH_SUBMODES.joinToString("/")}")
             if (s.size > 0xFFFF) throw LintError("mode-8 sub $i length ${s.size} exceeds len16")
@@ -316,6 +318,9 @@ object CfwModes {
     const val SAVE_BUDGET = 48 * 1024
     /** The largest cache a Phase 2 build allocates (op 5; budget A). */
     const val CACHE2_MAX = 160 * 1024
+    /** The largest cache a build with the riders (DamageCaps bit 8, `FIRMWARE.md` §5.9) allocates: the encoders'
+     *  bounds take it; what a session asks for is the ladder's (`CfwTransportBase`), never more than its build's. */
+    const val CACHE2_MAX_RIDERS = 256 * 1024
     /** Page staging (`HANDOFF.md` §66, Adam 2026-09-16): the top of a contract-2 cache is a reserve for the
      *  focused document's staged strips (v2 image records written by mode 19, drawn by mode 17); the atlas
      *  lays out over the rest (`LinkState.atlasCapacity`). 64 KiB since the first read on glass (§66.1): a
@@ -399,7 +404,7 @@ object CfwModes {
      *  ([cacheSize] bytes, op 5's) — validated whole by the firmware, refused whole. */
     fun cacheUpdate2(writes: List<CacheWrite2>, cacheSize: Int): ByteArray {
         if (writes.isEmpty()) throw LintError("empty mode-19 cache update")
-        if (cacheSize !in TEXTURE_CACHE_SIZE..CACHE2_MAX) throw LintError("mode-19 cache size $cacheSize is not 64..160 KiB")
+        if (cacheSize !in TEXTURE_CACHE_SIZE..CACHE2_MAX_RIDERS) throw LintError("mode-19 cache size $cacheSize is not 64..256 KiB")
         var total = 1
         for (w in writes) {
             if (w.data.isEmpty()) throw LintError("mode-19 write at ${w.off4} is empty")
@@ -541,13 +546,71 @@ object CfwModes {
     /** The inline x-adjust byte for mode 18 (the same channel as mode 14). */
     fun xAdjust2(dx: Int): Byte = xAdjust(dx)
 
+    // ---- build C1 (`FIRMWARE.md` §5.5, §5.9): mode 26 motion control and mode 25 the deflated cache write. Sent only
+    // with the flag each needs in force (ENGINE, ZWRITE — `CfwTransportBase`); the encoders lint the fields alone.
+    const val MOTION_MODE = 26
+    const val ZWRITE_MODE = 25
+    const val MOTION_PLAY = 0
+    const val MOTION_RETARGET = 1
+    const val MOTION_CLOSE = 2
+    /** CLOSE's slot for every instance (§5.5). */
+    const val MOTION_ALL = 0xFF
+    const val MOTION_SLOTS = 4
+    /** §5.5: a PLAY's period, in OS ticks per step. */
+    val MOTION_PERIODS = 16..128
+    /** §5.9: what a mode-25 stream inflates to at most — exactly a mode-19 entry list, no mode byte. */
+    const val ZWRITE_MAX = 16_384
+
+    /** Mode 26 sub 0 PLAY (§5.5): `slot u8 · period u8 · prog u16 (off4) · tag u16 · cap u16 (off4) · P0..P3 s16`. */
+    fun motionPlay(slot: Int, period: Int, prog4: Int, tag: Int, cap4: Int, p: IntArray): ByteArray {
+        if (slot !in 0 until MOTION_SLOTS) throw LintError("mode-26 PLAY slot $slot is not 0..3")
+        if (period !in MOTION_PERIODS) throw LintError("mode-26 PLAY period $period is not 16..128 ticks")
+        checkOff4(prog4, "mode-26 PLAY program"); checkOff4(cap4, "mode-26 PLAY capture")
+        if (tag !in 0..0xFFFF) throw LintError("mode-26 PLAY tag $tag is not a u16")
+        val out = byteArrayOf(MOTION_MODE.toByte(), MOTION_PLAY.toByte(), slot.toByte(), period.toByte()) + ByteArray(14)
+        put16(out, 4, prog4); put16(out, 6, tag); put16(out, 8, cap4)
+        putParams(out, 10, p)
+        return out
+    }
+
+    /** Mode 26 sub 1 RETARGET (§5.5): `slot u8 · P0..P3 s16`. */
+    fun motionRetarget(slot: Int, p: IntArray): ByteArray {
+        if (slot !in 0 until MOTION_SLOTS) throw LintError("mode-26 RETARGET slot $slot is not 0..3")
+        val out = byteArrayOf(MOTION_MODE.toByte(), MOTION_RETARGET.toByte(), slot.toByte()) + ByteArray(8)
+        putParams(out, 3, p)
+        return out
+    }
+
+    /** Mode 26 sub 2 CLOSE (§5.5): one slot, or [MOTION_ALL]. */
+    fun motionClose(slot: Int): ByteArray {
+        if (slot !in 0 until MOTION_SLOTS && slot != MOTION_ALL) throw LintError("mode-26 CLOSE slot $slot is not 0..3 or 0xFF")
+        return byteArrayOf(MOTION_MODE.toByte(), MOTION_CLOSE.toByte(), slot.toByte())
+    }
+
+    private fun putParams(out: ByteArray, at: Int, p: IntArray) {
+        if (p.size > 4) throw LintError("mode 26 carries four parameters, not ${p.size}")
+        for (i in 0 until 4) {
+            val v = p.getOrElse(i) { 0 }
+            if (v !in Short.MIN_VALUE..Short.MAX_VALUE) throw LintError("mode-26 parameter P$i = $v is not an s16")
+            putS16(out, at + 2 * i, v)
+        }
+    }
+
+    /** Mode 25 (§5.9): [mode19] — a whole mode-19 message as [cacheUpdate2] builds it — deflated: `[25][zlib of its
+     *  entry list]`. The list (the message less its mode byte) inflates to at most [ZWRITE_MAX] bytes. */
+    fun zwrite(mode19: ByteArray): ByteArray {
+        if (mode19.size < 5 || mode19[0].toInt() != 19) throw LintError("mode 25 deflates a mode-19 message, not mode ${mode19.firstOrNull()}")
+        if (mode19.size - 1 > ZWRITE_MAX) throw LintError("a mode-25 list of ${mode19.size - 1} B exceeds the $ZWRITE_MAX B inflate")
+        return byteArrayOf(ZWRITE_MODE.toByte()) + wm.damage.core.gfx.Zl.deflate(mode19.copyOfRange(1, mode19.size))
+    }
+
     private fun checkOff4(off4: Int, what: String) {
         if (off4 !in 0..0xFFFF) throw LintError("$what offset $off4 (4-byte units) is outside the u16 field")
     }
 
     private fun checkFont4(font4: Int) {
         if (font4 !in 0..0xFFFF) throw LintError("mode-18 font table at $font4 (4-byte units) is outside the u16 field")
-        if (font4 * 4 + FONT2_TABLE_BYTES > CACHE2_MAX)
+        if (font4 * 4 + FONT2_TABLE_BYTES > CACHE2_MAX_RIDERS)
             throw LintError("mode-18 font table at ${font4 * 4} does not fit its $FONT2_TABLE_BYTES B in the largest cache")
     }
 
