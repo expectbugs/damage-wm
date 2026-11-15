@@ -108,6 +108,13 @@ body.away main .page:not(.is-book), body.away .bookbar { opacity: .55; filter: g
 .toast .msg { flex: 1; }
 .toast .x { border: 0; background: none; padding: 0 .2rem; }
 @media (max-width: 760px) { .toasts { bottom: 4.5rem; right: 1rem; } }
+/* S1-2 Q3w: a notice of the PC — who raised it and when, its words as the tap-through, and Dismiss */
+.toast.notice { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .25rem .7rem; align-items: center; }
+.toast.notice .n-head { grid-column: 1 / -1; display: flex; gap: .6rem; font-size: .85rem; color: var(--muted); }
+.toast.notice .n-head .from { color: var(--fg); }
+.toast.notice .n-body { color: var(--fg); font-weight: 600; text-decoration: underline; text-decoration-color: var(--muted); text-underline-offset: .2em; }
+.toast.notice .n-body:hover { text-decoration-color: var(--accent); }
+body.away .toast.notice .act { opacity: .45; }
 .confirm { border: 1px solid var(--line); border-radius: .7rem; background: var(--bar); color: var(--fg); max-width: min(32rem, calc(100vw - 2rem)); padding: 1.2rem; }
 .confirm::backdrop { background: var(--shade); }
 .confirm h2 { margin-top: 0; }

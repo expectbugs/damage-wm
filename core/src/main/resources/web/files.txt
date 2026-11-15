@@ -10,6 +10,7 @@ js/confirm.mjs
 js/conn.mjs
 js/dom.mjs
 js/focus.mjs
+js/notices.mjs
 js/proto.mjs
 js/reader-model.mjs
 js/record.mjs

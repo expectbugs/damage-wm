@@ -4,8 +4,9 @@
 // courtesy. Pure.
 
 export const PROTO = 2;
-/** The contract versions of this bundle's windows (the PC's `Contracts.MINE`). */
-export const CONTRACTS = { reader: 1 };
+/** The contract versions of this bundle's windows (the PC's `Contracts.MINE`). S1-2 Q3w: the notice record, read as
+ *  the `notices` window (spec §2.1), at version 1. */
+export const CONTRACTS = { reader: 1, notices: 1 };
 
 export function hello({ stream, name, replaces }) {
   const h = { t: 'app', proto: PROTO, stream, contracts: { ...CONTRACTS } };

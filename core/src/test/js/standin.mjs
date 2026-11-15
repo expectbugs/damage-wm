@@ -119,6 +119,7 @@ export function standin(scene, fx) {
   const files = new Set(readFileSync(new URL('files.txt', WEB), 'utf8').split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#')));
   const log = [];
   const socks = new Set();
+  const senders = new Set();
   let ready = false;
   let held = null;
   let away = false;
@@ -132,6 +133,7 @@ export function standin(scene, fx) {
         return send(fx.welcome(m.stream));
       case 'sub':
         if (m.scope === 'reader') return send(fx.record());
+        if (m.scope === 'notices' && fx.notices) return send(fx.notices());
         if (fx.descs[m.scope]) return send({ t: 'snap', scope: m.scope, desc: fx.descs[m.scope] });
         return send({ t: 'ans', scope: m.scope, answer: { a: 'refused', code: 'scope', reason: `the stand-in serves no scope '${m.scope}'` } });
       case 'ping':
@@ -164,6 +166,12 @@ export function standin(scene, fx) {
       for (const s of socks) s.destroy();
       return reply(204, 'text/plain', '');
     }
+    if (path === '/__raise') {
+      // S1-2 Q3w: the PC raises `n` notices; each open page gets the record's changes
+      const n = Number(new URL(req.url, 'http://x').searchParams.get('n') || 1);
+      for (const s of senders) for (const f of fx.raise(n)) s(f);
+      return reply(204, 'text/plain', '');
+    }
     if (path === '/__note') {
       log.push({ t: 'note', text: decodeURIComponent(req.url.slice(req.url.indexOf('?') + 1)) });
       return reply(204, 'text/plain', '');
@@ -190,6 +198,8 @@ export function standin(scene, fx) {
     sock.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${acceptKey(req.headers['sec-websocket-key'])}\r\n\r\n`);
     socks.add(sock);
     const send = (o) => sock.write(frame(JSON.stringify(o)));
+    senders.add(send);
+    sock.on('close', () => senders.delete(send));
     let buf = Buffer.alloc(0);
     sock.on('data', (d) => {
       const r = readFrames(Buffer.concat([buf, d]));

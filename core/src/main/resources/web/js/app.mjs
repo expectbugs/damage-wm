@@ -14,6 +14,7 @@ import * as A from './address.mjs';
 import { h, icon, toastsToDrop, keepFocus } from './dom.mjs';
 import { nextFocus } from './focus.mjs';
 import { confirmShape } from './confirm.mjs';
+import { NoticeDesk, WINDOW as NOTICES, PREFIX as NOTICE_PREFIX, dismissDraft, readDraft } from './notices.mjs';
 import { homeView } from './views/home.mjs';
 import { readerView } from './views/reader.mjs';
 import { devicesView } from './views/devices.mjs';
@@ -45,7 +46,15 @@ const S = {
   descs: new Map(),
   names: {},
   bundleHash: null,
+  pcOffset: 0, // the PC's clock less this browser's, from the welcome's `pcClock`
 };
+
+// S1-2 Q3w: the PC's notices have a record copy of their own. A resume replays one scope's changes after the other's,
+// so a cursor shared with Reader's would pass the second scope's changes over.
+const noticeRec = new ClientRecord();
+const desk = new NoticeDesk(store, stream.id);
+const noticeToasts = new Map(); // id → its toast
+let noticeWake = null;
 
 const subs = new Set(); // the views' PC-served scopes, sent again at each welcome
 const queued = new Map(); // n → {frame, onAnswer, gapped}
@@ -72,11 +81,25 @@ function say(text, opts = {}) {
     opts.from ? h('span', { class: 'from', text: opts.from }) : null,
     h('span', { class: 'msg', text }),
     h('button', { class: 'x', 'aria-label': 'dismiss', on: { click: () => t.remove() } }, '×'));
+  place(t, opts.keep);
+}
+
+function place(t, keep) {
   el.toasts.append(t);
   // ruling 2.3 (12): the cap never pushes out a kept toast (a loss notice is said once) nor the one just said
   const all = [...el.toasts.children];
-  for (const i of toastsToDrop(all.map((c) => c.classList.contains('keep')), 4)) all[i].remove();
-  if (!opts.keep) setTimeout(() => t.remove(), 12000);
+  for (const i of toastsToDrop(all.map((c) => c.classList.contains('keep')), 4)) dropToast(all[i]);
+  if (!keep) setTimeout(() => dropToast(t), 12000);
+}
+
+/** A toast leaves; a notice's leaving here sends nothing (only Dismiss and the tap-through do). */
+function dropToast(t) {
+  t.remove();
+  const id = t.getAttribute('data-notice');
+  if (id !== null && noticeToasts.get(id) === t) {
+    noticeToasts.delete(id);
+    desk.down(id);
+  }
 }
 
 /** Says `text` once per `tag` until the PC answers again (an outage's line is not repeated at every save point). */
@@ -116,8 +139,8 @@ function onFrame(f) {
       S.code = f.code;
       return render();
     case 'approved': return redeem(f.claim);
-    case 'snap': return f.desc ? desc(f.scope, f.desc) : recordSnap(f);
-    case 'chg': return recordChg(f);
+    case 'snap': return f.desc ? desc(f.scope, f.desc) : f.scope === NOTICES ? noticeSnap(f) : recordSnap(f);
+    case 'chg': return f.scope === NOTICES ? noticeChg(f) : recordChg(f);
     case 'ans': return answer(f);
     case 'end': return ended(f);
     case 'closed': return closed();
@@ -145,6 +168,7 @@ function welcome(f) {
   S.level = f.level;
   S.device = f.device;
   S.conn = f.conn;
+  S.pcOffset = typeof f.pcClock === 'number' ? f.pcClock - Date.now() : 0;
   store.set(DEVICE_KEY, f.device);
   const line = stream.adopt(f.highWater);
   if (line) say(line, { from: 'Damage' });
@@ -153,6 +177,8 @@ function welcome(f) {
     say(`this page speaks lane ${P.PROTO}; the PC's bundle speaks ${f.bundle.protoRange.join('–')}. Reload the page.`, { from: 'Damage', keep: true });
   send(P.sub('reader', S.record.cursor()));
   send(P.sub('desc/main'));
+  // a PC that keeps no notice record (an older build) is not asked for one
+  if (f.contracts && f.contracts[NOTICES] !== undefined) send(P.sub(NOTICES, noticeRec.cursor()));
   if (P.atLeast(S.level, 'full')) subs.add('devices');
   for (const s of subs) send(P.sub(s));
   const back = reachAtWelcome;
@@ -261,6 +287,65 @@ function recordChg(f) {
     return;
   }
   if (changed.size && view && view.onRecord) view.onRecord(changed);
+}
+
+// ---- the PC's notices as toasts (S1-2 Q3w; C§7; decision A.5): no tray and no history in this build ----
+
+function noticeSnap(f) {
+  noticeRec.snap(f, [NOTICE_PREFIX]);
+  reviewNotices();
+}
+
+function noticeChg(f) {
+  const changed = noticeRec.chg(f);
+  if (changed === null) return send(P.sub(NOTICES)); // another epoch: a fresh snapshot, never a silent gap
+  if (changed.size) reviewNotices();
+}
+
+/** Pops what the desk says, takes down what moved elsewhere, and wakes at a quiet-hours hold's end. */
+function reviewNotices() {
+  const pcNow = Date.now() + S.pcOffset;
+  const r = desk.review(noticeRec.epoch, noticeRec.items, pcNow);
+  for (const id of r.withdraw) {
+    // dismissed, acknowledged or cleared on another screen, or a newer occurrence: it leaves without input
+    const t = noticeToasts.get(id);
+    noticeToasts.delete(id);
+    if (t) t.remove();
+  }
+  for (const id of r.bad) sayOnce(`notice ${id}`, `A notice from the PC (${id}) has no occurrence number, so this page cannot show it.`, { from: 'Damage' });
+  for (const n of r.pop) noticeToast(n);
+  clearTimeout(noticeWake);
+  noticeWake = r.wake === null ? null : setTimeout(reviewNotices, Math.min(Math.max(r.wake - pcNow, 0), 2 ** 31 - 1));
+}
+
+function noticeToast(n) {
+  const v = n.v;
+  const card = ((S.descs.get('desc/main') || {}).cards || []).find((c) => c.window === v.app);
+  const from = (card && card.name) || (VIEWS[v.app] && VIEWS[v.app].label) || (typeof v.app === 'string' && v.app ? v.app[0].toUpperCase() + v.app.slice(1) : 'Damage');
+  const to = { window: v.app, target: v.target || null };
+  // a loss is never said (the next occurrence is already shown, spec §2.1); a refusal is
+  const answered = (what) => (a) => {
+    if (a && a.a === 'refused') say(`${what} “${v.body}”: ${P.answerWords(a)}`, { from });
+  };
+  const urgent = v.urgency === 'URGENT';
+  const t = h('div', { class: 'toast notice' + (urgent ? ' keep' : ''), role: 'status', 'data-notice': n.id },
+    h('div', { class: 'n-head' }, h('span', { class: 'from', text: from }),
+      typeof v.raisedAt === 'number' ? h('span', { class: 'when', text: P.hhmm(v.raisedAt) }) : null),
+    h('a', { class: 'n-body', href: A.format(to), text: String(v.body), on: { click: (e) => {
+      // the tap-through: marked read on every screen, then the window that raised it
+      e.preventDefault();
+      ctx.sendQueued(readDraft(n), answered('Open'));
+      dropToast(t);
+      go(to);
+    } } }),
+    h('button', { class: 'act', on: { click: () => {
+      // one op; out of reach it is not sent (said) and the toast stays
+      if (ctx.sendQueued(dismissDraft(n), answered('Dismiss'))) dropToast(t);
+    } } }, 'Dismiss'));
+  const old = noticeToasts.get(n.id);
+  if (old) old.remove();
+  noticeToasts.set(n.id, t);
+  place(t, urgent);
 }
 
 function desc(scope, d) {
