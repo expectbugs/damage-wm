@@ -44,6 +44,8 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
 body { background: var(--bg); color: var(--fg); font-family: var(--ui-font); line-height: 1.4; overflow-wrap: anywhere; }
+/* S1-2 JW0 (seen in headless Firefox): scroll bars in the page's own colours (a dark page drew a white one) */
+:root { scrollbar-color: var(--muted) var(--bg); }
 a { color: var(--accent); }
 /* fix round 1, ruling 2.3 (10): a link that leaves the book says so before it is pressed */
 a.out::after { content: " \2197"; }

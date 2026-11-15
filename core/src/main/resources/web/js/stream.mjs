@@ -11,6 +11,9 @@ export const STREAM_KEY = 'damage.stream';
  *  stream's number (site data cleared under an open tab, then a new tab). */
 export const NEXT_KEY = 'damage.stream.next';
 export const DEVICE_KEY = 'damage.device';
+/** S1-2 Q1 (F2b 4): the time of this browser's last approval, written at every redeem. A re-approval of a remembered
+ *  device writes the same `DEVICE_KEY`, which fires no `storage` event; this value changes, so a waiting tab hears it. */
+export const APPROVED_KEY = 'damage.device.approved';
 
 /** A storage over `ls` (window.localStorage, or a stand-in) that never throws: a failed read or write is kept in
  *  memory and reported once through `failed`. */

@@ -26,6 +26,14 @@ function add(el, kids) {
   }
 }
 
+/** S1-2 JW0 (seen in headless Firefox): replaces `el`'s children with `kids` as `h` takes them — null, undefined and
+ *  false are left out and arrays flattened. The DOM's own `replaceChildren` writes a null as the text "null". */
+export function fill(el, ...kids) {
+  el.replaceChildren();
+  add(el, kids);
+  return el;
+}
+
 export function clear(el) {
   while (el.firstChild) el.firstChild.remove();
   return el;

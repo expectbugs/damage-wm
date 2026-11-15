@@ -99,5 +99,7 @@ export function devicesView(ctx) {
       if (scope === 'devices') draw();
     },
     onWelcome: () => draw(),
+    // S1-2 Q1 (N7): every dim reads the reach; out of reach and back, the buttons are drawn again with it
+    onReach: () => draw(),
   };
 }
