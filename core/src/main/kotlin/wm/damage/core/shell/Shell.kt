@@ -2623,6 +2623,10 @@ class Shell(
                 // the one dev probe that is the shell's (the ledger lives here): the transport journals
                 // every probe as this note and sends nothing for this one
                 if (ev.kind == "probe" && ev.detail == "cache=miscount") probeCacheMiscount()
+                // build C1 (`FIRMWARE.md` §5.6, spec §6.4): RIGHT's END CRC in a motion notify disagrees with the
+                // mirror's — the shadow is not what belief holds there; one keyframe reseeds both (it also closes
+                // every instance on the glasses, decision A.8)
+                if (ev.kind == "divergence" && ev.detail.startsWith("motion")) comp.requestKeyframe()
             }
             is TransportEvent.Presented ->         // FIRMWARE.md §3 (F1.3): a panel transfer timed on the glasses; §4: its path
                 journal.present(ev.seq, ev.workerUs, ev.copyUs, ev.transferUs, ev.path, ev.atMs)
@@ -5019,9 +5023,12 @@ class Shell(
             if (lo > hi) continue
             mirrorRowsCompared += hi - lo + 1
             val said = m.readPanel(arm) { panel ->
-                val first = firstDisagreement(belief, panel, stride, lo, hi) ?: return@readPanel null
+                // build C1 (spec §6.5): a motion instance's areas, from its PLAY to the later of RIGHT's notify and its
+                // nominal end, are the lens's own to draw — not compared (none: every pixel, as before)
+                val skip = m.unknownAreas(arm)
+                val first = firstDisagreement(belief, panel, stride, lo, hi, skip) ?: return@readPanel null
                 if (report != null) return@readPanel ""
-                val diffs = countDisagreements(belief, panel, stride, lo, hi)
+                val diffs = countDisagreements(belief, panel, stride, lo, hi, skip)
                 "$arm: $diffs px differ, first at (${first.first},${first.second}) belief " +
                     "${belief[first.first, first.second]} (level ${LEVEL[belief[first.first, first.second]]}) mirror level ${nibble(panel, stride, first.first, first.second)}"
             }
@@ -5067,8 +5074,14 @@ class Shell(
 
     /** The first pixel whose quantised belief differs from the panel, or null
      *  — a cheap early-out scan (a lookup table replaces the per-pixel divide). */
-    private fun firstDisagreement(belief: Gray8, panel: ByteArray, stride: Int, lo: Int, hi: Int): Pair<Int, Int>? {
+    private fun firstDisagreement(belief: Gray8, panel: ByteArray, stride: Int, lo: Int, hi: Int,
+                                  skip: List<Rect> = emptyList()): Pair<Int, Int>? {
         val w = comp.width
+        if (skip.isNotEmpty()) {
+            for (y in lo..hi) for (x in 0 until w)
+                if (!inAny(skip, x, y) && LEVEL[belief[x, y]] != nibble(panel, stride, x, y)) return x to y
+            return null
+        }
         for (y in lo..hi) {
             val row = y * stride
             var x = 0
@@ -5082,11 +5095,15 @@ class Shell(
         return null
     }
 
-    private fun countDisagreements(belief: Gray8, panel: ByteArray, stride: Int, lo: Int, hi: Int): Int {
+    private fun inAny(skip: List<Rect>, x: Int, y: Int) = skip.any { x >= it.x && x < it.right && y >= it.y && y < it.bottom }
+
+    private fun countDisagreements(belief: Gray8, panel: ByteArray, stride: Int, lo: Int, hi: Int,
+                                   skip: List<Rect> = emptyList()): Int {
         var diffs = 0
         for (y in lo..hi) {
             val row = y * stride
             for (x in 0 until comp.width) {
+                if (skip.isNotEmpty() && inAny(skip, x, y)) continue
                 if (LEVEL[belief[x, y]] != nibble(panel, stride, x, y)) diffs++
             }
         }

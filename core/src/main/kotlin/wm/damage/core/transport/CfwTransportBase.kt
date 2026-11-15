@@ -93,6 +93,8 @@ abstract class CfwTransportBase(
     override val mirror: LensPanels get() = this.mirrorSim
 
     init {
+        // build C1 (spec §6.5): the area-unknown window's nominal end is read on the clock this transport writes with
+        this.mirrorSim.motionClock = { nowMs() }
         if (teeMirror) {
             this.mirrorSim.attachListener(object : GlassFirmwareSim.SimDiag {
                 override fun event(kind: String, detail: String) {
@@ -201,7 +203,7 @@ abstract class CfwTransportBase(
                 // `probe` note above carries it to the shell, which adds one atlas ack the glasses never
                 // saw to its ledger; nothing is sent from here and nothing new goes on the wire.
                 if (name == "cache" && value == "miscount") return
-                val (op, arg) = when {
+                val (op, asked) = when {
                     name == "telemetry" && value == "read" -> DamageMsg.OP_TELEMETRY to nextTelemetryId()
                     name == "cache" && value == "info" -> DamageMsg.OP_CACHE_INFO to nextTelemetryId()
                     name == "cachesize" && value.toIntOrNull() in DamageMsg.CACHE_MIN_KIB..DamageMsg.CACHE_BUDGET_KIB -> DamageMsg.OP_CACHE_SIZE to value.toInt()
@@ -211,6 +213,13 @@ abstract class CfwTransportBase(
                         DamageMsg.OP_FLAGS_SET to value.drop(2).toInt(16)
                     else -> { Log.w(this.name, "probe $name=$value: expected telemetry=read, cache=info|miscount, cachesize=${DamageMsg.CACHE_MIN_KIB}..${DamageMsg.CACHE_BUDGET_KIB} or flags=clear|probe|0xNNNN"); return }
                 }
+                // build C1 (spec §6.1): on a C1 build ZWRITE and ENGINE are the ladder's, never a hand-set wish's —
+                // a bit the stage does not allow is taken out here, and said
+                val caps0 = damageCaps
+                val beyond = if (op == DamageMsg.OP_FLAGS_SET && isC1(caps0)) asked and C1_FLAGS and ladderFlags(c1Stage, caps0!!).inv() else 0
+                if (beyond != 0) emitNote("probe", "$name=$value: flag bit(s) 0x${beyond.toString(16)} are the C1 ladder's (stage $c1Stage) — " +
+                    "not armed by hand; probe c1=N sets the stage")
+                val arg = asked and beyond.inv()
                 if (op == DamageMsg.OP_FLAGS_SET) wantedFlags = arg
                 if (op == DamageMsg.OP_FLAGS_CLEAR) wantedFlags = 0
                 // asking for DRAW2 by hand is the "try again" a hold-back names (FIRMWARE.md §1.6)
@@ -241,7 +250,25 @@ abstract class CfwTransportBase(
                         "(op 5 and FLAGS_SET share it) and this one would answer it — try again once the start is done")
                     return
                 }
-                controlQueue.trySend(CtlWork.BothArms(sessionEpoch.get(), SettingsMsg.SID, "damage op $wireOp") { DamageMsg.control(wireOp, wireArg) })
+                val epoch = sessionEpoch.get()
+                val send = { controlQueue.trySend(CtlWork.BothArms(epoch, SettingsMsg.SID, "damage op $wireOp") { DamageMsg.control(wireOp, wireArg) }) }
+                // `FIRMWARE.md` §5.8: a disarm closes nothing on the glasses, so a FLAGS_SET that clears ENGINE goes
+                // out only after a CLOSE of every instance has reached both lenses (its ack)
+                if (_state.value.flagsInForce and DamageMsg.FLAG_ENGINE != 0 &&
+                    (wireOp == DamageMsg.OP_FLAGS_CLEAR || (wireOp == DamageMsg.OP_FLAGS_SET && wireArg and DamageMsg.FLAG_ENGINE == 0)))
+                    scope.launch { if (closeAllMotion(epoch, "the probe's flags clear ENGINE")) send() }
+                else send()
+            }
+            // build C1 (C1-decisions A.17, spec §6.1): the arming ladder's stage, set only here, by hand — 0 nothing, 1
+            // ZWRITE, 2 and the 256 KiB cache, 3 and ENGINE. It takes effect at the next session start; never advanced
+            // by the transport (a hold-back only lowers it).
+            "c1" -> {
+                val n = value.toIntOrNull()
+                if (n == null || n !in 0..C1_TOP_STAGE) { Log.w(this.name, "probe c1=$value: expected 0..$C1_TOP_STAGE"); return }
+                val was = c1Stage
+                c1Stage = n
+                emitNote("keeper", "C1 ladder: stage $was → $n (${ladderSays(n)}) — the next session start arms it" +
+                    (damageCaps?.let { if (isC1(it)) "" else "; this build reports no C1 bit, so it arms nothing" } ?: ""))
             }
             // FIRMWARE.md §3, the self-test (mode 16) on the image lane: begin, a step carrying
             // one drawing message (hex), end. The glasses answer through telemetry fields
@@ -287,7 +314,7 @@ abstract class CfwTransportBase(
                     emitNote("wear", "query not sent (probe): no session")
                 }
             }
-            else -> Log.w(this.name, "probe $name=$value: not a probe this transport runs (diag, logger, telemetry, cache, flags, selftest, wear)")
+            else -> Log.w(this.name, "probe $name=$value: not a probe this transport runs (diag, logger, telemetry, cache, flags, selftest, wear, c1)")
         }
     }
 
@@ -303,6 +330,35 @@ abstract class CfwTransportBase(
         val nonce = (nowMs() and 0xFFFF).toInt()        // carries no meaning: the firmware reads it and op 7 ignores it
         return controlQueue.trySend(CtlWork.BothArms(sessionEpoch.get(), SettingsMsg.SID, "wear query") {
             SettingsMsg.wearQuery(nonce) }).isSuccess
+    }
+
+    /** Build C1 (spec §6.1), the motion API the feel session's probe uses: [messages] — a program's records as mode-19
+     *  writes, then mode-26 messages ([wm.damage.core.motion.Motion]) — each its own image on the image lane, in
+     *  order. Only while ENGINE is in force (the ladder's stage 3 on a bit-7 build, armed this session): otherwise
+     *  nothing is sent and the answer is false, with a `motion` note. A mode-19 write here is not the shell's: it is
+     *  put on record as another writer's, as a self-test's live write is. Never the shell's paint. */
+    fun sendMotion(messages: List<ByteArray>): Boolean {
+        val st = _state.value
+        if (!st.started || st.flagsInForce and DamageMsg.FLAG_ENGINE == 0) {
+            emitNote("motion", "not sent: ${if (!st.started) "no session" else "ENGINE is not in force (flags 0x${st.flagsInForce.toString(16)})"}")
+            return false
+        }
+        for (m in messages) {
+            val mode = m.firstOrNull()?.toInt()?.and(0x7F)
+            if (mode != 19 && mode != CfwModes.MOTION_MODE) throw LintError("the motion API sends mode 19 and mode 26, not mode $mode")
+        }
+        val epoch = sessionEpoch.get()
+        for (m in messages) {
+            if (m[0].toInt() == 19) {
+                val w = "motion#${liveCacheWrites.incrementAndGet()}@${Integer.toHexString(System.identityHashCode(this))}"
+                updateState { it.copy(cacheWriter = w) }
+            }
+            if (!imageQueue.trySend(ImgWork.Raw(epoch, m, null)).isSuccess) {
+                emitNote("motion", "a ${m.size} B mode-${m[0].toInt() and 0x7F} message not queued — the rest of the program is not sent")
+                return false
+            }
+        }
+        return true
     }
 
     /** One device-info READ now instead of at the poll's next minute — for a subclass whose probe just
@@ -628,6 +684,14 @@ abstract class CfwTransportBase(
         val resetAt = lastResetAtMs
         if (resetAt != null && resetAt != heldBackForResetAt && armedAt != null &&
             resetAt >= armedAt - CAPABILITY_REASK_MS && resetAt - armedAt < HOLD_BACK_MS) {
+            // build C1: a reset seen only by this read (after the start's own hold-back was decided) while this arming
+            // carries the ladder's bits drops one stage, as [ladderAtStart] does; this session arms nothing (today's
+            // shape), and the wish and DRAW2 are kept for the next start
+            if (extraLeft and C1_FLAGS != 0 && ladderArmedStage > 0) {
+                ladderHoldBack()
+                ladderArmedStage = 0
+                return
+            }
             wantedFlags = 0
             // the session's own DRAW2 is held back too: the start adds it to every session, and without
             // this latch the next start would arm it again whatever reset it may have caused (2026-09-15
@@ -739,8 +803,10 @@ abstract class CfwTransportBase(
         }
         // a field 18 off the wire is not this shell's arithmetic: an atlas laid out over a size the
         // builder refuses would throw on the shell loop (2026-09-15, the third review)
-        if (size !in CfwModes.TEXTURE_CACHE_SIZE..CfwModes.CACHE2_MAX) {
-            emitNote("glass", "cache size: the glasses report $size B, outside 64..160 KiB — this session uses the v1 64 KiB")
+        // the build's own bound: 160 KiB, or 256 on a build with the riders (`FIRMWARE.md` §5.9)
+        val budget = DamageMsg.cacheBudgetKib(damageCaps)
+        if (size !in CfwModes.TEXTURE_CACHE_SIZE..budget * 1024) {
+            emitNote("glass", "cache size: the glasses report $size B, outside 64..$budget KiB — this session uses the v1 64 KiB")
             return CfwModes.TEXTURE_CACHE_SIZE
         }
         emitNote("glass", "cache size: asked $kib KiB, status $status, ${size / 1024} KiB this session" +
@@ -780,6 +846,149 @@ abstract class CfwTransportBase(
     @Volatile private var heldBackForResetAt: Long? = null
     /** A hold-back caught DRAW2 in the arming: no start arms it again until a hand-set flag set asks. */
     @Volatile private var draw2HeldBack = false
+    /** Build C1 (C1-decisions A.17, spec §6.1): the arming ladder's stage — 0 nothing (the default), 1 ZWRITE, 2 and
+     *  the 256 KiB cache, 3 and ENGINE. Set only by the probe `c1=N`, lowered only by a hold-back; kept where the wish
+     *  is kept (this transport, across sessions; a process restart starts again at 0, the safe end). */
+    @Volatile private var c1Stage = 0
+    /** The stage the last start armed the ladder at (0: it armed nothing of the ladder) — what a hold-back blames. */
+    @Volatile private var ladderArmedStage = 0
+
+    /** A build that reports a C1 bit (`FIRMWARE.md` §5.1: features bit 7 the engine, bit 8 the riders; contract 2). */
+    private fun isC1(caps: DamageMsg.Caps?): Boolean =
+        caps != null && caps.contract >= DamageMsg.CONTRACT && (caps.has(DamageMsg.FEATURE_ENGINE) || caps.has(DamageMsg.FEATURE_RIDERS))
+
+    /** The flag bits the ladder adds at [stage] (spec §6.1): ZWRITE from stage 1 on a bit-8 build, ENGINE at stage 3 on
+     *  a bit-7 build; nothing elsewhere. */
+    private fun ladderFlags(stage: Int, caps: DamageMsg.Caps?): Int {
+        if (!isC1(caps)) return 0
+        return (if (stage >= 1 && caps!!.has(DamageMsg.FEATURE_RIDERS)) DamageMsg.FLAG_ZWRITE else 0) or
+            (if (stage >= 3 && caps!!.has(DamageMsg.FEATURE_ENGINE)) DamageMsg.FLAG_ENGINE else 0)
+    }
+
+    /** The cache size a start asks for at [stage]: 256 KiB from stage 2 on a bit-8 build, else §4's 160. */
+    private fun ladderKib(stage: Int, caps: DamageMsg.Caps?): Int =
+        if (stage >= 2 && isC1(caps) && caps!!.has(DamageMsg.FEATURE_RIDERS)) DamageMsg.CACHE_BUDGET_RIDERS_KIB else DamageMsg.CACHE_BUDGET_KIB
+
+    private fun ladderSays(stage: Int) = when (stage) {
+        0 -> "nothing of C1"
+        1 -> "ZWRITE"
+        2 -> "ZWRITE and the 256 KiB cache"
+        else -> "ZWRITE, the 256 KiB cache and ENGINE"
+    }
+
+    /** True when a reset followed the last arming within [HOLD_BACK_MS] and no hold-back has decided on it yet —
+     *  the rule [armFeatures] has applied since `FORK.md` §3.2, read here too. */
+    private fun holdBackDue(): Boolean {
+        val resetAt = lastResetAtMs ?: return false
+        val armedAt = lastArmedAtMs ?: return false
+        return resetAt != heldBackForResetAt && resetAt >= armedAt - CAPABILITY_REASK_MS && resetAt - armedAt < HOLD_BACK_MS
+    }
+
+    /** One stage down after a reset the ladder is blamed for: the bit armed last (ENGINE, then the 256 KiB size, then
+     *  ZWRITE) goes, the rest stays — with the hold-back's fault and `keeper` note. */
+    private fun ladderHoldBack(): Int {
+        val resetAt = lastResetAtMs!!
+        val armedAt = lastArmedAtMs!!
+        heldBackForResetAt = resetAt
+        val was = ladderArmedStage
+        val to = minOf(c1Stage, was - 1)
+        c1Stage = to
+        val text = "hold-back: the glasses reset ${(resetAt - armedAt) / 1000} s after the C1 ladder armed stage $was — " +
+            "stage $to from here (${ladderSays(to)}); DRAW2 and the rest are armed as before (probe c1=$was to try again)"
+        emitNote("keeper", text)
+        emitFault("holdback", text)
+        return to
+    }
+
+    /** Build C1 (spec §6.1): the stage this start arms, decided ONCE and before the cache size is asked (stage 2 is a
+     *  size). A hold-back due on an arming that carried the ladder drops one stage and arms the rest. A hold-back due on
+     *  an arming that carried none of it is [armFeatures]' as before, and the ladder adds nothing to this start. */
+    private fun ladderAtStart(caps: DamageMsg.Caps): Int {
+        val stage = c1Stage
+        val at = when {
+            stage == 0 || !isC1(caps) -> 0
+            !holdBackDue() -> stage
+            ladderArmedStage == 0 -> 0
+            else -> ladderHoldBack()
+        }
+        return at
+    }
+
+    /** Build C1 (`FIRMWARE.md` §5.8, spec §6.4): one notify-114 body. A `motion` note always; for an instance that
+     *  stopped (outcomes 0 and 1) its END CRC against the one the mirror wrote for that (slot, tag, ordinal) — a
+     *  mismatch is a `divergence` note, and the shell keyframes on it; never silent. The sequence is kept for the gap
+     *  rule ([noteMotionGaps]) and the mirror is told the notify came (its area-unknown window, spec §6.5). */
+    private fun onMotionNotify(arm: Arm, m: DamageMsg.Motion) {
+        if (arm != Arm.RIGHT) {
+            emitNote("motion", "a motion notify arrived on LEFT, which cannot send — ignored: ${m.describe()}")
+            return
+        }
+        emitNote("motion", m.describe())
+        m.seq?.let { s -> synchronized(motionSeqs) { if (motionAccounted.let { it == null || s > it }) motionSeqs += s } }
+        if (m.outcome != DamageMsg.OUTCOME_DREW && m.outcome != DamageMsg.OUTCOME_CLOSED) return
+        val slot = m.slot; val tag = m.tag; val ordinal = m.ordinal; val crc = m.endCrc
+        if (slot == null || tag == null || ordinal == null || crc == null) {
+            emitNote("divergence", "motion: a notify of outcome ${m.outcome} without its slot, tag, ordinal or END CRC (${m.describe()}) — keyframing")
+            return
+        }
+        val want = synchronized(mirrorSim) {
+            mirrorSim.motionNotified(slot, tag, ordinal)
+            mirrorSim.motionEndCrc(slot, tag, ordinal)
+        }
+        when {
+            want == null -> emitNote("motion", "no END on record for slot $slot tag 0x%04x ordinal $ordinal this session (another session's instance) — not compared".format(tag))
+            want != crc -> emitNote("divergence", "motion: slot $slot tag 0x%04x ordinal $ordinal END CRC %08x on the glasses, %08x in the mirror — keyframing"
+                .format(tag, crc, want))
+        }
+    }
+
+    /** Sequences received above [motionAccounted]; every sequence at or below it is accounted for (received, or
+     *  journaled as a gap). The lock for both. */
+    private val motionSeqs = java.util.TreeSet<Long>()
+    private var motionAccounted: Long? = null
+
+    /** `FIRMWARE.md` §5.8: a notify sequence at or below field 31 that has not arrived by this telemetry read is
+     *  journaled as a gap (out-of-order arrival is expected; a lost notify costs pacing only — END is in the shadow).
+     *  The first reading, and one below the last (the glasses restarted the count), only set the mark. */
+    private fun noteMotionGaps(f31: Long) {
+        val gaps = ArrayList<String>()
+        synchronized(motionSeqs) {
+            val from = motionAccounted
+            if (from != null && f31 > from) {
+                var next = from + 1
+                for (s in motionSeqs.headSet(f31, true)) {
+                    if (s > next) gaps += if (s - 1 == next) "$next" else "$next-${s - 1}"
+                    next = s + 1
+                }
+                if (next <= f31) gaps += if (next == f31) "$next" else "$next-$f31"
+            }
+            if (from == null || f31 != from) motionAccounted = f31
+            motionSeqs.headSet(f31, true).clear()
+        }
+        if (gaps.isNotEmpty()) emitNote("motion", "gap: notify sequence(s) ${gaps.joinToString(", ")} not received by the telemetry read " +
+            "(field 31 = $f31) — END was already in the shadow; pacing only")
+    }
+
+    /** `FIRMWARE.md` §5.8: a CLOSE of every instance (mode 26, slot 0xFF) on the image lane, awaited to its ack — the
+     *  image went to LEFT, which hands it to the right lens, so both lenses have it. False, and said, when it did not
+     *  get there (the session ended, the write failed): the caller then sends nothing that depends on it. */
+    private suspend fun closeAllMotion(epoch: Long, why: String): Boolean {
+        val done = CompletableDeferred<Unit>()
+        if (!imageQueue.trySend(ImgWork.Raw(epoch, CfwModes.motionClose(CfwModes.MOTION_ALL), done)).isSuccess) {
+            emitNote("motion", "CLOSE of every instance not queued ($why) — nothing that depends on it is sent")
+            return false
+        }
+        return try {
+            done.await()
+            emitNote("motion", "CLOSE of every instance acked before $why")
+            true
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            emitNote("motion", "CLOSE of every instance not acked ($why): ${e.message} — nothing that depends on it is sent")
+            false
+        }
+    }
     /** The reset check's record (step 1b): whether RIGHT reported an allocated cache (field 18). */
     @Volatile private var resetCheckCache: Long? = null
     @Volatile private var resetCheckRead = false
@@ -1263,6 +1472,9 @@ abstract class CfwTransportBase(
                         Log.w(name, "presented event dropped (buffer full): seq ${p.seq}")
                     return
                 }
+                // build C1 (`FIRMWARE.md` §5.8): a motion notify (field 114), RIGHT only — a journal note per body, the
+                // END CRC compared with the mirror's, the area-unknown window told
+                DamageMsg.parseMotion(frame.payload)?.let { m -> onMotionNotify(arm, m); return }
                 // FIRMWARE.md §3: a Damage build's telemetry record (commandId 3, field 111)
                 DamageMsg.parseTelemetry(frame.payload)?.let { t ->
                     // R2 (RG-5): RIGHT answers every control request twice (`HANDOFF.md` §59) — the second
@@ -1289,6 +1501,7 @@ abstract class CfwTransportBase(
                         return
                     }
                     t.uptimeMs?.let { noteUptime(it) }
+                    t.motionSeq?.let { noteMotionGaps(it) }
                     t.requestId?.let { id ->
                         // a FLAGS_SET reply (id 0) is taken only when it answers the set being armed:
                         // RIGHT answers every control request twice (2026-09-15 12:54, `HANDOFF.md`
@@ -2027,6 +2240,11 @@ abstract class CfwTransportBase(
             // episode, on a build whose lenses are drawing correctly (2026-09-15, second review).
             // Set before the control ops below, so the mirror follows the flags and the cache size.
             if (teeMirror) mirrorSim.damageContract = damageCaps?.contract
+            // build C1: and the features word, so the mirror has modes 25/26 exactly when the build does (null, or a
+            // word without bit 7 or 8, models today's build as before)
+            if (teeMirror) mirrorSim.damageFeatures = damageCaps?.features
+            // build C1 (spec §2 row 21 (a)): the END CRCs and the notified instances start again with the session
+            synchronized(mirrorSim) { mirrorSim.motionSessionStart() }
 
             // 1b. On a Damage build, the reset check (`FORK.md` §3.2): RIGHT's uptime, read here
             //     so that the carry decision at the lease below knows whether the right lens
@@ -2139,12 +2357,17 @@ abstract class CfwTransportBase(
                 // shell's atlas builder threw on the loop. Ways to 64 KiB here: the cache already up at 64 (op 5's
                 // status 4), a size off the wire outside 64..160 (the fallback below), op 5 refused (3 or 5).
                 val heldBack = draw2HeldBack
+                // build C1 (spec §6.1): the ladder's stage, read ONCE, after its own hold-back (decided here, before the
+                // size, since stage 2 is a size); stage 0 — the default, and every build without a C1 bit — adds nothing
+                val stage = ladderAtStart(caps2)
                 // a session that will not arm DRAW2 draws with v1 shapes over the first 64 KiB, so
                 // asking for 160 would spend 96 KiB of arena 13 against §4's budget for nothing
-                val size = requestCacheSize(epoch, if (heldBack) DamageMsg.CACHE_MIN_KIB else DamageMsg.CACHE_BUDGET_KIB)
+                val size = requestCacheSize(epoch, if (heldBack) DamageMsg.CACHE_MIN_KIB else ladderKib(stage, caps2))
                 updateState { it.copy(cacheSize = size) }
                 val roomForV2 = size - CfwModes.STAGE_RESERVE >= CfwModes.TEXTURE_CACHE_SIZE
                 val armDraw2 = !heldBack && roomForV2
+                // what a later hold-back blames: the ladder only when this start arms something of it
+                ladderArmedStage = if (armDraw2 && (ladderFlags(stage, caps2) != 0 || ladderKib(stage, caps2) != DamageMsg.CACHE_BUDGET_KIB)) stage else 0
                 // DRAW2 belongs to the session, not to the wish carried to other builds; a hold-back that
                 // caught it keeps it off until asked for by hand. The wish is not edited: a hold-back lifted
                 // by hand takes effect at the next start that has the room, as the probe's line says.
@@ -2152,8 +2375,11 @@ abstract class CfwTransportBase(
                 else if (!roomForV2) emitNote("keeper", "DRAW2 not armed: this session's cache is ${size / 1024} KiB and a v2 atlas needs " +
                     "${(CfwModes.TEXTURE_CACHE_SIZE + CfwModes.STAGE_RESERVE) / 1024} KiB (64 for the atlas, 64 for the strips) — " +
                     "this session draws with v1 shapes; a start after a fresh acquire asks for the size again")
-                armFeatures(epoch, extra = if (armDraw2) DamageMsg.FLAG_DRAW2 else 0,
-                    withhold = if (armDraw2) 0 else DamageMsg.FLAG_DRAW2)
+                // ZWRITE and ENGINE need DRAW2 in force (mode 25's check 9, ENGINE's own rule, §5.8, §5.9): the ladder's
+                // bits ride only with it; on a C1 build a wish never carries them past the stage (the probe's rule)
+                armFeatures(epoch, extra = if (armDraw2) DamageMsg.FLAG_DRAW2 or ladderFlags(stage, caps2) else 0,
+                    withhold = (if (armDraw2) 0 else DamageMsg.FLAG_DRAW2) or
+                        (if (isC1(caps2)) C1_FLAGS and (if (armDraw2) ladderFlags(stage, caps2) else 0).inv() else 0))
             } else {
                 updateState { it.copy(cacheSize = CfwModes.TEXTURE_CACHE_SIZE) }
             }
@@ -2833,11 +3059,14 @@ abstract class CfwTransportBase(
             // the emit's budget is stated at the depth the flush goes out at (GG-2's pointer: 1, or 2 after a nudge)
             val encoded = Emit.encode(work.request, fids, tracker,
                 window = if (work.request.wide) depth else WINDOW)
-            val final = writeImage(encoded.image, work.epoch)
+            // build C1 (`FIRMWARE.md` §5.6, ruling 4 of `HANDOFF.md` §81): a write that meets an open instance's area
+            // CLOSEs that instance first, in the same batch; with nothing open the image is the encoder's, unchanged
+            val image = withMotionCloses(work.request, encoded.image)
+            val final = writeImage(image, work.epoch)
             flushWritten = true
             // the flush is on the wire: its completion is its own, whatever
             // happens to the wrap clear below (round 7 D4)
-            completeAsync(final, work.id, encoded.image.size, t0, done = null, sample = AckSample(alone, floor = true, epoch = work.epoch))
+            completeAsync(final, work.id, image.size, t0, done = null, sample = AckSample(alone, floor = true, epoch = work.epoch))
             if (fids.wrapPending) {
                 // the flush ended EXACTLY on 0xFFFE: the mode-7 sub-0 clear
                 // resets the FIRMWARE's fid ring, flags and lastFid; the host
@@ -2867,6 +3096,59 @@ abstract class CfwTransportBase(
             sessionPenalty = true
             _events.emit(TransportEvent.FlushDone(work.id, false, nowMs() - t0, 0,
                 e.message ?: e.toString()))
+        }
+    }
+
+    /**
+     * Build C1, the phone's rule of `FIRMWARE.md` §5.6 (ruling 4, `HANDOFF.md` §81): a flush whose writes meet an open
+     * instance's area on a lens carries a CLOSE of that instance at the head of its batch, so the batch's own present
+     * shows the write (the lens would otherwise keep painting the instance over it). "Open" is the mirror's: it applies
+     * exactly this transport's bytes (a PLAY not closed in its stream). A bare keyframe closes every instance itself
+     * (decision A.8). A write the transport cannot bound — a cached glyph run or a v1 cached image, whose extents live in
+     * the cache — counts from its origin to the panel's right and bottom edges. More CLOSEs than the batch's count holds
+     * become one CLOSE of every instance; past that the encoder's own limit refuses the flush, loudly.
+     */
+    private fun withMotionCloses(req: FlushRequest, image: ByteArray): ByteArray {
+        val open = synchronized(mirrorSim) { Arm.entries.associateWith { mirrorSim.motionWindows(it) } }
+        if (open.values.all { it.isEmpty() }) return image
+        if (image[0].toInt() == 6 || req.ops.any { it is DisplayOp.Keyframe }) return image
+        val writes = motionWriteRects(req.ops)
+        val slots = java.util.TreeSet<Int>()
+        for (arm in Arm.entries) {
+            val left = arm == Arm.LEFT
+            for (w in open.getValue(arm)) if (w.areas.any { a -> writes.any { (l, r) -> (if (left) l else r).overlaps(a) } }) slots += w.slot
+        }
+        if (slots.isEmpty()) return image
+        val subs = ArrayList<ByteArray>()
+        var i = 2
+        repeat(image[1].toInt() and 0xFF) {
+            val n = (image[i].toInt() and 0xFF) or ((image[i + 1].toInt() and 0xFF) shl 8)
+            subs += image.copyOfRange(i + 2, i + 2 + n)
+            i += 2 + n
+        }
+        val closes = if (subs.size + slots.size > 0xFF) listOf(CfwModes.motionClose(CfwModes.MOTION_ALL)) else slots.map { CfwModes.motionClose(it) }
+        val out = CfwModes.batch(closes + subs, engine = true)
+        if (out.size > Geometry.MODE8_MAX) throw LintError("BUD002 flush ${out.size} B with its motion CLOSEs exceeds the firmware cap ${Geometry.MODE8_MAX}")
+        emitNote("motion", "a flush meets open instance(s) ${slots.joinToString()} — CLOSE first, in its batch (§5.6)")
+        return out
+    }
+
+    /** The rects each op of a batch writes, per lens (left, right) — [withMotionCloses]' bound. */
+    private fun motionWriteRects(ops: List<DisplayOp>): List<Pair<wm.damage.core.geom.Rect, wm.damage.core.geom.Rect>> {
+        fun toEdge(x: Int, y: Int) = wm.damage.core.geom.Rect(maxOf(0, x), maxOf(0, y), maxOf(1, Geometry.PANEL_W - maxOf(0, x)), maxOf(1, Geometry.PANEL_H - maxOf(0, y)))
+        return ops.mapNotNull { op ->
+            when (op) {
+                is DisplayOp.Delta -> if (op.disparity == 0) op.box to op.box else op.box.translate(-op.disparity, 0) to op.box.translate(op.disparity, 0)
+                is DisplayOp.StereoPair -> op.left to op.right
+                is DisplayOp.Copy -> if (op.disparity == 0) op.dst to op.dst else op.dst.translate(-op.disparity, 0) to op.dst.translate(op.disparity, 0)
+                is DisplayOp.CopyPair -> op.dstL to op.dstR
+                is DisplayOp.Fill -> op.left to op.right
+                is DisplayOp.DrawImage2 -> wm.damage.core.geom.Rect(op.xL, op.y, op.w, op.h) to wm.damage.core.geom.Rect(op.xR, op.y, op.w, op.h)
+                is DisplayOp.DrawText2 -> toEdge(op.xL, op.y) to toEdge(op.xR, op.y)
+                is DisplayOp.DrawText -> toEdge(op.x, op.y).let { it to it }
+                is DisplayOp.DrawImage -> toEdge(op.x, op.y).let { it to it }
+                is DisplayOp.Keyframe, is DisplayOp.Clip, is DisplayOp.PresentHint, is DisplayOp.CacheWrite, is DisplayOp.CacheWrite2 -> null
+            }
         }
     }
 
@@ -3360,6 +3642,9 @@ abstract class CfwTransportBase(
         private const val COUNT_ASK_BOUND = 3
         /** `FORK.md` §3.2: a reset this soon after an arming disarms the feature until asked again. A placeholder until measured (M0.5 was dropped); Adam's to set. */
         private const val HOLD_BACK_MS = 120_000L
+        /** Build C1: the ladder's top stage (spec §6.1) and the two flag bits it owns. */
+        const val C1_TOP_STAGE = 3
+        const val C1_FLAGS = DamageMsg.FLAG_ZWRITE or DamageMsg.FLAG_ENGINE
         /** How far short of the predicted uptime a reading must fall to count as a reset
          *  (armFeatures): the two clocks' drift over a day and the reply's own latency are
          *  well inside it; a reset can hide inside it only if the glasses reset within this

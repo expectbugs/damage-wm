@@ -38,6 +38,12 @@ interface LensPanels {
      *  it has one (no copy); a copy otherwise. [block] reads only, and returns before the lock is let go. */
     fun <T> readPanel(arm: Arm, block: (ByteArray) -> T): T = block(snapshot(arm))
 
+    /** Build C1 (spec §6.5, `FIRMWARE.md` §5.6): the rects of [arm]'s panel whose pixels this mirror cannot know — a
+     *  motion instance's areas from its PLAY until the later of RIGHT's notify and its nominal end, where the lens
+     *  draws steps on its own clock. The shell's agreement check skips them. Read inside [readPanel]'s block, so the
+     *  two are one view. A mirror with no engine answers none. */
+    fun unknownAreas(arm: Arm): List<wm.damage.core.geom.Rect> = emptyList()
+
     fun addListener(l: LensListener)
     fun removeListener(l: LensListener)
 

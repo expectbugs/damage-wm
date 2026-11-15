@@ -740,6 +740,7 @@ class GlassFirmwareSim() : LensPanels {
      *  §4: a message that could have changed the shadow (the modes that hold the display gate) and
      *  ended without presenting leaves those changes off the panel, so the next present goes whole. */
     private fun dispatchTop(arm: Arm, src: ByteArray, now: Long): Boolean {
+        imageObserver?.invoke(arm, src)
         val c = ctx(arm)
         c.presented = false
         val ok = dispatchImage(arm, src, now)
@@ -1421,6 +1422,50 @@ class GlassFirmwareSim() : LensPanels {
             (o.t0 + (o.T - 1).toLong() * o.period) and MotionSim.U32)
     }
 
+    // ---- build C1, D3a: the phone's side of the mirror (spec §2 rows 21–22, §6.5). Nothing here changes what the
+    // model does with a message; it keeps what the phone's transport compares and what the shell's check skips.
+    /** RIGHT's END CRC per (slot, tag, ordinal) since the session's start, written when an accepted PLAY or RETARGET
+     *  wrote END (`FIRMWARE.md` §5.6). */
+    private val endCrcs = HashMap<Triple<Int, Int, Int>, Long>()
+    /** The (slot, tag, ordinal) RIGHT's notify has reported (the transport tells the mirror, spec §6.5). */
+    private val motionNotified = HashSet<Triple<Int, Int, Int>>()
+    /** The clock the area-unknown window reads (a hardware transport sets its own; the vectors never read it). */
+    @Volatile var motionClock: () -> Long = System::currentTimeMillis
+    /** A test's view of every image message the model takes at the top level, both lenses, before it is handled. */
+    @Volatile var imageObserver: ((Arm, ByteArray) -> Unit)? = null
+
+    /** The END CRC RIGHT's model wrote for (slot, tag, ordinal) this session, or null. */
+    @Synchronized
+    fun motionEndCrc(slot: Int, tag: Int, ordinal: Int): Long? = endCrcs[Triple(slot, tag, ordinal)]
+
+    /** RIGHT's notify for (slot, tag, ordinal) arrived: half of that instance's area-unknown window has ended. */
+    @Synchronized
+    fun motionNotified(slot: Int, tag: Int, ordinal: Int) { motionNotified += Triple(slot, tag, ordinal) }
+
+    /** A session start (the transport's): the records above start again, with the mirror. */
+    @Synchronized
+    fun motionSessionStart() { endCrcs.clear(); motionNotified.clear() }
+
+    /** Spec §6.5: each open instance's areas on [arm]'s lens from its PLAY until the later of RIGHT's notify for that
+     *  (slot, tag, ordinal) and its nominal end — the step-T tick on this model's clock, a signed 32-bit compare. A
+     *  closed instance (a CLOSE, a release point, a live keyframe, a meeting write) is not listed: its END is up. */
+    @Synchronized
+    override fun unknownAreas(arm: Arm): List<Rect> {
+        val m = ctx(arm).motion
+        if (!m.anyOpen) return emptyList()
+        val now = osTick(motionClock())
+        val left = fwSide(arm) == 2
+        val out = ArrayList<Rect>()
+        for (o in m.slots) {
+            if (o == null) continue
+            val end = (o.t0 + (o.T - 1).toLong() * o.period) and MotionSim.U32
+            val past = ((now - end) and MotionSim.U32).toInt() >= 0
+            if (past && Triple(o.slot, o.tag, o.ordinal) in motionNotified) continue
+            for (t in o.prog.tracks) out += t.rect(left)
+        }
+        return out
+    }
+
     /** The engine's state on [arm], for tests (read under the monitor; not a copy). */
     @Synchronized
     fun motionForTest(arm: Arm): MotionSim = ctx(arm).motion
@@ -1482,6 +1527,9 @@ class GlassFirmwareSim() : LensPanels {
         }
         if (reason != 0) return no(reason)
         diag.event("motion", "$arm mode-26 sub $sub slot $slot accepted")
+        // build C1, D3a (spec §2 row 21): the mirror's record of RIGHT's END CRC per (slot, tag, ordinal), for the
+        // phone's compare with a notify that may arrive after the instance is gone
+        if (arm == Arm.RIGHT && sub != 2) e.slots[slot]?.let { o -> endCrcs[Triple(o.slot, o.tag, o.ordinal)] = o.endCrc }
         // READING: every accepted mode-26 message presents as the other gated modes do (a CLOSE too: "the next
         // present shows the shadow" is its own) — the other reading has a CLOSE present nothing
         if (present) present(arm, now, batch)
