@@ -164,8 +164,9 @@ test('a storage that throws keeps the values for this visit and says why', () =>
 
 test('the lane messages and the levels', () => {
   assert.deepEqual(P.hello({ stream: 'abc', name: 'desk', replaces: 'web-1' }),
-    // S1-2 Q3w (decisions A.1, A.5): the page reads the `notices` window, which the PC shares only with a hello naming it
-    { t: 'app', proto: 2, stream: 'abc', contracts: { reader: 1, notices: 1 }, name: 'desk', replaces: 'web-1' });
+    // S1-2 Q3w (decisions A.1, A.5): the page reads the `notices` window, which the PC shares only with a hello naming it;
+    // S1-2 Q4w (spec §5 X1, Contracts.kt): likewise `torrents`, at version 1
+    { t: 'app', proto: 2, stream: 'abc', contracts: { reader: 1, notices: 1, torrents: 1 }, name: 'desk', replaces: 'web-1' });
   assert.deepEqual(P.sub('reader', { epoch: 3, seq: 9 }), { t: 'sub', scope: 'reader', epoch: 3, seq: 9 });
   const op = P.queuedOp({ stream: 's', n: 4, window: 'reader', action: 'place', targets: ['place.b'], result: '@c1.1~', expect: { value: null } });
   assert.deepEqual(op.op, { device: '', stream: 's', n: 4, window: 'reader', action: 'place', targets: ['place.b'], result: '@c1.1~', expect: { value: null } });

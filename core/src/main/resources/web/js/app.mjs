@@ -17,6 +17,7 @@ import { confirmShape } from './confirm.mjs';
 import { NoticeDesk, WINDOW as NOTICES, PREFIX as NOTICE_PREFIX, dismissDraft, readDraft } from './notices.mjs';
 import { homeView } from './views/home.mjs';
 import { readerView } from './views/reader.mjs';
+import { torrentsView } from './views/torrents.mjs';
 import { devicesView } from './views/devices.mjs';
 import { diagView } from './views/diag.mjs';
 import { settingsView, applyLooks } from './views/settings.mjs';
@@ -56,7 +57,11 @@ const desk = new NoticeDesk(store, stream.id);
 const noticeToasts = new Map(); // id → its toast
 let noticeWake = null;
 
-const subs = new Set(); // the views' PC-served scopes, sent again at each welcome
+const subs = new Map(); // the views' PC-served scopes → their need (S1-2 Q4w) or null, sent again at each welcome
+// S1-2 Q4w: a converted window's record scope beside Reader's (Torrents' recents and rows), each with its own copy and
+// cursor for the reason the notices have theirs; kept across the view's visits, so a return resumes from its cursor
+const recs = new Map(); // window → ClientRecord
+const recSubs = new Set(); // the windows whose record scope a view holds now
 const queued = new Map(); // n → {frame, onAnswer, gapped}
 const connOps = new Map(); // k → onAnswer
 let nextK = 1;
@@ -139,8 +144,8 @@ function onFrame(f) {
       S.code = f.code;
       return render();
     case 'approved': return redeem(f.claim);
-    case 'snap': return f.desc ? desc(f.scope, f.desc) : f.scope === NOTICES ? noticeSnap(f) : recordSnap(f);
-    case 'chg': return f.scope === NOTICES ? noticeChg(f) : recordChg(f);
+    case 'snap': return f.desc ? desc(f.scope, f.desc) : f.scope === NOTICES ? noticeSnap(f) : recs.has(f.scope) ? winRecSnap(f) : recordSnap(f);
+    case 'chg': return f.scope === NOTICES ? noticeChg(f) : recs.has(f.scope) ? winRecChg(f) : recordChg(f);
     case 'ans': return answer(f);
     case 'end': return ended(f);
     case 'closed': return closed();
@@ -179,8 +184,9 @@ function welcome(f) {
   send(P.sub('desc/main'));
   // a PC that keeps no notice record (an older build) is not asked for one
   if (f.contracts && f.contracts[NOTICES] !== undefined) send(P.sub(NOTICES, noticeRec.cursor()));
-  if (P.atLeast(S.level, 'full')) subs.add('devices');
-  for (const s of subs) send(P.sub(s));
+  for (const w of recSubs) send(P.sub(w, recs.get(w).cursor()));
+  if (P.atLeast(S.level, 'full') && !subs.has('devices')) subs.set('devices', null);
+  for (const [s, need] of subs) send(P.sub(s, null, need));
   const back = reachAtWelcome;
   reachAtWelcome = false;
   if (first) route();
@@ -287,6 +293,18 @@ function recordChg(f) {
     return;
   }
   if (changed.size && view && view.onRecord) view.onRecord(changed);
+}
+
+/** S1-2 Q4w: a converted window's own record scope (`torrents`); its view hears it as `onWindowRecord`. */
+function winRecSnap(f) {
+  const changed = recs.get(f.scope).snap(f, [`rec.${f.scope}.`]);
+  if (view && view.onWindowRecord) view.onWindowRecord(f.scope, changed);
+}
+
+function winRecChg(f) {
+  const changed = recs.get(f.scope).chg(f);
+  if (changed === null) return send(P.sub(f.scope)); // another epoch: a fresh snapshot, never a silent gap
+  if (changed.size && view && view.onWindowRecord) view.onWindowRecord(f.scope, changed);
 }
 
 // ---- the PC's notices as toasts (S1-2 Q3w; C§7; decision A.5): no tray and no history in this build ----
@@ -410,7 +428,8 @@ function answer(f) {
   if (f.conn !== undefined) {
     const cb = connOps.get(f.k);
     connOps.delete(f.k);
-    if (cb) cb(a);
+    // S1-2 Q4w: a program op's `result` (an added torrent's name) on the answer or beside it (spec §2.4, §6 RC)
+    if (cb) cb(a && f.result !== undefined && a.result === undefined ? { ...a, result: f.result } : a);
     return;
   }
   say(`the PC refused a message of this page: ${P.answerWords(a)}`, { from: 'Damage' });
@@ -434,18 +453,42 @@ const ctx = {
   canAct,
   levelWhy: (need) => P.levelWhy(S.level, need),
   desc: (scope) => S.descs.get(scope),
-  sub(scope) {
-    subs.add(scope);
-    if (S.phase === 'open') send(P.sub(scope));
+  /** Subscribes (or asks again: a refused page's retry) to a PC-served scope; `need` for a live source (spec §2.3). */
+  sub(scope, need = null) {
+    subs.set(scope, need);
+    if (S.phase === 'open') send(P.sub(scope, null, need));
+  },
+  /** S1-2 Q4w: a held scope's need changed (the page hidden or shown, its Poll row): the subscription is sent again
+   *  with it, the PC's viewer table taking the newer need (spec §2.3). */
+  need(scope, need) {
+    if (!subs.has(scope) || JSON.stringify(subs.get(scope)) === JSON.stringify(need)) return;
+    subs.set(scope, need);
+    if (S.phase === 'open') send(P.sub(scope, null, need));
   },
   unsub(scope) {
     if (!subs.delete(scope)) return;
     S.descs.delete(scope);
     if (S.phase === 'open') send(P.unsub(scope));
   },
-  /** A queued op (a page keeps no queue: out of reach it is refused here, said once). False = not sent. */
+  /** S1-2 Q4w: a converted window's record copy, and its subscription while a view holds it. */
+  rec(window) {
+    if (!recs.has(window)) recs.set(window, new ClientRecord());
+    return recs.get(window);
+  },
+  watch(window) {
+    const r = ctx.rec(window);
+    recSubs.add(window);
+    if (S.phase === 'open') send(P.sub(window, r.cursor()));
+  },
+  unwatch(window) {
+    if (recSubs.delete(window) && S.phase === 'open') send(P.unsub(window));
+  },
+  /** Whether this bundle has a page for a window (Open in Files before Files' page exists). */
+  hasView: (w) => Object.prototype.hasOwnProperty.call(VIEWS, w),
+  /** A queued op (a page keeps no queue: out of reach it is refused here, said once). False = not sent. S1-2 Q4w:
+   *  `opts.need`, the action's level (default view); the PC checks it again at apply. */
   sendQueued(draft, onAnswer, opts = {}) {
-    const why = canAct('view');
+    const why = canAct(opts.need || 'view');
     if (why) {
       if (!opts.quiet) sayOnce('away', `Not sent: ${why}. A page keeps no queue; act again when the PC answers.`, { from: draft.window });
       return false;
@@ -473,6 +516,23 @@ const ctx = {
     connOps.set(k, onAnswer);
     return true;
   },
+  /** S1-2 Q4w: a program op (spec §2.4: never queued, `conn` and `k`; its level the action's, checked again on the
+   *  PC at apply). Answered once: Sent (with `result`) or Refused, or, if the connection ends first, "not known
+   *  whether it ran". Returns its `k`, or null when not sent (said). */
+  sendProgram(draft, need, onAnswer) {
+    const why = canAct(need);
+    if (why) {
+      say(`Not sent: ${why}.`, { from: draft.window });
+      return null;
+    }
+    const k = nextK++;
+    if (!send(P.connOp({ conn: S.conn, k, ...draft }))) {
+      say('Not sent: the connection to the PC is down.', { from: draft.window });
+      return null;
+    }
+    connOps.set(k, onAnswer);
+    return k;
+  },
   confirm: (c) => confirmShape(el.dialog, c),
   go,
   /** A button for an action at level `need`: dim with the reason (W-25, C§4.4) when the level, the reach or `why`
@@ -489,6 +549,8 @@ const ctx = {
 const VIEWS = {
   main: { make: homeView, label: 'Home', icon: 'home' },
   reader: { make: readerView, label: 'Reader', icon: 'book' },
+  // S1-2 Q4w: a window the PC shares only when both name the same contract version (C§9.7 item 2)
+  torrents: { make: torrentsView, label: 'Torrents', icon: 'torrents', contract: 'torrents' },
   devices: { make: devicesView, label: 'Devices', icon: 'devices', need: 'full' },
   diag: { make: diagView, label: 'Diagnosis', icon: 'pulse', need: 'full' },
   settings: { make: settingsView, label: 'Settings', icon: 'gear' },
@@ -517,7 +579,8 @@ function route(input = false) {
     return;
   }
   if (view && view.unmount) view.unmount();
-  view = spec ? spec.make(ctx) : missingView(r.window);
+  const unshared = spec && contractWhy(spec);
+  view = unshared ? unsharedView(spec, unshared) : spec ? spec.make(ctx) : missingView(r.window);
   viewKey = r.window;
   el.main.replaceChildren(view.mount(r, { input }));
   el.main.focus({ preventScroll: true });
@@ -528,6 +591,23 @@ function missingView(w) {
   return {
     mount: () => h('section', { class: 'page' }, h('h1', { text: 'Not here yet' }),
       h('p', { class: 'note', text: `This PC serves no window “${w}” to the web in this build.` }),
+      h('a', { href: '/', focus: true, on: { click: (e) => { e.preventDefault(); go({ window: 'main' }); } } }, 'Home')),
+  };
+}
+
+/** S1-2 Q4w: why a window this page converts is not shared with this PC — its build names another version of the
+ *  window's contract, or none (an older PC) — or null. The PC refuses the window's scopes and ops then (C§9.7). */
+function contractWhy(v) {
+  if (!v.contract) return null;
+  const theirs = S.welcome && S.welcome.contracts ? S.welcome.contracts[v.contract] : undefined;
+  if (theirs === P.CONTRACTS[v.contract]) return null;
+  return theirs === undefined ? `the PC's build has no ${v.label} page yet` : `PC and this page on different builds for ${v.label}`;
+}
+
+function unsharedView(spec, why) {
+  return {
+    mount: () => h('section', { class: 'page' }, h('h1', { text: spec.label }),
+      h('p', { class: 'note', text: `Not shown here: ${why}. A reload takes the page the PC serves now; an older PC gains it with its next deploy.` }),
       h('a', { href: '/', focus: true, on: { click: (e) => { e.preventDefault(); go({ window: 'main' }); } } }, 'Home')),
   };
 }
@@ -568,7 +648,7 @@ function drawRail() {
   const pending = (S.descs.get('devices') || {}).pending || [];
   // ruling 2.3 (5)'s class: the rail is drawn again with Main's description and the device table; the focus stays
   keepFocus(el.rail, 'data-key', () => el.rail.replaceChildren(...Object.entries(VIEWS).map(([w, v]) => {
-    const why = v.need ? P.levelWhy(S.level, v.need) : null;
+    const why = contractWhy(v) || (v.need ? P.levelWhy(S.level, v.need) : null);
     const badge = w === 'devices' && pending.length ? h('span', { class: 'badge', 'aria-label': `${pending.length} waiting`, text: String(pending.length) }) : null;
     return h('a', { href: A.format({ window: w }), class: 'rail-item' + (viewKey === w ? ' current' : '') + (why ? ' dim' : ''),
       'aria-current': viewKey === w ? 'page' : null, title: why || v.label, 'data-why': why, 'data-key': `rail:${w}`,

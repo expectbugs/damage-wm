@@ -5,8 +5,8 @@
 
 export const PROTO = 2;
 /** The contract versions of this bundle's windows (the PC's `Contracts.MINE`). S1-2 Q3w: the notice record, read as
- *  the `notices` window (spec §2.1), at version 1. */
-export const CONTRACTS = { reader: 1, notices: 1 };
+ *  the `notices` window (spec §2.1), at version 1. S1-2 Q4w: Torrents (spec §5 X1), at version 1. */
+export const CONTRACTS = { reader: 1, notices: 1, torrents: 1 };
 
 export function hello({ stream, name, replaces }) {
   const h = { t: 'app', proto: PROTO, stream, contracts: { ...CONTRACTS } };
@@ -15,12 +15,14 @@ export function hello({ stream, name, replaces }) {
   return h;
 }
 
-export function sub(scope, cursor) {
+/** S1-2 Q4w: `need` = a viewer's need of a live source, `{kind: focus | glance | none, paceMs?}` (spec §2.3). */
+export function sub(scope, cursor, need) {
   const f = { t: 'sub', scope };
   if (cursor) {
     f.epoch = cursor.epoch;
     f.seq = cursor.seq;
   }
+  if (need) f.need = need;
   return f;
 }
 
@@ -34,9 +36,10 @@ export function queuedOp({ stream, n, window, action, targets, result = null, ex
   return { t: 'op', op };
 }
 
-/** A never-queued op of this connection (`conn`, `k`): the device table's actions. */
-export function connOp({ conn, k, window, action, params }) {
-  return { t: 'op', op: { device: '', conn, k, window, action, targets: [], result: null, expect: { any: true }, params } };
+/** A never-queued op of this connection (`conn`, `k`): the device table's actions; S1-2 Q4w: a program op, with its
+ *  targets (spec §2.4). */
+export function connOp({ conn, k, window, action, params, targets = [] }) {
+  return { t: 'op', op: { device: '', conn, k, window, action, targets, result: null, expect: { any: true }, params } };
 }
 
 // ---- levels (C§10.4) ----

@@ -97,6 +97,8 @@ const ICONS = {
   pulse: 'M2 12h4l3-7 4 14 3-7h6',
   gear: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM10 2h4l.6 2.6 2.3 1 2.3-1.4 2.8 2.8-1.4 2.3 1 2.3L24 12v0l-2.6.6-1 2.3 1.4 2.3-2.8 2.8-2.3-1.4-2.3 1L14 22h-4l-.6-2.6-2.3-1-2.3 1.4-2.8-2.8 1.4-2.3-1-2.3L0 12l2.6-.6 1-2.3-1.4-2.3 2.8-2.8 2.3 1.4 2.3-1z',
   folder: 'M2 5h7l2 2h11v13H2z',
+  // S1-2 Q4w: Torrents — a down-arrow into a tray (TORRENTS.md §3's drawn fallback)
+  torrents: 'M12 3v11M7 9l5 5 5-5M3 15v5h18v-5',
 };
 
 /** A small line icon drawn in the page's own colours. */

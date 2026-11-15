@@ -31,6 +31,8 @@ export function homeView(ctx) {
       } } },
       h('span', { class: 'card-head' }, icon(c.icon), h('span', { class: 'card-name', text: c.name })),
       h('span', { class: 'card-line', text: s.line || '' }),
+      // S1-2 Q4w: a summary's second line (Torrents' counts, shared with Main's row on the glasses)
+      s.detail ? h('span', { class: 'card-state', text: s.detail }) : null,
       typeof s.progress === 'number' ? bar(s.progress) : null,
       state ? h('span', { class: 'card-state', text: state }) : null);
     const cont = s.book && !why ? h('a', { href: `/w/${c.window}/book:${s.book}`, class: 'card-more', 'data-key': `more:${c.window}`, focus: true,

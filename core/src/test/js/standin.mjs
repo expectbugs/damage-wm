@@ -134,7 +134,12 @@ export function standin(scene, fx) {
       case 'sub':
         if (m.scope === 'reader') return send(fx.record());
         if (m.scope === 'notices' && fx.notices) return send(fx.notices());
-        if (fx.descs[m.scope]) return send({ t: 'snap', scope: m.scope, desc: fx.descs[m.scope] });
+        if (fx.records && fx.records[m.scope]) return send(fx.records[m.scope]()); // S1-2 Q4w: a window's record scope
+        // S1-2 Q4w: a scene may answer a scope its own way (an empty table); fixed scopes, then those made by function
+        if (scene.descs && scene.descs[m.scope]) return send({ t: 'snap', scope: m.scope, desc: scene.descs[m.scope] });
+        // a list of descriptions is sent as successive snapshots (Torrents' polls)
+        if (fx.descs[m.scope]) return [].concat(fx.descs[m.scope]).forEach((desc) => send({ t: 'snap', scope: m.scope, desc }));
+        if (fx.scope && fx.scope(m.scope)) return send({ t: 'snap', scope: m.scope, desc: fx.scope(m.scope) });
         return send({ t: 'ans', scope: m.scope, answer: { a: 'refused', code: 'scope', reason: `the stand-in serves no scope '${m.scope}'` } });
       case 'ping':
         return send({ t: 'pong', k: m.k });

@@ -55,10 +55,13 @@ class El extends Node {
   focus() { this.doc.activeElement = this; }
   scrollIntoView() {}
   getBoundingClientRect() { return { top: 0, left: 0, bottom: 0, right: 0, width: 0, height: 0 }; }
-  /** Every element under this one matching one simple selector: `tag`, `.class` or `[attr]` (anything else throws). */
+  /** Every element under this one matching one simple selector: `tag`, `.class`, `tag.class` (S1-2 Q4w: the confirm's
+   *  `button.rest`) or `[attr]` (anything else throws). */
   querySelectorAll(sel) {
     let test;
-    if (/^\.[\w-]+$/.test(sel)) test = (e) => e.classList.contains(sel.slice(1));
+    const tc = /^([a-z]+)\.([\w-]+)$/.exec(sel);
+    if (tc) test = (e) => e.tagName === tc[1].toUpperCase() && e.classList.contains(tc[2]);
+    else if (/^\.[\w-]+$/.test(sel)) test = (e) => e.classList.contains(sel.slice(1));
     else if (/^\[[\w-]+\]$/.test(sel)) test = (e) => e.getAttribute(sel.slice(1, -1)) !== null;
     else if (/^[a-z]+$/.test(sel)) test = (e) => e.tagName === sel.toUpperCase();
     else throw new Error(`the DOM stand-in reads no selector '${sel}'`);
@@ -82,6 +85,8 @@ function makeDocument() {
   const ids = { app: 'div', reach: 'div', rail: 'nav', main: 'main', toasts: 'div', confirm: 'dialog' };
   doc.byId = Object.fromEntries(Object.entries(ids).map(([id, t]) => [id, new El(t, doc)]));
   doc.getElementById = (id) => doc.byId[id] || null;
+  // S1-2 Q4w: the confirm shape opens and closes its dialog
+  Object.assign(doc.byId.confirm, { open: false, showModal() { this.open = true; }, close() { this.open = false; } });
   return doc;
 }
 

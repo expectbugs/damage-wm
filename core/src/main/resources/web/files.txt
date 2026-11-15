@@ -15,8 +15,10 @@ js/proto.mjs
 js/reader-model.mjs
 js/record.mjs
 js/stream.mjs
+js/torrents-model.mjs
 js/views/devices.mjs
 js/views/diag.mjs
 js/views/home.mjs
 js/views/reader.mjs
 js/views/settings.mjs
+js/views/torrents.mjs

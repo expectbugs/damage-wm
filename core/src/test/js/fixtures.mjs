@@ -3,6 +3,8 @@
 // parts, PcScopes' Main, DevicesCore, the diagnosis), and the scenes the look harness pictures. Every title, name,
 // device and address here is made up (addresses from the documentation range, RFC 5737).
 
+import { torrentsDesc, torrentsScope, torrentsRecord, torrentsSeries } from './torrents-fixtures.mjs';
+
 const ME = 'web-a1b2c3';
 const NOW = Date.UTC(2026, 10, 15, 14, 2);
 
@@ -68,9 +70,12 @@ const RAISES = [
 
 export const fixtures = {
   code: 'K7M4QX',
+  // S1-2 Q4w: Torrents' scopes that are not fixed (details, listings, pages) are answered by function
+  scope: torrentsScope,
+  records: { torrents: torrentsRecord },
   blobs: { 'cover-b1': [400, 600, [122, 75, 58]], 'cover-b3': [600, 400, [49, 80, 110]], 'cover-b6': [300, 600, [79, 107, 60]], 'fig-1': [1600, 900, [130, 110, 70]] },
   welcome: (stream) => ({ t: 'welcome', proto: 2, device: ME, level: 'full', conn: 7, pcClock: NOW, epoch: 3, seq: 40, highWater: { [stream]: 12 },
-    contracts: { reader: 1, notices: 1 }, bundle: { version: 'look', hash: 'look', protoRange: [2, 2] } }),
+    contracts: { reader: 1, notices: 1, torrents: 1 }, bundle: { version: 'look', hash: 'look', protoRange: [2, 2] } }),
   // the notice record at first contact (adopted, nothing pops), and `n` raised after it, one change each
   notices: () => ({ t: 'snap', scope: 'notices', epoch: 3, seq: 40, colls: {}, items: Object.fromEntries([
     notice('a1d00001', 1, 'done · Copper Hill', 'DISMISSED', NOW - 86400e3), notice('a1d00002', 2, 'done · Salt Road', 'RAISED', NOW - 3600e3)]) }),
@@ -83,10 +88,13 @@ export const fixtures = {
   } }),
   descs: {
     'desc/main': { cards: [{ window: 'reader', name: 'Reader', icon: 'book', min: 'view', availability: 'live',
-      summary: { book: 'b1', line: 'The Salt Road · 4%', progress: 0.04 } }], who: { [ME]: 'desk browser', 'phone-1': 'phone' } },
+      summary: { book: 'b1', line: 'The Salt Road · 4%', progress: 0.04 } },
+    { window: 'torrents', name: 'Torrents', icon: 'torrents', min: 'view', availability: 'live',
+      summary: { line: '6 downloading · 3.1 MB/s', detail: '28 seeding · 4 stopped · 4 errors', progress: 0.71 } }], who: { [ME]: 'desk browser', 'phone-1': 'phone' } },
     'desc/reader': { id: 'reader', name: 'Reader', min: 'view', state: 'ok', shelf: { folder: '', folders: ['Essays', 'Series with a long folder name'], books: BOOKS },
       actions: [{ id: 'open', kind: 'r', level: 'view', label: 'Open' }, { id: 'place', kind: 'r', level: 'view', label: 'Place' },
         { id: 'bookmark', kind: 'r', level: 'control', label: 'Bookmark' }, { id: 'reset', kind: 'i', level: 'control', label: 'Reset progress' }] },
+    'desc/torrents': torrentsSeries(),
     'reader/book:b1': { ...BOOKS[0], chapters: CHAPTERS },
     'reader/book:b1/part:0': part(0),
     'reader/book:b1/part:1': part(1),
@@ -123,4 +131,24 @@ export const SCENES = {
   'notices-book': { path: '/w/reader/book:b1', steps: [{ wait: '.text figure' }, { fetch: '/__raise?n=3' }, { wait: '.toast.notice + .toast.notice + .toast.notice' }] },
   'notices-away': { path: '/w/reader', steps: [{ wait: '.shelf .book' }, { fetch: '/__raise?n=2' }, { wait: '.toast.notice + .toast.notice' },
     { fetch: '/__away' }, { wait: '#reach:not([hidden])' }] },
+  // S1-2 Q4w: Torrents — forty transfers in mixed states, an empty table, a search with results and one with none, a
+  // torrent's page, the details, a selection, its confirm, browse, the account, out of reach
+  'torrents-table': { path: '/w/torrents', steps: [{ wait: '.ttable tbody tr, .tcards li' }] },
+  'torrents-empty': { path: '/w/torrents', descs: { 'desc/torrents': torrentsDesc({ n: 0, samples: 0 }) }, steps: [{ wait: '.tbody .note' }] },
+  'torrents-week': { path: '/w/torrents', steps: [{ wait: '.ttable tbody tr, .tcards li' }, { click: '[data-key="filter:week"]' }, { wait: '.chip.current' }] },
+  'torrents-details': { path: `/w/torrents/t:${torrentsDesc().transfers[0].id}`, steps: [{ wait: '.td-files li' }] },
+  'torrents-selected': { path: '/w/torrents', steps: [{ wait: '.ttable tbody tr, .tcards li' },
+    { click: '[data-key="selecting"], tbody tr:nth-child(1) input' }, { click: '.tcard:nth-child(2) .tc-main, tbody tr:nth-child(2) input' },
+    { click: '.tcard:nth-child(4) .tc-main, tbody tr:nth-child(4) input' }, { wait: '.tbulk' }] },
+  'torrents-confirm': { path: '/w/torrents', steps: [{ wait: '.ttable tbody tr, .tcards li' },
+    { click: '[data-key="selecting"], tbody tr:nth-child(1) input' }, { click: '.tcard:nth-child(2) .tc-main, tbody tr:nth-child(2) input' },
+    { click: '.tbulk button.danger' }, { wait: 'dialog[open]' }] },
+  'torrents-browse': { path: '/w/torrents/browse', steps: [{ wait: '.tcat' }] },
+  'torrents-listing': { path: '/w/torrents/listing:newest', steps: [{ wait: '.ttable.tl tbody tr, .tcards li' }] },
+  'torrents-search': { path: '/w/torrents/search:salt', steps: [{ wait: '.ttable.tl tbody tr, .tcards li' }] },
+  'torrents-none': { path: '/w/torrents/search:zzzz', steps: [{ wait: '.tend' }] },
+  'torrents-page': { path: '/w/torrents/tl:240001', steps: [{ wait: '.nfo' }] },
+  'torrents-settings': { path: '/w/torrents', steps: [{ wait: '.ttable tbody tr, .tcards li' }, { click: '.tset summary' }, { wait: '.tset[open] select' }] },
+  'torrents-account': { path: '/w/torrents/account', steps: [{ wait: '.facts' }] },
+  'torrents-away': { path: '/w/torrents', steps: [{ wait: '.ttable tbody tr, .tcards li' }, { fetch: '/__away' }, { wait: '#reach:not([hidden])' }] },
 };
