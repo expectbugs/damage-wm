@@ -62,12 +62,14 @@ private object Fw {
     val BATCH_SUBMODES = setOf(3, 6, 9, 13, 14, 15, 17, 18, 20, 21, 22, 23, 24)
     /** §3: what a self-test step may carry — the batch's set plus a batch of its own. */
     val SELF_TEST_MODES = BATCH_SUBMODES + 8
-    /** §5.1 / §5.8 (build C1): DamageCaps bit 7 ENGINE and bit 8 the riders; flag bit 3 ENGINE. */
+    /** §5.1 / §5.8 (build C1): DamageCaps bit 7 ENGINE and bit 8 the riders; flag bits 3 ENGINE and 5 ZWRITE. */
     const val FEATURE_ENGINE = 1 shl 7
     const val FEATURE_RIDERS = 1 shl 8
     const val FLAG_ENGINE = 1 shl 3
-    /** §5.9: op 5 takes 64..256 KiB on a bit-8 build. */
+    const val FLAG_ZWRITE = 1 shl 5
+    /** §5.9: op 5 takes 64..256 KiB on a bit-8 build; mode 25 inflates to at most 16,384 B. */
     const val CACHE_MAX_KIB_RIDERS = 256
+    const val ZWRITE_MAX = 16384
     /** §5.5: a PLAY is 18 B, a RETARGET 11, a CLOSE 3 (READING: any other sub is held to 3, as mode 23's are). */
     fun motionLength(sub: Int) = when (sub) { 0 -> 18; 1 -> 11; else -> 3 }
 }
@@ -879,8 +881,9 @@ class GlassFirmwareSim() : LensPanels {
                         diag.event("decode", "$arm mode-8 bad seglen"); return refuse(c, src, REF_LENGTH)
                     }
                     val subMode = src[pos].toInt() and 0x7F
-                    // §5.5: mode 26 rides a batch
-                    if (subMode !in Fw.BATCH_SUBMODES && !(subMode == 26 && engineBuild())) {
+                    // §5.5: mode 26 rides a batch; READING: mode 25 reaches its own handler, whose order puts its
+                    // length (1) before "not in a batch" (8) — the other reading refuses it here, 8 whatever its length
+                    if (subMode !in Fw.BATCH_SUBMODES && !(subMode == 26 && engineBuild()) && !(subMode == 25 && ridersBuild())) {
                         diag.event("decode", "$arm mode-8 sub-mode $subMode rejected"); return refuse(c, src, REF_MODE)
                     }
                     // a mode-15 sub-message goes to the same branch as a top-level one: its length and
@@ -984,7 +987,8 @@ class GlassFirmwareSim() : LensPanels {
             // are modes with no handler (recorded 8, then the stock BMP loader refuses them)
             16 -> if (damageContract != null) selfTest(arm, c, src, now) else noHandler(arm, c, src)
             in 17..24 -> if ((damageContract ?: 0) >= 2) dispatchV2(arm, c, src, now, present, batch) else noHandler(arm, c, src)
-            // `FIRMWARE.md` §5.5: mode 26 has a handler only on a build that reports bit 7
+            // `FIRMWARE.md` §5.9 / §5.5: modes 25 and 26 have handlers only on a build that reports bits 8 / 7
+            25 -> if (ridersBuild()) zwrite(arm, c, src, now, batch) else noHandler(arm, c, src)
             26 -> if (engineBuild()) motionMessage(arm, c, src, now, present, batch) else noHandler(arm, c, src)
             13, 14 -> {
                 // the C's order: the message's length, then the lease, then the records
@@ -1484,6 +1488,43 @@ class GlassFirmwareSim() : LensPanels {
         return true
     }
 
+    // ------------------------------------------------------------------ mode 25 (§5.9)
+    /** `[25][zlib]`: length ≥ 3 (1) → not in a batch or a step (8) → the lease (3) → DRAW2 (9) → ZWRITE (15) → the
+     *  inflate, at most 16,384 B and ending cleanly (13; the model never runs short of memory, 11) → mode 19's own
+     *  checks and semantics on the list, one bump per message. READING: bytes after the stream's end are ignored,
+     *  as mode 6's decode ignores them. */
+    private fun zwrite(arm: Arm, c: LensCtx, src: ByteArray, now: Long, batch: BatchCtx?): Boolean {
+        if (src.size < 3) return refuse(c, src, REF_LENGTH)
+        if (batch != null || c.stActive) return refuse(c, src, REF_MODE)
+        if (!fbLeaseActive(arm, now)) return refuse(c, src, REF_NO_LEASE)
+        if (c.damageFlags and DamageMsg.FLAG_DRAW2 == 0) return refuse(c, src, REF_DRAW2)
+        if (c.damageFlags and Fw.FLAG_ZWRITE == 0) return refuse(c, src, REF_UNARMED)
+        val list = inflateList(src) ?: run {
+            diag.event("decode", "$arm mode-25 stream does not inflate cleanly to at most ${Fw.ZWRITE_MAX} B")
+            return refuse(c, src, REF_STREAM)
+        }
+        return cacheWriteList(arm, c, src, list, 0, now)
+    }
+
+    private fun inflateList(src: ByteArray): ByteArray? {
+        val inf = java.util.zip.Inflater()
+        try {
+            inf.setInput(src, 1, src.size - 1)
+            val out = ByteArray(Fw.ZWRITE_MAX + 1)
+            var o = 0
+            while (!inf.finished()) {
+                val n = try { inf.inflate(out, o, out.size - o) } catch (e: java.util.zip.DataFormatException) { return null }
+                o += n
+                if (o > Fw.ZWRITE_MAX) return null
+                if (inf.finished()) break
+                if (n == 0 && (inf.needsInput() || inf.needsDictionary())) return null
+            }
+            return out.copyOf(o)
+        } finally {
+            inf.end()
+        }
+    }
+
     // ------------------------------------------------------------- the self-test (mode 16)
     /** `FIRMWARE.md` §3: [16][0] begin (the lease held; a zeroed scratch shadow), [16][1][msg]
      *  a step — the message through the same dispatcher against the scratch, presents
@@ -1510,9 +1551,9 @@ class GlassFirmwareSim() : LensPanels {
                 val msg = src.copyOfRange(2, src.size)
                 var ok = false
                 val inner = msg[0].toInt() and 0x7F
-                // READING (§5.5): mode 26 reaches its own handler, whose order puts the length (1) before "in a
-                // step" (8); the other reading refuses it here, 8 whatever its length
-                if (inner in Fw.SELF_TEST_MODES || (inner == 26 && engineBuild())) {
+                // READING (§5.5, §5.9): modes 26 and 25 reach their own handlers, whose orders put the length (1)
+                // before "in a step" (8); the other reading refuses them here, 8 whatever their length
+                if (inner in Fw.SELF_TEST_MODES || (inner == 26 && engineBuild()) || (inner == 25 && ridersBuild())) {
                     val live = c.shadow; val liveSeeded = c.seeded
                     c.shadow = scratch; c.seeded = c.stSeeded
                     swapDiag(c)                          // the self-test's diagnostics; mode 23 picks its own slot set
@@ -1831,10 +1872,10 @@ class GlassFirmwareSim() : LensPanels {
         val op = body[3].toInt() and 0xFF
         val arg = (body[4].toInt() and 0xFF) or ((body[5].toInt() and 0xFF) shl 8)
         val contract2 = (damageContract ?: 1) >= 2
-        // §5.8: a C1 build implements flag bit 3 ENGINE (feature bit 7). READING: §5.8's
+        // §5.8: a C1 build implements flag bit 3 ENGINE (feature bit 7) and bit 5 ZWRITE (feature bit 8). READING: §5.8's
         // "ENGINE (needs DRAW2 armed too)" is the PLAY's order (9 before 15), not a refusal of the FLAGS_SET
         val implemented = (if (contract2) DamageMsg.FLAGS_IMPLEMENTED else DamageMsg.FLAGS_IMPLEMENTED_V1) or
-            (if (engineBuild()) Fw.FLAG_ENGINE else 0)
+            (if (engineBuild()) Fw.FLAG_ENGINE else 0) or (if (ridersBuild()) Fw.FLAG_ZWRITE else 0)
         val cacheMaxKib = if (ridersBuild()) Fw.CACHE_MAX_KIB_RIDERS else DamageMsg.CACHE_BUDGET_KIB   // §5.9
         var requestId = 0
         var withCacheCrc = false
@@ -2126,8 +2167,8 @@ class GlassFirmwareSim() : LensPanels {
         }
     }
 
-    /** `FIRMWARE.md` §4, mode 19, on the entry list in [list] from [start] (the message itself from byte 1; §5.9's mode 25 is
-     *  to run "mode 19's own checks and semantics" on its inflated list through this one function): every entry's shape (1),
+    /** `FIRMWARE.md` §4, mode 19, on the entry list in [list] from [start] (the message itself from byte 1, or mode 25's
+     *  inflated list from byte 0 — §5.9: "mode 19's own checks and semantics", one function): every entry's shape (1),
      *  the lease (3), DRAW2 (9), every entry inside the session's cache (5); a list with no data is then accepted with
      *  nothing written and no bump. Refusals are recorded against [msg], the message the lane received. */
     private fun cacheWriteList(arm: Arm, c: LensCtx, msg: ByteArray, list: ByteArray, start: Int, now: Long): Boolean {

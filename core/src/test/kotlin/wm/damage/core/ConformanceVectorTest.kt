@@ -43,7 +43,8 @@ import wm.damage.core.transport.Arm
  * `N` (RIGHT's notify-114 bodies sent during the step, in send order, hex, fields 9 and 11 dropped — a varint's length
  * varies), `W` (each lens's planned wait after the step: OS ticks, −1 for none, 0 for "a step is due now") and `G`
  * (field 17 per lens). A missing one is a comparison silently skipped, so it is a problem, as `ref` is. Engine vectors
- * have no self-test form (a step presents nothing, and mode 26 in a step is refused).
+ * have no self-test form (a step presents nothing, and mode 26 in a step is refused); mode 25 runs live there, as 12
+ * and 19 do.
  */
 class ConformanceVectorTest {
 
@@ -260,7 +261,7 @@ class ConformanceVectorTest {
                             "tick" in op -> now = op["tick"]!!.jsonPrimitive.long
                             "msg" in op -> {
                                 val m = hex(op["msg"]!!.jsonPrimitive.content)
-                                val live = (m[0].toInt() and 0x7F).let { it == 12 || it == 19 }
+                                val live = (m[0].toInt() and 0x7F).let { it == 12 || it == 19 || it == 25 }   // §5.10: mode 25 runs live
                                 // the step is built raw, not through CfwModes.selfTestStep: a refusal vector
                                 // carries messages the encoder's lint would refuse (an unknown mode)
                                 val st = byteArrayOf(wm.damage.core.wire.CfwModes.SELF_TEST_MODE.toByte(), 1) + m

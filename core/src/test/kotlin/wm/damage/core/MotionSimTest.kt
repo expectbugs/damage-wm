@@ -94,7 +94,7 @@ class MotionSimTest {
         fun shadow(x: Int, y: Int) = nib(lens.shadow, x, y)
         init {
             sim.conformanceLease(arm, true, now)
-            sim.conformanceControl(arm, DamageMsg.OP_FLAGS_SET, DamageMsg.FLAG_DRAW2 or ENGINE, now)
+            sim.conformanceControl(arm, DamageMsg.OP_FLAGS_SET, DamageMsg.FLAG_DRAW2 or ENGINE or ZWRITE, now)
             assertTrue(msg(CfwModes.keyframe(Zl.encodeCfw(ByteArray(320 * 480)))), "the keyframe")
         }
     }
@@ -324,11 +324,19 @@ class MotionSimTest {
         val r = Rig()
         r.sim.conformanceControl(r.arm, DamageMsg.OP_CACHE_SIZE, 256, r.now)
         assertEquals(0, r.sim.damageStatus(r.arm), "op 5 takes 256 on a bit-8 build")
-        // the installed image (0x7f): ENGINE is not a flag (the FLAGS_SET refused whole), mode 26 has no handler, op 5
-        // stops at 160, nothing is notified
+        // mode 25: the same list as mode 19, one bump; an empty list accepted with no bump
+        val list = u16(512) + u16(5) + image2(4, 2, 7)
+        assertTrue(r.msg(byteArrayOf(25) + Zl.deflate(list)))
+        assertEquals(1L, r.sim.cacheGen(r.arm))
+        assertContentEquals(image2(4, 2, 7), r.lens.textureCache!!.copyOfRange(2048, 2053))
+        assertTrue(r.msg(byteArrayOf(25) + Zl.deflate(ByteArray(0)))); assertEquals(1L, r.sim.cacheGen(r.arm))
+        assertFalse(r.msg(byteArrayOf(25) + Zl.deflate(u16(512) + u16(16381) + ByteArray(16381)))); assertEquals(13, r.sim.refusalRecord(r.arm)[1])
+        // the installed image (0x7f): ENGINE and ZWRITE are not flags (the FLAGS_SET refused whole), modes 25 and 26 have
+        // no handler, op 5 stops at 160, nothing is notified
         val old = Rig(features = 0x7F)
         assertEquals(0, old.sim.damageFlags(old.arm))
         assertFalse(old.msg(play(0, 34, 64, 1))); assertEquals(8, old.sim.refusalRecord(old.arm)[1])
+        assertFalse(old.msg(byteArrayOf(25) + Zl.deflate(list))); assertEquals(8, old.sim.refusalRecord(old.arm)[1])
         old.sim.conformanceControl(old.arm, DamageMsg.OP_CACHE_SIZE, 256, old.now); assertEquals(5, old.sim.damageStatus(old.arm))
         assertTrue(old.bodies().isEmpty())
     }
@@ -336,6 +344,7 @@ class MotionSimTest {
     // ------------------------------------------------------------------------- the encoder of this file
     private companion object {
         const val ENGINE = 1 shl 3
+        const val ZWRITE = 1 shl 5
         const val WAIT = 0; const val FILL = 1; const val DRAW = 2; const val REVEAL = 3
         const val SELF = 0x20
 
