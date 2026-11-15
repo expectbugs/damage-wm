@@ -83,9 +83,11 @@ class TestProgramsTest {
         val off = java.util.concurrent.CopyOnWriteArrayList<ByteArray>()
         val (_, t0) = session(0, off)
         t0.devProbe("motion", "popover")
-        waitUntil(10_000, message = { "the refusal note: $notes" }) { notes.any { it.first == "motion" && "ENGINE is not in force" in it.second } }
+        // one evaluation decides: the refusal note, or an image that should not have gone
+        waitUntil(10_000, message = { "the refusal note: $notes" }) { off.isNotEmpty() || notes.any { it.first == "motion" && "ENGINE is not in force" in it.second } }
         delay(200)
         assertEquals(0, off.size, "stage 0: no record and no PLAY reached the glasses")
+        assertTrue(notes.any { it.first == "motion" && "ENGINE is not in force" in it.second }, "the note says why: $notes")
         t0.stop()
 
         val seen = java.util.concurrent.CopyOnWriteArrayList<ByteArray>()
