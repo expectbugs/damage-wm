@@ -137,6 +137,13 @@ class CliTest {
         assertEquals<Cli>(Cli.CardRender("sheets"), parse("--card-render", "sheets"))
         assertEquals<Cli>(Cli.HostOnly(), parse("--host-only"))
         assertEquals<Cli>(Cli.BleInfo(), parse("--ble-info"))
+        // build C1 (A.15): DIR is required — the tool writes only where it is told — and it is always headless
+        assertEquals<Cli>(Cli.MotionCheck("strips"), parse("--motion-check", "strips"))
+        assertEquals<Cli>(Cli.MotionCheck("strips"), parse("--no-preview", "--motion-check", "strips"))
+        assertTrue(Cli.MotionCheck("strips").headless, "the motion check never opens a window")
+        assertEquals("--motion-check needs a DIR to write its strips into", refused("--motion-check"))
+        assertEquals("--motion-check needs a DIR to write its strips into", refused("--motion-check", "--no-preview"))
+        assertEquals(nothing, run("--motion-check").started, "--motion-check with no DIR starts nothing")
         // --no-preview beside a tool sets headless, as it did, on either side of the flag
         assertEquals<Cli>(Cli.SelfCheck(headless = true), parse("--selfcheck", "--no-preview"))
         assertEquals<Cli>(Cli.Snapshot("out", headless = true), parse("--no-preview", "--snapshot", "out"))
@@ -249,6 +256,10 @@ class CliTest {
      * One line differs from that chain on purpose, the one [parseArgs]' KDoc names: `after` does
      * not return a flag (the chain took `--snapshot --no-preview` as a directory called
      * `--no-preview`). And the chain read no directory after `--epub-check`, so that field is null.
+     *
+     * One line was added after the chain, for a flag born after it (build C1, dec. A.15): `--motion-check DIR`. The
+     * chain sent it to the shell; its line here is what it means now, so the walk holds the rest of any list that
+     * carries it to the chain (one entry point, no shell flag beside it).
      */
     private fun before(args: List<String>): Cli.Run {
         fun after(flag: String): String? = args.getOrNull(args.indexOf(flag) + 1)?.takeIf { !it.startsWith("-") }
@@ -262,6 +273,7 @@ class CliTest {
                 after("--feed-check")?.takeIf { it != "live" } ?: "core/src/test/resources/feed", live = "live" in args, headless)
             "--card-render" in args -> Cli.CardRender(after("--card-render") ?: "design/shots/cards", headless)
             "--snapshot" in args -> Cli.Snapshot(after("--snapshot") ?: "snapshots", headless)
+            "--motion-check" in args -> Cli.MotionCheck(after("--motion-check") ?: "(none)")
             "--ble-info" in args -> Cli.BleInfo(headless)
             "--host-only" in args -> Cli.HostOnly(headless)
             else -> {

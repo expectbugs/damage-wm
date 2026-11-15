@@ -55,7 +55,7 @@ import wm.damage.core.windows.reader.ReaderWindow
  * session after every link end. Other entry points, one at a time:
  *
  *   --selfcheck · --snapshot [DIR] · --epub-check [DIR] · --music-check · --games-check [deep]
- *   --feed-check [DIR] [live] · --card-render [DIR]
+ *   --feed-check [DIR] [live] · --card-render [DIR] · --motion-check DIR
  *   --host-only · --ble-info
  *   --devices · --approve CODE LEVEL · --deny CODE · --revoke ID   (client calls to the running service, S1-1 P6)
  *   --help | -h
@@ -81,6 +81,14 @@ fun main(args: Array<String>) {
         val cfg = Config.load()
         wm.damage.core.app.DeviceCli.run(c.cmd, cfg.contentPort, Path.of(cfg.dataDir), System.out, System.err)
     }) { cli ->
+        // build C1 (dec. A.15): the motion check runs before anything else here — before the config is read, so it
+        // reads nothing under ~/.damage, and before any stack, so it binds no port; headless, so it opens no window
+        if (cli is Cli.MotionCheck) {
+            System.setProperty("java.awt.headless", "true")
+            val status = MotionCheck.run(Path.of(cli.dir))
+            if (status != 0) kotlin.system.exitProcess(status)
+            return@runCli
+        }
         // --no-preview: the all-day service mode (DAILY.md) — no Swing window, no
         // X needed; the phone screen and the browser replica are the views. Set
         // BEFORE any AWT class loads so the JVM commits to headless.
@@ -95,6 +103,7 @@ fun main(args: Array<String>) {
             is Cli.FeedCheck -> FeedCheck.run(cfg, live = cli.live, fixtures = Path.of(cli.fixtures))
             is Cli.CardRender -> CardSheet.run(cfg, Path.of(cli.dir))
             is Cli.Snapshot -> Snapshot.run(cfg, Path.of(cli.dir))
+            is Cli.MotionCheck -> throw IllegalStateException("--motion-check runs before the config is read (above), never here")
             is Cli.BleInfo -> bleInfo()
             is Cli.HostOnly -> runBlocking { hostOnly(cfg) }
             is Cli.Shell -> runShell(cfg, cli.mode, cli.remoteHost, preview = cli.preview)
@@ -129,6 +138,11 @@ internal sealed interface Cli {
     data class GamesCheck(val deep: Boolean, override val headless: Boolean = false) : Run
     data class FeedCheck(val fixtures: String, val live: Boolean, override val headless: Boolean = false) : Run
     data class CardRender(val dir: String, override val headless: Boolean = false) : Run
+    /** Build C1 (dec. A.15): the test programs on the simulator's engine, a strip each into [dir] (no default: it
+     *  writes only where it is told). Always headless — it opens no window — and it reads no config. */
+    data class MotionCheck(val dir: String) : Run {
+        override val headless: Boolean get() = true
+    }
     data class BleInfo(override val headless: Boolean = false) : Run
     data class HostOnly(override val headless: Boolean = false) : Run
 
@@ -153,7 +167,7 @@ internal const val CLI_REFUSED = 2
 internal val CLI_FLAGS: List<String> = listOf(
     "--transport", "--remote", "--sim", "--ble", "--no-preview",
     "--selfcheck", "--snapshot", "--epub-check", "--music-check", "--games-check", "--feed-check", "--card-render",
-    "--host-only", "--ble-info",
+    "--motion-check", "--host-only", "--ble-info",
     "--devices", "--approve", "--deny", "--revoke",
     "--help", "-h")
 
@@ -184,6 +198,8 @@ internal val USAGE: String = """
       --feed-check [DIR] [live]  the feed engine over fixtures (default: ${Cli.FEED_FIXTURES});
                                  live fetches each source once
       --card-render [DIR]        the card sheets at 1x (default: ${Cli.CARD_DIR})
+      --motion-check DIR         the motion test programs on the simulator, a strip PNG each into DIR;
+                                 reads no config, opens no window; exit 1 when a program does not hold
       --host-only                the content host alone, no shell
       --ble-info                 the BlueZ adapter and the devices it knows, no discovery
 
@@ -249,6 +265,7 @@ internal fun parseArgs(args: Array<String>): Cli {
                 Cli.FeedCheck(dir ?: Cli.FEED_FIXTURES, live = liveFirst || (dir != null && word("live")), headless)
             }
             "--card-render" -> Cli.CardRender(value() ?: Cli.CARD_DIR, headless)
+            "--motion-check" -> Cli.MotionCheck(value() ?: return Cli.Refused("--motion-check needs a DIR to write its strips into"))
             "--host-only" -> Cli.HostOnly(headless)
             "--ble-info" -> Cli.BleInfo(headless)
             "--transport" -> {
