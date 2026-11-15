@@ -2892,7 +2892,9 @@ class Shell(
             // session's cache (mode 19, 224-entry tables, per-lens draws); otherwise the v1 one
             val st = transport.state.value
             atlasForeignWriter = st.cacheWriter  // a fresh atlas writes over whatever is there
-            atlas = GlyphAtlas(ct.base, v2 = st.draw2, capacity = st.atlasCapacity)
+            // build C1: a build with the riders allocates up to 256 KiB (the ladder's stage 2), so its atlas may be wider
+            atlas = GlyphAtlas(ct.base, v2 = st.draw2, capacity = st.atlasCapacity,
+                maxCache = if (st.damageFeatures and wm.damage.core.wire.DamageMsg.FEATURE_RIDERS != 0) CfwModes.CACHE2_MAX_RIDERS else CfwModes.CACHE2_MAX)
             ct.atlas = atlas
             // §73: the layout metric lays out for the atlas's contract (which codes a run may
             // hold, so which pairs kern). It moves only when a session's contract differs from

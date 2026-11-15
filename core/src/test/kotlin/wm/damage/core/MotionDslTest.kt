@@ -271,4 +271,21 @@ class MotionDslTest {
         refused("a CLOSE of slot 4") { CfwModes.motionClose(4) }
         assertContentEquals(byteArrayOf(26, 2, 0xFF.toByte()), CfwModes.motionClose(CfwModes.MOTION_ALL))
     }
+
+    /** The wire's C1 names (decision A.19, §5.8): field 11 bit 5 is said after the hex, field 30 in hex, fields 27–34
+     *  named; a notify-114 body parses with an absent field left null (a refusal's carries no 5–9). */
+    @Test
+    fun theWireNamesC1sFieldsAndParsesANotify_5_8() {
+        val t = DamageMsg.Telemetry(mapOf(11 to 0x21L, 27 to 90L, 30 to 0x111L, 31 to 7L, 33 to 2L))
+        assertEquals("diag=0x21(reply-dropped) max13KiB=90 motion=0x111 motionSeq=7 folds=2", t.describe())
+        assertEquals("diag=0x4", DamageMsg.Telemetry(mapOf(11 to 4L)).describe(), "the other bits as before: the hex alone")
+        assertEquals(7L, t.motionSeq)
+        val body = wm.damage.core.wire.Pb.cat(wm.damage.core.wire.Pb.v(1, 9), wm.damage.core.wire.Pb.v(2, 1), wm.damage.core.wire.Pb.v(4, 2),
+            wm.damage.core.wire.Pb.v(10, 15), wm.damage.core.wire.Pb.v(11, 1234))
+        val m = DamageMsg.parseMotion(wm.damage.core.wire.Pb.cat(wm.damage.core.wire.Pb.v(1, 3), wm.damage.core.wire.Pb.v(2, 0),
+            wm.damage.core.wire.Pb.l(DamageMsg.MOTION_FIELD, body)))!!
+        assertEquals(listOf<Any?>(9L, 1, null, 2, null, null, 15), listOf(m.seq, m.slot, m.tag, m.outcome, m.ordinal, m.endCrc, m.reason))
+        assertEquals("seq 9 slot 1 tag - refused (unarmed)", m.describe())
+        assertEquals(null, DamageMsg.parseMotion(wm.damage.core.wire.Pb.cat(wm.damage.core.wire.Pb.v(1, 3))), "no field 114: not a notify")
+    }
 }

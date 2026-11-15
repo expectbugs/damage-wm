@@ -134,10 +134,13 @@ object TextureCache {
      * record to 4 bytes over a cache of [capacity] bytes (op 5's size) and writes with
      * mode 19; a v1 builder packs the 64 KiB and writes with mode 12.
      */
-    class Builder(val v2: Boolean = false, val capacity: Int = CfwModes.TEXTURE_CACHE_SIZE) {
+    class Builder(val v2: Boolean = false, val capacity: Int = CfwModes.TEXTURE_CACHE_SIZE,
+                  /** The largest cache the session's build allocates: §4's 160 KiB, or 256 on a build with the riders
+                   *  (DamageCaps bit 8, `FIRMWARE.md` §5.9) — the caller's, from what the build reported. */
+                  val maxCache: Int = CfwModes.CACHE2_MAX) {
         init {
-            if (v2 && capacity !in CfwModes.TEXTURE_CACHE_SIZE..CfwModes.CACHE2_MAX_RIDERS)
-                throw LintError("a v2 cache of $capacity B is not 64..256 KiB")
+            if (v2 && capacity !in CfwModes.TEXTURE_CACHE_SIZE..minOf(maxCache, CfwModes.CACHE2_MAX_RIDERS))
+                throw LintError("a v2 cache of $capacity B is not 64..${maxCache / 1024} KiB")
             if (!v2 && capacity != CfwModes.TEXTURE_CACHE_SIZE)
                 throw LintError("a v1 cache is ${CfwModes.TEXTURE_CACHE_SIZE} B, not $capacity")
         }
