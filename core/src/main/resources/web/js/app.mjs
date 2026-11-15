@@ -9,7 +9,7 @@
 import { Conn } from './conn.mjs';
 import * as P from './proto.mjs';
 import { ClientRecord } from './record.mjs';
-import { Stream, safeStorage, DEVICE_KEY } from './stream.mjs';
+import { Stream, safeStorage, DEVICE_KEY, APPROVED_KEY } from './stream.mjs';
 import * as A from './address.mjs';
 import { h, icon, toastsToDrop, keepFocus } from './dom.mjs';
 import { nextFocus } from './focus.mjs';
@@ -52,6 +52,9 @@ const queued = new Map(); // n → {frame, onAnswer, gapped}
 const connOps = new Map(); // k → onAnswer
 let nextK = 1;
 const saidOnce = new Set();
+/** S1-2 Q1 (F2b 5): the socket ended; the reach that comes back with the next socket is handed to the view from that
+ *  socket's `welcome`, after `adopt` and the subscriptions, never before them. */
+let reachAtWelcome = false;
 
 const el = {
   app: document.getElementById('app'),
@@ -152,8 +155,12 @@ function welcome(f) {
   send(P.sub('desc/main'));
   if (P.atLeast(S.level, 'full')) subs.add('devices');
   for (const s of subs) send(P.sub(s));
+  const back = reachAtWelcome;
+  reachAtWelcome = false;
   if (first) route();
   else if (view && view.onWelcome) view.onWelcome();
+  // F2b 5: what a view sends on the reach coming back (Reader's place read meanwhile) goes now, numbered from `adopt`
+  if (!first && back && view && view.onReach) view.onReach();
   drawRail();
   drawReach();
 }
@@ -169,6 +176,9 @@ async function redeem(claim) {
   if (r.status === 200) {
     const j = await r.json();
     store.set(DEVICE_KEY, j.device);
+    // F2b 4: a re-approval of a remembered device writes the same id, which tells no other tab; this value changes at
+    // every approval, so a second waiting tab hears it
+    store.set(APPROVED_KEY, String(Date.now()));
     say(`approved at level ${j.level}`, { from: 'Damage' });
   } else {
     say(r.status === 403 ? 'this approval is no longer valid; the page asks again' : `the approval was answered ${r.status}: ${await r.text()}`, { from: 'Damage' });
@@ -185,7 +195,7 @@ function restart() {
 // ruling 2.3: another tab of this browser took its approval (its redeem writes the device id once the cookie is set):
 // a waiting tab drops its code and connects with the cookie, never left waiting to be approved as a second row
 window.addEventListener('storage', (e) => {
-  if (e.key === DEVICE_KEY && e.newValue && S.phase === 'pending') restart();
+  if ((e.key === DEVICE_KEY || e.key === APPROVED_KEY) && e.newValue && S.phase === 'pending') restart();
 });
 
 function ended(f) {
@@ -211,6 +221,7 @@ function closed() {
   const lostConn = [...connOps.values()];
   connOps.clear();
   for (const cb of lostConn) cb({ a: 'refused', code: 'ended', reason: 'not known whether it ran: the connection ended before its answer; see the state' });
+  reachAtWelcome = true;
   if (S.phase === 'pending') {
     // ruling 2.3: the code ended with its socket (a PC restart forgets its waiting pages): never shown as live
     S.phase = 'connecting';
@@ -220,12 +231,17 @@ function closed() {
 }
 
 function onReach(r) {
+  // S1-2 JW0 (seen in headless Firefox): the page's reach is the connection's; every dim and the bar read it
+  S.reach = { ok: r.ok, since: r.since };
   // C§9.3: say when it is back; an outage's lines are said again in the next one
   if (r.ok) {
     if (saidOnce.has('outage')) say('The PC answers again.', { from: 'Damage' });
     for (const t of ['outage', 'away', 'reader-unsaved']) saidOnce.delete(t);
   } else if (S.welcome) saidOnce.add('outage');
   drawReach();
+  // F2b 5: back on a new socket, the view hears it from that socket's welcome (after adopt and the subscriptions);
+  // out of reach, or back on the same socket (a pong), it hears it now (N7: its dims follow the reach)
+  if (r.ok && reachAtWelcome) return;
   if (view && view.onReach) view.onReach();
 }
 
@@ -265,8 +281,10 @@ function answer(f) {
   if (f.stream !== undefined) {
     const q = queued.get(f.n);
     if (!q) {
-      // fix round 2, ruling 2.3: an answer whose op this page no longer holds is said, never dropped
-      if (P.answerWords(a)) say(P.answerWords(a), { from: 'Damage' });
+      // fix round 2, ruling 2.3: an answer whose op this page no longer holds is said, never dropped; N2: a `retry`
+      // in the page's words (it keeps no queue), never the PC's "kept and sent again"
+      const held = a && a.a === 'refused' && a.code === 'retry' ? P.givenUp(a) : a;
+      if (P.answerWords(held)) say(P.answerWords(held), { from: 'Damage' });
       return;
     }
     queued.delete(f.n);
@@ -275,7 +293,10 @@ function answer(f) {
       // op and once per gap value (ruling 2.3: two ops answered `gap` in one round trip take E and E + 1)
       const m = /expected (\d+)/.exec(a.reason || '');
       if (m) {
-        q.frame.op.n = stream.gapTo(Number(m[1]));
+        // F2b 3: never a number still held for another op's resend (a `retry` keeps its number for 2 s)
+        let n = stream.gapTo(Number(m[1]));
+        while (queued.has(n)) n = stream.next();
+        q.frame.op.n = n;
         q.gapped = true;
         queued.set(q.frame.op.n, q);
         if (send(q.frame)) return;
@@ -286,6 +307,8 @@ function answer(f) {
       q.retried = true;
       queued.set(f.n, q);
       setTimeout(() => {
+        // N2: only an op still held; the connection's end (`closed`) has already told its view it ended
+        if (queued.get(f.n) !== q) return;
         if (!send(q.frame)) {
           queued.delete(f.n);
           if (q.onAnswer) q.onAnswer({ a: 'refused', code: 'ended', reason: 'not sent again: the connection ended' });

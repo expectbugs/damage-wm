@@ -11,7 +11,7 @@
 //  - bookmark here, go to the bookmark, and reset progress through the confirm shape.
 // Nothing is cut: a part is drawn whole and scrolls.
 
-import { h, clear, bar, outLink, icon, keepFocus } from '../dom.mjs';
+import { h, clear, fill, bar, outLink, icon, keepFocus } from '../dom.mjs';
 import { offsetOf } from '../anchor.mjs';
 import { PlaceView, progress, percent, partFor, placeAt, who, lossWords } from '../reader-model.mjs';
 import { expectSeen, key } from '../record.mjs';
@@ -79,7 +79,7 @@ export function readerView(ctx) {
     });
     // ruling 2.3 (5): a redraw (any device's save point describes Main again) keeps the focus: a card by its book id,
     // Continue, a folder, a crumb
-    keepFocus(root, 'data-key', () => root.replaceChildren(head,
+    keepFocus(root, 'data-key', () => fill(root, head,
       state && state !== 'ok' ? h('p', { class: 'note', text: state === 'loading' ? 'The PC is reading the shelf…' : state }) : null,
       cont,
       folders.length ? h('div', { class: 'folders' }, folders) : null,
@@ -273,7 +273,7 @@ export function readerView(ctx) {
     } } }, label);
     const blocks = d.blocks.map(block);
     B.blockEls = blocks;
-    B.els.text.replaceChildren(
+    fill(B.els.text,
       d.part > 0 ? step(d.part - 1, `← ${title(d.part - 1)}`) : null,
       ...blocks,
       d.part + 1 < d.parts ? step(d.part + 1, `Next: ${title(d.part + 1)} →`) : h('p', { class: 'end', text: 'The end of the book.' }));
@@ -537,7 +537,9 @@ export function readerView(ctx) {
       if (B) {
         start();
         const k = key(W, `place.${B.id}`);
-        if (keys.has(k) && B.place.fromRecord(ctx.S.record.item(W, `place.${B.id}`))) drawGo();
+        // S1-2 JW0 (seen in headless Firefox): before the entry nothing is offered — the entry takes the record's place
+        // (a page load into a book whose place another device wrote showed `Go there` to the place it opened at)
+        if (keys.has(k) && B.started && B.place.fromRecord(ctx.S.record.item(W, `place.${B.id}`))) drawGo();
         if (keys.has(k) || keys.has(key(W, `bookmark.${B.id}`))) drawBar();
       } else if (shelfScope) shelfPlaces(keys);
     },
