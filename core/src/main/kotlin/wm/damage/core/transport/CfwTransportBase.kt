@@ -270,6 +270,20 @@ abstract class CfwTransportBase(
                 emitNote("keeper", "C1 ladder: stage $was → $n (${ladderSays(n)}) — the next session start arms it" +
                     (damageCaps?.let { if (isC1(it)) "" else "; this build reports no C1 bit, so it arms nothing" } ?: ""))
             }
+            // build C1 (spec §3 D3b, A.15): the feel session plays one test program by hand — its records as mode-19
+            // writes in the top of this session's cache, then its PLAY — through [sendMotion], which sends nothing (and
+            // says why) unless ENGINE is in force. Never from the shell's paint.
+            "motion" -> {
+                if (value !in wm.damage.core.motion.TestPrograms.NAMES) {
+                    Log.w(this.name, "probe motion=$value: expected ${wm.damage.core.motion.TestPrograms.NAMES.joinToString(" | ")}"); return
+                }
+                // laid out for this session's cache; with no session at a nominal 160 KiB, and sendMotion says "no session"
+                val st = _state.value
+                val tp = try { wm.damage.core.motion.TestPrograms.build(value, if (st.started) st.cacheSize else CfwModes.CACHE2_MAX)!! } catch (e: LintError) {
+                    emitNote("motion", "test program $value not sent: ${e.message}"); return
+                }
+                if (sendMotion(tp.messages())) emitNote("motion", "test program sent (${tp.describe()})")
+            }
             // FIRMWARE.md §3, the self-test (mode 16) on the image lane: begin, a step carrying
             // one drawing message (hex), end. The glasses answer through telemetry fields
             // 20–22 (`telemetry=read`), RIGHT only; tools/glassdrive.py's `selftest:` step
@@ -314,7 +328,7 @@ abstract class CfwTransportBase(
                     emitNote("wear", "query not sent (probe): no session")
                 }
             }
-            else -> Log.w(this.name, "probe $name=$value: not a probe this transport runs (diag, logger, telemetry, cache, flags, selftest, wear, c1)")
+            else -> Log.w(this.name, "probe $name=$value: not a probe this transport runs (diag, logger, telemetry, cache, flags, selftest, wear, c1, motion)")
         }
     }
 
