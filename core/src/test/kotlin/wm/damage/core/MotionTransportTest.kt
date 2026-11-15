@@ -317,4 +317,84 @@ class MotionTransportTest {
             tmp.toFile().deleteRecursively()
         }
     }
+
+    // ------------------------------------------------------------------------------------------- mode 25 (A.4)
+    /** `FIRMWARE.md` §5.9, spec §6.2: with ZWRITE in force a mode-19 list goes as mode 25; RIGHT's refusal of it (the
+     *  record at the next read) sends the same list as mode 19 and the count moves by one write; mode 25 is then off
+     *  for the session. */
+    @Test
+    fun aRefusedMode25GoesAgainAsMode19AndTheCountMovesByOne_5_9(): Unit = runBlocking {
+        val glass = GlassFirmwareSim().apply { damageContract = 2; damageFeatures = 0x1ff }
+        val t = StartRig(glass, scope)
+        collect(t)
+        t.devProbe("c1", "1")
+        t.start(full)
+        assertEquals(0x24, t.state.value.flagsInForce, "stage 1: DRAW2 and ZWRITE")
+        val right = java.util.concurrent.CopyOnWriteArrayList<ByteArray>()
+        glass.imageObserver = { arm, img -> if (arm == Arm.RIGHT && (img[0].toInt() == 19 || img[0].toInt() == 25)) right += img }
+        fun list(off4: Int) = CfwModes.cacheUpdate2(listOf(CfwModes.CacheWrite2(off4, ByteArray(2000) { (it / 100).toByte() })), 160 * 1024)
+        val a = list(1000)
+        t.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(a)), 0, "ATLAS"))
+        waitUntil(10_000, message = { "the first write landed" }) { right.size >= 1 }
+        assertEquals(25, right[0][0].toInt(), "ZWRITE in force and the deflated form smaller: mode 25")
+        assertEquals(1L, glass.cacheGen(Arm.RIGHT), "one write, one bump")
+        t.devProbe("telemetry", "read")
+        delay(200)
+        assertEquals(1, right.size, "a landed mode 25 is not sent again")
+        // RIGHT's ZWRITE goes off behind the phone's back: the next mode 25 is refused there (15)
+        glass.conformanceControl(Arm.RIGHT, DamageMsg.OP_FLAGS_SET, DamageMsg.FLAG_DRAW2, System.currentTimeMillis())
+        val b = list(2000)
+        t.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(b)), 0, "ATLAS"))
+        waitUntil(10_000, message = { "the second write reached RIGHT" }) { right.size >= 2 }
+        assertEquals(25, right[1][0].toInt())
+        assertEquals(1L, glass.cacheGen(Arm.RIGHT), "refused: no bump")
+        t.devProbe("telemetry", "read")
+        waitUntil(10_000, message = { "the fall-back: $notes" }) { right.size >= 3 }
+        assertTrue(right[2].contentEquals(b), "the same list, as mode 19")
+        waitUntil(10_000, message = { "the bump" }) { glass.cacheGen(Arm.RIGHT) == 2L }
+        assertTrue(has("glass", "mode 25 refused by RIGHT"), "said: $notes")
+        t.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(list(3000))), 0, "ATLAS"))
+        waitUntil(10_000, message = { "the third write" }) { right.size >= 4 }
+        assertEquals(19, right[3][0].toInt(), "mode 25 off for the session after a refusal")
+        assertEquals(3L, glass.cacheGen(Arm.RIGHT), "three writes, three bumps: the count is the shell's")
+        t.stop()
+    }
+
+    /** Spec §6.2: on the installed image (0x7f), and on a C1 build at stage 0, a seeded walk of the shell with cached
+     *  text on (its atlas written by mode 19) puts no mode 25 or 26 on the wire, top level or inside a batch. */
+    @Test
+    fun noMode25Or26ReachesTheWireWithoutTheLaddersBits_6_2(): Unit = runBlocking {
+        for (features in listOf<Int?>(null, 0x1ff)) {
+            val tmp = Files.createTempDirectory("damage-motion-walk")
+            try {
+                val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = features }
+                val bad = java.util.concurrent.CopyOnWriteArrayList<String>()
+                val images = java.util.concurrent.atomic.AtomicInteger()
+                sim.imageObserver = { _, img ->
+                    images.incrementAndGet()
+                    val m = img[0].toInt() and 0x7F
+                    if (m == 25 || m == 26) bad += "top-level mode $m"
+                    if (m == 8) { var i = 2; repeat(img[1].toInt() and 0xFF) { val n = (img[i].toInt() and 0xFF) or ((img[i + 1].toInt() and 0xFF) shl 8)
+                        if ((img[i + 2].toInt() and 0x7F) == 26) bad += "mode 26 in a batch"; i += 2 + n } }
+                }
+                val t = SimTransport(sim, scope, SimTransport.Timing(instant = true))
+                val shell = Shell(wm.damage.core.comp.CachedText(GlyphyText()), t, Persistence(tmp.resolve("s.json")), null, scope)
+                shell.start()
+                waitUntil(10_000, 10, { "start" }) { shell.isQuiescent() }
+                shell.updateSettings { it.copy(cachedText = "on") }
+                waitUntil(20_000, 10, { "the atlas uploads" }) { shell.cachedTextActive && shell.cachedFontsLive.isNotEmpty() && shell.isQuiescent() }
+                val rnd = java.util.Random(681)
+                val moves = intArrayOf(EvenHubMsg.EV_SCROLL_BOTTOM, EvenHubMsg.EV_SCROLL_TOP, EvenHubMsg.EV_CLICK, EvenHubMsg.EV_DOUBLE_CLICK)
+                repeat(24) {
+                    shell.postGesture(moves[rnd.nextInt(moves.size)])
+                    waitUntil(10_000, 10, { "a step of the walk" }) { shell.isQuiescent() }
+                }
+                assertTrue(images.get() > 20, "the walk put images on the wire: ${images.get()}")
+                assertEquals(emptyList(), bad.toList(), "features ${features?.let { "0x" + it.toString(16) } ?: "derived"}: no mode 25 or 26")
+                shell.stop()
+            } finally {
+                tmp.toFile().deleteRecursively()
+            }
+        }
+    }
 }

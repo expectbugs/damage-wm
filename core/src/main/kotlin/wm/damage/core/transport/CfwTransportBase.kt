@@ -1502,6 +1502,7 @@ abstract class CfwTransportBase(
                     }
                     t.uptimeMs?.let { noteUptime(it) }
                     t.motionSeq?.let { noteMotionGaps(it) }
+                    zwriteJudge(t)
                     t.requestId?.let { id ->
                         // a FLAGS_SET reply (id 0) is taken only when it answers the set being armed:
                         // RIGHT answers every control request twice (2026-09-15 12:54, `HANDOFF.md`
@@ -2245,6 +2246,7 @@ abstract class CfwTransportBase(
             if (teeMirror) mirrorSim.damageFeatures = damageCaps?.features
             // build C1 (spec §2 row 21 (a)): the END CRCs and the notified instances start again with the session
             synchronized(mirrorSim) { mirrorSim.motionSessionStart() }
+            zwriteSessionStart()
 
             // 1b. On a Damage build, the reset check (`FORK.md` §3.2): RIGHT's uptime, read here
             //     so that the carry decision at the lease below knows whether the right lens
@@ -3007,8 +3009,11 @@ abstract class CfwTransportBase(
                 var bytes = 0
                 for (op in work.request.ops) {
                     val payload = if (op is DisplayOp.CacheWrite) op.payload else (op as DisplayOp.CacheWrite2).payload
-                    final = writeImage(payload, work.epoch)
-                    bytes += payload.size
+                    // build C1 (`FIRMWARE.md` §5.9): a mode-19 list goes deflated as mode 25 where ZWRITE is in force and
+                    // the deflated form is smaller — one at a time, judged at the next telemetry read ([zwriteJudge])
+                    val image = if (op is DisplayOp.CacheWrite2) zwriteOrList(payload, work.epoch) else payload
+                    final = writeImage(image, work.epoch)
+                    bytes += image.size
                     // §54: the writer is on record once the bytes left, acked or not —
                     // a chunk that left may have landed
                     val w = work.request.writer
@@ -3131,6 +3136,75 @@ abstract class CfwTransportBase(
         if (out.size > Geometry.MODE8_MAX) throw LintError("BUD002 flush ${out.size} B with its motion CLOSEs exceeds the firmware cap ${Geometry.MODE8_MAX}")
         emitNote("motion", "a flush meets open instance(s) ${slots.joinToString()} — CLOSE first, in its batch (§5.6)")
         return out
+    }
+
+    /**
+     * Build C1, mode 25 (`FIRMWARE.md` §5.9; spec §2 row 23): the deflated form of the mode-19 message [list19], or the
+     * message itself. Deflated only while ZWRITE is in force (the flags RIGHT reported, the ladder's stage 1 or more on a
+     * bit-8 build), not withdrawn this session, the list within the 16,384 B inflate, the deflated form smaller, and no
+     * other mode-25 message waiting to be judged — so the one a refusal names is known.
+     */
+    private fun zwriteOrList(list19: ByteArray, epoch: Long): ByteArray {
+        if (_state.value.flagsInForce and DamageMsg.FLAG_ZWRITE == 0) return list19
+        if (list19.size < 5 || list19[0].toInt() != 19 || list19.size - 1 > CfwModes.ZWRITE_MAX) return list19
+        synchronized(zwLock) {
+            if (zwriteOff || zwWaiting != null) return list19
+            val z = CfwModes.zwrite(list19)
+            if (z.size >= list19.size) return list19
+            zwWaiting = ZwWaiting(list19, epoch, zwRecord, telemetryIds.get())
+            return z
+        }
+    }
+
+    /** The mode-25 message waiting for the read that judges it: its list, its session, the refusal record (mode,
+     *  reason, sequence) RIGHT held before it, and the last telemetry request id handed out when it was written. */
+    private class ZwWaiting(val list19: ByteArray, val epoch: Long, val recordBefore: Triple<Int, Int, Long>?, val afterId: Int)
+    private val zwLock = Any()
+    private var zwWaiting: ZwWaiting? = null
+    /** A RIGHT refusal of mode 25 this session: every cache write from here is mode 19. */
+    private var zwriteOff = false
+    /** RIGHT's refusal record as the last telemetry record carried it (fields 23–25; null: none on record). */
+    private var zwRecord: Triple<Int, Int, Long>? = null
+
+    /** A session start: no mode-25 message waits, mode 25 is allowed again, the record is the reset check's. */
+    private fun zwriteSessionStart() = synchronized(zwLock) { zwWaiting = null; zwriteOff = false }
+
+    /**
+     * Spec §2 row 23: RIGHT's telemetry record [t], read ONCE for the refusal record. A record that names mode 25 and
+     * differs from the one RIGHT held before the waiting message was written is its refusal: the same list goes again
+     * as mode 19 on the image lane and mode 25 is off for the session. Only a reply to a request made after the message
+     * was written judges it (an older reply can show neither answer); any other is the message taken. A mode-25
+     * refusal with nothing waiting (one the judge took as landed) turns mode 25 off too — the shell's count re-sends a
+     * write it does not see, and that re-send is mode 19.
+     */
+    private fun zwriteJudge(t: DamageMsg.Telemetry) {
+        val ref = t.refusal
+        val rec = ref?.let { Triple(it.mode and 0x7F, it.reason, it.seq) }
+        var resend: ZwWaiting? = null
+        var withdrawn: String? = null
+        synchronized(zwLock) {
+            val before = zwRecord
+            zwRecord = rec
+            val w = zwWaiting
+            val id = t.requestId?.toInt() ?: 0
+            val names25 = rec != null && rec.first == CfwModes.ZWRITE_MODE
+            if (w != null && (w.epoch != sessionEpoch.get())) zwWaiting = null
+            else if (w != null && id != 0 && ((id - w.afterId) and 0xFFFF) in 1..0x7FFF) {
+                zwWaiting = null
+                if (names25 && rec != w.recordBefore) { resend = w; zwriteOff = true }
+            } else if (names25 && rec != before && !zwriteOff && _state.value.flagsInForce and DamageMsg.FLAG_ZWRITE != 0) {
+                zwriteOff = true
+                withdrawn = ref!!.describe()
+            }
+        }
+        resend?.let { w ->
+            emitNote("glass", "mode 25 refused by RIGHT (${ref!!.describe()}) — its ${w.list19.size} B list goes again as mode 19; " +
+                "this session writes mode 19 from here")
+            if (!imageQueue.trySend(ImgWork.Raw(w.epoch, w.list19, null)).isSuccess)
+                emitFault("zwrite", "the mode-19 copy of a refused mode-25 list was not queued — the shell's count reads it as missing")
+        }
+        withdrawn?.let { emitNote("glass", "a mode-25 refusal on record ($it) after its message was taken as landed — " +
+            "this session writes mode 19 from here; the shell's count re-sends a write it does not see") }
     }
 
     /** The rects each op of a batch writes, per lens (left, right) — [withMotionCloses]' bound. */
