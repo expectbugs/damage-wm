@@ -8222,6 +8222,23 @@ Under his go of 11-13 (80.1) and decision E.7 (the PC first), told to him three 
   device was approved, nothing was sent to the glasses or the hub beyond the watcher's reads.
 - **Size:** 80.11's 87.8 units are the agents'. The lead's turns and this deploy are outside that figure.
 
+### 80.14 The deployed pages could not act: found by the first look, fixed on the PC (2026-11-15)
+
+Found by build S1-2's web lane (its first stage rendered every page in headless Firefox against a stand-in server
+with made-up data; the lead then read the deployed code): `app.mjs` initialised the page's reach to "not answering"
+and nothing ever assigned it, so after every welcome the page showed "PC not answering since…", greyed itself and
+refused every action — no place saved, no bookmark, no approval from the devices page. S1-1's node tests held the
+models and one view through stand-ins and never loaded `app.mjs`; `WebProtocolTest` holds the wire from Kotlin; nobody
+had looked at a page (80.9's list said so). Reading on the glasses and the phone was not affected, and no browser of his
+had been approved, so no place of his was lost. Fixed with three more defects the pictures showed (the text "null" on
+the shelf and a book's first part; `Go there` offered to the place the page had just opened at; a white scroll bar on
+the dark page) and Q1's five carried web items (80.8's N2, N7, F2b 3, F2b 4, F2b 5), each with a pin watched failing:
+`948d1ca` (the look harness, test code) and `c66bb87`. The gate: node 43 of 43 (31 before; `pagehost.mjs` now loads the
+real `app.mjs`), `BundleTest`, `WebProtocolTest`, desktop 45, lint 0. **The PC deployed at 16:42:52**; the previous jar is
+in `~/.damage/backup/`; the start kept the record (seq 38), no `[W]`, no `[E]`, the phone attached again; the served
+`app.mjs` carries the fix. Seen in headless Firefox against the stand-in only: not yet against the running service,
+and not in his browser. Owed: at S1-2's merges the look harness is pointed at a real in-process server.
+
 ## 81. C1's design pass, part 2: the challenge ruled, section 5 corrected (2026-11-14)
 
 Context for the reader: a personal device, the published patch method, display-rendering work. Adam's own window manager

@@ -68,6 +68,7 @@ S1-1 built, S1-2 with S1-3 next.
   after the conversion is never replaced by an older build's record); the phone's is said once and offered with `Go
   there`.
 - **His install**; then the `migrate` notes on both hosts and his current book's place unchanged on the glasses.
+- **The pages could not act until 11-15 16:42** (§80.14: the page never took the PC's reach; fixed and deployed).
 - **His desk browser:** `http://localhost:7405/` shows a code (the PC's own name does not resolve on the PC; from
   another device the PC's name or its tailnet address, port 7405); `java -jar ~/.damage/damage.jar --devices` lists it, `…
   --approve CODE full` approves it (`DAILY.md`). Then the shelf and a book (chapters, emphasis, links, pictures); the
