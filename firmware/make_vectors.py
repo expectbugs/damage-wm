@@ -14,7 +14,13 @@ never from the firmware C. It writes the steps with EMPTY expectations; the fork
 checks the simulator against them. v1 is the installed firmware, so for v1 the C is
 the reference; a disagreement is a finding about the simulator or about the docs.
 
-    python3 firmware/make_vectors.py            # rewrites firmware/vectors/v1-*.json and v2-*.json (inputs only)
+    python3 firmware/make_vectors.py                 # writes every vector's inputs (v1-*, v2-*, v3-*)
+    python3 firmware/make_vectors.py --only v3       # writes only the v3-* files; the rest are left as they are
+    python3 firmware/make_vectors.py --check         # the C1 builders' self-check; writes nothing
+
+A file that already exists keeps the expectations of the longest prefix of steps whose inputs (and vector-level
+keys) did not change: those are the C's answers to the same input. Every step from the first changed one on is
+written with an empty expectation, for the fork's `host/run_vectors.py --write` to fill.
 
 Ops in a step: {"tick": ms} sets the firmware clock, {"lease": "acquire"|"release"}
 sends the framebuffer lease op, {"msg": HEX} is one completed image message; Phase 2
@@ -22,6 +28,10 @@ sends the framebuffer lease op, {"msg": HEX} is one completed image message; Pha
 CACHE_SIZE op. A step's expectation holds each lens's shadow CRC, the return codes, and the
 refusal record (fields 23-25) and the status register (field 4) after the step, as
 `"ref": {"L": [mode, reason, seq, status], "R": [...]}`.
+
+C1 (`FIRMWARE.md` §5.10, the v3-* set): {"wake": true} is one engine wake at the clock the last `tick` op set; a
+vector's "features" key is the DamageCaps features of the build it is for (0x1ff). The C adds the expectations
+"N" (RIGHT's notify-114 bodies, fields 9 and 11 dropped), "W" (each lens's planned wait) and "G" (field 17).
 """
 import json, pathlib, zlib
 
@@ -576,7 +586,7 @@ def vectors_v2(kf):
     v.append({"name": "v2-cachesize", "steps": [
         step({"tick": 1000}, msg(kf), cachesize(128)),                             # no lease: status 3, nothing set
         step({"lease": "acquire"}, flags(DRAW2), cachesize(0)),                    # zero: status 5
-        step(cachesize(161)),                                                      # over the budget: status 5
+        step(cachesize(257)),                                                      # over the budget on every build: status 5 (161 moved to v3-cache256, C1 decision A.1)
         step(cachesize(128)),                                                      # ok: status 0
         step(*[msg(m) for m in far.messages()]),                                   # a write at 80,000: inside the 128 KiB
         step(msg(draw2(faroff, 10, 10, 0x0F))),
@@ -595,7 +605,7 @@ def vectors_v2(kf):
         step(msg(string2(table4, 0, 0, 0x0F, b"\x00"))),                          # code: 6
         step(msg(restore(2))),                                                     # scratch: 7
         step(msg(batch(fill(rect(0, 0, 8, 8), 1), cache_write2((0, b"\x00" * 4))))),   # a cache write in a batch: 8, the fill already applied
-        step(msg(bytes([25, 0, 0, 0]))),                                           # an unknown mode: 8, then the stock BMP path
+        step(msg(bytes([120, 0, 0, 0]))),                                          # an unknown mode (one no build plans; 25 is C1's, decision A.1): 8, then the stock BMP path
         step(msg(hint(0, 10))),                                                    # outside a batch: 10
         step(msg(bytes([23, 5, 0]))),                                              # value: 12
         step(msg(bytes([3, 0, 0, 4, 4, 9, 0, 0x78, 0x9c, 0, 0, 0, 0]))),           # a mode-3 whose stream does not decode: 13
@@ -894,13 +904,770 @@ def vectors_v2(kf):
         vec["start"] = "zero"
     return v
 
+# ---- C1: motion programs and the riders (`FIRMWARE.md` §5, build C1's decisions) -------------------------
+# Written from §5.4 (records), §5.5 (mode 26), §5.9 (mode 25, op 5) and §5.10 (the vector form) alone. The
+# vector form adds (C1 decisions A.3): the op {"wake": true} — one engine wake at the clock the last `tick`
+# op set — and a vector-level "features" key, the DamageCaps features the build under test answers. The
+# expectations it adds ("N" notify bodies, "W" planned waits, "G" field 17 per lens) are the C's to fill.
+ENGINE, ZWRITE = 0x0008, 0x0020            # §5.8: flag bits 3 and 5
+FEATURES_C1 = 0x1FF                        # §5.1: today's 0x7f plus bit 7 ENGINE and bit 8 the riders (bit 9 not in C1)
+WAIT, FILL, DRAW, REVEAL = 0, 1, 2, 3      # §5.4 segment verbs
+LINEAR, EASE_OUT, TABLE = 0, 1, 2          # §5.4 eases
+K_RECORD, K_SELF, K_LEVEL = 0, 2, 3        # §5.4 DRAW / REVEAL source kinds
+BD_SELF, BD_NONE = 0x20, 0xFF              # §5.4 backdrops (0..15 a level)
+(F_SRC, F_XL, F_XR, F_X, F_Y, F_DXL, F_DXR, F_DX, F_DY,
+ F_LVL0, F_LVL1, F_H0, F_H1, F_STEPS) = range(14)   # §5.4 pref fields
+TOP, BOTTOM, LEFT, RIGHT, SLIDE = 0, 1, 2, 3, 4      # §5.4 REVEAL opt: bits 0-1 the edge, bit 2 slide
+WELL_FORMED, BAD_SHAPE = set(), set()      # the self-check's registry: programs that must walk; messages built malformed on purpose
+
+def seg(verb, steps, ease=LINEAR, kind=0, src=0, xL=0, xR=0, y=0, dxL=0, dxR=0, dy=0, lvl0=0, lvl1=0,
+        opt=0, table=0, h0=0, h1=0, anchor=0, pref0=0, pref1=0, res0=0, res1=0):
+    """One 32-byte segment (§5.4): verb steps ease kind · src u16 · xL xR y dxL dxR dy s16 · lvl0 lvl1 opt 0 ·
+    table u16 · h0 h1 u16 · anchor 0 · pref0 pref1. Unused fields stay 0 (`res0`/`res1` are the two reserved bytes)."""
+    b = (bytes([verb, steps, ease, kind]) + u16(src) + s16(xL) + s16(xR) + s16(y) + s16(dxL) + s16(dxR) + s16(dy)
+         + bytes([lvl0, lvl1, opt, res0]) + u16(table) + u16(h0) + u16(h1) + bytes([anchor, res1, pref0, pref1]))
+    assert len(b) == 32
+    return b
+def wait(n): return seg(WAIT, n)
+def fillseg(n, level): return seg(FILL, n, kind=level)
+def drawrec(n, src, x, y, dx=0, dy=0, lvl=(15, 15), opt=0, ease=LINEAR, xR=None, dxR=None, **kw):
+    """DRAW of a cached v2 image record; give xR/dxR only on a per-lens track (a non-per-lens track uses xL/dxL)."""
+    return seg(DRAW, n, ease, K_RECORD, src, x, xR or 0, y, dx, dxR or 0, dy, lvl[0], lvl[1], opt, **kw)
+def drawself(n, x, y, dx=0, dy=0, lvl=(15, 15), opt=0, ease=LINEAR, xR=None, dxR=None, **kw):
+    """DRAW of the track's own capture (`self`); src is ignored (decision A.9) and sent 0."""
+    return seg(DRAW, n, ease, K_SELF, 0, x, xR or 0, y, dx, dxR or 0, dy, lvl[0], lvl[1], opt, **kw)
+def reveal(n, edge, kind, x, y, src=0, w=0, h=0, xR=None, ease=LINEAR, lvl=(15, 15), **kw):
+    """REVEAL (wipe, or slide with SLIDE in `edge`): a record (src = off4), `self`, or a level source
+    (src = the level, w = its width carried in dxL, h = its height carried in dy)."""
+    return seg(REVEAL, n, ease, kind, src, x, xR or 0, y, w, 0, h, lvl[0], lvl[1], edge, **kw)
+def pref(param, field): return 0x80 | (field << 2) | param          # §5.4: bit 7 used, bits 0-1 P, bits 2-6 the field
+
+def track(area, backdrop, *segs, per_lens=None, nseg=None, res=0):
+    """A track: segments backdrop perLens 0 · a rect, or a pair given as (rectL, rectR) · its segments."""
+    pair = isinstance(area, tuple)
+    pl = (1 if pair else 0) if per_lens is None else per_lens
+    return bytes([len(segs) if nseg is None else nseg, backdrop, pl, res]) + (area[0] + area[1] if pair else area) + b"".join(segs)
+
+def prog(*tracks, version=1, ntracks=None, length=None, tail=b"", bad=False):
+    """A program record (§5.4): version 1 · tracks · length u16 (the whole record), then the tracks."""
+    body = b"".join(tracks) + tail
+    rec = bytes([version, len(tracks) if ntracks is None else ntracks]) + u16(4 + len(body) if length is None else length) + body
+    (BAD_SHAPE if bad else WELL_FORMED).add(rec)
+    return rec
+
+def easing(E, n=None):
+    """An easing table (§5.4): n u8 · 0 · E[1..n] s16."""
+    return bytes([len(E) if n is None else n, 0]) + b"".join(s16(e) for e in E)
+
+def cap_total(*wh):
+    """The capture range's length for the `self` tracks' areas (w, h) in track order (decision A.5): each capture
+    (w+1)/2 bytes a row, each starting 4-byte aligned; the range ends at the end of the last."""
+    off = 0
+    for i, (w, h) in enumerate(wh):
+        if i: off = (off + 3) & ~3
+        off += ((w + 1) // 2) * h
+    return off
+
+def _p4(P):
+    P = tuple(P)
+    assert len(P) <= 4
+    return b"".join(s16(p) for p in P + (0,) * (4 - len(P)))
+def play(slot, period, prog4, tag, cap4=0, P=()):                     # §5.5 sub 0: 16 B after [26][0]
+    return bytes([26, 0, slot, period]) + u16(prog4) + u16(tag) + u16(cap4) + _p4(P)
+def retarget(slot, P=()): return bytes([26, 1, slot]) + _p4(P)        # §5.5 sub 1: 9 B
+def close(slot): return bytes([26, 2, slot])                          # §5.5 sub 2: 1 B (0xFF all)
+def zwrite(*entries):
+    """Mode 25 (§5.9): [25] + the zlib stream of a mode-19 entry list without its mode byte."""
+    return bytes([25]) + z(cache_write2(*entries)[1:])
+def bad(m):
+    """A message built malformed on purpose: the self-check does not hold it to its builder's length."""
+    BAD_SHAPE.add(bytes(m))
+    return m
+def wake(): return {"wake": True}
+def tk(t): return {"tick": t}
+
+def vectors_v3(kf):
+    """The C1 set (`FIRMWARE.md` §5.10, spec §4): engine vectors carry "panel"; every engine message and every
+    wake follows a `tick` op in its step (the hook reads that clock as now). Every vector answers features 0x1ff."""
+    v = []
+    P = 34                                                        # §5.3: A4's 30 Hz is P = 34
+    arm = [tk(1000), {"lease": "acquire"}, flags(DRAW2 | ENGINE), msg(kf)]
+    def writes(c): return [msg(m) for m in c.messages()]
+    def vec(name, steps, panel=True):
+        d = {"name": name, "steps": steps}
+        if panel: d["panel"] = True
+        v.append(d)
+
+    # v3-play — §5.6 "END is written into the shadow when the PLAY is handled"; §5.3 "Step 1 is drawn by the
+    # PLAY's own present", steps passed over are folded, step T always drawn; §5.3 "the present after an
+    # instance's last step marks the panel stale" as decision A.12 rules it (the present that draws the last
+    # step sets it, so the NEXT present goes whole, not the one after); §5.6 "a phone write inside a drawing
+    # instance's area ... after a last step drawn by an engine refresh the framebuffer holds step T".
+    c = Cache2()
+    pic = c.add(image2(40, 30, pattern(40, 30, 301)))
+    A, B = rect(100, 100, 240, 60), rect(110, 110, 200, 40)
+    pp = c.add(prog(track(A, 2, fillseg(8, 5)),
+                    track(B, BD_NONE, drawrec(8, pic, 110, 115, dx=150))))      # a `none` backdrop inside track 1's area
+    inA = rect(150, 120, 40, 20)
+    vec("v3-play", [
+        step(*arm, *writes(c)),
+        step(tk(2000), msg(play(0, P, pp, 0x0101))),                    # 1  END in the shadow; step 1 on the panel; W = P
+        step(tk(2000 + P), wake()),                                     # 2  step 2
+        step(tk(2000 + 2 * P), wake()),                                 # 3  step 3
+        step(tk(2000 + 5 * P), wake()),                                 # 4  k = 6: steps 4 and 5 folded
+        step(tk(2000 + 7 * P), wake()),                                 # 5  k = 8 = T: the last step, notify outcome 0; W forever
+        step(tk(2300), msg(batch(fill(inA, 9), fill(rect(0, 400, 640, 10), 6), hint(400, 409)))),   # 6  stale: whole (the fill in the area reaches the lens)
+        step(tk(2400), msg(batch(fill(inA, 10), fill(rect(0, 420, 640, 10), 7), hint(420, 429)))),  # 7  the mark is spent: rows only (level 10 stays off the lens)
+        step(tk(3000), msg(play(0, P, pp, 0x0102))),                    # 8  a second PLAY: END over both fills, step 1
+        step(tk(3000 + P), wake()),                                     # 9  step 2
+        step(tk(3000 + 3 * P + 10), msg(fill(inA, 12))),                # 10 a write into the drawing area, no CLOSE: its present draws k = 4 over it
+        step(tk(3000 + 7 * P), wake()),                                 # 11 the last step by a wake: the panel holds step T, not the write
+        step(tk(3000 + 9 * P), wake()),                                 # 12 nothing drawing: nothing presents, the panel keeps step T
+        step(tk(3400), msg(batch(fill(rect(0, 440, 640, 10), 4), hint(440, 449)))),   # 13 a phone frame elsewhere: whole (stale), the write reaches the lens
+    ])
+
+    # v3-draw — §5.4 DRAW: "the source at (x + off(dx), y + off(dy)) (per lens), options = (opt & 0x30) | lvl(j)",
+    # "the v1 LUT ... applies to records and `self` alike", "clipped to the area"; `self` captured "per lens ...
+    # into the cache at the PLAY's cap offset — the tracks' captures back to back in track order, each starting
+    # 4-byte aligned"; §5.3 folds (a wake late by three steps).
+    c = Cache2()
+    pic = c.add(image2(40, 30, pattern(40, 30, 311)))
+    T1 = (rect(100, 200, 160, 60), rect(116, 200, 160, 60))          # per lens, over different shadow content
+    T3 = (rect(100, 300, 200, 50), rect(108, 300, 200, 50))
+    T5 = (rect(10, 420, 21, 9), rect(14, 420, 21, 9))
+    pd = c.add(prog(
+        track(T1, BD_SELF, drawself(6, 100, 200, dx=40, dy=12, xR=116, dxR=56, lvl=(15, 6), opt=0x10, ease=EASE_OUT)),
+        track(rect(320, 200, 200, 80), 1, drawrec(6, pic, 300, 210, dx=210, lvl=(3, 15), opt=0x20)),   # enters from left of the area, leaves past its right edge
+        track(T3, 5, drawrec(4, pic, 100, 310, dx=100, dy=-5, xR=108, dxR=124, opt=0x30)),            # shorter than T: holds its end
+        track(rect(401, 321, 33, 11), 0, drawself(6, 401, 321, dx=-6, dy=3)),                          # an odd-width capture
+        track(T5, BD_SELF, drawself(3, 10, 420, dx=4, xR=14, dxR=4))))                                  # starts aligned after the odd one
+    dcap = c.reserve(cap_total((160, 60), (33, 11), (21, 9)))
+    vec("v3-draw", [
+        step(*arm, *writes(c), msg(fill_pair(rect(100, 200, 40, 20), rect(150, 200, 40, 20), 15))),   # the lenses' areas now differ
+        step(tk(2000), msg(play(0, P, pd, 0x0201, dcap))),              # 1  captures at cap per lens; END; step 1
+        step(tk(2000 + 4 * P), wake()),                                 # 2  late by three steps: 2, 3 and 4 folded, step 5 drawn
+        step(tk(2000 + 5 * P), wake()),                                 # 3  step 6 = T: the notify says 3 drawn, 3 folded
+        step(tk(2300), msg(batch(fill(rect(0, 470, 8, 8), 1)))),        # 4  a phone frame: the panel shows the shadow whole
+    ])
+
+    # v3-reveal — §5.4 REVEAL: "extent e(j) eased from 0 to F (F = the source's height for edge 0 top / 1 bottom,
+    # its width for 2 left / 3 right ...). Wipe: the source at rest (x, y), visible only in the e rows or columns
+    # at that edge of its rect. Slide: the source moved in from the edge by F − e"; sources: a record, `self`, a
+    # solid level `src` of width dxL and height dy; F = 1.
+    c = Cache2()
+    ra = c.add(image2(40, 30, pattern(40, 30, 321)))
+    col1 = c.add(image2(1, 20, pattern(1, 20, 322)))                  # F = 1 on a left/right edge
+    row1 = c.add(image2(30, 1, pattern(30, 1, 323)))                  # F = 1 on a top/bottom edge
+    g = lambda i, j: rect(20 + 100 * i, 20 + 100 * j, 80, 60)
+    r1 = c.add(prog(
+        track(g(0, 0), 2, reveal(5, TOP, K_RECORD, 40, 35, src=ra)),
+        track(g(1, 0), 4, reveal(5, BOTTOM, K_SELF, 120, 20)),
+        track(g(2, 0), 0, reveal(5, LEFT, K_LEVEL, 230, 30, src=11, w=50, h=40)),
+        track(g(3, 0), 6, reveal(5, RIGHT, K_RECORD, 340, 35, src=ra)),
+        track(g(0, 1), 3, reveal(5, SLIDE | TOP, K_SELF, 20, 120)),
+        track(g(1, 1), 1, reveal(5, SLIDE | BOTTOM, K_LEVEL, 130, 130, src=13, w=60, h=40)),
+        track(g(2, 1), 5, reveal(5, SLIDE | LEFT, K_RECORD, 240, 135, src=ra)),
+        track(g(3, 1), 7, reveal(5, SLIDE | RIGHT, K_SELF, 320, 120))))
+    rcap = c.reserve(cap_total((80, 60), (80, 60), (80, 60)))
+    r3 = c.add(prog(
+        track(rect(20, 220, 80, 20), 2, reveal(4, TOP, K_LEVEL, 30, 225, src=15, w=40, h=1)),      # a level source one row high
+        track(rect(120, 220, 80, 30), 3, reveal(4, SLIDE | LEFT, K_RECORD, 150, 225, src=col1)),  # a record one column wide
+        track(rect(220, 220, 80, 30), 4, reveal(3, RIGHT, K_LEVEL, 250, 225, src=9, w=1, h=20)),  # a level source one column wide
+        track(rect(320, 220, 80, 30), 1, reveal(4, SLIDE | BOTTOM, K_RECORD, 340, 230, src=row1))))
+    vec("v3-reveal", [
+        step(*arm, *writes(c)),
+        step(tk(2000), msg(play(0, P, r1, 0x0301, rcap)), tk(2000), msg(play(1, P, r3, 0x0302))),   # 1  both at one tick
+        step(tk(2000 + P), wake()),                                     # 2
+        step(tk(2000 + 2 * P), wake()),                                 # 3
+        step(tk(2000 + 3 * P), wake()),                                 # 4  slot 1's last step (T = 4)
+        step(tk(2000 + 4 * P), wake()),                                 # 5  slot 0's last step (T = 5)
+        step(tk(2300), msg(batch(fill(rect(0, 470, 8, 8), 1)))),        # 6  the shadow whole: END of both
+    ])
+
+    # v3-ease — §5.4: "E[0] = 0 always. Linear E[j] = ⌊4096·j / n⌋; ease-out E[j] = 4096 − ⌊4096·(n−j)² / n²⌋;
+    # table: the record at `table` (off4), whose n must equal the segment's steps (else 5). An eased value:
+    # v(j) = v0 + ((D · E[j] + 2048) >> 12) ... so v(n) = v0 + D exactly. Bounces and overshoot are uploaded
+    # tables (E may leave 0..4096)"; a table's E[n] must be 4096 (decision A.9: else 5).
+    c = Cache2()
+    bar = c.add(image2(10, 20, pattern(10, 20, 331)))
+    over = c.add(easing([800, 1800, 3000, 4300, 4700, 4400, 4000, 4096]))       # overshoot
+    under = c.add(easing([-400, -200, 600, 2000, 3600, 4500, 4200, 4096]))      # undershoot first, then over
+    notend = c.add(easing([1000, 2000, 3000, 4000, 4500, 4200, 4000, 4000]))    # E[n] = 4000: 5
+    def eprog(n, ease, tab=0, ramp=True):
+        lv = (2, 15) if ramp else (15, 15)
+        return c.add(prog(
+            track(rect(0, 40, 640, 24), 1, drawrec(n, bar, 4, 42, dx=600, ease=ease, table=tab)),
+            track(rect(0, 70, 640, 24), 1, drawrec(n, bar, 610, 72, dx=-597, lvl=lv, ease=ease, table=tab)),   # a negative D: the arithmetic shift
+            track(rect(0, 100, 640, 60), 1, drawrec(n, bar, 300, 100, dx=7, dy=37, lvl=(15, 15), ease=ease, table=tab))))
+    eps = [(n, e, eprog(n, e)) for n in (1, 2, 7, 255) for e in (LINEAR, EASE_OUT)]
+    p_over, p_under = eprog(8, TABLE, over, ramp=False), eprog(8, TABLE, under, ramp=False)
+    p_notend = eprog(8, TABLE, notend, ramp=False)
+    p_short = eprog(7, TABLE, over, ramp=False)                         # a table of 8 for a 7-step segment: 5
+    st = [step(*arm, *writes(c))]
+    t, tag = 2000, 0x0400
+    def run(prog4, n, period, at):
+        nonlocal t, tag
+        tag += 1
+        out = [step(tk(t), msg(play(0, period, prog4, tag)))]
+        t0 = t
+        for j in at:                                                    # a wake on the step each j is due
+            out.append(step(tk(t0 + (j - 1) * period), wake()))
+        t = t0 + n * period + 100
+        return out
+    for n, e, p4 in eps:
+        at = range(2, n + 1) if n <= 8 else (2, 3, 128, 254, 255)
+        st += run(p4, n, P if n <= 8 else 16, at)
+    st += run(p_over, 8, P, range(2, 9))
+    st += run(p_under, 8, P, range(2, 9))
+    st += [step(tk(t), msg(play(0, P, p_notend, 0x04F0))),               # E[n] ≠ 4096: 5
+           step(tk(t + 10), msg(play(0, P, p_short, 0x04F1)))]           # n ≠ steps: 5
+    vec("v3-ease", st)
+
+    # v3-params — §5.4 "Parameters: a PLAY carries P0..P3 (s16) ... 0 src · 1 xL · 2 xR · 3 xL and xR · 4 y ·
+    # 5 dxL · 6 dxR · 7 dxL and dxR · 8 dy · 9 lvl0 · 10 lvl1 · 11 h0 · 12 h1 · 13 steps (u8 fields take the low
+    # byte; every check runs after substitution)"; §5.5 "every step's values in range: levels 0..15, ... h0/h1 = 0,
+    # T ≤ 255 (12)". Static values a check would refuse are substituted to good ones (the record past the cache,
+    # level 16, steps 0), so "every check runs after substitution" is proven by acceptance.
+    c = Cache2()
+    pic = c.add(image2(40, 30, pattern(40, 30, 341)))
+    pic2 = c.add(image2(24, 24, pattern(24, 24, 342)))
+    pair = lambda l, t_, w, h, d=16: (rect(l, t_, w, h), rect(l + d, t_, w, h))
+    pB = c.add(prog(
+        track(rect(0, 20, 300, 80), 2, seg(DRAW, 6, kind=K_RECORD, src=0xFFFF, xL=10, y=0, dxL=200, lvl0=15, lvl1=15,
+                                           pref0=pref(0, F_SRC), pref1=pref(1, F_Y))),
+        track(rect(320, 20, 300, 80), 3, seg(DRAW, 6, kind=K_RECORD, src=pic, xL=330, y=30, dxL=100, lvl0=16, lvl1=15,
+                                             pref0=pref(2, F_DY), pref1=pref(3, F_LVL0)))))
+    pC = c.add(prog(
+        track(pair(0, 120, 300, 60), 4, seg(DRAW, 6, kind=K_RECORD, src=pic, xL=-30000, xR=30000, y=130, dxL=80, dxR=80,
+                                            lvl0=15, lvl1=15, pref0=pref(0, F_XL), pref1=pref(1, F_XR))),
+        track(pair(320, 120, 300, 60), 5, seg(DRAW, 6, kind=K_RECORD, src=pic, xL=330, xR=346, y=130, lvl0=15, lvl1=15,
+                                              pref0=pref(2, F_DXL), pref1=pref(3, F_DXR)))))
+    pD = c.add(prog(
+        track(pair(0, 200, 300, 60), 6, seg(DRAW, 0, kind=K_RECORD, src=pic, y=210, lvl0=15, lvl1=0,
+                                            pref0=pref(3, F_STEPS), pref1=pref(0, F_X))),            # steps 0 and lvl1 0 as sent
+        track(pair(320, 200, 300, 60), 7, seg(DRAW, 5, kind=K_RECORD, src=pic, xL=330, xR=346, y=210, lvl0=4, lvl1=0,
+                                              pref0=pref(1, F_DX), pref1=pref(2, F_LVL1)))))
+    pE = c.add(prog(track(rect(0, 280, 300, 60), 8, drawrec(4, pic, 10, 290, dx=50, pref0=pref(0, F_H0), pref1=pref(1, F_H1)))))
+    pF = c.add(prog(track(rect(320, 280, 300, 60), 9, wait(200), drawrec(1, pic, 330, 290, dx=40, pref0=pref(0, F_STEPS)))))
+    vec("v3-params", [
+        step(*arm, *writes(c)),
+        step(tk(2000), msg(play(0, P, pB, 0x0501, P=(pic2, 40, 25, 0x0109)))),    # 1  src, y, dy, lvl0 (the low byte: 9)
+        step(tk(2010), msg(play(1, P, pC, 0x0502, P=(20, 40, 150, 170)))),        # 2  xL, xR, dxL, dxR on a per-lens pair
+        step(tk(2020), msg(play(2, P, pD, 0x0503, P=(30, 120, 0x7F0C, 0x0105)))), # 3  x both, dx both, lvl1 = 12, steps = 5
+        step(tk(2030), msg(play(3, P, pE, 0x0504, P=(0, 0)))),                    # 4  h0 = h1 = 0: accepted
+        step(tk(2068), wake()),                                                   # 5
+        step(tk(2136), wake()),                                                   # 6
+        step(tk(2300), wake()),                                                   # 7  every instance's last step
+        step(tk(2400), msg(play(0, P, pB, 0x0505, P=(pic2, 40, 25, 16)))),        # 8  lvl0 = 16 after substitution: 12
+        step(tk(2410), msg(play(0, P, pB, 0x0506, P=(pic2, 40, 25, 0x0110)))),    # 9  the low byte 0x10 = 16: 12
+        step(tk(2420), msg(play(0, P, pB, 0x0507, P=(0x7FFF, 40, 25, 9)))),       # 10 src substituted past the cache: 5
+        step(tk(2430), msg(play(3, P, pE, 0x0508, P=(1, 0)))),                    # 11 h0 = 1: 12
+        step(tk(2440), msg(play(3, P, pE, 0x0509, P=(0, 2)))),                    # 12 h1 = 2: 12
+        step(tk(2450), msg(play(0, 16, pF, 0x050A, P=(56,)))),                    # 13 200 + 56: T = 256: 12
+        step(tk(2460), msg(play(0, 16, pF, 0x050B, P=(0x0137,)))),                # 14 the low byte 55: T = 255, accepted
+        step(tk(2460 + 16), wake()),                                              # 15
+    ])
+
+    # v3-retarget — §5.5 RETARGET "for an open instance (drawing or done): writes END(prog, new P) into the
+    # shadow; restarts the instance at step 1 now, each moving segment from the state this lens last drew to the
+    # new final state (a leading WAIT restarts whole); END ordinal + 1. Only for programs whose tracks have at most
+    # one non-WAIT segment after an optional leading WAIT (else 12)"; §5.6 "after a CLOSE ... refused (16)";
+    # decision A.13: with nothing drawn yet (a PLAY and a RETARGET in one batch) each track's start state.
+    c = Cache2()
+    pic = c.add(image2(40, 30, pattern(40, 30, 351)))
+    rt1 = c.add(prog(track(rect(0, 40, 640, 120), 2, drawrec(8, pic, 100, 50, ease=EASE_OUT,
+                                                              pref0=pref(0, F_DXL), pref1=pref(1, F_DY)))))
+    rt2 = c.add(prog(track(rect(0, 200, 640, 60), 3, drawrec(3, pic, 0, 210, dx=100), drawrec(3, pic, 100, 210, dx=100))))
+    rt3 = c.add(prog(track(rect(0, 300, 640, 60), 4, wait(3), drawrec(5, pic, 50, 310, pref0=pref(0, F_DXL)))))
+    rt4 = c.add(prog(track(rect(0, 380, 300, 60), 5, drawrec(6, pic, 10, 390, pref0=pref(0, F_DXL))),
+                     track(rect(320, 380, 300, 60), 6, wait(2), drawrec(4, pic, 330, 390, pref0=pref(1, F_DXL)))))
+    vec("v3-retarget", [
+        step(*arm, *writes(c)),
+        step(tk(2000), msg(play(0, P, rt1, 0x0601, P=(300, 20)))),      # 1
+        step(tk(2000 + P), wake()),                                     # 2  step 2
+        step(tk(2000 + 2 * P), wake()),                                 # 3  step 3
+        step(tk(2080), msg(retarget(0, (450, 50)))),                    # 4  drawing: END(new P); step 1 again from step 3's state; ordinal 1
+        step(tk(2080 + P), wake()),                                     # 5
+        step(tk(2080 + 7 * P), wake()),                                 # 6  its last step: the notify carries ordinal 1
+        step(tk(2500), msg(retarget(0, (-60, -10)))),                   # 7  done: a new motion from the final state; ordinal 2
+        step(tk(2500 + P), wake()),                                     # 8
+        step(tk(2500 + 7 * P), wake()),                                 # 9  ordinal 2's last step
+        step(tk(2800), msg(close(0)), tk(2800), msg(retarget(0, (10, 10)))),       # 10 after a CLOSE: 16
+        step(tk(2900), msg(play(1, P, rt2, 0x0602)), tk(2900), msg(retarget(1))),  # 11 two non-WAIT segments in a track: 12
+        step(tk(3000), msg(play(2, P, rt3, 0x0603, P=(200,)))),         # 12 a leading WAIT, then a DRAW
+        step(tk(3000 + 4 * P), wake()),                                 # 13 step 5: the DRAW's second step
+        step(tk(3000 + 4 * P + 10), msg(retarget(2, (400,)))),          # 14 a leading WAIT restarts whole
+        step(tk(3000 + 4 * P + 10 + 3 * P), wake()),                    # 15 step 4: the DRAW's first again
+        step(tk(3000 + 4 * P + 10 + 7 * P), wake()),                    # 16 step 8 = T
+        step(tk(3500), msg(batch(play(3, P, rt4, 0x0604, P=(200, 250)), retarget(3, (-100, 100))))),   # 17 nothing drawn yet (A.13)
+        step(tk(3500 + P), wake()),                                     # 18
+        step(tk(3500 + 5 * P), wake()),                                 # 19 T = 6
+    ])
+
+    # v3-close — §5.5 CLOSE "empties the slot whatever this lens was drawing ...; a drawing instance's notify says
+    # outcome 1, a done one sends none"; §5.5 PLAY "closes the slot's instance, every open instance whose areas
+    # meet this one's"; §5.6 "A live keyframe (mode 6, not a self-test step's) or mode 11 closes every instance";
+    # decision A.7 (mode 11 a release point, no notify), A.8 (mode 6 decided from the bytes); §5.6 "a cache write
+    # (12, 19, 25) whose entries meet an open instance's read ranges closes that instance first ... a write between
+    # two of its records closes it". Read ranges are half-open: a write at the first range's end meets nothing.
+    c = Cache2()
+    px = c.add(image2(30, 20, pattern(30, 20, 361)))
+    c1 = c.add(prog(track(rect(0, 20, 200, 60), 2, drawrec(8, px, 10, 30, dx=150))))
+    c2 = c.add(prog(track(rect(220, 20, 200, 60), 3, drawrec(8, px, 230, 30, dx=150))))
+    c3 = c.add(prog(track(rect(440, 20, 180, 60), 4, drawrec(2, px, 450, 30, dx=100))))
+    c4 = c.add(prog(track(rect(100, 40, 200, 60), 5, drawrec(8, px, 110, 50, dx=150))))    # meets c1's area
+    recA = c.add(image2(20, 20, pattern(20, 20, 362)))
+    filler_bytes = image2(20, 20, pattern(20, 20, 363))
+    filler = c.add(filler_bytes)                                        # named by no program: between recA and recB
+    recB = c.add(image2(20, 20, pattern(20, 20, 364)))
+    c5 = c.add(prog(track(rect(0, 120, 300, 60), 6, drawrec(8, recA, 10, 130, dx=200)),
+                    track(rect(320, 120, 300, 60), 7, drawrec(8, recB, 330, 130, dx=200))))
+    assert len(c.buf) % 4 == 0
+    beside = c.reserve(8)                                               # starts exactly at c5's end: outside its first range
+    assert beside * 4 == c5 * 4 + len(c.entries[-1][1])
+    recC_bytes = image2(20, 20, pattern(20, 20, 365))
+    recC = c.add(recC_bytes)
+    c7 = c.add(prog(track(rect(220, 200, 200, 60), 8, drawrec(8, recC, 230, 210, dx=100))))
+    c6 = c.add(prog(track(rect(0, 200, 200, 60), BD_SELF, drawself(8, 0, 200, dx=80))))
+    ccap = c.reserve(cap_total((200, 60)))
+    assert recC * 4 + len(recC_bytes) <= 65536                          # mode 12 reaches it (the v1 window)
+    vec("v3-close", [
+        step(*[flags(DRAW2 | ENGINE | ZWRITE) if "flags" in o else o for o in arm], *writes(c)),
+        step(tk(2000), msg(play(0, P, c1, 0x0701)), tk(2000), msg(play(1, P, c2, 0x0702)), tk(2000), msg(play(2, P, c3, 0x0703))),   # 1
+        step(tk(2000 + P), wake()),                                     # 2  c3's last step (T = 2): done
+        step(tk(2050), msg(close(0))),                                  # 3  drawing: outcome 1; the shadow (END) shown whole
+        step(tk(2060), msg(close(2))),                                  # 4  done: no notify
+        step(tk(2070), msg(close(0xFF))),                               # 5  all: c2 drawing, outcome 1
+        step(tk(2080), msg(close(1))),                                  # 6  an empty slot: nothing
+        step(tk(2100), msg(play(0, P, c1, 0x0704))),                    # 7
+        step(tk(2110), msg(play(1, P, c4, 0x0705))),                    # 8  over c1's area: c1 closes (outcome 1)
+        step(tk(2120), msg(play(1, P, c2, 0x0706))),                    # 9  into c4's slot: c4 closes (outcome 1)
+        step(tk(2130), msg(play(0, P, c1, 0x0707)), msg(kf)),           # 10 a live mode 6 closes every instance
+        step(tk(2200), msg(play(0, P, c1, 0x0708)), msg(bytes([16, 0])), msg(bytes([16, 1]) + kf), msg(bytes([16, 2]))),   # 11 a self-test step's mode 6 closes nothing
+        step(tk(2200 + P), wake()),                                     # 12 c1 still draws: step 2
+        step(tk(2300), msg(play(0, P, c5, 0x0709)), tk(2300), msg(play(1, P, c6, 0x070A, ccap)),
+             tk(2300), msg(play(2, P, c7, 0x070B))),                    # 13
+        step(tk(2310), msg(cache_write2((beside, bytes(8))))),          # 14 at c5's first range's end: closes nothing
+        step(tk(2300 + P), wake()),                                     # 15 c5, c6, c7 all still draw
+        step(tk(2340), msg(cache_write2((filler, filler_bytes)))),      # 16 between c5's two records: c5 closes
+        step(tk(2350), msg(cache_write((recC * 4, recC_bytes)))),       # 17 mode 12 over c7's record (the same bytes): c7 closes
+        step(tk(2360), msg(zwrite((ccap + 10, bytes(16))))),            # 18 mode 25 inside c6's capture: c6 closes
+        step(tk(2300 + 2 * P), wake()),                                 # 19 nothing drawing: nothing presents
+        step(tk(2400), msg(play(0, P, c1, 0x070C)), msg(bytes([11]))),  # 20 mode 11: a release point, no notify
+    ])
+
+    # v3-order — §5.5 "Check order (the reason recorded is part of the contract): length (1) → a self-test step (8)
+    # → the lease (3) → DRAW2 (9) → ENGINE (15) → slot, period, P values (12) → for RETARGET an empty slot (16) →
+    # the program record and every record and table it names, inside the cache and well formed (5) → areas ... (2)
+    # → a `none` backdrop's area ... (2) → every step's values in range (12) → ... the capture range (5) → for a
+    # RETARGET, the new first range not meeting the instance's capture range (5)"; decisions A.6 (no shadow first:
+    # host only, the vectors always hold one), A.9 (the 5/12 split), A.10 (no range on P0..P3). Each refusal also
+    # carries a later check's fault, so only the stated order records its reason, and each is followed by an
+    # accepted PLAY whose present draws step 1 (a refusal exit that kept the engine word would fold that step).
+    c = Cache2()
+    pic = c.add(image2(40, 30, pattern(40, 30, 371)))
+    tbl = c.add(easing([1000, 2000, 3000, 4096]))
+    ovt = c.add(easing([1500, 3500, 4600, 4096]))                       # E above 4096: an extent past F, a level past 15
+    ok = c.add(prog(track(rect(0, 400, 300, 40), 2, drawrec(4, pic, 10, 405, dx=200))))   # T = 4, step 1 differs from END
+    good_t = lambda **extra: track(rect(0, 40, 200, 40), 3, drawrec(4, pic, 10, 45, dx=100, **extra))
+    def bp(*tr, **kw): return c.add(prog(*tr, bad=True, **kw))
+    def gp(*tr): return c.add(prog(*tr))
+    offp = rect(600, 40, 100, 40)                                       # off the panel
+    lvl16 = drawrec(4, pic, 10, 45, lvl=(15, 16))
+    refusals = [
+        # (ops before, the refused message, what it proves)
+        ([], bad(play(9, 15, 0xFFFF, 0)[:-1])),                         # length (1) before slot, period, record
+        ([], bad(play(0, P, ok, 0) + b"\x00")),                         # one byte long: 1
+        ([], bad(bytes([26]))),                                         # no sub: 1
+        ([], bad(retarget(9)[:-1])),                                    # 1 before slot (12)
+        ([], bad(close(9) + b"\x00")),                                  # 1
+        ([], bad(bytes([26, 2]))),                                      # a CLOSE with no slot: 1
+        ([msg(bytes([16, 0]))], bytes([16, 1]) + play(9, 15, 0xFFFF, 0)),   # in a self-test step (8) before slot and record
+        ([{"lease": "release"}], play(9, 15, 0xFFFF, 0)),               # the lease (3) before DRAW2, ENGINE, slot
+        ([flags(ENGINE)], play(9, 15, 0xFFFF, 0)),                      # DRAW2 (9) before ENGINE and slot
+        ([flags(DRAW2)], play(9, 15, 0xFFFF, 0)),                       # ENGINE (15) before slot
+        ([flags(DRAW2)], retarget(9)),                                  # 15 for RETARGET
+        ([flags(DRAW2)], close(0)),                                     # 15 for CLOSE
+        ([], play(4, P, 0xFFFF, 0)),                                    # slot (12) before the record (5)
+        ([], play(0, 15, 0xFFFF, 0)),                                   # period 15: 12
+        ([], play(0, 129, ok, 0)),                                      # period 129: 12
+        ([], retarget(4)),                                              # slot (12) before an empty slot (16)
+        ([], close(4)),                                                 # 12
+        ([], retarget(3)),                                              # an empty slot: 16
+        ([], play(0, P, 0xFFFF, 0)),                                    # the program past the cache: 5
+        ([], play(0, P, bp(track(offp, 2, lvl16), version=2), 0)),      # version 2: 5 before areas (2) and values (12)
+        ([], play(0, P, bp(ntracks=0), 0)),                             # no tracks: 5
+        ([], play(0, P, bp(*[good_t()] * 9), 0)),                       # 9 tracks: 5
+        ([], play(0, P, bp(good_t(), length=4 + 44 - 4), 0)),           # its length 4 short: 5
+        ([], play(0, P, bp(good_t(), length=4 + 44 + 4, tail=bytes(4)), 0)),   # 4 bytes past its tracks: 5
+        ([], play(0, P, bp(track(offp, 2, nseg=0)), 0)),                # a track of 0 segments: 5
+        ([], play(0, P, bp(track(offp, 2, drawrec(4, pic, 10, 45), per_lens=2)), 0)),   # perLens 2: 5
+        ([], play(0, P, bp(track(offp, 16, drawrec(4, pic, 10, 45))), 0)),             # backdrop 16: 5 (A.9)
+        ([], play(0, P, bp(track(offp, 0x21, drawrec(4, pic, 10, 45))), 0)),           # backdrop 0x21: 5
+        ([], play(0, P, bp(track(offp, 2, seg(4, 4))), 0)),                            # verb 4: 5
+        ([], play(0, P, bp(track(offp, 2, drawrec(4, pic, 10, 45, ease=3))), 0)),      # ease 3: 5
+        ([], play(0, P, bp(track(offp, 2, seg(DRAW, 4, kind=1, src=pic, lvl0=15, lvl1=15))), 0)),   # DRAW kind 1: 5 (A.9)
+        ([], play(0, P, bp(track(offp, 2, seg(REVEAL, 4, kind=1, src=pic, lvl0=15, lvl1=15))), 0)), # REVEAL kind 1: 5
+        ([], play(0, P, bp(track(offp, 2, drawrec(4, 0x3FF0, 10, 45))), 0)),           # a record past the cache: 5
+        ([], play(0, P, bp(track(offp, 2, drawrec(4, tbl, 10, 45))), 0)),              # a "record" that is a table (w 4, h 1000): 5
+        ([], play(0, P, bp(track(offp, 2, drawrec(4, pic, 10, 45, ease=TABLE, table=0x3FF0))), 0)),   # a table past the cache: 5
+        ([], play(0, P, bp(track(offp, 2, drawrec(3, pic, 10, 45, ease=TABLE, table=tbl))), 0)),      # n 4 for 3 steps: 5
+        ([], play(0, P, bp(track(offp, 2, drawrec(4, pic, 10, 45), res=1)), 0)),       # a track's reserved byte: 5 (A.9)
+        ([], play(0, P, bp(track(offp, 2, drawrec(4, pic, 10, 45, res0=1))), 0)),      # a segment's first reserved byte: 5
+        ([], play(0, P, bp(track(offp, 2, drawrec(4, pic, 10, 45, res1=1))), 0)),      # its second: 5
+        ([], play(0, P, bp(track(offp, 2, drawrec(4, pic, 10, 45, anchor=1))), 0)),    # anchor 1: 5 (A.9)
+        ([], play(0, P, bp(track(offp, 2, drawrec(4, pic, 10, 45, opt=0x01))), 0)),    # an opt bit DRAW does not use: 5
+        ([], play(0, P, gp(track((rect(0, 40, 100, 40), rect(560, 40, 100, 40)), 2, drawrec(4, pic, 10, 45, xR=560))), 0)),   # one lens off the panel: 2 on both
+        ([], play(0, P, gp(track((rect(0, 40, 100, 40), rect(16, 40, 100, 41)), 2, drawrec(4, pic, 10, 45, xR=16))), 0)),     # a pair of two sizes: 2
+        ([], play(0, P, gp(track((rect(0, 40, 100, 40), rect(16, 42, 100, 40)), 2, drawrec(4, pic, 10, 45, xR=16))), 0)),     # two row ranges: 2
+        ([], play(0, P, gp(track(rect(0, 40, 0, 40), 2, drawrec(4, pic, 10, 45))), 0)),                # empty: 2
+        ([], play(0, P, gp(track(rect(0, 460, 100, 40), 2, lvl16)), 0)),                              # past the bottom (and level 16): 2 before 12
+        ([], play(0, P, gp(track(rect(0, 40, 100, 40), BD_NONE, drawrec(4, pic, 10, 45))), 0)),        # the first track's backdrop none: 2
+        ([], play(0, P, gp(good_t(), track(rect(150, 40, 100, 40), BD_NONE, lvl16)), 0)),              # none, not inside track 1 (and level 16): 2 before 12
+        ([], play(0, P, gp(track((rect(0, 40, 200, 40), rect(16, 40, 200, 40)), 3, drawrec(4, pic, 10, 45, xR=26)),
+                         track((rect(10, 45, 50, 20), rect(170, 45, 50, 20)), BD_NONE, drawrec(4, pic, 10, 45, xR=170))), 0)),   # none: LEFT inside, RIGHT not: 2
+        ([], play(0, P, gp(good_t(lvl=(15, 16))), 0)),                  # lvl1 16: 12
+        ([], play(0, P, gp(track(rect(0, 40, 200, 40), 3, fillseg(4, 16))), 0)),                      # FILL level 16: 12 (A.9: levels)
+        ([], play(0, P, gp(track(rect(0, 40, 200, 40), 3, reveal(4, TOP, K_LEVEL, 10, 45, src=16, w=20, h=10))), 0)),   # a level source of 16: 12
+        ([], play(0, P, gp(track(rect(0, 40, 200, 40), 3, reveal(4, TOP, K_LEVEL, 10, 45, src=5, w=0, h=10))), 0)),     # its width 0: 12
+        ([], play(0, P, gp(track(rect(0, 40, 200, 40), 3, reveal(4, LEFT, K_RECORD, 10, 45, src=pic, ease=TABLE, table=ovt))), 0)),   # an extent past F: 12
+        ([], play(0, P, gp(track(rect(0, 40, 200, 40), 3, drawrec(4, pic, 10, 45, lvl=(0, 15), ease=TABLE, table=ovt))), 0)),       # a level past 15: 12
+        ([], play(0, P, gp(good_t(h0=1)), 0)),                          # h0 1: 12
+        ([], play(0, P, gp(good_t(h1=1)), 0)),                          # h1 1: 12
+        ([], play(0, P, gp(track(rect(0, 40, 200, 40), 3, wait(200), drawrec(56, pic, 10, 45))), 0)),   # T 256: 12
+    ]
+    sc = gp(track(rect(0, 300, 41, 20), BD_SELF, wait(4)), good_t())    # one `self` track: a 21 x 20 capture
+    sc16 = gp(track(rect(0, 300, 41, 20), BD_SELF, wait(4)), good_t(lvl=(15, 16)))
+    capsz = cap_total((41, 20))
+    refusals += [
+        ([], play(0, P, sc16, 0xFFFF)),                                 # a capture past the cache with level 16: 12 before 5
+        ([], play(0, P, sc, (65536 - capsz) // 4 + 1)),                 # the capture range 4 bytes past 64 KiB: 5
+        ([], play(0, P, sc, sc)),                                       # cap = the program itself: meets its first range: 5
+    ]
+    # the RETARGET case: [program][old record][capture][new record] — the new first range spans the capture
+    mr = c.add(prog(track(rect(0, 300, 40, 20), BD_SELF, wait(6)),
+                    track(rect(100, 300, 200, 40), 4, drawrec(6, 0, 110, 305, dx=100, pref0=pref(0, F_SRC)))))
+    mr_old = c.add(image2(20, 10, pattern(20, 10, 372)))
+    mr_cap = c.reserve(cap_total((40, 20)))
+    mr_new = c.add(image2(20, 10, pattern(20, 10, 373)))
+    st = [step(*arm, *writes(c))]
+    t = 2000
+    for pre, m in refusals:
+        if pre and "lease" in pre[0]:                                   # the release took the cache and the flags
+            after = [{"lease": "acquire"}, flags(DRAW2 | ENGINE), msg(kf), *writes(c)]
+        elif pre and "flags" in pre[0]:
+            after = [flags(DRAW2 | ENGINE)]
+        elif pre:                                                       # the self-test begin: end it
+            after = [msg(bytes([16, 2]))]
+        else:
+            after = []
+        st.append(step(*pre, tk(t), msg(m), *after, tk(t + 5), msg(play(0, P, ok, 0x0800 + len(st)))))
+        st.append(step(tk(t + 5 + 3 * P), wake()))                     # its last step: the next PLAY closes a done one
+        t += 200
+    st.append(step(tk(t), msg(play(0, 16, ok, 0x08A0)), tk(t), msg(play(0, 128, ok, 0x08A1))))   # periods 16 and 128: accepted
+    st.append(step(tk(t + 10), msg(play(1, P, mr, 0x08A2, mr_cap, P=(mr_old,)))))                 # accepted: its first range ends before the capture
+    st.append(step(tk(t + 20), msg(retarget(1, (mr_new,))), tk(t + 25), msg(play(0, P, ok, 0x08A3))))   # the new first range meets the capture range: 5
+    st.append(step(tk(t + 20 + P), wake()))
+    vec("v3-order", st)
+
+    # v3-lifecycle — §5.8 "bit 3 ENGINE (needs DRAW2 armed too)", "A disarm closes nothing ... a PLAY ... handled
+    # after it is refused (15)"; §5.6 "A lease lapse, FB_RELEASE, a fresh acquire ... are release points: every
+    # instance ends, nothing is drawn after, no notify is sent; ... stock content is never drawn over. A lapse
+    # nothing has noticed yet ... meets the hook's own deadline test: that present takes the stock path, draws
+    # nothing and turns every drawing instance done with no notify"; decision A.7 (mode 11).
+    c = Cache2()
+    pic = c.add(image2(40, 30, pattern(40, 30, 381)))
+    l1 = c.add(prog(track(rect(0, 40, 300, 60), 2, drawrec(8, pic, 10, 50, dx=200))))
+    l2 = c.add(prog(track(rect(320, 40, 300, 60), 3, drawrec(8, pic, 330, 50, dx=200))))
+    rearm = lambda: [flags(DRAW2 | ENGINE), msg(kf), *writes(c)]
+    vec("v3-lifecycle", [
+        step(tk(1000), {"lease": "acquire"}, flags(DRAW2), msg(kf), *writes(c), flags(ENGINE)),   # 0  ENGINE without DRAW2
+        step(tk(1100), msg(play(0, P, l1, 0x0901))),                    # 1  DRAW2 (9) before ENGINE
+        step(flags(DRAW2 | ENGINE), tk(1200), msg(play(0, P, l1, 0x0902)), tk(1200), msg(play(1, P, l2, 0x0903))),   # 2  both armed
+        step(tk(1200 + P), wake()),                                     # 3
+        step({"lease": "release"}),                                     # 4  FB_RELEASE: both end, no notify
+        step(tk(1200 + 2 * P), wake()),                                 # 5  nothing drawing
+        step(stock()),                                                  # 6  the stock repaint
+        step(tk(1200 + 3 * P), wake()),                                 # 7  nothing drawn over it
+        step(tk(2000), {"lease": "acquire"}, *rearm(), tk(2000), msg(play(0, P, l1, 0x0904)), tk(2000), msg(play(1, P, l2, 0x0905))),   # 8
+        step(tk(2000 + P), wake()),                                     # 9
+        step(tk(2050), msg(bytes([11]))),                               # 10 mode 11: both end, no notify
+        step(tk(2000 + 2 * P), wake()),                                 # 11 nothing drawing
+        step(tk(2100), {"lease": "acquire"}, *rearm(), tk(2100), msg(play(0, P, l1, 0x0906))),   # 12
+        step(tk(2100 + 90000 + 50), wake()),                            # 13 a lapse nothing noticed: the stock path, l1 done, no notify, W forever
+        step(stock()),                                                  # 14
+        step(tk(2100 + 90000 + 100), wake()),                           # 15 nothing drawing
+        step(tk(100000), {"lease": "acquire"}, *rearm(), tk(100000), msg(play(0, P, l1, 0x0907)), tk(100000), msg(play(1, P, l2, 0x0908))),   # 16
+        step(tk(100000 + P), wake()),                                   # 17
+        step(tk(100000 + 90000 + 1000), {"lease": "acquire"}),          # 18 a fresh acquire after an unnoticed lapse, instances drawing: they end, no notify
+        step(*rearm(), tk(191100), msg(play(0, P, l1, 0x0909))),        # 19
+        step(tk(191100 + P), flags(DRAW2)),                             # 20 ENGINE disarmed while l1 draws: closes nothing
+        step(tk(191100 + 2 * P), wake()),                               # 21 l1 runs on
+        step(tk(191100 + 7 * P), wake()),                               # 22 its last step: outcome 0
+        step(tk(191400), msg(play(1, P, l2, 0x090A))),                  # 23 refused: 15
+    ])
+
+    # v3-hint — §5.3 "a present that draws a step goes whole (a mode-24 hint is ignored for it)".
+    c = Cache2()
+    pic = c.add(image2(40, 30, pattern(40, 30, 391)))
+    h1 = c.add(prog(track(rect(0, 100, 640, 60), 2, drawrec(8, pic, 10, 110, dx=500))))
+    vec("v3-hint", [
+        step(*arm, *writes(c)),
+        step(tk(2000), msg(play(0, P, h1, 0x0A01))),                    # 1
+        step(tk(2000 + P), wake()),                                     # 2
+        step(tk(2050), msg(batch(fill(rect(0, 300, 640, 10), 5), fill(rect(0, 400, 640, 10), 9), hint(300, 309)))),   # 3  draws step 2 again: whole (rows 400.. reach the lens)
+        step(tk(2000 + 2 * P), wake()),                                 # 4
+        step(tk(2090), msg(batch(fill(rect(0, 420, 640, 10), 3), hint(0, 0)))),   # 5  draws step 3 again: whole
+        step(tk(2000 + 7 * P), wake()),                                 # 6  the last step
+        step(tk(2300), msg(batch(fill(rect(0, 440, 640, 10), 6), hint(440, 449)))),   # 7  stale: whole
+        step(tk(2400), msg(batch(fill(rect(0, 450, 640, 10), 7), fill(rect(0, 300, 640, 10), 1), hint(450, 459)))),   # 8  nothing drawing, not stale: rows only
+    ])
+
+    # v3-zwrite — §5.9 mode 25: "inflating to exactly a mode-19 entry list (no mode byte), at most 16,384 B. Order:
+    # length ≥ 3 (1) → not in a batch or a step (8) → the lease (3) → DRAW2 (9) → ZWRITE (15) → the inflate ...
+    # a stream that does not end cleanly or runs past 16,384 B (13) → then mode 19's own checks and semantics on
+    # the list (an empty list writes nothing and does not bump; one bump per message)". The same list goes once
+    # by mode 19 and once by mode 25 (mode 11 between: a fresh cache), and the same draws follow each.
+    c = Cache2()
+    zpic = c.add(image2(40, 30, pattern(40, 30, 401)))
+    tofu = c.add(cache_image(7, 14, [15 if (x in (0, 6) or y in (0, 13)) else 0 for y in range(14) for x in range(7)]))
+    zg = {ch: c.add(cache_image(5 + (ch % 7), 14, pattern(5 + (ch % 7), 14, 410 + ch))) for ch in b"DamgeC1 "}
+    ztab = c.reserve(224 * 2)
+    c.put(ztab, b"".join(u16(zg.get(ch, tofu)) for ch in range(32, 256)))
+    X = list(c.entries)
+    assert len(cache_write2(*X)) - 1 <= 16384
+    draws = [msg(draw2(zpic, 100, 100, 0x0F)), msg(string2(ztab, 100, 160, 0x0F, b"Damage C1")),
+             msg(draw2_pair(zpic, 300, 316, 200, 0x1F))]
+    big = bytes((i * 7) & 0xFF for i in range(16381))                   # 4 + 16,380 = 16,384 B inflated; one more is 16,385
+    zarm = [{"lease": "acquire"}, flags(DRAW2 | ZWRITE), msg(kf)]
+    vec("v3-zwrite", [
+        step(tk(1000), *zarm),
+        step(msg(cache_write2(*X))),                                    # 1  run 1: the list by mode 19 (one bump)
+        step(*draws),                                                   # 2
+        step(msg(bytes([11])), *zarm),                                  # 3  mode 11: the cache and the flags go; a fresh keyframe
+        step(msg(zwrite(*X))),                                          # 4  run 2: the same list by mode 25 (one bump)
+        step(*draws),                                                   # 5  the same shadow as step 2
+        step(msg(bytes([25]) + z(b""))),                                # 6  an empty list: accepted, nothing written, no bump
+        step(msg(zwrite((4096, big[:16380])))),                         # 7  exactly 16,384 B: accepted
+        step(msg(zwrite((4096, big)))),                                 # 8  16,385 B: 13
+        step(msg(bad(zwrite((4096, big[:2000]))[:40]))),                # 9  a stream cut short: 13
+        step(msg(bad(bytes([25, 0x00]) + zwrite((4096, bytes(64)))[2:]))),   # 10 a bad zlib header: 13
+        step(msg(bad(bytes([25]) + z(u16(4096) + u16(100) + bytes(10))))),   # 11 an entry whose data runs past the list: mode 19's 1
+        step(msg(zwrite((0xFFFF, bytes(8))))),                          # 12 an entry past the cache: mode 19's 5
+        step(msg(bad(bytes([25]))), msg(bad(bytes([25, 0x78])))),       # 13 shorter than 3: 1
+        step(msg(batch(fill(rect(0, 0, 8, 8), 3), zwrite((4096, bytes(8)))))),   # 14 in a batch: 8 (the fill already applied)
+        step(flags(DRAW2), msg(zwrite((4096, bytes(8))))),              # 15 ZWRITE unarmed: 15
+        step(flags(ZWRITE), msg(zwrite((4096, bytes(8))))),             # 16 DRAW2 unarmed: 9
+        step(flags(DRAW2 | ZWRITE), msg(bytes([16, 0])), msg(bytes([16, 1]) + zwrite((4096, bytes(8)))), msg(bytes([16, 2]))),   # 17 in a step: 8
+        step({"lease": "release"}, msg(zwrite((4096, bytes(8))))),      # 18 no lease: 3
+    ], panel=False)
+
+    # v3-cache256 — §5.9 "Op 5 CACHE_SIZE: 64..256 KiB on a bit-8 build (status 5 outside it); the v1 window stays
+    # the first 64 KiB". 161 moved here from `v2-cachesize` (decision A.1): on a bit-8 build it is status 0.
+    hi = Cache2(start=200000)                                           # past 160 KiB
+    hip = hi.add(image2(40, 30, pattern(40, 30, 421)))
+    end = Cache2(start=262144 - 8)                                      # a record ending exactly at 256 KiB
+    endp = end.add(image2(20, 15, [9] * 300))                           # 4 B of header + one 4-byte run token
+    assert len(end.buf) == 262144
+    v1g = cache_image(9, 12, pattern(9, 12, 422))
+    v1rec = cache_image(20, 20, pattern(20, 20, 423))
+    v1end = 65536 - len(v1rec)                                          # a v1 record ending exactly at the window's end
+    win_edge = 65536 - 96 * 2
+    vec("v3-cache256", [
+        step(tk(1000), {"lease": "acquire"}, flags(DRAW2), msg(kf), cachesize(161)),   # 0  161 on a bit-8 build: status 0
+        step(cachesize(257)),                                           # 1  past 256: status 5
+        step(cachesize(256)),                                           # 2  status 0 (nothing allocated yet)
+        step(*[msg(m) for m in hi.messages()], msg(draw2(hip, 10, 10, 0x0F))),        # 3  a record at 200,000 B written and drawn
+        step(*[msg(m) for m in end.messages()], msg(draw2(endp, 60, 10, 0x0F))),      # 4  a record ending exactly at 256 KiB
+        step(msg(cache_write2((262144 // 4 - 1, bytes(8))))),           # 5  one entry running past 256 KiB: 5
+        step(cachesize(128)),                                           # 6  allocated already: status 4
+        step(msg(cache_write((0x0808, v1g), (win_edge, bytes([8]) * 192)))),          # 7  mode 12: a table ending exactly at the window's end
+        step(msg(draw_string(win_edge, 20, 100, 0x0F, b"AB"))),         # 8  mode 14 at the last offset: draws
+        step(msg(draw_string(win_edge + 1, 20, 130, 0x0F, b"AB"))),     # 9  one byte later: 5
+        step(msg(cache_write((v1end, v1rec))), msg(draw_image(v1end, 100, 200, 0x0F))),   # 10 mode 13 of a record ending at the window's end: draws
+        step(msg(cache_write((v1end + 1, v1rec)))),                     # 11 a mode-12 write one byte past the window: 5
+        step(msg(cache_write2((v1end // 4 + 1, v1rec))), msg(draw_image((v1end // 4 + 1) * 4, 100, 260, 0x0F))),   # 12 a v1 record crossing the window's end, written by mode 19: the mode-13 draw refused (5)
+    ], panel=False)
+
+    # v3-mech — the focused read's cases (`HANDOFF.md` §81; spec §4): §5.2 "k = min(T, 1 + ⌊(now − t0) / P⌋),
+    # now − t0 an unsigned 32-bit difference (the tick wraps ...)" and "w = max(1, (int32_t)(due − now))" (the
+    # tick values are uint32 as the firmware's clock reads them, so the wrap is written as the clock shows it);
+    # §5.6 "A RETARGET's walk replaces the instance's first range (its parameters may substitute src)"; §5.4 a
+    # capture "is not counted in field 17"; decision A.5 (only tracks that use `self` capture, a backdrop alone
+    # included; each 4-byte aligned); A.2 (one ui_task capture per slot, the sequence taken at capture, slot order
+    # then the refusal; the copy hook's owed record per slot).
+    c = Cache2()
+    pic = c.add(image2(40, 30, pattern(40, 30, 431)))
+    m1 = c.add(prog(track(rect(0, 20, 640, 50), 2, drawrec(8, pic, 10, 30, dx=500))))
+    old = c.add(image2(30, 20, pattern(30, 20, 432)))                  # before m2: outside m2's first range once retargeted
+    m2 = c.add(prog(track(rect(0, 100, 300, 60), 3, drawrec(8, 0, 10, 110, dx=150, pref0=pref(0, F_SRC)))))
+    new = c.add(image2(30, 20, pattern(30, 20, 433)))
+    m3 = c.add(prog(track(rect(320, 100, 100, 40), BD_SELF, wait(6)),                     # a backdrop-only `self` track
+                    track(rect(440, 100, 180, 60), 4, drawrec(6, 0, 450, 110, dx=100, pref0=pref(0, F_SRC)))))
+    rec3 = c.add(image2(30, 20, pattern(30, 20, 434)))
+    cap3 = c.reserve(cap_total((100, 40)))
+    m4a = c.add(prog(track(rect(0, 200, 300, 40), 5, drawrec(4, pic, 10, 205, dx=200))))
+    m4b = c.add(prog(track(rect(320, 200, 300, 40), 6, drawrec(4, pic, 330, 205, dx=200))))
+    m6 = c.add(prog(*[track(rect(600 + 10 * i, 300, 3, 3), BD_SELF, wait(2)) for i in range(3)]))   # three 6-byte captures: 22 B aligned, 18 packed
+    assert cap_total((3, 3), (3, 3), (3, 3)) == 22
+    t0 = 0xFFFFFF00
+    vec("v3-mech", [
+        step(tk(0xFFFFF000), {"lease": "acquire"}, flags(DRAW2 | ENGINE), msg(kf), *writes(c)),
+        step(tk(t0), msg(play(0, 64, m1, 0x0B01))),                     # 1  t0 = 0xFFFFFF00, P = 64: step 5 falls on the wrap
+        step(tk(t0 + 64), wake()),                                      # 2  step 2
+        step(tk(0xFFFFFFF0), wake()),                                   # 3  k = 4 (3 folded); due t0 + 256 = 0 wraps: W = 16
+        step(tk(0x00000005), wake()),                                   # 4  now − t0 = 261 unsigned: k = 5, drawn across the wrap
+        step(tk(0x000000C0), wake()),                                   # 5  now − t0 = 448: k = 8 = T
+        step(tk(1000), msg(play(1, P, m2, 0x0B02, P=(old,)))),          # 6
+        step(tk(1000 + P), wake()),                                     # 7
+        step(tk(1050), msg(retarget(1, (new,)))),                       # 8  src → new: the first range becomes [m2, new's end)
+        step(tk(1060), msg(cache_write2((old, image2(30, 20, pattern(30, 20, 432)))))),   # 9  over the old record: closes nothing
+        step(tk(1050 + P), wake()),                                     # 10 still drawing
+        step(tk(1090), msg(cache_write2((new, image2(30, 20, pattern(30, 20, 433)))))),   # 11 over the new one: closes (outcome 1)
+        step(tk(1050 + 2 * P), wake()),                                 # 12 nothing drawing
+        step(tk(1200), msg(play(2, P, m3, 0x0B03, cap3, P=(rec3,)))),   # 13 the backdrop-only track captures; G unchanged
+        step(tk(1210), msg(retarget(2, (cap3 + 2,)))),                  # 14 src into the capture range: 5
+        step(tk(1200 + P), wake()),                                     # 15 still drawing
+        step(tk(1300), msg(play(3, P, m4a, 0x0B04)), tk(1300), msg(play(0, P, m4b, 0x0B05))),   # 16 slot 3 first, then slot 0
+        step(tk(1300 + 3 * P), wake()),                                 # 17 last steps of slots 0, 2 and 3 on one wake: bodies in slot order
+        step(tk(1500), msg(play(3, P, m4a, 0x0B06)), tk(1500), msg(play(0, P, m4b, 0x0B07))),   # 18
+        step(tk(1520), msg(batch(close(3), play(3, P, m4a, 0x0B08), close(3), play(3, P, m4a, 0x0B09),
+                                 close(0), play(4, P, m4a, 0x0B0A)))),  # 19 slot 3 captured twice (the second replaces: a sequence gap), slot 0, then the refusal (12)
+        step(tk(1520 + P), wake()),                                     # 20 0x0B09 draws on
+        step(tk(1600), msg(play(1, P, m6, 0x0B0B, 65536 // 4 - 5))),   # 21 aligned the captures run 2 bytes past 64 KiB: 5 (packed they would fit)
+        step(tk(1610), msg(play(1, P, m6, 0x0B0C, 65536 // 4 - 6))),   # 22 ends at 65,534: accepted; G unchanged
+    ])
+
+    for vec_ in v:
+        vec_["contract"] = 2                                            # §5.1: added ops and bits do not bump the contract
+        vec_["start"] = "zero"
+        vec_["features"] = FEATURES_C1
+    return v
+
+# ---- the self-check (spec §3 D1): every message decodes by its builder's inverse, every program walks to its
+# own length. It proves the encoders' lengths, not the semantics (that is the C's and the simulator's).
+def walk_prog(buf, off):
+    """Walk a program record at byte `off` (§5.4); return its length, raise ValueError when it does not end there."""
+    if off + 4 > len(buf): raise ValueError("header past the cache")
+    nt, ln = buf[off + 1], buf[off + 2] | buf[off + 3] << 8
+    p = off + 4
+    for _ in range(nt):
+        if p + 4 > len(buf): raise ValueError("track past the cache")
+        ns, pl = buf[p], buf[p + 2]
+        p += 4 + (16 if pl else 8) + 32 * ns
+    if p - off != ln: raise ValueError(f"walked {p - off} B, the header says {ln}")
+    return ln
+
+def entries19(body):
+    """A mode-19 entry list without its mode byte → [(off4, data)]; ValueError when an entry runs past it."""
+    out, p = [], 0
+    while p < len(body):
+        if p + 4 > len(body): raise ValueError("an entry header cut short")
+        off4, n = body[p] | body[p + 1] << 8, body[p + 2] | body[p + 3] << 8
+        if p + 4 + n > len(body): raise ValueError("an entry's data runs past the list")
+        out.append((off4, body[p + 4:p + 4 + n])); p += 4 + n
+    return out
+
+def check_v3(vecs):
+    """Raise AssertionError on the first message or program that does not decode as built."""
+    LEN26 = {0: 18, 1: 11, 2: 3}
+    n_msgs = n_progs = 0
+    found = set()                                   # the records a PLAY found at its prog offset
+    for vec in vecs:
+        cache = bytearray(262144)
+        def subs(m):
+            if m[0] == 8 and len(m) >= 2:
+                p, out = 2, []
+                for _ in range(m[1]):
+                    ln = m[p] | m[p + 1] << 8; out.append(m[p + 2:p + 2 + ln]); p += 2 + ln
+                assert p == len(m), f"{vec['name']}: a batch's sub-messages do not end at its end"
+                return out
+            if m[0] == 16 and len(m) > 2 and m[1] == 1: return [m[2:]]
+            return [m]
+        for si, st in enumerate(vec["steps"]):
+            clock_set = False
+            for op in st["ops"]:
+                if "tick" in op: clock_set = True; continue
+                if "wake" in op:
+                    assert clock_set, f"{vec['name']} step {si}: a wake with no tick op before it in its step"
+                    continue
+                if op.get("lease") == "release": cache[:] = bytes(len(cache)); continue
+                if "msg" not in op: continue
+                for m in subs(bytes.fromhex(op["msg"])):
+                    if not m: continue
+                    mode = m[0] & 0x7F
+                    if m in BAD_SHAPE: continue
+                    if mode == 26:
+                        n_msgs += 1
+                        assert clock_set, f"{vec['name']} step {si}: an engine message with no tick op before it in its step"
+                        assert len(m) >= 2 and m[1] in LEN26 and len(m) == LEN26[m[1]], f"{vec['name']} step {si}: mode 26 of {len(m)} B"
+                        if m[1] == 0:
+                            off = (m[4] | m[5] << 8) * 4
+                            ln = cache[off + 2] | cache[off + 3] << 8 if off + 4 <= len(cache) else 0
+                            rec = bytes(cache[off:off + ln])
+                            found.add(rec)
+                            if rec in WELL_FORMED:
+                                assert walk_prog(cache, off) == len(rec); n_progs += 1
+                    elif mode in (19, 25):
+                        if mode == 25:
+                            n_msgs += 1
+                            body = zlib.decompress(m[1:])
+                            assert len(body) <= 16384 or vec["name"] == "v3-zwrite", f"{vec['name']}: mode 25 inflates past 16 KiB"
+                        else:
+                            body = m[1:]
+                        for off4, data in entries19(body):
+                            if off4 * 4 + len(data) <= len(cache): cache[off4 * 4:off4 * 4 + len(data)] = data
+                    elif mode == 12:
+                        for off, data in [(o, d) for o, d in entries19(m[1:])]:
+                            cache[off:off + len(data)] = data
+                    elif mode == 11:
+                        cache[:] = bytes(len(cache))
+    # every program built well formed walks, and every program built (well formed or not) was found by a PLAY at
+    # the offset the PLAY names: an offset the builders got wrong reads some other bytes and fails here
+    for rec in WELL_FORMED:
+        assert walk_prog(bytearray(rec), 0) == len(rec)
+    progs_bad = {r for r in BAD_SHAPE if len(r) >= 4 and r[0] in (1, 2) and (r[2] | r[3] << 8) == len(r)}
+    missed = (WELL_FORMED | progs_bad) - found
+    assert not missed, f"{len(missed)} program(s) built but never found where a PLAY names them"
+    return n_msgs, n_progs
+
+def _merged(p, vec):
+    """The vector to write at `p`: its inputs, and the expectations the file already holds for the longest prefix of
+    steps whose inputs (and every vector-level key) are unchanged — the C's own answers for the same input, never
+    an expectation of ours. From the first changed step on, every expectation is empty, for the C to fill."""
+    if not p.exists(): return vec
+    old = json.loads(p.read_text())
+    meta = lambda d: {k: x for k, x in d.items() if k != "steps"}
+    if meta(old) != meta(vec): return vec
+    for new_st, old_st in zip(vec["steps"], old["steps"]):
+        if new_st["ops"] != old_st["ops"]: break
+        new_st["expect"] = old_st.get("expect", {})
+    return vec
+
 def main():
+    import argparse
+    ap = argparse.ArgumentParser(description="Write the conformance vectors' inputs (FIRMWARE.md §9, §5.10).")
+    ap.add_argument("--only", metavar="PREFIXES", help="write only vectors whose name starts with one of these "
+                    "comma-separated prefixes (e.g. v3 or v2-cachesize,v2-refusals); every other file is left as it is")
+    ap.add_argument("--check", action="store_true", help="run the self-check of the C1 builders and write nothing")
+    a = ap.parse_args()
+    kf = keyframe(pattern(W, H, 1))
+    v3 = vectors_v3(kf)
+    n_msgs, n_progs = check_v3(v3)
+    again = vectors_v3(kf)
+    assert json.dumps(again) == json.dumps(v3), "vectors_v3 is not deterministic"
+    print(f"self-check: {len(v3)} C1 vectors, {n_msgs} mode-25/26 messages decoded, {n_progs} played programs walked, "
+          f"{len(WELL_FORMED)} programs built well formed, {len(BAD_SHAPE)} malformed on purpose")
+    if a.check: return
+    prefixes = tuple(x for x in a.only.split(",") if x) if a.only else None
     OUT.mkdir(parents=True, exist_ok=True)
-    for vec in vectors():
+    for vec in vectors() + v3:
+        if prefixes and not vec["name"].startswith(prefixes): continue
         p = OUT / f"{vec['name']}.json"
+        vec = _merged(p, vec)
         p.write_text(json.dumps(vec, indent=1) + "\n")
-        size = p.stat().st_size
-        print(f"wrote {p.name}: {len(vec['steps'])} steps, {size:,} B")
+        kept = sum(1 for s in vec["steps"] if s["expect"])
+        print(f"wrote {p.name}: {len(vec['steps'])} steps ({kept} expectations kept), {p.stat().st_size:,} B")
 
 if __name__ == "__main__":
     main()
