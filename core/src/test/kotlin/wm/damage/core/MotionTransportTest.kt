@@ -397,4 +397,26 @@ class MotionTransportTest {
             }
         }
     }
+
+    /** Spec §6.1's stage 2: a 256 KiB session on a build with the riders lays its atlas over 192 KiB (the cache less
+     *  the strips' reserve) and cached text goes live — the atlas's bound is the build's, not §4's 160. */
+    @Test
+    fun aStage2SessionsAtlasLaysOutOverTheWiderCache_6_1(): Unit = runBlocking {
+        val tmp = Files.createTempDirectory("damage-motion-256")
+        try {
+            val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = 0x1ff }
+            val t = SimTransport(sim, scope, SimTransport.Timing(instant = true))
+            t.devProbe("c1", "2")
+            val shell = Shell(wm.damage.core.comp.CachedText(GlyphyText()), t, Persistence(tmp.resolve("s.json")), null, scope)
+            shell.start()
+            waitUntil(10_000, 10, { "start" }) { shell.isQuiescent() }
+            assertEquals(256 * 1024, t.state.value.cacheSize, "stage 2: the 256 KiB cache")
+            shell.updateSettings { it.copy(cachedText = "on") }
+            waitUntil(20_000, 10, { "the atlas over 192 KiB goes live" }) { shell.cachedTextActive && shell.cachedFontsLive.isNotEmpty() && shell.isQuiescent() }
+            assertEquals(256 * 1024, sim.cacheSize(Arm.RIGHT), "the glasses' cache is the session's")
+            shell.stop()
+        } finally {
+            tmp.toFile().deleteRecursively()
+        }
+    }
 }
