@@ -13,11 +13,12 @@ import { Stream, safeStorage, DEVICE_KEY, APPROVED_KEY } from './stream.mjs';
 import * as A from './address.mjs';
 import { h, icon, toastsToDrop, keepFocus } from './dom.mjs';
 import { nextFocus } from './focus.mjs';
-import { confirmShape } from './confirm.mjs';
+import { confirmShape, chooseShape, askText } from './confirm.mjs';
 import { NoticeDesk, WINDOW as NOTICES, PREFIX as NOTICE_PREFIX, dismissDraft, readDraft } from './notices.mjs';
 import { homeView } from './views/home.mjs';
 import { readerView } from './views/reader.mjs';
 import { torrentsView } from './views/torrents.mjs';
+import { filesView } from './views/files.mjs';
 import { devicesView } from './views/devices.mjs';
 import { diagView } from './views/diag.mjs';
 import { settingsView, applyLooks } from './views/settings.mjs';
@@ -534,6 +535,9 @@ const ctx = {
     return k;
   },
   confirm: (c) => confirmShape(el.dialog, c),
+  /** S1-2 Q5w: a choice between acts, and a name typed behind Apply (`confirm.mjs`). */
+  choose: (c) => chooseShape(el.dialog, c),
+  ask: (c) => askText(el.dialog, c),
   go,
   /** A button for an action at level `need`: dim with the reason (W-25, C§4.4) when the level, the reach or `why`
    *  stops it; a dim button stays focusable and says why on focus and on a press. */
@@ -551,6 +555,8 @@ const VIEWS = {
   reader: { make: readerView, label: 'Reader', icon: 'book' },
   // S1-2 Q4w: a window the PC shares only when both name the same contract version (C§9.7 item 2)
   torrents: { make: torrentsView, label: 'Torrents', icon: 'torrents', contract: 'torrents' },
+  // S1-2 Q5w: Files, full as a whole (C§10.4): below full its page says so and asks the PC for nothing
+  files: { make: filesView, label: 'Files', icon: 'folder', contract: 'files', need: 'full' },
   devices: { make: devicesView, label: 'Devices', icon: 'devices', need: 'full' },
   diag: { make: diagView, label: 'Diagnosis', icon: 'pulse', need: 'full' },
   settings: { make: settingsView, label: 'Settings', icon: 'gear' },

@@ -9,6 +9,7 @@ js/anchor.mjs
 js/confirm.mjs
 js/conn.mjs
 js/dom.mjs
+js/files-model.mjs
 js/focus.mjs
 js/notices.mjs
 js/proto.mjs
@@ -18,6 +19,7 @@ js/stream.mjs
 js/torrents-model.mjs
 js/views/devices.mjs
 js/views/diag.mjs
+js/views/files.mjs
 js/views/home.mjs
 js/views/reader.mjs
 js/views/settings.mjs

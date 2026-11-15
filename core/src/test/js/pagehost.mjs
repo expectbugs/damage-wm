@@ -130,7 +130,8 @@ export function handTimers() {
 }
 
 let pages = 0;
-const NAMES = ['Node', 'document', 'window', 'location', 'history', 'WebSocket', 'fetch', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'];
+// S1-2 Q5w: XMLHttpRequest (a test of uploads puts its own; restore takes it away)
+const NAMES = ['Node', 'document', 'window', 'location', 'history', 'WebSocket', 'fetch', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'XMLHttpRequest'];
 
 /**
  * Opens a page at `path` over `storage` (from browserStorage) with the timers `timers` (from handTimers) and the

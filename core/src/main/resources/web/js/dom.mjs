@@ -99,6 +99,10 @@ const ICONS = {
   folder: 'M2 5h7l2 2h11v13H2z',
   // S1-2 Q4w: Torrents — a down-arrow into a tray (TORRENTS.md §3's drawn fallback)
   torrents: 'M12 3v11M7 9l5 5 5-5M3 15v5h18v-5',
+  // S1-2 Q5w: Files' entries and the trash
+  file: 'M6 2h8l5 5v15H6zM14 2v5h5',
+  image: 'M3 4h18v16H3zM3 16l5-5 4 4 3-3 6 6M15.5 8.5h.01',
+  trash: 'M4 6h16M9 6V3h6v3M6 6l1 15h10l1-15M10 10v7M14 10v7',
 };
 
 /** A small line icon drawn in the page's own colours. */

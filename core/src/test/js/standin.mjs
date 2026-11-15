@@ -94,12 +94,21 @@ const frames = () => new Promise((ok) => setTimeout(ok, 0)); // a hidden screens
 const note = (t) => fetch('/__note?' + encodeURIComponent(t));
 addEventListener('error', (e) => note('page error: ' + e.message));
 addEventListener('unhandledrejection', (e) => note('page error: ' + (e.reason && e.reason.message)));
-for (const s of steps) {
+async function step(s) {
   if (s.wait) await until(s.wait);
   if (s.click) (await until(s.click)).click();
+  if (s.drop) {
+    // S1-2 Q5w: files dropped on the page, as a drag from the desktop delivers them
+    const dt = new DataTransfer();
+    for (const f of s.files) dt.items.add(new File([new Uint8Array(f.size)], f.name));
+    (await until(s.drop)).dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+  }
   if (s.fetch) await fetch(s.fetch);
   note('step ' + JSON.stringify(s));
 }
+// S1-2 Q5w: a step marked late runs after the picture is released: a request in flight before the load event (an
+// upload's body) holds Firefox's screenshot until it ends, so an upload in progress is pictured from one started after
+for (const s of steps) if (!s.late) await step(s);
 await frames();
 // a hidden frame runs no lazy loading: every picture of the page is loaded as a visible one would be
 for (const i of document.images) if (i.loading === 'lazy') i.loading = 'eager';
@@ -108,6 +117,7 @@ const seen = [...document.images].filter((i) => i.id !== 'look-hold' && !i.compl
 await Promise.all(seen.map((i) => new Promise((ok) => { i.addEventListener('load', ok); i.addEventListener('error', ok); })));
 await frames();
 await fetch('/__ready');
+for (const s of steps) if (s.late) await step(s);
 `;
 }
 
@@ -130,7 +140,7 @@ export function standin(scene, fx) {
       case 'app':
         if (scene.hello === 'pending') return send({ t: 'pending', code: fx.code });
         if (scene.hello) return send({ t: 'end', reason: scene.hello });
-        return send(fx.welcome(m.stream));
+        return send(fx.welcome(m.stream, scene));
       case 'sub':
         if (m.scope === 'reader') return send(fx.record());
         if (m.scope === 'notices' && fx.notices) return send(fx.notices());
@@ -144,6 +154,12 @@ export function standin(scene, fx) {
       case 'ping':
         return send({ t: 'pong', k: m.k });
       case 'op':
+        // S1-2 Q5w: a program op the fixtures answer their own way (an upload's id)
+        if (m.op.conn !== undefined && fx.program && fx.program(m.op)) {
+          // a scene may leave a program op unanswered (an upload waiting for its place)
+          if (scene.hold && scene.hold === m.op.action) return undefined;
+          return send({ t: 'ans', conn: m.op.conn, k: m.op.k, answer: fx.program(m.op) });
+        }
         return send(m.op.stream ? { t: 'ans', stream: m.op.stream, n: m.op.n, answer: { a: 'seen' } } : { t: 'ans', conn: m.op.conn, k: m.op.k, answer: { a: 'seen' } });
       default:
     }
@@ -182,6 +198,26 @@ export function standin(scene, fx) {
       return reply(204, 'text/plain', '');
     }
     if (path === '/__look.mjs') return reply(200, TYPES.mjs, lookModule(scene.steps));
+    if (req.method === 'PUT' && path.startsWith('/blob/upload/')) {
+      // S1-2 Q5w: an upload's body. A body still in flight holds Firefox's screenshot (seen: it waits for the page's
+      // requests), so a scene pictures either the op waiting for its place (`hold`) or a body cut off part way (`cut`)
+      let got = 0;
+      req.on('data', (d) => {
+        got += d.length;
+        if (scene.put === 'cut' && got >= 8e6) req.socket.destroy();
+      });
+      req.on('error', () => {});
+      req.on('end', () => reply(201, 'text/plain', ''));
+      return;
+    }
+    if (path.startsWith('/blob/f.')) {
+      // S1-2 Q5w: a file's original, its thumbnail or a PDF page: a generated picture of its kind
+      const r = new URL(req.url, 'http://x').searchParams.get('r') || '';
+      const hue = [...path].reduce((n, c) => (n * 31 + c.charCodeAt(0)) % 997, 7);
+      const rgb = [60 + (hue % 140), 60 + ((hue * 7) % 140), 60 + ((hue * 13) % 140)];
+      const [w, h, c] = r.startsWith('pdf:') ? [595, 842, [245, 243, 236]] : r.startsWith('thumb:') ? [320, 213, rgb] : [1600, 1000, rgb];
+      return reply(200, 'image/png', png(w, h, c), { 'Content-Security-Policy': 'sandbox' });
+    }
     if (path.startsWith('/blob/')) {
       const b = fx.blobs[path.slice(6)];
       return b ? reply(200, 'image/png', png(...b), { 'Content-Security-Policy': 'sandbox' }) : reply(404, 'text/plain', 'no such blob');

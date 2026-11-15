@@ -4,6 +4,8 @@
 // device and address here is made up (addresses from the documentation range, RFC 5737).
 
 import { torrentsDesc, torrentsScope, torrentsRecord, torrentsSeries } from './torrents-fixtures.mjs';
+import { filesDesc, filesScope, filesRecord, folderRows, runningCopy, DL, EMPTY } from './files-fixtures.mjs';
+import { format } from '../../main/resources/web/js/address.mjs';
 
 const ME = 'web-a1b2c3';
 const NOW = Date.UTC(2026, 10, 15, 14, 2);
@@ -70,12 +72,14 @@ const RAISES = [
 
 export const fixtures = {
   code: 'K7M4QX',
-  // S1-2 Q4w: Torrents' scopes that are not fixed (details, listings, pages) are answered by function
-  scope: torrentsScope,
-  records: { torrents: torrentsRecord },
+  // S1-2 Q4w: Torrents' scopes that are not fixed (details, listings, pages) are answered by function; Q5w: Files' too
+  scope: (s) => torrentsScope(s) || filesScope(s),
+  records: { torrents: torrentsRecord, files: () => filesRecord() },
+  // S1-2 Q5w: an upload op is answered with an id for its body
+  program: (op) => (op.window === 'files' && op.action === 'upload' ? { a: 'sent', result: { upload: `u-${op.k}` } } : null),
   blobs: { 'cover-b1': [400, 600, [122, 75, 58]], 'cover-b3': [600, 400, [49, 80, 110]], 'cover-b6': [300, 600, [79, 107, 60]], 'fig-1': [1600, 900, [130, 110, 70]] },
-  welcome: (stream) => ({ t: 'welcome', proto: 2, device: ME, level: 'full', conn: 7, pcClock: NOW, epoch: 3, seq: 40, highWater: { [stream]: 12 },
-    contracts: { reader: 1, notices: 1, torrents: 1 }, bundle: { version: 'look', hash: 'look', protoRange: [2, 2] } }),
+  welcome: (stream, scene = {}) => ({ t: 'welcome', proto: 2, device: ME, level: scene.level || 'full', conn: 7, pcClock: NOW, epoch: 3, seq: 40, highWater: { [stream]: 12 },
+    contracts: { reader: 1, notices: 1, torrents: 1, files: 1 }, bundle: { version: 'look', hash: 'look', protoRange: [2, 2] } }),
   // the notice record at first contact (adopted, nothing pops), and `n` raised after it, one change each
   notices: () => ({ t: 'snap', scope: 'notices', epoch: 3, seq: 40, colls: {}, items: Object.fromEntries([
     notice('a1d00001', 1, 'done · Copper Hill', 'DISMISSED', NOW - 86400e3), notice('a1d00002', 2, 'done · Salt Road', 'RAISED', NOW - 3600e3)]) }),
@@ -90,11 +94,13 @@ export const fixtures = {
     'desc/main': { cards: [{ window: 'reader', name: 'Reader', icon: 'book', min: 'view', availability: 'live',
       summary: { book: 'b1', line: 'The Salt Road · 4%', progress: 0.04 } },
     { window: 'torrents', name: 'Torrents', icon: 'torrents', min: 'view', availability: 'live',
-      summary: { line: '6 downloading · 3.1 MB/s', detail: '28 seeding · 4 stopped · 4 errors', progress: 0.71 } }], who: { [ME]: 'desk browser', 'phone-1': 'phone' } },
+      summary: { line: '6 downloading · 3.1 MB/s', detail: '28 seeding · 4 stopped · 4 errors', progress: 0.71 } },
+    { window: 'files', name: 'Files', icon: 'folder', min: 'full', availability: 'live', summary: { line: '5 locations · 1.1 TB free in Home' } }], who: { [ME]: 'desk browser', 'phone-1': 'phone' } },
     'desc/reader': { id: 'reader', name: 'Reader', min: 'view', state: 'ok', shelf: { folder: '', folders: ['Essays', 'Series with a long folder name'], books: BOOKS },
       actions: [{ id: 'open', kind: 'r', level: 'view', label: 'Open' }, { id: 'place', kind: 'r', level: 'view', label: 'Place' },
         { id: 'bookmark', kind: 'r', level: 'control', label: 'Bookmark' }, { id: 'reset', kind: 'i', level: 'control', label: 'Reset progress' }] },
     'desc/torrents': torrentsSeries(),
+    'desc/files': filesDesc(),
     'reader/book:b1': { ...BOOKS[0], chapters: CHAPTERS },
     'reader/book:b1/part:0': part(0),
     'reader/book:b1/part:1': part(1),
@@ -150,5 +156,34 @@ export const SCENES = {
   'torrents-page': { path: '/w/torrents/tl:240001', steps: [{ wait: '.nfo' }] },
   'torrents-settings': { path: '/w/torrents', steps: [{ wait: '.ttable tbody tr, .tcards li' }, { click: '.tset summary' }, { wait: '.tset[open] select' }] },
   'torrents-account': { path: '/w/torrents/account', steps: [{ wait: '.facts' }] },
+  // S1-2 Q5w: Files — the locations, a folder of two hundred entries with long names (list and grid), an empty folder,
+  // the trash, a text, a picture and a PDF in the pane, an upload in progress, a running job, a selection, Delete
+  // forever's confirm, a device below full, out of reach
+  ...filesScenes(),
   'torrents-away': { path: '/w/torrents', steps: [{ wait: '.ttable tbody tr, .tcards li' }, { fetch: '/__away' }, { wait: '#reach:not([hidden])' }] },
 };
+
+function filesScenes() {
+  const rows = folderRows(200);
+  const pick = (ext) => rows.find((r) => !r.dir && r.name.endsWith(`.${ext}`) && r.name.length < 30).name;
+  const f = (target) => format({ window: 'files', target });
+  const listed = { wait: '.flist .frow, .fgrid .frow' };
+  const UPLOADS = [{ name: 'harbour survey 2026.pdf', size: 64e6 }, { name: 'notes from the ferry.txt', size: 2e4 }, { name: 'a-third-file-with-a-very-long-name-from-the-camera-roll-2026-11-15.jpg', size: 3e6 }];
+  return {
+    'files-locations': { path: '/w/files', steps: [{ wait: '.flocs .floc' }] },
+    'files-folder': { path: f(`path:${DL}/`), steps: [listed] },
+    'files-grid': { path: f(`path:${DL}/`), steps: [listed, { click: '[data-key="mode"]' }, { wait: '.fgrid .frow' }] },
+    'files-empty': { path: f(`path:${EMPTY}/`), steps: [{ wait: '.tend' }] },
+    'files-trash': { path: f('trash'), steps: [{ wait: '.ftrash .frow' }] },
+    'files-text': { path: f(`path:${DL}/${pick('txt')}`), steps: [{ wait: '.ftext' }] },
+    'files-picture': { path: f(`path:${DL}/${pick('jpg')}`), steps: [{ wait: '.fimg' }] },
+    'files-pdf': { path: f(`path:${DL}/${pick('pdf')}`), steps: [{ wait: '.fpage' }] },
+    'files-upload': { path: f(`path:${DL}/`), hold: 'upload', steps: [listed, { drop: '.page.files', files: UPLOADS }, { wait: '.fu.op' }] },
+    'files-upload-cut': { path: f(`path:${DL}/`), put: 'cut', steps: [listed, { drop: '.page.files', files: UPLOADS }, { wait: '.fu.cut' }] },
+    'files-job': { path: f(`path:${DL}/`), descs: { 'desc/files': filesDesc({ jobs: [runningCopy({ startedAt: NOW - 190e3, updatedAt: NOW - 40e3 })] }) }, steps: [listed, { wait: '.fjob' }] },
+    'files-selected': { path: f(`path:${DL}/`), steps: [listed, { click: '.frow:nth-child(6) input' }, { click: '.frow:nth-child(7) input' }, { click: '.frow:nth-child(9) input' }, { wait: '.tbulk' }] },
+    'files-purge': { path: f('trash'), steps: [{ wait: '.ftrash .frow' }, { click: '.frow-acts button.danger' }, { wait: 'dialog[open]' }] },
+    'files-below': { path: f(`path:${DL}/`), level: 'control', steps: [{ wait: '.page.files .note' }] },
+    'files-away': { path: f(`path:${DL}/`), steps: [listed, { fetch: '/__away' }, { wait: '#reach:not([hidden])' }] },
+  };
+}

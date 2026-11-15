@@ -39,3 +39,66 @@ export function confirmShape(dialog, { title, body, act, cancel = 'Cancel', doub
     dialog.querySelector('button.rest').focus();
   });
 }
+
+/** S1-2 Q5w: a choice between acts (an upload whose name is taken: another name, or Replace). Cancel is the rest,
+ *  first and focused; a `danger` choice is marked. Resolves the choice's id, or null for Cancel and Escape. */
+export function chooseShape(dialog, { title, body, choices, cancel = 'Cancel' }) {
+  return new Promise((resolve) => {
+    const done = (v) => {
+      dialog.removeEventListener('cancel', onCancel);
+      if (dialog.open) dialog.close();
+      resolve(v);
+    };
+    const onCancel = (e) => {
+      e.preventDefault();
+      done(null);
+    };
+    const no = h('button', { class: 'rest', on: { click: () => done(null) } }, cancel);
+    clear(dialog).append(h('h2', { text: title }), h('p', { text: body }),
+      h('div', { class: 'row wrap' }, no, h('span', { class: 'spacer' }),
+        choices.map((c) => h('button', { class: 'act' + (c.danger ? ' danger' : ''), 'data-choice': c.id, on: { click: () => done(c.id) } }, c.label))));
+    dialog.addEventListener('cancel', onCancel);
+    if (!dialog.open) dialog.showModal();
+    no.focus();
+  });
+}
+
+/** S1-2 Q5w: a name typed behind Apply (C§4.1: a text parameter is always staged behind the action's confirm).
+ *  `check(text)` returns why it cannot be taken, shown in place, or null. Resolves the text, or null for Cancel. */
+export function askText(dialog, { title, label, initial = '', act, cancel = 'Cancel', check }) {
+  return new Promise((resolve) => {
+    const done = (v) => {
+      dialog.removeEventListener('cancel', onCancel);
+      if (dialog.open) dialog.close();
+      resolve(v);
+    };
+    const onCancel = (e) => {
+      e.preventDefault();
+      done(null);
+    };
+    const input = h('input', { type: 'text', class: 'ask-in', 'aria-label': label, spellcheck: 'false' });
+    input.value = initial;
+    const why = h('p', { class: 'ask-why', role: 'alert' });
+    const apply = () => {
+      const v = String(input.value ?? '').trim();
+      const bad = check ? check(v) : null;
+      if (bad) why.textContent = bad;
+      else done(v);
+    };
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        apply();
+      }
+    });
+    clear(dialog).append(h('h2', { text: title }), h('label', { class: 'ask' }, h('span', { class: 'note', text: label }), input), why,
+      h('div', { class: 'row' }, h('button', { class: 'rest', on: { click: () => done(null) } }, cancel), h('span', { class: 'spacer' }),
+        h('button', { class: 'act', on: { click: apply } }, act)));
+    dialog.addEventListener('cancel', onCancel);
+    if (!dialog.open) dialog.showModal();
+    input.focus();
+    // the name without its extension is selected, as a file manager does
+    const dot = initial.lastIndexOf('.');
+    if (typeof input.setSelectionRange === 'function') input.setSelectionRange(0, dot > 0 ? dot : initial.length);
+  });
+}

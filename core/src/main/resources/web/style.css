@@ -96,7 +96,8 @@ body.away main .page.torrents > * { opacity: .55; filter: grayscale(1); }
 @media (max-width: 760px) {
   #app { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto; }
   .rail { grid-row: 3; grid-column: 1; flex-direction: row; justify-content: space-around; border-right: 0; border-top: 1px solid var(--line); padding: .2rem; }
-  .rail-item { flex: 1; font-size: .7rem; padding: .35rem .1rem; }
+  /* S1-2 Q5w (seen in headless Firefox): seven windows at 390 px broke "Diagnosis" mid-word; a label stays whole */
+  .rail-item { flex: 1; min-width: 0; font-size: .62rem; padding: .35rem 0; overflow-wrap: normal; }
   .badge { right: 20%; }
   main { grid-column: 1; }
   .page { padding: var(--gap); }
@@ -297,4 +298,88 @@ button.primary { border-color: var(--accent); color: var(--accent); font-weight:
   /* seen in headless Firefox: the four tabs wrapped to two rows at a phone's width */
   .tabs { flex-wrap: nowrap; overflow-x: auto; }
   .tab { padding: .4rem .55rem; white-space: nowrap; }
+}
+
+/* ---- S1-2 Q5w: Files ---- */
+.page.files { max-width: none; }
+.page.files.dropping { outline: 2px dashed var(--accent); outline-offset: -.3rem; }
+.crumbs .here { color: var(--fg); font-weight: 600; }
+.fnav .crumbs { margin-bottom: .4rem; }
+.ftools { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin: .3rem 0 .4rem; }
+.fsort, .fhid, .fall { display: inline-flex; gap: .35rem; align-items: center; }
+.fall { margin: .2rem 0 .4rem; }
+.fclip { margin: .2rem 0 .4rem; }
+a.btn { display: inline-block; background: var(--card); border: 1px solid var(--line); border-radius: .4rem; padding: .35rem .7rem; color: var(--fg); text-decoration: none; }
+a.btn:hover { border-color: var(--accent); }
+.fjob { display: flex; flex-wrap: wrap; gap: .3rem .8rem; align-items: center; padding: .4rem var(--pad); margin: .3rem 0; border: 1px solid var(--accent); border-radius: .5rem; background: var(--card); }
+.fjob .bar { flex: 1 1 8rem; }
+.fjobs p { margin: .2rem 0; }
+.fpanel, .fuploads { border: 1px solid var(--line); border-radius: .5rem; padding: .4rem var(--pad); margin: .4rem 0; background: var(--bar); }
+.fp-head, .fu-head { display: flex; flex-wrap: wrap; gap: .3rem .6rem; align-items: center; justify-content: space-between; }
+.fp-head h2, .fp-head h3, .fu-head h3 { margin: .2rem 0; font-size: 1rem; }
+.fu-head h3 { flex: 1; }
+.fu-list { list-style: none; padding: 0; margin: .3rem 0; display: flex; flex-direction: column; gap: .45rem; }
+.fu { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .15rem .6rem; align-items: center; }
+.fu > :not(.fu-cancel) { grid-column: 1; }
+.fu-name { font-weight: 600; }
+.fu-cancel { grid-column: 2; grid-row: 1 / span 3; }
+.fu.failed .fu-line, .fu.cut .fu-line, .fu.unsent .fu-line { color: var(--danger); }
+.fu.done .fu-line { color: var(--ok); }
+.fsplit { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--gap); align-items: start; }
+.fsplit.has-pane { grid-template-columns: minmax(0, 1fr) minmax(20rem, 42%); }
+.fpane { position: sticky; top: 0; max-height: calc(100vh - 3rem); max-height: calc(100dvh - 3rem); overflow: auto; padding: var(--pad); border: 1px solid var(--line); border-radius: .6rem; background: var(--bar); }
+.fpane[hidden] { display: none; }
+.fp-head h2 { margin: 0; }
+.fp-acts { display: flex; flex-wrap: wrap; gap: .4rem; margin: .5rem 0; }
+.fimg { display: block; max-width: 100%; height: auto; margin: 0 auto; border-radius: .3rem; }
+.ftext { font-family: var(--mono-font); font-size: .82rem; line-height: 1.35; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--card); padding: .6rem; border-radius: .4rem; margin: 0 0 .4rem; }
+.fpdf { display: flex; flex-direction: column; gap: .6rem; }
+/* a page not yet loaded holds an A4 box, so lazy loading asks only the pages near the view */
+.fpage { display: block; width: 100%; height: auto; aspect-ratio: auto 210 / 297; background: #fff; border: 1px solid var(--line); }
+.flist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.flist .frow { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: .1rem .6rem; align-items: center; padding: .1rem .3rem; border-bottom: 1px solid var(--line); }
+.frow.open, .frow.picked { background: var(--card); }
+.frow.picked { box-shadow: inset 3px 0 0 var(--accent); }
+.fopen { display: flex; gap: .5rem; align-items: center; min-width: 0; text-align: left; border: 0; background: none; padding: .4rem .2rem; color: var(--fg); }
+.fopen.static { cursor: default; }
+.frow.dir .fname { font-weight: 600; }
+.fmeta { color: var(--muted); font-size: .85rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.fmore { border: 0; background: none; font-size: 1.2rem; line-height: 1; padding: .2rem .55rem; }
+.ftrash .fmeta { white-space: normal; max-width: 24rem; }
+.frow-acts { display: flex; flex-wrap: wrap; gap: .3rem; }
+.fgrid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr)); gap: .6rem; }
+.fgrid .frow { position: relative; display: flex; flex-direction: column; gap: .2rem; padding: .4rem; border: 1px solid var(--line); border-radius: .5rem; background: var(--card); }
+.fgrid .frow > input { position: absolute; top: .5rem; left: .5rem; z-index: 1; }
+.fgrid .fopen { flex-direction: column; align-items: stretch; padding: 0; }
+.fgrid .fopen .icon { width: 100%; height: 5.5rem; stroke-width: 1; color: var(--muted); }
+.fthumb { display: block; width: 100%; aspect-ratio: 1; object-fit: contain; border-radius: .3rem; background: var(--line); }
+.fgrid .fname { font-size: .85rem; }
+.fgrid .fmore { position: absolute; top: .2rem; right: .2rem; background: var(--card); border-radius: .4rem; }
+.flocs { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr)); gap: var(--gap); }
+.floc { display: flex; flex-direction: column; gap: .35rem; padding: var(--pad) calc(var(--pad) * 1.3); border: 1px solid var(--line); border-radius: .7rem; background: var(--card); color: var(--fg); text-decoration: none; height: 100%; }
+.fl-head { display: flex; gap: .5rem; align-items: center; font-weight: 700; }
+.fl-path { font-size: .85rem; }
+.ask { display: flex; flex-direction: column; gap: .3rem; }
+.ask-in { padding: .45rem .6rem; border: 1px solid var(--line); border-radius: .4rem; background: var(--bg); width: min(24rem, 75vw); }
+.ask-why { color: var(--danger); min-height: 1.2em; margin: .4rem 0 0; }
+.confirm .row.wrap { flex-wrap: wrap; }
+@media (max-width: 760px) {
+  /* a phone: the entry's pane takes the screen, its actions in a sheet held at the bottom; so do the selection's */
+  .page.files { display: flex; flex-direction: column; }
+  .page.files > .fbulk { order: 9; top: auto; bottom: 0; }
+  .page.files > .fbulk .tbulk { margin: 0; border-radius: .7rem .7rem 0 0; }
+  .fsplit.has-pane { grid-template-columns: minmax(0, 1fr); }
+  .fsplit.has-pane .fmain { display: none; }
+  .fpane { display: flex; flex-direction: column; position: static; max-height: none; overflow: visible; border: 0; padding: 0; background: none; }
+  .fpane > .fp-actsbox { order: 3; position: sticky; bottom: 0; z-index: 3; }
+  .fp-acts { margin: .5rem 0 0; padding: .5rem; background: var(--bar); border: 1px solid var(--accent); border-radius: .7rem .7rem 0 0; box-shadow: 0 -.2rem .6rem var(--shade); }
+  .flist .frow { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .flist .frow > input, .flist .fmore { grid-row: 1 / span 2; }
+  .flist .fmore { grid-column: 3; }
+  .flist .fmeta { grid-column: 2; grid-row: 2; padding: 0 0 .3rem 2rem; }
+  .flist .fopen { padding-bottom: 0; }
+  .ftrash .frow-acts { grid-column: 2 / -1; padding-bottom: .4rem; }
+  /* the folder's own tools step aside while an entry's pane takes the screen */
+  .page.files.pane-open .ftools, .page.files.pane-open .fclip { display: none; }
+  .fgrid { grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr)); }
 }
