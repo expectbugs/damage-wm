@@ -105,7 +105,8 @@ class AppHost(
     private val held = ArrayList<Change>()
 
     private val logFailures = Streak(RecordAlerts.LOG, "the operation log",
-        "changes from other devices are refused until it can be written; they stay on the devices and are sent again")
+        "changes from other devices are refused until it can be written; a phone keeps them and sends them again, a " +
+            "page says so and keeps none")    // S1-2 Q1, N3's class: a page keeps no queue
     private val saveFailures = Streak(RecordAlerts.SAVE, "record.json",
         "the log keeps every change it does not cover; the save is tried again on the next tick")
     private val seqFailures = Streak(RecordAlerts.SEQ, "the sequence file",
@@ -223,7 +224,7 @@ class AppHost(
         } catch (e: Exception) {
             // fix round 2, ruling 1.8: nothing opens it again in this process, so the alert says what ends the refusals
             logFailures.failed("could not be opened", e, "changes from other devices are refused until the service is " +
-                "restarted; they stay on the devices and are sent again")
+                "restarted; a phone keeps them and sends them again, a page says so and keeps none")
             problems += "the operation log could not be opened (${e::class.simpleName}: ${e.message})"
         }
         val why = when {
@@ -435,9 +436,10 @@ class AppHost(
         const val SEQ_FILE = "record.seq"
         /** Dec. A.12: the log is set aside past the journal's size at a process start (64 MiB), never deleted. */
         const val LOG_SET_ASIDE_BYTES = Journal.ROTATE_BYTES
-        /** Fix round 2, ruling 1.6: why the lane serves no record while the log is closed. */
+        /** Fix round 2, ruling 1.6: why the lane serves no record while the log is closed. Build S1-2 Q1 (N3): the PC's
+         *  words only, for every interface — a page shows them as given and keeps no copy; the phone logs them. */
         const val LOG_CLOSED = "the PC could not open its operation log at its start: its record is not served until " +
-            "the service is restarted; this device keeps its own copy"
+            "the service is restarted"
         /** The record's pacing tick (the spec's P1: 2 s). */
         const val TICK_MS = 2_000L
 

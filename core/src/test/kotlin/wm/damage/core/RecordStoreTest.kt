@@ -112,6 +112,8 @@ class RecordStoreTest {
         assertTrue(rig.said.any { it.startsWith("raise ${RecordAlerts.LOG}") }, "the record.log alert: ${rig.said}")
         // fix round 2, ruling 1.8: nothing opens the log again in this process, and the alert says so
         assertTrue(rig.said.any { it.startsWith("raise ${RecordAlerts.LOG}") && "until the service is restarted" in it }, "${rig.said}")
+        // build S1-2 Q1 (N3's class): a page keeps no queue, so the alert does not say every device keeps its changes
+        assertTrue(rig.said.any { it.startsWith("raise ${RecordAlerts.LOG}") && "a page says so and keeps none" in it }, "${rig.said}")
         assertTrue(o.problems.any { "not saved while the log is closed" in it }, "${o.problems}")
         val refused = rig.ask(bad, op("phone", "s1", 4, "set", listOf("k4"), j("v4")))
         assertEquals(wm.damage.core.app.Answer.RETRY, (refused as wm.damage.core.app.Answer.Refused).code)

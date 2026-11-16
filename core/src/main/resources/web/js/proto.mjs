@@ -81,6 +81,20 @@ export function givenUp(a) {
   return { ...a, reason: `${why}; this page keeps no queue: act again later` };
 }
 
+/** S1-2 R0 §4 (F2b 3's residual): a `gap` this page does not number again (an op it renumbered once already, or one
+ *  it no longer holds), in the page's own words. The PC's "expected N" is a number for the client, not for a person. */
+export function notTaken(a) {
+  return { ...a, reason: 'this change was not taken (the PC was waiting for an earlier one from this page); try it again' };
+}
+
+/** A refusal past the page's own handling, in the page's words where the PC's are a client's (`retry`, `gap`). */
+export function pageWords(a) {
+  if (!a || a.a !== 'refused') return a;
+  if (a.code === 'retry') return givenUp(a);
+  if (a.code === 'gap') return notTaken(a);
+  return a;
+}
+
 /** An `end` in words (C§9.2, C§10.8). */
 export function endWords(reason, detail) {
   switch (reason) {

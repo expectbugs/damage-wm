@@ -386,8 +386,9 @@ function answer(f) {
     const q = queued.get(f.n);
     if (!q) {
       // fix round 2, ruling 2.3: an answer whose op this page no longer holds is said, never dropped; N2: a `retry`
-      // in the page's words (it keeps no queue), never the PC's "kept and sent again"
-      const held = a && a.a === 'refused' && a.code === 'retry' ? P.givenUp(a) : a;
+      // in the page's words (it keeps no queue), never the PC's "kept and sent again"; S1-2 R0 §4: a `gap` likewise,
+      // never the PC's "expected N"
+      const held = P.pageWords(a);
       if (P.answerWords(held)) say(P.answerWords(held), { from: 'Damage' });
       return;
     }
@@ -420,8 +421,10 @@ function answer(f) {
       }, 2000);
       return;
     }
-    // ruling 2.3: past its one resend a retry is said in the page's words (it keeps no queue), never the PC's
-    const given = a.a === 'refused' && a.code === 'retry' ? P.givenUp(a) : a;
+    // ruling 2.3: past its one resend a retry is said in the page's words (it keeps no queue), never the PC's; S1-2 R0
+    // §4 (F2b 3's residual): so is a `gap` past its one renumbering — the PC refuses out of order, so an op numbered
+    // past another's held resend is answered `gap` again — said as not taken, to be tried again, never "expected N"
+    const given = P.pageWords(a);
     if (q.onAnswer) q.onAnswer(given);
     else if (P.answerWords(given)) say(P.answerWords(given), { from: q.frame.op.window });
     return;

@@ -101,6 +101,32 @@ test('F2b 3: a gap never renumbers an op onto a number still held for another op
   assert.deepEqual([again.result, again.n], ['b1', 11], 'the held op is sent again under its own number');
 });
 
+test('F2b 3\'s residual (S1-2 R0 §4): a renumbered op answered `gap` again is said in the page\'s words, never "expected N"', async () => {
+  const { page, timers, ws, stream } = await welcomed('/w/reader', 10);
+  page.go('/w/reader/book:b1');
+  page.go('/w/reader/book:b2');
+  const [a, b] = ops(ws);
+  ws.frame({ t: 'ans', stream, n: a.n, answer: { a: 'refused', code: 'retry', reason: RETRY } }); // 11 held for 2 s
+  ws.frame({ t: 'ans', stream, n: b.n, answer: { a: 'refused', code: 'gap', reason: 'expected 11' } });
+  const resent = ops(ws).at(-1);
+  assert.equal(resent.result, 'b2');
+  // the PC refuses out of order: the resend, numbered past the held 11, is answered `gap` again
+  const before = page.said().length;
+  ws.frame({ t: 'ans', stream, n: resent.n, answer: { a: 'refused', code: 'gap', reason: 'expected 11' } });
+  assert.equal(page.said().length, before + 1, 'the second gap is said once');
+  const said = page.said().at(-1);
+  assert.match(said, /not taken/, 'said as not taken');
+  assert.match(said, /try it again/, 'and that it may be tried again');
+  assert.doesNotMatch(said, /expected 11/, 'never the PC\'s number');
+  assert.equal(ops(ws).length, 3, 'nothing more is sent for it');
+  timers.fire(2000);
+  assert.deepEqual(ops(ws).slice(3).map((o) => [o.result, o.n]), [['b1', 11]], 'the held op still goes again under its own number');
+  // the sibling site: a `gap` for a number this page no longer holds, in the same words
+  ws.frame({ t: 'ans', stream, n: resent.n, answer: { a: 'refused', code: 'gap', reason: 'expected 11' } });
+  assert.match(page.said().at(-1), /not taken/, 'an unheld number\'s gap in the page\'s words too');
+  assert.doesNotMatch(page.said().at(-1), /expected 11/);
+});
+
 test('F2b 4: a re-approval under the same device id still tells a second waiting tab, which connects with the cookie', async () => {
   const timers = handTimers();
   const storage = browserStorage();

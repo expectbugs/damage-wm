@@ -127,6 +127,8 @@ class OpLogTest {
         // said once per run of failures: the log line, a journal note, the alert
         rig.ask(h, op("phone", "s1", 2, "set", listOf("a"), j("v2")))
         assertEquals(1, rig.said.count { it.startsWith("raise ${RecordAlerts.LOG}") })
+        // build S1-2 Q1 (N3's class): a page keeps no queue, so the alert does not say every device keeps its changes
+        assertTrue(rig.said.any { it.startsWith("raise ${RecordAlerts.LOG}") && "a page says so and keeps none" in it }, "${rig.said}")
         assertEquals(1, rig.notes().count { "FAILED" in it && "operation log" in it })
         // the resend lands once the disk takes it, and the end of the run is said
         rig.syncFails = false

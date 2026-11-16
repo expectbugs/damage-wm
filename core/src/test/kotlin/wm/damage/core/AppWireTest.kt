@@ -81,7 +81,8 @@ class AppWireTest {
     /**
      * Fix round 2, ruling 1.6 (F1a's Found 3): while the log is closed (it did not open at this start), the lane serves
      * no record — a snapshot would lack the log's unreplayed lines, under a new epoch — and refuses the subscription
-     * with the reason; the device keeps its own copy, as with the PC out of reach.
+     * with the reason; a phone keeps its own copy, as with the PC out of reach (the reason, since S1-2 Q1's N3, says only
+     * the PC's part: a browser keeps none).
      */
     @Test
     fun whileTheLogIsClosed_aSubscriptionIsRefusedWithTheReason_neverASnapshot() {
@@ -95,6 +96,8 @@ class AppWireTest {
         val a = wm.damage.core.app.OpJson.answer(lane.next("ans")["answer"] as JsonObject) as Answer.Refused
         assertEquals(Answer.RETRY, a.code)
         assertEquals(wm.damage.core.app.AppHost.LOG_CLOSED, a.reason)
+        // build S1-2 Q1 (N3): the PC's words alone — a browser is told this too, and a browser keeps no copy
+        assertTrue("its own copy" !in a.reason, "the refusal speaks only for the PC: '${a.reason}'")
         // the PC-served scopes the same: one of a window (the web's Reader pages) is refused; one of the PC's own (the
         // diagnosis page) is still served, so the page can show what is wrong
         rig.net.attach(object : wm.damage.core.app.AppNet.Described {
@@ -110,6 +113,7 @@ class AppWireTest {
         lane.send(AppWire.sub("desc/t", null))
         val d = wm.damage.core.app.OpJson.answer(lane.next("ans")["answer"] as JsonObject) as Answer.Refused
         assertEquals(wm.damage.core.app.AppHost.LOG_CLOSED, d.reason)
+        assertTrue("its own copy" !in d.reason, "a window's scope is refused in the PC's words alone: '${d.reason}'")
         lane.send(AppWire.sub("diag", null))
         assertTrue(lane.next("snap")["desc"] != null, "the PC's own page is still described")
         lane.quiet()

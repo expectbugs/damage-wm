@@ -1,0 +1,53 @@
+[
+ {
+  "id": "S1-2-N3-log-closed-copy",
+  "file": "app/AppHost.kt",
+  "edits": [
+   [
+    "            \"the service is restarted\"\n        /** The record's pacing tick",
+    "            \"the service is restarted; this device keeps its own copy\"\n        /** The record's pacing tick"
+   ]
+  ],
+  "tests": [
+   "*AppWireTest.whileTheLogIsClosed_aSubscriptionIsRefusedWithTheReason_neverASnapshot"
+  ],
+  "expect": [
+   "whileTheLogIsClosed_aSubscriptionIsRefusedWithTheReason_neverASnapshot"
+  ],
+  "note": "S1-2 Q1, N3 (spec 7): the closed-log refusal is the PC's words alone; a browser keeps no copy. With the old clause back, the refusal tells a page it keeps its own copy"
+ },
+ {
+  "id": "S1-2-N3-alert-log-write",
+  "file": "app/AppHost.kt",
+  "edits": [
+   [
+    "\"changes from other devices are refused until it can be written; a phone keeps them and sends them again, a \" +\n            \"page says so and keeps none\")",
+    "\"changes from other devices are refused until it can be written; they stay on the devices and are sent again\")"
+   ]
+  ],
+  "tests": [
+   "*OpLogTest.aFailedAppendPublishesNothingAndAnswersRetry"
+  ],
+  "expect": [
+   "aFailedAppendPublishesNothingAndAnswersRetry"
+  ],
+  "note": "S1-2 Q1, N3's class swept: the record.log alert for a failed write no longer says every device keeps its changes (a page keeps none). With the old words back, the alert says they stay on the devices"
+ },
+ {
+  "id": "S1-2-N3-alert-log-open",
+  "file": "app/AppHost.kt",
+  "edits": [
+   [
+    "\"restarted; a phone keeps them and sends them again, a page says so and keeps none\")",
+    "\"restarted; they stay on the devices and are sent again\")"
+   ]
+  ],
+  "tests": [
+   "*RecordStoreTest.aStartWhoseLogWouldNotOpen_savesNothing_refusesWithRetry_andTheNextGoodStartReplaysItWhole"
+  ],
+  "expect": [
+   "aStartWhoseLogWouldNotOpen_savesNothing_refusesWithRetry_andTheNextGoodStartReplaysItWhole"
+  ],
+  "note": "S1-2 Q1, N3's class swept: the record.log alert for a log that would not open no longer says every device keeps its changes. With the old words back, the alert says they stay on the devices"
+ }
+]
