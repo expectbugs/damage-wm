@@ -171,12 +171,13 @@ class MotionSim {
         if (pos != end) return null                            // §5.4: parsing must end exactly at `length`
         var lo = off; var hi = end
         for (t in tracks) for (s in t.segs) {
-            if (!s.moves) continue
-            if (s.kind == KIND_RECORD) {
+            if (s.moves && s.kind == KIND_RECORD) {
                 val (img, recEnd) = record(cache, s.src * 4) ?: return null
                 s.image = img
                 lo = minOf(lo, s.src * 4); hi = maxOf(hi, recEnd)
             }
+            // build C1's ruling R1.3: ease 2 names a table whatever the verb — a FILL's or a WAIT's is walked (5) and
+            // counted in the first read range too, though neither uses an eased value
             if (s.ease == EASE_TABLE) {
                 val tOff = s.table * 4
                 if (tOff + 2 > cache.size) return null
@@ -195,13 +196,15 @@ class MotionSim {
     private fun structureOk(s: Seg): Boolean {
         if (s.verb > REVEAL || u8(s.raw, 21) != 0 || u8(s.raw, 29) != 0 || u8(s.raw, 28) != 0) return false
         for (pr in intArrayOf(u8(s.raw, 30), u8(s.raw, 31))) if (pr and 0x80 != 0 && ((pr shr 2) and 0x1F) > PREF_STEPS) return false
-        // READING (decision A.9 lists what must be 0; a field a verb does not use and A.9 does not list is ignored):
-        // ease and kind are read only by the verbs that use them
+        // build C1's ruling R1.3: `ease` is checked on every segment (0..2, else 5), whatever the verb
+        if (s.ease > EASE_TABLE) return false
+        // decision A.9 lists what must be 0; a field a verb does not use and A.9 does not list is ignored (`kind` is
+        // read only by the verbs that use it)
         return when (s.verb) {
-            DRAW -> s.ease <= EASE_TABLE && (s.kind == KIND_RECORD || s.kind == KIND_SELF) && s.opt and DRAW_OPT.inv() == 0
+            DRAW -> (s.kind == KIND_RECORD || s.kind == KIND_SELF) && s.opt and DRAW_OPT.inv() == 0
             // READING (§5.4 gives DRAW's options, not REVEAL's): REVEAL uses opt bits 0-2 only and draws its source
             // as it is; the other reading ramps it as DRAW does and lets bits 4/5 through
-            REVEAL -> s.ease <= EASE_TABLE && (s.kind == KIND_RECORD || s.kind == KIND_SELF || s.kind == KIND_LEVEL) && s.opt and REVEAL_OPT.inv() == 0
+            REVEAL -> (s.kind == KIND_RECORD || s.kind == KIND_SELF || s.kind == KIND_LEVEL) && s.opt and REVEAL_OPT.inv() == 0
             else -> s.opt == 0                                 // FILL and WAIT use no opt bit
         }
     }
@@ -299,10 +302,10 @@ class MotionSim {
         return 0
     }
 
-    /** RETARGET (§5.5): an open instance only (16); READING: the shape rule's 12 sits right after the empty-slot
-     *  test, decided from the instance's program (a parameter cannot change a verb or a segment count) — §5.5 does
-     *  not place it; then the walk with the new parameters and the checks after it, the new first range not meeting
-     *  the capture range (5). */
+    /** RETARGET (§5.5): an open instance only (16); the shape rule's 12 right after the empty-slot test, decided from
+     *  the instance's validated program (a parameter cannot change a verb or a segment count) — build C1's ruling
+     *  R1.9; then the walk with the new parameters and the checks after it, the new first range not meeting the
+     *  capture range (5). */
     fun retarget(cache: ByteArray?, shadow: ByteArray, stride: Int, left: Boolean, slot: Int, p: IntArray, tick: Long): Int {
         val inst = slots[slot] ?: return REF_NO_INSTANCE
         if (!inst.prog.tracks.all { retargetable(it) }) return REF_VALUE
@@ -310,11 +313,11 @@ class MotionSim {
         val prog = v as? Prog ?: return -(v as Int)
         if (inst.cap != null && prog.first.meets(inst.cap)) return REF_RECORD
         // each moving segment from the state this lens last drew (the start state when nothing is drawn yet, A.13)
-        // to the new final state; READING: a track with a leading WAIT restarts whole, as a fresh PLAY of the new
-        // parameters would run it (the other reading: its WAIT holds the last drawn state, then moves from there)
+        // to the new final state. Build C1's ruling R1.2: a track with a leading WAIT runs the WAIT's steps again
+        // holding that state, then moves from it ([vals] eases the track's one non-WAIT segment from `from`, and
+        // [stateAt] holds that segment at j = 0 through the WAIT)
         val from = Array(prog.tracks.size) { i ->
-            val t = prog.tracks[i]
-            if (t.segs[0].verb != WAIT && t.segs[0].moves) inst.last[i] else null
+            if (prog.tracks[i].segs.firstOrNull { it.verb != WAIT }?.moves == true) inst.last[i] else null
         }
         inst.prog = prog
         inst.from = from
@@ -326,22 +329,29 @@ class MotionSim {
         return 0
     }
 
-    /** "at most one non-WAIT segment after an optional leading WAIT": READING — nothing else either ([W], [X], [W, X]). */
+    /** "at most one non-WAIT segment after an optional leading WAIT": the shapes [W], [X], [W, X] only — no trailing
+     *  WAIT (ruling R1.9). */
     private fun retargetable(t: Track): Boolean = when (t.segs.size) {
         1 -> true
         2 -> t.segs[0].verb == WAIT && t.segs[1].verb != WAIT
         else -> false
     }
 
-    /** CLOSE (§5.5): empties the slot; a drawing instance's close is captured as outcome 1, a done one sends none. */
-    fun close(slot: Int, uptime: Long) {
-        val o = slots[slot] ?: return
+    /** CLOSE (§5.5): empties the slot; a drawing instance's close is captured as outcome 1, a done one sends none.
+     *  True when it ended an open instance (drawing or done): build C1's ruling R1.1 marks the panel stale then. */
+    fun close(slot: Int, uptime: Long): Boolean {
+        val o = slots[slot] ?: return false
         if (o.drawing) uiCaptures[slot] = body(++sequence, slot, o.tag, OUTCOME_CLOSED, o, 0, uptime)
         slots[slot] = null
+        return true
     }
 
-    /** CLOSE of every slot in slot order (0xFF, and a live mode 6). */
-    fun closeAll(uptime: Long) { for (i in 0 until SLOTS) close(i, uptime) }
+    /** CLOSE of every slot in slot order (0xFF, and a live mode 6); true when it ended any open instance. */
+    fun closeAll(uptime: Long): Boolean {
+        var ended = false
+        for (i in 0 until SLOTS) if (close(i, uptime)) ended = true
+        return ended
+    }
 
     /** §5.6: a cache write (12, 19, 25) whose entries meet an open instance's read ranges closes it first. */
     fun closeMeeting(writes: List<Span>, uptime: Long) {
@@ -357,12 +367,13 @@ class MotionSim {
         slots.fill(null)
     }
 
-    /** Decision A.2: a refusal's body, outcome 2: fields 1, 2 and 3 when the message holds them, 4, 10, 11. READING:
-     *  the slot is the byte after the sub whatever the sub; the tag only a PLAY holds. */
+    /** Decision A.2: a refusal's body, outcome 2: fields 1, 2 and 3 when the message holds them, 4, 10, 11. The slot
+     *  is the byte after a PLAY's, RETARGET's or CLOSE's sub; an unknown sub (3..255) defines no slot, so its body
+     *  carries none (build C1's ruling R1.8); the tag only a PLAY holds. */
     fun captureRefusal(msg: ByteArray, reason: Int, uptime: Long) {
         val sub = if (msg.size >= 2) msg[1].toInt() and 0xFF else -1
         uiRefusal = Pb.cat(Pb.v(1, ++sequence),
-            if (msg.size >= 3) Pb.v(2, msg[2].toInt() and 0xFF) else ByteArray(0),
+            if (sub in 0..2 && msg.size >= 3) Pb.v(2, msg[2].toInt() and 0xFF) else ByteArray(0),
             if (sub == 0 && msg.size >= 8) Pb.v(3, u16(msg, 6)) else ByteArray(0),
             Pb.v(4, OUTCOME_REFUSED), Pb.v(10, reason), Pb.v(11, uptime))
     }
@@ -430,9 +441,8 @@ class MotionSim {
             val v = vals(o, i, s, j, left)
             when (s.verb) {
                 FILL -> fill(buf, stride, area, s.kind)
-                // READING: the level's low four bits — the validator holds a program's own path to 0..15, but a
-                // RETARGET restart eased by an overshooting table can leave it between two in-range ends
-                DRAW -> blit(buf, stride, if (s.kind == KIND_SELF) o.caps[i]!! else s.image!!, v.x, v.y, area, (s.opt and 0x30) or (v.lvl and 0x0F))
+                // the level is 0..15 here: [vals] clamps a RETARGET's overshoot (ruling R1.10)
+                DRAW -> blit(buf, stride, if (s.kind == KIND_SELF) o.caps[i]!! else s.image!!, v.x, v.y, area, (s.opt and 0x30) or v.lvl)
                 REVEAL -> reveal(buf, stride, o, i, s, v, area)
             }
         }
@@ -481,11 +491,15 @@ class MotionSim {
         val x0 = if (left || !t.perLens) s.xL else s.xR
         val dx = if (left || !t.perLens) s.dxL else s.dxR
         val e = s.e[j]
-        val f = o.from[i]?.takeIf { o.prog.tracks[i].segs.first() === s }
+        // a RETARGET's restart eases the track's one non-WAIT segment (after an optional leading WAIT, ruling R1.2)
+        val f = o.from[i]?.takeIf { t.segs.firstOrNull { it.verb != WAIT } === s }
+        // build C1's ruling R1.10: a restart eased by an overshooting table can take a level or an extent out of its
+        // range between two in-range ends — it is clamped (0..15, 0..F); the validator holds a program's own path in
+        // range, so the clamp changes nothing else. The clamped value is what this lens draws, and so what it last drew.
         return when (s.verb) {
-            DRAW -> if (f == null) Vals(eased(x0, dx, e), eased(s.y, s.dy, e), eased(s.lvl0, s.lvl1 - s.lvl0, e), 0)
-                    else Vals(eased(f.x, x0 + dx - f.x, e), eased(f.y, s.y + s.dy - f.y, e), eased(f.lvl, s.lvl1 - f.lvl, e), 0)
-            REVEAL -> Vals(x0, s.y, 15, if (f == null) eased(0, s.extentMax, e) else eased(f.e, s.extentMax - f.e, e))
+            DRAW -> if (f == null) Vals(eased(x0, dx, e), eased(s.y, s.dy, e), eased(s.lvl0, s.lvl1 - s.lvl0, e).coerceIn(0, 15), 0)
+                    else Vals(eased(f.x, x0 + dx - f.x, e), eased(f.y, s.y + s.dy - f.y, e), eased(f.lvl, s.lvl1 - f.lvl, e).coerceIn(0, 15), 0)
+            REVEAL -> Vals(x0, s.y, 15, (if (f == null) eased(0, s.extentMax, e) else eased(f.e, s.extentMax - f.e, e)).coerceIn(0, s.extentMax))
             else -> Vals(0, 0, if (s.verb == FILL) s.kind else 0, 0)
         }
     }
