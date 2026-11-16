@@ -486,13 +486,20 @@ def check(root=ROOT, say=print):
             # PC, never once per stack or from a tool); the phone raises nothing into the record
             ('NoticeCore', 'atProcessStart'): [('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'hostOnly'),
                                                ('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'runShell')],
+            # build S1-2 (Q4): Torrents' records from before its conversion migrate at the PC's two starts, before any
+            # presenter reads them; its parts on the lane and its notices (raised once per PC process, from the
+            # provider's events, its ring replayed) are made there too — never per stack, never from a tool
+            ('TorrentsMigration', 'onHost'): [('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'hostOnly'),
+                                              ('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'runShell')],
+            ('Main', 'torrentsParts'): [('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'hostOnly'),
+                                        ('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'runShell')],
             ('LocalSecret', 'ensure'): [('core/src/main/kotlin/wm/damage/core/web/WebAccess.kt', 'atProcessStart')],
             ('LocalSecret', 'read'): [('core/src/main/kotlin/wm/damage/core/app/DeviceCli.kt', 'run'),
                                       ('core/src/main/kotlin/wm/damage/core/web/WebAccess.kt', 'localSecret')],
             ('DeviceCli', 'run'): [('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'main')]}
     said_as = {'InstanceLock': 'two PC starts (runShell, hostOnly)', 'AppHost': 'two PC starts (runShell, hostOnly)',
                'WebAccess': 'two PC starts (runShell, hostOnly)', 'Main': 'two PC starts (runShell, hostOnly)',
-               'NoticeCore': 'two PC starts (runShell, hostOnly)',
+               'NoticeCore': 'two PC starts (runShell, hostOnly)', 'TorrentsMigration': 'two PC starts (runShell, hostOnly)',
                'LocalSecret': 'start\'s access state (and the device commands\' client)', 'DeviceCli': 'command line\'s main'}
     for (owner, name), expect in want.items():
         got = callers(root, owner, name)
@@ -644,6 +651,26 @@ def check(root=ROOT, say=print):
          'round 1, ruling 1.5 (a))',
          'no ReaderMigration.onCopy( in startStack' if mig < 0 else 'no sh.register(reader) in startStack' if reg < 0
          else 'the migration runs before the window is registered')
+
+    # 12. build S1-2 (Q4): Torrents on both hosts. The PC hands every stack the process's core and source (its stacks'
+    #     presenters show the PC's notices from the record and raise none of their own); the phone builds the presenter
+    #     over its working copy, raising from its provider only while the PC does not share `torrents` and `notices`,
+    #     migrates its old records once the window is registered (Reader's rule), and leaves the source at a stop.
+    line('torrentsCore = torrentsScopes.core to torrentsSource' in run,
+         'runShell: Torrents\' process-wide core and source, handed to every stack it builds',
+         'no torrentsCore = torrentsScopes.core to torrentsSource in DesktopStack(…) of runShell')
+    line('TorrentsGlasses(text, p, scope, core, source, recordNotices = { notices != null })' in stack_init,
+         'DesktopStack: Torrents\' presenter over the core, showing the PC\'s notices from the record while its shell has the mirror',
+         'no TorrentsGlasses(text, p, scope, core, source, recordNotices = { notices != null }) in DesktopStack')
+    reg, mig = stack.find('sh.register(torWin)'), stack.find('TorrentsMigration.onCopy(')
+    line('recordNotices = { wc.shares(core.window) && wc.shares(wm.damage.core.app.Notices.WINDOW) }' in stack and 0 <= reg < mig,
+         'ShellService.startStack: Torrents\' presenter over the working copy raises its own notices only while the PC does not '
+         'share both torrents and notices, and its migration runs after the window is registered',
+         'no recordNotices = { wc.shares(core.window) && wc.shares(…Notices.WINDOW) } in startStack, or the migration runs '
+         'before sh.register(torWin)')
+    gone = [w for w in ('torrentsGlasses?.detach()', 'torrentsSource?.close()') if w not in stop]
+    line(not gone, 'ShellService.stopStack: Torrents\' presenter leaves its source, and the source the working copy',
+         'not in stopStack: ' + ', '.join(gone))
 
     for n in notes:
         say('note  ' + n)

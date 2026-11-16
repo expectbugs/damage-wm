@@ -35,6 +35,8 @@ import wm.damage.core.web.WebServer
 import wm.damage.core.windows.reader.ReaderCore
 import wm.damage.core.windows.reader.ReaderDocs
 import wm.damage.core.windows.reader.ReaderIndex
+import wm.damage.core.windows.torrents.TorrentsCore
+import wm.damage.core.windows.torrents.TorrentsScopes
 
 /*
  * Context for the reader: Damage is Adam's own window manager for his own glasses, phone and PC on his own network.
@@ -49,6 +51,10 @@ import wm.damage.core.windows.reader.ReaderIndex
  * S1-2 Q3: the notice record's raiser too, and a control listener on another loopback port the OS picks (`ctl` in the
  * `LOOK` line; the look's front relays `/__ctl?<word>` to it): `raise` raises a made-up Torrents notice, `dismiss-other`
  * dismisses it as another made-up device, `state` prints what the record holds of it.
+ * S1-2 Q4: Torrents over a scripted provider (`TestTorrents`: made-up transfers and tracker rows, polled every second so
+ * the graphs have points; nothing reaches qBittorrent, the tracker or any site), served as the host builders serve it
+ * (`TorrentsScopes` through `AppNet.serve`, its notices raised by its core); `slow` makes every tracker call wait until
+ * `release` (a tracker that takes its time), `done` finishes a made-up download.
  */
 fun main(args: Array<String>) {
     val work = Path.of(args.firstOrNull() ?: error("usage: LookServer WORK_DIR (a directory of the stage's own)"))
@@ -84,6 +90,36 @@ fun main(args: Array<String>) {
             put("build", "the real-server look (test code)")
             put("connections", JsonArray(net.connectionLines().map { JsonPrimitive(it) }))
         } }, cards = net::cards))
+    // S1-2 Q4: Torrents, as `Main.torrentsParts` serves it, over made-up transfers
+    val torrents = TestTorrents()
+    val kinds = listOf("uploading", "stalledUP", "downloading", "stoppedUP", "error", "stalledDL", "queuedDL", "uploading")
+    torrents.transfers = torrents.transfers + (4..15).map { i ->
+        val state = kinds[i % kinds.size]
+        val done = state.endsWith("UP") || state == "uploading"
+        torrents.t("c0ffee%02d".format(i), "Made-up transfer $i ${listOf("(2026) 1080p", "FLAC", "EPUB", "720p")[i % 4]}", state,
+            if (done) 1.0 else (i * 7 % 10) / 10.0, 300_000_000L * i, dl = if (state == "downloading") 400_000L * i else 0,
+            up = if (state == "uploading") 60_000L * i else 0, eta = if (state == "downloading") 600L * i else 8_640_000,
+            added = 1_763_000_000L - i * 50_000, completed = if (done) 1_763_100_000L - i * 40_000 else 0, seeding = if (done) i * 40_000L else 0)
+    }
+    val tscopes = TorrentsScopes(host, torrents).also { it.start() }
+    net.serve(TorrentsCore.WINDOW, tscopes.table, tscopes.program, tscopes::card)
+    net.serve(TorrentsCore.WINDOW, tscopes.tracker)
+    tscopes.watch(net.viewers) { who, f, p -> println("LOOK torrents pace $who ${if (f) "focus $p ms" else "released"}") }
+    Thread({
+        var k = 0
+        while (true) {
+            Thread.sleep(1_000)
+            k++
+            val w = 1.0 + 0.6 * Math.sin(k / 3.0)
+            torrents.transfers = torrents.transfers.map { t ->
+                if (t.dlSpeed > 0 || t.upSpeed > 0) t.copy(
+                    dlSpeed = (t.dlSpeed * (0.85 + 0.3 * Math.sin(k + (t.size % 7).toDouble()))).toLong().coerceAtLeast(if (t.dlSpeed > 0) 1 else 0),
+                    upSpeed = (t.upSpeed * (0.85 + 0.3 * Math.cos(k + (t.size % 5).toDouble()))).toLong().coerceAtLeast(if (t.upSpeed > 0) 1 else 0)) else t
+            }
+            torrents.session = torrents.session.copy(dlSpeed = (2_400_000 * w).toLong(), upSpeed = (420_000 * (2 - w)).toLong())
+            torrents.poll()
+        }
+    }, "look-torrents-poll").apply { isDaemon = true }.start()
     val uploads = Uploads(data)
     net.addEndListener(uploads::connectionEnded)
     val server = WebServer(0, ReachGate(Side.PC), Access(Access.LOOPBACK_NAMES), devices, net, Bundle.fromResources(),
@@ -99,6 +135,8 @@ fun main(args: Array<String>) {
     }
     // S1-2 Q3: the raiser, and the made-up other device that dismisses elsewhere
     val notices = NoticeCore(host)
+    tscopes.core.attachNotices(torrents, torrents.epoch, notices)
+    var slow: CountDownLatch? = null
     val other = HostBackend(host, "made-up-phone", "look-phone")
     val noticeId = "torrent:c0ffee01"
     fun recordOf() = host.read(Notices.WINDOW).third.items["rec.notices.$noticeId"]?.let { Notices.parse(noticeId, it.value) }
@@ -118,6 +156,10 @@ fun main(args: Array<String>) {
                 "dismissed by made-up-phone: ${recordOf()?.let { "occ ${it.occ} ${it.state}" }}"
             }
             "state" -> "record: ${recordOf()?.let { "occ ${it.occ} ${it.state} by ${host.read(Notices.WINDOW).third.items["rec.notices.$noticeId"]?.by}" }}"
+            "slow" -> CountDownLatch(1).also { slow = it; torrents.trackerGate = it }.let { "the tracker waits" }
+            "release" -> { slow?.countDown(); torrents.trackerGate = null; "the tracker answers" }
+            "done" -> { torrents.event("done", "c0ffee01", torrents.transfers.first { it.hash == "c0ffee01" }.name); "c0ffee01 done" }
+            "ops" -> "torrents ops: ${torrents.ops.filter { it != "refresh" }}"
             else -> "no such word: $word"
         }
         println("LOOK notice $said")

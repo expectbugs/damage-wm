@@ -750,5 +750,334 @@
    "aMoveElsewhereDropsSilentModesSmallBox"
   ],
   "note": "S1-2 Q3 (spec 5 N5): in Silent Mode's small form a withdrawn box is dropped at once, not furled"
+ },
+ {
+  "id": "S1-2-Q4-replay",
+  "file": "windows/torrents/TorrentsCore.kt",
+  "edits": [
+   [
+    "            for (e in provider.eventsSince(0, epoch).sortedBy { it.seq }) handle(e)\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*TorrentsCoreTest"
+  ],
+  "expect": [
+   "eventsBeforeTheCoreListenedAreRaisedOnce_andAnEventSeenTwiceIsRaisedOnce"
+  ],
+  "note": "S1-2 Q4 (spec 3.1 Notices, 5 N6): the provider's ring is replayed at the core's attach (its first poll runs in its init)"
+ },
+ {
+  "id": "S1-2-Q4-seen-twice",
+  "file": "windows/torrents/TorrentsCore.kt",
+  "edits": [
+   [
+    "        if (e.seq <= handledSeq) return\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*TorrentsCoreTest"
+  ],
+  "expect": [
+   "eventsBeforeTheCoreListenedAreRaisedOnce_andAnEventSeenTwiceIsRaisedOnce"
+  ],
+  "note": "S1-2 Q4: an event handed twice (the listener and the replay meeting) is raised once"
+ },
+ {
+  "id": "S1-2-Q4-tracker-full",
+  "file": "windows/torrents/TorrentsScopes.kt",
+  "edits": [
+   [
+    "                AppNet.Gate(TorrentsCore.WINDOW, Levels.FULL)\n",
+    "                AppNet.Gate(TorrentsCore.WINDOW, Levels.VIEW)\n"
+   ]
+  ],
+  "tests": [
+   "*TorrentsScopesTest"
+  ],
+  "expect": [
+   "theTrackerIsNotServedBelowFull"
+  ],
+  "note": "S1-2 Q4 (C 4.2): the tracker's scopes act under his account and are served at full only"
+ },
+ {
+  "id": "S1-2-Q4-delete-files-level",
+  "file": "windows/torrents/TorrentsCore.kt",
+  "edits": [
+   [
+    "            START, STOP, RECHECK, DELETE, SET, MIGRATE -> Levels.CONTROL\n            DELETE_FILES, ADD,",
+    "            START, STOP, RECHECK, DELETE, DELETE_FILES, SET, MIGRATE -> Levels.CONTROL\n            ADD,"
+   ]
+  ],
+  "tests": [
+   "*TorrentsScopesTest"
+  ],
+  "expect": [
+   "deleteWithFilesIsRefusedOnThePcAtControl_deleteKeepingFilesRuns"
+  ],
+  "note": "S1-2 Q4 (C 4.2, C 12): delete with files writes files on the PC and needs full, checked on the PC"
+ },
+ {
+  "id": "S1-2-Q4-web-viewer-end",
+  "file": "windows/torrents/TorrentsScopes.kt",
+  "edits": [
+   [
+    "                else focus(who, false, 0)\n",
+    "                else {}\n"
+   ]
+  ],
+  "tests": [
+   "*TorrentsScopesTest"
+  ],
+  "expect": [
+   "aWebViewerPollsFastWhileInFront_andItsEndReleasesIt"
+  ],
+  "note": "S1-2 Q4 (spec 2.3, 5 T1): a web viewer's end, its page hidden or its connection gone releases its fast poll"
+ },
+ {
+  "id": "S1-2-Q4-tracker-executor",
+  "file": "windows/torrents/TorrentsScopes.kt",
+  "edits": [
+   [
+    "    private val trackerEx: Executor = trackerOn ?: pool(\"torrents-tracker\")\n",
+    "    private val trackerEx: Executor = tableEx\n"
+   ]
+  ],
+  "tests": [
+   "*TorrentsScopesTest"
+  ],
+  "expect": [
+   "aSlowTrackerHoldsNeitherTheTableNorMainsCards"
+  ],
+  "note": "S1-2 Q4 (spec 2.2): the tracker's scopes are described on an executor of their own"
+ },
+ {
+  "id": "S1-2-Q4-stale-hash",
+  "file": "windows/torrents/TorrentsScopes.kt",
+  "edits": [
+   [
+    "                if (gone.isNotEmpty()) return ProgramResult.Refused(\"not in qBittorrent's list now: ${gone.joinToString()}\")\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*TorrentsScopesTest"
+  ],
+  "expect": [
+   "programOpsAreCheckedAgainstTheListAndAnsweredWithTheirResult"
+  ],
+  "note": "S1-2 Q4: a program op naming a hash qBittorrent no longer lists is refused, never sent"
+ },
+ {
+  "id": "S1-2-Q4-open-what-pc-names",
+  "file": "windows/torrents/TorrentsScopes.kt",
+  "edits": [
+   [
+    "            ?.let { \"https://www.torrentleech.org/torrent/$it\" }   // `TorrentsGlasses.openAddMenu`'s own address\n        else -> null\n",
+    "            ?.let { \"https://www.torrentleech.org/torrent/$it\" }   // `TorrentsGlasses.openAddMenu`'s own address\n        else -> target\n"
+   ],
+   [
+    "        target.startsWith(\"t:\") -> provider.snapshot()?.transfers?.firstOrNull { it.hash == target.removePrefix(\"t:\") }\n            ?.contentPath?.takeIf { it.isNotEmpty() }\n",
+    "        target.startsWith(\"t:\") -> provider.snapshot()?.transfers?.firstOrNull { it.hash == target.removePrefix(\"t:\") }\n            ?.contentPath?.takeIf { it.isNotEmpty() } ?: target\n"
+   ]
+  ],
+  "tests": [
+   "*TorrentsScopesTest"
+  ],
+  "expect": [
+   "programOpsAreCheckedAgainstTheListAndAnsweredWithTheirResult"
+  ],
+  "note": "S1-2 Q4: open on the PC opens only a path qBittorrent reports or a tracker page, never what a page names"
+ },
+ {
+  "id": "S1-2-Q4-raw-state",
+  "file": "windows/torrents/TorrentsCore.kt",
+  "edits": [
+   [
+    "; put(\"raw\", t.state) })",
+    " })"
+   ]
+  ],
+  "tests": [
+   "*TorrentsScopesTest"
+  ],
+  "expect": [
+   "theDescriptionCarriesTheTableInTheContractsUnits"
+  ],
+  "note": "S1-2 Q4 (R0 3): a transfer's state carries qBittorrent's own word beside the glasses'"
+ },
+ {
+  "id": "S1-2-Q4-eta-ms",
+  "file": "windows/torrents/TorrentsCore.kt",
+  "edits": [
+   [
+    "if (s <= 0 || s >= 8_640_000) null else s * 1_000",
+    "if (s <= 0 || s >= 8_640_000) null else s"
+   ]
+  ],
+  "tests": [
+   "*TorrentsScopesTest"
+  ],
+  "expect": [
+   "theDescriptionCarriesTheTableInTheContractsUnits"
+  ],
+  "note": "S1-2 Q4 (R0 3, C 3.3): typed fields travel in the contract's units: an estimate in ms"
+ },
+ {
+  "id": "S1-2-Q4-keys-sync",
+  "file": "app/Windows.kt",
+  "edits": [
+   [
+    "        Entry(TorrentsCore.WINDOW, \"Torrents\", 1, TorrentsCore.ACTIONS, TorrentsCore::levelOf, Levels.VIEW,\n            program = TorrentsCore.PROGRAM),\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*TorrentsCoreTest"
+  ],
+  "expect": [
+   "theRegistryLineTakesTheKeysOffTheSyncChannel_andNamesTheProgramActionsAndLevels"
+  ],
+  "note": "S1-2 Q4 (C 9.7 item 2): the registry line takes Torrents' keys off the sync channel"
+ },
+ {
+  "id": "S1-2-Q4-glasses-raise",
+  "file": "windows/torrents/TorrentsGlasses.kt",
+  "edits": [
+   [
+    "        val raise = !recordNotices()\n",
+    "        val raise = true\n"
+   ]
+  ],
+  "tests": [
+   "*TorrentsArrangementsTest"
+  ],
+  "expect": [
+   "theGlassesRaiseNothingWhileThePcRaises_andTodaysNoticeWhileTheBuildsDiffer"
+  ],
+  "note": "S1-2 Q4 (spec 2.1 Mixed builds): while the PC raises Torrents' notices into its record, the glasses raise none"
+ },
+ {
+  "id": "S1-2-Q4-mixed-raise",
+  "file": "windows/torrents/TorrentsGlasses.kt",
+  "edits": [
+   [
+    "        val raise = !recordNotices()\n",
+    "        val raise = false\n"
+   ]
+  ],
+  "tests": [
+   "*TorrentsArrangementsTest",
+   "*TorrentsMigrationTest"
+  ],
+  "expect": [
+   "theGlassesRaiseNothingWhileThePcRaises_andTodaysNoticeWhileTheBuildsDiffer",
+   "theApkFirst_withTheOldPc_thenThePc_theNewerBlobWins"
+  ],
+  "note": "S1-2 Q4 (C 9.7 item 2): while the builds differ the glasses raise today's notice from their provider"
+ },
+ {
+  "id": "S1-2-Q4-one-box",
+  "file": "windows/torrents/TorrentsCore.kt",
+  "edits": [
+   [
+    "            n.raise(NOTICE_SOURCE, e.hash, ",
+    "            n.raise(\"torrents\", e.hash, "
+   ]
+  ],
+  "tests": [
+   "*TorrentsArrangementsTest"
+  ],
+  "expect": [
+   "inTheMinuteTheBuildsMeet_thePresentersRaiseAndTheRecordsAreOneBox"
+  ],
+  "note": "S1-2 Q4 (the brief's bound): the core raises with today's source (the presenter's own raise uses it too), so the record's notice and the presenter's raise of one event are one box; the spec's literal \"torrents\" would make two"
+ },
+ {
+  "id": "S1-2-Q4-record-rows",
+  "file": "windows/torrents/TorrentsGlasses.kt",
+  "edits": [
+   [
+    "            if (it.by == device || it.gone || sentRowVal[row] == it.value) continue\n",
+    "            continue\n"
+   ]
+  ],
+  "tests": [
+   "*TorrentsArrangementsTest"
+  ],
+  "expect": [
+   "onThePhone_theRowsAndTheRecentsAreThePcRecords"
+  ],
+  "note": "S1-2 Q4 (spec 3.2): another device's row in the record reaches the glasses' row"
+ },
+ {
+  "id": "S1-2-Q4-row-op",
+  "file": "windows/torrents/TorrentsGlasses.kt",
+  "edits": [
+   [
+    "        unsent += row\n        sendChanges()\n    }\n",
+    "        unsent += row\n    }\n"
+   ]
+  ],
+  "tests": [
+   "*TorrentsArrangementsTest"
+  ],
+  "expect": [
+   "onThePhone_theRowsAndTheRecentsAreThePcRecords"
+  ],
+  "note": "S1-2 Q4 (spec 3.2): a row changed on the glasses goes to the record as an op at its commit, after the field"
+ },
+ {
+  "id": "S1-2-Q4-ledger-rows",
+  "file": "windows/torrents/TorrentsMigration.kt",
+  "edits": [
+   [
+    "                if (held == v) put(f.item, v)\n",
+    "                if (false) put(f.item, v)\n"
+   ]
+  ],
+  "tests": [
+   "*TorrentsMigrationTest"
+  ],
+  "expect": [
+   "aSecondStartOffersNothing_thePresentersLedgerKeepsItSo_andARowTheRecordLacksIsOfferedAgain"
+  ],
+  "note": "S1-2 Q4 (spec 5 F4): the presenter's ledger names what this build wrote, so a second start offers nothing"
+ },
+ {
+  "id": "S1-2-Q4-ledger-held",
+  "file": "windows/torrents/TorrentsMigration.kt",
+  "edits": [
+   [
+    "                if (held == v) put(f.item, v)\n",
+    "                if (true) put(f.item, v)\n"
+   ]
+  ],
+  "tests": [
+   "*TorrentsMigrationTest"
+  ],
+  "expect": [
+   "aSecondStartOffersNothing_thePresentersLedgerKeepsItSo_andARowTheRecordLacksIsOfferedAgain"
+  ],
+  "note": "S1-2 Q4: a row the record does not hold yet stays out of the ledger and is offered again at the next start"
+ },
+ {
+  "id": "S1-2-Q4-older-blob",
+  "file": "app/Migrate.kt",
+  "edits": [
+   [
+    "            offers += Draft(action, listOf(f.item), v, Expect.PreConversion(stamp))\n",
+    "            offers += Draft(action, listOf(f.item), v, Expect.Any)\n"
+   ]
+  ],
+  "tests": [
+   "*TorrentsMigrationTest"
+  ],
+  "expect": [
+   "aBrowsersRowAfterThePcsConversionIsNeverReplacedByAnOlderBlob"
+  ],
+  "note": "S1-2 Q4 (spec 3.4 (3)): a row set in a browser after the PC's conversion is never replaced by an older blob"
  }
 ]

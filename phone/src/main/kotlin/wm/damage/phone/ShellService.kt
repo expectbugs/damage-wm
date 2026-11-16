@@ -129,6 +129,9 @@ class ShellService : Service() {
     /** S1-1 P4: Reader's source over the working copy and its presenter, built per stack, closed in [stopStack]. */
     private var readerSource: wm.damage.core.app.LocalWindowSource? = null
     private var readerGlasses: wm.damage.core.windows.reader.ReaderGlasses? = null
+    /** Build S1-2 Q4: Torrents' presenter over the working copy and its source (the copy outlives the stack). */
+    private var torrentsSource: wm.damage.core.app.LocalWindowSource? = null
+    private var torrentsGlasses: wm.damage.core.windows.torrents.TorrentsGlasses? = null
     /** Build S1-2 Q3: the phone's notice mirror over the working copy, built with it and kept across stacks (each
      *  stack's shell its sink while it runs; held while no session runs); closed with the copy. */
     @Volatile private var noticeMirror: wm.damage.core.app.NoticeMirror? = null
@@ -441,7 +444,27 @@ class ShellService : Service() {
             prefs.host, prefs.contentPort, prefs.token, scope,
             cacheDir = dataDir.resolve("wincache/torrents"))       // §47: the last snapshot, at once
         torrentsProvider = torp
-        sh.register(wm.damage.core.windows.torrents.TorrentsWindow(text, torp, scope))
+        // Build S1-2 Q4: Torrents' core over the working copy (its search recents, Notify rows and Size are the PC
+        // record's); the transfer table, the tracker and the program ops stay this provider's at today's paces (A.3,
+        // A.4). While the PC shares both `torrents` and `notices` it raises Torrents' notices into its record and this
+        // phone shows them from it (the mirror); otherwise this presenter raises them from its provider as today
+        // (C§9.7 item 2). The phone's records from before the conversion go into the copy's queue once the window is
+        // registered and its presenter listens (as Reader's). Without a copy, Torrents runs on a record of its own.
+        val torWin = if (wc != null) {
+            val core = wm.damage.core.windows.torrents.TorrentsCore()
+            val src = wm.damage.core.app.LocalWindowSource(core, wc)
+            torrentsSource = src
+            wm.damage.core.windows.torrents.TorrentsGlasses(text, torp, scope, core, src,
+                recordNotices = { wc.shares(core.window) && wc.shares(wm.damage.core.app.Notices.WINDOW) },
+                device = wc.device, buildsLine = { wc.client?.contractState?.line(core.window) })
+        } else {
+            wm.damage.core.windows.torrents.TorrentsWindow(text, torp, scope)
+        }
+        torrentsGlasses = torWin
+        sh.register(torWin)
+        if (wc != null) wm.damage.core.windows.torrents.TorrentsMigration.onCopy(wc, persistence) { line ->
+            Journal.appendNote(dataDir.resolve("journal.jsonl"), "migrate", line)
+        }
         // Music (2026-09-02, MUSIC.md): the library rides the window channel
         // with its catalog/art/viz/lyrics cached on disk; the PLAYER is here —
         // ExoPlayer + the media session the earbuds' taps route through
@@ -676,6 +699,11 @@ class ShellService : Service() {
         try { readerSource?.close() } catch (e: Exception) { Log.w("service", "reader source close: ${e.message}") }
         readerSource = null
         try { filesProvider?.close() } catch (e: Exception) { Log.w("service", "files provider close: ${e.message}") }
+        // S1-2 Q4: the presenter leaves its provider and the source, and the source the working copy
+        try { torrentsGlasses?.detach() } catch (e: Exception) { Log.w("service", "torrents detach: ${e.message}") }
+        torrentsGlasses = null
+        try { torrentsSource?.close() } catch (e: Exception) { Log.w("service", "torrents source close: ${e.message}") }
+        torrentsSource = null
         try { torrentsProvider?.close() } catch (e: Exception) { Log.w("service", "torrents provider close: ${e.message}") }
         try { feedProvider?.close() } catch (e: Exception) { Log.w("service", "feed provider close: ${e.message}") }
         feedProvider = null

@@ -1,6 +1,7 @@
 package wm.damage.core.app
 
 import wm.damage.core.windows.reader.ReaderCore
+import wm.damage.core.windows.torrents.TorrentsCore
 
 /*
  * Context for the reader: Damage is Adam's own window manager for his own glasses, phone and PC on his own network.
@@ -13,8 +14,8 @@ import wm.damage.core.windows.reader.ReaderCore
  * The running half of a window on the PC — its PC-served scopes, its program handler and its card on Main — is handed
  * to the `app` lane by the host builders (`AppNet.serve`), as those parts are made from the host's providers.
  *
- * Each window package adds its own line, in the build's order (the spec's §6): notices (Q3, in), torrents (Q4), files
- * (Q5), each at contract version 1 (S1-2 R0 §2). A line goes in with the window's conversion and not before: an entry
+ * Each window package adds its own line, in the build's order (the spec's §6): notices (Q3, in), torrents (Q4, in),
+ * files (Q5), each at contract version 1 (S1-2 R0 §2). A line goes in with the window's conversion and not before: an entry
  * takes the window's keys off the sync channel and makes the PC share a window it must then serve.
  */
 object Windows {
@@ -37,6 +38,10 @@ object Windows {
         Entry(ReaderCore.WINDOW, "Reader", 1, ReaderCore.ACTIONS, ReaderCore::levelOf, Levels.VIEW),
         // S1-2 Q3: the PC's notice record (C§7.1; decisions A.1): a pseudo-window with no card and no scopes of its own
         Entry(Notices.WINDOW, "Notices", 1, Notices.ACTIONS, Notices::levelOf, Levels.VIEW, rule = Notices.RULE),
+        // S1-2 Q4: Torrents (C§12): its rows and search recents in the record; its program actions go into qBittorrent,
+        // the tracker and `xdg-open`, never queued
+        Entry(TorrentsCore.WINDOW, "Torrents", 1, TorrentsCore.ACTIONS, TorrentsCore::levelOf, Levels.VIEW,
+            program = TorrentsCore.PROGRAM),
     )
 
     private val BY_ID: Map<String, Entry> = ALL.associateBy { it.id }

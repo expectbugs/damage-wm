@@ -754,6 +754,26 @@ private fun startWeb(cfg: Config, scope: CoroutineScope, reach: wm.damage.core.n
 private fun webUploads(cfg: Config, say: (String) -> Unit): wm.damage.core.web.Uploads =
     wm.damage.core.web.Uploads(Path.of(cfg.dataDir)).also { it.atStart(say) }
 
+/**
+ * Build S1-2 Q4 (the spec's §3.1, §2.3): Torrents' PC-served parts, made at a PROCESS START by both host builders over
+ * the process-wide [provider], before the content host or the web listener can ask: the table and the tracker on the
+ * `app` lane (each on its own describe executor), the program ops, Main's card, the pace per web viewer (`web:<conn>`;
+ * the win channel keeps `remote`) and the notices — raised once, here, into the notice record from the provider's
+ * events, its ring replayed (its first poll started in its `init`). Never per stack, never from a tool.
+ */
+private fun torrentsParts(appNet: wm.damage.core.app.AppNet, appHost: wm.damage.core.app.AppHost,
+                          provider: wm.damage.core.windows.torrents.LocalTorrentsProvider,
+                          notices: wm.damage.core.app.NoticeCore): wm.damage.core.windows.torrents.TorrentsScopes {
+    val scopes = wm.damage.core.windows.torrents.TorrentsScopes(appHost, provider)
+    scopes.start()
+    appNet.serve(wm.damage.core.windows.torrents.TorrentsCore.WINDOW, scopes.table, scopes.program, scopes::card)
+    appNet.serve(wm.damage.core.windows.torrents.TorrentsCore.WINDOW, scopes.tracker)
+    scopes.watch(appNet.viewers) { who, focused, pace -> provider.setFocusedBy(who, focused, pace) }
+    scopes.core.attachNotices(provider, provider.epoch, notices)
+    Log.i("damage", "Torrents' core on the PC record (${scopes.core.window}): its table, tracker and program ops on the lane, its notices raised here")
+    return scopes
+}
+
 /** Build S1-1 P7: the glasses' faces for the web's glass theme, each resolved by fontconfig once (as `AwtText` resolves
  *  them); a face that is not installed is said once and answered 404. */
 private fun webFonts(): wm.damage.core.web.FontSource {
@@ -875,11 +895,15 @@ private suspend fun hostOnly(cfg: Config) {
     val appNet = wm.damage.core.app.AppNet(appHost, devices = web.core)
     // build S1-2 (Q3): the notice record's raiser, at this process start as in runShell (Quiet hours read from the
     // store's Global row at each raise); host-only runs no shell, so it has no notice mirror (absent on purpose)
-    wm.damage.core.app.NoticeCore.atProcessStart(appHost,
+    val noticeCore = wm.damage.core.app.NoticeCore.atProcessStart(appHost,
         { wm.damage.core.shell.ShellSettings.fromJson(store.get("shell.settings")).quietHours }, null)
     // build S1-1 (P4, the spec's §4): Reader's records from before its conversion become record items once (the
     // ledger beside them says what was offered), and Reader's core sits on the record for every presenter (P6 serves it)
     wm.damage.core.windows.reader.ReaderMigration.onHost(appHost, store) { }
+    // build S1-2 (Q4): Torrents' records from before its conversion, then its parts on the lane and its notices, as in
+    // runShell (host-only has no presenter: the core serves the web and raises the notices)
+    wm.damage.core.windows.torrents.TorrentsMigration.onHost(appHost, store) { }
+    torrentsParts(appNet, appHost, torrents, noticeCore)
     // build S1-1 (P5): with the PC's reader index (`reader-index.json`, a cache: not in the nightly copy), walked one
     // book at a time after each shelf scan; the first scan is here, so the index is current before a web page asks
     val readerCore = wm.damage.core.windows.reader.ReaderCore(LocalContent(Path.of(cfg.booksDir)), scope,
@@ -945,6 +969,9 @@ class DesktopStack(
     /** Build S1-2 Q3: the process's notice mirror (it outlives the stack; this stack's shell is its sink while it
      *  runs); null in tools, whose shells show only their own notices, as before. */
     private val notices: wm.damage.core.app.NoticeMirror? = null,
+    /** Build S1-2 Q4: Torrents' process-wide core and the source on the PC record its presenter reads (device `local`);
+     *  null in tools, which build Torrents the way it was built before (`TorrentsWindow`, a record in memory). */
+    private val torrentsCore: Pair<wm.damage.core.windows.torrents.TorrentsCore, wm.damage.core.app.WindowSource>? = null,
 ) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private fun ble(): Transport = BlueZTransport(BlueZDbus(), scope,
@@ -987,7 +1014,12 @@ class DesktopStack(
             shell.register(wm.damage.core.windows.files.FilesWindow(text, it, scope, AwtImages(),
                 initialBooksDir = cfg.booksDir))
         }
-        torrents?.let { torrentsWindow = wm.damage.core.windows.torrents.TorrentsWindow(text, it, scope).also(shell::register) }
+        // build S1-2 Q4: over the PC record, where the PC raises Torrents' notices and this stack's shell shows them
+        torrents?.let { p ->
+            torrentsWindow = (torrentsCore?.let { (core, source) ->
+                wm.damage.core.windows.torrents.TorrentsGlasses(text, p, scope, core, source, recordNotices = { notices != null })
+            } ?: wm.damage.core.windows.torrents.TorrentsWindow(text, p, scope)).also(shell::register)
+        }
         // Music (MUSIC.md §3.1): the desktop shell MIRRORS the phone's player
         // through the synced record and cannot play — it says so loudly
         music?.let { musicWindow = wm.damage.core.windows.music.MusicWindow(text, it,
@@ -1025,7 +1057,7 @@ class DesktopStack(
                 tmuxWindow?.detach()
                 notices?.detach(shell.noticeSink)   // S1-2 Q3: the process's mirror outlives this stack
                 readerGlasses.detach()     // S1-1 P4: the process-wide core and source outlive this stack
-                torrentsWindow?.detach()   // a leaked listener fed a dead shell's queue every poll (P1)
+                torrentsWindow?.detach()   // a leaked listener fed a dead shell's queue every poll (P1); S1-2 Q4: and the source's
                 musicWindow?.detach()
                 feedWindow?.detach()
             } finally {
@@ -1190,6 +1222,13 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
     readerCore.refreshLibrary()
     val readerSource = wm.damage.core.app.LocalWindowSource(readerCore,
         wm.damage.core.app.HostBackend(appHost, wm.damage.core.app.Peer.LOCAL.device, wm.damage.core.app.OpQueue.newStream()))
+    // build S1-2 (Q4): Torrents' records from before its conversion become record items once (a `migrate` note says
+    // what happened), before any presenter reads them; then its parts on the lane and its notices (`torrentsParts`), and
+    // the source every stack's glasses presenter reads (device `local`)
+    wm.damage.core.windows.torrents.TorrentsMigration.onHost(appHost, store) { line -> Journal.appendNote(journalFile, "migrate", line) }
+    val torrentsScopes = torrentsParts(appNet, appHost, torrentsProvider, noticeCore)
+    val torrentsSource = wm.damage.core.app.LocalWindowSource(torrentsScopes.core,
+        wm.damage.core.app.HostBackend(appHost, wm.damage.core.app.Peer.LOCAL.device, wm.damage.core.app.OpQueue.newStream()))
 
     val host = ContentHostServer(LocalContent(Path.of(cfg.booksDir)), cfg.contentPort, cfg.token,
         tmux = tmuxProvider, sync = syncPeer,
@@ -1269,7 +1308,7 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
     build = { m -> DesktopStack(cfg, m, remoteHost, text, onStatus = { keeperStatus.set(it) },
         onSwitch = { switchTo(it) }, tmux = tmuxProvider, sharedStore = store,
         files = filesProvider, themeIcons = themeIcons, torrents = torrentsProvider, music = musicLibrary, feed = feedEngine,
-        reader = readerCore to readerSource, notices = noticeMirror) }
+        reader = readerCore to readerSource, notices = noticeMirror, torrentsCore = torrentsScopes.core to torrentsSource) }
 
     if (mode != "auto") {
         val first = build(mode)

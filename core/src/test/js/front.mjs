@@ -131,5 +131,25 @@ export function realScenes(book) {
     'real-notice-elsewhere': { path: '/', steps: [{ wait: '.cards .card' }, reach, { fetch: '/__wait?ms=800' },
       { fetch: '/__ctl?raise' }, { wait: '.toast.notice' }, { fetch: '/__ctl?dismiss-other' }, { gone: '.toast.notice' },
       { fetch: '/__ctl?state' }] },
+    // S1-2 Q4: Torrents against the real scopes over LookServer's scripted provider: the table with its graphs (a few
+    // polls so the lines have points), a search with results, a torrent's page, an action sent and its effect read back
+    // in the table (Stop, then the Stopped filter holds the row), a done notice raised by the core, and the page while
+    // the tracker takes its time: the listing waits, and Reader's book still arrives (each provider its own executor)
+    'real-torrents': { path: '/w/torrents', steps: [{ fetch: '/__ctl?release' }, { wait: '.ttable tbody tr, .tcards li' }, reach,
+      { fetch: '/__wait?ms=5000' }, { wait: '.tg-svg' }] },
+    'real-torrents-search': { path: '/w/torrents/search:release', steps: [{ fetch: '/__ctl?release' }, { wait: '.ttable.tl tbody tr, .tcards li' }, reach] },
+    'real-torrents-page': { path: '/w/torrents/tl:240001', steps: [{ fetch: '/__ctl?release' }, { wait: '.nfo' }, reach] },
+    'real-torrents-act': { path: '/w/torrents', steps: [{ fetch: '/__ctl?release' }, { wait: '.ttable tbody tr, .tcards li' }, reach,
+      { click: '[data-key="selecting"], [data-key="sel:c0ffee01"]' }, { click: '.tcard .tc-main[data-key="row:c0ffee01"], .tbulk .tb-n' },
+      { wait: '.tbulk' }, { click: '.tbulk button:nth-of-type(2)' }, { fetch: '/__wait?ms=2500' }, { fetch: '/__ctl?ops' },
+      { click: '[data-key="filter:stopped"]' }, { wait: '[data-key="row:c0ffee01"]' }] },
+    'real-torrents-done': { path: '/w/torrents', steps: [{ wait: '.ttable tbody tr, .tcards li' }, reach, { fetch: '/__wait?ms=800' },
+      { fetch: '/__ctl?done' }, { wait: '.toast.notice' }] },
+    'real-torrents-slow': { path: '/w/torrents', steps: [{ wait: '.ttable tbody tr, .tcards li' }, reach, { fetch: '/__ctl?slow' },
+      { click: '[data-key="tab:browse"]' }, { wait: '.tcat.newest' }, { click: '.tcat.newest' }, { fetch: '/__wait?ms=1500' }] },
+    'real-torrents-slow-reader': { path: '/w/torrents', steps: [{ wait: '.ttable tbody tr, .tcards li' }, reach, { fetch: '/__ctl?slow' },
+      { click: '[data-key="tab:browse"]' }, { wait: '.tcat.newest' }, { click: '.tcat.newest' }, { fetch: '/__wait?ms=800' },
+      { click: '#rail a[href="/w/reader"]' }, { wait: `.shelf .book[data-book="${book}"]` }, { click: `.shelf .book[data-book="${book}"]` },
+      { wait: '.text p' }, { fetch: '/__ctl?release' }] },
   };
 }

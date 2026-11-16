@@ -37,6 +37,36 @@ import wm.damage.core.text.FontSpec
 import wm.damage.core.text.TextRasterizer
 import wm.damage.core.text.Wrap
 import wm.damage.core.util.Log
+import wm.damage.core.app.Answer
+import wm.damage.core.app.Expect
+import wm.damage.core.app.LocalWindowSource
+import wm.damage.core.app.Loss
+import wm.damage.core.app.LossWords
+import wm.damage.core.app.MemoryRecord
+import wm.damage.core.app.NoticeRecord
+import wm.damage.core.app.Op
+import wm.damage.core.app.OpId
+import wm.damage.core.app.Peer
+import wm.damage.core.app.SourceListener
+import wm.damage.core.app.WindowSource
+import wm.damage.core.app.WindowState
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+
+/** The name the window had before its conversion, kept for the sites that name its type (the test sites, the tools). */
+typealias TorrentsWindow = TorrentsGlasses
+
+/**
+ * The compatibility factory (build S1-2 Q4, the spec's §3.2): Torrents as it was built before its conversion — a
+ * [TorrentsCore] over a record of its own in memory, and the glasses' presenter over that, raising its notices from its
+ * provider as today (the path of a host whose builds differ). The test sites, `--selfcheck` and the tools build Torrents
+ * this way; the hosts build the core on their own record (the PC's, or the phone's working copy), where the PC raises
+ * the notices into its notice record and the presenter shows them from it.
+ */
+fun TorrentsWindow(text: TextRasterizer, provider: TorrentsProvider, bg: CoroutineScope): TorrentsGlasses {
+    val core = TorrentsCore()
+    return TorrentsGlasses(text, provider, bg, core, LocalWindowSource(core, MemoryRecord(TorrentsCore.ACTIONS)))
+}
 
 /**
  * TORRENTS — `TORRENTS.md` (design settled with Adam 2026-09-01): the
@@ -52,11 +82,34 @@ import wm.damage.core.util.Log
  * off-loop; every completion applies through [ShellServices.runOnShell] and
  * is guarded by a sequence so a late answer never replaces what the user
  * moved on to (the Reader/Files discipline).
+ *
+ * Build S1-2 Q4 (`CONTRACT.md` §11.1, §12; the spec's §3.2): the glasses' presenter of Torrents' [core]. The search
+ * recents, the two Notify rows and Size are the core's record items, read through [source] (the PC's record, or the
+ * phone's working copy): the fields below stay this presenter's optimistic state and what input changes goes to the
+ * source as ops at the points it changes today (a Settings row's commit, a search's commit) — the field first, the op
+ * after, so the first flush is today's. Another device's write is taken as it arrives. The transfer table, the tracker
+ * and every program op stay today's provider calls and paces (decisions A.3, A.4); `Poll` stays this device's (A.10).
+ * Notices: where [recordNotices] says the PC raises them into its notice record (the PC; the phone while the PC shares
+ * `torrents` and `notices`), the provider's events raise nothing here and only mark the window dirty, and the record's
+ * notice is drawn through this presenter's formatter (today's body, face and dirty mark); otherwise — a host whose
+ * builds differ, the tools — the events raise today's notice (C§9.7 item 2). One event raised both ways in the minute
+ * the builds meet is one box: the shell coalesces on today's source and thread. The window's row (level, cursors, the
+ * open hash, the listing, the draft, Poll) stays in the local `window.torrents` keys in today's shape, unsynced, with
+ * the record's rows beside them as the copy an older build reads; `conv` beside it is the migration's ledger.
  */
-class TorrentsWindow(
+class TorrentsGlasses(
     private val text: TextRasterizer,
     private val provider: TorrentsProvider,
     private val bg: CoroutineScope,
+    val core: TorrentsCore,
+    val source: WindowSource,
+    /** True while the PC raises Torrents' notices into its record and this host shows them from it. */
+    private val recordNotices: () -> Boolean = { false },
+    /** This device's name in the record (`local` on the PC, `phone` on the phone): a write by it is its own echo. */
+    private val device: String = Peer.LOCAL.device,
+    /** "PC and phone on different builds for Torrents" while the two builds differ (the phone), else null. */
+    private val buildsLine: () -> String? = { null },
+    private val zone: java.time.ZoneId = java.time.ZoneId.systemDefault(),
 ) : DamageWindow("torrents", "Torrents", IconKind.TORRENTS) {
 
     private val tx = styledText(text)
@@ -180,7 +233,7 @@ class TorrentsWindow(
         override fun snapshot(s: Snapshot) {
             onShell("snapshot") {
                 applySnapshot(s)
-                if (level == Level_.TRANSFERS || level == Level_.DETAILS) services?.requestRender(this@TorrentsWindow)
+                if (level == Level_.TRANSFERS || level == Level_.DETAILS) services?.requestRender(this@TorrentsGlasses)
             }
         }
 
@@ -192,7 +245,7 @@ class TorrentsWindow(
             onShell("state") {
                 if (stateLine != line) {
                     stateLine = line
-                    services?.requestRender(this@TorrentsWindow)
+                    services?.requestRender(this@TorrentsGlasses)
                 }
             }
         }
@@ -272,6 +325,158 @@ class TorrentsWindow(
         registered = false
         provider.setFocused(false, pollMs)
         provider.removeListener(listener)
+        // S1-2 Q4: the core and the source outlive this presenter on the PC (one per process)
+        source.removeListener(onSource)
+        services?.noticeFormatter(id, null)
+    }
+
+    // ================================================================ the record (S1-2 Q4)
+    /** The rows a presenter writes, with their labels as Settings → Torrents shows them. */
+    private val rowLabels = linkedMapOf(TorrentsCore.NOTIFY_DONE to "Notify · done", TorrentsCore.NOTIFY_ERRORS to "Notify · errors",
+        TorrentsCore.SIZE to "Size", TorrentsCore.RECENTS to "Recent searches")
+    /** Per row: the value this view last sent or took from the record (the next op's expectation), and when it sent. */
+    private val sentRowVal = HashMap<String, JsonElement>()
+    private val sentAt = HashMap<String, Long>()
+    /** Rows input changed and not yet taken (a `retry` or `gap` answer puts its row back: the next save point sends it). */
+    private val unsent = LinkedHashSet<String>()
+    private val lossWords = LossWords(zone)
+
+    private fun rowValue(row: String): JsonElement = when (row) {
+        TorrentsCore.NOTIFY_DONE -> JsonPrimitive(notifyDone)
+        TorrentsCore.NOTIFY_ERRORS -> JsonPrimitive(notifyErrors)
+        TorrentsCore.SIZE -> JsonPrimitive(heightPref ?: 0)
+        else -> kotlinx.serialization.json.JsonArray(recents.map { JsonPrimitive(it) })
+    }
+
+    /** [row] from the record into this view; true when it moves what this window draws (its height). */
+    private fun setRow(row: String, v: JsonElement): Boolean {
+        when (row) {
+            TorrentsCore.NOTIFY_DONE -> TorrentsCore.bool(v)?.let { notifyDone = it }
+            TorrentsCore.NOTIFY_ERRORS -> TorrentsCore.bool(v)?.let { notifyErrors = it }
+            TorrentsCore.SIZE -> TorrentsCore.sizeOf(v)?.let { h ->
+                val was = heightPref
+                heightPref = if (h == 0) null else h
+                return was != heightPref
+            }
+            TorrentsCore.RECENTS -> TorrentsCore.recentsOf(v)?.let { l -> recents.clear(); recents.addAll(l) }
+        }
+        return false
+    }
+
+    /** The record's state into this view: another device's write is taken; this device's own is its echo (the view holds
+     *  it already, or newer). True when something drawn changed. */
+    private fun fromSource(st: WindowState): Boolean {
+        var drawn = false
+        for (row in rowLabels.keys) {
+            val it = st.itemNamed(row) ?: continue
+            if (it.by == device || it.gone || sentRowVal[row] == it.value) continue
+            sentRowVal[row] = it.value
+            drawn = setRow(row, it.value) || drawn
+        }
+        return drawn
+    }
+
+    /** Input changed [row] (on the loop): its op follows the field. */
+    private fun changed(row: String) {
+        unsent += row
+        sendChanges()
+    }
+
+    /** What input changed and the record has not taken, as ops; each returns at once (C§2.3). */
+    private fun sendChanges() {
+        if (unsent.isEmpty()) return
+        val st = source.state()
+        for (row in unsent.toList()) {
+            val v = rowValue(row)
+            val draft = if (row == TorrentsCore.RECENTS) TorrentsCore.recentDraft(recents.toList())
+                else TorrentsCore.setDraft(row, v, sentRowVal[row]?.let { Expect.Value(it) } ?: TorrentsCore.expectSeen(st.itemNamed(row)))
+            source.act(draft)
+            sentRowVal[row] = draft.result
+            sentAt[row] = System.currentTimeMillis()
+        }
+        unsent.clear()
+    }
+
+    /** The source's changes and answers, on the core executor: handed to the shell loop (keyed for changes — the state
+     *  is whole, the newest suffices). */
+    private val onSource = object : SourceListener {
+        override fun changed(state: WindowState, keys: Set<String>) {
+            services?.runOnShell("torrents.source") {
+                if (fromSource(source.state())) services?.requestRender(this@TorrentsGlasses)
+            }
+        }
+
+        override fun answered(op: Op, answer: Answer) {
+            // a loss stays with this view until it has been said (Reader's fix round 2, ruling 1.2)
+            val s = synchronized(unsaid) {
+                if (answer is Answer.Lost) unsaid[op.id] = op to answer
+                services
+            }
+            if (s == null) {
+                // a refusal for good is never told to no one (no notice is kept for it)
+                if (answer is Answer.Refused && answer.code != Answer.RETRY && answer.code != Answer.GAP)
+                    Log.e("torrents", "the record refused ${op.action} of ${op.targets} before the shell started: ${answer.reason}")
+                return
+            }
+            if (answer is Answer.Lost) sayUnsaid(s) else s.runOnShell { onAnswer(op, answer) }
+        }
+    }
+
+    /** Losses handed to this view and not yet said. */
+    private val unsaid = LinkedHashMap<OpId, Pair<Op, Answer>>()
+
+    /** Posts every loss not yet said, now and at each session start; the first run of one says it and only then tells
+     *  the source, which stops keeping it. */
+    private fun sayUnsaid(s: ShellServices) {
+        for ((op, a) in synchronized(unsaid) { unsaid.values.toList() }) s.runOnShell {
+            if (synchronized(unsaid) { unsaid.remove(op.id) } != null) {
+                onAnswer(op, a)
+                source.said(op)
+            }
+        }
+    }
+
+    /** An answer to one of this view's ops, on the shell loop (C§4.4). A loss is said once per standing write through
+     *  today's answer notice, with both values (`LossWords`). */
+    private fun onAnswer(op: Op, a: Answer) {
+        if (op.window != TorrentsCore.WINDOW) return
+        val row = op.targets.firstOrNull() ?: return
+        when (a) {
+            is Answer.Lost -> for (l in a.losses) sayLoss(op, l)
+            is Answer.Refused -> if (a.code == Answer.RETRY || a.code == Answer.GAP) {
+                // not taken: it changed nothing, so the next send (at the next save point) expects what this one did
+                if (op.action != TorrentsCore.MIGRATE) {
+                    when (val e = op.expect) {
+                        is Expect.Value -> if (e.v == JsonNull) sentRowVal.remove(row) else sentRowVal[row] = e.v
+                        else -> sentRowVal.remove(row)
+                    }
+                    unsent += row
+                }
+            } else {
+                services?.notifyInternal(TorrentsCore.NOTICE_SOURCE,
+                    dn("${rowLabels[row] ?: row} not applied: ${a.reason}", fSmall), answer = true)
+            }
+            else -> {}
+        }
+    }
+
+    private fun sayLoss(op: Op, l: Loss) {
+        val label = rowLabels[l.item] ?: l.item
+        val pre = (op.expect as? Expect.PreConversion)?.at
+        val line = lossWords.register(label, l, if (pre != null) "an earlier build" else "glasses",
+            pre ?: sentAt[l.item] ?: System.currentTimeMillis(), ::rowWords) ?: return
+        services?.notifyInternal(TorrentsCore.NOTICE_SOURCE, dn(line, fSmall), answer = true)
+    }
+
+    /** A row's value in Settings' own words. */
+    private fun rowWords(v: JsonElement): String = when {
+        v is kotlinx.serialization.json.JsonArray -> TorrentsCore.recentsOf(v)?.joinToString(", ")?.ifEmpty { "none" } ?: v.toString()
+        TorrentsCore.sizeOf(v) == 0 -> "global"
+        else -> LossWords.plain(v)
+    }
+
+    init {
+        source.addListener(onSource)
     }
 
     private fun updateHistory(s: Snapshot) {
@@ -288,24 +493,37 @@ class TorrentsWindow(
     }
 
     /** The §16.5 source `torrent`: done / error, gated on the window's own
-     *  rows (Settings → Torrents), deep-linked to the transfer. */
+     *  rows (Settings → Torrents), deep-linked to the transfer.
+     *  S1-2 Q4: raised here only while the PC does not raise it into its notice record ([recordNotices]); otherwise the
+     *  event only marks the window dirty and the record's notice arrives through [formatRecordNotice]. */
     private fun handleEvent(e: TorrentEvent) {
+        val raise = !recordNotices()
         when (e.kind) {
             "done" -> if (notifyDone) {
                 dirty = true
-                services?.notifyInternal("torrent", "done · ${dn(e.name)}", appId = id, thread = e.hash, target = "t:${e.hash}")
+                if (raise) services?.notifyInternal(TorrentsCore.NOTICE_SOURCE, "done · ${dn(e.name)}", appId = id, thread = e.hash, target = "t:${e.hash}")
             }
             "error" -> if (notifyErrors) {
                 dirty = true
-                services?.notifyInternal("torrent", "error · ${dn(e.name)}", appId = id, thread = e.hash, target = "t:${e.hash}")
+                if (raise) services?.notifyInternal(TorrentsCore.NOTICE_SOURCE, "error · ${dn(e.name)}", appId = id, thread = e.hash, target = "t:${e.hash}")
             }
             else -> {}
         }
         if (level == Level_.TRANSFERS) services?.requestRender(this)
     }
 
+    /** S1-2 Q4: the record's notice of this window, drawn as the provider's own raise draws it — the body through this
+     *  window's face (`dn`, today's lines), the window marked dirty. On the shell loop. */
+    private fun formatRecordNotice(rec: NoticeRecord): String {
+        dirty = true
+        services?.requestRender(this)
+        return dn(rec.body)
+    }
+
     override fun onRegistered(ctx: ShellServices) {
-        services = ctx
+        synchronized(unsaid) { services = ctx }
+        ctx.noticeFormatter(id, ::formatRecordNotice)
+        sayUnsaid(ctx)
         // a same-instance restart (the keeper's link edges) registers again:
         // the listener goes in ONCE (R3-K2 — providers are idempotent too)
         if (!registered) { registered = true; provider.addListener(listener) }
@@ -401,33 +619,11 @@ class TorrentsWindow(
         return base
     }
 
+    /** S1-2 Q4: the core's summary (moved there: Main's row and the web's card share it), in today's shape; while the
+     *  PC and this device run different builds for Torrents, the detail says so (C§9.7 item 2, Reader's precedent). */
     override fun summary(): Summary {
-        if (stateLine.isNotEmpty()) return Summary(stateLine, detail = counts())
-        val s = snap ?: return Summary("connecting")
-        val dl = s.transfers.filter { it.downloading && !it.stopped }
-        val seeding = s.transfers.count { it.finished }
-        val line = when {
-            dl.isNotEmpty() -> "${dl.size} downloading · ${Fmt.speed(s.session.dlSpeed)}"
-            seeding > 0 -> "$seeding seeding · ${Fmt.speed(s.session.upSpeed)} up"
-            s.transfers.isEmpty() -> "idle"
-            else -> "${s.transfers.size} transfers"
-        }
-        val lead = dl.maxByOrNull { it.progress }
-        return Summary(line, detail = counts(), more = s.transfers.isNotEmpty(), progress = lead?.progress)
-    }
-
-    private fun counts(): String {
-        val s = snap ?: return ""
-        val parts = ArrayList<String>()
-        val seeding = s.transfers.count { it.finished }
-        val stopped = s.transfers.count { it.stopped }
-        val errors = s.transfers.count { it.error }
-        val week = s.transfers.count { it.underAWeek }
-        if (seeding > 0) parts.add("$seeding seeding")
-        if (stopped > 0) parts.add("$stopped stopped")
-        if (errors > 0) parts.add("$errors errors")
-        if (week > 0) parts.add("$week under a week")
-        return parts.joinToString(" · ")
+        val s = TorrentsCore.summary(snap, stateLine)
+        return Summary(s.line, detail = buildsLine() ?: s.detail, more = s.more, progress = s.progress)
     }
 
     override fun levelDepth(): Int = when (level) {
@@ -769,7 +965,7 @@ class TorrentsWindow(
                 }
                 detailCache = null
                 applyPendingDocTop()
-                services?.requestRender(this@TorrentsWindow)
+                services?.requestRender(this@TorrentsGlasses)
             }
         }
     }
@@ -993,7 +1189,7 @@ class TorrentsWindow(
                         else pendingListCursor = null                    // beyond the end: nothing to wait for
                     }
                 }
-                services?.requestRender(this@TorrentsWindow)
+                services?.requestRender(this@TorrentsGlasses)
             }
         }
     }
@@ -1005,7 +1201,7 @@ class TorrentsWindow(
                 if (seq == listSeq && level == Level_.LISTING) {
                     listingRetryAt = 0L    // this callback IS the pacing (R4-P5) — the wall clock must not gate it
                     demandPageIfNear()     // the retry itself (R3-P1): a repaint alone demanded nothing when the cursor sat on the loading row
-                    services?.requestRender(this@TorrentsWindow)
+                    services?.requestRender(this@TorrentsGlasses)
                 }
             }
         }
@@ -1154,6 +1350,7 @@ class TorrentsWindow(
         recents.remove(q)
         recents.addFirst(q)
         while (recents.size > RECENTS) recents.removeLast()
+        changed(TorrentsCore.RECENTS)                      // S1-2 Q4: the record's recents follow the field (A.9)
         listingFromTransfers = when (level) {                       // set from where the search starts (R3-P9, R4-P4)
             Level_.TRANSFERS, Level_.DETAILS -> true
             Level_.CATEGORIES -> false
@@ -1195,7 +1392,7 @@ class TorrentsWindow(
                 }
                 tlCache = null
                 if (err == null) pendingTlDocTop?.let { tlDocModel.topLine = it; pendingTlDocTop = null }   // W4; not against the placeholder (R3-P6)
-                services?.requestRender(this@TorrentsWindow)
+                services?.requestRender(this@TorrentsGlasses)
             }
         }
     }
@@ -1322,7 +1519,7 @@ class TorrentsWindow(
                 opBusy = false
                 services?.setOperation("idle")
                 val shown = level == fromLevel &&
-                    services?.openMenu(MenuSurface.Spec("stats", lines, onCommit = { }), owner = this@TorrentsWindow) == true
+                    services?.openMenu(MenuSurface.Spec("stats", lines, onCommit = { }), owner = this@TorrentsGlasses) == true
                 if (!shown) {
                     services?.notifyInternal("torrent", "stats: " + lines.joinToString(" · ") { "${it.label} ${it.detail}" }, answer = true)
                 }
@@ -1357,7 +1554,7 @@ class TorrentsWindow(
                     setNotice(dn(msg, fSmall))
                 }
                 provider.refresh()
-                services?.requestRender(this@TorrentsWindow)
+                services?.requestRender(this@TorrentsGlasses)
             }
         }
     }
@@ -1365,10 +1562,11 @@ class TorrentsWindow(
     // ================================================================ settings
     private val settingsRows: List<HostSetting> by lazy {
         listOf(
+            // S1-2 Q4: the Notify rows and Size are the record's: the field at the commit, the op after it
             HostSetting("Notify · done", listOf("on", "off"),
-                { if (notifyDone) "on" else "off" }, { notifyDone = it == "on" }),
+                { if (notifyDone) "on" else "off" }, { notifyDone = it == "on"; changed(TorrentsCore.NOTIFY_DONE) }),
             HostSetting("Notify · errors", listOf("on", "off"),
-                { if (notifyErrors) "on" else "off" }, { notifyErrors = it == "on" }),
+                { if (notifyErrors) "on" else "off" }, { notifyErrors = it == "on"; changed(TorrentsCore.NOTIFY_ERRORS) }),
             HostSetting("Poll", PACES.keys.toList(),
                 { PACES.entries.firstOrNull { it.value == pollMs }?.key ?: "2 s" },
                 // applied from Settings, i.e. while this window is NOT focused:
@@ -1376,13 +1574,15 @@ class TorrentsWindow(
                 { v -> pollMs = PACES[v] ?: 2_000L; if (active) provider.setFocused(true, pollMs) }),
             HostSetting("Size", listOf("global") + wm.damage.core.shell.ShellSettings.HEIGHTS.map { "$it" },
                 { heightPref?.toString() ?: "global" },
-                { heightPref = it.toIntOrNull() }),
+                { heightPref = it.toIntOrNull(); changed(TorrentsCore.SIZE) }),
         )
     }
 
     override fun appSettings(): List<HostSetting> = settingsRows
 
     // ================================================================ persistence
+    /** The glasses' row (decisions A.11: local, unsynced, today's shape). S1-2 Q4: the record's rows (recents, the
+     *  Notify rows, Size) are written here too, as the copy an older build reads after a downgrade. */
     override fun saveState(): JsonObject = buildJsonObject {
         put("level", level.name)
         put("cursor", transModel.cursor)
@@ -1406,6 +1606,14 @@ class TorrentsWindow(
         put("notifyErrors", notifyErrors)
         put("pollMs", pollMs)
         heightPref?.let { put("height", it) }
+    }
+
+    /** S1-2 Q4: the save point — what input changed and the record has not taken goes as ops, then the migration's
+     *  ledger beside the copy: of the record's rows written into it, those the record holds (`TorrentsMigration`), so a
+     *  later start offers only what an older build wrote there since. */
+    override fun saveSubState(): Map<String, JsonObject> {
+        sendChanges()
+        return mapOf(TorrentsMigration.LEDGER to TorrentsMigration.ledgerOf(saveState(), source.state()))
     }
 
     override fun restoreState(state: JsonObject) {
@@ -1475,9 +1683,12 @@ class TorrentsWindow(
         snap?.let { s -> if (s.transfers.isNotEmpty()) resolvePendingCursor(s) }
         invalidateDocs()
         needsReload = level != Level_.TRANSFERS && level != Level_.CATEGORIES
+        // S1-2 Q4: another device's rows in the record over the copy's (this device's own are its echo)
+        fromSource(source.state())
     }
 
-    /** A live-synced record (§16.4): the same restore, then the reload the
+    /** A live-synced record (§16.4; S1-2 Q4: no longer called in a host — Torrents' keys left the sync channel —
+     *  kept for a shell that applies a record directly): the same restore, then the reload the
      *  boot path leaves to activation happens NOW — the window may be the
      *  focused one and would otherwise sit on a header with no file list
      *  until the user leaves and returns (review 2026-09-01 W2). */
@@ -1509,6 +1720,6 @@ class TorrentsWindow(
         const val HIST = 8
         const val RECENTS = 10
         const val RETRY_PACING_MS = 5_000L
-        val PACES = linkedMapOf("1 s" to 1_000L, "2 s" to 2_000L, "5 s" to 5_000L)
+        val PACES: Map<String, Long> = TorrentsPaces.PACES
     }
 }

@@ -100,7 +100,18 @@ object Snapshot {
             scope, AwtImages(), initialBooksDir = cfg.booksDir)
         shell.register(filesWin)
         val torrentsScripted = ScriptedTorrents()
-        val torrentsWin = wm.damage.core.windows.torrents.TorrentsWindow(text, torrentsScripted, scope)
+        // build S1-2 Q4: Torrents' presenter over a source on the same scratch record, its notices raised once into
+        // that record by its core and shown from it by this shell's notice mirror (the PC's arrangement, `runShell`'s)
+        val pcNotices = wm.damage.core.app.NoticeCore(pcRecord)
+        val pcMirror = wm.damage.core.app.NoticeMirror(wm.damage.core.app.HostBackend(pcRecord,
+            wm.damage.core.app.Peer.LOCAL.device, wm.damage.core.app.OpQueue.newStream()))
+        shell.noticeInput = pcMirror
+        pcMirror.attach(shell.noticeSink)
+        val torrentsCore = wm.damage.core.windows.torrents.TorrentsCore()
+        torrentsCore.attachNotices(torrentsScripted, torrentsScripted.epoch, pcNotices)
+        val torrentsWin = wm.damage.core.windows.torrents.TorrentsGlasses(text, torrentsScripted, scope, torrentsCore,
+            wm.damage.core.app.LocalWindowSource(torrentsCore, wm.damage.core.app.HostBackend(pcRecord,
+                wm.damage.core.app.Peer.LOCAL.device, wm.damage.core.app.OpQueue.newStream())), recordNotices = { true })
         shell.register(torrentsWin)
         val musicLib = ScriptedMusic()
         var musicSkew = 0L
@@ -477,6 +488,10 @@ object Snapshot {
 
         shell.stop()
         reader.detach()
+        torrentsWin.detach()
+        torrentsCore.detachNotices()
+        pcMirror.detach(shell.noticeSink)
+        pcMirror.close()
         pcRecord.close()
         scope.cancel()
         tmp.toFile().deleteRecursively()
@@ -503,6 +518,11 @@ object Snapshot {
         // build S1-2 Q4: the PC's torrents provider (the scripted one, made-up transfers), served to the phone over the
         // window channel as the service serves its own (`TorrentsService`)
         val torrentsScripted = ScriptedTorrents()
+        // build S1-2 Q4: the PC's core raises Torrents' notices once into the scratch record (the phone shows them
+        // through its mirror over the working copy below)
+        val pcNotices = wm.damage.core.app.NoticeCore(pcRecord)
+        val pcTorrents = wm.damage.core.windows.torrents.TorrentsCore()
+        pcTorrents.attachNotices(torrentsScripted, torrentsScripted.epoch, pcNotices)
         // bound to loopback, and gated like every listener (build W): the strict gate answers loopback only here
         val host = wm.damage.core.content.ContentHostServer(LocalContent(books), 0, token, app = net,
             win = mapOf("torrents" to wm.damage.core.windows.torrents.TorrentsService(torrentsScripted)),
@@ -542,9 +562,18 @@ object Snapshot {
         shell.register(wm.damage.core.windows.files.FilesWindow(text,
             SceneFiles(wm.damage.core.windows.files.LocalFilesProvider(books, tmp.resolve("trash"), AwtImages())),
             scope, AwtImages(), initialBooksDir = cfg.booksDir))
-        // build S1-2 Q4: the phone's Torrents over the window channel to the PC's provider, at today's paces
+        // build S1-2 Q4: the phone's Torrents over the window channel to the PC's provider, at today's paces; its core
+        // over the working copy, and the PC's notices shown through the phone's mirror (`ShellService`'s arrangement)
         val torrentsRemote = wm.damage.core.windows.torrents.RemoteTorrentsProvider("127.0.0.1", host.boundPort, token, scope)
-        val torrentsWin = wm.damage.core.windows.torrents.TorrentsWindow(text, torrentsRemote, scope)
+        val phoneMirror = wm.damage.core.app.NoticeMirror(wc, shared = { wc.shares(wm.damage.core.app.Notices.WINDOW) },
+            cursorFile = tmp.resolve("workcopy").resolve(wm.damage.core.app.NoticeMirror.CURSOR_FILE))
+        shell.noticeInput = phoneMirror
+        phoneMirror.attach(shell.noticeSink)
+        val phoneTorrents = wm.damage.core.windows.torrents.TorrentsCore()
+        val torrentsSource = wm.damage.core.app.LocalWindowSource(phoneTorrents, wc)
+        val torrentsWin = wm.damage.core.windows.torrents.TorrentsGlasses(text, torrentsRemote, scope, phoneTorrents, torrentsSource,
+            recordNotices = { wc.shares(phoneTorrents.window) && wc.shares(wm.damage.core.app.Notices.WINDOW) },
+            device = wc.device, buildsLine = { wc.client?.contractState?.line(phoneTorrents.window) })
         shell.register(torrentsWin)
         val musicLib = ScriptedMusic()
         val musicClock: () -> Long = { System.currentTimeMillis() }
@@ -595,12 +624,23 @@ object Snapshot {
             settingsCategoryScene(shell, sim, out, "Torrents", "37c-torrents-settings")
             val line = wc.client?.contractState?.line(core.window)
             if (line != null) failures.add("phone arrangement: the builds differ ($line)")
+            // build S1-2 Q4: the done box the phone showed was the PC's record notice (raised once, by the PC): the
+            // double-tap that dismissed it reached the PC record as the phone's dismiss
+            if (wc.client?.contractState?.line(phoneTorrents.window) != null) failures.add("phone arrangement: the builds differ for Torrents")
+            waitFor("the phone's dismiss of the done notice in the PC record") {
+                val rec = pcRecord.read(wm.damage.core.app.Notices.WINDOW).third.items["rec.notices.torrent:aa01"]
+                rec?.by == wc.device && wm.damage.core.app.Notices.parse("torrent:aa01", rec.value)?.state == wm.damage.core.app.Notices.DISMISSED
+            }
         } finally {
             shell.stop()
             reader.detach()
             source.close()
             torrentsWin.detach()
+            torrentsSource.close()
             torrentsRemote.close()
+            phoneMirror.detach(shell.noticeSink)
+            phoneMirror.close()
+            pcTorrents.detachNotices()
             wc.close()
             ex.shutdown()
             host.close()
