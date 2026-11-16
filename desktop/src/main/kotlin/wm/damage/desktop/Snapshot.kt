@@ -35,6 +35,10 @@ object Snapshot {
 
     fun run(cfg: Config, outDir: Path): Nothing {
         Files.createDirectories(outDir)
+        // build S1-2 J0: each arrangement's shell journal is written beside its pictures (`tools/flushdiff.py` reads
+        // it); a run into a directory used before starts both files afresh, so one journal is one run
+        Files.deleteIfExists(outDir.resolve(JOURNAL))
+        Files.deleteIfExists(outDir.resolve("phone").resolve(JOURNAL))
         try {
             runBlocking {
                 script(cfg, outDir)
@@ -60,7 +64,7 @@ object Snapshot {
         val sim = GlassFirmwareSim()
         val transport = SimTransport(sim, scope, SimTransport.Timing(instant = true))
         val text = wm.damage.core.comp.CachedText(AwtText())
-        val shell = Shell(text, transport, Persistence(tmp.resolve("state.json")), null, scope)
+        val shell = Shell(text, transport, Persistence(tmp.resolve("state.json")), out.resolve(JOURNAL), scope)
         snapShell = shell
         // theme icons for the eyeball scenes (2026-09-01): the REAL desktop
         // theme (Papirus-Dark on beardos), drawn fallbacks where it misses
@@ -89,8 +93,10 @@ object Snapshot {
         shell.register(reader)
         val tmuxWin = wm.damage.core.windows.tmux.TmuxWindow(text, ScriptedTmux(), scope)
         shell.register(tmuxWin)
-        val filesWin = wm.damage.core.windows.files.FilesWindow(text,
-            wm.damage.core.windows.files.LocalFilesProvider(books, tmp.resolve("trash"), AwtImages()),
+        // build S1-2 J0: the real provider over the books, with a made-up folder and trash shown from the Files
+        // scenes on (`SceneFiles`; the locations are the real provider's until then)
+        val sceneFiles = SceneFiles(wm.damage.core.windows.files.LocalFilesProvider(books, tmp.resolve("trash"), AwtImages()))
+        val filesWin = wm.damage.core.windows.files.FilesWindow(text, sceneFiles,
             scope, AwtImages(), initialBooksDir = cfg.booksDir)
         shell.register(filesWin)
         val torrentsScripted = ScriptedTorrents()
@@ -184,7 +190,8 @@ object Snapshot {
         save(sim, out, "13-files-menu")
         shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // cancel the menu
         settle(shell)
-        repeat(2) { shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK) }    // → locations → Main
+        filesMoreScenes(shell, sim, out, filesWin, sceneFiles, ::iconsSettled)   // ends on the locations list
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // → Main
         settle(shell)
         repeat(2) { shell.postGesture(EvenHubMsg.EV_SCROLL_TOP) }      // cursor home
         settle(shell)
@@ -244,6 +251,7 @@ object Snapshot {
         save(sim, out, "22-keyboard-keys")
         repeat(2) { shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK) }    // KEY → ROW → cancel (draft kept)
         settle(shell)
+        torrentsMoreScenes(shell, sim, out, transport, torrentsWin, torrentsScripted)   // ends on the transfers
         shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // transfers → Main
         settle(shell)
         repeat(3) { shell.postGesture(EvenHubMsg.EV_SCROLL_TOP) }      // cursor home
@@ -370,6 +378,9 @@ object Snapshot {
         // Settings → Reader (build S1-1 P4, `HANDOFF.md` §79.8: no scene showed it), by the same `cat:` deep link,
         // so the Reader conversion's rows are watched by the snapshot judge
         readerSettingsScene(shell, sim, out)
+        // Settings → Torrents and Settings → Files (build S1-2 J0): the two windows this build converts
+        settingsCategoryScene(shell, sim, out, "Torrents", "37c-torrents-settings")
+        settingsCategoryScene(shell, sim, out, "Files", "37d-files-settings")
         repeat(2) { shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK) }    // → categories → Main
         settle(shell)
         shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)     // cursor home (Reader)
@@ -557,7 +568,7 @@ object Snapshot {
         val sim = GlassFirmwareSim()
         val transport = SimTransport(sim, scope, SimTransport.Timing(instant = true))
         val text = wm.damage.core.comp.CachedText(AwtText())
-        val shell = Shell(text, transport, Persistence(tmp.resolve("state.json")), null, scope)
+        val shell = Shell(text, transport, Persistence(tmp.resolve("state.json")), out.resolve(JOURNAL), scope)
         val before = snapShell
         snapShell = shell
         val icons = ThemeIcons(AwtImages(), tmp.resolve("icons"), onLoaded = { shell.requestRepaint() })
@@ -578,7 +589,7 @@ object Snapshot {
         // every other window as in the first arrangement (the same order, the same scripted sources, the same seed)
         shell.register(wm.damage.core.windows.tmux.TmuxWindow(text, ScriptedTmux(), scope))
         shell.register(wm.damage.core.windows.files.FilesWindow(text,
-            wm.damage.core.windows.files.LocalFilesProvider(books, tmp.resolve("trash"), AwtImages()),
+            SceneFiles(wm.damage.core.windows.files.LocalFilesProvider(books, tmp.resolve("trash"), AwtImages())),
             scope, AwtImages(), initialBooksDir = cfg.booksDir))
         shell.register(wm.damage.core.windows.torrents.TorrentsWindow(text, ScriptedTorrents(), scope))
         val musicLib = ScriptedMusic()
@@ -710,13 +721,131 @@ object Snapshot {
     }
 
     /** The Settings → Reader scene (37b), by Settings' `cat:` deep link, from wherever the shell is in Settings. */
-    private suspend fun readerSettingsScene(shell: Shell, sim: GlassFirmwareSim, out: Path) {
-        val readerCat = java.util.concurrent.atomic.AtomicReference<Boolean?>(null)
-        shell.services.runOnShell { readerCat.set(shell.services.openWindow("settings", "cat:Reader")) }
-        waitFor("settings · reader") { readerCat.get() != null && shell.currentWindowId() == "settings" && shell.isQuiescent() }
-        if (readerCat.get() != true) failures.add("Settings has no Reader category (the cat:Reader deep link was refused)")
+    private suspend fun readerSettingsScene(shell: Shell, sim: GlassFirmwareSim, out: Path) =
+        settingsCategoryScene(shell, sim, out, "Reader", "37b-reader-settings")
+
+    /** A Settings category's scene, by Settings' `cat:` deep link, from wherever the shell is in Settings. */
+    private suspend fun settingsCategoryScene(shell: Shell, sim: GlassFirmwareSim, out: Path, cat: String, name: String) {
+        val opened = java.util.concurrent.atomic.AtomicReference<Boolean?>(null)
+        shell.services.runOnShell { opened.set(shell.services.openWindow("settings", "cat:$cat")) }
+        waitFor("settings · ${cat.lowercase()}") { opened.get() != null && shell.currentWindowId() == "settings" && shell.isQuiescent() }
+        if (opened.get() != true) failures.add("Settings has no $cat category (the cat:$cat deep link was refused)")
         settle(shell)
-        save(sim, out, "37b-reader-settings")
+        save(sim, out, name)
+    }
+
+    /**
+     * Build S1-2 J0 (the spec's §6 "J0"): Files' trash, its "This folder" menu, a file's stats menu and the text viewer,
+     * over [SceneFiles]' made-up folder and trash (every date pinned). Starts on the Root listing with no menu open and
+     * ends on the locations list. Each scene is reached by gestures, so `tools/flushdiff.py` prices the one before it.
+     */
+    private suspend fun filesMoreScenes(shell: Shell, sim: GlassFirmwareSim, out: Path,
+        filesWin: wm.damage.core.windows.files.FilesWindow, scene: SceneFiles, iconsSettled: suspend () -> Unit) {
+        scene.shown = true
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // Root → the locations, listed again: Scene and Trash last
+        waitFor("files locations with the scene's") {
+            filesWin.title() == "locations" && scene.shownLocations > 0 && filesWin.summary().line == "${scene.shownLocations} locations"
+        }
+        settle(shell, "files-locations-scene")
+        // the cursor rests on Root (row 0); the list wraps, so one notch up is the last row, the Trash
+        shell.postGesture(EvenHubMsg.EV_SCROLL_TOP)
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        waitFor("the files trash") { filesWin.title() == "trash" && filesWin.summary().line == "trash · ${SceneFiles.TRASHED.size}" }
+        iconsSettled()
+        save(sim, out, "13b-files-trash")
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // → the locations (the cursor still on the Trash)
+        waitFor("the locations again") { filesWin.title() == "locations" }
+        settle(shell, "files-locations-again")
+        shell.postGesture(EvenHubMsg.EV_SCROLL_TOP)        // → Scene
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        waitFor("the scene folder") {
+            filesWin.title() == SceneFiles.DIR && filesWin.summary().detail == "0 folders · ${SceneFiles.ENTRIES.size} files"
+        }
+        iconsSettled()
+        // the cursor rests on the first file (notes.txt); one notch up wraps to the "This folder" row
+        shell.postGesture(EvenHubMsg.EV_SCROLL_TOP)
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        waitFor("the This folder menu") { shell.menuIsOpen && shell.menuTitle == SceneFiles.DIR }
+        settle(shell, "files-folder-menu")
+        save(sim, out, "13c-files-folder-menu")
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // cancel the menu
+        settle(shell, "files-folder-menu-closed")
+        shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)     // wraps back to notes.txt
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        waitFor("notes.txt's menu") { shell.menuIsOpen && shell.menuTitle == "notes.txt" && shell.menuLabels.firstOrNull() == "Open" }
+        menuRow(shell, "Stats")
+        waitFor("notes.txt's stats") { shell.menuIsOpen && shell.menuTitle == "notes.txt" && shell.menuLabels.firstOrNull() == "Size" }
+        settle(shell, "files-stats")
+        save(sim, out, "13d-files-stats")
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // close the stats
+        settle(shell, "files-stats-closed")
+        val served = scene.textServed
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // notes.txt's menu, Open first
+        waitFor("notes.txt's menu again") { shell.menuIsOpen && shell.menuLabels.firstOrNull() == "Open" }
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // Open → the text viewer
+        waitFor("the text viewer") { filesWin.title() == "notes.txt" && filesWin.levelDepth() == 3 && scene.textServed > served }
+        settle(shell, "files-text")
+        save(sim, out, "13e-files-text")
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // → the scene folder
+        waitFor("back in the scene folder") { filesWin.title() == SceneFiles.DIR }
+        settle(shell, "files-scene-back")
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // → the locations
+        waitFor("the locations at the end") { filesWin.title() == "locations" }
+        settle(shell, "files-more-done")
+    }
+
+    /**
+     * Build S1-2 J0: Torrents' menu with a recent search, its stats menu, and a done notice over the transfers. Starts on
+     * the transfers with the cursor on the menu row and no surface open; ends there, the notice dismissed.
+     */
+    private suspend fun torrentsMoreScenes(shell: Shell, sim: GlassFirmwareSim, out: Path,
+        transport: SimTransport, torrentsWin: wm.damage.core.windows.torrents.TorrentsWindow, scripted: ScriptedTorrents) {
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // the Torrents menu
+        waitFor("the Torrents menu for a search") { shell.menuIsOpen && shell.menuTitle == "torrents" }
+        menuRow(shell, "Search TorrentLeech")
+        waitFor("the search keyboard") { shell.keyboardIsOpen }
+        transport.injectText("ubuntu")                     // a typed line commits the keyboard (the replica's path)
+        waitFor("the search's listing") {
+            torrentsWin.title() == "\"ubuntu\"" && scripted.ops.any { it.startsWith("search:ubuntu:1") } && shell.isQuiescent()
+        }
+        settle(shell, "torrents-search")
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // → transfers (the search started there)
+        waitFor("back on the transfers") { torrentsWin.title() == "transfers" }
+        settle(shell, "torrents-transfers-again")
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // the cursor is still on the menu row
+        waitFor("the Torrents menu with a recent") { shell.menuIsOpen && shell.menuTitle == "torrents" && "Search" in shell.menuLabels }
+        settle(shell, "torrents-menu-recent")
+        save(sim, out, "23-torrents-menu-recent")
+        menuRow(shell, "Stats")
+        waitFor("the Torrents stats") { shell.menuIsOpen && shell.menuTitle == "stats" }
+        settle(shell, "torrents-stats")
+        save(sim, out, "24-torrents-stats")
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // close the stats
+        settle(shell, "torrents-stats-closed")
+        scripted.fireDone()                                // the done edge: a notice over the transfers
+        waitFor("the done notice is up") { shell.notifications.active }
+        waitFor("the done notice is focused") { shell.notifications.focused && shell.isQuiescent() }
+        settle(shell, "torrents-done")
+        save(sim, out, "25-torrents-done-notice")
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // dismiss
+        waitFor("the done notice dismissed") { !shell.notifications.active }
+        settle(shell, "torrents-done-dismissed")
+        // the notice marked the window dirty (its strip segment lit); a visit from Main clears it, so every later scene
+        // is drawn as it was before these scenes were added
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // → Main (the cursor on Torrents)
+        settle(shell, "torrents-done-main")
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // → Torrents again
+        waitFor("the transfers again") { shell.currentWindowId() == "torrents" && torrentsWin.title() == "transfers" && !torrentsWin.dirty }
+        settle(shell, "torrents-done-revisited")
+    }
+
+    /** Commit the open menu's row LABELLED [label] — by name, never by counting. */
+    private suspend fun menuRow(shell: Shell, label: String) {
+        settle(shell, "menu-row-$label")
+        val i = shell.menuLabels.indexOfFirst { it == label }
+        if (i < 0) { failures.add("menu row '$label' not in ${shell.menuLabels}"); return }
+        repeat((i - shell.menuCursor).mod(shell.menuLabels.size)) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }
+        shell.postGesture(EvenHubMsg.EV_CLICK)
     }
 
     /**
@@ -885,6 +1014,12 @@ object Snapshot {
             img.setRGB(x, y, ((v * 0.16).toInt() shl 16) or (minOf(255, (v * 1.05).toInt()) shl 8) or (v * 0.34).toInt())
         }
         ImageIO.write(img, "png", dir.resolve("$name.png").toFile())
+        // build S1-2 J0: the scene's mark in the shell journal, after every flush its picture shows — `tools/flushdiff.py`
+        // prices the first flush of the gesture before each mark
+        shell?.journalNote("scene", name)
         println("  wrote $name.png")
     }
+
+    /** Each arrangement's shell journal, beside its pictures (build S1-2 J0). */
+    private const val JOURNAL = "journal.jsonl"
 }

@@ -14,8 +14,9 @@ number of differing pixels and their bounding boxes, split into those INSIDE the
     differs between them is live content, not the change under test), when --mask is given;
   - the declared live cells (`HANDOFF.md` §79.4): the clock cell of the top bar; the status bar's throughput, compass
     tape and link cells (at the height the scene is drawn at, found from its bottom divider); silent mode's clock; disk
-    free in `11-files-locations`; a Feed article's and a Feed comic's meta line (its age); the whole of `38-*` / `39-*` (Music Mode's
-    visualizer runs from the live clock).
+    free in `11-files-locations`; a Feed article's and a Feed comic's meta line (its age); the clock of a notice box
+    raised from the wall clock (`25-torrents-done-notice`); the whole of `38-*` / `39-*` (Music Mode's visualizer runs
+    from the live clock).
 A difference OUTSIDE the mask is a finding: the stage that ran the judge names it or fixes it. A scene present in one
 set and not the other is a failure. With --subset, NEW may hold fewer scenes than BASE (the phone arrangement renders
 Reader's scenes only, into `DIR/phone/`): every scene in NEW must exist in BASE, and the rest of BASE is not compared.
@@ -51,6 +52,11 @@ FEED_ARTICLE_META = (180, 118, 340, 20)
 # a Feed comic's meta line (scene 64, "xkcd · 17s ago"): the class's other site — its age counts from the scripted feed's
 # own start, so it moves with how long the run took to reach the scene (S1-1's last stage: "16s" idle, "18s" under load)
 FEED_COMIC_META = (20, 70, 240, 22)
+# a notice box's clock (build S1-2 J0, scene 25: a Torrents done notice): the shell stamps a window's notice with the
+# wall clock (`Shell.notifyInternal`), drawn right-aligned in the box's source line (`Notifications.paint`, at
+# `full.right - 8`). Measured on the base render: the 248 px box at x 196..443, "6:07" at x 408..434, y 195..203; the
+# cell starts left of it for the widest "12:59" and stops above the box's rule (y 206). Scenes 07/08 pin their time.
+NOTICE_CLOCK = (384, 190, 56, 16)
 
 
 def _load(path):
@@ -91,6 +97,8 @@ def declared_cells(name, px, size):
         cells.append(FEED_ARTICLE_META)
     if "feed-comic" in name:
         cells.append(FEED_COMIC_META)
+    if "done-notice" in name:
+        cells.append(NOTICE_CLOCK)
     return cells
 
 
@@ -317,6 +325,18 @@ def selftest():
             frame(os.path.join(d, "64-feed-comic.png"))
         frame(os.path.join(n, "64-feed-comic.png"), dot=(100, 80))
     case("a Feed comic's age is live", 0, comic_age, expect_in="inside")
+
+    def notice_clock(b, b2, n):
+        for d in (b, b2):
+            frame(os.path.join(d, "25-torrents-done-notice.png"))
+        frame(os.path.join(n, "25-torrents-done-notice.png"), dot=(412, 196))
+    case("a done notice's clock is live", 0, notice_clock, expect_in="inside")
+
+    def notice_body(b, b2, n):
+        for d in (b, b2):
+            frame(os.path.join(d, "25-torrents-done-notice.png"))
+        frame(os.path.join(n, "25-torrents-done-notice.png"), dot=(412, 230))
+    case("a done notice's body is not live", 1, notice_body, expect_in="OUT (412,230)")
 
     def size_change(b, b2, n):
         for d in (b, b2):
