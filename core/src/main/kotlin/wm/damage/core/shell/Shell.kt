@@ -6049,6 +6049,7 @@ class Shell(
         }
         if (comp.hasPending || comp.needsKeyframe) {
             comp.placements = stagePlacements()   // §66: what this frame may draw from the reserve
+            comp.motionOpen = transport.mirror.motionOpen()   // build C1's B-N5: room for the transport's CLOSE
             val assembleT0 = System.nanoTime()
             val assembled = try {
                 comp.assembleFlush(Geometry.rectBudget(st.window))

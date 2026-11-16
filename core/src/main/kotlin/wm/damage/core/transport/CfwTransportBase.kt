@@ -226,7 +226,12 @@ abstract class CfwTransportBase(
                 if (op == DamageMsg.OP_FLAGS_SET && arg and DamageMsg.FLAG_DRAW2 != 0) draw2HeldBack = false
                 if (!started) { Log.w(this.name, "probe $name=$value not sent: no session" + (if (op == DamageMsg.OP_FLAGS_SET) " (the next start arms it)" else "")); return }
                 if (damageCaps == null) emitNote("probe", "$name=$value sent to a build without DamageCaps — expect no answer")
-                if (op == DamageMsg.OP_FLAGS_SET) lastArmedAtMs = nowMs()
+                if (op == DamageMsg.OP_FLAGS_SET) {
+                    lastArmedAtMs = nowMs()
+                    // build C1's ruling B-M1: a ladder bit armed by hand (within the stage) is a rung's byte too — it
+                    // records its stage before it goes out; a set that only takes bits away keeps the record it found
+                    if (isC1(caps0)) ladderArmedStage = maxOf(ladderArmedStage, ladderStageOf(arg))
+                }
                 // DRAW2 is the session's, not the wish's: while it is in force the shell draws with modes
                 // 17–24 and its atlas is a v2 layout, so a hand-set flag set keeps bit 2 on the wire (a clear
                 // included) and the session keeps drawing; the next start decides DRAW2 again
@@ -279,9 +284,12 @@ abstract class CfwTransportBase(
                 }
                 // laid out for this session's cache; with no session at a nominal 160 KiB, and sendMotion says "no session"
                 val st = _state.value
-                val tp = try { wm.damage.core.motion.TestPrograms.build(value, if (st.started) st.cacheSize else CfwModes.CACHE2_MAX)!! } catch (e: LintError) {
+                val built = try { wm.damage.core.motion.TestPrograms.build(value, if (st.started) st.cacheSize else CfwModes.CACHE2_MAX)!! } catch (e: LintError) {
                     emitNote("motion", "test program $value not sent: ${e.message}"); return
                 }
+                // build C1's ruling B-N11: a tag per play (1..0xFFFF, cycling), so the mirror's END record for each play is
+                // its own (slot, tag, ordinal)
+                val tp = built.withTag((motionPlayTags.getAndIncrement() and 0x7FFFFFFF) % 0xFFFF + 1)
                 // build C1's ruling R1.16: when the PLAY's ack is in — after every image queued before it, so in the
                 // order the lens took them — the `played` note tells the shell to put END into its belief of both
                 // lenses, so the agreement check finds END there when the instance ends (no divergence, no keyframe)
@@ -582,7 +590,10 @@ abstract class CfwTransportBase(
         val rightFailed = CompletableDeferred<String>()       // P5 item 9: RIGHT's write failing on any attempt
         flagsSetPending = set
         telemetryWaiters[0] = waiter
+        // build C1's ruling B-M1: an arming records itself — its time and, on a C1 build, the ladder stage it leaves the
+        // glasses at (B-N4: what this build arms, not the stage asked for) — before its first byte goes out
         lastArmedAtMs = nowMs()
+        ladderArmedStage = if (isC1(damageCaps)) ladderStageOf(set) else 0
         val reask = scope.launch {
             var first = true
             while (true) {
@@ -883,8 +894,22 @@ abstract class CfwTransportBase(
      *  the 256 KiB cache, 3 and ENGINE. Set only by the probe `c1=N`, lowered only by a hold-back; kept where the wish
      *  is kept (this transport, across sessions; a process restart starts again at 0, the safe end). */
     @Volatile private var c1Stage = 0
-    /** The stage the last start armed the ladder at (0: it armed nothing of the ladder) — what a hold-back blames. */
+    /** The ladder stage the latest arming left the glasses at (0: nothing of the ladder) — what a hold-back blames.
+     *  Build C1's rulings B-M1 and B-N4: written with [lastArmedAtMs] by every send that arms — op 5's 256 KiB rung at
+     *  a start, each FLAGS_SET ([flagsSet], the hand probe) — before its first byte, as the stage of what it carries. */
     @Volatile private var ladderArmedStage = 0
+    /** This session asked for the 256 KiB rung and has it (cleared at each start's op 5). */
+    @Volatile private var ladderSizeInForce = false
+
+    /** The ladder stage a flag set [set] leaves the glasses at, with this session's size (B-N4: what this build arms —
+     *  a rung counts only when its own change goes out): ENGINE is stage 3's, the 256 KiB size stage 2's, ZWRITE
+     *  stage 1's. A build without the engine (0x17f) at stage 3 thus records 2, and its hold-back drops the size. */
+    private fun ladderStageOf(set: Int): Int = when {
+        set and DamageMsg.FLAG_ENGINE != 0 -> C1_TOP_STAGE
+        ladderSizeInForce -> LADDER_SIZE_STAGE
+        set and DamageMsg.FLAG_ZWRITE != 0 -> 1
+        else -> 0
+    }
 
     /** A build that reports a C1 bit (`FIRMWARE.md` §5.1: features bit 7 the engine, bit 8 the riders; contract 2). */
     private fun isC1(caps: DamageMsg.Caps?): Boolean =
@@ -949,7 +974,10 @@ abstract class CfwTransportBase(
 
     /** Build C1 (`FIRMWARE.md` §5.8, spec §6.4): one notify-114 body. A `motion` note always; for an instance that
      *  stopped (outcomes 0 and 1) its END CRC against the one the mirror wrote for that (slot, tag, ordinal) — a
-     *  mismatch is a `divergence` note, and the shell keyframes on it; never silent. The sequence is kept for the gap
+     *  mismatch is a `divergence` note, and the shell keyframes on it; never silent. Build C1's ruling B-S2: a refusal
+     *  (outcome 2) naming a slot the mirror holds open — for a PLAY, open with the body's tag — is a divergence too: the
+     *  mirror took what RIGHT refused, so belief and mirror may hold an END the glass never wrote, and no END CRC will
+     *  ever come for it. Both go through one cap per instance ([motionDivergence]). The sequence is kept for the gap
      *  rule ([noteMotionGaps]) and the mirror is told the notify came (its area-unknown window, spec §6.5). */
     private fun onMotionNotify(arm: Arm, m: DamageMsg.Motion) {
         if (arm != Arm.RIGHT) {
@@ -958,6 +986,15 @@ abstract class CfwTransportBase(
         }
         emitNote("motion", m.describe())
         m.seq?.let { s -> synchronized(motionSeqs) { if (motionAccounted.let { it == null || s > it }) motionSeqs += s } }
+        if (m.outcome == DamageMsg.OUTCOME_REFUSED) {
+            // an unknown sub's body names no slot (ruling R1.8), and 0xFF (a CLOSE of all) names none of the four
+            val slot = m.slot ?: return
+            val open = synchronized(mirrorSim) { mirrorSim.motionOpenIn(Arm.RIGHT, slot) } ?: return
+            if (m.tag != null && m.tag != open.first) return
+            motionDivergence(slot to open.first, "slot $slot refused by RIGHT (${m.reason?.let { DamageMsg.REASONS[it] ?: "reason $it" } ?: "no reason"}) " +
+                "while the mirror holds tag 0x%04x ordinal ${open.second} open there".format(open.first))
+            return
+        }
         if (m.outcome != DamageMsg.OUTCOME_DREW && m.outcome != DamageMsg.OUTCOME_CLOSED) return
         val slot = m.slot; val tag = m.tag; val ordinal = m.ordinal; val crc = m.endCrc
         if (slot == null || tag == null || ordinal == null || crc == null) {
@@ -970,9 +1007,31 @@ abstract class CfwTransportBase(
         }
         when {
             want == null -> emitNote("motion", "no END on record for slot $slot tag 0x%04x ordinal $ordinal this session (another session's instance) — not compared".format(tag))
-            want != crc -> emitNote("divergence", "motion: slot $slot tag 0x%04x ordinal $ordinal END CRC %08x on the glasses, %08x in the mirror — keyframing"
+            want != crc -> motionDivergence(slot to tag, "slot $slot tag 0x%04x ordinal $ordinal END CRC %08x on the glasses, %08x in the mirror"
                 .format(tag, crc, want))
         }
+    }
+
+    /** Build C1's ruling B-N11: the probe's play counter, one tag per play. */
+    private val motionPlayTags = java.util.concurrent.atomic.AtomicInteger(0)
+
+    /** Build C1's ruling B-S2: the keyframes motion divergences have asked for, per instance this session — its slot and
+     *  its PLAY's tag (one per play since B-N11); a RETARGET moves the ordinal, not the instance. A CRC mismatch's
+     *  keyframe closes every instance, so at most the keyframe's own outcome-1 body follows it: two per instance. A
+     *  refusal gets the same cap, kept here, so refusals still in flight when the first keyframe goes are never
+     *  answered by an unbounded run of images. Cleared at each session start. */
+    private val motionKeyframes = HashMap<Pair<Int, Int>, Int>()
+
+    /** A motion divergence on the instance [key]: a `divergence` note (the shell keyframes on it) while the instance has
+     *  had fewer than [MOTION_KEYFRAMES_PER_INSTANCE]; past that a `motion` note says so and nothing is asked. */
+    private fun motionDivergence(key: Pair<Int, Int>, what: String) {
+        val had = synchronized(motionKeyframes) {
+            val n = motionKeyframes[key] ?: 0
+            if (n < MOTION_KEYFRAMES_PER_INSTANCE) motionKeyframes[key] = n + 1
+            n
+        }
+        if (had < MOTION_KEYFRAMES_PER_INSTANCE) emitNote("divergence", "motion: $what — keyframing")
+        else emitNote("motion", "$what — not keyframed: this instance has had $MOTION_KEYFRAMES_PER_INSTANCE keyframes (the cap)")
     }
 
     /** Sequences received above [motionAccounted]; every sequence at or below it is accounted for (received, or
@@ -2279,6 +2338,7 @@ abstract class CfwTransportBase(
             if (teeMirror) mirrorSim.damageFeatures = damageCaps?.features
             // build C1 (spec §2 row 21 (a)): the END CRCs and the notified instances start again with the session
             synchronized(mirrorSim) { mirrorSim.motionSessionStart() }
+            synchronized(motionKeyframes) { motionKeyframes.clear() }
             zwriteSessionStart()
 
             // 1b. On a Damage build, the reset check (`FORK.md` §3.2): RIGHT's uptime, read here
@@ -2397,12 +2457,20 @@ abstract class CfwTransportBase(
                 val stage = ladderAtStart(caps2)
                 // a session that will not arm DRAW2 draws with v1 shapes over the first 64 KiB, so
                 // asking for 160 would spend 96 KiB of arena 13 against §4's budget for nothing
-                val size = requestCacheSize(epoch, if (heldBack) DamageMsg.CACHE_MIN_KIB else ladderKib(stage, caps2))
+                val kib = if (heldBack) DamageMsg.CACHE_MIN_KIB else ladderKib(stage, caps2)
+                // build C1's ruling B-M1: the 256 KiB size is the ladder's stage-2 rung — it records itself (the time and
+                // stage 2) BEFORE op 5 goes out, so glasses that reset on it are held back at the next start; the flag
+                // sets that follow record theirs in [flagsSet]. Stage 0 (every build without a C1 bit) asks 160 as
+                // before: nothing is recorded here
+                val sizeRung = kib == DamageMsg.CACHE_BUDGET_RIDERS_KIB
+                ladderSizeInForce = false
+                if (sizeRung) { lastArmedAtMs = nowMs(); ladderSizeInForce = true; ladderArmedStage = LADDER_SIZE_STAGE }
+                val size = requestCacheSize(epoch, kib)
+                // what the flag sets record from here: the size rung counts while this session asked for it and got it
+                ladderSizeInForce = sizeRung && size >= kib * 1024
                 updateState { it.copy(cacheSize = size) }
                 val roomForV2 = size - CfwModes.STAGE_RESERVE >= CfwModes.TEXTURE_CACHE_SIZE
                 val armDraw2 = !heldBack && roomForV2
-                // what a later hold-back blames: the ladder only when this start arms something of it
-                ladderArmedStage = if (armDraw2 && (ladderFlags(stage, caps2) != 0 || ladderKib(stage, caps2) != DamageMsg.CACHE_BUDGET_KIB)) stage else 0
                 // DRAW2 belongs to the session, not to the wish carried to other builds; a hold-back that
                 // caught it keeps it off until asked for by hand. The wish is not edited: a hold-back lifted
                 // by hand takes effect at the next start that has the room, as the probe's line says.
@@ -3144,9 +3212,13 @@ abstract class CfwTransportBase(
      * exactly this transport's bytes (a PLAY not closed in its stream). A bare keyframe closes every instance itself
      * (decision A.8). A write the transport cannot bound — a cached glyph run or a v1 cached image, whose extents live in
      * the cache — counts from its origin to the panel's right and bottom edges. More CLOSEs than the batch's count holds
-     * become one CLOSE of every instance; past that the encoder's own limit refuses the flush, loudly.
+     * become one CLOSE of every instance; past that the encoder's own limit refuses the flush, loudly. Build C1's ruling
+     * B-N5: a CLOSE is added only while ENGINE is in force (RIGHT's flags) — a CLOSE the glasses refuse (15) ends the
+     * batch and takes every write in it with it (§4); and the compositor keeps one sub-message of the count back while
+     * the mirror holds an instance open ([LensPanels.motionOpen]), so one CLOSE of every instance always fits.
      */
     private fun withMotionCloses(req: FlushRequest, image: ByteArray): ByteArray {
+        if (_state.value.flagsInForce and DamageMsg.FLAG_ENGINE == 0) return image
         val open = synchronized(mirrorSim) { Arm.entries.associateWith { mirrorSim.motionWindows(it) } }
         if (open.values.all { it.isEmpty() }) return image
         if (image[0].toInt() == 6 || req.ops.any { it is DisplayOp.Keyframe }) return image
@@ -3751,6 +3823,10 @@ abstract class CfwTransportBase(
         private const val HOLD_BACK_MS = 120_000L
         /** Build C1: the ladder's top stage (spec §6.1) and the two flag bits it owns. */
         const val C1_TOP_STAGE = 3
+        /** The ladder's stage whose own change is the 256 KiB cache (spec §6.1). */
+        private const val LADDER_SIZE_STAGE = 2
+        /** Build C1's ruling B-S2: the keyframes motion divergences may ask for per instance (a CRC mismatch's own). */
+        const val MOTION_KEYFRAMES_PER_INSTANCE = 2
         const val C1_FLAGS = DamageMsg.FLAG_ZWRITE or DamageMsg.FLAG_ENGINE
         /** How far short of the predicted uptime a reading must fall to count as a reset
          *  (armFeatures): the two clocks' drift over a day and the reply's own latency are

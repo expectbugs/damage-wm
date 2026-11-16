@@ -98,6 +98,12 @@ class MotionSim {
     /** §5.11 row 3, the engine's busy word, reduced to what one thread can observe: held or not. */
     var wordHeld = false
         private set
+    /** Build C1's rulings R1.1 and B-N13 (`C1-R2-decisions.md` §B): every close of an open instance (drawing or done)
+     *  — a CLOSE, a PLAY's own closes, a live mode 6's, a cache write that meets it — sets the panel's stale mark, so
+     *  the next present goes whole; [close] owes it here and the lens takes it when the engine word is let down
+     *  ([takeStaleMark]). */
+    private var staleMarkOwed = false
+    fun takeStaleMark(): Boolean = staleMarkOwed.also { staleMarkOwed = false }
     /** Notify bodies: the hook's owed record per slot (§5.8), the ui_task's captures per slot and its one refusal
      *  (decision A.2), and every body this lens SENT, in send order (RIGHT only sends; the vectors' "N"). */
     private val owed = arrayOfNulls<ByteArray>(SLOTS)
@@ -338,11 +344,13 @@ class MotionSim {
     }
 
     /** CLOSE (§5.5): empties the slot; a drawing instance's close is captured as outcome 1, a done one sends none.
-     *  True when it ended an open instance (drawing or done): build C1's ruling R1.1 marks the panel stale then. */
+     *  True when it ended an open instance (drawing or done); every such close owes the panel its stale mark (R1.1,
+     *  B-N13) — the one site every close of the four kinds passes through. */
     fun close(slot: Int, uptime: Long): Boolean {
         val o = slots[slot] ?: return false
         if (o.drawing) uiCaptures[slot] = body(++sequence, slot, o.tag, OUTCOME_CLOSED, o, 0, uptime)
         slots[slot] = null
+        staleMarkOwed = true
         return true
     }
 

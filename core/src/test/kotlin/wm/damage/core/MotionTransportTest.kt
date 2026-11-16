@@ -9,6 +9,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -273,12 +274,17 @@ class MotionTransportTest {
         tick = 1079; sim.motionNotified(0, 1, 0)
         assertEquals(listOf(area), sim.unknownAreas(Arm.LEFT), "notified, the nominal end not reached: still unknown")
         tick = 1080
-        assertEquals(emptyList(), sim.unknownAreas(Arm.LEFT), "both: known")
+        // build C1's ruling B-S1: the window also needs this model to have drawn the instance to its end — a mirror is
+        // given no wake, and its panel holds the step its last present drew
+        assertEquals(listOf(area), sim.unknownAreas(Arm.LEFT), "notified and at the nominal end, but this model still draws it: unknown")
+        Arm.entries.forEach { sim.conformanceWake(it, tick) }          // a refresh at the end draws step T here
+        assertEquals(emptyList(), sim.unknownAreas(Arm.LEFT), "all three: known")
         tick = 2000; play(2)
         tick = 2200
-        assertEquals(listOf(area), sim.unknownAreas(Arm.RIGHT), "past the nominal end, no notify: still unknown")
+        Arm.entries.forEach { sim.conformanceWake(it, tick) }
+        assertEquals(listOf(area), sim.unknownAreas(Arm.RIGHT), "past the nominal end and drawn to it, no notify: still unknown")
         sim.motionNotified(0, 2, 0)
-        assertEquals(emptyList(), sim.unknownAreas(Arm.RIGHT), "both: known")
+        assertEquals(emptyList(), sim.unknownAreas(Arm.RIGHT), "all three: known")
         tick = 3000; play(3)
         Arm.entries.forEach { assertTrue(sim.conformanceMessage(it, Motion.close(0), tick)) }
         assertEquals(emptyList(), sim.unknownAreas(Arm.RIGHT), "a CLOSE: the shadow is shown")
@@ -395,6 +401,231 @@ class MotionTransportTest {
             } finally {
                 tmp.toFile().deleteRecursively()
             }
+        }
+    }
+
+    // ------------------------------------------------------------------------------------- review pass 1's rulings
+    private fun controlArg(p: ByteArray): Int { val b = StartRig.body(p); val i = StartRig.controlAt(b)
+        return (b[i + 4].toInt() and 0xFF) or ((b[i + 5].toInt() and 0xFF) shl 8) }
+
+    /** Build C1's ruling B-M1: the 256 KiB size is a rung of the ladder, and it records itself (the time and stage 2)
+     *  before op 5 goes out. Glasses that reset on it — after op 5, before the first FLAGS_SET — are held back at the
+     *  next start: stage 3 drops to stage 1, so the next start asks 160 KiB and arms ZWRITE. The mirror here is the
+     *  transport's own (a tee), the glasses a separate model. */
+    @Test
+    fun glassesThatResetBetweenOp5AndTheFirstFlagsSetAreHeldBackAtTheNextStart_BM1(): Unit = runBlocking {
+        val glass = GlassFirmwareSim().apply { damageContract = 2; damageFeatures = 0x1ff }
+        var clock = 1_000_000L
+        val t = StartRig(glass, scope, clock = { clock })
+        t.heapReads = false
+        collect(t)
+        t.devProbe("c1", "3")
+        val sizes = java.util.concurrent.CopyOnWriteArrayList<String>()
+        val swallow = java.util.concurrent.atomic.AtomicBoolean(true)
+        t.onWrite = { a, p ->
+            if (StartRig.damageOp(p) != DamageMsg.OP_CACHE_SIZE) p
+            else { val kib = controlArg(p); sizes += "${a.name.first()}:$kib"; if (swallow.get() && kib == 256) null else p }
+        }
+        val first = scope.async { runCatching { t.start(full) } }
+        waitUntil(10_000, message = { "op 5 for 256 KiB written to both arms: $sizes" }) { "L:256" in sizes && "R:256" in sizes }
+        // the glasses reset on it: both lenses lose their RAM, RIGHT's uptime starts again, the link ends
+        clock += 10_000L
+        for (arm in Arm.entries) glass.rebootForTest(arm, clock)
+        t.endLink("test: the glasses reset on op 5")
+        first.await()
+        clock += 200_000L
+        swallow.set(false)
+        val before = sizes.size
+        t.start(full)
+        fun said() = notes.filter { it.first == "keeper" }.joinToString(" | ") { it.second }
+        assertTrue(has("keeper", "armed stage 2 — stage 1 from here"), "the size rung is blamed and dropped: ${said()}")
+        assertEquals(listOf("L:160", "R:160"), sizes.drop(before).distinct().sorted(), "the next start asks 160 KiB")
+        assertEquals(0x24, t.state.value.flagsInForce, "stage 1: DRAW2 and ZWRITE, no ENGINE: ${said()}")
+        assertEquals(160 * 1024, t.state.value.cacheSize)
+        t.stop()
+    }
+
+    /** Build C1's ruling B-N4 (with B-M1): what an arming records is what this build arms. A build with the riders and
+     *  no engine (0x17f) at stage 3 arms ZWRITE and the 256 KiB size — stage 2's changes — so a reset drops it to
+     *  stage 1 at once (the size goes). A build with the engine and no riders (0x0ff, without bit 8) at stage 3 arms
+     *  ENGINE alone, records stage 3, and a reset drops ENGINE. */
+    @Test
+    fun aHoldBackDropsFromWhatTheBuildArmed_BN4(): Unit = runBlocking {
+        data class Case(val features: Int, val flags3: Int, val kib3: Int, val note: String, val flagsAfter: Int, val kibAfter: Int)
+        for (c in listOf(Case(0x17f, 0x24, 256, "armed stage 2 — stage 1 from here", 0x24, 160),
+                         Case(0x0ff, 0xc, 160, "armed stage 3 — stage 2 from here", 0x4, 160))) {
+            notes.clear()
+            val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = c.features }
+            var clock = 1_000_000L
+            val t = SimTransport(sim, scope, SimTransport.Timing(instant = true), clock = { clock })
+            collect(t)
+            t.devProbe("c1", "3")
+            t.start(full)
+            val what = "features 0x${c.features.toString(16)}"
+            fun said() = notes.filter { it.first == "keeper" }.joinToString(" | ") { it.second }
+            assertEquals(c.flags3, t.state.value.flagsInForce, "$what at stage 3: ${said()}")
+            assertEquals(c.kib3 * 1024, t.state.value.cacheSize, what)
+            clock += 10_000L; sim.uptimeOffsetMs = clock; clock += 200_000L
+            assertTrue(t.restartSession("test: after a reset"))
+            t.start(full)
+            waitUntil(10_000, message = { "$what: the hold-back: ${said()}" }) { has("keeper", c.note) }
+            assertEquals(c.flagsAfter, t.state.value.flagsInForce, "$what after the hold-back: ${said()}")
+            assertEquals(c.kibAfter * 1024, t.state.value.cacheSize, "$what after the hold-back")
+            t.stop()
+        }
+    }
+
+    /** Build C1's ruling B-M1, its third site: a ladder bit armed by hand (a `flags=` probe, within the stage) is a
+     *  rung's byte too and records its stage with its time. A session that started at stage 0, then `c1=3` and
+     *  `flags=0x2c` by hand, then a reset: the next start blames the ladder (stage 3 → 2) and keeps DRAW2, instead of
+     *  today's hold-back of the whole set. */
+    @Test
+    fun aLadderBitArmedByHandRecordsItsStage_BM1(): Unit = runBlocking {
+        val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = 0x1ff }
+        var clock = 1_000_000L
+        val t = SimTransport(sim, scope, SimTransport.Timing(instant = true), clock = { clock })
+        collect(t)
+        t.start(full)
+        assertEquals(0x4, t.state.value.flagsInForce, "stage 0: DRAW2 only")
+        t.devProbe("c1", "3")
+        t.devProbe("flags", "0x2c")
+        waitUntil(10_000, message = { "the hand-set flags reached both lenses" }) { Arm.entries.all { sim.damageFlags(it) == 0x2c } }
+        clock += 10_000L; sim.uptimeOffsetMs = clock; clock += 200_000L
+        assertTrue(t.restartSession("test: after a reset"))
+        t.start(full)
+        fun said() = notes.filter { it.first == "keeper" }.joinToString(" | ") { it.second }
+        waitUntil(10_000, message = { "the ladder's hold-back: ${said()}" }) { has("keeper", "armed stage 3 — stage 2 from here") }
+        assertEquals(0x24, t.state.value.flagsInForce, "stage 2: ENGINE gone, DRAW2 and ZWRITE kept: ${said()}")
+        assertEquals(256 * 1024, t.state.value.cacheSize)
+        t.stop()
+    }
+
+    /** Build C1's ruling B-S1, in the phone's real arrangement — the mirror a tee of this transport's bytes, the
+     *  glasses a separate model: the lens runs a program to its end on its own clock and RIGHT's notify comes, but the
+     *  mirror, given no wake, still holds step 1 there, so the area stays unknown; the next present into the mirror at
+     *  or past the end draws step T, and only then is the area known. */
+    @Test
+    fun anAreaStaysUnknownWhileTheTeedMirrorStillDrawsIt_BS1(): Unit = runBlocking {
+        val glass = GlassFirmwareSim().apply { damageContract = 2; damageFeatures = 0x1ff }
+        var clock = 1_000_000L
+        val t = StartRig(glass, scope, clock = { clock })
+        collect(t)
+        t.devProbe("c1", "3")
+        t.start(full)
+        assertEquals(0x2c, t.state.value.flagsInForce)
+        val area = Rect(100, 100, 40, 20)
+        assertTrue(t.sendMotion(messages(program(area, 5), slot = 0, period = 34, tag = 0x81)))
+        waitUntil(10_000, message = { "the PLAY landed on the glasses and in the mirror" }) {
+            glass.motionWindows(Arm.RIGHT).any { it.slot == 0 } && t.mirror.unknownAreas(Arm.RIGHT) == listOf(area) }
+        clock += 1_000L                                                  // well past the nominal end (4 × 34 ticks)
+        for (arm in Arm.entries) glass.conformanceWake(arm, clock)       // the lens draws step T and RIGHT notifies
+        waitUntil(10_000, message = { "RIGHT's notify: $notes" }) { has("motion", "tag 0x0081 drew its last step") }
+        for (arm in Arm.entries) assertEquals(listOf(area), t.mirror.unknownAreas(arm),
+            "$arm: notified and past the nominal end, but the mirror still draws it (its panel holds step 1): unknown")
+        t.submit(FlushRequest(listOf(DisplayOp.Fill(Rect(400, 300, 8, 4), Rect(400, 300, 8, 4), 7)), 0, "elsewhere"))
+        waitUntil(10_000, message = { "the mirror's present drew step T: ${t.mirror.unknownAreas(Arm.RIGHT)}" }) {
+            Arm.entries.all { t.mirror.unknownAreas(it).isEmpty() } }
+        t.stop()
+    }
+
+    /** Build C1's ruling B-S2: RIGHT refuses a mode-26 message for a slot the mirror holds open (here RIGHT's ENGINE is
+     *  off behind the phone's back, so it refuses 15 while LEFT and the mirror take everything): a divergence, which the
+     *  shell keyframes on — under the cap of a CRC mismatch, two per instance: the PLAY's refusal and a first
+     *  RETARGET's are divergences, a second RETARGET's is said and asks for no third keyframe. A refused PLAY whose tag
+     *  the mirror's slot does not hold (the mirror refused it as well) is none. */
+    @Test
+    fun aRefusalForASlotTheMirrorHoldsOpenIsADivergenceTwicePerInstance_BS2(): Unit = runBlocking {
+        val glass = GlassFirmwareSim().apply { damageContract = 2; damageFeatures = 0x1ff }
+        val t = StartRig(glass, scope)
+        collect(t)
+        t.devProbe("c1", "3")
+        t.start(full)
+        assertEquals(0x2c, t.state.value.flagsInForce)
+        // the rig's model answers inside the write, before the transport's own mirror has taken the packet; a motion
+        // notify is handed back a little later, as the radio's round trip does
+        t.onNotify = { arm, p ->
+            if (StartRig.sid(p) == SettingsMsg.SID && DamageMsg.parseMotion(StartRig.body(p)) != null) { scope.launch { delay(20); t.deliver(arm, p) }; null } else p
+        }
+        fun divergences() = notes.filter { it.first == "divergence" && it.second.startsWith("motion: slot 0 refused by RIGHT") }
+        val p = program(Rect(200, 200, 40, 20), 200)
+        // first a PLAY both sides take (slot 0 open with tag 0x90), then one both refuse (period 0: 12): RIGHT's body
+        // names tag 0x91, which the mirror's slot does not hold — the mirror refused it too, so it is no divergence
+        assertTrue(t.sendMotion(messages(p, 0, 128, 0x90)))
+        assertTrue(t.sendMotion(listOf(Motion.play(p, 0, 128, 0x91, 0, IntArray(4)).also { it[3] = 0 })))
+        waitUntil(10_000, message = { "RIGHT's refusal of tag 0x91: $notes" }) { notes.any { it.first == "motion" && "slot 0 tag 0x0091 refused" in it.second } }
+        // now RIGHT's ENGINE goes off behind the phone's back: RIGHT refuses every mode 26 (15), LEFT and the mirror do not
+        glass.conformanceControl(Arm.RIGHT, DamageMsg.OP_FLAGS_SET, DamageMsg.FLAG_DRAW2 or DamageMsg.FLAG_ZWRITE, System.currentTimeMillis())
+        assertTrue(t.sendMotion(listOf(Motion.play(p, 0, 128, 0x92, 0, IntArray(4)))))
+        waitUntil(10_000, message = { "the PLAY's refusal: $notes" }) { divergences().size >= 1 }
+        assertTrue("tag 0x0092 ordinal 0 open" in divergences()[0].second, divergences()[0].second)
+        assertTrue(t.sendMotion(listOf(Motion.retarget(p, 0, IntArray(4)))))
+        waitUntil(10_000, message = { "the first RETARGET's refusal: $notes" }) { divergences().size >= 2 }
+        assertTrue(t.sendMotion(listOf(Motion.retarget(p, 0, IntArray(4)))))
+        waitUntil(10_000, message = { "the second RETARGET's refusal, capped: $notes" }) {
+            divergences().size > 2 || has("motion", "not keyframed: this instance has had 2 keyframes (the cap)") }
+        assertEquals(2, divergences().size, "two keyframes asked for one instance, never a third: ${divergences()}")
+        t.stop()
+    }
+
+    /** Build C1's ruling B-N5, at the batch's limit: with ENGINE not in force (RIGHT's flags; here the phone's stage 1),
+     *  a flush of the batch's whole count (255 sub-messages) that meets an instance open on the glasses goes as the
+     *  encoder made it — no CLOSE (it would be refused 15 and end the batch, and it would not fit). */
+    @Test
+    fun aCloseRidesOnlyWhileEngineIsInForce_BN5(): Unit = runBlocking {
+        val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = 0x1ff }
+        val t = SimTransport(sim, scope, SimTransport.Timing(instant = true))
+        collect(t)
+        val done = java.util.concurrent.CopyOnWriteArrayList<TransportEvent.FlushDone>()
+        scope.launch(start = CoroutineStart.UNDISPATCHED) { t.events.collect { if (it is TransportEvent.FlushDone) done.add(it) } }
+        t.devProbe("c1", "1")
+        t.start(full)
+        assertEquals(0x24, t.state.value.flagsInForce, "stage 1: ENGINE not in force")
+        val area = Rect(100, 100, 40, 20)
+        val now = System.currentTimeMillis()
+        for (arm in Arm.entries) {                                       // an instance open on the glasses all the same
+            sim.conformanceControl(arm, DamageMsg.OP_FLAGS_SET, 0x2c, now)
+            for (m in messages(program(area, 200), 1, 128, 0xA1)) assertTrue(sim.conformanceMessage(arm, m, now))
+        }
+        assertTrue(sim.motionWindows(Arm.RIGHT).any { it.slot == 1 })
+        val batches = java.util.concurrent.CopyOnWriteArrayList<ByteArray>()
+        sim.imageObserver = { arm, img -> if (arm == Arm.RIGHT && img[0].toInt() == 8) batches += img }
+        val ops = (0 until 254).map { i -> Rect(200 + (i % 40) * 10, 300 + (i / 40) * 10, 4, 4).let { DisplayOp.Fill(it, it, 7) } } +
+            DisplayOp.Fill(Rect(110, 104, 8, 4), Rect(110, 104, 8, 4), 7)
+        t.submit(FlushRequest(ops, 0, "the batch's whole count, one sub over the area"))
+        waitUntil(10_000, message = { "the flush ended: $done" }) { done.isNotEmpty() }
+        assertTrue(done.single().ok, "the flush landed: ${done.single()}")
+        assertEquals(255, batches.single()[1].toInt() and 0xFF, "the encoder's batch, its whole count")
+        assertEquals(21, batches.single()[4].toInt() and 0x7F, "no CLOSE at its head")
+        assertTrue(sim.motionWindows(Arm.RIGHT).any { it.slot == 1 }, "the phone closed nothing")
+        t.stop()
+    }
+
+    /** Build C1's ruling B-N5, the shell's half: before each assemble the shell tells the compositor whether the mirror
+     *  holds an instance open, so one sub-message of the batch's count is kept for the transport's CLOSE (the count
+     *  itself is `BaseMaskTest`'s pin). */
+    @Test
+    fun theShellTellsTheCompositorWhileAnInstanceIsOpen_BN5(): Unit = runBlocking {
+        val tmp = Files.createTempDirectory("damage-motion-open")
+        try {
+            val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = 0x1ff }
+            val t = SimTransport(sim, scope, SimTransport.Timing(instant = true))
+            t.devProbe("c1", "3")
+            var clock = Shell.LocalClock(12, 0, "12:00", "PM")
+            val shell = Shell(FakeText(), t, Persistence(tmp.resolve("s.json")), null, scope) { clock }
+            shell.start()
+            waitUntil(10_000, 10, { "shell did not settle" }) { shell.isQuiescent() }
+            assertEquals(false, shell.comp.motionOpen, "nothing open at the start")
+            assertTrue(t.sendMotion(messages(program(Rect(560, 440, 60, 30), 200), slot = 2, period = 128, tag = 0x72)))
+            waitUntil(10_000, message = { "the PLAY landed" }) { sim.motionWindows(Arm.LEFT).any { it.slot == 2 } }
+            val images = java.util.concurrent.atomic.AtomicInteger()
+            sim.imageObserver = { arm, _ -> if (arm == Arm.RIGHT) images.incrementAndGet() }
+            clock = Shell.LocalClock(12, 1, "12:01", "PM")
+            shell.postMinuteTick()
+            waitUntil(10_000, 10, { "the minute's flush" }) { images.get() > 0 && shell.isQuiescent() }
+            assertEquals(true, shell.comp.motionOpen, "the flush was assembled with the open instance known")
+            shell.stop()
+        } finally {
+            tmp.toFile().deleteRecursively()
         }
     }
 

@@ -100,10 +100,29 @@ class TestProgramsTest {
         t.devProbe("motion", "popover")
         val tp = TestPrograms.build("popover", t.state.value.cacheSize)!!
         waitUntil(10_000, message = { "the PLAY landed: ${seen.size} images; $notes" }) { sim.motionWindows(Arm.RIGHT).any { it.slot == 0 } }
-        assertEquals(tp.messages().map { it.toList() }, seen.map { it.toList() }, "the program's records, then its PLAY, as built")
+        // the PLAY carries this play's own tag (build C1's ruling B-N11; its pin is eachPlayOfTheProbeHasItsOwnTag_BN11)
+        val tag = seen.last().let { (it[6].toInt() and 0xFF) or ((it[7].toInt() and 0xFF) shl 8) }
+        assertEquals(tp.withTag(tag).messages().map { it.toList() }, seen.map { it.toList() }, "the program's records, then its PLAY, as built")
         val w = sim.motionWindows(Arm.RIGHT).single()
         assertEquals(tp.program.tracks.map { it.areaR }, w.areas, "the instance opened over the program's areas")
         assertTrue(notes.any { it.first == "motion" && "test program sent (popover" in it.second }, "the probe says what it sent: $notes")
+        t.stop()
+    }
+
+    /** Build C1's ruling B-N11: each play of the probe has its own tag, so two plays of one program keep two END records
+     *  in the mirror ((slot, tag, ordinal) each) and a late notify of the first is never compared with the second's. */
+    @Test
+    fun eachPlayOfTheProbeHasItsOwnTag_BN11(): Unit = runBlocking {
+        val seen = java.util.concurrent.CopyOnWriteArrayList<ByteArray>()
+        val (sim, t) = session(3, seen)
+        fun plays() = seen.filter { it[0].toInt() == CfwModes.MOTION_MODE && it[1].toInt() == 0 }
+        for (n in 1..2) {
+            t.devProbe("motion", "list")
+            waitUntil(10_000, message = { "play $n landed: ${plays().size} PLAYs; $notes" }) { plays().size >= n }
+        }
+        val tags = plays().map { (it[6].toInt() and 0xFF) or ((it[7].toInt() and 0xFF) shl 8) }
+        assertEquals(2, tags.distinct().size, "two plays of `list`, two tags: $tags")
+        for (tag in tags) assertTrue(sim.motionEndCrc(0, tag, 0) != null, "the mirror's END record for tag 0x%04x".format(tag))
         t.stop()
     }
 

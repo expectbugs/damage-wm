@@ -52,6 +52,14 @@ object TestPrograms {
 
         fun play(): ByteArray = Motion.play(program, slot, period, tag, cap4, params)
 
+        /** This program with [tag] in its PLAY (build C1's ruling B-N11: the probe gives each play its own tag, so a
+         *  second play of one program never takes the first's END record, and a late notify of the first is never
+         *  compared with the second's CRC). */
+        fun withTag(tag: Int): TestProgram {
+            require(tag in 0..0xFFFF) { "a tag is u16: $tag" }
+            return TestProgram(name, about, program, writes, cap4, tag, stage, cacheSize, images)
+        }
+
         /** What the transport sends for it: every record as mode-19 writes of at most [Shell.STAGE_CHUNK] bytes (the
          *  staged strips' size: a multiple of 4, under the atlas's messages), then the PLAY. */
         fun messages(): List<ByteArray> {

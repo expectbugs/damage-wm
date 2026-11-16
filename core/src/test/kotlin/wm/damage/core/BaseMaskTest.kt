@@ -825,6 +825,45 @@ class BaseMaskTest {
         }
     }
 
+    /**
+     * Build C1's ruling B-N5: while the mirror holds a motion instance open the transport may put one CLOSE at a batch's
+     * head (`FIRMWARE.md` §5.6), so the compositor keeps one more sub-message of the count back. The scene is the one
+     * above without what waits behind it: three blocks of solid text that ship as 97 + 96 + 61 = 254 sub-messages with
+     * the hint in the 255th. With an instance open the third block finds 60 left for its 61, answers `batch-count` and
+     * goes as one pixel delta in the same flush, and the batch keeps room for the CLOSE.
+     * THE SHAPE GUARD: the same scene with nothing open fills the count to its last (255), so the scene reaches it.
+     * Mutation watched: `subsLeft` not keeping the CLOSE's slot.
+     */
+    @Test
+    fun whileAMotionInstanceIsOpenTheBatchKeepsOneSubMessageForTheClose_BN5() {
+        val fB = FontSpec(Face.SYSTEM, 8)
+        val sep1 = Rect(136, 100, 8, 40); val sep2 = Rect(220, 100, 8, 40)
+        class Block(val x: Int, val cols: Int, val rows: Int) { val rect get() = Rect(x, 100, 4 * cols, 8 * rows) }
+        val blocks = listOf(Block(40, 24, 4), Block(144, 19, 5), Block(228, 12, 5))   // 96, 95 and 60 draws
+        for (open in booleanArrayOf(false, true)) {
+            val r = Rig(true, BlockText())
+            r.face(fB, "A")
+            r.comp.planes = listOf(Compositor.PlaneRegion(sep1, 0), Compositor.PlaneRegion(sep2, 0))
+            for (b in blocks) {
+                for (row in 0 until b.rows) for (col in 0 until b.cols) r.ct.draw(r.g, b.x + 4 * col, 100 + 8 * row, "A", fB, Level.HOT)
+                r.comp.damage(b.rect)
+            }
+            r.comp.motionOpen = open
+            val a = r.flush("three blocks at the batch's count, an instance ${if (open) "open" else "not open"}")
+            val what = "open $open: ${a.ops.size} sub-messages, ${textDraws(a)} draws, misses '${r.misses}'"
+            if (!open) {
+                assertEquals(255, a.ops.size, "the shape guard: nothing open, the count is full to its last — $what")
+                assertEquals(0, counted(r.misses, "batch-count"), what)
+            } else {
+                assertTrue(a.ops.size <= 254, "one sub-message kept for the transport's CLOSE — $what")
+                assertEquals(1, counted(r.misses, "batch-count"), "the third block is the one refusal, by its own word — $what")
+                assertTrue(a.ops.last() is DisplayOp.PresentHint, "the hint still rides — $what")
+            }
+            for (b in blocks) r.assertBeliefIsComposed(what, b.rect)
+            r.assertGlassIsBelief(what)
+        }
+    }
+
     private companion object {
         const val NOW = 1_000L
     }

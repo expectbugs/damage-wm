@@ -1450,6 +1450,17 @@ class GlassFirmwareSim() : LensPanels {
     /** A test's view of every image message the model takes at the top level, both lenses, before it is handled. */
     @Volatile var imageObserver: ((Arm, ByteArray) -> Unit)? = null
 
+    /** The (tag, ordinal) of the instance open in [slot] on [arm]'s lens, or null when the slot is empty (build C1's
+     *  ruling B-S2: a refusal notify for a slot the mirror holds open is a divergence). */
+    @Synchronized
+    fun motionOpenIn(arm: Arm, slot: Int): Pair<Int, Int>? =
+        ctx(arm).motion.slots.getOrNull(slot)?.let { it.tag to it.ordinal }
+
+    /** True while an instance is open on either lens (build C1's ruling B-N5: the compositor keeps one sub-message of
+     *  the batch's count back for the transport's CLOSE). */
+    @Synchronized
+    override fun motionOpen(): Boolean = left.motion.anyOpen || right.motion.anyOpen
+
     /** The END CRC RIGHT's model wrote for (slot, tag, ordinal) this session, or null. */
     @Synchronized
     fun motionEndCrc(slot: Int, tag: Int, ordinal: Int): Long? = endCrcs[Triple(slot, tag, ordinal)]
@@ -1463,8 +1474,11 @@ class GlassFirmwareSim() : LensPanels {
     fun motionSessionStart() { endCrcs.clear(); motionNotified.clear() }
 
     /** Spec §6.5: each open instance's areas on [arm]'s lens from its PLAY until the later of RIGHT's notify for that
-     *  (slot, tag, ordinal) and its nominal end — the step-T tick on this model's clock, a signed 32-bit compare. A
-     *  closed instance (a CLOSE, a release point, a live keyframe, a meeting write) is not listed: its END is up. */
+     *  (slot, tag, ordinal) and its nominal end — the step-T tick on this model's clock, a signed 32-bit compare — and,
+     *  build C1's ruling B-S1, until this model no longer draws it: a tee'd mirror is given no engine wake, so its panel
+     *  holds the step its last present drew until a present at or past the end draws step T; the window ends when this
+     *  panel really shows END. A closed instance (a CLOSE, a release point, a live keyframe, a meeting write) is not
+     *  listed: its END is up. */
     @Synchronized
     override fun unknownAreas(arm: Arm): List<Rect> {
         val m = ctx(arm).motion
@@ -1476,7 +1490,7 @@ class GlassFirmwareSim() : LensPanels {
             if (o == null) continue
             val end = (o.t0 + (o.T - 1).toLong() * o.period) and MotionSim.U32
             val past = ((now - end) and MotionSim.U32).toInt() >= 0
-            if (past && Triple(o.slot, o.tag, o.ordinal) in motionNotified) continue
+            if (past && Triple(o.slot, o.tag, o.ordinal) in motionNotified && !o.drawing) continue
             for (t in o.prog.tracks) out += t.rect(left)
         }
         return out
@@ -1487,10 +1501,15 @@ class GlassFirmwareSim() : LensPanels {
     fun motionForTest(arm: Arm): MotionSim = ctx(arm).motion
 
     /** The engine's busy word around one ui_task section: claimed by compare-exchange from IDLE, let down on every
-     *  exit (§5.11 row 3). The model has one thread, so the claim cannot fail; a hook that ran inside would fold. */
+     *  exit (§5.11 row 3). The model has one thread, so the claim cannot fail; a hook that ran inside would fold.
+     *  Every close happens inside one of these sections (a CLOSE, a PLAY's own closes, a live mode 6's, a cache write's
+     *  meet), so the stale mark a close owes is set here, before the section's present (rulings R1.1 and B-N13). */
     private inline fun <T> underWord(c: LensCtx, block: () -> T): T {
         c.motion.claim()
-        try { return block() } finally { c.motion.letDown() }
+        try { return block() } finally {
+            c.motion.letDown()
+            if (c.motion.takeStaleMark()) c.panelStale = true
+        }
     }
 
     /** §5.6's close-on-meet for a cache write: the entries of [msg] from [start] (`off` in units of [unit] bytes). */
@@ -1537,10 +1556,10 @@ class GlassFirmwareSim() : LensPanels {
                                               rd16at(src, 8), params(10), tick, uptimeTicks(now)) } }
             1 -> if (slot >= MotionSim.SLOTS) REF_VALUE
                  else underWord(c) { e.retarget(c.textureCache, c.shadow, c.stride, left, slot, params(3), tick) }
-            // build C1's ruling R1.1: a CLOSE that ends an open instance (drawing or done) marks the panel stale, so the
-            // present that follows — its own alone, the batch's in a batch — goes whole and shows END
+            // build C1's ruling R1.1: a CLOSE that ends an open instance (drawing or done) marks the panel stale ([underWord]
+            // sets it), so the present that follows — its own alone, the batch's in a batch — goes whole and shows END
             2 -> if (slot >= MotionSim.SLOTS && slot != 0xFF) REF_VALUE
-                 else underWord(c) { if (if (slot == 0xFF) e.closeAll(uptimeTicks(now)) else e.close(slot, uptimeTicks(now))) c.panelStale = true; 0 }
+                 else underWord(c) { if (slot == 0xFF) e.closeAll(uptimeTicks(now)) else e.close(slot, uptimeTicks(now)); 0 }
             // ruling R1.8: an unknown sub (3..255) held to length 3 above, then 12 here; its body carries no slot
             else -> REF_VALUE
         }

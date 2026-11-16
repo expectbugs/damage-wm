@@ -526,6 +526,59 @@ class MotionSimTest {
         assertEquals(PLAN_FOREVER, r.sim.conformancePlan(r.arm, r.now))
     }
 
+    /** Build C1's ruling B-N13 (`C1-R2-decisions.md` §B): every close of an open instance sets the stale mark, so the
+     *  next present goes whole — here the two kinds a later hinted present can show: (a) a cache write that meets a
+     *  drawing instance, whose panel still holds step 1 where the shadow holds END; (b) the same over a done instance,
+     *  where a level written outside the hint reaches the lens only when the batch goes whole; (c) a live keyframe in a
+     *  hinted batch closing a drawing instance. A PLAY's own closes are the same close, and the PLAY's own present goes
+     *  whole anyway (it draws step 1). `v3-rulings2` steps 1–10 put the same cases to the C. */
+    @Test
+    fun everyCloseOfAnOpenInstanceMarksThePanelStale_BN13() {
+        val mv = prog(track(rect(0, 100, 200, 10), 4, seg(DRAW, 4, kind = 0, src = 32, xL = 10, y = 102, dxL = 120, lvl0 = 15, lvl1 = 15)))
+        fun hinted(r: Rig, y: Int, level: Int, wide: Int = -1) = assertTrue(r.msg(batch(*listOfNotNull(
+            if (wide >= 0) CfwModes.fill(Rect(0, 300, 640, 4), wide) else null,
+            CfwModes.fill(Rect(0, y, 640, 2), level), CfwModes.presentHint(y, y + 1)).toTypedArray())))
+        // (a) a write that meets a drawing instance
+        val a = Rig()
+        a.write(32, image2(8, 4, 15))
+        a.write(64, mv)
+        a.now = 2000
+        assertTrue(a.msg(play(0, 34, 64, 1)))               // step 1 at x 10 + 30 = 40; END (x 130) in the shadow
+        assertEquals(listOf(15, 4), listOf(a.panel(40, 102), a.panel(130, 102)), "the panel shows step 1")
+        a.bodies()
+        a.now = 2005
+        a.write(64, mv)                                     // meets the program record: closed, outcome 1
+        assertEquals(listOf(1L), a.bodies().map { it[4] }, "closed while drawing")
+        a.now = 2010; hinted(a, y = 400, level = 5)
+        assertEquals(listOf(15, 4), listOf(a.panel(130, 102), a.panel(40, 102)),
+            "(a) nothing drawing, yet the batch after the meeting close goes whole: the lens shows END")
+        // (b) a write that meets a done instance
+        val b = Rig()
+        val t1 = prog(track(rect(300, 100, 60, 10), 5, seg(FILL, 1, kind = 7)))
+        b.write(64, t1)
+        b.now = 2000
+        assertTrue(b.msg(play(1, 34, 64, 2)))               // T = 1: its present draws its last step (A.12's mark)
+        b.now = 2100; hinted(b, y = 400, level = 5, wide = 5)   // whole: the mark is spent
+        b.now = 2110; hinted(b, y = 410, level = 6, wide = 6)
+        assertEquals(5, b.panel(0, 300), "rows only")
+        b.bodies()
+        b.now = 2120; b.write(64, t1)                       // meets the done instance: closed, no notify
+        assertTrue(b.bodies().isEmpty(), "a done one sends no notify")
+        b.now = 2130; hinted(b, y = 420, level = 7)
+        assertEquals(6, b.panel(0, 300), "(b) the batch after the meeting close goes whole: level 6 reaches the lens")
+        // (c) a live keyframe in a hinted batch
+        val c = Rig()
+        c.write(32, image2(8, 4, 15))
+        c.write(64, mv)
+        c.now = 2000
+        assertTrue(c.msg(play(0, 34, 64, 3)))
+        c.bodies()
+        c.now = 2005
+        assertTrue(c.msg(batch(CfwModes.keyframe(Zl.encodeCfw(ByteArray(320 * 480) { 0x33 })), CfwModes.presentHint(0, 1))))
+        assertEquals(listOf(1L), c.bodies().map { it[4] }, "the keyframe closed it while drawing")
+        assertEquals(3, c.panel(300, 300), "(c) the hinted batch whose keyframe closed an instance goes whole")
+    }
+
     // ------------------------------------------------------------------------- the encoder of this file
     private companion object {
         const val ENGINE = 1 shl 3
