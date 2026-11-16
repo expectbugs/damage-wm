@@ -32,7 +32,9 @@ import wm.damage.core.transport.Arm
  * **Not filled** (build C1's decisions, §B): a step whose `expect` is absent or empty has not been
  * answered by the C yet — `make_vectors.py` writes inputs only, and keeps the C's answers only for a
  * prefix of steps whose inputs did not change. Such a step is reported by name, with a count, in the
- * test's output: it is neither a mismatch nor a pass, and the vectors' meeting closes it. A vector none
+ * test's output: it is neither a mismatch nor a pass. In the repo's own `firmware/vectors/` it fails the normal
+ * path's test (build C1's ruling R1.21: the C answers a vector before it is committed); a set named by
+ * `DAMAGE_VECTOR_DIR` keeps the report only. A vector none
  * of whose steps is filled is not run at all (its ops may be ones this simulator does not model yet); a
  * vector filled in part runs every op and compares its filled steps, which must come first — a filled
  * step after a not-filled one is an answer to a different input, and that is a problem.
@@ -59,13 +61,27 @@ class ConformanceVectorTest {
             println("ConformanceVectorTest: DAMAGE_VECTOR_DIR=$d — the repo's own vectors are NOT being checked")
             return d
         }
+        return repoVectorDir() ?: fail("firmware/vectors not found above ${System.getProperty("user.dir")}")
+    }
+
+    /** The repo's own `firmware/vectors/`, found above the working directory; null when there is none. */
+    private fun repoVectorDir(): Path? {
         var d: Path? = Path.of(System.getProperty("user.dir")).toAbsolutePath()
         while (d != null) {
             val v = d.resolve("firmware/vectors")
             if (Files.isDirectory(v)) return v
             d = d.parent
         }
-        fail("firmware/vectors not found above ${System.getProperty("user.dir")}")
+        return null
+    }
+
+    /** Build C1's ruling R1.21: a step with no expectation in the repo's own `firmware/vectors/` fails the test — the
+     *  C answers a vector before it is committed there (the fork's `host/run_vectors.py --write`). Another set
+     *  ([dir] named by `DAMAGE_VECTOR_DIR`: the fuzz, a stage's inputs) keeps the not-filled report only. Each
+     *  not-filled vector of [out], with its steps, becomes a problem when [dir] is [repo]. */
+    private fun notFilledFailsInTheRepo(dir: Path, repo: Path?, out: Outcome) {
+        if (repo == null || !Files.isSameFile(dir, repo)) return
+        for (n in out.notFilled) out.problems += "$n: not filled — a step in firmware/vectors/ with no expectation fails the test (ruling R1.21)"
     }
 
     private fun vectorFiles(dir: Path): List<Path> =
@@ -317,10 +333,12 @@ class ConformanceVectorTest {
 
     @Test
     fun everyVectorMatchesOnBothLenses() {
-        val files = vectorFiles(vectorDir())
-        assertTrue(files.isNotEmpty(), "no vectors in ${vectorDir()}")
+        val dir = vectorDir()
+        val files = vectorFiles(dir)
+        assertTrue(files.isNotEmpty(), "no vectors in $dir")
         val out = runNormal(files)
         report("normal path", out)
+        notFilledFailsInTheRepo(dir, repoVectorDir(), out)
         assertTrue(out.compared > 0, "no vector step was compared")
         assertEquals(emptyList(), out.problems, "the simulator disagrees with the firmware C:\n" + out.problems.joinToString("\n"))
     }
@@ -518,6 +536,36 @@ class ConformanceVectorTest {
         } finally {
             Files.list(dir).use { s -> s.forEach { Files.delete(it) } }
             Files.delete(dir)
+        }
+    }
+
+    /** Build C1's ruling R1.21, the rule itself: a set holding a vector filled but for one step fails when the set is
+     *  the repo's own `firmware/vectors/` (the step is named), and keeps the report only when it is another set. */
+    @Test
+    fun aStepWithNoExpectationInTheReposVectorsFailsTheTest_R1_21() {
+        val src = vectorFiles(vectorDir()).firstOrNull { it.fileName.toString() == "v1-keyframe.json" }
+            ?: fail("v1-keyframe.json is not in ${vectorDir()}: the rule's test is built from it")
+        val base = Json.parseToJsonElement(Files.readString(src)).jsonObject
+        val steps = base["steps"]!!.jsonArray
+        val last = steps.size - 1
+        val unfilled = JsonObject(base + mapOf("name" to JsonPrimitive("a-one-unfilled"), "steps" to JsonArray(steps.mapIndexed { i, s ->
+            if (i == last) JsonObject(s.jsonObject + ("expect" to JsonObject(emptyMap()))) else s })))
+        val dir = Files.createTempDirectory("conformance-r21")
+        val other = Files.createTempDirectory("conformance-r21-other")
+        try {
+            Files.writeString(dir.resolve("a-one-unfilled.json"), unfilled.toString())
+            val asRepo = runNormal(vectorFiles(dir))
+            assertEquals(emptyList(), asRepo.problems, "its filled steps agree")
+            notFilledFailsInTheRepo(dir, dir, asRepo)
+            assertEquals(listOf("a-one-unfilled (steps $last..$last of ${steps.size}): not filled — a step in firmware/vectors/ with no " +
+                "expectation fails the test (ruling R1.21)"), asRepo.problems, "the repo's own set: the unfilled step fails, by name")
+            val asOther = runNormal(vectorFiles(dir))
+            notFilledFailsInTheRepo(dir, other, asOther)
+            assertEquals(emptyList(), asOther.problems, "another set (DAMAGE_VECTOR_DIR): reported, not failed")
+            assertEquals(listOf("a-one-unfilled (steps $last..$last of ${steps.size})"), asOther.notFilled)
+        } finally {
+            Files.list(dir).use { s -> s.forEach { Files.delete(it) } }
+            Files.delete(dir); Files.delete(other)
         }
     }
 
