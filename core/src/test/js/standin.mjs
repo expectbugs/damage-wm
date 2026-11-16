@@ -98,6 +98,8 @@ addEventListener('unhandledrejection', (e) => note('page error: ' + (e.reason &&
 async function step(s) {
   if (s.wait) await until(s.wait);
   if (s.click) (await until(s.click)).click();
+  // S1-2 Q3: until nothing matches (a toast taken away)
+  if (s.gone) await new Promise((ok) => { const t = setInterval(() => { if (!document.querySelector(s.gone)) { clearInterval(t); ok(); } }, 50); });
   if (s.drop) {
     // S1-2 Q5w: files dropped on the page, as a drag from the desktop delivers them
     const dt = new DataTransfer();

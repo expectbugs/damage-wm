@@ -441,6 +441,17 @@ def check(root=ROOT, say=print):
     line(bastion_in_host(host), 'hostOnly: its content host serves the "bastion" window channel', 'no "bastion" to … in its ContentHostServer(…)')
     line(app_in_host(host), 'hostOnly: its content host serves the "app" lane over the record it opened, shared with the web listener, with the local secret',
          'no val appNet = …AppNet(appHost, devices = web.core) given to its ContentHostServer(… app = appNet, localSecret = web::localSecret) and startWeb(…)')
+    # build S1-2 (Q3): the PC's notice mirror is made once in runShell and handed to every stack, whose shell attaches
+    # as its sink (host-only runs no shell: no mirror, on purpose); the phone's is made with its working copy and each
+    # stack's shell attaches
+    line('val noticeMirror = wm.damage.core.app.NoticeMirror(' in run and 'notices = noticeMirror' in run,
+         'runShell: one notice mirror for the process, handed to every stack it builds',
+         'no val noticeMirror = …NoticeMirror(…) given to DesktopStack(… notices = noticeMirror)')
+    stack_init = body_of(main_kt, 'class DesktopStack(') or ''
+    line('shell.noticeInput = m' in stack_init and 'm.attach(shell.noticeSink)' in stack_init and 'notices?.detach(shell.noticeSink)' in stack_init,
+         'DesktopStack: its shell is the notice mirror\'s sink while the stack runs (attached at the build, detached at the stop)',
+         'no shell.noticeInput = m / m.attach(shell.noticeSink) / notices?.detach(shell.noticeSink) in DesktopStack')
+    line('NoticeMirror(' not in host, 'hostOnly: no notice mirror (no shell)', 'hostOnly builds a NoticeMirror')
     # build W, package F: the phone's reports reach damage.phone, and its path signal goes back, in both builders
     line('BastionService(alertStore, bastionWatcher::stateLine, tmuxScope, phonePresence)' in run,
          'runShell: the bastion channel carries the phone\'s presence reports to damage.phone', 'its BastionService(…) is not given phonePresence')
@@ -471,12 +482,17 @@ def check(root=ROOT, say=print):
             # at the PC's two process starts only, never from a tool flag
             ('Main', 'webUploads'): [('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'hostOnly'),
                                      ('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'runShell')],
+            # build S1-2 (Q3): the notice record's raiser, once per PC process at its start (a core raises once on the
+            # PC, never once per stack or from a tool); the phone raises nothing into the record
+            ('NoticeCore', 'atProcessStart'): [('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'hostOnly'),
+                                               ('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'runShell')],
             ('LocalSecret', 'ensure'): [('core/src/main/kotlin/wm/damage/core/web/WebAccess.kt', 'atProcessStart')],
             ('LocalSecret', 'read'): [('core/src/main/kotlin/wm/damage/core/app/DeviceCli.kt', 'run'),
                                       ('core/src/main/kotlin/wm/damage/core/web/WebAccess.kt', 'localSecret')],
             ('DeviceCli', 'run'): [('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'main')]}
     said_as = {'InstanceLock': 'two PC starts (runShell, hostOnly)', 'AppHost': 'two PC starts (runShell, hostOnly)',
                'WebAccess': 'two PC starts (runShell, hostOnly)', 'Main': 'two PC starts (runShell, hostOnly)',
+               'NoticeCore': 'two PC starts (runShell, hostOnly)',
                'LocalSecret': 'start\'s access state (and the device commands\' client)', 'DeviceCli': 'command line\'s main'}
     for (owner, name), expect in want.items():
         got = callers(root, owner, name)
@@ -494,6 +510,11 @@ def check(root=ROOT, say=print):
     #    startStack can set, on a channel only channels() can create — a shell with no hook builds and runs
     svc_code = kotlin_code(os.path.join(root, 'phone/src/main/kotlin/wm/damage/phone/ShellService.kt'))
     stack = body_of(svc_code, 'private fun startStack(') or ''
+    # build S1-2 (Q3): the phone's notice mirror over its working copy, made with the copy; each stack's shell its sink
+    wc_start = body_of(svc_code, 'private fun startWorkingCopy(') or ''
+    line('noticeMirror = wm.damage.core.app.NoticeMirror(wc,' in wc_start and 'sh.noticeInput = m' in stack and 'm.attach(sh.noticeSink)' in stack,
+         'ShellService: the notice mirror is made over the working copy at its start, and each stack\'s shell attaches as its sink',
+         'no noticeMirror = …NoticeMirror(wc, …) in startWorkingCopy, or no sh.noticeInput = m / m.attach(sh.noticeSink) in startStack')
     i = stack.find('sh.onGlassesBattery = {')
     hook = stack[i:stack.find('\n        }', i)] if i >= 0 else ''
     line(bool(hook) and 'batteryNotification(' in hook and '.cancel(BATTERY_NOTIF_ID)' in hook and 'phoneNotifications' not in hook,

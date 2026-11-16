@@ -47,6 +47,10 @@ class Notifications(private val text: TextRasterizer) {
          *  `Shell.notifyFromHost`). Shown whatever Global `Notify · Damage` says, like an app's notice; it names no
          *  app, so a tap only dismisses it. Saved and restored with the notice. */
         val gatedBy: String? = null,
+        /** Build S1-2 Q3: the PC record's notice this box shows (its id and occurrence), or null for every notice
+         *  raised on this host as before. A gesture on it sends its reading effect (`Shell.dismissNotice`); a move
+         *  elsewhere takes it away ([withdraw]). Saved and restored with the notice. */
+        val record: wm.damage.core.app.NoticeRef? = null,
     )
 
     private val queue = ArrayDeque<Notice>()
@@ -322,6 +326,32 @@ class Notifications(private val text: TextRasterizer) {
     fun markAppRead(appId: String) {
         current?.let { if (it.appId == appId) it.read = true }
         queue.removeAll { it.appId == appId }
+    }
+
+    /** What [withdraw] did, for the shell's repaint. */
+    enum class Withdrawn { NOTHING, QUEUED, KEPT, FOLDING, DROPPED }
+
+    /**
+     * Build S1-2 Q3 (the spec's §5 N5): the record notice [ref] moved on another interface. Its queued entries leave
+     * (QUEUED). The shown box: kept and marked read when [queuedOnly] (KEPT — the record turned READ elsewhere, as an
+     * activation leaves it); otherwise folded away as a dismissal does, mid-unfurl included (FOLDING: today's furl, no
+     * new pixels), or in the quiet forms' small box dropped as the 5 s drop does ([silent]: DROPPED). A box already
+     * furling is left to finish. Sends nothing: the move was another interface's op.
+     */
+    fun withdraw(ref: wm.damage.core.app.NoticeRef, queuedOnly: Boolean, silent: Boolean): Withdrawn {
+        val left = queue.removeAll { it.record == ref }
+        val cur = current
+        if (cur == null || cur.record != ref || furling) return if (left) Withdrawn.QUEUED else Withdrawn.NOTHING
+        if (queuedOnly) {
+            cur.read = true
+            return if (left) Withdrawn.QUEUED else Withdrawn.KEPT
+        }
+        if (silent) {
+            dropSilent()
+            return Withdrawn.DROPPED
+        }
+        dismiss(markRead = true, clearing = false)
+        return Withdrawn.FOLDING
     }
 
     // ------------------------------------------------------------------ paint

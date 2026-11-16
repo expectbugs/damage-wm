@@ -1,6 +1,7 @@
 package wm.damage.core.shell
 
 import java.time.LocalTime
+import java.time.ZonedDateTime
 
 /**
  * Context for the reader: Damage is Adam's own window manager for his own glasses, phone and PC on his own
@@ -10,7 +11,8 @@ import java.time.LocalTime
  * In this build it governs the bus alert watcher's notices and "home unreachable" only (`bastion/AlertDelivery.kt`):
  * inside the window a NORMAL raise, repeat or clear is not delivered, and a raise still up at the end is delivered
  * once; URGENT passes. Step S1-2's notice record applies the same row to every notice — nothing about the row, its
- * ids or [inside] moves then.
+ * ids or [inside] moved: the PC's raiser reads it once per raise and a NORMAL record raised inside the hours carries
+ * their end ([endAfter]) as `heldUntil` (S1-2 Q3, `app/Notices.kt`).
  *
  * The hours are the device's local wall clock, read at each decision by the caller: pacing on a clock, never a
  * deadline (no timeout is stored anywhere).
@@ -50,5 +52,14 @@ object QuietHours {
         val from = start * 3600
         val to = end * 3600
         return if (from < to) s >= from && s < to else s >= from || s < to
+    }
+
+    /** S1-2 Q3 (decisions A.2, R0 §2): the instant [preset]'s window ends when [at] is inside it — the next `end:00`
+     *  after [at], in [at]'s zone — else null (outside, or `off`). The notice record carries it as a held record's
+     *  `heldUntil`, decided once on the PC at the raise. */
+    fun endAfter(preset: String, at: ZonedDateTime): ZonedDateTime? {
+        if (!inside(preset, at.toLocalTime())) return null
+        val end = at.toLocalDate().atTime(hours(preset)!!.second, 0).atZone(at.zone)
+        return if (end.isAfter(at)) end else end.plusDays(1)
     }
 }

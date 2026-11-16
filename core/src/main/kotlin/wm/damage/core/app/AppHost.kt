@@ -70,6 +70,8 @@ class AppHost(
     storeWrite: ((Path, String) -> Unit)? = null,
     storeWriter: Executor? = null,
     private val setAsideBytes: Long = LOG_SET_ASIDE_BYTES,
+    /** S1-2 Q3: each converted window's own apply-time rule ([Windows.RULES]; the notice record's). */
+    private val rules: ApplyRule = Windows.RULES,
 ) {
     val log = OpLog(dir.resolve(LOG_FILE), logSync)
     val store = if (storeWrite == null) RecordStore(dir.resolve(RECORD_FILE), writer = storeWriter)
@@ -340,11 +342,20 @@ class AppHost(
         val refused = gate()
         val spec = if (refused == null) actions.spec(op.window, op.action) else null
         val bad = spec?.let { Merge.check(it, op) }
-        val verdict = if (spec != null && bad == null) Merge.judge(record, spec, op, clock()) else Verdict.Same
+        val now = clock()
+        // S1-2 Q3: the window's own rule, asked once the shape passed; it never changes the merge rule, only stands in
+        // for it (the notice record: a state never moves backwards; raise and clear are the PC's own)
+        val ruled = if (spec != null && bad == null) rules.admit(record, op, now) else null
+        val verdict = when {
+            spec == null || bad != null || ruled is Admit.Refuse -> Verdict.Same
+            ruled is Admit.Lose -> ruled.verdict
+            else -> Merge.judge(record, spec, op, now)
+        }
         val answer: Answer = when {
             refused != null -> refused
             spec == null -> Answer.Refused("this PC has no action ${op.action} in ${op.window}", Answer.UNKNOWN)
             bad != null -> Answer.Refused(bad, Answer.INVALID)
+            ruled is Admit.Refuse -> ruled.answer
             verdict is Verdict.Lost -> Answer.Lost(verdict.losses)
             else -> Answer.Seen()
         }

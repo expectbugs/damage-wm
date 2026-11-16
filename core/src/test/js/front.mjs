@@ -43,6 +43,17 @@ export function front(scene, real, secret) {
     if (url.pathname === '/__note') { log.push({ t: 'note', text: decodeURIComponent(req.url.slice(req.url.indexOf('?') + 1)) }); return own(204, 'text/plain', ''); }
     if (url.pathname === '/__wait') return setTimeout(() => own(204, 'text/plain', ''), Number(url.searchParams.get('ms') || 0));
     if (url.pathname === '/__look.mjs') return own(200, TYPES.mjs, lookModule(scene.steps));
+    // S1-2 Q3: a word for LookServer's control listener (LOOK_CTL, loopback only): raise, dismiss-other, state
+    if (url.pathname === '/__ctl') {
+      const ctl = process.env.LOOK_CTL;
+      if (!ctl || !/^http:\/\/127\.0\.0\.1:\d+$/.test(ctl)) return own(400, 'text/plain', 'LOOK_CTL is not a loopback address');
+      const word = url.search.slice(1);
+      return request(`${ctl}/?${word}`, (r) => {
+        const parts = [];
+        r.on('data', (d) => parts.push(d));
+        r.on('end', () => { const t = String(Buffer.concat(parts)); log.push({ t: 'note', text: `ctl ${word}: ${t}` }); own(200, 'text/plain', t); });
+      }).on('error', (e) => own(502, 'text/plain', e.message)).end();
+    }
     log.push({ t: 'http', text: `${req.method} ${url.pathname}` });
     const fwd = request({ host: up.hostname, port: up.port, method: req.method, path: req.url, headers: headsUp(req.headers) }, (r) => {
       const h = { ...r.headers };
@@ -110,5 +121,15 @@ export function realScenes(book) {
     // the approval of the waiting made-up page, from the devices page
     'real-approve': { path: '/w/devices', steps: [{ wait: '.devices li.row-item .pcode' },
       { click: 'li.row-item:has(.pcode) .row-acts button' }, { wait: '.devices ul.rows li:nth-child(2) .row-name' }, reach] },
+    // S1-2 Q3: a notice raised on the PC after the page's first contact pops as a toast; Dismiss from the page lands in
+    // the record (LookServer prints its state); a dismiss by another made-up device takes the toast away
+    'real-notice': { path: '/', steps: [{ wait: '.cards .card' }, reach, { fetch: '/__wait?ms=800' },
+      { fetch: '/__ctl?raise' }, { wait: '.toast.notice' }] },
+    'real-notice-dismiss': { path: '/', steps: [{ wait: '.cards .card' }, reach, { fetch: '/__wait?ms=800' },
+      { fetch: '/__ctl?raise' }, { wait: '.toast.notice' }, { click: '.toast.notice .act' }, { gone: '.toast.notice' },
+      { fetch: '/__wait?ms=1000' }, { fetch: '/__ctl?state' }] },
+    'real-notice-elsewhere': { path: '/', steps: [{ wait: '.cards .card' }, reach, { fetch: '/__wait?ms=800' },
+      { fetch: '/__ctl?raise' }, { wait: '.toast.notice' }, { fetch: '/__ctl?dismiss-other' }, { gone: '.toast.notice' },
+      { fetch: '/__ctl?state' }] },
   };
 }

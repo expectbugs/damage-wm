@@ -129,6 +129,9 @@ class ShellService : Service() {
     /** S1-1 P4: Reader's source over the working copy and its presenter, built per stack, closed in [stopStack]. */
     private var readerSource: wm.damage.core.app.LocalWindowSource? = null
     private var readerGlasses: wm.damage.core.windows.reader.ReaderGlasses? = null
+    /** Build S1-2 Q3: the phone's notice mirror over the working copy, built with it and kept across stacks (each
+     *  stack's shell its sink while it runs; held while no session runs); closed with the copy. */
+    @Volatile private var noticeMirror: wm.damage.core.app.NoticeMirror? = null
     @Volatile var remoteDriving = false
         private set
     @Volatile var statusLine: String = "starting"
@@ -398,6 +401,11 @@ class ShellService : Service() {
         }
         readerGlasses = reader
         onLibraryChanged = { reader.libraryChanged() }
+        // S1-2 Q3: this stack's shell is the notice mirror's sink while it runs (held while no session runs)
+        noticeMirror?.let { m ->
+            sh.noticeInput = m
+            m.attach(sh.noticeSink)
+        }
         sh.register(reader)
         if (wc != null) wm.damage.core.windows.reader.ReaderMigration.onCopy(wc, persistence) { line ->
             Journal.appendNote(dataDir.resolve("journal.jsonl"), "migrate", line)
@@ -637,6 +645,7 @@ class ShellService : Service() {
         // under the server's close must not resume a keeper being stopped
         val k = keeper
         keeper = null
+        shell?.let { s -> noticeMirror?.detach(s.noticeSink) }   // S1-2 Q3: the mirror outlives the stack
         shell = null
         replica?.close()
         replica = null
@@ -712,6 +721,11 @@ class ShellService : Service() {
                 note = { line -> Journal.appendNote(journalFile, "workcopy", line) })
             workingCopy = wc
             wc.start(appClientFor(Prefs(this), wc))
+            // S1-2 Q3: the PC's notices on this phone's glasses; nothing is adopted or popped until the PC shares
+            // the window, and the cursor is kept beside the copy
+            noticeMirror = wm.damage.core.app.NoticeMirror(wc, shared = { wc.shares(wm.damage.core.app.Notices.WINDOW) },
+                cursorFile = dir.resolve("workcopy").resolve(wm.damage.core.app.NoticeMirror.CURSOR_FILE),
+                say = { line -> Journal.appendNote(journalFile, "notices", line) })
         } catch (e: Exception) {
             Log.e("workcopy", "the working copy could not be started (${e::class.simpleName}: ${e.message}); " +
                 "the stack starts without it", e)
@@ -730,6 +744,8 @@ class ShellService : Service() {
     private fun closeWorkingCopy() {
         val wc = workingCopy
         workingCopy = null
+        try { noticeMirror?.close() } catch (e: Exception) { Log.w("workcopy", "notice mirror close: ${e.message}") }
+        noticeMirror = null
         try {
             wc?.close()
         } catch (e: Exception) {

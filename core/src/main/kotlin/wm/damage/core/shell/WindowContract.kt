@@ -354,6 +354,11 @@ interface ShellServices {
      *  the window's id as a prefix ("tmux.frame"). */
     fun runOnShell(key: String, action: () -> Unit) = runOnShell(action)
 
+    /** Build S1-2 Q3 (the spec's §2.1): a glasses presenter's formatter for the PC record's notices that name its
+     *  window [app] — what the box shows of a record's body (Torrents: the name fitted to its face, as its own raise
+     *  did), run on the loop; null removes it. A host with no notice record ignores it. */
+    fun noticeFormatter(app: String, format: ((wm.damage.core.app.NoticeRecord) -> String)?) {}
+
     /** The current document content width in px (safe-rect relative, §2.2b) —
      *  windows must wrap against THIS, never a hardcoded 640-derived number. */
     fun docContentWidth(): Int

@@ -13,7 +13,7 @@ import wm.damage.core.windows.reader.ReaderCore
  * The running half of a window on the PC — its PC-served scopes, its program handler and its card on Main — is handed
  * to the `app` lane by the host builders (`AppNet.serve`), as those parts are made from the host's providers.
  *
- * Each window package adds its own line, in the build's order (the spec's §6): notices (Q3), torrents (Q4), files
+ * Each window package adds its own line, in the build's order (the spec's §6): notices (Q3, in), torrents (Q4), files
  * (Q5), each at contract version 1 (S1-2 R0 §2). A line goes in with the window's conversion and not before: an entry
  * takes the window's keys off the sync channel and makes the PC share a window it must then serve.
  */
@@ -28,11 +28,15 @@ object Windows {
         val levelOf: (String) -> String?,
         val minLevel: String,
         val program: Set<String> = emptySet(),
+        /** S1-2 Q3: the window's own rule at apply time, or null. */
+        val rule: ApplyRule? = null,
     )
 
     /** The converted windows, in Main's order. */
     val ALL: List<Entry> = listOf(
         Entry(ReaderCore.WINDOW, "Reader", 1, ReaderCore.ACTIONS, ReaderCore::levelOf, Levels.VIEW),
+        // S1-2 Q3: the PC's notice record (C§7.1; decisions A.1): a pseudo-window with no card and no scopes of its own
+        Entry(Notices.WINDOW, "Notices", 1, Notices.ACTIONS, Notices::levelOf, Levels.VIEW, rule = Notices.RULE),
     )
 
     private val BY_ID: Map<String, Entry> = ALL.associateBy { it.id }
@@ -54,9 +58,30 @@ object Windows {
     /** The level each converted window's action needs. */
     val LEVELS = ActionLevels { w, a -> BY_ID[w]?.levelOf?.invoke(a) }
 
+    /** S1-2 Q3: every converted window's own apply-time rule (`AppHost`). */
+    val RULES = ApplyRule { rec, op, now -> BY_ID[op.window]?.rule?.admit(rec, op, now) }
+
     /** The level a window's subscription needs (its description's `min`); a window this build does not know, full. */
     fun minLevel(window: String): String = BY_ID[window]?.minLevel ?: Levels.FULL
 
     /** True when [action] of [window] goes into an outside program (never queued). */
     fun isProgram(window: String, action: String): Boolean = BY_ID[window]?.program?.contains(action) == true
+}
+
+/**
+ * S1-2 Q3: a window's own rule at apply time, beside the one merge rule (which it never changes): asked on the executor
+ * after the op's number and shape passed and before the judge. Null = the merge rule decides alone. The notice record
+ * is the first window with one ([Notices.RULE]: a state never moves backwards; raise and clear are the PC's own).
+ */
+fun interface ApplyRule {
+    fun admit(rec: RecordView, op: Op, now: Long): Admit?
+}
+
+/** What an [ApplyRule] decides in the judge's place. */
+sealed class Admit {
+    /** Refused for good: the op's number is taken and nothing changes. */
+    data class Refuse(val answer: Answer.Refused) : Admit()
+
+    /** Lost against the standing value, its mark written as the judge writes one. */
+    data class Lose(val verdict: Verdict.Lost) : Admit()
 }

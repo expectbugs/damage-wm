@@ -321,5 +321,434 @@
    "aSecondStartOffersNothing"
   ],
   "note": "S1-2 Q2 (spec 2.5, F4): the ledger holds what was offered. Without it a second start offers every field again"
+ },
+ {
+  "id": "S1-2-Q3-occ-text",
+  "file": "app/Notices.kt",
+  "edits": [
+   [
+    "            put(\"occ\", occ)                                   // text: R0 §2\n",
+    "            put(\"occ\", lastOcc)\n"
+   ]
+  ],
+  "tests": [
+   "*NoticeCoreTest.aRaiseWritesItsOccurrenceAsTextAndADismissExpectingItLands"
+  ],
+  "expect": [
+   "aRaiseWritesItsOccurrenceAsTextAndADismissExpectingItLands"
+  ],
+  "note": "S1-2 Q3 (R0 §2): occ is written as text. As a number the raise is refused at apply time by the notice rule's own shape check (its second layer), so it never reaches the record; S1-2-Q3-occ-number-in-record takes both layers off"
+ },
+ {
+  "id": "S1-2-Q3-occ-number-in-record",
+  "file": "app/Notices.kt",
+  "edits": [
+   [
+    "            put(\"occ\", occ)                                   // text: R0 §2\n",
+    "            put(\"occ\", lastOcc)\n"
+   ],
+   [
+    "        val occ = r?.let { text(it, \"occ\") }\n",
+    "        val occ = r?.let { text(it, \"occ\") ?: (it[\"occ\"] as? JsonPrimitive)?.content }\n"
+   ]
+  ],
+  "tests": [
+   "*NoticeCoreTest.aRaiseWritesItsOccurrenceAsTextAndADismissExpectingItLands"
+  ],
+  "expect": [
+   "aRaiseWritesItsOccurrenceAsTextAndADismissExpectingItLands"
+  ],
+  "note": "S1-2 Q3 (R0 §2), the pin's unfixed form: a numeric occ in the record (written as a number, and the rule letting a number in). Merge.occurrence reads none, so a dismiss expecting the occurrence loses, unsaid"
+ },
+ {
+  "id": "S1-2-Q3-backwards",
+  "file": "app/Notices.kt",
+  "edits": [
+   [
+    "        if ((RANK[want] ?: 0) >= (RANK[text(standing, \"state\")] ?: 0)) return null\n",
+    "        return null\n"
+   ]
+  ],
+  "tests": [
+   "*NoticeCoreTest.aReadThatComesAfterADismissLosesAndTheNoticeStaysDismissed"
+  ],
+  "expect": [
+   "aReadThatComesAfterADismissLosesAndTheNoticeStaysDismissed"
+  ],
+  "note": "S1-2 Q3 (R0 §2): a state never moves backwards. Without the rank check a late read after a dismiss brings the notice back on every screen"
+ },
+ {
+  "id": "S1-2-Q3-expect-occ",
+  "file": "app/Notices.kt",
+  "edits": [
+   [
+    "        if ((op.expect as? Expect.Occurrence)?.o != occ)\n",
+    "        if (false)\n"
+   ]
+  ],
+  "tests": [
+   "*NoticeCoreTest.aStaleOccurrenceChangesNothing"
+  ],
+  "expect": [
+   "aStaleOccurrenceChangesNothing"
+  ],
+  "note": "S1-2 Q3: a reading effect expects the occurrence it carries. A client that sends Any would apply an old occurrence's dismiss over the new one"
+ },
+ {
+  "id": "S1-2-Q3-pc-own",
+  "file": "app/Notices.kt",
+  "edits": [
+   [
+    "        if (own && op.device != PC)\n",
+    "        if (false)\n"
+   ]
+  ],
+  "tests": [
+   "*NoticeCoreTest.raiseAndClearAreThePcsOwn"
+  ],
+  "expect": [
+   "raiseAndClearAreThePcsOwn"
+  ],
+  "note": "S1-2 Q3 (spec 2.1): raise and clear only from device pc, refused at apply time"
+ },
+ {
+  "id": "S1-2-Q3-notify-row",
+  "file": "app/Notices.kt",
+  "edits": [
+   [
+    "            if (notifyRow != null && !rowOn(notifyRow)) {\n",
+    "            if (false) {\n"
+   ]
+  ],
+  "tests": [
+   "*NoticeCoreTest.aNotifyRowThatIsOffRaisesNothing"
+  ],
+  "expect": [
+   "aNotifyRowThatIsOffRaisesNothing"
+  ],
+  "note": "S1-2 Q3 (spec 5 N1 (e)): the app's Notify row read once per raise; off raises nothing"
+ },
+ {
+  "id": "S1-2-Q3-held",
+  "file": "app/Notices.kt",
+  "edits": [
+   [
+    "            if (held != null) put(\"heldUntil\", held)\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*NoticeCoreTest.aNormalRaiseInsideQuietHoursCarriesTheEndInThePcsClock"
+  ],
+  "expect": [
+   "aNormalRaiseInsideQuietHoursCarriesTheEndInThePcsClock"
+  ],
+  "note": "S1-2 Q3 (decisions A.2, R0 §2): a NORMAL raise inside Quiet hours carries heldUntil, the field every interface reads"
+ },
+ {
+  "id": "S1-2-Q3-retry-kept",
+  "file": "app/Notices.kt",
+  "edits": [
+   [
+    "                kept[r.id] = r\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*NoticeCoreTest.aRaiseTheLogDidNotTakeIsSentAgainAtTheTickAndSaidAtTheEnd"
+  ],
+  "expect": [
+   "aRaiseTheLogDidNotTakeIsSentAgainAtTheTickAndSaidAtTheEnd"
+  ],
+  "note": "S1-2 Q3 (spec 5 N1 (b)): a raise answered retry is kept and sent again at the record's tick, never dropped"
+ },
+ {
+  "id": "S1-2-Q3-adopt",
+  "file": "app/NoticeMirror.kt",
+  "edits": [
+   [
+    "            setCursor(Cursor(epoch, top))\n",
+    "            setCursor(Cursor(epoch, 0L))\n"
+   ]
+  ],
+  "tests": [
+   "*NoticeMirrorTest.firstContactAdoptsAndPopsNothingThenANewRaisePops"
+  ],
+  "expect": [
+   "firstContactAdoptsAndPopsNothingThenANewRaisePops"
+  ],
+  "note": "S1-2 Q3 (C 7.3): first contact adopts the highest occurrence; adopting 0 pops every old record"
+ },
+ {
+  "id": "S1-2-Q3-mirror-held",
+  "file": "app/Notices.kt",
+  "edits": [
+   [
+    "    fun heldAt(now: Long): Boolean = state == Notices.RAISED && heldUntil != null && heldUntil > now\n",
+    "    fun heldAt(now: Long): Boolean = false\n"
+   ]
+  ],
+  "tests": [
+   "*NoticeMirrorTest.aHeldRecordWaitsForItsEndAndTheHeldOnesPopTogether"
+  ],
+  "expect": [
+   "aHeldRecordWaitsForItsEndAndTheHeldOnesPopTogether"
+  ],
+  "note": "S1-2 Q3 (spec 5 N3): quiet hours hold a NORMAL record until its heldUntil, released together"
+ },
+ {
+  "id": "S1-2-Q3-withdraw-moved",
+  "file": "app/NoticeMirror.kt",
+  "edits": [
+   [
+    "        if (s != null) withdrawMoved(recs, s)\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*NoticeMirrorTest.aRecordHandedOnThatMovesElsewhereIsWithdrawn"
+  ],
+  "expect": [
+   "aRecordHandedOnThatMovesElsewhereIsWithdrawn"
+  ],
+  "note": "S1-2 Q3 (spec 5 N5): a record handed on that moved elsewhere is withdrawn from the shell"
+ },
+ {
+  "id": "S1-2-Q3-shared",
+  "file": "app/NoticeMirror.kt",
+  "edits": [
+   [
+    "        if (!shared()) return\n        val epoch",
+    "        val epoch"
+   ]
+  ],
+  "tests": [
+   "*NoticeMirrorTest.nothingIsAdoptedOrPoppedWhileTheWindowIsNotShared"
+  ],
+  "expect": [
+   "nothingIsAdoptedOrPoppedWhileTheWindowIsNotShared"
+  ],
+  "note": "S1-2 Q3: while the PC does not share notices the copy holds none; adopting then pops every record once sharing starts"
+ },
+ {
+  "id": "S1-2-Q3-cursor-saved",
+  "file": "app/NoticeMirror.kt",
+  "edits": [
+   [
+    "                Persistence.writeAtomic(f, text, sync = true)\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*NoticeMirrorTest.thePhonesCursorSurvivesARestart"
+  ],
+  "expect": [
+   "thePhonesCursorSurvivesARestart"
+  ],
+  "note": "S1-2 Q3 (spec 5 N2): the phone's cursor beside the copy; unsaved, a restart adopts and a record raised meanwhile never pops"
+ },
+ {
+  "id": "S1-2-Q3-stale-input",
+  "file": "app/NoticeMirror.kt",
+  "edits": [
+   [
+    "        if (r == null || r.occ != ref.occ) {\n",
+    "        if (r == null) {\n"
+   ]
+  ],
+  "tests": [
+   "*NoticeMirrorTest.theShellsReadingEffectsCarryTheRecordsValueAndALossIsLetGo"
+  ],
+  "expect": [
+   "theShellsReadingEffectsCarryTheRecordsValueAndALossIsLetGo"
+  ],
+  "note": "S1-2 Q3: a gesture on an occurrence the record no longer holds sends nothing (never the newer occurrence's dismiss)"
+ },
+ {
+  "id": "S1-2-Q3-loss-let-go",
+  "file": "app/NoticeMirror.kt",
+  "edits": [
+   [
+    "                backend.said(Notices.WINDOW, op)\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*NoticeMirrorTest.theShellsReadingEffectsCarryTheRecordsValueAndALossIsLetGo"
+  ],
+  "expect": [
+   "theShellsReadingEffectsCarryTheRecordsValueAndALossIsLetGo"
+  ],
+  "note": "S1-2 Q3: a loss on a notice is never said and is let go at once (the copy would keep it for a presenter for ever)"
+ },
+ {
+  "id": "S1-2-Q3-mirror-restored",
+  "file": "app/NoticeMirror.kt",
+  "edits": [
+   [
+    "        val keep = refs.filter { ref -> recs[ref.id]?.let { it.occ == ref.occ && it.state == Notices.RAISED } == true }\n",
+    "        val keep = refs\n"
+   ]
+  ],
+  "tests": [
+   "*NoticeMirrorTest.restoredNoticesAreKeptOnlyWhileTheRecordHoldsThemRaised"
+  ],
+  "expect": [
+   "restoredNoticesAreKeptOnlyWhileTheRecordHoldsThemRaised"
+  ],
+  "note": "S1-2 Q3 (spec 5 N5): restored notices kept only while the record holds them raised at that occurrence"
+ },
+ {
+  "id": "S1-2-Q3-dbl-dismiss",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            if (op == wm.damage.core.app.Notices.MARK_READ) noticeInput?.read(ref) else noticeInput?.dismiss(ref)\n",
+    "            if (op == wm.damage.core.app.Notices.MARK_READ) noticeInput?.read(ref)\n"
+   ]
+  ],
+  "tests": [
+   "*ShellNoticeRecordTest.aDoubleTapSendsDismiss"
+  ],
+  "expect": [
+   "aDoubleTapSendsDismiss"
+  ],
+  "note": "S1-2 Q3 (spec 5 N4): a double-tap on a record notice dismisses it on every screen"
+ },
+ {
+  "id": "S1-2-Q3-tap-read",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                    dismissNotice(markRead = true, clearing = false, op = wm.damage.core.app.Notices.MARK_READ)\n",
+    "                    dismissNotice(markRead = true, clearing = false)\n"
+   ]
+  ],
+  "tests": [
+   "*ShellNoticeRecordTest.theTapThroughSendsReadAndOpensTheApp"
+  ],
+  "expect": [
+   "theTapThroughSendsReadAndOpensTheApp"
+  ],
+  "note": "S1-2 Q3 (spec 2.1): the tap-through reads (marks read on every screen), never dismisses"
+ },
+ {
+  "id": "S1-2-Q3-silent-drop",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        notifications.dropSilent()\n        repaintAfterSilentDrop()\n",
+    "        notifications.current?.record?.let { noticeInput?.dismiss(it) }\n        notifications.dropSilent()\n        repaintAfterSilentDrop()\n"
+   ]
+  ],
+  "tests": [
+   "*ShellNoticeRecordTest.silentModesDropSendsNothing"
+  ],
+  "expect": [
+   "silentModesDropSendsNothing"
+  ],
+  "note": "S1-2 Q3 (C 7.2): Silent Mode's 5 s drop sends nothing. The unfixed form: a dismiss sent at the drop"
+ },
+ {
+  "id": "S1-2-Q3-restore-guard",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (from == ActivationSource.RESTORE) return\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*ShellNoticeRecordTest.aRestoreActivationReadsNothing"
+  ],
+  "expect": [
+   "aRestoreActivationReadsNothing"
+  ],
+  "note": "S1-2 Q3 (spec 2.1's finding): a RESTORE is no input; a read sent there is a write no input made"
+ },
+ {
+  "id": "S1-2-Q3-activation-read",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            for (n in all) if (n.appId == w.id && !n.read) n.record?.let(input::read)\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*ShellNoticeRecordTest.anActivationFromInputReadsTheAppsRecordNotices"
+  ],
+  "expect": [
+   "anActivationFromInputReadsTheAppsRecordNotices"
+  ],
+  "note": "S1-2 Q3: an activation from input reads the app's record notices on every screen"
+ },
+ {
+  "id": "S1-2-Q3-restore-reconcile",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        for (n in restored) if (n.record == null || live == null || n.record in live) notifications.enqueueRestored(n)\n",
+    "        for (n in restored) notifications.enqueueRestored(n)\n"
+   ]
+  ],
+  "tests": [
+   "*ShellNoticeRecordTest.aRestoredNoticeTheRecordNoLongerHoldsIsNotShownAgain"
+  ],
+  "expect": [
+   "aRestoredNoticeTheRecordNoLongerHoldsIsNotShownAgain"
+  ],
+  "note": "S1-2 Q3 (spec 5 N5): a restored notice dismissed elsewhere meanwhile does not show again"
+ },
+ {
+  "id": "S1-2-Q3-coalesce",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        handleNotice(Notifications.Notice(\"DAMAGE · ${rec.source}\", rec.thread, body, recordTime(rec.raisedAt),\n",
+    "        handleNotice(Notifications.Notice(\"DAMAGE · ${rec.source}\", rec.id, body, recordTime(rec.raisedAt),\n"
+   ]
+  ],
+  "tests": [
+   "*ShellNoticeRecordTest.aRecordNoticeIsTheBoxTheAppsOwnRaiseShowedAndBothAreOneBox"
+  ],
+  "expect": [
+   "aRecordNoticeIsTheBoxTheAppsOwnRaiseShowedAndBothAreOneBox"
+  ],
+  "note": "S1-2 Q3 (spec 2.1 mixed builds): the record's notice keeps today's source and thread, so a raise from both paths in the switch-over minute is one box"
+ },
+ {
+  "id": "S1-2-Q3-withdraw-fold",
+  "file": "shell/Notifications.kt",
+  "edits": [
+   [
+    "        dismiss(markRead = true, clearing = false)\n        return Withdrawn.FOLDING\n",
+    "        return Withdrawn.FOLDING\n"
+   ]
+  ],
+  "tests": [
+   "*ShellNoticeRecordTest.aMoveElsewhereTakesTheBoxAway"
+  ],
+  "expect": [
+   "aMoveElsewhereTakesTheBoxAway"
+  ],
+  "note": "S1-2 Q3 (spec 5 N5): a dismiss elsewhere folds the shown box away"
+ },
+ {
+  "id": "S1-2-Q3-withdraw-silent",
+  "file": "shell/Notifications.kt",
+  "edits": [
+   [
+    "        if (silent) {\n            dropSilent()\n            return Withdrawn.DROPPED\n        }\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*ShellNoticeRecordTest.aMoveElsewhereDropsSilentModesSmallBox"
+  ],
+  "expect": [
+   "aMoveElsewhereDropsSilentModesSmallBox"
+  ],
+  "note": "S1-2 Q3 (spec 5 N5): in Silent Mode's small form a withdrawn box is dropped at once, not furled"
  }
 ]

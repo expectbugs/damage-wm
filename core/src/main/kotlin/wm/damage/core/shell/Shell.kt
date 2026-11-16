@@ -365,8 +365,66 @@ class Shell(
             emergency = false, gatedBy = gatedBy)))
     }
 
+    /**
+     * Build S1-2 Q3 (the spec's §2.1; `CONTRACT.md` §7): the host's notice mirror (`app/NoticeMirror.kt`), set by the
+     * host builder before the first start; null (a tool, a test, a host with no record) leaves every notice as it was.
+     * Reading effects go to it from input only: [dismissNotice], the tap-through, an activation from input
+     * ([activated]); never from Silent Mode's drop, a requeue or an abandoned furl.
+     */
+    @Volatile var noticeInput: wm.damage.core.app.NoticeInput? = null
+
+    /** S1-2 Q3: the presenters' formatters by window ([ShellServices.noticeFormatter]). */
+    private val noticeFormatters = java.util.concurrent.ConcurrentHashMap<String, (wm.damage.core.app.NoticeRecord) -> String>()
+
+    /** S1-2 Q3: what the mirror hands this shell. Each goes to the loop under the notice's own key: while no session
+     *  runs the latest per notice is held (a withdraw after a pop of the same occurrence leaves nothing to show; a
+     *  newer occurrence replaces the older), exactly as keyed pushes are held (§72). */
+    val noticeSink: wm.damage.core.app.NoticeSink = object : wm.damage.core.app.NoticeSink {
+        override fun pop(rec: wm.damage.core.app.NoticeRecord) = noticeFromRecord(rec)
+        override fun withdraw(ref: wm.damage.core.app.NoticeRef, queuedOnly: Boolean) = withdrawNotice(ref, queuedOnly)
+    }
+
+    /** S1-2 Q3: a record of the PC's notice record, shown as the box its app's own raise showed: the source and thread
+     *  of today's (`DAMAGE · <source>`, the thread after `<source>:`), the body through the app's presenter formatter
+     *  when one is registered, the time its raise formatted on this device. Safe from any thread. */
+    fun noticeFromRecord(rec: wm.damage.core.app.NoticeRecord) = services.runOnShell("notice:${rec.id}") {
+        val body = rec.app?.let { noticeFormatters[it] }?.let { f ->
+            try { f(rec) } catch (e: Exception) {
+                Log.e("shell", "the ${rec.app} notice formatter failed on ${rec.id}: its body is shown as raised", e)
+                rec.body
+            }
+        } ?: rec.body
+        handleNotice(Notifications.Notice("DAMAGE · ${rec.source}", rec.thread, body, recordTime(rec.raisedAt),
+            emergency = false, appId = rec.app, target = rec.target,
+            gatedBy = if (rec.app == null) rec.gatedBy else null, record = rec.ref))
+    }
+
+    /** S1-2 Q3 (§5 N5): [ref] moved on another interface — queued entries leave; the shown box folds away as a
+     *  dismissal does (Silent Mode's small form is dropped), unless [queuedOnly]. Safe from any thread. */
+    fun withdrawNotice(ref: wm.damage.core.app.NoticeRef, queuedOnly: Boolean) = services.runOnShell("notice:${ref.id}") {
+        val shown = notifications.current?.record == ref && !notifications.furlingOut
+        if (shown && !queuedOnly && !quiet) settleSlidesForOverlay()     // the furl restores from a settled base
+        when (notifications.withdraw(ref, queuedOnly, silent = quiet)) {
+            Notifications.Withdrawn.NOTHING -> return@runOnShell
+            Notifications.Withdrawn.QUEUED -> if (notifications.active && !notifications.furlingOut) paintNotification()  // its +N
+            Notifications.Withdrawn.KEPT, Notifications.Withdrawn.FOLDING -> {}   // the furl runs via the pump
+            Notifications.Withdrawn.DROPPED -> repaintAfterSilentDrop()
+        }
+        scheduleSave()
+    }
+
+    /** H:MM of a record's raise on this device's clock, as [systemClock] writes the time a notice shows. */
+    private fun recordTime(ms: Long): String {
+        val t = java.time.Instant.ofEpochMilli(ms).atZone(java.time.ZoneId.systemDefault()).toLocalTime()
+        return "%d:%02d".format(if (t.hour % 12 == 0) 12 else t.hour % 12, t.minute)
+    }
+
     val services: ShellServices = object : ShellServices {
         override fun requestRender(window: DamageWindow) { post(Msg.Invalidate(window.id)) }
+
+        override fun noticeFormatter(app: String, format: ((wm.damage.core.app.NoticeRecord) -> String)?) {
+            if (format == null) noticeFormatters.remove(app) else noticeFormatters[app] = format
+        }
 
         override fun setOperation(op: String) {
             post(Msg.Run { if (opText != op) { opText = op; chromeDirty = true } })
@@ -1190,6 +1248,7 @@ class Shell(
                 recency.remove(current)
                 recency.add(0, current!!)
                 current!!.onActivate(services, ActivationSource.RESTORE)
+                activated(current!!, ActivationSource.RESTORE)   // S1-2 Q3: a restore is no input — nothing read
             }
             if (restoredMode == Mode.SILENT.name) mode = Mode.SILENT
             // an EXCLUSIVE restore needs its window registered on this host
@@ -1705,7 +1764,7 @@ class Shell(
                     // opening the app is not clearing the queue: the next box
                     // keeps its grace (§4.5 rule 1), so the tap meant for the
                     // app just entered does not land on it (round 2, d2-10)
-                    dismissNotice(markRead = true, clearing = false)
+                    dismissNotice(markRead = true, clearing = false, op = wm.damage.core.app.Notices.MARK_READ)
                     val w = windows.firstOrNull { it.id == n.appId }
                     if (w == null) {
                         // NO SILENT FAILURES: the notice is gone (read) — say
@@ -2199,7 +2258,7 @@ class Shell(
         w.onActivate(services, from)
         // activation auto-marks that app's notifications read (§4.5) — commit
         // only; preview never does this
-        notifications.markAppRead(w.id)
+        activated(w, from)
         syncLayout()              // §2: the window's preferred height, on FOCUS
         composeContent()
         scheduleSave()
@@ -2405,10 +2464,15 @@ class Shell(
         }
     }
 
-    private fun dismissNotice(markRead: Boolean, clearing: Boolean = true) {
+    /** Every caller is a gesture on the box (S1-2 Q3, §5 N4): a record notice sends [op] — `dismiss` for a double-tap,
+     *  a long-press or an app-less tap, `read` for the tap-through. */
+    private fun dismissNotice(markRead: Boolean, clearing: Boolean = true, op: String = wm.damage.core.app.Notices.DISMISS) {
         settleSlidesForOverlay()      // the furl restores from a snapshot:
         val n = notifications.dismiss(markRead, clearing)  // settle the base
         if (n?.fault == true) faults.mute(n.thread)        // a dismissed fault stays dismissed for its episode (§69)
+        n?.record?.let { ref ->
+            if (op == wm.damage.core.app.Notices.MARK_READ) noticeInput?.read(ref) else noticeInput?.dismiss(ref)
+        }
         scheduleSave()
         // the furl animation runs via pump, restoring from the under snapshot
     }
@@ -2452,6 +2516,11 @@ class Shell(
         // silent boxes auto-dismiss after 5 s and STAY UNREAD (§4.5 —
         // deliberate divergence from G2CC's mark-at-display)
         notifications.dropSilent()
+        repaintAfterSilentDrop()
+    }
+
+    /** The quiet surface after its small box left (the 5 s drop; S1-2 Q3: a withdraw), the next box shown fresh. */
+    private fun repaintAfterSilentDrop() {
         if (mode == Mode.EXCLUSIVE) { paintExclusiveFull(); if (notifications.active) scheduleSilentDismiss(); return }
         val c = wallClock()
         retire(Rect(0, 0, comp.width, comp.height))
@@ -2463,8 +2532,23 @@ class Shell(
         }
     }
 
+    /**
+     * An activation's notice effect (§4.5): the app's notices read — the shown box stays, the queued ones leave. S1-2
+     * Q3 (§5 N4): from input only, so a record notice of the app sends `read`; a RESTORE is no input and does neither
+     * (a restore that sent `read` would be a write no input made).
+     */
+    private fun activated(w: DamageWindow, from: ActivationSource) {
+        if (from == ActivationSource.RESTORE) return
+        noticeInput?.let { input ->
+            val all = listOfNotNull(notifications.current) + notifications.queued()
+            for (n in all) if (n.appId == w.id && !n.read) n.record?.let(input::read)
+        }
+        notifications.markAppRead(w.id)
+    }
+
     // ------------------------------------------------------------------ ticks
     private fun handleMinute() {
+        noticeInput?.minute()     // S1-2 Q3: held records whose end has passed pop together (on the mirror's executor)
         noteLoopCost()            // P6 item 1 (LC-7): the minute's loop time, before any early return below
         noteLinkRegime()          // §47: a parameter change while idle shows within the minute
         watchFloor()
@@ -6464,16 +6548,20 @@ class Shell(
             put("target", n.target ?: "")
             put("gatedBy", n.gatedBy ?: "")
             put("read", n.read)
+            n.record?.let { put("recordId", it.id); put("recordOcc", it.occ) }     // S1-2 Q3
         })
     }
 
     private fun restoreNotices(shellState: JsonObject?) {
         val arr = shellState?.get("notices") as? JsonArray ?: return
+        val restored = ArrayList<Notifications.Notice>()
         for (e in arr) {
             try {
                 val o = e.jsonObject
                 if (o["read"]?.jsonPrimitive?.booleanOrNull == true) continue
-                notifications.enqueueRestored(Notifications.Notice(
+                val recordId = o["recordId"]?.jsonPrimitive?.contentOrNull
+                val recordOcc = o["recordOcc"]?.jsonPrimitive?.contentOrNull
+                restored += Notifications.Notice(
                     source = o["source"]?.jsonPrimitive?.contentOrNull ?: continue,
                     thread = o["thread"]?.jsonPrimitive?.contentOrNull ?: "",
                     body = o["body"]?.jsonPrimitive?.contentOrNull ?: "",
@@ -6482,11 +6570,23 @@ class Shell(
                     appId = o["appId"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotEmpty() },
                     target = o["target"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotEmpty() },
                     gatedBy = o["gatedBy"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotEmpty() },
-                ))
+                    record = if (recordId != null && recordOcc != null) wm.damage.core.app.NoticeRef(recordId, recordOcc) else null,
+                )
             } catch (ex: Exception) {
                 Log.w("shell", "unreadable persisted notice skipped: ${ex.message}")
             }
         }
+        // S1-2 Q3 (§5 N5): a record notice dismissed, acknowledged or cleared elsewhere meanwhile does not show again
+        val refs = restored.mapNotNull { it.record }
+        val live = noticeInput?.takeIf { refs.isNotEmpty() }?.let { input ->
+            try {
+                input.restored(refs)
+            } catch (e: Exception) {
+                Log.e("shell", "the notice record could not be asked about ${refs.size} restored notice(s): shown as saved", e)
+                refs.toSet()
+            }
+        }
+        for (n in restored) if (n.record == null || live == null || n.record in live) notifications.enqueueRestored(n)
     }
 
     companion object {

@@ -214,6 +214,9 @@ class WorkingCopy(
 
     override fun journal(line: String) = note(line)
 
+    /** S1-2 Q3: true when the live connection shares [window] (its last `welcome`); on the executor. */
+    fun shares(window: String): Boolean = window in shared
+
     // ---- the wire (AppClient's reading thread: hand off) ----
 
     override fun subs(w: Welcome): List<AppClient.Sub> = listOf(AppClient.Sub(AppWire.RECORD, cursor))

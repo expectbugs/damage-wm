@@ -873,6 +873,10 @@ private suspend fun hostOnly(cfg: Config) {
     // runShell; the `app` lane, shared by the content host and the web listener, serves the device table at full
     val web = wm.damage.core.web.WebAccess.atProcessStart(Path.of(cfg.dataDir)) { line -> Log.i("web", line) }
     val appNet = wm.damage.core.app.AppNet(appHost, devices = web.core)
+    // build S1-2 (Q3): the notice record's raiser, at this process start as in runShell (Quiet hours read from the
+    // store's Global row at each raise); host-only runs no shell, so it has no notice mirror (absent on purpose)
+    wm.damage.core.app.NoticeCore.atProcessStart(appHost,
+        { wm.damage.core.shell.ShellSettings.fromJson(store.get("shell.settings")).quietHours }, null)
     // build S1-1 (P4, the spec's §4): Reader's records from before its conversion become record items once (the
     // ledger beside them says what was offered), and Reader's core sits on the record for every presenter (P6 serves it)
     wm.damage.core.windows.reader.ReaderMigration.onHost(appHost, store) { }
@@ -938,6 +942,9 @@ class DesktopStack(
     /** Build S1-1 P4: Reader's process-wide core and the source on the PC record its presenter reads (device
      *  `local`); null in tools, which build Reader the way it was built before (`ReaderWindow`, a record in memory). */
     private val reader: Pair<wm.damage.core.windows.reader.ReaderCore, wm.damage.core.app.WindowSource>? = null,
+    /** Build S1-2 Q3: the process's notice mirror (it outlives the stack; this stack's shell is its sink while it
+     *  runs); null in tools, whose shells show only their own notices, as before. */
+    private val notices: wm.damage.core.app.NoticeMirror? = null,
 ) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private fun ble(): Transport = BlueZTransport(BlueZDbus(), scope,
@@ -967,6 +974,10 @@ class DesktopStack(
         shell.loopClock = JvmLoopClock          // build W, package G (E4): the `slow` note's clocks (host-only runs no shell)
         shell.buildTag = "desktop " + (DesktopStack::class.java.getResource("/damage-build.txt")?.readText()?.trim() ?: "unstamped")
         shell.iconSource = themeIcons
+        notices?.let { m ->
+            shell.noticeInput = m
+            m.attach(shell.noticeSink)
+        }
         readerGlasses = reader?.let { (core, source) ->
             wm.damage.core.windows.reader.ReaderGlasses(text, core, source, scope, AwtImages())
         } ?: ReaderWindow(text, LocalContent(Path.of(cfg.booksDir)), scope, AwtImages())
@@ -1012,6 +1023,7 @@ class DesktopStack(
                 // the providers outlive this stack: detach even when the stop
                 // threw, or the leak returns on the failure path (R2-W12)
                 tmuxWindow?.detach()
+                notices?.detach(shell.noticeSink)   // S1-2 Q3: the process's mirror outlives this stack
                 readerGlasses.detach()     // S1-1 P4: the process-wide core and source outlive this stack
                 torrentsWindow?.detach()   // a leaked listener fed a dead shell's queue every poll (P1)
                 musicWindow?.detach()
@@ -1157,6 +1169,17 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
         Journal.appendNote(journalFile, "web", line)
     }
     val appNet = wm.damage.core.app.AppNet(appHost, devices = web.core)
+    // build S1-2 (Q3): the notice record's raiser at this process start (Quiet hours read from the store's Global row
+    // at each raise; a raise the log did not take is sent again on the record's tick and said if the process stops
+    // first), and the PC's notice mirror, before any core can raise: it outlives every stack, each stack's shell its
+    // sink while it runs; its ops are the PC shell's (device `local`), its cursor in memory (`shell.state` restores
+    // what was shown)
+    val noticeCore = wm.damage.core.app.NoticeCore.atProcessStart(appHost,
+        { wm.damage.core.shell.ShellSettings.fromJson(store.get("shell.settings")).quietHours }, journalFile)
+    val noticeMirror = wm.damage.core.app.NoticeMirror(
+        wm.damage.core.app.HostBackend(appHost, wm.damage.core.app.Peer.LOCAL.device, wm.damage.core.app.OpQueue.newStream()),
+        say = { line -> Log.i("notices", line); Journal.appendNote(journalFile, "notices", line) })
+    Log.i("damage", "the notice record: ${noticeCore.window} raised on the PC, mirrored to every stack")
     // build S1-1 (P4, the spec's §4): Reader's records from before its conversion become record items once (the
     // ledger beside them says what was offered; a `migrate` note says what happened), before any presenter reads the
     // record; then Reader's core on the record, and the source every stack's glasses presenter reads (device `local`)
@@ -1246,7 +1269,7 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
     build = { m -> DesktopStack(cfg, m, remoteHost, text, onStatus = { keeperStatus.set(it) },
         onSwitch = { switchTo(it) }, tmux = tmuxProvider, sharedStore = store,
         files = filesProvider, themeIcons = themeIcons, torrents = torrentsProvider, music = musicLibrary, feed = feedEngine,
-        reader = readerCore to readerSource) }
+        reader = readerCore to readerSource, notices = noticeMirror) }
 
     if (mode != "auto") {
         val first = build(mode)
