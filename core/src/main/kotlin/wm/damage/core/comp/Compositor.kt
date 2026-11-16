@@ -524,6 +524,14 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
      *  against the simulator's own panels. */
     internal fun expectedLens(left: Boolean): Gray8 = if (left) shadowL else shadowR
 
+    /** Build C1 (ruling R1.16): [paint] changes what the compositor believes each lens shows, with no flush — for
+     *  pixels the glasses wrote into their own shadow (a motion program's END, written at its PLAY), so belief
+     *  follows the glass. The truth is untouched: the next damage over those pixels repaints them from the truth. */
+    internal fun paintBelief(paint: (left: Boolean, belief: Gray8) -> Unit) {
+        paint(true, shadowL)
+        paint(false, shadowR)
+    }
+
     // ------------------------------------------------------------------ truth
     /** Render the per-lens truth of `composed` under the plane map. */
     private fun renderTruth() {

@@ -282,7 +282,23 @@ abstract class CfwTransportBase(
                 val tp = try { wm.damage.core.motion.TestPrograms.build(value, if (st.started) st.cacheSize else CfwModes.CACHE2_MAX)!! } catch (e: LintError) {
                     emitNote("motion", "test program $value not sent: ${e.message}"); return
                 }
-                if (sendMotion(tp.messages())) emitNote("motion", "test program sent (${tp.describe()})")
+                // build C1's ruling R1.16: when the PLAY's ack is in — after every image queued before it, so in the
+                // order the lens took them — the `played` note tells the shell to put END into its belief of both
+                // lenses, so the agreement check finds END there when the instance ends (no divergence, no keyframe)
+                val played = CompletableDeferred<Unit>()
+                if (sendMotion(tp.messages(), played)) {
+                    emitNote("motion", "test program sent (${tp.describe()})")
+                    scope.launch {
+                        try {
+                            played.await()
+                            emitNote("motion", wm.damage.core.motion.TestPrograms.playedNote(tp))
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            emitNote("motion", "test program ${tp.name}: its PLAY did not complete (${e.message}) — END is not put into the shell's belief")
+                        }
+                    }
+                }
             }
             // FIRMWARE.md §3, the self-test (mode 16) on the image lane: begin, a step carrying
             // one drawing message (hex), end. The glasses answer through telemetry fields
@@ -350,11 +366,13 @@ abstract class CfwTransportBase(
      *  writes, then mode-26 messages ([wm.damage.core.motion.Motion]) — each its own image on the image lane, in
      *  order. Only while ENGINE is in force (the ladder's stage 3 on a bit-7 build, armed this session): otherwise
      *  nothing is sent and the answer is false, with a `motion` note. A mode-19 write here is not the shell's: it is
-     *  put on record as another writer's, as a self-test's live write is. Never the shell's paint. */
-    fun sendMotion(messages: List<ByteArray>): Boolean {
+     *  put on record as another writer's, as a self-test's live write is. Never the shell's paint. [lastDone], when
+     *  given, completes with the last message's ack (exceptionally when it fails or the session ends). */
+    fun sendMotion(messages: List<ByteArray>, lastDone: CompletableDeferred<Unit>? = null): Boolean {
         val st = _state.value
         if (!st.started || st.flagsInForce and DamageMsg.FLAG_ENGINE == 0) {
             emitNote("motion", "not sent: ${if (!st.started) "no session" else "ENGINE is not in force (flags 0x${st.flagsInForce.toString(16)})"}")
+            lastDone?.completeExceptionally(LintError("not sent"))
             return false
         }
         for (m in messages) {
@@ -362,13 +380,14 @@ abstract class CfwTransportBase(
             if (mode != 19 && mode != CfwModes.MOTION_MODE) throw LintError("the motion API sends mode 19 and mode 26, not mode $mode")
         }
         val epoch = sessionEpoch.get()
-        for (m in messages) {
+        for ((i, m) in messages.withIndex()) {
             if (m[0].toInt() == 19) {
                 val w = "motion#${liveCacheWrites.incrementAndGet()}@${Integer.toHexString(System.identityHashCode(this))}"
                 updateState { it.copy(cacheWriter = w) }
             }
-            if (!imageQueue.trySend(ImgWork.Raw(epoch, m, null)).isSuccess) {
+            if (!imageQueue.trySend(ImgWork.Raw(epoch, m, if (i == messages.size - 1) lastDone else null)).isSuccess) {
                 emitNote("motion", "a ${m.size} B mode-${m[0].toInt() and 0x7F} message not queued — the rest of the program is not sent")
+                lastDone?.completeExceptionally(LintError("a message of the program was not queued"))
                 return false
             }
         }

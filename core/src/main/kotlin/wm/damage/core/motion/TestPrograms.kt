@@ -29,9 +29,21 @@ object TestPrograms {
     /** The names `probe motion=NAME` and the tool take, in the tool's order. */
     val NAMES: List<String> = listOf("list", "popover", "recede", "flip")
 
-    /** A program laid out for one cache: [writes] are (off4, bytes) in write order, [cap4] the capture offset. */
+    /** The transport's `motion` note once a test program's PLAY is acknowledged (build C1's ruling R1.16): the shell
+     *  puts END into its belief of both lenses on it ([TestProgram.paintEnd]). */
+    const val PLAYED = "test program played: "
+
+    fun playedNote(tp: TestProgram): String = "$PLAYED${tp.name} (${tp.describe()})"
+
+    /** The test program a `motion` note's [detail] says has been played, or null when it says nothing of the kind. */
+    fun playedName(detail: String): String? =
+        if (!detail.startsWith(PLAYED)) null else detail.removePrefix(PLAYED).substringBefore(' ').takeIf { it in NAMES }
+
+    /** A program laid out for one cache: [writes] are (off4, bytes) in write order, [cap4] the capture offset, [images]
+     *  the levels of each image record it writes, by off4. */
     class TestProgram internal constructor(val name: String, val about: String, val program: MotionProgram,
-        val writes: List<Pair<Int, ByteArray>>, val cap4: Int, val tag: Int, val stage: Gray8, val cacheSize: Int) {
+        val writes: List<Pair<Int, ByteArray>>, val cap4: Int, val tag: Int, val stage: Gray8, val cacheSize: Int,
+        val images: Map<Int, TextureCache.Image2>) {
         val period: Int get() = Motion.PERIOD_30HZ
         val params: IntArray get() = IntArray(4)
         val slot: Int get() = 0
@@ -58,6 +70,62 @@ object TestPrograms {
 
         fun describe(): String = "$name: T ${program.T} at period $period, slot $slot, tag 0x%04x, ${writes.sumOf { it.second.size }} B of records at %d..%d, %d B of captures at %d"
             .format(tag, writes.minOf { it.first } * 4, writes.maxOf { (o, b) -> o * 4 + b.size }, program.captureBytes, cap4 * 4)
+
+        /**
+         * END(program, P) (`FIRMWARE.md` §5.4) painted onto [pic], one lens's picture (8-bit, a level shown as
+         * `level·17`) as it was when the PLAY ran: per track in order its backdrop, then its state at step T, clipped
+         * to its area — what the firmware writes into that lens's shadow at the PLAY, from the same resolved segments
+         * [Motion.end] makes its §4 ops of. A `self` capture is [pic]'s own area as it was, taken for every track
+         * before any track paints (the firmware captures, then writes END). Build C1's ruling R1.16: the shell puts
+         * this into its belief when the probe's PLAY is acknowledged.
+         */
+        fun paintEnd(left: Boolean, pic: Gray8) {
+            val segs = program.resolve(params, staticOnly = false)
+            val caps = program.tracks.map { t -> if (t.usesSelf) capture(pic, t.area(left)) else null }
+            program.tracks.forEachIndexed { i, t ->
+                val area = t.area(left)
+                when (val b = t.backdrop) {
+                    is Motion.Backdrop.Level -> fillLevel(pic, area, b.code)
+                    is Motion.Backdrop.Self -> blit(pic, caps[i]!!, area.x, area.y, area, null)
+                    is Motion.Backdrop.None -> {}
+                }
+                // at step T every track has run all its segments: it holds its last non-WAIT segment's final state
+                val s = segs[i].lastOrNull { it.verb != Motion.WAIT } ?: return@forEachIndexed
+                val own = t.perLens && !left
+                val draw = s.verb == Motion.DRAW
+                val x = (if (own) s.xR else s.xL) + (if (draw) (if (own) s.dxR else s.dxL) else 0)
+                val y = s.y + (if (draw) s.dy else 0)
+                val options = if (draw) (s.opt and 0x30) or s.lvl1 else null
+                when {
+                    s.verb == Motion.FILL -> fillLevel(pic, area, s.kind)
+                    s.kind == Motion.KIND_SELF -> blit(pic, caps[i]!!, x, y, area, options)
+                    s.kind == Motion.KIND_RECORD -> blit(pic, images[s.src]
+                        ?: throw LintError("test program $name: no image levels for the record at off4 ${s.src}"), x, y, area, options)
+                    // REVEAL of a level source at rest: its rect, of width dxL on both lenses (ruling R1.20)
+                    else -> Rect(x, y, s.dxL, s.dy).intersect(area)?.let { fillLevel(pic, it, s.src) }
+                }
+            }
+        }
+    }
+
+    /** [area] of [pic] as levels, row-major. */
+    private fun capture(pic: Gray8, area: Rect): TextureCache.Image2 =
+        TextureCache.Image2(area.w, area.h, ByteArray(area.w * area.h) { p -> Pack.level(pic[area.x + p % area.w, area.y + p / area.w]).toByte() })
+
+    private fun fillLevel(pic: Gray8, r: Rect, level: Int) = pic.fillRect(r, level * 17)
+
+    /** [img] at ([x0], [y0]) clipped to [clip]; [options] null draws the levels as they are, else §2's v1 LUT (level
+     *  bits 0–3, bit 4 transparent tested on the source, bit 5 inverse), as the firmware draws a mode-17 record. */
+    private fun blit(pic: Gray8, img: TextureCache.Image2, x0: Int, y0: Int, clip: Rect, options: Int?) {
+        val top = (options ?: 15) and 0x0F
+        val inverse = options != null && options and 0x20 != 0
+        val transparent = options != null && options and 0x10 != 0
+        for (yy in maxOf(clip.y, y0, 0) until minOf(clip.bottom, y0 + img.h, pic.h))
+            for (xx in maxOf(clip.x, x0, 0) until minOf(clip.right, x0 + img.w, pic.w)) {
+                val c = img.levels[(yy - y0) * img.w + (xx - x0)].toInt()
+                if (transparent && c == 0) continue
+                pic[xx, yy] = (if (options == null) c else ((if (inverse) 15 - c else c) * top) / 15) * 17
+            }
     }
 
     /** [name] laid out for a session whose cache holds [cacheSize] bytes; null for a name that is not one. Refuses
@@ -81,7 +149,15 @@ object TestPrograms {
     private class Layout(start: Int, val cacheSize: Int) {
         private var at = start
         val writes = ArrayList<Pair<Int, ByteArray>>()
+        val images = HashMap<Int, TextureCache.Image2>()
         fun put(bytes: ByteArray): Int { val off4 = at / 4; writes += off4 to bytes; at = align(at + bytes.size); return off4 }
+        /** An image record put in the layout, its levels kept for [TestProgram.paintEnd]. */
+        fun record(img: TextureCache.Image2): Motion.Source.Record {
+            val bytes = img.encode()
+            val off4 = put(bytes)
+            images[off4] = img
+            return Motion.Source.record(off4, bytes)
+        }
         /** The program's offset: the next free one (it is put last, once built at this offset). */
         val next4: Int get() = at / 4
         /** Puts [p] (built at [next4], its tables already put) and returns the capture offset: the next free one. */
@@ -96,10 +172,10 @@ object TestPrograms {
 
     private fun lv(n: Int) = n * 17
 
-    /** A v2 image record (`FIRMWARE.md` §4: `[w u16][h u16][RLE]`) of a [w]×[h] drawing. */
-    private fun image(w: Int, h: Int, draw: Gray8.() -> Unit): ByteArray {
+    /** A v2 image (`FIRMWARE.md` §4: its record is `[w u16][h u16][RLE]`) of a [w]×[h] drawing. */
+    private fun image(w: Int, h: Int, draw: Gray8.() -> Unit): TextureCache.Image2 {
         val g = Gray8(w, h).apply(draw)
-        return TextureCache.Image2(w, h, ByteArray(w * h) { Pack.level(g.pix[it].toInt() and 0xFF).toByte() }).encode()
+        return TextureCache.Image2(w, h, ByteArray(w * h) { Pack.level(g.pix[it].toInt() and 0xFF).toByte() })
     }
 
     private fun stage(draw: Gray8.() -> Unit) = Gray8(Geometry.PANEL_W, Geometry.PANEL_H).apply(draw)
@@ -122,7 +198,7 @@ object TestPrograms {
     private fun list(lay: Layout): TestProgram {
         val tableAt = lay.put(Motion.Ease.Table(0, BOUNCE).record)
         val rows = image(LIST.w, 8 * ROW_H) { for (i in 0 until 8) row(0, i * ROW_H, LIST.w, i) }
-        val rec = Motion.Source.record(lay.put(rows), rows)
+        val rec = lay.record(rows)
         val prog = Motion.program(lay.next4, listOf(rec)) {
             track(LIST, Motion.Backdrop.Level(0)) {
                 // one row up with ease-out, a pause, one more row with the bounce table
@@ -133,7 +209,7 @@ object TestPrograms {
         }
         val cap4 = lay.program(prog)
         return TestProgram("list", "a list slides one row with ease-out, pauses, and slides one more with a bounce table",
-            prog, lay.writes.toList(), cap4, 0x0C11, stage { for (i in 0 until 5) row(LIST.x, LIST.y + i * ROW_H, LIST.w, i) }, lay.cacheSize)
+            prog, lay.writes.toList(), cap4, 0x0C11, stage { for (i in 0 until 5) row(LIST.x, LIST.y + i * ROW_H, LIST.w, i) }, lay.cacheSize, lay.images.toMap())
     }
 
     // ---------------------------------------------------------------------------------------------------- the popover
@@ -148,7 +224,7 @@ object TestPrograms {
             fillRect(12, 84, 160, 12, lv(9))
             outlineRect(6, 42, w - 12, 28, lv(15), width = 2)
         }
-        val rec = Motion.Source.record(lay.put(box), box)
+        val rec = lay.record(box)
         val prog = Motion.program(lay.next4, listOf(rec)) {
             // the box slides in from the top over the content it covers (the area's own pixels as the backdrop) and holds
             track(POP, Motion.Backdrop.Self) {
@@ -163,7 +239,7 @@ object TestPrograms {
         }
         val cap4 = lay.program(prog)
         return TestProgram("popover", "a popover slides in from the top over the content, holds, and the content wipes back down over it",
-            prog, lay.writes.toList(), cap4, 0x0C12, stage { for (i in 0 until 8) row(LIST.x, LIST.y + i * ROW_H, LIST.w, i) }, lay.cacheSize)
+            prog, lay.writes.toList(), cap4, 0x0C12, stage { for (i in 0 until 8) row(LIST.x, LIST.y + i * ROW_H, LIST.w, i) }, lay.cacheSize, lay.images.toMap())
     }
 
     // ---------------------------------------------------------------------------------------------------- Main
@@ -187,7 +263,7 @@ object TestPrograms {
                 for (k in 0 until 5) fillRect(200 + k * 50, 146, 36, 36, lv(if (k == 2) 6 else 13))
                 fillRect(176, 212, 136, 72, lv(3)); fillRect(188, 228, 90, 10, lv(11)); fillRect(188, 252, 60, 10, lv(7))
                 fillRect(328, 212, 136, 72, lv(3)); fillRect(340, 228, 100, 10, lv(11)); fillRect(340, 252, 70, 10, lv(7))
-            }, lay.cacheSize)
+            }, lay.cacheSize, lay.images.toMap())
     }
 
     // ---------------------------------------------------------------------------------------------------- the card
@@ -213,9 +289,9 @@ object TestPrograms {
             fillPolygon(intArrayOf(48, 72, 48, 24), intArrayOf(40, 72, 104, 72), lv(3))
             fillRect(8, 8, 10, 14, lv(3)); fillRect(78, 122, 10, 14, lv(3))
         }
-        val rb = Motion.Source.record(lay.put(back), back)
-        val re = Motion.Source.record(lay.put(edge), edge)
-        val rf = Motion.Source.record(lay.put(face), face)
+        val rb = lay.record(back)
+        val re = lay.record(edge)
+        val rf = lay.record(face)
         val cx = TABLE.x + (TABLE.w - CARD_W) / 2
         val cy = TABLE.y + (TABLE.h - CARD_H) / 2
         val prog = Motion.program(lay.next4, listOf(rb, re, rf)) {
@@ -227,6 +303,6 @@ object TestPrograms {
         }
         val cap4 = lay.program(prog)
         return TestProgram("flip", "a card turns over: its back, its edge, its face — three cached images swapped (A3)",
-            prog, lay.writes.toList(), cap4, 0x0C14, stage { fillRect(TABLE, lv(1)); cardBack(cx, cy) }, lay.cacheSize)
+            prog, lay.writes.toList(), cap4, 0x0C14, stage { fillRect(TABLE, lv(1)); cardBack(cx, cy) }, lay.cacheSize, lay.images.toMap())
     }
 }

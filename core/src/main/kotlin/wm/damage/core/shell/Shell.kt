@@ -2627,6 +2627,10 @@ class Shell(
                 // mirror's — the shadow is not what belief holds there; one keyframe reseeds both (it also closes
                 // every instance on the glasses, decision A.8)
                 if (ev.kind == "divergence" && ev.detail.startsWith("motion")) comp.requestKeyframe()
+                // build C1's ruling R1.16: the feel session's probe played a test program and its PLAY is acknowledged
+                // — END goes into belief as the glasses wrote it into their shadow, so when the instance ends the
+                // agreement check finds END on both sides (no divergence, no keyframe)
+                if (ev.kind == "motion") wm.damage.core.motion.TestPrograms.playedName(ev.detail)?.let { testProgramEndIntoBelief(it) }
             }
             is TransportEvent.Presented ->         // FIRMWARE.md §3 (F1.3): a panel transfer timed on the glasses; §4: its path
                 journal.present(ev.seq, ev.workerUs, ev.copyUs, ev.transferUs, ev.path, ev.atMs)
@@ -4300,6 +4304,15 @@ class Shell(
                 "a cache write sent twice was not counted either time — it is not sent again; text from the cache may draw wrong until the next session"
             else "the count is short again after a re-send (${again.size} re-sent, ${k - again.size} other write(s) read with it) — nothing more is sent for the re-sent message(s)",
                 source = "cache")
+    }
+
+    /** Build C1's ruling R1.16: END of the test program [name] — played by the `motion=NAME` dev probe, its PLAY
+     *  acknowledged — painted into belief on both lenses. END's pixels do not depend on where in the cache the
+     *  program's records sit, so the program is built for any contract-2 cache. */
+    private fun testProgramEndIntoBelief(name: String) {
+        val tp = wm.damage.core.motion.TestPrograms.build(name, CfwModes.CACHE2_MAX) ?: return
+        comp.paintBelief { left, belief -> tp.paintEnd(left, belief) }
+        journal.note("motion", "test program $name: END put into belief on both lenses (its PLAY is acknowledged)")
     }
 
     /** The `cache=miscount` dev probe (sent only on Adam's word, `tools/glassdrive.py probe:cache=miscount`):
