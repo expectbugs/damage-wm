@@ -1538,6 +1538,121 @@ def vectors_v3(kf):
         step(tk(1610), msg(play(1, P, m6, 0x0B0C, 65536 // 4 - 6))),   # 22 ends at 65,534: accepted; G unchanged
     ])
 
+    # v3-rulings — the lead's rulings on the first meeting (build C1, `C1-R1-decisions.md`), each case no earlier
+    # vector reaches: R1.1 "a CLOSE that ends an open instance sets the stale mark, so that present goes whole" (in a
+    # hinted batch; a CLOSE of an empty slot ends nothing); R1.3 "ease is checked on every segment; ease 2 names a
+    # table whatever the verb (walked, refused 5 when bad, counted in the first read range)"; R1.4 "a mode 25 or 26
+    # inside a batch or a self-test step is refused by the container's own list first, whatever its length: in a
+    # batch 8 with the batch's byte, in a step 8 with the message's byte"; R1.8 "an unknown mode-26 sub (3..255):
+    # length 3, else refused 1; then refused 12; no slot in the notify body"; R1.9 "RETARGET's shape rule is checked
+    # right after reason 16 ... the shapes are [W], [X], [W,X] only"; R1.10 "a RETARGET overshoot that takes a level
+    # out of 0..15 is clamped" (and an extent out of 0..F); R1.20 "a PLAY's own closes run in slot order; a level
+    # source's width on a per-lens track is dxL on both lenses; ... the order of sends within one message is the
+    # host's order".
+    c = Cache2()
+    solid = c.add(image2(8, 4, [15] * 32))
+    q1 = c.add(prog(track(rect(0, 20, 60, 10), 4, fillseg(2, 9))))
+    f3 = c.add(prog(track(rect(0, 40, 60, 10), 4, seg(FILL, 4, ease=3, kind=9))))                 # ease 3 on a FILL: 5
+    t3bad = c.add(easing([1000, 2000, 4096]))                                                   # n = 3
+    w3 = c.add(prog(track(rect(0, 40, 60, 10), 4, seg(WAIT, 4, ease=TABLE, table=t3bad), fillseg(1, 9))))   # n ≠ steps: 5
+    tab3_bytes = easing([1000, 2000, 3000, 4096])
+    tab3 = c.add(tab3_bytes)                                                                    # before g3: only its table puts it in g3's first range
+    g3 = c.add(prog(track(rect(0, 60, 60, 10), 4, seg(FILL, 4, ease=TABLE, kind=9, table=tab3))))
+    rA = c.add(prog(track(rect(0, 80, 200, 10), 4, drawrec(2, 0, 10, 80, dx=10, pref0=pref(0, F_SRC)),
+                          drawrec(2, 0, 20, 80, dx=10, pref0=pref(0, F_SRC)))))                  # two moving segments
+    rB = c.add(prog(track(rect(0, 100, 200, 10), 4, drawrec(2, solid, 10, 100, dx=10), wait(2))))   # a trailing WAIT
+    rC = c.add(prog(track(rect(0, 120, 200, 10), 4, wait(2), wait(2))))                         # [W, W]
+    rD = c.add(prog(track(rect(0, 140, 200, 10), 4, wait(3))))                                  # [W]
+    ov = c.add(easing([900, 2300, 3500, 4300, 4620, 4600, 4420, 4096]))                          # overshoot past 4233: 0 → 15 reaches 16 and 17
+    pL = c.add(prog(track(rect(0, 160, 200, 10), 0, drawrec(8, solid, 10, 163, lvl=(0, 0), ease=TABLE, table=ov,
+                                                          pref0=pref(0, F_LVL0), pref1=pref(1, F_LVL1)))))
+    pE = c.add(prog(track(rect(300, 160, 100, 40), 0, seg(REVEAL, 5, LINEAR, K_LEVEL, src=11, xL=310, y=165, dxL=30, dy=20,
+                                                          lvl0=15, lvl1=15, opt=SLIDE | TOP, pref0=pref(0, F_DY)))))
+    s0 = c.add(prog(track(rect(400, 20, 60, 10), 4, fillseg(50, 9))))
+    s2 = c.add(prog(track(rect(480, 20, 60, 10), 4, fillseg(50, 10))))
+    s1b = c.add(prog(track(rect(560, 20, 40, 10), 4, fillseg(50, 11))))
+    s1 = c.add(prog(track(rect(450, 20, 40, 10), 4, fillseg(50, 12))))                          # meets s0's and s2's areas
+    pl = c.add(prog(track((rect(20, 200, 100, 20), rect(36, 200, 100, 20)), 2,
+                          seg(REVEAL, 3, LINEAR, K_LEVEL, src=12, xL=30, xR=46, y=205, dxL=30, dxR=50, dy=6, lvl0=15, lvl1=15, opt=LEFT))))
+    t1b = c.add(prog(track(rect(400, 80, 40, 10), 5, fillseg(40, 7))))
+    t1 = c.add(prog(track(rect(400, 60, 40, 10), 5, fillseg(1, 7))))                            # T = 1: the PLAY's present draws its last step
+    st26_short, st25_short = bad(bytes([26, 0])), bad(bytes([25, 0x78]))
+    rt = 2039                                                                                   # pL's RETARGET tick (t0 of the restart)
+    re_ = 2500 + 2 * P + 5                                                                      # pE's RETARGET tick
+    vec("v3-rulings", [
+        step(*arm, *writes(c)),
+        step(tk(1100), msg(bad(bytes([26, 3, 0])))),                     # 1  R1.8 an unknown sub of length 3: 12, no slot in the body
+        step(tk(1110), msg(bad(bytes([26, 3])))),                        # 2  of length 2: 1
+        step(tk(1120), msg(bad(bytes([26, 7, 1, 2, 3])))),               # 3  of length 5: 1, no slot in the body
+        step(tk(1130), msg(bad(bytes([26, 0x80, 2])))),                  # 4  sub 0x80, length 3: 12, no slot
+        step(flags(DRAW2), tk(1140), msg(bad(bytes([26, 3, 0]))), flags(DRAW2 | ENGINE)),   # 5  ENGINE not armed: 15 before the 12
+        step(tk(1200), msg(batch(fill(rect(0, 220, 8, 2), 3), st25_short))),  # 6  R1.4 a short mode 25 in a batch: 8, the batch's byte
+        step(tk(1210), msg(bytes([16, 0])), msg(bytes([16, 1]) + st26_short), msg(bytes([16, 1]) + st25_short), msg(bytes([16, 2]))),  # 7  short 26 and 25 in steps: 8, the message's byte
+        step(tk(1300), msg(play(0, P, q1, 0x0D01))),                     # 8  R1.1
+        step(tk(1300 + P), wake()),                                     # 9  its last step: the stale mark
+        step(tk(1400), msg(batch(fill(rect(0, 400, 640, 4), 3), hint(400, 403)))),   # 10 whole: the mark is spent
+        step(tk(1410), msg(batch(fill(rect(0, 300, 8, 8), 9), fill(rect(0, 410, 640, 2), 4), hint(410, 411)))),   # 11 rows only: level 9 stays off the lens
+        step(tk(1420), msg(batch(close(0), fill(rect(0, 420, 640, 2), 5), hint(420, 421)))),   # 12 a CLOSE that ends a done instance: whole, level 9 reaches the lens
+        step(tk(1430), msg(batch(fill(rect(0, 300, 8, 8), 11), close(1), fill(rect(0, 430, 640, 2), 6), hint(430, 431)))),   # 13 a CLOSE of an empty slot: rows only, 11 stays off
+        step(tk(1500), msg(play(0, P, f3, 0x0D02))),                     # 14 R1.3 ease 3 on a FILL: 5
+        step(tk(1510), msg(play(0, P, w3, 0x0D03))),                     # 15 ease 2 on a WAIT names a table of 3 for 4 steps: 5
+        step(tk(1520), msg(play(0, P, g3, 0x0D04))),                     # 16 ease 2 on a FILL, a good table: accepted
+        step(tk(1530), msg(cache_write2((tab3, tab3_bytes)))),          # 17 a write over the table: in the first range, closes (outcome 1)
+        step(tk(1600), msg(play(1, P, rA, 0x0D05, P=(solid,)))),        # 18 R1.9
+        step(tk(1610), msg(retarget(1, (0x7FFF,)))),                     # 19 two moving segments, the new P's walk failing too: 12 (the shape first)
+        step(tk(1620), msg(play(2, P, rB, 0x0D06)), tk(1620), msg(retarget(2))),   # 20 a trailing WAIT: 12
+        step(tk(1630), msg(play(3, P, rC, 0x0D07)), tk(1630), msg(retarget(3))),   # 21 [W, W]: 12
+        step(tk(1640), msg(play(0, P, rD, 0x0D08)), tk(1640), msg(retarget(0))),   # 22 [W]: accepted, ordinal 1
+        step(tk(1700), msg(batch(close(0xFF)))),                         # 23 every instance closed (outcome 1 for the drawing ones)
+        step(tk(2000), msg(play(0, P, pL, 0x0D09, P=(0, 0)))),           # 24 R1.10 a level held at 0
+        step(tk(2000 + P), wake()),                                     # 25 step 2: drawn at level 0
+        step(tk(rt), msg(retarget(0, (15, 15)))),                       # 26 0 → 15 by the overshoot table: step 1 at level 3
+        step(tk(rt + 3 * P), wake()),                                   # 27 step 4: 16, clamped to 15
+        step(tk(rt + 4 * P), wake()),                                   # 28 step 5: 17, clamped to 15
+        step(tk(rt + 7 * P), wake()),                                   # 29 step 8 = T
+        step(tk(2500), msg(play(1, P, pE, 0x0D0A, P=(20,)))),            # 30 a level source sliding in, F = 20
+        step(tk(2500 + 2 * P), wake()),                                 # 31 step 3: e = 12
+        step(tk(re_), msg(retarget(1, (4,)))),                          # 32 F = 4 now: step 1 eases from 12 to 4 — 10, clamped to 4
+        step(tk(re_ + P), wake()),                                      # 33 step 2: 9, clamped to 4
+        step(tk(re_ + 4 * P), wake()),                                  # 34 step 5 = T
+        step(tk(3000), msg(play(0, P, s0, 0x0D0B)), tk(3000), msg(play(2, P, s2, 0x0D0C)), tk(3000), msg(play(1, P, s1b, 0x0D0D))),   # 35 R1.20
+        step(tk(3010), msg(play(1, P, s1, 0x0D0E))),                     # 36 closes slots 0, 1 and 2 in one pass in slot order: the sequences
+        step(tk(3020), msg(batch(close(0xFF)))),                         # 37
+        step(tk(3100), msg(play(0, P, pl, 0x0D0F))),                     # 38 a level source on a per-lens track: width dxL on both lenses
+        step(tk(3100 + 2 * P), wake()),                                 # 39 T = 3
+        step(tk(3200), msg(play(3, P, t1b, 0x0D10))),                    # 40
+        step(tk(3210), msg(play(3, P, t1, 0x0D11))),                     # 41 closes t1b (the ui_task's body) and draws its own last step (the hook's): the host's order
+    ])
+
+    # v3-lease — ruling R1.7: the lease on the vectors' OS-tick clock is the firmware's 90,000 ticks with a signed
+    # 32-bit compare (`FIRMWARE.md` §3: "the 90,000-tick lease is 87.9 s"): a message 88,000 and 89,999 ticks after
+    # an acquire finds it live, one 90,000 ticks after it lapsed — across the tick's wrap too. Ruling R1.20: "the
+    # direct path needs a live lease, as §5.6 words it" (§5.6: the copy hook draws only over a Damage frame it copied
+    # or preserves, "`direct_active` with a live lease"): a lapse no message has noticed, then a v1 frame (which reads
+    # no lease), draws no step and turns the instance done with no notify (§5.3). No panel key: the panel after a
+    # present without a live lease is outside these rulings.
+    c = Cache2()
+    lp = c.add(prog(track(rect(100, 100, 200, 40), 3, fillseg(200, 9))))   # T = 200 at P = 128: 25,472 ticks
+    a0 = 0xFFFF0000
+    M32 = 0xFFFFFFFF
+    rearm = lambda t: (tk(t), {"lease": "acquire"}, flags(DRAW2 | ENGINE), msg(kf), *writes(c))
+    vec("v3-lease", [
+        step(*rearm(a0)),                                               # 0  the deadline wraps: 24,464
+        step(tk((a0 + 88000) & M32), msg(fill(rect(0, 400, 8, 2), 3))),  # 1  88,000 ticks on, across the wrap: live
+        step(tk((a0 + 89999) & M32), msg(fill(rect(0, 404, 8, 2), 4))),  # 2  89,999: live
+        step(tk((a0 + 90000) & M32), msg(fill(rect(0, 408, 8, 2), 5))),  # 3  90,000: lapsed (3), a release point
+        step(*rearm(30000)),                                            # 4  a fresh acquire: the deadline 120,000
+        step(tk(30000 + 88000), msg(fill(rect(8, 400, 8, 2), 6))),       # 5  88,000 ticks on: live (past 87,891)
+        step(tk(30000 + 89999), msg(fill(rect(8, 404, 8, 2), 7))),       # 6  89,999: live
+        step(tk(30000 + 90000), msg(fill(rect(8, 408, 8, 2), 8))),       # 7  90,000: lapsed (3)
+        step(*rearm(130000)),                                           # 8  the deadline 220,000
+        step(tk(210000), msg(play(0, 128, lp, 0x0E01))),                 # 9  would end at 235,472
+        step(tk(210000 + 5 * 128), wake()),                             # 10 step 6, the lease live
+        step(tk(220100), msg(copy((0, 440, 8, 2), (8, 440, 8, 2)))),     # 11 R1.20 a v1 copy after the unnoticed lapse: no step, done, no notify
+        step(tk(220200), wake()),                                       # 12 nothing drawing: nothing presents
+        step(tk(220300), msg(fill(rect(0, 412, 8, 2), 9))),              # 13 a v2 op notices the lapse: 3
+    ], panel=False)
+
     for vec_ in v:
         vec_["contract"] = 2                                            # §5.1: added ops and bits do not bump the contract
         vec_["start"] = "zero"
