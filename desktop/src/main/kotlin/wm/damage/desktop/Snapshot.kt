@@ -196,62 +196,7 @@ object Snapshot {
         repeat(2) { shell.postGesture(EvenHubMsg.EV_SCROLL_TOP) }      // cursor home
         settle(shell)
 
-        // Torrents (TORRENTS.md, 2026-09-01): the transfers with block bars
-        // and the live lens, the transfer menu, the details document, the
-        // tracker's categories and a listing, a torrent page, and the §4.8
-        // keyboard opened by Search
-        repeat(3) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }   // → Torrents row
-        settle(shell)
-        shell.postGesture(EvenHubMsg.EV_CLICK)
-        waitFor("torrents transfers") { torrentsWin.title() == "transfers" }
-        iconsSettled()
-        save(sim, out, "15-torrents-transfers")
-        shell.postGesture(EvenHubMsg.EV_CLICK)             // the transfer menu
-        waitFor("torrents menu") { shell.menuIsOpen }
-        settle(shell)
-        save(sim, out, "16-torrents-menu")
-        shell.postGesture(EvenHubMsg.EV_CLICK)             // Details
-        waitFor("torrents details") { torrentsWin.title() == "details" }
-        settle(shell)
-        save(sim, out, "17-torrents-details")
-        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // → transfers
-        settle(shell)
-        shell.postGesture(EvenHubMsg.EV_SCROLL_TOP)        // wrap to the Torrents menu row
-        settle(shell)
-        shell.postGesture(EvenHubMsg.EV_CLICK)
-        waitFor("the Torrents menu") { shell.menuIsOpen && shell.menuTitle == "torrents" }
-        shell.postGesture(EvenHubMsg.EV_CLICK)             // Browse TorrentLeech
-        waitFor("categories") { torrentsWin.title() == "browse" }
-        iconsSettled()
-        save(sim, out, "18-torrents-categories")
-        shell.postGesture(EvenHubMsg.EV_CLICK)             // Newest
-        waitFor("listing") { torrentsWin.title() == "newest" && torrentsScripted.ops.any { it.startsWith("browse:0:1") } }
-        iconsSettled()
-        save(sim, out, "19-torrents-listing")
-        shell.postGesture(EvenHubMsg.EV_CLICK)             // the torrent page
-        waitFor("torrent page") { torrentsWin.title() == "torrent" }
-        settle(shell)
-        save(sim, out, "20-torrents-page")
-        repeat(3) { shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK) }    // → transfers (cursor still on the menu row)
-        settle(shell)
-        shell.postGesture(EvenHubMsg.EV_CLICK)
-        waitFor("the Torrents menu again") { shell.menuIsOpen && shell.menuTitle == "torrents" }
-        shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)     // → Search TorrentLeech
-        shell.postGesture(EvenHubMsg.EV_CLICK)
-        waitFor("the keyboard") { shell.keyboardIsOpen }
-        settle(shell)
-        save(sim, out, "21-keyboard-rows")
-        shell.postGesture(EvenHubMsg.EV_SCROLL_TOP)        // → the qwerty row
-        shell.postGesture(EvenHubMsg.EV_CLICK)             // enter it
-        repeat(6) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }   // → 'u'
-        shell.postGesture(EvenHubMsg.EV_CLICK)             // types 'u'
-        shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)     // highlight on 'i'
-        waitFor("typed") { shell.keyboardDraft() == "u" }
-        settle(shell)
-        save(sim, out, "22-keyboard-keys")
-        repeat(2) { shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK) }    // KEY → ROW → cancel (draft kept)
-        settle(shell)
-        torrentsMoreScenes(shell, sim, out, transport, torrentsWin, torrentsScripted)   // ends on the transfers
+        torrentsScenes(shell, sim, out, transport, torrentsWin, torrentsScripted, ::iconsSettled)   // ends on the transfers
         shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // transfers → Main
         settle(shell)
         repeat(3) { shell.postGesture(EvenHubMsg.EV_SCROLL_TOP) }      // cursor home
@@ -543,6 +488,8 @@ object Snapshot {
      * host on loopback that serves a scratch PC record over the same books, and the book bytes through `RemoteContent`
      * into a temp cache. Every other window is built as in the first arrangement, so Main and the switcher are the same.
      * Each render is compared with the same base scene (`tools/snapdiff.py BASE DIR/phone --subset`).
+     * Build S1-2 Q4 (the spec's §3.2): Torrents' scenes (15–25, 37c) too, the presenter over the phone's provider on the
+     * window channel to a `TorrentsService` of the scripted provider on the same loopback host.
      */
     private suspend fun phoneArrangement(cfg: Config, outRoot: Path) {
         val out = Files.createDirectories(outRoot.resolve("phone"))
@@ -553,8 +500,12 @@ object Snapshot {
         // the PC: a scratch record and its app lane, on loopback port 0
         val pcRecord = wm.damage.core.app.AppHost.inScratchDir(Files.createDirectories(tmp.resolve("pc")))
         val net = wm.damage.core.app.AppNet(pcRecord)
+        // build S1-2 Q4: the PC's torrents provider (the scripted one, made-up transfers), served to the phone over the
+        // window channel as the service serves its own (`TorrentsService`)
+        val torrentsScripted = ScriptedTorrents()
         // bound to loopback, and gated like every listener (build W): the strict gate answers loopback only here
         val host = wm.damage.core.content.ContentHostServer(LocalContent(books), 0, token, app = net,
+            win = mapOf("torrents" to wm.damage.core.windows.torrents.TorrentsService(torrentsScripted)),
             reach = wm.damage.core.net.ReachGate(wm.damage.core.net.Side.PHONE),
             bindAddress = java.net.InetAddress.getLoopbackAddress())
         host.start()
@@ -591,7 +542,10 @@ object Snapshot {
         shell.register(wm.damage.core.windows.files.FilesWindow(text,
             SceneFiles(wm.damage.core.windows.files.LocalFilesProvider(books, tmp.resolve("trash"), AwtImages())),
             scope, AwtImages(), initialBooksDir = cfg.booksDir))
-        shell.register(wm.damage.core.windows.torrents.TorrentsWindow(text, ScriptedTorrents(), scope))
+        // build S1-2 Q4: the phone's Torrents over the window channel to the PC's provider, at today's paces
+        val torrentsRemote = wm.damage.core.windows.torrents.RemoteTorrentsProvider("127.0.0.1", host.boundPort, token, scope)
+        val torrentsWin = wm.damage.core.windows.torrents.TorrentsWindow(text, torrentsRemote, scope)
+        shell.register(torrentsWin)
         val musicLib = ScriptedMusic()
         val musicClock: () -> Long = { System.currentTimeMillis() }
         shell.register(wm.damage.core.windows.music.MusicWindow(text, musicLib,
@@ -606,8 +560,23 @@ object Snapshot {
             // one waits for the listing and for the PC's first answer before scene 01
             waitFor("the phone's shelf") { reader.summary().line.endsWith(" books") }
             waitFor("the PC's record on the phone") { wc.client?.contractState is wm.damage.core.app.Contracts.State.Known }
+            // build S1-2 Q4: Main's Torrents row reads the phone's copy of the PC's transfers (its first poll), as the
+            // first arrangement's reads the provider itself
+            waitFor("the phone's transfers") {
+                torrentsRemote.snapshot()?.version == torrentsScripted.currentVersion && torrentsRemote.stateLine().isEmpty() &&
+                    torrentsWin.summary().line.contains("downloading")
+            }
             iconsSettled()
             readerScenes(shell, sim, reader, out)
+            // build S1-2 Q4: Torrents' scenes again, the presenter over the phone's provider (the first arrangement's
+            // steps; each waits for the phone's copy of the PC's snapshot where the picture shows the list)
+            torrentsScenes(shell, sim, out, transport, torrentsWin, torrentsScripted, ::iconsSettled) {
+                torrentsRemote.snapshot()?.version == torrentsScripted.currentVersion
+            }
+            shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // transfers → Main
+            settle(shell, "torrents-to-main-phone")
+            repeat(3) { shell.postGesture(EvenHubMsg.EV_SCROLL_TOP) }      // cursor home
+            settle(shell, "main-home-phone")
             // Settings, reached by committing and checking (as `toWindow` does), then its Reader category
             for (k in 0 until 12) {
                 shell.postGesture(EvenHubMsg.EV_CLICK)
@@ -623,12 +592,15 @@ object Snapshot {
             }
             if (shell.currentWindowId() != "settings") failures.add("phone arrangement: could not reach Settings from Main")
             readerSettingsScene(shell, sim, out)
+            settingsCategoryScene(shell, sim, out, "Torrents", "37c-torrents-settings")
             val line = wc.client?.contractState?.line(core.window)
             if (line != null) failures.add("phone arrangement: the builds differ ($line)")
         } finally {
             shell.stop()
             reader.detach()
             source.close()
+            torrentsWin.detach()
+            torrentsRemote.close()
             wc.close()
             ex.shutdown()
             host.close()
@@ -795,11 +767,77 @@ object Snapshot {
     }
 
     /**
+     * Torrents' scenes, 15 to 25 (TORRENTS.md, 2026-09-01; build S1-2 J0, Q4): the transfers with block bars and the
+     * live lens, the transfer menu, the details document, the tracker's categories and a listing, a torrent page, the
+     * §4.8 keyboard opened by Search, then [torrentsMoreScenes] — the same steps in both arrangements of the judge.
+     * Starts on Main with the cursor home; ends on the transfers. [synced] is true once the presenter's provider holds
+     * [torrentsScripted]'s snapshot (the phone's provider polls it over the window channel; on the PC it is the provider).
+     */
+    private suspend fun torrentsScenes(shell: Shell, sim: GlassFirmwareSim, out: Path, transport: SimTransport,
+        torrentsWin: wm.damage.core.windows.torrents.TorrentsWindow, torrentsScripted: ScriptedTorrents,
+        iconsSettled: suspend () -> Unit, synced: () -> Boolean = { true }) {
+        repeat(3) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }   // → Torrents row
+        settle(shell)
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        waitFor("torrents transfers") { torrentsWin.title() == "transfers" && synced() }
+        iconsSettled()
+        save(sim, out, "15-torrents-transfers")
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // the transfer menu
+        waitFor("torrents menu") { shell.menuIsOpen }
+        settle(shell)
+        save(sim, out, "16-torrents-menu")
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // Details
+        waitFor("torrents details") { torrentsWin.title() == "details" }
+        settle(shell)
+        save(sim, out, "17-torrents-details")
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // → transfers
+        settle(shell)
+        shell.postGesture(EvenHubMsg.EV_SCROLL_TOP)        // wrap to the Torrents menu row
+        settle(shell)
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        waitFor("the Torrents menu") { shell.menuIsOpen && shell.menuTitle == "torrents" }
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // Browse TorrentLeech
+        waitFor("categories") { torrentsWin.title() == "browse" }
+        iconsSettled()
+        save(sim, out, "18-torrents-categories")
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // Newest
+        waitFor("listing") { torrentsWin.title() == "newest" && torrentsScripted.ops.any { it.startsWith("browse:0:1") } }
+        iconsSettled()
+        save(sim, out, "19-torrents-listing")
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // the torrent page
+        waitFor("torrent page") { torrentsWin.title() == "torrent" }
+        settle(shell)
+        save(sim, out, "20-torrents-page")
+        repeat(3) { shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK) }    // → transfers (cursor still on the menu row)
+        settle(shell)
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        waitFor("the Torrents menu again") { shell.menuIsOpen && shell.menuTitle == "torrents" }
+        shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)     // → Search TorrentLeech
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        waitFor("the keyboard") { shell.keyboardIsOpen }
+        settle(shell)
+        save(sim, out, "21-keyboard-rows")
+        shell.postGesture(EvenHubMsg.EV_SCROLL_TOP)        // → the qwerty row
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // enter it
+        repeat(6) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }   // → 'u'
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // types 'u'
+        shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)     // highlight on 'i'
+        waitFor("typed") { shell.keyboardDraft() == "u" }
+        settle(shell)
+        save(sim, out, "22-keyboard-keys")
+        repeat(2) { shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK) }    // KEY → ROW → cancel (draft kept)
+        settle(shell)
+        torrentsMoreScenes(shell, sim, out, transport, torrentsWin, torrentsScripted, synced)   // ends on the transfers
+    }
+
+    /**
      * Build S1-2 J0: Torrents' menu with a recent search, its stats menu, and a done notice over the transfers. Starts on
-     * the transfers with the cursor on the menu row and no surface open; ends there, the notice dismissed.
+     * the transfers with the cursor on the menu row and no surface open; ends there, the notice dismissed. [synced]: as
+     * [torrentsScenes]' (the done scene waits for the finished download in the presenter's own list).
      */
     private suspend fun torrentsMoreScenes(shell: Shell, sim: GlassFirmwareSim, out: Path,
-        transport: SimTransport, torrentsWin: wm.damage.core.windows.torrents.TorrentsWindow, scripted: ScriptedTorrents) {
+        transport: SimTransport, torrentsWin: wm.damage.core.windows.torrents.TorrentsWindow, scripted: ScriptedTorrents,
+        synced: () -> Boolean) {
         shell.postGesture(EvenHubMsg.EV_CLICK)             // the Torrents menu
         waitFor("the Torrents menu for a search") { shell.menuIsOpen && shell.menuTitle == "torrents" }
         menuRow(shell, "Search TorrentLeech")
@@ -824,7 +862,7 @@ object Snapshot {
         settle(shell, "torrents-stats-closed")
         scripted.fireDone()                                // the done edge: a notice over the transfers
         waitFor("the done notice is up") { shell.notifications.active }
-        waitFor("the done notice is focused") { shell.notifications.focused && shell.isQuiescent() }
+        waitFor("the done notice is focused") { shell.notifications.focused && synced() && shell.isQuiescent() }
         settle(shell, "torrents-done")
         save(sim, out, "25-torrents-done-notice")
         shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // dismiss

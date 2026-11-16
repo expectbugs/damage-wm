@@ -69,7 +69,12 @@ class ScriptedTorrents : TorrentsProvider {
     override fun removeListener(l: TorrentsProvider.Listener) { listeners.remove(l) }
     override fun setFocused(focused: Boolean, paceMs: Long) { ops.add("focus:$focused:$paceMs") }
     override fun refresh() { ops.add("refresh"); for (l in listeners) l.snapshot(snap()) }
-    override fun eventsSince(seq: Long, epoch: Long): List<TorrentEvent> = emptyList()
+
+    /** Build S1-2 Q4: the events this provider raised, as the real provider's ring holds them (`TorrentsService`
+     *  replays them to the phone's provider; Torrents' core replays them at its attach). */
+    private val events = CopyOnWriteArrayList<TorrentEvent>()
+    override fun eventsSince(seq: Long, epoch: Long): List<TorrentEvent> =
+        if (epoch != this.epoch) emptyList() else events.filter { it.seq > seq }
 
     /** The ubuntu download finishes: the done edge the notification rides. */
     fun fireDone() {
@@ -79,8 +84,12 @@ class ScriptedTorrents : TorrentsProvider {
         }
         version++
         val e = TorrentEvent(++seq, "done", "aa01", "ubuntu-26.04-desktop-amd64.iso", System.currentTimeMillis())
+        events += e
         for (l in listeners) { l.snapshot(snap()); l.event(e) }
     }
+
+    /** The version of the snapshot this provider would give now (the phone arrangement waits for its copy to reach it). */
+    val currentVersion: Long get() = version
 
     override fun detail(hash: String): TransferDetail {
         val t = transfers.firstOrNull { it.hash == hash } ?: throw IllegalArgumentException("no such transfer $hash")
