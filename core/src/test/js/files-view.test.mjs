@@ -4,7 +4,7 @@
 // naming an entry reads pages until it is held; Move to Trash asks once naming the thing and its job's end is said;
 // Delete forever asks twice; a confirm open over a connection's end sends nothing; dropped files go one at a time,
 // the upload op then its body; a cut-off upload is said and stops the rest; a taken name asks first (Skip, Replace by
-// the trash); out of reach nothing is sent and the page says why; a pasted cut clears only its own clip; Sort and
+// the trash); out of reach nothing is sent and the page says why; a pasted cut is cleared by the PC core, never the page; Sort and
 // Hidden are shared rows; several selected; the text preview; the job line and its dims.
 
 import { test, afterEach } from 'node:test';
@@ -198,20 +198,17 @@ test('out of reach, dropped files are not sent and the page says why', async () 
   assert.match(p.said().join(' | '), /2 files were not uploaded: PC not answering since .*A page keeps no queue/);
 });
 
-test('a pasted cut clears the clipboard only while it still holds the clip the paste took', async () => {
+test('a pasted cut sends the paste alone: the PC core clears the clipboard (S1-2 R0 §3), and the page shows the record', async () => {
   const clip = { verb: 'cut', path: '/home/ada/notes.txt' };
   const { p, ws } = await page({ record: filesRecord({ 'rec.files.clip': { v: clip, rev: 3, by: 'phone-1', at: 1 } }) });
   find(p, 'BUTTON', "Paste here: 'notes.txt'").fire('click');
   const [op] = progOps(ws);
   assert.deepEqual([op.action, op.targets, op.params], ['paste', [DL], clip]);
   sent(ws, op.k, { a: 'sent', result: { path: `${DL}/notes.txt` } });
-  assert.deepEqual(queuedOps(ws).map((o) => [o.action, o.targets, o.result, o.expect]), [['cut', ['clip'], null, { value: clip }]]);
-  // a clip changed elsewhere meanwhile wins: nothing is cleared
-  find(p, 'BUTTON', "Paste here: 'notes.txt'").fire('click');
-  const op2 = progOps(ws).at(-1);
-  ws.frame({ t: 'chg', scope: 'files', epoch: 3, seq: 41, patches: [{ addr: 'rec.files.clip', set: { v: { verb: 'copy', path: '/x' }, rev: 4, by: 'phone-1', at: 2 } }] });
-  sent(ws, op2.k, { a: 'sent' });
-  assert.equal(queuedOps(ws).length, 1);
+  assert.deepEqual(queuedOps(ws), [], 'no clear of the page\'s own: one place clears, the PC core');
+  // the core's clear arrives as the record's change: the Paste button leaves with the clip
+  ws.frame({ t: 'chg', scope: 'files', epoch: 3, seq: 41, patches: [{ addr: 'rec.files.clip', set: { v: null, rev: 4, by: 'pc', at: 2 } }] });
+  assert.equal(findAll(p, 'BUTTON').some((b) => /^Paste here/.test(b.textContent || '')), false);
 });
 
 test('Sort and Hidden are shared rows: a record op expecting the value seen; the rows reorder at once', async () => {

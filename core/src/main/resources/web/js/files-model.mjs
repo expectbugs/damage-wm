@@ -254,9 +254,7 @@ export const hiddenOf = (rec) => (rec && rec.value(W, 'hidden')) === true;
 export const regDraft = (action, name, value, rec) => ({ window: W, action, targets: [name], result: value, expect: expectSeen(rec && rec.item(W, name)) });
 /** Copy or Cut: the clipboard holds `{verb, path}`. */
 export const clipDraft = (verb, path, rec) => regDraft(verb, 'clip', { verb, path }, rec);
-/** After a pasted cut: the clipboard cleared only if it still holds the clip the paste took (F3: a clip changed
- *  meanwhile wins, and nothing is said). */
-export const clipClearDraft = (took) => ({ window: W, action: 'cut', targets: ['clip'], result: null, expect: { value: took } });
+// A pasted cut's clipboard is cleared by the PC's core when the move lands (S1-2 R0 §3), never by a page.
 
 // ---- actions (spec §4.1's table; Files' minimum is full, C§10.4) ----
 

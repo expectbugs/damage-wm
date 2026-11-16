@@ -750,5 +750,366 @@
    "aMoveElsewhereDropsSilentModesSmallBox"
   ],
   "note": "S1-2 Q3 (spec 5 N5): in Silent Mode's small form a withdrawn box is dropped at once, not furled"
+ },
+ {
+  "id": "S1-2-Q5-files-sync",
+  "file": "shell/Persistence.kt",
+  "edits": [
+   [
+    "            return wm.damage.core.app.Windows.converted(id)\n",
+    "            return wm.damage.core.app.Windows.converted(id) && id != \"files\"\n"
+   ]
+  ],
+  "tests": [
+   "*FilesCoreTest.filesKeysLeaveTheSyncChannel",
+   "*ReviewRound1Test.filesViewerPositionStaysOnItsHostTheKeysNoLongerSync"
+  ],
+  "expect": [
+   "filesKeysLeaveTheSyncChannel",
+   "filesViewerPositionStaysOnItsHostTheKeysNoLongerSync"
+  ],
+  "note": "S1-2 Q5 (spec Q5 pin 'the files keys still sync'): a converted window's keys leave the sync channel; without it window.files crosses"
+ },
+ {
+  "id": "S1-2-Q5-slot-per-instance",
+  "file": "windows/files/FilesPc.kt",
+  "edits": [
+   [
+    "    val program: FilesProgram = FilesProgram(slotted, uploads)\n",
+    "    val program: FilesProgram = FilesProgram(SlottedFiles(raw, FilesJobs()), uploads)\n"
+   ]
+  ],
+  "tests": [
+   "*FilesJobsTest.aWebCopyRefusesThePcsGlassesAndThePhonesGlasses_oneSlot"
+  ],
+  "expect": [
+   "aWebCopyRefusesThePcsGlassesAndThePhonesGlasses_oneSlot"
+  ],
+  "note": "S1-2 Q5 (spec Q5 pin 'a web copy does not refuse the glasses' op'; 5 F1): one slot per PC; a slot per caller lets the glasses run beside a web copy"
+ },
+ {
+  "id": "S1-2-Q5-failed-keeps-slot",
+  "file": "windows/files/FilesJobs.kt",
+  "edits": [
+   [
+    "            h.failed(e.message ?: e::class.simpleName ?: \"failed\")\n            throw e\n",
+    "            throw e\n"
+   ]
+  ],
+  "tests": [
+   "*FilesJobsTest.aJobThatFailsFreesTheSlotAndSaysWhy"
+  ],
+  "expect": [
+   "aJobThatFailsFreesTheSlotAndSaysWhy"
+  ],
+  "note": "S1-2 Q5 (spec Q5 pin 'a failed job keeps the slot'): a job that throws ends failed and frees the slot"
+ },
+ {
+  "id": "S1-2-Q5-cut-clear-any",
+  "file": "windows/files/FilesCore.kt",
+  "edits": [
+   [
+    "        fun clearCutDraft(src: String) = Draft(CUT, listOf(CLIP), JsonNull, Expect.Value(clipJson(\"cut\", src)))\n",
+    "        fun clearCutDraft(src: String) = Draft(CUT, listOf(CLIP), JsonNull, Expect.Any)\n"
+   ]
+  ],
+  "tests": [
+   "*FilesCoreTest.aPastedCutClearsTheClipboardOnlyWhileItStillNamesThatClip"
+  ],
+  "expect": [
+   "aPastedCutClearsTheClipboardOnlyWhileItStillNamesThatClip"
+  ],
+  "note": "S1-2 Q5 (spec Q5 pin 'a pasted cut clears a clip changed meanwhile'; 5 F3): the core's clear expects the clip the paste took"
+ },
+ {
+  "id": "S1-2-Q5-core-clear-slotted",
+  "file": "windows/files/SlottedFiles.kt",
+  "edits": [
+   [
+    "            raw.moveCounted(src, destDir, h.asProgress).also { moved(src) }\n",
+    "            raw.moveCounted(src, destDir, h.asProgress)\n"
+   ]
+  ],
+  "tests": [
+   "*FilesCoreTest.theCoreClearsACutAfterEveryCallersMove_neverACopy",
+   "*FilesArrangementsTest.theGlassesSortRowReachesThePcRecord_andACutPastedThereIsClearedByThePcsCore"
+  ],
+  "expect": [
+   "theCoreClearsACutAfterEveryCallersMove_neverACopy",
+   "theGlassesSortRowReachesThePcRecord_andACutPastedThereIsClearedByThePcsCore"
+  ],
+  "note": "S1-2 Q5 (R0 3: one place, the core): a move by the glasses' call (PC or phone) clears a cut naming it"
+ },
+ {
+  "id": "S1-2-Q5-core-clear-web",
+  "file": "windows/files/FilesPc.kt",
+  "edits": [
+   [
+    ".also { files.moved(src) }",
+    ""
+   ]
+  ],
+  "tests": [
+   "*FilesCoreTest.theCoreClearsACutAfterEveryCallersMove_neverACopy"
+  ],
+  "expect": [
+   "theCoreClearsACutAfterEveryCallersMove_neverACopy"
+  ],
+  "note": "S1-2 Q5 (R0 3): the web's paste (a program op) clears a cut in the same place, the core"
+ },
+ {
+  "id": "S1-2-Q5-below-full-scopes",
+  "file": "windows/files/FilesScopes.kt",
+  "edits": [
+   [
+    "AppNet.Gate(FilesCore.WINDOW, Levels.FULL)",
+    "AppNet.Gate(FilesCore.WINDOW, Levels.VIEW)"
+   ]
+  ],
+  "tests": [
+   "*FilesScopesTest.belowLevelFullNothingOfFilesIsServed"
+  ],
+  "expect": [
+   "belowLevelFullNothingOfFilesIsServed"
+  ],
+  "note": "S1-2 Q5 (spec Q5 pin 'below full anything is served'; C 10.4): Files' scopes need full"
+ },
+ {
+  "id": "S1-2-Q5-below-full-ops",
+  "file": "windows/files/FilesCore.kt",
+  "edits": [
+   [
+    "                Levels.FULL else null\n",
+    "                (if (action in PROGRAM) Levels.CONTROL else Levels.FULL) else null\n"
+   ]
+  ],
+  "tests": [
+   "*FilesScopesTest.belowLevelFullNothingOfFilesIsServed"
+  ],
+  "expect": [
+   "belowLevelFullNothingOfFilesIsServed"
+  ],
+  "note": "S1-2 Q5 (spec Q5 pin 'below full anything is served'): Files' ops into the filesystem need full"
+ },
+ {
+  "id": "S1-2-Q5-below-full-blobs",
+  "file": "windows/files/FilesBlobs.kt",
+  "edits": [
+   [
+    "        return FileBlob(p, typeOf(p.fileName.toString()), Levels.FULL, p.fileName.toString())\n",
+    "        return FileBlob(p, typeOf(p.fileName.toString()), Levels.VIEW, p.fileName.toString())\n"
+   ]
+  ],
+  "tests": [
+   "*FilesScopesTest.belowLevelFullNothingOfFilesIsServed"
+  ],
+  "expect": [
+   "belowLevelFullNothingOfFilesIsServed"
+  ],
+  "note": "S1-2 Q5 (spec Q5 pin 'below full anything is served'): Files' blobs need full"
+ },
+ {
+  "id": "S1-2-Q5-sort-reseat",
+  "file": "windows/files/FilesGlasses.kt",
+  "edits": [
+   [
+    "                name?.let { reseat(it) }\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*FilesArrangementsTest.aSortOrHiddenChangedElsewhereKeepsTheCursorOnTheSameName"
+  ],
+  "expect": [
+   "aSortOrHiddenChangedElsewhereKeepsTheCursorOnTheSameName"
+  ],
+  "note": "S1-2 Q5 (spec Q5 pin 'a sort changed elsewhere leaves the cursor on another file'; 5 F5): the cursor is re-seated by name"
+ },
+ {
+  "id": "S1-2-Q5-relist-reseat",
+  "file": "windows/files/FilesGlasses.kt",
+  "edits": [
+   [
+    "                services?.setOperation(\"idle\")\n                reseatKept()\n",
+    "                services?.setOperation(\"idle\")\n"
+   ]
+  ],
+  "tests": [
+   "*FilesArrangementsTest.aSortOrHiddenChangedElsewhereKeepsTheCursorOnTheSameName"
+  ],
+  "expect": [
+   "aSortOrHiddenChangedElsewhereKeepsTheCursorOnTheSameName"
+  ],
+  "note": "S1-2 Q5 (5 F5): a hidden change relists and the relist keeps the cursor on the entry's name"
+ },
+ {
+  "id": "S1-2-Q5-migrate-ledger",
+  "file": "app/Migrate.kt",
+  "edits": [
+   [
+    "        store.put(ledgerKey, ledger)\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*FilesMigrationTest.aSecondStartOffersNothing"
+  ],
+  "expect": [
+   "aSecondStartOffersNothing"
+  ],
+  "note": "S1-2 Q5 (spec Q5 pin 'a second start migrates again'; 5 F4): Files' migration on the generic ledger"
+ },
+ {
+  "id": "S1-2-Q5-clip-op",
+  "file": "windows/files/FilesGlasses.kt",
+  "edits": [
+   [
+    "        write(FilesCore.CLIP) { e -> FilesCore.clipDraft(if (verb == ClipVerb.CUT) \"cut\" else \"copy\", path, e) }\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*FilesArrangementsTest.theGlassesSortRowReachesThePcRecord_andACutPastedThereIsClearedByThePcsCore"
+  ],
+  "expect": [
+   "theGlassesSortRowReachesThePcRecord_andACutPastedThereIsClearedByThePcsCore"
+  ],
+  "note": "S1-2 Q5 (spec 4.2: the field first, the op after): Copy and Cut on the glasses write Files' clipboard row"
+ },
+ {
+  "id": "S1-2-Q5-sort-op",
+  "file": "windows/files/FilesGlasses.kt",
+  "edits": [
+   [
+    "            write(FilesCore.SORT) { e -> FilesCore.sortDraft(sort.name.lowercase(), e) }   // S1-2 Q5: shared\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*FilesArrangementsTest.theGlassesSortRowReachesThePcRecord_andACutPastedThereIsClearedByThePcsCore"
+  ],
+  "expect": [
+   "theGlassesSortRowReachesThePcRecord_andACutPastedThereIsClearedByThePcsCore"
+  ],
+  "note": "S1-2 Q5 (spec 4.2): the Sort row on the glasses writes the shared sort"
+ },
+ {
+  "id": "S1-2-Q5-rule",
+  "file": "windows/files/FilesCore.kt",
+  "edits": [
+   [
+    "            if (ok) null else refuse(\"${op.action} of $t with ${op.result} is not a value of that Files row\")\n",
+    "            null\n"
+   ]
+  ],
+  "tests": [
+   "*FilesCoreTest.aRowTakesOnlyItsOwnValues"
+  ],
+  "expect": [
+   "aRowTakesOnlyItsOwnValues"
+  ],
+  "note": "S1-2 Q5: a Files row takes only its own values at apply time"
+ },
+ {
+  "id": "S1-2-Q5-job-end-rescan",
+  "file": "windows/files/FilesScopes.kt",
+  "edits": [
+   [
+    "                for (dir in known.keys.toList()) try {\n                    paged.describe(listing(dir), 0) { read(dir, 0, unreadableToo = true) }\n                } catch (e: Exception) {\n                    Log.w(TAG, \"after a job, $dir could not be read again: ${e.message}\")\n                }\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*FilesScopesTest.aSortChangeFollowsEveryHeldPage_andAJobsEndMovesTheVersionOfAFolderItChanged"
+  ],
+  "expect": [
+   "aSortChangeFollowsEveryHeldPage_andAJobsEndMovesTheVersionOfAFolderItChanged"
+  ],
+  "note": "S1-2 Q5 (spec 2.2, 5 V2): at a job's end each held folder is read again, so a changed one moves its version"
+ },
+ {
+  "id": "S1-2-Q5-follows-sort",
+  "file": "windows/files/FilesScopes.kt",
+  "edits": [
+   [
+    "        if (scope.startsWith(FOLDER_SCOPE)) return Record.key(FilesCore.WINDOW, FilesCore.SORT) in keys ||\n            Record.key(FilesCore.WINDOW, FilesCore.HIDDEN) in keys\n",
+    "        if (scope.startsWith(FOLDER_SCOPE)) return false\n"
+   ]
+  ],
+  "tests": [
+   "*FilesScopesTest.aSortChangeFollowsEveryHeldPage_andAJobsEndMovesTheVersionOfAFolderItChanged"
+  ],
+  "expect": [
+   "aSortChangeFollowsEveryHeldPage_andAJobsEndMovesTheVersionOfAFolderItChanged"
+  ],
+  "note": "S1-2 Q5: a shared sort or hidden change describes every held page again"
+ },
+ {
+  "id": "S1-2-Q5-shared-order",
+  "file": "windows/files/FilesScopes.kt",
+  "edits": [
+   [
+    "        val sort = FilesCore.sortOf(st) ?: \"name\"\n",
+    "        val sort = \"name\"\n"
+   ]
+  ],
+  "tests": [
+   "*FilesScopesTest.aFolderIsServedAPageAtATime_sortedAndFilteredByTheSharedRows"
+  ],
+  "expect": [
+   "aFolderIsServedAPageAtATime_sortedAndFilteredByTheSharedRows"
+  ],
+  "note": "S1-2 Q5 (spec 4.1): a folder's pages are sorted on the PC by the shared sort"
+ },
+ {
+  "id": "S1-2-Q5-upload-end",
+  "file": "windows/files/FilesPc.kt",
+  "edits": [
+   [
+    "                    is Uploads.End.Failed -> h.failed(end.reason)\n",
+    "                    is Uploads.End.Failed -> {}\n"
+   ]
+  ],
+  "tests": [
+   "*FilesScopesTest.anUploadHoldsTheSlotFromItsOpToTheEndOfItsBody"
+  ],
+  "expect": [
+   "anUploadHoldsTheSlotFromItsOpToTheEndOfItsBody"
+  ],
+  "note": "S1-2 Q5 (5 V4, F1): a cut-off upload ends its job and frees the slot (a slot never freed otherwise)"
+ },
+ {
+  "id": "S1-2-Q5-counted-copy",
+  "file": "windows/files/LocalFilesProvider.kt",
+  "edits": [
+   [
+    "                done += attrs.size()\n                progress.at(done, total, \"copying\")\n",
+    "                done += attrs.size()\n"
+   ]
+  ],
+  "tests": [
+   "*FilesJobsTest.theLocalProviderCountsACopysBytes"
+  ],
+  "expect": [
+   "theLocalProviderCountsACopysBytes"
+  ],
+  "note": "S1-2 Q5 (spec 4.1 'Progress'): a copy counts each file's bytes as it lands"
+ },
+ {
+  "id": "S1-2-Q5-trash-reseat",
+  "file": "windows/files/FilesGlasses.kt",
+  "edits": [
+   [
+    "                if (keepId != null && trashModel.cursor == keepAt)\n                    trashEntries.indexOfFirst { it.id == keepId }.takeIf { it >= 0 }?.let { trashModel.cursor = it }\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*FilesArrangementsTest.aTrashRelistKeepsTheCursorOnTheSameEntry"
+  ],
+  "expect": [
+   "aTrashRelistKeepsTheCursorOnTheSameEntry"
+  ],
+  "note": "S1-2 Q5 (the wrong-file class swept into the trash): a trash relist keeps the cursor on the same entry"
  }
 ]

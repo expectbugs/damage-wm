@@ -98,12 +98,12 @@ test('delete forever always asks twice and names the thing; to the trash asks on
   assert.equal(M.confirmFor('copy', ['x']), null);
 });
 
-test('the clipboard, sort and hidden are registers expecting the value seen; a pasted cut clears only its own clip', () => {
+test('the clipboard, sort and hidden are registers expecting the value seen; the page has no clear of its own', () => {
   const items = new Map([['rec.files.clip', { v: { verb: 'cut', path: '/a/b' }, rev: 2 }]]);
   const rec = { item: (w, n) => items.get(`rec.${w}.${n}`), value: (w, n) => (items.get(`rec.${w}.${n}`) || {}).v };
   assert.deepEqual(M.clipDraft('copy', '/a/c', rec), { window: 'files', action: 'copy', targets: ['clip'], result: { verb: 'copy', path: '/a/c' }, expect: { value: { verb: 'cut', path: '/a/b' } } });
   assert.deepEqual(M.regDraft('sort', 'sort', 'size', rec).expect, { value: null });
-  assert.deepEqual(M.clipClearDraft({ verb: 'cut', path: '/a/b' }), { window: 'files', action: 'cut', targets: ['clip'], result: null, expect: { value: { verb: 'cut', path: '/a/b' } } });
+  assert.equal(M.clipClearDraft, undefined, 'S1-2 R0 §3: the page sends no clear of its own; the PC core clears a pasted cut');
   assert.deepEqual(M.clipOf(rec), { verb: 'cut', path: '/a/b' });
   assert.equal(M.sortOf(rec), 'name');
   assert.equal(M.hiddenOf(rec), false);

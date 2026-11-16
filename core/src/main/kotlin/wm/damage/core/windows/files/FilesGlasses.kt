@@ -5,7 +5,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
@@ -36,6 +35,29 @@ import wm.damage.core.text.TextRasterizer
 import wm.damage.core.text.Wrap
 import wm.damage.core.util.Log
 
+/** The name the window had before its conversion, kept for the sites that name its type (the test sites, `--selfcheck`). */
+typealias FilesWindow = FilesGlasses
+
+/**
+ * The compatibility factory (build S1-2 Q5, the spec's §4.2): Files as it was built before its conversion — a
+ * [FilesCore], a source over a record of its own in memory, the provider behind a job slot of its own (so a cut's
+ * paste clears the clipboard through the core, as on the PC), and the glasses' presenter over those. The test sites,
+ * `--selfcheck` and the snapshot judge's first arrangement build Files this way; the hosts build it on their own record.
+ */
+fun FilesWindow(
+    text: TextRasterizer,
+    provider: FilesProvider,
+    bg: CoroutineScope,
+    decoder: ImageDecoder? = null,
+    initialBooksDir: String = "",
+): FilesGlasses {
+    val core = FilesCore()
+    val source = wm.damage.core.app.LocalWindowSource(core, wm.damage.core.app.MemoryRecord(FilesCore.ACTIONS))
+    val slotted = provider as? SlottedFiles
+        ?: SlottedFiles(provider, FilesJobs(), onMoved = { src -> source.act(FilesCore.clearCutDraft(src)) })
+    return FilesGlasses(text, core, source, slotted, bg, decoder, initialBooksDir)
+}
+
 /**
  * FILES — the file manager, Adam's chosen first conversion (2026-09-01).
  * Design settled in-session: G2CC's shape with the graphical wave — a
@@ -51,9 +73,20 @@ import wm.damage.core.util.Log
  * Threading: providers are called off-loop ([bg]); every state mutation
  * applies through [ShellServices.runOnShell]; [navSeq] guards stale
  * completions; [opBusy] enforces one filesystem op at a time, loudly.
+ *
+ * Build S1-2 Q5 (`CONTRACT.md` §11.1, §12; the spec's §4.2): the glasses' presenter of Files' [core]. The clipboard,
+ * the sort and hidden rows and the Size row are Files' records, read through [source] (the PC's record, or the phone's
+ * working copy) and written as ops where they change today (Copy, Cut, the Sort and Hidden rows, the Size row) —
+ * the field first, the op after, so the first flush is today's. A cut's clipboard is cleared by the core when the
+ * paste's move lands (S1-2 R0 §3), never here. When the shared sort or hidden moves from another device the browse
+ * cursor stays on the same entry NAME (the wrong-file class, §5 F5). The filesystem calls stay today's (A.4), behind
+ * the PC's one job slot (`SlottedFiles`; the phone's through the window channel). Level, cursors, location, folder
+ * and the viewer stay this interface's own, in the local `window.files` keys, unsynced.
  */
-class FilesWindow(
+class FilesGlasses(
     private val text: TextRasterizer,
+    val core: FilesCore,
+    val source: wm.damage.core.app.WindowSource,
     private val provider: FilesProvider,
     private val bg: CoroutineScope,
     private val decoder: ImageDecoder? = null,
@@ -61,6 +94,8 @@ class FilesWindow(
      *  from the provider's Books location on refresh (the phone side has no
      *  local knowledge of the PC's path), seeded here for laptop-direct. */
     initialBooksDir: String = "",
+    /** This device's name in the record (`local` on the PC, `phone` on the phone): where a losing value was set. */
+    private val device: String = wm.damage.core.app.Peer.LOCAL.device,
 ) : DamageWindow("files", "Files", IconKind.FILES) {
 
     private var booksDir: String = initialBooksDir
@@ -135,15 +170,143 @@ class FilesWindow(
     override val needs = setOf(Need.HOST)
 
     /** §2's per-app height (2026-09-06, Adam: Files had no Size row): null =
-     *  the Global row, else one of the four sizes. Persisted with the state. */
+     *  the Global row, else one of the four sizes. S1-2 Q5: Files' `glasses.size` record row. */
     private var heightPref: Int? = null
     override val preferredHeight: Int? get() = heightPref
     private val settingsRows: List<HostSetting> by lazy {
         listOf(
             HostSetting("Size", listOf("global") + wm.damage.core.shell.ShellSettings.HEIGHTS.map { "$it" },
                 { heightPref?.toString() ?: "global" },
-                { heightPref = it.toIntOrNull() }),
+                { v ->
+                    heightPref = v.toIntOrNull()                  // the field first, the op after
+                    write(FilesCore.SIZE) { e -> FilesCore.sizeDraft(heightPref, e) }
+                }),
         )
+    }
+
+    // ---- S1-2 Q5: Files' records through [source] ----
+
+    /** The values this presenter sent and the record has not answered yet: the record's older value is not adopted
+     *  over them meanwhile (the PC's own record answers after its log line; a change of another row comes first). */
+    private val inFlight = HashMap<String, Int>()
+    private val lossWords = wm.damage.core.app.LossWords()
+
+    /** Sends the draft [d] for the row [item] (on the shell loop), expecting the value this view last saw. */
+    private fun write(item: String, d: (wm.damage.core.app.Expect) -> wm.damage.core.app.Draft) {
+        val seen = source.state().itemNamed(item)
+        inFlight[item] = (inFlight[item] ?: 0) + 1
+        source.act(d(FilesCore.expectSeen(seen)))
+    }
+
+    /** The record's values for the rows not in flight, onto this view's fields (on the shell loop). A sort or hidden
+     *  that moved re-seats the browse cursor on the same entry name (§5 F5); hidden relists. True when anything moved. */
+    private fun fromSource(st: wm.damage.core.app.WindowState): Boolean {
+        var moved = false
+        if (FilesCore.CLIP !in inFlight) {
+            val c = FilesCore.clipOf(st)?.let { (v, p) -> (if (v == "cut") ClipVerb.CUT else ClipVerb.COPY) to p }
+            if (c != clip) { clip = c; moved = true }
+        }
+        if (FilesCore.SIZE !in inFlight) {
+            val h = FilesCore.sizeOf(st)
+            if (h != heightPref) { heightPref = h; moved = true }
+        }
+        val name = if (level == Level_.BROWSE || level == Level_.VIEW) cursorName() else null
+        if (FilesCore.SORT !in inFlight) {
+            val s = FilesCore.sortOf(st)?.let { k -> Sort.entries.firstOrNull { it.name.lowercase() == k } } ?: Sort.NAME
+            if (s != sort) {
+                sort = s
+                moved = true
+                name?.let { reseat(it) }
+            }
+        }
+        if (FilesCore.HIDDEN !in inFlight) {
+            val hd = FilesCore.hiddenOf(st) ?: false
+            if (hd != showHidden) {
+                showHidden = hd
+                moved = true
+                // the folder is listed again under the new row; the relist keeps the cursor on its entry's name
+                if (level == Level_.BROWSE) refreshList()
+            }
+        }
+        return moved
+    }
+
+    /** The entry name under the browse cursor ([THIS_FOLDER] for the This-folder row), or null with no rows. */
+    private fun cursorName(): String? {
+        val r0 = rows()
+        if (browseModel.cursor !in r0.indices) return null
+        return r0[browseModel.cursor]?.name ?: THIS_FOLDER
+    }
+
+    /** The entry the browse cursor names now (tests read the wrong-file class through it; on the shell loop). */
+    internal fun browseCursorName(): String? = cursorName()
+
+    /** The trash entry the trash cursor names now (on the shell loop). */
+    internal fun trashCursorName(): String? = trashEntries.getOrNull(trashModel.cursor)?.name
+
+    /** The browse cursor onto the row named [name] in the rows now; a name no longer listed keeps the index, clamped. */
+    private fun reseat(name: String) {
+        val r0 = rows()
+        val i = if (name == THIS_FOLDER) r0.size - 1 else r0.indexOfFirst { it?.name == name }
+        browseModel.cursor = if (i >= 0) i else browseModel.cursor.coerceIn(0, r0.size - 1)
+    }
+
+    /** The source's changes and answers, on the core executor: handed to the shell loop. */
+    private val onSource = object : wm.damage.core.app.SourceListener {
+        override fun changed(state: wm.damage.core.app.WindowState, keys: Set<String>) {
+            services?.runOnShell("files.source") {
+                if (fromSource(source.state())) services?.requestRender(this@FilesGlasses)
+            }
+        }
+
+        override fun answered(op: wm.damage.core.app.Op, answer: wm.damage.core.app.Answer) {
+            val s = services
+            if (s == null) {
+                if (answer is wm.damage.core.app.Answer.Refused && answer.code != wm.damage.core.app.Answer.RETRY &&
+                    answer.code != wm.damage.core.app.Answer.GAP)
+                    Log.e("files", "the record refused ${op.action} of ${op.targets} before the shell started: ${answer.reason}")
+                return
+            }
+            s.runOnShell { onAnswer(op, answer) }
+        }
+    }
+
+    /** An answer to one of this view's ops, on the shell loop (C§4.4): a loss is said once with both values, as
+     *  today's answer notice; the row then shows the standing value. */
+    private fun onAnswer(op: wm.damage.core.app.Op, a: wm.damage.core.app.Answer) {
+        if (op.window != FilesCore.WINDOW) return
+        val item = op.targets.firstOrNull() ?: return
+        inFlight[item]?.let { n -> if (n <= 1) inFlight.remove(item) else inFlight[item] = n - 1 }
+        when (a) {
+            is wm.damage.core.app.Answer.Lost -> {
+                for (loss in a.losses) lossWords.register(rowLabel(loss.item), loss,
+                    wm.damage.core.app.LossWords.where(device), System.currentTimeMillis(), FilesCore::words)
+                    ?.let { line -> services?.notifyInternal("files", line, answer = true) }
+                source.said(op)
+            }
+            is wm.damage.core.app.Answer.Refused -> if (a.code != wm.damage.core.app.Answer.RETRY && a.code != wm.damage.core.app.Answer.GAP)
+                services?.notifyInternal("files", "${rowLabel(item)}: not applied — ${a.reason}", answer = true)
+            else -> {}
+        }
+        if (fromSource(source.state())) services?.requestRender(this)
+    }
+
+    private fun rowLabel(item: String): String = when (item.removePrefix("rec.files.")) {
+        FilesCore.CLIP -> "Clipboard"
+        FilesCore.SORT -> "Sort"
+        FilesCore.HIDDEN -> "Hidden files"
+        FilesCore.SIZE -> "Size"
+        else -> item
+    }
+
+    init {
+        fromSource(source.state())
+        source.addListener(onSource)
+    }
+
+    /** At a stack's end: the source outlives this presenter on the PC (one per process). */
+    fun detach() {
+        source.removeListener(onSource)
     }
 
     // =============================================================== contract
@@ -377,7 +540,7 @@ class FilesWindow(
                 if (seq != navSeq) return@runOnShell
                 adoptLocations(cached)
                 listState = "cached · refreshing"
-                services?.requestRender(this@FilesWindow)
+                services?.requestRender(this@FilesGlasses)
             }
             val (locs, err) = try {
                 provider.locations() to null
@@ -394,7 +557,7 @@ class FilesWindow(
                     services?.setOperation("idle")
                 }
                 if (err == null && cached != null && cached == locs) return@apply   // nothing changed: no second paint
-                services?.requestRender(this@FilesWindow)
+                services?.requestRender(this@FilesGlasses)
             }
             // §72: the quiet listing supersedes its predecessors (keyed: the latest is held while
             // no session is live); a listing the user asked for stays a plain completion
@@ -525,6 +688,16 @@ class FilesWindow(
     private fun refreshList() {
         val seq = ++navSeq
         val dir = cwd
+        // S1-2 Q5 (§5 F5): a relist of the folder on screen keeps the cursor on its entry's NAME — never on an index
+        // that now names another file (a hidden or sort change, a paste or a trash landing). A fresh folder has no
+        // rows yet and keeps its own steer (rest, an ascend's cursor, a deep link's file); a cursor the user moved
+        // while the listing was on its way stays where the user put it.
+        val keepName = if (entries.isNotEmpty()) cursorName() else null
+        val keepAt = browseModel.cursor
+        fun reseatKept() {
+            if (keepName != null && pendingBrowseCursor == null && pendingSelectName == null && browseModel.cursor == keepAt)
+                reseat(keepName)
+        }
         listState = "listing"
         services?.setOperation("listing")
         bg.launch(Dispatchers.IO) {
@@ -537,8 +710,9 @@ class FilesWindow(
                 if (seq != navSeq || cwd != dir) return@runOnShell
                 entries = cached
                 listState = "cached · refreshing"
+                reseatKept()
                 if (browseModel.cursor >= rows().size) browseModel.cursor = 0
-                services?.requestRender(this@FilesWindow)
+                services?.requestRender(this@FilesGlasses)
             }
             val (list, err) = try {
                 provider.list(dir, showHidden) to null
@@ -555,6 +729,7 @@ class FilesWindow(
                 listState = err ?: ""
                 if (err != null) { setNotice(err); pendingSelectName = null }
                 services?.setOperation("idle")
+                reseatKept()
                 val n = rows().size
                 pendingBrowseCursor?.let {
                     browseModel.cursor = it.coerceIn(0, n - 1)
@@ -567,7 +742,7 @@ class FilesWindow(
                     pendingSelectName = null
                 }
                 if (browseModel.cursor >= n) browseModel.cursor = 0
-                services?.requestRender(this@FilesWindow)
+                services?.requestRender(this@FilesGlasses)
             }
         }
     }
@@ -642,12 +817,12 @@ class FilesWindow(
                         thumbRetryAt[path] = System.currentTimeMillis() + 10_000
                         bg.launch {
                             kotlinx.coroutines.delay(10_000)
-                            services?.runOnShell { services?.requestRender(this@FilesWindow) }
+                            services?.runOnShell { services?.requestRender(this@FilesGlasses) }
                         }
                     } else {
                         thumbs[path] = t
                     }
-                    services?.requestRender(this@FilesWindow)
+                    services?.requestRender(this@FilesGlasses)
                 }
             }
         }
@@ -709,13 +884,22 @@ class FilesWindow(
             }
         }
         add("Open on PC") { runOp("opening on PC") { provider.openOnPc(path); "opened on the PC" } }
-        add("Copy") { clip = ClipVerb.COPY to path; services?.requestRender(this) }
-        add("Cut") { clip = ClipVerb.CUT to path; services?.requestRender(this) }
+        // S1-2 Q5: the clipboard is Files' shared record — the field first (the title's cell, today's first flush),
+        // the op after
+        add("Copy") { setClip(ClipVerb.COPY, path) }
+        add("Cut") { setClip(ClipVerb.CUT, path) }
         if (e.dir && clip != null) add("Paste here", dn(clip!!.second.substringAfterLast('/'))) { paste(path) }
         add("Rename") { askName(NameFor.RENAME, path, e.name) }
         add("Stats") { openStats(path, e) }
         add("Delete", "to trash") { confirmTrash(path, e.name) }
         services?.openMenu(MenuSurface.Spec(dn(e.name), items, onCommit = { idx -> acts.getOrNull(idx)?.invoke() }))
+    }
+
+    /** S1-2 Q5: Copy or Cut — the field first, then the op on Files' clipboard row. */
+    private fun setClip(verb: ClipVerb, path: String) {
+        clip = verb to path
+        write(FilesCore.CLIP) { e -> FilesCore.clipDraft(if (verb == ClipVerb.CUT) "cut" else "copy", path, e) }
+        services?.requestRender(this)
     }
 
     private fun openThisFolderMenu() {
@@ -729,10 +913,12 @@ class FilesWindow(
         if (clip != null) add("Paste here", dn(clip!!.second.substringAfterLast('/'))) { paste(cwd) }
         add("Sort", sort.name.lowercase()) {
             sort = Sort.entries[(sort.ordinal + 1) % Sort.entries.size]
+            write(FilesCore.SORT) { e -> FilesCore.sortDraft(sort.name.lowercase(), e) }   // S1-2 Q5: shared
             services?.requestRender(this)
         }
         add("Hidden files", if (showHidden) "on" else "off") {
             showHidden = !showHidden
+            write(FilesCore.HIDDEN) { e -> FilesCore.hiddenDraft(showHidden, e) }           // S1-2 Q5: shared
             refreshList()
         }
         add("Refresh") { refreshList() }
@@ -807,12 +993,10 @@ class FilesWindow(
     private fun paste(destDir: String) {
         val took = clip ?: return
         val (verb, src) = took
-        // the clip slot clears in the LOOP completion (R3s#9), never in the
-        // IO-side op — title() reads it every chrome sync — and only if it
-        // still holds the pair THIS op consumed (R4#9: a clip re-armed during
-        // a multi-second move must survive the old completion)
-        runOp(if (verb == ClipVerb.COPY) "copying" else "moving",
-            onSuccess = { if (verb == ClipVerb.CUT && clip == took) clip = null }) {
+        // S1-2 R0 §3: a cut's clipboard is cleared in ONE place, the core, when the move lands (`SlottedFiles`'s
+        // clear, expecting the clip it took: a clip re-armed during a multi-second move survives, as R4#9 had it);
+        // the record's change then reaches this view's title, as every other view's
+        runOp(if (verb == ClipVerb.COPY) "copying" else "moving") {
             val dest = if (verb == ClipVerb.COPY) provider.copy(src, destDir) else provider.move(src, destDir)
             "→ ${shortPath(dest)}"
         }
@@ -846,7 +1030,7 @@ class FilesWindow(
                     opBusy = false
                     if (seq == statSeq) setNotice(ex.message ?: "stat failed")
                     services?.setOperation("idle")
-                    services?.requestRender(this@FilesWindow)
+                    services?.requestRender(this@FilesGlasses)
                 }
                 return@launch
             }
@@ -863,7 +1047,7 @@ class FilesWindow(
                 val shown = level == fromLevel &&
                     services?.openMenu(MenuSurface.Spec(
                         dn(e?.name ?: shortPath(path)), lines, onCommit = { }),
-                        owner = this@FilesWindow) == true
+                        owner = this@FilesGlasses) == true
                 if (!shown) {
                     services?.notifyInternal("files",
                         "${e?.name ?: shortPath(path)}: " + lines.joinToString(" · ") { "${it.label} ${it.detail}" }, answer = true)
@@ -905,7 +1089,7 @@ class FilesWindow(
                     Level_.BROWSE -> refreshList()
                     Level_.TRASH -> refreshTrash()
                     Level_.LOCATIONS -> refreshLocations()
-                    Level_.VIEW -> services?.requestRender(this@FilesWindow)
+                    Level_.VIEW -> services?.requestRender(this@FilesGlasses)
                 }
             }
         }
@@ -914,6 +1098,11 @@ class FilesWindow(
     // ================================================================== trash
     private fun refreshTrash() {
         val seq = ++navSeq
+        // S1-2 Q5, the wrong-file class swept into the trash: a relist keeps the cursor on the same trash entry (newest
+        // first, so an entry trashed elsewhere meanwhile shifts every index); one gone keeps the index, clamped; a
+        // cursor the user moved while the listing was on its way stays where the user put it
+        val keepId = trashEntries.getOrNull(trashModel.cursor)?.id
+        val keepAt = trashModel.cursor
         services?.setOperation("listing trash")
         bg.launch(Dispatchers.IO) {
             val (list, err) = try {
@@ -925,8 +1114,10 @@ class FilesWindow(
                 if (seq != navSeq) return@runOnShell
                 if (err == null) trashEntries = list else setNotice(err)
                 services?.setOperation("idle")
+                if (keepId != null && trashModel.cursor == keepAt)
+                    trashEntries.indexOfFirst { it.id == keepId }.takeIf { it >= 0 }?.let { trashModel.cursor = it }
                 if (trashModel.cursor >= trashEntries.size) trashModel.cursor = 0
-                services?.requestRender(this@FilesWindow)
+                services?.requestRender(this@FilesGlasses)
             }
         }
     }
@@ -1019,7 +1210,7 @@ class FilesWindow(
             bg.launch {
                 kotlinx.coroutines.delay(RETRY_PACING_MS)
                 services?.runOnShell {
-                    if (viewer === this@Viewer) services?.requestRender(this@FilesWindow)
+                    if (viewer === this@Viewer) services?.requestRender(this@FilesGlasses)
                 }
             }
         }
@@ -1191,7 +1382,7 @@ class FilesWindow(
                         } else if (add.isNotEmpty()) appendText(add)
                         if (!chunk.more) carry = ""
                     }
-                    services?.requestRender(this@FilesWindow)
+                    services?.requestRender(this@FilesGlasses)
                 }
             }
         }
@@ -1224,7 +1415,7 @@ class FilesWindow(
                         pdfNextPage = page + 1
                         applyRestoreTop(done = pdfNextPage > pdfPages)
                     }
-                    services?.requestRender(this@FilesWindow)
+                    services?.requestRender(this@FilesGlasses)
                 }
             }
         }
@@ -1333,7 +1524,7 @@ class FilesWindow(
                     v.appendStrips(scaled)
                     v.applyRestoreTop(done = true)
                 }
-                services?.requestRender(this@FilesWindow)
+                services?.requestRender(this@FilesGlasses)
             }
         }
     }
@@ -1388,7 +1579,7 @@ class FilesWindow(
                     setNotice("opening $name cancelled — you moved on")
                     pendingViewTop = 0
                     pendingViewFor = null
-                    services?.requestRender(this@FilesWindow)
+                    services?.requestRender(this@FilesGlasses)
                     return@runOnShell
                 }
                 if (info == null) {
@@ -1401,7 +1592,7 @@ class FilesWindow(
                     pendingViewTop = 0
                     pendingViewFor = null
                     if (level == Level_.BROWSE) refreshList()
-                    services?.requestRender(this@FilesWindow)
+                    services?.requestRender(this@FilesGlasses)
                     return@runOnShell
                 }
                 // dual mode, auto-defaulted (settled 2026-09-01): text-heavy
@@ -1439,7 +1630,7 @@ class FilesWindow(
                     v.layoutText(raw)
                     v.applyRestoreTop(done = true)
                 }
-                services?.requestRender(this@FilesWindow)
+                services?.requestRender(this@FilesGlasses)
             }
         }
     }
@@ -1463,11 +1654,7 @@ class FilesWindow(
         put("locationPath", location?.path ?: "")
         put("locationKind", location?.kind ?: "")
         put("cwd", cwd)
-        put("sort", sort.name)
-        put("hidden", showHidden)
-        put("clipVerb", clip?.first?.name ?: "")
-        put("clipPath", clip?.second ?: "")
-        heightPref?.let { put("height", it) }
+        // S1-2 Q5: the clipboard, sort, hidden and Size rows are Files' records now (the source), not this view's keys
         val v = viewer
         val pending = pendingOpenView
         if (v == null && pending != null) {
@@ -1531,16 +1718,8 @@ class FilesWindow(
         locModel.cursor = state["locCursor"]?.jsonPrimitive?.intOrNull ?: 0
         browseModel.cursor = state["browseCursor"]?.jsonPrimitive?.intOrNull ?: 0
         trashModel.cursor = state["trashCursor"]?.jsonPrimitive?.intOrNull ?: 0
-        sort = state["sort"]?.jsonPrimitive?.contentOrNull?.let {
-            try { Sort.valueOf(it) } catch (e: Exception) { Sort.NAME }
-        } ?: Sort.NAME
-        showHidden = state["hidden"]?.jsonPrimitive?.booleanOrNull ?: false
-        heightPref = state["height"]?.jsonPrimitive?.intOrNull
-        val cv = state["clipVerb"]?.jsonPrimitive?.contentOrNull ?: ""
-        val cp = state["clipPath"]?.jsonPrimitive?.contentOrNull ?: ""
-        clip = if (cv.isNotEmpty() && cp.isNotEmpty()) {
-            try { ClipVerb.valueOf(cv) to cp } catch (e: Exception) { null }
-        } else null
+        // S1-2 Q5: sort, hidden, the clipboard and the height come from Files' records (an old blob's are migrated
+        // once, `FilesMigration`), never from this view's local keys
         val lvl = state["level"]?.jsonPrimitive?.contentOrNull
         val locPath = state["locationPath"]?.jsonPrimitive?.contentOrNull ?: ""
         val savedCwd = state["cwd"]?.jsonPrimitive?.contentOrNull ?: ""
@@ -1599,6 +1778,8 @@ class FilesWindow(
     override fun appSettings(): List<HostSetting> = settingsRows
 
     companion object {
+        /** The browse cursor's name for the This-folder row (no entry holds a name with a NUL). */
+        private const val THIS_FOLDER = "\u0000this folder"
         private const val CHUNK = 128 * 1024
         private const val RETRY_PACING_MS = 5_000L
         private val MONO_EXTS = setOf("log", "json", "xml", "conf", "cfg", "ini", "toml", "yaml",

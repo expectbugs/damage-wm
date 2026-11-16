@@ -86,9 +86,16 @@ fun main(args: Array<String>) {
         } }, cards = net::cards))
     val uploads = Uploads(data)
     net.addEndListener(uploads::connectionEnded)
+    // S1-2 Q5: Files over a made-up tree in this run's own directory ONLY (LookFiles refuses any other path, reads
+    // included): a folder of many entries, a text, a picture, a PDF, a drop folder, two entries in its own trash, and a
+    // folder whose `du` waits for the control word `release` (the job slot with a running job's age)
+    val look = LookTree(root.resolve("files-tree"))
+    val filesPc = wm.damage.core.windows.files.FilesPc(host, look.files, look.books.toString(), uploads, ::lookThumb)
+    filesPc.serveOn(net)
+    look.trashTwo(filesPc.slotted)
     val server = WebServer(0, ReachGate(Side.PC), Access(Access.LOOPBACK_NAMES), devices, net, Bundle.fromResources(),
-        BlobSources(mapOf(ReaderBlobs.PREFIX to ReaderBlobs(reader, docs))), bindAddress = InetAddress.getLoopbackAddress(),
-        uploads = uploads)
+        BlobSources(mapOf(ReaderBlobs.PREFIX to ReaderBlobs(reader, docs), wm.damage.core.windows.files.FilesBlobs.PREFIX to filesPc.blobs)),
+        bindAddress = InetAddress.getLoopbackAddress(), uploads = uploads)
     server.start()
     reader.refreshLibrary()
     host.addListener { c ->
@@ -118,6 +125,12 @@ fun main(args: Array<String>) {
                 "dismissed by made-up-phone: ${recordOf()?.let { "occ ${it.occ} ${it.state}" }}"
             }
             "state" -> "record: ${recordOf()?.let { "occ ${it.occ} ${it.state} by ${host.read(Notices.WINDOW).third.items["rec.notices.$noticeId"]?.by}" }}"
+            // S1-2 Q5: a `du` that waits (the slot held, its age on the page), and its end
+            "stall" -> { look.gate = CountDownLatch(1); Thread { try { filesPc.slotted.du(look.slow.toString()) } catch (e: Exception) { println("LOOK files du: ${e.message}") } }.start()
+                Thread.sleep(300); "files: ${filesPc.jobs.current()}" }
+            "release" -> { look.gate.countDown(); Thread.sleep(300); "files: ${filesPc.jobs.current()}" }
+            "files" -> "files: ${filesPc.jobs.current()} · drop holds ${Files.list(look.drop).use { it.map { f -> f.fileName.toString() }.toList() }}" +
+                " · trash ${look.files.trashList().map { it.name }}"
             else -> "no such word: $word"
         }
         println("LOOK notice $said")
@@ -140,6 +153,16 @@ fun main(args: Array<String>) {
     val secretFile = root.resolve("secret")
     Files.writeString(secretFile, r.secret)
     Files.setPosixFilePermissions(secretFile, PosixFilePermissions.fromString("rw-------"))
+    // S1-2 Q5: a second made-up device at control, for the page that is told Files needs full and shows nothing of it
+    val lowClaims = LinkedBlockingQueue<String>()
+    val low = devices.request("127.0.0.1", null, "the look's control browser", "browser", null, object : Devices.Waiting {
+        override fun approved(claim: String) { lowClaims.put(claim) }
+        override fun ended(reason: String) {}
+    })
+    check(devices.approve(low.code, Levels.CONTROL, "look") == null) { "the look's control device was not approved" }
+    val lowSecret = root.resolve("secret-control")
+    Files.writeString(lowSecret, (devices.redeem(lowClaims.poll(10, TimeUnit.SECONDS) ?: error("no claim")) ?: error("refused")).secret)
+    Files.setPosixFilePermissions(lowSecret, PosixFilePermissions.fromString("rw-------"))
     // a made-up page waiting for approval: the devices page's approval lands here and is redeemed as a page would
     val tablet = devices.request("127.0.0.1", null, "made-up tablet", "browser", null, object : Devices.Waiting {
         override fun approved(claim: String) {
@@ -153,7 +176,114 @@ fun main(args: Array<String>) {
     })
     println("LOOK {\"url\":\"http://127.0.0.1:${server.boundPort}\",\"secretFile\":\"$secretFile\",\"book\":\"$book\"," +
         "\"device\":\"${r.row.id}\",\"waiting\":\"${tablet.code}\",\"root\":\"$root\"," +
-        "\"ctl\":\"http://127.0.0.1:${ctl.address.port}\"}")
+        "\"ctl\":\"http://127.0.0.1:${ctl.address.port}\",\"filesHome\":\"${look.home}\",\"controlSecret\":\"$lowSecret\"}")
     System.out.flush()
     CountDownLatch(1).await()
+}
+
+/** S1-2 Q5: the look's made-up Files tree (every name made up), under the run's own directory. */
+private class LookTree(val root: Path) {
+    val home: Path = Files.createDirectories(root.resolve("home"))
+    val books: Path = Files.createDirectories(home.resolve("books"))
+    val drop: Path = Files.createDirectories(home.resolve("drop"))
+    val slow: Path = Files.createDirectories(home.resolve("slow"))
+    @Volatile var gate = CountDownLatch(1)
+    private val words = listOf("salt", "lantern", "copper", "ferry", "river", "harbour", "quiet", "northern", "glass", "orchard", "signal", "tide")
+    val files: wm.damage.core.windows.files.FilesProvider
+
+    init {
+        val many = Files.createDirectories(home.resolve("many"))
+        for (i in 0 until 240) {
+            val stem = if (i % 9 == 4) "${words[i % 12]}-${words[(i + 5) % 12]}-and-the-${words[(i + 7) % 12]}-notes-from-the-coast-road-volume-$i"
+                else "${words[i % 12]} ${words[(i * 5) % 12]} $i"
+            if (i % 13 == 0) Files.createDirectories(many.resolve(stem))
+            else Files.writeString(many.resolve("$stem.${listOf("txt", "md", "log", "csv", "zip")[i % 5]}"), "made-up entry $i\n".repeat(1 + i % 40))
+        }
+        Files.writeString(many.resolve(".hiddenrc"), "a made-up dotfile\n")
+        Files.writeString(home.resolve("notes.txt"), buildString {
+            appendLine("Trip notes (made up for the look)"); appendLine()
+            for (i in 1..80) appendLine("Line $i: leave early, fill the water tank, check the tyres at the first stop.")
+        })
+        val pics = Files.createDirectories(home.resolve("pictures"))
+        for ((n, hue) in listOf("harbour.png" to 0.55f, "orchard.png" to 0.25f, "tide.png" to 0.65f)) {
+            val img = java.awt.image.BufferedImage(640, 400, java.awt.image.BufferedImage.TYPE_INT_RGB)
+            for (y in 0 until 400) for (x in 0 until 640) img.setRGB(x, y, java.awt.Color.HSBtoRGB(hue + x / 3200f, 0.5f + y / 1600f, 0.4f + y / 800f))
+            javax.imageio.ImageIO.write(img, "png", pics.resolve(n).toFile())
+        }
+        Files.write(home.resolve("plan.pdf"), madeUpPdf())
+        Files.writeString(slow.resolve("waits.txt"), "a made-up file in the folder whose stats wait\n")
+        for (n in listOf("old draft.txt", "screenshots-from-the-made-up-trip.zip")) Files.writeString(home.resolve(n), "to the trash: $n\n")
+        val local = wm.damage.core.windows.files.LocalFilesProvider(books, root.resolve("trash"), null, mountsFile = root.resolve("no-mounts"))
+        files = LookFiles(root, local, listOf(
+            wm.damage.core.windows.files.FLocation("Home", home.toString(), "home", 4_000_000_000_000, 1_250_000_000_000),
+            wm.damage.core.windows.files.FLocation("Pictures", pics.toString(), "mount", 4_000_000_000_000, 1_250_000_000_000),
+            wm.damage.core.windows.files.FLocation("Drop", drop.toString(), "downloads", 4_000_000_000_000, 1_250_000_000_000)),
+            slow) { gate }
+    }
+
+    fun trashTwo(p: wm.damage.core.windows.files.FilesProvider) {
+        for (n in listOf("old draft.txt", "screenshots-from-the-made-up-trip.zip")) p.trash(home.resolve(n).toString())
+    }
+
+    /** A one-page PDF written by hand (made-up words), so `pdftoppm` has a real page to draw. */
+    private fun madeUpPdf(): ByteArray {
+        val text = "BT /F1 28 Tf 72 700 Td (A made-up plan for the look) Tj 0 -40 Td /F1 16 Tf (Day one: the coast road.) Tj ET"
+        val objs = listOf(
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+            "<< /Length ${text.length} >>\nstream\n$text\nendstream",
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+        val out = StringBuilder("%PDF-1.4\n")
+        val at = ArrayList<Int>()
+        for ((i, o) in objs.withIndex()) { at += out.length; out.append("${i + 1} 0 obj\n$o\nendobj\n") }
+        val xref = out.length
+        out.append("xref\n0 ${objs.size + 1}\n0000000000 65535 f \n")
+        for (a in at) out.append("%010d 00000 n \n".format(a))
+        out.append("trailer\n<< /Size ${objs.size + 1} /Root 1 0 R >>\nstartxref\n$xref\n%%EOF\n")
+        return out.toString().toByteArray(Charsets.ISO_8859_1)
+    }
+}
+
+/** S1-2 Q5: the look's provider — [local] for paths under [root] only (every call, reads included: anything else is
+ *  refused with the reason), its locations the made-up ones; `du` of [slow] waits for [gate]. Opening on the PC is
+ *  refused (the look starts no program). */
+private class LookFiles(private val root: Path, private val local: wm.damage.core.windows.files.LocalFilesProvider,
+                        private val locs: List<wm.damage.core.windows.files.FLocation>, private val slow: Path,
+                        private val gate: () -> CountDownLatch) : wm.damage.core.windows.files.FilesProvider by local {
+    private fun inside(p: String): String {
+        require(Path.of(p).toAbsolutePath().normalize().startsWith(root)) { "outside the look's made-up tree: $p" }
+        return p
+    }
+
+    override fun locations() = locs + local.locations().filter { it.kind == "trash" && it.path.startsWith(root.toString()) }
+    override fun list(dir: String, showHidden: Boolean) = local.list(inside(dir), showHidden)
+    override fun stat(path: String) = local.stat(inside(path))
+    override fun du(path: String): Long {
+        if (Path.of(path) == slow) gate().await()
+        return local.du(inside(path))
+    }
+    override fun readText(path: String, offset: Long, maxBytes: Int) = local.readText(inside(path), offset, maxBytes)
+    override fun readBytes(path: String, maxBytes: Int) = local.readBytes(inside(path), maxBytes)
+    override fun thumb(path: String, sizePx: Int) = local.thumb(inside(path), sizePx)
+    override fun pdfInfo(path: String) = local.pdfInfo(inside(path))
+    override fun pdfText(path: String) = local.pdfText(inside(path))
+    override fun pdfPage(path: String, page: Int, widthPx: Int) = local.pdfPage(inside(path), page, widthPx)
+    override fun trash(path: String) = local.trash(inside(path))
+    override fun restore(id: String) = local.restore(id.also { i -> inside(local.trashList().first { it.id == i }.origPath) })
+    override fun purge(id: String) = local.purge(id.also { i -> inside(local.trashList().first { it.id == i }.origPath) })
+    override fun rename(path: String, newName: String) = local.rename(inside(path), newName)
+    override fun mkdir(dir: String, name: String) = local.mkdir(inside(dir), name)
+    override fun copy(src: String, destDir: String) = local.copy(inside(src), inside(destDir))
+    override fun move(src: String, destDir: String) = local.move(inside(src), inside(destDir))
+    override fun openOnPc(path: String) = throw IllegalArgumentException("the look opens nothing on the PC")
+}
+
+/** S1-2 Q5: the look's thumbnails (the desktop's are AWT too: `FilesThumbs`), a picture fitted inside [px], as JPEG. */
+private fun lookThumb(bytes: ByteArray, px: Int): ByteArray? {
+    val src = javax.imageio.ImageIO.read(java.io.ByteArrayInputStream(bytes)) ?: return null
+    val k = minOf(1.0, px.toDouble() / maxOf(src.width, src.height))
+    val img = java.awt.image.BufferedImage(maxOf(1, (src.width * k).toInt()), maxOf(1, (src.height * k).toInt()), java.awt.image.BufferedImage.TYPE_INT_RGB)
+    img.createGraphics().apply { drawImage(src, 0, 0, img.width, img.height, null); dispose() }
+    return java.io.ByteArrayOutputStream().also { javax.imageio.ImageIO.write(img, "jpg", it) }.toByteArray()
 }

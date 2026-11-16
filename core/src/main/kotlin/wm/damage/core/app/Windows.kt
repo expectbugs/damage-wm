@@ -37,6 +37,11 @@ object Windows {
         Entry(ReaderCore.WINDOW, "Reader", 1, ReaderCore.ACTIONS, ReaderCore::levelOf, Levels.VIEW),
         // S1-2 Q3: the PC's notice record (C§7.1; decisions A.1): a pseudo-window with no card and no scopes of its own
         Entry(Notices.WINDOW, "Notices", 1, Notices.ACTIONS, Notices::levelOf, Levels.VIEW, rule = Notices.RULE),
+
+        // S1-2 Q5: Files (C§12; min full, C§10.4), its program ops into the filesystem and its rule on its rows
+        Entry(wm.damage.core.windows.files.FilesCore.WINDOW, "Files", 1, wm.damage.core.windows.files.FilesCore.ACTIONS,
+            wm.damage.core.windows.files.FilesCore::levelOf, Levels.FULL, program = wm.damage.core.windows.files.FilesCore.PROGRAM,
+            rule = wm.damage.core.windows.files.FilesCore.RULE),
     )
 
     private val BY_ID: Map<String, Entry> = ALL.associateBy { it.id }

@@ -265,14 +265,9 @@ export function filesView(ctx) {
     const took = clipNow();
     const a = acts().get('paste');
     if (!took || !a) return;
-    send(a, [dest], { verb: took.verb, path: took.path }, 1, (o) => {
-      say(o.words);
-      // F3: a pasted cut clears the clipboard only if it still holds the clip this paste took; a clip changed meanwhile
-      // wins and nothing is said
-      const now = M.clipOf(rec);
-      if (o.ok && took.verb === 'cut' && now && now.verb === took.verb && now.path === took.path)
-        ctx.sendQueued(M.clipClearDraft(took), () => {}, { need: (acts().get('cut') || a).level || 'full', quiet: true });
-    });
+    // S1-2 R0 §3: a pasted cut's clipboard is cleared in ONE place, the PC's core, when the move lands (expecting the
+    // clip it took: a clip changed meanwhile wins, nothing said); the record's change reaches this page like any other
+    send(a, [dest], { verb: took.verb, path: took.path }, 1, (o) => say(o.words));
   }
 
   async function rename(path, name) {

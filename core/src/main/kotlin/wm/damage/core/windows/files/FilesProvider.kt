@@ -97,6 +97,33 @@ interface FilesProvider {
     fun openOnPc(path: String)
 }
 
+/** Build S1-2 Q5 (the spec's §4.1 "Progress"): a provider that counts the slot's long operations (the PC's local one).
+ *  A separate seam, so a provider that wraps another by delegation keeps its own plain calls ([counted]). */
+interface CountedFiles {
+    fun copy(src: String, destDir: String, progress: FilesProgress): String
+    fun move(src: String, destDir: String, progress: FilesProgress): String
+    fun du(path: String, progress: FilesProgress): Long
+}
+
+/** [this]'s counted calls when it counts, else its plain ones (no progress shown). */
+fun FilesProvider.copyCounted(src: String, destDir: String, p: FilesProgress): String =
+    (this as? CountedFiles)?.copy(src, destDir, p) ?: copy(src, destDir)
+
+fun FilesProvider.moveCounted(src: String, destDir: String, p: FilesProgress): String =
+    (this as? CountedFiles)?.move(src, destDir, p) ?: move(src, destDir)
+
+fun FilesProvider.duCounted(path: String, p: FilesProgress): Long = (this as? CountedFiles)?.du(path, p) ?: du(path)
+
+/** S1-2 Q5: how far a long operation is — [done] bytes of [total] (null: not known yet), in [phase] ("counting",
+ *  "copying", …). Called on the operation's own thread. */
+fun interface FilesProgress {
+    fun at(done: Long, total: Long?, phase: String)
+
+    companion object {
+        val NONE = FilesProgress { _, _, _ -> }
+    }
+}
+
 /** Human size: 1536 → "1.5K" (our own impl of the familiar form). */
 fun fmtBytes(n: Long): String {
     if (n < 1024) return "${n}B"
