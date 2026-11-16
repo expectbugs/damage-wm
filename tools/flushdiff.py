@@ -13,15 +13,18 @@ new run's is larger than the base's. `tools/snapdiff.py` judges the pictures; th
 BASE, NEW and BASE2 are snapshot directories (their `journal.jsonl` is read) or journal files. For every scene mark
 (a `note` of kind `scene`, written by `Snapshot.save` once the scene's picture is taken) the measure is the last flush
 since the previous mark that a ring event started (`"in":1` on its `submit`; atlas and staged-record writes are not
-gestures), priced by its `done` line's `bytes`. A scene reached with no gesture since the previous mark (a deep link,
-a notice, a timer) has no measure and is listed with "-".
+gestures), priced by its `done` line's `bytes` less the bytes of every op that lies wholly inside a declared live
+cell (`tools/snapdiff.py`'s: the top bar's clock cell and the status bar's live cells at each of the four heights) —
+a minute's tick joins whichever flush is next, and a clock digit of 43 B rode a gesture's flush at J0 (the op's
+own framing, about 13 B, stays counted: the journal does not give it). A scene
+reached with no gesture since the previous mark (a deep link, a notice, a timer) has no measure and is listed "-".
   - a scene whose NEW measure is larger than its allowance plus SLACK fails ("GREW"); the allowance is BASE's
     measure, or with --mask the larger of BASE's and BASE2's (two renders of one tree: whatever differs between them is
     timing, not the change under test). Growth within SLACK is listed ("+N B, inside the slack"), not failed: a
-    gesture's flush carries a live cell whenever its rect covers one (the status bar's readout, the clock, disk free,
-    Music's elapsed time), and those cells' pixels differ from run to run. Measured at J0 over three idle renders of
-    one tree: up to 40 B (`36-music-nowplaying-288`, `35-music-youtube`, `44-games-table-480`), 0 B in the phone
-    arrangement;
+    gesture's rect that covers a live cell along with other pixels (the status bar's readout, the clock, disk free,
+    Music's elapsed time) cannot be split, and those cells' pixels differ from run to run. Measured at J0 over three
+    idle renders of one tree: up to 40 B (`36-music-nowplaying-288`, `35-music-youtube`, `44-games-table-480`), 0 B
+    in the phone arrangement;
   - a scene with a measure in NEW and none in BASE fails (a first flush where there was none is growth from nothing);
   - a scene with a measure in BASE and none in NEW is listed ("no gesture flush"), not failed: the pictures judge it;
   - a scene present in one journal and not the other fails, as does a measured flush with no `done` line, a scene
@@ -33,11 +36,18 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from snapdiff import CLOCK, HEIGHTS, STATUS_H, STATUS_LIVE_W, STATUS_LIVE_X  # noqa: E402  (one place per cell)
+
 NOT_GESTURES = ("ATLAS", "STAGE")
+# the declared live cells an op can lie in whole: the clock cell, the status bar's live cells at every height
+LIVE_CELLS = [CLOCK] + [(STATUS_LIVE_X, h - STATUS_H, STATUS_LIVE_W, STATUS_H) for h in HEIGHTS]
+BOX = re.compile(r"\((-?\d+),(-?\d+) (\d+)x(\d+)\)")
 # the live cells' share of a gesture's first flush (the docstring's measure: up to 40 B between two idle renders)
 SLACK = 64
 
@@ -50,13 +60,32 @@ def _journal_path(p):
     return os.path.join(p, "journal.jsonl") if os.path.isdir(p) else p
 
 
+def _inside_live(box):
+    m = BOX.fullmatch(box or "")
+    if not m:
+        return False
+    x, y, w, h = map(int, m.groups())
+    return any(cx <= x and x + w <= cx + cw and cy <= y and y + h <= cy + ch for (cx, cy, cw, ch) in LIVE_CELLS)
+
+
+def live_bytes(ops):
+    """The bytes of the ops that lie wholly inside a declared live cell (a delta's box; a stereo pair's both boxes)."""
+    n = 0
+    for op in ops or []:
+        boxes = [op.get("box")] if op.get("op") == "delta" else [op.get("l"), op.get("r")] if op.get("op") == "stereopair" else []
+        if boxes and all(_inside_live(b) for b in boxes):
+            n += int(op.get("bytes", 0))
+    return n
+
+
 def measures(path):
-    """→ (ordered list of scene names, {scene: (bytes, flush id, label) or None}). Raises JournalError."""
+    """→ (ordered list of scene names, {scene: (bytes, flush id, label, live bytes left out) or None}).
+    Raises JournalError."""
     path = _journal_path(path)
     if not os.path.isfile(path):
         raise JournalError(f"no journal at {path}")
     done, order, marks = {}, [], {}
-    last = None                      # the last gesture's first flush since the previous mark: (id, label)
+    last = None                      # the last gesture's first flush since the previous mark: (id, label, live B)
     with open(path, encoding="utf-8") as f:
         for no, line in enumerate(f, 1):
             line = line.strip()
@@ -71,7 +100,7 @@ def measures(path):
                 done[o.get("id")] = o
             elif ev == "submit":
                 if o.get("in") == 1 and o.get("label") not in NOT_GESTURES:
-                    last = (o.get("id"), o.get("label", "?"))
+                    last = (o.get("id"), o.get("label", "?"), live_bytes(o.get("ops")))
             elif ev == "note" and o.get("kind") == "scene":
                 name = o.get("detail", "")
                 if name in marks:
@@ -90,7 +119,7 @@ def measures(path):
         d = done.get(m[0])
         if d is None:
             raise JournalError(f"{path}: flush {m[0]} before scene '{name}' has no done line")
-        out[name] = (int(d.get("bytes", 0)), m[0], m[1])
+        out[name] = (int(d.get("bytes", 0)) - m[2], m[0], m[1], m[2])
     return order, out
 
 
@@ -135,6 +164,8 @@ def run(base, new, base2=None, out=sys.stdout):
             note = f"+{n[0] - allow} B, inside the slack"
         elif n is None and b is not None:
             note = "no gesture flush in NEW"
+        if n is not None and n[3]:
+            note = (note + " " if note else "") + f"({n[3]} B in live cells left out)"
         label = n[2] if n is not None else (b[2] if b is not None else "")
         print(f"{s:<34} base {bt:>6}  allow {at:>6}  new {nt:>6}  {label:<16} {note}", file=out)
     print(f"compared {len(set(border) & set(nm))} scene(s); {grew} first flush(es) grew past the slack of {SLACK} B",
@@ -151,11 +182,11 @@ def selftest():
     ok, bad = 0, []
     fid = [0]
 
-    def sub(label="WINDOW", inp=1, nbytes=100):
+    def sub(label="WINDOW", inp=1, nbytes=100, ops=()):
         fid[0] += 1
         i = fid[0]
-        return [{"ev": "submit", "id": i, "label": label, "in": inp, "ops": []},
-                {"ev": "done", "id": i, "ok": True, "bytes": nbytes}]
+        return [{"ev": "submit", "id": i, "label": label, "in": inp, "ops": list(ops)},
+                {"ev": "done", "id": i, "ok": True, "bytes": nbytes + sum(o.get("bytes", 0) for o in ops)}]
 
     def mark(name):
         return [{"ev": "note", "kind": "scene", "detail": name}]
@@ -224,6 +255,15 @@ def selftest():
     case("an extra scene fails", 1, scene(300), scene(300) + mark("b"), expect_in="extra scene in NEW: b")
     case("a measured flush with no done line fails", 1, scene(300),
          [{"ev": "submit", "id": 999, "label": "WINDOW", "in": 1}] + mark("13-files-menu"), expect_in="no done line")
+    clock = {"op": "delta", "box": "(572,12 12x14)", "bytes": 200, "d": 8}
+    case("an op wholly inside the clock cell is left out", 0, scene(300),
+         sub(nbytes=300, ops=[clock]) + mark("13-files-menu"), expect_in="(200 B in live cells left out)")
+    readout = {"op": "delta", "box": "(284,272 96x14)", "bytes": 200, "d": 8}
+    case("an op wholly inside a status bar's live cell (at 288) is left out", 0, scene(300),
+         sub(nbytes=300, ops=[readout]) + mark("13-files-menu"))
+    wide = {"op": "delta", "box": "(500,12 100x14)", "bytes": 200, "d": 8}
+    case("an op that reaches past a live cell counts whole", 1, scene(300),
+         sub(nbytes=300, ops=[wide]) + mark("13-files-menu"), expect_in="GREW +200 B")
     case("a scene marked twice fails", 1, scene(300), scene(300) + mark("13-files-menu"), expect_in="marked twice")
     case("a journal with no scene mark fails", 1, scene(300), sub(), expect_in="no scene mark")
 
