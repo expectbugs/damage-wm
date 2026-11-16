@@ -1675,7 +1675,10 @@ def vectors_v3(kf):
     r3a = c.add(prog(track(rect(0, 100, 200, 10), 4, wait(2), drawrec(2, solid, 10, 102, dx=40), wait(2))))   # [W, X, W]
     r3b = c.add(prog(track(rect(0, 120, 200, 10), 4, wait(2), wait(2), drawrec(2, solid, 10, 122, dx=40))))   # [W, W, X]
     ov = c.add(easing([900, 2300, 3500, 4300, 4620, 4600, 4420, 4096]))                          # 15 → 0: 12 7 2 −1 −2 −2 −1 0
-    lv = c.add(prog(track(rect(0, 160, 200, 10), 0, drawrec(8, solid, 10, 163, lvl=(15, 15), ease=TABLE, table=ov,
+    # a source of mixed levels: at level 0 (clamped) every pixel draws 0; a level of −1 or −2 taken as an options byte
+    # would set §2's inverse and transparent bits and draw 15 − c (a solid 15 source draws 0 either way, unseen)
+    mixed = c.add(image2(8, 4, pattern(8, 4, 43)))
+    lv = c.add(prog(track(rect(0, 160, 200, 10), 0, drawrec(8, mixed, 10, 163, lvl=(15, 15), ease=TABLE, table=ov,
                                                           pref0=pref(0, F_LVL0), pref1=pref(1, F_LVL1)))))
     kf7 = keyframe(pattern(W, H, 7))
     c2 = Cache2()
