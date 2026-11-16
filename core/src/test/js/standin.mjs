@@ -107,6 +107,8 @@ async function step(s) {
     (await until(s.drop)).dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
   }
   if (s.fetch) await fetch(s.fetch);
+  // S1-2 Q5: the page in another of its themes (the glass theme), as the Settings page sets it on this device
+  if (s.theme) { try { localStorage.setItem('damage.theme', s.theme); } catch (e) { /* a picture without storage */ } document.documentElement.dataset.theme = s.theme; }
   note('step ' + JSON.stringify(s));
 }
 // S1-2 Q5w: a step marked late runs after the picture is released: a request in flight before the load event (an

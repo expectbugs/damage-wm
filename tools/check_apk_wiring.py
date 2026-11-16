@@ -458,6 +458,34 @@ def check(root=ROOT, say=print):
     line('BastionService(alerts, watcher::stateLine, scope, presence)' in host,
          'hostOnly: the bastion channel carries the phone\'s presence reports to damage.phone', 'its BastionService(…) is not given presence')
 
+    # build S1-2 (Q5): Files on the PC record in both builders — its old records migrated first, then one FilesPc whose
+    # slotted provider every PC caller receives (the window channel's FilesService, the stacks' glasses), its parts
+    # served on the lane before the web listener starts, its blobs and its upload op on the listener's uploads
+    def files_in_builder(body, uploads):
+        b = body or ''
+        order = ['FilesMigration.onHost(appHost, store)', 'FilesPc(appHost, filesLocal, cfg.booksDir, %s, FilesThumbs::jpeg)' % uploads,
+                 'filesPc.serveOn(appNet)', 'val filesProvider = filesPc.slotted', 'ContentHostServer(', 'startWeb(']
+        at = [b.find(s) for s in order]
+        i = b.find('startWeb(')
+        args = call_args(b, i + len('startWeb')) if i >= 0 else ''
+        return (all(x >= 0 for x in at) and at == sorted(at) and '"files" to wm.damage.core.windows.files.FilesService(filesProvider)' in b
+                and bool(args) and (', %s,' % uploads) in args and 'FilesBlobs.PREFIX to filesPc.blobs' in args)
+    line(files_in_builder(run, 'shellUploads'), 'runShell: Files migrated, then on the PC record behind its one slot (window channel, stacks, lane, blobs, uploads)',
+         'the FilesMigration.onHost → FilesPc(…) → serveOn → filesProvider = filesPc.slotted → ContentHostServer → startWeb(… uploads, blobs) chain is broken')
+    line(files_in_builder(host, 'hostUploads'), 'hostOnly: Files migrated, then on the PC record behind its one slot (window channel, lane, blobs, uploads)',
+         'the FilesMigration.onHost → FilesPc(…) → serveOn → filesProvider = filesPc.slotted → ContentHostServer → startWeb(… uploads, blobs) chain is broken')
+    line('files = filesProvider' in run and '(it as? wm.damage.core.windows.files.SlottedFiles)?.pc' in stack_init
+         and 'pc.glassesSource()' in stack_init and 'filesGlasses?.detach()' in stack_init and 'filesSource?.close()' in stack_init,
+         'DesktopStack: Files\' glasses on the PC record through the slotted provider runShell hands it, left at the stop',
+         'no files = filesProvider in runShell, or no SlottedFiles.pc / pc.glassesSource() / filesGlasses?.detach() / filesSource?.close() in DesktopStack')
+    for owner, name, expect in [('FilesMigration', 'onHost', [('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'hostOnly'),
+                                                              ('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'runShell')]),
+                                ('FilesMigration', 'onCopy', [('phone/src/main/kotlin/wm/damage/phone/ShellService.kt', 'startStack')])]:
+        got = callers(root, owner, name)
+        line(got == sorted(expect), '%s.%s is called from the %s only' % (owner, name,
+             'two PC starts (runShell, hostOnly)' if name == 'onHost' else 'phone\'s stack start'),
+             'called from ' + (', '.join('%s (%s)' % c for c in got) or 'nowhere'))
+
     # 5. who calls the two start-only functions
     want = {('Journal', 'rotateAtStart'): [('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'runShell'),
                                            ('phone/src/main/kotlin/wm/damage/phone/ShellService.kt', 'onCreate')],
@@ -522,6 +550,16 @@ def check(root=ROOT, say=print):
     line('noticeMirror = wm.damage.core.app.NoticeMirror(wc,' in wc_start and 'sh.noticeInput = m' in stack and 'm.attach(sh.noticeSink)' in stack,
          'ShellService: the notice mirror is made over the working copy at its start, and each stack\'s shell attaches as its sink',
          'no noticeMirror = …NoticeMirror(wc, …) in startWorkingCopy, or no sh.noticeInput = m / m.attach(sh.noticeSink) in startStack')
+
+    # build S1-2 (Q5): the phone's Files glasses over the working copy (their calls through the PC's window channel),
+    # its old records offered once the presenter is registered, the presenter and its source left at the stack's stop
+    stop = body_of(svc_code, 'private fun stopStack(') or ''
+    reg = stack.find('sh.register(files)')
+    mig = stack.find('FilesMigration.onCopy(wc, persistence)')
+    line('wm.damage.core.app.LocalWindowSource(core, wc)' in stack and 'FilesGlasses(text, core, src, fp, scope' in stack
+         and 0 <= reg < mig and 'filesGlasses?.detach()' in stop and 'filesSource?.close()' in stop,
+         'ShellService: Files\' glasses over the working copy, migrated after registering, left at the stack\'s stop',
+         'no FilesGlasses over LocalWindowSource(core, wc), FilesMigration.onCopy before sh.register(files), or no detach/close in stopStack')
     i = stack.find('sh.onGlassesBattery = {')
     hook = stack[i:stack.find('\n        }', i)] if i >= 0 else ''
     line(bool(hook) and 'batteryNotification(' in hook and '.cancel(BATTERY_NOTIF_ID)' in hook and 'phoneNotifications' not in hook,

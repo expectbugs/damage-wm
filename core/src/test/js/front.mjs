@@ -10,7 +10,9 @@
 
 import { createServer, request } from 'node:http';
 import { connect } from 'node:net';
+import { readFileSync } from 'node:fs';
 import { lookModule } from './standin.mjs';
+import { format } from '../../main/resources/web/js/address.mjs';
 
 const TYPES = { mjs: 'text/javascript; charset=utf-8' };
 
@@ -22,9 +24,11 @@ export function front(scene, real, secret) {
   let ready = false;
   let held = null;
   const socks = new Set();
+  // S1-2 Q5: a scene of the made-up device at control (LOOK_SECRET_CONTROL, its secret file) instead of the full one
+  const sec = scene.control ? readFileSync(process.env.LOOK_SECRET_CONTROL, 'utf8').trim() : secret;
   const cookie = (h) => {
     const others = String(h || '').split(';').map((c) => c.trim()).filter((c) => c && !c.startsWith('damage='));
-    return [...others, ...(scene.anon ? [] : [`damage=${secret}`])].join('; ');
+    return [...others, ...(scene.anon ? [] : [`damage=${sec}`])].join('; ');
   };
   const headsUp = (headers) => {
     const out = { ...headers, host: up.host };
@@ -71,6 +75,12 @@ export function front(scene, real, secret) {
       });
     });
     fwd.on('error', (e) => { log.push({ t: 'note', text: `front: the listener did not answer ${url.pathname}: ${e.message}` }); own(502, 'text/plain', e.message); });
+    // S1-2 Q5: an upload cut off part way — the body stops after 1 MB and both sockets end, as a dropped link ends them
+    if (scene.put === 'cut' && req.method === 'PUT') {
+      let got = 0;
+      req.on('data', (d) => { got += d.length; if (got <= 1e6) fwd.write(d); else { log.push({ t: 'note', text: `front: the upload cut off after ${got} B` }); fwd.destroy(); req.socket.destroy(); } });
+      return;
+    }
     req.pipe(fwd);
   });
 
@@ -110,6 +120,7 @@ const GIF = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA
 export function realScenes(book) {
   const reach = { wait: '#reach[hidden]' };
   return {
+    ...filesRealScenes(reach),
     'real-waiting': { path: '/', anon: true, steps: [{ wait: '.pair .pcode' }] },
     'real-home': { path: '/', steps: [{ wait: '.cards .card' }, reach] },
     'real-shelf': { path: '/w/reader', steps: [{ wait: '.shelf .book' }, reach] },
@@ -151,5 +162,39 @@ export function realScenes(book) {
       { click: '[data-key="tab:browse"]' }, { wait: '.tcat.newest' }, { click: '.tcat.newest' }, { fetch: '/__wait?ms=800' },
       { click: '#rail a[href="/w/reader"]' }, { wait: `.shelf .book[data-book="${book}"]` }, { click: `.shelf .book[data-book="${book}"]` },
       { wait: '.text p' }, { fetch: '/__ctl?release' }] },
+  };
+}
+
+/** S1-2 Q5: Files' scenes against the real listener over LookServer's made-up tree (LOOK_FILES_HOME, the tree's home
+ *  folder; none without it): a folder of many entries, list and grid, a text, a picture, a PDF's page, an upload that
+ *  lands and one cut off, the trash with a restore, Move to Trash's confirm, the job slot with a running job's age, the
+ *  glass theme, and a device below full told so with nothing of the tree shown. */
+function filesRealScenes(reach) {
+  const home = process.env.LOOK_FILES_HOME;
+  if (!home) return {};
+  const f = (target) => format({ window: 'files', target });
+  const listed = { wait: '.flist .frow, .fgrid .frow' };
+  const many = f(`path:${home}/many/`);
+  return {
+    'real-files-locations': { path: '/w/files', steps: [{ wait: '.flocs .floc' }, reach] },
+    'real-files-many': { path: many, steps: [listed, reach] },
+    'real-files-grid': { path: f(`path:${home}/pictures/`), steps: [listed, { click: '[data-key="mode"]' }, { wait: '.fgrid .frow' }, reach] },
+    'real-files-text': { path: f(`path:${home}/notes.txt`), steps: [{ wait: '.ftext' }, reach] },
+    'real-files-picture': { path: f(`path:${home}/pictures/harbour.png`), steps: [{ wait: '.fimg' }, reach] },
+    'real-files-pdf': { path: f(`path:${home}/plan.pdf`), steps: [{ wait: '.fpage' }, reach] },
+    'real-files-upload': { path: f(`path:${home}/drop/`), steps: [{ wait: '.tend, .flist .frow' }, reach,
+      { drop: '.page.files', files: [{ name: 'made-up survey.txt', size: 200000 }] }, { wait: '.fu.done, .fu.asking' }, { fetch: '/__ctl?files' }] },
+    'real-files-upload-cut': { path: f(`path:${home}/drop/`), put: 'cut', steps: [{ wait: '.tend, .flist .frow' }, reach,
+      { drop: '.page.files', files: [{ name: 'made-up big file.bin', size: 4000000 }] }, { wait: '.fu.cut, .fu.failed' }, { fetch: '/__wait?ms=500' }, { fetch: '/__ctl?files' }] },
+    'real-files-trash': { path: f('trash'), steps: [{ wait: '.ftrash .frow' }, reach] },
+    'real-files-restore': { path: f('trash'), steps: [{ wait: '.ftrash .frow' }, reach, { click: '.ftrash .frow .frow-acts button:not(.danger)' },
+      { wait: '.toast' }, { fetch: '/__ctl?files' }] },
+    'real-files-totrash': { path: f(`path:${home}/notes.txt`), steps: [{ wait: '.ftext' }, reach, { click: '.fp-acts button:last-child' }, { wait: 'dialog[open]' }] },
+    'real-files-totrash-done': { path: f(`path:${home}/many/`), steps: [{ wait: '.flist .frow' }, reach, { click: '.flist .frow:nth-child(30) input' },
+      { wait: '.tbulk' }, { click: '.tbulk button' }, { wait: 'dialog[open]' }, { click: 'dialog[open] button.act' }, { wait: '.toast' }, { fetch: '/__ctl?files' }] },
+    'real-files-job': { path: many, steps: [listed, reach, { fetch: '/__ctl?stall' }, { wait: '.fjob' }, { fetch: '/__wait?ms=2500' },
+      { late: true, fetch: '/__ctl?release' }] },
+    'real-files-glass': { path: many, steps: [listed, reach, { theme: 'glass' }] },
+    'real-files-below': { path: many, control: true, steps: [{ wait: '.page.files .note' }] },
   };
 }

@@ -50,6 +50,9 @@ a { color: var(--accent); }
 /* fix round 1, ruling 2.3 (10): a link that leaves the book says so before it is pressed */
 a.out::after { content: " \2197"; }
 button, select, input { font: inherit; color: inherit; }
+/* S1-2 Q5, seen against the real server in headless Firefox: the glass theme's green on the browser's own light select
+   could not be read (Files' Sort) */
+:root[data-theme=glass] select { background: var(--card); border: 1px solid var(--line); }
 button {
   background: var(--card); border: 1px solid var(--line); border-radius: .4rem; padding: .35rem .7rem; cursor: pointer;
 }

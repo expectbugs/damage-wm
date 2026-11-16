@@ -39,9 +39,10 @@ class ContractsTest {
 
     @Test
     fun theComparisonAndItsLine() {
-        // S1-2 R0 §2 names the change: the notice record (Q3) at version 1 beside Reader's
-        assertEquals(mapOf("reader" to 1, "notices" to 1, "torrents" to 1), Contracts.MINE,
-            "S1-1 converts Reader, S1-2 Q3 adds the notice record, Q4 Torrents, each at version 1 (S1-2 R0 §2)")
+        // S1-2 R0 §2 names the change: the notice record (Q3) at version 1 beside Reader's; Torrents (Q4) and Files (Q5)
+        // at version 1 (the merge keeps both packages' entries)
+        assertEquals(mapOf("reader" to 1, "notices" to 1, "torrents" to 1, "files" to 1), Contracts.MINE,
+            "S1-1 converts Reader, S1-2 Q3 adds the notice record, Q4 Torrents, Q5 Files, each at version 1 (S1-2 R0 §2)")
         val m = Contracts.compare(mapOf("reader" to 1, "music" to 1), mapOf("reader" to 2, "feed" to 1))
         assertEquals(listOf("feed", "music", "reader"), m.keys.toList())
         assertTrue(m.values.none { it.same })

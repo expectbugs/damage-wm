@@ -42,6 +42,11 @@ object Windows {
         // the tracker and `xdg-open`, never queued
         Entry(TorrentsCore.WINDOW, "Torrents", 1, TorrentsCore.ACTIONS, TorrentsCore::levelOf, Levels.VIEW,
             program = TorrentsCore.PROGRAM),
+
+        // S1-2 Q5: Files (C§12; min full, C§10.4), its program ops into the filesystem and its rule on its rows
+        Entry(wm.damage.core.windows.files.FilesCore.WINDOW, "Files", 1, wm.damage.core.windows.files.FilesCore.ACTIONS,
+            wm.damage.core.windows.files.FilesCore::levelOf, Levels.FULL, program = wm.damage.core.windows.files.FilesCore.PROGRAM,
+            rule = wm.damage.core.windows.files.FilesCore.RULE),
     )
 
     private val BY_ID: Map<String, Entry> = ALL.associateBy { it.id }

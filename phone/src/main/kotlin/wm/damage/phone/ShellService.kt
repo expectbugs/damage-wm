@@ -128,6 +128,9 @@ class ShellService : Service() {
     private var appLink: Triple<String, Int, String>? = null
     /** S1-1 P4: Reader's source over the working copy and its presenter, built per stack, closed in [stopStack]. */
     private var readerSource: wm.damage.core.app.LocalWindowSource? = null
+    /** S1-2 Q5: the stack's Files presenter and its source on the working copy (closed at the stack's stop). */
+    private var filesGlasses: wm.damage.core.windows.files.FilesGlasses? = null
+    private var filesSource: wm.damage.core.app.LocalWindowSource? = null
     private var readerGlasses: wm.damage.core.windows.reader.ReaderGlasses? = null
     /** Build S1-2 Q4: Torrents' presenter over the working copy and its source (the copy outlives the stack). */
     private var torrentsSource: wm.damage.core.app.LocalWindowSource? = null
@@ -435,7 +438,20 @@ class ShellService : Service() {
             prefs.host, prefs.contentPort, prefs.token, scope,
             cacheDir = dataDir.resolve("wincache/files"))          // §47: the last answers, at once
         filesProvider = fp
-        sh.register(wm.damage.core.windows.files.FilesWindow(text, fp, scope, AndroidImages()))
+        // S1-2 Q5: Files' records (the clipboard, sort, hidden, Size) read from the working copy, the filesystem calls
+        // as today through the PC's window channel (the PC's one job slot); the phone's own Files records from before
+        // the conversion go into the copy's queue once its presenter listens. Without a copy, as before.
+        val files = if (wc != null) {
+            val core = wm.damage.core.windows.files.FilesCore()
+            val src = wm.damage.core.app.LocalWindowSource(core, wc)
+            filesSource = src
+            wm.damage.core.windows.files.FilesGlasses(text, core, src, fp, scope, AndroidImages(), device = wc.device)
+        } else wm.damage.core.windows.files.FilesWindow(text, fp, scope, AndroidImages())
+        filesGlasses = files
+        sh.register(files)
+        if (wc != null) wm.damage.core.windows.files.FilesMigration.onCopy(wc, persistence) { line ->
+            Journal.appendNote(dataDir.resolve("journal.jsonl"), "migrate", line)
+        }
         // Torrents (2026-09-01, TORRENTS.md): qBittorrent + TorrentLeech live on
         // the PC; the phone polls the host through the window channel at its
         // own pacing (2 s focused / 15 s idle) and shows the host's own
@@ -698,6 +714,11 @@ class ShellService : Service() {
         readerGlasses = null
         try { readerSource?.close() } catch (e: Exception) { Log.w("service", "reader source close: ${e.message}") }
         readerSource = null
+        // S1-2 Q5: Files' presenter leaves its source, and the source the working copy, as Reader's
+        try { filesGlasses?.detach() } catch (e: Exception) { Log.w("service", "files detach: ${e.message}") }
+        filesGlasses = null
+        try { filesSource?.close() } catch (e: Exception) { Log.w("service", "files source close: ${e.message}") }
+        filesSource = null
         try { filesProvider?.close() } catch (e: Exception) { Log.w("service", "files provider close: ${e.message}") }
         // S1-2 Q4: the presenter leaves its provider and the source, and the source the working copy
         try { torrentsGlasses?.detach() } catch (e: Exception) { Log.w("service", "torrents detach: ${e.message}") }

@@ -280,9 +280,14 @@ class ReviewRound1Test {
     }
 
     // --------------------------------------- Files viewer continuity (D-A gate)
+    //
+    // Build S1-2 Q5 (the spec's §4.1, §4.2 and its Q5 pin "the files keys still sync"): Files is converted — its
+    // clipboard, sort, hidden and Size rows are the PC record's, and its level, cursors, folder and viewer are each
+    // interface's own (`window.files`, unsynced). The test that pinned the viewer crossing the sync channel now pins
+    // the opposite: `window.files` stays on its host while a key that still syncs crosses.
 
     @Test
-    fun filesViewerPositionFollowsAcrossShells(): Unit = runBlocking {
+    fun filesViewerPositionStaysOnItsHostTheKeysNoLongerSync(): Unit = runBlocking {
         val tmp = Files.createTempDirectory("damage-files-continuity")
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val port = freePort()
@@ -329,23 +334,25 @@ class ReviewRound1Test {
                 shA.stop()
             }
 
-            // sync A → B
+            // sync A → B: a key that still syncs crosses; Files' does not
+            assertTrue(storeA.get("window.files") != null, "shell A saved its Files row")
+            storeA.put("shell.settings", buildJsonObject { put("probe", 1) })
             val storeB = Persistence(tmp.resolve("b.json"))
             host = ContentHostServer(LocalContent(tmp), port, "tok", sync = SyncPeer(storeA))
             host.start()
             client = RemoteSync("127.0.0.1", port, "tok", scope, SyncPeer(storeB), retryPacingMs = 200)
-            awaitTrue("window.files reached B") { storeB.get("window.files") != null }
+            awaitTrue("the synced key reached B") { storeB.get("shell.settings") != null }
+            delay(500)
+            assertEquals(null, storeB.get("window.files"), "window.files crossed the sync channel: Files' keys must not sync")
 
-            // shell B: the SAME file at the SAME line — Adam's 100% bar
+            // shell B starts on its own Files row (the locations), never A's viewer
             val shB = Shell(FakeText(), SimTransport(GlassFirmwareSim(), scope,
                 SimTransport.Timing(instant = true)), storeB, null, scope)
             val winB = wm.damage.core.windows.files.FilesWindow(FakeText(), provider, scope)
             shB.register(winB)
             shB.start()
-            awaitTrue("B restores the viewer") { winB.title() == "log.txt" }
-            awaitTrue("B is at A's line") {
-                (winB.saveState()["viewTop"]?.jsonPrimitive?.intOrNull ?: -1) == 20
-            }
+            delay(300)
+            assertTrue(winB.title() != "log.txt", "B shows A's viewer: ${winB.title()}")
             shB.stop()
         } finally {
             client?.close()

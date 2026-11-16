@@ -872,7 +872,7 @@ private suspend fun hostOnly(cfg: Config) {
     // host-only still syncs (§19.2): the store is the data, no shell needed
     val store = Persistence(Path.of(cfg.dataDir).resolve("state.json"))
     store.load()
-    val filesProvider = wm.damage.core.windows.files.LocalFilesProvider(
+    val filesLocal = wm.damage.core.windows.files.LocalFilesProvider(
         Path.of(cfg.booksDir), Path.of(cfg.dataDir).resolve("trash"), AwtImages())
     val themeIcons = ThemeIcons(AwtImages(), Path.of(cfg.dataDir).resolve("icons"))
     val torrents = cfg.torrentsProvider(scope)
@@ -904,6 +904,16 @@ private suspend fun hostOnly(cfg: Config) {
     // runShell (host-only has no presenter: the core serves the web and raises the notices)
     wm.damage.core.windows.torrents.TorrentsMigration.onHost(appHost, store) { }
     torrentsParts(appNet, appHost, torrents, noticeCore)
+
+    // build S1-2 (Q5): Files' records from before its conversion become record items once (as Reader's above), then
+    // Files on the PC record: the one job slot every PC caller meets (the phone's glasses through the window channel,
+    // the web's program ops), its scopes, ops, blobs and card on the lane; host-only has no presenter
+    wm.damage.core.windows.files.FilesMigration.onHost(appHost, store) { }
+    val hostUploads = webUploads(cfg) { line -> Log.i("uploads", line) }
+    val filesPc = wm.damage.core.windows.files.FilesPc(appHost, filesLocal, cfg.booksDir, hostUploads, FilesThumbs::jpeg)
+    filesPc.serveOn(appNet)
+    val filesProvider = filesPc.slotted
+
     // build S1-1 (P5): with the PC's reader index (`reader-index.json`, a cache: not in the nightly copy), walked one
     // book at a time after each shelf scan; the first scan is here, so the index is current before a web page asks
     val readerCore = wm.damage.core.windows.reader.ReaderCore(LocalContent(Path.of(cfg.booksDir)), scope,
@@ -920,8 +930,10 @@ private suspend fun hostOnly(cfg: Config) {
         icons = themeIcons, reach = reach, app = appNet, localSecret = web::localSecret)
     bindOrRetry(scope, "content host", cfg.contentPort) { host.start() }   // §72, as in the standby host
     startSetup(cfg, scope, reach)
-    // build S1-2 (Q2): the uploads, at this process start as in runShell; host-only's lines go to the log alone
-    startWeb(cfg, scope, reach, web, appNet, appHost, readerCore, presence, webUploads(cfg) { line -> Log.i("uploads", line) })
+    // build S1-2 (Q2): the uploads, at this process start as in runShell; host-only's lines go to the log alone (Q5: made
+    // above, with Files, whose upload op mints them; Files' blobs beside Reader's)
+    startWeb(cfg, scope, reach, web, appNet, appHost, readerCore, presence, hostUploads,
+        blobs = mapOf(wm.damage.core.windows.files.FilesBlobs.PREFIX to filesPc.blobs))
     watcher.start()
     presence.start()
     cfg.nightlyCopy(alerts, scope)?.start()
@@ -994,6 +1006,11 @@ class DesktopStack(
     /** The core and source outlive the stack: its presenter leaves their listeners at the stop. */
     private val readerGlasses: wm.damage.core.windows.reader.ReaderGlasses
 
+    /** S1-2 Q5: this stack's Files presenter and its source on the PC record (closed at the stop; null in tools).
+     *  Declared before `init`, which sets them. */
+    private var filesGlasses: wm.damage.core.windows.files.FilesGlasses? = null
+    private var filesSource: wm.damage.core.app.LocalWindowSource? = null
+
     init {
         val dataDir = Path.of(cfg.dataDir)
         val persistence = sharedStore ?: Persistence(dataDir.resolve("state.json"))
@@ -1011,8 +1028,14 @@ class DesktopStack(
         shell.register(readerGlasses)
         tmux?.let { tmuxWindow = wm.damage.core.windows.tmux.TmuxWindow(text, it, scope).also(shell::register) }
         files?.let {
-            shell.register(wm.damage.core.windows.files.FilesWindow(text, it, scope, AwtImages(),
-                initialBooksDir = cfg.booksDir))
+            // S1-2 Q5: on the PC record through a source of this stack's own when the provider is the PC's slotted one
+            // (it outlives the stack; the presenter leaves the source at the stop), else as before (a tool)
+            val pc = (it as? wm.damage.core.windows.files.SlottedFiles)?.pc
+            val w = if (pc != null) wm.damage.core.windows.files.FilesGlasses(text, pc.core, pc.glassesSource().also { s -> filesSource = s },
+                it, scope, AwtImages(), initialBooksDir = cfg.booksDir)
+            else wm.damage.core.windows.files.FilesWindow(text, it, scope, AwtImages(), initialBooksDir = cfg.booksDir)
+            filesGlasses = w
+            shell.register(w)
         }
         // build S1-2 Q4: over the PC record, where the PC raises Torrents' notices and this stack's shell shows them
         torrents?.let { p ->
@@ -1058,6 +1081,8 @@ class DesktopStack(
                 notices?.detach(shell.noticeSink)   // S1-2 Q3: the process's mirror outlives this stack
                 readerGlasses.detach()     // S1-1 P4: the process-wide core and source outlive this stack
                 torrentsWindow?.detach()   // a leaked listener fed a dead shell's queue every poll (P1); S1-2 Q4: and the source's
+                filesGlasses?.detach()     // S1-2 Q5: the presenter leaves this stack's source, which closes with it
+                filesSource?.close()
                 musicWindow?.detach()
                 feedWindow?.detach()
             } finally {
@@ -1157,7 +1182,8 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
 
     // The process-wide filesystem provider: the local Files window and the
     // phone's (over the win channel) share it — trash manifest included.
-    val filesProvider = wm.damage.core.windows.files.LocalFilesProvider(
+    // S1-2 Q5: behind the PC's one job slot (`filesProvider` below, once the record is open)
+    val filesLocal = wm.damage.core.windows.files.LocalFilesProvider(
         Path.of(cfg.booksDir), Path.of(cfg.dataDir).resolve("trash"), AwtImages())
 
     // The PC always serves its library + tmux + sync + files + icons — the
@@ -1230,6 +1256,20 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
     val torrentsSource = wm.damage.core.app.LocalWindowSource(torrentsScopes.core,
         wm.damage.core.app.HostBackend(appHost, wm.damage.core.app.Peer.LOCAL.device, wm.damage.core.app.OpQueue.newStream()))
 
+    // build S1-2 (Q5): Files' records from before its conversion become record items once (a `migrate` note), then
+    // Files on the PC record: the one job slot every PC caller meets (every stack's glasses, the phone's glasses
+    // through the window channel, the web's program ops), its scopes, ops, blobs and card on the lane; each stack's
+    // presenter reads Files' records through a source of its own (`SlottedFiles.pc`)
+    wm.damage.core.windows.files.FilesMigration.onHost(appHost, store) { line -> Journal.appendNote(journalFile, "migrate", line) }
+    val shellUploads = webUploads(cfg) { line ->
+        Log.i("uploads", line)
+        Journal.appendNote(journalFile, "uploads", line)
+    }
+    val filesPc = wm.damage.core.windows.files.FilesPc(appHost, filesLocal, cfg.booksDir, shellUploads, FilesThumbs::jpeg)
+    filesPc.serveOn(appNet)
+    val filesProvider = filesPc.slotted
+
+
     val host = ContentHostServer(LocalContent(Path.of(cfg.booksDir)), cfg.contentPort, cfg.token,
         tmux = tmuxProvider, sync = syncPeer,
         win = mapOf("files" to wm.damage.core.windows.files.FilesService(filesProvider),
@@ -1249,11 +1289,9 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
     }
     startSetup(cfg, this, reach)
     // build S1-2 (Q2): the uploads a window's `upload` op mints, at this process start (a temp file a stopped process
-    // left is deleted, each an `uploads` journal note)
-    startWeb(cfg, this, reach, web, appNet, appHost, readerCore, phonePresence, webUploads(cfg) { line ->
-        Log.i("uploads", line)
-        Journal.appendNote(journalFile, "uploads", line)
-    })
+    // left is deleted, each an `uploads` journal note; Q5: made above, with Files; Files' blobs beside Reader's)
+    startWeb(cfg, this, reach, web, appNet, appHost, readerCore, phonePresence, shellUploads,
+        blobs = mapOf(wm.damage.core.windows.files.FilesBlobs.PREFIX to filesPc.blobs))
     bastionWatcher.start()
     phonePresence.start()
     cfg.nightlyCopy(alertStore, tmuxScope)?.start()

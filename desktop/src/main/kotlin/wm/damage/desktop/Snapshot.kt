@@ -96,7 +96,9 @@ object Snapshot {
         // build S1-2 J0: the real provider over the books, with a made-up folder and trash shown from the Files
         // scenes on (`SceneFiles`; the locations are the real provider's until then)
         val sceneFiles = SceneFiles(wm.damage.core.windows.files.LocalFilesProvider(books, tmp.resolve("trash"), AwtImages()))
-        val filesWin = wm.damage.core.windows.files.FilesWindow(text, sceneFiles,
+        // S1-2 Q5: Files' presenter on the scratch PC record (its rows), the provider behind the PC's job slot
+        val filesPc = wm.damage.core.windows.files.FilesPc(pcRecord, sceneFiles, cfg.booksDir, null, null)
+        val filesWin = wm.damage.core.windows.files.FilesGlasses(text, filesPc.core, filesPc.glassesSource(), filesPc.slotted,
             scope, AwtImages(), initialBooksDir = cfg.booksDir)
         shell.register(filesWin)
         val torrentsScripted = ScriptedTorrents()
@@ -523,9 +525,16 @@ object Snapshot {
         val pcNotices = wm.damage.core.app.NoticeCore(pcRecord)
         val pcTorrents = wm.damage.core.windows.torrents.TorrentsCore()
         pcTorrents.attachNotices(torrentsScripted, torrentsScripted.epoch, pcNotices)
+        // S1-2 Q5: Files on the scratch PC record behind its job slot, over the first arrangement's provider (the real
+        // one over the books for the locations, J0's made-up folder and trash once shown), served to the phone through
+        // the window channel
+        val phoneFiles = SceneFiles(wm.damage.core.windows.files.LocalFilesProvider(books, tmp.resolve("trash"), AwtImages()))
+        val phoneFilesPc = wm.damage.core.windows.files.FilesPc(pcRecord, phoneFiles, cfg.booksDir, null, null)
         // bound to loopback, and gated like every listener (build W): the strict gate answers loopback only here
         val host = wm.damage.core.content.ContentHostServer(LocalContent(books), 0, token, app = net,
-            win = mapOf("torrents" to wm.damage.core.windows.torrents.TorrentsService(torrentsScripted)),
+            // the merge of Q4 and Q5: both windows on the one window channel
+            win = mapOf("torrents" to wm.damage.core.windows.torrents.TorrentsService(torrentsScripted),
+                "files" to wm.damage.core.windows.files.FilesService(phoneFilesPc.slotted)),
             reach = wm.damage.core.net.ReachGate(wm.damage.core.net.Side.PHONE),
             bindAddress = java.net.InetAddress.getLoopbackAddress())
         host.start()
@@ -559,9 +568,15 @@ object Snapshot {
         shell.register(reader)
         // every other window as in the first arrangement (the same order, the same scripted sources, the same seed)
         shell.register(wm.damage.core.windows.tmux.TmuxWindow(text, ScriptedTmux(), scope))
-        shell.register(wm.damage.core.windows.files.FilesWindow(text,
-            SceneFiles(wm.damage.core.windows.files.LocalFilesProvider(books, tmp.resolve("trash"), AwtImages())),
-            scope, AwtImages(), initialBooksDir = cfg.booksDir))
+        // S1-2 Q5: Files' presenter over the phone's working copy, its calls through the window channel into a temp
+        // listing cache (the phone's own provider), as the phone builds it
+        val filesCore = wm.damage.core.windows.files.FilesCore()
+        val filesSource = wm.damage.core.app.LocalWindowSource(filesCore, wc)
+        val filesRemote = wm.damage.core.windows.files.RemoteFilesProvider("127.0.0.1", host.boundPort, token, scope,
+            cacheDir = tmp.resolve("wincache").resolve("files"))
+        val filesWin = wm.damage.core.windows.files.FilesGlasses(text, filesCore, filesSource, filesRemote, scope, AwtImages(),
+            initialBooksDir = cfg.booksDir, device = wc.device)
+        shell.register(filesWin)
         // build S1-2 Q4: the phone's Torrents over the window channel to the PC's provider, at today's paces; its core
         // over the working copy, and the PC's notices shown through the phone's mirror (`ShellService`'s arrangement)
         val torrentsRemote = wm.damage.core.windows.torrents.RemoteTorrentsProvider("127.0.0.1", host.boundPort, token, scope)
@@ -631,8 +646,33 @@ object Snapshot {
                 val rec = pcRecord.read(wm.damage.core.app.Notices.WINDOW).third.items["rec.notices.torrent:aa01"]
                 rec?.by == wc.device && wm.damage.core.app.Notices.parse("torrent:aa01", rec.value)?.state == wm.damage.core.app.Notices.DISMISSED
             }
+
+            // S1-2 Q5: Settings → Files, then Files' scenes 11 to 13e as the first arrangement takes them, the presenter
+            // on the working copy and its calls through the window channel (the base's scenes of the same names judge them)
+            settingsCategoryScene(shell, sim, out, "Files", "37d-files-settings")
+            filesLine(wc)?.let { failures.add("phone arrangement: the builds differ ($it)") }
+            repeat(2) { shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK) }    // → categories → Main
+            settle(shell, "phone-files-main")
+            walkTo(shell, "files", "phone-files")
+            waitFor("files locations (phone)") { filesWin.summary().line.contains("locations") }
+            iconsSettled()
+            save(sim, out, "11-files-locations")
+            shell.postGesture(EvenHubMsg.EV_CLICK)             // first location (Root)
+            waitFor("files listing (phone)") { filesWin.summary().detail.contains("folders") }
+            iconsSettled()
+            save(sim, out, "12-files-browse")
+            shell.postGesture(EvenHubMsg.EV_CLICK)             // tap = context menu
+            waitFor("files menu (phone)") { shell.menuIsOpen }
+            settle(shell)
+            save(sim, out, "13-files-menu")
+            shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // cancel the menu
+            settle(shell)
+            filesMoreScenes(shell, sim, out, filesWin, phoneFiles, iconsSettled = { iconsSettled() })
         } finally {
             shell.stop()
+            filesWin.detach()
+            filesSource.close()
+            filesRemote.close()
             reader.detach()
             source.close()
             torrentsWin.detach()
@@ -730,6 +770,28 @@ object Snapshot {
         settle(shell)
         save(sim, out, "09-main-back")
 
+    }
+
+    /** Build S1-2 Q5: "PC and phone on different builds for Files", or null when they match. */
+    private fun filesLine(wc: wm.damage.core.app.WorkingCopy): String? =
+        wc.client?.contractState?.line(wm.damage.core.windows.files.FilesCore.WINDOW)
+
+    /** Build S1-2 Q5: from Main, the window [id] opened by committing Main's rows one by one and checking (as the phone
+     *  arrangement's walk to Settings does). */
+    private suspend fun walkTo(shell: Shell, id: String, tag: String) {
+        for (k in 0 until 12) {
+            shell.postGesture(EvenHubMsg.EV_CLICK)
+            settle(shell, "commit-$tag")
+            if (shell.currentWindowId() == id) return
+            var guard = 0
+            while (shell.currentWindowId() != null && guard++ < 10) {
+                shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+                settle(shell, "back-to-main-$tag")
+            }
+            shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)
+            settle(shell, "walk-$tag")
+        }
+        failures.add("could not reach $id from Main ($tag)")
     }
 
     /** The Settings → Reader scene (37b), by Settings' `cat:` deep link, from wherever the shell is in Settings. */

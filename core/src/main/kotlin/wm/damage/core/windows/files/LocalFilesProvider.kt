@@ -39,7 +39,7 @@ class LocalFilesProvider(
     /** Injected for tests: mounts source + exec runner. */
     private val mountsFile: Path = Path.of("/proc/mounts"),
     private val exec: (List<String>) -> ExecResult = ::runExec,
-) : FilesProvider {
+) : FilesProvider, CountedFiles {
 
     class ExecResult(val code: Int, val stdout: ByteArray, val stderr: String)
 
@@ -138,11 +138,15 @@ class LocalFilesProvider(
         )
     }
 
-    override fun du(path: String): Long {
+    override fun du(path: String): Long = du(path, FilesProgress.NONE)
+
+    /** S1-2 Q5: the bytes seen so far go to [progress] as the walk goes (a stalled mount shows where it stopped). */
+    override fun du(path: String, progress: FilesProgress): Long {
         var total = 0L
         Files.walkFileTree(Path.of(path), object : SimpleFileVisitor<Path>() {
             override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
                 total += attrs.size()
+                progress.at(total, null, "counting")
                 return FileVisitResult.CONTINUE
             }
             override fun visitFileFailed(file: Path, exc: IOException): FileVisitResult {
@@ -326,14 +330,19 @@ class LocalFilesProvider(
         return dest.toString()
     }
 
-    override fun copy(src: String, destDir: String): String {
+    override fun copy(src: String, destDir: String): String = copy(src, destDir, FilesProgress.NONE)
+
+    /** S1-2 Q5 (the spec's §4.1): a counted copy — a tree is walked first ("counting"), then each file's bytes are
+     *  added as it lands ("copying"; a file is copied whole as before, so one large file shows its bytes at its end). */
+    override fun copy(src: String, destDir: String, progress: FilesProgress): String {
         val s = Path.of(src)
         val dest = Path.of(destDir).resolve(s.fileName.toString())
         require(!Files.exists(dest, LinkOption.NOFOLLOW_LINKS)) { "${s.fileName} already exists there" }
         require(!dest.toAbsolutePath().startsWith(s.toAbsolutePath())) { "cannot copy a folder into itself" }
         if (Files.isDirectory(s, LinkOption.NOFOLLOW_LINKS)) {
+            val total = treeBytes(s, progress)
             try {
-                copyTree(s, dest)
+                copyTree(s, dest, total, progress)
             } catch (e: IOException) {
                 // no half-copied tree left behind (review 2026-09-01 Fi#14)
                 try { deleteRecursively(dest) } catch (r: IOException) {
@@ -342,12 +351,19 @@ class LocalFilesProvider(
                 throw e
             }
         } else {
+            val size = try { Files.size(s) } catch (e: IOException) { null }
+            progress.at(0, size, "copying")
             Files.copy(s, dest, StandardCopyOption.COPY_ATTRIBUTES, LinkOption.NOFOLLOW_LINKS)
+            size?.let { progress.at(it, it, "copying") }
         }
         return dest.toString()
     }
 
-    override fun move(src: String, destDir: String): String {
+    override fun move(src: String, destDir: String): String = move(src, destDir, FilesProgress.NONE)
+
+    /** S1-2 Q5: a rename is at once; a file moved across volumes is a copy, its bytes at its end. */
+    override fun move(src: String, destDir: String, progress: FilesProgress): String {
+        progress.at(0, null, "moving")
         val s = Path.of(src)
         val dest = Path.of(destDir).resolve(s.fileName.toString())
         require(!Files.exists(dest, LinkOption.NOFOLLOW_LINKS)) { "${s.fileName} already exists there" }
@@ -406,7 +422,8 @@ class LocalFilesProvider(
         }
     }
 
-    private fun copyTree(src: Path, dest: Path) {
+    private fun copyTree(src: Path, dest: Path, total: Long? = null, progress: FilesProgress = FilesProgress.NONE) {
+        var done = 0L
         // symlinks inside the tree copy AS links (Fi#14): walkFileTree does
         // not follow them, and the file copy must not either
         Files.walkFileTree(src, object : SimpleFileVisitor<Path>() {
@@ -417,9 +434,26 @@ class LocalFilesProvider(
             override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
                 Files.copy(file, dest.resolve(src.relativize(file).toString()),
                     StandardCopyOption.COPY_ATTRIBUTES, LinkOption.NOFOLLOW_LINKS)
+                done += attrs.size()
+                progress.at(done, total, "copying")
                 return FileVisitResult.CONTINUE
             }
         })
+    }
+
+    /** S1-2 Q5: a tree's bytes, walked before its copy ("counting"); an unreadable entry is left out of the count (its
+     *  copy then fails loudly, as before). */
+    private fun treeBytes(src: Path, progress: FilesProgress): Long {
+        var n = 0L
+        Files.walkFileTree(src, object : SimpleFileVisitor<Path>() {
+            override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
+                n += attrs.size()
+                progress.at(n, null, "counting")
+                return FileVisitResult.CONTINUE
+            }
+            override fun visitFileFailed(file: Path, exc: IOException): FileVisitResult = FileVisitResult.CONTINUE
+        })
+        return n
     }
 
     private fun deleteRecursively(p: Path) {
