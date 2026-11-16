@@ -1653,6 +1653,64 @@ def vectors_v3(kf):
         step(tk(220300), msg(fill(rect(0, 412, 8, 2), 9))),              # 13 a v2 op notices the lapse: 3
     ], panel=False)
 
+    # v3-rulings2 — the lead's rulings on review pass 1 (build C1, `C1-R2-decisions.md` §B, §C), each case no earlier
+    # vector reaches. B-N13: "every close of an open instance sets the stale mark (CLOSE, a PLAY's own closes, a live
+    # mode 6's closes, a cache write that meets an instance)" — a cache write that meets a drawing instance, then a
+    # hinted batch with nothing else drawing (the panel still shows step 1 there; whole, it shows END); the same over
+    # a done instance (a level written outside the hint reaches the lens only when the batch goes whole); a live
+    # keyframe inside a hinted batch closing a drawing instance. R1.9's shapes "[W], [X], [W,X] only": two
+    # three-segment tracks, [W, X, W] and [W, W, X], refused 12. R1.10's clamp below 0: a RETARGET from level 15 to
+    # level 0 by an overshooting table (§5.4 `v(j) = v0 + ((D·E[j] + 2048) >> 12)`: steps 4 to 7 fall to −1 or −2,
+    # clamped to 0). R1.20's direct path with a live lease, the panel compared this time: a v1 frame 90,001 ticks
+    # after the acquire while an instance draws (`C1-R2-decisions.md` §A: "the lapsed direct path's whole refresh
+    # stands as built"). No extent-below-0 step: no accepted message reaches one (§5.5's value check bounds the
+    # program's own path from 0, and a restart's extent stays between it and its end — the stage's report).
+    c = Cache2()
+    solid = c.add(image2(8, 4, [15] * 32))
+    mv_bytes = prog(track(rect(0, 20, 200, 10), 4, drawrec(4, solid, 10, 22, dx=120)))      # step 1 at x 40, END at x 130
+    mv = c.add(mv_bytes)
+    t1_bytes = prog(track(rect(300, 20, 60, 10), 5, fillseg(1, 7)))                          # T = 1
+    t1 = c.add(t1_bytes)
+    kd = c.add(prog(track(rect(0, 60, 200, 10), 4, drawrec(4, solid, 10, 62, dx=120))))
+    r3a = c.add(prog(track(rect(0, 100, 200, 10), 4, wait(2), drawrec(2, solid, 10, 102, dx=40), wait(2))))   # [W, X, W]
+    r3b = c.add(prog(track(rect(0, 120, 200, 10), 4, wait(2), wait(2), drawrec(2, solid, 10, 122, dx=40))))   # [W, W, X]
+    ov = c.add(easing([900, 2300, 3500, 4300, 4620, 4600, 4420, 4096]))                          # 15 → 0: 12 7 2 −1 −2 −2 −1 0
+    lv = c.add(prog(track(rect(0, 160, 200, 10), 0, drawrec(8, solid, 10, 163, lvl=(15, 15), ease=TABLE, table=ov,
+                                                          pref0=pref(0, F_LVL0), pref1=pref(1, F_LVL1)))))
+    kf7 = keyframe(pattern(W, H, 7))
+    c2 = Cache2()
+    lp = c2.add(prog(track(rect(100, 300, 200, 40), 3, fillseg(200, 9))))  # T = 200 at P = 128: 25,472 ticks
+    rt = 2039                                                             # lv's RETARGET tick (t0 of the restart)
+    ta = 300000                                                           # the last acquire: its deadline ta + 90,000
+    vec("v3-rulings2", [
+        step(*arm, *writes(c)),
+        step(tk(1100), msg(play(0, P, mv, 0x0F01))),                     # 1  B-N13 step 1 drawn (x 40), END in the shadow
+        step(tk(1105), msg(cache_write2((mv, mv_bytes)))),               # 2  a write that meets it: closed (outcome 1), the stale mark
+        step(tk(1110), msg(batch(fill(rect(0, 440, 640, 2), 5), hint(440, 441)))),   # 3  nothing drawing: whole, the lens shows END at x 130
+        step(tk(1200), msg(play(1, P, t1, 0x0F02))),                     # 4  T = 1: the PLAY's present draws its last step (A.12's mark)
+        step(tk(1210), msg(batch(fill(rect(0, 444, 640, 2), 6), hint(444, 445)))),   # 5  whole: the mark is spent
+        step(tk(1220), msg(batch(fill(rect(0, 300, 8, 8), 9), fill(rect(0, 448, 640, 2), 7), hint(448, 449)))),   # 6  rows only: level 9 stays off the lens
+        step(tk(1230), msg(cache_write2((t1, t1_bytes)))),               # 7  a write that meets the done instance: closed, no notify, the mark
+        step(tk(1240), msg(batch(fill(rect(0, 452, 640, 2), 8), hint(452, 453)))),   # 8  whole: level 9 reaches the lens
+        step(tk(1300), msg(play(0, P, kd, 0x0F03))),                     # 9
+        step(tk(1305), msg(batch(kf7, hint(0, 1)))),                     # 10 a live keyframe in a hinted batch closes it (outcome 1): whole
+        step(tk(1400), msg(play(1, P, r3a, 0x0F04)), tk(1400), msg(retarget(1))),   # 11 R1.9 [W, X, W]: 12
+        step(tk(1410), msg(play(2, P, r3b, 0x0F05)), tk(1410), msg(retarget(2))),   # 12 [W, W, X]: 12
+        step(tk(1420), msg(batch(close(0xFF)))),                         # 13 both closed (outcome 1 each)
+        step(tk(2000), msg(play(0, P, lv, 0x0F06, P=(15, 15)))),         # 14 R1.10 a level held at 15
+        step(tk(2000 + P), wake()),                                     # 15 step 2: drawn at level 15
+        step(tk(rt), msg(retarget(0, (0, 0)))),                         # 16 15 → 0 by the overshoot table: step 1 at level 12
+        step(tk(rt + 3 * P), wake()),                                   # 17 step 4: −1, clamped to 0
+        step(tk(rt + 4 * P), wake()),                                   # 18 step 5: −2, clamped to 0
+        step(tk(rt + 7 * P), wake()),                                   # 19 step 8 = T: 0
+        step(tk(ta), {"lease": "acquire"}, flags(DRAW2 | ENGINE), msg(kf), *writes(c2)),   # 20 a fresh acquire
+        step(tk(ta + 80000), msg(play(0, 128, lp, 0x0F07))),             # 21 would end at ta + 105,472
+        step(tk(ta + 80000 + 5 * 128), wake()),                         # 22 step 6, the lease live
+        step(tk(ta + 90001), msg(copy((0, 440, 8, 2), (8, 440, 8, 2)))),  # 23 R1.20 a v1 copy 90,001 ticks on: no step, done, no notify
+        step(tk(ta + 90100), wake()),                                   # 24 nothing drawing: nothing presents
+        step(tk(ta + 90200), msg(fill(rect(0, 412, 8, 2), 9))),          # 25 a v2 op notices the lapse: 3
+    ])
+
     for vec_ in v:
         vec_["contract"] = 2                                            # §5.1: added ops and bits do not bump the contract
         vec_["start"] = "zero"
