@@ -15,9 +15,13 @@ BASE, NEW and BASE2 are snapshot directories (their `journal.jsonl` is read) or 
 since the previous mark that a ring event started (`"in":1` on its `submit`; atlas and staged-record writes are not
 gestures), priced by its `done` line's `bytes`. A scene reached with no gesture since the previous mark (a deep link,
 a notice, a timer) has no measure and is listed with "-".
-  - a scene whose NEW measure is larger than its allowance fails ("grew"); the allowance is BASE's measure, or with
-    --mask the larger of BASE's and BASE2's (two renders of one tree: whatever differs between them is timing, not the
-    change under test);
+  - a scene whose NEW measure is larger than its allowance plus SLACK fails ("GREW"); the allowance is BASE's
+    measure, or with --mask the larger of BASE's and BASE2's (two renders of one tree: whatever differs between them is
+    timing, not the change under test). Growth within SLACK is listed ("+N B, inside the slack"), not failed: a
+    gesture's flush carries a live cell whenever its rect covers one (the status bar's readout, the clock, disk free,
+    Music's elapsed time), and those cells' pixels differ from run to run. Measured at J0 over three idle renders of
+    one tree: up to 40 B (`36-music-nowplaying-288`, `35-music-youtube`, `44-games-table-480`), 0 B in the phone
+    arrangement;
   - a scene with a measure in NEW and none in BASE fails (a first flush where there was none is growth from nothing);
   - a scene with a measure in BASE and none in NEW is listed ("no gesture flush"), not failed: the pictures judge it;
   - a scene present in one journal and not the other fails, as does a measured flush with no `done` line, a scene
@@ -34,6 +38,8 @@ import sys
 import tempfile
 
 NOT_GESTURES = ("ATLAS", "STAGE")
+# the live cells' share of a gesture's first flush (the docstring's measure: up to 40 B between two idle renders)
+SLACK = 64
 
 
 class JournalError(Exception):
@@ -121,15 +127,18 @@ def run(base, new, base2=None, out=sys.stdout):
             note = "GREW (no first flush in the base)"
             failures.append(f"{s}: a gesture flush of {n[0]} B where the base has none")
             grew += 1
-        elif n is not None and n[0] > allow:
+        elif n is not None and n[0] > allow + SLACK:
             note = f"GREW +{n[0] - allow} B"
-            failures.append(f"{s}: first flush {n[0]} B, allowance {allow} B")
+            failures.append(f"{s}: first flush {n[0]} B, allowance {allow} B + the slack {SLACK} B")
             grew += 1
+        elif n is not None and n[0] > allow:
+            note = f"+{n[0] - allow} B, inside the slack"
         elif n is None and b is not None:
             note = "no gesture flush in NEW"
         label = n[2] if n is not None else (b[2] if b is not None else "")
         print(f"{s:<34} base {bt:>6}  allow {at:>6}  new {nt:>6}  {label:<16} {note}", file=out)
-    print(f"compared {len(set(border) & set(nm))} scene(s); {grew} first flush(es) grew", file=out)
+    print(f"compared {len(set(border) & set(nm))} scene(s); {grew} first flush(es) grew past the slack of {SLACK} B",
+          file=out)
     for msg in failures:
         print(f"FAIL {msg}", file=out)
     return 1 if failures else 0
@@ -188,11 +197,14 @@ def selftest():
 
     case("identical journals pass", 0, scene(300), scene(300))
     case("a directory argument reads its journal.jsonl", 0, scene(300), scene(300), as_dir=True)
-    case("a first flush that grew fails", 1, scene(300), scene(301), expect_in="GREW +1 B")
+    case("a first flush that grew past the slack fails", 1, scene(300), scene(301 + SLACK),
+         expect_in=f"GREW +{SLACK + 1} B")
+    case("growth inside the slack is listed, not failed", 0, scene(300), scene(300 + SLACK),
+         expect_in=f"+{SLACK} B, inside the slack")
     case("a smaller first flush passes", 0, scene(300), scene(120))
     case("the LAST gesture before the mark is the one priced", 1,
-         sub(nbytes=900) + sub(nbytes=200) + mark("04-x"), sub(nbytes=200) + sub(nbytes=250) + mark("04-x"),
-         expect_in="GREW +50 B")
+         sub(nbytes=900) + sub(nbytes=200) + mark("04-x"), sub(nbytes=200) + sub(nbytes=300 + SLACK) + mark("04-x"),
+         expect_in=f"GREW +{100 + SLACK} B")
     case("a flush no ring event started is not a gesture", 0,
          scene(300), sub(nbytes=300) + sub(inp=0, nbytes=5000) + mark("13-files-menu"))
     case("atlas and staged-record writes are not gestures", 0,
@@ -204,9 +216,10 @@ def selftest():
          mark("a") + sub(inp=0) + mark("b"), mark("a") + sub(nbytes=40) + mark("b"), expect_in="base has none")
     case("a gesture flush gone from NEW is listed, not failed", 0,
          scene(300), sub(inp=0) + mark("13-files-menu"), expect_in="no gesture flush in NEW")
-    case("--mask allows the larger of the two bases", 0, scene(300), scene(340), base2=scene(340))
-    case("--mask does not allow past the larger base", 1, scene(300), scene(341), base2=scene(340), expect_in="GREW +1 B")
-    case("without --mask the same flush fails", 1, scene(300), scene(340))
+    case("--mask allows the larger of the two bases", 0, scene(300), scene(400), base2=scene(400))
+    case("--mask does not allow past the larger base and the slack", 1, scene(300), scene(401 + SLACK),
+         base2=scene(400), expect_in=f"GREW +{SLACK + 1} B")
+    case("without --mask the same flush fails", 1, scene(300), scene(400))
     case("a missing scene fails", 1, scene(300) + mark("b"), scene(300), expect_in="missing scene in NEW: b")
     case("an extra scene fails", 1, scene(300), scene(300) + mark("b"), expect_in="extra scene in NEW: b")
     case("a measured flush with no done line fails", 1, scene(300),
