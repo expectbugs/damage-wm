@@ -699,11 +699,18 @@ private fun startSetup(cfg: Config, scope: CoroutineScope, reach: wm.damage.core
  * Build S1-1 P7: the lane also serves the PC's own scopes the web client reads beside the record (`PcScopes`: Main's
  * cards, Reader's description and levels, one spine part, the diagnosis), sharing one `ReaderDocs` with the blobs, and
  * the listener serves the glasses' faces (`/font/`, resolved by fontconfig as the desktop's text does, once each).
+ *
+ * Build S1-2 Q2 (the spec's §2.4): the blob sources by id prefix — Reader's here, each converted window's from its
+ * builder in [blobs] (the window registry's other running parts go to the lane through `AppNet.serve` before this) —
+ * and the uploads a window's `upload` op mints ([uploads], made by [webUploads] at the process start), cancelled with
+ * the connection that minted them.
  */
 private fun startWeb(cfg: Config, scope: CoroutineScope, reach: wm.damage.core.net.ReachGate, web: wm.damage.core.web.WebAccess,
                      app: wm.damage.core.app.AppNet, appHost: wm.damage.core.app.AppHost,
                      readerCore: wm.damage.core.windows.reader.ReaderCore,
-                     presence: wm.damage.core.bastion.PhonePresence): wm.damage.core.web.WebServer? {
+                     presence: wm.damage.core.bastion.PhonePresence,
+                     uploads: wm.damage.core.web.Uploads,
+                     blobs: Map<String, wm.damage.core.web.BlobSource> = emptyMap()): wm.damage.core.web.WebServer? {
     if (cfg.webPort == 0) {
         Log.i("web", "web interface off: webPort is 0 in ${Config.path()}")
         return null
@@ -722,23 +729,30 @@ private fun startWeb(cfg: Config, scope: CoroutineScope, reach: wm.damage.core.n
         }
     }
     val docs = wm.damage.core.windows.reader.ReaderDocs(readerCore::pathOf)
-    val blobs = wm.damage.core.web.ReaderBlobs(readerCore, docs)
+    val sources = wm.damage.core.web.BlobSources(
+        mapOf(wm.damage.core.web.ReaderBlobs.PREFIX to wm.damage.core.web.ReaderBlobs(readerCore, docs)) + blobs)
     val stamp = "desktop " + (DesktopStack::class.java.getResource("/damage-build.txt")?.readText()?.trim() ?: "unstamped")
     app.attach(wm.damage.core.app.PcScopes(appHost, readerCore, docs,
         names = { web.devices.rows().filter { !it.revoked }.associate { it.id to it.name } },
         diag = { kotlinx.serialization.json.buildJsonObject {
             put("build", kotlinx.serialization.json.JsonPrimitive(stamp))
             put("connections", kotlinx.serialization.json.JsonArray(app.connectionLines().map { kotlinx.serialization.json.JsonPrimitive(it) }))
-        } }))
+        } }, cards = app::cards))
+    app.addEndListener(uploads::connectionEnded)
     return try {
-        web.server(cfg.webPort, reach, cfg.webHosts + listOfNotNull(own, own?.substringBefore('.')), app, blobs, presence::tailnetName,
-            webFonts())
+        web.server(cfg.webPort, reach, cfg.webHosts + listOfNotNull(own, own?.substringBefore('.')), app, sources, presence::tailnetName,
+            webFonts(), uploads)
             .also { s -> bindOrRetry(scope, "web interface", cfg.webPort) { s.start() } }
     } catch (e: Exception) {
         Log.e("damage", "web interface failed to start on :${cfg.webPort}", e)
         null
     }
 }
+
+/** Build S1-2 Q2 (the spec's §2.4, §5 V4): the uploads of this process over the data directory (`uploads.jsonl`), made
+ *  at a PROCESS START by both host builders: a temp file a stopped process left is deleted, each said through [say]. */
+private fun webUploads(cfg: Config, say: (String) -> Unit): wm.damage.core.web.Uploads =
+    wm.damage.core.web.Uploads(Path.of(cfg.dataDir)).also { it.atStart(say) }
 
 /** Build S1-1 P7: the glasses' faces for the web's glass theme, each resolved by fontconfig once (as `AwtText` resolves
  *  them); a face that is not installed is said once and answered 404. */
@@ -878,7 +892,8 @@ private suspend fun hostOnly(cfg: Config) {
         icons = themeIcons, reach = reach, app = appNet, localSecret = web::localSecret)
     bindOrRetry(scope, "content host", cfg.contentPort) { host.start() }   // §72, as in the standby host
     startSetup(cfg, scope, reach)
-    startWeb(cfg, scope, reach, web, appNet, appHost, readerCore, presence)
+    // build S1-2 (Q2): the uploads, at this process start as in runShell; host-only's lines go to the log alone
+    startWeb(cfg, scope, reach, web, appNet, appHost, readerCore, presence, webUploads(cfg) { line -> Log.i("uploads", line) })
     watcher.start()
     presence.start()
     cfg.nightlyCopy(alerts, scope)?.start()
@@ -1171,7 +1186,12 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
         Log.e("damage", "content host failed to start on :${cfg.contentPort}", e)
     }
     startSetup(cfg, this, reach)
-    startWeb(cfg, this, reach, web, appNet, appHost, readerCore, phonePresence)
+    // build S1-2 (Q2): the uploads a window's `upload` op mints, at this process start (a temp file a stopped process
+    // left is deleted, each an `uploads` journal note)
+    startWeb(cfg, this, reach, web, appNet, appHost, readerCore, phonePresence, webUploads(cfg) { line ->
+        Log.i("uploads", line)
+        Journal.appendNote(journalFile, "uploads", line)
+    })
     bastionWatcher.start()
     phonePresence.start()
     cfg.nightlyCopy(alertStore, tmuxScope)?.start()

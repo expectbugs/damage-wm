@@ -28,7 +28,8 @@ sealed class OpId {
      *  numbers hold 53 bits); [n] starts at 1 and never repeats in the stream. */
     data class Queued(val stream: String, val n: Long) : OpId()
 
-    /** Live, outbound and guarded ops: no place in a stream or its gap check (none in S1-1). */
+    /** Live, outbound and guarded ops, and every op into an outside program (S1-2 Q2, `Program.kt`): no place in a
+     *  stream or its gap check. */
     data class Conn(val conn: Long, val k: Long) : OpId()
 }
 
@@ -85,7 +86,8 @@ data class Loss(
 
 /** The answer to an op (C§4.4). */
 sealed class Answer {
-    /** The PC has the op in its order (an op into an outside program; none in S1-1). */
+    /** The PC has the op in its order; for an op into an outside program (S1-2 Q2), the program's call returned —
+     *  what it made travels beside the answer (`Ans.result`). */
     object Sent : Answer() {
         override fun toString() = "Sent"
     }
@@ -121,6 +123,9 @@ sealed class Answer {
         /** Build S1-1 P6 (C§10.4): the device's level does not reach the op, subscription or blob; for a queued op
          *  the number is taken (refused for good), so the stream goes on. */
         const val LEVEL = "level"
+        /** Build S1-2 Q2 (decisions A.7): an op into an outside program that the program refused or that threw;
+         *  the reason is the program's own words. Never queued, never resent. */
+        const val PROGRAM = "program"
     }
 }
 

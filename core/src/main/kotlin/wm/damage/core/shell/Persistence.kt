@@ -355,12 +355,11 @@ class Persistence(private val file: Path) {
         fun syncable(key: String): Boolean =
             key == "shell.settings" || (key.startsWith("window.") && !converted(key))
 
-        /** Build S1-1: the windows whose state the PC record holds (their keys never sync). */
-        private val CONVERTED = listOf("reader")
-
+        /** Build S1-1: the windows whose state the PC record holds (their keys never sync); S1-2 Q2: the window
+         *  registry's converted windows (`app/Windows.kt`). */
         private fun converted(key: String): Boolean {
             val id = key.removePrefix("window.").substringBefore('.')
-            return id in CONVERTED
+            return wm.damage.core.app.Windows.converted(id)
         }
     }
 }

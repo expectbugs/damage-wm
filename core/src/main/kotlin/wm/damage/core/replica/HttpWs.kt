@@ -90,7 +90,10 @@ object HttpWs {
 
     fun reason(code: Int): String = when (code) {
         200 -> "OK"; 206 -> "Partial Content"; 400 -> "Bad Request"; 403 -> "Forbidden"; 404 -> "Not Found"
-        405 -> "Method Not Allowed"; 413 -> "Content Too Large"; 416 -> "Range Not Satisfiable"; else -> "Error"
+        405 -> "Method Not Allowed"; 413 -> "Content Too Large"; 416 -> "Range Not Satisfiable"
+        // S1-2 Q2: the upload route's answers (RFC 9110 §15)
+        201 -> "Created"; 409 -> "Conflict"; 411 -> "Length Required"; 500 -> "Internal Server Error"
+        507 -> "Insufficient Storage"; else -> "Error"
     }
 
     /** The upgrade's answer (RFC 6455 §4.2.2). */

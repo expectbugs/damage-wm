@@ -8,11 +8,9 @@ package wm.damage.core.app
  * the PC, and each side runs it from its own copy — until both match (a deploy and an install, never a timer).
  */
 object Contracts {
-    /** This build's contract version per converted window: Reader is the first (S1-1). */
-    val MINE: Map<String, Int> = mapOf("reader" to 1)
-
-    /** The name a presenter shows for a window in the mismatch line. */
-    private val TITLES = mapOf("reader" to "Reader")
+    /** This build's contract version per converted window: Reader is the first (S1-1); S1-2 Q2: read from the
+     *  window registry ([Windows]), where each converted window has its line. */
+    val MINE: Map<String, Int> = Windows.VERSIONS
 
     /** One window's two versions; null = that side does not convert it (or speaks no `app` lane at all). */
     data class Match(val window: String, val mine: Int?, val theirs: Int?) {
@@ -49,5 +47,5 @@ object Contracts {
 
     /** C§9.7 item 2's line. */
     fun mismatchLine(window: String): String =
-        "PC and phone on different builds for ${TITLES[window] ?: window}"
+        "PC and phone on different builds for ${Windows.title(window)}"
 }

@@ -41,15 +41,22 @@ internal class WebRig(
     val host: AppHost = rec.opened(),
     /** The names `Host` may carry (2.4's pin leaves the loopback literal out, so only the arriving address admits it). */
     hosts: List<String> = listOf("localhost", "127.0.0.1"),
+    /** S1-2 Q2: the window `t`'s actions that go into an outside program ([AppNet]'s `isProgram`). */
+    program: Set<String> = emptySet(),
+    /** S1-2 Q2: the lane's ping pacing (a viewer's interval is never shorter). */
+    pingEveryMs: Long = wm.damage.core.app.Viewers.PING_EVERY_MS,
+    /** S1-2 Q2: the upload route's state; null = none. */
+    val uploads: wm.damage.core.web.Uploads? = null,
 ) : AutoCloseable {
     val dir: Path = Files.createTempDirectory("damage-web")
     val devices = Devices(dir.resolve(Devices.FILE), clock = { rec.now }).load()
     val core = DevicesCore(devices)
     val net = AppNet(host, mapOf("t" to 1), clock = { rec.now }, levels = TEST_LEVELS,
-        minLevel = { if (it == "t") Levels.VIEW else Levels.FULL }, devices = core)
+        minLevel = { if (it == "t") Levels.VIEW else Levels.FULL }, devices = core,
+        isProgram = { w, a -> w == "t" && a in program }, pingEveryMs = pingEveryMs)
     val bundle = Bundle(mapOf("index.html" to "<!doctype html><p>fixture</p>".toByteArray(), "app.js" to "export {}".toByteArray()))
     val server = WebServer(0, reach, Access(hosts), devices, net, bundle, blobs,
-        bindAddress = InetAddress.getLoopbackAddress(), clock = { rec.now }).also { it.start() }
+        bindAddress = InetAddress.getLoopbackAddress(), clock = { rec.now }, uploads = uploads).also { it.start() }
     val port: Int get() = server.boundPort
     val origin: String get() = "http://127.0.0.1:$port"
 
@@ -78,8 +85,11 @@ internal class WebRig(
     }
 
     companion object {
-        /** The window `t`'s levels: `place` is a reading effect (view); every other action is control. */
-        val TEST_LEVELS = ActionLevels { w, a -> if (w != "t") null else if (a == "place") Levels.VIEW else Levels.CONTROL }
+        /** The window `t`'s levels: `place` (and S1-2 Q2's program op `peek`) is view; `wipe` (Q2) full; every other
+         *  action is control. */
+        val TEST_LEVELS = ActionLevels { w, a ->
+            if (w != "t") null else when (a) { "place", "peek" -> Levels.VIEW; "wipe" -> Levels.FULL; else -> Levels.CONTROL }
+        }
 
         fun blob(type: String, bytes: ByteArray, min: String = Levels.VIEW, name: String = "f") = Blob(type, bytes, min, name)
     }

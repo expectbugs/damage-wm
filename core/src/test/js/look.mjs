@@ -7,6 +7,8 @@
 // removed from Firefox's environment: no window can open on the desktop. A Firefox still running after LOOK_WAIT_MS
 // (90 s) is ended (the harness supervises its child; nothing in the product waits on it) and its picture said missing.
 // LOOK_SIZES=phone (or desk) takes one width; LOOK_DEBUG=1 lists the requests the stand-in served.
+// S1-2 Q2 (S1-2 R0 §1): `--real URL SECRET_FILE BOOK` points it at the REAL listener `LookServer.kt` started on loopback
+// (through `front.mjs`) instead of the stand-in, with the real scenes (`realScenes`).
 
 import { spawn, execFileSync } from 'node:child_process';
 import { mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs';
@@ -14,8 +16,14 @@ import { createServer } from 'node:net';
 import { join, resolve } from 'node:path';
 import { standin } from './standin.mjs';
 import { fixtures, SCENES } from './fixtures.mjs';
+import { front, realScenes } from './front.mjs';
+import { readFileSync } from 'node:fs';
 
-const args = process.argv.slice(2);
+const argv = process.argv.slice(2);
+const at = argv.indexOf('--real');
+const real = at >= 0 ? { url: argv[at + 1], secret: readFileSync(argv[at + 2], 'utf8').trim(), book: argv[at + 3] } : null;
+const args = at >= 0 ? [...argv.slice(0, at), ...argv.slice(at + 4)] : argv;
+const scenes = real ? realScenes(real.book) : SCENES;
 const dark = args.includes('--dark');
 const [out, ...names] = args.filter((a) => a !== '--dark');
 if (!out) throw new Error('usage: look.mjs OUT_DIR [scene ...] [--dark]');
@@ -48,8 +56,8 @@ function userJs() {
 }
 
 async function picture(name, size) {
-  const scene = SCENES[name];
-  const srv = await standin(scene, fixtures);
+  const scene = scenes[name];
+  const srv = real ? await front(scene, real.url, real.secret) : await standin(scene, fixtures);
   const profile = resolve(out, `profile-${name}-${size}`);
   const file = resolve(out, `${name}-${size}${dark ? '-dark' : ''}.png`);
   rmSync(file, { force: true });
@@ -73,12 +81,12 @@ async function picture(name, size) {
   rmSync(profile, { recursive: true, force: true });
   const ok = existsSync(file);
   console.log(`${ok ? 'took' : 'MISSING'} ${file}${ended ? ` (Firefox ended after ${WAIT_MS / 1000} s: the page never reached its state)` : ''} · exit ${code}` +
-    `${left ? ` · left processes ended: ${left.split('\n').join(' ')}` : ''} · the page sent ${srv.log.filter((m) => m.t !== 'note').map((m) => m.t + (m.scope ? ` ${m.scope}` : '')).join(', ')}`);
+    `${left ? ` · left processes ended: ${left.split('\n').join(' ')}` : ''} · the page sent ${srv.log.filter((m) => m.t !== 'note').map((m) => m.text || m.t + (m.scope ? ` ${m.scope}` : '')).join(', ')}`);
   for (const m of srv.log) if (m.t === 'note' && (!ok || /error/.test(m.text))) console.log(`  ${m.text}`);
   if (!ok || /error|unrecognized/i.test(said)) console.log(`  Firefox said: ${said.trim().split('\n').slice(-6).join(' | ')}`);
 }
 
 mkdirSync(out, { recursive: true });
-for (const name of names.length ? names : Object.keys(SCENES)) for (const size of (process.env.LOOK_SIZES || 'phone,desk').split(',')) await picture(name, size);
+for (const name of names.length ? names : Object.keys(scenes)) for (const size of (process.env.LOOK_SIZES || 'phone,desk').split(',')) await picture(name, size);
 hole.close();
 console.log(outside.length ? `Firefox tried ${outside.length} outside requests, all refused at the stand-in: ${[...new Set(outside)].join(' | ')}` : 'Firefox tried no outside request.');

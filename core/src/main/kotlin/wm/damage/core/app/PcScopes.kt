@@ -23,6 +23,10 @@ import wm.damage.core.windows.reader.ReaderDocs
  * A page follows places, bookmarks and the book read most recently through the record's own scope (`reader`), so the
  * shelf is not described again at every save point; it is described again when the shelf scan or the reader index
  * moves. A part never changes while its file does not, so it is described once per ask.
+ *
+ * Build S1-2, package Q2 (the spec's §2.2, §2.5): `desc/main` carries one card per converted window — Reader's from
+ * here, every other window's from the card its host builder handed the lane (`AppNet.serve`, [cards]), in the window
+ * registry's order — each with its summary from that window's core.
  */
 class PcScopes(
     private val host: AppHost,
@@ -33,6 +37,8 @@ class PcScopes(
     /** The diagnosis' own lines (connections, the bundle); null = no diagnosis served. */
     private val diag: (() -> JsonObject)? = null,
     private val minLevel: (String) -> String = AppHost::minLevel,
+    /** S1-2 Q2: the other converted windows' cards (`AppNet.cards`), on this provider's describer. */
+    private val cards: () -> List<JsonObject> = { emptyList() },
 ) : AppNet.Described {
     private val listeners = CopyOnWriteArrayList<() -> Unit>()
 
@@ -114,6 +120,7 @@ class PcScopes(
                 if (state != "ok") put("reason", state)
                 put("summary", summary(st))
             })
+            for (c in cards()) add(c)
         })
         put("who", buildJsonObject { for ((id, name) in names().toSortedMap()) put(id, name) })
     }

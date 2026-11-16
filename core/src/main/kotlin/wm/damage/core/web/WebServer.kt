@@ -46,6 +46,10 @@ import wm.damage.core.util.Log
  *    device ([FontSource]).
  * With no approved device it therefore serves only the bundle and the pairing socket. Security in proportion (dec.
  * B.3): no captcha, no rate limiter beyond the code's own, no second factor.
+ *
+ * Build S1-2, package Q2 (the spec's §2.4): `GET /blob/<id>` through the blob registry ([BlobSources]), `?r=` a
+ * rendition its source makes, `?dl=1` a download whatever the type; `PUT /blob/upload/<id>` an upload's body, for the
+ * device the id was minted for ([Uploads]).
  */
 /** P7: the file of one of the glasses' faces by its name in [WebServer.FONTS], or null when this host has none. */
 fun interface FontSource {
@@ -67,6 +71,8 @@ class WebServer(
     /** The address to bind; null = every address (the reach gate judges each arrival). Tests bind loopback. */
     private val bindAddress: InetAddress? = null,
     private val clock: () -> Long = { System.currentTimeMillis() },
+    /** S1-2 Q2: the uploads a window's `upload` op minted; null = no upload route. */
+    private val uploads: Uploads? = null,
 ) : AutoCloseable {
     @Volatile private var server: ServerSocket? = null
     @Volatile private var running = false
@@ -131,13 +137,14 @@ class WebServer(
             when {
                 req.method == "GET" && path == WS_PATH -> socket(sock, inp, out, req, device)
                 req.method == "POST" && path == CLAIM_PATH -> claim(sock, inp, out, req)
+                req.method == "PUT" && path.startsWith(UPLOAD_PREFIX) -> upload(sock, inp, out, req, device, path.removePrefix(UPLOAD_PREFIX))
                 req.method == "GET" && path.startsWith(BLOB_PREFIX) -> blob(sock, out, req, device, path.removePrefix(BLOB_PREFIX))
                 req.method == "GET" && path.startsWith(FONT_PREFIX) -> font(sock, out, device, path.removePrefix(FONT_PREFIX))
                 // P7: an address is the client's to read; the server answers its page
                 req.method == "GET" && (path == ADDRESS_ROOT || path.startsWith("$ADDRESS_ROOT/")) ->
                     page(out, req, "/", device?.let { secret })
                 req.method == "GET" -> page(out, req, path, device?.let { secret })
-                else -> HttpWs.reply(out, 405, "text/plain", "GET and the claim's POST only")
+                else -> HttpWs.reply(out, 405, "text/plain", "GET, the claim's POST and an upload's PUT only")
             }
         } catch (e: EOFException) {
             // the client closed
@@ -177,10 +184,13 @@ class WebServer(
             HttpWs.reply(out, 403, "text/plain", "this device is not approved")
             return
         }
+        // S1-2 Q2: `?r=` a rendition the blob's source makes; `?dl=1` a download whatever the type
+        val q = HttpWs.queryOf(req.target)
+        val r = q["r"]
         // fix round 1, ruling 2.3 (8): a blob that cannot be served is answered with its status and said, never an
         // ended request with no answer
         val b = try {
-            blobs.resolve(id)
+            if (r == null) blobs.resolve(id) else blobs.rendition(id, r)
         } catch (e: BlobTooLarge) {
             Log.w(TAG, "blob $id refused: ${e.message}")
             HttpWs.reply(out, 413, "text/plain; charset=utf-8", e.message ?: "this blob is past what the listener serves")
@@ -192,7 +202,7 @@ class WebServer(
             return
         }
         if (b == null) {
-            HttpWs.reply(out, 404, "text/plain", "no such blob")
+            HttpWs.reply(out, 404, "text/plain", if (r == null) "no such blob" else "no rendition '$r' of this blob")
             return
         }
         // C§10.5: the blob's minimum level against the device's, at apply time
@@ -200,7 +210,33 @@ class WebServer(
             HttpWs.reply(out, 403, "text/plain", it.reason)
             return
         }
-        Blobs.serve(out, req, b)
+        Blobs.serve(out, req, b, download = q["dl"] == "1")
+    }
+
+    /** S1-2 Q2: an upload's body, for the device its id was minted for; answered with the reason whatever happens. */
+    private fun upload(sock: Socket, inp: DataInputStream, out: OutputStream, req: HttpRequest, device: Devices.Row?, raw: String) {
+        if (device == null) {
+            refused(sock, "an upload without an approved device")
+            HttpWs.reply(out, 403, "text/plain", "this device is not approved")
+            return
+        }
+        val u = uploads
+        if (u == null) {
+            HttpWs.reply(out, 404, "text/plain; charset=utf-8", "this PC takes no uploads on this listener")
+            return
+        }
+        val id = try { java.net.URLDecoder.decode(raw, "UTF-8") } catch (e: IllegalArgumentException) { raw }
+        val len = req.headers["content-length"]?.let { it.trim().toLongOrNull() ?: -1L }
+        val r = u.receive(id, device.id, len?.takeIf { it >= 0 }, inp)
+        HttpWs.reply(out, r.code, if (r.code == 201) "application/json" else "text/plain; charset=utf-8", r.text)
+        if (r.bodyLeft) {
+            // refused before its body: the answer goes out whole, then what the uploader still sends is read and
+            // dropped until it closes (a close with unread bytes would reset the socket under the answer); a body
+            // that stalls holds this thread until TCP keepalive ends it, as any request's would
+            sock.shutdownOutput()
+            val buf = ByteArray(64 * 1024)
+            while (inp.read(buf) >= 0) { /* dropped: the upload was refused */ }
+        }
     }
 
     /** P7: one of the glasses' faces, by its fixed name, for an approved device (a data path wants the secret). */
@@ -348,6 +384,8 @@ class WebServer(
         const val WS_PATH = "/ws"
         const val CLAIM_PATH = "/pair/claim"
         const val BLOB_PREFIX = "/blob/"
+        /** S1-2 Q2: an upload's body (`Uploads`). */
+        const val UPLOAD_PREFIX = "/blob/upload/"
         /** P7: the faces' route and the addresses' root (`/w/<window>/<target>`, `CONTRACT.md` §5). */
         const val FONT_PREFIX = "/font/"
         const val ADDRESS_ROOT = "/w"

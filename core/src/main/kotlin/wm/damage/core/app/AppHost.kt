@@ -80,6 +80,8 @@ class AppHost(
     private val record = Record()
     private val streams = Streams()
     private val listeners = CopyOnWriteArrayList<(Change) -> Unit>()
+    /** S1-2 Q2: told on the executor at every pacing tick, before the record's own work (the lane's viewer sweep). */
+    private val tickListeners = CopyOnWriteArrayList<() -> Unit>()
 
     /** The record store's epoch (C§9.3): minted at its creation, an incomplete last log line, or a store older than
      *  the sequence file; never at a process start. */
@@ -125,6 +127,21 @@ class AppHost(
 
     fun addListener(l: (Change) -> Unit) {
         listeners.add(l)
+    }
+
+    /** S1-2 Q2: [l] runs on the executor at each pacing tick ([TICK_MS]), whether or not the record is open. */
+    fun addTickListener(l: () -> Unit) {
+        tickListeners += l
+    }
+
+    fun removeTickListener(l: () -> Unit) {
+        tickListeners -= l
+    }
+
+    /** S1-2 Q2: one note of [kind] in the shell journal (none in host-only): a program op's `program` note. Any
+     *  thread; file I/O, so never from the executor on a gesture's path. */
+    fun noteAs(kind: String, detail: String) {
+        journal?.let { Journal.appendNote(it, kind, detail) }
     }
 
     fun removeListener(l: (Change) -> Unit) {
@@ -350,6 +367,13 @@ class AppHost(
     }
 
     private fun tickNow() {
+        for (l in tickListeners) {
+            try {
+                l()
+            } catch (e: Exception) {
+                Log.e(TAG, "a tick listener failed", e)
+            }
+        }
         if (!opened || !logReady) return                // ruling 1.7: no save covers a log this start did not replay
         if (held.isNotEmpty() && writeSeqFile()) publishHeld()
         if (saving || seq <= savedThrough) return
@@ -443,19 +467,16 @@ class AppHost(
         /** The record's pacing tick (the spec's P1: 2 s). */
         const val TICK_MS = 2_000L
 
-        /** The actions of this build's converted windows, by window: Reader's (S1-1 P4). */
-        val WINDOWS = ActionTable { w, a -> wm.damage.core.windows.reader.ReaderCore.ACTIONS.spec(w, a) }
+        /** The actions of this build's converted windows, by window (S1-1 P4; S1-2 Q2: read from [Windows]). */
+        val WINDOWS: ActionTable = Windows.ACTIONS
 
-        /** The level each of those actions needs (S1-1 P6, C§10.4): Reader's `place` and `open` view; `bookmark`,
-         *  `set`, `reset` and `migrate` control. */
-        val LEVELS = ActionLevels { w, a ->
-            if (w == wm.damage.core.windows.reader.ReaderCore.WINDOW) wm.damage.core.windows.reader.ReaderCore.levelOf(a) else null
-        }
+        /** The level each of those actions needs (S1-1 P6, C§10.4; S1-2 Q2: [Windows]): Reader's `place` and `open`
+         *  view; `bookmark`, `set`, `reset` and `migrate` control. */
+        val LEVELS: ActionLevels = Windows.LEVELS
 
         /** The level a window's subscription needs (its description's `min`, C§3.1): Reader view; a window this build
-         *  does not know, full. */
-        fun minLevel(window: String): String =
-            if (window == wm.damage.core.windows.reader.ReaderCore.WINDOW) Levels.VIEW else Levels.FULL
+         *  does not know, full ([Windows.minLevel]). */
+        fun minLevel(window: String): String = Windows.minLevel(window)
 
         /**
          * A record of a tool's or a test's own in [dir], opened: the snapshot judge's phone arrangement serves one over

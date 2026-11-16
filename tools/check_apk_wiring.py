@@ -467,6 +467,10 @@ def check(root=ROOT, say=print):
                                               ('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'runShell')],
             ('Main', 'startWeb'): [('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'hostOnly'),
                                    ('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'runShell')],
+            # build S1-2 (Q2): the uploads' list in the data directory is read, and the temp files it names deleted,
+            # at the PC's two process starts only, never from a tool flag
+            ('Main', 'webUploads'): [('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'hostOnly'),
+                                     ('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'runShell')],
             ('LocalSecret', 'ensure'): [('core/src/main/kotlin/wm/damage/core/web/WebAccess.kt', 'atProcessStart')],
             ('LocalSecret', 'read'): [('core/src/main/kotlin/wm/damage/core/app/DeviceCli.kt', 'run'),
                                       ('core/src/main/kotlin/wm/damage/core/web/WebAccess.kt', 'localSecret')],

@@ -86,8 +86,9 @@ export function png(w, h, [r, g, b]) {
 /** The PC's policy for the bundle (`Bundle.csp`). */
 const csp = (host) => `default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' ws://${host}; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`;
 
-/** The module that walks a scene's steps in the page, then releases the held image. */
-function lookModule(steps) {
+/** The module that walks a scene's steps in the page, then releases the held image (S1-2 Q2: the real-server
+ *  look's front uses it too, `front.mjs`). */
+export function lookModule(steps) {
   return `const steps = ${JSON.stringify(steps)};
 const until = (sel) => new Promise((ok) => { const t = setInterval(() => { const e = document.querySelector(sel); if (e) { clearInterval(t); ok(e); } }, 50); });
 const frames = () => new Promise((ok) => setTimeout(ok, 0)); // a hidden screenshot frame runs no animation frames

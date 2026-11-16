@@ -72,7 +72,15 @@ data class Chg(val scope: String, val epoch: Long, val seq: Long, val origin: Or
 /** `ans`: an op's answer ([id]), or a subscription's refusal ([scope]); [id] and [scope] null = an op that did not
  *  decode far enough to name itself. [at] (P3): the record's place once the op is in it — the op's own line, or later
  *  — so a client knows which state already holds the op's effect: any `snap` or `chg` at or past it (one epoch). */
-data class Ans(val id: OpId?, val scope: String?, val answer: Answer, val at: Cursor? = null)
+data class Ans(
+    val id: OpId?,
+    val scope: String?,
+    val answer: Answer,
+    val at: Cursor? = null,
+    /** S1-2 Q2 (the spec's §2.4): what a program op's call made (an added torrent's name, an upload id, a job id),
+     *  carried in the answer object as `result`; only beside [Answer.Sent]. */
+    val result: JsonElement? = null,
+)
 
 object AppWire {
     /** The lane's protocol (dec. A.4): carried in the lane's hello, never in the content port's. */
@@ -266,15 +274,23 @@ object AppWire {
         }
         a.scope?.let { put("scope", it) }
         a.at?.let { put("epoch", it.epoch); put("seq", it.seq) }
-        put("answer", OpJson.answer(a.answer))
+        val ans = OpJson.answer(a.answer)
+        put("answer", a.result?.let { JsonObject(ans + ("result" to it)) } ?: ans)
     }
 
-    fun parseAns(f: JsonObject): Ans = Ans(
-        id = idOf(f),
-        scope = (f["scope"] as? JsonPrimitive)?.takeIf { it.isString }?.content,
-        answer = OpJson.answer(f["answer"] as? JsonObject ?: throw IllegalArgumentException("ans: answer")),
-        at = cursorOf(f),
-    )
+    fun parseAns(f: JsonObject): Ans {
+        val a = f["answer"] as? JsonObject ?: throw IllegalArgumentException("ans: answer")
+        return Ans(
+            id = idOf(f),
+            scope = (f["scope"] as? JsonPrimitive)?.takeIf { it.isString }?.content,
+            answer = OpJson.answer(a),
+            at = cursorOf(f),
+            result = a["result"],
+        )
+    }
+
+    /** S1-2 Q2 (the spec's §2.3): a `sub`'s viewer need, `{kind: focus | glance | none, paceMs?}`; null = none given. */
+    fun needOf(f: JsonObject): Viewers.Need? = (f["need"] as? JsonObject)?.let { Viewers.Need.parse(it) }
 
     /** The op id an object names (`stream` + `n`, or `conn` + `k`), or null. Never throws. */
     fun idOf(o: JsonObject): OpId? {

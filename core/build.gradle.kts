@@ -31,3 +31,13 @@ tasks.test {
         showStandardStreams = false
     }
 }
+
+// Build S1-2 Q2 (S1-2 R0 §1, the real-server look; test code only): the test runtime classpath written to a file, so
+// the stage starts `wm.damage.core.LookServerKt` as ONE JVM by hand, through the machine's JVM lock, and ends it.
+tasks.register("lookClasspath") {
+    dependsOn("testClasses")
+    val out = layout.buildDirectory.file("look.classpath")
+    val cp = sourceSets["test"].runtimeClasspath
+    outputs.file(out)
+    doLast { out.get().asFile.writeText(cp.files.joinToString(System.getProperty("path.separator"))) }
+}

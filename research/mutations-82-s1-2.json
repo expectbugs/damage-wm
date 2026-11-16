@@ -49,5 +49,277 @@
    "aStartWhoseLogWouldNotOpen_savesNothing_refusesWithRetry_andTheNextGoodStartReplaysItWhole"
   ],
   "note": "S1-2 Q1, N3's class swept: the record.log alert for a log that would not open no longer says every device keeps its changes. With the old words back, the alert says they stay on the devices"
+ },
+ {
+  "id": "S1-2-Q2-ended-conn",
+  "file": "app/AppNet.kt",
+  "edits": [
+   [
+    "            id is OpId.Conn && id.conn != conn.id -> answer(conn, id, Answer.Refused(",
+    "            id is OpId.Conn && false -> answer(conn, id, Answer.Refused("
+   ]
+  ],
+  "tests": [
+   "*ProgramOpTest.anOpOfAnEndedConnectionNeverRuns"
+  ],
+  "expect": [
+   "anOpOfAnEndedConnectionNeverRuns"
+  ],
+  "note": "S1-2 Q2 (spec 2.4, V3): an op naming a connection that has ended never runs. Without the check the op of the ended connection, sent on another, reaches the program"
+ },
+ {
+  "id": "S1-2-Q2-program-level",
+  "file": "app/AppNet.kt",
+  "edits": [
+   [
+    "                else -> gate(conn, o)\n            } ?: if (prog == null)",
+    "                else -> null\n            } ?: if (prog == null)"
+   ]
+  ],
+  "tests": [
+   "*ProgramOpTest.aLevelBelowTheActionsIsRefusedOnThePc"
+  ],
+  "expect": [
+   "aLevelBelowTheActionsIsRefusedOnThePc"
+  ],
+  "note": "S1-2 Q2 (spec 2.4; C10.5): the PC checks a program op's level at apply time. Without it a view device's control op reaches the program (refused only at the client)"
+ },
+ {
+  "id": "S1-2-Q2-viewer-conn-end",
+  "file": "app/AppNet.kt",
+  "edits": [
+   [
+    "    private fun ended(id: Long, why: String) {\n        viewers.ended(id, why)\n",
+    "    private fun ended(id: Long, why: String) {\n"
+   ]
+  ],
+  "tests": [
+   "*ViewersTest.aConnectionsEndEndsItsViewers"
+  ],
+  "expect": [
+   "aConnectionsEndEndsItsViewers"
+  ],
+  "note": "S1-2 Q2 (spec 2.3, V1): a viewer ends with its connection. Without it a connection's end keeps its viewer's fast pace"
+ },
+ {
+  "id": "S1-2-Q2-viewer-quiet",
+  "file": "app/Viewers.kt",
+  "edits": [
+   [
+    "        return if (quiet > 2 * interval) quiet else null",
+    "        return null"
+   ]
+  ],
+  "tests": [
+   "*ViewersTest.aViewerWithNoPingForTwoIntervalsEnds"
+  ],
+  "expect": [
+   "aViewerWithNoPingForTwoIntervalsEnds"
+  ],
+  "note": "S1-2 Q2 (spec 2.3; C8's one liveness rule): a viewer whose connection sent no ping for two of its intervals ends. Without the rule it keeps the source fast"
+ },
+ {
+  "id": "S1-2-Q2-need-none",
+  "file": "app/Viewers.kt",
+  "edits": [
+   [
+    "        if (need.kind == Need.NONE) {",
+    "        if (false) {"
+   ]
+  ],
+  "tests": [
+   "*ViewersTest.aSubWithANeedMakesAViewerAndASecondSubReplacesIt"
+  ],
+  "expect": [
+   "aSubWithANeedMakesAViewerAndASecondSubReplacesIt"
+  ],
+  "note": "S1-2 Q2 (R0 3): a second sub of a held scope replaces the viewer's need; none ends it. Without it a hidden page's need of none is held as a viewer"
+ },
+ {
+  "id": "S1-2-Q2-listing-moved",
+  "file": "app/AppNet.kt",
+  "edits": [
+   [
+    "        return now != h.sent",
+    "        return false"
+   ]
+  ],
+  "tests": [
+   "*PagedTest.aMovedListingSendsEveryHeldPageAgain"
+  ],
+  "expect": [
+   "aMovedListingSendsEveryHeldPageAgain"
+  ],
+  "note": "S1-2 Q2 (spec 2.2, V2): a listing whose version moved describes again every page a connection holds at an older version. Without it a moved listing re-sends no held page"
+ },
+ {
+  "id": "S1-2-Q2-own-describer",
+  "file": "app/AppNet.kt",
+  "edits": [
+   [
+    "add(Provider(scopes ?: NO_SCOPES, scopes?.describeOn ?: describing, window, card))",
+    "add(Provider(scopes ?: NO_SCOPES, describing, window, card))"
+   ]
+  ],
+  "tests": [
+   "*DescribedTest.aSlowProviderOnItsOwnExecutorNeverHoldsAnother"
+  ],
+  "expect": [
+   "aSlowProviderOnItsOwnExecutorNeverHoldsAnother"
+  ],
+  "note": "S1-2 Q2 (spec 2.2): a provider that names its own describe executor runs there. Without it every description shares one describer and a slow listing holds Reader's part"
+ },
+ {
+  "id": "S1-2-Q2-card-follows",
+  "file": "app/AppNet.kt",
+  "edits": [
+   [
+    "                else p.card != null && s == PcScopes.MAIN",
+    "                else false"
+   ]
+  ],
+  "tests": [
+   "*DescribedTest.mainsCardsComeFromTheWindowsServedWithOneAndFollowTheirSources"
+  ],
+  "expect": [
+   "mainsCardsComeFromTheWindowsServedWithOneAndFollowTheirSources"
+  ],
+  "note": "S1-2 Q2 (spec 2.2, 2.5): Main is described again when a window with a card moves. Without it Main's card stays at its first summary"
+ },
+ {
+  "id": "S1-2-Q2-dl",
+  "file": "web/Blobs.kt",
+  "edits": [
+   [
+    "        if (download || b.type !in INLINE) add(",
+    "        if (b.type !in INLINE) add("
+   ]
+  ],
+  "tests": [
+   "*FileBlobTest.aDownloadIsAnAttachmentWhateverItsType"
+  ],
+  "expect": [
+   "aDownloadIsAnAttachmentWhateverItsType"
+  ],
+  "note": "S1-2 Q2 (spec 2.4): ?dl=1 is an attachment whatever the type. Without it a download of an inline type (a picture, a video) is shown inline"
+ },
+ {
+  "id": "S1-2-Q2-file-in-memory",
+  "file": "web/Blobs.kt",
+  "edits": [
+   [
+    "            is FileBlob -> java.nio.channels.FileChannel.open(b.path, java.nio.file.StandardOpenOption.READ).use { ch ->\n                val n = ch.size()\n",
+    "            is FileBlob -> java.nio.channels.FileChannel.open(b.path, java.nio.file.StandardOpenOption.READ).use { ch ->\n                val n = ch.size()\n                if (n > ReaderBlobs.MAX_BYTES) { HttpWs.reply(out, 413, \"text/plain\", \"past the $n bytes held in memory\"); return }\n"
+   ]
+  ],
+  "tests": [
+   "*FileBlobTest.aFilePastTheOldCapIsStreamedWhole"
+  ],
+  "expect": [
+   "aFilePastTheOldCapIsStreamedWhole"
+  ],
+  "note": "S1-2 Q2 (spec 2.4, V5): a file blob is streamed, never held whole under Reader's 32 MiB cap. The mutant answers as an in-memory blob would: 413 past the cap"
+ },
+ {
+  "id": "S1-2-Q2-file-range",
+  "file": "web/Blobs.kt",
+  "edits": [
+   [
+    "                        copy(ch, from, to - from + 1, out)",
+    "                        copy(ch, 0, to - from + 1, out)"
+   ]
+  ],
+  "tests": [
+   "*FileBlobTest.aRangeOfAFileAnswersThoseBytes"
+  ],
+  "expect": [
+   "aRangeOfAFileAnswersThoseBytes"
+  ],
+  "note": "S1-2 Q2 (spec 2.4): a Range of a file answers those bytes. The mutant answers the range's length from the file's start"
+ },
+ {
+  "id": "S1-2-Q2-upload-cut",
+  "file": "web/Uploads.kt",
+  "edits": [
+   [
+    "            if (got != length) {",
+    "            if (false) {"
+   ]
+  ],
+  "tests": [
+   "*UploadTest.aCutOffBodyLeavesNothing"
+  ],
+  "expect": [
+   "aCutOffBodyLeavesNothing"
+  ],
+  "note": "S1-2 Q2 (spec 2.4, V4): only a whole body is given its name. Without the length check a cut-off upload leaves a file under the real name"
+ },
+ {
+  "id": "S1-2-Q2-upload-replace",
+  "file": "web/Uploads.kt",
+  "edits": [
+   [
+    "                Files.createLink(dest, part)",
+    "                Files.move(part, dest, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)"
+   ]
+  ],
+  "tests": [
+   "*UploadTest.aNameThatAppearsDuringTheUploadIsNeverReplaced"
+  ],
+  "expect": [
+   "aNameThatAppearsDuringTheUploadIsNeverReplaced"
+  ],
+  "note": "S1-2 Q2 (spec 2.4): the move never replaces a name. The mutant is a plain atomic move, which on Linux replaces a file that appeared during the upload"
+ },
+ {
+  "id": "S1-2-Q2-upload-exists",
+  "file": "web/Uploads.kt",
+  "edits": [
+   [
+    "        if (Files.exists(dest)) return failed(409, \"${t.name} already exists in ${t.folder}; nothing was replaced\")\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*UploadTest.anExistingNameIsRefusedBeforeTheBody"
+  ],
+  "expect": [
+   "anExistingNameIsRefusedBeforeTheBody"
+  ],
+  "note": "S1-2 Q2 (spec 2.4): a name already there is refused before the body. Without the first check the listener waits for a body it will refuse"
+ },
+ {
+  "id": "S1-2-Q2-upload-space",
+  "file": "web/Uploads.kt",
+  "edits": [
+   [
+    "        if (free < length) return failed(507, \"not enough space in ${t.folder}: ${t.name} is $length bytes and $free are free\")\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*UploadTest.aFullDiskIsFoundBeforeTheBody"
+  ],
+  "expect": [
+   "aFullDiskIsFoundBeforeTheBody"
+  ],
+  "note": "S1-2 Q2 (spec 2.4, V4): the space is read once, before a byte of the body. Without the check a full disk is found after the body"
+ },
+ {
+  "id": "S1-2-Q2-migrate-ledger",
+  "file": "app/Migrate.kt",
+  "edits": [
+   [
+    "        store.put(ledgerKey, ledger)\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*MigrateTest.aSecondStartOffersNothing"
+  ],
+  "expect": [
+   "aSecondStartOffersNothing"
+  ],
+  "note": "S1-2 Q2 (spec 2.5, F4): the ledger holds what was offered. Without it a second start offers every field again"
  }
 ]

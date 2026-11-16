@@ -4,10 +4,17 @@ import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.EOFException
 import java.net.Socket
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.Executor
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.longOrNull
 import wm.damage.core.util.Log
 import wm.damage.core.web.Devices
 
@@ -27,9 +34,16 @@ import wm.damage.core.web.Devices
  *
  * Package P7 (C§9.2 `snap` "the description or level"; the spec's §2 P7 "Kotlin side"): PC-served scopes outside the
  * record's order — a window's description, one of its levels, Main's cards, the diagnosis ([Described], [attach]) —
- * each answered as a `desc` frame, described on ONE describer thread (a book's parse never holds the executor), checked
- * against the connection's level and contracts on the executor, and described again, coalesced, when a record change
- * or the provider's own source moves them.
+ * each answered as a `desc` frame, described off the executor (a book's parse never holds it), checked against the
+ * connection's level and contracts on the executor, and described again, coalesced, when a record change or the
+ * provider's own source moves them.
+ *
+ * Build S1-2, package Q2 (the spec's §2.2–§2.4, §5 V1–V3): several providers of PC-served scopes ([register], and each
+ * converted window's running parts through [serve]), each described on its own executor when it names one — a tracker
+ * page that takes seconds or a folder on a cold disk never holds Reader's part or Main's cards; a held scope whose
+ * source version moved is described again ([Described.version]: a paged listing's pages); viewers with a need and
+ * the ping liveness rule ([viewers]); and never-queued program ops by `(conn, k)`, checked here at apply time and run
+ * on the window's own pool, answered Sent (with the call's `result`) or Refused to their connection only.
  */
 class AppNet(
     private val host: AppHost,
@@ -43,6 +57,10 @@ class AppNet(
     private val minLevel: (String) -> String = AppHost::minLevel,
     /** The device table's description and actions on the PC (P6); null = not served on this lane. */
     private val devices: DevicesCore? = null,
+    /** S1-2 Q2: true when a never-queued op of this window and action goes into an outside program ([Windows]). */
+    private val isProgram: (String, String) -> Boolean = Windows::isProgram,
+    /** S1-2 Q2: the lane's ping pacing, below which no viewer's interval is taken ([Viewers]). */
+    pingEveryMs: Long = Viewers.PING_EVERY_MS,
 ) : AutoCloseable {
 
     /** One connection's frames: the content port's length-prefixed frames, or a WebSocket's text frames (P6). */
@@ -56,7 +74,7 @@ class AppNet(
 
     /**
      * P7: the PC-served scopes of one provider. [gate] and [follows] run on the executor and are cheap; [describe] runs
-     * on the describer thread and may block (a book's parse).
+     * on [describeOn] (the lane's shared describer when null) and may block (a book's parse, a tracker page).
      */
     interface Described {
         /** What [scope] needs, or null when this provider does not serve it. */
@@ -71,6 +89,13 @@ class AppNet(
 
         /** [l] is called when the provider's own source moved; any thread. */
         fun addListener(l: () -> Unit)
+
+        /** S1-2 Q2: the executor this provider's descriptions run on; null = the lane's one shared describer. */
+        val describeOn: Executor? get() = null
+
+        /** S1-2 Q2: [scope]'s source version now (a paged listing's), or null when it has none. When the provider's
+         *  source moves, a held scope whose description carried another `version` is described again. Any thread. */
+        fun version(scope: String): Long? = null
     }
 
     /** A PC-served scope's needs: [window] the contract window it belongs to (null: a page of the PC's own — Main's
@@ -81,24 +106,48 @@ class AppNet(
      *  process never matches a new one. */
     private val nextConn = AtomicLong(clock() * 1_000)
 
-    /** P7: the provider of PC-served scopes ([attach]); null = none served. */
-    @Volatile private var described: Described? = null
-
-    /** P7: the one describer thread, and the (connection, scope) pairs queued on it (one each at a time). */
-    private val describing = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+    /** P7: the shared describer thread, and the (connection, scope) pairs queued on a describer (one each at a time). */
+    private val describing = Executors.newSingleThreadExecutor { r ->
         Thread(r, "app-describe").apply { isDaemon = true }
     }
-    private val toDescribe = java.util.concurrent.ConcurrentHashMap.newKeySet<Pair<Long, String>>()
+    private val toDescribe = ConcurrentHashMap.newKeySet<Pair<Long, String>>()
+
+    /** S1-2 Q2: one provider of PC-served scopes: its executor, and for a converted window its id and Main's card. */
+    private class Provider(val d: Described, val on: Executor, val window: String?, val card: (() -> JsonObject?)?)
+
+    /** Asked in the order registered: the first whose gate names a scope serves it. */
+    private val providers = CopyOnWriteArrayList<Provider>()
+
+    /** S1-2 Q2: a window's program handler and its pool ([own] = made here, ended at [close]). */
+    private class Program(val handler: ProgramHandler, val pool: ExecutorService, val own: Boolean)
+
+    private val programs = ConcurrentHashMap<String, Program>()
+
+    /** S1-2 Q2 (the spec's §2.3): the viewers of this lane's scopes; a live source reads [Viewers.need] per tick. */
+    val viewers = Viewers(pingEveryMs)
+
+    /** S1-2 Q2: told on the executor of each connection that ends (an upload not yet begun is cancelled with it). */
+    private val endListeners = CopyOnWriteArrayList<(Long) -> Unit>()
+
+    /** A PC-served scope a connection holds: its provider, and the source version its last description carried. */
+    private class Held(val p: Provider) {
+        @Volatile var sent: Long? = null
+    }
+
+    /** A program op in flight: what it is and when it was taken (the diagnosis shows its age). */
+    private class Flight(val window: String, val action: String, val at: Long)
 
     private inner class Conn(val id: Long, val peer: Peer, val shared: Set<String>, val outbox: Outbox) {
         /** Executor only. */
         val scopes = LinkedHashSet<String>()
         /** The PC-served scopes this connection holds (P7). Executor only. */
-        val described = LinkedHashSet<String>()
+        val described = LinkedHashMap<String, Held>()
         /** The windows this connection may read: shared, and within its level (P6). */
         val visible: Set<String> = shared.filterTo(LinkedHashSet()) { Levels.atLeast(peer.level, minLevel(it)) }
         /** Why the PC ended this connection (its device revoked or replaced); executor only. */
         var endedBy: String? = null
+        /** S1-2 Q2: program ops taken and not yet answered, by `k`. Executor only. */
+        val flights = LinkedHashMap<Long, Flight>()
     }
 
     /** The live connections. Executor only. */
@@ -108,30 +157,91 @@ class AppNet(
 
     private val devicesListener: (DevicesCore.Event) -> Unit = { e -> onDevices(e) }
 
+    /** S1-2 Q2: the viewers' sweep, on the record's pacing tick (2 s). */
+    private val sweep: () -> Unit = { viewers.sweep(clock()) }
+
     init {
         host.addListener(listener)
+        host.addTickListener(sweep)
         devices?.addListener(devicesListener)
     }
 
     /** How many connections are live (for the start line and the tests); read on the executor. */
     fun connections(): Int = host.executor.call { conns.size }
 
-    /** The live connections, one line each (the diagnosis page, P7); read on the executor. Never call it there. */
+    /** The live connections, one line each (the diagnosis page, P7; S1-2 Q2: with their viewers and the program ops
+     *  in flight, each with its age); read on the executor. Never call it there. */
     fun connectionLines(): List<String> = host.executor.call {
-        conns.values.map { c -> "${c.peer.device} (${c.peer.level}) · connection ${c.id} · ${c.scopes.size + c.described.size} scope(s)" }
+        val now = clock()
+        conns.values.map { c ->
+            "${c.peer.device} (${c.peer.level}) · connection ${c.id} · ${c.scopes.size + c.described.size} scope(s)" +
+                viewers.lines(c.id).joinToString("") { " · viewer $it" } +
+                c.flights.values.joinToString("") { " · ${it.window} ${it.action} sent ${(now - it.at) / 1000} s ago, no answer yet" }
+        }
     }
 
     /**
      * P7: serves [d]'s scopes on this lane from now on (both PC host builders, from `startWeb`). Its source's moves
-     * describe again, coalesced, every scope that follows them.
+     * describe again, coalesced, every scope that follows them. S1-2 Q2: one of several providers ([register]).
      */
-    fun attach(d: Described) {
-        described = d
-        d.addListener {
-            host.executor.execute("app described moved") {
-                for (c in conns.values) for (s in c.described) if (d.follows(s, null)) describeFor(c, s)
+    fun attach(d: Described) = register(d)
+
+    /** S1-2 Q2: adds a provider of PC-served scopes (the PC's own pages: [PcScopes]); asked after those before it. */
+    fun register(d: Described) = add(Provider(d, d.describeOn ?: describing, null, null))
+
+    /**
+     * S1-2 Q2 (the spec's §2.5, the registry's running half): one converted window's parts on this lane — its scopes,
+     * the handler of its program ops (run on [pool], or on a pool of its own made here), and its card on Main (asked
+     * on the describer of Main's provider; Main is described again whenever [scopes]' source moves). Called by both PC
+     * host builders, once per window, before a page can ask.
+     */
+    fun serve(window: String, scopes: Described? = null, program: ProgramHandler? = null,
+              card: (() -> JsonObject?)? = null, pool: ExecutorService? = null) {
+        if (scopes != null || card != null) add(Provider(scopes ?: NO_SCOPES, scopes?.describeOn ?: describing, window, card))
+        if (program != null) programs.put(window, Program(program, pool ?: Executors.newCachedThreadPool { r ->
+            Thread(r, "program-$window").apply { isDaemon = true }
+        }, pool == null))?.let { old -> if (old.own) old.pool.shutdown() }
+    }
+
+    /** Main's cards of the windows served here with one, in the registry's order; on the caller's thread. A card that
+     *  fails is said and left out of this description (the next asks again). */
+    fun cards(): List<JsonObject> {
+        val order = Windows.ALL.map { it.id }
+        return providers.filter { it.card != null && it.window != null }
+            .sortedBy { order.indexOf(it.window).let { i -> if (i < 0) Int.MAX_VALUE else i } }
+            .mapNotNull { p ->
+                try {
+                    p.card!!.invoke()
+                } catch (e: Exception) {
+                    Log.w(TAG, "Main's card of ${p.window} could not be made: ${e::class.simpleName}: ${e.message}")
+                    null
+                }
             }
+    }
+
+    /** S1-2 Q2: [l] is told, on the executor, the id of every connection that ends. */
+    fun addEndListener(l: (Long) -> Unit) {
+        endListeners += l
+    }
+
+    private fun add(p: Provider) {
+        providers += p
+        p.d.addListener { host.executor.execute("app described moved") { moved(p) } }
+    }
+
+    /** [p]'s source moved (executor): every scope it serves that follows the move, or whose source version moved
+     *  since its last description, is described again; so is Main where [p] carries a card. */
+    private fun moved(p: Provider) {
+        for (c in conns.values) for ((s, h) in c.described) {
+            val again = if (h.p === p) p.d.follows(s, null) || versionMoved(p, s, h)
+                else p.card != null && s == PcScopes.MAIN
+            if (again) describeFor(c, s)
         }
+    }
+
+    private fun versionMoved(p: Provider, scope: String, h: Held): Boolean {
+        val now = p.d.version(scope) ?: return false
+        return now != h.sent
     }
 
     /**
@@ -183,6 +293,7 @@ class AppNet(
                 return@execute
             }
             conns[id] = conn
+            viewers.opened(id, clock())
             conn.outbox.offer(AppWire.encode(AppWire.welcome(Welcome(AppWire.PROTO, peer.device, peer.level, id, clock(),
                 host.epoch, host.seq, host.highWaters(peer.device), contracts, bundle))))
         }
@@ -194,13 +305,20 @@ class AppNet(
                     "sub" -> sub(conn, f)
                     "unsub" -> {
                         val scope = AppWire.str(f, "scope")
-                        host.executor.execute("app unsub $id") { conn.scopes.remove(scope); conn.described.remove(scope) }
+                        host.executor.execute("app unsub $id") {
+                            conn.scopes.remove(scope)
+                            conn.described.remove(scope)
+                            viewers.remove(id, scope, "unsubscribed")
+                        }
                     }
                     "op" -> op(conn, f)
                     // through the executor: a pong says the PC's core answers, not only its socket
                     "ping" -> {
                         val k = AppWire.num(f, "k")
-                        host.executor.execute("app ping $id") { conn.outbox.offer(AppWire.encode(AppWire.pong(k))) }
+                        host.executor.execute("app ping $id") {
+                            viewers.pinged(id, clock())
+                            conn.outbox.offer(AppWire.encode(AppWire.pong(k)))
+                        }
                     }
                     "end" -> {
                         Log.i(TAG, "connection $id ended by the client (${(f["reason"] as? JsonPrimitive)?.contentOrNull ?: "no reason"})")
@@ -218,19 +336,39 @@ class AppNet(
         } finally {
             outbox.stop()
             closeQuietly(sock)
-            host.executor.execute("app end $id") { conns.remove(id) }
+            host.executor.execute("app end $id") {
+                conns.remove(id)
+                ended(id, "its connection ended")
+            }
         }
     }
 
     /** At the process's stop: every connection is told and closed. */
     override fun close() {
         host.removeListener(listener)
+        host.removeTickListener(sweep)
         devices?.removeListener(devicesListener)
         host.executor.call {
             for (c in conns.values) c.outbox.finish(AppWire.encode(AppWire.end(AppWire.END_SHUTTING_DOWN)))
             conns.clear()
         }
         describing.shutdownNow()
+        for (p in programs.values) if (p.own) p.pool.shutdown()
+    }
+
+    /** S1-2 Q2, for the tests: the viewers' sweep now, as the pacing tick runs it; how many viewers it ended. */
+    fun sweepViewers(): Int = host.executor.call { viewers.sweep(clock()) }
+
+    /** Executor only: a connection ended — its viewers end and the end listeners are told. */
+    private fun ended(id: Long, why: String) {
+        viewers.ended(id, why)
+        for (l in endListeners) {
+            try {
+                l(id)
+            } catch (e: Exception) {
+                Log.e(TAG, "an end listener failed on connection $id", e)
+            }
+        }
     }
 
     // ---- per message ----
@@ -238,9 +376,16 @@ class AppNet(
     private fun sub(conn: Conn, f: JsonObject) {
         val scope = AppWire.str(f, "scope")
         val cursor = AppWire.cursorOf(f)
-        val gate = described?.gate(scope)
-        if (gate != null) {
-            describedSub(conn, scope, gate)
+        val need = try {
+            AppWire.needOf(f)
+        } catch (e: IllegalArgumentException) {
+            val no = Answer.Refused("the subscription's need does not decode (${e.message})", Answer.INVALID)
+            host.executor.execute("app sub refused ${conn.id}") { conn.outbox.offer(AppWire.encode(AppWire.ans(Ans(null, scope, no)))) }
+            return
+        }
+        for (p in providers) {
+            val gate = p.d.gate(scope) ?: continue
+            describedSub(conn, scope, gate, p, need)
             return
         }
         if (scope == DevicesCore.SCOPE && devices != null) {
@@ -272,8 +417,8 @@ class AppNet(
             return
         }
         host.executor.execute("app sub ${conn.id} $scope") {
-            // fix round 2, ruling 1.6: never a record that lacks the log's unreplayed lines; the device keeps its own copy,
-            // as with the PC out of reach
+            // fix round 2, ruling 1.6: never a record that lacks the log's unreplayed lines (a phone keeps its own
+            // copy, as with the PC out of reach; a page shows the refusal and keeps none)
             if (!host.logOpen) {
                 conn.outbox.offer(AppWire.encode(AppWire.ans(Ans(null, scope, Answer.Refused(AppHost.LOG_CLOSED, Answer.RETRY)))))
                 return@execute
@@ -294,12 +439,14 @@ class AppNet(
                 conn.outbox.offer(AppWire.encode(AppWire.snap(Snap(scope, host.epoch, host.seq, Effect(items, colls)))))
             }
             conn.scopes += scope
+            // S1-2 Q2: a record scope's viewer (a second `sub` replaces its need; none ends it)
+            viewers.put(conn.id, scope, scope.takeIf { it != AppWire.RECORD }, need ?: NO_NEED)
         }
     }
 
     /** P7: a PC-served scope, checked on the executor at apply time (the contract window, then the level, C§10.5),
-     *  then described on the describer thread. */
-    private fun describedSub(conn: Conn, scope: String, g: Gate) {
+     *  then described on its provider's executor. S1-2 Q2: its viewer takes the `sub`'s need, replacing one held. */
+    private fun describedSub(conn: Conn, scope: String, g: Gate, p: Provider, need: Viewers.Need?) {
         host.executor.execute("app sub described ${conn.id}") {
             val w = g.window
             val no = when {
@@ -311,25 +458,28 @@ class AppNet(
             if (no != null) {
                 conn.outbox.offer(AppWire.encode(AppWire.ans(Ans(null, scope, no))))
             } else {
-                conn.described += scope
+                if (conn.described[scope]?.p !== p) conn.described[scope] = Held(p)
+                viewers.put(conn.id, scope, w, need ?: NO_NEED)
                 describeFor(conn, scope)
             }
         }
     }
 
-    /** Queues [scope]'s description for [conn] on the describer thread; one queued per pair at a time (a burst of
-     *  moves is described once, at its newest). Any thread. A scope that names nothing, or whose describing fails, is
-     *  answered as a refusal of the scope, said in the log: never a silent gap. */
+    /** Executor only. Queues [scope]'s description for [conn] on its provider's executor; one queued per pair at a
+     *  time (a burst of moves is described once, at its newest). A scope that names nothing, or whose describing
+     *  fails, is answered as a refusal of the scope, said in the log: never a silent gap. */
     private fun describeFor(conn: Conn, scope: String) {
-        val d = described ?: return
+        val h = conn.described[scope] ?: return
         val key = conn.id to scope
         if (!toDescribe.add(key)) return
         try {
-            describing.execute {
+            h.p.on.execute {
                 toDescribe.remove(key)
                 val frame = try {
-                    d.describe(scope)?.let { AppWire.encode(AppWire.desc(scope, it)) }
-                        ?: AppWire.encode(AppWire.ans(Ans(null, scope, Answer.Refused("$scope names nothing on this PC", Answer.UNKNOWN))))
+                    h.p.d.describe(scope)?.let { d ->
+                        h.sent = (d["version"] as? JsonPrimitive)?.takeIf { !it.isString }?.longOrNull
+                        AppWire.encode(AppWire.desc(scope, d))
+                    } ?: AppWire.encode(AppWire.ans(Ans(null, scope, Answer.Refused("$scope names nothing on this PC", Answer.UNKNOWN))))
                 } catch (e: Throwable) {
                     // as the web listener (§71): an Error here ends this description, never the describer
                     Log.w(TAG, "describing $scope for connection ${conn.id} failed: ${e::class.simpleName}: ${e.message}")
@@ -338,7 +488,7 @@ class AppNet(
                 }
                 conn.outbox.offer(frame)
             }
-        } catch (e: java.util.concurrent.RejectedExecutionException) {
+        } catch (e: RejectedExecutionException) {
             toDescribe.remove(key)   // the process is stopping: close() has ended the describer
         }
     }
@@ -361,6 +511,8 @@ class AppNet(
             o.window !in conn.shared -> answer(conn, id, Answer.Refused(
                 if (o.window in contracts) Contracts.mismatchLine(o.window) else "this PC shares no window '${o.window}'",
                 Answer.CONTRACT))
+            // S1-2 Q2: an op into an outside program — never queued, checked here at apply time, run on its pool
+            id is OpId.Conn && isProgram(o.window, o.action) -> programOp(conn, o, id)
             // the reply runs on the executor after the op's line, before its change: the record's place now is the
             // op's own line (or later, for an op answered from the record), which the client's state must reach.
             // The gate (P6, C§10.5) is read there at apply time: the connection's device ended, then its level
@@ -373,6 +525,62 @@ class AppNet(
     private fun gate(conn: Conn, o: Op): Answer.Refused? {
         conn.endedBy?.let { return Answer.Refused("this device was $it; approve it again", Answer.ENDED) }
         return Levels.refusal(conn.peer.level, levels.need(o.window, o.action) ?: Levels.FULL, "${o.window} ${o.action}")
+    }
+
+    /**
+     * S1-2 Q2 (the spec's §2.4, §5 V3): a program op. On the executor at apply time: a connection that has ended →
+     * `ended` (it never runs); then the device and the level ([gate]); then the window's handler, on the window's pool.
+     * Its answer comes back through the executor to this connection only; a connection that ended during the call
+     * gets none (the page says "not known whether it ran"). One `program` journal note per op.
+     */
+    private fun programOp(conn: Conn, o: Op, id: OpId.Conn) {
+        host.executor.execute("app program ${conn.id}") {
+            val prog = programs[o.window]
+            val no = when {
+                conns[conn.id] !== conn -> Answer.Refused(
+                    "this connection ended before the op was taken; an op of a connection is never queued", Answer.ENDED)
+                else -> gate(conn, o)
+            } ?: if (prog == null) Answer.Refused("this PC serves no ${o.window} program on this lane", Answer.UNSUPPORTED) else null
+            if (no != null) {
+                programNote(o, no)
+                answer(conn, id, no)
+                return@execute
+            }
+            conn.flights[id.k] = Flight(o.window, o.action, clock())
+            try {
+                prog!!.pool.execute {
+                    val r = try {
+                        prog.handler.act(o, conn.peer)
+                    } catch (e: Throwable) {
+                        // the program's own words; an Error here ends this call, never the pool
+                        Log.w(TAG, "${o.window} ${o.action} for ${conn.peer.device} threw: ${e::class.simpleName}: ${e.message}")
+                        ProgramResult.Refused(e.message ?: e::class.simpleName ?: "the program call failed")
+                    }
+                    programNote(o, r.answer)
+                    host.executor.execute("app program answer ${conn.id}") {
+                        conn.flights.remove(id.k)
+                        if (conns[conn.id] === conn) answer(conn, id, r.answer, result = (r as? ProgramResult.Sent)?.result)
+                        else Log.i(TAG, "${o.window} ${o.action} of connection ${conn.id} answered after its connection ended; " +
+                            "the answer is dropped (the page says it is not known whether it ran)")
+                    }
+                }
+            } catch (e: RejectedExecutionException) {
+                conn.flights.remove(id.k)
+                answer(conn, id, Answer.Refused("the PC is stopping; ${o.window} ${o.action} was not run", Answer.RETRY))
+            }
+        }
+    }
+
+    private fun programNote(o: Op, a: Answer) {
+        val words = when (a) {
+            is Answer.Refused -> "refused (${a.code}): ${a.reason}"
+            else -> a.toString().lowercase()
+        }
+        try {
+            host.noteAs("program", "${o.device} ${o.window} ${o.action} ${o.targets} · $words")
+        } catch (e: Exception) {
+            Log.e(TAG, "the program note could not be written", e)
+        }
     }
 
     /** A device-table action (C§10.3, C§10.8): level full, never queued, answered on the executor. */
@@ -401,6 +609,7 @@ class AppNet(
             c.endedBy = reason
             c.outbox.finish(AppWire.encode(AppWire.end(reason)))
             conns.remove(c.id)
+            ended(c.id, "its device was $reason")
         }
         if (mine.isNotEmpty()) Log.i(TAG, "${mine.size} connection(s) of $device ended: $reason")
         return mine.size
@@ -437,22 +646,21 @@ class AppNet(
 
     /** On the executor (an op's reply is there already, before its change is published); from the reading thread
      *  it is queued there, so no answer overtakes the welcome. */
-    private fun answer(conn: Conn, id: OpId?, a: Answer, at: Cursor? = null) {
-        val frame = AppWire.encode(AppWire.ans(Ans(id, null, a, at)))
+    private fun answer(conn: Conn, id: OpId?, a: Answer, at: Cursor? = null, result: kotlinx.serialization.json.JsonElement? = null) {
+        val frame = AppWire.encode(AppWire.ans(Ans(id, null, a, at, result)))
         if (host.executor.isCurrent()) conn.outbox.offer(frame)
         else host.executor.execute("app answer ${conn.id}") { conn.outbox.offer(frame) }
     }
 
     /** On the executor, in `seq` order: each connection gets the change's entries in each scope it holds. */
     private fun publish(c: Change) {
-        val d = described
         for (conn in conns.values) {
             for (scope in conn.scopes) {
                 if (scope == DevicesCore.SCOPE) continue
                 chgFrame(c, scope, AppWire.windowsOf(scope, conn.visible))?.let { conn.outbox.offer(it) }
             }
-            // P7: a PC-served scope this change moves is described again (coalesced, on the describer thread)
-            if (d != null) for (scope in conn.described) if (d.follows(scope, c)) describeFor(conn, scope)
+            // P7: a PC-served scope this change moves is described again (coalesced, on its provider's executor)
+            for ((scope, h) in conn.described) if (h.p.d.follows(scope, c)) describeFor(conn, scope)
         }
     }
 
@@ -479,6 +687,15 @@ class AppNet(
         const val OUTBOX_CAP = 4_096
         /** The window and action of an op that did not decode: never a window's name (`Record.validWindow`). */
         const val UNDECODED = "?"
+        private val NO_NEED = Viewers.Need(Viewers.Need.NONE)
+
+        /** A window served with a card and no scopes of its own. */
+        private val NO_SCOPES = object : Described {
+            override fun gate(scope: String): Gate? = null
+            override fun describe(scope: String): JsonObject? = null
+            override fun follows(scope: String, c: Change?) = false
+            override fun addListener(l: () -> Unit) {}
+        }
 
         private fun closeQuietly(sock: Socket) {
             try { sock.close() } catch (e: Exception) { Log.w(TAG, "closing ${sock.inetAddress}: ${e.message}") }
