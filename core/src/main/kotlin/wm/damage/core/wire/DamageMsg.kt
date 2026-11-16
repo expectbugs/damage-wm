@@ -113,8 +113,10 @@ object DamageMsg {
     val REASONS = mapOf(1 to "length", 2 to "bounds", 3 to "no-lease", 4 to "no-shadow", 5 to "record", 6 to "code",
         7 to "scratch", 8 to "mode", 9 to "draw2-unarmed", 10 to "no-batch", 11 to "no-memory", 12 to "value", 13 to "stream",
         // `FIRMWARE.md` §4: the display gate came free with the previous frame still pending, so the
-        // message was dropped whole — the one reason that means belief and glass have parted
-        14 to "display-busy",
+        // message was dropped whole — the one reason that means belief and glass have parted. Build C1
+        // (ruling R1.15): also a cache write, PLAY, RETARGET or live mode 6 that could not claim the
+        // engine's busy word (§5.11 row 3), refused whole the same way
+        14 to "display-or-engine-busy",
         // §5.8 (build C1): the op's own flag not armed (ENGINE for 26, ZWRITE for 25); no such instance
         15 to "unarmed", 16 to "no-instance")
 
