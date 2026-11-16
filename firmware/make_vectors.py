@@ -1714,6 +1714,31 @@ def vectors_v3(kf):
         step(tk(ta + 90200), msg(fill(rect(0, 412, 8, 2), 9))),          # 25 a v2 op notices the lapse: 3
     ])
 
+    # v3-rulings3 — review pass 2's two inputs (build C1, `C1-R5-decisions.md` §B B-N7; `C1-R4-decisions.md` item 3).
+    # B-N7: R1.4 "a mode 25 or 26 inside a batch or a self-test step is refused by the container's own list first,
+    # whatever its length: in a batch 8 with the batch's byte, in a step 8 with the message's byte" — a mode 26 inside a
+    # batch inside a self-test step is both at once, and no ruling or vector says which list and which length check
+    # come first there: a short one (one byte: 1 by its own length) and a CLOSE of its own length (3 B), each after a
+    # fill in the batch. R4 item 3: decision A.12's stale mark at the direct path's latch (§5.3: "the present after an
+    # instance's last step marks the panel stale"; A.12: "the present that draws an instance's last step sets it, so
+    # the next present goes whole") — a PLAY of a 2-step program; at step 2's due time a top-level fill inside its area,
+    # whose own present draws step 2 = T over the fill on the direct path (the copy hook's latch); then a hinted batch
+    # elsewhere, whole only if that present set the mark (the fill reaches the lens: the panel equals the shadow; rows
+    # only, the lens keeps step T over it); then a second, the mark spent: rows only (level 13 stays off the lens).
+    c = Cache2()
+    p2 = c.add(prog(track(rect(200, 200, 120, 40), 4, fillseg(2, 11))))  # T = 2: step T paints the area 11
+    vec("v3-rulings3", [
+        step(*arm, *writes(c)),
+        step(tk(1100), msg(bytes([16, 0])), msg(bytes([16, 1]) + batch(fill(rect(0, 380, 8, 2), 3), bad(bytes([26])))),
+             msg(bytes([16, 2]))),                                     # 1  B-N7 a one-byte mode 26 in a batch in a step
+        step(tk(1110), msg(bytes([16, 0])), msg(bytes([16, 1]) + batch(fill(rect(8, 380, 8, 2), 4), close(1))),
+             msg(bytes([16, 2]))),                                     # 2  a CLOSE of its own length in a batch in a step
+        step(tk(1200), msg(play(0, P, p2, 0x1001))),                     # 3  R4.3 step 1 drawn by the PLAY's present
+        step(tk(1200 + P), msg(fill(rect(220, 210, 40, 20), 9))),        # 4  at step 2's due time: the fill's present draws step T over it
+        step(tk(1300), msg(batch(fill(rect(0, 440, 640, 2), 5), hint(440, 441)))),   # 5  whole if the latch set the mark: level 9 reaches the lens
+        step(tk(1310), msg(batch(fill(rect(0, 300, 8, 8), 13), fill(rect(0, 444, 640, 2), 6), hint(444, 445)))),   # 6  the mark spent: rows only
+    ])
+
     for vec_ in v:
         vec_["contract"] = 2                                            # §5.1: added ops and bits do not bump the contract
         vec_["start"] = "zero"
