@@ -29,12 +29,12 @@ import wm.damage.core.bastion.PhonePresence
 
 /**
  * Build W, package E (the lead's decisions F.1–F.3) through the running watcher, against a stand-in hub on loopback
- * port 0 with made-up entities: a guard's hub entity joins the reader's path set and is read; the guard ending clears
- * the alert with words saying so and drops the change rule's baseline; the baseline is kept in `alerts.json` across
- * a restart (a guard with no reading meanwhile keeps it) and dropped when the guard is false at the restart; an
- * acknowledge re-takes it; a guard on `damage.phone` follows the presence value (`unknown` never arms); a `withinMin`
- * rule is blind after a start and then compares with the sample from then. The clock is injected; the presence value
- * is driven through its own `observe` (no command runs).
+ * port 0 with made-up entities: a guard's hub entity is read; the guard ending clears the alert with words saying so
+ * and drops the change rule's baseline; the baseline is kept in `alerts.json` across a restart (a guard with no
+ * reading meanwhile keeps it) and dropped when the guard is false at the restart; an acknowledge re-takes it; a guard
+ * on `damage.phone` follows the presence value (`unknown` never arms); a rule with no usable reading says so in the
+ * state line (L1 W12). The clock is injected; the presence value is driven through its own `observe` (no command
+ * runs).
  */
 class WatcherGuardTest {
 
@@ -251,49 +251,29 @@ class WatcherGuardTest {
         }
     }
 
+    /** L1 W12 (the audit's S1): an entity that answers but reads no number holds its rule with no alert. The state
+     *  line says so once it has lasted `haSilentMin` (60 here), not before, and not after the next usable reading. */
     @Test
-    fun withinMinIsBlindAfterAStartThenComparesWithTheSampleFromThen(): Unit = runBlocking {
-        val dir = Files.createTempDirectory("watcher-within")
+    fun aRuleWithNoUsableReadingSaysSoInTheStateLine(): Unit = runBlocking {
+        val dir = Files.createTempDirectory("watcher-noreading")
         Hub().use { hub ->
             val store = AlertStore(dir.resolve("alerts.json"), clock::get)
             val w = watcher(hub, files(dir,
-                """{"id":"drop","entity":"$GREY","kind":"change","at":3,"direction":"down","withinMin":5,"text":"Grey tank"}"""),
-                store)
-            // 2 a minute down; ten-second polls between the minutes add no samples
-            for (m in 0..4) {
-                hub.states[GREY] = "${50 - 2 * m}"
-                round(w)
-                assertEquals(AlertState.CLEAR, store.stateOf("drop"), "minute $m: blind, however far it falls")
-                assertTrue("rule drop: blind until ${hhmm(T0 + 5 * MIN)}" in w.stateLine(), w.stateLine())
-                clock.addAndGet(10_000)
-                round(w)
-                clock.addAndGet(MIN - 10_000)
-            }
-            // minute 5: 40 against minute 0's 50
-            hub.states[GREY] = "40"
-            round(w)
-            assertEquals(AlertState.RAISED, store.stateOf("drop"))
-            assertEquals("Grey tank 50 → 40 since ${hhmm(T0)}", store.table().single().text)
-            assertTrue("blind" !in w.stateLine(), w.stateLine())
-            assertNull(store.baselineOf("drop"), "a withinMin rule keeps no baseline")
-            // steady from here: once minute 5's change has left the window it clears
-            for (m in 6..11) {
-                clock.addAndGet(MIN)
-                round(w)
-            }
-            assertEquals(AlertState.CLEAR, store.stateOf("drop"))
-            // a gap: the sensor reads unavailable for ten minutes, then has fallen 10. The newest sample from five
-            // minutes ago is the one before the gap, too old to stand for then: blind again, nothing raises
+                """{"id":"grey_full","entity":"$GREY","kind":"above","at":70,"clearAt":60,"text":"Grey tank"}"""), store)
             hub.states[GREY] = "unavailable"
-            for (m in 12..21) {
+            round(w)
+            val since = clock.get()
+            for (m in 1..59) {
                 clock.addAndGet(MIN)
                 round(w)
             }
+            assertTrue("no usable reading" !in w.stateLine(), w.stateLine())
             clock.addAndGet(MIN)
-            hub.states[GREY] = "30"
             round(w)
-            assertEquals(AlertState.CLEAR, store.stateOf("drop"), "no comparison across a gap in the samples")
-            assertTrue("rule drop: blind until" in w.stateLine(), w.stateLine())
+            assertTrue("rule grey_full: no usable reading since ${hhmm(since)}" in w.stateLine(), w.stateLine())
+            hub.states[GREY] = "50"
+            round(w)
+            assertTrue("no usable reading" !in w.stateLine(), w.stateLine())
         }
     }
 

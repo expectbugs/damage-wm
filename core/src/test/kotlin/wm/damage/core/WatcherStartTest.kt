@@ -29,11 +29,12 @@ import wm.damage.core.util.Log
 
 /**
  * Build W, package B: the watcher's start and its built-in alerts (the spec's B2, B4 and §2(f); the lead's decision
- * A.6). `BastionWatcher.build` reads the token file and the rules once: no `haUrl` is off and clears the watcher's
- * alerts; a token file it cannot use (not set, missing, empty, not one token) is off, said with the PATH and the
- * case, with `watcher.tokenfile` raised; a refused rule raises `watcher.rule.<id>`; the next good start clears what
- * no longer holds. Running: a 404 raises `watcher.entity.<entity>` and an answer clears it; a 401 stops the polling
- * with `watcher.token`, and an urgent alert still repeats. The token's text is in no line. Made-up ids and token.
+ * A.6). `BastionWatcher.build` reads the token file and the rules at start: no `haUrl` is off and clears the
+ * watcher's alerts; a token file it cannot use (not set, missing, empty, not one token) is off, said with the PATH
+ * and the case, with `watcher.tokenfile` raised; a refused rule raises `watcher.rule.<id>`; the next good start
+ * clears what no longer holds. Running: a 404 raises `watcher.entity.<entity>` and an answer clears it; a 401 stops
+ * the polling with `watcher.token`, and an urgent alert still repeats; the token file is read again once a minute
+ * until it is usable (L1 X1 / X2). The token's text is in no line. Made-up ids and token.
  */
 class WatcherStartTest {
 
@@ -229,6 +230,73 @@ class WatcherStartTest {
             assertEquals(asked, requests.size, "after a refused token nothing more is asked")
             assertEquals(EventKind.REPEAT, store.answer(seq, store.epoch).events.single().kind,
                 "an urgent alert still repeats while the polling is stopped")
+            assertTrue((logs + store.records().map { it.text } + w.stateLine()).none { TOKEN in it }, "the token in no line")
+        } finally {
+            hub.stop(0)
+        }
+    }
+
+    /** L1 X1 / X2 (states that only a restart cleared): the token file is read again once a minute. Off for a
+     *  missing file, the watcher says each new case and turns on when the file holds a token (the silent clock
+     *  starting then); refused (a 401), it sends nothing more until the file holds another token, then polls
+     *  again. No restart in between, and the token's text is in no line. */
+    @Test
+    fun theTokenFileIsReadAgainUntilItIsUsable(): Unit = runBlocking {
+        Log.addSink(sink)
+        val dir = Files.createTempDirectory("watcher-reread")
+        val auth = CopyOnWriteArrayList<String>()
+        val refused = ConcurrentHashMap.newKeySet<String>()
+        val hub = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        hub.createContext("/") { x ->
+            val token = x.requestHeaders.getFirst("Authorization").orEmpty().removePrefix("Bearer ")
+            auth += token
+            val ok = token !in refused
+            val b = (if (ok && x.requestURI.rawPath != HaReader.HEALTH) "{\"entity_id\":\"$ENTITY\",\"state\":\"50\"}"
+                else "{}").toByteArray()
+            x.sendResponseHeaders(if (ok) 200 else 401, b.size.toLong())
+            x.responseBody.use { it.write(b) }
+        }
+        hub.start()
+        try {
+            val clock = AtomicLong(1_800_000_000_000L)
+            val store = AlertStore(dir.resolve("alerts.json"), clock::get)
+            val tokenFile = dir.resolve("hub.token")
+            val w = BastionWatcher.build("http://127.0.0.1:${hub.address.port}", tokenFile.toString(), rules(dir, good),
+                10, 5, store, scope, clock::get)
+            assertFalse(w.on, w.stateLine())
+            clock.addAndGet(10 * 60_000L)
+            Files.writeString(tokenFile, "Bearer $TOKEN\n")
+            w.tick()
+            assertTrue("does not hold one token" in w.stateLine(), w.stateLine())
+            assertTrue("does not hold one token" in store.table().single { it.id == BastionWatcher.TOKEN_FILE }.text)
+            Files.writeString(tokenFile, "$TOKEN\n")
+            clock.addAndGet(30_000)
+            w.tick()
+            assertFalse(w.on, "read again once a minute, not on every tick")
+            clock.addAndGet(30_000)
+            w.tick()
+            assertTrue(w.on, w.stateLine())
+            assertEquals(AlertState.CLEAR, store.stateOf(BastionWatcher.TOKEN_FILE))
+            assertEquals(AlertState.CLEAR, store.stateOf(BastionWatcher.SILENT), "the silent clock starts when it turns on")
+            waitUntil(5_000, 5, { "the first round: $auth" }) { auth.size == 2 && w.roundsInFlight == 0 }
+
+            refused += TOKEN                                     // the token is revoked on the hub
+            clock.addAndGet(10_000)
+            w.tick()
+            waitUntil(5_000, 5, { "the refusal is said: ${store.table()}" }) { store.stateOf(BastionWatcher.TOKEN) == AlertState.RAISED }
+            waitUntil(5_000, 5, { "round ended" }) { w.roundsInFlight == 0 }
+            val asked = auth.size
+            clock.addAndGet(120_000)
+            w.tick()                                             // the file still holds the refused token
+            delay(300)
+            assertEquals(asked, auth.size, "a refused token is never sent again")
+            Files.writeString(tokenFile, "$TOKEN-2\n")
+            clock.addAndGet(60_000)
+            w.tick()
+            waitUntil(5_000, 5, { "polling again: $auth" }) { auth.size == asked + 2 && w.roundsInFlight == 0 }
+            assertEquals(listOf("$TOKEN-2", "$TOKEN-2"), auth.drop(asked))
+            assertEquals(AlertState.CLEAR, store.stateOf(BastionWatcher.TOKEN))
+            assertTrue(w.stateLine().startsWith("1 rule(s) · hub answered"), w.stateLine())
             assertTrue((logs + store.records().map { it.text } + w.stateLine()).none { TOKEN in it }, "the token in no line")
         } finally {
             hub.stop(0)

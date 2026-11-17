@@ -1,7 +1,6 @@
 package wm.damage.core.bastion
 
 import java.nio.charset.CharacterCodingException
-import java.nio.charset.CodingErrorAction
 import java.nio.file.Files
 import java.nio.file.NoSuchFileException
 import java.nio.file.Path
@@ -49,23 +48,13 @@ enum class Severity(val wire: String) {
 /** R6 §2 "Kinds"; the semantics are [RuleEval]'s. */
 enum class RuleKind(val wire: String) {
     ABOVE("above"), BELOW("below"), EQUALS("equals"), NOT_EQUALS("notEquals"),
-    UNAVAILABLE("unavailable"), STALE("stale"),
-    /** The numeric reading differs from a baseline by `at` or more (in the entity's own units), held `forMin`
-     *  (dec. F.2). Without `withinMin` the baseline is the value at arming, re-taken on acknowledge and kept in
-     *  `alerts.json`; with it, the value `withinMin` minutes ago from a ring kept in memory. */
+    UNAVAILABLE("unavailable"),
+    /** The numeric reading differs from a baseline by `at` or more either way (in the entity's own units), held
+     *  `forMin` (dec. F.2). The baseline is the value at arming, re-taken on acknowledge and kept in `alerts.json`. */
     CHANGE("change");
 
     companion object {
         fun of(wire: String): RuleKind? = entries.firstOrNull { it.wire == wire }
-    }
-}
-
-/** The `change` kind's direction (dec. F.2): any (default), up only, down only. */
-enum class Direction(val wire: String) {
-    ANY("any"), UP("up"), DOWN("down");
-
-    companion object {
-        fun of(wire: String): Direction? = entries.firstOrNull { it.wire == wire }
     }
 }
 
@@ -99,7 +88,7 @@ data class AlertRule(
     val clearAt: Double? = null,
     /** EQUALS/NOT_EQUALS: the state string compared. */
     val value: String? = null,
-    /** Minutes the raise condition must hold before the raise; > 0 for UNAVAILABLE and STALE. */
+    /** Minutes the raise condition must hold before the raise; > 0 for UNAVAILABLE. */
     val forMin: Int = 0,
     /** The notice's words, never cut. */
     val text: String,
@@ -108,15 +97,10 @@ data class AlertRule(
     val severity: Severity = Severity.NORMAL,
     /** The rule's `when` (dec. F.1); null = always judged. */
     val guard: Guard? = null,
-    /** CHANGE: which way counts. */
-    val direction: Direction = Direction.ANY,
-    /** CHANGE: 0 = compared with the baseline taken at arming; 1..1440 = with the value that many minutes ago. */
-    val withinMin: Int = 0,
 ) {
     val forMs: Long get() = forMin * 60_000L
 
-    /** The hub entities this rule needs read: its own, and its guard's unless that is a built-in value. Every one
-     *  of them joins the reader's closed path set ([HaReader]'s `entities`). */
+    /** The hub entities this rule needs read: its own, and its guard's unless that is a built-in value. */
     val hubEntities: List<String> get() = listOfNotNull(entity, guard?.entity?.takeUnless { guard.builtIn })
 
     /** Milliseconds between repeats while RAISED; 0 = said once. URGENT: fixed at ten minutes (dec. B.1). */
@@ -143,8 +127,6 @@ data class AlertRule(
         const val PHONE = "damage.phone"
         /** Each built-in value and the words a guard may compare it with (`unknown` is no reading, never a match). */
         val BUILT_IN_VALUES: Map<String, Set<String>> = mapOf(PHONE to setOf(PhonePresence.HOME, PhonePresence.AWAY))
-        /** A `withinMin` is 1 to this many minutes (one day). */
-        const val WITHIN_MAX = 1440
     }
 }
 
@@ -171,26 +153,19 @@ object RulesFile {
         RuleKind.EQUALS to COMMON + "value",
         RuleKind.NOT_EQUALS to COMMON + "value",
         RuleKind.UNAVAILABLE to COMMON,
-        RuleKind.STALE to COMMON,
-        RuleKind.CHANGE to COMMON + setOf("at", "direction", "withinMin"),
+        RuleKind.CHANGE to COMMON + "at",
     )
 
     /** Reads [path]. A missing file is no rules ([RulesLoad.missing]); an unreadable one is a [RulesLoad.fileProblem]. */
     fun load(path: Path): RulesLoad {
-        val bytes = try {
-            Files.readAllBytes(path)
+        val text = try {
+            Files.readString(path)
         } catch (e: NoSuchFileException) {
             return RulesLoad(emptyList(), emptyList(), null, missing = true)
-        } catch (e: Exception) {
-            return RulesLoad(emptyList(), emptyList(), "the rules file could not be read (${e::class.simpleName}: ${e.message})")
-        }
-        val text = try {
-            Charsets.UTF_8.newDecoder()
-                .onMalformedInput(CodingErrorAction.REPORT)
-                .onUnmappableCharacter(CodingErrorAction.REPORT)
-                .decode(java.nio.ByteBuffer.wrap(bytes)).toString()
         } catch (e: CharacterCodingException) {
             return RulesLoad(emptyList(), emptyList(), "the rules file is not UTF-8 text")
+        } catch (e: Exception) {
+            return RulesLoad(emptyList(), emptyList(), "the rules file could not be read (${e::class.simpleName}: ${e.message})")
         }
         return parse(text)
     }
@@ -267,8 +242,6 @@ object RulesFile {
         var at: Double? = null
         var clearAt: Double? = null
         var value: String? = null
-        var direction = Direction.ANY
-        var withinMin = 0
         when (kind) {
             RuleKind.ABOVE, RuleKind.BELOW -> {
                 at = number(o, "at") ?: return "at missing or not a number"
@@ -280,24 +253,15 @@ object RulesFile {
                 value = (o["value"] as? JsonPrimitive)?.takeIf { it !is JsonNull }?.content
                     ?: return "value missing"
             }
-            RuleKind.UNAVAILABLE, RuleKind.STALE -> {
+            RuleKind.UNAVAILABLE -> {
                 if (forMin <= 0) return "${kind.wire} needs forMin above 0"
             }
             RuleKind.CHANGE -> {
                 at = number(o, "at") ?: return "at missing or not a number"
                 if (at <= 0.0) return "change needs at above 0 (the size of the change, in the entity's own units)"
-                direction = when (val d = o["direction"]) {
-                    null -> Direction.ANY
-                    else -> (d as? JsonPrimitive)?.takeIf { it.isString }?.content?.let { Direction.of(it) }
-                        ?: return "direction is not ${Direction.entries.joinToString(", ") { "\"${it.wire}\"" }}"
-                }
-                if (o["withinMin"] != null) {
-                    withinMin = minutes(o, "withinMin")?.takeIf { it in 1..AlertRule.WITHIN_MAX }
-                        ?: return "withinMin is not a whole number of minutes from 1 to ${AlertRule.WITHIN_MAX}"
-                }
             }
         }
-        return AlertRule(id, entity, kind, at, clearAt, value, forMin, words, repeatMin, severity, guard, direction, withinMin)
+        return AlertRule(id, entity, kind, at, clearAt, value, forMin, words, repeatMin, severity, guard)
     }
 
     /** A `when` object: the guard, or why it is refused (a String). */

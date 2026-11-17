@@ -61,7 +61,7 @@ class RuleParseTest {
         // the second rule with an id is refused, the first runs
         val dup = RulesFile.parse("""{"rules":[
             {"id":"a","entity":"sensor.fresh_tank","kind":"unavailable","forMin":5,"text":"one"},
-            {"id":"a","entity":"sensor.fresh_tank","kind":"stale","forMin":5,"text":"two"}]}""")
+            {"id":"a","entity":"sensor.fresh_tank","kind":"unavailable","forMin":5,"text":"two"}]}""")
         assertEquals(listOf("one"), dup.rules.map { it.text })
         assertEquals(listOf("a"), dup.refused.map { it.id })
         assertTrue("#1" in dup.refused[0].why)
@@ -90,17 +90,16 @@ class RuleParseTest {
         assertEquals(listOf("r"), one(""""kind":"equals""""), "value missing")
         assertEquals(emptyList(), one(""""kind":"notEquals","value":"on""""))
         assertEquals(listOf("r"), one(""""kind":"unavailable""""), "unavailable needs forMin")
-        assertEquals(listOf("r"), one(""""kind":"stale","forMin":0"""), "stale needs forMin above 0")
-        assertEquals(listOf("r"), one(""""kind":"stale","forMin":2.5"""), "forMin whole minutes")
-        assertEquals(listOf("r"), one(""""kind":"stale","forMin":5,"repeatMin":-1"""), "repeatMin 0 or more")
-        assertEquals(listOf("r"), one(""""kind":"stale","forMin":5,"at":3"""), "a field that does not apply")
-        assertEquals(listOf("r"), one(""""kind":"stale","forMins":5"""), "an unknown key is refused, never ignored")
-        assertEquals(emptyList(), one(""""kind":"stale","forMin":5,"note":"a free comment""""))
-        assertEquals(listOf("r"), refusedIds("""{"rules":[{"id":"r","entity":"sensor.fresh_tank","kind":"stale","forMin":5,"text":"  "}]}"""),
+        assertEquals(listOf("r"), one(""""kind":"unavailable","forMin":2.5"""), "forMin whole minutes")
+        assertEquals(listOf("r"), one(""""kind":"unavailable","forMin":5,"repeatMin":-1"""), "repeatMin 0 or more")
+        assertEquals(listOf("r"), one(""""kind":"unavailable","forMin":5,"at":3"""), "a field that does not apply")
+        assertEquals(listOf("r"), one(""""kind":"unavailable","forMins":5"""), "an unknown key is refused, never ignored")
+        assertEquals(emptyList(), one(""""kind":"unavailable","forMin":5,"note":"a free comment""""))
+        assertEquals(listOf("r"), refusedIds("""{"rules":[{"id":"r","entity":"sensor.fresh_tank","kind":"unavailable","forMin":5,"text":"  "}]}"""),
             "a notice needs words")
-        assertEquals(listOf("r"), refusedIds("""{"rules":[{"id":"r","entity":"sensor.a/b","kind":"stale","forMin":5,"text":"x"}]}"""),
+        assertEquals(listOf("r"), refusedIds("""{"rules":[{"id":"r","entity":"sensor.a/b","kind":"unavailable","forMin":5,"text":"x"}]}"""),
             "an entity id that is not domain.object_id")
-        assertEquals(listOf("#1"), refusedIds("""{"rules":[{"id":"Bad Id","entity":"sensor.fresh_tank","kind":"stale","forMin":5,"text":"x"}]}"""))
+        assertEquals(listOf("#1"), refusedIds("""{"rules":[{"id":"Bad Id","entity":"sensor.fresh_tank","kind":"unavailable","forMin":5,"text":"x"}]}"""))
     }
 
     @Test
@@ -122,7 +121,7 @@ class RuleParseTest {
             assertNotNull(RulesFile.load(noList).fileProblem)
 
             val good = dir.resolve("good.json").also {
-                Files.writeString(it, """{"rules":[{"id":"r","entity":"sensor.fresh_tank","kind":"stale","forMin":5,"text":"x"}]}""")
+                Files.writeString(it, """{"rules":[{"id":"r","entity":"sensor.fresh_tank","kind":"unavailable","forMin":5,"text":"x"}]}""")
             }
             val g = RulesFile.load(good)
             assertNull(g.fileProblem)

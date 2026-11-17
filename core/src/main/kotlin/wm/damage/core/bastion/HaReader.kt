@@ -1,9 +1,6 @@
 package wm.damage.core.bastion
 
 import java.io.IOException
-import java.nio.ByteBuffer
-import java.nio.charset.CharacterCodingException
-import java.nio.charset.CodingErrorAction
 import java.nio.file.Files
 import java.nio.file.NoSuchFileException
 import java.nio.file.Path
@@ -23,13 +20,13 @@ import wm.damage.core.util.Http
  *   body parameter anywhere. Lint RO001 (`tools/lint.py`) refuses a second `Http.request(` in this
  *   package, a non-literal method, a `"POST"`/`"PUT"`/`"PATCH"`/`"DELETE"` literal and any other
  *   HTTP client (`openConnection`, `HttpURLConnection`, `java.net.http`).
- * - The paths are `/api/` (is the hub up) and `/api/states/<entity>` for the entities the rules
- *   name, and nothing else: any other path throws [PathRefused] before a request is made. An entity
- *   id must match [ENTITY] (`domain.object_id`, lower case; the format is inferred), so no `/`,
- *   `?` or `..` can reach a path.
- * - A 401 or 403 LATCHES ([TokenRefused]): every later call throws it with no request, until a
- *   restart reads the token file again. The hub counts failed logins toward an address ban
- *   (inferred), and a 10 s poll would get there quickly; the shape of `QbtClient`'s login latch.
+ * - The paths are `/api/` (is the hub up) and `/api/states/<entity>`. An entity id must match
+ *   [ENTITY] (`domain.object_id`, lower case; the format is inferred), checked before the request,
+ *   so no `/`, `?` or `..` can reach a path.
+ * - A 401 or 403 LATCHES ([TokenRefused]): every later call of this reader throws it with no
+ *   request. The hub counts failed logins toward an address ban (inferred), and a 10 s poll would get
+ *   there quickly; the shape of `QbtClient`'s login latch. The watcher reads the token file again once
+ *   a minute and makes a new reader only when the file holds another token ([sends]).
  *
  * The token lives only in this object's private header map and the `Authorization` header it
  * sends: never in a URL, an exception text, a log line or [toString] (this is a plain class for
@@ -43,23 +40,16 @@ import wm.damage.core.util.Http
  * pooled socket to a hub that has since powered off (inferred: such a socket can sit in TCP
  * retransmission for minutes; the JDK lets `Connection: close` through its restricted headers).
  */
-class HaReader(baseUrl: String, token: String, entities: Collection<String>) {
+class HaReader(baseUrl: String, token: String) {
 
     /** The hub has no such entity (404): renamed or removed. The watcher raises `watcher.entity.<id>`. */
     class NotFound(val entity: String) : IOException("hub: no entity $entity (HTTP 404)")
 
-    /** The hub refused the token (401 or 403). Latched until restart. */
-    class TokenRefused(val status: Int) :
-        IOException("hub refused the token (HTTP $status) - check the token file and restart")
-
-    /** A path outside `/api/` and the rules' entities: thrown before any request. */
-    class PathRefused(path: String) :
-        IllegalArgumentException("hub path refused (only /api/ and the rules' entities are read): $path")
+    /** The hub refused the token (401 or 403). Latched for this reader. */
+    class TokenRefused(val status: Int) : IOException("hub refused the token (HTTP $status)")
 
     private val base = baseUrl.trimEnd('/')
     private val headers: Map<String, String>
-    /** Every path this reader may ask for: [HEALTH] and one [STATES] path per rule entity. */
-    private val allowed: Set<String>
     /** 0 = no refusal seen; else the status of the 401/403 that latched (see the class comment). */
     @Volatile private var refusedStatus = 0
     private val json = Json { ignoreUnknownKeys = true }
@@ -68,9 +58,6 @@ class HaReader(baseUrl: String, token: String, entities: Collection<String>) {
         require(tokenTextOk(token)) {
             "hub token refused: empty, or a space, line break, control or non-ASCII character in the text (one token expected)"
         }
-        val bad = entities.filterNot { ENTITY.matches(it) }
-        require(bad.isEmpty()) { "hub entity ids refused (expected domain.object_id): ${bad.joinToString()}" }
-        allowed = entities.mapTo(HashSet()) { STATES + it }.also { it.add(HEALTH) }
         headers = mapOf("Authorization" to "Bearer $token", "Accept" to "application/json", "Connection" to "close")
     }
 
@@ -79,9 +66,9 @@ class HaReader(baseUrl: String, token: String, entities: Collection<String>) {
         get(HEALTH)
     }
 
-    /** `GET /api/states/<entity>` → its state, `last_reported` and `last_updated` (both strings, compared as
-     *  given: the PC times staleness on its own clock, R6 §2 "Kinds"). */
-    fun state(entity: String): HaState {
+    /** `GET /api/states/<entity>` → its state. */
+    fun state(entity: String): String {
+        require(ENTITY.matches(entity)) { "hub entity id refused (expected domain.object_id): $entity" }
         val path = STATES + entity
         val r = get(path)
         val o = try {
@@ -93,17 +80,15 @@ class HaReader(baseUrl: String, token: String, entities: Collection<String>) {
             ?: throw IOException("hub $path: the answer carries no state")
         val answered = (o["entity_id"] as? JsonPrimitive)?.contentOrNull
         if (answered != null && answered != entity) throw IOException("hub $path: the answer names another entity")
-        return HaState(
-            entity, state,
-            (o["last_reported"] as? JsonPrimitive)?.contentOrNull,
-            (o["last_updated"] as? JsonPrimitive)?.contentOrNull,
-        )
+        return state
     }
+
+    /** Whether this reader sends [token] (compared in memory, never said): a refused token is not sent again. */
+    fun sends(token: String): Boolean = headers["Authorization"] == "Bearer $token"
 
     /** THE request site (lint RO001: the only `Http.request(` in this package, method the literal GET). */
     private fun get(path: String): Http.Response {
         if (refusedStatus != 0) throw TokenRefused(refusedStatus)
-        if (path !in allowed) throw PathRefused(path)
         val r = Http.request("GET", base + path, headers)
         when (r.status) {
             200 -> return r
@@ -116,26 +101,7 @@ class HaReader(baseUrl: String, token: String, entities: Collection<String>) {
         throw IOException("hub $path: HTTP ${r.status}")
     }
 
-    override fun toString(): String = "HaReader($base, ${allowed.size - 1} entities)"
-
-    /** What [readTokenFile] found. [Ok.toString] says the length, never the text. */
-    sealed class TokenRead {
-        class Ok(val token: String) : TokenRead() {
-            override fun toString(): String = "Ok(${token.length} characters)"
-        }
-        /** No file at the path. */
-        object Missing : TokenRead()
-        /** The file holds only white space. */
-        object Empty : TokenRead()
-        /** The file could not be read; [cls] is the exception's CLASS name only (its text may quote content). */
-        class Unreadable(val cls: String) : TokenRead() {
-            override fun toString(): String = "Unreadable($cls)"
-        }
-        /** The trimmed text is not one token: a space, a line break, a control or a non-ASCII character inside
-         *  it (a pasted `Bearer …` line, two lines). Refused here because the JDK quotes a header value it
-         *  refuses in its exception text. */
-        object Malformed : TokenRead()
-    }
+    override fun toString(): String = "HaReader($base)"
 
     companion object {
         const val HEALTH = "/api/"
@@ -147,33 +113,25 @@ class HaReader(baseUrl: String, token: String, entities: Collection<String>) {
         private fun tokenTextOk(t: String): Boolean = t.isNotEmpty() && t.all { it in '!'..'~' }
 
         /**
-         * Reads the hub's token from a file Adam already keeps (dec. A.6; config key `haTokenFile`). The text is
-         * trimmed (a leading byte-order mark too). Never logs, and nothing it returns or throws carries the
-         * text: the caller says the PATH and the case.
+         * Reads the hub's token from a file Adam already keeps (dec. A.6; config key `haTokenFile`), trimmed (a
+         * leading byte-order mark too). Throws an [IOException] whose message is the case in plain words — "does
+         * not exist", "is empty", "could not be read (<class>)", "does not hold one token (…)" — never the text,
+         * which is in no log line either: the caller says the PATH and the case. Not one token (a pasted `Bearer …`
+         * line, two lines) is refused here because the JDK quotes a header value it refuses in its exception text.
          */
-        fun readTokenFile(path: Path): TokenRead {
-            val bytes = try {
-                Files.readAllBytes(path)
-            } catch (e: NoSuchFileException) {
-                return TokenRead.Missing
-            } catch (e: Exception) {
-                return TokenRead.Unreadable(e::class.simpleName ?: "Exception")
-            }
+        fun readTokenFile(path: Path): String {
             val text = try {
-                Charsets.UTF_8.newDecoder()
-                    .onMalformedInput(CodingErrorAction.REPORT)
-                    .onUnmappableCharacter(CodingErrorAction.REPORT)
-                    .decode(ByteBuffer.wrap(bytes)).toString()
-            } catch (e: CharacterCodingException) {
-                return TokenRead.Unreadable(e::class.simpleName ?: "CharacterCodingException")
+                Files.readString(path)
+            } catch (e: NoSuchFileException) {
+                throw IOException("does not exist")
+            } catch (e: Exception) {
+                throw IOException("could not be read (${e::class.simpleName})")
             }
             val t = text.trimStart('\uFEFF').trim()
-            if (t.isEmpty()) return TokenRead.Empty
-            if (!tokenTextOk(t)) return TokenRead.Malformed
-            return TokenRead.Ok(t)
+            if (t.isEmpty()) throw IOException("is empty")
+            if (!tokenTextOk(t)) throw IOException("does not hold one token " +
+                "(a space, a line break or a character outside plain ASCII inside it)")
+            return t
         }
     }
 }
-
-/** One entity's state as the hub answered it. `lastReported`/`lastUpdated` are the hub's own strings. */
-data class HaState(val entity: String, val state: String, val lastReported: String?, val lastUpdated: String?)
