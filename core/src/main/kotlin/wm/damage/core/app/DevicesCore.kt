@@ -25,6 +25,7 @@ class DevicesCore(val table: Devices) {
         put("id", SCOPE)
         put("name", "Devices")
         put("min", Levels.FULL)
+        table.problem?.let { why -> put("problem", buildJsonObject { put("why", why); put("at", table.problemAt) }) }
         put("rows", buildJsonArray {
             for (r in table.rows()) if (!r.revoked) add(buildJsonObject {
                 put("id", r.id); put("name", r.name); put("kind", r.kind); put("level", r.level)

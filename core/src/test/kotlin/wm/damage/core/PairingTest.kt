@@ -311,6 +311,9 @@ class PairingTest {
             val d = wm.damage.core.web.Devices(file, clock = { 1_700_000_000_000L }).load()
             assertTrue("could not be read" in d.problem!! && "set aside as devices.json.bad-1700000000000" in d.problem!!, d.problem)
             assertTrue(d.rows().isEmpty(), "the table starts empty")
+            // L1 R2 A4: the Devices page is told, with when
+            assertEquals("${d.problem}@1700000000000", wm.damage.core.app.DevicesCore(d).describe()["problem"]
+                .let { (it as JsonObject).let { p -> "${p["why"]!!.jsonPrimitive.content}@${p["at"]}" } })
             val aside = dir.resolve("devices.json.bad-1700000000000")
             aside.toFile().setReadable(true, false)
             assertEquals(held, java.nio.file.Files.readString(aside), "the file that held his approvals is kept whole")

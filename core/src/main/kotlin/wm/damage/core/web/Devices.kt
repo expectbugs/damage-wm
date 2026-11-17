@@ -101,8 +101,10 @@ class Devices(
     private val seenWritten = HashMap<String, Long>()
     private val listeners = CopyOnWriteArrayList<(Event) -> Unit>()
 
-    /** What [load] found wrong (said by the start), or null. */
+    /** What [load] found wrong (said by the start and on the Devices page, L1 R2 A4), or null; [problemAt]: when. */
     @Volatile var problem: String? = null
+        private set
+    @Volatile var problemAt = 0L
         private set
 
     fun addListener(l: (Event) -> Unit) { listeners.add(l) }
@@ -125,6 +127,7 @@ class Devices(
             } catch (m: Exception) {
                 "NOT set aside (${m::class.simpleName}): the next approval writes a new table over it"
             }
+            problemAt = clock()
             problem = "${file.fileName} could not be read (${e::class.simpleName}); $kept - every device is approved again"
             Log.e(TAG, problem!!)
         }
