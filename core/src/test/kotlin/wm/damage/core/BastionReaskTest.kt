@@ -143,10 +143,18 @@ class BastionReaskTest {
     }
 
     /** L1 X3: a host that takes the table ask and never answers (a link gone half-open after the PC's kernel took it).
-     *  Under a minute the ask is waited for; the ping that finds it a minute old drops the connection, and the
-     *  channel connects again and asks again — once per stuck ask. */
+     *  Under its bound (a minute; 2 s here) the ask is waited for; then the connection is dropped, and the channel
+     *  connects again and asks again — once per stuck ask. Since L1 R2 A3 the ask is `RemoteWin.request(quick = true)`
+     *  (X3's one mechanism), so the words are the channel's. */
     @Test
-    fun anAskWithNoAnswerForAMinuteDropsTheConnection(): Unit = journal { lines ->
+    fun anAskWithNoAnswerForAMinuteDropsTheConnection() {
+        val lines = CopyOnWriteArrayList<String>()
+        val sink = Log.Sink { _, tag, m -> if (tag == "win-remote") lines += m }
+        Log.addSink(sink)
+        try { askWithNoAnswer(lines) } finally { Log.removeSink(sink) }
+    }
+
+    private fun askWithNoAnswer(lines: List<String>) {
         val never = java.util.concurrent.CountDownLatch(1)
         val standIn = object : WinService {
             val asks = AtomicInteger()
@@ -163,19 +171,18 @@ class BastionReaskTest {
         host.start()
         val cs = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val rb = RemoteBastion("127.0.0.1", port, "tok", cs, null, DeliveryRig().delivery, clock = clock::get,
-            pingMs = 20, retryPacingMs = 20)
+            pingMs = 20, retryPacingMs = 20, stuckMs = 2_000)
         try {
             runBlocking {
                 waitUntil(10_000, 5, { "the first ask (${standIn.asks.get()})" }) { standIn.asks.get() == 1 }
                 ticks(rb, 10)
-                assertEquals(1, standIn.attached.get(), "under a minute the ask is waited for")
-                clock.addAndGet(RemoteBastion.STUCK_ASK_MS)
+                assertEquals(1, standIn.attached.get(), "under its bound the ask is waited for")
                 waitUntil(10_000, 5, { "connected again (${standIn.attached.get()}), asked (${standIn.asks.get()})" }) {
                     standIn.attached.get() == 2 && standIn.asks.get() == 2 }
                 ticks(rb, 10)
                 assertEquals(2, standIn.attached.get(), "one drop per stuck ask")
             }
-            assertTrue(lines.any { "has had no answer: the connection is dropped and opened again" in it }, "said: $lines")
+            assertTrue(lines.any { "table has had no answer for 2 s: the connection is dropped and opened again" in it }, "said: $lines")
         } finally {
             rb.close()
             cs.cancel()
