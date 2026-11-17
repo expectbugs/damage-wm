@@ -557,7 +557,8 @@ class MotionTransportTest {
         glass.conformanceControl(Arm.RIGHT, DamageMsg.OP_FLAGS_SET, DamageMsg.FLAG_DRAW2 or DamageMsg.FLAG_ZWRITE, System.currentTimeMillis())
         assertTrue(t.sendMotion(listOf(Motion.play(p, 0, 128, 0x92, 0, IntArray(4)))))
         waitUntil(10_000, message = { "the PLAY's refusal: $notes" }) { divergences().size >= 1 }
-        assertTrue("tag 0x0092 ordinal 0 open" in divergences()[0].second, divergences()[0].second)
+        // ruling B-N2 (`C1-R5-decisions.md`): a PLAY's refusal is matched by the mirror's record of that play
+        assertTrue("the mirror took that PLAY (tag 0x0092 ordinal 0)" in divergences()[0].second, divergences()[0].second)
         assertTrue(t.sendMotion(listOf(Motion.retarget(p, 0, IntArray(4)))))
         waitUntil(10_000, message = { "the first RETARGET's refusal: $notes" }) { divergences().size >= 2 }
         assertTrue(t.sendMotion(listOf(Motion.retarget(p, 0, IntArray(4)))))
@@ -649,5 +650,284 @@ class MotionTransportTest {
         } finally {
             tmp.toFile().deleteRecursively()
         }
+    }
+
+    // ------------------------------------------------------------------------------------- review pass 2's rulings
+    private fun holdBacks() = notes.filter { it.first == "keeper" && it.second.startsWith("hold-back:") }.map { it.second }
+
+    /** Build C1's ruling B-S1 (`C1-R5-decisions.md`): LEFT cannot report its uptime, so a rung that restarts LEFT alone
+     *  shows only as LEFT's link ending the way a restart looks (a supervision timeout) within the hold-back after the
+     *  arming; RIGHT's uptime runs on. After each arming LEFT alone restarts: the ladder steps 3 → 2 → 1 → 0, each drop
+     *  said with what was read, and at 0 it stays — DRAW2 armed, no hold-back of today's kind (the rule is the
+     *  ladder's). Each start comes 200 s after the end: the end's own time is what the window measures. */
+    @Test
+    fun aRestartOfLeftAloneAfterEachArmingStepsTheLadderDownToZero_BS1(): Unit = runBlocking {
+        val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = 0x1ff }
+        var clock = 1_000_000L
+        val t = SimTransport(sim, scope, SimTransport.Timing(instant = true), clock = { clock })
+        collect(t)
+        t.devProbe("c1", "3")
+        t.start(full)
+        fun said() = notes.filter { it.first == "keeper" }.joinToString(" | ") { it.second }
+        assertEquals(0x2c, t.state.value.flagsInForce, "stage 3 armed: ${said()}")
+        suspend fun leftRestartsThenStart() {
+            clock += 10_000L
+            sim.rebootForTest(Arm.LEFT, clock)
+            t.endLink("LEFT disconnected: supervision timeout")
+            clock += 200_000L
+            t.start(full)
+        }
+        for ((stage, flags, kib) in listOf(Triple(2, 0x24, 256), Triple(1, 0x24, 160), Triple(0, 0x4, 160))) {
+            leftRestartsThenStart()
+            waitUntil(10_000, message = { "the hold-back to stage $stage: ${said()}" }) { holdBacks().size == 3 - stage }
+            val text = holdBacks().last()
+            assertTrue("LEFT's link ended as a restart of that lens would (LEFT disconnected: supervision timeout) 10 s after the " +
+                "C1 ladder armed stage ${stage + 1} — LEFT cannot report its uptime" in text && "stage $stage from here" in text,
+                "the journal says why the stage was dropped: $text")
+            assertEquals(flags, t.state.value.flagsInForce, "stage $stage: the flags in force, DRAW2 kept: ${said()}")
+            assertEquals(kib * 1024, t.state.value.cacheSize, "stage $stage: the cache size")
+        }
+        leftRestartsThenStart()
+        assertEquals(0x4, t.state.value.flagsInForce, "stage 0 stays: DRAW2 armed: ${said()}")
+        assertEquals(3, holdBacks().size, "three drops and no fourth (nothing of the ladder was armed): ${holdBacks()}")
+        t.stop()
+    }
+
+    /** B-S1's bounds: a LEFT link end after the hold-back's window, one that is not restart-like (the phone ended it),
+     *  and one after an arming that carried none of the ladder (a stage-0 session, then `c1=3` by hand) change nothing:
+     *  the next start arms what the stage says (stage 3: ENGINE and the 256 KiB cache). */
+    @Test
+    fun aLeftLinkEndOutsideTheWindowOrWithNoRungArmedChangesNothing_BS1(): Unit = runBlocking {
+        data class Case(val label: String, val c1First: Int, val c1Then: Int?, val endAfterMs: Long, val reason: String, val restart: Boolean)
+        for (c in listOf(
+            Case("after the window", 3, null, 130_000L, "LEFT disconnected: supervision timeout", true),
+            Case("not restart-like", 3, null, 10_000L, "LEFT disconnected: ended by phone", false),
+            Case("no rung armed", 0, 3, 10_000L, "LEFT disconnected: supervision timeout", true))) {
+            notes.clear()
+            val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = 0x1ff }
+            var clock = 1_000_000L
+            val t = SimTransport(sim, scope, SimTransport.Timing(instant = true), clock = { clock })
+            collect(t)
+            if (c.c1First != 0) t.devProbe("c1", "${c.c1First}")
+            t.start(full)
+            c.c1Then?.let { t.devProbe("c1", "$it") }
+            clock += c.endAfterMs
+            if (c.restart) sim.rebootForTest(Arm.LEFT, clock)
+            t.endLink(c.reason)
+            clock += 200_000L
+            t.start(full)
+            fun said() = notes.filter { it.first == "keeper" }.joinToString(" | ") { it.second }
+            assertEquals(0x2c, t.state.value.flagsInForce, "${c.label}: stage 3 armed: ${said()}")
+            assertEquals(256 * 1024, t.state.value.cacheSize, "${c.label}: the 256 KiB cache")
+            assertEquals(emptyList(), holdBacks(), "${c.label}: no hold-back")
+            t.stop()
+        }
+    }
+
+    /** Build C1's ruling B-N2: a refusal body that carries a tag (a PLAY's) is matched by the mirror's record of that
+     *  play, not by the slot being open when the notify arrives. RIGHT refuses a PLAY that LEFT and the mirror took
+     *  (its ENGINE is off behind the phone's back); before the refusal arrives a flush meets the area, so its CLOSE
+     *  empties the mirror's slot; the refusal is still a divergence. Every motion notify is held and only that one is
+     *  handed back. */
+    @Test
+    fun aRefusedPlayIsMatchedByItsPlaysRecordNotBySlotAtTheNotify_BN2(): Unit = runBlocking {
+        val glass = GlassFirmwareSim().apply { damageContract = 2; damageFeatures = 0x1ff }
+        val t = StartRig(glass, scope)
+        collect(t)
+        t.devProbe("c1", "3")
+        t.start(full)
+        assertEquals(0x2c, t.state.value.flagsInForce)
+        val held = java.util.concurrent.CopyOnWriteArrayList<ByteArray>()
+        t.onNotify = { _, p -> if (StartRig.sid(p) == SettingsMsg.SID && DamageMsg.parseMotion(StartRig.body(p)) != null) { held += p; null } else p }
+        glass.conformanceControl(Arm.RIGHT, DamageMsg.OP_FLAGS_SET, DamageMsg.FLAG_DRAW2 or DamageMsg.FLAG_ZWRITE, System.currentTimeMillis())
+        val area = Rect(200, 200, 40, 20)
+        assertTrue(t.sendMotion(messages(program(area, 200), 0, 128, 0x93)))
+        fun refusal() = held.firstOrNull { DamageMsg.parseMotion(StartRig.body(it))?.let { m -> m.outcome == DamageMsg.OUTCOME_REFUSED && m.tag == 0x93 } == true }
+        waitUntil(10_000, message = { "RIGHT refused the PLAY and the mirror took it" }) { refusal() != null && t.mirror.unknownAreas(Arm.LEFT) == listOf(area) }
+        t.submit(FlushRequest(listOf(DisplayOp.Fill(Rect(210, 205, 8, 4), Rect(210, 205, 8, 4), 7)), 0, "over the area"))
+        waitUntil(10_000, message = { "the flush's CLOSE emptied the mirror's slot" }) { t.mirror.unknownAreas(Arm.LEFT).isEmpty() }
+        t.deliver(Arm.RIGHT, refusal()!!)
+        waitUntil(10_000, message = { "the refusal is a divergence: $notes" }) {
+            notes.any { it.first == "divergence" && it.second.startsWith("motion: slot 0 refused by RIGHT") && "tag 0x0093" in it.second } }
+        t.stop()
+    }
+
+    /** Build C1's ruling B-N3: the mode-19 copy of a refused mode 25 is not sent while the glasses are in Silent Mode,
+     *  nor while no lease is held — said, and the wire (each image message's first packet) carries nothing more. */
+    @Test
+    fun aRefusedMode25IsNotSentAgainInSilentModeOrWithNoLease_BN3(): Unit = runBlocking {
+        for (case in listOf("silent", "no lease")) {
+            notes.clear()
+            val glass = GlassFirmwareSim().apply { damageContract = 2; damageFeatures = 0x1ff }
+            val t = StartRig(glass, scope)
+            collect(t)
+            t.devProbe("c1", "1")
+            t.start(full)
+            assertEquals(0x24, t.state.value.flagsInForce, "$case: stage 1, ZWRITE in force")
+            val images = java.util.concurrent.atomic.AtomicInteger()
+            // every image message goes out on LEFT (the bulk arm); its first packet is counted
+            t.onWrite = { a, p -> if (a == Arm.LEFT && StartRig.firstOfImage(p)) images.incrementAndGet(); p }
+            // RIGHT's ZWRITE goes off behind the phone's back: the mode 25 is refused there (15)
+            glass.conformanceControl(Arm.RIGHT, DamageMsg.OP_FLAGS_SET, DamageMsg.FLAG_DRAW2, System.currentTimeMillis())
+            val list = CfwModes.cacheUpdate2(listOf(CfwModes.CacheWrite2(1000, ByteArray(2000) { (it / 100).toByte() })), 160 * 1024)
+            t.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(list)), 0, "ATLAS"))
+            waitUntil(10_000, message = { "$case: the mode 25 went out" }) { images.get() == 1 }
+            if (case == "silent") {
+                glass.setSilent(true)
+                waitUntil(10_000, message = { "$case: the push" }) { t.state.value.glassesSilent }
+            } else {
+                t.setLeaseWanted(false)
+                assertEquals(false, t.state.value.leaseHeld, case)
+            }
+            t.devProbe("telemetry", "read")
+            waitUntil(10_000, message = { "$case: the refusal judged: $notes" }) { has("glass", "mode 25 refused by RIGHT") }
+            delay(300)
+            val why = if (case == "silent") "the glasses are in Silent Mode" else "no lease is held"
+            assertEquals(1, images.get(), "$case: no mode-19 copy on the wire")
+            assertTrue(has("glass", "list is not sent again: $why"), "$case: said: ${notes.filter { it.first == "glass" }}")
+            t.stop()
+        }
+    }
+
+    /** A mirror that counts the shell's questions to it (build C1's ruling B-N4). */
+    private class CountingMirror(val inner: wm.damage.core.transport.LensPanels) : wm.damage.core.transport.LensPanels by inner {
+        val asked = java.util.concurrent.atomic.AtomicInteger()
+        override fun motionOpen(): Boolean { asked.incrementAndGet(); return inner.motionOpen() }
+    }
+    private class CountedRig(glass: GlassFirmwareSim, scope: CoroutineScope) : StartRig(glass, scope) {
+        @Volatile var asking: CountingMirror? = null
+        override val mirror: wm.damage.core.transport.LensPanels get() = asking ?: super.mirror
+        init { asking = CountingMirror(super.mirror) }
+    }
+
+    /** Build C1's ruling B-N4: the shell asks the mirror whether an instance is open (its lock) only while ENGINE is in
+     *  force. With today's firmware (0x7f) the assemble path never asks, over a start and a seeded walk; at stage 3 on a
+     *  C1 build it asks on the assembles (the shape guard). */
+    @Test
+    fun withTodaysFirmwareTheAssemblePathNeverAsksTheMirror_BN4(): Unit = runBlocking {
+        for ((features, stage) in listOf(0x7f to 0, 0x1ff to 3)) {
+            val tmp = Files.createTempDirectory("damage-motion-ask")
+            try {
+                val glass = GlassFirmwareSim().apply { damageContract = 2; damageFeatures = features }
+                val t = CountedRig(glass, scope)
+                if (stage != 0) t.devProbe("c1", "$stage")
+                val shell = Shell(FakeText(), t, Persistence(tmp.resolve("s.json")), null, scope)
+                shell.start()
+                waitUntil(10_000, 10, { "shell did not settle" }) { shell.isQuiescent() }
+                val images = java.util.concurrent.atomic.AtomicInteger()
+                glass.imageObserver = { arm, _ -> if (arm == Arm.RIGHT) images.incrementAndGet() }
+                // a seeded walk, one gesture a step: each moves the list and is flushed
+                val rnd = java.util.Random(684)
+                val moves = intArrayOf(EvenHubMsg.EV_SCROLL_BOTTOM, EvenHubMsg.EV_SCROLL_TOP, EvenHubMsg.EV_CLICK, EvenHubMsg.EV_DOUBLE_CLICK)
+                repeat(6) {
+                    shell.postGesture(moves[rnd.nextInt(moves.size)])
+                    waitUntil(10_000, 10, { "a step of the walk" }) { shell.isQuiescent() }
+                }
+                assertTrue(images.get() >= 3, "the walk put images on the wire: ${images.get()}")
+                val what = "features 0x${features.toString(16)} stage $stage"
+                if (features == 0x7f) assertEquals(0, t.asking!!.asked.get(), "$what: the mirror's lock is never taken on the assemble path")
+                else assertTrue(t.asking!!.asked.get() >= 3, "$what: ENGINE in force — asked on each assemble: ${t.asking!!.asked.get()}")
+                shell.stop()
+            } finally {
+                tmp.toFile().deleteRecursively()
+            }
+        }
+    }
+
+    /** Build C1's ruling B-N6: `sendMotion` with nothing to send fails at once — false, its deferred failed, a note —
+     *  so nothing waits on it (the deferred rides the last message, and there is none). */
+    @Test
+    fun sendMotionWithNothingToSendFailsAtOnce_BN6(): Unit = runBlocking {
+        val (_, t) = engineSession()
+        val done = kotlinx.coroutines.CompletableDeferred<Unit>()
+        assertEquals(false, t.sendMotion(emptyList(), done), "nothing to send: not sent")
+        assertTrue(done.isCompleted, "the deferred is failed at once, nothing waits on it")
+        assertEquals("not sent: the program has no message", runCatching { done.await() }.exceptionOrNull()?.message)
+        assertTrue(has("motion", "not sent: the program has no message"), "said: $notes")
+        t.stop()
+    }
+
+    /** Build C1's A-S1, the phone's half (`C1-R5-decisions.md`), against the simulator: the engine's busy word held on
+     *  both lenses (planted, as a restart that RAM survives leaves it) refuses every cache write 14 (R1.15). On the
+     *  third in a row — each its own refusal record (a present between, so the sequence moves) — the phone says it
+     *  once, a fault in plain words, and sends nothing because of it; a fourth says nothing more. In a new session it is
+     *  said again, and a write taken (field 17 moving) ends the run: two refusals, a write taken, then two more say
+     *  nothing, and the third of the new run is said. A record read twice counts once, and a new process takes the
+     *  record the glasses still hold as its baseline. At stage 0: every cache write takes the word. */
+    @Test
+    fun threeCacheWritesRefused14InARowAreSaidOncePerSession_AS1(): Unit = runBlocking {
+        val glass = GlassFirmwareSim().apply { damageContract = 2; damageFeatures = 0x1ff }
+        val t = SimTransport(glass, scope, SimTransport.Timing(instant = true))
+        collect(t)
+        t.start(full)
+        assertEquals(0x4, t.state.value.flagsInForce, "stage 0: DRAW2 only")
+        val writes = java.util.concurrent.atomic.AtomicInteger()
+        val images = java.util.concurrent.atomic.AtomicInteger()
+        glass.imageObserver = { arm, img -> if (arm == Arm.RIGHT) { images.incrementAndGet(); if (img[0].toInt() == 19) writes.incrementAndGet() } }
+        fun hold(on: Boolean) = synchronized(glass) { for (arm in Arm.entries) glass.motionForTest(arm).holdWordForTest(on) }
+        fun said() = notes.filter { it.first == "fault" && it.second.startsWith("uploads:") }
+        var n = 0
+        suspend fun writeThenRead(): DamageMsg.Telemetry? {
+            n++
+            val before = images.get()
+            val list = CfwModes.cacheUpdate2(listOf(CfwModes.CacheWrite2(1000 + 100 * n, ByteArray(64) { (it + n).toByte() })), 160 * 1024)
+            t.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(list)), 0, "ATLAS"))
+            // a present between: the next refusal is its own record
+            t.submit(FlushRequest(listOf(DisplayOp.Fill(Rect(400, 300, 8, 4), Rect(400, 300, 8, 4), n % 15)), 0, "elsewhere"))
+            waitUntil(10_000, message = { "write $n and its present reached RIGHT" }) { images.get() >= before + 2 }
+            return t.telemetry("test read")
+        }
+        hold(true)
+        for (i in 1..2) {
+            val r = writeThenRead()
+            assertEquals(14, r?.refusal?.reason, "write $n refused 14: ${r?.describe()}")
+            t.telemetry("test read again")                  // the same record again: one refusal, counted once
+            assertEquals(emptyList(), said(), "after $i refusal(s): nothing said")
+        }
+        writeThenRead()
+        waitUntil(10_000, message = { "the third refusal in a row is said: $notes" }) { said().size == 1 }
+        val text = said().single().second
+        assertTrue("the glasses are refusing uploads and need a restart" in text && "nothing is sent again" in text, text)
+        writeThenRead()
+        delay(200)
+        assertEquals(1, said().size, "said once per session: $notes")
+        assertEquals(4, writes.get(), "four cache writes on the wire, none sent again")
+
+        assertTrue(t.restartSession("test: a new session"))
+        t.start(full)
+        writeThenRead()
+        val g0 = writeThenRead()?.cacheGen
+        hold(false)
+        val g1 = writeThenRead()?.cacheGen
+        assertEquals(g0?.plus(1), g1, "the write is taken: field 17 moves by one")
+        hold(true)
+        for (i in 1..2) {
+            writeThenRead()
+            delay(100)
+            assertEquals(1, said().size, "a write taken ended the run: $i refusal(s) since, nothing said in this session yet")
+        }
+        writeThenRead()
+        waitUntil(10_000, message = { "the new session says it once: $notes" }) { said().size == 2 }
+        hold(false)                                         // the model has one thread: no release point with the word held
+        t.stop()
+
+        // a new transport (the phone's process restarted) over the same glasses: the refusal record they still hold is
+        // the session's baseline, not one of its refusals — the third refusal of this session is said, not the second
+        val t2 = SimTransport(glass, scope, SimTransport.Timing(instant = true))
+        val before = said().size
+        collect(t2)
+        t2.start(full)
+        hold(true)
+        for (i in 1..2) {
+            n++
+            val at = images.get()
+            t2.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(CfwModes.cacheUpdate2(listOf(CfwModes.CacheWrite2(3000 + i, ByteArray(64))), 160 * 1024))), 0, "ATLAS"))
+            t2.submit(FlushRequest(listOf(DisplayOp.Fill(Rect(400, 300, 8, 4), Rect(400, 300, 8, 4), i)), 0, "elsewhere"))
+            waitUntil(10_000, message = { "the new process's write $i" }) { images.get() >= at + 2 }
+            t2.telemetry("test read")
+            delay(100)
+            assertEquals(before, said().size, "the new process: $i refusal(s) of its own, nothing said")
+        }
+        t2.stop()
     }
 }

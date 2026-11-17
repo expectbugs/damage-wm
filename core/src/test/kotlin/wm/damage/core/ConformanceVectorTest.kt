@@ -331,14 +331,21 @@ class ConformanceVectorTest {
         return out
     }
 
-    @Test
-    fun everyVectorMatchesOnBothLenses() {
-        val dir = vectorDir()
+    /** The normal path over the set in [dir] as [everyVectorMatchesOnBothLenses] takes it — the run, its report and
+     *  ruling R1.21's not-filled rule — in one function, so the rule's own pin goes through the path the test takes
+     *  (build C1's ruling B-N5, `C1-R5-decisions.md`). [repo]: the repo's own `firmware/vectors/`, or null. */
+    private fun normalPath(dir: Path, repo: Path?): Outcome {
         val files = vectorFiles(dir)
         assertTrue(files.isNotEmpty(), "no vectors in $dir")
         val out = runNormal(files)
         report("normal path", out)
-        notFilledFailsInTheRepo(dir, repoVectorDir(), out)
+        notFilledFailsInTheRepo(dir, repo, out)
+        return out
+    }
+
+    @Test
+    fun everyVectorMatchesOnBothLenses() {
+        val out = normalPath(vectorDir(), repoVectorDir())
         assertTrue(out.compared > 0, "no vector step was compared")
         assertEquals(emptyList(), out.problems, "the simulator disagrees with the firmware C:\n" + out.problems.joinToString("\n"))
     }
@@ -540,7 +547,8 @@ class ConformanceVectorTest {
     }
 
     /** Build C1's ruling R1.21, the rule itself: a set holding a vector filled but for one step fails when the set is
-     *  the repo's own `firmware/vectors/` (the step is named), and keeps the report only when it is another set. */
+     *  the repo's own `firmware/vectors/` (the step is named), and keeps the report only when it is another set. Ruling
+     *  B-N5 (`C1-R5-decisions.md`): through [normalPath], the function [everyVectorMatchesOnBothLenses] runs. */
     @Test
     fun aStepWithNoExpectationInTheReposVectorsFailsTheTest_R1_21() {
         val src = vectorFiles(vectorDir()).firstOrNull { it.fileName.toString() == "v1-keyframe.json" }
@@ -554,13 +562,11 @@ class ConformanceVectorTest {
         val other = Files.createTempDirectory("conformance-r21-other")
         try {
             Files.writeString(dir.resolve("a-one-unfilled.json"), unfilled.toString())
-            val asRepo = runNormal(vectorFiles(dir))
-            assertEquals(emptyList(), asRepo.problems, "its filled steps agree")
-            notFilledFailsInTheRepo(dir, dir, asRepo)
+            // the only problem is the rule's own line: its filled steps agree
+            val asRepo = normalPath(dir, dir)
             assertEquals(listOf("a-one-unfilled (steps $last..$last of ${steps.size}): not filled — a step in firmware/vectors/ with no " +
                 "expectation fails the test (ruling R1.21)"), asRepo.problems, "the repo's own set: the unfilled step fails, by name")
-            val asOther = runNormal(vectorFiles(dir))
-            notFilledFailsInTheRepo(dir, other, asOther)
+            val asOther = normalPath(dir, other)
             assertEquals(emptyList(), asOther.problems, "another set (DAMAGE_VECTOR_DIR): reported, not failed")
             assertEquals(listOf("a-one-unfilled (steps $last..$last of ${steps.size})"), asOther.notFilled)
         } finally {

@@ -6049,7 +6049,10 @@ class Shell(
         }
         if (comp.hasPending || comp.needsKeyframe) {
             comp.placements = stagePlacements()   // §66: what this frame may draw from the reserve
-            comp.motionOpen = transport.mirror.motionOpen()   // build C1's B-N5: room for the transport's CLOSE
+            // build C1's B-N5: room for the transport's CLOSE — asked of the mirror (and its lock) only while ENGINE is
+            // in force, the one state in which the transport adds a CLOSE (ruling B-N4); elsewhere, today's firmware
+            // included, the assemble path is what it was
+            comp.motionOpen = st.flagsInForce and wm.damage.core.wire.DamageMsg.FLAG_ENGINE != 0 && transport.mirror.motionOpen()
             val assembleT0 = System.nanoTime()
             val assembled = try {
                 comp.assembleFlush(Geometry.rectBudget(st.window))

@@ -986,7 +986,8 @@ class GlassFirmwareSim() : LensPanels {
                     return refuse(c, src, REF_NO_LEASE)
                 }
                 val cache = c.textureCache ?: allocateCache(arm, c)
-                closeMeetingWrite(c, src, 1, 1, now)         // §5.6: an instance whose read ranges it meets closes first
+                // §5.6: an instance whose read ranges it meets closes first, under the engine word (R1.15: 14 without it)
+                if (!closeMeetingWrite(c, src, 1, 1, now)) return refuse(c, src, REF_BUSY)
                 pos = 1
                 while (pos < src.size) {
                     val off = rd16at(src, pos)
@@ -1512,9 +1513,14 @@ class GlassFirmwareSim() : LensPanels {
         }
     }
 
-    /** §5.6's close-on-meet for a cache write: the entries of [msg] from [start] (`off` in units of [unit] bytes). */
-    private fun closeMeetingWrite(c: LensCtx, msg: ByteArray, start: Int, unit: Int, now: Long) {
-        if (!c.motion.anyOpen) return
+    /** §5.6's close-on-meet for a cache write: the entries of [msg] from [start] (`off` in units of [unit] bytes).
+     *  `FIRMWARE.md` §5.11 row 3: on a build with the engine every cache write holds the engine's busy word around its
+     *  close-on-meet test and its write, and ruling R1.15: a write that cannot claim it is refused 14, whole. The model
+     *  has one thread, so only a word another holder keeps fails the claim — planted by a test, as a restart that RAM
+     *  survives with the word held leaves it (`C1-R5-decisions.md` A-S1). False then: the caller refuses 14. */
+    private fun closeMeetingWrite(c: LensCtx, msg: ByteArray, start: Int, unit: Int, now: Long): Boolean {
+        if (engineBuild() && c.motion.wordHeld) return false
+        if (!c.motion.anyOpen) return true
         val spans = ArrayList<MotionSim.Span>()
         var pos = start
         while (pos + 4 <= msg.size) {
@@ -1524,6 +1530,7 @@ class GlassFirmwareSim() : LensPanels {
             pos += 4 + len
         }
         underWord(c) { c.motion.closeMeeting(spans, uptimeTicks(now)) }
+        return true
     }
 
     // ------------------------------------------------------------------ mode 26 (§5.5)
@@ -2286,7 +2293,8 @@ class GlassFirmwareSim() : LensPanels {
         }
         if (!hasData) return true
         val cache = c.textureCache ?: allocateCache(arm, c)
-        closeMeetingWrite(c, list, start, 4, now)           // §5.6: an instance whose read ranges it meets closes first
+        // §5.6: an instance whose read ranges it meets closes first, under the engine word (R1.15: 14 without it)
+        if (!closeMeetingWrite(c, list, start, 4, now)) return refuse(c, msg, REF_BUSY)
         pos = start
         while (pos < list.size) {
             val off = rd16at(list, pos) * 4
@@ -2359,6 +2367,8 @@ class GlassFirmwareSim() : LensPanels {
         const val REF_NO_MEMORY = 11
         const val REF_VALUE = 12
         const val REF_STREAM = 13
+        /** `FIRMWARE.md` §4 / build C1's ruling R1.15: the display gate or the engine's busy word could not be had. */
+        const val REF_BUSY = 14
         /** `FIRMWARE.md` §5.8: 15 the op's own flag not armed (ENGINE for 26, ZWRITE for 25) · 16 no such instance. */
         const val REF_UNARMED = 15
         const val REF_NO_INSTANCE = 16

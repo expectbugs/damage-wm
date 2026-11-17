@@ -377,6 +377,12 @@ abstract class CfwTransportBase(
      *  put on record as another writer's, as a self-test's live write is. Never the shell's paint. [lastDone], when
      *  given, completes with the last message's ack (exceptionally when it fails or the session ends). */
     fun sendMotion(messages: List<ByteArray>, lastDone: CompletableDeferred<Unit>? = null): Boolean {
+        // build C1's ruling B-N6: [lastDone] rides the last message, so with none it would never complete — fail at once
+        if (messages.isEmpty()) {
+            emitNote("motion", "not sent: the program has no message")
+            lastDone?.completeExceptionally(LintError("not sent: the program has no message"))
+            return false
+        }
         val st = _state.value
         if (!st.started || st.flagsInForce and DamageMsg.FLAG_ENGINE == 0) {
             emitNote("motion", "not sent: ${if (!st.started) "no session" else "ENGINE is not in force (flags 0x${st.flagsInForce.toString(16)})"}")
@@ -732,7 +738,7 @@ abstract class CfwTransportBase(
             // carries the ladder's bits drops one stage, as [ladderAtStart] does; this session arms nothing (today's
             // shape), and the wish and DRAW2 are kept for the next start
             if (extraLeft and C1_FLAGS != 0 && ladderArmedStage > 0) {
-                ladderHoldBack()
+                ladderHoldBack(rightReset = true)
                 ladderArmedStage = 0
                 return
             }
@@ -900,6 +906,13 @@ abstract class CfwTransportBase(
     @Volatile private var ladderArmedStage = 0
     /** This session asked for the 256 KiB rung and has it (cleared at each start's op 5). */
     @Volatile private var ladderSizeInForce = false
+    /** Build C1's ruling B-S1 (`C1-R5-decisions.md`): LEFT's last link end of the kind a lens restart looks like from
+     *  here ([REBOOT_LIKE_ENDS]), on the phone's clock, and its reason. RIGHT's restarts show in its uptime; LEFT's
+     *  show only this way. Read by the ladder's hold-back alone ([leftEndDue]); today's hold-back (DRAW2) does not. */
+    @Volatile private var leftEndAtMs: Long? = null
+    @Volatile private var leftEndReason = ""
+    /** The LEFT link end a ladder hold-back already decided on, so it drops one stage once. */
+    @Volatile private var heldBackForLeftEndAt: Long? = null
 
     /** The ladder stage a flag set [set] leaves the glasses at, with this session's size (B-N4: what this build arms —
      *  a rung counts only when its own change goes out): ENGINE is stage 3's, the 256 KiB size stage 2's, ZWRITE
@@ -942,17 +955,39 @@ abstract class CfwTransportBase(
         return resetAt != heldBackForResetAt && resetAt >= armedAt - CAPABILITY_REASK_MS && resetAt - armedAt < HOLD_BACK_MS
     }
 
+    /** Build C1's ruling B-S1: while a rung of the ladder is armed, LEFT's link ending as a restart would
+     *  ([leftEndAtMs]) within [HOLD_BACK_MS] after the last arming counts as a reset of that lens, once — RIGHT's
+     *  uptime cannot show a restart of LEFT alone. A plain radio drop of LEFT inside that window reads the same and
+     *  costs one stage as well ([ladderHoldBack] says so; `c1=N` undoes it). Nothing of the ladder armed: no effect. */
+    private fun leftEndDue(): Boolean {
+        if (ladderArmedStage == 0) return false
+        val endAt = leftEndAtMs ?: return false
+        val armedAt = lastArmedAtMs ?: return false
+        return endAt != heldBackForLeftEndAt && endAt >= armedAt && endAt - armedAt < HOLD_BACK_MS
+    }
+
     /** One stage down after a reset the ladder is blamed for: the bit armed last (ENGINE, then the 256 KiB size, then
-     *  ZWRITE) goes, the rest stays — with the hold-back's fault and `keeper` note. */
-    private fun ladderHoldBack(): Int {
-        val resetAt = lastResetAtMs!!
+     *  ZWRITE) goes, the rest stays — with the hold-back's fault and `keeper` note. [rightReset]: RIGHT's uptime showed
+     *  the reset; otherwise it is LEFT's link end (B-S1), and the note says that is what was read. One start drops one
+     *  stage: a LEFT end due at the same time is decided with RIGHT's reset. */
+    private fun ladderHoldBack(rightReset: Boolean = holdBackDue()): Int {
         val armedAt = lastArmedAtMs!!
-        heldBackForResetAt = resetAt
+        val leftEnd = leftEndAtMs?.takeIf { leftEndDue() }
+        if (leftEnd != null) heldBackForLeftEndAt = leftEnd
         val was = ladderArmedStage
         val to = minOf(c1Stage, was - 1)
         c1Stage = to
-        val text = "hold-back: the glasses reset ${(resetAt - armedAt) / 1000} s after the C1 ladder armed stage $was — " +
-            "stage $to from here (${ladderSays(to)}); DRAW2 and the rest are armed as before (probe c1=$was to try again)"
+        val why = if (rightReset) {
+            val resetAt = lastResetAtMs!!
+            heldBackForResetAt = resetAt
+            "the glasses reset ${(resetAt - armedAt) / 1000} s after the C1 ladder armed stage $was"
+        } else {
+            "LEFT's link ended as a restart of that lens would ($leftEndReason) ${(leftEnd!! - armedAt) / 1000} s after the " +
+                "C1 ladder armed stage $was — LEFT cannot report its uptime, so the end is taken as its restart (a plain " +
+                "radio drop of LEFT reads the same)"
+        }
+        val text = "hold-back: $why — stage $to from here (${ladderSays(to)}); DRAW2 and the rest are armed as before " +
+            "(probe c1=$was to try again)"
         emitNote("keeper", text)
         emitFault("holdback", text)
         return to
@@ -960,12 +995,13 @@ abstract class CfwTransportBase(
 
     /** Build C1 (spec §6.1): the stage this start arms, decided ONCE and before the cache size is asked (stage 2 is a
      *  size). A hold-back due on an arming that carried the ladder drops one stage and arms the rest. A hold-back due on
-     *  an arming that carried none of it is [armFeatures]' as before, and the ladder adds nothing to this start. */
+     *  an arming that carried none of it is [armFeatures]' as before, and the ladder adds nothing to this start. Build
+     *  C1's ruling B-S1: LEFT's restart-like link end after an arming that carried the ladder drops one stage too. */
     private fun ladderAtStart(caps: DamageMsg.Caps): Int {
         val stage = c1Stage
         val at = when {
             stage == 0 || !isC1(caps) -> 0
-            !holdBackDue() -> stage
+            !holdBackDue() && !leftEndDue() -> stage
             ladderArmedStage == 0 -> 0
             else -> ladderHoldBack()
         }
@@ -989,9 +1025,19 @@ abstract class CfwTransportBase(
         if (m.outcome == DamageMsg.OUTCOME_REFUSED) {
             // an unknown sub's body names no slot (ruling R1.8), and 0xFF (a CLOSE of all) names none of the four
             val slot = m.slot ?: return
+            val reason = m.reason?.let { DamageMsg.REASONS[it] ?: "reason $it" } ?: "no reason"
+            val tag = m.tag
+            if (tag != null) {
+                // build C1's ruling B-N2: a body with a tag (a PLAY's) is matched by the mirror's record of THAT play —
+                // its END for (slot, tag, ordinal 0), written when the mirror took it and kept for the session, a close
+                // since included — not by what the slot holds when the notify arrives (a flush tee'd in between may
+                // have closed it). Since B-N11 a tag is one play's.
+                synchronized(mirrorSim) { mirrorSim.motionEndCrc(slot, tag, 0) } ?: return
+                motionDivergence(slot to tag, "slot $slot refused by RIGHT ($reason) — the mirror took that PLAY (tag 0x%04x ordinal 0)".format(tag))
+                return
+            }
             val open = synchronized(mirrorSim) { mirrorSim.motionOpenIn(Arm.RIGHT, slot) } ?: return
-            if (m.tag != null && m.tag != open.first) return
-            motionDivergence(slot to open.first, "slot $slot refused by RIGHT (${m.reason?.let { DamageMsg.REASONS[it] ?: "reason $it" } ?: "no reason"}) " +
+            motionDivergence(slot to open.first, "slot $slot refused by RIGHT ($reason) " +
                 "while the mirror holds tag 0x%04x ordinal ${open.second} open there".format(open.first))
             return
         }
@@ -1299,7 +1345,12 @@ abstract class CfwTransportBase(
     private fun leaseLinkEnded(now: Long, reason: String = "") = synchronized(leaseLog) {
         for ((arm, l) in leaseLog) {
             while (l.acquires.isNotEmpty() && now - l.acquires.last() < LINK_SETTLE_MS) l.acquires.removeLast()
-            if (reason.startsWith(arm.name) && REBOOT_LIKE_ENDS.any { it in reason }) l.timedOut = true
+            if (reason.startsWith(arm.name) && REBOOT_LIKE_ENDS.any { it in reason }) {
+                l.timedOut = true
+                // build C1's ruling B-S1: LEFT cannot report its uptime, so this end is the only sign of a restart of
+                // that lens alone — kept for the ladder's hold-back ([leftEndDue])
+                if (arm == Arm.LEFT) { leftEndAtMs = now; leftEndReason = reason }
+            }
         }
     }
 
@@ -1595,6 +1646,7 @@ abstract class CfwTransportBase(
                     t.uptimeMs?.let { noteUptime(it) }
                     t.motionSeq?.let { noteMotionGaps(it) }
                     zwriteJudge(t)
+                    cacheBusyJudge(t)
                     t.requestId?.let { id ->
                         // a FLAGS_SET reply (id 0) is taken only when it answers the set being armed:
                         // RIGHT answers every control request twice (2026-09-15 12:54, `HANDOFF.md`
@@ -2340,6 +2392,7 @@ abstract class CfwTransportBase(
             synchronized(mirrorSim) { mirrorSim.motionSessionStart() }
             synchronized(motionKeyframes) { motionKeyframes.clear() }
             zwriteSessionStart()
+            cacheBusySessionStart()
 
             // 1b. On a Damage build, the reset check (`FORK.md` §3.2): RIGHT's uptime, read here
             //     so that the carry decision at the lease below knows whether the right lens
@@ -3303,6 +3356,16 @@ abstract class CfwTransportBase(
             }
         }
         resend?.let { w ->
+            // build C1's ruling B-N3: never an image in answer to a refusal while the glasses refuse every frame (Silent
+            // Mode, `HANDOFF.md` §36) or hold no lease (the cache went with it): the wake's session start, and the next
+            // acquire's, upload the atlas again; the shell's count covers the rest. ONE read of the state.
+            val st = _state.value
+            if (st.glassesSilent || !st.leaseHeld) {
+                emitNote("glass", "mode 25 refused by RIGHT (${ref!!.describe()}) — its ${w.list19.size} B list is not sent again: " +
+                    (if (st.glassesSilent) "the glasses are in Silent Mode" else "no lease is held") +
+                    ", and the cache is written again when a lease is next taken; this session writes mode 19 from here")
+                return
+            }
             emitNote("glass", "mode 25 refused by RIGHT (${ref!!.describe()}) — its ${w.list19.size} B list goes again as mode 19; " +
                 "this session writes mode 19 from here")
             if (!imageQueue.trySend(ImgWork.Raw(w.epoch, w.list19, null)).isSuccess)
@@ -3310,6 +3373,50 @@ abstract class CfwTransportBase(
         }
         withdrawn?.let { emitNote("glass", "a mode-25 refusal on record ($it) after its message was taken as landed — " +
             "this session writes mode 19 from here; the shell's count re-sends a write it does not see") }
+    }
+
+    // ------------------------------------------------- build C1's A-S1, the phone's half (`C1-R5-decisions.md`)
+    /* A restart of the glasses that RAM survives while the engine's busy word is held leaves the word held for the
+     * rest of that boot (`FIRMWARE.md` §5.9's open survival point): every cache write is refused 14 until the glasses
+     * restart, and nothing the phone sends clears it. The phone reads it from RIGHT's refusal record (fields 23–25) in
+     * each telemetry record: a NEW record naming a cache write (mode 12, 19 or 25) refused 14 counts one; a cache write
+     * taken (field 17 moved) or refused for another reason ends the run. Two refusals with no present between them
+     * leave one record, so the count is a lower bound: the notice can come later than the third refusal, never
+     * earlier. At [CACHE_BUSY_RUN] in a row it is said ONCE per session, as a fault (the shell journals it and shows a
+     * notice), and nothing is sent because of it. Only on a build with the engine (features bit 7): elsewhere a cache
+     * write holds no engine word, so no 14 names one. The session's first record is the baseline: a refusal already on
+     * record (sticky) is not this session's. */
+    private val busyLock = Any()
+    /** The refusal record (mode, reason, sequence) and field 17 the last RIGHT record carried. Kept across sessions. */
+    private var busyRecord: Triple<Int, Int, Long>? = null
+    private var busyGen: Long? = null
+    /** Cache writes refused 14 in a row as the records show them, this session. */
+    private var busyRun = 0
+    private var busySaid = false
+    private var busyBaseline = true
+
+    private fun cacheBusySessionStart() = synchronized(busyLock) { busyRun = 0; busySaid = false; busyBaseline = true }
+
+    private fun cacheBusyJudge(t: DamageMsg.Telemetry) {
+        if (damageCaps?.has(DamageMsg.FEATURE_ENGINE) != true) return
+        val ref = t.refusal
+        val rec = ref?.let { Triple(it.mode and 0x7F, it.reason, it.seq) }
+        val gen = t.cacheGen
+        var say: Int? = null
+        synchronized(busyLock) {
+            val newRecord = rec != null && rec != busyRecord
+            val taken = gen != null && busyGen != null && gen != busyGen
+            busyRecord = rec
+            if (gen != null) busyGen = gen
+            if (busyBaseline) { busyBaseline = false; return }
+            if (taken) busyRun = 0
+            if (newRecord && rec!!.first in CACHE_WRITE_MODES) busyRun = if (rec.second == REASON_BUSY) busyRun + 1 else 0
+            if (busyRun >= CACHE_BUSY_RUN && !busySaid) { busySaid = true; say = busyRun }
+        }
+        say?.let { n ->
+            emitFault("uploads", "the glasses are refusing uploads and need a restart: $n cache writes in a row were refused " +
+                "as busy (reason 14, the last ${ref!!.describe()}); nothing is sent again because of it")
+        }
     }
 
     /** The rects each op of a batch writes, per lens (left, right) — [withMotionCloses]' bound. */
@@ -3821,6 +3928,12 @@ abstract class CfwTransportBase(
         private const val COUNT_ASK_BOUND = 3
         /** `FORK.md` §3.2: a reset this soon after an arming disarms the feature until asked again. A placeholder until measured (M0.5 was dropped); Adam's to set. */
         private const val HOLD_BACK_MS = 120_000L
+        /** Build C1's A-S1 (`C1-R5-decisions.md`): the cache writes refused 14 in a row that are said, once a session. */
+        private const val CACHE_BUSY_RUN = 3
+        /** `FIRMWARE.md` §4 and §5.9: the cache writes — modes 12 and 19, and 25 (mode 19 deflated). */
+        private val CACHE_WRITE_MODES = setOf(12, 19, CfwModes.ZWRITE_MODE)
+        /** `DamageMsg.REASONS` 14 (`FIRMWARE.md` §4; ruling R1.15): a cache write that could not claim the engine word. */
+        private const val REASON_BUSY = 14
         /** Build C1: the ladder's top stage (spec §6.1) and the two flag bits it owns. */
         const val C1_TOP_STAGE = 3
         /** The ladder's stage whose own change is the 256 KiB cache (spec §6.1). */
