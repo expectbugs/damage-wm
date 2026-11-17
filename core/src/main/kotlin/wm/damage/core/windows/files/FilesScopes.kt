@@ -1,6 +1,5 @@
 package wm.damage.core.windows.files
 
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
@@ -42,21 +41,25 @@ class FilesScopes(
     /** Files' records as the PC holds them now (the shared sort and hidden). */
     private val state: () -> WindowState,
     private val booksDir: () -> String,
+    /** The scopes some connection holds now (`AppNet.held`): a job's end reads again only their folders (L1 F10). */
+    private val held: () -> Set<String> = { emptySet() },
     override val describeOn: Executor = Executors.newSingleThreadExecutor { r ->
         Thread(r, "files-describe").apply { isDaemon = true }
     },
 ) : AppNet.Described {
     private val paged = Paged()
     private val listeners = CopyOnWriteArrayList<() -> Unit>()
-    /** The folders a page was described of (read again at each job's end), at most [KNOWN] of them. */
-    private val known = ConcurrentHashMap<String, Long>()
 
     init {
         jobs.addListener { j ->
             if (j.running) fire() else describeOn.execute {
-                // a job's end: each folder held is read again; one the job changed moves its version, and the lane
-                // describes every page of it a connection holds again (a folder that no longer lists moves too)
-                for (dir in known.keys.toList()) try {
+                // a job's end: each folder a connection holds is read again (L1 F10: no other, so an idle disk sleeps
+                // on); one the job changed moves its version, and the lane describes every page of it a connection
+                // holds again (a folder that no longer lists moves too)
+                val dirs = try { held().mapNotNullTo(HashSet()) { folderOf(it) } } catch (e: Exception) {
+                    Log.w(TAG, "after a job, the held folders could not be read: ${e.message}"); emptySet()
+                }
+                for (dir in dirs) try {
                     paged.describe(listing(dir), 0) { read(dir, 0, unreadableToo = true) }
                 } catch (e: Exception) {
                     Log.w(TAG, "after a job, $dir could not be read again: ${e.message}")
@@ -83,8 +86,6 @@ class FilesScopes(
             if (w != FilesCore.WINDOW || !listing.startsWith(FOLDER)) return null
             val dir = listing.removePrefix(FOLDER)
             if (!dir.startsWith("/")) return null
-            known[dir] = System.nanoTime()
-            if (known.size > KNOWN) known.entries.minByOrNull { it.value }?.let { known.remove(it.key) }
             return paged.describe(listing, n) { read(dir, n) }
         }
         if (scope.startsWith(TEXT)) {
@@ -163,9 +164,12 @@ class FilesScopes(
         const val PDF = "files/pdf:"
         /** Today's text chunk (the glasses' viewer reads the same size). */
         const val CHUNK = 128 * 1024
-        private const val KNOWN = 64
 
         private fun listing(dir: String) = "$FOLDER$dir"
+
+        /** The folder a page scope of Files names, or null. */
+        private fun folderOf(scope: String): String? =
+            Paged.parse(scope)?.takeIf { it.first == FilesCore.WINDOW && it.second.startsWith(FOLDER) }?.second?.removePrefix(FOLDER)
 
         fun folderScope(dir: String, n: Int) = Paged.scope(FilesCore.WINDOW, listing(dir), n)
 

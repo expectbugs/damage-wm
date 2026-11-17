@@ -15,6 +15,7 @@ import kotlinx.serialization.json.Json
 import wm.damage.core.gfx.Gray8
 import wm.damage.core.gfx.IconRaster
 import wm.damage.core.gfx.ImageDecoder
+import wm.damage.core.shell.Persistence
 import wm.damage.core.util.Log
 
 /**
@@ -36,6 +37,8 @@ class LocalFilesProvider(
     private val trashDir: Path,
     private val decoder: ImageDecoder? = null,
     private val extraRoots: List<Pair<String, String>> = emptyList(),
+    /** Writes the trash's manifest whole (L1 B-S6: atomically, synced); injected for tests. */
+    private val manifestWriter: (Path, String) -> Unit = { f, text -> Persistence.writeAtomic(f, text, sync = true) },
     /** Injected for tests: mounts source + exec runner. */
     private val mountsFile: Path = Path.of("/proc/mounts"),
     private val exec: (List<String>) -> ExecResult = ::runExec,
@@ -49,6 +52,7 @@ class LocalFilesProvider(
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val manifestPath: Path get() = trashDir.resolve("manifest.json")
     private val trashLock = Any()
+    private val trashRoot: Path = trashDir.toAbsolutePath().normalize()
 
     // ------------------------------------------------------------- locations
     override fun locations(): List<FLocation> {
@@ -83,8 +87,9 @@ class LocalFilesProvider(
         } catch (e: Exception) {
             Log.w("files", "cannot read $mountsFile: ${e.message}")
         }
-        // Trash appears once something is in it
-        if (trashList().isNotEmpty()) out.add(FLocation("Trash", trashDir.toString(), "trash"))
+        // Trash appears once something is in it, or when its manifest cannot be read (opening it says why)
+        val trashShown = try { trashList().isNotEmpty() } catch (e: IllegalStateException) { true }
+        if (trashShown) out.add(FLocation("Trash", trashDir.toString(), "trash"))
         return out
     }
 
@@ -245,24 +250,43 @@ class LocalFilesProvider(
      *  pre-op manifest — the same view it had a second earlier. */
     @Volatile private var manifestCache: Manifest? = null
 
+    /** The manifest on disk (none yet: empty). L1 B-S6: one that cannot be read or decoded throws with the reason, so
+     *  trash, restore and delete forever refuse instead of writing a manifest without its entries. */
     private fun readManifest(): Manifest = synchronized(trashLock) {
-        val m = if (!Files.isRegularFile(manifestPath)) Manifest() else try {
+        val m = if (!Files.exists(manifestPath, LinkOption.NOFOLLOW_LINKS)) Manifest() else try {
             json.decodeFromString(Manifest.serializer(), Files.readString(manifestPath))
         } catch (e: Exception) {
-            Log.e("files", "trash manifest unreadable — treating as empty (files stay on disk)", e)
-            Manifest()
+            throw IllegalStateException("the trash's manifest $manifestPath cannot be read (${e::class.simpleName}: " +
+                "${e.message}); trash, restore and delete forever are refused until it reads", e)
         }
         manifestCache = m
         m
     }
 
-    private fun writeManifest(m: Manifest) = synchronized(trashLock) {
-        Files.createDirectories(trashDir)
-        val tmp = manifestPath.resolveSibling("manifest.json.${System.nanoTime()}.tmp")
-        Files.writeString(tmp, json.encodeToString(Manifest.serializer(), m))
-        Files.move(tmp, manifestPath, StandardCopyOption.REPLACE_EXISTING)
+    /** L1 B-S6: [m] written whole; when it cannot be, [undo] puts the files back as the manifest on disk names them
+     *  and the refusal says so. */
+    private fun writeManifest(m: Manifest, undo: () -> String) = synchronized(trashLock) {
+        try {
+            manifestWriter(manifestPath, json.encodeToString(Manifest.serializer(), m))
+        } catch (x: Exception) {
+            throw IllegalStateException("the trash's manifest could not be written (${x::class.simpleName}: ${x.message}); ${undo()}", x)
+        }
         manifestCache = m
     }
+
+    /** L1 B-S6: [from] moved back to [to] after the manifest could not be written; the words for the refusal. */
+    private fun putBack(from: Path, to: Path): String = try {
+        moveEntry(from, to, allowCrossDeviceDirCopy = false, what = "the way back crosses volumes")
+        "${to.fileName} was moved back to $to"
+    } catch (e: IOException) {
+        "${to.fileName} could not be moved back (${e.message}); it is at $from"
+    }
+
+    /** L1 B-M2: a write at or under the trash's own folder would leave its manifest naming what is no longer there. */
+    override fun refuseTrashStore(path: String, what: String) =
+        require(!Path.of(path).toAbsolutePath().normalize().startsWith(trashRoot)) {
+            "$what refused: $path is inside the trash's own folder; use Restore or Delete forever"
+        }
 
     // Every trash op holds [trashLock] across its WHOLE read-modify-write:
     // the provider is shared by the local shell and the phone's channel
@@ -271,7 +295,8 @@ class LocalFilesProvider(
     override fun trash(path: String): String = synchronized(trashLock) {
         val p = Path.of(path).toAbsolutePath()
         require(Files.exists(p, LinkOption.NOFOLLOW_LINKS)) { "$path does not exist" }
-        require(!p.startsWith(trashDir)) { "already in the trash" }
+        refuseTrashStore(path, "Move to Trash")
+        val m = readManifest()                     // L1 B-S6: an unreadable manifest refuses before anything moves
         val a = Files.readAttributes(p, BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)
         val id = "${System.currentTimeMillis()}-${counter.incrementAndGet()}"
         val destDir = trashDir.resolve(id)
@@ -281,7 +306,8 @@ class LocalFilesProvider(
             what = "trash of a folder on another volume — delete it on the PC instead")
         val e = FTrashEntry(id, p.fileName.toString(), p.toString(), a.isDirectory,
             if (a.isDirectory) 0 else a.size(), System.currentTimeMillis())
-        writeManifest(Manifest(readManifest().entries + e))
+        // a trashed file the manifest does not name would be lost to every Restore: it goes back
+        writeManifest(Manifest(m.entries + e)) { putBack(dest, p).also { destDir.toFile().delete() } }
         id
     }
 
@@ -298,7 +324,7 @@ class LocalFilesProvider(
         dest.parent?.let { Files.createDirectories(it) }
         moveEntry(src, dest, allowCrossDeviceDirCopy = false,
             what = "restore of a folder across volumes — move it on the PC instead")
-        writeManifest(Manifest(m.entries.filterNot { it.id == id }))
+        writeManifest(Manifest(m.entries.filterNot { it.id == id })) { putBack(dest, src) }   // the manifest names it still
         try { Files.deleteIfExists(trashDir.resolve(id)) } catch (e2: IOException) {
             Log.w("files", "empty trash slot $id not removed: ${e2.message}")
         }
@@ -309,12 +335,13 @@ class LocalFilesProvider(
         val m = readManifest()
         require(m.entries.any { it.id == id }) { "no trash entry $id" }
         deleteRecursively(trashDir.resolve(id))
-        writeManifest(Manifest(m.entries.filterNot { it.id == id }))
+        writeManifest(Manifest(m.entries.filterNot { it.id == id })) { "it was deleted; its entry stays until Delete forever runs again" }
     }
 
     // ------------------------------------------------------------------ ops
     override fun rename(path: String, newName: String): String {
         require(newName.isNotBlank() && !newName.contains('/')) { "'$newName' is not a valid name" }
+        refuseTrashStore(path, "a rename")
         val p = Path.of(path)
         val dest = p.resolveSibling(newName)
         require(!Files.exists(dest, LinkOption.NOFOLLOW_LINKS)) { "$newName already exists here" }
@@ -324,6 +351,7 @@ class LocalFilesProvider(
 
     override fun mkdir(dir: String, name: String): String {
         require(name.isNotBlank() && !name.contains('/')) { "'$name' is not a valid name" }
+        refuseTrashStore(dir, "a new folder")
         val dest = Path.of(dir).resolve(name)
         require(!Files.exists(dest, LinkOption.NOFOLLOW_LINKS)) { "$name already exists here" }
         Files.createDirectory(dest)
@@ -335,6 +363,7 @@ class LocalFilesProvider(
     /** S1-2 Q5 (the spec's §4.1): a counted copy — a tree is walked first ("counting"), then each file's bytes are
      *  added as it lands ("copying"; a file is copied whole as before, so one large file shows its bytes at its end). */
     override fun copy(src: String, destDir: String, progress: FilesProgress): String {
+        refuseTrashStore(destDir, "a copy")
         val s = Path.of(src)
         val dest = Path.of(destDir).resolve(s.fileName.toString())
         require(!Files.exists(dest, LinkOption.NOFOLLOW_LINKS)) { "${s.fileName} already exists there" }
@@ -363,6 +392,8 @@ class LocalFilesProvider(
 
     /** S1-2 Q5: a rename is at once; a file moved across volumes is a copy, its bytes at its end. */
     override fun move(src: String, destDir: String, progress: FilesProgress): String {
+        refuseTrashStore(src, "a move")
+        refuseTrashStore(destDir, "a move")
         progress.at(0, null, "moving")
         val s = Path.of(src)
         val dest = Path.of(destDir).resolve(s.fileName.toString())

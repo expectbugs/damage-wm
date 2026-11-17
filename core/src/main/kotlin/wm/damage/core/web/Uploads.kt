@@ -21,16 +21,18 @@ import wm.damage.core.util.Log
  * Context for the reader: Damage is Adam's own window manager for his own glasses, phone and PC on his own network.
  * Build S1-2, package Q2 (the spec's §2.4 "Uploads", §5 V4; `CONTRACT.md` §9.4): `PUT /blob/upload/<id>` on the web
  * interface listener. The id is single use, minted by a window's `upload` program op for one device and one of its
- * connections ([mint]). The body goes to `.<name>.damage-upload-<id>.part` in the destination folder and only a whole
- * body is moved to its name, without ever replacing a file there:
+ * connections ([mint]). The body goes to `.damage-upload-<id>.part` in the destination folder and only a whole body
+ * is given a name, never replacing a file there:
  *  - `Content-Length` is required, and must be the size the op named;
  *  - the destination's usable space is read once, before a byte of the body (507 with the reason);
- *  - an existing name is refused (409 with the reason) — before the body, and again at the move, which links the
- *    temp file to its name (refused by the filesystem when the name exists) and only then removes the temp file;
+ *  - the temp file is linked to the asked name, or, where a file has it (L1: an upload never replaces), to the first
+ *    free numbered name, `survey (1).bin`, `survey (2).bin`, … — the filesystem refuses a name that exists, so a
+ *    name that appears during the upload is never replaced either; the 201 answer names the file placed;
  *  - a cut-off body, a write error or a full disk deletes the temp file and answers with the reason.
  * The uploads in flight are listed in `<data>/uploads.jsonl`, so a start deletes a temp file a stopped process left
- * ([atStart], said). A ticket whose connection ends before its body begins is cancelled ([connectionEnded]); a body
- * that stalls holds its socket until TCP keepalive ends it or the page aborts it (no timeout).
+ * ([atStart], said). A ticket whose connection ends before its body begins is cancelled ([connectionEnded]), as is
+ * one the Files slot's supervisor ends ([cancel]); a body that stalls holds its socket until TCP keepalive ends it or
+ * the page aborts it (no timeout).
  */
 class Uploads(
     /** The data directory (`uploads.jsonl`); null = in memory only (a test). */
@@ -82,6 +84,9 @@ class Uploads(
         return id
     }
 
+    /** L1: ticket [id] is cancelled if its body has not begun (the Files slot's supervisor; its owner ends the job). */
+    fun cancel(id: String): Boolean = (tickets.remove(id) != null).also { if (it) Log.i(TAG, "upload $id cancelled: no body began") }
+
     /** [conn] ended: each ticket it minted whose body has not begun is cancelled (its owner told). */
     fun connectionEnded(conn: Long) {
         for (t in tickets.values.filter { it.conn == conn }) {
@@ -106,14 +111,12 @@ class Uploads(
         }
         if (length == null) return failed(411, "an upload needs its Content-Length")
         if (length != t.size) return failed(400, "the body is $length bytes; the upload was asked for ${t.size}")
-        val dest = t.folder.resolve(t.name)
-        if (Files.exists(dest)) return failed(409, "${t.name} already exists in ${t.folder}; nothing was replaced")
         // the space, read once, before a byte of the body
         val free = try { usable(t.folder) } catch (e: IOException) {
             return failed(500, "the free space of ${t.folder} could not be read (${e::class.simpleName}: ${e.message})")
         }
         if (free < length) return failed(507, "not enough space in ${t.folder}: ${t.name} is $length bytes and $free are free")
-        val part = t.folder.resolve(".${t.name}.damage-upload-$id.part")
+        val part = t.folder.resolve(".damage-upload-$id.part")          // B-N10: no name in it (a long name fits)
         if (!listed(id, part)) return failed(500, "${LIST_FILE} could not be written; the upload was not begun")
         read = true
         try {
@@ -132,16 +135,18 @@ class Uploads(
                 return failed(400, "the body ended after $got of $length bytes; nothing was kept")
             }
             Files.newByteChannel(part, StandardOpenOption.WRITE).use { (it as java.nio.channels.FileChannel).force(true) }
-            try {
-                place(part, dest)
-            } catch (e: FileAlreadyExistsException) {
+            val dest = (0..MAX_NUMBER).firstNotNullOfOrNull { n ->
+                val d = t.folder.resolve(numbered(t.name, n))
+                try { place(part, d); d } catch (e: FileAlreadyExistsException) { null }    // taken: the next number
+            }
+            if (dest == null) {
                 drop(id, part)
-                return failed(409, "${t.name} appeared in ${t.folder} during the upload; nothing was replaced")
+                return failed(409, "${t.name} and its numbered names up to ($MAX_NUMBER) exist in ${t.folder}; nothing was replaced")
             }
             drop(id, part)                     // the link's temp name (a rename left none)
             Log.i(TAG, "upload $id placed: $dest ($length bytes)")
             end(t, End.Done(dest, length))
-            return Reply(201, buildJsonObject { put("name", t.name); put("bytes", length) }.toString())
+            return Reply(201, buildJsonObject { put("name", dest.fileName.toString()); put("bytes", length) }.toString())
         } catch (e: IOException) {
             drop(id, part)
             val full = e.message?.contains("No space left", ignoreCase = true) == true
@@ -225,6 +230,17 @@ class Uploads(
         private const val TAG = "uploads"
         const val LIST_FILE = "uploads.jsonl"
         private const val BUFFER = 64 * 1024
+
+        /** The most numbered names an upload tries beside its own. */
+        const val MAX_NUMBER = 999
+
+        /** [name]'s [n]th numbered form (0: the name): `survey.bin` → `survey (1).bin`; a name with no extension, or a
+         *  dot name like `.bashrc`, takes the number at its end. */
+        fun numbered(name: String, n: Int): String {
+            if (n == 0) return name
+            val dot = name.lastIndexOf('.')
+            return if (dot <= 0) "$name ($n)" else "${name.substring(0, dot)} ($n)${name.substring(dot)}"
+        }
 
         fun validName(n: String): Boolean =
             n.isNotEmpty() && n != "." && n != ".." && '/' !in n && '\u0000' !in n && n.toByteArray(Charsets.UTF_8).size <= 255
