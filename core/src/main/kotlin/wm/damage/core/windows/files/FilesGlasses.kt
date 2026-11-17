@@ -179,6 +179,7 @@ class FilesGlasses(
                 { heightPref?.toString() ?: "global" },
                 { v ->
                     heightPref = v.toIntOrNull()                  // the field first, the op after
+                    wrote += FilesCore.SIZE
                     source.act(FilesCore.sizeDraft(heightPref))
                 }),
         )
@@ -186,9 +187,14 @@ class FilesGlasses(
 
     // ---- S1-2 Q5: Files' records through [source] ----
 
+    /** The rows this presenter wrote since it started (L1 R1 RS FIX 1). */
+    private val wrote = HashSet<String>()
+
     /** L1 F6 (Torrents' rule, in place of a count of ops in flight that one lost answer could hold for good): a row
-     *  this device wrote is its own echo — the view holds it already, or newer — and is not taken from the record. */
-    private fun theirs(st: wm.damage.core.app.WindowState, row: String): Boolean = st.itemNamed(row).let { it != null && it.by != device }
+     *  this presenter wrote is its own echo — the view holds it already, or newer — and is not taken from the record.
+     *  A row this device wrote before this presenter started (a restart) is taken: Files keeps no local copy of it. */
+    private fun theirs(st: wm.damage.core.app.WindowState, row: String): Boolean =
+        st.itemNamed(row).let { it != null && (it.by != device || row !in wrote) }
 
     /** Another device's values of the rows onto this view's fields (on the shell loop). A sort or hidden that moved
      *  re-seats the browse cursor on the same entry name (§5 F5); hidden relists. True when anything moved. */
@@ -878,6 +884,7 @@ class FilesGlasses(
     /** S1-2 Q5: Copy or Cut — the field first, then the op on Files' clipboard row. */
     private fun setClip(verb: ClipVerb, path: String) {
         clip = verb to path
+        wrote += FilesCore.CLIP
         source.act(FilesCore.clipDraft(if (verb == ClipVerb.CUT) "cut" else "copy", path))
         services?.requestRender(this)
     }
@@ -893,11 +900,13 @@ class FilesGlasses(
         if (clip != null) add("Paste here", dn(clip!!.second.substringAfterLast('/'))) { paste(cwd) }
         add("Sort", sort.name.lowercase()) {
             sort = Sort.entries[(sort.ordinal + 1) % Sort.entries.size]
+            wrote += FilesCore.SORT
             source.act(FilesCore.sortDraft(sort.name.lowercase()))   // S1-2 Q5: shared
             services?.requestRender(this)
         }
         add("Hidden files", if (showHidden) "on" else "off") {
             showHidden = !showHidden
+            wrote += FilesCore.HIDDEN
             source.act(FilesCore.hiddenDraft(showHidden))            // S1-2 Q5: shared
             refreshList()
         }

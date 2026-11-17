@@ -155,6 +155,31 @@ class FilesArrangementsTest {
         assertEquals("first.txt", services.onLoop { w.trashCursorName() }, "the cursor stays on the entry, never on the index")
     }
 
+    /** Pin (L1 R1 RS FIX 1): a presenter started over a record that holds this device's own Sort, Hidden, Size and cut
+     *  (written before a restart: Files keeps no local copy of them) shows them. */
+    @Test
+    fun aRestartedPresenterShowsThisDevicesOwnRows(): Unit = runBlocking {
+        val cut = tree.file("r/a.txt", "1")
+        tree.file("r/b.txt", "x".repeat(300))
+        tree.file("r/.z", "z")
+        val dir = tree.home.resolve("r").toString()
+        val core = FilesCore()
+        val rec = wm.damage.core.app.MemoryRecord(FilesCore.ACTIONS)               // writes as this device (`local`)
+        val src = rig.keep(LocalWindowSource(core, rec))
+        for (d in listOf(FilesCore.sortDraft("size"), FilesCore.hiddenDraft(true), FilesCore.sizeDraft(352),
+            FilesCore.clipDraft("cut", cut))) src.act(d)                              // the presenter before the restart
+        rec.executor.call {}
+        val services = MenuServices()
+        val g = FilesGlasses(FakeText(), core, src, wm.damage.core.windows.files.SlottedFiles(tree.files,
+            wm.damage.core.windows.files.FilesJobs()), scope).also { it.onRegistered(services) }
+        assertEquals(352, g.preferredHeight, "the Size row")
+        assertTrue(services.onLoop { g.open("path:$dir/") })
+        readerAwait("listed with the dotfile (Hidden)") { services.onLoop { g.summary().detail } == "0 folders · 3 files" }
+        assertTrue(services.onLoop { g.title() }.endsWith("cut: a.txt"), "the cut: ${services.onLoop { g.title() }}")
+        services.onLoop { g.view().let { v -> (v as WindowView.ListView).onCommit(v.rowCount() - 1) } }
+        assertEquals("size", services.menus.last().items.single { it.label == "Sort" }.detail, "the Sort row")
+    }
+
     @Test
     fun theGlassesSortRowReachesThePcRecord_andACutPastedThereIsClearedByThePcsCore(): Unit = runBlocking {
         val a = arrange()
