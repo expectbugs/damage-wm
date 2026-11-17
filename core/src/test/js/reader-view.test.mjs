@@ -54,7 +54,8 @@ function page() {
     pcNow: () => S.clock,
     desc: () => undefined,
     sub(s) { subs.push(s); }, unsub() {},
-    sendQueued: (d) => { sent.push(d); return true; },
+    answers: [],
+    sendQueued: (d, onAnswer) => { sent.push(d); ctx.answers.push(onAnswer); return true; },
     canAct: () => (S.reach.ok ? null : 'PC not answering since 9:00'),
     say() {}, sayOnce() {}, go() {}, confirm: async () => false,
     actionButton: () => new El('button'),
@@ -216,3 +217,18 @@ test('L1 R2 B1: a jump\'s time is the click\'s, not its part\'s arrival', () => 
   assert.deepEqual(places(ctx).map((d) => d.at), [2000]);
 });
 
+test('L1 R2 B2: a place op answered `ended` goes again at the next welcome, with its input\'s time', () => {
+  const { ctx, v, root } = twoParts();
+  const pane = root.find('reading')[0];
+  ctx.S.clock = 2000;
+  for (const fn of pane.on.wheel) fn();
+  for (const fn of pane.on.scroll) fn();
+  winOn.pagehide(); // the save point: one op
+  assert.deepEqual(places(ctx).map((d) => d.at), [2000]);
+  ctx.answers.at(-1)({ a: 'refused', code: 'ended', reason: 'not known whether it ran' }); // its socket ended
+  ctx.S.clock = 9000;
+  v.onReach(); // the next welcome
+  assert.deepEqual(places(ctx).map((d) => [d.targets[0], d.at]), [['place.b1', 2000], ['place.b1', 2000]], 'sent again, with its input\'s time');
+  v.onReach();
+  assert.equal(places(ctx).length, 2, 'once');
+});

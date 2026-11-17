@@ -403,9 +403,12 @@ export function readerView(ctx) {
     if (off === B.offset) return;
     B.offset = off;
     // L1 C1: the place carries the time of the input that moved it; the PC keeps the latest input's place
+    const book = B;
     ctx.sendQueued({ window: W, action: 'place', targets: [`place.${B.id}`], result: placeAt(B.doc, off), at: B.inputAt }, (a) => {
-      // an op the connection's end left unanswered: not known whether it landed; the record says
-      if (a.a === 'refused' && a.code !== 'ended') ctx.say(`this place was not applied: ${a.reason}`, { from: 'Reader' });
+      // L1 R2 B2: an op the connection's end left unanswered is kept as unsent and goes again at the next welcome
+      // (onReach), with its input's time: an older or equal `at` changes nothing on the PC (C1)
+      if (a.a === 'refused' && a.code === 'ended') { if (book === B && B.offset === off) { B.offset = null; B.input = true; } }
+      else if (a.a === 'refused') ctx.say(`this place was not applied: ${a.reason}`, { from: 'Reader' });
     });
   }
 
