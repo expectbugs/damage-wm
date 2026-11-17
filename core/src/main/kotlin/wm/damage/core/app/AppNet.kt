@@ -123,7 +123,7 @@ class AppNet(
 
     private val programs = ConcurrentHashMap<String, Program>()
 
-    /** S1-2 Q2 (the spec's §2.3): the viewers of this lane's scopes; a live source reads [Viewers.need] per tick. */
+    /** S1-2 Q2 (the spec's §2.3): the viewers of this lane's scopes; a live source reads [Viewers.of] per tick. */
     val viewers = Viewers(pingEveryMs)
 
     /** S1-2 Q2: told on the executor of each connection that ends (an upload not yet begun is cancelled with it). */
@@ -148,6 +148,8 @@ class AppNet(
         var endedBy: String? = null
         /** S1-2 Q2: program ops taken and not yet answered, by `k`. Executor only. */
         val flights = LinkedHashMap<Long, Flight>()
+        /** L1 R-a: subscriptions refused while the record's log was closed, served again on the tick it opens. */
+        val closedSubs = ArrayList<() -> Unit>()
     }
 
     /** The live connections. Executor only. */
@@ -157,8 +159,16 @@ class AppNet(
 
     private val devicesListener: (DevicesCore.Event) -> Unit = { e -> onDevices(e) }
 
-    /** S1-2 Q2: the viewers' sweep, on the record's pacing tick (2 s). */
-    private val sweep: () -> Unit = { viewers.sweep(clock()) }
+    /** S1-2 Q2: the viewers' sweep, on the record's pacing tick (2 s); L1 R-a: once the record's log is open, what it
+     *  refused meanwhile is served. */
+    private val sweep: () -> Unit = {
+        viewers.sweep(clock())
+        if (host.logOpen) for (c in conns.values) if (c.closedSubs.isNotEmpty()) {
+            val again = c.closedSubs.toList()
+            c.closedSubs.clear()
+            again.forEach { it() }
+        }
+    }
 
     init {
         host.addListener(listener)
@@ -420,6 +430,7 @@ class AppNet(
             // copy, as with the PC out of reach; a page shows the refusal and keeps none)
             if (!host.logOpen) {
                 conn.outbox.offer(AppWire.encode(AppWire.ans(Ans(null, scope, Answer.Refused(AppHost.LOG_CLOSED, Answer.RETRY)))))
+                conn.closedSubs += { sub(conn, f) }
                 return@execute
             }
             // L1 C2: every subscription takes a snapshot (a cursor it names is not read); the record is a few KB
@@ -445,6 +456,7 @@ class AppNet(
             }
             if (no != null) {
                 conn.outbox.offer(AppWire.encode(AppWire.ans(Ans(null, scope, no))))
+                if (no.reason == AppHost.LOG_CLOSED) conn.closedSubs += { describedSub(conn, scope, g, p, need) }
             } else {
                 if (conn.described[scope]?.p !== p) conn.described[scope] = Held(p)
                 viewers.put(conn.id, scope, w, need ?: NO_NEED)
@@ -531,7 +543,7 @@ class AppNet(
                 else -> gate(conn, o)
             } ?: if (prog == null) Answer.Refused("this PC serves no ${o.window} program on this lane", Answer.UNSUPPORTED) else null
             if (no != null) {
-                programNote(o, no)
+                note("program", o, no)
                 answer(conn, id, no)
                 return@execute
             }
@@ -545,7 +557,7 @@ class AppNet(
                         Log.w(TAG, "${o.window} ${o.action} for ${conn.peer.device} threw: ${e::class.simpleName}: ${e.message}")
                         ProgramResult.Refused(e.message ?: e::class.simpleName ?: "the program call failed")
                     }
-                    programNote(o, r.answer)
+                    note("program", o, r.answer)
                     host.executor.execute("app program answer ${conn.id}") {
                         conn.flights.remove(id.k)
                         if (conns[conn.id] === conn) answer(conn, id, r.answer, result = (r as? ProgramResult.Sent)?.result)
@@ -560,15 +572,17 @@ class AppNet(
         }
     }
 
-    private fun programNote(o: Op, a: Answer) {
+    /** One journal note of [kind] per program op or device action: who (the connection's device), what, and its
+     *  answer; the note's line carries when. */
+    private fun note(kind: String, o: Op, a: Answer) {
         val words = when (a) {
             is Answer.Refused -> "refused (${a.code}): ${a.reason}"
             else -> a.toString().lowercase()
         }
         try {
-            host.noteAs("program", "${o.device} ${o.window} ${o.action} ${o.targets} · $words")
+            host.noteAs(kind, "${o.device} ${o.window} ${o.action} ${o.targets} · $words")
         } catch (e: Exception) {
-            Log.e(TAG, "the program note could not be written", e)
+            Log.e(TAG, "the $kind note could not be written", e)
         }
     }
 
@@ -582,6 +596,7 @@ class AppNet(
                 else -> Levels.refusal(conn.peer.level, Levels.FULL, "the device table") ?: table.act(o, conn.peer.device)
             }
             answer(conn, o.id, a)
+            note("devices", o, a)                     // L1: approve, revoke, rename — who and when, as program ops
         }
     }
 

@@ -81,12 +81,13 @@ class AppWireTest {
      * Fix round 2, ruling 1.6 (F1a's Found 3): while the log is closed (it did not open at this start), the lane serves
      * no record — a snapshot would lack the log's unreplayed lines, under a new epoch — and refuses the subscription
      * with the reason; a phone keeps its own copy, as with the PC out of reach (the reason, since S1-2 Q1's N3, says only
-     * the PC's part: a browser keeps none).
+     * the PC's part: a browser keeps none). L1 R-a: once a later tick opens the log, what was refused is served.
      */
     @Test
-    fun whileTheLogIsClosed_aSubscriptionIsRefusedWithTheReason_neverASnapshot() {
+    fun whileTheLogIsClosed_aSubscriptionIsRefusedWithTheReason_neverASnapshot_andServedOnceItOpens() {
         val rec = RecordRig()
         rec.opened().also { h -> rec.ask(h, op("desk", "d1", 1, "set", listOf("a"), j("one"))); rec.stop(h) }
+        val perms = java.nio.file.Files.getPosixFilePermissions(rec.logFile)
         java.nio.file.Files.setPosixFilePermissions(rec.logFile, emptySet())     // this start cannot open the log
         val rig = keep(AppLaneRig(rec, rec.opened()))
         val lane = keep(RawLane(rig.port))
@@ -115,6 +116,12 @@ class AppWireTest {
         assertTrue("its own copy" !in d.reason, "a window's scope is refused in the PC's words alone: '${d.reason}'")
         lane.send(AppWire.sub("diag", null))
         assertTrue(lane.next("snap")["desc"] != null, "the PC's own page is still described")
+        lane.quiet()
+        java.nio.file.Files.setPosixFilePermissions(rec.logFile, perms)
+        rec.tick(rig.host)                                    // the log opens
+        rec.tick(rig.host)                                    // the lane serves what it refused meanwhile
+        assertEquals(JsonPrimitive("one"), AppWire.parseSnap(lane.next("snap")).state.items["rec.t.a"]!!.value)
+        assertTrue(lane.next("snap")["desc"] != null, "the window's scope is described")
         lane.quiet()
     }
 

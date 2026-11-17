@@ -97,12 +97,15 @@ class AppHost(
     private var savedThrough = 0L
     private var saving = false
     @Volatile private var opened = false
-    /** The log opened and replayed whole at this process's start (fix round 1, ruling 1.7); the executor's. */
+    /** The log opened and replayed whole (fix round 1, ruling 1.7): at this process's start, or on a later tick (L1
+     *  R-a); the executor's. */
     private var logReady = false
+    /** The `seq` `record.json` covered at this start: where the log's replay begins, at the start and on a retry. */
+    private var covered = 0L
 
     /** True once [open] has run (the `app` lane refuses its hello before). */
     val isOpen: Boolean get() = opened
-    /** Fix round 2, ruling 1.6: the log opened and replayed whole at this start ([logReady]); read on the executor. */
+    /** Fix round 2, ruling 1.6: the log opened and replayed whole ([logReady]); read on the executor. */
     val logOpen: Boolean get() = logReady
 
     private val logFailures = Streak(RecordAlerts.LOG, "the operation log",
@@ -186,7 +189,7 @@ class AppHost(
         val loaded = store.load()
         loaded.problem?.let { problems += it }
         val saved = loaded.saved
-        val covered = saved?.covered ?: 0L
+        covered = saved?.covered ?: 0L
         saved?.let { record.apply(Effect(it.items)) }
         var replayedTo = covered
         var replayed = 0
@@ -213,19 +216,12 @@ class AppHost(
                 "could not replay $name (${e::class.simpleName}: ${e.message})"
             }
         }
-        var logState: OpLog.Opened? = null
-        try {
-            val o = log.open(covered)
-            o.lines.forEach(::replay)
-            logState = o                      // opened AND replayed whole: only then is the log open for this process
-            if (o.incomplete) problems += "the log's incomplete last line was cut (it was never answered)"
-            problems += o.bad
-        } catch (e: Exception) {
-            // fix round 2, ruling 1.8: nothing opens it again in this process, so the alert says what ends the refusals
-            logFailures.failed("could not be opened", e, "changes from other devices are refused until the service is " +
-                "restarted; a phone keeps them and sends them again, a page says so and keeps none")
-            problems += "the operation log could not be opened (${e::class.simpleName}: ${e.message})"
-        }
+        // opened AND replayed whole: only then is the log open for this process
+        val logState = openLog(::replay)
+        if (logState != null) {
+            if (logState.incomplete) problems += "the log's incomplete last line was cut (it was never answered)"
+            problems += logState.bad
+        } else problems += "the operation log could not be opened; it is tried again on each tick"
         // L1 C2: every subscription takes a snapshot, so the epoch names the store and moves only with a new one
         val why = when {
             saved == null && loaded.problem != null -> "record.json was unreadable"
@@ -241,8 +237,7 @@ class AppHost(
         val err = if (logReady) store.saveNow(snapshot()) else null
         var setAside: java.nio.file.Path? = null
         if (!logReady) {
-            problems += "record.json is not saved while the log is closed; changes are refused with \"retry\" until a " +
-                "start opens it"
+            problems += "record.json is not saved while the log is closed; changes are refused with \"retry\" until it opens"
         } else if (err == null) {
             savedThrough = seq
             saveFailures.ok()
@@ -326,6 +321,16 @@ class AppHost(
         publish(Change(epoch, seq, effect))
     }
 
+    /** The log opened from [covered] with each line past it replayed, or null: said once per run of failures (the
+     *  log, a note, the `record.log` alert), and again when it opens. */
+    private fun openLog(replay: (OpLog.Line) -> Unit): OpLog.Opened? = try {
+        log.open(covered).also { it.lines.forEach(replay) }
+    } catch (e: Exception) {
+        logFailures.failed("could not be opened", e, "changes from other devices are refused until it opens (tried " +
+            "again every ${TICK_MS / 1000} s); a phone keeps them and sends them again, a page says so and keeps none")
+        null
+    }
+
     private fun tickNow() {
         for (l in tickListeners) {
             try {
@@ -333,6 +338,15 @@ class AppHost(
             } catch (e: Exception) {
                 Log.e(TAG, "a tick listener failed", e)
             }
+        }
+        // L1 R-a: a log that did not open at the start is opened again here until it opens (no op was applied
+        // meanwhile, so its replay is the one the start would have made); the save below then covers it
+        if (opened && !logReady) {
+            val o = openLog { record.apply(it.effect); seq = it.seq } ?: return
+            logReady = true
+            logFailures.ok()
+            note("the operation log opened on a later tick: ${o.lines.size} line(s) replayed past $covered" +
+                (if (o.bad.isEmpty()) "" else "; " + o.bad.joinToString("; ")))
         }
         if (!opened || !logReady) return                // ruling 1.7: no save covers a log this start did not replay
         if (saving || seq <= savedThrough) return
@@ -405,8 +419,8 @@ class AppHost(
         const val LOG_SET_ASIDE_BYTES = Journal.ROTATE_BYTES
         /** Fix round 2, ruling 1.6: why the lane serves no record while the log is closed. Build S1-2 Q1 (N3): the PC's
          *  words only, for every interface — a page shows them as given and keeps no copy; the phone logs them. */
-        const val LOG_CLOSED = "the PC could not open its operation log at its start: its record is not served until " +
-            "the service is restarted"
+        const val LOG_CLOSED = "the PC could not open its operation log: its record is not served until it opens " +
+            "(tried again every 2 s)"
         /** The record's pacing tick (the spec's P1: 2 s). */
         const val TICK_MS = 2_000L
 

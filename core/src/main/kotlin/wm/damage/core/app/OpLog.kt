@@ -50,10 +50,12 @@ class OpLog(val file: Path, private val sync: (FileChannel) -> Unit = { it.force
      * are passed over without decoding; the rest are decoded in order. An incomplete last line (a write that a stop
      * cut short — never answered, since the answer follows the force: the device sends it again) is cut, so the next
      * line starts clean, and the caller says so (L1 C6). A line that does not decode, or whose `seq` does not rise, is
-     * named in [Opened.bad] and skipped.
+     * named in [Opened.bad] and skipped. Opened again (L1 R-a: a start's open that failed), the earlier channel is
+     * closed first.
      */
     fun open(after: Long): Opened {
         file.toAbsolutePath().parent?.let { Files.createDirectories(it) }
+        ch?.close()
         val c = FileChannel.open(file, StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE)
         ch = c
         val bytes = ByteArray(c.size().toInt().also { require(c.size() <= Int.MAX_VALUE) { "the log is past 2 GiB" } })

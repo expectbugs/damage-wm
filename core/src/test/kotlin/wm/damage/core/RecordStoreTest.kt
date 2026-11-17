@@ -97,8 +97,10 @@ class RecordStoreTest {
         assertTrue(rig.notes().any { "record.json works again" in it })
     }
 
+    /** Pin (L1 R-a): a start whose log would not open saves nothing and refuses with retry; the log is opened again on
+     *  each tick until it opens, then replays whole, says so and takes ops — no restart. */
     @Test
-    fun aStartWhoseLogWouldNotOpen_savesNothing_refusesWithRetry_andTheNextGoodStartReplaysItWhole() {
+    fun aStartWhoseLogWouldNotOpen_refusesWithRetry_untilATickOpensIt() {
         // fix round 1, ruling 1.7: three ops logged, no save since the start (record.json covers seq 0)
         val h = rig.opened()
         for (n in 1L..3L) assertEquals(wm.damage.core.app.Answer.Seen(), rig.ask(h, op("phone", "s1", n, "set", listOf("k$n"), j("v$n"))))
@@ -107,20 +109,25 @@ class RecordStoreTest {
         Files.setPosixFilePermissions(rig.logFile, emptySet())       // the next start cannot open the log
         val bad = rig.host()
         val o = bad.open()
-        assertTrue(rig.said.any { it.startsWith("raise ${RecordAlerts.LOG}") }, "the record.log alert: ${rig.said}")
-        // fix round 2, ruling 1.8: nothing opens the log again in this process, and the alert says so
-        assertTrue(rig.said.any { it.startsWith("raise ${RecordAlerts.LOG}") && "until the service is restarted" in it }, "${rig.said}")
-        // build S1-2 Q1 (N3's class): a page keeps no queue, so the alert does not say every device keeps its changes
-        assertTrue(rig.said.any { it.startsWith("raise ${RecordAlerts.LOG}") && "a page says so and keeps none" in it }, "${rig.said}")
+        val raised = rig.said.filter { it.startsWith("raise ${RecordAlerts.LOG}") }
+        assertTrue(raised.single().let { "until it opens" in it && "a page says so and keeps none" in it }, "${rig.said}")
+        assertTrue(rig.said.none { "restarted" in it }, "${rig.said}")
         assertTrue(o.problems.any { "not saved while the log is closed" in it }, "${o.problems}")
         val refused = rig.ask(bad, op("phone", "s1", 4, "set", listOf("k4"), j("v4")))
         assertEquals(wm.damage.core.app.Answer.RETRY, (refused as wm.damage.core.app.Answer.Refused).code)
-        rig.tick(bad)                                                // the pacing tick saves nothing either
-        rig.stop(bad)
+        rig.tick(bad)                                                // still closed: tried again, said once, nothing saved
+        assertEquals(raised, rig.said.filter { it.startsWith("raise ${RecordAlerts.LOG}") })
         Files.setPosixFilePermissions(rig.logFile, perms)
+        rig.tick(bad)
+        for (n in 1L..3L) assertEquals(j("v$n"), rig.item(bad, "k$n")?.value, "op $n replayed")
+        assertEquals("clear ${RecordAlerts.LOG}", rig.said.last { RecordAlerts.LOG in it })
+        assertTrue(rig.notes().any { "opened on a later tick: 3 line(s) replayed" in it }, "${rig.notes()}")
+        assertEquals(wm.damage.core.app.Answer.Seen(), rig.ask(bad, op("phone", "s1", 4, "set", listOf("k4"), j("v4"))))
+        rig.tick(bad)
+        assertEquals(4L, saved().covered, "the save covers the log once it is open")
+        rig.stop(bad)
         val good = rig.opened()
-        for (n in 1L..3L) assertEquals(j("v$n"), rig.item(good, "k$n")?.value, "op $n replayed")
-        assertEquals(wm.damage.core.app.Answer.Seen(), rig.ask(good, op("phone", "s1", 4, "set", listOf("k4"), j("v4"))))
+        for (n in 1L..4L) assertEquals(j("v$n"), rig.item(good, "k$n")?.value, "op $n kept")
     }
 
     @Test
