@@ -97,8 +97,11 @@ test('F2b 5: on a new socket, a place read while the PC was away is sent after t
   ws.frame({ t: 'snap', scope: 'reader/book:b1', desc: { id: 'b1', title: 'One', length: 400, chapters: [] } });
   ws.frame({ t: 'snap', scope: 'reader/book:b1/part:0', desc: { part: 0, parts: 1, charStart: 0, charEnd: 400, blocks: [] } });
   page.sockets[0].close(); // the PC goes away
-  elements(page.doc.byId.main).find((e) => e.classList.contains('reading')).fire('wheel'); // he reads meanwhile
-  timers.timeouts.at(-1).fn();
+  const reconnectAt = timers.timeouts.at(-1);
+  const pane = elements(page.doc.byId.main).find((e) => e.classList.contains('reading'));
+  pane.fire('wheel'); // he reads meanwhile
+  pane.fire('scroll');
+  reconnectAt.fn();
   const ws2 = page.sockets.at(-1);
   ws2.open();
   ws2.frame(welcome());
