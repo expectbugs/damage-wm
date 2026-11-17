@@ -15,10 +15,12 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import wm.damage.core.app.Answer
 import wm.damage.core.app.Item
 import wm.damage.core.app.Kind
@@ -186,6 +188,35 @@ class ReaderCoreTest {
         assertTrue(g.open("book:${ids[1]}"))
         readerAwait("the second book opens") { g.title().contains("p.") && g.title().lowercase().contains("beta") }
         assertEquals(-1, services.onLoop { g.saveState()["bookmark"]!!.jsonPrimitive.intOrNull }, "no bookmark in the second book")
+    }
+
+    /** Pin (L1 R1 RS FIX 2): a bookmark set on the glasses in a book that is not open when they restart is reachable
+     *  there afterwards (the local copy keeps only the open book's; the record holds it as this device's). */
+    @Test
+    fun aBookmarkInABookNotOpenIsReachableAfterARestart(): Unit = runBlocking {
+        val ids = rig.writeBooks()
+        val h = rig.pc()
+        val services = ReaderServices()
+        val g = rig.pcGlasses(h, services)
+        assertTrue(g.open("book:${ids[0]}"))
+        readerAwait("the first book opens") { g.title().contains("p.") }
+        services.onLoop {
+            g.doc().topLine = 12
+            (g.view() as WindowView.DocView).onTap()
+            (g.view() as WindowView.ListView).onCommit(g.actionLabels().indexOf("Bookmark here"))
+            g.saveSubState()
+        }
+        val key = Record.key("reader", ReaderCore.bookmarkItem(ids[0]))
+        readerAwait("the bookmark reached the record") { h.read("reader").third.items[key] != null }
+        val off = anchorOffset(h.read("reader").third.items[key]!!.value)
+        assertEquals("local", h.read("reader").third.items[key]!!.by)
+        // the restart: a new presenter over the same record, its local copy naming no bookmark of the first book
+        val again = ReaderServices()
+        val g2 = rig.pcGlasses(h, again)
+        again.onLoop { g2.restoreState(buildJsonObject { put("level", "LIBRARY") }) }
+        assertTrue(g2.open("book:${ids[0]}"))
+        readerAwait("the first book opens again") { g2.title().contains("p.") }
+        assertEquals(off, again.onLoop { g2.saveState()["bookmark"]!!.jsonPrimitive.intOrNull }, "its bookmark is reachable")
     }
 
     @Test

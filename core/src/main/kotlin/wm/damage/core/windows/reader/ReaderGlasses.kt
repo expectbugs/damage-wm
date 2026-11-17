@@ -1037,7 +1037,9 @@ class ReaderGlasses(
             drawn = placeFrom(id, it, take = entry || id != openId) || drawn
         }
         val b = wm.damage.core.app.Record.key(ReaderCore.WINDOW, "bookmark.")
-        for ((k, it) in st.items) if (k.startsWith(b) && it.by != device) {
+        // this device's own bookmark is taken where this view holds none for its book (a restart: the local copy keeps
+        // only the open book's; L1 R1 RS FIX 2) — the echo of one this view set is skipped, it holds that one already
+        for ((k, it) in st.items) if (k.startsWith(b) && (it.by != device || k.removePrefix(b) !in bookmarks)) {
             val id = k.removePrefix(b)
             val v: JsonElement = if (it.gone) JsonNull else it.value
             if (sentMarkVal[id] == v) continue
