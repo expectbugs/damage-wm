@@ -211,12 +211,15 @@ class ChangeRuleTest {
         assertTrue(changes.all { it.guard == Guard(AlertRule.PHONE, "away", equals = true) })
         // the `up` rule: a fall (a pump at work) never raises, a rise of `at` does
         val up = changes.last()
-        var st = RuleEval.step(up, EvalState(), s("50"), 0).first
-        val (fell, d) = RuleEval.step(up, st, s("40"), 11 * MIN)
-        assertEquals(Decision.HOLD, d, "a fall is not a change for an up rule")
-        st = fell
-        st = RuleEval.step(up, st, s("53"), 12 * MIN).first
-        assertEquals(Decision.RAISE, RuleEval.step(up, st, s("53"), 22 * MIN).second)
+        val decisions = ArrayList<Decision>()
+        var st = EvalState()
+        for ((m, v) in listOf(0 to "50", 1 to "40", 12 to "40", 13 to "53", 23 to "53")) {
+            val (next, d) = RuleEval.step(up, st, s(v), m * MIN)
+            st = next
+            decisions += d
+        }
+        // a fall held past forMin (a pump at work) never raises; a rise of `at` held forMin does
+        assertEquals(listOf(Decision.HOLD, Decision.HOLD, Decision.HOLD, Decision.HOLD, Decision.RAISE), decisions)
     }
 
     companion object {
