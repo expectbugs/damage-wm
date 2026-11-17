@@ -198,7 +198,7 @@ class RemoteTorrentsProvider(
         val cur = snap
         val a = try {
             ch.request("snap", args("v" to (cur?.version ?: -1L), "since" to lastSeq, "epoch" to epoch,
-                "focused" to focused, "pace" to pace))
+                "focused" to focused, "pace" to pace), quick = true)
         } catch (e: Exception) {
             return              // the channel's own state line says why (PC unreachable Ns)
         }

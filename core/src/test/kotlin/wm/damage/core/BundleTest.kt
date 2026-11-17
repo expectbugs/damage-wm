@@ -12,8 +12,8 @@ import wm.damage.core.web.WebServer
  * Context for the reader: Damage is Adam's own window manager for his own glasses, phone and PC on his own network.
  * Build S1-1, package P7 (the spec's §2 P7 "Tests" and §7's `S1-bundle-inline-script`; CONTRACT.md §9.5): the web
  * client as the PC serves it — every file a page references is in the bundle and nothing loads from outside the
- * machine; no inline script, no markup written from text, no inline style (the policy allows none); the policy
- * itself allows no inline script; the bundle's hash is stable and moves with any byte.
+ * machine; no inline script, no markup written from text; the policy itself allows no inline script (inline styles
+ * it allows, L1 AC28); the bundle's hash is stable and moves with any byte.
  */
 class BundleTest {
     private val bundle = Bundle.fromResources()
@@ -59,7 +59,7 @@ class BundleTest {
     }
 
     @Test
-    fun noInlineScriptNoMarkupFromTextNoInlineStyle() {
+    fun noInlineScriptNoMarkupFromText() {
         val html = text(Bundle.INDEX)
         val scripts = Regex("""<script\b([^>]*)>(.*?)</script>""", RegexOption.DOT_MATCHES_ALL).findAll(html).toList()
         assertTrue(scripts.isNotEmpty(), "the page loads its module")
@@ -68,27 +68,27 @@ class BundleTest {
             assertTrue(s.groupValues[2].isBlank(), "a script with a body: ${s.value}")
         }
         assertFalse(Regex("""\son[a-z]+\s*=""", RegexOption.IGNORE_CASE).containsMatchIn(html), "an inline event handler in index.html")
-        assertFalse(Regex("""\sstyle\s*=""", RegexOption.IGNORE_CASE).containsMatchIn(html), "an inline style in index.html")
         assertFalse("javascript:" in html.lowercase())
-        assertFalse("<style" in html.lowercase(), "an inline style sheet in index.html")
         for (m in bundle.files.keys.filter { it.endsWith(".mjs") }) {
             val src = text(m)
             for (bad in listOf("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "eval(", "new Function",
-                "setAttribute('style'", "setAttribute(\"style\"", "javascript:")) {
-                assertFalse(bad in src, "$m uses $bad: text goes in as text, styles through the style object")
+                "javascript:")) {
+                assertFalse(bad in src, "$m uses $bad: text goes in as text")
             }
         }
     }
 
+    /** L1 AC28: inline styles are allowed (a terminal emulator sets them); scripts stay the bundle's own. */
     @Test
     fun thePolicyAllowsNoInlineScript() {
         val csp = Bundle.csp("pc.example:7405")
         val parts = csp.split(';').map { it.trim() }.associate { it.substringBefore(' ') to it.substringAfter(' ', "") }
         assertEquals("'self'", parts["script-src"], csp)
-        assertEquals("'self'", parts["style-src"], csp)
+        assertEquals("'self' 'unsafe-inline'", parts["style-src"], csp)
         assertEquals("'none'", parts["default-src"], csp)
         assertEquals("'self' ws://pc.example:7405", parts["connect-src"], csp)
-        assertFalse("unsafe-inline" in csp || "unsafe-eval" in csp || "*" in csp, csp)
+        assertFalse("unsafe-eval" in csp || "*" in csp, csp)
+        assertEquals(listOf("style-src"), parts.filterValues { "unsafe-inline" in it }.keys.toList(), csp)
     }
 
     @Test

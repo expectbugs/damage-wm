@@ -31,10 +31,8 @@ import kotlinx.serialization.json.put
 /** A client's place in the record's order (C§9.3): the store's epoch and the last `seq` it holds. */
 data class Cursor(val epoch: Long, val seq: Long)
 
-/** Who a connection is (C§10): the device the credential names and its level. [approval]: for a device-table row, the
- *  approval its credential was read at (the row's secret hash, never the secret), which the welcome checks the row
- *  still holds (fix round 2, ruling 2.4); null for the token's and the local secret's holders. */
-data class Peer(val device: String, val level: String, val approval: String? = null) {
+/** Who a connection is (C§10): the device the credential names and its level. */
+data class Peer(val device: String, val level: String) {
     companion object {
         const val FULL = "full"
         /** The shared token's holder: his phone (C§10.9's table). */

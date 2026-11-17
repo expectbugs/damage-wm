@@ -20,33 +20,11 @@ import wm.damage.core.web.Devices
  * level is checked by [AppNet] at apply time, before [act].
  */
 class DevicesCore(val table: Devices) {
-    sealed class Event {
-        object Changed : Event()
-        data class Ended(val device: String, val reason: String) : Event()
-    }
-
-    private val listeners = java.util.concurrent.CopyOnWriteArrayList<(Event) -> Unit>()
-    private val bridge: (Devices.Event) -> Unit = { e ->
-        val out = when (e) {
-            Devices.Event.Changed -> Event.Changed
-            is Devices.Event.Ended -> Event.Ended(e.device, e.reason)
-        }
-        for (l in listeners) l(out)
-    }
-
-    init {
-        table.addListener(bridge)
-    }
-
-    fun addListener(l: (Event) -> Unit) { listeners.add(l) }
-    fun removeListener(l: (Event) -> Unit) { listeners.remove(l) }
-
     /** The description: rows (no hash), waiting pages, the actions and their level. */
     fun describe(): JsonObject = buildJsonObject {
         put("id", SCOPE)
         put("name", "Devices")
         put("min", Levels.FULL)
-        put("v", VERSION)
         put("rows", buildJsonArray {
             for (r in table.rows()) if (!r.revoked) add(buildJsonObject {
                 put("id", r.id); put("name", r.name); put("kind", r.kind); put("level", r.level)
@@ -96,8 +74,6 @@ class DevicesCore(val table: Devices) {
     companion object {
         /** The scope and the window name on the lane. */
         const val SCOPE = "devices"
-        /** The description's own version: the command line and the page come from the same build as the PC. */
-        const val VERSION = 1
         const val APPROVE = "approve"
         const val DENY = "deny"
         const val REVOKE = "revoke"

@@ -105,42 +105,27 @@ class Devices(
     @Volatile var problem: String? = null
         private set
 
-    /** Why the table must not be written (a file that did not decode and could not be set aside), or null. */
-    @Volatile private var frozen: String? = null
-
     fun addListener(l: (Event) -> Unit) { listeners.add(l) }
     fun removeListener(l: (Event) -> Unit) { listeners.remove(l) }
 
-    /** Reads the file once (at the start). A file that does not decode is set aside whole beside it and said; the
-     *  table then starts empty (each device is approved again), and nothing overwrites what was set aside. */
+    /** Reads the file once (at the start). A file that cannot be read or does not decode is set aside whole beside it
+     *  under a dated name and said; the table starts empty (each device is approved again) and carries on (L1 AC16:
+     *  no state that only a restart clears). */
     fun load(): Devices {
-        val text = try {
-            String(Files.readAllBytes(file), Charsets.UTF_8)
+        try {
+            val d = JSON.decodeFromString(Disk.serializer(), String(Files.readAllBytes(file), Charsets.UTF_8))
+            synchronized(lock) { for (r in d.devices) rows[r.id] = r }
         } catch (e: NoSuchFileException) {
             return this
-        } catch (e: java.io.IOException) {
-            // fix round 1, ruling 2.3 (11): a file there that could not be read (a permission, an I/O error) is never
-            // replaced by a table holding only the next approval: frozen, as an undecodable file that cannot be set aside
-            frozen = "${file.fileName} could not be read (${e::class.simpleName}); the device table is not written until " +
-                "it is fixed - no device is approved this run"
-            problem = frozen
-            Log.e(TAG, problem!!)
-            return this
-        }
-        try {
-            val d = JSON.decodeFromString(Disk.serializer(), text)
-            synchronized(lock) { for (r in d.devices) rows[r.id] = r }
         } catch (e: Exception) {
             val aside = file.resolveSibling("${file.fileName}.bad-${clock()}")
-            problem = try {
+            val kept = try {
                 Files.move(file, aside, StandardCopyOption.ATOMIC_MOVE)
-                "${file.fileName} did not decode (${e::class.simpleName}); set aside as ${aside.fileName} - every " +
-                    "device is approved again"
+                "set aside as ${aside.fileName}"
             } catch (m: Exception) {
-                frozen = "${file.fileName} did not decode and could not be set aside (${m::class.simpleName}); the device " +
-                    "table is not written until it is fixed"
-                frozen
+                "NOT set aside (${m::class.simpleName}): the next approval writes a new table over it"
             }
+            problem = "${file.fileName} could not be read (${e::class.simpleName}); $kept - every device is approved again"
             Log.e(TAG, problem!!)
         }
         return this
@@ -151,18 +136,6 @@ class Devices(
     fun rows(): List<Row> = synchronized(lock) { rows.values.toList() }
 
     fun pending(): List<Pending> = synchronized(lock) { waiting.values.toList() }
-
-    /** Why a connection whose credential named row [id] at [approval] (the row's secret hash then; null = not read)
-     *  ends at its welcome, or null: `revoked` when no live row holds [id] (fix round 1, ruling 2.3 (9)), `replaced`
-     *  when the row was approved again since (fix round 2, ruling 2.4). */
-    fun endedSince(id: String, approval: String?): String? = synchronized(lock) {
-        val r = rows[id]
-        when {
-            r == null || r.revoked -> wm.damage.core.app.AppWire.END_REVOKED
-            approval != null && r.secretHash != approval -> wm.damage.core.app.AppWire.END_REPLACED
-            else -> null
-        }
-    }
 
     /** The live row whose secret is [secret], or null; each live row compared in constant time. Marks it seen. */
     fun authenticate(secret: String?): Row? {
@@ -192,19 +165,15 @@ class Devices(
 
     /** A page with no device asks to be approved; its row lives until [drop]. */
     fun request(address: String, tailnetName: String?, name: String, kind: String, replaces: String?, w: Waiting): Pending {
-        // ruling 2.3 (7): a name over the limit is refused with the reason, never cut
-        val asked = clean(name)
-        val tooLong = nameRefusal(asked)
         val p = synchronized(lock) {
             var code: String
             do code = code() while (code in waiting)
             val known = replaces?.takeIf { it in rows }
-            Pending(code, address, tailnetName, asked.takeIf { tooLong == null } ?: DEFAULT_NAME, kind, known, clock(), w)
+            Pending(code, address, tailnetName, clean(name), kind, known, clock(), w)
                 .also { waiting[code] = it }
         }
         Log.i(TAG, "a page from ${p.tailnetName ?: p.address} is waiting for approval" +
-            (p.replaces?.let { " (it names the listed device $it)" } ?: "") +
-            (tooLong?.let { "; its own name was not used ($it): it waits as '$DEFAULT_NAME'" } ?: ""))
+            (p.replaces?.let { " (it names the listed device $it)" } ?: ""))
         fire(Event.Changed)
         return p
     }
@@ -220,7 +189,6 @@ class Devices(
 
     /** Approves the page waiting under [code] at [level], by [by]; null = done (the page was sent its claim). */
     fun approve(code: String, level: String, by: String): String? {
-        frozen?.let { return it }   // fix round 2, ruling 2.3: its redemption could not be written; say why, never "done"
         if (!Levels.valid(level)) return "the level '$level' is not one of ${Levels.ALL.joinToString(", ")}"
         val claim = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(32).also { random.nextBytes(it) })
         val p = synchronized(lock) {
@@ -307,7 +275,6 @@ class Devices(
     /** Renames [id]; null = done. */
     fun rename(id: String, name: String): String? {
         val c = clean(name)
-        nameRefusal(c)?.let { return it }                    // ruling 2.3 (7): refused with the reason, never cut
         synchronized(lock) {
             val r = rows[id] ?: return "no device $id"
             rows[id] = r.copy(name = c)
@@ -327,7 +294,6 @@ class Devices(
     private fun persist() = synchronized(lock) { persistLocked() }
 
     private fun persistLocked() {
-        frozen?.let { throw IllegalStateException(it) }
         write(file, JSON.encodeToString(Disk.serializer(), Disk(devices = rows.values.toList())))
     }
 
@@ -352,8 +318,6 @@ class Devices(
         /** Every id this table gives out begins so (the phone and the PC's own device never do). */
         const val ID_PREFIX = "web-"
 
-        /** Whether [device] is an id of this table's kind. */
-        fun isTableId(device: String): Boolean = device.startsWith(ID_PREFIX)
         /** No 0/O, 1/I/L, 2/Z, 5/S, 8/B: a code read off one screen and typed on another. */
         const val ALPHABET = "ACDEFGHJKMNPQRTUVWXY34679"
         const val CODE_LEN = 6
@@ -362,18 +326,12 @@ class Devices(
         private const val TAG = "devices"
         private val JSON = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
-        /** A device name's limit (it is shown on the approval row and the command line's listing). */
-        const val NAME_MAX = 40
-        /** A waiting page's name when it sent none, or one that could not be used. */
+        /** A waiting page's name when it sent none. */
         const val DEFAULT_NAME = "a browser"
 
-        /** A name kept printable; never cut ([nameRefusal] says why one is too long). */
+        /** A name kept printable and whole (L1 AC15: no length limit, nothing cut). */
         fun clean(name: String): String =
             name.filter { it >= ' ' && it != '\u007f' }.trim().ifEmpty { DEFAULT_NAME }
-
-        /** Why [name] (cleaned) cannot be a device name, or null (fix round 1, ruling 2.3 (7)). */
-        fun nameRefusal(name: String): String? =
-            if (name.length > NAME_MAX) "a device name holds at most $NAME_MAX characters; this one has ${name.length}" else null
 
         fun hex(b: ByteArray): String = b.joinToString("") { "%02x".format(it) }
 

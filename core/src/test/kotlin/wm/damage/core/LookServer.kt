@@ -183,7 +183,7 @@ fun main(args: Array<String>) {
         ex.responseBody.use { it.write(b) }
     }
     ctl.start()
-    core.addListener { e -> println("LOOK devices $e") }
+    devices.addListener { e -> println("LOOK devices $e") }
 
     // the one approved device, at full, in this instance
     val claims = LinkedBlockingQueue<String>()

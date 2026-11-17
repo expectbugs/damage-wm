@@ -218,7 +218,7 @@ class RemoteMusicLibrary(
     override fun refreshCatalog() {
         synchronized(refreshLock) {
             val a = try {
-                ch.request("catalog", args("v" to cat.version))
+                ch.request("catalog", args("v" to cat.version), quick = true)
             } catch (e: Exception) {
                 throw IllegalStateException(stateLine().ifEmpty { e.message ?: "catalog request failed" })
             }

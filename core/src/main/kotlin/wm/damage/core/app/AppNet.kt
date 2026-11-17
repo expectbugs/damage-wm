@@ -30,7 +30,7 @@ import wm.damage.core.web.Devices
  * Package P6 (`CONTRACT.md` §10.4, §10.5, §10.8): the same lane on the web interface listener (a WebSocket, [LaneIo]),
  * every op, subscription and the device table checked against the connection's level at apply time ([levels],
  * [minLevel]), the device table's description and actions ([DevicesCore], level full, never queued), and a revoked or
- * replaced device's connections ended with the reason ([endDevice]).
+ * replaced device's connections ended with the reason ([endNow]).
  *
  * Package P7 (C§9.2 `snap` "the description or level"; the spec's §2 P7 "Kotlin side"): PC-served scopes outside the
  * record's order — a window's description, one of its levels, Main's cards, the diagnosis ([Described], [attach]) —
@@ -137,7 +137,8 @@ class AppNet(
     /** A program op in flight: what it is and when it was taken (the diagnosis shows its age). */
     private class Flight(val window: String, val action: String, val at: Long)
 
-    private inner class Conn(val id: Long, val peer: Peer, val shared: Set<String>, val outbox: Outbox) {
+    /** [page]: a web page (its welcome carries the bundle), whose scopes are the usage record's (L1 R-e). */
+    private inner class Conn(val id: Long, val peer: Peer, val shared: Set<String>, val outbox: Outbox, val page: Boolean) {
         /** Executor only. */
         val scopes = LinkedHashSet<String>()
         /** The PC-served scopes this connection holds (P7). Executor only. */
@@ -157,7 +158,7 @@ class AppNet(
 
     private val listener: (Change) -> Unit = { c -> publish(c) }
 
-    private val devicesListener: (DevicesCore.Event) -> Unit = { e -> onDevices(e) }
+    private val devicesListener: (Devices.Event) -> Unit = { e -> onDevices(e) }
 
     /** S1-2 Q2: the viewers' sweep, on the record's pacing tick (2 s); L1 R-a: once the record's log is open, what it
      *  refused meanwhile is served. */
@@ -173,7 +174,7 @@ class AppNet(
     init {
         host.addListener(listener)
         host.addTickListener(sweep)
-        devices?.addListener(devicesListener)
+        devices?.table?.addListener(devicesListener)
     }
 
     /** How many connections are live (for the start line and the tests); read on the executor. */
@@ -288,24 +289,13 @@ class AppNet(
         val id = nextConn.getAndIncrement()
         val shared = Contracts.shared(contracts, hello.contracts)
         val outbox = Outbox("app-$id", outboxCap, write = { f -> io.write(f) }, close = { closeQuietly(sock) })
-        val conn = Conn(id, peer, shared, outbox)
+        val conn = Conn(id, peer, shared, outbox, page = bundle != null)
         val differ = Contracts.compare(contracts, hello.contracts).values.filter { !it.same }
         Log.i(TAG, "connection $id from ${sock.inetAddress}: ${peer.device}, stream ${hello.stream}" +
             (if (differ.isEmpty()) "" else "; different builds for " + differ.joinToString { "${it.window} (PC ${it.mine ?: "-"}, its ${it.theirs ?: "-"})" }))
         outbox.start()
         // the welcome and the registration in one executor step: nothing published after it can be missed
         host.executor.execute("app welcome $id") {
-            // fix round 1, ruling 2.3 (9), and fix round 2, ruling 2.4: a revocation or a re-approval whose end ran
-            // between this connection's upgrade and this step found no connection to end; the device table answers again
-            // now (the row live, at the approval the upgrade read), so it never runs at the old level
-            val ended = devices?.takeIf { Devices.isTableId(peer.device) }?.table?.endedSince(peer.device, peer.approval)
-            if (ended != null) {
-                conn.endedBy = ended
-                conn.outbox.finish(AppWire.encode(AppWire.end(ended)))
-                Log.i(TAG, "connection $id of ${peer.device} ended at its welcome: the device was " +
-                    (if (ended == AppWire.END_REVOKED) "removed" else "approved again") + " meanwhile")
-                return@execute
-            }
             conns[id] = conn
             viewers.opened(id, clock())
             conn.outbox.offer(AppWire.encode(AppWire.welcome(Welcome(AppWire.PROTO, peer.device, peer.level, id, clock(),
@@ -320,8 +310,7 @@ class AppNet(
                     "unsub" -> {
                         val scope = AppWire.str(f, "scope")
                         host.executor.execute("app unsub $id") {
-                            conn.scopes.remove(scope)
-                            conn.described.remove(scope)
+                            if (conn.scopes.remove(scope) or (conn.described.remove(scope) != null)) used(conn, "leave", scope)
                             viewers.remove(id, scope, "unsubscribed")
                         }
                     }
@@ -351,7 +340,7 @@ class AppNet(
             outbox.stop()
             closeQuietly(sock)
             host.executor.execute("app end $id") {
-                conns.remove(id)
+                conns.remove(id)?.let { c -> for (s in c.scopes + c.described.keys) used(c, "leave", s) }
                 ended(id, "its connection ended")
             }
         }
@@ -361,7 +350,7 @@ class AppNet(
     override fun close() {
         host.removeListener(listener)
         host.removeTickListener(sweep)
-        devices?.removeListener(devicesListener)
+        devices?.table?.removeListener(devicesListener)
         host.executor.call {
             for (c in conns.values) c.outbox.finish(AppWire.encode(AppWire.end(AppWire.END_SHUTTING_DOWN)))
             conns.clear()
@@ -408,7 +397,7 @@ class AppNet(
                 if (no != null) conn.outbox.offer(AppWire.encode(AppWire.ans(Ans(null, scope, no))))
                 else {
                     conn.outbox.offer(AppWire.encode(AppWire.desc(scope, devices.describe())))
-                    conn.scopes += scope
+                    if (conn.scopes.add(scope)) used(conn, "open", scope)
                 }
             }
             return
@@ -441,7 +430,7 @@ class AppNet(
             val items = HashMap<String, Item>()
             for (w in AppWire.windowsOf(scope, conn.visible)) items.putAll(host.read(w).third.items)
             conn.outbox.offer(AppWire.encode(AppWire.snap(Snap(scope, host.epoch, host.seq, Effect(items)))))
-            conn.scopes += scope
+            if (conn.scopes.add(scope)) used(conn, "open", scope)
             // S1-2 Q2: a record scope's viewer (a second `sub` replaces its need; none ends it)
             viewers.put(conn.id, scope, scope.takeIf { it != AppWire.RECORD }, need ?: NO_NEED)
         }
@@ -462,7 +451,7 @@ class AppNet(
                 conn.outbox.offer(AppWire.encode(AppWire.ans(Ans(null, scope, no))))
                 if (no.reason == AppHost.LOG_CLOSED) conn.closedSubs += { describedSub(conn, scope, g, p, need) }
             } else {
-                if (conn.described[scope]?.p !== p) conn.described[scope] = Held(p)
+                if (conn.described[scope]?.p !== p && conn.described.put(scope, Held(p)) == null) used(conn, "open", scope)
                 viewers.put(conn.id, scope, w, need ?: NO_NEED)
                 describeFor(conn, scope)
             }
@@ -590,6 +579,17 @@ class AppNet(
         }
     }
 
+    /**
+     * L1 R-e, the usage record: a web page took or left a scope (a window, a book, a part, a folder): one `usage` note
+     * in the PC's journal, `<device> web <window> open|leave <scope>`, beside the program and device notes (the
+     * note's `t` is when). What a page does is an op and in the op log already; the glasses' window is on every flush
+     * line of the phone's own journal (`win`), and their notices' read and dismiss are ops. Executor only.
+     */
+    private fun used(conn: Conn, action: String, scope: String) {
+        val window = scope.removePrefix("desc/").substringBefore('/')
+        if (conn.page) host.noteAs("usage", "${conn.peer.device} web $window $action $scope")
+    }
+
     /** A device-table action (C§10.3, C§10.8): level full, never queued, answered on the executor. */
     private fun deviceOp(conn: Conn, o: Op) {
         val table = devices ?: return
@@ -604,14 +604,9 @@ class AppNet(
         }
     }
 
-    /**
-     * Ends every connection of [device] with [reason] (`revoked`, `replaced`; C§10.8): each is told and closed, and an
-     * op it sent that has not been applied yet is refused by the gate. Runs on the executor; returns how many ended.
-     */
-    fun endDevice(device: String, reason: String): Int = host.executor.call { endNow(device, reason) }
-
-    /** Executor only. */
-    private fun endNow(device: String, reason: String): Int {
+    /** Ends every connection of [device] with [reason] (`revoked`, `replaced`; C§10.8): each is told and closed, and an
+     *  op it sent that has not been applied yet is refused by the gate. Executor only. */
+    private fun endNow(device: String, reason: String) {
         val mine = conns.values.filter { it.peer.device == device }
         for (c in mine) {
             c.endedBy = reason
@@ -620,15 +615,14 @@ class AppNet(
             ended(c.id, "its device was $reason")
         }
         if (mine.isNotEmpty()) Log.i(TAG, "${mine.size} connection(s) of $device ended: $reason")
-        return mine.size
     }
 
     /** The device table moved: every connection subscribed to it gets the new description; a revoked or replaced
      *  device's connections end. From the device table's caller's thread: queued on the executor. */
-    private fun onDevices(e: DevicesCore.Event) {
+    private fun onDevices(e: Devices.Event) {
         when (e) {
-            is DevicesCore.Event.Ended -> host.executor.execute("app device ended") { endNow(e.device, e.reason) }
-            DevicesCore.Event.Changed -> host.executor.execute("app devices changed") {
+            is Devices.Event.Ended -> host.executor.execute("app device ended") { endNow(e.device, e.reason) }
+            Devices.Event.Changed -> host.executor.execute("app devices changed") {
                 val table = devices ?: return@execute
                 val frame = AppWire.encode(AppWire.desc(DevicesCore.SCOPE, table.describe()))
                 for (c in conns.values) if (DevicesCore.SCOPE in c.scopes) c.outbox.offer(frame)

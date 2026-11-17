@@ -176,6 +176,8 @@ class RemoteWin(
     /** An unsolicited host frame (the push slice): op, args, an optional
      *  blob. Runs on the channel's read thread — hand off, never block. */
     private val onPush: (String, JsonObject, ByteArray?) -> Unit = { _, _, _ -> },
+    /** X3: how long a quick request waits for its answer before the connection is dropped (tests shorten it). */
+    private val stuckMs: Long = STUCK_MS,
 ) : AutoCloseable {
 
     @Serializable
@@ -291,8 +293,11 @@ class RemoteWin(
 
     /** Blocking request (call from background coroutines, never the shell
      *  loop). Parks until the host answers or the link's end fails it — its
-     *  fate is always decided, never abandoned. */
-    fun request(op: String, args: JsonObject = JsonObject(emptyMap())): Answer {
+     *  fate is always decided, never abandoned. [quick] (X3): one the PC answers
+     *  at once (a poll); with no answer for [stuckMs] the link may have gone
+     *  half-open, so the connection is dropped (a liveness decision: the drop
+     *  fails it, and the channel connects again on its pacing). */
+    fun request(op: String, args: JsonObject = JsonObject(emptyMap()), quick: Boolean = false): Answer {
         val o = out ?: throw IllegalStateException("host $host is not reachable ('$winId')")
         val id = nextId.getAndIncrement()
         val fut = CompletableFuture<Answer>()
@@ -304,7 +309,14 @@ class RemoteWin(
             throw IllegalStateException("'$winId' request not sent: ${e.message}")
         }
         return try {
-            fut.get()
+            if (!quick) fut.get() else try {
+                fut.get(stuckMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+            } catch (e: java.util.concurrent.TimeoutException) {
+                Log.w("win-remote", "'$winId' $op has had no answer for ${stuckMs / 1000} s: the connection is " +
+                    "dropped and opened again")
+                drop()
+                fut.get()
+            }
         } catch (e: java.util.concurrent.ExecutionException) {
             throw (e.cause as? Exception ?: e)
         }
@@ -322,5 +334,10 @@ class RemoteWin(
         loop.cancel()
         failPending("'$winId' channel closed")
         try { sockRef?.close() } catch (e: Exception) { /* closing */ }
+    }
+
+    companion object {
+        /** X3: a quick request with no answer for a minute drops the connection (ruling §5). */
+        const val STUCK_MS = 60_000L
     }
 }

@@ -81,6 +81,32 @@ class RemoteWinLastHeardTest {
         scope.cancel()
     }
 
+    /** X3's class (ruling §5: Torrents' `snap`, Feed's `sources`, Music's `catalog`): a quick request the host took
+     *  and never answered (a link gone half-open) drops the connection once its bound passes; the request fails, said,
+     *  and the channel connects again. */
+    @Test
+    fun aQuickRequestWithNoAnswerDropsTheConnection(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        StandIn().use { h ->
+            val rw = RemoteWin("127.0.0.1", h.port, "tok", "torrents", scope, retryPacingMs = 50, stuckMs = 300)
+            try {
+                val (sock, out) = h.next()
+                h.send(out, """{"t":"wup"}""")
+                waitUntil(5_000, 5, { "the channel came up (${rw.stateLine})" }) { rw.stateLine.isEmpty() }
+                val failed = LinkedBlockingQueue<String>()
+                val asker = Thread({
+                    try { rw.request("snap", quick = true) } catch (e: Exception) { failed.put(e.message ?: "") }
+                }, "x3-asker").apply { isDaemon = true; start() }
+                asker.join(5_000)
+                assertTrue(!asker.isAlive, "the unanswered request ended with the drop")
+                assertTrue("down" in failed.poll()!!, "it failed with the channel's end")
+                h.next().first.close()                                   // the channel connected again
+                sock.close()
+            } finally { rw.close() }
+        }
+        scope.cancel()
+    }
+
     @Test
     fun aFailedConnectNeverMovesIt(): Unit = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
