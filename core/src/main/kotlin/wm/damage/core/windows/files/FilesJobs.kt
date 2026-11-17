@@ -18,8 +18,12 @@ import wm.damage.core.util.Log
  * runs is refused with today's words, "busy — one operation at a time". Every PC caller meets the same slot
  * (`SlottedFiles`): the PC's glasses, the phone's glasses through the window channel, and the web's program ops.
  *
- * Nothing frees a running job but its own end: a `du` stalled on a mount holds the slot until the process ends, and
- * the job's age is shown meanwhile (A.12; no timeout). A finished job stays in the slot, with its answer, until the
+ * A running job is freed by its own end, or (L1, the ruling's slot item) by the ONE recovery, [supervise], on the
+ * PC's pacing tick: a job that writes nothing and has made no progress for its limit ([Handle.endAfter]: a `stats`,
+ * an upload whose body has not begun) is ended as failed, said, and the slot freed. A job that moves, copies,
+ * trashes, restores, deletes, renames or makes a folder has no limit and is never ended or freed by it; its busy line
+ * says how long it has made no progress ([busyLine]): freeing the slot while such a job may still run would let a
+ * second op touch the same files. A finished job stays in the slot, with its answer, until the
  * next one replaces it (R0 §3: a page reads a job's end from the slot). A restart starts with an empty slot.
  */
 class FilesJobs(private val clock: () -> Long = { System.currentTimeMillis() }) {
@@ -33,6 +37,8 @@ class FilesJobs(private val clock: () -> Long = { System.currentTimeMillis() }) 
         val startedAt: Long,
         val updatedAt: Long,
         val answer: JsonElement?,
+        /** L1: how long [supervise] lets this job make no progress before it ends it; null = never. */
+        val endAfterMs: Long? = null,
     ) {
         val running: Boolean get() = state == RUNNING
 
@@ -62,12 +68,20 @@ class FilesJobs(private val clock: () -> Long = { System.currentTimeMillis() }) 
 
         fun failed(reason: String) = end(id, FAILED, kotlinx.serialization.json.JsonPrimitive(reason))
 
+        /** L1: this job writes nothing — [supervise] may end it after [ms] with no progress, asking [stop] first
+         *  (false: it writes now and runs to its end). Never called for a job that moves or changes a file. */
+        fun endAfter(ms: Long, stop: () -> Boolean = { true }) = synchronized(lock) {
+            slot?.takeIf { it.id == id && it.running }?.let { slot = it.copy(endAfterMs = ms); stopper = stop }
+        }
+
         /** As a [FilesProgress] for the provider's counted calls. */
         val asProgress: FilesProgress get() = FilesProgress { done, total, phase -> progress(done, total, phase) }
     }
 
     private val lock = Any()
     private var slot: Job? = null
+    /** What [supervise] asks before it ends the running job ([Handle.endAfter]'s `stop`). */
+    private var stopper: () -> Boolean = { true }
     /** Job ids grow across restarts (seeded from the clock), so a page holding an id of an earlier process never
      *  matches a new job. */
     private var next = clock()
@@ -94,6 +108,23 @@ class FilesJobs(private val clock: () -> Long = { System.currentTimeMillis() }) 
         }
         tell(j)
         return Handle(j.id)
+    }
+
+    /** L1, the slot's one recovery (the header says what it ends and why the rest never): on the PC's pacing tick. */
+    fun supervise() {
+        val (j, stop) = synchronized(lock) {
+            val j = slot?.takeIf { it.running && it.endAfterMs != null } ?: return
+            if (clock() - j.updatedAt < j.endAfterMs!!) return
+            j to stopper
+        }
+        if (!stop()) return                    // an upload's body began meanwhile: it writes now and runs to its end
+        end(j.id, FAILED, kotlinx.serialization.json.JsonPrimitive("ended by the supervisor: no progress for ${j.endAfterMs!! / 60_000} min"))
+    }
+
+    /** The words of a refusal while [holder] runs: today's, its label, and how long it has made no progress. */
+    fun busyLine(holder: Job): String {
+        val idle = (clock() - holder.updatedAt) / 60_000
+        return "$BUSY (${holder.label} is running" + (if (idle >= 1) "; no progress for $idle min" else "") + ")"
     }
 
     /** [work] in the slot, on the caller's thread: its end is the job's (a throw is a failed job, then thrown on). */
@@ -149,5 +180,8 @@ class FilesJobs(private val clock: () -> Long = { System.currentTimeMillis() }) 
         const val FAILED = "failed"
         /** `desc/files` is described again on a job's progress at most this often (the spec's §4.1). */
         const val SAY_EVERY_MS = 1_000L
+        /** L1 (the ruling): the supervisor's limits — an upload ticket whose body has not begun, a read-only job. */
+        const val UPLOAD_WAIT_MS = 2 * 60_000L
+        const val READ_ONLY_MS = 10 * 60_000L
     }
 }

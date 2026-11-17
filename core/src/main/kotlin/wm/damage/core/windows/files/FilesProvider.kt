@@ -95,6 +95,10 @@ interface FilesProvider {
 
     /** `xdg-open` on the host — the §16.11 "open on PC" verb. */
     fun openOnPc(path: String)
+
+    /** L1 B-M2: throws [IllegalArgumentException] with the reason when [path] is at or under this provider's own trash
+     *  folder ([what] names the write: "an upload"); a provider without one (the phone's: the PC checks) takes all. */
+    fun refuseTrashStore(path: String, what: String) {}
 }
 
 /** Build S1-2 Q5 (the spec's §4.1 "Progress"): a provider that counts the slot's long operations (the PC's local one).

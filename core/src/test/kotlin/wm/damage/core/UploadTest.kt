@@ -21,8 +21,9 @@ import wm.damage.core.web.Uploads
 /*
  * Context for the reader: Damage is Adam's own window manager for his own glasses, phone and PC on his own network.
  * Build S1-2, package Q2 (the spec's §2.4 "Uploads", §5 V4; `CONTRACT.md` §9.4): `PUT /blob/upload/<id>`. Only a
- * whole body is given its name; a name already there is never replaced (refused before the body, and again at the
- * move when it appeared during the upload); the space is read before a byte of the body; a cut-off body leaves
+ * whole body is given its name; a file already there is never replaced (L1: the upload takes the first free numbered
+ * name, also when the name appeared during the upload; the temp name holds no name, so a long one fits); the space is
+ * read before a byte of the body; a cut-off body leaves
  * nothing; the id is single use and bound to its device; `uploads.jsonl` lets a start delete what a stopped process
  * left; a ticket whose connection ends before its body is cancelled. A real web listener on loopback port 0
  * (`WebRig`), made-up files in temp directories.
@@ -105,30 +106,60 @@ class UploadTest {
         assertEquals(emptyList(), listed())
     }
 
-    /** Pin (the spec's Q2: "an existing name is replaced"): a name that appears while the body arrives (after the
-     *  check before it) is still never replaced — the move refuses it. */
+    /** Pin (L1, "an upload never replaces"): a name that appears while the body arrives is never replaced — the link
+     *  refuses it and the upload takes the next free numbered name, which the answer names. */
     @Test
     fun aNameThatAppearsDuringTheUploadIsNeverReplaced() {
         val mine = "the made-up file already there".toByteArray()
-        // the space is read after the name's first check and before the body: the file appears in between
+        // the space is read before the body: the file appears then
         rig(usable = { folder -> Files.write(folder.resolve("survey.bin"), mine); Long.MAX_VALUE }).use { r ->
             val (device, secret) = r.device()
             val got = put(r.port, r.mint(device), secret)!!
-            assertEquals(409, got.code, got.text)
-            assertTrue("nothing was replaced" in got.text, got.text)
+            assertEquals(201, got.code, got.text)
+            assertEquals("{\"name\":\"survey (1).bin\",\"bytes\":200000}", got.text)
             assertContentEquals(mine, Files.readAllBytes(dest.resolve("survey.bin")), "the file there is untouched")
+            assertContentEquals(body, Files.readAllBytes(dest.resolve("survey (1).bin")))
+            assertEquals(listOf<Uploads.End>(Uploads.End.Done(dest.resolve("survey (1).bin"), body.size.toLong())), ends.toList())
             assertEquals(emptyList(), leftovers())
         }
     }
 
-    /** Pin: a name already there is refused before a byte of the body is read. */
+    /** Pin (L1): names already there are kept and the upload takes the first free numbered name. */
     @Test
-    fun anExistingNameIsRefusedBeforeTheBody() = rig().use { r ->
+    fun anExistingNameGetsTheFirstFreeNumberedName() = rig().use { r ->
         Files.write(dest.resolve("survey.bin"), byteArrayOf(1))
+        Files.write(dest.resolve("survey (1).bin"), byteArrayOf(2))
         val (device, secret) = r.device()
-        val got = put(r.port, r.mint(device), secret, send = 0, waitMs = 5_000)
-        assertEquals(409, got?.code, "answered without the body: ${got?.text}")
+        val got = put(r.port, r.mint(device), secret)!!
+        assertEquals(201, got.code, got.text)
         assertContentEquals(byteArrayOf(1), Files.readAllBytes(dest.resolve("survey.bin")))
+        assertContentEquals(byteArrayOf(2), Files.readAllBytes(dest.resolve("survey (1).bin")))
+        assertContentEquals(body, Files.readAllBytes(dest.resolve("survey (2).bin")))
+        assertEquals(listOf("survey (1).bin", "notes (3)", ".bashrc (1)", "a.tar (2).gz", "same"),
+            listOf(Uploads.numbered("survey.bin", 1), Uploads.numbered("notes", 3), Uploads.numbered(".bashrc", 1),
+                Uploads.numbered("a.tar.gz", 2), Uploads.numbered("same", 0)))
+    }
+
+    /** Pin (L1): the numbered names are tried a bounded number of times; past them nothing is placed or replaced. */
+    @Test
+    fun theNumberedNamesAreBounded() =
+        rig(uploads = Uploads(data, { Long.MAX_VALUE }) { _, d -> throw java.nio.file.FileAlreadyExistsException(d.toString()) }).use { r ->
+            val (device, secret) = r.device()
+            val got = put(r.port, r.mint(device), secret)!!
+            assertEquals(409, got.code, got.text)
+            assertTrue("up to (${Uploads.MAX_NUMBER})" in got.text && "nothing was replaced" in got.text, got.text)
+            assertEquals(emptyList(), leftovers())
+        }
+
+    /** Pin (B-N10): the temp name holds no name, so a name of 250 bytes uploads (beside it the old temp name would pass
+     *  the filesystem's 255). */
+    @Test
+    fun aLongNameUploads() = rig().use { r ->
+        val long = "n".repeat(246) + ".bin"
+        val (device, secret) = r.device()
+        val got = put(r.port, r.mint(device, name = long), secret)!!
+        assertEquals(201, got.code, got.text)
+        assertContentEquals(body, Files.readAllBytes(dest.resolve(long)))
     }
 
     /** Pin (the spec's Q2: "a full disk is found after the body"): the space is read before a byte of the body. */
@@ -161,15 +192,18 @@ class UploadTest {
 
     @Test
     fun aStartDeletesWhatAStoppedProcessLeftAndATicketEndsWithItsConnection() {
+        // 0.67's temp name (the file's name in it) and L1's
         val part = Files.write(dest.resolve(".survey.bin.damage-upload-0a0b.part"), byteArrayOf(1, 2))
+        val part2 = Files.write(dest.resolve(".damage-upload-0c0d.part"), byteArrayOf(1, 2))
         val keep = Files.write(dest.resolve("not-ours.part"), byteArrayOf(3))
-        Files.writeString(data.resolve(Uploads.LIST_FILE), "{\"id\":\"0a0b\",\"part\":\"$part\"}\n{\"id\":\"zz\",\"part\":\"$keep\"}\n")
+        Files.writeString(data.resolve(Uploads.LIST_FILE), "{\"id\":\"0a0b\",\"part\":\"$part\"}\n{\"id\":\"zz\",\"part\":\"$keep\"}\n" +
+            "{\"id\":\"0c0d\",\"part\":\"$part2\"}\n")
         val said = ArrayList<String>()
         val u = Uploads(data)
         u.atStart { said += it }
-        assertFalse(Files.exists(part), "the listed temp file was deleted")
+        assertFalse(Files.exists(part) || Files.exists(part2), "the listed temp files were deleted")
         assertTrue(Files.exists(keep), "a line naming no upload's temp file deletes nothing")
-        assertEquals(2, said.size, "$said")
+        assertEquals(3, said.size, "$said")
         assertTrue(said[0].startsWith("an upload cut off by the last stop was deleted"), said[0])
         assertEquals(emptyList(), Files.readAllLines(data.resolve(Uploads.LIST_FILE)).filter { it.isNotBlank() })
         // a ticket whose connection ends before its body is cancelled, its owner told

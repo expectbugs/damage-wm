@@ -26,7 +26,8 @@ import wm.damage.core.web.Uploads
  * builders (`runShell` and `hostOnly`): the one job slot, the provider behind it that every PC caller receives
  * ([slotted]: the PC's glasses, `FilesService` for the phone, the web's ops), the core on the PC record (its own writes
  * — the cut's clear after a paste — as device [DEVICE]), the PC-served scopes, the program ops, the blobs and Main's
- * card. A glasses presenter on this PC reads Files' records through [glassesSource].
+ * card. A glasses presenter on this PC reads Files' records through [glassesSource]. The slot's supervisor
+ * ([FilesJobs.supervise]) runs on the record's pacing tick.
  */
 class FilesPc(
     private val host: AppHost,
@@ -43,18 +44,25 @@ class FilesPc(
     /** The core's own source on the PC record: the shared rows the scopes sort by, and the clipboard's clear. */
     val coreSource: LocalWindowSource = LocalWindowSource(core, HostBackend(host, DEVICE, OpQueue.newStream()))
     val slotted: SlottedFiles = SlottedFiles(raw, jobs, onMoved = { src -> coreSource.act(FilesCore.clearCutDraft(src)) })
-    val scopes: FilesScopes = FilesScopes(core, slotted, jobs, { coreSource.state() }, { booksDir })
+    /** The lane Files is served on ([serveOn]): its held scopes say which folders a job's end reads again (L1 F10). */
+    @Volatile private var net: AppNet? = null
+    val scopes: FilesScopes = FilesScopes(core, slotted, jobs, { coreSource.state() }, { booksDir },
+        held = { net?.held() ?: emptySet() })
     val program: FilesProgram = FilesProgram(slotted, uploads)
     val blobs: FilesBlobs = FilesBlobs(slotted, thumbs)
 
     init {
         slotted.pc = this
+        host.addTickListener(jobs::supervise)
     }
 
     fun card(): JsonObject = filesCard(core, jobs)
 
     /** Files' parts on [net] (before the web listener starts, so no page asks first). */
-    fun serveOn(net: AppNet) = net.serve(FilesCore.WINDOW, scopes, program, ::card)
+    fun serveOn(net: AppNet) {
+        this.net = net
+        net.serve(FilesCore.WINDOW, scopes, program, ::card)
+    }
 
     /** A source on the PC record for a glasses presenter (device `local`, a stream of its own). */
     fun glassesSource(device: String = Peer.LOCAL.device): LocalWindowSource =
@@ -70,8 +78,8 @@ class FilesPc(
  * Files' program ops from the `app` lane (the spec's §4.1 table; decisions A.7, A.15): each into the filesystem, never
  * queued. A slot action takes the PC's one slot now (refused with today's words while another runs) and runs as a job
  * after its answer, `Sent{job}`; the page reads its end from the slot. `upload` answers `Sent{upload, job}` and holds
- * the slot until its body ends. Replace on upload is the page's "the old file to the trash, then the upload": the PC
- * never overwrites (the upload route refuses an existing name).
+ * the slot until its body ends. An upload never replaces a file: a name that exists is placed under the first free
+ * numbered name (`Uploads`).
  */
 class FilesProgram(private val files: SlottedFiles, private val uploads: Uploads?) : ProgramHandler {
     override fun act(op: Op, peer: Peer): ProgramResult = try {
@@ -121,6 +129,7 @@ class FilesProgram(private val files: SlottedFiles, private val uploads: Uploads
             FilesCore.STATS -> {
                 val path = one(op)
                 job(files.start("Stats '${SlottedFiles.name(path)}'", "counting") { h ->
+                    h.endAfter(FilesJobs.READ_ONLY_MS)                 // writes nothing: the supervisor may end it
                     val st = files.raw.stat(path)
                     val size = if (st.dir) files.raw.duCounted(path, h.asProgress) else st.size
                     buildJsonObject {
@@ -133,7 +142,7 @@ class FilesProgram(private val files: SlottedFiles, private val uploads: Uploads
             else -> ProgramResult.Refused("Files has no program op '${op.action}'")
         }
     } catch (e: FilesJobs.Busy) {
-        ProgramResult.Refused(FilesJobs.BUSY + " (${e.holder.label} is running)")
+        ProgramResult.Refused(files.jobs.busyLine(e.holder))
     } catch (e: IllegalArgumentException) {
         ProgramResult.Refused(e.message ?: "the op's targets or parameters are not Files'")
     }
@@ -146,6 +155,7 @@ class FilesProgram(private val files: SlottedFiles, private val uploads: Uploads
             ?: throw IllegalArgumentException("an upload names its file")
         val size = (file["size"] as? JsonPrimitive)?.longOrNull ?: throw IllegalArgumentException("an upload gives its size")
         val conn = (op.id as? OpId.Conn)?.conn ?: throw IllegalArgumentException("an upload is an op of a connection")
+        files.raw.refuseTrashStore(dest, "an upload")
         val h = files.jobs.begin("Upload '$name'", "waiting for the file")
         val id = try {
             u.mint(peer.device, conn, Path.of(dest), name, size) { end ->
@@ -161,6 +171,8 @@ class FilesProgram(private val files: SlottedFiles, private val uploads: Uploads
             h.failed(e.message ?: "the upload could not be begun")
             throw e
         }
+        // L1: a ticket whose body never begins (its page went before the PUT) is ended by the supervisor
+        h.endAfter(FilesJobs.UPLOAD_WAIT_MS) { u.cancel(id) }
         return ProgramResult.Sent(buildJsonObject { put("upload", id); put("job", h.id) })
     }
 

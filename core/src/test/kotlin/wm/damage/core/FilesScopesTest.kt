@@ -118,27 +118,35 @@ class FilesScopesTest {
         assertNotNull((books["rows"] as JsonArray).single().jsonObject["reader"])
     }
 
+    /** Pin (L1 F10, B-N8): a job's end reads again only the folders a page holds — a folder no connection holds keeps
+     *  its version (its disk is not woken) — and a held one the job changed is described to its page again. */
     @Test
-    fun aSortChangeFollowsEveryHeldPage_andAJobsEndMovesTheVersionOfAFolderItChanged() {
-        val h = host()
-        val pc = pc(h)
+    fun aSortChangeFollowsEveryHeldPage_andAJobsEndReadsAgainOnlyTheFoldersAPageHolds() {
+        val web = Web()
+        val pc = web.pc
         val a = tree.file("w/a.txt")
         tree.file("w/b.txt")
-        val dir = tree.home.resolve("w").toString()
-        val scope = FilesScopes.folderScope(dir, 0)
+        val c = tree.file("v/c.txt")
+        val held = FilesScopes.folderScope(tree.home.resolve("w").toString(), 0)
+        val unheld = FilesScopes.folderScope(tree.home.resolve("v").toString(), 0)
         val sortKey = Record.key(FilesCore.WINDOW, FilesCore.SORT)
         val change = Change(1, 1, null, Effect(mapOf(sortKey to Item(JsonPrimitive("size"), 1, "web", 1))))
-        assertTrue(pc.scopes.follows(scope, change))
+        assertTrue(pc.scopes.follows(held, change))
         assertTrue(pc.scopes.follows("desc/files", change))
         assertFalse(pc.scopes.follows("files/text:$a/at:0", change))
-        val v0 = pc.scopes.describe(scope)!!["version"]!!.jsonPrimitive.content.toLong()
-        assertEquals(v0, pc.scopes.version(scope))
-        val fired = java.util.concurrent.atomic.AtomicInteger()
-        pc.scopes.addListener { fired.incrementAndGet() }
+        val (page, _) = web.page(Levels.FULL)
+        page.send(AppWire.sub(held, null))
+        val v0 = page.answer(held)["desc"]!!.jsonObject["version"]!!.jsonPrimitive.content.toLong()
+        val u0 = pc.scopes.describe(unheld)!!["version"]!!.jsonPrimitive.content.toLong()     // described, but held by no page
         pc.slotted.trash(a)
-        eventually("the folder was read again after the job and its version moved") { (pc.scopes.version(scope) ?: 0) > v0 }
-        eventually("the lane was told") { fired.get() >= 2 }
-        assertEquals(listOf("b.txt"), names(pc.scopes.describe(scope)!!))
+        pc.slotted.trash(c)
+        val again = page.answer(held)["desc"]!!.jsonObject
+        assertTrue(again["version"]!!.jsonPrimitive.content.toLong() > v0, "the held folder was read again: its version moved")
+        assertEquals(listOf("b.txt"), names(again))
+        val drained = java.util.concurrent.CountDownLatch(1)
+        pc.scopes.describeOn.execute { drained.countDown() }                       // the job ends' reads are behind us
+        assertTrue(drained.await(10, TimeUnit.SECONDS))
+        assertEquals(u0, pc.scopes.version(unheld), "a folder no page holds is not read again at a job's end")
     }
 
     @Test

@@ -1,7 +1,5 @@
 package wm.damage.core.windows.files
 
-import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -31,11 +29,6 @@ class SlottedFiles(
     @Volatile var pc: FilesPc? = null
         internal set
 
-    /** Where a job started from a program op runs once its op has been answered (one at a time: the slot). */
-    private val runner: ExecutorService by lazy {
-        Executors.newSingleThreadExecutor { r -> Thread(r, "files-job").apply { isDaemon = true } }
-    }
-
     override fun copy(src: String, destDir: String): String =
         jobs.run("Paste '${name(src)}'", "copying", ::pathAnswer) { h -> raw.copyCounted(src, destDir, h.asProgress) }
 
@@ -57,27 +50,24 @@ class SlottedFiles(
         jobs.run("New folder '$name'", "creating", ::pathAnswer) { raw.mkdir(dir, name) }
 
     override fun du(path: String): Long =
-        jobs.run("Stats '${name(path)}'", "counting") { h -> raw.duCounted(path, h.asProgress) }
+        jobs.run("Stats '${name(path)}'", "counting") { h ->
+            h.endAfter(FilesJobs.READ_ONLY_MS)                 // writes nothing: the supervisor may end it
+            raw.duCounted(path, h.asProgress)
+        }
 
     /**
      * A job for a program op: the slot is taken now, on the caller's thread ([FilesJobs.Busy] with today's words while
-     * another runs), and [work] runs on this provider's own job thread after the op is answered; its return is the
-     * job's answer, a throw its failure. Returns the job's id.
+     * another runs), and [work] runs on a thread of its own after the op is answered; its return is the job's answer,
+     * a throw its failure. Returns the job's id. A thread per job (the slot keeps them one at a time): a read-only job
+     * the supervisor ended may stay stalled in its call without holding up the next (L1).
      */
     fun start(label: String, phase: String, work: (FilesJobs.Handle) -> JsonElement?): String {
         val h = jobs.begin(label, phase)
         try {
-            runner.execute {
-                val answer = try {
-                    work(h)
-                } catch (e: Throwable) {
-                    h.failed(e.message ?: e::class.simpleName ?: "failed")
-                    return@execute
-                }
-                h.done(answer)
-            }
-        } catch (e: java.util.concurrent.RejectedExecutionException) {
-            h.failed("the PC is stopping; $label was not run")
+            Thread({ runCatching { work(h) }.fold(h::done) { e -> h.failed(e.message ?: e::class.simpleName ?: "failed") } },
+                "files-job").apply { isDaemon = true }.start()
+        } catch (e: Throwable) {
+            h.failed("$label was not run (${e::class.simpleName}: ${e.message})")
             throw e
         }
         return h.id

@@ -224,6 +224,10 @@ class AppNet(
         endListeners += l
     }
 
+    /** L1 F10: the PC-served scopes some connection holds now (Files reads again, at a job's end, only the folders a
+     *  page holds). Never call it on the executor. */
+    fun held(): Set<String> = host.executor.call { conns.values.flatMapTo(HashSet()) { it.described.keys } }
+
     private fun add(p: Provider) {
         providers += p
         p.d.addListener { host.executor.execute("app described moved") { moved(p) } }
