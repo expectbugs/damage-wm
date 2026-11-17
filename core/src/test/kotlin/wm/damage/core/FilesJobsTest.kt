@@ -195,9 +195,11 @@ class FilesJobsTest {
         gate.countDown()
     }
 
-    /** Pin (L1): the glasses' stats (the slot's own call, on the caller's thread) is ended the same way. */
+    /** Pin (L1; L1 R1 B7): the glasses' stats (the slot's own call: the PC's glasses, and the phone's through the
+     *  window channel) is ended the same way, and its caller is freed then with the supervisor's words while the
+     *  stalled call stays in its own thread. */
     @Test
-    fun theGlassesStatsIsEndedToo() {
+    fun theGlassesStatsIsEndedToo_andItsCallerIsFreedWithTheWords() {
         val gate = CountDownLatch(1)
         val entered = CountDownLatch(1)
         val stalled = object : FilesProvider by tree.files {
@@ -213,8 +215,10 @@ class FilesJobsTest {
         now += FilesJobs.READ_ONLY_MS
         jobs.supervise()
         assertEquals(FilesJobs.FAILED, jobs.current()!!.state)
+        // the caller (the glasses' Stats, the phone's channel) is answered now, the du still held
+        val e = assertFailsWith<java.util.concurrent.ExecutionException> { call.get(10, TimeUnit.SECONDS) }
+        assertEquals("ended by the supervisor: no progress for 10 min", e.cause?.message, "$e")
         gate.countDown()
-        call.get(10, TimeUnit.SECONDS)
     }
 
     /** Pin (L1): progress moves the supervisor's mark — ten minutes count from the last progress, not the start. */

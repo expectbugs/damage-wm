@@ -180,6 +180,43 @@ class FilesArrangementsTest {
         assertEquals("size", services.menus.last().items.single { it.label == "Sort" }.detail, "the Sort row")
     }
 
+    /** Pin (L1 R1 B7, read on the surface): a Stats on the glasses that the supervisor ends frees the glasses — they
+     *  show its words — while the stalled call stays in its own thread. */
+    @Test
+    fun aStatsTheSupervisorEndsFreesTheGlasses(): Unit = runBlocking {
+        val gate = java.util.concurrent.CountDownLatch(1)
+        val entered = java.util.concurrent.CountDownLatch(1)
+        val stalled = object : wm.damage.core.windows.files.FilesProvider by tree.files {
+            override fun du(path: String): Long {
+                entered.countDown()
+                assertTrue(gate.await(30, java.util.concurrent.TimeUnit.SECONDS), "the test's own bound on its held du")
+                return 0
+            }
+        }
+        var now = 1_000_000_000L
+        val jobs = wm.damage.core.windows.files.FilesJobs { now }
+        val services = MenuServices()
+        val w = wm.damage.core.windows.files.FilesWindow(FakeText(), wm.damage.core.windows.files.SlottedFiles(stalled, jobs), scope)
+            .also { it.onRegistered(services) }
+        tree.file("s/a.txt")
+        val dir = tree.home.resolve("s").toString()
+        assertTrue(services.onLoop { w.open("path:$dir/") })
+        readerAwait("listed") { services.onLoop { w.summary().detail } == "0 folders · 1 files" }
+        services.onLoop { w.view().let { v -> (v as WindowView.ListView).onCommit(v.rowCount() - 1) } }   // This folder
+        val menu = services.menus.last()
+        services.onLoop { menu.onCommit(menu.items.indexOfFirst { it.label == "Stats" }) }
+        try {
+            assertTrue(entered.await(10, java.util.concurrent.TimeUnit.SECONDS))
+            now += wm.damage.core.windows.files.FilesJobs.READ_ONLY_MS
+            jobs.supervise()
+            readerAwait("the glasses show the supervisor's words") {
+                services.onLoop { w.title() } == "ended by the supervisor: no progress for 10 min"
+            }
+        } finally {
+            gate.countDown()
+        }
+    }
+
     @Test
     fun theGlassesSortRowReachesThePcRecord_andACutPastedThereIsClearedByThePcsCore(): Unit = runBlocking {
         val a = arrange()

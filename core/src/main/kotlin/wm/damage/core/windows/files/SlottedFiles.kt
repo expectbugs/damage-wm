@@ -49,11 +49,18 @@ class SlottedFiles(
     override fun mkdir(dir: String, name: String): String =
         jobs.run("New folder '$name'", "creating", ::pathAnswer) { raw.mkdir(dir, name) }
 
-    override fun du(path: String): Long =
-        jobs.run("Stats '${name(path)}'", "counting") { h ->
-            h.endAfter(FilesJobs.READ_ONLY_MS)                 // writes nothing: the supervisor may end it
-            raw.duCounted(path, h.asProgress)
+    /** A folder's size for the glasses (the PC's own, and the phone's through the window channel). It writes nothing:
+     *  the supervisor may end it, and the caller waits for the job's END, not the call's — so a stalled `du` frees the
+     *  surface that asked, with the supervisor's words, while the call stays in its own thread (L1 R1 B7). */
+    override fun du(path: String): Long {
+        val got = java.util.concurrent.CompletableFuture<Long>()
+        start("Stats '${name(path)}'", "counting") { h ->
+            h.endAfter(FilesJobs.READ_ONLY_MS) { got.completeExceptionally(java.io.IOException(FilesJobs.ended(FilesJobs.READ_ONLY_MS))) }
+            try { got.complete(raw.duCounted(path, h.asProgress)) } catch (e: Exception) { got.completeExceptionally(e); throw e }
+            null
         }
+        return try { got.get() } catch (e: java.util.concurrent.ExecutionException) { throw e.cause ?: e }
+    }
 
     /**
      * A job for a program op: the slot is taken now, on the caller's thread ([FilesJobs.Busy] with today's words while

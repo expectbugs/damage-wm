@@ -119,7 +119,7 @@ class FilesJobs(private val clock: () -> Long = { System.currentTimeMillis() }) 
             j to stopper
         }
         if (!stop()) return                    // an upload's body began meanwhile: it writes now and runs to its end
-        end(j.id, FAILED, kotlinx.serialization.json.JsonPrimitive("ended by the supervisor: no progress for ${j.endAfterMs!! / 60_000} min"))
+        end(j.id, FAILED, kotlinx.serialization.json.JsonPrimitive(ended(j.endAfterMs!!)))
     }
 
     /** The words of a refusal while [holder] runs: today's, its label, and how long it has made no progress. */
@@ -184,5 +184,8 @@ class FilesJobs(private val clock: () -> Long = { System.currentTimeMillis() }) 
         /** L1 (the ruling): the supervisor's limits — an upload ticket whose body has not begun, a read-only job. */
         const val UPLOAD_WAIT_MS = 2 * 60_000L
         const val READ_ONLY_MS = 10 * 60_000L
+
+        /** The supervisor's words for a job it ended after [ms] with no progress. */
+        fun ended(ms: Long) = "ended by the supervisor: no progress for ${ms / 60_000} min"
     }
 }
