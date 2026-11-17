@@ -1292,6 +1292,7 @@ class ReaderGlasses(
         val id = subKey.removePrefix("book.")
         val off = state["off"]?.jsonPrimitive?.intOrNull
         if (off == null) {
+            inputAt.remove(id)                    // its input time goes with the place (L1 R1 RS NOTE 5)
             if (offsets.remove(id) != null && book?.meta?.id == id) {
                 book = null
                 docModel.topLine = 0
