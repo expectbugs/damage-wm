@@ -178,7 +178,7 @@ class NoticeMirror(
     private fun input(ref: NoticeRef, action: String) = ex.execute("notice $action") {
         val r = Notices.records(backend.stateOf(Notices.WINDOW))[ref.id]
         if (r == null || r.occ != ref.occ) {
-            // the record moved on (another occurrence, or gone): the PC would refuse it as lost; nothing is sent
+            // the record moved on (another occurrence, or gone): the PC would change nothing; nothing is sent
             Log.i(TAG, "$action of ${ref.id} at occurrence ${ref.occ} not sent: the record holds ${r?.occ ?: "none"}")
             return@execute
         }
@@ -187,12 +187,6 @@ class NoticeMirror(
 
     private fun answeredNow(op: Op, a: Answer) {
         when (a) {
-            // a loss on a notice is never said (the next occurrence is already shown, or the state was further on):
-            // it is let go at once, so the copy keeps no loss for a presenter to say
-            is Answer.Lost -> {
-                Log.i(TAG, "${op.action} of ${op.targets} lost (the record had moved on): not said")
-                backend.said(Notices.WINDOW, op)
-            }
             is Answer.Refused -> {
                 val line = "${op.action} of notice ${op.targets} not taken: ${a.reason}"
                 Log.w(TAG, line)

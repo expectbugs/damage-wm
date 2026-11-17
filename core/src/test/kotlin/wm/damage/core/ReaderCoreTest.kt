@@ -20,7 +20,6 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import wm.damage.core.app.Answer
-import wm.damage.core.app.Expect
 import wm.damage.core.app.Item
 import wm.damage.core.app.Kind
 import wm.damage.core.app.Op
@@ -49,13 +48,13 @@ class ReaderCoreTest {
         scope.cancel()
     }
 
-    private fun item(name: String, v: kotlinx.serialization.json.JsonElement, by: String = "local", rev: Long = 1) =
-        Record.key(ReaderCore.WINDOW, name) to Item(v, rev, by, 1L)
+    private fun item(name: String, v: kotlinx.serialization.json.JsonElement, by: String = "local") =
+        Record.key(ReaderCore.WINDOW, name) to Item(v, by, 1L)
 
     private fun ask(h: wm.damage.core.app.AppHost, device: String, n: Long, action: String, target: String,
-                    result: kotlinx.serialization.json.JsonElement, expect: Expect): Answer {
+                    result: kotlinx.serialization.json.JsonElement, at: Long): Answer {
         val got = java.util.concurrent.CopyOnWriteArrayList<Answer>()
-        h.act(Op(device, OpId.Queued("s-$device", n), ReaderCore.WINDOW, action, listOf(target), result, expect)) { got += it }
+        h.act(Op(device, OpId.Queued("s-$device", n), ReaderCore.WINDOW, action, listOf(target), result, at = at)) { got += it }
         h.executor.call {}
         return got.single()
     }
@@ -142,28 +141,24 @@ class ReaderCoreTest {
         val h = rig.pc()
         val p10 = JsonPrimitive(ReaderAnchor(10).format())
         val p20 = JsonPrimitive(ReaderAnchor(20).format())
-        // the place: applies on what was seen, loses once another device moved it
-        assertIs<Answer.Seen>(ask(h, "phone", 1, ReaderCore.PLACE, ReaderCore.placeItem("a"), p10, Expect.Value(JsonNull)))
-        assertIs<Answer.Seen>(ask(h, "web", 1, ReaderCore.PLACE, ReaderCore.placeItem("a"), p20, Expect.Value(p10)))
-        val lost = ask(h, "phone", 2, ReaderCore.PLACE, ReaderCore.placeItem("a"), JsonPrimitive(ReaderAnchor(11).format()), Expect.Value(p10))
-        assertIs<Answer.Lost>(lost)
-        assertEquals(p20, lost.standing)
-        // the book read most recently: arrival order, two devices opening different books never lose
-        assertIs<Answer.Seen>(ask(h, "phone", 3, ReaderCore.OPEN, ReaderCore.RECENT, JsonPrimitive("a"), Expect.Any))
-        assertIs<Answer.Seen>(ask(h, "web", 2, ReaderCore.OPEN, ReaderCore.RECENT, JsonPrimitive("b"), Expect.Any))
+        // the place: the latest input wins (L1 C1); an older one arriving later changes nothing
+        assertIs<Answer.Seen>(ask(h, "phone", 1, ReaderCore.PLACE, ReaderCore.placeItem("a"), p10, at = 10))
+        assertIs<Answer.Seen>(ask(h, "web", 1, ReaderCore.PLACE, ReaderCore.placeItem("a"), p20, at = 20))
+        assertIs<Answer.Seen>(ask(h, "phone", 2, ReaderCore.PLACE, ReaderCore.placeItem("a"), JsonPrimitive(ReaderAnchor(11).format()), at = 15))
+        assertEquals(p20, rig.place(h, "a")!!.value)
+        // the book read most recently: two devices opening different books, the later wins
+        assertIs<Answer.Seen>(ask(h, "phone", 3, ReaderCore.OPEN, ReaderCore.RECENT, JsonPrimitive("a"), at = 30))
+        assertIs<Answer.Seen>(ask(h, "web", 2, ReaderCore.OPEN, ReaderCore.RECENT, JsonPrimitive("b"), at = 31))
         assertEquals("b", h.read("reader").third.items["rec.reader.recent"]!!.value.jsonPrimitive.content)
         // a glasses row
-        assertIs<Answer.Seen>(ask(h, "phone", 4, ReaderCore.SET, ReaderCore.SCROLL_LINES, JsonPrimitive(3), Expect.Value(JsonNull)))
-        // reset progress: a removal expecting the revision seen
-        val rev = rig.place(h, "a")!!.rev
-        assertIs<Answer.Lost>(ask(h, "phone", 5, ReaderCore.RESET, ReaderCore.placeItem("a"), JsonNull, Expect.Rev(rev - 1)))
-        assertIs<Answer.Seen>(ask(h, "phone", 6, ReaderCore.RESET, ReaderCore.placeItem("a"), JsonNull, Expect.Rev(rev)))
+        assertIs<Answer.Seen>(ask(h, "phone", 4, ReaderCore.SET, ReaderCore.SCROLL_LINES, JsonPrimitive(3), at = 40))
+        // reset progress: the place's removal; a place written before it, arriving later, does not bring it back
+        assertIs<Answer.Seen>(ask(h, "phone", 6, ReaderCore.RESET, ReaderCore.placeItem("a"), JsonNull, at = 50))
         assertTrue(rig.place(h, "a")!!.gone)
-        // after a reset the device that knows it writes anew (expecting Any); a place written before it is an edit of
-        // a removed item and loses
-        assertIs<Answer.Lost>(ask(h, "web", 3, ReaderCore.PLACE, ReaderCore.placeItem("a"), p10, Expect.Value(p20)))
-        assertEquals(Expect.Any, ReaderCore.expectSeen(rig.place(h, "a")))
-        assertIs<Answer.Seen>(ask(h, "phone", 7, ReaderCore.PLACE, ReaderCore.placeItem("a"), p10, ReaderCore.expectSeen(rig.place(h, "a"))))
+        assertIs<Answer.Seen>(ask(h, "web", 3, ReaderCore.PLACE, ReaderCore.placeItem("a"), p10, at = 45))
+        assertTrue(rig.place(h, "a")!!.gone)
+        assertIs<Answer.Seen>(ask(h, "phone", 7, ReaderCore.PLACE, ReaderCore.placeItem("a"), p10, at = 60))
+        assertEquals(p10, rig.place(h, "a")!!.value, "a later place writes it anew")
     }
 
     @Test
@@ -221,7 +216,7 @@ class ReaderCoreTest {
     fun theRecordHelpersReadOnlyLivePlaces() {
         val st = WindowState(ReaderCore.WINDOW, mapOf(
             item(ReaderCore.placeItem("a"), JsonPrimitive(ReaderAnchor(5).format())),
-            Record.key(ReaderCore.WINDOW, ReaderCore.placeItem("b")) to Item(JsonNull, 2, "web", 1L, gone = true),
+            Record.key(ReaderCore.WINDOW, ReaderCore.placeItem("b")) to Item(JsonNull, "web", 1L, gone = true),
             item(ReaderCore.placeItem("c"), JsonPrimitive("not a place")),
         ))
         assertEquals(mapOf("a" to 5), ReaderCore.places(st).mapValues { it.value.offset })

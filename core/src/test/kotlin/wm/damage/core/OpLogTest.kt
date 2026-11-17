@@ -16,7 +16,6 @@ import wm.damage.core.app.AppHost
 import wm.damage.core.app.Change
 import wm.damage.core.app.OpLog
 import wm.damage.core.app.RecordAlerts
-import wm.damage.core.app.StreamKey
 
 /**
  * Build S1-1, package P1 (`CONTRACT.md` §9.7 item 1, §13 (b) "operation journal" as the spec's §3 corrects it; dec.
@@ -103,10 +102,10 @@ class OpLogTest {
         assertEquals(epoch, h2.epoch)
         assertEquals(5L, h2.seq)
         for (n in 1L..5L) assertEquals(j("v$n"), rig.item(h2, "k$n")!!.value)
-        assertEquals(5L, h2.highWater(StreamKey("phone", "s1")))
         assertEquals(5, lines().size, "nothing was cut from the log")
-        // the resent op 5 is answered from the replayed answers, not "already handled"
+        // the resent op 5 changes nothing (L1 C1: applying an op twice changes nothing)
         assertEquals(Answer.Seen(), rig.ask(h2, op("phone", "s1", 5, "set", listOf("k5"), j("v5"))))
+        assertEquals(j("v5"), rig.item(h2, "k5")!!.value)
     }
 
     /** Dec. B.1: a failed append answers the op with a retry refusal; nothing is published; no line is left. */
@@ -122,7 +121,6 @@ class OpLogTest {
         assertEquals(Answer.RETRY, (got as Answer.Refused).code)
         assertTrue(published.isEmpty(), "nothing published")
         assertEquals(1L, h.seq)
-        assertEquals(1L, h.highWater(StreamKey("phone", "s1")), "the number is not taken")
         assertEquals(j("v1"), rig.item(h, "a")!!.value)
         assertEquals(size, Files.size(rig.logFile), "the line written before the failed force is cut back")
         // said once per run of failures: the log line, a journal note, the alert
@@ -144,11 +142,10 @@ class OpLogTest {
     }
 
     @Test
-    fun aRefusalForGoodTakesItsNumberAndALine() {
+    fun aRefusalForGoodTakesALine() {
         val h = rig.opened()
         val got = rig.ask(h, op("phone", "s1", 1, "nosuch", listOf("a"), j("v")))
         assertEquals(Answer.UNKNOWN, (got as Answer.Refused).code)
-        assertEquals(1L, h.highWater(StreamKey("phone", "s1")), "the client drops it and goes on with 2")
         assertEquals(Answer.Seen(), rig.ask(h, op("phone", "s1", 2, "set", listOf("a"), j("v"))))
         assertEquals(2, lines().size)
     }
@@ -202,8 +199,45 @@ class OpLogTest {
     fun theLineFormRoundTrips() {
         val h = rig.opened()
         rig.ask(h, op("desk", "d", 1, "set", listOf("x"), j("c")))
-        rig.ask(h, op("phone", "s1", 1, "set", listOf("x"), j("b"), wm.damage.core.app.Expect.Value(j("a"))))
+        rig.ask(h, op("phone", "s1", 1, "set", listOf("x"), j("b"), at = 5))
         for (l in lines()) assertEquals(l, OpLog.encode(OpLog.decode(l)))
         assertFalse(lines().any { '\n' in it })
+    }
+
+    /**
+     * L1 C1, the decoders first: `oplog.jsonl` lines as 0.67 wrote them — `hw`, an op with `expect` and no `at`, an
+     * effect whose items carry `rev` and an `na` mark, answers `seen` and `lost` — replay past a `record.json` as 0.67
+     * wrote it (`streams`, `colls`, `rev`, `na`): the store keeps its epoch and every effect lands.
+     */
+    @Test
+    fun a067LogAndRecordAreReadAndReplayed() {
+        Files.createDirectories(rig.dir)
+        Files.writeString(rig.recordFile, """{"v":1,"epoch":1763300000000,"items":{"rec.reader.place.a":{"v":"10|v1|",""" +
+            """"rev":2,"by":"phone","at":1763300000100,"na":{"mine":"5|v1|","by":"web-1","at":1763300000200}}},""" +
+            """"colls":{},"streams":{"phone":{"p1":2},"migration":{"migration":19}},"covered":2}""")
+        Files.writeString(rig.logFile, listOf(
+            """{"seq":1,"hw":1,"op":{"device":"phone","stream":"p1","n":1,"window":"reader","action":"place","targets":["place.a"],"result":"9|v1|","expect":{"value":null},"base":0},"eff":{"items":{"rec.reader.place.a":{"v":"9|v1|","rev":1,"by":"phone","at":1763300000050}}},"ans":{"a":"seen"}}""",
+            """{"seq":2,"hw":2,"op":{"device":"phone","stream":"p1","n":2,"window":"reader","action":"place","targets":["place.a"],"result":"10|v1|","expect":{"value":"9|v1|"}},"eff":{"items":{"rec.reader.place.a":{"v":"10|v1|","rev":2,"by":"phone","at":1763300000100}}},"ans":{"a":"seen"}}""",
+            """{"seq":3,"hw":1,"op":{"device":"web-1","stream":"w1","n":1,"window":"reader","action":"place","targets":["place.a"],"result":"5|v1|","expect":{"value":"9|v1|"}},"eff":{"items":{"rec.reader.place.a":{"v":"10|v1|","rev":2,"by":"phone","at":1763300000100,"na":{"mine":"5|v1|","by":"web-1","at":1763300000200}}}},"ans":{"a":"lost","losses":[{"item":"place.a","standing":"10|v1|","by":"phone","at":1763300000100,"mine":"5|v1|"}]}}""",
+            """{"seq":4,"hw":3,"op":{"device":"phone","stream":"p1","n":3,"window":"reader","action":"place","targets":["place.b"],"result":"7|v1|","expect":{"pre":1763200000000}},"eff":{"items":{"rec.reader.place.b":{"v":"7|v1|","rev":0,"by":"phone","at":1763200000000}}},"ans":{"a":"seen","again":true}}""",
+        ).joinToString("\n", postfix = "\n"))
+        val h = AppHost(rig.dir, AppHost.WINDOWS, wm.damage.core.app.CoreExecutor("damage-core-067"), { 1_763_400_000_000L })
+        try {
+            val o = h.open()
+            assertNull(o.newEpoch, "the store keeps its epoch: ${o.problems}")
+            assertEquals(emptyList(), o.problems)
+            assertEquals(1_763_300_000_000L, h.epoch)
+            assertEquals(2, o.replayed, "the lines past the save")
+            val items = h.read("reader").third.items
+            assertEquals(wm.damage.core.app.Item(j("10|v1|"), "phone", 1_763_300_000_100L), items["rec.reader.place.a"])
+            assertEquals(wm.damage.core.app.Item(j("7|v1|"), "phone", 1_763_200_000_000L), items["rec.reader.place.b"])
+            val lost = OpLog.decode(lines()[2])
+            assertEquals(Answer.Seen(), lost.answer, "a loss answer reads as seen")
+            assertEquals(0L, lost.op.at, "an op of the log without its input time: only its effect is replayed")
+            assertEquals(1_763_200_000_000L, OpLog.decode(lines()[3]).op.at, "a migrated place keeps its old stamp")
+        } finally {
+            h.close()
+            h.executor.shutdown()
+        }
     }
 }

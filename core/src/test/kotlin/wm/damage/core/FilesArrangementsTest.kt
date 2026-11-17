@@ -16,7 +16,6 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import wm.damage.core.app.AppHost
 import wm.damage.core.app.AppNet
-import wm.damage.core.app.Expect
 import wm.damage.core.app.LocalWindowSource
 import wm.damage.core.app.Op
 import wm.damage.core.app.OpId
@@ -87,7 +86,7 @@ class FilesArrangementsTest {
     /** Another device writes Files' row [target] on the PC record. */
     private fun elsewhere(h: AppHost, action: String, target: String, value: kotlinx.serialization.json.JsonElement) {
         val got = CopyOnWriteArrayList<wm.damage.core.app.Answer>()
-        h.act(Op("web-q5", OpId.Queued("w-q5", ++n), FilesCore.WINDOW, action, listOf(target), value, Expect.Any)) { got += it }
+        h.act(Op("web-q5", OpId.Queued("w-q5", ++n), FilesCore.WINDOW, action, listOf(target), value, at = System.currentTimeMillis())) { got += it }
         h.executor.call {}
         assertTrue(got.single() is wm.damage.core.app.Answer.Seen, "${got.single()}")
     }

@@ -17,7 +17,6 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonPrimitive
 import wm.damage.core.app.AppNet
 import wm.damage.core.app.AppWire
-import wm.damage.core.app.Expect
 import wm.damage.core.app.Levels
 import wm.damage.core.app.Op
 import wm.damage.core.app.OpId
@@ -159,7 +158,7 @@ class PairingTest {
         r.host.executor.execute("test hold") { held.await() }
         assertNull(r.devices.revoke(row.id, "local"))
         val before = io.reads.get()
-        io.toServer.put(AppWire.op(Op(row.id, OpId.Queued("w1", 1), "t", "set", listOf("a"), JsonPrimitive("late"), Expect.Any)))
+        io.toServer.put(AppWire.op(Op(row.id, OpId.Queued("w1", 1), "t", "set", listOf("a"), JsonPrimitive("late"), at = System.currentTimeMillis())))
         eventually("the loop took the op and waits for the next frame") { io.reads.get() >= before + 1 && io.toServer.isEmpty() }
         Thread.sleep(50)                                          // let the reading thread queue the op behind the end
         held.countDown()

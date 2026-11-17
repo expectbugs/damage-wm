@@ -16,9 +16,7 @@ import wm.damage.core.app.Answer
 import wm.damage.core.app.CoreExecutor
 import wm.damage.core.app.Cursor
 import wm.damage.core.app.Draft
-import wm.damage.core.app.Expect
 import wm.damage.core.app.Item
-import wm.damage.core.app.Loss
 import wm.damage.core.app.NoticeMirror
 import wm.damage.core.app.NoticeRecord
 import wm.damage.core.app.NoticeRef
@@ -44,13 +42,11 @@ class NoticeMirrorTest {
         var items: Map<String, Item> = emptyMap()
         var cursor: Cursor? = Cursor(7, 1)
         val submitted = CopyOnWriteArrayList<Draft>()
-        val saidOps = CopyOnWriteArrayList<Op>()
         private val watchers = ArrayList<SourceListener>()
         override fun stateOf(window: String) = WindowState(window, items, cursor = cursor)
         override fun submit(window: String, draft: Draft) { submitted += draft }
         override fun watch(window: String, l: SourceListener) { watchers += l }
         override fun unwatch(window: String, l: SourceListener) { watchers -= l }
-        override fun said(window: String, op: Op) { saidOps += op }
 
         /** The record moves: every watcher is told on the executor; returns once it was. */
         fun move(f: Backend.() -> Unit) = executor.call {
@@ -88,7 +84,7 @@ class NoticeMirrorTest {
     }
 
     private fun rec(vararg n: Pair<String, JsonObject>): Map<String, Item> =
-        n.associate { (id, v) -> "rec.notices.$id" to Item(v, 1, "pc", 0) }
+        n.associate { (id, v) -> "rec.notices.$id" to Item(v, "pc", 0) }
 
     private fun settle(b: Backend) = repeat(2) { b.executor.call {} }
 
@@ -184,7 +180,7 @@ class NoticeMirrorTest {
     }
 
     @Test
-    fun theShellsReadingEffectsCarryTheRecordsValueAndALossIsLetGo() {
+    fun theShellsReadingEffectsCarryTheRecordsValue() {
         val b = backend()
         b.items = rec("torrent:a" to value(1), "torrent:b" to value(2))
         val m = NoticeMirror(b)
@@ -197,10 +193,7 @@ class NoticeMirrorTest {
         val d = b.submitted[0]
         assertEquals(Notices.DISMISSED, (d.result as JsonObject)["state"]!!.jsonPrimitive.content)
         assertEquals("done · item 1", (d.result as JsonObject)["body"]!!.jsonPrimitive.content, "the whole value, state changed")
-        assertEquals(Expect.Occurrence("1"), d.expect)
-        val op = Op("phone", OpId.Queued("s", 1), Notices.WINDOW, Notices.DISMISS, listOf("torrent:a"), d.result, d.expect)
-        b.answer(op, Answer.Lost(listOf(Loss("torrent:a", value(2), "pc", 0, d.result))))
-        assertEquals(listOf(op), b.saidOps, "a loss on a notice is let go at once, never kept for a presenter to say")
+        assertEquals("1", (d.result as JsonObject)["occ"]!!.jsonPrimitive.content, "the occurrence it acts on, in its value")
     }
 
     @Test

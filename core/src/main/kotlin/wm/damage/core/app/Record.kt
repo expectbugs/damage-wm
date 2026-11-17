@@ -11,27 +11,21 @@ import kotlinx.serialization.json.put
 /*
  * Context for the reader: Damage is Adam's own window manager for his own glasses, phone and PC on his own network.
  * Build S1-1, package P1 (`CONTRACT.md` §2.4, §9.7 item 1): the PC record — Damage's own records of every converted
- * window, one entry per item `rec.<window>.<item>` = {value, rev, by, at, notApplied?}. Written only by the core
- * executor (`AppHost`), from effects that are absolute, so replaying an effect the record already holds changes
- * nothing. L1 C4: no collections (no window declared one; a later ordered list is one register value).
+ * window, one entry per item `rec.<window>.<item>` = {value, by, at}. Written only by the core executor (`AppHost`),
+ * from effects that are absolute, so replaying an effect the record already holds changes nothing. L1 C4: no
+ * collections (a later ordered list is one register value); L1 C1: no revisions and no "not applied" marks.
  */
 
-/** The "not applied" mark (C§2.4): the losing value, who sent it and when. Part of the item's shared state; the
- *  item's next write clears it, a newer loss replaces it. */
-data class NotApplied(val mine: JsonElement, val by: String, val at: Long)
-
 /**
- * One item. [rev] counts its writes (0 = never written since the conversion: absent, or migrated, dec. A.3);
- * [by] and [at] are the device and PC time of the last write (a migrated item: `migration` or the device, and the
- * old stamp). [gone] = removed: the entry stays so a later edit is answered "dropped at the desk 14:02".
+ * One item: its value, the device that wrote it ([by]) and the time of the input that made it ([at], ms; a migrated
+ * item keeps its old stamp). [gone] = removed: the entry stays, so an older input that arrives later does not bring
+ * it back (the latest input wins, `Merge`).
  */
 data class Item(
     val value: JsonElement,
-    val rev: Long,
     val by: String,
     val at: Long,
     val gone: Boolean = false,
-    val notApplied: NotApplied? = null,
 )
 
 /** What an op wrote: the whole new state of every entry it touched, keyed `rec.<window>.<name>`. Absolute, never a
@@ -88,31 +82,20 @@ class Record : RecordView {
 object RecordJson {
     fun item(i: Item): JsonObject = buildJsonObject {
         if (!i.gone) put("v", i.value) else put("gone", true)
-        put("rev", i.rev)
         put("by", i.by)
         put("at", i.at)
-        i.notApplied?.let { put("na", notApplied(it)) }
     }
 
+    /** L1 C1: a 0.67 entry's `rev` and `na` are not read. */
     fun item(j: JsonObject): Item {
         val gone = (j["gone"] as? JsonPrimitive)?.booleanOrNull == true
         return Item(
             value = if (gone) JsonNull else j["v"] ?: throw IllegalArgumentException("item: no v"),
-            rev = OpJson.num(j, "rev"),
             by = OpJson.str(j, "by"),
             at = OpJson.num(j, "at"),
             gone = gone,
-            notApplied = (j["na"] as? JsonObject)?.let { notApplied(it) },
         )
     }
-
-    private fun notApplied(n: NotApplied): JsonObject = buildJsonObject {
-        put("mine", n.mine)
-        put("by", n.by)
-        put("at", n.at)
-    }
-
-    private fun notApplied(j: JsonObject) = NotApplied(j["mine"] ?: JsonNull, OpJson.str(j, "by"), OpJson.num(j, "at"))
 
     fun items(m: Map<String, Item>): JsonObject = buildJsonObject { for ((k, v) in m.toSortedMap()) put(k, item(v)) }
 

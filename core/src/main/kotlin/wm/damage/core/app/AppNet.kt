@@ -295,7 +295,7 @@ class AppNet(
             conns[id] = conn
             viewers.opened(id, clock())
             conn.outbox.offer(AppWire.encode(AppWire.welcome(Welcome(AppWire.PROTO, peer.device, peer.level, id, clock(),
-                host.epoch, host.seq, host.highWaters(peer.device), contracts, bundle))))
+                host.epoch, host.seq, contracts, bundle))))
         }
         val unknown = HashSet<String>()
         try {
@@ -484,7 +484,8 @@ class AppNet(
     private fun op(conn: Conn, f: JsonObject) {
         val raw = f["op"] as? JsonObject
         val decoded = try {
-            raw?.let { OpJson.op(it) } ?: throw IllegalArgumentException("no op object")
+            // L1 C1: an op without its input time (a page not yet reloaded) takes its arrival
+            raw?.let { OpJson.op(it, defaultAt = host.clock()) } ?: throw IllegalArgumentException("no op object")
         } catch (e: IllegalArgumentException) {
             undecodable(conn, raw, e.message ?: "does not decode")
             return
@@ -616,20 +617,10 @@ class AppNet(
         }
     }
 
-    /** An op that does not decode. One that still names its stream and number takes that number as a refusal for
-     *  good (a placeholder that names no window: the record answers it "unknown" and logs it), so the client drops it
-     *  and its stream goes on instead of meeting "expected n" for ever; the answer says why. */
+    /** An op that does not decode: refused for good, in words, to the id it names (L1 C1: no stream waits on it). */
     private fun undecodable(conn: Conn, raw: JsonObject?, why: String) {
-        val id = raw?.let { AppWire.idOf(it) }
         Log.w(TAG, "connection ${conn.id}: an op that does not decode ($why)")
-        val reason = "the op does not decode ($why)"
-        if (id is OpId.Queued) {
-            host.act(Op(conn.peer.device, id, UNDECODED, UNDECODED, emptyList())) { a ->
-                answer(conn, id, if (a is Answer.Refused) Answer.Refused(reason, a.code) else a)
-            }
-        } else {
-            answer(conn, id, Answer.Refused(reason, Answer.INVALID))
-        }
+        answer(conn, raw?.let { AppWire.idOf(it) }, Answer.Refused("the op does not decode ($why)", Answer.INVALID))
     }
 
     /** On the executor (an op's reply is there already, before its change is published); from the reading thread
@@ -672,8 +663,6 @@ class AppNet(
         private const val TAG = "app-net"
         /** The frames a connection's outbox holds before it ends the connection as slow. */
         const val OUTBOX_CAP = 4_096
-        /** The window and action of an op that did not decode: never a window's name (`Record.validWindow`). */
-        const val UNDECODED = "?"
         private val NO_NEED = Viewers.Need(Viewers.Need.NONE)
 
         /** A window served with a card and no scopes of its own. */

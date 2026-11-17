@@ -51,7 +51,7 @@ class FilesJobsTest {
     }
 
     private fun op(action: String, targets: List<String>, params: JsonObject = JsonObject(emptyMap()), k: Long = 1) =
-        Op("web-q5", OpId.Conn(7, k), FilesCore.WINDOW, action, targets, params = params)
+        Op("web-q5", OpId.Conn(7, k), FilesCore.WINDOW, action, targets, params = params, at = k)
 
     private val web = Peer("web-q5", Levels.FULL)
 

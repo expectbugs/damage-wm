@@ -13,10 +13,8 @@ import kotlinx.serialization.json.put
 import wm.damage.core.app.ActionSpec
 import wm.damage.core.app.ActionTable
 import wm.damage.core.app.Admit
-import wm.damage.core.app.Answer
 import wm.damage.core.app.ApplyRule
 import wm.damage.core.app.Draft
-import wm.damage.core.app.Expect
 import wm.damage.core.app.Item
 import wm.damage.core.app.Kind
 import wm.damage.core.app.Levels
@@ -165,35 +163,15 @@ class FilesCore(
             ActionDesc(STATS, "Stats", "job", "program", job = true),
         )
 
-        /**
-         * Files' own rule at apply time (beside the merge rule): an op on one of its registers carries a value of that
-         * register — the clipboard a `{verb, path}` of its own verb (a cut may also clear it: null), the sort one of
-         * three keys, hidden a bool, the Size row Global or one of the four sizes; a migrated register one of those.
-         * Anything else is refused for good with the reason (never a value the presenters would have to guess at).
-         */
-        val RULE = ApplyRule { _, op, _ ->
-            if (op.window != WINDOW) return@ApplyRule null
-            val t = op.targets.singleOrNull()
-                ?: return@ApplyRule refuse("a Files row is written one at a time (${op.targets.size} targets)")
-            val ok = when (op.action) {
-                COPY -> t == CLIP && clipValue(op.result)?.first == "copy"
-                CUT -> t == CLIP && (op.result == JsonNull || clipValue(op.result)?.first == "cut")
-                SORT_ROW -> t == SORT && sortValue(op.result) != null
-                HIDDEN_ROW -> t == HIDDEN && (op.result as? JsonPrimitive)?.takeIf { !it.isString }?.booleanOrNull != null
-                SET -> t == SIZE && validSize(op.result)
-                MIGRATE -> when (t) {
-                    CLIP -> clipValue(op.result) != null
-                    SORT -> sortValue(op.result) != null
-                    HIDDEN -> (op.result as? JsonPrimitive)?.takeIf { !it.isString }?.booleanOrNull != null
-                    SIZE -> validSize(op.result)
-                    else -> false
-                }
-                else -> true                                          // the judge refuses an unknown action itself
-            }
-            if (ok) null else refuse("${op.action} of $t with ${op.result} is not a value of that Files row")
+        /** Files' rule at apply time (L1 F2: no check of the rows' values — every reader drops a value that is not
+         *  one): the core's clear of a cut ([clearCutDraft]) changes nothing unless the clipboard still holds that
+         *  cut, so a clip set meanwhile stands. */
+        val RULE = ApplyRule { rec, op ->
+            if (op.window != WINDOW || op.action != CUT || op.result != JsonNull) return@ApplyRule null
+            val src = (op.params["src"] as? JsonPrimitive)?.contentOrNull
+            val held = rec.item(wm.damage.core.app.Record.key(WINDOW, CLIP))?.takeIf { !it.gone }?.value
+            if (src != null && clipValue(held) == ("cut" to src)) null else Admit.Keep
         }
-
-        private fun refuse(why: String) = Admit.Refuse(Answer.Refused(why, Answer.INVALID))
 
         // ---- reading the record ----
 
@@ -229,40 +207,24 @@ class FilesCore(
         fun sizeOf(state: WindowState): Int? =
             (live(state, SIZE)?.value as? JsonPrimitive)?.takeIf { !it.isString }?.intOrNull?.takeIf { it in ShellSettings.HEIGHTS }
 
-        // ---- the drafts a presenter sends (C§2.4: the result, and what the device expected to find) ----
+        // ---- the drafts a presenter sends (C§2.4: the result; the latest input wins, L1 C1) ----
 
-        /** The expectation for an item a device last saw as [seen] (Reader's rule). */
-        fun expectSeen(seen: Item?): Expect = when {
-            seen == null -> Expect.Value(JsonNull)
-            seen.gone -> Expect.Any
-            else -> Expect.Value(seen.value)
-        }
+        fun clipDraft(verb: String, path: String) = Draft(if (verb == "cut") CUT else COPY, listOf(CLIP), clipJson(verb, path))
 
-        fun clipDraft(verb: String, path: String, expect: Expect) = Draft(if (verb == "cut") CUT else COPY, listOf(CLIP), clipJson(verb, path), expect)
+        /** S1-2 R0 §3: the core's clear after a cut's paste landed — naming the cut it took ([RULE]: a clip changed
+         *  meanwhile stands and nothing is said; today's `clip == took`). */
+        fun clearCutDraft(src: String) = Draft(CUT, listOf(CLIP), JsonNull, buildJsonObject { put("src", src) })
 
-        /** S1-2 R0 §3: the core's clear after a cut's paste landed — expecting the clip it took, so a clip changed
-         *  meanwhile wins and nothing is said (today's `clip == took`). */
-        fun clearCutDraft(src: String) = Draft(CUT, listOf(CLIP), JsonNull, Expect.Value(clipJson("cut", src)))
+        fun sortDraft(key: String) = Draft(SORT_ROW, listOf(SORT), JsonPrimitive(key))
 
-        fun sortDraft(key: String, expect: Expect) = Draft(SORT_ROW, listOf(SORT), JsonPrimitive(key), expect)
+        fun hiddenDraft(on: Boolean) = Draft(HIDDEN_ROW, listOf(HIDDEN), JsonPrimitive(on))
 
-        fun hiddenDraft(on: Boolean, expect: Expect) = Draft(HIDDEN_ROW, listOf(HIDDEN), JsonPrimitive(on), expect)
-
-        fun sizeDraft(height: Int?, expect: Expect) =
-            Draft(SET, listOf(SIZE), height?.let { JsonPrimitive(it) } ?: JsonPrimitive(GLOBAL), expect)
+        fun sizeDraft(height: Int?) = Draft(SET, listOf(SIZE), height?.let { JsonPrimitive(it) } ?: JsonPrimitive(GLOBAL))
 
         /** A location as `desc/files` lists it (C§12: `{path, label, kind, total, free}`). */
         fun location(l: FLocation): JsonObject = buildJsonObject {
             put("path", l.path); put("label", l.label); put("kind", l.kind)
             put("total", l.totalBytes); put("free", l.freeBytes)
-        }
-
-        /** A value of a Files row in the glasses' words (a loss's line). */
-        fun words(v: JsonElement): String = when {
-            v == JsonNull -> "empty"
-            clipValue(v) != null -> clipValue(v)!!.let { (verb, p) -> "$verb ${p.substringAfterLast('/')}" }
-            v is JsonPrimitive -> v.contentOrNull ?: v.toString()
-            else -> v.toString()
         }
     }
 }

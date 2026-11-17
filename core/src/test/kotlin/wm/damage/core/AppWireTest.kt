@@ -69,7 +69,6 @@ class AppWireTest {
         assertEquals(rig.host.epoch, w.epoch)
         assertEquals(3L, w.seq)
         assertEquals(mapOf("t" to 1), w.contracts)
-        assertEquals(emptyMap(), w.highWater, "the phone has sent nothing yet")
         lane.send(AppWire.sub("t", null))
         val snap = AppWire.parseSnap(lane.next("snap"))
         assertEquals(3L, snap.seq)
@@ -148,32 +147,27 @@ class AppWireTest {
         lane.send(AppWire.sub("t", null))
         lane.next("snap")
         // the op names another device: the connection's own (the token's holder) is what the record keeps
-        lane.op(Op("someone-else", OpId.Queued("s1", 1), "t", "set", listOf("a"), j("mine")))
+        lane.op(Op("someone-else", OpId.Queued("s1", 1), "t", "set", listOf("a"), j("mine"), at = 1))
         val ans = AppWire.parseAns(lane.next("ans"))
         assertEquals(OpId.Queued("s1", 1), ans.id)
         assertEquals(Answer.Seen(), ans.answer)
         val chg = AppWire.parseChg(lane.next("chg"))
         assertEquals("phone", chg.origin!!.device)
         assertEquals("phone", chg.patches.items["rec.t.a"]!!.by)
-        assertEquals(mapOf("s1" to 1L), rig.host.highWaters("phone"))
-        assertEquals(emptyMap(), rig.host.highWaters("someone-else"))
-        val again = keep(RawLane(rig.port))
-        assertEquals(mapOf("s1" to 1L), again.welcome().highWater, "welcome carries the device's high-water")
     }
 
-    /** An op that does not decode but names its stream and number takes that number (refused for good), so the
-     *  client's next op is not met with "expected n" for ever. */
+    /** An op that does not decode is refused for good in words, to the id it names; the client's next op is taken. */
     @Test
-    fun anOpThatDoesNotDecodeTakesItsNumberAndTheStreamGoesOn() {
+    fun anOpThatDoesNotDecodeIsRefusedAndTheNextIsTaken() {
         val rig = keep(AppLaneRig())
         val lane = keep(RawLane(rig.port))
         lane.welcome()
         lane.opJson(buildJsonObject { put("device", "phone"); put("stream", "s1"); put("n", 1); put("window", "t") })
         val bad = lane.answer() as Answer.Refused
-        lane.op(Op("phone", OpId.Queued("s1", 2), "t", "set", listOf("a"), j("two")))
-        assertEquals(Answer.Seen(), lane.answer(), "the stream goes on past the op that did not decode")
+        lane.op(Op("phone", OpId.Queued("s1", 2), "t", "set", listOf("a"), j("two"), at = 1))
+        assertEquals(Answer.Seen(), lane.answer(), "the next op is taken")
         assertTrue(bad.reason.startsWith("the op does not decode"), bad.reason)
-        assertEquals(Answer.UNKNOWN, bad.code, "refused for good: the client drops it")
+        assertEquals(Answer.INVALID, bad.code, "refused for good: the client drops it")
     }
 
     @Test
@@ -186,10 +180,10 @@ class AppWireTest {
         val conn = lane.welcome().conn
         assertTrue(conn > goneConn, "a reconnect starts a new conn")
         val seq = rig.host.seq
-        lane.op(Op("phone", OpId.Conn(goneConn, 1), "t", "set", listOf("a"), j("x")))
+        lane.op(Op("phone", OpId.Conn(goneConn, 1), "t", "set", listOf("a"), j("x"), at = 1))
         val ended = lane.answer() as Answer.Refused
         assertEquals(Answer.ENDED, ended.code)
-        lane.op(Op("phone", OpId.Conn(conn, 1), "t", "set", listOf("a"), j("x")))
+        lane.op(Op("phone", OpId.Conn(conn, 1), "t", "set", listOf("a"), j("x"), at = 1))
         assertEquals(Answer.UNSUPPORTED, (lane.answer() as Answer.Refused).code, "S1-1 has no never-queued action")
         assertEquals(seq, rig.host.seq, "neither took a line")
     }

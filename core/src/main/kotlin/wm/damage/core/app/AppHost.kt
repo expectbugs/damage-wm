@@ -20,8 +20,8 @@ import wm.damage.core.util.Log
 /*
  * Context for the reader: Damage is Adam's own window manager for his own glasses, phone and PC on his own network.
  * Build S1-1, package P1 (the spec's §2 P1 and §3; `CONTRACT.md` §2.2–§2.4, §9.3, §9.7 item 1, §13 (b); dec. A.12,
- * B.1): the PC side of the record. Every op runs on the one core executor in arrival order: judge → its log line
- * lands → the record takes the effect → the answer → the change is published. The `app` lane hands it ops and
+ * B.1): the PC side of the record. Every op runs on the one core executor in arrival order: judge (L1 C1: the latest
+ * input wins, `Merge`) → its log line lands → the record takes the effect → the answer → the change is published. The `app` lane hands it ops and
  * carries its changes; L1 C2: every subscription takes a snapshot, so no change is held for a resume.
  */
 
@@ -67,7 +67,8 @@ class AppHost(
     val dir: Path,
     private val actions: ActionTable,
     val executor: CoreExecutor,
-    private val clock: () -> Long = { System.currentTimeMillis() },
+    /** The PC's clock: an op's input time is bounded by it (L1 C1), and the PC's own sources stamp their ops with it. */
+    val clock: () -> Long = { System.currentTimeMillis() },
     private val alerts: RecordAlerts = RecordAlerts.NONE,
     private val journal: Path? = null,
     logSync: (FileChannel) -> Unit = { it.force(true) },
@@ -82,7 +83,6 @@ class AppHost(
         else RecordStore(dir.resolve(RECORD_FILE), storeWrite, storeWriter)
 
     private val record = Record()
-    private val streams = Streams()
     private val listeners = CopyOnWriteArrayList<(Change) -> Unit>()
     /** S1-2 Q2: told on the executor at every pacing tick, before the record's own work (the lane's viewer sweep). */
     private val tickListeners = CopyOnWriteArrayList<() -> Unit>()
@@ -163,8 +163,7 @@ class AppHost(
 
     /** Hands [op] to the executor; [reply] gets its answer there, after its line has landed and before its change is
      *  published. Every op gets exactly one answer. [gate] (S1-1 P6: the device's level, a revoked device) is read on
-     *  the executor at apply time, after the stream's number check: a refusal it returns takes the op's number as a
-     *  refusal for good and changes nothing. */
+     *  the executor at apply time: a refusal it returns is for good and changes nothing. */
     fun act(op: Op, gate: () -> Answer.Refused? = { null }, reply: (Answer) -> Unit) {
         executor.execute("op ${op.window}/${op.action}") { actNow(op, gate, reply) }
     }
@@ -173,13 +172,6 @@ class AppHost(
     fun tick() {
         executor.execute("record tick") { tickNow() }
     }
-
-    /** The stream's high-water (C§2.4 numbering; `welcome` carries them). */
-    fun highWater(key: StreamKey): Long = executor.call { streams.highWater(key) }
-
-    /** Every high-water [device] has, by stream (for its `welcome`). */
-    fun highWaters(device: String): Map<String, Long> =
-        executor.call { streams.table().filterKeys { it.device == device }.mapKeys { it.key.stream } }
 
     /** A copy of [window]'s entries, with the epoch and `seq` it was taken at. */
     fun read(window: String): Triple<Long, Long, Effect> = executor.call { Triple(epoch, seq, record.window(window)) }
@@ -198,17 +190,11 @@ class AppHost(
         loaded.problem?.let { problems += it }
         val saved = loaded.saved
         val covered = saved?.covered ?: 0L
-        saved?.let {
-            record.apply(Effect(it.items))
-            streams.load(it.streams)
-        }
+        saved?.let { record.apply(Effect(it.items)) }
         var replayedTo = covered
         var replayed = 0
         fun replay(line: OpLog.Line) {
-            record.apply(line.effect)
-            line.op.queued?.let { q ->
-                streams.commit(StreamKey(line.op.device, q.stream), line.hw, line.answer, Streams.identity(line.op))
-            }
+            record.apply(line.effect)                 // absolute: a 0.67 line's expect, hw and answer are not needed
             replayedTo = line.seq
             replayed++
         }
@@ -304,51 +290,31 @@ class AppHost(
             reply(Answer.Refused("the PC could not open its operation log at its start; it is kept and sent again", Answer.RETRY))
             return
         }
-        val q = op.queued
-        if (q == null) {
+        if (op.queued == null) {
             reply(Answer.Refused("live, outbound and guarded actions are not built in this version", Answer.UNSUPPORTED))
             return
-        }
-        val key = StreamKey(op.device, q.stream)
-        val ident = Streams.identity(op)
-        when (val c = streams.check(key, q.n, ident)) {
-            is Streams.Check.Handled -> {
-                reply(c.answer ?: Answer.Seen(again = true))
-                return
-            }
-            is Streams.Check.Reused -> {
-                // fix round 1, ruling 2.1: never the other op's answer taken as this one's; nothing is written
-                reply(Answer.Refused("number ${c.n} of this stream was already used by another change (another tab " +
-                    "of this browser); this one was not applied", Answer.INVALID))
-                return
-            }
-            is Streams.Check.Gap -> {
-                reply(Answer.Refused("expected ${c.expected}", Answer.GAP))
-                return
-            }
-            Streams.Check.Next -> {}
         }
         val refused = gate()
         val spec = if (refused == null) actions.spec(op.window, op.action) else null
         val bad = spec?.let { Merge.check(it, op) }
-        val now = clock()
-        // S1-2 Q3: the window's own rule, asked once the shape passed; it never changes the merge rule, only stands in
-        // for it (the notice record: a state never moves backwards; raise and clear are the PC's own)
-        val ruled = if (spec != null && bad == null) rules.admit(record, op, now) else null
-        val verdict = when {
-            spec == null || bad != null || ruled is Admit.Refuse -> Verdict.Same
-            ruled is Admit.Lose -> ruled.verdict
-            else -> Merge.judge(record, spec, op, now)
+        // L1 C1: the input's time, never past the PC's own clock (a device whose clock runs ahead would otherwise hold
+        // its items against every later input until its clock is reached)
+        val at = minOf(op.at, clock())
+        // S1-2 Q3: the window's own rule, asked once the shape passed; it stands in for the merge rule (the notice
+        // record: ordered by its occurrence; raise and clear are the PC's own)
+        val ruled = if (spec != null && bad == null) rules.admit(record, op) else null
+        val effect = when {
+            spec == null || bad != null || ruled is Admit.Refuse || ruled == Admit.Keep -> Effect.NONE
+            else -> Merge.judge(record, spec, op, at, always = ruled == Admit.Apply)
         }
         val answer: Answer = when {
             refused != null -> refused
             spec == null -> Answer.Refused("this PC has no action ${op.action} in ${op.window}", Answer.UNKNOWN)
             bad != null -> Answer.Refused(bad, Answer.INVALID)
             ruled is Admit.Refuse -> ruled.answer
-            verdict is Verdict.Lost -> Answer.Lost(verdict.losses)
             else -> Answer.Seen()
         }
-        val line = OpLog.Line(seq + 1, q.n, op, verdict.effect, answer)
+        val line = OpLog.Line(seq + 1, op, effect, answer)
         try {
             log.append(line)
         } catch (e: Exception) {
@@ -357,11 +323,10 @@ class AppHost(
             return
         }
         logFailures.ok()
-        record.apply(verdict.effect)
-        streams.commit(key, q.n, answer, ident)
+        record.apply(effect)
         seq = line.seq
         reply(answer)
-        publish(Change(epoch, seq, Origin(op.device, op.id), verdict.effect))
+        publish(Change(epoch, seq, Origin(op.device, op.id), effect))
     }
 
     private fun tickNow() {
@@ -391,7 +356,7 @@ class AppHost(
 
     /** The record as it stands, taken in one step on the executor: the covered `seq` is the last line whose effect
      *  the copy holds. */
-    private fun snapshot() = RecordStore.Saved(epoch, seq, record.copyItems(), streams.table())
+    private fun snapshot() = RecordStore.Saved(epoch, seq, record.copyItems())
 
     private fun publish(c: Change) {
         for (l in listeners) {

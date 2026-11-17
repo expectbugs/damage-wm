@@ -1,23 +1,19 @@
 package wm.damage.core.app
 
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 
 /*
  * Context for the reader: Damage is Adam's own window manager for his own glasses, phone and PC on his own network.
- * Build S1-1, package P1: the one merge rule of `CONTRACT.md` §2.4 — "an op names what it expects to find, and
- * carries its result, not its recipe. The PC applies queued ops in the order they reach it. An op applies when the PC
- * still holds what it expected, or already holds what the op would make (a same-value op succeeds and changes
- * nothing). Otherwise it loses, and the loss is said on the item." No window has a variant. "No op is ever applied
- * twice" is the stream's high-water (`Streams`), checked before the judge is asked.
+ * Build S1-1, package P1, as L1 C1 rules it (the lead's ruling on L0, 2026-11-17; his words: "whichever page I'm really
+ * on is the one I'm really on"): the one merge rule. An op carries its result and the time of the input that made it
+ * ([Op.at]); the PC writes each target unless the item holds a later input. An equal value changes nothing, so
+ * applying an op twice changes nothing and the PC keeps no numbers. No window has a variant; a window's own
+ * [ApplyRule] may stand in for it (the notice record is ordered by its occurrence, not by time).
  */
 
-/** The queued kinds of C§2.4's table. "Edit of a removed item" is the register and position rows meeting a removed
- *  item; "log under a lease" and the never-queued kinds are not judged here (not in S1-1). L1 C4: no create, order or
- *  whole kinds (no window declared one); a later ordered list is one register value. */
+/** The queued kinds. A removal writes the item `gone` (an entry, so an older input that arrives later does not bring
+ *  it back). L1 C4: no create, order or whole kinds (no window declared one); a later ordered list is one register
+ *  value. Register and position judge alike; the phone's queue folds an unsent position into the next one. */
 enum class Kind { REGISTER, POSITION, REMOVE }
 
 /** What a window's action does to the record: its kind. Declared by the window's core, never carried by the op. */
@@ -28,112 +24,35 @@ fun interface ActionTable {
     fun spec(window: String, action: String): ActionSpec?
 }
 
-/** The judge's verdict. [Lost] carries the "not applied" marks it writes and every target of the op that did apply. */
-sealed class Verdict {
-    abstract val effect: Effect
-
-    data class Applied(override val effect: Effect) : Verdict()
-    object Same : Verdict() {
-        override val effect: Effect get() = Effect.NONE
-        override fun toString() = "Same"
-    }
-    data class Lost(override val effect: Effect, val losses: List<Loss>) : Verdict()
-}
-
 object Merge {
-    /**
-     * Why [op] cannot be judged under [spec], in words, or null when its shape is right: the expectation its kind
-     * takes and the targets.
-     */
+    /** Why [op] cannot be judged under [spec], in words, or null when its shape is right: the window's name, the
+     *  targets, and a queued id. */
     fun check(spec: ActionSpec, op: Op): String? {
         if (!Record.validWindow(op.window)) return "window name \"${op.window}\" is not one"
         if (op.targets.isEmpty()) return "no target"
         if (op.targets.any { it.isBlank() }) return "a blank target"
         if (op.targets.toSet().size != op.targets.size) return "a target named twice"
-        op.queued ?: return "a ${spec.kind} op must be queued (stream and n)"
-        val e = op.expect
-        return when (spec.kind) {
-            Kind.REGISTER -> if (e is Expect.Value || e is Expect.Occurrence || e == Expect.Any) null
-                else "a register expects a value, an occurrence or Any"
-            Kind.POSITION -> if (e is Expect.Value || e is Expect.PreConversion || e == Expect.Any) null
-                else "a position expects a value, a pre-conversion stamp or Any"
-            Kind.REMOVE -> if (e is Expect.Rev) null else "a removal expects a revision"
-        }
+        if (op.queued == null) return "a ${spec.kind} op must be queued (stream and n)"
+        return null
     }
 
     /**
-     * The verdict on [op] (already [check]ed) against [rec], at PC time [now]. Pure: it reads [rec] and returns the
-     * effect; nothing is written until the op's log line has landed (`AppHost`). Each target is judged on its own:
-     * those that can apply do, each that cannot is marked and named in the losses.
+     * The effect of [op] (already [check]ed) on [rec], its input stamped [at] (the PC bounds it by its own clock,
+     * `AppHost`): each target is written unless the record holds a later input for it, or already holds what the op
+     * would make. On an equal time the op that arrives later wins. [always]: a window's rule ordered it ([Admit.Apply]),
+     * so the time is not compared. Pure: it reads [rec]; nothing is written until the op's log line has landed.
      */
-    fun judge(rec: RecordView, spec: ActionSpec, op: Op, now: Long): Verdict {
+    fun judge(rec: RecordView, spec: ActionSpec, op: Op, at: Long = op.at, always: Boolean = false): Effect {
         val items = LinkedHashMap<String, Item>()
-        val losses = ArrayList<Loss>()
-        when (spec.kind) {
-            Kind.REGISTER, Kind.POSITION -> for (t in op.targets) value(rec, op, t, now, items, losses)
-            Kind.REMOVE -> for (t in op.targets) remove(rec, op, t, now, items, losses)
+        val gone = spec.kind == Kind.REMOVE
+        for (t in op.targets) {
+            val key = Record.key(op.window, t)
+            val cur = rec.item(key)
+            val value = if (gone) JsonNull else op.result
+            if (cur != null && cur.gone == gone && (gone || cur.value == value)) continue   // already holds it
+            if (cur != null && cur.at > at && !always) continue                            // a later input stands
+            items[key] = Item(value, op.device, at, gone)
         }
-        val effect = Effect(items)
-        return when {
-            losses.isNotEmpty() -> Verdict.Lost(effect, losses)
-            effect.isEmpty() -> Verdict.Same
-            else -> Verdict.Applied(effect)
-        }
+        return Effect(items)
     }
-
-    /** Register and position (and their "edit of a removed item" row). */
-    private fun value(rec: RecordView, op: Op, target: String, now: Long,
-                      items: MutableMap<String, Item>, losses: MutableList<Loss>) {
-        val key = Record.key(op.window, target)
-        val cur = rec.item(key)
-        val result = op.result
-        if (cur != null && cur.gone && op.expect != Expect.Any) {
-            lose(key, cur, op, now, items, losses)
-            return
-        }
-        val standing = if (cur == null || cur.gone) JsonNull else cur.value
-        if (cur != null && !cur.gone && standing == result) return      // already holds what the op would make
-        val applies = when (val e = op.expect) {
-            Expect.Any -> true
-            is Expect.Value -> standing == e.v
-            is Expect.Occurrence -> occurrence(standing) == e.o
-            is Expect.PreConversion -> cur == null || (cur.rev == 0L && cur.at < e.at)
-            is Expect.Rev -> false
-        }
-        if (!applies) {
-            lose(key, cur, op, now, items, losses)
-            return
-        }
-        items[key] = if (op.expect is Expect.PreConversion) {
-            // the pre-conversion world stays at rev 0 and is ordered by its old stamps (dec. A.3): a place read on
-            // an old build and offered again by the ledger is judged against this one by stamp, not refused
-            Item(result, 0L, op.device, (op.expect as Expect.PreConversion).at)
-        } else {
-            Item(result, (cur?.rev ?: 0L) + 1, op.device, now)
-        }
-    }
-
-    private fun remove(rec: RecordView, op: Op, target: String, now: Long,
-                       items: MutableMap<String, Item>, losses: MutableList<Loss>) {
-        val key = Record.key(op.window, target)
-        val cur = rec.item(key)
-        if (cur == null || cur.gone) return                               // already removed
-        if (cur.rev != (op.expect as Expect.Rev).r) {
-            lose(key, cur, op, now, items, losses)
-            return
-        }
-        items[key] = Item(JsonNull, cur.rev + 1, op.device, now, gone = true)
-    }
-
-    /** The loss of one target: its "not applied" mark (the standing entry otherwise unchanged) and the answer's line. */
-    private fun lose(key: String, cur: Item?, op: Op, now: Long, items: MutableMap<String, Item>, losses: MutableList<Loss>) {
-        val base = cur ?: Item(JsonNull, 0L, "", 0L)
-        items[key] = base.copy(notApplied = NotApplied(op.result, op.device, now))
-        losses += Loss(key.removePrefix(Record.prefix(op.window)), if (base.gone) JsonNull else base.value,
-            base.by, base.at, op.result, gone = base.gone)
-    }
-
-    /** A recurring item's open occurrence: its value's `occ` field. */
-    private fun occurrence(v: JsonElement): String? =
-        ((v as? JsonObject)?.get("occ") as? JsonPrimitive)?.takeIf { it.isString }?.content
 }

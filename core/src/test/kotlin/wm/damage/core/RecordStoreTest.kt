@@ -14,7 +14,6 @@ import wm.damage.core.app.AppHost
 import wm.damage.core.app.Item
 import wm.damage.core.app.RecordAlerts
 import wm.damage.core.app.RecordStore
-import wm.damage.core.app.StreamKey
 
 /**
  * Build S1-1, package P1 (`CONTRACT.md` §9.7 item 1, §13 (b) "PC record and seq"; dec. A.12): `record.json` is saved
@@ -51,7 +50,6 @@ class RecordStoreTest {
         val first = saved()
         assertEquals(3L, first.covered)
         assertEquals((1..3).map { "rec.t.k$it" }.toSet(), first.items.keys, "exactly the effects it covers")
-        assertEquals(mapOf(StreamKey("phone", "s1") to 3L), first.streams)
         h.tick()
         h.executor.call {}
         assertEquals(1, held.waiting, "the raced save is followed by another")
@@ -122,7 +120,6 @@ class RecordStoreTest {
         Files.setPosixFilePermissions(rig.logFile, perms)
         val good = rig.opened()
         for (n in 1L..3L) assertEquals(j("v$n"), rig.item(good, "k$n")?.value, "op $n replayed")
-        assertEquals(3L, good.highWater(StreamKey("phone", "s1")))
         assertEquals(wm.damage.core.app.Answer.Seen(), rig.ask(good, op("phone", "s1", 4, "set", listOf("k4"), j("v4"))))
     }
 
@@ -155,8 +152,7 @@ class RecordStoreTest {
         assertTrue(Files.exists(rig.dir.resolve("record.json.bad")))
         assertTrue(o.problems.any { "kept as record.json.bad" in it })
         assertEquals(2, o.replayed)
-        assertEquals(Item(j("v2"), 1, "phone", rig.now), rig.item(h2, "k2"))
-        assertEquals(2L, h2.highWater(StreamKey("phone", "s1")))
+        assertEquals(Item(j("v2"), "phone", 0), rig.item(h2, "k2"))
     }
 
     /**
@@ -182,7 +178,6 @@ class RecordStoreTest {
         val h3 = rig.host()
         val o = h3.open()
         for (n in 1..5) assertEquals(j("v$n"), rig.item(h3, "k$n")?.value, "op $n replayed")
-        assertEquals(5L, h3.highWater(StreamKey("phone", "s1")))
         assertEquals(5L, o.seq)
         assertTrue(rig.said.any { it.startsWith("raise ${RecordAlerts.REPLAY}") && aside.fileName.toString() in it }, "${rig.said}")
         assertTrue(rig.notes().any { "replayed" in it && aside.fileName.toString() in it }, "${rig.notes()}")
@@ -206,14 +201,15 @@ class RecordStoreTest {
     fun theFilesFormRoundTripsWithTheCoveredSeqLast() {
         val h = rig.opened()
         rig.ask(h, op("phone", "s1", 1, "set", listOf("q.s1.1.0"), j("a")))
-        rig.ask(h, op("desk", "d", 1, "drop", listOf("q.s1.1.0"), JsonNull, wm.damage.core.app.Expect.Rev(1)))
-        rig.ask(h, op("phone", "s1", 2, "set", listOf("x"), j("b"), wm.damage.core.app.Expect.Value(j("a"))))
+        rig.ask(h, op("desk", "d", 1, "drop", listOf("q.s1.1.0"), JsonNull, at = 1))
+        rig.ask(h, op("phone", "s1", 2, "set", listOf("x"), j("b"), at = 2))
         rig.tick(h)
         val text = String(Files.readAllBytes(rig.recordFile))
         assertTrue(text.endsWith(",\"covered\":3}"), text)
         val s = RecordStore.decode(text)
         assertEquals(text, RecordStore.encode(s))
         assertTrue(s.items["rec.t.q.s1.1.0"]!!.gone)
-        assertNotNull(s.items["rec.t.x"]!!.notApplied)
+        assertEquals(Item(j("b"), "phone", 2), s.items["rec.t.x"])
+        assertTrue("\"streams\"" !in text && "\"colls\"" !in text && "\"rev\"" !in text, text)
     }
 }

@@ -18,7 +18,6 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import wm.damage.core.app.Answer
-import wm.damage.core.app.Expect
 import wm.damage.core.shell.ActivationSource
 import wm.damage.core.shell.WindowView
 import wm.damage.core.windows.reader.ReaderAnchor
@@ -26,10 +25,10 @@ import wm.damage.core.windows.reader.ReaderCore
 
 /**
  * Context for the reader: Damage is Adam's own window manager for his own glasses, phone and PC on his own network.
- * Build S1-1, package P4 — a book's place as `CONTRACT.md` §2.4's position kind and dec. A.2 rule it on the glasses:
- * an unsent place coalesces with the next, keeping the first expectation; a place loses when another device moved it,
- * and the loss is said with both places; the page stays where he reads and the actions level offers `Go there`; an
- * entry takes the shared place — another device's, never this device's own older one; reading on never loses twice.
+ * Build S1-1, package P4, as L1 C1 rules it — a book's place on the glasses, the latest input winning: an unsent place
+ * coalesces with the next, taking its place and its input time; another device's newer place leaves the page where he
+ * reads and the actions level offers `Go there`; reading on is a later input and applies, nothing said; an entry takes
+ * another device's newer place, never this device's own older one, nor one older than this view's own input.
  */
 class ReaderPositionTest {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -47,20 +46,20 @@ class ReaderPositionTest {
     }
 
     @Test
-    fun anUnsentPlaceCoalescesWithTheNext_keepingTheFirstExpect(): Unit = runBlocking {
+    fun anUnsentPlaceCoalescesWithTheNext_takingItsPlaceAndItsInputTime(): Unit = runBlocking {
         val wc = rig.phone(ServerSocket(0).use { it.localPort })       // the PC away: nothing is sent
         wc.executor.call {
-            wc.submit(ReaderCore.WINDOW, ReaderCore.placeDraft("a", ReaderAnchor(10), Expect.Value(JsonNull)))
-            wc.submit(ReaderCore.WINDOW, ReaderCore.placeDraft("a", ReaderAnchor(20), Expect.Value(JsonPrimitive(ReaderAnchor(10).format()))))
+            wc.submit(ReaderCore.WINDOW, ReaderCore.placeDraft("a", ReaderAnchor(10), 1_000L))
+            wc.submit(ReaderCore.WINDOW, ReaderCore.placeDraft("a", ReaderAnchor(20), 2_000L))
         }
         val ops = wc.queue.ops()
         assertEquals(1, ops.size, "one op for the item: $ops")
-        assertEquals(Expect.Value(JsonNull), ops[0].expect, "the first expectation is kept")
         assertEquals(20, anchorOffset(ops[0].result), "the latest place is carried")
+        assertEquals(2_000L, ops[0].at, "with the latest input's time")
     }
 
     @Test
-    fun anotherDevicesPlaceLeavesThePage_offersGoThere_theFirstPlaceLosesSaid_andReadingOnNeverLosesTwice(): Unit = runBlocking {
+    fun anotherDevicesPlaceLeavesThePage_offersGoThere_andReadingOnApplies(): Unit = runBlocking {
         val ids = rig.writeBooks()
         val h = rig.pc()
         val services = ReaderServices()
@@ -82,30 +81,23 @@ class ReaderPositionTest {
         readerAwait("Go there is offered first (${services.onLoop { g.actionLabels() }})") { services.onLoop { g.actionLabels() }.firstOrNull() == "Go there" }
         assertEquals(10, g.doc().topLine, "the page stays where he reads")
 
-        // reading on: the first place from this view loses, and is said with both places
+        // reading on here is the later input: it applies, and nothing is said
         services.onLoop { g.doc().topLine = 12 }
-        services.onLoop { g.saveSubState() }
-        readerAwait("the loss is said") { services.notices.any { "was not applied" in it } }
-        val said = services.notices.single { "was not applied" in it }
-        assertTrue(said.startsWith("reader: the phone read on to p.") && "this place, p." in said, said)
-        assertEquals(9_000, rig.placeOffset(h, ids[0]), "the losing place was not applied")
-        assertEquals(12, g.doc().topLine, "the page still stays")
-
-        // reading on again applies: the view was given the standing place
-        services.onLoop { g.doc().topLine = 14 }
         services.onLoop { g.saveSubState() }
         readerAwait("reading on applies") { rig.placeOffset(h, ids[0]).let { it != null && it != 9_000 } }
         assertNotEquals(mine, rig.placeOffset(h, ids[0]))
-        delay(200)
-        assertEquals(1, services.notices.count { "was not applied" in it }, "never twice: ${services.notices}")
+        assertEquals("local", rig.place(h, ids[0])!!.by)
+        h.executor.call {}
+        readerAwait("Go there is no longer offered") { services.onLoop { g.actionLabels() }.firstOrNull() != "Go there" }
+        assertEquals(emptyList(), services.notices)
     }
 
     /**
      * Fix round 1, ruling 1.2: while another device's place stands for the open book, a relayout (the text column's
      * width moves: a height or safe-area change; a font change takes the same path) sends no place and raises no
-     * notice; the next real input loses once and is said, as today; a relayout after that loss sends nothing either
-     * (it would apply and move the record back to the glasses' page); reading on then applies. Topline 12 and 15 are
-     * the second line of a paragraph in the rig's books, whose start moves with the width.
+     * notice (it would move the record back to the glasses' page with no input); the next real input applies; a
+     * relayout after it sends nothing either. Topline 12 and 15 are the second line of a paragraph in the rig's books,
+     * whose start moves with the width.
      */
     private suspend fun relayoutsSendNothing(g: wm.damage.core.windows.reader.ReaderGlasses, services: ReaderServices,
                                              h: wm.damage.core.app.AppHost, id: String, idle: suspend () -> Unit) {
@@ -116,6 +108,7 @@ class ReaderPositionTest {
         assertTrue(rig.otherDevicePlace(h, "web-3fa9c1", "w1", 1, id, 9_000) is Answer.Seen)
         readerAwait("Go there is offered") { services.onLoop { g.actionLabels() }.firstOrNull() == "Go there" }
         suspend fun relayout(width: Int) {
+            val before = rig.placeOffset(h, id)
             services.width = width
             services.onLoop { g.onLayoutChanged() }
             readerAwait("the book is wrapped for $width") { services.onLoop { g.laidOutWidth() } == width }
@@ -124,20 +117,17 @@ class ReaderPositionTest {
             idle()
             delay(200)
             assertEquals(seq, h.seq, "a relayout at width $width sent a place")
-            assertEquals(9_000, rig.placeOffset(h, id), "the record keeps the other device's place")
+            assertEquals(before, rig.placeOffset(h, id), "the record keeps its place")
         }
         relayout(400)
-        assertTrue(services.notices.none { "was not applied" in it }, "no notice for a relayout: ${services.notices}")
-        // the next real input: loses once, said, as today (dec. A.2)
+        assertEquals(9_000, rig.placeOffset(h, id), "the other device's place stands")
+        // the next real input applies
         services.onLoop { g.doc().topLine = 15 }
         services.onLoop { g.saveSubState() }
-        readerAwait("the loss is said") { services.notices.any { "was not applied" in it } }
-        relayout(560)
-        // reading on applies
-        services.onLoop { g.doc().topLine = 18 }
-        services.onLoop { g.saveSubState() }
         readerAwait("reading on applies") { rig.placeOffset(h, id) != 9_000 }
-        assertEquals(1, services.notices.count { "was not applied" in it }, "${services.notices}")
+        idle()
+        relayout(560)
+        assertEquals(emptyList(), services.notices)
     }
 
     @Test
@@ -165,9 +155,9 @@ class ReaderPositionTest {
 
     /**
      * The last stage, the focused read's S1 (R1 2.2's class on the glasses: an item this device wrote clears the
-     * offer): a browser moves the place, the first save point loses and `Go there` is offered; reading on applies, so
-     * the record now holds this device's place and the other device's is gone from it — `Go there` is no longer
-     * offered. [idle] drains the path from the record to the presenter, so each check is one evaluation.
+     * offer): a browser moves the place and `Go there` is offered; reading on applies, so the record now holds this
+     * device's place and the other device's is gone from it — `Go there` is no longer offered. [idle] drains the path
+     * from the record to the presenter, so each check is one evaluation.
      */
     private suspend fun anOwnPlaceAppliedEndsTheOffer(g: wm.damage.core.windows.reader.ReaderGlasses, services: ReaderServices,
                                                       h: wm.damage.core.app.AppHost, id: String, me: String, idle: suspend () -> Unit) {
@@ -177,11 +167,6 @@ class ReaderPositionTest {
         idle()
         assertTrue(rig.otherDevicePlace(h, "web-3fa9c1", "w1", 1, id, 9_000) is Answer.Seen)
         readerAwait("Go there is offered") { services.onLoop { g.actionLabels() }.firstOrNull() == "Go there" }
-        services.onLoop { g.doc().topLine = 12 }
-        services.onLoop { g.saveSubState() }
-        readerAwait("the loss is said") { services.notices.any { "was not applied" in it } }
-        idle()
-        assertEquals("Go there", services.onLoop { g.actionLabels() }.firstOrNull(), "offered after the loss")
         services.onLoop { g.doc().topLine = 14 }
         services.onLoop { g.saveSubState() }
         readerAwait("reading on applies") { rig.placeOffset(h, id) != 9_000 }
@@ -218,7 +203,7 @@ class ReaderPositionTest {
     }
 
     @Test
-    fun aBrowserIsNamedAsABrowser_inGoThereAndTheLossNotice(): Unit = runBlocking {
+    fun aBrowserIsNamedAsABrowser_inGoThere(): Unit = runBlocking {
         // fix round 1, ruling 1.4: a web device's id is `web-` and six hex digits
         val ids = rig.writeBooks()
         val h = rig.pc()
@@ -232,11 +217,6 @@ class ReaderPositionTest {
         readerAwait("offered") { services.onLoop { g.actionLabels() }.firstOrNull() == "Go there" }
         val row = services.onLoop { g.actionRows() }.first()
         assertTrue(" · a browser " in row.second && "web-" !in row.second, "the Go there row: $row")
-        services.onLoop { g.doc().topLine = 12 }
-        services.onLoop { g.saveSubState() }
-        readerAwait("the loss is said") { services.notices.any { "was not applied" in it } }
-        val said = services.notices.single { "was not applied" in it }
-        assertTrue(said.startsWith("reader: a browser read on to p.") && "web-" !in said, said)
     }
 
     @Test
@@ -258,11 +238,10 @@ class ReaderPositionTest {
         services.onLoop { g.saveSubState() }
         delay(200)
         assertEquals(9_000, rig.placeOffset(h, ids[0]), "taking a place writes nothing back")
-        assertTrue(services.notices.none { "was not applied" in it }, "${services.notices}")
         services.onLoop { g.doc().topLine += 2 }
         services.onLoop { g.saveSubState() }
         readerAwait("the next input applies") { rig.placeOffset(h, ids[0]) != 9_000 }
-        assertTrue(services.notices.none { "was not applied" in it }, "${services.notices}")
+        assertEquals(emptyList(), services.notices)
     }
 
     @Test
@@ -292,84 +271,12 @@ class ReaderPositionTest {
     }
 
     /**
-     * Fix round 2, ruling 1.1 (b): after a lost place the view has NOT taken the standing place (the page stayed, dec.
-     * A.2), so an entry takes it (C§2.6) and the save after it sends nothing. Before, the loss recorded the standing
-     * place as taken: the entry passed it over, `Go there` was cleared, and the next page turn applied over it.
-     */
-    private suspend fun aLossThenAnEntry(entry: (wm.damage.core.windows.reader.ReaderGlasses, ReaderServices) -> Unit) {
-        val ids = rig.writeBooks()
-        val h = rig.pc()
-        val services = ReaderServices()
-        val g = rig.pcGlasses(h, services)
-        openFirst(g, ids[0])
-        services.onLoop { g.doc().topLine = 10 }
-        services.onLoop { g.saveSubState() }
-        readerAwait("saved") { rig.placeOffset(h, ids[0]) != null }
-        assertTrue(rig.otherDevicePlace(h, "web-3fa9c1", "w1", 1, ids[0], 9_000) is Answer.Seen)
-        readerAwait("offered") { services.onLoop { g.actionLabels() }.firstOrNull() == "Go there" }
-        services.onLoop { g.doc().topLine = 12 }
-        services.onLoop { g.saveSubState() }
-        readerAwait("the loss is said") { services.notices.any { "was not applied" in it } }
-        h.executor.call {}
-        val seq = h.seq
-        services.onLoop { entry(g, services); g.saveSubState() }
-        h.executor.call {}
-        assertTrue(g.doc().topLine > 12, "the entry took the standing place (${g.doc().topLine})")
-        assertTrue(services.onLoop { g.actionLabels() }.firstOrNull() != "Go there", "taken, so no longer offered")
-        assertEquals(seq, h.seq, "nothing was sent after the entry")
-        assertEquals(9_000, rig.placeOffset(h, ids[0]))
-        assertEquals("web-3fa9c1", rig.place(h, ids[0])!!.by)
-    }
-
-    @Test
-    fun afterALoss_aSessionStartOnThisInstanceTakesTheStandingPlace(): Unit = runBlocking {
-        aLossThenAnEntry { g, _ -> g.restoreState(g.saveState()) }        // a wake, a link edge: the shell's restore
-    }
-
-    @Test
-    fun afterALoss_aSwitcherEntryTakesTheStandingPlace(): Unit = runBlocking {
-        aLossThenAnEntry { g, s -> g.onActivate(s, ActivationSource.SWITCHER) }
-    }
-
-    /**
-     * Fix round 2, ruling 1.1 (c): while no session is live the shell holds a keyed post (the source's change) and runs
-     * an unkeyed one (the answer) at once, so a loss can reach the presenter before the change that made it. A book
-     * that is not open then takes the standing place when the change runs, and the next save point sends nothing.
-     * Before, the loss recorded the standing place as taken: the change was passed over, the book kept the losing
-     * place, and the save point sent it expecting the standing one — applied, with nothing said.
+     * Fix round 2, ruling 1.4 (review 2-A's finding 3), as L1 C1 leaves it: the PC's log refuses one line. The place op
+     * it refuses (`retry`) changed nothing and is not said; the op behind it is taken on its own (no numbering); the
+     * next save point sends the refused place again, and it applies.
      */
     @Test
-    fun aLossAnsweredBeforeItsChange_leavesABookThatIsNotOpenAtTheStandingPlace(): Unit = runBlocking {
-        val ids = rig.writeBooks()
-        val h = rig.pc()
-        val services = HoldingServices()
-        val g = rig.pcGlasses(h, services)
-        services.onLoop {
-            g.restoreSubState("book.${ids[1]}", kotlinx.serialization.json.buildJsonObject { put("off", 200) })
-            g.restoreState(kotlinx.serialization.json.buildJsonObject { put("level", "LIBRARY") })
-        }
-        assertTrue(rig.otherDevicePlace(h, "web-3fa9c1", "w1", 1, ids[1], 9_000) is Answer.Seen)   // its change: held
-        // an op of this device that expected nothing there (the phone's migration op is one): it loses
-        g.source.act(ReaderCore.placeDraft(ids[1], ReaderAnchor(200), Expect.Value(JsonNull)))
-        h.executor.call {}
-        readerAwait("the loss is said") { services.notices.any { "was not applied" in it } }
-        services.release()                                                 // the session starts: the change runs
-        val off = services.onLoop { g.saveSubState() }["book.${ids[1]}"]!!["off"]!!.jsonPrimitive.intOrNull
-        h.executor.call {}
-        assertEquals(9_000, off, "the book that is not open holds the standing place")
-        assertEquals(9_000, rig.placeOffset(h, ids[1]), "and the losing place was not sent over it")
-        assertEquals("web-3fa9c1", rig.place(h, ids[1])!!.by)
-    }
-
-    /**
-     * Fix round 2, ruling 1.4 (review 2-A's finding 3): the PC's log refuses one line. The place op it refuses
-     * (`retry`) and the op numbered behind it (`gap`) took no number and changed nothing, so neither is said, and the
-     * next save point sends both again expecting what they expected — they apply. Before, the resend expected the
-     * value that was never applied and lost to the view's own older place ("the PC read on to …"), and the `gap` was
-     * said as "place not saved: expected N".
-     */
-    @Test
-    fun afterARetryAndAGap_theNextSendExpectsWhatTheOpExpected_andNothingIsSaid(): Unit = runBlocking {
+    fun afterARetry_theNextSavePointSendsThePlaceAgain_andNothingIsSaid(): Unit = runBlocking {
         val ids = rig.writeBooks()
         val failNext = java.util.concurrent.atomic.AtomicBoolean(false)
         val h = wm.damage.core.app.AppHost(java.nio.file.Files.createDirectories(rig.dir.resolve("pc")), wm.damage.core.app.AppHost.WINDOWS,
@@ -387,35 +294,34 @@ class ReaderPositionTest {
         // he reads on, and the local copy holds a place for the other book: two ops at the next save point
         services.onLoop { g.doc().topLine = 12; g.restoreSubState("book.${ids[1]}", kotlinx.serialization.json.buildJsonObject { put("off", 500) }) }
         failNext.set(true)
-        // both ops are numbered before the first is judged (the executor held through the save point), so the second
-        // is refused `gap`
+        // both ops are handed over before the first is judged (the executor held through the save point)
         val go = java.util.concurrent.CountDownLatch(1)
         h.executor.execute("held by the test") { go.await() }
         services.onLoop { g.saveSubState() }
         go.countDown()
         h.executor.call {}
         h.executor.call {}
-        assertEquals(first, rig.placeOffset(h, ids[0]), "the refused ops changed nothing")
-        assertEquals(null, rig.placeOffset(h, ids[1]))
-        services.onLoop { g.saveSubState() }                               // the next save point sends both again
+        assertEquals(first, rig.placeOffset(h, ids[0]), "the refused op changed nothing")
+        assertEquals(500, rig.placeOffset(h, ids[1]), "the op behind it applied on its own")
+        services.onLoop { g.saveSubState() }                               // the next save point sends it again
         h.executor.call {}
         h.executor.call {}
-        assertEquals(emptyList(), services.notices, "a retry or a gap is not said, and the resend does not lose")
+        assertEquals(emptyList(), services.notices, "a retry is not said")
         assertNotEquals(first, rig.placeOffset(h, ids[0]), "the resent place applied")
-        assertEquals(500, rig.placeOffset(h, ids[1]))
     }
 
     @Test
-    fun aStartWithNoLedgerNeverTakesThisDevicesOwnOlderPlace(): Unit = runBlocking {
+    fun aStartNeverTakesThisDevicesOwnOlderPlace(): Unit = runBlocking {
         // an earlier run of this device wrote its place to the record, then read on and stopped before the next place
-        // landed; this run has the local copy and no ledger: the record's place is this device's own (its `by`), older
+        // landed; this run has the local copy with that later input's time: the record's place is this device's own
         val ids = rig.writeBooks()
         val h = rig.pc()
-        assertTrue(rig.otherDevicePlace(h, "local", "an-earlier-run", 1, ids[0], 3_000) is Answer.Seen)
+        val t = rig.now.get()
+        assertTrue(rig.otherDevicePlace(h, "local", "an-earlier-run", 1, ids[0], 3_000, at = t - 60_000) is Answer.Seen)
         val services = ReaderServices()
         val g = rig.pcGlasses(h, services)
         services.onLoop {
-            g.restoreSubState("book.${ids[0]}", kotlinx.serialization.json.buildJsonObject { put("off", 3_300) })
+            g.restoreSubState("book.${ids[0]}", kotlinx.serialization.json.buildJsonObject { put("off", 3_300); put("at", t - 30_000) })
             g.restoreState(kotlinx.serialization.json.buildJsonObject { put("level", "LIBRARY") })
         }
         assertTrue(g.open("book:${ids[0]}"))
@@ -423,5 +329,57 @@ class ReaderPositionTest {
         val kept = services.onLoop { g.saveSubState() }["book.${ids[0]}"]!!["off"]!!.jsonPrimitive.intOrNull!!
         assertTrue(kept > 3_200, "the local copy's later place is kept, not the record's own older one ($kept)")
         readerAwait("and it goes to the record") { rig.placeOffset(h, ids[0]) == kept }
+    }
+
+    /** L1 C1, in place of S1-1's ledger: after a restart the local copy's later place (its input time beside it)
+     *  outranks another device's older place: the start does not take it, and the place goes to the record. */
+    @Test
+    fun aRestartKeepsALaterLocalPlace_overAnotherDevicesOlderOne(): Unit = runBlocking {
+        val ids = rig.writeBooks()
+        val h = rig.pc()
+        val t = rig.now.get()
+        assertTrue(rig.otherDevicePlace(h, "web-3fa9c1", "w1", 1, ids[0], 9_000, at = t - 60_000) is Answer.Seen)
+        val services = ReaderServices()
+        val g = rig.pcGlasses(h, services)
+        services.onLoop {
+            g.restoreSubState("book.${ids[0]}", kotlinx.serialization.json.buildJsonObject { put("off", 9_100); put("at", t - 30_000) })
+            g.restoreState(kotlinx.serialization.json.buildJsonObject { put("level", "LIBRARY") })
+        }
+        assertTrue(g.open("book:${ids[0]}"))
+        readerAwait("opens") { g.title().contains("p.") }
+        val kept = services.onLoop { g.saveSubState() }["book.${ids[0]}"]!!["off"]!!.jsonPrimitive.intOrNull!!
+        assertTrue(kept > 9_000, "the entry does not take the older place of another device ($kept)")
+        readerAwait("the later place goes to the record") { rig.placeOffset(h, ids[0]) == kept }
+        assertEquals(emptyList(), services.notices)
+    }
+
+    /**
+     * L1 C1, the case the ruling names (SPINE §9's first worry): he reads on the glasses while the phone cannot reach
+     * the PC, then reads at the desk, then the phone reconnects. The glasses' places, older inputs, do not overwrite
+     * the desk's; the open book offers `Go there` for it; nothing is said.
+     */
+    @Test
+    fun placesReadOfflineDoNotOverwriteALaterPlaceSetAtTheDesk(): Unit = runBlocking {
+        val ids = rig.writeBooks()
+        val h = rig.pc()
+        val booksSrv = rig.serve(h)                                       // the books (the lane on another port, away)
+        val lanePort = ServerSocket(0).use { it.localPort }
+        val wc = rig.phone(lanePort)
+        val services = ReaderServices()
+        val g = rig.phoneGlasses(wc, booksSrv.boundPort, services)
+        openFirst(g, ids[0])
+        services.onLoop { g.doc().topLine = 20 }
+        services.onLoop { g.saveSubState() }                              // read offline: queued on the phone
+        readerAwait("queued") { wc.queue.ops().any { it.action == ReaderCore.PLACE } }
+        rig.now.addAndGet(60_000)                                         // a minute later, at the desk
+        assertTrue(rig.otherDevicePlace(h, "web-3fa9c1", "w1", 1, ids[0], 9_000) is Answer.Seen)
+        rig.serve(h, lanePort)                                            // the phone reaches the PC again
+        readerAwait("the phone's queue drained") { wc.queue.waiting == 0 }
+        h.executor.call {}
+        assertEquals(9_000, rig.placeOffset(h, ids[0]), "the desk's later place stands")
+        assertEquals("web-3fa9c1", rig.place(h, ids[0])!!.by)
+        readerAwait("Go there is offered") { services.onLoop { g.actionLabels() }.firstOrNull() == "Go there" }
+        assertEquals(20, g.doc().topLine, "the page stays where he read")
+        assertEquals(emptyList(), services.notices)
     }
 }

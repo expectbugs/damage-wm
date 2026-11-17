@@ -17,7 +17,7 @@ import wm.damage.core.comp.Journal
  * Context for the reader: Damage is Adam's own window manager for his own glasses, phone and PC on his own network.
  * Build S1-1, package P1 (`CONTRACT.md` §9.7 item 1, §13 (b) "operation journal"; dec. A.12, B.1): the PC record's
  * append-only operation log, `oplog.jsonl` in the data directory (never `journal.jsonl`, which is the flush journal).
- * One line per op: its `seq`, its stream's high-water, the op, its effect and its answer, appended, written and forced
+ * One line per op: its `seq`, the op, its effect and its answer, appended, written and forced
  * to disk BEFORE the op is answered or its change published. `record.json` covers the lines up to its `seq`; a start
  * replays the lines past it. Nothing here deletes a line: the file is set aside whole (a dated name beside it) at a
  * process start once a save covers all of it and it is past [AppHost.LOG_SET_ASIDE_BYTES] or holds a bad line.
@@ -25,8 +25,8 @@ import wm.damage.core.comp.Journal
  */
 class OpLog(val file: Path, private val sync: (FileChannel) -> Unit = { it.force(true) }) {
 
-    /** One line: the op's [seq], its stream's high-water after it [hw], and what it did. */
-    data class Line(val seq: Long, val hw: Long, val op: Op, val effect: Effect, val answer: Answer)
+    /** One line: the op's [seq] and what it did. */
+    data class Line(val seq: Long, val op: Op, val effect: Effect, val answer: Answer)
 
     /** What a start found: the lines past the covered `seq` ([lines]), how many covered lines it passed over, whether
      *  the last line was incomplete (and where its bytes were kept), and every line that did not decode. */
@@ -163,17 +163,17 @@ class OpLog(val file: Path, private val sync: (FileChannel) -> Unit = { it.force
 
         fun encode(l: Line): String = buildJsonObject {
             put("seq", l.seq)                       // first: a start reads it without decoding the line
-            put("hw", l.hw)
             put("op", OpJson.op(l.op))
             put("eff", RecordJson.effect(l.effect))
             put("ans", OpJson.answer(l.answer))
         }.toString()
 
+        /** L1 C1: a 0.67 line's `hw`, its op's `expect` and a `lost` answer are read past (a replay needs only the
+         *  line's absolute effect). */
         fun decode(s: String): Line {
             val j = Json.parseToJsonElement(s) as? JsonObject ?: throw IllegalArgumentException("not an object")
             return Line(
                 seq = OpJson.num(j, "seq"),
-                hw = OpJson.num(j, "hw"),
                 op = OpJson.op(j["op"] as? JsonObject ?: throw IllegalArgumentException("no op")),
                 effect = RecordJson.effect(j["eff"] as? JsonObject ?: throw IllegalArgumentException("no eff")),
                 answer = OpJson.answer(j["ans"] as? JsonObject ?: throw IllegalArgumentException("no ans")),

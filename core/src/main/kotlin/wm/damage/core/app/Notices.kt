@@ -22,8 +22,8 @@ import wm.damage.core.util.Log
  * notice record. Every notice is an item of the pseudo-window `notices` in the PC record, `rec.notices.<source>:<thread>`,
  * its value {occ, raisedAt, app, source, body, urgency, ackRequired, gatedBy, target, actions, state, origin, mayRepeat,
  * heldUntil?}. `occ` is both the occurrence and the unit of each interface's notice cursor, and it is written as TEXT:
- * the one merge rule reads an occurrence only as text (`Merge.occurrence`, `Expect.Occurrence`), so a number would make
- * every read and dismiss lose, and a loss on a notice is never said (R0 §2). A core raises on the PC only
+ * [Notices.RULE] reads an occurrence only as text, so a number would make every read and dismiss change nothing,
+ * unsaid (R0 §2). A core raises on the PC only
  * ([NoticeCore]); reads and dismisses come from input on any interface; a state never moves backwards ([Notices.RULE]).
  * A RAISED record raised inside Quiet hours carries `heldUntil` (the PC's clock, ms): every interface reads it, none
  * decides the hold itself.
@@ -81,8 +81,7 @@ object Notices : WindowCore {
     const val NORMAL = "NORMAL"
     const val URGENT = "URGENT"
 
-    /** The PC raises (and clears) as this device, in this stream (its numbers continue from the record's high-water,
-     *  as Reader's migration's do); no other device may (refused at apply time). */
+    /** The PC raises (and clears) as this device, in this stream; no other device may (refused at apply time). */
     const val PC = "pc"
     const val STREAM = "notices"
 
@@ -91,11 +90,11 @@ object Notices : WindowCore {
         CLEAR to CLEARED)
 
     /** A state's place in a notice's life: an op whose state ranks below the standing one of the same occurrence
-     *  would move it backwards (R0 §2) and loses. */
+     *  would move it backwards (R0 §2) and changes nothing. */
     private val RANK = mapOf(RAISED to 0, READ to 1, DISMISSED to 2, ACKED to 3, CLEARED to 4)
 
-    /** Every action is a register (C§2.4): `raise` and `clear` expect nothing (a new raise supersedes the shown
-     *  occurrence), `read`, `dismiss` and `ack` the occurrence they saw. */
+    /** Every action is a register (C§2.4), ordered by [RULE]: a new raise supersedes the shown occurrence; `read`,
+     *  `dismiss` and `ack` act on the occurrence their value carries. */
     val ACTIONS = ActionTable { w, a -> if (w == WINDOW && a in STATE_OF) ActionSpec(Kind.REGISTER) else null }
 
     /** The level [action] needs (C§4.2): reading effects are view; `raise` and `clear` full, and the PC's own. */
@@ -105,13 +104,14 @@ object Notices : WindowCore {
         else -> null
     }
 
-    /** The record's apply-time rule for this window (`AppHost`, beside the merge rule): raise and clear only from
-     *  [PC]; every op carries its whole value (its occurrence as text, its action's state) and a reading effect
-     *  expects the occurrence it carries; and a state never moves backwards — a `read` that reaches the PC after a
-     *  dismiss, an ack or a clear of the same occurrence loses (never said). */
-    val RULE = ApplyRule { rec, op, now -> admit(rec, op, now) }
+    /** The record's apply-time rule for this window (`AppHost`, in the merge rule's place: a notice is ordered by its
+     *  occurrence, not by device clocks): raise and clear only from [PC], always written; every op carries its whole
+     *  value (its occurrence as text, its action's state); a reading effect is written only on the occurrence it
+     *  carries and never moves a state backwards — a `read` after a dismiss, an ack or a clear of the same occurrence,
+     *  or a dismiss of an occurrence a newer raise replaced, changes nothing (never said). */
+    val RULE = ApplyRule { rec, op -> admit(rec, op) }
 
-    private fun admit(rec: RecordView, op: Op, now: Long): Admit? {
+    private fun admit(rec: RecordView, op: Op): Admit? {
         val want = STATE_OF[op.action] ?: return null
         val own = op.action == RAISE || op.action == CLEAR
         if (own && op.device != PC)
@@ -121,17 +121,12 @@ object Notices : WindowCore {
         if (r == null || occ == null || text(r, "state") != want || op.targets.size != 1)
             return Admit.Refuse(Answer.Refused("a notice's ${op.action} carries one target and its whole value: occ as " +
                 "text and state $want", Answer.INVALID))
-        if (own) return null
-        if ((op.expect as? Expect.Occurrence)?.o != occ)
-            return Admit.Refuse(Answer.Refused("a notice's ${op.action} expects the occurrence it carries", Answer.INVALID))
-        val key = Record.key(WINDOW, op.targets[0])
-        val cur = rec.item(key)?.takeIf { !it.gone } ?: return null
-        val standing = cur.value as? JsonObject ?: return null
-        if (text(standing, "occ") != occ) return null                     // another occurrence: the merge rule's loss
-        if ((RANK[want] ?: 0) >= (RANK[text(standing, "state")] ?: 0)) return null
-        val mark = cur.copy(notApplied = NotApplied(op.result, op.device, now))
-        return Admit.Lose(Verdict.Lost(Effect(mapOf(key to mark)),
-            listOf(Loss(op.targets[0], cur.value, cur.by, cur.at, op.result))))
+        if (own) return Admit.Apply
+        val standing = rec.item(Record.key(WINDOW, op.targets[0]))?.takeIf { !it.gone }?.value as? JsonObject
+            ?: return Admit.Keep                                           // no notice to act on
+        if (text(standing, "occ") != occ) return Admit.Keep               // another occurrence
+        if ((RANK[want] ?: 0) < (RANK[text(standing, "state")] ?: 0)) return Admit.Keep
+        return Admit.Apply
     }
 
     /** [state]'s notices by id: every value that reads as one. A value that does not (no occurrence as text) is said
@@ -161,11 +156,11 @@ object Notices : WindowCore {
             text(o, "target"), text(o, "state") ?: RAISED, num(o, "heldUntil"), o)
     }
 
-    /** A reading effect on [r] (`read`, `dismiss` or `ack`): its whole value with the action's state, expecting the
-     *  occurrence it carries (C§2.4: the result, never a recipe). */
+    /** A reading effect on [r] (`read`, `dismiss` or `ack`): its whole value, its occurrence included, with the
+     *  action's state (C§2.4: the result, never a recipe). */
     fun draft(r: NoticeRecord, action: String): Draft {
         val state = STATE_OF[action] ?: throw IllegalArgumentException("no notice action $action")
-        return Draft(action, listOf(r.id), JsonObject(r.value + ("state" to JsonPrimitive(state))), Expect.Occurrence(r.occ))
+        return Draft(action, listOf(r.id), JsonObject(r.value + ("state" to JsonPrimitive(state))))
     }
 
     fun readDraft(r: NoticeRecord) = draft(r, MARK_READ)
@@ -321,15 +316,15 @@ class NoticeCore(
         val occ = (op.result as? JsonObject)?.let { Notices.text(it, "occ") } ?: return
         val r = inFlight.remove(occ) ?: return
         when {
-            a is Answer.Refused && (a.code == Answer.RETRY || a.code == Answer.GAP) -> {
+            a is Answer.Refused && a.code == Answer.RETRY -> {
                 // a newer raise of the same id, in flight or kept, supersedes this one
                 if (inFlight.values.any { it.id == r.id } || r.id in kept) return
                 if (kept.isEmpty()) Log.w(TAG, "the record did not take ${r.id} (${a.reason}): sent again at its pacing tick")
                 kept[r.id] = r
                 sayKept()
             }
-            a is Answer.Refused || a is Answer.Lost -> {
-                val line = "${r.id} was not raised: ${(a as? Answer.Refused)?.reason ?: a}"
+            a is Answer.Refused -> {
+                val line = "${r.id} was not raised: ${a.reason}"
                 Log.w(TAG, line)
                 note(line)
             }

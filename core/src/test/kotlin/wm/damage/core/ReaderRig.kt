@@ -14,7 +14,6 @@ import wm.damage.core.app.AppClient
 import wm.damage.core.app.AppHost
 import wm.damage.core.app.AppNet
 import wm.damage.core.app.CoreExecutor
-import wm.damage.core.app.Expect
 import wm.damage.core.app.HostBackend
 import wm.damage.core.app.Item
 import wm.damage.core.app.LocalWindowSource
@@ -74,7 +73,6 @@ internal class HoldingServices : ReaderServices() {
 internal class ReaderHeard : SourceListener {
     val answers = CopyOnWriteArrayList<Pair<Op, Answer>>()
     override fun answered(op: Op, answer: Answer) { answers += op to answer }
-    val losses: List<Pair<Op, Answer.Lost>> get() = answers.mapNotNull { (o, a) -> (a as? Answer.Lost)?.let { o to it } }
 }
 
 internal class ReaderRig(val scope: CoroutineScope) : AutoCloseable {
@@ -143,11 +141,11 @@ internal class ReaderRig(val scope: CoroutineScope) : AutoCloseable {
         return ReaderGlasses(FakeText(), core, src, scope, device = wc.device).also { it.onRegistered(services) }
     }
 
-    /** Another device writes [book]'s place on [h] directly, expecting what the record holds now. */
-    fun otherDevicePlace(h: AppHost, device: String, stream: String, n: Long, book: String, offset: Int): Answer {
-        val cur = place(h, book)
+    /** Another device writes [book]'s place on [h] directly, its input at [at] (the rig's clock by default). */
+    fun otherDevicePlace(h: AppHost, device: String, stream: String, n: Long, book: String, offset: Int,
+                         at: Long = now.get()): Answer {
         val o = Op(device, OpId.Queued(stream, n), ReaderCore.WINDOW, ReaderCore.PLACE, listOf(ReaderCore.placeItem(book)),
-            JsonPrimitive(ReaderAnchor(offset).format()), cur?.let { Expect.Value(it.value) } ?: Expect.Value(kotlinx.serialization.json.JsonNull))
+            JsonPrimitive(ReaderAnchor(offset).format()), at = at)
         val got = CopyOnWriteArrayList<Answer>()
         h.act(o) { got += it }
         h.executor.call {}

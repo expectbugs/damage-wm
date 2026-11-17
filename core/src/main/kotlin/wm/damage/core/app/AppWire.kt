@@ -47,8 +47,7 @@ data class Peer(val device: String, val level: String, val approval: String? = n
 /** The lane's hello, as the PC reads it. */
 data class LaneHello(val proto: Int, val stream: String, val contracts: Map<String, Int>)
 
-/** `welcome`: who this connection is, the record's epoch and `seq`, the device's high-water per stream, and the PC's
- *  contract versions. */
+/** `welcome`: who this connection is, the PC's clock, the record's epoch and `seq`, and the PC's contract versions. */
 data class Welcome(
     val proto: Int,
     val device: String,
@@ -57,7 +56,6 @@ data class Welcome(
     val pcClock: Long,
     val epoch: Long,
     val seq: Long,
-    val highWater: Map<String, Long>,
     val contracts: Map<String, Int>,
     /** The page bundle a web page runs (C§9.5: `version`, `hash`, `protoRange`); null on the content port. */
     val bundle: JsonObject? = null,
@@ -187,7 +185,6 @@ object AppWire {
         put("pcClock", w.pcClock)
         put("epoch", w.epoch)
         put("seq", w.seq)
-        put("highWater", buildJsonObject { for ((s, n) in w.highWater.toSortedMap()) put(s, n) })
         put("contracts", versions(w.contracts))
         w.bundle?.let { put("bundle", it) }
     }
@@ -200,8 +197,6 @@ object AppWire {
         pcClock = num(f, "pcClock"),
         epoch = num(f, "epoch"),
         seq = num(f, "seq"),
-        highWater = (f["highWater"] as? JsonObject ?: throw IllegalArgumentException("welcome: highWater"))
-            .mapValues { (k, v) -> OpJson.longOf(v) ?: throw IllegalArgumentException("welcome: highWater $k") },
         contracts = versions(f["contracts"] as? JsonObject ?: throw IllegalArgumentException("welcome: contracts")),
         bundle = f["bundle"] as? JsonObject,
     )

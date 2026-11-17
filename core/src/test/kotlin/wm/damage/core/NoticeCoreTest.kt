@@ -23,7 +23,6 @@ import wm.damage.core.app.Answer
 import wm.damage.core.app.AppHost
 import wm.damage.core.app.CoreExecutor
 import wm.damage.core.app.Draft
-import wm.damage.core.app.Expect
 import wm.damage.core.app.NoticeCore
 import wm.damage.core.app.NoticeRecord
 import wm.damage.core.app.Notices
@@ -78,14 +77,14 @@ class NoticeCoreTest {
     private fun op(device: String, d: Draft): Op {
         val n = (next[device] ?: 0L) + 1
         next[device] = n
-        return Op(device, OpId.Queued("s-$device", n), Notices.WINDOW, d.action, d.targets, d.result, d.expect)
+        return Op(device, OpId.Queued("s-$device", n), Notices.WINDOW, d.action, d.targets, d.result, at = now)
     }
 
     private fun core(h: AppHost, quiet: String = "off", notes: MutableList<String> = ArrayList()) =
         NoticeCore(h, { quiet }, { now }, { zone }, { notes += it })
 
     @Test
-    fun aRaiseWritesItsOccurrenceAsTextAndADismissExpectingItLands() {
+    fun aRaiseWritesItsOccurrenceAsTextAndADismissOfItLands() {
         val h = host()
         val c = core(h)
         c.raise("torrent", "abc1", "done · a made-up download", "torrents", "t:abc1", "Torrents")
@@ -95,12 +94,13 @@ class NoticeCoreTest {
         // form the value gave it
         val occText = v["occ"]!!.jsonPrimitive.content
         val dismiss = Draft(Notices.DISMISS, listOf("torrent:abc1"),
-            JsonObject(v + ("state" to JsonPrimitive(Notices.DISMISSED))), Expect.Occurrence(occText))
+            JsonObject(v + ("state" to JsonPrimitive(Notices.DISMISSED))))
         val a = ask(h, op("phone", dismiss))
-        assertIs<Answer.Seen>(a, "a dismiss with the occurrence expectation lands (R0 §2; a numeric occ makes it lose, unsaid)")
+        assertIs<Answer.Seen>(a, "a dismiss carrying the occurrence lands (R0 §2)")
+        assertEquals(occText, record(h, "torrent:abc1").occ)
         assertEquals(Notices.DISMISSED, record(h, "torrent:abc1").state)
         val occ = v["occ"]!!.jsonPrimitive
-        assertTrue(occ.isString, "occ is written as text (R0 §2), as Expect.Occurrence reads it: $occ")
+        assertTrue(occ.isString, "occ is written as text (R0 §2), as the notice rule reads it: $occ")
         assertEquals("1", occ.content)
         assertEquals(Notices.RAISED, v["state"]!!.jsonPrimitive.content)
         assertEquals("torrents", v["app"]!!.jsonPrimitive.content)
@@ -110,14 +110,14 @@ class NoticeCoreTest {
     }
 
     @Test
-    fun aReadThatComesAfterADismissLosesAndTheNoticeStaysDismissed() {
+    fun aReadThatComesAfterADismissChangesNothingAndTheNoticeStaysDismissed() {
         val h = host()
         core(h).raise("torrent", "abc2", "done · another", "torrents", "t:abc2", "Torrents")
         drain(h)
         val seen = record(h, "torrent:abc2")                       // what the page saw before the desk dismissed
         assertIs<Answer.Seen>(ask(h, op("phone", Notices.dismissDraft(seen))))
         val late = ask(h, op("web-1", Notices.readDraft(seen)))
-        assertIs<Answer.Lost>(late, "a read after a dismiss of the same occurrence is refused at apply as lost")
+        assertIs<Answer.Seen>(late, "a read after a dismiss of the same occurrence is taken and changes nothing")
         assertEquals(Notices.DISMISSED, record(h, "torrent:abc2").state, "a notice's state never moves backwards")
         // an ack after a dismiss is not backwards (an ackRequired record's ack ends it, C§7.2)
         assertIs<Answer.Seen>(ask(h, op("phone", Notices.ackDraft(seen))))
@@ -134,11 +134,11 @@ class NoticeCoreTest {
         c.raise("torrent", "abc3", "done · again", "torrents", "t:abc3", "Torrents")
         drain(h)
         assertEquals("2", record(h, "torrent:abc3").occ, "a new raise is the next occurrence")
-        assertIs<Answer.Lost>(ask(h, op("phone", Notices.dismissDraft(first))), "a dismiss of occurrence 1 loses")
-        // a client that forgets the occurrence (Any) is refused, never judged by arrival order
-        val forgot = Notices.dismissDraft(first).copy(expect = Expect.Any)
+        assertIs<Answer.Seen>(ask(h, op("phone", Notices.dismissDraft(first))), "a dismiss of occurrence 1 changes nothing")
+        // a value with no occurrence as text is refused, never judged by time
+        val forgot = Notices.dismissDraft(first).let { d -> d.copy(result = JsonObject((d.result as JsonObject) - "occ")) }
         val a = ask(h, op("web-1", forgot))
-        assertIs<Answer.Refused>(a, "a reading effect expects the occurrence it carries")
+        assertIs<Answer.Refused>(a, "a reading effect carries its occurrence")
         assertEquals(Answer.INVALID, a.code)
         val now2 = record(h, "torrent:abc3")
         assertEquals("2", now2.occ)
@@ -149,7 +149,7 @@ class NoticeCoreTest {
     fun raiseAndClearAreThePcsOwn() {
         val h = host()
         val v = JsonObject(mapOf("occ" to JsonPrimitive("9"), "state" to JsonPrimitive(Notices.RAISED)))
-        val a = ask(h, Op("phone", OpId.Queued("s-phone", 1), Notices.WINDOW, Notices.RAISE, listOf("x:y"), v))
+        val a = ask(h, Op("phone", OpId.Queued("s-phone", 1), Notices.WINDOW, Notices.RAISE, listOf("x:y"), v, at = now))
         assertIs<Answer.Refused>(a, "a raise from the phone is refused at apply time")
         assertEquals(Answer.LEVEL, a.code)
         assertNull(value(h, "x:y"))
@@ -159,11 +159,11 @@ class NoticeCoreTest {
     fun aNotifyRowThatIsOffRaisesNothing() {
         val h = host()
         val c = core(h)
-        assertIs<Answer.Seen>(ask(h, Op("local", OpId.Queued("s-row", 1), "t", "set", listOf("notify.done"), JsonPrimitive(false))))
+        assertIs<Answer.Seen>(ask(h, Op("local", OpId.Queued("s-row", 1), "t", "set", listOf("notify.done"), JsonPrimitive(false), at = now)))
         c.raise("torrent", "abc4", "done · muted", "torrents", "t:abc4", "Torrents", notifyRow = "rec.t.notify.done")
         drain(h)
         assertNull(value(h, "torrent:abc4"), "the Notify row is off: nothing raised")
-        assertIs<Answer.Seen>(ask(h, Op("local", OpId.Queued("s-row", 2), "t", "set", listOf("notify.done"), JsonPrimitive(true))))
+        assertIs<Answer.Seen>(ask(h, Op("local", OpId.Queued("s-row", 2), "t", "set", listOf("notify.done"), JsonPrimitive(true), at = now)))
         c.raise("torrent", "abc4", "done · heard", "torrents", "t:abc4", "Torrents", notifyRow = "rec.t.notify.done")
         drain(h)
         assertEquals("done · heard", record(h, "torrent:abc4").body)

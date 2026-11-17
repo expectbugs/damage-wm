@@ -12,7 +12,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -24,7 +23,6 @@ import kotlinx.serialization.json.put
 import wm.damage.core.app.Answer
 import wm.damage.core.app.AppHost
 import wm.damage.core.app.Contracts
-import wm.damage.core.app.Expect
 import wm.damage.core.app.HostBackend
 import wm.damage.core.app.LocalWindowSource
 import wm.damage.core.app.Notices
@@ -85,10 +83,8 @@ class TorrentsMigrationTest {
             .also { it.onRegistered(services) }
     }
 
-    private fun lossLines(s: ReaderServices) = s.notices.filter { "not applied" in it }
-
     @Test
-    fun thePcFirst_thenTheApk_theNewerBlobWinsEachRow_andTheLoserIsSaidOnce(): Unit = runBlocking {
+    fun thePcFirst_thenTheApk_theNewerBlobWinsEachRow(): Unit = runBlocking {
         val h = rig.pc()
         val pc = TorrentsMigration.onHost(h, blob("pc.json", newer, listOf("pc search"), done = false, errors = true, height = 352)) { notes += it }
         assertTrue(pc.ledgerWritten)
@@ -102,13 +98,8 @@ class TorrentsMigrationTest {
         val services = ReaderServices()
         val g = phoneGlasses(wc, services)
         TorrentsMigration.onCopy(wc, blob("phone.json", older, listOf("phone search"), done = true, errors = true, height = null)) { notes += it }
-        readerAwait("both losses said on the glasses") { lossLines(services).size >= 2 }
-        delay(300)
-        val said = lossLines(services)
-        assertEquals(2, said.size, "one line per losing row (errors was the same on both): $said")
-        assertTrue(said.any { it.startsWith("torrent: not applied — Notify · done: you on (an earlier build ") && "standing off, set by an earlier build" in it }, "$said")
-        assertTrue(said.any { "Recent searches: you phone search" in it && "standing pc search" in it }, "$said")
-        // the PC's newer rows stand, and the glasses show them
+        readerAwait("the phone's offers answered") { wc.queue.waiting == 0 }
+        // the PC's newer rows stand (L1 C1: nothing is said of the older), and the glasses show them
         assertEquals(JsonPrimitive(false), item(h, "notify.done")?.value)
         assertEquals(recents("pc search"), item(h, "recents")?.value)
         readerAwait("the glasses show the standing row") { services.onLoop { g.appSettings().first { it.name == "Notify · done" }.current() } == "off" }
@@ -124,7 +115,7 @@ class TorrentsMigrationTest {
         // set in a browser after the PC's conversion
         val got = ArrayList<Answer>()
         h.act(Op("web-00aa01", OpId.Queued("w1", 1), TorrentsCore.WINDOW, TorrentsCore.SET, listOf(TorrentsCore.NOTIFY_DONE),
-            JsonPrimitive(false), Expect.Value(JsonPrimitive(true)))) { got += it }
+            JsonPrimitive(false), at = System.currentTimeMillis())) { got += it }
         h.executor.call {}
         assertTrue(got.single() is Answer.Seen, "$got")
         val srv = rig.serve(h)
@@ -132,10 +123,9 @@ class TorrentsMigrationTest {
         val services = ReaderServices()
         val g = phoneGlasses(wc, services)
         TorrentsMigration.onCopy(wc, blob("phone.json", newer, emptyList(), done = true, errors = true, height = null)) { notes += it }
-        readerAwait("the phone's offer answered") { wc.queue.waiting == 0 && lossLines(services).isNotEmpty() }
+        readerAwait("the phone's offer answered") { wc.queue.waiting == 0 }
         assertEquals(JsonPrimitive(false), item(h, "notify.done")?.value, "the row set in the browser stands")
         assertEquals("web-00aa01", item(h, "notify.done")?.by)
-        assertTrue(lossLines(services).single().contains("standing off, set in a browser"), "${lossLines(services)}")
         g.detach()
     }
 

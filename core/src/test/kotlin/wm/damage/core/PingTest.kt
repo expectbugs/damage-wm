@@ -58,7 +58,7 @@ class PingTest {
         // the PC's listener goes away: connects fail and writes fail, and neither decides anything
         rig.server.close()
         waitUntil(10_000, 5, { "the connection noticed as gone" }) { client.welcome == null }
-        assertFalse(client.send(Op("phone", OpId.Queued("s1", 1), "t", "set", listOf("a"), j("x"))), "no connection to carry it")
+        assertFalse(client.send(Op("phone", OpId.Queued("s1", 1), "t", "set", listOf("a"), j("x"), at = 1)), "no connection to carry it")
         assertEquals(AppClient.Reach.Up, client.reach, "a failed write is not an unanswered ping")
         now.set(5_000)
         client.pingTick()                                // ping 3 counted as sent: nobody can answer it

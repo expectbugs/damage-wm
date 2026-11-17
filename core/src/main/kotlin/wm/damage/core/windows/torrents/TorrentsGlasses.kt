@@ -38,20 +38,15 @@ import wm.damage.core.text.TextRasterizer
 import wm.damage.core.text.Wrap
 import wm.damage.core.util.Log
 import wm.damage.core.app.Answer
-import wm.damage.core.app.Expect
 import wm.damage.core.app.LocalWindowSource
-import wm.damage.core.app.Loss
-import wm.damage.core.app.LossWords
 import wm.damage.core.app.MemoryRecord
 import wm.damage.core.app.NoticeRecord
 import wm.damage.core.app.Op
-import wm.damage.core.app.OpId
 import wm.damage.core.app.Peer
 import wm.damage.core.app.SourceListener
 import wm.damage.core.app.WindowSource
 import wm.damage.core.app.WindowState
 import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonNull
 
 /** The name the window had before its conversion, kept for the sites that name its type (the test sites, the tools). */
 typealias TorrentsWindow = TorrentsGlasses
@@ -109,7 +104,6 @@ class TorrentsGlasses(
     private val device: String = Peer.LOCAL.device,
     /** "PC and phone on different builds for Torrents" while the two builds differ (the phone), else null. */
     private val buildsLine: () -> String? = { null },
-    private val zone: java.time.ZoneId = java.time.ZoneId.systemDefault(),
 ) : DamageWindow("torrents", "Torrents", IconKind.TORRENTS) {
 
     private val tx = styledText(text)
@@ -138,7 +132,7 @@ class TorrentsGlasses(
     private val docModel = DocModel()
     private val tlDocModel = DocModel()
 
-    private var services: ShellServices? = null
+    @Volatile private var services: ShellServices? = null
     private var snap: Snapshot? = null
     private var stateLine = ""
     private var filter = Filter.ALL
@@ -334,12 +328,10 @@ class TorrentsGlasses(
     /** The rows a presenter writes, with their labels as Settings → Torrents shows them. */
     private val rowLabels = linkedMapOf(TorrentsCore.NOTIFY_DONE to "Notify · done", TorrentsCore.NOTIFY_ERRORS to "Notify · errors",
         TorrentsCore.SIZE to "Size", TorrentsCore.RECENTS to "Recent searches")
-    /** Per row: the value this view last sent or took from the record (the next op's expectation), and when it sent. */
+    /** Per row: the value this view last sent or took from the record (its own echo is not taken again). */
     private val sentRowVal = HashMap<String, JsonElement>()
-    private val sentAt = HashMap<String, Long>()
-    /** Rows input changed and not yet taken (a `retry` or `gap` answer puts its row back: the next save point sends it). */
+    /** Rows input changed and not yet taken (a `retry` answer puts its row back: the next save point sends it). */
     private val unsent = LinkedHashSet<String>()
-    private val lossWords = LossWords(zone)
 
     private fun rowValue(row: String): JsonElement = when (row) {
         TorrentsCore.NOTIFY_DONE -> JsonPrimitive(notifyDone)
@@ -385,14 +377,11 @@ class TorrentsGlasses(
     /** What input changed and the record has not taken, as ops; each returns at once (C§2.3). */
     private fun sendChanges() {
         if (unsent.isEmpty()) return
-        val st = source.state()
         for (row in unsent.toList()) {
-            val v = rowValue(row)
             val draft = if (row == TorrentsCore.RECENTS) TorrentsCore.recentDraft(recents.toList())
-                else TorrentsCore.setDraft(row, v, sentRowVal[row]?.let { Expect.Value(it) } ?: TorrentsCore.expectSeen(st.itemNamed(row)))
+                else TorrentsCore.setDraft(row, rowValue(row))
             source.act(draft)
             sentRowVal[row] = draft.result
-            sentAt[row] = System.currentTimeMillis()
         }
         unsent.clear()
     }
@@ -407,72 +396,30 @@ class TorrentsGlasses(
         }
 
         override fun answered(op: Op, answer: Answer) {
-            // a loss stays with this view until it has been said (Reader's fix round 2, ruling 1.2)
-            val s = synchronized(unsaid) {
-                if (answer is Answer.Lost) unsaid[op.id] = op to answer
-                services
-            }
+            val s = services
             if (s == null) {
                 // a refusal for good is never told to no one (no notice is kept for it)
-                if (answer is Answer.Refused && answer.code != Answer.RETRY && answer.code != Answer.GAP)
+                if (answer is Answer.Refused && answer.code != Answer.RETRY)
                     Log.e("torrents", "the record refused ${op.action} of ${op.targets} before the shell started: ${answer.reason}")
                 return
             }
-            if (answer is Answer.Lost) sayUnsaid(s) else s.runOnShell { onAnswer(op, answer) }
+            s.runOnShell { onAnswer(op, answer) }
         }
     }
 
-    /** Losses handed to this view and not yet said. */
-    private val unsaid = LinkedHashMap<OpId, Pair<Op, Answer>>()
-
-    /** Posts every loss not yet said, now and at each session start; the first run of one says it and only then tells
-     *  the source, which stops keeping it. */
-    private fun sayUnsaid(s: ShellServices) {
-        for ((op, a) in synchronized(unsaid) { unsaid.values.toList() }) s.runOnShell {
-            if (synchronized(unsaid) { unsaid.remove(op.id) } != null) {
-                onAnswer(op, a)
-                source.said(op)
-            }
-        }
-    }
-
-    /** An answer to one of this view's ops, on the shell loop (C§4.4). A loss is said once per standing write through
-     *  today's answer notice, with both values (`LossWords`). */
+    /** An answer to one of this view's ops, on the shell loop (C§4.4). L1 C1: the latest input wins and nothing is
+     *  said of an older one; a refusal is. */
     private fun onAnswer(op: Op, a: Answer) {
         if (op.window != TorrentsCore.WINDOW) return
         val row = op.targets.firstOrNull() ?: return
-        when (a) {
-            is Answer.Lost -> for (l in a.losses) sayLoss(op, l)
-            is Answer.Refused -> if (a.code == Answer.RETRY || a.code == Answer.GAP) {
-                // not taken: it changed nothing, so the next send (at the next save point) expects what this one did
-                if (op.action != TorrentsCore.MIGRATE) {
-                    when (val e = op.expect) {
-                        is Expect.Value -> if (e.v == JsonNull) sentRowVal.remove(row) else sentRowVal[row] = e.v
-                        else -> sentRowVal.remove(row)
-                    }
-                    unsent += row
-                }
-            } else {
-                services?.notifyInternal(TorrentsCore.NOTICE_SOURCE,
-                    dn("${rowLabels[row] ?: row} not applied: ${a.reason}", fSmall), answer = true)
-            }
-            else -> {}
+        if (a !is Answer.Refused) return
+        if (a.code == Answer.RETRY) {
+            // not taken: it changed nothing, so the next save point sends the row again
+            if (op.action != TorrentsCore.MIGRATE) unsent += row
+        } else {
+            services?.notifyInternal(TorrentsCore.NOTICE_SOURCE,
+                dn("${rowLabels[row] ?: row} not applied: ${a.reason}", fSmall), answer = true)
         }
-    }
-
-    private fun sayLoss(op: Op, l: Loss) {
-        val label = rowLabels[l.item] ?: l.item
-        val pre = (op.expect as? Expect.PreConversion)?.at
-        val line = lossWords.register(label, l, if (pre != null) "an earlier build" else "glasses",
-            pre ?: sentAt[l.item] ?: System.currentTimeMillis(), ::rowWords) ?: return
-        services?.notifyInternal(TorrentsCore.NOTICE_SOURCE, dn(line, fSmall), answer = true)
-    }
-
-    /** A row's value in Settings' own words. */
-    private fun rowWords(v: JsonElement): String = when {
-        v is kotlinx.serialization.json.JsonArray -> TorrentsCore.recentsOf(v)?.joinToString(", ")?.ifEmpty { "none" } ?: v.toString()
-        TorrentsCore.sizeOf(v) == 0 -> "global"
-        else -> LossWords.plain(v)
     }
 
     init {
@@ -521,9 +468,8 @@ class TorrentsGlasses(
     }
 
     override fun onRegistered(ctx: ShellServices) {
-        synchronized(unsaid) { services = ctx }
+        services = ctx
         ctx.noticeFormatter(id, ::formatRecordNotice)
-        sayUnsaid(ctx)
         // a same-instance restart (the keeper's link edges) registers again:
         // the listener goes in ONCE (R3-K2 — providers are idempotent too)
         if (!registered) { registered = true; provider.addListener(listener) }

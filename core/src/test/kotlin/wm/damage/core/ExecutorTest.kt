@@ -11,7 +11,6 @@ import org.junit.After
 import wm.damage.core.app.Answer
 import wm.damage.core.app.CoreExecutor
 import wm.damage.core.app.OpLog
-import wm.damage.core.app.StreamKey
 import wm.damage.core.util.Log
 
 /**

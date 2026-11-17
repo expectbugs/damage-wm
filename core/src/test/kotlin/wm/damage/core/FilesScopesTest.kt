@@ -26,7 +26,6 @@ import wm.damage.core.app.AppWire
 import wm.damage.core.app.Change
 import wm.damage.core.app.DevicesCore
 import wm.damage.core.app.Effect
-import wm.damage.core.app.Expect
 import wm.damage.core.app.Item
 import wm.damage.core.app.Levels
 import wm.damage.core.app.Op
@@ -78,7 +77,7 @@ class FilesScopesTest {
 
     private fun row(h: AppHost, action: String, target: String, value: JsonPrimitive) {
         val got = CopyOnWriteArrayList<wm.damage.core.app.Answer>()
-        h.act(Op("web-q5", OpId.Queued("q5", ++n), FilesCore.WINDOW, action, listOf(target), value, Expect.Any)) { got += it }
+        h.act(Op("web-q5", OpId.Queued("q5", ++n), FilesCore.WINDOW, action, listOf(target), value, at = System.currentTimeMillis())) { got += it }
         h.executor.call {}
         assertTrue(got.single() is wm.damage.core.app.Answer.Seen, "${got.single()}")
     }
@@ -127,7 +126,7 @@ class FilesScopesTest {
         val dir = tree.home.resolve("w").toString()
         val scope = FilesScopes.folderScope(dir, 0)
         val sortKey = Record.key(FilesCore.WINDOW, FilesCore.SORT)
-        val change = Change(1, 1, null, Effect(mapOf(sortKey to Item(JsonPrimitive("size"), 1, "web", 1))))
+        val change = Change(1, 1, null, Effect(mapOf(sortKey to Item(JsonPrimitive("size"), "web", 1))))
         assertTrue(pc.scopes.follows(scope, change))
         assertTrue(pc.scopes.follows("desc/files", change))
         assertFalse(pc.scopes.follows("files/text:$a/at:0", change))

@@ -13,7 +13,6 @@ import kotlinx.serialization.json.put
 import wm.damage.core.app.ActionSpec
 import wm.damage.core.app.ActionTable
 import wm.damage.core.app.Draft
-import wm.damage.core.app.Expect
 import wm.damage.core.app.Item
 import wm.damage.core.app.Kind
 import wm.damage.core.app.Levels
@@ -26,8 +25,8 @@ import wm.damage.core.util.Log
 /*
  * Context for the reader: Damage is Adam's own window manager for his own glasses, phone and PC on his own network.
  * Build S1-2, package Q4 (the spec's §3.1, §3.5; `CONTRACT.md` §12's Torrents row, §3.3, §4, §7; `TORRENTS.md` §3):
- * Torrents' core. Its own records live in the PC record — the search recents (one register, Expect.Any: decisions
- * A.9), the two Notify rows (shared) and the glasses' Size row — and the transfer table, the tracker and the session
+ * Torrents' core. Its own records live in the PC record — the search recents (one register: decisions A.9), the
+ * two Notify rows (shared) and the glasses' Size row — and the transfer table, the tracker and the session
  * stay the provider's (source state, C§2.1). The core names every action with its kind and level, builds the window's
  * description from the record and the PC's live source, and raises the done and error notices ONCE, on the PC, into
  * the notice record ([attachNotices]). The glasses' presenter (`TorrentsGlasses`) reads it through its `WindowSource`;
@@ -155,8 +154,7 @@ class TorrentsCore(private val live: () -> TorrentsLive? = { null }) : WindowCor
         const val OPEN_IN_FILES = "openInFiles"
         const val RECENT = "recent"
         const val SET = "set"
-        /** A register's value from before Torrents' conversion, judged by its old stamp (the position kind, as
-         *  Reader's `migrate`: the kind whose expectation may be a pre-conversion stamp). */
+        /** A register's value from before Torrents' conversion, stamped with its old time (L1 C1). */
         const val MIGRATE = "migrate"
 
         /** The actions that go into an outside program (qBittorrent, the tracker, `xdg-open`): never queued. */
@@ -234,20 +232,13 @@ class TorrentsCore(private val live: () -> TorrentsLive? = { null }) : WindowCor
 
         fun bool(v: JsonElement?): Boolean? = (v as? JsonPrimitive)?.takeIf { !it.isString }?.booleanOrNull
 
-        // ---- the drafts a presenter sends (C§2.4: the result, and what the device expected to find) ----
+        // ---- the drafts a presenter sends (C§2.4: the result; the latest input wins, L1 C1) ----
 
-        /** The expectation for a row a device last saw as [seen] (Reader's rule). */
-        fun expectSeen(seen: Item?): Expect = when {
-            seen == null -> Expect.Value(JsonNull)
-            seen.gone -> Expect.Any
-            else -> Expect.Value(seen.value)
-        }
-
-        /** The recents after a search: the whole list (decisions A.9: one register, Expect.Any). */
+        /** The recents after a search: the whole list (decisions A.9: one register). */
         fun recentDraft(list: List<String>) =
-            Draft(RECENT, listOf(RECENTS), JsonArray(list.take(RECENTS_MAX).map { JsonPrimitive(it) }), Expect.Any)
+            Draft(RECENT, listOf(RECENTS), JsonArray(list.take(RECENTS_MAX).map { JsonPrimitive(it) }))
 
-        fun setDraft(row: String, value: JsonElement, expect: Expect) = Draft(SET, listOf(row), value, expect)
+        fun setDraft(row: String, value: JsonElement) = Draft(SET, listOf(row), value)
 
         // ---- the summary (moved from `TorrentsWindow.summary()`/`counts()`: Main's row and the web's card share it) ----
 

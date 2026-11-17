@@ -14,7 +14,6 @@ import wm.damage.core.app.ActionTable
 import wm.damage.core.app.Answer
 import wm.damage.core.app.AppHost
 import wm.damage.core.app.CoreExecutor
-import wm.damage.core.app.Expect
 import wm.damage.core.app.Item
 import wm.damage.core.app.Kind
 import wm.damage.core.app.Op
@@ -39,10 +38,11 @@ internal val TEST_ACTIONS = ActionTable { w, a ->
 
 internal fun j(s: String): JsonElement = JsonPrimitive(s)
 
+/** An op of the made-up window, its input at [at] (L1 C1; 0 = older than any input a test stamps). */
 internal fun op(
     device: String, stream: String, n: Long, action: String, targets: List<String>,
-    result: JsonElement = JsonNull, expect: Expect = Expect.Any,
-) = Op(device, OpId.Queued(stream, n), "t", action, targets, result, expect)
+    result: JsonElement = JsonNull, at: Long = 0L,
+) = Op(device, OpId.Queued(stream, n), "t", action, targets, result, at = at)
 
 /** A saver that holds every write until the test runs it. */
 internal class HeldWriter : Executor {

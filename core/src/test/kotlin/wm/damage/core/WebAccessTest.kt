@@ -14,7 +14,6 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonPrimitive
 import wm.damage.core.app.Answer
 import wm.damage.core.app.AppWire
-import wm.damage.core.app.Expect
 import wm.damage.core.app.Levels
 import wm.damage.core.app.Op
 import wm.damage.core.app.OpId
@@ -106,12 +105,12 @@ class WebAccessTest {
             val w = AppWire.parseWelcome(p.next("welcome"))
             assertEquals(row.id, w.device)
             assertEquals(Levels.VIEW, w.level)
-            p.send(AppWire.op(Op("someone-else", OpId.Queued("w1", 1), "t", "set", listOf("a"), JsonPrimitive("mine"), Expect.Any)))
+            p.send(AppWire.op(Op("someone-else", OpId.Queued("w1", 1), "t", "set", listOf("a"), JsonPrimitive("mine"), at = System.currentTimeMillis())))
             val a1 = OpJson.answer(p.next("ans")["answer"] as JsonObject)
             assertTrue(a1 is Answer.Refused && a1.code == Answer.LEVEL, "the PC refuses a view device's control op: $a1")
             assertTrue("control" in (a1 as Answer.Refused).reason && "view" in a1.reason, "the reason names both levels: $a1")
             assertNull(r.rec.item(r.host, "a"), "nothing changed")
-            p.send(AppWire.op(Op(row.id, OpId.Queued("w1", 2), "t", "place", listOf("p"), JsonPrimitive("5"), Expect.Any)))
+            p.send(AppWire.op(Op(row.id, OpId.Queued("w1", 2), "t", "place", listOf("p"), JsonPrimitive("5"), at = System.currentTimeMillis())))
             val a2 = OpJson.answer(p.next("ans")["answer"] as JsonObject)
             assertEquals(Answer.Seen(), a2, "the next number applies: the refusal took its number")
             p.send(AppWire.sub("devices", null))
@@ -121,7 +120,7 @@ class WebAccessTest {
             assertTrue(a3 is Answer.Refused && a3.code == Answer.LEVEL, "the device table needs full: $a3")
             val pending = r.devices.request("127.0.0.1", null, "another page", "browser", null, WebRig.Waiting())
             p.send(AppWire.op(Op(row.id, OpId.Conn(w.conn, 1), "devices", "approve", emptyList(),
-                params = JsonObject(mapOf("code" to JsonPrimitive(pending.code), "level" to JsonPrimitive("full"))))))
+                params = JsonObject(mapOf("code" to JsonPrimitive(pending.code), "level" to JsonPrimitive("full"))), at = System.currentTimeMillis())))
             val a4 = OpJson.answer(p.next("ans")["answer"] as JsonObject)
             assertTrue(a4 is Answer.Refused && a4.code == Answer.LEVEL, "a device-table action needs full: $a4")
             assertEquals(null, pending.approvedLevel, "nothing was approved")

@@ -151,7 +151,7 @@ class ReaderIndexTest {
         awaitTrue("indexed") { idx.snapshot().isNotEmpty() }
         val id = LocalContent.idFor(p)
         val st = WindowState(ReaderCore.WINDOW, mapOf(
-            Record.key(ReaderCore.WINDOW, ReaderCore.placeItem(id)) to Item(JsonPrimitive(ReaderAnchor(len / 4).format()), 1, "local", 1L),
+            Record.key(ReaderCore.WINDOW, ReaderCore.placeItem(id)) to Item(JsonPrimitive(ReaderAnchor(len / 4).format()), "local", 1L),
         ))
         val card = core.describe(st)["shelf"]!!.jsonObject["books"]!!.jsonArray.single().jsonObject
         assertEquals(0.25, card["fraction"]!!.jsonPrimitive.doubleOrNull!!, 0.01)

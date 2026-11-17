@@ -18,7 +18,6 @@ import kotlinx.serialization.json.jsonObject
 import wm.damage.core.app.Answer
 import wm.damage.core.app.AppHost
 import wm.damage.core.app.CoreExecutor
-import wm.damage.core.app.Expect
 import wm.damage.core.app.HostBackend
 import wm.damage.core.app.LocalWindowSource
 import wm.damage.core.app.MemoryRecord
@@ -168,7 +167,7 @@ class TorrentsArrangementsTest {
             // a row changed in a browser reaches the glasses' row
             val got = ArrayList<Answer>()
             h.act(Op("web-00aa01", OpId.Queued("w1", 1), core.window, TorrentsCore.SET, listOf(TorrentsCore.NOTIFY_ERRORS),
-                JsonPrimitive(false), Expect.Value(JsonNull))) { got += it }
+                JsonPrimitive(false), at = System.currentTimeMillis())) { got += it }
             h.executor.call {}
             assertTrue(got.single() is Answer.Seen, "$got")
             val errors = win.appSettings().first { it.name == "Notify · errors" }

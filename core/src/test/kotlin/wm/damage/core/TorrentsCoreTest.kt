@@ -12,7 +12,6 @@ import kotlinx.serialization.json.JsonPrimitive
 import wm.damage.core.app.Answer
 import wm.damage.core.app.AppHost
 import wm.damage.core.app.CoreExecutor
-import wm.damage.core.app.Expect
 import wm.damage.core.app.Levels
 import wm.damage.core.app.NoticeCore
 import wm.damage.core.app.NoticeRecord
@@ -85,7 +84,7 @@ class TorrentsCoreTest {
         // Notify · errors set off in a browser
         val got = ArrayList<Answer>()
         host.act(Op("web-00aa01", OpId.Queued("s1", 1), TorrentsCore.WINDOW, TorrentsCore.SET, listOf(TorrentsCore.NOTIFY_ERRORS),
-            JsonPrimitive(false), Expect.Value(JsonNull))) { got += it }
+            JsonPrimitive(false), at = System.currentTimeMillis())) { got += it }
         host.executor.call {}
         assertTrue(got.single() is Answer.Seen, "$got")
         p.event("error", "c0ffee03", "A made-up stopped one")

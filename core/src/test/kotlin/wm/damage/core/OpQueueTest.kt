@@ -12,7 +12,6 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.serialization.json.JsonPrimitive
-import wm.damage.core.app.Expect
 import wm.damage.core.app.Op
 import wm.damage.core.app.OpId
 import wm.damage.core.app.OpQueue
@@ -43,8 +42,9 @@ class OpQueueTest {
         dir.toFile().deleteRecursively()
     }
 
-    private fun place(id: OpId.Queued, item: String, to: Int, seen: Int) =
-        Op("phone", id, "t", "place", listOf(item), JsonPrimitive(to), Expect.Value(JsonPrimitive(seen)))
+    /** A place op, its input at [at]. */
+    private fun place(id: OpId.Queued, item: String, to: Int, at: Int) =
+        Op("phone", id, "t", "place", listOf(item), JsonPrimitive(to), at = at.toLong())
 
     private fun sameItem(item: String): (Op) -> Boolean = { o -> o.action == "place" && o.targets == listOf(item) }
 
@@ -103,7 +103,7 @@ class OpQueueTest {
         val merged = q.add({ id -> place(id, "b1", 20, 10) }, sameItem("b1"))
         assertEquals(1L, n(merged), "an unsent op takes the next one for its item")
         assertEquals(JsonPrimitive(20), merged.result)
-        assertEquals(Expect.Value(JsonPrimitive(5)), merged.expect, "keeping the first expect")
+        assertEquals(10L, merged.at, "with the next one's input time")
         assertEquals(1, q.waiting)
         assertNull(q.nextToSend(1) { true }, "its new body has not landed: it is not sent")
         w.runAll()
@@ -133,16 +133,6 @@ class OpQueueTest {
     }
 
     @Test
-    fun theHighWaterTakesOutTheOpsItCovers() {
-        val q = OpQueue(file, direct, mint = { "s1" })
-        q.load()
-        for (item in listOf("a", "b", "c")) q.add({ id -> place(id, item, 1, 0) })
-        assertEquals(listOf(1L, 2L), q.covered(2).map { n(it) })
-        assertEquals(3L, q.head)
-        assertEquals(1, q.waiting)
-    }
-
-    @Test
     fun noFileIsANewStreamSaid() {
         val notes = CopyOnWriteArrayList<String>()
         val q = OpQueue(file, direct, note = { notes += it }, mint = { "fresh" })
@@ -150,5 +140,24 @@ class OpQueueTest {
         assertEquals("fresh", q.stream)
         assertTrue(notes.any { "a new stream" in it }, "$notes")
         assertTrue(Files.readAllLines(file).first().contains("\"stream\":\"fresh\""))
+    }
+
+    /** L1 C1: a queue line 0.67 wrote — its op with `expect` and no `at` — loads, its input time the load's; a migrated
+     *  place (`expect.pre`) keeps its old stamp. */
+    @Test
+    fun aQueueLineOf067LoadsWithTheLoadsTime() {
+        Files.createDirectories(file.parent)
+        Files.writeString(file, """
+            {"stream":"a1b2","next":3}
+            {"op":{"device":"phone","stream":"a1b2","n":1,"window":"reader","action":"place","targets":["place.x"],"result":"12|v1|","expect":{"value":null},"base":7},"v":1}
+            {"op":{"device":"phone","stream":"a1b2","n":2,"window":"reader","action":"place","targets":["place.y"],"result":"5|v1|","expect":{"pre":1700000000000}},"v":1}
+        """.trimIndent() + "\n")
+        val before = System.currentTimeMillis()
+        val q = OpQueue(file, direct, mint = { "other" })
+        val ops = q.load()
+        assertEquals("a1b2", q.stream)
+        assertEquals(listOf(1L, 2L), ops.map { n(it) })
+        assertTrue(ops[0].at >= before, "an op without its input time takes the load's: ${ops[0].at}")
+        assertEquals(1_700_000_000_000L, ops[1].at, "a migrated place keeps its old stamp")
     }
 }

@@ -68,10 +68,9 @@ class ContractsTest {
         val snap = AppWire.parseSnap(lane.next("snap"))
         assertTrue(snap.state.isEmpty(), "the record scope leaves out a window on different builds: $snap")
         val seq = rig.host.seq
-        lane.op(Op("phone", OpId.Queued("s1", 1), "t", "set", listOf("a"), j("mine")))
+        lane.op(Op("phone", OpId.Queued("s1", 1), "t", "set", listOf("a"), j("mine"), at = 1))
         assertEquals(Answer.Refused(Contracts.mismatchLine("t"), Answer.CONTRACT), lane.answer())
         assertEquals(seq, rig.host.seq, "no line: the op keeps its number and waits")
-        assertEquals(emptyMap(), rig.host.highWaters("phone"))
         rig.write("desk", "d1", 2, "a", "two")
         lane.quiet()                                     // and no change of `t` reaches it
     }

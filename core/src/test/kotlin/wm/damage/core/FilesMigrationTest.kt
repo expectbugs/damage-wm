@@ -20,7 +20,6 @@ import kotlinx.serialization.json.put
 import wm.damage.core.app.Answer
 import wm.damage.core.app.AppHost
 import wm.damage.core.app.Contracts
-import wm.damage.core.app.Expect
 import wm.damage.core.app.Op
 import wm.damage.core.app.OpId
 import wm.damage.core.app.Record
@@ -75,7 +74,6 @@ class FilesMigrationTest {
     private class Heard : wm.damage.core.app.SourceListener {
         val answers = CopyOnWriteArrayList<Pair<Op, Answer>>()
         override fun answered(op: Op, answer: Answer) { answers += op to answer }
-        val losses get() = answers.mapNotNull { (o, a) -> (a as? Answer.Lost)?.let { o to it } }
     }
 
     private fun watched(wc: WorkingCopy) = Heard().also { h -> wc.executor.call { wc.watch(FilesCore.WINDOW, h) } }
@@ -85,17 +83,15 @@ class FilesMigrationTest {
     private fun copyValue(wc: WorkingCopy, name: String): JsonElement? =
         wc.executor.call { wc.stateOf(FilesCore.WINDOW).itemNamed(name)?.value }
 
-    /** The newer blob's rows on the PC and the phone; the phone's sort and hidden lose (once each), its height applies. */
+    /** The newer blob's rows on the PC and the phone; the phone's sort and hidden are older and change nothing (L1 C1),
+     *  its height applies. */
     private suspend fun assertNewerWins(h: AppHost, wc: WorkingCopy, heard: Heard) {
         val want = mapOf(FilesCore.SORT to JsonPrimitive("size"), FilesCore.HIDDEN to JsonPrimitive(true),
             FilesCore.CLIP to FilesCore.clipJson("cut", "/made/up/a.txt"), FilesCore.SIZE to JsonPrimitive(416))
         readerAwait("the PC record holds the newer value of each row") { want.all { (k, v) -> value(h, k) == v } }
         readerAwait("the phone's copy shows the same") { want.all { (k, v) -> copyValue(wc, k) == v } }
-        readerAwait("the losses answered") { heard.losses.size >= 2 }
-        val lost = heard.losses.flatMap { it.second.losses }.map { it.item }.toSet()
-        assertEquals(setOf(Record.key(FilesCore.WINDOW, FilesCore.SORT), Record.key(FilesCore.WINDOW, FilesCore.HIDDEN)),
-            lost.map { if (it.startsWith("rec.")) it else Record.key(FilesCore.WINDOW, it) }.toSet(), "each older row lost, once: ${heard.losses}")
-        assertEquals(2, heard.losses.size)
+        readerAwait("the phone's offers answered") { heard.answers.size >= 3 }
+        assertTrue(heard.answers.all { it.second is Answer.Seen }, "${heard.answers}")
     }
 
     @Test
@@ -118,10 +114,10 @@ class FilesMigrationTest {
     fun aSortSetInABrowserAfterThePcsConversionIsNeverReplacedByAnOlderBlob(): Unit = runBlocking {
         val h = rig.pc()
         FilesMigration.onHost(h, pcStore()) { notes += it }
-        // the browser sets the sort after the conversion, expecting what it saw
+        // the browser sets the sort after the conversion
         val got = CopyOnWriteArrayList<Answer>()
         h.act(Op("web-q5", OpId.Queued("w1", 1), FilesCore.WINDOW, FilesCore.SORT_ROW, listOf(FilesCore.SORT), JsonPrimitive("name"),
-            Expect.Value(JsonPrimitive("size")))) { got += it }
+            at = System.currentTimeMillis())) { got += it }
         h.executor.call {}
         assertTrue(got.single() is Answer.Seen)
         val srv = rig.serve(h)
@@ -129,10 +125,9 @@ class FilesMigrationTest {
         val heard = watched(wc)
         FilesMigration.onCopy(wc, store("phone-new.json", newer + 3_600_000L, "MTIME", true, null, null)) { notes += it }
         readerAwait("the phone's offers answered") { wc.queue.waiting == 0 && heard.answers.size >= 2 }
-        assertEquals(JsonPrimitive("name"), value(h, FilesCore.SORT), "the browser's row stands, whatever the blob's stamp")
+        assertEquals(JsonPrimitive("name"), value(h, FilesCore.SORT), "the browser's later row stands over the older blob")
         assertEquals("web-q5", h.read(FilesCore.WINDOW).third.items[Record.key(FilesCore.WINDOW, FilesCore.SORT)]!!.by)
         readerAwait("the phone shows the standing row") { copyValue(wc, FilesCore.SORT) == JsonPrimitive("name") }
-        assertTrue(heard.losses.any { (_, l) -> l.losses.any { it.item.endsWith(FilesCore.SORT) && it.by == "web-q5" } }, "said: ${heard.losses}")
     }
 
     /** Pin (the spec's Q5: "a second start migrates again"). */
