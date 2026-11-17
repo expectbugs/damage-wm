@@ -897,7 +897,8 @@ class GlassFirmwareSim() : LensPanels {
                     }
                     val subMode = src[pos].toInt() and 0x7F
                     // §5.5: mode 26 rides a batch. Build C1's ruling R1.4: the batch's own list decides first, whatever
-                    // the sub's length — a mode 25 (a cache write) is refused here, 8 with the batch's byte
+                    // the sub's length — a mode 25 (a cache write) is refused here, 8 with the batch's byte; a mode 26
+                    // in a batch inside a step passes here and is refused by the step's rule in [motionMessage]
                     if (subMode !in Fw.BATCH_SUBMODES && !(subMode == 26 && engineBuild())) {
                         diag.event("decode", "$arm mode-8 sub-mode $subMode rejected"); return refuse(c, src, REF_MODE)
                     }
@@ -1534,10 +1535,10 @@ class GlassFirmwareSim() : LensPanels {
     }
 
     // ------------------------------------------------------------------ mode 26 (§5.5)
-    /** `[26][sub]…`: the order of §5.5 — length (1) → a self-test step (8) → the lease (3) → DRAW2 (9) → ENGINE (15) →
-     *  the sub's own checks ([MotionSim]) — then the act under the engine word, let down before the present. Every
-     *  refusal records its reason and is captured as an outcome-2 body. Decision A.6's "no shadow" (4) has nothing
-     *  to read here: the model's shadow always exists, as for modes 17–23. */
+    /** `[26][sub]…`: a self-test step (8) → length (1) → the lease (3) → DRAW2 (9) → ENGINE (15) → the sub's own checks
+     *  ([MotionSim]) — then the act under the engine word, let down before the present. Every refusal records its
+     *  reason and is captured as an outcome-2 body. Decision A.6's "no shadow" (4) has nothing to read here: the
+     *  model's shadow always exists, as for modes 17–23. */
     private fun motionMessage(arm: Arm, c: LensCtx, src: ByteArray, now: Long, present: Boolean, batch: BatchCtx?): Boolean {
         val e = c.motion
         fun no(reason: Int): Boolean {
@@ -1545,9 +1546,12 @@ class GlassFirmwareSim() : LensPanels {
             e.captureRefusal(src, reason, uptimeTicks(now))
             return refuse(c, src, reason)
         }
+        // build C1's ruling R1.4 (as C1-R6 B6-1 reads it): the step's list is asked before the message's length, also
+        // for a mode 26 a batch inside a step carries — 8 with the message's byte, as the step refuses one at its top
+        // level. Reached with a step running only from inside a batch: the step's own list refuses a top-level 26.
+        if (c.stActive) return no(REF_MODE)
         val sub = if (src.size >= 2) src[1].toInt() and 0xFF else -1
         if (sub < 0 || src.size != Fw.motionLength(sub)) return no(REF_LENGTH)
-        if (c.stActive) return no(REF_MODE)
         if (!fbLeaseActive(arm, now)) return no(REF_NO_LEASE)
         if (c.damageFlags and DamageMsg.FLAG_DRAW2 == 0) return no(REF_DRAW2)
         if (c.damageFlags and Fw.FLAG_ENGINE == 0) return no(REF_UNARMED)

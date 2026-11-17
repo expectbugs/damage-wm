@@ -425,6 +425,62 @@ class MotionSimTest {
         assertTrue(r.msg(batch(play(0, 34, 64, 1))), "mode 26 rides a batch")
     }
 
+    /** C1-R6 B6-1, R1.4's class: modes 25 and 26, short and whole, at the top level, in a batch, at a step's top level
+     *  and in a batch inside a step. The container's list decides first, whatever the length: a batch refuses a 25 with
+     *  its own byte; a step refuses a 25 or 26 with the message's byte, and its rule reaches a 26 that a batch inside the
+     *  step carries (`v3-rulings3` step 1: 8, not the length's 1); outside a step a 26 rides a batch and its own checks
+     *  decide. A refused 26 on an engine build gives one body (outcome 2, the reason, its slot if it has one). */
+    @Test
+    fun modes25And26AreDecidedByTheirContainerFirstAtEveryDepth_R6_B61() {
+        val r = Rig()
+        r.write(64, prog(track(rect(0, 100, 50, 10), 3, seg(FILL, 4, kind = 9))))
+        r.now = 2000
+        val fill = CfwModes.fill(Rect(0, 0, 8, 2), 3)
+        val short25 = byteArrayOf(25, 0x78)
+        val whole25 = byteArrayOf(25) + Zl.deflate(u16(512) + u16(4) + byteArrayOf(1, 2, 3, 4))
+        val short26 = byteArrayOf(26)
+        fun step(m: ByteArray) = byteArrayOf(16, 1) + m
+        // expect: null = taken; else [the byte recorded, the reason]. A refusal recorded under 26 gives one body.
+        fun cell(rig: Rig, what: String, m: ByteArray, expect: List<Int>?, slot: Long? = null) {
+            rig.bodies()
+            if (expect == null) { assertTrue(rig.msg(m), "$what: taken"); return }
+            assertFalse(rig.msg(m), "$what: refused")
+            assertEquals(expect, rig.sim.refusalRecord(rig.arm).take(2), what)
+            val bodies = rig.bodies()
+            // §5.1: DamageCaps bit 7, the engine; without it nothing is notified
+            if (expect[0] != 26 || (rig.sim.damageFeatures ?: 0) and (1 shl 7) == 0) { assertTrue(bodies.isEmpty(), "$what: no body"); return }
+            val b = bodies.single()
+            assertEquals(listOf(2L, expect[1].toLong(), slot), listOf(b[4], b[10], b[2]), "$what: the body (outcome, reason, slot)")
+        }
+        cell(r, "a short 25", short25, listOf(25, 1))
+        cell(r, "a whole 25", whole25, null)
+        cell(r, "a short 25 in a batch", batch(fill, short25), listOf(8, 8))
+        cell(r, "a whole 25 in a batch", batch(fill, whole25), listOf(8, 8))
+        cell(r, "a short 26", short26, listOf(26, 1))
+        cell(r, "a whole 26", play(0, 34, 64, 1), null)
+        cell(r, "a short 26 in a batch", batch(fill, short26), listOf(26, 1))
+        cell(r, "a whole 26 in a batch", batch(fill, play(1, 34, 64, 2)), null)
+        assertTrue(r.msg(CfwModes.selfTestBegin()))
+        cell(r, "a short 25 in a step", step(short25), listOf(25, 8))
+        cell(r, "a whole 25 in a step", step(whole25), listOf(25, 8))
+        cell(r, "a short 25 in a batch in a step", step(batch(fill, short25)), listOf(8, 8))
+        cell(r, "a whole 25 in a batch in a step", step(batch(fill, whole25)), listOf(8, 8))
+        cell(r, "a short 26 in a step", step(short26), listOf(26, 8))
+        cell(r, "a whole 26 in a step", step(play(2, 34, 64, 3)), listOf(26, 8), slot = 2)
+        cell(r, "a short 26 in a batch in a step", step(batch(fill, short26)), listOf(26, 8))
+        cell(r, "a whole 26 in a batch in a step", step(batch(fill, play(3, 34, 64, 4))), listOf(26, 8), slot = 3)
+        assertTrue(r.msg(CfwModes.selfTestEnd()))
+        // the installed build (0x7f): no handler for either, so a batch's list refuses both with its own byte, a step's
+        // with the message's, and nothing is notified (each alone in its batch: DRAW2 is not armed there, so a fill
+        // ahead of it would be refused 9 first)
+        val old = Rig(features = 0x7F)
+        cell(old, "0x7f: a short 26 in a batch", batch(short26), listOf(8, 8))
+        assertTrue(old.msg(CfwModes.selfTestBegin()))
+        cell(old, "0x7f: a short 26 in a step", step(short26), listOf(26, 8))
+        cell(old, "0x7f: a short 26 in a batch in a step", step(batch(short26)), listOf(8, 8))
+        cell(old, "0x7f: a whole 25 in a batch in a step", step(batch(whole25)), listOf(8, 8))
+    }
+
     /** R1.8: an unknown mode-26 sub (3..255) is held to length 3 (else 1), then refused 12 after the generic checks;
      *  its notify body carries no slot. */
     @Test
