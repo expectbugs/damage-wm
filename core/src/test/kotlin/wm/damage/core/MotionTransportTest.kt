@@ -773,6 +773,8 @@ class MotionTransportTest {
             notes.clear()
             val glass = GlassFirmwareSim().apply { damageContract = 2; damageFeatures = 0x1ff }
             val t = StartRig(glass, scope)
+            // C1-R6 B6-6: on any failure the transport's notes go to the test's output with the case, then the failure
+            try {
             collect(t)
             t.devProbe("c1", "1")
             t.start(full)
@@ -798,6 +800,11 @@ class MotionTransportTest {
             val why = if (case == "silent") "the glasses are in Silent Mode" else "no lease is held"
             assertEquals(1, images.get(), "$case: no mode-19 copy on the wire")
             assertTrue(has("glass", "list is not sent again: $why"), "$case: said: ${notes.filter { it.first == "glass" }}")
+            } catch (e: Throwable) {
+                println("B-N3 pin, case '$case', failed (${e.message}); the transport's notes in order:\n" +
+                    notes.joinToString("\n") { "  ${it.first}: ${it.second}" })
+                throw e
+            }
             t.stop()
         }
     }
@@ -942,5 +949,108 @@ class MotionTransportTest {
             assertEquals(before, said().size, "the new process: $i refusal(s) of its own, nothing said")
         }
         t2.stop()
+    }
+
+    // ------------------------------------------------------------------------------------- round 6's rulings (C1-R6 §B)
+    /** C1-R6 B6-3 (focus B, NOTE 2): an arming stamps itself only when it really sends. A FLAGS_SET called under an
+     *  epoch the session has left (the arming loop's race with a link end, between its check and the call) sends
+     *  nothing and leaves the stamp as it was, so a LEFT end that came before it is still read against the stage-3
+     *  arming at the next start: one stage down, said as 10 s after that arming. */
+    @Test
+    fun aFlagsSetWhoseSessionEndedLeavesTheArmingStampAsItWas_R6_B63(): Unit = runBlocking {
+        val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = 0x1ff }
+        var clock = 1_000_000L
+        val t = SimTransport(sim, scope, SimTransport.Timing(instant = true), clock = { clock })
+        collect(t)
+        t.devProbe("c1", "3")
+        t.start(full)
+        fun said() = notes.filter { it.first == "keeper" }.joinToString(" | ") { it.second }
+        assertEquals(0x2c, t.state.value.flagsInForce, "stage 3 armed: ${said()}")
+        clock += 10_000L
+        sim.rebootForTest(Arm.LEFT, clock)
+        t.endLink("LEFT disconnected: supervision timeout")
+        clock += 5_000L
+        val writes = sim.damageControlWritesSeen
+        assertEquals(null, t.flagsSetUnderAStaleEpochForTest(0x2c), "a FLAGS_SET under an epoch the session left is not answered")
+        delay(100)
+        assertEquals(writes, sim.damageControlWritesSeen, "nothing was sent")
+        clock += 200_000L
+        t.start(full)
+        waitUntil(10_000, message = { "the LEFT end still read against the stage-3 arming: ${said()}" }) { holdBacks().size == 1 }
+        assertTrue("10 s after the C1 ladder armed stage 3" in holdBacks().single(), "the stamp was the stage-3 arming's: ${holdBacks()}")
+        assertEquals(0x24, t.state.value.flagsInForce, "stage 2: ENGINE gone, DRAW2 and ZWRITE kept: ${said()}")
+        t.stop()
+    }
+
+    /** C1-R6 B6-5: B-S1's once-guard. A LEFT end drops one stage once. A start that holds back on it and then arms
+     *  nothing at all (its op 5 is never answered and the link ends) leaves the arming's stamp where it was; the next
+     *  start reads the same end against the same arming and does not hold back again. */
+    @Test
+    fun aLeftEndHoldsBackOnceWhenTheStartAfterItArmsNothing_R6_B65(): Unit = runBlocking {
+        val glass = GlassFirmwareSim().apply { damageContract = 2; damageFeatures = 0x1ff }
+        var clock = 1_000_000L
+        val t = StartRig(glass, scope, clock = { clock })
+        t.heapReads = false
+        collect(t)
+        t.devProbe("c1", "2")
+        t.start(full)
+        fun said() = notes.filter { it.first == "keeper" }.joinToString(" | ") { it.second }
+        assertEquals(0x24, t.state.value.flagsInForce, "stage 2 armed: ${said()}")
+        assertEquals(256 * 1024, t.state.value.cacheSize)
+        clock += 10_000L
+        glass.rebootForTest(Arm.LEFT, clock)
+        t.endLink("LEFT disconnected: supervision timeout")
+        clock += 200_000L
+        val sizes = java.util.concurrent.CopyOnWriteArrayList<String>()
+        val swallow = java.util.concurrent.atomic.AtomicBoolean(true)
+        t.onWrite = { a, p ->
+            if (StartRig.damageOp(p) != DamageMsg.OP_CACHE_SIZE) p
+            else { sizes += "${a.name.first()}:${controlArg(p)}"; if (swallow.get()) null else p }
+        }
+        val second = scope.async { runCatching { t.start(full) } }
+        waitUntil(10_000, message = { "op 5 for 160 KiB written to both arms: $sizes; ${said()}" }) { "L:160" in sizes && "R:160" in sizes }
+        assertEquals(1, holdBacks().size, "the LEFT end held stage 2 back: ${said()}")
+        assertTrue("stage 1 from here" in holdBacks().single(), holdBacks().single())
+        t.endLink("test: the start ends before it arms anything")
+        second.await()
+        swallow.set(false)
+        clock += 200_000L
+        t.start(full)
+        assertEquals(0x24, t.state.value.flagsInForce, "stage 1: DRAW2 and ZWRITE: ${said()}")
+        assertEquals(160 * 1024, t.state.value.cacheSize, "stage 1: 160 KiB")
+        assertEquals(1, holdBacks().size, "the same LEFT end, against the same arming, holds back once: ${holdBacks()}")
+        t.stop()
+    }
+
+    /** C1-R6 B6-5: A-S1's engine gate. Only a build that reports the engine (DamageCaps bit 7) holds the engine word, so
+     *  a refusal 14 is judged on no other build. Glasses that report 0x17f at the session start (the riders, no engine)
+     *  and then refuse four cache writes in a row 14 — planted: after the capability read the model becomes the engine
+     *  build and holds the word — are not said to refuse uploads. */
+    @Test
+    fun aBuildWithoutTheEngineIsNotSaidToRefuseUploads_R6_B65(): Unit = runBlocking {
+        val glass = GlassFirmwareSim().apply { damageContract = 2; damageFeatures = 0x17f }
+        val t = SimTransport(glass, scope, SimTransport.Timing(instant = true))
+        collect(t)
+        t.start(full)
+        assertEquals(0x4, t.state.value.flagsInForce, "stage 0: DRAW2 only")
+        glass.damageFeatures = 0x1ff                    // after the capability read: the transport still holds 0x17f
+        val images = java.util.concurrent.atomic.AtomicInteger()
+        glass.imageObserver = { arm, _ -> if (arm == Arm.RIGHT) images.incrementAndGet() }
+        fun hold(on: Boolean) = synchronized(glass) { for (arm in Arm.entries) glass.motionForTest(arm).holdWordForTest(on) }
+        fun said() = notes.filter { it.first == "fault" && it.second.startsWith("uploads:") }
+        hold(true)
+        for (n in 1..4) {
+            val before = images.get()
+            val list = CfwModes.cacheUpdate2(listOf(CfwModes.CacheWrite2(1000 + 100 * n, ByteArray(64) { (it + n).toByte() })), 160 * 1024)
+            t.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(list)), 0, "ATLAS"))
+            t.submit(FlushRequest(listOf(DisplayOp.Fill(Rect(400, 300, 8, 4), Rect(400, 300, 8, 4), n % 15)), 0, "elsewhere"))
+            waitUntil(10_000, message = { "write $n and its present reached RIGHT" }) { images.get() >= before + 2 }
+            val r = t.telemetry("test read")
+            assertEquals(14, r?.refusal?.reason, "write $n refused 14 (planted): ${r?.describe()}")
+        }
+        delay(200)
+        assertEquals(emptyList(), said(), "a build that does not report the engine: nothing said of reason 14")
+        hold(false)                                     // the model has one thread: no release point with the word held
+        t.stop()
     }
 }

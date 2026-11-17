@@ -596,14 +596,18 @@ abstract class CfwTransportBase(
         val rightFailed = CompletableDeferred<String>()       // P5 item 9: RIGHT's write failing on any attempt
         flagsSetPending = set
         telemetryWaiters[0] = waiter
-        // build C1's ruling B-M1: an arming records itself — its time and, on a C1 build, the ladder stage it leaves the
-        // glasses at (B-N4: what this build arms, not the stage asked for) — before its first byte goes out
-        lastArmedAtMs = nowMs()
-        ladderArmedStage = if (isC1(damageCaps)) ladderStageOf(set) else 0
         val reask = scope.launch {
             var first = true
             while (true) {
                 if (epoch != sessionEpoch.get()) { waiter.completeExceptionally(LintError("session ended")); break }
+                // build C1's ruling B-M1: an arming records itself — its time and, on a C1 build, the ladder stage it
+                // leaves the glasses at (B-N4: what this build arms, not the stage asked for) — before its first byte
+                // goes out. C1-R6 B6-3 (focus B, NOTE 2): only when it really sends, so below the epoch check — a call
+                // whose session already ended stamps nothing, and cannot hide a LEFT end that came before it
+                if (first) {
+                    lastArmedAtMs = nowMs()
+                    ladderArmedStage = if (isC1(damageCaps)) ladderStageOf(set) else 0
+                }
                 controlQueue.trySend(CtlWork.BothArms(epoch, SettingsMsg.SID, "damage flags 0x${set.toString(16)}",
                     failed = if (first) firstFailed else null, written = writtenBoth, rightFailed = rightFailed) { DamageMsg.control(DamageMsg.OP_FLAGS_SET, set) })
                 first = false
@@ -648,6 +652,10 @@ abstract class CfwTransportBase(
         emitFault("flags", "flags 0x${set.toString(16)} did not reach an arm ($why) — the lenses would differ, so the set is not taken as armed")
         return null
     }
+
+    /** Test only (C1-R6 B6-3's pin): [flagsSet] of [set] under an epoch that is no longer the session's — the arming
+     *  loop's race with a link end, between its epoch check and the call. Nothing is sent; the answer is null. */
+    internal suspend fun flagsSetUnderAStaleEpochForTest(set: Int): DamageMsg.Telemetry? = flagsSet(sessionEpoch.get() - 1, set)
 
     /** The set a FLAGS_SET is arming; its reply is the id-0 record whose flags are that set, or one
      *  carrying a status a FLAGS_SET itself records. Anything else on id 0 is a stale duplicate. */
@@ -738,7 +746,7 @@ abstract class CfwTransportBase(
             // carries the ladder's bits drops one stage, as [ladderAtStart] does; this session arms nothing (today's
             // shape), and the wish and DRAW2 are kept for the next start
             if (extraLeft and C1_FLAGS != 0 && ladderArmedStage > 0) {
-                ladderHoldBack(rightReset = true)
+                ladderHoldBack(resetAt, leftEndDueAt())
                 ladderArmedStage = 0
                 return
             }
@@ -908,7 +916,7 @@ abstract class CfwTransportBase(
     @Volatile private var ladderSizeInForce = false
     /** Build C1's ruling B-S1 (`C1-R5-decisions.md`): LEFT's last link end of the kind a lens restart looks like from
      *  here ([REBOOT_LIKE_ENDS]), on the phone's clock, and its reason. RIGHT's restarts show in its uptime; LEFT's
-     *  show only this way. Read by the ladder's hold-back alone ([leftEndDue]); today's hold-back (DRAW2) does not. */
+     *  show only this way. Read by the ladder's hold-back alone ([leftEndDueAt]); today's hold-back (DRAW2) does not. */
     @Volatile private var leftEndAtMs: Long? = null
     @Volatile private var leftEndReason = ""
     /** The LEFT link end a ladder hold-back already decided on, so it drops one stage once. */
@@ -947,42 +955,45 @@ abstract class CfwTransportBase(
         else -> "ZWRITE, the 256 KiB cache and ENGINE"
     }
 
-    /** True when a reset followed the last arming within [HOLD_BACK_MS] and no hold-back has decided on it yet —
-     *  the rule [armFeatures] has applied since `FORK.md` §3.2, read here too. */
-    private fun holdBackDue(): Boolean {
-        val resetAt = lastResetAtMs ?: return false
-        val armedAt = lastArmedAtMs ?: return false
-        return resetAt != heldBackForResetAt && resetAt >= armedAt - CAPABILITY_REASK_MS && resetAt - armedAt < HOLD_BACK_MS
+    /** RIGHT's reset (its time on the phone's clock) when it followed the last arming within [HOLD_BACK_MS] and no
+     *  hold-back has decided on it yet, else null — the rule [armFeatures] has applied since `FORK.md` §3.2, read here
+     *  too. C1-R6 B6-2: [lastResetAtMs] is read once and the answer is that value, so the decision and its note agree. */
+    private fun resetDueAt(): Long? {
+        val resetAt = lastResetAtMs ?: return null
+        val armedAt = lastArmedAtMs ?: return null
+        return resetAt.takeIf { it != heldBackForResetAt && it >= armedAt - CAPABILITY_REASK_MS && it - armedAt < HOLD_BACK_MS }
     }
 
     /** Build C1's ruling B-S1: while a rung of the ladder is armed, LEFT's link ending as a restart would
      *  ([leftEndAtMs]) within [HOLD_BACK_MS] after the last arming counts as a reset of that lens, once — RIGHT's
      *  uptime cannot show a restart of LEFT alone. A plain radio drop of LEFT inside that window reads the same and
-     *  costs one stage as well ([ladderHoldBack] says so; `c1=N` undoes it). Nothing of the ladder armed: no effect. */
-    private fun leftEndDue(): Boolean {
-        if (ladderArmedStage == 0) return false
-        val endAt = leftEndAtMs ?: return false
-        val armedAt = lastArmedAtMs ?: return false
-        return endAt != heldBackForLeftEndAt && endAt >= armedAt && endAt - armedAt < HOLD_BACK_MS
+     *  costs one stage as well ([ladderHoldBack] says so; `c1=N` undoes it). Nothing of the ladder armed: no effect.
+     *  C1-R6 B6-2 (focus B, NOTE 1): the radio's thread writes [leftEndAtMs], so it is read once, here, and the end
+     *  that is due (or null) is what the start decides on and [ladderHoldBack] says. */
+    private fun leftEndDueAt(): Long? {
+        if (ladderArmedStage == 0) return null
+        val endAt = leftEndAtMs ?: return null
+        val armedAt = lastArmedAtMs ?: return null
+        return endAt.takeIf { it != heldBackForLeftEndAt && it >= armedAt && it - armedAt < HOLD_BACK_MS }
     }
 
     /** One stage down after a reset the ladder is blamed for: the bit armed last (ENGINE, then the 256 KiB size, then
-     *  ZWRITE) goes, the rest stays — with the hold-back's fault and `keeper` note. [rightReset]: RIGHT's uptime showed
-     *  the reset; otherwise it is LEFT's link end (B-S1), and the note says that is what was read. One start drops one
-     *  stage: a LEFT end due at the same time is decided with RIGHT's reset. */
-    private fun ladderHoldBack(rightReset: Boolean = holdBackDue()): Int {
+     *  ZWRITE) goes, the rest stays — with the hold-back's fault and `keeper` note. [resetAt]: RIGHT's uptime showed
+     *  the reset then; null: it is LEFT's link end [leftEnd] (B-S1), and the note says that is what was read. One start
+     *  drops one stage: a LEFT end due at the same time is decided with RIGHT's reset. The caller passes what it read
+     *  once ([resetDueAt], [leftEndDueAt]); nothing here reads those two fields again (C1-R6 B6-2). */
+    private fun ladderHoldBack(resetAt: Long?, leftEnd: Long?): Int {
         val armedAt = lastArmedAtMs!!
-        val leftEnd = leftEndAtMs?.takeIf { leftEndDue() }
         if (leftEnd != null) heldBackForLeftEndAt = leftEnd
         val was = ladderArmedStage
         val to = minOf(c1Stage, was - 1)
         c1Stage = to
-        val why = if (rightReset) {
-            val resetAt = lastResetAtMs!!
+        val why = if (resetAt != null) {
             heldBackForResetAt = resetAt
             "the glasses reset ${(resetAt - armedAt) / 1000} s after the C1 ladder armed stage $was"
         } else {
-            "LEFT's link ended as a restart of that lens would ($leftEndReason) ${(leftEnd!! - armedAt) / 1000} s after the " +
+            val end = checkNotNull(leftEnd) { "a ladder hold-back with neither RIGHT's reset nor LEFT's end" }
+            "LEFT's link ended as a restart of that lens would ($leftEndReason) ${(end - armedAt) / 1000} s after the " +
                 "C1 ladder armed stage $was — LEFT cannot report its uptime, so the end is taken as its restart (a plain " +
                 "radio drop of LEFT reads the same)"
         }
@@ -999,13 +1010,15 @@ abstract class CfwTransportBase(
      *  C1's ruling B-S1: LEFT's restart-like link end after an arming that carried the ladder drops one stage too. */
     private fun ladderAtStart(caps: DamageMsg.Caps): Int {
         val stage = c1Stage
-        val at = when {
-            stage == 0 || !isC1(caps) -> 0
-            !holdBackDue() && !leftEndDue() -> stage
+        if (stage == 0 || !isC1(caps)) return 0
+        // C1-R6 B6-2: each of the two ends is read once; the hold-back is given what was read
+        val resetAt = resetDueAt()
+        val leftEnd = leftEndDueAt()
+        return when {
+            resetAt == null && leftEnd == null -> stage
             ladderArmedStage == 0 -> 0
-            else -> ladderHoldBack()
+            else -> ladderHoldBack(resetAt, leftEnd)
         }
-        return at
     }
 
     /** Build C1 (`FIRMWARE.md` §5.8, spec §6.4): one notify-114 body. A `motion` note always; for an instance that
@@ -1348,7 +1361,7 @@ abstract class CfwTransportBase(
             if (reason.startsWith(arm.name) && REBOOT_LIKE_ENDS.any { it in reason }) {
                 l.timedOut = true
                 // build C1's ruling B-S1: LEFT cannot report its uptime, so this end is the only sign of a restart of
-                // that lens alone — kept for the ladder's hold-back ([leftEndDue])
+                // that lens alone — kept for the ladder's hold-back ([leftEndDueAt])
                 if (arm == Arm.LEFT) { leftEndAtMs = now; leftEndReason = reason }
             }
         }
