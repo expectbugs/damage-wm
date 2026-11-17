@@ -129,7 +129,7 @@ class PlacePrivacyTest {
 
             // everything written: none of it may hold a coordinate or the distance
             val written = wire + logs + pcJournal + phoneJournal +
-                listOf(place.stateLine(), presence.stateLine(), rb.watcherLine(), rb.stateLine()) +
+                listOf(place.stateLine(), presence.stateLine(), rb.watcherLine()) +
                 rig.glasses.map { it.body } + rig.phone.posts.map { it.body }
             // an IPv4 address is not a coordinate: dotted quads are taken out before the search (the path read says no
             // address since fix round 2, R2.3 — `PhonePresenceTest` searches for them; this search is for positions)

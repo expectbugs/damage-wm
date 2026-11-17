@@ -310,6 +310,13 @@ class RemoteWin(
         }
     }
 
+    /** Ends the current connection: the caller's liveness decision (X3: a quick request with no answer for a minute,
+     *  on a link that may have gone half-open). The connect loop fails what is pending, says the channel is down
+     *  and connects again on its pacing. */
+    fun drop() {
+        try { sockRef?.close() } catch (e: Exception) { Log.w("win-remote", "'$winId' drop: ${e.message}") }
+    }
+
     override fun close() {
         running = false
         loop.cancel()

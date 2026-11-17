@@ -100,7 +100,7 @@ class AckActionTest {
                 assertEquals(line, watcher.current(), "a tap keeps nothing")
                 first.close()                                                 // home stops answering
                 waitUntil(10_000, 10, { "the row says home is down (${watcher.current()})" }) {
-                    watcher.current() == RemoteBastion.HOME_DOWN }
+                    watcher.current().startsWith("${RemoteBastion.HOME_DOWN} · PC unreachable ") }
                 BastionHost(dir, store, port).use { _ ->                      // home answers again, same port
                     waitUntil(10_000, 10, { "the line again (${watcher.current()})" }) { watcher.current() == line }
                 }
@@ -124,13 +124,14 @@ class AckActionTest {
                 store.raise("fresh_full", Severity.NORMAL, "Fresh tank nearly full", "91")
                 synced(rb, store)
                 first.close()                                                 // home stops answering
-                waitUntil(10_000, 10, { "the channel is down (${rb.stateLine()})" }) { rb.stateLine().startsWith("PC unreachable") }
+                waitUntil(10_000, 10, { "the channel is down (${rb.watcherLine()})" }) {
+                    rb.watcherLine().startsWith("${RemoteBastion.HOME_DOWN} · PC unreachable ") }
                 assertEquals(listOf(BastionRows.NONE, "all raised (1)"), ack.options(), "the copy still knows it is raised")
                 r.shell.services.runOnShell { ack.apply("all raised (1)") }
                 waitUntil(10_000, 10, { "the row's answer (${r.posted()})" }) {
                     r.posted().any { it.body == "not acknowledged — home not answering" } }
                 BastionHost(dir, store, port).use { again ->                  // home answers again, same port
-                    waitUntil(10_000, 10, { "the channel is back and asked the table (${rb.stateLine()})" }) { again.op("table") > 0 }
+                    waitUntil(10_000, 10, { "the channel is back and asked the table (${rb.watcherLine()})" }) { again.op("table") > 0 }
                     ticks(rb, 10)
                     assertEquals(0, again.op("ack"), "nothing was queued: no ack reaches home later")
                     assertEquals(AlertState.RAISED, store.stateOf("fresh_full"), "still raised")
