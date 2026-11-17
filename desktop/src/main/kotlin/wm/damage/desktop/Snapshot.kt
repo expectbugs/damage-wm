@@ -308,6 +308,10 @@ object Snapshot {
         shell.services.runOnShell { musicWin.appSettings().first { it.name == "Size" }.apply("288") }
         shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // → Main
         settle(shell)
+        // C1-R6 B6-7: the scene's clock moves on half a second between the two cards, as the wall clock did: the
+        // wall-clock renders read in build C1 drew the 480 card before 65.211 s (5 of its bar's 38 blocks lit; the 6th
+        // lights there) and this one after it (6 lit, "1:05" or "1:06")
+        musicSkew += 500
         shell.postGesture(EvenHubMsg.EV_CLICK)             // → Music at 288
         waitFor("music at 288") { musicWin.title() == "now playing" }
         iconsSettled()
