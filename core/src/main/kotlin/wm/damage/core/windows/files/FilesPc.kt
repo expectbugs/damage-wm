@@ -158,7 +158,8 @@ class FilesProgram(private val files: SlottedFiles, private val uploads: Uploads
         files.raw.refuseTrashStore(dest, "an upload")
         val h = files.jobs.begin("Upload '$name'", "waiting for the file")
         val id = try {
-            u.mint(peer.device, conn, Path.of(dest), name, size) { end ->
+            // L1 R1 B6: the body's bytes are the job's progress, so its busy line never says "no progress" while they arrive
+            u.mint(peer.device, conn, Path.of(dest), name, size, onBytes = { h.progress(it, size, "receiving") }) { end ->
                 when (end) {
                     is Uploads.End.Done -> h.done(buildJsonObject {
                         put("text", "${end.path.fileName} (${fmtBytes(end.bytes)}) is on the PC")

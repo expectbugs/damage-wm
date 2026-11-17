@@ -313,6 +313,31 @@ class FilesJobsTest {
         assertTrue("ended after 0 of 3" in (awaitEnd(jobs, r["job"]!!.jsonPrimitive.content).answer as JsonPrimitive).content)
     }
 
+    /** Pin (L1 R1 B6): an upload's body is its job's progress, so its busy line never says "no progress" while bytes
+     *  arrive. */
+    @Test
+    fun anUploadsBytesAreItsProgress() {
+        val uploads = Uploads(null)
+        val (jobs, program) = program(uploads = uploads)
+        val r = answer(program.act(op(FilesCore.UPLOAD, listOf(tree.dir("in")), buildJsonObject {
+            put("file", buildJsonObject { put("name", "slow.bin"); put("size", 3) })
+        }), web))
+        val seen = ArrayList<String>()
+        var reads = 0
+        val body = object : InputStream() {
+            override fun read(): Int = throw AssertionError("read in blocks")
+            override fun read(b: ByteArray, off: Int, len: Int): Int {
+                reads++
+                if (reads == 2) now += 5 * 60_000L                      // five minutes between the first and second byte
+                if (reads == 3) seen += jobs.busyLine(jobs.current()!!) + " · " + jobs.current()!!.phase
+                b[off] = reads.toByte()
+                return 1
+            }
+        }
+        assertEquals(201, uploads.receive(r["upload"]!!.jsonPrimitive.content, "web-q5", 3, body).code)
+        assertEquals(listOf("busy — one operation at a time (Upload 'slow.bin' is running) · receiving"), seen)
+    }
+
     /** Pin (L1): the PC's Files runs the supervisor on the record's pacing tick. */
     @Test
     fun thePcsTickRunsTheSupervisor() {

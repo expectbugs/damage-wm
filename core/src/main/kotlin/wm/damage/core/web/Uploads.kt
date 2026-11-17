@@ -58,6 +58,8 @@ class Uploads(
         val name: String,
         val size: Long,
         internal val onEnd: (End) -> Unit,
+        /** L1 R1 B6: the bytes of the body written so far, after each write. */
+        internal val onBytes: (Long) -> Unit = {},
     )
 
     /** An answer to the uploader: its status and its words; [bodyLeft] = refused before its body was read (the
@@ -74,12 +76,13 @@ class Uploads(
      * [IllegalArgumentException] with the reason (a name with a path in it, a folder that is not one, a size below 0).
      * [onEnd] is told once: the file placed, or why not.
      */
-    fun mint(device: String, conn: Long, folder: Path, name: String, size: Long, onEnd: (End) -> Unit): String {
+    fun mint(device: String, conn: Long, folder: Path, name: String, size: Long, onBytes: (Long) -> Unit = {},
+             onEnd: (End) -> Unit): String {
         require(validName(name)) { "'$name' is not a file name (no '/', no NUL, not . or .., at most 255 bytes)" }
         require(size >= 0) { "the upload's size is below 0" }
         require(folder.isAbsolute && Files.isDirectory(folder)) { "$folder is not a folder on the PC" }
         val id = ByteArray(12).also { rnd.nextBytes(it) }.joinToString("") { "%02x".format(it) }
-        tickets[id] = Ticket(id, device, conn, folder, name, size, onEnd)
+        tickets[id] = Ticket(id, device, conn, folder, name, size, onEnd, onBytes)
         Log.i(TAG, "upload $id minted for $device: $name ($size bytes) into $folder")
         return id
     }
@@ -130,6 +133,7 @@ class Uploads(
                     if (n < 0) break
                     out.write(buf, 0, n)
                     got += n
+                    t.onBytes(got)
                 }
             }
             if (got != length) {
