@@ -346,6 +346,7 @@ class AppHost(
             logReady = true
             logFailures.ok()
             note("the operation log opened on a later tick: ${o.lines.size} line(s) replayed past $covered" +
+                (if (o.incomplete) "; its incomplete last line was cut (it was never answered)" else "") +
                 (if (o.bad.isEmpty()) "" else "; " + o.bad.joinToString("; ")))
         }
         if (!opened || !logReady) return                // ruling 1.7: no save covers a log this start did not replay
