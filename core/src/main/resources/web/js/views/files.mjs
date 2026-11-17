@@ -927,6 +927,7 @@ export function filesView(ctx) {
       draw();
     },
     onWelcome() {
+      myJobs.clear(); // L1 R2 B4: job ids count from j1 again after a PC restart; a Stats of the old one is asked again
       // a level changed by a re-approval: below full everything held is let go and nothing of the tree stays shown
       if (!root) return;
       if (M.belowWhy(ctx.S.level)) {
