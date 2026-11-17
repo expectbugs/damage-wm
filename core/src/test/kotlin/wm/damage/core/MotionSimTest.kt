@@ -467,8 +467,8 @@ class MotionSimTest {
         cell(r, "a whole 25 in a batch in a step", step(batch(fill, whole25)), listOf(8, 8))
         cell(r, "a short 26 in a step", step(short26), listOf(26, 8))
         cell(r, "a whole 26 in a step", step(play(2, 34, 64, 3)), listOf(26, 8), slot = 2)
-        cell(r, "a short 26 in a batch in a step", step(batch(fill, short26)), listOf(26, 8))
         cell(r, "a whole 26 in a batch in a step", step(batch(fill, play(3, 34, 64, 4))), listOf(26, 8), slot = 3)
+        cell(r, "a short 26 in a batch in a step", step(batch(fill, short26)), listOf(26, 8))
         assertTrue(r.msg(CfwModes.selfTestEnd()))
         // the installed build (0x7f): no handler for either, so a batch's list refuses both with its own byte, a step's
         // with the message's, and nothing is notified (each alone in its batch: DRAW2 is not armed there, so a fill
