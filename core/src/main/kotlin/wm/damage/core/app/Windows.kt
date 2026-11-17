@@ -38,16 +38,16 @@ object Windows {
         Entry(ReaderCore.WINDOW, "Reader", 1, ReaderCore.ACTIONS, ReaderCore::levelOf, Levels.VIEW),
         // S1-2 Q3: the PC's notice record (C§7.1; decisions A.1): a pseudo-window with no card and no scopes of its own
         Entry(Notices.WINDOW, "Notices", 1, Notices.ACTIONS, Notices::levelOf, Levels.VIEW, rule = Notices.RULE),
+        // S1-2 Q5: Files (C§12; min full, C§10.4), its program ops into the filesystem; its rule keeps the core's clear of
+        // a cut to the clip it names (L1 F2: the rows take what they are given; every reader drops a bad value). Before
+        // Torrents, as the glasses' Main lists them (S1-2 R2 #15)
+        Entry(wm.damage.core.windows.files.FilesCore.WINDOW, "Files", 1, wm.damage.core.windows.files.FilesCore.ACTIONS,
+            wm.damage.core.windows.files.FilesCore::levelOf, Levels.FULL, program = wm.damage.core.windows.files.FilesCore.PROGRAM,
+            rule = wm.damage.core.windows.files.FilesCore.RULE),
         // S1-2 Q4: Torrents (C§12): its rows and search recents in the record; its program actions go into qBittorrent,
         // the tracker and `xdg-open`, never queued
         Entry(TorrentsCore.WINDOW, "Torrents", 1, TorrentsCore.ACTIONS, TorrentsCore::levelOf, Levels.VIEW,
             program = TorrentsCore.PROGRAM),
-
-        // S1-2 Q5: Files (C§12; min full, C§10.4), its program ops into the filesystem; its rule keeps the core's clear of
-        // a cut to the clip it names (L1 F2: the rows take what they are given; every reader drops a bad value)
-        Entry(wm.damage.core.windows.files.FilesCore.WINDOW, "Files", 1, wm.damage.core.windows.files.FilesCore.ACTIONS,
-            wm.damage.core.windows.files.FilesCore::levelOf, Levels.FULL, program = wm.damage.core.windows.files.FilesCore.PROGRAM,
-            rule = wm.damage.core.windows.files.FilesCore.RULE),
     )
 
     private val BY_ID: Map<String, Entry> = ALL.associateBy { it.id }

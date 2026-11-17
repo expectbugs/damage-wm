@@ -142,6 +142,26 @@ class OpQueueTest {
         assertTrue(Files.readAllLines(file).first().contains("\"stream\":\"fresh\""))
     }
 
+    /** L1: a queue file that cannot be read is moved aside under a dated name and said, never overwritten. */
+    @Test
+    fun anUnreadableFileIsKeptAsideAndSaid() {
+        val first = OpQueue(file, direct, mint = { "s1" })
+        first.load()
+        first.add({ id -> place(id, "a", 10, 1) })
+        val bytes = Files.readAllBytes(file)
+        val perms = Files.getPosixFilePermissions(file)
+        Files.setPosixFilePermissions(file, emptySet())                 // this start cannot read it
+        val notes = CopyOnWriteArrayList<String>()
+        val q = OpQueue(file, direct, note = { notes += it }, mint = { "fresh" })
+        assertEquals(emptyList(), q.load())
+        assertEquals("fresh", q.stream)
+        val kept = Files.list(dir).use { s -> s.filter { it.fileName.toString().startsWith("queue.jsonl.bad-") }.toList() }.single()
+        Files.setPosixFilePermissions(kept, perms)
+        assertTrue(bytes.contentEquals(Files.readAllBytes(kept)), "its ops kept as they were")
+        assertTrue(notes.any { "could not be read" in it && "kept as ${kept.fileName}" in it }, "$notes")
+        assertTrue(Files.readAllLines(file).first().contains("\"stream\":\"fresh\""), "a new file in its place")
+    }
+
     /** L1 C1: a queue line 0.67 wrote — its op with `expect` and no `at` — loads, its input time the load's; a migrated
      *  place (`expect.pre`) keeps its old stamp. */
     @Test

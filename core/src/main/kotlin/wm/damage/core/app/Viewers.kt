@@ -17,7 +17,7 @@ import wm.damage.core.util.Log
  * a second `sub` REPLACES the need), its connection's end, or when its connection has sent no `ping` for two of its
  * intervals (C§8's one liveness rule, built here for viewers only: the connection itself still ends on TCP keepalive).
  *
- * Writes run on the core executor ([AppNet]); a source reads [need] on its own poll thread, once per tick, and that
+ * Writes run on the core executor ([AppNet]); a source reads [of] on its own poll thread, once per tick, and that
  * read applies the same liveness rule, so a connection gone quiet is never counted between two sweeps.
  */
 class Viewers(
@@ -122,17 +122,6 @@ class Viewers(
         val interval = maxOf(p.gap, pingEveryMs)
         val quiet = now - p.last
         return if (quiet > 2 * interval) quiet else null
-    }
-
-    /** The most demanding live viewer of [window] at [now] — any `focus` over `glance`, then the fastest pace asked
-     *  — or null when it has none (the source parks). Any thread: a source reads it once per tick. */
-    fun need(window: String, now: Long): Need? {
-        var best: Need? = null
-        for (v in viewers.values) {
-            if (v.window != window || quietFor(v.conn, now) != null) continue
-            best = stronger(best, v.need)
-        }
-        return best
     }
 
     /** The live viewers of [window] at [now]. Any thread. */

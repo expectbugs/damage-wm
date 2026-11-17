@@ -66,8 +66,9 @@ class WorkingCopy(
     private val watchers = HashMap<String, MutableList<SourceListener>>()
     private val settled = ArrayList<Settled>()
     private val unsaved = ArrayList<OpId.Queued>()
-    /** The windows the live connection shares (its `welcome`'s contracts against this build's). */
-    private var shared: Set<String> = emptySet()
+    /** The windows the live connection shares (its `welcome`'s contracts against this build's). Written on the
+     *  executor, read by [shares] from the shell loop (L1 A-N9). */
+    @Volatile private var shared: Set<String> = emptySet()
     private var saving = false
     private var dirty = false
     private var saveFailures = 0

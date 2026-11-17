@@ -91,7 +91,15 @@ class OpQueue(
         } catch (e: Exception) {
             stream = mint()
             nextN = 1
-            val line = "the queue file could not be read (${e::class.simpleName}: ${e.message}); a new stream ($stream)"
+            // L1: moved aside (a rename reads nothing), never overwritten by the rewrite below
+            val kept = file.resolveSibling("${file.fileName}.bad-${System.currentTimeMillis()}")
+            val aside = try {
+                Files.move(file, kept)
+                "kept as ${kept.fileName}"
+            } catch (m: Exception) {
+                "NOT kept aside (${m::class.simpleName}: ${m.message}): it is overwritten"
+            }
+            val line = "the queue file could not be read (${e::class.simpleName}: ${e.message}); $aside; a new stream ($stream)"
             Log.e(TAG, line)
             note("FAILED: $line")
             rewriteNow()
