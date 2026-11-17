@@ -241,9 +241,9 @@ function ended(f) {
 
 function closed() {
   // C§4.4: an op left unanswered at its connection's end — not known whether it ran; the state says
-  const held = [...queued.values()];
+  const lost = [...queued.values()];
   queued.clear();
-  for (const q of held) if (q.onAnswer) q.onAnswer({ a: 'refused', code: 'ended', reason: 'not known whether it ran: the connection ended before its answer; see the state' });
+  for (const q of lost) if (q.onAnswer) q.onAnswer({ a: 'refused', code: 'ended', reason: 'not known whether it ran: the connection ended before its answer; see the state' });
   const lostConn = [...connOps.values()];
   connOps.clear();
   for (const cb of lostConn) cb({ a: 'refused', code: 'ended', reason: 'not known whether it ran: the connection ended before its answer; see the state' });
