@@ -211,7 +211,7 @@ class NoticeCore(
     private val backend = HostBackend(host, Notices.PC, Notices.STREAM)
     /** Raises handed to the record and not yet answered, by the occurrence they carry. */
     private val inFlight = HashMap<String, Raise>()
-    /** §5 N1 (b): raises answered `retry` or `gap` (the log did not take them), the latest per id, sent again at the
+    /** §5 N1 (b): raises answered `retry` (the log did not take them), the latest per id, sent again at the
      *  record's pacing tick and never dropped. */
     private val kept = LinkedHashMap<String, Raise>()
     /** The largest occurrence this core minted: a raise not yet applied still holds its number. */
