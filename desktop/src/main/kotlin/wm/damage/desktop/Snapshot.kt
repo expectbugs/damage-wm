@@ -99,7 +99,11 @@ object Snapshot {
         val musicLib = ScriptedMusic()
         var musicSkew = 0L
         val musicClock: () -> Long = { System.currentTimeMillis() + musicSkew }
-        val musicPlayer = wm.damage.core.windows.music.SimMusicPlayer(musicLib, musicClock)
+        // C1-R6 B6-7: the player's position runs on the scene's clock — a fixed instant that only the scene moves (the
+        // skew) — so every render shows the same elapsed time; on the wall clock the card read "1:05" or "1:06" by how
+        // long a run took to reach it. The window keeps the wall clock, with the skew, for its card pace and notices.
+        val musicSceneT0 = 1_763_000_000_000L
+        val musicPlayer = wm.damage.core.windows.music.SimMusicPlayer(musicLib, now = { musicSceneT0 + musicSkew })
         val musicWin = wm.damage.core.windows.music.MusicWindow(text, musicLib, musicPlayer, scope, clock = musicClock)
         shell.register(musicWin)
         val gamesWin = wm.damage.core.windows.games.GamesWindow(text, scope)
