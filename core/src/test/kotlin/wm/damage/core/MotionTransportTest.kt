@@ -695,14 +695,18 @@ class MotionTransportTest {
 
     /** B-S1's bounds: a LEFT link end after the hold-back's window, one that is not restart-like (the phone ended it),
      *  and one after an arming that carried none of the ladder (a stage-0 session, then `c1=3` by hand) change nothing:
-     *  the next start arms what the stage says (stage 3: ENGINE and the 256 KiB cache). */
+     *  the next start arms what the stage says (stage 3: ENGINE and the 256 KiB cache). DX5b: and that last end read
+     *  again one start later, against the stage-3 arming that came AFTER it (a plain end of the phone's between) —
+     *  an end before the last arming is not that arming's reset. */
     @Test
     fun aLeftLinkEndOutsideTheWindowOrWithNoRungArmedChangesNothing_BS1(): Unit = runBlocking {
-        data class Case(val label: String, val c1First: Int, val c1Then: Int?, val endAfterMs: Long, val reason: String, val restart: Boolean)
+        data class Case(val label: String, val c1First: Int, val c1Then: Int?, val endAfterMs: Long, val reason: String, val restart: Boolean,
+                        val armedSince: Boolean = false)
         for (c in listOf(
             Case("after the window", 3, null, 130_000L, "LEFT disconnected: supervision timeout", true),
             Case("not restart-like", 3, null, 10_000L, "LEFT disconnected: ended by phone", false),
-            Case("no rung armed", 0, 3, 10_000L, "LEFT disconnected: supervision timeout", true))) {
+            Case("no rung armed", 0, 3, 10_000L, "LEFT disconnected: supervision timeout", true),
+            Case("before the last arming", 0, 3, 10_000L, "LEFT disconnected: supervision timeout", true, armedSince = true))) {
             notes.clear()
             val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = 0x1ff }
             var clock = 1_000_000L
@@ -716,6 +720,15 @@ class MotionTransportTest {
             t.endLink(c.reason)
             clock += 200_000L
             t.start(full)
+            if (c.armedSince) {
+                // that start armed stage 3 after the LEFT end; the phone then ends the link, and the next start reads
+                // the old end against this arming
+                assertEquals(0x2c, t.state.value.flagsInForce, "${c.label}: stage 3 armed after the end")
+                clock += 10_000L
+                t.endLink("LEFT disconnected: ended by phone")
+                clock += 200_000L
+                t.start(full)
+            }
             fun said() = notes.filter { it.first == "keeper" }.joinToString(" | ") { it.second }
             assertEquals(0x2c, t.state.value.flagsInForce, "${c.label}: stage 3 armed: ${said()}")
             assertEquals(256 * 1024, t.state.value.cacheSize, "${c.label}: the 256 KiB cache")
