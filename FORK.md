@@ -68,7 +68,9 @@ margin is answered — no limit, with power-saving settings (`REPLAN.md` §14.1 
    a short list of redirected call sites, and no NEW site on a path that runs before the first radio
    message. (Corrected 2026-09-13: the inherited a5d1c31 set already has two such paths — the
    primary heap arena's size, at boot, and the display task's copy call, which passes straight
-   through for every stock refresh from boot on; `tools/verify.py` lists every site for review.) Every new behaviour sits behind a per-feature flag the phone arms per session; flags
+   through for every stock refresh from boot on; `tools/verify.py` lists every site for review, and since C1 its step 6
+   FAILs any site the installed build's patch set does not have, `FIRMWARE.md` §5.10.) Every new behaviour sits behind
+   a per-feature flag the phone arms per session; flags
    clear when the lease lapses (Phase 7's persisted flag is the designed exception). A phone that is
    gone leaves stock behaviour behind within 90 s.
 2. **Hold-back after a reset.** The firmware exposes uptime (and a boot counter once F1.2 sources one). The keeper never
