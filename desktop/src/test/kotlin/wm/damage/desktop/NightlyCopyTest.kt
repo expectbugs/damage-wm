@@ -30,8 +30,8 @@ import wm.damage.core.bastion.BastionWatcher
  * APK; the feed from a configured `feedDataDir` and the rules from a configured `haRulesFile`; a missing folder is
  * never created or written (W19); only `damage-YYYYMMDD-HHMMSS` folders are deleted, oldest first, and a foreign
  * `damage-notes` never is (W18); a `.partial` is not counted as a copy; an unchanged file is linked, a changed one
- * copied; a failed run touches no older copy and raises `watcher.copy`, which the next good copy clears; the daily
- * slot and the one catch-up.
+ * copied; a failed run touches no older copy and raises `watcher.copy`, which the next good copy clears; a stalled
+ * copy raises it when the next is skipped (L1 X4); the daily slot and the one catch-up.
  */
 class NightlyCopyTest {
 
@@ -120,6 +120,29 @@ class NightlyCopyTest {
         } finally {
             wm.damage.core.util.Log.removeSink(sink)
         }
+    }
+
+    /** L1 X4: a copy stalled on a disk that hangs keeps the next one from running; that skip raises `watcher.copy`
+     *  (it was a log line only), and the stalled copy's good end clears it. */
+    @Test
+    fun aStalledCopyRaisesTheAlertWhenTheNextIsSkipped() {
+        val w = World(Files.createTempDirectory("copy-stalled"))
+        Files.createDirectories(w.backup)
+        val store = AlertStore(w.data.resolve("alerts.json"))
+        val c = copy(w, store)
+        val inside = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        c.beforeCopying = { inside.countDown(); release.await() }
+        c.launchRun("daily")
+        assertTrue(inside.await(5, java.util.concurrent.TimeUnit.SECONDS), "the first copy started")
+        c.launchRun("daily")
+        val alert = store.table().single { it.id == BastionWatcher.COPY }
+        assertTrue("the copy running since 12:00 has not ended" in alert.text, alert.text)
+        c.beforeCopying = null
+        release.countDown()
+        val until = System.currentTimeMillis() + 5_000
+        while (store.stateOf(BastionWatcher.COPY) != AlertState.CLEAR && System.currentTimeMillis() < until) Thread.sleep(5)
+        assertEquals(AlertState.CLEAR, store.stateOf(BastionWatcher.COPY), "the stalled copy's good end clears it")
     }
 
     /** W19: a missing folder (an unmounted disk) is never created or written; the failure is raised, and the next

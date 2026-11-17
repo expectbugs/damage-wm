@@ -56,8 +56,9 @@ import wm.damage.core.util.UncaughtRecord
  *
  * **When:** wall-clock pacing at ticks of [TICK_MS] or less: a copy at `backupAt` each day, and one
  * catch-up [CATCH_UP_MS] after a start when the newest copy is older than [STALE_MS] (or there is
- * none). A run still going when the next is due is said ("copy running since HH:MM") and the due
- * one is skipped; nothing is cancelled. NO TIMEOUTS: the ticks are pacing on a clock.
+ * none). A run still going when the next is due raises [BastionWatcher.COPY] ("the copy running since
+ * HH:MM has not ended") and the due one is skipped; nothing is cancelled. NO TIMEOUTS: the ticks are
+ * pacing on a clock.
  *
  * **Loud:** a failed run is a `Log.e` and the built-in alert [BastionWatcher.COPY] (it reaches his
  * glasses and phone through the alert channel); the next good copy clears it. Older copies are never
@@ -152,10 +153,13 @@ class NightlyCopy(
         return null
     }
 
-    private fun launchRun(why: String) {
+    internal fun launchRun(why: String) {
         val now = clock()
         if (!runningSince.compareAndSet(0, now)) {
-            Log.w(TAG, "nightly copy ($why) skipped: the copy running since ${hhmm(runningSince.get())} has not ended")
+            // X4: a copy stalled on a disk that hangs is an alert, not only a log line; its end (a good copy) clears it
+            val text = "Nightly copy: the copy running since ${hhmm(runningSince.get())} has not ended. No new copy is made."
+            Log.e(TAG, "nightly copy ($why) skipped: $text")
+            raise(text)
             return
         }
         scope.launch(Dispatchers.IO) {
@@ -177,11 +181,15 @@ class NightlyCopy(
     } catch (e: Exception) {
         val what = "${e::class.simpleName}: ${e.message ?: "no detail"}"
         Log.e(TAG, "nightly copy ($why) into $backupDir failed - older copies are untouched: $what", e)
-        val text = "Nightly copy failed: $what. Older copies are untouched."
+        raise("Nightly copy failed: $what. Older copies are untouched.")
+        false
+    }
+
+    /** [BastionWatcher.COPY] with [text] (cleared first when it is up with other words, so the new reason is said). */
+    private fun raise(text: String) {
         val up = store.table().firstOrNull { it.id == BastionWatcher.COPY }
         if (up != null && up.text != text) store.clear(BastionWatcher.COPY)
         store.raise(BastionWatcher.COPY, Severity.NORMAL, text, "", builtIn = true)
-        false
     }
 
     /** The copy itself; returns the summary. Throws on any failure (the caller says it). */
