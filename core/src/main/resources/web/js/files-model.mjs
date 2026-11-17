@@ -267,9 +267,6 @@ export const actionsOf = (desc) => new Map(((desc && desc.actions) || []).map((a
 export const offered = (a, level) => !!a && atLeast(level, a.level || 'full');
 /** Why a device cannot see Files at all, or null: Files is full as a whole (C§10.4). */
 export const belowWhy = (level) => (atLeast(level, 'full') ? null : `Files needs level full on this device (this one is ${level || 'not approved'})`);
-/** The actions over several selected entries (A.15: no copy or cut). */
-export const BULK_FOLDER = ['trash', 'download'];
-export const BULK_TRASH = ['restore', 'purge'];
 /** The actions that take the PC's one job slot (spec §4.1 FilesJobs). */
 export const JOB_ACTIONS = new Set(['paste', 'trash', 'restore', 'purge', 'rename', 'mkdir', 'stats', 'upload']);
 

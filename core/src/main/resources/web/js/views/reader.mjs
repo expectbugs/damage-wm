@@ -11,7 +11,7 @@
 //  - bookmark here, go to the bookmark, and reset progress through the confirm shape.
 // Nothing is cut: a part is drawn whole and scrolls.
 
-import { h, clear, fill, bar, outLink, icon, keepFocus } from '../dom.mjs';
+import { h, fill, bar, outLink, icon, keepFocus } from '../dom.mjs';
 import { offsetOf } from '../anchor.mjs';
 import { progress, percent, partFor, placeAt } from '../reader-model.mjs';
 import { key } from '../record.mjs';

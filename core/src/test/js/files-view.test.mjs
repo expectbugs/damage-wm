@@ -322,10 +322,10 @@ test('several selected: Move to Trash is one op over their paths; Download gives
 test('a selection is what the folder shows: a dotfile selected leaves it when Hidden is turned off elsewhere', async () => {
   const rows = folderRows(40);
   const dot = rows.find((r) => r.name.startsWith('.'));
-  const { p, ws } = await page({ record: filesRecord({ 'rec.files.hidden': { v: true, rev: 2, by: 'phone-1', at: 1 } }), rows });
+  const { p, ws } = await page({ record: filesRecord({ 'rec.files.hidden': { v: true, by: 'phone-1', at: 1 } }), rows });
   byKey(p, `sel:${dot.name}`).fire('change');
   assert.match(main(p).textContent, /1 selected/);
-  ws.frame({ t: 'chg', scope: 'files', epoch: 3, seq: 41, patches: [{ addr: 'rec.files.hidden', set: { v: false, rev: 3, by: 'phone-1', at: 2 } }] });
+  ws.frame({ t: 'chg', scope: 'files', epoch: 3, seq: 41, patches: [{ addr: 'rec.files.hidden', set: { v: false, by: 'phone-1', at: 2 } }] });
   assert.doesNotMatch(main(p).textContent, /selected/);
 });
 
