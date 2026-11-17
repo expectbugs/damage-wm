@@ -91,6 +91,13 @@ class BundleTest {
         assertEquals(listOf("style-src"), parts.filterValues { "unsafe-inline" in it }.keys.toList(), csp)
     }
 
+    /** L1 R2 A6 (RP NOTE 1): the pages speak the lane version the PC does; a mismatch would have every page reload
+     *  itself every 2 s for ever (refused `proto`, then the same bundle again). */
+    @Test
+    fun thePagesProtoIsTheLanes() {
+        assertTrue("export const PROTO = ${wm.damage.core.app.AppWire.PROTO};" in text("js/proto.mjs"), "js/proto.mjs's PROTO")
+    }
+
     @Test
     fun theHashIsStableAndMovesWithAnyByteOrName() {
         assertEquals(bundle.hash, Bundle.fromResources().hash, "the same files, the same hash")
