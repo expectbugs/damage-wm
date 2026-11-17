@@ -48,8 +48,9 @@ class FilesJobs(private val clock: () -> Long = { System.currentTimeMillis() }) 
         }
     }
 
-    /** A request refused because a job holds the slot: today's words. */
-    class Busy(val holder: Job) : IllegalStateException(BUSY)
+    /** A request refused because a job holds the slot: [busyLine]'s words (L1 A-N12: the PC's glasses show them, and the
+     *  phone's through the window channel). */
+    class Busy(val holder: Job, line: String) : IllegalStateException(line)
 
     /** The running job's handle: its progress and its one end. A second end is ignored (said in the log). */
     inner class Handle internal constructor(val id: String) {
@@ -88,12 +89,18 @@ class FilesJobs(private val clock: () -> Long = { System.currentTimeMillis() }) 
     /** Takes the slot for [label], or throws [Busy] with today's words while a job runs. */
     fun begin(label: String, phase: String): Handle {
         val j = synchronized(lock) {
-            slot?.takeIf { it.running }?.let { throw Busy(it) }
+            slot?.takeIf { it.running }?.let { throw Busy(it, busyLine(it)) }
             val now = clock()
             Job("j${++next}", label, RUNNING, null, phase, now, now, null).also { slot = it; lastSaid = now }
         }
         tell(j)
         return Handle(j.id)
+    }
+
+    /** The words of a refusal while [holder] runs: today's, its label, and how long it has made no progress. */
+    fun busyLine(holder: Job): String {
+        val idle = (clock() - holder.updatedAt) / 60_000
+        return "$BUSY (${holder.label} is running" + (if (idle >= 1) "; no progress for $idle min" else "") + ")"
     }
 
     /** [work] in the slot, on the caller's thread: its end is the job's (a throw is a failed job, then thrown on). */

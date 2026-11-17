@@ -68,7 +68,7 @@ class FilesJobsTest {
         val jobs = FilesJobs()
         val h = jobs.begin("Paste 'a'", "copying")
         val e = assertFailsWith<FilesJobs.Busy> { jobs.begin("Move to Trash 'b'", "trashing") }
-        assertEquals("busy — one operation at a time", e.message)
+        assertEquals("busy — one operation at a time (Paste 'a' is running)", e.message, "L1 A-N12: it names its holder")
         assertEquals("Paste 'a'", e.holder.label)
         h.done(null)
         jobs.begin("Move to Trash 'b'", "trashing").done(null)
@@ -125,12 +125,12 @@ class FilesJobsTest {
         assertTrue(entered.await(10, TimeUnit.SECONDS))
         // the PC's glasses call the slotted provider (A.4: today's call), and are refused with today's words
         val glasses = assertFailsWith<FilesJobs.Busy> { pc.slotted.copy(b, dest) }
-        assertEquals("busy — one operation at a time", glasses.message)
+        assertTrue(glasses.message!!.startsWith("busy — one operation at a time (Paste "), "${glasses.message}")
         // the phone's glasses through the window channel, as FilesService serves them
         val phone = assertFailsWith<FilesJobs.Busy> {
             FilesService(pc.slotted).request("copy", buildJsonObject { put("src", b); put("dest", dest) })
         }
-        assertEquals("busy — one operation at a time", phone.message)
+        assertEquals(glasses.message, phone.message, "the phone's glasses get the same words")
         // and a second web op is answered Refused with the same words
         val second = pc.program.act(op(FilesCore.TRASH, listOf(b), k = 2), web)
         assertTrue(second is ProgramResult.Refused && second.reason.startsWith("busy — one operation at a time"), "$second")
