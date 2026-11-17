@@ -5,7 +5,6 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.time.ZoneId
 import java.time.ZonedDateTime
-import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -80,8 +79,7 @@ class NoticeCoreTest {
         return Op(device, OpId.Queued("s-$device", n), Notices.WINDOW, d.action, d.targets, d.result, at = now)
     }
 
-    private fun core(h: AppHost, quiet: String = "off", notes: MutableList<String> = ArrayList()) =
-        NoticeCore(h, { quiet }, { now }, { zone }, { notes += it })
+    private fun core(h: AppHost, quiet: String = "off") = NoticeCore(h, { quiet }, { now }, { zone })
 
     @Test
     fun aRaiseWritesItsOccurrenceAsTextAndADismissOfItLands() {
@@ -119,9 +117,6 @@ class NoticeCoreTest {
         val late = ask(h, op("web-1", Notices.readDraft(seen)))
         assertIs<Answer.Seen>(late, "a read after a dismiss of the same occurrence is taken and changes nothing")
         assertEquals(Notices.DISMISSED, record(h, "torrent:abc2").state, "a notice's state never moves backwards")
-        // an ack after a dismiss is not backwards (an ackRequired record's ack ends it, C§7.2)
-        assertIs<Answer.Seen>(ask(h, op("phone", Notices.ackDraft(seen))))
-        assertEquals(Notices.ACKED, record(h, "torrent:abc2").state)
     }
 
     @Test
@@ -146,7 +141,7 @@ class NoticeCoreTest {
     }
 
     @Test
-    fun raiseAndClearAreThePcsOwn() {
+    fun aRaiseIsThePcsOwn() {
         val h = host()
         val v = JsonObject(mapOf("occ" to JsonPrimitive("9"), "state" to JsonPrimitive(Notices.RAISED)))
         val a = ask(h, Op("phone", OpId.Queued("s-phone", 1), Notices.WINDOW, Notices.RAISE, listOf("x:y"), v, at = now))
@@ -186,16 +181,13 @@ class NoticeCoreTest {
     }
 
     @Test
-    fun aRaiseTheLogDidNotTakeIsSentAgainAtTheTickAndSaidAtTheEnd() {
+    fun aRaiseTheLogDidNotTakeIsSentAgainAtTheTick() {
         val h = host()
-        val notes = CopyOnWriteArrayList<String>()
-        val c = core(h, notes = notes)
+        val c = core(h)
         syncFails = true
         c.raise("torrent", "abc8", "done · kept", "torrents", "t:abc8", "Torrents")
         drain(h)
         assertNull(value(h, "torrent:abc8"), "the log did not take it")
-        c.atEnd()
-        assertTrue(notes.any { "not announced" in it && "torrent:abc8" in it }, "a raise still kept is said at the end: $notes")
         h.executor.call { c.tick() }                              // still failing: kept again, never dropped
         drain(h)
         assertNull(value(h, "torrent:abc8"))
@@ -203,9 +195,6 @@ class NoticeCoreTest {
         h.executor.call { c.tick() }
         drain(h)
         assertEquals("done · kept", record(h, "torrent:abc8").body, "sent again at the record's tick")
-        notes.clear()
-        c.atEnd()
-        assertTrue(notes.isEmpty(), "nothing kept once it landed: $notes")
     }
 
     @Test

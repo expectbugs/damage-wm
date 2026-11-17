@@ -6554,14 +6554,13 @@ class Shell(
 
     private fun restoreNotices(shellState: JsonObject?) {
         val arr = shellState?.get("notices") as? JsonArray ?: return
-        val restored = ArrayList<Notifications.Notice>()
         for (e in arr) {
             try {
                 val o = e.jsonObject
                 if (o["read"]?.jsonPrimitive?.booleanOrNull == true) continue
                 val recordId = o["recordId"]?.jsonPrimitive?.contentOrNull
                 val recordOcc = o["recordOcc"]?.jsonPrimitive?.contentOrNull
-                restored += Notifications.Notice(
+                notifications.enqueueRestored(Notifications.Notice(
                     source = o["source"]?.jsonPrimitive?.contentOrNull ?: continue,
                     thread = o["thread"]?.jsonPrimitive?.contentOrNull ?: "",
                     body = o["body"]?.jsonPrimitive?.contentOrNull ?: "",
@@ -6571,22 +6570,11 @@ class Shell(
                     target = o["target"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotEmpty() },
                     gatedBy = o["gatedBy"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotEmpty() },
                     record = if (recordId != null && recordOcc != null) wm.damage.core.app.NoticeRef(recordId, recordOcc) else null,
-                )
+                ))
             } catch (ex: Exception) {
                 Log.w("shell", "unreadable persisted notice skipped: ${ex.message}")
             }
         }
-        // S1-2 Q3 (§5 N5): a record notice dismissed, acknowledged or cleared elsewhere meanwhile does not show again
-        val refs = restored.mapNotNull { it.record }
-        val live = noticeInput?.takeIf { refs.isNotEmpty() }?.let { input ->
-            try {
-                input.restored(refs)
-            } catch (e: Exception) {
-                Log.e("shell", "the notice record could not be asked about ${refs.size} restored notice(s): shown as saved", e)
-                refs.toSet()
-            }
-        }
-        for (n in restored) if (n.record == null || live == null || n.record in live) notifications.enqueueRestored(n)
     }
 
     companion object {

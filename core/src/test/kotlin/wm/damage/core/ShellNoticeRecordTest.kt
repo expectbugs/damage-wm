@@ -7,7 +7,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -48,19 +47,17 @@ import wm.damage.core.wire.EvenHubMsg
  * Build S1-2, package Q3 (the spec's §2.1, §5 N4–N5): the glasses' side of the notice record. A record notice is the box
  * the app's own raise showed (one box when both come in the switch-over minute); reading effects go out from input only
  * — a double-tap dismisses, the tap-through reads, an activation from input reads, and Silent Mode's drop and a RESTORE
- * send nothing; a move elsewhere takes the box away; a restored notice the record no longer holds is not shown again.
+ * send nothing; a move elsewhere takes the box away.
  * The last test runs the whole path on a record of its own. Made-up notices; a shell on the simulator.
  */
 class ShellNoticeRecordTest {
 
     /** The shell's reading effects, as the mirror would get them. */
-    private class Input(val live: (List<NoticeRef>) -> Set<NoticeRef> = { it.toSet() }) : NoticeInput {
+    private class Input : NoticeInput {
         val reads = CopyOnWriteArrayList<NoticeRef>()
         val dismissed = CopyOnWriteArrayList<NoticeRef>()
-        val asked = CopyOnWriteArrayList<NoticeRef>()
         override fun read(ref: NoticeRef) { reads += ref }
         override fun dismiss(ref: NoticeRef) { dismissed += ref }
-        override fun restored(refs: List<NoticeRef>): Set<NoticeRef> { asked += refs; return live(refs) }
         override fun minute() {}
         val sent: Int get() = reads.size + dismissed.size
     }
@@ -195,18 +192,10 @@ class ShellNoticeRecordTest {
         val input = r.input as Input
         assertEquals("torrents", r.shell.currentWindowId(), "the window came back")
         assertEquals(ActivationSource.RESTORE, r.probe.seen.first())
-        assertEquals(listOf(NoticeRef("torrent:h7", "7")), input.asked, "the restore asked the record about its notice")
         assertEquals(emptyList(), input.reads, "a RESTORE is no input: nothing read")
         val all = listOfNotNull(r.shell.notifications.current) + r.shell.notifications.queued()
         assertEquals(listOf(NoticeRef("torrent:h7", "7")), all.map { it.record }, "the restored notice is still there")
     }
-
-    @Test
-    fun aRestoredNoticeTheRecordNoLongerHoldsIsNotShownAgain() =
-        test("gone", Input(live = { emptySet() }), prepare = { s -> s.put("shell.state", savedState("h8")) }) { r ->
-            assertNull(r.shell.notifications.current, "dismissed elsewhere meanwhile: not shown again")
-            assertEquals(0, r.shell.notifications.queueDepth)
-        }
 
     @Test
     fun aMoveElsewhereTakesTheBoxAway() = test("withdraw", Input()) { r ->

@@ -8,7 +8,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -196,31 +195,19 @@ class NoticeMirrorTest {
         assertEquals("1", (d.result as JsonObject)["occ"]!!.jsonPrimitive.content, "the occurrence it acts on, in its value")
     }
 
+    /** Pin (L1 A-M1): the PC's mirror (its cursor in memory) follows the top while no stack runs, so a stack started
+     *  later pops nothing raised before it; the phone's (its cursor on disk) waits for its shell. */
     @Test
-    fun restoredNoticesAreKeptOnlyWhileTheRecordHoldsThemRaised() {
+    fun withNoShellThePcsCursorFollowsTheTop() {
         val b = backend()
-        b.items = rec("torrent:a" to value(1), "torrent:b" to value(2, Notices.DISMISSED), "torrent:c" to value(4))
+        b.items = rec("torrent:a" to value(1))
         val m = NoticeMirror(b)
         settle(b)
-        val kept = m.restored(listOf(NoticeRef("torrent:a", "1"), NoticeRef("torrent:b", "2"), NoticeRef("torrent:c", "3")))
-        assertEquals(setOf(NoticeRef("torrent:a", "1")), kept, "dismissed meanwhile, or a newer occurrence: not shown again")
-        val s = Sink()
-        m.attach(s)
-        b.move { items = items + rec("torrent:a" to value(1, Notices.DISMISSED)) }
-        assertEquals(listOf("torrent:a@1"), s.withdrawn, "a kept one is handed on: a later dismiss elsewhere takes it away")
-    }
-
-    @Test
-    fun aValueWithNoOccurrenceAsTextIsSaidAndNotShown() {
-        val b = backend()
-        val said = CopyOnWriteArrayList<String>()
-        val m = NoticeMirror(b, say = { said += it })
+        b.move { items = items + rec("torrent:b" to value(2)) }
+        assertEquals(NoticeMirror.Cursor(7, 2), m.cursor)
         val s = Sink()
         m.attach(s)
         settle(b)
-        val numeric = JsonObject(value(1) + ("occ" to JsonPrimitive(1)))
-        b.move { items = rec("torrent:n" to numeric) }
-        assertEquals(emptyList(), s.popped)
-        assertTrue(said.any { "torrent:n" in it && "occurrence" in it }, "said, never dropped unsaid: $said")
+        assertEquals(emptyList(), s.popped, "raised while no stack ran: not popped at the attach")
     }
 }

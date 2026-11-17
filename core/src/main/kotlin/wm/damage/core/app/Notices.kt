@@ -3,7 +3,6 @@ package wm.damage.core.app
 import java.nio.file.Path
 import java.time.Instant
 import java.time.ZoneId
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -20,8 +19,7 @@ import wm.damage.core.util.Log
  * Context for the reader: Damage is Adam's own window manager for his own glasses, phone and PC on his own network.
  * Build S1-2, package Q3 (the spec's §2.1, §5 rows N1–N3; `CONTRACT.md` §7; decisions A.1, A.2; S1-2 R0 §2): the PC's
  * notice record. Every notice is an item of the pseudo-window `notices` in the PC record, `rec.notices.<source>:<thread>`,
- * its value {occ, raisedAt, app, source, body, urgency, ackRequired, gatedBy, target, actions, state, origin, mayRepeat,
- * heldUntil?}. `occ` is both the occurrence and the unit of each interface's notice cursor, and it is written as TEXT:
+ * its value {occ, raisedAt, app, source, body, urgency, gatedBy, target, state, heldUntil?}. `occ` is both the occurrence and the unit of each interface's notice cursor, and it is written as TEXT:
  * [Notices.RULE] reads an occurrence only as text, so a number would make every read and dismiss change nothing,
  * unsaid (R0 §2). A core raises on the PC only
  * ([NoticeCore]); reads and dismisses come from input on any interface; a state never moves backwards ([Notices.RULE]).
@@ -68,52 +66,47 @@ object Notices : WindowCore {
     const val RAISE = "raise"
     const val MARK_READ = "read"
     const val DISMISS = "dismiss"
-    const val ACK = "ack"
-    const val CLEAR = "clear"
 
     // the states, upper case as C§7.1 writes them
     const val RAISED = "RAISED"
     const val READ = "READ"
     const val DISMISSED = "DISMISSED"
-    const val ACKED = "ACKED"
-    const val CLEARED = "CLEARED"
 
     const val NORMAL = "NORMAL"
     const val URGENT = "URGENT"
 
-    /** The PC raises (and clears) as this device, in this stream; no other device may (refused at apply time). */
+    /** The PC raises as this device, in this stream; no other device may (refused at apply time). */
     const val PC = "pc"
     const val STREAM = "notices"
 
     /** The state each action writes. */
-    val STATE_OF: Map<String, String> = mapOf(RAISE to RAISED, MARK_READ to READ, DISMISS to DISMISSED, ACK to ACKED,
-        CLEAR to CLEARED)
+    val STATE_OF: Map<String, String> = mapOf(RAISE to RAISED, MARK_READ to READ, DISMISS to DISMISSED)
 
     /** A state's place in a notice's life: an op whose state ranks below the standing one of the same occurrence
      *  would move it backwards (R0 §2) and changes nothing. */
-    private val RANK = mapOf(RAISED to 0, READ to 1, DISMISSED to 2, ACKED to 3, CLEARED to 4)
+    private val RANK = mapOf(RAISED to 0, READ to 1, DISMISSED to 2)
 
-    /** Every action is a register (C§2.4), ordered by [RULE]: a new raise supersedes the shown occurrence; `read`,
-     *  `dismiss` and `ack` act on the occurrence their value carries. */
+    /** Every action is a register (C§2.4), ordered by [RULE]: a new raise supersedes the shown occurrence; `read` and
+     *  `dismiss` act on the occurrence their value carries. */
     val ACTIONS = ActionTable { w, a -> if (w == WINDOW && a in STATE_OF) ActionSpec(Kind.REGISTER) else null }
 
-    /** The level [action] needs (C§4.2): reading effects are view; `raise` and `clear` full, and the PC's own. */
+    /** The level [action] needs (C§4.2): reading effects are view; `raise` full, and the PC's own. */
     fun levelOf(action: String): String? = when (action) {
-        MARK_READ, DISMISS, ACK -> Levels.VIEW
-        RAISE, CLEAR -> Levels.FULL
+        MARK_READ, DISMISS -> Levels.VIEW
+        RAISE -> Levels.FULL
         else -> null
     }
 
     /** The record's apply-time rule for this window (`AppHost`, in the merge rule's place: a notice is ordered by its
-     *  occurrence, not by device clocks): raise and clear only from [PC], always written; every op carries its whole
-     *  value (its occurrence as text, its action's state); a reading effect is written only on the occurrence it
-     *  carries and never moves a state backwards — a `read` after a dismiss, an ack or a clear of the same occurrence,
-     *  or a dismiss of an occurrence a newer raise replaced, changes nothing (never said). */
+     *  occurrence, not by device clocks): a raise only from [PC], always written; every op carries its whole value (its
+     *  occurrence as text, its action's state); a reading effect is written only on the occurrence it carries and
+     *  never moves a state backwards — a `read` after a dismiss of the same occurrence, or a dismiss of an occurrence a
+     *  newer raise replaced, changes nothing (never said). */
     val RULE = ApplyRule { rec, op -> admit(rec, op) }
 
     private fun admit(rec: RecordView, op: Op): Admit? {
         val want = STATE_OF[op.action] ?: return null
-        val own = op.action == RAISE || op.action == CLEAR
+        val own = op.action == RAISE
         if (own && op.device != PC)
             return Admit.Refuse(Answer.Refused("a notice's ${op.action} is the PC's own, not device ${op.device}'s", Answer.LEVEL))
         val r = op.result as? JsonObject
@@ -129,22 +122,17 @@ object Notices : WindowCore {
         return Admit.Apply
     }
 
-    /** [state]'s notices by id: every value that reads as one. A value that does not (no occurrence as text) is said
-     *  once per (id, value) by [say] and left out. */
-    fun records(state: WindowState, say: ((String) -> Unit)? = null): Map<String, NoticeRecord> {
+    /** [state]'s notices by id: every value that reads as one (only [NoticeCore] writes them, its occurrence as text). */
+    fun records(state: WindowState): Map<String, NoticeRecord> {
         val out = HashMap<String, NoticeRecord>()
         val p = Record.prefix(WINDOW)
         for ((k, item) in state.items) {
             if (item.gone || !k.startsWith(p)) continue
             val id = k.removePrefix(p)
-            val r = parse(id, item.value)
-            if (r != null) out[id] = r
-            else if (say != null && unreadable.add(k to item.value.hashCode())) say("notice $id has no occurrence as text: not shown")
+            parse(id, item.value)?.let { out[id] = it }
         }
         return out
     }
-
-    private val unreadable = java.util.Collections.synchronizedSet(HashSet<Pair<String, Int>>())
 
     /** One value as a [NoticeRecord], or null when it carries no occurrence as text. */
     fun parse(id: String, v: kotlinx.serialization.json.JsonElement): NoticeRecord? {
@@ -156,7 +144,7 @@ object Notices : WindowCore {
             text(o, "target"), text(o, "state") ?: RAISED, num(o, "heldUntil"), o)
     }
 
-    /** A reading effect on [r] (`read`, `dismiss` or `ack`): its whole value, its occurrence included, with the
+    /** A reading effect on [r] (`read` or `dismiss`): its whole value, its occurrence included, with the
      *  action's state (C§2.4: the result, never a recipe). */
     fun draft(r: NoticeRecord, action: String): Draft {
         val state = STATE_OF[action] ?: throw IllegalArgumentException("no notice action $action")
@@ -165,7 +153,6 @@ object Notices : WindowCore {
 
     fun readDraft(r: NoticeRecord) = draft(r, MARK_READ)
     fun dismissDraft(r: NoticeRecord) = draft(r, DISMISS)
-    fun ackDraft(r: NoticeRecord) = draft(r, ACK)
 
     // ---- the description (C§3.1): the live table ----
 
@@ -229,8 +216,6 @@ class NoticeCore(
     private val kept = LinkedHashMap<String, Raise>()
     /** The largest occurrence this core minted: a raise not yet applied still holds its number. */
     private var lastOcc = 0L
-    /** The kept raises in words, for the process's end (read off the executor). */
-    @Volatile private var keptLines: List<String> = emptyList()
 
     private val listener = object : SourceListener {
         override fun answered(op: Op, answer: Answer) = answeredNow(op, answer)
@@ -265,16 +250,6 @@ class NoticeCore(
         val again = kept.values.toList()
         kept.clear()
         for (r in again) submit(r)
-        sayKept()
-    }
-
-    /** §5 N1, decisions A.13: at the process's end, a raise still waiting to be taken is said, never lost unsaid. */
-    fun atEnd() {
-        for (l in keptLines) {
-            val line = "not announced (the record had not taken it when the process stopped): $l"
-            Log.e(TAG, line)
-            note(line)
-        }
     }
 
     /** True unless [key]'s item is a boolean false (absent, removed or not a boolean = on: the rows' default). */
@@ -298,13 +273,9 @@ class NoticeCore(
             put("source", r.source)
             put("body", r.body)
             put("urgency", r.urgency)
-            put("ackRequired", false)
             put("gatedBy", r.gatedBy)
             put("target", r.target?.let { JsonPrimitive(it) } ?: JsonNull)
-            put("actions", JsonArray(emptyList()))
             put("state", Notices.RAISED)
-            put("origin", Notices.PC)
-            put("mayRepeat", false)
             if (held != null) put("heldUntil", held)
         }
         inFlight[occ] = r
@@ -321,7 +292,6 @@ class NoticeCore(
                 if (inFlight.values.any { it.id == r.id } || r.id in kept) return
                 if (kept.isEmpty()) Log.w(TAG, "the record did not take ${r.id} (${a.reason}): sent again at its pacing tick")
                 kept[r.id] = r
-                sayKept()
             }
             a is Answer.Refused -> {
                 val line = "${r.id} was not raised: ${a.reason}"
@@ -330,10 +300,6 @@ class NoticeCore(
             }
             else -> {}
         }
-    }
-
-    private fun sayKept() {
-        keptLines = kept.values.map { "${it.id} \"${it.body}\" raised ${it.raisedAt}" }
     }
 
     companion object {
@@ -345,13 +311,12 @@ class NoticeCore(
 
         /**
          * At a PROCESS START, in the PC's two host builders only (`runShell`, `hostOnly`; `tools/check_apk_wiring.py`
-         * holds the list): the raiser over [host], sent again on the record's pacing tick, and said at the process's
-         * end. [journal]: the shell journal (null in host-only, where the log alone hears it).
+         * holds the list): the raiser over [host], its kept raises sent again on the record's pacing tick. [journal]:
+         * the shell journal (null in host-only, where the log alone hears it).
          */
         fun atProcessStart(host: AppHost, quietHours: () -> String, journal: Path?): NoticeCore {
             val core = NoticeCore(host, quietHours, note = { line -> journal?.let { Journal.appendNote(it, "notices", line) } })
             host.addTickListener(core::tick)
-            Runtime.getRuntime().addShutdownHook(Thread({ core.atEnd() }, "damage-notices-end"))
             return core
         }
     }
