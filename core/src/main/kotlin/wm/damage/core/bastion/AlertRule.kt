@@ -49,12 +49,23 @@ enum class Severity(val wire: String) {
 enum class RuleKind(val wire: String) {
     ABOVE("above"), BELOW("below"), EQUALS("equals"), NOT_EQUALS("notEquals"),
     UNAVAILABLE("unavailable"),
-    /** The numeric reading differs from a baseline by `at` or more either way (in the entity's own units), held
-     *  `forMin` (dec. F.2). The baseline is the value at arming, re-taken on acknowledge and kept in `alerts.json`. */
+    /** The numeric reading differs from a baseline by `at` or more in the rule's [Direction] (in the entity's own
+     *  units), held `forMin` (dec. F.2). The baseline is the value at arming, re-taken on acknowledge and kept in
+     *  `alerts.json`. */
     CHANGE("change");
 
     companion object {
         fun of(wire: String): RuleKind? = entries.firstOrNull { it.wire == wire }
+    }
+}
+
+/** The `change` kind's direction (dec. F.2): any (default), up only, down only (a sump that falls is its pump
+ *  working, so its rule counts only a rise). */
+enum class Direction(val wire: String) {
+    ANY("any"), UP("up"), DOWN("down");
+
+    companion object {
+        fun of(wire: String): Direction? = entries.firstOrNull { it.wire == wire }
     }
 }
 
@@ -97,6 +108,8 @@ data class AlertRule(
     val severity: Severity = Severity.NORMAL,
     /** The rule's `when` (dec. F.1); null = always judged. */
     val guard: Guard? = null,
+    /** CHANGE: which way counts. */
+    val direction: Direction = Direction.ANY,
 ) {
     val forMs: Long get() = forMin * 60_000L
 
@@ -153,7 +166,7 @@ object RulesFile {
         RuleKind.EQUALS to COMMON + "value",
         RuleKind.NOT_EQUALS to COMMON + "value",
         RuleKind.UNAVAILABLE to COMMON,
-        RuleKind.CHANGE to COMMON + "at",
+        RuleKind.CHANGE to COMMON + setOf("at", "direction"),
     )
 
     /** Reads [path]. A missing file is no rules ([RulesLoad.missing]); an unreadable one is a [RulesLoad.fileProblem]. */
@@ -242,6 +255,7 @@ object RulesFile {
         var at: Double? = null
         var clearAt: Double? = null
         var value: String? = null
+        var direction = Direction.ANY
         when (kind) {
             RuleKind.ABOVE, RuleKind.BELOW -> {
                 at = number(o, "at") ?: return "at missing or not a number"
@@ -259,9 +273,14 @@ object RulesFile {
             RuleKind.CHANGE -> {
                 at = number(o, "at") ?: return "at missing or not a number"
                 if (at <= 0.0) return "change needs at above 0 (the size of the change, in the entity's own units)"
+                direction = when (val d = o["direction"]) {
+                    null -> Direction.ANY
+                    else -> (d as? JsonPrimitive)?.takeIf { it.isString }?.content?.let { Direction.of(it) }
+                        ?: return "direction is not ${Direction.entries.joinToString(", ") { "\"${it.wire}\"" }}"
+                }
             }
         }
-        return AlertRule(id, entity, kind, at, clearAt, value, forMin, words, repeatMin, severity, guard)
+        return AlertRule(id, entity, kind, at, clearAt, value, forMin, words, repeatMin, severity, guard, direction)
     }
 
     /** A `when` object: the guard, or why it is refused (a String). */

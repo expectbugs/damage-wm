@@ -17,8 +17,8 @@ package wm.damage.core.bastion
  * - A numeric rule's non-numeric state, or no answer this tick ([Reading.None]), is NO READING: the
  *   decision holds and nothing is reset ([EvalState.noReadingSince]: the watcher's state line says
  *   "no usable reading since HH:MM" once it is older than `haSilentMin`).
- * - CHANGE (package E, dec. F.2) raises when the value differs from a baseline by `at` or more either
- *   way, held `forMin`, and clears when it no longer does (no band: the rule has no `clearAt`). The
+ * - CHANGE (package E, dec. F.2) raises when the value differs from a baseline by `at` or more in the
+ *   rule's direction, held `forMin`, and clears when it no longer does (no band: the rule has no `clearAt`). The
  *   baseline is the first usable reading with none held (at arming: the guard turning true, or the
  *   first reading of a rule that has none), and it is re-taken at the first reading after the alert
  *   is acknowledged — so the alert clears, and the next change raises a new episode.
@@ -139,11 +139,17 @@ object RuleEval {
     /** A usable number from a state, or null (no reading). */
     fun number(state: String): Double? = state.toDoubleOrNull()?.takeIf { it.isFinite() }
 
-    /** Whether [value] differs from [base] by the rule's `at` or more either way. A difference within a
+    /** Whether [value] differs from [base] by the rule's `at` or more in its direction. A difference within a
      *  billionth of `at` counts as reaching it (decimal readings do not subtract exactly in binary). */
     fun changed(rule: AlertRule, base: Double, value: Double): Boolean {
+        val d = value - base
+        val size = when (rule.direction) {
+            Direction.ANY -> kotlin.math.abs(d)
+            Direction.UP -> d
+            Direction.DOWN -> -d
+        }
         val at = rule.at!!
-        return kotlin.math.abs(value - base) >= at - at * 1e-9
+        return size >= at - at * 1e-9
     }
 
     private fun change(rule: AlertRule, prior: EvalState, reading: Reading, now: Long, ackedAt: Long): Pair<EvalState, Decision> {
