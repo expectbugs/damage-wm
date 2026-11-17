@@ -15,10 +15,13 @@ import wm.damage.core.replica.HttpRequest
  *     in his browser could otherwise open a WebSocket here (CORS does not cover WebSockets).
  *  3. The device secret, from the `damage` cookie ([cookie]); the device table answers who it is and at what level,
  *     read ONCE per request ([Devices.authenticate]).
+ * L1 A1: a pairing request from the PC's own browser ([ownBrowser]) is approved at once at level full.
  */
 class Access(
     /** The names `Host` may carry, lower-cased, without a port. */
     hosts: Collection<String>,
+    /** L1 A1: the PC's own browser needs no approval (the service's listener; the test rigs leave it off). */
+    private val ownBrowserFull: Boolean = false,
 ) {
     private val names: Set<String> = hosts.map { it.trim().lowercase().removePrefix("[").removeSuffix("]") }.filter { it.isNotEmpty() }.toSet()
 
@@ -33,7 +36,19 @@ class Access(
         return null
     }
 
+    /** L1 A1: [req] is the PC's own browser — it arrived on the loopback interface ([local]), its `Host` is a loopback
+     *  name and its `Origin` this listener's own loopback origin (a foreign page cannot present it; a local process
+     *  is him). */
+    fun ownBrowser(req: HttpRequest, local: InetAddress?, port: Int): Boolean {
+        if (!ownBrowserFull || local?.isLoopbackAddress != true) return false
+        val name = req.headers["host"]?.let { split(it) }?.first ?: return false
+        val origin = req.headers["origin"] ?: return false
+        return name in LOOPBACK_NAMES && LOOPBACK_NAMES.any { origin.equals("http://${if (':' in it) "[$it]" else it}:$port", true) }
+    }
+
     companion object {
+        /** L1 A1: the name and the approver the PC's own browser is recorded under. */
+        const val OWN_BROWSER = "this PC's browser"
         /** The cookie that carries the device secret (C§10.3). */
         const val COOKIE = "damage"
         /** Chromium's cap is 400 days; the cookie is re-set on each visit (C§10.3). */

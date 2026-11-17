@@ -247,6 +247,41 @@ class PairingTest {
         }
     }
 
+    /** L1 A1: a page of the PC's own browser (loopback, a loopback `Host`, the listener's own origin) is approved at
+     *  once at level full: its code, then its claim; its row is "this PC's browser", approved by that rule. */
+    @Test
+    fun thePcsOwnBrowserIsApprovedAtOnceAtFull() = WebRig(ownBrowser = true).use { r ->
+        Page(r.port).use { p ->
+            p.hello(name = "browser on Linux")
+            p.next("pending")
+            val got = redeem(r, claimOf(p))
+            assertEquals(200, got.code, got.text)
+            val row = r.devices.rows().single()
+            assertEquals(Levels.FULL, row.level)
+            assertEquals(Access.OWN_BROWSER, row.name)
+            assertEquals(Access.OWN_BROWSER, row.approvedBy)
+        }
+    }
+
+    /** L1 A1's three conditions, each alone: a request from another interface, one with a non-loopback `Host`, and one
+     *  whose `Origin` is not this listener's own (another port of this PC, or none) is not the PC's own browser. */
+    @Test
+    fun onlyThePcsOwnBrowserIsApprovedByItself() {
+        val a = Access(listOf("localhost", "127.0.0.1", "desk.test"), ownBrowserFull = true)
+        val lo = java.net.InetAddress.getLoopbackAddress()
+        fun req(host: String, origin: String?) =
+            wm.damage.core.replica.HttpRequest("GET", "/ws", listOfNotNull("host" to host, origin?.let { "origin" to it }).toMap())
+        assertTrue(a.ownBrowser(req("127.0.0.1:7405", "http://127.0.0.1:7405"), lo, 7405))
+        assertTrue(a.ownBrowser(req("localhost:7405", "http://localhost:7405"), lo, 7405))
+        assertTrue(a.ownBrowser(req("[::1]:7405", "http://[::1]:7405"), lo, 7405))
+        val lan = java.net.InetAddress.getByName("192.0.2.10")              // a documentation address
+        assertFalse(a.ownBrowser(req("127.0.0.1:7405", "http://127.0.0.1:7405"), lan, 7405), "another interface")
+        assertFalse(a.ownBrowser(req("desk.test:7405", "http://127.0.0.1:7405"), lo, 7405), "a Host not loopback")
+        assertFalse(a.ownBrowser(req("127.0.0.1:7405", "http://127.0.0.1:8080"), lo, 7405), "another port's page")
+        assertFalse(a.ownBrowser(req("127.0.0.1:7405", "http://desk.test:7405"), lo, 7405), "another origin")
+        assertFalse(a.ownBrowser(req("127.0.0.1:7405", null), lo, 7405), "no Origin")
+    }
+
     /** L1 AC16: a device table that cannot be read at a start is set aside whole under a dated name, said, and the
      *  table starts empty and carries on: the next approval is written (no state that only a restart clears). */
     @Test

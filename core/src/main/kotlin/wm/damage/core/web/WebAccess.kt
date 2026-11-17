@@ -24,8 +24,8 @@ class WebAccess private constructor(val dir: Path, val devices: Devices) {
     fun server(port: Int, reach: ReachGate, hosts: Collection<String>, app: AppNet, blobs: BlobSource,
                tailnetName: (InetAddress) -> String?, fonts: FontSource = FontSource { null },
                uploads: Uploads? = null): WebServer =
-        WebServer(port, reach, Access(hosts + Access.LOOPBACK_NAMES), devices, app, Bundle.fromResources(), blobs, tailnetName,
-            fonts, uploads = uploads)
+        WebServer(port, reach, Access(hosts + Access.LOOPBACK_NAMES, ownBrowserFull = true), devices, app,
+            Bundle.fromResources(), blobs, tailnetName, fonts, uploads = uploads)
 
     companion object {
         /** At a process start: the local secret written when missing, the device table read. [say] takes each line

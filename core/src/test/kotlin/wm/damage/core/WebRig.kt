@@ -47,6 +47,8 @@ internal class WebRig(
     pingEveryMs: Long = wm.damage.core.app.Viewers.PING_EVERY_MS,
     /** S1-2 Q2: the upload route's state; null = none. */
     val uploads: wm.damage.core.web.Uploads? = null,
+    /** L1 A1: the PC's own browser approved by itself, as the service's listener does (off: every page waits). */
+    ownBrowser: Boolean = false,
 ) : AutoCloseable {
     val dir: Path = Files.createTempDirectory("damage-web")
     val devices = Devices(dir.resolve(Devices.FILE), clock = { rec.now }).load()
@@ -55,7 +57,7 @@ internal class WebRig(
         minLevel = { if (it == "t") Levels.VIEW else Levels.FULL }, devices = core,
         isProgram = { w, a -> w == "t" && a in program }, pingEveryMs = pingEveryMs)
     val bundle = Bundle(mapOf("index.html" to "<!doctype html><p>fixture</p>".toByteArray(), "app.js" to "export {}".toByteArray()))
-    val server = WebServer(0, reach, Access(hosts), devices, net, bundle, blobs,
+    val server = WebServer(0, reach, Access(hosts, ownBrowser), devices, net, bundle, blobs,
         bindAddress = InetAddress.getLoopbackAddress(), clock = { rec.now }, uploads = uploads).also { it.start() }
     val port: Int get() = server.boundPort
     val origin: String get() = "http://127.0.0.1:$port"

@@ -307,12 +307,13 @@ class WebServer(
         if (peer != null) {
             app.serve(sock, ws, hello.toString(), peer, bundle.info())
         } else {
-            pair(sock, ws, hello)
+            pair(sock, ws, hello, access.ownBrowser(req, sock.localAddress, boundPort))
         }
     }
 
-    /** The pairing socket (dec. A.5): the waiting page's row lives exactly as long as this socket. */
-    private fun pair(sock: Socket, ws: WsIo, hello: JsonObject) {
+    /** The pairing socket (dec. A.5): the waiting page's row lives exactly as long as this socket. [own] (L1 A1): the
+     *  PC's own browser, approved at once at full; its claim follows its code. */
+    private fun pair(sock: Socket, ws: WsIo, hello: JsonObject, own: Boolean) {
         val addr = sock.inetAddress
         val outbox = Outbox("pair-${addr?.hostAddress}", PAIR_OUTBOX, write = { ws.write(it) }, close = { close(sock) })
         val waiting = object : Devices.Waiting {
@@ -322,9 +323,10 @@ class WebServer(
         outbox.start()
         fun s(k: String) = (hello[k] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
         val p = devices.request(addr?.hostAddress ?: "an unknown address", addr?.let { tailnetName(it) },
-            s("name") ?: "a browser", "browser", s("replaces"), waiting)
+            if (own) Access.OWN_BROWSER else s("name") ?: "a browser", "browser", s("replaces"), waiting)
         try {
             outbox.offer(AppWire.encode(AppWire.pending(p.code)))
+            if (own) devices.approve(p.code, Levels.FULL, Access.OWN_BROWSER)?.let { Log.w(TAG, "${Access.OWN_BROWSER} not approved: $it") }
             val unknown = HashSet<String>()
             while (true) {
                 val f = ws.read()
