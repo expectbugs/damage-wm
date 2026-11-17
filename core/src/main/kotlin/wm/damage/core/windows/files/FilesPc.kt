@@ -142,7 +142,7 @@ class FilesProgram(private val files: SlottedFiles, private val uploads: Uploads
             else -> ProgramResult.Refused("Files has no program op '${op.action}'")
         }
     } catch (e: FilesJobs.Busy) {
-        ProgramResult.Refused(files.jobs.busyLine(e.holder))
+        ProgramResult.Refused(e.message!!)                 // the busy line, built under the slot's lock
     } catch (e: IllegalArgumentException) {
         ProgramResult.Refused(e.message ?: "the op's targets or parameters are not Files'")
     }
