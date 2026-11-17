@@ -109,4 +109,27 @@ class FilesMoveTest {
         assertFalse(Files.exists(l, LinkOption.NOFOLLOW_LINKS))
         assertEquals(emptyList(), temps(dest))
     }
+
+    /** Pin (B3): a folder that appears at a copy's destination while the copy counts its source is neither written nor
+     *  deleted: the copy makes its destination itself and refuses a name that exists. */
+    @Test
+    fun aFolderThatAppearsDuringTheCountIsNeverDeleted() {
+        tree.file("src/a.txt", "theirs")
+        tree.file("src/z.txt")
+        val src = tree.home.resolve("src").toString()
+        val into = tree.dir("into")
+        val his = Path.of(into).resolve("src")
+        var made = false
+        assertFailsWith<FileAlreadyExistsException> {
+            tree.local.copy(src, into, FilesProgress { _, _, phase ->
+                if (phase == "counting" && !made) {                   // made by someone else meanwhile
+                    made = true
+                    Files.createDirectories(his)
+                    Files.writeString(his.resolve("a.txt"), "his")
+                }
+            })
+        }
+        assertEquals("his", Files.readString(his.resolve("a.txt")), "his folder and his file are untouched")
+        assertEquals(listOf("a.txt"), Files.list(his).use { s -> s.map { it.fileName.toString() }.toList() })
+    }
 }

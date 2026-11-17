@@ -385,6 +385,7 @@ class LocalFilesProvider(
         require(!dest.toAbsolutePath().startsWith(s.toAbsolutePath())) { "cannot copy a folder into itself" }
         if (Files.isDirectory(s, LinkOption.NOFOLLOW_LINKS)) {
             val total = treeBytes(s, progress)
+            Files.createDirectory(dest)               // L1 R1 B3: made here, so the cleanup below deletes only what this copy made
             try {
                 copyTree(s, dest, total, progress)
             } catch (e: IOException) {
