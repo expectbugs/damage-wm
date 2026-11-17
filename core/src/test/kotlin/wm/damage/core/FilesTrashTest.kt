@@ -120,7 +120,7 @@ class FilesTrashTest {
         val up = FilesProgram(SlottedFiles(tree.files, jobs), Uploads(null)).act(Op("web-l1", OpId.Conn(7, 1), FilesCore.WINDOW,
             FilesCore.UPLOAD, listOf(slot), params = buildJsonObject {
                 put("file", buildJsonObject { put("name", "in.bin"); put("size", 1) })
-            }), Peer("web-l1", Levels.FULL))
+            }, at = 1), Peer("web-l1", Levels.FULL))
         assertTrue(up is ProgramResult.Refused && "inside the trash's own folder" in up.reason, "an upload: $up")
         assertNull(jobs.current(), "refused before the slot was taken")
         assertTrue(Files.exists(Path.of(c)) && Files.exists(Path.of(payload)) && Files.exists(manifest))
