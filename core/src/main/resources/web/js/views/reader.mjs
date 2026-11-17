@@ -127,7 +127,7 @@ export function readerView(ctx) {
   function openBook(id, anchor, input) {
     // `offset`: the place this view last sent, took or followed; `inputAt`: its last input, on the PC's clock
     B = { id, level: null, anchor, offset: null, inputAt: 0, part: null, doc: null, partScope: null,
-      want: null, input: false, saveTimer: null, started: false, side: false, els: {}, byInput: !!input };
+      want: null, input: false, touch: false, saveTimer: null, started: false, side: false, els: {}, byInput: !!input };
     ctx.sub(`reader/book:${id}`);
     // opening by input is a reading effect: the book read most recently (the latest input); ruling 2.3:
     // never on a page load, a reload or a restored tab
@@ -157,18 +157,22 @@ export function readerView(ctx) {
     els.side = h('nav', { class: 'chapters', 'aria-label': 'Chapters' });
     els.text = h('article', { class: 'text' }, h('p', { class: 'note', text: 'Opening the book…' }));
     els.scroll = h('div', { class: 'reading', tabindex: 0 }, els.text);
+    // L1 R2 B1: an input of his is stamped once, when it is made; a scroll counts as his only while his gesture is
+    // live (until its save point, 2 s after it rests) — a resize, a reflow or the page's own move never stamps or sends
     const input = () => {
       if (!B) return;
-      B.input = true;
+      B.touch = true;
       B.inputAt = ctx.pcNow();
+      clearTimeout(B.saveTimer);
+      B.saveTimer = setTimeout(() => save(), SAVE_MS);
     };
     for (const ev of ['wheel', 'touchmove', 'pointerdown']) els.scroll.addEventListener(ev, input, { passive: true });
     els.scroll.addEventListener('keydown', (e) => {
       if (['PageDown', 'PageUp', ' ', 'ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) input();
     });
     els.scroll.addEventListener('scroll', () => {
-      if (!B || !B.input) return;
-      B.inputAt = ctx.pcNow(); // the place moves by his input (a drag, a fling) until it rests
+      if (!B || !B.touch) return;
+      B.input = true; // the place moves by his input (a drag, a fling) until it rests
       clearTimeout(B.saveTimer);
       B.saveTimer = setTimeout(() => save(), SAVE_MS);
     }, { passive: true });
@@ -189,6 +193,7 @@ export function readerView(ctx) {
         lv && lv.author ? h('span', { class: 'book-author', text: lv.author }) : null),
       h('span', { class: 'spacer' }),
       h('button', { class: 'side-toggle', focus: true, 'aria-expanded': String(B.side), on: { click: () => {
+        B.touch = false; // the text reflows: not his scroll
         B.side = !B.side;
         B.els.side.parentElement.classList.toggle('side-open', B.side);
         drawBar();
@@ -234,6 +239,7 @@ export function readerView(ctx) {
   }
 
   function loadPart(n, offset, input, dir) {
+    if (input && !dir) B.inputAt = ctx.pcNow(); // a jump's time is the click's, not its part's arrival (L1 R2 B1)
     if (B.doc && B.doc.part === n && !B.partScope) {
       placeView(offset ?? B.doc.charStart, input);
       return;
@@ -334,10 +340,8 @@ export function readerView(ctx) {
     } else pane.scrollTop = 0;
     clearTimeout(B.saveTimer);
     B.input = !!input;
-    if (input) {
-      B.inputAt = ctx.pcNow();
-      B.saveTimer = setTimeout(() => save(), SAVE_MS);
-    }
+    B.touch = false;
+    if (input) B.saveTimer = setTimeout(() => save(), SAVE_MS);
   }
 
   /** The block holding `offset` (the last starting at or before it). */
@@ -387,6 +391,7 @@ export function readerView(ctx) {
     if (!B) return;
     clearTimeout(B.saveTimer);
     B.saveTimer = null;
+    B.touch = false;
     if (!B.input || !B.doc) return;
     const why = ctx.canAct('view');
     if (why) {
@@ -467,6 +472,7 @@ export function readerView(ctx) {
   }
 
   const onHide = () => save();
+  const onResize = () => { if (B) B.touch = false; }; // L1 R2 B1: the reflow a resize makes is not his scroll
   const onVisibility = () => { if (document.visibilityState === 'hidden') save(); };
 
   return {
@@ -474,6 +480,7 @@ export function readerView(ctx) {
       root = h('section', { class: 'page reader' });
       ctx.sub('desc/reader');
       window.addEventListener('pagehide', onHide);
+      window.addEventListener('resize', onResize);
       document.addEventListener('visibilitychange', onVisibility);
       show(r, o.input);
       return root;
@@ -488,6 +495,7 @@ export function readerView(ctx) {
       shelfScope = null;
       ctx.unsub('desc/reader');
       window.removeEventListener('pagehide', onHide);
+      window.removeEventListener('resize', onResize);
       document.removeEventListener('visibilitychange', onVisibility);
     },
     back() {

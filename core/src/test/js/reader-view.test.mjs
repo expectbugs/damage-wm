@@ -36,7 +36,7 @@ class El {
 const winOn = {};
 globalThis.Node = El;
 globalThis.document = { createElement: (t) => new El(t), createElementNS: (_, t) => new El(t), createTextNode: (t) => Object.assign(new El('#text'), { textContent: t }), addEventListener() {}, removeEventListener() {} };
-globalThis.window = { addEventListener: (ev, fn) => { winOn[ev] = fn; }, removeEventListener() {} };
+globalThis.window = { addEventListener: (ev, fn) => { winOn[ev] = fn; }, removeEventListener() {}, matchMedia: () => ({ matches: false }) };
 
 const { readerView } = await import('../../main/resources/web/js/views/reader.mjs');
 
@@ -85,6 +85,7 @@ test('a place read while the PC was out of reach is sent when it answers again: 
   ctx.S.reach = { ok: false, since: 0 };
   const pane = root.find('reading')[0];
   for (const fn of pane.on.wheel) fn();
+  for (const fn of pane.on.scroll) fn(); // the wheel scrolls the pane
   winOn.pagehide();
   assert.deepEqual(ctx.sent.filter((d) => d.action === 'place'), [], 'nothing is sent out of reach');
   // the PC answers again, a minute later
@@ -173,3 +174,45 @@ test('L1: the page\'s own later input is not moved by an older place from anothe
   place('@c350.1~', 'phone', 9800, 4); // later input on the glasses
   assert.ok(ctx.subs.includes('reader/book:b1/part:1'), 'a later input elsewhere is followed');
 });
+
+// L1 R2 B1 (RP FIX 1): a place is stamped with the time of HIS input and nothing else.
+const places = (ctx) => ctx.sent.filter((d) => d.action === 'place');
+/** Every button under `el`. */
+const buttons = (el) => [...(el.tag === 'button' ? [el] : []), ...el.children.flatMap((c) => (c.children ? buttons(c) : []))];
+const click = (el) => { for (const fn of el.on.click) fn({ preventDefault() {} }); };
+
+test('L1 R2 B1: a tap that scrolls nothing, then a resize that reflows the text, sends no op', () => {
+  const { ctx, root } = twoParts();
+  const pane = root.find('reading')[0];
+  ctx.S.clock = 2000;
+  for (const fn of pane.on.pointerdown) fn(); // a tap in the text that scrolls nothing
+  ctx.S.clock = 2500;
+  if (winOn.resize) winOn.resize(); // the window changes size (a monitor waking, a TV changing mode)
+  for (const fn of pane.on.scroll) fn(); // the reflow moves the pane
+  winOn.pagehide(); // a save point
+  assert.deepEqual(places(ctx), [], 'no input moved the place: nothing is sent');
+});
+
+test('L1 R2 B1: a chapter click carries its own time, so an older place from elsewhere does not override it', () => {
+  const { ctx, v, root, place } = twoParts();
+  ctx.S.clock = 4000;
+  click(buttons(root.find('chapters')[0]).find((b) => text(b) === 'Two')); // the sidebar: chapter Two (part 1)
+  assert.equal(ctx.subs.at(-1), 'reader/book:b1/part:1');
+  place('@c50.1~', 'phone', 3500, 2); // the glasses' place, read before his click, arrives while the part loads
+  assert.equal(ctx.subs.at(-1), 'reader/book:b1/part:1', 'his later click stands: the page does not go back to part 0');
+  ctx.S.clock = 6000;
+  v.onDesc('reader/book:b1/part:1', { part: 1, parts: 2, charStart: 200, charEnd: 400, blocks: [] });
+  winOn.pagehide();
+  assert.deepEqual(places(ctx).map((d) => d.at), [4000], 'the op carries the click\'s time');
+});
+
+test('L1 R2 B1: a jump\'s time is the click\'s, not its part\'s arrival', () => {
+  const { ctx, v, root } = twoParts();
+  ctx.S.clock = 2000;
+  click(root.find('step')[0]); // "Next: Two →"
+  ctx.S.clock = 3000; // the part arrives a second later
+  v.onDesc('reader/book:b1/part:1', { part: 1, parts: 2, charStart: 200, charEnd: 400, blocks: [] });
+  winOn.pagehide();
+  assert.deepEqual(places(ctx).map((d) => d.at), [2000]);
+});
+
