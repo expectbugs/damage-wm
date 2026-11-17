@@ -1,12 +1,14 @@
 package wm.damage.core.windows.files
 
 import java.io.IOException
+import java.nio.channels.FileChannel
 import java.nio.file.FileVisitResult
 import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.Path
 import java.nio.file.SimpleFileVisitor
 import java.nio.file.StandardCopyOption
+import java.nio.file.StandardOpenOption
 import java.nio.file.attribute.BasicFileAttributes
 import java.nio.file.attribute.PosixFileAttributeView
 import kotlinx.serialization.Serializable
@@ -17,6 +19,7 @@ import wm.damage.core.gfx.IconRaster
 import wm.damage.core.gfx.ImageDecoder
 import wm.damage.core.shell.Persistence
 import wm.damage.core.util.Log
+import wm.damage.core.web.Uploads
 
 /**
  * The host-side filesystem provider. Lineage: G2CC `files.ts` (read for facts
@@ -30,7 +33,8 @@ import wm.damage.core.util.Log
  *
  * Cross-device DIRECTORY trash/move is refused loudly (a recursive
  * copy+delete of a whole tree from a cold HDD is not a glasses-sized op);
- * cross-device FILES fall back to copy+delete. Known limit, stated.
+ * a cross-device FILE is copied whole under a temporary name, forced, named,
+ * and only then is its source deleted (L1 R1 B2). Known limit, stated.
  */
 class LocalFilesProvider(
     private val booksDir: Path,
@@ -39,6 +43,8 @@ class LocalFilesProvider(
     private val extraRoots: List<Pair<String, String>> = emptyList(),
     /** Writes the trash's manifest whole (L1 B-S6: atomically, synced); injected for tests. */
     private val manifestWriter: (Path, String) -> Unit = { f, text -> Persistence.writeAtomic(f, text, sync = true) },
+    /** True when two folders are on one volume (a move between them is a rename); injected for tests. */
+    private val sameVolume: (Path, Path) -> Boolean = { a, b -> Files.getFileStore(a) == Files.getFileStore(b) },
     /** Injected for tests: mounts source + exec runner. */
     private val mountsFile: Path = Path.of("/proc/mounts"),
     private val exec: (List<String>) -> ExecResult = ::runExec,
@@ -276,7 +282,7 @@ class LocalFilesProvider(
 
     /** L1 B-S6: [from] moved back to [to] after the manifest could not be written; the words for the refusal. */
     private fun putBack(from: Path, to: Path): String = try {
-        moveEntry(from, to, allowCrossDeviceDirCopy = false, what = "the way back crosses volumes")
+        moveEntry(from, to, what = "the way back crosses volumes")
         "${to.fileName} was moved back to $to"
     } catch (e: IOException) {
         "${to.fileName} could not be moved back (${e.message}); it is at $from"
@@ -302,8 +308,7 @@ class LocalFilesProvider(
         val destDir = trashDir.resolve(id)
         Files.createDirectories(destDir)
         val dest = destDir.resolve(p.fileName.toString())
-        moveEntry(p, dest, allowCrossDeviceDirCopy = false,
-            what = "trash of a folder on another volume — delete it on the PC instead")
+        moveEntry(p, dest, "trash of a folder on another volume — delete it on the PC instead")
         val e = FTrashEntry(id, p.fileName.toString(), p.toString(), a.isDirectory,
             if (a.isDirectory) 0 else a.size(), System.currentTimeMillis())
         // a trashed file the manifest does not name would be lost to every Restore: it goes back
@@ -322,8 +327,7 @@ class LocalFilesProvider(
         val dest = Path.of(e.origPath)
         require(!Files.exists(dest, LinkOption.NOFOLLOW_LINKS)) { "${e.origPath} already exists — restore refused" }
         dest.parent?.let { Files.createDirectories(it) }
-        moveEntry(src, dest, allowCrossDeviceDirCopy = false,
-            what = "restore of a folder across volumes — move it on the PC instead")
+        moveEntry(src, dest, "restore of a folder across volumes — move it on the PC instead")
         writeManifest(Manifest(m.entries.filterNot { it.id == id })) { putBack(dest, src) }   // the manifest names it still
         try { Files.deleteIfExists(trashDir.resolve(id)) } catch (e2: IOException) {
             Log.w("files", "empty trash slot $id not removed: ${e2.message}")
@@ -399,8 +403,7 @@ class LocalFilesProvider(
         val dest = Path.of(destDir).resolve(s.fileName.toString())
         require(!Files.exists(dest, LinkOption.NOFOLLOW_LINKS)) { "${s.fileName} already exists there" }
         require(!dest.toAbsolutePath().startsWith(s.toAbsolutePath())) { "cannot move a folder into itself" }
-        moveEntry(s, dest, allowCrossDeviceDirCopy = false,
-            what = "move of a folder across volumes — do it on the PC instead")
+        moveEntry(s, dest, "move of a folder across volumes — do it on the PC instead")
         return dest.toString()
     }
 
@@ -424,32 +427,29 @@ class LocalFilesProvider(
     }
 
     // -------------------------------------------------------------- helpers
-    /** Move with the honest cross-device policy: rename when possible; FILES
-     *  fall back to copy+delete; DIRECTORIES across devices are refused with
-     *  [what] — a whole-tree copy is not a glasses-sized op (known limit). */
-    private fun moveEntry(src: Path, dest: Path, allowCrossDeviceDirCopy: Boolean, what: String) {
-        try {
-            Files.move(src, dest)
+    /** Move [src] to [dest] (L1 R1 B2). On one volume, or a folder: a rename (a folder across volumes is refused with
+     *  [what]: a whole-tree copy is not a glasses-sized op). A FILE across volumes is copied by this call — to a hidden
+     *  temporary name beside [dest], forced to disk, given [dest]'s name only if no file has it — and only then is [src]
+     *  deleted. A failure deletes only what this call made; a stop leaves [src] whole and at most the temporary name. */
+    private fun moveEntry(src: Path, dest: Path, what: String) {
+        val dir = Files.isDirectory(src, LinkOption.NOFOLLOW_LINKS)
+        if (dir || sameVolume(src.toAbsolutePath().parent, dest.toAbsolutePath().parent)) {
+            try { Files.move(src, dest) } catch (e: IOException) { throw if (dir) IOException("$what (${e.message})", e) else e }
             return
-        } catch (e: IOException) {
-            // cross-device (EXDEV surfaces as IOException here) — or a real failure
-            if (Files.isDirectory(src, LinkOption.NOFOLLOW_LINKS)) {
-                if (!allowCrossDeviceDirCopy) throw IOException("$what (${e.message})")
-                copyTree(src, dest)
-                deleteRecursively(src)
-                return
-            }
-            try {
-                // NOFOLLOW: a symlink moves AS a link — silently materializing
-                // its target's content changed what the object IS (Fi#14)
-                Files.copy(src, dest, StandardCopyOption.COPY_ATTRIBUTES, LinkOption.NOFOLLOW_LINKS)
-                Files.delete(src)
-            } catch (e2: IOException) {
-                try { Files.deleteIfExists(dest) } catch (e3: IOException) {
-                    Log.w("files", "half-copied $dest not removed: ${e3.message}")
-                }
-                throw e2
-            }
+        }
+        val part = dest.resolveSibling(".damage-move-${System.currentTimeMillis()}-${counter.incrementAndGet()}.part")
+        Files.copy(src, part, StandardCopyOption.COPY_ATTRIBUTES, LinkOption.NOFOLLOW_LINKS)   // a link AS a link (Fi#14)
+        var placed = false
+        try {
+            if (!Files.isSymbolicLink(part)) FileChannel.open(part, StandardOpenOption.READ).use { it.force(true) }
+            Uploads.placeNoReplace(part, dest)
+            placed = true
+            Files.delete(src)
+        } catch (e: Exception) {
+            if (placed) try { Files.deleteIfExists(dest) } catch (r: IOException) { Log.w("files", "the copy at $dest stays: ${r.message}") }
+            throw e
+        } finally {
+            try { Files.deleteIfExists(part) } catch (r: IOException) { Log.w("files", "the temporary $part stays: ${r.message}") }
         }
     }
 
