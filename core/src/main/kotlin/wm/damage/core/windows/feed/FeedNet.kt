@@ -227,7 +227,7 @@ class RemoteFeedProvider(
 
     private fun refreshSources() {
         try {
-            val a = ch.request("sources")
+            val a = ch.request("sources", quick = true)
             hostState = a.data["state"]?.jsonPrimitive?.contentOrNull ?: ""
             cached = json.decodeFromString(ListSerializer(SourceStatus.serializer()), blobOf(a, "sources"))
             pushState()
