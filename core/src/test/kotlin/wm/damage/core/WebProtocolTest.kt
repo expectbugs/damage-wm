@@ -404,7 +404,7 @@ class WebProtocolTest {
         assertContentEquals(INDEX, page.body, "an address answers the bundle's page")
         assertEquals("text/html; charset=utf-8", page.header("content-type"))
         val csp = page.header("content-security-policy")!!
-        assertTrue("script-src 'self'" in csp && "unsafe-inline" !in csp, csp)
+        assertTrue("script-src 'self';" in csp && "style-src 'self' 'unsafe-inline';" in csp, csp)   // L1 AC28
         assertEquals(200, http(rig.port, "GET", "/w").code)
         assertEquals(404, http(rig.port, "GET", "/wx/reader").code, "only /w and below are addresses")
 
