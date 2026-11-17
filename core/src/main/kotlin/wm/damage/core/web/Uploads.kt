@@ -121,10 +121,12 @@ class Uploads(
         read = true
         try {
             var got = 0L
+            var lost: IOException? = null
             Files.newOutputStream(part, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE).use { out ->
                 val buf = ByteArray(BUFFER)
                 while (got < length) {
-                    val n = inp.read(buf, 0, minOf(buf.size.toLong(), length - got).toInt())
+                    // L1 R1 B5: a read that fails is the connection lost (the socket's keepalive finds a peer gone)
+                    val n = try { inp.read(buf, 0, minOf(buf.size.toLong(), length - got).toInt()) } catch (e: IOException) { lost = e; -1 }
                     if (n < 0) break
                     out.write(buf, 0, n)
                     got += n
@@ -132,7 +134,8 @@ class Uploads(
             }
             if (got != length) {
                 drop(id, part)
-                return failed(400, "the body ended after $got of $length bytes; nothing was kept")
+                return failed(400, lost?.let { "the connection was lost after $got of $length bytes (${it.message}); nothing was kept" }
+                    ?: "the body ended after $got of $length bytes; nothing was kept")
             }
             Files.newByteChannel(part, StandardOpenOption.WRITE).use { (it as java.nio.channels.FileChannel).force(true) }
             val dest = (0..MAX_NUMBER).firstNotNullOfOrNull { n ->

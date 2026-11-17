@@ -7,6 +7,7 @@ import java.net.SocketTimeoutException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.CopyOnWriteArrayList
+import jdk.net.ExtendedSocketOptions
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
@@ -104,6 +105,35 @@ class UploadTest {
         val e = ends.single()
         assertTrue(e is Uploads.End.Failed && "ended after 100000 of 200000 bytes" in e.reason, "$e")
         assertEquals(emptyList(), listed())
+    }
+
+    /** Pin (L1 R1 B5): an upload's socket finds a peer gone from the network in about two minutes — 60 s idle, then 4
+     *  probes 15 s apart (a half-open peer cannot be made on loopback, so the values are read on the socket) — and an
+     *  upload whose connection is lost mid-body ends saying so, keeping nothing. */
+    @Test
+    fun anUploadsSocketFindsAPeerGoneInAboutTwoMinutes_andItsEndSaysTheConnectionWasLost() = rig().use { r ->
+        val (device, secret) = r.device()
+        val id = r.mint(device)
+        fun idle(s: Socket) = try { s.getOption(ExtendedSocketOptions.TCP_KEEPIDLE) } catch (e: Exception) { -1 }
+        Socket(InetAddress.getLoopbackAddress(), r.port).use { s ->
+            s.getOutputStream().apply {
+                write(("PUT /blob/upload/$id HTTP/1.1\r\nHost: 127.0.0.1:${r.port}\r\nCookie: ${Access.COOKIE}=$secret\r\n" +
+                    "Content-Length: ${body.size}\r\n\r\n").toByteArray(Charsets.ISO_8859_1))
+                write(body, 0, 1_000)
+                flush()
+            }
+            eventually("the listener set the upload's values") { r.server.openSockets().any { idle(it) == 60 } }
+            val u = r.server.openSockets().single { idle(it) == 60 }
+            assertEquals(15, u.getOption(ExtendedSocketOptions.TCP_KEEPINTERVAL))
+            assertEquals(4, u.getOption(ExtendedSocketOptions.TCP_KEEPCOUNT))
+            assertTrue(u.keepAlive)
+            s.setSoLinger(true, 0)                                     // the peer is lost mid-body: a reset
+        }
+        eventually("the upload ended") { ends.isNotEmpty() }
+        val e = ends.single()
+        assertTrue(e is Uploads.End.Failed && "the connection was lost after" in e.reason, "$e")
+        assertFalse(Files.exists(dest.resolve("survey.bin")), "nothing under the real name")
+        assertEquals(emptyList(), leftovers())
     }
 
     /** Pin (L1, "an upload never replaces"): a name that appears while the body arrives is never replaced — the link

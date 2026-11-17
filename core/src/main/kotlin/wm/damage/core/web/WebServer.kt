@@ -8,6 +8,7 @@ import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.ConcurrentHashMap
+import jdk.net.ExtendedSocketOptions
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -228,6 +229,15 @@ class WebServer(
         }
         val id = try { java.net.URLDecoder.decode(raw, "UTF-8") } catch (e: IllegalArgumentException) { raw }
         val len = req.headers["content-length"]?.let { it.trim().toLongOrNull() ?: -1L }
+        // L1 R1 B5: a peer gone from the network mid-body is found in about 2 min (60 s idle, then 4 probes 15 s apart):
+        // the read fails, the upload ends by its failure path and frees the Files slot — TCP liveness on this socket only
+        try {
+            sock.setOption(ExtendedSocketOptions.TCP_KEEPIDLE, 60)
+            sock.setOption(ExtendedSocketOptions.TCP_KEEPINTERVAL, 15)
+            sock.setOption(ExtendedSocketOptions.TCP_KEEPCOUNT, 4)
+        } catch (e: Exception) {
+            Log.w(TAG, "the upload's keepalive values not set on ${sock.inetAddress?.hostAddress}: ${e.message}")
+        }
         val r = u.receive(id, device.id, len?.takeIf { it >= 0 }, inp)
         HttpWs.reply(out, r.code, if (r.code == 201) "application/json" else "text/plain; charset=utf-8", r.text)
         if (r.bodyLeft) {
