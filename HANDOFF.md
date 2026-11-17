@@ -8324,3 +8324,68 @@ moved). Not decided: edit (3) and the link item (his); whether the masked sectio
 closes the scratch's and slots' release window. Unread offline: the release points' tasks, heap 13's lock, the stock
 sender past the link-request branch. `FIRMWARE.md` §6 (C2) still draws local instances "under the gate" (§6.2, §6.4,
 §6.10): for C2's challenge.
+
+## 82. The PC stopped responding for five hours: a build stage's test process (2026-11-16)
+
+Context for the reader: a personal device and his own PC; build work on Damage. This section records a fault of the
+build process, not of the product.
+
+**What happened (measured: `/var/log/kern.log`, the stages' transcripts).** Two stages' pin-watch scripts ran page
+tests with one guard disabled per run, with no memory limit and no bound. 16:06–16:13: the Feed page stage's variant
+"a typed name stays in its field" allocated array buffers without bound; the kernel ended that `node` process at
+16:13:31 holding 26.5 GB of RAM and 210 GB of address space (all RAM and all 191 GB of swap); the script counted
+"ended by the kernel" as "fails as it should". 17:34:27: the page-fix stage's script started; its eighth variant ("the
+store row opens the trash") did the same; the last line any log wrote is 17:35:05, and the machine did not answer
+again until Adam restarted it at 22:57. He was at work and could not reach it. The boot wiped `/tmp`: every worktree's
+uncommitted work, every brief and report kept only there.
+
+**Reproduced on 2026-11-17 under a 6 GB address-space limit:** each variant grows about 1.7 GB a second and ends in 4 s
+with "Array buffer allocation failed" (outside V8's heap limit, which is why node did not stop itself). Ruled out with
+evidence: the tmux stage (it started no tmux server), the fork's mutation sweep (finished, no process left), headless
+Firefox (none running), a disk or hardware fault (no such kernel line). NOT determined: why the first event recovered
+after seven minutes and the second never did (swap through dm-crypt on a file, or more JVMs being swapped at once; not
+reproduced on purpose).
+
+**The lead's errors.** It missed the first event: 14 GB in swap at 16:32 was reported as "not strained"; a stage's
+report that `/swapfile` changed at 16:13 was ruled "the machine, not the build" (it was the build) without reading the
+kernel log, 80 minutes before the second event; the script's empty failure reason passed unread; everything lived in
+`/tmp`.
+
+**What exists since (his word 2026-11-17: the cgroup, not earlyoom):** `/sys/fs/cgroup/claude-work` (16 GiB, no swap;
+made at boot by `/etc/local.d/claude-work-cgroup.start`), `claude-cg-enter` and `claude-cg-session` in `/usr/local`, a
+session-start hook in the project's local settings. Proven: the same runaway in a 1 GiB test group was ended by the
+kernel in 2 s, nothing outside touched. The rules are `CLAUDE.md`, "Running builds on this machine".
+
+**What survived.** Every commit on every branch in both repositories. Kept afterwards as commits marked "WIP, not
+gated": the Damage half of C1's fix round 3 (`wip/068` `d1032e3`), the page fixes of S1-2's fix round 1 rebuilt from
+the stage's transcript (`wip/069-webfix` `02b2ab2`). Lost: about 13 minutes of S1-2's Kotlin fix stage, the tmux
+stream client's new files, C2's rulings prep in progress (each can be redone; the transcripts hold what was written).
+
+## 83. The lean correction: what is worth building (Adam, 2026-11-17)
+
+Context for the reader: a single-user system on his own devices and networks.
+
+**His words.** "Relying this heavily on Claude Code to do the work often results in unnecessary levels of bloat and
+abstraction. This is a single user system we are building, that should be clean." Then: several surfaces run at once
+(the kitchen TV always on, a voice box later, the phone, the glasses, the PC), and "whichever page I'm really on is the
+one I'm really on"; the end is "an LLM swarm behind it, running constantly, optimizing the system based on real usage
+… to predict trends or issues or needs or wants and act on those predictions"; "bloat that doesn't serve the end goal
+is bloat, but work that does actually improve the end result is worthwhile"; "it is important for the system to be
+robust and stable. I'm not too worried about security specifically, but stability and redundancy … is also
+worthwhile." And: keep "the opus 5.5 agents at xhigh thinking only discipline".
+
+**The lead's answer to "does it suffer from this":** yes, since the re-plan. S1-1 and S1-2 added about 40,000 lines
+with the glasses unchanged by design; one of three pages shipped unable to act (§80.14). Bloat by his definition: a
+conflict machinery (expectations, loss notices, ledgers) for a person who is in one place at a time, whose own defects
+the reviews then chased; pairing, hashed secrets and strict page policies against outsiders who do not exist (they
+refused the PC's own name at its first start and blocked the terminal emulator); mixed builds, downgrades, deploy
+orders, two tabs; a pin and a planted fault for every guard, and reviews that only add. Right for where he is going:
+the PC owning state with live push, one description of state and actions, one door for actions with who and when, the
+phone's working copy, one notice store, per-viewer pacing, limits on actors, the snapshot judge, the look at real
+pages, the firmware's rigour. Where the defensive style made it LESS stable: states only a manual restart clears.
+
+**What changed in the documents:** `CLAUDE.md` ("What is worth building": the three tests, what robust means, security
+in proportion; protocol item 7: where the full protocol applies; "Running builds on this machine"), `REPLAN.md` §17
+(what stands, what changes, the order from here beginning with the lean audit L0, the robustness items R-a to R-e).
+Nothing of the product was changed by this section.
+
