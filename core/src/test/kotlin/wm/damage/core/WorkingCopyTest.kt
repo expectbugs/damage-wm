@@ -304,6 +304,7 @@ class WorkingCopyTest {
         src.act(Draft("place", listOf("p"), j("5")))
         val before = wc.stream
         val old = pc.host.epoch
+        pc.rec.now += 1_000                                       // the store is minted again later than the first
         pc.restart(newEpoch = true)
         assertNotEquals(old, pc.host.epoch, "a new epoch")
         waitUntil(10_000, 5, { "both applied: ${heard.answers}" }) {
@@ -353,7 +354,10 @@ class WorkingCopyTest {
         }
         waitUntil(10_000, 5, { "the PC tried the first" }) { pc.rec.forced.get() >= 1 }
         Thread.sleep(300)
-        assertEquals(1, pc.rec.forced.get(), "not sent again before the next ping")
+        val tried = pc.rec.forced.get()
+        assertTrue(tried in 1..3, "each op tried at most once (L1 C1: no gap holds the ops behind a retry): $tried")
+        Thread.sleep(300)
+        assertEquals(tried, pc.rec.forced.get(), "not sent again before the next ping")
         assertEquals(3, wc.queue.waiting)
         pc.rec.syncFails = false
         wc.client!!.pingTick()

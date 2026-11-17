@@ -23,7 +23,7 @@ import wm.damage.core.shell.Persistence
  * window's `migrate` is declared), a store in a temp directory.
  */
 class MigrateTest {
-    private val rig = RecordRig()
+    private val rig = RecordRig().also { it.now = 1_700_000_000_000L + 3_600_000 }   // the PC's clock past every stamp
 
     @AfterTest
     fun cleanUp() = rig.cleanUp()

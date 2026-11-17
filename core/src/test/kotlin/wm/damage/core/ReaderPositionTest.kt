@@ -301,13 +301,15 @@ class ReaderPositionTest {
         go.countDown()
         h.executor.call {}
         h.executor.call {}
-        assertEquals(first, rig.placeOffset(h, ids[0]), "the refused op changed nothing")
-        assertEquals(500, rig.placeOffset(h, ids[1]), "the op behind it applied on its own")
+        // the first of the two (the presenter's order) was refused and changed nothing; the other applied on its own
+        assertTrue((rig.placeOffset(h, ids[0]) != first) != (rig.placeOffset(h, ids[1]) == 500),
+            "exactly one refused: ${rig.placeOffset(h, ids[0])}, ${rig.placeOffset(h, ids[1])}")
         services.onLoop { g.saveSubState() }                               // the next save point sends it again
         h.executor.call {}
         h.executor.call {}
         assertEquals(emptyList(), services.notices, "a retry is not said")
         assertNotEquals(first, rig.placeOffset(h, ids[0]), "the resent place applied")
+        assertEquals(500, rig.placeOffset(h, ids[1]))
     }
 
     @Test

@@ -310,13 +310,15 @@ class WorkingCopy(
         if (saveFailures > 0 && !saving) save()
     }
 
-    /** Settled ops the PC's state now holds leave the view's fold; their lines leave the queue after the next save. */
+    /** Settled ops the PC's state now holds leave the view's fold; their lines leave the queue after the next save. An
+     *  op the state already outranks or equals (L1 C1: an older input, a same value — the PC changed nothing, so no
+     *  change of its `seq` follows) leaves at once. */
     private fun settle(touched: MutableSet<String>) {
         val cur = cursor
         val it = settled.iterator()
         while (it.hasNext()) {
             val s = it.next()
-            val held = s.at == null || (cur != null && s.at.epoch == cur.epoch && s.at.seq <= cur.seq)
+            val held = s.at == null || (cur != null && s.at.epoch == cur.epoch && s.at.seq <= cur.seq) || shown(s.op)
             if (!held) continue
             it.remove()
             unsaved += s.op.id as OpId.Queued
@@ -379,6 +381,13 @@ class WorkingCopy(
             for (t in op.targets) pending += Record.key(w, t)
         }
         return WindowState(w, items, pending, cursor)
+    }
+
+    /** True when the PC's state as this copy holds it already shows [op] (folding it changes nothing). */
+    private fun shown(op: Op): Boolean {
+        val spec = actions.spec(op.window, op.action) ?: return true
+        val b = base[op.window] ?: Entries.EMPTY
+        return Merge.judge(RecordView { key -> b.items[key] }, spec, op).isEmpty()
     }
 
     /** One op over the view, as the PC will judge it ([Merge]): written unless the view holds a later input. */
