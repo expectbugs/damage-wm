@@ -8,8 +8,7 @@
 // Out of reach the page dims (A.6). Every decision is in `torrents-model.mjs`; this module draws.
 
 import { h, fill, bar, keepFocus } from '../dom.mjs';
-import { hhmm, atLeast } from '../proto.mjs';
-import { who } from '../reader-model.mjs';
+import { hhmm, when, atLeast } from '../proto.mjs';
 import * as M from '../torrents-model.mjs';
 
 const NS = 'http://www.w3.org/2000/svg';
@@ -89,21 +88,13 @@ export function torrentsView(ctx) {
     on: { click: (e) => { e.preventDefault(); go(target); } } }, text);
   const nameOf = (id) => ((last && last.transfers) || []).find((t) => String(t.id) === id)?.title || id;
   const acts = () => M.actionsOf(last);
-  const whoOf = (d) => who(d, ctx.S.device, ctx.S.names);
 
   // ---- program ops (spec §2.4; A.7) ----
 
   async function act(a, ids, names, params) {
     const c = M.confirmFor(a, names || ids.map(nameOf));
-    const conn0 = ctx.S.conn;
-    if (c) {
-      if (!(await ctx.confirm(c))) return;
-      // C§4.3: a never-queued op's confirm is void if its connection ended before the act
-      if (ctx.S.conn !== conn0) {
-        ctx.say(`${a.label}: nothing sent — the connection to the PC ended while the confirm was open. Ask again.`, { from: 'Torrents' });
-        return;
-      }
-    }
+    // L1 P33: the act goes on the connection current at the act (its targets were named in the confirm)
+    if (c && !(await ctx.confirm(c))) return;
     const w = { label: a.label, n: ids.length, at: Date.now() };
     const k = ctx.sendProgram(M.programDraft(a, ids, params), a.level, (ans) => {
       flying.delete(k);
@@ -160,7 +151,7 @@ export function torrentsView(ctx) {
     fill(els.info,
       h('div', { class: 'thead-line' }, h('h1', { text: 'Torrents' }),
         h('span', { class: 'tsum', text: [s.line, s.detail].filter(Boolean).join(' · ') }),
-        ctx.S.reach.ok || !d ? null : h('span', { class: 'note', text: `as read at ${hhmm(d.atMs)}` })),
+        ctx.S.reach.ok || !d ? null : h('span', { class: 'note', text: `as read at ${when(d.atMs)}` })),
       health.length ? h('p', { class: 'health', text: health.join(' · ') }) : null);
     put(els.tabs, JSON.stringify([cur, full()]), () => [
       h('nav', { class: 'tabs', 'aria-label': 'Torrents' }, tabs.map(([id, label, target]) =>
@@ -198,11 +189,8 @@ export function torrentsView(ctx) {
     }
     const why = ctx.canAct(need);
     const send = (value) => {
-      const sent = ctx.sendQueued(M.setDraft(row, value, rec), (ans) => {
-        if (ans.a === 'lost') {
-          const l = (ans.losses || [])[0] || {};
-          ctx.say(`${row.label}: not applied — ${JSON.stringify(l.standing)} stands, set by ${whoOf(l.by)} (${hhmm(l.at)})`, { from: 'Torrents', keep: true });
-        } else if (ans.a === 'refused') ctx.say(`${row.label}: ${ans.reason}`, { from: 'Torrents' });
+      const sent = ctx.sendQueued(M.setDraft(row, value), (ans) => {
+        if (ans.a === 'refused') ctx.say(`${row.label}: ${ans.reason}`, { from: 'Torrents' });
         redraw();
       }, { need });
       if (!sent) redraw();
@@ -416,7 +404,7 @@ export function torrentsView(ctx) {
       if (!q) return;
       const stop = ctx.canAct('full');
       if (stop) return ctx.say(`Not searched: ${stop}.`, { from: 'Torrents' });
-      // A.9: the recents are one register, the whole list sent with Expect.Any; TORRENTS.md §3.1: no confirm
+      // A.9: the recents are one register, the whole list sent; TORRENTS.md §3.1: no confirm
       const ra = acts().get('recent');
       if (M.offered(ra, ctx.S.level)) ctx.sendQueued(M.recentDraft(q, rec), (ans) => {
         if (ans.a === 'refused') ctx.say(`The search was not kept in the recents: ${ans.reason}`, { from: 'Torrents' });

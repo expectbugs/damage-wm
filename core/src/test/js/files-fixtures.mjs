@@ -88,10 +88,10 @@ export function filesScope(scope) {
 }
 
 /** Files' own record scope: the shared sort and hidden, a cut on the clipboard, the Size row. */
-export const filesRecord = (over = {}) => ({ t: 'snap', scope: 'files', epoch: 3, seq: 40, colls: {}, items: {
-  'rec.files.sort': { v: 'name', rev: 1, by: 'phone-1', at: F_NOW - DAY },
-  'rec.files.hidden': { v: false, rev: 1, by: 'phone-1', at: F_NOW - DAY },
-  'rec.files.clip': { v: { verb: 'cut', path: `${DL}/salt quiet 0.txt` }, rev: 3, by: 'phone-1', at: F_NOW - 600e3 },
+export const filesRecord = (over = {}) => ({ t: 'snap', scope: 'files', epoch: 3, seq: 40, items: {
+  'rec.files.sort': { v: 'name', by: 'phone-1', at: F_NOW - DAY },
+  'rec.files.hidden': { v: false, by: 'phone-1', at: F_NOW - DAY },
+  'rec.files.clip': { v: { verb: 'cut', path: `${DL}/salt quiet 0.txt` }, by: 'phone-1', at: F_NOW - 600e3 },
   ...over } });
 
 /** A running job in the slot (A.12): a copy, its fraction, its age and its last progress. */

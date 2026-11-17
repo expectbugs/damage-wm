@@ -61,7 +61,7 @@ function part(n) {
 const CHAPTERS = ['One: the flats', 'Two: the posts', 'Three: the coast'].map((title, i) => ({ title, anchor: `@c${i * 1000}.1` }));
 
 /** S1-2 Q3w: a notice item in the spec's §2.1 shape (made-up torrent names and hashes). */
-const notice = (hash, occ, body, state = 'RAISED', at = NOW) => [`rec.notices.torrents:${hash}`, { rev: 1, by: 'pc', at, v: {
+const notice = (hash, occ, body, state = 'RAISED', at = NOW) => [`rec.notices.torrents:${hash}`, { by: 'pc', at, v: {
   occ, raisedAt: at, app: 'torrents', source: 'torrents', body, urgency: 'NORMAL', ackRequired: false, gatedBy: 'Torrents',
   target: `t:${hash}`, actions: [], state, origin: 'pc', mayRepeat: false } }];
 const RAISES = [
@@ -78,17 +78,17 @@ export const fixtures = {
   // S1-2 Q5w: an upload op is answered with an id for its body
   program: (op) => (op.window === 'files' && op.action === 'upload' ? { a: 'sent', result: { upload: `u-${op.k}` } } : null),
   blobs: { 'cover-b1': [400, 600, [122, 75, 58]], 'cover-b3': [600, 400, [49, 80, 110]], 'cover-b6': [300, 600, [79, 107, 60]], 'fig-1': [1600, 900, [130, 110, 70]] },
-  welcome: (stream, scene = {}) => ({ t: 'welcome', proto: 2, device: ME, level: scene.level || 'full', conn: 7, pcClock: NOW, epoch: 3, seq: 40, highWater: { [stream]: 12 },
-    contracts: { reader: 1, notices: 1, torrents: 1, files: 1 }, bundle: { version: 'look', hash: 'look', protoRange: [2, 2] } }),
+  welcome: (stream, scene = {}) => ({ t: 'welcome', proto: 2, device: ME, level: scene.level || 'full', conn: 7, pcClock: NOW, epoch: 3, seq: 40,
+    contracts: { reader: 1, notices: 1, torrents: 1, files: 1 }, bundle: { hash: 'look' } }),
   // the notice record at first contact (adopted, nothing pops), and `n` raised after it, one change each
-  notices: () => ({ t: 'snap', scope: 'notices', epoch: 3, seq: 40, colls: {}, items: Object.fromEntries([
+  notices: () => ({ t: 'snap', scope: 'notices', epoch: 3, seq: 40, items: Object.fromEntries([
     notice('a1d00001', 1, 'done · Copper Hill', 'DISMISSED', NOW - 86400e3), notice('a1d00002', 2, 'done · Salt Road', 'RAISED', NOW - 3600e3)]) }),
   raise: (n) => RAISES.slice(0, n).map(([hash, body], i) => ({ t: 'chg', scope: 'notices', epoch: 3, seq: 41 + i,
     origin: { device: 'pc', stream: 'notices', n: 3 + i }, patches: [notice(hash, 3 + i, body, 'RAISED', NOW - (n - i) * 60e3)].map(([addr, set]) => ({ addr, set })) })),
-  record: () => ({ t: 'snap', scope: 'reader', epoch: 3, seq: 40, colls: {}, items: {
-    'rec.reader.place.b1': { v: '@c120.1~The old survey', rev: 4, by: 'phone-1', at: NOW - 3600e3 },
-    'rec.reader.place.b6': { v: '@c2400.1~', rev: 2, by: ME, at: NOW - 86400e3 },
-    'rec.reader.recent': { v: 'b1', rev: 9, by: 'phone-1', at: NOW - 3600e3 },
+  record: () => ({ t: 'snap', scope: 'reader', epoch: 3, seq: 40, items: {
+    'rec.reader.place.b1': { v: '@c120.1~The old survey', by: 'phone-1', at: NOW - 3600e3 },
+    'rec.reader.place.b6': { v: '@c2400.1~', by: ME, at: NOW - 86400e3 },
+    'rec.reader.recent': { v: 'b1', by: 'phone-1', at: NOW - 3600e3 },
   } }),
   descs: {
     'desc/main': { cards: [{ window: 'reader', name: 'Reader', icon: 'book', min: 'view', availability: 'live',

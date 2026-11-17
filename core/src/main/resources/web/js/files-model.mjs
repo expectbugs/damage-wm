@@ -6,8 +6,7 @@
 // clipboard, sort and hidden; the program ops and their confirms; the one job slot's line; the upload list. Every byte
 // the page shows or sends is decided here and tested under `node --test`. Pure: no DOM, no clock of its own.
 
-import { atLeast } from './proto.mjs';
-import { expectSeen } from './record.mjs';
+import { atLeast, when } from './proto.mjs';
 import { Listing, bytes, dur, pct } from './torrents-model.mjs';
 
 export { Selection, nearEnd, bytes, ago } from './torrents-model.mjs';
@@ -53,24 +52,16 @@ export function placeOf(target, anchor) {
   return { at: 'entry', dir: parent(p), name: baseName(p) };
 }
 
-/** S1-2 R2 item 18 (review B-M2): the PC's own trash store is a location of kind `trash`. It is the trash view, never a
- *  folder: no card, crumb or label treats it as one (as the glasses, `FilesGlasses.kt` `l.kind != "trash"`). */
+/** S1-2 R2 item 18 (review B-M2): the PC's own trash store is a location of kind `trash`: its card is the trash view,
+ *  never a folder card (as the glasses, `FilesGlasses.kt` `l.kind != "trash"`). L1 P45: the PC refuses every write in
+ *  it, so the page keeps no guard of its own beyond this. */
 export const isTrashLoc = (l) => !!l && l.kind === 'trash';
-/** The paths of the trash stores among `locations`. */
-export const storesOf = (locations) => (locations || []).filter(isTrashLoc).map((l) => norm(String(l.path || ''))).filter(Boolean);
-/** True when `path` is one of `stores` or under one (a real ancestor, not a name prefix). */
-export function inStore(path, stores) {
-  const p = norm(String(path || ''));
-  for (const s of stores || []) if (p === s || p.startsWith(s === '/' ? '/' : `${s}/`)) return true;
-  return false;
-}
 
 /** Breadcrumbs of `dir`: from the deepest location that holds it (its label first), else from `/`. */
 export function crumbs(dir, locations) {
   const d = norm(dir);
   let base = null;
   for (const l of locations || []) {
-    if (isTrashLoc(l)) continue;
     const lp = norm(String(l.path || ''));
     if (!lp || !(d === lp || d.startsWith(lp === '/' ? '/' : `${lp}/`))) continue;
     if (!base || lp.length > norm(base.path).length) base = l;
@@ -254,7 +245,7 @@ export class TextDoc {
   }
 }
 
-// ---- the record: the clipboard, sort, hidden and the Size row (spec §4.1; registers expecting the value seen) ----
+// ---- the record: the clipboard, sort, hidden and the Size row (spec §4.1; registers, the latest input wins) ----
 
 export function clipOf(rec) {
   const v = rec && rec.value(W, 'clip');
@@ -263,10 +254,11 @@ export function clipOf(rec) {
 export const sortOf = (rec) => (SORTS.some(([s]) => s === (rec && rec.value(W, 'sort'))) ? rec.value(W, 'sort') : 'name');
 export const hiddenOf = (rec) => (rec && rec.value(W, 'hidden')) === true;
 
-/** A record op on one of Files' registers, expecting the value this page saw (a write elsewhere meanwhile is a loss). */
-export const regDraft = (action, name, value, rec) => ({ window: W, action, targets: [name], result: value, expect: expectSeen(rec && rec.item(W, name)) });
-/** Copy or Cut: the clipboard holds `{verb, path}`. */
-export const clipDraft = (verb, path, rec) => regDraft(verb, 'clip', { verb, path }, rec);
+/** A record op on one of Files' registers, made at input time `at` (L1 C1). */
+export const regDraft = (action, name, value, at) => ({ window: W, action, targets: [name], result: value, at });
+/** Whether the record's `item` already settles a register op of `value` made at `at`: it shows that value, or a later
+ *  input stands. An op that changed nothing publishes no change, so the page reads the item rather than wait (L1 C1). */
+export const settled = (item, value, at) => !!item && (item.at > at || JSON.stringify(item.gone ? null : item.v) === JSON.stringify(value));
 // A pasted cut's clipboard is cleared by the PC's core when the move lands (S1-2 R0 §3), never by a page.
 
 // ---- actions (spec §4.1's table; Files' minimum is full, C§10.4) ----
@@ -319,8 +311,12 @@ export const jobOf = (ans) => (ans && ans.result && typeof ans.result === 'objec
 export const jobsOf = (desc) => ((desc && Array.isArray(desc.jobs)) ? desc.jobs : []);
 export const runningJob = (desc) => jobsOf(desc).find((j) => j.state === 'running' || j.state === 'queued') || null;
 
-/** The job's line: its label, phase and fraction, its age on the PC's clock, and how long it has shown no progress. */
+/** The slot's job's line (L1 P44: whatever its state). Running: its label, phase and fraction, its age on the PC's
+ *  clock, and how long it has shown no progress. Ended: how, and when. */
 export function jobLine(job, pcNow) {
+  if (job.state === 'done' || job.state === 'failed') {
+    return `On the PC: ${jobOutcome(job.label || 'an operation', job)}${typeof job.updatedAt === 'number' ? ` · ${when(job.updatedAt, pcNow)}` : ''}`;
+  }
   const age = typeof job.startedAt === 'number' ? Math.max(0, pcNow - job.startedAt) : null;
   const still = typeof job.updatedAt === 'number' ? Math.max(0, pcNow - job.updatedAt) : 0;
   return [`On the PC: ${job.label || 'an operation'}`, job.state === 'queued' ? 'waiting for the slot' : null, job.phase || null,
@@ -334,7 +330,7 @@ export const busyWhy = (desc) => {
   return j ? `busy — one operation at a time (${j.label || 'an operation'} is running)` : null;
 };
 
-/** A job's end in words for the page that started it: done with the PC's answer, or failed with its reason. */
+/** A job's end in words: done with the PC's answer, or failed with its reason. */
 export function jobOutcome(label, job) {
   const said = typeof job.answer === 'string' ? job.answer : job.answer && typeof job.answer === 'object' && job.answer.text ? String(job.answer.text) : '';
   if (job.state === 'failed') return `${label}: failed — ${said || 'the PC gave no reason'}`;
@@ -356,32 +352,24 @@ export function statFacts(f) {
 
 // ---- uploads (spec §2.4, §4.3; C§9.4): one file at a time — the PC's one slot ----
 
-/** A name not among `taken`: "name (2).ext", "name (3).ext", … */
-export function freeName(name, taken) {
-  if (!taken.has(name)) return name;
-  const dot = name.lastIndexOf('.');
-  const [stem, ext] = dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ''];
-  for (let i = 2; ; i++) if (!taken.has(`${stem} (${i})${ext}`)) return `${stem} (${i})${ext}`;
-}
-
 /**
- * The files dropped on the page, each with its state: waiting · asking (its name is taken: it asks first) · trashing
- * (Replace: the old one to the trash first) · op (the `upload` op sent) · sending (the PUT) · done · failed · cut ·
- * skipped · unsent. One at a time; the list keeps no queue past the PC's reach (`stopRest`).
+ * The files dropped on the page, each with its state: waiting · op (the `upload` op sent) · sending (the PUT) · done ·
+ * failed · cut · unsent. One at a time; the list keeps no queue past the PC's reach (`stopRest`). L1 P40: an upload
+ * never replaces a file — the PC places a taken name under a numbered one and its answer names the file placed (`as`).
  */
 export class Uploads {
   constructor() {
     this.items = [];
     this.seq = 0;
   }
-  /** `files` [{name, size}] into `dest`; `taken` = the names held of that folder. Returns the items made. */
-  add(files, dest, taken) {
+  /** `files` [{name, size}] into `dest`. Returns the items made. */
+  add(files, dest) {
     const made = [...files].map((file) => ({ id: ++this.seq, file, name: String(file.name), size: Number(file.size) || 0, dest: norm(dest),
-      state: 'waiting', sent: 0, reason: null, clash: taken.has(String(file.name)) }));
+      state: 'waiting', sent: 0, reason: null }));
     this.items.push(...made);
     return made;
   }
-  active() { return this.items.find((u) => ['asking', 'trashing', 'op', 'sending'].includes(u.state)) || null; }
+  active() { return this.items.find((u) => u.state === 'op' || u.state === 'sending') || null; }
   next() { return this.active() ? null : this.items.find((u) => u.state === 'waiting') || null; }
   get sending() { return this.items.some((u) => u.state === 'sending'); }
   /** Every waiting file is not sent, with the reason (said once by the caller). Returns how many. */
@@ -391,7 +379,7 @@ export class Uploads {
     return n;
   }
   /** The finished rows leave the list (Clear). */
-  clearDone() { this.items = this.items.filter((u) => !['done', 'failed', 'cut', 'skipped', 'unsent'].includes(u.state)); }
+  clearDone() { this.items = this.items.filter((u) => !['done', 'failed', 'cut', 'unsent'].includes(u.state)); }
 }
 
 /** One upload's row in words. */
@@ -399,8 +387,6 @@ export function uploadLine(u) {
   const of = `${bytes(u.sent)} of ${bytes(u.size)}`;
   switch (u.state) {
     case 'waiting': return 'waiting for the one before it';
-    case 'asking': return 'its name is taken in that folder: asking';
-    case 'trashing': return 'moving the old one to the trash first';
     case 'op': return 'asking the PC for a place';
     case 'sending': return `${u.size ? pct(u.sent / u.size) : '0%'} · ${of}`;
     case 'done': return `uploaded${u.as && u.as !== u.name ? ` as '${u.as}'` : ''}`;
@@ -412,17 +398,26 @@ export function uploadLine(u) {
 /** The upload list's head: what became of the files, in words ("Uploads: 1 uploaded · 1 cut off · 2 not sent"). */
 export function uploadsHead(items) {
   const n = (f) => items.filter(f).length;
-  const parts = [[n((u) => u.state === 'done'), 'uploaded'], [n((u) => u.state === 'sending' || u.state === 'op' || u.state === 'trashing' || u.state === 'asking'), 'in progress'],
+  const parts = [[n((u) => u.state === 'done'), 'uploaded'], [n((u) => u.state === 'sending' || u.state === 'op'), 'in progress'],
     [n((u) => u.state === 'waiting'), 'waiting'], [n((u) => u.state === 'cut'), 'cut off'], [n((u) => u.state === 'failed'), 'refused'],
-    [n((u) => u.state === 'skipped'), 'skipped'], [n((u) => u.state === 'unsent'), 'not sent']].filter(([k]) => k > 0);
+    [n((u) => u.state === 'unsent'), 'not sent']].filter(([k]) => k > 0);
   return `Uploads: ${parts.map(([k, w]) => `${k} ${w}`).join(' · ') || 'none'}`;
 }
 
-/** The PC's answer to a PUT in words (spec §2.4: 409 an existing name, 507 no space; anything else with its text). */
+/** The PC's answer to a PUT (spec §2.4): 201 names the file as placed (`{name, bytes}`: a taken name is numbered, L1
+ *  P40); 507 no space; anything else in words with its text. */
 export function putAnswer(status, text) {
   const why = String(text || '').trim();
-  if (status >= 200 && status < 300) return { ok: true };
-  if (status === 409) return { ok: false, reason: `a file of that name is already there; the PC never replaces one${why ? ` (${why})` : ''}` };
+  if (status >= 200 && status < 300) {
+    let name = null;
+    try {
+      const j = JSON.parse(why);
+      if (j && typeof j.name === 'string' && j.name) name = j.name;
+    } catch (e) {
+      name = null; // said by the page: the answer named no file
+    }
+    return { ok: true, name };
+  }
   if (status === 507) return { ok: false, reason: `not enough space on the PC${why ? `: ${why}` : ''}` };
   if (status === 401 || status === 403) return { ok: false, reason: `the PC refused this device (${status})${why ? `: ${why}` : ''}` };
   return { ok: false, reason: `the PC answered ${status}${why ? `: ${why}` : ''}` };
@@ -430,7 +425,7 @@ export function putAnswer(status, text) {
 
 /** S1-2 R2 item 20 (review B-S4): the files of a drop, its folders left out. A folder's item reads as a directory entry
  *  (`webkitGetAsEntry`, in Firefox and Chromium); its body would fail before a byte reached the PC. A browser without
- *  entries gives the drop's file list whole (the upload's error path then gives the PC's place back). */
+ *  entries gives the drop's file list whole (the upload's error path then lets the PC's place go). */
 export function dropped(dt) {
   if (!dt) return { files: [], folders: [] };
   const items = dt.items && typeof dt.items.length === 'number' ? Array.from({ length: dt.items.length }, (_, i) => dt.items[i]) : [];
@@ -452,14 +447,6 @@ export function dropped(dt) {
 /** The words for the folders a drop left out. */
 export const foldersLeftOut = (folders) => `${folders.length === 1 ? `The folder '${folders[0]}' was` : `${folders.length} folders were`} left out of the drop: `
   + 'a folder is not uploaded. Open it on this device and drop the files inside it.';
-
-/** The PC's answer to `uploadCancel` (R2 item 2: Sent ends a ticket no body has begun for; Refused leaves it to the
- *  body's own end), as the upload's row says it. */
-export function cancelLine(ans) {
-  if (ans && ans.a === 'sent') return 'the PC let go of its place';
-  if (ans && ans.a === 'refused') return `the PC answered the cancel: ${ans.reason || `refused (${ans.code})`}`;
-  return `the PC answered the cancel with '${ans ? ans.a : 'nothing'}'`;
-}
 
 /** A location's capacity: the used fraction and its words, or null when the PC gave no total. */
 export function capacity(l) {

@@ -4,16 +4,17 @@
 // waiting screen with its code until the device is approved, then the `app` lane — Main's cards, the record's Reader
 // entries, the views' scopes. A rail on the desk, a bottom bar on the phone; an address per window and place with back
 // and forward; one focus model (arrows, Enter, Back). Out of reach, the page shows what it last had under "PC not
-// answering since" and every action is dim; it keeps no queue. A new bundle on the PC reloads the page.
+// answering since" and every action is dim; it keeps no queue. A new bundle on the PC, or a lane version it refuses,
+// reloads the page. L1 C1: every op carries `at`, the time of the input on the PC's clock.
 
-import { Conn } from './conn.mjs';
+import { Conn, RETRY_MS } from './conn.mjs';
 import * as P from './proto.mjs';
 import { ClientRecord } from './record.mjs';
-import { Stream, safeStorage, DEVICE_KEY, APPROVED_KEY } from './stream.mjs';
+import { Stream, safeStorage, DEVICE_KEY } from './stream.mjs';
 import * as A from './address.mjs';
 import { h, icon, toastsToDrop, keepFocus } from './dom.mjs';
 import { nextFocus } from './focus.mjs';
-import { confirmShape, chooseShape, askText } from './confirm.mjs';
+import { confirmShape, askText } from './confirm.mjs';
 import { NoticeDesk, WINDOW as NOTICES, PREFIX as NOTICE_PREFIX, dismissDraft, readDraft } from './notices.mjs';
 import { homeView } from './views/home.mjs';
 import { readerView } from './views/reader.mjs';
@@ -50,25 +51,27 @@ const S = {
   bundleHash: null,
   pcOffset: 0, // the PC's clock less this browser's, from the welcome's `pcClock`
 };
+/** Now on the PC's clock (ruling §5: a page's `at` is the PC's time, so a TV with a wrong clock orders right). */
+const pcNow = () => Math.round(Date.now() + S.pcOffset);
 
-// S1-2 Q3w: the PC's notices have a record copy of their own. A resume replays one scope's changes after the other's,
-// so a cursor shared with Reader's would pass the second scope's changes over.
+// S1-2 Q3w: the PC's notices have a record copy of their own: each scope's snapshot names its own seq, so a copy shared
+// with Reader's would pass the other scope's changes over.
 const noticeRec = new ClientRecord();
 const desk = new NoticeDesk(store, stream.id);
 const noticeToasts = new Map(); // id → its toast
 let noticeWake = null;
 
 const subs = new Map(); // the views' PC-served scopes → their need (S1-2 Q4w) or null, sent again at each welcome
-// S1-2 Q4w: a converted window's record scope beside Reader's (Torrents' recents and rows), each with its own copy and
-// cursor for the reason the notices have theirs; kept across the view's visits, so a return resumes from its cursor
+// S1-2 Q4w: a converted window's record scope beside Reader's (Torrents' recents and rows), each with its own copy for
+// the reason the notices have theirs; kept across the view's visits (a return draws it until its new snapshot)
 const recs = new Map(); // window → ClientRecord
 const recSubs = new Set(); // the windows whose record scope a view holds now
-const queued = new Map(); // n → {frame, onAnswer, gapped}
+const queued = new Map(); // n → {window, onAnswer}
 const connOps = new Map(); // k → onAnswer
 let nextK = 1;
 const saidOnce = new Set();
 /** S1-2 Q1 (F2b 5): the socket ended; the reach that comes back with the next socket is handed to the view from that
- *  socket's `welcome`, after `adopt` and the subscriptions, never before them. */
+ *  socket's `welcome`, after the subscriptions, never before them. */
 let reachAtWelcome = false;
 
 const el = {
@@ -92,7 +95,7 @@ function say(text, opts = {}) {
 
 function place(t, keep) {
   el.toasts.append(t);
-  // ruling 2.3 (12): the cap never pushes out a kept toast (a loss notice is said once) nor the one just said
+  // ruling 2.3 (12): the cap never pushes out a kept toast (an urgent notice, an end) nor the one just said
   const all = [...el.toasts.children];
   for (const i of toastsToDrop(all.map((c) => c.classList.contains('keep')), 4)) dropToast(all[i]);
   if (!keep) setTimeout(() => dropToast(t), 12000);
@@ -176,23 +179,19 @@ function welcome(f) {
   S.conn = f.conn;
   S.pcOffset = typeof f.pcClock === 'number' ? f.pcClock - Date.now() : 0;
   store.set(DEVICE_KEY, f.device);
-  const line = stream.adopt(f.highWater);
-  if (line) say(line, { from: 'Damage' });
   if (store.failed) sayOnce('storage', `This browser keeps no local storage (${store.failed}): its looks and its stream last only this visit.`, { from: 'Damage' });
-  if (f.bundle && Array.isArray(f.bundle.protoRange) && !(P.PROTO >= f.bundle.protoRange[0] && P.PROTO <= f.bundle.protoRange[1]))
-    say(`this page speaks lane ${P.PROTO}; the PC's bundle speaks ${f.bundle.protoRange.join('–')}. Reload the page.`, { from: 'Damage', keep: true });
-  send(P.sub('reader', S.record.cursor()));
+  send(P.sub('reader'));
   send(P.sub('desc/main'));
   // a PC that keeps no notice record (an older build) is not asked for one
-  if (f.contracts && f.contracts[NOTICES] !== undefined) send(P.sub(NOTICES, noticeRec.cursor()));
-  for (const w of recSubs) send(P.sub(w, recs.get(w).cursor()));
+  if (f.contracts && f.contracts[NOTICES] !== undefined) send(P.sub(NOTICES));
+  for (const w of recSubs) send(P.sub(w));
   if (P.atLeast(S.level, 'full') && !subs.has('devices')) subs.set('devices', null);
-  for (const [s, need] of subs) send(P.sub(s, null, need));
+  for (const [s, need] of subs) send(P.sub(s, need));
   const back = reachAtWelcome;
   reachAtWelcome = false;
   if (first) route();
   else if (view && view.onWelcome) view.onWelcome();
-  // F2b 5: what a view sends on the reach coming back (Reader's place read meanwhile) goes now, numbered from `adopt`
+  // F2b 5: what a view sends on the reach coming back (Reader's place read meanwhile) goes now, after the subscriptions
   if (!first && back && view && view.onReach) view.onReach();
   drawRail();
   drawReach();
@@ -209,9 +208,6 @@ async function redeem(claim) {
   if (r.status === 200) {
     const j = await r.json();
     store.set(DEVICE_KEY, j.device);
-    // F2b 4: a re-approval of a remembered device writes the same id, which tells no other tab; this value changes at
-    // every approval, so a second waiting tab hears it
-    store.set(APPROVED_KEY, String(Date.now()));
     say(`approved at level ${j.level}`, { from: 'Damage' });
   } else {
     say(r.status === 403 ? 'this approval is no longer valid; the page asks again' : `the approval was answered ${r.status}: ${await r.text()}`, { from: 'Damage' });
@@ -225,12 +221,6 @@ function restart() {
   conn.start();
 }
 
-// ruling 2.3: another tab of this browser took its approval (its redeem writes the device id once the cookie is set):
-// a waiting tab drops its code and connects with the cookie, never left waiting to be approved as a second row
-window.addEventListener('storage', (e) => {
-  if ((e.key === DEVICE_KEY || e.key === APPROVED_KEY) && e.newValue && S.phase === 'pending') restart();
-});
-
 function ended(f) {
   S.endText = P.endWords(f.reason, f.detail);
   say(S.endText, { from: 'Damage', keep: !P.endRetries(f.reason) });
@@ -239,6 +229,9 @@ function ended(f) {
     S.phase = 'ended';
     S.endReason = f.reason;
     render();
+    // L1: refused for its lane version (a deploy moved it): the page the PC serves now is loaded on the pacing, so a
+    // page left open on the TV comes back by itself
+    if (f.reason === 'proto') setTimeout(() => location.reload(), RETRY_MS);
   } else if (f.reason === 'revoked' || f.reason === 'replaced') {
     S.welcome = null;
     if (view && view.unmount) view.unmount();
@@ -272,7 +265,7 @@ function onReach(r) {
     for (const t of ['outage', 'away', 'reader-unsaved']) saidOnce.delete(t);
   } else if (S.welcome) saidOnce.add('outage');
   drawReach();
-  // F2b 5: back on a new socket, the view hears it from that socket's welcome (after adopt and the subscriptions);
+  // F2b 5: back on a new socket, the view hears it from that socket's welcome (after the subscriptions);
   // out of reach, or back on the same socket (a pong), it hears it now (N7: its dims follow the reach)
   if (r.ok && reachAtWelcome) return;
   if (view && view.onReach) view.onReach();
@@ -323,8 +316,8 @@ function noticeChg(f) {
 
 /** Pops what the desk says, takes down what moved elsewhere, and wakes at a quiet-hours hold's end. */
 function reviewNotices() {
-  const pcNow = Date.now() + S.pcOffset;
-  const r = desk.review(noticeRec.epoch, noticeRec.items, pcNow);
+  const now = pcNow();
+  const r = desk.review(noticeRec.epoch, noticeRec.items, now);
   for (const id of r.withdraw) {
     // dismissed, acknowledged or cleared on another screen, or a newer occurrence: it leaves without input
     const t = noticeToasts.get(id);
@@ -334,7 +327,7 @@ function reviewNotices() {
   for (const id of r.bad) sayOnce(`notice ${id}`, `A notice from the PC (${id}) has no occurrence number, so this page cannot show it.`, { from: 'Damage' });
   for (const n of r.pop) noticeToast(n);
   clearTimeout(noticeWake);
-  noticeWake = r.wake === null ? null : setTimeout(reviewNotices, Math.min(Math.max(r.wake - pcNow, 0), 2 ** 31 - 1));
+  noticeWake = r.wake === null ? null : setTimeout(reviewNotices, Math.min(Math.max(r.wake - now, 0), 2 ** 31 - 1));
 }
 
 function noticeToast(n) {
@@ -342,7 +335,7 @@ function noticeToast(n) {
   const card = ((S.descs.get('desc/main') || {}).cards || []).find((c) => c.window === v.app);
   const from = (card && card.name) || (VIEWS[v.app] && VIEWS[v.app].label) || (typeof v.app === 'string' && v.app ? v.app[0].toUpperCase() + v.app.slice(1) : 'Damage');
   const to = { window: v.app, target: v.target || null };
-  // a loss is never said (the next occurrence is already shown, spec §2.1); a refusal is
+  // a refusal is said
   const answered = (what) => (a) => {
     if (a && a.a === 'refused') say(`${what} “${v.body}”: ${P.answerWords(a)}`, { from });
   };
@@ -384,49 +377,12 @@ function answer(f) {
   }
   if (f.stream !== undefined) {
     const q = queued.get(f.n);
-    if (!q) {
-      // fix round 2, ruling 2.3: an answer whose op this page no longer holds is said, never dropped; N2: a `retry`
-      // in the page's words (it keeps no queue), never the PC's "kept and sent again"; S1-2 R0 §4: a `gap` likewise,
-      // never the PC's "expected N"
-      const held = P.pageWords(a);
-      if (P.answerWords(held)) say(P.answerWords(held), { from: 'Damage' });
-      return;
-    }
     queued.delete(f.n);
-    if (a.a === 'refused' && a.code === 'gap' && !q.gapped) {
-      // the PC expects an earlier number (an op of an ended connection never landed): number from there, once per
-      // op and once per gap value (ruling 2.3: two ops answered `gap` in one round trip take E and E + 1)
-      const m = /expected (\d+)/.exec(a.reason || '');
-      if (m) {
-        // F2b 3: never a number still held for another op's resend (a `retry` keeps its number for 2 s)
-        let n = stream.gapTo(Number(m[1]));
-        while (queued.has(n)) n = stream.next();
-        q.frame.op.n = n;
-        q.gapped = true;
-        queued.set(q.frame.op.n, q);
-        if (send(q.frame)) return;
-        queued.delete(q.frame.op.n);
-      }
-    }
-    if (a.a === 'refused' && a.code === 'retry' && !q.retried) {
-      q.retried = true;
-      queued.set(f.n, q);
-      setTimeout(() => {
-        // N2: only an op still held; the connection's end (`closed`) has already told its view it ended
-        if (queued.get(f.n) !== q) return;
-        if (!send(q.frame)) {
-          queued.delete(f.n);
-          if (q.onAnswer) q.onAnswer({ a: 'refused', code: 'ended', reason: 'not sent again: the connection ended' });
-        }
-      }, 2000);
-      return;
-    }
-    // ruling 2.3: past its one resend a retry is said in the page's words (it keeps no queue), never the PC's; S1-2 R0
-    // §4 (F2b 3's residual): so is a `gap` past its one renumbering — the PC refuses out of order, so an op numbered
-    // past another's held resend is answered `gap` again — said as not taken, to be tried again, never "expected N"
+    // N2: a `retry` in the page's words (it keeps no queue), never the PC's "kept and sent again"; an answer whose op
+    // this page no longer holds is said, never dropped (fix round 2, ruling 2.3)
     const given = P.pageWords(a);
-    if (q.onAnswer) q.onAnswer(given);
-    else if (P.answerWords(given)) say(P.answerWords(given), { from: q.frame.op.window });
+    if (q && q.onAnswer) q.onAnswer(given);
+    else if (P.answerWords(given)) say(P.answerWords(given), { from: q ? q.window : 'Damage' });
     return;
   }
   if (f.conn !== undefined) {
@@ -444,7 +400,7 @@ function answer(f) {
 /** Why an action needing `need` cannot be taken now, or null: not connected, the PC out of reach, the level. */
 function canAct(need) {
   if (S.phase !== 'open') return 'not connected to the PC';
-  if (!S.reach.ok) return `PC not answering since ${P.hhmm(S.reach.since)}`;
+  if (!S.reach.ok) return `PC not answering since ${P.when(S.reach.since)}`;
   return P.levelWhy(S.level, need);
 }
 
@@ -452,6 +408,7 @@ const ctx = {
   S,
   store,
   stream,
+  pcNow,
   say,
   sayOnce,
   canAct,
@@ -460,14 +417,14 @@ const ctx = {
   /** Subscribes (or asks again: a refused page's retry) to a PC-served scope; `need` for a live source (spec §2.3). */
   sub(scope, need = null) {
     subs.set(scope, need);
-    if (S.phase === 'open') send(P.sub(scope, null, need));
+    if (S.phase === 'open') send(P.sub(scope, need));
   },
   /** S1-2 Q4w: a held scope's need changed (the page hidden or shown, its Poll row): the subscription is sent again
    *  with it, the PC's viewer table taking the newer need (spec §2.3). */
   need(scope, need) {
     if (!subs.has(scope) || JSON.stringify(subs.get(scope)) === JSON.stringify(need)) return;
     subs.set(scope, need);
-    if (S.phase === 'open') send(P.sub(scope, null, need));
+    if (S.phase === 'open') send(P.sub(scope, need));
   },
   unsub(scope) {
     if (!subs.delete(scope)) return;
@@ -480,9 +437,9 @@ const ctx = {
     return recs.get(window);
   },
   watch(window) {
-    const r = ctx.rec(window);
+    ctx.rec(window);
     recSubs.add(window);
-    if (S.phase === 'open') send(P.sub(window, r.cursor()));
+    if (S.phase === 'open') send(P.sub(window));
   },
   unwatch(window) {
     if (recSubs.delete(window) && S.phase === 'open') send(P.unsub(window));
@@ -490,19 +447,20 @@ const ctx = {
   /** Whether this bundle has a page for a window (Open in Files before Files' page exists). */
   hasView: (w) => Object.prototype.hasOwnProperty.call(VIEWS, w),
   /** A queued op (a page keeps no queue: out of reach it is refused here, said once). False = not sent. S1-2 Q4w:
-   *  `opts.need`, the action's level (default view); the PC checks it again at apply. */
+   *  `opts.need`, the action's level (default view); the PC checks it again at apply. `draft.at`: the input's time
+   *  when it was earlier than the send (Reader's place at its save point), else now. */
   sendQueued(draft, onAnswer, opts = {}) {
     const why = canAct(opts.need || 'view');
     if (why) {
       if (!opts.quiet) sayOnce('away', `Not sent: ${why}. A page keeps no queue; act again when the PC answers.`, { from: draft.window });
       return false;
     }
-    const frame = P.queuedOp({ stream: stream.id, n: stream.next(), ...draft });
+    const frame = P.queuedOp({ stream: stream.id, n: stream.next(), ...draft, at: draft.at ?? pcNow() });
     if (!send(frame)) {
       if (!opts.quiet) say('Not sent: the connection to the PC is down.', { from: draft.window });
       return false;
     }
-    queued.set(frame.op.n, { frame, onAnswer });
+    queued.set(frame.op.n, { window: draft.window, onAnswer });
     return true;
   },
   /** A never-queued op of this connection (the device table). */
@@ -513,7 +471,7 @@ const ctx = {
       return false;
     }
     const k = nextK++;
-    if (!send(P.connOp({ conn: S.conn, k, ...draft }))) {
+    if (!send(P.connOp({ conn: S.conn, k, at: pcNow(), ...draft }))) {
       say('Not sent: the connection to the PC is down.', { from: draft.window });
       return false;
     }
@@ -530,7 +488,7 @@ const ctx = {
       return null;
     }
     const k = nextK++;
-    if (!send(P.connOp({ conn: S.conn, k, ...draft }))) {
+    if (!send(P.connOp({ conn: S.conn, k, at: pcNow(), ...draft }))) {
       say('Not sent: the connection to the PC is down.', { from: draft.window });
       return null;
     }
@@ -538,9 +496,10 @@ const ctx = {
     return k;
   },
   confirm: (c) => confirmShape(el.dialog, c),
-  /** S1-2 Q5w: a choice between acts, and a name typed behind Apply (`confirm.mjs`). */
-  choose: (c) => chooseShape(el.dialog, c),
+  /** S1-2 Q5w: a name typed behind Apply (`confirm.mjs`). */
   ask: (c) => askText(el.dialog, c),
+  /** L1 P41: the socket is let go and made again (the PC lets go of what this connection held: an upload's place). */
+  reconnect: () => conn.drop(),
   go,
   /** A button for an action at level `need`: dim with the reason (W-25, C§4.4) when the level, the reach or `why`
    *  stops it; a dim button stays focusable and says why on focus and on a press. */
@@ -669,7 +628,7 @@ function drawReach() {
   const away = S.welcome !== null && !S.reach.ok;
   document.body.classList.toggle('away', away);
   el.reach.hidden = !away;
-  if (away) el.reach.textContent = `PC not answering since ${P.hhmm(S.reach.since)} — this page shows what it last had; actions wait until it answers.`;
+  if (away) el.reach.textContent = `PC not answering since ${P.when(S.reach.since)} — this page shows what it last had; actions wait until it answers.`;
 }
 
 // ---- one focus model (W-07): arrows move among the focus stops in the description's order; Enter acts; Back ----

@@ -2,7 +2,8 @@
 // Build S1-1, package P7 (CONTRACT.md §9.3 "reach and pacing"): a page's one connection to the PC. It pings on the
 // wire's pacing; a ping still unanswered when the next is due means the PC is out of reach — that decision rests on
 // the pings alone, never on a failed write. A closed socket is reconnected on 2 s pacing, for ever (pacing, not a
-// bound on any work). The socket, the clock and the timers are handed in, so the decision is tested without a browser.
+// bound on any work); L1: so is a socket with two pings unanswered (a half-open socket would otherwise wait for the
+// OS to give up on it). The socket, the clock and the timers are handed in, so the decision is tested without a browser.
 
 import { ping } from './proto.mjs';
 
@@ -16,6 +17,7 @@ export class Conn {
     this.ws = null;
     this.k = 0;
     this.waiting = null; // the unanswered ping: {k, at}
+    this.missed = 0; // pings unanswered in a row on this socket
     this.reach = { ok: false, since: now() };
     this.stopped = false;
     this.pinger = null;
@@ -27,7 +29,7 @@ export class Conn {
     this.connect();
   }
 
-  /** Sends one frame; false when the socket is not open (the caller says it: a page keeps no queue). */
+  /** Sends one frame; false when there is no open socket (the caller says it: a page keeps no queue). */
   send(f) {
     if (!this.ws || this.ws.readyState !== 1) return false;
     this.ws.send(JSON.stringify(f));
@@ -45,6 +47,7 @@ export class Conn {
   /** The PC answered (a pong, or a welcome on a new socket): in reach. */
   answered() {
     this.waiting = null;
+    this.missed = 0;
     if (!this.reach.ok) {
       this.reach = { ok: true, since: this.now() };
       if (this.onReach) this.onReach(this.reach);
@@ -64,11 +67,13 @@ export class Conn {
     ws.onopen = () => {
       ws.send(JSON.stringify(this.hello()));
       this.waiting = null;
+      this.missed = 0;
       this.timers.clearInterval(this.pinger);
       this.pinger = this.timers.setInterval(() => this.tick(), this.pingEveryMs);
       if (this.onOpen) this.onOpen();
     };
     ws.onmessage = (e) => {
+      if (this.ws !== ws) return; // a socket let go
       let f;
       try {
         f = JSON.parse(e.data);
@@ -84,21 +89,38 @@ export class Conn {
       if (f.t === 'welcome' || f.t === 'pending') this.answered();
       this.onFrame(f);
     };
-    ws.onclose = () => {
-      if (this.ws !== ws) return;
-      this.timers.clearInterval(this.pinger);
-      this.away(this.now());
-      this.onFrame({ t: 'closed' });
-      if (!this.stopped) this.retry = this.timers.setTimeout(() => this.connect(), this.retryMs);
-    };
+    ws.onclose = () => this.closed(ws);
     ws.onerror = () => {
       // a close follows every error; the close decides
     };
   }
 
-  /** The wire's pacing: the last ping unanswered now = out of reach since it went out. */
+  /** `ws` ended (or was let go): out of reach, said to the page, and a new socket on the pacing. */
+  closed(ws) {
+    if (this.ws !== ws) return;
+    this.ws = null;
+    this.timers.clearInterval(this.pinger);
+    this.away(this.now());
+    this.onFrame({ t: 'closed' });
+    if (!this.stopped) this.retry = this.timers.setTimeout(() => this.connect(), this.retryMs);
+  }
+
+  /** Lets the socket go now and makes a new one on the pacing: two pings unanswered, or the page's own ask (an upload
+   *  cancelled before its body began: the PC lets go of what that connection held, L1 P41). */
+  drop() {
+    const ws = this.ws;
+    if (!ws) return;
+    this.closed(ws);
+    ws.close();
+  }
+
+  /** The wire's pacing: the last ping unanswered now = out of reach since it went out; the second in a row lets the
+   *  socket go. */
   tick() {
-    if (this.waiting) this.away(this.waiting.at);
+    if (this.waiting) {
+      this.away(this.waiting.at);
+      if (++this.missed >= 2) return this.drop();
+    }
     const k = ++this.k;
     // away() acts on the change only, so the first unanswered ping of a streak names the time
     if (this.send(ping(k))) this.waiting = { k, at: this.now() };

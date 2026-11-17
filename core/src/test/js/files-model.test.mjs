@@ -98,12 +98,17 @@ test('delete forever always asks twice and names the thing; to the trash asks on
   assert.equal(M.confirmFor('copy', ['x']), null);
 });
 
-test('the clipboard, sort and hidden are registers expecting the value seen; the page has no clear of its own', () => {
-  const items = new Map([['rec.files.clip', { v: { verb: 'cut', path: '/a/b' }, rev: 2 }]]);
+test('the clipboard, sort and hidden are registers made at their input\'s time; the page has no clear of its own', () => {
+  const items = new Map([['rec.files.clip', { v: { verb: 'cut', path: '/a/b' }, by: 'phone', at: 50 }]]);
   const rec = { item: (w, n) => items.get(`rec.${w}.${n}`), value: (w, n) => (items.get(`rec.${w}.${n}`) || {}).v };
-  assert.deepEqual(M.clipDraft('copy', '/a/c', rec), { window: 'files', action: 'copy', targets: ['clip'], result: { verb: 'copy', path: '/a/c' }, expect: { value: { verb: 'cut', path: '/a/b' } } });
-  assert.deepEqual(M.regDraft('sort', 'sort', 'size', rec).expect, { value: null });
+  assert.deepEqual(M.regDraft('copy', 'clip', { verb: 'copy', path: '/a/c' }, 77), { window: 'files', action: 'copy', targets: ['clip'], result: { verb: 'copy', path: '/a/c' }, at: 77 });
   assert.equal(M.clipClearDraft, undefined, 'S1-2 R0 §3: the page sends no clear of its own; the PC core clears a pasted cut');
+  // L1 C1: an answered op is settled when the record shows its value or a later input (no change follows one that
+  // changed nothing); otherwise its change is on its way
+  const clip = rec.item('files', 'clip');
+  assert.equal(M.settled(clip, { verb: 'cut', path: '/a/b' }, 40), true, 'the record shows it');
+  assert.equal(M.settled(clip, { verb: 'copy', path: '/a/c' }, 40), true, 'a later input stands');
+  assert.equal(M.settled(clip, { verb: 'copy', path: '/a/c' }, 60), false, 'its change is on its way');
   assert.deepEqual(M.clipOf(rec), { verb: 'cut', path: '/a/b' });
   assert.equal(M.sortOf(rec), 'name');
   assert.equal(M.hiddenOf(rec), false);
@@ -118,10 +123,10 @@ test('a blob id is the path\'s UTF-8 in base64url without padding; a download ad
   assert.equal(M.pdfWidth(4000, 2), 2048);
 });
 
-test('one upload at a time; a stopped list sends nothing more; a taken name is known at the drop', () => {
+test('one upload at a time; a stopped list sends nothing more', () => {
   const u = new M.Uploads();
-  const [a, b, c] = u.add([{ name: 'a.txt', size: 3 }, { name: 'b.txt', size: 4 }, { name: 'c.txt', size: 5 }], '/d/', new Set(['b.txt']));
-  assert.deepEqual([a.dest, a.clash, b.clash], ['/d', false, true]);
+  const [a, b, c] = u.add([{ name: 'a.txt', size: 3 }, { name: 'b.txt', size: 4 }, { name: 'c.txt', size: 5 }], '/d/');
+  assert.equal(a.dest, '/d');
   assert.equal(u.next(), a);
   a.state = 'sending';
   assert.equal(u.next(), null, 'one at a time');
@@ -134,13 +139,12 @@ test('one upload at a time; a stopped list sends nothing more; a taken name is k
   assert.equal(M.uploadsHead(u.items), 'Uploads: 1 uploaded · 2 not sent');
   u.clearDone();
   assert.equal(u.items.length, 0);
-  assert.equal(M.freeName('a.txt', new Set(['a.txt', 'a (2).txt'])), 'a (3).txt');
-  assert.equal(M.freeName('notes', new Set(['notes'])), 'notes (2)');
 });
 
-test('the PC\'s answer to an upload\'s body in words: an existing name is never replaced, a full disk is said', () => {
-  assert.deepEqual(M.putAnswer(201, ''), { ok: true });
-  assert.match(M.putAnswer(409, 'x exists').reason, /already there; the PC never replaces one \(x exists\)/);
+test('the PC\'s answer to an upload\'s body: the name of the file placed (L1 P40: a taken name is numbered), a full disk said', () => {
+  assert.deepEqual(M.putAnswer(201, '{"name":"survey (1).bin","bytes":4}'), { ok: true, name: 'survey (1).bin' });
+  assert.deepEqual(M.putAnswer(201, ''), { ok: true, name: null });
+  assert.match(M.putAnswer(409, 'x and its numbered names up to (999) exist in /d; nothing was replaced').reason, /up to \(999\) exist/);
   assert.match(M.putAnswer(507, '2 GB needed').reason, /not enough space on the PC: 2 GB needed/);
 });
 
@@ -151,6 +155,9 @@ test('the job slot\'s line: its age on the PC\'s clock, and how long it has not 
   assert.equal(M.jobLine({ ...j, fraction: 0.5, state: 'queued' }, 5000), "On the PC: Stats of 'archive' · waiting for the slot · counting · 50% · 4 s");
   assert.match(M.busyWhy({ jobs: [j] }), /busy — one operation at a time/);
   assert.equal(M.busyWhy({ jobs: [{ ...j, state: 'done' }] }), null);
+  // L1 P44: the slot's job after its end, until the next: how it ended, and when
+  assert.match(M.jobLine({ ...j, state: 'failed', answer: 'ended by the supervisor: no progress for 10 min' }, 5000),
+    /^On the PC: Stats of 'archive': failed — ended by the supervisor: no progress for 10 min · \d+:\d\d$/);
   assert.equal(M.jobOutcome('Paste', { state: 'failed', answer: 'no space left' }), 'Paste: failed — no space left');
   assert.equal(M.jobOf({ a: 'sent', result: { job: 7 } }), '7');
 });
@@ -164,19 +171,6 @@ test('a new name: none, a slash, its own name, or one already there is refused i
   assert.equal(M.nameWhy('c.txt', taken), null);
 });
 
-// S1-2 R2 item 18: the trash store is never a folder: no crumb or label starts from it; at or under it, by real ancestry
-test('the trash store: inStore by real ancestry; crumbs and labels never start from a location of kind trash', () => {
-  const locs = [{ path: '/home/ada', label: 'Home', kind: 'home' }, { path: '/home/ada/.damage/trash', label: 'Trash', kind: 'trash' }];
-  const stores = M.storesOf(locs);
-  assert.deepEqual(stores, ['/home/ada/.damage/trash']);
-  assert.equal(M.inStore('/home/ada/.damage/trash', stores), true);
-  assert.equal(M.inStore('/home/ada/.damage/trash/3/manifest.json', stores), true);
-  assert.equal(M.inStore('/home/ada/.damage/trash-old', stores), false, 'a name prefix is not an ancestor');
-  assert.equal(M.inStore('/home/ada/.damage', stores), false);
-  assert.deepEqual(M.crumbs('/home/ada/.damage/trash/3', locs).map((c) => c.label), ['Home', '.damage', 'trash', '3']);
-  assert.equal(M.folderLabel('/home/ada/.damage/trash', locs), 'Home / .damage / trash');
-});
-
 // S1-2 R2 item 20: a drop's folders are left out (their directory entries), the files beside them kept in order
 test('a drop\'s folders are left out by their entries; without entries the file list is taken whole', () => {
   const it = (name, dir) => ({ kind: 'file', webkitGetAsEntry: () => ({ isDirectory: dir, name }), getAsFile: () => ({ name }) });
@@ -187,6 +181,4 @@ test('a drop\'s folders are left out by their entries; without entries the file 
   assert.deepEqual(M.dropped(null), { files: [], folders: [] });
   assert.match(M.foldersLeftOut(['pics']), /^The folder 'pics' was left out of the drop: a folder is not uploaded/);
   assert.match(M.foldersLeftOut(['a', 'b']), /^2 folders were left out/);
-  assert.equal(M.cancelLine({ a: 'sent' }), 'the PC let go of its place');
-  assert.equal(M.cancelLine({ a: 'refused', code: 'program', reason: 'begun' }), 'the PC answered the cancel: begun');
 });

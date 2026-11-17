@@ -26,7 +26,8 @@ export function diagView(ctx) {
       ['PC build', d.build],
       ['Record', `epoch ${d.epoch} · seq ${d.seq}`],
       ['Contracts', Object.entries(d.contracts || {}).map(([k, v]) => `${k} ${v}`).join(', ')],
-      ['This page', w.bundle ? `bundle ${w.bundle.version} · lane ${w.proto} · ${w.bundle.hash}` : '—'],
+      // AC27: the welcome's bundle is its content hash alone
+      ['This page', w.bundle ? `lane ${w.proto} · bundle ${w.bundle.hash}` : '—'],
       ['This device', `${ctx.S.device} · ${ctx.S.level} · connection ${ctx.S.conn} · stream ${ctx.stream.id}`],
     ];
     root.replaceChildren(...head,

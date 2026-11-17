@@ -1,23 +1,24 @@
 // Context for the reader: Damage is Adam's own window manager for his own glasses, phone and PC on his own network.
 // Build S1-2, package Q5w: the Files page in the real page shell (`app.mjs`) over the DOM stand-in. The pins: below
 // level full nothing of Files is asked or shown, and a level lowered by a re-approval lets it all go; an address
-// naming an entry reads pages until it is held; Move to Trash asks once naming the thing and its job's end is said;
-// Delete forever asks twice; a confirm open over a connection's end sends nothing; dropped files go one at a time,
-// the upload op then its body; a cut-off upload is said and stops the rest; a taken name asks first (Skip, Replace by
-// the trash); out of reach nothing is sent and the page says why; a pasted cut is cleared by the PC core, never the page; Sort and
-// Hidden are shared rows; several selected; the text preview; the job line and its dims.
+// naming an entry reads pages until it is held; Move to Trash asks once naming the thing and the slot's line says its
+// end; Delete forever asks twice; dropped files go one at a time, the upload op then its body; a cut-off upload is
+// said and stops the rest; a PUT ended before its body began remakes the connection (L1 P41); a taken name is placed
+// under the PC's numbered name and said (L1 P40); out of reach nothing is sent and the page says why; a pasted cut is
+// cleared by the PC core, never the page; Sort and Hidden are shared rows; several selected; the text preview; the job
+// line and its dims.
 
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { openPage, browserStorage, handTimers, restore, settle } from './pagehost.mjs';
 import { format } from '../../main/resources/web/js/address.mjs';
 import { readFileSync } from 'node:fs';
-import { filesDesc, filesRecord, folderRows, folderPage, runningCopy, entry, TRASH, DL, HOME, STORE, F_NOW } from './files-fixtures.mjs';
+import { filesDesc, filesRecord, folderRows, folderPage, runningCopy, TRASH, DL, STORE, F_NOW } from './files-fixtures.mjs';
 
 afterEach(restore);
 
 const welcome = (stream, extra = {}) => ({ t: 'welcome', proto: 2, device: 'web-1', level: 'full', conn: 7, pcClock: F_NOW, epoch: 3, seq: 10,
-  highWater: {}, contracts: { reader: 1, notices: 1, torrents: 1, files: 1 }, bundle: { version: 't', hash: 'h', protoRange: [2, 2] }, ...extra });
+  contracts: { reader: 1, notices: 1, torrents: 1, files: 1 }, bundle: { hash: 'h' }, ...extra });
 const at = (target) => format({ window: 'files', target });
 
 class FakeXHR {
@@ -94,7 +95,7 @@ test('an address naming an entry reads the folder\'s pages until it is held, the
   assert.ok(find(p, 'H2', name), 'its pane');
 });
 
-test('Move to Trash asks once naming the entry, sends one program op, and says the job\'s end from the slot', async () => {
+test('Move to Trash asks once naming the entry, sends one program op, and the slot\'s line says the job\'s end (L1 P44)', async () => {
   const { p, ws, rows } = await page();
   const r = rows.find((x) => !x.dir && x.name.endsWith('.txt'));
   p.go(at(`path:${DL}/${r.name}`));
@@ -107,8 +108,8 @@ test('Move to Trash asks once naming the entry, sends one program op, and says t
   assert.match(main(p).textContent, /Move to Trash · 1 item · sent, no answer from the PC yet/);
   sent(ws, op.k, { a: 'sent', result: { job: 'j9' } });
   assert.equal(p.said().some((t) => /done/.test(t)), false, 'Sent is not the end of the job');
-  ws.frame({ t: 'snap', scope: 'desc/files', desc: filesDesc({ jobs: [{ id: 'j9', label: 'trashing', state: 'done', startedAt: F_NOW, updatedAt: F_NOW, answer: 'moved to trash' }] }) });
-  assert.match(p.said().at(-1), /Move to Trash: done — moved to trash/);
+  ws.frame({ t: 'snap', scope: 'desc/files', desc: filesDesc({ jobs: [{ id: 'j9', label: 'Move to Trash', state: 'done', startedAt: F_NOW, updatedAt: F_NOW, answer: 'moved to trash' }] }) });
+  assert.match(main(p).textContent, /On the PC: Move to Trash: done — moved to trash · \d+:\d\d/);
 });
 
 test('Delete forever asks twice; the first act sends nothing', async () => {
@@ -162,62 +163,6 @@ test('a location of kind trash is the one Trash card, which opens the trash view
   assert.equal(subs(ws).some((f) => f.scope.startsWith(`files/folder:${STORE}`)), false, 'the store never listed');
 });
 
-test('an address at or under the trash store offers no folder operation, whatever the PC serves', async () => {
-  // opened before the first description: the place is made again once the store is named
-  const { p, ws } = await page({ path: at(`path:${STORE}/`), desc: filesDesc({ store: true }), rows: null });
-  const asked = `files/folder:${STORE}/page:0`;
-  const none = () => {
-    const text = main(p).textContent;
-    assert.match(text, /is where the PC keeps the trash's own files\. It is not opened as a folder here/);
-    for (const label of ['Upload files', 'New folder', 'Paste here', 'Rename', 'Move to Trash', 'Cut', 'Copy', 'Stats']) {
-      assert.equal(findAll(p, 'BUTTON').some((b) => (b.textContent || '').startsWith(label)), false, label);
-    }
-    assert.equal(findAll(p, 'LI').length, 0, 'nothing of it listed');
-  };
-  // the PC serves its inside anyway
-  ws.frame({ t: 'snap', scope: asked, desc: folderPage([entry(1, { name: 'manifest.json' }), entry(11, { name: '3', dir: true })], 0) });
-  none();
-  assert.ok(ws.sent.some((f) => f.t === 'unsub' && f.scope === asked), 'its listing let go');
-  drop(p, [file('x.txt')]);
-  assert.deepEqual(progOps(ws), [], 'a drop on it uploads nothing');
-  p.go(at(`path:${STORE}/3/manifest.json`));
-  none();
-  // a later description that leaves the store out (an empty trash) does not open it as a folder
-  ws.frame({ t: 'snap', scope: 'desc/files', desc: filesDesc() });
-  p.go(at(`path:${STORE}/`));
-  none();
-  byKey(p, 'store:trash').fire('click');
-  assert.ok(subs(ws).some((f) => f.scope === 'files/trash'), 'its link opens the trash view');
-  // the store's own row in its parent (Hidden files on): no checkbox to pick, its pane offers the trash view only
-  const parent = `${HOME}/.damage`;
-  p.go(at(`path:${parent}/trash`));
-  ws.frame({ t: 'snap', scope: `files/folder:${parent}/page:0`, desc: folderPage([entry(11, { name: 'trash', dir: true }), entry(2, { name: 'notes.txt' })], 0) });
-  assert.deepEqual(all(p.doc.byId.main).filter((e) => e.getAttribute('data-key') && e.getAttribute('data-key').startsWith('p:')).map((e) => e.getAttribute('data-key')), ['p:close', 'p:trash']);
-  assert.equal(byKey(p, 'sel:trash'), undefined, 'the store is never selected');
-  byKey(p, 'sel:all').fire('change');
-  find(p, 'BUTTON', 'Move to Trash').fire('click');
-  await settle();
-  dialog(p).querySelector('button.act').fire('click');
-  await settle();
-  assert.deepEqual(progOps(ws).map((o) => [o.action, o.targets]), [['trash', [`${parent}/notes.txt`]]], 'Select all leaves the store out');
-});
-
-test('a confirm open while the connection ended sends nothing when it is taken (C§4.3)', async () => {
-  const { p, ws, timers, stream, rows } = await page();
-  const r = rows.find((x) => !x.dir);
-  p.go(at(`path:${DL}/${r.name}`));
-  find(p, 'BUTTON', 'Move to Trash').fire('click');
-  p.sockets[0].close();
-  timers.timeouts.filter((x) => x.live && x.ms === 2000).at(-1).fn();
-  const ws2 = p.sockets.at(-1);
-  ws2.open();
-  ws2.frame(welcome(stream, { conn: 8 }));
-  dialog(p).querySelector('button.act').fire('click');
-  await settle();
-  assert.deepEqual(progOps(ws).concat(progOps(ws2)), []);
-  assert.match(p.said().join(' | '), /nothing sent — the connection to the PC ended while the confirm was open/);
-});
-
 test('dropped files go one at a time: the upload op, then its body under the id the PC gave, then the next', async () => {
   const { p, ws } = await page();
   drop(p, [file('new a.txt', 200), file('new b.txt', 300)]);
@@ -230,7 +175,7 @@ test('dropped files go one at a time: the upload op, then its body under the id 
   // a second drop while one is being sent waits its turn (the PC holds one slot)
   drop(p, [file('later.txt', 50)]);
   assert.equal(progOps(ws).length, 1, 'the next waits for this one');
-  Object.assign(x, { status: 201, responseText: '' });
+  Object.assign(x, { status: 201, responseText: '{"name":"new a.txt","bytes":200}' });
   x.onload();
   assert.match(p.said().at(-1), /Uploaded 'new a\.txt' to Downloads\./);
   assert.deepEqual(progOps(ws).at(-1).params, { file: { name: 'new b.txt', size: 300 } });
@@ -244,49 +189,40 @@ test('a cut-off upload is said, and the files after it are not sent', async () =
   x.upload.onprogress({ loaded: 400, total: 1000, lengthComputable: true });
   x.onerror();
   const said = p.said().join(' | ');
-  assert.match(said, /'one\.bin': the upload was cut off at 400 B of 1000 B \(the connection to the PC dropped\); nothing is kept under that name/);
+  assert.match(said, /'one\.bin': the upload was cut off at 400 B of 1000 B \(the connection to the PC dropped\); nothing is kept of it/);
   assert.match(said, /1 more file was not uploaded/);
-  // S1-2 R2 item 20: the error path now also sends `uploadCancel` (pinned below); the upload ops are what this counts
-  assert.equal(progOps(ws).filter((o) => o.action === 'upload').length, 1, 'two.bin not sent');
+  assert.equal(progOps(ws).length, 1, 'two.bin not sent');
 });
 
-// S1-2 R2 item 20 (review B-S4): the PC holds its one Files slot for a ticket until the body ends or the ticket is
-// given back; a PUT that ends on its error or abort path gives it back, so the slot is not held for the tab's life
-test('a PUT ended on its error or abort path gives its ticket back with uploadCancel; the answer is on its row', async () => {
+// L1 P41 (review B-S4): the PC holds its one Files slot for a ticket until its body ends; a PUT that ended before a
+// byte left drops and remakes the page's connection, and the PC lets go of the tickets of that connection
+test('a PUT ended before its body began remakes the page\'s connection; one whose body began, or of an ended one, does not', async () => {
   const { p, ws, timers, stream } = await page();
-  const cancels = (w) => progOps(w).filter((o) => o.action === 'uploadCancel');
-  // the error path (the request failed, as for a file gone from his device before its turn)
-  drop(p, [file('one.bin', 1000)]);
+  const reconnect = (conn) => {
+    timers.timeouts.filter((x) => x.live && x.ms === 2000).at(-1).fn();
+    const w = p.sockets.at(-1);
+    w.open();
+    w.frame(welcome(stream, { conn }));
+    return w;
+  };
+  drop(p, [file('one.bin', 1000)]); // the error path: the request failed before a byte left
   sent(ws, progOps(ws)[0].k, { a: 'sent', result: { upload: 'u-1' } });
   FakeXHR.all[0].onerror();
-  const [c] = cancels(ws);
-  assert.deepEqual([c.window, c.action, c.targets, c.params, c.conn], ['files', 'uploadCancel', [], { upload: 'u-1' }, 7]);
-  sent(ws, c.k, { a: 'sent' });
-  assert.match(main(p).textContent, /cut off at 0 B of 1000 B: the connection to the PC dropped · the PC let go of its place/);
-  // the abort path (Cancel on its row while it is sent); a body that began is ended by its own end: Refused, said
-  drop(p, [file('two.bin', 1000)]);
-  sent(ws, progOps(ws).at(-1).k, { a: 'sent', result: { upload: 'u-2' } });
+  assert.equal(ws.readyState, 3, 'the connection is let go');
+  assert.match(main(p).textContent, /cut off at 0 B of 1000 B: the connection to the PC dropped · this page reconnected, so the PC lets go of its place/);
+  const ws2 = reconnect(8);
+  drop(p, [file('two.bin', 1000)]); // Cancel on its row after the body began: its own end ends it
+  sent(ws2, progOps(ws2).at(-1).k, { a: 'sent', result: { upload: 'u-2' } });
   FakeXHR.all[1].upload.onprogress({ loaded: 300, total: 1000, lengthComputable: true });
-  byKey(p, `up:cancel:${2}`).fire('click');
-  assert.deepEqual(cancels(ws).map((o) => o.params), [{ upload: 'u-1' }, { upload: 'u-2' }]);
-  sent(ws, cancels(ws)[1].k, { a: 'refused', code: 'program', reason: 'its body had begun; the body\'s end ends it' });
-  assert.match(main(p).textContent, /cut off at 300 B of 1000 B: cancelled on this page · the PC answered the cancel: its body had begun/);
-  // a body the PC answered (refused or not) is not given back: its end was the PC's own
-  drop(p, [file('three.bin', 10)]);
-  sent(ws, progOps(ws).at(-1).k, { a: 'sent', result: { upload: 'u-3' } });
-  Object.assign(FakeXHR.all[2], { status: 409, responseText: 'taken' });
-  FakeXHR.all[2].onload();
-  assert.equal(cancels(ws).length, 2, 'no cancel after the PC answered the body');
-  // a ticket of a connection that has ended is not asked about on the next one
-  drop(p, [file('four.bin', 10)]);
-  sent(ws, progOps(ws).at(-1).k, { a: 'sent', result: { upload: 'u-4' } });
-  p.sockets[0].close();
-  timers.timeouts.filter((x) => x.live && x.ms === 2000).at(-1).fn();
-  const ws2 = p.sockets.at(-1);
-  ws2.open();
-  ws2.frame(welcome(stream, { conn: 8 }));
-  FakeXHR.all[3].onerror();
-  assert.deepEqual(cancels(ws2), [], 'the PC lets go of a ticket with its connection (R2 item 1)');
+  byKey(p, 'up:cancel:2').fire('click');
+  assert.deepEqual([ws2.readyState, p.sockets.length], [1, 2], 'the connection stays');
+  assert.match(main(p).textContent, /cut off at 300 B of 1000 B: cancelled on this page/);
+  drop(p, [file('three.bin', 10)]); // a ticket of a connection that has ended: the PC let go of it with that one
+  sent(ws2, progOps(ws2).at(-1).k, { a: 'sent', result: { upload: 'u-3' } });
+  ws2.close();
+  const ws3 = reconnect(9);
+  FakeXHR.all[2].onerror();
+  assert.equal(ws3.readyState, 1, 'the new connection is not let go');
 });
 
 test('folders are left out of a drop and said; the files beside them are uploaded', async () => {
@@ -300,68 +236,18 @@ test('folders are left out of a drop and said; the files beside them are uploade
   assert.match(p.said().at(-1), /The folder 'one folder' was left out of the drop/);
 });
 
-// S1-2 R2 item 20 (review B-N9): Replace's trash whose end this page did not see — its answer lost with the
-// connection, the slot naming no such job after a reconnect, or the slot moved on — says that it is not known
-test('Replace whose trash ended unseen says it is not known whether the old one went to the trash', async () => {
-  const { p, ws, timers, stream, rows } = await page();
-  const name = rows.find((x) => !x.dir).name;
-  const replace = async (w) => {
-    drop(p, [file(name)]);
-    all(dialog(p)).find((e) => e.getAttribute('data-choice') === 'replace').fire('click');
-    await settle();
-    return progOps(w).filter((o) => o.action === 'trash').at(-1);
-  };
-  const reconnect = (conn) => {
-    p.sockets.at(-1).close();
-    timers.timeouts.filter((x) => x.live && x.ms === 2000).at(-1).fn();
-    const w = p.sockets.at(-1);
-    w.open();
-    w.frame(welcome(stream, { conn }));
-    return w;
-  };
-  // 1. answered with its job, then the connection ended and the next description names no such job
-  const t1 = await replace(ws);
-  sent(ws, t1.k, { a: 'sent', result: { job: 'j5' } });
-  const ws2 = reconnect(8);
-  ws2.frame({ t: 'snap', scope: 'desc/files', desc: filesDesc({ jobs: [] }) });
-  const known = /not known whether the old one went to the trash/;
-  assert.match(p.said().at(-1), known);
-  assert.match(p.said().at(-1), /the connection to the PC ended while it ran/);
-  assert.doesNotMatch(p.said().join(' | '), /could not be moved/);
-  // 2. its answer lost with the connection
-  const t2 = await replace(ws2);
-  assert.ok(t2);
-  const ws3 = reconnect(9);
-  assert.match(p.said().join(' | '), /not known whether the old one went to the trash \(the connection to the PC ended before its answer\)/);
-  // 3. the slot moved on to a job started after it was answered
-  ws3.frame({ t: 'snap', scope: 'desc/files', desc: filesDesc() });
-  const t3 = await replace(ws3);
-  sent(ws3, t3.k, { a: 'sent', result: { job: 'j6' } });
-  ws3.frame({ t: 'snap', scope: 'desc/files', desc: filesDesc({ jobs: [runningCopy({ id: 'j7', startedAt: F_NOW + 3600e3 })] }) });
-  assert.match(p.said().at(-1), /not known whether the old one went to the trash \(the PC's job slot moved on/);
-  assert.doesNotMatch(p.said().join(' | '), /could not be moved/);
-  // a trash the PC refused is still said as not moved
-  const t4 = await replace(ws3);
-  sent(ws3, t4.k, { a: 'refused', code: 'program', reason: 'permission denied' });
-  assert.match(p.said().at(-1), /not uploaded: the old one could not be moved to the trash \(Move to Trash: permission denied\)/);
-});
-
-test('a dropped file whose name is in the folder asks first: Skip sends nothing; Replace moves the old one to the trash, then uploads', async () => {
+test('L1 P40: a dropped file whose name is taken goes under the name the PC gives it, and that name is said', async () => {
   const { p, ws, rows } = await page();
-  const name = rows.find((x) => !x.dir).name;
-  drop(p, [file(name)]);
-  assert.match(dialog(p).textContent, new RegExp(`'${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}' is already in Downloads`));
-  dlgButton(p, 'Skip').fire('click');
-  await settle();
-  assert.deepEqual(progOps(ws), []);
-  drop(p, [file(name)]);
-  all(dialog(p)).find((e) => e.getAttribute('data-choice') === 'replace').fire('click');
-  await settle();
-  const [t] = progOps(ws);
-  assert.deepEqual([t.action, t.targets], ['trash', [`${DL}/${name}`]]);
-  assert.equal(progOps(ws).length, 1, 'nothing uploaded before the old one is in the trash');
-  sent(ws, t.k, { a: 'sent' });
-  assert.deepEqual(progOps(ws).at(-1).params, { file: { name, size: 100 } });
+  const taken = rows.find((x) => !x.dir && x.name.endsWith('.txt')).name;
+  drop(p, [file(taken, 10)]);
+  assert.equal(dialog(p).open, false, 'nothing asks first');
+  const [op] = progOps(ws);
+  assert.deepEqual(op.params, { file: { name: taken, size: 10 } }, 'asked under its own name');
+  sent(ws, op.k, { a: 'sent', result: { upload: 'u-1' } });
+  Object.assign(FakeXHR.all[0], { status: 201, responseText: JSON.stringify({ name: 'placed (1).txt', bytes: 10 }) });
+  FakeXHR.all[0].onload();
+  assert.match(p.said().at(-1), /Uploaded 'placed \(1\)\.txt' to Downloads\./);
+  assert.match(main(p).textContent, new RegExp(`${taken.replace(/[.()]/g, '\\$&')} → placed \\(1\\)\\.txt.*uploaded as 'placed \\(1\\)\\.txt'`));
 });
 
 test('out of reach, dropped files are not sent and the page says why', async () => {
@@ -375,24 +261,24 @@ test('out of reach, dropped files are not sent and the page says why', async () 
 
 test('a pasted cut sends the paste alone: the PC core clears the clipboard (S1-2 R0 §3), and the page shows the record', async () => {
   const clip = { verb: 'cut', path: '/home/ada/notes.txt' };
-  const { p, ws } = await page({ record: filesRecord({ 'rec.files.clip': { v: clip, rev: 3, by: 'phone-1', at: 1 } }) });
+  const { p, ws } = await page({ record: filesRecord({ 'rec.files.clip': { v: clip, by: 'phone-1', at: 1 } }) });
   find(p, 'BUTTON', "Paste here: 'notes.txt'").fire('click');
   const [op] = progOps(ws);
   assert.deepEqual([op.action, op.targets, op.params], ['paste', [DL], clip]);
   sent(ws, op.k, { a: 'sent', result: { path: `${DL}/notes.txt` } });
   assert.deepEqual(queuedOps(ws), [], 'no clear of the page\'s own: one place clears, the PC core');
   // the core's clear arrives as the record's change: the Paste button leaves with the clip
-  ws.frame({ t: 'chg', scope: 'files', epoch: 3, seq: 41, patches: [{ addr: 'rec.files.clip', set: { v: null, rev: 4, by: 'pc', at: 2 } }] });
+  ws.frame({ t: 'chg', scope: 'files', epoch: 3, seq: 41, patches: [{ addr: 'rec.files.clip', set: { v: null, by: 'pc', at: 2 } }] });
   assert.equal(findAll(p, 'BUTTON').some((b) => /^Paste here/.test(b.textContent || '')), false);
 });
 
-test('Sort and Hidden are shared rows: a record op expecting the value seen; the rows reorder at once', async () => {
+test('Sort and Hidden are shared rows: a record op at its input\'s time; the rows reorder at once', async () => {
   const { p, ws, rows } = await page();
   const sort = byKey(p, 'sort');
   sort.value = 'size';
   sort.fire('change', { target: sort });
   const [op] = queuedOps(ws);
-  assert.deepEqual([op.window, op.action, op.targets, op.result, op.expect], ['files', 'sort', ['sort'], 'size', { value: 'name' }]);
+  assert.deepEqual([op.window, op.action, op.targets, op.result, typeof op.at], ['files', 'sort', ['sort'], 'size', 'number']);
   const biggest = rows.filter((r) => !r.dir && !r.name.startsWith('.')).sort((a, b) => b.size - a.size)[0];
   const firstFile = all(main(p)).filter((e) => e.tagName === 'LI' && e.getAttribute('data-name') !== null && !e.classList.contains('dir'))[0];
   assert.equal(firstFile.getAttribute('data-name'), biggest.name);
@@ -400,6 +286,20 @@ test('Sort and Hidden are shared rows: a record op expecting the value seen; the
   hid.checked = true;
   hid.fire('change', { target: hid });
   assert.deepEqual(queuedOps(ws).at(-1).result, true);
+});
+
+test('L1 C1: an answered register op that changed nothing (a later input stands) shows the record, never its own value', async () => {
+  const { p, ws } = await page();
+  // another device's Hidden, its input later than his click to come (a clock a little ahead), reaches the record first
+  ws.frame({ t: 'chg', scope: 'files', epoch: 3, seq: 41, patches: [{ addr: 'rec.files.hidden', set: { v: false, by: 'phone-1', at: F_NOW + 60e3 } }] });
+  const hid = byKey(p, 'hidden');
+  hid.checked = true;
+  hid.fire('change', { target: hid });
+  const shown = () => byKey(p, 'hidden').getAttribute('checked') !== null;
+  assert.equal(shown(), true, 'shown at once');
+  const op = queuedOps(ws).at(-1);
+  ws.frame({ t: 'ans', stream: op.stream, n: op.n, epoch: 3, seq: 42, answer: { a: 'seen' } }); // and no change follows
+  assert.equal(shown(), false, 'the later input stands');
 });
 
 test('several selected: Move to Trash is one op over their paths; Download gives one link per file and leaves folders out', async () => {
@@ -456,19 +356,4 @@ test('at a phone\'s width an entry\'s address still reads its folder until the e
   ws.frame({ t: 'snap', scope: `files/folder:${DL}/page:0`, desc: folderPage(rows, 0) });
   assert.ok(find(p, 'H2', r.name));
   assert.ok(find(p, 'BUTTON', '← Back'), 'Back, at a phone\'s width');
-});
-
-test('a job this page started that the slot no longer names after a reconnect is said, never left waiting', async () => {
-  const { p, ws, timers, stream, rows } = await page();
-  const r = rows.find((x) => !x.dir);
-  p.go(at(`path:${DL}/${r.name}`));
-  find(p, 'BUTTON', 'Stats').fire('click');
-  sent(ws, progOps(ws)[0].k, { a: 'sent', result: { job: 'j4' } });
-  p.sockets[0].close();
-  timers.timeouts.filter((x) => x.live && x.ms === 2000).at(-1).fn();
-  const ws2 = p.sockets.at(-1);
-  ws2.open();
-  ws2.frame(welcome(stream, { conn: 8 }));
-  ws2.frame({ t: 'snap', scope: 'desc/files', desc: filesDesc({ jobs: [] }) });
-  assert.match(p.said().at(-1), /Stats: not known how it ended — the connection to the PC ended while it ran/);
 });

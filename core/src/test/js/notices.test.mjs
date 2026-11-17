@@ -15,7 +15,7 @@ afterEach(restore);
 /** A notice value as the spec's §2.1 writes it. */
 const val = (id, occ, state = 'RAISED', extra = {}) => ({ occ, raisedAt: 1000 + occ, app: 'torrents', source: 'torrents', body: `done · ${id}`,
   urgency: 'NORMAL', ackRequired: false, gatedBy: 'Torrents', target: `t:${id}`, actions: [], state, origin: 'pc', mayRepeat: false, ...extra });
-const rec = (id, occ, state, extra) => [`rec.notices.${id}`, { v: val(id, occ, state, extra), rev: 1, by: 'pc', at: 1 }];
+const rec = (id, occ, state, extra) => [`rec.notices.${id}`, { v: val(id, occ, state, extra), by: 'pc', at: 1 }];
 const items = (...rs) => new Map(rs);
 function mem() {
   const m = new Map();
@@ -98,16 +98,15 @@ test('two tabs of one browser each pop a new notice: the stored cursor only seed
   assert.deepEqual([ids(a.review(3, now, 0)), ids(b.review(3, now, 0))], [['n'], ['n']]);
 });
 
-test('a dismiss and a read are the whole value with the state moved, expecting the occurrence seen (as text)', () => {
+test('a dismiss and a read are the whole value with the state moved, its occurrence in it (L1 C1: no expectation)', () => {
   const n = { id: 'torrents:h1', v: val('h1', 7), occ: 7 };
-  assert.deepEqual(dismissDraft(n), { window: 'notices', action: 'dismiss', targets: ['torrents:h1'], result: { ...val('h1', 7), state: 'DISMISSED' }, expect: { occ: '7' } });
-  assert.deepEqual(readDraft(n).result.state, 'READ');
-  assert.deepEqual(readDraft(n).expect, { occ: '7' });
+  assert.deepEqual(dismissDraft(n), { window: 'notices', action: 'dismiss', targets: ['torrents:h1'], result: { ...val('h1', 7), state: 'DISMISSED' } });
+  assert.deepEqual([readDraft(n).result.state, readDraft(n).result.occ], ['READ', 7]);
 });
 
 test('an occurrence is a whole number or its decimal text; a value without one is listed, never dropped unsaid', () => {
   assert.deepEqual([occOf({ occ: 7 }), occOf({ occ: '12' }), occOf({ occ: 'x' }), occOf({ occ: -1 }), occOf({})], [7, 12, null, null, null]);
-  const r = notices(items(rec('a', 1), ['rec.notices.bad', { v: { body: 'x' }, rev: 1, by: 'pc', at: 1 }], ['rec.reader.recent', { v: 'b1' }]));
+  const r = notices(items(rec('a', 1), ['rec.notices.bad', { v: { body: 'x' }, by: 'pc', at: 1 }], ['rec.reader.recent', { v: 'b1' }]));
   assert.deepEqual([r.all.map((n) => n.id), r.bad], [['a'], ['bad']]);
 });
 
@@ -115,8 +114,8 @@ test('an occurrence is a whole number or its decimal text; a value without one i
 
 const NOW = Date.UTC(2026, 10, 15, 14, 2);
 const welcome = (stream, extra = {}) => ({ t: 'welcome', proto: 2, device: 'web-1', level: 'full', conn: 7, pcClock: NOW, epoch: 3, seq: 10,
-  highWater: {}, contracts: { reader: 1, notices: 1 }, bundle: { version: 't', hash: 'h', protoRange: [2, 2] }, ...extra });
-const snapN = (seq, ...rs) => ({ t: 'snap', scope: 'notices', epoch: 3, seq, items: Object.fromEntries(rs), colls: {} });
+  contracts: { reader: 1, notices: 1 }, bundle: { hash: 'h' }, ...extra });
+const snapN = (seq, ...rs) => ({ t: 'snap', scope: 'notices', epoch: 3, seq, items: Object.fromEntries(rs) });
 const chgN = (seq, ...rs) => ({ t: 'chg', scope: 'notices', epoch: 3, seq, patches: rs.map(([addr, set]) => ({ addr, set })) });
 
 async function page(extra) {
@@ -132,7 +131,7 @@ const toasts = (p) => p.doc.byId.toasts.children.filter((t) => t.classList.conta
 const inToast = (t, tag, text) => all(t).find((e) => e.tagName === tag && (!text || e.textContent === text));
 const ops = (ws) => ws.sent.filter((f) => f.t === 'op').map((f) => f.op);
 
-test('a notice raised on the PC pops as a toast; Dismiss sends one op expecting its occurrence and the toast leaves', async () => {
+test('a notice raised on the PC pops as a toast; Dismiss sends one op carrying its occurrence and the toast leaves', async () => {
   const { p, ws, stream } = await page();
   assert.ok(ws.sent.some((f) => f.t === 'sub' && f.scope === 'notices'), 'the page reads the notice record');
   ws.frame(snapN(10, rec('torrents:old', 4)));
@@ -142,11 +141,9 @@ test('a notice raised on the PC pops as a toast; Dismiss sends one op expecting 
   assert.match(t.textContent, /done · torrents:h1/);
   inToast(t, 'BUTTON', 'Dismiss').fire('click');
   const [op] = ops(ws);
-  assert.deepEqual([op.window, op.action, op.targets, op.expect, op.result.state], ['notices', 'dismiss', ['torrents:h1'], { occ: '5' }, 'DISMISSED']);
+  assert.deepEqual([op.window, op.action, op.targets, op.result.occ, op.result.state], ['notices', 'dismiss', ['torrents:h1'], 5, 'DISMISSED']);
   assert.equal(toasts(p).length, 0);
-  const before = p.said().length;
-  ws.frame({ t: 'ans', stream, n: op.n, answer: { a: 'lost', losses: [] } });
-  assert.equal(p.said().length, before, 'a loss on a notice is never said');
+  ws.frame({ t: 'ans', stream, n: op.n, answer: { a: 'seen' } });
   ws.frame(chgN(12, rec('torrents:h2', 6)));
   inToast(toasts(p)[0], 'BUTTON', 'Dismiss').fire('click');
   ws.frame({ t: 'ans', stream, n: ops(ws).at(-1).n, answer: { a: 'refused', code: 'level', reason: 'needs level view' } });
@@ -170,7 +167,7 @@ test('the tap-through marks the notice read on every screen and opens the window
   const link = inToast(toasts(p)[0], 'A');
   assert.equal(link.getAttribute('href'), '/w/torrents/t:h1');
   link.fire('click');
-  assert.deepEqual(ops(ws).map((o) => [o.action, o.expect.occ, o.result.state]), [['read', '3', 'READ']]);
+  assert.deepEqual(ops(ws).map((o) => [o.action, o.result.occ, o.result.state]), [['read', 3, 'READ']]);
   assert.equal(globalThis.location.pathname, '/w/torrents/t:h1');
   assert.equal(toasts(p).length, 0);
 });
@@ -187,9 +184,9 @@ test('Dismiss while the PC is out of reach sends nothing, says why, and the toas
   assert.equal(toasts(p).length, 1, 'still there to dismiss when the PC answers');
 });
 
-test('on a resume each scope has its own cursor: notice changes replayed after Reader\'s later ones still pop', async () => {
+test('on a new socket each scope is a snapshot: a notice raised during the outage pops (L1 C2)', async () => {
   const { p, ws, timers, stream } = await page();
-  ws.frame({ t: 'snap', scope: 'reader', epoch: 3, seq: 10, items: {}, colls: {} });
+  ws.frame({ t: 'snap', scope: 'reader', epoch: 3, seq: 10, items: {} });
   ws.frame(snapN(10, rec('o', 1)));
   p.sockets[0].close();
   timers.timeouts.at(-1).fn(); // the 2 s reconnect
@@ -197,10 +194,9 @@ test('on a resume each scope has its own cursor: notice changes replayed after R
   ws2.open();
   ws2.frame(welcome(stream));
   const subs = ws2.sent.filter((f) => f.t === 'sub' && (f.scope === 'reader' || f.scope === 'notices')).map((f) => [f.scope, f.seq]);
-  assert.deepEqual(subs, [['reader', 10], ['notices', 10]]);
-  // the PC replays the reader scope's changes since 10, then the notices scope's
-  ws2.frame({ t: 'chg', scope: 'reader', epoch: 3, seq: 12, patches: [{ addr: 'rec.reader.recent', set: { v: 'b1', rev: 2, by: 'phone-1', at: 1 } }] });
-  ws2.frame(chgN(11, rec('o', 1), rec('n', 2)));
+  assert.deepEqual(subs, [['reader', undefined], ['notices', undefined]], 'no cursor: the PC answers each with a snapshot');
+  ws2.frame({ t: 'snap', scope: 'reader', epoch: 3, seq: 12, items: { 'rec.reader.recent': { v: 'b1', by: 'phone-1', at: 1 } } });
+  ws2.frame(snapN(12, rec('o', 1), rec('n', 2)));
   assert.equal(toasts(p).length, 1, 'the notice raised during the outage pops');
 });
 

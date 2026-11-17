@@ -16,13 +16,10 @@ export function hello({ stream, name, replaces }) {
   return h;
 }
 
-/** S1-2 Q4w: `need` = a viewer's need of a live source, `{kind: focus | glance | none, paceMs?}` (spec §2.3). */
-export function sub(scope, cursor, need) {
+/** S1-2 Q4w: `need` = a viewer's need of a live source, `{kind: focus | glance | none, paceMs?}` (spec §2.3). L1 C2:
+ *  every subscription is answered with a snapshot, so a page names no cursor. */
+export function sub(scope, need) {
   const f = { t: 'sub', scope };
-  if (cursor) {
-    f.epoch = cursor.epoch;
-    f.seq = cursor.seq;
-  }
   if (need) f.need = need;
   return f;
 }
@@ -30,17 +27,19 @@ export function sub(scope, cursor, need) {
 export const unsub = (scope) => ({ t: 'unsub', scope });
 export const ping = (k) => ({ t: 'ping', k });
 
-/** A queued op (C§2.4: its stream and number); the PC puts the connection's device in place of `device`. */
-export function queuedOp({ stream, n, window, action, targets, result = null, expect = { any: true }, params }) {
-  const op = { device: '', stream, n, window, action, targets, result, expect };
+/** A queued op (C§2.4: its stream and number, which only match the answer); the PC puts the connection's device in
+ *  place of `device`. L1 C1: `at` = the time of the input on the PC's clock; the PC writes a target unless the item
+ *  holds a later input. */
+export function queuedOp({ stream, n, window, action, targets, result = null, params, at }) {
+  const op = { device: '', stream, n, window, action, targets, result, at };
   if (params) op.params = params;
   return { t: 'op', op };
 }
 
 /** A never-queued op of this connection (`conn`, `k`): the device table's actions; S1-2 Q4w: a program op, with its
  *  targets (spec §2.4). */
-export function connOp({ conn, k, window, action, params, targets = [] }) {
-  return { t: 'op', op: { device: '', conn, k, window, action, targets, result: null, expect: { any: true }, params } };
+export function connOp({ conn, k, window, action, params, targets = [], at }) {
+  return { t: 'op', op: { device: '', conn, k, window, action, targets, result: null, params, at } };
 }
 
 // ---- levels (C§10.4) ----
@@ -67,32 +66,16 @@ export function answerWords(a) {
       return null;
     case 'refused':
       return a.reason || `refused (${a.code})`;
-    case 'lost':
-      return 'not applied';
     default:
       return `an unknown answer '${a.a}'`;
   }
 }
 
-/** Fix round 2, ruling 2.3: a `retry` this page already sent again once, in the page's own words. The PC's words
- *  ("it is kept and sent again") are a phone's, which keeps its queue; a page keeps none. */
-export function givenUp(a) {
-  const why = (a.reason || `refused (${a.code})`).split(';')[0];
-  return { ...a, reason: `${why}; this page keeps no queue: act again later` };
-}
-
-/** S1-2 R0 §4 (F2b 3's residual): a `gap` this page does not number again (an op it renumbered once already, or one
- *  it no longer holds), in the page's own words. The PC's "expected N" is a number for the client, not for a person. */
-export function notTaken(a) {
-  return { ...a, reason: 'this change was not taken (the PC was waiting for an earlier one from this page); try it again' };
-}
-
-/** A refusal past the page's own handling, in the page's words where the PC's are a client's (`retry`, `gap`). */
+/** A refusal in the page's words where the PC's are a client's: a `retry` ("it is kept and sent again", a phone's
+ *  words) is not kept here, so it is said as not applied (L1 P8). */
 export function pageWords(a) {
-  if (!a || a.a !== 'refused') return a;
-  if (a.code === 'retry') return givenUp(a);
-  if (a.code === 'gap') return notTaken(a);
-  return a;
+  if (!a || a.a !== 'refused' || a.code !== 'retry') return a;
+  return { ...a, reason: `not applied: ${(a.reason || 'the PC could not take it').split(';')[0]}; act again` };
 }
 
 /** An `end` in words (C§9.2, C§10.8). */
@@ -107,7 +90,7 @@ export function endWords(reason, detail) {
     case 'slow':
       return 'The PC ended the connection because this page fell behind; it resumes now.';
     case 'proto':
-      return `The PC and this page speak different versions of the lane${detail ? ` (${detail})` : ''}. Reload the page.`;
+      return `The PC and this page speak different versions of the lane${detail ? ` (${detail})` : ''}; the page reloads.`;
     case 'not open':
       return `The PC's record is not open${detail ? ` (${detail})` : ''}; the page tries again.`;
     case 'shutting down':
@@ -117,7 +100,7 @@ export function endWords(reason, detail) {
   }
 }
 
-/** Whether a page reconnects on its own after an `end` with this reason. */
+/** Whether a page reconnects on its own after an `end` with this reason (`proto`: it reloads instead, L1). */
 export function endRetries(reason) {
   return reason !== 'proto' && reason !== 'denied';
 }
@@ -126,4 +109,11 @@ export function endRetries(reason) {
 export function hhmm(ms) {
   const d = new Date(ms);
   return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+/** H:MM, with the day when it is not today (a TV left over a weekend reads "Nov 15 14:02", never as today). */
+export function when(ms, now = Date.now()) {
+  const d = new Date(ms);
+  return d.toDateString() === new Date(now).toDateString() ? hhmm(ms) : `${MONTHS[d.getMonth()]} ${d.getDate()} ${hhmm(ms)}`;
 }

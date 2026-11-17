@@ -1,8 +1,9 @@
 // Context for the reader: Damage is Adam's own window manager for his own glasses, phone and PC on his own network.
 // Build S1-1, fix round 2, ruling 2.3: Reader's web view mounted over a small DOM stand-in under `node --test` (no
 // packages, no network, no browser; this file runs in its own process, so the stand-in's globals reach no other test).
-// What it pins is what the view sends: `open` only on an input that opens a book, and a place read while the PC was
-// out of reach sent when it answers again. Layout is not modelled: a part with no blocks puts its start at the top.
+// What it pins is what the view sends: `open` only on an input that opens a book, a place read while the PC was out
+// of reach sent when it answers again with the time of its input, and (L1) another device's place followed without a
+// word sent. Layout is not modelled: a part with no blocks puts its start at the top.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -41,15 +42,18 @@ const { readerView } = await import('../../main/resources/web/js/views/reader.mj
 
 const ME = 'web-a1b2c3';
 
-/** A page's context: the record copy ready, every op sent kept in `sent`, the reach and level from `S`. */
+/** A page's context: the record copy ready, every op sent kept in `sent`, every scope asked in `subs`, the reach and
+ *  level from `S`, the PC's clock `S.clock`. */
 function page() {
   const sent = [];
-  const S = { device: ME, names: {}, record: new ClientRecord(), recordReady: true, reach: { ok: true, since: 0 }, phase: 'open' };
+  const subs = [];
+  const S = { device: ME, names: {}, record: new ClientRecord(), recordReady: true, reach: { ok: true, since: 0 }, phase: 'open', clock: 1000 };
   S.record.snap({ epoch: 1, seq: 1, items: {} }, ['rec.reader.']);
   const ctx = {
-    S, sent,
+    S, sent, subs,
+    pcNow: () => S.clock,
     desc: () => undefined,
-    sub() {}, unsub() {},
+    sub(s) { subs.push(s); }, unsub() {},
     sendQueued: (d) => { sent.push(d); return true; },
     canAct: () => (S.reach.ok ? null : 'PC not answering since 9:00'),
     say() {}, sayOnce() {}, go() {}, confirm: async () => false,
@@ -83,12 +87,14 @@ test('a place read while the PC was out of reach is sent when it answers again: 
   for (const fn of pane.on.wheel) fn();
   winOn.pagehide();
   assert.deepEqual(ctx.sent.filter((d) => d.action === 'place'), [], 'nothing is sent out of reach');
-  // the PC answers again
+  // the PC answers again, a minute later
+  ctx.S.clock = 61000;
   ctx.S.reach = { ok: true, since: 1 };
   v.onReach();
   const places = ctx.sent.filter((d) => d.action === 'place');
   assert.equal(places.length, 1, 'the place read meanwhile is sent once the PC answers');
   assert.deepEqual(places[0].targets, ['place.b1']);
+  assert.equal(places[0].at, 1000, 'L1 C1: it carries the time he read, not the time it was sent');
   v.onReach();
   assert.equal(ctx.sent.filter((d) => d.action === 'place').length, 1, 'a mark, not a queue: sent once');
 });
@@ -133,17 +139,37 @@ test('nothing on the shelf or in a book is written as the text "null" (S1-2 JW0,
   assert.doesNotMatch(text(root.find('text')[0]), /null/, 'a first part has no step back');
 });
 
-test('a page load into a book whose place another device wrote offers no Go there: the entry takes that place (S1-2 JW0)', () => {
+/** A book of two parts (chapter 2 from character 200), open and shown at its start. */
+function twoParts() {
   const ctx = page();
   const v = readerView(ctx);
   const root = v.mount({ window: 'reader', target: 'book:b1', anchor: null }, { input: false });
-  // as on the wire: the record's snapshot arrives before the book's level
-  ctx.S.record.snap({ epoch: 1, seq: 2, items: { 'rec.reader.place.b1': { v: '@c120.1~', rev: 3, by: 'phone-1', at: 5 } } }, ['rec.reader.']);
-  v.onRecord(new Set(['rec.reader.place.b1']));
-  v.onDesc('reader/book:b1', { title: 'One', length: 400, chapters: [] });
-  assert.doesNotMatch(text(root.find('gothere')[0]), /read on/, 'the page opened at that place; nothing to go to');
-  // a later move by another device is offered
-  ctx.S.record.snap({ epoch: 1, seq: 3, items: { 'rec.reader.place.b1': { v: '@c300.1~', rev: 4, by: 'phone-1', at: 6 } } }, ['rec.reader.']);
-  v.onRecord(new Set(['rec.reader.place.b1']));
-  assert.match(text(root.find('gothere')[0]), /phone-1 read on to 75%/);
+  v.onDesc('reader/book:b1', { title: 'One', length: 400, chapters: [{ title: 'One', anchor: '@c0.1~' }, { title: 'Two', anchor: '@c200.1~' }] });
+  v.onDesc('reader/book:b1/part:0', { part: 0, parts: 2, charStart: 0, charEnd: 200, blocks: [] });
+  const place = (v_, by, at, seq) => {
+    ctx.S.record.snap({ epoch: 1, seq, items: { 'rec.reader.place.b1': { v: v_, by, at } } }, ['rec.reader.']);
+    v.onRecord(new Set(['rec.reader.place.b1']));
+  };
+  return { ctx, v, root, place };
+}
+
+test('L1: another device\'s place for the open book moves the page there, with no offer and no op', () => {
+  const { ctx, root, place } = twoParts();
+  place('@c300.1~', 'phone', 5000, 2); // he read on the glasses
+  assert.ok(ctx.subs.includes('reader/book:b1/part:1'), 'the page goes to the part that place is in');
+  assert.equal(root.find('gothere').length, 0, 'nothing is offered');
+  winOn.pagehide(); // a save point
+  assert.deepEqual(ctx.sent.filter((d) => d.action === 'place'), [], 'a move the page made by itself writes nothing');
+});
+
+test('L1: the page\'s own later input is not moved by an older place from another device; its own place never moves it', () => {
+  const { ctx, root, place } = twoParts();
+  ctx.S.clock = 9000;
+  for (const fn of root.find('reading')[0].on.wheel) fn(); // he reads at the desk at 9000
+  place('@c300.1~', 'phone', 5000, 2); // the glasses' place of 5000 reaches the record first
+  assert.ok(!ctx.subs.includes('reader/book:b1/part:1'), 'his later input stands: the page stays');
+  place('@c300.1~', ME, 9500, 3);
+  assert.ok(!ctx.subs.includes('reader/book:b1/part:1'), 'its own place is where it is');
+  place('@c350.1~', 'phone', 9800, 4); // later input on the glasses
+  assert.ok(ctx.subs.includes('reader/book:b1/part:1'), 'a later input elsewhere is followed');
 });

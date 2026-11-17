@@ -6,7 +6,9 @@
 // them), the listener's content security policy names the front's port for the socket, and the one made-up device's
 // cookie is sent unless the scene is a page that has none (`anon`). Like the stand-in it adds a held image and the
 // module that walks the scene's steps (Firefox's --screenshot waits for the load event), and `/__wait?ms=` holds a
-// step for the PC's own pacing (a place is saved 2 s after the input).
+// step for the PC's own pacing (a place is saved 2 s after the input). L1: `/__other?book=<id>&offset=<n>` writes a
+// Reader place as ANOTHER device — the made-up device at control (LOOK_SECRET_CONTROL) on a socket of its own, as his
+// glasses' input reaches the PC — so a scene sees the page follow it.
 
 import { createServer, request } from 'node:http';
 import { connect } from 'node:net';
@@ -47,6 +49,12 @@ export function front(scene, real, secret) {
     if (url.pathname === '/__note') { log.push({ t: 'note', text: decodeURIComponent(req.url.slice(req.url.indexOf('?') + 1)) }); return own(204, 'text/plain', ''); }
     if (url.pathname === '/__wait') return setTimeout(() => own(204, 'text/plain', ''), Number(url.searchParams.get('ms') || 0));
     if (url.pathname === '/__look.mjs') return own(200, TYPES.mjs, lookModule(scene.steps));
+    if (url.pathname === '/__other') {
+      return otherPlace(up, url.searchParams.get('book'), Number(url.searchParams.get('offset'))).then((t) => {
+        log.push({ t: 'note', text: `another device's place: ${t}` });
+        own(200, 'text/plain', t);
+      }, (e) => own(502, 'text/plain', e.message));
+    }
     // S1-2 Q3: a word for LookServer's control listener (LOOK_CTL, loopback only): raise, dismiss-other, state
     if (url.pathname === '/__ctl') {
       const ctl = process.env.LOOK_CTL;
@@ -112,6 +120,29 @@ export function front(scene, real, secret) {
   })));
 }
 
+/** L1: one place op on `place.<book>` at `offset` from the made-up device at control, on its own socket to the
+ *  listener at `up`; resolves to the PC's answer as text. */
+function otherPlace(up, book, offset) {
+  const secret = readFileSync(process.env.LOOK_SECRET_CONTROL, 'utf8').trim();
+  const ws = new WebSocket(`ws://${up.host}/ws`, { headers: { origin: `http://${up.host}`, cookie: `damage=${secret}` } });
+  let device = null;
+  return new Promise((ok, no) => {
+    ws.onopen = () => ws.send(JSON.stringify({ t: 'app', proto: 2, stream: 'a1a2a3a4a5a6a7a8', contracts: { reader: 1 } }));
+    ws.onerror = () => no(new Error('the other device\'s socket failed'));
+    ws.onmessage = (e) => {
+      const f = JSON.parse(e.data);
+      if (f.t === 'welcome') {
+        device = f.device;
+        ws.send(JSON.stringify({ t: 'op', op: { device: '', stream: 'a1a2a3a4a5a6a7a8', n: 1, window: 'reader', action: 'place',
+          targets: [`place.${book}`], result: `@c${offset}.1~`, at: f.pcClock } }));
+      } else if (f.t === 'ans' && f.n === 1) {
+        ws.close();
+        ok(`${f.answer.a}${f.answer.reason ? `: ${f.answer.reason}` : ''} (device ${device})`);
+      } else if (f.t === 'end') no(new Error(`ended: ${f.reason}`));
+    };
+  });
+}
+
 /** A 1×1 transparent GIF. */
 const GIF = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
 
@@ -128,7 +159,16 @@ export function realScenes(book) {
     'real-book': { path: '/w/reader', steps: [{ wait: `.shelf .book[data-book="${book}"]` }, { click: `.shelf .book[data-book="${book}"]` },
       { wait: '.text p' }, { click: '.side-toggle' }, { click: '.chapters li:nth-child(2) button' },
       { wait: '.chapters li:nth-child(2) button.current' }, { fetch: '/__wait?ms=3000' }, reach] },
+    // L1 (the ruling, "The pages"): another device's input moves the open book's place; the page goes there by itself,
+    // with no offer, and writes nothing (LookServer prints no change after the other device's)
+    // (to the book's start first, so a page that opened at that place has a move to follow)
+    'real-book-follow': { path: `/w/reader/book:${book}`, steps: [{ wait: '.text p' }, reach, { fetch: '/__wait?ms=800' },
+      { fetch: `/__other?book=${book}&offset=0` }, { wait: '.chapters li:first-child button.current' }, { fetch: '/__wait?ms=800' },
+      { fetch: `/__other?book=${book}&offset=4000` }, { wait: '.chapters li:not(:first-child) button.current' }, { fetch: '/__wait?ms=3000' }] },
     'real-devices': { path: '/w/devices', steps: [{ wait: '.devices li.row-item .pcode' }, reach] },
+    // L1: the two pages no scene showed — Diagnosis, and Settings with a look picked (it stays on this browser)
+    'real-diag': { path: '/w/diag', steps: [{ wait: '.diag dl.facts' }, reach] },
+    'real-settings': { path: '/w/settings', steps: [{ wait: '.settings .looks' }, reach, { click: '.looks:last-of-type .choice:last-child input' }] },
     // the approval of the waiting made-up page, from the devices page
     'real-approve': { path: '/w/devices', steps: [{ wait: '.devices li.row-item .pcode' },
       { click: 'li.row-item:has(.pcode) .row-acts button' }, { wait: '.devices ul.rows li:nth-child(2) .row-name' }, reach] },
@@ -182,16 +222,20 @@ function filesRealScenes(reach) {
     'real-files-text': { path: f(`path:${home}/notes.txt`), steps: [{ wait: '.ftext' }, reach] },
     'real-files-picture': { path: f(`path:${home}/pictures/harbour.png`), steps: [{ wait: '.fimg' }, reach] },
     'real-files-pdf': { path: f(`path:${home}/plan.pdf`), steps: [{ wait: '.fpage' }, reach] },
+    // L1 P40: the same name dropped twice: the second is placed under the PC's numbered name, said on its row and toast
     'real-files-upload': { path: f(`path:${home}/drop/`), steps: [{ wait: '.tend, .flist .frow' }, reach,
-      { drop: '.page.files', files: [{ name: 'made-up survey.txt', size: 200000 }] }, { wait: '.fu.done, .fu.asking' }, { fetch: '/__ctl?files' }] },
+      { drop: '.page.files', files: [{ name: 'made-up survey.txt', size: 200000 }] }, { wait: '.fu.done' },
+      { drop: '.page.files', files: [{ name: 'made-up survey.txt', size: 200000 }] }, { wait: '.fu.done ~ .fu.done' }, { fetch: '/__ctl?files' }] },
     'real-files-upload-cut': { path: f(`path:${home}/drop/`), put: 'cut', steps: [{ wait: '.tend, .flist .frow' }, reach,
       { drop: '.page.files', files: [{ name: 'made-up big file.bin', size: 4000000 }] }, { wait: '.fu.cut, .fu.failed' }, { fetch: '/__wait?ms=500' }, { fetch: '/__ctl?files' }] },
     'real-files-trash': { path: f('trash'), steps: [{ wait: '.ftrash .frow' }, reach] },
+    // L1 P44: a job's end is the slot's line, not a toast
     'real-files-restore': { path: f('trash'), steps: [{ wait: '.ftrash .frow' }, reach, { click: '.ftrash .frow .frow-acts button:not(.danger)' },
-      { wait: '.toast' }, { fetch: '/__ctl?files' }] },
+      { wait: '.fjob' }, { fetch: '/__wait?ms=1500' }, { fetch: '/__ctl?files' }] },
     'real-files-totrash': { path: f(`path:${home}/notes.txt`), steps: [{ wait: '.ftext' }, reach, { click: '.fp-acts button:last-child' }, { wait: 'dialog[open]' }] },
     'real-files-totrash-done': { path: f(`path:${home}/many/`), steps: [{ wait: '.flist .frow' }, reach, { click: '.flist .frow:nth-child(30) input' },
-      { wait: '.tbulk' }, { click: '.tbulk button' }, { wait: 'dialog[open]' }, { click: 'dialog[open] button.act' }, { wait: '.toast' }, { fetch: '/__ctl?files' }] },
+      { wait: '.tbulk' }, { click: '.tbulk button' }, { wait: 'dialog[open]' }, { click: 'dialog[open] button.act' }, { wait: '.fjob' },
+      { fetch: '/__wait?ms=1500' }, { fetch: '/__ctl?files' }] },
     'real-files-job': { path: many, steps: [listed, reach, { fetch: '/__ctl?stall' }, { wait: '.fjob' }, { fetch: '/__wait?ms=2500' },
       { late: true, fetch: '/__ctl?release' }] },
     'real-files-glass': { path: many, steps: [listed, reach, { theme: 'glass' }] },

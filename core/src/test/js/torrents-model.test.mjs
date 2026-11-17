@@ -2,7 +2,7 @@
 // Build S1-2, package Q4w: Torrents' web page without the DOM, under `node --test`. The pins: the filters and the
 // order are the glasses'; an older description is ignored; a speed ring takes one sample per snapshot; a selection
 // leaves with its row; an irreversible action always asks, delete with files twice; a program op's answer never
-// claims an effect; the recents are one list, deduped, ten at most, expecting Any; a listing is taken one page at a
+// claims an effect; the recents are one list, deduped, ten at most; a listing is taken one page at a
 // time, the next only near the end, a failed one again after 5 s only when the PC said retry.
 
 import { test } from 'node:test';
@@ -127,23 +127,23 @@ test('a program op\'s answer says what the PC answered, never an effect the page
   assert.deepEqual(M.programDraft(stop, ['h1', 'h2']), { window: 'torrents', action: 'stop', targets: ['h1', 'h2'] });
 });
 
-test('the recents are one register: the whole list, newest first, deduped, ten at most, expecting Any (A.9)', () => {
+test('the recents are one register: the whole list, newest first, deduped, ten at most (A.9)', () => {
   const rec = new ClientRecord();
-  rec.snap({ epoch: 1, seq: 1, items: { 'rec.torrents.recents': { v: ['b', 'a', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'], rev: 3, by: 'phone', at: 1 } } }, ['rec.torrents.']);
+  rec.snap({ epoch: 1, seq: 1, items: { 'rec.torrents.recents': { v: ['b', 'a', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'], by: 'phone', at: 1 } } }, ['rec.torrents.']);
   assert.deepEqual(M.recentsOf(rec).slice(0, 2), ['b', 'a']);
   const d = M.recentDraft('a', rec);
-  assert.deepEqual(d, { window: 'torrents', action: 'recent', targets: ['recents'], result: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'], expect: { any: true } });
+  assert.deepEqual(d, { window: 'torrents', action: 'recent', targets: ['recents'], result: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'] });
   assert.equal(M.recentDraft('new', rec).result.length, 10);
   assert.deepEqual(M.recentDraft('x', new ClientRecord()).result, ['x']);
 });
 
-test('a row\'s value is the record\'s when it holds one; its set op expects the value seen', () => {
+test('a row\'s value is the record\'s when it holds one; its set op is the value', () => {
   const rec = new ClientRecord();
   const row = { id: 'notify.done', value: true };
   assert.equal(M.rowValue(row, rec), true);
-  rec.snap({ epoch: 1, seq: 1, items: { 'rec.torrents.notify.done': { v: false, rev: 2, by: 'phone', at: 1 } } }, ['rec.torrents.']);
+  rec.snap({ epoch: 1, seq: 1, items: { 'rec.torrents.notify.done': { v: false, by: 'phone', at: 1 } } }, ['rec.torrents.']);
   assert.equal(M.rowValue(row, rec), false);
-  assert.deepEqual(M.setDraft(row, true, rec), { window: 'torrents', action: 'set', targets: ['notify.done'], result: true, expect: { value: false } });
+  assert.deepEqual(M.setDraft(row, true), { window: 'torrents', action: 'set', targets: ['notify.done'], result: true });
 });
 
 test('a listing is taken one page at a time: the first at once, the next only near the end, never two in flight', () => {

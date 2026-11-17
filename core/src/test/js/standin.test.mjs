@@ -65,7 +65,7 @@ test('the stand-in serves the bundle under the PC\'s policy and speaks the lane 
     });
     ws.close();
     assert.deepEqual(got.map((f) => f.t), ['welcome', 'snap']);
-    assert.deepEqual(got[0].highWater, { s1: 12 });
+    assert.equal(got[0].conn, 7);
     assert.equal(got[1].desc.cards[0].window, 'reader');
     assert.deepEqual(srv.log.map((m) => m.t), ['app', 'sub']);
   } finally {
