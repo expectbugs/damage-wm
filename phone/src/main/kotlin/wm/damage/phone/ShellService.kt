@@ -390,11 +390,8 @@ class ShellService : Service() {
             onLibraryChanged = { onLibraryChanged() },
         )
         // Build S1-1 P4: Reader's core over the PC's books (RemoteContent: its cache and fetch unchanged), its state
-        // read from the working copy (the PC's record, with this phone's waiting ops on top). The phone's own Reader
-        // records from before the conversion go into the copy's queue once, after the window is registered and its
-        // presenter listens (fix round 1, ruling 1.5 (a): a loss answered sooner had no one to say it; the ledger
-        // beside them in this store says what was offered). Without a copy (it could not start, said there), Reader
-        // runs on a record of its own in memory as before, from this store's local copy.
+        // read from the working copy (the PC's record, with this phone's waiting ops on top). Without a copy (it could
+        // not start, said there), Reader runs on a record of its own in memory as before, from this store's local copy.
         val wc = workingCopy
         val reader = if (wc != null) {
             val core = wm.damage.core.windows.reader.ReaderCore(rc, scope)
@@ -436,8 +433,7 @@ class ShellService : Service() {
             cacheDir = dataDir.resolve("wincache/files"))          // §47: the last answers, at once
         filesProvider = fp
         // S1-2 Q5: Files' records (the clipboard, sort, hidden, Size) read from the working copy, the filesystem calls
-        // as today through the PC's window channel (the PC's one job slot); the phone's own Files records from before
-        // the conversion go into the copy's queue once its presenter listens. Without a copy, as before.
+        // as today through the PC's window channel (the PC's one job slot). Without a copy, as before.
         val files = if (wc != null) {
             val core = wm.damage.core.windows.files.FilesCore()
             val src = wm.damage.core.app.LocalWindowSource(core, wc)
@@ -446,9 +442,6 @@ class ShellService : Service() {
         } else wm.damage.core.windows.files.FilesWindow(text, fp, scope, AndroidImages())
         filesGlasses = files
         sh.register(files)
-        if (wc != null) wm.damage.core.windows.files.FilesMigration.onCopy(wc, persistence) { line ->
-            Journal.appendNote(dataDir.resolve("journal.jsonl"), "migrate", line)
-        }
         // Torrents (2026-09-01, TORRENTS.md): qBittorrent + TorrentLeech live on
         // the PC; the phone polls the host through the window channel at its
         // own pacing (2 s focused / 15 s idle) and shows the host's own
@@ -461,8 +454,7 @@ class ShellService : Service() {
         // record's); the transfer table, the tracker and the program ops stay this provider's at today's paces (A.3,
         // A.4). While the PC shares both `torrents` and `notices` it raises Torrents' notices into its record and this
         // phone shows them from it (the mirror); otherwise this presenter raises them from its provider as today
-        // (C§9.7 item 2). The phone's records from before the conversion go into the copy's queue once the window is
-        // registered and its presenter listens (as Reader's). Without a copy, Torrents runs on a record of its own.
+        // (C§9.7 item 2). Without a copy, Torrents runs on a record of its own.
         val torWin = if (wc != null) {
             val core = wm.damage.core.windows.torrents.TorrentsCore()
             val src = wm.damage.core.app.LocalWindowSource(core, wc)
@@ -475,9 +467,6 @@ class ShellService : Service() {
         }
         torrentsGlasses = torWin
         sh.register(torWin)
-        if (wc != null) wm.damage.core.windows.torrents.TorrentsMigration.onCopy(wc, persistence) { line ->
-            Journal.appendNote(dataDir.resolve("journal.jsonl"), "migrate", line)
-        }
         // Music (2026-09-02, MUSIC.md): the library rides the window channel
         // with its catalog/art/viz/lyrics cached on disk; the PLAYER is here —
         // ExoPlayer + the media session the earbuds' taps route through

@@ -90,7 +90,7 @@ fun TorrentsWindow(text: TextRasterizer, provider: TorrentsProvider, bg: Corouti
  * builds differ, the tools — the events raise today's notice (C§9.7 item 2). One event raised both ways in the minute
  * the builds meet is one box: the shell coalesces on today's source and thread. The window's row (level, cursors, the
  * open hash, the listing, the draft, Poll) stays in the local `window.torrents` keys in today's shape, unsynced, with
- * the record's rows beside them as the copy an older build reads; `conv` beside it is the migration's ledger.
+ * the record's rows beside them as the copy an older build reads.
  */
 class TorrentsGlasses(
     private val text: TextRasterizer,
@@ -415,7 +415,7 @@ class TorrentsGlasses(
         if (a !is Answer.Refused) return
         if (a.code == Answer.RETRY) {
             // not taken: it changed nothing, so the next save point sends the row again
-            if (op.action != TorrentsCore.MIGRATE) unsent += row
+            unsent += row
         } else {
             services?.notifyInternal(TorrentsCore.NOTICE_SOURCE,
                 dn("${rowLabels[row] ?: row} not applied: ${a.reason}", fSmall), answer = true)
@@ -1554,12 +1554,10 @@ class TorrentsGlasses(
         heightPref?.let { put("height", it) }
     }
 
-    /** S1-2 Q4: the save point — what input changed and the record has not taken goes as ops, then the migration's
-     *  ledger beside the copy: of the record's rows written into it, those the record holds (`TorrentsMigration`), so a
-     *  later start offers only what an older build wrote there since. */
+    /** S1-2 Q4: the save point — what input changed and the record has not taken goes as ops. */
     override fun saveSubState(): Map<String, JsonObject> {
         sendChanges()
-        return mapOf(TorrentsMigration.LEDGER to TorrentsMigration.ledgerOf(saveState(), source.state()))
+        return emptyMap()
     }
 
     override fun restoreState(state: JsonObject) {

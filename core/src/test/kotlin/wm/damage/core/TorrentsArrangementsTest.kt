@@ -14,7 +14,6 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.jsonObject
 import wm.damage.core.app.Answer
 import wm.damage.core.app.AppHost
 import wm.damage.core.app.CoreExecutor
@@ -36,15 +35,13 @@ import wm.damage.core.sim.GlassFirmwareSim
 import wm.damage.core.transport.SimTransport
 import wm.damage.core.windows.torrents.TorrentsCore
 import wm.damage.core.windows.torrents.TorrentsGlasses
-import wm.damage.core.windows.torrents.TorrentsMigration
 
 /*
  * Context for the reader: Damage is Adam's own window manager for his own glasses, phone and PC on his own network.
  * Build S1-2, package Q4 (the spec's §3.2, §2.1 "Mixed builds"; `CONTRACT.md` §7.2 item 1, §9.7 item 2, §11.1): the
  * glasses' presenter of Torrents in its two arrangements. On the PC a done is raised once by the core into the record
- * and the shell shows one box, today's box, from it; in the minute the builds meet the presenter's own raise and the
- * record's are still one box. While the PC raises, the glasses raise nothing; while the builds differ they raise
- * today's notice. On the phone the rows and the search recents are the PC record's: a row changed on the glasses
+ * and the shell shows one box, today's box, from it. While the PC raises, the glasses raise nothing; where the record's
+ * notices do not reach the presenter (its in-memory fallback, the tools) it raises today's notice. On the phone the rows and the search recents are the PC record's: a row changed on the glasses
  * reaches the PC, one changed in a browser reaches the glasses. A scripted provider, a shell on the simulator, a PC
  * record and the `app` lane on loopback port 0, temp directories.
  */
@@ -117,9 +114,9 @@ class TorrentsArrangementsTest {
         r.win.detach()
     }
 
-    /** Pins (the spec's Q4: "the glasses raise while the PC does"; "nothing raised locally while builds differ"). */
+    /** Pins (the spec's Q4: "the glasses raise while the PC does"; the fallback's own raise). */
     @Test
-    fun theGlassesRaiseNothingWhileThePcRaises_andTodaysNoticeWhileTheBuildsDiffer() {
+    fun theGlassesRaiseNothingWhileThePcRaises_andTodaysNoticeWhereTheRecordsDoNotReachThem() {
         var pcRaises = true
         val services = ReaderServices()
         val p = TestTorrents()
@@ -132,7 +129,7 @@ class TorrentsArrangementsTest {
         pcRaises = false
         win.dirty = false
         p.event("error", "c0ffee03", "A made-up stopped one")
-        assertEquals(listOf("torrent: error · A made-up stopped one"), services.notices.toList(), "builds differ: today's raise")
+        assertEquals(listOf("torrent: error · A made-up stopped one"), services.notices.toList(), "no record notices: today's raise")
         assertTrue(win.dirty)
         win.detach()
     }
@@ -175,12 +172,6 @@ class TorrentsArrangementsTest {
             // while the PC raises the notices, the phone's provider events raise nothing here
             p.event("done", "c0ffee01", "A made-up download (1080p)")
             assertEquals(emptyList(), services.notices.filter { "done ·" in it })
-            // the copy's ledger names the rows the record holds as this build wrote them
-            readerAwait("the phone's queue drained") { wc.queue.waiting == 0 }
-            val conv = services.onLoop { win.saveSubState() }.getValue(TorrentsMigration.LEDGER)["rows"]!!.jsonObject
-            assertEquals(JsonPrimitive(false), conv["notify.done"])
-            assertEquals(JsonPrimitive(false), conv["notify.errors"])
-            assertEquals(JsonArray(listOf(JsonPrimitive("made up"))), conv["recents"])
             win.detach()
         } finally {
             rig.close()

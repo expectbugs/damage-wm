@@ -1,26 +1,32 @@
 package wm.damage.core
 
+import java.nio.file.Files
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
-import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 import wm.damage.core.app.Answer
+import wm.damage.core.app.AppHost
+import wm.damage.core.app.CoreExecutor
 import wm.damage.core.app.Migrate
+import wm.damage.core.app.Record
 import wm.damage.core.shell.Persistence
+import wm.damage.core.windows.files.FilesCore
+import wm.damage.core.windows.files.FilesMigration
+import wm.damage.core.windows.torrents.TorrentsCore
+import wm.damage.core.windows.torrents.TorrentsMigration
 
 /*
  * Context for the reader: Damage is Adam's own window manager for his own glasses, phone and PC on his own network.
- * Build S1-2, package Q2 (the spec's §2.5 and §5 F4): the generic migration of a window's local blob — each register
- * field offered once per host as a migrate op stamped with the blob's time (L1 C1), the ledger `window.<id>.conv`
- * written once the offers landed, a second start offering nothing, a row set after the conversion never replaced by
- * an older blob, and a `migrate` note. The made-up window `t` of `RecordRig` (its `place` is the position kind, as a
- * window's `migrate` is declared), a store in a temp directory.
+ * L1 M1: a converted window's rows from before its conversion, read once on the PC from the PC store's blob — each
+ * row the record holds none of is written stamped with the blob's time; a row the record holds stands; a second start
+ * writes nothing; a blob of defaults no one edited (stamp 0) writes nothing. The made-up window `t` of `RecordRig`,
+ * then Torrents' and Files' own fields on a record with their actions. Stores in temp directories.
  */
 class MigrateTest {
     private val rig = RecordRig().also { it.now = 1_700_000_000_000L + 3_600_000 }   // the PC's clock past every stamp
@@ -36,47 +42,62 @@ class MigrateTest {
         Migrate.Field("absent", "never") { it },
     ), action = "place")
 
-    private fun store(name: String, stampAt: Long = stamp): Persistence = Persistence(rig.dir.resolve(name)).also {
-        it.tryApplyRemote("window.t", buildJsonObject { put("notifyDone", false); put("height", 352); put("pollMs", 2_000) }, stampAt)
+    private fun store(name: String, key: String = "window.t", stampAt: Long = stamp, blob: Map<String, Any> =
+        mapOf("notifyDone" to false, "height" to 352, "pollMs" to 2_000)): Persistence = Persistence(rig.dir.resolve(name)).also {
+        it.tryApplyRemote(key, buildJsonObject {
+            for ((k, v) in blob) when (v) { is Boolean -> put(k, v); is Int -> put(k, v); else -> put(k, v.toString()) }
+        }, stampAt)
     }
 
     @Test
-    fun eachFieldIsOfferedOnceStampedWithTheBlobsTime() {
-        val plan = migrate.plan(store("pc.json"))
-        assertEquals(listOf("notify.done", "glasses.size"), plan.offers.map { it.targets.single() })
-        assertTrue(plan.offers.all { it.at == stamp && it.action == "place" }, "${plan.offers}")
-        assertEquals(listOf<JsonElement>(JsonPrimitive(false), JsonPrimitive(352)), plan.offers.map { it.result })
-        assertTrue(migrate.plan(store("baseline.json", 0L)).offers.isEmpty(), "a stamp of 0 is a baseline no one edited")
-    }
-
-    /** Pin (the spec's Q2: "a second migration offers again"). */
-    @Test
-    fun aSecondStartOffersNothing() {
+    fun eachRowTheRecordLacksIsWrittenOnce_stampedWithTheBlobsTime() {
         val h = rig.opened()
-        val s = store("pc.json")
         val notes = ArrayList<String>()
-        val first = migrate.onHost(h, s) { notes += it }
-        assertEquals(emptyList(), first.refused, first.toString())
-        assertTrue(first.ledgerWritten)
+        migrate.onHost(h, store("pc.json")) { notes += it }
+        assertEquals(JsonPrimitive(false), rig.item(h, "notify.done")?.value)
         assertEquals(JsonPrimitive(352), rig.item(h, "glasses.size")?.value)
-        assertEquals(stamp, rig.item(h, "glasses.size")?.at, "a migrated item keeps the old stamp")
-        assertTrue(notes.single().startsWith("pc: t: 2 field(s) offered (notify.done, glasses.size)"), notes.single())
-        val reread = Persistence(rig.dir.resolve("pc.json")).also { it.load() }
-        assertTrue(migrate.plan(reread).offers.isEmpty(), "the ledger holds what was offered")
-        assertEquals(0, migrate.onHost(h, reread) { notes += it }.plan.offers.size)
+        assertEquals(stamp, rig.item(h, "glasses.size")?.at, "a migrated item keeps the blob's stamp")
+        assertEquals(Migrate.DEVICE, rig.item(h, "glasses.size")?.by)
+        assertTrue(notes.single().startsWith("t: 2 row(s) the record did not hold"), notes.single())
+        val seq = h.seq
+        migrate.onHost(h, store("again.json", stampAt = stamp + 5)) { notes += it }
+        assertEquals(seq, h.seq, "a second start writes nothing: the record holds every row")
         assertEquals(1, notes.size, "nothing to say at a second start")
+        assertTrue(migrate.offers(store("baseline.json", stampAt = 0L), emptySet()).isEmpty(), "a stamp of 0 is a baseline no one edited")
     }
 
     @Test
-    fun aRowSetAfterTheConversionIsNeverReplacedByAnOlderBlob() {
+    fun aRowTheRecordHoldsStands() {
         val h = rig.opened()
-        // set in a browser after the PC's conversion: a write the record holds since
-        assertTrue(rig.ask(h, op("web-00aa01", "s1", 1, "set", listOf("glasses.size"), JsonPrimitive(480), at = stamp + 1)) is Answer.Seen)
-        val notes = ArrayList<String>()
-        val r = migrate.onHost(h, store("phone.json")) { notes += it }
+        // set in a browser after the PC's conversion, at an input time older than the blob's: still never replaced
+        assertTrue(rig.ask(h, op("web-00aa01", "s1", 1, "set", listOf("glasses.size"), JsonPrimitive(480), at = stamp - 1)) is Answer.Seen)
+        migrate.onHost(h, store("pc.json")) { }
         assertEquals(JsonPrimitive(480), rig.item(h, "glasses.size")?.value, "the row set at the desk stands")
         assertEquals("web-00aa01", rig.item(h, "glasses.size")?.by)
-        assertEquals(emptyList(), r.refused, r.toString())
-        assertTrue(r.ledgerWritten, "the ledger is written and the field is not offered again")
+        assertEquals(JsonPrimitive(false), rig.item(h, "notify.done")?.value, "the row it did not hold is written")
+    }
+
+    @Test
+    fun torrentsAndFilesReadTheirOwnFields() {
+        val h = AppHost(Files.createDirectories(rig.dir.resolve("pc")), AppHost.WINDOWS, CoreExecutor("damage-core-migrate-test"),
+            clock = { rig.now })
+        h.open()
+        try {
+            TorrentsMigration.onHost(h, store("tor.json", "window.torrents", blob = mapOf("notifyDone" to false,
+                "notifyErrors" to true, "pollMs" to 5_000, "height" to 352))) { }
+            FilesMigration.onHost(h, store("files.json", "window.files", blob = mapOf("sort" to "SIZE", "hidden" to true,
+                "clipVerb" to "CUT", "clipPath" to "/made/up/a.txt", "height" to 416))) { }
+            fun v(w: String, row: String) = h.read(w).third.items[Record.key(w, row)]?.value
+            assertEquals(JsonPrimitive(false), v(TorrentsCore.WINDOW, TorrentsCore.NOTIFY_DONE))
+            assertEquals(JsonPrimitive(352), v(TorrentsCore.WINDOW, TorrentsCore.SIZE))
+            assertEquals(null, v(TorrentsCore.WINDOW, TorrentsCore.RECENTS), "no recents in the blob: nothing written")
+            assertEquals(JsonPrimitive("size"), v(FilesCore.WINDOW, FilesCore.SORT), "the old upper case, the record's lower")
+            assertEquals(FilesCore.clipJson("cut", "/made/up/a.txt"), v(FilesCore.WINDOW, FilesCore.CLIP))
+            assertEquals(JsonPrimitive(416), v(FilesCore.WINDOW, FilesCore.SIZE))
+            assertTrue(h.read(TorrentsCore.WINDOW).third.items.values.all { it.at == stamp })
+        } finally {
+            h.close()
+            h.executor.shutdown()
+        }
     }
 }
