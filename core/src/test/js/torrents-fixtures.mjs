@@ -126,9 +126,9 @@ export function torrentsScope(scope) {
 }
 
 /** The look harness's record scope `torrents`: the search recents and one row set elsewhere. */
-export const torrentsRecord = () => ({ t: 'snap', scope: 'torrents', epoch: 3, seq: 40, colls: {}, items: {
-  'rec.torrents.recents': { v: ['lantern weather', 'salt road', 'copper hill 2160p'], rev: 5, by: 'phone-1', at: T_NOW - 3600e3 },
-  'rec.torrents.notify.errors': { v: false, rev: 2, by: 'phone-1', at: T_NOW - 86400e3 } } });
+export const torrentsRecord = () => ({ t: 'snap', scope: 'torrents', epoch: 3, seq: 40, items: {
+  'rec.torrents.recents': { v: ['lantern weather', 'salt road', 'copper hill 2160p'], by: 'phone-1', at: T_NOW - 3600e3 },
+  'rec.torrents.notify.errors': { v: false, by: 'phone-1', at: T_NOW - 86400e3 } } });
 
 /** Several snapshots in a row, so the rows' speed lines have points (the page draws what it received). */
 export const torrentsSeries = (n = 12) => Array.from({ length: n }, (_, i) => torrentsDesc({ version: 7 + i, tick: i }));

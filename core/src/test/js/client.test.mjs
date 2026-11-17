@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as anchor from '../../main/resources/web/js/anchor.mjs';
 import * as address from '../../main/resources/web/js/address.mjs';
-import { ClientRecord, expectSeen, key } from '../../main/resources/web/js/record.mjs';
+import { ClientRecord, key } from '../../main/resources/web/js/record.mjs';
 import { Stream, safeStorage, STREAM_KEY } from '../../main/resources/web/js/stream.mjs';
 import * as P from '../../main/resources/web/js/proto.mjs';
 import { nextFocus } from '../../main/resources/web/js/focus.mjs';
@@ -43,12 +43,10 @@ test('an address round-trips a window, a target and an anchor, encoding what a p
 
 test('the record copy takes a snapshot, then changes in order; another epoch asks for a snapshot', () => {
   const r = new ClientRecord();
-  assert.equal(r.cursor(), null);
-  const a = { v: '@c1.1~', rev: 1, by: 'phone', at: 5 };
-  let ch = r.snap({ epoch: 7, seq: 10, items: { [key('reader', 'place.b1')]: a, [key('reader', 'recent')]: { v: 'b1', rev: 1, by: 'phone', at: 5 } } }, ['rec.reader.']);
+  const a = { v: '@c1.1~', by: 'phone', at: 5 };
+  let ch = r.snap({ epoch: 7, seq: 10, items: { [key('reader', 'place.b1')]: a, [key('reader', 'recent')]: { v: 'b1', by: 'phone', at: 5 } } }, ['rec.reader.']);
   assert.equal(ch.size, 2);
-  assert.deepEqual(r.cursor(), { epoch: 7, seq: 10 });
-  const b = { v: '@c9.1~', rev: 2, by: 'local', at: 6 };
+  const b = { v: '@c9.1~', by: 'local', at: 6 };
   ch = r.chg({ epoch: 7, seq: 12, patches: [{ addr: key('reader', 'place.b1'), set: b }] });
   assert.deepEqual([...ch], [key('reader', 'place.b1')]);
   assert.equal(r.value('reader', 'place.b1'), '@c9.1~');
@@ -57,11 +55,8 @@ test('the record copy takes a snapshot, then changes in order; another epoch ask
   assert.equal(r.chg({ epoch: 8, seq: 1, patches: [] }), null);
   ch = r.snap({ epoch: 8, seq: 1, items: {} }, ['rec.reader.']);
   assert.equal(ch.size, 2, 'a snapshot replaces the window whole');
-  r.snap({ epoch: 8, seq: 2, items: { [key('reader', 'place.b1')]: { v: null, gone: true, rev: 3, by: 'x', at: 1 } } }, ['rec.reader.']);
+  r.snap({ epoch: 8, seq: 2, items: { [key('reader', 'place.b1')]: { gone: true, by: 'x', at: 1 } } }, ['rec.reader.']);
   assert.equal(r.value('reader', 'place.b1'), undefined);
-  assert.deepEqual(expectSeen(r.item('reader', 'place.b1')), { any: true });
-  assert.deepEqual(expectSeen(undefined), { value: null });
-  assert.deepEqual(expectSeen(a), { value: '@c1.1~' });
 });
 
 function memStore() {
@@ -70,87 +65,15 @@ function memStore() {
 }
 const bytes = (n) => Uint8Array.from({ length: n }, (_, i) => i + 1);
 
-test('a browser stream lives in local storage and numbers on from the PC high-water', () => {
+test('a browser stream lives in local storage; a page numbers its ops from 1 (L1 C1: the numbers only match answers)', () => {
   const ls = memStore();
   const s1 = new Stream(safeStorage(ls), bytes);
   assert.equal(s1.id, '0102030405060708');
   assert.equal(ls.m.get(STREAM_KEY), s1.id);
-  assert.equal(s1.adopt({}), null, 'a first visit says nothing');
-  assert.equal(s1.next(), 1);
+  assert.deepEqual([s1.next(), s1.next()], [1, 2]);
   const s2 = new Stream(safeStorage(ls), () => { throw new Error('a kept stream mints nothing'); });
   assert.equal(s2.id, s1.id);
-  s2.adopt({ [s1.id]: 41 });
-  assert.equal(s2.next(), 42);
-  s2.renumber(40);
-  assert.equal(s2.next(), 40);
-});
-
-test('two tabs over one storage share one counter: never the same n, also after one sat idle (ruling 2.1)', () => {
-  const ls = memStore();
-  const a = new Stream(safeStorage(ls), bytes);
-  const b = new Stream(safeStorage(ls), () => { throw new Error('a kept stream mints nothing'); });
-  // both welcomed at the same high-water
-  a.adopt({ [a.id]: 10 });
-  b.adopt({ [b.id]: 10 });
-  const sent = [];
-  for (let i = 0; i < 40; i++) sent.push(b.next()); // tab B in use: 11..50
-  sent.push(a.next()); // tab A, idle all along, acts again
-  sent.push(b.next(), a.next());
-  assert.equal(new Set(sent).size, sent.length, `no number twice: ${sent}`);
-  assert.equal(sent[40], 51, 'the idle tab numbers on from the shared counter');
-  // a later welcome on the idle tab never moves the counter back
-  a.adopt({ [a.id]: 12 });
-  assert.equal(b.next(), 54);
-  // op 54 never landed (its connection ended): the PC's gap renumbers the one counter, for both tabs
-  b.renumber(54);
-  assert.equal(b.next(), 54, 'the op is sent again as 54');
-  assert.equal(a.next(), 55);
-});
-
-test('site data cleared under an open tab: its counter is its stream\'s and never below its own last number (fix round 2, ruling 2.2)', () => {
-  const ls = memStore();
-  const a = new Stream(safeStorage(ls), bytes);
-  a.adopt({ [a.id]: 50 });
-  assert.equal(a.next(), 51);
-  // he clears the browser's site data; tab A stays open on its stream, and a tab opened now mints another
-  ls.m.clear();
-  const c = new Stream(safeStorage(ls), () => Uint8Array.from({ length: 8 }, (_, i) => 0xf0 + i));
-  assert.notEqual(c.id, a.id);
-  c.adopt({});
-  assert.equal(c.next(), 1, 'the new stream starts at 1');
-  assert.equal(a.next(), 52, 'tab A numbers on from its own last number, never from the other stream\'s counter');
-  assert.equal(c.next(), 2, 'a tab on a new stream never reads tab A\'s counter');
-  // a storage whose writes stopped landing (a full quota) while reads still work: the stale stored value is never
-  // handed out again
-  let full = false;
-  const other = memStore();
-  const quota = { getItem: other.getItem, removeItem: other.removeItem, setItem: (k, v) => { if (full) throw new Error('quota'); other.setItem(k, v); } };
-  const q = new Stream(safeStorage(quota), () => Uint8Array.from({ length: 8 }, (_, i) => 0xa0 + i));
-  q.adopt({});
-  assert.equal(q.next(), 1);
-  full = true;
-  assert.deepEqual([q.next(), q.next()], [2, 3], 'no number twice when a write does not land');
-});
-
-test('two ops answered gap in one round trip are numbered once from the gap: E, then E + 1 (fix round 2, ruling 2.3)', () => {
-  const s = new Stream(safeStorage(memStore()), bytes);
-  s.adopt({ [s.id]: 40 });
-  s.next(); // 41: sent, never landed (its connection ended)
-  const x = s.next(); // 42 and 43 on the new connection, both answered `gap, expected 41`
-  const y = s.next();
-  assert.deepEqual([x, y], [42, 43]);
-  assert.deepEqual([s.gapTo(41), s.gapTo(41)], [41, 42], 'the two resends never share a number');
-  assert.equal(s.next(), 43);
-  // a later connection's gap at the same number is a new one
-  s.adopt({ [s.id]: 40 });
-  assert.equal(s.gapTo(41), 41);
-});
-
-test('cleared storage makes a new stream, and says so when the PC knows an older one of this device', () => {
-  const s = new Stream(safeStorage(memStore()), bytes);
-  assert.match(s.adopt({ ffffffffffffffff: 12 }), /storage was cleared/);
-  assert.equal(s.next(), 1);
-  assert.equal(s.adopt({ ffffffffffffffff: 12 }), null, 'said once');
+  assert.equal(s2.next(), 1, 'another page of the browser counts on its own');
 });
 
 test('a storage that throws keeps the values for this visit and says why', () => {
@@ -167,31 +90,36 @@ test('the lane messages and the levels', () => {
     // S1-2 Q3w (decisions A.1, A.5): the page reads the `notices` window, which the PC shares only with a hello naming it;
     // S1-2 Q4w (spec §5 X1, Contracts.kt): likewise `torrents`, at version 1; S1-2 Q5w (spec §5 X1): likewise `files`
     { t: 'app', proto: 2, stream: 'abc', contracts: { reader: 1, notices: 1, torrents: 1, files: 1 }, name: 'desk', replaces: 'web-1' });
-  assert.deepEqual(P.sub('reader', { epoch: 3, seq: 9 }), { t: 'sub', scope: 'reader', epoch: 3, seq: 9 });
-  const op = P.queuedOp({ stream: 's', n: 4, window: 'reader', action: 'place', targets: ['place.b'], result: '@c1.1~', expect: { value: null } });
-  assert.deepEqual(op.op, { device: '', stream: 's', n: 4, window: 'reader', action: 'place', targets: ['place.b'], result: '@c1.1~', expect: { value: null } });
-  assert.equal(P.connOp({ conn: 9, k: 1, window: 'devices', action: 'deny', params: { code: 'K7M' } }).op.conn, 9);
+  // L1 C2: every subscription is answered with a snapshot, so none names a cursor
+  assert.deepEqual(P.sub('reader'), { t: 'sub', scope: 'reader' });
+  assert.deepEqual(P.sub('torrents', { kind: 'focus', paceMs: 5000 }), { t: 'sub', scope: 'torrents', need: { kind: 'focus', paceMs: 5000 } });
+  // L1 C1: no expectation; `at`, the input's time
+  const op = P.queuedOp({ stream: 's', n: 4, window: 'reader', action: 'place', targets: ['place.b'], result: '@c1.1~', at: 77 });
+  assert.deepEqual(op.op, { device: '', stream: 's', n: 4, window: 'reader', action: 'place', targets: ['place.b'], result: '@c1.1~', at: 77 });
+  const co = P.connOp({ conn: 9, k: 1, window: 'devices', action: 'deny', params: { code: 'K7M' }, at: 78 }).op;
+  assert.deepEqual([co.conn, co.at, co.expect], [9, 78, undefined]);
   assert.equal(P.atLeast('control', 'view'), true);
   assert.equal(P.atLeast('view', 'control'), false);
   assert.equal(P.atLeast(null, 'view'), false);
   assert.equal(P.levelWhy('view', 'full'), 'needs level full on this device (this one is view)');
   assert.equal(P.levelWhy('full', 'full'), null);
   assert.equal(P.answerWords({ a: 'seen' }), null);
-  assert.equal(P.answerWords({ a: 'refused', reason: 'expected 3', code: 'gap' }), 'expected 3');
+  assert.equal(P.answerWords({ a: 'refused', reason: 'not here', code: 'invalid' }), 'not here');
   assert.equal(P.endRetries('denied'), false);
   assert.equal(P.endRetries('slow'), true);
   assert.match(P.endWords('revoked'), /removed/);
+  assert.match(P.endWords('proto'), /reloads/);
   assert.equal(P.hhmm(new Date(2026, 0, 1, 9, 5).getTime()), '9:05');
+  // L1: the reach line's time carries the day when it is not today
+  assert.equal(P.when(new Date(2026, 10, 15, 14, 2).getTime(), new Date(2026, 10, 15, 20, 0).getTime()), '14:02');
+  assert.equal(P.when(new Date(2026, 10, 15, 14, 2).getTime(), new Date(2026, 10, 17, 9, 0).getTime()), 'Nov 15 14:02');
 });
 
-test('a retry the page has sent again once is said in the page\'s words: it keeps no queue (fix round 2, ruling 2.3)', () => {
-  const pc = { a: 'refused', code: 'retry', reason: 'the PC could not write this change to its log; it is kept and sent again' };
-  const said = P.givenUp(pc);
-  assert.equal(said.a, 'refused');
-  assert.equal(said.code, 'retry');
-  assert.doesNotMatch(said.reason, /sent again/, 'a page never says its change is kept and sent again');
-  assert.equal(said.reason, 'the PC could not write this change to its log; this page keeps no queue: act again later');
-  assert.match(P.givenUp({ a: 'refused', code: 'retry' }).reason, /^refused \(retry\); this page keeps no queue/);
+test('a retry is said in the page\'s words: it keeps no queue, so it never says the change is kept and sent again', () => {
+  const said = P.pageWords({ a: 'refused', code: 'retry', reason: 'the PC could not write this change to its log; it is kept and sent again' });
+  assert.deepEqual([said.a, said.code], ['refused', 'retry']);
+  assert.equal(said.reason, 'not applied: the PC could not write this change to its log; act again');
+  assert.deepEqual(P.pageWords({ a: 'seen' }), { a: 'seen' });
 });
 
 test('the focus model moves by rows and columns in a grid, and along a list', () => {
@@ -254,12 +182,34 @@ test('reach rests on the pings alone: a ping unanswered when the next is due is 
   t.now = 4000;
   tick(); // due again: out of reach since 3000
   assert.deepEqual(c.reach, { ok: false, since: 3000 });
-  t.now = 5000;
-  tick();
-  assert.equal(c.reach.since, 3000, 'the streak keeps the time it began');
-  socks[0].frame({ t: 'pong', k: 4 });
+  socks[0].frame({ t: 'pong', k: 3 });
   assert.equal(c.reach.ok, true);
   assert.deepEqual(reach.map((r) => r.ok), [true, false, true]);
+});
+
+test('L1: a socket with two pings unanswered is let go and made again on the 2 s pacing (a half-open socket)', () => {
+  const { c, socks, t, frames, tick } = rig();
+  c.start();
+  socks[0].open();
+  socks[0].frame({ t: 'welcome', conn: 1 });
+  t.now = 2000;
+  tick(); // ping 1 out, unanswered
+  t.now = 3000;
+  tick(); // one unanswered: out of reach since 2000, ping 2 out
+  assert.deepEqual([c.reach, socks.length], [{ ok: false, since: 2000 }, 1], 'the first stays open');
+  t.now = 4000;
+  tick(); // the second unanswered: let go
+  assert.equal(socks[0].readyState, 3, 'the socket is closed');
+  assert.equal(frames.at(-1).t, 'closed', 'the page hears the end at once (its unanswered ops are said)');
+  assert.equal(c.reach.since, 2000, 'the streak keeps the time it began');
+  socks[0].frame({ t: 'pong', k: 2 });
+  assert.equal(c.reach.ok, false, 'a socket let go is no longer heard');
+  assert.equal(t.timeouts.filter((x) => x.live).length, 1, 'one new socket on the pacing, not one per close');
+  t.timeouts.at(-1).fn();
+  assert.equal(socks.length, 2);
+  socks[1].open();
+  socks[1].frame({ t: 'welcome', conn: 2 });
+  assert.equal(c.reach.ok, true);
 });
 
 test('a closed socket is out of reach at once and is reconnected on 2 s pacing', () => {

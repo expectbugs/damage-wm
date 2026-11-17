@@ -14,7 +14,7 @@ import { torrentsDesc, transfer, tlPage, T_NOW } from './torrents-fixtures.mjs';
 afterEach(restore);
 
 const welcome = (stream, extra = {}) => ({ t: 'welcome', proto: 2, device: 'web-1', level: 'full', conn: 7, pcClock: T_NOW, epoch: 3, seq: 10,
-  highWater: {}, contracts: { reader: 1, notices: 1, torrents: 1 }, bundle: { version: 't', hash: 'h', protoRange: [2, 2] }, ...extra });
+  contracts: { reader: 1, notices: 1, torrents: 1 }, bundle: { hash: 'h' }, ...extra });
 
 async function page({ path = '/w/torrents', level = 'full', contracts, narrow = false, desc = torrentsDesc({ n: 6 }) } = {}) {
   const timers = handTimers();
@@ -105,24 +105,6 @@ test('an add says the name qBittorrent took, carried on the answer or beside it'
   assert.deepEqual([op.action, op.targets], ['add', ['240001']]);
   ws.frame({ t: 'ans', conn: 7, k: op.k, answer: { a: 'sent' }, result: { name: 'Lantern.S01E02' } });
   assert.match(p.said().at(-1), /qBittorrent took 'Lantern\.S01E02'/);
-});
-
-test('a confirm left open while the connection ended sends nothing when it is taken (C§4.3)', async () => {
-  const d = torrentsDesc({ transfers: [transfer(0, { title: 'Salt Road' })] });
-  const hash = d.transfers[0].id;
-  const { p, ws, timers, stream } = await page({ path: `/w/torrents/t:${hash}`, desc: d });
-  find(p, 'BUTTON', 'Delete').fire('click');
-  const dlg = p.doc.byId.confirm;
-  assert.match(dlg.textContent, /Delete 'Salt Road'\?/);
-  p.sockets[0].close();
-  timers.timeouts.filter((x) => x.live && x.ms === 2000).at(-1).fn(); // the reconnect
-  const ws2 = p.sockets.at(-1);
-  ws2.open();
-  ws2.frame(welcome(stream, { conn: 8 }));
-  dlg.querySelector('button.act').fire('click');
-  await settle();
-  assert.deepEqual(progOps(ws).concat(progOps(ws2)), [], 'nothing sent on half a confirm');
-  assert.match(p.said().join(' | '), /Delete: nothing sent — the connection to the PC ended while the confirm was open/);
 });
 
 // S1-2 R2 item 19 (review B-S3): Torrents' delete with files has the same double confirm: the second ask puts Cancel
@@ -239,19 +221,19 @@ test('a torrent\'s page opened from a listing keeps its rows for Back and asks n
 
 test('the recents come from the window\'s own record; a search keeps itself there and opens its results', async () => {
   const { p, ws } = await page({ path: '/w/torrents/search' });
-  ws.frame({ t: 'snap', scope: 'reader', epoch: 3, seq: 20, items: {}, colls: {} });
-  ws.frame({ t: 'snap', scope: 'torrents', epoch: 3, seq: 12, items: { 'rec.torrents.recents': { v: ['salt road', 'ferry'], rev: 2, by: 'phone-1', at: 1 } }, colls: {} });
+  ws.frame({ t: 'snap', scope: 'reader', epoch: 3, seq: 20, items: {} });
+  ws.frame({ t: 'snap', scope: 'torrents', epoch: 3, seq: 12, items: { 'rec.torrents.recents': { v: ['salt road', 'ferry'], by: 'phone-1', at: 1 } } });
   assert.ok(find(p, 'A', 'salt road') && find(p, 'A', 'ferry'), 'the recents under the box');
   const input = byKey(p, 'q');
   input.value = 'lantern';
   find(p, 'FORM').fire('submit');
   const [op] = queuedOps(ws);
-  assert.deepEqual([op.window, op.action, op.targets, op.result, op.expect], ['torrents', 'recent', ['recents'], ['lantern', 'salt road', 'ferry'], { any: true }]);
+  assert.deepEqual([op.window, op.action, op.targets, op.result], ['torrents', 'recent', ['recents'], ['lantern', 'salt road', 'ferry']]);
   assert.equal(globalThis.location.pathname, '/w/torrents/search:lantern');
   assert.ok(subs(ws).some((f) => f.scope === 'torrents/search:lantern/sort:added/page:0'));
   // a change of the reader scope is not the window's: the recents stay as the torrents scope says
-  ws.frame({ t: 'chg', scope: 'reader', epoch: 3, seq: 21, patches: [{ addr: 'rec.reader.recent', set: { v: 'b1', rev: 3, by: 'x', at: 1 } }] });
-  ws.frame({ t: 'chg', scope: 'torrents', epoch: 3, seq: 13, patches: [{ addr: 'rec.torrents.recents', set: { v: ['lantern', 'salt road', 'ferry'], rev: 3, by: 'web-1', at: 2 } }] });
+  ws.frame({ t: 'chg', scope: 'reader', epoch: 3, seq: 21, patches: [{ addr: 'rec.reader.recent', set: { v: 'b1', by: 'x', at: 1 } }] });
+  ws.frame({ t: 'chg', scope: 'torrents', epoch: 3, seq: 13, patches: [{ addr: 'rec.torrents.recents', set: { v: ['lantern', 'salt road', 'ferry'], by: 'web-1', at: 2 } }] });
   assert.ok(find(p, 'A', 'lantern'), 'the change of the torrents scope is drawn');
 });
 
