@@ -133,6 +133,35 @@ class FilesMoveTest {
         assertEquals(listOf("a.txt"), Files.list(his).use { s -> s.map { it.fileName.toString() }.toList() })
     }
 
+    /** Pin (L1 R2 A5): a copy of one file never shows a partial file under its real name — its bytes go to a hidden
+     *  temporary name, and the name appears once they are whole (a stop mid-copy leaves the temporary name, never a
+     *  cut-off file he would take for the copy). The source is a named pipe the test feeds, so the copy is seen with
+     *  half its bytes in; the pipe is opened read-write, so neither side's open waits for the other. */
+    @Test
+    fun aSingleFileCopyShowsNoPartialFileUnderItsName() = kotlinx.coroutines.runBlocking {
+        val src = Files.createDirectories(tree.home.resolve("src")).resolve("slow.bin")
+        assumeTrue("mkfifo made the pipe", ProcessBuilder("mkfifo", src.toString()).start().waitFor() == 0)
+        val into = Path.of(tree.dir("into"))
+        val dest = into.resolve("slow.bin")
+        val first = ByteArray(4096) { 1 }
+        val rest = ByteArray(4096) { 2 }
+        val result = java.util.concurrent.CompletableFuture<String>()
+        java.io.RandomAccessFile(src.toFile(), "rw").use { pipe ->
+            Thread({ try { result.complete(tree.files.copy(src.toString(), into.toString())) } catch (e: Throwable) { result.completeExceptionally(e) } },
+                "a5-copy").apply { isDaemon = true; start() }
+            pipe.write(first)
+            fun inFolder() = Files.list(into).use { s -> s.toList() }
+            waitUntil(10_000, 5, { "the copy holds the first bytes somewhere in ${inFolder()} (copy: $result)" }) {
+                inFolder().any { Files.isRegularFile(it, LinkOption.NOFOLLOW_LINKS) && Files.size(it) >= first.size } }
+            assertFalse(Files.exists(dest, LinkOption.NOFOLLOW_LINKS), "no file under its real name while its bytes are still coming")
+            pipe.write(rest)
+        }                                                          // the only writer closes: the copy reads its end
+        val made = Path.of(result.get(10, java.util.concurrent.TimeUnit.SECONDS))
+        assertEquals(dest, made)
+        assertContentEquals(first + rest, Files.readAllBytes(made))
+        assertEquals(listOf("slow.bin"), Files.list(into).use { s -> s.map { it.fileName.toString() }.toList() }, "no temporary name stays")
+    }
+
     /** Pin (B4): a manifest the trash cannot stat (its folder's search permission gone) is not read as empty: trash is
      *  refused with the reason, the listing says why instead of showing an empty trash, and the manifest is as it was. */
     @Test

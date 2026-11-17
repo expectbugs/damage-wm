@@ -399,7 +399,7 @@ class LocalFilesProvider(
         } else {
             val size = try { Files.size(s) } catch (e: IOException) { null }
             progress.at(0, size, "copying")
-            Files.copy(s, dest, StandardCopyOption.COPY_ATTRIBUTES, LinkOption.NOFOLLOW_LINKS)
+            copyThroughTemp(s, dest, "copy")          // L1 R2 A5: no partial file under its real name, as a move's (B2)
             size?.let { progress.at(it, it, "copying") }
         }
         return dest.toString()
@@ -441,26 +441,33 @@ class LocalFilesProvider(
 
     // -------------------------------------------------------------- helpers
     /** Move [src] to [dest] (L1 R1 B2). On one volume, or a folder: a rename (a folder across volumes is refused with
-     *  [what]: a whole-tree copy is not a glasses-sized op). A FILE across volumes is copied by this call — to a hidden
-     *  temporary name beside [dest], forced to disk, given [dest]'s name only if no file has it — and only then is [src]
-     *  deleted. A failure deletes only what this call made; a stop leaves [src] whole and at most the temporary name. */
+     *  [what]: a whole-tree copy is not a glasses-sized op). A FILE across volumes is copied by [copyThroughTemp], and
+     *  only then is [src] deleted; a source that cannot be deleted deletes the copy this call made. */
     private fun moveEntry(src: Path, dest: Path, what: String) {
         val dir = Files.isDirectory(src, LinkOption.NOFOLLOW_LINKS)
         if (dir || sameVolume(src.toAbsolutePath().parent, dest.toAbsolutePath().parent)) {
             try { Files.move(src, dest) } catch (e: IOException) { throw if (dir) IOException("$what (${e.message})", e) else e }
             return
         }
-        val part = dest.resolveSibling(".damage-move-${System.currentTimeMillis()}-${counter.incrementAndGet()}.part")
+        copyThroughTemp(src, dest, "move")
+        try {
+            Files.delete(src)
+        } catch (e: Exception) {
+            try { Files.deleteIfExists(dest) } catch (r: IOException) { Log.w("files", "the copy at $dest stays: ${r.message}") }
+            throw e
+        }
+    }
+
+    /** Copies the FILE [src] to [dest] (L1 R1 B2, R2 A5): to a hidden temporary name beside [dest]
+     *  (`.damage-<kind>-<ms>-<n>.part`, made exclusively), forced to disk, then given [dest]'s name only if no file has
+     *  it. A failure leaves nothing under [dest]; a stop leaves at most the temporary name, never a partial file under a
+     *  real name. This call always deletes its temporary name. */
+    private fun copyThroughTemp(src: Path, dest: Path, kind: String) {
+        val part = dest.resolveSibling(".damage-$kind-${System.currentTimeMillis()}-${counter.incrementAndGet()}.part")
         Files.copy(src, part, StandardCopyOption.COPY_ATTRIBUTES, LinkOption.NOFOLLOW_LINKS)   // a link AS a link (Fi#14)
-        var placed = false
         try {
             if (!Files.isSymbolicLink(part)) FileChannel.open(part, StandardOpenOption.READ).use { it.force(true) }
             Uploads.placeNoReplace(part, dest)
-            placed = true
-            Files.delete(src)
-        } catch (e: Exception) {
-            if (placed) try { Files.deleteIfExists(dest) } catch (r: IOException) { Log.w("files", "the copy at $dest stays: ${r.message}") }
-            throw e
         } finally {
             try { Files.deleteIfExists(part) } catch (r: IOException) { Log.w("files", "the temporary $part stays: ${r.message}") }
         }
