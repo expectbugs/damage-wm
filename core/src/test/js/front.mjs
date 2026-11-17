@@ -161,9 +161,14 @@ export function realScenes(book) {
       { wait: '.chapters li:nth-child(2) button.current' }, { fetch: '/__wait?ms=3000' }, reach] },
     // L1 (the ruling, "The pages"): another device's input moves the open book's place; the page goes there by itself,
     // with no offer, and writes nothing (LookServer prints no change after the other device's)
+    // (to the book's start first, so a page that opened at that place has a move to follow)
     'real-book-follow': { path: `/w/reader/book:${book}`, steps: [{ wait: '.text p' }, reach, { fetch: '/__wait?ms=800' },
+      { fetch: `/__other?book=${book}&offset=0` }, { wait: '.chapters li:first-child button.current' }, { fetch: '/__wait?ms=800' },
       { fetch: `/__other?book=${book}&offset=4000` }, { wait: '.chapters li:not(:first-child) button.current' }, { fetch: '/__wait?ms=3000' }] },
     'real-devices': { path: '/w/devices', steps: [{ wait: '.devices li.row-item .pcode' }, reach] },
+    // L1: the two pages no scene showed — Diagnosis, and Settings with a look picked (it stays on this browser)
+    'real-diag': { path: '/w/diag', steps: [{ wait: '.diag dl.facts' }, reach] },
+    'real-settings': { path: '/w/settings', steps: [{ wait: '.settings .looks' }, reach, { click: '.looks:last-of-type .choice:last-child input' }] },
     // the approval of the waiting made-up page, from the devices page
     'real-approve': { path: '/w/devices', steps: [{ wait: '.devices li.row-item .pcode' },
       { click: 'li.row-item:has(.pcode) .row-acts button' }, { wait: '.devices ul.rows li:nth-child(2) .row-name' }, reach] },
