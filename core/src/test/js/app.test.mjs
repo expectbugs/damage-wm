@@ -7,7 +7,7 @@
 
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { openPage, browserStorage, handTimers, restore } from './pagehost.mjs';
+import { openPage, browserStorage, handTimers, restore, settle } from './pagehost.mjs';
 
 afterEach(restore);
 
@@ -109,4 +109,23 @@ test('F2b 5: on a new socket, a place read while the PC was away is sent after t
   const place = ops(ws2).find((o) => o.action === 'place');
   assert.ok(place, 'the place read meanwhile is sent');
   assert.ok(kinds.indexOf('op') > kinds.lastIndexOf('sub'), `after the subscriptions: ${kinds}`);
+});
+
+test('L1 R2 B3 (RX FIX 1): a claim the PC answers 500 opens no new socket before the 2 s pacing', async () => {
+  const timers = handTimers();
+  const claims = [];
+  const page = await openPage({ path: '/', storage: browserStorage(), timers, fetchAnswer: (u, i) => {
+    claims.push(u);
+    return { status: 500, text: async () => 'the device table could not be written', json: async () => ({}) };
+  } });
+  const ws = page.sockets[0];
+  ws.open();
+  ws.frame({ t: 'pending', code: 'K7M4QX' });
+  ws.frame({ t: 'approved', claim: 'made-up-claim' }); // this PC's own browser, approved at once (A1)
+  await settle();
+  await settle();
+  assert.deepEqual(claims, ['/pair/claim']);
+  assert.equal(page.sockets.length, 1, 'no new socket at once: the PC that cannot write its table is not asked again in a loop');
+  timers.fire(2000);
+  assert.equal(page.sockets.length, 2, 'the page asks again on the pacing');
 });

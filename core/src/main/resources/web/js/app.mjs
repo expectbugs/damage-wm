@@ -203,16 +203,16 @@ async function redeem(claim) {
     r = await fetch('/pair/claim', { method: 'POST', body: claim, credentials: 'same-origin' });
   } catch (e) {
     say(`the approval could not be taken (${e.message}); the page asks again`, { from: 'Damage' });
-    return restart();
+    return conn.drop(); // L1 R2 B3: a failed claim paces like any failed connection (a PC that cannot write its table)
   }
   if (r.status === 200) {
     const j = await r.json();
     store.set(DEVICE_KEY, j.device);
     say(`approved at level ${j.level}`, { from: 'Damage' });
-  } else {
-    say(r.status === 403 ? 'this approval is no longer valid; the page asks again' : `the approval was answered ${r.status}: ${await r.text()}`, { from: 'Damage' });
+    return restart();
   }
-  restart();
+  say(r.status === 403 ? 'this approval is no longer valid; the page asks again' : `the approval was answered ${r.status}: ${await r.text()}`, { from: 'Damage' });
+  conn.drop();
 }
 
 function restart() {
