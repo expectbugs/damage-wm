@@ -26,7 +26,6 @@ import wm.damage.core.sim.GlassFirmwareSim
 import wm.damage.core.transport.SimTransport
 import wm.damage.core.windows.reader.ReaderCore
 import wm.damage.core.windows.reader.ReaderGlasses
-import wm.damage.core.windows.reader.ReaderMigration
 
 /**
  * Context for the reader: Damage is Adam's own window manager for his own glasses, phone and PC on his own network.
@@ -65,7 +64,6 @@ class ReaderSessionStartTest {
         val g = ReaderGlasses(FakeText(), core, rig.keep(LocalWindowSource(core, wc)), scope, device = wc.device)
         val shell = Shell(FakeText(), SimTransport(GlassFirmwareSim(), scope, SimTransport.Timing(instant = true)), store, null, scope)
         shell.register(g)
-        ReaderMigration.onCopy(wc, store) {}                             // the phone's order (ruling 1.5 (a))
         shell.start()                                                     // the session start: restore, then its save
         readerAwait("the open book is restored (${g.title()})") { g.title().contains("p.") }
         rig.serve(h, lanePort)                                            // the lane comes up: the migrated place loses
@@ -109,7 +107,6 @@ class ReaderSessionStartTest {
         val g = presenter(first)
         val shell = Shell(FakeText(), SimTransport(GlassFirmwareSim(), scope, SimTransport.Timing(instant = true)), store, null, scope)
         shell.register(g)
-        ReaderMigration.onCopy(first, store) {}
         shell.start()
         readerAwait("the open book is restored (${g.title()})") { g.title().contains("p.") }
         rig.serve(h, lanePort)                                            // the lane comes up: the migrated place loses
@@ -124,7 +121,6 @@ class ReaderSessionStartTest {
         val g2 = presenter(wc)
         val shell2 = Shell(FakeText(), SimTransport(GlassFirmwareSim(), scope, SimTransport.Timing(instant = true)), store, null, scope)
         shell2.register(g2)
-        ReaderMigration.onCopy(wc, store) {}
         shell2.start()                                                    // restore, then the session start's save
         readerAwait("the book is restored (${g2.title()})") { g2.title().contains("p.") }
         readerAwait("the lane is up") { wc.client?.contractState?.shared(ReaderCore.WINDOW) == true }

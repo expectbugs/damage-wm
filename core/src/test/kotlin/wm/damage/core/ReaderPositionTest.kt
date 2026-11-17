@@ -406,31 +406,6 @@ class ReaderPositionTest {
     }
 
     @Test
-    fun aRestartKeepsTheRecordPlacesThisViewHadTaken(): Unit = runBlocking {
-        val ids = rig.writeBooks()
-        val h = rig.pc()
-        // the web read on; before the restart this view had taken that place, read a little further and stopped
-        // before its last place reached the record
-        assertTrue(rig.otherDevicePlace(h, "web", "w1", 1, ids[0], 9_000) is Answer.Seen)
-        val taken = rig.place(h, ids[0])!!.value
-        val services = ReaderServices()
-        val g = rig.pcGlasses(h, services)
-        services.onLoop {
-            g.restoreSubState("book.${ids[0]}", kotlinx.serialization.json.buildJsonObject { put("off", 9_100) })
-            g.restoreSubState(wm.damage.core.windows.reader.ReaderMigration.LEDGER,
-                wm.damage.core.windows.reader.ReaderMigration.ledgerOf(mapOf(ids[0] to 9_100), "", -1, 5, false, 0,
-                    mapOf(ids[0] to taken)))
-            g.restoreState(kotlinx.serialization.json.buildJsonObject { put("level", "LIBRARY") })
-        }
-        assertTrue(g.open("book:${ids[0]}"))
-        readerAwait("opens") { g.title().contains("p.") }
-        val kept = services.onLoop { g.saveSubState() }["book.${ids[0]}"]!!["off"]!!.jsonPrimitive.intOrNull!!
-        assertTrue(kept > 9_000, "the open is an entry, but the record's place is one this view had taken: kept ($kept)")
-        readerAwait("its later place goes to the record") { rig.placeOffset(h, ids[0]) == kept }
-        assertTrue(services.notices.none { "was not applied" in it }, "${services.notices}")
-    }
-
-    @Test
     fun aStartWithNoLedgerNeverTakesThisDevicesOwnOlderPlace(): Unit = runBlocking {
         // an earlier run of this device wrote its place to the record, then read on and stopped before the next place
         // landed; this run has the local copy and no ledger: the record's place is this device's own (its `by`), older
@@ -448,28 +423,5 @@ class ReaderPositionTest {
         val kept = services.onLoop { g.saveSubState() }["book.${ids[0]}"]!!["off"]!!.jsonPrimitive.intOrNull!!
         assertTrue(kept > 3_200, "the local copy's later place is kept, not the record's own older one ($kept)")
         readerAwait("and it goes to the record") { rig.placeOffset(h, ids[0]) == kept }
-    }
-
-    @Test
-    fun aPlaceTheLedgerKnowsAndTheRecordNoLongerHoldsIsSentWithoutALoss(): Unit = runBlocking {
-        // a restored PC record (or a fresh one) lacks a place this view knew: its next place expects what the record
-        // holds — nothing — and applies, with no "not applied" said
-        val ids = rig.writeBooks()
-        val h = rig.pc()
-        val services = ReaderServices()
-        val g = rig.pcGlasses(h, services)
-        services.onLoop {
-            g.restoreSubState("book.${ids[0]}", kotlinx.serialization.json.buildJsonObject { put("off", 3_300) })
-            g.restoreSubState(wm.damage.core.windows.reader.ReaderMigration.LEDGER,
-                wm.damage.core.windows.reader.ReaderMigration.ledgerOf(mapOf(ids[0] to 3_300), "", -1, 5, false, 0,
-                    mapOf(ids[0] to JsonPrimitive(ReaderAnchor(3_000).format()))))
-            g.restoreState(kotlinx.serialization.json.buildJsonObject { put("level", "LIBRARY") })
-        }
-        assertTrue(g.open("book:${ids[0]}"))
-        readerAwait("opens") { g.title().contains("p.") }
-        val kept = services.onLoop { g.saveSubState() }["book.${ids[0]}"]!!["off"]!!.jsonPrimitive.intOrNull!!
-        readerAwait("the place is in the record") { rig.placeOffset(h, ids[0]) == kept }
-        delay(100)
-        assertTrue(services.notices.none { "was not applied" in it }, "${services.notices}")
     }
 }

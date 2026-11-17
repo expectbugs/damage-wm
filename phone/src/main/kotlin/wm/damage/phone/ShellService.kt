@@ -413,9 +413,6 @@ class ShellService : Service() {
             m.attach(sh.noticeSink)
         }
         sh.register(reader)
-        if (wc != null) wm.damage.core.windows.reader.ReaderMigration.onCopy(wc, persistence) { line ->
-            Journal.appendNote(dataDir.resolve("journal.jsonl"), "migrate", line)
-        }
         // State sync (HANDOFF.md §19.2): the PC pushes/receives stamped state
         // records over the content port, most-recent wins. Records reach the
         // live shell (freshen → LWW → live-apply) or, when it is not running,

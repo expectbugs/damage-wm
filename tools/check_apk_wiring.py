@@ -682,14 +682,6 @@ def check(root=ROOT, say=print):
          ('per stack: ' + ', '.join(per_stack)) if per_stack else
          'startWorkingCopy / appClientFor / closeWorkingCopy / onDestroy do not build and close them as the service\'s')
 
-    # 11. build S1-1, fix round 1, ruling 1.5 (a): Reader's one-time migration goes into the working copy only once
-    #     the window is registered and its presenter listens; a loss answered before then had no one to say it.
-    reg, mig = stack.find('sh.register(reader)'), stack.find('ReaderMigration.onCopy(')
-    line(0 <= reg < mig, 'ShellService.startStack: Reader\'s migration runs after the window is registered (S1-1 fix '
-         'round 1, ruling 1.5 (a))',
-         'no ReaderMigration.onCopy( in startStack' if mig < 0 else 'no sh.register(reader) in startStack' if reg < 0
-         else 'the migration runs before the window is registered')
-
     # 12. build S1-2 (Q4): Torrents on both hosts. The PC hands every stack the process's core and source (its stacks'
     #     presenters show the PC's notices from the record and raise none of their own); the phone builds the presenter
     #     over its working copy, raising from its provider only while the PC does not share `torrents` and `notices`,

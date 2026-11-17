@@ -80,10 +80,8 @@ fun ReaderWindow(
  * stay as this presenter's optimistic state; what it changed goes to the source as ops at today's save points
  * ([saveSubState]: 2 s after input, on leaving the book, at a stop — dec. A.10). Another device's place for the open
  * book never moves the page (dec. A.2): an entry (a session start, the switcher, a restore, an open) takes it, and
- * meanwhile the actions level offers `Go there`. The glasses' row (level, cursors, the open book, the folder) stays
- * in the local `window.reader` keys in today's shape, unsynced (dec. A.11); those keys double as the copy an older
- * build reads after a downgrade, with the `conv` sub-record beside them saying what this build wrote (the migration's
- * ledger, `ReaderMigration`).
+ * meanwhile the actions level offers `Go there`. The glasses' row (level, cursors, the open book, the folder) and
+ * each book's place stay in the local `window.reader` keys in today's shape, unsynced (dec. A.11).
  */
 class ReaderGlasses(
     private val text: TextRasterizer,
@@ -1080,6 +1078,9 @@ class ReaderGlasses(
         val v: JsonElement = if (it.gone) JsonNull else it.value
         if (it.by == device) {
             confirmed[id] = v
+            // L1 C5: the record (or this device's queued op over it) already holds the local place: nothing to send for
+            // it (after a restart this view knows it from the source, so no save point sends it without an input)
+            ReaderAnchor.parse((v as? JsonPrimitive)?.contentOrNull)?.offset?.let { o -> if (offsets[id] == o) sentOff.putIfAbsent(id, o) }
             // the record holds this device's place: another device's place offered for the open book has gone from it
             // (R1 2.2's class, the focused read's S1). A loss after this offers it again (lost()).
             if (movedPlace == null || book?.meta?.id != id) return false
@@ -1331,7 +1332,7 @@ class ReaderGlasses(
     private fun who(device: String): String = when (device) {
         wm.damage.core.app.Peer.LOCAL.device -> "the PC"
         wm.damage.core.app.Peer.PHONE.device -> "the phone"
-        ReaderMigration.DEVICE -> "an earlier build"
+        "migration" -> "an earlier build"      // S1-1's one-time migration wrote his first places as this device
         "" -> "another device"
         // fix round 1, ruling 1.4: a browser's device id is `web-` and six hex digits (`web/Devices.kt`)
         else -> if (device.startsWith("web-")) "a browser" else device
@@ -1362,43 +1363,20 @@ class ReaderGlasses(
         put("offsets", buildJsonObject { for ((k, v) in offsets) put(k, v) })
     }
 
-    /**
-     * The save point (dec. A.10): what this view changed goes to the source as ops, then the local copy in today's
-     * shape — one record per book (§16.4a) — and `conv`, the record of what this build wrote into that copy (the
-     * migration's ledger: a later start offers again only what an older build wrote there since) with the record's
-     * places this view knows as its own or taken.
-     */
+    /** The save point (dec. A.10): what this view changed goes to the source as ops, then the local copy in today's
+     *  shape — one record per book (§16.4a). */
     override fun saveSubState(): Map<String, JsonObject> {
         rememberPosition()
         sendChanges()
         val out = LinkedHashMap<String, JsonObject>()
         for ((id, off) in offsets) out["book.$id"] = buildJsonObject { put("off", off) }
-        out[ReaderMigration.LEDGER] = ReaderMigration.ledgerOf(
-            offsets, book?.meta?.id ?: "", bookmarks[book?.meta?.id ?: ""] ?: -1, scrollLines, scrollAccel,
-            heightPref ?: 0, confirmed)
         return out
     }
 
     /** A per-book record at a session start (the local copy; Reader's keys no longer sync, S1-1). An empty blob is
      *  the removal tombstone: the map entry goes, and the OPEN book closes so it counts as a first open again. The
-     *  ledger brings back which record places this view knew as its own or taken (a process restart). */
+     *  `conv` record S1-1 wrote beside them (the migration's ledger) is no longer read. */
     override fun restoreSubState(subKey: String, state: JsonObject) {
-        if (subKey == ReaderMigration.LEDGER) {
-            val st = source.state()
-            for ((id, v) in ReaderMigration.knownOf(state)) if (id !in confirmed) {
-                confirmed[id] = v
-                // the next place expects what the record holds: what this view knew, when the record still holds it;
-                // otherwise (another device moved it — an entry takes it — or a restored record lost it) it is not
-                // seeded here, and the next save point sends the local place expecting the record's own
-                val held = st.itemNamed(ReaderCore.placeItem(id))?.let { if (it.gone) JsonNull else it.value }
-                if (held != v) continue
-                ReaderAnchor.parse((v as? JsonPrimitive)?.contentOrNull)?.let { a ->
-                    sentOff.putIfAbsent(id, a.offset)
-                    expectFor.putIfAbsent(id, Expect.Value(v))
-                }
-            }
-            return
-        }
         if (!subKey.startsWith("book.")) return
         val id = subKey.removePrefix("book.")
         val off = state["off"]?.jsonPrimitive?.intOrNull
@@ -1485,8 +1463,8 @@ class ReaderGlasses(
         val lvl = state["level"]?.jsonPrimitive?.contentOrNull
         // the copy's one bookmark belongs to the book it names (C§12); the record's, when it holds one, wins below
         state["bookmark"]?.jsonPrimitive?.intOrNull?.takeIf { it >= 0 && !id.isNullOrEmpty() }?.let { bookmarks.putIfAbsent(id!!, it) }
-        // The legacy whole-map (`offsets`) is no longer read here: it is the migration's input (`ReaderMigration`,
-        // dec. A.13), and the per-book records restored before this call hold every place.
+        // The legacy whole-map (`offsets`) is not read (dec. A.13): the per-book records restored before this call
+        // hold every place.
         // S1-1 P4: a session start is an entry (dec. A.2): the record's state comes in, the open book's place included
         fromSource(source.state(), entry = true)
         if (library.isNotEmpty() && level == Level_.LIBRARY) libCursorAnchor.resolve(shelfIds())?.let { libModel.cursor = it }

@@ -224,20 +224,6 @@ class SubstrateTest {
             // the legacy whole-map still writes, for an older build's restore
             assertTrue(reader.saveState()["offsets"] != null)
 
-            // the legacy-map half is migration input now: a book with no record of its own takes the map's entry,
-            // and a book's own record beats the map
-            val store = Persistence(tmp.resolve("state.json"))
-            store.put("window.reader.book.$id", buildJsonObject { put("off", 999) })
-            store.put("window.reader", buildJsonObject {
-                put("level", "LIBRARY")
-                put("offsets", buildJsonObject { put(id, 5); put("legacy-only", 42) })
-            })
-            val plan = wm.damage.core.windows.reader.ReaderMigration.plan(store)
-            val offered = plan.offers.filter { it.action == "place" }.associate {
-                it.targets.single() to wm.damage.core.windows.reader.ReaderAnchor.parse(it.result.jsonPrimitive.content)!!.offset
-            }
-            assertEquals(mapOf("place.$id" to 999, "place.legacy-only" to 42), offered)
-
             // the removal tombstone drops the entry
             val r2 = ReaderWindow(FakeText(), content, scope)
             r2.restoreSubState("book.$id", buildJsonObject { put("off", 999) })
