@@ -232,27 +232,20 @@ class WebProtocolTest {
         }
     }
 
+    /** L1 C1: the latest input wins — a page's op without its input time takes its arrival, so the page's place after
+     *  the glasses' applies, and nothing is said. */
     @Test
-    fun aMovedPlaceLosesOnceSaysTheStandingPlaceThenApplies() {
+    fun aPlaceFromThePageAfterTheGlassesIsTheLatestInputAndApplies() {
         val rig = Rig().closeLater()
         val (page, _) = rig.page(Levels.VIEW, stream = "s2")
         val target = "place.${rig.book}"
         page.send(op("s2", 1, "place", target, JsonPrimitive("@c10.1~"), value(null)))
         assertEquals("seen", page.answer("s2", 1).str("a"))
-        // the glasses read on (device `local`, its own stream), expecting the page's place
+        // the glasses read on (device `local`, its own stream)
         assertEquals("Seen(again=false)", rig.reader.otherDevicePlace(rig.host, "local", "glasses", 1, rig.book, 40).toString())
-        // the page, not having taken it, sends the place it read to, expecting the one it took: it loses, said
         page.send(op("s2", 2, "place", target, JsonPrimitive("@c20.1~"), value("@c10.1~")))
-        val lost = page.answer("s2", 2)
-        assertEquals("lost", lost.str("a"))
-        val loss = lost["losses"]!!.jsonArray.single().jsonObject
-        assertEquals("@c40.1~", loss.str("standing"))
-        assertEquals("local", loss.str("by"))
-        assertEquals("@c20.1~", loss.str("mine"))
-        // reading on expects the standing place and applies: never twice
-        page.send(op("s2", 3, "place", target, JsonPrimitive("@c30.1~"), value("@c40.1~")))
-        assertEquals("seen", page.answer("s2", 3).str("a"))
-        assertEquals(30, rig.reader.placeOffset(rig.host, rig.book))
+        assertEquals("seen", page.answer("s2", 2).str("a"))
+        assertEquals(20, rig.reader.placeOffset(rig.host, rig.book))
     }
 
     @Test

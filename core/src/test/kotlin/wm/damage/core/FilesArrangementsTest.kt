@@ -16,7 +16,6 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import wm.damage.core.app.AppHost
 import wm.damage.core.app.AppNet
-import wm.damage.core.app.Expect
 import wm.damage.core.app.LocalWindowSource
 import wm.damage.core.app.Op
 import wm.damage.core.app.OpId
@@ -87,7 +86,7 @@ class FilesArrangementsTest {
     /** Another device writes Files' row [target] on the PC record. */
     private fun elsewhere(h: AppHost, action: String, target: String, value: kotlinx.serialization.json.JsonElement) {
         val got = CopyOnWriteArrayList<wm.damage.core.app.Answer>()
-        h.act(Op("web-q5", OpId.Queued("w-q5", ++n), FilesCore.WINDOW, action, listOf(target), value, Expect.Any)) { got += it }
+        h.act(Op("web-q5", OpId.Queued("w-q5", ++n), FilesCore.WINDOW, action, listOf(target), value, at = System.currentTimeMillis())) { got += it }
         h.executor.call {}
         assertTrue(got.single() is wm.damage.core.app.Answer.Seen, "${got.single()}")
     }
@@ -122,7 +121,9 @@ class FilesArrangementsTest {
         // the shared sort moves at the desk: by size, c.txt is the second row now
         elsewhere(a.h, "sort", "sort", JsonPrimitive("size"))
         readerAwait("the phone's copy holds the new sort") { FilesCore.sortOf(a.g.source.state()) == "size" }
-        delay(300)                                                    // the change's turn on the shell loop
+        // by size c.txt is the second row: the re-seat moves the cursor there on the shell loop (L1 A-N8: a wait on the
+        // thing it names, not a fixed 300 ms)
+        await(a, "the cursor re-seated on the second row") { a.services.onLoop { (a.g.view() as WindowView.ListView).model.cursor } == 1 }
         assertEquals("c.txt", a.cursorName(), "the cursor stays on the same file, never on the index")
         // hidden on at the desk: the folder is listed again and the cursor follows its name there
         elsewhere(a.h, "hidden", "hidden", JsonPrimitive(true))

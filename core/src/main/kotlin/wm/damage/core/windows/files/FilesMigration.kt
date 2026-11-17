@@ -7,18 +7,15 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import wm.damage.core.app.AppHost
 import wm.damage.core.app.Migrate
-import wm.damage.core.app.RecordBackend
 import wm.damage.core.shell.Persistence
 import wm.damage.core.shell.ShellSettings
 
 /*
  * Context for the reader: Damage is Adam's own window manager for his own glasses, phone and PC on his own network.
- * Build S1-2, package Q5 (the spec's §4.4, §5 F4; `CONTRACT.md` §9.7 item 2): Files' records from before its conversion
- * become record items once per host, on Q2's generic migration ([Migrate]): the local `window.files` blob's
- * `clipVerb` + `clipPath` → `clip`, `sort` → `sort` (upper case before, the record's lower case), `hidden` → `hidden`,
- * `height` → `glasses.size`. Each is offered as a `migrate` op expecting `PreConversion(the blob's stamp)`; the ledger
- * `window.files.conv` says what was offered, so a second start offers nothing. A value that is not one of its row's
- * is not offered (nothing to migrate).
+ * Build S1-2, package Q5, as L1 M1 made it: Files' rows from before its conversion become record items where the record
+ * holds none of them ([Migrate], on the PC only): the PC store's `window.files` blob's `clipVerb` + `clipPath` →
+ * `clip`, `sort` → `sort` (upper case before, the record's lower case), `hidden` → `hidden`, `height` →
+ * `glasses.size`. A value that is not one of its row's is not offered (nothing to migrate).
  */
 object FilesMigration {
     /** The migration for [store]'s blob: the clipboard's two fields are one item, read together. */
@@ -36,10 +33,7 @@ object FilesMigration {
     }
 
     /** The PC's migration at its process start, before any presenter reads the record (`Migrate.onHost`). */
-    fun onHost(host: AppHost, store: Persistence, note: (String) -> Unit): Migrate.Result = of(store).onHost(host, store, note)
-
-    /** The phone's migration at a stack's start, once Files' presenter listens (`Migrate.onCopy`). */
-    fun onCopy(copy: RecordBackend, store: Persistence, note: (String) -> Unit): Migrate.Result = of(store).onCopy(copy, store, note)
+    fun onHost(host: AppHost, store: Persistence, note: (String) -> Unit) = of(store).onHost(host, store, note)
 
     private fun clip(verb: JsonElement, path: String): JsonElement? {
         val v = when ((verb as? JsonPrimitive)?.contentOrNull) {

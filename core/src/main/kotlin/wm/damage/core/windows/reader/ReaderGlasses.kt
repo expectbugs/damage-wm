@@ -11,13 +11,13 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import wm.damage.core.app.Answer
-import wm.damage.core.app.Expect
 import wm.damage.core.app.Item
 import wm.damage.core.app.Op
 import wm.damage.core.app.SourceListener
@@ -80,10 +80,8 @@ fun ReaderWindow(
  * stay as this presenter's optimistic state; what it changed goes to the source as ops at today's save points
  * ([saveSubState]: 2 s after input, on leaving the book, at a stop — dec. A.10). Another device's place for the open
  * book never moves the page (dec. A.2): an entry (a session start, the switcher, a restore, an open) takes it, and
- * meanwhile the actions level offers `Go there`. The glasses' row (level, cursors, the open book, the folder) stays
- * in the local `window.reader` keys in today's shape, unsynced (dec. A.11); those keys double as the copy an older
- * build reads after a downgrade, with the `conv` sub-record beside them saying what this build wrote (the migration's
- * ledger, `ReaderMigration`).
+ * meanwhile the actions level offers `Go there`. The glasses' row (level, cursors, the open book, the folder) and
+ * each book's place stay in the local `window.reader` keys in today's shape, unsynced (dec. A.11).
  */
 class ReaderGlasses(
     private val text: TextRasterizer,
@@ -174,12 +172,12 @@ class ReaderGlasses(
             ?: offsets.keys.firstOrNull { it == title }   // the id-shown fallback row
             ?: run { Log.w("reader", "reset progress: no tracked book called '$title'"); return }
         offsets.remove(id)
-        // S1-1 P4: the record's place goes too (a removal expecting the revision this view sees); one the record does
-        // not hold (a place only in the local copy) has nothing to remove there
+        // S1-1 P4: the record's place goes too; one the record does not hold (a place only in the local copy) has
+        // nothing to remove there
         val seen = source.state().itemNamed(ReaderCore.placeItem(id))
-        if (seen != null && !seen.gone) source.act(ReaderCore.resetDraft(id, seen.rev))
+        if (seen != null && !seen.gone) source.act(ReaderCore.resetDraft(id))
         sentOff.remove(id)
-        expectFor[id] = Expect.Any
+        inputAt.remove(id)
         confirmed[id] = JsonNull
         // resetting the OPEN book also closes it: saveState's rememberPosition
         // would re-track it on the next save, and a reset book should count as
@@ -206,9 +204,10 @@ class ReaderGlasses(
     /** Per book, the place offset last sent to the source (or taken from it): a save point sends a place that moved
      *  since. Absent = nothing sent, so a place held only locally goes at the next save point. */
     private val sentOff = HashMap<String, Int>()
-    /** Per book, what the next place op expects to find (C§2.4 position): the place this view last took or sent; the
-     *  standing place after a loss, so reading on never loses twice. Absent = nothing there ([Expect.Value] null). */
-    private val expectFor = HashMap<String, Expect>()
+    /** L1 C1: per book, the time of the input that moved this view's place (its save point, at most ~2 s after the
+     *  scroll; kept in the book's local record across a restart). The place op carries it, and another device's place
+     *  older than it is neither taken nor offered: the latest input wins here as on the PC. Absent = unknown (0). */
+    private val inputAt = HashMap<String, Long>()
     /** Per book, the record's place this view knows to be its own or taken (JsonNull = known removed). A record place
      *  that is neither is another device's: an entry takes it, and the open book offers `Go there` until then. Kept in
      *  the `conv` sub-record, so it holds across a process restart. */
@@ -224,7 +223,7 @@ class ReaderGlasses(
      *  cancels the older, and a result whose generation is not the latest is dropped. */
     @Volatile private var restoreJob: Job? = null
     private val restoreGen = java.util.concurrent.atomic.AtomicInteger(0)
-    private var services: ShellServices? = null
+    @Volatile private var services: ShellServices? = null
     private var wrappedWidth = 0
 
     /** Reader content face: Alegreya (locked). The line box is MEASURED per
@@ -462,7 +461,8 @@ class ReaderGlasses(
         // no position exists while the first-open picker is up: recording one
         // would mark the book opened and skip the picker after a restart
         if (level == Level_.CHAPTERS && !chaptersReturnToBook) return
-        offsets[b.meta.id] = b.lines[docModel.topLine.coerceIn(0, b.lines.size - 1)].offset
+        val off = b.lines[docModel.topLine.coerceIn(0, b.lines.size - 1)].offset
+        if (offsets.put(b.meta.id, off) != off) inputAt[b.meta.id] = source.now()
     }
 
     override fun onRegistered(ctx: ShellServices) {
@@ -612,40 +612,20 @@ class ReaderGlasses(
         }
 
         override fun answered(op: Op, answer: Answer) {
-            // fix round 2, ruling 1.2: a loss stays with this view until it has been said (one before the shell's
-            // services, one whose post a Shutdown's drain dropped, one posted while no session runs)
-            val s = synchronized(unsaid) {
-                if (answer is Answer.Lost) unsaid[op.id] = op to answer
-                services
-            }
+            val s = services
             if (s == null) {
                 // fix round 2, ruling 1.7: a refusal for good is never told to no one (no notice is kept for it)
-                if (answer is Answer.Refused && answer.code != Answer.RETRY && answer.code != Answer.GAP)
+                if (answer is Answer.Refused && answer.code != Answer.RETRY)
                     Log.e("reader", "the record refused ${op.action} of ${op.targets} before the shell started: ${answer.reason}")
                 return
             }
-            if (answer is Answer.Lost) sayUnsaid(s) else s.runOnShell { onAnswer(op, answer) }
-        }
-    }
-
-    /** Losses handed to this view and not yet said (fix round 1, ruling 1.5; round 2, ruling 1.2). */
-    private val unsaid = LinkedHashMap<wm.damage.core.app.OpId, Pair<Op, Answer>>()
-
-    /** Posts every loss not yet said, now and at each session start ([attach]); the first run of one says it and only
-     *  then tells the source, which stops keeping it; a later run finds it gone. */
-    private fun sayUnsaid(s: ShellServices) {
-        for ((op, a) in synchronized(unsaid) { unsaid.values.toList() }) s.runOnShell {
-            if (synchronized(unsaid) { unsaid.remove(op.id) } != null) {
-                onAnswer(op, a)
-                source.said(op)
-            }
+            s.runOnShell { onAnswer(op, answer) }
         }
     }
 
     /** At the registration and at every session start (the shell registers its windows again at each). */
     private fun attach(ctx: ShellServices) {
-        synchronized(unsaid) { services = ctx }
-        sayUnsaid(ctx)
+        services = ctx
     }
 
     init {
@@ -1080,6 +1060,9 @@ class ReaderGlasses(
         val v: JsonElement = if (it.gone) JsonNull else it.value
         if (it.by == device) {
             confirmed[id] = v
+            // L1 C5: the record (or this device's queued op over it) already holds the local place: nothing to send for
+            // it (after a restart this view knows it from the source, so no save point sends it without an input)
+            ReaderAnchor.parse((v as? JsonPrimitive)?.contentOrNull)?.offset?.let { o -> if (offsets[id] == o) sentOff.putIfAbsent(id, o) }
             // the record holds this device's place: another device's place offered for the open book has gone from it
             // (R1 2.2's class, the focused read's S1). A loss after this offers it again (lost()).
             if (movedPlace == null || book?.meta?.id != id) return false
@@ -1087,6 +1070,8 @@ class ReaderGlasses(
             return level == Level_.ACTIONS
         }
         if (confirmed[id] == v) return false
+        // L1 C1: another device's place older than this view's own input on the book stays out (the PC orders it so)
+        if (it.at < (inputAt[id] ?: Long.MIN_VALUE)) return false
         val openNow = book?.meta?.id == id
         if (!take) {
             // dec. A.2: the open book's page stays; the actions level offers the place
@@ -1100,7 +1085,7 @@ class ReaderGlasses(
             confirmed[id] = JsonNull
             offsets.remove(id)
             sentOff.remove(id)
-            expectFor[id] = Expect.Any
+            inputAt.remove(id)
             if (openNow) {
                 // a reset elsewhere, met at an entry: the open book closes and counts as a first open again (the
                 // local reset's semantics)
@@ -1127,7 +1112,7 @@ class ReaderGlasses(
         confirmed[id] = v
         offsets[id] = a.offset
         sentOff[id] = a.offset
-        expectFor[id] = Expect.Value(v)
+        inputAt.remove(id)
         val b = book
         if (b != null && b.meta.id == id) {
             movedPlace = null
@@ -1186,16 +1171,16 @@ class ReaderGlasses(
     private val sentMarkVal = HashMap<String, JsonElement>()
 
     /** What this view changed since it last sent, as ops (dec. A.10: at today's save points only). Each returns at
-     *  once; the source answers later ([onAnswer]). */
+     *  once; the source answers later ([onAnswer]). A place carries the time of the input that moved it (L1 C1; 0 for
+     *  one restored without it: it then applies only where the record holds no later place). */
     private fun sendChanges() {
         val st = source.state()
         val b = book
         for ((id, off) in offsets) {
             if (sentOff[id] == off) continue
             val at = if (b != null && b.meta.id == id) ReaderAnchor.at(b.book.text, off) else ReaderAnchor(off)
-            source.act(ReaderCore.placeDraft(id, at, expectFor[id] ?: ReaderCore.expectSeen(st.itemNamed(ReaderCore.placeItem(id)))))
+            source.act(ReaderCore.placeDraft(id, at, inputAt[id] ?: 0L))
             sentOff[id] = off
-            expectFor[id] = Expect.Value(JsonPrimitive(at.format()))
         }
         for ((id, off) in bookmarks) {
             val at = if (b != null && b.meta.id == id) ReaderAnchor.at(b.book.text, off) else ReaderAnchor(off)
@@ -1206,8 +1191,7 @@ class ReaderGlasses(
                 sentMarkVal[id] = st.itemNamed(ReaderCore.bookmarkItem(id))!!.value
                 continue
             }
-            val expect = sent?.let { Expect.Value(it) } ?: ReaderCore.expectSeen(st.itemNamed(ReaderCore.bookmarkItem(id)))
-            source.act(ReaderCore.bookmarkDraft(id, at, expect))
+            source.act(ReaderCore.bookmarkDraft(id, at))
             sentMarkVal[id] = v
         }
         for ((row, v) in rowValues()) {
@@ -1218,29 +1202,23 @@ class ReaderGlasses(
                 sentRowVal[row] = v       // the record (or its default) already says so
                 continue
             }
-            source.act(ReaderCore.setDraft(row, v, sent?.let { Expect.Value(it) } ?: ReaderCore.expectSeen(held)))
+            source.act(ReaderCore.setDraft(row, v))
             sentRowVal[row] = v
         }
     }
 
-    /** An answer to one of this view's ops, on the shell loop (C§4.4). A loss is said under Reader's name as the
-     *  answer to the input that made it (dec. A.2), with both values. */
+    /** An answer to one of this view's ops, on the shell loop (C§4.4). L1 C1: no answer says a later input stands; the
+     *  state does, and the open book then offers `Go there`. */
     private fun onAnswer(op: Op, a: Answer) {
         if (op.window != ReaderCore.WINDOW) return
         val target = op.targets.firstOrNull() ?: return
         when (a) {
-            is Answer.Lost -> for (loss in a.losses) lost(op, loss.item, loss)
             is Answer.Seen -> if (target.startsWith("place.")) confirmed[target.removePrefix("place.")] = op.result
             is Answer.Refused -> {
-                // not taken (`retry`: the log could not be written; `gap`: numbered behind one that was not): the next
-                // save point sends it again — the PC's own presenter has no queue to send it from. Fix round 2, ruling
-                // 1.4: it changed nothing, so that send expects what this op expected (unless the view has taken or
-                // sent another place since), and nothing is said. Any other refusal is for good, and said.
+                // not taken (`retry`: the log could not be written): the next save point sends it again — the PC's own
+                // presenter has no queue to send it from. Any other refusal is for good, and said.
                 forgetSent(target)
-                if (a.code == Answer.RETRY || a.code == Answer.GAP) {
-                    val id = target.removePrefix("place.")
-                    if (target.startsWith("place.") && expectFor[id] == Expect.Value(op.result)) expectFor[id] = op.expect
-                } else {
+                if (a.code != Answer.RETRY) {
                     Log.e("reader", "the record refused ${op.action} of $target: ${a.reason}")
                     services?.notifyInternal("reader", "${op.action} not saved: ${a.reason}", answer = true)
                 }
@@ -1257,81 +1235,10 @@ class ReaderGlasses(
         }
     }
 
-    private fun lost(op: Op, target: String, loss: wm.damage.core.app.Loss) {
-        val standing = if (loss.gone) JsonNull else loss.standing
-        val whoAt = "${who(loss.by)} (${hhmm(loss.at)})"
-        var say = true
-        val body = when {
-            target.startsWith("place.") -> {
-                val id = target.removePrefix("place.")
-                val mine = placeWords(id, loss.mine)
-                // fix round 2, ruling 1.3: said once per (book, standing place, this place) — the migrated op in flight
-                // and a session start's own op of the same place lose with the same two
-                say = placeLossesSaid.add(Triple(id, placeKey(standing), placeKey(loss.mine)))
-                while (placeLossesSaid.size > 1_000) placeLossesSaid.remove(placeLossesSaid.first())
-                // C§2.4: the view has been given the standing place, so its next input expects it and applies. Fix
-                // round 2, ruling 1.1: it has not TAKEN it (the page stays, dec. A.2; a book not open keeps its place
-                // until the change comes), so [confirmed] — and the ledger's `known` — keep what the view holds: an
-                // entry or the change then takes the standing place, and a restart seeds nothing from it
-                expectFor[id] = if (loss.gone) Expect.Any else Expect.Value(standing)
-                if (op.action == ReaderCore.RESET) {
-                    confirmed[id] = standing      // a lost reset takes the standing place (below)
-                    ReaderAnchor.parse((standing as? JsonPrimitive)?.contentOrNull)?.let { s ->
-                        offsets[id] = s.offset
-                        sentOff[id] = s.offset
-                    }
-                    "progress not reset: ${who(loss.by)} read on (${hhmm(loss.at)})"
-                } else if (loss.gone) {
-                    "progress of this book was reset by $whoAt; this place, $mine, was not applied"
-                } else if (standing == JsonNull) {
-                    // the record holds no place for the book (a restored record): the next input sends it again
-                    "this place, $mine, was not applied: the PC holds no place for this book now; reading on sends it again"
-                } else {
-                    if (book?.meta?.id == id) {
-                        movedPlace = ReaderAnchor.parse((standing as? JsonPrimitive)?.contentOrNull)
-                        movedBy = loss.by
-                        movedAt = loss.at
-                    }
-                    "${who(loss.by)} read on to ${placeWords(id, standing)} (${hhmm(loss.at)}); this place, $mine, was not applied"
-                }
-            }
-            target.startsWith("bookmark.") -> {
-                val id = target.removePrefix("bookmark.")
-                sentMarkVal[id] = standing
-                val s = ReaderAnchor.parse((standing as? JsonPrimitive)?.contentOrNull)
-                if (s == null) bookmarks.remove(id) else bookmarks[id] = s.offset
-                "bookmark not applied: set by $whoAt"
-            }
-            else -> {
-                sentRowVal[target] = standing
-                if (!loss.gone) setRow(target, standing)
-                "Reader ${target.removePrefix("glasses.")} not applied: $standing, set by $whoAt"
-            }
-        }
-        if (say) {
-            Log.w("reader", "not applied ($target): $body")
-            services?.notifyInternal("reader", body, answer = true)
-        } else Log.i("reader", "a loss of $target said already, not said again: $body")
-        services?.requestRender(this)
-    }
-
-    /** The place losses said (ruling 1.3), the last 1,000. */
-    private val placeLossesSaid = LinkedHashSet<Triple<String, String, String>>()
-
-    /** A place's identity in [placeLossesSaid]: its character offset (an anchor's quoted text aside). */
-    private fun placeKey(v: JsonElement): String = ReaderAnchor.parse((v as? JsonPrimitive)?.contentOrNull)?.offset?.toString() ?: v.toString()
-
-    /** A place in words for a notice: its page in the open book, else its character offset. */
-    private fun placeWords(id: String, v: JsonElement): String {
-        val a = ReaderAnchor.parse((v as? JsonPrimitive)?.contentOrNull) ?: return "none"
-        val b = book
-        return if (b != null && b.meta.id == id) "p.${b.pageOf(b.lineAtOffset(a.offset))}" else "character ${a.offset}"
-    }
-
     private fun who(device: String): String = when (device) {
         wm.damage.core.app.Peer.LOCAL.device -> "the PC"
         wm.damage.core.app.Peer.PHONE.device -> "the phone"
-        ReaderMigration.DEVICE -> "an earlier build"
+        "migration" -> "an earlier build"      // S1-1's one-time migration wrote his first places as this device
         "" -> "another device"
         // fix round 1, ruling 1.4: a browser's device id is `web-` and six hex digits (`web/Devices.kt`)
         else -> if (device.startsWith("web-")) "a browser" else device
@@ -1362,43 +1269,23 @@ class ReaderGlasses(
         put("offsets", buildJsonObject { for ((k, v) in offsets) put(k, v) })
     }
 
-    /**
-     * The save point (dec. A.10): what this view changed goes to the source as ops, then the local copy in today's
-     * shape — one record per book (§16.4a) — and `conv`, the record of what this build wrote into that copy (the
-     * migration's ledger: a later start offers again only what an older build wrote there since) with the record's
-     * places this view knows as its own or taken.
-     */
+    /** The save point (dec. A.10): what this view changed goes to the source as ops, then the local copy in today's
+     *  shape — one record per book (§16.4a), with the time of the input that moved it (L1 C1). */
     override fun saveSubState(): Map<String, JsonObject> {
         rememberPosition()
         sendChanges()
         val out = LinkedHashMap<String, JsonObject>()
-        for ((id, off) in offsets) out["book.$id"] = buildJsonObject { put("off", off) }
-        out[ReaderMigration.LEDGER] = ReaderMigration.ledgerOf(
-            offsets, book?.meta?.id ?: "", bookmarks[book?.meta?.id ?: ""] ?: -1, scrollLines, scrollAccel,
-            heightPref ?: 0, confirmed)
+        for ((id, off) in offsets) out["book.$id"] = buildJsonObject {
+            put("off", off)
+            inputAt[id]?.let { put("at", it) }
+        }
         return out
     }
 
     /** A per-book record at a session start (the local copy; Reader's keys no longer sync, S1-1). An empty blob is
      *  the removal tombstone: the map entry goes, and the OPEN book closes so it counts as a first open again. The
-     *  ledger brings back which record places this view knew as its own or taken (a process restart). */
+     *  `conv` record S1-1 wrote beside them (the migration's ledger) is no longer read. */
     override fun restoreSubState(subKey: String, state: JsonObject) {
-        if (subKey == ReaderMigration.LEDGER) {
-            val st = source.state()
-            for ((id, v) in ReaderMigration.knownOf(state)) if (id !in confirmed) {
-                confirmed[id] = v
-                // the next place expects what the record holds: what this view knew, when the record still holds it;
-                // otherwise (another device moved it — an entry takes it — or a restored record lost it) it is not
-                // seeded here, and the next save point sends the local place expecting the record's own
-                val held = st.itemNamed(ReaderCore.placeItem(id))?.let { if (it.gone) JsonNull else it.value }
-                if (held != v) continue
-                ReaderAnchor.parse((v as? JsonPrimitive)?.contentOrNull)?.let { a ->
-                    sentOff.putIfAbsent(id, a.offset)
-                    expectFor.putIfAbsent(id, Expect.Value(v))
-                }
-            }
-            return
-        }
         if (!subKey.startsWith("book.")) return
         val id = subKey.removePrefix("book.")
         val off = state["off"]?.jsonPrimitive?.intOrNull
@@ -1413,6 +1300,7 @@ class ReaderGlasses(
             return
         }
         offsets[id] = off
+        state["at"]?.jsonPrimitive?.longOrNull?.let { inputAt[id] = it } ?: inputAt.remove(id)
         val b = book
         // any level with this book loaded (review 2026-09-01 F9): parked at
         // ACTIONS/CHAPTERS, a stale topLine would be re-stamped by the next
@@ -1485,8 +1373,8 @@ class ReaderGlasses(
         val lvl = state["level"]?.jsonPrimitive?.contentOrNull
         // the copy's one bookmark belongs to the book it names (C§12); the record's, when it holds one, wins below
         state["bookmark"]?.jsonPrimitive?.intOrNull?.takeIf { it >= 0 && !id.isNullOrEmpty() }?.let { bookmarks.putIfAbsent(id!!, it) }
-        // The legacy whole-map (`offsets`) is no longer read here: it is the migration's input (`ReaderMigration`,
-        // dec. A.13), and the per-book records restored before this call hold every place.
+        // The legacy whole-map (`offsets`) is not read (dec. A.13): the per-book records restored before this call
+        // hold every place.
         // S1-1 P4: a session start is an entry (dec. A.2): the record's state comes in, the open book's place included
         fromSource(source.state(), entry = true)
         if (library.isNotEmpty() && level == Level_.LIBRARY) libCursorAnchor.resolve(shelfIds())?.let { libModel.cursor = it }

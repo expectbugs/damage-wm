@@ -17,7 +17,7 @@ import wm.damage.core.comp.Journal
  * Context for the reader: Damage is Adam's own window manager for his own glasses, phone and PC on his own network.
  * Build S1-1, package P1 (`CONTRACT.md` §9.7 item 1, §13 (b) "operation journal"; dec. A.12, B.1): the PC record's
  * append-only operation log, `oplog.jsonl` in the data directory (never `journal.jsonl`, which is the flush journal).
- * One line per op: its `seq`, its stream's high-water, the op, its effect and its answer, appended, written and forced
+ * One line per op: its `seq`, the op, its effect and its answer, appended, written and forced
  * to disk BEFORE the op is answered or its change published. `record.json` covers the lines up to its `seq`; a start
  * replays the lines past it. Nothing here deletes a line: the file is set aside whole (a dated name beside it) at a
  * process start once a save covers all of it and it is past [AppHost.LOG_SET_ASIDE_BYTES] or holds a bad line.
@@ -25,16 +25,15 @@ import wm.damage.core.comp.Journal
  */
 class OpLog(val file: Path, private val sync: (FileChannel) -> Unit = { it.force(true) }) {
 
-    /** One line: the op's [seq], its stream's high-water after it [hw], and what it did. */
-    data class Line(val seq: Long, val hw: Long, val op: Op, val effect: Effect, val answer: Answer)
+    /** One line: the op's [seq] and what it did. */
+    data class Line(val seq: Long, val op: Op, val effect: Effect, val answer: Answer)
 
     /** What a start found: the lines past the covered `seq` ([lines]), how many covered lines it passed over, whether
-     *  the last line was incomplete (and where its bytes were kept), and every line that did not decode. */
+     *  the last line was incomplete (it was cut), and every line that did not decode. */
     class Opened(
         val lines: List<Line>,
         val passed: Int,
         val incomplete: Boolean,
-        val partialKept: Path?,
         val bad: List<String>,
     )
 
@@ -49,12 +48,14 @@ class OpLog(val file: Path, private val sync: (FileChannel) -> Unit = { it.force
     /**
      * Opens the log for appending and reads it once. Lines with `seq` at or below [after] (covered by `record.json`)
      * are passed over without decoding; the rest are decoded in order. An incomplete last line (a write that a stop
-     * cut short — never answered, since the answer follows the force) is copied to `oplog.jsonl.partial-<ms>` beside
-     * the log and cut from it, so the next line starts clean; the caller mints a new epoch for it (C§9.3). A line
-     * that does not decode, or whose `seq` does not rise, is named in [Opened.bad] and skipped.
+     * cut short — never answered, since the answer follows the force: the device sends it again) is cut, so the next
+     * line starts clean, and the caller says so (L1 C6). A line that does not decode, or whose `seq` does not rise, is
+     * named in [Opened.bad] and skipped. Opened again (L1 R-a: a start's open that failed), the earlier channel is
+     * closed first.
      */
     fun open(after: Long): Opened {
         file.toAbsolutePath().parent?.let { Files.createDirectories(it) }
+        ch?.close()
         val c = FileChannel.open(file, StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE)
         ch = c
         val bytes = ByteArray(c.size().toInt().also { require(c.size() <= Int.MAX_VALUE) { "the log is past 2 GiB" } })
@@ -62,17 +63,8 @@ class OpLog(val file: Path, private val sync: (FileChannel) -> Unit = { it.force
         while (buf.hasRemaining()) if (c.read(buf, buf.position().toLong()) < 0) break
         var end = bytes.size
         while (end > 0 && bytes[end - 1] != NL) end--
-        var kept: Path? = null
         val incomplete = end < bytes.size
         if (incomplete) {
-            kept = file.resolveSibling(file.fileName.toString() + ".partial-" + System.currentTimeMillis())
-            try {
-                Files.write(kept, bytes.copyOfRange(end, bytes.size), StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
-            } catch (e: IOException) {
-                wm.damage.core.util.Log.e("record", "the incomplete last line of ${file.fileName} could not be kept " +
-                    "aside; it is cut anyway (it was never answered)", e)
-                kept = null
-            }
             c.truncate(end.toLong())
             c.force(true)
         }
@@ -103,7 +95,7 @@ class OpLog(val file: Path, private val sync: (FileChannel) -> Unit = { it.force
             }
             start = nl + 1
         }
-        return Opened(lines, passed, incomplete, kept, bad)
+        return Opened(lines, passed, incomplete, bad)
     }
 
     /**
@@ -139,7 +131,6 @@ class OpLog(val file: Path, private val sync: (FileChannel) -> Unit = { it.force
      *  reopened as it was). */
     fun setAside(now: LocalDateTime = LocalDateTime.now()): Path {
         val target = file.resolveSibling(Journal.archiveName(file, now))
-        ch?.close()
         ch = null
         try {
             Files.move(file, target)   // no options: an existing target is refused, never replaced
@@ -153,7 +144,6 @@ class OpLog(val file: Path, private val sync: (FileChannel) -> Unit = { it.force
     }
 
     fun close() {
-        ch?.close()
         ch = null
     }
 
@@ -163,17 +153,17 @@ class OpLog(val file: Path, private val sync: (FileChannel) -> Unit = { it.force
 
         fun encode(l: Line): String = buildJsonObject {
             put("seq", l.seq)                       // first: a start reads it without decoding the line
-            put("hw", l.hw)
             put("op", OpJson.op(l.op))
             put("eff", RecordJson.effect(l.effect))
             put("ans", OpJson.answer(l.answer))
         }.toString()
 
+        /** L1 C1: a 0.67 line's `hw`, its op's `expect` and a `lost` answer are read past (a replay needs only the
+         *  line's absolute effect). */
         fun decode(s: String): Line {
             val j = Json.parseToJsonElement(s) as? JsonObject ?: throw IllegalArgumentException("not an object")
             return Line(
                 seq = OpJson.num(j, "seq"),
-                hw = OpJson.num(j, "hw"),
                 op = OpJson.op(j["op"] as? JsonObject ?: throw IllegalArgumentException("no op")),
                 effect = RecordJson.effect(j["eff"] as? JsonObject ?: throw IllegalArgumentException("no eff")),
                 answer = OpJson.answer(j["ans"] as? JsonObject ?: throw IllegalArgumentException("no ans")),

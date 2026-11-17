@@ -897,15 +897,12 @@ private suspend fun hostOnly(cfg: Config) {
     // store's Global row at each raise); host-only runs no shell, so it has no notice mirror (absent on purpose)
     val noticeCore = wm.damage.core.app.NoticeCore.atProcessStart(appHost,
         { wm.damage.core.shell.ShellSettings.fromJson(store.get("shell.settings")).quietHours }, null)
-    // build S1-1 (P4, the spec's §4): Reader's records from before its conversion become record items once (the
-    // ledger beside them says what was offered), and Reader's core sits on the record for every presenter (P6 serves it)
-    wm.damage.core.windows.reader.ReaderMigration.onHost(appHost, store) { }
-    // build S1-2 (Q4): Torrents' records from before its conversion, then its parts on the lane and its notices, as in
+    // build S1-2 (Q4): Torrents' rows from before its conversion, then its parts on the lane and its notices, as in
     // runShell (host-only has no presenter: the core serves the web and raises the notices)
     wm.damage.core.windows.torrents.TorrentsMigration.onHost(appHost, store) { }
     torrentsParts(appNet, appHost, torrents, noticeCore)
 
-    // build S1-2 (Q5): Files' records from before its conversion become record items once (as Reader's above), then
+    // build S1-2 (Q5): Files' rows from before its conversion become record items where the record holds none, then
     // Files on the PC record: the one job slot every PC caller meets (the phone's glasses through the window channel,
     // the web's program ops), its scopes, ops, blobs and card on the lane; host-only has no presenter
     wm.damage.core.windows.files.FilesMigration.onHost(appHost, store) { }
@@ -1238,25 +1235,22 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
         wm.damage.core.app.HostBackend(appHost, wm.damage.core.app.Peer.LOCAL.device, wm.damage.core.app.OpQueue.newStream()),
         say = { line -> Log.i("notices", line); Journal.appendNote(journalFile, "notices", line) })
     Log.i("damage", "the notice record: ${noticeCore.window} raised on the PC, mirrored to every stack")
-    // build S1-1 (P4, the spec's §4): Reader's records from before its conversion become record items once (the
-    // ledger beside them says what was offered; a `migrate` note says what happened), before any presenter reads the
-    // record; then Reader's core on the record, and the source every stack's glasses presenter reads (device `local`)
-    wm.damage.core.windows.reader.ReaderMigration.onHost(appHost, store) { line -> Journal.appendNote(journalFile, "migrate", line) }
+    // build S1-1: Reader's core on the record, and the source every stack's glasses presenter reads (device `local`)
     // build S1-1 (P5): with the PC's reader index, as in host-only (its first scan here, the index walked after it)
     val readerCore = wm.damage.core.windows.reader.ReaderCore(LocalContent(Path.of(cfg.booksDir)), tmuxScope,
         wm.damage.core.windows.reader.ReaderIndex(dataDir.resolve("reader-index.json"), tmuxScope))
     readerCore.refreshLibrary()
     val readerSource = wm.damage.core.app.LocalWindowSource(readerCore,
         wm.damage.core.app.HostBackend(appHost, wm.damage.core.app.Peer.LOCAL.device, wm.damage.core.app.OpQueue.newStream()))
-    // build S1-2 (Q4): Torrents' records from before its conversion become record items once (a `migrate` note says
-    // what happened), before any presenter reads them; then its parts on the lane and its notices (`torrentsParts`), and
+    // build S1-2 (Q4): Torrents' rows from before its conversion become record items where the record holds none (a
+    // `migrate` note says so), before any presenter reads them; then its parts on the lane and its notices (`torrentsParts`), and
     // the source every stack's glasses presenter reads (device `local`)
     wm.damage.core.windows.torrents.TorrentsMigration.onHost(appHost, store) { line -> Journal.appendNote(journalFile, "migrate", line) }
     val torrentsScopes = torrentsParts(appNet, appHost, torrentsProvider, noticeCore)
     val torrentsSource = wm.damage.core.app.LocalWindowSource(torrentsScopes.core,
         wm.damage.core.app.HostBackend(appHost, wm.damage.core.app.Peer.LOCAL.device, wm.damage.core.app.OpQueue.newStream()))
 
-    // build S1-2 (Q5): Files' records from before its conversion become record items once (a `migrate` note), then
+    // build S1-2 (Q5): Files' rows from before its conversion become record items where the record holds none, then
     // Files on the PC record: the one job slot every PC caller meets (every stack's glasses, the phone's glasses
     // through the window channel, the web's program ops), its scopes, ops, blobs and card on the lane; each stack's
     // presenter reads Files' records through a source of its own (`SlottedFiles.pc`)

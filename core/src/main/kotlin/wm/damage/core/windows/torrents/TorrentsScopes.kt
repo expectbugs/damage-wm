@@ -103,7 +103,7 @@ class TorrentsScopes(
 
     private fun state(): WindowState {
         val (_, _, e) = host.read(TorrentsCore.WINDOW)
-        return WindowState(TorrentsCore.WINDOW, e.items, e.colls)
+        return WindowState(TorrentsCore.WINDOW, e.items)
     }
 
     // ---- the table: `desc/torrents`, `torrents/t:<hash>` ----

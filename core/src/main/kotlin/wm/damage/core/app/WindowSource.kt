@@ -13,69 +13,60 @@ import kotlinx.serialization.json.JsonObject
  * ops' answers come back through [SourceListener] on the executor.
  */
 
-/** What a presenter asks a window to do: an op without its numbering, its device or its cursor, which the source adds
- *  (C§2.4: the result, never a recipe; what it expected to find). */
+/** What a presenter asks a window to do: an op without its id, its device or its cursor, which the source adds
+ *  (C§2.4: the result, never a recipe). [at]: the time of the input that made it, when the presenter knows it (Reader's
+ *  place, set at its save point after the scroll); null = the source stamps its clock as it takes the draft. */
 data class Draft(
     val action: String,
     val targets: List<String>,
     val result: JsonElement = JsonNull,
-    val expect: Expect = Expect.Any,
     val params: JsonObject = JsonObject(emptyMap()),
+    val at: Long? = null,
 )
 
 /**
- * One window's state as a source shows it: the record's entries of [window] (full keys `rec.<window>.<name>`) with
+ * One window's state as a source shows it: the record's items of [window] (full keys `rec.<window>.<name>`) with
  * this device's ops that are not yet in them applied on top. [pending] = the keys an unanswered op of this device
  * writes; [cursor] = the record's place the entries stand at. Immutable: one per paint (C§13 (b) "working copy" (e)).
  */
 class WindowState(
     val window: String,
     val items: Map<String, Item>,
-    val colls: Map<String, Coll>,
     val pending: Set<String> = emptySet(),
     val cursor: Cursor? = null,
 ) : RecordView {
     override fun item(key: String): Item? = items[key]
-    override fun coll(key: String): Coll? = colls[key]
 
     /** The item [name] of this window (its key less `rec.<window>.`). */
     fun itemNamed(name: String): Item? = items[Record.key(window, name)]
 
-    fun collNamed(name: String): Coll? = colls[Record.key(window, name)]
-
-    /** Entries that carry a "not applied" mark (C§2.4; the away line's count). */
-    val notApplied: Int get() = items.values.count { it.notApplied != null } + colls.values.count { it.notApplied != null }
-
     /**
-     * The keys whose drawn form differs from [before]'s: a value, a removal, an order, or the losing value of a "not
-     * applied" mark. A revision, a writer or a time is not drawn, so an answer that only confirms what was shown
-     * changes nothing here and nothing repaints (C§2.3 step 3: "equal to what it showed: nothing repaints").
+     * The keys whose drawn form differs from [before]'s: a value or a removal. A writer or a time is not drawn, so an
+     * answer that only confirms what was shown changes nothing here and nothing repaints (C§2.3 step 3: "equal to what
+     * it showed: nothing repaints").
      */
     fun drawnChanges(before: WindowState?): Set<String> {
         val out = HashSet<String>()
         val bi = before?.items ?: emptyMap()
-        val bc = before?.colls ?: emptyMap()
         for (k in items.keys + bi.keys) if (drawn(items[k]) != drawn(bi[k])) out += k
-        for (k in colls.keys + bc.keys) if (drawn(colls[k]) != drawn(bc[k])) out += k
         return out
     }
 
-    override fun toString() = "WindowState($window, ${items.size} items, ${colls.size} collections, pending $pending, at $cursor)"
+    override fun toString() = "WindowState($window, ${items.size} items, pending $pending, at $cursor)"
 
     companion object {
-        fun empty(window: String) = WindowState(window, emptyMap(), emptyMap())
+        fun empty(window: String) = WindowState(window, emptyMap())
 
-        private fun drawn(i: Item?): Any? = i?.let { Triple(if (it.gone) null else it.value, it.gone, it.notApplied?.mine) }
-        private fun drawn(c: Coll?): Any? = c?.let { Pair(it.order, it.notApplied?.mine) }
+        private fun drawn(i: Item?): Any? = i?.let { Pair(if (it.gone) null else it.value, it.gone) }
     }
 }
 
 /** What a source tells its presenters, on the core executor: hand off to the presenter's own loop, never block. */
 interface SourceListener {
-    /** The state moved; [keys] = the entries whose drawn form changed (empty: only revisions or writers moved). */
+    /** The state moved; [keys] = the entries whose drawn form changed (empty: only writers or times moved). */
     fun changed(state: WindowState, keys: Set<String>) {}
 
-    /** An op of this device was answered (C§4.4). A loss's standing value is already in the state. */
+    /** An op of this device was answered (C§4.4). */
     fun answered(op: Op, answer: Answer) {}
 }
 
@@ -111,9 +102,8 @@ interface WindowSource {
 
     fun removeListener(l: SourceListener)
 
-    /** Fix round 2, ruling 1.2: a presenter has SAID the loss answered to [op] (its notice call has run on its loop):
-     *  the loss is kept until then and handed to each presenter that listens meanwhile. */
-    fun said(op: Op) {}
+    /** This device's clock, as its ops are stamped with it (L1 C1: a presenter that keeps an input's time reads it). */
+    fun now(): Long = System.currentTimeMillis()
 }
 
 /** What a [LocalWindowSource] sits on: the PC's record or the phone's working copy. Every call is made on [executor]. */
@@ -123,16 +113,16 @@ interface RecordBackend {
     /** The window's state now. */
     fun stateOf(window: String): WindowState
 
-    /** Numbers [draft] in this device's stream and takes it. */
+    /** Names [draft] in this device's stream, stamps it ([Draft.at], or the backend's clock) and takes it. */
     fun submit(window: String, draft: Draft)
 
     fun watch(window: String, l: SourceListener)
 
     fun unwatch(window: String, l: SourceListener)
 
-    /** [WindowSource.said], on [executor]: a kept loss of [window]'s [op] is kept no longer. */
-    fun said(window: String, op: Op) {}
-
     /** Fix round 2, ruling 1.7: a line in this host's journal (a refusal for good no presenter heard). */
     fun journal(line: String) {}
+
+    /** The clock this backend stamps a draft with when the draft carries no input time ([Draft.at]). */
+    fun now(): Long = System.currentTimeMillis()
 }

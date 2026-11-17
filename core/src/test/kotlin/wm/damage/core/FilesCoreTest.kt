@@ -20,7 +20,6 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import wm.damage.core.app.Answer
 import wm.damage.core.app.AppHost
-import wm.damage.core.app.Expect
 import wm.damage.core.app.Levels
 import wm.damage.core.app.Op
 import wm.damage.core.app.OpId
@@ -57,12 +56,11 @@ class FilesCoreTest {
     private val n = HashMap<String, Long>()
 
     /** An op of a made-up device on [h], answered. */
-    private fun act(h: AppHost, action: String, target: String, result: JsonElement, expect: Expect = Expect.Any,
-                    device: String = "web-q5"): Answer {
+    private fun act(h: AppHost, action: String, target: String, result: JsonElement, device: String = "web-q5"): Answer {
         val got = CopyOnWriteArrayList<Answer>()
         val k = (n[device] ?: 0L) + 1
         n[device] = k
-        h.act(Op(device, OpId.Queued("s-$device", k), FilesCore.WINDOW, action, listOf(target), result, expect)) { got += it }
+        h.act(Op(device, OpId.Queued("s-$device", k), FilesCore.WINDOW, action, listOf(target), result, at = System.currentTimeMillis())) { got += it }
         h.executor.call {}
         return got.single()
     }
@@ -81,25 +79,6 @@ class FilesCoreTest {
         }
         assertFalse(Windows.isProgram(FilesCore.WINDOW, FilesCore.COPY), "the clipboard is a record row")
         assertEquals(1, Windows.VERSIONS[FilesCore.WINDOW])
-    }
-
-    @Test
-    fun aRowTakesOnlyItsOwnValues() {
-        val h = host()
-        fun refused(a: Answer) = a is Answer.Refused && a.code == Answer.INVALID
-        assertTrue(refused(act(h, "sort", "sort", JsonPrimitive("colour"))))
-        assertTrue(refused(act(h, "hidden", "hidden", JsonPrimitive("yes"))))
-        assertTrue(refused(act(h, "set", "glasses.size", JsonPrimitive(300))))
-        assertTrue(refused(act(h, "copy", "clip", FilesCore.clipJson("cut", "/x/a"))), "a copy carries its own verb")
-        assertTrue(refused(act(h, "copy", "clip", buildJsonObject { put("verb", "copy"); put("path", "relative") })))
-        assertTrue(refused(act(h, "sort", "hidden", JsonPrimitive("name"))), "a row's action on another row")
-        assertTrue(act(h, "sort", "sort", JsonPrimitive("size")) is Answer.Seen)
-        assertTrue(act(h, "hidden", "hidden", JsonPrimitive(true), Expect.Value(JsonNull)) is Answer.Seen)
-        assertTrue(act(h, "set", "glasses.size", JsonPrimitive(352)) is Answer.Seen)
-        assertTrue(act(h, "set", "glasses.size", JsonPrimitive("global")) is Answer.Seen)
-        assertTrue(act(h, "cut", "clip", FilesCore.clipJson("cut", "/x/a")) is Answer.Seen)
-        assertTrue(act(h, "cut", "clip", JsonNull) is Answer.Seen, "a cut may clear the clipboard")
-        assertEquals(JsonPrimitive("size"), item(h, "sort")?.value)
     }
 
     @Test
@@ -148,7 +127,7 @@ class FilesCoreTest {
         val dest = tree.dir("dest")
         assertTrue(act(h, "cut", "clip", FilesCore.clipJson("cut", a)) is Answer.Seen)
         val r = pc.program.act(Op("web-q5", OpId.Conn(3, 1), FilesCore.WINDOW, FilesCore.PASTE, listOf(dest),
-            params = buildJsonObject { put("verb", "cut"); put("path", a) }), Peer("web-q5", Levels.FULL))
+            params = buildJsonObject { put("verb", "cut"); put("path", a) }, at = 1), Peer("web-q5", Levels.FULL))
         assertTrue(r is wm.damage.core.app.ProgramResult.Sent, "$r")
         assertTrue(entered.await(10, TimeUnit.SECONDS))
         // the clipboard moves on while the move runs (another device copies b)
@@ -184,7 +163,7 @@ class FilesCoreTest {
         val w = tree.file("w.txt")
         act(h, "cut", "clip", FilesCore.clipJson("cut", w), device = "web-q5")
         val r = pc.program.act(Op("web-q5", OpId.Conn(9, 1), FilesCore.WINDOW, FilesCore.PASTE, listOf(dest),
-            params = buildJsonObject { put("verb", "cut"); put("path", w) }), Peer("web-q5", Levels.FULL))
+            params = buildJsonObject { put("verb", "cut"); put("path", w) }, at = 1), Peer("web-q5", Levels.FULL))
         assertTrue(r is wm.damage.core.app.ProgramResult.Sent, "$r")
         eventually("cleared after the web's paste") { clip() == JsonNull }
         // a copy's paste leaves the clipboard as it is

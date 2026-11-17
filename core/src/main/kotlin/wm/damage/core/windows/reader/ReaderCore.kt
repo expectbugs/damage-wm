@@ -18,7 +18,6 @@ import kotlinx.serialization.json.put
 import wm.damage.core.app.ActionSpec
 import wm.damage.core.app.ActionTable
 import wm.damage.core.app.Draft
-import wm.damage.core.app.Expect
 import wm.damage.core.app.Item
 import wm.damage.core.app.Kind
 import wm.damage.core.app.WindowCore
@@ -237,10 +236,9 @@ class ReaderCore(
         const val SET = "set"
         /** Reset progress: the book's place removed (cancel first, as built). */
         const val RESET = "reset"
-        /** A register's value from before Reader's conversion (a bookmark, a glasses row), judged by its old stamp
-         *  (dec. A.3). Declared with the position kind, the kind whose expectation may be a pre-conversion stamp;
-         *  the judge treats a register and a position alike. Places migrate as [PLACE] ops so that a place read
-         *  before the PC takes them coalesces into the same unsent op. */
+        /** A register's value from before Reader's conversion (a bookmark, a glasses row), stamped with its old time
+         *  (dec. A.3). S1-1's migration has run on both hosts (L1 C5); the action stays for an op of it a queue may
+         *  still hold. */
         const val MIGRATE = "migrate"
 
         // the record items
@@ -313,27 +311,20 @@ class ReaderCore(
 
         fun size(state: WindowState): Int? = (live(state, SIZE)?.value as? JsonPrimitive)?.intOrNull
 
-        // ---- the drafts a presenter sends (C§2.4: the result, and what the device expected to find) ----
+        // ---- the drafts a presenter sends (C§2.4: the result; L1 C1: its input time when the presenter knows it) ----
 
-        /** The expectation for an item a device last saw as [seen]: its value, or Any when it saw it removed (a reset
-         *  the device knows of: writing anew is not an edit of a removed item). */
-        fun expectSeen(seen: Item?): Expect = when {
-            seen == null -> Expect.Value(JsonNull)
-            seen.gone -> Expect.Any
-            else -> Expect.Value(seen.value)
-        }
+        /** [book]'s place [place], from the input at [inputAt] (null: the source stamps its clock). */
+        fun placeDraft(book: String, place: ReaderAnchor, inputAt: Long? = null) =
+            Draft(PLACE, listOf(placeItem(book)), JsonPrimitive(place.format()), at = inputAt)
 
-        fun placeDraft(book: String, at: ReaderAnchor, expect: Expect) =
-            Draft(PLACE, listOf(placeItem(book)), JsonPrimitive(at.format()), expect)
+        fun bookmarkDraft(book: String, place: ReaderAnchor) =
+            Draft(BOOKMARK, listOf(bookmarkItem(book)), JsonPrimitive(place.format()))
 
-        fun bookmarkDraft(book: String, at: ReaderAnchor, expect: Expect) =
-            Draft(BOOKMARK, listOf(bookmarkItem(book)), JsonPrimitive(at.format()), expect)
+        fun openDraft(book: String) = Draft(OPEN, listOf(RECENT), JsonPrimitive(book))
 
-        fun openDraft(book: String) = Draft(OPEN, listOf(RECENT), JsonPrimitive(book), Expect.Any)
+        fun setDraft(row: String, value: JsonElement) = Draft(SET, listOf(row), value)
 
-        fun setDraft(row: String, value: JsonElement, expect: Expect) = Draft(SET, listOf(row), value, expect)
-
-        /** Reset progress of [book]: its place removed, expecting the revision the device saw. */
-        fun resetDraft(book: String, rev: Long) = Draft(RESET, listOf(placeItem(book)), JsonNull, Expect.Rev(rev))
+        /** Reset progress of [book]: its place removed. */
+        fun resetDraft(book: String) = Draft(RESET, listOf(placeItem(book)), JsonNull)
     }
 }

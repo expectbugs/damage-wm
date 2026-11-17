@@ -20,10 +20,13 @@ import wm.damage.core.util.Log
 /*
  * Context for the reader: Damage is Adam's own window manager for his own glasses, phone and PC on his own network.
  * Build S1-1, package P1 (the spec's §2 P1 and §3; `CONTRACT.md` §2.2–§2.4, §9.3, §9.7 item 1, §13 (b); dec. A.12,
- * B.1): the PC side of the record. Every op runs on the one core executor in arrival order: judge → its log line
- * lands → the record takes the effect → the sequence file → the answer → the change is published. Wired nowhere in
- * P1: the `app` lane (P2) hands it ops and carries its changes.
+ * B.1): the PC side of the record. Every op runs on the one core executor in arrival order: judge (L1 C1: the latest
+ * input wins, `Merge`) → its log line lands → the record takes the effect → the answer → the change is published. The `app` lane hands it ops and
+ * carries its changes; L1 C2: every subscription takes a snapshot, so no change is held for a resume.
  */
+
+/** One published change: the record's [seq] in [epoch] and the entries it wrote (each item names its writer). */
+data class Change(val epoch: Long, val seq: Long, val effect: Effect)
 
 /** How the record says a failure beyond the log: a built-in alert (W's `AlertStore`, delivered to the phone). */
 interface RecordAlerts {
@@ -36,8 +39,6 @@ interface RecordAlerts {
         const val LOG = AlertRule.RECORD_PREFIX + "log"
         /** `record.json` could not be saved: the log keeps what it does not cover; retried each tick. */
         const val SAVE = AlertRule.RECORD_PREFIX + "save"
-        /** The sequence file could not be written: changes are not published until it can. */
-        const val SEQ = AlertRule.RECORD_PREFIX + "seq"
         /** Fix round 2, ruling 1.5: a start found no readable `record.json` beside logs an earlier start set aside. Raised
          *  by that start and left for him to read (no start clears it): the record was rebuilt from the logs. */
         const val REPLAY = AlertRule.RECORD_PREFIX + "replay"
@@ -63,7 +64,8 @@ class AppHost(
     val dir: Path,
     private val actions: ActionTable,
     val executor: CoreExecutor,
-    private val clock: () -> Long = { System.currentTimeMillis() },
+    /** The PC's clock: an op's input time is bounded by it (L1 C1), and the PC's own sources stamp their ops with it. */
+    val clock: () -> Long = { System.currentTimeMillis() },
     private val alerts: RecordAlerts = RecordAlerts.NONE,
     private val journal: Path? = null,
     logSync: (FileChannel) -> Unit = { it.force(true) },
@@ -76,17 +78,14 @@ class AppHost(
     val log = OpLog(dir.resolve(LOG_FILE), logSync)
     val store = if (storeWrite == null) RecordStore(dir.resolve(RECORD_FILE), writer = storeWriter)
         else RecordStore(dir.resolve(RECORD_FILE), storeWrite, storeWriter)
-    val seqFile = SeqFile(dir.resolve(SEQ_FILE))
-    val ring = ChangeRing()
 
     private val record = Record()
-    private val streams = Streams()
     private val listeners = CopyOnWriteArrayList<(Change) -> Unit>()
     /** S1-2 Q2: told on the executor at every pacing tick, before the record's own work (the lane's viewer sweep). */
     private val tickListeners = CopyOnWriteArrayList<() -> Unit>()
 
-    /** The record store's epoch (C§9.3): minted at its creation, an incomplete last log line, or a store older than
-     *  the sequence file; never at a process start. */
+    /** The record store's epoch (C§9.3): minted at its creation or when `record.json` was unreadable (L1 C2); never
+     *  at a process start. */
     @Volatile var epoch = 0L
         private set
 
@@ -98,23 +97,22 @@ class AppHost(
     private var savedThrough = 0L
     private var saving = false
     @Volatile private var opened = false
-    /** The log opened and replayed whole at this process's start (fix round 1, ruling 1.7); the executor's. */
+    /** The log opened and replayed whole (fix round 1, ruling 1.7): at this process's start, or on a later tick (L1
+     *  R-a); the executor's. */
     private var logReady = false
+    /** The `seq` `record.json` covered at this start: where the log's replay begins, at the start and on a retry. */
+    private var covered = 0L
 
     /** True once [open] has run (the `app` lane refuses its hello before). */
     val isOpen: Boolean get() = opened
-    /** Fix round 2, ruling 1.6: the log opened and replayed whole at this start ([logReady]); read on the executor. */
+    /** Fix round 2, ruling 1.6: the log opened and replayed whole ([logReady]); read on the executor. */
     val logOpen: Boolean get() = logReady
-    /** Changes committed and answered but not yet published: the sequence file has not taken their `seq`. */
-    private val held = ArrayList<Change>()
 
     private val logFailures = Streak(RecordAlerts.LOG, "the operation log",
         "changes from other devices are refused until it can be written; a phone keeps them and sends them again, a " +
             "page says so and keeps none")    // S1-2 Q1, N3's class: a page keeps no queue
     private val saveFailures = Streak(RecordAlerts.SAVE, "record.json",
         "the log keeps every change it does not cover; the save is tried again on the next tick")
-    private val seqFailures = Streak(RecordAlerts.SEQ, "the sequence file",
-        "changes are applied and answered but not sent to other screens until it can be written")
 
     /** What the start found and did. */
     data class Opened(
@@ -155,7 +153,7 @@ class AppHost(
      *  [atProcessStart] (dec. D.3; `tools/check_apk_wiring.py` holds who calls that). */
     internal fun open(now: LocalDateTime = LocalDateTime.now()): Opened = executor.call { openNow(now) }
 
-    /** The pacing tick on [scope] every [everyMs] (2 s): held changes published, `record.json` saved when it moved. */
+    /** The pacing tick on [scope] every [everyMs] (2 s): `record.json` saved when it moved. */
     fun pace(scope: CoroutineScope, everyMs: Long = TICK_MS): Job = scope.launch {
         while (isActive) {
             delay(everyMs)                    // pacing between ticks, not a bound on any work
@@ -165,23 +163,15 @@ class AppHost(
 
     /** Hands [op] to the executor; [reply] gets its answer there, after its line has landed and before its change is
      *  published. Every op gets exactly one answer. [gate] (S1-1 P6: the device's level, a revoked device) is read on
-     *  the executor at apply time, after the stream's number check: a refusal it returns takes the op's number as a
-     *  refusal for good and changes nothing. */
+     *  the executor at apply time: a refusal it returns is for good and changes nothing. */
     fun act(op: Op, gate: () -> Answer.Refused? = { null }, reply: (Answer) -> Unit) {
         executor.execute("op ${op.window}/${op.action}") { actNow(op, gate, reply) }
     }
 
-    /** The pacing tick: publishes changes the sequence file held back, and saves `record.json` when the record moved. */
+    /** The pacing tick: saves `record.json` when the record moved. */
     fun tick() {
         executor.execute("record tick") { tickNow() }
     }
-
-    /** The stream's high-water (C§2.4 numbering; `welcome` carries them). */
-    fun highWater(key: StreamKey): Long = executor.call { streams.highWater(key) }
-
-    /** Every high-water [device] has, by stream (for its `welcome`). */
-    fun highWaters(device: String): Map<String, Long> =
-        executor.call { streams.table().filterKeys { it.device == device }.mapKeys { it.key.stream } }
 
     /** A copy of [window]'s entries, with the epoch and `seq` it was taken at. */
     fun read(window: String): Triple<Long, Long, Effect> = executor.call { Triple(epoch, seq, record.window(window)) }
@@ -199,19 +189,12 @@ class AppHost(
         val loaded = store.load()
         loaded.problem?.let { problems += it }
         val saved = loaded.saved
-        val held0 = seqFile.read()
-        val covered = saved?.covered ?: 0L
-        saved?.let {
-            record.apply(Effect(it.items, it.colls))
-            streams.load(it.streams)
-        }
+        covered = saved?.covered ?: 0L
+        saved?.let { record.apply(Effect(it.items)) }
         var replayedTo = covered
         var replayed = 0
         fun replay(line: OpLog.Line) {
-            record.apply(line.effect)
-            line.op.queued?.let { q ->
-                streams.commit(StreamKey(line.op.device, q.stream), line.hw, line.answer, Streams.identity(line.op))
-            }
+            record.apply(line.effect)                 // absolute: a 0.67 line's expect, hw and answer are not needed
             replayedTo = line.seq
             replayed++
         }
@@ -233,43 +216,28 @@ class AppHost(
                 "could not replay $name (${e::class.simpleName}: ${e.message})"
             }
         }
-        var logState: OpLog.Opened? = null
-        try {
-            val o = log.open(covered)
-            o.lines.forEach(::replay)
-            logState = o                      // opened AND replayed whole: only then is the log open for this process
-            o.partialKept?.let { problems += "the log's incomplete last line was kept as ${it.fileName}" }
-            problems += o.bad
-        } catch (e: Exception) {
-            // fix round 2, ruling 1.8: nothing opens it again in this process, so the alert says what ends the refusals
-            logFailures.failed("could not be opened", e, "changes from other devices are refused until the service is " +
-                "restarted; a phone keeps them and sends them again, a page says so and keeps none")
-            problems += "the operation log could not be opened (${e::class.simpleName}: ${e.message})"
-        }
+        // opened AND replayed whole: only then is the log open for this process
+        val logState = openLog(::replay)
+        if (logState != null) {
+            if (logState.incomplete) problems += "the log's incomplete last line was cut (it was never answered)"
+            problems += logState.bad
+        } else problems += "the operation log could not be opened; it is tried again on each tick"
+        // L1 C2: every subscription takes a snapshot, so the epoch names the store and moves only with a new one
         val why = when {
             saved == null && loaded.problem != null -> "record.json was unreadable"
             saved == null -> "a new store"
-            logState?.incomplete == true -> "the log's last line was incomplete"
-            logState != null && logState.bad.isNotEmpty() -> "the log held ${logState.bad.size} line(s) that did not decode"
-            held0 == null -> "the sequence file was missing"
-            held0.epoch != saved.epoch -> "the sequence file names another epoch"
-            held0.seq > replayedTo -> "the store is older than the sequence file ($replayedTo < ${held0.seq})"
             else -> null
         }
-        epoch = if (why == null) saved!!.epoch
-            else maxOf(clock(), (saved?.epoch ?: 0L) + 1, (held0?.epoch ?: 0L) + 1, 1L)
-        seq = maxOf(replayedTo, held0?.seq ?: 0L)
-        ring.reset(seq)
+        epoch = if (why == null) saved!!.epoch else maxOf(clock(), (saved?.epoch ?: 0L) + 1, 1L)
+        seq = replayedTo
         opened = true
         logReady = logState != null
-        val seqOk = writeSeqFile()
         // fix round 1, ruling 1.7: a log that did not open or replay is never covered by a save (its `covered` would pass
         // over the lines this start did not replay, for good); the next good start replays it whole
         val err = if (logReady) store.saveNow(snapshot()) else null
         var setAside: java.nio.file.Path? = null
         if (!logReady) {
-            problems += "record.json is not saved while the log is closed; changes are refused with \"retry\" until a " +
-                "start opens it"
+            problems += "record.json is not saved while the log is closed; changes are refused with \"retry\" until it opens"
         } else if (err == null) {
             savedThrough = seq
             saveFailures.ok()
@@ -287,7 +255,6 @@ class AppHost(
         // a run of failures ends with its process: an alert the last process left up is cleared when this start
         // finds the thing working (each clear of an alert that is not up does nothing)
         if (logState != null) logFailures.settledAtStart()
-        if (seqOk) seqFailures.settledAtStart()
         if (logReady && err == null) saveFailures.settledAtStart()
         if (aside.isNotEmpty()) {
             val line = "no readable ${RECORD_FILE} beside ${aside.size} log(s) set aside by earlier starts: " +
@@ -315,51 +282,31 @@ class AppHost(
             reply(Answer.Refused("the PC could not open its operation log at its start; it is kept and sent again", Answer.RETRY))
             return
         }
-        val q = op.queued
-        if (q == null) {
+        if (op.queued == null) {
             reply(Answer.Refused("live, outbound and guarded actions are not built in this version", Answer.UNSUPPORTED))
             return
-        }
-        val key = StreamKey(op.device, q.stream)
-        val ident = Streams.identity(op)
-        when (val c = streams.check(key, q.n, ident)) {
-            is Streams.Check.Handled -> {
-                reply(c.answer ?: Answer.Seen(again = true))
-                return
-            }
-            is Streams.Check.Reused -> {
-                // fix round 1, ruling 2.1: never the other op's answer taken as this one's; nothing is written
-                reply(Answer.Refused("number ${c.n} of this stream was already used by another change (another tab " +
-                    "of this browser); this one was not applied", Answer.INVALID))
-                return
-            }
-            is Streams.Check.Gap -> {
-                reply(Answer.Refused("expected ${c.expected}", Answer.GAP))
-                return
-            }
-            Streams.Check.Next -> {}
         }
         val refused = gate()
         val spec = if (refused == null) actions.spec(op.window, op.action) else null
         val bad = spec?.let { Merge.check(it, op) }
-        val now = clock()
-        // S1-2 Q3: the window's own rule, asked once the shape passed; it never changes the merge rule, only stands in
-        // for it (the notice record: a state never moves backwards; raise and clear are the PC's own)
-        val ruled = if (spec != null && bad == null) rules.admit(record, op, now) else null
-        val verdict = when {
-            spec == null || bad != null || ruled is Admit.Refuse -> Verdict.Same
-            ruled is Admit.Lose -> ruled.verdict
-            else -> Merge.judge(record, spec, op, now)
+        // L1 C1: the input's time, never past the PC's own clock (a device whose clock runs ahead would otherwise hold
+        // its items against every later input until its clock is reached)
+        val at = minOf(op.at, clock())
+        // S1-2 Q3: the window's own rule, asked once the shape passed; it stands in for the merge rule (the notice
+        // record: ordered by its occurrence; raise and clear are the PC's own)
+        val ruled = if (spec != null && bad == null) rules.admit(record, op) else null
+        val effect = when {
+            spec == null || bad != null || ruled is Admit.Refuse || ruled == Admit.Keep -> Effect.NONE
+            else -> Merge.judge(record, spec, op, at, always = ruled == Admit.Apply)
         }
         val answer: Answer = when {
             refused != null -> refused
             spec == null -> Answer.Refused("this PC has no action ${op.action} in ${op.window}", Answer.UNKNOWN)
             bad != null -> Answer.Refused(bad, Answer.INVALID)
             ruled is Admit.Refuse -> ruled.answer
-            verdict is Verdict.Lost -> Answer.Lost(verdict.losses)
             else -> Answer.Seen()
         }
-        val line = OpLog.Line(seq + 1, q.n, op, verdict.effect, answer)
+        val line = OpLog.Line(seq + 1, op, effect, answer)
         try {
             log.append(line)
         } catch (e: Exception) {
@@ -368,13 +315,20 @@ class AppHost(
             return
         }
         logFailures.ok()
-        record.apply(verdict.effect)
-        streams.commit(key, q.n, answer, ident)
+        record.apply(effect)
         seq = line.seq
-        held += Change(epoch, seq, Origin(op.device, op.id), verdict.effect)
-        val publish = writeSeqFile()
         reply(answer)
-        if (publish) publishHeld()
+        publish(Change(epoch, seq, effect))
+    }
+
+    /** The log opened from [covered] with each line past it replayed, or null: said once per run of failures (the
+     *  log, a note, the `record.log` alert), and again when it opens. */
+    private fun openLog(replay: (OpLog.Line) -> Unit): OpLog.Opened? = try {
+        log.open(covered).also { it.lines.forEach(replay) }
+    } catch (e: Exception) {
+        logFailures.failed("could not be opened", e, "changes from other devices are refused until it opens (tried " +
+            "again every ${TICK_MS / 1000} s); a phone keeps them and sends them again, a page says so and keeps none")
+        null
     }
 
     private fun tickNow() {
@@ -385,8 +339,17 @@ class AppHost(
                 Log.e(TAG, "a tick listener failed", e)
             }
         }
+        // L1 R-a: a log that did not open at the start is opened again here until it opens (no op was applied
+        // meanwhile, so its replay is the one the start would have made); the save below then covers it
+        if (opened && !logReady) {
+            val o = openLog { record.apply(it.effect); seq = it.seq } ?: return
+            logReady = true
+            logFailures.ok()
+            note("the operation log opened on a later tick: ${o.lines.size} line(s) replayed past $covered" +
+                (if (o.incomplete) "; its incomplete last line was cut (it was never answered)" else "") +
+                (if (o.bad.isEmpty()) "" else "; " + o.bad.joinToString("; ")))
+        }
         if (!opened || !logReady) return                // ruling 1.7: no save covers a log this start did not replay
-        if (held.isNotEmpty() && writeSeqFile()) publishHeld()
         if (saving || seq <= savedThrough) return
         saving = true
         val snap = snapshot()
@@ -405,29 +368,14 @@ class AppHost(
 
     /** The record as it stands, taken in one step on the executor: the covered `seq` is the last line whose effect
      *  the copy holds. */
-    private fun snapshot() = RecordStore.Saved(epoch, seq, record.copyItems(), record.copyColls(), streams.table())
+    private fun snapshot() = RecordStore.Saved(epoch, seq, record.copyItems())
 
-    /** Writes the sequence file with the last `seq`; false (said) when it could not. */
-    private fun writeSeqFile(): Boolean = try {
-        seqFile.write(epoch, seq)
-        seqFailures.ok()
-        true
-    } catch (e: Exception) {
-        seqFailures.failed("could not be written", e)
-        false
-    }
-
-    private fun publishHeld() {
-        val out = ArrayList(held)
-        held.clear()
-        for (c in out) {
-            ring.add(c)
-            for (l in listeners) {
-                try {
-                    l(c)
-                } catch (e: Exception) {
-                    Log.e(TAG, "a record listener failed on change ${c.seq}", e)
-                }
+    private fun publish(c: Change) {
+        for (l in listeners) {
+            try {
+                l(c)
+            } catch (e: Exception) {
+                Log.e(TAG, "a record listener failed on change ${c.seq}", e)
             }
         }
     }
@@ -468,13 +416,12 @@ class AppHost(
         private const val TAG = "record"
         const val RECORD_FILE = "record.json"
         const val LOG_FILE = "oplog.jsonl"
-        const val SEQ_FILE = "record.seq"
         /** Dec. A.12: the log is set aside past the journal's size at a process start (64 MiB), never deleted. */
         const val LOG_SET_ASIDE_BYTES = Journal.ROTATE_BYTES
         /** Fix round 2, ruling 1.6: why the lane serves no record while the log is closed. Build S1-2 Q1 (N3): the PC's
          *  words only, for every interface — a page shows them as given and keeps no copy; the phone logs them. */
-        const val LOG_CLOSED = "the PC could not open its operation log at its start: its record is not served until " +
-            "the service is restarted"
+        const val LOG_CLOSED = "the PC could not open its operation log: its record is not served until it opens " +
+            "(tried again every 2 s)"
         /** The record's pacing tick (the spec's P1: 2 s). */
         const val TICK_MS = 2_000L
 
@@ -504,7 +451,7 @@ class AppHost(
          * The PC's record at a PROCESS START (dec. D.3): built over the data directory [dir], opened (load, replay, the
          * epoch, a save, the log set aside when due) and paced on [scope]. Called only from the PC's two host builders
          * (`runShell` and `hostOnly` in `desktop/…/Main.kt`; `tools/check_apk_wiring.py` holds the list), never from a
-         * tool flag: opening may set the log aside and writes `record.json` and the sequence file. A start that throws
+         * tool flag: opening may set the log aside and writes `record.json`. A start that throws
          * is said (the log, a `record` journal note); the host then answers every op "retry" and the lane "not open".
          */
         fun atProcessStart(

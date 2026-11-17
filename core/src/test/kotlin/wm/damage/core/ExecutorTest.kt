@@ -11,7 +11,6 @@ import org.junit.After
 import wm.damage.core.app.Answer
 import wm.damage.core.app.CoreExecutor
 import wm.damage.core.app.OpLog
-import wm.damage.core.app.StreamKey
 import wm.damage.core.util.Log
 
 /**
@@ -66,7 +65,7 @@ class ExecutorTest {
         val threads = (1..4).map { t ->
             Thread {
                 start.await()
-                for (n in 1L..40L) h.act(op("dev$t", "s$t", n, "add", listOf("i.s$t.$n.0"), JsonArray(listOf(j("$t-$n"))))) {
+                for (n in 1L..40L) h.act(op("dev$t", "s$t", n, "set", listOf("i.s$t.$n"), j("$t-$n"))) {
                     answers += it
                 }
             }.apply { start() }
@@ -77,13 +76,10 @@ class ExecutorTest {
         assertEquals(160, answers.size, "each op answered once")
         assertTrue(answers.all { it == Answer.Seen() })
         assertEquals(160L, h.seq)
-        val order = h.read("t").third.colls["rec.t.queue"]!!.order
-        assertEquals(160, order.size)
-        for (t in 1..4) {
-            assertEquals((1..40).map { "i.s$t.$it.0" }, order.filter { it.startsWith("i.s$t.") }, "a stream's ops in its order")
-            assertEquals(40L, h.highWater(StreamKey("dev$t", "s$t")))
-        }
-        val seqs = Files.readAllLines(rig.logFile).map { OpLog.decode(it).seq }
-        assertEquals((1L..160L).toList(), seqs, "every line takes the next seq")
+        val lines = Files.readAllLines(rig.logFile).map { OpLog.decode(it) }
+        assertEquals(160, h.read("t").third.items.size)
+        for (t in 1..4) assertEquals((1L..40L).toList(), lines.mapNotNull { l -> l.op.queued?.takeIf { it.stream == "s$t" }?.n },
+            "a stream's ops in its order")
+        assertEquals((1L..160L).toList(), lines.map { it.seq }, "every line takes the next seq")
     }
 }

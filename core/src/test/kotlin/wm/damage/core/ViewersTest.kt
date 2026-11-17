@@ -29,6 +29,9 @@ import wm.damage.core.app.Viewers.Need
 class ViewersTest {
     private val focus = Need(Need.FOCUS, 2_000)
 
+    /** The most demanding live viewer of [window], as a source reads it (`TorrentsScopes`: [Viewers.of], [Viewers.stronger]). */
+    private fun Viewers.strongest(window: String, now: Long): Need? = of(window, now).fold(null as Need?) { a, x -> Viewers.stronger(a, x.need) }
+
     @Test
     fun theStrongestNeedWinsAndANeedOfNoneEndsAViewer() {
         val v = Viewers(pingEveryMs = 1_000)
@@ -36,15 +39,15 @@ class ViewersTest {
         v.addListener { x, ended, why -> heard += "${x.conn} ${x.scope} ${if (ended) "ended" else x.need.kind} ($why)" }
         v.opened(1, 0); v.opened(2, 0)
         v.put(1, "t/live", "t", Need(Need.GLANCE))
-        assertEquals(Need(Need.GLANCE), v.need("t", 0))
+        assertEquals(Need(Need.GLANCE), v.strongest("t", 0))
         v.put(2, "t/live", "t", Need(Need.FOCUS, 5_000))
         v.put(1, "t/live", "t", Need(Need.FOCUS, 2_000))   // a second sub replaces the need (R0 §3)
-        assertEquals(Need(Need.FOCUS, 2_000), v.need("t", 0), "focus over glance, then the fastest pace")
+        assertEquals(Need(Need.FOCUS, 2_000), v.strongest("t", 0), "focus over glance, then the fastest pace")
         v.put(1, "t/live", "t", Need(Need.NONE))           // hidden
-        assertEquals(Need(Need.FOCUS, 5_000), v.need("t", 0))
+        assertEquals(Need(Need.FOCUS, 5_000), v.strongest("t", 0))
         v.remove(2, "t/live", "unsubscribed")
-        assertNull(v.need("t", 0), "no viewer: the source parks")
-        assertNull(v.need("other", 0))
+        assertNull(v.strongest("t", 0), "no viewer: the source parks")
+        assertNull(v.strongest("other", 0))
         assertEquals(listOf("1 t/live glance (started)", "2 t/live focus (started)", "1 t/live focus (need changed from glance)",
             "1 t/live ended (its need is none)", "2 t/live ended (unsubscribed)"), heard)
     }
@@ -55,8 +58,8 @@ class ViewersTest {
         v.opened(1, 0)
         v.put(1, "t/live", "t", focus)
         v.pinged(1, 1_000)
-        assertEquals(focus, v.need("t", 2_900), "within two intervals of its last ping")
-        assertNull(v.need("t", 3_100), "the read applies the same rule as the sweep")
+        assertEquals(focus, v.strongest("t", 2_900), "within two intervals of its last ping")
+        assertNull(v.strongest("t", 3_100), "the read applies the same rule as the sweep")
         assertEquals(0, v.sweep(2_900))
         assertEquals(1, v.sweep(3_100))
         assertEquals(emptyList(), v.of("t", 3_100))
@@ -64,8 +67,8 @@ class ViewersTest {
         v.opened(2, 0)
         v.pinged(2, 5_000)
         v.put(2, "t/live", "t", focus)
-        assertEquals(focus, v.need("t", 14_000))
-        assertNull(v.need("t", 15_100))
+        assertEquals(focus, v.strongest("t", 14_000))
+        assertNull(v.strongest("t", 15_100))
     }
 
     @Test
@@ -108,7 +111,7 @@ class ViewersTest {
 
     private fun needJson(kind: String, pace: Long? = null) = buildJsonObject { put("kind", kind); pace?.let { put("paceMs", it) } }
 
-    private fun WebRig.need() = net.viewers.need("t", rec.now)
+    private fun WebRig.need() = net.viewers.strongest("t", rec.now)
 
     @Test
     fun aSubWithANeedMakesAViewerAndASecondSubReplacesIt() = rig().use { r ->

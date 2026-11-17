@@ -137,7 +137,7 @@ fun main(args: Array<String>) {
     host.addListener { c ->
         val states = c.effect.items.filterKeys { it.startsWith("rec.notices.") }.map { (k, i) ->
             Notices.parse(k.removePrefix("rec.notices."), i.value)?.let { "${it.id} occ ${it.occ} ${it.state}" } ?: k }
-        println("LOOK change ${c.seq} by ${c.origin?.device}: ${c.effect.items.keys.sorted()}" +
+        println("LOOK change ${c.seq}: ${c.effect.items.keys.sorted()}" +
             if (states.isEmpty()) "" else " $states")
     }
     // S1-2 Q3: the raiser, and the made-up other device that dismisses elsewhere

@@ -19,15 +19,14 @@ object Contracts {
 
     /**
      * What the presenters read for each window this side converts: [Unknown] until the PC has answered once (no
-     * line is shown — the PC is only out of reach), then [Known]. [Known.oldPc] = the PC refused the `app` lane in
-     * band or speaks another lane protocol: every window is on different builds.
+     * line is shown — the PC is only out of reach), then [Known].
      */
     sealed class State {
         object Unknown : State() {
             override fun toString() = "Unknown"
         }
 
-        data class Known(val matches: Map<String, Match>, val oldPc: Boolean = false) : State()
+        data class Known(val matches: Map<String, Match>) : State()
 
         /** True when [window] is shared on this connection (both sides speak its version). */
         fun shared(window: String): Boolean = this is Known && matches[window]?.same == true

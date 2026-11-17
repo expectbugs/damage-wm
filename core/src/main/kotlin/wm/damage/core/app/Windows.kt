@@ -38,15 +38,16 @@ object Windows {
         Entry(ReaderCore.WINDOW, "Reader", 1, ReaderCore.ACTIONS, ReaderCore::levelOf, Levels.VIEW),
         // S1-2 Q3: the PC's notice record (C§7.1; decisions A.1): a pseudo-window with no card and no scopes of its own
         Entry(Notices.WINDOW, "Notices", 1, Notices.ACTIONS, Notices::levelOf, Levels.VIEW, rule = Notices.RULE),
+        // S1-2 Q5: Files (C§12; min full, C§10.4), its program ops into the filesystem; its rule keeps the core's clear of
+        // a cut to the clip it names (L1 F2: the rows take what they are given; every reader drops a bad value). Before
+        // Torrents, as the glasses' Main lists them (S1-2 R2 #15)
+        Entry(wm.damage.core.windows.files.FilesCore.WINDOW, "Files", 1, wm.damage.core.windows.files.FilesCore.ACTIONS,
+            wm.damage.core.windows.files.FilesCore::levelOf, Levels.FULL, program = wm.damage.core.windows.files.FilesCore.PROGRAM,
+            rule = wm.damage.core.windows.files.FilesCore.RULE),
         // S1-2 Q4: Torrents (C§12): its rows and search recents in the record; its program actions go into qBittorrent,
         // the tracker and `xdg-open`, never queued
         Entry(TorrentsCore.WINDOW, "Torrents", 1, TorrentsCore.ACTIONS, TorrentsCore::levelOf, Levels.VIEW,
             program = TorrentsCore.PROGRAM),
-
-        // S1-2 Q5: Files (C§12; min full, C§10.4), its program ops into the filesystem and its rule on its rows
-        Entry(wm.damage.core.windows.files.FilesCore.WINDOW, "Files", 1, wm.damage.core.windows.files.FilesCore.ACTIONS,
-            wm.damage.core.windows.files.FilesCore::levelOf, Levels.FULL, program = wm.damage.core.windows.files.FilesCore.PROGRAM,
-            rule = wm.damage.core.windows.files.FilesCore.RULE),
     )
 
     private val BY_ID: Map<String, Entry> = ALL.associateBy { it.id }
@@ -69,7 +70,7 @@ object Windows {
     val LEVELS = ActionLevels { w, a -> BY_ID[w]?.levelOf?.invoke(a) }
 
     /** S1-2 Q3: every converted window's own apply-time rule (`AppHost`). */
-    val RULES = ApplyRule { rec, op, now -> BY_ID[op.window]?.rule?.admit(rec, op, now) }
+    val RULES = ApplyRule { rec, op -> BY_ID[op.window]?.rule?.admit(rec, op) }
 
     /** The level a window's subscription needs (its description's `min`); a window this build does not know, full. */
     fun minLevel(window: String): String = BY_ID[window]?.minLevel ?: Levels.FULL
@@ -80,18 +81,26 @@ object Windows {
 
 /**
  * S1-2 Q3: a window's own rule at apply time, beside the one merge rule (which it never changes): asked on the executor
- * after the op's number and shape passed and before the judge. Null = the merge rule decides alone. The notice record
- * is the first window with one ([Notices.RULE]: a state never moves backwards; raise and clear are the PC's own).
+ * after the op's shape passed and before the judge. Null = the merge rule decides alone. The notice record is the first
+ * window with one ([Notices.RULE]: ordered by its occurrence and a state that never moves backwards, not by time;
+ * raise and clear are the PC's own).
  */
 fun interface ApplyRule {
-    fun admit(rec: RecordView, op: Op, now: Long): Admit?
+    fun admit(rec: RecordView, op: Op): Admit?
 }
 
 /** What an [ApplyRule] decides in the judge's place. */
 sealed class Admit {
-    /** Refused for good: the op's number is taken and nothing changes. */
+    /** Refused for good: nothing changes. */
     data class Refuse(val answer: Answer.Refused) : Admit()
 
-    /** Lost against the standing value, its mark written as the judge writes one. */
-    data class Lose(val verdict: Verdict.Lost) : Admit()
+    /** Taken and answered, and nothing changes: the record keeps what it holds (L1 C1: nothing is said). */
+    object Keep : Admit() {
+        override fun toString() = "Keep"
+    }
+
+    /** Written as the op makes it whatever the times: the window's rule orders it. */
+    object Apply : Admit() {
+        override fun toString() = "Apply"
+    }
 }

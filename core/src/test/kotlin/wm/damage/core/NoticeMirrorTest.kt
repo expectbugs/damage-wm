@@ -8,7 +8,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -16,9 +15,7 @@ import wm.damage.core.app.Answer
 import wm.damage.core.app.CoreExecutor
 import wm.damage.core.app.Cursor
 import wm.damage.core.app.Draft
-import wm.damage.core.app.Expect
 import wm.damage.core.app.Item
-import wm.damage.core.app.Loss
 import wm.damage.core.app.NoticeMirror
 import wm.damage.core.app.NoticeRecord
 import wm.damage.core.app.NoticeRef
@@ -44,13 +41,11 @@ class NoticeMirrorTest {
         var items: Map<String, Item> = emptyMap()
         var cursor: Cursor? = Cursor(7, 1)
         val submitted = CopyOnWriteArrayList<Draft>()
-        val saidOps = CopyOnWriteArrayList<Op>()
         private val watchers = ArrayList<SourceListener>()
-        override fun stateOf(window: String) = WindowState(window, items, emptyMap(), cursor = cursor)
+        override fun stateOf(window: String) = WindowState(window, items, cursor = cursor)
         override fun submit(window: String, draft: Draft) { submitted += draft }
         override fun watch(window: String, l: SourceListener) { watchers += l }
         override fun unwatch(window: String, l: SourceListener) { watchers -= l }
-        override fun said(window: String, op: Op) { saidOps += op }
 
         /** The record moves: every watcher is told on the executor; returns once it was. */
         fun move(f: Backend.() -> Unit) = executor.call {
@@ -88,7 +83,7 @@ class NoticeMirrorTest {
     }
 
     private fun rec(vararg n: Pair<String, JsonObject>): Map<String, Item> =
-        n.associate { (id, v) -> "rec.notices.$id" to Item(v, 1, "pc", 0) }
+        n.associate { (id, v) -> "rec.notices.$id" to Item(v, "pc", 0) }
 
     private fun settle(b: Backend) = repeat(2) { b.executor.call {} }
 
@@ -184,7 +179,7 @@ class NoticeMirrorTest {
     }
 
     @Test
-    fun theShellsReadingEffectsCarryTheRecordsValueAndALossIsLetGo() {
+    fun theShellsReadingEffectsCarryTheRecordsValue() {
         val b = backend()
         b.items = rec("torrent:a" to value(1), "torrent:b" to value(2))
         val m = NoticeMirror(b)
@@ -197,37 +192,22 @@ class NoticeMirrorTest {
         val d = b.submitted[0]
         assertEquals(Notices.DISMISSED, (d.result as JsonObject)["state"]!!.jsonPrimitive.content)
         assertEquals("done · item 1", (d.result as JsonObject)["body"]!!.jsonPrimitive.content, "the whole value, state changed")
-        assertEquals(Expect.Occurrence("1"), d.expect)
-        val op = Op("phone", OpId.Queued("s", 1), Notices.WINDOW, Notices.DISMISS, listOf("torrent:a"), d.result, d.expect)
-        b.answer(op, Answer.Lost(listOf(Loss("torrent:a", value(2), "pc", 0, d.result))))
-        assertEquals(listOf(op), b.saidOps, "a loss on a notice is let go at once, never kept for a presenter to say")
+        assertEquals("1", (d.result as JsonObject)["occ"]!!.jsonPrimitive.content, "the occurrence it acts on, in its value")
     }
 
+    /** Pin (L1 A-M1): the PC's mirror (its cursor in memory) follows the top while no stack runs, so a stack started
+     *  later pops nothing raised before it; the phone's (its cursor on disk) waits for its shell. */
     @Test
-    fun restoredNoticesAreKeptOnlyWhileTheRecordHoldsThemRaised() {
+    fun withNoShellThePcsCursorFollowsTheTop() {
         val b = backend()
-        b.items = rec("torrent:a" to value(1), "torrent:b" to value(2, Notices.DISMISSED), "torrent:c" to value(4))
+        b.items = rec("torrent:a" to value(1))
         val m = NoticeMirror(b)
         settle(b)
-        val kept = m.restored(listOf(NoticeRef("torrent:a", "1"), NoticeRef("torrent:b", "2"), NoticeRef("torrent:c", "3")))
-        assertEquals(setOf(NoticeRef("torrent:a", "1")), kept, "dismissed meanwhile, or a newer occurrence: not shown again")
-        val s = Sink()
-        m.attach(s)
-        b.move { items = items + rec("torrent:a" to value(1, Notices.DISMISSED)) }
-        assertEquals(listOf("torrent:a@1"), s.withdrawn, "a kept one is handed on: a later dismiss elsewhere takes it away")
-    }
-
-    @Test
-    fun aValueWithNoOccurrenceAsTextIsSaidAndNotShown() {
-        val b = backend()
-        val said = CopyOnWriteArrayList<String>()
-        val m = NoticeMirror(b, say = { said += it })
+        b.move { items = items + rec("torrent:b" to value(2)) }
+        assertEquals(NoticeMirror.Cursor(7, 2), m.cursor)
         val s = Sink()
         m.attach(s)
         settle(b)
-        val numeric = JsonObject(value(1) + ("occ" to JsonPrimitive(1)))
-        b.move { items = rec("torrent:n" to numeric) }
-        assertEquals(emptyList(), s.popped)
-        assertTrue(said.any { "torrent:n" in it && "occurrence" in it }, "said, never dropped unsaid: $said")
+        assertEquals(emptyList(), s.popped, "raised while no stack ran: not popped at the attach")
     }
 }

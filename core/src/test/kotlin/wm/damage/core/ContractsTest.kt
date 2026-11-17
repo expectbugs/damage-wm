@@ -68,10 +68,9 @@ class ContractsTest {
         val snap = AppWire.parseSnap(lane.next("snap"))
         assertTrue(snap.state.isEmpty(), "the record scope leaves out a window on different builds: $snap")
         val seq = rig.host.seq
-        lane.op(Op("phone", OpId.Queued("s1", 1), "t", "set", listOf("a"), j("mine")))
+        lane.op(Op("phone", OpId.Queued("s1", 1), "t", "set", listOf("a"), j("mine"), at = 1))
         assertEquals(Answer.Refused(Contracts.mismatchLine("t"), Answer.CONTRACT), lane.answer())
         assertEquals(seq, rig.host.seq, "no line: the op keeps its number and waits")
-        assertEquals(emptyMap(), rig.host.highWaters("phone"))
         rig.write("desk", "d1", 2, "a", "two")
         lane.quiet()                                     // and no change of `t` reaches it
     }
@@ -88,7 +87,7 @@ class ContractsTest {
             scope, contracts = mapOf("t" to 1), pingEveryMs = 0).also { closing += it }
         waitUntil(10_000, 5, { "both welcomed" }) { differ.welcome != null && same.welcome != null }
         val d = differ.contractState as Contracts.State.Known
-        assertFalse(d.shared("t") || d.oldPc)
+        assertFalse(d.shared("t"))
         assertEquals("PC and phone on different builds for t", d.line("t"))
         assertEquals(listOf<Contracts.State>(d), heard.toList())
         assertTrue(same.contractState.shared("t"))

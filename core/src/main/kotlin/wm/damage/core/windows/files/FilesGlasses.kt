@@ -77,9 +77,9 @@ fun FilesWindow(
  * Build S1-2 Q5 (`CONTRACT.md` §11.1, §12; the spec's §4.2): the glasses' presenter of Files' [core]. The clipboard,
  * the sort and hidden rows and the Size row are Files' records, read through [source] (the PC's record, or the phone's
  * working copy) and written as ops where they change today (Copy, Cut, the Sort and Hidden rows, the Size row) —
- * the field first, the op after, so the first flush is today's. A cut's clipboard is cleared by the core when the
- * paste's move lands (S1-2 R0 §3), never here. When the shared sort or hidden moves from another device the browse
- * cursor stays on the same entry NAME (the wrong-file class, §5 F5). The filesystem calls stay today's (A.4), behind
+ * the field first, the op after, so the first flush is today's. A cut's clipboard is cleared in the record by the core
+ * when the paste's move lands (S1-2 R0 §3), and here in the field. When the shared sort or hidden moves from another
+ * device the browse cursor stays on the same entry NAME (the wrong-file class, §5 F5). The filesystem calls stay today's (A.4), behind
  * the PC's one job slot (`SlottedFiles`; the phone's through the window channel). Level, cursors, location, folder
  * and the viewer stay this interface's own, in the local `window.files` keys, unsynced.
  */
@@ -94,7 +94,7 @@ class FilesGlasses(
      *  from the provider's Books location on refresh (the phone side has no
      *  local knowledge of the PC's path), seeded here for laptop-direct. */
     initialBooksDir: String = "",
-    /** This device's name in the record (`local` on the PC, `phone` on the phone): where a losing value was set. */
+    /** This device's name in the record (`local` on the PC, `phone` on the phone): a write by it is its own echo. */
     private val device: String = wm.damage.core.app.Peer.LOCAL.device,
 ) : DamageWindow("files", "Files", IconKind.FILES) {
 
@@ -179,39 +179,31 @@ class FilesGlasses(
                 { heightPref?.toString() ?: "global" },
                 { v ->
                     heightPref = v.toIntOrNull()                  // the field first, the op after
-                    write(FilesCore.SIZE) { e -> FilesCore.sizeDraft(heightPref, e) }
+                    source.act(FilesCore.sizeDraft(heightPref))
                 }),
         )
     }
 
     // ---- S1-2 Q5: Files' records through [source] ----
 
-    /** The values this presenter sent and the record has not answered yet: the record's older value is not adopted
-     *  over them meanwhile (the PC's own record answers after its log line; a change of another row comes first). */
-    private val inFlight = HashMap<String, Int>()
-    private val lossWords = wm.damage.core.app.LossWords()
+    /** L1 F6 (Torrents' rule, in place of a count of ops in flight that one lost answer could hold for good): a row
+     *  this device wrote is its own echo — the view holds it already, or newer — and is not taken from the record. */
+    private fun theirs(st: wm.damage.core.app.WindowState, row: String): Boolean = st.itemNamed(row).let { it != null && it.by != device }
 
-    /** Sends the draft [d] for the row [item] (on the shell loop), expecting the value this view last saw. */
-    private fun write(item: String, d: (wm.damage.core.app.Expect) -> wm.damage.core.app.Draft) {
-        val seen = source.state().itemNamed(item)
-        inFlight[item] = (inFlight[item] ?: 0) + 1
-        source.act(d(FilesCore.expectSeen(seen)))
-    }
-
-    /** The record's values for the rows not in flight, onto this view's fields (on the shell loop). A sort or hidden
-     *  that moved re-seats the browse cursor on the same entry name (§5 F5); hidden relists. True when anything moved. */
+    /** Another device's values of the rows onto this view's fields (on the shell loop). A sort or hidden that moved
+     *  re-seats the browse cursor on the same entry name (§5 F5); hidden relists. True when anything moved. */
     private fun fromSource(st: wm.damage.core.app.WindowState): Boolean {
         var moved = false
-        if (FilesCore.CLIP !in inFlight) {
+        if (theirs(st, FilesCore.CLIP)) {
             val c = FilesCore.clipOf(st)?.let { (v, p) -> (if (v == "cut") ClipVerb.CUT else ClipVerb.COPY) to p }
             if (c != clip) { clip = c; moved = true }
         }
-        if (FilesCore.SIZE !in inFlight) {
+        if (theirs(st, FilesCore.SIZE)) {
             val h = FilesCore.sizeOf(st)
             if (h != heightPref) { heightPref = h; moved = true }
         }
         val name = if (level == Level_.BROWSE || level == Level_.VIEW) cursorName() else null
-        if (FilesCore.SORT !in inFlight) {
+        if (theirs(st, FilesCore.SORT)) {
             val s = FilesCore.sortOf(st)?.let { k -> Sort.entries.firstOrNull { it.name.lowercase() == k } } ?: Sort.NAME
             if (s != sort) {
                 sort = s
@@ -219,7 +211,7 @@ class FilesGlasses(
                 name?.let { reseat(it) }
             }
         }
-        if (FilesCore.HIDDEN !in inFlight) {
+        if (theirs(st, FilesCore.HIDDEN)) {
             val hd = FilesCore.hiddenOf(st) ?: false
             if (hd != showHidden) {
                 showHidden = hd
@@ -262,8 +254,7 @@ class FilesGlasses(
         override fun answered(op: wm.damage.core.app.Op, answer: wm.damage.core.app.Answer) {
             val s = services
             if (s == null) {
-                if (answer is wm.damage.core.app.Answer.Refused && answer.code != wm.damage.core.app.Answer.RETRY &&
-                    answer.code != wm.damage.core.app.Answer.GAP)
+                if (answer is wm.damage.core.app.Answer.Refused && answer.code != wm.damage.core.app.Answer.RETRY)
                     Log.e("files", "the record refused ${op.action} of ${op.targets} before the shell started: ${answer.reason}")
                 return
             }
@@ -271,24 +262,13 @@ class FilesGlasses(
         }
     }
 
-    /** An answer to one of this view's ops, on the shell loop (C§4.4): a loss is said once with both values, as
-     *  today's answer notice; the row then shows the standing value. */
+    /** An answer to one of this view's ops, on the shell loop (C§4.4): a refusal for good is said (L1 C1: nothing is
+     *  said of an input a later one outlived). */
     private fun onAnswer(op: wm.damage.core.app.Op, a: wm.damage.core.app.Answer) {
         if (op.window != FilesCore.WINDOW) return
         val item = op.targets.firstOrNull() ?: return
-        inFlight[item]?.let { n -> if (n <= 1) inFlight.remove(item) else inFlight[item] = n - 1 }
-        when (a) {
-            is wm.damage.core.app.Answer.Lost -> {
-                for (loss in a.losses) lossWords.register(rowLabel(loss.item), loss,
-                    wm.damage.core.app.LossWords.where(device), System.currentTimeMillis(), FilesCore::words)
-                    ?.let { line -> services?.notifyInternal("files", line, answer = true) }
-                source.said(op)
-            }
-            is wm.damage.core.app.Answer.Refused -> if (a.code != wm.damage.core.app.Answer.RETRY && a.code != wm.damage.core.app.Answer.GAP)
-                services?.notifyInternal("files", "${rowLabel(item)}: not applied — ${a.reason}", answer = true)
-            else -> {}
-        }
-        if (fromSource(source.state())) services?.requestRender(this)
+        if (a is wm.damage.core.app.Answer.Refused && a.code != wm.damage.core.app.Answer.RETRY)
+            services?.notifyInternal("files", "${rowLabel(item)}: not applied — ${a.reason}", answer = true)
     }
 
     private fun rowLabel(item: String): String = when (item.removePrefix("rec.files.")) {
@@ -898,7 +878,7 @@ class FilesGlasses(
     /** S1-2 Q5: Copy or Cut — the field first, then the op on Files' clipboard row. */
     private fun setClip(verb: ClipVerb, path: String) {
         clip = verb to path
-        write(FilesCore.CLIP) { e -> FilesCore.clipDraft(if (verb == ClipVerb.CUT) "cut" else "copy", path, e) }
+        source.act(FilesCore.clipDraft(if (verb == ClipVerb.CUT) "cut" else "copy", path))
         services?.requestRender(this)
     }
 
@@ -913,12 +893,12 @@ class FilesGlasses(
         if (clip != null) add("Paste here", dn(clip!!.second.substringAfterLast('/'))) { paste(cwd) }
         add("Sort", sort.name.lowercase()) {
             sort = Sort.entries[(sort.ordinal + 1) % Sort.entries.size]
-            write(FilesCore.SORT) { e -> FilesCore.sortDraft(sort.name.lowercase(), e) }   // S1-2 Q5: shared
+            source.act(FilesCore.sortDraft(sort.name.lowercase()))   // S1-2 Q5: shared
             services?.requestRender(this)
         }
         add("Hidden files", if (showHidden) "on" else "off") {
             showHidden = !showHidden
-            write(FilesCore.HIDDEN) { e -> FilesCore.hiddenDraft(showHidden, e) }           // S1-2 Q5: shared
+            source.act(FilesCore.hiddenDraft(showHidden))            // S1-2 Q5: shared
             refreshList()
         }
         add("Refresh") { refreshList() }
@@ -993,10 +973,11 @@ class FilesGlasses(
     private fun paste(destDir: String) {
         val took = clip ?: return
         val (verb, src) = took
-        // S1-2 R0 §3: a cut's clipboard is cleared in ONE place, the core, when the move lands (`SlottedFiles`'s
-        // clear, expecting the clip it took: a clip re-armed during a multi-second move survives, as R4#9 had it);
-        // the record's change then reaches this view's title, as every other view's
-        runOp(if (verb == ClipVerb.COPY) "copying" else "moving") {
+        // S1-2 R0 §3: a cut's clipboard is cleared in the record by the core when the move lands (`SlottedFiles`'s
+        // clear of the clip it took: a clip re-armed during a multi-second move survives, as R4#9 had it), and this
+        // view clears its own field the same way (WINDOWS F5: the record's clear is this device's own write where the
+        // core writes as it, so this view does not take it)
+        runOp(if (verb == ClipVerb.COPY) "copying" else "moving", onSuccess = { if (verb == ClipVerb.CUT && clip == took) clip = null }) {
             val dest = if (verb == ClipVerb.COPY) provider.copy(src, destDir) else provider.move(src, destDir)
             "→ ${shortPath(dest)}"
         }

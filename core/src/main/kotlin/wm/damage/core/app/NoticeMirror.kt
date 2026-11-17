@@ -20,8 +20,7 @@ import wm.damage.core.util.Log
  * the PC's notice record, between the record (the PC's own through a `HostBackend`, the phone's working copy) and the
  * host's live shell. It keeps the notice cursor (epoch, occ): on first contact and on a new epoch it adopts the highest
  * occurrence and pops nothing; it pops each RAISED record raised past the cursor and not held (`heldUntil`, which the PC
- * decided at the raise); when a record it handed on moves to DISMISSED, ACKED or CLEARED (or READ, for queued ones) it
- * has it taken away; and it sends the shell's `read` and `dismiss` from input only. Every state field is the core
+ * decided at the raise); when a record it handed on moves to DISMISSED (or READ, for queued ones) it has it taken away; and it sends the shell's `read` and `dismiss` from input only. Every state field is the core
  * executor's.
  */
 
@@ -36,18 +35,13 @@ interface NoticeSink {
     fun withdraw(ref: NoticeRef, queuedOnly: Boolean)
 }
 
-/** What the shell tells the mirror: reading effects from input only (C§7.2), and the notices it restored. */
+/** What the shell tells the mirror: reading effects from input only (C§7.2). */
 interface NoticeInput {
     /** The tap-through, or an activation from input, read [ref]. */
     fun read(ref: NoticeRef)
 
     /** A double-tap, a long-press or an app-less tap dismissed [ref]. */
     fun dismiss(ref: NoticeRef)
-
-    /** At a session start: of the record notices [refs] the shell restored, those the record still holds RAISED at
-     *  that occurrence (or every one, while this host has no state of the record yet). Blocks for one executor turn:
-     *  the start path only, never a gesture. */
-    fun restored(refs: List<NoticeRef>): Set<NoticeRef>
 
     /** The shell's minute tick: held records whose `heldUntil` has passed pop, together. */
     fun minute()
@@ -75,7 +69,7 @@ class NoticeMirror(
     private var sink: NoticeSink? = null
     @Volatile var cursor: Cursor? = null
         private set
-    /** The records handed to the shell (popped, or restored and still live), by id: what a move elsewhere withdraws. */
+    /** The records popped to the shell, by id: what a move elsewhere withdraws. */
     private val handed = HashMap<String, NoticeRef>()
     private val readHanded = HashSet<String>()
 
@@ -104,21 +98,6 @@ class NoticeMirror(
 
     override fun dismiss(ref: NoticeRef) = input(ref, Notices.DISMISS)
 
-    override fun restored(refs: List<NoticeRef>): Set<NoticeRef> = if (refs.isEmpty()) emptySet() else ex.call {
-        val st = backend.stateOf(Notices.WINDOW)
-        if (!shared() || st.cursor == null) {
-            // no state of the record yet: kept, and withdrawn later if the record says so
-            for (r in refs) handed[r.id] = r
-            return@call refs.toSet()
-        }
-        val recs = Notices.records(st)
-        val keep = refs.filter { ref -> recs[ref.id]?.let { it.occ == ref.occ && it.state == Notices.RAISED } == true }
-        for (r in keep) handed[r.id] = r
-        val dropped = refs.size - keep.size
-        if (dropped > 0) say("$dropped restored notice(s) the record no longer holds raised were not shown again")
-        keep.toSet()
-    }
-
     override fun minute() = ex.execute("notice minute") { evaluate(backend.stateOf(Notices.WINDOW)) }
 
     override fun close() {
@@ -131,7 +110,7 @@ class NoticeMirror(
     private fun evaluate(state: WindowState) {
         if (!shared()) return
         val epoch = state.cursor?.epoch ?: return                    // no state of the PC's record yet
-        val recs = Notices.records(state, say)
+        val recs = Notices.records(state)
         val s = sink
         if (s != null) withdrawMoved(recs, s)
         val top = recs.values.maxOfOrNull { it.occN } ?: 0L
@@ -143,7 +122,9 @@ class NoticeMirror(
                 else "the record has a new epoch (${c.epoch} -> $epoch): occurrence $top adopted, nothing popped")
             return
         }
-        if (s == null) return                                         // pops wait for a shell
+        // pops wait for a shell; the PC's cursor (in memory) follows the top meanwhile, so a stack started later does
+        // not pop what was raised before it (L1 A-M1)
+        if (s == null) { if (cursorFile == null && top > c.occ) setCursor(c.copy(occ = top)); return }
         val now = clock()
         val pending = recs.values.filter { it.state == Notices.RAISED && it.occN > c.occ && handed[it.id] != it.ref }
         for (r in pending.filter { !it.heldAt(now) }.sortedBy { it.occN }) {
@@ -178,7 +159,7 @@ class NoticeMirror(
     private fun input(ref: NoticeRef, action: String) = ex.execute("notice $action") {
         val r = Notices.records(backend.stateOf(Notices.WINDOW))[ref.id]
         if (r == null || r.occ != ref.occ) {
-            // the record moved on (another occurrence, or gone): the PC would refuse it as lost; nothing is sent
+            // the record moved on (another occurrence, or gone): the PC would change nothing; nothing is sent
             Log.i(TAG, "$action of ${ref.id} at occurrence ${ref.occ} not sent: the record holds ${r?.occ ?: "none"}")
             return@execute
         }
@@ -187,12 +168,6 @@ class NoticeMirror(
 
     private fun answeredNow(op: Op, a: Answer) {
         when (a) {
-            // a loss on a notice is never said (the next occurrence is already shown, or the state was further on):
-            // it is let go at once, so the copy keeps no loss for a presenter to say
-            is Answer.Lost -> {
-                Log.i(TAG, "${op.action} of ${op.targets} lost (the record had moved on): not said")
-                backend.said(Notices.WINDOW, op)
-            }
             is Answer.Refused -> {
                 val line = "${op.action} of notice ${op.targets} not taken: ${a.reason}"
                 Log.w(TAG, line)

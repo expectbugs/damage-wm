@@ -147,7 +147,7 @@ class ProgramOpTest {
             // a record op is answered meanwhile: the call holds its pool's thread, never the executor
             page.send(buildJsonObject {
                 put("t", "op")
-                put("op", wm.damage.core.app.OpJson.op(op("", "s-control", 1, "set", listOf("x"), j("v"), wm.damage.core.app.Expect.Value(JsonNull))))
+                put("op", wm.damage.core.app.OpJson.op(op("", "s-control", 1, "set", listOf("x"), j("v"))))
             })
             val until = System.currentTimeMillis() + 10_000
             var seen: JsonObject? = null

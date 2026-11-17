@@ -23,16 +23,15 @@ import wm.damage.core.util.Log
  *
  * An op is numbered once (the next `n`, read once per op) and its line is appended by the queue's own writer thread,
  * forced to disk; it is sent only once that line has landed — never on the caller's thread, and never a version that
- * has not landed. An unsent position op takes the next one for the same item into itself, keeping the first `expect`;
- * a sent op is frozen. An op leaves on its answer, or when `welcome`'s high-water covers it; its line leaves the file
- * later (`forget`, once the working copy's saved state holds its effect), so a phone that restarts in between still
- * shows it and sends it again. A failed append is said once per streak, the op kept in memory and tried again at the
- * wire's next ping (or the next op); it is not sent until its line lands.
+ * has not landed. An unsent position op takes the next one for the same item into itself, its result and its input
+ * time; a sent op is frozen. An op leaves on its answer; its line leaves the file later (`forget`, once the working
+ * copy's saved state holds its effect), so a phone that restarts in between still shows it and sends it again (L1 C1:
+ * the PC applies an op twice to no effect, so a resend is never a question). A failed append is said once per streak,
+ * the op kept in memory and tried again at the wire's next ping (or the next op); it is not sent until its line lands.
  *
  * The file: a header `{"stream", "next"}` first, then `{"op", "v"}` (an op; a later line of the same `n` is its
  * coalesced body) and `{"done": n}` lines. It is rewritten whole (temp, forced, moved) at each process start and when
- * it grows past [REWRITE_LINES], with the header and every line still held; a renumbering (a PC that lost numbers this
- * phone holds as answered, `WorkingCopy`) rewrites it under a new stream before any of its ops is sent.
+ * it grows past [REWRITE_LINES], with the header and every line still held.
  */
 class OpQueue(
     val file: Path,
@@ -57,7 +56,6 @@ class OpQueue(
     private val live = ArrayList<Entry>()                  // unanswered, in `n` order
     private val held = LinkedHashMap<Long, String>()       // answered, their lines still in the file: n → line
     private var lines = 0
-    private var mustRewrite = false                        // a renumbering not yet on disk: no append before it
     private var failures = 0
 
     @Volatile var stream: String = ""
@@ -71,16 +69,14 @@ class OpQueue(
 
     val next: Long get() = synchronized(lock) { nextN }
 
-    /** The oldest unanswered `n`, or the next to be taken when none is waiting. */
-    val head: Long get() = synchronized(lock) { live.firstOrNull()?.n ?: nextN }
-
     /**
      * Reads the file once (a process start) and rewrites it whole: the ops it holds, in order, all frozen (any of them
      * may have been sent before the restart). No file means a new stream, said (C§13 (b): a lost store means a new
      * stream); an incomplete last line or a line that does not decode is said, and the file as it was is kept beside
-     * it.
+     * it. L1 C1: an op 0.67 wrote, with no input time, takes the load's ([OpJson.op]).
      */
     fun load(): List<Op> = synchronized(lock) {
+        val loadedAt = System.currentTimeMillis()
         live.clear()
         held.clear()
         if (!Files.exists(file)) {
@@ -95,7 +91,15 @@ class OpQueue(
         } catch (e: Exception) {
             stream = mint()
             nextN = 1
-            val line = "the queue file could not be read (${e::class.simpleName}: ${e.message}); a new stream ($stream)"
+            // L1: moved aside (a rename reads nothing), never overwritten by the rewrite below
+            val kept = file.resolveSibling("${file.fileName}.bad-${System.currentTimeMillis()}")
+            val aside = try {
+                Files.move(file, kept)
+                "kept as ${kept.fileName}"
+            } catch (m: Exception) {
+                "NOT kept aside (${m::class.simpleName}: ${m.message}): it is overwritten"
+            }
+            val line = "the queue file could not be read (${e::class.simpleName}: ${e.message}); $aside; a new stream ($stream)"
             Log.e(TAG, line)
             note("FAILED: $line")
             rewriteNow()
@@ -117,7 +121,7 @@ class OpQueue(
                 val o = json.parseToJsonElement(line) as? JsonObject ?: throw IllegalArgumentException("not an object")
                 when {
                     o["op"] != null -> {
-                        val op = OpJson.op(o["op"] as? JsonObject ?: throw IllegalArgumentException("op"))
+                        val op = OpJson.op(o["op"] as? JsonObject ?: throw IllegalArgumentException("op"), defaultAt = loadedAt)
                         val q = op.queued ?: throw IllegalArgumentException("an op without a stream")
                         ops[q.n] = op to line
                         maxN = maxOf(maxN, q.n)
@@ -167,24 +171,16 @@ class OpQueue(
 
     /**
      * Takes an op: [make] builds it from its number. With [coalesce] (a position op), the last waiting op it matches
-     * takes the new result into itself, keeping its own number and first `expect` — unless that op was sent, which
+     * takes the new result and input time into itself, keeping its own number — unless that op was sent, which
      * freezes it (C§2.4 "Coalescing"). Returns the op as it now stands. Called on the core executor; the line is
      * appended on the writer thread.
-     *
-     * [at] is the time of the joining op (the device's clock). A place that joins an unsent op expecting
-     * [Expect.PreConversion] with another value takes that time as its stamp, never an earlier one (fix round 1,
-     * ruling 1.1): it was read on this build, and judged by the old stamp it lost to the PC's copy of the same old
-     * record. An equal value is the same place (a session start sends each place it holds) and keeps the old stamp.
      */
-    fun add(make: (OpId.Queued) -> Op, coalesce: ((Op) -> Boolean)? = null, at: Long? = null): Op = synchronized(lock) {
+    fun add(make: (OpId.Queued) -> Op, coalesce: ((Op) -> Boolean)? = null): Op = synchronized(lock) {
         if (coalesce != null) {
             val e = live.lastOrNull { coalesce(it.op) }
             if (e != null && !e.frozen) {
                 val fresh = make(e.op.id as OpId.Queued)
-                val was = e.op.expect
-                val expect = if (was is Expect.PreConversion && at != null && fresh.result != e.op.result)
-                    Expect.PreConversion(maxOf(was.at, at)) else was
-                e.op = e.op.copy(result = fresh.result, params = fresh.params, base = fresh.base, expect = expect)
+                e.op = e.op.copy(result = fresh.result, params = fresh.params, at = fresh.at)
                 e.version++
                 schedule(e)
                 return e.op
@@ -210,13 +206,10 @@ class OpQueue(
         e.op
     }
 
-    /** From [n] on, nothing counts as sent on the live connection: sent again from there (a gap, a failed write). */
+    /** From [n] on, nothing counts as sent on the live connection: sent again from there (a retry, a failed write). */
     fun resendFrom(n: Long) = synchronized(lock) {
         for (e in live) if (e.n >= n) e.sentGen = 0
     }
-
-    /** Whether [n] is still waiting. */
-    fun holds(n: Long): Boolean = synchronized(lock) { live.any { it.n == n } }
 
     /** The answered op [n] leaves the waiting list (its line stays until [forget]); null when it is not waiting. */
     fun answered(n: Long): Op? = synchronized(lock) {
@@ -225,23 +218,13 @@ class OpQueue(
         leave(live.removeAt(i)).op
     }
 
-    /** Every waiting op at or below [highWater] leaves (the PC has handled them: C§2.4, `welcome`). */
-    fun covered(highWater: Long): List<Op> = take { (it.id as OpId.Queued).n <= highWater }
-
-    /** Every waiting op [which] picks leaves, in order. */
-    fun take(which: (Op) -> Boolean): List<Op> = synchronized(lock) {
-        val out = live.filter { which(it.op) }
-        live.removeAll(out.toSet())
-        out.map { leave(it).op }
-    }
-
     private fun leave(e: Entry): Entry {
         e.landedLine?.let { held[e.n] = it }
         return e
     }
 
-    /** The lines of answered ops leave the file: a `done` line each, on the writer thread. Ops of another stream (one
-     *  a renumbering ended, whose lines went with it) are passed over. */
+    /** The lines of answered ops leave the file: a `done` line each, on the writer thread. Ops of another stream are
+     *  passed over. */
     fun forget(ids: Collection<OpId.Queued>) {
         if (ids.isEmpty()) return
         val list = ids.toList()
@@ -261,38 +244,9 @@ class OpQueue(
         }
     }
 
-    /**
-     * A new stream for the waiting ops, numbered from 1 in their order (`WorkingCopy`: the PC no longer knows numbers
-     * this device holds as answered, so the old stream can never continue). The file is rewritten under it before
-     * any of them is sent; until that lands nothing is appended. Returns the new stream.
-     */
-    fun renumber(why: String): String = synchronized(lock) {
-        val old = stream
-        stream = mint()
-        val renumbered = live.mapIndexed { i, e ->
-            Entry(e.op.copy(id = OpId.Queued(stream, i + 1L)), 1).apply { frozen = e.frozen }
-        }
-        live.clear()
-        live += renumbered
-        held.clear()
-        nextN = live.size + 1L
-        mustRewrite = true
-        say("$why: stream $old ends; ${live.size} waiting op(s) renumbered in stream $stream")
-        hand("the renumbering's rewrite") { synchronized(lock) { if (mustRewrite) rewriteNow() } }
-        stream
-    }
-
-    /** Appends that failed (and a rewrite that did) are tried again: the wire's next ping, or the next op. */
+    /** Appends that failed are tried again: the wire's next ping, or the next op. */
     fun retry() {
-        hand("a retry") {
-            synchronized(lock) {
-                if (mustRewrite) {
-                    rewriteNow()
-                    return@hand
-                }
-                for (e in live) if (e.failed) schedule(e)
-            }
-        }
+        hand("a retry") { synchronized(lock) { for (e in live) if (e.failed) schedule(e) } }
     }
 
     /** Hands [e]'s present version to the writer. Under [lock]. */
@@ -305,10 +259,6 @@ class OpQueue(
     private fun land(e: Entry, v: Int, line: String) {
         synchronized(lock) {
             if (e.version != v || live.none { it === e } || e.landed == v) return   // a newer version follows, or it left
-            if (mustRewrite) {
-                e.failed = true                    // the renumbering's rewrite carries it once it lands
-                return
-            }
         }
         try {
             append(file, line + "\n")
@@ -349,7 +299,6 @@ class OpQueue(
             return
         }
         ok()
-        mustRewrite = false
         lines = 1 + held.size + live.size
         for ((e, line) in written) {
             e.landed = e.version

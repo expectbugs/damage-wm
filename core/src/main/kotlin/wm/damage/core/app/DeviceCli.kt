@@ -108,7 +108,7 @@ object DeviceCli {
             Command.List -> error("handled above")
         }
         val op = Op(Peer.LOCAL.device, OpId.Conn(w.conn, 1), DevicesCore.SCOPE, action, emptyList(),
-            params = buildJsonObject { for ((k, v) in params) put(k, v) })
+            params = buildJsonObject { for ((k, v) in params) put(k, v) }, at = System.currentTimeMillis())
         AppWire.write(o, AppWire.encode(AppWire.op(op)))
         while (true) {
             val f = AppWire.read(inp)

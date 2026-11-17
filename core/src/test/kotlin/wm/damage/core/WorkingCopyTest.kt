@@ -2,7 +2,6 @@ package wm.damage.core
 
 import java.net.InetAddress
 import java.nio.file.Files
-import java.time.ZoneOffset
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
@@ -28,14 +27,12 @@ import wm.damage.core.app.AppNet
 import wm.damage.core.app.CoreExecutor
 import wm.damage.core.app.Cursor
 import wm.damage.core.app.Draft
-import wm.damage.core.app.Expect
 import wm.damage.core.app.HostBackend
 import wm.damage.core.app.LocalWindowSource
 import wm.damage.core.app.Op
 import wm.damage.core.app.OpId
 import wm.damage.core.app.Snap
 import wm.damage.core.app.SourceListener
-import wm.damage.core.app.StreamKey
 import wm.damage.core.app.WindowCore
 import wm.damage.core.app.WindowState
 import wm.damage.core.app.WorkingCopy
@@ -45,11 +42,11 @@ import wm.damage.core.content.LocalContent
 /**
  * Build S1-1, package P3 (`CONTRACT.md` §2.3, §2.4, §9.3, §13 (b) "working copy"; the spec's §2 P3 and §3 "Where the
  * user sees a change"): the phone's working copy behind the `WindowSource` seam, against a real PC record served on a
- * loopback port (the same port across a cut and a restart). An equal answer draws nothing new; a loss draws the
- * standing value with its mark and is answered once; and the envelope rows — the PC out of reach, a phone restart, a
- * PC restart, a new epoch, an op the PC handled whose answer was lost, a "retry" refusal and the gaps behind it — each
- * end with the PC holding every op once. The PC's own source numbers its ops from its stream's high-water. Made-up
- * window `t`, devices and values; temp directories only.
+ * loopback port (the same port across a cut and a restart). An equal answer draws nothing new; an older input that
+ * arrives later changes nothing and the view shows the later one (L1 C1); and the envelope rows — the PC out of reach,
+ * a phone restart, a PC restart, a new epoch, an op the PC took whose answer was lost, a "retry" refusal and the ops
+ * behind it — each end with the PC holding the latest input. Made-up window `t`, devices and values; temp directories
+ * only.
  */
 class WorkingCopyTest {
 
@@ -70,7 +67,7 @@ class WorkingCopyTest {
     /** The PC: P1's record rig (window `t`), an [AppNet] over it and a content host whose loopback port stays the same
      *  when it is cut and brought back, and when the record restarts. */
     private class Pc : AutoCloseable {
-        val rec = RecordRig()
+        val rec = RecordRig().also { it.now = T0 + 3_600_000 }   // the PC's clock: an hour on, so no input is held to it
         var host: AppHost = rec.opened()
         private var net = AppNet(host, mapOf("t" to 1), clock = { rec.now })
         private var server: ContentHostServer? = null
@@ -96,19 +93,19 @@ class WorkingCopyTest {
 
         fun back() = serve(port)
 
-        /** The process ends and starts again on the same data directory; [newEpoch] = its sequence file is gone. */
+        /** The process ends and starts again on the same data directory; [newEpoch] = its record.json is gone (L1 C2). */
         fun restart(newEpoch: Boolean) {
             cut()
             net.close()
             rec.stop(host)
-            if (newEpoch) Files.delete(rec.seqFile)
+            if (newEpoch) Files.delete(rec.recordFile)
             host = rec.opened()
             net = AppNet(host, mapOf("t" to 1), clock = { rec.now })
             back()
         }
 
-        fun write(device: String, stream: String, n: Long, item: String, value: String): Answer =
-            rec.ask(host, op(device, stream, n, "set", listOf(item), j(value)))
+        fun write(device: String, stream: String, n: Long, item: String, value: String, at: Long = T0): Answer =
+            rec.ask(host, op(device, stream, n, "set", listOf(item), j(value), at = at))
 
         fun item(id: String) = rec.item(host, id)
 
@@ -174,7 +171,7 @@ class WorkingCopyTest {
         val heard = Heard()
         val src = source(wc, heard)
         assertEquals(j("one"), src.state().itemNamed("a")!!.value)
-        src.act(Draft("set", listOf("a"), j("two"), Expect.Value(j("one"))))
+        src.act(Draft("set", listOf("a"), j("two")))
         waitUntil(10_000, 5, { "applied on the PC" }) { pc.item("a")?.value == j("two") }
         synced(wc, pc)
         wc.executor.call {}
@@ -183,11 +180,12 @@ class WorkingCopyTest {
         assertEquals(listOf<Answer>(Answer.Seen()), heard.answers.map { it.second })
         assertEquals(j("two"), src.state().itemNamed("a")!!.value)
         assertEquals(emptySet(), src.state().pending)
-        assertEquals("", wc.awayLine(ZoneOffset.UTC))
     }
 
+    /** L1 C1: the phone sets a value while the PC is away; the desk sets it a minute later; when the phone reaches the
+     *  PC its older input changes nothing, it is answered `seen`, and the view shows the desk's value. */
     @Test
-    fun aLossDrawsTheStandingValueWithItsMarkAndIsAnsweredOnce(): Unit = runBlocking {
+    fun anOlderInputArrivingLaterChangesNothing_andTheViewShowsTheLaterOne(): Unit = runBlocking {
         val pc = keep(Pc())
         pc.write("desk", "d1", 1, "a", "one")
         val wc = phone(pc)
@@ -195,27 +193,22 @@ class WorkingCopyTest {
         val heard = Heard()
         val src = source(wc, heard)
         cut(pc, wc)
-        src.act(Draft("set", listOf("a"), j("mine"), Expect.Value(j("one"))))
-        pc.write("desk", "d1", 2, "a", "desk")                 // another device, while the phone is away
-        pc.back()
-        waitUntil(10_000, 5, { "answered" }) { heard.answers.isNotEmpty() }
-        synced(wc, pc)
+        src.act(Draft("set", listOf("a"), j("mine")))                  // the phone's input, at T0
         wc.executor.call {}
-        assertEquals(1, heard.answers.size, "${heard.answers}")
-        val lost = heard.answers[0].second as Answer.Lost
-        assertEquals(j("desk"), lost.standing)
-        assertEquals("desk", lost.by)
-        assertEquals(j("mine"), lost.losses[0].mine)
-        val a = src.state().itemNamed("a")!!
-        assertEquals(j("desk"), a.value, "the standing value")
-        assertEquals(j("mine"), a.notApplied!!.mine, "with its mark")
-        assertEquals(listOf(setOf("rec.t.a"), setOf("rec.t.a")), heard.changes.toList(),
-            "drawn at once, then the standing value with its mark; the PC's change was equal to that")
-        assertEquals("1 not applied", wc.awayLine(ZoneOffset.UTC))
+        assertEquals(j("mine"), src.state().itemNamed("a")!!.value, "drawn at once")
+        pc.write("desk", "d1", 2, "a", "desk", at = T0 + 60_000)       // another device, a minute later
+        pc.back()
+        // the op changes nothing, so no change follows its answer: wait on the answer and the queue, not the cursor
+        waitUntil(10_000, 5, { "answered" }) { heard.answers.isNotEmpty() && wc.queue.waiting == 0 }
+        wc.executor.call {}
+        assertEquals(listOf<Answer>(Answer.Seen()), heard.answers.map { it.second }, "answered once, nothing to say")
+        assertEquals(j("desk"), pc.item("a")!!.value, "the later input stands")
+        assertEquals(j("desk"), src.state().itemNamed("a")!!.value, "and the view shows it")
+        assertEquals(listOf(setOf("rec.t.a"), setOf("rec.t.a")), heard.changes.toList(), "drawn at once, then the desk's")
     }
 
     @Test
-    fun thePcOutOfReach_opsWaitAndTheAwayLineSaysSo_thenTheyDrain(): Unit = runBlocking {
+    fun thePcOutOfReach_opsWait_thenTheyDrain(): Unit = runBlocking {
         val pc = keep(Pc())
         val wc = phone(pc)
         synced(wc, pc)
@@ -226,18 +219,17 @@ class WorkingCopyTest {
         now.set(T0 + 15_000)
         c.pingTick()
         waitUntil(10_000, 5, { "out of reach: ${wc.reach}" }) { wc.reach is AppClient.Reach.Down }
-        src.act(Draft("set", listOf("x"), j("1"), Expect.Value(JsonNull)))
-        src.act(Draft("set", listOf("y"), j("2"), Expect.Value(JsonNull)))
+        src.act(Draft("set", listOf("x"), j("1")))
+        src.act(Draft("set", listOf("y"), j("2")))
         wc.executor.call {}
-        assertEquals("2 changes waiting · PC not answering since 22:13", wc.awayLine(ZoneOffset.UTC))
+        assertEquals(2, wc.queue.waiting)
         assertEquals(j("1"), src.state().itemNamed("x")!!.value, "drawn from the copy meanwhile")
         pc.back()
         waitUntil(10_000, 5, { "drained: ${wc.queue.waiting} waiting" }) {
             wc.queue.waiting == 0 && pc.item("x") != null && pc.item("y") != null
         }
         waitUntil(10_000, 5, { "back: ${wc.reach}" }) { wc.reach == AppClient.Reach.Up }
-        assertEquals("", wc.awayLine(ZoneOffset.UTC))
-        assertEquals(listOf(1L, 1L), listOf(pc.item("x")!!.rev, pc.item("y")!!.rev), "each applied once")
+        assertEquals(listOf(j("1"), j("2")), listOf(pc.item("x")!!.value, pc.item("y")!!.value))
     }
 
     @Test
@@ -247,7 +239,7 @@ class WorkingCopyTest {
         val first = phone(pc)
         synced(first, pc)
         cut(pc, first)
-        first.executor.call { first.submit("t", Draft("set", listOf("b"), j("two"), Expect.Value(JsonNull))) }
+        first.executor.call { first.submit("t", Draft("set", listOf("b"), j("two"))) }
         val queueFile = phoneDir.resolve(WorkingCopy.QUEUE_FILE)
         waitUntil(10_000, 5, { "landed" }) { Files.readAllLines(queueFile).any { "\"b\"" in it } }
         val at = first.cursor
@@ -263,8 +255,7 @@ class WorkingCopyTest {
         assertEquals(setOf("rec.t.b"), s.pending)
         pc.back()
         waitUntil(10_000, 5, { "sent at the welcome" }) { pc.item("b")?.value == j("two") && again.queue.waiting == 0 }
-        assertEquals(1L, pc.item("b")!!.rev, "applied once")
-        assertEquals(1L, pc.host.highWater(StreamKey("phone", again.stream)))
+        assertEquals("phone", pc.item("b")!!.by)
     }
 
     @Test
@@ -295,8 +286,9 @@ class WorkingCopyTest {
         assertEquals(emptyList(), heard.changes.toList(), "equal to the copy: nothing repaints")
     }
 
+    /** The PC's record.json is gone (a new epoch; its log replays): the waiting ops are sent again and apply. */
     @Test
-    fun aNewEpochKeepsTheWaitingOps_andThoseThatExpectedARevisionLoseSaid(): Unit = runBlocking {
+    fun aNewEpoch_theWaitingOpsAreSentAgainAndApply(): Unit = runBlocking {
         val pc = keep(Pc())
         pc.write("desk", "d1", 1, "p", "1")
         pc.write("desk", "d1", 2, "q", "x")
@@ -305,29 +297,28 @@ class WorkingCopyTest {
         val heard = Heard()
         val src = source(wc, heard)
         cut(pc, wc)
-        // the removal first: the place then stands behind the hole its loss leaves in the stream
-        src.act(Draft("drop", listOf("q"), expect = Expect.Rev(1)))
-        src.act(Draft("place", listOf("p"), j("5"), Expect.Value(j("1"))))
+        src.act(Draft("drop", listOf("q")))
+        src.act(Draft("place", listOf("p"), j("5")))
         val before = wc.stream
         val old = pc.host.epoch
+        pc.rec.now += 1_000                                       // the store is minted again later than the first
         pc.restart(newEpoch = true)
         assertNotEquals(old, pc.host.epoch, "a new epoch")
-        waitUntil(10_000, 5, { "the place applied (p is ${pc.item("p")?.value}) and the removal said: ${heard.answers}" }) {
-            pc.item("p")?.value == j("5") && heard.answers.size == 2 && wc.queue.waiting == 0
+        waitUntil(10_000, 5, { "both applied: ${heard.answers}" }) {
+            pc.item("p")?.value == j("5") && pc.item("q")?.gone == true && heard.answers.size == 2 && wc.queue.waiting == 0
         }
         synced(wc, pc)
         wc.executor.call {}
-        assertEquals(false, pc.item("q")!!.gone, "the op that expected a revision of the old record was not applied")
-        val by = heard.answers.associate { it.first.action to it.second }
-        assertEquals(Answer.Seen(), by["place"], "the waiting place was kept, sent again and judged on its value")
-        assertEquals(j("x"), (by["drop"] as Answer.Lost).standing, "said with the standing value")
+        assertTrue(heard.answers.all { it.second == Answer.Seen() }, "${heard.answers}")
         assertEquals(j("5"), src.state().itemNamed("p")!!.value)
-        assertEquals(j("x"), src.state().itemNamed("q")!!.value)
-        assertNotEquals(before, wc.stream, "the place went in a new stream: the removal left a hole in the old one")
+        assertNull(src.state().itemNamed("q")!!.value.takeIf { it != JsonNull })
+        assertEquals(before, wc.stream, "the stream goes on")
     }
 
+    /** L1 C1: the PC took the op before the connection ended, and its answer went with the connection; the desk then
+     *  set the item later. The op is sent again at the next connection and changes nothing: applying twice is a no-op. */
     @Test
-    fun theHighWaterTakesOutAnOpThePcHandled_itIsNeverSentAgain(): Unit = runBlocking {
+    fun anOpThePcTookWhoseAnswerWasLost_isSentAgainAndChangesNothing(): Unit = runBlocking {
         val pc = keep(Pc())
         pc.write("desk", "d1", 1, "x", "a")
         val wc = phone(pc)
@@ -335,82 +326,51 @@ class WorkingCopyTest {
         val heard = Heard()
         val src = source(wc, heard)
         cut(pc, wc)
-        src.act(Draft("set", listOf("x"), j("b"), Expect.Value(j("a"))))
+        src.act(Draft("set", listOf("x"), j("b")))
         waitUntil(10_000, 5, { "waiting" }) { wc.queue.waiting == 1 }
         val stream = wc.stream
-        // the PC took the op before the connection ended, and its answer went with the connection
-        assertEquals(Answer.Seen(), pc.rec.ask(pc.host,
-            Op("phone", OpId.Queued(stream, 1), "t", "set", listOf("x"), j("b"), Expect.Value(j("a")))))
-        pc.write("desk", "d1", 2, "x", "c")
+        assertEquals(Answer.Seen(), pc.rec.ask(pc.host, Op("phone", OpId.Queued(stream, 1), "t", "set", listOf("x"), j("b"), at = T0)))
+        pc.write("desk", "d1", 2, "x", "c", at = T0 + 1_000)
         pc.back()
-        synced(wc, pc)
+        waitUntil(10_000, 5, { "answered: ${heard.answers}" }) { heard.answers.isNotEmpty() && wc.queue.waiting == 0 }
         wc.executor.call {}
-        assertNull(pc.item("x")!!.notApplied, "never sent again, so never judged a second time")
-        assertEquals(emptyList(), heard.answers.toList(), "its answer went with the connection; nothing new is said")
+        assertEquals(j("c"), pc.item("x")!!.value, "the later input stands")
+        assertEquals(listOf<Answer>(Answer.Seen()), heard.answers.map { it.second })
         assertEquals(j("c"), src.state().itemNamed("x")!!.value)
-        assertNull(src.state().itemNamed("x")!!.notApplied)
         assertEquals(stream, wc.stream, "the stream goes on")
     }
 
     @Test
-    fun theHighWaterTakesOutAnOpThePcJudgedLost_theLossIsReadFromTheState_andSaidOnce(): Unit = runBlocking {
-        // fix round 1, ruling 1.5 (c): the op lost at the PC and its answer went with the connection; the welcome's
-        // high-water settles it, and the state that follows shows the PC's mark over another device's value
-        val pc = keep(Pc())
-        pc.write("desk", "d1", 1, "x", "a")
-        val wc = phone(pc)
-        synced(wc, pc)
-        val heard = Heard()
-        val src = source(wc, heard)
-        cut(pc, wc)
-        src.act(Draft("set", listOf("x"), j("b"), Expect.Value(j("a"))))
-        waitUntil(10_000, 5, { "waiting" }) { wc.queue.waiting == 1 }
-        val stream = wc.stream
-        pc.write("desk", "d1", 2, "x", "c")
-        val judged = pc.rec.ask(pc.host, Op("phone", OpId.Queued(stream, 1), "t", "set", listOf("x"), j("b"), Expect.Value(j("a"))))
-        assertEquals(j("c"), (judged as Answer.Lost).standing)
-        pc.back()
-        synced(wc, pc)
-        waitUntil(10_000, 5, { "the loss handed on: ${heard.answers}" }) { heard.answers.isNotEmpty() }
-        wc.executor.call {}
-        kotlinx.coroutines.delay(100)
-        assertEquals(1, heard.answers.size, "said once: ${heard.answers}")
-        val lost = heard.answers[0].second as Answer.Lost
-        assertEquals(j("c"), lost.standing, "the standing value")
-        assertEquals("desk", lost.by)
-        assertEquals(j("b"), lost.losses.single().mine, "and this device's own")
-        assertEquals(0, wc.queue.waiting, "never sent again")
-    }
-
-    @Test
-    fun aRetryAndTheGapsBehindItAreSentAgainInOrderAtTheNextPing(): Unit = runBlocking {
+    fun aRetryAndTheOpsBehindItAreSentAgainInOrderAtTheNextPing(): Unit = runBlocking {
         val pc = keep(Pc())
         val wc = phone(pc)
         synced(wc, pc)
         pc.rec.syncFails = true                                  // the PC's log cannot be written
         for (i in listOf("a", "b", "c")) wc.executor.execute("a test op") {
-            wc.submit("t", Draft("set", listOf(i), j(i), Expect.Value(JsonNull)))
+            wc.submit("t", Draft("set", listOf(i), j(i)))
         }
         waitUntil(10_000, 5, { "the PC tried the first" }) { pc.rec.forced.get() >= 1 }
         Thread.sleep(300)
-        assertEquals(1, pc.rec.forced.get(), "not sent again before the next ping")
+        val tried = pc.rec.forced.get()
+        assertTrue(tried in 1..3, "each op tried at most once (L1 C1: no gap holds the ops behind a retry): $tried")
+        Thread.sleep(300)
+        assertEquals(tried, pc.rec.forced.get(), "not sent again before the next ping")
         assertEquals(3, wc.queue.waiting)
         pc.rec.syncFails = false
         wc.client!!.pingTick()
         waitUntil(10_000, 5, { "all three: ${wc.queue.waiting} waiting" }) { wc.queue.waiting == 0 }
         assertEquals(listOf(j("a"), j("b"), j("c")), listOf("a", "b", "c").map { pc.item(it)!!.value })
-        assertEquals(3L, pc.host.highWater(StreamKey("phone", wc.stream)), "in order, each once")
     }
 
     @Test
-    fun thePcsOwnSourceNumbersItsOpsFromItsStreamsHighWater(): Unit = runBlocking {
+    fun thePcsOwnSourceWritesAsItsDevice_acrossARestart(): Unit = runBlocking {
         val rec = RecordRig()
         closing += AutoCloseable { rec.cleanUp() }
         val host = rec.opened()
         val heard = Heard()
         val src = keep(LocalWindowSource(core, HostBackend(host, "pc", "p1"))).also { it.addListener(heard) }
-        src.act(Draft("set", listOf("a"), j("one"), Expect.Value(JsonNull)))
-        src.act(Draft("set", listOf("a"), j("two"), Expect.Value(j("one"))))
+        src.act(Draft("set", listOf("a"), j("one")))
+        src.act(Draft("set", listOf("a"), j("two")))
         waitUntil(10_000, 5, { "answered: ${heard.answers}" }) { heard.answers.size == 2 }
         host.executor.call {}
         assertEquals(listOf<Answer>(Answer.Seen(), Answer.Seen()), heard.answers.map { it.second })
@@ -419,31 +379,30 @@ class WorkingCopyTest {
         rec.stop(host)
         val again = rec.opened()
         val src2 = keep(LocalWindowSource(core, HostBackend(again, "pc", "p1")))
-        src2.act(Draft("set", listOf("a"), j("three"), Expect.Value(j("two"))))
+        src2.act(Draft("set", listOf("a"), j("three")))
         waitUntil(10_000, 5, { "applied after the restart" }) { src2.state().itemNamed("a")?.value == j("three") }
-        assertEquals(3L, again.highWater(StreamKey("pc", "p1")), "the numbers go on")
+        assertEquals("pc", rec.item(again, "a")!!.by)
         assertEquals(buildJsonObject { put("id", "t"); put("items", 1) }, src2.desc())
     }
 
     @Test
-    fun thePcsOwnSource_afterOneRetry_numbersItsNextOpFromTheHighWaterAgain(): Unit = runBlocking {
-        // fix round 1, ruling 1.6: a `retry` takes no number; the source's later ops are not all refused "expected N"
+    fun thePcsOwnSource_afterARetry_itsNextOpsApply(): Unit = runBlocking {
+        // fix round 1, ruling 1.6: a `retry` changed nothing; the source's later ops are taken
         val rec = RecordRig()
         closing += AutoCloseable { rec.cleanUp() }
         val host = rec.opened()
         val heard = Heard()
         val src = keep(LocalWindowSource(core, HostBackend(host, "pc", "p1"))).also { it.addListener(heard) }
         rec.syncFails = true                                          // the log cannot be written
-        src.act(Draft("set", listOf("a"), j("one"), Expect.Value(JsonNull)))
+        src.act(Draft("set", listOf("a"), j("one")))
         waitUntil(10_000, 5, { "answered: ${heard.answers}" }) { heard.answers.size == 1 }
         assertEquals(Answer.RETRY, (heard.answers[0].second as Answer.Refused).code)
         rec.syncFails = false
-        src.act(Draft("set", listOf("a"), j("one"), Expect.Value(JsonNull)))
-        src.act(Draft("set", listOf("a"), j("two"), Expect.Value(j("one"))))
+        src.act(Draft("set", listOf("a"), j("one")))
+        src.act(Draft("set", listOf("a"), j("two")))
         waitUntil(10_000, 5, { "answered: ${heard.answers}" }) { heard.answers.size == 3 }
         assertEquals(listOf<Answer>(Answer.Seen(), Answer.Seen()), heard.answers.drop(1).map { it.second })
         assertEquals(j("two"), rec.item(host, "a")!!.value)
-        assertEquals(2L, host.highWater(StreamKey("pc", "p1")))
     }
 
     /** Fix round 2, ruling 1.7 (F1a's Found 4): a refusal for good that reaches no presenter is logged and journaled
@@ -470,6 +429,26 @@ class WorkingCopyTest {
         wc.executor.call { wc.submit("t", Draft("nonesuch", listOf("a"), j("one"))) }
         waitUntil(10_000, 5, { "answered: ${wc.queue.waiting} waiting; $notes" }) { notes.any { "refused for good" in it } }
         assertTrue(notes.any { "refused for good" in it && "nonesuch" in it }, "$notes")
+    }
+
+    /** L1 C1, C4, the decoders first: a `copy.json` as 0.67 saved it — items with `rev` and an `na` mark, `colls`, and
+     *  a kept loss under `unheard` — is read: the items and the cursor come back, nothing is set aside. */
+    @Test
+    fun aCopyOf067IsRead() {
+        Files.createDirectories(phoneDir)
+        Files.writeString(phoneDir.resolve(WorkingCopy.COPY_FILE), """{"v":1,"epoch":1763300000000,"seq":42,"items":{""" +
+            """"rec.t.a":{"v":"one","rev":3,"by":"desk","at":1763300000100,"na":{"mine":"x","by":"phone","at":1763300000200}},""" +
+            """"rec.t.g":{"gone":true,"rev":2,"by":"phone","at":5}},"colls":{},"unheard":[{"op":{"device":"phone",""" +
+            """"stream":"s","n":1,"window":"t","action":"set","targets":["a"],"result":"x","expect":{"value":"zero"}},""" +
+            """"answer":{"a":"lost","losses":[{"item":"a","standing":"one","by":"desk","at":1763300000100,"mine":"x"}]}}]}""")
+        val wc = WorkingCopy(phoneDir, TEST_ACTIONS, CoreExecutor("damage-core-copy-067"), contracts = mapOf("t" to 1), clock = now::get)
+        closing += AutoCloseable { wc.close(); wc.executor.shutdown() }
+        wc.open()
+        assertEquals(Cursor(1_763_300_000_000L, 42), wc.cursor)
+        val s = state(wc)
+        assertEquals(wm.damage.core.app.Item(j("one"), "desk", 1_763_300_000_100L), s.itemNamed("a"))
+        assertTrue(s.itemNamed("g")!!.gone)
+        assertTrue(Files.list(phoneDir).use { l -> l.noneMatch { it.fileName.toString().contains(".bad") } }, "nothing set aside")
     }
 
     private companion object {

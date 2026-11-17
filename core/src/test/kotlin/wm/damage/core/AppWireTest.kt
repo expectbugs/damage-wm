@@ -69,7 +69,6 @@ class AppWireTest {
         assertEquals(rig.host.epoch, w.epoch)
         assertEquals(3L, w.seq)
         assertEquals(mapOf("t" to 1), w.contracts)
-        assertEquals(emptyMap(), w.highWater, "the phone has sent nothing yet")
         lane.send(AppWire.sub("t", null))
         val snap = AppWire.parseSnap(lane.next("snap"))
         assertEquals(3L, snap.seq)
@@ -82,12 +81,13 @@ class AppWireTest {
      * Fix round 2, ruling 1.6 (F1a's Found 3): while the log is closed (it did not open at this start), the lane serves
      * no record — a snapshot would lack the log's unreplayed lines, under a new epoch — and refuses the subscription
      * with the reason; a phone keeps its own copy, as with the PC out of reach (the reason, since S1-2 Q1's N3, says only
-     * the PC's part: a browser keeps none).
+     * the PC's part: a browser keeps none). L1 R-a: once a later tick opens the log, what was refused is served.
      */
     @Test
-    fun whileTheLogIsClosed_aSubscriptionIsRefusedWithTheReason_neverASnapshot() {
+    fun whileTheLogIsClosed_aSubscriptionIsRefusedWithTheReason_neverASnapshot_andServedOnceItOpens() {
         val rec = RecordRig()
         rec.opened().also { h -> rec.ask(h, op("desk", "d1", 1, "set", listOf("a"), j("one"))); rec.stop(h) }
+        val perms = java.nio.file.Files.getPosixFilePermissions(rec.logFile)
         java.nio.file.Files.setPosixFilePermissions(rec.logFile, emptySet())     // this start cannot open the log
         val rig = keep(AppLaneRig(rec, rec.opened()))
         val lane = keep(RawLane(rig.port))
@@ -117,10 +117,17 @@ class AppWireTest {
         lane.send(AppWire.sub("diag", null))
         assertTrue(lane.next("snap")["desc"] != null, "the PC's own page is still described")
         lane.quiet()
+        java.nio.file.Files.setPosixFilePermissions(rec.logFile, perms)
+        rec.tick(rig.host)                                    // the log opens
+        rec.tick(rig.host)                                    // the lane serves what it refused meanwhile
+        assertEquals(JsonPrimitive("one"), AppWire.parseSnap(lane.next("snap")).state.items["rec.t.a"]!!.value)
+        assertTrue(lane.next("snap")["desc"] != null, "the window's scope is described")
+        lane.quiet()
     }
 
+    /** L1 C2: a `sub` that names a cursor (a 0.67 phone's) still gets a snapshot, then the live changes. */
     @Test
-    fun aResumeInsideTheRingGetsTheChangesAndThenTheLiveOnes() {
+    fun aSubscriptionWithACursorGetsASnapshotAndThenTheLiveChanges() {
         val rig = keep(AppLaneRig())
         rig.write("desk", "d1", 1, "a", "one")
         val e = rig.host.epoch
@@ -129,51 +136,13 @@ class AppWireTest {
         val lane = keep(RawLane(rig.port))
         lane.welcome()
         lane.send(AppWire.sub("t", Cursor(e, 1)))
-        val c2 = AppWire.parseChg(lane.next("chg"))
-        val c3 = AppWire.parseChg(lane.next("chg"))
-        assertEquals(listOf(2L, 3L), listOf(c2.seq, c3.seq))
-        assertEquals(JsonPrimitive("two"), c2.patches.items["rec.t.a"]!!.value)
-        assertEquals("desk", c3.origin!!.device)
+        val snap = AppWire.parseSnap(lane.next("snap"))
+        assertEquals(3L, snap.seq)
+        assertEquals(JsonPrimitive("two"), snap.state.items["rec.t.a"]!!.value)
         lane.quiet()
         rig.write("desk", "d1", 4, "a", "four")
         val live = AppWire.parseChg(lane.next("chg"))
         assertEquals(4L, live.seq)
-        assertEquals(OpId.Queued("d1", 4), live.origin!!.id)
-    }
-
-    /** P1's ring floor (`ChangeRing.since`) answered by a snapshot: after a restart the ring holds nothing below the
-     *  record's `seq`, so a cursor under it cannot be served as changes — the changes it lacks are not in memory. */
-    @Test
-    fun aResumeOutsideTheRingGetsASnapshot() {
-        val rec = RecordRig()
-        val first = rec.opened()
-        rec.ask(first, op("desk", "d1", 1, "set", listOf("a"), j("one")))
-        rec.ask(first, op("desk", "d1", 2, "set", listOf("b"), j("two")))
-        val e = first.epoch
-        rec.ask(first, op("desk", "d1", 3, "set", listOf("a"), j("three")))
-        rec.stop(first)
-        val again = rec.opened()                         // same epoch; the ring starts empty at seq 3
-        assertEquals(e, again.epoch)
-        val rig = keep(AppLaneRig(rec, again))
-        rig.write("desk", "d1", 4, "c", "four")           // the ring now holds 4 only
-        val lane = keep(RawLane(rig.port))
-        lane.welcome()
-        lane.send(AppWire.sub("t", Cursor(e, 2)))
-        val snap = AppWire.parseSnap(lane.next("snap"))
-        assertEquals(4L, snap.seq)
-        assertEquals(JsonPrimitive("three"), snap.state.items["rec.t.a"]!!.value, "change 3 is in the snapshot, not lost")
-        lane.quiet()
-    }
-
-    @Test
-    fun aNewEpochSendsASnapshot() {
-        val rig = keep(AppLaneRig())
-        rig.write("desk", "d1", 1, "a", "one")
-        val lane = keep(RawLane(rig.port))
-        lane.welcome()
-        lane.send(AppWire.sub("t", Cursor(rig.host.epoch + 1, 1)))
-        assertEquals(1L, AppWire.parseSnap(lane.next("snap")).seq)
-        lane.quiet()
     }
 
     @Test
@@ -184,32 +153,26 @@ class AppWireTest {
         lane.send(AppWire.sub("t", null))
         lane.next("snap")
         // the op names another device: the connection's own (the token's holder) is what the record keeps
-        lane.op(Op("someone-else", OpId.Queued("s1", 1), "t", "set", listOf("a"), j("mine")))
+        lane.op(Op("someone-else", OpId.Queued("s1", 1), "t", "set", listOf("a"), j("mine"), at = 1))
         val ans = AppWire.parseAns(lane.next("ans"))
         assertEquals(OpId.Queued("s1", 1), ans.id)
         assertEquals(Answer.Seen(), ans.answer)
         val chg = AppWire.parseChg(lane.next("chg"))
-        assertEquals("phone", chg.origin!!.device)
         assertEquals("phone", chg.patches.items["rec.t.a"]!!.by)
-        assertEquals(mapOf("s1" to 1L), rig.host.highWaters("phone"))
-        assertEquals(emptyMap(), rig.host.highWaters("someone-else"))
-        val again = keep(RawLane(rig.port))
-        assertEquals(mapOf("s1" to 1L), again.welcome().highWater, "welcome carries the device's high-water")
     }
 
-    /** An op that does not decode but names its stream and number takes that number (refused for good), so the
-     *  client's next op is not met with "expected n" for ever. */
+    /** An op that does not decode is refused for good in words, to the id it names; the client's next op is taken. */
     @Test
-    fun anOpThatDoesNotDecodeTakesItsNumberAndTheStreamGoesOn() {
+    fun anOpThatDoesNotDecodeIsRefusedAndTheNextIsTaken() {
         val rig = keep(AppLaneRig())
         val lane = keep(RawLane(rig.port))
         lane.welcome()
         lane.opJson(buildJsonObject { put("device", "phone"); put("stream", "s1"); put("n", 1); put("window", "t") })
         val bad = lane.answer() as Answer.Refused
-        lane.op(Op("phone", OpId.Queued("s1", 2), "t", "set", listOf("a"), j("two")))
-        assertEquals(Answer.Seen(), lane.answer(), "the stream goes on past the op that did not decode")
+        lane.op(Op("phone", OpId.Queued("s1", 2), "t", "set", listOf("a"), j("two"), at = 1))
+        assertEquals(Answer.Seen(), lane.answer(), "the next op is taken")
         assertTrue(bad.reason.startsWith("the op does not decode"), bad.reason)
-        assertEquals(Answer.UNKNOWN, bad.code, "refused for good: the client drops it")
+        assertEquals(Answer.INVALID, bad.code, "refused for good: the client drops it")
     }
 
     @Test
@@ -222,10 +185,10 @@ class AppWireTest {
         val conn = lane.welcome().conn
         assertTrue(conn > goneConn, "a reconnect starts a new conn")
         val seq = rig.host.seq
-        lane.op(Op("phone", OpId.Conn(goneConn, 1), "t", "set", listOf("a"), j("x")))
+        lane.op(Op("phone", OpId.Conn(goneConn, 1), "t", "set", listOf("a"), j("x"), at = 1))
         val ended = lane.answer() as Answer.Refused
         assertEquals(Answer.ENDED, ended.code)
-        lane.op(Op("phone", OpId.Conn(conn, 1), "t", "set", listOf("a"), j("x")))
+        lane.op(Op("phone", OpId.Conn(conn, 1), "t", "set", listOf("a"), j("x"), at = 1))
         assertEquals(Answer.UNSUPPORTED, (lane.answer() as Answer.Refused).code, "S1-1 has no never-queued action")
         assertEquals(seq, rig.host.seq, "neither took a line")
     }
@@ -280,66 +243,6 @@ class AppWireTest {
         assertEquals(JsonPrimitive(AppWire.END_PROTO), end["reason"])
         assertTrue("speaks 2" in (end["detail"] as JsonPrimitive).content, "$end")
         assertEquals("phone", keep(RawLane(rig.port)).welcome().device)
-    }
-
-    /**
-     * New client, old PC (§4): an old content host answers the lane with its in-band "unknown request" (as
-     * `Content.kt`'s else-branch has since R3#2). The client's content hello is `proto: 1` (an old host refuses any
-     * other), it is never welcomed, it says the refusal once, retries on its pacing, and every window it converts is
-     * on different builds. The same holds for a new host that serves no lane.
-     */
-    @Test
-    fun anOldPcsRefusalOfTheLaneIsSurvivedQuietlyAtPacing(): Unit = runBlocking {
-        Log.addSink(sink)
-        val connections = AtomicInteger()
-        val protos = CopyOnWriteArrayList<Int>()
-        val old = keep(ServerSocket(0, 50, InetAddress.getLoopbackAddress()))
-        Thread({
-            while (true) {
-                val s = try { old.accept() } catch (e: Exception) { break }
-                connections.incrementAndGet()
-                Thread({
-                    s.use {
-                        try {
-                            val i = DataInputStream(it.getInputStream().buffered())
-                            val o = DataOutputStream(it.getOutputStream().buffered())
-                            val hello = AppWire.read(i)
-                            val proto = (hello["proto"] as JsonPrimitive).content.toInt()
-                            protos += proto
-                            if (proto != 1) {
-                                AppWire.write(o, AppWire.encode(buildJsonObject { put("t", "err"); put("detail", "protocol $proto unsupported (host speaks 1)") }))
-                                return@use
-                            }
-                            while (true) {
-                                val t = AppWire.type(AppWire.read(i))
-                                AppWire.write(o, AppWire.encode(buildJsonObject { put("t", "err"); put("detail", "unknown request '$t' (version skew?)") }))
-                            }
-                        } catch (e: Exception) { /* the client closed */ }
-                    }
-                }, "old-pc-conn").apply { isDaemon = true }.start()
-            }
-        }, "old-pc").apply { isDaemon = true }.start()
-        val welcomed = AtomicInteger()
-        val states = CopyOnWriteArrayList<Contracts.State>()
-        val client = keep(AppClient("127.0.0.1", old.localPort, AppClient.Credential.Token("tok"), "s1",
-            object : AppClient.Listener {
-                override fun welcome(w: wm.damage.core.app.Welcome) { welcomed.incrementAndGet() }
-                override fun contracts(s: Contracts.State) { states += s }
-            }, scope, contracts = mapOf("t" to 1), retryPacingMs = 10, refusedPacingMs = 50, pingEveryMs = 0))
-        waitUntil(10_000, 5, { "three paced attempts: ${connections.get()}" }) { connections.get() >= 3 }
-        assertEquals(setOf(1), protos.toSet(), "the content port's hello stays proto 1")
-        assertEquals(0, welcomed.get())
-        val known = client.contractState as Contracts.State.Known
-        assertTrue(known.oldPc && !known.shared("t"), "$known")
-        assertEquals(Contracts.mismatchLine("t"), known.line("t"))
-        assertEquals(1, states.size, "the state is said once, not per attempt: $states")
-        assertEquals(1, logs.count { "refused the app lane" in it }, "said once per run of refusals: $logs")
-        // a new host that serves no lane refuses the same way
-        val bare = keep(AppLaneRig(withApp = false))
-        val c2 = keep(AppClient("127.0.0.1", bare.port, AppClient.Credential.Token("tok"), "s1", object : AppClient.Listener {},
-            scope, contracts = mapOf("t" to 1), retryPacingMs = 10, refusedPacingMs = 50, pingEveryMs = 0))
-        waitUntil(10_000, 5, { "refused: ${c2.contractState}" }) { (c2.contractState as? Contracts.State.Known)?.oldPc == true }
-        assertNull(c2.welcome)
     }
 
     private fun loopback(port: Int) = java.net.Socket(InetAddress.getLoopbackAddress(), port)

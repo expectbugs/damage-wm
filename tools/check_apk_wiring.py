@@ -478,13 +478,12 @@ def check(root=ROOT, say=print):
          and 'pc.glassesSource()' in stack_init and 'filesGlasses?.detach()' in stack_init and 'filesSource?.close()' in stack_init,
          'DesktopStack: Files\' glasses on the PC record through the slotted provider runShell hands it, left at the stop',
          'no files = filesProvider in runShell, or no SlottedFiles.pc / pc.glassesSource() / filesGlasses?.detach() / filesSource?.close() in DesktopStack')
-    for owner, name, expect in [('FilesMigration', 'onHost', [('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'hostOnly'),
-                                                              ('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'runShell')]),
-                                ('FilesMigration', 'onCopy', [('phone/src/main/kotlin/wm/damage/phone/ShellService.kt', 'startStack')])]:
-        got = callers(root, owner, name)
-        line(got == sorted(expect), '%s.%s is called from the %s only' % (owner, name,
-             'two PC starts (runShell, hostOnly)' if name == 'onHost' else 'phone\'s stack start'),
-             'called from ' + (', '.join('%s (%s)' % c for c in got) or 'nowhere'))
+    # L1 M1: the migration runs on the PC only
+    got = callers(root, 'FilesMigration', 'onHost')
+    line(got == sorted([('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'hostOnly'),
+                        ('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'runShell')]),
+         'FilesMigration.onHost is called from the two PC starts (runShell, hostOnly) only',
+         'called from ' + (', '.join('%s (%s)' % c for c in got) or 'nowhere'))
 
     # 5. who calls the two start-only functions
     want = {('Journal', 'rotateAtStart'): [('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'runShell'),
@@ -552,14 +551,12 @@ def check(root=ROOT, say=print):
          'no noticeMirror = …NoticeMirror(wc, …) in startWorkingCopy, or no sh.noticeInput = m / m.attach(sh.noticeSink) in startStack')
 
     # build S1-2 (Q5): the phone's Files glasses over the working copy (their calls through the PC's window channel),
-    # its old records offered once the presenter is registered, the presenter and its source left at the stack's stop
+    # the presenter and its source left at the stack's stop
     stop = body_of(svc_code, 'private fun stopStack(') or ''
-    reg = stack.find('sh.register(files)')
-    mig = stack.find('FilesMigration.onCopy(wc, persistence)')
     line('wm.damage.core.app.LocalWindowSource(core, wc)' in stack and 'FilesGlasses(text, core, src, fp, scope' in stack
-         and 0 <= reg < mig and 'filesGlasses?.detach()' in stop and 'filesSource?.close()' in stop,
-         'ShellService: Files\' glasses over the working copy, migrated after registering, left at the stack\'s stop',
-         'no FilesGlasses over LocalWindowSource(core, wc), FilesMigration.onCopy before sh.register(files), or no detach/close in stopStack')
+         and 'filesGlasses?.detach()' in stop and 'filesSource?.close()' in stop,
+         'ShellService: Files\' glasses over the working copy, left at the stack\'s stop',
+         'no FilesGlasses over LocalWindowSource(core, wc), or no detach/close in stopStack')
     i = stack.find('sh.onGlassesBattery = {')
     hook = stack[i:stack.find('\n        }', i)] if i >= 0 else ''
     line(bool(hook) and 'batteryNotification(' in hook and '.cancel(BATTERY_NOTIF_ID)' in hook and 'phoneNotifications' not in hook,
@@ -682,30 +679,20 @@ def check(root=ROOT, say=print):
          ('per stack: ' + ', '.join(per_stack)) if per_stack else
          'startWorkingCopy / appClientFor / closeWorkingCopy / onDestroy do not build and close them as the service\'s')
 
-    # 11. build S1-1, fix round 1, ruling 1.5 (a): Reader's one-time migration goes into the working copy only once
-    #     the window is registered and its presenter listens; a loss answered before then had no one to say it.
-    reg, mig = stack.find('sh.register(reader)'), stack.find('ReaderMigration.onCopy(')
-    line(0 <= reg < mig, 'ShellService.startStack: Reader\'s migration runs after the window is registered (S1-1 fix '
-         'round 1, ruling 1.5 (a))',
-         'no ReaderMigration.onCopy( in startStack' if mig < 0 else 'no sh.register(reader) in startStack' if reg < 0
-         else 'the migration runs before the window is registered')
-
     # 12. build S1-2 (Q4): Torrents on both hosts. The PC hands every stack the process's core and source (its stacks'
     #     presenters show the PC's notices from the record and raise none of their own); the phone builds the presenter
     #     over its working copy, raising from its provider only while the PC does not share `torrents` and `notices`,
-    #     migrates its old records once the window is registered (Reader's rule), and leaves the source at a stop.
+    #     and leaves the source at a stop.
     line('torrentsCore = torrentsScopes.core to torrentsSource' in run,
          'runShell: Torrents\' process-wide core and source, handed to every stack it builds',
          'no torrentsCore = torrentsScopes.core to torrentsSource in DesktopStack(…) of runShell')
     line('TorrentsGlasses(text, p, scope, core, source, recordNotices = { notices != null })' in stack_init,
          'DesktopStack: Torrents\' presenter over the core, showing the PC\'s notices from the record while its shell has the mirror',
          'no TorrentsGlasses(text, p, scope, core, source, recordNotices = { notices != null }) in DesktopStack')
-    reg, mig = stack.find('sh.register(torWin)'), stack.find('TorrentsMigration.onCopy(')
-    line('recordNotices = { wc.shares(core.window) && wc.shares(wm.damage.core.app.Notices.WINDOW) }' in stack and 0 <= reg < mig,
+    line('recordNotices = { wc.shares(core.window) && wc.shares(wm.damage.core.app.Notices.WINDOW) }' in stack,
          'ShellService.startStack: Torrents\' presenter over the working copy raises its own notices only while the PC does not '
-         'share both torrents and notices, and its migration runs after the window is registered',
-         'no recordNotices = { wc.shares(core.window) && wc.shares(…Notices.WINDOW) } in startStack, or the migration runs '
-         'before sh.register(torWin)')
+         'share both torrents and notices',
+         'no recordNotices = { wc.shares(core.window) && wc.shares(…Notices.WINDOW) } in startStack')
     gone = [w for w in ('torrentsGlasses?.detach()', 'torrentsSource?.close()') if w not in stop]
     line(not gone, 'ShellService.stopStack: Torrents\' presenter leaves its source, and the source the working copy',
          'not in stopStack: ' + ', '.join(gone))

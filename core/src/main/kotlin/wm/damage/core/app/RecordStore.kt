@@ -16,7 +16,7 @@ import wm.damage.core.util.Log
 /*
  * Context for the reader: Damage is Adam's own window manager for his own glasses, phone and PC on his own network.
  * Build S1-1, package P1 (`CONTRACT.md` §9.7 item 1, §13 (b) "PC record and seq"; dec. A.12): `record.json` in the
- * data directory — the whole record, the stream table and the `seq` it covers, saved on pacing by temp-and-move
+ * data directory — the whole record and the `seq` it covers, saved on pacing by temp-and-move
  * through `Persistence`'s atomic write (forced to disk first). Never `state.json`: that file is also written by sync
  * applies and `saveAll` from other threads. Written by this saver only, from a snapshot the core executor takes in
  * one step, so the covered `seq` is exactly the last line whose effect the snapshot holds; it is written last.
@@ -26,13 +26,11 @@ class RecordStore(
     private val write: (Path, String) -> Unit = { f, t -> Persistence.writeAtomic(f, t, sync = true) },
     writer: Executor? = null,
 ) {
-    /** One save: the record's epoch, the `seq` it covers, its entries and the stream table. */
+    /** One save: the record's epoch, the `seq` it covers and its entries. */
     data class Saved(
         val epoch: Long,
         val covered: Long,
         val items: Map<String, Item>,
-        val colls: Map<String, Coll>,
-        val streams: Map<StreamKey, Long>,
     )
 
     /** What a start found: the save, or null (missing, or unreadable: [problem] says which, the file kept as .bad). */
@@ -105,11 +103,6 @@ class RecordStore(
             put("v", VERSION)
             put("epoch", s.epoch)
             put("items", RecordJson.items(s.items))
-            put("colls", RecordJson.colls(s.colls))
-            put("streams", buildJsonObject {
-                for ((device, byStream) in s.streams.entries.groupBy({ it.key.device }, { it }).toSortedMap())
-                    put(device, buildJsonObject { for (e in byStream.sortedBy { it.key.stream }) put(e.key.stream, e.value) })
-            })
             put("covered", s.covered)
         }.toString()
 
@@ -117,18 +110,11 @@ class RecordStore(
             val j = Json.parseToJsonElement(text) as? JsonObject ?: throw IllegalArgumentException("not an object")
             val v = OpJson.num(j, "v")
             require(v == VERSION) { "version $v, this build reads $VERSION" }
-            val streams = HashMap<StreamKey, Long>()
-            (j["streams"] as? JsonObject ?: throw IllegalArgumentException("no streams")).forEach { (device, m) ->
-                (m as? JsonObject ?: throw IllegalArgumentException("streams of $device")).forEach { (stream, hw) ->
-                    streams[StreamKey(device, stream)] = OpJson.longOf(hw) ?: throw IllegalArgumentException("high-water of $stream")
-                }
-            }
             val s = Saved(
                 epoch = OpJson.num(j, "epoch"),
                 covered = OpJson.num(j, "covered"),
+                // L1 C4, C1: a 0.67 file's `colls` (always empty) and `streams` are not read
                 items = RecordJson.items(j["items"] as? JsonObject ?: throw IllegalArgumentException("no items")),
-                colls = RecordJson.colls(j["colls"] as? JsonObject ?: throw IllegalArgumentException("no colls")),
-                streams = streams,
             )
             require(s.epoch > 0 && s.covered >= 0) { "epoch ${s.epoch}, covered ${s.covered}" }
             return s

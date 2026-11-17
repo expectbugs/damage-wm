@@ -24,7 +24,7 @@ import wm.damage.core.web.Devices
  * outbox"): the PC's side of the `app` lane. One [AppNet] per process over the record's [AppHost]; the content host
  * hands it every connection that asks for the lane. Per connection: the content host's thread reads, ONE sender thread
  * writes from a bounded [Outbox], and everything that touches the record or the connection table runs on the core
- * executor — a `sub`'s snapshot or resume and the changes published after it are queued in one order, so a client
+ * executor — a `sub`'s snapshot and the changes published after it are queued in one order, so a client
  * never misses a change between its snapshot and the live stream, and never gets one twice.
  *
  * Package P6 (`CONTRACT.md` §10.4, §10.5, §10.8): the same lane on the web interface listener (a WebSocket, [LaneIo]),
@@ -123,7 +123,7 @@ class AppNet(
 
     private val programs = ConcurrentHashMap<String, Program>()
 
-    /** S1-2 Q2 (the spec's §2.3): the viewers of this lane's scopes; a live source reads [Viewers.need] per tick. */
+    /** S1-2 Q2 (the spec's §2.3): the viewers of this lane's scopes; a live source reads [Viewers.of] per tick. */
     val viewers = Viewers(pingEveryMs)
 
     /** S1-2 Q2: told on the executor of each connection that ends (an upload not yet begun is cancelled with it). */
@@ -148,6 +148,8 @@ class AppNet(
         var endedBy: String? = null
         /** S1-2 Q2: program ops taken and not yet answered, by `k`. Executor only. */
         val flights = LinkedHashMap<Long, Flight>()
+        /** L1 R-a: subscriptions refused while the record's log was closed, served again on the tick it opens. */
+        val closedSubs = ArrayList<() -> Unit>()
     }
 
     /** The live connections. Executor only. */
@@ -157,8 +159,16 @@ class AppNet(
 
     private val devicesListener: (DevicesCore.Event) -> Unit = { e -> onDevices(e) }
 
-    /** S1-2 Q2: the viewers' sweep, on the record's pacing tick (2 s). */
-    private val sweep: () -> Unit = { viewers.sweep(clock()) }
+    /** S1-2 Q2: the viewers' sweep, on the record's pacing tick (2 s); L1 R-a: once the record's log is open, what it
+     *  refused meanwhile is served. */
+    private val sweep: () -> Unit = {
+        viewers.sweep(clock())
+        if (host.logOpen) for (c in conns.values) if (c.closedSubs.isNotEmpty()) {
+            val again = c.closedSubs.toList()
+            c.closedSubs.clear()
+            again.forEach { it() }
+        }
+    }
 
     init {
         host.addListener(listener)
@@ -295,7 +305,7 @@ class AppNet(
             conns[id] = conn
             viewers.opened(id, clock())
             conn.outbox.offer(AppWire.encode(AppWire.welcome(Welcome(AppWire.PROTO, peer.device, peer.level, id, clock(),
-                host.epoch, host.seq, host.highWaters(peer.device), contracts, bundle))))
+                host.epoch, host.seq, contracts, bundle))))
         }
         val unknown = HashSet<String>()
         try {
@@ -375,7 +385,6 @@ class AppNet(
 
     private fun sub(conn: Conn, f: JsonObject) {
         val scope = AppWire.str(f, "scope")
-        val cursor = AppWire.cursorOf(f)
         val need = try {
             AppWire.needOf(f)
         } catch (e: IllegalArgumentException) {
@@ -421,23 +430,13 @@ class AppNet(
             // copy, as with the PC out of reach; a page shows the refusal and keeps none)
             if (!host.logOpen) {
                 conn.outbox.offer(AppWire.encode(AppWire.ans(Ans(null, scope, Answer.Refused(AppHost.LOG_CLOSED, Answer.RETRY)))))
+                conn.closedSubs += { sub(conn, f) }
                 return@execute
             }
-            val windows = AppWire.windowsOf(scope, conn.visible)
-            // C§9.3: same epoch and a seq inside the ring → the changes since; otherwise a snapshot, never a gap
-            val since = cursor?.takeIf { it.epoch == host.epoch }?.let { host.ring.since(it.seq) }
-            if (since != null) {
-                for (c in since) chgFrame(c, scope, windows)?.let { conn.outbox.offer(it) }
-            } else {
-                val items = HashMap<String, Item>()
-                val colls = HashMap<String, Coll>()
-                for (w in windows) {
-                    val e = host.read(w).third
-                    items.putAll(e.items)
-                    colls.putAll(e.colls)
-                }
-                conn.outbox.offer(AppWire.encode(AppWire.snap(Snap(scope, host.epoch, host.seq, Effect(items, colls)))))
-            }
+            // L1 C2: every subscription takes a snapshot (a cursor it names is not read); the record is a few KB
+            val items = HashMap<String, Item>()
+            for (w in AppWire.windowsOf(scope, conn.visible)) items.putAll(host.read(w).third.items)
+            conn.outbox.offer(AppWire.encode(AppWire.snap(Snap(scope, host.epoch, host.seq, Effect(items)))))
             conn.scopes += scope
             // S1-2 Q2: a record scope's viewer (a second `sub` replaces its need; none ends it)
             viewers.put(conn.id, scope, scope.takeIf { it != AppWire.RECORD }, need ?: NO_NEED)
@@ -457,6 +456,7 @@ class AppNet(
             }
             if (no != null) {
                 conn.outbox.offer(AppWire.encode(AppWire.ans(Ans(null, scope, no))))
+                if (no.reason == AppHost.LOG_CLOSED) conn.closedSubs += { describedSub(conn, scope, g, p, need) }
             } else {
                 if (conn.described[scope]?.p !== p) conn.described[scope] = Held(p)
                 viewers.put(conn.id, scope, w, need ?: NO_NEED)
@@ -496,7 +496,8 @@ class AppNet(
     private fun op(conn: Conn, f: JsonObject) {
         val raw = f["op"] as? JsonObject
         val decoded = try {
-            raw?.let { OpJson.op(it) } ?: throw IllegalArgumentException("no op object")
+            // L1 C1: an op without its input time (a page not yet reloaded) takes its arrival
+            raw?.let { OpJson.op(it, defaultAt = host.clock()) } ?: throw IllegalArgumentException("no op object")
         } catch (e: IllegalArgumentException) {
             undecodable(conn, raw, e.message ?: "does not decode")
             return
@@ -542,7 +543,7 @@ class AppNet(
                 else -> gate(conn, o)
             } ?: if (prog == null) Answer.Refused("this PC serves no ${o.window} program on this lane", Answer.UNSUPPORTED) else null
             if (no != null) {
-                programNote(o, no)
+                note("program", o, no)
                 answer(conn, id, no)
                 return@execute
             }
@@ -556,7 +557,7 @@ class AppNet(
                         Log.w(TAG, "${o.window} ${o.action} for ${conn.peer.device} threw: ${e::class.simpleName}: ${e.message}")
                         ProgramResult.Refused(e.message ?: e::class.simpleName ?: "the program call failed")
                     }
-                    programNote(o, r.answer)
+                    note("program", o, r.answer)
                     host.executor.execute("app program answer ${conn.id}") {
                         conn.flights.remove(id.k)
                         if (conns[conn.id] === conn) answer(conn, id, r.answer, result = (r as? ProgramResult.Sent)?.result)
@@ -571,15 +572,17 @@ class AppNet(
         }
     }
 
-    private fun programNote(o: Op, a: Answer) {
+    /** One journal note of [kind] per program op or device action: who (the connection's device), what, and its
+     *  answer; the note's line carries when. */
+    private fun note(kind: String, o: Op, a: Answer) {
         val words = when (a) {
             is Answer.Refused -> "refused (${a.code}): ${a.reason}"
             else -> a.toString().lowercase()
         }
         try {
-            host.noteAs("program", "${o.device} ${o.window} ${o.action} ${o.targets} · $words")
+            host.noteAs(kind, "${o.device} ${o.window} ${o.action} ${o.targets} · $words")
         } catch (e: Exception) {
-            Log.e(TAG, "the program note could not be written", e)
+            Log.e(TAG, "the $kind note could not be written", e)
         }
     }
 
@@ -593,6 +596,7 @@ class AppNet(
                 else -> Levels.refusal(conn.peer.level, Levels.FULL, "the device table") ?: table.act(o, conn.peer.device)
             }
             answer(conn, o.id, a)
+            note("devices", o, a)                     // L1: approve, revoke, rename — who and when, as program ops
         }
     }
 
@@ -628,20 +632,10 @@ class AppNet(
         }
     }
 
-    /** An op that does not decode. One that still names its stream and number takes that number as a refusal for
-     *  good (a placeholder that names no window: the record answers it "unknown" and logs it), so the client drops it
-     *  and its stream goes on instead of meeting "expected n" for ever; the answer says why. */
+    /** An op that does not decode: refused for good, in words, to the id it names (L1 C1: no stream waits on it). */
     private fun undecodable(conn: Conn, raw: JsonObject?, why: String) {
-        val id = raw?.let { AppWire.idOf(it) }
         Log.w(TAG, "connection ${conn.id}: an op that does not decode ($why)")
-        val reason = "the op does not decode ($why)"
-        if (id is OpId.Queued) {
-            host.act(Op(conn.peer.device, id, UNDECODED, UNDECODED, emptyList())) { a ->
-                answer(conn, id, if (a is Answer.Refused) Answer.Refused(reason, a.code) else a)
-            }
-        } else {
-            answer(conn, id, Answer.Refused(reason, Answer.INVALID))
-        }
+        answer(conn, raw?.let { AppWire.idOf(it) }, Answer.Refused("the op does not decode ($why)", Answer.INVALID))
     }
 
     /** On the executor (an op's reply is there already, before its change is published); from the reading thread
@@ -664,12 +658,11 @@ class AppNet(
         }
     }
 
-    /** [c] limited to [windows], or null when none of its entries is theirs (a client's cursor then lags; its resume
-     *  is a snapshot once the ring has moved past it). */
+    /** [c] limited to [windows], or null when none of its entries is theirs. */
     private fun chgFrame(c: Change, scope: String, windows: Set<String>): ByteArray? {
         val mine = AppWire.within(c.effect, windows)
         if (mine.isEmpty()) return null
-        return AppWire.encode(AppWire.chg(Chg(scope, c.epoch, c.seq, c.origin, mine)))
+        return AppWire.encode(AppWire.chg(Chg(scope, c.epoch, c.seq, mine)))
     }
 
     private fun refuse(io: LaneIo, sock: Socket, reason: String, detail: String) {
@@ -683,10 +676,8 @@ class AppNet(
 
     companion object {
         private const val TAG = "app-net"
-        /** Above the ring (1,000), so a whole resume fits behind a snapshot already queued. */
+        /** The frames a connection's outbox holds before it ends the connection as slow. */
         const val OUTBOX_CAP = 4_096
-        /** The window and action of an op that did not decode: never a window's name (`Record.validWindow`). */
-        const val UNDECODED = "?"
         private val NO_NEED = Viewers.Need(Viewers.Need.NONE)
 
         /** A window served with a card and no scopes of its own. */
@@ -707,7 +698,7 @@ class AppNet(
  * One connection's outbound frames: a bounded queue and ONE sender thread (the spec's §3 row: "the executor enqueues,
  * one sender per connection writes"). [offer] never blocks. When the queue already holds [cap] frames the reader is
  * not taking them: the connection ends — `end{slow}` goes out when the sender is free to write it, and the socket is
- * closed at once when the sender is stuck in a write — and the client resumes from its cursor. A stuck reader thus
+ * closed at once when the sender is stuck in a write — and the client takes a snapshot again. A stuck reader thus
  * holds one thread and one socket, never the executor or another connection.
  */
 class Outbox(
@@ -741,7 +732,7 @@ class Outbox(
             ended = true
             queue.clear()
             endedWhy = "its reader took none of the last $cap frames"
-            Log.w(TAG, "$name ended: $endedWhy; it resumes from its cursor")
+            Log.w(TAG, "$name ended: $endedWhy; it takes a snapshot when it reconnects")
             if (writing) {
                 close()
             } else {

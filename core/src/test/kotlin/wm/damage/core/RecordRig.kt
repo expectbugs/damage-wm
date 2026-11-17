@@ -14,7 +14,6 @@ import wm.damage.core.app.ActionTable
 import wm.damage.core.app.Answer
 import wm.damage.core.app.AppHost
 import wm.damage.core.app.CoreExecutor
-import wm.damage.core.app.Expect
 import wm.damage.core.app.Item
 import wm.damage.core.app.Kind
 import wm.damage.core.app.Op
@@ -27,26 +26,23 @@ import wm.damage.core.app.RecordAlerts
  * journal notes the record says. Nothing here touches the real data directory.
  */
 
-/** The made-up window's actions, one per queued kind of C§2.4. */
+/** The made-up window's actions, one per queued kind (L1 C4: register, position, removal). */
 internal val TEST_ACTIONS = ActionTable { w, a ->
     if (w != "t") null else when (a) {
         "set" -> ActionSpec(Kind.REGISTER)
         "place" -> ActionSpec(Kind.POSITION)
-        "add" -> ActionSpec(Kind.CREATE, "queue")
-        "note" -> ActionSpec(Kind.CREATE)
-        "move" -> ActionSpec(Kind.ORDER, "queue")
-        "drop" -> ActionSpec(Kind.REMOVE, "queue")
-        "replace" -> ActionSpec(Kind.WHOLE, "queue")
+        "drop" -> ActionSpec(Kind.REMOVE)
         else -> null
     }
 }
 
 internal fun j(s: String): JsonElement = JsonPrimitive(s)
 
+/** An op of the made-up window, its input at [at] (L1 C1; 0 = older than any input a test stamps). */
 internal fun op(
     device: String, stream: String, n: Long, action: String, targets: List<String>,
-    result: JsonElement = JsonNull, expect: Expect = Expect.Any,
-) = Op(device, OpId.Queued(stream, n), "t", action, targets, result, expect)
+    result: JsonElement = JsonNull, at: Long = 0L,
+) = Op(device, OpId.Queued(stream, n), "t", action, targets, result, at = at)
 
 /** A saver that holds every write until the test runs it. */
 internal class HeldWriter : Executor {
@@ -75,7 +71,6 @@ internal class RecordRig(val dir: Path = Files.createTempDirectory("damage-recor
 
     val logFile: Path get() = dir.resolve(AppHost.LOG_FILE)
     val recordFile: Path get() = dir.resolve(AppHost.RECORD_FILE)
-    val seqFile: Path get() = dir.resolve(AppHost.SEQ_FILE)
 
     /** A host over the rig's directory (not opened). */
     fun host(): AppHost = AppHost(

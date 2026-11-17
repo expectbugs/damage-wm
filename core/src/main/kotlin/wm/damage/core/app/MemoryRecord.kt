@@ -29,33 +29,32 @@ class MemoryRecord(
 
     override fun stateOf(window: String): WindowState = states.getOrPut(window) {
         val e = record.window(window)
-        WindowState(window, e.items, e.colls, cursor = Cursor(EPOCH, seq))
+        WindowState(window, e.items, cursor = Cursor(EPOCH, seq))
     }
 
     override fun submit(window: String, draft: Draft) {
-        val op = Op(device, OpId.Queued(STREAM, ++n), window, draft.action, draft.targets, draft.result, draft.expect,
-            draft.params, base = seq)
+        val op = Op(device, OpId.Queued(STREAM, ++n), window, draft.action, draft.targets, draft.result, draft.params,
+            at = draft.at ?: now())
         val spec = actions.spec(window, draft.action)
         val why = if (spec == null) "no action \"${draft.action}\" in $window" else Merge.check(spec, op)
         if (spec == null || why != null) {
             answer(op, Answer.Refused(why ?: "refused", if (spec == null) Answer.UNKNOWN else Answer.INVALID))
             return
         }
-        val v = Merge.judge(record, spec, op, clock())
-        record.apply(v.effect)
-        if (!v.effect.isEmpty()) seq++
-        answer(op, when (v) {
-            is Verdict.Lost -> Answer.Lost(v.losses)
-            else -> Answer.Seen()
-        })
-        if (v.effect.isEmpty()) return
+        val effect = Merge.judge(record, spec, op, minOf(op.at, clock()))
+        record.apply(effect)
+        if (!effect.isEmpty()) seq++
+        answer(op, Answer.Seen())
+        if (effect.isEmpty()) return
         val old = states[window] ?: return                         // nobody has read it: read whole when asked
         val e = record.window(window)
-        val s = WindowState(window, e.items, e.colls, cursor = Cursor(EPOCH, seq))
+        val s = WindowState(window, e.items, cursor = Cursor(EPOCH, seq))
         states[window] = s
         val keys = s.drawnChanges(old)
         for (l in watchers[window].orEmpty().toList()) l.changed(s, keys)
     }
+
+    override fun now(): Long = clock()
 
     override fun watch(window: String, l: SourceListener) {
         watchers.getOrPut(window) { ArrayList() } += l
