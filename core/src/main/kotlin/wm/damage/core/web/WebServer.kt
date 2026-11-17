@@ -303,7 +303,7 @@ class WebServer(
         val ws = WsIo(sock, inp, out)
         val hello = ws.read()
         // the `app` lane only as the device the secret names, at its level (read once, at the upgrade)
-        val peer = device?.let { Peer(it.id, it.level, it.secretHash) }
+        val peer = device?.let { Peer(it.id, it.level) }
         if (peer != null) {
             app.serve(sock, ws, hello.toString(), peer, bundle.info())
         } else {

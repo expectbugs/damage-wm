@@ -32,19 +32,14 @@ class WebAccess private constructor(val dir: Path, val devices: Devices) {
          *  the start says (the service's journal; host-only's log); none carries a secret or a code. */
         fun atProcessStart(dir: Path, say: (String) -> Unit): WebAccess {
             // neither failure ends the start: without the file the command line is refused (said); an unreadable
-            // table leaves every page waiting for approval (said)
+            // table is set aside and starts empty (said)
             say(try {
                 LocalSecret.ensure(dir)
             } catch (e: Exception) {
                 ("the local secret (${LocalSecret.FILE}) could not be written (${e::class.simpleName}: ${e.message}); the " +
                     "device commands are refused until a start writes it").also { wm.damage.core.util.Log.e("web", it) }
             })
-            val d = Devices(dir.resolve(Devices.FILE))
-            try {
-                d.load()
-            } catch (e: Exception) {
-                say("${Devices.FILE} could not be read (${e::class.simpleName}: ${e.message}); no device is approved this run")
-            }
+            val d = Devices(dir.resolve(Devices.FILE)).load()
             d.problem?.let(say)
             val live = d.rows().count { !it.revoked }
             say("device table: $live approved device(s) in ${Devices.FILE}")

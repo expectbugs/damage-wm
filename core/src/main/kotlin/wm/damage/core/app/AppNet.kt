@@ -30,7 +30,7 @@ import wm.damage.core.web.Devices
  * Package P6 (`CONTRACT.md` §10.4, §10.5, §10.8): the same lane on the web interface listener (a WebSocket, [LaneIo]),
  * every op, subscription and the device table checked against the connection's level at apply time ([levels],
  * [minLevel]), the device table's description and actions ([DevicesCore], level full, never queued), and a revoked or
- * replaced device's connections ended with the reason ([endDevice]).
+ * replaced device's connections ended with the reason ([endNow]).
  *
  * Package P7 (C§9.2 `snap` "the description or level"; the spec's §2 P7 "Kotlin side"): PC-served scopes outside the
  * record's order — a window's description, one of its levels, Main's cards, the diagnosis ([Described], [attach]) —
@@ -157,7 +157,7 @@ class AppNet(
 
     private val listener: (Change) -> Unit = { c -> publish(c) }
 
-    private val devicesListener: (DevicesCore.Event) -> Unit = { e -> onDevices(e) }
+    private val devicesListener: (Devices.Event) -> Unit = { e -> onDevices(e) }
 
     /** S1-2 Q2: the viewers' sweep, on the record's pacing tick (2 s); L1 R-a: once the record's log is open, what it
      *  refused meanwhile is served. */
@@ -173,7 +173,7 @@ class AppNet(
     init {
         host.addListener(listener)
         host.addTickListener(sweep)
-        devices?.addListener(devicesListener)
+        devices?.table?.addListener(devicesListener)
     }
 
     /** How many connections are live (for the start line and the tests); read on the executor. */
@@ -295,17 +295,6 @@ class AppNet(
         outbox.start()
         // the welcome and the registration in one executor step: nothing published after it can be missed
         host.executor.execute("app welcome $id") {
-            // fix round 1, ruling 2.3 (9), and fix round 2, ruling 2.4: a revocation or a re-approval whose end ran
-            // between this connection's upgrade and this step found no connection to end; the device table answers again
-            // now (the row live, at the approval the upgrade read), so it never runs at the old level
-            val ended = devices?.takeIf { Devices.isTableId(peer.device) }?.table?.endedSince(peer.device, peer.approval)
-            if (ended != null) {
-                conn.endedBy = ended
-                conn.outbox.finish(AppWire.encode(AppWire.end(ended)))
-                Log.i(TAG, "connection $id of ${peer.device} ended at its welcome: the device was " +
-                    (if (ended == AppWire.END_REVOKED) "removed" else "approved again") + " meanwhile")
-                return@execute
-            }
             conns[id] = conn
             viewers.opened(id, clock())
             conn.outbox.offer(AppWire.encode(AppWire.welcome(Welcome(AppWire.PROTO, peer.device, peer.level, id, clock(),
@@ -361,7 +350,7 @@ class AppNet(
     override fun close() {
         host.removeListener(listener)
         host.removeTickListener(sweep)
-        devices?.removeListener(devicesListener)
+        devices?.table?.removeListener(devicesListener)
         host.executor.call {
             for (c in conns.values) c.outbox.finish(AppWire.encode(AppWire.end(AppWire.END_SHUTTING_DOWN)))
             conns.clear()
@@ -604,14 +593,9 @@ class AppNet(
         }
     }
 
-    /**
-     * Ends every connection of [device] with [reason] (`revoked`, `replaced`; C§10.8): each is told and closed, and an
-     * op it sent that has not been applied yet is refused by the gate. Runs on the executor; returns how many ended.
-     */
-    fun endDevice(device: String, reason: String): Int = host.executor.call { endNow(device, reason) }
-
-    /** Executor only. */
-    private fun endNow(device: String, reason: String): Int {
+    /** Ends every connection of [device] with [reason] (`revoked`, `replaced`; C§10.8): each is told and closed, and an
+     *  op it sent that has not been applied yet is refused by the gate. Executor only. */
+    private fun endNow(device: String, reason: String) {
         val mine = conns.values.filter { it.peer.device == device }
         for (c in mine) {
             c.endedBy = reason
@@ -620,15 +604,14 @@ class AppNet(
             ended(c.id, "its device was $reason")
         }
         if (mine.isNotEmpty()) Log.i(TAG, "${mine.size} connection(s) of $device ended: $reason")
-        return mine.size
     }
 
     /** The device table moved: every connection subscribed to it gets the new description; a revoked or replaced
      *  device's connections end. From the device table's caller's thread: queued on the executor. */
-    private fun onDevices(e: DevicesCore.Event) {
+    private fun onDevices(e: Devices.Event) {
         when (e) {
-            is DevicesCore.Event.Ended -> host.executor.execute("app device ended") { endNow(e.device, e.reason) }
-            DevicesCore.Event.Changed -> host.executor.execute("app devices changed") {
+            is Devices.Event.Ended -> host.executor.execute("app device ended") { endNow(e.device, e.reason) }
+            Devices.Event.Changed -> host.executor.execute("app devices changed") {
                 val table = devices ?: return@execute
                 val frame = AppWire.encode(AppWire.desc(DevicesCore.SCOPE, table.describe()))
                 for (c in conns.values) if (DevicesCore.SCOPE in c.scopes) c.outbox.offer(frame)

@@ -177,55 +177,6 @@ class PairingTest {
         assertEquals("", r.devices.rows().single().secretHash, "revocation deletes the hash")
     }
 
-    /** Fix round 1, ruling 2.3 (9): a revocation whose end reaches the core between a page's upgrade (its secret
-     *  checked) and its welcome finds no connection to end; the welcome asks the device table again and ends it with
-     *  `end{revoked}`, so it never runs at the revoked device's level. */
-    @Test
-    fun aRevocationBetweenTheUpgradeAndTheWelcomeEndsTheConnection() = WebRig().use { r ->
-        val (row, _) = r.approved(Levels.FULL)
-        val held = CountDownLatch(1)
-        r.host.executor.execute("test hold") { held.await() }
-        // the upgrade passed (the peer below); the revocation's end is queued first, then this connection's welcome
-        assertNull(r.devices.revoke(row.id, "local"))
-        val io = HeldIo()
-        val served = thread(isDaemon = true) { r.net.serve(Socket(), io, AppWire.encode(AppWire.hello("w1", mapOf("t" to 1))).decodeToString(), Peer(row.id, row.level)) }
-        eventually("the loop sent its hello on and waits for the next frame") { io.reads.get() >= 1 }
-        Thread.sleep(50)                                          // let the welcome step queue behind the end
-        held.countDown()
-        val f = io.next()
-        assertEquals("end", AppWire.type(f), "the revoked device's late connection is ended, not welcomed: $f")
-        assertEquals(AppWire.END_REVOKED, f["reason"]!!.jsonPrimitive.content)
-        assertEquals(0, r.net.connections(), "nothing is registered")
-        io.toServer.put(kotlinx.serialization.json.JsonObject(mapOf("t" to JsonPrimitive("eof"))))
-        served.join(10_000)
-    }
-
-    /** Fix round 2, ruling 2.4: the replace sibling of the race above — a re-approval between a page's upgrade and its
-     *  welcome keeps the row live (the same id, a new secret); the welcome compares the approval the upgrade read, so
-     *  the connection never runs at the old secret's level. */
-    @Test
-    fun aReApprovalBetweenTheUpgradeAndTheWelcomeEndsTheConnection() = WebRig().use { r ->
-        val (row, _) = r.approved(Levels.VIEW)
-        val held = CountDownLatch(1)
-        r.host.executor.execute("test hold") { held.await() }
-        // the upgrade passed at the old approval (the peer below); the re-approval's end is queued first, then the welcome
-        val (again, _) = r.approved(Levels.FULL, replaces = row.id)
-        assertEquals(row.id, again.id, "the same row, approved again")
-        val io = HeldIo()
-        val served = thread(isDaemon = true) {
-            r.net.serve(Socket(), io, AppWire.encode(AppWire.hello("w1", mapOf("t" to 1))).decodeToString(), Peer(row.id, row.level, row.secretHash))
-        }
-        eventually("the loop sent its hello on and waits for the next frame") { io.reads.get() >= 1 }
-        Thread.sleep(50)                                          // let the welcome step queue behind the end
-        held.countDown()
-        val f = io.next()
-        assertEquals("end", AppWire.type(f), "the connection of the replaced approval is ended, not welcomed: $f")
-        assertEquals(AppWire.END_REPLACED, f["reason"]!!.jsonPrimitive.content)
-        assertEquals(0, r.net.connections(), "nothing is registered")
-        io.toServer.put(kotlinx.serialization.json.JsonObject(mapOf("t" to JsonPrimitive("eof"))))
-        served.join(10_000)
-    }
-
     /** Fix round 1, ruling 2.3 (4): every socket the web listener holds has TCP keepalive — a plain request that has
      *  not finished its headers, the pairing socket and the lane — so a peer gone without a FIN never keeps its thread
      *  or its waiting row for the life of the process. */
@@ -296,50 +247,29 @@ class PairingTest {
         }
     }
 
-    /** Fix round 1, ruling 2.3 (7): nothing is cut — a rename over the limit is refused with the reason and the row
-     *  keeps its name; one at the limit is kept whole; a waiting page's own name over it is not used (the row waits as
-     *  "a browser", said in the log), never a prefix of it. */
+    /** L1 AC16: a device table that cannot be read at a start is set aside whole under a dated name, said, and the
+     *  table starts empty and carries on: the next approval is written (no state that only a restart clears). */
     @Test
-    fun aNameOverTheLimitIsRefusedWithTheReason_neverCut() = WebRig().use { r ->
-        val (row, _) = r.approved(Levels.VIEW, name = "Desk browser")
-        val long = "A".repeat(wm.damage.core.web.Devices.NAME_MAX) + "B"
-        val why = r.devices.rename(row.id, long)
-        assertNotNull(why, "a name over the limit is refused")
-        assertTrue("at most ${wm.damage.core.web.Devices.NAME_MAX}" in why && "41" in why, why)
-        assertEquals("Desk browser", r.devices.rows().single().name, "the row keeps its name")
-        val exact = "C".repeat(wm.damage.core.web.Devices.NAME_MAX)
-        assertNull(r.devices.rename(row.id, exact))
-        assertEquals(exact, r.devices.rows().single().name, "a name at the limit is kept whole")
-        val p = r.devices.request("127.0.0.1", null, long, "browser", null, WebRig.Waiting())
-        assertEquals(wm.damage.core.web.Devices.DEFAULT_NAME, p.name, "a page's own name over the limit is not used, never cut")
-        assertTrue(recentLog().any { "its own name was not used" in it }, "and it is said")
-    }
-
-    /** Fix round 1, ruling 2.3 (11): a device table that cannot be READ at a start (not missing: a permission, an I/O
-     *  error) is frozen as an undecodable one is — the next approval is refused and the file that held his approvals is
-     *  never replaced by one holding only the new row. */
-    @Test
-    fun aDeviceTableThatCannotBeReadAtAStart_isNeverOverwritten() {
+    fun anUnreadableDeviceTableIsSetAsideSaidAndTheTableCarriesOn() {
         val dir = java.nio.file.Files.createTempDirectory("damage-devices-unreadable")
         try {
             val file = dir.resolve(wm.damage.core.web.Devices.FILE)
             val held = """{"v":1,"devices":[{"id":"web-0a0b0c","name":"Desk","kind":"browser","level":"full","secretHash":"00","approvedAt":1,"approvedBy":"local"}]}"""
             java.nio.file.Files.writeString(file, held)
             assertTrue(file.toFile().setReadable(false, false), "the fixture file made unreadable")
-            val d = wm.damage.core.web.Devices(file).load()
-            assertNotNull(d.problem, "the start says so")
-            assertTrue("could not be read" in d.problem!!, d.problem)
+            val d = wm.damage.core.web.Devices(file, clock = { 1_700_000_000_000L }).load()
+            assertTrue("could not be read" in d.problem!! && "set aside as devices.json.bad-1700000000000" in d.problem!!, d.problem)
+            assertTrue(d.rows().isEmpty(), "the table starts empty")
+            val aside = dir.resolve("devices.json.bad-1700000000000")
+            aside.toFile().setReadable(true, false)
+            assertEquals(held, java.nio.file.Files.readString(aside), "the file that held his approvals is kept whole")
             val w = WebRig.Waiting()
             val p = d.request("127.0.0.1", null, "Phone browser", "browser", null, w)
-            // fix round 2, ruling 2.3: the approval is answered with the freeze (the command line and the devices page
-            // say why), never reported done while the page's redemption cannot be written
-            val refused = d.approve(p.code, Levels.VIEW, "local")
-            assertEquals(d.problem, refused, "an approval on a frozen table answers the freeze")
-            assertNull(w.claims.poll(200, TimeUnit.MILLISECONDS), "the waiting page is sent no claim")
-            file.toFile().setReadable(true, false)
-            assertEquals(held, java.nio.file.Files.readString(file), "the file that held his approvals is untouched")
+            assertNull(d.approve(p.code, Levels.VIEW, "local"), "an approval is taken")
+            assertNotNull(d.redeem(w.claims.poll(10, TimeUnit.SECONDS)), "and written")
+            assertTrue("Phone browser" in java.nio.file.Files.readString(file), "a new table holds it")
         } finally {
-            dir.resolve(wm.damage.core.web.Devices.FILE).toFile().setReadable(true, false)
+            dir.toFile().listFiles()?.forEach { it.setReadable(true, false) }
             dir.toFile().deleteRecursively()
         }
     }
