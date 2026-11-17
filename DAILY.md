@@ -261,8 +261,8 @@ without writing a row.
 - **The leak rules and `away`** ("tanks change by more than 3 % while I'm at work or away from the bus", his ask of
   2026-11-13): `change` rules with `"when": {"entity": "damage.phone", "equals": "away"}`; a rule that should fire only
   on a rise takes `"direction": "up"`. The connection path alone has read `away` on his days out since ruling R3.1
-  (the PC's log, 2026-11-16 and 11-17: relayed, then direct to a public address, `unknown -> away` after 15 min); at
-  the bus it reads `home`. The four away rules held back since 11-13 are armed by the lead at deploy 2, with a copy of
+  (the PC's log: relayed, or direct to a public address, then `unknown -> away` after 15 min); at the bus it reads
+  `home`. The four away rules held back since 11-13 are armed by the lead at deploy 2, with a copy of
   the rule file kept beside it. While `damage.phone` reads `unknown` (the phone's peer offline) a guarded rule has no
   reading: it neither raises, clears an alert nor drops its baseline.
 - **Reading the state:** Settings → Bastion → `Watcher` on the glasses or the phone (the PC watcher's state line — a
