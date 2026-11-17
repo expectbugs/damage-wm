@@ -136,7 +136,6 @@ class AppWireTest {
         rig.write("desk", "d1", 4, "a", "four")
         val live = AppWire.parseChg(lane.next("chg"))
         assertEquals(4L, live.seq)
-        assertEquals(OpId.Queued("d1", 4), live.origin!!.id)
     }
 
     @Test
@@ -152,7 +151,6 @@ class AppWireTest {
         assertEquals(OpId.Queued("s1", 1), ans.id)
         assertEquals(Answer.Seen(), ans.answer)
         val chg = AppWire.parseChg(lane.next("chg"))
-        assertEquals("phone", chg.origin!!.device)
         assertEquals("phone", chg.patches.items["rec.t.a"]!!.by)
     }
 

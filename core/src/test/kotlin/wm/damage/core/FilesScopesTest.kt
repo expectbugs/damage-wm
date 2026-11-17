@@ -126,7 +126,7 @@ class FilesScopesTest {
         val dir = tree.home.resolve("w").toString()
         val scope = FilesScopes.folderScope(dir, 0)
         val sortKey = Record.key(FilesCore.WINDOW, FilesCore.SORT)
-        val change = Change(1, 1, null, Effect(mapOf(sortKey to Item(JsonPrimitive("size"), "web", 1))))
+        val change = Change(1, 1, Effect(mapOf(sortKey to Item(JsonPrimitive("size"), "web", 1))))
         assertTrue(pc.scopes.follows(scope, change))
         assertTrue(pc.scopes.follows("desc/files", change))
         assertFalse(pc.scopes.follows("files/text:$a/at:0", change))

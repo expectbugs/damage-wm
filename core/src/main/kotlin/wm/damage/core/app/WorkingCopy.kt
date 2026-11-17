@@ -2,9 +2,6 @@ package wm.damage.core.app
 
 import java.nio.file.Files
 import java.nio.file.Path
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 import java.util.concurrent.Executor
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -84,6 +81,7 @@ class WorkingCopy(
     @Volatile private var contractHeld = false
     @Volatile var client: AppClient? = null
         private set
+    /** The PC's reach as the lane last decided it: with the queue's waiting count, what a health view reads (L1 C6). */
     @Volatile var reach: AppClient.Reach = AppClient.Reach.Unknown
         private set
 
@@ -164,7 +162,7 @@ class WorkingCopy(
         } else null
         val at = draft.at ?: now()
         queue.add({ id ->
-            Op(device, id, window, draft.action, draft.targets, draft.result, draft.params, at = at, base = cursor?.seq)
+            Op(device, id, window, draft.action, draft.targets, draft.result, draft.params, at = at)
         }, coalesce)
         refresh(setOf(window))
     }
@@ -467,11 +465,6 @@ class WorkingCopy(
         if (dirty || unsaved.isNotEmpty()) save()
     }
 
-    // ---- what the away line says (C§2.5; INTERFACES.md P-04) ----
-
-    /** `N changes waiting · PC not answering since HH:MM`, each part only when it holds. */
-    fun awayLine(zone: ZoneId = ZoneId.systemDefault()): String = awayLine(queue.waiting, reach, zone)
-
     private fun say(line: String) {
         Log.w(TAG, line)
         note(line)
@@ -493,14 +486,6 @@ class WorkingCopy(
         const val COPY_FILE = "copy.json"
         const val QUEUE_FILE = "queue.jsonl"
         private val json = Json { ignoreUnknownKeys = true }
-        private val HHMM = DateTimeFormatter.ofPattern("HH:mm")
-
-        fun awayLine(waiting: Int, reach: AppClient.Reach, zone: ZoneId): String {
-            val parts = ArrayList<String>()
-            if (waiting > 0) parts += "$waiting ${if (waiting == 1) "change" else "changes"} waiting"
-            if (reach is AppClient.Reach.Down) parts += "PC not answering since " + HHMM.format(Instant.ofEpochMilli(reach.since).atZone(zone))
-            return parts.joinToString(" · ")
-        }
 
         private fun group(e: Effect): Map<String, Entries> {
             val items = HashMap<String, HashMap<String, Item>>()

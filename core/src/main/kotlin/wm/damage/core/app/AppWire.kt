@@ -22,7 +22,7 @@ import kotlinx.serialization.json.put
  * the content port's own hello before it stays `proto: 1`.
  *
  * Client → PC: `sub {scope, epoch?, seq?}` · `unsub {scope}` · `op {op}` · `ping {k}` · `end {reason}`.
- * PC → client: `welcome` · `snap {scope, epoch, seq, items}` · `chg {scope, epoch, seq, origin?, patches}` ·
+ * PC → client: `welcome` · `snap {scope, epoch, seq, items}` · `chg {scope, epoch, seq, patches}` ·
  * `ans {stream, n | conn, k | scope, answer}` · `pong {k}` · `end {reason}`.
  * A patch is `{addr, set}` (an item's whole entry): entries are absolute, never removed (a removal is the entry's
  * `gone`), so a patch applied twice changes nothing.
@@ -65,7 +65,7 @@ data class Welcome(
 data class Snap(val scope: String, val epoch: Long, val seq: Long, val state: Effect)
 
 /** `chg`: one published change, its entries limited to the scope. A client ignores one at or below its cursor. */
-data class Chg(val scope: String, val epoch: Long, val seq: Long, val origin: Origin?, val patches: Effect)
+data class Chg(val scope: String, val epoch: Long, val seq: Long, val patches: Effect)
 
 /** `ans`: an op's answer ([id]), or a subscription's refusal ([scope]); [id] and [scope] null = an op that did not
  *  decode far enough to name itself. [at] (P3): the record's place once the op is in it — the op's own line, or later
@@ -233,7 +233,6 @@ object AppWire {
         put("scope", c.scope)
         put("epoch", c.epoch)
         put("seq", c.seq)
-        c.origin?.let { put("origin", origin(it)) }
         put("patches", buildJsonArray {
             for ((k, v) in c.patches.items.toSortedMap()) add(buildJsonObject { put("addr", k); put("set", RecordJson.item(v)) })
         })
@@ -246,8 +245,7 @@ object AppWire {
             val set = o["set"] as? JsonObject ?: throw IllegalArgumentException("chg: patch ${o["addr"]} has no set")
             items[str(o, "addr")] = RecordJson.item(set)
         }
-        return Chg(str(f, "scope"), num(f, "epoch"), num(f, "seq"),
-            (f["origin"] as? JsonObject)?.let { parseOrigin(it) }, Effect(items))
+        return Chg(str(f, "scope"), num(f, "epoch"), num(f, "seq"), Effect(items))
     }
 
     fun ans(a: Ans): JsonObject = buildJsonObject {
@@ -287,16 +285,6 @@ object AppWire {
         return if (conn != null && k != null) OpId.Conn(conn, k) else null
     }
 
-    private fun origin(o: Origin): JsonObject = buildJsonObject {
-        put("device", o.device)
-        when (val id = o.id) {
-            is OpId.Queued -> { put("stream", id.stream); put("n", id.n) }
-            is OpId.Conn -> { put("conn", id.conn); put("k", id.k) }
-        }
-    }
-
-    private fun parseOrigin(o: JsonObject): Origin =
-        Origin(str(o, "device"), idOf(o) ?: throw IllegalArgumentException("chg: origin without an op id"))
 
     private fun versions(m: Map<String, Int>): JsonObject = buildJsonObject { for ((w, v) in m.toSortedMap()) put(w, v) }
 

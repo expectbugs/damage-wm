@@ -172,7 +172,7 @@ class OpQueue(
             val e = live.lastOrNull { coalesce(it.op) }
             if (e != null && !e.frozen) {
                 val fresh = make(e.op.id as OpId.Queued)
-                e.op = e.op.copy(result = fresh.result, params = fresh.params, base = fresh.base, at = fresh.at)
+                e.op = e.op.copy(result = fresh.result, params = fresh.params, at = fresh.at)
                 e.version++
                 schedule(e)
                 return e.op

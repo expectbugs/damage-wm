@@ -56,10 +56,10 @@ class OpLogTest {
         assertEquals(listOf("answer", "publish 2"), order)
     }
 
-    /** An incomplete last line is cut and kept aside; L1 C2: the store keeps its epoch (every subscription takes a
+    /** An incomplete last line is cut and said (L1 C6); L1 C2: the store keeps its epoch (every subscription takes a
      *  snapshot, so no client resumes across it). */
     @Test
-    fun anIncompleteLastLineIsKeptAsideAndTheEpochStays() {
+    fun anIncompleteLastLineIsCutAndTheEpochStays() {
         val h = rig.opened()
         rig.ask(h, op("phone", "s1", 1, "set", listOf("a"), j("v1")))
         rig.ask(h, op("phone", "s1", 2, "set", listOf("b"), j("v2")))
@@ -74,8 +74,7 @@ class OpLogTest {
         assertNull(o.newEpoch)
         assertEquals(2L, h2.seq)
         assertEquals(j("v2"), rig.item(h2, "b")!!.value, "every complete line kept")
-        val kept = Files.list(rig.dir).use { s -> s.filter { it.fileName.toString().startsWith("oplog.jsonl.partial-") }.toList() }
-        assertEquals("{\"seq\":3,\"hw\":3,\"op\":{\"dev", String(Files.readAllBytes(kept.single())), "its bytes kept aside")
+        assertTrue(o.problems.any { "incomplete last line was cut" in it }, "said: ${o.problems}")
         // the next line starts clean, and the next start keeps the epoch
         rig.ask(h2, op("phone", "s1", 3, "set", listOf("c"), j("v3")))
         assertTrue(lines().all { it.startsWith("{\"seq\":") && it.endsWith("}") })

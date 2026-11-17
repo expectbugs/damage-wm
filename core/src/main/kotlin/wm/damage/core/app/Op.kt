@@ -34,8 +34,7 @@ sealed class OpId {
 /**
  * One op (C§2.4): who sent it and its id, the window and action, the items it writes and what it made. [result] is
  * what the op made, never a recipe; [at] is the time of the input that made it, on the device's clock (ms since the
- * epoch); [base] is the device's cursor when it was made. The contract's `iface` field arrives with the interface
- * table (S1-5).
+ * epoch). The contract's `iface` field arrives with the interface table (S1-5).
  */
 data class Op(
     val device: String,
@@ -46,7 +45,6 @@ data class Op(
     val result: JsonElement = JsonNull,
     val params: JsonObject = JsonObject(emptyMap()),
     val at: Long,
-    val base: Long? = null,
 ) {
     /** The queued numbering, or null for a never-queued op. */
     val queued: OpId.Queued? get() = id as? OpId.Queued
@@ -100,12 +98,11 @@ object OpJson {
         put("result", o.result)
         put("at", o.at)
         if (o.params.isNotEmpty()) put("params", o.params)
-        o.base?.let { put("base", it) }
     }
 
     /**
      * An op from its JSON form. L1 C1, tolerant of what 0.67 wrote (its `oplog.jsonl`, the phone's `queue.jsonl`, a
-     * page not yet reloaded): `expect` is not read; an op without `at` takes [defaultAt] — the load time of a queue,
+     * page not yet reloaded): `expect` and `base` are not read; an op without `at` takes [defaultAt] — the load time of a queue,
      * the arrival time on the PC — except a migrated place (`expect: {pre: stamp}`), which keeps its old stamp.
      */
     fun op(j: JsonObject, defaultAt: Long = 0L): Op {
@@ -125,7 +122,6 @@ object OpJson {
             result = j["result"] ?: JsonNull,
             params = j["params"] as? JsonObject ?: JsonObject(emptyMap()),
             at = longOf(j["at"]) ?: longOf((j["expect"] as? JsonObject)?.get("pre")) ?: defaultAt,
-            base = (j["base"] as? JsonPrimitive)?.longOrNull,
         )
     }
 

@@ -29,12 +29,11 @@ class OpLog(val file: Path, private val sync: (FileChannel) -> Unit = { it.force
     data class Line(val seq: Long, val op: Op, val effect: Effect, val answer: Answer)
 
     /** What a start found: the lines past the covered `seq` ([lines]), how many covered lines it passed over, whether
-     *  the last line was incomplete (and where its bytes were kept), and every line that did not decode. */
+     *  the last line was incomplete (it was cut), and every line that did not decode. */
     class Opened(
         val lines: List<Line>,
         val passed: Int,
         val incomplete: Boolean,
-        val partialKept: Path?,
         val bad: List<String>,
     )
 
@@ -49,9 +48,9 @@ class OpLog(val file: Path, private val sync: (FileChannel) -> Unit = { it.force
     /**
      * Opens the log for appending and reads it once. Lines with `seq` at or below [after] (covered by `record.json`)
      * are passed over without decoding; the rest are decoded in order. An incomplete last line (a write that a stop
-     * cut short — never answered, since the answer follows the force) is copied to `oplog.jsonl.partial-<ms>` beside
-     * the log and cut from it, so the next line starts clean; the caller mints a new epoch for it (C§9.3). A line
-     * that does not decode, or whose `seq` does not rise, is named in [Opened.bad] and skipped.
+     * cut short — never answered, since the answer follows the force: the device sends it again) is cut, so the next
+     * line starts clean, and the caller says so (L1 C6). A line that does not decode, or whose `seq` does not rise, is
+     * named in [Opened.bad] and skipped.
      */
     fun open(after: Long): Opened {
         file.toAbsolutePath().parent?.let { Files.createDirectories(it) }
@@ -62,17 +61,8 @@ class OpLog(val file: Path, private val sync: (FileChannel) -> Unit = { it.force
         while (buf.hasRemaining()) if (c.read(buf, buf.position().toLong()) < 0) break
         var end = bytes.size
         while (end > 0 && bytes[end - 1] != NL) end--
-        var kept: Path? = null
         val incomplete = end < bytes.size
         if (incomplete) {
-            kept = file.resolveSibling(file.fileName.toString() + ".partial-" + System.currentTimeMillis())
-            try {
-                Files.write(kept, bytes.copyOfRange(end, bytes.size), StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
-            } catch (e: IOException) {
-                wm.damage.core.util.Log.e("record", "the incomplete last line of ${file.fileName} could not be kept " +
-                    "aside; it is cut anyway (it was never answered)", e)
-                kept = null
-            }
             c.truncate(end.toLong())
             c.force(true)
         }
@@ -103,7 +93,7 @@ class OpLog(val file: Path, private val sync: (FileChannel) -> Unit = { it.force
             }
             start = nl + 1
         }
-        return Opened(lines, passed, incomplete, kept, bad)
+        return Opened(lines, passed, incomplete, bad)
     }
 
     /**
@@ -139,7 +129,6 @@ class OpLog(val file: Path, private val sync: (FileChannel) -> Unit = { it.force
      *  reopened as it was). */
     fun setAside(now: LocalDateTime = LocalDateTime.now()): Path {
         val target = file.resolveSibling(Journal.archiveName(file, now))
-        ch?.close()
         ch = null
         try {
             Files.move(file, target)   // no options: an existing target is refused, never replaced
@@ -153,7 +142,6 @@ class OpLog(val file: Path, private val sync: (FileChannel) -> Unit = { it.force
     }
 
     fun close() {
-        ch?.close()
         ch = null
     }
 

@@ -34,7 +34,7 @@ class MemoryRecord(
 
     override fun submit(window: String, draft: Draft) {
         val op = Op(device, OpId.Queued(STREAM, ++n), window, draft.action, draft.targets, draft.result, draft.params,
-            at = draft.at ?: now(), base = seq)
+            at = draft.at ?: now())
         val spec = actions.spec(window, draft.action)
         val why = if (spec == null) "no action \"${draft.action}\" in $window" else Merge.check(spec, op)
         if (spec == null || why != null) {

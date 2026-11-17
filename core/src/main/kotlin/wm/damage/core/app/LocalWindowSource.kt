@@ -107,7 +107,7 @@ class HostBackend(private val host: AppHost, private val device: String, private
 
     override fun submit(window: String, draft: Draft) {
         val op = Op(device, OpId.Queued(stream, ++next), window, draft.action, draft.targets, draft.result, draft.params,
-            at = draft.at ?: now(), base = host.seq)
+            at = draft.at ?: now())
         host.act(op) { a -> for (l in watchers[window].orEmpty().toList()) l.answered(op, a) }
     }
 

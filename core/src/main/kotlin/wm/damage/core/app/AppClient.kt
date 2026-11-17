@@ -279,28 +279,20 @@ class AppClient(
     /** One frame on the live connection; false when there is none or the write failed. A failure closes the
      *  socket (the reading side then reconnects) and decides nothing about reach. */
     private fun write(frame: JsonObject): Boolean {
-        val o = out ?: return failed("not connected")
+        val o = out ?: return false
         return try {
             synchronized(writeLock) { AppWire.write(o, AppWire.encode(frame)) }
             true
         } catch (e: Exception) {
+            Log.w(TAG, "a write to the PC failed (${e::class.simpleName}: ${e.message}): the connection is made again")
             closeSocket()
-            failed("${e::class.simpleName}: ${e.message}")
+            false
         }
     }
 
-    /** The number of the last ping the PC answered (a diagnosis row). */
+    /** The number of the last ping the PC answered (what `PingTest` waits on before its next tick). */
     @Volatile var lastPong: Long = 0
         private set
-
-    /** The last write that failed and why (a diagnosis row; never a reach decision). */
-    @Volatile var lastWriteFailure: String = ""
-        private set
-
-    private fun failed(why: String): Boolean {
-        lastWriteFailure = why
-        return false
-    }
 
     private fun closeSocket() {
         try { sockRef?.close() } catch (e: Exception) { Log.w(TAG, "closing the app lane: ${e.message}") }

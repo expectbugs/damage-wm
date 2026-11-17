@@ -647,7 +647,7 @@ class AppNet(
     private fun chgFrame(c: Change, scope: String, windows: Set<String>): ByteArray? {
         val mine = AppWire.within(c.effect, windows)
         if (mine.isEmpty()) return null
-        return AppWire.encode(AppWire.chg(Chg(scope, c.epoch, c.seq, c.origin, mine)))
+        return AppWire.encode(AppWire.chg(Chg(scope, c.epoch, c.seq, mine)))
     }
 
     private fun refuse(io: LaneIo, sock: Socket, reason: String, detail: String) {

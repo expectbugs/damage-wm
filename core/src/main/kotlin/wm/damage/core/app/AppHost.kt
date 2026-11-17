@@ -25,11 +25,8 @@ import wm.damage.core.util.Log
  * carries its changes; L1 C2: every subscription takes a snapshot, so no change is held for a resume.
  */
 
-/** Who an op came from, carried on its change (C§9.2 `chg.origin`). */
-data class Origin(val device: String, val id: OpId)
-
-/** One published change: the record's [seq] in [epoch], the op it came from, and the entries it wrote. */
-data class Change(val epoch: Long, val seq: Long, val origin: Origin?, val effect: Effect)
+/** One published change: the record's [seq] in [epoch] and the entries it wrote (each item names its writer). */
+data class Change(val epoch: Long, val seq: Long, val effect: Effect)
 
 /** How the record says a failure beyond the log: a built-in alert (W's `AlertStore`, delivered to the phone). */
 interface RecordAlerts {
@@ -221,7 +218,7 @@ class AppHost(
             val o = log.open(covered)
             o.lines.forEach(::replay)
             logState = o                      // opened AND replayed whole: only then is the log open for this process
-            o.partialKept?.let { problems += "the log's incomplete last line was kept as ${it.fileName}" }
+            if (o.incomplete) problems += "the log's incomplete last line was cut (it was never answered)"
             problems += o.bad
         } catch (e: Exception) {
             // fix round 2, ruling 1.8: nothing opens it again in this process, so the alert says what ends the refusals
@@ -326,7 +323,7 @@ class AppHost(
         record.apply(effect)
         seq = line.seq
         reply(answer)
-        publish(Change(epoch, seq, Origin(op.device, op.id), effect))
+        publish(Change(epoch, seq, effect))
     }
 
     private fun tickNow() {

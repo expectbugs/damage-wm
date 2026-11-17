@@ -2,7 +2,6 @@ package wm.damage.core
 
 import java.net.InetAddress
 import java.nio.file.Files
-import java.time.ZoneOffset
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
@@ -181,7 +180,6 @@ class WorkingCopyTest {
         assertEquals(listOf<Answer>(Answer.Seen()), heard.answers.map { it.second })
         assertEquals(j("two"), src.state().itemNamed("a")!!.value)
         assertEquals(emptySet(), src.state().pending)
-        assertEquals("", wc.awayLine(ZoneOffset.UTC))
     }
 
     /** L1 C1: the phone sets a value while the PC is away; the desk sets it a minute later; when the phone reaches the
@@ -210,7 +208,7 @@ class WorkingCopyTest {
     }
 
     @Test
-    fun thePcOutOfReach_opsWaitAndTheAwayLineSaysSo_thenTheyDrain(): Unit = runBlocking {
+    fun thePcOutOfReach_opsWait_thenTheyDrain(): Unit = runBlocking {
         val pc = keep(Pc())
         val wc = phone(pc)
         synced(wc, pc)
@@ -224,14 +222,13 @@ class WorkingCopyTest {
         src.act(Draft("set", listOf("x"), j("1")))
         src.act(Draft("set", listOf("y"), j("2")))
         wc.executor.call {}
-        assertEquals("2 changes waiting · PC not answering since 22:13", wc.awayLine(ZoneOffset.UTC))
+        assertEquals(2, wc.queue.waiting)
         assertEquals(j("1"), src.state().itemNamed("x")!!.value, "drawn from the copy meanwhile")
         pc.back()
         waitUntil(10_000, 5, { "drained: ${wc.queue.waiting} waiting" }) {
             wc.queue.waiting == 0 && pc.item("x") != null && pc.item("y") != null
         }
         waitUntil(10_000, 5, { "back: ${wc.reach}" }) { wc.reach == AppClient.Reach.Up }
-        assertEquals("", wc.awayLine(ZoneOffset.UTC))
         assertEquals(listOf(j("1"), j("2")), listOf(pc.item("x")!!.value, pc.item("y")!!.value))
     }
 
