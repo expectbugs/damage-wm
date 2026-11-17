@@ -1135,7 +1135,8 @@ class FilesGlasses(
         }
         IconPaint.drawFile(g, services?.icons(), e.name, e.dir, r.x + 8, r.y + 4, 56, Level.HEAD)
         Draw.fit(g, tx, r.x + 72, r.y + 6, dn(e.name), Level.HEAD, fB, r.w - 88)
-        Draw.fit(g, tx, r.x + 72, Draw.lineBelow(tx, fB, r.y + 6, r.y + 34), "was ${dn(shortPath(e.origPath))}", Level.BODY, fBody, r.w - 88)
+        Draw.fit(g, tx, r.x + 72, Draw.lineBelow(tx, fB, r.y + 6, r.y + 34),
+            if (e.missing) "not in the trash · Delete forever clears it" else "was ${dn(shortPath(e.origPath))}", Level.BODY, fBody, r.w - 88)
     }
 
     private fun commitTrash(i: Int) {

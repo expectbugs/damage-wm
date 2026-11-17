@@ -79,6 +79,7 @@ class FilesScopes(
                 for (e in files.trashList()) add(buildJsonObject {
                     put("id", e.id); put("name", e.name); put("origPath", e.origPath); put("dir", e.dir)
                     put("size", e.size); put("at", e.atMs)
+                    if (e.missing) put("missing", true)
                 })
             })
         }

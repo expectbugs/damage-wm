@@ -35,6 +35,8 @@ data class FStat(
 data class FTrashEntry(
     val id: String, val name: String, val origPath: String,
     val dir: Boolean, val size: Long, val atMs: Long,
+    /** L1 R1 B1: its file is not in the trash (a trash cut off before the file arrived) — set by the listing only. */
+    val missing: Boolean = false,
 )
 
 @Serializable

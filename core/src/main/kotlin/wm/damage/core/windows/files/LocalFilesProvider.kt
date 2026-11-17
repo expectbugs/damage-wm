@@ -306,24 +306,35 @@ class LocalFilesProvider(
         val a = Files.readAttributes(p, BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)
         val id = "${System.currentTimeMillis()}-${counter.incrementAndGet()}"
         val destDir = trashDir.resolve(id)
-        Files.createDirectories(destDir)
-        val dest = destDir.resolve(p.fileName.toString())
-        moveEntry(p, dest, "trash of a folder on another volume — delete it on the PC instead")
         val e = FTrashEntry(id, p.fileName.toString(), p.toString(), a.isDirectory,
             if (a.isDirectory) 0 else a.size(), System.currentTimeMillis())
-        // a trashed file the manifest does not name would be lost to every Restore: it goes back
-        writeManifest(Manifest(m.entries + e)) { putBack(dest, p).also { destDir.toFile().delete() } }
+        // L1 R1 B1: the row first, then the file — a stop between leaves a row whose file is not in the trash (listed
+        // as such, Delete forever clears it), never a file in the trash that no row names
+        writeManifest(Manifest(m.entries + e)) { "nothing was moved" }
+        try {
+            Files.createDirectories(destDir)
+            moveEntry(p, destDir.resolve(e.name), "trash of a folder on another volume — delete it on the PC instead")
+        } catch (x: Exception) {
+            destDir.toFile().delete()                                      // empty: the move left nothing there
+            writeManifest(m) { "the trash failed (${x.message}) and its row stays, naming a file not in the trash: " +
+                "Delete forever clears it" }
+            throw x
+        }
         id
     }
 
     override fun trashList(): List<FTrashEntry> =
-        (manifestCache ?: readManifest()).entries.sortedByDescending { it.atMs }
+        (manifestCache ?: readManifest()).entries.sortedByDescending { it.atMs }.map {
+            if (Files.notExists(trashDir.resolve(it.id).resolve(it.name), LinkOption.NOFOLLOW_LINKS)) it.copy(missing = true) else it
+        }
 
     override fun restore(id: String): String = synchronized(trashLock) {
         val m = readManifest()
         val e = m.entries.firstOrNull { it.id == id } ?: throw IllegalArgumentException("no trash entry $id")
         val src = trashDir.resolve(id).resolve(e.name)
-        require(Files.exists(src, LinkOption.NOFOLLOW_LINKS)) { "trash payload for $id is gone" }
+        require(Files.exists(src, LinkOption.NOFOLLOW_LINKS)) {
+            "${e.name} is not in the trash (a trash cut off before it arrived): restore refused; Delete forever clears its row"
+        }
         val dest = Path.of(e.origPath)
         require(!Files.exists(dest, LinkOption.NOFOLLOW_LINKS)) { "${e.origPath} already exists — restore refused" }
         dest.parent?.let { Files.createDirectories(it) }
