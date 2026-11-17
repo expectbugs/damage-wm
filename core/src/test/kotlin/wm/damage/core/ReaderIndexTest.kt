@@ -132,7 +132,7 @@ class ReaderIndexTest {
         core.refreshLibrary()
         awaitTrue("both indexed") { idx.snapshot().size == 2 }
         assertNotNull(idx.snapshot()[bad.toString()]!!.error)
-        val shelf = core.describe(WindowState(ReaderCore.WINDOW, emptyMap(), emptyMap()))["shelf"]!!.jsonObject["books"]!!.jsonArray
+        val shelf = core.describe(WindowState(ReaderCore.WINDOW, emptyMap()))["shelf"]!!.jsonObject["books"]!!.jsonArray
             .associateBy { it.jsonObject["id"]!!.jsonPrimitive.content }
         val b = shelf[LocalContent.idFor(bad)]!!.jsonObject
         assertEquals(JsonNull, b["fraction"])
@@ -152,7 +152,7 @@ class ReaderIndexTest {
         val id = LocalContent.idFor(p)
         val st = WindowState(ReaderCore.WINDOW, mapOf(
             Record.key(ReaderCore.WINDOW, ReaderCore.placeItem(id)) to Item(JsonPrimitive(ReaderAnchor(len / 4).format()), 1, "local", 1L),
-        ), emptyMap())
+        ))
         val card = core.describe(st)["shelf"]!!.jsonObject["books"]!!.jsonArray.single().jsonObject
         assertEquals(0.25, card["fraction"]!!.jsonPrimitive.doubleOrNull!!, 0.01)
         assertEquals("reader.$id.1", card["cover"]!!.jsonPrimitive.content)

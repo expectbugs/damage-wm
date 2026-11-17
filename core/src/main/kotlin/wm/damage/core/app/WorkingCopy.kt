@@ -59,9 +59,9 @@ class WorkingCopy(
     val queue = OpQueue(dir.resolve(QUEUE_FILE), queueWriter, queueAppend, note = note, onLanded = { pump() }, mint = mint)
     private val copyFile = dir.resolve(COPY_FILE)
 
-    private class Entries(val items: Map<String, Item>, val colls: Map<String, Coll>) {
+    private class Entries(val items: Map<String, Item>) {
         companion object {
-            val EMPTY = Entries(emptyMap(), emptyMap())
+            val EMPTY = Entries(emptyMap())
         }
     }
 
@@ -150,8 +150,8 @@ class WorkingCopy(
         try {
             val o = json.parseToJsonElement(Files.readAllBytes(copyFile).toString(Charsets.UTF_8)) as? JsonObject
                 ?: throw IllegalArgumentException("not an object")
-            val e = Effect(RecordJson.items(o["items"] as? JsonObject ?: JsonObject(emptyMap())),
-                RecordJson.colls(o["colls"] as? JsonObject ?: JsonObject(emptyMap())))
+            // L1 C4: a 0.67 copy's `colls` (always empty) is not read
+            val e = Effect(RecordJson.items(o["items"] as? JsonObject ?: JsonObject(emptyMap())))
             base.putAll(group(e))
             cursor = AppWire.cursorOf(o)
             (o["unheard"] as? JsonArray)?.forEach { k ->
@@ -307,7 +307,7 @@ class WorkingCopy(
         val touched = HashSet<String>()
         for ((w, part) in group(c.patches)) {
             val b = base[w] ?: Entries.EMPTY
-            base[w] = Entries(b.items + part.items, b.colls + part.colls)
+            base[w] = Entries(b.items + part.items)
             touched += w
         }
         cursor = Cursor(c.epoch, c.seq)
@@ -473,30 +473,24 @@ class WorkingCopy(
     private fun build(w: String, ops: List<Op>): WindowState {
         val b = base[w] ?: Entries.EMPTY
         val items = HashMap(b.items)
-        val colls = HashMap(b.colls)
-        for (s in settled) if (s.op.window == w) fold(s.op, s.loss, items, colls)
+        for (s in settled) if (s.op.window == w) fold(s.op, s.loss, items)
         val pending = HashSet<String>()
         for (op in ops) if (op.window == w) {
-            fold(op, null, items, colls)
+            fold(op, null, items)
             for (t in op.targets) pending += Record.key(w, t)
         }
-        return WindowState(w, items, colls, pending, cursor)
+        return WindowState(w, items, pending, cursor)
     }
 
     /** One op over the view: judged as if what it expected still held (the device's own intent), per target for a
      *  removal; a loss draws the standing entry with its "not applied" mark instead, for the targets that lost. */
-    private fun fold(op: Op, loss: Answer.Lost?, items: HashMap<String, Item>, colls: HashMap<String, Coll>) {
+    private fun fold(op: Op, loss: Answer.Lost?, items: HashMap<String, Item>) {
         val spec = actions.spec(op.window, op.action) ?: return
         if (Merge.check(spec, op) != null) return
-        val view = object : RecordView {
-            override fun item(key: String) = items[key]
-            override fun coll(key: String) = colls[key]
-        }
+        val view = RecordView { key -> items[key] }
         val lostItems = loss?.losses?.map { it.item }?.toSet() ?: emptySet()
         fun apply(o: Op) {
-            val v = Merge.judge(view, spec, o, clock())
-            items.putAll(v.effect.items)
-            colls.putAll(v.effect.colls)
+            items.putAll(Merge.judge(view, spec, o, clock()).effect.items)
         }
         when (spec.kind) {
             Kind.REGISTER, Kind.POSITION ->
@@ -504,15 +498,11 @@ class WorkingCopy(
             Kind.REMOVE -> for (t in op.targets - lostItems) {
                 apply(op.copy(targets = listOf(t), expect = Expect.Rev(items[Record.key(op.window, t)]?.rev ?: 0L)))
             }
-            Kind.CREATE -> if (loss == null) apply(op)
-            Kind.ORDER -> if (loss == null) apply(op.copy(expect = Expect.Rev(items[Record.key(op.window, op.targets[0])]?.rev ?: 0L)))
-            Kind.WHOLE -> if (loss == null) apply(op.copy(expect = Expect.Rev(colls[Record.key(op.window, spec.coll!!)]?.rev ?: 0L)))
         }
         for (l in loss?.losses.orEmpty()) {
             val k = Record.key(op.window, l.item)
             val mark = NotApplied(l.mine, op.device, l.at)
-            if (spec.kind == Kind.WHOLE) colls[k] = (colls[k] ?: Coll(emptyList(), 0L, l.by, l.at)).copy(notApplied = mark)
-            else items[k] = (items[k] ?: Item(JsonNull, 0L, l.by, l.at)).copy(notApplied = mark)
+            items[k] = (items[k] ?: Item(JsonNull, 0L, l.by, l.at)).copy(notApplied = mark)
         }
     }
 
@@ -521,13 +511,8 @@ class WorkingCopy(
         val k = Record.key(op.window, target)
         val b = base[op.window]
         val i = b?.items?.get(k)
-        val c = b?.colls?.get(k)
-        val standing: JsonElement = when {
-            i != null -> if (i.gone) JsonNull else i.value
-            c != null -> JsonArray(c.order.map { JsonPrimitive(it) })
-            else -> JsonNull
-        }
-        return Loss(target, standing, i?.by ?: c?.by ?: "", i?.at ?: c?.at ?: 0L, op.result, gone = i?.gone == true)
+        val standing: JsonElement = if (i == null || i.gone) JsonNull else i.value
+        return Loss(target, standing, i?.by ?: "", i?.at ?: 0L, op.result, gone = i?.gone == true)
     }
 
     private fun tell(op: Op, a: Answer) {
@@ -572,11 +557,7 @@ class WorkingCopy(
         saving = true
         dirty = false
         val items = HashMap<String, Item>()
-        val colls = HashMap<String, Coll>()
-        for (e in base.values) {
-            items.putAll(e.items)
-            colls.putAll(e.colls)
-        }
+        for (e in base.values) items.putAll(e.items)
         val at = cursor
         val taken = ArrayList(unsaved)
         unsaved.clear()
@@ -587,7 +568,6 @@ class WorkingCopy(
                     put("v", 1)
                     at?.let { put("epoch", it.epoch); put("seq", it.seq) }
                     put("items", RecordJson.items(items))
-                    put("colls", RecordJson.colls(colls))
                     if (kept.isNotEmpty()) put("unheard", JsonArray(kept))
                 }.toString())
                 null
@@ -662,10 +642,8 @@ class WorkingCopy(
 
         private fun group(e: Effect): Map<String, Entries> {
             val items = HashMap<String, HashMap<String, Item>>()
-            val colls = HashMap<String, HashMap<String, Coll>>()
             for ((k, v) in e.items) items.getOrPut(HostBackend.windowOf(k)) { HashMap() }[k] = v
-            for ((k, v) in e.colls) colls.getOrPut(HostBackend.windowOf(k)) { HashMap() }[k] = v
-            return (items.keys + colls.keys).associateWith { Entries(items[it] ?: emptyMap(), colls[it] ?: emptyMap()) }
+            return items.mapValues { Entries(it.value) }
         }
 
         private fun single(name: String): ExecutorService = Executors.newSingleThreadExecutor { r ->

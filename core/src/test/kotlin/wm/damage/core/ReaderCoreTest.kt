@@ -76,7 +76,7 @@ class ReaderCoreTest {
             item(ReaderCore.bookmarkItem(alpha), JsonPrimitive(ReaderAnchor(99).format())),
             item(ReaderCore.RECENT, JsonPrimitive(alpha)),
             item(ReaderCore.SCROLL_LINES, JsonPrimitive(3)),
-        ), emptyMap())
+        ))
         val d = core.describe(st)
         assertEquals("reader", d["id"]!!.jsonPrimitive.content)
         assertEquals("view", d["min"]!!.jsonPrimitive.content)
@@ -223,7 +223,7 @@ class ReaderCoreTest {
             item(ReaderCore.placeItem("a"), JsonPrimitive(ReaderAnchor(5).format())),
             Record.key(ReaderCore.WINDOW, ReaderCore.placeItem("b")) to Item(JsonNull, 2, "web", 1L, gone = true),
             item(ReaderCore.placeItem("c"), JsonPrimitive("not a place")),
-        ), emptyMap())
+        ))
         assertEquals(mapOf("a" to 5), ReaderCore.places(st).mapValues { it.value.offset })
         assertNull(ReaderCore.placeOf(st, "b"))
         assertNull(ReaderCore.placeOf(st, "c"))

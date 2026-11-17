@@ -27,16 +27,12 @@ import wm.damage.core.app.RecordAlerts
  * journal notes the record says. Nothing here touches the real data directory.
  */
 
-/** The made-up window's actions, one per queued kind of C§2.4. */
+/** The made-up window's actions, one per queued kind (L1 C4: register, position, removal). */
 internal val TEST_ACTIONS = ActionTable { w, a ->
     if (w != "t") null else when (a) {
         "set" -> ActionSpec(Kind.REGISTER)
         "place" -> ActionSpec(Kind.POSITION)
-        "add" -> ActionSpec(Kind.CREATE, "queue")
-        "note" -> ActionSpec(Kind.CREATE)
-        "move" -> ActionSpec(Kind.ORDER, "queue")
-        "drop" -> ActionSpec(Kind.REMOVE, "queue")
-        "replace" -> ActionSpec(Kind.WHOLE, "queue")
+        "drop" -> ActionSpec(Kind.REMOVE)
         else -> null
     }
 }

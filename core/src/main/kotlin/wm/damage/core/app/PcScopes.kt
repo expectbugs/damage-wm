@@ -87,7 +87,7 @@ class PcScopes(
 
     private fun state(): WindowState {
         val (_, _, e) = host.read(ReaderCore.WINDOW)
-        return WindowState(ReaderCore.WINDOW, e.items, e.colls)
+        return WindowState(ReaderCore.WINDOW, e.items)
     }
 
     /** The record's place and the versions, for the diagnosis. */

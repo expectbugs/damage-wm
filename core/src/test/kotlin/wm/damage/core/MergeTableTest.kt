@@ -14,7 +14,6 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.After
 import wm.damage.core.app.Answer
-import wm.damage.core.app.Coll
 import wm.damage.core.app.Effect
 import wm.damage.core.app.Expect
 import wm.damage.core.app.Item
@@ -35,8 +34,8 @@ class MergeTableTest {
     fun tearDown() = rig.cleanUp()
 
     private val NOW = 5_000L
-    private fun rec(vararg items: Pair<String, Item>, colls: Map<String, Coll> = emptyMap()) =
-        Record().apply { apply(Effect(items.associate { (k, v) -> "rec.t.$k" to v }, colls.mapKeys { "rec.t.${it.key}" })) }
+    private fun rec(vararg items: Pair<String, Item>) =
+        Record().apply { apply(Effect(items.associate { (k, v) -> "rec.t.$k" to v })) }
 
     private fun judge(r: Record, o: wm.damage.core.app.Op): Verdict {
         val spec = TEST_ACTIONS.spec(o.window, o.action)!!
@@ -45,30 +44,6 @@ class MergeTableTest {
     }
 
     // ---- create ----
-
-    @Test
-    fun createNeverLosesAndAReplayIsANoOp() {
-        val r = rec()
-        val o = op("phone", "s1", 4, "add", listOf("q.s1.4.0", "q.s1.4.1"), JsonArray(listOf(j("a"), j("b"))))
-        val v = judge(r, o)
-        assertIs<Verdict.Applied>(v)
-        assertEquals(Item(j("a"), 1, "phone", NOW), v.effect.items["rec.t.q.s1.4.0"])
-        assertEquals(Coll(listOf("q.s1.4.0", "q.s1.4.1"), 1, "phone", NOW), v.effect.colls["rec.t.queue"])
-        r.apply(v.effect)
-        assertEquals(Verdict.Same, judge(r, o), "a replay of a create is a no-op")
-        // another device's add after it: never a loss, the collection's revision moves
-        val v2 = judge(r, op("desk", "s2", 1, "add", listOf("q.s2.1.0"), JsonArray(listOf(j("c")))))
-        assertIs<Verdict.Applied>(v2)
-        assertEquals(listOf("q.s1.4.0", "q.s1.4.1", "q.s2.1.0"), v2.effect.colls["rec.t.queue"]!!.order)
-        assertEquals(2L, v2.effect.colls["rec.t.queue"]!!.rev)
-    }
-
-    @Test
-    fun aCreatedIdNotMintedByThisOpIsRefused() {
-        val spec = TEST_ACTIONS.spec("t", "add")!!
-        assertNotNull(Merge.check(spec, op("phone", "s1", 4, "add", listOf("q.s1.3.0"), JsonArray(listOf(j("a"))))))
-        assertNotNull(Merge.check(spec, op("phone", "s1", 4, "add", listOf("q.s1.4.0"), j("a"))), "one value per target")
-    }
 
     // ---- register ----
 
@@ -148,35 +123,13 @@ class MergeTableTest {
 
     // ---- order ----
 
-    @Test
-    fun aMoveAppliesOnTheRevisionSeenAndLosesWhenMovedRemovedOrItsAnchorIsGone() {
-        val q = mapOf("queue" to Coll(listOf("a", "b", "c"), 3, "desk", 1))
-        val items = arrayOf("a" to Item(j("A"), 1, "desk", 1), "b" to Item(j("B"), 1, "desk", 1), "c" to Item(j("C"), 2, "desk", 1))
-        val ok = judge(rec(*items, colls = q), op("phone", "s1", 1, "move", listOf("c"), JsonNull, Expect.Rev(2)))
-        assertEquals(listOf("c", "a", "b"), ok.effect.colls["rec.t.queue"]!!.order)
-        assertEquals(3L, ok.effect.items["rec.t.c"]!!.rev)
-        assertEquals(3L, ok.effect.colls["rec.t.queue"]!!.rev, "a move is the item's revision, not the collection's")
-        // already there: the same
-        assertEquals(Verdict.Same, judge(rec(*items, colls = q), op("phone", "s1", 1, "move", listOf("b"), j("a"), Expect.Rev(9))))
-        // moved since
-        assertIs<Verdict.Lost>(judge(rec(*items, colls = q), op("phone", "s1", 1, "move", listOf("c"), JsonNull, Expect.Rev(1))))
-        // its anchor entry is gone
-        val gone = judge(rec(*items, colls = q), op("phone", "s1", 1, "move", listOf("a"), j("zz"), Expect.Rev(1)))
-        assertIs<Verdict.Lost>(gone)
-        // removed by another device
-        val removed = rec(*items, "d" to Item(JsonNull, 2, "desk", 9, gone = true), colls = q)
-        assertIs<Verdict.Lost>(judge(removed, op("phone", "s1", 1, "move", listOf("d"), j("a"), Expect.Rev(1))))
-    }
-
     // ---- remove ----
 
     @Test
     fun aRemovalAppliesOnTheRevisionSeenAndLosesWhenWrittenSince() {
-        val q = mapOf("queue" to Coll(listOf("a", "b"), 2, "desk", 1))
-        val r = rec("a" to Item(j("A"), 4, "desk", 1), "b" to Item(j("B"), 1, "desk", 1), colls = q)
+        val r = rec("a" to Item(j("A"), 4, "desk", 1), "b" to Item(j("B"), 1, "desk", 1))
         val ok = judge(r, op("phone", "s1", 1, "drop", listOf("a"), JsonNull, Expect.Rev(4)))
         assertEquals(Item(JsonNull, 5, "phone", NOW, gone = true), ok.effect.items["rec.t.a"])
-        assertEquals(listOf("b"), ok.effect.colls["rec.t.queue"]!!.order)
         val lost = judge(r, op("phone", "s1", 1, "drop", listOf("a"), JsonNull, Expect.Rev(3)))
         assertIs<Verdict.Lost>(lost)
         r.apply(ok.effect)
@@ -184,29 +137,6 @@ class MergeTableTest {
     }
 
     // ---- whole collection ----
-
-    @Test
-    fun aWholeWriteLosesWhenAnythingWasAddedSince() {
-        val q = mapOf("queue" to Coll(listOf("a", "b"), 2, "desk", 7))
-        val r = rec("a" to Item(j("A"), 1, "desk", 1), "b" to Item(j("B"), 1, "desk", 1), colls = q)
-        val clear = buildJsonObject { put("order", JsonArray(emptyList())) }
-        val ok = judge(r, op("phone", "s1", 1, "replace", listOf("queue"), clear, Expect.Rev(2)))
-        assertEquals(Coll(emptyList(), 3, "phone", NOW), ok.effect.colls["rec.t.queue"])
-        assertTrue(ok.effect.items["rec.t.a"]!!.gone && ok.effect.items["rec.t.b"]!!.gone, "cleared members are removed")
-        val lost = judge(r, op("phone", "s1", 1, "replace", listOf("queue"), clear, Expect.Rev(1)))
-        assertIs<Verdict.Lost>(lost)
-        assertEquals(JsonArray(listOf(j("a"), j("b"))), lost.losses.single().standing)
-        assertEquals(7L, lost.losses.single().at)
-        // a replace that also writes values
-        val repl = buildJsonObject {
-            put("order", JsonArray(listOf(j("b"), j("n"))))
-            put("items", buildJsonObject { put("n", "N") })
-        }
-        val v = judge(r, op("phone", "s1", 1, "replace", listOf("queue"), repl, Expect.Rev(2)))
-        assertEquals(listOf("b", "n"), v.effect.colls["rec.t.queue"]!!.order)
-        assertEquals(Item(j("N"), 1, "phone", NOW), v.effect.items["rec.t.n"])
-        assertTrue(v.effect.items["rec.t.a"]!!.gone)
-    }
 
     // ---- edit of a removed item ----
 

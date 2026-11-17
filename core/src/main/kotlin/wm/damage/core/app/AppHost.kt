@@ -202,7 +202,7 @@ class AppHost(
         val held0 = seqFile.read()
         val covered = saved?.covered ?: 0L
         saved?.let {
-            record.apply(Effect(it.items, it.colls))
+            record.apply(Effect(it.items))
             streams.load(it.streams)
         }
         var replayedTo = covered
@@ -405,7 +405,7 @@ class AppHost(
 
     /** The record as it stands, taken in one step on the executor: the covered `seq` is the last line whose effect
      *  the copy holds. */
-    private fun snapshot() = RecordStore.Saved(epoch, seq, record.copyItems(), record.copyColls(), streams.table())
+    private fun snapshot() = RecordStore.Saved(epoch, seq, record.copyItems(), streams.table())
 
     /** Writes the sequence file with the last `seq`; false (said) when it could not. */
     private fun writeSeqFile(): Boolean = try {

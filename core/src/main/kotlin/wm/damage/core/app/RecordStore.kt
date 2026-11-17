@@ -31,7 +31,6 @@ class RecordStore(
         val epoch: Long,
         val covered: Long,
         val items: Map<String, Item>,
-        val colls: Map<String, Coll>,
         val streams: Map<StreamKey, Long>,
     )
 
@@ -105,7 +104,6 @@ class RecordStore(
             put("v", VERSION)
             put("epoch", s.epoch)
             put("items", RecordJson.items(s.items))
-            put("colls", RecordJson.colls(s.colls))
             put("streams", buildJsonObject {
                 for ((device, byStream) in s.streams.entries.groupBy({ it.key.device }, { it }).toSortedMap())
                     put(device, buildJsonObject { for (e in byStream.sortedBy { it.key.stream }) put(e.key.stream, e.value) })
@@ -126,8 +124,8 @@ class RecordStore(
             val s = Saved(
                 epoch = OpJson.num(j, "epoch"),
                 covered = OpJson.num(j, "covered"),
+                // L1 C4: a 0.67 file's `colls` (always empty) is not read
                 items = RecordJson.items(j["items"] as? JsonObject ?: throw IllegalArgumentException("no items")),
-                colls = RecordJson.colls(j["colls"] as? JsonObject ?: throw IllegalArgumentException("no colls")),
                 streams = streams,
             )
             require(s.epoch > 0 && s.covered >= 0) { "epoch ${s.epoch}, covered ${s.covered}" }

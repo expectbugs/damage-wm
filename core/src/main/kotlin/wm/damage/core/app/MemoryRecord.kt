@@ -29,7 +29,7 @@ class MemoryRecord(
 
     override fun stateOf(window: String): WindowState = states.getOrPut(window) {
         val e = record.window(window)
-        WindowState(window, e.items, e.colls, cursor = Cursor(EPOCH, seq))
+        WindowState(window, e.items, cursor = Cursor(EPOCH, seq))
     }
 
     override fun submit(window: String, draft: Draft) {
@@ -51,7 +51,7 @@ class MemoryRecord(
         if (v.effect.isEmpty()) return
         val old = states[window] ?: return                         // nobody has read it: read whole when asked
         val e = record.window(window)
-        val s = WindowState(window, e.items, e.colls, cursor = Cursor(EPOCH, seq))
+        val s = WindowState(window, e.items, cursor = Cursor(EPOCH, seq))
         states[window] = s
         val keys = s.drawnChanges(old)
         for (l in watchers[window].orEmpty().toList()) l.changed(s, keys)

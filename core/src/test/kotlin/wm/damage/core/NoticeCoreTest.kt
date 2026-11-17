@@ -217,7 +217,7 @@ class NoticeCoreTest {
         drain(h)
         assertIs<Answer.Seen>(ask(h, op("phone", Notices.dismissDraft(record(h, "torrent:a")))))
         val (e, s, items) = h.read(Notices.WINDOW)
-        val d = c.describe(wm.damage.core.app.WindowState(Notices.WINDOW, items.items, items.colls, cursor = wm.damage.core.app.Cursor(e, s)))
+        val d = c.describe(wm.damage.core.app.WindowState(Notices.WINDOW, items.items, cursor = wm.damage.core.app.Cursor(e, s)))
         val live = (d["live"] as kotlinx.serialization.json.JsonArray).map { it.jsonObject["id"]!!.jsonPrimitive.content }
         assertEquals(listOf("torrent:b"), live, "a dismissed notice leaves the live table")
     }

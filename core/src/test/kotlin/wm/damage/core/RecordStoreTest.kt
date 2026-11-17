@@ -205,7 +205,7 @@ class RecordStoreTest {
     @Test
     fun theFilesFormRoundTripsWithTheCoveredSeqLast() {
         val h = rig.opened()
-        rig.ask(h, op("phone", "s1", 1, "add", listOf("q.s1.1.0"), kotlinx.serialization.json.JsonArray(listOf(j("a")))))
+        rig.ask(h, op("phone", "s1", 1, "set", listOf("q.s1.1.0"), j("a")))
         rig.ask(h, op("desk", "d", 1, "drop", listOf("q.s1.1.0"), JsonNull, wm.damage.core.app.Expect.Rev(1)))
         rig.ask(h, op("phone", "s1", 2, "set", listOf("x"), j("b"), wm.damage.core.app.Expect.Value(j("a"))))
         rig.tick(h)
@@ -215,6 +215,5 @@ class RecordStoreTest {
         assertEquals(text, RecordStore.encode(s))
         assertTrue(s.items["rec.t.q.s1.1.0"]!!.gone)
         assertNotNull(s.items["rec.t.x"]!!.notApplied)
-        assertEquals(emptyList(), s.colls["rec.t.queue"]!!.order)
     }
 }

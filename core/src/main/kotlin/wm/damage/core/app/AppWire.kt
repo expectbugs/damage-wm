@@ -22,10 +22,10 @@ import kotlinx.serialization.json.put
  * the content port's own hello before it stays `proto: 1`.
  *
  * Client → PC: `sub {scope, epoch?, seq?}` · `unsub {scope}` · `op {op}` · `ping {k}` · `end {reason}`.
- * PC → client: `welcome` · `snap {scope, epoch, seq, items, colls}` · `chg {scope, epoch, seq, origin?, patches}` ·
+ * PC → client: `welcome` · `snap {scope, epoch, seq, items}` · `chg {scope, epoch, seq, origin?, patches}` ·
  * `ans {stream, n | conn, k | scope, answer}` · `pong {k}` · `end {reason}`.
- * A patch is `{addr, set}` (an item's whole entry) or `{addr, coll}` (a collection's): entries are absolute, never
- * removed (a removal is the entry's `gone`), so a patch applied twice changes nothing.
+ * A patch is `{addr, set}` (an item's whole entry): entries are absolute, never removed (a removal is the entry's
+ * `gone`), so a patch applied twice changes nothing.
  */
 
 /** A client's place in the record's order (C§9.3): the store's epoch and the last `seq` it holds. */
@@ -226,13 +226,11 @@ object AppWire {
         put("epoch", s.epoch)
         put("seq", s.seq)
         put("items", RecordJson.items(s.state.items))
-        put("colls", RecordJson.colls(s.state.colls))
     }
 
     fun parseSnap(f: JsonObject): Snap = Snap(
         str(f, "scope"), num(f, "epoch"), num(f, "seq"),
-        Effect(RecordJson.items(f["items"] as? JsonObject ?: JsonObject(emptyMap())),
-            RecordJson.colls(f["colls"] as? JsonObject ?: JsonObject(emptyMap()))),
+        Effect(RecordJson.items(f["items"] as? JsonObject ?: JsonObject(emptyMap()))),
     )
 
     fun chg(c: Chg): JsonObject = buildJsonObject {
@@ -243,26 +241,18 @@ object AppWire {
         c.origin?.let { put("origin", origin(it)) }
         put("patches", buildJsonArray {
             for ((k, v) in c.patches.items.toSortedMap()) add(buildJsonObject { put("addr", k); put("set", RecordJson.item(v)) })
-            for ((k, v) in c.patches.colls.toSortedMap()) add(buildJsonObject { put("addr", k); put("coll", RecordJson.coll(v)) })
         })
     }
 
     fun parseChg(f: JsonObject): Chg {
         val items = HashMap<String, Item>()
-        val colls = HashMap<String, Coll>()
         for (p in f["patches"] as? JsonArray ?: throw IllegalArgumentException("chg: patches")) {
             val o = p as? JsonObject ?: throw IllegalArgumentException("chg: a patch")
-            val addr = str(o, "addr")
-            val set = o["set"] as? JsonObject
-            val coll = o["coll"] as? JsonObject
-            when {
-                set != null -> items[addr] = RecordJson.item(set)
-                coll != null -> colls[addr] = RecordJson.coll(coll)
-                else -> throw IllegalArgumentException("chg: patch $addr has neither set nor coll")
-            }
+            val set = o["set"] as? JsonObject ?: throw IllegalArgumentException("chg: patch ${o["addr"]} has no set")
+            items[str(o, "addr")] = RecordJson.item(set)
         }
         return Chg(str(f, "scope"), num(f, "epoch"), num(f, "seq"),
-            (f["origin"] as? JsonObject)?.let { parseOrigin(it) }, Effect(items, colls))
+            (f["origin"] as? JsonObject)?.let { parseOrigin(it) }, Effect(items))
     }
 
     fun ans(a: Ans): JsonObject = buildJsonObject {
@@ -327,6 +317,6 @@ object AppWire {
     fun within(e: Effect, windows: Set<String>): Effect {
         if (windows.isEmpty()) return Effect.NONE
         fun mine(k: String) = windows.any { k.startsWith(Record.prefix(it)) }
-        return Effect(e.items.filterKeys(::mine), e.colls.filterKeys(::mine))
+        return Effect(e.items.filterKeys(::mine))
     }
 }

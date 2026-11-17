@@ -24,49 +24,42 @@ data class Draft(
 )
 
 /**
- * One window's state as a source shows it: the record's entries of [window] (full keys `rec.<window>.<name>`) with
+ * One window's state as a source shows it: the record's items of [window] (full keys `rec.<window>.<name>`) with
  * this device's ops that are not yet in them applied on top. [pending] = the keys an unanswered op of this device
  * writes; [cursor] = the record's place the entries stand at. Immutable: one per paint (C§13 (b) "working copy" (e)).
  */
 class WindowState(
     val window: String,
     val items: Map<String, Item>,
-    val colls: Map<String, Coll>,
     val pending: Set<String> = emptySet(),
     val cursor: Cursor? = null,
 ) : RecordView {
     override fun item(key: String): Item? = items[key]
-    override fun coll(key: String): Coll? = colls[key]
 
     /** The item [name] of this window (its key less `rec.<window>.`). */
     fun itemNamed(name: String): Item? = items[Record.key(window, name)]
 
-    fun collNamed(name: String): Coll? = colls[Record.key(window, name)]
-
     /** Entries that carry a "not applied" mark (C§2.4; the away line's count). */
-    val notApplied: Int get() = items.values.count { it.notApplied != null } + colls.values.count { it.notApplied != null }
+    val notApplied: Int get() = items.values.count { it.notApplied != null }
 
     /**
-     * The keys whose drawn form differs from [before]'s: a value, a removal, an order, or the losing value of a "not
+     * The keys whose drawn form differs from [before]'s: a value, a removal, or the losing value of a "not
      * applied" mark. A revision, a writer or a time is not drawn, so an answer that only confirms what was shown
      * changes nothing here and nothing repaints (C§2.3 step 3: "equal to what it showed: nothing repaints").
      */
     fun drawnChanges(before: WindowState?): Set<String> {
         val out = HashSet<String>()
         val bi = before?.items ?: emptyMap()
-        val bc = before?.colls ?: emptyMap()
         for (k in items.keys + bi.keys) if (drawn(items[k]) != drawn(bi[k])) out += k
-        for (k in colls.keys + bc.keys) if (drawn(colls[k]) != drawn(bc[k])) out += k
         return out
     }
 
-    override fun toString() = "WindowState($window, ${items.size} items, ${colls.size} collections, pending $pending, at $cursor)"
+    override fun toString() = "WindowState($window, ${items.size} items, pending $pending, at $cursor)"
 
     companion object {
-        fun empty(window: String) = WindowState(window, emptyMap(), emptyMap())
+        fun empty(window: String) = WindowState(window, emptyMap())
 
         private fun drawn(i: Item?): Any? = i?.let { Triple(if (it.gone) null else it.value, it.gone, it.notApplied?.mine) }
-        private fun drawn(c: Coll?): Any? = c?.let { Pair(it.order, it.notApplied?.mine) }
     }
 }
 

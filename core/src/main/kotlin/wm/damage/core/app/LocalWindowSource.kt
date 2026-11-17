@@ -116,7 +116,7 @@ class HostBackend(private val host: AppHost, private val device: String, private
 
     override fun stateOf(window: String): WindowState = states.getOrPut(window) {
         val (epoch, seq, e) = host.read(window)
-        WindowState(window, e.items, e.colls, cursor = Cursor(epoch, seq))
+        WindowState(window, e.items, cursor = Cursor(epoch, seq))
     }
 
     override fun submit(window: String, draft: Draft) {
@@ -147,8 +147,7 @@ class HostBackend(private val host: AppHost, private val device: String, private
         for (w in windowsOf(c.effect)) {
             val old = states[w] ?: continue                       // nobody has read it: read whole when asked
             val p = Record.prefix(w)
-            val s = WindowState(w, old.items + c.effect.items.filterKeys { it.startsWith(p) },
-                old.colls + c.effect.colls.filterKeys { it.startsWith(p) }, cursor = Cursor(c.epoch, c.seq))
+            val s = WindowState(w, old.items + c.effect.items.filterKeys { it.startsWith(p) }, cursor = Cursor(c.epoch, c.seq))
             states[w] = s
             val keys = s.drawnChanges(old)
             for (l in watchers[w].orEmpty().toList()) l.changed(s, keys)
@@ -157,7 +156,7 @@ class HostBackend(private val host: AppHost, private val device: String, private
 
     companion object {
         /** The windows [e] writes (its keys are `rec.<window>.<name>`). */
-        fun windowsOf(e: Effect): Set<String> = (e.items.keys + e.colls.keys).mapTo(HashSet()) { windowOf(it) }
+        fun windowsOf(e: Effect): Set<String> = e.items.keys.mapTo(HashSet()) { windowOf(it) }
 
         fun windowOf(key: String): String = key.removePrefix("rec.").substringBefore('.')
     }

@@ -46,7 +46,7 @@ class NoticeMirrorTest {
         val submitted = CopyOnWriteArrayList<Draft>()
         val saidOps = CopyOnWriteArrayList<Op>()
         private val watchers = ArrayList<SourceListener>()
-        override fun stateOf(window: String) = WindowState(window, items, emptyMap(), cursor = cursor)
+        override fun stateOf(window: String) = WindowState(window, items, cursor = cursor)
         override fun submit(window: String, draft: Draft) { submitted += draft }
         override fun watch(window: String, l: SourceListener) { watchers += l }
         override fun unwatch(window: String, l: SourceListener) { watchers -= l }

@@ -430,13 +430,8 @@ class AppNet(
                 for (c in since) chgFrame(c, scope, windows)?.let { conn.outbox.offer(it) }
             } else {
                 val items = HashMap<String, Item>()
-                val colls = HashMap<String, Coll>()
-                for (w in windows) {
-                    val e = host.read(w).third
-                    items.putAll(e.items)
-                    colls.putAll(e.colls)
-                }
-                conn.outbox.offer(AppWire.encode(AppWire.snap(Snap(scope, host.epoch, host.seq, Effect(items, colls)))))
+                for (w in windows) items.putAll(host.read(w).third.items)
+                conn.outbox.offer(AppWire.encode(AppWire.snap(Snap(scope, host.epoch, host.seq, Effect(items)))))
             }
             conn.scopes += scope
             // S1-2 Q2: a record scope's viewer (a second `sub` replaces its need; none ends it)
