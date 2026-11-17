@@ -76,22 +76,19 @@ class HaReaderTest {
             hub.answers["/api/states/sensor.slow"] = Answer(200, state("sensor.slow", "7"), delayMs = 300)
             val entities = listOf("sensor.fresh_tank", "binary_sensor.pump_fault", "sensor.bad_json", "sensor.slow",
                 "sensor.gone")
-            val r = HaReader(hub.url, TOKEN, entities)
+            val r = HaReader(hub.url, TOKEN)
             r.health()
-            val s = r.state("sensor.fresh_tank")
-            assertEquals("42.5", s.state)
-            assertEquals("2026-11-13T10:00:00+00:00", s.lastReported)
-            assertEquals("2026-11-13T09:00:00+00:00", s.lastUpdated)
+            assertEquals("42.5", r.state("sensor.fresh_tank"))
             assertEquals("hub: no entity sensor.gone (HTTP 404)",
                 assertFailsWith<HaReader.NotFound> { r.state("sensor.gone") }.message)
             val e500 = assertFailsWith<IOException> { r.state("binary_sensor.pump_fault") }
             assertEquals("hub /api/states/binary_sensor.pump_fault: HTTP 500", e500.message)
             val bad = assertFailsWith<IOException> { r.state("sensor.bad_json") }
             assertFalse("not json" in bad.message!!, "a body reached an exception text: ${bad.message}")
-            assertEquals("7", r.state("sensor.slow").state)
+            assertEquals("7", r.state("sensor.slow"))
             // the 401 path, on its own reader (it latches)
             hub.answers["/api/states/sensor.locked"] = Answer(401, "401: Unauthorized")
-            assertFailsWith<HaReader.TokenRefused> { HaReader(hub.url, TOKEN, listOf("sensor.locked")).state("sensor.locked") }
+            assertFailsWith<HaReader.TokenRefused> { HaReader(hub.url, TOKEN).state("sensor.locked") }
 
             assertEquals(7, hub.requests.size, "one request per call")
             val allowed = setOf("/api/") + (entities + "sensor.locked").map { "/api/states/$it" }
@@ -105,17 +102,14 @@ class HaReaderTest {
         }
     }
 
-    /** T2: an entity outside the rules' set, or one carrying `/` or `?`, never reaches the hub. */
+    /** T2: an entity id that is not `domain.object_id` (one carrying `/`, `?` or `..`) never reaches the hub. */
     @Test
-    fun aPathOutsideTheSetNeverReachesTheHub() {
+    fun anEntityIdThatIsNotOneNeverReachesTheHub() {
         FakeHub().use { hub ->
-            val r = HaReader(hub.url, TOKEN, listOf("sensor.fresh_tank"))
-            for (e in listOf("sensor.other", "sensor.fresh_tank/../../config", "sensor.fresh_tank?x=1",
-                "../config/core", "", "sensor.fresh_tank/", "SENSOR.FRESH_TANK")) {
-                assertFailsWith<HaReader.PathRefused>("state(\"$e\")") { r.state(e) }
-            }
-            for (bad in listOf("sensor.a/b", "sensor.a?b=1", "sensor", "sensor.a.b", "../x")) {
-                assertFailsWith<IllegalArgumentException>("entity \"$bad\"") { HaReader(hub.url, TOKEN, listOf(bad)) }
+            val r = HaReader(hub.url, TOKEN)
+            for (e in listOf("sensor.fresh_tank/../../config", "sensor.fresh_tank?x=1", "../config/core", "",
+                "sensor.fresh_tank/", "SENSOR.FRESH_TANK", "sensor", "sensor.a.b")) {
+                assertFailsWith<IllegalArgumentException>("state(\"$e\")") { r.state(e) }
             }
             assertEquals(0, hub.requests.size, "a refused path reached the hub")
         }
@@ -131,10 +125,10 @@ class HaReaderTest {
             hub.answers["/api/states/sensor.fresh_tank"] = Answer(401, "401: Unauthorized $TOKEN")
             hub.answers["/api/states/sensor.slow"] = Answer(500, "error for Bearer $TOKEN")
             hub.answers["/api/states/sensor.bad_json"] = Answer(200, "{\"oops\": \"$TOKEN\"")
-            val r401 = HaReader(hub.url, TOKEN, listOf("sensor.fresh_tank"))
+            val r401 = HaReader(hub.url, TOKEN)
             texts += r401.toString()
             repeat(2) { try { r401.state("sensor.fresh_tank") } catch (e: Exception) { texts += chain(e) } }
-            val r = HaReader(hub.url, TOKEN, listOf("sensor.slow", "sensor.bad_json", "sensor.gone"))
+            val r = HaReader(hub.url, TOKEN)
             for (e in listOf("sensor.slow", "sensor.bad_json", "sensor.gone", "sensor.not_in_set")) {
                 try { r.state(e) } catch (x: Exception) { texts += chain(x) }
             }
@@ -142,7 +136,7 @@ class HaReaderTest {
             val split = "$TOKEN\nsecond-line"
             var threw = false
             try {
-                HaReader(hub.url, split, listOf("sensor.fresh_tank")).health()
+                HaReader(hub.url, split).health()
             } catch (x: Exception) {
                 threw = true
                 texts += chain(x)
@@ -150,7 +144,7 @@ class HaReaderTest {
             assertTrue(threw, "a token with a line break was accepted")
         }
         // the hub is gone: connection refused
-        val gone = HaReader("http://127.0.0.1:1", TOKEN, listOf("sensor.fresh_tank"))
+        val gone = HaReader("http://127.0.0.1:1", TOKEN)
         try { gone.health() } catch (x: Exception) { texts += chain(x) }
         assertTrue(texts.size >= 8, "every path threw: $texts")
         for (t in texts + logs) assertFalse(TOKEN in t, "the token was said: $t")
@@ -162,14 +156,14 @@ class HaReaderTest {
         for (status in listOf(401, 403)) FakeHub().use { hub ->
             hub.answers["/api/"] = Answer(status, "")
             hub.answers["/api/states/sensor.fresh_tank"] = Answer(status, "")
-            val r = HaReader(hub.url, TOKEN, listOf("sensor.fresh_tank"))
+            val r = HaReader(hub.url, TOKEN)
             repeat(3) {
                 assertEquals(status, assertFailsWith<HaReader.TokenRefused> { r.state("sensor.fresh_tank") }.status)
             }
             assertEquals(status, assertFailsWith<HaReader.TokenRefused> { r.health() }.status)
             assertEquals(1, hub.requests.size, "HTTP $status: requests after the refusal")
-            // a restart reads the token again: a new reader asks once more
-            assertFailsWith<HaReader.TokenRefused> { HaReader(hub.url, TOKEN, listOf("sensor.fresh_tank")).health() }
+            // a new reader (the token file read again) asks once more
+            assertFailsWith<HaReader.TokenRefused> { HaReader(hub.url, TOKEN).health() }
             assertEquals(2, hub.requests.size)
         }
     }

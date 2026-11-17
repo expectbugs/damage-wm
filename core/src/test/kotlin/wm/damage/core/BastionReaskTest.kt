@@ -141,4 +141,46 @@ class BastionReaskTest {
             } finally { host.close() }
         }
     }
+
+    /** L1 X3: a host that takes the table ask and never answers (a link gone half-open after the PC's kernel took it).
+     *  Under a minute the ask is waited for; the ping that finds it a minute old drops the connection, and the
+     *  channel connects again and asks again — once per stuck ask. */
+    @Test
+    fun anAskWithNoAnswerForAMinuteDropsTheConnection(): Unit = journal { lines ->
+        val never = java.util.concurrent.CountDownLatch(1)
+        val standIn = object : WinService {
+            val asks = AtomicInteger()
+            val attached = AtomicInteger()
+            override fun attached(push: WinService.Push) { attached.incrementAndGet() }
+            override fun request(op: String, args: JsonObject): WinService.Answer {
+                asks.incrementAndGet()
+                never.await()                                    // taken, never answered
+                throw IllegalStateException("the test is over")
+            }
+        }
+        val port = ServerSocket(0).use { it.localPort }
+        val host = ContentHostServer(LocalContent(dir.resolve("books")), port, "tok", win = mapOf("bastion" to standIn))
+        host.start()
+        val cs = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val rb = RemoteBastion("127.0.0.1", port, "tok", cs, null, DeliveryRig().delivery, clock = clock::get,
+            pingMs = 20, retryPacingMs = 20)
+        try {
+            runBlocking {
+                waitUntil(10_000, 5, { "the first ask (${standIn.asks.get()})" }) { standIn.asks.get() == 1 }
+                ticks(rb, 10)
+                assertEquals(1, standIn.attached.get(), "under a minute the ask is waited for")
+                clock.addAndGet(RemoteBastion.STUCK_ASK_MS)
+                waitUntil(10_000, 5, { "connected again (${standIn.attached.get()}), asked (${standIn.asks.get()})" }) {
+                    standIn.attached.get() == 2 && standIn.asks.get() == 2 }
+                ticks(rb, 10)
+                assertEquals(2, standIn.attached.get(), "one drop per stuck ask")
+            }
+            assertTrue(lines.any { "has had no answer: the connection is dropped and opened again" in it }, "said: $lines")
+        } finally {
+            rb.close()
+            cs.cancel()
+            never.countDown()
+            host.close()
+        }
+    }
 }

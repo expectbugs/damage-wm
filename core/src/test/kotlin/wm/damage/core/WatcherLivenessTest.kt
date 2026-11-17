@@ -106,7 +106,7 @@ class WatcherLivenessTest {
                 hub.answers[HaReader.STATES + ENTITY] = listOf(Hub.Answer(200, state(ENTITY, "50")))
                 val clock = AtomicLong(T0)
                 val store = AlertStore(dir.resolve("alerts.json"), clock::get)
-                val w = BastionWatcher(HaReader(hub.url, TOKEN, listOf(ENTITY)), listOf(rule), store, scope,
+                val w = BastionWatcher(HaReader(hub.url, TOKEN), listOf(rule), store, scope,
                     clock::get, pollSec = 10, silentMin = 5)
 
                 w.tick()
@@ -165,7 +165,7 @@ class WatcherLivenessTest {
                 val clock = AtomicLong(T0)
                 val store = AlertStore(dir.resolve("alerts.json"), clock::get)
                 store.raise(rule.id, rule.severity, rule.text, "95")          // up before this start
-                val w = BastionWatcher(HaReader(hub.url, TOKEN, listOf(ENTITY)), listOf(rule), store, scope,
+                val w = BastionWatcher(HaReader(hub.url, TOKEN), listOf(rule), store, scope,
                     clock::get, pollSec = 10, silentMin = 5)
 
                 w.tick()
@@ -201,7 +201,7 @@ class WatcherLivenessTest {
             hub.answers[HaReader.STATES + ENTITY] = listOf(Hub.Answer(500, "{}"))
             val clock = AtomicLong(T0)
             val store = AlertStore(dir.resolve("alerts.json"), clock::get)
-            val w = BastionWatcher(HaReader(hub.url, TOKEN, listOf(ENTITY)), listOf(rule), store, scope,
+            val w = BastionWatcher(HaReader(hub.url, TOKEN), listOf(rule), store, scope,
                 clock::get, pollSec = 10, silentMin = 5)
             val alert = BastionWatcher.ENTITY_PREFIX + ENTITY
             suspend fun roundAt(ms: Long) {

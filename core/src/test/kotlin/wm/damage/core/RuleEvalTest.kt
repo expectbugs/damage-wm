@@ -2,7 +2,6 @@ package wm.damage.core
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import wm.damage.core.bastion.AlertRule
 import wm.damage.core.bastion.Decision
@@ -17,15 +16,14 @@ import wm.damage.core.bastion.RuleKind
 /**
  * Build W, package A (R6 T5): the evaluator over tables of readings, one per minute on an injected clock. It
  * fails when a flap between `clearAt` and `at` raises twice, a false reading does not restart `forMin`,
- * unavailable flapping shorter than `forMin` raises, a fixture where only `last_reported` moves is judged stale,
- * or a non-numeric state clears. Made-up entity ids only.
+ * unavailable flapping shorter than `forMin` raises, or a non-numeric state clears. Made-up entity ids only.
  */
 class RuleEvalTest {
 
     private fun rule(kind: RuleKind, at: Double? = null, clearAt: Double? = null, value: String? = null, forMin: Int = 0) =
         AlertRule("r", "sensor.fresh_tank", kind, at, clearAt, value, forMin, "text")
 
-    private fun s(state: String, reported: String? = "R", updated: String? = "U") = Reading.State(state, reported, updated)
+    private fun s(state: String) = Reading.State(state)
 
     /** Runs [readings] one minute apart from minute 0; returns each step's decision. */
     private fun run(rule: AlertRule, readings: List<Reading>, start: EvalState = EvalState()): List<Decision> {
@@ -70,20 +68,6 @@ class RuleEvalTest {
     }
 
     @Test
-    fun staleReadsLastReportedFirst() {
-        val stale = rule(RuleKind.STALE, forMin = 10)
-        // only last_reported moves (the value is unchanged, the sensor still reports): never stale
-        val reporting = List(20) { i -> s("42", reported = "R$i", updated = "U0") }
-        assertEquals(0, run(stale, reporting).count { it == RAISE }, "a sensor that still reports was judged stale")
-        // the report stamp stops at minute 0: stale ten minutes after the PC first saw it, cleared when it moves
-        val stopped = List(11) { s("42", reported = "R0", updated = "U0") } + s("42", reported = "R1", updated = "U0")
-        assertEquals(List(10) { HOLD } + RAISE + CLEAR, run(stale, stopped))
-        // without last_reported the update stamp is read
-        val old = List(11) { s("42", reported = null, updated = "U0") }
-        assertEquals(RAISE, run(stale, old).last())
-    }
-
-    @Test
     fun aNonNumericStateHoldsAndNeverClears() {
         val above = rule(RuleKind.ABOVE, at = 80.0, clearAt = 70.0)
         val d = run(above, listOf(s("85"), s("unavailable"), Reading.None, s("abc"), s("NaN"), s("85"), s("60")))
@@ -95,8 +79,6 @@ class RuleEvalTest {
         assertEquals(1 * MIN, st.noReadingSince)
         st = RuleEval.step(above, st, s("75"), 3 * MIN).first
         assertNull(st.noReadingSince)
-        // a stale rule with no answer holds too
-        assertEquals(listOf(HOLD, HOLD), run(rule(RuleKind.STALE, forMin = 1), listOf(Reading.None, Reading.None)))
     }
 
     @Test
@@ -113,11 +95,6 @@ class RuleEvalTest {
     fun aSeededRaisedAlertHoldsUntilItsConditionEnds() {
         val above = rule(RuleKind.ABOVE, at = 80.0, clearAt = 70.0, forMin = 5)
         assertEquals(listOf(HOLD, HOLD, CLEAR), run(above, listOf(s("85"), s("75"), s("60")), EvalState.seeded(true)))
-        // a stale alert after a restart: the first sight starts the clock and does not clear it
-        val stale = rule(RuleKind.STALE, forMin = 10)
-        assertEquals(listOf(HOLD, HOLD, CLEAR), run(stale, listOf(s("1", "R0"), s("1", "R0"), s("1", "R1")), EvalState.seeded(true)))
-        val st = RuleEval.step(stale, EvalState(), s("1", "R0"), 0).first
-        assertNotNull(st.stamp)
     }
 
     private companion object {

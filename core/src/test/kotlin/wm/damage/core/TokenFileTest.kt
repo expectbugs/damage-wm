@@ -1,22 +1,21 @@
 package wm.damage.core
 
+import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import org.junit.After
 import wm.damage.core.bastion.HaReader
-import wm.damage.core.bastion.HaReader.TokenRead
 import wm.damage.core.util.Log
 
 /**
  * Build W, package A (T28): the hub's token is read from a file Adam already keeps (dec. A.6). Every case is
- * answered — missing, empty, white space only, unreadable, more than one token — the text is trimmed, and
- * nothing that comes back or is logged carries it. Temp directories and made-up tokens only.
+ * answered in plain words — missing, empty, white space only, unreadable, more than one token — the text is
+ * trimmed, and no case's words carry it and nothing is logged. Temp directories and made-up tokens only.
  */
 class TokenFileTest {
 
@@ -37,41 +36,35 @@ class TokenFileTest {
     @Test
     fun everyCaseIsAnsweredAndNothingCarriesTheText() {
         Log.addSink(sink)
-        val answers = ArrayList<TokenRead>()
-        fun read(p: Path): TokenRead = HaReader.readTokenFile(p).also { answers += it }
+        val said = ArrayList<String>()
+        /** The case's words, or the token for a usable file. */
+        fun read(p: Path): String = try {
+            HaReader.readTokenFile(p)
+        } catch (e: IOException) {
+            e.message!!.also { said += it }
+        }
 
-        assertIs<TokenRead.Missing>(read(dir.resolve("absent")))
-        assertIs<TokenRead.Missing>(read(dir.resolve("no-such-dir").resolve("token")))
-        assertIs<TokenRead.Empty>(read(file("empty", "")))
-        assertIs<TokenRead.Empty>(read(file("blank", "  \n\t \r\n ")))
-
-        val ok = read(file("ok", "  $TOKEN  \n"))
-        assertIs<TokenRead.Ok>(ok)
-        assertEquals(TOKEN, ok.token, "the text is trimmed")
-        val bom = read(file("bom", byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte()) + "$TOKEN\n".toByteArray()))
-        assertIs<TokenRead.Ok>(bom)
-        assertEquals(TOKEN, bom.token, "a leading byte-order mark is not part of the token")
-
+        assertEquals("does not exist", read(dir.resolve("absent")))
+        assertEquals("does not exist", read(dir.resolve("no-such-dir").resolve("token")))
+        assertEquals("is empty", read(file("empty", "")))
+        assertEquals("is empty", read(file("blank", "  \n\t \r\n ")))
+        assertEquals(TOKEN, read(file("ok", "  $TOKEN  \n")), "the text is trimmed")
+        assertEquals(TOKEN, read(file("bom", byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte()) + "$TOKEN\n".toByteArray())),
+            "a leading byte-order mark is not part of the token")
         // not one token: two lines, a pasted header line, a non-ASCII character
-        assertIs<TokenRead.Malformed>(read(file("two-lines", "$TOKEN\n$TOKEN-2\n")))
-        assertIs<TokenRead.Malformed>(read(file("header", "Bearer $TOKEN")))
-        assertIs<TokenRead.Malformed>(read(file("non-ascii", TOKEN + 'é')))
-
+        for (text in listOf("$TOKEN\n$TOKEN-2\n", "Bearer $TOKEN", TOKEN + 'é')) {
+            assertTrue(read(file("not-one", text)).startsWith("does not hold one token"), text)
+        }
         // unreadable: a directory, bytes that are not UTF-8, and (when not run as root) a file nobody may read
-        val asDir = read(Files.createDirectory(dir.resolve("a-directory")))
-        assertIs<TokenRead.Unreadable>(asDir)
-        assertTrue(asDir.cls.isNotEmpty())
-        val notUtf8 = read(file("not-utf8", byteArrayOf(0xC3.toByte(), 0x28, 0x41)))
-        assertIs<TokenRead.Unreadable>(notUtf8)
+        assertTrue(read(Files.createDirectory(dir.resolve("a-directory"))).startsWith("could not be read ("))
+        assertTrue(read(file("not-utf8", byteArrayOf(0xC3.toByte(), 0x28, 0x41))).startsWith("could not be read ("))
         if (System.getProperty("user.name") != "root") {
             val locked = file("locked", TOKEN)
             assertTrue(locked.toFile().setReadable(false, false))
-            val r = read(locked)
-            assertIs<TokenRead.Unreadable>(r)
-            assertEquals("AccessDeniedException", r.cls, "the exception's class name only")
+            assertEquals("could not be read (AccessDeniedException)", read(locked), "the exception's class name only")
         }
 
-        for (a in answers) assertFalse(TOKEN in a.toString(), "an answer's text carries the token: $a")
+        for (a in said) assertFalse(TOKEN in a, "an answer's text carries the token: $a")
         for (l in logs) assertFalse(TOKEN in l, "a log line carries the token: $l")
         assertTrue(logs.none { "tokenfile" in it || "readTokenFile" in it }, "readTokenFile logged: $logs")
     }

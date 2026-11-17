@@ -1,5 +1,6 @@
 package wm.damage.core.bastion
 
+import java.io.IOException
 import java.nio.file.Path
 import java.time.Instant
 import java.time.ZoneId
@@ -32,12 +33,17 @@ import wm.damage.core.util.Log
  * - No good answer for `haSilentMin` raises [SILENT]; the next good answer clears it.
  *
  * **Built-in alerts** (normal severity, `builtIn`): [SILENT]; [TOKEN] (a 401/403: the reader
- * latches, polling stops, the state line says why — until a restart); [TOKEN_FILE], [RULES] and
- * `watcher.rule.<id>` (decided once at start by [build]); `watcher.entity.<entity>` (the hub has no
+ * latches, polling stops, the state line says why); [TOKEN_FILE] (raised at start by [build]); [RULES]
+ * and `watcher.rule.<id>` (decided once at start by [build]); `watcher.entity.<entity>` (the hub has no
  * such entity, 404 — or the entity's reads have failed for `haSilentMin` while the hub answers; cleared
  * by its next good read); [COPY] (the nightly copy's, `desktop/…/NightlyCopy`);
  * [AlertStore.STORE_ALERT] (the store's). Their texts are plain words, never cut, and never carry
  * the token or a hub answer's body ([HaReader]'s exceptions name the path and status only).
+ *
+ * **The token file is read again** once a minute while the watcher is off for it or the hub refused
+ * its token ([readTokenAgain]): a usable token that is not the refused one makes a new reader, clears
+ * [TOKEN] and [TOKEN_FILE] and starts the polling, so no restart is needed. The state line and the
+ * log say which case the file is in, never its text.
  *
  * Repeats ([AlertStore.dueRepeats]) are asked every tick: urgent every ten minutes, a normal rule
  * every `repeatMin` (0 = said once), built-ins once. An OFF watcher runs a repeat-only tick: the
@@ -45,26 +51,27 @@ import wm.damage.core.util.Log
  * alert, and that includes its repeats (fix round 1, R1.3).
  *
  * **Guards and change rules** (package E, dec. F.1–F.3). A guard's hub entity is read like a rule's
- * (it joins the reader's path set and is read first in every round, so a round judges its rules on
+ * (it is read first in every round, so a round judges its rules on
  * that round's guard); `damage.phone` comes from [presence]. The guard is judged at each of its
  * rule's evaluations ([RuleEval.step]); when it ends, the rule's alert clears with words saying so.
  * A `change` rule's baseline is saved with its alert in the store and seeded from it at start (a
- * restart during an away period goes on from the saved value; a guard found false drops it). A
- * `withinMin` rule keeps one sample a minute in memory ([SAMPLE_MS]); it is blind for `withinMin`
- * after a start, after its guard ends and after a gap in its readings, and the state line says so.
+ * restart during an away period goes on from the saved value; a guard found false drops it).
  */
 class BastionWatcher(
-    /** Null = the watcher is off this start ([offReason] says why): no loop runs. */
-    private val reader: HaReader?,
+    /** Null = the watcher is off ([offReason] says why): its ticks only ask the repeats and read [tokenFile]. */
+    reader: HaReader?,
     val rules: List<AlertRule>,
     private val store: AlertStore,
     private val scope: CoroutineScope,
     private val clock: () -> Long = { System.currentTimeMillis() },
     pollSec: Int = 10,
     silentMin: Int = 5,
-    private val offReason: String? = null,
+    offReason: String? = null,
     /** `damage.phone` (dec. F.3): null on a host that does not read it — a guard on it then has no reading. */
     private val presence: PhonePresence? = null,
+    /** The hub's URL and the token file, read again while off for it or refused; null = never read again. */
+    private val haUrl: String = "",
+    private val tokenFile: Path? = null,
 ) {
     init {
         require(reader != null || offReason != null) { "an off watcher says why" }
@@ -81,6 +88,13 @@ class BastionWatcher(
         entities.associateWith { e -> rules.filter { e in it.hubEntities } }
     private val repeatMs: Map<String, Long> = rules.associate { it.id to it.repeatMs }
     private val startedAt = clock()
+
+    /** Replaced only by [readTokenAgain], under [lock]. */
+    @Volatile private var reader: HaReader? = reader
+    @Volatile private var offReason: String? = offReason
+    /** When the token file was last read (by [build] just before this, then by the tick), and the case last said. */
+    private var tokenReadAt = startedAt
+    @Volatile private var tokenCase: String? = offReason
 
     private val attempts = AtomicLong(0)
     /** Rounds in flight: attempt → when it started. Written by the tick (put) and the round (remove). */
@@ -104,17 +118,15 @@ class BastionWatcher(
     private var answeredOnce = false
     /** Per guard entity: its last state read, null = no reading (not read yet, or its read failed). */
     private val guardStates = HashMap<String, String?>()
-    /** Per `withinMin` rule: one sample a minute, back to the newest at or before `withinMin` ago. */
-    private val rings = HashMap<String, ArrayDeque<Sample>>()
     // ----
 
-    /** 0 = no refusal; else the status of the 401/403 that stopped the polling. */
+    /** 0 = no refusal; else the status of the 401/403 that stopped the polling (set and reset under [lock]). */
     @Volatile private var refusedStatus = 0
     private var loop: Job? = null
 
     init {
         for (r in rules) {
-            val saved = if (r.kind == RuleKind.CHANGE && r.withinMin == 0) store.baselineOf(r.id) else null
+            val saved = if (r.kind == RuleKind.CHANGE) store.baselineOf(r.id) else null
             evals[r.id] = EvalState.seeded(store.stateOf(r.id) != AlertState.CLEAR, saved?.first, saved?.second ?: 0L)
         }
     }
@@ -122,10 +134,10 @@ class BastionWatcher(
     /** How many hub rounds are in flight now (0, 1 or 2): the state line's and the tests' read. */
     val roundsInFlight: Int get() = inFlight.size
 
-    /** Whether this start's watcher runs (false: [stateLine] says why). */
+    /** Whether the watcher runs (false: [stateLine] says why). */
     val on: Boolean get() = reader != null
 
-    /** Starts the tick loop (pacing every `haPollSec`). An off watcher's ticks only ask the repeats. */
+    /** Starts the tick loop (pacing every `haPollSec`). An off watcher's ticks ask the repeats and read the token file. */
     fun start() {
         if (loop != null) return
         loop = scope.launch {
@@ -147,15 +159,18 @@ class BastionWatcher(
         // repeats first: an urgent alert repeats until acknowledged, whether or not the hub is being read, and
         // whether or not this start's watcher is on (a no-op while nothing is RAISED)
         store.dueRepeats(now, repeatMs)
-        if (reader == null) return         // off: repeat-only
+        if ((reader == null || refusedStatus != 0) && tokenFile != null && now - tokenReadAt >= TOKEN_READ_MS) {
+            readTokenAgain(tokenFile, now)
+        }
+        val r = reader ?: return           // off: repeat-only
         if (refusedStatus != 0) return     // polling stopped (a 401/403); the state line and TOKEN say why
         val oldest = inFlight.values.minOrNull()
         when {
-            oldest == null -> launchRound()
+            oldest == null -> launchRound(r)
             inFlight.size < MAX_IN_FLIGHT && now - oldest >= STUCK_MS -> {
                 Log.w(TAG, "hub request in flight ${(now - oldest) / 1000}s - one more round starts beside it " +
                     "(nothing is cancelled; the stuck one ends when its connection does)")
-                launchRound()
+                launchRound(r)
             }
             else -> {}                     // still asking: skip this tick
         }
@@ -173,12 +188,47 @@ class BastionWatcher(
         }
     }
 
-    private fun launchRound() {
+    /**
+     * X1 / X2: the token file once more, while the watcher is off for it or the hub refused its token. A usable
+     * token that this reader does not already send (a refused token is never sent again) makes a new reader: the
+     * polling starts, [TOKEN] and [TOKEN_FILE] clear and the silent clock starts from now. Otherwise the case is
+     * said when it changes (the log; while off, the state line and [TOKEN_FILE]'s words).
+     */
+    private fun readTokenAgain(file: Path, now: Long) {
+        tokenReadAt = now
+        val why = try {
+            val token = HaReader.readTokenFile(file)
+            if (reader?.sends(token) == true) return       // still the refused token: wait for the file to change
+            val r = HaReader(haUrl, token)
+            synchronized(lock) {
+                reader = r
+                refusedStatus = 0
+                offReason = null
+                tokenCase = null
+                lastGoodAt = now
+            }
+            Log.i(TAG, "the token file $file holds a new usable token: polling starts")
+            store.clear(TOKEN)
+            store.clear(TOKEN_FILE)
+            return
+        } catch (e: IOException) {
+            "the token file $file ${e.message}"
+        }
+        if (why == tokenCase) return
+        tokenCase = why
+        Log.w(TAG, "$why (read again every minute)")
+        if (reader != null) return                         // refused: the TOKEN alert and the state line stand
+        offReason = why
+        if (store.table().any { it.id == TOKEN_FILE && it.text != offText(why) }) store.clear(TOKEN_FILE)
+        store.raise(TOKEN_FILE, Severity.NORMAL, offText(why), "", builtIn = true)
+    }
+
+    private fun launchRound(r: HaReader) {
         val attempt = attempts.incrementAndGet()
         inFlight[attempt] = clock()
         scope.launch(Dispatchers.IO) {
             try {
-                round(attempt)
+                round(attempt, r)
             } catch (e: Exception) {
                 Log.e(TAG, "hub round $attempt ended early", e)
             } finally {
@@ -195,12 +245,11 @@ class BastionWatcher(
         object NoHub : Outcome()
     }
 
-    private fun round(attempt: Long) {
-        val r = reader ?: return
+    private fun round(attempt: Long, r: HaReader) {
         try {
             r.health()
         } catch (e: HaReader.TokenRefused) {
-            tokenRefused(e.status)
+            tokenRefused(r, e.status)
             return
         } catch (e: Exception) {
             hubOutcome(attempt, problemOf(e))
@@ -210,10 +259,9 @@ class BastionWatcher(
         hubOutcome(attempt, null)
         for (entity in entities) {
             val outcome = try {
-                val s = r.state(entity)
-                Outcome.Read(Reading.State(s.state, s.lastReported, s.lastUpdated))
+                Outcome.Read(Reading.State(r.state(entity)))
             } catch (e: HaReader.TokenRefused) {
-                tokenRefused(e.status)
+                tokenRefused(r, e.status)
                 return
             } catch (e: HaReader.NotFound) {
                 Outcome.Missing
@@ -313,19 +361,14 @@ class BastionWatcher(
         else -> null
     }
 
-    /** One rule, one reading, under [lock]: the guard, the change rule's baseline or past sample, the decision. */
+    /** One rule, one reading, under [lock]: the guard, the change rule's baseline, the decision. */
     private fun evaluate(rule: AlertRule, reading: Reading, now: Long) {
         val prior = evals.getValue(rule.id)
         val guard = guardOf(rule)
-        val within = rule.kind == RuleKind.CHANGE && rule.withinMin > 0
-        val arming = rule.kind == RuleKind.CHANGE && rule.withinMin == 0
-        val past = if (within) pastSample(rule, now) else null
+        val arming = rule.kind == RuleKind.CHANGE
         val ackedAt = if (arming) store.ackedAtOf(rule.id) else 0L
-        val (next, decision) = RuleEval.step(rule, prior, reading, now, guard.read, past, ackedAt)
+        val (next, decision) = RuleEval.step(rule, prior, reading, now, guard.read, ackedAt)
         evals[rule.id] = next
-        if (within) {
-            if (guard.read == GuardRead.ENDED) rings.remove(rule.id) else sample(rule, reading, now)
-        }
         if (arming && (next.baseline != prior.baseline || next.baselineAt != prior.baselineAt)) {
             // kept with the alert, so a restart goes on from it (dec. F.2); dropped when the guard ends
             store.setBaseline(rule.id, next.baseline, next.baselineAt)
@@ -334,7 +377,7 @@ class BastionWatcher(
         when (decision) {
             Decision.RAISE -> {
                 Log.i(TAG, "rule ${rule.id} raised (${rule.kind.wire} on ${rule.entity}, reading $value)")
-                store.raise(rule.id, rule.severity, raiseText(rule, next, past, value), value)
+                store.raise(rule.id, rule.severity, raiseText(rule, next, value), value)
             }
             Decision.CLEAR -> {
                 val g = rule.guard
@@ -354,55 +397,33 @@ class BastionWatcher(
 
     /** A change rule's words carry the baseline, the value and since when (dec. F.2): "Fresh tank 100 → 94 since
      *  08:12". Other kinds: the rule's text. */
-    private fun raiseText(rule: AlertRule, next: EvalState, past: Sample?, value: String): String {
-        if (rule.kind != RuleKind.CHANGE) return rule.text
-        val base = past?.text ?: next.baseline
-        val at = past?.at ?: next.baselineAt
-        return "${rule.text} $base → $value since ${hhmm(at)}"
-    }
+    private fun raiseText(rule: AlertRule, next: EvalState, value: String): String =
+        if (rule.kind != RuleKind.CHANGE) rule.text else "${rule.text} ${next.baseline} → $value since ${hhmm(next.baselineAt)}"
 
-    /** A `withinMin` rule's sample ring, under [lock]: one usable reading a minute, kept back to the newest sample
-     *  at or before `withinMin` ago. */
-    private fun sample(rule: AlertRule, reading: Reading, now: Long) {
-        val text = (reading as? Reading.State)?.state ?: return
-        val v = RuleEval.number(text) ?: return
-        val ring = rings.getOrPut(rule.id) { ArrayDeque() }
-        val last = ring.lastOrNull()
-        if (last != null && now - last.at < SAMPLE_MS) return
-        ring.addLast(Sample(v, text, now))
-        val target = now - rule.withinMin * 60_000L
-        while (ring.size >= 2 && ring[1].at <= target) ring.removeFirst()
-    }
-
-    /** The reading from `withinMin` ago: the newest sample at or before then, if it is no more than
-     *  [SAMPLE_GAP_MS] older; null = blind (just started, the guard just turned true, or a gap in the readings). */
-    private fun pastSample(rule: AlertRule, now: Long): Sample? {
-        val target = now - rule.withinMin * 60_000L
-        val s = rings[rule.id]?.lastOrNull { it.at <= target } ?: return null
-        return if (target - s.at <= SAMPLE_GAP_MS) s else null
-    }
-
-    private fun tokenRefused(status: Int) {
-        if (refusedStatus != 0) return
-        refusedStatus = status
-        Log.e(TAG, "the hub refused the token (HTTP $status): polling stops until Damage restarts with a good token file")
-        // a refusal is an answer: the hub is up
+    /** [r]'s 401/403. A round of a reader already replaced by [readTokenAgain] changes nothing. */
+    private fun tokenRefused(r: HaReader, status: Int) {
         synchronized(lock) {
+            if (r !== reader || refusedStatus != 0) return
+            refusedStatus = status
+            tokenCase = null
+            // a refusal is an answer: the hub is up
             lastGoodAt = maxOf(lastGoodAt, clock())
             hubProblem = null
             hubFailingSince = null
             if (store.stateOf(SILENT) != AlertState.CLEAR) store.clear(SILENT)
         }
-        store.raise(TOKEN, Severity.NORMAL,
-            "Bus watcher stopped: the hub refused its token (HTTP $status). Check the token file and restart Damage.",
-            "", builtIn = true)
+        Log.e(TAG, "the hub refused the token (HTTP $status): polling stops until the token file holds another token")
+        store.raise(TOKEN, Severity.NORMAL, "Bus watcher stopped: the hub refused its token (HTTP $status). " +
+            "Put a new token in the token file: it is read again every minute.", "", builtIn = true)
     }
 
     /** One line for the `table` answer and the PC's own surfaces. Never carries the token or a hub body. */
     fun stateLine(): String {
-        if (reader == null) return "bus watcher off: $offReason" + (presence?.let { " · ${it.stateLine()}" } ?: "")
+        if (reader == null) return "bus watcher off: $offReason" + (if (tokenFile != null) " (read again every minute)" else "") +
+            (presence?.let { " · ${it.stateLine()}" } ?: "")
         val status = refusedStatus
-        if (status != 0) return "bus watcher stopped: the hub refused its token (HTTP $status) - check the token file and restart"
+        if (status != 0) return "bus watcher stopped: the hub refused its token (HTTP $status) - " +
+            "the token file is read again every minute"
         val now = clock()
         val parts = ArrayList<String>()
         parts += "${rules.size} rule(s)"
@@ -417,16 +438,12 @@ class BastionWatcher(
             }
             for ((e, p) in entityProblem) parts += "$e: $p"
             for (r in rules) {
-                evals[r.id]?.guardNoReadingSince?.let { since ->
-                    val g = r.guard
-                    parts += "rule ${r.id}: no reading of its guard ${g?.entity} since ${hhmm(since)}"
-                }
-                if (r.kind == RuleKind.CHANGE && r.withinMin > 0 && pastSample(r, now) == null) {
-                    val target = now - r.withinMin * 60_000L
-                    val from = rings[r.id]?.firstOrNull { it.at >= target - SAMPLE_GAP_MS }?.at ?: now
-                    parts += "rule ${r.id}: blind until ${hhmm(from + r.withinMin * 60_000L)} " +
-                        "(no reading from ${r.withinMin} min ago yet)"
-                }
+                val ev = evals[r.id] ?: continue
+                ev.guardNoReadingSince?.let { parts += "rule ${r.id}: no reading of its guard ${r.guard?.entity} since ${hhmm(it)}" }
+                // W12: a reading that is no number (or no answer) holds the rule; said once it lasts haSilentMin,
+                // unless the hub or the entity's own reads already say why
+                ev.noReadingSince?.takeIf { now - it >= silentMs && problem == null && r.entity !in entityProblem }
+                    ?.let { parts += "rule ${r.id}: no usable reading since ${hhmm(it)}" }
             }
         }
         presence?.let { parts += it.stateLine() }
@@ -450,10 +467,8 @@ class BastionWatcher(
         private const val MISSING = "not on the hub (404)"
         /** A guard's state that is no reading (dec. F.1; `damage.phone`'s `unknown` included). */
         private val NO_READING = setOf("unavailable", PhonePresence.UNKNOWN)
-        /** A `withinMin` rule keeps one sample a minute (dec. F.2). */
-        const val SAMPLE_MS = 60_000L
-        /** The sample from `withinMin` ago may be this much older than that; older = a gap in the readings, blind. */
-        const val SAMPLE_GAP_MS = 3 * 60_000L
+        /** While off for the token file or refused, the file is read again this often (X1, X2). */
+        const val TOKEN_READ_MS = 60_000L
         private val HHMM = DateTimeFormatter.ofPattern("HH:mm")
 
         private fun hhmm(ms: Long): String = HHMM.format(Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault()))
@@ -461,6 +476,9 @@ class BastionWatcher(
         /** A failure in plain words: the exception's class and message. [HaReader]'s own name the path and
          *  status only; the JDK's name the address or the socket's state. */
         private fun problemOf(e: Exception): String = "${e::class.simpleName}: ${e.message ?: "no detail"}"
+
+        /** [TOKEN_FILE]'s words for an off watcher that reads its token file again. */
+        private fun offText(why: String) = "Bus watcher off: $why. The file is read again every minute."
 
         /** The watcher's own alerts: the store's ([AlertStore.STORE_ALERT]) and the copy's ([COPY]) are not. */
         fun isOwnBuiltIn(id: String): Boolean =
@@ -483,14 +501,16 @@ class BastionWatcher(
 
         /**
          * The watcher for this start (dec. A.1, A.6; the spec's §2(f)), from the config's `haUrl`, `haTokenFile`
-         * and the rules file, each read ONCE (a change needs a restart: rule hot-reload is not built). Says at start
+         * and the rules file, read at start (a rules or config change needs a restart: rule hot-reload is not built;
+         * the token file alone is read again while it cannot be used or its token is refused). Says at start
          * whether it runs and why not, and how many rules were kept and refused; raises [TOKEN_FILE], [RULES] and
          * `watcher.rule.<id>` as the reads decide, and retires the alerts of rules that are gone.
          *
          * - `haUrl` empty: off, said; no rules are read and every alert of the watcher's is cleared.
          * - `haUrl` set, the token file not set, missing, empty, unreadable or not one token: off, said with the
          *   PATH and the case (the class name only for an unreadable file), [TOKEN_FILE] raised. The rules are
-         *   still read, so their refusals are said; the alerts of rules that still exist are left as they are.
+         *   still read, so their refusals are said; the alerts of rules that still exist are left as they are. A
+         *   set token file is read again once a minute, and the watcher turns on when it holds a usable token.
          * - Otherwise on. The token's text goes from the file to [HaReader]'s header only: never logged, never
          *   in an alert, a state line or an exception text.
          */
@@ -530,36 +550,29 @@ class BastionWatcher(
             if (problem == null) store.retire(load.rules.mapTo(HashSet()) { it.id } + load.refused.map { it.id })
             else Log.i(TAG, "the rules file has a problem: every rule alert up is kept as it is")
 
-            val read = if (tokenFile.isEmpty()) null else HaReader.readTokenFile(Path.of(tokenFile))
-            var off: String? = when (read) {
-                null -> "no haTokenFile is set in the config"
-                is HaReader.TokenRead.Ok -> null
-                HaReader.TokenRead.Missing -> "the token file $tokenFile does not exist"
-                HaReader.TokenRead.Empty -> "the token file $tokenFile is empty"
-                is HaReader.TokenRead.Unreadable -> "the token file $tokenFile could not be read (${read.cls})"
-                HaReader.TokenRead.Malformed -> "the token file $tokenFile does not hold one token " +
-                    "(a space, a line break or a character outside plain ASCII inside it)"
-            }
-            val reader: HaReader? = if (read !is HaReader.TokenRead.Ok) null else try {
-                // the rules' entities and their guards' (dec. F.1): the reader's closed path set
-                HaReader(haUrl, read.token, load.rules.flatMap { it.hubEntities }.distinct())
-            } catch (e: IllegalArgumentException) {
-                // HaReader's refusals carry no token text (its constructor's messages are fixed words)
-                off = "the hub reader refused its setup (${e.message})"
-                null
+            val file = tokenFile.takeIf { it.isNotEmpty() }?.let { Path.of(it) }
+            var why = "no haTokenFile is set in the config"
+            val reader = file?.let {
+                try {
+                    HaReader(haUrl, HaReader.readTokenFile(it))
+                } catch (e: IOException) {
+                    why = "the token file $it ${e.message}"
+                    null
+                }
             }
             if (reader == null) {
-                val why = off ?: "the hub reader was not set up"
                 Log.e(TAG, "bus watcher off: $why")
-                raise[TOKEN_FILE] = "Bus watcher off: $why. Fix it and restart Damage."
+                raise[TOKEN_FILE] = if (file != null) offText(why) else "Bus watcher off: $why. Fix it and restart Damage."
                 settleAtStart(store, raise) { false }
-                return BastionWatcher(null, load.rules, store, scope, clock, pollSec, offReason = why, presence = presence)
+                return BastionWatcher(null, load.rules, store, scope, clock, pollSec, silentMin, offReason = why,
+                    presence = presence, haUrl = haUrl, tokenFile = file)
             }
             val watched = load.rules.flatMap { it.hubEntities }.mapTo(HashSet()) { ENTITY_PREFIX + it }
             settleAtStart(store, raise) { id -> id == SILENT || id in watched }
             Log.i(TAG, "bus watcher on: every ${pollSec.coerceAtLeast(1)} s, ${load.rules.size} rule(s), " +
                 "silent after ${silentMin.coerceAtLeast(1)} min")
-            return BastionWatcher(reader, load.rules, store, scope, clock, pollSec, silentMin, presence = presence)
+            return BastionWatcher(reader, load.rules, store, scope, clock, pollSec, silentMin, presence = presence,
+                haUrl = haUrl, tokenFile = file)
         }
     }
 }

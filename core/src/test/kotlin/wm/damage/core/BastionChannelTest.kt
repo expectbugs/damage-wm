@@ -142,7 +142,7 @@ class BastionChannelTest {
                 // a watcher on the same store, never ticked: an ack must not reach its hub through any path
                 val rule = AlertRule(id = "pump_fault", entity = "binary_sensor.pump_fault", kind = RuleKind.EQUALS,
                     value = "on", text = "Water pump fault")
-                BastionWatcher(HaReader("http://127.0.0.1:${hub.address.port}", "made-up-test-token", listOf(rule.entity)),
+                BastionWatcher(HaReader("http://127.0.0.1:${hub.address.port}", "made-up-test-token"),
                     listOf(rule), store, h.scope)
                 h.up()
                 val first = h.table(0, 0)

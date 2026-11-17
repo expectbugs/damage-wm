@@ -6,7 +6,6 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import wm.damage.core.bastion.AlertRule
 import wm.damage.core.bastion.Decision
-import wm.damage.core.bastion.Direction
 import wm.damage.core.bastion.EvalState
 import wm.damage.core.bastion.Guard
 import wm.damage.core.bastion.GuardRead
@@ -14,25 +13,22 @@ import wm.damage.core.bastion.Reading
 import wm.damage.core.bastion.RuleEval
 import wm.damage.core.bastion.RuleKind
 import wm.damage.core.bastion.RulesFile
-import wm.damage.core.bastion.Sample
 
 /**
  * Build W, package E (the lead's decisions F.1 and F.2): the rules file's `when` and the kind `change`, parsed and
- * judged. Pure: [RuleEval.step] with the guard, the past sample and the acknowledge time handed in. A guard that ends
- * resets the rule's clocks and baseline and clears its alert; a guard with no reading neither arms nor clears; a
- * change rule raises at `at` or more in its direction held `forMin`, takes its baseline at arming and again after an
- * acknowledge, and with `withinMin` is blind without a past sample. Made-up entity ids only.
+ * judged. Pure: [RuleEval.step] with the guard and the acknowledge time handed in. A guard that ends resets the
+ * rule's clocks and baseline and clears its alert; a guard with no reading neither arms nor clears; a change rule
+ * raises at `at` or more either way held `forMin` and takes its baseline at arming and again after an acknowledge.
+ * Made-up entity ids only.
  */
 class ChangeRuleTest {
 
     private val guard = Guard("binary_sensor.away_mode", "on", equals = true)
 
-    private fun change(at: Double = 3.0, direction: Direction = Direction.ANY, forMin: Int = 0, withinMin: Int = 0,
-                       g: Guard? = null) =
-        AlertRule("leak", "sensor.fresh_tank", RuleKind.CHANGE, at = at, forMin = forMin, text = "Fresh tank",
-            guard = g, direction = direction, withinMin = withinMin)
+    private fun change(at: Double = 3.0, forMin: Int = 0, g: Guard? = null) =
+        AlertRule("leak", "sensor.fresh_tank", RuleKind.CHANGE, at = at, forMin = forMin, text = "Fresh tank", guard = g)
 
-    private fun s(state: String) = Reading.State(state, "R", "U")
+    private fun s(state: String) = Reading.State(state)
 
     private fun parse(rule: String) = RulesFile.parse("""{"rules":[$rule]}""")
 
@@ -47,8 +43,7 @@ class ChangeRuleTest {
         val ok = parse("""
             {"id":"leak","entity":"sensor.fresh_tank","kind":"change","at":3,"text":"Fresh tank",
              "when":{"entity":"damage.phone","equals":"away"}},
-            {"id":"drop","entity":"sensor.grey_tank","kind":"change","at":"2.5","direction":"down","withinMin":60,
-             "forMin":2,"text":"Grey tank"},
+            {"id":"drop","entity":"sensor.grey_tank","kind":"change","at":"2.5","forMin":2,"text":"Grey tank"},
             {"id":"sump","entity":"sensor.sump_level","kind":"above","at":5,"clearAt":3,"text":"Sump high",
              "when":{"entity":"switch.sump_pump","notEquals":"on"}}
         """.trimIndent())
@@ -56,22 +51,15 @@ class ChangeRuleTest {
         val (leak, drop, sump) = ok.rules
         assertEquals(Guard("damage.phone", "away", equals = true), leak.guard)
         assertEquals(listOf("sensor.fresh_tank"), leak.hubEntities, "a built-in guard is not read from the hub")
-        assertEquals(Direction.ANY, leak.direction)
-        assertEquals(0, leak.withinMin)
         assertEquals(2.5, drop.at)
-        assertEquals(Direction.DOWN, drop.direction)
-        assertEquals(60, drop.withinMin)
         assertNull(drop.guard)
         assertEquals(Guard("switch.sump_pump", "on", equals = false), sump.guard)
-        assertEquals(listOf("sensor.sump_level", "switch.sump_pump"), sump.hubEntities, "a hub guard joins the path set")
+        assertEquals(listOf("sensor.sump_level", "switch.sump_pump"), sump.hubEntities, "a hub guard is read too")
 
         val base = """"id":"r","entity":"sensor.fresh_tank","kind":"change","text":"x""""
         assertTrue("at above 0" in refusedWhy("{$base,\"at\":0}"))
         assertTrue("at missing" in refusedWhy("{$base}"))
         assertTrue("clearAt does not apply" in refusedWhy("{$base,\"at\":3,\"clearAt\":1}"))
-        assertTrue("direction" in refusedWhy("{$base,\"at\":3,\"direction\":\"sideways\"}"))
-        assertTrue("withinMin" in refusedWhy("{$base,\"at\":3,\"withinMin\":0}"))
-        assertTrue("withinMin" in refusedWhy("{$base,\"at\":3,\"withinMin\":1441}"))
         val w = """"id":"r","entity":"sensor.fresh_tank","kind":"above","at":5,"clearAt":3,"text":"x""""
         assertTrue("exactly one" in refusedWhy("{$w,\"when\":{\"entity\":\"switch.a\",\"equals\":\"on\",\"notEquals\":\"off\"}}"))
         assertTrue("exactly one" in refusedWhy("{$w,\"when\":{\"entity\":\"switch.a\"}}"))
@@ -133,7 +121,7 @@ class ChangeRuleTest {
     }
 
     @Test
-    fun aChangeRaisesAtAtInItsDirectionAndHoldsForMin() {
+    fun aChangeRaisesAtAtEitherWayAndHoldsForMin() {
         fun run(rule: AlertRule, values: List<String>): List<Decision> {
             var st = EvalState()
             return values.mapIndexed { i, v ->
@@ -147,10 +135,7 @@ class ChangeRuleTest {
         val C = Decision.CLEAR
         // the first reading is the baseline (100); 2.9 below is not a change of 3; 3 below is
         assertEquals(listOf(H, H, R, H, C), run(change(), listOf("100", "97.1", "97", "96", "98")))
-        assertEquals(listOf(H, R), run(change(), listOf("100", "103")), "any: up counts")
-        assertEquals(listOf(H, H, H), run(change(direction = Direction.DOWN), listOf("100", "103", "110")), "down only")
-        assertEquals(listOf(H, R), run(change(direction = Direction.DOWN), listOf("100", "97")))
-        assertEquals(listOf(H, H, R), run(change(direction = Direction.UP), listOf("100", "90", "103")), "up only")
+        assertEquals(listOf(H, R), run(change(), listOf("100", "103")), "up counts as well as down")
         // decimal readings: 4.1 - 1.1 reaches 3 although binary subtraction lands a hair under (2.9999999999999996)
         assertEquals(listOf(H, R), run(change(), listOf("1.1", "4.1")))
         // forMin 2: raised two minutes after the change was first seen, and a reading back inside restarts it
@@ -187,22 +172,6 @@ class ChangeRuleTest {
         // a seeded (saved) baseline is used, not re-taken
         val seeded = EvalState.seeded(raised = false, baseline = "100", baselineAt = 5)
         assertEquals(Decision.RAISE, RuleEval.step(rule, seeded, s("96"), 20 * MIN, GuardRead.HOLDS).second)
-    }
-
-    @Test
-    fun withinMinComparesWithThePastSampleAndIsBlindWithoutOne() {
-        val rule = change(withinMin = 60, direction = Direction.DOWN)
-        // no past sample: blind, nothing raises however large the change
-        val (blind, d) = RuleEval.step(rule, EvalState(), s("10"), 0, past = null)
-        assertEquals(Decision.HOLD, d)
-        assertNull(blind.baseline, "withinMin keeps no baseline")
-        val past = Sample(100.0, "100", -60 * MIN)
-        assertEquals(Decision.RAISE, RuleEval.step(rule, blind, s("96"), 0, past = past).second)
-        assertEquals(Decision.HOLD, RuleEval.step(rule, blind, s("98"), 0, past = past).second)
-        // raised, then blind (a gap in the samples): it holds rather than clears
-        val raised = EvalState(raised = true, trueSince = 0)
-        assertEquals(Decision.HOLD, RuleEval.step(rule, raised, s("100"), MIN, past = null).second)
-        assertEquals(Decision.CLEAR, RuleEval.step(rule, raised, s("100"), MIN, past = past).second)
     }
 
     companion object {

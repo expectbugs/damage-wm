@@ -31,7 +31,8 @@ import wm.damage.core.util.Log
  *
  * - The channel: a [RemoteWin] on the content port (`"bastion"`, 5 s pacing between connection attempts). On
  *   channel up it asks `table {since, epoch}` at once, then every [pingMs] (15 s: an idle channel otherwise sends no
- *   frame, and "home unreachable" reads [lastHeardMs]); a ping is skipped while one is in flight. Pushes (op `event`)
+ *   frame, and "home unreachable" reads [lastHeardMs]); a ping is skipped while one is in flight, and an ask with no
+ *   answer for [STUCK_ASK_MS] drops the connection, which is opened again (X3). Pushes (op `event`)
  *   are handed off from the read thread; one in sequence is applied, a gap or another epoch asks `table`. A push
  *   that is not applied is journaled once per reason per connection.
  * - Re-asks (a gap, an answer this copy cannot use, a change it could not handle) are PACED: one goes at once when
@@ -50,7 +51,9 @@ import wm.damage.core.util.Log
  *   channel is down), so the phone learns where the bus is only while the PC sees it on the bus network.
  *
  * Nothing here waits on time: every wait is pacing between asks, and a request in flight ends with its answer or
- * with the link's end (`RemoteWin.failPending`).
+ * with the link's end (`RemoteWin.failPending`). The pinger ends the link of an ask that has had no answer for a
+ * minute (the PC answers `table` at once, so the link has gone half-open — the OS keepalive would take hours): a
+ * supervisor's decision on a TCP channel to his own PC, not a bound on a radio, render or input path.
  */
 class RemoteBastion(
     host: String,
@@ -212,13 +215,11 @@ class RemoteBastion(
     /** When the PC last sent any frame on this channel (0 until one): the "home unreachable" judge's input. */
     fun lastHeardMs(): Long = ch.lastHeardMs
 
-    /** The channel's own line while it is down ("PC unreachable Ns"), else the PC watcher's state line. */
-    fun stateLine(): String = ch.stateLine.ifEmpty { hostLine }
-
     /** The Bastion category's `Watcher` row (fix round 1, R1.2(b)): the PC watcher's state line from its last
-     *  answer, or [HOME_DOWN] while the channel is down (the line it last sent is no longer known to hold). */
+     *  answer, or [HOME_DOWN] and the channel's own line ("PC unreachable Ns", W38) while the channel is down (the
+     *  line the PC last sent is no longer known to hold). */
     fun watcherLine(): String = when {
-        !chanUp -> HOME_DOWN
+        !chanUp -> ch.stateLine.ifEmpty { null }?.let { "$HOME_DOWN · $it" } ?: HOME_DOWN
         hostLine.isEmpty() -> "waiting for home's first answer"
         else -> hostLine
     }
@@ -256,14 +257,22 @@ class RemoteBastion(
         if (!r.isSuccess && running) Log.e(TAG, "the alert queue refused ${w::class.simpleName}: ${r.exceptionOrNull()?.message ?: "closed"}")
     }
 
-    /** One `table` ask. While one is in flight a ping is skipped (said once per stuck ask); a gap's ask is kept and
-     *  sent after the answer in flight is handled. */
+    /** One `table` ask. While one is in flight a ping is skipped (said once per stuck ask), and the ping that finds
+     *  it [STUCK_ASK_MS] old drops the connection (X3); a gap's ask is kept and sent after the answer in flight is
+     *  handled. */
     private fun ask(gap: Boolean) {
         if (!running) return
         val c = chRef ?: return                        // the init after [ch] asks once it is assigned
         if (!asking.compareAndSet(false, true)) {
+            val waited = clock() - askedAt
             if (gap) askAgain = true
-            else if (!skipSaid) {
+            else if (waited >= STUCK_ASK_MS) {
+                // the drop fails the ask in flight (RemoteWin.failPending), the channel says it is down and connects
+                // again on its pacing, and the next connection asks at once
+                Log.w(TAG, "the table ask sent ${waited / 1000} s ago has had no answer: the connection is dropped " +
+                    "and opened again")
+                c.drop()
+            } else if (!skipSaid) {
                 skipSaid = true
                 Log.i(TAG, "the table ask sent ${(clock() - askedAt) / 1000} s ago is still in flight: pings are skipped until it ends")
             }
@@ -600,6 +609,8 @@ class RemoteBastion(
         const val RETRY_MS = 5_000L
         /** Re-asks sent at once are at least this far apart (the channel's own connection pacing). */
         const val REASK_MS = 5_000L
+        /** A `table` ask with no answer this long ends its connection (X3; four pings). */
+        const val STUCK_ASK_MS = 60_000L
         const val HOME_DOWN = "home not answering"
     }
 }
