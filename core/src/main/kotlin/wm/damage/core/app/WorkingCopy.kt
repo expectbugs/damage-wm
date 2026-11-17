@@ -386,14 +386,21 @@ class WorkingCopy(
     private fun shown(op: Op): Boolean {
         val spec = actions.spec(op.window, op.action) ?: return true
         val b = base[op.window] ?: Entries.EMPTY
-        return Merge.judge(RecordView { key -> b.items[key] }, spec, op).isEmpty()
+        return judged(RecordView { key -> b.items[key] }, spec, op).isEmpty()
     }
 
     /** One op over the view, as the PC will judge it ([Merge]): written unless the view holds a later input. */
     private fun fold(op: Op, items: HashMap<String, Item>) {
         val spec = actions.spec(op.window, op.action) ?: return
         if (Merge.check(spec, op) != null) return
-        items.putAll(Merge.judge(RecordView { key -> items[key] }, spec, op).items)
+        items.putAll(judged(RecordView { key -> items[key] }, spec, op).items)
+    }
+
+    /** [op]'s effect as `AppHost` makes it: the window's own rule first ([Windows.RULES]: the notice record is ordered
+     *  by its occurrence, L1 R1 RS NOTE 1), else the merge rule. */
+    private fun judged(rec: RecordView, spec: ActionSpec, op: Op): Effect = when (val r = Windows.RULES.admit(rec, op)) {
+        is Admit.Refuse, Admit.Keep -> Effect.NONE
+        else -> Merge.judge(rec, spec, op, always = r == Admit.Apply)
     }
 
     /** An answer to one of this device's ops to its window's presenters; a refusal for good with none to hear it is

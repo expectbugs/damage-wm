@@ -431,6 +431,35 @@ class WorkingCopyTest {
         assertTrue(notes.any { "refused for good" in it && "nonesuch" in it }, "$notes")
     }
 
+    /** Pin (L1 R1 RS NOTE 1): the phone folds a notice as the PC orders it, by its occurrence — a dismiss of occurrence
+     *  1, a later input than the PC's raise of occurrence 2 the phone had not seen, does not hide occurrence 2 there. */
+    @Test
+    fun aDismissOfAnOlderOccurrenceDoesNotHideTheNewerOneOnThePhone(): Unit = runBlocking {
+        val rig = keep(ReaderRig(scope))
+        val h = rig.pc()
+        val core = wm.damage.core.app.NoticeCore(h, clock = { rig.now.get() })
+        val id = "torrent:n1"
+        fun held() = wm.damage.core.app.Notices.parse(id, h.read(wm.damage.core.app.Notices.WINDOW).third
+            .items[wm.damage.core.app.Record.key(wm.damage.core.app.Notices.WINDOW, id)]!!.value)!!
+        core.raise("torrent", "n1", "done · a made-up download", "torrents", "t:n1", "Torrents")
+        repeat(4) { h.executor.call {} }
+        val first = held()
+        core.raise("torrent", "n1", "done · again", "torrents", "t:n1", "Torrents")
+        repeat(4) { h.executor.call {} }
+        assertEquals("2", held().occ)
+        rig.now.addAndGet(60_000)                                         // the dismiss is a later input than the raise
+        val lanePort = java.net.ServerSocket(0).use { it.localPort }
+        val wc = rig.phone(lanePort)                                      // the PC out of reach
+        wc.executor.call { wc.submit(wm.damage.core.app.Notices.WINDOW, wm.damage.core.app.Notices.dismissDraft(first)) }
+        rig.serve(h, lanePort)
+        waitUntil(10_000, 5, { "answered: ${wc.queue.waiting} waiting" }) { wc.client?.welcome != null && wc.queue.waiting == 0 }
+        wc.executor.call {}
+        val shown = wm.damage.core.app.Notices.records(wc.executor.call { wc.stateOf(wm.damage.core.app.Notices.WINDOW) })[id]
+        assertEquals("2", shown?.occ, "occurrence 2 on the phone: $shown")
+        assertEquals(wm.damage.core.app.Notices.RAISED, shown?.state)
+        assertEquals("2", held().occ)
+    }
+
     /** L1 C1, C4, the decoders first: a `copy.json` as 0.67 saved it — items with `rev` and an `na` mark, `colls`, and
      *  a kept loss under `unheard` — is read: the items and the cursor come back, nothing is set aside. */
     @Test
