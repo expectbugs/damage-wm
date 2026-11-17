@@ -26,9 +26,9 @@ import wm.damage.core.util.Log
  * Reach is decided by the paced ping alone: at each ping tick, a ping still unanswered from the tick before means the
  * PC is out of reach (said once, the connection closed so the next one starts); any answer — a `pong`, or a fresh
  * `welcome` — means it is back. A failed write or a failed connect decides nothing: the ping it took with it goes
- * unanswered and the next tick judges it. An old PC (its in-band refusal of the lane) and a PC on another lane
- * protocol are survived quietly: said once per run of them, retried on a longer pacing, every window on different
- * builds ([Contracts.State.Known.oldPc]). Every callback runs on the reading thread: hand off, never block.
+ * unanswered and the next tick judges it. A refusal (the credential, or no lane this build speaks: the PC and the
+ * phone are deployed together, L1 C3) is said once per run of them and retried on a longer pacing. Every callback runs
+ * on the reading thread: hand off, never block.
  */
 class AppClient(
     private val host: String,
@@ -40,7 +40,7 @@ class AppClient(
     private val scope: CoroutineScope,
     private val contracts: Map<String, Int> = Contracts.MINE,
     private val retryPacingMs: Long = 2_000,
-    /** After a refusal (an old PC, another lane protocol, a refused credential): nothing changes until a deploy. */
+    /** After a refusal (a refused credential, no lane this build speaks): nothing changes until a deploy. */
     private val refusedPacingMs: Long = 30_000,
     /** 0 = no ping task (a test calls [pingTick]). */
     private val pingEveryMs: Long = 15_000,
@@ -194,11 +194,6 @@ class AppClient(
                         when (val t = AppWire.type(f)) {
                             "welcome" -> {
                                 val w = AppWire.parseWelcome(f)
-                                if (w.proto != AppWire.PROTO) {
-                                    pacing = refusedPacingMs
-                                    differentBuilds("lane protocol ${w.proto}, not ${AppWire.PROTO}")
-                                    return@use
-                                }
                                 welcome = w
                                 refusedSaid = false
                                 downSaid = false
@@ -225,12 +220,12 @@ class AppClient(
                                 Log.w(TAG, "the PC ended the app lane: $reason${detail?.let { " ($it)" } ?: ""}")
                                 if (reason == AppWire.END_PROTO) {
                                     pacing = refusedPacingMs
-                                    differentBuilds(detail ?: reason)
+                                    setState("the PC speaks another app lane (${detail ?: reason})")
                                 }
                                 say { listener.ended(reason) }
                                 return@use
                             }
-                            // an in-band refusal: the credential, or an old PC that has no app lane
+                            // an in-band refusal: the credential, or a PC that serves no app lane
                             "err" -> {
                                 val detail = text(f, "detail") ?: ""
                                 pacing = refusedPacingMs
@@ -238,8 +233,8 @@ class AppClient(
                                     refusedSaid = true
                                     Log.w(TAG, "the PC at $host refused the app lane ($detail); asked again every ${refusedPacingMs / 1000} s")
                                 }
-                                if (detail.startsWith("bad token")) setState("the PC refused this device's credential")
-                                else differentBuilds(detail)
+                                setState(if (detail.startsWith("bad token")) "the PC refused this device's credential"
+                                    else "the PC refused the app lane ($detail)")
                                 return@use
                             }
                             else -> Log.w(TAG, "unknown app message '$t' ignored")
@@ -279,16 +274,6 @@ class AppClient(
             reach = Reach.Up
         }
         if (back) say { listener.reach(Reach.Up) }
-    }
-
-    /** The PC speaks no app lane this build can use: every window this side converts is on different builds. */
-    private fun differentBuilds(why: String) {
-        val known = Contracts.State.Known(Contracts.compare(contracts, emptyMap()), oldPc = true)
-        setState("PC on a build without this app lane ($why)")
-        if (known != contractState) {
-            contractState = known
-            say { listener.contracts(known) }
-        }
     }
 
     /** One frame on the live connection; false when there is none or the write failed. A failure closes the

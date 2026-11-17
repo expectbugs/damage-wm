@@ -187,7 +187,6 @@ object SyncNet {
         // can be taken for it; every later frame's is taken at its length prefix (readWire)
         val helloAt = now()
         var skew = 0L      // clientClock - ourNow at the last handshake
-        val saidIgnored = HashSet<String>()
         fun normalize(t: Long) = shifted(t, skew)
 
         fun handshake(w: SWire, at: Long) {
@@ -245,10 +244,9 @@ object SyncNet {
                 when (w.t) {
                     "sync" -> handshake(w, got.at)  // the client's periodic re-handshake
                     "syncrec" -> for (r in w.records) {
-                        // S1-1 P4: an older phone still pushes Reader's keys (`window.reader*`), which no longer sync;
-                        // said once per key per connection, never once per record
+                        // S1-1 P4: a key that no longer syncs (Reader's `window.reader*`) is never applied
                         if (!Persistence.syncable(r.k)) {
-                            if (saidIgnored.add(r.k)) Log.w("sync-host", "unsyncable key '${r.k}' ignored (said once per connection)")
+                            Log.w("sync-host", "unsyncable key '${r.k}' ignored")
                             continue
                         }
                         peer.applier(r.k, r.v, normalize(r.t))
@@ -341,17 +339,11 @@ class RemoteSync(
     /** A peer's stamp on this side's clock (a 0 stays 0). */
     private fun local(t: Long) = shifted(t, skew)
 
-    /** The keys an older host sent that no longer sync, each said once per connection. */
-    private val saidIgnored = HashSet<String>()
-
-    /**
-     * One record from the host, applied only when its key syncs (S1-1 P4, the spec's §4 "Old PC, new APK"): an older
-     * PC still sends Reader's records (`window.reader*`) at every handshake, and applied they would land in the
-     * glasses' local row, which is this device's alone now. Called on the connection's reading thread only.
-     */
+    /** One record from the host, applied only when its key syncs (S1-1 P4: Reader's `window.reader*` keys are this
+     *  device's alone now). Called on the connection's reading thread only. */
     private fun applyIn(r: SRec) {
         if (!Persistence.syncable(r.k)) {
-            if (saidIgnored.add(r.k)) Log.w("sync", "'${r.k}' from $host does not sync any more — ignored (said once per connection)")
+            Log.w("sync", "'${r.k}' from $host does not sync; ignored")
             return
         }
         peer.applier(r.k, r.v, local(r.t))
@@ -370,7 +362,6 @@ class RemoteSync(
                     val hello = json.encodeToString(Hello.serializer(), Hello(token = token)).toByteArray(Charsets.UTF_8)
                     synchronized(o) { o.writeInt(hello.size); o.write(hello); o.flush() }
                     peer.store.syncConnectionStarted()
-                    saidIgnored.clear()
                     o.sendWire(handshakeWire(), now)
                     // the sender: drains queued pushes off the listener's thread
                     outbox.clear()

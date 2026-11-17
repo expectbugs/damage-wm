@@ -88,7 +88,7 @@ class ContractsTest {
             scope, contracts = mapOf("t" to 1), pingEveryMs = 0).also { closing += it }
         waitUntil(10_000, 5, { "both welcomed" }) { differ.welcome != null && same.welcome != null }
         val d = differ.contractState as Contracts.State.Known
-        assertFalse(d.shared("t") || d.oldPc)
+        assertFalse(d.shared("t"))
         assertEquals("PC and phone on different builds for t", d.line("t"))
         assertEquals(listOf<Contracts.State>(d), heard.toList())
         assertTrue(same.contractState.shared("t"))

@@ -118,16 +118,6 @@ class TorrentsArrangementsTest {
         r.win.detach()
     }
 
-    /** Pin (the brief's bound: "the presenter and the core together make ONE box, in the mixed-build case too"). */
-    @Test
-    fun inTheMinuteTheBuildsMeet_thePresentersRaiseAndTheRecordsAreOneBox(): Unit = runBlocking {
-        val r = PcRig { false }       // the presenter still raises from its provider: the builds differed a moment ago
-        val cur = oneDoneBox(r)
-        assertEquals("done · A made-up download (1080p)", cur.body)
-        r.shell.stop()
-        r.win.detach()
-    }
-
     /** Pins (the spec's Q4: "the glasses raise while the PC does"; "nothing raised locally while builds differ"). */
     @Test
     fun theGlassesRaiseNothingWhileThePcRaises_andTodaysNoticeWhileTheBuildsDiffer() {

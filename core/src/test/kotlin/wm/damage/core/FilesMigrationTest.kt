@@ -115,28 +115,6 @@ class FilesMigrationTest {
     }
 
     @Test
-    fun theApkFirst_withTheOldPc_thenThePc_theNewerBlobWinsEachRow(): Unit = runBlocking {
-        val port = freePort()
-        val old = ContentHostServer(LocalContent(Files.createDirectories(rig.books)), port, ReaderRig.TOKEN, app = null,
-            bindAddress = InetAddress.getLoopbackAddress())
-        old.start()
-        val wc = rig.phone(port)
-        val heard = watched(wc)
-        FilesMigration.onCopy(wc, phoneStore()) { notes += it }
-        readerAwait("the phone learns the PC is on another build") {
-            (wc.client?.contractState as? Contracts.State.Known)?.oldPc == true
-        }
-        assertEquals("PC and phone on different builds for Files", wc.client?.contractState?.line(FilesCore.WINDOW))
-        assertEquals(JsonPrimitive("mtime"), copyValue(wc, FilesCore.SORT), "the phone runs Files from its own copy meanwhile")
-        assertEquals(3, wc.queue.waiting)
-        old.close()
-        val h = rig.pc()
-        FilesMigration.onHost(h, pcStore()) { notes += it }
-        rig.serve(h, port)
-        assertNewerWins(h, wc, heard)
-    }
-
-    @Test
     fun aSortSetInABrowserAfterThePcsConversionIsNeverReplacedByAnOlderBlob(): Unit = runBlocking {
         val h = rig.pc()
         FilesMigration.onHost(h, pcStore()) { notes += it }

@@ -116,38 +116,6 @@ class TorrentsMigrationTest {
         g.detach()
     }
 
-    @Test
-    fun theApkFirst_withTheOldPc_thenThePc_theNewerBlobWins(): Unit = runBlocking {
-        val port = ServerSocket(0).use { it.localPort }
-        // the old PC: its content port answers, but refuses the app lane in band
-        val old = ContentHostServer(LocalContent(Files.createDirectories(rig.books)), port, ReaderRig.TOKEN, app = null,
-            bindAddress = InetAddress.getLoopbackAddress())
-        old.start()
-        val wc = rig.phone(port)
-        val services = ReaderServices()
-        val p = TestTorrents()
-        val g = phoneGlasses(wc, services, p)
-        TorrentsMigration.onCopy(wc, blob("phone.json", newer, listOf("phone search"), done = false, errors = true, height = 416)) { notes += it }
-        readerAwait("the phone learns the PC is on another build") { (wc.client?.contractState as? Contracts.State.Known)?.oldPc == true }
-        assertEquals("PC and phone on different builds for Torrents", wc.client?.contractState?.line(TorrentsCore.WINDOW))
-        assertEquals(4, wc.queue.waiting, "the phone's offers wait behind the contract")
-        // meanwhile the phone raises Torrents' notices itself, as today
-        p.event("done", "c0ffee01", "A made-up download (1080p)")
-        assertEquals(listOf("torrent: done · A made-up download (1080p)"), services.notices.toList())
-        old.close()
-        // the PC is upgraded: its own records migrate at its start, then its lane appears on the same port
-        val h = rig.pc()
-        TorrentsMigration.onHost(h, blob("pc.json", older, listOf("pc search"), done = true, errors = true, height = null)) { notes += it }
-        rig.serve(h, port)
-        readerAwait("the phone's newer rows stand on the PC") {
-            item(h, "notify.done")?.value == JsonPrimitive(false) && item(h, "recents")?.value == recents("phone search") &&
-                item(h, "glasses.size")?.value == JsonPrimitive(416)
-        }
-        readerAwait("the queue drained") { wc.queue.waiting == 0 }
-        assertEquals(emptyList(), lossLines(services), "the newer side won every row: nothing to say")
-        g.detach()
-    }
-
     /** Pin (the spec's Q4: "a browser's row after the PC's conversion replaced by an older blob"). */
     @Test
     fun aBrowsersRowAfterThePcsConversionIsNeverReplacedByAnOlderBlob(): Unit = runBlocking {
