@@ -125,6 +125,12 @@ body.away .toast.notice .act { opacity: .45; }
 .confirm::backdrop { background: var(--shade); }
 .confirm h2 { margin-top: 0; }
 .confirm .row { display: flex; gap: .7rem; margin-top: 1rem; }
+/* S1-2 R2 item 19: a double confirm's row is two equal halves split at the dialog's centre (the screen's): the first
+   ask's act in the right half; the second ask's act in the left and Cancel in the right, where the first act was */
+.confirm .row.split { display: grid; grid-template-columns: 1fr 1fr; }
+.confirm .row.split > button { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+.confirm .row.split > :first-child { justify-self: start; }
+.confirm .row.split > :last-child { justify-self: end; }
 .danger { border-color: var(--danger); color: var(--danger); }
 
 /* ---- the waiting screen ---- */

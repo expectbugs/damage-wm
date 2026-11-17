@@ -9,6 +9,8 @@ export const HOME = '/home/ada';
 export const DL = `${HOME}/Downloads`;
 export const BOOKS = `${HOME}/books`;
 export const EMPTY = `${HOME}/empty`;
+/** S1-2 R2 item 18: the PC's own trash store, named in `locations` with kind `trash` while the trash holds anything. */
+export const STORE = `${HOME}/.damage/trash`;
 
 const A = (id, label, kind, extra = {}) => ({ id, label, kind, level: 'full', into: kind === 'v' ? null : ['copy', 'cut', 'sort', 'hidden'].includes(id) ? 'record' : 'program', ...extra });
 /** The actions as the spec's §4.1 table lists them; every one at level full (Files' minimum). */
@@ -27,9 +29,9 @@ export const LOCATIONS = [
   { path: '/', label: 'Root', kind: 'root', total: 3.6e12, free: 1.2e12 },
 ];
 
-export function filesDesc({ jobs = [], level = 'full' } = {}) {
+export function filesDesc({ jobs = [], level = 'full', store = false } = {}) {
   return { id: 'files', name: 'Files', icon: 'folder', min: level, title: 'Files', availability: 'live', home: HOME, booksDir: BOOKS,
-    locations: LOCATIONS, jobs, actions: ACTIONS, settings: SETTINGS };
+    locations: store ? [...LOCATIONS, { path: STORE, label: 'Trash', kind: 'trash' }] : LOCATIONS, jobs, actions: ACTIONS, settings: SETTINGS };
 }
 
 const WORDS = ['salt', 'lantern', 'copper', 'ferry', 'river', 'harbour', 'quiet', 'northern', 'glass', 'orchard', 'signal', 'tide'];

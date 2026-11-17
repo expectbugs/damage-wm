@@ -125,6 +125,34 @@ test('a confirm left open while the connection ended sends nothing when it is ta
   assert.match(p.said().join(' | '), /Delete: nothing sent — the connection to the PC ended while the confirm was open/);
 });
 
+// S1-2 R2 item 19 (review B-S3): Torrents' delete with files has the same double confirm: the second ask puts Cancel
+// where the first ask's act was, so a double-click's second click meets Cancel
+test('Delete with files: a double-click on its act meets Cancel — the second ask puts Cancel where the first act was', async () => {
+  const d = torrentsDesc({ transfers: [transfer(0, { title: 'Salt Road' })] });
+  const hash = d.transfers[0].id;
+  const { p, ws } = await page({ path: `/w/torrents/t:${hash}`, desc: d });
+  find(p, 'BUTTON', 'Delete with files').fire('click');
+  const dlg = p.doc.byId.confirm;
+  const row = () => dlg.querySelector('.row');
+  const buttons = () => row().children.filter((c) => c.tagName === 'BUTTON');
+  assert.ok(row().classList.contains('split'));
+  assert.deepEqual(buttons().map((b) => b.textContent), ['Cancel', 'Delete with files']);
+  buttons().at(-1).fire('click');
+  await settle();
+  assert.deepEqual(buttons().map((b) => b.textContent), ['Delete with files: yes, really', 'Cancel']);
+  buttons().at(-1).fire('click');
+  await settle();
+  assert.equal(dlg.open, false);
+  assert.deepEqual(progOps(ws), [], 'nothing deleted');
+  // taken on purpose: the act in the left half, twice
+  find(p, 'BUTTON', 'Delete with files').fire('click');
+  buttons().at(-1).fire('click');
+  await settle();
+  buttons()[0].fire('click');
+  await settle();
+  assert.deepEqual(progOps(ws).map((o) => [o.action, o.targets]), [['deleteFiles', [hash]]]);
+});
+
 test('several selected: one op over their hashes; a hash gone or filtered away leaves the selection', async () => {
   const ts = [transfer(0, { raw: 'uploading', title: 'a' }), transfer(1, { raw: 'uploading', title: 'b' }), transfer(2, { raw: 'stoppedUP', title: 'c' })];
   const { p, ws } = await page({ desc: torrentsDesc({ transfers: ts, version: 1 }) });

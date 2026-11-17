@@ -163,3 +163,30 @@ test('a new name: none, a slash, its own name, or one already there is refused i
   assert.equal(M.nameWhy('b.txt', taken, 'b.txt'), 'That is its name already.');
   assert.equal(M.nameWhy('c.txt', taken), null);
 });
+
+// S1-2 R2 item 18: the trash store is never a folder: no crumb or label starts from it; at or under it, by real ancestry
+test('the trash store: inStore by real ancestry; crumbs and labels never start from a location of kind trash', () => {
+  const locs = [{ path: '/home/ada', label: 'Home', kind: 'home' }, { path: '/home/ada/.damage/trash', label: 'Trash', kind: 'trash' }];
+  const stores = M.storesOf(locs);
+  assert.deepEqual(stores, ['/home/ada/.damage/trash']);
+  assert.equal(M.inStore('/home/ada/.damage/trash', stores), true);
+  assert.equal(M.inStore('/home/ada/.damage/trash/3/manifest.json', stores), true);
+  assert.equal(M.inStore('/home/ada/.damage/trash-old', stores), false, 'a name prefix is not an ancestor');
+  assert.equal(M.inStore('/home/ada/.damage', stores), false);
+  assert.deepEqual(M.crumbs('/home/ada/.damage/trash/3', locs).map((c) => c.label), ['Home', '.damage', 'trash', '3']);
+  assert.equal(M.folderLabel('/home/ada/.damage/trash', locs), 'Home / .damage / trash');
+});
+
+// S1-2 R2 item 20: a drop's folders are left out (their directory entries), the files beside them kept in order
+test('a drop\'s folders are left out by their entries; without entries the file list is taken whole', () => {
+  const it = (name, dir) => ({ kind: 'file', webkitGetAsEntry: () => ({ isDirectory: dir, name }), getAsFile: () => ({ name }) });
+  const str = { kind: 'string', webkitGetAsEntry: () => null, getAsFile: () => null };
+  const r = M.dropped({ items: [it('a', false), it('pics', true), str, it('b', false)], files: [] });
+  assert.deepEqual([r.files.map((f) => f.name), r.folders], [['a', 'b'], ['pics']]);
+  assert.deepEqual(M.dropped({ files: [{ name: 'x' }] }).files.map((f) => f.name), ['x']);
+  assert.deepEqual(M.dropped(null), { files: [], folders: [] });
+  assert.match(M.foldersLeftOut(['pics']), /^The folder 'pics' was left out of the drop: a folder is not uploaded/);
+  assert.match(M.foldersLeftOut(['a', 'b']), /^2 folders were left out/);
+  assert.equal(M.cancelLine({ a: 'sent' }), 'the PC let go of its place');
+  assert.equal(M.cancelLine({ a: 'refused', code: 'program', reason: 'begun' }), 'the PC answered the cancel: begun');
+});

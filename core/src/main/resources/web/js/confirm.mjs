@@ -1,7 +1,12 @@
 // Context for the reader: Damage is Adam's own window manager for his own glasses, phone and PC on his own network.
 // Build S1-1, package P7 (INTERFACES.md W-18; CONTRACT.md §4.3): one confirm shape for every irreversible action —
-// Cancel is the rest (focused when it opens, first in the row) and the act is never at a rest position; a double
+// Cancel is the rest (focused when it opens; first in the row but in a double's second ask) and the act is never at a
+// rest position; a double
 // confirm where the glasses have one asks a second time, Cancel again at rest. Escape cancels.
+// S1-2 R2 item 19 (review B-S3): a double confirm's row is two equal halves split at the dialog's centre, which is the
+// screen's (a modal dialog is centred): the first ask's act in the right half, the second ask's in the left with
+// Cancel in the right, where the first act was. One double-click's second click meets Cancel or nothing, at any width
+// and any label length. No time-based guard (CLAUDE.md: no timeouts on an input path).
 
 import { h, clear } from './dom.mjs';
 
@@ -26,10 +31,12 @@ export function confirmShape(dialog, { title, body, act, cancel = 'Cancel', doub
           draw();
         } else done(true);
       } } }, step === 0 ? act : `${act}: yes, really`);
+      const row = !double ? h('div', { class: 'row' }, no, h('span', { class: 'spacer' }), yes)
+        : step === 0 ? h('div', { class: 'row split' }, no, yes) : h('div', { class: 'row split' }, yes, no);
       clear(dialog).append(
         h('h2', { text: title }),
         h('p', { text: step === 0 ? body : `${body} This is the second ask; it cannot be undone.` }),
-        h('div', { class: 'row' }, no, h('span', { class: 'spacer' }), yes),
+        row,
       );
       no.focus();
     };

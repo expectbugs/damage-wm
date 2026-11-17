@@ -32,8 +32,9 @@ function put(box, sig, make) {
 }
 
 /** The PUT of one upload (spec §2.4: `PUT /blob/upload/<id>`, the file as the body; progress from the request's upload
- *  events, since `fetch` has none on Chromium 108). No time limit: Cancel ends it. */
-function sendBody(up, u, id, say, where) {
+ *  events, since `fetch` has none on Chromium 108). No time limit: Cancel ends it. S1-2 R2 item 20: its error and
+ *  abort paths call `giveBack()`, which sends `uploadCancel` for the ticket. */
+function sendBody(up, u, id, say, where, giveBack) {
   const { list: uploads, xhrs } = up;
   if (!up.guarded && typeof window.addEventListener === 'function') {
     up.guarded = true;
@@ -55,6 +56,7 @@ function sendBody(up, u, id, say, where) {
     u.state = 'cut';
     u.reason = why;
     say(`'${u.as}': the upload was cut off at ${M.bytes(u.sent)} of ${M.bytes(u.size)} (${why}); nothing is kept under that name (the PC deletes a cut-off upload).`);
+    giveBack();
     if (stopAll) {
       const n = uploads.stopRest(`not sent: the upload before it was cut off (${why})`);
       if (n) say(`${n} more ${n === 1 ? 'file was' : 'files were'} not uploaded. A page keeps no queue; drop them again when the PC answers.`);
@@ -132,6 +134,12 @@ export function filesView(ctx) {
   const link = (text, target, key, cls) => h('a', { href: format(target ? { window: M.W, target } : { window: M.W }), class: cls || null, 'data-key': key, focus: true,
     on: { click: (e) => { e.preventDefault(); go(target); } } }, text);
   const held = () => new Set(listing ? listing.rows().map((r) => r.name) : []);
+  // S1-2 R2 item 18 (review B-M2): the trash stores this page has been told of (locations of kind `trash`), kept for
+  // the page's life: a later description that leaves one out (an empty trash) does not open it as a folder
+  if (!ctx.filesStores) ctx.filesStores = new Set();
+  const stores = ctx.filesStores;
+  const noteStores = (d) => { for (const s of M.storesOf(d && Array.isArray(d.locations) ? d.locations : [])) stores.add(s); };
+  const storeAt = (path) => M.inStore(path, stores);
 
   // ---- level: Files is full as a whole (C§10.4); below it nothing is asked and nothing of the tree is shown ----
 
@@ -172,7 +180,8 @@ export function filesView(ctx) {
       flying.delete(k);
       drawJob();
       const bad = M.answerLine(a.label, ans);
-      if (bad) return (then || sayOutcome)({ ok: false, words: bad, ans });
+      // S1-2 R2 item 20 (review B-N9): an answer lost with its connection is not a failure: whether it ran is not known
+      if (bad) return (then || sayOutcome)({ ok: false, words: bad, ans, ...(ans && ans.code === 'ended' ? { unknown: 'the connection to the PC ended before its answer' } : {}) });
       const job = M.jobOf(ans);
       if (job !== null) {
         myJobs.set(job, { label: a.label, then: then || sayOutcome, at: pcNow() });
@@ -216,7 +225,8 @@ export function filesView(ctx) {
       } else if (!j && jobs.some((x) => typeof x.startedAt === 'number' && x.startedAt > m.at)) {
         // the slot holds a job started after this one was answered: this one ended unseen. Said, never left waiting
         myJobs.delete(id);
-        m.then({ ok: false, words: `${m.label}: the PC's job slot moved on before this page saw how it ended; look at the folder.` });
+        m.then({ ok: false, words: `${m.label}: the PC's job slot moved on before this page saw how it ended; look at the folder.`,
+          unknown: 'the PC\'s job slot moved on before this page saw how it ended' });
       }
     }
   }
@@ -356,6 +366,13 @@ export function filesView(ctx) {
     drawUploads();
     const k = send(t, [M.join(u.dest, u.name)], null, 1, (o) => {
       if (!root && u.state === 'trashing') return; // left: stopped and said at unmount
+      if (!o.ok && o.unknown) {
+        // S1-2 R2 item 20 (review B-N9): the old one may be in the trash; the words say what is known
+        u.state = 'unsent';
+        u.reason = `not uploaded: not known whether the old one went to the trash (${o.unknown}); look in the folder and in the trash, then drop it again`;
+        say(`'${u.name}' ${u.reason}.`, { keep: true });
+        return pump();
+      }
       if (!o.ok) {
         u.state = 'failed';
         u.reason = `not uploaded: the old one could not be moved to the trash (${o.words})`;
@@ -391,7 +408,8 @@ export function filesView(ctx) {
         if (/busy/.test(u.reason)) stopAll('the PC is busy with another operation');
         return up.hooks ? up.hooks.pump() : drawUploads();
       }
-      sendBody(up, u, String(id), say, where(dest));
+      const conn = ctx.S.conn;
+      sendBody(up, u, String(id), say, where(dest), () => giveBack(u, String(id), conn));
     });
     if (k === null) {
       u.state = 'unsent';
@@ -401,6 +419,27 @@ export function filesView(ctx) {
     }
     flying.set(k, w);
     drawJob();
+  }
+
+  /** S1-2 R2 item 20 (review B-S4; item 2 the PC's half): a PUT that ended on its error or abort path gives its ticket
+   *  back with the program op `uploadCancel` {upload: id}, so the PC's one Files slot is not held while this tab stays
+   *  open. The PC ends a ticket no body has begun for (Sent); one whose body began is ended by that body's end
+   *  (Refused). The answer is said on the upload's row. A ticket of a connection that has ended is not asked about:
+   *  the PC releases it with that connection (R2 item 1). */
+  function giveBack(u, id, conn) {
+    if (ctx.S.conn !== conn) return;
+    const redraw = () => (up.hooks ? up.hooks.draw() : null);
+    const why = ctx.canAct('full');
+    if (why) {
+      u.freed = `the cancel was not sent: ${why}`;
+      return redraw();
+    }
+    const k = ctx.sendProgram(M.programDraft('uploadCancel', [], { upload: id }), 'full', (ans) => {
+      u.freed = M.cancelLine(ans);
+      redraw();
+    });
+    if (k === null) u.freed = 'the cancel was not sent: the connection to the PC is down';
+    redraw();
   }
 
   function drawUploads() {
@@ -481,6 +520,7 @@ export function filesView(ctx) {
     const sig = JSON.stringify([place.at, place.dir, clip, sortNow(), hiddenNow(), ctx.S.level, ctx.canAct('full'), M.busyWhy(last), mode, locs().map((l) => [l.path, l.label]), [...acts().keys()]]);
     put(els.nav, sig, () => {
       if (place.at === 'trash') return h('nav', { class: 'crumbs' }, link('Locations', null, 'crumb:locs'), ' / Trash');
+      if (place.at === 'store') return h('nav', { class: 'crumbs' }, link('Locations', null, 'crumb:locs'), ' / ', link('Trash', 'trash', 'crumb:trash'));
       const cr = M.crumbs(place.dir, locs());
       const crumbs = h('nav', { class: 'crumbs', 'aria-label': 'Path' }, link('Locations', null, 'crumb:locs'),
         cr.map((c, i) => [' / ', i === cr.length - 1 && place.at === 'folder' ? h('span', { class: 'here', text: c.label }) : link(c.label, M.folderTarget(c.path), `crumb:${c.path}`)]));
@@ -537,7 +577,7 @@ export function filesView(ctx) {
   }
 
   function drawBulk() {
-    if (!sel.size) return fill(els.bulk);
+    if (!sel.size || place.at === 'store') return fill(els.bulk);
     const ids = sel.list();
     const clear = h('button', { 'data-key': 'sel:clear', focus: true, on: { click: () => { sel.clear(); draw(); } } }, 'Clear');
     let acts_;
@@ -556,12 +596,22 @@ export function filesView(ctx) {
   function drawBody() {
     if (place.at === 'locations') return keepFocus(els.list, 'data-key', () => fill(els.list, locations()));
     if (place.at === 'trash') return keepFocus(els.list, 'data-key', () => fill(els.list, trash()));
+    if (place.at === 'store') return keepFocus(els.list, 'data-key', () => fill(els.list, storeNote()));
     keepFocus(els.list, 'data-key', () => fill(els.list, folder()));
+  }
+
+  /** S1-2 R2 item 18: the PC's trash store (or a folder in it) named by an address: said, with the way to the trash
+   *  view; nothing of it is listed and no folder operation is offered. */
+  function storeNote() {
+    return [h('p', { class: 'note', text: `${place.dir} is where the PC keeps the trash's own files. It is not opened as a folder here: `
+      + 'a change inside it would lose what was moved to the trash.' }),
+    h('p', null, link('Open the Trash', 'trash', 'store:trash', 'btn'))];
   }
 
   function locations() {
     if (!last) return null;
-    const ls = locs();
+    // S1-2 R2 item 18: a location of kind `trash` is the Trash card below (the trash view), never a folder card
+    const ls = locs().filter((l) => !M.isTrashLoc(l));
     return [h('ul', { class: 'flocs' }, ls.map((l) => {
       const c = M.capacity(l);
       return h('li', null, h('a', { class: 'floc', href: format({ window: M.W, target: M.folderTarget(l.path) }), 'data-key': `loc:${l.path}`, focus: true,
@@ -601,8 +651,10 @@ export function filesView(ctx) {
   function folder() {
     if (!listing) return null;
     const rows = M.present(listing.rows(), sortNow(), hiddenNow());
+    // S1-2 R2 item 18: the trash store's own row (in its parent, with Hidden files on) is never selected
+    const pickable = rows.filter((r) => !storeAt(M.join(place.dir, r.name)));
     // W-20: a selection is what the folder shows — a name gone or hidden away leaves it
-    sel.prune(rows.map((r) => r.name));
+    sel.prune(pickable.map((r) => r.name));
     const st = listing.status();
     const n = typeof listCount === 'number' ? listCount : rows.length;
     const end = st.kind === 'first' ? 'Reading the folder from the PC…' : st.kind === 'loading' ? 'loading the next page…'
@@ -611,9 +663,9 @@ export function filesView(ctx) {
           : st.kind === 'end' ? `${n} ${n === 1 ? 'entry' : 'entries'}` : null;
     const endEl = end ? h('p', { class: 'note tend' + (st.kind === 'failed' ? ' failed' : ''), text: end }) : null;
     const retry = st.kind === 'failed' && !st.retry ? h('button', { 'data-key': 'retry', focus: true, on: { click: () => { listing.failed = null; checkMore(true); } } }, 'Try again') : null;
-    const all = rows.length > 0 && rows.every((r) => sel.has(r.name));
-    const head = rows.length ? h('label', { class: 'fall' }, h('input', { type: 'checkbox', checked: all, 'data-key': 'sel:all', focus: true,
-      on: { change: () => { if (all) sel.clear(); else sel.set(rows.map((r) => r.name)); drawBody(); drawBulk(); } } }), h('span', { class: 'note', text: 'Select all shown' })) : null;
+    const all = pickable.length > 0 && pickable.every((r) => sel.has(r.name));
+    const head = pickable.length ? h('label', { class: 'fall' }, h('input', { type: 'checkbox', checked: all, 'data-key': 'sel:all', focus: true,
+      on: { change: () => { if (all) sel.clear(); else sel.set(pickable.map((r) => r.name)); drawBody(); drawBulk(); } } }), h('span', { class: 'note', text: 'Select all shown' })) : null;
     const now = pcNow();
     return [head, rows.length ? h('ul', { class: mode === 'grid' ? 'fgrid' : 'flist' }, rows.map((r) => entry(r, now))) : null, endEl, retry];
   }
@@ -621,17 +673,20 @@ export function filesView(ctx) {
   function entry(r, now) {
     const path = M.join(place.dir, r.name);
     const kind = M.kindOf(r);
-    const open = () => (r.dir ? go(M.folderTarget(path)) : go(M.entryTarget(place.dir, r.name)));
+    // S1-2 R2 item 18: the trash store's own row opens the trash view and is never selected
+    const isStore = storeAt(path);
+    const open = () => (isStore ? go('trash') : r.dir ? go(M.folderTarget(path)) : go(M.entryTarget(place.dir, r.name)));
     const picked = sel.has(r.name);
     const cur = place.at === 'entry' && place.name === r.name;
     const pic = mode === 'grid' && r.thumb && !r.dir ? h('img', { class: 'fthumb', src: M.thumbUrl(path), alt: '', loading: 'lazy' })
-      : icon(r.dir ? 'folder' : kind === 'image' ? 'image' : 'file');
+      : icon(isStore ? 'trash' : r.dir ? 'folder' : kind === 'image' ? 'image' : 'file');
     return h('li', { class: `frow${picked ? ' picked' : ''}${cur ? ' open' : ''}${r.stale ? ' stale' : ''}${r.dir ? ' dir' : ''}`, 'data-name': r.name },
-      h('input', { type: 'checkbox', checked: picked, 'aria-label': `select ${r.name}`, 'data-key': `sel:${r.name}`, focus: true,
-        on: { change: () => { sel.toggle(r.name); drawBody(); drawBulk(); } } }),
+      isStore ? h('input', { type: 'checkbox', disabled: true, 'aria-label': `${r.name}: the PC's trash store, opened as the Trash`, title: 'the PC\'s trash store: it opens as the Trash and is never selected' })
+        : h('input', { type: 'checkbox', checked: picked, 'aria-label': `select ${r.name}`, 'data-key': `sel:${r.name}`, focus: true,
+          on: { change: () => { sel.toggle(r.name); drawBody(); drawBulk(); } } }),
       h('button', { class: 'fopen', 'data-key': `row:${r.name}`, focus: true, title: r.name, on: { click: open } }, pic, h('span', { class: 'fname', text: r.name })),
       h('span', { class: 'fmeta', text: [r.dir ? 'folder' : M.bytes(r.size), M.mtimeWords(r.mtime, now)].filter(Boolean).join(' · ') }),
-      h('button', { class: 'fmore', 'aria-label': `actions for ${r.name}`, title: `actions for ${r.name}`, 'data-key': `more:${r.name}`, focus: true,
+      isStore ? h('span') : h('button', { class: 'fmore', 'aria-label': `actions for ${r.name}`, title: `actions for ${r.name}`, 'data-key': `more:${r.name}`, focus: true,
         on: { click: () => go(M.entryTarget(place.dir, r.name)) } }, '⋯'));
   }
 
@@ -672,6 +727,8 @@ export function filesView(ctx) {
   }
 
   function paneActs({ r, path }) {
+    // S1-2 R2 item 18: the trash store's own pane (an address naming it) offers the trash view, nothing else
+    if (storeAt(path)) return [h('button', { class: 'primary', 'data-key': 'p:trash', focus: true, on: { click: () => go('trash') } }, 'Open the Trash')];
     const clip = clipNow();
     return [
       r.dir ? h('button', { class: 'primary', 'data-key': 'p:open', focus: true, on: { click: () => go(M.folderTarget(path)) } }, 'Open') : null,
@@ -788,8 +845,10 @@ export function filesView(ctx) {
     const before = place;
     place = M.placeOf(r.target, r.anchor);
     if (place.bad !== undefined) say(`'${place.bad}' is not a path on the PC (a path starts with /); showing the locations.`);
+    // S1-2 R2 item 18: a folder at or under the PC's trash store is never a folder here, whatever the PC serves
+    if ((place.at === 'folder' || place.at === 'entry') && storeAt(place.dir)) place = { at: 'store', dir: place.dir };
     if (!started) return;
-    if ((before.at === 'trash') !== (place.at === 'trash') || before.dir !== place.dir) sel.clear();
+    if ((before.at === 'trash') !== (place.at === 'trash') || before.dir !== place.dir || place.at === 'store') sel.clear();
     if (place.at !== 'entry' || place.dir !== before.dir || place.name !== before.name) forceText = null;
     if (place.dir !== before.dir || place.at !== before.at) panel = null;
     trashScope = hold(trashScope, place.at === 'trash' ? M.TRASH : null);
@@ -841,7 +900,10 @@ export function filesView(ctx) {
     root.classList.remove('dropping');
     if (place.at !== 'folder' && place.at !== 'entry') return;
     e.preventDefault();
-    startUpload(e.dataTransfer && e.dataTransfer.files, place.dir);
+    // S1-2 R2 item 20: folders are left out of a drop, and said
+    const { files, folders } = M.dropped(e.dataTransfer);
+    if (folders.length) say(M.foldersLeftOut(folders), { keep: true });
+    startUpload(files, place.dir);
   };
 
   return {
@@ -869,6 +931,7 @@ export function filesView(ctx) {
       root.append(h('header', { class: 'thead' }, els.info, els.settings), els.job, els.nav, els.panel, els.uploads, els.bulk, els.split);
       start();
       last = ctx.desc(M.DESC) || null;
+      noteStores(last);
       show(r);
       return root;
     },
@@ -899,7 +962,7 @@ export function filesView(ctx) {
         const top = locs().some((l) => M.norm(l.path) === place.dir);
         if (top || place.dir === '/') go(null);
         else go(M.folderTarget(up), M.baseName(place.dir));
-      } else if (place.at === 'trash') go(null);
+      } else if (place.at === 'trash' || place.at === 'store') go(null);
       else return false;
       return true;
     },
@@ -908,6 +971,9 @@ export function filesView(ctx) {
       if (scope === M.DESC) {
         last = d;
         refusals.delete(scope);
+        noteStores(d);
+        // S1-2 R2 item 18: a store named after the place was shown (an address opened before the first description)
+        if ((place.at === 'folder' || place.at === 'entry') && storeAt(place.dir)) show(lastR);
         checkJobs();
         if (rejoined) {
           // after a reconnect a job this page started and the slot no longer names ended unseen (a PC restart frees the
@@ -916,7 +982,8 @@ export function filesView(ctx) {
           const ids = new Set(M.jobsOf(d).map((j) => String(j.id)));
           for (const [id, m] of [...myJobs]) if (!ids.has(id)) {
             myJobs.delete(id);
-            m.then({ ok: false, words: `${m.label}: not known how it ended — the connection to the PC ended while it ran; look at the folder.` });
+            m.then({ ok: false, words: `${m.label}: not known how it ended — the connection to the PC ended while it ran; look at the folder.`,
+              unknown: 'the connection to the PC ended while it ran' });
           }
         }
         drawHead();

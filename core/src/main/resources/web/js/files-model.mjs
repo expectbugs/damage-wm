@@ -53,11 +53,24 @@ export function placeOf(target, anchor) {
   return { at: 'entry', dir: parent(p), name: baseName(p) };
 }
 
+/** S1-2 R2 item 18 (review B-M2): the PC's own trash store is a location of kind `trash`. It is the trash view, never a
+ *  folder: no card, crumb or label treats it as one (as the glasses, `FilesGlasses.kt` `l.kind != "trash"`). */
+export const isTrashLoc = (l) => !!l && l.kind === 'trash';
+/** The paths of the trash stores among `locations`. */
+export const storesOf = (locations) => (locations || []).filter(isTrashLoc).map((l) => norm(String(l.path || ''))).filter(Boolean);
+/** True when `path` is one of `stores` or under one (a real ancestor, not a name prefix). */
+export function inStore(path, stores) {
+  const p = norm(String(path || ''));
+  for (const s of stores || []) if (p === s || p.startsWith(s === '/' ? '/' : `${s}/`)) return true;
+  return false;
+}
+
 /** Breadcrumbs of `dir`: from the deepest location that holds it (its label first), else from `/`. */
 export function crumbs(dir, locations) {
   const d = norm(dir);
   let base = null;
   for (const l of locations || []) {
+    if (isTrashLoc(l)) continue;
     const lp = norm(String(l.path || ''));
     if (!lp || !(d === lp || d.startsWith(lp === '/' ? '/' : `${lp}/`))) continue;
     if (!base || lp.length > norm(base.path).length) base = l;
@@ -391,7 +404,7 @@ export function uploadLine(u) {
     case 'op': return 'asking the PC for a place';
     case 'sending': return `${u.size ? pct(u.sent / u.size) : '0%'} · ${of}`;
     case 'done': return `uploaded${u.as && u.as !== u.name ? ` as '${u.as}'` : ''}`;
-    case 'cut': return `cut off at ${of}: ${u.reason}`;
+    case 'cut': return `cut off at ${of}: ${u.reason}${u.freed ? ` · ${u.freed}` : ''}`;
     default: return u.reason || u.state;
   }
 }
@@ -413,6 +426,39 @@ export function putAnswer(status, text) {
   if (status === 507) return { ok: false, reason: `not enough space on the PC${why ? `: ${why}` : ''}` };
   if (status === 401 || status === 403) return { ok: false, reason: `the PC refused this device (${status})${why ? `: ${why}` : ''}` };
   return { ok: false, reason: `the PC answered ${status}${why ? `: ${why}` : ''}` };
+}
+
+/** S1-2 R2 item 20 (review B-S4): the files of a drop, its folders left out. A folder's item reads as a directory entry
+ *  (`webkitGetAsEntry`, in Firefox and Chromium); its body would fail before a byte reached the PC. A browser without
+ *  entries gives the drop's file list whole (the upload's error path then gives the PC's place back). */
+export function dropped(dt) {
+  if (!dt) return { files: [], folders: [] };
+  const items = dt.items && typeof dt.items.length === 'number' ? Array.from({ length: dt.items.length }, (_, i) => dt.items[i]) : [];
+  const files = [];
+  const folders = [];
+  if (!items.length || !items.every((it) => it && typeof it.webkitGetAsEntry === 'function')) return { files: [...(dt.files || [])], folders };
+  for (const it of items) {
+    if (it.kind !== 'file') continue;
+    const en = it.webkitGetAsEntry();
+    if (en && en.isDirectory) folders.push(String(en.name));
+    else {
+      const f = it.getAsFile();
+      if (f) files.push(f);
+    }
+  }
+  return { files, folders };
+}
+
+/** The words for the folders a drop left out. */
+export const foldersLeftOut = (folders) => `${folders.length === 1 ? `The folder '${folders[0]}' was` : `${folders.length} folders were`} left out of the drop: `
+  + 'a folder is not uploaded. Open it on this device and drop the files inside it.';
+
+/** The PC's answer to `uploadCancel` (R2 item 2: Sent ends a ticket no body has begun for; Refused leaves it to the
+ *  body's own end), as the upload's row says it. */
+export function cancelLine(ans) {
+  if (ans && ans.a === 'sent') return 'the PC let go of its place';
+  if (ans && ans.a === 'refused') return `the PC answered the cancel: ${ans.reason || `refused (${ans.code})`}`;
+  return `the PC answered the cancel with '${ans ? ans.a : 'nothing'}'`;
 }
 
 /** A location's capacity: the used fraction and its words, or null when the PC gave no total. */
