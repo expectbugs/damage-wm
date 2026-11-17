@@ -501,8 +501,10 @@ export function filesView(ctx) {
     const clear = h('button', { 'data-key': 'sel:clear', focus: true, on: { click: () => { sel.clear(); draw(); } } }, 'Clear');
     let acts_;
     if (place.at === 'trash') {
-      const names = ids.map((id) => (trashRows().find((r) => r.id === id) || { name: id }).name);
-      acts_ = [btn('restore', { onClick: () => act('restore', ids, names) }), btn('purge', { label: 'Delete forever', onClick: () => act('purge', ids, names) })];
+      const picked = ids.map((id) => trashRows().find((r) => r.id === id) || { name: id });
+      const names = picked.map((r) => r.name);
+      acts_ = [picked.some((r) => r.missing) ? null : btn('restore', { onClick: () => act('restore', ids, names) }),
+        btn('purge', { label: 'Delete forever', onClick: () => act('purge', ids, names) })];
     } else {
       const rows = ids.map((n) => listing.find(n)).filter(Boolean);
       acts_ = [btn('trash', { label: 'Move to Trash', onClick: () => act('trash', ids.map((n) => M.join(place.dir, n)), ids) }),
@@ -537,7 +539,7 @@ export function filesView(ctx) {
   function trashRows() {
     const d = ctx.desc(M.TRASH);
     const rows = d ? (Array.isArray(d.rows) ? d.rows : Array.isArray(d.entries) ? d.entries : []) : [];
-    return rows.map((r) => ({ id: String(r.id), name: String(r.name ?? r.id), origPath: String(r.origPath || ''), dir: !!r.dir, size: r.size, at: r.at ?? r.atMs }))
+    return rows.map((r) => ({ id: String(r.id), name: String(r.name ?? r.id), origPath: String(r.origPath || ''), dir: !!r.dir, size: r.size, at: r.at ?? r.atMs, missing: !!r.missing }))
       .sort((a, b) => (b.at || 0) - (a.at || 0));
   }
 
@@ -553,8 +555,10 @@ export function filesView(ctx) {
       h('ul', { class: 'flist ftrash' }, rows.map((r) => h('li', { class: 'frow' + (sel.has(r.id) ? ' picked' : '') },
         h('input', { type: 'checkbox', checked: sel.has(r.id), 'aria-label': `select ${r.name}`, 'data-key': `sel:${r.id}`, focus: true, on: { change: () => { sel.toggle(r.id); drawBody(); drawBulk(); } } }),
         h('span', { class: 'fopen static' }, icon(r.dir ? 'folder' : 'file'), h('span', { class: 'fname', text: r.name })),
-        h('span', { class: 'fmeta', text: [`from ${r.origPath ? where(M.parent(r.origPath)) : '?'}`, r.dir ? 'folder' : M.bytes(r.size), r.at ? `trashed ${M.ago(r.at, now)}` : null].filter(Boolean).join(' · ') }),
-        h('span', { class: 'frow-acts' }, btn('restore', { onClick: () => act('restore', [r.id], [r.name]) }),
+        h('span', { class: 'fmeta', text: [`from ${r.origPath ? where(M.parent(r.origPath)) : '?'}`, r.dir ? 'folder' : M.bytes(r.size), r.at ? `trashed ${M.ago(r.at, now)}` : null,
+          r.missing ? 'not in the trash · Delete forever clears it' : null].filter(Boolean).join(' · ') }),
+        // L1 R2 B5: a row whose file is not in the trash (a trash cut off before it arrived) offers only Delete forever
+        h('span', { class: 'frow-acts' }, r.missing ? null : btn('restore', { onClick: () => act('restore', [r.id], [r.name]) }),
           btn('purge', { label: 'Delete forever', onClick: () => act('purge', [r.id], [r.name]) })))))];
   }
 
