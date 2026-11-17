@@ -156,7 +156,7 @@ class AppWireTest {
         lane.op(Op("someone-else", OpId.Queued("s1", 1), "t", "set", listOf("a"), j("mine"), at = 1))
         val ans = AppWire.parseAns(lane.next("ans"))
         assertEquals(OpId.Queued("s1", 1), ans.id)
-        assertEquals(Answer.Seen(), ans.answer)
+        assertEquals(Answer.Seen, ans.answer)
         val chg = AppWire.parseChg(lane.next("chg"))
         assertEquals("phone", chg.patches.items["rec.t.a"]!!.by)
     }
@@ -170,7 +170,7 @@ class AppWireTest {
         lane.opJson(buildJsonObject { put("device", "phone"); put("stream", "s1"); put("n", 1); put("window", "t") })
         val bad = lane.answer() as Answer.Refused
         lane.op(Op("phone", OpId.Queued("s1", 2), "t", "set", listOf("a"), j("two"), at = 1))
-        assertEquals(Answer.Seen(), lane.answer(), "the next op is taken")
+        assertEquals(Answer.Seen, lane.answer(), "the next op is taken")
         assertTrue(bad.reason.startsWith("the op does not decode"), bad.reason)
         assertEquals(Answer.INVALID, bad.code, "refused for good: the client drops it")
     }

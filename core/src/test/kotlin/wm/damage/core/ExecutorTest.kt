@@ -74,7 +74,7 @@ class ExecutorTest {
         threads.forEach { it.join() }
         h.executor.call {}
         assertEquals(160, answers.size, "each op answered once")
-        assertTrue(answers.all { it == Answer.Seen() })
+        assertTrue(answers.all { it == Answer.Seen })
         assertEquals(160L, h.seq)
         val lines = Files.readAllLines(rig.logFile).map { OpLog.decode(it) }
         assertEquals(160, h.read("t").third.items.size)

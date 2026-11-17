@@ -45,7 +45,7 @@ class OpLogTest {
             forcedThen = rig.forced.get()
         }
         h.executor.call {}
-        assertEquals(Answer.Seen(), got)
+        assertEquals(Answer.Seen, got)
         assertTrue(lineThere, "the line was in the log when the answer went out")
         assertEquals(1, forcedThen, "and forced to disk")
         // the publish follows the answer
@@ -103,7 +103,7 @@ class OpLogTest {
         for (n in 1L..5L) assertEquals(j("v$n"), rig.item(h2, "k$n")!!.value)
         assertEquals(5, lines().size, "nothing was cut from the log")
         // the resent op 5 changes nothing (L1 C1: applying an op twice changes nothing)
-        assertEquals(Answer.Seen(), rig.ask(h2, op("phone", "s1", 5, "set", listOf("k5"), j("v5"))))
+        assertEquals(Answer.Seen, rig.ask(h2, op("phone", "s1", 5, "set", listOf("k5"), j("v5"))))
         assertEquals(j("v5"), rig.item(h2, "k5")!!.value)
     }
 
@@ -130,7 +130,7 @@ class OpLogTest {
         assertEquals(1, rig.notes().count { "FAILED" in it && "operation log" in it })
         // the resend lands once the disk takes it, and the end of the run is said
         rig.syncFails = false
-        assertEquals(Answer.Seen(), rig.ask(h, op("phone", "s1", 2, "set", listOf("a"), j("v2"))))
+        assertEquals(Answer.Seen, rig.ask(h, op("phone", "s1", 2, "set", listOf("a"), j("v2"))))
         assertEquals(listOf(2L), published.map { it.seq })
         assertTrue(rig.said.last() == "clear ${RecordAlerts.LOG}")
         assertTrue(rig.notes().any { "works again after 2 failure(s)" in it })
@@ -145,7 +145,7 @@ class OpLogTest {
         val h = rig.opened()
         val got = rig.ask(h, op("phone", "s1", 1, "nosuch", listOf("a"), j("v")))
         assertEquals(Answer.UNKNOWN, (got as Answer.Refused).code)
-        assertEquals(Answer.Seen(), rig.ask(h, op("phone", "s1", 2, "set", listOf("a"), j("v"))))
+        assertEquals(Answer.Seen, rig.ask(h, op("phone", "s1", 2, "set", listOf("a"), j("v"))))
         assertEquals(2, lines().size)
     }
 
@@ -231,7 +231,7 @@ class OpLogTest {
             assertEquals(wm.damage.core.app.Item(j("10|v1|"), "phone", 1_763_300_000_100L), items["rec.reader.place.a"])
             assertEquals(wm.damage.core.app.Item(j("7|v1|"), "phone", 1_763_200_000_000L), items["rec.reader.place.b"])
             val lost = OpLog.decode(lines()[2])
-            assertEquals(Answer.Seen(), lost.answer, "a loss answer reads as seen")
+            assertEquals(Answer.Seen, lost.answer, "a loss answer reads as seen")
             assertEquals(0L, lost.op.at, "an op of the log without its input time: only its effect is replayed")
             assertEquals(1_763_200_000_000L, OpLog.decode(lines()[3]).op.at, "a migrated place keeps its old stamp")
         } finally {

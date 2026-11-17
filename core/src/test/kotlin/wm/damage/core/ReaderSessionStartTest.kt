@@ -55,7 +55,7 @@ class ReaderSessionStartTest {
         val lanePort = ServerSocket(0).use { it.localPort }              // the PC's lane: out of reach at first
         val h = rig.pc()
         // read at the desk on the web after the PC's conversion
-        assertEquals(Answer.Seen(), rig.otherDevicePlace(h, "web-3fa9c1", "w1", 1, ids[0], 9_000))
+        assertEquals(Answer.Seen, rig.otherDevicePlace(h, "web-3fa9c1", "w1", 1, ids[0], 9_000))
         val store = Persistence(rig.dir.resolve("phone-state.json"))
         store.put("window.reader.book.${ids[0]}", buildJsonObject { put("off", 0) })
         store.put("window.reader", buildJsonObject { put("level", "BOOK"); put("bookId", ids[0]) })
@@ -92,7 +92,7 @@ class ReaderSessionStartTest {
             bindAddress = InetAddress.getLoopbackAddress()).also { it.start() })
         val lanePort = ServerSocket(0).use { it.localPort }
         val h = rig.pc()
-        assertEquals(Answer.Seen(), rig.otherDevicePlace(h, "web-3fa9c1", "w1", 1, ids[0], 9_000))
+        assertEquals(Answer.Seen, rig.otherDevicePlace(h, "web-3fa9c1", "w1", 1, ids[0], 9_000))
         val store = Persistence(rig.dir.resolve("phone-state.json"))
         store.put("window.reader.book.${ids[0]}", buildJsonObject { put("off", 0) })
         store.put("window.reader", buildJsonObject { put("level", "BOOK"); put("bookId", ids[0]) })

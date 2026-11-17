@@ -66,7 +66,7 @@ class DevicesCore(val table: Devices) {
             }
             else -> return Answer.Refused("the device table has no action ${o.action}", Answer.UNKNOWN)
         }
-        return if (why == null) Answer.Seen() else Answer.Refused(why, Answer.INVALID)
+        return if (why == null) Answer.Seen else Answer.Refused(why, Answer.INVALID)
     }
 
     private fun missing(k: String) = Answer.Refused("the action needs '$k'", Answer.INVALID)

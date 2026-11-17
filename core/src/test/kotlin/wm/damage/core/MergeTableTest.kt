@@ -80,13 +80,13 @@ class MergeTableTest {
     fun thePcBoundsAnInputsTimeByItsOwnClock_andLogsEveryOp() {
         val h = rig.opened()
         rig.now = 1_000L
-        assertEquals(Answer.Seen(), rig.ask(h, op("tv", "w1", 1, "set", listOf("x"), j("ahead"), at = 61_000)))
+        assertEquals(Answer.Seen, rig.ask(h, op("tv", "w1", 1, "set", listOf("x"), j("ahead"), at = 61_000)))
         assertEquals(1_000L, rig.item(h, "x")!!.at, "a clock a minute fast is held to the PC's")
         rig.now = 2_000L
-        assertEquals(Answer.Seen(), rig.ask(h, op("phone", "s1", 1, "set", listOf("x"), j("later"), at = 2_000)))
+        assertEquals(Answer.Seen, rig.ask(h, op("phone", "s1", 1, "set", listOf("x"), j("later"), at = 2_000)))
         assertEquals(Item(j("later"), "phone", 2_000), rig.item(h, "x"), "so a later input elsewhere still wins")
         val seq = h.seq
-        assertEquals(Answer.Seen(), rig.ask(h, op("phone", "s1", 1, "set", listOf("x"), j("later"), at = 2_000)), "a resend")
+        assertEquals(Answer.Seen, rig.ask(h, op("phone", "s1", 1, "set", listOf("x"), j("later"), at = 2_000)), "a resend")
         assertEquals(seq + 1, h.seq, "it takes a line of its own, and changes nothing")
         assertEquals(Item(j("later"), "phone", 2_000), rig.item(h, "x"))
     }

@@ -5,7 +5,6 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -59,8 +58,10 @@ sealed class Answer {
     }
 
     /** The op is in the record: the state shows the latest input for each target, which is this op's unless a later
-     *  input stands (L1 C1: nothing is said about it). [again] is read from older answers and never set. */
-    data class Seen(val again: Boolean = false) : Answer()
+     *  input stands (L1 C1: nothing is said about it). */
+    object Seen : Answer() {
+        override fun toString() = "Seen"
+    }
 
     /** Refused, with the reason in words. [code]: `retry` (not taken; send the same op again), `invalid` /
      *  `unknown` (refused for good), `unsupported`; on the `app` lane also `contract` (not taken: the PC and this
@@ -128,17 +129,17 @@ object OpJson {
     fun answer(a: Answer): JsonObject = buildJsonObject {
         when (a) {
             Answer.Sent -> put("a", "sent")
-            is Answer.Seen -> { put("a", "seen"); if (a.again) put("again", true) }
+            is Answer.Seen -> put("a", "seen")
             is Answer.Refused -> { put("a", "refused"); put("reason", a.reason); put("code", a.code) }
         }
     }
 
     fun answer(j: JsonObject): Answer = when (str(j, "a")) {
         "sent" -> Answer.Sent
-        "seen" -> Answer.Seen((j["again"] as? JsonPrimitive)?.booleanOrNull == true)
+        "seen" -> Answer.Seen
         "refused" -> Answer.Refused(str(j, "reason"), str(j, "code"))
         // L1 C1: a 0.67 log line's loss answer — the op was handled and the state showed the standing value
-        "lost" -> Answer.Seen()
+        "lost" -> Answer.Seen
         else -> throw IllegalArgumentException("answer: unknown kind ${j["a"]}")
     }
 

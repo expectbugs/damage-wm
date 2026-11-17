@@ -112,7 +112,7 @@ class WebAccessTest {
             assertNull(r.rec.item(r.host, "a"), "nothing changed")
             p.send(AppWire.op(Op(row.id, OpId.Queued("w1", 2), "t", "place", listOf("p"), JsonPrimitive("5"), at = System.currentTimeMillis())))
             val a2 = OpJson.answer(p.next("ans")["answer"] as JsonObject)
-            assertEquals(Answer.Seen(), a2, "the next number applies: the refusal took its number")
+            assertEquals(Answer.Seen, a2, "the next number applies: the refusal took its number")
             p.send(AppWire.sub("devices", null))
             val s = p.next("ans")
             assertEquals("devices", s["scope"]!!.jsonPrimitive.content)

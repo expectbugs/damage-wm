@@ -242,7 +242,7 @@ class WebProtocolTest {
         page.send(op("s2", 1, "place", target, JsonPrimitive("@c10.1~"), value(null)))
         assertEquals("seen", page.answer("s2", 1).str("a"))
         // the glasses read on (device `local`, its own stream)
-        assertEquals("Seen(again=false)", rig.reader.otherDevicePlace(rig.host, "local", "glasses", 1, rig.book, 40).toString())
+        assertEquals("Seen", rig.reader.otherDevicePlace(rig.host, "local", "glasses", 1, rig.book, 40).toString())
         page.send(op("s2", 2, "place", target, JsonPrimitive("@c20.1~"), value("@c10.1~")))
         assertEquals("seen", page.answer("s2", 2).str("a"))
         assertEquals(20, rig.reader.placeOffset(rig.host, rig.book))

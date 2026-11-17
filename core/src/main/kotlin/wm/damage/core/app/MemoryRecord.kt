@@ -44,7 +44,7 @@ class MemoryRecord(
         val effect = Merge.judge(record, spec, op, minOf(op.at, clock()))
         record.apply(effect)
         if (!effect.isEmpty()) seq++
-        answer(op, Answer.Seen())
+        answer(op, Answer.Seen)
         if (effect.isEmpty()) return
         val old = states[window] ?: return                         // nobody has read it: read whole when asked
         val e = record.window(window)

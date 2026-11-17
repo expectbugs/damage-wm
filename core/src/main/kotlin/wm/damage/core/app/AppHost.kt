@@ -304,7 +304,7 @@ class AppHost(
             spec == null -> Answer.Refused("this PC has no action ${op.action} in ${op.window}", Answer.UNKNOWN)
             bad != null -> Answer.Refused(bad, Answer.INVALID)
             ruled is Admit.Refuse -> ruled.answer
-            else -> Answer.Seen()
+            else -> Answer.Seen
         }
         val line = OpLog.Line(seq + 1, op, effect, answer)
         try {

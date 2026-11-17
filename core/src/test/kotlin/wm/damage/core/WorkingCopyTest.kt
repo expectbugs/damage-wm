@@ -177,7 +177,7 @@ class WorkingCopyTest {
         wc.executor.call {}
         assertEquals(listOf(setOf("rec.t.a")), heard.changes.toList(),
             "drawn once, at once; its answer and the PC's change were equal to it")
-        assertEquals(listOf<Answer>(Answer.Seen()), heard.answers.map { it.second })
+        assertEquals(listOf<Answer>(Answer.Seen), heard.answers.map { it.second })
         assertEquals(j("two"), src.state().itemNamed("a")!!.value)
         assertEquals(emptySet(), src.state().pending)
     }
@@ -201,7 +201,7 @@ class WorkingCopyTest {
         // the op changes nothing, so no change follows its answer: wait on the answer and the queue, not the cursor
         waitUntil(10_000, 5, { "answered" }) { heard.answers.isNotEmpty() && wc.queue.waiting == 0 }
         wc.executor.call {}
-        assertEquals(listOf<Answer>(Answer.Seen()), heard.answers.map { it.second }, "answered once, nothing to say")
+        assertEquals(listOf<Answer>(Answer.Seen), heard.answers.map { it.second }, "answered once, nothing to say")
         assertEquals(j("desk"), pc.item("a")!!.value, "the later input stands")
         assertEquals(j("desk"), src.state().itemNamed("a")!!.value, "and the view shows it")
         assertEquals(listOf(setOf("rec.t.a"), setOf("rec.t.a")), heard.changes.toList(), "drawn at once, then the desk's")
@@ -309,7 +309,7 @@ class WorkingCopyTest {
         }
         synced(wc, pc)
         wc.executor.call {}
-        assertTrue(heard.answers.all { it.second == Answer.Seen() }, "${heard.answers}")
+        assertTrue(heard.answers.all { it.second == Answer.Seen }, "${heard.answers}")
         assertEquals(j("5"), src.state().itemNamed("p")!!.value)
         assertNull(src.state().itemNamed("q")!!.value.takeIf { it != JsonNull })
         assertEquals(before, wc.stream, "the stream goes on")
@@ -329,13 +329,13 @@ class WorkingCopyTest {
         src.act(Draft("set", listOf("x"), j("b")))
         waitUntil(10_000, 5, { "waiting" }) { wc.queue.waiting == 1 }
         val stream = wc.stream
-        assertEquals(Answer.Seen(), pc.rec.ask(pc.host, Op("phone", OpId.Queued(stream, 1), "t", "set", listOf("x"), j("b"), at = T0)))
+        assertEquals(Answer.Seen, pc.rec.ask(pc.host, Op("phone", OpId.Queued(stream, 1), "t", "set", listOf("x"), j("b"), at = T0)))
         pc.write("desk", "d1", 2, "x", "c", at = T0 + 1_000)
         pc.back()
         waitUntil(10_000, 5, { "answered: ${heard.answers}" }) { heard.answers.isNotEmpty() && wc.queue.waiting == 0 }
         wc.executor.call {}
         assertEquals(j("c"), pc.item("x")!!.value, "the later input stands")
-        assertEquals(listOf<Answer>(Answer.Seen()), heard.answers.map { it.second })
+        assertEquals(listOf<Answer>(Answer.Seen), heard.answers.map { it.second })
         assertEquals(j("c"), src.state().itemNamed("x")!!.value)
         assertEquals(stream, wc.stream, "the stream goes on")
     }
@@ -373,7 +373,7 @@ class WorkingCopyTest {
         src.act(Draft("set", listOf("a"), j("two")))
         waitUntil(10_000, 5, { "answered: ${heard.answers}" }) { heard.answers.size == 2 }
         host.executor.call {}
-        assertEquals(listOf<Answer>(Answer.Seen(), Answer.Seen()), heard.answers.map { it.second })
+        assertEquals(listOf<Answer>(Answer.Seen, Answer.Seen), heard.answers.map { it.second })
         assertEquals(j("two"), src.state().itemNamed("a")!!.value)
         assertEquals(2, heard.changes.size)
         rec.stop(host)
@@ -401,7 +401,7 @@ class WorkingCopyTest {
         src.act(Draft("set", listOf("a"), j("one")))
         src.act(Draft("set", listOf("a"), j("two")))
         waitUntil(10_000, 5, { "answered: ${heard.answers}" }) { heard.answers.size == 3 }
-        assertEquals(listOf<Answer>(Answer.Seen(), Answer.Seen()), heard.answers.drop(1).map { it.second })
+        assertEquals(listOf<Answer>(Answer.Seen, Answer.Seen), heard.answers.drop(1).map { it.second })
         assertEquals(j("two"), rec.item(host, "a")!!.value)
     }
 

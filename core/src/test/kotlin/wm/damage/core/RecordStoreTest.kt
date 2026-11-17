@@ -103,7 +103,7 @@ class RecordStoreTest {
     fun aStartWhoseLogWouldNotOpen_refusesWithRetry_untilATickOpensIt() {
         // fix round 1, ruling 1.7: three ops logged, no save since the start (record.json covers seq 0)
         val h = rig.opened()
-        for (n in 1L..3L) assertEquals(wm.damage.core.app.Answer.Seen(), rig.ask(h, op("phone", "s1", n, "set", listOf("k$n"), j("v$n"))))
+        for (n in 1L..3L) assertEquals(wm.damage.core.app.Answer.Seen, rig.ask(h, op("phone", "s1", n, "set", listOf("k$n"), j("v$n"))))
         rig.stop(h)
         val perms = Files.getPosixFilePermissions(rig.logFile)
         Files.setPosixFilePermissions(rig.logFile, emptySet())       // the next start cannot open the log
@@ -122,7 +122,7 @@ class RecordStoreTest {
         for (n in 1L..3L) assertEquals(j("v$n"), rig.item(bad, "k$n")?.value, "op $n replayed")
         assertEquals("clear ${RecordAlerts.LOG}", rig.said.last { RecordAlerts.LOG in it })
         assertTrue(rig.notes().any { "opened on a later tick: 3 line(s) replayed" in it }, "${rig.notes()}")
-        assertEquals(wm.damage.core.app.Answer.Seen(), rig.ask(bad, op("phone", "s1", 4, "set", listOf("k4"), j("v4"))))
+        assertEquals(wm.damage.core.app.Answer.Seen, rig.ask(bad, op("phone", "s1", 4, "set", listOf("k4"), j("v4"))))
         rig.tick(bad)
         assertEquals(4L, saved().covered, "the save covers the log once it is open")
         rig.stop(bad)
@@ -188,7 +188,7 @@ class RecordStoreTest {
         assertEquals(5L, o.seq)
         assertTrue(rig.said.any { it.startsWith("raise ${RecordAlerts.REPLAY}") && aside.fileName.toString() in it }, "${rig.said}")
         assertTrue(rig.notes().any { "replayed" in it && aside.fileName.toString() in it }, "${rig.notes()}")
-        assertEquals(wm.damage.core.app.Answer.Seen(), rig.ask(h3, op("phone", "s1", 6, "set", listOf("k6"), j("v6"))))
+        assertEquals(wm.damage.core.app.Answer.Seen, rig.ask(h3, op("phone", "s1", 6, "set", listOf("k6"), j("v6"))))
     }
 
     /** Fix round 2, ruling 1.5: a second unreadable `record.json` never replaces the first one kept aside. */
