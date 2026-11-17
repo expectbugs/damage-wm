@@ -736,10 +736,18 @@ what an actor may do; the snapshot judge; one look at every page in a real brows
 
 ### 17.3 The order from here
 
-0. **L0, the lean audit (read-only, one stage, before any other app-layer stage):** every mechanism S1-1, S1-2 and W
-   added, each with its lines, what it serves by the three tests, and one of keep / freeze / remove (remove only where
-   it makes the code simpler and no less safe, with the size and risk of removing). He rules it. At most one removal
-   build (L1) follows.
+0. **The cleanup of what is already written comes first** (Adam, 2026-11-17: "make sure part of the plan is to clean
+   up what has been written already to bring it in line with our goals and methods and lessons"). Two steps:
+   - **L0, the lean audit** (read-only, one stage): every mechanism S1-1, S1-2 and W added, each with its lines, what
+     it serves by the three tests, and one of keep / simplify / remove, with the size and risk of the change. He
+     rules it.
+   - **L1, the cleanup build:** what he ruled is done — the conflict machinery brought down to "the latest real input
+     wins", the access layer as ruled, mixed-build and downgrade handling out, states that only a restart clears
+     replaced by a supervisor where that is cheap, the app layer's mutation lists and the pins that only test removed
+     code out with it, and `CONTRACT.md`, `IMPLEMENTATION.md` and the specs of S1-3 and S1-4 brought to the lean
+     shape. S1-2's open review findings are folded into it or dropped by the same ruling. It runs under the snapshot
+     judge (0 px on the glasses) and the gate, and **its measure is the line count going down** with nothing he uses
+     lost. No new app-layer feature is built before L1 is done.
 1. **C1** is finished under its full protocol (state and remaining stages: `REMINDER.md`). Its phone half rides the
    next deploy. The read of whether firmware state survives a restart is made on the installed build, before C1's
    flash (his call).
@@ -764,4 +772,17 @@ later agents: what he opens, acts on and dismisses, on which surface, when (smal
 
 §16.2's rows and the re-fitted rate stand as measures of the old shape. L0's ruling re-sizes S1-3 to S1-5; the
 expectation is fewer lines, not more stages.
+
+### 17.6 His subscription is a budget, watched all the time
+
+Adam, 2026-11-17: "keep keeping an eye on usage of my subscription limit like we have been, so we don't go back to
+wasting my whole subscription on very little practical value like we started when I had to use 3 resets in one day".
+- **Before any run:** its size in percent of his week, and what he will see or be able to do for it. A run whose
+  honest answer is "nothing he would notice" is put to him first.
+- **Both meters are read before and after every run** and the change is reported in percent of his week, with the
+  rate when lanes run side by side. A build gets a budget in percent at its start and stops for him when it passes it.
+- **The lead's own turns count** (they cost about as much as the agents): few turns, small context, no status message
+  that carries no decision.
+- **Near a reset** nothing may be cut off at 100 %: the last starts are sized so that what is running can finish.
+- The measures so far: build W 9 % of a week, S1-1 13 %; six lanes spent about 3.8 % an hour.
 

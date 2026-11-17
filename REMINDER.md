@@ -39,7 +39,9 @@ stage of each build, how lanes are started safely).
 
 ## Next
 
-1. **L0, the lean audit** (`REPLAN.md` §17.3 item 0), read-only, then his ruling.
+1. **The cleanup of what is already written:** L0, the lean audit (read-only), his ruling, then L1, the cleanup
+   build (`REPLAN.md` §17.3 item 0). No new app-layer feature before it. **Every run: its size and what he gets for
+   it first, both meters read before and after** (`REPLAN.md` §17.6).
 2. **C1 to its end** under the full protocol; **S1-2 to its end, lean**; then deploy 2 and **his use of it** before
    anything more is stacked.
 3. **His, whenever he likes:** the terminal emulator (allow inline styles for the page, or keep the grid); Music's
