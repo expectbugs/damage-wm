@@ -129,7 +129,7 @@ export function readerView(ctx) {
     B = { id, level: null, anchor, offset: null, inputAt: 0, part: null, doc: null, partScope: null,
       want: null, input: false, saveTimer: null, started: false, side: false, els: {}, byInput: !!input };
     ctx.sub(`reader/book:${id}`);
-    // opening by input is a reading effect: the book read most recently (arrival order, never a loss); ruling 2.3:
+    // opening by input is a reading effect: the book read most recently (the latest input); ruling 2.3:
     // never on a page load, a reload or a restored tab
     if (input) ctx.sendQueued({ window: W, action: 'open', targets: ['recent'], result: id }, null, { quiet: true });
     drawBook();

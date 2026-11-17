@@ -95,7 +95,7 @@ function say(text, opts = {}) {
 
 function place(t, keep) {
   el.toasts.append(t);
-  // ruling 2.3 (12): the cap never pushes out a kept toast (a loss notice is said once) nor the one just said
+  // ruling 2.3 (12): the cap never pushes out a kept toast (an urgent notice, an end) nor the one just said
   const all = [...el.toasts.children];
   for (const i of toastsToDrop(all.map((c) => c.classList.contains('keep')), 4)) dropToast(all[i]);
   if (!keep) setTimeout(() => dropToast(t), 12000);

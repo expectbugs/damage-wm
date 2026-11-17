@@ -59,7 +59,7 @@ export function outTitle(href) {
 
 /**
  * Fix round 1, ruling 2.3 (12): which toasts to remove so at most `cap` stay — `kept` (oldest first) says which are
- * kept until dismissed (a loss notice, said once). Only toasts not kept go, oldest first, and never the newest (the
+ * kept until dismissed (an urgent notice, an end said once). Only toasts not kept go, oldest first, and never the newest (the
  * one just said); kept ones stay past the cap. Returns their indices. Pure.
  */
 export function toastsToDrop(kept, cap) {
