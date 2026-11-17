@@ -296,7 +296,10 @@ class RemoteWin(
      *  fate is always decided, never abandoned. [quick] (X3): one the PC answers
      *  at once (a poll); with no answer for [stuckMs] the link may have gone
      *  half-open, so the connection is dropped (a liveness decision: the drop
-     *  fails it, and the channel connects again on its pacing). */
+     *  fails it, and the channel connects again on its pacing). The PC serves a
+     *  channel's requests one at a time, so the [stuckMs] start once no OLDER
+     *  request of this channel is pending (L1 R2 A2: a long ask ahead of it is
+     *  not a link gone half-open). */
     fun request(op: String, args: JsonObject = JsonObject(emptyMap()), quick: Boolean = false): Answer {
         val o = out ?: throw IllegalStateException("host $host is not reachable ('$winId')")
         val id = nextId.getAndIncrement()
@@ -310,6 +313,8 @@ class RemoteWin(
         }
         return try {
             if (!quick) fut.get() else try {
+                val older = pending.filterKeys { it < id }.values.toTypedArray()
+                CompletableFuture.anyOf(fut, CompletableFuture.allOf(*older)).handle { _, _ -> }.get()
                 fut.get(stuckMs, java.util.concurrent.TimeUnit.MILLISECONDS)
             } catch (e: java.util.concurrent.TimeoutException) {
                 Log.w("win-remote", "'$winId' $op has had no answer for ${stuckMs / 1000} s: the connection is " +

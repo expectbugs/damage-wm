@@ -107,6 +107,40 @@ class RemoteWinLastHeardTest {
         scope.cancel()
     }
 
+    /** L1 R2 A2 (RX NOTE 5): the PC serves a channel's requests one at a time, so a quick request sent behind a long
+     *  one waits its minute only from the moment no older request is pending. Here the long ask is answered after
+     *  three of the quick request's bounds, then the quick one at once: both are answered on the one connection. */
+    @Test
+    fun aQuickRequestBehindALongOneIsNotDroppedWhileTheLongOneIsWorkedOn(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        StandIn().use { h ->
+            val rw = RemoteWin("127.0.0.1", h.port, "tok", "music", scope, retryPacingMs = 50, stuckMs = 300)
+            try {
+                val (sock, out) = h.next()
+                val inp = DataInputStream(sock.getInputStream())
+                fun readOp(): String { val b = ByteArray(inp.readInt()); inp.readFully(b); return String(b, Charsets.UTF_8) }
+                h.send(out, """{"t":"wup"}""")
+                waitUntil(5_000, 5, { "the channel came up (${rw.stateLine})" }) { rw.stateLine.isEmpty() }
+                val answers = LinkedBlockingQueue<String>()
+                fun ask(op: String, quick: Boolean) = Thread({
+                    answers.put(try { "$op: " + rw.request(op, quick = quick).data["v"] } catch (e: Exception) { "$op failed: ${e.message}" })
+                }, "a2-$op").apply { isDaemon = true; start() }
+                ask("ask", quick = false)
+                assertTrue("\"ask\"" in readOp(), "the long ask reached the PC first")
+                ask("catalog", quick = true)
+                assertTrue("\"catalog\"" in readOp(), "then the quick one")
+                delay(900)                                         // the PC is still working on the long ask
+                h.send(out, """{"t":"wres","id":1,"ok":true,"data":{"v":"long"}}""")
+                h.send(out, """{"t":"wres","id":2,"ok":true,"data":{"v":"quick"}}""")
+                val got = setOf(answers.poll(5, java.util.concurrent.TimeUnit.SECONDS), answers.poll(5, java.util.concurrent.TimeUnit.SECONDS))
+                assertEquals(setOf("ask: \"long\"", "catalog: \"quick\""), got)
+                assertEquals(null, h.accepted.poll(200, java.util.concurrent.TimeUnit.MILLISECONDS), "the connection was never dropped")
+                sock.close()
+            } finally { rw.close() }
+        }
+        scope.cancel()
+    }
+
     @Test
     fun aFailedConnectNeverMovesIt(): Unit = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
