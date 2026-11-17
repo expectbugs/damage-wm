@@ -8,14 +8,12 @@
 // below full is told so and is shown nothing of the tree, nor asks for it. Every decision is in `files-model.mjs`.
 
 import { h, fill, bar, icon, keepFocus } from '../dom.mjs';
-import { hhmm } from '../proto.mjs';
 import { format } from '../address.mjs';
-import { who } from '../reader-model.mjs';
 import * as M from '../files-model.mjs';
 
 const ROW_PX = 40;
 const TEXT_NEAR_PX = 1500;
-const FINISHED = ['done', 'failed', 'cut', 'skipped', 'unsent'];
+const FINISHED = ['done', 'failed', 'cut', 'unsent'];
 
 /** The page's uploads, one list per page (kept on its `ctx`): they outlive a visit to another window, so a file being
  *  sent goes on to its end and says how it ended. `hooks` = the mounted view's {draw, pump}, or null. */
@@ -32,9 +30,10 @@ function put(box, sig, make) {
 }
 
 /** The PUT of one upload (spec §2.4: `PUT /blob/upload/<id>`, the file as the body; progress from the request's upload
- *  events, since `fetch` has none on Chromium 108). No time limit: Cancel ends it. S1-2 R2 item 20: its error and
- *  abort paths call `giveBack()`, which sends `uploadCancel` for the ticket. */
-function sendBody(up, u, id, say, where, giveBack) {
+ *  events, since `fetch` has none on Chromium 108). No time limit: Cancel ends it. L1 P41: ended before a byte left,
+ *  it calls `letGo()` (the page's connection is made again, so the PC lets go of its place); its supervisor frees the
+ *  rest. */
+function sendBody(up, u, id, say, where, letGo) {
   const { list: uploads, xhrs } = up;
   if (!up.guarded && typeof window.addEventListener === 'function') {
     up.guarded = true;
@@ -55,8 +54,8 @@ function sendBody(up, u, id, say, where, giveBack) {
     xhrs.delete(u.id);
     u.state = 'cut';
     u.reason = why;
-    say(`'${u.as}': the upload was cut off at ${M.bytes(u.sent)} of ${M.bytes(u.size)} (${why}); nothing is kept under that name (the PC deletes a cut-off upload).`);
-    giveBack();
+    say(`'${u.name}': the upload was cut off at ${M.bytes(u.sent)} of ${M.bytes(u.size)} (${why}); nothing is kept of it (the PC deletes a cut-off upload).`);
+    if (!u.sent) letGo();
     if (stopAll) {
       const n = uploads.stopRest(`not sent: the upload before it was cut off (${why})`);
       if (n) say(`${n} more ${n === 1 ? 'file was' : 'files were'} not uploaded. A page keeps no queue; drop them again when the PC answers.`);
@@ -75,11 +74,13 @@ function sendBody(up, u, id, say, where, giveBack) {
     if (r.ok) {
       u.state = 'done';
       u.sent = u.size;
-      say(`Uploaded '${u.as}' to ${where}.`);
+      u.as = r.name || u.name;
+      // L1 P40: the PC never replaces a file; its answer names the one it placed (a taken name numbered)
+      say(r.name ? `Uploaded '${r.name}' to ${where}.` : `Uploaded '${u.name}' to ${where} (the PC's answer named no file: ${x.responseText}).`);
     } else {
       u.state = 'failed';
       u.reason = r.reason;
-      say(`'${u.as}' was not uploaded: ${r.reason}`);
+      say(`'${u.name}' was not uploaded: ${r.reason}`);
     }
     redraw();
     next();
@@ -94,7 +95,7 @@ export function filesView(ctx) {
   const rec = ctx.rec(M.W);
   const sel = new M.Selection();
   const flying = new Map(); // k → {label, n, at}: program ops sent and not answered
-  const myJobs = new Map(); // job id → {label, then}: jobs this page started, whose end it says
+  const myJobs = new Map(); // job id → {label, then}: Stats this page asked, whose facts it shows at the job's end
   const refusals = new Map(); // scope → the PC's reason
   const pend = {}; // a register sent and not yet in the record: its value meanwhile
   const up = pageUploads(ctx);
@@ -113,7 +114,6 @@ export function filesView(ctx) {
   let pdfScope = null;
   let trashScope = null;
   let forceText = null;
-  let rejoined = false; // a new connection: the jobs this page waits on are looked for in the next description
   let reveal = null; // an entry the address opened: its row is scrolled into the list's view once it is held (desk)
   let panel = null; // {kind: 'stats' | 'download', …}
   let ticker = null;
@@ -128,18 +128,12 @@ export function filesView(ctx) {
   const sortNow = () => pend.sort ?? M.sortOf(rec);
   const hiddenNow = () => pend.hidden ?? M.hiddenOf(rec);
   const clipNow = () => (pend.clip !== undefined ? pend.clip : M.clipOf(rec));
-  const pcNow = () => Date.now() + (ctx.S.pcOffset || 0);
+  const pcNow = ctx.pcNow;
   const where = (dir) => M.folderLabel(dir, locs());
   const go = (target, anchor) => ctx.go(target ? { window: M.W, target, ...(anchor ? { anchor } : {}) } : { window: M.W });
   const link = (text, target, key, cls) => h('a', { href: format(target ? { window: M.W, target } : { window: M.W }), class: cls || null, 'data-key': key, focus: true,
     on: { click: (e) => { e.preventDefault(); go(target); } } }, text);
   const held = () => new Set(listing ? listing.rows().map((r) => r.name) : []);
-  // S1-2 R2 item 18 (review B-M2): the trash stores this page has been told of (locations of kind `trash`), kept for
-  // the page's life: a later description that leaves one out (an empty trash) does not open it as a folder
-  if (!ctx.filesStores) ctx.filesStores = new Set();
-  const stores = ctx.filesStores;
-  const noteStores = (d) => { for (const s of M.storesOf(d && Array.isArray(d.locations) ? d.locations : [])) stores.add(s); };
-  const storeAt = (path) => M.inStore(path, stores);
 
   // ---- level: Files is full as a whole (C§10.4); below it nothing is asked and nothing of the tree is shown ----
 
@@ -171,20 +165,21 @@ export function filesView(ctx) {
       h('p', { class: 'note', text: 'Approve this device at level full on the PC to use Files from it.' }));
   }
 
-  // ---- program ops (spec §2.4; A.7): Sent or Refused; a job's end is said by the page that started it ----
+  // ---- program ops (spec §2.4; A.7): Sent or Refused; a job's end is the slot's line (L1 P44) ----
 
-  /** Sends action `a` over `targets`; `then(outcome)` gets {ok, words, facts} at the call's answer or its job's end. */
+  /** Sends action `a` over `targets`; `then(outcome)` gets {ok, words, facts} at the call's answer, or at its job's end
+   *  when it names one (Stats); a job's end is otherwise said by the slot's line. */
   function send(a, targets, params, n, then) {
     const w = { label: a.label, n, at: Date.now() };
     const k = ctx.sendProgram(M.programDraft(a.id, targets, params), a.level || 'full', (ans) => {
       flying.delete(k);
       drawJob();
       const bad = M.answerLine(a.label, ans);
-      // S1-2 R2 item 20 (review B-N9): an answer lost with its connection is not a failure: whether it ran is not known
-      if (bad) return (then || sayOutcome)({ ok: false, words: bad, ans, ...(ans && ans.code === 'ended' ? { unknown: 'the connection to the PC ended before its answer' } : {}) });
+      if (bad) return (then || sayOutcome)({ ok: false, words: bad, ans });
       const job = M.jobOf(ans);
       if (job !== null) {
-        myJobs.set(job, { label: a.label, then: then || sayOutcome, at: pcNow() });
+        if (!then) return null;
+        myJobs.set(job, { label: a.label, then });
         return checkJobs();
       }
       const res = ans.result && typeof ans.result === 'object' ? ans.result : {};
@@ -201,20 +196,16 @@ export function filesView(ctx) {
     say(o.words);
   }
 
-  /** Program op `id` after its confirm, if it has one (C§4.3: a confirm open over a connection's end sends nothing). */
-  async function act(id, targets, names, params, then) {
+  /** Program op `id` after its confirm, if it has one (L1 P33: it goes on the connection current at the act). */
+  async function act(id, targets, names, params) {
     const a = acts().get(id);
     if (!a) return;
     const c = M.confirmFor(id, names);
-    const conn0 = ctx.S.conn;
-    if (c) {
-      if (!(await ctx.confirm(c))) return;
-      if (ctx.S.conn !== conn0) return say(`${a.label}: nothing sent — the connection to the PC ended while the confirm was open. Ask again.`);
-    }
-    send(a, targets, params, targets.length, then);
+    if (c && !(await ctx.confirm(c))) return;
+    send(a, targets, params, targets.length);
   }
 
-  /** The jobs this page started: at their end (the slot's job reaches done or failed) their outcome is handed on. */
+  /** The Stats this page asked: at their job's end (done or failed) their outcome is handed on. */
   function checkJobs() {
     const jobs = M.jobsOf(last);
     for (const [id, m] of [...myJobs]) {
@@ -222,11 +213,6 @@ export function filesView(ctx) {
       if (j && (j.state === 'done' || j.state === 'failed')) {
         myJobs.delete(id);
         m.then({ ok: j.state === 'done', words: M.jobOutcome(m.label, j), facts: j.answer && typeof j.answer === 'object' ? j.answer : null });
-      } else if (!j && jobs.some((x) => typeof x.startedAt === 'number' && x.startedAt > m.at)) {
-        // the slot holds a job started after this one was answered: this one ended unseen. Said, never left waiting
-        myJobs.delete(id);
-        m.then({ ok: false, words: `${m.label}: the PC's job slot moved on before this page saw how it ended; look at the folder.`,
-          unknown: 'the PC\'s job slot moved on before this page saw how it ended' });
       }
     }
   }
@@ -249,54 +235,49 @@ export function filesView(ctx) {
     return h('a', { class: 'btn', href: M.blobUrl(path, { dl: true }), download: name, 'data-key': key || `dl:${name}`, focus: true }, 'Download');
   }
 
-  // ---- record ops: the clipboard, sort, hidden, the Size row (registers, expecting the value seen) ----
+  // ---- record ops: the clipboard, sort, hidden, the Size row (registers; L1 C1: the latest input wins) ----
 
   /** `info` names the label and level when the description lists no action of that id (a settings row). */
-  function setReg(action, name, value, draft, info) {
+  function setReg(action, name, value, info) {
     const a = info || acts().get(action);
     if (!a) return;
     pend[name] = value;
-    const sent = ctx.sendQueued(draft || M.regDraft(action, name, value, rec), (ans) => {
-      if (ans.a === 'lost') {
-        const l = (ans.losses || [])[0] || {};
-        say(`${a.label}: not applied — ${JSON.stringify(l.standing)} stands, set by ${who(l.by, ctx.S.device, ctx.S.names)} (${hhmm(l.at)})`, { keep: true });
-      } else if (ans.a === 'refused') say(`${a.label}: ${ans.reason}`);
-      // seen: the value stays shown until the record's change arrives (C§9.2: drawn until a state at or past it)
-      if (ans.a !== 'seen') delete pend[name];
+    const at = pcNow();
+    const sent = ctx.sendQueued(M.regDraft(action, name, value, at), (ans) => {
+      if (ans.a === 'refused') say(`${a.label}: ${ans.reason}`);
+      // seen: the value stays shown until the record's change arrives (the PC answers, then publishes it) — unless the
+      // record already shows it or a later input: an op that changed nothing publishes no change
+      if (ans.a !== 'seen' || M.settled(rec.item(M.W, name), value, at)) delete pend[name];
       draw();
     }, { need: a.level || 'full' });
     if (!sent) delete pend[name];
     draw();
   }
 
-  const setClip = (verb, path) => setReg(verb, 'clip', { verb, path }, M.clipDraft(verb, path, rec));
+  const setClip = (verb, path) => setReg(verb, 'clip', { verb, path });
 
   function paste(dest) {
     const took = clipNow();
     const a = acts().get('paste');
     if (!took || !a) return;
-    // S1-2 R0 §3: a pasted cut's clipboard is cleared in ONE place, the PC's core, when the move lands (expecting the
-    // clip it took: a clip changed meanwhile wins, nothing said); the record's change reaches this page like any other
-    send(a, [dest], { verb: took.verb, path: took.path }, 1, (o) => say(o.words));
+    // S1-2 R0 §3: a pasted cut's clipboard is cleared in ONE place, the PC's core, when the move lands (only while the
+    // clip still names that cut); the record's change reaches this page like any other
+    send(a, [dest], { verb: took.verb, path: took.path }, 1);
   }
 
   async function rename(path, name) {
     const a = acts().get('rename');
-    const conn0 = ctx.S.conn;
     const taken = held();
     const to = await ctx.ask({ title: `Rename '${name}'`, label: 'New name', initial: name, act: 'Rename', check: (v) => M.nameWhy(v, taken, name) });
     if (to === null || !a) return;
-    if (ctx.S.conn !== conn0) return say(`${a.label}: nothing sent — the connection to the PC ended while it asked. Ask again.`);
     send(a, [path], { name: to }, 1);
   }
 
   async function mkdir(dir) {
     const a = acts().get('mkdir');
-    const conn0 = ctx.S.conn;
     const taken = held();
     const name = await ctx.ask({ title: `New folder in ${where(dir)}`, label: 'Name', initial: '', act: 'Create', check: (v) => M.nameWhy(v, taken) });
     if (name === null || !a) return;
-    if (ctx.S.conn !== conn0) return say(`${a.label}: nothing sent — the connection to the PC ended while it asked. Ask again.`);
     send(a, [dir], { name }, 1);
   }
 
@@ -311,14 +292,13 @@ export function filesView(ctx) {
     });
   }
 
-  // ---- uploads: drop files on a folder; one at a time; an existing name asks first ----
+  // ---- uploads: drop files on a folder; one at a time; the PC numbers a taken name (L1 P40) ----
 
   function startUpload(files, dest) {
     const list = [...(files || [])];
     if (!list.length) return;
     if (!M.offered(acts().get('upload'), ctx.S.level)) return say('Upload is not offered on this device.');
-    const taken = listing && listing.src === M.norm(dest) ? held() : new Set();
-    uploads.add(list, dest, taken);
+    uploads.add(list, dest);
     drawUploads();
     pump();
   }
@@ -336,80 +316,30 @@ export function filesView(ctx) {
       stopAll(why);
       return drawUploads();
     }
-    if (u.clash) return askClash(u);
-    return place_(u, u.name);
-  }
-
-  async function askClash(u) {
-    u.state = 'asking';
-    drawUploads();
-    const taken = new Set([...held(), ...uploads.items.filter((x) => x.dest === u.dest && x !== u).map((x) => x.as || x.name)]);
-    const alt = M.freeName(u.name, taken);
-    const conn0 = ctx.S.conn;
-    const pick = await ctx.choose({ title: `'${u.name}' is already in ${where(u.dest)}`,
-      body: 'Upload it under another name, or move the one there to the PC\'s trash (Restore brings it back) and upload this one in its place.',
-      choices: [{ id: 'both', label: `Upload as '${alt}'` }, { id: 'replace', label: 'Replace: the old one goes to the trash', danger: true }], cancel: 'Skip' });
-    if (!root || ctx.S.conn !== conn0) {
-      u.state = 'unsent';
-      u.reason = !root ? 'not sent: the Files page was left while it asked' : 'not sent: the connection to the PC ended while it asked';
-      stopAll(u.reason.slice(10));
-      return drawUploads();
-    }
-    if (pick === null) {
-      u.state = 'skipped';
-      u.reason = `skipped: the '${u.name}' in that folder stays`;
-      return pump();
-    }
-    if (pick === 'both') return place_(u, alt);
-    const t = acts().get('trash');
-    u.state = 'trashing';
-    drawUploads();
-    const k = send(t, [M.join(u.dest, u.name)], null, 1, (o) => {
-      if (!root && u.state === 'trashing') return; // left: stopped and said at unmount
-      if (!o.ok && o.unknown) {
-        // S1-2 R2 item 20 (review B-N9): the old one may be in the trash; the words say what is known
-        u.state = 'unsent';
-        u.reason = `not uploaded: not known whether the old one went to the trash (${o.unknown}); look in the folder and in the trash, then drop it again`;
-        say(`'${u.name}' ${u.reason}.`, { keep: true });
-        return pump();
-      }
-      if (!o.ok) {
-        u.state = 'failed';
-        u.reason = `not uploaded: the old one could not be moved to the trash (${o.words})`;
-        say(`'${u.name}' ${u.reason}`);
-        return pump();
-      }
-      place_(u, u.name);
-    });
-    if (k === null) {
-      u.state = 'unsent';
-      u.reason = 'not sent';
-      pump();
-    }
+    return place_(u);
   }
 
   /** The `upload` op: the PC mints a single-use id for this device and holds its slot; then the body. */
-  function place_(u, as) {
+  function place_(u) {
     const a = acts().get('upload');
-    u.as = as;
     u.state = 'op';
     drawUploads();
     const dest = u.dest;
-    const w = { label: `Upload '${as}'`, n: 1, at: Date.now() };
-    const k = ctx.sendProgram(M.programDraft('upload', [dest], { file: { name: as, size: u.size } }), a.level || 'full', (ans) => {
+    const w = { label: `Upload '${u.name}'`, n: 1, at: Date.now() };
+    const k = ctx.sendProgram(M.programDraft('upload', [dest], { file: { name: u.name, size: u.size } }), a.level || 'full', (ans) => {
       flying.delete(k);
       drawJob();
       const id = ans && ans.a === 'sent' && ans.result && typeof ans.result === 'object' ? ans.result.upload : undefined;
       if (id === undefined || id === null) {
         u.state = 'failed';
         u.reason = ans && ans.a === 'refused' ? ans.reason || `refused (${ans.code})` : `the PC gave no upload id (${ans ? ans.a : 'no answer'})`;
-        say(`'${as}' was not uploaded: ${u.reason}`);
+        say(`'${u.name}' was not uploaded: ${u.reason}`);
         // the slot is another device's: every file after it would be refused the same way
         if (/busy/.test(u.reason)) stopAll('the PC is busy with another operation');
         return up.hooks ? up.hooks.pump() : drawUploads();
       }
       const conn = ctx.S.conn;
-      sendBody(up, u, String(id), say, where(dest), () => giveBack(u, String(id), conn));
+      sendBody(up, u, String(id), say, where(dest), () => letGo(u, conn));
     });
     if (k === null) {
       u.state = 'unsent';
@@ -421,25 +351,13 @@ export function filesView(ctx) {
     drawJob();
   }
 
-  /** S1-2 R2 item 20 (review B-S4; item 2 the PC's half): a PUT that ended on its error or abort path gives its ticket
-   *  back with the program op `uploadCancel` {upload: id}, so the PC's one Files slot is not held while this tab stays
-   *  open. The PC ends a ticket no body has begun for (Sent); one whose body began is ended by that body's end
-   *  (Refused). The answer is said on the upload's row. A ticket of a connection that has ended is not asked about:
-   *  the PC releases it with that connection (R2 item 1). */
-  function giveBack(u, id, conn) {
+  /** L1 P41 (review B-S4): a PUT that ended before a byte left: the page's connection is made again, and the PC lets go
+   *  of every place that connection held whose body had not begun (its other ops in flight are answered "not known
+   *  whether it ran"); the PC's supervisor frees what is left. A connection that has ended already let it go. */
+  function letGo(u, conn) {
     if (ctx.S.conn !== conn) return;
-    const redraw = () => (up.hooks ? up.hooks.draw() : null);
-    const why = ctx.canAct('full');
-    if (why) {
-      u.freed = `the cancel was not sent: ${why}`;
-      return redraw();
-    }
-    const k = ctx.sendProgram(M.programDraft('uploadCancel', [], { upload: id }), 'full', (ans) => {
-      u.freed = M.cancelLine(ans);
-      redraw();
-    });
-    if (k === null) u.freed = 'the cancel was not sent: the connection to the PC is down';
-    redraw();
+    u.freed = 'this page reconnected, so the PC lets go of its place';
+    ctx.reconnect();
   }
 
   function drawUploads() {
@@ -497,7 +415,7 @@ export function filesView(ctx) {
             // a row's own action if the description names one, else `set` (Torrents' row op; spec §4.5: Size, a record row)
             const action = row.action || 'set';
             const value = o ? o[0] : e.target.value;
-            setReg(action, row.id, value, M.regDraft(action, row.id, value, rec), { label: row.label, level: row.level || 'full' });
+            setReg(action, row.id, value, { label: row.label, level: row.level || 'full' });
             els.settings.dataset.sig = '';
           } } }, opts.map(([id, l]) => h('option', { value: id, selected: String(id) === String(v) }, l))));
       }));
@@ -507,11 +425,13 @@ export function filesView(ctx) {
   function drawJob() {
     clearTimeout(ticker);
     if (!root || !started) return;
-    const j = M.runningJob(last);
+    // L1 P44: the slot's job whatever its state — running with its age, or how and when it ended (until the next)
+    const j = M.jobsOf(last)[0] || null;
+    const running = M.runningJob(last);
     const now = Date.now();
-    fill(els.job, j ? h('div', { class: 'fjob', role: 'status' }, h('span', { text: M.jobLine(j, pcNow()) }), typeof j.fraction === 'number' ? bar(j.fraction) : null) : null,
+    fill(els.job, j ? h('div', { class: 'fjob', role: 'status' }, h('span', { text: M.jobLine(j, pcNow()) }), j === running && typeof j.fraction === 'number' ? bar(j.fraction) : null) : null,
       [...flying.values()].map((w) => h('p', { class: 'note', text: M.waitingLine(w, now) })));
-    if (j || flying.size) ticker = setTimeout(drawJob, 1000);
+    if (running || flying.size) ticker = setTimeout(drawJob, 1000);
   }
 
   function drawNav() {
@@ -520,7 +440,6 @@ export function filesView(ctx) {
     const sig = JSON.stringify([place.at, place.dir, clip, sortNow(), hiddenNow(), ctx.S.level, ctx.canAct('full'), M.busyWhy(last), mode, locs().map((l) => [l.path, l.label]), [...acts().keys()]]);
     put(els.nav, sig, () => {
       if (place.at === 'trash') return h('nav', { class: 'crumbs' }, link('Locations', null, 'crumb:locs'), ' / Trash');
-      if (place.at === 'store') return h('nav', { class: 'crumbs' }, link('Locations', null, 'crumb:locs'), ' / ', link('Trash', 'trash', 'crumb:trash'));
       const cr = M.crumbs(place.dir, locs());
       const crumbs = h('nav', { class: 'crumbs', 'aria-label': 'Path' }, link('Locations', null, 'crumb:locs'),
         cr.map((c, i) => [' / ', i === cr.length - 1 && place.at === 'folder' ? h('span', { class: 'here', text: c.label }) : link(c.label, M.folderTarget(c.path), `crumb:${c.path}`)]));
@@ -577,7 +496,7 @@ export function filesView(ctx) {
   }
 
   function drawBulk() {
-    if (!sel.size || place.at === 'store') return fill(els.bulk);
+    if (!sel.size) return fill(els.bulk);
     const ids = sel.list();
     const clear = h('button', { 'data-key': 'sel:clear', focus: true, on: { click: () => { sel.clear(); draw(); } } }, 'Clear');
     let acts_;
@@ -596,16 +515,7 @@ export function filesView(ctx) {
   function drawBody() {
     if (place.at === 'locations') return keepFocus(els.list, 'data-key', () => fill(els.list, locations()));
     if (place.at === 'trash') return keepFocus(els.list, 'data-key', () => fill(els.list, trash()));
-    if (place.at === 'store') return keepFocus(els.list, 'data-key', () => fill(els.list, storeNote()));
     keepFocus(els.list, 'data-key', () => fill(els.list, folder()));
-  }
-
-  /** S1-2 R2 item 18: the PC's trash store (or a folder in it) named by an address: said, with the way to the trash
-   *  view; nothing of it is listed and no folder operation is offered. */
-  function storeNote() {
-    return [h('p', { class: 'note', text: `${place.dir} is where the PC keeps the trash's own files. It is not opened as a folder here: `
-      + 'a change inside it would lose what was moved to the trash.' }),
-    h('p', null, link('Open the Trash', 'trash', 'store:trash', 'btn'))];
   }
 
   function locations() {
@@ -651,10 +561,8 @@ export function filesView(ctx) {
   function folder() {
     if (!listing) return null;
     const rows = M.present(listing.rows(), sortNow(), hiddenNow());
-    // S1-2 R2 item 18: the trash store's own row (in its parent, with Hidden files on) is never selected
-    const pickable = rows.filter((r) => !storeAt(M.join(place.dir, r.name)));
     // W-20: a selection is what the folder shows — a name gone or hidden away leaves it
-    sel.prune(pickable.map((r) => r.name));
+    sel.prune(rows.map((r) => r.name));
     const st = listing.status();
     const n = typeof listCount === 'number' ? listCount : rows.length;
     const end = st.kind === 'first' ? 'Reading the folder from the PC…' : st.kind === 'loading' ? 'loading the next page…'
@@ -663,9 +571,9 @@ export function filesView(ctx) {
           : st.kind === 'end' ? `${n} ${n === 1 ? 'entry' : 'entries'}` : null;
     const endEl = end ? h('p', { class: 'note tend' + (st.kind === 'failed' ? ' failed' : ''), text: end }) : null;
     const retry = st.kind === 'failed' && !st.retry ? h('button', { 'data-key': 'retry', focus: true, on: { click: () => { listing.failed = null; checkMore(true); } } }, 'Try again') : null;
-    const all = pickable.length > 0 && pickable.every((r) => sel.has(r.name));
-    const head = pickable.length ? h('label', { class: 'fall' }, h('input', { type: 'checkbox', checked: all, 'data-key': 'sel:all', focus: true,
-      on: { change: () => { if (all) sel.clear(); else sel.set(pickable.map((r) => r.name)); drawBody(); drawBulk(); } } }), h('span', { class: 'note', text: 'Select all shown' })) : null;
+    const all = rows.length > 0 && rows.every((r) => sel.has(r.name));
+    const head = rows.length ? h('label', { class: 'fall' }, h('input', { type: 'checkbox', checked: all, 'data-key': 'sel:all', focus: true,
+      on: { change: () => { if (all) sel.clear(); else sel.set(rows.map((r) => r.name)); drawBody(); drawBulk(); } } }), h('span', { class: 'note', text: 'Select all shown' })) : null;
     const now = pcNow();
     return [head, rows.length ? h('ul', { class: mode === 'grid' ? 'fgrid' : 'flist' }, rows.map((r) => entry(r, now))) : null, endEl, retry];
   }
@@ -673,20 +581,17 @@ export function filesView(ctx) {
   function entry(r, now) {
     const path = M.join(place.dir, r.name);
     const kind = M.kindOf(r);
-    // S1-2 R2 item 18: the trash store's own row opens the trash view and is never selected
-    const isStore = storeAt(path);
-    const open = () => (isStore ? go('trash') : r.dir ? go(M.folderTarget(path)) : go(M.entryTarget(place.dir, r.name)));
+    const open = () => (r.dir ? go(M.folderTarget(path)) : go(M.entryTarget(place.dir, r.name)));
     const picked = sel.has(r.name);
     const cur = place.at === 'entry' && place.name === r.name;
     const pic = mode === 'grid' && r.thumb && !r.dir ? h('img', { class: 'fthumb', src: M.thumbUrl(path), alt: '', loading: 'lazy' })
-      : icon(isStore ? 'trash' : r.dir ? 'folder' : kind === 'image' ? 'image' : 'file');
+      : icon(r.dir ? 'folder' : kind === 'image' ? 'image' : 'file');
     return h('li', { class: `frow${picked ? ' picked' : ''}${cur ? ' open' : ''}${r.stale ? ' stale' : ''}${r.dir ? ' dir' : ''}`, 'data-name': r.name },
-      isStore ? h('input', { type: 'checkbox', disabled: true, 'aria-label': `${r.name}: the PC's trash store, opened as the Trash`, title: 'the PC\'s trash store: it opens as the Trash and is never selected' })
-        : h('input', { type: 'checkbox', checked: picked, 'aria-label': `select ${r.name}`, 'data-key': `sel:${r.name}`, focus: true,
-          on: { change: () => { sel.toggle(r.name); drawBody(); drawBulk(); } } }),
+      h('input', { type: 'checkbox', checked: picked, 'aria-label': `select ${r.name}`, 'data-key': `sel:${r.name}`, focus: true,
+        on: { change: () => { sel.toggle(r.name); drawBody(); drawBulk(); } } }),
       h('button', { class: 'fopen', 'data-key': `row:${r.name}`, focus: true, title: r.name, on: { click: open } }, pic, h('span', { class: 'fname', text: r.name })),
       h('span', { class: 'fmeta', text: [r.dir ? 'folder' : M.bytes(r.size), M.mtimeWords(r.mtime, now)].filter(Boolean).join(' · ') }),
-      isStore ? h('span') : h('button', { class: 'fmore', 'aria-label': `actions for ${r.name}`, title: `actions for ${r.name}`, 'data-key': `more:${r.name}`, focus: true,
+      h('button', { class: 'fmore', 'aria-label': `actions for ${r.name}`, title: `actions for ${r.name}`, 'data-key': `more:${r.name}`, focus: true,
         on: { click: () => go(M.entryTarget(place.dir, r.name)) } }, '⋯'));
   }
 
@@ -727,8 +632,6 @@ export function filesView(ctx) {
   }
 
   function paneActs({ r, path }) {
-    // S1-2 R2 item 18: the trash store's own pane (an address naming it) offers the trash view, nothing else
-    if (storeAt(path)) return [h('button', { class: 'primary', 'data-key': 'p:trash', focus: true, on: { click: () => go('trash') } }, 'Open the Trash')];
     const clip = clipNow();
     return [
       r.dir ? h('button', { class: 'primary', 'data-key': 'p:open', focus: true, on: { click: () => go(M.folderTarget(path)) } }, 'Open') : null,
@@ -845,10 +748,8 @@ export function filesView(ctx) {
     const before = place;
     place = M.placeOf(r.target, r.anchor);
     if (place.bad !== undefined) say(`'${place.bad}' is not a path on the PC (a path starts with /); showing the locations.`);
-    // S1-2 R2 item 18: a folder at or under the PC's trash store is never a folder here, whatever the PC serves
-    if ((place.at === 'folder' || place.at === 'entry') && storeAt(place.dir)) place = { at: 'store', dir: place.dir };
     if (!started) return;
-    if ((before.at === 'trash') !== (place.at === 'trash') || before.dir !== place.dir || place.at === 'store') sel.clear();
+    if ((before.at === 'trash') !== (place.at === 'trash') || before.dir !== place.dir) sel.clear();
     if (place.at !== 'entry' || place.dir !== before.dir || place.name !== before.name) forceText = null;
     if (place.dir !== before.dir || place.at !== before.at) panel = null;
     trashScope = hold(trashScope, place.at === 'trash' ? M.TRASH : null);
@@ -931,7 +832,6 @@ export function filesView(ctx) {
       root.append(h('header', { class: 'thead' }, els.info, els.settings), els.job, els.nav, els.panel, els.uploads, els.bulk, els.split);
       start();
       last = ctx.desc(M.DESC) || null;
-      noteStores(last);
       show(r);
       return root;
     },
@@ -941,7 +841,6 @@ export function filesView(ctx) {
     },
     unmount() {
       // the files still waiting are not sent (a page keeps no queue); the one being sent goes on and says its end
-      for (const u of uploads.items) if (u.state === 'trashing' || u.state === 'asking') { u.state = 'unsent'; u.reason = 'not sent: the Files page was left'; }
       stopAll('the Files page was left');
       up.hooks = null;
       stop();
@@ -962,7 +861,7 @@ export function filesView(ctx) {
         const top = locs().some((l) => M.norm(l.path) === place.dir);
         if (top || place.dir === '/') go(null);
         else go(M.folderTarget(up), M.baseName(place.dir));
-      } else if (place.at === 'trash' || place.at === 'store') go(null);
+      } else if (place.at === 'trash') go(null);
       else return false;
       return true;
     },
@@ -971,21 +870,7 @@ export function filesView(ctx) {
       if (scope === M.DESC) {
         last = d;
         refusals.delete(scope);
-        noteStores(d);
-        // S1-2 R2 item 18: a store named after the place was shown (an address opened before the first description)
-        if ((place.at === 'folder' || place.at === 'entry') && storeAt(place.dir)) show(lastR);
         checkJobs();
-        if (rejoined) {
-          // after a reconnect a job this page started and the slot no longer names ended unseen (a PC restart frees the
-          // slot): said once, never left waiting
-          rejoined = false;
-          const ids = new Set(M.jobsOf(d).map((j) => String(j.id)));
-          for (const [id, m] of [...myJobs]) if (!ids.has(id)) {
-            myJobs.delete(id);
-            m.then({ ok: false, words: `${m.label}: not known how it ended — the connection to the PC ended while it ran; look at the folder.`,
-              unknown: 'the connection to the PC ended while it ran' });
-          }
-        }
         drawHead();
         drawJob();
         drawNav();
@@ -1048,7 +933,6 @@ export function filesView(ctx) {
         if (started) stop();
         return drawBelow();
       }
-      rejoined = myJobs.size > 0;
       if (!started) {
         fill(root, h('header', { class: 'thead' }, els.info, els.settings), els.job, els.nav, els.panel, els.uploads, els.bulk, els.split);
         start();

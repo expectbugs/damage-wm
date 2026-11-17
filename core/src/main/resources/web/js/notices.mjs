@@ -46,10 +46,10 @@ export function readCursor(store, stream) {
   }
 }
 
-/** One op on a notice (C§4.2: a reading effect, a register at level view): the whole value with its state moved, and
- *  the occurrence it was seen at as text (`Expect.Occurrence` reads text) — a later occurrence makes it lose, unsaid. */
+/** One op on a notice (C§4.2: a reading effect, a register at level view): the whole value with its state moved; it
+ *  carries the occurrence it was seen at (`result.occ`), so a later occurrence is never moved by it (L1 C1). */
 export function draft(n, action, state) {
-  return { window: WINDOW, action, targets: [n.id], result: { ...n.v, state }, expect: { occ: String(n.occ) } };
+  return { window: WINDOW, action, targets: [n.id], result: { ...n.v, state } };
 }
 export const dismissDraft = (n) => draft(n, 'dismiss', 'DISMISSED');
 export const readDraft = (n) => draft(n, 'read', 'READ');

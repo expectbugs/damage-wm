@@ -7,7 +7,6 @@
 
 import { atLeast } from './proto.mjs';
 import { enc } from './address.mjs';
-import { expectSeen } from './record.mjs';
 
 export const W = 'torrents';
 export const DESC = 'desc/torrents';
@@ -311,10 +310,10 @@ export function recentsOf(rec) {
   return Array.isArray(v) ? v.filter((q) => typeof q === 'string' && q) : [];
 }
 
-/** The `recent` op after a search: the whole list with `q` first (deduped, at most ten), expecting Any. */
+/** The `recent` op after a search: the whole list with `q` first (deduped, at most ten). */
 export function recentDraft(q, rec) {
   const list = [q, ...recentsOf(rec).filter((x) => x !== q)].slice(0, RECENTS_MAX);
-  return { window: W, action: 'recent', targets: ['recents'], result: list, expect: { any: true } };
+  return { window: W, action: 'recent', targets: ['recents'], result: list };
 }
 
 /** A row's value: the record's when it holds one, else the description's. */
@@ -323,8 +322,8 @@ export function rowValue(row, rec) {
   return v === undefined ? row.value : v;
 }
 
-/** The `set` op of a row, expecting the value this page saw (a write elsewhere meanwhile is a loss, said). */
-export const setDraft = (row, value, rec) => ({ window: W, action: 'set', targets: [row.id], result: value, expect: expectSeen(rec && rec.item(W, row.id)) });
+/** The `set` op of a row (L1 C1: the latest input wins). */
+export const setDraft = (row, value) => ({ window: W, action: 'set', targets: [row.id], result: value });
 
 /** A choice row's options as [id, label]. */
 export const optionsOf = (row) => (row.options || []).map((o) => (o && typeof o === 'object' ? [o.id, o.label ?? String(o.id)] : [o, String(o)]));

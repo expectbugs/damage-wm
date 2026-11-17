@@ -175,8 +175,6 @@ body.away .toast.notice .act { opacity: .45; }
 .bookbar .book-name { display: flex; flex-direction: column; min-width: 10rem; }
 .bookbar .back { white-space: nowrap; }
 .bookbar .quiet { font-size: .85rem; }
-.gothere { display: flex; flex-wrap: wrap; gap: .7rem; align-items: center; padding: .5rem var(--gap); background: var(--card); border-bottom: 1px solid var(--accent); }
-.gothere[hidden] { display: none; }
 .book-body { position: relative; flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(12rem, 18rem) minmax(0, 1fr); }
 .chapters { overflow: auto; border-right: 1px solid var(--line); padding: .5rem; background: var(--bar); }
 .chapters ol { list-style: none; margin: 0; padding: 0; }

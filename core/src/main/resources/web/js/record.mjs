@@ -1,19 +1,11 @@
 // Context for the reader: Damage is Adam's own window manager for his own glasses, phone and PC on his own network.
 // Build S1-1, package P7 (CONTRACT.md §9.3): a page's copy of the record's entries it subscribed to — a `snap` at
-// (epoch, seq), then `chg`s in order. A change at or below the cursor is ignored (a resume may repeat one); a change of
-// another epoch asks for a fresh snapshot, never a silent gap. A page keeps no queue (§2.5): this is a read copy. Pure.
+// (epoch, seq), then `chg`s in order. A change at or below the snapshot's seq is ignored; a change of another epoch
+// asks for a fresh snapshot, never a silent gap. A page keeps no queue (§2.5): this is a read copy. Pure.
 
 /** The record key of an item `name` of `window` (`Record.key` in Kotlin). */
 export function key(window, name) {
   return `rec.${window}.${name}`;
-}
-
-/** What an op expects for an item a device last saw as `seen` (`ReaderCore.expectSeen`): its value, nothing there
- *  (null), or Any when it saw it removed (writing anew is not an edit of a removed item). */
-export function expectSeen(seen) {
-  if (!seen) return { value: null };
-  if (seen.gone) return { any: true };
-  return { value: seen.v };
 }
 
 export class ClientRecord {
@@ -21,11 +13,6 @@ export class ClientRecord {
     this.items = new Map();
     this.epoch = null;
     this.seq = null;
-  }
-
-  /** The cursor a resume names, or null before the first snapshot. */
-  cursor() {
-    return this.epoch === null ? null : { epoch: this.epoch, seq: this.seq };
   }
 
   /** A snapshot of the windows in `prefixes`: their entries replaced whole. Returns the keys that changed. */

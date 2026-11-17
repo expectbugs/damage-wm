@@ -4,18 +4,17 @@
 //  - the shelf as a cover grid with progress and folders (the progress follows the record's places as they move);
 //  - a book in Damage's own text (the PC's document: emphasis, links, pictures), one spine part at a time, with a
 //    chapter sidebar; in-book links jump, http(s) links open outside the page;
-//  - the place sent as a position op when the scroll rests (2 s after input) and on leaving; only input counts as
-//    reading — the page's own moves (opening at the place, Go there) send nothing;
-//  - another device's place never moves the page: a `Go there` bar offers it; the first place after a move not
-//    taken loses and is said once, in the glasses' words; reading on then applies;
+//  - the place sent as a position op when the scroll rests (2 s after input) and on leaving, carrying the time of the
+//    input; only input counts as reading — the page's own moves (opening at the place, following) send nothing;
+//  - L1 (the ruling, "The pages"): another device's input moving the open book's place moves the page there, no
+//    offer — unless this page's own input is later (the latest real input wins);
 //  - bookmark here, go to the bookmark, and reset progress through the confirm shape.
 // Nothing is cut: a part is drawn whole and scrolls.
 
 import { h, clear, fill, bar, outLink, icon, keepFocus } from '../dom.mjs';
 import { offsetOf } from '../anchor.mjs';
-import { PlaceView, progress, percent, partFor, placeAt, who, lossWords } from '../reader-model.mjs';
-import { expectSeen, key } from '../record.mjs';
-import { hhmm } from '../proto.mjs';
+import { progress, percent, partFor, placeAt } from '../reader-model.mjs';
+import { key } from '../record.mjs';
 import { format as address } from '../address.mjs';
 
 const W = 'reader';
@@ -27,7 +26,6 @@ export function readerView(ctx) {
   let shelfScope = null;
   let B = null; // the open book
 
-  const whoOf = (device) => who(device, ctx.S.device, ctx.S.names);
   const placeWords = (v) => {
     const o = offsetOf(v);
     if (o === null) return 'no place';
@@ -127,12 +125,13 @@ export function readerView(ctx) {
   // ---- the book ----
 
   function openBook(id, anchor, input) {
-    B = { id, level: null, anchor, place: new PlaceView(ctx.S.device, id), part: null, doc: null, partScope: null,
+    // `offset`: the place this view last sent, took or followed; `inputAt`: its last input, on the PC's clock
+    B = { id, level: null, anchor, offset: null, inputAt: 0, part: null, doc: null, partScope: null,
       want: null, input: false, saveTimer: null, started: false, side: false, els: {}, byInput: !!input };
     ctx.sub(`reader/book:${id}`);
     // opening by input is a reading effect: the book read most recently (arrival order, never a loss); ruling 2.3:
     // never on a page load, a reload or a restored tab
-    if (input) ctx.sendQueued({ window: W, action: 'open', targets: ['recent'], result: id, expect: { any: true } }, null, { quiet: true });
+    if (input) ctx.sendQueued({ window: W, action: 'open', targets: ['recent'], result: id }, null, { quiet: true });
     drawBook();
     start();
   }
@@ -143,7 +142,9 @@ export function readerView(ctx) {
   function start() {
     if (!B || B.started || !B.level || !ctx.S.recordReady) return;
     B.started = true;
-    const off = B.place.enter(ctx.S.record.item(W, `place.${B.id}`));
+    const item = ctx.S.record.item(W, `place.${B.id}`);
+    const off = item && !item.gone ? offsetOf(item.v) : null;
+    B.offset = off;
     const linked = B.anchor ? offsetOf(B.anchor) : null;
     if (linked !== null) showAt(linked, B.byInput);
     else showAt(off ?? 0, false);
@@ -153,21 +154,25 @@ export function readerView(ctx) {
   function drawBook() {
     const els = B.els;
     els.bar = h('div', { class: 'bookbar' });
-    els.go = h('div', { class: 'gothere', hidden: true, role: 'status' });
     els.side = h('nav', { class: 'chapters', 'aria-label': 'Chapters' });
     els.text = h('article', { class: 'text' }, h('p', { class: 'note', text: 'Opening the book…' }));
     els.scroll = h('div', { class: 'reading', tabindex: 0 }, els.text);
-    const input = () => { if (B) B.input = true; };
+    const input = () => {
+      if (!B) return;
+      B.input = true;
+      B.inputAt = ctx.pcNow();
+    };
     for (const ev of ['wheel', 'touchmove', 'pointerdown']) els.scroll.addEventListener(ev, input, { passive: true });
     els.scroll.addEventListener('keydown', (e) => {
       if (['PageDown', 'PageUp', ' ', 'ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) input();
     });
     els.scroll.addEventListener('scroll', () => {
       if (!B || !B.input) return;
+      B.inputAt = ctx.pcNow(); // the place moves by his input (a drag, a fling) until it rests
       clearTimeout(B.saveTimer);
       B.saveTimer = setTimeout(() => save(), SAVE_MS);
     }, { passive: true });
-    root.replaceChildren(els.bar, els.go, h('div', { class: 'book-body' + (B.side ? ' side-open' : '') }, els.side, els.scroll));
+    root.replaceChildren(els.bar, h('div', { class: 'book-body' + (B.side ? ' side-open' : '') }, els.side, els.scroll));
     drawBar();
     drawSide();
   }
@@ -212,22 +217,14 @@ export function readerView(ctx) {
         } } }, c.title)))));
   }
 
-  function drawGo() {
-    if (!B) return;
-    const m = B.place.moved;
-    const go = B.els.go;
-    if (!m) {
-      go.hidden = true;
-      clear(go);
-      return;
-    }
-    go.hidden = false;
-    go.replaceChildren(h('span', { text: `${whoOf(m.by)} read on to ${placeWords(m.value)} (${hhmm(m.at)})` }),
-      h('button', { class: 'go', focus: true, on: { click: () => {
-        const off = B.place.goThere();
-        drawGo();
-        if (off !== null) showAt(off, false);
-      } } }, 'Go there'));
+  /** L1 (the ruling, "The pages"): another device's input moved this book's place: the page goes there — unless this
+   *  page's own input is later (its place is on its way and wins). A move the page makes by itself sends nothing. */
+  function follow(item) {
+    if (!item || item.gone || item.by === ctx.S.device || item.at < B.inputAt) return;
+    const off = offsetOf(item.v);
+    if (off === null || off === B.offset) return;
+    B.offset = off;
+    showAt(off, false);
   }
 
   /** Shows the book at `offset`: its part, then the offset at the top. [input] = a jump the reader asked for. */
@@ -337,7 +334,10 @@ export function readerView(ctx) {
     } else pane.scrollTop = 0;
     clearTimeout(B.saveTimer);
     B.input = !!input;
-    if (input) B.saveTimer = setTimeout(() => save(), SAVE_MS);
+    if (input) {
+      B.inputAt = ctx.pcNow();
+      B.saveTimer = setTimeout(() => save(), SAVE_MS);
+    }
   }
 
   /** The block holding `offset` (the last starting at or before it). */
@@ -395,28 +395,19 @@ export function readerView(ctx) {
     }
     B.input = false;
     const off = offsetAtTop();
-    const anchor = placeAt(B.doc, off);
-    const draft = B.place.save(off, anchor, ctx.S.record.item(W, `place.${B.id}`));
-    if (!draft) return;
-    const book = B;
-    ctx.sendQueued({ window: W, action: 'place', targets: [`place.${B.id}`], result: draft.result, expect: draft.expect }, (a) => {
-      if (a.a === 'refused' && a.code === 'ended') {
-        book.place.answered(draft.result, null); // not known whether it landed: the record says, and the next save settles it
-        return;
-      }
-      const loss = book.place.answered(draft.result, a);
-      if (loss) ctx.say(lossWords(loss, 'place', placeWords, whoOf), { from: 'Reader', keep: true });
-      else if (a.a === 'refused') ctx.say(`this place was not applied: ${a.reason}`, { from: 'Reader' });
-      if (book === B) drawGo();
+    if (off === B.offset) return;
+    B.offset = off;
+    // L1 C1: the place carries the time of the input that moved it; the PC keeps the latest input's place
+    ctx.sendQueued({ window: W, action: 'place', targets: [`place.${B.id}`], result: placeAt(B.doc, off), at: B.inputAt }, (a) => {
+      // an op the connection's end left unanswered: not known whether it landed; the record says
+      if (a.a === 'refused' && a.code !== 'ended') ctx.say(`this place was not applied: ${a.reason}`, { from: 'Reader' });
     });
   }
 
   function bookmarkHere() {
     const anchor = placeAt(B.doc, offsetAtTop());
-    ctx.sendQueued({ window: W, action: 'bookmark', targets: [`bookmark.${B.id}`], result: anchor,
-      expect: expectSeen(ctx.S.record.item(W, `bookmark.${B.id}`)) }, (a) => {
-      if (a.a === 'lost') ctx.say(lossWords(a.losses[0], 'bookmark', placeWords, whoOf), { from: 'Reader', keep: true });
-      else if (a.a === 'refused') ctx.say(a.code === 'ended'
+    ctx.sendQueued({ window: W, action: 'bookmark', targets: [`bookmark.${B.id}`], result: anchor }, (a) => {
+      if (a.a === 'refused') ctx.say(a.code === 'ended'
         ? 'not known whether the bookmark was set: the connection ended before its answer' : a.reason, { from: 'Reader' });
       else ctx.say(`bookmark set at ${placeWords(anchor)}`, { from: 'Reader' });
     });
@@ -429,9 +420,8 @@ export function readerView(ctx) {
     const yes = await ctx.confirm({ title: 'Reset progress?', act: 'Reset progress',
       body: `The place in “${title}” is removed on every device; the book opens at its start next time.` });
     if (!yes || !B) return;
-    ctx.sendQueued({ window: W, action: 'reset', targets: [`place.${B.id}`], result: null, expect: { rev: item.rev } }, (a) => {
-      if (a.a === 'lost') ctx.say(lossWords(a.losses[0], 'reset', placeWords, whoOf), { from: 'Reader', keep: true });
-      else if (a.a === 'refused') ctx.say(a.code === 'ended'
+    ctx.sendQueued({ window: W, action: 'reset', targets: [`place.${B.id}`], result: null }, (a) => {
+      if (a.a === 'refused') ctx.say(a.code === 'ended'
         ? 'not known whether progress was reset: the connection ended before its answer' : a.reason, { from: 'Reader' });
       else {
         ctx.say(`progress of “${title}” reset`, { from: 'Reader' });
@@ -537,9 +527,8 @@ export function readerView(ctx) {
       if (B) {
         start();
         const k = key(W, `place.${B.id}`);
-        // S1-2 JW0 (seen in headless Firefox): before the entry nothing is offered — the entry takes the record's place
-        // (a page load into a book whose place another device wrote showed `Go there` to the place it opened at)
-        if (keys.has(k) && B.started && B.place.fromRecord(ctx.S.record.item(W, `place.${B.id}`))) drawGo();
+        // before the entry nothing is followed: the entry takes the record's place
+        if (keys.has(k) && B.started) follow(ctx.S.record.item(W, `place.${B.id}`));
         if (keys.has(k) || keys.has(key(W, `bookmark.${B.id}`))) drawBar();
       } else if (shelfScope) shelfPlaces(keys);
     },
