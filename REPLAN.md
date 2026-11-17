@@ -780,7 +780,11 @@ wasting my whole subscription on very little practical value like we started whe
 - **Before any run:** its size in percent of his week, and what he will see or be able to do for it. A run whose
   honest answer is "nothing he would notice" is put to him first.
 - **Both meters are read before and after every run** and the change is reported in percent of his week, with the
-  rate when lanes run side by side. A build gets a budget in percent at its start and stops for him when it passes it.
+  rate when lanes run side by side. A build gets a budget in percent at its start; passing it is REPORTED with the
+  reason, and the work goes on (Adam, 2026-11-17, midday: "Dont stop for budget just keep going and working and
+  checking your work until we have the ultimate system built"). What still stops a run for him: a flash, anything
+  sent to the glasses, an install, and a build a quarter over its planned SIZE (a design question, `CLAUDE.md`
+  protocol item 7).
 - **The lead's own turns count** (they cost about as much as the agents): few turns, small context, no status message
   that carries no decision.
 - **Near a reset** nothing may be cut off at 100 %: the last starts are sized so that what is running can finish.

@@ -195,7 +195,8 @@ hours and every lane's work in `/tmp` was lost at the reboot. Since then:
 - **No more than one build is stacked on what he has not yet used.** What nobody has looked at has not passed.
 - **His subscription is a budget, watched all the time** (`REPLAN.md` §17.6). Before a run: its size in percent of
   his week and what he will see or be able to do for it — "nothing he would notice" goes to him first. Both meters
-  are read before and after every run and the change is reported; a build stops for him when it passes its budget.
+  are read before and after every run and the change is reported; a build that passes its budget says so and goes
+  on (his word, 2026-11-17: no stop for budget).
 - **What is already written is cleaned up before more is added** (`REPLAN.md` §17.3 item 0: the audit L0, then the
   cleanup build L1, measured by the line count going down).
 
