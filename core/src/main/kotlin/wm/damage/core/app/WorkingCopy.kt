@@ -219,7 +219,8 @@ class WorkingCopy(
 
     // ---- the wire (AppClient's reading thread: hand off) ----
 
-    override fun subs(w: Welcome): List<AppClient.Sub> = listOf(AppClient.Sub(AppWire.RECORD, cursor))
+    /** L1 C2: every subscription takes a snapshot, so none names a cursor. */
+    override fun subs(w: Welcome): List<AppClient.Sub> = listOf(AppClient.Sub(AppWire.RECORD, null))
 
     override fun welcome(w: Welcome) = executor.execute("welcome") { onWelcome(w) }
 

@@ -96,12 +96,12 @@ class WorkingCopyTest {
 
         fun back() = serve(port)
 
-        /** The process ends and starts again on the same data directory; [newEpoch] = its sequence file is gone. */
+        /** The process ends and starts again on the same data directory; [newEpoch] = its record.json is gone (L1 C2). */
         fun restart(newEpoch: Boolean) {
             cut()
             net.close()
             rec.stop(host)
-            if (newEpoch) Files.delete(rec.seqFile)
+            if (newEpoch) Files.delete(rec.recordFile)
             host = rec.opened()
             net = AppNet(host, mapOf("t" to 1), clock = { rec.now })
             back()

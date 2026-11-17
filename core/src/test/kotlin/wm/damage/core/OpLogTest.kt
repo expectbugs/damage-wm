@@ -20,7 +20,7 @@ import wm.damage.core.app.StreamKey
 
 /**
  * Build S1-1, package P1 (`CONTRACT.md` §9.7 item 1, §13 (b) "operation journal" as the spec's §3 corrects it; dec.
- * A.12, B.1): no answer before the op's line has landed; an incomplete last line mints a new epoch and is kept aside;
+ * A.12, B.1): no answer before the op's line has landed; an incomplete last line is kept aside;
  * a start replays only the lines past the covering save; a failed append answers "retry", publishes nothing, leaves
  * no line and is said; the log is set aside whole at a start, never cut.
  */
@@ -57,9 +57,10 @@ class OpLogTest {
         assertEquals(listOf("answer", "publish 2"), order)
     }
 
-    /** The pin of C§9.3's "a start that finds an incomplete last journal line" (mutation S1-incomplete-line-same-epoch). */
+    /** An incomplete last line is cut and kept aside; L1 C2: the store keeps its epoch (every subscription takes a
+     *  snapshot, so no client resumes across it). */
     @Test
-    fun anIncompleteLastLineMintsANewEpoch() {
+    fun anIncompleteLastLineIsKeptAsideAndTheEpochStays() {
         val h = rig.opened()
         rig.ask(h, op("phone", "s1", 1, "set", listOf("a"), j("v1")))
         rig.ask(h, op("phone", "s1", 2, "set", listOf("b"), j("v2")))
@@ -70,13 +71,13 @@ class OpLogTest {
         rig.now += 1_000
         val h2 = rig.host()
         val o = h2.open()
-        assertNotEquals(epoch, h2.epoch)
-        assertEquals("the log's last line was incomplete", o.newEpoch)
+        assertEquals(epoch, h2.epoch)
+        assertNull(o.newEpoch)
         assertEquals(2L, h2.seq)
         assertEquals(j("v2"), rig.item(h2, "b")!!.value, "every complete line kept")
         val kept = Files.list(rig.dir).use { s -> s.filter { it.fileName.toString().startsWith("oplog.jsonl.partial-") }.toList() }
         assertEquals("{\"seq\":3,\"hw\":3,\"op\":{\"dev", String(Files.readAllBytes(kept.single())), "its bytes kept aside")
-        // the next line starts clean, and the next start keeps the new epoch
+        // the next line starts clean, and the next start keeps the epoch
         rig.ask(h2, op("phone", "s1", 3, "set", listOf("c"), j("v3")))
         assertTrue(lines().all { it.startsWith("{\"seq\":") && it.endsWith("}") })
         val e2 = h2.epoch
@@ -178,14 +179,14 @@ class OpLogTest {
     }
 
     @Test
-    fun aLineThatDoesNotDecodeIsSaidAndMintsANewEpoch() {
+    fun aLineThatDoesNotDecodeIsSaid() {
         val h = rig.opened()
         rig.ask(h, op("phone", "s1", 1, "set", listOf("a"), j("v1")))
         rig.stop(h)
         Files.write(rig.logFile, "not a line\n".toByteArray(), StandardOpenOption.APPEND)
         val h2 = rig.host()
         val o = h2.open()
-        assertNotNull(o.newEpoch)
+        assertNull(o.newEpoch)
         assertTrue(o.problems.any { it.startsWith("line 2:") }, o.problems.toString())
         assertNotNull(o.setAside, "a log holding a bad line is set aside once covered, so the next start is clean")
         assertTrue(rig.notes().any { "line 2:" in it })

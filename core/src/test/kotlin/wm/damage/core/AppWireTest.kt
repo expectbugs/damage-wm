@@ -119,8 +119,9 @@ class AppWireTest {
         lane.quiet()
     }
 
+    /** L1 C2: a `sub` that names a cursor (a 0.67 phone's) still gets a snapshot, then the live changes. */
     @Test
-    fun aResumeInsideTheRingGetsTheChangesAndThenTheLiveOnes() {
+    fun aSubscriptionWithACursorGetsASnapshotAndThenTheLiveChanges() {
         val rig = keep(AppLaneRig())
         rig.write("desk", "d1", 1, "a", "one")
         val e = rig.host.epoch
@@ -129,51 +130,14 @@ class AppWireTest {
         val lane = keep(RawLane(rig.port))
         lane.welcome()
         lane.send(AppWire.sub("t", Cursor(e, 1)))
-        val c2 = AppWire.parseChg(lane.next("chg"))
-        val c3 = AppWire.parseChg(lane.next("chg"))
-        assertEquals(listOf(2L, 3L), listOf(c2.seq, c3.seq))
-        assertEquals(JsonPrimitive("two"), c2.patches.items["rec.t.a"]!!.value)
-        assertEquals("desk", c3.origin!!.device)
+        val snap = AppWire.parseSnap(lane.next("snap"))
+        assertEquals(3L, snap.seq)
+        assertEquals(JsonPrimitive("two"), snap.state.items["rec.t.a"]!!.value)
         lane.quiet()
         rig.write("desk", "d1", 4, "a", "four")
         val live = AppWire.parseChg(lane.next("chg"))
         assertEquals(4L, live.seq)
         assertEquals(OpId.Queued("d1", 4), live.origin!!.id)
-    }
-
-    /** P1's ring floor (`ChangeRing.since`) answered by a snapshot: after a restart the ring holds nothing below the
-     *  record's `seq`, so a cursor under it cannot be served as changes — the changes it lacks are not in memory. */
-    @Test
-    fun aResumeOutsideTheRingGetsASnapshot() {
-        val rec = RecordRig()
-        val first = rec.opened()
-        rec.ask(first, op("desk", "d1", 1, "set", listOf("a"), j("one")))
-        rec.ask(first, op("desk", "d1", 2, "set", listOf("b"), j("two")))
-        val e = first.epoch
-        rec.ask(first, op("desk", "d1", 3, "set", listOf("a"), j("three")))
-        rec.stop(first)
-        val again = rec.opened()                         // same epoch; the ring starts empty at seq 3
-        assertEquals(e, again.epoch)
-        val rig = keep(AppLaneRig(rec, again))
-        rig.write("desk", "d1", 4, "c", "four")           // the ring now holds 4 only
-        val lane = keep(RawLane(rig.port))
-        lane.welcome()
-        lane.send(AppWire.sub("t", Cursor(e, 2)))
-        val snap = AppWire.parseSnap(lane.next("snap"))
-        assertEquals(4L, snap.seq)
-        assertEquals(JsonPrimitive("three"), snap.state.items["rec.t.a"]!!.value, "change 3 is in the snapshot, not lost")
-        lane.quiet()
-    }
-
-    @Test
-    fun aNewEpochSendsASnapshot() {
-        val rig = keep(AppLaneRig())
-        rig.write("desk", "d1", 1, "a", "one")
-        val lane = keep(RawLane(rig.port))
-        lane.welcome()
-        lane.send(AppWire.sub("t", Cursor(rig.host.epoch + 1, 1)))
-        assertEquals(1L, AppWire.parseSnap(lane.next("snap")).seq)
-        lane.quiet()
     }
 
     @Test

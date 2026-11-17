@@ -24,7 +24,7 @@ import wm.damage.core.web.Devices
  * outbox"): the PC's side of the `app` lane. One [AppNet] per process over the record's [AppHost]; the content host
  * hands it every connection that asks for the lane. Per connection: the content host's thread reads, ONE sender thread
  * writes from a bounded [Outbox], and everything that touches the record or the connection table runs on the core
- * executor — a `sub`'s snapshot or resume and the changes published after it are queued in one order, so a client
+ * executor — a `sub`'s snapshot and the changes published after it are queued in one order, so a client
  * never misses a change between its snapshot and the live stream, and never gets one twice.
  *
  * Package P6 (`CONTRACT.md` §10.4, §10.5, §10.8): the same lane on the web interface listener (a WebSocket, [LaneIo]),
@@ -375,7 +375,6 @@ class AppNet(
 
     private fun sub(conn: Conn, f: JsonObject) {
         val scope = AppWire.str(f, "scope")
-        val cursor = AppWire.cursorOf(f)
         val need = try {
             AppWire.needOf(f)
         } catch (e: IllegalArgumentException) {
@@ -423,16 +422,10 @@ class AppNet(
                 conn.outbox.offer(AppWire.encode(AppWire.ans(Ans(null, scope, Answer.Refused(AppHost.LOG_CLOSED, Answer.RETRY)))))
                 return@execute
             }
-            val windows = AppWire.windowsOf(scope, conn.visible)
-            // C§9.3: same epoch and a seq inside the ring → the changes since; otherwise a snapshot, never a gap
-            val since = cursor?.takeIf { it.epoch == host.epoch }?.let { host.ring.since(it.seq) }
-            if (since != null) {
-                for (c in since) chgFrame(c, scope, windows)?.let { conn.outbox.offer(it) }
-            } else {
-                val items = HashMap<String, Item>()
-                for (w in windows) items.putAll(host.read(w).third.items)
-                conn.outbox.offer(AppWire.encode(AppWire.snap(Snap(scope, host.epoch, host.seq, Effect(items)))))
-            }
+            // L1 C2: every subscription takes a snapshot (a cursor it names is not read); the record is a few KB
+            val items = HashMap<String, Item>()
+            for (w in AppWire.windowsOf(scope, conn.visible)) items.putAll(host.read(w).third.items)
+            conn.outbox.offer(AppWire.encode(AppWire.snap(Snap(scope, host.epoch, host.seq, Effect(items)))))
             conn.scopes += scope
             // S1-2 Q2: a record scope's viewer (a second `sub` replaces its need; none ends it)
             viewers.put(conn.id, scope, scope.takeIf { it != AppWire.RECORD }, need ?: NO_NEED)
@@ -659,8 +652,7 @@ class AppNet(
         }
     }
 
-    /** [c] limited to [windows], or null when none of its entries is theirs (a client's cursor then lags; its resume
-     *  is a snapshot once the ring has moved past it). */
+    /** [c] limited to [windows], or null when none of its entries is theirs. */
     private fun chgFrame(c: Change, scope: String, windows: Set<String>): ByteArray? {
         val mine = AppWire.within(c.effect, windows)
         if (mine.isEmpty()) return null
@@ -678,7 +670,7 @@ class AppNet(
 
     companion object {
         private const val TAG = "app-net"
-        /** Above the ring (1,000), so a whole resume fits behind a snapshot already queued. */
+        /** The frames a connection's outbox holds before it ends the connection as slow. */
         const val OUTBOX_CAP = 4_096
         /** The window and action of an op that did not decode: never a window's name (`Record.validWindow`). */
         const val UNDECODED = "?"
@@ -702,7 +694,7 @@ class AppNet(
  * One connection's outbound frames: a bounded queue and ONE sender thread (the spec's §3 row: "the executor enqueues,
  * one sender per connection writes"). [offer] never blocks. When the queue already holds [cap] frames the reader is
  * not taking them: the connection ends — `end{slow}` goes out when the sender is free to write it, and the socket is
- * closed at once when the sender is stuck in a write — and the client resumes from its cursor. A stuck reader thus
+ * closed at once when the sender is stuck in a write — and the client takes a snapshot again. A stuck reader thus
  * holds one thread and one socket, never the executor or another connection.
  */
 class Outbox(
@@ -736,7 +728,7 @@ class Outbox(
             ended = true
             queue.clear()
             endedWhy = "its reader took none of the last $cap frames"
-            Log.w(TAG, "$name ended: $endedWhy; it resumes from its cursor")
+            Log.w(TAG, "$name ended: $endedWhy; it takes a snapshot when it reconnects")
             if (writing) {
                 close()
             } else {

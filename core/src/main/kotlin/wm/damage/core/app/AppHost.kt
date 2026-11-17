@@ -21,9 +21,15 @@ import wm.damage.core.util.Log
  * Context for the reader: Damage is Adam's own window manager for his own glasses, phone and PC on his own network.
  * Build S1-1, package P1 (the spec's §2 P1 and §3; `CONTRACT.md` §2.2–§2.4, §9.3, §9.7 item 1, §13 (b); dec. A.12,
  * B.1): the PC side of the record. Every op runs on the one core executor in arrival order: judge → its log line
- * lands → the record takes the effect → the sequence file → the answer → the change is published. Wired nowhere in
- * P1: the `app` lane (P2) hands it ops and carries its changes.
+ * lands → the record takes the effect → the answer → the change is published. The `app` lane hands it ops and
+ * carries its changes; L1 C2: every subscription takes a snapshot, so no change is held for a resume.
  */
+
+/** Who an op came from, carried on its change (C§9.2 `chg.origin`). */
+data class Origin(val device: String, val id: OpId)
+
+/** One published change: the record's [seq] in [epoch], the op it came from, and the entries it wrote. */
+data class Change(val epoch: Long, val seq: Long, val origin: Origin?, val effect: Effect)
 
 /** How the record says a failure beyond the log: a built-in alert (W's `AlertStore`, delivered to the phone). */
 interface RecordAlerts {
@@ -36,8 +42,6 @@ interface RecordAlerts {
         const val LOG = AlertRule.RECORD_PREFIX + "log"
         /** `record.json` could not be saved: the log keeps what it does not cover; retried each tick. */
         const val SAVE = AlertRule.RECORD_PREFIX + "save"
-        /** The sequence file could not be written: changes are not published until it can. */
-        const val SEQ = AlertRule.RECORD_PREFIX + "seq"
         /** Fix round 2, ruling 1.5: a start found no readable `record.json` beside logs an earlier start set aside. Raised
          *  by that start and left for him to read (no start clears it): the record was rebuilt from the logs. */
         const val REPLAY = AlertRule.RECORD_PREFIX + "replay"
@@ -76,8 +80,6 @@ class AppHost(
     val log = OpLog(dir.resolve(LOG_FILE), logSync)
     val store = if (storeWrite == null) RecordStore(dir.resolve(RECORD_FILE), writer = storeWriter)
         else RecordStore(dir.resolve(RECORD_FILE), storeWrite, storeWriter)
-    val seqFile = SeqFile(dir.resolve(SEQ_FILE))
-    val ring = ChangeRing()
 
     private val record = Record()
     private val streams = Streams()
@@ -85,8 +87,8 @@ class AppHost(
     /** S1-2 Q2: told on the executor at every pacing tick, before the record's own work (the lane's viewer sweep). */
     private val tickListeners = CopyOnWriteArrayList<() -> Unit>()
 
-    /** The record store's epoch (C§9.3): minted at its creation, an incomplete last log line, or a store older than
-     *  the sequence file; never at a process start. */
+    /** The record store's epoch (C§9.3): minted at its creation or when `record.json` was unreadable (L1 C2); never
+     *  at a process start. */
     @Volatile var epoch = 0L
         private set
 
@@ -105,16 +107,12 @@ class AppHost(
     val isOpen: Boolean get() = opened
     /** Fix round 2, ruling 1.6: the log opened and replayed whole at this start ([logReady]); read on the executor. */
     val logOpen: Boolean get() = logReady
-    /** Changes committed and answered but not yet published: the sequence file has not taken their `seq`. */
-    private val held = ArrayList<Change>()
 
     private val logFailures = Streak(RecordAlerts.LOG, "the operation log",
         "changes from other devices are refused until it can be written; a phone keeps them and sends them again, a " +
             "page says so and keeps none")    // S1-2 Q1, N3's class: a page keeps no queue
     private val saveFailures = Streak(RecordAlerts.SAVE, "record.json",
         "the log keeps every change it does not cover; the save is tried again on the next tick")
-    private val seqFailures = Streak(RecordAlerts.SEQ, "the sequence file",
-        "changes are applied and answered but not sent to other screens until it can be written")
 
     /** What the start found and did. */
     data class Opened(
@@ -155,7 +153,7 @@ class AppHost(
      *  [atProcessStart] (dec. D.3; `tools/check_apk_wiring.py` holds who calls that). */
     internal fun open(now: LocalDateTime = LocalDateTime.now()): Opened = executor.call { openNow(now) }
 
-    /** The pacing tick on [scope] every [everyMs] (2 s): held changes published, `record.json` saved when it moved. */
+    /** The pacing tick on [scope] every [everyMs] (2 s): `record.json` saved when it moved. */
     fun pace(scope: CoroutineScope, everyMs: Long = TICK_MS): Job = scope.launch {
         while (isActive) {
             delay(everyMs)                    // pacing between ticks, not a bound on any work
@@ -171,7 +169,7 @@ class AppHost(
         executor.execute("op ${op.window}/${op.action}") { actNow(op, gate, reply) }
     }
 
-    /** The pacing tick: publishes changes the sequence file held back, and saves `record.json` when the record moved. */
+    /** The pacing tick: saves `record.json` when the record moved. */
     fun tick() {
         executor.execute("record tick") { tickNow() }
     }
@@ -199,7 +197,6 @@ class AppHost(
         val loaded = store.load()
         loaded.problem?.let { problems += it }
         val saved = loaded.saved
-        val held0 = seqFile.read()
         val covered = saved?.covered ?: 0L
         saved?.let {
             record.apply(Effect(it.items))
@@ -246,23 +243,16 @@ class AppHost(
                 "restarted; a phone keeps them and sends them again, a page says so and keeps none")
             problems += "the operation log could not be opened (${e::class.simpleName}: ${e.message})"
         }
+        // L1 C2: every subscription takes a snapshot, so the epoch names the store and moves only with a new one
         val why = when {
             saved == null && loaded.problem != null -> "record.json was unreadable"
             saved == null -> "a new store"
-            logState?.incomplete == true -> "the log's last line was incomplete"
-            logState != null && logState.bad.isNotEmpty() -> "the log held ${logState.bad.size} line(s) that did not decode"
-            held0 == null -> "the sequence file was missing"
-            held0.epoch != saved.epoch -> "the sequence file names another epoch"
-            held0.seq > replayedTo -> "the store is older than the sequence file ($replayedTo < ${held0.seq})"
             else -> null
         }
-        epoch = if (why == null) saved!!.epoch
-            else maxOf(clock(), (saved?.epoch ?: 0L) + 1, (held0?.epoch ?: 0L) + 1, 1L)
-        seq = maxOf(replayedTo, held0?.seq ?: 0L)
-        ring.reset(seq)
+        epoch = if (why == null) saved!!.epoch else maxOf(clock(), (saved?.epoch ?: 0L) + 1, 1L)
+        seq = replayedTo
         opened = true
         logReady = logState != null
-        val seqOk = writeSeqFile()
         // fix round 1, ruling 1.7: a log that did not open or replay is never covered by a save (its `covered` would pass
         // over the lines this start did not replay, for good); the next good start replays it whole
         val err = if (logReady) store.saveNow(snapshot()) else null
@@ -287,7 +277,6 @@ class AppHost(
         // a run of failures ends with its process: an alert the last process left up is cleared when this start
         // finds the thing working (each clear of an alert that is not up does nothing)
         if (logState != null) logFailures.settledAtStart()
-        if (seqOk) seqFailures.settledAtStart()
         if (logReady && err == null) saveFailures.settledAtStart()
         if (aside.isNotEmpty()) {
             val line = "no readable ${RECORD_FILE} beside ${aside.size} log(s) set aside by earlier starts: " +
@@ -371,10 +360,8 @@ class AppHost(
         record.apply(verdict.effect)
         streams.commit(key, q.n, answer, ident)
         seq = line.seq
-        held += Change(epoch, seq, Origin(op.device, op.id), verdict.effect)
-        val publish = writeSeqFile()
         reply(answer)
-        if (publish) publishHeld()
+        publish(Change(epoch, seq, Origin(op.device, op.id), verdict.effect))
     }
 
     private fun tickNow() {
@@ -386,7 +373,6 @@ class AppHost(
             }
         }
         if (!opened || !logReady) return                // ruling 1.7: no save covers a log this start did not replay
-        if (held.isNotEmpty() && writeSeqFile()) publishHeld()
         if (saving || seq <= savedThrough) return
         saving = true
         val snap = snapshot()
@@ -407,27 +393,12 @@ class AppHost(
      *  the copy holds. */
     private fun snapshot() = RecordStore.Saved(epoch, seq, record.copyItems(), streams.table())
 
-    /** Writes the sequence file with the last `seq`; false (said) when it could not. */
-    private fun writeSeqFile(): Boolean = try {
-        seqFile.write(epoch, seq)
-        seqFailures.ok()
-        true
-    } catch (e: Exception) {
-        seqFailures.failed("could not be written", e)
-        false
-    }
-
-    private fun publishHeld() {
-        val out = ArrayList(held)
-        held.clear()
-        for (c in out) {
-            ring.add(c)
-            for (l in listeners) {
-                try {
-                    l(c)
-                } catch (e: Exception) {
-                    Log.e(TAG, "a record listener failed on change ${c.seq}", e)
-                }
+    private fun publish(c: Change) {
+        for (l in listeners) {
+            try {
+                l(c)
+            } catch (e: Exception) {
+                Log.e(TAG, "a record listener failed on change ${c.seq}", e)
             }
         }
     }
@@ -468,7 +439,6 @@ class AppHost(
         private const val TAG = "record"
         const val RECORD_FILE = "record.json"
         const val LOG_FILE = "oplog.jsonl"
-        const val SEQ_FILE = "record.seq"
         /** Dec. A.12: the log is set aside past the journal's size at a process start (64 MiB), never deleted. */
         const val LOG_SET_ASIDE_BYTES = Journal.ROTATE_BYTES
         /** Fix round 2, ruling 1.6: why the lane serves no record while the log is closed. Build S1-2 Q1 (N3): the PC's
@@ -504,7 +474,7 @@ class AppHost(
          * The PC's record at a PROCESS START (dec. D.3): built over the data directory [dir], opened (load, replay, the
          * epoch, a save, the log set aside when due) and paced on [scope]. Called only from the PC's two host builders
          * (`runShell` and `hostOnly` in `desktop/…/Main.kt`; `tools/check_apk_wiring.py` holds the list), never from a
-         * tool flag: opening may set the log aside and writes `record.json` and the sequence file. A start that throws
+         * tool flag: opening may set the log aside and writes `record.json`. A start that throws
          * is said (the log, a `record` journal note); the host then answers every op "retry" and the lane "not open".
          */
         fun atProcessStart(

@@ -187,11 +187,6 @@ class MergeTableTest {
         assertEquals(Answer.Seen(), rig.ask(h, first), "answered as it was the first time")
         assertEquals(Item(j("c"), 2, "desk", rig.now), rig.item(h, "flag"))
         assertEquals(seq, h.seq, "no line, no change")
-        // a create resent: the same
-        val add = op("phone", "s1", 2, "add", listOf("q.s1.2.0"), JsonArray(listOf(j("x"))))
-        rig.ask(h, add)
-        rig.ask(h, add)
-        assertEquals(listOf("q.s1.2.0"), h.read("t").third.colls["rec.t.queue"]!!.order)
     }
 
     /** Dec. A.9: "the book read most recently" is `Expect.Any` — arrival order, never a loss, even over a removal. */

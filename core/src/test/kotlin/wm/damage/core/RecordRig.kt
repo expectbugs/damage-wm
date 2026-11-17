@@ -71,7 +71,6 @@ internal class RecordRig(val dir: Path = Files.createTempDirectory("damage-recor
 
     val logFile: Path get() = dir.resolve(AppHost.LOG_FILE)
     val recordFile: Path get() = dir.resolve(AppHost.RECORD_FILE)
-    val seqFile: Path get() = dir.resolve(AppHost.SEQ_FILE)
 
     /** A host over the rig's directory (not opened). */
     fun host(): AppHost = AppHost(
