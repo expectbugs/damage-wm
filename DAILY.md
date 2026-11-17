@@ -252,15 +252,23 @@ without writing a row.
   Every rule: `id` (lower-case letters, digits, `_ . -`; not `watcher.…`), `entity`, `kind`, `text`, `forMin`,
   `repeatMin` (0 = said once), `severity` (`normal` · `urgent`: every 10 min until acknowledged, passes quiet hours),
   `note`, `when` (`{entity, equals | notEquals}`: a hub entity, or `damage.phone` = `home` / `away`). By kind: `above` /
-  `below` take `at` and `clearAt` (the band); `equals` / `notEquals` take `value`; `unavailable` and `stale` need
-  `forMin` above 0; `change` takes `at` (the size, in the entity's units), `direction` (`any` · `up` · `down`) and
-  optionally `withinMin` (1–1440). An edit applies at the next start; a severity edit from the alert's next episode.
-  **Rules guarded on `damage.phone` stay out until one `damage.phone unknown -> home (by the connection path: direct,
-  on the network of …)` or `(by the connection path: direct, to a private address routed from this PC)` line has been
-  read with him at the bus** (§79.9; the second form is ruling R3.1's, for the bus's second network).
-- **Reading the state:** Settings → Bastion → `Watcher` on the glasses or the phone (the PC watcher's state line, or
-  "home not answering"); `grep -E ' (bastion|presence|reach): ' ~/.damage/damage.log`; the alerts themselves in
-  `~/.damage/alerts.json`. The phone: `Position` (the location state, words only), `place` notes in its journal.
+  `below` take `at` and `clearAt` (the band); `equals` / `notEquals` take `value`; `unavailable` needs `forMin` above
+  0; `change` takes `at` (the size of a change from the baseline taken at arming, in the entity's units) and
+  `direction` (`any`, the default · `up` · `down`). L1 removed the kind `stale` and the option `withinMin`: a rule that
+  names either is refused (said, `watcher.rule.<id>`). An edit applies at the next start; a severity edit from the
+  alert's next episode. The token file alone is read again once a minute while it cannot be used or its token is
+  refused.
+- **The leak rules and `away`** ("tanks change by more than 3 % while I'm at work or away from the bus", his ask of
+  2026-11-13): `change` rules with `"when": {"entity": "damage.phone", "equals": "away"}`; a rule that should fire only
+  on a rise takes `"direction": "up"`. The connection path alone has read `away` on his days out since ruling R3.1
+  (the PC's log, 2026-11-16 and 11-17: relayed, then direct to a public address, `unknown -> away` after 15 min); at
+  the bus it reads `home`. The four away rules held back since 11-13 are armed by the lead at deploy 2, with a copy of
+  the rule file kept beside it. While `damage.phone` reads `unknown` (the phone's peer offline) a guarded rule has no
+  reading: it neither raises, clears an alert nor drops its baseline.
+- **Reading the state:** Settings → Bastion → `Watcher` on the glasses or the phone (the PC watcher's state line — a
+  rule with no usable reading for `haSilentMin` says so there — or "home not answering · PC unreachable Ns");
+  `grep -E ' (bastion|presence|reach): ' ~/.damage/damage.log`; the alerts themselves in `~/.damage/alerts.json`. The
+  phone: `Position` (the location state, words only), `place` notes in its journal.
 - **The glasses from the PC by hand** (his call, like every `glassdrive.py` line): set the phone's Target to Sim
   first (nothing warns when both want the radio); beardos's adapter is rfkill-blocked on purpose — unblock it for the
   session and block it again after; then `python3 tools/glassdrive.py localhost TOKEN probe:drive=ble` against the PC
@@ -275,38 +283,62 @@ without writing a row.
   off) holds normal bus alerts and releases them at the end.
 - **Journal notes (0.66):** PC `reach` (a refused connection, once per source per minute) and `presence` (each change
   of `damage.phone` and which signal decided); phone `place`, `heap3` (free memory at four points of a start), `cue`,
-  `slow`; a line marked `late` was written a second or more after its event.
+  `slow`; a line marked `late` was written a second or more after its event. From 0.68 the PC also writes `devices`
+  (an approve, deny, rename or revoke: who, what, its answer; the desk browser's own approval as `this PC's browser`),
+  `usage` (`<device> web <window> open|leave <scope>`: a page taking or leaving a scope) and `program` (an op into the
+  torrent client or the filesystem): `grep '"kind":"usage"' ~/.damage/journal.jsonl`.
 
-## Reader's record and the web listener (APK 0.67, `HANDOFF.md` §80)
+## The record and the web pages (APK 0.67, cleaned up in 0.68; `HANDOFF.md` §80, §84)
 
-- **The page:** `http://localhost:7405/` (or `/w/reader`) on the PC itself; from the tailnet or the bus network the
-  PC's name or its address, port 7405 (a name the listener does not know as its own is answered 403: `webHosts`). The first
-  visit from a browser shows a code; approve it from the PC: `java -jar ~/.damage/damage.jar --devices` (the waiting
-  codes with the address and tailnet name, the approved devices with their ids), then `… --approve CODE full` (or
-  `view`, `control`). Later browsers: approve from the devices page of an approved one (pick the row and a level). Also
-  `--deny CODE` (the page is told) and `--revoke ID` (its connections end, the page says it was removed). The commands
-  ask the RUNNING service over loopback with `local.secret` and start nothing; exit 0 done, 1 refused (the reason
-  printed), 3 the service not reachable or no usable local secret.
-- **Config keys:** `webPort` (7405; 0 = off, said at start) · `webHosts` (names a page may use beyond `localhost`, this
-  machine's own name and the arriving address — the tailnet's full `….ts.net` name goes here). `Host` and `Origin` are
-  checked on every request; a page opened under another name is refused 403.
+- **The desk browser:** on the PC itself open `http://localhost:<webPort>/` (or `/w/reader`). It is approved at full
+  by itself, no command needed, and listed as `this PC's browser`. Opened under the machine's name or a network address
+  it waits for approval like any other browser. **Never put a proxy on the PC in front of the web port:** its requests
+  arrive on loopback, and the self-approval could then reach a remote browser.
+- **A phone or TV browser:** open the PC's name or its tailnet address with the `webPort` (a name the listener does not
+  know as its own is answered 403: `webHosts`); the page shows a code. Approve it on the desk browser's Devices page
+  (pick the row and a level: `view`, `control` or `full`), or from a terminal: `java -jar ~/.damage/damage.jar
+  --devices` (the waiting codes with the address and tailnet name, the approved devices with their ids), then `…
+  --approve CODE LEVEL`. Also `--deny CODE` (the page is told) and `--revoke ID` (its connections end, the page says it
+  was removed). The commands ask the RUNNING service over loopback with `local.secret` and start nothing; exit 0 done,
+  1 refused (the reason printed), 3 the service not reachable or no usable local secret. A page left open across a
+  deploy reloads itself (no hand needed, the TV included); "PC not answering since 14:02" carries the day when it is
+  not today.
+- **A set-aside device file:** if `devices.json` cannot be read or decoded at a start, it is moved to
+  `devices.json.bad-<ms>` (kept, never deleted), the log says so and the Devices page says when; every browser is then
+  approved again (the desk browser approves itself at once; the others from it). Nothing waits on a restart. If the
+  file cannot even be moved, that is said and the next approval writes a new table over it.
+- **Config keys:** `webPort` (0 = off, said at start) · `webHosts` (names a page may use beyond `localhost`, this
+  machine's own name and the arriving address — the tailnet's full name goes here). `Host` and `Origin` are checked on
+  every request; a page opened under another name is refused 403.
 - **Files in `~/.damage`:** `record.json` (the PC record: Reader's places, bookmarks, the book read most recently, the
-  glasses rows), `oplog.jsonl` (one line per op; set aside whole as `oplog-YYYYMMDD-HHMMSS.jsonl` at a start once past
-  64 MiB or holding a bad line, never deleted), `record.seq` (the epoch and the last `seq`), `reader-index.json` (a
-  cache of each book's length, chapters and cover; deleting it costs one walk of the shelf at the next start),
-  `devices.json` (the approved browsers, written at the first approval), `local.secret` (mode 600; a file others could
-  read is refused; no command rotates it — stop the service, remove it, start, and a new one is written). The nightly
-  copy takes `record.json` and `devices.json` only. A `record.json` that does not read is kept as `.bad` (then `.bad.2`,
-  …).
+  glasses rows; from 0.68 Torrents' and Files' own rows and the notice record), `oplog.jsonl` (one line per op; set
+  aside whole as `oplog-YYYYMMDD-HHMMSS.jsonl` at a start once past 64 MiB or holding a bad line, never deleted),
+  `record.seq` (left by 0.67; no longer read or written), `reader-index.json` (a cache of each book's length, chapters
+  and cover; deleting it costs one walk of the shelf at the next start), `devices.json` (the approved browsers),
+  `local.secret` (mode 600; a file others could read is refused; no command rotates it — stop the service, remove it,
+  start, and a new one is written). The nightly copy takes `record.json` and `devices.json` only. A `record.json` that
+  does not read is kept as `.bad` (then `.bad.2`, …).
 - **Reading the record's state:** the `record` line at each start in `damage.log` (`opened: epoch E (kept | new: why),
-  seq S, N line(s) replayed past C, …`) and its journal note; `migrate` lines (the first start of 0.67 on each host
-  writes one with its counts; Reader's keys no longer sync, an older peer's ignored with one log line per key per
-  connection); `web` lines (the local secret's state, the device count, the port); the diagnosis page (epoch, seq,
-  contracts, connections, the log's last 300 lines; level full); built-in alerts `record.log`, `record.save`,
-  `record.seq`, `record.replay` on the glasses and phone. The service owns `record.json`: read it, never edit it by hand.
-- **The phone (0.67):** `workcopy/copy.json` and `workcopy/queue.jsonl` in the app's data directory; `workcopy` and
-  `migrate` journal notes. Against an older PC, Main's Reader row says "PC and phone on different builds for Reader" and
-  the phone reads from its copy.
+  seq S, N line(s) replayed past C, …`) and its journal note; at the first start of 0.68 one `migrate` note on the PC
+  naming the Torrents and Files rows it wrote from their old records (a later start writes none); `web` lines (the
+  local secret's state, the device count, the port); the diagnosis page (epoch, seq, contracts, connections, the log's
+  last 300 lines; level full); built-in alerts `record.log`, `record.save`, `record.replay` on the glasses and phone. A
+  `record.log` alert (the log did not open at a start) clears by itself: the log is tried again on every pacing tick,
+  and the pages and the phone get their snapshots once it opens. The service owns `record.json`: read it, never edit
+  it by hand. Which input stands: the latest, by its time (an older input changes nothing and nothing is said).
+- **The phone:** `workcopy/copy.json` and `workcopy/queue.jsonl` in the app's data directory; `workcopy` journal notes;
+  a `queue.jsonl.bad-<ms>` beside them is a queue file that could not be read, moved aside and said. Against a PC on
+  another build, Main's row for a window says "PC and phone on different builds for <window>" and that window waits:
+  the PC deploy and the APK install go together.
+- **A Files job that seems stuck:** any other Files action answers "busy — one operation at a time (<job> is running;
+  no progress for N min)". A Stats is ended by the PC after 10 minutes with no progress, an upload whose body never
+  began after 2 minutes, each said ("ended by the supervisor"), and the slot is free again. A paste, move, trash,
+  restore, delete or rename is never ended by the PC: it is writing his files. If one shows no progress for long, look
+  at the drive it writes to first (a stalled or unmounted data drive); stopping the service ends it, and a cut-off move
+  across drives leaves at most a hidden `.damage-move-*.part` beside the destination, his original whole. An upload
+  from a phone that left the network ends in about two minutes ("the connection was lost"). A trash row marked "not in
+  the trash" is a trash cut off before its file arrived: Delete forever clears it. An upload never replaces a file: a
+  taken name is placed as `name (1).ext`, and the page says the name it got.
 
 ## What was verified vs what awaits glass
 
