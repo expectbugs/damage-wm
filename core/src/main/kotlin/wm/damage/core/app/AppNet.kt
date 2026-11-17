@@ -567,13 +567,16 @@ class AppNet(
 
     /** One journal note of [kind] per program op or device action: who (the connection's device), what, and its
      *  answer; the note's line carries when. */
-    private fun note(kind: String, o: Op, a: Answer) {
+    private fun note(kind: String, o: Op, a: Answer) = note(kind, "${o.device} ${o.window} ${o.action} ${o.targets}", a)
+
+    /** One line in the PC's journal: what was done, by whom ([what]), and its answer; the journal stamps when. */
+    internal fun note(kind: String, what: String, a: Answer) {
         val words = when (a) {
             is Answer.Refused -> "refused (${a.code}): ${a.reason}"
             else -> a.toString().lowercase()
         }
         try {
-            host.noteAs(kind, "${o.device} ${o.window} ${o.action} ${o.targets} · $words")
+            host.noteAs(kind, "$what · $words")
         } catch (e: Exception) {
             Log.e(TAG, "the $kind note could not be written", e)
         }

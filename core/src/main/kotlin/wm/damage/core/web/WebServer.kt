@@ -13,6 +13,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
+import wm.damage.core.app.Answer
 import wm.damage.core.app.AppNet
 import wm.damage.core.app.AppWire
 import wm.damage.core.app.Levels
@@ -326,7 +327,12 @@ class WebServer(
             if (own) Access.OWN_BROWSER else s("name") ?: "a browser", "browser", s("replaces"), waiting)
         try {
             outbox.offer(AppWire.encode(AppWire.pending(p.code)))
-            if (own) devices.approve(p.code, Levels.FULL, Access.OWN_BROWSER)?.let { Log.w(TAG, "${Access.OWN_BROWSER} not approved: $it") }
+            if (own) devices.approve(p.code, Levels.FULL, Access.OWN_BROWSER).let { why ->
+                why?.let { Log.w(TAG, "${Access.OWN_BROWSER} not approved: $it") }
+                // noted as a device action is (L1 R1, stage X's open item): who, what, when
+                app.note("devices", "${Access.OWN_BROWSER} devices approve []",
+                    why?.let { Answer.Refused(it, Answer.INVALID) } ?: Answer.Seen)
+            }
             val unknown = HashSet<String>()
             while (true) {
                 val f = ws.read()
