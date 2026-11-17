@@ -7638,7 +7638,7 @@ glasses' counter reaches 2^32 about 2026-12-06, so 0.66 must be on the phone bef
 | `tools/lint.py` | 0 findings (36 python + 196 kotlin); `--selftest` exits 0 with 8 of 13 rules covered |
 | `:phone:assembleDebug`, then `tools/check_apk_wiring.py` | builds; 40 lines, all ok (17 at 0.65) |
 | the tools' self-tests | `mutate_core.py` 45 · `journal_report.py` 23 · `journal_pull.py` 26 · `check_apk_wiring.py` 34 |
-| the watcher's mutation list | `research/mutations-79-watcher.json`: 106 entries, 106 CAUGHT, each for its stated reason (14 lists in all) |
+| the watcher's mutation list | `research/mutations-79-watcher.json` (removed in L1, §84): 106 entries, 106 CAUGHT, each for its stated reason (14 lists in all) |
 | content checks | 73 books, 2580 of 2604 images decode; `--music-check`, `--games-check`, `--feed-check` pass |
 | the awake start | byte-identical to `930e6b3`'s; expectation files untouched since `3347fdc` |
 
@@ -8001,7 +8001,7 @@ describer thread. Tests: `WebProtocolTest`, `BundleTest` and `node --test` over 
 | `:phone:assembleDebug`, then `tools/check_apk_wiring.py` | builds; 51 lines, all ok (40 at 0.66) |
 | `node --test 'core/src/test/js/*.test.mjs'` (node v26.3.0) | 31 tests in 3 files, all pass |
 | the tools' self-tests | `mutate_core.py` 45 · `journal_report.py` 23 · `journal_pull.py` 26 · `check_apk_wiring.py` 39 · `snapdiff.py` 17 |
-| the mutation list `research/mutations-80-s1-1.json` | 181 entries: 176 CAUGHT, each for its stated reason (every `why` line read); 5 declared NO PIN; 0 not caught (15 lists in all) |
+| the mutation list `research/mutations-80-s1-1.json` (removed in L1, §84) | 181 entries: 176 CAUGHT, each for its stated reason (every `why` line read); 5 declared NO PIN; 0 not caught (15 lists in all) |
 | the JavaScript guards (outside `mutate_core.py`) | 15 watched failing by hand on the final tree, one guard at a time |
 | `~/.damage` after the runs | no `record.*`, `oplog*`, `workcopy`, `devices.json`, `local.secret` or `reader-index.json` |
 
@@ -8389,3 +8389,281 @@ in proportion; protocol item 7: where the full protocol applies; "Running builds
 (what stands, what changes, the order from here beginning with the lean audit L0, the robustness items R-a to R-e).
 Nothing of the product was changed by this section.
 
+## 84. The cleanup of what was written: the audit L0 and the cleanup build L1 (2026-11-17)
+
+Context for the reader: a single-user system on his own devices and networks; this section records a cleanup of the
+app layer's code on his PC (the record, the pages, access, Files, the alert watcher), unattended on his word ("Full
+automation, make decisions in keeping with the spirit and goals stated"). **Every number below is measured on the
+simulator (the desktop JVM and the model of the firmware) or on the PC; nothing here has run on his glasses or his
+phone.** The briefs, reports and rulings are in the gitignored `private/lean/` (`L0-ruling.md`, `L1-R1-decisions.md`,
+`L1-R2-decisions.md` rule, in rising precedence). The contract as it now stands is `CONTRACT.md`; what runs is
+`IMPLEMENTATION.md`; his crib is `DAILY.md`.
+
+### 84.1 Why, and what the audit found
+
+Why: his words of 2026-11-17 (`CLAUDE.md`, "What is worth building"; §83). Five read-only readers audited what builds
+W, S1-1 and S1-2 had added (about 57,000 lines), each mechanism against the three tests. Most of it is in use and of the
+right size (the listener, device approval and levels, blobs and uploads, the window cores, the watcher's rule engine).
+The weight was in five places: conflict machinery around the record (expectations, loss answers, ledgers, stream
+numbering), migrations that had already run, handling for a phone and PC on different builds, page-side copies of that
+machinery, and the app layer's mutation lists. His real data (157 op-log lines since S1-1) showed no loss, no refusal,
+no gap and no renumbering, ever. States that only a restart cleared were found in the record's log, the device table
+and the Files job slot.
+
+### 84.2 The lead's calls he may reverse
+
+Ruled by the lead on his "full automation" word, not by him (`L0-ruling.md` §3):
+1. **Input time orders the record** (an op carries `at`; the latest input wins; `CONTRACT.md` §2.4). It reverses the
+   contract's former "no device clock orders anything". The PC bounds `at` by its own clock; a page puts its time on
+   the PC's clock.
+2. **The Reader page follows** another device's newer place instead of offering `Go there` (the glasses keep `Go
+   there`).
+3. **An upload never replaces a file:** a taken name is placed as `name (1).ext`.
+4. **The pages allow inline styles** (`style-src 'self' 'unsafe-inline'`; scripts stay `'self'`), so that a terminal
+   emulator can run on the Tmux page.
+5. **The PC's own browser approves itself** (a loopback arrival, a loopback `Host`, the listener's own loopback
+   `Origin`; `CONTRACT.md` §10.3). Never put a proxy on the PC in front of the web port.
+6. Kept as built: seen versus dismissed in the notice record (usage data), the local secret, the command line's deny
+   and revoke, the Host list, location presence.
+7. The watcher's unused rule options `withinMin` and `stale` are removed; `direction` was removed and restored
+   (84.5).
+
+### 84.3 What went, and what came
+
+**Removed:** expectations (`Value`, `Rev`, `Occurrence`, `PreConversion`, `Any`), loss answers and `LossWords`, the
+not-applied mark, `Streams` (high-water, answer record, gap check, `Reused`), the change ring, the sequence file
+(`record.seq` left on disk, unread), collections and the create / order / whole kinds, `ReaderMigration` with its
+`conv` ledger, the S1-2 migrations' ledgers, phone halves and pre-conversion ops, mixed-build survival, `chg.origin`,
+`Op.base`, the away line, the `.partial-<ms>` copy, the notice record's `ack` / `clear` / `ACKED` / `CLEARED` and four
+constant fields, `Viewers.need`, `Answer.Seen.again`, Reader's `migrate` action, `allowCrossDeviceDirCopy`, the single
+Files job executor, the welcome's device re-check, the 40-character name limit and the frozen device table,
+`DevicesCore.Event`, the bundle's `version` and `protoRange`; on the pages the shared stream counter and its floor,
+renumbering, the gap resend, the void confirm on program acts, the `Go there` bar, the Replace flow, `uploadCancel`,
+the trash-store guards and the second-tab storage listener; in the watcher `stale`, `withinMin`, `PathRefused`,
+`TokenRead`, `HaState`; and the three mutation lists `research/mutations-79-watcher.json`, `-80-s1-1.json` and
+`-82-s1-2.json` (6,549 lines; cited in §79 and §80, no longer in the tree).
+
+**Added:** `Op.at` with the PC-clock bound and the pages' `pcClock` correction; the phone folding by the windows' own
+rules (notices by occurrence); Reader's per-place input time kept beside the place; the record's log opened again on
+the tick, with the refused subscriptions served after (R-a); the `devices` and `usage` journal notes (R-e: what a page
+opens and leaves; the glasses' windows stay in the phone's journal); the phone's unreadable queue file kept aside; one
+PC-only pass for Torrents' and Files' old rows (M1); the Files supervisor (a stats ended after 10 min, an unbegun
+upload ticket after 2 min, a writing job never) and its busy line; the trash row written before the move, with
+`missing` rows; the trash folder refused to every other writer; numbered upload names; the upload socket's short
+keepalive and its bytes as progress; the cross-volume move through a forced temporary name, deleting only what it made;
+a folder copy that makes its own destination; `Files.notExists` where a stat cannot tell; thumbnails decoded
+subsampled, one at a time; the own-browser approval; the device file set aside with a date; the watcher's token file
+read again once a minute, the no-reading state line, the stalled nightly copy's alert; a 60 s bound on the phone's quick
+requests to the PC; the pages' three recoveries (a `proto` end reloads, two unanswered pings remake the socket, the
+reach line names the day); the Reader page following. §79.6's "left as it is" for the watcher's half-open ask is now
+fixed (L1 X3).
+
+### 84.4 The numbers (measured: `git diff --shortstat` from `ff1232e`, where L1 began)
+
+| | after FIX1 (`bd39307`) | the audit's estimate for the ids ruled |
+|---|---|---|
+| product Kotlin (`core`, `desktop`, `phone` main, without the web) | +1,269 −2,936 (**−1,667**) | ≈ −2,700 |
+| the pages (`web/`) | +282 −695 (**−413**) | ≈ −453 |
+| Kotlin tests | +1,739 −2,783 (**−1,044**) | ≈ −2,750 |
+| JS tests | +311 −628 (**−317**) | ≈ −593 |
+| tools | −13 | — |
+| the three mutation lists (records stage) | **−6,549** | removed whole |
+
+By stage, product / tests net: lane S (S1, S2) −1,718 / −1,874; F (Files, full protocol) +113 / +378; W (the watcher)
+−89 / +46; X (access) −50 / +9; P (the pages) −413 / −317; FIX1 +70 / +397. The cuts came in near the estimates where
+they were pure removals (S, X, P); the gap is what the rulings added (the supervisor and the file-safety fixes with a
+pin for every guard, the record's input time, A1, R-a's lane half). FIX2: TODO-LEAD (its shortstat, and the totals
+after it).
+
+### 84.5 The reviews, and how each was ruled
+
+One review pass of five readers (lean: RS the record and windows, RX access and the watcher, RP the pages; full
+protocol on the file paths: RF1, RF2), ruled in `L1-R1-decisions.md` and `L1-R2-decisions.md`.
+- **On the glasses, two defects:** Files' rows written by this device were not shown after a restart (a regression of
+  L1's F6, which copied Torrents' "own row is its echo" rule into a window that keeps no local copy) — fixed with a
+  set of the rows this presenter wrote since it started; a bookmark set in a book that is not open could not be reached
+  after a restart (older S1-1 code) — fixed in one line. Both pinned on the unfixed tree.
+- **The file-safety fixes (full protocol, each pin watched to fail, each class swept):** trash writes its row before
+  it moves the file; a move across volumes no longer deletes its source before the copy is on disk (old code); a
+  folder copy could delete a folder of his that appeared during its count (old code); a stat that cannot tell is never
+  read as "absent" on a path that writes; the upload socket finds a gone sender in about two minutes; an upload's bytes
+  count as progress; a stats ended by the supervisor also frees the glasses or phone that asked. FIX2 routes a single
+  file's copy through the same temporary name.
+- **Smaller:** the phone orders notices by occurrence as the PC does; A1's self-approval is noted; a failed claim is
+  paced (2 s); the Reader page stamps a place only with his input's time and sends again a place answered `ended`; the
+  quick-request bound counts from when no older request is pending; the device file's set-aside is said on the Devices
+  page; a `missing` trash row offers only Delete forever on the page; the pages' `PROTO` pinned equal to the PC's.
+- **Withdrawn: the presence ruling (P1).** The lead read 1,683 presence lines as "away reads `unknown` on his
+  workdays" and ruled a new away case; stage X's builder found the lines it rested on all predate the fix of 2026-11-13
+  23:55 (ruling R3.1), and since then the connection path alone has read `away` on each of his days out.
+  Nothing was built; the four held-back away rules are armed by the lead at deploy 2.
+- **Restored: `direction` on `change` rules.** Lane W removed it on the lead's ruling, which had read only the live rule
+  file; the four held-back away rules in his draft use it (one needs `up`). FIX2 restores it; `withinMin` and `stale`
+  stay out.
+
+### 84.6 The gate
+
+The gate's first run on the merged tree (`c4b563b`, before FIX1; `L1-G-built.md`), all green: core 198 classes /
+1,413 tests · desktop 48 · `--selfcheck` 484 PASS ×3 · `--epub-check` 73 books · the music, games and feed checks ·
+lint 0 · `:phone:assembleDebug` and the wiring check (67 ok) · node 113 · the tools' self-tests. **The snapshot judge:
+0 px outside the mask in both arrangements**, against `main` and against `ff1232e` (the one moving cell, Music's
+elapsed time, moves between two renders of one binary: a live cell). **The upgrade, on a copy of his data:** the
+record opens, 20 of 20 items equal, the 157 op-log lines decode with 0 bad, M1 writes 2 Torrents and 2 Files rows and a
+second start writes none with every byte equal, his 17 rules load with none refused. **Every page acted on in a real
+browser against the real in-process listener**, the desk browser approving itself, a page left open while the
+listener's process was ended and started again coming back by itself, the page policy refusing nothing (its probe
+counted 2 of 2). FIX1's own gate on `bd39307`: core 199 / 1,427, desktop 48, lint 0. The last gate, on the tree merged
+with C1's Damage half as APK 0.68: TODO-LEAD.
+
+### 84.7 Not built (the whole build)
+
+- READ folded into DISMISSED (WINDOWS N4) — seen versus dismissed is usage data the later agents need.
+- The local secret, the command line's deny / revoke, the Host list — kept: they work and the approval path rests on
+  them.
+- The alerts onto the notice record (WATCHER C1) — S1-5's planned move.
+- Location presence removed (WATCHER C2) — kept; the path signal reads `away` alone, so it may go at the next cleanup.
+- P1, a new away case for presence — withdrawn (84.5).
+- A-N5, A-N7, A-N10, A-N11, A-N14, B-N7, B-N12, the level-order part of B-S5 — dropped as failures real use does not
+  produce at a cost above the code.
+- An `uploadCancel` op and an ended-connection set — the existing release path and the supervisor cover them.
+- A retry of a start whose whole record open threw — only an unexpected exception reaches it, and a retry repeats it.
+- The hello-refusal shape of R-a — the lane half serves the PC's own pages meanwhile.
+- `WorkingCopy.close` losing the last `done` lines — after input time it costs one resend that changes nothing.
+- The queue's deferred `done` — kept: state that survives an unclean stop, built and tested.
+- An upload whose sender stays connected and sends nothing — holds the slot; it writes his file, so the supervisor
+  leaves it.
+- The trash manifest's directory entry is not forced after its rename — a power cut may bring back the previous
+  manifest; the file then lies unlisted under `trash/<id>/`, not lost.
+- The trash folder check is by path: a symbolic link into it is not resolved, and renaming or trashing an ancestor of
+  it is not refused.
+- The glasses' Files thumbnails still decode the whole picture (shared with Reader's images) — outside B-S5.
+- Listing the trash folder as a folder is served — a read only.
+- A temporary name left by a stop beside his folders (a hidden `.damage-move-*.part`, his original whole) — a start-time
+  list would be a new mechanism for a rare stop.
+- A purge of a folder cut off mid-delete — a new state for a stop inside a delete and then a change of mind; nothing of
+  his is lost.
+- The destination folder's entry is not forced after a placement — the bytes are; the name rests on the filesystem's
+  ordering.
+- Not watched: the force of a copy, the stat sites other than the manifest's, the bound on numbered names — no
+  observable short of a power cut, or only an unbounded loop.
+- Files' long inline operations on the phone's channel get no 60 s bound — it cannot tell a half-open link from a long
+  copy; a fix needs a new mechanism.
+- A notice *shown* is recorded nowhere; the glasses' window opens stay in the phone's journal — each would need a new
+  message.
+- Pages P13, P17, P27, P34, P35, T2 and B-S3's twin pin — not ruled.
+- The `proto` reload and the two-ping drop are pinned in node only (the listener restart under an open page was seen in
+  the gate's browser).
+- RS NOTES 2–4, 6, 7, 9–13; RF2 N3–N9; RX NOTES 1, 2, 7, 8; RP's other notes; the `[W] Socket closed` log line on a
+  deny; a cut-off upload's row naming the resent PUT's 404 — listed, true, not worth code.
+
+### 84.8 Lessons
+
+- Two of the lead's rulings were wrong and were caught after building began: the presence read (the builder of stage X
+  checked the dates of the lines it rested on) and `direction` removed on the evidence of the live rule file alone (his
+  held-back draft used it). Read all the data a ruling rests on, with its dates, before ruling.
+- A rule copied from a sibling needs the sibling's precondition: Torrents keeps a local copy of its rows, Files does
+  not, and the copied echo rule hid his Files choices after a restart.
+- Again most file-safety defects were in older code next to the diff (the cross-volume move, the folder copy, the stat
+  read as absent): a review's scope is the neighbourhood.
+- Decoders made tolerant first, each pinned on a fixture of the old shape, made the format change a non-event on a
+  copy of his data.
+- Removal paid less than estimated (about 60 % of the Kotlin estimate), because the rulings added the robustness and
+  file-safety work; the estimate counted cuts only.
+- Harness lines a gate needs (a fixed port, A1 on, a restart under an open page) are kept as the standing look, not in
+  a throwaway copy.
+
+## 85. Build C1 built: mode 26, its riders and the phone's half — a candidate, not flashed (2026-11-15 → 17)
+
+Context for the reader: a personal device, the published patch method, display-rendering work. Adam's own window manager
+for his own glasses; the fork's next piece (`FIRMWARE.md` §5) written twice from one text — in C in the fork, in Kotlin
+in the simulator — by stages that never read each other's code, with the phone's half. **Nothing was flashed and nothing
+was sent to the glasses.** The reports, the rulings (`C1-decisions.md`, `C1-R1…R6-decisions.md`) and the meeting are in
+the gitignored `private/build068/`; `FIRMWARE.md` §5 carries every ruling, tagged in place (Damage `f72f67f`), so this
+section does not restate them. The build stopped with the PC on 11-16 (§82) and resumed from its commits.
+
+**The fork (`~/damage-cfw` branch `c1`, last commit `561f8b7`; patch sources last changed at `66e526b`).** F1: op 5 to
+256 KiB, fields 27–29, the cache pointer by one exchange, the context-survival check, field 11 bit 5, mode 25 (ZWRITE).
+F2a: mode 26 (PLAY, RETARGET, CLOSE), the program validator, the captures, END into the shadow, the engine's busy word
+with its masked decision. F2b: the engine thread as its own tick (no osTimer), the copy hook's drawing, the owed notify
+records, telemetry 30–34. F3: the host runner's `wake`, `N`, `W`, `G`, `features`, and `tools/verify.py` steps 6–8.
+FX1–FX7: the meeting's causes and latent rows, mode 25's lease and flags checked again after its inflate (A-N1, A-N8),
+and the checker tightened in four rounds to 31 checks with a `--selftest`; the last round changed tools and comments
+only (the regenerated patch set byte-identical).
+
+**Damage (`wip/068`, last code commit `065bc91`).** D1: the v3 inputs and the fuzz's `--c1`. D2: the simulator's engine
+(`MotionSim`, its hooks in `GlassFirmwareSim`). D3a: the wire, the Motion DSL, the transport — the ladder set by `probe
+c1=N`, notify 114 with the END CRC compare, CLOSE before a write that meets an area, mode 25 with its mode-19 fall-back,
+the area-unknown window. D3b: four test programs, `probe motion=NAME`, `desktop --motion-check DIR`, the start's bytes
+pinned per ladder stage. DX1–DX7: the model brought to each ruling (R1.4's order last, R6 B6-1), every rung's record,
+LEFT's hold-back, a refusal as a divergence, the reason-14 notice, and the snapshot's Music cell on the scene's clock
+(the judge's known drift is gone on `wip/068`; a base rendered from `main` still moves until the merge). With today's
+firmware (features `0x7f`) the phone sends what `main` sends: the awake-start pins green, their files untouched.
+
+**The candidate:** pin `0dab2154d977af39f56d988976fedd32df513af7a966f4c0e748b9ca8062fb1b` — a 77,460-B block, the
+installed build's 25 sites and none new, 347 KB below the OTA flag, features `0x1ff` (bit 9, the link item, left out).
+**NOT flashed.** The installed image stays `48172b62…`.
+
+**The instruments (measured on the PC — host C and simulator, not glass).**
+- Vectors: 51 (34 v1/v2, 17 v3), 1,560 lens-steps — the fork 51/51, the simulator 0 mismatches; the self-test form 27 /
+  522 (the fork: 27 agree, 24 skipped by design); v1/v2 at `0x1ff` 34 / 684.
+- Differential fuzz: two sets of 40 (`--c1`, seeds 1 and 1001; 2,344 and 2,348 lens-steps), 0 mismatches. At the first
+  meeting seed 1 differed in 25 vectors from four causes, every one a gap in the text (R1 §A).
+- The fork's mutation sweep at `a512b77`: 297 mutants, 256 caught, the rest classified; FX5's A-N8 lines 6 of 6; nothing
+  after them but comments, so no sweep was owed. **The Kotlin list `research/mutations-81-c1.json` (spec §5) was not
+  written in the build; the lead ruled it RUN as stage DM1 (the second instrument on the glasses' wire, before any flash
+  conversation), which also settles `FidRingStartTest`'s one miss (product or harness).** Its numbers: see C1-DM1
+  (TODO-LEAD).
+- `tools/verify.py` 31 PASS, 0 FAIL; `--selftest` 18/18; `test_damage_ext.py` 210 pass.
+- Pins, each watched to fail with its one guard disabled (every report's table); the last round: 4 Damage pins in 5
+  variants (DX7), 12 planted cases against the checker (FX7), 2 watches on the new vector (FX6). None ran away.
+- The battery on `065bc91`: core 188 classes / 1,423 tests (`FidRingStartTest` missed once in 2 suite runs, 20/20 alone;
+  C1's code does not reach it); desktop 11/48; `--selfcheck` 3/3; the snapshot judge 0 px outside the mask, both
+  arrangements; epub 73 books; music, games, feed and motion checks; lint 0; `assembleDebug` + wiring 51 ok; node 31/31;
+  the tools' self-tests.
+- Reviews: pass 1 1 MUST-FIX / 4 SHOULD / 16 NOTE, pass 2 0 / 3 / 12; the focused reads: two checker tightenings unsound.
+
+**Not built (the whole build).**
+- The link item and DamageCaps bit 9 — the lead's recommendation (§81), which Adam's "continue" followed.
+- The masked section for the scratch's and the slots' release windows (A.14) — outside C1's scope.
+- Sim mode's engine clock (A.20; `--motion-check` shows the steps); the general player, the scheduler, the Global
+  `Motion` row, the wheel spin, Hold'em's deal slide — later pieces.
+- A gate take around a cache write (R2 A-S1) — a new wait on the upload path; its END-for-a-period case shows in field 33.
+- Peek clearing the slot word (review 1's A-S2) — a new write on a path from boot that would drop a live context.
+- A session identity (R6 A6-3) — new state; it would close mode 25's re-arm case and the cache-with-no-lease window's
+  acquire case (R3.4), which no known path reaches.
+- Review 1's B-N7–B-N10 and B-N12 — notes for the feel session and the player's build; A-N4–A-N6 — text only.
+- R6 B6-4: a LEFT report after the keeper's next connect is dropped; a LEFT end with a reboot-like RIGHT end; one image
+  sent as the Silent push arrives — bounded, decided on the glasses after the flash.
+- B6-3's class (the size rung's and hand probe's stamps, `flagsSetPending`, `telemetryWaiters[0]`) — not pure reorders.
+- The checker: note 5b, A6-1's three other address paths (the source rule covers them), register index accesses in
+  step 8 — each fails closed, or open only in shapes the compiler does not produce today.
+- The four limits of step 8's resolver (FX7 item 5): no jump-table edges; a store at the busy word's offset through a
+  base it cannot read; a stack-slot write through a copy of sp; `umull`'s second destination — the protocol stopped
+  reading here (the last pass is unreviewed by construction); they are the first item of the next fork build.
+- No vector for the extent's lower clamp, a lapsed direct refresh going whole, A-N8 — unreachable or timing; host pins.
+- Pins for B6-2 (a race of a few statements), mode 25's "reply made after the write" (D3a), `_merged` (D1); a heavier
+  load for `ChromeFlushTest` (DX2) — not asked.
+
+**Lessons.**
+- Two models from one text find what reviews do not: all four of the first meeting's causes were gaps in the text.
+- A ruling not written into the contract the day it is made returns as a finding: R1.4 (11-15) came back as B6-1 (11-17).
+- A review's own mechanism needs its focused read: two checker tightenings passed planted faults until the read.
+- A plant must be shown to reach its check: clang predicated one store and duplicated a restore; 5c needed hand assembly.
+- A harness reading the wall clock moves the judge (the Music cell); 2³¹ ticks went into two rulings as 24.9 days (24.3).
+
+**What the flash conversation needs (a checklist for Adam's in-the-moment decision; nothing here decides it).**
+- [ ] Reversibility: rollback is `48172b62…` (installed), then `c5e4f8b7…` (Phase 1), kept built in `fws/` (`FORK.md`
+      §7; confirm both files). No boot-path site added; size guard and headroom per `tools/verify.py`.
+- [ ] On the day: `research/verify_cfw.py`; `tools/verify.py` on the candidate (sites against `FORK.md` §3.1); read the
+      patch source before flashing it.
+- [ ] Before the flash, on today's firmware (R3.3, R5 A-N5): does a context survive a restart? One restart of RIGHT,
+      telemetry before and after (uptime, cache generation); his call. The candidate cannot answer it (its read is a get).
+- [ ] Name the consequence (R5 A-S1): if a context survives a restart that landed with the engine word held, uploads
+      and mode 26 are refused 14 until the glasses restart — the only recovery; the phone says so once per session.
+- [ ] Name the 2³¹-tick case: glasses left about 24 days with no phone leave an old context allocated until a restart.
+- [ ] C1's phone half is deployed and used for a day first (spec §8); the ladder starts at stage 0 (today's bytes).
+- [ ] Dry run first: `g2flash.py --stop-before flash` (writes nothing), `FORK.md` §7's staircase; then both lenses one at
+      a time, the same image, his go for each lens.
+- [ ] After: DamageCaps `0x1ff`; the free survival check (a reset note, then field 16); the v1/v2 self-test (v3 has
+      none); fields 27–29 at 160 and 256; one ladder stage per soak (ZWRITE, 256 KiB, ENGINE with the feel session:
+      field 33 with uploads in flight, LEFT's end reasons before a drop is read as a restart).
