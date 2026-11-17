@@ -7,55 +7,47 @@ his answers, §16 the sized plan) → **`CONTRACT.md`** (before any S1 work) →
 §78 (step A) → §77 (0.65) → §76 (0.64) → §75 → §74 (upstream) → §73 (its addendum: the two silent modes) → earlier by
 number (§65 Phase 2 and the protocol, §48 the fork). Firmware facts: `CLAIMS.md` → `research/fork-reads-2026-09-13.md`.
 
-## Where we are (2026-11-14)
+## Where we are (2026-11-17)
 
-**S1-1 (APK 0.67, versionCode 67) is merged and pushed (`7214a23`, then `1758262`), the PC service runs it since
-2026-11-14 16:27:30, and APK 0.67 is STAGED — not installed as far as this record knows; nothing of it has run on his
-glasses or phone, and nobody has looked at its pages in a browser** (§80, its 80.13 the deploy). The PC
-owns Reader's state (a record behind an operation log), the phone keeps a working copy with an on-disk queue that still
-answers a gesture's first flush, a web listener on the PC (port 7405) serves a browser interface, and Reader is the
-first window converted. The glasses are pixel-identical except one change he will feel: a place read on another device
-never moves the open page; `Go there` is offered (§80, call 1). **APK 0.66 (`90342fe`) is STAGED since 11-13 22:54 —
-installing is his; the PC service runs `e955a98`** (§79.12). **The order of work is `REPLAN.md` §16:** W deployed,
-S1-1 built, S1-2 with S1-3 next.
+**Nothing is running. Two things happened that change how work resumes:**
+1. **The PC stopped responding for five hours on 11-16** because a build stage's test process allocated without bound
+   (`HANDOFF.md` §82). Sessions now run inside a memory-capped cgroup; the rules are `CLAUDE.md`, "Running builds on
+   this machine". Check `cat /proc/self/cgroup` reads `/claude-work` before anything heavy.
+2. **Adam corrected the direction on 11-17** (`HANDOFF.md` §83; `CLAUDE.md`, "What is worth building"; `REPLAN.md`
+   §17): a clean single-user system on several surfaces, the latest real input wins, robust before defended, an agent
+   swarm on real usage as the end. Read those three before proposing or building anything.
 
-| what | state | grade, source |
+**On his devices:** APK 0.67 is installed (seen in the PC's log on 11-15: the phone on the `app` lane, its migration
+taken). The PC service runs `main` with the page fix of §80.14 (`58110b0`, since 11-15 16:42; restarted by the 11-16
+reboot). The glasses run the fork's installed image (pin `48172b62…`). No browser of his is approved yet; he has not
+said he has used the pages.
+
+**Built and waiting, all on LOCAL branches (nothing of it pushed, staged or flashed):**
+
+| build | where | state |
 |---|---|---|
-| glasses | the fork's Phase 2 build on both lenses since 2026-09-16: pin `48172b62…` = Phase 1 + modes 17–24, op 5, status 3–5, fields 23–26, the partial path, the three link edits; 32 sites; reports `2.2.6.10` — detect by `EVENCFW/` and DamageCaps (`contract 2 features 0x7f`), never the version; archived with its logs in `fws/2.2.6.10-cfw-48172b62/`; up 25.3 days at the 11-13 journal read (M). **Rollback:** Phase 1's `fws/2.2.6.10-cfw-c5e4f8b7/` (a5d1c31's `…-d4054ab1/` and stock behind it) | M, §65, §79.5 |
-| phone | **APK 0.65** (`b833713`) installed 11-12 20:59:33 as of the last journal read; 0.66 staged. **A build is read from the journal's `process` note, never inferred** — he installs from the setup page without saying so | M, §79.5 |
-| PC service | OpenRC `damage` runs `e955a98` since 11-13 23:55:32 — data host and the bus watcher (reads the hub every 10 s, read-only; 17 rules, none urgent, the four away-guarded ones held back; the nightly copy at 03:30). It never drives the glasses by itself (PC-direct BLE is a manual choice). `damage.phone` read `home` at the deploy; `away` not yet read | M, §79.12 |
-| S1-1 | `main` `7214a23` (the squash of `wip/067`) and `1758262`; the whole battery green; the PC service runs it | simulator and PC, §80.5; the PC's first start, §80.13 |
-| fork | `~/damage-cfw` at `f20bac9` plus the local commit `f9ba7c6` (host tooling, pin unchanged), not pushed — his push | as of §77.12 |
+| C1 (the first flash's build: motion programs) | fork `c1` `a512b77` (candidate pin `fa931b60…`); Damage `wip/068` `d1032e3` | the C and the simulator agree on 50 vectors and two fuzz seeds; two review passes ruled; fix round 3: the Damage half is a WIP commit (not gated), the fork half (verify steps 6–8 tightened, mode 25's flag re-check) not started; then fill and compare (`v3-rulings3` is unfilled), one focused read, the battery, the records |
+| S1-2 (notice record, Torrents, Files) | `wip/069` `3357d0e` (merged, end gate green); page fixes `wip/069-webfix` `02b2ab2` (WIP) | review pass 1 found 3 MUST-FIX and 7 SHOULD; **its rulings are to be made again by the three tests** before any fix is built (`REPLAN.md` §17.3 item 2) |
+| S1-3 (Feed, Tmux) | pages only: `wip/070-web` `12ae299` (Feed page; Tmux page as a colour grid) | Kotlin not started and to be specified again, lean; the terminal emulator waits for his word (17.2 item 3) |
+| S1-4 (Music) | a spec only | five questions are his (below) |
+| C2 (the second flash) | its design challenge only | 3 MUST-FIX in the design; the narrow shape is preferred (17.3 item 5) |
 
-- **If 0.66 or 0.67 misbehaves:** Global `Cached text` off is the switch for the drawing path; the watcher's notices
-  have their own rows. Going back is NOT a reinstall (a lower versionCode is refused): an uninstall (it clears the app's
-  data and journal — `journal_pull.py --live` first), a higher versionCode or an adb downgrade — his call. **Never
-  `:phone:stageApk` unless a build is meant to be staged.** After any install PRESENTED wants arming again (his word).
-- **A journal tail with no flushes = the shell asleep in the firmware's Silent Mode, not a fault** (the both-temple
-  press, worn; the case stays home). From 0.66 a start in the case rests (no CREATE, no notice); the push off rebuilds.
-- **The current counts, S1-1's end gate (simulator and PC; §80.5):** core 1,355 in 184 classes (one background command,
-  15 min; one plain command is past a ten-minute tool limit) · desktop 45 · `--selfcheck` 484 PASS lines ×3 (0.66's
-  "485" counted the summary line) · `--snapshot` 58 renders + 11 in `phone/`, 0 px outside the mask in both
-  arrangements · node 31 · lint 0 (37 + 234) · wiring 51 ok · tool self-tests 45/23/26/39/17 (mutate_core /
-  journal_report / journal_pull / check_apk_wiring / snapdiff) · 15 mutation lists (`80-s1-1` 181: 176 caught, 5 NO PIN
-  declared; `79-watcher` 114) · 34 vectors · 73 books, 2580/2604 images, every document equal to today's text; music,
-  games, feed pass. The known rate misses: §54.5, §54.7, §49.6, §61, §66 (Feed alone 8 of 10: measure like with like),
-  §76.7; §79.12's Games miss is explained and pinned (§80.6); `WorkingCopyTest.aRetryAndTheGaps…` (5 of 20
-  alone) is closed by R3.1 (§80.8: 30 of 30).
+The counts on `main`: core 1,355 · desktop 45 · `--selfcheck` 484 · node 43 (with the look harness) · lint 0.
+The briefs, rulings and reports of every stage are in the gitignored `private/build068` … `build071`, `c1-design`,
+`c2-design`; **`private/RESUME.md` is the working handoff** (what each branch holds, what was lost, the exact next
+stage of each build, how lanes are started safely).
 
 ## Next
 
-1. **Adam's first sitting of 0.67** (below): his install, his desk browser, his look at the pages. The PC is already
-   deployed (§80.13); until his install Reader's places do not cross between the phone and the PC.
-2. **The first days of 0.66** (§79.9, read-only; 0.66 or later on the phone before the tick wrap of 2026-12-06): the
-   in-case start; **`damage.phone` read `home`, not yet `away` — a day of his with both, then the four away-guarded
-   rules go in**; Android's position rate; the channels, Acknowledge, `Watcher`; `heap3`; `input->done ms`. Still owed:
-   the Music time tick's `handlerMs` like for like (Global `Cached text` off, then on, Music playing — his switch).
-3. **Then S1-2 with S1-3** (deploy 2, `REPLAN.md` §16.1), at the re-fitted rate (§80.11; `REPLAN.md` §16's head); its web work starts with §80.8's carried items.
-4. **C1, the first flash (beside S1):** the design pass's second part is done (§81) — the challenge's 19 findings
-   ruled, `FIRMWARE.md` §5 corrected; documents only. Rulings 1 and 7 stand on the focused reader's corrections (the lead's word
-   given; C1's build reads them first, §81). Owed before C1's build: Adam's call on edit (3)'s re-ask (carry its
-   correction in C1 or drop the link item, §81; the lead recommends dropping it). The build waits for his go, with its size put to him.
+1. **L0, the lean audit** (`REPLAN.md` §17.3 item 0), read-only, then his ruling.
+2. **C1 to its end** under the full protocol; **S1-2 to its end, lean**; then deploy 2 and **his use of it** before
+   anything more is stacked.
+3. **His, whenever he likes:** the terminal emulator (allow inline styles for the page, or keep the grid); Music's
+   five questions (where the PC plays; away with the output on the PC; a service restart while the PC plays; earbud
+   taps while the PC output is chosen; what the PC plays and how loud); a hardware watchdog for the PC (R-c); one
+   restart of the right lens on today's firmware before C1's flash, to read whether firmware state survives it; the
+   fork's push; "delete" for the stray private page (§79.8); which alerts are urgent.
+4. **The first days of 0.66 and 0.67** (§79.9, §80.10) are still unread on his devices.
 
 ## The first sitting of 0.67 (his; the install notes)
 

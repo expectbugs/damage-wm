@@ -706,3 +706,62 @@ What this plan itself creates:
 - `BASTION.md` §7 shows Tmux's waiting sessions and Files' disk fill on the TV; C§10.4 keeps both windows off its set: as the contract, no cost (T-33 gives disk fill); as BASTION, a view-level headline each, ≈150–300 lines in S3.
 - The order is wrong if C2's numbers come before S1-5 (K1 needs Main and Settings converted), or if he wants motion on the glasses before the web.
 - His weekly allowance in units is not known here, so no date in this plan is a promise; at 0.65's pace the whole is many weeks of builds.
+
+## 17. The lean correction (Adam, 2026-11-17; it wins over §14 and §16 where they differ)
+
+**Why.** After S1-1 and S1-2 (about 40,000 added lines, the glasses unchanged by design, one of three pages shipped
+unable to act) he asked whether the system suffers from "unnecessary levels of bloat and abstraction", and the answer
+was yes. His three statements and the tests they give are `CLAUDE.md`, "What is worth building"; the record is
+`HANDOFF.md` §83.
+
+### 17.1 What stands (the spine is right for where he is going)
+
+The PC owns every window's state and pushes it live to every surface; one description of each window's state and
+actions; every action through one door, recorded with who and when; the phone's working copy for when the PC is out of
+reach; one notice store (raised once, dismissed once); per-viewer pacing and liveness (the TV is always on); limits on
+what an actor may do; the snapshot judge; one look at every page in a real browser; the firmware's full protocol.
+
+### 17.2 What changes
+
+1. **Latest real input wins.** No new expectation, loss notice or ledger is built; the ones that exist are frozen.
+2. **Deployed together.** The PC and the phone are one deploy; a mismatch is said and that window waits. Nothing more
+   is built for mixed builds, downgrades or deploy orders.
+3. **Access is frozen as built.** No further pairing, secret or policy work; a policy that blocks a thing he would
+   use gives way (the browser terminal: the lead recommends allowing inline styles for the page so that the emulator
+   can run; his word is still owed).
+4. **The app layer's process is lean** (`CLAUDE.md`, protocol item 7): one review pass, the three tests, no mutation
+   lists, removal as welcome as addition. Builds over their size by a quarter stop for a design question.
+5. **Robustness work is planned, not left to reviews** (17.4).
+6. **One build at most is stacked on what he has not used.** S1-2 goes to him before S1-3's Kotlin is written.
+
+### 17.3 The order from here
+
+0. **L0, the lean audit (read-only, one stage, before any other app-layer stage):** every mechanism S1-1, S1-2 and W
+   added, each with its lines, what it serves by the three tests, and one of keep / freeze / remove (remove only where
+   it makes the code simpler and no less safe, with the size and risk of removing). He rules it. At most one removal
+   build (L1) follows.
+1. **C1** is finished under its full protocol (state and remaining stages: `REMINDER.md`). Its phone half rides the
+   next deploy. The read of whether firmware state survives a restart is made on the installed build, before C1's
+   flash (his call).
+2. **S1-2** is finished lean: the lead rules its review findings again by the three tests (file safety, the service
+   not ending, the upgrade from 0.67 and the notice cursor stay; ceremony goes), one fix stage, the gate, one look.
+3. **Deploy 2 and his use of it** (Torrents, Files and notices on the web; C1's phone half inert until its flash).
+4. **S1-3** (its pages exist; its Kotlin is specified again, lean), then **S1-4** (five questions are his:
+   `REMINDER.md`), **S1-5**, then §16.1's order.
+5. **C2's design** goes on from its challenge with the narrow shape preferred: a click acts only on the row the phone
+   itself holds, so no lost or late message can move it.
+
+### 17.4 Robustness items (each small; sized when its turn comes)
+
+R-a every "until a restart" state gets a supervisor that ends the stuck thing, says so and carries on (the record log
+that did not open, the Files job slot, a stalled job). R-b one health view on every surface (service up, phone
+attached, hub reachable, last backup, the memory cap in force). R-c a hardware watchdog so that a hung PC restarts
+itself (his call; the freeze of 2026-11-16 is the case). R-d the always-on core kept apart from heavy work on the same
+machine (done for build work: the `claude-work` cgroup; the later agents get the same). R-e a usage record for the
+later agents: what he opens, acts on and dismisses, on which surface, when (small; designed with L0).
+
+### 17.5 Sizes
+
+§16.2's rows and the re-fitted rate stand as measures of the old shape. L0's ruling re-sizes S1-3 to S1-5; the
+expectation is fewer lines, not more stages.
+

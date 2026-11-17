@@ -14,7 +14,7 @@ System-wide rules in `~/.claude/CLAUDE.md` apply. This file holds Damage-specifi
 load-bearing claim V/M/C/I/S/U; **an `S` or `U` claim is not built on without checking**) → `DESIGN.md` (the shell design
 contract, locked with Adam; wins on SHELL DESIGN; its §0 lists what is deliberately excluded — read it before proposing
 anything) → this file (wins on RULES) → `REMINDER.md` (the entry point: what is true now, what is next) → **`REPLAN.md`
-(wins on the ORDER OF WORK since Adam ruled it on 2026-11-12: its §4 as amended by §14) → `CONTRACT.md` (wins on the APP
+(wins on the ORDER OF WORK since Adam ruled it on 2026-11-12: its §4 as amended by §14 and §17) → `CONTRACT.md` (wins on the APP
 CONTRACT: the state model, descriptions, actions, the wire, access; read it before any window or interface work) →
 `FORK.md` (the fork's protocol, its decisions and the design of each firmware piece; its §5 phase order no longer
 governs) → `FIRMWARE.md` (wins on the FIRMWARE CONTRACT)**.
@@ -79,10 +79,55 @@ repack that moves every offset, another task freeing the buffer). Hence:
    glass ends that regress.
 6. **Records short.** One place per fact (`HANDOFF.md`), pointers elsewhere; a review's record is not a restatement of
    its diff. The targeted gate during a session, the full battery once at its end.
+7. **Where this protocol applies in full, and where it does not (2026-11-17, `HANDOFF.md` §83).** In full: the fork's
+   firmware, the glasses' wire and compositor, any path that moves or deletes his files, any bus action. Everywhere
+   else (window cores, pages, wiring, the PC's lanes): a lean spec, the build, ONE review pass whose readers apply the
+   three tests below and propose removals as readily as fixes, fixes only for what passes those tests, the gate, and
+   one look at the real thing (a browser, the glasses). No mutation list and no pin for every guard there: a pin goes
+   where a defect was found. A finding whose only fix is a new mechanism for a case real use does not produce is
+   declined and listed. A build that passes its planned size by a quarter stops for a design question; it does not
+   get more stages.
+
+## What is worth building (Adam, 2026-11-17; `HANDOFF.md` §83)
+
+His words: "This is a single user system we are building, that should be clean. Thousands of lines of invisible code
+that wraps everything in abstraction for 'security' and edge case handling that will never actually come up in real
+usage … is not our goal here." "Bloat that doesn't serve the end goal is bloat, but work that does actually improve
+the end result is worthwhile." "It is important for the system to be robust and stable. I'm not too worried about
+security specifically, but stability and redundancy to improve stability and reliability is also worthwhile."
+
+**Who uses it and how.** One person, on several surfaces at once: the glasses, the phone, the PC, a kitchen TV that is
+always on, a voice box later. He does different things on different surfaces at the same time, and one thing in one
+place: "whichever page I'm really on is the one I'm really on" — **the latest real input wins**; nothing is built to
+detect, report or arbitrate conflicts beyond that. **Where it is going:** a set of LLM agents running constantly on
+real usage, updating what is shown, predicting needs and problems and acting on them. Not built yet; kept in mind.
+
+**Three tests for every piece of state, guard, option, wait and test** — it is built if it passes one:
+1. A surface he will use, or the later agents, need it in order to work.
+2. Real use produces the failure it guards against, AND that failure costs more than the code: his files, a bus
+   action, the firmware, the glasses' picture and latency — yes; a rare repeated notice or a stale row — no.
+3. It makes state and actions legible to a machine (one description of what exists and what can be done, every action
+   through one door, recorded with who did it and when), or it keeps usage data.
+What passes none is not built. What is already built and passes none is not extended, and is removed when it is next
+touched if removing it makes the code simpler and no less safe.
+
+**Robust means it keeps running or comes back by itself** after what really happens: a process ends, the PC restarts,
+the network drops, a disk fills, a surface goes away. Worth building: state that survives an unclean stop, reconnect and
+catch-up without him, a surface that shows its last state with its age, a supervisor that ends a stuck job and says so,
+one plain health view, redundancy that keeps the core up. **A state that only a manual restart clears is a defect.**
+Outside the radio, render, input and flashing paths, a supervisor ending a stuck job is the "supervise externally" of
+the first absolute rule, not a timeout on a path.
+
+**Security in proportion.** Private networks, one user: no further work on defence against outsiders beyond what
+stands (listeners gated by interface, the device approval as built). The limit that matters is on ACTORS — him, a
+display, an agent — for irreversible actions and bus actions. **Not built:** handling for phone and PC on different
+builds beyond saying so (they are deployed together), downgrades, both deploy orders, two tabs of one browser, any
+pairing or policy ceremony that blocks a thing he would use.
 
 ## Status and the order of work
 
-**The order of work is `REPLAN.md` as Adam ruled it on 2026-11-12 (its §14 wins; `HANDOFF.md` §78).** The end goal: four
+**The order of work is `REPLAN.md` as Adam ruled it on 2026-11-12 (its §14 wins; `HANDOFF.md` §78), corrected on 2026-11-17 (its §17 wins over
+both; `HANDOFF.md` §83).** The end goal: four
 more interfaces beside the glasses (XFCE4, the phone app, the kitchen TV, any browser) and a bus control system, then new
 windows. Until its steps close: no new windows, no Feed polish, no popover build outside the plan (the suspension of
 2026-09-12, `HANDOFF.md` §48, carried over). The fork is its own GPL-3.0 repo (`~/damage-cfw`); Damage stays clean-room
@@ -131,6 +176,23 @@ per `WINDOWS.md` (its precedents section names which window to copy), reading th
 to its best state before the next — no v1/v1.5 staging**; **each app's notification toggles live in its own Settings
 category, never Global** (Global keeps only `Notify · Damage`, the one shared `Quiet hours` row and the APK-wide `Phone notifications` switch; the shell
 never gates an app's source on a hidden field).
+
+## Running builds on this machine (2026-11-17; `HANDOFF.md` §82)
+
+On 2026-11-16 a test process started by a build stage allocated without bound; the PC stopped responding for five
+hours and every lane's work in `/tmp` was lost at the reboot. Since then:
+- **Agents are Claude Opus at xhigh effort, only** (Adam, 2026-11-11, restated 2026-11-17). Never a smaller model.
+  About six lanes at most, fewer when he is away from the PC; a size is said in percent of his week before a run.
+- **Memory.** Sessions run inside the cgroup `claude-work` (16 GiB, no swap): `cat /proc/self/cgroup` must say so
+  before anything heavy starts (`/usr/local/bin/claude-cg-session` enters it). The cap is the backstop, not the rule.
+- **A run with a guard disabled** (a pin watch, a mutation sweep, a fuzz case) goes ONE variant at a time, under
+  `ulimit -v` in the command itself and an external bound, and one that is ended by the limit, the bound or a signal
+  is reported as "ran away" — never as caught.
+- **After any oddity a stage reports about the machine** (a file's time changed, swap in use, a slow run, a process
+  ended with no reason): read `/var/log/kern.log` for `oom` before ruling anything.
+- **Scratch, worktrees and briefs live under `private/`** (gitignored), never `/tmp` (wiped at boot); work in
+  progress is committed at every stage boundary. One heavy JVM job at a time (`private/tools/jvm`).
+- **No more than one build is stacked on what he has not yet used.** What nobody has looked at has not passed.
 
 ## Clean-room: no GPL code in Damage
 
