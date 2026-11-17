@@ -429,7 +429,7 @@ class AppHost(
         val WINDOWS: ActionTable = Windows.ACTIONS
 
         /** The level each of those actions needs (S1-1 P6, C§10.4; S1-2 Q2: [Windows]): Reader's `place` and `open`
-         *  view; `bookmark`, `set`, `reset` and `migrate` control. */
+         *  view; `bookmark`, `set` and `reset` control. */
         val LEVELS: ActionLevels = Windows.LEVELS
 
         /** The level a window's subscription needs (its description's `min`, C§3.1): Reader view; a window this build

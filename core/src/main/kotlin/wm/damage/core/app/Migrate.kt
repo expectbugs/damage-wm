@@ -18,7 +18,7 @@ class Migrate(
     val window: String,
     /** The blob's fields that migrate, each with its record item and how its value is read. */
     val fields: List<Field>,
-    /** The window's migrate action (declared with the position kind, `ReaderCore.MIGRATE`'s precedent). */
+    /** The window's migrate action (declared with the position kind). */
     val action: String = ACTION,
 ) {
     /** One register field: [name] in the blob, [item] the record item it becomes, [read] its value as the record

@@ -131,7 +131,6 @@ class ReaderCoreTest {
     @Test
     fun eachActionAsTheRecordJudgesIt(): Unit = runBlocking {
         assertEquals(Kind.POSITION, ReaderCore.ACTIONS.spec("reader", ReaderCore.PLACE)!!.kind)
-        assertEquals(Kind.POSITION, ReaderCore.ACTIONS.spec("reader", ReaderCore.MIGRATE)!!.kind)
         for (a in listOf(ReaderCore.BOOKMARK, ReaderCore.SET, ReaderCore.OPEN))
             assertEquals(Kind.REGISTER, ReaderCore.ACTIONS.spec("reader", a)!!.kind, a)
         assertEquals(Kind.REMOVE, ReaderCore.ACTIONS.spec("reader", ReaderCore.RESET)!!.kind)

@@ -236,10 +236,6 @@ class ReaderCore(
         const val SET = "set"
         /** Reset progress: the book's place removed (cancel first, as built). */
         const val RESET = "reset"
-        /** A register's value from before Reader's conversion (a bookmark, a glasses row), stamped with its old time
-         *  (dec. A.3). S1-1's migration has run on both hosts (L1 C5); the action stays for an op of it a queue may
-         *  still hold. */
-        const val MIGRATE = "migrate"
 
         // the record items
         const val RECENT = "recent"
@@ -253,17 +249,17 @@ class ReaderCore(
         fun bookmarkItem(book: String) = "bookmark.$book"
 
         /** The level [action] needs (S1-1 P6, C§10.4; the spec's §6): open and the place are reading effects (view);
-         *  a bookmark, a glasses row, reset progress and a migrated register are control. Null: no such action. */
+         *  a bookmark, a glasses row and reset progress are control. Null: no such action. */
         fun levelOf(action: String): String? = when (action) {
             OPEN, PLACE -> wm.damage.core.app.Levels.VIEW
-            BOOKMARK, SET, RESET, MIGRATE -> wm.damage.core.app.Levels.CONTROL
+            BOOKMARK, SET, RESET -> wm.damage.core.app.Levels.CONTROL
             else -> null
         }
 
         /** Reader's actions as the record judges them (C§2.4). */
         val ACTIONS = ActionTable { w, a ->
             if (w != WINDOW) null else when (a) {
-                PLACE, MIGRATE -> ActionSpec(Kind.POSITION)
+                PLACE -> ActionSpec(Kind.POSITION)
                 BOOKMARK, SET, OPEN -> ActionSpec(Kind.REGISTER)
                 RESET -> ActionSpec(Kind.REMOVE)
                 else -> null
