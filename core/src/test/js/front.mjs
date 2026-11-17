@@ -12,7 +12,7 @@
 
 import { createServer, request } from 'node:http';
 import { connect } from 'node:net';
-import { readFileSync } from 'node:fs';
+import { readFileSync, appendFileSync, existsSync } from 'node:fs';
 import { lookModule } from './standin.mjs';
 import { format } from '../../main/resources/web/js/address.mjs';
 
@@ -29,12 +29,14 @@ export function front(scene, real, secret) {
   // S1-2 Q5: a scene of the made-up device at control (LOOK_SECRET_CONTROL, its secret file) instead of the full one
   const sec = scene.control ? readFileSync(process.env.LOOK_SECRET_CONTROL, 'utf8').trim() : secret;
   const cookie = (h) => {
+    if (scene.own) return String(h || ''); // L1 A1: this PC's own browser keeps the cookie A1 gave it
     const others = String(h || '').split(';').map((c) => c.trim()).filter((c) => c && !c.startsWith('damage='));
     return [...others, ...(scene.anon ? [] : [`damage=${sec}`])].join('; ');
   };
   const headsUp = (headers) => {
-    const out = { ...headers, host: up.host };
-    if (out.origin) out.origin = `http://${up.host}`;
+    const hh = scene.asName ? `${scene.asName}:${up.port}` : up.host; // opened under the machine's name (LOOK_NAME)
+    const out = { ...headers, host: hh };
+    if (out.origin) out.origin = `http://${hh}`;
     const c = cookie(headers.cookie);
     if (c) out.cookie = c;
     else delete out.cookie;
@@ -47,6 +49,28 @@ export function front(scene, real, secret) {
     if (url.pathname === '/__hold') return ready ? own(200, 'image/gif', GIF) : (held = () => own(200, 'image/gif', GIF));
     if (url.pathname === '/__ready') { ready = true; if (held) held(); return own(204, 'text/plain', ''); }
     if (url.pathname === '/__note') { log.push({ t: 'note', text: decodeURIComponent(req.url.slice(req.url.indexOf('?') + 1)) }); return own(204, 'text/plain', ''); }
+    // L1 G1: the policy's refusals, each one counted (LOOK_CSP_LOG) and said on the picture's line
+    if (url.pathname === '/__csp') {
+      const parts = [];
+      req.on('data', (d) => parts.push(d));
+      req.on('end', () => {
+        const t = String(Buffer.concat(parts));
+        if (process.env.LOOK_CSP_LOG) appendFileSync(process.env.LOOK_CSP_LOG, `${scene.path} ${t}\n`);
+        log.push({ t: 'note', text: `CSP error report: ${t}` });
+        own(204, 'text/plain', '');
+      });
+      return;
+    }
+    // L1 G1: a deploy — the listener's JVM is ended and started again on the same port (look-loop.sh, LOOK_RESTART_DIR)
+    if (url.pathname === '/__restart') {
+      const dir = process.env.LOOK_RESTART_DIR;
+      const lines = (f) => (existsSync(f) ? String(readFileSync(f)).split('\n').filter(Boolean).length : 0);
+      const n = lines(`${dir}/ack`);
+      appendFileSync(`${dir}/trig`, `restart ${Date.now()}\n`);
+      log.push({ t: 'note', text: `restart asked at ack ${n}` });
+      const poll = () => (lines(`${dir}/ack`) > n ? own(200, 'text/plain', 'up again') : setTimeout(poll, 200));
+      return poll();
+    }
     if (url.pathname === '/__wait') return setTimeout(() => own(204, 'text/plain', ''), Number(url.searchParams.get('ms') || 0));
     if (url.pathname === '/__look.mjs') return own(200, TYPES.mjs, lookModule(scene.steps));
     if (url.pathname === '/__other') {
@@ -69,14 +93,15 @@ export function front(scene, real, secret) {
     log.push({ t: 'http', text: `${req.method} ${url.pathname}` });
     const fwd = request({ host: up.hostname, port: up.port, method: req.method, path: req.url, headers: headsUp(req.headers) }, (r) => {
       const h = { ...r.headers };
-      if (h['content-security-policy']) h['content-security-policy'] = h['content-security-policy'].replaceAll(`ws://${up.host}`, `ws://${req.headers.host}`);
+      if (h['content-security-policy']) h['content-security-policy'] = h['content-security-policy'].replace(/ws:\/\/[^ ;]+/g, `ws://${req.headers.host}`) + '; report-uri /__csp';
       const html = String(h['content-type'] || '').startsWith('text/html');
       if (!html) { res.writeHead(r.statusCode, h); r.pipe(res); return; }
       const parts = [];
       r.on('data', (d) => parts.push(d));
       r.on('end', () => {
         const body = Buffer.from(String(Buffer.concat(parts)).replace('</body>',
-          '<img id="look-hold" hidden alt="" src="/__hold">\n<script type="module" src="/__look.mjs"></script>\n</body>'));
+          '<img id="look-hold" hidden alt="" src="/__hold">\n<script type="module" src="/__look.mjs"></script>\n' +
+          (scene.cspProbe ? '<script>window.inlineRan = 1;</script>\n' : '') + '</body>')); // the policy probe's inline script, refused
         h['content-length'] = String(body.length);
         res.writeHead(r.statusCode, h);
         res.end(body);
@@ -165,7 +190,34 @@ export function realScenes(book) {
     'real-book-follow': { path: `/w/reader/book:${book}`, steps: [{ wait: '.text p' }, reach, { fetch: '/__wait?ms=800' },
       { fetch: `/__other?book=${book}&offset=0` }, { wait: '.chapters li:first-child button.current' }, { fetch: '/__wait?ms=800' },
       { fetch: `/__other?book=${book}&offset=4000` }, { wait: '.chapters li:not(:first-child) button.current' }, { fetch: '/__wait?ms=3000' }] },
+    // L1 G1, standing since R2 A7 — each needs the listener started as its line says (LookServer's header):
+    // the policy probe (an inline script the policy must refuse: the count reads the thing it names); LOOK_OWN=1: this
+    // PC's own browser approved at once (A1); LOOK_NAME=made-up-pc: a page under the machine's name waits, and is
+    // denied; under look-loop.sh: the listener ended and started again under an open book (a deploy)
+    'real-policy-probe': { path: '/', cspProbe: true, steps: [{ wait: '.cards .card' }, reach, { fetch: '/__wait?ms=1000' }] },
+    'real-own': { path: '/w/devices', anon: true, own: true, steps: [{ wait: '.devices ul.rows li .row-name' }, reach, { fetch: '/__wait?ms=1000' }] },
+    'real-as-name': { path: '/', anon: true, asName: 'made-up-pc', steps: [{ wait: '.pair .pcode' }, { fetch: '/__wait?ms=4000' }, { wait: '.pair .pcode' }] },
+    'real-denied': { path: '/', anon: true, asName: 'made-up-pc', steps: [{ wait: '.pair .pcode' }, { fetch: '/__ctl?deny-browser' }, { wait: '.page.pair button' }] },
+    'real-restart': { path: `/w/reader/book:${book}`, steps: [{ wait: '.text p' }, reach, { fetch: '/__wait?ms=800' },
+      { fetch: `/__other?book=${book}&offset=0` }, { wait: '.chapters li:first-child button.current' }, { fetch: '/__wait?ms=800' },
+      { fetch: '/__restart' }, { fetch: '/__wait?ms=1000' }, { fetch: `/__other?book=${book}&offset=4000` },
+      { wait: '.chapters li:not(:first-child) button.current' }, reach, { fetch: '/__wait?ms=3000' }] },
+    // the other device writes only after the page has had time to reconnect: a live change on the new socket
+    'real-restart-live': { path: `/w/reader/book:${book}`, steps: [{ wait: '.text p' }, reach, { fetch: '/__wait?ms=800' },
+      { fetch: `/__other?book=${book}&offset=0` }, { wait: '.chapters li:first-child button.current' }, { fetch: '/__wait?ms=800' },
+      { fetch: '/__restart' }, { fetch: '/__wait?ms=6000' }, reach, { fetch: '/__note?reconnected-before-the-write' },
+      { fetch: `/__other?book=${book}&offset=4000` }, { wait: '.chapters li:not(:first-child) button.current' }, { fetch: '/__wait?ms=2000' }] },
     'real-devices': { path: '/w/devices', steps: [{ wait: '.devices li.row-item .pcode' }, reach] },
+    // L1 R2 A4 (LOOK_BAD_TABLE=1): the device table set aside at the start, said on the Devices page
+    'real-devices-set-aside': { path: '/w/devices', steps: [{ wait: '.devices li.row-item .pcode' }, reach] },
+    // L1 R2 B1: watched in the record (LookServer's change lines carry each place's writer and input time), not the
+    // page: a tap that scrolls nothing, then a resize and the reflow's scroll, writes nothing; a wheel and its scroll
+    // write the place at the wheel's time; a sidebar chapter click writes at the click's time (each after a `mark`)
+    'real-book-acts': { path: `/w/reader/book:${book}`, steps: [{ wait: '.text p' }, reach, { fetch: '/__wait?ms=800' },
+      { fetch: '/__ctl?mark' }, { fire: ['.reading', 'pointerdown'] }, { fire: ['window', 'resize'] }, { scroll: ['.reading', 400] },
+      { fetch: '/__wait?ms=3000' }, { fetch: '/__ctl?mark' }, { fire: ['.reading', 'wheel'] }, { scroll: ['.reading', 400] },
+      { fetch: '/__wait?ms=3000' }, { fetch: '/__ctl?mark' }, { fetch: '/__wait?ms=300' }, { click: '.side-toggle' },
+      { click: '.chapters li:nth-child(3) button' }, { wait: '.chapters li:nth-child(3) button.current' }, { fetch: '/__wait?ms=3000' }, reach] },
     // L1: the two pages no scene showed — Diagnosis, and Settings with a look picked (it stays on this browser)
     'real-diag': { path: '/w/diag', steps: [{ wait: '.diag dl.facts' }, reach] },
     'real-settings': { path: '/w/settings', steps: [{ wait: '.settings .looks' }, reach, { click: '.looks:last-of-type .choice:last-child input' }] },
@@ -229,6 +281,9 @@ function filesRealScenes(reach) {
     'real-files-upload-cut': { path: f(`path:${home}/drop/`), put: 'cut', steps: [{ wait: '.tend, .flist .frow' }, reach,
       { drop: '.page.files', files: [{ name: 'made-up big file.bin', size: 4000000 }] }, { wait: '.fu.cut, .fu.failed' }, { fetch: '/__wait?ms=500' }, { fetch: '/__ctl?files' }] },
     'real-files-trash': { path: f('trash'), steps: [{ wait: '.ftrash .frow' }, reach] },
+    // L1 R2 B5: a row whose file is not in the trash says so and offers only Delete forever
+    'real-files-trash-missing': { path: '/w/files', steps: [{ wait: '.flocs .floc' }, reach, { fetch: '/__ctl?miss' },
+      { click: '[data-key="loc:trash"]' }, { wait: '.ftrash .frow' }, { fetch: '/__wait?ms=500' }] },
     // L1 P44: a job's end is the slot's line, not a toast
     'real-files-restore': { path: f('trash'), steps: [{ wait: '.ftrash .frow' }, reach, { click: '.ftrash .frow .frow-acts button:not(.danger)' },
       { wait: '.fjob' }, { fetch: '/__wait?ms=1500' }, { fetch: '/__ctl?files' }] },

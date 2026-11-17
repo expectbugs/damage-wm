@@ -55,10 +55,19 @@ import wm.damage.core.windows.torrents.TorrentsScopes
  * the graphs have points; nothing reaches qBittorrent, the tracker or any site), served as the host builders serve it
  * (`TorrentsScopes` through `AppNet.serve`, its notices raised by its core); `slow` makes every tracker call wait until
  * `release` (a tracker that takes its time), `done` finishes a made-up download.
+ * L1 (the gate's G1, standing since R2 A7): LOOK_PORT, LOOK_ROOT, LOOK_OWN=1, LOOK_NAME and LOOK_BAD_TABLE=1 (main's
+ * first lines say what each does); under `core/src/test/js/look-loop.sh` the front's `/__restart` ends this JVM and
+ * starts it again on the same port and directory (a deploy under an open page). Words: `deny-browser` (a waiting page
+ * denied), `mark` (the PC's time, before an act whose input time the change lines show), `miss` (a trash row's file
+ * taken out of the trash).
  */
 fun main(args: Array<String>) {
     val work = Path.of(args.firstOrNull() ?: error("usage: LookServer WORK_DIR (a directory of the stage's own)"))
-    val root = Files.createTempDirectory(Files.createDirectories(work), "look-")
+    // L1 G1 (standing since R2 A7): LOOK_ROOT reuses a run's directory (a restart), LOOK_PORT fixes the port, LOOK_OWN=1
+    // turns A1 on as the service does, LOOK_NAME adds a made-up machine name to the Host list, LOOK_BAD_TABLE=1 starts
+    // over an undecodable device table (AC16: set aside and said on the Devices page)
+    val again = System.getenv("LOOK_ROOT")?.let { Files.isDirectory(Path.of(it)) } == true
+    val root = System.getenv("LOOK_ROOT")?.let { Files.createDirectories(Path.of(it)) } ?: Files.createTempDirectory(Files.createDirectories(work), "look-")
     val books = Files.createDirectories(root.resolve("books"))
     val recordDir = Files.createDirectories(root.resolve("record"))
     val data = Files.createDirectories(root.resolve("data"))
@@ -77,8 +86,10 @@ fun main(args: Array<String>) {
         images = mapOf("img/cover.png" to png), titles = listOf("Departure", "The Crossing", "Arrival"), coverMeta = "img1")
     val book = LocalContent.idFor(epub)
 
-    val host = AppHost.inScratchDir(recordDir)
-    host.pace(scope)
+    // with LOOK_ROOT the record opens as the service opens it at a process start (and paces itself)
+    val host = if (System.getenv("LOOK_ROOT") != null) AppHost.atProcessStart(recordDir, scope, wm.damage.core.app.RecordAlerts.NONE, null)
+        else AppHost.inScratchDir(recordDir).also { it.pace(scope) }
+    if (System.getenv("LOOK_BAD_TABLE") == "1") Files.writeString(data.resolve(Devices.FILE), "not a device table (made up)")
     val devices = Devices(data.resolve(Devices.FILE)).load()
     val core = DevicesCore(devices)
     val net = AppNet(host, devices = core)
@@ -128,8 +139,9 @@ fun main(args: Array<String>) {
     val look = LookTree(root.resolve("files-tree"))
     val filesPc = wm.damage.core.windows.files.FilesPc(host, look.files, look.books.toString(), uploads, ::lookThumb)
     filesPc.serveOn(net)
-    look.trashTwo(filesPc.slotted)
-    val server = WebServer(0, ReachGate(Side.PC), Access(Access.LOOPBACK_NAMES), devices, net, Bundle.fromResources(),
+    if (!again) look.trashTwo(filesPc.slotted)
+    println("LOOK again=$again")
+    val server = WebServer(System.getenv("LOOK_PORT")?.toInt() ?: 0, ReachGate(Side.PC), Access(Access.LOOPBACK_NAMES + listOfNotNull(System.getenv("LOOK_NAME")), ownBrowserFull = System.getenv("LOOK_OWN") == "1"), devices, net, Bundle.fromResources(),
         BlobSources(mapOf(ReaderBlobs.PREFIX to ReaderBlobs(reader, docs), wm.damage.core.windows.files.FilesBlobs.PREFIX to filesPc.blobs)),
         bindAddress = InetAddress.getLoopbackAddress(), uploads = uploads)
     server.start()
@@ -137,8 +149,10 @@ fun main(args: Array<String>) {
     host.addListener { c ->
         val states = c.effect.items.filterKeys { it.startsWith("rec.notices.") }.map { (k, i) ->
             Notices.parse(k.removePrefix("rec.notices."), i.value)?.let { "${it.id} occ ${it.occ} ${it.state}" } ?: k }
+        // L1 R2 B1: a place's writer and input time, so the look reads what the record took, not the page
+        val places = c.effect.items.filterKeys { it.startsWith("rec.reader.place.") }.map { (k, i) -> "${k.removePrefix("rec.reader.")} by ${i.by} at ${i.at}" }
         println("LOOK change ${c.seq}: ${c.effect.items.keys.sorted()}" +
-            if (states.isEmpty()) "" else " $states")
+            (if (states.isEmpty()) "" else " $states") + (if (places.isEmpty()) "" else " $places"))
     }
     // S1-2 Q3: the raiser, and the made-up other device that dismisses elsewhere
     val notices = NoticeCore(host)
@@ -168,7 +182,16 @@ fun main(args: Array<String>) {
             "release" -> { slow?.countDown(); torrents.trackerGate = null; look.gate.countDown(); Thread.sleep(300)
                 "the tracker answers · files: ${filesPc.jobs.current()}" }
             "done" -> { torrents.event("done", "c0ffee01", torrents.transfers.first { it.hash == "c0ffee01" }.name); "c0ffee01 done" }
+            // deny the newest waiting browser (not the made-up tablet), as the Devices page's Deny does
+            "deny-browser" -> devices.pending().filter { it.name != "made-up tablet" }.maxByOrNull { it.since }
+                ?.let { "denied ${it.code}: ${devices.deny(it.code, "look") ?: "ok"}" } ?: "no browser waiting"
             "ops" -> "torrents ops: ${torrents.ops.filter { it != "refresh" }}"
+            // L1 R2: the PC's time before an act, to read an op's input time against
+            "mark" -> "mark at ${System.currentTimeMillis()}"
+            // L1 R2 B5: one trash row's file taken out of the trash (a trash cut off before its file arrived)
+            "miss" -> look.files.trashList().firstOrNull { it.name == "old draft.txt" && !it.missing }
+                ?.let { e -> Files.delete(look.root.resolve("trash").resolve(e.id).resolve(e.name)); "the file of trash row ${e.id} (${e.name}) is not in the trash" }
+                ?: "no trash row to take out"
             // S1-2 Q5: a `du` that waits (the slot held, its age on the page), and its end
             "stall" -> { look.gate = CountDownLatch(1); Thread { try { filesPc.slotted.du(look.slow.toString()) } catch (e: Exception) { println("LOOK files du: ${e.message}") } }.start()
                 Thread.sleep(300); "files: ${filesPc.jobs.current()}" }
