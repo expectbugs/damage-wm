@@ -137,7 +137,8 @@ class AppNet(
     /** A program op in flight: what it is and when it was taken (the diagnosis shows its age). */
     private class Flight(val window: String, val action: String, val at: Long)
 
-    private inner class Conn(val id: Long, val peer: Peer, val shared: Set<String>, val outbox: Outbox) {
+    /** [page]: a web page (its welcome carries the bundle), whose scopes are the usage record's (L1 R-e). */
+    private inner class Conn(val id: Long, val peer: Peer, val shared: Set<String>, val outbox: Outbox, val page: Boolean) {
         /** Executor only. */
         val scopes = LinkedHashSet<String>()
         /** The PC-served scopes this connection holds (P7). Executor only. */
@@ -288,7 +289,7 @@ class AppNet(
         val id = nextConn.getAndIncrement()
         val shared = Contracts.shared(contracts, hello.contracts)
         val outbox = Outbox("app-$id", outboxCap, write = { f -> io.write(f) }, close = { closeQuietly(sock) })
-        val conn = Conn(id, peer, shared, outbox)
+        val conn = Conn(id, peer, shared, outbox, page = bundle != null)
         val differ = Contracts.compare(contracts, hello.contracts).values.filter { !it.same }
         Log.i(TAG, "connection $id from ${sock.inetAddress}: ${peer.device}, stream ${hello.stream}" +
             (if (differ.isEmpty()) "" else "; different builds for " + differ.joinToString { "${it.window} (PC ${it.mine ?: "-"}, its ${it.theirs ?: "-"})" }))
@@ -309,8 +310,7 @@ class AppNet(
                     "unsub" -> {
                         val scope = AppWire.str(f, "scope")
                         host.executor.execute("app unsub $id") {
-                            conn.scopes.remove(scope)
-                            conn.described.remove(scope)
+                            if (conn.scopes.remove(scope) or (conn.described.remove(scope) != null)) used(conn, "leave", scope)
                             viewers.remove(id, scope, "unsubscribed")
                         }
                     }
@@ -340,7 +340,7 @@ class AppNet(
             outbox.stop()
             closeQuietly(sock)
             host.executor.execute("app end $id") {
-                conns.remove(id)
+                conns.remove(id)?.let { c -> for (s in c.scopes + c.described.keys) used(c, "leave", s) }
                 ended(id, "its connection ended")
             }
         }
@@ -397,7 +397,7 @@ class AppNet(
                 if (no != null) conn.outbox.offer(AppWire.encode(AppWire.ans(Ans(null, scope, no))))
                 else {
                     conn.outbox.offer(AppWire.encode(AppWire.desc(scope, devices.describe())))
-                    conn.scopes += scope
+                    if (conn.scopes.add(scope)) used(conn, "open", scope)
                 }
             }
             return
@@ -430,7 +430,7 @@ class AppNet(
             val items = HashMap<String, Item>()
             for (w in AppWire.windowsOf(scope, conn.visible)) items.putAll(host.read(w).third.items)
             conn.outbox.offer(AppWire.encode(AppWire.snap(Snap(scope, host.epoch, host.seq, Effect(items)))))
-            conn.scopes += scope
+            if (conn.scopes.add(scope)) used(conn, "open", scope)
             // S1-2 Q2: a record scope's viewer (a second `sub` replaces its need; none ends it)
             viewers.put(conn.id, scope, scope.takeIf { it != AppWire.RECORD }, need ?: NO_NEED)
         }
@@ -451,7 +451,7 @@ class AppNet(
                 conn.outbox.offer(AppWire.encode(AppWire.ans(Ans(null, scope, no))))
                 if (no.reason == AppHost.LOG_CLOSED) conn.closedSubs += { describedSub(conn, scope, g, p, need) }
             } else {
-                if (conn.described[scope]?.p !== p) conn.described[scope] = Held(p)
+                if (conn.described[scope]?.p !== p && conn.described.put(scope, Held(p)) == null) used(conn, "open", scope)
                 viewers.put(conn.id, scope, w, need ?: NO_NEED)
                 describeFor(conn, scope)
             }
@@ -577,6 +577,17 @@ class AppNet(
         } catch (e: Exception) {
             Log.e(TAG, "the $kind note could not be written", e)
         }
+    }
+
+    /**
+     * L1 R-e, the usage record: a web page took or left a scope (a window, a book, a part, a folder): one `usage` note
+     * in the PC's journal, `<device> web <window> open|leave <scope>`, beside the program and device notes (the
+     * note's `t` is when). What a page does is an op and in the op log already; the glasses' window is on every flush
+     * line of the phone's own journal (`win`), and their notices' read and dismiss are ops. Executor only.
+     */
+    private fun used(conn: Conn, action: String, scope: String) {
+        val window = scope.removePrefix("desc/").substringBefore('/')
+        if (conn.page) host.noteAs("usage", "${conn.peer.device} web $window $action $scope")
     }
 
     /** A device-table action (C§10.3, C§10.8): level full, never queued, answered on the executor. */

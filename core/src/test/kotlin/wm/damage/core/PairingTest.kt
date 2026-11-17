@@ -282,6 +282,22 @@ class PairingTest {
         assertFalse(a.ownBrowser(req("127.0.0.1:7405", null), lo, 7405), "no Origin")
     }
 
+    /** L1 R-e: a page taking and leaving a scope is the usage record — one `usage` note each, with the device. */
+    @Test
+    fun aPagesScopesAreTheUsageRecord() = WebRig().use { r ->
+        val (row, secret) = r.approved(Levels.VIEW)
+        Page(r.port, cookie = secret).use { p ->
+            p.hello()
+            p.next("welcome")
+            p.send(AppWire.sub("t", null))
+            p.next("snap")
+            p.send(AppWire.unsub("t"))
+        }
+        fun usage() = java.nio.file.Files.readAllLines(r.rec.journal).filter { "\"kind\":\"usage\"" in it }
+        eventually("the open and the leave are noted") { usage().size == 2 }
+        assertTrue("${row.id} web t open t" in usage()[0] && "${row.id} web t leave t" in usage()[1], "${usage()}")
+    }
+
     /** L1 AC16: a device table that cannot be read at a start is set aside whole under a dated name, said, and the
      *  table starts empty and carries on: the next approval is written (no state that only a restart clears). */
     @Test
