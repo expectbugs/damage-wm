@@ -259,7 +259,8 @@ class LocalFilesProvider(
     /** The manifest on disk (none yet: empty). L1 B-S6: one that cannot be read or decoded throws with the reason, so
      *  trash, restore and delete forever refuse instead of writing a manifest without its entries. */
     private fun readManifest(): Manifest = synchronized(trashLock) {
-        val m = if (!Files.exists(manifestPath, LinkOption.NOFOLLOW_LINKS)) Manifest() else try {
+        // L1 R1 B4: only a manifest known to be absent reads as empty; a stat that cannot tell falls to the read, which says why
+        val m = if (Files.notExists(manifestPath, LinkOption.NOFOLLOW_LINKS)) Manifest() else try {
             json.decodeFromString(Manifest.serializer(), Files.readString(manifestPath))
         } catch (e: Exception) {
             throw IllegalStateException("the trash's manifest $manifestPath cannot be read (${e::class.simpleName}: " +
@@ -336,7 +337,7 @@ class LocalFilesProvider(
             "${e.name} is not in the trash (a trash cut off before it arrived): restore refused; Delete forever clears its row"
         }
         val dest = Path.of(e.origPath)
-        require(!Files.exists(dest, LinkOption.NOFOLLOW_LINKS)) { "${e.origPath} already exists — restore refused" }
+        require(Files.notExists(dest, LinkOption.NOFOLLOW_LINKS)) { "${e.origPath} already exists — restore refused" }
         dest.parent?.let { Files.createDirectories(it) }
         moveEntry(src, dest, "restore of a folder across volumes — move it on the PC instead")
         writeManifest(Manifest(m.entries.filterNot { it.id == id })) { putBack(dest, src) }   // the manifest names it still
@@ -359,7 +360,7 @@ class LocalFilesProvider(
         refuseTrashStore(path, "a rename")
         val p = Path.of(path)
         val dest = p.resolveSibling(newName)
-        require(!Files.exists(dest, LinkOption.NOFOLLOW_LINKS)) { "$newName already exists here" }
+        require(Files.notExists(dest, LinkOption.NOFOLLOW_LINKS)) { "$newName already exists here" }
         Files.move(p, dest)
         return dest.toString()
     }
@@ -368,7 +369,7 @@ class LocalFilesProvider(
         require(name.isNotBlank() && !name.contains('/')) { "'$name' is not a valid name" }
         refuseTrashStore(dir, "a new folder")
         val dest = Path.of(dir).resolve(name)
-        require(!Files.exists(dest, LinkOption.NOFOLLOW_LINKS)) { "$name already exists here" }
+        require(Files.notExists(dest, LinkOption.NOFOLLOW_LINKS)) { "$name already exists here" }
         Files.createDirectory(dest)
         return dest.toString()
     }
@@ -381,7 +382,7 @@ class LocalFilesProvider(
         refuseTrashStore(destDir, "a copy")
         val s = Path.of(src)
         val dest = Path.of(destDir).resolve(s.fileName.toString())
-        require(!Files.exists(dest, LinkOption.NOFOLLOW_LINKS)) { "${s.fileName} already exists there" }
+        require(Files.notExists(dest, LinkOption.NOFOLLOW_LINKS)) { "${s.fileName} already exists there" }
         require(!dest.toAbsolutePath().startsWith(s.toAbsolutePath())) { "cannot copy a folder into itself" }
         if (Files.isDirectory(s, LinkOption.NOFOLLOW_LINKS)) {
             val total = treeBytes(s, progress)
@@ -413,7 +414,7 @@ class LocalFilesProvider(
         progress.at(0, null, "moving")
         val s = Path.of(src)
         val dest = Path.of(destDir).resolve(s.fileName.toString())
-        require(!Files.exists(dest, LinkOption.NOFOLLOW_LINKS)) { "${s.fileName} already exists there" }
+        require(Files.notExists(dest, LinkOption.NOFOLLOW_LINKS)) { "${s.fileName} already exists there" }
         require(!dest.toAbsolutePath().startsWith(s.toAbsolutePath())) { "cannot move a folder into itself" }
         moveEntry(s, dest, "move of a folder across volumes — do it on the PC instead")
         return dest.toString()
@@ -500,7 +501,7 @@ class LocalFilesProvider(
     }
 
     private fun deleteRecursively(p: Path) {
-        if (!Files.exists(p, LinkOption.NOFOLLOW_LINKS)) return
+        if (Files.notExists(p, LinkOption.NOFOLLOW_LINKS)) return       // L1 R1 B4: a stat that cannot tell walks, and says why
         Files.walkFileTree(p, object : SimpleFileVisitor<Path>() {
             override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
                 Files.delete(file)

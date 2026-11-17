@@ -132,4 +132,28 @@ class FilesMoveTest {
         assertEquals("his", Files.readString(his.resolve("a.txt")), "his folder and his file are untouched")
         assertEquals(listOf("a.txt"), Files.list(his).use { s -> s.map { it.fileName.toString() }.toList() })
     }
+
+    /** Pin (B4): a manifest the trash cannot stat (its folder's search permission gone) is not read as empty: trash is
+     *  refused with the reason, the listing says why instead of showing an empty trash, and the manifest is as it was. */
+    @Test
+    fun aManifestThatCannotBeStatedIsNotReadAsEmpty() {
+        modesBind()
+        val id = tree.files.trash(tree.file("a.txt"))
+        val b = tree.file("b.txt")
+        val manifest = tree.trash.resolve("manifest.json")
+        val bytes = Files.readAllBytes(manifest)
+        val p = provider { _, _ -> true }
+        Files.setPosixFilePermissions(tree.trash, PosixFilePermissions.fromString("rw-------"))
+        try {
+            val e = assertFailsWith<IllegalStateException> { p.trash(b) }
+            assertTrue("cannot be read" in e.message!!, e.message)
+            val l = assertFailsWith<IllegalStateException> { p.trashList() }
+            assertTrue("cannot be read" in l.message!!, l.message)
+        } finally {
+            Files.setPosixFilePermissions(tree.trash, PosixFilePermissions.fromString("rwx------"))
+        }
+        assertTrue(Files.exists(Path.of(b)), "b is in its place")
+        assertContentEquals(bytes, Files.readAllBytes(manifest), "the manifest is as it was")
+        assertEquals(listOf(id), p.trashList().map { it.id })
+    }
 }

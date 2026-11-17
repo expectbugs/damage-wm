@@ -259,13 +259,13 @@ class Uploads(
             } catch (e: UnsupportedOperationException) {
                 renameIfFree(part, dest)
             } catch (e: IOException) {
-                if (Files.exists(dest)) throw FileAlreadyExistsException(dest.toString())
+                if (!Files.notExists(dest)) throw FileAlreadyExistsException(dest.toString())   // L1 R1 B4: cannot tell = taken
                 renameIfFree(part, dest)
             }
         }
 
         private fun renameIfFree(part: Path, dest: Path) {
-            if (Files.exists(dest)) throw FileAlreadyExistsException(dest.toString())
+            if (!Files.notExists(dest)) throw FileAlreadyExistsException(dest.toString())
             Files.move(part, dest, StandardCopyOption.ATOMIC_MOVE)
         }
     }
