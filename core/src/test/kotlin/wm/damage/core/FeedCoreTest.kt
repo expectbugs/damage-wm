@@ -87,6 +87,17 @@ class FeedCoreTest {
         assertEquals("popular · The next one", r2?.body)
         assertEquals("item:popular:${next.id}", r2?.target)
         assertEquals("2", r2?.occ)
+        // S1-3 fix B1: a subreddit browsed once (on a page) and not pinned raises nothing, however much it gets
+        val browsed = feed.browse(wm.damage.core.windows.feed.SourceKind.REDDIT, "made-up")
+        feed.fireNew(browsed.id, "A browsed one")
+        feed.fireNew(browsed.id, "Another browsed one")
+        assertNull(notice("feed:${browsed.id}"), "a browsed source that is not pinned is quiet")
+        // pinned, it is one of his sources: its first sight is the baseline, its next new item a notice
+        set(FeedCore.PIN + browsed.id, JsonPrimitive(true))
+        feed.fireNew(browsed.id, "A pinned one")
+        assertNull(notice("feed:${browsed.id}"), "its first sight")
+        feed.fireNew(browsed.id, "The next pinned one")
+        assertEquals("r/made-up · The next pinned one", notice("feed:${browsed.id}")?.body)
         core.stop()
     }
 

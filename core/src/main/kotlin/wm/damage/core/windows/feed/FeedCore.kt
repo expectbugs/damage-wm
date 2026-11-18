@@ -118,6 +118,7 @@ class FeedCore(private val provider: FeedProvider? = null, private val clock: ()
     private fun announce(p: Pc, src: SourceStatus, page: List<Item>) {
         val newest = page.maxOfOrNull { it.publishedMs } ?: return
         val st = WindowState(WINDOW, p.host.read(WINDOW).third.items)
+        if (src.transient && !pinned(st, src.id)) return        // S1-3 fix B1: a source browsed and not pinned is quiet
         val seen = seenOf(st, src.id)
         if (seen == null) {
             floor[src.id] = maxOf(floor[src.id] ?: 0L, newest)
