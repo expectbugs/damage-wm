@@ -11,6 +11,7 @@ the lines since the last rotation (up to 64 MiB, the newest) are in the live fil
     python3 tools/journal_pull.py                 # every archive -> ~/.damage/phone-journal/
     python3 tools/journal_pull.py --live          # ...then the live file too, as journal.jsonl there
     python3 tools/journal_pull.py --list          # print the listing, fetch nothing else
+    python3 tools/journal_pull.py --logs          # ...and the log's day files (build Q, APK 0.69) beside them
     python3 tools/journal_pull.py --host H --port P --dest DIR
     python3 tools/journal_pull.py --selftest      # the tool's own checks, against a stand-in on loopback only
 
@@ -37,6 +38,10 @@ again, or the archive that holds it was not copied: then it is the only copy of 
 live file's name and size are printed with NOT copied. A `--dest` that holds a `state.json` is a
 Damage data directory with a journal of its own: refused, nothing requested.
 
+`--logs` (build Q): the phone keeps its log 10 days in day files, `log-YYYYMMDD.txt`; the tool GETs `/logs`
+and copies each day file beside the journals by the archives' rule (the same size here: "have it"; smaller:
+fetched whole; larger: reported and left). A 404 there is a build before 0.69: said, and a shortfall.
+
 No timer, no daemon, and no socket timeout: the operator supervises, and a pull that stalls shows
 as a line that stops. A large archive shares the phone's radio with the glasses — pull when they rest.
 
@@ -53,7 +58,9 @@ HEAD = 4096                     # the first bytes that tell one append-only file
 # the phone's own rule for an archive name (`Journal.isArchiveOf`): a name from the listing becomes a
 # local file name, so anything else — a separator, a dot segment — is refused, never joined to a path
 ARCHIVE = re.compile(r'[A-Za-z0-9_]+-\d{8}-\d{6}\.jsonl')
-FLAGS = ('--host', '--port', '--dest', '--live', '--list', '--selftest', '--help', '-h')
+# the phone's rule for a day file of its log (`DayLog.NAME`), refused otherwise for the same reason
+DAYFILE = re.compile(r'log-\d{8}\.txt')
+FLAGS = ('--host', '--port', '--dest', '--live', '--list', '--logs', '--selftest', '--help', '-h')
 
 
 def get(host, port, path):
@@ -176,7 +183,54 @@ def copy(host, port, token, path, final, say, label, live=False):
         c.close()
 
 
-def pull(host, port, token, dest, live=False, list_only=False, say=print):
+def by_size(host, port, token, dest, files, pattern, route, what, say):
+    """Copies each (name, bytes) of a listing to `dest` by the archives' rule; the count of shortfalls."""
+    short = 0
+    for name, size in files:
+        if not pattern.fullmatch(name):
+            say('%r: not %s; not fetched' % (name, what))
+            short += 1
+            continue
+        final = os.path.join(dest, name)
+        have = os.path.getsize(final) if os.path.isfile(final) else -1
+        if have == size:
+            say('%s: have it, %d B' % (name, size))
+        elif have > size:
+            say('%s: LARGER here (%d B) than on the host (%d B); left as it is' % (name, have, size))
+            short += 1
+        elif not copy(host, port, token, '%s?token=%s&name=%s' % (route, token, name), final, say, name):
+            short += 1
+    return short
+
+
+def day_logs(host, port, token, dest, list_only, say):
+    """`--logs`: the host's `/logs` listing, then each day file by `by_size`; the count of shortfalls."""
+    c, r = get(host, port, '/logs?token=' + token)
+    try:
+        body = r.read()
+    finally:
+        c.close()
+    if r.status == 404:
+        say('no /logs on %s:%d (404): a build before 0.69, or a host with no day logs; no day file fetched' % (host, port))
+        return 1
+    if r.status != 200:
+        say('the day-log listing was refused: HTTP %d %s' % (r.status, shown(body, token)))
+        return 1
+    try:
+        files = [(str(f['name']), int(f['bytes'])) for f in json.loads(body)['files']]
+    except (ValueError, KeyError, TypeError, OverflowError) as e:
+        say('the day-log listing is not what a 0.69 host sends (%s: %s)' % (type(e).__name__, e))
+        return 1
+    if list_only:
+        for name, size in files:
+            say('%s  %d B' % (name, size))
+        return 0
+    if not files:
+        say('no day logs on the host yet')
+    return by_size(host, port, token, dest, files, DAYFILE, '/log', 'a day log name', say)
+
+
+def pull(host, port, token, dest, live=False, list_only=False, logs=False, say=print):
     if not list_only and os.path.isfile(os.path.join(dest, 'state.json')):
         # RF-5, the second site: that directory's journal.jsonl and archives are its own, not the host's
         say('%s holds a state.json: it is a Damage data directory, with a journal of its own. Nothing was '
@@ -189,28 +243,16 @@ def pull(host, port, token, dest, live=False, list_only=False, say=print):
         for name, size in d['archives']:
             say('%s  %d B' % (name, size))
         say('live: ' + ('none' if d['live'] is None else '%s  %d B' % d['live']))
-        return 0
+        return day_logs(host, port, token, dest, True, say) if logs else 0
     os.makedirs(dest, exist_ok=True)
-    short = 0
-    for name, size in d['archives']:
-        if not ARCHIVE.fullmatch(name):
-            say('%r: not an archive name; not fetched' % name)
-            short += 1
-            continue
-        final = os.path.join(dest, name)
-        have = os.path.getsize(final) if os.path.isfile(final) else -1
-        if have == size:
-            say('%s: have it, %d B' % (name, size))
-        elif have > size:
-            say('%s: LARGER here (%d B) than on the host (%d B); left as it is' % (name, have, size))
-            short += 1
-        elif not copy(host, port, token, '/journal?token=%s&name=%s' % (token, name), final, say, name):
-            short += 1
+    short = by_size(host, port, token, dest, d['archives'], ARCHIVE, '/journal', 'an archive name', say)
     if live:
         if d['live'] is None:
             say('live: the host has no live journal file')
         elif not copy(host, port, token, '/journal?token=' + token, os.path.join(dest, 'journal.jsonl'), say, 'journal.jsonl (live)', live=True):
             short += 1
+    if logs:
+        short += day_logs(host, port, token, dest, False, say)
     if not d['archives'] and not live:
         say('no archives on the host yet (the journal rotates at a process start past 64 MiB)')
     if not live and d['live'] is not None:
@@ -230,7 +272,7 @@ def main(argv, config=None, say=print):
         if a in ('--host', '--port', '--dest') and i + 1 < len(argv):
             opts[a] = argv[i + 1]
             i += 2
-        elif a in ('--live', '--list'):
+        elif a in ('--live', '--list', '--logs'):
             opts[a] = True
             i += 1
         else:
@@ -264,7 +306,7 @@ def main(argv, config=None, say=print):
     # (the token as written, and as `%r` writes it: one line below prints a host's name that way)
     say = lambda line: plain(line.replace(token, '<token>').replace(repr(token)[1:-1], '<token>'))
     try:
-        return pull(host, port, token, dest, live='--live' in opts, list_only='--list' in opts, say=say)
+        return pull(host, port, token, dest, live='--live' in opts, list_only='--list' in opts, logs='--logs' in opts, say=say)
     except (OSError, http.client.HTTPException) as e:
         say('%s:%d: %s: %s' % (host, port, type(e).__name__, e))
         return 2
@@ -309,6 +351,13 @@ def selftest():
                     'live': None if state['live'] is None else {'name': 'journal.jsonl', 'bytes': len(state['live'])},
                     'archives': [{'name': n, 'bytes': len(b) if state['size'] is None else state['size'], 'modified': 1}
                                  for n, b in state['archives']]}).encode())
+            if u.path == '/logs':                   # build Q: the day files of the log (None: a build before 0.69)
+                if state['logs'] is None:
+                    return self.send(404, b'no day logs on this host')
+                return self.send(200, json.dumps({'files': [{'name': n, 'bytes': len(b)} for n, b in state['logs']]}).encode())
+            if u.path == '/log' and 'name' in q:
+                body = dict(state['logs'] or ()).get(q['name'])
+                return self.send(404, b'no day log of that name') if body is None else self.send(200, body)
             if u.path == '/journal':
                 body = dict(state['archives']).get(q['name']) if 'name' in q else state['live']
                 if body is None:
@@ -328,9 +377,9 @@ def selftest():
     said, missed, cases, tokens = [], 0, 0, set()
 
     def run(args, old=False, live=b'{"live":1}\n', archives=((A1, big), (A2, b'{"second":1}\n')), short=None, token=TOKEN,
-            echo=None, pad=0, garbage=False, accept=TOKEN, length=None, size=None):
+            echo=None, pad=0, garbage=False, accept=TOKEN, length=None, size=None, logs=None):
         state.update(seen=[], old=old, live=live, archives=list(archives), short=short, echo=echo, pad=pad, garbage=garbage,
-                     accept=accept, length=length, size=size)
+                     accept=accept, length=length, size=size, logs=None if logs is None else list(logs))
         tokens.add(token)
         out = []
         try:
@@ -402,6 +451,40 @@ def selftest():
               [n for n in ['exit %d' % code if code else '', 'requests: %r' % seen if seen != ['/journals'] else '',
                            'said %r' % out if out != ['%s  %d B' % (A1, len(big)), '%s  13 B' % A2, 'live: journal.jsonl  11 B'] else '',
                            'the destination was made' if os.path.exists(d) else ''] if n])
+
+        # build Q: --logs copies the log's day files beside the journals, by the archives' rule
+        L1, L2 = 'log-20261116.txt', 'log-20261117.txt'
+        day = ((L1, b'2026-11-16 23:59:59.000 I t: a\n' * 3000), (L2, b'2026-11-17 00:00:01.000 I t: b\n'))
+        d = os.path.join(root, 'logs')
+        code, out, seen = run(['--dest', d, '--logs'], logs=day)
+        check('--logs copies every day file beside the journals, whole',
+              [n for n in ['exit %d' % code if code else '', L1 + ' differs' if read(d, L1) != day[0][1] else '',
+                           L2 + ' differs' if read(d, L2) != day[1][1] else '',
+                           'requests: %r' % seen if seen != ['/journals', '/journal?name=' + A1, '/journal?name=' + A2,
+                                                             '/logs', '/log?name=' + L1, '/log?name=' + L2] else ''] if n])
+        grown = ((L1, day[0][1]), (L2, day[1][1] + b'2026-11-17 08:00:00.000 I t: c\n'))
+        code, out, seen = run(['--dest', d, '--logs'], logs=grown)
+        check("a second --logs keeps the day files here whole and fetches today's again as it grew",
+              [n for n in ['exit %d' % code if code else '', L2 + ' is not the grown file' if read(d, L2) != grown[1][1] else '',
+                           'requests: %r' % seen if seen != ['/journals', '/logs', '/log?name=' + L2] else ''] if n])
+        code, out, seen = run(['--dest', d, '--list', '--logs'], logs=grown)
+        check('--list --logs prints the day files too and fetches nothing else',
+              [n for n in ['exit %d' % code if code else '', 'requests: %r' % seen if seen != ['/journals', '/logs'] else '',
+                           'said %r' % out if out[-2:] != ['%s  %d B' % (L1, len(grown[0][1])), '%s  %d B' % (L2, len(grown[1][1]))] else ''] if n])
+        d = os.path.join(root, 'logs-old')
+        code, out, seen = run(['--dest', d, '--logs'])
+        check('a host with no /logs (a build before 0.69): the journals are copied, it is said, the exit status is 1',
+              [n for n in ['exit %d, not 1' % code if code != 1 else '', 'A2 not copied' if read(d, A2) != b'{"second":1}\n' else '',
+                           'said %r' % out if not any('no /logs' in l for l in out) else '',
+                           'requests: %r' % seen if seen[-1:] != ['/logs'] else ''] if n])
+        d = os.path.join(root, 'logs-names')
+        code, out, seen = run(['--dest', d, '--logs'], archives=(),
+                              logs=(('../log-20261117.txt', b'x'), ('log-1.txt', b'y'), (L2, b'z\n')))
+        check('a listed day-log name that is not one is never fetched or joined to a path',
+              [n for n in ['exit %d, not 1' % code if code != 1 else '',
+                           'requests: %r' % seen if seen != ['/journals', '/logs', '/log?name=' + L2] else '',
+                           'a file outside the destination' if os.path.exists(os.path.join(root, 'log-20261117.txt')) else '',
+                           'left: %r' % sorted(os.listdir(d)) if sorted(os.listdir(d)) != [L2] else ''] if n])
 
         d = os.path.join(root, 'nolive')
         code, out, seen = run(['--dest', d, '--live'], live=None, archives=())

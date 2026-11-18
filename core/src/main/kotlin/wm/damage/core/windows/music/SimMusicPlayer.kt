@@ -20,6 +20,10 @@ class SimMusicPlayer(
     val cmds = ArrayList<String>()
     var outputsAvailable: List<Output> = listOf(Output("buds", "Pixel Buds 2a", "a2dp"), Output("speaker", "Phone speaker", "speaker"))
     var refuseOutput: String? = null
+    /** Tracks played from the phone's cache; every other track streams from the PC. */
+    val cachedTracks = HashSet<Int>()
+    /** The PC answers streams; false = a streamed track gets no data (the 2026-11-16 PC that held its connections). */
+    @Volatile var pcServes = true
 
     private inner class SimSink : Sink {
         var playing = false
@@ -31,19 +35,23 @@ class SimMusicPlayer(
         var out = Output.AUTO
         var prefetched: List<Pair<Int, String>> = emptyList()
         var current: TrackRef? = null
+        var streamedNow = false
+        /** A streamed item with no data from the PC: the position holds (a player buffering). */
+        val starved: Boolean get() = current != null && streamedNow && !pcServes
 
-        private fun freeze() { if (playing) { pos = positionMs(); posAt = now() } }
+        fun freeze() { if (playing && !starved) { pos = positionMs(); posAt = now() } }
 
         override fun open(url: String, startMs: Long, playWhenReady: Boolean, track: TrackRef) {
             if (url.contains("fail")) throw IllegalStateException("cannot open $url")
             opened.add("${track.id}@$startMs${if (playWhenReady) "" else " (staged)"}")
             current = track; dur = track.durMs.toLong(); pos = startMs; posAt = now(); playing = playWhenReady
+            streamedNow = track.id !in cachedTracks
         }
         override fun play() { cmds.add("play"); if (!playing) { posAt = now(); playing = true } }
         override fun pause() { cmds.add("pause"); freeze(); playing = false }
-        override fun stop() { cmds.add("stop"); playing = false; pos = 0; current = null }
+        override fun stop() { cmds.add("stop"); playing = false; pos = 0; current = null; streamedNow = false }
         override fun seekTo(ms: Long) { cmds.add("seek:$ms"); pos = ms; posAt = now() }
-        override fun positionMs(): Long = if (playing) minOf(dur.takeIf { it > 0 } ?: Long.MAX_VALUE, pos + (now() - posAt)) else pos
+        override fun positionMs(): Long = if (playing && !starved) minOf(dur.takeIf { it > 0 } ?: Long.MAX_VALUE, pos + (now() - posAt)) else pos
         override fun durationMs(): Long = dur
         override fun setVolumePct(pct: Int) { cmds.add("vol:$pct"); vol = pct }
         override fun volumePct(): Int = vol
@@ -51,7 +59,9 @@ class SimMusicPlayer(
         override fun outputs(): List<Output> = outputsAvailable
         override fun setOutput(id: String): Boolean { cmds.add("out:$id"); if (id == refuseOutput) return false; out = id; return true }
         override fun prefetch(urls: List<Pair<Int, String>>) { prefetched = urls }
-        override fun isPlaying(): Boolean = playing
+        override fun isPlaying(): Boolean = playing && !starved
+        override fun streamed(): Boolean = current != null && streamedNow
+        override fun waitingForData(): Boolean = starved
     }
 
     private val simSink = SimSink()
@@ -81,15 +91,27 @@ class SimMusicPlayer(
     /** The phone's buttons / the OS moved the stream (the hold-volume rule). */
     fun observeVolume(pct: Int, cause: String = "unknown") = onVolumeObserved(pct, cause)
 
-    override fun spotifyStart(): Boolean {
-        if (spotify == null) return false
+    override fun spotifyStart(): String? {
+        if (spotify == null) return PlayerCore.SPOTIFY_NOT_STARTED
         spotifyNow = SpotifyNow(spotify, "Spotify", "", 200_000)
-        return true
+        return null
     }
     override fun spotifyCmd(cmd: String) { cmds.add("spotify:$cmd"); if (cmd == "next") spotifyNow = spotifyNow?.copy(title = spotifyNow!!.title + "+") }
 
     fun pretendPcDown() { onPcLink(false); libraryStalled("prefetch exhausted") }
     fun pretendPcUp() = onPcLink(true)
+    /** The channel to the PC reads down (nothing else: the triggers are the player's own). */
+    fun pretendLinkDown(detail: String = "PC unreachable") = onPcLink(false, detail)
+    /** The PC stops serving streams: a streamed track playing now holds where it is, waiting for data. */
+    fun pcStopsServing() = post { simSink.freeze(); pcServes = false }
+    /** The player library reports an error ([sourceFailed]: one of its I/O codes). */
+    fun pretendSinkError(detail: String, sourceFailed: Boolean) = onSinkError(detail, sourceFailed)
+    /** Spotify's media session on the phone reports [playing] with [title] (a session he started himself). */
+    fun pretendSpotifySession(playing: Boolean, title: String = "His Song") = post {
+        spotifyNow = SpotifyNow(title, "Spotify", "", 200_000)
+        onSpotifySession(playing)
+        if (curBackend == Backend.SPOTIFY) { play = if (playing) PlayState.PLAYING else PlayState.PAUSED; changed() }
+    }
     fun grantListener(on: Boolean) = post { listenerGranted = on; changed() }
 
     init {

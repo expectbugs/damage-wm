@@ -75,6 +75,8 @@ data class SpotifyRemoteState(
  */
 class SpotifyRemote(
     private val ctx: Context,
+    /** A cold start that was dispatched did not start Spotify (M5): what the callbacks said. */
+    private val onColdStartFailed: (String) -> Unit = {},
     private val onState: (SpotifyRemoteState) -> Unit,
 ) {
 
@@ -486,6 +488,14 @@ class SpotifyRemote(
 
     // ------------------------------------------------------------------ cold start
 
+    private fun coldStartFailed(why: String) {
+        try {
+            onColdStartFailed(why)
+        } catch (e: Exception) {
+            Log.e(TAG, "the player's cold-start handler failed", e)
+        }
+    }
+
     /**
      * Start Spotify from cold (verdict 20: "Spotify can be started cold") by
      * connecting to its media browser service and playing through the session
@@ -544,9 +554,10 @@ class SpotifyRemote(
                     val c = MediaController(ctx, token)
                     Log.i(TAG, "media browser connected to $comp — sending play()")
                     attach(c)
-                    if (!play()) Log.e(TAG, "cold start connected but play() was refused")
+                    if (!play()) { Log.e(TAG, "cold start connected but play() was refused"); coldStartFailed("play() was refused") }
                 } catch (e: Exception) {
                     Log.e(TAG, "cold start failed after the browser connected", e)
+                    coldStartFailed("failed after the connect: ${e.message}")
                 }
             }
 
@@ -556,6 +567,7 @@ class SpotifyRemote(
 
             override fun onConnectionFailed() {
                 Log.e(TAG, "media browser connection to $comp was refused — Spotify was not started")
+                coldStartFailed("its media browser refused the connection")
             }
         }
         // MediaBrowser builds its handler on the constructing thread, so it is
@@ -593,6 +605,7 @@ class SpotifyRemote(
                     connect()
                 } catch (e: Exception) {
                     Log.e(TAG, "connecting to $comp was refused", e)
+                    coldStartFailed("the connect was refused: ${e.message}")
                 }
             }
             if (!posted) Log.e(TAG, "cold start could not be dispatched to the main thread")

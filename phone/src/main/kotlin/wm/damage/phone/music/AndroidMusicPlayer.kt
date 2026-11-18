@@ -82,6 +82,11 @@ class AndroidMusicPlayer(
     @Volatile private var playingFlag = false
     @Volatile private var posSample = 0L
     @Volatile private var posSampleAt = 0L
+    /** The open item streams from the PC (not the cache). */
+    @Volatile private var streamedNow = false
+    /** A streamed item is buffering while it should play: the ticks run then too, so the core's stream
+     *  supervision (M1) sees a stream that gets no data. */
+    @Volatile private var watchFlag = false
 
     private fun onMain(): Boolean = Looper.myLooper() === Looper.getMainLooper()
 
@@ -112,9 +117,16 @@ class AndroidMusicPlayer(
     private val exoListener = object : Player.Listener {
         override fun onPlaybackStateChanged(state: Int) {
             if (state == Player.STATE_ENDED) onEnded()
+            ensureTicks()
         }
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) { ensureTicks() }
         override fun onPlayerError(error: PlaybackException) {
-            onSinkError("playback failed: ${error.errorCodeName} ${error.message ?: ""}".trim())
+            // M1 (a): the I/O codes are media3 1.5.1 PlaybackException's ERROR_CODE_IO_* (2000–2008). A PC that does
+            // not answer ends as 2002 (a SocketTimeoutException, HttpDataSourceException.createForIOException) or
+            // 2001 (any other IOException) once DefaultHttpDataSource's 8 s connect and 8 s read waits and
+            // DefaultLoadErrorHandlingPolicy's 3 retries (1 s, 2 s, 3 s apart) are spent.
+            val io = error.errorCode in PlaybackException.ERROR_CODE_IO_UNSPECIFIED..PlaybackException.ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE
+            onSinkError("playback failed: ${error.errorCodeName} ${error.message ?: ""}".trim(), sourceFailed = io)
         }
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             playingFlag = isPlaying
@@ -190,6 +202,7 @@ class AndroidMusicPlayer(
             val p = player()
             currentTrack = track
             val item = if (local != null) MediaItem.fromUri(android.net.Uri.fromFile(local)) else MediaItem.fromUri(url)
+            streamedNow = local == null
             p.setMediaItem(item, startMs)
             p.prepare()
             p.playWhenReady = playWhenReady
@@ -200,7 +213,7 @@ class AndroidMusicPlayer(
         }
         override fun play() { player().play(); ensureTicks() }
         override fun pause() { exo?.pause(); ensureTicks() }
-        override fun stop() { exo?.stop(); exo?.clearMediaItems(); currentTrack = null; ensureTicks() }
+        override fun stop() { exo?.stop(); exo?.clearMediaItems(); currentTrack = null; streamedNow = false; ensureTicks() }
         override fun seekTo(ms: Long) { exo?.seekTo(ms) }
         override fun positionMs(): Long = exo?.currentPosition?.coerceAtLeast(0) ?: 0L
         override fun durationMs(): Long = exo?.duration?.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0L
@@ -223,6 +236,8 @@ class AndroidMusicPlayer(
         }
         override fun prefetch(urls: List<Pair<Int, String>>) { cache.prefetch(urls, curPrefetch()) }
         override fun isPlaying(): Boolean = exo?.isPlaying == true
+        override fun streamed(): Boolean = currentTrack != null && streamedNow
+        override fun waitingForData(): Boolean = streamedNow && exo?.playbackState == Player.STATE_BUFFERING
     }
 
     override val sink: Sink get() = androidSink
@@ -260,13 +275,15 @@ class AndroidMusicPlayer(
      *  volatile samples, never the player. */
     private fun ensureTicks() {
         playingFlag = exo?.isPlaying == true
+        watchFlag = curBackend == Backend.LIBRARY && streamedNow && exo?.playWhenReady == true &&
+            exo?.playbackState == Player.STATE_BUFFERING
         val playing = playingFlag || curBackend == Backend.SPOTIFY
-        if (playing && tickJob?.isActive != true) {
+        if ((playing || watchFlag) && tickJob?.isActive != true) {
             tickJob = scope.launch {
                 while (isActive) {
-                    delay(if (focusedNow) 1_000 else 5_000)
-                    main.post { if (playingFlag || curBackend == Backend.SPOTIFY) { samplePosition(); tick() } }
-                    if (!playingFlag && curBackend != Backend.SPOTIFY) break
+                    delay(if (focusedNow || watchFlag) 1_000 else 5_000)
+                    main.post { if (ticking()) { samplePosition(); tick() } }
+                    if (!ticking()) break
                 }
             }
         }
@@ -282,6 +299,8 @@ class AndroidMusicPlayer(
             }
         }
     }
+
+    private fun ticking(): Boolean = playingFlag || curBackend == Backend.SPOTIFY || watchFlag
 
     private val volumeReceiver = object : BroadcastReceiver() {
         override fun onReceive(c: Context?, intent: Intent?) {
@@ -312,34 +331,52 @@ class AndroidMusicPlayer(
         volume = readVolumePct()
         heldVolume = volume
         MusicListener.onVolumeLowered = { text -> onLimiterNotice(text) }
+        MusicListener.onConnected = { post { watchSpotify() } }
         listenerGranted = MusicListener.granted(ctx)
         if (!listenerGranted) problem = "grant notification access on the phone (Spotify + hold my volume)"
+        watchSpotify()
         changed()
         Log.i("music-android", "player ready: volume $volume%, listener ${if (listenerGranted) "granted" else "NOT granted"}, outputs ${androidSink.outputs().map { it.name }}")
     }
 
     fun onPcLinkLine(line: String) {
         pcUp = line.isEmpty()
-        onPcLink(pcUp)
+        onPcLink(pcUp, line)
     }
 
     // ------------------------------------------------------------------ Spotify (verdicts 3/20/25)
-    private fun remote(): SpotifyRemote = spotify ?: SpotifyRemote(ctx) { s ->
+    private fun remote(): SpotifyRemote = spotify ?: SpotifyRemote(ctx, onColdStartFailed = { why ->
+        main.post { spotifyStartFailed(startRefusal(why)) }
+    }) { s ->
         spotifyState = s
         main.post {
             spotifyNow = if (s.present && s.now != null) s.now else spotifyNow
+            onSpotifySession(s.present && s.playing)          // M4: a Spotify he starts himself is followed
             if (curBackend == Backend.SPOTIFY) { play = if (s.playing) PlayState.PLAYING else PlayState.PAUSED; changed() }
         }
     }.also { spotify = it; it.start() }
 
-    override fun spotifyStart(): Boolean {
+    /** M4: watch Spotify's media session from the player's start (and again when the grant arrives), so a Spotify
+     *  started on the phone is seen. Reading the sessions needs the notification-access grant. */
+    private fun watchSpotify() {
+        listenerGranted = MusicListener.granted(ctx)
+        if (!listenerGranted) return
+        val r = spotify
+        if (r == null) remote() else r.start()
+    }
+
+    /** M5: the reason in the notice's words — without the grant, Damage cannot see Spotify's own session. */
+    private fun startRefusal(detail: String): String {
+        Log.w("music-android", "Spotify did not start: $detail")
+        return if (!MusicListener.granted(ctx)) PlayerCore.SPOTIFY_NO_GRANT else PlayerCore.SPOTIFY_NOT_STARTED
+    }
+
+    override fun spotifyStart(): String? {
         listenerGranted = MusicListener.granted(ctx)
         val r = remote()
         val s = spotifyState
-        if (s?.present == true) { r.play(); return true }
-        val ok = r.coldStart()
-        if (!ok) Log.w("music-android", "Spotify cold start refused")
-        return ok
+        if (s?.present == true) return if (r.play()) null else startRefusal("its session refused play")
+        return if (r.coldStart()) null else startRefusal("its cold start was refused")
     }
 
     override fun spotifyCmd(cmd: String) {
@@ -392,6 +429,7 @@ class AndroidMusicPlayer(
         try { ctx.unregisterReceiver(volumeReceiver) } catch (e: Exception) { /* not registered */ }
         try { audio.unregisterAudioDeviceCallback(deviceCallback) } catch (e: Exception) { /* not registered */ }
         MusicListener.onVolumeLowered = null
+        MusicListener.onConnected = null
         tickJob?.cancel(); pollJob?.cancel()
         post {
             try { session?.release() } catch (e: Exception) { Log.w("music-android", "session release: ${e.message}") }

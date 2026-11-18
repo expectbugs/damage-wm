@@ -64,6 +64,7 @@ class MusicListener : NotificationListenerService() {
     override fun onListenerConnected() {
         connected = true
         Log.i(TAG, "notification listener connected")
+        try { onConnected?.invoke() } catch (e: Exception) { Log.e(TAG, "the player's connect hook failed", e) }
     }
 
     override fun onListenerDisconnected() {
@@ -175,6 +176,10 @@ class MusicListener : NotificationListenerService() {
          */
         @Volatile
         var onVolumeLowered: ((String) -> Unit)? = null
+
+        /** Installed by the player: the grant is in place and the listener bound — watch Spotify's session now. */
+        @Volatile
+        var onConnected: (() -> Unit)? = null
 
         /** True between `onListenerConnected` and `onListenerDisconnected`. */
         @Volatile
