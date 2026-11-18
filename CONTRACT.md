@@ -5,12 +5,16 @@ firmware he installed with the published patch method; it runs on his own phone,
 his tailnet and the network of the bus he lives in. This file is display and interface design: how each window
 describes what it shows and can do, so that the glasses, a web page, the phone app's own screen, the kitchen TV and the
 desktop each present it, and how every interface connects to the PC that holds the state. Plain wording throughout
-(`CLAUDE.md`). Documents only; what S1-1 built (APK 0.67, `HANDOFF.md` §80) is corrected below as built.
+(`CLAUDE.md`). Documents only; what S1-1 built (APK 0.67, `HANDOFF.md` §80) and what S1-2 built, as the cleanup L1
+left both (APK 0.68, `HANDOFF.md` §84), is corrected below as built.
 
-**Status: IN FORCE for the build plan (2026-11-13).** The three rows of §14 (a) are taken as recommended on Adam's
-word of that day ("I trust your recommendations for the open stuff") and were shown to him the same hour; he can
-reverse any of them. Everything else is the lead's design, corrected after two challenging readers, and stands
-unless he objects. `REPLAN.md` §14,
+**Status: IN FORCE for the build plan (2026-11-13; brought to the code after L1, 2026-11-17).** The three rows of §14
+(a) are taken as recommended on Adam's word of that day ("I trust your recommendations for the open stuff") and were
+shown to him the same hour; he can reverse any of them. L1's calls (the record ordered by input time, §2.4; the Reader
+page following another device's place, §2.6; an upload never replacing a file, §9.4; inline styles allowed on the
+pages, §9.5; the PC's own browser approved by itself, §10.3) are the lead's on his "full automation" word of
+2026-11-17, listed for him in `HANDOFF.md` §84 as reversible. Everything else is the lead's design, corrected after two
+challenging readers, and stands unless he objects. `REPLAN.md` §14,
 §15 and §15.1 are Adam's rulings and win wherever this differs; they are cited without the file name and always with a
 row or answer (§14.1 R3, §14.3 #2, §15 A2); this file's own decisions are cited as §14 (a), (b) or (c). `DESIGN.md` §0
 and each window's recorded verdicts are not re-opened. Grades: **read** (cites `file:line`: `S/` =
@@ -28,7 +32,7 @@ sources), **inferred**, **unknown**. Nothing here was measured on his devices.
 | **presenter** | the code that draws descriptions for one kind of interface and turns its input into view changes and operations: the glasses presenter (today's paint code, §11), the web client (one client for browser, TV and phone screen, §14.3 #6), the desktop companion |
 | **interface** | one presenter instance with its own focus: the glasses (ONE interface, whichever device drives them), the phone app's screen, a browser's page on a device, the TV page, the companion. A **view** is one window shown in an interface (up to three on the desk, §15 B1) |
 | **device** | an approved machine with a level (§10): his phone, his PC, a browser profile, the TV's host; plus `local` (the companion and the command line on the PC, level full, §10.6) and `helper` (a fixed set, §10.4) |
-| **operation (op)** | one invocation of an action. A queued op is named for ever by `(device, stream, n)`; an op that is never queued by `(device, conn, k)` (§2.4) |
+| **operation (op)** | one invocation of an action, carrying its result and the time of the input that made it. A queued op is named `(device, stream, n)`, an op that is never queued `(device, conn, k)`; the name only matches its answer (§2.4) |
 | **owner** | the PC, for every window's shared state (§14.1 R3, §14.2). A **source** is an outside program a value comes from (tmux, the torrent client, the filesystem, the tracker, the hub, the active music player); a **holder** is the one interface running a leased item's engine (§2.7) |
 | **working copy** | the phone's copy of every window's Damage-owned records, and of the away-list windows' whole state (§14.3 #1, #2): full cores fed by the PC's changes plus the phone's unconfirmed ops. A **mirror** is the phone's cached copy of what an outside program reports, with its age and no logic |
 | **anchor / address** | a position every interface can resolve / a readable string naming a window and a place in it (§5) |
@@ -46,7 +50,7 @@ the glasses kit (K); capture, push-to-talk and spoken replies are the voice desi
 
 | state | example | kept | written by | ordered by |
 |---|---|---|---|---|
-| Damage's own records | book places, the queue, read marks, flags, pins, recents, mutes, the Files clipboard, sort and hidden, lists, the bankroll | the PC record (§9.7); on the phone, the working copy — for EVERY window | any device's ops | the PC, in arrival order (§2.4) |
+| Damage's own records | book places, the queue, read marks, flags, pins, recents, mutes, the Files clipboard, sort and hidden, lists, the bankroll | the PC record (§9.7); on the phone, the working copy — for EVERY window | any device's ops | the PC, by input time (§2.4) |
 | source state | transfers, tmux sessions, folder listings, Feed items, the music catalog, hub values | the source; the PC's snapshot of it, versioned per scope outside the record's `seq` (§9.3); a mirror on the phone | the source; ops into it (§2.3 step 4) | the source |
 | shared "most recent" and playback | the book read most recently, now playing, a Hold'em table's holder | the PC record | input-driven opens; the active player's host (§2.7); "continue here" | the PC |
 | per-interface state | the window in front, recency, which item each view has open, each view's level path, cursor and scroll as anchors, layout, the TV's zones | the PC's interface table, one row per interface; the glasses' row mirrored on the driving device | that interface alone; "send to" is an instruction into its input queue (§2.6) | single writer |
@@ -76,11 +80,12 @@ off the executor and swapped in whole, so no apply waits behind it (today one lo
    setting; play and pause when the output is the phone's own player, §2.7) becomes an op: the phone applies it to the
    working copy marked pending and the presenter paints the result — the first flush. Then the writer thread appends
    the op's line to the queue file; the op goes to the PC once that line has landed. No disk write precedes a first flush.
-3. **The PC** applies it, refuses it or records it lost (§2.4), writes the op and its effect as one journal line (§9.7),
-   then answers and publishes the change with the op's origin (§9.3). The phone rebuilds its state as *the PC's state
-   plus the ops still pending*, less those the high-water covers. Equal to what it showed: nothing repaints. Different:
-   a later flush repaints and the difference is said — on the glasses in S1 by today's answer notice ("not applied:
-   …"), elsewhere on the item (§2.4). A loss never moves a view he is reading (§2.6).
+3. **The PC** applies it or refuses it (§2.4), writes the op and its effect as one journal line (§9.7), then answers
+   and publishes the change (§9.3). The phone's view is *the PC's state plus this device's unanswered ops*, folded by
+   the same rule the PC applies (the window's own rule first, §2.4), so it shows what the PC will show; an op the state
+   already shows leaves the waiting list, since an op that changed nothing publishes no change. Equal to what it
+   showed: nothing repaints. Different (a later input of another device stood): a later flush repaints, and nothing is
+   said. Another device's input never moves a glasses view he is reading (§2.6).
 4. **An op into an outside program** (tmux, the torrent client, the filesystem, the tracker, the hub) cannot apply
    locally: the first flush draws the level change and the op cell's "sent" (today's `setOperation` cell); the change
    follows from the PC. With the PC out of reach (§9.3's paced ping) the action is dim and says "PC not answering since
@@ -90,55 +95,54 @@ Taking a Hold'em lease (§2.7) is the one gesture whose result waits on the PC, 
 Bluetooth, render or input path: the ten-minute repeat, the paced ping and an approval request's life are pacing or
 tied to a connection.
 
-### 2.4 The one merge rule
+### 2.4 The one merge rule: the latest input wins
 
-**An op names what it expects to find, and carries its result, not its recipe. The PC applies queued ops in the order
-they reach it. An op applies when the PC still holds what it expected, or already holds what the op would make (a
-same-value op succeeds and changes nothing). Otherwise it loses, and the loss is said on the item — the standing value,
-who set it and when, and an offer to apply the losing value as a new op. No op is ever applied twice.** This settles
-`INTERFACES.md` §4.4, `BASTION.md` B-27 and `REMINDERS.md` L-17; no window has a variant. An op is `{device, stream, n`
-(or `conn, k`)`, window, action, targets, params, result, expect, base (the device's cursor), iface}`.
+**An op carries its result, not its recipe, and `at`: the time of the input that made it (the click, the key, the
+scroll that moved the place). The PC writes each target unless the item holds a later `at`; on an equal `at` the op that
+arrives later wins; an item that already holds the op's value is left as it is (its `by` and `at` stay), so applying an
+op twice changes nothing. Nothing is expected and nothing is said when an older input changes nothing: the targets
+show the latest input, which may be another device's.** His words decide it ("whichever page I'm really on is the one
+I'm really on", `CLAUDE.md`, "What is worth building"): a place read on the glasses while the PC was out of reach does
+not overwrite a later place set at the desk. This settles `INTERFACES.md` §4.4, `BASTION.md` B-27 and `REMINDERS.md`
+L-17. An op is `{device, stream, n` (or `conn, k`)`, window, action, targets, params?, result, at, iface}`.
 
-- **Numbering.** A *stream* (random 64-bit) is minted when a client store first exists: the phone's working copy (its
-  app screen's ops included, §9.1), a browser's local storage, the companion, each helper run. `n` starts at 1 and
-  never repeats in a stream. The PC keeps per stream the highest `n` handled — the high-water, written in the op's
-  journal line (§9.7) — and its last 1,000 answers; an op at or below it is answered from that record (or "already
-  handled" with the current state) and never re-applied; a gap is refused "expected 8" and the client resends.
-  `welcome` carries each stream's high-water, and a client drops the pending ops it covers before rebuilding. A
-  browser's tabs share its stream and count from one number kept per stream in local storage
-  (`damage.stream.next.<stream>`); a tab never numbers below one past its own last number; two ops answered `gap` on
-  one connection are numbered once from the gap. An op at a handled `n` whose window, action, items or value differ
-  from the op that `n` answered is refused (`invalid`, in words), never answered as that op.
-- **Never queued.** Live, outbound and guarded ops take no place in a stream or its gap check: each carries the
-  connection it was sent on, `(device, conn, k)`; the PC refuses one from an ended connection; one left unanswered at
-  its connection's end shows "not known whether it ran — see the state" and is never resent. A key sent at a known
-  prompt (a quick key under an alert) carries `(session, alert occurrence)`, refused once that occurrence is closed.
+- **Input time, on one clock.** The PC bounds `at` by its own clock (`min(at, PC now)`), so a device whose clock runs
+  ahead cannot hold its items against later input. A page puts `at` on the PC's clock: `Date.now()` corrected by the
+  offset `welcome`'s `pcClock` gives (a TV's clock is the one most likely wrong). The phone stamps a draft with its
+  input's time, else its own clock; the glasses' Reader stamps a place with the time its save point first saw the place
+  move (at most about 2 s after the scroll), kept beside the place so that it survives a restart; the PC's own sources
+  (a notice's raise, Files' clear of a cut) stamp with the PC's clock. An op that carries no `at` takes its arrival time
+  on the PC (on the phone, a queue line written by 0.67 takes the time it is loaded). Phone and PC keep their clocks by
+  NTP. A device behind by D: its input on an item another device wrote less than D before does not apply (nothing is
+  said). A device ahead by D: an input it queued offline and sends later can outrank a desk input made up to D after it.
+- **Ids only match answers.** A queued op is `(device, stream, n)`: a *stream* (random 64-bit) is minted when a client
+  store first exists (the phone's working copy, its app screen's ops included, §9.1; a browser's local storage; the
+  companion; a helper run), and `n` counts from 1 (a page counts in memory). The PC keeps no numbers, checks no order
+  and never answers a gap: an op that arrives twice changes nothing the second time.
+- **Never queued.** Live, outbound and guarded ops carry the connection they were sent on, `(device, conn, k)`; the PC
+  refuses one from an ended connection; one left unanswered at its connection's end shows "not known whether it ran —
+  see the state" and is never resent. A key sent at a known prompt (a quick key under an alert) carries `(session,
+  alert occurrence)`, refused once that occurrence is closed (not built).
 - **Result, not recipe.** An op carries what it made — the shuffled order, every created id as `<stream>.<n>.<k>`, the
   explicit ids marked read — so a replay makes the same state on any host (today shuffle is unseeded,
   `W/music/QueueEngine.kt:22-26,43-54`, and mark all read marks what the window holds, `W/feed/FeedWindow.kt:920-929`).
-- **Coalescing** only into an op never sent; a sent op's body is frozen; a place that joins an unsent pre-conversion op
-  (§9.7 item 2) with another value takes the joining time as its stamp (never earlier), an equal value keeps it.
-  **Order** is arrival at the PC's executor; no device clock orders anything (today's stamps,
-  `S/Persistence.kt:320-330`, retire with sync, §9.7).
+- **Coalescing** only into an op never sent; a sent op's body is frozen; an unsent place that takes the next place for
+  the same item takes that input's time too.
+- **A window's own rule** stands in for time where an item is not ordered by input: the notice record by occurrence,
+  and a state that never moves backwards (§7.1); Files' clear of a cut applies only while the clipboard still names
+  that cut. Not built, and of the same shape: a recurring reminder's tick names its occurrence and changes nothing once
+  that occurrence is closed; a Hold'em decision or an economy write is taken only from the table's holder at the
+  table's count (`W/games/holdem/HoldemTable.kt:138`), else refused, "the table moved on" (§2.7).
 
-| kind | example | `expect` carries | loses when | what is shown |
-|---|---|---|---|---|
-| create | a Buy item, a queue entry, an event, a log line | nothing; each id `<stream>.<n>.<k>`, minted by the creating device | never (a replay is a no-op) | — |
-| register | a tick, read mark, flag, pin, mute, mode, a text, the chosen output, a volume, a setting | the value the device saw; for a tick, untick or snooze of a recurring item, its occurrence | the PC holds a third value, or that occurrence is no longer the open one | "not applied — you: done (phone 13:50) · standing: open, unticked at the desk 14:02" or "done at the desk 14:02" · `Apply mine` · `Keep` |
-| most recent | the book read most recently (S1-1) | nothing (`Any`): arrival order | never | — |
-| position | a book place, an article anchor, a binge place — written only by input; a register's pre-conversion value (a bookmark, a glasses row) migrates as Reader's `migrate` action, judged as a position by its old stamp | the position seen; an unsent position op coalesces with the next for the item, keeping the first `expect` | another device moved it | the view stays where he reads: "the desk read on to ch. 9 (14:02); this place, ch. 12, was not applied" · `Go there` |
-| order | queue or list order | the item's revision seen | another device moved or removed it, or its anchor entry is gone | "not moved: the desk moved it at 14:02" |
-| remove | to trash, a queue entry removed | the item's revision seen | another device wrote the item since | "not dropped: changed at the desk 14:02" · `Drop anyway` |
-| whole collection | clear or replace the queue | the collection's revision seen | anything was added since | "not cleared: 3 added at the desk since 14:02" · `Apply anyway` |
-| edit of a removed item | a tick on a dropped item | as register | the item is gone | "dropped at the desk 14:02" · `Restore` (`REMINDERS.md` §5) |
-| log under a lease | a Hold'em decision; the economy's writes to characters and the bankroll | `(table, handNo, actionCount)` (`W/games/holdem/HoldemTable.kt:138`) | not the holder, or the count moved | refused, "the table moved on" |
-| live, outbound, guarded | Tmux keys, a tracker add, a bus script | the connection; a key at a known prompt also `(session, occurrence)` | its connection ended; the prompt moved on | refused at the client, "not sent — PC not answering"; unanswered: "not known whether it ran — see the state" |
+| kind | example | what it writes |
+|---|---|---|
+| register | a tick, read mark, flag, pin, mute, mode, a text, the chosen output, a volume, a setting; the book read most recently; a new item (a Buy item, a queue entry, an event: its id minted by the creating device); a whole ordered list (the queue's order, a clear, a replace) | the value; a text is replaced whole (no character merge) |
+| position | a book place, an article anchor, a binge place — written only by input | the place; the phone folds an unsent position into the next one for the item |
+| removal | to trash, a queue entry removed | the item `gone` — an entry with `by` and `at`, so an older edit that arrives later does not bring it back |
 
-Each item keeps `rev` and `by` of its last write, so a device's own later ops never conflict with its earlier ones. A
-text edit loses whole; there is no character merge. The "not applied" mark is part of the item's shared state, shown
-on every interface and counted on the phone's away line (§2.5); the item's next write clears it, and a newer loss makes
-a new one. After a lost position the view has been given the standing place, so its next input expects that and
-applies: reading on never loses twice.
+Each item keeps `by` and `at` of the write that stands. What another device's later input means for a view is the
+presenter's: on the glasses Reader offers `Go there` for another device's newer place on the open book (the picture
+does not otherwise change); the Reader page follows it (§2.6).
 
 ### 2.5 Away from the PC
 
@@ -147,12 +151,13 @@ working copies; Files, Torrents and Tmux show their last state with its age; Fee
 Damage's own records apply at once and queue (§2.3 step 2). The working copy holds each away-list window's whole shared
 record, its cursor and its queue, on disk: Reader the whole shelf (a prefetch of every book; today a book is cached
 when first opened, `C/content/Content.kt:546-591`); Music the catalog (its first snapshot's size an open fact, §14 (c)),
-the prefetched tracks and the pinned playlists (not built). The away line (`INTERFACES.md` P-04) says which windows are
-live, the PC's age, "N changes waiting", "N not applied". On return the phone resumes from its cursor (§9.3), takes the
-PC's changes, sends its queue in order (§2.3 step 3). The phone app's own screen works from the same copy (§9.1). A
-browser or the TV has no queue: last snapshot greyed, actions dim. As built for the web (S1-1): a `retry` past the
-page's one resend is said in the page's words; a place read while the PC was out of reach is sent once when it answers
-again; a book's text stays readable (only its toolbar greys).
+the prefetched tracks and the pinned playlists (not built). The away line (`INTERFACES.md` P-04: which windows are
+live, the PC's age, "N changes waiting") is not built; the phone keeps its reach and the waiting count for the health
+view (`REPLAN.md` §17.4 R-b). On return the phone takes a snapshot (§9.3) and sends its queue in order (§2.3 step 3). The
+phone app's own screen works from the same copy (§9.1). A browser or the TV has no queue: last snapshot greyed, actions
+dim. As built for the web: a `retry` is said in the page's words ("not applied: …; act again") and never resent by a
+page; a place read while the PC was out of reach, or one whose connection ended before its answer (`ended`), is kept
+unsent and goes at the next `welcome` with its own input time; a book's text stays readable (only its toolbar greys).
 
 ### 2.6 Shared, per interface; continue here and send to
 
@@ -162,14 +167,18 @@ one copy (§14.2). The line, fixed here for every window (§12 gives each field)
 - **What a screen has open is its own.** Each interface keeps which book, article, folder, session or torrent it has
   open; the place inside each item is ONE copy on the PC, written only by input (§2.4 position). A screen that opens
   Reader with nothing open starts at the book read most recently anywhere. Nothing changes what a screen shows without
-  input on it — "continue here" and "send to" are the deliberate ways; a view whose item's place moved elsewhere stays
-  and offers `Go there`. As built for Reader (S1-1): an entry (a session start, the switcher, a restore, an open) takes
-  another device's place — never this device's own older one — and writes nothing back; after a lost place the view has
-  not taken the standing place (an entry or the change takes it), and a place loss is said once per (book, standing
-  place, this place); `Go there` is withdrawn once the record holds this device's own place, on the glasses and on the
-  web, and a reset elsewhere or a save lost to a reset offers nothing; on the web a place in words is the percent of the
-  book (the glasses say the page). Now playing is one playback, the same everywhere; a Hold'em table is held by one
-  screen (§2.7).
+  input on it — "continue here" and "send to" are the deliberate ways; on the glasses a view whose item's place moved
+  elsewhere stays and offers `Go there`. **The Reader page follows** (the lead's call, L1; his to reverse): when another
+  device's input moves the place of the book the page shows, the page goes there, with no offer, unless the page's own
+  last input on that book is later; a move the page makes by itself sends nothing. As built for Reader: an entry (a
+  session start, the switcher, a restore, an open) takes another device's place when it is newer than this view's own
+  input on the book — never this device's own older one — and writes nothing back; on the glasses another device's
+  newer place on the open book is offered as `Go there`, withdrawn once the record holds this device's own place; a
+  bookmark this device set in a book that is not open is taken back from the record after a restart. A page stamps a
+  place only with the time of his input on it (a jump, a chapter picked in the sidebar, a scroll of his), once, when it
+  is made: a resize, a reflow, a screen waking, a follow or a restore never stamps and never sends. On the web a place in
+  words is the percent of the book (the glasses say the page). Now playing is one playback, the same everywhere; a
+  Hold'em table is held by one screen (§2.7).
   Entering by the switcher or a restore shows the open item at its shared place; from Main, the root
   (`S/WindowContract.kt:9-23`).
 - **Per interface:** the window in front, recency, which item each view has open, each view's level path, cursor and
@@ -197,7 +206,7 @@ one copy (§14.2). The line, fixed here for every window (§12 gives each field)
 - **Music** (§14.1 R10, §14.3 #4). The PC holds the queue (entry ids minted by the adding device, replacing
   per-instance counters, `W/music/QueueEngine.kt:30,38`), the current entry, mode, playlists and the ONE chosen output.
   Two players, each a source: the PC's (mpv over its JSON IPC, `INTERFACES.md` W-43, new) and the phone's (ExoPlayer).
-  **The active player's host alone advances the current entry and fills**, as ops expecting the entry it left (today
+  **The active player's host alone advances the current entry and fills**, as ops (§2.4) (today
   both run in the player's core, `W/music/PlayerCore.kt:522-531,252-262`); a next or previous from another interface
   reaches that host through the PC. The PC re-anchors a play-next to the latest current entry the active player
   reported (today it inserts at `index + 1`, `W/music/QueueEngine.kt:79-84`) and says so on the item when it cannot.
@@ -208,12 +217,12 @@ one copy (§14.2). The line, fixed here for every window (§12 gives each field)
   (`W/music/PlayerCore.kt:635-648`). Away, the phone's player plays, then Spotify when the tracks run out, as built
   (§14.3 #2). On return, if the PC's record names another active output, the phone's player pauses and says "music
   moved to the PC output at 14:00" — never two outputs. Music on the PC's output keeps playing when the phone leaves. A playlist's save, rename and delete
-  are ops on Damage's own records and queue like any other (§2.4: create, register, remove).
+  are ops on Damage's own records and queue like any other (§2.4: register and removal).
 - **Games.** A Hold'em table is a lease: one holder interface runs the engine, the pacer and the background economy,
   which advance only while he plays there (`HOLDEM.md` verdict 27); for a browser holder the PC's core runs them, only
   while that view has focus (Kotlin in the window today, `W/games/GamesWindow.kt:1090-1100`). The economy's writes to
-  characters and the bankroll are log ops under the lease (§2.4). "Continue here" takes the lease (an op expecting the
-  holder); when the holder is out of reach its confirm says what is dropped ("the phone has held this table since 14:00
+  characters and the bankroll are ops the table's own rule takes only from the holder (§2.4). "Continue here" takes the
+  lease; when the holder is out of reach its confirm says what is dropped ("the phone has held this table since 14:00
   and is out of reach; its hands since then are dropped"). The holder's decisions append to the table's log on the PC,
   which serves every other viewer a projection (§3.4). A table started away is held by the device that started it from
   the start; away, the phone continues only a table it holds. The world seed is minted on the PC alone (today from the
@@ -238,8 +247,8 @@ one copy (§14.2). The line, fixed here for every window (§12 gives each field)
 
 | kind | fields | for |
 |---|---|---|
-| **item** | `id` (stable), `kind`, `title`, typed `fields` (§3.3), `icon`, `badges`, `progress`, `check` none · open · done, `dim{reason}`, `group`, `actions` (ids), `notApplied` (§2.4) | every row on every list |
-| **collection** | `id`, item kind, `inline` items or `paged{count (or unknown: the tracker's listing is endless), version, sorts, filters}` queried by anchor, `groups[{id, title}]`, `empty` text, `rev` (whole-collection ops, §2.4) | lists; the Music catalog (~3 k rows) and Feed items are paged |
+| **item** | `id` (stable), `kind`, `title`, typed `fields` (§3.3), `icon`, `badges`, `progress`, `check` none · open · done, `dim{reason}`, `group`, `actions` (ids) | every row on every list |
+| **collection** | `id`, item kind, `inline` items or `paged{count (or unknown: the tracker's listing is endless), version, sorts, filters}` queried by anchor, `groups[{id, title}]`, `empty` text | lists; the Music catalog (~3 k rows) and Feed items are paged |
 | **section** | `id`, `title`, item ids | Overdue · Today · In the cart; Feed's sources |
 | **document** | `id`, `extractor` version, `blocks[{id, kind: heading(level) · para · item(depth) · quote · mono · image · rule · table, spans[{text, marks: em · strong · code · link(href)}], charStart, charEnd}]`, `toc[{title, block}]`, `sourceUrl`; a `href` is http or https only and opens outside the app's page. As built for Reader (S1-1): a block's `level` is a heading's level or an item's depth; an image block names its blob in `ref`; an in-book link carries `jump` (an anchor at another spine document's start) instead of an `href` | Reader, Feed articles and comments, torrent pages (NFO = mono), Files' text and PDF text, Hold'em and Tmux history |
 | **value** | `id`, `label`, number or text, `unit`, `system`, `band` normal · attention · alarm, `asOf` (source time), `receivedAt` (PC clock), `source`, `staleAfter`, `state` live · stale · lastKnown, `reason`, `corrected` | bus values, PC figures, speeds, a battery, per-source health |
@@ -295,7 +304,6 @@ id (`W/music/MusicModel.kt:168-173`) · Settings' navigation is per interface (t
 | `into` | `record` (Damage's own records) or `program` (an outside program: tmux, the torrent client, the filesystem, the tracker, the hub); decides queueing (§2.3) |
 | `targets` | `one` or `many` of an item kind (`INTERFACES.md` W-20) |
 | `params` | `text{initial, placeholder, multiline}` (always staged behind the action's confirm, `S/WindowContract.kt:185-191`; the one recorded exemption is Torrents' search, `TORRENTS.md` §3.1) · `choice{options[{id, label}]}` · `number{min, max, step, unit, presets}` · `file` (an upload, §9.4) · `ref` |
-| `expect` | what the op will carry (§2.4) |
 | `confirm` | §4.3, or none |
 | `inverse` | the undoing action, for reversible kinds (Reminders' Undo now; `INTERFACES.md` W-19 later) |
 | `queueable` | true only for reversible and irreversible ops `into` = `record`, in every window |
@@ -329,18 +337,22 @@ the command line or the helper, which passes only an action id — makes the PC 
 and show it on his interfaces; the confirm comes only from an interface with a screen at level full, so the command
 line and the helper can raise it and never give it. In S1 the glasses keep today's confirm text and shapes (the act
 behind a dim spacer, `W/files/FilesWindow.kt:974-980`, `W/torrents/TorrentsWindow.kt:697-706`; Tmux's at row 0, cursor
-on cancel, `W/tmux/TmuxWindow.kt:654-670`); the popover family's CONFIRM replaces them in K (`POPOVER.md` §4.3). For the
-never-queued kinds (outbound, guarded, live) a confirm is void if its interface's connection ends before the act —
-nothing is sent on half a confirm (`BASTION.md` §9); a queued kind's confirm stands, since its op applies locally.
+on cancel, `W/tmux/TmuxWindow.kt:654-670`); the popover family's CONFIRM replaces them in K (`POPOVER.md` §4.3). A
+guarded op's confirm is void if its interface's connection ends before the act — nothing is sent on half a confirm
+(`BASTION.md` §9; built with the guarded kind). Every other confirm stands: a queued kind's op applies locally, and on a
+page an outbound or program act goes on the connection current at the act.
 
 ### 4.4 The answers, and dim
 
-`Answer = Sent | Seen | Refused(reason, code) | Lost(standing, by, at)`. **Sent:** the PC has the op in its order.
-**Seen:** the state shows the effect — for a core's own state, the change itself; for an outside program, a later
-reading that shows it, with "sent · waiting for the state 4 min" and the age shown meanwhile, no time limit and no
+`Answer = Sent | Seen | Refused(reason, code)`. **Sent:** the PC has the op. **Seen:** for a core's own state, the op
+is in the record and its targets show the latest input, which may be another device's (an older input changes nothing
+and nothing is said: there is no other outcome for a record op that is taken); for an outside program, a later reading
+that shows the effect, with "sent · waiting for the state 4 min" and the age shown meanwhile, no time limit and no
 automatic repeat (`BASTION.md` B-27). **Refused:** the reason in words, to the interface that asked, never only to a log
-— the level check at apply time included (§10.5). **Lost:** §2.4. A never-queued op left unanswered at its connection's
-end shows "not known whether it ran — see the state". Answers go to the asking interface only; today's `answer = true`
+— the level check at apply time included (§10.5); its codes: `retry` (not taken; the same op may go again; a page says
+it and does not resend), `invalid` (an op that does not decode or is malformed), `unknown`, `unsupported`, `contract`,
+`ended`, `level`, `program`. A never-queued op left unanswered at its connection's end shows "not known whether it ran —
+see the state". Answers go to the asking interface only; today's `answer = true`
 notices (`S/WindowContract.kt:270-274`) become answers. **Dim:** an action that cannot succeed is dim and says why on
 focus — "the queue is empty", "needs level full on this device", "PC not answering since 14:02", "the glasses' session
 is down", "no script of that name in the hub", "the table moved on"; a live row that does nothing would be a silent
@@ -402,13 +414,18 @@ A row: `{id, label, category, scope, type choice · number · bool · text, opti
 
 ### 7.1 The one record, on the PC (§15 B3; `INTERFACES.md` §4.3)
 
-`Notice{id = "<source>:<thread>", occurrence, raisedAt (an instant; each presenter formats it — today an H:MM string
-taken at raise, S/Shell.kt:361-363), body (fixed at raise, never cut), urgency NORMAL · URGENT, ackRequired, gatedBy (a
-category), target (an address), actions, state RAISED · READ · DISMISSED · ACKED · CLEARED, origin (pc or a phone
-stream), mayRepeat}`. Identity is (source, thread) as built (`S/Notifications.kt:178-201`): a new raise on the pair is
-the next occurrence and supersedes the shown one. The watcher's (rule, episode) and Reminders' (item, scheduled
-instant) map onto it (`REMINDERS.md` L-06). An ack or dismiss names `(id, occurrence)`; a stale occurrence is a no-op.
-An urgent repeat re-shows the same occurrence, so one acknowledge ends it.
+As built (S1-2, trimmed in L1): every notice is an item of the pseudo-window `notices` in the PC record,
+`rec.notices.<source>:<thread>`, its value `{occ (the occurrence, as text), raisedAt (an instant, the PC's clock; each
+presenter formats it), app, source, body (fixed at raise, never cut), urgency NORMAL · URGENT, gatedBy (a category),
+target (an address), state RAISED · READ · DISMISSED, heldUntil? (set when Quiet hours hold it, §7.3)}`. Its actions
+are `raise` (the PC's alone, level full), `read` and `dismiss` (level view, from input on any interface). Identity is
+(source, thread) as built (`S/Notifications.kt:178-201`): a new raise on the pair is the next occurrence and supersedes
+the shown one. The notice record is ordered by occurrence, not time (the window's own rule, §2.4): a read or dismiss
+carries its occurrence in its result and changes the record only on that occurrence, and never moves a state backwards
+— a dismiss of an occurrence a newer raise replaced, or a read after a dismiss of the same occurrence, changes nothing
+(never said). The watcher's (rule, episode) and Reminders' (item, scheduled instant) map onto it (`REMINDERS.md` L-06);
+the watcher's alerts keep their own store and acknowledge (`ack {id, episode}`, §6) until S1-5 moves them onto this
+record. An urgent repeat re-shows the same occurrence.
 
 ### 7.2 Life
 
@@ -419,15 +436,15 @@ The notice policy (gating, coalescing, read state) moves from `Notifications.kt`
    Torrents notices — inferred from `W/tmux/TmuxWindow.kt:160-175`, `W/torrents/TorrentsWindow.kt:292-305`). The shared
    app toggle named by `gatedBy` decides whether it is raised; Global `Notify · Damage` never gates a notice that names
    its app (`WINDOWS.md` §1).
-2. Every interface reflects it (§7.3). **Read** comes only from input (§2.6). **Dismissed** on one interface is gone on
-   all — except a dismiss on the TV, which hides it on the TV only (§10.4). **Acknowledged** ends an `ackRequired`
-   record; dismissing one hides the current showing, and the next repeat shows it again. **Dismiss and acknowledge come
-   only from input:** Silent Mode's 5 s drop (`S/Shell.kt:2400-2404`, `S/Notifications.kt:298-303`) sends nothing.
-3. Its actions (`Done`, `Snooze 1 h`, `Acknowledge`, `Open`) are ordinary ops from the interface that pressed them, so a
-   press after the state moved is refused with the answer. A button outside Damage (Android, the desktop) offers only
-   reversible actions; anything with a confirm opens the app (`INTERFACES.md` §7).
-4. `CLEARED` when its condition ends. Records leave the live table when dismissed, acknowledged or cleared; their
-   history stays in day files (the Notices window later).
+2. Every interface reflects it (§7.3). **Read** comes only from input (§2.6); read and dismissed stay two states (seen
+   versus dismissed is usage data the later agents need). **Dismissed** on one interface is gone on all — except a
+   dismiss on the TV, which hides it on the TV only (§10.4). **Read and dismiss come only from input:** Silent Mode's
+   5 s drop (`S/Shell.kt:2400-2404`, `S/Notifications.kt:298-303`) sends nothing.
+3. Actions on a notice (not built: a reminder's `Done` and `Snooze 1 h`, an alert's `Acknowledge` once S1-5 moves the
+   alerts here, `Open`) are ordinary ops of their window from the interface that pressed them, ordered by that window's
+   rule. A button outside Damage (Android, the desktop) offers only reversible actions; anything with a confirm opens
+   the app (`INTERFACES.md` §7).
+4. Records leave the live table when dismissed; their history stays in day files (the Notices window later).
 
 ### 7.3 Delivery, urgency, quiet hours
 
@@ -449,8 +466,9 @@ Tmux has no `Phone ·` row; whether they pop on the desk is asked when S2 builds
 ### 7.4 Raised on the phone
 
 - **Phone-origin records** (glasses battery, route loss, home unreachable, a notice of a table the phone holds): created
-  in the phone's copy with a deterministic id; `raise` and `clear` ops go to the PC when the wire is up. "Home
-  unreachable" is the phone's alone (§14.3 #9).
+  in the phone's copy with a deterministic id and raised on the PC when the wire is up (not built: today the record
+  takes a raise from the PC only). "Home unreachable" is the phone's
+  alone (§14.3 #9).
 - **Records the PC would raise** (a reminder due, a working-copy window's event): at the due instant the phone raises
   any occurrence the PC has not confirmed as delivered to it, marked **"may repeat"** (`REMINDERS.md` L-44) — a
   schedule, not a timeout. The occurrence id is deterministic, so the PC's raise lands on the same record; the phone
@@ -497,48 +515,47 @@ identity, and it works away from home. S1's web client takes its data behind tha
 
 | dir | message | fields |
 |---|---|---|
-| → | `hello` | on the `app` lane: the frame that asks for the lane, `{t: app, proto: 2, stream, contracts}`, after the content port's own `proto: 1` hello (S1-1); credentials (§10), `contracts{window: version}`, `iface{kind, slot}`, a page's `bundle{version, hash}`; a page's hello may carry `name` and `replaces`, and without a device secret it is answered `pending` |
+| → | `hello` | on the `app` lane: the frame that asks for the lane, `{t: app, proto: 2, stream, contracts}`, after the content port's own `proto: 1` hello (S1-1); credentials (§10), `contracts{window: version}`, `iface{kind, slot}`; a page's hello may carry `name` and `replaces`, and without a device secret it is answered `pending` |
 | ← | `pending` | `code`: the waiting state of an unapproved page (§10.3) |
 | ← | `approved` | `claim`: single use, redeemed by one HTTP request that sets the cookie (§10.3) |
-| ← | `welcome` | `device`, `level`, `set?` (§10.4), `conn`, `pcClock`, `epoch`, `highWater{stream: n}`, `contracts{window: version}`, `bundle{version, hash, protoRange}` (only on the web listener) |
-| → | `sub` / `unsub` | `scope` (a window, a level address, a page of a collection, a live source; as built, a PC-served scope: `desc/<window>`, `<window>/<target>` (Reader's `shelf`, `folder:<path>`, `book:<id>`, `book:<id>/part:<n>`), `diag` (level full) — each answered `snap{scope, desc}`, outside the record's order), `cursor?` (a `seq`, a source scope's `version`, or the notice cursor), `need` |
-| ← | `snap` | `scope`, `epoch`, `seq` or the source's `version`, the description or level; or, for a PC-served scope (`devices`, `desc/…`), `desc` with no `seq` |
-| ← | `chg` | `epoch`, `seq` (or `version`), `origin{device, stream, n` or `conn, k}?`, `patches[{addr, set or remove}]` |
-| → / ← | `op` / `ans` | §2.4 / `stream` and `n`, or `conn` and `k`, or `scope` (a refused subscription); §4.4; `ans` carries `epoch` and `seq`, the record's place once the op is in it, and a client draws the op until a state at or past it has arrived |
+| ← | `welcome` | `proto`, `device`, `level`, `set?` (§10.4), `conn`, `pcClock` (what a page uses to put its `at` on the PC's clock, §2.4), `epoch`, `seq`, `contracts{window: version}`, `bundle{hash}` (only on the web listener) |
+| → | `sub` / `unsub` | `scope` (a window, a level address, a page of a collection, a live source; as built, a PC-served scope: `desc/<window>`, `<window>/<target>` (Reader's `shelf`, `folder:<path>`, `book:<id>`, `book:<id>/part:<n>`), `diag` (level full) — each answered `snap{scope, desc}`, outside the record's order), `need`; a record scope takes no cursor (every `sub` is answered with a snapshot, §9.3; one sent is passed over), a source scope may name its `version` |
+| ← | `snap` | `scope`, `epoch`, `seq` or the source's `version`, `items{addr: {v` or `gone: true`, `by, at}}` (an item's `at` is the input time of the write that stands, §2.4) or the level; or, for a PC-served scope (`devices`, `desc/…`), `desc` with no `seq` |
+| ← | `chg` | `scope`, `epoch`, `seq` (or `version`), `patches[{addr, set{v` or `gone`, `by, at}}]`; only an op that changed something publishes one |
+| → / ← | `op` / `ans` | §2.4 / `stream` and `n`, or `conn` and `k`, or `scope` (a refused subscription); §4.4; `ans` carries `epoch` and `seq`, the op's own line in the record. An op that changed nothing publishes no `chg`, so a client never waits for a state at that `seq` before dropping its own drawn value: it reads the item (the phone's copy and the Files page do) |
 | ← | `confirm` | a guarded request's confirm, worded on the PC: `id`, text, the target's present state with its age (§4.3) |
 | ← | `instr` | a send-to for this interface: `id`, the view (§2.6) |
 | → | `iface` | this interface's own state (§2.6), coalesced, naming the last `instr` applied |
 | → / ← | `ping` / `pong` | `k`, on the wire's pacing (§9.3) |
 | ← | `live` | `src`, `sseq`, a frame (terminal, position, a value) |
-| ← | `end` | `reason`: revoked · denied · replaced · bundle-too-old · shutting down · slow · proto · not open (S1-1 sends all but two: `shutting down` is defined but no orderly stop sends it yet; bundle-too-old is not built) |
+| ← | `end` | `reason`: revoked · denied · replaced · shutting down · slow · proto · not open (`shutting down` is defined but no orderly stop sends it yet); a page ended `proto` reloads itself on the 2 s pacing, so a page left open across a deploy takes the new bundle by itself |
 
-### 9.3 Snapshot, ordered changes, cursors, resume
+### 9.3 Snapshots, changes, reach
 
-One total order for the record on the PC: every applied change gets the next `seq`, written with its op in the journal
-line before it is answered or published (§9.7), so it continues across restarts (as built, every journal line takes the
-next `seq`, a same-value op and a refusal for good included; its change carries no patches). The `epoch` names the
-record store, minted when the store is created, at a start that finds an incomplete last journal line, a journal line
-that does not decode, or a sequence file missing or of another epoch, and at a start that finds the store older than
-the last `seq` it published — kept in the **sequence file**, a small file beside the store and outside
-the nightly copy (a restore from the nightly copy looks exactly so); never at a process start (Torrents' epoch is its
-provider's start time, `W/torrents/LocalTorrentsProvider.kt:53`, as its ring is not persisted). The PC keeps recent
-changes in a ring. **Source snapshots** (transfers, sessions, listings, Feed items, the catalog) are outside that order,
-versioned per scope (Torrents' `version` + `since`, `W/torrents/TorrentsNet.kt:200-201`), so a 2 s poll never floods
-the ring. **Notices** travel on a cursor of their own (§7.3).
+Every journal line on the PC takes the next `seq`, written with its op before it is answered or published (§9.7), so
+it continues across restarts. The `epoch` names the record store: it is kept in `record.json`, minted only when the
+store is created or a start finds no readable `record.json` (then `max(PC clock, old epoch + 1)`), never at a process
+start. **Every `sub` is answered with a `snap`** of what the scope holds now, and a reconnect is a snapshot: the PC
+keeps no ring of past changes and no sequence file, and publishes each change at once. **Source snapshots**
+(transfers, sessions, listings, Feed items, the catalog) are versioned per scope (Torrents' `version` + `since`,
+`W/torrents/TorrentsNet.kt:200-201`). **Notices** travel on a cursor of their own (§7.3).
 
-- **First contact:** `snap` per subscribed scope; the client adopts `seq`, each version and the notice cursor, and pops
-  nothing old. As built: a change is sent per scope, and only when it holds an entry of that scope; a client ignores a
-  `chg` at or below its cursor; a `snap` carries the `seq` whose effects it holds.
-- **Reconnect:** `sub` with the cursor. Same epoch and `seq` inside the ring → the changes since, in order; otherwise a
-  fresh `snap`, never a silent gap (Torrents' `truncated` becomes "send the snapshot"). A source scope whose version
-  moved sends its snapshot. After a new epoch, pending ops that expect values are judged on those values; ops expecting
-  a revision lose and are said.
+- **A subscription:** `snap` per subscribed scope; the client takes `seq`, each version and the notice cursor, and pops
+  nothing old. A change is sent per scope, and only when it holds an entry of that scope; a client ignores a `chg` at
+  or below the `seq` its snapshot holds. A source scope whose version moved sends its snapshot.
+- **While the record's log is closed** (a start whose log did not open, §13 (b)): the lane refuses a subscription to
+  the record or a window's scope with the reason, keeps it, and serves it on the tick after the log opens.
 - **Paged collections:** the snapshot carries `count` and `version`; changes patch the rows a client holds and bump the
   version; a client re-queries a page whose version moved.
 - **Reach and pacing:** a client pings on the wire's pacing and the PC answers; a ping still unanswered when the next is
   due means the PC is out of reach, and every such decision rests on that, never on a failed write. Reconnects follow
   the existing `RemoteWin` shape (2 s, `C/net/WinNet.kt:198-271`); pages show "PC not answering since 14:02" over the
-  greyed state and say when it is back.
+  greyed state — with the day when it is not today ("Nov 15 14:02") — and say when it is back. A page lets a socket go
+  after a second ping unanswered in a row (its unanswered ops are answered "not known whether it ran") and makes a new
+  one on the 2 s pacing. On the phone, a quick request on a persistent PC channel (Torrents' `snap` poll, Feed's
+  `sources` poll, Music's `catalog` refresh, the watcher's `table` ask) with no answer for 60 s drops the connection,
+  which reconnects and asks again; the 60 s count from the moment no older request of the same channel is pending
+  before it. Files' long operations are served inline and are not bounded so.
 
 ### 9.4 Blobs and renditions
 
@@ -551,15 +568,25 @@ be read 500 with the reason; `GET /w/…` answers the page; `GET /font/<face>-<w
 to an approved device.
 `GET /blob/<id>?r=<rendition>` serves a form a presenter names — the glasses' strips, gray thumbnails, 4-bit art — made
 on the PC by today's code (`W/feed/Strips.kt`, Files' `thumb`, `W/music/Art.kt:46-68`), so the glasses' picture and the
-phone's CPU cost stay as they are. `PUT /blob/upload/<op>` streams to a temp file renamed when complete; a cut-off
-upload or a full disk leaves nothing under the real name and answers the uploader. The phone app's page asks the
+phone's CPU cost stay as they are. `PUT /blob/upload/<id>` (the single-use ticket the `upload` program op answered)
+streams to a temp file and places it when complete; a cut-off upload or a full disk leaves nothing under the real name
+and answers the uploader. **An upload never replaces a file** (the lead's call, L1): a name that exists is placed as the
+first free of `name (1).ext`, `name (2).ext`, … (also when the name appears during the upload), and the `201 {name,
+bytes}` answer names the file placed, which the page says; only when the name and its numbered forms up to (999) all
+exist is it refused (409, "nothing was replaced"). The upload's socket probes after 60 s idle, every 15 s, 4 times, so
+a body whose sender left the network ends in about two minutes ("the connection was lost after N of M bytes; nothing
+was kept"). An upload is a Files job (§12); its ticket is ended with the job. The phone app's page asks the
 phone's own source: a blob the phone holds (a book, a cover, a cached track) is served from its copy; one it does not
 hold is fetched from the PC when reachable, and is otherwise shown as "not on the phone".
 
 ### 9.5 The page bundle (the phone app's cached pages, `INTERFACES.md` P-02)
 
-The PC serves the web client as one bundle (`version`, content `hash`, `protoRange`), with a content security policy
-that allows no inline script; the app keeps the last one it fetched and a fallback set inside the APK. At `welcome`:
+The PC serves the web client as one bundle (named by its content `hash`), with a content security policy that allows no
+inline script and allows inline styles (`style-src 'self' 'unsafe-inline'`, the lead's call, L1, so that a terminal
+emulator can run on the Tmux page; scripts stay `'self'`). The bundle is served `no-cache`, so a page's reload takes the
+deployed one. A page carries the protocol version it speaks (`proto.mjs` `PROTO`, equal to the PC's); a PC that speaks
+another ends it `proto` and the page reloads (§9.2). Not built, for the phone app: the app keeps the last bundle it
+fetched and a fallback set inside the APK. At `welcome`:
 same hash → run it; different, PC reachable → fetch into a temp directory, swap whole, reload; PC unreachable, or the
 cached set needs a protocol the app's bridge does not speak → the cached or the APK's set, and the away line says which
 ("pages from 11-02; the PC's are newer"). Renderer loss rebuilds the WebView (`onRenderProcessGone` returns true); the
@@ -568,8 +595,7 @@ cores and the glasses' session live in `ShellService`.
 ### 9.6 The phone's working copy on the same wire
 
 The phone subscribes with scope `record` to every window's Damage-owned records and to each away-list window's whole
-record, persists `snap`, changes and its cursor, and sends its queue as ordinary `op`s after the resume, less those
-`welcome`'s high-water covers. The same carrier holds its mirrors (`glance`, or `focus` while shown; today's paces in
+record, persists `snap` and changes, and sends its queue as ordinary `op`s after each `welcome`. The same carrier holds its mirrors (`glance`, or `focus` while shown; today's paces in
 S1, §8), its `iface` reports for the glasses and the app screen, and its live subscriptions (Tmux frames, the PC
 player's position).
 
@@ -580,24 +606,23 @@ Today two stamped stores sync per key, last write wins, the loser refused with n
 written whole and asynchronously (`S/Persistence.kt:290-315`), 2 s after an input (`S/Shell.kt:2459-2462`). In S1:
 
 1. **The first piece** builds the PC record (`record.json`, written by the record's saver only through `Persistence`'s
-   atomic write; keys `rec.<window>.<item>` holding value, `rev`, `by`, `at`) behind an **append-only operation
-   journal** (`oplog.jsonl`): one line per op holding the op, its effect, its `seq` and its stream's high-water, written
-   before the answer and before the change is published; the whole store saved from it on pacing (temp-and-move); a
-   start replays only the lines past the covered `seq`, and `oplog.jsonl` is set aside whole at a process start once a
-   save covers it and it is past 64 MiB or holds a bad line, never deleted; the sequence file (§9.3; `record.seq`).
-   `record.json` and `devices.json` are in the nightly copy, `record.seq` and `oplog.jsonl` never; the core executor,
-   §9.2's wire, the device table, and the phone's working-copy store with its
-   queue file (§2.3).
+   atomic write; `{v, epoch, items, covered}`, keys `rec.<window>.<item>` holding `v` or `gone`, `by`, `at`) behind an
+   **append-only operation journal** (`oplog.jsonl`): one line per op `{seq, op, eff, ans}`, written before the answer
+   and before the change is published; the whole store saved from it on pacing (temp-and-move); a start replays only the
+   lines past `covered` (a line's effect only), and `oplog.jsonl` is set aside whole at a process start once a save
+   covers it and it is past 64 MiB or holds a bad line, never deleted. A 0.67 file is read as it stands (its `streams`,
+   `colls`, `rev`, `na`, `hw`, `expect` and `base` passed over); `record.seq` is no longer read or written (left on
+   disk). `record.json` and `devices.json` are in the nightly copy, `oplog.jsonl` never; the core executor, §9.2's
+   wire, the device table, and the phone's working-copy store with its queue file (§2.3).
 2. **Each window's conversion** takes its keys off the sync channel (`syncable()`, `S/Persistence.kt:335-336`, stops
    matching `window.<id>`). `hello` carries a contract version per window; while PC and phone differ for a window, Main
-   and the window's status line say "PC and phone on different builds for Reader", and each host runs that window from
-   its own copy until both match. A conversion is deployed as one of his sittings: the PC deploy and the APK install
-   together. At its first converted start each host migrates its own old records once; the phone's reach the PC as
-   ordinary ops with their expectations, a losing one said like any other. As built for Reader (S1-1): each host's
-   migration offers its old records once, as `PreConversion(old stamp)`; the ledger `window.reader.conv` beside the
-   local copy says what this build wrote there, so a later start offers only what an older build wrote since; a place
-   an older build wrote after a downgrade is judged against the record value this device last knew (`Value`), else by
-   its old stamp. Unconverted windows sync as today; nothing new is built into the sync channel.
+   and the window's status line say "PC and phone on different builds for Reader", and the window waits until both
+   match (its subscriptions and ops are refused `contract`; each host runs it from its own copy). Nothing more is built
+   for different builds, downgrades or deploy orders: a conversion is deployed as one of his sittings, the PC deploy and
+   the APK install together. Reader's migration ran once on both hosts (S1-1) and is removed (L1). Torrents' and Files'
+   rows from before their conversion are written once, on the PC, where the record holds none, from the PC store's
+   synced `window.torrents` / `window.files` records, as ops of device `migration` stamped with the record's time (L1);
+   no ledger, no phone half. Unconverted windows sync as today; nothing new is built into the sync channel.
 3. **The last conversion** removes `SyncNet`, `RemoteSync` and the stamps; `shell.settings` is split by scope (§6) and
    `shell.state` is the glasses' interface row (§2.6). `SyncTest`, `SyncToleranceTest` and the stamp parts of
    `SubstrateTest` retire with what they pin, replaced by tests of §2.4.
@@ -618,9 +643,11 @@ nothing guards read-only, low-value content, and no new account, token or step i
 2. **The device table** on the PC: `{id, name, kind, level, set?, tailnetName?, secretHash, approvedAt, approvedBy,
    lastSeen, revoked}`. A secret is 32 random bytes, stored only as its SHA-256, compared in constant time (two servers
    compare with `!=` today, `C/replica/ReplicaServer.kt:147`, `W/music/MediaServer.kt:128`). As built (S1-1): every
-   credential compare is constant-time (`util/Secrets`); a device name holds at most 40 characters — a longer rename is
-   refused with the reason, a waiting page's own longer name is not used (it waits as `a browser`), never cut; a
-   `devices.json` that cannot be read at a start freezes the table as one that does not decode.
+   credential compare is constant-time (`util/Secrets`); a name is kept printable and whole (no length limit). A
+   `devices.json` that cannot be read or does not decode at a start is set aside as `devices.json.bad-<ms>`, said in the
+   log and on the Devices page (when, and that browsers need approving again), and the table starts empty: every
+   browser is approved again, and approvals are written. When the file cannot be moved aside, that is said and the next
+   approval writes a new table over it. No state of the table waits on a restart.
 3. **Approval, once, from a trusted interface** (§15 A2). An unknown device's page gets the waiting screen only:
    `pending{code}`, a short code in an unambiguous alphabet. A pending row with the same code and the tailnet name or
    the address appears on every full interface; he picks the row and a level (no typing), or denies it (`end{denied}`).
@@ -629,10 +656,16 @@ nothing guards read-only, low-value content, and no new account, token or step i
    an HttpOnly cookie; no `Secure` over plain HTTP), re-set on each visit so it never reaches Chromium's 400-day cap. A
    pending request lives while its connection is open — no cap, no queue, no timer (not a Bluetooth, render or input
    path, so the no-timeouts rule does not reach it). A Kotlin peer keeps its credential in its preferences, never in the
-   build. **The first approval** comes from the command line or the companion (item 6). As built (S1-1): the device
-   row is written when the claim is redeemed, and approval keeps only the claim's hash; the redemption is `POST
-   /pair/claim` and needs the PC's own Origin; an approval while the device table cannot be written (frozen at a start)
-   is refused with that reason.
+   build. **The PC's own browser needs no approval** (the lead's call, L1): a pairing request is approved at once at
+   level full, recorded as `this PC's browser` (approved by `this PC's browser`, and noted in the journal like any
+   device action), when all three hold: it arrived on the loopback interface; its `Host` names `localhost`, `127.0.0.1`
+   or `::1`; and its `Origin` is `http://` + one of those names + `:` + the listener's own port. A foreign page in his
+   browser cannot present that Origin, and a process on the PC is him. A page opened on the PC under the machine's name
+   or a network address waits for approval as any other. **The first approval** of any other browser comes from that
+   desk browser's Devices page, or from the command line (item 6). As built: the device row is written when the claim is
+   redeemed, and approval keeps only the claim's hash; the redemption is `POST /pair/claim` and needs the PC's own
+   Origin; a failed claim is paced like any failed connection (2 s), so the desk browser cannot re-pair in a tight loop
+   when the device table cannot be written.
 4. **Levels.** `view` reads, with the reading effects (§4.2); `control` adds reversible and irreversible actions inside
    Damage, "send to" and "continue here"; `full` adds Tmux, Files, Feed's fetches, guarded bus actions and anything that
    reaches outside (§15 A2). His phone and PC are full. A window's description and each live source carry a minimum
@@ -663,11 +696,13 @@ nothing guards read-only, low-value content, and no new account, token or step i
    page says "this device was removed — approve it again"); its unsent ops are refused; a revoked phone keeps its copy
    and sends nothing. A re-approval from a device already listed offers to replace its old row (`end{replaced}`). As
    built (S1-1): replace = a waiting page naming the device id it remembers (`replaces`); a level change is a
-   re-approval; a connection whose welcome comes after its device was revoked, or approved again (a new secret for the
-   same row), is ended at the welcome (`end{revoked}`, `end{replaced}`).
+   re-approval; a revoke or a replace ends the device's live connections at once. Each device action (approve, deny,
+   rename, revoke) is noted in the PC's journal with who did it, what and the answer (a `devices` note).
 9. **Listeners.** Every PC listener is bound or gated to loopback, the tailnet and the bus network, every phone listener
    to loopback and the tailnet (§15 A1); a gate checks the arriving interface before reading a byte (the setup page's
-   pattern, `D/SetupServer.kt:21-33`) and journals a refusal; every socket the web listener holds has TCP keepalive.
+   pattern, `D/SetupServer.kt:21-33`) and journals a refusal; every socket the web listener holds has TCP keepalive (an
+   upload's with short values, §9.4). **Never put a proxy on the PC in front of the web listener's port:** a proxy's
+   request arrives on loopback, so the own-browser rule (item 3) could approve a remote client at full.
    **Built in W (APK 0.66, `HANDOFF.md` §79) for today's
    listeners on both hosts:** one gate (`core/…/net/ReachGate.kt`) on the accepted socket, a refusal closed unread and
    said once per source per minute (`reach` notes on the PC); `reachOpen` turns it off on the PC; its three known gaps
@@ -681,7 +716,7 @@ nothing guards read-only, low-value content, and no new account, token or step i
 | the setup page | PC | the gate's reach first, then its own tailnet-or-loopback check, as today | none for the page; the shared token on its APK route, as today |
 | the browser replica, with its input, probe, journal and log routes | PC and phone | the host's reach | the shared token, as today (the tools carry it unchanged) |
 | the transport seam and its status probe | phone | loopback, tailnet | the shared token, as today |
-| the web interface: pages, WebSocket, blobs (built in S1-1: port 7405, `webPort`) | PC | loopback, tailnet, bus network | the device secret (items 1–5) |
+| the web interface: pages, WebSocket, blobs (built in S1-1: the port `webPort` names) | PC | loopback, tailnet, bus network | the device secret (items 1–5); the PC's own browser approved by itself (item 3) |
 | the helper's endpoint (new) | PC | loopback | the per-run bearer (item 7) |
 
 ## 11. The glasses in step S1
@@ -736,7 +771,7 @@ window through `tools/glassdrive.py` when he is there (`REMINDER.md`: every glas
 | `appSettings(): List<HostSetting>` | `HostSetting` as the glasses' drawing of a row | ✓ | `SettingRow` with id and scope (§6) |
 | `saveState()` / `restoreState()` | view state → the glasses' interface row, as anchors | shared state → the PC record | §2.1 |
 | `restoreStateLive()` | | | `chg` applied to the source (§9.3) |
-| `saveSubState()` / `restoreSubState()` | | ✓ | record items with `rev` and `by` |
+| `saveSubState()` / `restoreSubState()` | | ✓ | record items with `by` and `at` |
 | `open(target)` | navigation to the resolved levels | `resolve(target)` | addresses (§5) |
 | `onRegistered(ctx)` | ✓ once per session, as today | the core's services, once at core start (today every session start, `S/Shell.kt:928`) | |
 | `onActivate(ctx, from)`, `onDeactivate()`, `back()`, `levelDepth()` | ✓ per interface (the level stack is per interface) | the viewer need (§8) | |
@@ -767,13 +802,13 @@ glasses-scope (§6).
 | **Settings** | PC; working copy; away: every row | categories → rows → adjust (staging per interface); anchors `cat:`, `row:` | set a row (r, C; ⏸ for shared and glasses rows; device rows stay local); action rows become actions | — | — |
 | **Reader** | PC, which parses books to serve blocks and percent (it serves bytes only today, `C/content/Content.kt:270-307`); working copy with the whole shelf; away: full | shelf (folders nest) → chapters → book (document) → actions; book `{id, title, author, bytes, folder, fraction}`, folder, chapter `{title, anchor}`; as built (S1-1), the PC's reader index (`reader-index.json`, a cache read one book at a time with no image bytes) gives each card its `fraction` and `cover`, and the book's level its chapters `{title, anchor}` | open (v; sets the book read most recently), the place (r, ⏸, position, level view as built; written only by input), bookmark here (r, C as built, ⏸; it gains a book id, `W/reader/ReaderWindow.kt:147,864-868`), jump (v), rescan (r), reset progress (i, C, ⏸, cancel first as built) | Scroll step, Scroll accel, Size (glasses) | answers only |
 | **Tmux** | PC; **min F** (§15 A2); mirror (the session list and each session's last frame, on disk); away: last state with age, keys dim, a mute applies and queues | sessions → live (terminal) ⇄ history → keys · snippets · windows · session actions; session `{host, name, windows, attached, activity, waiting, lastLine}`, window `{idx, name, active, bell}` | all F: quick key (l, unconfirmed as built; under an alert it carries the occurrence, §2.4), snippet (l, unconfirmed as built), typed line (l, confirm), raw keys (l, keyboard interfaces, §15 B4), new session (i), rename (i, text, confirm), select window and fit pane (r: they change tmux for every attached client, and the same action undoes them), end session (i, confirm, cancel at rest), mute (r, ⏸) | Alerts (shared), Update (device: a requested pace, §8), Context rows, Size (glasses) | the alert edge, raised once on the PC by the status poll that runs with no viewer, thread `host/session`, gated by Alerts and the mute set; it survives a disconnect (lost today, `W/tmux/TmuxNet.kt:124-126`); "<host> quiet" as a value (§8) |
-| **Files** | PC; **min F** (§10.4); mirror (today's ≤200 listings); away: cached with age; the clipboard, sort and hidden apply and queue | locations → browse (paged) → view (document, or images) · trash; location `{path, label, kind, total, free}`, entry `{name, dir, size, mtime}`, trash entry `{id, name, origPath, size, at}` | open, open in Reader (v; answers an address), open on the desk (send-to the companion), copy and cut (r, ⏸; the clipboard is shared), sort and hidden (r, ⏸; shared, `INTERFACES.md` §3), paste, rename, new folder, upload (jobs), to trash and restore (r), delete forever (i, double confirm), download (v), stats (a job); one job at a time per PC, with progress (today one per window instance, `W/files/FilesWindow.kt:98-100`) | Size (glasses) | answers |
+| **Files** | PC; **min F** (§10.4); mirror (today's ≤200 listings); away: cached with age; the clipboard, sort and hidden apply and queue | locations → browse (paged) → view (document, or images) · trash; location `{path, label, kind, total, free}`, entry `{name, dir, size, mtime}`, trash entry `{id, name, origPath, size, at, missing?}` (`missing`: its file is not in the trash — a trash cut off before the file arrived; Restore refuses it with the reason, Delete forever clears it, and the page offers only Delete forever) | open, open in Reader (v; answers an address), open on the desk (send-to the companion), copy and cut (r, ⏸; the clipboard is shared), sort and hidden (r, ⏸; shared, `INTERFACES.md` §3), paste, rename, new folder, upload (jobs; never replaces, §9.4), to trash and restore (r), delete forever (i, double confirm), download (v), stats (a job). **One job at a time per PC**, with progress; a busy refusal names the job that holds the slot and, once its last progress is a minute old, "no progress for N min". **The supervisor** (on the PC's 2 s pacing tick) ends a job that writes nothing and has made no progress — an upload ticket whose body has not begun after 2 min (its ticket goes with it), a stats after 10 min — as failed, "ended by the supervisor: no progress for N min", and frees the slot and the surface that asked; **a job that moves, copies, trashes, restores, deletes or renames is never ended by it**. An upload's body bytes are its progress. **The trash folder** is written only by trash, restore and delete forever: rename, a move in or out, a copy into, a new folder and an upload at or under it are refused with the reason ("use Restore or Delete forever"); listing it is served. **Trash** writes its manifest row (forced to disk) before it moves the file; a failed move takes the row away again. A manifest that cannot be read refuses trash, restore and delete forever with the reason and is never overwritten or set aside. **A file moved across volumes** is copied to a hidden temporary name beside its destination, forced to disk, placed under its real name without replacing anything (a hard link that refuses an existing name), and only then is its source deleted; a failure deletes only what the move made. A single file's copy goes through the same temporary name. A folder copy makes its destination itself first, so its failure deletes only what it made. A file-system check that cannot tell whether a name exists refuses, never reads as "absent" | Size (glasses) | answers |
 | **Torrents** | PC; mirror (the cached snapshot); away: snapshot with age, actions dim, its recents apply and queue | transfers (cursor follows the hash) → details · categories → listing (paged, count unknown) → torrent page (NFO mono) → add; transfer (23 typed fields, `W/torrents/TorrentsModel.kt:13-57`), tracker item, category, file | start, stop, recheck (r, C, many), delete keeping files (i, C, confirm), delete with files (i, F, double), search, browse, account (o, F; search unconfirmed, its recorded exemption, `TORRENTS.md` §3.1), add, add stopped (o, F, confirm), open in Files (v; dim below full), open on the desk (r, F; send-to; full because it opens a file with the desktop's own opener); a fast poll for any `focus` viewer, and in S1 the idle snapshots go on feeding the speed sparkline (§8) | Notify · done, · errors (shared), Poll (device), Size (glasses) | done and error, raised once on the PC, thread = hash; the torrent client's reach as a value (§8) |
-| **Music** | PC; working copy (queue, catalog, prefetched and pinned tracks); away: the phone's player, then Spotify after the tracks run out | now playing (canvas) → queue, browse, artists, albums, vocab, playlists, folder, recent, results, YouTube, seek (the catalog paged) · info (document); queue entry `{entry id, track}`, track `{id, title, artist, album, durMs, genre, hasLyrics}`, artist, album (name + artist), playlist `{id, name, origin, adaptive, count, updatedAt}`, term, YouTube result | play, pause, seek, volume (r, C; ⏸ only when the output is this device's own player, else they need the PC), next, previous (r, C; the active player's host advances, §2.7), boost, sleep (r, C, the active output), move output (r, C; §2.7), add, play next, move, remove (r, C, ⏸; play next re-anchored by the PC), play now, replace, clear (i, C, ⏸; the op carries the order; replace and clear expect the queue's revision; confirms as built), playlist save, rename, delete (i, C; delete double), Ask, YouTube, lyrics search (o, F), lyric offset (r, per output), pre-transcode, rescan (r, jobs) | six Notify rows, default mode, lyric sources (shared); output rows (§6); visualizer, Music Mode, Size (glasses) | raised by the PC; the track notice shows on the glasses only when Music is not in front there, as built (`W/music/MusicWindow.kt:292-345`) |
+| **Music** | PC; working copy (queue, catalog, prefetched and pinned tracks); away: the phone's player, then Spotify after the tracks run out | now playing (canvas) → queue, browse, artists, albums, vocab, playlists, folder, recent, results, YouTube, seek (the catalog paged) · info (document); queue entry `{entry id, track}`, track `{id, title, artist, album, durMs, genre, hasLyrics}`, artist, album (name + artist), playlist `{id, name, origin, adaptive, count, updatedAt}`, term, YouTube result | play, pause, seek, volume (r, C; ⏸ only when the output is this device's own player, else they need the PC), next, previous (r, C; the active player's host advances, §2.7), boost, sleep (r, C, the active output), move output (r, C; §2.7), add, play next, move, remove (r, C, ⏸; play next re-anchored by the PC), play now, replace, clear (i, C, ⏸; the op carries the whole order, one register value; confirms as built), playlist save, rename, delete (i, C; delete double), Ask, YouTube, lyrics search (o, F), lyric offset (r, per output), pre-transcode, rescan (r, jobs) | six Notify rows, default mode, lyric sources (shared); output rows (§6); visualizer, Music Mode, Size (glasses) | raised by the PC; the track notice shows on the glasses only when Music is not in front there, as built (`W/music/MusicWindow.kt:292-345`) |
 | **Games** | PC; working copy; the table leased (§2.7); away: a table the phone holds | games → tables → table (canvas) · standings → character · bankroll · history (documents); table kind `{id, label, entry, fee, blinds}` (dim when unaffordable), character `{id, name, worth, state, career}` | sit down (i, C, ⏸, confirm; a table started away is held by the device that started it), check, fold, call, bet, raise, all-in (i, C, holder only, log kind, confirm per the device's Confirm row), deal, skip the pace (holder), the economy's character and bankroll writes (log kind, holder), cash out, refill (i, confirm), continue here (C; takes the lease; its confirm says what is dropped if the holder is out of reach) | Confirm, Bot pace, Deal animation (device); archetype labels, three Notify rows (shared); Size (glasses) | bust, won, return, raised by the holder |
 | **Feed** | PC (one engine); away per §14 (a) row 1 | sources → items (paged, cursor by id) → article, comments (documents) · comic · binge (paged sequence) · actions · flagged; source `{id, kind, name, count, newCount, lastOk, state}`, item `{id, source, title, link, author, published, kind, comments, read, flagged}`, comment `{id, author, published, depth, text, score}` (ids and a tree are new) | open (v; read by input, `FEED.md` verdict 6), mark read or unread, flag, pin (r, C, ⏸), mark all read (r, ⏸, confirm; the op carries the explicit ids), refresh, browse (o, F), comic and binge moves (position, ⏸; the binge anchor keeps the strip index as a glasses hint, §5), the original page's link (v, big screens, §15 B5; http or https only), back to PC (r; goes with the phone's engine if §14 (a) row 1 is ruled as recommended) | Fetch, Keep, three Notify rows (shared); Images (device); inversion, comic levels, Size (glasses); PC loss (phone; goes with the phone's engine) | new items per source kind, raised by the PC's engine; health per source, as values (§8) |
-| **Bastion** | PC (the watcher now; pages, store, cameras and actions at S3); away: the last table with age, no bus action; an acknowledgement is Damage's own record — it applies on the phone (its repeats stop there), queues, names its episode, and loses on return if that episode has ended | overview (worst first) → a system (values, series, actions) → a graph · cameras · alerts · action log; system `{kind, band, line, asOf}`, value (§3.2), alert `{rule, episode, state, severity, raisedAt}`, log entry `{at, device, iface, action, answer, stateSeen}`; canvas: camera; headline: the TV's bus strip | acknowledge (r; an action on the alert; in the TV's set), mode, test alert (r, C), each bus action (g, F: a request, then a confirm on a screen at full, §4.3; its tier and its script's limit in words; offered only once that script exists, §15 D1) | before the window, built by the watcher: Notify · alerts, · cleared (shared), Phone · alerts, Home unreachable (device: the phone's own preferences), Quiet hours (shared, §6) | alerts normal or urgent (§7.3), built-in watcher alerts, home unreachable (phone-origin) |
-| **Reminders** | PC; working copy; away: full | Today · Buy · Do · Calendar and further lists → a list (Overdue, Today, later, In the cart) → an item (form) · Recently done · Changes (the helper's audit, H-03); item `{id, list, text, qty, note, due{instant or date, zone}, recurrence{rule, label}, state open · done · dropped · trash, source, severity}`, event `{id, title, start, end, allDay, lead}`, occurrence `{item, instant, state}`; headline: the TV's front zone, Main's lens | tick, untick (r, C, ⏸; a recurring item's names its occurrence, §2.4; in the TV's set), snooze (r, choice, ⏸; names its occurrence), edit (r, text, ⏸), move, drop to trash, restore (r, ⏸), add from text (parsed locally, shown before keeping, then a create op, ⏸), undo a named op (r, ⏸), answer a question (C), message the helper (o, F); the helper is device `helper` with its fixed set (§10.4): its edits and drops of his items arrive as questions (§15 E2), its replies as a document plus a question (§3.2) | — | one per due occurrence with Done and Snooze; the phone raises any occurrence the PC has not confirmed delivered, "may repeat" (§7.4) |
+| **Bastion** | PC (the watcher now; pages, store, cameras and actions at S3); away: the last table with age, no bus action; an acknowledgement is Damage's own record — it applies on the phone (its repeats stop there), queues, names its episode, and changes nothing on return if that episode has ended | overview (worst first) → a system (values, series, actions) → a graph · cameras · alerts · action log; system `{kind, band, line, asOf}`, value (§3.2), alert `{rule, episode, state, severity, raisedAt}`, log entry `{at, device, iface, action, answer, stateSeen}`; canvas: camera; headline: the TV's bus strip | acknowledge (r; an action on the alert; in the TV's set), mode, test alert (r, C), each bus action (g, F: a request, then a confirm on a screen at full, §4.3; its tier and its script's limit in words; offered only once that script exists, §15 D1) | before the window, built by the watcher: Notify · alerts, · cleared (shared), Phone · alerts, Home unreachable (device: the phone's own preferences), Quiet hours (shared, §6) | alerts normal or urgent (§7.3), built-in watcher alerts, home unreachable (phone-origin) |
+| **Reminders** | PC; working copy; away: full | Today · Buy · Do · Calendar and further lists → a list (Overdue, Today, later, In the cart) → an item (form) · Recently done · Changes (the helper's audit, H-03); item `{id, list, text, qty, note, due{instant or date, zone}, recurrence{rule, label}, state open · done · dropped · trash, source, severity}`, event `{id, title, start, end, allDay, lead}`, occurrence `{item, instant, state}`; headline: the TV's front zone, Main's lens | tick, untick (r, C, ⏸; a recurring item's names its occurrence, §2.4; in the TV's set), snooze (r, choice, ⏸; names its occurrence), edit (r, text, ⏸), move, drop to trash, restore (r, ⏸), add from text (parsed locally, shown before keeping, then a register op at an id the device mints, ⏸), undo a named op (r, ⏸), answer a question (C), message the helper (o, F); the helper is device `helper` with its fixed set (§10.4): its edits and drops of his items arrive as questions (§15 E2), its replies as a document plus a question (§3.2) | — | one per due occurrence with Done and Snooze; the phone raises any occurrence the PC has not confirmed delivered, "may repeat" (§7.4) |
 
 ## 13. The failure envelope
 
@@ -781,37 +816,39 @@ glasses-scope (§6).
 
 | case (source) | answered by |
 |---|---|
-| PC out of reach: browser, TV (INTERFACES §6; BASTION §9) | §9.3 the paced ping decides it; greyed snapshot under "PC not answering since", paced reconnect, resume from epoch and seq; actions dim §4.4; no queue §2.5 |
+| PC out of reach: browser, TV (INTERFACES §6; BASTION §9) | §9.3 the paced ping decides it; greyed snapshot under "PC not answering since" (with the day when not today), two unanswered pings remake the socket, paced reconnect, a snapshot on return; a page refused `proto` after a deploy reloads itself; actions dim §4.4; no queue §2.5 |
 | PC out of reach, phone app (INTERFACES §6; REMINDERS §5) | §2.5 the away list as working copies, every window's own records applying and queueing; the others' last state with age; the queue count; §2.4 on return; the app's screen on the same copy §9.1 |
-| a queue edited in two places (INTERFACES §6) | §2.4 results not recipes, whole-collection revisions, coalescing only unsent ops; §2.7 the active player's host advances, the PC re-anchors a play-next |
+| a queue edited in two places (INTERFACES §6) | §2.4 results not recipes, the latest input wins (a whole order is one register value), coalescing only unsent ops; §2.7 the active player's host advances, the PC re-anchors a play-next |
 | a stale value, one stale value (all three) | §8 age on every value, that value greys alone past `staleAfter`; §4.2 never the base of a guarded action; due times are instants (§3.3) |
-| a refused action, a refused bus action (all three) | §4.4 the reason to the asking interface (the confirm shows it; the action log keeps it); §10.5 the level checked at apply time; §2.4 numbering, so a queued op never applies twice; live, outbound and guarded ops never resent, an unanswered one "not known whether it ran"; `Restore` on a dropped item |
-| two interfaces at once (INTERFACES §6) | §2.4 arrival order; §9.3 every interface sees the result; a loss never moves a view (§2.6) |
-| an unclean PC stop; a restore from the nightly copy | §9.7 the journal line before every answer and publish; §9.3 a new epoch on an incomplete last line or a store older than the sequence file |
-| PC and phone on different builds for a window | §9.7 the contract version per window: said on Main and the window's status line; each host runs it from its own copy until both match |
+| a refused action, a refused bus action (all three) | §4.4 the reason to the asking interface (the confirm shows it; the action log keeps it); §10.5 the level checked at apply time; §2.4 an op applied twice changes nothing; live, outbound and guarded ops never resent, an unanswered one "not known whether it ran"; `Restore` on a dropped item |
+| two interfaces at once (INTERFACES §6) | §2.4 the latest input wins, by input time on the PC's clock; §9.3 every interface sees the result; another device's input never moves a glasses view (§2.6) |
+| an unclean PC stop; a restore from the nightly copy | §9.7 the journal line before every answer and publish, replayed past `covered` at the next start; every client takes a snapshot when it reconnects (§9.3) |
+| PC and phone on different builds for a window | §9.7 the contract version per window: said on Main and the window's status line; the window waits until both match (they are deployed together) |
 | never approved, or revoked (all three) | §10.3 the waiting screen only, a pending row on every full interface, alive while its connection is open; §10.8 its connections closed with the reason, the page says so |
-| a page the device did not mean to trust (INTERFACES §6) | §10.5 Host, Origin and the device secret on every request, the level at apply time; §9.4 blob headers; §3.2 links http or https only; §9.5 no inline script |
+| a page the device did not mean to trust (INTERFACES §6) | §10.5 Host, Origin and the device secret on every request, the level at apply time; §10.3 only a loopback page with the listener's own loopback origin approves itself; §9.4 blob headers; §3.2 links http or https only; §9.5 no inline script |
 | the glasses' session down (INTERFACES §6) | §2.2 cores run without it; send-to the glasses dim with the reason; the panel icon says it |
 | the companion, or the service under it, down (INTERFACES §6) | the companion is a Kotlin peer on §9.3's pacing, its icon grey; autostart restarts it only at login, said in its menu |
-| WebSocket dropped and back (INTERFACES §6) | §9.3 resume from the cursors; §7.3 the notice cursor: no old notice popped |
+| WebSocket dropped and back (INTERFACES §6) | §9.3 a snapshot per scope; §7.3 the notice cursor: no old notice popped |
 | the phone's renderer lost (INTERFACES §6) | §9.5 the WebView rebuilt; the glasses' session is in the service |
 | cached pages older than the PC's (INTERFACES §6) | §9.5 the handshake; the away line says which set runs |
 | a playback move that fails (INTERFACES §6) | §2.7 B starts at p and A stops only when B plays; B not connected → refused at once; B silent → "sent · waiting", A plays |
-| a notification button after the state moved (INTERFACES §6) | §7.2 the button's op no longer meets its `expect` → refused with the answer; a key at a known prompt carries its occurrence (§2.4) |
-| an upload cut off, or the disk full (INTERFACES §6) | §9.4 temp file, nothing under the real name; the error to the uploader |
+| a notification button after the state moved (INTERFACES §6) | §7.1 the op names its occurrence: on a superseded occurrence it changes nothing; a key at a known prompt carries its occurrence (§2.4) |
+| an upload cut off, or the disk full (INTERFACES §6) | §9.4 temp file, nothing under the real name, never a replaced file; the error to the uploader; a sender gone mid-body ends in about 2 min; §12 the supervisor frees a ticket whose body never began |
+| a Files job that stops making progress | §12 a read-only job is ended by the supervisor and says so; a job that writes his files is never ended, and its busy line says how long it has made no progress |
+| a stop in the middle of a trash or a cross-volume move | §12 the trash's row is written first and listed `missing` until Delete forever; a moved file appears under its real name only whole, its source deleted only after |
 | do-not-disturb on the desktop (INTERFACES §6) | §7.3 every notice action also in the companion's menu and the window |
 | a web terminal attached (INTERFACES §6) | §3.4 `ignore-size` |
 | the hub out of reach from the PC (BASTION §9) | §8 values `lastKnown` with the reason; §4.4 actions dim "hub not answering 6 min"; never queued (§4.2) |
 | hub, network and PC all out of reach (BASTION §9) | §7.4 only the phone's "home unreachable" says it |
 | an action whose state never changes (BASTION §9) | §4.4 "sent · no change 4 min" stays; the watcher's "action not confirmed" alert; no automatic repeat |
-| the session drops mid-confirm (BASTION §9) | §4.3 a never-queued kind's confirm is void, "not sent"; a guarded op left unanswered is never resent (§2.4) |
+| the session drops mid-confirm (BASTION §9) | §4.3 a guarded op's confirm is void, "not sent"; a guarded op left unanswered is never resent (§2.4) |
 | the TV's browser closes or faults (BASTION §9) | §8 its viewer ends; the device's `lastSeen` gives "TV not connected 3 min"; the host's watchdog is S2's |
 | a camera source down; a gap in the store (BASTION §9) | §3.2 `takenAt` → "picture 5 min old"; a series gap is an explicit null, no line across it |
 | an alert acknowledged elsewhere during a takeover (BASTION §9) | §7.2 one record; the takeover leaves on the change; a repeat is the same occurrence (§7.1) |
 | hub and PC clocks disagree (BASTION §9) | §8 ages on the PC's clock from first sight |
 | the helper down, limited or logged out (REMINDERS §5) | §12 Reminders never needs it; its status is a value; his messages wait as a visible queue (H-13) |
 | the helper does something wrong, starts with more tools, or runs long (REMINDERS §5) | its ops carry device `helper` (§2.4), so Changes lists them with Undo, and its reach is its fixed set (§10.4); §10.7 checks the CLI's start event, said on its status; a bus action only as a request (§4.3); the per-wake bound (H-16) is outside this contract's paths |
-| a recurring reminder ticked in two places (REMINDERS §5) | §2.4 the tick names its occurrence and loses when it is no longer the open one |
+| a recurring reminder ticked in two places (REMINDERS §5) | §2.4 the tick names its occurrence and changes nothing when it is no longer the open one (the window's own rule) |
 | the glasses asleep at a due time (REMINDERS §5) | §7.3 the Silent Mode small form; the phone's shade carries it; §7.2 the Silent drop dismisses nothing |
 | a stop mid-delivery (REMINDERS §5) | §7.4 raised by the phone at the due instant unless the PC confirmed delivery, "may repeat", on the deterministic occurrence |
 | the bus crosses a time zone (REMINDERS §5) | §3.3 wall time plus zone, the phone's zone a device value, formatted by each presenter |
@@ -824,26 +861,26 @@ succeeds · (c) the guard's identity · (d) other tasks reaching it · (e) one r
 
 | new piece | (a) | (b) | (c) | (d) | (e) | (f) |
 |---|---|---|---|---|---|---|
-| op queue (phone) | no session, lease or link end clears it; an op leaves only on its answer or when `welcome`'s high-water covers it; a lost store means a new stream, said | resent from the oldest unanswered on each `welcome`; no timer; as built, after `Refused(retry)` the head goes again at the next paced ping, `contract` holds the stream until the next `welcome`, and a PC whose high-water is below the oldest op held (a restored record) gets the waiting ops in a new stream, said; a loss is kept with the copy (saved) until a presenter has said it, and handed to each presenter meanwhile — a stack rebuild or a process end hands it again (a second saying after a process end is accepted); an op the high-water covers is read against the PC's not-applied mark in the state that follows; a refusal for good with no presenter is journaled | `(device, stream, n)`; a new stream starts at 1 and cannot collide | the presenter paints, the writer thread appends, the wire task sends only landed lines | the next `n` read once per op | a page's stream (no file); the helper's run stream; the PC's journal |
-| operation journal (PC) | survives restarts; a whole save of the store covers its lines, and a start replays only the lines past it (as built, the log is set aside whole at a start past 64 MiB or with a bad line, never deleted); an incomplete last line at a start → a new epoch | a failed append answers the op `Refused(retry)`, leaves no line and publishes nothing; the failure is said (log, `record` journal note, built-in alert `record.log`), and the client resends the same op | `(stream, n)` and `seq`, in the line | the core executor alone appends; the saver reads on pacing | one append per op | the phone's queue file; the sequence file; the alert store |
-| per-stream high-water | lives as long as its stream's record (below) | written in the op's journal line, so it lands with the op or not at all | `(device, stream)` | the executor writes; `welcome` reads | once per op; once per `welcome` | the answer record; the gap check |
-| interface rows and per-stream answer records | one per browser profile, interface and helper run; dropped on the device's revocation, or when a client's `hello` says it closed its old stream | — | `(device, iface)`, `(device, stream)` | the executor | once per `hello` | the glasses' row on the driving device |
-| working copy | survives APK restarts and stack rebuilds on disk; a new epoch → fresh snapshot, pending ops kept (as built, ops expecting a revision leave at the new epoch's `welcome` and are answered as lost with the new snapshot's standing value) | §2.3 step 3 on every answer or change | item id + `rev`/`by` | the core executor only; rebuilds computed off it and swapped in whole; presenters read immutable snapshots | one snapshot per paint | every window's own records; the away list whole; the mirrors |
-| cursors: `(epoch, seq)`, a source's `version`, the notice cursor | persisted beside the copy; moved only by a later change or a snapshot | a resume outside the ring, or a moved version, falls back to a snapshot | the store's epoch, not a process start (§9.3); the notice cursor apart, so source churn never decides whether a notice pops | the wire's read task | once per `sub` | every client: pages, phone, companion |
-| PC record and `seq` | survives restarts; a new epoch per §9.3 | a failed save is said and retried on the next pacing tick; the journal holds what it has not covered; as built, a start whose log does not open or replay saves nothing and answers every op `retry`, its alert saying changes are refused until the service is restarted, and while the log is closed the lane refuses a subscription to the record or a window's scope with the reason (the PC's own pages still served); a start with no readable `record.json` replays the logs set aside beside it first, oldest first, and raises `record.replay`; an unreadable `record.json` is kept as `.bad`, `.bad.2`, … | `rec.<window>.<item>` | the saver reads the journal; the wire reads published snapshots | once per op | the change ring; the answer record |
-| sequence file | never cleared; outside the nightly copy; missing at a start → a new epoch | written by the journal's writer before a change is published; a failed write stops publishing, said | the highest `seq` published | the journal's writer alone | read once at a start | the alert store's epoch |
-| contract version per window | changes only with a deploy or an install; compared at every `hello` | a mismatch is said on Main and the window's status line until both match; no timer; as built, the PC refuses a mismatched window's subscription and ops (`contract`: no number taken; the op waits) and leaves it out of the `record` scope | `(window, version)` | the hello task; the executor reads the result | once per `hello` | the bundle's `protoRange`; the old sync keys of unconverted windows |
-| approval request | its connection's end, approve, deny | none: a person approves; as built, a failed write of the table undoes the change and answers the caller, and a bad file is set aside, or the table frozen | the code shown on both screens | the web listener's threads; the device table under one lock | once per approval | the command line's approve; tailnet and bus-network arrivals alike |
+| op queue (phone) | no session, lease or link end clears it; an op leaves only on its answer (or once the state already shows it, §2.3 step 3); a lost store means a new stream, said; a queue file that cannot be read is kept aside as `queue.jsonl.bad-<ms>`, said, never overwritten | resent from the oldest unanswered on each `welcome`; no timer; after `Refused(retry)` the head goes again at the next paced ping, `contract` holds the window's ops until a `welcome` whose versions match; a refusal for good with no presenter is journaled; a resend changes nothing (§2.4) | `(device, stream, n)`; a new stream starts at 1 and cannot collide | the presenter paints, the writer thread appends, the wire task sends only landed lines | the next `n` read once per op | a page's stream (no file); the helper's run stream; the PC's journal |
+| operation journal (PC) | survives restarts; a whole save of the store covers its lines, and a start replays only the lines past it (as built, the log is set aside whole at a start past 64 MiB or with a bad line, never deleted); an incomplete last line at a start is cut off and said | a failed append answers the op `Refused(retry)`, leaves no line and publishes nothing; the failure is said (log, `record` journal note, built-in alert `record.log`), and the client may send the same op again | `seq`, in the line | the core executor alone appends; the saver reads on pacing | one append per op | the phone's queue file; the alert store |
+| interface rows | one per browser profile, interface and helper run; dropped on the device's revocation | — | `(device, iface)` | the executor | once per `hello` | the glasses' row on the driving device |
+| working copy | survives APK restarts and stack rebuilds on disk; a new epoch → fresh snapshot, pending ops kept | §2.3 step 3 on every answer or change | item id + `by`/`at` | the core executor only; rebuilds computed off it and swapped in whole; presenters read immutable snapshots | one snapshot per paint | every window's own records; the away list whole; the mirrors |
+| cursors: the record's `(epoch, seq)` from the last snapshot, a source's `version`, the notice cursor | persisted beside the copy; moved only by a later change or a snapshot | every `sub` is answered with a snapshot; a moved version sends its snapshot | the store's epoch, not a process start (§9.3); the notice cursor apart, so source churn never decides whether a notice pops | the wire's read task | once per `sub` | every client: pages, phone, companion |
+| PC record and `seq` | survives restarts; a new epoch only for a new or unreadable `record.json` (§9.3) | a failed save is said and retried on the next pacing tick; the journal holds what it has not covered. A start whose log does not open or replay saves nothing and answers every op `retry`; the log is opened again on each pacing tick until it opens, its alert saying changes are refused until it opens; meanwhile the lane refuses a subscription to the record or a window's scope with the reason (the PC's own pages still served) and serves each one it refused on the tick after the log opens. A start with no readable `record.json` replays the logs set aside beside it first, oldest first, and raises `record.replay`; an unreadable `record.json` is kept as `.bad`, `.bad.2`, … | `rec.<window>.<item>` | the saver reads the journal; the wire reads published snapshots | once per op | the alert store |
+| contract version per window | changes only with a deploy or an install; compared at every `hello` | a mismatch is said on Main and the window's status line until both match; no timer; the PC refuses a mismatched window's subscription and ops (`contract`; the op waits) and leaves it out of the `record` scope | `(window, version)` | the hello task; the executor reads the result | once per `hello` | the pages' `PROTO`; the old sync keys of unconverted windows |
+| approval request | its connection's end, approve, deny | none: a person approves (the PC's own browser approves itself, §10.3); as built, a failed write of the table undoes the change and answers the caller; a table file that cannot be read is set aside and the table starts empty (§10.2) | the code shown on both screens | the web listener's threads; the device table under one lock | once per approval | the command line's approve; tailnet and bus-network arrivals alike |
 | claim value | single use: void once redeemed, or when its waiting connection ends unredeemed (the approval is then dropped and the page asks again) | none: the page redeems it once | the claim, stored as its hash | the web listener's threads, under the device table's lock | once per redemption | the cookie it sets; the Kotlin peers' credentials |
 | per-device secret | revocation or replacement only; the cookie re-set on each visit | — | its hash; constant-time compare | every request thread of the web listener | once per request | the cookie, the blob routes |
 | minimum level and the level check | carried by each description and live source; changes only with a build | — | the device's level or set against the window's and the source's minimum | the executor (ops); the wire tasks (subscriptions, attaches, blobs) | the device's level read once per request | op, subscription, live attach, blob; send-to targets; the TV's set |
 | confirm request (guarded) | confirmed or cancelled on any screen, or withdrawn by its requester; not kept across a PC restart (its requester is answered "not confirmed"); void on the showing screen's connection end | none: a person confirms; a hub script that never shows its effect stays "sent · waiting" (§4.4) | `(request id, allowlist entry)`, worded on the PC | the executor; every full screen shows it | the target's state read once when shown, with its age | a tap's request, the command line's, the helper's |
 | paced ping | per connection; a new connection starts a new count | a ping unanswered when the next is due marks the PC out of reach; the next answer clears it (as built, a fresh `welcome` is an answer; the pong is answered through the core executor) | `(conn, k)` | the wire task alone | one decision per pacing tick | every client; the phone's reminder rule does not depend on it (§7.4) |
 | send-to instruction | applied, refused, or its target not connected (refused, said) | answered from the target's report naming the last instruction applied | `(target iface, id)` | the target's input queue alone applies it | once | continue here; the glasses' row |
-| notice record | `DISMISSED`, `ACKED`, `CLEARED`; history to day files; occurrences persist across restarts | a record an interface did not show is in its next snapshot | `(id, occurrence)`; a stale occurrence is a no-op; a repeat is the same occurrence | cores raise, interfaces dismiss and acknowledge from input — all through the executor | once per decision | phone-origin records, Android tags, desktop notification ids, the TV takeover |
+| notice record | `DISMISSED`; history to day files; occurrences persist across restarts | a record an interface did not show is in its next snapshot | `(id, occurrence)`; a stale occurrence or a state that would move backwards changes nothing; a repeat is the same occurrence | the PC's cores raise, interfaces read and dismiss from input — all through the executor; the phone's copy folds by the same rule | once per decision | phone-origin records, Android tags, desktop notification ids, the TV takeover |
+| the Files slot and its supervisor (L1) | the job's own end, or the supervisor's; a restart starts with an empty slot and no tickets | the supervisor, on every 2 s tick, ends a read-only job or an unbegun upload ticket past its limit (§12); nothing ends a job that writes his files — its busy line says how long it has made no progress | the job id; the upload's single-use ticket id | each job on its own thread; the glasses', the phone's and the pages' callers; the upload's PUT thread (one atomic remove decides between the PUT and the supervisor) | the slot read once under its lock per tick | every Files writer; the upload ticket |
+| the trash manifest and its rows (L1) | on disk, written whole through a forced temp file; a row whose file is not in the trash stays, listed `missing`, until Delete forever | an unreadable manifest refuses trash, restore and delete forever until it reads (fixed by hand); never overwritten or set aside (that would orphan what the trash holds) | the entry id, naming `trash/<id>/<name>` | every trash op holds the trash lock across its read, move and write | the manifest read once per op; the `missing` mark one check per row at each listing | restore's and delete forever's own order; the cross-volume move's temporary name |
 | viewer count | its view's end or its connection's end | the paced ping unanswered when the next is due ends the connection | `(iface, view, src)` | the wire's tasks register; the source reads the maximum | the pace read once per tick | Tmux frames, Torrents poll, the music position, the TV's glance |
 | Games lease | moved only by "continue here" | an absent holder's hands after a take are refused, said (its confirm said so) | `(table, holder)`, `actionCount` | the holder's executor alone advances the table and the economy | once per decision | the bankroll, world and character records the engine writes |
-| page bundle cache | replaced whole after a complete swap | a failed fetch keeps the running set, said | `hash` | the app's fetch task; the WebView reads only a complete set | once per `welcome` | the APK's fallback set |
+| page bundle cache (not built) | replaced whole after a complete swap | a failed fetch keeps the running set, said | `hash` | the app's fetch task; the WebView reads only a complete set | once per `welcome` | the APK's fallback set |
 | local secret file | written by the service at its first start, created readable only by his user in one step; a file another user could read is refused (said), never rewritten; rewritten only by an explicit command (none built in S1-1); deleted under a running companion → its next `hello` is refused, said in its menu, and the service writes a new one at its next start | — | the file's contents, compared in constant time | the service writes; the companion and the command line read | once per connection | the helper's bearer |
 | helper's bearer | one per run; cleared (its file removed, its hash dropped) when the run ends; only the current run's is accepted | — | the bearer, compared in constant time, in a header only | the service writes; the endpoint reads | once per request | the local secret |
 
@@ -861,8 +898,9 @@ succeeds · (c) the guard's identity · (d) other tasks reaching it · (e) one r
 
 - What a screen has open is its own; the place inside each item is one copy on the PC; a screen that opens Reader with
   nothing open starts at the book read most recently anywhere; nothing changes what a screen shows without input on it
-  ("continue here" and "send to" are the deliberate ways); now playing is one playback, the same everywhere (§14.1 R4;
-  §2.6) — not a shared open item that every screen follows (a view would move while he reads).
+  ("continue here" and "send to" are the deliberate ways), with one exception, the lead's call in L1: the Reader page
+  follows another device's newer place on the book it shows (§2.6); now playing is one playback, the same everywhere
+  (§14.1 R4; §2.6) — not a shared open item that every screen follows (a view would move while he reads).
 - A Hold'em table is held by one screen at a time, taken by "continue here", whose confirm says what is dropped if the
   holder is out of reach; a table started away is held by the phone from the start (§2.7) — not merged logs (one
   tournament cannot be merged, and hidden cards stay hidden).
@@ -874,9 +912,10 @@ succeeds · (c) the guard's identity · (d) other tasks reaching it · (e) one r
   and full held to the tailnet (its only threat is another person on his network).
 - The shared token stays on every path it gates today; the device secret gates the new web interface only (§10.9) —
   not a rotation of the token and the tools (nothing he uses changes).
-- Arrival order at the PC; the concurrent edit arriving second loses, said — not "the later device clock wins".
-- Value expectations for registers and positions, revisions for moves, removals and whole collections — not revisions
-  everywhere.
+- The latest input wins, by the input's time bounded by the PC's clock; an older input changes nothing, unsaid (L1,
+  the lead's call on his words, `HANDOFF.md` §84) — not arrival order (a place read on the glasses while the PC was out
+  of reach would overwrite a later place set at the desk), and not expectations with loss notices (conflict machinery
+  for one person who is in one place at a time).
 - An op carries its result, created ids minted by the creating device as `<stream>.<n>.<k>` — not a recipe replayed on
   the PC, nor ids minted there (a remap on return).
 - Queued or not is decided by what an op touches (Damage's own records, or an outside program) — not by the window (a
@@ -887,15 +926,15 @@ succeeds · (c) the guard's identity · (d) other tasks reaching it · (e) one r
 - One protocol on two existing carriers — not a WebSocket client added to the phone. The phone screen's page served by
   the phone's own source — not by the PC through a relay (it works away, and its ops join the phone's one queue).
 - Glasses renditions made on the PC by today's code — not on the phone (its CPU is a cost term).
-- Only input marks read or acknowledges — not display (the TV would read everything).
+- Only input marks read or dismisses — not display (the TV would read everything).
 - One shared Quiet hours row, in Global beside `Notify · Damage` (the shell's notice policy, not an app's toggle; one
   more row than `CLAUDE.md` lists for Global, his to veto) — not one per app. Approval requests live with their connection — not on a timer. Approval
-  by picking the pending row that carries the code — not by typing it (the leanest form, §15.1). The first approval
-  comes from the command line or companion — not trust on first use.
+  by picking the pending row that carries the code — not by typing it (the leanest form, §15.1). The PC's own browser
+  approves itself on loopback (L1); every other first approval comes from it or the command line — not trust on first
+  use from any network.
 - Torrents' delete keeping files at control — not full (no account, no file write).
 - A moved book keeps its records through a content-hash alias — not a new book identity (every record would move).
 - "Open on PC" as send-to the companion — not the headless service setting `DISPLAY` itself.
-- In S1 a losing edit reaches the glasses as today's answer notice — the item mark waits for K.
 - The web terminal attaches with `ignore-size` — not `window-size manual` (a change to his tmux setup).
 - Tmux quick keys stay unconfirmed on the glasses, as built — a change is K's verdict, not S1's.
 - Music's Ask lane and profile pass stay on Opus at low effort (his word, 11-13: a mistake there is no big deal; how

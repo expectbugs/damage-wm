@@ -80,29 +80,33 @@ core/       wm.damage.core.geom       panel constants, Rect, the runtime lint ga
                                       ContentKit (lens/list/document), slides, persistence, settings,
                                       MenuSurface, KeyboardSurface (§4.8), ShellKeeper, Staging, Status,
                                       BatteryLatch, WindowContract (`DamageWindow`), AnchorCursor (S1-1)
-            wm.damage.core.app        (build S1-1) the PC record, operation log, sequence file, core executor (P1);
-                                      + the `app` lane (AppWire, AppNet, AppClient, Contracts), served on the content
-                                      port by both PC builders; the record opens at a process start only
-                                      (`AppHost.atProcessStart`, held by `check_apk_wiring.py`) (P2); + the
-                                      WindowSource seam (LocalWindowSource, HostBackend) and the phone's working copy
-                                      and queue (WorkingCopy, OpQueue: `workcopy/copy.json`, `workcopy/queue.jsonl`),
-                                      built once per service in ShellService (P3); + Levels, DevicesCore, DeviceCli
-                                      (P6); + PcScopes (P7)
+            wm.damage.core.app        (build S1-1) the PC record, operation log, core executor, the merge rule
+                                      (Merge: the latest input wins); + the `app` lane (AppWire, AppNet, AppClient,
+                                      Contracts), served on the content port by both PC builders; the record opens at
+                                      a process start only (`AppHost.atProcessStart`, held by `check_apk_wiring.py`);
+                                      + the WindowSource seam (LocalWindowSource, HostBackend) and the phone's working
+                                      copy and queue (WorkingCopy, OpQueue: `workcopy/copy.json`,
+                                      `workcopy/queue.jsonl`), built once per service in ShellService; + Levels,
+                                      DevicesCore, DeviceCli; + PcScopes · (build S1-2) Notices and NoticeMirror (the
+                                      notice record), Viewers, Paged, Program (ops into an outside program), Migrate
+                                      (the one PC pass of Torrents' and Files' old rows), Windows (the registry)
             wm.damage.core.web        (build S1-1) WebServer, Access, Devices, LocalSecret, Blobs, Bundle, WebAccess;
-                                      the access state opens at a process start only (P6); the web client in
+                                      (S1-2) Uploads; the access state opens at a process start only; the web client in
                                       `core/src/main/resources/web/` (plain ES modules, `files.txt` lists them),
                                       `node --test` over its pure modules in `core/src/test/js/` (P7)
             wm.damage.core.windows.reader   ReaderCore (shelf, record items, actions, description) on the PC record
                                       and the phone's working copy; ReaderGlasses (the glasses' presenter;
                                       ReaderWindow kept as the compatibility factory over a MemoryRecord);
-                                      ReaderMigration (once, with the `conv` ledger); ReaderAnchor; EpubDoc (blocks
-                                      and spans over today's text, `Epub.extract` shared with `Epub.load`),
-                                      ReaderIndex (the PC's per-book facts on disk), ReaderDocs (the last two parsed
-                                      books); EPUB extraction
-            wm.damage.core.windows.files    the window, Local/Remote providers, FilesService, trash manifest,
-                                      ListingCache (the phone's copy of the last listings, §47)
+                                      ReaderAnchor; EpubDoc (blocks and spans over today's text, `Epub.extract`
+                                      shared with `Epub.load`), ReaderIndex (the PC's per-book facts on disk),
+                                      ReaderDocs (the last two parsed books); EPUB extraction
+            wm.damage.core.windows.files    (S1-2) FilesCore, FilesGlasses, FilesPc, FilesScopes, FilesBlobs,
+                                      FilesJobs (the PC's one job slot and its supervisor), SlottedFiles; the
+                                      Local/Remote providers, FilesService, the trash manifest, ListingCache (the
+                                      phone's copy of the last listings, §47)
             wm.damage.core.windows.tmux     Tmux window + providers + TmuxNet
-            wm.damage.core.windows.torrents QbtClient (Web API 2.11), TorrentLeech + Html, providers, TorrentsNet
+            wm.damage.core.windows.torrents (S1-2) TorrentsCore, TorrentsGlasses, TorrentsScopes; QbtClient (Web API
+                                      2.11), TorrentLeech + Html, providers, TorrentsNet
             wm.damage.core.windows.music    MusicModel (the MusicLibrary/MusicPlayer contracts), Db + MusicDb,
                                       Qdrant, MediaCache + MediaServer, Art, LibraryScan, AdaptivePlaylists,
                                       LocalMusicLibrary + MusicNet, QueueEngine, PlayerCore + Sim/Mirror
@@ -352,24 +356,28 @@ the service before any `:desktop:run` dev session, are `DAILY.md`'s.
 A reader on the PC that only READS his own home hub and raises notices on his glasses and phone (R6 as amended by the
 lead's decisions; `CONTRACT.md` §7, §11.2; `BASTION.md` F13). Rules and the config's keys: `DAILY.md`.
 
-- **The reader** (`HaReader`): one `Http.request("GET", …)` site in the package (lint RO001), paths limited to the
-  health check and the rules' own entities (a closed set). The token is read once at start from the file `haTokenFile`
-  names (five answers: ok, missing, empty, unreadable, malformed; trimmed, never logged). `haUrl` empty or the token
-  unusable → the watcher is off, says why at start, and raises its built-in alert if `haUrl` is set.
+- **The reader** (`HaReader`): one `Http.request("GET", …)` site in the package (lint RO001); the paths are the health
+  check and `/api/states/<entity>`, the entity id checked as `domain.object_id` before the request. The token is read
+  from the file `haTokenFile` names (trimmed, never logged; a case it cannot use is said in plain words: does not exist,
+  is empty, could not be read, does not hold one token). `haUrl` empty or no `haTokenFile` → the watcher is off and says
+  why at start (a config change still needs a restart); a token file it cannot use → off, said, `watcher.tokenfile`
+  raised, and the file is read again once a minute until it holds a usable token.
 - **The watcher** (`BastionWatcher`, both host builders): a round every `haPollSec` (10 s); liveness without timeouts —
   a round still in flight after 60 s is said and the next starts beside it, never more than two; a late answer for an
   older round is dropped and said. Rules from `bastion-rules.json` (`haRulesFile`), read once at start; a bad rule
   refuses only itself. Kinds (`RuleEval`, one pure step): `above` / `below` with `clearAt` hysteresis, `equals` /
-  `notEquals`, `unavailable`, `stale` (the report stamp unchanged for `forMin`, on the PC's clock), `change` (a
-  baseline at arming, re-taken on acknowledge and kept in `alerts.json`, or with `withinMin` the value from a ring of
-  one sample a minute; blind for `withinMin` after a start). A `when` guard on any rule: judged only while it holds;
-  its end resets the clocks and baseline and clears the alert; no reading (unreadable, `unavailable`, `unknown`) holds
-  everything. Built-in alerts `watcher.*`: the hub not answering for `haSilentMin`, a refused token (polling stops
-  until a restart), the token file, the rules file, `watcher.rule.<id>` (a refused rule), `watcher.entity.<entity>`
+  `notEquals`, `unavailable`, `change` (the value differs by `at` or more from a baseline taken at arming — either way,
+  or with `direction` only `up` or only `down` — re-taken on acknowledge and kept in `alerts.json`). L1 removed the
+  kind `stale` and the option `withinMin` (his rules use neither). A `when` guard on any rule: judged only while it
+  holds; its end resets the clocks and baseline and clears the alert; no reading (unreadable, `unavailable`, `unknown`)
+  holds everything. Built-in alerts `watcher.*`: the hub not answering for `haSilentMin`, a refused token (polling
+  stops; the token file is read again once a minute and polling resumes when it holds another token — a refused token
+  is never sent again), the token file, the rules file, `watcher.rule.<id>` (a refused rule), `watcher.entity.<entity>`
   (a 404, or `haSilentMin` of failed reads while the hub answers), the store, the nightly copy. **The watcher's own
   trouble never ends an alert:** a rules file with a problem retires nothing, a refused rule's alert is held, and a
   repeat-only tick runs whenever the store holds a raised alert, the watcher on or off. The state line
-  (`stateLine()`) goes to the `table` answer (the phone's `Watcher` row) and the PC log (tag `bastion`).
+  (`stateLine()`) goes to the `table` answer (the phone's `Watcher` row) and the PC log (tag `bastion`); a rule with no
+  usable reading for `haSilentMin` says so there (`rule <id>: no usable reading since HH:MM`).
 - **The store** (`AlertStore`, `alerts.json`): CLEAR → RAISED → ACKED → CLEAR with an episode per raise; `severity`
   `normal` (said once, or every `repeatMin`) or `urgent` (every ten minutes until acknowledged, passes quiet hours; a
   severity edit applies from the next episode). The epoch (minted when the file is created or recreated after an
@@ -379,7 +387,11 @@ lead's decisions; `CONTRACT.md` §7, §11.2; `BASTION.md` F13). Rules and the co
   epoch, presence}` → the table, the state line and `bus`; `ack {id, episode}` (an action on the alert, the store's
   alone: no hub request); pushed `event`s from ONE sender coroutine.
 - **The phone** (`RemoteBastion`, `AlertDelivery`, `HomeWatch`; wired in `ShellService`): a first-contact reconcile
-  from the table (adopt and list, never pop old ones); a `table` ask every 15 s keeps the last-heard clock moving; a
+  from the table (adopt and list, never pop old ones); a `table` ask every 15 s keeps the last-heard clock moving; an
+  ask with no answer for 60 s drops the connection, which is opened again (L1 X3, the same quick request as Torrents'
+  `snap` poll, Feed's `sources` poll and Music's `catalog` refresh: `RemoteWin.request(quick = true)`, its 60 s counted
+  from when no older request of the channel is pending; while down the row reads `home not answering · PC unreachable
+  Ns`); a
   truncated answer is reconciled and sets `lastSeq`; every re-ask is paced (5 s, else the next ping); an unapplied push
   is journaled once per reason per connection. One record drives the glasses notice
   (`Shell.notifyFromHost(…, gatedBy = "Bastion")`, gated by the category's own rows, never by `Notify · Damage`) and
@@ -413,92 +425,129 @@ lead's decisions; `CONTRACT.md` §7, §11.2; `BASTION.md` F13). Rules and the co
   (`PlacePrivacyTest` refuses any number with a distance unit); `place` notes carry words and ages.
 - **The nightly copy** (`desktop/NightlyCopy.kt`, both host builders): state files only, an allowlist — `state.json`,
   `state.json.bad`, `torrents.json`, `alerts.json`, `uncaught-pending.txt`, the rules file as `bastion-rules.json`,
-  the feed's `sources/` and `binge/`, and since S1-1 `record.json` and `devices.json` (never `record.seq`,
-  `oplog.jsonl` or `local.secret`); never journals, `phone-journal/`, `trash/`, `config.json`, caches or the music
+  the feed's `sources/` and `binge/`, and since S1-1 `record.json` and `devices.json` (never `oplog.jsonl` or
+  `local.secret`); never journals, `phone-journal/`, `trash/`, `config.json`, caches or the music
   database. Into `<backupDir>/damage-YYYYMMDD-HHMMSS.partial/`, renamed when whole; an unchanged file is hard-linked to
   the previous copy. The configured folder is never created (an unmounted disk must not take the copy onto the root
   disk). After a good copy, folders named exactly `damage-YYYYMMDD-HHMMSS` beyond `backupKeep` (14) are deleted,
   oldest first; nothing else is touched. At `backupAt` (03:30) daily, plus one catch-up after a start when the newest
   copy is stale; a file that vanishes during the walk is skipped and said in the run's line. A failed run is a log
-  error and the built-in alert; the next good copy clears it.
+  error and the built-in alert; the next good copy clears it. A copy still running when the next is due raises the
+  alert (the next is skipped); the running copy's good end clears it.
 - **`heap3`** (the first flash's rider, `FIRMWARE.md` §5.7): at every session start the free-memory fields of the
   telemetry record at four points — `pre-create` (the reset check's record, no extra read), `lease`, `atlas` (after
   the read-back), `first-frame` — journaled as `heap3` notes; the three reads are the existing telemetry read, none in
   Silent Mode, an unanswered one said and never waited on; off on instant test transports.
 
-## The shared window core, Reader converted and the web listener (build S1-1, APK 0.67, `HANDOFF.md` §80)
+## The shared window core, the PC record and the web listener (builds S1-1 and S1-2, as L1 left them; `HANDOFF.md` §80, §84)
 
-The PC owns Reader's state; the phone keeps a working copy; a browser is a third presenter (`CONTRACT.md` §2, §9, §10,
-§12 as corrected for this build). Ops and keys: `DAILY.md`.
+The PC owns the converted windows' state (Reader, Torrents' and Files' own rows, the notice record); the phone keeps a
+working copy; a browser is a third presenter (`CONTRACT.md` §2, §9, §10, §12). Ops and keys: `DAILY.md`.
 
-- **The record** (`core/…/app/`, both PC host builders): `record.json` (items `rec.<window>.<name>` with value, `rev`,
-  `by`, `at`, `gone`, the not-applied mark; the stream high-waters; `covered`), written only by its saver's own thread
-  through `Persistence.writeAtomic` with the temp file forced before the move. `oplog.jsonl`: one line per op `{seq, hw,
-  op, effect, answer}`, appended and forced before the answer and the publish; a failed append answers
-  `Refused(retry)`, leaves no line and raises `record.log`. `record.seq` `{epoch, seq}` (outside the nightly copy, so a
-  restored record is seen as one). One core executor thread (`damage-core`) runs the stream check (`Streams`: the
-  high-water, the last 1,000 answers, a gap refused "expected N", a handled `n` whose op differs refused as `Reused`),
-  the merge rule (`Merge.judge`, pure, per target; expectations Value · Rev · Occurrence · PreConversion · Any) and the
-  change ring (1,000, memory only). Opened only by `AppHost.atProcessStart`, never by a tool flag
-  (`check_apk_wiring.py`): the record, the sequence file, any logs set aside beside a missing record (oldest first,
-  `record.replay`), the log past `covered`, the epoch, a save, the log set aside past 64 MiB or with a bad line, a
-  `record` journal note. A log that does not open or replay leaves `logReady` false: nothing is saved, every op is
-  answered `retry`, the lane refuses record subscriptions (`AppHost.LOG_CLOSED`), the alert says until the service is
-  restarted. Alerts under `record.` survive a watcher start (`AlertRule.RESERVED_PREFIXES`).
+- **The record** (`core/…/app/`, both PC host builders): `record.json` (`{v, epoch, items, covered}`; items
+  `rec.<window>.<name>` with `v` or `gone`, `by`, `at`), written only by its saver's own thread through
+  `Persistence.writeAtomic` with the temp file forced before the move. `oplog.jsonl`: one line per op `{seq, op, eff,
+  ans}`, appended and forced before the answer and the publish; a failed append answers `Refused(retry)`, leaves no
+  line and raises `record.log`. One core executor thread (`damage-core`) runs the merge rule (`Merge.judge`, pure, per
+  target: each target is written unless the item holds a later input time; an equal time, the later arrival; an equal
+  value, nothing) after a window's own rule where it has one (`Windows.RULES`: the notice record by occurrence, Files'
+  clear of a cut), and publishes each change at once; an op's `at` is bounded by the PC's clock (`AppHost.clock`). The
+  PC keeps no stream numbers and no ring. Opened only by `AppHost.atProcessStart`, never by a tool flag
+  (`check_apk_wiring.py`): the record, any logs set aside beside a missing record (oldest first, `record.replay`), the
+  log past `covered` (a line's effect only), the epoch (new only for a new or unreadable `record.json`), a save, the log
+  set aside past 64 MiB or with a bad line, a `record` journal note. A 0.67 `record.json` and `oplog.jsonl` are read as
+  they stand; `record.seq` is left on disk, unread. A log that does not open or replay leaves `logReady` false: nothing
+  is saved and every op is answered `retry`; the pacing tick opens it again until it opens (L1 R-a, said when it
+  opens), and the lane keeps each record or window subscription it refused meanwhile and serves it on the tick after.
+  Alerts under `record.` survive a watcher start (`AlertRule.RESERVED_PREFIXES`).
 - **The `app` lane** (`AppWire`, `AppNet`, `AppClient`, `Contracts`): on the content port, its hello `{t: app, proto: 2,
-  stream, contracts}` after the port's own `proto: 1` hello, so an older host answers it as an unknown request. Per
-  connection one sender thread and an outbox of 4,096 frames (a reader that stops reading is ended `slow`); every step
-  that touches the record runs on the executor, and an op's answer goes out before its change. Reach is decided by the
-  paced ping alone; reconnects on 2 s pacing. `Contracts.MINE = {reader: 1}`: a mismatched window is refused
-  (`contract`, the op waits) and Main's row says "PC and phone on different builds for Reader". The phone holds the
-  shared token (level full); `local` (the command line) is the local secret on loopback.
+  stream, contracts}` after the port's own `proto: 1` hello. Per connection one sender thread and an outbox of 4,096
+  frames (a reader that stops reading is ended `slow`); every step that touches the record runs on the executor, and
+  an op's answer goes out before its change; an op that changed nothing publishes no change. Every `sub` is answered
+  with a snapshot. Reach is decided by the paced ping alone; reconnects on 2 s pacing. `Contracts.MINE` (from
+  `Windows.VERSIONS`): a mismatched window is refused (`contract`, the op waits) and Main's row says "PC and phone on
+  different builds for <window>". The phone holds the shared token (level full); `local` (the command line) is the
+  local secret on loopback. A device action (approve, deny, rename, revoke; the PC's own browser's self-approval too)
+  is a `devices` journal note with who, what and the answer; a web page taking or leaving a scope is a `usage` note
+  (`<device> web <window> open|leave <scope>`, L1 R-e).
 - **The working copy and its queue** (the phone, built once per service in `ShellService.onCreate`, closed in
-  `onDestroy`, never per stack): `WorkingCopy` (`workcopy/copy.json`, temp-and-move, forced; its `unheard` list keeps a
-  loss until a presenter has said it) and `OpQueue` (`workcopy/queue.jsonl`, one writer thread, `force(true)`; an op is
-  sent only once its line landed; coalescing into the last unsent op; every loaded op frozen). A presenter reads the
-  PC's state plus this device's unanswered ops; `welcome`'s high-water takes out covered ops; a new epoch answers
-  revision ops as lost. The seam is `WindowSource` (state, description, level, `act` returning at once, listeners,
-  `said`); on the PC `LocalWindowSource` over `HostBackend` (device `local`, a fresh stream per process).
+  `onDestroy`, never per stack): `WorkingCopy` (`workcopy/copy.json`, temp-and-move, forced) and `OpQueue`
+  (`workcopy/queue.jsonl`, one writer thread, `force(true)`; an op carries `at`, the draft's input time; it is sent only
+  once its line landed; coalescing into the last unsent op; every loaded op frozen; a 0.67 line without `at` takes the
+  load time; a file that cannot be read is moved aside as `queue.jsonl.bad-<ms>` and said). A presenter reads the PC's
+  state plus this device's unanswered ops, folded by `Windows.RULES` and the merge rule as the PC folds them
+  (`WorkingCopy.fold` / `shown`); an op its state already shows leaves the waiting list. The seam is `WindowSource`
+  (state, description, level, `act` returning at once, listeners, `now()` — the clock a source stamps with); on the PC
+  `LocalWindowSource` over `HostBackend` (device `local`, a fresh stream per process).
 - **Reader** (`core/…/windows/reader/`): `ReaderCore` (a `WindowCore`: the shelf and its scan, `describe`, `level`,
-  `ACTIONS` — `place` and `migrate` position; `bookmark`, `set`, `open` register, `open` with `Expect.Any`; `reset`
-  remove — and the drafts; levels by `levelOf`: `open` and `place` view, the rest control) and `ReaderGlasses` (today's
-  levels, paint, open, restore and layout, plus `placeFrom` / `take` / `seat`, `sendChanges` at today's save points,
-  `lost`, `Go there`, `unsaid`, `placeLossesSaid`). A place is `ReaderAnchor` `@c<offset>.<extractor>~<quote>` over
-  `Epub.load`'s text (`EXTRACTOR = 1`). Reader's keys are off the sync channel (`Persistence.CONVERTED`); the phone
-  applies only syncable inbound keys; the glasses' row stays local (`window.reader`, unsynced), also the downgrade copy.
-  `ReaderWindow(…)` is the compatibility factory over a `MemoryRecord` that tools, `SelfCheck` and tests build.
-- **The migration** (`ReaderMigration`, each host once): the PC offers its old `window.reader.book.*` places as ops of
-  device `migration`, the phone queues its own, each with `Expect.PreConversion(old stamp)`; the ledger
-  `window.reader.conv` (what this build wrote into the local copy, and `known`) makes a later start offer only what an
-  older build wrote since, with `Expect.Value(known)` where the ledger knows the record's value. A `migrate` note on
-  each host.
+  `ACTIONS` — `place` position; `bookmark`, `set`, `open` register; `reset` removal — and the drafts; levels by
+  `levelOf`: `open` and `place` view, the rest control) and `ReaderGlasses` (today's levels, paint, open, restore and
+  layout, plus `placeFrom` / `take` / `seat`, `sendChanges` at today's save points, `Go there` for another device's
+  newer place). A place carries the time its save point first saw it move, kept as `"at"` beside the place in
+  `window.reader.book.<id>` so that it survives a restart (a place restored without one counts as older than any the
+  record holds); a place the record holds as this device's own, equal to the local one, counts as sent; an own
+  bookmark is taken from the record when the view holds none for that book. A place is `ReaderAnchor`
+  `@c<offset>.<extractor>~<quote>` over `Epub.load`'s text (`EXTRACTOR = 1`). Reader's keys are off the sync channel
+  (`Persistence.CONVERTED`); the glasses' row stays local (`window.reader`, unsynced). `ReaderWindow(…)` is the
+  compatibility factory over a `MemoryRecord` that tools, `SelfCheck` and tests build. Reader's migration ran on both
+  hosts at 0.67 and is removed; the old `window.reader.conv` key stays in his stores, unread.
+- **The notice record** (S1-2; `Notices`, `NoticeCore`, `NoticeMirror`): items `rec.notices.<source>:<thread>`, raised
+  on the PC only (Torrents' done and error notices among them), read and dismissed from input on any interface, ordered
+  by occurrence (`Notices.RULE`). Each host's `NoticeMirror` keeps its notice cursor and pops only what is raised past
+  it; with no shell on the PC its cursor follows the top. `heldUntil` carries Quiet hours' decision.
+- **Torrents and Files** (S1-2): `TorrentsCore` and `FilesCore` hold their own rows in the record (Torrents' search
+  recents and Notify rows; Files' clipboard, sort and hidden), with `TorrentsGlasses` / `FilesGlasses` as the glasses'
+  presenters and `TorrentsScopes` / `FilesScopes` serving the pages; ops into the torrent client and the filesystem are
+  program ops (`Program`: `(device, conn, k)`, never queued, one `program` journal note each). On the glasses Files
+  takes a row this device wrote unless this presenter itself wrote it since it started. Their rows from before the
+  conversion were written once on the PC (`Migrate`, at the first start of 0.68: a row only where the record holds
+  none, from the PC store's `window.torrents` / `window.files`, stamped with the blob's time; one `migrate` note).
+- **The PC's Files** (`FilesPc`, `FilesJobs`, `SlottedFiles`, `LocalFilesProvider`, `web/Uploads.kt`): one job slot
+  for every PC caller (the PC's glasses, the phone's glasses through `FilesService`, the pages' program ops), each job
+  on its own thread; the busy line names the holder and how long it has made no progress. The supervisor
+  (`FilesJobs.supervise`, on the record's 2 s tick) ends a stats after 10 min and an upload ticket whose body has not
+  begun after 2 min (its ticket cancelled with it) as failed, said, and frees the slot and, for a stats, the glasses or
+  phone that waited on it (the caller waits on the job's end, not on the file-system call); it never ends a job that
+  writes. Uploads place under the asked name or the first free `name (N).ext` (a link that refuses an existing
+  name), never replacing; the upload's socket keepalive is 60 s idle, 15 s interval, 4 probes. The trash's
+  `manifest.json` is written whole through a forced temp file; trash writes the row before it moves the file. The trash
+  folder is refused to every other writer.
 - **The document and the index** (the PC only): `Epub.extract` behind `Epub.load` (today's text unchanged); `EpubDoc`
   (blocks and spans — em, strong, code, link — aligned onto today's text by a markup walk; http(s) links kept, a link
   to another spine document an in-book `jump`, the rest dropped and counted); `ReaderIndex` (`reader-index.json`:
   length, chapters, cover per book; one book at a time on `Dispatchers.IO`, no image bytes; a cache);
   `ReaderDocs` (the last two parsed books). The shelf is listed at each process start and when a page subscribes the
   shelf or Main's card (`PcScopes.gate`), never on the executor or the shell loop.
-- **The web listener and access** (`core/…/web/`; both PC builders through `startWeb`): `webPort` (7405; 0 = off)
-  behind the reach gate before a byte; HTTP/1.1 and WebSocket on `replica/HttpWs.kt`, one request per connection, TCP
+- **The web listener and access** (`core/…/web/`; both PC builders through `startWeb`): the port `webPort` names (0 =
+  off) behind the reach gate before a byte; HTTP/1.1 and WebSocket on `replica/HttpWs.kt`, one request per connection, TCP
   keepalive on every socket. `Access`: `Host` one of `localhost`, `127.0.0.1`, `::1`, this machine's name, `webHosts`
   or the arriving address, with the listener's port; `Origin`, when present, exactly `http://` + that Host. `Devices`
   (`devices.json`: SHA-256 hashes compared in constant time; waiting pages with a code that live while their socket is
   open; single-use claims redeemed by `POST /pair/claim`, which sets the `HttpOnly; SameSite=Strict` cookie; approve,
-  deny, rename, revoke, replace; a bad file set aside, else the table frozen). `local.secret` (0600, created once; a
+  deny, rename, revoke, replace — a revoke or replace ends the device's live connections at once; a name kept printable
+  and whole; a file that cannot be read or decoded set aside as `devices.json.bad-<ms>`, said, and the table starts
+  empty). The PC's own browser is approved at full by itself (`Access.ownBrowser`: it arrived on the loopback
+  interface, its `Host` is `localhost`, `127.0.0.1` or `::1`, its `Origin` that name with the listener's port; turned on
+  by the service's listener only, `WebAccess`), recorded as `this PC's browser`. `local.secret` (0600, created once; a
   file others could read is refused). `Levels` (view, control, full) checked by the PC at apply time (`AppHost.act`'s
   gate). PC-served scopes (`PcScopes`: `desc/main`, `desc/reader`, `reader/<level>`, `reader/book:<id>/part:<n>`,
   `diag` at full, with the PC log's last 300 lines) on one describer thread. Blobs (`ReaderBlobs`: covers and images,
   Range, nosniff, sandbox, past 32 MiB refused 413) and fonts (`/font/<face>-<weight>`, the glasses' four faces through
   fontconfig, approved devices only). The command line (`DeviceCli`): `--devices`, `--approve CODE LEVEL`, `--deny
   CODE`, `--revoke ID`, client calls over loopback with the local secret, exit 0 / 1 / 3, nothing started.
-- **The web client** (`core/src/main/resources/web/`, plain ES modules listed in `files.txt`, a Chromium 108 floor, no
-  inline script or style — `BundleTest`): the shell (`app.mjs`: the connection, the waiting screen and the claim,
-  addresses `/w/<window>/<target>[@<anchor>]` with back and forward, the rail or bottom bar, one focus model, dims with
-  their reason, toasts), Reader (`views/reader.mjs`, `reader-model.mjs`: the shelf, a book one spine part at a time, a
-  place op 2 s after input and on leaving, `Go there`), the devices and diagnosis pages, themes in the glasses' faces.
-  The stream id and its next number live in local storage (`damage.stream.next.<stream>`), one counter for every tab;
-  the page keeps no queue. Not yet seen in a browser (§80).
-- **The judge** (`tools/snapdiff.py`; `Snapshot.kt`'s phone arrangement renders Reader's scenes again into `DIR/phone/`
+- **The web client** (`core/src/main/resources/web/`, plain ES modules listed in `files.txt`, a Chromium 108 floor; the
+  policy allows no inline script and allows inline styles, `style-src 'self' 'unsafe-inline'` — `BundleTest`): the
+  shell (`app.mjs`: the connection, the waiting screen and the claim, addresses `/w/<window>/<target>[@<anchor>]` with
+  back and forward, the rail or bottom bar, one focus model, dims with their reason, toasts), Reader (`views/reader.mjs`,
+  `reader-model.mjs`: the shelf, a book one spine part at a time; a place op carries the time of his input and is sent
+  at the save point and on leaving; the page follows another device's newer place), Torrents, Files (an upload says
+  the name it was placed under; the slot's line shows the slot's job), notices, the devices and diagnosis pages, themes
+  in the glasses' faces. The stream id lives in local storage and a page numbers its ops in memory; every op carries
+  `at` on the PC's clock (`pcNow()`, from `welcome.pcClock`); the page keeps no queue. Its three recoveries: a `proto`
+  end reloads the page on the 2 s pacing; two pings unanswered in a row let the socket go and make a new one; the reach
+  line names the day when it is not today. Seen against the real in-process listener in a real browser (S1-2's looks,
+  L1's stage P and gate).
+- **The judge** (`tools/snapdiff.py`; `Snapshot.kt`'s phone arrangement renders the converted windows' scenes again into `DIR/phone/`
   over a `WorkingCopy` fed from a loopback content host): each scene compared pixel for pixel with a base rendered
   before a build's first product edit, masked by the base pair's union and the declared live cells; a difference outside
   the mask is named or is a defect.
@@ -878,7 +927,7 @@ Seven rounds of independent review after the first build (every candidate verifi
 simulation before a fix) found ~70 real defects; the reviews since (`HANDOFF.md` §25–§42) added to the list.
 These mechanisms are load-bearing and easy to break by accident:
 
-- **Build W's (APK 0.66, `HANDOFF.md` §79; `research/mutations-79-watcher.json`, 106 entries).** The hub is only
+- **Build W's (APK 0.66, `HANDOFF.md` §79).** The hub is only
   read: one GET site and RO001. The watcher's own trouble never ends an alert (a rules file with a problem retires
   nothing; a refused rule's alert is held; the repeat-only tick runs on or off). The alert store owns its epoch and
   `seq`; a truncated answer is reconciled, never a silent gap; every phone re-ask is paced. The reach gate sits on the
@@ -890,26 +939,49 @@ These mechanisms are load-bearing and easy to break by accident:
   pair; the rest says no notice, enables no atlas and commits no lease carry; both start sites test the session again
   after `started = true`; the awake start's `startwire/` expectations are written by the test from an older tree,
   never by hand. `noteUptime` reads the tick counter's wrap as a wrap.
-- **Build S1-1's (APK 0.67, `HANDOFF.md` §80; `research/mutations-80-s1-1.json`, 181 entries).** The record: the log
-  line lands before the answer and the publish; a failed append answers `retry`; a save never covers a line it lacks;
-  a start whose log did not open saves nothing (`AppHost.logReady`, `logOpen`, `LOG_CLOSED`); a missing record replays
-  the set-aside logs first (`RecordAlerts.REPLAY`) and never overwrites a `.bad`; the sequence file stays out of the
-  nightly copy; alerts under `record.` survive a watcher start. The op path: an op at or below the high-water is never
-  applied twice; a handled `n` whose op differs is refused (`Streams.identity`, `Check.Reused`); the level is checked by
-  the PC at apply time. The phone: an op leaves only once its queue line landed; coalescing only into an unsent op; a
-  pre-conversion op takes a joining place's time only when the value differs; a loss is kept (`copy.json`'s
-  `unheard`) until a presenter has said it (`WindowSource.said`, `RecordBackend.said`, `RecordBackend.journal`);
-  `ReaderGlasses.unsaid` is posted again at every registration and session start; a place loss is said once per (book,
-  standing place, this place) (`ReaderGlasses.placeLossesSaid`). Reader: an entry takes another device's place and
-  writes nothing back; a lost place never writes the standing value into the ledger's `known`; `placeFrom`'s own-write
-  branch ends a `Go there` offer; a relayout makes no op; the ledger seeds an expectation only while the record still
-  holds that value. The web: one counter per stream in local storage with a floor (`damage.stream.next`, `Stream.gapTo`);
-  a retry past the one resend said in the page's words (`proto.mjs` `givenUp`); `open` and a linked place saved only on
-  input (`reader.mjs` `B.byInput`); the device check again at the welcome (`Devices.live`, `Devices.endedSince`,
-  `Peer.approval`); `BlobTooLarge`; `dom.mjs`'s `keepFocus`, `toastsToDrop`, `outTitle`; a bad request line said by its
-  length only (`HttpWs.readRequest`); the shelf listed on a page's visit to the shelf or Main (`PcScopes.gate`), never
-  on the executor or the loop. The harness: `GamesWindow(worldSeed)` pins the Games scenes' world; `snapdiff.py`'s live
-  cells are declared with a selftest case each; `reader-view.test.mjs` is the page's view harness.
+- **Build S1-1's (APK 0.67, `HANDOFF.md` §80), as L1 left them.** The record: the log line lands before the answer and
+  the publish; a failed append answers `retry`; a save never covers a line it lacks; a start whose log did not open
+  saves nothing (`AppHost.logReady`, `logOpen`, `LOG_CLOSED`) and opens it again on the tick; a missing record replays
+  the set-aside logs first (`RecordAlerts.REPLAY`) and never overwrites a `.bad`; alerts under `record.` survive a
+  watcher start; the level is checked by the PC at apply time. The phone: an op leaves only once its queue line landed;
+  coalescing only into an unsent op. Reader: an entry takes another device's newer place and writes nothing back;
+  `placeFrom`'s own-write branch ends a `Go there` offer; a relayout makes no op. The web: `open` and a linked place
+  saved only on input (`reader.mjs` `B.byInput`); `BlobTooLarge`; `dom.mjs`'s `keepFocus`, `toastsToDrop`, `outTitle`; a
+  bad request line said by its length only (`HttpWs.readRequest`); the shelf listed on a page's visit to the shelf or
+  Main (`PcScopes.gate`), never on the executor or the loop. The harness: `GamesWindow(worldSeed)` pins the Games
+  scenes' world; `snapdiff.py`'s live cells are declared with a selftest case each; `reader-view.test.mjs` is the
+  page's view harness.
+- **Build L1's (APK 0.68, `HANDOFF.md` §84).** The record: an op's `at` is bounded by the PC's clock
+  (`AppHost`, `minOf(op.at, clock())`); a removal is written `gone` with its `by` and `at`, so an older edit does not
+  bring it back; the phone folds its waiting ops by `Windows.RULES` before the merge rule, as the PC does
+  (`WorkingCopy.fold` / `shown`), and lets go of an op its state already shows (`WorkingCopy.settle`); Reader's place
+  keeps its input time beside it (`"at"` in `window.reader.book.<id>`) and a restored place without one counts as
+  oldest; Files' glasses take an own-device row unless this presenter wrote it since it started (`FilesGlasses`'s
+  `wrote`); Reader's glasses take an own bookmark when the view holds none for that book; the lane serves the
+  subscriptions it refused while the log was closed (`AppNet` `closedSubs`). Decoders read 0.67's `record.json`,
+  `oplog.jsonl`, `copy.json` and `queue.jsonl` (each pinned on a 0.67-shaped fixture). Files (full protocol, each guard
+  pinned and watched to fail): the supervisor never ends a writing job (`FilesJobs.endAfter` set only for stats and an
+  unbegun upload ticket); the ticket is cancelled with its job by the same atomic remove the PUT takes it with
+  (`Uploads.cancel`); a thread per job; a stats caller waits on the job's end (`SlottedFiles.du` through `start`);
+  an upload's bytes are its progress (`Ticket.onBytes`); an upload is placed by a link that refuses an existing name
+  (`Uploads.placeNoReplace`; "cannot tell" = taken); the trash writes its row (forced) before the move, and a failed
+  move takes it away; `trashList` marks a row `missing` and restore refuses it; an unreadable manifest refuses trash,
+  restore and delete forever and is never overwritten; the trash folder is refused to every other writer, by a
+  normalized path; `moveEntry` across volumes copies to `.damage-move-<ms>-<n>.part`, forces it, places it with the
+  same link and only then deletes the source, deleting only what it made; a folder copy makes its destination itself
+  (`Files.createDirectory`) before the work; `Files.notExists` wherever a stat that cannot tell would read as absent on
+  a path that writes; the upload's socket keepalive 60 / 15 / 4. Access: `Access.ownBrowser`'s three conditions (each
+  pinned by a variant that drops it); an unreadable or undecodable `devices.json` set aside with a date, never a state
+  that waits on a restart. The watcher: the token file read again once a minute while unusable or refused, a refused
+  token never sent again (`HaReader.sends`), the silent clock restarted when polling resumes, a late answer of a
+  replaced reader never latches the new one; a stalled nightly copy raises its alert. The phone's channels: a quick
+  request with no answer for 60 s drops the connection (`RemoteWin.request(quick = true)`). The pages: a `proto` end
+  reloads, two unanswered pings remake the socket (`Conn.drop`), the reach line names the day; a `retry` said in the
+  page's words (`proto.mjs` `pageWords`); a register value drawn until `seen` is dropped when the record shows it or a
+  later input (`files-model.mjs` `settled`); a PUT ended before its body began remakes the connection
+  (`views/files.mjs` `letGo`); a place op stamped with his input's time only, and one answered `ended` sent again at
+  the next welcome; `BundleTest` pins the policy (only `style-src` carries `unsafe-inline`) and that the pages'
+  `PROTO` equals `AppWire.PROTO`.
 - **APK 0.64's (`HANDOFF.md` §76).** The compositor: the base's rule is made by the
   reference walk (`hole`); `settled` in the plan loop; one proof per grown box per assemble (`failedProofs`); a
   batch's sub-messages are budgeted, 254 given out and one kept for the hint (`Compositor.subsLeft`; `batch-count`).
@@ -1121,8 +1193,9 @@ These mechanisms are load-bearing and easy to break by accident:
 
 ## Verification
 
-The battery is `CLAUDE.md`'s list; **the current counts are `REMINDER.md`'s** (at S1-1's end gate, simulator: core 1,355
-· desktop 45 · `--selfcheck` 484 PASS lines ×3 · 58 snapshot renders + 11 in `phone/` · node 31 · lint 0). The phone build runs in its own gradle call
+The battery is `CLAUDE.md`'s list; **the current counts are `REMINDER.md`'s** (at L1's gate's first run, simulator,
+before the last fix stage: core 1,413 · desktop 48 · `--selfcheck` 484 PASS lines ×3 · 67 snapshot renders + 31 in
+`phone/` · node 113 · lint 0). The phone build runs in its own gradle call
 (`:phone:assembleDebug` — `:phone:stageApk` STAGES the APK for install and is never a battery step). The fork:
 `tools/verify.py` · `host/run_vectors.py` · `host/run_self_test.py` · `host/test_damage_ext.py`.
 Every review's pins were run against the unfixed tree and watched to fail before they counted.
@@ -1134,8 +1207,9 @@ Every review's pins were run against the unfixed tree and watched to fail before
   `SeamMirrorTest`, `SeamSessionTest`, `ReplicaServerTest`, `PathTransportTest`, `LongPressTest`;
   `LensOracleTest`, `Round5Test`–`Round7Test`, `L2ProbeTest`; `SeamLivenessTest`, `HandoverTest`, `SyncTest`,
   `StyleTest`, `BatteryBrightnessTest`, `EpubChaptersImagesTest`; `TmuxTest`; `SubstrateTest` (its Reader continuity
-  test retired for `ReaderArrangementsTest` in S1-1; with it `ReaderMigrationTest`, `ReaderPositionTest`,
-  `ReaderCoreTest`, the record's, the lane's, the working copy's and the web's tests), `FilesTest`, `ReviewRound1Test`; `TorrentsTest`, `KeyboardTest`; the Music set;
+  test retired for `ReaderArrangementsTest` in S1-1; with it `ReaderPositionTest`, `ReaderCoreTest`, the record's, the
+  lane's, the working copy's and the web's tests), `FilesTest`, `FilesTrashTest`, `FilesMoveTest`, `FilesJobsTest`,
+  `UploadTest`, `ReviewRound1Test`; `TorrentsTest`, `KeyboardTest`; the Music set;
   `Round9Test`; `Review20260903Test`; `ActivationTest`, `GamesKitTest`, `HoldemEngineTest` (the 3,000-scenario
   side-pot oracle, the 2,000-hand ranking corpus), `HoldemBotTest`, `GamesWindowTest`,
   `GamesReview20260904Test`, `GamesLive20260904Test`; `Review20260905Test`; `OracleWalkTest` (a seeded random

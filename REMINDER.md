@@ -1,83 +1,99 @@
 # Where we are, and what to do next
 
 **The entry point for a fresh session**: what is true now, what is next, where the records are; history lives in
-`HANDOFF.md`. Read `CLAUDE.md` → this file → **`HANDOFF.md` §80** (S1-1, APK 0.67; the lead's calls he may reverse
-at its head) → **§79** (0.66, the alert watcher W; what is owed on glass) → **`REPLAN.md`** (§14 his rulings, §15.1
-his answers, §16 the sized plan) → **`CONTRACT.md`** (before any S1 work) → `FIRMWARE.md` / `FORK.md` for firmware →
-§78 (step A) → §77 (0.65) → §76 (0.64) → §75 → §74 (upstream) → §73 (its addendum: the two silent modes) → earlier by
-number (§65 Phase 2 and the protocol, §48 the fork). Firmware facts: `CLAIMS.md` → `research/fork-reads-2026-09-13.md`.
+`HANDOFF.md`. Read `CLAUDE.md` → this file → **`HANDOFF.md` §84** (the cleanup L0 and L1; the lead's calls he may
+reverse, 84.2) → **§85** (build C1, a firmware candidate, not flashed; what the flash conversation needs) → §83 (his
+lean correction) → **§80** (S1-1, APK 0.67) → **§79** (0.66, the alert watcher W; what is owed on glass) →
+**`REPLAN.md`** (§17 the order of work as corrected; §14 his rulings) → **`CONTRACT.md`** (before any window or interface
+work) → `FIRMWARE.md` / `FORK.md` for firmware → §78 (step A) → §77 (0.65) → §76 (0.64) → §75 → §74 (upstream) → §73
+(its addendum: the two silent modes) → earlier by number (§65 Phase 2 and the protocol, §48 the fork). Firmware facts:
+`CLAIMS.md` → `research/fork-reads-2026-09-13.md`.
 
 ## Where we are (2026-11-17)
 
-**Nothing is running. Two things happened that change how work resumes:**
+**Two things happened that change how work resumes, and one build is done:**
 1. **The PC stopped responding for five hours on 11-16** because a build stage's test process allocated without bound
    (`HANDOFF.md` §82). Sessions now run inside a memory-capped cgroup; the rules are `CLAUDE.md`, "Running builds on
    this machine". Check `cat /proc/self/cgroup` reads `/claude-work` before anything heavy.
 2. **Adam corrected the direction on 11-17** (`HANDOFF.md` §83; `CLAUDE.md`, "What is worth building"; `REPLAN.md`
    §17): a clean single-user system on several surfaces, the latest real input wins, robust before defended, an agent
    swarm on real usage as the end. Read those three before proposing or building anything.
+3. **The cleanup of what was written is built** (L0 the audit, L1 the build; `HANDOFF.md` §84): the record ordered by
+   input time, the conflict machinery, migrations, mixed-build handling and the app layer's mutation lists out; the
+   Files supervisor and the file-safety fixes, the record's log reopened by itself, the desk browser approving itself,
+   the pages recovering by themselves in. S1-2 (notices, Torrents, Files) is finished through it. `CONTRACT.md`,
+   `IMPLEMENTATION.md` and `DAILY.md` describe the tree as it now is.
 
 **On his devices:** APK 0.67 is installed (seen in the PC's log on 11-15: the phone on the `app` lane, its migration
 taken). The PC service runs `main` with the page fix of §80.14 (`58110b0`, since 11-15 16:42; restarted by the 11-16
 reboot). The glasses run the fork's installed image (pin `48172b62…`). No browser of his is approved yet; he has not
-said he has used the pages.
+said he has used the pages. TODO-LEAD: the PC deploy of 0.68, if the lead makes it, and its time.
 
-**Built and waiting, all on LOCAL branches (nothing of it pushed, staged or flashed):**
+**Built and waiting, all on LOCAL branches (nothing of it pushed, installed or flashed):**
 
 | build | where | state |
 |---|---|---|
-| C1 (the first flash's build: motion programs) | fork `c1` `a512b77` (candidate pin `fa931b60…`); Damage `wip/068` `d1032e3` | the C and the simulator agree on 50 vectors and two fuzz seeds; two review passes ruled; fix round 3: the Damage half is a WIP commit (not gated), the fork half (verify steps 6–8 tightened, mode 25's flag re-check) not started; then fill and compare (`v3-rulings3` is unfilled), one focused read, the battery, the records |
-| S1-2 (notice record, Torrents, Files) | `wip/069` `3357d0e` (merged, end gate green); page fixes `wip/069-webfix` `02b2ab2` (WIP) | review pass 1 found 3 MUST-FIX and 7 SHOULD; **its rulings are to be made again by the three tests** before any fix is built (`REPLAN.md` §17.3 item 2) |
-| S1-3 (Feed, Tmux) | pages only: `wip/070-web` `12ae299` (Feed page; Tmux page as a colour grid) | Kotlin not started and to be specified again, lean; the terminal emulator waits for his word (17.2 item 3) |
+| L1 (the cleanup; S1-2 inside it) | `wip/l1` `bd39307` + FIX2 (TODO-LEAD: its commit) | the gate's first run green (§84.6); FIX2 builds the last rulings; then merged with C1's Damage half and gated once as APK 0.68 (TODO-LEAD: the merge commit and the gate's counts) |
+| C1 (the first flash's build: motion programs) | fork `c1` `561f8b7` (candidate pin `0dab2154…`); Damage `wip/068` `f72f67f` | built, two review passes and a focused read ruled, the fork and the simulator agree on 51 vectors and both fuzz sets (§85); **next: stage DM1, the Kotlin mutation sweep** (TODO-LEAD: its numbers); NOT flashed |
+| S1-3 (Feed, Tmux) | pages only: `wip/070-web` `12ae299` (Feed page; Tmux page as a colour grid) | Kotlin not started and to be specified again, lean; the pages now allow inline styles, so the terminal emulator can run (the lead's call, §84.2) |
 | S1-4 (Music) | a spec only | five questions are his (below) |
 | C2 (the second flash) | its design challenge only | 3 MUST-FIX in the design; the narrow shape is preferred (17.3 item 5) |
 
-The counts on `main`: core 1,355 · desktop 45 · `--selfcheck` 484 · node 43 (with the look harness) · lint 0.
-The briefs, rulings and reports of every stage are in the gitignored `private/build068` … `build071`, `c1-design`,
-`c2-design`; **`private/RESUME.md` is the working handoff** (what each branch holds, what was lost, the exact next
-stage of each build, how lanes are started safely).
+The counts on the L1 tree, **before the last gate** (the gate's first run, `c4b563b`, simulator): core 198 classes /
+1,413 tests · desktop 48 · `--selfcheck` 484 PASS ×3 · snapshot 67 renders + 31 in `phone/`, 0 px outside the mask ·
+node 113 · lint 0 · wiring 67 ok. TODO-LEAD: the counts of the last gate on the merged 0.68 tree.
+The briefs, rulings and reports of every stage are in the gitignored `private/build068` … `build071`, `lean`,
+`c1-design`, `c2-design`; **`private/RESUME.md` is the working handoff** (what each branch holds, the exact next stage
+of each build, how lanes are started safely).
 
 ## Next
 
-1. **The cleanup of what is already written:** L0, the lean audit (read-only), his ruling, then L1, the cleanup
-   build (`REPLAN.md` §17.3 item 0). No new app-layer feature before it. **Every run: its size and what he gets for
-   it first, both meters read before and after** (`REPLAN.md` §17.6).
-2. **C1 to its end** under the full protocol; **S1-2 to its end, lean**; then deploy 2 and **his use of it** before
-   anything more is stacked.
-3. **His, whenever he likes:** the terminal emulator (allow inline styles for the page, or keep the grid); Music's
-   five questions (where the PC plays; away with the output on the PC; a service restart while the PC plays; earbud
-   taps while the PC output is chosen; what the PC plays and how loud); a hardware watchdog for the PC (R-c); one
-   restart of the right lens on today's firmware before C1's flash, to read whether firmware state survives it; the
-   fork's push; "delete" for the stray private page (§79.8); which alerts are urgent.
-4. **The first days of 0.66 and 0.67** (§79.9, §80.10) are still unread on his devices.
+The order is `REPLAN.md` §17.3; its item 0 (L0, L1) is done. **Every run: its size and what he gets for it first, both
+meters read before and after** (`REPLAN.md` §17.6).
+1. **C1 to its end** under the full protocol: stage DM1 (the Kotlin mutation sweep on the glasses' wire, and
+   `FidRingStartTest`'s one miss settled), then C1's Damage half merged with L1 and the whole battery once on the
+   merged tree as APK 0.68 (TODO-LEAD).
+2. **Deploy 2 and his use of it** (Reader, Torrents, Files and notices on the web; C1's phone half inert until its
+   flash): the PC deploy and his install together. The four held-back away rules are armed by the lead at that deploy,
+   with a copy of his rule file kept beside it. Nothing more is stacked until he has used it.
+3. **S1-3** (its pages exist; its Kotlin specified again, lean), then **S1-4** (Music: five questions are his), **S1-5**
+   (the alerts onto the notice record), then §16.1's order.
+4. **C2's design** goes on from its challenge with the narrow shape preferred.
+5. **The first days of 0.66 and 0.67** (§79.9, §80.10) are still unread on his devices.
 
-## The first sitting of 0.67 (his; the install notes)
+**What waits on him:** installing APK 0.68 (TODO-LEAD: its path, once staged); C1's flash (his in-the-moment go, the
+dry run first, `HANDOFF.md` §85's checklist, after 0.68 has run for a day); Music's five questions (where the PC plays;
+away with the output on the PC; a service restart while the PC plays; earbud taps while the PC output is chosen; what
+the PC plays and how loud). Also his, whenever he likes: the lead's calls in §84.2 (each reversible); a hardware
+watchdog for the PC (R-c); one restart of the right lens on today's firmware before C1's flash, to read whether
+firmware state survives it; the fork's push; "delete" for the stray private page (§79.8); which alerts are urgent.
 
-- **The PC is done** (§80.13, 11-14 16:25): its first start wrote `record.json`, `oplog.jsonl`, `record.seq`,
-  `reader-index.json` and `local.secret` (mode 600) into `~/.damage` and moved 16 places and 3 rows into the record, none
-  refused; `devices.json` comes with the first approval. Port 7405 is open behind the reach gate.
-- **Between the PC deploy and his install, Reader's places do not cross between the phone and the PC** (the new PC
-  ignores the old sync keys); the install's migration then judges them: newer wins between the phone's and the PC's old
-  records, the loser said once. A book read in the BROWSER between the two keeps the browser's place (a place written
-  after the conversion is never replaced by an older build's record); the phone's is said once and offered with `Go
-  there`.
-- **His install**; then the `migrate` notes on both hosts and his current book's place unchanged on the glasses.
-- **The pages could not act until 11-15 16:42** (§80.14: the page never took the PC's reach; fixed and deployed).
-- **His desk browser:** `http://localhost:7405/` shows a code (the PC's own name does not resolve on the PC; from
-  another device the PC's name or its tailnet address, port 7405); `java -jar ~/.damage/damage.jar --devices` lists it, `…
-  --approve CODE full` approves it (`DAILY.md`). Then the shelf and a book (chapters, emphasis, links, pictures); the
-  place both ways (read at the desk → the glasses' next Reader entry lands there; read on the glasses → the page offers
-  `Go there`); every visual item §80.10 lists.
-- **The phone's browser** approved from the desk's devices page; **the PC out of reach once** (the phone reads on, the
-  queue drains on return); one glassdrive pass on Reader if he asks.
-- **The way back:** the previous jar and APK are in `~/.damage/backup/`; an older build ignores the new files and reads
-  its own state (Reader keeps writing today's local keys); places read on it are judged at the next upgrade (R1 1.3).
+## The first sitting of 0.68 (his; the install notes)
+
+- **The PC deploy** (TODO-LEAD: done or not, and when). Its first start rewrites `record.json` in the new shape (its
+  items kept: the gate's upgrade check on a copy of his data found 20 of 20 equal), leaves `record.seq` unread, and
+  writes one `migrate` note naming the Torrents and Files rows it took from their old records.
+- **His install** of the APK; then his current book's place unchanged on the glasses, and Files' Sort, Hidden and
+  Size on the glasses as he left them.
+- **His desk browser:** `http://localhost:<webPort>/` on the PC approves itself at full, with no command (`DAILY.md`).
+  Then the shelf and a book; the place both ways (read at the desk → the glasses' next Reader entry lands there; read
+  on the glasses → the open page goes there by itself); Torrents and Files on the page; a notice dismissed on one
+  surface leaves the others.
+- **The phone's or the TV's browser:** opened at the PC's name or tailnet address with the web port, approved from the
+  desk browser's Devices page.
+- **The PC out of reach once** (the phone reads on, the queue drains on return; a place read on the glasses meanwhile
+  does not overwrite a later one set at the desk).
+- **The way back:** the previous jar and APK are in `~/.damage/backup/` (TODO-LEAD: confirm both are kept at the
+  deploy). Downgrades are not built: 0.67's decoder requires record fields that 0.68 no longer writes (the audit's
+  reading of 0.67's `RecordStore.decode`; how 0.67 starts on 0.68's files is unchecked), so a way back would also need
+  the nightly copy's `record.json` from before the deploy. Read that before using it.
 
 **His calls** (list kept here once): installing an APK; granting location "Allow all the time"; every
 `tools/glassdrive.py` line; the wear-detection switch; a phone-side Silent Mode write; any flash; rotating the token;
 the fork's push; the three firmware calls at their flashes (`FIRMWARE.md`, the note above §5). Also his: the lead's
-calls at §80's head and §79's head; the removal of the private claude.ai page (§79.8); the TV check (`REPLAN.md` §15
-C1); the helper's token; re-adding the appliances to the hub; §77.10 items 2–10, §76.10's open calls; the Feed tapper.
+calls at §84.2, §80's head and §79's head; the removal of the private claude.ai page (§79.8); the TV check (`REPLAN.md`
+§15 C1); the helper's token; re-adding the appliances to the hub; §77.10 items 2–10, §76.10's open calls; the Feed
+tapper.
 
 **Open reads, by the old item numbers** (cited elsewhere). **1** the status cell (§69): his eye on legibility at 140 px;
 the first real notice. **2** page staging's second read (§66.1): arm PRESENTED (`probe:flags=0x8005`, his word; in
@@ -140,15 +156,15 @@ is PC-direct only — price nothing with it.
 | 25 | **The arm rebuilds' cause** (§42.2) — REBOOTS (§65: five on 09-16, all in the case); none in 25.3 days to 11-13 (§79.5) | the case's top-up cycle (I, §70) |
 | 26 | **The wake loop's cause** (§42.3) | the `keeper: start failed: …` notes name it |
 | 28 | **True user-perceived latency** (ring press → visible change; the ack is a lower bound) | `FORK.md` M0.2 |
-| — | **0.66's in-case start and wake, `damage.phone` away, Android's position rate; 0.67's migration on his stores, `Go there` on glass, the pages in a browser** | §79.9, §80.10 |
+| — | **0.66's in-case start and wake, Android's position rate; `Go there` on glass; 0.68 on his devices: the desk browser approving itself, the Reader page following, Torrents' and Files' pages, notices across surfaces** | §79.9, §80.10, §84 |
 | — | **Cheap probes nobody has run:** the CFW logger service (sid 0x0F — M0.5); the file-export service (sid 198/199) | `NOT_SUPPORT` is a safe answer |
 
 ## Standing rules (pointers)
 
 The rules are `CLAUDE.md`'s. Not there: `handleMs` in the journal INCLUDES the assemble (§35.1); in a live walk never
 scroll in Music's root, and the tmux pane's SECOND tap is the keys list (a third sends a key); the report's per-gesture
-section judges every window (§42). **Not to be undone:** `IMPLEMENTATION.md` "Review hardening" (builds W's and S1-1's
-lists included) and its cache's §73 list; `FORK.md` Phase 2's envelope (a)–(f); the phone's and the PC's own firmware
+section judges every window (§42). **Not to be undone:** `IMPLEMENTATION.md` "Review hardening" (builds W's, S1-1's
+and L1's lists included) and its cache's §73 list; `FORK.md` Phase 2's envelope (a)–(f); the phone's and the PC's own firmware
 model is told the build's contract (§62.3 item 1); the atlas recovers from the lapse itself, never from a status string
 (§64.2 item 3); op 5's success from op 5's OWN reply, never the sticky status register (§63.3 item 3); only statuses 2
 and 3 answer a flag arming (§62.3 item 2); a mode-24 partial refresh only while the panel shows the whole previous frame
