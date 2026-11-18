@@ -759,6 +759,14 @@ what an actor may do; the snapshot judge; one look at every page in a real brows
    `REMINDER.md`), **S1-5**, then §16.1's order.
 5. **C2's design** goes on from its challenge with the narrow shape preferred: a click acts only on the row the phone
    itself holds, so no lost or late message can move it.
+6. **Amended by Adam on 2026-11-18** (`HANDOFF.md` §91). New firmware features are armed and tested at once, not one
+   stage per day of soak ("enable all the stuff, we need to test this new stuff asap"). **C2's build starts now**
+   (the engine's four test programs looked "perfect" to him at stage 3; S1-4 waits on his five answers). **After C2,
+   the motion kit's shell part** (§16.1's K1: the player and the scheduler, the Global `Motion` row; window open and
+   close, popovers, the wheel and Main's motion played by C1's engine) **comes before S2** (the TV, the phone's
+   screen, the desktop) — his yes to the lead's recommendation, on his priority of "smooth quick animations for all
+   the movements and transitions". The lead's placement inside that yes: directly after C2, with S1-5 beside or after
+   it.
 
 ### 17.4 Robustness items (each small; sized when its turn comes)
 
