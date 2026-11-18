@@ -80,7 +80,9 @@
   "tests": [
    "*MotionTransportTest*"
   ],
-  "expect": "(no pin yet: an absent file - the first run - says 'could not be read' once)",
+  "expect": [
+   "(no pin yet: an absent file - the first run - says 'could not be read' once)"
+  ],
   "note": "build C1-P: the first run says a false note"
  },
  {
@@ -215,7 +217,9 @@
   "tests": [
    "*MotionTransportTest*"
   ],
-  "expect": "(no pin: the probe's thread racing a start's hold-back; a single-threaded test cannot order it)",
+  "expect": [
+   "(no pin: the probe's thread racing a start's hold-back; a single-threaded test cannot order it)"
+  ],
   "note": "build C1-P: the stage and its file can end different"
  },
  {
@@ -230,7 +234,9 @@
   "tests": [
    "*MotionTransportTest*"
   ],
-  "expect": "(no pin: only a power loss right after the write shows it)",
+  "expect": [
+   "(no pin: only a power loss right after the write shows it)"
+  ],
   "note": "build C1-P: the stored stage is not forced to disk"
  }
 ]
