@@ -25,10 +25,11 @@ work) → `FIRMWARE.md` / `FORK.md` for firmware → §78 (step A) → §77 (0.6
    `IMPLEMENTATION.md` and `DAILY.md` describe the tree as it now is.
 
 **On his devices:** APK 0.67 is installed as far as the PC's log shows (at the 0.68 PC's start its phone asked for
-the lane with protocol 2). **The PC service runs APK 0.68's tree (`main` `e4aa770`) since 2026-11-17 19:30**: the
+the lane with protocol 2). **The PC service runs APK 0.69's tree (`main` `1153ded`) since 2026-11-17 21:51** (0.68's `e4aa770` ran from 19:30): the
 record opened with its epoch kept, seq 157 and 20 entries; the one migration pass wrote 2 Torrents rows and 2 Files
-rows; 21 alert rules kept, none refused (the four away rules among them, live since this start). **APK 0.68 is staged
-on the setup page, not installed.** Until it is: the PC ends the 0.67 phone's lane at its hello (`proto`; the phone says
+rows; 21 alert rules kept, none refused (the four away rules among them, live since this start). **APK 0.69 is staged
+on the setup page, not installed** (0.68 was staged from 19:32 and never installed; 0.69 is 0.68 plus build Q,
+`HANDOFF.md` §86: Tmux's tap in scrollback, Music's switch to Spotify, the phone's log kept 10 days). Until it is: the PC ends the 0.67 phone's lane at its hello (`proto`; the phone says
 the builds differ, asks again every 30 s and reads on from its own copy), while its other channels (music, torrents,
 files, tmux, the alerts, sync) attached as before. The glasses run the fork's installed image (pin `48172b62…`). No
 browser of his is approved yet; he has not said he has used the pages.
@@ -65,20 +66,21 @@ meters read before and after** (`REPLAN.md` §17.6).
 4. **C2's design** goes on from its challenge with the narrow shape preferred.
 5. **The first days of 0.66 and 0.67** (§79.9, §80.10) are still unread on his devices.
 
-**What waits on him:** installing APK 0.68 (staged 2026-11-17 19:32 on the PC's setup page, `DAILY.md`); C1's flash (his in-the-moment go, the
+**What waits on him:** installing APK 0.69 (staged 2026-11-17 21:52 on the PC's setup page, `DAILY.md`); C1's flash (his in-the-moment go, the
 dry run first, `HANDOFF.md` §85's checklist, after 0.68 has run for a day); Music's five questions (where the PC plays;
 away with the output on the PC; a service restart while the PC plays; earbud taps while the PC output is chosen; what
 the PC plays and how loud). Also his, whenever he likes: the lead's calls in §84.2 (each reversible); a hardware
 watchdog for the PC (R-c); one restart of the right lens on today's firmware before C1's flash, to read whether
 firmware state survives it; the fork's push; "delete" for the stray private page (§79.8); which alerts are urgent.
 
-## The first sitting of 0.68 (his; the install notes)
+## The first sitting of 0.69 (his; the install notes)
 
 - **The PC deploy** is done (2026-11-17 19:30). Its first start rewrote `record.json` in the new shape (its
   items kept: 20 entries after the start, as the gate's upgrade check on a copy of his data found), left `record.seq`
   unread, and wrote two `migrate` lines naming the Torrents and Files rows it took from their old records.
 - **His install** of the APK; then his current book's place unchanged on the glasses, and Files' Sort, Hidden and
-  Size on the glasses as he left them.
+  Size on the glasses as he left them. New in 0.69 for him to meet: a tap does nothing in Tmux's scrollback; a
+  Spotify he plays on the phone takes over the Music window; a stream the PC cannot serve switches to Spotify.
 - **His desk browser:** `http://localhost:<webPort>/` on the PC approves itself at full, with no command (`DAILY.md`).
   Then the shelf and a book; the place both ways (read at the desk → the glasses' next Reader entry lands there; read
   on the glasses → the open page goes there by itself); Torrents and Files on the page; a notice dismissed on one
@@ -87,7 +89,8 @@ firmware state survives it; the fork's push; "delete" for the stray private page
   desk browser's Devices page.
 - **The PC out of reach once** (the phone reads on, the queue drains on return; a place read on the glasses meanwhile
   does not overwrite a later one set at the desk).
-- **The way back:** the previous jar (`damage-0.67-c66bb87.jar`) and APK (`damage-wm-0.67.apk`) are in
+- **The way back:** the previous jars (`damage-0.68-e4aa770.jar`, `damage-0.67-c66bb87.jar`) and APKs
+  (`damage-wm-0.68.apk`, `damage-wm-0.67.apk`) are in
   `~/.damage/backup/`, and the service's data files as they stood before 0.68's first start are in
   `~/.damage/backup/pre-068/` (the record, its log and sequence file, the reader index, the store, the journal, the
   alert store, the 17-rule file, the trash manifest). Downgrades are not built: 0.67's decoder requires record fields
