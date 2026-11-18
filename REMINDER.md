@@ -24,24 +24,28 @@ work) → `FIRMWARE.md` / `FORK.md` for firmware → §78 (step A) → §77 (0.6
    the pages recovering by themselves in. S1-2 (notices, Torrents, Files) is finished through it. `CONTRACT.md`,
    `IMPLEMENTATION.md` and `DAILY.md` describe the tree as it now is.
 
-**On his devices:** APK 0.67 is installed (seen in the PC's log on 11-15: the phone on the `app` lane, its migration
-taken). The PC service runs `main` with the page fix of §80.14 (`58110b0`, since 11-15 16:42; restarted by the 11-16
-reboot). The glasses run the fork's installed image (pin `48172b62…`). No browser of his is approved yet; he has not
-said he has used the pages. TODO-LEAD: the PC deploy of 0.68, if the lead makes it, and its time.
+**On his devices:** APK 0.67 is installed as far as the PC's log shows (at the 0.68 PC's start its phone asked for
+the lane with protocol 2). **The PC service runs APK 0.68's tree (`main` `e4aa770`) since 2026-11-17 19:30**: the
+record opened with its epoch kept, seq 157 and 20 entries; the one migration pass wrote 2 Torrents rows and 2 Files
+rows; 21 alert rules kept, none refused (the four away rules among them, live since this start). **APK 0.68 is staged
+on the setup page, not installed.** Until it is: the PC ends the 0.67 phone's lane at its hello (`proto`; the phone says
+the builds differ, asks again every 30 s and reads on from its own copy), while its other channels (music, torrents,
+files, tmux, the alerts, sync) attached as before. The glasses run the fork's installed image (pin `48172b62…`). No
+browser of his is approved yet; he has not said he has used the pages.
 
-**Built and waiting, all on LOCAL branches (nothing of it pushed, installed or flashed):**
+**Built (L1 and C1's Damage half are on `main` and pushed; nothing of C1 is flashed):**
 
 | build | where | state |
 |---|---|---|
-| L1 (the cleanup; S1-2 inside it) | `wip/l1` `bd39307` + FIX2 (TODO-LEAD: its commit) | the gate's first run green (§84.6); FIX2 builds the last rulings; then merged with C1's Damage half and gated once as APK 0.68 (TODO-LEAD: the merge commit and the gate's counts) |
-| C1 (the first flash's build: motion programs) | fork `c1` `561f8b7` (candidate pin `0dab2154…`); Damage `wip/068` `f72f67f` | built, two review passes and a focused read ruled, the fork and the simulator agree on 51 vectors and both fuzz sets (§85); **next: stage DM1, the Kotlin mutation sweep** (TODO-LEAD: its numbers); NOT flashed |
+| L1 (the cleanup; S1-2 inside it) | `main` `e4aa770` (FIX2 `c82487b`; merged with C1's Damage half `2d414c2`; the lane protocol 3 `e87bf35`) | done: two fix stages, the last gate green on the merged tree (§84.6), deployed on the PC, APK 0.68 staged |
+| C1 (the first flash's build: motion programs) | fork `c1` `561f8b7` (candidate pin `0dab2154…`); Damage `wip/068` `f72f67f` | built, two review passes and a focused read ruled, the fork and the simulator agree on 51 vectors and both fuzz sets (§85); its Damage half is on `main` (inert on today's firmware); **stage DM1, the Kotlin mutation sweep, was still running at this record** (its tests go to `main` when it ends; §85); NOT flashed |
 | S1-3 (Feed, Tmux) | pages only: `wip/070-web` `12ae299` (Feed page; Tmux page as a colour grid) | Kotlin not started and to be specified again, lean; the pages now allow inline styles, so the terminal emulator can run (the lead's call, §84.2) |
 | S1-4 (Music) | a spec only | five questions are his (below) |
 | C2 (the second flash) | its design challenge only | 3 MUST-FIX in the design; the narrow shape is preferred (17.3 item 5) |
 
-The counts on the L1 tree, **before the last gate** (the gate's first run, `c4b563b`, simulator): core 198 classes /
-1,413 tests · desktop 48 · `--selfcheck` 484 PASS ×3 · snapshot 67 renders + 31 in `phone/`, 0 px outside the mask ·
-node 113 · lint 0 · wiring 67 ok. TODO-LEAD: the counts of the last gate on the merged 0.68 tree.
+The counts of APK 0.68's tree (the last gate, simulator): core 203 classes / 1,499 tests · desktop 12 / 51 ·
+`--selfcheck` 484 PASS ×3 · snapshot 67 renders + 31 in `phone/`, 0 px outside the mask · the 51 conformance vectors in
+both forms · `--motion-check` 4 programs hold · node 118 · lint 0 · wiring 67 ok.
 The briefs, rulings and reports of every stage are in the gitignored `private/build068` … `build071`, `lean`,
 `c1-design`, `c2-design`; **`private/RESUME.md` is the working handoff** (what each branch holds, the exact next stage
 of each build, how lanes are started safely).
@@ -51,8 +55,8 @@ of each build, how lanes are started safely).
 The order is `REPLAN.md` §17.3; its item 0 (L0, L1) is done. **Every run: its size and what he gets for it first, both
 meters read before and after** (`REPLAN.md` §17.6).
 1. **C1 to its end** under the full protocol: stage DM1 (the Kotlin mutation sweep on the glasses' wire, and
-   `FidRingStartTest`'s one miss settled), then C1's Damage half merged with L1 and the whole battery once on the
-   merged tree as APK 0.68 (TODO-LEAD).
+   `FidRingStartTest`'s one miss settled). C1's Damage half is merged with L1 and the whole battery ran on the
+   merged tree as APK 0.68 (done, §84.6).
 2. **Deploy 2 and his use of it** (Reader, Torrents, Files and notices on the web; C1's phone half inert until its
    flash): the PC deploy and his install together. The four held-back away rules are armed by the lead at that deploy,
    with a copy of his rule file kept beside it. Nothing more is stacked until he has used it.
@@ -61,7 +65,7 @@ meters read before and after** (`REPLAN.md` §17.6).
 4. **C2's design** goes on from its challenge with the narrow shape preferred.
 5. **The first days of 0.66 and 0.67** (§79.9, §80.10) are still unread on his devices.
 
-**What waits on him:** installing APK 0.68 (TODO-LEAD: its path, once staged); C1's flash (his in-the-moment go, the
+**What waits on him:** installing APK 0.68 (staged 2026-11-17 19:32 on the PC's setup page, `DAILY.md`); C1's flash (his in-the-moment go, the
 dry run first, `HANDOFF.md` §85's checklist, after 0.68 has run for a day); Music's five questions (where the PC plays;
 away with the output on the PC; a service restart while the PC plays; earbud taps while the PC output is chosen; what
 the PC plays and how loud). Also his, whenever he likes: the lead's calls in §84.2 (each reversible); a hardware
@@ -70,9 +74,9 @@ firmware state survives it; the fork's push; "delete" for the stray private page
 
 ## The first sitting of 0.68 (his; the install notes)
 
-- **The PC deploy** (TODO-LEAD: done or not, and when). Its first start rewrites `record.json` in the new shape (its
-  items kept: the gate's upgrade check on a copy of his data found 20 of 20 equal), leaves `record.seq` unread, and
-  writes one `migrate` note naming the Torrents and Files rows it took from their old records.
+- **The PC deploy** is done (2026-11-17 19:30). Its first start rewrote `record.json` in the new shape (its
+  items kept: 20 entries after the start, as the gate's upgrade check on a copy of his data found), left `record.seq`
+  unread, and wrote two `migrate` lines naming the Torrents and Files rows it took from their old records.
 - **His install** of the APK; then his current book's place unchanged on the glasses, and Files' Sort, Hidden and
   Size on the glasses as he left them.
 - **His desk browser:** `http://localhost:<webPort>/` on the PC approves itself at full, with no command (`DAILY.md`).
@@ -83,10 +87,12 @@ firmware state survives it; the fork's push; "delete" for the stray private page
   desk browser's Devices page.
 - **The PC out of reach once** (the phone reads on, the queue drains on return; a place read on the glasses meanwhile
   does not overwrite a later one set at the desk).
-- **The way back:** the previous jar and APK are in `~/.damage/backup/` (TODO-LEAD: confirm both are kept at the
-  deploy). Downgrades are not built: 0.67's decoder requires record fields that 0.68 no longer writes (the audit's
-  reading of 0.67's `RecordStore.decode`; how 0.67 starts on 0.68's files is unchecked), so a way back would also need
-  the nightly copy's `record.json` from before the deploy. Read that before using it.
+- **The way back:** the previous jar (`damage-0.67-c66bb87.jar`) and APK (`damage-wm-0.67.apk`) are in
+  `~/.damage/backup/`, and the service's data files as they stood before 0.68's first start are in
+  `~/.damage/backup/pre-068/` (the record, its log and sequence file, the reader index, the store, the journal, the
+  alert store, the 17-rule file, the trash manifest). Downgrades are not built: 0.67's decoder requires record fields
+  that 0.68 no longer writes (the audit's reading; how 0.67 starts on 0.68's files is unchecked), so a way back is the
+  old jar WITH those files, and loses what was written after the deploy. Read that before using it.
 
 **His calls** (list kept here once): installing an APK; granting location "Allow all the time"; every
 `tools/glassdrive.py` line; the wear-detection switch; a phone-side Silent Mode write; any flash; rotating the token;
