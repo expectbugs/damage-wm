@@ -244,6 +244,16 @@ class FeedWindowTest {
             r.back()
             awaitTrue("root") { r.win.title() == "feed" }
             awaitTrue("forgotten") { r.feed.ops.any { it == "forget:r:linux" } }
+            // S1-3 fix B4: a source a page is reading (browsed on the PC's engine) is not the glasses' to forget —
+            // entering Feed from Main twice: the first entry lists it, the second would have forgotten it
+            r.feed.browse(SourceKind.REDDIT, "rust")
+            r.back(); awaitTrue("main") { r.shell.currentWindowId() == null }
+            r.tap(); awaitTrue("the page's source listed") { r.win.title() == "feed" && r.feed.ops.any { it.startsWith("items:r:rust:") } }
+            delay(300)
+            r.back(); awaitTrue("main again") { r.shell.currentWindowId() == null }
+            r.tap(); awaitTrue("root again") { r.win.title() == "feed" }
+            delay(300)
+            assertFalse(r.feed.ops.any { it == "forget:r:rust" }, "the page's source kept: ${r.feed.ops.takeLast(6)}")
         } finally { r.stop(); tmp.toFile().deleteRecursively() }
     }
 

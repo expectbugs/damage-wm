@@ -1087,14 +1087,19 @@ class FeedGlasses(
                 recents.remove(key); recents.addFirst(key)
                 while (recents.size > RECENTS) recents.removeLast()
                 send(FeedCore.recentDraft(if (kind == SourceKind.REDDIT) "reddit" else "slashdot", recents.toList()))
+                browsedHere += st.id
                 openItems(st.id)
             }
         }
     }
 
+    /** S1-3 fix B4: the sources these glasses browsed; a source a page is reading is never theirs to forget. */
+    private val browsedHere = HashSet<String>()
+
     /** A browsed source that was not pinned goes when its list is left. */
     private fun forgetUnpinned(except: String? = null) {
-        val gone = sources.filter { it.transient && it.id !in pinned && it.id != except }
+        val gone = sources.filter { it.transient && it.id in browsedHere && it.id !in pinned && it.id != except }
+        browsedHere.removeAll(gone.map { it.id }.toSet())
         if (gone.isEmpty()) return
         for (s in gone) { newCount.remove(s.id); bg.launch(Dispatchers.IO) { try { provider.forget(s.id) } catch (e: Exception) { Log.w("feed", "forget: ${e.message}") } } }
         sources = sources.filter { g -> gone.none { it.id == g.id } }
