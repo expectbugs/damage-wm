@@ -138,8 +138,8 @@ class BindSim(private val motion: MotionSim) {
             if (motion.slots[e.slot]?.local == true) return body(OUTCOME_REFUSED, REF_LOCAL)
             return body(OUTCOME_DREW)
         }
-        // 9: the new cursor and the parameters. READING: the parameters are taken in order 0..3 and the first that
-        // fails decides (an edge before a 12 only when it comes first)
+        // 9: the new cursor and the parameters, in index order: the first that gives an edge or 12 decides (ruled
+        // 2026-11-18, C2-decisions G.3)
         val c1 = l.cursor + e.step
         if (c1 !in 0 until l.count) return body(OUTCOME_EDGE)
         val p = IntArray(4)
@@ -185,15 +185,13 @@ class BindSim(private val motion: MotionSim) {
     // ------------------------------------------------------------------------------------------- mode 27
     /**
      * `[27][sub]…` (§6.3), alone or a batch's sub-message: the container's list (8: [inStep]) → length (1) → the lease
-     * (3) → the engine word claimed (14) → DRAW2 (9) → BIND (15) → values (12) → LIST's item table inside the cache (5)
+     * (3) → the engine word claimed (14) → DRAW2 (9) → ENGINE (15) → BIND (15) → values (12) → LIST's item table inside the cache (5)
      * → SET's program record, its own structure and no `self` (5) — then the write. Returns 0 or the reason; a refusal
      * changes nothing and sends no notify. Not gated: no present, no fid.
      *
      * READING: the values check reads the table as it is held — the empty table's emptying is a write, made after the
      * checks pass ("Only then is anything written") — so while `bind_live` is 0 SET's one-slot-per-list test still
      * sees the entries the last release point left (the other reading: an empty table from the release point on).
-     * READING: §6.3's check order names DRAW2 and BIND, not ENGINE, so a mode 27 is taken with ENGINE clear (§6.8's
-     * "needs ENGINE and DRAW2 … every fire and mode 27 is then refused 15" read as the fire's step 7).
      */
     fun op27(lens: Lens, src: ByteArray, inStep: Boolean): Int {
         if (inStep) return REF_MODE
@@ -206,6 +204,7 @@ class BindSim(private val motion: MotionSim) {
         try {
             val f = lens.flags
             if (f and FLAG_DRAW2 == 0) return REF_DRAW2
+            if (f and FLAG_ENGINE == 0) return REF_UNARMED         // ruled 2026-11-18 (C2-decisions G.2): ENGINE, then BIND
             if (f and FLAG_BIND == 0) return REF_UNARMED
             fun u8(i: Int) = src[i].toInt() and 0xFF
             val reason = when (sub) {

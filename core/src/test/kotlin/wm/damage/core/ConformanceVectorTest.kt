@@ -10,6 +10,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
@@ -47,6 +48,13 @@ import wm.damage.core.transport.Arm
  * (field 17 per lens). A missing one is a comparison silently skipped, so it is a problem, as `ref` is. Engine vectors
  * have no self-test form (a step presents nothing, and mode 26 in a step is refused); mode 25 runs live there, as 12
  * and 19 do.
+ *
+ * **C2** (`FIRMWARE.md` §6.10, §9; the lead's decisions on the build spec B.2 and B.7): `features` may be a list of the
+ * builds a vector answers alike on, and the model runs it at each, against the one set of expectations; the op
+ * `{"input": [devType, eventId, value]}` (with `"only": "L"`, LEFT alone) runs the record through each lens's input
+ * hook, and `{"page": on}` says whether the EvenHub page is in front; `N` carries notify-115 bodies too, in send order
+ * with the 114s, fields 15 and 16 dropped; a step of a vector every one of whose builds has bit 10 carries `K` (`{L, R}`:
+ * the stock dispatcher's calls in the step), and a missing one is a problem. Such a vector has no self-test form.
  */
 class ConformanceVectorTest {
 
@@ -128,32 +136,23 @@ class ConformanceVectorTest {
             val prefix = filledPrefix(name, steps, out)
             if (prefix == 0) continue
             val contract = vec["contract"]?.jsonPrimitive?.int ?: 1
-            val features = vec["features"]?.jsonPrimitive?.int
-            if (featuresOverride != null && features != null) continue      // the override is for vectors written without one
+            val sets = featureSets(vec)
+            if (featuresOverride != null && sets != null) continue      // the override is for vectors written without one
             out.ran += name
-            for (arm in Arm.entries) {
+            val c2Vector = sets != null && sets.all { it and BIND_FEATURE != 0 }
+            for (features in sets ?: listOf(featuresOverride)) for (arm in Arm.entries) {
                 val lens = if (arm == Arm.LEFT) "L" else "R"
-                val sim = newSim(contract, features ?: featuresOverride)
+                // one name per run: a vector run at two builds says which one disagreed
+                val name = if ((sets?.size ?: 0) > 1) "$name@0x${features!!.toString(16)}" else name
+                val sim = newSim(contract, features)
                 var now = 0L
                 steps.forEachIndexed { i, stepEl ->
                     val step = stepEl.jsonObject
                     val rcs = ArrayList<Int>()
-                    for (opEl in step["ops"]!!.jsonArray) {
-                        val op = opEl.jsonObject
-                        when {
-                            "tick" in op -> now = op["tick"]!!.jsonPrimitive.long
-                            "lease" in op -> sim.conformanceLease(arm, op["lease"]!!.jsonPrimitive.content == "acquire", now)
-                            "msg" in op -> rcs += if (sim.conformanceMessage(arm, hex(op["msg"]!!.jsonPrimitive.content), now)) 0 else -1
-                            "flags" in op -> sim.conformanceControl(arm, wm.damage.core.wire.DamageMsg.OP_FLAGS_SET, op["flags"]!!.jsonPrimitive.int, now)
-                            "cachesize" in op -> sim.conformanceControl(arm, wm.damage.core.wire.DamageMsg.OP_CACHE_SIZE, op["cachesize"]!!.jsonPrimitive.int, now)
-                            // `FIRMWARE.md` §9: the stock compositor's own repaint, the event each
-                            // harness issues for itself after a release point
-                            "stock" in op -> sim.stockRepaint(arm, now)
-                            "wake" in op -> sim.conformanceWake(arm, now)          // §5.10
-                            else -> { out.problems += "$name step $i: unknown op $op"; return@forEachIndexed }
-                        }
-                    }
-                    val sent = sim.conformanceNotifies(arm)          // taken every step, so a step's bodies are its own
+                    for (opEl in step["ops"]!!.jsonArray)
+                        now = runOp(sim, arm, opEl.jsonObject, now, rcs) ?: run { out.problems += "$name step $i: unknown op $opEl"; return@forEachIndexed }
+                    val sent = sim.conformanceSent(arm)              // taken every step, so a step's bodies are its own
+                    val stockCalls = sim.conformanceStockCalls(arm)
                     if (i >= prefix) return@forEachIndexed       // not filled: its ops ran (the state carries on), nothing compared
                     val expect = step["expect"]!!.jsonObject
                     val want = expect[lens]!!.jsonPrimitive.content
@@ -184,13 +183,53 @@ class ConformanceVectorTest {
                             if (wantPanel != gotPanel) out.problems += "$name step $i lens $lens: panel crc $gotPanel, the C gives $wantPanel"
                         }
                     }
-                    if (features != null) compareC1(name, i, arm, lens, expect, sim, now, sent, out)
+                    if (sets != null) compareC1(name, i, arm, lens, expect, sim, now, sent, out)   // the vector's own key, not the override
+                    // §6.10 (C2): the stock dispatcher's calls in the step
+                    val wantK = expect["K"]?.jsonObject?.get(lens)?.jsonPrimitive?.int
+                    if (wantK == null) { if (c2Vector) out.problems += "$name step $i lens $lens: no stock-call (K) expectation on a C2 vector" }
+                    else if (wantK != stockCalls) out.problems += "$name step $i lens $lens: stock calls $stockCalls, the C gives $wantK"
                     out.compared++
                 }
             }
         }
         return out
     }
+
+    /** A vector's `features`: absent (null), one set, or (C2, §9) a list of the sets it answers alike on. */
+    private fun featureSets(vec: JsonObject): List<Int>? = when (val f = vec["features"]) {
+        null -> null
+        is JsonArray -> f.map { it.jsonPrimitive.int }
+        else -> listOf(f.jsonPrimitive.int)
+    }
+
+    /** One op of a step on [arm]'s lens; the clock after it, or null for an op this runner does not know. */
+    private fun runOp(sim: GlassFirmwareSim, arm: Arm, op: JsonObject, now: Long, rcs: MutableList<Int>): Long? {
+        when {
+            "tick" in op -> return op["tick"]!!.jsonPrimitive.long
+            "lease" in op -> sim.conformanceLease(arm, op["lease"]!!.jsonPrimitive.content == "acquire", now)
+            "msg" in op -> rcs += if (sim.conformanceMessage(arm, hex(op["msg"]!!.jsonPrimitive.content), now)) 0 else -1
+            "flags" in op -> sim.conformanceControl(arm, wm.damage.core.wire.DamageMsg.OP_FLAGS_SET, op["flags"]!!.jsonPrimitive.int, now)
+            "cachesize" in op -> sim.conformanceControl(arm, wm.damage.core.wire.DamageMsg.OP_CACHE_SIZE, op["cachesize"]!!.jsonPrimitive.int, now)
+            // `FIRMWARE.md` §9: the stock compositor's own repaint, the event each harness issues for itself after a
+            // release point
+            "stock" in op -> sim.stockRepaint(arm, now)
+            "wake" in op -> sim.conformanceWake(arm, now)          // §5.10
+            // §6.10 (C2): the record through the input hook — on LEFT alone with "only": "L" (RIGHT's answer dropped)
+            "input" in op -> {
+                val only = op["only"]?.jsonPrimitive?.content
+                if (only != null && only != "L") return null
+                val r = op["input"]!!.jsonArray.map { it.jsonPrimitive.long }
+                if (only == null || arm == Arm.LEFT) sim.conformanceInput(arm, r[0].toInt(), r[1], r[2], now)
+            }
+            "page" in op -> sim.conformancePage(arm, pageOn(op["page"]!!.jsonPrimitive) ?: return null)
+            else -> return null
+        }
+        return now
+    }
+
+    /** §6.10's `{"page": on}`: whether the EvenHub page is in front — true, or the build spec's spelling "evenhub";
+     *  false, or "stock", a stock page. Null: neither. */
+    private fun pageOn(p: JsonPrimitive): Boolean? = p.booleanOrNull ?: when (p.content) { "evenhub" -> true; "stock" -> false; else -> null }
 
     private fun newSim(contract: Int, features: Int?) = GlassFirmwareSim().also {
         it.damageContract = contract
@@ -200,7 +239,7 @@ class ConformanceVectorTest {
 
     /** C1's three expectations (decision A.3) on a filled step of a vector that carries `features`. */
     private fun compareC1(name: String, i: Int, arm: Arm, lens: String, expect: JsonObject, sim: GlassFirmwareSim, now: Long,
-                          sent: List<ByteArray>, out: Outcome) {
+                          sent: List<Pair<Int, ByteArray>>, out: Outcome) {
         val gotW = sim.conformancePlan(arm, now)
         val wantW = expect["W"]?.jsonObject?.get(lens)?.jsonPrimitive?.long
         if (wantW == null) out.problems += "$name step $i lens $lens: no planned-wait (W) expectation on a C1 vector"
@@ -214,15 +253,20 @@ class ConformanceVectorTest {
             return
         }
         val wantN = (expect["N"] as? JsonArray)?.map { it.jsonPrimitive.content }
-        val gotN = sent.map { maskedHex(it) }
+        val gotN = sent.map { (field, body) -> maskedHex(field, body) }
         if (wantN == null) out.problems += "$name step $i: no notify (N) expectation on a C1 vector"
         else if (wantN != gotN) out.problems += "$name step $i: notify bodies $gotN, the C gives $wantN"
     }
 
-    /** Decision A.3's mask: fields 9 (µs) and 11 (uptime) dropped from a body before hex. */
-    private fun maskedHex(body: ByteArray): String = wm.damage.core.wire.Pb.fields(body).filter { it.field != 9 && it.field != 11 }
-        .joinToString("") { f -> val b = if (f.bytes != null) wm.damage.core.wire.Pb.l(f.field, f.bytes!!) else wm.damage.core.wire.Pb.v(f.field, f.varint!!)
-                                 b.joinToString("") { "%02x".format(it) } }
+    /** Decision A.3's mask: fields 9 (µs) and 11 (uptime) dropped from a 114 body before hex; C2 (§6.10): fields 15
+     *  (uptime) and 16 (µs) from a 115 body. READING: `N` lists both kinds as plain hex, in send order, with no mark of
+     *  which field a body came in (§6.10 names none). */
+    private fun maskedHex(field: Int, body: ByteArray): String {
+        val drop = if (field == GlassFirmwareSim.APPLIED_FIELD) setOf(15, 16) else setOf(9, 11)
+        return wm.damage.core.wire.Pb.fields(body).filter { it.field !in drop }
+            .joinToString("") { f -> val b = if (f.bytes != null) wm.damage.core.wire.Pb.l(f.field, f.bytes!!) else wm.damage.core.wire.Pb.v(f.field, f.varint!!)
+                                     b.joinToString("") { "%02x".format(it) } }
+    }
 
     /** Whether a message is or carries mode 26 (a batch's sub-message): an engine vector has no self-test form. */
     private fun carries26(m: ByteArray): Boolean {
@@ -259,12 +303,15 @@ class ConformanceVectorTest {
             val ops = steps.flatMap { it.jsonObject["ops"]!!.jsonArray.map { o -> o.jsonObject } }
             if (ops.any { "lease" in it && it["lease"]!!.jsonPrimitive.content != "acquire" }) continue
             if (ops.any { "stock" in it }) continue          // no self-test form: a step cannot repaint the panel
-            // §5.10: an engine vector has no self-test form (a wake, or mode 26 alone or in a batch)
-            if (ops.any { "wake" in it || ("msg" in it && carries26(hex(it["msg"]!!.jsonPrimitive.content))) }) { engine += name; continue }
+            // §5.10: an engine vector has no self-test form (a wake, or mode 26 alone or in a batch); §6.10 (C2): nor
+            // one with an input or a page op
+            if (ops.any { "wake" in it || "input" in it || "page" in it || ("msg" in it && carries26(hex(it["msg"]!!.jsonPrimitive.content))) }) { engine += name; continue }
             val contract = vec["contract"]?.jsonPrimitive?.int ?: 1
-            for (arm in Arm.entries) {
+            val sets = featureSets(vec)
+            for (features in sets ?: listOf(null)) for (arm in Arm.entries) {
                 val lens = if (arm == Arm.LEFT) "L" else "R"
-                val sim = newSim(contract, vec["features"]?.jsonPrimitive?.int)
+                val name = if ((sets?.size ?: 0) > 1) "$name@0x${features!!.toString(16)}" else name
+                val sim = newSim(contract, features)
                 var now = 1000L
                 sim.conformanceLease(arm, true, now)
                 assertTrue(sim.conformanceMessage(arm, wm.damage.core.wire.CfwModes.selfTestBegin(), now), "$name $lens: begin refused")
@@ -326,7 +373,8 @@ class ConformanceVectorTest {
             val vec = Json.parseToJsonElement(Files.readString(f)).jsonObject
             val name = vec["name"]!!.jsonPrimitive.content
             val releases = vec["steps"]!!.jsonArray.any { st -> st.jsonObject["ops"]!!.jsonArray.any { o -> o.jsonObject["lease"]?.jsonPrimitive?.content == "release" } }
-            if (name != "v1-lease" && !releases && name !in unfilled && name !in engine && name !in out.ran) out.problems += "$name: a drawing vector ran no self-test step"
+            val ran = out.ran.any { it == name || it.startsWith("$name@") }     // a vector run at several builds is named per build
+            if (name != "v1-lease" && !releases && name !in unfilled && name !in engine && !ran) out.problems += "$name: a drawing vector ran no self-test step"
         }
         return out
     }
@@ -369,6 +417,16 @@ class ConformanceVectorTest {
         assertEquals(emptyList(), out.problems, "a C1 build answers a v1/v2 vector differently:\n" + out.problems.joinToString("\n"))
     }
 
+    /** The lead's decision B.2 on C2's build spec (option a): the v1 and v2 vectors answer alike on a C2 build (features
+     *  0x5ff) too — a model change for C2 that leaks into today's behaviour shows here first. */
+    @Test
+    fun theV1AndV2VectorsAnswerTheSameOnAC2Build() {
+        val out = runNormal(vectorFiles(vectorDir()), featuresOverride = C2_FEATURES)
+        report("normal path, features 0x5ff", out)
+        assertTrue(out.compared > 0, "no vector step was compared")
+        assertEquals(emptyList(), out.problems, "a C2 build answers a v1/v2 vector differently:\n" + out.problems.joinToString("\n"))
+    }
+
     /** The vectors nobody has answered yet still run through the model, every op of every step on both lenses: an op
      *  it does not know, or a fault inside it, is a problem now rather than at the meeting. With `DAMAGE_SIM_ANSWERS`
      *  set to a directory, the model's own answers are written there, one file per vector in the vectors' shape, for
@@ -395,43 +453,43 @@ class ConformanceVectorTest {
     private fun modelAnswers(vec: JsonObject, problems: MutableList<String>): JsonObject {
         val name = vec["name"]!!.jsonPrimitive.content
         val steps = vec["steps"]!!.jsonArray
-        val answers = Array(steps.size) { HashMap<String, Any>() }
-        for (arm in Arm.entries) {
-            val lens = if (arm == Arm.LEFT) "L" else "R"
-            val sim = newSim(vec["contract"]?.jsonPrimitive?.int ?: 1, vec["features"]?.jsonPrimitive?.int)
-            var now = 0L
-            try {
-                steps.forEachIndexed { i, stepEl ->
-                    val rcs = ArrayList<Int>()
-                    for (opEl in stepEl.jsonObject["ops"]!!.jsonArray) {
-                        val op = opEl.jsonObject
-                        when {
-                            "tick" in op -> now = op["tick"]!!.jsonPrimitive.long
-                            "lease" in op -> sim.conformanceLease(arm, op["lease"]!!.jsonPrimitive.content == "acquire", now)
-                            "msg" in op -> rcs += if (sim.conformanceMessage(arm, hex(op["msg"]!!.jsonPrimitive.content), now)) 0 else -1
-                            "flags" in op -> sim.conformanceControl(arm, wm.damage.core.wire.DamageMsg.OP_FLAGS_SET, op["flags"]!!.jsonPrimitive.int, now)
-                            "cachesize" in op -> sim.conformanceControl(arm, wm.damage.core.wire.DamageMsg.OP_CACHE_SIZE, op["cachesize"]!!.jsonPrimitive.int, now)
-                            "stock" in op -> sim.stockRepaint(arm, now)
-                            "wake" in op -> sim.conformanceWake(arm, now)
-                            else -> { problems += "$name step $i: unknown op $op"; return@forEachIndexed }
-                        }
+        val sets = featureSets(vec)
+        // C2: a vector run at several builds is answered at each; the builds' answers must agree, since the vector says
+        // they answer alike (the first build's are the ones kept)
+        val perSet = (sets ?: listOf(null)).map { features ->
+            val answers = Array(steps.size) { HashMap<String, Any>() }
+            for (arm in Arm.entries) {
+                val lens = if (arm == Arm.LEFT) "L" else "R"
+                val sim = newSim(vec["contract"]?.jsonPrimitive?.int ?: 1, features)
+                var now = 0L
+                try {
+                    steps.forEachIndexed { i, stepEl ->
+                        val rcs = ArrayList<Int>()
+                        for (opEl in stepEl.jsonObject["ops"]!!.jsonArray)
+                            now = runOp(sim, arm, opEl.jsonObject, now, rcs) ?: run { problems += "$name step $i: unknown op $opEl"; return@forEachIndexed }
+                        val a = answers[i]
+                        a[lens] = "%08x".format(sim.shadowCrc32(arm))
+                        a["P$lens"] = "%08x".format(sim.panelCrc32(arm))
+                        a["rc$lens"] = rcs
+                        a["ref$lens"] = sim.refusalRecord(arm)
+                        a["W$lens"] = sim.conformancePlan(arm, now)
+                        a["G$lens"] = sim.conformanceGen(arm)
+                        a["K$lens"] = sim.conformanceStockCalls(arm)
+                        val sent = sim.conformanceSent(arm)
+                        if (arm == Arm.RIGHT) a["N"] = sent.map { (f, b) -> maskedHex(f, b) }
+                        else if (sent.isNotEmpty()) problems += "$name step $i: LEFT sent a notify"
                     }
-                    val a = answers[i]
-                    a[lens] = "%08x".format(sim.shadowCrc32(arm))
-                    a["P$lens"] = "%08x".format(sim.panelCrc32(arm))
-                    a["rc$lens"] = rcs
-                    a["ref$lens"] = sim.refusalRecord(arm)
-                    a["W$lens"] = sim.conformancePlan(arm, now)
-                    a["G$lens"] = sim.conformanceGen(arm)
-                    val sent = sim.conformanceNotifies(arm)
-                    if (arm == Arm.RIGHT) a["N"] = sent.map { maskedHex(it) }
-                    else if (sent.isNotEmpty()) problems += "$name step $i: LEFT sent a notify"
+                } catch (e: RuntimeException) {
+                    problems += "$name lens $lens: the model failed: $e"
                 }
-            } catch (e: RuntimeException) {
-                problems += "$name lens $lens: the model failed: $e"
             }
+            features to answers
         }
-        return simAnswers(vec, answers)
+        for ((features, answers) in perSet.drop(1)) answers.forEachIndexed { i, a ->
+            if (a != perSet[0].second[i]) problems += "$name step $i: the model answers it differently at features 0x${features!!.toString(16)} " +
+                "than at 0x${perSet[0].first!!.toString(16)}, where the vector says the builds answer alike"
+        }
+        return simAnswers(vec, perSet[0].second, withK = sets?.any { it and BIND_FEATURE != 0 } == true)
     }
 
     /** The runner's C1 comparison on a C1 vector filled with the MODEL's own answers (so it must agree with itself
@@ -470,8 +528,66 @@ class ConformanceVectorTest {
         }
     }
 
-    /** The model's answers in the vectors' own shape (`L`, `R`, `rc`, `ref`, `P`, `N`, `W`, `G`). */
-    private fun simAnswers(vec: JsonObject, answers: Array<HashMap<String, Any>>): JsonObject {
+    /** C2's runner (§6.10) on a vector built here — its inputs this file's own, its expectations the model's: the model
+     *  agrees with itself through the runner (the ops `input`, with `"only": "L"`, and `page`; `K`; the 115 bodies in
+     *  `N`), and a missing `K`, a wrong one and a wrong report are each a problem; it has no self-test form. And a C1
+     *  vector given the features list `[0x1ff, 0x5ff]` (B.2) runs at both builds against one set of expectations. */
+    @Test
+    fun aC2VectorIsComparedOnKAndItsReportsAndAFeaturesListRunsAtEachBuild() {
+        fun h(b: ByteArray) = b.joinToString("") { "%02x".format(it) }
+        fun u16(v: Int) = byteArrayOf((v and 0xFF).toByte(), ((v shr 8) and 0xFF).toByte())
+        // §5.4: one track at (0, 100) 64×8, backdrop 2, one FILL of level 9 over 3 steps
+        val prog = byteArrayOf(1, 1) + u16(48) + byteArrayOf(1, 2, 0, 0) + u16(0) + u16(100) + u16(64) + u16(8) +
+            byteArrayOf(1, 3, 0, 9) + ByteArray(28)
+        fun op(k: String, v: Any) = JsonObject(mapOf(k to when (v) { is String -> JsonPrimitive(v); is Boolean -> JsonPrimitive(v); is List<*> -> JsonArray(v.map { JsonPrimitive(it as Number) }); else -> JsonPrimitive(v as Number) }))
+        fun input(dev: Int, id: Int, only: Boolean = false) = JsonObject(op("input", listOf(dev, id, 0)) + (if (only) mapOf("only" to JsonPrimitive("L")) else emptyMap()))
+        fun step(vararg ops: JsonObject) = JsonObject(mapOf("ops" to JsonArray(ops.toList()), "expect" to JsonObject(emptyMap())))
+        val vec = JsonObject(mapOf("name" to JsonPrimitive("c2-runner"), "contract" to JsonPrimitive(2), "panel" to JsonPrimitive(true),
+            "features" to JsonArray(listOf(JsonPrimitive(C2_FEATURES))), "steps" to JsonArray(listOf(
+                step(op("tick", 1000), op("lease", "acquire"), op("flags", 0x1C),
+                    op("msg", h(wm.damage.core.wire.CfwModes.keyframe(wm.damage.core.gfx.Zl.encodeCfw(ByteArray(320 * 480))))),
+                    op("msg", h(byteArrayOf(19) + u16(64) + u16(prog.size) + prog)),
+                    op("msg", h(byteArrayOf(27, 2, 0) + u16(0xFFFF) + u16(8) + u16(0) + u16(8) + byteArrayOf(1))),
+                    op("msg", h(byteArrayOf(27, 0, 0, 0xFF.toByte(), 4, 0, 1, 0, 34) + u16(64) + ByteArray(12)))),
+                step(op("tick", 1010), input(4, 4), op("wake", true)),
+                step(op("tick", 1020), input(4, 4, only = true)),
+                step(op("page", false), input(4, 4), op("page", true), input(1, 0))))))
+        val problems = ArrayList<String>()
+        val answered = modelAnswers(vec, problems)
+        assertEquals(emptyList(), problems)
+        val e = answered["steps"]!!.jsonArray.map { it.jsonObject["expect"]!!.jsonObject }
+        fun k(i: Int) = e[i]["K"]!!.jsonObject.let { listOf(it["L"]!!.jsonPrimitive.int, it["R"]!!.jsonPrimitive.int) }
+        assertEquals(listOf(listOf(0, 0), listOf(1, 1), listOf(1, 0), listOf(2, 2)), (0..3).map { k(it) }, "the stock calls: LEFT alone at step 2")
+        assertEquals(1, e[1]["N"]!!.jsonArray.size, "the fire's report in N")
+        assertTrue(e[2]["N"]!!.jsonArray.isEmpty() && e[3]["N"]!!.jsonArray.isEmpty(), "LEFT alone, a stock page, a temple tap: no report from RIGHT")
+        fun variant(name: String, edit: (Int, JsonObject) -> JsonObject) = JsonObject(answered + mapOf("name" to JsonPrimitive(name),
+            "steps" to JsonArray(answered["steps"]!!.jsonArray.mapIndexed { i, s -> JsonObject(s.jsonObject + ("expect" to edit(i, s.jsonObject["expect"]!!.jsonObject))) })))
+        val dir = Files.createTempDirectory("conformance-c2")
+        try {
+            val v3 = Json.parseToJsonElement(Files.readString(vectorFiles(vectorDir()).first { it.fileName.toString() == "v3-play.json" })).jsonObject
+            val set = mapOf("a-self" to variant("a-self") { _, x -> x },
+                "b-noK" to variant("b-noK") { i, x -> if (i == 1) JsonObject(x - "K") else x },
+                "c-wrongK" to variant("c-wrongK") { i, x -> if (i == 2) JsonObject(x + ("K" to JsonObject(mapOf("L" to JsonPrimitive(1), "R" to JsonPrimitive(1))))) else x },
+                "d-wrongN" to variant("d-wrongN") { i, x -> if (i == 1) JsonObject(x + ("N" to JsonArray(listOf(JsonPrimitive("0801"))))) else x },
+                "e-v3-both" to JsonObject(v3 + mapOf("name" to JsonPrimitive("e-v3-both"),
+                    "features" to JsonArray(listOf(JsonPrimitive(C1_FEATURES), JsonPrimitive(C2_FEATURES))))))
+            for ((n, v) in set) Files.writeString(dir.resolve("$n.json"), v.toString())
+            val out = runNormal(vectorFiles(dir))
+            assertTrue(out.problems.none { it.startsWith("a-self") || it.startsWith("e-v3-both") }, "the model agrees with itself; v3-play at both builds: ${out.problems}")
+            assertTrue(out.problems.any { it.startsWith("b-noK step 1 lens L: no stock-call (K)") }, "${out.problems}")
+            assertTrue(out.problems.any { it.startsWith("c-wrongK step 2 lens R: stock calls 0") }, "${out.problems}")
+            assertTrue(out.problems.any { it.startsWith("d-wrongN step 1: notify bodies") }, "${out.problems}")
+            val v3Steps = v3["steps"]!!.jsonArray.size
+            assertEquals(4 * 4 * 2 + 2 * v3Steps * 2, out.compared, "every lens-step of the four, and v3-play at both builds")
+            assertEquals(emptyList(), runSelfTest(vectorFiles(dir).filter { "v3" !in it.toString() }).problems, "a C2 vector has no self-test form")
+        } finally {
+            Files.list(dir).use { s -> s.forEach { Files.delete(it) } }
+            Files.delete(dir)
+        }
+    }
+
+    /** The model's answers in the vectors' own shape (`L`, `R`, `rc`, `ref`, `P`, `N`, `W`, `G`; `K` [withK]). */
+    private fun simAnswers(vec: JsonObject, answers: Array<HashMap<String, Any>>, withK: Boolean = false): JsonObject {
         fun lr(k: String, a: HashMap<String, Any>, conv: (Any) -> kotlinx.serialization.json.JsonElement) =
             JsonObject(mapOf("L" to conv(a["${k}L"]!!), "R" to conv(a["${k}R"]!!)))
         fun ints(v: Any) = JsonArray((v as List<*>).map { JsonPrimitive((it as Number).toLong()) })
@@ -480,7 +596,8 @@ class ConformanceVectorTest {
             val e = mapOf("L" to JsonPrimitive(a["L"] as String), "R" to JsonPrimitive(a["R"] as String),
                 "rc" to lr("rc", a, ::ints), "ref" to lr("ref", a, ::ints), "P" to lr("P", a) { JsonPrimitive(it as String) },
                 "W" to lr("W", a) { JsonPrimitive(it as Long) }, "G" to lr("G", a) { JsonPrimitive(it as Long) },
-                "N" to JsonArray((a["N"] as List<*>).map { JsonPrimitive(it as String) }))
+                "N" to JsonArray((a["N"] as List<*>).map { JsonPrimitive(it as String) })) +
+                (if (withK) mapOf("K" to lr("K", a) { JsonPrimitive(it as Int) }) else emptyMap())
             JsonObject(s.jsonObject + ("expect" to JsonObject(e)))
         }
         return JsonObject(vec + ("steps" to JsonArray(steps)))
@@ -580,5 +697,8 @@ class ConformanceVectorTest {
     private companion object {
         /** `FIRMWARE.md` §5.1: today's 0x7f plus bit 7 ENGINE and bit 8 the riders (bit 9 is not in C1). */
         const val C1_FEATURES = 0x1FF
+        /** §6.8: C2 adds bit 10 (bit 9, the link item, still out). */
+        const val BIND_FEATURE = 1 shl 10
+        const val C2_FEATURES = 0x5FF
     }
 }
