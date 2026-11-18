@@ -277,10 +277,14 @@ private class FakeExec : LocalTmuxProvider.TmuxExec {
     @Volatile var tail = listOf("\$ build ok", "\$ ")
     @Volatile var capture = "80\t22\t2\t1\t1\t0\nhello world\nline two"
     @Volatile var failKill = false
+    /** S1-3 fix C3: while set, a capture waits for it (an exec in flight). */
+    @Volatile var captureGate: java.util.concurrent.CountDownLatch? = null
+    val captureStarted = java.util.concurrent.atomic.AtomicInteger()
     val scripts = java.util.concurrent.CopyOnWriteArrayList<String>()
 
     override fun run(host: TmuxHostCfg, script: String): String {
         scripts.add(script)
+        if (script.contains("display-message") && script.contains("alternate_on")) { captureStarted.incrementAndGet(); captureGate?.await() }
         return when {
             script.contains("list-sessions") && script.contains(LocalTmuxProvider.TAIL_MARK) ->
                 "claude\t2\t1\t1700000000\nspare\t1\t0\t1600000000\n" +
@@ -372,6 +376,42 @@ class TmuxProviderTest {
             assertEquals(1, frames.size, "an unchanged pane pushes nothing")
             exec.capture = "80\t22\t2\t1\t1\t0\nhello world\nline THREE"
             await { frames.size == 2 }
+        } finally {
+            p.close()
+            scope.cancel()
+        }
+    }
+
+    /** S1-3 fix C3: a viewer that subscribes while a capture of its pane is running gets that capture — before, the
+     *  capture went only to the subscribers of its tick's start, and an idle pane never pushed again. */
+    @Test
+    fun aViewerJoiningDuringACaptureGetsItsFirstPicture(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val exec = FakeExec()
+        val p = LocalTmuxProvider(listOf(TmuxHostCfg("local")), TmuxConfig(), scope, exec,
+            statusPacingMs = 60_000, capturePacingMs = 250)
+        fun viewer(into: MutableList<PaneFrame>) = object : TmuxProvider.Listener {
+            override fun status(sessions: List<TmuxSessionInfo>, cfg: TmuxConfig) {}
+            override fun frame(target: TmuxTarget, frame: PaneFrame) { into.add(frame) }
+            override fun alert(session: TmuxSessionInfo) {}
+            override fun state(state: String) {}
+        }
+        val a = java.util.concurrent.CopyOnWriteArrayList<PaneFrame>()
+        val b = java.util.concurrent.CopyOnWriteArrayList<PaneFrame>()
+        val t = TmuxTarget("local", "claude")
+        try {
+            val first = viewer(a)
+            p.subscribe(first, t)
+            await { a.size == 1 }
+            val gate = java.util.concurrent.CountDownLatch(1).also { exec.captureGate = it }
+            val started = exec.captureStarted.get()
+            await { exec.captureStarted.get() > started }                  // a capture of the idle pane in flight
+            p.subscribe(viewer(b), t)                                     // a second viewer joins during it
+            exec.captureGate = null
+            gate.countDown()
+            await { b.size == 1 }
+            delay(600)                                                    // two more ticks of an unchanged pane
+            assertEquals(1, b.size, "its first picture, once")
         } finally {
             p.close()
             scope.cancel()

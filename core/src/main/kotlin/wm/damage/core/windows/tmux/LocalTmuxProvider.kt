@@ -376,7 +376,9 @@ class LocalTmuxProvider(
                         if (out == lastRaw[target]) return@launch
                         lastRaw[target] = out
                         val frame = parseCapture(out) ?: return@launch
-                        for (l in who) try { l.frame(target, frame) } catch (e: Exception) { Log.e("tmux", "frame listener", e) }
+                        // S1-3 fix C3: the subscribers as they are now — one that joined during the exec gets this
+                        // capture (its subscribe cleared the last one), never waits for the pane to change
+                        for (l in subs.filterValues { it == target }.keys) try { l.frame(target, frame) } catch (e: Exception) { Log.e("tmux", "frame listener", e) }
                     } finally {
                         captureInFlight.remove(target)
                     }
