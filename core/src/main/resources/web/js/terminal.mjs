@@ -65,15 +65,16 @@ export function bytesOf(b64) {
 /**
  * What an `init` writes after a reset: the pane as captured (`capture-pane -p -e`, B10: its lines with their colour
  * escapes, joined by line breaks) with each break as CR LF, a full-screen program's pane in the alternate screen, and
- * the cursor put where tmux has it. ASSUMED shape (B10 names the commands, not the message): `init = {cols, rows,
- * cursor: {x, y}, alternate, data: base64 of the capture}`. Returns a string of escapes and the capture's bytes.
+ * the cursor put where tmux has it (hidden when the program hid it). ASSUMED shape (B10 names the commands, not the
+ * message): `init = {cols, rows, cursor: {x, y, visible?}, alternate, data: base64 of the capture}` (`visible` from
+ * `#{cursor_flag}`, absent = shown). Returns a string of escapes and the capture's bytes.
  */
 export function initWrites(init) {
   const cap = new TextDecoder().decode(bytesOf(init.data)).replace(/\r?\n$/, '').replace(/\r?\n/g, '\r\n');
   const c = init.cursor || {};
   const x = Math.max(0, c.x | 0);
   const y = Math.max(0, c.y | 0);
-  return `${init.alternate ? '\x1b[?1049h' : ''}\x1b[H${cap}\x1b[${y + 1};${x + 1}H`;
+  return `${init.alternate ? '\x1b[?1049h' : ''}\x1b[H${cap}\x1b[${y + 1};${x + 1}H${c.visible === false ? '\x1b[?25l' : ''}`;
 }
 
 /** The emulator's 16 colours from the page's theme (the grid's palettes: light, dark; glass maps each to a level of

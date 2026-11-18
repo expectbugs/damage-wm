@@ -30,6 +30,7 @@ export class Terminal {
     this.x = 0;
     this.y = 0;
     this.fg = null;
+    this.hidden = false;
   }
 
   open(parent) {
@@ -96,7 +97,8 @@ export class Terminal {
   }
   csi(p, f) {
     const n = p.replace('?', '').split(';').map((x) => Number(x) || 0);
-    if (f === 'H') { this.y = Math.min(this.rows - 1, Math.max(0, (n[0] || 1) - 1)); this.x = Math.max(0, (n[1] || 1) - 1); }
+    if (p === '?25') this.hidden = f === 'l'; // the cursor hidden or shown
+    else if (f === 'H') { this.y = Math.min(this.rows - 1, Math.max(0, (n[0] || 1) - 1)); this.x = Math.max(0, (n[1] || 1) - 1); }
     else if (f === 'm') {
       for (let i = 0; i < n.length; i++) {
         const c = n[i];
@@ -120,7 +122,7 @@ export class Terminal {
       let fg;
       const cells = Array.from({ length: Math.max(r.length, y === this.y ? this.x + 1 : 0) }, (_, i) => r[i] || { t: ' ', fg: null });
       cells.forEach((c, x) => {
-        const cur = y === this.y && x === this.x;
+        const cur = !this.hidden && y === this.y && x === this.x;
         if (!span || c.fg !== fg || cur) {
           span = doc.createElement('span');
           // the 8 base colours from the theme the page handed in (as the library takes it), else the fake's own

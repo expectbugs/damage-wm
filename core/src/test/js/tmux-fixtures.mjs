@@ -214,7 +214,7 @@ const b64 = (text) => Buffer.from(text, 'utf8').toString('base64');
  *  its cursor. */
 export function streamInit(name) {
   const f = frameOf(name);
-  return { cols: f.cols, rows: f.rows, cursor: { x: f.cursor.x, y: f.cursor.y }, alternate: f.alternate, data: b64(sgrOf(f.lines)) };
+  return { cols: f.cols, rows: f.rows, cursor: { x: f.cursor.x, y: f.cursor.y, visible: f.cursor.visible }, alternate: f.alternate, data: b64(sgrOf(f.lines)) };
 }
 
 /** Output a command makes after the init (the stand-in's `/__push?name=output`). */

@@ -47,6 +47,7 @@ test('the init: reset, the pane as captured with each line break as CR LF, the c
   // a full-screen program's pane goes into the alternate screen
   assert.match(X.initWrites({ alternate: true, cursor: { x: 4, y: 2 }, data: btoa('a\nb\n') }), /^\x1b\[\?1049h\x1b\[Ha\r\nb\x1b\[3;5H$/);
   assert.equal(X.initWrites({ data: btoa('x') }), '\x1b[Hx\x1b[1;1H', 'no cursor named: the top left');
+  assert.match(X.initWrites({ data: btoa('x'), cursor: { x: 0, y: 0, visible: false } }), /\x1b\[\?25l$/, 'a cursor the program hid stays hidden');
   assert.deepEqual([...X.bytesOf(Buffer.from('é').toString('base64'))], [195, 169], 'base64 to the bytes (UTF-8 as sent)');
 });
 
