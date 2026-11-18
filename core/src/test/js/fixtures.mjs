@@ -78,7 +78,7 @@ export const fixtures = {
   // S1-2 Q5w: an upload op is answered with an id for its body
   program: (op) => (op.window === 'files' && op.action === 'upload' ? { a: 'sent', result: { upload: `u-${op.k}` } } : null),
   blobs: { 'cover-b1': [400, 600, [122, 75, 58]], 'cover-b3': [600, 400, [49, 80, 110]], 'cover-b6': [300, 600, [79, 107, 60]], 'fig-1': [1600, 900, [130, 110, 70]] },
-  welcome: (stream, scene = {}) => ({ t: 'welcome', proto: 2, device: ME, level: scene.level || 'full', conn: 7, pcClock: NOW, epoch: 3, seq: 40,
+  welcome: (stream, scene = {}) => ({ t: 'welcome', proto: 3, device: ME, level: scene.level || 'full', conn: 7, pcClock: NOW, epoch: 3, seq: 40,
     contracts: { reader: 1, notices: 1, torrents: 1, files: 1 }, bundle: { hash: 'look' } }),
   // the notice record at first contact (adopted, nothing pops), and `n` raised after it, one change each
   notices: () => ({ t: 'snap', scope: 'notices', epoch: 3, seq: 40, items: Object.fromEntries([

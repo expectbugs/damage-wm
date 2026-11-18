@@ -113,7 +113,7 @@ test('an occurrence is a whole number or its decimal text; a value without one i
 // ---- the page ----
 
 const NOW = Date.UTC(2026, 10, 15, 14, 2);
-const welcome = (stream, extra = {}) => ({ t: 'welcome', proto: 2, device: 'web-1', level: 'full', conn: 7, pcClock: NOW, epoch: 3, seq: 10,
+const welcome = (stream, extra = {}) => ({ t: 'welcome', proto: 3, device: 'web-1', level: 'full', conn: 7, pcClock: NOW, epoch: 3, seq: 10,
   contracts: { reader: 1, notices: 1 }, bundle: { hash: 'h' }, ...extra });
 const snapN = (seq, ...rs) => ({ t: 'snap', scope: 'notices', epoch: 3, seq, items: Object.fromEntries(rs) });
 const chgN = (seq, ...rs) => ({ t: 'chg', scope: 'notices', epoch: 3, seq, patches: rs.map(([addr, set]) => ({ addr, set })) });

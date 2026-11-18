@@ -152,7 +152,7 @@ function otherPlace(up, book, offset) {
   const ws = new WebSocket(`ws://${up.host}/ws`, { headers: { origin: `http://${up.host}`, cookie: `damage=${secret}` } });
   let device = null;
   return new Promise((ok, no) => {
-    ws.onopen = () => ws.send(JSON.stringify({ t: 'app', proto: 2, stream: 'a1a2a3a4a5a6a7a8', contracts: { reader: 1 } }));
+    ws.onopen = () => ws.send(JSON.stringify({ t: 'app', proto: 3, stream: 'a1a2a3a4a5a6a7a8', contracts: { reader: 1 } }));
     ws.onerror = () => no(new Error('the other device\'s socket failed'));
     ws.onmessage = (e) => {
       const f = JSON.parse(e.data);

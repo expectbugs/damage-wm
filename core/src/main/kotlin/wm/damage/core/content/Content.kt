@@ -271,7 +271,7 @@ class ContentHostServer(
                         }
                         "app" -> {
                             // build S1-1 (P2): the connection becomes a client of the PC's record; this frame is
-                            // the lane's own hello (`proto: 2`, dec. A.4)
+                            // the lane's own hello (`proto: 3`, dec. A.4)
                             val lane = app
                             if (lane == null) {
                                 out.sendJson(json.encodeToString(ErrMsg.serializer(),

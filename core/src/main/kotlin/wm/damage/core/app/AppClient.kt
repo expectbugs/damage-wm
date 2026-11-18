@@ -21,7 +21,7 @@ import wm.damage.core.util.Log
  * Build S1-1, package P2 (`CONTRACT.md` §9.3, §13 (b) "paced ping", "cursors", "contract version per window"; the
  * spec's §2 P2 and §3 "`AppClient` connection"): the Kotlin peer of the `app` lane, in `RemoteWin`'s shape
  * (`net/WinNet.kt`): one connection, reconnected on pacing for ever; the content port's hello (`proto: 1`), then the
- * lane's own (`proto: 2`). Each `welcome` asks the listener what to subscribe, with its cursors.
+ * lane's own (`proto: 3`). Each `welcome` asks the listener what to subscribe, with its cursors.
  *
  * Reach is decided by the paced ping alone: at each ping tick, a ping still unanswered from the tick before means the
  * PC is out of reach (said once, the connection closed so the next one starts); any answer — a `pong`, or a fresh
