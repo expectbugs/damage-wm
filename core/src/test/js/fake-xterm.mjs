@@ -3,8 +3,10 @@
 // tests and the stand-in look — never the library itself (that is the PC's, B12). It keeps a screen of cells, takes
 // printable text, CR, LF, the cursor's position (CSI row;col H), a few colours (CSI … m) and the alternate screen,
 // and draws its rows as lines of coloured spans; a key pressed in its field is handed to `onData` (printable keys,
-// Enter, Backspace, Tab, Escape). Everything it was written and every key it handed on is kept for the tests. No
-// import: the stand-in serves this file alone.
+// Enter, Backspace, Tab, Escape). Like the library it answers a program's terminal queries through `onData` (device
+// attributes, status and cursor reports, mode and setting requests, colour queries; a focus report once mode 1004 is
+// set) unless a handler registered on its `parser` takes the sequence (S1-3 fix A2). Everything it was written and
+// every key it handed on is kept for the tests. No import: the stand-in serves this file alone.
 
 const BASE = ['#000000', '#cd3131', '#0dbc79', '#e5e510', '#2472c8', '#bc3fbc', '#11a8cd', '#e5e5e5'];
 const NAMES = ['black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white'];
@@ -21,6 +23,10 @@ export class Terminal {
     this.element = null;
     this.textarea = null;
     this.disposed = false;
+    // the parser hooks, newest first as the library asks them; a hook that returns true takes the sequence
+    const hooks = { csi: [], dcs: [], osc: [] };
+    const reg = (kind) => (id, cb) => { hooks[kind].unshift([id, cb]); return { dispose() {} }; };
+    this.parser = { hooks, registerCsiHandler: reg('csi'), registerDcsHandler: reg('dcs'), registerOscHandler: reg('osc') };
     this.clear();
     Terminal.instances.push(this);
   }
@@ -78,10 +84,12 @@ export class Terminal {
   write(data) {
     const text = typeof data === 'string' ? data : new TextDecoder().decode(data);
     this.written.push(text);
-    const re = /\x1b\[([?0-9;]*)([A-Za-z])|\r|\n|[^\x1b\r\n]/gu;
+    const re = /\x1b\[([<=>?]?)([0-9;]*)([ -/]*)([@-~])|\x1b\](\d+);([^\x07\x1b]*)(?:\x07|\x1b\\)|\x1bP[0-9;]*([ -/]*)([@-~])[^\x1b]*\x1b\\|\r|\n|[^\x1b\r\n]/gu;
     for (const m of text.matchAll(re)) {
       const t = m[0];
-      if (m[2]) this.csi(m[1], m[2]);
+      if (m[4]) this.query('csi', { prefix: m[1], intermediates: m[3], final: m[4] }, m[2]) || this.csi(m[1] + m[2], m[4]);
+      else if (m[5]) this.query('osc', Number(m[5]), m[6]);
+      else if (m[8]) this.query('dcs', { prefix: '', intermediates: m[7], final: m[8] }, '');
       else if (t === '\r') this.x = 0;
       else if (t === '\n') this.lf();
       else {
@@ -90,6 +98,21 @@ export class Terminal {
       }
     }
     this.draw();
+  }
+  /** A query the library answers (as it does, through `onData`), unless a parser hook takes it; true when it was one. */
+  query(kind, id, data) {
+    const same = (a) => (kind === 'osc' ? a === id : (a.prefix || '') === id.prefix && (a.intermediates || '') === id.intermediates && a.final === id.final);
+    const key = kind === 'osc' ? `osc${id}` : `${kind}${id.prefix || ''}${id.intermediates}${id.final}`;
+    const replies = { csic: '\x1b[?1;2c', 'csi>c': '\x1b[>0;276;0c', csin: data === '5' ? '\x1b[0n' : `\x1b[${this.y + 1};${this.x + 1}R`,
+      'csi?n': `\x1b[?${this.y + 1};${this.x + 1}R`, 'csi$p': `\x1b[${data};2$y`, 'csi?$p': `\x1b[?${data};2$y`, 'dcs$q': '\x1bP1$r0m\x1b\\' };
+    for (const n of [4, 10, 11, 12]) replies[`osc${n}`] = String(data).includes('?') ? `\x1b]${n};rgb:0000/0000/0000\x1b\\` : null;
+    if (!(key in replies)) {
+      if (key === 'csi?h' && data === '1004') this.type('\x1b[O'); // focus reports on: the library reports the focus at once
+      return false;
+    }
+    for (const [a, cb] of this.parser.hooks[kind]) if (same(a) && cb(kind === 'osc' ? data : [Number(data) || 0]) === true) return true;
+    if (replies[key]) this.type(replies[key]);
+    return true;
   }
   lf() {
     if (this.y < this.rows - 1) this.y++;

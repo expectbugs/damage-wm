@@ -161,12 +161,23 @@ export function terminalSurface({ label, onBytes, onPaste, onFocus, onReady, onF
     term = new mod.Terminal({ cols: size.cols, rows: size.rows, scrollback: SCROLLBACK, cursorBlink: false, fontFamily: FACE,
       fontSize: Math.round(rootPx() * 0.9), theme: themeColours(theme()), allowTransparency: false });
     term.open(host);
+    // S1-3 fix A2: tmux is the pane's real terminal and answers the program's queries itself; the library would answer
+    // them again through the path his keys take. Its replies are swallowed in its parser (device attributes, status and
+    // cursor reports, mode and setting requests, colour queries), and a focus report (sent once a program asks for
+    // them) is dropped, so only his input becomes a `raw` op
+    const p = term.parser;
+    for (const id of [{ final: 'c' }, { prefix: '>', final: 'c' }, { final: 'n' }, { prefix: '?', final: 'n' },
+      { intermediates: '$', final: 'p' }, { prefix: '?', intermediates: '$', final: 'p' }]) p.registerCsiHandler(id, () => true);
+    p.registerDcsHandler({ intermediates: '$', final: 'q' }, () => true);
+    for (const n of [4, 10, 11, 12]) p.registerOscHandler(n, (d) => d.includes('?'));
     // his keys and mouse: what the emulator produced, one `raw` op per burst, in order
-    term.onData((d) => onBytes(d));
-    if (typeof term.onBinary === 'function') term.onBinary((d) => onBytes(d));
-    // Shift+Esc lets the keyboard go (the page's own keys work again); Esc alone is the session's
+    const send = (d) => { if (d !== '\x1b[I' && d !== '\x1b[O') onBytes(d); };
+    term.onData(send);
+    if (typeof term.onBinary === 'function') term.onBinary(send);
     term.attachCustomKeyEventHandler((e) => {
-      if (e.type === 'keydown' && e.key === 'Escape' && e.shiftKey) {
+      if (e.type !== 'keydown') return true;
+      // Shift+Esc lets the keyboard go (the page's own keys work again); Esc alone is the session's
+      if (e.key === 'Escape' && e.shiftKey) {
         term.blur();
         return false;
       }

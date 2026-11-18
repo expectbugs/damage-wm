@@ -70,6 +70,22 @@ test('what the emulator produces is handed on as typed; a paste goes to the past
   assert.equal(term.disposed, true);
 });
 
+test('fix A2: the pane\'s terminal queries are not answered into his session, a focus report is no key of his; his keys still go', async () => {
+  const { s, got, term } = await surface();
+  s.take({ init: streamInit('shell') });
+  s.take({ data: streamData('\x1b[c\x1b[0c\x1b[>c\x1b[5n\x1b[6n\x1b[?6n\x1b[4$p\x1b[?2004$p\x1bP$qm\x1b\\\x1b]11;?\x07\x1b]4;1;?\x1b\\' +
+    '\x1b]10;?\x07\x1b]12;?\x07\x1b[?1004h') });
+  assert.deepEqual(got.bytes, [], 'no reply typed into the pane');
+  term.type('\x1b[I');
+  term.type('\x1b[O');
+  assert.deepEqual(got.bytes, [], 'a focus report is dropped');
+  term.type('\x1b[A');
+  term.type('\x1b[<0;3;4M');
+  assert.deepEqual(got.bytes, ['\x1b[A', '\x1b[<0;3;4M'], 'a key and a mouse report are his');
+  // a colour SET is the library's to apply, never swallowed
+  assert.equal(term.parser.hooks.osc.find(([n]) => n === 11)[1]('rgb:12/34/56'), false);
+});
+
 test('the font fits the pane\'s columns to the view, between the floor and the page\'s size; the pane\'s own size is kept', async () => {
   assert.equal(X.fitFont(800, 80, 0.6, 15), 15, 'room to spare: the page\'s size');
   assert.equal(X.fitFont(600, 80, 0.6, 15), 12.5);
