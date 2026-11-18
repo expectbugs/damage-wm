@@ -132,8 +132,11 @@ async function step(s) {
   // (seen in FIX2's look: scrollTop moved 400 px and no event came in 400 ms)
   if (s.fire) (s.fire[0] === 'window' ? window : await until(s.fire[0])).dispatchEvent(new Event(s.fire[1], { bubbles: true }));
   if (s.scroll) { const el = await until(s.scroll[0]); el.scrollTop += s.scroll[1]; el.dispatchEvent(new Event('scroll')); }
-  // S1-3: a key pressed in an element (the terminal's field), as a keyboard delivers it
-  if (s.key) { const el = await until(s.key[0]); el.focus(); el.dispatchEvent(new KeyboardEvent('keydown', { key: s.key[1], bubbles: true, cancelable: true })); }
+  // S1-3: a key pressed in an element (the terminal's field), as a keyboard delivers it — with its legacy keyCode too
+  // (S1-3's merge: the real terminal library reads keyCode, and a keydown without one typed nothing in the real look)
+  if (s.key) { const el = await until(s.key[0]); el.focus(); const k = s.key[1];
+    const keyCode = k.length === 1 ? k.toUpperCase().charCodeAt(0) : ({ Enter: 13, Escape: 27, Tab: 9, Backspace: 8, ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40 })[k] || 0;
+    el.dispatchEvent(new KeyboardEvent('keydown', { key: k, keyCode, bubbles: true, cancelable: true })); }
   // S1-2 Q5: the page in another of its themes (the glass theme), as the Settings page sets it on this device
   if (s.theme) { try { localStorage.setItem('damage.theme', s.theme); } catch (e) { /* a picture without storage */ } document.documentElement.dataset.theme = s.theme; }
   note('step ' + JSON.stringify(s));

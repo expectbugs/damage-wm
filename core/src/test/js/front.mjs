@@ -82,7 +82,7 @@ export function front(scene, real, secret) {
     }
     // S1-2 Q3: a word for LookServer's control listener (LOOK_CTL, loopback only): raise, dismiss-other, state
     if (url.pathname === '/__ctl') {
-      const ctl = process.env.LOOK_CTL;
+      const ctl = ctlNow();
       if (!ctl || !/^http:\/\/127\.0\.0\.1:\d+$/.test(ctl)) return own(400, 'text/plain', 'LOOK_CTL is not a loopback address');
       const word = url.search.slice(1);
       return request(`${ctl}/?${word}`, (r) => {
@@ -144,6 +144,14 @@ export function front(scene, real, secret) {
       return new Promise((done) => server.close(done));
     },
   })));
+}
+
+/** The listener's control address: under look-loop.sh (LOOK_RESTART_DIR) the last `LOOK {` line's, since a restarted
+ *  listener opens its control port anew (S1-3's merge: a word sent after a restart went to the ended JVM's port). */
+function ctlNow() {
+  const dir = process.env.LOOK_RESTART_DIR;
+  const lines = dir && existsSync(`${dir}/server.log`) ? String(readFileSync(`${dir}/server.log`)).split('\n').filter((l) => l.startsWith('LOOK {')) : [];
+  return lines.length ? JSON.parse(lines[lines.length - 1].slice(5)).ctl : process.env.LOOK_CTL;
 }
 
 /** L1: one place op on `place.<book>` at `offset` from the made-up device at control, on its own socket to the
