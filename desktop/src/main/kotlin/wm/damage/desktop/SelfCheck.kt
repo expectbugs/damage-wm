@@ -913,7 +913,8 @@ object SelfCheck {
         shell.postGesture(EvenHubMsg.EV_CLICK)                          // one tap opens
         awaitTrue("the article opens") { feedWin.title() == "article" && feedScripted.ops.any { it.startsWith("article:") } }
         settle(shell, "feed-article")
-        check("one tap opens and marks read", feedWin.saveSubState()["src.popular"] != null)
+        // build S1-3 B6: the read mark is the record's (an op of the open, through the window's source)
+        awaitTrue("one tap opens and marks read") { wm.damage.core.windows.feed.FeedCore.readOf(feedWin.source.state(), "popular").isNotEmpty() }
         val inkFeedArticle = Pack.inkFraction(shell.comp.composed)
         check("Feed article ink <= 25% (was ${"%.1f".format(inkFeedArticle * 100)}%)", inkFeedArticle <= 0.25)
         repeat(3) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }

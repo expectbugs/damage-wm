@@ -48,6 +48,9 @@ object Windows {
         // the tracker and `xdg-open`, never queued
         Entry(TorrentsCore.WINDOW, "Torrents", 1, TorrentsCore.ACTIONS, TorrentsCore::levelOf, Levels.VIEW,
             program = TorrentsCore.PROGRAM),
+        // S1-3 B16: Feed (C§12): its reading marks, places and rows in the record; refresh and browse go to the sites
+        Entry(wm.damage.core.windows.feed.FeedCore.WINDOW, "Feed", 1, wm.damage.core.windows.feed.FeedCore.ACTIONS,
+            wm.damage.core.windows.feed.FeedCore::levelOf, Levels.VIEW, program = wm.damage.core.windows.feed.FeedCore.PROGRAM),
     )
 
     private val BY_ID: Map<String, Entry> = ALL.associateBy { it.id }

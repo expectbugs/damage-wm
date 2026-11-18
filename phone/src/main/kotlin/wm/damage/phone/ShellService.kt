@@ -135,6 +135,9 @@ class ShellService : Service() {
     /** Build S1-2 Q4: Torrents' presenter over the working copy and its source (the copy outlives the stack). */
     private var torrentsSource: wm.damage.core.app.LocalWindowSource? = null
     private var torrentsGlasses: wm.damage.core.windows.torrents.TorrentsGlasses? = null
+    /** Build S1-3 B16: Feed's presenter over the working copy and its source (the copy outlives the stack). */
+    private var feedSource: wm.damage.core.app.LocalWindowSource? = null
+    private var feedGlasses: wm.damage.core.windows.feed.FeedGlasses? = null
     /** Build S1-2 Q3: the phone's notice mirror over the working copy, built with it and kept across stacks (each
      *  stack's shell its sink while it runs; held while no session runs); closed with the copy. */
     @Volatile private var noticeMirror: wm.damage.core.app.NoticeMirror? = null
@@ -482,23 +485,22 @@ class ShellService : Service() {
         // Games is pure Kotlin — no provider, no channel, no `needs`. Its whole
         // world lives in its own synced records (HOLDEM.md §11.1).
         sh.register(wm.damage.core.windows.games.GamesWindow(text, scope))
-        // Feed (2026-09-09, FEED.md §3.6, verdict 15): the PC's engine over the
-        // window channel while it is reachable; the phone's OWN engine — the
-        // same class, parked until needed — takes over after the PC-loss
-        // threshold, and hands back only through the root menu's Back to PC row.
-        // Every source is plain HTTP, so the fallback is complete; the phone
-        // extracts articles on demand instead of ahead (battery).
-        val feedLocal = wm.damage.core.windows.feed.FeedEngine(
-            wm.damage.core.windows.feed.SourceCfg.DEFAULTS,
-            wm.damage.core.windows.feed.FeedStore(dataDir.resolve("feed")),
-            wm.damage.core.windows.feed.PacedHttp(wm.damage.core.windows.feed.RealFeedHttp("damage-wm/0.1 (personal glasses client)")),
-            AndroidImages(), scope, prefetchArticles = false, engineLabel = "phone")
-        feedLocal.pause(true)
+        // Feed (FEED.md §3.6): the PC's engine over the window channel. Build S1-3 B5 (C§14 (a) row 1, his ruling of
+        // 11-12): the phone's own fetching is retired — with the PC out of reach Feed shows what it last had under the
+        // channel's staleness line. The old engine's folder stays on disk (deleting it is his), its size said once.
         val feedRemote = wm.damage.core.windows.feed.RemoteFeedProvider(prefs.host, prefs.contentPort, prefs.token, scope)
-        val feedSw = wm.damage.core.windows.feed.SwitchingFeedProvider(feedRemote, feedLocal, scope,
-            onLocalActive = { on -> feedLocal.pause(!on) })
-        feedProvider = feedSw
-        sh.register(wm.damage.core.windows.feed.FeedWindow(text, feedSw, scope))
+        feedProvider = feedRemote
+        oldFeedFolder(dataDir.resolve("feed"))
+        // B16: Feed's core over the working copy (read marks, flags, places and rows are the PC record's; the PC raises
+        // its notices). Without a copy, Feed runs on a record of its own.
+        val feedWin = if (wc != null) {
+            val core = wm.damage.core.windows.feed.FeedCore()
+            val src = wm.damage.core.app.LocalWindowSource(core, wc)
+            feedSource = src
+            wm.damage.core.windows.feed.FeedGlasses(text, feedRemote, scope, core, src, device = wc.device)
+        } else wm.damage.core.windows.feed.FeedWindow(text, feedRemote, scope)
+        feedGlasses = feedWin
+        sh.register(feedWin)
         val ri = RemoteIcons(prefs.host, prefs.contentPort, prefs.token,
             dataDir.resolve("icons"), scope, onLoaded = { sh.requestRepaint() })
         remoteIcons = ri
@@ -712,6 +714,11 @@ class ShellService : Service() {
         try { torrentsSource?.close() } catch (e: Exception) { Log.w("service", "torrents source close: ${e.message}") }
         torrentsSource = null
         try { torrentsProvider?.close() } catch (e: Exception) { Log.w("service", "torrents provider close: ${e.message}") }
+        // S1-3 B16: the presenter leaves its provider and the source, and the source the working copy
+        try { feedGlasses?.detach() } catch (e: Exception) { Log.w("service", "feed detach: ${e.message}") }
+        feedGlasses = null
+        try { feedSource?.close() } catch (e: Exception) { Log.w("service", "feed source close: ${e.message}") }
+        feedSource = null
         try { feedProvider?.close() } catch (e: Exception) { Log.w("service", "feed provider close: ${e.message}") }
         feedProvider = null
         torrentsProvider = null
@@ -748,6 +755,20 @@ class ShellService : Service() {
      * `queue.jsonl` under `workcopy/`) and its app lane, once per service. A failure here is said (the sink raises the
      * notice) and the stack starts all the same: no window reads the copy yet.
      */
+    /** S1-3 B5: the retired engine's folder, said once per process with its size (deleting it is his). */
+    private var oldFeedSaid = false
+
+    private fun oldFeedFolder(dir: java.nio.file.Path) {
+        if (oldFeedSaid || !java.nio.file.Files.isDirectory(dir)) return
+        oldFeedSaid = true
+        try {
+            val bytes = java.nio.file.Files.walk(dir).use { w -> w.filter { java.nio.file.Files.isRegularFile(it) }.mapToLong { java.nio.file.Files.size(it) }.sum() }
+            Log.i("service", "the phone's old Feed engine folder $dir holds ${bytes / 1024} KiB; nothing reads it now (it is his to delete)")
+        } catch (e: Exception) {
+            Log.w("service", "the old Feed engine folder $dir could not be measured: ${e.message}")
+        }
+    }
+
     private fun startWorkingCopy(dir: java.nio.file.Path, journalFile: java.nio.file.Path) {
         try {
             val ex = CoreExecutor()

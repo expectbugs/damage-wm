@@ -9,7 +9,7 @@ import wm.damage.core.gfx.ImageDecoder
  * strips (line art on a white page for xkcd, colour-on-colour for the rest),
  * a twelve-page archive, browse/forget, and scripted events — [fireNew]
  * adds an item under the cursor and fires `changed`; [setState] flips the
- * staleness line; [fallback] flips the switch. No network, no clock.
+ * staleness line; [original] draws a picture's PNG for the web's blobs. No network, no clock.
  */
 class ScriptedFeed(
     /** Stamps are relative to this, so the scenes' ages read the same every day. */
@@ -18,7 +18,6 @@ class ScriptedFeed(
     private val listeners = CopyOnWriteArrayList<FeedProvider.Listener>()
     val ops = CopyOnWriteArrayList<String>()
     @Volatile private var state = ""
-    @Volatile private var fallbackOn = false
     private val versions = HashMap<String, Long>()
     private val itemsBy = LinkedHashMap<String, ArrayList<Item>>()
     private val cfg = LinkedHashMap<String, SourceCfg>()
@@ -94,7 +93,8 @@ class ScriptedFeed(
                 val on = (x + seed) % 23 == 0 || (y + seed) % 19 == 0 || ((x / 40 + y / 40 + seed) % 7 == 0 && (x % 40 < 3))
                 if (on) 0 else 255
             } else {
-                val block = ((x / 48) + (y / 48) + seed) % 5
+                // floorMod: a URL's hash seed may be negative (S1-3 J §6: it indexed below the list and threw)
+                val block = Math.floorMod((x / 48) + (y / 48) + seed, 5)
                 listOf(60, 120, 180, 90, 200)[block]
             }
             g[y * w + x] = v.toByte()
@@ -105,7 +105,7 @@ class ScriptedFeed(
     val episodes: List<Episode> = (1..12).map { n -> Episode(n, listOf("We're going where?", "Why is he in the lead anyway?", "A legend is born")[n % 3], nowMs - (13 - n) * 86_400_000L * 30, "https://www.nuklearpower.com/ep/$n", "https://www.nuklearpower.com/comics/$n.png") }
 
     override fun stateLine(): String = state
-    override fun engineName(): String = if (fallbackOn) "phone" else "PC"
+    override fun engineName(): String = "PC"
     override fun addListener(l: FeedProvider.Listener) { if (listeners.addIfAbsent(l)) l.state(state) }
     override fun removeListener(l: FeedProvider.Listener) { listeners.remove(l) }
     override fun setFocused(sourceId: String?) { ops.add("focus:$sourceId") }
@@ -219,9 +219,31 @@ class ScriptedFeed(
         return Article("url:" + FeedIds.sha1(url).take(20), title, listOf(Block("p", "The page at $url, extracted after retention forgot the item, with enough words to read.")), true)
     }
 
-    override fun configure(fetchMs: Long, keepMs: Long, pcLossMs: Long) { ops.add("configure:$fetchMs:$keepMs:$pcLossMs") }
-    override fun fallbackActive(): Boolean = fallbackOn
-    override fun backToPc() { ops.add("backToPc"); fallbackOn = false; setState("") }
+    /** A made-up picture for any URL, as an 8-bit gray PNG (the strip's pattern, uninverted): the web's blobs. */
+    override fun original(url: String): ByteArray {
+        ops.add("original:$url")
+        val w = 320
+        val h = 200
+        val seed = Math.floorMod(url.hashCode(), 11)
+        val raw = java.io.ByteArrayOutputStream()
+        for (y in 0 until h) {
+            raw.write(0)                                     // filter: none
+            for (x in 0 until w) raw.write(listOf(60, 120, 180, 90, 200)[Math.floorMod((x / 48) + (y / 48) + seed, 5)])
+        }
+        fun chunk(out: java.io.ByteArrayOutputStream, type: String, data: ByteArray) {
+            val t = type.toByteArray(Charsets.US_ASCII)
+            val crc = java.util.zip.CRC32().apply { update(t); update(data) }.value
+            out.write(java.nio.ByteBuffer.allocate(4).putInt(data.size).array())
+            out.write(t); out.write(data)
+            out.write(java.nio.ByteBuffer.allocate(4).putInt(crc.toInt()).array())
+        }
+        val png = java.io.ByteArrayOutputStream()
+        png.write(byteArrayOf(-119, 80, 78, 71, 13, 10, 26, 10))
+        chunk(png, "IHDR", java.nio.ByteBuffer.allocate(13).putInt(w).putInt(h).put(8).put(0).put(0).put(0).put(0).array())
+        chunk(png, "IDAT", java.io.ByteArrayOutputStream().also { o -> java.util.zip.DeflaterOutputStream(o).use { it.write(raw.toByteArray()) } }.toByteArray())
+        chunk(png, "IEND", ByteArray(0))
+        return png.toByteArray()
+    }
 
     // ------------------------------------------------------------ scripted events
     /** A new item lands at the top of [sourceId]: the version bumps and `changed` fires. */
@@ -236,7 +258,4 @@ class ScriptedFeed(
     }
 
     fun setState(line: String) { state = line; for (l in listeners) l.state(line) }
-
-    /** The phone engine took over (the PC unreachable): the state line and the switch. */
-    fun fallback(on: Boolean) { fallbackOn = on; setState(if (on) "" else "") }
 }

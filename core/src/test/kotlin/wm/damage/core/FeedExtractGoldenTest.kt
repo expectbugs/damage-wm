@@ -5,6 +5,7 @@ import java.nio.file.Path
 import java.nio.file.Paths
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import kotlin.test.fail
 import wm.damage.core.windows.feed.Block
 import wm.damage.core.windows.feed.Extract
@@ -13,6 +14,7 @@ import wm.damage.core.windows.feed.RssFetcher
 import wm.damage.core.windows.feed.SlashdotRss
 import wm.damage.core.windows.feed.SourceCfg
 import wm.damage.core.windows.feed.SourceKind
+import wm.damage.core.windows.feed.Span
 
 /**
  * The extractor's golden file (build S1-3 stage J; the spec's B3). Context for the reader: Damage is Adam's own window
@@ -102,5 +104,30 @@ class FeedExtractGoldenTest {
         fail("the extractor's output differs from extract-golden.txt at line ${i + 1}:\n" +
             "  golden: ${a.getOrNull(i) ?: "(end of file)"}\n  now:    ${b.getOrNull(i) ?: "(end of file)"}\n" +
             "what it produces now is in $actual (${a.size} golden lines, ${b.size} now)")
+    }
+
+    /** S1-3 B3: the spans add to a block and never change its text (the test above holds the texts); a link is http or
+     *  https only — no `javascript:`, `mailto:` or relative href becomes one — on every fixture page and item body. */
+    @Test
+    fun spansJoinToTheBlocksTextAndOnlyHttpBecomesALink() {
+        val all = ArrayList<Block>()
+        for ((name, url) in pages) all += Extract.article(fixture(name).toString(Charsets.UTF_8), url)
+        for ((_, items) in feedItems()) for (it in items) all += Extract.fragment(it.body, it.link)
+        for (b in all) if (b.spans.isNotEmpty()) {
+            assertEquals(b.text, b.spans.joinToString("") { it.text }, "spans of '${b.text.take(40)}'")
+            for (sp in b.spans) assertTrue(sp.href.isEmpty() || sp.href.startsWith("https://") || sp.href.startsWith("http://"), sp.href)
+        }
+        val inline = Extract.article(fixture("article-inline.html").toString(Charsets.UTF_8), pages.keys.first().let { pages[it]!! })
+        val first = inline.first { it.text.startsWith("The first paragraph") }
+        assertTrue(first.spans.any { it.text == "emphasis" && it.marks == Span.EM })
+        assertTrue(first.spans.any { it.text == "strong words" && it.marks == Span.STRONG })
+        assertTrue(first.spans.any { it.text == "link to the keepers' page" && it.href == "https://example.org/keepers" })
+        val code = inline.first { it.text.startsWith("Inline code") }
+        assertTrue(code.spans.any { it.text == "light.rotate(360)" && it.marks == Span.CODE })
+        val links = inline.first { it.text.startsWith("A link that runs script") }
+        assertTrue(links.spans.none { it.text == "this one" && it.href.isNotEmpty() }, "javascript: is not a link")
+        assertTrue(links.spans.none { it.text == "the keeper" && it.href.isNotEmpty() }, "mailto: is not a link")
+        assertTrue(links.spans.any { it.text == "nested emphasis inside a link" && it.marks == Span.EM && it.href == "https://example.org/fog" })
+        assertTrue(all.any { it.spans.isNotEmpty() }, "spans exist at all")
     }
 }

@@ -22,9 +22,9 @@ import wm.damage.core.windows.feed.*
  * FEED over the window channel (`FEED.md` §3.6): the remote provider through
  * a real loopback content host — the status list, a page, an article, a comic
  * whose strips ride deflated and come back byte-identical, an episode,
- * comments, browse and forget, the `changed` push — and the switching
- * provider: the PC lost → the phone engine after the threshold, its sources
- * announced as changed; the PC back → nothing moves until `Back to PC`.
+ * comments, browse and forget, the `changed` push. Build S1-3 B5: the phone's
+ * own engine and the switch to it are retired (the switching case went with them);
+ * B3: an article crosses to the phone without its spans.
  */
 class FeedNetTest {
 
@@ -88,8 +88,6 @@ class FeedNetTest {
             awaitTrue("and forgotten") { remote.sources().none { it.id == "r:linux" } }
             remote.refresh("popular")
             assertTrue(fake.ops.contains("refresh:popular"))
-            remote.configure(300_000, 7L * 86_400_000, 30_000)
-            assertTrue(fake.ops.any { it.startsWith("configure:300000:") })
             // a change on the host reaches the phone as a push
             val before = c.changed.size
             fake.fireNew("popular")
@@ -97,52 +95,6 @@ class FeedNetTest {
             awaitTrue("the status list refreshed on the push") { remote.sources().first { it.id == "popular" }.count == 31 }
         } finally {
             remote.close(); host.close(); scope.cancel(); tmp.toFile().deleteRecursively()
-        }
-    }
-
-    @Test
-    fun theSwitchFallsToThePhoneAfterTheThresholdAndReturnsOnlyByHand(): Unit = runBlocking {
-        val tmp = Files.createTempDirectory("damage-feed-switch")
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val port = freePort()
-        val pcSide = ScriptedFeed()
-        var host = ContentHostServer(LocalContent(tmp), port, "tok", win = mapOf("feed" to FeedService(pcSide)))
-        host.start()
-        val remote = RemoteFeedProvider("127.0.0.1", port, "tok", scope)
-        val phoneSide = ScriptedFeed()
-        val localActive = java.util.concurrent.CopyOnWriteArrayList<Boolean>()
-        val sw = SwitchingFeedProvider(remote, phoneSide, scope, pcLossMs = 5_000, onLocalActive = { localActive.add(it) })
-        val c = Collect()
-        sw.addListener(c)
-        try {
-            awaitTrue("the PC serves") { sw.sources().size == 5 && !sw.fallbackActive() }
-            assertEquals("PC", sw.engineName())
-            assertEquals(listOf(false), localActive)
-            // the PC goes away: the phone engine takes over after the threshold, not before
-            host.close()
-            awaitTrue("the link is seen down") { remote.downSinceMs != 0L }
-            delay(1_500)
-            assertFalse(sw.fallbackActive(), "not before the threshold")
-            awaitTrue("the phone engine serves after the threshold", ms = 15_000) { sw.fallbackActive() }
-            assertEquals("phone", sw.engineName())
-            assertEquals(listOf(false, true), localActive)
-            assertTrue(sw.pcDownLine().startsWith("PC down"))
-            assertEquals("", sw.stateLine(), "the phone engine is healthy on its own")
-            awaitTrue("every phone source announced as changed") { c.changed.count { it.first == "popular" } >= 1 }
-            assertEquals(30, sw.items("popular", 0, 50).total)
-            // the PC returns: nothing switches by itself
-            host = ContentHostServer(LocalContent(tmp), port, "tok", win = mapOf("feed" to FeedService(pcSide)))
-            host.start()
-            awaitTrue("the link is back") { remote.downSinceMs == 0L }
-            delay(1_500)
-            assertTrue(sw.fallbackActive(), "switchback is deliberate")
-            assertEquals("", sw.pcDownLine())
-            sw.backToPc()
-            assertFalse(sw.fallbackActive()); assertEquals("PC", sw.engineName())
-            assertEquals(listOf(false, true, false), localActive)
-            awaitTrue("the PC's list again") { sw.sources().size == 5 }
-        } finally {
-            sw.close(); host.close(); scope.cancel(); tmp.toFile().deleteRecursively()
         }
     }
 }

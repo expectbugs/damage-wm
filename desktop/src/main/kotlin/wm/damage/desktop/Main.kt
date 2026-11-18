@@ -791,6 +791,24 @@ private fun torrentsParts(appNet: wm.damage.core.app.AppNet, appHost: wm.damage.
     return scopes
 }
 
+/**
+ * Build S1-3 B16 (the spec's B2): Feed's PC-served parts, made at a PROCESS START by both host builders over the
+ * process-wide [engine], after its migration: the description and pages, the reading scopes (their own executor), the
+ * program ops, Main's card; its notices raised once, here, from the engine's changes, and the record's Fetch and Keep
+ * handed to the engine. Never per stack, never from a tool.
+ */
+private fun feedParts(appNet: wm.damage.core.app.AppNet, appHost: wm.damage.core.app.AppHost,
+                      engine: wm.damage.core.windows.feed.FeedEngine,
+                      notices: wm.damage.core.app.NoticeCore): wm.damage.core.windows.feed.FeedScopes {
+    val scopes = wm.damage.core.windows.feed.FeedScopes(appHost, engine)
+    scopes.start()
+    appNet.serve(wm.damage.core.windows.feed.FeedCore.WINDOW, scopes.table, scopes.program, scopes::card)
+    appNet.serve(wm.damage.core.windows.feed.FeedCore.WINDOW, scopes.reading)
+    scopes.core.startOnPc(appHost, notices, engine::configure)
+    Log.i("damage", "Feed's core on the PC record (${scopes.core.window}): its scopes and program ops on the lane, its notices raised here")
+    return scopes
+}
+
 /** Build S1-1 P7: the glasses' faces for the web's glass theme, each resolved by fontconfig once (as `AwtText` resolves
  *  them); a face that is not installed is said once and answered 404. */
 private fun webFonts(): wm.damage.core.web.FontSource {
@@ -918,6 +936,9 @@ private suspend fun hostOnly(cfg: Config) {
     // runShell (host-only has no presenter: the core serves the web and raises the notices)
     wm.damage.core.windows.torrents.TorrentsMigration.onHost(appHost, store) { }
     torrentsParts(appNet, appHost, torrents, noticeCore)
+    // build S1-3 (B7, B16): Feed's state from before its conversion, then its parts on the lane and its notices
+    wm.damage.core.windows.feed.FeedMigration.onHost(appHost, store) { }
+    val feedScopes = feedParts(appNet, appHost, feed, noticeCore)
 
     // build S1-2 (Q5): Files' rows from before its conversion become record items where the record holds none, then
     // Files on the PC record: the one job slot every PC caller meets (the phone's glasses through the window channel,
@@ -947,7 +968,8 @@ private suspend fun hostOnly(cfg: Config) {
     // build S1-2 (Q2): the uploads, at this process start as in runShell; host-only's lines go to the log alone (Q5: made
     // above, with Files, whose upload op mints them; Files' blobs beside Reader's)
     startWeb(cfg, scope, reach, web, appNet, appHost, readerCore, presence, hostUploads,
-        blobs = mapOf(wm.damage.core.windows.files.FilesBlobs.PREFIX to filesPc.blobs))
+        blobs = mapOf(wm.damage.core.windows.files.FilesBlobs.PREFIX to filesPc.blobs,
+            wm.damage.core.windows.feed.FeedBlobs.PREFIX to feedScopes.blobs))
     watcher.start()
     presence.start()
     cfg.nightlyCopy(alerts, scope)?.start()
@@ -998,6 +1020,9 @@ class DesktopStack(
     /** Build S1-2 Q4: Torrents' process-wide core and the source on the PC record its presenter reads (device `local`);
      *  null in tools, which build Torrents the way it was built before (`TorrentsWindow`, a record in memory). */
     private val torrentsCore: Pair<wm.damage.core.windows.torrents.TorrentsCore, wm.damage.core.app.WindowSource>? = null,
+    /** Build S1-3 B16: Feed's process-wide core and the source on the PC record its presenter reads (device `local`);
+     *  null in tools, which build Feed the way it was built before (`FeedWindow`, a record in memory). */
+    private val feedCore: Pair<wm.damage.core.windows.feed.FeedCore, wm.damage.core.app.WindowSource>? = null,
 ) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private fun ble(): Transport = BlueZTransport(BlueZDbus(), scope,
@@ -1065,7 +1090,10 @@ class DesktopStack(
         // system that needs nothing outside itself
         shell.register(wm.damage.core.windows.games.GamesWindow(text, scope))
         // Feed (FEED.md): the PC's engine, read directly
-        feed?.let { feedWindow = wm.damage.core.windows.feed.FeedWindow(text, it, scope).also(shell::register) }
+        feed?.let { p ->
+            feedWindow = (feedCore?.let { (core, source) -> wm.damage.core.windows.feed.FeedGlasses(text, p, scope, core, source) }
+                ?: wm.damage.core.windows.feed.FeedWindow(text, p, scope)).also(shell::register)
+        }
         shell.hostSettings = listOf(
             HostSetting("Target", MODES, current = { mode }, apply = { v -> onSwitch(v) }),
         )
@@ -1266,6 +1294,12 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
     val torrentsScopes = torrentsParts(appNet, appHost, torrentsProvider, noticeCore)
     val torrentsSource = wm.damage.core.app.LocalWindowSource(torrentsScopes.core,
         wm.damage.core.app.HostBackend(appHost, wm.damage.core.app.Peer.LOCAL.device, wm.damage.core.app.OpQueue.newStream()))
+    // build S1-3 (B7, B16): Feed's state from before its conversion becomes record items where the record holds none,
+    // before any presenter reads them; then its parts and notices (`feedParts`), and the source every stack's glasses read
+    wm.damage.core.windows.feed.FeedMigration.onHost(appHost, store) { line -> Journal.appendNote(journalFile, "migrate", line) }
+    val feedScopes = feedParts(appNet, appHost, feedEngine, noticeCore)
+    val feedSource = wm.damage.core.app.LocalWindowSource(feedScopes.core,
+        wm.damage.core.app.HostBackend(appHost, wm.damage.core.app.Peer.LOCAL.device, wm.damage.core.app.OpQueue.newStream()))
 
     // build S1-2 (Q5): Files' rows from before its conversion become record items where the record holds none, then
     // Files on the PC record: the one job slot every PC caller meets (every stack's glasses, the phone's glasses
@@ -1302,7 +1336,8 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
     // build S1-2 (Q2): the uploads a window's `upload` op mints, at this process start (a temp file a stopped process
     // left is deleted, each an `uploads` journal note; Q5: made above, with Files; Files' blobs beside Reader's)
     startWeb(cfg, this, reach, web, appNet, appHost, readerCore, phonePresence, shellUploads,
-        blobs = mapOf(wm.damage.core.windows.files.FilesBlobs.PREFIX to filesPc.blobs))
+        blobs = mapOf(wm.damage.core.windows.files.FilesBlobs.PREFIX to filesPc.blobs,
+            wm.damage.core.windows.feed.FeedBlobs.PREFIX to feedScopes.blobs))
     bastionWatcher.start()
     phonePresence.start()
     cfg.nightlyCopy(alertStore, tmuxScope)?.start()
@@ -1357,7 +1392,8 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
     build = { m -> DesktopStack(cfg, m, remoteHost, text, onStatus = { keeperStatus.set(it) },
         onSwitch = { switchTo(it) }, tmux = tmuxProvider, sharedStore = store,
         files = filesProvider, themeIcons = themeIcons, torrents = torrentsProvider, music = musicLibrary, feed = feedEngine,
-        reader = readerCore to readerSource, notices = noticeMirror, torrentsCore = torrentsScopes.core to torrentsSource) }
+        reader = readerCore to readerSource, notices = noticeMirror, torrentsCore = torrentsScopes.core to torrentsSource,
+        feedCore = feedScopes.core to feedSource) }
 
     if (mode != "auto") {
         val first = build(mode)
