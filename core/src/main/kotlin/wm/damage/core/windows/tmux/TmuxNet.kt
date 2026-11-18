@@ -291,7 +291,7 @@ class RemoteTmuxProvider(
                     Log.w("tmux-remote", "tmux channel to $host down: ${e.message}")
                 }
                 failPending("tmux channel to $host down: ${e.message}")
-                setState("PC unreachable ${(System.currentTimeMillis() - offlineSince) / 1000}s")
+                setState(wm.damage.core.net.RemoteWin.unreachableSince(offlineSince))
             }
             if (!running) return
             delay(retryPacingMs)      // pacing between attempts, not a timeout
@@ -321,6 +321,7 @@ class RemoteTmuxProvider(
     }
 
     private fun setState(s: String) {
+        if (s == stateLine) return          // S1-3 fix B2 (RemoteWin's twin): one line per outage
         stateLine = s
         for (l in listeners) try { l.state(s) } catch (e: Exception) { Log.e("tmux-remote", "state listener", e) }
     }

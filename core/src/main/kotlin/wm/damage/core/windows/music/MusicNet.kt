@@ -128,7 +128,7 @@ class MusicService(private val lib: MusicLibrary) : WinService {
  * asks with the version cursor, paced by the caller. Art, viz and lyrics
  * are cached per track under [cacheDir]; the stream URL points at the PC's
  * media endpoint on [mediaPort]. The channel's staleness line comes first
- * (`PC unreachable 40s`), the host's own second.
+ * (`PC unreachable since 14:02`), the host's own second.
  */
 class RemoteMusicLibrary(
     private val host: String,

@@ -163,7 +163,7 @@ object WinNet {
  * keeper-style reconnect with pacing, forever; requests are id-correlated and
  * park until the answer or the link's end fails them loudly. While
  * disconnected [stateLine] carries the §10.5 staleness surface
- * ("PC unreachable Ns") for the window to show.
+ * ("PC unreachable since 14:02") for the window to show.
  */
 class RemoteWin(
     private val host: String,
@@ -273,7 +273,7 @@ class RemoteWin(
                     Log.w("win-remote", "'$winId' channel to $host down: ${e.message}")
                 }
                 failPending("'$winId' channel to $host down: ${e.message}")
-                setState("PC unreachable ${(System.currentTimeMillis() - offlineSince) / 1000}s")
+                setState(unreachableSince(offlineSince))
             }
             if (!running) return
             delay(retryPacingMs)          // pacing between attempts, not a timeout
@@ -281,6 +281,7 @@ class RemoteWin(
     }
 
     private fun setState(s: String) {
+        if (s == stateLine) return          // S1-3 fix B2: one line per outage, not one per attempt
         stateLine = s
         try { onState(s) } catch (e: Exception) { Log.e("win-remote", "state hook", e) }
     }
@@ -344,5 +345,13 @@ class RemoteWin(
     companion object {
         /** X3: a quick request with no answer for a minute drops the connection (ruling §5). */
         const val STUCK_MS = 60_000L
+
+        private val HHMM = java.time.format.DateTimeFormatter.ofPattern("HH:mm")
+
+        /** S1-3 fix B2: a channel's line while the PC is out of reach — the outage's START, so it stays the same for
+         *  the whole outage (a counting line changed at every 2 s attempt and repainted the glasses' chrome for
+         *  nothing); "PC unreachable" stays its prefix. The phone's own clock. */
+        fun unreachableSince(sinceMs: Long): String =
+            "PC unreachable since ${HHMM.format(java.time.Instant.ofEpochMilli(sinceMs).atZone(java.time.ZoneId.systemDefault()))}"
     }
 }

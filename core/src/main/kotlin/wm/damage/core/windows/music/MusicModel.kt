@@ -458,7 +458,7 @@ data class ResolvedQueue(
  *  blocks (call from background coroutines, never the shell loop); every
  *  failure throws with a reason — never an empty answer for a failure. */
 interface MusicLibrary {
-    /** "" healthy, else "PC unreachable 40s" / "library: <err>". */
+    /** "" healthy, else "PC unreachable since 14:02" / "library: <err>". */
     fun stateLine(): String
     /** Cached; the Remote serves its disk cache while offline. Never blocks
      *  on the network (a paint may ask for it — it is a field read). */

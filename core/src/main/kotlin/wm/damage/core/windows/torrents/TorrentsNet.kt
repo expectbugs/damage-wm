@@ -200,7 +200,7 @@ class RemoteTorrentsProvider(
             ch.request("snap", args("v" to (cur?.version ?: -1L), "since" to lastSeq, "epoch" to epoch,
                 "focused" to focused, "pace" to pace), quick = true)
         } catch (e: Exception) {
-            return              // the channel's own state line says why (PC unreachable Ns)
+            return              // the channel's own state line says why (PC unreachable since H:MM)
         }
         hostState = a.data["state"]?.jsonPrimitive?.contentOrNull ?: ""
         val blob = a.data["changed"]?.jsonPrimitive?.booleanOrNull == true && a.blob != null
@@ -270,7 +270,7 @@ class RemoteTorrentsProvider(
         for (l in listeners) try { l.state(line) } catch (e: Exception) { Log.e("torrents-remote", "state listener", e) }
     }
 
-    /** The channel's staleness first (PC unreachable Ns), else the host's own
+    /** The channel's staleness first (PC unreachable since H:MM), else the host's own
      *  line (qBittorrent unreachable Ns), else healthy. */
     override fun stateLine(): String = chanState.ifEmpty { hostState }
     override fun snapshot(): Snapshot? = snap

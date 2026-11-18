@@ -153,4 +153,34 @@ class RemoteWinLastHeardTest {
             assertTrue(rw.stateLine.startsWith("PC unreachable"))
         } finally { rw.close(); scope.cancel() }
     }
+
+    /** S1-3 fix B2: an outage of many attempts changes the channel's line ONCE — to its start ("PC unreachable since
+     *  H:MM"), so the glasses' chrome is not repainted at every 2 s attempt; the same for the Tmux channel (the twin).
+     *  The host accepts each attempt and ends it at once, so the attempts are counted. */
+    @Test
+    fun anOutageOfManyAttemptsChangesTheLineOnce(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val server = ServerSocket(0, 50, InetAddress.getLoopbackAddress())
+        val attempts = java.util.concurrent.atomic.AtomicInteger()
+        Thread({ while (!server.isClosed) try { server.accept().close(); attempts.incrementAndGet() } catch (e: Exception) { break } },
+            "outage-host").apply { isDaemon = true; start() }
+        val lines = java.util.concurrent.CopyOnWriteArrayList<String>()
+        val rw = RemoteWin("127.0.0.1", server.localPort, "tok", "feed", scope, retryPacingMs = 20, onState = { lines += it })
+        val tmuxLines = java.util.concurrent.CopyOnWriteArrayList<String>()
+        val tmux = wm.damage.core.windows.tmux.RemoteTmuxProvider("127.0.0.1", server.localPort, "tok", scope, retryPacingMs = 20)
+        tmux.addListener(object : wm.damage.core.windows.tmux.TmuxProvider.Listener {
+            override fun status(sessions: List<wm.damage.core.windows.tmux.TmuxSessionInfo>, cfg: wm.damage.core.windows.tmux.TmuxConfig) {}
+            override fun frame(target: wm.damage.core.windows.tmux.TmuxTarget, frame: wm.damage.core.windows.tmux.PaneFrame) {}
+            override fun alert(session: wm.damage.core.windows.tmux.TmuxSessionInfo) {}
+            override fun state(state: String) { tmuxLines += state }
+        })
+        try {
+            waitUntil(10_000, 10, { "many attempts (${attempts.get()})" }) { attempts.get() >= 12 }
+            assertEquals(1, lines.size, "the line changed once over ${attempts.get()} attempts: $lines")
+            assertTrue(Regex("""PC unreachable since \d\d:\d\d""").matches(lines[0]), lines[0])
+            assertEquals(lines[0], rw.stateLine)
+            assertEquals(2, tmuxLines.size, "the Tmux channel: its first line, then the outage's, once: $tmuxLines")
+            assertTrue(tmuxLines[1].startsWith("PC unreachable since "), "$tmuxLines")
+        } finally { rw.close(); tmux.close(); server.close(); scope.cancel() }
+    }
 }

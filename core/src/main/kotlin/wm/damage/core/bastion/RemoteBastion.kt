@@ -219,7 +219,7 @@ class RemoteBastion(
     fun lastHeardMs(): Long = ch.lastHeardMs
 
     /** The Bastion category's `Watcher` row (fix round 1, R1.2(b)): the PC watcher's state line from its last
-     *  answer, or [HOME_DOWN] and the channel's own line ("PC unreachable Ns", W38) while the channel is down (the
+     *  answer, or [HOME_DOWN] and the channel's own line ("PC unreachable since H:MM", W38) while the channel is down (the
      *  line the PC last sent is no longer known to hold). */
     fun watcherLine(): String = when {
         !chanUp -> ch.stateLine.ifEmpty { null }?.let { "$HOME_DOWN · $it" } ?: HOME_DOWN
@@ -298,7 +298,7 @@ class RemoteBastion(
                     null
                 }
             } catch (e: Exception) {
-                // the link ended under it or was down: the channel's own line says so ("PC unreachable Ns")
+                // the link ended under it or was down: the channel's own line says so ("PC unreachable since H:MM")
                 Log.i(TAG, "a table ask ended without an answer: ${e.message}")
             } finally {
                 asking.set(false)

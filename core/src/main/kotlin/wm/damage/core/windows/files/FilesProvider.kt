@@ -53,7 +53,7 @@ data class TextChunk(
 data class PdfInfo(val pages: Int, val textChars: Long)
 
 interface FilesProvider {
-    /** §10.5 staleness line ("" healthy; "PC unreachable 40s" on the phone). */
+    /** §10.5 staleness line ("" healthy; "PC unreachable since 14:02" on the phone). */
     fun stateLine(): String = ""
 
     fun locations(): List<FLocation>

@@ -822,7 +822,7 @@ class FeedGlasses(
                 if (page == null) {
                     itemsState = err ?: "load failed"
                     itemsRetryAt = clock() + RETRY_MS
-                    setNotice(itemsState)
+                    if (stateLine.isEmpty()) setNotice(itemsState)   // S1-3 fix B2: away, the state line says it once
                     scheduleRetryPaint(seq)
                 } else {
                     itemsState = ""

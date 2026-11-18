@@ -416,6 +416,39 @@ class FeedWindowTest {
         } finally { tmp.toFile().deleteRecursively() }
     }
 
+    /** A feed whose lists fail while [down] (the phone away: its channel's line set, every request refused). */
+    private class Away(val real: ScriptedFeed) : FeedProvider by real {
+        @Volatile var down = false
+        val failed = java.util.concurrent.atomic.AtomicInteger(0)
+        override fun items(sourceId: String, offset: Int, limit: Int): ItemPage =
+            if (down) { failed.incrementAndGet(); throw IllegalStateException("PC not answering") } else real.items(sourceId, offset, limit)
+    }
+
+    /** S1-3 fix B2: away from home the channel's line says it once ("PC unreachable since H:MM", in the title); a
+     *  list that cannot load raises no notice of its own at each 5 s retry (each one a chrome flush for nothing). */
+    @Test
+    fun awayAListThatCannotLoadRaisesNoNoticeAtEachRetry(): Unit = runBlocking {
+        val tmp = Files.createTempDirectory("damage-feed-away")
+        val feed = ScriptedFeed()
+        val away = Away(feed)
+        val r = Rig(tmp, feed = feed, provider = away)
+        dump = { "title='${r.win.title()}' failed=${away.failed.get()}" }
+        try {
+            r.start()
+            awaitTrue("root") { r.win.title() == "feed" }
+            feed.setState("PC unreachable since 14:02")
+            away.down = true
+            r.tap()                                            // popular: its list cannot load
+            awaitTrue("the load failed") { away.failed.get() >= 1 }
+            delay(300)
+            assertFalse("PC not answering" in r.win.title(), "no notice while the line says it: '${r.win.title()}'")
+            assertTrue(r.win.title().endsWith("· ! PC unreachable since 14:02"), r.win.title())
+        } finally {
+            r.stop()
+            tmp.toFile().deleteRecursively()
+        }
+    }
+
     /** A feed whose archive's page 2 waits for [release] the first time it is asked (a slow site). */
     private class SlowPage(val real: ScriptedFeed) : FeedProvider by real {
         val asked2 = java.util.concurrent.atomic.AtomicInteger(0)
