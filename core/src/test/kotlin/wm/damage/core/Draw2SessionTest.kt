@@ -107,6 +107,26 @@ class Draw2SessionTest {
         t.stop()
     }
 
+    /** C1-Q: the bound reads field 18 itself, not the session's size made from it — a field 18 ABOVE the budget
+     *  (min(that, the ask) would be inside it) falls back to the v1 64 KiB as before. */
+    @Test
+    fun aSizeAboveTheBudgetFallsBackToo_C1Q(): Unit = runBlocking {
+        val sim = GlassFirmwareSim().also { it.damageContract = 2 }
+        val t = StartRig(sim, scope)
+        collect(t)
+        val op5Out = java.util.concurrent.atomic.AtomicBoolean(false)
+        t.onWrite = { _, p -> if (StartRig.damageOp(p) == DamageMsg.OP_CACHE_SIZE) op5Out.set(true); p }
+        t.onNotify = { _, p ->
+            val r = StartRig.telemetry(p)
+            if (r != null && r.requestId == 0L && op5Out.getAndSet(false)) { StartRig.withRecordField(p, 18, 300L * 1024) } else p
+        }
+        t.start(full)
+        assertTrue(has("glass", "the glasses report ${300 * 1024} B, outside 64..160 KiB — this session uses the v1 64 KiB"), "the fallback ran: $notes")
+        assertEquals(CfwModes.TEXTURE_CACHE_SIZE, t.state.value.cacheSize, "the v1 64 KiB")
+        assertAtlasFits(t.state.value, "a field 18 above the budget")
+        t.stop()
+    }
+
     /** Op 5 refused (status 5, outside the budget): the first write allocates the v1 64 KiB, so no DRAW2. The
      *  request's size is moved past 160 on its way to both arms, so the model itself refuses it. */
     @Test

@@ -533,6 +533,10 @@ class SilentStartTest {
      * writes move. Stage 0 writing the contract-2 file itself is `MotionTransportTest`'s pin (package D3a).
      * Same rig, clock and pacing as [anAwakeStartWritesWhatItWroteBefore]. The files were written by this test's first
      * run on `wip/068` after e6c7700 and read by hand once against the contract-2 file (`C1-D3b-built.md`).
+     * Build C1-Q: each is a transport's FIRST start, which asks at most 160 KiB (no record says the lenses hold no
+     * cache), so stage 2's file is now stage 1's and stage 3's asks 160 — rewritten by this test's run on `wip/c1q` and
+     * read by hand against the files before (only op 5's argument and the CRC changed). The 256 KiB rung's own bytes
+     * are `MotionTransportTest.eachLadderStageAddsOnlyItsOwnChange_6_2`'s, at a start after a release.
      */
     @Test
     fun aC1StartAtEachLadderStageWritesItsOwnFile_6_2(): Unit = runBlocking {

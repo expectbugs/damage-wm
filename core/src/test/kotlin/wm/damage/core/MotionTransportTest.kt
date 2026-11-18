@@ -62,11 +62,15 @@ class MotionTransportTest {
 
     // ------------------------------------------------------------------------------------------- the start's bytes
     /** One awake start's packets as `SilentStartTest.anAwakeStartWritesWhatItWroteBefore` takes them. */
-    private suspend fun startWire(features: Int?, stage: Int, store: java.nio.file.Path? = null, stepDown: Boolean = false): List<String> {
+    private suspend fun startWire(features: Int?, stage: Int, store: java.nio.file.Path? = null, stepDown: Boolean = false,
+                                  fresh: Boolean = false): List<String> {
         val glass = GlassFirmwareSim().apply { damageContract = 2; damageFeatures = features }
         val t = StartRig(glass, scope, clock = { 1_763_000_000_000L }, instantPacing = false, c1StageFile = store, c1StageStepDown = stepDown)
         if (store != null) collect(t)
         t.heapReads = false
+        // build C1-Q: [fresh] takes the start after a stage-0 start and its stop's release — one where both lenses are
+        // known to hold no cache, so it asks the stage's size (a transport's first start asks at most 160 KiB)
+        if (fresh) { t.start(full); t.stop() }
         if (stage != 0) t.devProbe("c1", "$stage")
         val sent = java.util.Collections.synchronizedList(ArrayList<String>())
         t.onWrite = { a, p -> sent.add("${a.name.first()} " + p.joinToString("") { "%02x".format(it) }); p }
@@ -76,6 +80,10 @@ class MotionTransportTest {
         t.stop()
         return got
     }
+
+    /** Build C1-Q: a start where both lenses are known to hold no cache — after a first start and its stop's release —
+     *  so the stage's 256 KiB size goes out (a transport's first start asks at most 160 KiB). */
+    private suspend fun startKnownFresh(t: CfwTransportBase) { t.start(full); t.stop(); t.start(full) }
 
     private fun unhex(h: String) = ByteArray(h.length / 2) { i -> h.substring(2 * i, 2 * i + 2).toInt(16).toByte() }
 
@@ -88,14 +96,18 @@ class MotionTransportTest {
             "$op:" + ((b[i + 4].toInt() and 0xFF) or ((b[i + 5].toInt() and 0xFF) shl 8)).toString(16) }
     }
 
-    /** Every packet that is not a FLAGS_SET or a CACHE_SIZE, with the AA sequence byte and the CRC taken off (one more
-     *  packet moves every later sequence number). */
+    /** Every packet that is not a FLAGS_SET or a CACHE_SIZE, with the AA sequence byte, the CRC and the message id taken
+     *  off (one more packet moves every later sequence number). */
     private fun rest(wire: List<String>): List<String> = wire.filter { line ->
         val op = StartRig.damageOp(unhex(line.substring(2))); op != DamageMsg.OP_FLAGS_SET && op != DamageMsg.OP_CACHE_SIZE
     }.map { line ->
         val h = line.substring(2)
-        // an EvenHub message's msgId (`08 <cmd> 10 <msgId>` after the 8-byte header) moves by one per extra control write
-        val body = if (StartRig.sid(unhex(h)) == EvenHubMsg.SID) h.substring(16, 22) + "··" + h.substring(24, h.length - 4) else h.substring(16, h.length - 4)
+        // an EvenHub message's msgId (`08 <cmd> 10 <msgId>` after the 8-byte header) moves by one per extra control write;
+        // C1-Q: and a settings request's own (`08 <cmd> 10 <msgId>` as well) after the start and stop that come before a
+        // known-fresh start (`startWire`'s [fresh]) was seen one apart between two such runs (0x0a against 0x0b; the
+        // request that made the difference was not traced)
+        val raw = h.substring(16, h.length - 4)
+        val body = if (raw.length >= 8 && raw.startsWith("08") && raw.substring(4, 6) == "10") raw.substring(0, 6) + "··" + raw.substring(8) else raw
         line.substring(0, 2) + h.substring(0, 4) + h.substring(6, 16) + body
     }
 
@@ -113,10 +125,11 @@ class MotionTransportTest {
     }
 
     /** Spec §6.1/§6.2: each stage adds exactly its own change to the stage-0 start — ZWRITE at 1, the 256 KiB size at
-     *  2, ENGINE at 3 — and only on a build with the bit it needs; every other packet is stage 0's. */
+     *  2, ENGINE at 3 — and only on a build with the bit it needs; every other packet is stage 0's. Each start is one
+     *  after a release (C1-Q: known fresh); a first start's size is `aStage0StartSendsTodaysBytesAtEveryKindOfStart_C1Q`'s. */
     @Test
     fun eachLadderStageAddsOnlyItsOwnChange_6_2(): Unit = runBlocking {
-        val base = startWire(0x1ff, 0)
+        val base = startWire(0x1ff, 0, fresh = true)
         val cases = listOf(
             Triple(0x1ff, 0, listOf("5:a0", "2:4")),
             Triple(0x1ff, 1, listOf("5:a0", "2:4", "2:24")),
@@ -125,7 +138,7 @@ class MotionTransportTest {
             Triple(0x17f, 3, listOf("5:100", "2:4", "2:24")),             // the riders without the engine: no ENGINE
             Triple(0x0ff, 3, listOf("5:a0", "2:4", "2:c")))               // the engine without the riders: no ZWRITE, 160
         for ((features, stage, want) in cases) {
-            val got = if (features == 0x1ff && stage == 0) base else startWire(features, stage)
+            val got = if (features == 0x1ff && stage == 0) base else startWire(features, stage, fresh = true)
             val what = "features 0x${features.toString(16)} stage $stage"
             for (arm in listOf('L', 'R')) assertEquals(want, controls(got, arm), "$what: the cache size and flag sets written to $arm")
             assertEquals(rest(base), rest(got), "$what: every other packet is stage 0's")
@@ -141,7 +154,7 @@ class MotionTransportTest {
         val t = SimTransport(sim, scope, SimTransport.Timing(instant = true), clock = { clock })
         collect(t)
         t.devProbe("c1", "3")
-        t.start(full)
+        startKnownFresh(t)
         fun said() = notes.filter { it.first == "keeper" }.joinToString(" | ") { it.second }
         assertEquals(0x2c, t.state.value.flagsInForce, "stage 3 armed: ${said()}")
         assertEquals(256 * 1024, t.state.value.cacheSize)
@@ -215,7 +228,8 @@ class MotionTransportTest {
         val t2 = c1Session(stageFile)
         t2.start(full)
         assertEquals(0x24, t2.state.value.flagsInForce, "the new process arms stage 2: ZWRITE and DRAW2, not ENGINE")
-        assertEquals(256 * 1024, t2.state.value.cacheSize, "and the 256 KiB cache")
+        // C1-Q: a process's first start asks at most 160 KiB (it cannot know what the last process left on the lenses)
+        assertEquals(160 * 1024, t2.state.value.cacheSize, "and 160 KiB until a start after a release or a lapse")
         assertTrue(t2.restartSession("test: the next session"))
         t2.start(full)
         waitUntil(10_000, message = { "the second start's notes: $notes" }) { startsSaid() == 2 }
@@ -564,6 +578,12 @@ class MotionTransportTest {
     // ------------------------------------------------------------------------------------- review pass 1's rulings
     private fun controlArg(p: ByteArray): Int { val b = StartRig.body(p); val i = StartRig.controlAt(b)
         return (b[i + 4].toInt() and 0xFF) or ((b[i + 5].toInt() and 0xFF) shl 8) }
+    /** The lease op a sid-0x09 packet carries (`SettingsMsg.control`: 'F' 'C' 1 op …, field 101), or -1. */
+    private fun leaseOp(p: ByteArray): Int {
+        if (p.size <= 12 || StartRig.sid(p) != SettingsMsg.SID) return -1
+        for (i in 0 until p.size - 3) if (p[i] == 'F'.code.toByte() && p[i + 1] == 'C'.code.toByte() && p[i + 2].toInt() == 1) return p[i + 3].toInt()
+        return -1
+    }
 
     /** Build C1's ruling B-M1: the 256 KiB size is a rung of the ladder, and it records itself (the time and stage 2)
      *  before op 5 goes out. Glasses that reset on it — after op 5, before the first FLAGS_SET — are held back at the
@@ -577,6 +597,7 @@ class MotionTransportTest {
         t.heapReads = false
         collect(t)
         t.devProbe("c1", "3")
+        t.start(full); t.stop()          // C1-Q: the start below is known fresh, so it asks 256 KiB
         val sizes = java.util.concurrent.CopyOnWriteArrayList<String>()
         val swallow = java.util.concurrent.atomic.AtomicBoolean(true)
         t.onWrite = { a, p ->
@@ -617,7 +638,7 @@ class MotionTransportTest {
             val t = SimTransport(sim, scope, SimTransport.Timing(instant = true), clock = { clock })
             collect(t)
             t.devProbe("c1", "3")
-            t.start(full)
+            startKnownFresh(t)
             val what = "features 0x${c.features.toString(16)}"
             fun said() = notes.filter { it.first == "keeper" }.joinToString(" | ") { it.second }
             assertEquals(c.flags3, t.state.value.flagsInForce, "$what at stage 3: ${said()}")
@@ -647,8 +668,11 @@ class MotionTransportTest {
         t.devProbe("c1", "3")
         t.devProbe("flags", "0x2c")
         waitUntil(10_000, message = { "the hand-set flags reached both lenses" }) { Arm.entries.all { sim.damageFlags(it) == 0x2c } }
-        clock += 10_000L; sim.uptimeOffsetMs = clock; clock += 200_000L
+        // C1-Q: the 256 KiB size below needs a start the lenses are known fresh at — the session ends before the clock
+        // moves past the lease, so no renewal is written at the later time
+        clock += 10_000L; sim.uptimeOffsetMs = clock
         assertTrue(t.restartSession("test: after a reset"))
+        clock += 200_000L
         t.start(full)
         fun said() = notes.filter { it.first == "keeper" }.joinToString(" | ") { it.second }
         waitUntil(10_000, message = { "the ladder's hold-back: ${said()}" }) { has("keeper", "armed stage 3 — stage 2 from here") }
@@ -796,6 +820,7 @@ class MotionTransportTest {
             val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = 0x1ff }
             val t = SimTransport(sim, scope, SimTransport.Timing(instant = true))
             t.devProbe("c1", "2")
+            t.start(full); t.stop()          // C1-Q: the shell's start is then known fresh, and asks 256 KiB
             val shell = Shell(wm.damage.core.comp.CachedText(GlyphyText()), t, Persistence(tmp.resolve("s.json")), null, scope)
             shell.start()
             waitUntil(10_000, 10, { "start" }) { shell.isQuiescent() }
@@ -1154,7 +1179,7 @@ class MotionTransportTest {
         t.heapReads = false
         collect(t)
         t.devProbe("c1", "2")
-        t.start(full)
+        startKnownFresh(t)
         fun said() = notes.filter { it.first == "keeper" }.joinToString(" | ") { it.second }
         assertEquals(0x24, t.state.value.flagsInForce, "stage 2 armed: ${said()}")
         assertEquals(256 * 1024, t.state.value.cacheSize)
@@ -1296,23 +1321,27 @@ class MotionTransportTest {
         t.start(full)
         fun said() = notes.filter { it.first == "keeper" }.joinToString(" | ") { it.second }
         assertEquals(0x2c, t.state.value.flagsInForce, "stage 3 armed: ${said()}")
-        clock += 130_000L; sim.uptimeOffsetMs = clock; clock += 10_000L
+        // C1-Q: the session ends before the clock moves, so no renewal is written at the later time and the start after
+        // the reset is known fresh (its lease lapsed) — the first start asked 160, this one asks the stage's 256
         assertTrue(t.restartSession("test: a reset outside the window"))
+        clock += 130_000L; sim.uptimeOffsetMs = clock; clock += 10_000L
         t.start(full)
         assertEquals(0x2c, t.state.value.flagsInForce, "stage 3 again: ${said()}")
-        assertEquals(256 * 1024, t.state.value.cacheSize, "the 256 KiB size again")
+        assertEquals(256 * 1024, t.state.value.cacheSize, "the 256 KiB size at the start after the lapse")
         t.stop()
     }
 
     /** DM1 (`P-sizerung-got`), B-N4's size rung: it counts only when the session got 256 KiB. Stage 1 allocates its
-     *  cache at 160; `c1=2` and a new session inside the lease (a renewal keeps the cache): op 5 asks 256 and finds the
-     *  160 KiB cache allocated, so the session runs at 160 and the flag set after it records stage 1 — a reset then
-     *  drops to stage 0, not to stage 1. */
+     *  cache at 160; `c1=2`, and the shell's release on purpose reaches LEFT but not RIGHT (a write the stack took that
+     *  the link never carried — C1-Q's "Not built" 1). C1-Q: the next start is known fresh by the phone's record, so op 5
+     *  asks 256 and finds RIGHT's 160 KiB cache allocated; the session runs at 160 and the flag set after it records
+     *  stage 1 — a reset then drops to stage 0, not to stage 1. (Before C1-Q a renewal asked 256; it now asks 160.) */
     @Test
     fun aSizeRungTheSessionDidNotGetIsNotCounted_DM1(): Unit = runBlocking {
         val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = 0x1ff }
         var clock = 1_000_000L
-        val t = SimTransport(sim, scope, SimTransport.Timing(instant = true), clock = { clock })
+        val t = StartRig(sim, scope, clock = { clock })
+        t.heapReads = false
         collect(t)
         t.devProbe("c1", "1")
         t.start(full)
@@ -1321,10 +1350,15 @@ class MotionTransportTest {
         t.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(CfwModes.cacheUpdate2(listOf(CfwModes.CacheWrite2(1000, ByteArray(64) { it.toByte() })), 160 * 1024))), 0, "ATLAS"))
         waitUntil(10_000, message = { "the first write allocated the cache" }) { sim.left.textureCache != null && sim.right.textureCache != null }
         t.devProbe("c1", "2")
+        t.onWrite = { a, p -> if (a == Arm.RIGHT && leaseOp(p) == SettingsMsg.OP_FB_RELEASE) null else p }
+        t.setLeaseWanted(false)
+        t.onWrite = null
+        assertTrue(sim.cacheAllocated(Arm.RIGHT) && !sim.cacheAllocated(Arm.LEFT), "RIGHT kept its cache, LEFT released it")
         clock += 1_000L
         assertTrue(t.restartSession("test: stage 2 asked"))
         t.start(full)
-        assertEquals(160 * 1024, t.state.value.cacheSize, "asked 256, the 160 KiB cache was still allocated: ${said()}")
+        assertTrue(has("glass", "cache size: asked 256 KiB, status 4, 160 KiB this session"), "known fresh by the record: ${said()}")
+        assertEquals(160 * 1024, t.state.value.cacheSize, "asked 256, RIGHT's 160 KiB cache was still allocated: ${said()}")
         assertEquals(0x24, t.state.value.flagsInForce, "ZWRITE armed: ${said()}")
         clock += 10_000L; sim.uptimeOffsetMs = clock; clock += 200_000L
         assertTrue(t.restartSession("test: after a reset"))
@@ -1484,5 +1518,385 @@ class MotionTransportTest {
         delay(200)
         assertEquals(emptyList(), notes.filter { it.first == "fault" && it.second.startsWith("uploads:") }, "nothing said of a busy engine")
         t.stop()
+    }
+
+    // ------------------------------------------------------------------------------- build C1-Q: the session's cache size
+    /** Cache writes the model took, per arm — modes 12 and 19, and 25 (mode 19 deflated, sent while ZWRITE is in
+     *  force). The observer runs inside the model's write, so a count read afterwards has its message's effect behind it. */
+    private val cacheWritesSeen = Arm.entries.associateWith { java.util.concurrent.atomic.AtomicInteger() }
+    private fun countCacheWrites(sim: GlassFirmwareSim) {
+        sim.imageObserver = { arm, img -> val m = img[0].toInt() and 0x7F
+            if (m == 12 || m == 19 || m == CfwModes.ZWRITE_MODE) cacheWritesSeen.getValue(arm).incrementAndGet() }
+    }
+    private fun c1Sim(features: Int = 0x1ff) = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = features }
+    private fun said() = notes.filter { it.first == "keeper" || it.first == "glass" }.joinToString("\n  ") { "${it.first}: ${it.second}" }
+
+    /** C1-Q's invariant, read off both lenses of the model: each lens's cache — or, with none, the size its first write
+     *  allocates at — is at least the session's size. */
+    private fun assertEachLensHoldsTheSession(sim: GlassFirmwareSim, t: CfwTransportBase, what: String) {
+        val s = t.state.value.cacheSize
+        for (arm in Arm.entries) {
+            val holds = synchronized(sim) { (if (arm == Arm.LEFT) sim.left else sim.right).cacheBytes.let { if (it != 0) it else CfwModes.TEXTURE_CACHE_SIZE } }
+            assertTrue(holds >= s, "$what: $arm holds ${holds / 1024} KiB under a ${s / 1024} KiB session")
+        }
+    }
+
+    /** After a start: a mode-19 write at the bottom of the session's cache and one at its top (where the shell's strip
+     *  ring sits) — or, [v1], one mode-12 write — land on both lenses: each generation moves by one per write and no
+     *  refusal is recorded; then the invariant. */
+    private suspend fun writesLandOnBoth(sim: GlassFirmwareSim, t: CfwTransportBase, what: String, v1: Boolean = false) {
+        val size = t.state.value.cacheSize
+        val gen = Arm.entries.associateWith { sim.cacheGen(it) }
+        val seen = Arm.entries.associateWith { cacheWritesSeen.getValue(it).get() }
+        val writes = if (v1) listOf(DisplayOp.CacheWrite(CfwModes.cacheUpdate(listOf(CfwModes.CacheWrite(1024, ByteArray(512) { 7 })))))
+            else listOf(1, size / 1024 - 4).map { kib -> DisplayOp.CacheWrite2(CfwModes.cacheUpdate2(
+                listOf(CfwModes.CacheWrite2(kib * 256, ByteArray(2000) { (it / 100 + kib).toByte() })), size)) }
+        for (w in writes) t.submit(FlushRequest(listOf(w), 0, "ATLAS"))
+        waitUntil(10_000, message = { "$what: the writes reached both lenses: ${said()}" }) {
+            Arm.entries.all { cacheWritesSeen.getValue(it).get() >= seen.getValue(it) + writes.size } }
+        for (arm in Arm.entries) {
+            assertEquals(0, sim.refusalRecord(arm)[0], "$what: $arm refused a write inside the ${size / 1024} KiB session " +
+                "(record ${sim.refusalRecord(arm)}, cache ${sim.cacheSize(arm) / 1024} KiB)")
+            assertEquals(gen.getValue(arm) + writes.size, sim.cacheGen(arm), "$what: every write landed on $arm")
+        }
+        assertEachLensHoldsTheSession(sim, t, what)
+    }
+
+    /** C1-Q, H1 (the C1-P fix stage's §3 reproduction, committed): stage 3 at 256 KiB on both lenses; then twice LEFT
+     *  restarts alone and the next start comes 5 s later, inside RIGHT's lease. The ladder's hold-back lowers the stage
+     *  each time; at stage 1 the start asks 160 while RIGHT still holds its 256 KiB cache and LEFT, fresh, allocates
+     *  160. After every start each write the session's size allows lands on both lenses. */
+    private suspend fun h1(): Triple<GlassFirmwareSim, SimTransport, java.util.concurrent.atomic.AtomicLong> {
+        val sim = c1Sim()
+        val clock = java.util.concurrent.atomic.AtomicLong(1_000_000L)
+        val t = SimTransport(sim, scope, SimTransport.Timing(instant = true), clock = { clock.get() })
+        collect(t)
+        countCacheWrites(sim)
+        t.devProbe("c1", "3")
+        startKnownFresh(t)
+        assertEquals(256 * 1024, t.state.value.cacheSize, "stage 3 at a known-fresh start: 256 KiB: ${said()}")
+        writesLandOnBoth(sim, t, "stage 3")
+        for (stage in listOf(2, 1)) {
+            clock.addAndGet(10_000L)
+            sim.rebootForTest(Arm.LEFT, clock.get())
+            t.endLink("LEFT disconnected: supervision timeout")
+            clock.addAndGet(5_000L)
+            t.start(full)
+            waitUntil(10_000, message = { "the hold-back to stage $stage: ${said()}" }) { holdBacks().size == 3 - stage }
+            writesLandOnBoth(sim, t, "after the hold-back to stage $stage")
+        }
+        assertEquals(160 * 1024, t.state.value.cacheSize, "stage 1: the session is the 160 KiB it asked: ${said()}")
+        assertEquals(256 * 1024, sim.cacheSize(Arm.RIGHT), "RIGHT keeps its 256 KiB until its next release point")
+        assertEquals(160 * 1024, sim.cacheSize(Arm.LEFT), "LEFT, fresh after its restart, allocated the 160 KiB asked")
+        assertTrue(has("glass", "cache size: asked 160 KiB, status 4, 160 KiB this session (allocated already at 256 KiB on RIGHT"), said())
+        return Triple(sim, t, clock)
+    }
+
+    @Test
+    fun aRestartOfLeftAloneWithTheNextStartInsideTheLease_H1_C1Q(): Unit = runBlocking {
+        val (_, t, _) = h1()
+        t.stop()
+    }
+
+    /** C1-Q, H3: after H1 (the session at 160, RIGHT holding 256, LEFT 160), `c1=2` and a start that is a renewal on both
+     *  arms. RIGHT reports 256, the stage's own size; the start still asks no more than the last session's 160, so LEFT
+     *  takes every write. The wait for the 256 KiB size is said once. */
+    @Test
+    fun aRenewalAfterH1AsksNoMoreThanTheLastSession_H3_C1Q(): Unit = runBlocking {
+        val (sim, t, clock) = h1()
+        t.devProbe("c1", "2")
+        clock.addAndGet(20_000L)
+        assertTrue(t.restartSession("test: a renewal on both arms"))
+        t.start(full)
+        assertTrue(t.state.value.leaseCarried, "a renewal on both arms: ${t.state.value.leaseCarry}")
+        assertEquals(160 * 1024, t.state.value.cacheSize, "the renewal asks no more than the last session's 160 KiB: ${said()}")
+        writesLandOnBoth(sim, t, "the renewal after c1=2")
+        // said at H1's first start (stage 3 asked 160 there) and again for this hand request
+        assertEquals(2, sayings("C1 ladder: the 256 KiB size waits for a start after a release or a lapsed lease"), said())
+        t.stop()
+    }
+
+    /** C1-Q, H2: the ask must not RISE while LEFT carries. Both lenses at 160 under one lease; `c1=2` and a renewal (160,
+     *  the wait said); the session runs on past the hold-back's window, then RIGHT restarts alone and the next start comes
+     *  5 s after its link ended. RIGHT, fresh, answers status 0; LEFT still holds 160 — so the start asks 160, not 256. */
+    @Test
+    fun theAskDoesNotRiseWhileLeftCarries_H2_C1Q(): Unit = runBlocking {
+        val sim = c1Sim()
+        val clock = java.util.concurrent.atomic.AtomicLong(1_000_000L)
+        val t = SimTransport(sim, scope, SimTransport.Timing(instant = true), clock = { clock.get() })
+        collect(t)
+        countCacheWrites(sim)
+        t.start(full)
+        writesLandOnBoth(sim, t, "stage 0")
+        t.devProbe("c1", "2")
+        clock.addAndGet(20_000L)
+        assertTrue(t.restartSession("test: a renewal on both arms"))
+        t.start(full)
+        assertEquals(160 * 1024, t.state.value.cacheSize, "c1=2 and a renewal: 160 KiB: ${said()}")
+        writesLandOnBoth(sim, t, "the renewal at stage 2")
+        // past the hold-back's window, renewed on the model's clock in steps inside its lease
+        repeat(2) {
+            val acquires = sim.acquiresSeen
+            clock.addAndGet(65_000L)
+            waitUntil(10_000, message = { "renewals at the later time reached both lenses" }) { sim.acquiresSeen >= acquires + 6 }
+        }
+        sim.rebootForTest(Arm.RIGHT, clock.get())
+        t.endLink("RIGHT disconnected: supervision timeout")
+        clock.addAndGet(5_000L)
+        t.start(full)
+        assertEquals(160 * 1024, t.state.value.cacheSize, "RIGHT fresh, LEFT carrying 160 KiB: the ask stays 160: ${said()}")
+        assertEquals(160 * 1024, sim.cacheSize(Arm.LEFT), "LEFT still holds its 160 KiB cache")
+        writesLandOnBoth(sim, t, "after RIGHT restarted alone")
+        assertEquals(emptyList(), holdBacks(), "RIGHT's restart came after the hold-back's window")
+        assertEquals(1, sayings("C1 ladder: the 256 KiB size waits for a start after a release or a lapsed lease"), "said once: ${said()}")
+        t.stop()
+    }
+
+    /** C1-Q, the DRAW2 hold-back lifted by hand (installed image, no ladder): a reset after DRAW2's arming holds it back;
+     *  the held-back start (64 KiB) comes after LEFT restarted alone, so LEFT allocates 64 while RIGHT carries 160 and
+     *  the session is 64. `flags=0x4` lifts the hold-back; the next start, a renewal, asks the last session's 64 — DRAW2
+     *  not armed, said — and LEFT takes every write. The wake after the shell's release asks 160 and arms DRAW2. */
+    @Test
+    fun aDraw2HoldBackLiftedByHandKeepsTheHeldBackSizeUntilAFreshStart_C1Q(): Unit = runBlocking {
+        val sim = c1Sim(0x7f)
+        val clock = java.util.concurrent.atomic.AtomicLong(1_000_000L)
+        val t = SimTransport(sim, scope, SimTransport.Timing(instant = true), clock = { clock.get() })
+        collect(t)
+        countCacheWrites(sim)
+        t.start(full)
+        writesLandOnBoth(sim, t, "the first session")
+        clock.addAndGet(10_000L)
+        sim.rebootForTest(Arm.RIGHT, clock.get())
+        t.endLink("RIGHT disconnected: supervision timeout")
+        clock.addAndGet(5_000L)
+        t.start(full)
+        waitUntil(10_000, message = { "DRAW2's hold-back: ${said()}" }) { has("keeper", "hold-back: the glasses reset 10 s after flags 0x4 were armed") }
+        assertEquals(0, t.state.value.flagsInForce, "DRAW2 held back")
+        writesLandOnBoth(sim, t, "the session after the reset (v1)", v1 = true)      // RIGHT, fresh, allocates 160
+        clock.addAndGet(10_000L)
+        sim.rebootForTest(Arm.LEFT, clock.get())
+        t.endLink("LEFT disconnected: supervision timeout")
+        clock.addAndGet(5_000L)
+        t.start(full)
+        assertTrue(has("keeper", "DRAW2 held back since a reset followed its arming"), said())
+        assertEquals(64 * 1024, t.state.value.cacheSize, "the held-back start's 64 KiB, though RIGHT carries 160: ${said()}")
+        writesLandOnBoth(sim, t, "the held-back session (v1)", v1 = true)              // LEFT, fresh, allocates 64
+        assertEquals(64 * 1024, sim.cacheSize(Arm.LEFT), "LEFT holds 64 KiB")
+        assertEquals(160 * 1024, sim.cacheSize(Arm.RIGHT), "RIGHT holds 160 KiB")
+        t.devProbe("flags", "0x4")
+        clock.addAndGet(20_000L)
+        assertTrue(t.restartSession("test: a renewal after the lift"))
+        t.start(full)
+        assertEquals(64 * 1024, t.state.value.cacheSize, "the renewal asks the last session's 64 KiB: ${said()}")
+        assertTrue(has("keeper", "DRAW2 not armed: this session's cache is 64 KiB"), said())
+        assertEquals(0, t.state.value.flagsInForce and DamageMsg.FLAG_DRAW2, "no DRAW2 over 64 KiB")
+        writesLandOnBoth(sim, t, "the renewal after the lift (v1)", v1 = true)
+        t.setLeaseWanted(false)                                                       // the shell's release on purpose
+        assertTrue(t.restartSession("test: the wake"))
+        t.start(full)
+        assertEquals(160 * 1024, t.state.value.cacheSize, "the wake is known fresh by the release: 160 KiB: ${said()}")
+        assertEquals(DamageMsg.FLAG_DRAW2, t.state.value.flagsInForce and DamageMsg.FLAG_DRAW2, "DRAW2 armed again")
+        writesLandOnBoth(sim, t, "the wake")
+        t.stop()
+    }
+
+    /** C1-Q: the 256 KiB size goes out only at a start where both lenses are known to hold no cache. `c1=2` and two
+     *  renewals: each asks the last session's 160, the wait is said once, and no size rung is recorded — a reset after
+     *  them blames ZWRITE (stage 1). `c1=2` again: the next renewal says the wait again (a new hand request). Then the
+     *  shell's release on purpose (the Silent Mode path): the wake's start is known fresh by this transport's own
+     *  release, asks 256, and both lenses hold 256 KiB. */
+    @Test
+    fun aRenewalWaitsAndTheWakeAfterTheReleaseAsks256_C1Q(): Unit = runBlocking {
+        val sim = c1Sim()
+        val clock = java.util.concurrent.atomic.AtomicLong(1_000_000L)
+        val t = SimTransport(sim, scope, SimTransport.Timing(instant = true), clock = { clock.get() })
+        collect(t)
+        countCacheWrites(sim)
+        t.start(full)
+        writesLandOnBoth(sim, t, "stage 0")
+        t.devProbe("c1", "2")
+        for (n in 1..2) {
+            clock.addAndGet(20_000L)
+            assertTrue(t.restartSession("test: renewal $n"))
+            t.start(full)
+            assertEquals(160 * 1024, t.state.value.cacheSize, "renewal $n at stage 2: 160 KiB: ${said()}")
+            assertEquals(0x24, t.state.value.flagsInForce, "renewal $n: DRAW2 and ZWRITE")
+        }
+        waitUntil(10_000, message = { "the third start's notes: ${said()}" }) { startsSaid() == 3 }
+        assertEquals(1, sayings("C1 ladder: the 256 KiB size waits for a start after a release or a lapsed lease"), "said once: ${said()}")
+        clock.addAndGet(10_000L); sim.uptimeOffsetMs = clock.get()
+        assertTrue(t.restartSession("test: after a reset"))
+        clock.addAndGet(1_000L)
+        t.start(full)
+        waitUntil(10_000, message = { "the hold-back blames what was armed: ${said()}" }) { holdBacks().isNotEmpty() }
+        assertTrue("the C1 ladder armed stage 1 — stage 0 from here" in holdBacks().single(), "no size rung was recorded: ${holdBacks()}")
+        t.devProbe("c1", "2")                                                         // a new hand request: said again
+        clock.addAndGet(20_000L)
+        assertTrue(t.restartSession("test: renewal 3"))
+        t.start(full)
+        assertEquals(160 * 1024, t.state.value.cacheSize, "renewal 3 at stage 2: 160 KiB: ${said()}")
+        waitUntil(10_000, message = { "the fifth start's notes: ${said()}" }) { startsSaid() == 5 }
+        assertEquals(2, sayings("C1 ladder: the 256 KiB size waits for a start after a release or a lapsed lease"), "said again after c1=2: ${said()}")
+        t.setLeaseWanted(false)                                                       // the shell's release on purpose
+        assertTrue(Arm.entries.none { sim.cacheAllocated(it) }, "the release freed both lenses' caches")
+        assertTrue(t.restartSession("test: the wake"))
+        t.start(full)
+        assertEquals(256 * 1024, t.state.value.cacheSize, "the wake is known fresh by the release: 256 KiB: ${said()}")
+        writesLandOnBoth(sim, t, "the wake at stage 2")
+        assertTrue(Arm.entries.all { sim.cacheSize(it) == 256 * 1024 }, "both lenses hold 256 KiB")
+        t.stop()
+    }
+
+    /** C1-Q: a lapsed lease makes a start known fresh only past the firmware's 87.9 s and the margin (15 s:
+     *  `LEASE_FRESH_MARGIN_MS`) from the newest acquire written — the values are written out here, not read from the
+     *  constant. At stage 2 with the last session at 160: a start 1 s inside the margin asks 160 (the model's lease has
+     *  lapsed by then; the margin is the phone's allowance for delivery and the clocks, which the model does not have);
+     *  one 1 s past it asks 256 and records the size rung, so a reset after it blames stage 2. */
+    @Test
+    fun aLapsedLeaseIsKnownFreshOnlyPastItsMargin_C1Q(): Unit = runBlocking {
+        val sim = c1Sim()
+        val clock = java.util.concurrent.atomic.AtomicLong(1_000_000L)
+        val t = SimTransport(sim, scope, SimTransport.Timing(instant = true), clock = { clock.get() })
+        collect(t)
+        countCacheWrites(sim)
+        t.start(full)
+        writesLandOnBoth(sim, t, "stage 0")
+        t.devProbe("c1", "2")
+        for ((gap, kib) in listOf(SettingsMsg.LEASE_EXPIRY_MS + 14_000L to 160, SettingsMsg.LEASE_EXPIRY_MS + 16_000L to 256)) {
+            t.endLink("test: the link ends")
+            clock.addAndGet(gap)
+            t.start(full)
+            assertEquals(kib * 1024, t.state.value.cacheSize, "a start $gap ms after the last acquire: $kib KiB: ${said()}")
+            writesLandOnBoth(sim, t, "$gap ms after the last acquire")
+        }
+        clock.addAndGet(10_000L); sim.uptimeOffsetMs = clock.get()
+        assertTrue(t.restartSession("test: after a reset"))
+        clock.addAndGet(1_000L)
+        t.start(full)
+        waitUntil(10_000, message = { "the hold-back blames the size rung: ${said()}" }) { holdBacks().isNotEmpty() }
+        assertTrue("the C1 ladder armed stage 2 — stage 1 from here" in holdBacks().single(), "the size rung was recorded: ${holdBacks()}")
+        t.stop()
+    }
+
+    /** C1-Q, the carry record's strike: an acquire written within 10 s of a link end is struck from the carry's record
+     *  (it may never have arrived) — but one that did arrive renewed the lease. The renewals 80 s after the start reach
+     *  LEFT and are lost on the way to RIGHT; the link ends 5 s later and the next start comes 105 s after the session's
+     *  first acquire. RIGHT's lease has lapsed (it is fresh); LEFT's runs on with its 160 KiB cache. The start is not
+     *  known fresh: it asks 160, not the stage's 256. */
+    @Test
+    fun aStruckAcquireStillCountsForTheLapse_C1Q(): Unit = runBlocking {
+        val glass = c1Sim()
+        val clock = java.util.concurrent.atomic.AtomicLong(1_000_000L)
+        val t = StartRig(glass, scope, clock = { clock.get() })
+        t.heapReads = false
+        collect(t)
+        countCacheWrites(glass)
+        t.start(full)
+        writesLandOnBoth(glass, t, "stage 0")
+        t.devProbe("c1", "2")
+        t.onWrite = { a, p -> if (a == Arm.RIGHT && leaseOp(p) == SettingsMsg.OP_FB_ACQUIRE) null else p }
+        val acquires = glass.acquiresSeen
+        clock.addAndGet(80_000L)
+        waitUntil(10_000, message = { "LEFT's renewals at the later time" }) { glass.acquiresSeen >= acquires + 3 }
+        clock.addAndGet(5_000L)
+        t.endLink("test: the link ends")
+        t.onWrite = null
+        clock.addAndGet(20_000L)
+        t.start(full)
+        assertEquals(160 * 1024, t.state.value.cacheSize, "not known fresh — LEFT's lease was renewed 25 s ago: ${said()}")
+        assertEquals(160 * 1024, glass.cacheSize(Arm.LEFT), "LEFT still holds its 160 KiB cache")
+        writesLandOnBoth(glass, t, "after the struck renewal")
+        t.stop()
+    }
+
+    /** C1-Q: at stage 0 (and 1) with no hold-back every ask is 160 and the last session's size is 160, so every start
+     *  writes today's cache size and flag sets on both arms — a process's first start (its whole bytes are the
+     *  contract-2 file: `theInstalledImageAndAStage0C1BuildWriteTodaysStart_6_2`), a renewal, a start after a release,
+     *  a start after LEFT restarted alone. And a first start at stage 2 writes stage 1's: the 256 KiB size waits. */
+    @Test
+    fun aStage0StartSendsTodaysBytesAtEveryKindOfStart_C1Q(): Unit = runBlocking {
+        val glass = c1Sim()
+        val clock = java.util.concurrent.atomic.AtomicLong(1_000_000L)
+        val t = StartRig(glass, scope, clock = { clock.get() })
+        t.heapReads = false
+        collect(t)
+        val sent = java.util.concurrent.CopyOnWriteArrayList<String>()
+        t.onWrite = { a, p -> sent.add("${a.name.first()} " + p.joinToString("") { "%02x".format(it) }); p }
+        suspend fun startAndRead(what: String) {
+            sent.clear()
+            t.start(full)
+            for (arm in listOf('L', 'R')) assertEquals(listOf("5:a0", "2:4"), controls(sent.toList(), arm), "$what: written to $arm")
+        }
+        startAndRead("a first start")
+        clock.addAndGet(20_000L)
+        assertTrue(t.restartSession("test: a renewal"))
+        startAndRead("a renewal")
+        t.setLeaseWanted(false)
+        assertTrue(t.restartSession("test: the wake"))
+        startAndRead("a start after a release")
+        clock.addAndGet(10_000L)
+        glass.rebootForTest(Arm.LEFT, clock.get())
+        t.endLink("LEFT disconnected: supervision timeout")
+        clock.addAndGet(5_000L)
+        startAndRead("a start after LEFT restarted alone")
+        t.stop()
+        val first2 = startWire(0x1ff, 2)
+        for (arm in listOf('L', 'R')) assertEquals(listOf("5:a0", "2:4", "2:24"), controls(first2, arm), "a first start at stage 2: $arm")
+    }
+
+    /** C1-Q: a process's first start has no record and is not known fresh — it asks at most 160 KiB. (1) The last process
+     *  left both lenses at 160 with a stored 2 and ended with no release; RIGHT restarts alone; the next process's first
+     *  start asks 160 (LEFT still holds 160) and says the wait; the start after its own release asks 256. (2) The C1-P fix
+     *  stage's "check and say": a process at 256 KiB ends with no release, the next one steps a stored 2 down after an
+     *  uncaught error and starts 5 s later inside the lease — the session is the 160 it asks while RIGHT keeps 256. */
+    @Test
+    fun aProcessesFirstStartAsksNoMoreThan160_C1Q(): Unit = runBlocking {
+        val clock = java.util.concurrent.atomic.AtomicLong(1_000_000L)
+        fun process(glass: GlassFirmwareSim, scope: CoroutineScope, stepDown: Boolean = false) =
+            StartRig(glass, scope, clock = { clock.get() }, c1StageFile = stageFile, c1StageStepDown = stepDown).also { it.heapReads = false; collect(it) }
+        // (1)
+        val glass = c1Sim()
+        countCacheWrites(glass)
+        Files.writeString(stageFile, "0\n")
+        val old = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val p1 = process(glass, old)
+        p1.start(full)
+        writesLandOnBoth(glass, p1, "process 1 at stage 0")
+        p1.devProbe("c1", "2")
+        assertEquals("2", stored(), "stage 2 stored for the next process")
+        old.cancel()                                          // the process ends: no stop, no release
+        clock.addAndGet(2_000L)
+        glass.rebootForTest(Arm.RIGHT, clock.get())           // RIGHT restarts alone; LEFT keeps its lease and its 160 KiB
+        clock.addAndGet(5_000L)
+        val p2 = process(glass, scope)
+        p2.start(full)
+        assertEquals(160 * 1024, p2.state.value.cacheSize, "a process's first start with a stored 2 asks 160: ${said()}")
+        assertEquals(0x24, p2.state.value.flagsInForce, "stage 2's flags: ZWRITE and DRAW2")
+        writesLandOnBoth(glass, p2, "process 2's first start")
+        assertEquals(1, sayings("C1 ladder: the 256 KiB size waits for a start after a release or a lapsed lease"), said())
+        p2.stop()
+        p2.start(full)
+        assertEquals(256 * 1024, p2.state.value.cacheSize, "the start after its own release asks 256: ${said()}")
+        writesLandOnBoth(glass, p2, "process 2 after its release")
+        p2.stop()
+        // (2)
+        notes.clear()
+        val glass2 = c1Sim()
+        countCacheWrites(glass2)
+        Files.writeString(stageFile, "2\n")
+        val old2 = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val q1 = process(glass2, old2)
+        startKnownFresh(q1)
+        assertEquals(256 * 1024, q1.state.value.cacheSize, "the last process ran at 256 KiB: ${said()}")
+        writesLandOnBoth(glass2, q1, "the last process at 256 KiB")
+        old2.cancel()
+        clock.addAndGet(5_000L)
+        val q2 = process(glass2, scope, stepDown = true)
+        q2.start(full)
+        assertEquals(0x4, q2.state.value.flagsInForce, "stepped down to stage 0: ${said()}")
+        assertEquals(160 * 1024, q2.state.value.cacheSize, "the session is the 160 KiB it asked: ${said()}")
+        assertEquals(256 * 1024, glass2.cacheSize(Arm.RIGHT), "RIGHT keeps its 256 KiB until its next release point")
+        writesLandOnBoth(glass2, q2, "the stepped-down start inside the lease")
+        q2.stop()
     }
 }

@@ -474,7 +474,8 @@ class AtlasCarryTest {
     /** 2026-09-15 review, the hold-back rule on a contract-2 build: a reset soon after DRAW2 was armed
      *  holds it back — the session draws with v1 shapes (the v1 atlas builds over 64 KiB although the
      *  160 KiB size was taken first; it used to throw and leave cached text off), later starts keep it
-     *  off until asked for by hand, and a hand-set flag set with bit 2 lifts the hold. */
+     *  off until asked for by hand, and a hand-set flag set with bit 2 lifts the hold — from the first start after a
+     *  release or a lapsed lease (C1-Q: a renewal keeps the held-back session's 64 KiB). */
     @Test
     fun aHoldBackOnContractTwoKeepsDraw2OffUntilAskedAndCachedTextWorks(): Unit = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -500,6 +501,13 @@ class AtlasCarryTest {
             rig.transport.devProbe("flags", "0x0004")                         // asked for by hand
             rig.clock += 30_000L
             rig.rebuild(4, "RIGHT disconnected: supervision timeout")
+            // C1-Q: a renewal asks no more than the last session's size (the held-back 64 KiB): only RIGHT reports its
+            // cache, and LEFT may hold 64. DRAW2 waits for a start after a release or a lapsed lease, and the start says so
+            assertFalse(rig.transport.state.value.draw2, "a renewal after the lift stays at 64 KiB: flags 0x${rig.transport.state.value.flagsInForce.toString(16)}")
+            assertTrue(rig.lines().any { "DRAW2 not armed: this session's cache is 64 KiB" in it }, "the start says why")
+            rig.keeper.stop()                                                   // its release: the next start is known fresh
+            rig.keeper.start()
+            rig.until("the start after the release arms DRAW2") { rig.driving() && rig.transport.state.value.draw2 }
             assertTrue(rig.transport.state.value.draw2, "armed again once asked: flags 0x${rig.transport.state.value.flagsInForce.toString(16)}")
             rig.until("the v2 atlas goes live") { rig.shell.cachedFontsLive.isNotEmpty() && rig.atlasNotes().last { "built for" in it }.contains("contract 2") }
             rig.settle("after the v2 upload")
@@ -606,6 +614,50 @@ class AtlasCarryTest {
             repeat(3) { rig.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM); rig.settle("notch $it") }
             assertEquals(0, rig.failedFlushes(), "no flush failed")
             rig.assertGlassMatchesBelief("v2 draws on the kept cache")
+            rig.keeper.stop()
+        } finally {
+            scope.cancel()
+            rig.tmp.toFile().deleteRecursively()
+        }
+    }
+
+    /** C1-Q, the sweep's atlas read-back: RIGHT may keep a cache bigger than the session's — carried from an earlier
+     *  session, while the session lays out over the size it asked. Stage 2 at 256 KiB (a start after a release), then
+     *  `c1=1` and a rebuild inside the lease: the start asks 160, RIGHT answers "allocated, 256", the session is 160 and
+     *  its atlas moves under it. The read-back reads RIGHT's 256 and must pass: cached text goes live, nothing is
+     *  refused, glass equals belief on both lenses. It used to require the sizes to be equal. */
+    @Test
+    fun aCacheBiggerThanTheSessionPassesTheAtlasCheck_C1Q(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val rig = Rig(scope, contract = 2)
+        rig.sim.damageFeatures = 0x1ff
+        try {
+            rig.transport.devProbe("c1", "2")
+            rig.upWithTheAtlasLive()
+            assertEquals(160 * 1024, rig.transport.state.value.cacheSize, "a transport's first start asks at most 160 KiB")
+            rig.keeper.stop()                                                   // its release: the next start is known fresh
+            rig.keeper.start()
+            rig.until("the 256 KiB atlas goes live") { rig.driving() && rig.transport.state.value.cacheSize == 256 * 1024 &&
+                rig.shell.cachedFontsLive.isNotEmpty() && rig.atlasNotes().last { "built for" in it }.contains("192 KiB") }
+            rig.settle("after the 256 KiB upload")
+            assertTrue(Arm.entries.all { rig.sim.cacheSize(it) == 256 * 1024 }, "both lenses hold 256 KiB")
+            rig.transport.devProbe("c1", "1")
+            val attempts = rig.keeper.attempts
+            val preludes = rig.sim.preludeAcks
+            rig.clock += 20_000L
+            rig.transport.endLink("test: supervision timeout")
+            rig.until("the rebuild drives") { rig.keeper.attempts == attempts + 1 && rig.driving() && rig.sim.preludeAcks == preludes + 1 }
+            rig.settle("after the rebuild")
+            assertEquals(160 * 1024, rig.transport.state.value.cacheSize, "the session is the 160 KiB it asked")
+            assertEquals(256 * 1024, rig.sim.cacheSize(Arm.RIGHT), "RIGHT keeps its 256 KiB")
+            rig.until("cached text goes live over the 160 KiB session") { rig.shell.cachedTextActive && rig.shell.cachedFontsLive.isNotEmpty() &&
+                rig.atlasNotes().last { "built for" in it }.contains("96 KiB") }
+            rig.settle("after the 160 KiB upload")
+            assertTrue(rig.atlasNotes().none { "the atlas is laid out over" in it }, "the read-back passed: ${rig.atlasNotes().takeLast(6)}")
+            repeat(3) { rig.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM); rig.settle("notch $it") }
+            assertEquals(0, rig.failedFlushes(), "no flush failed")
+            assertTrue(Arm.entries.all { rig.sim.refusalRecord(it)[0] == 0 }, "nothing refused: ${Arm.entries.map { rig.sim.refusalRecord(it) }}")
+            rig.assertGlassMatchesBelief("the 160 KiB session over RIGHT's 256 KiB cache")
             rig.keeper.stop()
         } finally {
             scope.cancel()

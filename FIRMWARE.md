@@ -221,7 +221,11 @@ first 64 KiB of whatever the cache is, so a smaller one would put those bounds p
 by its first write (mode 12 or 19); status 3 with no lease, 5 below 64 or over 160, 4 once the cache is
 allocated (the size stands); field 18 reports the allocated size, field 19's CRC covers all of it; the size asked
 for goes at every release point, whether the cache went or CACHE_KEEP kept it (the next session asks again). A
-request is only that: the allocation keeps its own size, and every bound reads the allocated one. The v1 window addressed by modes
+request is only that: the allocation keeps its own size, and every bound reads the allocated one. **The phone's session
+size** (build C1-Q): the smaller of RIGHT's field 18 and what the start asked — a lens may carry a bigger cache from an
+earlier session while the other, fresh, allocates at the ask, and only RIGHT reports — and a start asks more than the last
+session's size only when both lenses are known to hold no cache (a release the phone wrote, or a lease lapsed on both
+arms), so each lens holds at least the session's size. The v1 window addressed by modes
 12/13/14 stays the first 64 KiB; a v2 record or table may lie anywhere in the allocated size. **FLAGS_SET with no
 lease → status 3** (Adam's ruling), and so CACHE_SIZE. Status codes: 0 ok · 1 malformed · 2 unsupported flag · 3 no
 lease · 4 cache allocated · 5 outside 64..160 KiB. **Contract version 2** (FLAGS_SET's meaning changed); DamageCaps features
@@ -693,7 +697,13 @@ on both lenses (the meeting's row 11).
   start after a restart cannot blame a reset from before it; an unreadable file reads as 0; a run that ended on an
   uncaught error steps it down to 0 at the phone's next process start, said as a `holdback` fault), set only by hand
   (`probe c1=N`), never advanced by itself; stage 0, the default, sends today's bytes, and a hand `flags=` probe cannot
-  arm bit 3 or 5 beyond the stage. Every rung records itself — the time and the stage this build can arm (a build
+  arm bit 3 or 5 beyond the stage. The 256 KiB size goes out only at a start where both lenses are known to hold no
+  cache — after a release this process wrote, or a lease lapsed on both arms (87.9 s and a 15 s margin since the last
+  acquire written; build C1-Q, §4's op 5) — so a stored or probed stage 2 asks no more than the last session's size
+  (160 KiB before the process's first ask) at a renewal, after a lens restarted alone and at a process's first start,
+  says once that the size waits, and records no size rung until then;
+  a lowered stage takes effect at once (the session is the smaller size asked, RIGHT keeping its bigger cache until
+  its next release point). Every rung records itself — the time and the stage this build can arm (a build
   without the engine records 2 at stage 3) — before its first byte (R2 B-M1, B-N4): op 5's rung before it goes out, a
   FLAGS_SET at its first send after its session check, so a call whose session has ended records nothing (R6 B6-3).
   The hold-back is decided at a start, before op 5, and blames the ladder only if the last start armed some of it

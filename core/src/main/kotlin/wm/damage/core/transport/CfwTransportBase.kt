@@ -992,7 +992,7 @@ abstract class CfwTransportBase(
      *  transport's first size ask, read as 160. Written and read by the start alone; the next ask is at most this unless
      *  both lenses are known to hold no cache. */
     @Volatile private var lastSessionKib: Int? = null
-    /** Build C1-Q: "the 256 KiB size waits" has been said for this wait — cleared when a start asks 256 and by `c1=N`. */
+    /** Build C1-Q: "the 256 KiB size waits" has been said — once per hand request: `c1=N` clears it. */
     @Volatile private var sizeWaitSaid = false
     /** Build C1's ruling B-S1 (`C1-R5-decisions.md`): LEFT's last link end of the kind a lens restart looks like from
      *  here ([REBOOT_LIKE_ENDS]), on the phone's clock, and its reason. RIGHT's restarts show in its uptime; LEFT's
@@ -2636,8 +2636,7 @@ abstract class CfwTransportBase(
                 // sets that follow record theirs in [flagsSet]. Stage 0 (every build without a C1 bit) asks 160 as
                 // before: nothing is recorded here. C1-Q: the rung is the ask that really goes out
                 val sizeRung = kib == DamageMsg.CACHE_BUDGET_RIDERS_KIB
-                if (sizeRung) sizeWaitSaid = false
-                else if (want == DamageMsg.CACHE_BUDGET_RIDERS_KIB && !sizeWaitSaid) {
+                if (!sizeRung && want == DamageMsg.CACHE_BUDGET_RIDERS_KIB && !sizeWaitSaid) {
                     sizeWaitSaid = true
                     emitNote("keeper", "C1 ladder: the 256 KiB size waits for a start after a release or a lapsed lease — " +
                         "this start asks $kib KiB (a lens may still hold a smaller cache from the last session)")

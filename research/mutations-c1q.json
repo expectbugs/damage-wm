@@ -1,0 +1,316 @@
+[
+ {
+  "id": "Q-min-allocated",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            allocated != null -> minOf(allocated, kib * 1024)\n",
+    "            allocated != null -> allocated\n"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*AtlasCarryTest*"
+  ],
+  "expect": [
+   "aRestartOfLeftAloneWithTheNextStartInsideTheLease_H1_C1Q",
+   "aRenewalAfterH1AsksNoMoreThanTheLastSession_H3_C1Q",
+   "aDraw2HoldBackLiftedByHandKeepsTheHeldBackSizeUntilAFreshStart_C1Q",
+   "aProcessesFirstStartAsksNoMoreThan160_C1Q",
+   "aCacheBiggerThanTheSessionPassesTheAtlasCheck_C1Q"
+  ],
+  "note": "C1-Q rule 2: the session takes RIGHT's allocated size whole (not min with the ask)"
+ },
+ {
+  "id": "Q-ask-min",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "val kib = if (knownFresh) want else minOf(want, lastSessionKib ?: DamageMsg.CACHE_BUDGET_KIB)",
+    "val kib = want"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": [
+   "aRenewalAfterH1AsksNoMoreThanTheLastSession_H3_C1Q",
+   "theAskDoesNotRiseWhileLeftCarries_H2_C1Q",
+   "aDraw2HoldBackLiftedByHandKeepsTheHeldBackSizeUntilAFreshStart_C1Q",
+   "aStruckAcquireStillCountsForTheLapse_C1Q",
+   "aProcessesFirstStartAsksNoMoreThan160_C1Q"
+  ],
+  "note": "C1-Q rule 1: every start asks the stage's size (no cap at the last session's)"
+ },
+ {
+  "id": "Q-ask-first-160",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "minOf(want, lastSessionKib ?: DamageMsg.CACHE_BUDGET_KIB)",
+    "minOf(want, lastSessionKib ?: want)"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": [
+   "aProcessesFirstStartAsksNoMoreThan160_C1Q",
+   "aStage0StartSendsTodaysBytesAtEveryKindOfStart_C1Q",
+   "theProbeAndTheHoldBackStoreTheStageAndARestartStartsThere_C1P"
+  ],
+  "note": "C1-Q rule 1: before this transport's first ask, `last` reads as the stage's size, not 160"
+ },
+ {
+  "id": "Q-last-assign",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "                lastSessionKib = size / 1024\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": [
+   "aDraw2HoldBackLiftedByHandKeepsTheHeldBackSizeUntilAFreshStart_C1Q"
+  ],
+  "note": "C1-Q rule 3: `last` is not moved by an answered op 5"
+ },
+ {
+  "id": "Q-last-nodraw2",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "                lastSessionKib = CfwModes.TEXTURE_CACHE_SIZE / 1024     // C1-Q: no op 5 — a first write allocates the v1 64 KiB\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": [
+   "(no pin: the case needs the build to lose DRAW2 under a live lease, and only a flash changes the build — it restarts both lenses; the line keeps `last` conservative, listed in C1-Q-built.md)"
+  ],
+  "note": "C1-Q rule 3: a start with no DRAW2 (no op 5) does not set `last` to 64"
+ },
+ {
+  "id": "Q-fresh-release",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "leaseLog.values.all { l -> l.released || l.lastWrittenAt.let",
+    "leaseLog.values.all { l -> l.lastWrittenAt.let"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": [
+   "aRenewalWaitsAndTheWakeAfterTheReleaseAsks256_C1Q",
+   "aDraw2HoldBackLiftedByHandKeepsTheHeldBackSizeUntilAFreshStart_C1Q",
+   "aRestartOfLeftAloneWithTheNextStartInsideTheLease_H1_C1Q",
+   "eachLadderStageAddsOnlyItsOwnChange_6_2"
+  ],
+  "note": "C1-Q: a release this transport wrote does not make an arm known fresh"
+ },
+ {
+  "id": "Q-fresh-lapse",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "l.released || l.lastWrittenAt.let { it != null && now - it >= LEASE_FRESH_AFTER_MS }",
+    "l.released"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": [
+   "aLapsedLeaseIsKnownFreshOnlyPastItsMargin_C1Q",
+   "aResetOutsideTheHoldBackWindowLeavesTheStage_DM1",
+   "aLadderBitArmedByHandRecordsItsStage_BM1"
+  ],
+  "note": "C1-Q: a lapsed lease does not make an arm known fresh"
+ },
+ {
+  "id": "Q-fresh-margin",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "const val LEASE_FRESH_MARGIN_MS = LINK_SETTLE_MS + 5_000L",
+    "const val LEASE_FRESH_MARGIN_MS = 0L"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": [
+   "aLapsedLeaseIsKnownFreshOnlyPastItsMargin_C1Q"
+  ],
+  "note": "C1-Q: no margin past the firmware's 87.9 s expiry"
+ },
+ {
+  "id": "Q-fresh-struck",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "l.released || l.lastWrittenAt.let {",
+    "l.released || l.acquires.lastOrNull().let {"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": [
+   "aStruckAcquireStillCountsForTheLapse_C1Q"
+  ],
+  "note": "C1-Q: the lapse counts from the carry record (which strikes an acquire written just before a link end)"
+ },
+ {
+  "id": "Q-fresh-norecord",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "l.lastWrittenAt.let { it != null && now - it >= LEASE_FRESH_AFTER_MS }",
+    "l.lastWrittenAt.let { it == null || now - it >= LEASE_FRESH_AFTER_MS }"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": [
+   "aProcessesFirstStartAsksNoMoreThan160_C1Q",
+   "theProbeAndTheHoldBackStoreTheStageAndARestartStartsThere_C1P"
+  ],
+  "note": "C1-Q: no record (a process's first start) reads as known fresh"
+ },
+ {
+  "id": "Q-fresh-after-acquire",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            val knownFresh = leaseKnownFresh(nowMs())\n",
+    ""
+   ],
+   [
+    "            leaseWritten.await()\n",
+    "            leaseWritten.await()\n            val knownFresh = leaseKnownFresh(nowMs())\n"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": [
+   "aRenewalWaitsAndTheWakeAfterTheReleaseAsks256_C1Q",
+   "aLapsedLeaseIsKnownFreshOnlyPastItsMargin_C1Q"
+  ],
+  "note": "C1-Q: the classification is read after the start's own ACQUIRE joined the record"
+ },
+ {
+  "id": "Q-rung-actual",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "val sizeRung = kib == DamageMsg.CACHE_BUDGET_RIDERS_KIB",
+    "val sizeRung = want == DamageMsg.CACHE_BUDGET_RIDERS_KIB"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": [
+   "aRenewalWaitsAndTheWakeAfterTheReleaseAsks256_C1Q"
+  ],
+  "note": "C1-Q rule 4: the size rung follows the stage's size, not the ask that goes out"
+ },
+ {
+  "id": "Q-wait-said",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "if (!sizeRung && want == DamageMsg.CACHE_BUDGET_RIDERS_KIB && !sizeWaitSaid) {",
+    "if (false) {"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": [
+   "aRenewalWaitsAndTheWakeAfterTheReleaseAsks256_C1Q",
+   "theAskDoesNotRiseWhileLeftCarries_H2_C1Q",
+   "aRenewalAfterH1AsksNoMoreThanTheLastSession_H3_C1Q"
+  ],
+  "note": "C1-Q rule 4: the wait for the 256 KiB size is not said"
+ },
+ {
+  "id": "Q-wait-once",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "                    sizeWaitSaid = true\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": [
+   "aRenewalWaitsAndTheWakeAfterTheReleaseAsks256_C1Q",
+   "theAskDoesNotRiseWhileLeftCarries_H2_C1Q"
+  ],
+  "note": "C1-Q rule 4: the wait is said at every start that waits"
+ },
+ {
+  "id": "Q-wait-probe",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "                sizeWaitSaid = false    // C1-Q: a new hand request — a wait for the 256 KiB size is said again\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": [
+   "aRenewalWaitsAndTheWakeAfterTheReleaseAsks256_C1Q"
+  ],
+  "note": "C1-Q rule 4: a new c1=N does not let the wait be said again"
+ },
+ {
+  "id": "Q-bound-reported",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        val reported = allocated ?: size\n",
+    "        val reported = size\n"
+   ]
+  ],
+  "tests": [
+   "*Draw2SessionTest*"
+  ],
+  "expect": [
+   "aSizeAboveTheBudgetFallsBackToo_C1Q"
+  ],
+  "note": "C1-Q: the 64..budget check reads the session's size, not field 18"
+ },
+ {
+  "id": "Q-atlas-check",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "wantSize != null && size.toInt() < wantSize ->",
+    "wantSize != null && size.toInt() != wantSize ->"
+   ]
+  ],
+  "tests": [
+   "*AtlasCarryTest*"
+  ],
+  "expect": [
+   "aCacheBiggerThanTheSessionPassesTheAtlasCheck_C1Q"
+  ],
+  "note": "C1-Q sweep: the atlas read-back requires RIGHT's size to EQUAL the session's"
+ }
+]
