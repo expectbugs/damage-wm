@@ -138,6 +138,7 @@ export function tmuxView(ctx) {
   let feed = new M.Feed();
   let liveScope = null;
   let libWhy = null; // why the terminal library could not be loaded on this page: the grid is drawn instead
+  let needSent = null; // the need the live source was last asked with
   let canvasScope = null;
   let histScope = null;
   let surface = null;
@@ -232,7 +233,8 @@ export function tmuxView(ctx) {
   function listen() {
     if (liveScope) ctx.unlive(liveScope);
     liveScope = sourceOf(session());
-    ctx.live(liveScope, needNow(), onLive);
+    needSent = needNow();
+    ctx.live(liveScope, needSent, onLive);
   }
 
   function closeSession() {
@@ -642,7 +644,7 @@ export function tmuxView(ctx) {
     const term = surface && surface.feed === 'stream';
     put(e.dock, JSON.stringify([keys, s.waiting, why, offered('key'), offered('snippet'), offered('line'), offered('raw'), phone(), term, s.lastLine]), () => {
       const out = [];
-      if (s.waiting && !gone) out.push(h('p', { class: 'tm-prompt', text: `Waiting for input${s.lastLine ? ` at “${s.lastLine}”` : ''}.` }));
+      if (s.waiting && !gone) out.push(h('p', { class: 'tm-prompt', text: s.lastLine ? `Waiting for input at “${s.lastLine}”` : 'Waiting for input.' }));
       if (offered('key') && keys.quick.length) {
         out.push(h('div', { class: 'tm-keys', role: 'group', 'aria-label': 'Quick keys' }, keys.quick.map((n) =>
           ctx.actionButton({ label: M.keyLabel(n), need: levelOf('key'), why: gone ? stopWhy() : null, cls: 'tm-k', onClick: () => { sendKey(n); refocus(); } }))));
@@ -747,8 +749,11 @@ export function tmuxView(ctx) {
   // ---- the page's own events ----
 
   const onVisibility = () => {
-    // hidden → need none (the PC stops sending to this viewer); shown → focus, a fresh init
-    if (liveScope) ctx.live(liveScope, needNow(), onLive);
+    // hidden → need none (the PC stops sending to this viewer); shown → focus, a fresh init; only on a change
+    const n = needNow();
+    if (!liveScope || JSON.stringify(n) === JSON.stringify(needSent)) return;
+    needSent = n;
+    ctx.live(liveScope, n, onLive);
   };
   const onWidth = () => {
     if (place.at === 'session') {

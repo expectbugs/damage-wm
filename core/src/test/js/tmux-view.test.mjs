@@ -236,7 +236,7 @@ test('ending a session asks, naming it, Cancel at rest; End sends `end` and the 
 
 test('a waiting session shows its mark and prompt line; a quick key is a plain key op (no prompt guard: the latest input wins); a refusal is said', async () => {
   const { p, ws } = await pictures('build', waitingFrame());
-  assert.match(byClass(p, 'tm-prompt').textContent, /^Waiting for input at “Do you want to proceed\?”\.$/);
+  assert.match(byClass(p, 'tm-prompt').textContent, /^Waiting for input at “Do you want to proceed\?”$/);
   find(p, 'BUTTON', 'y').fire('click');
   const [op] = ops(ws, 'key');
   assert.deepEqual([op.params, 'expect' in op, op.conn, op.targets], [{ key: 'y' }, false, 7, ['session:workstation:build']]);

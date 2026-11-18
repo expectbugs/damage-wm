@@ -7,10 +7,12 @@
 // import: the stand-in serves this file alone.
 
 const BASE = ['#000000', '#cd3131', '#0dbc79', '#e5e510', '#2472c8', '#bc3fbc', '#11a8cd', '#e5e5e5'];
+const NAMES = ['black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white'];
 
 export class Terminal {
   constructor(options = {}) {
-    this.options = { ...options };
+    // as the library: a changed option (the theme, the font size) is drawn at once
+    this.options = new Proxy({ ...options }, { set: (o, k, v) => { o[k] = v; this.draw(); return true; } });
     this.cols = options.cols || 80;
     this.rows = options.rows || 24;
     this.written = [];
@@ -99,10 +101,10 @@ export class Terminal {
       for (let i = 0; i < n.length; i++) {
         const c = n[i];
         if (c === 0 || c === 39) this.fg = null;
-        else if (c >= 30 && c <= 37) this.fg = BASE[c - 30];
-        else if (c >= 90 && c <= 97) this.fg = BASE[c - 90];
+        else if (c >= 30 && c <= 37) this.fg = c - 30;
+        else if (c >= 90 && c <= 97) this.fg = c - 90;
         else if (c === 38 && n[i + 1] === 2) { this.fg = `rgb(${n[i + 2]},${n[i + 3]},${n[i + 4]})`; i += 4; }
-        else if (c === 38 && n[i + 1] === 5) { this.fg = BASE[n[i + 2] % 8]; i += 2; }
+        else if (c === 38 && n[i + 1] === 5) { this.fg = n[i + 2] % 8; i += 2; }
       }
     }
   }
@@ -121,7 +123,9 @@ export class Terminal {
         const cur = y === this.y && x === this.x;
         if (!span || c.fg !== fg || cur) {
           span = doc.createElement('span');
-          if (c.fg) span.style.color = c.fg;
+          // the 8 base colours from the theme the page handed in (as the library takes it), else the fake's own
+          const theme = this.options.theme || {};
+          if (c.fg !== null && c.fg !== undefined) span.style.color = typeof c.fg === 'number' ? theme[NAMES[c.fg]] || BASE[c.fg] : c.fg;
           if (cur) span.className = 'xterm-cursor';
           fg = cur ? Symbol('cur') : c.fg;
           line.append(span);
@@ -132,6 +136,9 @@ export class Terminal {
     });
     this.screenEl.replaceChildren(...lines);
     this.screenEl.style.fontSize = `${this.options.fontSize || 15}px`;
+    const theme = this.options.theme || {};
+    if (theme.foreground) this.screenEl.style.color = theme.foreground;
+    if (theme.background) this.screenEl.style.backgroundColor = theme.background;
   }
 }
 Terminal.instances = [];

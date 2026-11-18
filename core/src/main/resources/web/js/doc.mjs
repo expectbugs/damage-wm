@@ -1,7 +1,7 @@
 // Context for the reader: Damage is Adam's own window manager for his own glasses, phone and PC on his own network.
-// Build S1-3, package JF (spec §2.3; CONTRACT.md §3.2 "document"): the one renderer of a document's blocks and spans
-// for every page — Reader's book parts (moved here from `views/reader.mjs`, unchanged in what it draws) and Feed's
-// articles and comments. A span's text goes in as a text node, never as markup; a link that leaves goes through
+// Build S1-3, piece B17 (first built as package JF; CONTRACT.md §3.2 "document"): the one renderer of a document's
+// blocks and spans for every page — Reader's book parts (today's `views/reader.mjs` `block`/`run`, moved here unchanged
+// in what they draw) and Feed's articles and comments. A span's text goes in as a text node, never as markup; a link that leaves goes through
 // `outLink` (http and https only, a new tab, no referrer, marked); anything else of a span's marks is a class.
 
 import { h, outLink } from './dom.mjs';

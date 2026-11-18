@@ -126,7 +126,7 @@ async function step(s) {
     Object.defineProperty(ev, 'clipboardData', { value: { getData: (t) => (t === 'text/plain' ? text : '') } }); e.dispatchEvent(ev); }
   // S1-3: an element focused (the terminal taking the keyboard); a headless window holds no system focus, so the
   // focus event a click would bring is handed to the page as well
-  if (s.focus) { const e = await until(s.focus); e.focus(); e.dispatchEvent(new FocusEvent('focus')); }
+  if (s.focus) { const e = await until(s.focus); e.focus(); e.dispatchEvent(new FocusEvent('focus')); e.dispatchEvent(new FocusEvent('focusin', { bubbles: true })); }
   // L1 R2: an event the page did not make by a click (a tap, a wheel, a window resize), and a scroll of the pane; a
   // hidden screenshot frame runs no rendering steps, so the 'scroll' event a visible frame would fire is fired here
   // (seen in FIX2's look: scrollTop moved 400 px and no event came in 400 ms)

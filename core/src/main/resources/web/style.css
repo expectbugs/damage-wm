@@ -567,6 +567,10 @@ body.away .page.feed .fd-settings, body.away .page.feed .fd-cbar { opacity: .55;
 .tm-wl { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .3rem; }
 .tm-wl li { display: flex; flex-wrap: wrap; gap: .3rem .6rem; align-items: center; }
 .tm-term.hist { max-height: none; }
+/* S1-3 (B17): the terminal at a desk (terminal.mjs): the library draws inside; the box takes the page's width and
+   scrolls sideways once the font is at its floor */
+.tm-xterm { width: auto; overflow-x: auto; }
+.tm-xterm .tm-xwait { margin: .3rem; }
 /* out of reach: the keys and actions grey and say why; the last picture stays readable with its age (C§2.5) */
 body.away .page.tmux .tm-dock, body.away .page.tmux .tm-more, body.away .page.tmux .tm-hosts, body.away .page.tmux .tm-set,
 body.away .page.tmux .tm-head .tm-mark { opacity: .55; filter: grayscale(1); }
