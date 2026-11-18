@@ -900,131 +900,516 @@ on-glasses compaction (§74 item 8) · a session identity on the image lane (it 
 §5.11's release-and-acquire case; new state) · a gate take around a cache write (§5.6's case; a new wait) · the
 masked section for the scratch's and the slots' release windows (A.14).
 
-## 6. v2 local input and bindings (the second flash, C2) — *contract draft 2026-11-13; built with C2*
+## 6. v2 local input and bindings (the second flash, C2) — *contract 2026-11-18, from the C2 design pass as ruled; not built: nothing of C2 is built before C1 is flashed and its numbers are read (§6.9)*
 
-### 6.1 What reaches the hook (read 11-13 unless cited)
+Grades as §5: **V** read at instruction level (an address given) or in the decompile of bytes that hash SAME, **V-src**
+read in the fork's source (branch `c1`), **M** measured on Adam's pair or counted in his journal, **I** inferred, **U**
+unknown. The design pass's records (the challenge, the prep, the focused read, the rulings) are in the gitignored
+`private/c2-design/`.
+
+**What C2 carries, in six lines.** (1) A scroll — ids 4 and 5, ring swipes and temple slides alike — runs a bound
+program on both lenses at once; a ring single tap does too, as a press picture, only when the phone's `Taps` setting
+says `glasses` (default `phone`). (2) A local fire draws a **local instance** on the panel and never writes the shadow;
+the shadow changes only by the phone's messages in stream order. (3) The glasses' list cursor only predicts the next
+fire; the phone overwrites it. (4) The phone moves its own row only by handling a report it received, and answers each
+one with COMMIT (it agrees: END written into both shadows) or DISCARD plus its own frame (it does not). (5) SETTLE, sent
+after every burst and inside every idle batch, ends local pictures the phone never heard of — the only correction that
+reaches a gesture LEFT alone handled. (6) Nothing on the glasses decides what a tap acts on; the act is always the
+phone's, on its own row. Plus the vertical-scale draw (A2, §6.6). One new patch site (`0x00443FB0`, §6.2); contract
+version stays 2; DamageCaps bit 10 (§6.8).
+
+### 6.1 What reaches the hook (read 11-13 to 11-18 unless cited)
 
 | fact | grade, basis |
 |---|---|
-| Every input event reaches the ui_task as a type-7 queue message; the loop calls `FUN_00442D86(record 0x2034DC30, len)` at `0x00443FB0`, its only caller | V (`0x00443FA4`–`0x00443FB0`, `fwread.py calls`) |
-| The record is `{u16 devType, u32 eventId, u32 value}`, delivered on both lenses by the sync listeners, after RIGHT's input manager's de-bounce and 1 s cross-device lockout | V (`CLAIMS.md`, R0.1) |
-| **The temple touchpads' slides are event ids 4 and 5**: the gesture processor's dispatch (`0x00503172`–`0x00503226`) posts, per mask bit, id 0xD (bit 0), 0xE (1), 0 (2; ≥ 10 taps → 0x1010), 1 (3), 3 (4), **5 (5) and 4 (6)** with diffX and speed, devType 1 on RIGHT else 0 (`FUN_004C5874`) | V. The bit names (bit 5 SLIDE_L, 6 SLIDE_R) come from the name table at `0x00503250`: I |
-| **The ring's swipes are ids 5 and 4 too**: `FUN_0047269E` maps ring report type 0 → 3, 1 → 0, 2 → 1, **4 → 5, 5 → 4**, 8 → 0xE, devType 4, after its 100-ring-tick filter | V |
-| Stock's names: 0 SINGLE_CLICK · 1 DOUBLE_CLICK · 3 LONG_PRESS · **4 UPROLL · 5 DOWNROLL** · 0xD PRESS · 0xE RELEASE · 0x1010 DECA_CLICK; devType 0 TOUCH_BAR_LEFT · 1 TOUCH_BAR_RIGHT · 4 RING_TOUCH_SENSOR | V (`0x004C5892`, `0x004C58EE`, the strings) — corrects `CLAIMS.md`'s "2, 7, 8 by elimination" |
-| Which of 4 and 5 the EvenHub page sends as the kind-2 scroll's direction 1 (top) or 2 (bottom) | U: the page's callback tables for UI codes 0x44/0x45 (`0x0049556C`…) are unread; the phone pairs the applied-state's id with the scroll it receives on the first gesture and journals the pairing |
+| Every input event reaches the ui_task as a type-7 queue message; the loop calls `FUN_00442D86(record 0x2034DC30, len)` at `0x00443FB0`, its only caller. The loop clears its 10 KiB body buffer and refills it for every message, so the hook copies the record's 10 bytes and keeps no pointer | V (`0x00443FA4`–`0x00443FB0`, `fwread.py calls`; the refill `0x00443942`–`0x00443974`) |
+| The record is `{u16 devType @0, u32 eventId @2, u32 value @6}` (10 B), after RIGHT's input manager's de-bounce and 1 s cross-device lockout. **LEFT's sync listener `FUN_0045B850` (registered on the slave branch, `0x0045EA82`–`0x0045EA88`) answers (`0x0045B9C6`) and then injects (`0x0045B9D2`); RIGHT injects its own copy only from the response listener `0x0045DD68`, on an answer whose first byte is 8 (`0x0045DE08`–`0x0045DE0E`, inject `0x0045DE5E`), and when the answer does not come it releases the record and never injects (`0x0045DD6C`–`0x0045DD70`).** So LEFT handles every gesture about one inter-lens answer before RIGHT, and a lost answer leaves a gesture that LEFT alone handled | V (`FUN_004445A4`; the listeners 2026-11-16). The answer's wait before RIGHT drops: U. How often answers are lost on his pair: U |
+| **The temple touchpads' slides are event ids 4 and 5**: the gesture processor's dispatch (`0x00503172`–`0x00503226`) posts, per mask bit, id 0xD (bit 0), 0xE (1), 0 (2; ≥ 10 taps → 0x1010), 1 (3), 3 (4), **5 (5) and 4 (6)** with diffX and speed, devType 1 on RIGHT else 0 (`FUN_004C5874`) | V (bit 5 → id 5 at `0x005031E6`–`0x005031FA`, bit 6 → id 4 at `0x005031FE`–`0x00503212`). The bit names (5 SLIDE_L, 6 SLIDE_R) from the name table at `0x00503250`: I |
+| **The ring's swipes are ids 5 and 4 too**: `FUN_0047269E` maps ring report type 0 → 3, 1 → 0, 2 → 1, **4 → 5, 5 → 4**, 8 → 0xE, devType 4. It drops a report whose own stamp (+7) is within 100 units of the last accepted one, as an unsigned difference, a release (type 8) exempt | V (decompile, SAME). The filter's unit: U |
+| Stock's names: 0 SINGLE_CLICK · 1 DOUBLE_CLICK · 3 LONG_PRESS · **4 UPROLL · 5 DOWNROLL** · 0xD PRESS · 0xE RELEASE · 0x1010 DECA_CLICK; devType 0 TOUCH_BAR_LEFT · 1 TOUCH_BAR_RIGHT · 4 RING_TOUCH_SENSOR. 0x1010 never reaches the ui_task (the input manager sends it as `0x109`, R0.1) | V (`0x004C5892`, `0x004C58EE`, the strings) |
+| **Id 4 sends the scroll message's direction 2, id 5 direction 1.** The dispatcher posts LVGL 0x44 for id 4 and 0x45 for id 5; on RIGHT the text-container adapter `0x004961E4` forwards only these two to LEFT (`0x0049632A`–`0x00496330`; `FUN_004DA382` at `0x00496396`, `FUN_00464BB2`); both lenses' `FUN_00496544` map 0x44 → 0 and 0x45 → 1 for a text container (`0x004967FE`–`0x00496810`) into the callback `FUN_00494A78`, which sends kind 2 with direction 1 for 1 and 2 for 0 (`0x00494B12`–`0x00494B30`). The message carries id, name and direction — **no source**. It is built in a later ui_task turn, after the exchange with LEFT; it is not made on LEFT (the adapter returns, "slave role", `0x004961F0`–`0x004961F6`), while the adapter's context reads "animating" (`0x0049628E`–`0x004962DA`), or when its own put fails | V (2026-11-16). Whether Damage's one-character container can ever read "animating": U |
+| **A single tap's report is the page's SysEvent, sent inside the hook's own turn.** Id 0 posts LVGL event 10 synchronously: `add r2,sp,#0x14; movs r1,#0xa; bl 0x0045F8FC` at `0x00443028`–`0x0044302E`; `FUN_0045F8FC` calls `FUN_00451670` (`0x0045F906`–`0x0045F908`), which builds the event on its stack and calls `FUN_00451A6C` directly (`0x004516E4`) — no queue. The page handler `FUN_004E0D3A` answers code 10 with `FUN_004DA16A(0, 0, 0, 0, 0, src)` at `0x004E0F68`, the source a u16 read through the event data's `+0x10` (`0x004E0F46`–`0x004E0F5A`), gated on the page's `+0x34 == 1` and `FUN_00494610` returning 1 (`0x004E0F30`–`0x004E0F44`). The phone receives it as a gesture of type 0 with a source | V for the path and the handler (SAME). That `FUN_004E0D3A` is the callback event 10 reaches on the carrier: I (no BL caller, no literal reference). `FUN_00494610`'s other answers: U |
+| **One transmit queue, one 500-tick put.** A Damage package (`FUN_00475B14(1, 9, …)` → `FUN_0047564E(0, 0, …)` at `0x00475C10`–`0x00475C14`), the scroll message and the click (`FUN_004DA16A` → `0x00475C1A` → `FUN_0047564E(0, 1, …)` at `0x00475D54`–`0x00475D58`) each allocate a block and put it into one queue with a 500-tick wait (`mov.w r3,#0x1F4` at `0x004759BA`, put `0x004759C4`). A failed put frees the block and returns −1 (`0x00475A18`–`0x00475A20`); success returns 0 (`0x004757C0`); `FUN_00475B14` returns that result (`0x00475C14`–`0x00475C18`), or 8 on its own early refusal (`0x00475BFE`). So a report put in the hook precedes its gesture's scroll message by at least one inter-lens exchange, and a tap's click by being put first in the same turn, whenever its own put succeeds | V (2026-11-16; the return values 2026-11-18). One early path returns 0 without reaching the put (`0x00475B66`, when `FUN_004487AC` returns non-zero; read in part): whether a task can take it, U |
+| The EvenHub page is in front when `FW_MODE(UI_CTX)` reads 0xE0 (`APP_EVENHUB`) — the test the inherited `ring_release` makes inside the dispatcher | V-src (`gesture_fwd.c` 76–79). That the read is safe before the dispatcher runs: I (`FUN_0045F8E6` unread) |
+| The hook, every image message (modes 26, 27, 28, the cache writes) and the stock dispatcher run on the ui_task, one message at a time (priority 44, §5.2), so a fire and a phone message can race in order and across the phone's round trip, never mid-instruction on one lens. Time slicing is on at 44 | V (`FUN_004437E0`'s loop: `0x00443934`, `0x00443F1C`, `0x00443FB0`; time slicing `0x0045516E`, `HANDOFF.md` §81) |
+| The long press (3) and its release keep the inherited sites inside the dispatcher (`0x00442E92`, `0x004431C2`); the hook wraps the dispatcher and leaves them as they are | V |
 
-### 6.2 The hook
+### 6.2 The hook and the fire
 
 - **Site:** `bl 0x00442D86` at `0x00443FB0` → `damage_input_hook(record, len)`, C2's one new site, on the ui_task's
-  event loop. It runs on every touch from boot; before the first Damage message there is no context, so it is one
-  validated read and the stock call (the copy hook's shape). `FORK.md` §3.1: an event loop, as `0x00473D80` was read.
-- **It never consumes:** in every path it calls `FUN_00442D86` with the unchanged record and length and returns its
-  result, after its own work — so the stock path and the phone's kind-2 or kind-1 message stay exactly as today.
-- **Pass-through:** no context, BIND (flag bit 4) not armed, or no matching entry → nothing else (a flag test and at
-  most 8 two-byte compares; the cost is modeled only). Never bindable: 3 (the long press is unattributed —
-  `CLAUDE.md`), 0xD, 0xE; 0x1010 never reaches the ui_task (the input manager sends it as `0x109`, R0.1).
-- **Fails toward today:** any check that fails in a fire — the lease (the check settles a lapse, which clears every
-  binding), the program record, a parameter, the pool, an allocation — leaves no local draw, sends the applied-state
-  with the reason when an entry matched, and passes through; the phone drives that gesture as it does today. The
-  table lives in the context, validated whole at SET; the program is re-validated at every fire (the cache may
-  change). A fire waits only on the display gate (`FUN_00441C44`, the take the worker makes on this thread); its
-  time is field 37.
+  event loop. It runs on every touch from boot (accepted 2026-11-17; `FORK.md` §3.1: an event loop is not a boot path,
+  as `0x00473D80` was read). It finds the context with **peek, never get** (get creates a context and writes it), so
+  before the first Damage message it is one lookup and the stock call.
+- **It never consumes:** every path ends in `FUN_00442D86` with the unchanged record and length, as a tail call
+  returning its result, after its own work — so the stock path and the phone's scroll message and click stay exactly
+  as today.
+- **The fire, in order** (each lens, on its ui_task, inside the hook):
+  1. `peek`; no context → the stock call.
+  2. Copy the record's 10 bytes. A hint read without the engine word: BIND (flag bit 4) armed, `bind_live` set (§6.3),
+     and an entry matching the record — id 4 or 5 against a scroll entry (devType any), or id 0 with devType 4 against
+     a tap entry — the lowest-numbered matching entry (at most 8 compares). Otherwise the stock call, no report.
+  3. The EvenHub page in front (§6.1). Otherwise the stock call, no report: the gesture belongs to a stock page.
+  4. **S := S + 1**, one atomic add on the lens's u16 sequence (it wraps): every matched event on the EvenHub page
+     takes one, whatever follows, so both lenses number every matched event alike while their tables agree.
+  5. The lease (`cfw_fb_lease_active`; a lapse it notices is a release point on this task, §5.6). Lapsed → report
+     refused **3**, then the stock call.
+  6. Claim the engine word (compare-exchange IDLE → ACTIVE, §5.11 row 3). Fails → report refused **14**, then the stock
+     call. A guard only: the display task never blocks while it holds the word and at priority 45 is never preempted
+     by the ui_task, and the stock start-up zeroes the context's slot word at every reset (`HANDOFF.md` §87).
+  7. Under the word, each read once: DRAW2, ENGINE, BIND and `bind_live` — any clear → refused **15**; the entry and
+     its list (item table, count, cursor, pitch, mark, the S of its newest fire).
+  8. The list's cursor lost (0xFFFF, §6.3) → refused **18**, nothing drawn.
+  9. The new cursor c' = cursor + step (step 0 for a tap). Outside 0..count−1 → **edge** (§6.4). The parameters:
+     Pi = arg (kind 0) · the item table's entry at c' + arg (kind 1; no table, or c' + arg outside 0..count−1 → edge)
+     · c' × pitch + arg (kind 2, computed in s32; outside s16 → refused **12**).
+  10. §5.5's checks from the walk onward, on (the entry's period, prog, P): the program record and every record and
+      table it names inside the cache and well formed, no `self` source or backdrop (**5**) → areas (**2**) → a `none`
+      backdrop's area (**2**) → every step's values after substitution (**12**; with §6.6's H rule) → the thread and
+      flags at first use (**11**: a null handle; both are made from static memory, §5.2).
+  11. The close set: the slot's instance and every open instance whose areas meet, in slot order. **A tap fire whose
+      close set holds a local instance is refused 17, nothing closed** (closing an uncommitted scroll would show the
+      old row around the press). Otherwise each is closed — a drawing one's outcome-1 body captured for the ui_task's
+      send (§5.8), a done one silently — and each close sets the panel-stale mark (§5.3).
+  12. Open the local instance (§6.4): tag S, t0 now, d 0, the entry's period, its first read range from step 10's walk,
+      no capture range, the hook's entry stamp (field 37). The list's newest S := S; its cursor := c'.
+  13. Let the word down, settling a PENDING release point as every holder does (§5.11 row 3).
+  14. Set the engine flag (from a task the set cannot fail on a queue, §5.2): C1's thread draws step 1 by its own try
+      of the gate (§5.2) — the fire never takes the display gate.
+  15. Send (RIGHT only; LEFT's sender sends nothing): the captured 114 bodies, then the report (§6.5). A non-zero
+      result of the report's send adds 1 to field 38; nothing is retried.
+  16. The stock call (tail call) with the unchanged record and length.
+  Every exit after step 6 lets the word down before its send (refusals 15, 18, 12, 5, 11, 17 and the edge alike); the
+  word is down before the sends and before the stock call (a lease check inside the stock long-press site can run a
+  release point on this task). No send, allocation or free while the word is held.
+- **Waits:** none of its own. Inherited: each send's 500-tick put (stock makes the same put for every gesture's scroll
+  message and click); a release point's heap free at step 5 (stock's heap lock, an unbounded wait, `0x004842A8`, outside
+  the word); the stock handler's own inter-lens send after the hook.
+- **Cost:** a fire walks its program and every record it names to their ends (an RLE walk, proportional to the record;
+  field 16 measures it); the phone keeps staged records small. Before BIND is armed the hook costs a lookup, a flag
+  test and the stock call (modeled only).
+- **What never runs on the glasses:** a draw for a double tap, a long press, 0xD, 0xE or a temple tap; a write of the
+  shadow by a fire; a take of the display gate; an allocation; a `self` capture; a fire outside the EvenHub page, the
+  lease, BIND, ENGINE and DRAW2; any decision about what a tap acts on.
 
-### 6.3 Lists and bindings (image mode 27; both lenses, in stream order; not gated)
+### 6.3 Lists and bindings — image mode 27
 
-| sub | payload after `[27][sub]` | meaning |
+`[27][sub]…` on the image lane; both lenses run it in stream order; alone or as a mode-8 sub-message; refused 8 inside
+a self-test step (at the step's top level or in a batch the step carries) — the container's own list decides first,
+whatever the message's length, as §5.5 states for mode 26. **Not gated:** it takes no display gate and presents nothing
+(in a batch the batch's present is the batch's); it burns no fid. The mode byte's high bit is ignored.
+
+| sub | message body after `[27][sub]` | what it does |
 |---|---|---|
-| 0 SET | `entry u8 (0..7) · devType u8 (0, 1, 4, 0xFF any) · eventId u8 (0, 1, 4, 5) · list u8 (0..3) · step s8 · slot u8 (0..3) · period u8 (16..128) · prog u16 (off4) · 4 × {kind u8, arg s16}` (21 B) | a binding. Pi = arg (kind 0) · the list's item off4 at (new cursor + arg) (kind 1) · new cursor × pitch + arg (kind 2, s32, refused outside s16) |
-| 1 CLEAR | `entry u8` (0xFF all) | removes entries |
-| 2 LIST | `list u8 · items u16 (off4 of a table of count off4 entries, or 0xFFFF none) · count u16 (1..1024) · cursor u16 (< count) · pitch s16` (9 B) | the staged range: positions 0..count−1 are on the glasses |
+| 0 SET | `entry u8 (0..7) · devType u8 · eventId u8 · list u8 (0..3) · step s8 · slot u8 (0..3) · period u8 (16..128) · prog u16 (off4) · 4 × {kind u8 (0..2), arg s16}` (21 B) | writes one entry. **Two shapes only:** a scroll entry — eventId 4 or 5, devType 0xFF (any), step ≠ 0; a tap entry — eventId 0, devType 4 (the ring), step 0. Anything else is refused 12. Parameters as §6.2 step 9. **One slot per list:** an entry whose list another entry binds to a different slot is refused 12 (a tap entry shares its list's slot) |
+| 1 CLEAR | `entry u8` (0..7, 0xFF all) (1 B) | removes the entry (0xFF every entry); lists stay |
+| 2 LIST | `list u8 (0..3) · items u16 (off4 of a table of count u16 off4 entries, or 0xFFFF none) · count u16 (1..1024) · shift s16 · pitch s16 · mark u8` (10 B) | the staged range, **always applied**: items, count, pitch and mark replaced; the cursor becomes old + shift when that is inside 0..count−1, else **lost (0xFFFF)** — old is the list's cursor (0 for a list that is not live, count 0); a lost cursor stays lost. A fire on a lost cursor is refused 18 (§6.2 step 8); DISCARD and SETTLE set an absolute cursor and clear it (§6.5). The newest S is not touched. There is no absolute form: a resync is DISCARD's job |
 
-Order: length (1) → a self-test step (8) → the lease (3) → DRAW2 (9) → BIND (15) → values (12) → SET: the program
-exists, qualifies as a PLAY and uses **record and level sources only — no `self`** (5/12), so a local draw depends
-only on the cursor and the cache. Every accepted mode-27 message bumps the lens's **binding epoch**. Release points
-clear every entry and list (§10).
+**Check order (the reason recorded is part of the contract):** the container's list (8) → length (1; SET 23 B, CLEAR
+3 B, LIST 12 B with the two header bytes; an unknown sub, 3..255, must be 3 B) → the lease (3) → **the engine's busy
+word claimed (14)** → DRAW2 (9) → BIND (15) → values (12: every range in the table above, the two entry shapes, one slot
+per list; an unknown sub here) → LIST: the item table `[items·4, items·4 + 2·count)` inside the cache (5) → SET: the
+program record's own structure — §5.4's header, tracks and segments, enumerations and reserved bytes — and no track's
+backdrop or segment `self` (5). What depends on the parameters (the records they name, areas, step values) is checked
+at every fire (§6.2 step 10), so a local draw depends only on the cursor and the cache. Only then is anything written.
 
-### 6.4 A bound fire, and the staged edge
+- **Mode 27 claims the engine word** and makes its writes under it; it lets the word down on every exit (refusals
+  included). It joins §5.6's fold case (R2 A-S1) with COMMIT, DISCARD, SETTLE and the fire (§6.4).
+- **The empty table.** `bind_live` (1 B in the context) is 0 when the context is made and after every release point:
+  one store inside the masked section's IDLE branch and in the holder's settlement (`damage_engine_decide`, §5.11
+  row 3), beside the store that sets S to 0. **The first mode 27 accepted while `bind_live` is 0 first empties every
+  entry and every list** (count 0, cursor 0, mark 0, no newest S), then applies, then sets `bind_live` to 1. A refused
+  mode 27 changes nothing. Arming or disarming BIND clears nothing (the table and S stay; with BIND clear every input
+  passes through).
+- **A refusal of mode 27 sends no notify:** it is recorded in telemetry 23–25 (§4), sticky until the next refusal; the
+  phone re-sends the table when it reads it (§6.7 P1).
+- The entries, lists, `bind_live` and S live in the context, per lens; each lens applies mode 27 in its own order
+  against its input (§6.4, both lenses).
 
-On a matching event (each lens, on its ui_task, inside the hook): the new cursor = cursor + step. **Outside 0..count−1,
-or a kind-1 item outside the list: the staged edge** — nothing is drawn (no bounce: the end of what is staged), the
-applied-state says `edge`, the stock path delivers the gesture and the phone refills or ends it. Otherwise: PLAY's
-validation (§5.5) on (prog, P) → close the slot's instance and any instance whose areas meet → open a **local
-instance**: it draws its steps like any other but **writes nothing into the shadow**; after its last step it keeps
-drawing its final state at every present until COMMIT or DISCARD. Then the cursor moves, RIGHT sends the applied
-state, and the hook calls the stock handler. Step 1 is drawn by an engine refresh the hook queues (it holds the gate
-it took): the local response begins within one copy and transfer of the event reaching the ui_task (modeled
-≈ 5–10 ms; `FORK.md` D7 asks ≤ ~20 ms).
+### 6.4 The local instance
 
-### 6.5 The applied-state event and reconciliation
+- **What it is:** one slot of C1's instance table (§5.2–§5.3) flagged **local**, tag S, t0 the fire's OS tick, d 0, the
+  entry's period P, the program's T, a first read range and no capture range. The thread plans it and the copy hook
+  draws it under the engine word exactly as any instance; **it writes nothing into the shadow** — no END at the fire.
+  Its 114 bodies carry tag S, END ordinal 0 and field 8 = 0 (no END was written for it) until a COMMIT adopts it.
+- **HOLD.** At step T a local instance **stays drawing at d = T and owes no 114**: the thread's plan skips it (d ≥ T);
+  the preserve path skips it (k ≤ d) and leaves the framebuffer holding it; the direct path redraws step T at every
+  phone frame's present, so while one is open every phone present goes whole (a whole transfer, 2.0 ms median / 5.3
+  p90, M §5.3, plus step T's drawing time, field 34). Field 30 counts it as drawing.
+- **What ends a local instance:**
+  - COMMIT with its S (§6.5): it becomes ordinary — a drawing one runs on to step T and sends its own outcome-0 body; a
+    holding one turns done, no body;
+  - DISCARD or SETTLE whose rule names it (§6.5): stopped, outcome 1;
+  - the next fire in its slot, or a fire, PLAY or COMMIT whose areas meet it (their close pass, outcome 1) — except
+    that a tap fire never closes a local instance (refused 17, §6.2 step 11);
+  - a phone PLAY or CLOSE of its slot, a live keyframe (mode 6), a cache write meeting its first read range: outcome 1,
+    as for any drawing instance (§5.6);
+  - mode 11 and every release point: emptied, no notify (the settlement);
+  - a present on the hook's stock path: turned done, no notify, before the stock copy (§5.3) — never drawn over stock
+    content.
+  With no phone renewals the lease lapses within 87.9 s and the next present takes the stock path, so nothing needs a
+  hand action.
+- **The fold** (§5.6's R2 A-S1, wider): a present queued before a ui_task message that holds the word — a cache write,
+  mode 27, COMMIT, DISCARD, SETTLE, a fire — and run while it holds it, folds on the direct path: the copy put the
+  shadow there, so the lens shows the **pre-gesture row**, and since the plan skips a HOLD nothing redraws it until the
+  next present that draws: COMMIT's (whose END is the same picture), the answer's frame, or SETTLE's — about one round
+  trip, at most Q (§6.7). Counted in field 33. A gate take around the word's holders would close it; it is a new wait
+  and is not built.
+- **The staged edge:** a new cursor outside 0..count−1, or a kind-1 parameter naming an item outside the list (or a
+  list with no item table): nothing is drawn (no bounce: the end of what is staged), the cursor stays, the report says
+  `edge`, the stock path delivers the gesture and the phone refills the list or ends there.
+- **The tap press.** A tap entry has step 0, so **the cursor never moves.** Its program draws a press over the row at
+  the lens's cursor (kind 2 = cursor × pitch, the row's place in the staged strip; kind 1 its item), two or three steps,
+  then HOLD until the phone's answer or a SETTLE ends it. **It depicts "pressed" only — never the act's result** (no
+  opened, sent, deleted or toggled picture): the program is the phone's, and this is its rule.
+- **Both lenses.** LEFT fires about one inter-lens answer before RIGHT (§6.1; the onset skew, U in ms; t0 differs by
+  that). A lost answer leaves a fire on LEFT that RIGHT and the phone never hear of: LEFT's cursor one ahead and its S
+  one ahead for the rest of the lease, and a local picture RIGHT lacks — **from the dropped answer to the next SETTLE
+  the two lenses can show different rows.** SETTLE ends it (§6.5); LEFT cannot report it, and a counter of RIGHT's
+  dropped answers is not built (§6.12). **Decisions one lens alone can make in a fire** join §5.7's class: the lease
+  deadline (each lens's own), the flags (FLAGS_SET runs on each lens's settings task, unordered with its ui_task), a
+  mode 27 refused on one lens for a shared reason (1, 3, 14, 15), the order of input against image messages after a
+  lost answer. The phone arms BIND inside the session start, before any mode 27, as it arms DRAW2 (§5.7).
+- **Latency.** Step 1 is drawn by the copy hook at the engine refresh the thread queues after the fire's flag: the
+  thread runs at the ui_task's priority, so it waits for a time slice (about one tick, I), and a try that finds the gate
+  held folds and waits one period (§5.2). **The guide:** median ≤ 10 ms and p90 ≤ 20 ms from the hook's entry to step 1
+  drawn (field 37), modeled until measured; the verdict is his use in the trial week, with the figures read beside it.
 
-- **Notify field 115 DamageApplied (RIGHT only):** `1 S (the local sequence since BIND was armed) · 2 devType ·
-  3 eventId · 4 entry · 5 outcome (0 drew · 1 edge · 2 refused) · 6 reason · 7 list · 8 cursor after · 9 slot ·
-  10–13 P0..P3 (their 16 bits) · 14 the binding epoch used · 15 uptime`. It is queued before the hook calls the stock
-  handler, so it precedes that gesture's kind-2/kind-1 message (I: both are sent from the ui_task through the stock
-  senders' queue; that `FUN_004DA16A`'s path ends in the same queue as `FUN_00475B14`'s is unread). A gesture with no
-  field 115 before it is unbound; one that arrives after the phone has already handled that gesture is DISCARDed.
-- **Mode 26 gains (in stream order, so both lenses apply them at the same position):**
-  `3 COMMIT · slot u8 · S u16 · list u8 · cursor u16 · prog u16 · P0..P3 s16` (16 B): validates as a PLAY, writes
-  END(prog, P) into the shadow, sets the list's cursor, and makes the slot's local instance S an ordinary one (a newer
-  local instance in the slot is left drawing; an older one is closed); one notify 114 follows with the END CRC.
-  `4 DISCARD · slot u8 · S u16 · list u8 · cursor u16` (6 B): stops every local instance ≥ S in the slot (the next
-  present shows the shadow, whole) and sets the cursor.
-- **Reconciliation.** The phone treats a field-115 `drew` as an operation of its working copy: END(prog, P) and the
-  cursor, committed by its next message to the glasses (COMMIT carries RIGHT's parameters, so a lens that used
-  another epoch is corrected there); it DISCARDs when its own state has moved on. Until the COMMIT the lenses may
-  differ only if a mode-27 message reached them on either side of the gesture (I: a window of one inter-lens hop);
-  after it, both shadows equal the model by construction. **A COMMIT CRC that differs from the model's is a
-  `divergence` note and a keyframe, never silent.**
+### 6.5 The applied-state report and the phone's answers
+
+**Notify field 115 DamageApplied (RIGHT only)**, `G2SettingPackage{1: 3, 2: 0, 115: …}`, uint32 varints:
+
+| field | meaning |
+|---|---|
+| 1 | S (§6.2 step 4) |
+| 2, 3 | devType, eventId (the record's) |
+| 4 | the entry |
+| 5 | outcome: 0 drew · 1 edge · 2 refused |
+| 6 | reason (outcome 2): 3, 5, 11, 12, 14, 15, 17, 18 |
+| 7 | the list |
+| 8 | the cursor after the fire (unchanged unless drew on a scroll; 0xFFFF lost) |
+| 9 | the slot |
+| 10–13 | P0..P3 (their 16 bits) |
+| 14 | prog (off4) |
+| 15 | uptime (OS ticks) at the fire |
+| 16 | the fire's µs inside the hook: from its entry to the let-down (the sends and the stock call excluded) |
+| 17 | the list's mark (the last LIST this lens applied) |
+
+**Bodies:** refused 3 or 14 (decided before the read under the word) carry fields 1, 2, 3, 5, 6 and 15 only. Every
+other report carries 1–9 and 15–17; fields 10–14 only for outcome drew and reason 17 (the parameters were computed).
+One report per S, sent after the let-down and after the fire's captured 114 bodies (§6.2 step 15). 115s come from one
+task through one FIFO; 114 bodies from the display task may interleave with them — the phone keys 115s on S and 114s on
+(slot, tag, ordinal). The vectors' `"N"` masks fields 15 and 16.
+
+**Notify 114 gains outcome 3, committed** (§5.8's fields): one body at a COMMIT, from the ui_task after its let-down,
+carrying fields 1–11 — 3 the tag = S, 5 END ordinal 0, 6 and 7 the adopted local instance's steps drawn and passed over
+so far (0 and 0 when none was adopted), 8 the END CRC (§5.6), 9 its largest step µs, 10 = 0. An adopted instance with
+6 + 7 below T sends its own outcome-0 body at step T, as any instance, carrying the COMMIT's CRC; the phone matches it
+by (slot, S, 0) and waits for no body (a missing one is pacing only, §5.8).
+
+**Mode 26 gains three subs** (a bit-10 build; an unknown sub is now 6..255, R1.8's rule). Check order, the prefix as
+§5.5 for every mode-26 sub: the container's list (8) → no shadow (4) → length (1; COMMIT 18 B, DISCARD 8 B, SETTLE 10 B
+with the two header bytes) → the lease (3) → the engine's busy word (14) → DRAW2 (9) → ENGINE (15; BIND is not
+checked) → values (12: slot 0..3, also 0xFF for DISCARD and SETTLE; list 0..3, also 0xFF none for DISCARD and SETTLE;
+a named list's cursor below its count) → COMMIT only: the program walk (5; `self` 5) → areas (2) → a `none` backdrop's
+area (2) → step values (12). A refusal sends its outcome-2 114 body as every mode-26 refusal does (§5.8).
+
+| sub | message body after `[26][sub]` | what it does |
+|---|---|---|
+| 3 COMMIT | `slot u8 · S u16 · list u8 · cursor u16 · prog u16 · P0..P3 s16` (16 B) | PLAY's close pass over the **other** slots (instances whose areas meet); **END(prog, P) into the shadow, always**, and RIGHT's CRC of the areas right after it; in its slot: the local instance tagged S becomes ordinary (§6.4), a local one tagged newer (`(int16_t)(tag − S) > 0`) is left drawing, anything else is closed (outcome 1 if drawing); **the list's cursor := COMMIT's cursor only if S is that list's newest fire**; one 114 outcome 3; presents; a close or an adoption sets the stale mark, so that present goes whole |
+| 4 DISCARD | `slot u8 (0xFF all) · S u16 · list u8 (0xFF none) · cursor u16` (6 B) | in each named slot, **stops every local instance tagged at or after S** (`(int16_t)(tag − S) ≥ 0`), drawing or holding, outcome 1 each (a done one is emptied silently); ordinary instances are untouched; sets the named list's cursor (clearing lost); presents; a stop sets the stale mark |
+| 5 SETTLE | `slot u8 (0xFF all) · S u16 · list u8 (0xFF none) · cursor u16 · age u16` (8 B) | in each named slot, stops each local instance tagged at or after S **that has held its last step for at least `age` OS ticks** — d = T and `now − (t0 + (T−1)·P)` ≥ age as an unsigned 32-bit difference — outcome 1 each; drawing ones, younger ones and ordinary ones are untouched; then sets the named list's cursor (clearing lost) **unless a local instance tagged at or after S is still drawing in a named slot after the pass**; it presents only when it stopped one (alone, a SETTLE that stopped nothing queues no present, so the image worker marks the panel stale, §4, and the next hinted present goes whole). It holds no state of its own: t0, P and T are the slot's |
+
+**Batch order.** In every batch the phone sends, mode-26 subs 3–5 and mode 27 come **after every drawing
+sub-message**: a refused sub-message ends its batch with no present (§4; V-src `zlib_glue.c` 626, 629), so a refusal of
+theirs loses only the batch's present — which RIGHT's refusal body reports — and never the frame, which is then in
+both shadows. A cache write (12, 19, 25) cannot ride a batch at all (mode 8 refuses it, 8), which fixes the stream
+order of §6.7 P9.
+
+**Why a lost, late, duplicated or reordered message cannot move what a tap acts on to a row the phone does not hold.**
+The act is always the phone's, on its own row (§6.7 P11). Its row moves only when it handles a report it received or
+acts on its own. A lost 115 leaves its row; the stock message or a later 115 is handled by P3 and P5, and SETTLE ends
+the lens's orphan. A lost COMMIT or DISCARD is a missing ack or a refusal body: a divergence and a keyframe (§5.6). A
+115 cannot arrive after its own gesture's stock message (§6.1). On the glasses COMMIT, DISCARD and SETTLE are keyed by
+S, so the two lenses applying one on different sides of a fire reach the same shadow, and DISCARD's and SETTLE's
+absolute cursor realigns them. With the tap option, a tap is acted on only when its report names the list, mark and
+cursor the phone holds (§6.7); a tap on the default path acts on the phone's row, and the residual is stated there.
 
 ### 6.6 The vertical-scale draw (A2, carried by C2)
 
-- **Mode 28** (`0x9C` per lens): `off4 u16 · x s16 (or xL · xR) · y s16 · options u8 · H u16` — the v2 record drawn
-  `H` rows tall (1..2048): output row r takes source row `⌊(2r + 1)·h / (2H)⌋`, columns as they are; clip, options and
-  transparency as mode 17; it takes the gate as mode 17 does. Order: no shadow (4) → length (1) → the lease (3) →
-  DRAW2 (9) → H (12) → the record (5). Allowed in a batch and in a self-test step.
-- **DRAW's h0, h1, anchor** (zero in C1): the output height eased from h0 to h1 (both 1..2048, or both 0 = unscaled);
-  anchor 0 top · 1 centre (`y + ((h − H) >> 1)`) · 2 bottom (`y + h − H`), h the source's height. The wheel's drum
-  (`MOTION.md` W1/W2), the icon grow (M2) and Pulse use it.
+- **Mode 28** (`0x9C` per lens): `off4 u16 · x s16 (or xL · xR) · y s16 · options u8 · H u16` (9 B, or 11 B per lens)
+  — the v2 record drawn `H` rows tall (1..2048): output row r takes source row `⌊(2r + 1)·h / (2H)⌋` (fits u32 for
+  r < 2,048 and h < 65,536), columns as they are; clip, options and transparency as mode 17; it takes the gate as mode
+  17 does (it joins the gated modes, the batch's list and the step's list). Order: no shadow (4) → length (1) → the
+  lease (3) → DRAW2 (9) → H (12) → the record (5). Allowed in a batch and in a self-test step.
+- **DRAW's h0, h1, anchor** (zero in C1, §5.4): the output height eased from h0 to h1 (both 1..2048, or both 0 =
+  unscaled); anchor 0 top · 1 centre (`y + ((h − H) >> 1)`) · 2 bottom (`y + h − H`), h the source's height. On a
+  bit-10 build §5.5's "h0/h1 = 0" becomes: h0 and h1 both 0, or every step's eased H (after substitution) inside
+  1..2048, else 12 — at a PLAY, a COMMIT and a fire alike; on RETARGET's restart path H is clamped to 1..2048 as levels
+  are (R1.10). The wheel's drum (`MOTION.md` W1/W2), the icon grow (M2) and Pulse use it. `tools/verify.py` step 7 is
+  run again on the grown engine function.
 
-### 6.7 Flags, telemetry, capabilities
+### 6.7 The phone's rules (built in its transport and shell; none of them is firmware)
 
-Flag bit 4 **BIND** (needs ENGINE and DRAW2); clears at every release point with every entry, list and local
-instance. Telemetry `35` bound fires since boot · `36` the last S · `37` the last fire's µs inside the hook. DamageCaps
-bit 10: modes 27, 28, mode 26's subs 3 and 4, fields 115 and 35–37. Reason 15 covers BIND for mode 27.
+**Scrolls.**
+- **P1 start.** At a session start with stage 4 in force (§6.8), BIND is armed inside the start before any image-lane
+  message that needs it (its rung recorded first). Then, in stream order after the warmup keyframe, one batch (a start
+  gate like the warmup): CLEAR 0xFF, one SET per entry of the list in front, one LIST per list with a fresh mark. S_heard := 0 on a fresh acquire, := field
+  36 on a carried lease (the start's own read); the arming uptime := field 2 of the reply to the FLAGS_SET that armed
+  BIND. The warmup keyframe closes every instance, local ones too (§5.6). **A refusal record naming mode 27** (fields
+  23–25, read once per telemetry record) makes the phone re-send the whole table — CLEAR 0xFF, the SETs, the LISTs with
+  a fresh mark — in its next batch, journaled. Without DamageCaps bit 10, or below stage 4, the phone sends no mode 27,
+  no COMMIT, DISCARD or SETTLE and applies scroll messages and clicks as today: byte for byte today's start. The start's
+  bytes are pinned per stage and per `Taps` value.
+- **P2 one ordered flow.** A 115 enters the shell through the same ordered event flow as the stock input events, in
+  arrival order, so a stock message is handled after every 115 that preceded it on the link.
+- **P3 a scroll that drew.** The phone adopts the 115 only if all hold: it is fresh (P8); field 7 is the list in front
+  with no modal or popover over it; field 17 equals the phone's current mark for that list; fields 10–14 equal the
+  phone's own prediction (the entry's program and P0..P3 from its own staged list at the 115's cursor); and the 115's
+  cursor differs from the phone's row by at most (n + 1) × |step|, n the owes this 115 added for missing reports (P5).
+  **Adopted:** row := the 115's cursor (one working-copy op) and COMMIT(slot, S, list, cursor, prog, P). **Otherwise:**
+  it applies the gesture itself as today and sends DISCARD(slot, S, list, its row) in the same batch as the frame that
+  draws its row, after that frame's drawing subs — the lens goes from the local picture straight to the phone's, never
+  back through the old one.
+- **P4 edge and refused.** The gesture is applied as today; when the lens's cursor then differs from the phone's row
+  (a refill moved it, or it is lost), DISCARD(slot, S, list, row) or a LIST rides that frame's batch. A refusal 5 or 12
+  of a fire is journaled with its reason.
+- **P5 the echo, counted.** Every 115 the phone handles owes one stock message of its kind (a scroll message for ids 4
+  and 5, a click for id 0). A 115 showing g missing S since S_heard adds max(0, g − u) owes of either kind, where u
+  counts the stock messages applied with no owe since S_heard (each already stood for one missing report); then u := 0
+  and S_heard := S. A stock message consumes an owe of its kind, else one of either kind. **With none it is
+  unreported** while the phone holds an entry of its kind for the list in front (SET sent, no CLEAR since): a scroll
+  message is applied as today with DISCARD(bound slot, S_heard + 1, list, its new row) in its frame's batch, and u += 1;
+  a click, see `tapsLive` below. With no such entry it is unbound and applied as today, nothing more. Owes and u clear at every SETTLE sent and at a session
+  start. The phone never waits for a stock message after a 115.
+- **P6 gaps** are P3's bound: a jump larger than the missing reports can explain is not adopted.
+- **P7 SETTLE.** A burst is open from a report until the SETTLE sent alone **Q after the last report with every 115
+  answered**: SETTLE(0xFF, S_heard + 1, the bound list in front or 0xFF, its row, age). While BIND is in force and no
+  burst is open, **every batch the phone sends carries one SETTLE** with the same fields — under a cover too, where it
+  names no list (12 B with its length; the compositor keeps one sub back for it, as for a CLOSE while an instance is
+  open, R2 B-N5) — so a gesture LEFT alone handled at idle is ended by the next frame. Constants: `age` ≥ the round trip's p90 plus one period; Q ≥ `age` plus the longest bound program's (T − 1)·P
+  (values after §6.9). A fresh fire crossing a SETTLE has held for less than `age`, so it is untouched and gets its own
+  P3 answer.
+- **P8 stale reports.** A 115 whose S is not after S_heard (signed 16-bit), or whose uptime precedes this session's
+  arming, is dropped and journaled.
+- **P9 writes, in stream order.** No PLAY into a bound slot. Cache writes cannot share a batch (§6.5), so: records a LIST
+  will name are written first, into free cache space; a record or program a live list or entry names is not overwritten
+  in place while a burst is open; a row whose index or identity changes moves through fresh space and a LIST with a new
+  mark, a program through fresh space and a SET, and the old space is reused only after that LIST or SET in stream order
+  (both lenses apply it before the reuse); a row's picture updated in place while no burst is open keeps its mark.
+  COMMIT, DISCARD and SETTLE only while the lease is held and BIND is in force — never in Silent Mode, never into a
+  released lease. Before a mid-session disarm of BIND (the probe path): DISCARD(0xFF, S_heard + 1, 0xFF, 0) after every
+  115 heard is answered, waited to its ack; without one the disarm is not sent and a note says so (§5.8's rule for
+  ENGINE). At a carried-lease start the start's FLAGS_SET may clear BIND with no DISCARD (the warmup keyframe closes
+  every instance, R1.17).
+- **P10 the mirror.** A bound list's areas are unknown on the panel from the first report of a burst to the SETTLE that
+  ends it; the model applies COMMIT's END only, in stream order; the truth oracle on the shadow stays exact.
+- **The bound list is the list in front.** The phone keeps entries bound only to the list in front: it CLEARs a list's
+  entries in the batch that draws anything over it or in its place (another window, a modal, a popover, the keyboard)
+  and SETs them again in the batch that brings it back. A fire that lands before the CLEAR fails P3's "in front" and is
+  answered with DISCARD.
 
-### 6.8 What waits on C1's measured numbers
+**Taps.**
+- **P11 the act is the phone's,** on its own row, always. Every irreversible act opens a CONFIRM worded by the phone
+  from its own data, Cancel at rest (`CONTRACT.md` §4.3, `DESIGN.md` §1.7); taps on a confirm go through the phone
+  exactly as today.
+- **The `Taps` setting:** a Settings row beside `Long-press` — `phone` (the default) or `glasses` — kept on the PC record
+  with the phone's working copy. It has effect only on a bit-10 build at stage 4. **`phone`:** no tap entry is SET; a
+  click acts on the phone's row as today. The residual: a tap inside the window between a lost scroll report and its
+  correction acts on the phone's row, one before what the lens showed; an irreversible row still opens a confirm naming
+  its target. **`glasses`:** one tap entry (eventId 0, devType 4, step 0, the list's slot, the press program) beside the
+  scroll entries. **Switching** mid-session sends, in stream order, SET of the tap entry (on) or CLEAR of it (off);
+  nothing else changes — no FLAGS_SET, no re-arm, no keyframe.
+- **The tap rule.** A tap's 115 that carries fields 7, 8 and 17 (every outcome but refused 3 and 14) is acted on —
+  the act on row R of list L, the phone's own — **only if all hold:** (1) it is fresh (P8); (2) field 7 is the list in
+  front, with no modal or popover over it (the phone's focus, not the lens's); (3) field 17 equals the phone's current
+  mark for L; (4) field 8 equals the phone's row index in L (not lost); (5) when fields 10–14 are carried, they equal
+  the phone's own prediction of the tap entry's program and parameters at that cursor — a difference here with 1–4
+  holding is a divergence (a `divergence` note and a keyframe, §5.6). Then the phone acts on R and answers with
+  DISCARD(slot, S, L, R) after the act's first frame in the same batch (a keyframe needs none). **If any fails, the
+  phone acts on nothing:** DISCARD(slot, S, L, R) with the frame that draws its row when the lens's cursor differed
+  (alone otherwise), one `tapdrop` note with its cause, and the press goes out — the tap is lost, said once, never
+  applied to another row. A tap 115 refused 3 or 14 is dropped (`tapdrop`, `refused-3` / `refused-14`). Sequence gaps
+  do not enter the rule: an unheard scroll moved the lens's cursor away from the phone's row (4 fails), an unheard tap
+  moved nothing; after a re-staging the same index names another row until the LIST lands, which 3 catches.
+- **The click** is consumed as its tap 115's echo (P5, kind click), whether that 115 was acted on or dropped. A click
+  with no owe is decided by **`tapsLive`**: true when RIGHT has shown it holds the tap entry this session (a tap 115
+  has arrived, or a telemetry read shows field 39 bit 0); false at each session start, at any release point the phone
+  causes, when it sends CLEAR of the tap entry, and at a telemetry read without that bit. While true, an unowed click
+  is dropped (`tapdrop`, `no-report`: its 115 was lost and the lens may have pressed another row) with
+  DISCARD(slot, S_heard + 1, L, R); while false, it is acted on as today. A tap fired before a switch lands is judged by
+  the tap rule if it produced a 115, whatever the setting is by then, and acted on as today if it did not and
+  `tapsLive` was false.
+- **A scroll fired within a round trip after a tap** that the phone answers is stopped by that DISCARD (its tag is
+  after S) and drawn again by its own COMMIT: move, stop, land. Rare in the trial week, where only Main's list is bound
+  and its taps open windows.
 
-The period (feel session) · field 34's drawing time per area size → whether a full-height page slide or only bands
-fit a step, so how strips are staged · fields 27–29 at 256 KiB → how many items a list stages · the lens-skew verdict
-(if visible, C2 needs a start message between the lenses, not designed here) · the folded count under a working
-shell · the ring filter's effect on fast spins (`CLAIMS.md`: the 100-tick filter; its unit unread).
+**Counting** (so the snap-back and drop rates are measured numbers; one note per event, a fixed `key=value` detail
+that `tools/journal_report.py` counts by cause):
+- **`snapback`** — every DISCARD the phone sends for a heard fire, every DISCARD of P5, every SETTLE that RIGHT reports
+  stopping something (a 114 outcome 1 for a local tag): `cause=` `lost-report` (P5, or an S gap) · `restaged` (mark or
+  prediction differed) · `focus` (list not in front, a modal) · `link` (a start's keyframe closed local instances) ·
+  `burst-end` (SETTLE stopped one on RIGHT) · `refused` (COMMIT, DISCARD or SETTLE refused → keyframe) · `edge`; with
+  `S`, `list`, `cursor`, `row`, `mark`/`markNow`, `ms` (115 receipt to answer), `frame` (yes/no).
+- **`tapdrop`** — every tap not acted on: `cause=` `stale` (1) · `focus` (2) · `restaged` (3) · `moved` (4) · `lost`
+  (field 8 0xFFFF) · `item` (5, with its divergence note) · `no-report` · `refused-3` / `refused-14`; with `S`, `list`,
+  `cursor`, `row`, `mark`/`markNow`.
+- **`local`** at each telemetry read: fields 35, 36, 38, 39 and the session's counts — taps acted, taps acted without a
+  press (17), drops and snap-backs by cause, SETTLEs sent, echo owes left at each SETTLE. LEFT's stops are not visible
+  (LEFT cannot report); the count of SETTLEs sent bounds them.
 
-### 6.9 Vectors
+### 6.8 Flags, telemetry, capabilities, the ladder
 
-New op `{"input": [devType, eventId, value]}`: the record through the hook (the stock handler on the host only counts
-calls); `"N"` gains field-115 bodies. `v4-bind` (unbound and unarmed pass-through with the stock call counted, a fire
-drawing on the panel and leaving the shadow, ids 3/0xD/0xE refused at SET, `any` against a source) · `v4-edge` (both
-edges, a kind-1 item past the list, the cursor unmoved) · `v4-commit` (COMMIT writing END, a newer local instance left
-drawing, DISCARD ≥ S, the cursor set) · `v4-fail` (no context, the lease lapsed at the fire, a rewritten program,
-the pool short: every one passes the record through unchanged) · `v4-vscale` (mode 28 at H = 1, h, 2h and 2048, per
-lens, clipped; DRAW scaled with each anchor). The lens order of input against images, the notify order on the link
-and the local latency need two radios and a clock: the journal's pairs of 115 and kind-2 messages, the COMMIT CRCs
-over a work week (zero divergence, `REPLAN.md` §5's C2 stop) and the feel session prove them.
+- **Flag bit 4 BIND** (needs ENGINE and DRAW2; checked at every fire and mode 27 under the word, so a FLAGS_SET of BIND
+  alone is taken, status 0, and every fire and mode 27 is then refused 15, as §5.8 states for ENGINE). It clears at
+  every release point (§3), with `bind_live` and S; it is refused without the lease (status 3). A disarm closes nothing
+  and clears nothing.
+- **Telemetry:** `35` matched events since boot (every S taken, whatever its outcome) · `36` the last S (0 after a
+  release point) · `37` the last fire's µs from the hook's entry to the end of the copy hook's drawing of its step 1
+  (a DWT difference, §4's calibration; omitted until one this boot) · `38` reports whose send returned non-zero since
+  boot · `39` the event ids with a live entry on this lens, bit n for event id n (bit 0 the tap entry, 4 and 5 the
+  scroll entries), 0 while `bind_live` is clear — computed at each read from the table without the word (a torn read
+  costs one wrong `tapsLive`, set right at the next tap 115). 35, 36, 38 and 39 are always sent on a bit-10 build; the
+  record's compile-time bound grows with them (R1.19).
+- **Reasons:** 17 a tap fire whose close set holds a local instance (nothing closed) · 18 a fire on a list whose cursor
+  is lost. 14 and 15 extend to mode 27, the fire and mode 26's subs 3–5 (15: BIND, and `bind_live` at a fire).
+- **DamageCaps bit 10:** the hook, mode 27, mode 26's subs 3–5, notify 115 and 114's outcome 3, mode 28 and DRAW's h0,
+  h1 and anchor, telemetry 35–39, reasons 17 and 18, flag bit 4. The phone sends none of them without it.
+- **The ladder gains stage 4 = BIND** (with stage 3's ENGINE and the rest), set by hand as C1's stages are (`probe
+  c1=N`), never advanced by itself; a hand `flags=` probe cannot arm bit 4 beyond the stage. Its rung is recorded before
+  its FLAGS_SET (R2 B-M1's shape). The tap entry is SET at stage 4 only with `Taps · glasses`.
+- **What the phone persists** (on its own storage, written before the arming it records; not held in transport memory,
+  so a restart of the phone's process — every APK install, M — loses nothing): the ladder stage (0..4), the `Taps`
+  row, the time of the last session in which stage 4 was armed, the last `case` note with `in case 1`, and the
+  hold-back (its time and reason). Each start re-arms what is persisted. **This replaces §5.8's "a process restart
+  returns it to 0" for every stage.**
+- **The hold-back for stage 4** (a fault in the hook comes at a gesture, any time, so C1's 120-s window does not apply
+  to this stage): at a start the phone holds stage 4 back — it arms stage 3 and says so once, as a `keeper` note and a
+  `holdback` fault ("local input held back until tomorrow's first start: a lens restarted at HH:MM while it was on;
+  Settings · Local input re-arms it") — when, since the last session in which stage 4 was armed, it has seen **RIGHT's
+  reset** (the `the glasses reset` note; the reset placed at now − uptime on the phone's clock) or **LEFT's
+  reboot-like link end** (not one the phone made), **and no `case` note with `in case 1` came between that arming and
+  the reset.** It is lifted at the first start after a `case` note with `in case 1` received after the hold-back was
+  set (the evening case-in), or failing that at the first start on a later calendar day (04:00 local), or by the
+  Settings row `Local input · re-arm` on the glasses. A reset that follows a case-in holds nothing back; a flash
+  restarts the glasses outside the case and holds stage 4 back for that day (or until the row). It costs one stage
+  (4 → 3), never more; stages 1–3 keep §5.8's rule. A plain radio drop of LEFT reads like a restart and costs local
+  input for the rest of that day (none in the five days of his journal, M). The overnight charge does not restart the
+  glasses (708 h of unbroken uptime across five nights, M): the day's first start re-arms stage 4 with no hand action.
 
-### 6.10 The failure envelope
+### 6.9 What waits on C1's measured numbers
 
-| new state, wait or guard | (a) cleared at | (b) a write that never lands | (c) keyed on | (d) other tasks, the other lens | (e) one read | (f) siblings |
+C2's code and the phone's rules are built with P, Q and `age` as constants; their values and the staged strip's shape
+wait for C1's flash, soaks and feel session (`HANDOFF.md` §85's checklist):
+
+| number | what it decides |
+|---|---|
+| field 34, the step's drawing µs by area | the largest area one local step can repaint inside P → a list pan repaints the band or strips; the program's track count; how long the ui_task waits behind a step (R2 A-N4) |
+| the period P after the feel session (starts at 34) | T × P of the list motion; the one-period cost when step 1's try folds (the guide's tail) |
+| fields 27–29 at 256 KiB | how many rows a list stages |
+| field 33 under a working shell | how often step 1 folds at the thread's try → the guide's p90 |
+| the 114 sequence gaps over the soak days | the loss rate of a notify sent from the ui_task on his link — the 115's sender path → the `no-report` and `lost-report` rates; whether a report-only tap entry is worth a flash (§6.12) |
+| the round trip's p90 (the journal's WAIT column, §5.8's notifies) | `age`, then Q |
+| the lens-skew verdict for PLAY (eye, 240 fps video) | an upper bound on what he tolerates; a fire's skew (LEFT leads by one answer) is measured in C2's own feel session |
+| the ladder on glass (hold-back, LEFT's end reasons) | how stage 4's hold-back reads them |
+| the fast-spin probe (`REMINDER.md`) | the highest fire rate → the ui_task's load per fire and the COMMIT rate |
+
+### 6.10 Vectors, and what only the glasses can show
+
+New op `{"input": [devType, eventId, value]}` (after a `tick`, §5.10): the record through the hook on both lenses;
+`"only": "L"` delivers it to LEFT alone (a dropped answer). The stock handler on the host only counts calls; a `wake`
+after it draws step 1. `"N"` gains field-115 bodies (15 and 16 masked) and 114's outcome 3. Every v4 vector carries
+`features` with bit 10, and the v1/v2/v3 sets answer alike on a bit-10 build. Inputs from `make_vectors.py`,
+expectations from the C (`--write`), the simulator equal; the differential fuzz gains `--c2` (random inputs, LEFT-only
+among them, between messages).
+
+`v4-bind` (pass-through unarmed and unbound with the stock call counted; a fire drawing on the panel and leaving the
+shadow; at SET: ids 1, 3, 0xD, 0xE refused, 4/5 with devType ≠ 0xFF or step 0 refused, id 0 with devType ≠ 4 or step ≠
+0 refused; one slot per list; the lowest matching entry; a stock page in front: no fire, no 115) · `v4-edge` (both
+edges, a kind-1 item past the list, the cursor unmoved; a kind-2 parameter outside s16 refused 12) · `v4-commit` (adopt;
+END unconditional; a COMMIT older than the newest fire keeps the cursor; a newer local left drawing; outcome 3 then the
+adopted instance's outcome 0; a holding local adopted turns done; the close pass over the other slots) · `v4-discard`
+(≥ S across the 16-bit wrap; slot 0xFF; a holding local stopped with its body; a done local emptied silently; the
+cursor set, clearing lost) · `v4-settle` (a held local older than `age` stopped, a younger one and a drawing one left
+with the cursor kept; a LEFT-only input then SETTLE; no present when nothing stopped) · `v4-list` (the mark; a shift; a
+new list from 0; out of range → lost; a fire then 18; DISCARD and SETTLE restore it; a lost cursor stays lost across a
+LIST; the first mode 27 after a release point empties the lists too) · `v4-local` (`input` then `wake` draws step 1;
+HOLD redrawn on a direct present, skipped on preserve; a stock-path present turns it done; a keyframe, a cache write
+meeting its first range, a phone PLAY into its slot each close it; a fire closing a phone instance sends its 114 before
+its 115) · `v4-tap` (a ring tap presses with the cursor unmoved; a temple tap passes through with no 115; 17 with an
+uncommitted scroll in the slot, nothing closed; a press after COMMIT; field 17 carried; a scroll closing a press) ·
+`v4-fail` (no context; lapsed at the fire → 3 carrying S; BIND without ENGINE → 15; a rewritten program → 5; the word
+held → 14; mode 27 refused 14, 15, and 8 in a step) · `v4-lens` (a LEFT-only input, then SETTLE realigning LEFT's
+cursor; both lenses numbering alike) · `v4-batch` (a DISCARD after the frame, refused: the frame in the shadow, no
+present; mode 27 in a batch after the drawing subs) · `v4-vscale` (mode 28 at H = 1, h, 2h and 2048, per lens, clipped;
+DRAW scaled with each anchor; H clamped on RETARGET and refused out of range).
+
+**No vector can prove** (one thread, one lens at a time, no UART): the inter-lens answer-and-drop order, a lost 115 or
+stock message, LVGL holding the gate, a release point on another task during a fire, step 1 within a time slice, the
+onset skew, the click's SysEvent order on the link and the callback it reaches, the fold rate with HOLD.
+
+**What only the glasses can show,** and what reads it: the 115 loss rate (C1's soak gives the 114 gaps on the same
+sender path; then field 38 and the S gaps the echo count records) · that a tap's click follows its 115 through
+`FUN_004E0D3A` (the first armed session's journal: each tap 115 followed by its click) · the guide's figures (field 37,
+the 240 fps video) and the verdict (his use in the trial week) · the snap-back rate and the tap-drop rate by cause (the
+trial week's notes) · the onset skew and LEFT-only rows (the feel session by eye, the video; SETTLE bounds how long one
+lasts) · whether the ring holds a single tap until its double-tap window has passed (the video, tap to press; the ring
+reports types 1 and 2 itself, V `FUN_0047269E`) · the fold rate with HOLD (field 33 in the feel session) · the crossing
+window's width (the trial's 115 receipt times against SETTLE and DISCARD acks) · that a `case` frame arrives at every
+case-in (the journal; the calendar fallback covers a miss) · COMMIT CRCs equal to the model's over the trial week
+(RIGHT's shadow only, never LEFT, never a step). `glassdrive.py` sees the phone's mirror, never a lens.
+
+### 6.11 The failure envelope (`FORK.md` §3.8)
+
+| new state, wait or guard | (a) cleared at | (b) a write that never lands | (c) keyed on | (d) other tasks, the other lens | (e) one read | (f) siblings checked |
 |---|---|---|---|---|---|---|
-| binding entries, lists, cursors | release points, CLEAR, LIST, a restart | the glasses fall back to passing input through; the phone re-sends SET and LIST at each session start | entry and list index; programs by off4 (re-validated per fire) | changed only on the ui_task (I: the worker's thread); read by the hook on the same thread | the hook reads the entry once | SET reuses PLAY's validator; both lenses get the same messages |
-| the binding epoch and S | release points (S restarts at 0 with BIND) | a lost field 115: the phone sees an unbound gesture, drives it, and DISCARDs the local instance its next telemetry shows open (field 30) | epoch per lens; S per lens | LEFT cannot report its S; COMMIT carries RIGHT's | one read per fire | — |
-| local instances | COMMIT, DISCARD, a PLAY or fire over them, mode 6 and 11, release points | uncommitted, they keep drawing their final state; nothing reaches the shadow | slot + S | the copy hook draws them under the gate the hook or thread took | as §5.11 | phone instances (§5.11) |
-| the hook's pass-through | — | — | devType + eventId | runs on both lenses' ui_tasks | one context read | the inherited long-press and release sites in `FUN_00442D86` stay as they are |
+| `bind_live`, 8 entries, 4 lists (items, count, cursor, pitch, mark, newest S) | a release point (`bind_live`, one store in the masked section); the next accepted mode 27 empties entries and lists first; CLEAR (entries); a restart. Not at arming or disarming | a lost SET or LIST: the lens fires with the old table (P3 or the tap rule finds the mark or prediction differs → DISCARD) or passes through; a refused one is re-sent on the refusal record; every start re-sends | entry, list; the program by off4, walked at every fire | written on the ui_task under the word (mode 27, the fire, COMMIT, DISCARD, SETTLE); `bind_live` cleared by a release point on any task inside the masked section. Each lens applies mode 27 in its own order against input: P3 judges RIGHT's result; SETTLE and DISCARD realign LEFT | the fire reads each once after its claim | SET's shapes and PLAY's walk; the three writers of the cursor (COMMIT, DISCARD/SETTLE, LIST) and the fire's edge test; the simulator's copy |
+| S (u16) | a release point (one store beside `bind_live`), a restart | a lost 115 is a gap: P5's owes, P3's bound | per lens, taken at the entry match; LEFT ahead only after a dropped answer | one atomic add on the ui_task; the clear inside the masked section (an add crossing it gives old + 1, read as a gap) | one add per matched event | `eng_seq` (the same shape) |
+| the local instance (C1 slot + local flag + HOLD at d = T; tag S, t0, P, T, d, first range, entry stamp) | §6.4's list | an unanswered one: SETTLE, a keyframe or the lease's lapse; the shadow never held it | slot + tag S; bytes by its first range | opened on the ui_task under the word; drawn by the copy hook under the word (display task, 45); planned by the thread without it (C1's torn-read rule); emptied by release points; LEFT opens it one answer earlier and may hold one RIGHT never had | as §5.11 | C1's instances; the plan's skip; the three present paths; a keyframe's close; a cache write's close-on-meet |
+| the fire's claim and let-down | every exit lets down, refusals and the edge included | a failed claim → refused 14 → today's path | the word's three values | §5.11 row 3; the let-down precedes the sends and the stock call | one compare-exchange each | every ui_task holder: mode 26, a live mode 6, mode 11's closes, cache writes, mode 27 |
+| the engine flag set by a fire | — | the thread replans whether or not anything follows (§5.2) | — | set on the ui_task, waited on by the thread | — | PLAY, RETARGET |
+| the 115 send; field 38 | counters at a restart | a non-zero result is counted; no retry; P3, P5 and SETTLE recover | S | only the ui_task sends 115s (one FIFO); 114s from the display task may interleave | the send's result once | the two 114 senders; stock's scroll-message and click puts (the same queue, 500 ticks) |
+| COMMIT | — | refused or unacked: a divergence and a keyframe (§5.6), capped per (slot, tag) | slot + S; the cursor by the list's newest S | ui_task under the word | the slot's state and the list's newest S once | PLAY's validator and close pass |
+| DISCARD | — | lost or refused: a divergence and a keyframe; SETTLE also ends the instance | slot + S (signed 16-bit), list | ui_task under the word | each named slot once | CLOSE, SETTLE |
+| SETTLE | — | lost: the next idle batch carries another; refused: a divergence and a keyframe | slot + S + the held age from t0, P, T | ui_task under the word | each named slot's state and t0 once | DISCARD, CLOSE |
+| the lost cursor (0xFFFF) | DISCARD, SETTLE, the empty table | the next SETTLE or DISCARD sets it | list | ui_task only | once per fire | LIST, COMMIT's cursor write, the fire's edge test |
+| the tap guards: SET's two shapes; refused 17 | as every entry | a lost SET: no tap entry → `tapsLive` false → today's path | entry; the close set's local flags | ui_task under the word; one lens may press while the other refuses 17 — the phone's DISCARD reaches both | once, in the close pass, before any close | the close pass of PLAY, COMMIT and scroll fires (a scroll may close a press) |
+| BIND (flag bit 4) | every release point; refused without the lease | a FLAGS_SET that does not land: the reply shows BIND not armed → the phone binds nothing | — | settings task writes; read once under the word; unordered with the image lane per lens (§5.7's class) | once | DRAW2, ENGINE, ZWRITE |
+| the hook's pass-through and page test | — | — | devType + eventId | runs on both lenses' ui_tasks from boot; peek only; `FW_MODE(UI_CTX)` read before the dispatcher (I) | one context read | the inherited long-press and release sites stay inside the dispatcher |
+| telemetry 39 | computed per read | — | — | the settings worker reads the table without the word (a torn read costs one wrong `tapsLive`) | one pass per read | fields 35–38 |
+| mode 28, the scaled DRAW | no state | — | — | worker, under the gate as mode 17 | — | mode 17; DRAW's eased fields; RETARGET's clamps |
+| phone: S_heard, the arming uptime | each session start (P1) | — | session | the transport's reader thread only | once per 115 | C1's 114 sequence |
+| phone: echo owes and u (P5) | every SETTLE sent, a session start | a missing stock message leaves an owe until the next SETTLE (at most one notch swallowed before it) | kind (scroll, click) | reader thread | once per message | P3's bound |
+| phone: the entries and lists it holds, its marks, the staged records' places (P9) | each start; each change of the list in front | a lost SET or LIST: P3 or the tap rule; the refusal record → re-send | entry, list, mark | the shell's loop builds them; the transport sends | — | the atlas planner (never overwrites a bound record in place while a burst is open) |
+| phone: SETTLE's pacing (the last report's time, a burst open) | each report; each SETTLE sent alone | — (pacing: nothing waits on it) | — | the shell's loop | — | C1's motion scheduler's nominal-end resume |
+| phone: `tapsLive` | session start; a release point it causes; CLEAR of the tap entry sent; a read without field 39 bit 0 | — | session | set by the reader thread; read by the shell once per click | once per click | P8's session test |
+| phone: the tap rule and its DISCARD answer | — | a lost DISCARD: a missing ack → keyframe; SETTLE also ends the press | S, list, mark, cursor | the shell's loop | each field once | P3 |
+| phone: the bound-list CLEAR/SET around covers (modals, popovers, other windows) | — | a lost CLEAR: a fire under the cover fails "in front" → DISCARD; a lost SET: no local input until the next start | entry | built in the cover's own batch | — | every cover: confirm, popover, keyboard, window switch |
+| phone: batch order (26/27 after the drawing subs) | — | a refused sub loses the present only | — | both lenses alike | — | every flush carrying COMMIT, DISCARD, SETTLE, SET, CLEAR or LIST |
+| phone: the persisted stage, `Taps`, the last stage-4 arming, the last case-in, the hold-back | never by a restart of the process; the hold-back at its lifting | the record is written before the rung's first byte (R2 B-M1) | the restart reads: RIGHT's uptime, LEFT's end reasons | the transport | each end read once (R6 B6-2) | C1's stages 1–3 |
+| phone: unknown bound areas (P10) | the SETTLE that ends the burst | — | slot | mirror lock (C1's) | — | C1's unknown drawing areas |
 
-### 6.11 Not in this contract yet
+### 6.12 Not in this contract
 
-Binding the long press (never) · per-source grammar beyond `any` or one source (the phone's design) · LEFT's report
-(an inter-lens message) · a start message between the lenses (only if C1's verdict asks) · local input with the phone
-away (the offline home, step G) · the kit's programs themselves (K).
+- **Double-tap bindings** — back's result is a whole new picture; a local press buys nothing there.
+- **The long press** (never) — it is unattributed (`CLAUDE.md`).
+- **Temple taps** (devType 0 or 1) — the phone ignores them today (ring-only taps, `DESIGN.md` §1).
+- **A local tap that depicts its act's result** (never) — the act is the phone's.
+- **The glasses deciding what a tap acts on** (never) — a lost or late report must not move the act's target.
+- **Per-source scroll bindings** — the scroll message carries no source, so "unbound" and "lost" would look alike.
+- **The binding epoch** — the mark and P3's compare of the program and parameters do its work.
+- **Field 30's "local" bits** — SETTLE is blind; field 36 gives RIGHT's last S.
+- **A report-only tap entry** (a 115 with no press, giving the default path the same rule; about 10 C lines) — for the
+  trial's verdict and the 114 gap rate.
+- **A counter of RIGHT's dropped inter-lens answers** — a new site on the sync listener's path.
+- **LEFT's report** — an inter-lens message (it would also close §5.7's class).
+- **A start message between the lenses** — only if the skew is visible.
+- **The fire queuing step 1 itself** — a gate take on the input path (§6.2).
+- **A gate take around the word's holders** (§6.4's fold, R2 A-S1 with HOLD) — a new wait.
+- **A notice on the glasses for each dropped tap** — the press going out is the signal; the journal counts.
+- **Local input with the phone away** — the offline home (step G, §8).
+- **K's programs** beyond Main's pan and press (`MOTION.md`).
+- **C1's carried items** — a session identity on the image lane; the masked section for the scratch's and slots'
+  release windows (A.14).
 
 ## 7. v2 firmware-owned chrome (Phase 5; in the first flash only if its measurement says it pays, `REPLAN.md` §5) — *draft*
 
@@ -1224,3 +1609,7 @@ phone's keeper applies the hold-back rule before re-arming.
   window, the build's checks. §0 features `0x1ff` on the candidate; §3 field 11 bit 5; §4 reason 14's engine-word
   case; §9 the C1 keys and the OS-tick clock. The link item is left out of C1. Fork candidate `0dab2154…`, not
   flashed; contract version unchanged.
+- 2026-11-18 — §6 rewritten from C2's design pass as ruled (the challenge, the rulings prep, the focused read, Adam's
+  answers of 2026-11-17): local scrolls, local taps as a setting (`Taps`, default through the phone), the
+  applied-state report with COMMIT / DISCARD / SETTLE, LIST as a shift that always applies, what the phone persists,
+  the failure envelope and the Not-built list. Not built: nothing of C2 is built before C1 is flashed.
