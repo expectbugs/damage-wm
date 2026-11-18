@@ -179,6 +179,9 @@ class AppNet(
         val closedSubs = ArrayList<() -> Unit>()
         /** S1-3 B11: the live sources this connection holds (one viewer each). Executor only. */
         val lives = LinkedHashMap<String, Live>()
+        /** S1-3 fix A4: the connection ended (closed, or its device revoked or replaced); read on a program's pool, so a
+         *  key queued behind a stalled one is not typed late into a prompt that has moved on. */
+        @Volatile var gone = false
     }
 
     /** The live connections. Executor only. */
@@ -369,6 +372,7 @@ class AppNet(
             Log.w(TAG, "connection $id ended: ${e::class.simpleName}: ${e.message}" +
                 (conn.outbox.endedWhy?.let { " ($it)" } ?: ""))
         } finally {
+            conn.gone = true
             outbox.stop()
             closeQuietly(sock)
             host.executor.execute("app end $id") {
@@ -653,7 +657,8 @@ class AppNet(
             conn.flights[id.k] = Flight(o.window, o.action, clock())
             try {
                 prog!!.pool.execute {
-                    val r = try {
+                    val r = if (conn.gone) ProgramResult.Refused("its connection ended before its turn; not run", Answer.ENDED)
+                    else try {
                         prog.handler.act(o, conn.peer)
                     } catch (e: Throwable) {
                         // the program's own words; an Error here ends this call, never the pool
@@ -723,6 +728,7 @@ class AppNet(
         val mine = conns.values.filter { it.peer.device == device }
         for (c in mine) {
             c.endedBy = reason
+            c.gone = true
             c.outbox.finish(AppWire.encode(AppWire.end(reason)))
             conns.remove(c.id)
             detachLives(c)

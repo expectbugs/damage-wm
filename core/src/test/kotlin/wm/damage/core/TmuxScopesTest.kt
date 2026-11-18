@@ -118,6 +118,25 @@ class TmuxScopesTest {
         assertEquals("refused", bad.s("a"), "a key without its name: $bad")
     }
 
+    /** S1-3 fix A4: keys queued behind a stalled one are not typed once their connection has ended or their device
+     *  was revoked (they would land late in a prompt that has moved on); the one already running finishes. */
+    @Test
+    fun keysQueuedBehindAStalledOneAreNotTypedAfterTheirConnectionEnds() {
+        for (revoke in listOf(false, true)) {
+            rig.provider.sent.clear()
+            val gate = java.util.concurrent.CountDownLatch(1).also { rig.provider.rawGate = it }
+            val (page, conn) = rig.page(Levels.FULL)
+            for ((i, d) in listOf("a", "b", "c").withIndex()) page.send(TmuxLaneRig.op(conn, i + 1L, "raw", claude, buildJsonObject { put("data", d) }))
+            eventually("the three keys taken") { rig.net.connectionLines().any { it.split("tmux raw").size == 4 } }
+            if (revoke) assertEquals(null, rig.devices.revoke(rig.devices.rows().last().id, "test")) else page.close()
+            eventually("the connection ended") { rig.net.connections() == 0 }
+            gate.countDown()
+            rig.provider.rawGate = null
+            Thread.sleep(300)
+            assertEquals(listOf("raw:claude:-l a"), rig.provider.sent.toList(), "revoked $revoke: only the key already running")
+        }
+    }
+
     @Test
     fun framesGoOnlyToAViewerInFront_aNeedOfNoneAndTheConnectionsEndDetachIt() {
         val (page, _) = rig.page(Levels.FULL)

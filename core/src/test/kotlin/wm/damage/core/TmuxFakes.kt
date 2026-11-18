@@ -92,7 +92,10 @@ internal class TestTmux : TmuxProvider {
 
     override fun sendKeys(target: TmuxTarget, keys: List<String>) { sent += "keys:${target.label}:${keys.joinToString("+")}" }
     override fun sendLiteral(target: TmuxTarget, text: String) { sent += "lit:${target.label}:$text" }
+    /** S1-3 fix A4: while set, a raw op waits for it before it is typed (a stalled exec). */
+    @Volatile var rawGate: java.util.concurrent.CountDownLatch? = null
     override fun sendRaw(target: TmuxTarget, data: String) {
+        rawGate?.await()
         sent += "raw:${target.label}:" + LocalTmuxProvider.rawRuns(data).joinToString("|") { r ->
             if (r.literal) "-l ${r.text}" else "-H " + r.text.toByteArray().joinToString(" ") { "%02x".format(it) }
         }
