@@ -104,9 +104,23 @@ class SilentStartTest {
         }
 
         /** The Silent Mode notices on the glasses' side (shown or queued), read on the loop. */
-        suspend fun silentNotices(): List<Notifications.Notice> = onLoop {
+        suspend fun silentNotices(): List<Notifications.Notice> = onLoop { silentNoticesOnLoop() }
+
+        private fun silentNoticesOnLoop(): List<Notifications.Notice> =
             (listOfNotNull(shell.notifications.current) + shell.notifications.queued())
                 .filter { it.source == "DAMAGE · glasses" && "Silent Mode" in it.body }
+
+        /** Waits until the Silent Mode notices, read ON the loop, hold [cond], and returns the read that ended the
+         *  wait (a wait decides on ONE evaluation): the notices with what the urgent hook had been handed by then. */
+        suspend fun silentNoticesWhen(about: String, cond: (List<Notifications.Notice>) -> Boolean): Pair<List<Notifications.Notice>, List<String>> {
+            val t0 = System.currentTimeMillis()
+            var read = onLoop { silentNoticesOnLoop() to urgent.toList() }
+            while (!cond(read.first) && System.currentTimeMillis() - t0 < 5_000) {
+                delay(10)
+                read = onLoop { silentNoticesOnLoop() to urgent.toList() }
+            }
+            if (!cond(read.first)) throw AssertionError("$about: last read ${read.first}, urgent ${read.second}; ${what()}")
+            return read
         }
 
         fun countImage(p: ByteArray) {
@@ -368,6 +382,11 @@ class SilentStartTest {
      * notice (at the install, every app restart, every reconnect in the case). Neither the glasses' queue nor the
      * host's urgent hook (the phone's high-importance notification) holds one. A push ON in a live session still
      * says it once, as before. Watched failing with the start read's flag forced to say it: one notice, both sides.
+     *
+     * Build C1, stage H: the push ON's notice is waited for itself, read on the loop. The shell's sleep (`enterSleep`)
+     * sets the asleep flag first and posts the notice to its own loop at the end of the same turn, so a read posted
+     * after the flag shows and before that post ran first and found no notice (4 of 93 runs of DM1's sweep; with the
+     * loop held in the urgent hook, which runs between the two, until the read was posted: 0 notices in 5 of 5 runs).
      */
     @Test
     fun aStartThatRestsSaysNoNoticeAndAPushOnInALiveSessionStillDoes(): Unit = runBlocking {
@@ -384,8 +403,9 @@ class SilentStartTest {
         waitUntil(10_000, 10, { "the rebuilt session settles: ${u.shell.quiescenceReport()}" }) { u.shell.isQuiescent() }
         u.glass.setSilent(true)                             // the both-temple press while he wears them: the push ON
         waitUntil(5_000, 10, { "the push ON puts the live session to sleep: ${u.what()}" }) { u.shell.glassesAsleep }
-        assertEquals(1, u.silentNotices().size, "the push ON in a live session is said once, on the glasses' side")
-        assertEquals(1, u.urgent.count { "Silent Mode" in it }, "...and to the urgent hook: ${u.urgent}")
+        val (said, urgent) = u.silentNoticesWhen("the push ON in a live session is said on the glasses' side") { it.isNotEmpty() }
+        assertEquals(1, said.size, "the push ON in a live session is said once, on the glasses' side: $said")
+        assertEquals(1, urgent.count { "Silent Mode" in it }, "...and to the urgent hook: $urgent")
         u.keeper.stop()
     }
 
