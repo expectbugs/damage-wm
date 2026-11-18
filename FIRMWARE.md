@@ -980,7 +980,8 @@ version stays 2; DamageCaps bit 10 (§6.8).
   8. The list's cursor lost (0xFFFF, §6.3) → refused **18**, nothing drawn.
   9. The new cursor c' = cursor + step (step 0 for a tap). Outside 0..count−1 → **edge** (§6.4). The parameters:
      Pi = arg (kind 0) · the item table's entry at c' + arg (kind 1; no table, or c' + arg outside 0..count−1 → edge)
-     · c' × pitch + arg (kind 2, computed in s32; outside s16 → refused **12**).
+     · c' × pitch + arg (kind 2, computed in s32; outside s16 → refused **12**). The parameters are evaluated in index
+     order, and the first that gives an edge or 12 decides the fire.
   10. §5.5's checks from the walk onward, on (the entry's period, prog, P): the program record and every record and
       table it names inside the cache and well formed, no `self` source or backdrop (**5**) → areas (**2**) → a `none`
       backdrop's area (**2**) → every step's values after substitution (**12**; with §6.6's H rule) → the thread and
@@ -1035,7 +1036,7 @@ whatever the message's length, as §5.5 states for mode 26. **Not gated:** it ta
 
 **Check order (the reason recorded is part of the contract):** the container's list (8) → length (1; SET 23 B, CLEAR
 3 B, LIST 12 B with the two header bytes; an unknown sub, 3..255, must be 3 B) → the lease (3) → **the engine's busy
-word claimed (14)** → DRAW2 (9) → BIND (15) → values (12: every range in the table above, the two entry shapes, one slot
+word claimed (14)** → DRAW2 (9) → ENGINE (15) → BIND (15) → values (12: every range in the table above, the two entry shapes, one slot
 per list; an unknown sub here) → LIST: the item table `[items·4, items·4 + 2·count)` inside the cache (5) → SET: the
 program record's own structure — §5.4's header, tracks and segments, enumerations and reserved bytes — and no track's
 backdrop or segment `self` (5); none for a report-only tap entry, while a scroll entry naming 0xFFFF fails this check
@@ -1384,7 +1385,8 @@ that `tools/journal_report.py` counts by cause):
 ### 6.8 Flags, telemetry, capabilities, the ladder
 
 - **Flag bit 4 BIND** (needs ENGINE and DRAW2; checked at every fire and mode 27 under the word, so a FLAGS_SET of BIND
-  alone is taken, status 0, and every fire and mode 27 is then refused 15, as §5.8 states for ENGINE). It clears at
+  alone is taken, status 0, and every fire is then refused 15 and every mode 27 refused 9 — DRAW2 comes first in
+  its order, §6.3 — or 15 when DRAW2 is armed and ENGINE is not, as §5.8 states for ENGINE). It clears at
   every release point (§3), with `bind_live` and S; it is refused without the lease (status 3). A disarm closes nothing
   and clears nothing.
 - **Telemetry:** `35` matched events since boot (every S taken, whatever its outcome) · `36` the last S (0 after a
@@ -1457,7 +1459,8 @@ after it draws step 1. `"N"` gains field-115 bodies (15 and 16 masked) and 114's
 `features` with bit 10, and the v1/v2/v3 sets answer alike on a bit-10 build — once three v3 inputs are made
 build-neutral (`v3-rulings`' unknown mode-26 sub, `v3-params`' h0/h1 step, `v3-order`'s anchor step take values both
 builds answer alike on; what only a bit-10 build answers moves to v4; an anchor outside the build's range is refused 5,
-as C1 refuses anchor 1). `v4-bind` adds to the format the op `{"page": on}` (a stock page in front) and the per-step
+as C1 refuses anchor 1). `v4-bind` adds to the format the op `{"page": true|false}` (`true`: the EvenHub page is in front, the state in which
+the hook acts; `false`: a stock page is in front; every v4 vector sets it at its start) and the per-step
 key `"K"` (`{L, R}`: the stock dispatcher's calls counted in the step) (ruled on the build spec, 2026-11-18). Inputs from `make_vectors.py`,
 expectations from the C (`--write`), the simulator equal; the differential fuzz gains `--c2` (random inputs, LEFT-only
 among them, between messages).
@@ -1830,3 +1833,6 @@ phone's keeper applies the hold-back rule before re-arming.
   eighth invariant (one move per gesture) and the readings of (2) and (7); three v3 inputs made build-neutral, a
   vector's `features` as a list, the op `page` and the key `K`; `probe c1=4` lifts stage 4's hold-back as the Settings
   row does. Nothing built; contract version unchanged.
+- 2026-11-18 — §6.2, §6.3, §6.8, §6.10: three places the vector stage found silent or at odds, ruled — the op `page`'s
+  values; mode 27's check order names ENGINE (15) between DRAW2 (9) and BIND (15), and §6.8's sentence follows it; a
+  fire's parameters are evaluated in index order, the first edge or 12 deciding. Nothing built.
