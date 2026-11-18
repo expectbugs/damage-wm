@@ -17,7 +17,7 @@ import { filesDesc, filesRecord, folderRows, folderPage, runningCopy, TRASH, DL,
 
 afterEach(restore);
 
-const welcome = (stream, extra = {}) => ({ t: 'welcome', proto: 2, device: 'web-1', level: 'full', conn: 7, pcClock: F_NOW, epoch: 3, seq: 10,
+const welcome = (stream, extra = {}) => ({ t: 'welcome', proto: 3, device: 'web-1', level: 'full', conn: 7, pcClock: F_NOW, epoch: 3, seq: 10,
   contracts: { reader: 1, notices: 1, torrents: 1, files: 1 }, bundle: { hash: 'h' }, ...extra });
 const at = (target) => format({ window: 'files', target });
 

@@ -54,7 +54,7 @@ test('the stand-in serves the bundle under the PC\'s policy and speaks the lane 
     const got = [];
     const ws = new WebSocket(`ws://127.0.0.1:${srv.port}/ws`);
     await new Promise((ok, no) => {
-      ws.onopen = () => ws.send(JSON.stringify({ t: 'app', proto: 2, stream: 's1', contracts: { reader: 1 } }));
+      ws.onopen = () => ws.send(JSON.stringify({ t: 'app', proto: 3, stream: 's1', contracts: { reader: 1 } }));
       ws.onerror = () => no(new Error('the stand-in\'s socket failed'));
       ws.onmessage = (e) => {
         const f = JSON.parse(e.data);

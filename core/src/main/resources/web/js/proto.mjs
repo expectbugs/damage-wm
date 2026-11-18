@@ -3,7 +3,7 @@
 // levels, and the words for an answer or an end. The PC is the judge of every op and level; a page's dims are a
 // courtesy. Pure.
 
-export const PROTO = 2;
+export const PROTO = 3;
 /** The contract versions of this bundle's windows (the PC's `Contracts.MINE`). S1-2 Q3w: the notice record, read as
  *  the `notices` window (spec §2.1), at version 1. S1-2 Q4w: Torrents (spec §5 X1), at version 1. S1-2 Q5w: Files (spec
  *  §5 X1), at version 1. */

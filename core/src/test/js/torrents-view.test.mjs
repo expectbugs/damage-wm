@@ -13,7 +13,7 @@ import { torrentsDesc, transfer, tlPage, T_NOW } from './torrents-fixtures.mjs';
 
 afterEach(restore);
 
-const welcome = (stream, extra = {}) => ({ t: 'welcome', proto: 2, device: 'web-1', level: 'full', conn: 7, pcClock: T_NOW, epoch: 3, seq: 10,
+const welcome = (stream, extra = {}) => ({ t: 'welcome', proto: 3, device: 'web-1', level: 'full', conn: 7, pcClock: T_NOW, epoch: 3, seq: 10,
   contracts: { reader: 1, notices: 1, torrents: 1 }, bundle: { hash: 'h' }, ...extra });
 
 async function page({ path = '/w/torrents', level = 'full', contracts, narrow = false, desc = torrentsDesc({ n: 6 }) } = {}) {

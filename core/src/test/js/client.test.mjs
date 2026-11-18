@@ -89,7 +89,7 @@ test('the lane messages and the levels', () => {
   assert.deepEqual(P.hello({ stream: 'abc', name: 'desk', replaces: 'web-1' }),
     // S1-2 Q3w (decisions A.1, A.5): the page reads the `notices` window, which the PC shares only with a hello naming it;
     // S1-2 Q4w (spec §5 X1, Contracts.kt): likewise `torrents`, at version 1; S1-2 Q5w (spec §5 X1): likewise `files`
-    { t: 'app', proto: 2, stream: 'abc', contracts: { reader: 1, notices: 1, torrents: 1, files: 1 }, name: 'desk', replaces: 'web-1' });
+    { t: 'app', proto: 3, stream: 'abc', contracts: { reader: 1, notices: 1, torrents: 1, files: 1 }, name: 'desk', replaces: 'web-1' });
   // L1 C2: every subscription is answered with a snapshot, so none names a cursor
   assert.deepEqual(P.sub('reader'), { t: 'sub', scope: 'reader' });
   assert.deepEqual(P.sub('torrents', { kind: 'focus', paceMs: 5000 }), { t: 'sub', scope: 'torrents', need: { kind: 'focus', paceMs: 5000 } });

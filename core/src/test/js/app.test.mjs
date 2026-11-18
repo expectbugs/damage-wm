@@ -14,7 +14,7 @@ afterEach(restore);
 const DEVICES = { rows: [{ id: 'web-1', name: 'desk', kind: 'web', level: 'full', approvedAt: 1, approvedBy: 'the PC', lastSeen: 1 }],
   pending: [{ code: 'K7M4QX', name: 'browser on Linux', kind: 'web', address: '192.0.2.9', since: 1 }] };
 
-const welcome = (extra = {}) => ({ t: 'welcome', proto: 2, device: 'web-1', level: 'full', conn: 7, pcClock: 1, epoch: 1, seq: 1,
+const welcome = (extra = {}) => ({ t: 'welcome', proto: 3, device: 'web-1', level: 'full', conn: 7, pcClock: 1, epoch: 1, seq: 1,
   contracts: { reader: 1 }, bundle: { hash: 'h' }, ...extra });
 
 /** A page at `path`, its first socket open and welcomed (`extra` into the welcome). */

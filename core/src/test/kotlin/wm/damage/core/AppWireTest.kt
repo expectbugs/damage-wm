@@ -234,14 +234,15 @@ class AppWireTest {
         assertEquals("welcome", AppWire.type(lane(AppWire.hello("s1", mapOf("t" to 1)))))
     }
 
-    /** A newer client's lane hello (protocol 3) is ended cleanly with the reason; the host serves the next. */
+    /** A lane hello of another protocol — APK 0.67's (protocol 2), which then says the builds differ and waits — is
+     *  ended cleanly with the reason; the host serves the next. */
     @Test
     fun aLaneHelloOfAnotherProtocolIsEndedCleanly() {
         val rig = keep(AppLaneRig())
-        val newer = keep(RawLane(rig.port, proto = 3))
-        val end = newer.next("end")
+        val older = keep(RawLane(rig.port, proto = 2))
+        val end = older.next("end")
         assertEquals(JsonPrimitive(AppWire.END_PROTO), end["reason"])
-        assertTrue("speaks 2" in (end["detail"] as JsonPrimitive).content, "$end")
+        assertTrue("speaks ${AppWire.PROTO}" in (end["detail"] as JsonPrimitive).content, "$end")
         assertEquals("phone", keep(RawLane(rig.port)).welcome().device)
     }
 
