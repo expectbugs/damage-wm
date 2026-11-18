@@ -8673,14 +8673,15 @@ installed build's 25 sites and none new, 347 KB below the OTA flag, features `0x
       §7; confirm both files). No boot-path site added; size guard and headroom per `tools/verify.py`.
 - [ ] On the day: `research/verify_cfw.py`; `tools/verify.py` on the candidate (sites against `FORK.md` §3.1); read the
       patch source before flashing it.
-- [ ] Before the flash, on today's firmware (R3.3, R5 A-N5): does a context survive a restart? One restart of RIGHT,
-      telemetry before and after (uptime, cache generation); his call. The candidate cannot answer it (its read is a get).
-- [ ] Name the consequence (R5 A-S1): if a context survives a restart that landed with the engine word held, uploads
-      and mode 26 are refused 14 until the glasses restart — the only recovery; the phone says so once per session.
+- [x] Does a context survive a restart? SETTLED OFFLINE (§87): the stock start-up zeroes the RAM range that holds the
+      fork's slot word on every reset, so it cannot. No restart of a lens is asked of him (he has no way to restart
+      one), and a held engine word (R5 A-S1's refused-14 case) is cleared by any restart.
 - [ ] Name the 2³¹-tick case: glasses left about 24 days with no phone leave an old context allocated until a restart.
 - [ ] C1's phone half is deployed and used for a day first (spec §8); the ladder starts at stage 0 (today's bytes).
-- [ ] Dry run first: `g2flash.py --stop-before flash` (writes nothing), `FORK.md` §7's staircase; then both lenses one at
-      a time, the same image, his go for each lens.
+- [ ] Dry run first, per lens: `FORK.md` §7's staircase as corrected in §87 (its last rung writes on the glasses and
+      is run only directly before that lens's full flash); then both lenses one at a time, the same image, his go for
+      each lens. The first lens is back and answering (DamageCaps `0x1ff`, the self-test, telemetry) before the second
+      is touched. An interrupted flash is finished in the same sitting, before the glasses restart.
 - [ ] After: DamageCaps `0x1ff`; the free survival check (a reset note, then field 16); the v1/v2 self-test (v3 has
       none); fields 27–29 at 160 and 256; one ladder stage per soak (ZWRITE, 256 KiB, ENGINE with the feel session:
       field 33 with uploads in flight, LEFT's end reasons before a drop is read as a restart).
@@ -8710,4 +8711,43 @@ use on the day 0.68 was deployed, built lean in one stage and gated; the spec an
 - **Lesson:** a channel that marks a peer down only when its socket fails reads "up" for as long as a stalled peer
   holds the connection. L1 had already added a 60 s drop for an unanswered quick request on these channels; a
   decision that depends on "is the PC there" needs the answer's age, not the connection's state.
+
+## 87. The flash-readiness review of C1: the installed image against the candidate (2026-11-17)
+
+Context for the reader: Damage is Adam's own window manager for his own G2 glasses, which run his fork of a published
+custom display firmware. Before the first flash of build C1 he asked for every difference between the image on his
+glasses (pin `48172b62…`) and the candidate (pin `0dab2154…`) to be reviewed. Five read-only readers worked from the
+two IMAGES, at instruction level; nothing was flashed or sent. Their reports are in the gitignored `private/build068/`
+(`flash-review-A.md` … `-E.md`).
+
+- **Nothing was found that should stop a flash.** Three readers rebuilt both images from archives and got both pins.
+- **The whole difference:** six header fields (lengths, checksums), 16 changed branch words at sites the installed
+  build already patches (no new site), and the appended block, 22,684 bytes larger. No other stock byte differs. The
+  image ends 298,568 bytes below the flasher's ceiling; the length field and every checksum were recomputed
+  independently.
+- **Start-up** never reads the appended block. Every hook that runs without the phone returns to the stock path when
+  no context exists. The update's receive path reaches no patched site and is byte-identical in both images.
+- **With nothing armed** the observable differences are the capability bits (`0x1ff`), telemetry fields 27–33, and
+  about 5 KiB less free in one arena (the context is 6,152 bytes, 1,140 before). Of the installed build's 342 frozen
+  v1/v2 vector steps, 340 give identical results on the candidate's host build; the two that differ are the two
+  inputs C1 gave a meaning, which the phone does not send before a feature is armed.
+- **A context cannot survive a restart:** the stock start-up zeroes that RAM range on every reset. The checklist's
+  lens restart is gone.
+- **Receiving:** an incoming image is saved as a file on the separate storage chip, each block read back; only a
+  complete file whose checksum matches sets the install flag; the boot program checks again and copies it at the next
+  start. An interrupted, duplicated or refused transfer leaves the running image in place. Not restorable over the
+  radio, as in every flash: an image that copies and then cannot start, and a power loss during the boot program's
+  own rewrite.
+- **Corrections to our own rules.** The dry run's last rung is not without effect (`CLAUDE.md`, `FORK.md` §7 as
+  corrected): it writes and removes a storage test file and leaves `codec.bin` empty; an empty or partial codec file
+  is never programmed (the updater reads the header first), so the glasses work, but the rung belongs directly before
+  a full flash. Its file check covers the first component only: it does not show that the larger main image is
+  accepted. The radio chip's updater checks neither length nor checksum of its staged file and would use a partial
+  one if that chip's reset ever failed at a later start: an interrupted flash is finished in the same sitting.
+- **Only the glasses can show:** that the installed image, with Phase 2's link edits, can receive a whole flash at
+  the 7.5 ms interval (the first such flash; a failure leaves the installed image); that the storage chip has room
+  for a main image 15,176 bytes larger than the vendor's largest (a shortfall is refused and the file removed); that
+  the candidate starts and its radio answers; the arena's free figures with the larger context.
+- **Lesson:** "writes nothing" had been copied from the tool's description for eleven weeks; nobody had read the
+  receiving side. A claim about what a device does is read in the device's code.
 

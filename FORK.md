@@ -349,7 +349,11 @@ inside a phase.
 
 1. `verify` reproducible from stock; hashes pinned. 2. Size ceiling, preamble length, TOC and CRC
 fixups. 3. Thumb-bit audit. 4. Host vectors green. 5. Simulator vectors green. 6. **Adam's
-in-the-moment go.** 7. Dry-run staircase (`--stop-before heartbeat` → `file_check` → `flash`).
+in-the-moment go.** 7. Dry-run staircase, per lens with `--lens`: `--stop-before heartbeat` (connect and discovery, nothing sent) →
+`--stop-before file_check` (notifications and the stock authentication, nothing stored) → `--stop-before flash` only
+directly before that lens's full flash (its begin step writes and removes a 4 KiB storage test file; its file check
+empties `firmware/codec.bin` until the flash rewrites it). An interrupted flash, or this last rung not followed
+through, is finished with a full flash of that lens in the same sitting (`HANDOFF.md` §87).
 8. Both lenses, one at a time, the same image (the cross-lens deferred path runs the same code on
 both). 9. Reconnect, capability check (`DamageCaps … features 0x1f` in the journal on the Phase 2 build; `0x1ff` on a C1 build), self-test on glass
 (`tools/glassdrive.py … selftest:firmware/vectors/v1-keyframe.json` and the other drawing vectors — RIGHT

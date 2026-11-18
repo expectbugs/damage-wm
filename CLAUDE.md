@@ -230,8 +230,13 @@ applies; stock 2.2.2.20 is gone and not in the public archive.
 "Investigating ≠ permission" is load-bearing here more than anywhere.
 - **Never flash firmware without explicit, in-the-moment authorization from Adam.** Not on momentum, not because a plan
   said so.
-- **Always dry-run first:** `g2flash.py --stop-before flash` (discover / heartbeat / file_check, writes nothing), before
-  any real flash, every time.
+- **Always dry-run first, one lens at a time (`--lens left|right`).** `g2flash.py --stop-before heartbeat` (connect
+  and service discovery; nothing sent) and `--stop-before file_check` (adds notifications and the stock
+  authentication message; nothing stored) are safe at any time. **`--stop-before flash` WRITES on the glasses**: its
+  begin step writes and removes a 4 KiB test file on the storage chip (and formats that filesystem if the test
+  fails), and its file check leaves `firmware/codec.bin` there empty. Run it only for the lens about to be flashed,
+  directly before that lens's full flash. If the sitting ends after it, or a full flash is interrupted, finish a full
+  flash of that lens (the installed image will do) before the glasses are restarted (`HANDOFF.md` §87).
 - Leaving 2.2.2 happened 2026-08-30; that door is closed (no read-back path). The CFW remains revertible to any archived
   version; state the reversibility picture before any flashing conversation.
 - **Read the patch source before flashing it** (g2flash has shipped one HardFault, `overview.md` §9).
