@@ -85,8 +85,9 @@ repack that moves every offset, another task freeing the buffer). Hence:
    three tests below and propose removals as readily as fixes, fixes only for what passes those tests, the gate, and
    one look at the real thing (a browser, the glasses). No mutation list and no pin for every guard there: a pin goes
    where a defect was found. A finding whose only fix is a new mechanism for a case real use does not produce is
-   declined and listed. A build that passes its planned size by a quarter stops for a design question; it does not
-   get more stages.
+   declined and listed. A build that passes its planned size says so, with what the extra lines are for, and goes on
+   (Adam, 2026-11-18: "Absolute size is irrelevant to me (within reason), as long as it has purpose and isn't just
+   useless bloat or abstractions that will never realistically be useful"). Size is reported; purpose is judged.
 
 ## What is worth building (Adam, 2026-11-17; `HANDOFF.md` §83)
 
