@@ -275,6 +275,10 @@ export function tmuxView(ctx) {
   function onLive(m) {
     if (!liveScope || !surface) return;
     const r = feed.got(m, pcNow());
+    if (r === 'again') {
+      say(`${m.end.reason || 'The PC let this view go'}; asked again.`);
+      return listen();
+    }
     if (r === 'end') {
       if (feed.renamed) return go(M.target(feed.renamed), { replace: true });
       return ended(feed.ended);

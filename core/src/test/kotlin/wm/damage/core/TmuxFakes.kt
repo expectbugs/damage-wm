@@ -117,7 +117,9 @@ internal class TmuxLaneRig(val provider: TestTmux = TestTmux(), stream: TmuxStre
     val dir: Path = Files.createTempDirectory("damage-tmux-lane")
     val host = AppHost(Files.createDirectories(dir.resolve("pc")), AppHost.WINDOWS, CoreExecutor("damage-core-tmux-test")).also { it.open() }
     val devices = Devices(dir.resolve(Devices.FILE)).load()
-    val net = AppNet(host, devices = DevicesCore(devices))
+    /** S1-3 fix C2: the lane's clock ahead of the wall by this much (a page gone quiet, for the viewers' sweep). */
+    @Volatile var skewMs = 0L
+    val net = AppNet(host, clock = { System.currentTimeMillis() + skewMs }, devices = DevicesCore(devices))
     val scopes = TmuxScopes(host, provider, stream).also { it.start() }
 
     init {

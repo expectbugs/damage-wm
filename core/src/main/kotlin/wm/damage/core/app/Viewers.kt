@@ -110,7 +110,7 @@ class Viewers(
             Log.i(TAG, "connection $conn sent no ping for ${quiet / 1000} s (two of its intervals): its viewers end")
             for (k in viewers.keys.filter { it.first == conn }) viewers.remove(k)?.let {
                 n++
-                tell(it, true, "no ping for ${quiet / 1000} s")
+                tell(it, true, "$SWEPT ${quiet / 1000} s")
             }
         }
         return n
@@ -144,6 +144,8 @@ class Viewers(
 
     companion object {
         private const val TAG = "app-viewers"
+        /** The start of a viewer's end reason when the sweep let it go (S1-3 fix C2: a live viewer is told). */
+        const val SWEPT = "no ping for"
         /** The lane's ping pacing: the page's `conn.mjs` and `AppClient` both ping every 15 s. */
         const val PING_EVERY_MS = 15_000L
 

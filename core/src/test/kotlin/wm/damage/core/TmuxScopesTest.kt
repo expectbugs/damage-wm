@@ -184,4 +184,22 @@ class TmuxScopesTest {
         controls[1].exit()
         assertEquals("the session ended", page.liveOf(streamSrc)["end"]!!.jsonObject.s("reason"))
     }
+
+    /** S1-3 fix C2: a live viewer the sweep lets go (no ping reached the PC for two intervals, the socket still up) is
+     *  told — `end{again}` — and its client ends; asked again, it gets a fresh init and is not let go at the next tick. */
+    @Test
+    fun aViewerTheSweepLetsGoIsToldAndAsksAgain() {
+        val (page, _) = rig.page(Levels.FULL)
+        page.send(TmuxLaneRig.sub(streamSrc))
+        assertTrue(page.liveOf(streamSrc).containsKey("init"))
+        rig.skewMs = 60_000                                     // a minute with no ping from the page
+        rig.net.sweepViewers()
+        val end = page.liveOf(streamSrc)["end"]!!.jsonObject
+        assertEquals("true", end.s("again"), "$end")
+        assertTrue(end.s("reason")!!.startsWith("The PC let this view go (no ping for"), "$end")
+        eventually("the swept viewer's client ended") { stream.running() == 0 }
+        page.send(TmuxLaneRig.sub(streamSrc))                   // the page asks again at once
+        assertTrue(page.liveOf(streamSrc).containsKey("init"), "a fresh init")
+        assertEquals(0, rig.net.sweepViewers(), "its sub counts as a word from it: not let go at the next tick")
+    }
 }

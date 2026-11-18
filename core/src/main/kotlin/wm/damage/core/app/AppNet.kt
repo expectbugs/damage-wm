@@ -208,7 +208,7 @@ class AppNet(
         devices?.table?.addListener(devicesListener)
         // S1-3 B11: a live viewer that ends — its `unsub`, a need of none, the viewers' sweep — detaches its source; a
         // connection's end detaches its sources itself ([detachLives]) before its viewers end
-        viewers.addListener { v, ended, _ -> if (ended && v.scope.startsWith(AppWire.LIVE)) liveEnded(v.conn, v.scope) }
+        viewers.addListener { v, ended, why -> if (ended && v.scope.startsWith(AppWire.LIVE)) liveEnded(v.conn, v.scope, why) }
     }
 
     /** How many connections are live (for the start line and the tests); read on the executor. */
@@ -534,6 +534,9 @@ class AppNet(
                 return@execute
             }
             if (conn.lives.put(scope, l) == null) used(conn, "open", scope)
+            // S1-3 fix C2: a sub is a word from the page, so its connection lives — a viewer the sweep let go and asked
+            // again is not let go at the next tick, before the page's next ping
+            viewers.pinged(conn.id, clock())
             viewers.put(conn.id, scope, w, n)
             try {
                 l.attach(scope, conn.id) { body -> conn.outbox.offer(AppWire.encode(AppWire.live(scope, body))) }
@@ -548,11 +551,17 @@ class AppNet(
     }
 
     /** Executor only: [conn]'s viewer of [scope] ended — the source is detached and the leave noted. */
-    private fun liveEnded(conn: Long, scope: String) {
+    private fun liveEnded(conn: Long, scope: String, why: String) {
         val c = conns[conn] ?: return
         val l = c.lives.remove(scope) ?: return
         used(c, "leave", scope)
         detachQuietly(l, scope, conn)
+        // S1-3 fix C2: a viewer the sweep let go on a socket still up is told, so its page says so and asks again
+        if (why.startsWith(Viewers.SWEPT)) c.outbox.offer(AppWire.encode(AppWire.live(scope, kotlinx.serialization.json.buildJsonObject {
+            put("end", kotlinx.serialization.json.buildJsonObject {
+                put("reason", JsonPrimitive("The PC let this view go ($why)")); put("again", JsonPrimitive(true))
+            })
+        })))
     }
 
     /** Executor only: a connection that ends or is ended leaves every live source it holds. */

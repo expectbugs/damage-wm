@@ -248,6 +248,8 @@ export class Feed {
     this.lastSkipped = 0; // …at the last draw (what the status line says)
   }
   got(m, pcNow) {
+    // S1-3 fix C2: the PC let this view go (no ping reached it) on a socket still up — the session goes on: ask again
+    if (m.end && typeof m.end === 'object' && m.end.again) return 'again';
     if (m.end) {
       const e = typeof m.end === 'object' ? m.end : { reason: m.end };
       this.ended = str(e.reason) || 'the PC ended it';

@@ -316,6 +316,18 @@ test('a session that ends under the page is said, its last picture stays, and it
   assert.deepEqual(ops(r3.ws, 'raw'), []);
 });
 
+test('fix C2: a view the PC let go (no ping reached it, the socket still up) is said and asked again at once — never called ended', async () => {
+  const r = await desk();
+  const before = subs(r.ws).filter((f) => f.scope === STREAM('shell')).length;
+  r.ws.frame({ t: 'live', src: STREAM('shell'), end: { reason: 'The PC let this view go (no ping for 31 s)', again: true } });
+  assert.equal(subs(r.ws).filter((f) => f.scope === STREAM('shell')).length, before + 1, 'the stream asked again');
+  assert.doesNotMatch(status(r.p), /ended/);
+  assert.ok(r.p.said().some((t) => /The PC let this view go \(no ping for 31 s\); asked again\./.test(t)), 'said');
+  r.ws.frame({ t: 'live', src: STREAM('shell'), init: streamInit('shell') });
+  r.term.type('x');
+  assert.equal(ops(r.ws, 'raw').length, 1, 'keys go');
+});
+
 test('the session actions: mute is a record op with no expectation; rename follows the new address; select and new are program ops', async () => {
   const { p, ws } = await pictures('editor', editorFrame());
   find(p, 'BUTTON', 'Mute alerts').fire('click');
