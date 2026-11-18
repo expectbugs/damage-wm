@@ -3051,7 +3051,7 @@ class Shell(
         val covered = a.ackedBytes
         val coveredMsgs = a.ackedMsgs
         // §66: the atlas lays out over the cache less the staging reserve, so the size the glasses
-        // allocated must be the atlas's capacity plus that reserve
+        // allocated must be at least the atlas's capacity plus that reserve (C1-Q: at least, not equal)
         val wantSize = if (a.v2) a.capacity + CfwModes.STAGE_RESERVE else null
         val wantDraw2 = a.v2
         scope.launch {
@@ -3104,7 +3104,9 @@ class Shell(
                 // read as this upload's — so it is journaled beside the record, never acted on
                 val why = when {
                     size == null -> "the glasses hold no texture cache — every write was refused"
-                    wantSize != null && size.toInt() != wantSize ->
+                    // C1-Q: smaller, not "not equal" — RIGHT may keep a bigger cache carried from an earlier session
+                    // while this session lays out over the size it asked (LEFT may hold only that), and takes every write
+                    wantSize != null && size.toInt() < wantSize ->
                         "the glasses' cache is ${size / 1024} KiB, the atlas is laid out over ${wantSize / 1024} KiB"
                     wantDraw2 && (t.flags ?: 0L) and wm.damage.core.wire.DamageMsg.FLAG_DRAW2.toLong() == 0L ->
                         "the v2 ops are not armed on the glasses (flags 0x${(t.flags ?: 0L).toString(16)}), so every mode-19 write was refused"
