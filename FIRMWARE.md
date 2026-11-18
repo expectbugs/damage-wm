@@ -1050,7 +1050,11 @@ at every fire (§6.2 step 10), so a local draw depends only on the cursor and th
   row 3), beside the store that sets S to 0. **The first mode 27 accepted while `bind_live` is 0 first empties every
   entry and every list** (count 0, cursor 0, mark 0, no newest S), then applies, then sets `bind_live` to 1. A refused
   mode 27 changes nothing. Arming or disarming BIND clears nothing (the table and S stay; with BIND clear every input
-  passes through).
+  passes through). **While `bind_live` is 0 the table is empty for every reader:** a mode 27's checks that read
+  entries or lists (one slot per list, the entry shapes against what is held) read none — what a release point left
+  in the bytes is not a table, or a re-staging that assigns slots differently could never be accepted — and a COMMIT,
+  DISCARD or SETTLE that names a list reads count 0 (its cursor is not below it: 12) and writes no cursor (ruled on
+  the two build stages' readings, 2026-11-18).
 - **A refusal of mode 27 sends no notify:** it is recorded in telemetry 23–25 (§4), sticky until the next refusal; the
   phone re-sends the table when it reads it (§6.7 P1).
 - The entries, lists, `bind_live` and S live in the context, per lens; each lens applies mode 27 in its own order
@@ -1136,7 +1140,9 @@ One report per S, sent after the let-down and after the fire's captured 114 bodi
 task through one FIFO; 114 bodies from the display task may interleave with them — the phone keys 115s on S and 114s on
 (slot, tag, ordinal). The vectors' `"N"` masks fields 15 and 16.
 
-**Notify 114 gains outcome 3, committed** (§5.8's fields): one body at a COMMIT, from the ui_task after its let-down,
+**Notify 114 gains outcome 3, committed** (§5.8's fields): one body at a COMMIT, from the ui_task after its let-down
+(the ui_task's send order for one message: the closes' bodies in slot order, then the outcome-3 bodies in slot order,
+then the refusal, if any),
 carrying fields 1–11 — 3 the tag = S, 5 END ordinal 0, 6 and 7 the adopted local instance's steps drawn and passed over
 so far (0 and 0 when none was adopted), 8 the END CRC (§5.6), 9 its largest step µs, 10 = 0. An adopted instance with
 6 + 7 below T sends its own outcome-0 body at step T, as any instance, carrying the COMMIT's CRC; the phone matches it
@@ -1147,7 +1153,9 @@ by (slot, S, 0) and waits for no body (a missing one is pacing only, §5.8).
 with the two header bytes) → the lease (3) → the engine's busy word (14) → DRAW2 (9) → ENGINE (15; BIND is not
 checked) → values (12: slot 0..3, also 0xFF for DISCARD and SETTLE; list 0..3, also 0xFF none for DISCARD and SETTLE;
 a named list's cursor below its count) → COMMIT only: the program walk (5; `self` 5) → areas (2) → a `none` backdrop's
-area (2) → step values (12). A refusal sends its outcome-2 114 body as every mode-26 refusal does (§5.8).
+area (2) → step values (12). A refusal sends its outcome-2 114 body as every mode-26 refusal does (§5.8): field 2 the
+slot when the message holds one (0xFF as sent), and field 3 for COMMIT only — its S names one instance's tag; a
+DISCARD's or SETTLE's S is a bound, not a tag, and is not carried (ruled 2026-11-18).
 
 | sub | message body after `[26][sub]` | what it does |
 |---|---|---|
@@ -1179,15 +1187,16 @@ there.
 
 ### 6.6 The vertical-scale draw (A2, carried by C2)
 
-- **Mode 28** (`0x9C` per lens): `off4 u16 · x s16 (or xL · xR) · y s16 · options u8 · H u16` (9 B, or 11 B per lens)
+- **Mode 28** (`0x9C` per lens): `off4 u16 · x s16 (or xL · xR) · y s16 · options u8 · H u16` (9 B, or 11 B per lens, after the mode byte: the
+  message is 10 or 12 B)
   — the v2 record drawn `H` rows tall (1..2048): output row r takes source row `⌊(2r + 1)·h / (2H)⌋` (fits u32 for
   r < 2,048 and h < 65,536), columns as they are; clip, options and transparency as mode 17; it takes the gate as mode
   17 does (it joins the gated modes, the batch's list and the step's list). Order: no shadow (4) → length (1) → the
   lease (3) → DRAW2 (9) → H (12) → the record (5). Allowed in a batch and in a self-test step.
 - **DRAW's h0, h1, anchor** (zero in C1, §5.4): the output height eased from h0 to h1 (both 1..2048, or both 0 =
   unscaled); anchor 0 top · 1 centre (`y + ((h − H) >> 1)`) · 2 bottom (`y + h − H`), h the source's height. On a
-  bit-10 build §5.5's "h0/h1 = 0" becomes: h0 and h1 both 0, or every step's eased H (after substitution) inside
-  1..2048, else 12 — at a PLAY, a COMMIT and a fire alike; on RETARGET's restart path H is clamped to 1..2048 as levels
+  bit-10 build §5.5's "h0/h1 = 0" becomes: h0 and h1 both 0, or both inside 1..2048 and every step's eased H (after
+  substitution) inside 1..2048, else 12 (h0 = 0 with h1 ≠ 0, or the reverse, is 12: ruled 2026-11-18) — at a PLAY, a COMMIT and a fire alike; on RETARGET's restart path H is clamped to 1..2048 as levels
   are (R1.10). The wheel's drum (`MOTION.md` W1/W2) and Pulse use it; the icon grow (M2) was cut on 2026-11-18 (Adam:
   no size change in Main's focus motion). `tools/verify.py` step 7 is run again on the grown engine function.
 
@@ -1391,7 +1400,8 @@ that `tools/journal_report.py` counts by cause):
   and clears nothing.
 - **Telemetry:** `35` matched events since boot (every S taken, whatever its outcome) · `36` the last S (0 after a
   release point) · `37` the last fire that drew: its µs from the hook's entry to the end of the copy hook's drawing
-  of its step 1 (a DWT difference, §4's calibration; omitted until one this boot; a report-only fire draws nothing and
+  of its first drawn step — step 1, or the first one drawn when step 1 was passed over (a DWT difference, §4's
+  calibration; omitted until one this boot; a report-only fire draws nothing and
   leaves it) · `38` reports whose send returned non-zero since
   boot · `39` the event ids with a live entry on this lens, bit n for event id n (bit 0 the tap entry of either form,
   4 and 5 the scroll entries), 0 while `bind_live` is clear — computed at each read from the table without the word (a torn read
@@ -1836,3 +1846,7 @@ phone's keeper applies the hold-back rule before re-arming.
 - 2026-11-18 — §6.2, §6.3, §6.8, §6.10: three places the vector stage found silent or at odds, ruled — the op `page`'s
   values; mode 27's check order names ENGINE (15) between DRAW2 (9) and BIND (15), and §6.8's sentence follows it; a
   fire's parameters are evaluated in index order, the first edge or 12 deciding. Nothing built.
+- 2026-11-18 — §6.3, §6.5, §6.6, §6.8: the readings the two build stages (the fork's F1, the simulator's DS) each made
+  where the text was silent, ruled before their meeting — the table is empty for every reader while `bind_live` is 0;
+  the ui_task's send order with outcome-3 bodies; a refusal body's field 3 for COMMIT only; h0 and h1 both 0 or both
+  1..2048; mode 28's length counts from after the mode byte; field 37 at the first drawn step.
