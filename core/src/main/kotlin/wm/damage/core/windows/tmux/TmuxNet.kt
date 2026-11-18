@@ -121,9 +121,9 @@ object TmuxNet {
             override fun frame(target: TmuxTarget, frame: PaneFrame) {
                 coalesce(TWire(t = "tframe", target = target, frame = frame)) { it.target == target }
             }
-            override fun alert(session: TmuxSessionInfo) {
-                outbox.put(TWire(t = "talert", session = session))
-            }
+            // build S1-3 B13: no alert goes to a driver — the PC's core raises it once into the notice record, which
+            // reaches the phone through its working copy (an alert raised while the phone was away arrives on return)
+            override fun alert(session: TmuxSessionInfo) {}
             override fun state(state: String) {
                 coalesce(TWire(t = "tstate", detail = state)) { true }
             }

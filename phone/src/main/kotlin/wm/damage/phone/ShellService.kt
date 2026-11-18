@@ -138,6 +138,9 @@ class ShellService : Service() {
     /** Build S1-3 B16: Feed's presenter over the working copy and its source (the copy outlives the stack). */
     private var feedSource: wm.damage.core.app.LocalWindowSource? = null
     private var feedGlasses: wm.damage.core.windows.feed.FeedGlasses? = null
+    /** Build S1-3 B16: Tmux's presenter over the working copy and its source (the copy outlives the stack). */
+    private var tmuxSource: wm.damage.core.app.LocalWindowSource? = null
+    private var tmuxGlasses: wm.damage.core.windows.tmux.TmuxGlasses? = null
     /** Build S1-2 Q3: the phone's notice mirror over the working copy, built with it and kept across stacks (each
      *  stack's shell its sink while it runs; held while no session runs); closed with the copy. */
     @Volatile private var noticeMirror: wm.damage.core.app.NoticeMirror? = null
@@ -429,7 +432,17 @@ class ShellService : Service() {
         // host/port/token as the library, so the sessions just appear (§3.1)
         val tp = RemoteTmuxProvider(prefs.host, prefs.contentPort, prefs.token, scope)
         tmuxProvider = tp
-        sh.register(TmuxWindow(text, tp, scope))
+        // Build S1-3 B16: Tmux's rows and mutes read from the working copy (the PC record's); the sessions, frames and
+        // keys through the provider at today's pace; its alerts raised by the PC into the notice record (the mirror).
+        // Without a copy, Tmux runs on a record of its own.
+        val tmuxWin = if (wc != null) {
+            val core = wm.damage.core.windows.tmux.TmuxCore()
+            val src = wm.damage.core.app.LocalWindowSource(core, wc)
+            tmuxSource = src
+            wm.damage.core.windows.tmux.TmuxGlasses(text, tp, scope, core, src)
+        } else TmuxWindow(text, tp, scope)
+        tmuxGlasses = tmuxWin
+        sh.register(tmuxWin)
         // Files (2026-09-01, the first §16.10 window-channel consumer): the
         // PC's filesystem browsed from the phone; theme icons fetched and
         // cached the same way. App-alone the window is honestly unavailable
@@ -702,6 +715,11 @@ class ShellService : Service() {
         }
         try { tmuxProvider?.close() } catch (e: Exception) { Log.w("service", "tmux provider close: ${e.message}") }
         tmuxProvider = null
+        // S1-3 B16: Tmux's presenter leaves its source, and the source the working copy, as Reader's
+        try { tmuxGlasses?.detach() } catch (e: Exception) { Log.w("service", "tmux detach: ${e.message}") }
+        tmuxGlasses = null
+        try { tmuxSource?.close() } catch (e: Exception) { Log.w("service", "tmux source close: ${e.message}") }
+        tmuxSource = null
         // S1-1 P4: the presenter leaves the source, and the source the working copy (which outlives the stack)
         try { readerGlasses?.detach() } catch (e: Exception) { Log.w("service", "reader detach: ${e.message}") }
         readerGlasses = null

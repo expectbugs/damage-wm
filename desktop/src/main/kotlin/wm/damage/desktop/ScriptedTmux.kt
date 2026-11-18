@@ -105,6 +105,12 @@ class ScriptedTmux : TmuxProvider {
         return "g2-1"
     }
 
+    /** Build S1-3 B13: a terminal's bytes, recorded as sent (no tmux). */
+    override fun sendRaw(target: TmuxTarget, data: String) { sent.add("raw:${target.label}:$data") }
+    override fun capture(target: TmuxTarget): PaneFrame = frame()
+    override fun health(): List<wm.damage.core.windows.tmux.TmuxHostHealth> =
+        listOf(wm.damage.core.windows.tmux.TmuxHostHealth("beardos", "ok", null, System.currentTimeMillis()))
+
     override fun setCapturePacing(ms: Long) { sent.add("pace:$ms") }
     override fun killSession(target: TmuxTarget) { sent.add("kill:${target.label}") }
     override fun renameSession(target: TmuxTarget, newName: String) { sent.add("ren:$newName") }

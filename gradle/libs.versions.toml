@@ -26,6 +26,10 @@ junixsocket = "2.11.1"
 # Feed (FEED.md §2.7): jsoup (MIT) parses article HTML for the extractor on both
 # runtimes; pure Java, no transitive dependencies.
 jsoup = "1.23.2"
+# Tmux's desk terminal (build S1-3 B12): @xterm/xterm, MIT (its jar's LICENSE and
+# package.json), as a WebJar of resources only; run time only, the PC only, served
+# at /vendor/xterm/ — no copy of it is committed.
+xterm = "6.0.0"
 
 [libraries]
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
@@ -52,6 +56,7 @@ junixsocket-core = { module = "com.kohlschutter.junixsocket:junixsocket-core", v
 media3-exoplayer = { module = "androidx.media3:media3-exoplayer", version.ref = "media3" }
 media3-session = { module = "androidx.media3:media3-session", version.ref = "media3" }
 jsoup = { module = "org.jsoup:jsoup", version.ref = "jsoup" }
+xterm = { module = "org.webjars.npm:xterm__xterm", version.ref = "xterm" }
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }

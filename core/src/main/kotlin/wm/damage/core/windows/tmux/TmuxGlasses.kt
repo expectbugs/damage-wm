@@ -5,10 +5,15 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonArray
+import kotlinx.serialization.json.JsonElement
+import wm.damage.core.app.Answer
+import wm.damage.core.app.LocalWindowSource
+import wm.damage.core.app.MemoryRecord
+import wm.damage.core.app.Op
+import wm.damage.core.app.SourceListener
+import wm.damage.core.app.WindowSource
+import wm.damage.core.app.WindowState
 import wm.damage.core.geom.Rect
 import wm.damage.core.gfx.Gray8
 import wm.damage.core.gfx.IconKind
@@ -56,11 +61,31 @@ import wm.damage.core.util.Log
  * Keys reach ONE explicitly opened target only (the G2CC rule). Every
  * provider failure lands in the one-shot [notice] riding the title (their D3
  * lesson: send failures must show ON GLASS, not in a log).
+ *
+ * Build S1-3 B14 (`CONTRACT.md` §11.1): the glasses' presenter of Tmux's [core]. Alerts, the mutes, Context rows and
+ * Size are the core's record items, read through [source] (the PC's record, or the phone's working copy): the fields
+ * below stay this presenter's own state, and what input changes goes to the source as an op right after the field
+ * changes, so the first flush is today's. Another device's write is taken as it arrives, unless an op of this view on
+ * that row is still unanswered (the latest input wins). The PC raises the alerts into its notice record (`TmuxCore`);
+ * the waiting mark and Main's tick stay derived here. The local `window.tmux` blob keeps this view's own state only:
+ * the open session and the capture pace (one pace per PC, as today).
  */
-class TmuxWindow(
+/** The name the window had before its conversion, kept for the sites that name its type (the tests, the tools). */
+typealias TmuxWindow = TmuxGlasses
+
+/** The compatibility factory (build S1-3 B14): Tmux over a record of its own in memory — the test sites, `--selfcheck`
+ *  and the tools build it this way; the hosts build the presenter over their own record. It raises no alert. */
+fun TmuxWindow(text: TextRasterizer, provider: TmuxProvider, bg: CoroutineScope): TmuxGlasses {
+    val core = TmuxCore()
+    return TmuxGlasses(text, provider, bg, core, LocalWindowSource(core, MemoryRecord(TmuxCore.ACTIONS)))
+}
+
+class TmuxGlasses(
     private val text: TextRasterizer,
     private val provider: TmuxProvider,
     private val bg: CoroutineScope,
+    val core: TmuxCore,
+    val source: WindowSource,
 ) : DamageWindow("tmux", "Tmux", IconKind.TERMINAL) {
 
     private enum class Level_ { SESSIONS, LIVE, HISTORY, KEYS, SNIPPETS, WINDOWS, SESSION_ACTIONS, KILL_CONFIRM, TYPE_CONFIRM }
@@ -141,37 +166,29 @@ class TmuxWindow(
                 // changed or not; ask only when what the list shows changed — the sessions, the config, or an age
                 // a row prints (`age()` reads the clock when the row is painted)
                 val ages = sessions.map { age(it.activity) }
-                val changed = sessions != this@TmuxWindow.sessions || cfg != this@TmuxWindow.cfg || ages != shownAges
+                val changed = sessions != this@TmuxGlasses.sessions || cfg != this@TmuxGlasses.cfg || ages != shownAges
                 shownAges = ages
-                this@TmuxWindow.sessions = sessions
-                this@TmuxWindow.cfg = cfg
+                this@TmuxGlasses.sessions = sessions
+                this@TmuxGlasses.cfg = cfg
                 dirty = alertsOn && sessions.any { it.waiting && mutedKey(it) !in muted }
-                if (changed && level == Level_.SESSIONS) services?.requestRender(this@TmuxWindow)
+                if (changed && level == Level_.SESSIONS) services?.requestRender(this@TmuxGlasses)
             }
         }
 
         override fun frame(target: TmuxTarget, frame: PaneFrame) {
             onShell("frame") {
-                if (target != this@TmuxWindow.target) return@onShell
-                this@TmuxWindow.frame = frame
-                if (level == Level_.LIVE) services?.requestRender(this@TmuxWindow)
+                if (target != this@TmuxGlasses.target) return@onShell
+                this@TmuxGlasses.frame = frame
+                if (level == Level_.LIVE) services?.requestRender(this@TmuxGlasses)
             }
         }
 
+        /** S1-3 B14: the PC raises the alert into its notice record (`TmuxCore`; deep-linked, one box per session,
+         *  today's body); here a waiting edge only marks the window, as before. */
         override fun alert(session: TmuxSessionInfo) {
             onShell {
                 if (!alertsOn || mutedKey(session) in muted) return@onShell
                 dirty = true
-                // DEEP-LINKED (review §29, the live walk): the notice carries
-                // the window and the session, so a tap on the box opens that
-                // session — TMUX.md §3.5's "glance → tap → y". It used to be
-                // app-less, so the tap only dismissed it; and it coalesces per
-                // SESSION, so two sessions waiting are two boxes, not one.
-                // The pane's whole line: the box wraps and scrolls (R4 item 1
-                // — a cut at 80 lost the tail and could split a surrogate pair)
-                services?.notifyInternal("tmux",
-                    "${session.name}${hostSuffix(session.host)} wants input: ${session.lastLine}",
-                    appId = id, thread = mutedKey(session), target = "session:${session.host}:${session.name}")
             }
         }
 
@@ -181,7 +198,7 @@ class TmuxWindow(
                     provState = state
                     // every level shows it now (the title carries it off the
                     // live pane, review §30), so every level is re-drawn
-                    services?.requestRender(this@TmuxWindow)
+                    services?.requestRender(this@TmuxGlasses)
                 }
             }
         }
@@ -208,15 +225,98 @@ class TmuxWindow(
 
     override fun onRegistered(ctx: ShellServices) {
         services = ctx
-        provider.addListener(listener)   // alerts live from registration on
+        fromSource(source.state())
+        // S1-3 B14: the PC's record notice of a waiting session marks the window as the raise did (its body as raised)
+        ctx.noticeFormatter(id) { rec ->
+            if (alertsOn && rec.thread !in muted) { dirty = true; ctx.requestRender(this) }
+            rec.body
+        }
+        provider.addListener(listener)   // the waiting mark live from registration on
     }
 
     /** Unhook from the provider — a rebuilt stack replaces this window while
      *  the provider outlives it (the LensView.detach precedent): a detached
-     *  window's listener must not keep receiving pushes. */
+     *  window's listener must not keep receiving pushes. S1-3 B14: and from the
+     *  source, which outlives it on the PC. */
     fun detach() {
         provider.subscribe(listener, null)
         provider.removeListener(listener)
+        source.removeListener(onSource)
+        services?.noticeFormatter(id, null)
+    }
+
+    // ================================================================ the record (S1-3 B14)
+    /** Per row: ops of this view not yet answered — while one is, the record's value of that row is older than this
+     *  view's input and is not taken (the latest input wins). */
+    private val sending = HashMap<String, Int>()
+
+    /** The record's state into this view (another device's write, a migrated row, this view's own from an earlier
+     *  run); true when something drawn changed. */
+    private fun fromSource(st: WindowState): Boolean {
+        var drawn = false
+        if (TmuxCore.ALERTS !in sending) {
+            val v = TmuxCore.alertsOn(st)
+            if (v != alertsOn) { alertsOn = v; if (!v) dirty = false; drawn = true }
+        }
+        if (TmuxCore.CONTEXT !in sending) {
+            val v = TmuxCore.context(st)
+            if (v != wantContext) { wantContext = v; renderer.invalidate(); drawn = true }
+        }
+        if (TmuxCore.SIZE !in sending) {
+            val v = TmuxCore.size(st).takeIf { it != 0 }
+            if (v != heightPref) { heightPref = v; drawn = true }
+        }
+        val rec = TmuxCore.mutedSet(st)
+        for (k in (rec + muted).toList()) {
+            if (TmuxCore.MUTE + k in sending) continue
+            val on = k in rec
+            if (on != (k in muted)) { if (on) muted.add(k) else muted.remove(k); drawn = true }
+        }
+        return drawn
+    }
+
+    /** Input changed [row] to [value] (on the loop, after its field): the op follows at once. */
+    private fun send(row: String, value: JsonElement) {
+        sending[row] = (sending[row] ?: 0) + 1
+        source.act(TmuxCore.setDraft(row, value).let {
+            if (row.startsWith(TmuxCore.MUTE)) it.copy(action = TmuxCore.MUTE_ACTION) else it
+        })
+    }
+
+    private val onSource = object : SourceListener {
+        override fun changed(state: WindowState, keys: Set<String>) {
+            // before registration nothing reads the fields; `onRegistered` takes the state then
+            services?.runOnShell("tmux.source") {
+                if (fromSource(source.state())) services?.requestRender(this@TmuxGlasses)
+            }
+        }
+
+        override fun answered(op: Op, answer: Answer) {
+            val s = services
+            if (s == null) {
+                onAnswer(op, answer)
+                return
+            }
+            s.runOnShell { onAnswer(op, answer) }
+        }
+    }
+
+    /** An answer to one of this view's ops: its row is free again; a refusal for good is said on the title. */
+    private fun onAnswer(op: Op, a: Answer) {
+        if (op.window != TmuxCore.WINDOW) return
+        val row = op.targets.firstOrNull() ?: return
+        val left = (sending[row] ?: 1) - 1
+        if (left <= 0) sending.remove(row) else sending[row] = left
+        if (a is Answer.Refused) {
+            Log.e("tmux", "the record refused $row: ${a.reason}")
+            notice = "$row not applied: ${a.reason}"
+            services?.requestRender(this)
+        }
+        if (left <= 0 && fromSource(source.state())) services?.requestRender(this)
+    }
+
+    init {
+        source.addListener(onSource)
     }
 
     /** Focused right now — a PARKED window must never resubscribe (R4#2:
@@ -371,7 +471,7 @@ class TmuxWindow(
                     // parked or navigated away (R5#3): never resubscribe a
                     // parked window — the notice waits for the next focus
                     notice = "session $name created on $host"
-                    services?.requestRender(this@TmuxWindow)
+                    services?.requestRender(this@TmuxGlasses)
                 }
             }
         }
@@ -624,6 +724,7 @@ class TmuxWindow(
             rows[i].startsWith("Alerts:") -> {
                 val k = mutedKey(t)
                 if (!muted.remove(k)) muted.add(k)
+                send(TmuxCore.MUTE + k, JsonPrimitive(k in muted))   // S1-3 B14: the field first, the op after
                 services?.requestRender(this)
             }
             rows[i].startsWith("Fit pane") -> {
@@ -804,21 +905,24 @@ class TmuxWindow(
             HostSetting("Update", PACES.keys.toList(),
                 { PACES.entries.firstOrNull { it.value == paceMs }?.key ?: "1 s" },
                 { v -> paceMs = PACES[v] ?: 1_000L; provider.setCapturePacing(paceMs) }),
+            // S1-3 B14: the three rows below are the record's (the field first, the op after); Update stays this view's
             HostSetting("Context rows", listOf("on", "off"),
                 { if (wantContext) "on" else "off" },
-                { wantContext = it == "on"; renderer.invalidate() }),
+                { wantContext = it == "on"; renderer.invalidate(); send(TmuxCore.CONTEXT, JsonPrimitive(wantContext)) }),
             HostSetting("Alerts", listOf("on", "off"),
                 { if (alertsOn) "on" else "off" },
-                { alertsOn = it == "on"; if (!alertsOn) dirty = false }),
+                { alertsOn = it == "on"; if (!alertsOn) dirty = false; send(TmuxCore.ALERTS, JsonPrimitive(alertsOn)) }),
             HostSetting("Size", listOf("global") + wm.damage.core.shell.ShellSettings.HEIGHTS.map { "$it" },
                 { heightPref?.toString() ?: "global" },
-                { heightPref = it.toIntOrNull() }),
+                { heightPref = it.toIntOrNull(); send(TmuxCore.SIZE, JsonPrimitive(heightPref ?: 0)) }),
         )
     }
 
     override fun appSettings(): List<HostSetting> = settingsRows
 
     // ------------------------------------------------------------------ persistence
+    /** S1-3 B14: this view's own state only — the open session and the capture pace; Alerts, the mutes, Context rows
+     *  and Size are the record's (the PC's migration took them from the 0.68 shape once). */
     override fun saveState(): JsonObject = buildJsonObject {
         put("level", if (target != null) "live" else "sessions")
         target?.let {
@@ -826,11 +930,7 @@ class TmuxWindow(
             put("session", it.session)
             put("window", it.window)
         }
-        put("context", wantContext)
-        put("alerts", alertsOn)
         put("paceMs", paceMs)
-        heightPref?.let { put("height", it) }
-        putJsonArray("muted") { muted.forEach { add(JsonPrimitive(it)) } }
     }
 
     /** A LIVE-synced record needs the activation follow-up boot gets from
@@ -851,16 +951,10 @@ class TmuxWindow(
     }
 
     override fun restoreState(state: JsonObject) {
-        wantContext = (state["context"] as? JsonPrimitive)?.content != "false"
-        alertsOn = (state["alerts"] as? JsonPrimitive)?.content != "false"
         paceMs = ((state["paceMs"] as? JsonPrimitive)?.content?.toLongOrNull() ?: 1_000L)
             .coerceIn(250, 30_000)
         provider.setCapturePacing(paceMs)     // the host polls at the chosen cadence
-        heightPref = (state["height"] as? JsonPrimitive)?.content?.toIntOrNull()
-        muted.clear()
-        (state["muted"] as? kotlinx.serialization.json.JsonArray)?.forEach {
-            muted.add(it.jsonPrimitive.content)
-        }
+        fromSource(source.state())            // S1-3 B14: the record's rows, never the blob's old copy
         val session = (state["session"] as? JsonPrimitive)?.content
         if ((state["level"] as? JsonPrimitive)?.content == "live" && session != null) {
             target = TmuxTarget(
@@ -893,12 +987,12 @@ class TmuxWindow(
         bg.launch {
             try {
                 op()
-                onShell { services?.requestRender(this@TmuxWindow) }
+                onShell { services?.requestRender(this@TmuxGlasses) }
             } catch (e: Exception) {
                 Log.e("tmux", "$what failed: ${e.message}")
                 onShell {
                     notice = "$what failed: ${e.message?.take(90)}"
-                    services?.requestRender(this@TmuxWindow)
+                    services?.requestRender(this@TmuxGlasses)
                 }
             }
         }

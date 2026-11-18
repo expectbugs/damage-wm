@@ -9,6 +9,8 @@ import kotlinx.serialization.Serializable
  * The glasses are a viewer/controller of the REAL tmux server via DISCRETE
  * commands — never a `-C` attach, never an emulator: tmux renders, we read
  * its grid (lineage: G2CC server/src/tmux.ts, the Phase-5 safety shape).
+ * Build S1-3 B10: a desk browser's terminal reads a control-mode client
+ * (`TmuxStream`, `ignore-size`); the glasses keep the discrete commands.
  */
 
 /** One host the provider reaches: local ("" ssh) or over ssh (TMUX.md
@@ -171,7 +173,23 @@ interface TmuxProvider : AutoCloseable {
     /** Resize the target's window grid — the "Fit pane to glass" action.
      *  Invasive for the same reason; explicit-action only. */
     fun resizeWindow(target: TmuxTarget, cols: Int, rows: Int)
+
+    /** Build S1-3 B13: the bytes a terminal produced (a web page's keyboard and mouse), in one exec: printable runs as
+     *  literal text, the rest as their byte values. Only the PC's provider serves the web's keys. */
+    fun sendRaw(target: TmuxTarget, data: String): Unit =
+        throw UnsupportedOperationException("this tmux provider takes no raw bytes (the PC's does)")
+
+    /** Build S1-3 B9: one capture of [target]'s pane now (its size and screen for a page's session scope). */
+    fun capture(target: TmuxTarget): PaneFrame =
+        throw UnsupportedOperationException("this tmux provider takes no one-off capture (the PC's does)")
+
+    /** Build S1-3 B13: each host's health for the description; empty where the provider polls nothing itself. */
+    fun health(): List<TmuxHostHealth> = emptyList()
 }
+
+/** Build S1-3 B13: one host's health as the description carries it — [state] `ok`, `quiet` (no answer for four status
+ *  paces) or `failing` (the last poll failed: [error]); [lastOkMs] the PC's clock at the last good poll, 0 before one. */
+data class TmuxHostHealth(val name: String, val state: String, val error: String?, val lastOkMs: Long)
 
 /** Session-name hygiene (lineage: G2CC terminal.ts cleanSessionName): single
  *  token, letters/digits/-/_ only, at least one alphanumeric. */

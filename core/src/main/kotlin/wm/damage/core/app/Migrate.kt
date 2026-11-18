@@ -3,6 +3,7 @@ package wm.damage.core.app
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CountDownLatch
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import wm.damage.core.shell.Persistence
 import wm.damage.core.util.Log
 
@@ -22,6 +23,9 @@ class Migrate(
     val fields: List<Field>,
     /** The window's migrate action (declared with the position kind). */
     val action: String = ACTION,
+    /** S1-3 B15: items read from the whole blob rather than one field each (Tmux's `muted` list → one
+     *  `mute.<host>/<name>` per entry), as (record item, value); taken only where the record holds none. */
+    val derived: (JsonObject) -> List<Pair<String, JsonElement>> = { emptyList() },
     /** Fields that become several items each. */
     val many: List<Many> = emptyList(),
     /** Sub-keys that become items, each stamped with its own key's stamp. */
@@ -49,6 +53,7 @@ class Migrate(
         if (blob != null && stamp > 0L) {             // stamp 0: a baseline of defaults no one edited (S1-1's R2#16)
             for (f in fields) blob[f.name]?.let(f.read)?.let { v -> offer(f.item, v, stamp) }
             for (m in many) blob[m.name]?.let(m.read)?.forEach { (item, v) -> offer(item, v, stamp) }
+            for ((item, v) in derived(blob)) offer(item, v, stamp)
         }
         for (sub in subs) for (k in store.keysWithPrefix("$key.${sub.prefix}")) {
             val b = store.get(k)?.takeIf { it.isNotEmpty() } ?: continue        // an empty blob is a removal's tombstone

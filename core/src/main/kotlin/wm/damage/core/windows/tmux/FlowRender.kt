@@ -19,7 +19,7 @@ import wm.damage.core.text.TextRasterizer
  *
  * The GRID renderer (TermRender) survives only as the alternate-screen
  * fallback: when `#{alternate_on}` says a full-screen TUI owns the pane,
- * flowed text would lie about it. TmuxWindow picks per frame.
+ * flowed text would lie about it. TmuxGlasses picks per frame.
  *
  * NO TRUNCATION: wrapping keeps every character — a break lands after the
  * last space that fits, a spaceless overflow hard-breaks with guaranteed

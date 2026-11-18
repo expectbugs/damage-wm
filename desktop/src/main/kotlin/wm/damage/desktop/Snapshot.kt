@@ -94,7 +94,10 @@ object Snapshot {
                 wm.damage.core.app.Peer.LOCAL.device, wm.damage.core.app.OpQueue.newStream())), scope, AwtImages())
         shell.register(reader)
         val tmuxScripted = ScriptedTmux()
-        val tmuxWin = wm.damage.core.windows.tmux.TmuxWindow(text, tmuxScripted, scope)
+        // build S1-3 B16: Tmux's presenter over a source on the same scratch record; its alerts raised once into that
+        // record by its core (attached below, beside Torrents' notices) and shown from it by this shell's notice mirror.
+        // No new local lives past here: this method is at the JVM's size limit, and each one is saved at every pause
+        val tmuxWin = tmuxOn(text, tmuxScripted, scope, pcRecord)
         shell.register(tmuxWin)
         // build S1-2 J0: the real provider over the books, with a made-up folder and trash shown from the Files
         // scenes on (`SceneFiles`; the locations are the real provider's until then)
@@ -114,6 +117,7 @@ object Snapshot {
         pcMirror.attach(shell.noticeSink)
         val torrentsCore = wm.damage.core.windows.torrents.TorrentsCore()
         torrentsCore.attachNotices(torrentsScripted, torrentsScripted.epoch, pcNotices)
+        tmuxWin.core.attachAlerts(tmuxScripted, pcNotices) { tmuxState(pcRecord) }
         val torrentsWin = wm.damage.core.windows.torrents.TorrentsGlasses(text, torrentsScripted, scope, torrentsCore,
             wm.damage.core.app.LocalWindowSource(torrentsCore, wm.damage.core.app.HostBackend(pcRecord,
                 wm.damage.core.app.Peer.LOCAL.device, wm.damage.core.app.OpQueue.newStream())), recordNotices = { true })
@@ -494,7 +498,7 @@ object Snapshot {
         feedScenes(shell, sim, out, feedWin, feedScripted, ::toWindow, ::iconsSettled)
         // build S1-3 J: the states S1-3's presenters move onto the PC record (spec B6, B14), each ending on Main
         feedMoreScenes(shell, sim, out, transport, feedWin, feedScripted, feedProvider, feedClock, pcRecord, ::toWindow)
-        tmuxMoreScenes(shell, sim, out, tmuxWin, tmuxScripted, ::toWindow)
+        tmuxMoreScenes(shell, sim, out, tmuxWin, tmuxScripted, ::toWindow, pcRecord)
 
         shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // silent
         settle(shell)
@@ -504,6 +508,7 @@ object Snapshot {
         reader.detach()
         torrentsWin.detach()
         torrentsCore.detachNotices()
+        tmuxWin.core.detachAlerts()
         pcMirror.detach(shell.noticeSink)
         pcMirror.close()
         pcRecord.close()
@@ -581,7 +586,13 @@ object Snapshot {
         shell.register(reader)
         // every other window as in the first arrangement (the same order, the same scripted sources, the same seed)
         val tmuxScripted = ScriptedTmux()
-        val tmuxWin = wm.damage.core.windows.tmux.TmuxWindow(text, tmuxScripted, scope)
+        // build S1-3 B16: the PC's core raises Tmux's alerts once into the scratch record (the phone shows them through
+        // its mirror below); the phone's presenter reads its rows and mutes from the working copy
+        val pcTmux = wm.damage.core.windows.tmux.TmuxCore()
+        pcTmux.attachAlerts(tmuxScripted, pcNotices) { tmuxState(pcRecord) }
+        val phoneTmux = wm.damage.core.windows.tmux.TmuxCore()
+        val tmuxWin = wm.damage.core.windows.tmux.TmuxGlasses(text, tmuxScripted, scope, phoneTmux,
+            wm.damage.core.app.LocalWindowSource(phoneTmux, wc))
         shell.register(tmuxWin)
         // S1-2 Q5: Files' presenter over the phone's working copy, its calls through the window channel into a temp
         // listing cache (the phone's own provider), as the phone builds it
@@ -709,7 +720,7 @@ object Snapshot {
             tmuxScenes(shell, sim, out, tmuxWin)
             feedScenes(shell, sim, out, feedWin, feedScripted, toWindow, iconsSettled = { iconsSettled() })
             feedMoreScenes(shell, sim, out, transport, feedWin, feedScripted, feedProvider, feedClock, pcRecord, toWindow)
-            tmuxMoreScenes(shell, sim, out, tmuxWin, tmuxScripted, toWindow)
+            tmuxMoreScenes(shell, sim, out, tmuxWin, tmuxScripted, toWindow, pcRecord)
         } finally {
             shell.stop()
             filesWin.detach()
@@ -723,6 +734,7 @@ object Snapshot {
             phoneMirror.detach(shell.noticeSink)
             phoneMirror.close()
             pcTorrents.detachNotices()
+            pcTmux.detachAlerts()
             wc.close()
             ex.shutdown()
             host.close()
@@ -1128,6 +1140,18 @@ object Snapshot {
 
     }
 
+    /** Build S1-3 B16: Tmux's presenter over a source of its own on the scratch PC record [pc] (device `local`). */
+    private fun tmuxOn(text: wm.damage.core.text.TextRasterizer, scripted: ScriptedTmux, scope: CoroutineScope,
+                       pc: wm.damage.core.app.AppHost): wm.damage.core.windows.tmux.TmuxGlasses {
+        val core = wm.damage.core.windows.tmux.TmuxCore()
+        return wm.damage.core.windows.tmux.TmuxGlasses(text, scripted, scope, core, wm.damage.core.app.LocalWindowSource(core,
+            wm.damage.core.app.HostBackend(pc, wm.damage.core.app.Peer.LOCAL.device, wm.damage.core.app.OpQueue.newStream())))
+    }
+
+    /** Build S1-3 B16: the scratch PC record's Tmux items, as Tmux's core reads its mutes at an alert. */
+    private fun tmuxState(pc: wm.damage.core.app.AppHost) = wm.damage.core.app.WindowState(
+        wm.damage.core.windows.tmux.TmuxCore.WINDOW, pc.read(wm.damage.core.windows.tmux.TmuxCore.WINDOW).third.items)
+
     /**
      * Tmux's scenes 09b to 09e (TMUX.md): the sessions, the live pane with the inverted cursor, the wrapped history,
      * the keys level — the same steps in both arrangements (build S1-3 J moved them here from `script`, unchanged).
@@ -1162,7 +1186,8 @@ object Snapshot {
      * rows and Size rows are put back, claude stays muted.
      */
     private suspend fun tmuxMoreScenes(shell: Shell, sim: GlassFirmwareSim, out: Path,
-        tmuxWin: wm.damage.core.windows.tmux.TmuxWindow, scripted: ScriptedTmux, toWindow: suspend (String) -> Unit) {
+        tmuxWin: wm.damage.core.windows.tmux.TmuxWindow, scripted: ScriptedTmux, toWindow: suspend (String) -> Unit,
+        pcRecord: wm.damage.core.app.AppHost) {
         suspend fun toMain(where: String) {
             var guard = 0
             while (shell.currentWindowId() != null && guard++ < 10) {
@@ -1209,6 +1234,10 @@ object Snapshot {
         settle(shell, "tmux-muted")
         save(sim, out, "09i-tmux-muted")
         toMain("tmux-muted-main")
+        // build S1-3 B16: the PC's core reads the mute from the PC record (on the phone it arrives through the working copy)
+        waitFor("claude's mute in the PC record") {
+            wm.damage.core.windows.tmux.TmuxCore.muted(tmuxState(pcRecord), "beardos", "claude")
+        }
         // the visit cleared the window's mark; claude still waits, and muted, its next edge raises nothing
         scripted.pushAlert()
         settle(shell, "tmux-muted-alert")
