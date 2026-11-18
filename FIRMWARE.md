@@ -911,7 +911,7 @@ unknown. The design pass's records (the challenge, the prep, the focused read, t
 `private/c2-design/`.
 
 **The amendment of 2026-11-18 from the stock input model and its focused read (`C2-rulings.md` §9) is in the text
-below** (change log, 2026-11-18). A sentence marked (D0) filled a detail the rulings left open; the lead rules each.
+below** (change log, 2026-11-18). A sentence marked (D0) filled a detail the rulings left open; the lead ruled each as written on 2026-11-18. The report-only entry's shape and fire (§6.2, §6.3) get one focused read, with the fork's tool review, before any fork stage.
 
 **What C2 carries, in six lines.** (1) A scroll — ids 4 and 5, ring swipes and temple slides alike — runs a bound
 program on both lenses at once; a ring single tap sends a report too when the phone's `Taps` setting says `report`,
@@ -1722,5 +1722,5 @@ phone's keeper applies the hold-back rule before re-arming.
   be paid; SETTLE from the lowest S since the last SETTLE; P10's diff with END applied; no 114 for a same-slot local
   close; the tap rule's n-step bound; the report-only tap entry and `Taps`' three values; Main's wrap as the staged
   edge; Q's floor; Main's focus motion as Adam ruled it the same day (depth and today's highlight, no size change; the
-  icon grow M2 cut, §6.6); the sequence fuzz as a build condition; the envelope's rows. Sentences marked (D0) are this stage's fillings, for the lead to rule. Nothing built; contract
+  icon grow M2 cut, §6.6); the sequence fuzz as a build condition; the envelope's rows. Sentences marked (D0) are this stage's fillings, ruled as written the same day. Nothing built; contract
   version unchanged.
