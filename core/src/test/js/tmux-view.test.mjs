@@ -294,7 +294,7 @@ test('hidden, the page asks the PC for nothing (need none); shown, focus again; 
 
 test('a session that ends under the page is said, its last picture stays, and it takes no key; the stream\'s end is said likewise', async () => {
   const { p, ws } = await pictures();
-  ws.frame({ t: 'snap', scope: 'desc/tmux', desc: tmuxDesc({ sessions: SESSIONS.filter((s) => s.name !== 'shell') }) });
+  ws.frame({ t: 'snap', scope: 'desc/tmux', desc: { ...tmuxDesc({ sessions: SESSIONS.filter((s) => s.name !== 'shell') }), asOf: T_NOW + 10e3 } });
   assert.match(status(p), /This session ended: it is no longer on workstation\. The last picture stays below/);
   assert.ok(unsubs(ws).includes(FRAMES('shell')), 'its pictures let go');
   assert.ok(allClass(p, 'tm-row').length > 0);
@@ -305,8 +305,8 @@ test('a session that ends under the page is said, its last picture stays, and it
   assert.deepEqual(ops(ws, 'new').map((o) => o.targets), [['workstation']], 'what stopped that session stays with it');
   // a session missing because its host does not answer is not said as ended
   const r2 = await pictures();
-  r2.ws.frame({ t: 'snap', scope: 'desc/tmux', desc: tmuxDesc({ sessions: SESSIONS.filter((s) => s.name !== 'shell'),
-    hosts: [{ name: 'workstation', health: { state: 'failing', error: 'tmux did not answer', lastOkMs: T_NOW - 60e3 } }] }) });
+  r2.ws.frame({ t: 'snap', scope: 'desc/tmux', desc: { ...tmuxDesc({ sessions: SESSIONS.filter((s) => s.name !== 'shell'),
+    hosts: [{ name: 'workstation', health: { state: 'failing', error: 'tmux did not answer', lastOkMs: T_NOW - 60e3 } }] }), asOf: T_NOW + 10e3 } });
   assert.match(status(r2.p), /Not listed: workstation is not answering/);
   // the stream's own end (B10: `%exit` → `end{reason}`)
   const r3 = await desk();
@@ -335,6 +335,14 @@ test('the session actions: mute is a record op with no expectation; rename follo
   assert.ok(subs(ws).some((s) => s.scope === FRAMES('my-editor')));
   assert.ok(unsubs(ws).includes(FRAMES('editor')));
   assert.equal(find(p, 'BUTTON', 'Fit pane to the glasses (64×22)'), undefined, 'no glasses-size action on the web');
+  // S1-3 fix C1: the PC's next list, taken before the rename landed, does not name it yet — not "ended"; keys go
+  ws.frame({ t: 'snap', scope: 'desc/tmux', desc: { ...tmuxDesc(), asOf: T_NOW + 1000 } });
+  assert.doesNotMatch(status(p), /ended/, 'a list from before the rename says nothing of the new name');
+  find(p, 'BUTTON', 'Enter').fire('click');
+  assert.deepEqual(ops(ws, 'key').map((o) => o.targets), [['session:workstation:my-editor']], 'a key goes to it');
+  // a list heard a status period after the open that still lacks it: then it is gone
+  ws.frame({ t: 'snap', scope: 'desc/tmux', desc: { ...tmuxDesc(), asOf: T_NOW + 10e3 } });
+  assert.match(status(p), /This session ended/);
 });
 
 test('the sessions: waiting first, each host\'s health, the muted mark from the record; New session opens what the PC made; no page pace row', async () => {

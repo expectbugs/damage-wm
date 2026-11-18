@@ -18,6 +18,9 @@ import * as M from '../tmux-model.mjs';
 import * as T from '../term-render.mjs';
 import { terminalSurface } from '../terminal.mjs';
 
+/** S1-3 fix C1: how much later than the open a list must be heard to say the session is gone (one status period). */
+const LIST_LAG_MS = 3000;
+
 function put(box, sig, make) {
   if (box.dataset.sig === sig) return;
   box.dataset.sig = sig;
@@ -143,6 +146,7 @@ export function tmuxView(ctx) {
   let histScope = null;
   let surface = null;
   let gone = null; // why the open session is not there: {ended, why}
+  let openedAt = 0; // S1-3 fix C1: when this page opened the session (the PC's clock)
   let drawTimer = null;
   let ticker = null;
   let notSent = 0; // keys refused at once in this outage
@@ -218,6 +222,7 @@ export function tmuxView(ctx) {
     const s = session();
     feed = new M.Feed();
     gone = null;
+    openedAt = pcNow();
     notSent = 0;
     unknown = 0;
     saidReasons.clear();
@@ -604,6 +609,9 @@ export function tmuxView(ctx) {
       }
       return;
     }
+    // S1-3 fix C1: a list taken before the page opened the session (one just made or renamed) says nothing of it — only a
+    // list heard a whole status period after the open does (the PC polls every 2.5 s and sends its list 0.3 s later)
+    if (typeof last.asOf !== 'number' || last.asOf < openedAt + LIST_LAG_MS) return;
     const host = (last.hosts || []).find((x) => x.name === s.host);
     if (host && host.health && host.health.state && host.health.state !== 'ok') gone = { ended: false, why: `${s.host} is not answering, so the PC does not list this session` };
     else {
