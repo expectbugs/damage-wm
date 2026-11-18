@@ -191,17 +191,21 @@ class FidRingStartTest {
     fun aRingClearCopyQueuedBehindAFullWindowIsNotWrittenOnceTheClearIsAcked(): Unit = runBlocking {
         val glass = GlassFirmwareSim()
         val (t, seen) = rig(glass)
-        val imageAcks = AtomicInteger(0)
-        // the first image ack is the warmup's; every later one (the clear's copies, then the keyframe's) is held here
-        // in the order the model sent it, and the test hands it back
+        // every image ack from the clear's first copy on (the clear's copies, then the keyframe's) is held here in the
+        // order the model sent it, and the test hands it back; the warmup's acks, a re-sent copy's included, pass
+        // (the model answers inside the write, and `onWrite` runs before it)
+        val clearWritten = java.util.concurrent.atomic.AtomicBoolean(false)
         val held = Channel<Pair<Arm, ByteArray>>(Channel.UNLIMITED)
         val heldCount = AtomicInteger(0)
         val delivered = java.util.concurrent.atomic.AtomicBoolean(false)
         val clearsAfter = AtomicInteger(0)
         t.onNotify = { a, p ->
-            if (isImageAckOnly(p) && imageAcks.incrementAndGet() >= 2) { heldCount.incrementAndGet(); held.trySend(a to p); null } else p
+            if (isImageAckOnly(p) && clearWritten.get()) { heldCount.incrementAndGet(); held.trySend(a to p); null } else p
         }
-        t.onWrite = { _, p -> if (delivered.get() && isRingClear(p)) clearsAfter.incrementAndGet(); p }
+        t.onWrite = { _, p ->
+            if (isRingClear(p)) { clearWritten.set(true); if (delivered.get()) clearsAfter.incrementAndGet() }
+            p
+        }
         val starting = scope.async { runCatching { t.start(full) } }
         // the window is full (three copies written, their acks held) and copies are queued behind it
         waitUntil(15_000, message = { "five re-asks, one of them queued behind a full window: ${heldCount.get()} acks held; " +
