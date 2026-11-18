@@ -42,6 +42,7 @@ object Snapshot {
         try {
             runBlocking {
                 script(cfg, outDir)
+                feedRestartScenes(outDir)
                 phoneArrangement(cfg, outDir)
             }
         } catch (e: Throwable) {
@@ -1245,9 +1246,10 @@ object Snapshot {
      * raises in its place), each scene reached by gestures from the one before: popular's list with read rows and a
      * flagged row (68), an article scrolled to a place (69) and opened again (70), a browsed subreddit pinned and
      * marked all read (71), the source list holding it (72), popular's menu with the recent subreddit and the flag
-     * count (73), the Flagged list (74), the archive scrolled into its second page (75), the source list's line for
-     * that place (76), the archive entered again (77), a Feed notice over Main (78). Every title notice an action sets
-     * is let run out on the scene's clock before the next scene. Starts on Main after [feedScenes]; ends on Main.
+     * count (73), the Flagged list (74), the root menu (74b), the archive scrolled into its second page (75), the
+     * source list's line for that place (76), the archive entered again (77), a Feed notice over Main (78). Every title
+     * notice an action sets is let run out on the scene's clock before the next scene. Starts on Main after
+     * [feedScenes]; ends on Main.
      */
     private suspend fun feedMoreScenes(shell: Shell, sim: GlassFirmwareSim, out: Path, transport: SimTransport,
         feedWin: wm.damage.core.windows.feed.FeedWindow, scripted: wm.damage.core.windows.feed.ScriptedFeed,
@@ -1357,6 +1359,19 @@ object Snapshot {
         save(sim, out, "74-feed-flagged")
         shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // → the sources
         waitFor("the sources after Flagged") { feedWin.title() == "feed" }
+        // the root menu: the list's wrap-end row, one notch below the last source (Refresh all, Flagged 1, Settings;
+        // `Back to PC` only while the phone's own engine serves, which the spec retires)
+        row("r:linux")
+        shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)
+        settle(shell, "feed-root-row")
+        if (feedWin.rootRowId() != null) failures.add("the row below r/linux is a source (${feedWin.rootRowId()}), not the menu row")
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        waitFor("Feed's root menu") { shell.menuIsOpen && shell.menuTitle == "feed" }
+        quiet("feed-root-menu")
+        save(sim, out, "74b-feed-root-menu")
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // cancel the menu
+        waitFor("the root menu closed") { !shell.menuIsOpen }
+        settle(shell, "feed-root-menu-closed")
 
         // the archive into its second page, notch by notch (65 left it at the top of page 1)
         row("8bt")
@@ -1399,6 +1414,97 @@ object Snapshot {
         shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // dismiss
         waitFor("the feed notice dismissed") { !shell.notifications.active }
         settle(shell, "feed-notice-dismissed")
+    }
+
+    /**
+     * Build S1-3 J: Feed across a restart of the shell (the spec's B6 keeps P7 items 4–5's restore rules, and L1's two
+     * glasses defects were restores). A shell with Feed alone, on the scene's clock, opens popular's item 16 two notches
+     * down (69's place, 79a) and stops, its state saved as a stop saves it; a new shell with a new Feed window over the
+     * same store starts and restores Feed (79b). That shell leaves the archive in its second page (80a) and stops; the
+     * next restores the archive (80b). Each pair is the picture before the stop and after the start. Into the first
+     * arrangement's directory; no icon theme (the drawn icons), every shell and window its own, one store and one
+     * scripted feed for all three.
+     */
+    private suspend fun feedRestartScenes(out: Path) {
+        val tmp = Files.createTempDirectory("damage-snap-restart")
+        val clock = SceneClock(FEED_T0)
+        val scripted = wm.damage.core.windows.feed.ScriptedFeed(nowMs = FEED_T0)
+        val provider = SceneFeed(scripted)
+        val item16 = wm.damage.core.windows.feed.FeedIds.id("popular", "t3_p16")
+        fun opened() = scripted.ops.count { it == "article:$item16" }
+        val before = snapShell
+        suspend fun quiet(shell: Shell, where: String) {
+            waitFor("the feed provider answered ($where)") { provider.inFlight() == 0 && shell.isQuiescent() }
+            settle(shell, where)
+        }
+        /** The archive, notch by notch, until its top line is in page 2. */
+        suspend fun bingeToPage2(shell: Shell, feedWin: wm.damage.core.windows.feed.FeedWindow, tag: String) {
+            for (k in 0 until 20) {
+                if (feedWin.title() == "8bt 2") return
+                shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)
+                quiet(shell, "$tag-notch-$k")
+            }
+            failures.add("the archive never reached page 2 ($tag, title '${feedWin.title()}')")
+        }
+        /** One shell's life over the run's store: Feed registered, started, [steps], stopped (its state saved). */
+        suspend fun session(tag: String, steps: suspend (Shell, GlassFirmwareSim, wm.damage.core.windows.feed.FeedWindow) -> Unit) {
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            val sim = GlassFirmwareSim()
+            val transport = SimTransport(sim, scope, SimTransport.Timing(instant = true))
+            val text = wm.damage.core.comp.CachedText(AwtText())
+            val shell = Shell(text, transport, Persistence(tmp.resolve("state.json")), tmp.resolve("journal-$tag.jsonl"), scope)
+            val feedWin = wm.damage.core.windows.feed.FeedWindow(text, provider, scope, clock = clock::now)
+            shell.register(feedWin)
+            snapShell = shell
+            try {
+                shell.start()
+                settle(shell, "restart-$tag-start")
+                steps(shell, sim, feedWin)
+            } finally {
+                shell.stop()
+                feedWin.detach()
+                scope.cancel()
+            }
+        }
+        try {
+            session("a") { shell, sim, feedWin ->
+                walkTo(shell, "feed", "restart-a")
+                waitFor("Feed at its sources (restart a)") { feedWin.title() == "feed" }
+                feedRowOf(shell, feedWin, "popular")
+                shell.postGesture(EvenHubMsg.EV_CLICK)
+                waitFor("popular's list (restart a)") { feedWin.title() == "popular" && feedWin.itemsLoaded() }
+                quiet(shell, "restart-a-list")
+                repeat(16) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }
+                shell.postGesture(EvenHubMsg.EV_CLICK)
+                waitFor("item 16 (restart a)") { feedWin.title() == "article" && opened() == 1 }
+                quiet(shell, "restart-a-article")
+                repeat(2) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }
+                quiet(shell, "restart-a-place")
+                save(sim, out, "79a-feed-place-before-restart")
+            }
+            session("b") { shell, sim, feedWin ->
+                waitFor("the article restored") { feedWin.title() == "article" && opened() == 2 }
+                quiet(shell, "restart-b-article")
+                save(sim, out, "79b-feed-place-after-restart")
+                shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)  // → the list
+                shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)  // → the sources
+                waitFor("the sources (restart b)") { feedWin.title() == "feed" }
+                feedRowOf(shell, feedWin, "8bt")
+                shell.postGesture(EvenHubMsg.EV_CLICK)
+                waitFor("the archive (restart b)") { feedWin.title() == "8bt 1" }
+                quiet(shell, "restart-b-binge")
+                bingeToPage2(shell, feedWin, "restart-b")
+                save(sim, out, "80a-feed-binge-before-restart")
+            }
+            session("c") { shell, sim, feedWin ->
+                waitFor("the archive restored") { feedWin.title() == "8bt 2" }
+                quiet(shell, "restart-c-binge")
+                save(sim, out, "80b-feed-binge-after-restart")
+            }
+        } finally {
+            snapShell = before
+            tmp.toFile().deleteRecursively()
+        }
     }
 
     /** Rest Feed's source cursor on the row NAMED [id] — by identity, never by counting. */
