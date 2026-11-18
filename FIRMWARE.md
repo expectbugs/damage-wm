@@ -911,7 +911,7 @@ unknown. The design pass's records (the challenge, the prep, the focused read, t
 `private/c2-design/`.
 
 **The amendment of 2026-11-18 from the stock input model and its focused read (`C2-rulings.md` §9) is in the text
-below** (change log, 2026-11-18). A sentence marked (D0) filled a detail the rulings left open; the lead ruled each as written on 2026-11-18. The focused read of the report-only entry owed before any fork stage (`C2-rulings.md` §12, subject B) and the rulings on its stage's report (`C2-rulings.md` §13) are in the text too (change log, stage D1); a sentence marked (D1) filled a detail those rulings left open.
+below** (change log, 2026-11-18). A sentence marked (D0) filled a detail the rulings left open; the lead ruled each as written on 2026-11-18. The focused read of the report-only entry owed before any fork stage (`C2-rulings.md` §12, subject B) and the rulings on its stage's report (`C2-rulings.md` §13) are in the text too (change log, stage D1); a sentence marked (D1) filled a detail those rulings left open; the lead ruled each as written on 2026-11-18 (`C2-rulings.md` §13, §15).
 
 **What C2 carries, in six lines.** (1) A scroll — ids 4 and 5, ring swipes and temple slides alike — runs a bound
 program on both lenses at once; a ring single tap sends a report too when the phone's `Taps` setting says `report`,
@@ -1264,8 +1264,7 @@ there.
   the phone from its own data, Cancel at rest (`CONTRACT.md` §4.3, `DESIGN.md` §1.7); taps on a confirm go through the
   phone exactly as today.
 - **The `Taps` setting:** a Settings row beside `Long-press` — `phone` · `report` · `glasses` — kept on the PC record
-  with the phone's working copy; **its default is `report` (the lead's recommendation; Adam's call at the build's
-  start)**, `phone` the other candidate. It has effect only on a bit-10 build at stage 4. **`phone`:** no tap entry is
+  with the phone's working copy; **its default is `report`** (Adam, 2026-11-18, on the lead's recommendation), `phone` the other candidate. It has effect only on a bit-10 build at stage 4. **`phone`:** no tap entry is
   SET; a click acts on the phone's row as today. The residual: a tap inside the window between a lost scroll report and
   its correction acts on the phone's row, one before what the lens showed; an irreversible row still opens a confirm
   naming its target. **`report`:** one report-only tap entry (eventId 0, devType 4, step 0, the list's slot, prog
@@ -1433,7 +1432,7 @@ wait for C1's flash, soaks and feel session (`HANDOFF.md` §85's checklist):
 step, which C1's DRAW expresses with dxL ≠ dxR over a segment — and takes the highlight and brightness it has in
 today's design; the row it leaves goes back. **No size change of any kind** (a grow of the selected row was considered
 and cut). The press continuing forward until the window's first frame replaces it is expressible (the tap entry's
-program, holding until the slot's DISCARD after the act's first frame; his call E2). Main has 8 rows; the program —
+program, holding until the slot's DISCARD after the act's first frame; Adam took it on 2026-11-18, his call E2). Main has 8 rows; the program —
 the strip and one band form per row, today's highlight — was estimated at about 50–60 KB (I, `C2-amend-focus.md` §3,
 "Arithmetic"), and fields 27–29 decide whether it fits beside the 192 KiB atlas; its size is read at the build. The look
 itself is the phone's program, not this contract.
@@ -1804,5 +1803,6 @@ phone's keeper applies the hold-back rule before re-arming.
   §6.11 row; the fuzz's `Taps` switches and lost mode 27s, its sixth and seventh invariants (tap and scroll
   liveness) and the repair's seeded cases; an entry's presence is its own mark; what a dropped tap shows per `Taps` value (§6.7, §6.12);
   field 37 the last fire that drew; the report-only vectors; a done local counts for 17; a click from a tap that
-  matched no entry not counted in u. Sentences marked (D1) are this stage's fillings. Nothing built; contract version
-  unchanged.
+  matched no entry not counted in u. Sentences marked (D1) are this stage's fillings, each ruled as written on 2026-11-18. Adam's calls of that day are in
+  the text: `Taps` defaults to `report`, the press keeps coming forward until the window's first frame, and under
+  `report` a tap the phone does not act on shows nothing. Nothing built; contract version unchanged.
