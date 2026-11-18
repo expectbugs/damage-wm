@@ -101,9 +101,9 @@ object TmuxNet {
                 if (outbox.size > OUTBOX_CAP) {
                     // drop the oldest STATE-BEARING wire only (R2#11): a
                     // dropped tres parks the driver's id-correlated request
-                    // forever (no timeouts by law), a dropped talert is a
-                    // lost alert — both are non-re-derivable. State pushes
-                    // are; and this wire itself is one, so a victim exists.
+                    // forever (no timeouts by law) — it is non-re-derivable.
+                    // State pushes are; and this wire itself is one, so a
+                    // victim exists.
                     val victim = outbox.firstOrNull {
                         it.t == "tstat" || it.t == "tframe" || it.t == "tstate"
                     }
@@ -274,8 +274,7 @@ class RemoteTmuxProvider(
                             // healthy only on a KNOWN-GOOD frame (R3#2 + R4#3):
                             // flipping on the "err" refusal re-created the very
                             // flap the first-frame rule removed
-                            if (w.t == "tstat" || w.t == "tstate" || w.t == "tframe" ||
-                                w.t == "talert" || w.t == "tres") {
+                            if (w.t == "tstat" || w.t == "tstate" || w.t == "tframe" || w.t == "tres") {
                                 if (offlineSince != 0L) { offlineSince = 0; setState("") }
                             }
                             route(w)
@@ -311,7 +310,6 @@ class RemoteTmuxProvider(
                 val f = w.frame ?: return
                 for (l in listeners) l.frame(t, f)
             }
-            "talert" -> w.session?.let { s -> for (l in listeners) l.alert(s) }
             "tres" -> pending.remove(w.id)?.complete(w)
             // the host's in-band refusal: paced quiet retry, never "attached"
             "err" -> throw java.io.IOException(
