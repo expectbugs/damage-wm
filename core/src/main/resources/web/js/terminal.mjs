@@ -181,8 +181,14 @@ export function terminalSurface({ label, onBytes, onPaste, onFocus, onReady, onF
         term.blur();
         return false;
       }
+      // S1-3 fix A3, the browser's copy and paste: Ctrl+C with text selected copies (the selection then goes, so the
+      // next Ctrl+C is the session's) and Ctrl+V pastes through the paste rule; neither sends a byte
+      const ctrl = e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey;
+      if (ctrl && (e.keyCode === 86 || (e.keyCode === 67 && term.hasSelection()))) return false;
       return true;
     });
+    // after the library's own copy handler (on its element, inside this one) has put the selection on the clipboard
+    el.addEventListener('copy', () => { if (term) term.clearSelection(); });
     const wait = el.querySelector('.tm-xwait');
     if (wait) {
       if (sheetWhy) wait.textContent = `The terminal's style sheet did not load (${sheetWhy}); it may look wrong.`;

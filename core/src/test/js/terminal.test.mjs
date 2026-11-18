@@ -86,6 +86,20 @@ test('fix A2: the pane\'s terminal queries are not answered into his session, a 
   assert.equal(term.parser.hooks.osc.find(([n]) => n === 11)[1]('rgb:12/34/56'), false);
 });
 
+test('fix A3: with text selected Ctrl+C copies and sends nothing (the selection then goes); Ctrl+V pastes and sends no ^V', async () => {
+  const { s, got, term } = await surface();
+  const ctrl = (key) => term.key({ type: 'keydown', key, keyCode: key.toUpperCase().charCodeAt(0), ctrlKey: true });
+  term.selected = true;
+  ctrl('c');
+  assert.deepEqual(got.bytes, [], 'a copy, not an interrupt');
+  s.el.fire('copy');
+  assert.equal(term.hasSelection(), false, 'copied: the selection goes');
+  ctrl('c');
+  assert.deepEqual(got.bytes, ['\x03'], 'nothing selected: Ctrl+C is the session\'s');
+  ctrl('v');
+  assert.deepEqual(got.bytes, ['\x03'], 'Ctrl+V sends no ^V (the browser pastes through the paste rule)');
+});
+
 test('the font fits the pane\'s columns to the view, between the floor and the page\'s size; the pane\'s own size is kept', async () => {
   assert.equal(X.fitFont(800, 80, 0.6, 15), 15, 'room to spare: the page\'s size');
   assert.equal(X.fitFont(600, 80, 0.6, 15), 12.5);

@@ -23,6 +23,7 @@ export class Terminal {
     this.element = null;
     this.textarea = null;
     this.disposed = false;
+    this.selected = false;
     // the parser hooks, newest first as the library asks them; a hook that returns true takes the sequence
     const hooks = { csi: [], dcs: [], osc: [] };
     const reg = (kind) => (id, cb) => { hooks[kind].unshift([id, cb]); return { dispose() {} }; };
@@ -78,7 +79,8 @@ export class Terminal {
   }
   focus() { if (this.textarea) this.textarea.focus(); }
   blur() { if (this.textarea && this.textarea.blur) this.textarea.blur(); }
-  hasSelection() { return false; }
+  hasSelection() { return this.selected; }
+  clearSelection() { this.selected = false; }
   dispose() { this.disposed = true; if (this.element) this.element.remove(); }
 
   write(data) {
