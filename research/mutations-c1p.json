@@ -90,8 +90,8 @@
   "file": "transport/CfwTransportBase.kt",
   "edits": [
    [
-    "c1StageSay?.let { c1StageSay = null; emitNote(\"keeper\", it) }",
-    "c1StageSay?.let { c1StageSay = null }"
+    "c1StageSay = null; emitNote(\"keeper\", it); if (c1StageSayIsHoldBack)",
+    "c1StageSay = null; if (c1StageSayIsHoldBack)"
    ]
   ],
   "tests": [
@@ -99,7 +99,8 @@
   ],
   "expect": [
    "aStoredStageStartsAsAC1ProbeInTheSameProcessDoes_C1P",
-   "aStoredStageThatCannotBeUsedReadsAs0AndIsSaid_C1P"
+   "aStoredStageThatCannotBeUsedReadsAs0AndIsSaid_C1P",
+   "anUncaughtErrorInTheLastRunStepsAStoredStageDownTo0_C1P"
   ],
   "note": "build C1-P: the restore is not said"
  },
@@ -108,15 +109,16 @@
   "file": "transport/CfwTransportBase.kt",
   "edits": [
    [
-    "c1StageSay?.let { c1StageSay = null; emitNote(\"keeper\", it) }",
-    "c1StageSay?.let { emitNote(\"keeper\", it) }"
+    "c1StageSay = null; emitNote(\"keeper\", it); if (c1StageSayIsHoldBack)",
+    "emitNote(\"keeper\", it); if (c1StageSayIsHoldBack)"
    ]
   ],
   "tests": [
    "*MotionTransportTest*"
   ],
   "expect": [
-   "theProbeAndTheHoldBackStoreTheStageAndARestartStartsThere_C1P"
+   "theProbeAndTheHoldBackStoreTheStageAndARestartStartsThere_C1P",
+   "anUncaughtErrorInTheLastRunStepsAStoredStageDownTo0_C1P"
   ],
   "note": "build C1-P: the restore is said at every start"
  },
@@ -238,5 +240,127 @@
    "(no pin: only a power loss right after the write shows it)"
   ],
   "note": "build C1-P: the stored stage is not forced to disk"
+ },
+ {
+  "id": "P-c1p-stepdown-off",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        if (n > 0 && c1StageStepDown) {\n",
+    "        if (n > 0 && c1StageStepDown && false) {\n"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": [
+   "anUncaughtErrorInTheLastRunStepsAStoredStageDownTo0_C1P",
+   "theSameAgainPathOfTheUncaughtRecordStepsDownToo_C1P"
+  ],
+  "note": "build C1-P R1 §1: no step-down after an uncaught error (a, d)"
+ },
+ {
+  "id": "P-c1p-stepdown-unflagged",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        if (n > 0 && c1StageStepDown) {\n",
+    "        if (n > 0) {\n"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": [
+   "aStoredStageStartsAsAC1ProbeInTheSameProcessDoes_C1P",
+   "theProbeAndTheHoldBackStoreTheStageAndARestartStartsThere_C1P"
+  ],
+  "note": "build C1-P R1 §1: every restore steps down, with no uncaught error behind it (b)"
+ },
+ {
+  "id": "P-c1p-stepdown-at-0",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        if (n > 0 && c1StageStepDown) {\n",
+    "        if (n >= 0 && c1StageStepDown) {\n"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": [
+   "anUncaughtErrorInTheLastRunStepsAStoredStageDownTo0_C1P"
+  ],
+  "note": "build C1-P R1 §1: a stored 0 is stepped down and said (c)"
+ },
+ {
+  "id": "P-c1p-stepdown-write",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "try { wm.damage.core.shell.Persistence.writeAtomic(f, \"0\\n\", sync = true); \"\" }",
+    "try { \"\" }"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": [
+   "anUncaughtErrorInTheLastRunStepsAStoredStageDownTo0_C1P",
+   "theSameAgainPathOfTheUncaughtRecordStepsDownToo_C1P"
+  ],
+  "note": "build C1-P R1 §1: the step-down is not stored (the file keeps n)"
+ },
+ {
+  "id": "P-c1p-stepdown-fault",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "; if (c1StageSayIsHoldBack) emitFault(\"holdback\", it)",
+    ""
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": [
+   "anUncaughtErrorInTheLastRunStepsAStoredStageDownTo0_C1P"
+  ],
+  "note": "build C1-P R1 §1: the step-down is a note only, no holdback fault"
+ },
+ {
+  "id": "P-c1p-probe-clears-say",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "                c1StageSay = null       // C1-P R1 §2 (A 2.2)",
+    "                // C1-P R1 §2 (A 2.2)"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": [
+   "anUncaughtErrorInTheLastRunStepsAStoredStageDownTo0_C1P"
+  ],
+  "note": "build C1-P R1 §2 (A 2.2): a c1 probe before the first start leaves the creation's note standing"
+ },
+ {
+  "id": "P-c1p-pending-read",
+  "file": "util/UncaughtRecord.kt",
+  "edits": [
+   [
+    "fun isPending(dir: Path): Boolean = Files.isRegularFile(dir.resolve(PENDING))",
+    "fun isPending(dir: Path): Boolean = false"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": [
+   "theSameAgainPathOfTheUncaughtRecordStepsDownToo_C1P"
+  ],
+  "note": "build C1-P R1 §1 (d): the pending record is not read"
  }
 ]
