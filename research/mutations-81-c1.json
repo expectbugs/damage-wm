@@ -149,7 +149,7 @@
    "*SilentStartTest*"
   ],
   "expect": [
-   "everyVectorMatchesOnBothLenses"
+   "MotionSimTest.modes25And26AreDecidedByTheirContainerFirstAtEveryDepth_R6_B61"
   ],
   "note": "§5.5: a batch admits 26 only on an engine build (elsewhere the batch refuses it 8, with no handler reached)"
  },
@@ -171,7 +171,7 @@
    "*SilentStartTest*"
   ],
   "expect": [
-   "everyVectorMatchesOnBothLenses"
+   "MotionSimTest.theRidersAndTheInstalledBuild_5_9"
   ],
   "note": "§5.1: mode 26 has a handler only on a bit-7 build (installed image: no handler)"
  },
@@ -193,7 +193,7 @@
    "*SilentStartTest*"
   ],
   "expect": [
-   "everyVectorMatchesOnBothLenses"
+   "MotionSimTest.theRidersAndTheInstalledBuild_5_9"
   ],
   "note": "§5.9: mode 25 has a handler only on a bit-8 build"
  },
@@ -391,7 +391,7 @@
    "*SilentStartTest*"
   ],
   "expect": [
-   "releasePointsEndEveryInstanceWithNoNotifyAndALiveKeyframeClosesThemFirst_A7_A8"
+   "ConformanceVectorTest.everyVectorMatchesOnBothLenses"
   ],
   "note": "§5.6: a lease that ends (leaseEnded) ends every instance"
  },
@@ -462,7 +462,7 @@
    "*DamageMsgTest*"
   ],
   "expect": [
-   "noMode25Or26ReachesTheWireWithoutTheLaddersBits_6_2"
+   "eachC1FlagIsAFlagOnlyOnTheBuildThatReportsItsFeature_DM1"
   ],
   "note": "§5.8: only a bit-7 build implements flag bit 3 (the installed image strips it)"
  },
@@ -690,7 +690,7 @@
    "*DamageMsgTest*"
   ],
   "expect": [
-   "everyVectorMatchesOnBothLenses"
+   "anAreaOnePixelPastThePanelsEdgeIsRefusedTwo_DM1"
   ],
   "note": "§5.5 reason 2: an area off the panel (right edge moved by one)"
  },
@@ -781,7 +781,7 @@
    "*Draw2SessionTest*"
   ],
   "expect": [
-   "theRidersAndTheInstalledBuild_5_9"
+   "Draw2SessionTest.aSizeOutsideTheBudgetFallsBackWithoutDraw2"
   ],
   "note": "§5.9: a reported size past 160 KiB is taken only from a bit-8 build"
  },
@@ -808,7 +808,7 @@
    "*DamageMsgTest*"
   ],
   "expect": [
-   "aCloseRidesOnlyWhileEngineIsInForce_BN5"
+   "theC1EncodersRefuseLoudlyPastTheirBounds_DM1"
   ],
   "note": "§5.5: the batch encoder takes 26 only where ENGINE is in force"
  },
@@ -901,7 +901,7 @@
    "*DamageMsgTest*"
   ],
   "expect": [
-   "theWireNamesC1sFieldsAndParsesANotify_5_8"
+   "theC1EncodersRefuseLoudlyPastTheirBounds_DM1"
   ],
   "note": "§5.9: mode 25 deflates a mode-19 message only"
  },
@@ -928,7 +928,7 @@
    "*DamageMsgTest*"
   ],
   "expect": [
-   "theWireNamesC1sFieldsAndParsesANotify_5_8"
+   "theC1EncodersRefuseLoudlyPastTheirBounds_DM1"
   ],
   "note": "§5.9: a list past 16,384 B is not deflated as mode 25 (bound moved by one)"
  },
@@ -955,7 +955,7 @@
    "*DamageMsgTest*"
   ],
   "expect": [
-   "aStage2SessionsAtlasLaysOutOverTheWiderCache_6_1"
+   "theC1EncodersRefuseLoudlyPastTheirBounds_DM1"
   ],
   "note": "§5.9: an atlas is laid out over at most the build's own cache"
  },
@@ -1068,7 +1068,7 @@
    "*SilentStartTest*"
   ],
   "expect": [
-   "aHoldBackDropsFromWhatTheBuildArmed_BN4"
+   "MotionTransportTest.eachLadderStageAddsOnlyItsOwnChange_6_2"
   ],
   "note": "spec §6.1 / FEATURE_ENGINE: ENGINE only on a bit-7 build"
  },
@@ -1139,7 +1139,7 @@
    "*DamageMsgTest*"
   ],
   "expect": [
-   "theInstalledImageAndAStage0C1BuildWriteTodaysStart_6_2"
+   "onTheInstalledImageAHandSetFlagsProbeGoesOutAsAsked_DM1"
   ],
   "note": "spec §6.2: a build is C1 only with feature bit 7 or 8"
  },
@@ -1166,7 +1166,7 @@
    "*DamageMsgTest*"
   ],
   "expect": [
-   "theHoldBackDropsOneStageAndKeepsTheRest_6_1"
+   "aResetAfterAnArmingWithoutTheLadderArmsNoneOfItThenOrNext_DM1"
   ],
   "note": "spec §6.1: a reset after an arming that carried none of the ladder: the ladder adds nothing this start"
  },
@@ -1303,7 +1303,7 @@
    "*DamageMsgTest*"
   ],
   "expect": [
-   "theHoldBackDropsOneStageAndKeepsTheRest_6_1"
+   "aResetOutsideTheHoldBackWindowLeavesTheStage_DM1"
   ],
   "note": "FORK.md §3.2: only a reset within HOLD_BACK_MS of the arming holds back"
  },
@@ -1352,7 +1352,7 @@
    "*DamageMsgTest*"
   ],
   "expect": [
-   "aHoldBackDropsFromWhatTheBuildArmed_BN4"
+   "aSizeRungTheSessionDidNotGetIsNotCounted_DM1"
   ],
   "note": "B-N4: the size rung counts only when the session got 256"
  },
@@ -1449,7 +1449,7 @@
    "*DamageMsgTest*"
   ],
   "expect": [
-   "theHoldBackDropsOneStageAndKeepsTheRest_6_1"
+   "(no pin, DM1: reached only when a RIGHT reset is seen by a read of the same start after ladderAtStart, which needs RIGHT to restart without its link ending)"
   ],
   "note": "a reset seen only by the arming's read-back drops one ladder stage, not the whole wish"
  },
@@ -1476,7 +1476,7 @@
    "*DamageMsgTest*"
   ],
   "expect": [
-   "eachLadderStageAddsOnlyItsOwnChange_6_2"
+   "aResetAfterAnArmingWithoutTheLadderArmsNoneOfItThenOrNext_DM1"
   ],
   "note": "§5.8/§5.9: the ladder's bits ride only with DRAW2"
  },
@@ -1498,7 +1498,7 @@
    "*SilentStartTest*"
   ],
   "expect": [
-   "eachLadderStageAddsOnlyItsOwnChange_6_2"
+   "MotionTransportTest.aLadderBitArmedByHandRecordsItsStage_BM1"
   ],
   "note": "spec §6.1: on a C1 build a wish never carries ZWRITE/ENGINE past the stage"
  },
@@ -1569,7 +1569,7 @@
    "*DamageMsgTest*"
   ],
   "expect": [
-   "aDisarmOfEngineClosesEveryInstanceFirst_5_8"
+   "aDisarmWhoseCloseDidNotLandIsNotSent_DM1"
   ],
   "note": "§5.8: the disarm goes only once the CLOSE is acked"
  },
@@ -1662,7 +1662,7 @@
    "*DamageMsgTest*"
   ],
   "expect": [
-   "aWriteThatMeetsAnOpenAreaClosesItInItsBatch_5_6"
+   "(no pin, DM1: a request with a keyframe gets no CLOSE either way in effect: the keyframe closes every instance itself (A.8); unguarded, a batch with a keyframe and a write that meets an area carries a redundant CLOSE sub)"
   ],
   "note": "A.8: a keyframe closes every instance itself; no CLOSE is added"
  },
@@ -1711,7 +1711,7 @@
    "*DamageMsgTest*"
   ],
   "expect": [
-   "aWriteThatMeetsAnOpenAreaClosesItInItsBatch_5_6"
+   "theCloseRuleReadsEachLensAndAGlyphRunToTheEdges_DM1"
   ],
   "note": "§5.6: meet is decided per lens (each lens's write against that lens's area)"
  },
@@ -1738,7 +1738,7 @@
    "*DamageMsgTest*"
   ],
   "expect": [
-   "aWriteThatMeetsAnOpenAreaClosesItInItsBatch_5_6"
+   "theCloseRuleReadsEachLensAndAGlyphRunToTheEdges_DM1"
   ],
   "note": "§5.6: a cached glyph run counts from its origin to the panel edges"
  },
@@ -1765,7 +1765,7 @@
    "*DamageMsgTest*"
   ],
   "expect": [
-   "theShellTellsTheCompositorWhileAnInstanceIsOpen_BN5"
+   "whileAMotionInstanceIsOpenTheBatchKeepsOneSubMessageForTheClose_BN5"
   ],
   "note": "B-N5: the compositor keeps one sub back while an instance is open"
  },
@@ -1814,7 +1814,7 @@
    "*DamageMsgTest*"
   ],
   "expect": [
-   "aNotifyIsComparedWithTheMirrorAndAGapIsJournaled_6_4"
+   "anEndCrcThatDisagreesKeyframesTheShell_DM1"
   ],
   "note": "spec §6.4: a motion divergence keyframes"
  },
@@ -1956,7 +1956,7 @@
    "*DamageMsgTest*"
   ],
   "expect": [
-   "aRefusedMode25GoesAgainAsMode19AndTheCountMovesByOne_5_9"
+   "theMode25JudgesBounds_DM1"
   ],
   "note": "§5.9: a list past 16,384 B goes as mode 19"
  },
@@ -1983,7 +1983,7 @@
    "*DamageMsgTest*"
   ],
   "expect": [
-   "aRefusedMode25GoesAgainAsMode19AndTheCountMovesByOne_5_9"
+   "theMode25JudgesBounds_DM1"
   ],
   "note": "spec §2 row 23: one mode 25 waits for its judge at a time"
  },
@@ -2032,7 +2032,7 @@
    "*DamageMsgTest*"
   ],
   "expect": [
-   "aRefusedMode25GoesAgainAsMode19AndTheCountMovesByOne_5_9"
+   "(no pin, DM1: reached only when a refusal record naming 25 predates the waiting message with mode 25 still on, i.e. a start whose fid-ring clear did not clear RIGHT's record)"
   ],
   "note": "only a NEW record naming 25 is the waiting message's refusal"
  },
@@ -2059,7 +2059,7 @@
    "*DamageMsgTest*"
   ],
   "expect": [
-   "aRefusedMode25GoesAgainAsMode19AndTheCountMovesByOne_5_9"
+   "theMode25JudgesBounds_DM1"
   ],
   "note": "a 25 refusal with nothing waiting turns mode 25 off too"
  },
@@ -2174,8 +2174,35 @@
    "*DamageMsgTest*"
   ],
   "expect": [
-   "threeCacheWritesRefused14InARowAreSaidOncePerSession_AS1"
+   "cacheWritesRefusedForAnotherReasonAreNotSaidAsBusy_DM1"
   ],
   "note": "A-S1: only reason 14 counts; another reason ends the run"
+ },
+ {
+  "id": "S-flags-zwrite",
+  "file": "sim/GlassFirmwareSim.kt",
+  "edits": [
+   [
+    "(if (ridersBuild()) Fw.FLAG_ZWRITE else 0)",
+    "Fw.FLAG_ZWRITE"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
+  ],
+  "expect": [
+   "eachC1FlagIsAFlagOnlyOnTheBuildThatReportsItsFeature_DM1"
+  ],
+  "note": "§5.9: only a bit-8 build implements flag bit 5 (the twin of S-flags-engine, added with its pin)"
  }
 ]
