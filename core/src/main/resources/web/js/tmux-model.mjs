@@ -243,9 +243,6 @@ export class Feed {
     this.ended = null;
     this.renamed = null;
     this.lateMs = 0;
-    this.drawn = true;
-    this.skipped = 0; // pictures replaced by a newer one before this page drew them, since the last draw
-    this.lastSkipped = 0; // …at the last draw (what the status line says)
   }
   got(m, pcNow) {
     // S1-3 fix C2: the PC let this view go (no ping reached it) on a socket still up — the session goes on: ask again
@@ -272,16 +269,8 @@ export class Feed {
   }
   /** A picture to draw; a frame (pushed when the pane changed, so taken just before) measures how late it came. */
   take(f, pcNow) {
-    if (!this.drawn) this.skipped++;
     this.frame = f;
-    this.drawn = false;
     this.lateMs = pcNow !== null && num(f.capturedAt) !== null ? Math.max(0, pcNow - f.capturedAt) : 0;
-  }
-  /** The newest picture was drawn: the pictures it replaced unseen are said until the next draw. */
-  drew() {
-    this.lastSkipped = this.skipped;
-    this.skipped = 0;
-    this.drawn = true;
   }
 }
 
@@ -294,9 +283,8 @@ export function feedLine(feed, { reach, pcNow, pcOffset = 0 }) {
   if (reach && !reach.ok) return { cls: 'bad', text: `PC not answering since ${hhmm(reach.since)}: nothing is sent${at}.` };
   if (feed.stale === 'reconnect') return { cls: 'warn', text: `Connected again: asking the PC for a fresh picture${at}.` };
   if (!f) return { cls: 'note', text: 'Waiting for the first picture from the PC…' };
-  const skipped = feed.lastSkipped ? ` · ${plural(feed.lastSkipped, 'picture')} came faster than this page draws; the newest is shown` : '';
-  if (feed.lateMs > LATE_MS) return { cls: 'warn', text: `Behind: this picture reached the page ${dur(feed.lateMs)} after the PC took it${skipped}.` };
-  return { cls: 'note', text: `Live${skipped}` };
+  if (feed.lateMs > LATE_MS) return { cls: 'warn', text: `Behind: this picture reached the page ${dur(feed.lateMs)} after the PC took it.` };
+  return { cls: 'note', text: 'Live' };
 }
 
 // ---- history (B9: the 1,000-line capture as lines of colour runs) ----

@@ -287,10 +287,7 @@ export function tmuxView(ctx) {
       // the terminal writes every message in order (an init resets it)
       if (r === 'draw' || r === 'data') {
         surface.take(m);
-        if (r === 'draw') {
-          feed.drew();
-          drawStatus();
-        }
+        if (r === 'draw') drawStatus();
       }
     } else if (r === 'draw') scheduleDraw();
   }
@@ -311,7 +308,6 @@ export function tmuxView(ctx) {
       drawTimer = null;
       if (!surface || !feed.frame || surface.feed !== 'frame') return;
       surface.take(feed.frame);
-      feed.drew();
       drawStatus();
     }, 0);
   }
@@ -573,10 +569,7 @@ export function tmuxView(ctx) {
     const e = els.session;
     root.className = `page tmux at-session${isPhone ? ' phone' : ''}`;
     fill(root, e.head, e.status, surface.el, e.dock, e.more);
-    if (feed.frame && surface.feed === 'frame' && !feed.frame.data) {
-      surface.take(feed.frame);
-      feed.drew();
-    }
+    if (feed.frame && surface.feed === 'frame' && !feed.frame.data) surface.take(feed.frame);
   }
 
   function drawSession() {

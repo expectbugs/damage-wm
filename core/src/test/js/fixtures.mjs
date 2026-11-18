@@ -78,7 +78,7 @@ export const fixtures = {
   scope: (s) => torrentsScope(s) || filesScope(s) || feedScope(s) || tmuxScope(s),
   records: { torrents: torrentsRecord, files: () => filesRecord(), feed: () => feedRecord(), tmux: () => tmuxRecord() },
   // S1-3: a live source's messages (Tmux's frames and its terminal stream)
-  live: (scope, scene) => tmuxLive(scope, scene),
+  live: (scope) => tmuxLive(scope),
   // S1-3: Feed's pictures, drawn by the fixtures (comics, an archive page, an article's chart)
   blob: (id) => feedBlobs()[id],
   // S1-3: what another device or a session does while a page is open (the stand-in's `/__push?name=`)
@@ -211,7 +211,7 @@ function filesScenes() {
 /** S1-3 (B17): Tmux — the sessions, each fixture frame (a shell, a full-screen editor, wide characters and box drawing,
  *  a program waiting with the quick keys; at a desk in the terminal from the stream's init, at a phone's width from the
  *  pictures), the history, typing into the terminal and its output, the typed line's, the paste's and the end's
- *  confirms, a burst of pictures, out of reach, a device below full, a desk whose PC serves no terminal library; the
+ *  confirms, out of reach, a device below full, a desk whose PC serves no terminal library; the
  *  glass theme's versions of the frames. `tmux-typing` is a desk's scene (LOOK_SIZES=desk). */
 function tmuxScenes() {
   const t = (target) => format({ window: 'tmux', target });
@@ -239,7 +239,6 @@ function tmuxScenes() {
     'tmux-paste-confirm': { path: t('session:workstation:shell'), steps: [drawn, { paste: '.tm-term.tm-xterm, .tm-in', text: 'cd ~/src/kettle\nmake clean\nmake package\n' }, { wait: 'dialog[open]' }] },
     'tmux-end-confirm': { path: t('session:workstation:shell'), steps: [drawn, { click: '.tm-acts button.danger' }, { wait: 'dialog[open]' }] },
     'tmux-end-act': { path: t('session:workstation:shell'), steps: [drawn, { click: '.tm-acts button.danger' }, { wait: 'dialog[open]' }, { click: 'dialog[open] button.act' }, { wait: '.tm-list .tm-sess' }] },
-    'tmux-burst': { path: t('session:workstation:tables'), burst: 40, noXterm: true, steps: [drawn] },
     'tmux-away': { path: t('session:workstation:shell'), steps: [drawn, { fetch: '/__away' }, { wait: '#reach:not([hidden])' }] },
     'tmux-below': { path: '/w/tmux', level: 'control', steps: [{ wait: '.page.tmux .note' }] },
     'tmux-nolib': { path: t('session:workstation:shell'), noXterm: true, steps: [{ wait: '.tm-rows .tm-row .tm-s' }, { wait: '.tm-line.warn, .tm-line' }] },

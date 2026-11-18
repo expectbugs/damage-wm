@@ -105,15 +105,12 @@ test('a live source: an init draws, every frame draws (one socket is ordered: no
   assert.equal(f.got({ frame: fr }, T_NOW), 'draw', 'a frame is a whole picture');
   assert.equal(f.got({ init: fr }, T_NOW), 'draw');
   assert.equal(f.lateMs, 0, 'an init may carry an idle session\'s last picture: its age is not lateness');
-  f.drew();
   f.stale = 'reconnect';
   assert.match(M.feedLine(f, { reach: { ok: true }, pcNow: T_NOW }).text, /Connected again/);
   assert.equal(f.got({ init: fr }, T_NOW), 'draw');
   assert.equal(f.stale, null, 'the fresh init');
-  for (let i = 0; i < 6; i++) f.got({ frame: { ...fr, capturedAt: T_NOW } }, T_NOW);
-  f.drew();
-  assert.equal(f.lastSkipped, 6, 'seven pictures, one drawn: six came faster than the page draws');
-  assert.match(M.feedLine(f, { reach: { ok: true }, pcNow: T_NOW }).text, /^Live · 6 pictures came faster than this page draws; the newest is shown$/);
+  f.got({ frame: { ...fr, capturedAt: T_NOW } }, T_NOW);
+  assert.match(M.feedLine(f, { reach: { ok: true }, pcNow: T_NOW }).text, /^Live$/);
   f.got({ frame: { ...fr, capturedAt: T_NOW - 9000 } }, T_NOW);
   assert.match(M.feedLine(f, { reach: { ok: true }, pcNow: T_NOW }).text, /Behind: this picture reached the page 9 s after the PC took it/);
   assert.equal(f.got({ data: 'aGk=' }, T_NOW), 'data');

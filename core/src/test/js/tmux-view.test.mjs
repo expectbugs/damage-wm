@@ -259,7 +259,7 @@ test('a PC whose build names no Tmux contract is never asked for it', async () =
   assert.match(main(p).textContent, /the PC's build has no Tmux page yet/);
 });
 
-test('the pictures at a phone\'s width: logical lines flowed, the cursor a tail mark; frames faster than the page draws are drawn newest-only and said', async () => {
+test('the pictures at a phone\'s width: logical lines flowed, the cursor a tail mark; frames faster than the page draws are drawn newest-only', async () => {
   const { p, ws, timers } = await pictures();
   assert.ok(byClass(p, 'tm-term').classList.contains('flow'));
   const rows = allClass(p, 'tm-row');
@@ -270,7 +270,6 @@ test('the pictures at a phone\'s width: logical lines flowed, the cursor a tail 
   for (let i = 2; i <= 6; i++) ws.frame({ t: 'live', src: FRAMES('shell'), frame: { ...f, lines: [[{ t: `picture ${i}` }]], capturedAt: T_NOW } });
   timers.fire(0);
   assert.equal(allClass(p, 'tm-row')[0].textContent.trimEnd(), 'picture 6', 'the newest');
-  assert.match(status(p), /4 pictures came faster than this page draws; the newest is shown/);
   // a full-screen program: its rows as a grid at its own size
   ws.frame({ t: 'live', src: FRAMES('shell'), frame: editorFrame() });
   timers.fire(0);

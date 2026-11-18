@@ -222,14 +222,12 @@ export const OUTPUT = 'make package\r\n\x1b[32m[ok]\x1b[0m  packaged kettle-0.4.
 export const streamData = (text) => b64(text);
 
 /** The stand-in's `live` messages for a source: a fresh `init` (frames: the picture; the stream: the pane as
- *  captured), then a scene's burst of frames (`burst`: the page draws only the newest). */
-export function tmuxLive(scope, scene = {}) {
+ *  captured). */
+export function tmuxLive(scope) {
   let m = /^live\/tmux\/frame\/(.+)\/([^/]+)$/.exec(scope);
   if (m) {
     const f = frameOf(m[2]);
-    const out = [{ t: 'live', src: scope, init: f }];
-    if (scene.burst) for (let i = 0; i < scene.burst; i++) out.push({ t: 'live', src: scope, frame: { ...f, capturedAt: T_NOW + i } });
-    return out;
+    return [{ t: 'live', src: scope, init: f }];
   }
   m = /^live\/tmux\/stream\/(.+)\/([^/]+)$/.exec(scope);
   if (m) return [{ t: 'live', src: scope, init: streamInit(m[2]) }];
