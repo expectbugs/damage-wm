@@ -64,7 +64,8 @@ object Snapshot {
         val sim = GlassFirmwareSim()
         val transport = SimTransport(sim, scope, SimTransport.Timing(instant = true))
         val text = wm.damage.core.comp.CachedText(AwtText())
-        val shell = Shell(text, transport, Persistence(tmp.resolve("state.json")), out.resolve(JOURNAL), scope)
+        val persistence = Persistence(tmp.resolve("state.json"))
+        val shell = Shell(text, transport, persistence, out.resolve(JOURNAL), scope)
         snapShell = shell
         // theme icons for the eyeball scenes (2026-09-01): the REAL desktop
         // theme (Papirus-Dark on beardos), drawn fallbacks where it misses
@@ -91,7 +92,8 @@ object Snapshot {
             wm.damage.core.app.LocalWindowSource(pcCore, wm.damage.core.app.HostBackend(pcRecord,
                 wm.damage.core.app.Peer.LOCAL.device, wm.damage.core.app.OpQueue.newStream())), scope, AwtImages())
         shell.register(reader)
-        val tmuxWin = wm.damage.core.windows.tmux.TmuxWindow(text, ScriptedTmux(), scope)
+        val tmuxScripted = ScriptedTmux()
+        val tmuxWin = wm.damage.core.windows.tmux.TmuxWindow(text, tmuxScripted, scope)
         shell.register(tmuxWin)
         // build S1-2 J0: the real provider over the books, with a made-up folder and trash shown from the Files
         // scenes on (`SceneFiles`; the locations are the real provider's until then)
@@ -135,8 +137,14 @@ object Snapshot {
         // (review 2026-09-05).
         gamesWin.roster.worldSeed = 20260905L
         shell.register(gamesWin)
-        val feedScripted = wm.damage.core.windows.feed.ScriptedFeed()
-        val feedWin = wm.damage.core.windows.feed.FeedWindow(text, feedScripted, scope)
+        // build S1-3 J: Feed on the scene's clock — the scripted feed's stamps and the window's clock from one fixed
+        // instant that only the script moves — so every age, flag stamp and archive date reads the same in every run
+        // (on the wall clock "fetched 4m ago" turned "5m" once a run took a minute to reach it); the provider counted
+        // so a scene waits for its answers ([SceneFeed])
+        val feedClock = SceneClock(FEED_T0)
+        val feedScripted = wm.damage.core.windows.feed.ScriptedFeed(nowMs = FEED_T0)
+        val feedProvider = SceneFeed(feedScripted)
+        val feedWin = wm.damage.core.windows.feed.FeedWindow(text, feedProvider, scope, clock = feedClock::now)
         shell.register(feedWin)
         /** Open the Games menu row LABELLED [label] — by name, never by counting. */
         suspend fun gamesMenu(label: String) {
@@ -170,23 +178,7 @@ object Snapshot {
         settle(shell)
         shell.postGesture(EvenHubMsg.EV_CLICK)
         settle(shell)
-        save(sim, out, "09b-tmux-sessions")
-        shell.postGesture(EvenHubMsg.EV_CLICK)             // open 'claude'
-        settle(shell)
-        save(sim, out, "09c-tmux-live")
-        shell.postGesture(EvenHubMsg.EV_SCROLL_TOP)        // scroll-up IS scrollback
-        waitFor("tmux history") { tmuxWin.title().contains("history") }
-        settle(shell)
-        save(sim, out, "09d-tmux-history")
-        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // -> live
-        settle(shell)
-        shell.postGesture(EvenHubMsg.EV_CLICK)             // -> keys
-        settle(shell)
-        save(sim, out, "09e-tmux-keys")
-        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // keys -> live
-        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // live -> sessions
-        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // sessions -> Main
-        settle(shell)
+        tmuxScenes(shell, sim, out, tmuxWin)
 
         // Files (2026-09-01): locations with capacity bars, a browse listing
         // with per-type theme icons, the floating context menu. The Main
@@ -347,6 +339,8 @@ object Snapshot {
         // Settings → Torrents and Settings → Files (build S1-2 J0): the two windows this build converts
         settingsCategoryScene(shell, sim, out, "Torrents", "37c-torrents-settings")
         settingsCategoryScene(shell, sim, out, "Files", "37d-files-settings")
+        // Settings → Feed and Settings → Tmux (build S1-3 J): the two windows S1-3 converts, at their defaults
+        feedTmuxSettingsScenes(shell, sim, out)
         repeat(2) { shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK) }    // → categories → Main
         settle(shell)
         shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)     // cursor home (Reader)
@@ -491,6 +485,9 @@ object Snapshot {
         settle(shell, "games")
 
         feedScenes(shell, sim, out, feedWin, feedScripted, ::toWindow, ::iconsSettled)
+        // build S1-3 J: the states S1-3's presenters move onto the PC record (spec B6, B14), each ending on Main
+        feedMoreScenes(shell, sim, out, transport, feedWin, feedScripted, feedProvider, feedClock, persistence, ::toWindow)
+        tmuxMoreScenes(shell, sim, out, tmuxWin, tmuxScripted, ::toWindow)
 
         shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // silent
         settle(shell)
@@ -556,7 +553,8 @@ object Snapshot {
         val sim = GlassFirmwareSim()
         val transport = SimTransport(sim, scope, SimTransport.Timing(instant = true))
         val text = wm.damage.core.comp.CachedText(AwtText())
-        val shell = Shell(text, transport, Persistence(tmp.resolve("state.json")), out.resolve(JOURNAL), scope)
+        val persistence = Persistence(tmp.resolve("state.json"))
+        val shell = Shell(text, transport, persistence, out.resolve(JOURNAL), scope)
         val before = snapShell
         snapShell = shell
         val icons = ThemeIcons(AwtImages(), tmp.resolve("icons"), onLoaded = { shell.requestRepaint() })
@@ -575,7 +573,9 @@ object Snapshot {
         onLibraryChanged = { reader.libraryChanged() }
         shell.register(reader)
         // every other window as in the first arrangement (the same order, the same scripted sources, the same seed)
-        shell.register(wm.damage.core.windows.tmux.TmuxWindow(text, ScriptedTmux(), scope))
+        val tmuxScripted = ScriptedTmux()
+        val tmuxWin = wm.damage.core.windows.tmux.TmuxWindow(text, tmuxScripted, scope)
+        shell.register(tmuxWin)
         // S1-2 Q5: Files' presenter over the phone's working copy, its calls through the window channel into a temp
         // listing cache (the phone's own provider), as the phone builds it
         val filesCore = wm.damage.core.windows.files.FilesCore()
@@ -605,7 +605,12 @@ object Snapshot {
         val gamesWin = wm.damage.core.windows.games.GamesWindow(text, scope)
         gamesWin.roster.worldSeed = 20260905L
         shell.register(gamesWin)
-        shell.register(wm.damage.core.windows.feed.FeedWindow(text, wm.damage.core.windows.feed.ScriptedFeed(), scope))
+        // build S1-3 J: Feed on its own scene clock from the same instant as the first arrangement's
+        val feedClock = SceneClock(FEED_T0)
+        val feedScripted = wm.damage.core.windows.feed.ScriptedFeed(nowMs = FEED_T0)
+        val feedProvider = SceneFeed(feedScripted)
+        val feedWin = wm.damage.core.windows.feed.FeedWindow(text, feedProvider, scope, clock = feedClock::now)
+        shell.register(feedWin)
         try {
             shell.start()
             // the phone's shelf comes over the lane: the first arrangement's scan lands before its first scene, so this
@@ -659,6 +664,8 @@ object Snapshot {
             // on the working copy and its calls through the window channel (the base's scenes of the same names judge them)
             settingsCategoryScene(shell, sim, out, "Files", "37d-files-settings")
             filesLine(wc)?.let { failures.add("phone arrangement: the builds differ ($it)") }
+            // build S1-3 J: Settings → Feed and Settings → Tmux, as the first arrangement takes them
+            feedTmuxSettingsScenes(shell, sim, out)
             repeat(2) { shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK) }    // → categories → Main
             settle(shell, "phone-files-main")
             walkTo(shell, "files", "phone-files")
@@ -676,6 +683,19 @@ object Snapshot {
             shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // cancel the menu
             settle(shell)
             filesMoreScenes(shell, sim, out, filesWin, phoneFiles, iconsSettled = { iconsSettled() })
+
+            // build S1-3 J: Tmux's and Feed's scenes, the first arrangement's steps (09b–09m, 60–78): the presenters S1-3
+            // moves onto the working copy are judged here against today's windows. The ages are stamped afresh first:
+            // this arrangement reaches Tmux about half a minute after its provider was made.
+            val toWindow: suspend (String) -> Unit = { id -> toWindowFrom(shell, id, "phone-$id") }
+            tmuxScripted.restamp(waiting = false)
+            toWindow("tmux")
+            waitFor("tmux sessions (phone)") { tmuxWin.title() == "sessions" }
+            settle(shell, "phone-tmux")
+            tmuxScenes(shell, sim, out, tmuxWin)
+            feedScenes(shell, sim, out, feedWin, feedScripted, toWindow, iconsSettled = { iconsSettled() })
+            feedMoreScenes(shell, sim, out, transport, feedWin, feedScripted, feedProvider, feedClock, persistence, toWindow)
+            tmuxMoreScenes(shell, sim, out, tmuxWin, tmuxScripted, toWindow)
         } finally {
             shell.stop()
             filesWin.detach()
@@ -805,6 +825,19 @@ object Snapshot {
     /** The Settings → Reader scene (37b), by Settings' `cat:` deep link, from wherever the shell is in Settings. */
     private suspend fun readerSettingsScene(shell: Shell, sim: GlassFirmwareSim, out: Path) =
         settingsCategoryScene(shell, sim, out, "Reader", "37b-reader-settings")
+
+    /**
+     * Build S1-3 J: Settings → Feed (37e, the cursor on its first row as the deep link leaves it; 37g, seven rows down,
+     * where Fetch, Keep, `PC loss` and the three Notify rows show — the category's rows below 37e's screen) and
+     * Settings → Tmux (37f, all of it), every row at its default. From wherever the shell is in Settings.
+     */
+    private suspend fun feedTmuxSettingsScenes(shell: Shell, sim: GlassFirmwareSim, out: Path) {
+        settingsCategoryScene(shell, sim, out, "Feed", "37e-feed-settings")
+        repeat(7) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }
+        settle(shell, "feed-settings-lower")
+        save(sim, out, "37g-feed-settings-lower")
+        settingsCategoryScene(shell, sim, out, "Tmux", "37f-tmux-settings")
+    }
 
     /** A Settings category's scene, by Settings' `cat:` deep link, from wherever the shell is in Settings. */
     private suspend fun settingsCategoryScene(shell: Shell, sim: GlassFirmwareSim, out: Path, cat: String, name: String) {
@@ -1080,6 +1113,323 @@ object Snapshot {
         settle(shell, "feed")
 
     }
+
+    /**
+     * Tmux's scenes 09b to 09e (TMUX.md): the sessions, the live pane with the inverted cursor, the wrapped history,
+     * the keys level — the same steps in both arrangements (build S1-3 J moved them here from `script`, unchanged).
+     * Starts on the sessions list just opened from Main; ends on Main with the cursor on Tmux.
+     */
+    private suspend fun tmuxScenes(shell: Shell, sim: GlassFirmwareSim, out: Path, tmuxWin: wm.damage.core.windows.tmux.TmuxWindow) {
+        save(sim, out, "09b-tmux-sessions")
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // open 'claude'
+        settle(shell)
+        save(sim, out, "09c-tmux-live")
+        shell.postGesture(EvenHubMsg.EV_SCROLL_TOP)        // scroll-up IS scrollback
+        waitFor("tmux history") { tmuxWin.title().contains("history") }
+        settle(shell)
+        save(sim, out, "09d-tmux-history")
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // -> live
+        settle(shell)
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // -> keys
+        settle(shell)
+        save(sim, out, "09e-tmux-keys")
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // keys -> live
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // live -> sessions
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // sessions -> Main
+        settle(shell)
+    }
+
+    /**
+     * Build S1-3 J (the spec's B14: what `TmuxGlasses` reads from the PC record and what the PC raises in its place):
+     * a waiting session's alert box over Main (09f), the sessions list with the waiting session in the lens (09g) and
+     * with its waiting mark on a row (09h), the session's Alerts row muted (09i), Main with the muted session still
+     * waiting and its next edge raising nothing (09j), a full-screen program's grid with its context rows (09k) and
+     * with the Context rows row off (09l), the live pane at the 288 size (09m). Starts and ends on Main; the Context
+     * rows and Size rows are put back, claude stays muted.
+     */
+    private suspend fun tmuxMoreScenes(shell: Shell, sim: GlassFirmwareSim, out: Path,
+        tmuxWin: wm.damage.core.windows.tmux.TmuxWindow, scripted: ScriptedTmux, toWindow: suspend (String) -> Unit) {
+        suspend fun toMain(where: String) {
+            var guard = 0
+            while (shell.currentWindowId() != null && guard++ < 10) {
+                shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+                settle(shell, where)
+            }
+            if (shell.currentWindowId() != null) failures.add("could not get back to Main ($where)")
+        }
+        // Main's cursor on the Tmux row: open it from Main and come back
+        toWindow("tmux")
+        waitFor("tmux sessions before the alert") { tmuxWin.title() == "sessions" }
+        settle(shell, "tmux-before-alert")
+        toMain("tmux-alert-main")
+        // claude starts waiting: the status poll says so, and its edge raises the alert (the real provider sends both)
+        scripted.restamp(waiting = true)
+        scripted.pushAlert()
+        waitFor("the tmux alert is up") { shell.notifications.active }
+        waitFor("the tmux alert is focused") { shell.notifications.focused && shell.isQuiescent() }
+        settle(shell, "tmux-alert")
+        save(sim, out, "09f-tmux-alert-main")
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // dismiss
+        waitFor("the tmux alert dismissed") { !shell.notifications.active }
+        settle(shell, "tmux-alert-dismissed")
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // → Tmux, the waiting session first
+        waitFor("the sessions, claude waiting") { tmuxWin.title() == "sessions" && tmuxWin.summary().line == "claude waiting" }
+        settle(shell, "tmux-waiting")
+        save(sim, out, "09g-tmux-waiting")
+        shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)     // → build: claude's row above it carries the waiting mark
+        settle(shell, "tmux-waiting-mark")
+        save(sim, out, "09h-tmux-waiting-mark")
+        shell.postGesture(EvenHubMsg.EV_SCROLL_TOP)        // → claude again
+        settle(shell, "tmux-waiting-back")
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // open claude
+        waitFor("claude's live pane") { tmuxWin.title() == "claude" }
+        settle(shell, "tmux-waiting-live")
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // → keys
+        waitFor("claude's keys") { tmuxWin.title().endsWith("· keys") }
+        settle(shell, "tmux-waiting-keys")
+        shell.postGesture(EvenHubMsg.EV_SCROLL_TOP)        // the list wraps: one notch up is its last row, Session…
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        waitFor("claude's session actions") { tmuxWin.title().endsWith("· session") }
+        settle(shell, "tmux-session-actions")
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // row 0, "Alerts: on — tap to mute"
+        settle(shell, "tmux-muted")
+        save(sim, out, "09i-tmux-muted")
+        toMain("tmux-muted-main")
+        // the visit cleared the window's mark; claude still waits, and muted, its next edge raises nothing
+        scripted.pushAlert()
+        settle(shell, "tmux-muted-alert")
+        if (shell.notifications.active) failures.add("a muted session's alert raised a box on Main")
+        save(sim, out, "09j-tmux-muted-main")
+
+        // a full-screen program in claude's pane (the grid fallback), with and without its context rows
+        scripted.restamp(waiting = false)
+        scripted.alternate = true
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // → Tmux (the cursor is still on its row)
+        waitFor("the sessions for the grid") { shell.currentWindowId() == "tmux" && tmuxWin.title() == "sessions" }
+        settle(shell, "tmux-grid-sessions")
+        val subsGrid = scripted.sent.count { it == "sub:claude" }
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // open claude
+        waitFor("claude's grid") { tmuxWin.title() == "claude" && scripted.sent.count { it == "sub:claude" } > subsGrid }
+        settle(shell, "tmux-grid")
+        save(sim, out, "09k-tmux-fullscreen")
+        shell.services.runOnShell { tmuxWin.appSettings().first { it.name == "Context rows" }.apply("off") }
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // → sessions
+        settle(shell, "tmux-grid-off-sessions")
+        val subs = scripted.sent.count { it == "sub:claude" }
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // open claude again: a fresh frame
+        waitFor("claude's grid without context") { tmuxWin.title() == "claude" && scripted.sent.count { it == "sub:claude" } > subs }
+        settle(shell, "tmux-grid-off")
+        save(sim, out, "09l-tmux-fullscreen-nocontext")
+
+        // the live pane at 288: the window's Size row, applied on the next focus
+        scripted.alternate = false
+        shell.services.runOnShell {
+            tmuxWin.appSettings().first { it.name == "Context rows" }.apply("on")
+            tmuxWin.appSettings().first { it.name == "Size" }.apply("288")
+        }
+        toMain("tmux-288-main")
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // → Tmux at 288
+        waitFor("the sessions at 288") { shell.currentWindowId() == "tmux" && tmuxWin.title() == "sessions" }
+        settle(shell, "tmux-288-sessions")
+        val subs288 = scripted.sent.count { it == "sub:claude" }
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // open claude
+        waitFor("claude at 288") { tmuxWin.title() == "claude" && scripted.sent.count { it == "sub:claude" } > subs288 }
+        settle(shell, "tmux-288-live")
+        save(sim, out, "09m-tmux-live-288")
+        shell.services.runOnShell { tmuxWin.appSettings().first { it.name == "Size" }.apply("480") }   // its default
+        toMain("tmux-more-done")
+    }
+
+    /**
+     * Build S1-3 J (the spec's B6: what `FeedGlasses` reads from the PC record and writes as ops, and the notice the PC
+     * raises in its place), each scene reached by gestures from the one before: popular's list with read rows and a
+     * flagged row (68), an article scrolled to a place (69) and opened again (70), a browsed subreddit pinned and
+     * marked all read (71), the source list holding it (72), popular's menu with the recent subreddit and the flag
+     * count (73), the Flagged list (74), the archive scrolled into its second page (75), the source list's line for
+     * that place (76), the archive entered again (77), a Feed notice over Main (78). Every title notice an action sets
+     * is let run out on the scene's clock before the next scene. Starts on Main after [feedScenes]; ends on Main.
+     */
+    private suspend fun feedMoreScenes(shell: Shell, sim: GlassFirmwareSim, out: Path, transport: SimTransport,
+        feedWin: wm.damage.core.windows.feed.FeedWindow, scripted: wm.damage.core.windows.feed.ScriptedFeed,
+        provider: SceneFeed, clock: SceneClock, persistence: Persistence, toWindow: suspend (String) -> Unit) {
+        val ids = wm.damage.core.windows.feed.FeedIds
+        fun popular(i: Int) = ids.id("popular", "t3_p$i")
+        fun opened(id: String) = scripted.ops.count { it == "article:$id" }
+        /** At rest: no provider call unanswered (its answer applies on the loop afterwards), then the shell settled. */
+        suspend fun quiet(where: String) {
+            waitFor("the feed provider answered ($where)") { provider.inFlight() == 0 && shell.isQuiescent() }
+            settle(shell, where)
+        }
+        /** An action's title notice is up; the scene's clock moves past its four seconds, so the next render drops it. */
+        suspend fun noticed(text: String) {
+            waitFor("the title notice '$text'") { feedWin.title() == text }
+            clock.advance(5_000)
+        }
+        suspend fun row(id: String) = feedRowOf(shell, feedWin, id)
+        suspend fun openArticle(id: String, times: Int) {
+            shell.postGesture(EvenHubMsg.EV_CLICK)
+            waitFor("the article $id") { feedWin.title() == "article" && opened(id) == times }
+            quiet("feed-article-$id")
+        }
+        suspend fun backToList(name: String) {
+            shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+            waitFor("$name's list") { feedWin.title() == name && feedWin.levelDepth() == 2 }
+            quiet("feed-list-$name")
+        }
+
+        toWindow("feed")
+        waitFor("Feed at its source list (more)") { feedWin.title() == "feed" }
+        row("popular")
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        waitFor("popular's list (more)") { feedWin.title() == "popular" && feedWin.levelDepth() == 2 && feedWin.itemsLoaded() }
+        quiet("feed-popular-more")
+        // the cursor rests on the first item (opened, so read, since 62): open the second and flag it, then the third
+        shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)
+        openArticle(popular(1), 1)
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // the actions, the cursor on Comments
+        waitFor("the article's actions") { feedWin.levelDepth() == 4 }
+        shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)     // → Flag
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        noticed("flagged")
+        backToList("popular")
+        shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)
+        openArticle(popular(2), 1)
+        backToList("popular")
+        shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)     // → the fourth: three read rows above it, one flagged
+        quiet("feed-read-flagged")
+        save(sim, out, "68-feed-items-read-flagged")
+
+        // an article at a place: two notches down item 16, a link story (the long kind, with a picture), then opened
+        // again. Not item 6: the scripted feed's picture for it throws (a negative seed indexes its colour list), and the
+        // line saying so reads the exception's message, which the JVM drops once that code is compiled hot
+        repeat(13) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }
+        openArticle(popular(16), 1)
+        repeat(2) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }
+        quiet("feed-place")
+        save(sim, out, "69-feed-place-scrolled")
+        backToList("popular")
+        openArticle(popular(16), 2)
+        save(sim, out, "70-feed-place-reopened")
+        backToList("popular")
+
+        // a browsed subreddit, pinned and marked all read; popular's menu is its wrap-end row: items 17 to 29, then it
+        repeat(14) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        waitFor("popular's menu") { shell.menuIsOpen && shell.menuTitle == "popular" }
+        menuRow(shell, "Browse a subreddit")
+        waitFor("the subreddit keyboard") { shell.keyboardIsOpen }
+        transport.injectText("linux")                      // a typed line commits the keyboard (the replica's path)
+        waitFor("r/linux's list") { feedWin.title() == "r/linux" && feedWin.levelDepth() == 2 && feedWin.itemsLoaded() }
+        quiet("feed-browsed")
+        shell.postGesture(EvenHubMsg.EV_SCROLL_TOP)        // the first item → the menu row
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        waitFor("r/linux's menu") { shell.menuIsOpen && shell.menuTitle == "r/linux" }
+        menuRow(shell, "Pin")
+        noticed("pinned r/linux")
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // the menu again (the cursor is still on its row)
+        waitFor("r/linux's menu again") { shell.menuIsOpen && shell.menuTitle == "r/linux" }
+        menuRow(shell, "Mark all read")
+        waitFor("the mark-all-read confirm") { shell.menuIsOpen && shell.menuTitle == "Mark all of r/linux read?" }
+        menuRow(shell, "Mark read")
+        noticed("all read")
+        shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)     // the menu row → the first item
+        quiet("feed-all-read")
+        save(sim, out, "71-feed-browse-all-read")
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // → the sources: the pinned subreddit stays
+        waitFor("the sources with r/linux") { feedWin.title() == "feed" }
+        row("r:linux")
+        quiet("feed-pinned")
+        save(sim, out, "72-feed-sources-pinned")
+
+        // popular's menu: the recent subreddit and the flag count; then the Flagged list
+        row("popular")
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        waitFor("popular's list again") { feedWin.title() == "popular" && feedWin.levelDepth() == 2 && feedWin.itemsLoaded() }
+        quiet("feed-popular-again")
+        shell.postGesture(EvenHubMsg.EV_SCROLL_TOP)        // another source was open: the cursor is on the first item
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        waitFor("popular's menu with the recent") { shell.menuIsOpen && shell.menuTitle == "popular" && "r/linux" in shell.menuLabels }
+        quiet("feed-source-menu")
+        save(sim, out, "73-feed-source-menu")
+        menuRow(shell, "Flagged")
+        waitFor("the Flagged list") { feedWin.levelName == "FLAGGED" }
+        quiet("feed-flagged")
+        save(sim, out, "74-feed-flagged")
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // → the sources
+        waitFor("the sources after Flagged") { feedWin.title() == "feed" }
+
+        // the archive into its second page, notch by notch (65 left it at the top of page 1)
+        row("8bt")
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        waitFor("the archive again") { feedWin.title() == "8bt 1" }
+        quiet("feed-binge")
+        for (k in 0 until 20) {
+            if (feedWin.title() == "8bt 2") break
+            shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)
+            quiet("feed-binge-notch-$k")
+        }
+        if (feedWin.title() != "8bt 2") failures.add("the archive never reached page 2 (title '${feedWin.title()}')")
+        save(sim, out, "75-feed-binge-page2")
+        // the source list's line reads the place the shell's save took (2 s after the last input), not a load's
+        waitFor("the archive's place saved") {
+            persistence.get("window.feed.binge.8bt")?.get("ep")?.jsonPrimitive?.contentOrNull == "2"
+        }
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // → the sources, the cursor on the archive
+        waitFor("the sources after the archive") { feedWin.title() == "feed" && feedWin.rootRowId() == "8bt" }
+        quiet("feed-sources-binge")
+        save(sim, out, "76-feed-sources-binge")
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        waitFor("the archive entered again") { feedWin.title() == "8bt 2" }
+        quiet("feed-binge-again")
+        save(sim, out, "77-feed-binge-resumed")
+
+        // a Feed notice over Main: Notify · Reddit on, one new item on popular
+        var guard = 0
+        while (shell.currentWindowId() != null && guard++ < 10) {
+            shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+            settle(shell, "feed-to-main")
+        }
+        shell.services.runOnShell { feedWin.appSettings().first { it.name == "Notify · Reddit" }.apply("on") }
+        settle(shell, "feed-notify-on")
+        scripted.fireNew("popular")
+        waitFor("the feed notice is up") { shell.notifications.active }
+        waitFor("the feed notice is focused") { shell.notifications.focused && provider.inFlight() == 0 && shell.isQuiescent() }
+        settle(shell, "feed-notice")
+        save(sim, out, "78-feed-notice-main")
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // dismiss
+        waitFor("the feed notice dismissed") { !shell.notifications.active }
+        settle(shell, "feed-notice-dismissed")
+    }
+
+    /** Rest Feed's source cursor on the row NAMED [id] — by identity, never by counting. */
+    private suspend fun feedRowOf(shell: Shell, feedWin: wm.damage.core.windows.feed.FeedWindow, id: String) {
+        for (k in 0 until 12) {
+            settle(shell, "feed-row-$id")
+            if (feedWin.rootRowId() == id) return
+            shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)
+        }
+        failures.add("could not reach the Feed source row '$id'")
+    }
+
+    /** Build S1-3 J: the window [id] from wherever the shell is: back to Main, then Main's rows committed one by one. */
+    private suspend fun toWindowFrom(shell: Shell, id: String, tag: String) {
+        var guard = 0
+        while (shell.currentWindowId() != null && guard++ < 10) {
+            shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+            settle(shell, "back-to-main-$tag")
+        }
+        walkTo(shell, id, tag)
+    }
+
+    /** Build S1-3 J: a scene's clock — a fixed instant that only the script moves. */
+    private class SceneClock(private val t0: Long) {
+        private val skew = java.util.concurrent.atomic.AtomicLong(0)
+        fun now(): Long = t0 + skew.get()
+        fun advance(ms: Long) { skew.addAndGet(ms) }
+    }
+
+    /** Feed's scene instant (build S1-3 J), the Music player's (C1-R6 B6-7). */
+    private const val FEED_T0 = 1_763_000_000_000L
 
     private suspend fun settle(shell: Shell, where: String = "?") {
         val t0 = System.currentTimeMillis()

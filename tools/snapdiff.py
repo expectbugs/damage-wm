@@ -15,8 +15,8 @@ number of differing pixels and their bounding boxes, split into those INSIDE the
   - the declared live cells (`HANDOFF.md` §79.4): the clock cell of the top bar; the status bar's throughput, compass
     tape and link cells (at the height the scene is drawn at, found from its bottom divider); silent mode's clock; disk
     free in `11-files-locations`; a Feed article's and a Feed comic's meta line (its age); the clock of a notice box
-    raised from the wall clock (`25-torrents-done-notice`); the whole of `38-*` / `39-*` (Music Mode's visualizer runs
-    from the live clock).
+    raised from the wall clock (`25-torrents-done-notice`, `09f-tmux-alert-main`, `78-feed-notice-main`); the whole of
+    `38-*` / `39-*` (Music Mode's visualizer runs from the live clock).
 A difference OUTSIDE the mask is a finding: the stage that ran the judge names it or fixes it. A scene present in one
 set and not the other is a failure. With --subset, NEW may hold fewer scenes than BASE (the phone arrangement renders
 Reader's scenes only, into `DIR/phone/`): every scene in NEW must exist in BASE, and the rest of BASE is not compared.
@@ -57,6 +57,11 @@ FEED_COMIC_META = (20, 70, 240, 22)
 # `full.right - 8`). Measured on the base render: the 248 px box at x 196..443, "6:07" at x 408..434, y 195..203; the
 # cell starts left of it for the widest "12:59" and stops above the box's rule (y 206). Scenes 07/08 pin their time.
 NOTICE_CLOCK = (384, 190, 56, 16)
+# the same clock in a two-line box (build S1-3 J: a Tmux alert and a Feed notice over Main, 09f and 78): the box is
+# centred on its height, so it starts 12 px lower; measured on the base renders, "8:25" at x 408..433, y 207..215, the
+# box's rule at y 218..219
+NOTICE_CLOCK_2LINE = (384, 202, 56, 16)
+NOTICE_2LINE_SCENES = ("09f-tmux-alert-main", "78-feed-notice-main")
 
 
 def _load(path):
@@ -99,6 +104,8 @@ def declared_cells(name, px, size):
         cells.append(FEED_COMIC_META)
     if "done-notice" in name:
         cells.append(NOTICE_CLOCK)
+    if name.startswith(NOTICE_2LINE_SCENES):
+        cells.append(NOTICE_CLOCK_2LINE)
     return cells
 
 
@@ -337,6 +344,24 @@ def selftest():
             frame(os.path.join(d, "25-torrents-done-notice.png"))
         frame(os.path.join(n, "25-torrents-done-notice.png"), dot=(412, 230))
     case("a done notice's body is not live", 1, notice_body, expect_in="OUT (412,230)")
+
+    def alert_clock(b, b2, n):
+        for d in (b, b2):
+            frame(os.path.join(d, "09f-tmux-alert-main.png"))
+        frame(os.path.join(n, "09f-tmux-alert-main.png"), dot=(412, 208))
+    case("a two-line box's clock is live", 0, alert_clock, expect_in="inside")
+
+    def alert_body(b, b2, n):
+        for d in (b, b2):
+            frame(os.path.join(d, "78-feed-notice-main.png"))
+        frame(os.path.join(n, "78-feed-notice-main.png"), dot=(412, 230))
+    case("a two-line box's body is not live", 1, alert_body, expect_in="OUT (412,230)")
+
+    def alert_clock_elsewhere(b, b2, n):
+        for d in (b, b2):
+            frame(os.path.join(d, "09g-tmux-waiting.png"))
+        frame(os.path.join(n, "09g-tmux-waiting.png"), dot=(412, 208))
+    case("the two-line cell is not live in another scene", 1, alert_clock_elsewhere, expect_in="OUT (412,208)")
 
     def size_change(b, b2, n):
         for d in (b, b2):

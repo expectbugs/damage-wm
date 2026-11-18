@@ -26,7 +26,27 @@ class ScriptedTmux : TmuxProvider {
             lastLine = "BUILD SUCCESSFUL in 28s"),
     )
 
+    /** The sessions the last status carried: [sessions] until [restamp] (build S1-3 J). */
+    @Volatile private var current: List<TmuxSessionInfo> = sessions
+
+    /** Build S1-3 J: [frame] is a full-screen program's (the grid, with its context rows) instead of a shell's. */
+    @Volatile var alternate = false
+
     private val e = "\u001B"
+
+    /**
+     * Build S1-3 J (the snapshot judge's Tmux scenes): a status again, as the real provider's poll sends when a session
+     * starts or stops waiting — claude [waiting] or not, and both ages stamped from now (claude 90 s, build an hour), so
+     * a list drawn in the next half minute reads "1m" and "1h" wherever in a run its scene falls.
+     */
+    fun restamp(waiting: Boolean) {
+        val now = System.currentTimeMillis() / 1000
+        current = listOf(
+            sessions[0].copy(activity = now - 90, waiting = waiting, lastLine = if (waiting) WAITING_LINE else sessions[0].lastLine),
+            sessions[1].copy(activity = now - 3600),
+        )
+        for (l in listeners) l.status(current, TmuxConfig())
+    }
 
     /** 6 context rows + a 22-row pane: bold header, diff colours, reverse
      *  status bar, a box rule, a ❯ prompt with the cursor on it. */
@@ -48,12 +68,12 @@ class ScriptedTmux : TmuxProvider {
         // the same fixture rule — lint:allow-symbols
         lines.add("$e[38;5;245m❯$e[0m ")
         return PaneFrame(lines, 80, 22, cursorX = 2, cursorY = 21,
-            cursorVisible = true, alternate = false, capturedAtMs = 0)
+            cursorVisible = true, alternate = alternate, capturedAtMs = 0)
     }
 
     override fun addListener(l: TmuxProvider.Listener) {
         listeners.add(l)
-        l.status(sessions, TmuxConfig())
+        l.status(current, TmuxConfig())
         l.state("")
     }
 
@@ -93,7 +113,11 @@ class ScriptedTmux : TmuxProvider {
     override fun close() {}
 
     fun pushAlert() {
-        val s = sessions[0].copy(waiting = true, lastLine = "Do you want to make this edit?")
+        val s = sessions[0].copy(waiting = true, lastLine = WAITING_LINE)
         for (l in listeners) l.alert(s)
+    }
+
+    private companion object {
+        const val WAITING_LINE = "Do you want to make this edit?"
     }
 }
