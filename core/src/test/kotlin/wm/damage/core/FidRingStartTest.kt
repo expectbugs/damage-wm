@@ -14,6 +14,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.runBlocking
 import wm.damage.core.geom.Rect
 import wm.damage.core.gfx.Gray8
@@ -21,6 +22,7 @@ import wm.damage.core.gfx.Pack
 import wm.damage.core.gfx.Zl
 import wm.damage.core.sim.GlassFirmwareSim
 import wm.damage.core.transport.Arm
+import wm.damage.core.transport.CfwTransportBase
 import wm.damage.core.transport.DisplayOp
 import wm.damage.core.transport.FlushRequest
 import wm.damage.core.transport.TransportEvent
@@ -169,38 +171,56 @@ class FidRingStartTest {
      *  copies fill the window; the rest are queued behind it. Unfixed, the image lane wrote every queued copy as the
      *  delivered acks freed the slots, after the first ack had already ended the wait they were queued for (3 here).
      *  Fixed: a copy whose wait has completed is not written (no slot left taken), and the re-ask's note says "queued"
-     *  while the window has no free slot. One copy is still written (6 of 6 runs): the one already waiting for a slot
-     *  when the first ack lands — the ack frees the slot before the clear's wait completes (the ack handler releases
-     *  the slot, then completes the message; the wait completes on the completion coroutine after it). The end is
-     *  read behind a keyframe queued after the copies (one lane, in order). */
+     *  while the window has no free slot (the setup's wait holds until one does). The end is read behind a keyframe
+     *  queued after the copies (one lane, in order).
+     *
+     *  The held acks go back as the radio delivers them (build C1, stage H): one at a time through the transport's own
+     *  entry, each processed before the next, and never answered inside the write. The first ack alone frees one slot
+     *  and completes the clear's wait; the start awaits nothing after the clear, so its completion is the sign that
+     *  this ack has been processed. Meanwhile at most one copy is written: the one already waiting for the slot that
+     *  ack freed (the ack handler frees the slot first, and the clear's wait completes after it, on the completion
+     *  coroutine). The other acks, and every ack after them, go back in order once the start has completed.
+     *
+     *  Acks that arrive back to back (the lead's ruling after DM1, C1-R6-decisions §E): each one frees a slot before
+     *  the clear's wait has completed, so the product writes one more queued copy per such ack — a 2-byte mode-7
+     *  sub-0 message at a session start, ahead of the session's keyframe, with no effect on the picture. That is
+     *  accepted and not changed. This test used to hand every held ack over in one go and then let the model answer
+     *  later copies inside the write, which gave 3 copies whenever the completion coroutine ran late (the order forced
+     *  on one thread: 3 in 5 of 5 runs, where this delivery gives 1; red about once in 50 whole-suite runs). */
     @Test
     fun aRingClearCopyQueuedBehindAFullWindowIsNotWrittenOnceTheClearIsAcked(): Unit = runBlocking {
         val glass = GlassFirmwareSim()
         val (t, seen) = rig(glass)
         val imageAcks = AtomicInteger(0)
-        val held = CopyOnWriteArrayList<Pair<Arm, ByteArray>>()
-        val holding = java.util.concurrent.atomic.AtomicBoolean(true)
+        // the first image ack is the warmup's; every later one (the clear's copies, then the keyframe's) is held here
+        // in the order the model sent it, and the test hands it back
+        val held = Channel<Pair<Arm, ByteArray>>(Channel.UNLIMITED)
+        val heldCount = AtomicInteger(0)
         val delivered = java.util.concurrent.atomic.AtomicBoolean(false)
         val clearsAfter = AtomicInteger(0)
-        // the first image ack is the warmup's; from the second on (the clear's copies) they are held
-        t.onNotify = { a, p -> if (isImageAckOnly(p) && imageAcks.incrementAndGet() >= 2 && holding.get()) { held.add(a to p); null } else p }
+        t.onNotify = { a, p ->
+            if (isImageAckOnly(p) && imageAcks.incrementAndGet() >= 2) { heldCount.incrementAndGet(); held.trySend(a to p); null } else p
+        }
         t.onWrite = { _, p -> if (delivered.get() && isRingClear(p)) clearsAfter.incrementAndGet(); p }
         val starting = scope.async { runCatching { t.start(full) } }
-        waitUntil(15_000, message = { "five re-asks of the clear: ${seen.notes.takeLast(6)}" }) {
-            seen.controlNotes("fid-ring clear went unacked").size >= 5
+        // the window is full (three copies written, their acks held) and copies are queued behind it
+        waitUntil(15_000, message = { "five re-asks, one of them queued behind a full window: ${heldCount.get()} acks held; " +
+            "${seen.controlNotes("fid-ring clear went unacked")}" }) {
+            val reasks = seen.controlNotes("fid-ring clear went unacked")
+            heldCount.get() == CfwTransportBase.WINDOW && reasks.size >= 5 && reasks.any { "queued" in it }
         }
-        holding.set(false)
         delivered.set(true)
-        for ((a, p) in held.toList()) t.deliver(a, p)
-        waitUntil(15_000, message = { "the start did not end: notes ${seen.notes.takeLast(6)}" }) { starting.isCompleted }
+        val (firstArm, firstAck) = held.receive()           // the clear's first copy's ack: the first one held
+        t.deliver(firstArm, firstAck)
+        waitUntil(15_000, message = { "the start did not end on the clear's first ack: notes ${seen.notes.takeLast(6)}" }) { starting.isCompleted }
         starting.await().exceptionOrNull()?.let { throw AssertionError("the start ended: $it", it) }
+        val pump = scope.launch { for ((a, p) in held) t.deliver(a, p) }
         val k = t.submit(FlushRequest(listOf(DisplayOp.Keyframe(full)), 1, wide = true))
         flushed(t, seen, "the keyframe behind the queued copies", k)
         stopped(t, seen)
+        pump.cancel()
         assertTrue(clearsAfter.get() <= 1, "after its first ack at most the copy that held the freed slot is written " +
-            "(${clearsAfter.get()}; ${held.size} acks held)")
-        val reasks = seen.controlNotes("fid-ring clear went unacked")
-        assertTrue(reasks.any { "queued" in it }, "a re-ask while the window has no free slot says it was queued: $reasks")
+            "(${clearsAfter.get()}; ${heldCount.get()} acks held)")
     }
 
     /** The session's own end during the clear is the start's to report, not the gate's: the link ends with the clear's
