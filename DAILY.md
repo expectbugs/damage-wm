@@ -349,6 +349,10 @@ without writing a row.
 
 ## Deploying APK 0.70 (build S1-3, `HANDOFF.md` §89) — ONE sitting, with his install
 
+**Done 2026-11-18 (PC 14:09, his install 14:29; `HANDOFF.md` §91). Kept as the record of how a deploy that changes
+the lane protocol or the record is done; 0.71 changed neither and went the ordinary way (stage both, restart the
+PC, he installs).**
+
 The PC is not restarted onto 0.70 until he is about to install the APK: marks made on the 0.69 phone after the new
 PC's first start are not carried (the migration runs only at that start), and a 0.69 phone's Feed and Tmux do not work
 against the 0.70 PC (its lane is ended `proto`; no Tmux alerts reach it). In order, at the PC, from the repository on

@@ -8969,3 +8969,59 @@ stage armed by hand for a soak would have returned to 0 at the next install with
    too, and says so); a native fault, an ANR or Android ending the app leaves no record, so the stage stays, as after
    an install; the PC's own transport has no step-down; the phone's wiring is pinned by a text check, not by a run
    on Android; the keeper's in-process "start failed, retrying in 2 s" at a stage is not covered.
+
+## 91. APK 0.70 and 0.71 deployed; the C1 ladder at stage 3 on his word; build C1-Q (2026-11-18)
+
+1. **The 0.70 sitting** (his "I'm at my phone", 14:08). 0.69 backed up (`~/.damage/backup/`), the PC restarted onto
+   0.70 at 14:09 — the record opened with its epoch kept, `migrate: feed: 21 row(s)`, `migrate: tmux: 4 row(s)`, as
+   predicted on a copy of his data — and he installed at 14:29:22; the session was up 16 s later (the journal's
+   `build` note "apk 0.70 (70)"; the same two "CREATE unacked" re-sends and SYSTEM_EXIT as at 0.69's install; no
+   fault). His look at Feed and Tmux on the glasses and at the two pages is not reported yet.
+2. **His first worn session on C1, stage 0, APK 0.69** (13:54–14:04; measured from the phone's log and journal): no
+   fault, no refusal; 200 flushes, median ack 55 ms under 500 B and 79 ms at 500 B–1.5 K; first-flush wait MAIN
+   79 / 104 ms (median / p90), WINDOW 72 / 127 ms — as before the flash. **The first ring timing on C1:** 38 scrolls,
+   24 gaps under 1 s, the least 282 ms (before the flash none under 224 ms in 565). A log of 0.69 can tell a ring
+   scroll from a drag on the phone's screen: 34 of the 38 were followed within 1 s by the stock release event (type
+   10, no source — §11's "a touch ended"; 483 of 565 before the flash), and the mirror never sends a 10 without a 9
+   (his drags of 03:xx: 74 scrolls, 3 releases).
+3. **Arming, his ruling (about 15:40): "Yes enable all the stuff, we need to test this new stuff asap not dick around
+   for several more days."** One stage per soak is dropped (`FORK.md` §7). `probe c1=3` and a rest on/off to rebuild
+   the session: **stage 3 in force since 15:43:53** — "cache size: asked 256 KiB, status 0", bits 2, 3 and 5 armed
+   (flags 0x2c: DRAW2, ZWRITE, ENGINE), RIGHT answering each and LEFT taking the same writes. Measured to 16:02: 60
+   flushes, none failed, median ack 64 ms / p90 125; the atlas uploaded through ZWRITE (8 faces, 13 icons, every
+   message counted by RIGHT); **arena 13 reads 130 KiB free with the 256 KiB cache allocated (the modeled figure was
+   ≈ 130), its largest block 114; arena 20 reads 70, arena 27 145**; the engine has played nothing yet
+   (`engineFrames` 0). Armed on 0.70, before C1-Q: he was told the defect of item 4 and its cure.
+4. **Build C1-Q (in APK 0.71): the session's cache size when the two lenses' caches may differ** (§90.4). Only RIGHT
+   reports its size, and a lens keeps its cache until a release point. **The rule as built:** the session's size is
+   the smaller of RIGHT's field 18 and the ask; a start asks no more than the last session's size (160 KiB before
+   the process's first ask) unless both lenses are known to hold no cache; "known" is the lapse alone — each arm's
+   last ACQUIRE **attempted** is older than the firmware's 87.9 s expiry plus 15 s. The shell's atlas read-back fails
+   on a cache smaller than the layout, not on one that differs. No new message on the wire; stage 0 writes today's
+   bytes.
+   - **The focused read** (one reader; the mechanism was the lead's own) reproduced two premise failures of the first
+     form in the simulator: a RELEASE the phone's stack took and LEFT never applied (the link ending right after
+     it), and an ACQUIRE reported as failed after it reached LEFT — each a start counted as fresh over LEFT's smaller
+     cache. Ruled: the release route removed (one premise instead of two), the stamp moved to the attempt; two
+     removals; two C1-P pins and the stage-2 start file given their meaning back. Declined, listed: a lease the PC's
+     own transport wrote after `drive=ble` by hand; the phone's clock stepped forward; a link end between the two
+     arms' mirror tees.
+   - **What it costs him:** after a Silent Mode toggle, a failed start or a new phone process, the 256 KiB size waits
+     for a start that follows about 103 s with no lease renewal — at the latest the first start after a night in
+     the case (a rest of two minutes does it by hand). The session meanwhile is 160 KiB with the stage's flags.
+   - **Instruments and gates** (simulator): `research/mutations-c1q.json`, 15 entries, each caught for its stated
+     reason; 19 older entries whose pins the stage touched, caught; none ran away. Core 1,572 tests, 0 failures ·
+     desktop 52 · `MotionTransportTest` 20 of 20 · lint 0 · the phone build at 0.71 and its wiring check 79 ok · node
+     200 · `--selfcheck` 486 PASS twice · the four content checks · the snapshot 94 + 66 renders, 0 px outside the
+     mask against 0.70's base. Product +27 −10 lines.
+   - **Deployed:** the PC on 0.71 at 16:07 (no migration; the 0.70 phone's lane stayed up, the protocol is
+     unchanged); the APK staged for his install. Not built: `private/build068/C1-Q-built.md`'s list.
+5. **Found at the sitting, open: Reddit in Feed is stale.** The PC's last good fetch of `popular` was 11-17 11:45;
+   since then every subreddit's `.rss` answers HTTP 404 with an Atom body titled "Not Found" from the PC (through its
+   VPN; the VPN's process did not reconnect at that time), and the allowance reads one request per window. Slashdot
+   and the comics fetch normally. Not caused by 0.70, but since 0.70 the PC's copy is the only one. Whether Reddit
+   stopped anonymous feeds for everyone or for this network path is not established (one request from another
+   network would say).
+6. **Also running:** the read owed before C2's fork stage came back and is ruled (`private/c2-design/C2-rulings.md`
+   §12); its two stages — the offline checker's step 8 (fork branch `c2`, tools only) and §6's text — are in work.
+

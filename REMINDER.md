@@ -1,8 +1,9 @@
 # Where we are, and what to do next
 
 **The entry point for a fresh session**: what is true now, what is next, where the records are; history lives in
-`HANDOFF.md`. Read `CLAUDE.md` → this file → **`HANDOFF.md` §89** (S1-3: Feed and Tmux on the PC's record, APK 0.70,
-built and not deployed; its deploy rule, 89.5) → **§88** (C1 flashed) → §87 (the flash-readiness review) → **§84** (the
+`HANDOFF.md`. Read `CLAUDE.md` → this file → **`HANDOFF.md` §91** (0.70 and 0.71 deployed, the ladder at stage 3 on
+his word, build C1-Q, Reddit's feed) → §90 (C1-P) → **§89** (S1-3: Feed and Tmux on the PC's record, APK 0.70; its four
+reversible calls, 89.5) → **§88** (C1 flashed) → §87 (the flash-readiness review) → **§84** (the
 cleanup L0 and L1; the lead's calls he may reverse, 84.2) → §85 (build C1) → §86 (0.69) → §83 (his lean correction) →
 §80 (S1-1, APK 0.67) → §79 (0.66, the alert watcher W; what is owed on glass) → **`REPLAN.md`** (§17 the order of work
 as corrected; §14 his rulings) → **`CONTRACT.md`** (before any window or interface work) → `FIRMWARE.md` / `FORK.md`
@@ -11,38 +12,36 @@ for firmware → earlier by number (§65 Phase 2 and the protocol, §48 the fork
 
 ## Where we are (2026-11-18)
 
-- **The glasses run the fork's C1 build since 2026-11-18** (pin `0dab2154…`, flashed on both lenses on his go,
-  `HANDOFF.md` §88; the image before it `48172b62…`). **Nothing of C1 is armed.** The phone's journal after its
-  reconnect confirms it: features `0x1ff`, flags 0x0, no refusal, the arena figures as predicted. The scroll bursts
-  in his first test were his drag on the phone app's mirror, not the glasses (§88): **no ring input has been timed on
-  C1 yet.**
-- **His phone runs APK 0.69 since 2026-11-17 21:57; the PC service runs 0.69's tree** (`main` `1153ded`, since 21:51;
-  0.69 = 0.68 plus build Q, §86). The record opened with its epoch kept; Torrents' and Files' rows were carried at
-  0.68's first start. No browser of his is approved yet; he has not said he has used the pages.
-- **APK 0.70 (build S1-3, Feed and Tmux; and build C1-P) is built on `main` and NOT deployed** (§89, §90): Feed and
-  Tmux on the PC's record, a page each, the phone's own Feed fetching retired, the lane protocol 4; the C1 ladder's
-  stage kept across a restart of the phone's process, stepped down to 0 after an uncaught error. **Its deploy is ONE
-  sitting with his install** — the PC is not restarted onto 0.70 until he is about to install (`DAILY.md`,
-  "Deploying APK 0.70").
-- **Stage 2 of the ladder is not armed before build C1-Q is installed** (§90.4: after a restart of one lens the two
-  caches could differ in size while the phone reads RIGHT's only; reproduced in the simulator; its rule is built in
-  `wip/c1q`, not merged). Stages 0 and 1 are not affected.
+- **The glasses run the fork's C1 build since 2026-11-18** (pin `0dab2154…`, `HANDOFF.md` §88; the image before it
+  `48172b62…`). **The C1 ladder is at stage 3 since 15:43 on his word** (§91.3: ZWRITE, the 256 KiB cache, ENGINE;
+  flags 0x2c; "enable all the stuff … asap" — one stage per soak is dropped). The first 19 minutes: no fault, no
+  refusal, arena 13 at 130 KiB free with the 256 KiB cache. The engine has played nothing yet: the four test programs
+  (`probe motion=list|popover|recede|flip`) wait for his "play".
+- **His phone runs APK 0.70 since 14:29 (0.71 is staged for his install); the PC service runs 0.71's tree since
+  16:07** (§91). 0.70 = S1-3 (Feed and Tmux on the PC's record, a page each, the lane protocol 4) + C1-P (the
+  ladder's stage kept across a restart of the phone's process); 0.71 = 0.70 + C1-Q (the session's cache size when
+  the two lenses' caches may differ). Until 0.71 is on the phone, a lens that restarts alone can leave the left eye
+  without some cached drawing until the next Silent Mode sleep and wake (§90.4).
+- **After a new phone process the session is 160 KiB** until a start that follows about 103 s with no lease renewal
+  (C1-Q's rule, §91.4): the first start after a night in the case, or a rest of two minutes by hand.
+- **Reddit in Feed is stale since 11-17 11:45** (§91.5): every subreddit feed answers "Not Found" to the PC, which is
+  the only fetcher since 0.70. Open.
+- No browser of his is approved yet; he has not said he has used the pages, or looked at Feed and Tmux on 0.70.
 - Sessions run inside the memory-capped cgroup (`CLAUDE.md`, "Running builds on this machine"; §82); his lean
   correction of 11-17 governs what is built (§83).
 
 | build | where | state |
 |---|---|---|
-| L1 (the cleanup; S1-2 inside it) + Q | `main`; the PC runs `1153ded` | deployed; APK 0.69 installed |
-| C1 (motion programs) | fork `c1` `561f8b7` (pin `0dab2154…`); its Damage half on `main` | **flashed 11-18**; nothing armed; the soaks are next, after 0.70 is installed |
-| S1-3 (Feed, Tmux) + C1-P (the stored stage) | `main` | **built, gated, APK 0.70 staged nowhere yet**; deploy = one sitting with his install |
-| C1-Q (the session's cache size when the lenses' caches may differ) | `wip/c1q` | in build; one focused read follows; needed before stage 2 only |
+| L1 (the cleanup; S1-2 inside it) + Q | `main` | deployed (0.69) |
+| C1 (motion programs) | fork `c1` `561f8b7` (pin `0dab2154…`); its Damage half on `main` | **flashed 11-18; stage 3 in force since 15:43** |
+| S1-3 (Feed, Tmux) + C1-P (the stored stage) | `main` | **deployed: APK 0.70 installed 11-18 14:29** |
+| C1-Q (the session's cache size) | `main` | **gated; the PC runs it; APK 0.71 staged, his install** |
 | S1-4 (Music) | a spec only | five questions are his (below) |
-| C2 (the second flash: local input) | its contract, `FIRMWARE.md` §6 | not built: after C1's numbers; the amendment from the stock input model is ruled and is being worked into §6 (`wip/c2d0`) |
+| C2 (the second flash: local input) | its contract, `FIRMWARE.md` §6 | not built: after C1's numbers; the read before its fork stage is ruled, its two stages (the checker's step 8, §6's text) in work |
 
-The counts of APK 0.70's tree (simulator; the S1-3 gate, §89.3, then C1-P's on the merged tree, §90.3): core 1,559
-tests · desktop 13 classes / 52 · `--selfcheck` 486 PASS ×2 · snapshot 94 renders + 66 in `phone/`, 0 px outside the
-mask · the 51 conformance vectors in both forms · `--motion-check` 4 programs hold (S1-3's gate) · node 200 · lint 0 ·
-wiring 79 ok.
+The counts of APK 0.71's tree (simulator; §91.4): core 1,572 tests · desktop 13 classes / 52 · `--selfcheck` 486 PASS
+×2 · snapshot 94 renders + 66 in `phone/`, 0 px outside the mask · the 51 conformance vectors in both forms · node
+200 · lint 0 · wiring 79 ok.
 The judge's standing base is `private/build070/base-070/` (mask `base-070-mask/`). The briefs, rulings and reports of
 every stage are in the gitignored `private/build068` … `build071`, `lean`, `c1-design`, `c2-design`;
 **`private/RESUME.md` is the working handoff**.
@@ -50,17 +49,17 @@ every stage are in the gitignored `private/build068` … `build071`, `lean`, `c1
 ## Next
 
 The order is `REPLAN.md` §17.3. **Every run: its size and what he gets for it first, both meters read before and
-after** (§17.6). Nothing more is stacked on 0.70 until he has used it.
-1. **The 0.70 sitting and his use of it** (Feed and Tmux on the glasses as before, their pages at the desk and on the
-   phone; the terminal in Chromium is first seen by him).
-2. **The C1 soaks:** the ladder's stages armed by hand, one at a time, each after the last one's soak (`FORK.md` §7
-   item 10), from stage 1 once 0.70 is on his phone (the stored stage, §90); stage 2 only with C1-Q installed. The
-   first worn session's log on C1 is read for the ring's scroll pacing (§88).
-3. **C2's build after C1's numbers** (its contract `FIRMWARE.md` §6 with the amendment worked in; his calls E1–E3 at
-   the build's start: how the selected row grows, what a tap's "open" looks like, the `Taps` default).
-4. **S1-4** (Music: five questions are his), **S1-5** (the alerts onto the notice record; the phone's caches), **R-b**
-   (one health view on every surface, §17.4), then §16.1's order.
-5. **The first days of 0.66 and 0.67** (§79.9, §80.10) are still unread on his devices.
+after** (§17.6). New firmware features are armed and tested at once on his go, not over days (§91.3).
+1. **His install of 0.71**, then the journal read of its first start (the session at 160 KiB with the stage's flags).
+2. **The engine's first look:** the four test programs on his "play" (each drops the shell's atlas for that session:
+   rebuild the session after); then C1's numbers from the journal as he uses the glasses (fields 27–29, 33, 34, the
+   114 gap counts) for C2.
+3. **C2's build:** stage F0b (the checker) and D1 (§6's text) first, then his calls E2 and E3 and the fork stage F1.
+4. **Reddit in Feed** (§91.5): which network path still gets a feed; then the fix.
+5. **S1-4** (Music: five questions are his), **S1-5** (the alerts onto the notice record; the phone's caches), **R-b**
+   (one health view on every surface, §17.4), then §16.1's order. His answer is owed on moving the motion kit's shell
+   part ahead of S2.
+6. **The first days of 0.66 and 0.67** (§79.9, §80.10) are still unread on his devices.
 
 **What waits on him:** the 0.70 sitting (the PC deploy and his install together, `DAILY.md`); each C1 stage's arming;
 Music's five questions (where the PC plays; away with the output on the PC; a service restart while the PC plays;
