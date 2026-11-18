@@ -157,15 +157,6 @@ object Snapshot {
             wm.damage.core.app.LocalWindowSource(feedCore, wm.damage.core.app.HostBackend(pcRecord,
                 wm.damage.core.app.Peer.LOCAL.device, wm.damage.core.app.OpQueue.newStream())), clock = feedClock::now)
         shell.register(feedWin)
-        /** Open the Games menu row LABELLED [label] — by name, never by counting. */
-        suspend fun gamesMenu(label: String) {
-            settle(shell, "games-menu-$label")
-            val i = shell.menuLabels.indexOfFirst { it == label || it.startsWith(label) }
-            if (i < 0) { failures.add("Games menu row '$label' not in ${shell.menuLabels}"); return }
-            repeat((i - shell.menuCursor).mod(shell.menuLabels.size)) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }
-            shell.postGesture(EvenHubMsg.EV_CLICK)
-            settle(shell, "games-menu-$label-committed")
-        }
         /** Open the Music menu (from the NOW PLAYING root, 2026-09-03) and
          *  commit the row LABELLED [label] — by name, never by counting. */
         suspend fun musicMenu(label: String) {
@@ -357,6 +348,44 @@ object Snapshot {
         shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)     // cursor home (Reader)
         settle(shell)
 
+        // Games: its own function (the script method is near the JVM's 64 KB limit; stage M of S1-3)
+        gamesScenes(shell, sim, out, gamesWin, ::toWindow, ::iconsSettled)
+
+        feedScenes(shell, sim, out, feedWin, feedScripted, ::toWindow, ::iconsSettled)
+        // build S1-3 J: the states S1-3's presenters move onto the PC record (spec B6, B14), each ending on Main
+        feedMoreScenes(shell, sim, out, transport, feedWin, feedScripted, feedProvider, feedClock, pcRecord, ::toWindow)
+        tmuxMoreScenes(shell, sim, out, tmuxWin, tmuxScripted, ::toWindow, pcRecord)
+
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // silent
+        settle(shell)
+        save(sim, out, "10-silent")
+
+        shell.stop()
+        reader.detach()
+        torrentsWin.detach()
+        torrentsCore.detachNotices()
+        tmuxWin.core.detachAlerts()
+        pcMirror.detach(shell.noticeSink)
+        pcMirror.close()
+        pcRecord.close()
+        scope.cancel()
+        tmp.toFile().deleteRecursively()
+    }
+
+    /** The Games part of [script], moved out unchanged with its menu helper (S1-3's merge): the script method is near the
+     *  JVM's 64 KB limit. Ends on Main, as it did there. */
+    private suspend fun gamesScenes(shell: Shell, sim: GlassFirmwareSim, out: Path,
+        gamesWin: wm.damage.core.windows.games.GamesWindow,
+        toWindow: suspend (String) -> Unit, iconsSettled: suspend () -> Unit) {
+        /** Open the Games menu row LABELLED [label] — by name, never by counting. */
+        suspend fun gamesMenu(label: String) {
+            settle(shell, "games-menu-$label")
+            val i = shell.menuLabels.indexOfFirst { it == label || it.startsWith(label) }
+            if (i < 0) { failures.add("Games menu row '$label' not in ${shell.menuLabels}"); return }
+            repeat((i - shell.menuCursor).mod(shell.menuLabels.size)) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }
+            shell.postGesture(EvenHubMsg.EV_CLICK)
+            settle(shell, "games-menu-$label-committed")
+        }
         // ---------------------------------------------------------------- Games
         /** Rest the Games-root cursor on the row NAMED [label] — by name,
          *  never by counting: the root gained a row once already. */
@@ -494,26 +523,6 @@ object Snapshot {
         settle(shell, "games")
         shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
         settle(shell, "games")
-
-        feedScenes(shell, sim, out, feedWin, feedScripted, ::toWindow, ::iconsSettled)
-        // build S1-3 J: the states S1-3's presenters move onto the PC record (spec B6, B14), each ending on Main
-        feedMoreScenes(shell, sim, out, transport, feedWin, feedScripted, feedProvider, feedClock, pcRecord, ::toWindow)
-        tmuxMoreScenes(shell, sim, out, tmuxWin, tmuxScripted, ::toWindow, pcRecord)
-
-        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // silent
-        settle(shell)
-        save(sim, out, "10-silent")
-
-        shell.stop()
-        reader.detach()
-        torrentsWin.detach()
-        torrentsCore.detachNotices()
-        tmuxWin.core.detachAlerts()
-        pcMirror.detach(shell.noticeSink)
-        pcMirror.close()
-        pcRecord.close()
-        scope.cancel()
-        tmp.toFile().deleteRecursively()
     }
 
     /**

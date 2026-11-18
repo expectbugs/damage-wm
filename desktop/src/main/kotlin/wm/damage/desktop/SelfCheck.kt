@@ -255,9 +255,10 @@ object SelfCheck {
         val reader = ReaderWindow(text, LocalContent(books), scope, AwtImages())
         shell.register(reader)
         val tmuxScripted = ScriptedTmux()
-        // build S1-3 B16: Tmux over a scratch PC record whose core raises the alert once (`TmuxOnRecord`)
-        val tmuxRig = TmuxOnRecord(text, tmuxScripted, scope, tmp, shell)
-        val tmuxWin = tmuxRig.win
+        // build S1-3 B16: ONE scratch PC record for Feed and Tmux, its notices shown by this shell's one mirror; Tmux's
+        // presenter over it, its core raising the alert once (`PcOnRecord`)
+        val pc = PcOnRecord(text, tmuxScripted, scope, tmp, shell)
+        val tmuxWin = pc.tmux
         shell.register(tmuxWin)
         val filesWin = wm.damage.core.windows.files.FilesWindow(text, filesProvider, scope, AwtImages())
         shell.register(filesWin)
@@ -282,17 +283,12 @@ object SelfCheck {
         shell.register(gamesWin)
         // Feed (FEED.md): the scripted provider — five sources, articles, strips, the archive
         val feedScripted = wm.damage.core.windows.feed.ScriptedFeed()
-        // build S1-3 B16: Feed's presenter over a scratch PC record in this run's temp directory; its core raises the
-        // new-item notices into it and this shell shows them through a notice mirror (`runShell`'s arrangement)
-        val feedRecord = wm.damage.core.app.AppHost.inScratchDir(Files.createDirectories(tmp.resolve("record")))
+        // build S1-3 B16: Feed's presenter over the same scratch PC record; its core raises the new-item notices into it
+        // and this shell shows them through the one notice mirror (`runShell`'s arrangement)
         val feedCore = wm.damage.core.windows.feed.FeedCore(feedScripted)
-        feedCore.startOnPc(feedRecord, wm.damage.core.app.NoticeCore(feedRecord)) { _, _ -> }
-        val feedMirror = wm.damage.core.app.NoticeMirror(wm.damage.core.app.HostBackend(feedRecord,
-            wm.damage.core.app.Peer.LOCAL.device, wm.damage.core.app.OpQueue.newStream()))
-        shell.noticeInput = feedMirror
-        feedMirror.attach(shell.noticeSink)
+        feedCore.startOnPc(pc.record, pc.notices) { _, _ -> }
         val feedWin = wm.damage.core.windows.feed.FeedGlasses(text, feedScripted, scope, feedCore,
-            wm.damage.core.app.LocalWindowSource(feedCore, wm.damage.core.app.HostBackend(feedRecord,
+            wm.damage.core.app.LocalWindowSource(feedCore, wm.damage.core.app.HostBackend(pc.record,
                 wm.damage.core.app.Peer.LOCAL.device, wm.damage.core.app.OpQueue.newStream())))
         shell.register(feedWin)
         /** Open the Music menu (from the root) and commit the row LABELLED
@@ -444,104 +440,9 @@ object SelfCheck {
         shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)       // silent -> Main
         settle(shell, "wake")
 
-        // ---- Tmux (TMUX.md): sessions -> live grid -> history -> keys ->
-        // typed-text confirm -> alert, all against the scripted provider
-        shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)      // Main cursor: Reader -> Tmux
-        settle(shell, "main-to-tmux-row")
-        shell.postGesture(EvenHubMsg.EV_CLICK)
-        settle(shell, "tmux-sessions")
-        check("tmux opens at the sessions list", tmuxWin.title() == "sessions")
-        check("tmux summary shows the sessions", tmuxWin.summary().line.contains("2 session"))
-        shell.postGesture(EvenHubMsg.EV_CLICK)              // open 'claude'
-        settle(shell, "tmux-live")
-        check("opening a session subscribes and shows the live grid",
-            tmuxWin.title() == "claude" && tmuxScripted.sent.any { it == "sub:claude" })
-        val inkTmux = Pack.inkFraction(shell.comp.composed)
-        check("the live grid painted within the canvas ink note (was ${"%.1f".format(inkTmux * 100)}%)",
-            inkTmux in 0.005..0.30)
-        shell.postGesture(EvenHubMsg.EV_SCROLL_TOP)         // scroll-up IS scrollback
-        awaitTrue("history captures and wraps in") { tmuxWin.title().contains("history") }
-        settle(shell, "tmux-history")
-        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)       // history -> live
-        settle(shell, "tmux-history-back")
-        check("double-tap returns history to the live grid", tmuxWin.title() == "claude")
-        shell.postGesture(EvenHubMsg.EV_CLICK)              // live -> keys
-        settle(shell, "tmux-keys")
-        check("tap descends to the keys level", tmuxWin.title().contains("keys"))
-        shell.postGesture(EvenHubMsg.EV_CLICK)              // send Enter (cursor at row 0)
-        awaitTrue("the quick key reached the session") { tmuxScripted.sent.contains("keys:claude:Enter") }
-        settle(shell, "tmux-key-sent")
-        check("sending a key drops back to the live view", tmuxWin.title() == "claude")
-        transport.injectText("echo staged")                 // the replica typed-text path
-        awaitTrue("typed text stages a confirm") { tmuxWin.title().contains("confirm") }
-        check("nothing ran before the confirm", tmuxScripted.sent.none { it.startsWith("lit:") })
-        shell.postGesture(EvenHubMsg.EV_CLICK)              // Run
-        awaitTrue("the confirmed line ran literal + Enter") {
-            tmuxScripted.sent.contains("lit:claude:echo staged") &&
-                tmuxScripted.sent.count { it == "keys:claude:Enter" } == 2
-        }
-        settle(shell, "tmux-typed-ran")
-        tmuxScripted.pushAlert()                            // 'claude' wants input
-        awaitTrue("a tmux alert raises the notification box") { shell.notifications.active }
-        check("the alert marks the window dirty", tmuxWin.dirty)
-        delay(3_000)                                        // its grace
-        settle(shell, "tmux-alert-grace")
-        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)       // dismiss the alert box
-        awaitTrue("the alert dismisses") { !shell.notifications.active }
-        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)       // live -> sessions
-        settle(shell, "tmux-to-sessions")
-        check("leaving the live grid unsubscribes", tmuxScripted.sent.last() == "sub:null")
-        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)       // sessions -> Main
-        settle(shell, "tmux-to-main")
-        shell.postGesture(EvenHubMsg.EV_SCROLL_TOP)         // Main cursor back to Reader
-        settle(shell, "main-to-reader-row")
-
-        // ---- Files (Adam's first conversion, 2026-09-01): locations →
-        // tap-is-a-menu grammar → viewers, against the deterministic SC root
-        repeat(2) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }   // Reader → Tmux → Files
-        settle(shell, "main-to-files-row")
-        shell.postGesture(EvenHubMsg.EV_CLICK)
-        settle(shell, "files-locations")
-        awaitTrue("Files opens at locations") { filesWin.summary().line == "1 locations" }
-        val inkLoc = Pack.inkFraction(shell.comp.composed)
-        check("Files locations ink <= 15% list budget (was ${"%.1f".format(inkLoc * 100)}%)", inkLoc <= 0.15)
-        shell.postGesture(EvenHubMsg.EV_CLICK)                          // enter SC
-        awaitTrue("the listing arrives") { filesWin.summary().detail.contains("1 folders") }
-        settle(shell, "files-browse")
-        shell.postGesture(EvenHubMsg.EV_CLICK)                          // tap = context menu (sub)
-        awaitTrue("tap opens the context menu, Open first") { shell.menuIsOpen }
-        settle(shell, "files-menu")
-        shell.postGesture(EvenHubMsg.EV_CLICK)                          // Open at cursor rest
-        awaitTrue("two taps enter the folder") { filesWin.title().endsWith("/sub") }
-        check("the menu closed on commit", !shell.menuIsOpen)
-        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)                   // ascend
-        awaitTrue("double-tap ascends") { filesWin.title().endsWith("sc-root") }
-        settle(shell, "files-ascended")
-        shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)                  // sub → a.txt
-        settle(shell, "files-to-a")
-        shell.postGesture(EvenHubMsg.EV_CLICK)
-        awaitTrue("menu on a.txt") { shell.menuIsOpen && shell.menuTitle == "a.txt" }
-        shell.postGesture(EvenHubMsg.EV_CLICK)                          // Open
-        awaitTrue("the text viewer opens") { filesWin.title() == "a.txt" }
-        settle(shell, "files-text")
-        val inkTxt = Pack.inkFraction(shell.comp.composed)
-        check("Files text viewer ink <= 25% document budget (was ${"%.1f".format(inkTxt * 100)}%)", inkTxt <= 0.25)
-        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)                   // viewer → browse
-        settle(shell, "files-back-browse")
-        shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)                  // a.txt → img.png
-        settle(shell, "files-to-img")
-        shell.postGesture(EvenHubMsg.EV_CLICK)
-        awaitTrue("menu on img.png") { shell.menuIsOpen && shell.menuTitle == "img.png" }
-        shell.postGesture(EvenHubMsg.EV_CLICK)                          // Open
-        awaitTrue("the image viewer opens") { filesWin.title() == "img.png" }
-        settle(shell, "files-image")
-        check("the image painted (panel not blank in content)",
-            Pack.inkFraction(shell.comp.composed) > 0.02)
-        repeat(3) { shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK) }     // viewer→browse→locations→Main
-        settle(shell, "files-out")
-        shell.postGesture(EvenHubMsg.EV_SCROLL_TOP)                     // Main cursor back toward Reader
-        shell.postGesture(EvenHubMsg.EV_SCROLL_TOP)
-        settle(shell, "main-back-to-reader-row")
+        // ---- Tmux and Files: their own functions (the script method is near the JVM's 64 KB limit; stage M of S1-3)
+        tmuxChecks(shell, transport, tmuxWin, tmuxScripted)
+        filesChecks(shell, filesWin)
 
         torrentsChecks(shell, transport, torrentsWin, torrentsScripted)
 
@@ -690,7 +591,7 @@ object SelfCheck {
         shell.stop()
         torrentsWin.detach()                                // the stack-stop rule, mirrored (review P1)
         musicWin.detach()
-        tmuxRig.stop(shell)                                 // S1-3 B16: the stop leaves the record's source and its alerts
+        pc.stop(shell)                                      // S1-3 B16: the stop leaves the record's source and its alerts
 
         val persistence2 = Persistence(tmp.resolve("state.json"))
         val scope2 = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -756,7 +657,111 @@ object SelfCheck {
         scope.cancel()
     }
 
+    /** The Tmux part of [script], moved out unchanged (S1-3's merge): the script method is near the JVM's 64 KB limit. */
+    private suspend fun tmuxChecks(shell: Shell, transport: SimTransport, tmuxWin: wm.damage.core.windows.tmux.TmuxGlasses,
+                                   tmuxScripted: ScriptedTmux) {
+        // ---- Tmux (TMUX.md): sessions -> live grid -> history -> keys ->
+        // typed-text confirm -> alert, all against the scripted provider
+        shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)      // Main cursor: Reader -> Tmux
+        settle(shell, "main-to-tmux-row")
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        settle(shell, "tmux-sessions")
+        check("tmux opens at the sessions list", tmuxWin.title() == "sessions")
+        check("tmux summary shows the sessions", tmuxWin.summary().line.contains("2 session"))
+        shell.postGesture(EvenHubMsg.EV_CLICK)              // open 'claude'
+        settle(shell, "tmux-live")
+        check("opening a session subscribes and shows the live grid",
+            tmuxWin.title() == "claude" && tmuxScripted.sent.any { it == "sub:claude" })
+        val inkTmux = Pack.inkFraction(shell.comp.composed)
+        check("the live grid painted within the canvas ink note (was ${"%.1f".format(inkTmux * 100)}%)",
+            inkTmux in 0.005..0.30)
+        shell.postGesture(EvenHubMsg.EV_SCROLL_TOP)         // scroll-up IS scrollback
+        awaitTrue("history captures and wraps in") { tmuxWin.title().contains("history") }
+        settle(shell, "tmux-history")
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)       // history -> live
+        settle(shell, "tmux-history-back")
+        check("double-tap returns history to the live grid", tmuxWin.title() == "claude")
+        shell.postGesture(EvenHubMsg.EV_CLICK)              // live -> keys
+        settle(shell, "tmux-keys")
+        check("tap descends to the keys level", tmuxWin.title().contains("keys"))
+        shell.postGesture(EvenHubMsg.EV_CLICK)              // send Enter (cursor at row 0)
+        awaitTrue("the quick key reached the session") { tmuxScripted.sent.contains("keys:claude:Enter") }
+        settle(shell, "tmux-key-sent")
+        check("sending a key drops back to the live view", tmuxWin.title() == "claude")
+        transport.injectText("echo staged")                 // the replica typed-text path
+        awaitTrue("typed text stages a confirm") { tmuxWin.title().contains("confirm") }
+        check("nothing ran before the confirm", tmuxScripted.sent.none { it.startsWith("lit:") })
+        shell.postGesture(EvenHubMsg.EV_CLICK)              // Run
+        awaitTrue("the confirmed line ran literal + Enter") {
+            tmuxScripted.sent.contains("lit:claude:echo staged") &&
+                tmuxScripted.sent.count { it == "keys:claude:Enter" } == 2
+        }
+        settle(shell, "tmux-typed-ran")
+        tmuxScripted.pushAlert()                            // 'claude' wants input
+        awaitTrue("a tmux alert raises the notification box") { shell.notifications.active }
+        check("the alert marks the window dirty", tmuxWin.dirty)
+        delay(3_000)                                        // its grace
+        settle(shell, "tmux-alert-grace")
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)       // dismiss the alert box
+        awaitTrue("the alert dismisses") { !shell.notifications.active }
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)       // live -> sessions
+        settle(shell, "tmux-to-sessions")
+        check("leaving the live grid unsubscribes", tmuxScripted.sent.last() == "sub:null")
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)       // sessions -> Main
+        settle(shell, "tmux-to-main")
+        shell.postGesture(EvenHubMsg.EV_SCROLL_TOP)         // Main cursor back to Reader
+        settle(shell, "main-to-reader-row")
+    }
 
+    /** The Files part of [script], moved out unchanged (S1-3's merge): the script method is near the JVM's 64 KB limit. */
+    private suspend fun filesChecks(shell: Shell, filesWin: wm.damage.core.windows.files.FilesWindow) {
+        // ---- Files (Adam's first conversion, 2026-09-01): locations →
+        // tap-is-a-menu grammar → viewers, against the deterministic SC root
+        repeat(2) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }   // Reader → Tmux → Files
+        settle(shell, "main-to-files-row")
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        settle(shell, "files-locations")
+        awaitTrue("Files opens at locations") { filesWin.summary().line == "1 locations" }
+        val inkLoc = Pack.inkFraction(shell.comp.composed)
+        check("Files locations ink <= 15% list budget (was ${"%.1f".format(inkLoc * 100)}%)", inkLoc <= 0.15)
+        shell.postGesture(EvenHubMsg.EV_CLICK)                          // enter SC
+        awaitTrue("the listing arrives") { filesWin.summary().detail.contains("1 folders") }
+        settle(shell, "files-browse")
+        shell.postGesture(EvenHubMsg.EV_CLICK)                          // tap = context menu (sub)
+        awaitTrue("tap opens the context menu, Open first") { shell.menuIsOpen }
+        settle(shell, "files-menu")
+        shell.postGesture(EvenHubMsg.EV_CLICK)                          // Open at cursor rest
+        awaitTrue("two taps enter the folder") { filesWin.title().endsWith("/sub") }
+        check("the menu closed on commit", !shell.menuIsOpen)
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)                   // ascend
+        awaitTrue("double-tap ascends") { filesWin.title().endsWith("sc-root") }
+        settle(shell, "files-ascended")
+        shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)                  // sub → a.txt
+        settle(shell, "files-to-a")
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        awaitTrue("menu on a.txt") { shell.menuIsOpen && shell.menuTitle == "a.txt" }
+        shell.postGesture(EvenHubMsg.EV_CLICK)                          // Open
+        awaitTrue("the text viewer opens") { filesWin.title() == "a.txt" }
+        settle(shell, "files-text")
+        val inkTxt = Pack.inkFraction(shell.comp.composed)
+        check("Files text viewer ink <= 25% document budget (was ${"%.1f".format(inkTxt * 100)}%)", inkTxt <= 0.25)
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)                   // viewer → browse
+        settle(shell, "files-back-browse")
+        shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)                  // a.txt → img.png
+        settle(shell, "files-to-img")
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        awaitTrue("menu on img.png") { shell.menuIsOpen && shell.menuTitle == "img.png" }
+        shell.postGesture(EvenHubMsg.EV_CLICK)                          // Open
+        awaitTrue("the image viewer opens") { filesWin.title() == "img.png" }
+        settle(shell, "files-image")
+        check("the image painted (panel not blank in content)",
+            Pack.inkFraction(shell.comp.composed) > 0.02)
+        repeat(3) { shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK) }     // viewer→browse→locations→Main
+        settle(shell, "files-out")
+        shell.postGesture(EvenHubMsg.EV_SCROLL_TOP)                     // Main cursor back toward Reader
+        shell.postGesture(EvenHubMsg.EV_SCROLL_TOP)
+        settle(shell, "main-back-to-reader-row")
+    }
 
     /**
      * The TYPE LADDER'S TOP END (review 2026-09-05). Every "measured vs
@@ -1357,30 +1362,34 @@ object SelfCheck {
 }
 
 /**
- * Build S1-3 B16: Tmux in `--selfcheck` as the PC runs it — the presenter over a scratch PC record, its core raising a
- * waiting session's alert once into the notice record, which this shell's mirror shows — so the alert check walks the
- * service's path. A class of its own: the script's one method is at the JVM's size limit.
+ * Build S1-3 B16: Feed and Tmux in `--selfcheck` as the PC runs them — ONE scratch PC record in the run's temp
+ * directory, into whose notice record the PC's cores raise (Tmux's waiting session, Feed's new item), shown by this
+ * shell's one mirror, so the alert and notice checks walk the service's path; Tmux's presenter over it. (The merge of
+ * S1-3's lanes: each lane had made a record and a mirror of its own, and the second `noticeInput` replaced the first,
+ * so a dismissed Tmux alert went to Feed's record.) A class of its own: the script's one method is near the JVM's size
+ * limit.
  */
-private class TmuxOnRecord(text: wm.damage.core.text.TextRasterizer, scripted: ScriptedTmux,
-                           scope: kotlinx.coroutines.CoroutineScope, tmp: Path, shell: Shell) {
-    private val record = wm.damage.core.app.AppHost.inScratchDir(java.nio.file.Files.createDirectories(tmp.resolve("tmux-record")))
+private class PcOnRecord(text: wm.damage.core.text.TextRasterizer, scripted: ScriptedTmux,
+                         scope: kotlinx.coroutines.CoroutineScope, tmp: Path, shell: Shell) {
+    val record = wm.damage.core.app.AppHost.inScratchDir(java.nio.file.Files.createDirectories(tmp.resolve("record")))
+    val notices = wm.damage.core.app.NoticeCore(record)
     private val mirror = wm.damage.core.app.NoticeMirror(wm.damage.core.app.HostBackend(record,
         wm.damage.core.app.Peer.LOCAL.device, wm.damage.core.app.OpQueue.newStream()))
     private val core = wm.damage.core.windows.tmux.TmuxCore()
-    val win = wm.damage.core.windows.tmux.TmuxGlasses(text, scripted, scope, core,
+    val tmux = wm.damage.core.windows.tmux.TmuxGlasses(text, scripted, scope, core,
         wm.damage.core.app.LocalWindowSource(core, wm.damage.core.app.HostBackend(record,
             wm.damage.core.app.Peer.LOCAL.device, wm.damage.core.app.OpQueue.newStream())))
 
     init {
         shell.noticeInput = mirror
         mirror.attach(shell.noticeSink)
-        core.attachAlerts(scripted, wm.damage.core.app.NoticeCore(record)) {
+        core.attachAlerts(scripted, notices) {
             wm.damage.core.app.WindowState(core.window, record.read(core.window).third.items)
         }
     }
 
     fun stop(shell: Shell) {
-        win.detach()
+        tmux.detach()
         core.detachAlerts()
         mirror.detach(shell.noticeSink)
     }
