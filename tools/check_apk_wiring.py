@@ -520,6 +520,12 @@ def check(root=ROOT, say=print):
                                               ('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'runShell')],
             ('Main', 'torrentsParts'): [('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'hostOnly'),
                                         ('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'runShell')],
+            # build S1-3 (B7, B16): Feed's state from before its conversion migrates at the PC's two starts, before any
+            # presenter reads it; its core, scopes and notices are made there too — never per stack, never from a tool
+            ('FeedMigration', 'onHost'): [('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'hostOnly'),
+                                          ('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'runShell')],
+            ('Main', 'feedParts'): [('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'hostOnly'),
+                                    ('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'runShell')],
             ('LocalSecret', 'ensure'): [('core/src/main/kotlin/wm/damage/core/web/WebAccess.kt', 'atProcessStart')],
             ('LocalSecret', 'read'): [('core/src/main/kotlin/wm/damage/core/app/DeviceCli.kt', 'run'),
                                       ('core/src/main/kotlin/wm/damage/core/web/WebAccess.kt', 'localSecret')],
@@ -527,6 +533,7 @@ def check(root=ROOT, say=print):
     said_as = {'InstanceLock': 'two PC starts (runShell, hostOnly)', 'AppHost': 'two PC starts (runShell, hostOnly)',
                'WebAccess': 'two PC starts (runShell, hostOnly)', 'Main': 'two PC starts (runShell, hostOnly)',
                'NoticeCore': 'two PC starts (runShell, hostOnly)', 'TorrentsMigration': 'two PC starts (runShell, hostOnly)',
+               'FeedMigration': 'two PC starts (runShell, hostOnly)',
                'LocalSecret': 'start\'s access state (and the device commands\' client)', 'DeviceCli': 'command line\'s main'}
     for (owner, name), expect in want.items():
         got = callers(root, owner, name)
@@ -695,6 +702,23 @@ def check(root=ROOT, say=print):
          'no recordNotices = { wc.shares(core.window) && wc.shares(…Notices.WINDOW) } in startStack')
     gone = [w for w in ('torrentsGlasses?.detach()', 'torrentsSource?.close()') if w not in stop]
     line(not gone, 'ShellService.stopStack: Torrents\' presenter leaves its source, and the source the working copy',
+         'not in stopStack: ' + ', '.join(gone))
+
+    # 13. build S1-3 (B5, B16): Feed on both hosts. The PC hands every stack the process's core and source; the phone has
+    #     no engine of its own and no switch to one (its fetching retired), builds the presenter over its working copy
+    #     on the PC's engine through the window channel, and leaves the source at a stop.
+    line('feedCore = feedScopes.core to feedSource' in run,
+         'runShell: Feed\'s process-wide core and source, handed to every stack it builds',
+         'no feedCore = feedScopes.core to feedSource in DesktopStack(…) of runShell')
+    line('FeedGlasses(text, p, scope, core, source)' in stack_init,
+         'DesktopStack: Feed\'s presenter over the core on the PC record',
+         'no FeedGlasses(text, p, scope, core, source) in DesktopStack')
+    phone_feed = [w for w in ('FeedEngine(', 'SwitchingFeedProvider', 'FeedStore(', 'RealFeedHttp(') if w in svc_code]
+    line(not phone_feed and 'FeedGlasses(text, feedRemote, scope, core, src, device = wc.device)' in stack,
+         'ShellService: no Feed engine or switch on the phone; Feed\'s presenter over the working copy on the PC\'s engine',
+         ('on the phone: ' + ', '.join(phone_feed)) if phone_feed else 'no FeedGlasses(text, feedRemote, scope, core, src, …) in startStack')
+    gone = [w for w in ('feedGlasses?.detach()', 'feedSource?.close()') if w not in stop]
+    line(not gone, 'ShellService.stopStack: Feed\'s presenter leaves its source, and the source the working copy',
          'not in stopStack: ' + ', '.join(gone))
 
     for n in notes:

@@ -21,6 +21,8 @@ object Extract {
     private val DROP = setOf("script", "style", "noscript", "nav", "header", "footer", "aside", "form",
         "iframe", "svg", "button", "select", "input", "textarea", "template")
     private val BLOCK_HEADINGS = setOf("h1", "h2", "h3", "h4")
+    /** A link a reader may follow: http or https only (never `javascript:`, `data:` or `mailto:`). */
+    private val LINKABLE = Regex("^https?://\\S+$", RegexOption.IGNORE_CASE)
     private val NOISE = Regex("(?i)comment|share|social|sidebar|widget|footer|nav|menu|promo|related|newsletter|cookie|banner|advert|breadcrumb|popup|subscribe")
 
     fun article(html: String, baseUrl: String): List<Block> {
@@ -96,18 +98,18 @@ object Extract {
                     val tag = n.tagName()
                     when {
                         tag in DROP -> {}
-                        tag in BLOCK_HEADINGS -> { flushLoose(); emitText("h", n.text(), out) }
+                        tag in BLOCK_HEADINGS -> { flushLoose(); emitText("h", n.text(), out, n) }
                         tag == "p" -> { flushLoose(); emitInline(n, out, baseUrl) }
-                        tag == "li" -> { flushLoose(); emitText("li", n.text(), out) }
+                        tag == "li" -> { flushLoose(); emitText("li", n.text(), out, n) }
                         tag == "blockquote" -> {
                             flushLoose()
                             val ps = n.select("p")
-                            if (ps.isEmpty()) emitText("q", n.text(), out)
-                            else for (p in ps) emitText("q", p.text(), out)
+                            if (ps.isEmpty()) emitText("q", n.text(), out, n)
+                            else for (p in ps) emitText("q", p.text(), out, p)
                         }
                         tag == "pre" -> { flushLoose(); val t = n.wholeText().trim(); if (t.isNotEmpty()) out.add(Block("pre", t)) }
                         tag == "img" -> { flushLoose(); emitImage(n, out, baseUrl) }
-                        tag == "figcaption" -> { flushLoose(); emitText("p", n.text(), out) }
+                        tag == "figcaption" -> { flushLoose(); emitText("p", n.text(), out, n) }
                         tag == "br" -> loose.append(' ')
                         tag == "table" -> { flushLoose(); for (row in n.select("tr")) emitText("p", row.text(), out) }
                         else -> {
@@ -131,14 +133,75 @@ object Extract {
     /** A paragraph: its text, plus any image it holds as its own block. */
     private fun emitInline(p: Element, out: MutableList<Block>, baseUrl: String) {
         val imgs = p.select("img")
-        emitText("p", p.text(), out)
+        emitText("p", p.text(), out, p)
         for (img in imgs) emitImage(img, out, baseUrl)
     }
 
-    private fun emitText(kind: String, raw: String, out: MutableList<Block>) {
+    /** A text block; [el] given, its inline marks and links as [Span]s when their joined text is the block's text. */
+    private fun emitText(kind: String, raw: String, out: MutableList<Block>, el: Element? = null) {
         val t = raw.replace(Regex("\\s+"), " ").trim()
         if (t.isEmpty()) return
-        out.add(Block(kind, t))
+        out.add(Block(kind, t, spans = if (el == null) emptyList() else spansOf(el, t)))
+    }
+
+    /**
+     * Build S1-3 B3 (`CONTRACT.md` §3.2, §3.5): the inline walk — em/i, strong/b, code/kbd/samp, and `a[href]` kept only
+     * when it resolves to http or https — as runs with jsoup's own whitespace rule. Kept only when the runs' joined
+     * text equals [text] (the block's text, which never changes, so saved offsets and the glasses' picture keep their
+     * meaning) and something is marked; otherwise empty: the block is one plain span.
+     */
+    fun spansOf(el: Element, text: String): List<Span> {
+        val runs = ArrayList<Span>()
+        val sb = StringBuilder()
+        var marks = 0
+        var href = ""
+        fun flush() {
+            if (sb.isNotEmpty()) runs.add(Span(sb.toString(), marks, href))
+            sb.setLength(0)
+        }
+        fun ws(c: Char) = c == ' ' || c == '\t' || c == '\n' || c == '\u000c' || c == '\r' || c == '\u00a0'
+        var lastWs = true                       // a leading space is dropped (jsoup trims)
+        fun put(s: String) {
+            for (c in s) if (ws(c)) { if (!lastWs) { sb.append(' '); lastWs = true } } else { sb.append(c); lastWs = false }
+        }
+        fun visit(n: Node) {
+            when (n) {
+                is TextNode -> put(n.wholeText)
+                is Element -> {
+                    val tag = n.normalName()
+                    if (tag == "br") { put(" "); return }
+                    val bit = when (tag) {
+                        "em", "i" -> Span.EM
+                        "strong", "b" -> Span.STRONG
+                        "code", "kbd", "samp" -> Span.CODE
+                        else -> 0
+                    }
+                    val link = if (tag == "a") n.attr("abs:href").takeIf { LINKABLE.matches(it) } else null
+                    if (bit == 0 && link == null) { for (c in n.childNodes()) visit(c); return }
+                    val (m0, h0) = marks to href
+                    flush()
+                    marks = marks or bit
+                    if (link != null) href = link
+                    for (c in n.childNodes()) visit(c)
+                    flush()
+                    marks = m0; href = h0
+                }
+                else -> {}
+            }
+        }
+        for (c in el.childNodes()) visit(c)
+        flush()
+        // the trailing space jsoup trims, and empty or equal neighbours merged
+        val merged = ArrayList<Span>()
+        for ((i, r) in runs.withIndex()) {
+            val s = if (i == runs.lastIndex) r.text.trimEnd(' ') else r.text
+            if (s.isEmpty()) continue
+            val last = merged.lastOrNull()
+            if (last != null && last.marks == r.marks && last.href == r.href) merged[merged.lastIndex] = last.copy(text = last.text + s)
+            else merged.add(r.copy(text = s))
+        }
+        if (merged.joinToString("") { it.text } != text) return emptyList()
+        return if (merged.any { it.marks != 0 || it.href.isNotEmpty() }) merged else emptyList()
     }
 
     private fun emitImage(img: Element, out: MutableList<Block>, baseUrl: String) {

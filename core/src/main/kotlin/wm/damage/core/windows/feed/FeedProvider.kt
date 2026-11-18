@@ -2,11 +2,11 @@ package wm.damage.core.windows.feed
 
 /**
  * FEED.md §3.6 — the provider seam the window reads through. The engine
- * itself is one ([FeedEngine], the PC always and the phone as its
- * fallback), the phone's client to the PC's engine is another
- * ([RemoteFeedProvider]), and the phone wraps the two in
- * [SwitchingFeedProvider]. Everything here is called OFF the shell loop
- * except [sources], [stateLine] and [engineName], which read cached state.
+ * itself is one ([FeedEngine], on the PC), the phone's client to the PC's
+ * engine is another ([RemoteFeedProvider]; build S1-3 B5 retired the phone's
+ * own engine and the switch between the two). Everything here is called OFF
+ * the shell loop except [sources], [stateLine] and [engineName], which read
+ * cached state.
  */
 interface FeedProvider : AutoCloseable {
     interface Listener {
@@ -52,17 +52,13 @@ interface FeedProvider : AutoCloseable {
     fun image(url: String, width: Int, levels: Int, mode: LineArt): Strip
     /** An article for a URL the engine no longer lists (a flagged item that retention pruned). */
     fun articleByUrl(url: String, title: String): Article
-    /** The Settings rows that belong below the window (verdicts 11–12 and the
-     *  `PC loss` threshold): feeds' cadence, retention, the sustained-loss
-     *  threshold a switching provider acts on. */
-    fun configure(fetchMs: Long, keepMs: Long, pcLossMs: Long)
-
-    /** The phone's fallback engine is serving (FEED.md §3.6) — the root menu's `Back to PC` row. */
-    fun fallbackActive(): Boolean = false
-    /** While the fallback serves: how long the PC has been unreachable, or "" once it is back. */
-    fun pcDownLine(): String = ""
-    /** The deliberate switchback; a no-op where there is nothing to switch. */
-    fun backToPc() {}
+    /** B2 (the web's comic): a comic's facts with SMBC's bonus panel learned, no strip prepared. */
+    fun comicItem(itemId: String): Item? = item(itemId)
+    /** B2 (the web's archive): episode [num] with its picture's URL, found on its page if the index lacks it. */
+    fun bingeResolve(sourceId: String, num: Int): Episode =
+        bingeIndex(sourceId).firstOrNull { it.num == num } ?: throw IllegalArgumentException("no page $num")
+    /** B2 (FeedBlobs): an original picture's bytes, the engine's cached copy or one fetch. */
+    fun original(url: String): ByteArray = throw UnsupportedOperationException("this host keeps no original pictures")
 
     override fun close() {}
 }

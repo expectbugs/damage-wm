@@ -31,10 +31,13 @@ import wm.damage.core.windows.feed.*
  * a real shell — the source list, an item list, an article and its actions,
  * comments, the flag and the Flagged list, a comic, the archive (next,
  * previous, jump), Browse through the keyboard, Mark all read behind its
- * confirm; the identity cursor under an inserting refresh; the notice
- * gated on its row; the §3.5 records (union of read marks, no empty blob);
- * the persistence round-trip; the deep links; MAIN presents the root and
- * the switcher resumes.
+ * confirm; the identity cursor under an inserting refresh; the persistence
+ * round-trip; the deep links; MAIN presents the root and the switcher
+ * resumes. Build S1-3 B6: the read marks, flags, recents and the archive's
+ * place are the record's (read through the window's source); the notices
+ * are the PC core's (`FeedCoreTest`); two pins for S1-3 J §6's defects —
+ * a restart brings the open article back at its place, and leaving the
+ * archive while a page loads does not stop it loading more.
  */
 class FeedWindowTest {
 
@@ -54,12 +57,15 @@ class FeedWindowTest {
         waitUntil(ms, 20, { "did not converge: $what [${dump()}]" }) { cond() }
     }
 
-    private class Rig(tmp: Path, val feed: ScriptedFeed = ScriptedFeed()) {
+    private class Rig(tmp: Path, val feed: ScriptedFeed = ScriptedFeed(), provider: FeedProvider = feed,
+                      record: wm.damage.core.app.MemoryRecord? = null) {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val store = Persistence(tmp.resolve("state.json"))
         val transport = SimTransport(GlassFirmwareSim(), scope, SimTransport.Timing(instant = true))
         val shell = Shell(FakeText(), transport, store, null, scope)
-        val win = FeedWindow(FakeText(), feed, scope)
+        val win = if (record == null) FeedWindow(FakeText(), provider, scope) else FeedCore().let { core ->
+            FeedGlasses(FakeText(), provider, scope, core, wm.damage.core.app.LocalWindowSource(core, record))
+        }
         init { shell.register(win) }
         suspend fun start() { shell.start(); shell.postGesture(EvenHubMsg.EV_CLICK) }   // Main cursor 0 = Feed
         suspend fun stop() { shell.stop(); scope.cancel() }
@@ -80,6 +86,9 @@ class FeedWindowTest {
 
     private fun state(r: Rig): JsonObject = r.win.saveState()
     private fun s(r: Rig, k: String) = state(r)[k]?.jsonPrimitive?.contentOrNull
+    /** B6: the record as the window's source holds it. */
+    private fun readOf(r: Rig, src: String) = FeedCore.readOf(r.win.source.state(), src)
+    private fun rec(r: Rig, name: String) = r.win.source.state().itemNamed(name)?.takeIf { !it.gone }?.value
 
     @Test
     fun sourcesItemsArticleActionsCommentsAndFlag(): Unit = runBlocking {
@@ -101,8 +110,7 @@ class FeedWindowTest {
             awaitTrue("the image post opens as an article") { r.win.title() == "article" }
             assertEquals(3, r.win.levelDepth())
             awaitTrue("the article arrived") { r.feed.ops.any { it == "article:$firstId" } }
-            val sub = r.win.saveSubState()
-            assertTrue(sub["src.popular"]!!["read"]!!.jsonArray.any { it.jsonPrimitive.content == firstId }, "read on open")
+            awaitTrue("read on open, in the record") { firstId in readOf(r, "popular") }
             r.tap()                                            // the document's tap = actions
             awaitTrue("actions") { r.win.levelDepth() == 4 }
             r.tap()                                            // Comments (row 0, enabled for Reddit)
@@ -112,7 +120,7 @@ class FeedWindowTest {
             awaitTrue("back to actions") { r.win.levelDepth() == 4 }
             r.down()                                           // Flag
             r.tap()
-            awaitTrue("flagged and back on the article") { r.win.levelDepth() == 3 && r.win.saveSubState()["src.popular"]!!["flags"]!!.jsonObject.containsKey(firstId) }
+            awaitTrue("flagged and back on the article") { r.win.levelDepth() == 3 && FeedCore.flags(r.win.source.state()).containsKey(firstId) }
             r.back()
             awaitTrue("back to the list") { r.win.title() == "popular" }
             // the flagged list from the root menu
@@ -184,12 +192,10 @@ class FeedWindowTest {
             awaitTrue("the keyboard asks for a number") { r.shell.keyboardIsOpen }
             r.transport.injectText("7")
             awaitTrue("page 7 opens") { r.win.title() == "8bt 7" && r.feed.ops.any { it == "episode:8bt:7" } }
-            val pos = r.win.saveSubState()["binge.8bt"]!!
-            assertEquals(7, pos["ep"]!!.jsonPrimitive.content.toInt())
+            // the save point sends the archive's place to the record (a jump is an input)
+            awaitTrue("the place in the record") { state(r); FeedCore.bingeOf(rec(r, "binge.8bt"))?.ep == 7 }
             r.back()
             awaitTrue("root") { r.win.title() == "feed" }
-            // the row says where the archive is
-            assertTrue(r.win.saveSubState().containsKey("binge.8bt"))
         } finally { r.stop(); tmp.toFile().deleteRecursively() }
     }
 
@@ -222,7 +228,7 @@ class FeedWindowTest {
             awaitTrue("keyboard") { r.shell.keyboardIsOpen && r.shell.keyboardTitle == "subreddit" }
             r.transport.injectText("linux")
             awaitTrue("the browsed list opens") { r.win.title() == "r/linux" && r.feed.ops.any { it == "browse:REDDIT:linux" } }
-            assertEquals("linux", state(r)["recentSubs"]!!.jsonArray[0].jsonPrimitive.content)
+            awaitTrue("the recent in the record") { FeedCore.strings(rec(r, "recent.reddit"))?.firstOrNull() == "linux" }
             // Mark all read confirms first
             r.up()
             r.tap()
@@ -230,10 +236,10 @@ class FeedWindowTest {
             awaitTrue("the confirm") { r.shell.menuIsOpen && r.shell.menuTitle!!.startsWith("Mark all") }
             r.back()                                           // cancel
             awaitTrue("cancelled") { !r.shell.menuIsOpen }
-            assertTrue(r.win.saveSubState()["src.r:linux"]?.get("read")?.jsonArray?.isEmpty() != false, "nothing marked on cancel")
+            assertTrue(readOf(r, "r:linux").isEmpty(), "nothing marked on cancel")
             r.tap(); menu(r, "Mark all read")
             r.down(); r.tap()
-            awaitTrue("all read") { (r.win.saveSubState()["src.r:linux"]?.get("read")?.jsonArray?.size ?: 0) == 8 }
+            awaitTrue("all read, one list in the record") { readOf(r, "r:linux").size == 8 }
             // leaving an unpinned browse forgets it
             r.back()
             awaitTrue("root") { r.win.title() == "feed" }
@@ -242,55 +248,27 @@ class FeedWindowTest {
     }
 
     @Test
-    fun noticesAreGatedOnTheRowAndCoalescePerSource(): Unit = runBlocking {
-        val tmp = Files.createTempDirectory("damage-feed-notify")
-        val r = Rig(tmp)
-        try {
-            r.start()
-            awaitTrue("root") { r.win.title() == "feed" }
-            r.tap(); awaitTrue("popular seen") { r.win.title() == "popular" && s(r, "itemCursorId") != null }
-            r.back(); awaitTrue("root") { r.win.title() == "feed" }
-            r.feed.fireNew("popular", "Quiet one")
-            delay(300)
-            assertFalse(r.shell.notifications.active, "off by default (verdict 13)")
-            r.win.appSettings().first { it.name == "Notify · Reddit" }.apply("on")
-            r.feed.fireNew("popular", "Loud one")
-            awaitTrue("a notice for the new item") { r.shell.notifications.active }
-            assertTrue(r.win.dirty)
-        } finally { r.stop(); tmp.toFile().deleteRecursively() }
-    }
-
-    @Test
-    fun recordsUnionReadMarksNeverWriteEmptyBlobsAndRoundTrip(): Unit = runBlocking {
+    fun theRecordAndTheViewRoundTrip(): Unit = runBlocking {
         val tmp = Files.createTempDirectory("damage-feed-records")
-        val r = Rig(tmp)
+        val record = wm.damage.core.app.MemoryRecord(FeedCore.ACTIONS)
+        val r = Rig(tmp, record = record)
         try {
             r.start()
             awaitTrue("root") { r.win.title() == "feed" }
-            assertTrue(r.win.saveSubState().isEmpty(), "nothing read = no record (§25 #8)")
             r.tap(); awaitTrue("popular") { r.win.title() == "popular" && s(r, "itemCursorId") != null }
             val a = s(r, "itemCursorId")!!
             r.tap(); awaitTrue("article") { r.win.title() == "article" }
-            // a peer read another item of the same source: the union keeps both
-            val peer = r.feed.items("popular", 5, 1).items[0].id
-            r.win.restoreSubState("src.popular", kotlinx.serialization.json.buildJsonObject {
-                put("read", kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.JsonPrimitive(peer))))
-                put("seen", kotlinx.serialization.json.JsonPrimitive(0L))
-            })
-            val read = r.win.saveSubState()["src.popular"]!!["read"]!!.jsonArray.map { it.jsonPrimitive.content }
-            assertTrue(a in read && peer in read, "union: $read")
-            // the round trip: a new window restores the same level and item
+            awaitTrue("read on open") { a in readOf(r, "popular") }
+            // the round trip: a new window over the same record restores the same level and item
             r.tap(); awaitTrue("actions") { r.win.levelDepth() == 4 }
             val main = r.win.saveState()
-            val subs = r.win.saveSubState()
             r.stop()
-            val r2 = Rig(tmp)
+            val r2 = Rig(tmp, record = record)
             r2.win.restoreState(main)
-            for ((k, v) in subs) r2.win.restoreSubState(k, v)
             r2.shell.start()
             r2.win.onActivate(Probe, ActivationSource.RESTORE)
             awaitTrue("the item re-opens through its list") { r2.feed.ops.any { it == "article:$a" } }
-            awaitTrue("the read mark survived") { r2.win.saveSubState()["src.popular"]!!["read"]!!.jsonArray.any { it.jsonPrimitive.content == a } }
+            awaitTrue("the read mark survived (the record's)") { a in readOf(r2, "popular") }
             // MAIN presents the root; the switcher resumes
             r2.win.onActivate(Probe, ActivationSource.MAIN)
             assertEquals(1, r2.win.levelDepth())
@@ -305,17 +283,23 @@ class FeedWindowTest {
         try {
             r.start()
             awaitTrue("root") { r.win.title() == "feed" }
-            r.win.onActivate(Probe, ActivationSource.DEEP_LINK)
-            assertTrue(r.win.open("src:slashdot"))
+            // on the shell's loop, as a deep link arrives (a test-thread call raced the list's answer for the re-open)
+            suspend fun open(t: String): Boolean {
+                val got = java.util.concurrent.atomic.AtomicReference<Boolean?>(null)
+                r.shell.services.runOnShell { got.set(r.win.open(t)) }
+                awaitTrue("open $t ran") { got.get() != null }
+                return got.get()!!
+            }
+            assertTrue(open("src:slashdot"))
             awaitTrue("slashdot list") { r.win.title() == "slashdot" }
             val it = r.feed.items("xkcd", 2, 1).items[0]
-            assertTrue(r.win.open("item:xkcd:${it.id}"))
+            assertTrue(open("item:xkcd:${it.id}"))
             awaitTrue("the strip") { r.win.title() == "xkcd ${it.num}" }
-            assertTrue(r.win.open("binge:8bt"))
+            assertTrue(open("binge:8bt"))
             awaitTrue("the archive") { r.win.title().startsWith("8bt") }
-            assertFalse(r.win.open("src:nope"))
-            assertFalse(r.win.open("binge:popular"))
-            assertFalse(r.win.open("garbage"))
+            assertFalse(open("src:nope"))
+            assertFalse(open("binge:popular"))
+            assertFalse(open("garbage"))
         } finally { r.stop(); tmp.toFile().deleteRecursively() }
     }
 
@@ -395,33 +379,98 @@ class FeedWindowTest {
         } finally { r.stop(); tmp.toFile().deleteRecursively() }
     }
 
-    /** P7 item 4 (OS-6): a session start ran `onRegistered` again, which SET the source's announce floor back to
-     *  its seen mark — lower than the item already announced — so the next announce named that item a second
-     *  time ("2 new"). Through a real stop and start of the same instance; the second announce must name only
-     *  the item not yet announced. */
+    /** Pin for S1-3 J §6 (1) (scenes 79a/79b): a restart brought the open article back near its top — the restored
+     *  place was applied to the "loading" layout (title, byline, placeholder), clamped there and spent before the
+     *  article's lines existed. Now the record's place waits for the article. */
     @Test
-    fun aSessionStartDoesNotLowerTheAnnounceFloor(): Unit = runBlocking {
-        val tmp = Files.createTempDirectory("damage-feed-floor")
-        val r = Rig(tmp)
+    fun aRestartBringsTheOpenArticleBackAtItsPlace(): Unit = runBlocking {
+        val tmp = Files.createTempDirectory("damage-feed-place")
+        val record = wm.damage.core.app.MemoryRecord(FeedCore.ACTIONS)
+        val r = Rig(tmp, record = record)
+        val item16 = FeedIds.id("popular", "t3_p16")
         try {
             r.start()
-            waitUntil(20_000, 20, { "root (${r.win.title()})" }) { r.win.title() == "feed" }
-            r.tap(); waitUntil(20_000, 20, { "popular seen (${r.win.title()})" }) { r.win.title() == "popular" && s(r, "itemCursorId") != null }
-            r.back(); waitUntil(20_000, 20, { "root again (${r.win.title()})" }) { r.win.title() == "feed" }
-            r.win.appSettings().first { it.name == "Notify · Reddit" }.apply("on")
-            r.feed.fireNew("popular", "Loud one")
-            waitUntil(20_000, 20, { "the first announce (${r.shell.notifications.current})" }) { r.shell.notifications.current?.body?.contains("Loud one") == true }
-            waitUntil(20_000, 20, { "the box took focus" }) { r.shell.notifications.focused }
-            r.back()                                              // a double-tap dismisses it: read, no deep link
-            waitUntil(20_000, 20, { "dismissed (${r.shell.notifications.current})" }) { r.shell.notifications.current == null }
-            r.shell.stop()
-            r.shell.start()
-            waitUntil(20_000, 20, { "the restart settled: ${r.shell.quiescenceReport()}" }) { r.shell.isQuiescent() }
-            r.feed.fireNew("popular", "Third one")
-            var body = ""
-            waitUntil(20_000, 20, { "the second announce (${r.shell.notifications.current})" }) {
-                body = r.shell.notifications.current?.body ?: ""; body.contains("Third one") }
-            assertFalse(body.startsWith("2 new"), "the item announced before the restart was announced again: '$body'")
+            awaitTrue("root") { r.win.title() == "feed" }
+            r.tap(); awaitTrue("popular") { r.win.title() == "popular" && r.win.itemsLoaded() }
+            r.down(16); awaitTrue("item 16 under the cursor") { s(r, "itemCursorId") == item16 }
+            r.tap(); awaitTrue("the article") { r.win.title() == "article" && r.feed.ops.contains("article:$item16") && r.win.placeNow() != null }
+            // notch by notch, each at rest, until the top is past the headline (the picture may lengthen the page late)
+            awaitTrue("the article's picture asked") { r.feed.ops.any { it.startsWith("image:") } }
+            var p1: FeedCore.Place? = null
+            for (k in 0 until 8) {
+                awaitTrue("at rest") { r.shell.isQuiescent() }
+                p1 = r.win.placeNow()
+                if (p1 != null && p1.b >= 1) break
+                r.down(1)
+            }
+            assertTrue((p1?.b ?: 0) >= 1, "the page never left its headline: $p1")
+            awaitTrue("the save point sent the place") { state(r); FeedCore.placeOf(rec(r, FeedCore.PLACE)) == p1 }
+            r.stop()
+            assertEquals(p1, FeedCore.placeOf(rec(r, FeedCore.PLACE)), "the stop's save sent no other place")
+            val r2 = Rig(tmp, feed = ScriptedFeed(nowMs = r.feed.nowMs), record = record)
+            try {
+                r2.shell.start()
+                awaitTrue("the article restored") { r2.win.title() == "article" && r2.feed.ops.contains("article:$item16") }
+                awaitTrue("at its place (was ${p1}, is ${r2.win.placeNow()})") { r2.win.placeNow() == p1 }
+            } finally { r2.stop() }
+        } finally { tmp.toFile().deleteRecursively() }
+    }
+
+    /** A feed whose archive's page 2 waits for [release] the first time it is asked (a slow site). */
+    private class SlowPage(val real: ScriptedFeed) : FeedProvider by real {
+        val asked2 = java.util.concurrent.atomic.AtomicInteger(0)
+        val gate = java.util.concurrent.CountDownLatch(1)
+        override fun bingeEpisode(sourceId: String, num: Int, width: Int, levels: Int, mode: LineArt): EpisodePack {
+            if (num == 2 && asked2.incrementAndGet() == 1) gate.await()
+            return real.bingeEpisode(sourceId, num, width, levels, mode)
+        }
+    }
+
+    /** Pin for S1-3 J §6 (2): leaving the archive while a page loaded left `bingeLoading` set (the late answer returns
+     *  early on the sequence `back()` bumped), so the archive entered again never loaded another page until a restart. */
+    @Test
+    fun leavingTheArchiveWhileAPageLoadsDoesNotStopItLoadingMore(): Unit = runBlocking {
+        val tmp = Files.createTempDirectory("damage-feed-binge-stuck")
+        val feed = ScriptedFeed()
+        val slow = SlowPage(feed)
+        val r = Rig(tmp, feed = feed, provider = slow)
+        try {
+            r.start()
+            awaitTrue("root") { r.win.title() == "feed" }
+            r.down(4); r.tap()
+            awaitTrue("the archive at page 1") { r.win.title() == "8bt 1" && feed.ops.contains("episode:8bt:1") }
+            r.down(12)
+            awaitTrue("page 2 asked, its answer held") { slow.asked2.get() == 1 }
+            r.back()
+            awaitTrue("root while page 2 loads") { r.win.title() == "feed" }
+            r.tap()
+            awaitTrue("the archive entered again") { r.win.title().startsWith("8bt") }
+            slow.gate.countDown()                              // the late answer lands and is dropped (its sequence)
+            r.down(2)
+            awaitTrue("page 2 asked again (asked ${slow.asked2.get()})") { slow.asked2.get() >= 2 }
+        } finally { slow.gate.countDown(); r.stop(); tmp.toFile().deleteRecursively() }
+    }
+
+    /** Pin (lane F, found by the snapshot's restart scenes): the presenter read the record before its archive fields
+     *  existed (Kotlin runs initialisers in order), so a record that already held an archive's place — every restart —
+     *  ended the build with a NullPointerException. The archive now opens where the record says. */
+    @Test
+    fun aPresenterBuiltOverARecordHoldingTheArchivesPlaceStartsThere(): Unit = runBlocking {
+        val tmp = Files.createTempDirectory("damage-feed-binge-rec")
+        val record = wm.damage.core.app.MemoryRecord(FeedCore.ACTIONS)
+        val other = wm.damage.core.app.LocalWindowSource(FeedCore(), record)
+        // its strip made at the glasses' width (the shell's document column at full size); read at the entry, not
+        // at the build, when the width is not known yet (the snapshot's 80b showed the page's top instead)
+        other.act(FeedCore.bingeDraft("8bt", FeedCore.Binge(3, null, 2, 564), at = 1L))
+        wm.damage.core.app.MemoryRecord.SHARED.call {}
+        val r = Rig(tmp, record = record)
+        try {
+            r.start()
+            awaitTrue("root") { r.win.title() == "feed" }
+            r.down(4); r.tap()
+            awaitTrue("the archive opens at the record's page and strip (${r.win.bingePlaceNow()})") {
+                r.win.title() == "8bt 3" && r.feed.ops.contains("episode:8bt:3") && r.win.bingePlaceNow() == (3 to 2)
+            }
         } finally { r.stop(); tmp.toFile().deleteRecursively() }
     }
 }

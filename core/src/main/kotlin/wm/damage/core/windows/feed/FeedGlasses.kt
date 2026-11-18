@@ -3,20 +3,26 @@ package wm.damage.core.windows.feed
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonArray
-import kotlinx.serialization.json.putJsonObject
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import wm.damage.core.app.Answer
+import wm.damage.core.app.Draft
+import wm.damage.core.app.LocalWindowSource
+import wm.damage.core.app.MemoryRecord
+import wm.damage.core.app.Op
+import wm.damage.core.app.Peer
+import wm.damage.core.app.Record
+import wm.damage.core.app.SourceListener
+import wm.damage.core.app.WindowSource
+import wm.damage.core.app.WindowState
 import wm.damage.core.geom.Rect
 import wm.damage.core.gfx.Gray8
 import wm.damage.core.gfx.IconKind
@@ -39,6 +45,21 @@ import wm.damage.core.text.FontSpec
 import wm.damage.core.text.TextRasterizer
 import wm.damage.core.text.Wrap
 import wm.damage.core.util.Log
+import wm.damage.core.windows.feed.FeedCore.Flag
+
+/** The name the window had before its conversion, kept for the sites that name its type (the test sites, the tools). */
+typealias FeedWindow = FeedGlasses
+
+/**
+ * The compatibility factory (build S1-3 B6): Feed as it was built before its conversion — a [FeedCore] over a record of
+ * its own in memory, and the glasses' presenter over that. The test sites, `--selfcheck` and the tools build Feed this
+ * way; the hosts build the presenter over the PC's record or the phone's working copy, where the PC raises the notices.
+ */
+fun FeedWindow(text: TextRasterizer, provider: FeedProvider, bg: CoroutineScope,
+               clock: () -> Long = { System.currentTimeMillis() }): FeedGlasses {
+    val core = FeedCore()
+    return FeedGlasses(text, provider, bg, core, LocalWindowSource(core, MemoryRecord(FeedCore.ACTIONS)), clock)
+}
 
 /**
  * FEED — `FEED.md` (design settled with Adam 2026-09-09): Reddit popular,
@@ -50,17 +71,28 @@ import wm.damage.core.util.Log
  *      root MENU → FLAGGED (list)
  *
  * The Reader grammar: one tap OPENS; actions live on the Document's tap and
- * on each list's wrap-end row. Reading state — read marks, flags, the
- * archive position — lives in the shell's synced records (§3.5), so the PC
- * engine and the phone engine see one truth. Everything the provider does
- * is off-loop; every completion applies through [ShellServices.runOnShell]
- * behind a sequence, so a late answer never replaces what the user moved to.
+ * on each list's wrap-end row. Everything the provider does is off-loop;
+ * every completion applies through [ShellServices.runOnShell] behind a
+ * sequence, so a late answer never replaces what the user moved to.
+ *
+ * Build S1-3 B6 (`CONTRACT.md` §11.1, §2.6): the glasses' presenter of Feed's [core]. Read marks, flags, `seen`, pins,
+ * browse recents, the archive's and the open article's places and the shared and glasses rows are the core's record
+ * items, read through [source] (the PC's record, or the phone's working copy); the fields below stay this presenter's
+ * optimistic state, and what input changes goes to the source as ops where it changes today (an open, Flag, Mark
+ * unread, Mark all read, Pin, a browse's recents, a Settings commit, a list load's `seen`) — the field first, the op
+ * after, so the first flush is today's; the two places at the shell's save point. An entry takes the record's place
+ * when it is newer than this view's own input there; another device's move never moves an open view. The PC raises the
+ * notices (`FeedCore`); this presenter draws the record's through its face. Its local `window.feed` keeps the view.
  */
-class FeedWindow(
+class FeedGlasses(
     private val text: TextRasterizer,
     private val provider: FeedProvider,
     private val bg: CoroutineScope,
+    val core: FeedCore,
+    val source: WindowSource,
     private val clock: () -> Long = { System.currentTimeMillis() },
+    /** This device's name in the record (`local` on the PC, `phone` on the phone): a write by it is its own echo. */
+    private val device: String = Peer.LOCAL.device,
 ) : DamageWindow("feed", "Feed", IconKind.FEED) {
 
     private val tx = styledText(text)
@@ -73,6 +105,8 @@ class FeedWindow(
         val strip: Gray8? = null, val stripW: Int = 0,
         /** The block this line came from (article relayouts keep the top by it). */
         val block: Int = -1, val sub: Int = 0,
+        /** B2 (FeedAnchor): where this line's text starts in its block's text (an image's strip: its index). */
+        val off: Int = 0,
     )
 
     /** An ITEMS row: an item, the loading pseudo-row, or the wrap-end menu row. */
@@ -95,10 +129,7 @@ class FeedWindow(
         val read = LinkedHashSet<String>()
         val flags = LinkedHashMap<String, Flag>()
         var seenMs = 0L
-        fun isEmpty() = read.isEmpty() && flags.isEmpty() && seenMs == 0L
     }
-
-    private class Flag(val title: String, val link: String, val source: String, val publishedMs: Long, val kind: ItemKind, val atMs: Long)
 
     private class EpLoaded(val ep: Episode, val strips: List<Gray8>, val stripW: Int) {
         /** header + strips + a spacer */
@@ -122,7 +153,6 @@ class FeedWindow(
     private var stateLine = ""
     private var sources: List<SourceStatus> = emptyList()
     private val newCount = HashMap<String, Int>()
-    private val announcedMs = HashMap<String, Long>()
     private val reading = HashMap<String, Reading>()
     private val bingePos = HashMap<String, Pair<Int, Int>>()          // comic → (episode, strip)
     private val pinned = LinkedHashSet<String>()
@@ -161,7 +191,6 @@ class FeedWindow(
     private var docLines: List<DocLine> = emptyList()
     private var docLineH = 26
     private var docWidthKey = -1
-    private var pendingDocTop: Int? = null
     private var pendingComicTop: Int? = null
 
     // COMMENTS
@@ -191,7 +220,6 @@ class FeedWindow(
     private var comicLevels = 16
     private var fetchMin = 15
     private var keepDays = 30
-    private var pcLossSec = 60
     private var notifyReddit = false
     private var notifySlashdot = false
     private var notifyComics = false
@@ -260,18 +288,23 @@ class FeedWindow(
     private fun isRead(it: Item): Boolean = reading[it.source]?.read?.contains(it.id) == true
     private fun isFlagged(it: Item): Boolean = reading[it.source]?.flags?.containsKey(it.id) == true
 
-    private fun markRead(item: Item, read: Boolean) {
+    /** [item] read or not ([action]: `read` on an open, `markRead`/`unread` from its actions); the source's whole list
+     *  goes to the record when it moved. */
+    private fun markRead(item: Item, read: Boolean, action: String) {
         val r = reading(item.source)
-        if (read) {
-            r.read.add(item.id)
-            while (r.read.size > READ_CAP) r.read.remove(r.read.first())
-        } else r.read.remove(item.id)
+        val moved = if (read) r.read.add(item.id).also { while (r.read.size > READ_CAP) r.read.remove(r.read.first()) }
+            else r.read.remove(item.id)
         recount(item.source, if (openSource == item.source) items else null)
+        if (moved) send(FeedCore.readDraft(action, item.source, r.read))
     }
 
     private fun toggleFlag(it: Item) {
         val r = reading(it.source)
-        if (r.flags.remove(it.id) == null) r.flags[it.id] = Flag(it.title, it.link, it.source, it.publishedMs, it.kind, clock())
+        if (r.flags.remove(it.id) == null) {
+            val f = Flag(it.title, it.link, it.source, it.publishedMs, it.kind, clock())
+            r.flags[it.id] = f
+            send(FeedCore.flagDraft(it.id, f))
+        } else send(FeedCore.unflagDraft(it.id))
     }
 
     /** "new" = newer than the stamp the list was last seen at and not read. */
@@ -292,14 +325,14 @@ class FeedWindow(
             onShell("state") {
                 if (stateLine != line) {
                     stateLine = line
-                    services?.requestRender(this@FeedWindow)
+                    services?.requestRender(this@FeedGlasses)
                 }
             }
         }
     }
 
-    /** A source changed: refresh the cached statuses, count what is new,
-     *  announce it if the source's row says so, and reload the open list. */
+    /** A source changed: refresh the cached statuses, count what is new and
+     *  reload the open list (B2: the PC raises the notices, `FeedCore`). */
     private fun peek(sourceId: String) {
         val statuses = try { provider.sources() } catch (e: Exception) { Log.w("feed", "sources: ${e.message}"); return }
         val page = try { provider.items(sourceId, 0, PEEK) } catch (e: Exception) { null }
@@ -307,51 +340,148 @@ class FeedWindow(
             sources = statuses
             if (page != null) {
                 recount(sourceId, page.items)
-                announce(sourceId, page.items)
                 if (openSource == sourceId && level != Level_.SOURCES && page.version != itemsVersion) reloadItems()
             }
-            services?.requestRender(this@FeedWindow)
+            services?.requestRender(this@FeedGlasses)
         }
     }
 
-    private fun announce(sourceId: String, page: List<Item>) {
-        val r = reading(sourceId)
-        val newest = page.maxOfOrNull { it.publishedMs } ?: 0L
-        if (r.seenMs == 0L) {
-            // a first sight is a baseline, never a burst of notices
-            r.seenMs = newest
-            announcedMs[sourceId] = newest
-            return
-        }
-        val src = sourceOf(sourceId) ?: return
-        if (!notifyFor(src.kind)) return
-        val floor = maxOf(r.seenMs, announcedMs[sourceId] ?: r.seenMs)
-        val fresh = page.filter { it.publishedMs > floor && it.id !in r.read }.sortedByDescending { it.publishedMs }
-        if (fresh.isEmpty()) return
-        announcedMs[sourceId] = fresh.first().publishedMs
+    /** B2: the record's Feed notice, drawn as this window's own raise drew it — the body through this window's face,
+     *  the window marked dirty. On the shell loop. */
+    private fun formatRecordNotice(rec: wm.damage.core.app.NoticeRecord): String {
         dirty = true
-        val head = fresh.first()
-        val body = if (fresh.size == 1) "${src.name} · ${dn(head.title)}" else "${fresh.size} new · ${src.name} · ${dn(head.title)}"
-        val target = if (fresh.size == 1) "item:${sourceId}:${head.id}" else "src:$sourceId"
-        services?.notifyInternal("feed", body, appId = id, thread = sourceId, target = target)
+        services?.requestRender(this)
+        return dn(rec.body)
     }
 
     override fun onRegistered(ctx: ShellServices) {
         services = ctx
+        ctx.noticeFormatter(id, ::formatRecordNotice)
         if (!registered) { registered = true; provider.addListener(listener) }
         stateLine = provider.stateLine()
         sources = try { provider.sources() } catch (e: Exception) { emptyList() }
-        // RAISED, never set (P7 item 4, OS-6): this runs at every session start on the same instance, and a set
-        // lowered the floor below an item already announced — the next announce named it again
-        for (s in sources) announcedMs[s.id] = maxOf(announcedMs[s.id] ?: 0L, reading(s.id).seenMs)
     }
 
-    /** The stack is going away while the provider lives on: stop listening. */
+    /** The stack is going away while the provider lives on: stop listening (B6: and the source, which outlives this
+     *  presenter on the PC). */
     fun detach() {
         active = false
         registered = false
         provider.removeListener(listener)
+        source.removeListener(onSource)
+        services?.noticeFormatter(id, null)
     }
+
+    // ================================================================ the record (B6)
+    /** Per record item (its name): the value this view last sent or took — its own echo is not taken again. */
+    private val known = HashMap<String, JsonElement>()
+
+    /** An op of this view's input, after its field (C§2.3: it returns at once). */
+    private fun send(d: Draft) {
+        known[d.targets.first()] = d.result
+        source.act(if (d.at == null) d.copy(at = source.now()) else d)
+    }
+
+    /** The record's state into this view: another device's write is taken, and this device's own where this view holds
+     *  none (a restart); the two places only at an entry ([enterPlace], [takeBinge]). True when something drawn moved. */
+    private fun fromSource(st: WindowState): Boolean {
+        var drawn = false
+        val pre = Record.prefix(FeedCore.WINDOW)
+        for ((k, it) in st.items) {
+            val name = k.removePrefix(pre)
+            val v: JsonElement = if (it.gone) JsonNull else it.value
+            if (name == FeedCore.PLACE) continue
+            if (name.startsWith(FeedCore.BINGE)) { drawn = bingeFrom(name.removePrefix(FeedCore.BINGE), it) || drawn; continue }
+            if (known[name] == v || (it.by == device && name in known)) continue
+            known[name] = v
+            drawn = take(name, v) || drawn
+        }
+        return drawn
+    }
+
+    /** One record item into this view's fields; true when it moves what this window draws. */
+    private fun take(name: String, v: JsonElement): Boolean {
+        when {
+            name.startsWith(FeedCore.READ) -> {
+                val src = name.removePrefix(FeedCore.READ)
+                val r = reading(src)
+                r.read.clear()
+                r.read.addAll(FeedCore.strings(v).orEmpty().takeLast(READ_CAP))
+                recount(src, if (openSource == src) items else null)
+                return true
+            }
+            name.startsWith(FeedCore.FLAG) -> {
+                val id = name.removePrefix(FeedCore.FLAG)
+                for (r in reading.values) r.flags.remove(id)
+                FeedCore.flagOf(v)?.let { f -> reading(f.source).flags[id] = f }
+                return true
+            }
+            name.startsWith(FeedCore.SEEN) -> {
+                val src = name.removePrefix(FeedCore.SEEN)
+                val r = reading(src)
+                r.seenMs = maxOf(r.seenMs, FeedCore.long(v) ?: 0L)
+                recount(src, if (openSource == src) items else null)
+                return true
+            }
+            name.startsWith(FeedCore.PIN) -> {
+                val src = name.removePrefix(FeedCore.PIN)
+                if (FeedCore.bool(v) == true) pinned.add(src) else pinned.remove(src)
+                return true
+            }
+            name == FeedCore.RECENT + "reddit" -> { recentSubs.clear(); recentSubs.addAll(FeedCore.strings(v).orEmpty().take(RECENTS)) }
+            name == FeedCore.RECENT + "slashdot" -> { recentSections.clear(); recentSections.addAll(FeedCore.strings(v).orEmpty().take(RECENTS)) }
+            name == FeedCore.FETCH -> FeedCore.int(v)?.takeIf { it in FETCHES.values }?.let { fetchMin = it }
+            name == FeedCore.KEEP -> FeedCore.int(v)?.takeIf { it in KEEPS.values }?.let { keepDays = it }
+            name == FeedCore.NOTIFY_REDDIT -> notifyReddit = FeedCore.bool(v) ?: false
+            name == FeedCore.NOTIFY_SLASHDOT -> notifySlashdot = FeedCore.bool(v) ?: false
+            name == FeedCore.NOTIFY_COMICS -> notifyComics = FeedCore.bool(v) ?: false
+            name == FeedCore.SIZE -> FeedCore.sizeOf(v)?.let { h ->
+                val was = heightPref
+                heightPref = if (h == 0) null else h
+                return was != heightPref
+            }
+            name == FeedCore.ART_XKCD || name == FeedCore.ART_SMBC || name == FeedCore.ART_BINGE -> {
+                val a = FeedCore.artOf(v) ?: LineArt.AUTO
+                val was = when (name) { FeedCore.ART_XKCD -> artXkcd; FeedCore.ART_SMBC -> artSmbc; else -> artBinge }
+                if (a == was) return false
+                when (name) { FeedCore.ART_XKCD -> artXkcd = a; FeedCore.ART_SMBC -> artSmbc = a; else -> artBinge = a }
+                invalidateDocs()
+                return true
+            }
+            name == FeedCore.LEVELS -> {
+                val lv = FeedCore.levelsOf(v) ?: 16
+                if (lv == comicLevels) return false
+                comicLevels = lv
+                invalidateDocs()
+                return true
+            }
+        }
+        return false
+    }
+
+    /** The source's changes and answers (the core executor): handed to the shell loop, keyed for changes (the state is
+     *  whole, the newest suffices). */
+    private val onSource = object : SourceListener {
+        override fun changed(state: WindowState, keys: Set<String>) {
+            services?.runOnShell("feed.source") {
+                if (fromSource(source.state())) services?.requestRender(this@FeedGlasses)
+            }
+        }
+
+        override fun answered(op: Op, answer: Answer) {
+            if (answer !is Answer.Refused) return
+            val line = "${op.action} of ${op.targets.joinToString()} not saved: ${answer.reason}"
+            val s = services
+            if (s == null) { Log.e("feed", "$line (before the shell started)"); return }
+            s.runOnShell {
+                // not taken: it changed nothing; the view's field stays and the next change sends it again
+                known.remove(op.targets.firstOrNull())
+                Log.w("feed", line)
+                setNotice(dn(line, fSmall))
+            }
+        }
+    }
+
 
     override fun onActivate(ctx: ShellServices, from: ActivationSource) {
         services = ctx
@@ -384,7 +514,7 @@ class FeedWindow(
             val s = try { provider.sources() } catch (e: Exception) { return@launch }
             onShell {
                 sources = s
-                services?.requestRender(this@FeedWindow)
+                services?.requestRender(this@FeedGlasses)
             }
             for (st in s) if (st.id !in newCount && !st.binge && st.count > 0) peek(st.id)
         }
@@ -456,11 +586,10 @@ class FeedWindow(
     override fun summary(): Summary {
         val total = newCount.values.sum()
         val parts = sources.filter { (newCount[it.id] ?: 0) > 0 }.take(3).joinToString(" · ") { "${it.name.lowercase()} ${newCount[it.id]}" }
-        val engine = if (provider.fallbackActive()) " · phone engine" else ""
-        if (stateLine.isNotEmpty()) return Summary(stateLine, detail = parts.ifEmpty { "${sources.size} sources" } + engine)
+        if (stateLine.isNotEmpty()) return Summary(stateLine, detail = parts.ifEmpty { "${sources.size} sources" })
         if (sources.isEmpty()) return Summary("connecting", detail = "no sources yet")
         val line = if (total > 0) "$total new" else "nothing new"
-        return Summary(line + engine, detail = parts.ifEmpty { "${sources.size} sources" }, more = total > 0)
+        return Summary(line, detail = parts.ifEmpty { "${sources.size} sources" }, more = total > 0)
     }
 
     override fun levelDepth(): Int = when (level) {
@@ -483,7 +612,7 @@ class FeedWindow(
             }
             Level_.ACTIONS -> level = if (comicPack != null || openItem?.kind == ItemKind.COMIC) Level_.COMIC else Level_.ARTICLE
             Level_.COMMENTS -> { commentsSeq++; level = Level_.ACTIONS }
-            Level_.BINGE -> { bingeSeq++; level = Level_.SOURCES; services?.setOperation("idle") }
+            Level_.BINGE -> { newBingeSeq(); level = Level_.SOURCES; services?.setOperation("idle") }
             Level_.BINGE_ACTIONS -> level = Level_.BINGE
             Level_.FLAGGED -> level = Level_.SOURCES
         }
@@ -498,8 +627,8 @@ class FeedWindow(
         commentLines = emptyList()
         articleImages.clear()          // a width change wants the strips at the new width
         articleImageFailed.clear()
-        bingeSeq++
         val anchor = bingePosNow()
+        newBingeSeq()
         loaded.clear()
         bingeLineMap = emptyList()
         if (anchor != null) pendingBingeAnchor = anchor
@@ -519,9 +648,11 @@ class FeedWindow(
                 return true
             }
             target.startsWith("item:") -> {
-                val parts = target.removePrefix("item:").split(':', limit = 2)
-                if (parts.size != 2) return false
-                val (src, itemId) = parts
+                // a browsed source's id holds a ':' (`r:linux`); an item id never does
+                val rest = target.removePrefix("item:")
+                val src = rest.substringBeforeLast(':', "")
+                val itemId = rest.substringAfterLast(':', "")
+                if (src.isEmpty() || itemId.isEmpty()) return false
                 if (sourceOf(src) == null) return false
                 fromFlagged = false
                 level = Level_.SOURCES
@@ -603,8 +734,7 @@ class FeedWindow(
                 Draw.fit(g, tx, r.x + 72, r.y + 6, "Feed", Level.HEAD, fHead, r.w - 88)
                 val line = dn(stateLine, fBody).ifEmpty {
                     val flagged = reading.values.sumOf { it.flags.size }
-                    "${sources.size} sources · $flagged flagged · tap for the menu" +
-                        (if (provider.fallbackActive()) " · phone engine" + provider.pcDownLine().let { d -> if (d.isEmpty()) " · PC reachable" else " · $d" } else "")
+                    "${sources.size} sources · $flagged flagged · tap for the menu"
                 }
                 Draw.fit(g, tx, r.x + 72, y2, line, Level.BODY, fBody, r.w - 88)
             }
@@ -628,10 +758,6 @@ class FeedWindow(
         add("Refresh all") { bg.launch(Dispatchers.IO) { try { provider.refresh(null) } catch (e: Exception) { Log.w("feed", "refresh: ${e.message}") } }; setNotice("refreshing") }
         val flagged = reading.values.sumOf { it.flags.size }
         add("Flagged", "$flagged", enabled = flagged > 0) { level = Level_.FLAGGED; flagModel.cursor = 0 }
-        if (provider.fallbackActive()) add("Back to PC", provider.pcDownLine().ifEmpty { "the PC is reachable" }, enabled = provider.pcDownLine().isEmpty()) {
-            bg.launch(Dispatchers.IO) { try { provider.backToPc() } catch (e: Exception) { Log.w("feed", "back to PC: ${e.message}") } }
-            setNotice("back to the PC engine")
-        }
         add("Settings", "Feed") { if (services?.openWindow("settings", "cat:Feed") != true) setNotice("Settings is not available") }
         services?.openMenu(MenuSurface.Spec("feed", items, onCommit = { idx -> acts.getOrNull(idx)?.invoke() }))
     }
@@ -723,7 +849,7 @@ class FeedWindow(
                     // the list was seen: everything shown counts as seen (verdict 13's floor)
                     val r = reading(src)
                     val newest = items.maxOfOrNull { it.publishedMs } ?: 0L
-                    if (newest > r.seenMs) { r.seenMs = newest; announcedMs[src] = maxOf(announcedMs[src] ?: 0L, newest) }
+                    if (newest > r.seenMs) { r.seenMs = newest; send(FeedCore.seenDraft(src, newest)) }
                     recount(src, items)
                     val pend = pendingOpenItemId
                     if (pend != null) {
@@ -744,7 +870,7 @@ class FeedWindow(
                         else { pendingOpenItemId = null; setNotice("that item is gone") }
                     }
                 }
-                services?.requestRender(this@FeedWindow)
+                services?.requestRender(this@FeedGlasses)
             }
         }
     }
@@ -756,7 +882,7 @@ class FeedWindow(
                 if (seq == itemsSeq && level == Level_.ITEMS) {
                     itemsRetryAt = 0L
                     if (items.isEmpty()) loadItems(0) else demandItemsIfNear()
-                    services?.requestRender(this@FeedWindow)
+                    services?.requestRender(this@FeedGlasses)
                 }
             }
         }
@@ -870,8 +996,9 @@ class FeedWindow(
     private fun openOne(it: Item) {
         clearPendingOpen()
         openItem = it
-        markRead(it, true)
-        docModel.topLine = 0             // a restored position waits in pendingDocTop for the lines to exist
+        markRead(it, true, FeedCore.A_READ)
+        docModel.topLine = 0             // a place the entry takes waits in pendingPlace for the article's lines
+        enterPlace(it)
         comicTop = pendingComicTop ?: 0
         comicFocus = -1
         pendingComicTop = null
@@ -909,8 +1036,8 @@ class FeedWindow(
             else -> {}
         }
         if (src.transient) {
-            if (src.id in pinned) add("Unpin", "drop from the list") { pinned.remove(src.id) ; setNotice("unpinned") }
-            else add("Pin", "keep in the list") { pinned.add(src.id); setNotice("pinned ${src.name}") }
+            if (src.id in pinned) add("Unpin", "drop from the list") { pinned.remove(src.id); send(FeedCore.pinDraft(src.id, false)); setNotice("unpinned") }
+            else add("Pin", "keep in the list") { pinned.add(src.id); send(FeedCore.pinDraft(src.id, true)); setNotice("pinned ${src.name}") }
         }
         val flagged = reading.values.sumOf { it.flags.size }
         add("Flagged", "$flagged", enabled = flagged > 0) { level = Level_.FLAGGED; flagModel.cursor = 0 }
@@ -926,6 +1053,7 @@ class FeedWindow(
                     for (it in items) r.read.add(it.id)
                     while (r.read.size > READ_CAP) r.read.remove(r.read.first())
                     recount(src.id, items)
+                    send(FeedCore.readDraft(FeedCore.A_MARK_ALL, src.id, r.read))
                     setNotice("all read")
                 }
             }))
@@ -958,6 +1086,7 @@ class FeedWindow(
                 val key = if (kind == SourceKind.REDDIT) name.removePrefix("r/").lowercase() else name
                 recents.remove(key); recents.addFirst(key)
                 while (recents.size > RECENTS) recents.removeLast()
+                send(FeedCore.recentDraft(if (kind == SourceKind.REDDIT) "reddit" else "slashdot", recents.toList()))
                 openItems(st.id)
             }
         }
@@ -994,7 +1123,7 @@ class FeedWindow(
                     if (a.note.isNotEmpty() && !a.extracted) setNotice(a.note)
                 }
                 docWidthKey = -1
-                services?.requestRender(this@FeedWindow)
+                services?.requestRender(this@FeedGlasses)
             }
         }
     }
@@ -1009,7 +1138,7 @@ class FeedWindow(
                 if (seq != articleSeq) return@onShell
                 if (s == null) articleImageFailed[url] = err ?: "image failed" else articleImages[url] = Strips.unpack(s)
                 relayoutKeepingTop()
-                services?.requestRender(this@FeedWindow)
+                services?.requestRender(this@FeedGlasses)
             }
         }
     }
@@ -1017,9 +1146,16 @@ class FeedWindow(
     /** Rebuild the document lines and land the top on the same block/line. */
     private fun relayoutKeepingTop() {
         val old = docLines.getOrNull(docModel.topLine)
+        // a taken place inside a picture that was still loading: placed again now it has its strips, unless input moved
+        // the page since
+        val refine = placeRefine?.takeIf { it.second == docModel.topLine }?.first
+        placeRefine = null
         docWidthKey = -1
         ensureDocLines()
-        if (old != null && old.block >= 0) {
+        if (refine != null) {
+            seatPlace(refine)
+            placeKnown = currentPlace()
+        } else if (old != null && old.block >= 0) {
             val idx = docLines.indexOfFirst { it.block == old.block && it.sub == old.sub }
             if (idx >= 0) docModel.topLine = idx
         }
@@ -1039,15 +1175,74 @@ class FeedWindow(
         if (level == Level_.ARTICLE && a != null && images) {
             for (b in a.blocks) if (b.kind == "img" && b.url !in articleImages && b.url !in articleImageFailed) loadArticleImage(b.url, articleSeq)
         }
-        val top = pendingDocTop
-        if (top != null && docLines.size > 3) { docModel.topLine = top.coerceIn(0, docLines.size - 1); pendingDocTop = null }
         docModel.topLine = docModel.topLine.coerceIn(0, maxOf(0, docLines.size - 1))
+        // B6, and S1-3 J §6 (1): the place an entry took is applied once the ARTICLE's lines exist — applied to the
+        // "loading" layout (title, byline, placeholder) it was clamped to its top and spent, so a restart brought the
+        // article back near its top; the place shown then is what this view knows (not an input: nothing is sent)
+        if (level == Level_.ARTICLE && a != null && !placeSeated) {
+            pendingPlace?.takeIf { it.item == openItem?.id }?.let { p -> seatPlace(p) }
+            pendingPlace = null
+            placeKnown = currentPlace()
+            placeSeated = true
+        }
     }
 
-    private fun wrapTo(s: String, f: FontSpec, width: Int, lv: Int, indent: Int, block: Int, out: MutableList<DocLine>) {
+    // ---- the open article's place (B1 `place`, FeedAnchor) ----
+
+    /** The place an entry took from the record, waiting for the article's lines. */
+    private var pendingPlace: FeedCore.Place? = null
+    /** The place this view last sent, took or showed at an entry: a save point sends only a move from it. */
+    private var placeKnown: FeedCore.Place? = null
+    /** False until the open article's lines first exist (the entry's place applied, the shown one known). */
+    private var placeSeated = true
+    /** Per item, this view's last input on its place (the time its op carried). */
+    private val placeInputAt = HashMap<String, Long>()
+
+    /** An entry into [it] (an open, a restore): the record's place for it, when newer than this view's own input. */
+    private fun enterPlace(it: Item) {
+        pendingPlace = null
+        placeSeated = it.kind == ItemKind.COMIC
+        val rec = source.state().itemNamed(FeedCore.PLACE)?.takeIf { r -> !r.gone } ?: return
+        val p = FeedCore.placeOf(rec.value)?.takeIf { p -> p.item == it.id } ?: return
+        if (rec.at <= (placeInputAt[it.id] ?: Long.MIN_VALUE)) return
+        pendingPlace = p
+    }
+
+    /** A taken place inside a picture whose strips have not arrived, and the line it was put on. */
+    private var placeRefine: Pair<FeedCore.Place, Int>? = null
+
+    /** The page put at taken place [p]; a place inside a picture still loading is placed again when it arrives. */
+    private fun seatPlace(p: FeedCore.Place) {
+        val line = FeedAnchor.line(anchorLines(), p.b, p.o) ?: return
+        docModel.topLine = line
+        val l = docLines[line]
+        if (l.block == p.b && l.strip == null && article?.blocks?.getOrNull(p.b)?.kind == "img" && p.o > 0) placeRefine = p to line
+    }
+
+    private fun anchorLines(): List<FeedAnchor.Line> =
+        docLines.map { l -> if (l.sub >= 998) FeedAnchor.Line(-1, 0) else FeedAnchor.Line(l.block, l.off) }
+
+    /** The open article's place now: the block and offset of the first block line from the top. */
+    private fun currentPlace(): FeedCore.Place? {
+        val it = openItem ?: return null
+        val a = article ?: return null
+        val (b, o) = FeedAnchor.at(anchorLines(), docModel.topLine) ?: return null
+        return FeedCore.Place(it.id, b, o, a.ver)
+    }
+
+    /** For harnesses: the open article's place as this view shows it. */
+    fun placeNow(): FeedCore.Place? = if (placeSeated) currentPlace() else null
+
+    /** For harnesses: the archive's (episode, strip) under the top line. */
+    fun bingePlaceNow(): Pair<Int, Int>? = if (loaded.isEmpty()) null else bingePosNow()
+
+    /** [s] wrapped into lines of [block]; each knows where its text starts in the block's text ([lead] characters of
+     *  [s] are not the block's: the list item's dash). */
+    private fun wrapTo(s: String, f: FontSpec, width: Int, lv: Int, indent: Int, block: Int, out: MutableList<DocLine>, lead: Int = 0) {
         val t = Draw.dynamic(tx, s, f)
-        var sub = 0
-        for (line in Wrap.wrap(t, f, tx, width - indent)) out.add(DocLine(line, f, lv, indent, block = block, sub = sub++))
+        val lines = Wrap.wrap(t, f, tx, width - indent)
+        val offs = FeedAnchor.offsets(t, lines)
+        for ((sub, line) in lines.withIndex()) out.add(DocLine(line, f, lv, indent, block = block, sub = sub, off = (offs[sub] - lead).coerceAtLeast(0)))
     }
 
     private fun byline(it: Item): String = itemDetail(it, clock())
@@ -1072,10 +1267,14 @@ class FeedWindow(
             when (b.kind) {
                 "h" -> { out.add(DocLine()); wrapTo(b.text, fReadB, width, Level.HEAD, 0, bi, out) }
                 "p" -> { wrapTo(b.text, fRead, width, Level.BODY, 0, bi, out); out.add(DocLine(block = bi, sub = 999)) }
-                "li" -> wrapTo("- " + b.text, fRead, width, Level.BODY, 16, bi, out)
+                "li" -> wrapTo("- " + b.text, fRead, width, Level.BODY, 16, bi, out, lead = 2)
                 "q" -> { wrapTo(b.text, fReadI, width, Level.BODY, 24, bi, out); out.add(DocLine(block = bi, sub = 999)) }
                 "pre" -> {
-                    for ((li, line) in b.text.split('\n').withIndex()) out.add(DocLine(Draw.dynamic(tx, line.replace("\t", "    "), fMono), fMono, Level.BODY, 8, block = bi, sub = li))
+                    var at = 0
+                    for ((li, line) in b.text.split('\n').withIndex()) {
+                        out.add(DocLine(Draw.dynamic(tx, line.replace("\t", "    "), fMono), fMono, Level.BODY, 8, block = bi, sub = li, off = at))
+                        at += line.length + 1
+                    }
                     out.add(DocLine(block = bi, sub = 999))
                 }
                 "img" -> {
@@ -1084,7 +1283,7 @@ class FeedWindow(
                     when {
                         im != null -> {
                             val strips = Strips.cut(im, docLineH)
-                            for ((si, s) in strips.withIndex()) out.add(DocLine(strip = s, stripW = im.w, block = bi, sub = si))
+                            for ((si, s) in strips.withIndex()) out.add(DocLine(strip = s, stripW = im.w, block = bi, sub = si, off = si))
                             if (b.text.isNotEmpty()) out.add(DocLine(dn(b.text, fSmall), fSmall, Level.DIM, block = bi, sub = 998))
                             out.add(DocLine(block = bi, sub = 999))
                         }
@@ -1147,7 +1346,7 @@ class FeedWindow(
             comicRange = null; comicRangeFor = it.source
             bg.launch(Dispatchers.IO) {
                 val r = try { provider.comicRange(it.source) } catch (e: Exception) { null }
-                onShell { if (comicRangeFor == it.source) { comicRange = r; services?.requestRender(this@FeedWindow) } }
+                onShell { if (comicRangeFor == it.source) { comicRange = r; services?.requestRender(this@FeedGlasses) } }
             }
         }
         val seq = ++articleSeq
@@ -1170,7 +1369,7 @@ class FeedWindow(
                 ensureDocLines()
                 // a strip that fits the screen rests on the bar so a tap flips again (xkcd's homepage)
                 if (comicFocus < 0 && docLines.size <= comicVisible()) comicFocus = firstEnabledButton()
-                services?.requestRender(this@FeedWindow)
+                services?.requestRender(this@FeedGlasses)
             }
         }
     }
@@ -1307,7 +1506,7 @@ class FeedWindow(
                     if (seq != comicSeq) return@onShell
                     services?.setOperation("idle")
                     if (found == null) setNotice("$button: nothing there") else openOne(found)
-                    services?.requestRender(this@FeedWindow)
+                    services?.requestRender(this@FeedGlasses)
                 }
             }
         } else {
@@ -1387,7 +1586,10 @@ class FeedWindow(
         when (a.name) {
             "Comments" -> if (it != null) openComments(it)
             "Flag", "Unflag" -> if (it != null) { toggleFlag(it); setNotice(if (isFlagged(it)) "flagged" else "unflagged"); back() }
-            "Mark unread", "Mark read" -> if (it != null) { markRead(it, a.name == "Mark read"); setNotice(a.name.lowercase()); back() }
+            "Mark unread", "Mark read" -> if (it != null) {
+                val read = a.name == "Mark read"
+                markRead(it, read, if (read) FeedCore.A_MARK_READ else FeedCore.A_UNREAD); setNotice(a.name.lowercase()); back()
+            }
             "Next item" -> nextItem()?.let { n ->
                 itemModel.cursor = itemRows().indexOfFirst { (it as? IRow.It)?.item?.id == n.id }.coerceAtLeast(0)
                 openOne(n)
@@ -1421,7 +1623,7 @@ class FeedWindow(
                 if (cs == null) { commentsState = err ?: "comments failed"; setNotice(commentsState) }
                 else { commentsState = ""; comments = cs }
                 commentLines = emptyList()
-                services?.requestRender(this@FeedWindow)
+                services?.requestRender(this@FeedGlasses)
             }
         }
     }
@@ -1479,19 +1681,29 @@ class FeedWindow(
     }
 
     // ================================================================ BINGE
+    /**
+     * A new archive sequence: the load in flight with the old one is ended with it. S1-3 J §6 (2): `back()` and a
+     * relayout bumped the sequence and left `bingeLoading` set — the late answer returns early on the sequence, so the
+     * archive entered again never loaded another page until a restart. Every bump goes through here.
+     */
+    private fun newBingeSeq() {
+        bingeSeq++
+        bingeLoading = false
+    }
+
     private fun openBinge(sourceId: String) {
         if (bingeSource != sourceId) {
             bingeSource = sourceId
-            bingeSeq++
+            newBingeSeq()
             loaded.clear()
             bingeLineMap = emptyList()
             episodes = emptyList()
             bingeState = ""
-            bingeLoading = false
             bingeModel.topLine = 0
         }
         level = Level_.BINGE
         provider.setFocused(sourceId)
+        takeBinge(sourceId)
         ensureBinge()
     }
 
@@ -1499,10 +1711,90 @@ class FeedWindow(
         val src = bingeSource ?: return
         if (episodes.isEmpty()) { loadBingeIndex(src); return }
         if (loaded.isEmpty() && !bingeLoading) {
-            val anchor = pendingBingeAnchor ?: bingePos[src] ?: (episodes.first().num to 0)
+            // a place taken from the record is read at this width now (the record's intake ran before the shell said it)
+            val taken = bingeTaken.remove(src)?.let { b -> anchorOf(b).also { pendingBingeFrac = it.second }.first }
+            val anchor = pendingBingeAnchor ?: taken ?: bingePos[src] ?: (episodes.first().num to 0)
             pendingBingeAnchor = anchor
+            bingeSeat = true                         // an entry's place: shown, not sent
             loadEpisode(src, anchor.first, where = ANCHOR)
         }
+    }
+
+    // ---- the archive's place (B1 `binge.<src>`) ----
+
+    /** Per source, the place this view last sent, took or showed at an entry: a save point sends only a move from it. */
+    private val bingeKnown = HashMap<String, Pair<Int, Int>>()
+    /** Per source, this view's last input on its place (the time its op carried). */
+    private val bingeInputAt = HashMap<String, Long>()
+    /** Per source, another device's place taken for the source list and the next entry, read at the width then. */
+    private val bingeTaken = HashMap<String, FeedCore.Binge>()
+    /** The anchor's fraction into its episode, for a place made at another width (the web's, another glasses'). */
+    private var pendingBingeFrac: Double? = null
+    /** The anchor being loaded is an entry's (shown, not sent); a jump's is an input. */
+    private var bingeSeat = false
+
+    /** The glasses' strip of a record place: its own where it was made at this width, else from its fraction. */
+    private fun anchorOf(b: FeedCore.Binge): Pair<Pair<Int, Int>, Double?> =
+        if (b.s != null && (b.w == contentW() || b.f == null)) (b.ep to b.s) to null else (b.ep to 0) to b.f
+
+    /** Another device's place for [src], newer than this view's own input: taken for the source list, never moving an
+     *  open archive (C§2.6). True when the list's line moved. */
+    private fun bingeFrom(src: String, it: wm.damage.core.app.Item): Boolean {
+        if (it.gone || (it.by == device && src in bingeKnown)) return false
+        if (it.at <= (bingeInputAt[src] ?: Long.MIN_VALUE)) return false
+        if (bingeSource == src && (level == Level_.BINGE || level == Level_.BINGE_ACTIONS)) return false
+        val b = FeedCore.bingeOf(it.value) ?: return false
+        bingeTaken[src] = b
+        val pos = b.ep to (b.s ?: 0)
+        if (bingePos[src] == pos) return false
+        bingePos[src] = pos
+        return true
+    }
+
+    /** An entry into [src]'s archive: the record's place, when newer than this view's own input and not where it is. */
+    private fun takeBinge(src: String) {
+        val it = source.state().itemNamed(FeedCore.BINGE + src)?.takeIf { r -> !r.gone } ?: return
+        if (it.at <= (bingeInputAt[src] ?: Long.MIN_VALUE)) return
+        val b = FeedCore.bingeOf(it.value) ?: return
+        val (pos, frac) = anchorOf(b)
+        bingeTaken.remove(src)
+        if (bingeKnown[src] == pos || (loaded.isNotEmpty() && bingePosNow() == pos)) return
+        bingePos[src] = pos
+        bingeKnown[src] = pos
+        pendingBingeFrac = frac
+        if (loaded.isNotEmpty()) {
+            newBingeSeq()
+            loaded.clear()
+            bingeLineMap = emptyList()
+        }
+        pendingBingeAnchor = pos
+    }
+
+    /** At the save point: the open article's and the archive's places, each sent when input moved it (L1 C1: stamped
+     *  with that input's time — the save point follows the input within one save period). */
+    private fun sendPositions() {
+        val it = openItem
+        if (it != null && placeSeated && it.kind != ItemKind.COMIC &&
+            (level == Level_.ARTICLE || level == Level_.ACTIONS || level == Level_.COMMENTS)) {
+            val p = currentPlace()
+            if (p != null && p != placeKnown) {
+                placeKnown = p
+                val at = source.now()
+                placeInputAt[p.item] = at
+                send(FeedCore.placeDraft(p, at))
+            }
+        }
+        rememberBingePos()
+        val src = bingeSource ?: return
+        if (loaded.isEmpty() || bingeLoading) return
+        val cur = bingePosNow() ?: return
+        if (bingeKnown[src] == cur) return
+        bingeKnown[src] = cur
+        val at = source.now()
+        bingeInputAt[src] = at
+        val strips = loaded.firstOrNull { e -> e.ep.num == cur.first }?.strips?.size ?: 0
+        val f = if (strips > 0) Math.round(cur.second.toDouble() / strips * 100) / 100.0 else 0.0
+        send(FeedCore.bingeDraft(src, FeedCore.Binge(cur.first, f, cur.second, contentW()), at))
     }
 
     private fun loadBingeIndex(src: String) {
@@ -1518,7 +1810,7 @@ class FeedWindow(
                 services?.setOperation("idle")
                 if (eps == null || eps.isEmpty()) { bingeState = err ?: "the archive is empty"; setNotice(bingeState) }
                 else { bingeState = ""; episodes = eps; ensureBinge() }
-                services?.requestRender(this@FeedWindow)
+                services?.requestRender(this@FeedGlasses)
             }
         }
     }
@@ -1556,7 +1848,7 @@ class FeedWindow(
                 if (seq != bingeSeq) return@onShell
                 bingeLoading = false
                 services?.setOperation("idle")
-                if (p == null) { bingeState = err ?: "page $num failed"; setNotice(bingeState); services?.requestRender(this@FeedWindow); return@onShell }
+                if (p == null) { bingeState = err ?: "page $num failed"; setNotice(bingeState); services?.requestRender(this@FeedGlasses); return@onShell }
                 bingeState = ""
                 val g = Strips.unpack(p.strip)
                 val ep = EpLoaded(p.episode, Strips.cut(g, STRIP_H), g.w)
@@ -1565,15 +1857,18 @@ class FeedWindow(
                         loaded.clear(); loaded.add(ep)
                         rebuildBingeMap()
                         val a = pendingBingeAnchor; pendingBingeAnchor = null
+                        val frac = pendingBingeFrac; pendingBingeFrac = null
+                        val strip = if (a != null && frac != null) (frac * ep.strips.size).toInt().coerceIn(0, maxOf(0, ep.strips.size - 1)) else a?.second ?: 0
                         // a page's first strip shows its header line too; deeper in, the strip itself tops the screen
-                        bingeModel.topLine = if (a != null && a.first == num && a.second > 0) (1 + a.second).coerceIn(0, ep.lines - 1) else 0
+                        bingeModel.topLine = if (a != null && a.first == num && strip > 0) (1 + strip).coerceIn(0, ep.lines - 1) else 0
+                        if (bingeSeat) { bingePosNow()?.let { bingeKnown[src] = it }; bingeSeat = false }
                     }
                     BACK -> { loaded.add(ep); while (loaded.size > LOADED_CAP) { val d = loaded.removeAt(0); bingeModel.topLine = (bingeModel.topLine - d.lines).coerceAtLeast(0) }; rebuildBingeMap() }
                     FRONT -> { loaded.add(0, ep); bingeModel.topLine += ep.lines; while (loaded.size > LOADED_CAP) loaded.removeAt(loaded.size - 1); rebuildBingeMap() }
                 }
                 bingeModel.topLine = bingeModel.topLine.coerceIn(0, maxOf(0, bingeLineCount() - 1))
                 rememberBingePos()
-                services?.requestRender(this@FeedWindow)
+                services?.requestRender(this@FeedGlasses)
             }
         }
     }
@@ -1595,7 +1890,7 @@ class FeedWindow(
 
     private fun rememberBingePos() {
         val src = bingeSource ?: return
-        bingePosNow()?.let { bingePos[src] = it }
+        bingePosNow()?.let { bingePos[src] = it; bingeTaken.remove(src) }
     }
 
     private fun paintBingeLine(g: Gray8, i: Int, r: Rect) {
@@ -1655,8 +1950,9 @@ class FeedWindow(
     private fun jumpTo(num: Int) {
         val src = bingeSource ?: return
         if (episodes.none { it.num == num }) { setNotice("no episode $num"); return }
-        bingeSeq++
-        bingeLoading = false
+        newBingeSeq()
+        bingeSeat = false                            // a jump is an input: its place is sent at the save point
+        pendingBingeFrac = null
         loaded.clear()
         bingeLineMap = emptyList()
         pendingBingeAnchor = num to 0
@@ -1724,6 +2020,7 @@ class FeedWindow(
                 openItem = synthetic
                 comicPack = null; article = null; articleState = "loading"; docWidthKey = -1
                 docModel.topLine = 0
+                enterPlace(synthetic)
                 level = Level_.ARTICLE
                 val seq = ++articleSeq
                 bg.launch(Dispatchers.IO) {
@@ -1732,7 +2029,7 @@ class FeedWindow(
                         if (seq != articleSeq) return@onShell
                         if (a == null) { articleState = err ?: "article failed"; setNotice(articleState) } else { articleState = ""; article = a }
                         docWidthKey = -1
-                        services?.requestRender(this@FeedWindow)
+                        services?.requestRender(this@FeedGlasses)
                     }
                 }
             }
@@ -1742,41 +2039,46 @@ class FeedWindow(
     private fun flagItemId(f: Flag): String = reading[f.source]?.flags?.entries?.firstOrNull { it.value === f }?.key ?: ""
 
     // ================================================================ settings
+    /** Settings → Feed (B6: `PC loss` gone with the phone's own engine, B5): every row but Images is a record row,
+     *  its field set first and its op after; Images is this device's. */
     private val settingsRows: List<HostSetting> by lazy {
         val arts = listOf("auto", "never", "always")
-        fun artRow(name: String, get: () -> LineArt, set: (LineArt) -> Unit) = HostSetting(name, arts,
-            { get().name.lowercase() }, { v -> set(LineArt.entries.first { it.name.equals(v, ignoreCase = true) }); invalidateDocs() })
+        fun row(item: String, v: JsonElement) = send(FeedCore.setDraft(item, v))
+        fun artRow(name: String, item: String, get: () -> LineArt, set: (LineArt) -> Unit) = HostSetting(name, arts,
+            { get().name.lowercase() }, { v ->
+                set(LineArt.entries.first { it.name.equals(v, ignoreCase = true) }); invalidateDocs()
+                row(item, JsonPrimitive(v.lowercase()))
+            })
         listOf(
             HostSetting("Size", listOf("global") + wm.damage.core.shell.ShellSettings.HEIGHTS.map { "$it" },
-                { heightPref?.toString() ?: "global" }, { heightPref = it.toIntOrNull() }),
+                { heightPref?.toString() ?: "global" }, { heightPref = it.toIntOrNull(); row(FeedCore.SIZE, JsonPrimitive(heightPref ?: 0)) }),
             HostSetting("Images", listOf("on", "off"), { if (images) "on" else "off" }, { images = it == "on"; docWidthKey = -1 }),
-            artRow("xkcd art", { artXkcd }) { artXkcd = it },
-            artRow("SMBC art", { artSmbc }) { artSmbc = it },
-            artRow("8-Bit art", { artBinge }) { artBinge = it },
-            HostSetting("Comic levels", listOf("16", "8", "4"), { "$comicLevels" }, { comicLevels = it.toIntOrNull() ?: 16; invalidateDocs() }),
+            artRow("xkcd art", FeedCore.ART_XKCD, { artXkcd }) { artXkcd = it },
+            artRow("SMBC art", FeedCore.ART_SMBC, { artSmbc }) { artSmbc = it },
+            artRow("8-Bit art", FeedCore.ART_BINGE, { artBinge }) { artBinge = it },
+            HostSetting("Comic levels", listOf("16", "8", "4"), { "$comicLevels" }, {
+                comicLevels = it.toIntOrNull() ?: 16; invalidateDocs(); row(FeedCore.LEVELS, JsonPrimitive(comicLevels))
+            }),
             HostSetting("Fetch", FETCHES.keys.toList(), { FETCHES.entries.firstOrNull { it.value == fetchMin }?.key ?: "15 min" },
-                { fetchMin = FETCHES[it] ?: 15; pushConfig() }),
+                { fetchMin = FETCHES[it] ?: 15; row(FeedCore.FETCH, JsonPrimitive(fetchMin)) }),
             HostSetting("Keep", KEEPS.keys.toList(), { KEEPS.entries.firstOrNull { it.value == keepDays }?.key ?: "30 d" },
-                { keepDays = KEEPS[it] ?: 30; pushConfig() }),
-            HostSetting("PC loss", LOSSES.keys.toList(), { LOSSES.entries.firstOrNull { it.value == pcLossSec }?.key ?: "1 min" },
-                { pcLossSec = LOSSES[it] ?: 60; pushConfig() }),
-            HostSetting("Notify · Reddit", listOf("off", "on"), { if (notifyReddit) "on" else "off" }, { notifyReddit = it == "on" }),
-            HostSetting("Notify · Slashdot", listOf("off", "on"), { if (notifySlashdot) "on" else "off" }, { notifySlashdot = it == "on" }),
-            HostSetting("Notify · comics", listOf("off", "on"), { if (notifyComics) "on" else "off" }, { notifyComics = it == "on" }),
+                { keepDays = KEEPS[it] ?: 30; row(FeedCore.KEEP, JsonPrimitive(keepDays)) }),
+            HostSetting("Notify · Reddit", listOf("off", "on"), { if (notifyReddit) "on" else "off" },
+                { notifyReddit = it == "on"; row(FeedCore.NOTIFY_REDDIT, JsonPrimitive(notifyReddit)) }),
+            HostSetting("Notify · Slashdot", listOf("off", "on"), { if (notifySlashdot) "on" else "off" },
+                { notifySlashdot = it == "on"; row(FeedCore.NOTIFY_SLASHDOT, JsonPrimitive(notifySlashdot)) }),
+            HostSetting("Notify · comics", listOf("off", "on"), { if (notifyComics) "on" else "off" },
+                { notifyComics = it == "on"; row(FeedCore.NOTIFY_COMICS, JsonPrimitive(notifyComics)) }),
         )
-    }
-
-    private fun pushConfig() {
-        bg.launch(Dispatchers.IO) {
-            try { provider.configure(fetchMin * 60_000L, keepDays * 86_400_000L, pcLossSec * 1_000L) }
-            catch (e: Exception) { Log.w("feed", "configure: ${e.message}") }
-        }
     }
 
     override fun appSettings(): List<HostSetting> = settingsRows
 
     // ================================================================ persistence
+    /** The view (per interface: B1's "everything else"); the record's rows are not copied here. The save point sends
+     *  the two places first ([sendPositions]). */
     override fun saveState(): JsonObject = buildJsonObject {
+        sendPositions()
         put("level", level.name)
         (srcRows().getOrNull(srcModel.cursor) as? SRow.Src)?.s?.id?.let { put("srcCursorId", it) }
         if (srcRows().isNotEmpty() && srcModel.cursor >= srcRows().size - 1) put("srcMenu", true)
@@ -1788,26 +2090,16 @@ class FeedWindow(
         put("actCursor", actModel.cursor)
         put("bingeActCursor", bingeActModel.cursor)
         put("flagCursor", flagModel.cursor)
-        put("docTop", docModel.topLine)
         put("comicTop", comicTop)
         put("commentsTop", commentsModel.topLine)
         bingeSource?.let { put("bingeSource", it) }
-        putJsonArray("recentSubs") { recentSubs.forEach { add(JsonPrimitive(it)) } }
-        putJsonArray("recentSections") { recentSections.forEach { add(JsonPrimitive(it)) } }
-        putJsonArray("pinned") { pinned.forEach { add(JsonPrimitive(it)) } }
         put("images", images)
-        put("artXkcd", artXkcd.name); put("artSmbc", artSmbc.name); put("artBinge", artBinge.name)
-        put("comicLevels", comicLevels)
-        put("fetchMin", fetchMin); put("keepDays", keepDays); put("pcLossSec", pcLossSec)
-        put("notifyReddit", notifyReddit); put("notifySlashdot", notifySlashdot); put("notifyComics", notifyComics)
-        heightPref?.let { put("height", it) }
     }
 
     override fun restoreState(state: JsonObject) {
         fun s(k: String) = state[k]?.jsonPrimitive?.contentOrNull
         fun i(k: String, d: Int) = state[k]?.jsonPrimitive?.intOrNull ?: d
         fun b(k: String, d: Boolean) = state[k]?.jsonPrimitive?.booleanOrNull ?: d
-        fun art(k: String) = s(k)?.let { n -> LineArt.entries.firstOrNull { it.name == n } } ?: LineArt.AUTO
         // P7 item 5 (OS-3), step 1: a session start on the SAME instance (a link end, a Silent wake, a rebuild) whose
         // record names the item this instance holds open, with no re-open armed, keeps the level, the item and its
         // content — the re-open path below demoted the article to its list and fetched it again. One read of each.
@@ -1826,20 +2118,11 @@ class FeedWindow(
         bingeActModel.cursor = i("bingeActCursor", 0)
         flagModel.cursor = i("flagCursor", 0)
         if (!keepHeld) {                 // a held article keeps its own positions (they are what the record says)
-            pendingDocTop = i("docTop", 0).takeIf { it > 0 }
             pendingComicTop = i("comicTop", 0).takeIf { it > 0 }
             pendingCommentsTop = i("commentsTop", 0).takeIf { it > 0 }
         }
         bingeSource = s("bingeSource")
-        recentSubs.clear(); (state["recentSubs"] as? JsonArray)?.forEach { it.jsonPrimitive.contentOrNull?.let { v -> recentSubs.addLast(v) } }
-        recentSections.clear(); (state["recentSections"] as? JsonArray)?.forEach { it.jsonPrimitive.contentOrNull?.let { v -> recentSections.addLast(v) } }
-        pinned.clear(); (state["pinned"] as? JsonArray)?.forEach { it.jsonPrimitive.contentOrNull?.let { v -> pinned.add(v) } }
         images = b("images", true)
-        artXkcd = art("artXkcd"); artSmbc = art("artSmbc"); artBinge = art("artBinge")
-        comicLevels = i("comicLevels", 16).takeIf { it in listOf(16, 8, 4) } ?: 16
-        fetchMin = i("fetchMin", 15); keepDays = i("keepDays", 30); pcLossSec = i("pcLossSec", 60)
-        notifyReddit = b("notifyReddit", false); notifySlashdot = b("notifySlashdot", false); notifyComics = b("notifyComics", false)
-        heightPref = state["height"]?.jsonPrimitive?.intOrNull
         // the source cursor by identity, once the sources are known
         if (restoredSrc != null) srcModel.cursor = srcRows().indexOfFirst { (it as? SRow.Src)?.s?.id == restoredSrc }.coerceAtLeast(0)
         if (b("srcMenu", false)) srcModel.cursor = maxOf(0, srcRows().size - 1)
@@ -1852,7 +2135,6 @@ class FeedWindow(
             level = Level_.ITEMS       // re-opened through the list once it lands (and then the restored level is not lost: see loadItems)
             restoredLevel = s("level")?.let { n -> Level_.entries.firstOrNull { it.name == n } }
         }
-        pushConfig()
     }
 
     /** A restore that lands on ARTICLE/COMIC/ACTIONS/COMMENTS: the list
@@ -1863,69 +2145,10 @@ class FeedWindow(
      *  the restore armed — its one consumer, a list load, otherwise opened the old article by itself later. */
     private fun clearPendingOpen() { pendingOpenItemId = null; restoredLevel = null }
 
-    override fun saveSubState(): Map<String, JsonObject> {
-        rememberBingePos()
-        val out = LinkedHashMap<String, JsonObject>()
-        for ((id, r) in reading) {
-            if (r.isEmpty()) continue           // never an empty blob (§25 #8)
-            out["src.$id"] = buildJsonObject {
-                putJsonArray("read") { r.read.forEach { add(JsonPrimitive(it)) } }
-                putJsonObject("flags") {
-                    for ((fid, f) in r.flags) putJsonObject(fid) {
-                        put("t", f.title); put("l", f.link); put("s", f.source); put("p", f.publishedMs); put("k", f.kind.name); put("a", f.atMs)
-                    }
-                }
-                put("seen", r.seenMs)
-            }
-        }
-        for ((id, pos) in bingePos) out["binge.$id"] = buildJsonObject { put("ep", pos.first); put("strip", pos.second) }
-        return out
-    }
-
-    override fun restoreSubState(subKey: String, state: JsonObject) {
-        when {
-            subKey.startsWith("src.") -> {
-                val id = subKey.removePrefix("src.")
-                if (state.isEmpty()) { reading.remove(id); newCount.remove(id); return }
-                val r = reading(id)
-                // §3.5: read marks merge as a UNION (reading is monotone); flags are LWW; seen is the max
-                (state["read"] as? JsonArray)?.forEach { it.jsonPrimitive.contentOrNull?.let { v -> r.read.add(v) } }
-                while (r.read.size > READ_CAP) r.read.remove(r.read.first())
-                val flags = state["flags"] as? JsonObject
-                if (flags != null) {
-                    r.flags.clear()
-                    for ((fid, v) in flags) {
-                        val o = v as? JsonObject ?: continue
-                        r.flags[fid] = Flag(o["t"]?.jsonPrimitive?.contentOrNull ?: "", o["l"]?.jsonPrimitive?.contentOrNull ?: "",
-                            o["s"]?.jsonPrimitive?.contentOrNull ?: id, o["p"]?.jsonPrimitive?.longOrNull ?: 0L,
-                            o["k"]?.jsonPrimitive?.contentOrNull?.let { k -> ItemKind.entries.firstOrNull { it.name == k } } ?: ItemKind.LINK,
-                            o["a"]?.jsonPrimitive?.longOrNull ?: 0L)
-                    }
-                }
-                r.seenMs = maxOf(r.seenMs, state["seen"]?.jsonPrimitive?.longOrNull ?: 0L)
-                if (!announcedMs.containsKey(id) || (announcedMs[id] ?: 0L) < r.seenMs) announcedMs[id] = r.seenMs
-                if (openSource == id) recount(id, items)
-                services?.requestRender(this)
-            }
-            subKey.startsWith("binge.") -> {
-                val id = subKey.removePrefix("binge.")
-                if (state.isEmpty()) { bingePos.remove(id); return }
-                val ep = state["ep"]?.jsonPrimitive?.intOrNull ?: return
-                val strip = state["strip"]?.jsonPrimitive?.intOrNull ?: 0
-                val pos = ep to strip
-                bingePos[id] = pos
-                // the "continue on the next device" experience: the open archive moves
-                if (bingeSource == id && level == Level_.BINGE && bingePosNow() != pos && loaded.isNotEmpty()) {
-                    pendingBingeAnchor = pos
-                    val li = loaded.indexOfFirst { it.ep.num == ep }
-                    if (li >= 0) {
-                        val base = bingeLineMap.indexOfFirst { it.first == li }
-                        if (base >= 0) { bingeModel.topLine = base + 1 + strip; pendingBingeAnchor = null }
-                    } else jumpTo(ep)
-                    services?.requestRender(this)
-                }
-            }
-        }
+    // last in the class: every field `fromSource` reaches is initialised by now (a restart's record holds the places)
+    init {
+        fromSource(source.state())
+        source.addListener(onSource)
     }
 
     companion object {
@@ -1942,6 +2165,5 @@ class FeedWindow(
         private const val FRONT = 2
         val FETCHES = linkedMapOf("5 min" to 5, "15 min" to 15, "30 min" to 30, "60 min" to 60)
         val KEEPS = linkedMapOf("7 d" to 7, "30 d" to 30, "90 d" to 90)
-        val LOSSES = linkedMapOf("30 s" to 30, "1 min" to 60, "5 min" to 300)
     }
 }

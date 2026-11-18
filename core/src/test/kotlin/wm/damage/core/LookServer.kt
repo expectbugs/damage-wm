@@ -55,6 +55,9 @@ import wm.damage.core.windows.torrents.TorrentsScopes
  * the graphs have points; nothing reaches qBittorrent, the tracker or any site), served as the host builders serve it
  * (`TorrentsScopes` through `AppNet.serve`, its notices raised by its core); `slow` makes every tracker call wait until
  * `release` (a tracker that takes its time), `done` finishes a made-up download.
+ * S1-3 B16: Feed over the scripted feed (`ScriptedFeed`: made-up sources, items, comics and archive, its pictures drawn
+ * here; nothing reaches a site), served as `Main.feedParts` serves it (LOOK_FEED=1 or not); its notices raised by its
+ * core. Word `feed-new` lands a made-up new item on popular (the engine's `changed`).
  * L1 (the gate's G1, standing since R2 A7): LOOK_PORT, LOOK_ROOT, LOOK_OWN=1, LOOK_NAME and LOOK_BAD_TABLE=1 (main's
  * first lines say what each does); under `core/src/test/js/look-loop.sh` the front's `/__restart` ends this JVM and
  * starts it again on the same port and directory (a deploy under an open page). Words: `deny-browser` (a waiting page
@@ -131,6 +134,11 @@ fun main(args: Array<String>) {
             torrents.poll()
         }
     }, "look-torrents-poll").apply { isDaemon = true }.start()
+    // S1-3 B16: Feed, as `Main.feedParts` serves it, over the scripted feed (no site is reached)
+    val feed = wm.damage.core.windows.feed.ScriptedFeed()
+    val fscopes = wm.damage.core.windows.feed.FeedScopes(host, feed).also { it.start() }
+    net.serve(wm.damage.core.windows.feed.FeedCore.WINDOW, fscopes.table, fscopes.program, fscopes::card)
+    net.serve(wm.damage.core.windows.feed.FeedCore.WINDOW, fscopes.reading)
     val uploads = Uploads(data)
     net.addEndListener(uploads::connectionEnded)
     // S1-2 Q5: Files over a made-up tree in this run's own directory ONLY (LookFiles refuses any other path, reads
@@ -142,7 +150,8 @@ fun main(args: Array<String>) {
     if (!again) look.trashTwo(filesPc.slotted)
     println("LOOK again=$again")
     val server = WebServer(System.getenv("LOOK_PORT")?.toInt() ?: 0, ReachGate(Side.PC), Access(Access.LOOPBACK_NAMES + listOfNotNull(System.getenv("LOOK_NAME")), ownBrowserFull = System.getenv("LOOK_OWN") == "1"), devices, net, Bundle.fromResources(),
-        BlobSources(mapOf(ReaderBlobs.PREFIX to ReaderBlobs(reader, docs), wm.damage.core.windows.files.FilesBlobs.PREFIX to filesPc.blobs)),
+        BlobSources(mapOf(ReaderBlobs.PREFIX to ReaderBlobs(reader, docs), wm.damage.core.windows.files.FilesBlobs.PREFIX to filesPc.blobs,
+            wm.damage.core.windows.feed.FeedBlobs.PREFIX to fscopes.blobs)),
         bindAddress = InetAddress.getLoopbackAddress(), uploads = uploads)
     server.start()
     reader.refreshLibrary()
@@ -157,6 +166,7 @@ fun main(args: Array<String>) {
     // S1-2 Q3: the raiser, and the made-up other device that dismisses elsewhere
     val notices = NoticeCore(host)
     tscopes.core.attachNotices(torrents, torrents.epoch, notices)
+    fscopes.core.startOnPc(host, notices) { f, k -> println("LOOK feed configure fetch ${f / 60_000} min keep ${k / 86_400_000} d") }
     var slow: CountDownLatch? = null
     val other = HostBackend(host, "made-up-phone", "look-phone")
     val noticeId = "torrent:c0ffee01"
@@ -182,6 +192,7 @@ fun main(args: Array<String>) {
             "release" -> { slow?.countDown(); torrents.trackerGate = null; look.gate.countDown(); Thread.sleep(300)
                 "the tracker answers · files: ${filesPc.jobs.current()}" }
             "done" -> { torrents.event("done", "c0ffee01", torrents.transfers.first { it.hash == "c0ffee01" }.name); "c0ffee01 done" }
+            "feed-new" -> { val it = feed.fireNew("popular", "A made-up new story"); "feed: ${it.id} new on popular" }
             // deny the newest waiting browser (not the made-up tablet), as the Devices page's Deny does
             "deny-browser" -> devices.pending().filter { it.name != "made-up tablet" }.maxByOrNull { it.since }
                 ?.let { "denied ${it.code}: ${devices.deny(it.code, "look") ?: "ok"}" } ?: "no browser waiting"

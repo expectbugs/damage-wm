@@ -486,6 +486,9 @@ class FeedTest {
             val la = engine.article(linkPost.id)
             assertTrue(la.extracted); assertEquals("The Headline", la.blocks[0].text)
             assertNotNull(store.loadArticle(linkPost.id))
+            // S1-3 B3: the extractor's version and the original page ride the article
+            assertEquals(Article.EXTRACTOR, la.ver)
+            assertEquals(linkPost.target, la.sourceUrl)
             val other = pop.filter { it.kind == ItemKind.LINK }[1]
             http.on(other.target, 200, "<html><body><p>nope</p></body></html>", mapOf("Content-Type" to listOf("text/html")))
             val fl = engine.article(other.id)
@@ -577,5 +580,49 @@ class FeedTest {
             assertTrue(http.log.any { it.startsWith("POST https://hardware.slashdot.org/ajax.pl comments_fetch 66331614") }, http.log.filter { it.startsWith("POST") }.toString())
             engine.close()
         } finally { scope.coroutineContext[kotlinx.coroutines.Job]?.cancel(); tmp.toFile().deleteRecursively() }
+    }
+
+    /** Pin for S1-3 B4 (the fetch supervisor): a site that stops answering mid-body held its source `fetching` until a
+     *  restart (and, with the web, Feed's describe executor). A loopback server sends the headers and part of the body
+     *  and then nothing; at five minutes on the engine's clock its loop ends the fetch, the source's health says so,
+     *  and the next due time tries again. Nothing reaches a real site. */
+    @Test
+    fun aFetchThatStopsAnsweringIsEndedByTheEnginesLoop() {
+        val tmp = Files.createTempDirectory("damage-feed-stuck")
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val server = java.net.ServerSocket(0, 4, java.net.InetAddress.getLoopbackAddress())
+        val accepted = java.util.concurrent.CountDownLatch(1)
+        val serving = Thread {
+            try {
+                server.accept().use { s ->
+                    val inp = s.getInputStream().bufferedReader()
+                    while (inp.readLine()?.isNotEmpty() == true) {}
+                    s.getOutputStream().write("HTTP/1.1 200 OK\r\nContent-Type: text/xml\r\nContent-Length: 5000\r\n\r\n<rss>".toByteArray())
+                    s.getOutputStream().flush()
+                    accepted.countDown()
+                    try { Thread.sleep(60_000) } catch (e: InterruptedException) {}      // then nothing more
+                }
+            } catch (e: Exception) { /* the test closed the socket */ }
+        }.apply { isDaemon = true; start() }
+        try {
+            var now = 1_700_000_000_000L
+            val http = RealFeedHttp("damage-test", clock = { now })
+            val cfg = SourceCfg("stall", SourceKind.RSS, "stall", url = "http://127.0.0.1:${server.localPort}/feed.xml")
+            val engine = FeedEngine(listOf(cfg), FeedStore(tmp), http, fakeDecoder, scope, clock = { now }, runLoop = false)
+            val fetch = Thread { engine.fetchNow("stall") }.apply { isDaemon = true; start() }
+            assertTrue(accepted.await(10, java.util.concurrent.TimeUnit.SECONDS), "the server never answered")
+            Thread.sleep(200)
+            assertTrue(http.sweep(now, RealFeedHttp.STUCK_MS).isEmpty(), "nothing ended before its five minutes")
+            assertTrue(fetch.isAlive, "the fetch waits on the body")
+            now += RealFeedHttp.STUCK_MS
+            engine.supervise()
+            fetch.join(10_000)
+            assertFalse(fetch.isAlive, "the loop ended the fetch")
+            val st = engine.sources().single()
+            assertTrue(st.failLine.startsWith("no answer from 127.0.0.1 for 5 min"), st.failLine)
+            assertEquals(now - RealFeedHttp.STUCK_MS, st.failSinceMs)
+        } finally {
+            server.close(); serving.interrupt(); scope.coroutineContext[kotlinx.coroutines.Job]?.cancel(); tmp.toFile().deleteRecursively()
+        }
     }
 }

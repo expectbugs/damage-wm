@@ -145,7 +145,13 @@ object Snapshot {
         val feedClock = SceneClock(FEED_T0)
         val feedScripted = wm.damage.core.windows.feed.ScriptedFeed(nowMs = FEED_T0)
         val feedProvider = SceneFeed(feedScripted)
-        val feedWin = wm.damage.core.windows.feed.FeedWindow(text, feedProvider, scope, clock = feedClock::now)
+        // build S1-3 B16: Feed's presenter over a source on the same scratch record; its core raises the notices once into
+        // that record (shown by this shell's mirror), as `runShell` arranges it
+        val feedCore = wm.damage.core.windows.feed.FeedCore(feedProvider)
+        feedCore.startOnPc(pcRecord, pcNotices) { _, _ -> }
+        val feedWin = wm.damage.core.windows.feed.FeedGlasses(text, feedProvider, scope, feedCore,
+            wm.damage.core.app.LocalWindowSource(feedCore, wm.damage.core.app.HostBackend(pcRecord,
+                wm.damage.core.app.Peer.LOCAL.device, wm.damage.core.app.OpQueue.newStream())), clock = feedClock::now)
         shell.register(feedWin)
         /** Open the Games menu row LABELLED [label] — by name, never by counting. */
         suspend fun gamesMenu(label: String) {
@@ -487,7 +493,7 @@ object Snapshot {
 
         feedScenes(shell, sim, out, feedWin, feedScripted, ::toWindow, ::iconsSettled)
         // build S1-3 J: the states S1-3's presenters move onto the PC record (spec B6, B14), each ending on Main
-        feedMoreScenes(shell, sim, out, transport, feedWin, feedScripted, feedProvider, feedClock, persistence, ::toWindow)
+        feedMoreScenes(shell, sim, out, transport, feedWin, feedScripted, feedProvider, feedClock, pcRecord, ::toWindow)
         tmuxMoreScenes(shell, sim, out, tmuxWin, tmuxScripted, ::toWindow)
 
         shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // silent
@@ -610,7 +616,14 @@ object Snapshot {
         val feedClock = SceneClock(FEED_T0)
         val feedScripted = wm.damage.core.windows.feed.ScriptedFeed(nowMs = FEED_T0)
         val feedProvider = SceneFeed(feedScripted)
-        val feedWin = wm.damage.core.windows.feed.FeedWindow(text, feedProvider, scope, clock = feedClock::now)
+        // build S1-3 B16: the PC's core raises Feed's notices into the scratch record from the same scripted feed (the
+        // phone's presenter reads it directly, as before: the scenes wait on its calls); the presenter over the working
+        // copy, as `ShellService` builds it
+        val pcFeed = wm.damage.core.windows.feed.FeedCore(feedProvider)
+        pcFeed.startOnPc(pcRecord, pcNotices) { _, _ -> }
+        val phoneFeed = wm.damage.core.windows.feed.FeedCore()
+        val feedWin = wm.damage.core.windows.feed.FeedGlasses(text, feedProvider, scope, phoneFeed,
+            wm.damage.core.app.LocalWindowSource(phoneFeed, wc), clock = feedClock::now, device = wc.device)
         shell.register(feedWin)
         try {
             shell.start()
@@ -695,7 +708,7 @@ object Snapshot {
             settle(shell, "phone-tmux")
             tmuxScenes(shell, sim, out, tmuxWin)
             feedScenes(shell, sim, out, feedWin, feedScripted, toWindow, iconsSettled = { iconsSettled() })
-            feedMoreScenes(shell, sim, out, transport, feedWin, feedScripted, feedProvider, feedClock, persistence, toWindow)
+            feedMoreScenes(shell, sim, out, transport, feedWin, feedScripted, feedProvider, feedClock, pcRecord, toWindow)
             tmuxMoreScenes(shell, sim, out, tmuxWin, tmuxScripted, toWindow)
         } finally {
             shell.stop()
@@ -1253,7 +1266,10 @@ object Snapshot {
      */
     private suspend fun feedMoreScenes(shell: Shell, sim: GlassFirmwareSim, out: Path, transport: SimTransport,
         feedWin: wm.damage.core.windows.feed.FeedWindow, scripted: wm.damage.core.windows.feed.ScriptedFeed,
-        provider: SceneFeed, clock: SceneClock, persistence: Persistence, toWindow: suspend (String) -> Unit) {
+        provider: SceneFeed, clock: SceneClock, record: wm.damage.core.app.AppHost, toWindow: suspend (String) -> Unit) {
+        /** The PC record's Feed item [name] (B16: the presenter's ops land there, from the phone through its copy). */
+        fun recordItem(name: String) = record.read(wm.damage.core.windows.feed.FeedCore.WINDOW).third
+            .items[wm.damage.core.app.Record.key(wm.damage.core.windows.feed.FeedCore.WINDOW, name)]?.takeIf { !it.gone }?.value
         val ids = wm.damage.core.windows.feed.FeedIds
         fun popular(i: Int) = ids.id("popular", "t3_p$i")
         fun opened(id: String) = scripted.ops.count { it == "article:$id" }
@@ -1385,9 +1401,10 @@ object Snapshot {
         }
         if (feedWin.title() != "8bt 2") failures.add("the archive never reached page 2 (title '${feedWin.title()}')")
         save(sim, out, "75-feed-binge-page2")
-        // the source list's line reads the place the shell's save took (2 s after the last input), not a load's
+        // the source list's line reads the place the shell's save took (2 s after the last input), not a load's; B16: the
+        // save point sends it to the record
         waitFor("the archive's place saved") {
-            persistence.get("window.feed.binge.8bt")?.get("ep")?.jsonPrimitive?.contentOrNull == "2"
+            wm.damage.core.windows.feed.FeedCore.bingeOf(recordItem("binge.8bt"))?.ep == 2
         }
         shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // → the sources, the cursor on the archive
         waitFor("the sources after the archive") { feedWin.title() == "feed" && feedWin.rootRowId() == "8bt" }
@@ -1406,6 +1423,8 @@ object Snapshot {
         }
         shell.services.runOnShell { feedWin.appSettings().first { it.name == "Notify · Reddit" }.apply("on") }
         settle(shell, "feed-notify-on")
+        // B16: the PC's core reads the row from its record when it raises (the phone's op crosses its copy first)
+        waitFor("Notify · Reddit in the PC's record") { wm.damage.core.windows.feed.FeedCore.bool(recordItem("notify.reddit")) == true }
         scripted.fireNew("popular")
         waitFor("the feed notice is up") { shell.notifications.active }
         waitFor("the feed notice is focused") { shell.notifications.focused && provider.inFlight() == 0 && shell.isQuiescent() }
@@ -1432,6 +1451,8 @@ object Snapshot {
         val provider = SceneFeed(scripted)
         val item16 = wm.damage.core.windows.feed.FeedIds.id("popular", "t3_p16")
         fun opened() = scripted.ops.count { it == "article:$item16" }
+        // B16: the presenter over one scratch record the three sessions share (the PC's record outlives a shell)
+        val record = wm.damage.core.app.AppHost.inScratchDir(Files.createDirectories(tmp.resolve("record")))
         val before = snapShell
         suspend fun quiet(shell: Shell, where: String) {
             waitFor("the feed provider answered ($where)") { provider.inFlight() == 0 && shell.isQuiescent() }
@@ -1453,7 +1474,10 @@ object Snapshot {
             val transport = SimTransport(sim, scope, SimTransport.Timing(instant = true))
             val text = wm.damage.core.comp.CachedText(AwtText())
             val shell = Shell(text, transport, Persistence(tmp.resolve("state.json")), tmp.resolve("journal-$tag.jsonl"), scope)
-            val feedWin = wm.damage.core.windows.feed.FeedWindow(text, provider, scope, clock = clock::now)
+            val core = wm.damage.core.windows.feed.FeedCore(provider)
+            val feedWin = wm.damage.core.windows.feed.FeedGlasses(text, provider, scope, core,
+                wm.damage.core.app.LocalWindowSource(core, wm.damage.core.app.HostBackend(record,
+                    wm.damage.core.app.Peer.LOCAL.device, wm.damage.core.app.OpQueue.newStream())), clock = clock::now)
             shell.register(feedWin)
             snapShell = shell
             try {

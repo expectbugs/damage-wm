@@ -17,7 +17,6 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
-import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
@@ -106,7 +105,6 @@ class FeedService(private val p: FeedProvider) : WinService {
         fun s(k: String): String = args[k]?.jsonPrimitive?.contentOrNull ?: throw IllegalArgumentException("missing '$k'")
         fun sOpt(k: String): String? = args[k]?.jsonPrimitive?.contentOrNull
         fun i(k: String, d: Int) = args[k]?.jsonPrimitive?.intOrNull ?: d
-        fun l(k: String, d: Long) = args[k]?.jsonPrimitive?.longOrNull ?: d
         fun mode() = sOpt("mode")?.let { m -> LineArt.entries.firstOrNull { it.name == m } } ?: LineArt.AUTO
         return when (op) {
             "sources" -> WinService.Answer(buildJsonObject {
@@ -117,8 +115,9 @@ class FeedService(private val p: FeedProvider) : WinService {
                 val it = p.item(s("id"))
                 WinService.Answer(buildJsonObject { put("has", it != null) }, blob = it?.let { jsonBlob(json.encodeToString(Item.serializer(), it)) })
             }
-            "article" -> WinService.Answer(blob = jsonBlob(json.encodeToString(Article.serializer(), p.article(s("id")))))
-            "articleUrl" -> WinService.Answer(blob = jsonBlob(json.encodeToString(Article.serializer(), p.articleByUrl(s("url"), sOpt("title") ?: ""))))
+            // B3: the phone's glasses never draw spans; its channel's bytes and the article's load stay as before
+            "article" -> WinService.Answer(blob = jsonBlob(json.encodeToString(Article.serializer(), plain(p.article(s("id"))))))
+            "articleUrl" -> WinService.Answer(blob = jsonBlob(json.encodeToString(Article.serializer(), plain(p.articleByUrl(s("url"), sOpt("title") ?: "")))))
             "comic" -> {
                 val pack = p.comic(s("id"), i("width", 564), i("levels", 16), mode())
                 val a = FeedWire.deflate(pack.strip.packed)
@@ -160,10 +159,12 @@ class FeedService(private val p: FeedProvider) : WinService {
             }
             "forget" -> { p.forget(s("source")); WinService.Answer() }
             "focus" -> { p.setFocused(sOpt("source")); WinService.Answer() }
-            "configure" -> { p.configure(l("fetchMs", 900_000), l("keepMs", 30L * 86_400_000), l("pcLossMs", 60_000)); WinService.Answer() }
             else -> throw IllegalArgumentException("unknown feed op '$op'")
         }
     }
+
+    private fun plain(a: Article): Article =
+        if (a.blocks.none { it.spans.isNotEmpty() }) a else a.copy(blocks = a.blocks.map { it.copy(spans = emptyList()) })
 
     private fun kotlinx.serialization.json.JsonObjectBuilder.putAny(k: String, v: Any) {
         when (v) {
@@ -194,13 +195,11 @@ class RemoteFeedProvider(
     @Volatile private var focused: String? = null
     @Volatile private var running = true
     @Volatile private var wakeFlag = false
-    @Volatile var downSinceMs = 0L
-        private set
 
     private val ch = RemoteWin(host, port, token, "feed", scope,
         onState = { s ->
             chanState = s
-            if (s.isEmpty()) { downSinceMs = 0L; wakeFlag = true } else if (downSinceMs == 0L) downSinceMs = System.currentTimeMillis()
+            if (s.isEmpty()) wakeFlag = true
             pushState()
         },
         onPush = { op, args, _ ->
@@ -316,141 +315,10 @@ class RemoteFeedProvider(
         return st
     }
     override fun forget(sourceId: String) { ch.request("forget", args("source" to sourceId)); refreshSources() }
-    override fun configure(fetchMs: Long, keepMs: Long, pcLossMs: Long) {
-        ch.request("configure", args("fetchMs" to fetchMs, "keepMs" to keepMs, "pcLossMs" to pcLossMs))
-    }
-
-    /** One status refresh now (tests, a switch). */
-    fun refreshNow() = refreshSources()
 
     override fun close() {
         running = false
         loop.cancel()
         ch.close()
-    }
-}
-
-/**
- * FEED.md §3.6, verdict 15 — the phone reads the PC's engine while the
- * channel is up; when its staleness passes [pcLossMs] the phone's own engine
- * starts its pacer and serves; switchback is DELIBERATE (the root menu's
- * `Back to PC` row → [backToPc]). Listeners hear from the ACTIVE side only,
- * plus the channel's state line, and a switch announces every source as
- * changed so the open list reloads from the new side.
- */
-class SwitchingFeedProvider(
-    private val remote: RemoteFeedProvider,
-    private val local: FeedProvider,
-    private val scope: CoroutineScope,
-    pcLossMs: Long = 60_000,
-    private val clock: () -> Long = { System.currentTimeMillis() },
-    /** The phone engine parks while the PC serves: pause(true) on a switchback, pause(false) on a switch. */
-    private val onLocalActive: (Boolean) -> Unit = {},
-    private val onSwitched: (toLocal: Boolean) -> Unit = {},
-) : FeedProvider {
-    @Volatile var pcLossMs: Long = pcLossMs
-    @Volatile private var localActive = false
-    private val listeners = CopyOnWriteArrayList<FeedProvider.Listener>()
-    @Volatile private var running = true
-
-    private val remoteListener = object : FeedProvider.Listener {
-        override fun changed(sourceId: String, version: Long) {
-            adoptFromPc()
-            if (!localActive) for (l in listeners) l.changed(sourceId, version)
-        }
-        override fun state(line: String) { for (l in listeners) l.state(stateLine()) }
-    }
-
-    /** The PC's configured list reaches the phone engine (FEED.md §3.7). */
-    private fun adoptFromPc() {
-        val engine = local as? FeedEngine ?: return
-        val cfgs = remote.sources().mapNotNull { it.cfg }
-        if (cfgs.isNotEmpty()) engine.adopt(cfgs)
-    }
-    private val localListener = object : FeedProvider.Listener {
-        override fun changed(sourceId: String, version: Long) { if (localActive) for (l in listeners) l.changed(sourceId, version) }
-        override fun state(line: String) {}
-    }
-
-    init {
-        remote.addListener(remoteListener)
-        local.addListener(localListener)
-        onLocalActive(false)
-        scope.launch(Dispatchers.IO) {
-            while (scope.isActive && running) {
-                val down = remote.downSinceMs
-                if (!localActive && down != 0L && clock() - down >= this@SwitchingFeedProvider.pcLossMs) switchToLocal()
-                delay(1_000)
-            }
-        }
-    }
-
-    private fun switchToLocal() {
-        Log.w("feed", "PC unreachable for ${(clock() - remote.downSinceMs) / 1000} s — the phone engine is fetching")
-        onLocalActive(true)              // the engine resumes BEFORE it serves
-        localActive = true
-        try { onSwitched(true) } catch (e: Exception) { Log.e("feed", "switch hook", e) }
-        for (l in listeners) {
-            try { l.state(stateLine()) } catch (e: Exception) { Log.e("feed", "listener", e) }
-            for (s in local.sources()) try { l.changed(s.id, s.version) } catch (e: Exception) { Log.e("feed", "listener", e) }
-        }
-    }
-
-    override fun backToPc() {
-        if (!localActive) return
-        localActive = false
-        onLocalActive(false)
-        Log.i("feed", "back to the PC engine")
-        remote.refreshNow()
-        try { onSwitched(false) } catch (e: Exception) { Log.e("feed", "switch hook", e) }
-        for (l in listeners) {
-            try { l.state(stateLine()) } catch (e: Exception) { Log.e("feed", "listener", e) }
-            for (s in remote.sources()) try { l.changed(s.id, s.version) } catch (e: Exception) { Log.e("feed", "listener", e) }
-        }
-    }
-
-    private fun active(): FeedProvider = if (localActive) local else remote
-
-    override fun fallbackActive(): Boolean = localActive
-    override fun pcDownLine(): String {
-        val down = remote.downSinceMs
-        return if (down == 0L) "" else "PC down ${FeedFmt.dur((clock() - down) / 1000)}"
-    }
-    /** On the phone engine the link's staleness is not the window's staleness — the engine is healthy. */
-    override fun stateLine(): String = if (localActive) local.stateLine() else remote.stateLine()
-    override fun engineName(): String = if (localActive) "phone" else "PC"
-    override fun addListener(l: FeedProvider.Listener) {
-        if (!listeners.addIfAbsent(l)) return
-        try { l.state(stateLine()) } catch (e: Exception) { Log.e("feed", "listener", e) }
-    }
-    override fun removeListener(l: FeedProvider.Listener) { listeners.remove(l) }
-    override fun setFocused(sourceId: String?) { active().setFocused(sourceId) }
-    override fun sources(): List<SourceStatus> = active().sources()
-    override fun items(sourceId: String, offset: Int, limit: Int): ItemPage = active().items(sourceId, offset, limit)
-    override fun item(itemId: String): Item? = active().item(itemId)
-    override fun article(itemId: String): Article = active().article(itemId)
-    override fun articleByUrl(url: String, title: String): Article = active().articleByUrl(url, title)
-    override fun comic(itemId: String, width: Int, levels: Int, mode: LineArt): ComicPack = active().comic(itemId, width, levels, mode)
-    override fun image(url: String, width: Int, levels: Int, mode: LineArt): Strip = active().image(url, width, levels, mode)
-    override fun bingeIndex(sourceId: String): List<Episode> = active().bingeIndex(sourceId)
-    override fun bingeEpisode(sourceId: String, num: Int, width: Int, levels: Int, mode: LineArt): EpisodePack = active().bingeEpisode(sourceId, num, width, levels, mode)
-    override fun comments(itemId: String): List<Comment> = active().comments(itemId)
-    override fun comicRange(sourceId: String): IntRange? = active().comicRange(sourceId)
-    override fun comicAt(sourceId: String, num: Int): Item? = active().comicAt(sourceId, num)
-    override fun refresh(sourceId: String?) = active().refresh(sourceId)
-    override fun browse(kind: SourceKind, name: String): SourceStatus = active().browse(kind, name)
-    override fun forget(sourceId: String) = active().forget(sourceId)
-    override fun configure(fetchMs: Long, keepMs: Long, pcLossMs: Long) {
-        this.pcLossMs = pcLossMs.coerceAtLeast(5_000)
-        try { local.configure(fetchMs, keepMs, pcLossMs) } catch (e: Exception) { Log.w("feed", "configure (phone): ${e.message}") }
-        try { remote.configure(fetchMs, keepMs, pcLossMs) } catch (e: Exception) { /* the PC is told when it is back */ }
-    }
-
-    override fun close() {
-        running = false
-        remote.removeListener(remoteListener)
-        local.removeListener(localListener)
-        remote.close()
-        local.close()
     }
 }

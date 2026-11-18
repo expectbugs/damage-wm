@@ -62,9 +62,12 @@ data class SourceStatus(
     val bingeTotal: Int = 0,
     /** The newest item's publish stamp — the window's "new since" reference. */
     val newestMs: Long = 0,
-    /** The configured source itself (not for transient ones) — a fallback
-     *  engine adopts the PC's list from these (FEED.md §3.7). */
-    val cfg: SourceCfg? = null,
+    /** B3 (`CONTRACT.md` §8: values, no age baked into text): a rate limit's next try and its host, a failing fetch's
+     *  first failure and its own line; 0 / "" when none. */
+    val retryAtMs: Long = 0,
+    val retryHost: String = "",
+    val failSinceMs: Long = 0,
+    val failLine: String = "",
 )
 
 @Serializable
@@ -108,9 +111,21 @@ data class Item(
 data class ItemPage(val items: List<Item>, val total: Int, val version: Long)
 
 /** One article block: `h` heading · `p` paragraph · `li` list item · `q`
- *  quote · `pre` preformatted · `img` an image by URL. */
+ *  quote · `pre` preformatted · `img` an image by URL. Build S1-3 B3: [spans] the
+ *  block's inline marks and links, their texts joined equal to [text]; empty = one
+ *  plain span of [text] (the glasses draw [text] only). */
 @Serializable
-data class Block(val kind: String, val text: String = "", val url: String = "")
+data class Block(val kind: String, val text: String = "", val url: String = "", val spans: List<Span> = emptyList())
+
+/** One run of a block's text (B3; `CONTRACT.md` §3.2): [marks] of [EM] · [STRONG] · [CODE], [href] an http(s) link or "". */
+@Serializable
+data class Span(val text: String, val marks: Int = 0, val href: String = "") {
+    companion object {
+        const val EM = 1
+        const val STRONG = 2
+        const val CODE = 4
+    }
+}
 
 @Serializable
 data class Article(
@@ -121,7 +136,16 @@ data class Article(
     val extracted: Boolean,
     /** Said on the title when [extracted] is false for a reason worth saying. */
     val note: String = "",
-)
+    /** B3: the extractor version that made [blocks] (0: before spans, a cached article served as plain spans). */
+    val ver: Int = 0,
+    /** B3: the original page — the item's target, else its link; a Slashdot story's `from <domain>` source. */
+    val sourceUrl: String = "",
+) {
+    companion object {
+        /** The extractor version this build writes (spans and links, B3). */
+        const val EXTRACTOR = 1
+    }
+}
 
 @Serializable
 data class Comment(

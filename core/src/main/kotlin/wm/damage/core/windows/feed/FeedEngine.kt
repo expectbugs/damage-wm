@@ -12,8 +12,8 @@ import wm.damage.core.gfx.ImageDecoder
 import wm.damage.core.util.Log
 
 /**
- * FEED.md §3.6 — THE engine, pure Kotlin, the same class on the PC (always)
- * and on the phone (while the PC is unreachable): the configured sources →
+ * FEED.md §3.6 — THE engine, pure Kotlin, on the PC (build S1-3 B5: the phone's
+ * own fetching is retired; it reads the PC's engine): the configured sources →
  * the per-kind fetchers on a pacer → the store → items on demand, articles
  * extracted on demand (and ahead, on the PC), comics prepared as strips,
  * the binge archive indexed once, comments cached a quarter hour.
@@ -64,9 +64,6 @@ class FeedEngine(
     @Volatile private var focusedId: String? = null
     @Volatile private var running = true
     @Volatile private var wake = false
-    /** The phone's fallback engine holds no pacer while the PC serves (FEED.md §3.6). */
-    @Volatile var paused = false
-        private set
     private val loop: Job?
 
     init {
@@ -85,8 +82,9 @@ class FeedEngine(
     private suspend fun loop() {
         while (scope.isActive && running) {
             wake = false
+            supervise()
             val now = clock()
-            val due = if (paused) emptyList() else synchronized(lock) { sources.values.filter { !it.fetching && now >= it.nextDueMs } }
+            val due = synchronized(lock) { sources.values.filter { !it.fetching && now >= it.nextDueMs } }
             for (s in due) {
                 s.fetching = true
                 scope.launch(Dispatchers.IO) {
@@ -96,6 +94,13 @@ class FeedEngine(
             val until = clock() + 1_000
             while (scope.isActive && running && !wake && clock() < until) delay(100)
         }
+    }
+
+    /** B4, the fetch supervisor (each tick of the loop): a fetch in flight for [RealFeedHttp.STUCK_MS] is ended —
+     *  its source's health says so (its fetch fails with that line) and the next due time tries again; said here. */
+    fun supervise() {
+        for (url in http.sweep(clock(), RealFeedHttp.STUCK_MS))
+            Log.w("feed", "a fetch of $url had no answer for ${RealFeedHttp.STUCK_MS / 60_000} min — ended")
     }
 
     /** One fetch of [sourceId] on the calling thread (tests, one-shot tools). */
@@ -217,22 +222,9 @@ class FeedEngine(
             id = s.cfg.id, kind = s.cfg.kind, name = s.cfg.name, binge = s.cfg.binge, transient = s.transient,
             count = f.items.size, version = f.version, lastFetchMs = f.lastFetchMs, lastOkMs = f.lastOkMs,
             state = state, bingeTotal = s.bingeTotal, newestMs = f.items.maxOfOrNull { it.publishedMs } ?: 0L,
-            cfg = if (s.transient) null else s.cfg,
+            retryAtMs = if (s.retryAtMs > now) s.retryAtMs else 0L, retryHost = if (s.retryAtMs > now) s.retryHost else "",
+            failSinceMs = s.failSinceMs, failLine = s.failLine,
         )
-    }
-
-    /** Take on configured sources this engine does not have (the PC's list,
-     *  learned over the channel): the phone's fallback then fetches what the
-     *  PC fetches. Nothing is removed — a source the PC dropped keeps its files
-     *  here until retention empties it. */
-    fun adopt(cfgs: List<SourceCfg>) {
-        var added = 0
-        for (c in cfgs) {
-            if (synchronized(lock) { sources.containsKey(c.id) }) continue
-            add(c, transient = false)
-            added++
-        }
-        if (added > 0) { Log.i("feed", "adopted $added source(s) from the PC's list"); wake = true }
     }
 
     override fun sources(): List<SourceStatus> = synchronized(lock) { sources.values.map { status(it) } }
@@ -280,9 +272,12 @@ class FeedEngine(
 
     // ================================================================ articles
     override fun article(itemId: String): Article {
-        store.loadArticle(itemId)?.let { return it }
+        // B3: a cached article from before spans (`ver` 0) is served as it is — plain spans — with the item's page
+        store.loadArticle(itemId)?.let { a ->
+            return if (a.sourceUrl.isNotEmpty()) a else item(itemId)?.let { a.copy(sourceUrl = it.target.ifEmpty { it.link }) } ?: a
+        }
         val it = item(itemId) ?: throw IllegalArgumentException("no such item")
-        val a = buildArticle(it)
+        val a = buildArticle(it).copy(ver = Article.EXTRACTOR)
         if (a.extracted) store.saveArticle(a)          // a floor is not cached: the next open tries again
         return a
     }
@@ -316,19 +311,19 @@ class FeedEngine(
         // the poster's own words come first, whatever the post points at (Adam,
         // 2026-09-09 on glass: an image post's text is the point of the post)
         val own = Extract.fragment(it.body, it.link)
+        val page = it.target.ifEmpty { it.link }
         return when (it.kind) {
-            ItemKind.TEXT -> Article(it.id, it.title, own.ifEmpty { listOf(Block("p", it.summary.ifEmpty { "(no text)" })) }, extracted = true)
-            ItemKind.IMAGE -> Article(it.id, it.title, own + Block("img", it.title, it.image.ifEmpty { it.target }), extracted = true)
-            ItemKind.VIDEO -> Article(it.id, it.title, own + Block("p", "video · not shown"), extracted = true, note = "video")
-            ItemKind.COMIC -> Article(it.id, it.title, listOfNotNull(if (it.alt.isNotEmpty()) Block("p", it.alt) else null), extracted = true)
+            ItemKind.TEXT -> Article(it.id, it.title, own.ifEmpty { listOf(Block("p", it.summary.ifEmpty { "(no text)" })) }, extracted = true, sourceUrl = page)
+            ItemKind.IMAGE -> Article(it.id, it.title, own + Block("img", it.title, it.image.ifEmpty { it.target }), extracted = true, sourceUrl = page)
+            ItemKind.VIDEO -> Article(it.id, it.title, own + Block("p", "video · not shown"), extracted = true, note = "video", sourceUrl = page)
+            ItemKind.COMIC -> Article(it.id, it.title, listOfNotNull(if (it.alt.isNotEmpty()) Block("p", it.alt) else null), extracted = true, sourceUrl = page)
             ItemKind.LINK -> {
                 val kind = try { source(it.source).cfg.kind } catch (e: Exception) { null }
                 if (kind == SourceKind.SLASHDOT) slashdotArticle(it, own) else {
-                    val url = it.target.ifEmpty { it.link }
-                    val (blocks, why) = extractUrl(url)
-                    if (blocks == null) floor(it, "$why · showing the summary")
-                    else if (own.isEmpty()) Article(it.id, it.title, blocks, extracted = true)
-                    else Article(it.id, it.title, own + Block("h", "from ${domainOf(url)}") + blocks, extracted = true)
+                    val (blocks, why) = extractUrl(page)
+                    if (blocks == null) floor(it, "$why · showing the summary").copy(sourceUrl = page)
+                    else if (own.isEmpty()) Article(it.id, it.title, blocks, extracted = true, sourceUrl = page)
+                    else Article(it.id, it.title, own + Block("h", "from ${domainOf(page)}") + blocks, extracted = true, sourceUrl = page)
                 }
             }
         }
@@ -343,12 +338,12 @@ class FeedEngine(
         val page = try { http.get(it.link) } catch (e: RateLimited) { throw e } catch (e: Exception) { null }
         val floorBlocks = summary.ifEmpty { if (it.summary.isNotEmpty()) listOf(Block("p", it.summary)) else emptyList() }
         if (page == null || page.status != 200) return Article(it.id, it.title, floorBlocks, extracted = false,
-            note = "story page ${page?.status?.let { s -> "HTTP $s" } ?: "unreachable"} · showing the summary")
+            note = "story page ${page?.status?.let { s -> "HTTP $s" } ?: "unreachable"} · showing the summary", sourceUrl = it.link)
         val src = SlashdotRss.sourceFrom(page.text(), it.link)
-        if (src.isEmpty()) return Article(it.id, it.title, floorBlocks, extracted = true, note = "no source link in the story")
+        if (src.isEmpty()) return Article(it.id, it.title, floorBlocks, extracted = true, note = "no source link in the story", sourceUrl = it.link)
         val (blocks, why) = extractUrl(src)
-        return if (blocks == null) Article(it.id, it.title, floorBlocks + Block("h", "from ${domainOf(src)}") + Block("p", "$why · ${src}"), extracted = false, note = "$why · showing the summary")
-            else Article(it.id, it.title, floorBlocks + Block("h", "from ${domainOf(src)}") + blocks, extracted = true)
+        return if (blocks == null) Article(it.id, it.title, floorBlocks + Block("h", "from ${domainOf(src)}") + Block("p", "$why · ${src}"), extracted = false, note = "$why · showing the summary", sourceUrl = src)
+            else Article(it.id, it.title, floorBlocks + Block("h", "from ${domainOf(src)}") + blocks, extracted = true, sourceUrl = src)
     }
 
     private fun isHtml(r: HttpReplyB): Boolean {
@@ -371,6 +366,18 @@ class FeedEngine(
             }
         }
         return ComicPack(it, strip, bonus)
+    }
+
+    /** B2: a comic's facts for the web (the original pictures, no strip prepared): SMBC's bonus learned once, as [comic]. */
+    override fun comicItem(itemId: String): Item? {
+        val it = item(itemId) ?: return null
+        return if (it.kind == ItemKind.COMIC && it.bonus.isEmpty() && source(it.source).cfg.kind == SourceKind.SMBC) learnBonus(it) else it
+    }
+
+    /** B2 (FeedBlobs): an original picture's bytes — the store's copy, else fetched once and kept. */
+    override fun original(url: String): ByteArray {
+        val key = FeedStore.imageKey(url)
+        return store.loadImage(key) ?: fetchImage(url, null).also { store.saveImage(key, it) }
     }
 
     /** The SMBC bonus panel's URL comes from the comic page; learned once and kept in the item. */
@@ -442,6 +449,12 @@ class FeedEngine(
     }
 
     override fun bingeEpisode(sourceId: String, num: Int, width: Int, levels: Int, mode: LineArt): EpisodePack {
+        val ep = bingeResolve(sourceId, num)
+        return EpisodePack(ep, stripFor(ep.image, null, width, levels, mode))
+    }
+
+    /** An episode with its picture's URL, learned from its page once (one fetch) and kept in the index. */
+    override fun bingeResolve(sourceId: String, num: Int): Episode {
         val s = source(sourceId)
         val eps = ensureIndex(s, force = false)
         var ep = eps.firstOrNull { it.num == num } ?: throw IllegalArgumentException("no page $num")
@@ -453,7 +466,7 @@ class FeedEngine(
             val f = store.loadEpisodes(sourceId)
             if (f != null) store.saveEpisodes(sourceId, f.copy(episodes = f.episodes.map { if (it.num == num) ep else it }))
         }
-        return EpisodePack(ep, stripFor(ep.image, null, width, levels, mode))
+        return ep
     }
 
     // ================================================================ comments
@@ -528,7 +541,8 @@ class FeedEngine(
         return a
     }
 
-    override fun configure(fetchMs: Long, keepMs: Long, pcLossMs: Long) {
+    /** The shared `Fetch` and `Keep` rows (build S1-3 B2: the PC's core calls it from the record). */
+    fun configure(fetchMs: Long, keepMs: Long) {
         this.fetchMs = fetchMs.coerceAtLeast(60_000L)
         store.keepMs = keepMs.coerceAtLeast(86_400_000L)
     }
@@ -538,12 +552,6 @@ class FeedEngine(
         if (!s.transient) return
         synchronized(lock) { sources.remove(sourceId) }
         store.deleteSource(sourceId)
-    }
-
-    /** Park (no fetching, no socket) or resume (fetch what is due at once). */
-    fun pause(on: Boolean) {
-        paused = on
-        if (!on) { synchronized(lock) { for (s in sources.values) s.nextDueMs = 0L }; wake = true }
     }
 
     override fun close() {

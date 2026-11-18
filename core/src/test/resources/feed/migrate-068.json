@@ -1,0 +1,18 @@
+{
+  "_": "Build S1-3 B7: Feed's synced keys in APK 0.68's shape, as FeedWindow.saveState / saveSubState wrote them (made up: every id, title and link is invented). Each key: its stamp and its blob.",
+  "window.feed": { "stamp": 1700000100000, "blob": {
+    "level": "ITEMS", "srcCursorId": "popular", "openSource": "popular", "itemCursorId": "a1a1a1a1a1a1a1a1",
+    "fromFlagged": false, "actCursor": 0, "bingeActCursor": 0, "flagCursor": 0, "docTop": 12, "comicTop": 0, "commentsTop": 0,
+    "bingeSource": "8bt", "recentSubs": ["linux", "rust"], "recentSections": ["Linux"], "pinned": ["r:linux"],
+    "images": false, "artXkcd": "NEVER", "artSmbc": "AUTO", "artBinge": "ALWAYS", "comicLevels": 8,
+    "fetchMin": 30, "keepDays": 90, "pcLossSec": 300, "notifyReddit": true, "notifySlashdot": false, "notifyComics": false,
+    "height": 352 } },
+  "window.feed.src.popular": { "stamp": 1700000200000, "blob": {
+    "read": ["a1a1a1a1a1a1a1a1", "b2b2b2b2b2b2b2b2", "c3c3c3c3c3c3c3c3"],
+    "flags": { "b2b2b2b2b2b2b2b2": { "t": "A made-up flagged story", "l": "https://example.org/made-up/2", "s": "popular",
+      "p": 1699999000000, "k": "LINK", "a": 1700000150000 } },
+    "seen": 1700000190000 } },
+  "window.feed.src.xkcd": { "stamp": 1700000300000, "blob": { "read": [], "flags": {}, "seen": 1700000290000 } },
+  "window.feed.src.gone": { "stamp": 1700000400000, "blob": {} },
+  "window.feed.binge.8bt": { "stamp": 1700000500000, "blob": { "ep": 7, "strip": 3 } }
+}

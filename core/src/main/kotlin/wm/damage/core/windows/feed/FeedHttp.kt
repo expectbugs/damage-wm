@@ -1,6 +1,7 @@
 package wm.damage.core.windows.feed
 
 import java.io.IOException
+import java.net.HttpURLConnection
 import java.net.URI
 import wm.damage.core.util.Http
 import wm.damage.core.util.Log
@@ -23,6 +24,10 @@ interface FeedHttp {
     /** A form POST (Slashdot's `ajax.pl`). A seam that cannot post says so. */
     fun post(url: String, form: Map<String, String>, headers: Map<String, String> = emptyMap()): HttpReplyB =
         throw UnsupportedOperationException("this http seam does not post")
+
+    /** B4, the fetch supervisor: ends every fetch in flight since before [nowMs] − [limitMs] (its connection closed,
+     *  its caller answered with an [IOException] that says so) and names them. A seam with no sockets ends none. */
+    fun sweep(nowMs: Long, limitMs: Long): List<String> = emptyList()
 }
 
 /** A host asked us to wait (429/503 with `Retry-After`, or our own pace):
@@ -32,30 +37,79 @@ class RateLimited(val host: String, val retryAtMs: Long) :
     IOException("$host rate-limited · retry at $retryAtMs")
 
 /**
- * The real fetcher: `HttpURLConnection` through [Http.request], one user
- * agent, redirects followed by hand (the JDK will not cross http → https on
- * its own, and every one of these sites redirects somewhere). NO TIMEOUTS —
- * the standing rule; liveness is the engine's pacing.
+ * The real fetcher: `HttpURLConnection`, one user agent, redirects followed by hand (the JDK will not cross
+ * http → https on its own, and every one of these sites redirects somewhere). NO TIMEOUTS — the standing rule;
+ * liveness is the engine's pacing. Build S1-3 B4: each exchange registers its connection and its start, so the
+ * engine's loop can end one that has been in flight for minutes ([sweep]) — a site that stops answering mid-body
+ * otherwise held its source (and an open article's "loading") until a restart.
  */
-class RealFeedHttp(private val userAgent: String) : FeedHttp {
-    override fun post(url: String, form: Map<String, String>, headers: Map<String, String>): HttpReplyB {
-        val r = Http.request("POST", url, mapOf("User-Agent" to userAgent, "Accept" to "*/*") + headers,
-            body = Http.formEncode(form).toByteArray(Charsets.UTF_8), contentType = "application/x-www-form-urlencoded")
-        return HttpReplyB(r.status, r.headers, r.body)
+class RealFeedHttp(private val userAgent: String, private val clock: () -> Long = { System.currentTimeMillis() }) : FeedHttp {
+    private class Flight(val url: String, val startMs: Long, val conn: HttpURLConnection) {
+        @Volatile var ended = false
     }
+    private val flights = java.util.concurrent.ConcurrentHashMap.newKeySet<Flight>()
+
+    override fun sweep(nowMs: Long, limitMs: Long): List<String> {
+        val out = ArrayList<String>()
+        for (f in flights) if (!f.ended && nowMs - f.startMs >= limitMs) {
+            f.ended = true
+            f.conn.disconnect()          // the blocked read ends with an IOException on its own thread
+            out += f.url
+        }
+        return out
+    }
+
+    private fun exchange(method: String, url: String, headers: Map<String, String>, body: ByteArray? = null, type: String? = null): HttpReplyB {
+        val conn = URI(url).toURL().openConnection() as HttpURLConnection
+        val f = Flight(url, clock(), conn)
+        flights += f
+        try {
+            conn.requestMethod = method
+            conn.instanceFollowRedirects = false
+            conn.useCaches = false
+            for ((k, v) in mapOf("User-Agent" to userAgent, "Accept" to "*/*") + headers) conn.setRequestProperty(k, v)
+            if (body != null) {
+                conn.doOutput = true
+                if (type != null) conn.setRequestProperty("Content-Type", type)
+                conn.setFixedLengthStreamingMode(body.size)
+                conn.outputStream.use { it.write(body) }
+            }
+            val status = conn.responseCode
+            val bytes = (if (status >= 400) conn.errorStream else conn.inputStream)?.use { it.readBytes() } ?: ByteArray(0)
+            // an ended exchange's read may return what had come as if it were the whole body: never taken as an answer
+            if (f.ended) throw IOException("ended")
+            val hdrs = HashMap<String, List<String>>()
+            for ((k, v) in conn.headerFields) if (k != null) hdrs[k] = v
+            return HttpReplyB(status, hdrs, bytes)     // a whole body read: the socket goes back to the keep-alive pool
+        } catch (e: IOException) {
+            conn.disconnect()
+            if (f.ended) throw IOException("no answer from ${URI(url).host} for ${STUCK_MS / 60_000} min — ended; tried again at the next due time", e)
+            throw IOException("$method $url: ${e.message}", e)    // a body that ends early is a failure, never an empty answer
+        } finally {
+            flights -= f
+        }
+    }
+
+    override fun post(url: String, form: Map<String, String>, headers: Map<String, String>): HttpReplyB =
+        exchange("POST", url, headers, Http.formEncode(form).toByteArray(Charsets.UTF_8), "application/x-www-form-urlencoded")
 
     override fun get(url: String, headers: Map<String, String>): HttpReplyB {
         var u = url
         repeat(6) {
-            val r = Http.request("GET", u, mapOf("User-Agent" to userAgent, "Accept" to "*/*") + headers)
+            val r = exchange("GET", u, headers)
             if (r.status in 301..308) {
                 val loc = r.header("Location") ?: throw IOException("HTTP ${r.status} from $u without a Location")
                 u = URI(u).resolve(loc.trim()).toString()
                 return@repeat
             }
-            return HttpReplyB(r.status, r.headers, r.body)
+            return r
         }
         throw IOException("too many redirects from $url")
+    }
+
+    companion object {
+        /** B4: a fetch in flight this long is ended by the engine's loop (an outside supervisor, not a timeout). */
+        const val STUCK_MS = 5 * 60_000L
     }
 }
 
@@ -94,6 +148,8 @@ class PacedHttp(
         pace(host)
         return checkLimit(host, inner.get(url, headers))
     }
+
+    override fun sweep(nowMs: Long, limitMs: Long): List<String> = inner.sweep(nowMs, limitMs)
 
     private fun pace(host: String) {
         synchronized(lock) {
