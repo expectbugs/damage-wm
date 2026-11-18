@@ -833,3 +833,74 @@ class TmuxWindowTest {
         assertEquals(480, w2.preferredHeight, "the design-point height default")
     }
 }
+
+/** MonoFake's metrics with no ink: the shell's chrome (the title, the input-echo cell) draws nothing, so the 5 s
+ *  idle tick — which flushes chrome-only changes such as the echo moving from UP to TAP — can never move the flush
+ *  count, and the count reads the window's content alone. */
+private class BlankText : TextRasterizer {
+    override fun measure(text: String, font: FontSpec): Int = text.length * maxOf(1, font.sizePx * 6 / 10)
+    override fun metrics(font: FontSpec) = FontMetrics(
+        font.sizePx, maxOf(1, font.sizePx * 3 / 10), maxOf(2, font.sizePx * 13 / 10))
+    override fun draw(surface: Gray8, x: Int, y: Int, text: String, font: FontSpec, level: Int) {}
+    override fun covers(text: String, font: FontSpec) = true
+}
+
+/** Build Q T1 (Adam, 2026-11-17): "if I'm in the scroll back function in tmux, and I single tap, nothing happens".
+ *  A swipe read as a tap opened the keys; backing out of them landed on live and lost his place. Driven through the
+ *  real shell on the simulator, so "nothing" is measured as the flushes the glasses would receive. */
+class TmuxScrollbackTapTest {
+
+    @Test
+    fun aTapInScrollbackChangesNothingAndADoubleTapIsLiveAgain(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val tmp = java.nio.file.Files.createTempDirectory("damage-tmux-tap")
+        try {
+            val p = FakeProvider()
+            p.histAnswer = (1..200).map { "history line $it" }
+            val rec = RecFake()
+            val w = TmuxWindow(rec, p, scope)
+            val transport = wm.damage.core.transport.SimTransport(wm.damage.core.sim.GlassFirmwareSim(), scope,
+                wm.damage.core.transport.SimTransport.Timing(instant = true))
+            val shell = wm.damage.core.shell.Shell(BlankText(), transport,
+                wm.damage.core.shell.Persistence(tmp.resolve("state.json")), null, scope)
+            shell.register(w)
+            shell.start()
+            /** ONE evaluation per wait (§27.6). */
+            suspend fun settle(what: String, cond: () -> Boolean = { true }) =
+                waitUntil(30_000, 5, { "$what: ${shell.quiescenceReport()} title='${w.title()}'" }) {
+                    shell.isQuiescent() && cond()
+                }
+            settle("boot")
+            shell.services.runOnShell { shell.services.openWindow("tmux", null) }
+            settle("tmux focused") { shell.currentWindowId() == "tmux" }
+            p.pushStatus(TmuxSessionInfo("local", "claude", 1, attached = false, activity = 1, waiting = false,
+                lastLine = "tail"))
+            settle("the session list") { w.title() == "sessions" }
+            shell.postGesture(wm.damage.core.wire.EvenHubMsg.EV_CLICK)
+            settle("live") { w.title() == "claude" }
+            p.pushFrame(TmuxTarget("local", "claude"), PaneFrame(List(22) { "row $it" }, 80, 22, 0, 0, true, false, 0))
+            settle("the live frame painted") { rec.drawn.any { it.first.startsWith("row ") } }
+            shell.postGesture(wm.damage.core.wire.EvenHubMsg.EV_SCROLL_TOP)          // scroll-up IS scrollback
+            settle("the scrollback painted") { rec.drawn.any { it.first.startsWith("history line") } }
+            shell.postGesture(wm.damage.core.wire.EvenHubMsg.EV_SCROLL_TOP)          // one notch further back: a place
+            settle("two notches back") { w.title().contains("history −10") }
+            val place = w.title()
+            val flushes = shell.flushesSubmitted
+
+            shell.postGesture(wm.damage.core.wire.EvenHubMsg.EV_CLICK)
+            settle("the tap in scrollback")
+            assertEquals(place, w.title(), "the tap leaves the view and its place as they were")
+            assertEquals(3, w.levelDepth(), "still in scrollback, not the keys")
+            assertEquals(flushes, shell.flushesSubmitted, "the tap sends no frame")
+            assertTrue(p.sent.none { it.startsWith("keys:") || it.startsWith("lit:") }, "no key reached the session")
+
+            shell.postGesture(wm.damage.core.wire.EvenHubMsg.EV_DOUBLE_CLICK)
+            settle("the double tap") { w.title() == "claude" }
+            assertEquals(2, w.levelDepth(), "a double tap is the live view again")
+            shell.stop()
+        } finally {
+            scope.cancel()
+            tmp.toFile().deleteRecursively()
+        }
+    }
+}

@@ -30,6 +30,7 @@ import wm.damage.core.comp.Journal
 import wm.damage.core.geom.Geometry
 import wm.damage.core.transport.Arm
 import wm.damage.core.transport.LensPanels
+import wm.damage.core.util.DayLog
 import wm.damage.core.util.Log
 import wm.damage.core.wire.EvenHubMsg
 
@@ -86,6 +87,10 @@ class ReplicaServer(
      *  `journal` note naming the archive that holds what came before it; a tail
      *  never spans the two files. */
     private val journalPath: () -> Path? = { null },
+    /** Build Q (L4): the directory of the day files of this host's log (`DayLog`), served like the journal:
+     *  `GET /logs?token=T` lists them (name, bytes) and `GET /log?token=T&name=log-YYYYMMDD.txt[&tail=N]`
+     *  streams one (`tail` in bytes, whole lines). `GET /log?token=T[&tail=N]` stays the in-memory lines. */
+    private val logDir: () -> Path? = { null },
     /** Build W (dec. B.4): which arrivals are answered at all; the strict default refuses the bus network. */
     private val reach: wm.damage.core.net.ReachGate = wm.damage.core.net.ReachGate(wm.damage.core.net.Side.PHONE),
 ) : AutoCloseable {
@@ -182,10 +187,26 @@ class ReplicaServer(
                     reply(out, 200, "application/json", journalsJson(live))
                 }
                 "/log" -> {
+                    val name = query["name"]
+                    if (name != null) {
+                        // L4: one day file. The name must match the day-file pattern IN FULL (no separator or dot
+                        // segment passes it) and is resolved in the log directory.
+                        val dir = logDir()
+                        if (!DayLog.NAME.matches(name)) { reply(out, 400, "text/plain", "not a day log name"); return }
+                        val p = dir?.resolve(name)
+                        if (p == null || !Files.isRegularFile(p)) { reply(out, 404, "text/plain", "no day log of that name"); return }
+                        streamJournal(out, p, query["tail"]?.toLongOrNull(), "text/plain; charset=utf-8")
+                        return
+                    }
                     // §42: this host's recent log lines (`Log.recent`), the
                     // phone's without adb — `tail` = at most that many lines
                     val lines = Log.recent(query["tail"]?.toIntOrNull()?.coerceAtLeast(1) ?: Log.RECENT_LINES)
                     reply(out, 200, "text/plain; charset=utf-8", lines.joinToString("\n", postfix = "\n"))
+                }
+                "/logs" -> {
+                    val dir = logDir()
+                    if (dir == null) { reply(out, 404, "text/plain", "no day logs on this host"); return }
+                    reply(out, 200, "application/json", logsJson(dir))
                 }
                 "/ws" -> {
                     val key = req.headers["sec-websocket-key"]
@@ -227,12 +248,12 @@ class ReplicaServer(
      *  the request starts; lines the shell appends meanwhile wait for the next
      *  fetch. A file that shrinks under the read cannot deliver the promised
      *  length, so the response ends short and the reason is logged. */
-    private fun streamJournal(out: OutputStream, p: Path, tail: Long?) {
+    private fun streamJournal(out: OutputStream, p: Path, tail: Long?, type: String = "application/x-ndjson") {
         FileChannel.open(p, StandardOpenOption.READ).use { ch ->
             val size = ch.size()
             val buf = ByteBuffer.allocate(JOURNAL_CHUNK)
             val start = if (tail == null || tail <= 0 || tail >= size) 0L else firstLineAt(ch, size - tail, size, buf)
-            head(out, 200, "application/x-ndjson", size - start)
+            head(out, 200, type, size - start)
             var pos = start
             while (pos < size) {
                 val n = readAt(ch, buf, pos, size)
@@ -255,6 +276,15 @@ class ReplicaServer(
                 put("name", a.fileName.toString()); put("bytes", Files.size(a))
                 put("modified", Files.getLastModifiedTime(a).toMillis())
             }
+        }
+    }.toString()
+
+    /** `GET /logs` (L4): the day files of the log, oldest first, with their sizes (an absent directory: none). */
+    private fun logsJson(dir: Path): String = buildJsonObject {
+        val names = if (!Files.isDirectory(dir)) emptyList()
+            else Files.newDirectoryStream(dir).use { ds -> ds.map { it.fileName.toString() }.filter { DayLog.NAME.matches(it) }.sorted() }
+        putJsonArray("files") {
+            for (n in names) addJsonObject { put("name", n); put("bytes", Files.size(dir.resolve(n))) }
         }
     }.toString()
 

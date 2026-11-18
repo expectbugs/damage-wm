@@ -8623,8 +8623,13 @@ installed build's 25 sites and none new, 347 KB below the OTA flag, features `0x
 - The fork's mutation sweep at `a512b77`: 297 mutants, 256 caught, the rest classified; FX5's A-N8 lines 6 of 6; nothing
   after them but comments, so no sweep was owed. **The Kotlin list `research/mutations-81-c1.json` (spec §5) was not
   written in the build; the lead ruled it RUN as stage DM1 (the second instrument on the glasses' wire, before any flash
-  conversation), which also settles `FidRingStartTest`'s one miss (product or harness).** It was still running when C1's Damage half was merged for APK 0.68
-  (its numbers and pins are recorded when it ends: `REMINDER.md`).
+  conversation), which also settles `FidRingStartTest`'s one miss (product or harness).** It ended after APK 0.68 was deployed: 94 entries, 71 of 93 caught by C1's own
+  tests; of the 22 survivors 19 were real guards with no pin, pinned now by 12 tests (20 of 20 guard-off runs failed on
+  their own pin); none ran away in 117 variant runs; no survivor showed a product defect. Left unpinned and listed:
+  one real guard on the mode-25 judge (its absence costs one extra copy and mode 25 off for a session), one believed
+  unreachable, one equivalent. `FidRingStartTest`'s miss is the product's and harmless (acks back to back let one more
+  2-byte ring-clear copy out per ack at a session start); the product is not changed before a flash and the test is
+  corrected to deliver acks as the radio does.
 - `tools/verify.py` 31 PASS, 0 FAIL; `--selftest` 18/18; `test_damage_ext.py` 210 pass.
 - Pins, each watched to fail with its one guard disabled (every report's table); the last round: 4 Damage pins in 5
   variants (DX7), 12 planted cases against the checker (FX7), 2 watches on the new vector (FX6). None ran away.
@@ -8679,3 +8684,30 @@ installed build's 25 sites and none new, 347 KB below the OTA flag, features `0x
 - [ ] After: DamageCaps `0x1ff`; the free survival check (a reset note, then field 16); the v1/v2 self-test (v3 has
       none); fields 27–29 at 160 and 256; one ladder stage per soak (ZWRITE, 256 KiB, ENGINE with the feel session:
       field 33 with uploads in flight, LEFT's end reasons before a drop is read as a restart).
+
+## 86. Build Q (APK 0.69): Tmux's tap in scrollback, Music's switch to Spotify, the phone's log kept 10 days (2026-11-17)
+
+Context for the reader: Damage is Adam's own window manager for his own glasses, phone and PC. Three things from his
+use on the day 0.68 was deployed, built lean in one stage and gated; the spec and the report are in the gitignored
+`private/build069q/`.
+
+- **Tmux:** in the frozen scrollback a single tap does nothing; a double-tap or scrolling down past the end returns to
+  live (`TMUX.md`). His report: a scroll read as a tap opened the keys, and backing out lost his place.
+- **Music:** on 2026-11-16 the PC stopped answering while keeping its connections open. His phone's journal shows him
+  in the Music window for 40 minutes while the channel still read "up" (it learned otherwise only when the socket
+  failed, about 15 minutes after the PC's last answer); every track he opened streamed from a PC that did not answer
+  and ended as a failed stream, which paused with an error. The switch had one trigger — a track open that is not
+  cached while the channel already reads down. Built: the triggers in `MUSIC.md` §3.10 (a stream that fails or gets
+  no data for 15 s switches), and the window follows a Spotify he starts himself. Every player decision is a `music`
+  note in the journal: the incident could not be fully reconstructed because none was.
+- **The phone's log:** it held its last 4,000 lines in memory, without dates, about a day deep; that day's afternoon
+  had rotated out when it was read. Now also one file a day for 10 days (`DAILY.md`), written off the caller's
+  thread, a dropped line counted, `token=` values masked as written.
+- **Gate** (on `wip/q69`, simulator): core 1,508 tests and desktop 51 with 0 failures, `--selfcheck` and
+  `--music-check` pass, lint 0, the snapshot judge 0 px against `main` in both arrangements, the phone build and its
+  wiring check. Every pin was watched failing with its fix off. **Not shown by any test:** the phone's real player
+  library and a real Spotify session (the pins run on the simulator's player); his first use shows those.
+- **Lesson:** a channel that marks a peer down only when its socket fails reads "up" for as long as a stalled peer
+  holds the connection. L1 had already added a 60 s drop for an unanswered quick request on these channels; a
+  decision that depends on "is the PC there" needs the answer's age, not the connection's state.
+

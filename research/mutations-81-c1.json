@@ -1,0 +1,2208 @@
+[
+ {
+  "id": "S26-step-first",
+  "file": "sim/GlassFirmwareSim.kt",
+  "edits": [
+   [
+    "        if (c.stActive) return no(REF_MODE)\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "modes25And26AreDecidedByTheirContainerFirstAtEveryDepth_R6_B61"
+  ],
+  "note": "R1.4 / C1-R6 B6-1: a 26 inside a step (in a batch) is refused 8 before its length"
+ },
+ {
+  "id": "S26-length",
+  "file": "sim/GlassFirmwareSim.kt",
+  "edits": [
+   [
+    "src.size != Fw.motionLength(sub)) return no(REF_LENGTH)",
+    "src.size < Fw.motionLength(sub)) return no(REF_LENGTH)"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "everyVectorMatchesOnBothLenses"
+  ],
+  "note": "§5.5 reason 1: a mode-26 message of the wrong length (here: an over-long one is taken)"
+ },
+ {
+  "id": "S26-lease",
+  "file": "sim/GlassFirmwareSim.kt",
+  "edits": [
+   [
+    "        if (!fbLeaseActive(arm, now)) return no(REF_NO_LEASE)\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "everyVectorMatchesOnBothLenses"
+  ],
+  "note": "§5.5 reason 3: no lease"
+ },
+ {
+  "id": "S26-draw2",
+  "file": "sim/GlassFirmwareSim.kt",
+  "edits": [
+   [
+    "        if (c.damageFlags and DamageMsg.FLAG_DRAW2 == 0) return no(REF_DRAW2)\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "everyVectorMatchesOnBothLenses"
+  ],
+  "note": "§5.5 reason 9: DRAW2 not armed"
+ },
+ {
+  "id": "S26-unarmed",
+  "file": "sim/GlassFirmwareSim.kt",
+  "edits": [
+   [
+    "        if (c.damageFlags and Fw.FLAG_ENGINE == 0) return no(REF_UNARMED)\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "everyVectorMatchesOnBothLenses"
+  ],
+  "note": "§5.5 reason 15: ENGINE not armed"
+ },
+ {
+  "id": "S26-period-low",
+  "file": "sim/GlassFirmwareSim.kt",
+  "edits": [
+   [
+    "period !in MotionSim.P_MIN..MotionSim.P_MAX) REF_VALUE",
+    "period !in (MotionSim.P_MIN - 1)..MotionSim.P_MAX) REF_VALUE"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "everyVectorMatchesOnBothLenses"
+  ],
+  "note": "§5.5 reason 12: a PLAY period of 15 (bound moved by one)"
+ },
+ {
+  "id": "S26-batch-admit",
+  "file": "sim/GlassFirmwareSim.kt",
+  "edits": [
+   [
+    "if (subMode !in Fw.BATCH_SUBMODES && !(subMode == 26 && engineBuild())) {",
+    "if (subMode !in Fw.BATCH_SUBMODES && subMode != 26) {"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "MotionSimTest.modes25And26AreDecidedByTheirContainerFirstAtEveryDepth_R6_B61"
+  ],
+  "note": "§5.5: a batch admits 26 only on an engine build (elsewhere the batch refuses it 8, with no handler reached)"
+ },
+ {
+  "id": "S26-handler",
+  "file": "sim/GlassFirmwareSim.kt",
+  "edits": [
+   [
+    "26 -> if (engineBuild()) motionMessage",
+    "26 -> if ((damageContract ?: 0) >= 2) motionMessage"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "MotionSimTest.theRidersAndTheInstalledBuild_5_9"
+  ],
+  "note": "§5.1: mode 26 has a handler only on a bit-7 build (installed image: no handler)"
+ },
+ {
+  "id": "S25-handler",
+  "file": "sim/GlassFirmwareSim.kt",
+  "edits": [
+   [
+    "25 -> if (ridersBuild()) zwrite",
+    "25 -> if ((damageContract ?: 0) >= 2) zwrite"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "MotionSimTest.theRidersAndTheInstalledBuild_5_9"
+  ],
+  "note": "§5.9: mode 25 has a handler only on a bit-8 build"
+ },
+ {
+  "id": "S25-length",
+  "file": "sim/GlassFirmwareSim.kt",
+  "edits": [
+   [
+    "inside a batch or a self-test step\" }\n        if (src.size < 3) return refuse(c, src, REF_LENGTH)",
+    "inside a batch or a self-test step\" }\n        if (src.size < 2) return refuse(c, src, REF_LENGTH)"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "everyVectorMatchesOnBothLenses"
+  ],
+  "note": "§5.9 reason 1: a mode 25 shorter than 3 B (bound moved by one)"
+ },
+ {
+  "id": "S25-unarmed",
+  "file": "sim/GlassFirmwareSim.kt",
+  "edits": [
+   [
+    "        if (c.damageFlags and Fw.FLAG_ZWRITE == 0) return refuse(c, src, REF_UNARMED)\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "everyVectorMatchesOnBothLenses"
+  ],
+  "note": "§5.9 reason 15: ZWRITE not armed"
+ },
+ {
+  "id": "S25-inflate-max",
+  "file": "sim/GlassFirmwareSim.kt",
+  "edits": [
+   [
+    "const val ZWRITE_MAX = 16384",
+    "const val ZWRITE_MAX = 16385"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "everyVectorMatchesOnBothLenses"
+  ],
+  "note": "§5.9 reason 13: a stream inflating past 16,384 B (bound moved by one; the buffer moves with it, no loop)"
+ },
+ {
+  "id": "S25-unclean-end",
+  "file": "sim/GlassFirmwareSim.kt",
+  "edits": [
+   [
+    "if (n == 0 && (inf.needsInput() || inf.needsDictionary())) return null",
+    "if (n == 0 && (inf.needsInput() || inf.needsDictionary())) return out.copyOf(o)"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "everyVectorMatchesOnBothLenses"
+  ],
+  "note": "§5.9 reason 13: a stream that does not end cleanly is taken as what it inflated so far"
+ },
+ {
+  "id": "S-meet-busy-14",
+  "file": "sim/GlassFirmwareSim.kt",
+  "edits": [
+   [
+    "        if (engineBuild() && c.motion.wordHeld) return false\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "threeCacheWritesRefused14InARowAreSaidOncePerSession_AS1"
+  ],
+  "note": "R1.15 / A-S1: a cache write that cannot claim the engine word is refused 14, whole"
+ },
+ {
+  "id": "S-meet-close",
+  "file": "sim/GlassFirmwareSim.kt",
+  "edits": [
+   [
+    "        underWord(c) { c.motion.closeMeeting(spans, uptimeTicks(now)) }\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "aCacheWriteBetweenTwoOfAnInstancesRecordsClosesItAndOneBesideDoesNot_5_6"
+  ],
+  "note": "§5.6: a cache write (12/19/25) that meets an open instance closes it first"
+ },
+ {
+  "id": "S-keyframe-closes",
+  "file": "sim/GlassFirmwareSim.kt",
+  "edits": [
+   [
+    "if (!c.stActive && c.motion.anyOpen) underWord(c) { c.motion.closeAll(uptimeTicks(now)) }",
+    "if (false && c.motion.anyOpen) underWord(c) { c.motion.closeAll(uptimeTicks(now)) }"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "releasePointsEndEveryInstanceWithNoNotifyAndALiveKeyframeClosesThemFirst_A7_A8"
+  ],
+  "note": "decision A.8: a live mode 6 closes every instance"
+ },
+ {
+  "id": "S-release-fb",
+  "file": "sim/GlassFirmwareSim.kt",
+  "edits": [
+   [
+    "                c.motion.endAll()                    // §5.6 and decision A.7: a release point — every instance ends, no notify\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "releasePointsEndEveryInstanceWithNoNotifyAndALiveKeyframeClosesThemFirst_A7_A8"
+  ],
+  "note": "§5.6 / A.7: FB_RELEASE (and mode 11) ends every instance"
+ },
+ {
+  "id": "S-release-lapse",
+  "file": "sim/GlassFirmwareSim.kt",
+  "edits": [
+   [
+    "        c.motion.endAll()                                // §5.6: a release point — every instance ends, no notify\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "ConformanceVectorTest.everyVectorMatchesOnBothLenses"
+  ],
+  "note": "§5.6: a lease that ends (leaseEnded) ends every instance"
+ },
+ {
+  "id": "S-hook-live-lease",
+  "file": "sim/GlassFirmwareSim.kt",
+  "edits": [
+   [
+    "val hook = c.motion.hookPresent(c.fb, c.stride, fwSide(arm) == 2, osTick(now), live, uptimeTicks(now))",
+    "val hook = c.motion.hookPresent(c.fb, c.stride, fwSide(arm) == 2, osTick(now), true, uptimeTicks(now))"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "theDirectPathDrawsOnlyWithALiveLease_R1_20"
+  ],
+  "note": "R1.20: the hook draws a step only with a live lease"
+ },
+ {
+  "id": "S-hint-ignored",
+  "file": "sim/GlassFirmwareSim.kt",
+  "edits": [
+   [
+    " && !c.motion.anyDrawing }",
+    " }"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "everyVectorMatchesOnBothLenses"
+  ],
+  "note": "§5.3: a present that draws a step goes whole (the hint is ignored)"
+ },
+ {
+  "id": "S-flags-engine",
+  "file": "sim/GlassFirmwareSim.kt",
+  "edits": [
+   [
+    "(if (engineBuild()) Fw.FLAG_ENGINE else 0)",
+    "Fw.FLAG_ENGINE"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
+  ],
+  "expect": [
+   "eachC1FlagIsAFlagOnlyOnTheBuildThatReportsItsFeature_DM1"
+  ],
+  "note": "§5.8: only a bit-7 build implements flag bit 3 (the installed image strips it)"
+ },
+ {
+  "id": "S-op5-256",
+  "file": "sim/GlassFirmwareSim.kt",
+  "edits": [
+   [
+    "val cacheMaxKib = if (ridersBuild()) Fw.CACHE_MAX_KIB_RIDERS else DamageMsg.CACHE_BUDGET_KIB",
+    "val cacheMaxKib = Fw.CACHE_MAX_KIB_RIDERS"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*"
+  ],
+  "expect": [
+   "theRidersAndTheInstalledBuild_5_9"
+  ],
+  "note": "§5.9: op 5 takes up to 256 KiB only on a bit-8 build"
+ },
+ {
+  "id": "M-stock-ends",
+  "file": "sim/MotionSim.kt",
+  "edits": [
+   [
+    "if (!draws) { for (o in slots) if (o != null) o.drawing = false; return Hook(false, false) }",
+    "if (!draws) { return Hook(false, false) }"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "theDirectPathDrawsOnlyWithALiveLease_R1_20"
+  ],
+  "note": "§5.3: the stock path turns every drawing instance done"
+ },
+ {
+  "id": "M-plan-floor",
+  "file": "sim/MotionSim.kt",
+  "edits": [
+   [
+    "else -> maxOf(1L, wait)",
+    "else -> wait"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "thePlanIsATable_5_2"
+  ],
+  "note": "§5.2 / ruling 7: the plan's wait floor max(1, ...)"
+ },
+ {
+  "id": "M-plan-one-period",
+  "file": "sim/MotionSim.kt",
+  "edits": [
+   [
+    "if (outstanding || failed) dueP.toLong() else PLAN_ACT",
+    "if (failed) dueP.toLong() else PLAN_ACT"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "thePlanIsATable_5_2"
+  ],
+  "note": "§5.3: with a refresh outstanding the thread waits one period"
+ },
+ {
+  "id": "M-plan-p-range",
+  "file": "sim/MotionSim.kt",
+  "edits": [
+   [
+    "if (s == null || !s.drawing || s.period !in P_MIN..P_MAX) continue",
+    "if (s == null || !s.drawing) continue"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "thePlanIsATable_5_2"
+  ],
+  "note": "§5.2: a slot whose P reads outside 16..128 is skipped (read without the word)"
+ },
+ {
+  "id": "M-end-at-play",
+  "file": "sim/MotionSim.kt",
+  "edits": [
+   [
+    "        paint(inst, inst.T, shadow, stride, left)              // §5.6: END into the shadow at the PLAY\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "everyVectorMatchesOnBothLenses"
+  ],
+  "note": "§5.6: END is written into the shadow at the PLAY, not at the last step"
+ },
+ {
+  "id": "M-cap-meets-first",
+  "file": "sim/MotionSim.kt",
+  "edits": [
+   [
+    "layout.second.hi > cache!!.size || layout.second.meets(prog.first)",
+    "layout.second.hi > cache!!.size"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "everyVectorMatchesOnBothLenses"
+  ],
+  "note": "§5.5 reason 5: a capture range that meets the first read range"
+ },
+ {
+  "id": "M-play-area-meets",
+  "file": "sim/MotionSim.kt",
+  "edits": [
+   [
+    "if (i == slot || o.prog.tracks.any { a -> prog.tracks.any { b -> a.bbox.overlaps(b.bbox) } } ||",
+    "if (i == slot ||"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "everyVectorMatchesOnBothLenses"
+  ],
+  "note": "§5.5: a PLAY closes an open instance whose areas meet its own"
+ },
+ {
+  "id": "M-meet-range",
+  "file": "sim/MotionSim.kt",
+  "edits": [
+   [
+    "w.lo < w.hi && (w.meets(o.prog.first) || o.cap?.meets(w) == true)",
+    "w.lo < w.hi && (o.cap?.meets(w) == true)"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "aCacheWriteBetweenTwoOfAnInstancesRecordsClosesItAndOneBesideDoesNot_5_6"
+  ],
+  "note": "§5.6: a cache write meeting the first read range closes the instance"
+ },
+ {
+  "id": "M-areas-panel",
+  "file": "sim/MotionSim.kt",
+  "edits": [
+   [
+    "r.right <= Geometry.PANEL_W && r.bottom <= Geometry.PANEL_H",
+    "r.right <= Geometry.PANEL_W + 1 && r.bottom <= Geometry.PANEL_H"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
+  ],
+  "expect": [
+   "anAreaOnePixelPastThePanelsEdgeIsRefusedTwo_DM1"
+  ],
+  "note": "§5.5 reason 2: an area off the panel (right edge moved by one)"
+ },
+ {
+  "id": "M-retarget-shape",
+  "file": "sim/MotionSim.kt",
+  "edits": [
+   [
+    "        if (!inst.prog.tracks.all { retargetable(it) }) return REF_VALUE\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "retargetsShapeIsDecidedRightAfterSixteen_R1_9"
+  ],
+  "note": "R1.9: RETARGET's shape rule (12)"
+ },
+ {
+  "id": "M-close-stale",
+  "file": "sim/MotionSim.kt",
+  "edits": [
+   [
+    "        staleMarkOwed = true\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "everyCloseOfAnOpenInstanceMarksThePanelStale_BN13"
+  ],
+  "note": "R1.1 / B-N13: every close marks the panel stale"
+ },
+ {
+  "id": "M-refusal-tag-play-only",
+  "file": "sim/MotionSim.kt",
+  "edits": [
+   [
+    "if (sub == 0 && msg.size >= 8) Pb.v(3, u16(msg, 6))",
+    "if (msg.size >= 8) Pb.v(3, u16(msg, 6))"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "everyVectorMatchesOnBothLenses"
+  ],
+  "note": "A.2: a refusal body carries the tag only for a PLAY (the phone matches a tagged refusal to its play)"
+ },
+ {
+  "id": "W-size-bound-riders",
+  "file": "wire/DamageMsg.kt",
+  "edits": [
+   [
+    "fun cacheBudgetKib(caps: Caps?): Int = if (caps?.has(FEATURE_RIDERS) == true) CACHE_BUDGET_RIDERS_KIB else CACHE_BUDGET_KIB",
+    "fun cacheBudgetKib(caps: Caps?): Int = CACHE_BUDGET_RIDERS_KIB"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*"
+  ],
+  "expect": [
+   "Draw2SessionTest.aSizeOutsideTheBudgetFallsBackWithoutDraw2"
+  ],
+  "note": "§5.9: a reported size past 160 KiB is taken only from a bit-8 build"
+ },
+ {
+  "id": "W-batch-26",
+  "file": "wire/CfwModes.kt",
+  "edits": [
+   [
+    "if (m !in BATCH_SUBMODES && !(engine && m == MOTION_MODE))",
+    "if (m !in BATCH_SUBMODES && m != MOTION_MODE)"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
+  ],
+  "expect": [
+   "theC1EncodersRefuseLoudlyPastTheirBounds_DM1"
+  ],
+  "note": "§5.5: the batch encoder takes 26 only where ENGINE is in force"
+ },
+ {
+  "id": "W-play-slot",
+  "file": "wire/CfwModes.kt",
+  "edits": [
+   [
+    "if (slot !in 0 until MOTION_SLOTS) throw LintError(\"mode-26 PLAY slot",
+    "if (slot !in 0..MOTION_SLOTS) throw LintError(\"mode-26 PLAY slot"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "theBuilderRefusesLoudlyWhatTheFirmwareWouldRefuse_5_5"
+  ],
+  "note": "§5.5: PLAY slot 0..3 (bound moved by one)"
+ },
+ {
+  "id": "W-play-period",
+  "file": "wire/CfwModes.kt",
+  "edits": [
+   [
+    "val MOTION_PERIODS = 16..128",
+    "val MOTION_PERIODS = 15..128"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "theBuilderRefusesLoudlyWhatTheFirmwareWouldRefuse_5_5"
+  ],
+  "note": "§5.5: PLAY period 16..128 (bound moved by one)"
+ },
+ {
+  "id": "W-close-slot",
+  "file": "wire/CfwModes.kt",
+  "edits": [
+   [
+    "if (slot !in 0 until MOTION_SLOTS && slot != MOTION_ALL)",
+    "if (slot !in 0..MOTION_SLOTS && slot != MOTION_ALL)"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "theBuilderRefusesLoudlyWhatTheFirmwareWouldRefuse_5_5"
+  ],
+  "note": "§5.5: CLOSE slot 0..3 or 0xFF (bound moved by one)"
+ },
+ {
+  "id": "W-zwrite-mode19",
+  "file": "wire/CfwModes.kt",
+  "edits": [
+   [
+    "if (mode19.size < 5 || mode19[0].toInt() != 19) throw LintError(\"mode 25 deflates",
+    "if (mode19.size < 5) throw LintError(\"mode 25 deflates"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
+  ],
+  "expect": [
+   "theC1EncodersRefuseLoudlyPastTheirBounds_DM1"
+  ],
+  "note": "§5.9: mode 25 deflates a mode-19 message only"
+ },
+ {
+  "id": "W-zwrite-max",
+  "file": "wire/CfwModes.kt",
+  "edits": [
+   [
+    "if (mode19.size - 1 > ZWRITE_MAX) throw LintError",
+    "if (mode19.size - 1 > ZWRITE_MAX + 1) throw LintError"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
+  ],
+  "expect": [
+   "theC1EncodersRefuseLoudlyPastTheirBounds_DM1"
+  ],
+  "note": "§5.9: a list past 16,384 B is not deflated as mode 25 (bound moved by one)"
+ },
+ {
+  "id": "W-atlas-max-cache",
+  "file": "wire/TextureCache.kt",
+  "edits": [
+   [
+    "capacity !in CfwModes.TEXTURE_CACHE_SIZE..minOf(maxCache, CfwModes.CACHE2_MAX_RIDERS)",
+    "capacity !in CfwModes.TEXTURE_CACHE_SIZE..CfwModes.CACHE2_MAX_RIDERS"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
+  ],
+  "expect": [
+   "theC1EncodersRefuseLoudlyPastTheirBounds_DM1"
+  ],
+  "note": "§5.9: an atlas is laid out over at most the build's own cache"
+ },
+ {
+  "id": "W-shell-atlas-riders",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "maxCache = if (st.damageFeatures and wm.damage.core.wire.DamageMsg.FEATURE_RIDERS != 0) CfwModes.CACHE2_MAX_RIDERS else CfwModes.CACHE2_MAX)",
+    "maxCache = CfwModes.CACHE2_MAX)"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*"
+  ],
+  "expect": [
+   "aStage2SessionsAtlasLaysOutOverTheWiderCache_6_1"
+  ],
+  "note": "the shell gives the atlas 256 KiB only on a bit-8 build"
+ },
+ {
+  "id": "W-dsl-table-4096",
+  "file": "motion/Motion.kt",
+  "edits": [
+   [
+    "if (e.last() != 4096) throw",
+    "if (false) throw"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "theBuilderRefusesLoudlyWhatTheFirmwareWouldRefuse_5_5"
+  ],
+  "note": "§5.4: the DSL refuses a table that does not end at 4096 (the firmware: 5)"
+ },
+ {
+  "id": "P-ladder-zwrite-riders",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "(if (stage >= 1 && caps!!.has(DamageMsg.FEATURE_RIDERS)) DamageMsg.FLAG_ZWRITE else 0)",
+    "(if (stage >= 1) DamageMsg.FLAG_ZWRITE else 0)"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "eachLadderStageAddsOnlyItsOwnChange_6_2"
+  ],
+  "note": "spec §6.1: ZWRITE only on a bit-8 build"
+ },
+ {
+  "id": "P-ladder-engine-stage3",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "(if (stage >= 3 && caps!!.has(DamageMsg.FEATURE_ENGINE)) DamageMsg.FLAG_ENGINE else 0)",
+    "(if (stage >= 2 && caps!!.has(DamageMsg.FEATURE_ENGINE)) DamageMsg.FLAG_ENGINE else 0)"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "eachLadderStageAddsOnlyItsOwnChange_6_2"
+  ],
+  "note": "spec §6.1: ENGINE only at stage 3 (bound moved by one)"
+ },
+ {
+  "id": "P-ladder-engine-bit7",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "(if (stage >= 3 && caps!!.has(DamageMsg.FEATURE_ENGINE)) DamageMsg.FLAG_ENGINE else 0)",
+    "(if (stage >= 3) DamageMsg.FLAG_ENGINE else 0)"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "MotionTransportTest.eachLadderStageAddsOnlyItsOwnChange_6_2"
+  ],
+  "note": "spec §6.1 / FEATURE_ENGINE: ENGINE only on a bit-7 build"
+ },
+ {
+  "id": "P-ladder-kib-stage2",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "if (stage >= 2 && isC1(caps) && caps!!.has(DamageMsg.FEATURE_RIDERS)) DamageMsg.CACHE_BUDGET_RIDERS_KIB",
+    "if (stage >= 1 && isC1(caps) && caps!!.has(DamageMsg.FEATURE_RIDERS)) DamageMsg.CACHE_BUDGET_RIDERS_KIB"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "eachLadderStageAddsOnlyItsOwnChange_6_2"
+  ],
+  "note": "spec §6.1: op 5 asks 256 only from stage 2 (bound moved by one)"
+ },
+ {
+  "id": "P-ladder-kib-riders",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "if (stage >= 2 && isC1(caps) && caps!!.has(DamageMsg.FEATURE_RIDERS)) DamageMsg.CACHE_BUDGET_RIDERS_KIB",
+    "if (stage >= 2 && isC1(caps)) DamageMsg.CACHE_BUDGET_RIDERS_KIB"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "aHoldBackDropsFromWhatTheBuildArmed_BN4"
+  ],
+  "note": "spec §6.1: op 5 asks 256 only of a bit-8 build"
+ },
+ {
+  "id": "P-isC1-features",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "caps != null && caps.contract >= DamageMsg.CONTRACT && (caps.has(DamageMsg.FEATURE_ENGINE) || caps.has(DamageMsg.FEATURE_RIDERS))",
+    "caps != null && caps.contract >= DamageMsg.CONTRACT"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
+  ],
+  "expect": [
+   "onTheInstalledImageAHandSetFlagsProbeGoesOutAsAsked_DM1"
+  ],
+  "note": "spec §6.2: a build is C1 only with feature bit 7 or 8"
+ },
+ {
+  "id": "P-start-holdback-unladdered",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            ladderArmedStage == 0 -> 0\n",
+    "            ladderArmedStage == 0 -> stage\n"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
+  ],
+  "expect": [
+   "aResetAfterAnArmingWithoutTheLadderArmsNoneOfItThenOrNext_DM1"
+  ],
+  "note": "spec §6.1: a reset after an arming that carried none of the ladder: the ladder adds nothing this start"
+ },
+ {
+  "id": "P-holdback-whole-wish",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "val to = minOf(c1Stage, was - 1)",
+    "val to = 0"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "theHoldBackDropsOneStageAndKeepsTheRest_6_1"
+  ],
+  "note": "spec §6.1: the hold-back drops the last-armed stage only (today's shape: the whole wish)"
+ },
+ {
+  "id": "P-holdback-once-per-reset",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            heldBackForResetAt = resetAt\n            \"the glasses reset",
+    "            \"the glasses reset"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "theHoldBackDropsOneStageAndKeepsTheRest_6_1"
+  ],
+  "note": "a RIGHT reset is held back on once"
+ },
+ {
+  "id": "P-leftend-once",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "it != heldBackForLeftEndAt && ",
+    ""
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "aLeftEndHoldsBackOnceWhenTheStartAfterItArmsNothing_R6_B65"
+  ],
+  "note": "B-S1 / C1-R6 B6-5: one LEFT end holds back once"
+ },
+ {
+  "id": "P-leftend-before-arming",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "it != heldBackForLeftEndAt && it >= armedAt && it - armedAt < HOLD_BACK_MS",
+    "it != heldBackForLeftEndAt && it - armedAt < HOLD_BACK_MS"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "aLeftLinkEndOutsideTheWindowOrWithNoRungArmedChangesNothing_BS1"
+  ],
+  "note": "B-S1: a LEFT end before the arming does not count"
+ },
+ {
+  "id": "P-leftend-no-rung",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        if (ladderArmedStage == 0) return null\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "aLeftLinkEndOutsideTheWindowOrWithNoRungArmedChangesNothing_BS1"
+  ],
+  "note": "B-S1: with no rung armed a LEFT end does nothing"
+ },
+ {
+  "id": "P-reset-window",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "it >= armedAt - CAPABILITY_REASK_MS && it - armedAt < HOLD_BACK_MS }",
+    "it >= armedAt - CAPABILITY_REASK_MS }"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
+  ],
+  "expect": [
+   "aResetOutsideTheHoldBackWindowLeavesTheStage_DM1"
+  ],
+  "note": "FORK.md §3.2: only a reset within HOLD_BACK_MS of the arming holds back"
+ },
+ {
+  "id": "P-sizerung-stamp",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "if (sizeRung) { lastArmedAtMs = nowMs(); ladderSizeInForce = true; ladderArmedStage = LADDER_SIZE_STAGE }",
+    "if (sizeRung) { ladderSizeInForce = true; ladderArmedStage = LADDER_SIZE_STAGE }"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "glassesThatResetBetweenOp5AndTheFirstFlagsSetAreHeldBackAtTheNextStart_BM1"
+  ],
+  "note": "B-M1: the 256 KiB rung stamps its arming before op 5"
+ },
+ {
+  "id": "P-sizerung-got",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "ladderSizeInForce = sizeRung && size >= kib * 1024",
+    "ladderSizeInForce = sizeRung"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
+  ],
+  "expect": [
+   "aSizeRungTheSessionDidNotGetIsNotCounted_DM1"
+  ],
+  "note": "B-N4: the size rung counts only when the session got 256"
+ },
+ {
+  "id": "P-stageof-size",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        ladderSizeInForce -> LADDER_SIZE_STAGE\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "aHoldBackDropsFromWhatTheBuildArmed_BN4"
+  ],
+  "note": "B-N4: a flag set records stage 2 when the size rung is in force"
+ },
+ {
+  "id": "P-flagsset-stamp",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "                    lastArmedAtMs = nowMs()\n                    ladderArmedStage = if (isC1(damageCaps))",
+    "                    ladderArmedStage = if (isC1(damageCaps))"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "theHoldBackDropsOneStageAndKeepsTheRest_6_1"
+  ],
+  "note": "B-M1: a FLAGS_SET stamps its arming time"
+ },
+ {
+  "id": "P-flagsset-stamp-epoch",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        flagsSetPending = set\n        telemetryWaiters[0] = waiter\n",
+    "        flagsSetPending = set\n        telemetryWaiters[0] = waiter\n        lastArmedAtMs = nowMs()\n        ladderArmedStage = if (isC1(damageCaps)) ladderStageOf(set) else 0\n"
+   ],
+   [
+    "                if (first) {\n                    lastArmedAtMs = nowMs()\n                    ladderArmedStage = if (isC1(damageCaps)) ladderStageOf(set) else 0\n                }\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "aFlagsSetWhoseSessionEndedLeavesTheArmingStampAsItWas_R6_B63"
+  ],
+  "note": "C1-R6 B6-3: the stamp only when it really sends (the unfixed order)"
+ },
+ {
+  "id": "P-readback-holdback",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "if (extraLeft and C1_FLAGS != 0 && ladderArmedStage > 0) {",
+    "if (false) {"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
+  ],
+  "expect": [
+   "(no pin, DM1: reached only when a RIGHT reset is seen by a read of the same start after ladderAtStart, which needs RIGHT to restart without its link ending)"
+  ],
+  "note": "a reset seen only by the arming's read-back drops one ladder stage, not the whole wish"
+ },
+ {
+  "id": "P-ladder-without-draw2",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "armFeatures(epoch, extra = if (armDraw2) DamageMsg.FLAG_DRAW2 or ladderFlags(stage, caps2) else 0,",
+    "armFeatures(epoch, extra = (if (armDraw2) DamageMsg.FLAG_DRAW2 else 0) or ladderFlags(stage, caps2),"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
+  ],
+  "expect": [
+   "aResetAfterAnArmingWithoutTheLadderArmsNoneOfItThenOrNext_DM1"
+  ],
+  "note": "§5.8/§5.9: the ladder's bits ride only with DRAW2"
+ },
+ {
+  "id": "P-withhold-wish",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "(if (isC1(caps2)) C1_FLAGS and (if (armDraw2) ladderFlags(stage, caps2) else 0).inv() else 0))",
+    "0)"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "MotionTransportTest.aLadderBitArmedByHandRecordsItsStage_BM1"
+  ],
+  "note": "spec §6.1: on a C1 build a wish never carries ZWRITE/ENGINE past the stage"
+ },
+ {
+  "id": "P-probe-hand-stage",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "if (isC1(caps0)) ladderArmedStage = maxOf(ladderArmedStage, ladderStageOf(arg))",
+    "if (false) ladderArmedStage = maxOf(ladderArmedStage, ladderStageOf(arg))"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "aLadderBitArmedByHandRecordsItsStage_BM1"
+  ],
+  "note": "B-M1: a ladder bit armed by hand records its stage"
+ },
+ {
+  "id": "P-probe-close-first",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "if (_state.value.flagsInForce and DamageMsg.FLAG_ENGINE != 0 &&\n",
+    "if (false &&\n"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "aDisarmOfEngineClosesEveryInstanceFirst_5_8"
+  ],
+  "note": "§5.8: a FLAGS_SET/CLEAR that clears ENGINE goes after a CLOSE 0xFF"
+ },
+ {
+  "id": "P-probe-close-acked",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "scope.launch { if (closeAllMotion(epoch, \"the probe's flags clear ENGINE\")) send() }",
+    "scope.launch { closeAllMotion(epoch, \"the probe's flags clear ENGINE\"); send() }"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
+  ],
+  "expect": [
+   "aDisarmWhoseCloseDidNotLandIsNotSent_DM1"
+  ],
+  "note": "§5.8: the disarm goes only once the CLOSE is acked"
+ },
+ {
+  "id": "P-send-engine-gate",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "if (!st.started || st.flagsInForce and DamageMsg.FLAG_ENGINE == 0) {",
+    "if (!st.started) {"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "theProbePlaysATestProgramOnlyWithEngineInForce_A15"
+  ],
+  "note": "spec §6.1: program records and 26 only while ENGINE is in force"
+ },
+ {
+  "id": "P-send-empty",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        if (messages.isEmpty()) {\n",
+    "        if (false) {\n"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "sendMotionWithNothingToSendFailsAtOnce_BN6"
+  ],
+  "note": "B-N6: an empty program fails at once"
+ },
+ {
+  "id": "P-closes-engine-gate",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        if (_state.value.flagsInForce and DamageMsg.FLAG_ENGINE == 0) return image\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "aCloseRidesOnlyWhileEngineIsInForce_BN5"
+  ],
+  "note": "B-N5: a CLOSE is added only while ENGINE is in force"
+ },
+ {
+  "id": "P-closes-keyframe",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        if (image[0].toInt() == 6 || req.ops.any { it is DisplayOp.Keyframe }) return image\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
+  ],
+  "expect": [
+   "(no pin, DM1: a request with a keyframe gets no CLOSE either way in effect: the keyframe closes every instance itself (A.8); unguarded, a batch with a keyframe and a write that meets an area carries a redundant CLOSE sub)"
+  ],
+  "note": "A.8: a keyframe closes every instance itself; no CLOSE is added"
+ },
+ {
+  "id": "P-closes-meet",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "for (w in open.getValue(arm)) if (w.areas.any { a -> writes.any { (l, r) -> (if (left) l else r).overlaps(a) } }) slots += w.slot",
+    "for (w in open.getValue(arm)) slots += w.slot"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "aWriteThatMeetsAnOpenAreaClosesItInItsBatch_5_6"
+  ],
+  "note": "§5.6: only an instance whose area the write meets is closed"
+ },
+ {
+  "id": "P-closes-lens",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "(if (left) l else r).overlaps(a)",
+    "(if (left) r else l).overlaps(a)"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
+  ],
+  "expect": [
+   "theCloseRuleReadsEachLensAndAGlyphRunToTheEdges_DM1"
+  ],
+  "note": "§5.6: meet is decided per lens (each lens's write against that lens's area)"
+ },
+ {
+  "id": "P-closes-text-to-edge",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "is DisplayOp.DrawText2 -> toEdge(op.xL, op.y) to toEdge(op.xR, op.y)",
+    "is DisplayOp.DrawText2 -> null"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
+  ],
+  "expect": [
+   "theCloseRuleReadsEachLensAndAGlyphRunToTheEdges_DM1"
+  ],
+  "note": "§5.6: a cached glyph run counts from its origin to the panel edges"
+ },
+ {
+  "id": "P-comp-reserve",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "MAX_BATCH_SUBS - 1 - (if (motionOpen) 1 else 0) - ops.size",
+    "MAX_BATCH_SUBS - 1 - ops.size"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
+  ],
+  "expect": [
+   "whileAMotionInstanceIsOpenTheBatchKeepsOneSubMessageForTheClose_BN5"
+  ],
+  "note": "B-N5: the compositor keeps one sub back while an instance is open"
+ },
+ {
+  "id": "P-shell-engine-only",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "comp.motionOpen = st.flagsInForce and wm.damage.core.wire.DamageMsg.FLAG_ENGINE != 0 && transport.mirror.motionOpen()",
+    "comp.motionOpen = transport.mirror.motionOpen()"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "withTodaysFirmwareTheAssemblePathNeverAsksTheMirror_BN4"
+  ],
+  "note": "B-N4: the mirror is asked only while ENGINE is in force"
+ },
+ {
+  "id": "P-shell-divergence-keyframe",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "if (ev.kind == \"divergence\" && ev.detail.startsWith(\"motion\")) comp.requestKeyframe()",
+    "if (false) comp.requestKeyframe()"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
+  ],
+  "expect": [
+   "anEndCrcThatDisagreesKeyframesTheShell_DM1"
+  ],
+  "note": "spec §6.4: a motion divergence keyframes"
+ },
+ {
+  "id": "P-notify-crc",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "want != crc -> motionDivergence(slot to tag",
+    "false -> motionDivergence(slot to tag"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "aNotifyIsComparedWithTheMirrorAndAGapIsJournaled_6_4"
+  ],
+  "note": "spec §6.4: END CRC mismatch is a divergence"
+ },
+ {
+  "id": "P-notify-refusal-by-play",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            if (tag != null) {\n                // build C1's ruling B-N2",
+    "            if (tag != null && false) {\n                // build C1's ruling B-N2"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
+  ],
+  "expect": [
+   "aRefusedPlayIsMatchedByItsPlaysRecordNotBySlotAtTheNotify_BN2"
+  ],
+  "note": "B-N2: a refused PLAY is matched by its play's record"
+ },
+ {
+  "id": "P-notify-refusal-open-slot",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "val open = synchronized(mirrorSim) { mirrorSim.motionOpenIn(Arm.RIGHT, slot) } ?: return",
+    "val open = synchronized(mirrorSim) { null as Pair<Int, Int>? } ?: return"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "aRefusalForASlotTheMirrorHoldsOpenIsADivergenceTwicePerInstance_BS2"
+  ],
+  "note": "B-S2: an untagged refusal for a slot the mirror holds open is a divergence"
+ },
+ {
+  "id": "P-keyframe-cap",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            if (n < MOTION_KEYFRAMES_PER_INSTANCE) motionKeyframes[key] = n + 1\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "aRefusalForASlotTheMirrorHoldsOpenIsADivergenceTwicePerInstance_BS2"
+  ],
+  "note": "B-S2: at most two keyframes per instance"
+ },
+ {
+  "id": "P-zw-gate",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        if (_state.value.flagsInForce and DamageMsg.FLAG_ZWRITE == 0) return list19\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "noMode25Or26ReachesTheWireWithoutTheLaddersBits_6_2"
+  ],
+  "note": "spec §6.1: mode 25 only with ZWRITE in force"
+ },
+ {
+  "id": "P-zw-max-list",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "list19[0].toInt() != 19 || list19.size - 1 > CfwModes.ZWRITE_MAX) return list19",
+    "list19[0].toInt() != 19) return list19"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
+  ],
+  "expect": [
+   "theMode25JudgesBounds_DM1"
+  ],
+  "note": "§5.9: a list past 16,384 B goes as mode 19"
+ },
+ {
+  "id": "P-zw-one-at-a-time",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "if (zwriteOff || zwWaiting != null) return list19",
+    "if (zwriteOff) return list19"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
+  ],
+  "expect": [
+   "theMode25JudgesBounds_DM1"
+  ],
+  "note": "spec §2 row 23: one mode 25 waits for its judge at a time"
+ },
+ {
+  "id": "P-zw-off",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "if (zwriteOff || zwWaiting != null) return list19",
+    "if (zwWaiting != null) return list19"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "aRefusedMode25GoesAgainAsMode19AndTheCountMovesByOne_5_9"
+  ],
+  "note": "spec §2 row 23: after a refusal, mode 19 for the session"
+ },
+ {
+  "id": "P-zw-judge-differs",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "if (names25 && rec != w.recordBefore) { resend = w; zwriteOff = true }",
+    "if (names25) { resend = w; zwriteOff = true }"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
+  ],
+  "expect": [
+   "(no pin, DM1: reached only when a refusal record naming 25 predates the waiting message with mode 25 still on, i.e. a start whose fid-ring clear did not clear RIGHT's record)"
+  ],
+  "note": "only a NEW record naming 25 is the waiting message's refusal"
+ },
+ {
+  "id": "P-zw-withdrawn",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "} else if (names25 && rec != before && !zwriteOff && _state.value.flagsInForce and DamageMsg.FLAG_ZWRITE != 0) {",
+    "} else if (false) {"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
+  ],
+  "expect": [
+   "theMode25JudgesBounds_DM1"
+  ],
+  "note": "a 25 refusal with nothing waiting turns mode 25 off too"
+ },
+ {
+  "id": "P-BN3-silent",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "if (st.glassesSilent || !st.leaseHeld) {",
+    "if (!st.leaseHeld) {"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "aRefusedMode25IsNotSentAgainInSilentModeOrWithNoLease_BN3"
+  ],
+  "note": "B-N3: no re-send in answer to a refusal in Silent Mode"
+ },
+ {
+  "id": "P-BN3-lease",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "if (st.glassesSilent || !st.leaseHeld) {",
+    "if (st.glassesSilent) {"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "aRefusedMode25IsNotSentAgainInSilentModeOrWithNoLease_BN3"
+  ],
+  "note": "B-N3: no re-send in answer to a refusal without a lease"
+ },
+ {
+  "id": "P-busy-engine-gate",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        if (damageCaps?.has(DamageMsg.FEATURE_ENGINE) != true) return\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "aBuildWithoutTheEngineIsNotSaidToRefuseUploads_R6_B65"
+  ],
+  "note": "A-S1 / FEATURE_ENGINE: only a bit-7 build's 14 names the engine word"
+ },
+ {
+  "id": "P-busy-baseline",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            if (busyBaseline) { busyBaseline = false; return }\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*"
+  ],
+  "expect": [
+   "threeCacheWritesRefused14InARowAreSaidOncePerSession_AS1"
+  ],
+  "note": "A-S1: the session's first record is the baseline"
+ },
+ {
+  "id": "P-busy-reason-14",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "busyRun = if (rec.second == REASON_BUSY) busyRun + 1 else 0",
+    "busyRun = busyRun + 1"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
+  ],
+  "expect": [
+   "cacheWritesRefusedForAnotherReasonAreNotSaidAsBusy_DM1"
+  ],
+  "note": "A-S1: only reason 14 counts; another reason ends the run"
+ },
+ {
+  "id": "S-flags-zwrite",
+  "file": "sim/GlassFirmwareSim.kt",
+  "edits": [
+   [
+    "(if (ridersBuild()) Fw.FLAG_ZWRITE else 0)",
+    "Fw.FLAG_ZWRITE"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*",
+   "*MotionSimTest*",
+   "*MotionDslTest*",
+   "*TestProgramsTest*",
+   "*ConformanceVectorTest*",
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
+  ],
+  "expect": [
+   "eachC1FlagIsAFlagOnlyOnTheBuildThatReportsItsFeature_DM1"
+  ],
+  "note": "§5.9: only a bit-8 build implements flag bit 5 (the twin of S-flags-engine, added with its pin)"
+ }
+]

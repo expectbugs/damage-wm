@@ -17,7 +17,9 @@ need a terminal to be entirely live, it's just text."* The FLOW view replaced it
   `#{alternate_on}` says a full-screen TUI (htop, vim) owns the pane. Context rows and the fit
   machinery matter only there.
 - **History IS the flow**: same face/size/wrap as live, frozen (never yanks), 5 display lines
-  per notch, scroll-down at the live edge returns to live — the grammar is unchanged.
+  per notch, scroll-down at the live edge returns to live — the grammar is unchanged. **In history a single tap does
+  nothing** (Adam, 2026-11-17, APK 0.69: a scroll read as a tap opened the keys and backing out lost his place);
+  a double-tap or scrolling down past the end returns to live.
 - **Capture pacing: 1 s default, configurable** (Settings → Tmux → Update, 0.5/1/2/5 s; rides
   the wire to the host's poll loop as `tpace`, persists). Pushes only on change; an idle
   session costs zero radio.
@@ -129,6 +131,7 @@ LIVE GRID (CanvasView)             the pane, true grid, JetBrains Mono, cursor c
    ▼
 HISTORY (DocView, free)            frozen scrollback, WRAPPED at reading size, 5-lines/notch
                                    + accel like Reader; scroll-down past the end → LIVE again
+                                   tap: nothing · double-tap → LIVE (APK 0.69)
 LIVE GRID ── tap ──▶ KEYS (ListView): Enter · y · n · 1 · 2 · 3 · Esc · Ctrl-C · Up · Down ·
                      Left · Right · Tab · q · Snippets… · Type… (§4.8 keyboard, 2026-09-01) · New session ·
                      (per-session rows)
@@ -136,7 +139,8 @@ LIVE GRID ── tap ──▶ KEYS (ListView): Enter · y · n · 1 · 2 · 3 �
 
 - **Scroll IS scrollback** — no mode button. History is a frozen snapshot (`-S -1000`) from
   the live edge; new output sets the dirty tick, never yanks the view.
-- **Tap descends** (§4.6): live → keys; a key sends and DROPS BACK TO LIVE. Double-tap backs.
+- **Tap descends** (§4.6): live → keys; a key sends and DROPS BACK TO LIVE. Double-tap backs. In history a tap does
+  nothing (APK 0.69).
 - Quick keys are config-driven (host-side, served with the session list). Session
   end/rename/detach shipped with the §5 closure.
 

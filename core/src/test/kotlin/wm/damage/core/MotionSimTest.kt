@@ -635,6 +635,37 @@ class MotionSimTest {
         assertEquals(3, c.panel(300, 300), "(c) the hinted batch whose keyframe closed an instance goes whole")
     }
 
+    // --------------------------------------------------------------- DM1: the Kotlin sweep's survivors (C1-DM1-built.md)
+    /** DM1 (`S-flags-engine`, `S-flags-zwrite`), §5.8 / §5.9: flag bit 3 is a flag only on a build that reports feature
+     *  bit 7, bit 5 only on one that reports bit 8 — a FLAGS_SET naming a bit the build lacks is refused whole (status
+     *  2) and arms nothing. Each bit alone: the rig's arming asks both, so one bit missing hides the other. */
+    @Test
+    fun eachC1FlagIsAFlagOnlyOnTheBuildThatReportsItsFeature_DM1() {
+        for (features in listOf(0x7F, 0xFF, 0x17F, 0x1FF)) for (bit in listOf(ENGINE, ZWRITE)) {
+            val has = features and (if (bit == ENGINE) DamageMsg.FEATURE_ENGINE else DamageMsg.FEATURE_RIDERS) != 0
+            val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = features; it.clockIsOsTick = true }
+            sim.conformanceLease(Arm.RIGHT, true, 1000L)
+            sim.conformanceControl(Arm.RIGHT, DamageMsg.OP_FLAGS_SET, DamageMsg.FLAG_DRAW2 or bit, 1000L)
+            val what = "features 0x${features.toString(16)}, flag bit 0x${bit.toString(16)}"
+            assertEquals(if (has) DamageMsg.STATUS_OK else DamageMsg.STATUS_UNSUPPORTED, sim.damageStatus(Arm.RIGHT), "$what: the status")
+            assertEquals(if (has) DamageMsg.FLAG_DRAW2 or bit else 0, sim.damageFlags(Arm.RIGHT), "$what: the flags armed")
+        }
+    }
+
+    /** DM1 (`M-areas-panel`), §5.5 reason 2 at the panel's edge: an area whose right edge is 640 (or bottom edge 480) is
+     *  taken; one pixel further is refused 2. */
+    @Test
+    fun anAreaOnePixelPastThePanelsEdgeIsRefusedTwo_DM1() {
+        for ((a, ok) in listOf(intArrayOf(600, 0, 40, 2) to true, intArrayOf(600, 0, 41, 2) to false,
+                               intArrayOf(0, 470, 4, 10) to true, intArrayOf(0, 470, 4, 11) to false)) {
+            val r = Rig()
+            r.write(64, prog(track(rect(a[0], a[1], a[2], a[3]), 5, seg(WAIT, 1))))
+            val what = "area ${a.toList()}"
+            assertEquals(ok, r.msg(play(0, 34, 64, 1)), "$what: taken")
+            if (!ok) assertEquals(2, r.sim.refusalRecord(r.arm)[1], "$what: refused for its bounds")
+        }
+    }
+
     // ------------------------------------------------------------------------- the encoder of this file
     private companion object {
         const val ENGINE = 1 shl 3

@@ -397,6 +397,163 @@ class MusicWindowTest {
         assertTrue(e4.events.any { it is PlayerEvent.Error }, e4.events.toString())
     }
 
+    // =========================================================== build Q: the switch to Spotify (MUSIC.md 3, 20, 25)
+    /** The window's notices, recorded: the title notice rides `title()`, the rest arrive here. */
+    private class NoticeServices : wm.damage.core.shell.ShellServices {
+        val notices = ArrayList<String>()
+        override fun requestRender(window: wm.damage.core.shell.DamageWindow) {}
+        override fun setOperation(op: String) {}
+        override fun notifyInternal(source: String, body: String, urgent: Boolean,
+            appId: String?, thread: String, target: String?, answer: Boolean) { notices.add(body) }
+        override fun openWindow(id: String, target: String?): Boolean = false
+        override fun runOnShell(action: () -> Unit) = action()
+        override fun docContentWidth(): Int = 560
+        override fun docContentHeight(): Int = 384
+    }
+
+    /** Q M1 (a), 2026-11-16: every open streamed from a PC that did not answer ended as a failed stream, which paused
+     *  with an error and never switched. Now the player library's I/O error on a STREAMED track goes to the switch;
+     *  the setting off, or a track from the cache, keeps today's behaviour (the error is said). */
+    @Test
+    fun aStreamThePcCannotServeSwitchesToSpotify() {
+        var now = 1_000_000L
+        val p = SimMusicPlayer(Lib(), { now }, spotify = "Spotify Song"); val ev = Events(); p.addListener(ev)
+        val notes = ArrayList<String>(); p.journal = { notes.add(it) }
+        p.playQueue((1..3).map { t(it) }, 0, Mode.QUEUE, "q")
+        now += 30_000; p.advance()
+        p.pretendSinkError("playback failed: ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT", sourceFailed = true)
+        assertEquals(Backend.SPOTIFY, p.state.backend, "an I/O error on a streamed track switches")
+        assertTrue(p.state.spotifyAuto, "the switch is the automatic one (the way back is deliberate)")
+        assertTrue(ev.events.any { it is PlayerEvent.BackendChanged && it.automatic }, ev.events.toString())
+        assertTrue(notes.any { it.startsWith("stall: 'T1': the stream failed") }, notes.toString())
+        assertTrue(notes.any { it.startsWith("switched to Spotify (automatic)") }, notes.toString())
+        // the library stopped where it was: back on the PC, a play opens the track again at its place
+        p.backToPc(); p.play()
+        assertEquals("1@30000", p.opened.last(), "the library resumes the track where the stream failed")
+
+        val off = SimMusicPlayer(Lib(), { now }, spotify = "S"); val evOff = Events(); off.addListener(evOff)
+        off.setSpotifyFallback(false)
+        off.playQueue(listOf(t(1)), 0, Mode.QUEUE, "q")
+        off.pretendSinkError("playback failed: ERROR_CODE_IO_NETWORK_CONNECTION_FAILED", sourceFailed = true)
+        assertEquals(Backend.LIBRARY, off.state.backend, "the setting off: no switch")
+        assertTrue(evOff.events.last() is PlayerEvent.Error, "the setting off: the error is said")
+
+        val cached = SimMusicPlayer(Lib(), { now }, spotify = "S"); cached.cachedTracks.add(1)
+        cached.playQueue(listOf(t(1)), 0, Mode.QUEUE, "q")
+        cached.pretendSinkError("playback failed: ERROR_CODE_IO_FILE_NOT_FOUND", sourceFailed = true)
+        assertEquals(Backend.LIBRARY, cached.state.backend, "a track from the cache is not the PC's to serve")
+
+        // M5: a switch that cannot start Spotify says why
+        val none = SimMusicPlayer(Lib(), { now }, spotify = null); val evNone = Events(); none.addListener(evNone)
+        none.playQueue(listOf(t(1)), 0, Mode.QUEUE, "q")
+        none.pretendSinkError("playback failed: ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT", sourceFailed = true)
+        assertEquals(Backend.LIBRARY, none.state.backend)
+        assertEquals("PC unreachable — ${wm.damage.core.windows.music.PlayerCore.SPOTIFY_NOT_STARTED}",
+            (evNone.events.last() as PlayerEvent.Error).detail)
+    }
+
+    /** Q M1 (b) and M2: a streamed track that gets no data for 15 s while it should play — at its open, or stalled
+     *  mid-song — switches; a track from the cache plays on with the PC silent. */
+    @Test
+    fun aStreamWithNoDataFor15SecondsSwitchesAndACachedTrackPlaysOn() {
+        var now = 1_000_000L
+        // at its open: the PC holds the connection and sends nothing
+        val p = SimMusicPlayer(Lib(), { now }, spotify = "S"); val ev = Events(); p.addListener(ev)
+        p.pcServes = false
+        p.playQueue((1..3).map { t(it) }, 0, Mode.QUEUE, "q")
+        p.advance(); now += 14_000; p.advance()
+        assertEquals(Backend.LIBRARY, p.state.backend, "14 s without data is still a stream that may come")
+        now += 1_000; p.advance()
+        assertEquals(Backend.SPOTIFY, p.state.backend, "15 s without data at the open switches")
+        assertTrue(ev.events.any { it is PlayerEvent.BackendChanged && it.automatic })
+
+        // mid-song: the stream played a minute, then the PC stopped sending
+        val q = SimMusicPlayer(Lib(), { now }, spotify = "S")
+        q.playQueue((1..3).map { t(it) }, 0, Mode.QUEUE, "q")
+        now += 60_000; q.advance()
+        q.pcStopsServing()
+        q.advance(); now += 16_000; q.advance()
+        assertEquals(Backend.SPOTIFY, q.state.backend, "a stall mid-song switches too")
+
+        // M2: the cached track plays while the PC serves nothing; the switch waits for the first that cannot be served
+        val c = SimMusicPlayer(Lib(), { now }, spotify = "S"); c.cachedTracks.add(1); c.pcServes = false
+        c.playQueue((1..2).map { t(it, dur = 100_000) }, 0, Mode.QUEUE, "q")
+        repeat(4) { c.advance(); now += 20_000 }
+        assertEquals(Backend.LIBRARY, c.state.backend, "a cached track is played, never switched away from")
+        now += 30_000; c.advance()                        // track 1 ends; track 2 streams and gets nothing
+        c.advance(); now += 16_000; c.advance()
+        assertEquals(Backend.SPOTIFY, c.state.backend, "the first track that cannot be served switches")
+    }
+
+    /** Q M3: nothing switches while nothing is playing or asked for — no notice when he merely leaves home. */
+    @Test
+    fun aPcThatGoesDownWhileNothingPlaysSwitchesNothingAndSaysNothing() {
+        var now = 1_000_000L
+        val lib = Lib()
+        val p = SimMusicPlayer(lib, { now }, spotify = "S"); val ev = Events(); p.addListener(ev)
+        val svc = NoticeServices()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val win = MusicWindow(FakeText(), lib, p, scope, clock = { now })
+            win.onRegistered(svc)
+            p.playQueue((1..3).map { t(it) }, 0, Mode.QUEUE, "q")
+            now += 10_000; p.advance()
+            svc.notices.clear(); ev.events.clear()
+            // stopped, the queue staged: the link drops and nothing is served
+            p.stop()
+            p.pretendLinkDown(); p.pcServes = false
+            repeat(3) { p.advance(); now += 10_000 }
+            // paused on a streamed track: the link drops, the data stops, the player waits for it — nothing plays
+            p.pretendPcUp(); p.pcServes = true
+            p.play(); now += 10_000; p.advance(); p.pause()
+            p.pretendLinkDown(); p.pcStopsServing()
+            repeat(3) { p.advance(); now += 10_000 }
+            assertEquals(Backend.LIBRARY, p.state.backend, "nothing switches while nothing plays")
+            assertTrue(ev.events.none { it is PlayerEvent.BackendChanged || it is PlayerEvent.Error }, ev.events.toString())
+            assertTrue(svc.notices.none { "Spotify" in it || "PC" in it }, "no notice: ${svc.notices}")
+            assertFalse(win.title().contains("Spotify") || win.title().contains("PC"), "no title notice: '${win.title()}'")
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    /** Q M4 (his "yes to both", 2026-11-17): a Spotify he starts himself is followed, whenever he starts it — the
+     *  library paused, Spotify the backend as a deliberate choice, no notice; the controls act on Spotify. */
+    @Test
+    fun aSpotifyHeStartsHimselfIsFollowedWithoutANotice() {
+        var now = 1_000_000L
+        val lib = Lib()
+        val p = SimMusicPlayer(lib, { now }, spotify = "S"); val ev = Events(); p.addListener(ev)
+        val notes = ArrayList<String>(); p.journal = { notes.add(it) }
+        val svc = NoticeServices()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val win = MusicWindow(FakeText(), lib, p, scope, clock = { now })
+            win.onRegistered(svc)
+            p.playQueue((1..3).map { t(it) }, 0, Mode.QUEUE, "q")
+            now += 20_000; p.advance()
+            svc.notices.clear(); ev.events.clear(); p.cmds.clear()
+            p.pretendSpotifySession(playing = false)          // a session that is there but not playing changes nothing
+            assertEquals(Backend.LIBRARY, p.state.backend)
+            p.pretendSpotifySession(playing = true, title = "His Song")
+            assertEquals(Backend.SPOTIFY, p.state.backend, "his Spotify is followed")
+            assertFalse(p.state.spotifyAuto, "a deliberate choice: no automatic way back is offered")
+            assertEquals(listOf("pause"), p.cmds, "the library paused")
+            assertEquals("His Song", p.state.spotify?.title, "the window shows Spotify's track")
+            assertEquals(PlayState.PLAYING, p.state.play)
+            assertTrue(ev.events.none { it is PlayerEvent.BackendChanged }, "no notice event: ${ev.events}")
+            assertTrue(svc.notices.isEmpty(), "no notice: ${svc.notices}")
+            assertFalse(win.title().contains("Spotify"), "no title notice: '${win.title()}'")
+            assertTrue(notes.any { it.startsWith("switched to Spotify (followed") }, notes.toString())
+            p.next(); assertTrue(p.cmds.contains("spotify:next"), "the controls act on Spotify")
+            // a deliberate library play leaves it, as today
+            p.playQueue(listOf(t(9)), 0, Mode.QUEUE, "back")
+            assertEquals(Backend.LIBRARY, p.state.backend)
+        } finally {
+            scope.cancel()
+        }
+    }
+
     // =========================================================== lyrics math
     @Test
     fun lrcParsingAndSchedulerMath() {
