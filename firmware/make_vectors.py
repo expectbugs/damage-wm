@@ -2209,7 +2209,7 @@ def vectors_v4(kf):
         step(tk(2010), inp(RING, TAP)),                                                   # S 2 report-only: 17 (a done local in its slot)
         step(tk(2020), msg(tap_e(f.press0)), inp(RING, TAP)),                             # S 3 press entry: 17 (the done local)
         step(tk(2030), msg(kf))]                                                          # the first frame (closes the done local, no notify)
-    s.fire(); s.fire()
+    s.fire(); s.fire(); s.fire()                                                          # S 2, S 3 above; S 4 below
     st += fire_at(2100, inp(RING, TAP)) + [                                               # S 4: a press at the cursor (1), unmoved (field 8 = 1); field 17 = 5
         step(tk(2100 + 2 * P), wake()),                                                   # step 3 = T: HOLD
         step(tk(2200), inp(TOUCH_R, TAP), inp(TOUCH_L, TAP))]                             # temple taps: no entry matches, the stock call, no 115
