@@ -8751,3 +8751,35 @@ two IMAGES, at instruction level; nothing was flashed or sent. Their reports are
 - **Lesson:** "writes nothing" had been copied from the tool's description for eleven weeks; nobody had read the
   receiving side. A claim about what a device does is read in the device's code.
 
+
+## 88. C1 flashed on both lenses (2026-11-18)
+
+Context for the reader: Damage is Adam's own window manager for his own G2 glasses, which run his fork of a published
+custom display firmware. This is the record of installing the fork's build C1 (candidate pin `0dab2154…`, fork branch
+`c1` at `561f8b7`, reviewed in §85 and §87) on his pair, on his go at each step ("Go link check", "go left", "go
+right"), with him at the PC. The per-step logs are in the gitignored `private/build068/flash-20261118/`.
+
+- **Before:** `research/verify_cfw.py` and the fork's `tools/verify.py` on the candidate (31 PASS) that night; the
+  reversibility picture said (§87); his phone on APK 0.69 since 11-17 21:57; the phone's Bluetooth switched off by him
+  at 01:20:51 to release the glasses (its last session ended "ended by phone").
+- **Link check, 01:21–01:23:** `--stop-before heartbeat` and `--stop-before file_check` on each lens: discovery and
+  the stock authentication ok on both.
+- **LEFT, 01:24:09–01:28:26:** the last dry-run rung acked (file check) and, directly after it, the full flash: 6
+  components verified in 136 s, 0 block resends; the main image (3,600,856 bytes, 880 blocks) in 111.9 s. The lens
+  answered discovery again 39 s after the tool's end and authenticated at 01:28:26.
+- **RIGHT, 01:44:11–01:48:23:** the same way: 133 s, 0 resends, the main image in 109.1 s; discovery 39 s after the
+  end, authenticated at 01:48:23.
+- **What §87 left to the glasses, as answered (measured):** the candidate starts and its radio answers the flash
+  protocol on both lenses; the storage chip took the larger main image; the installed Phase 2 image received a whole
+  flash. The connection interval in force was not read by the tool: the main image's 32–33 KB/s fits one 244-byte
+  packet per 7.5 ms event (modeled from the throughput).
+- **Nothing is armed.** C1's features are turned on by the phone's ladder one at a time, each after its soak
+  (`FORK.md` §7 item 10); at stage 0 the phone sends the bytes it sent before the flash.
+- **Owed, from the phone's journal once its Bluetooth is on again:** DamageCaps on both arms (features `0x1ff`
+  expected: the direct evidence of which image runs), the first telemetry (the arena's free figures with the larger
+  context, fields 27–29), the start's bytes unchanged, no refusal. As of 03:14 the phone's keeper still read
+  "bluetooth is off" (it asks again every 2 s and logs each try: about 6 lines per try in the day log — listed, not
+  changed).
+- **The way back:** the previous image `48172b62…` (kept built), then Phase 1's `c5e4f8b7…`.
+- **The fork's own records** (`DAMAGE.md`'s pin, the `damage` branch) still name `48172b62…`; moving them to `c1`
+  and the fork's push are his.

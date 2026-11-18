@@ -31,7 +31,7 @@ governs) → `FIRMWARE.md` (wins on the FIRMWARE CONTRACT)**.
 - `python3 design/render_shots.py` after any design change; read the numbers. Everything renders at **true 1× 640×480**:
   a 2× view flatters delicate type.
 - `python3 research/verify_cfw.py` before any flashing conversation (offline; the upstream a5d1c31 image — the rollback
-  behind Phase 1's — is reproducible from held sources, no Thumb-bit defect). The installed image is the fork's `48172b62…`; for it at the fork's HEAD and
+  behind Phase 1's — is reproducible from held sources, no Thumb-bit defect). The installed image is the fork's C1 build `0dab2154…` (flashed 2026-11-18, `HANDOFF.md` §88; before it `48172b62…`); for it at the fork's `c1` branch and
   **for any fork candidate:** `(cd ~/damage-cfw && python3 tools/verify.py)` (and its `--selftest`) — the pin, reproducibility with our clang,
   the Thumb-bit audit, the size guard and the list of changed sites, reviewed against `FORK.md` §3.1 (no new site on a
   boot-time path).
@@ -85,8 +85,9 @@ repack that moves every offset, another task freeing the buffer). Hence:
    three tests below and propose removals as readily as fixes, fixes only for what passes those tests, the gate, and
    one look at the real thing (a browser, the glasses). No mutation list and no pin for every guard there: a pin goes
    where a defect was found. A finding whose only fix is a new mechanism for a case real use does not produce is
-   declined and listed. A build that passes its planned size by a quarter stops for a design question; it does not
-   get more stages.
+   declined and listed. A build that passes its planned size says so, with what the extra lines are for, and goes on
+   (Adam, 2026-11-18: "Absolute size is irrelevant to me (within reason), as long as it has purpose and isn't just
+   useless bloat or abstractions that will never realistically be useful"). Size is reported; purpose is judged.
 
 ## What is worth building (Adam, 2026-11-17; `HANDOFF.md` §83)
 

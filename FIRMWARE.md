@@ -13,8 +13,8 @@ extension: DamageCaps, telemetry, flags, the presented notify, cache-keep, the s
 pair since 2026-09-15** (fork pin `c5e4f8b7…`, `HANDOFF.md` §55); the boot count stays withdrawn (§11). **§4 is built
 on both sides (Adam's word on `HANDOFF.md` §57's decisions; fork pin `48172b62…` after the fourth review, `HANDOFF.md` §60–§64) and installed on Adam's pair since 2026-09-16 (`HANDOFF.md` §65):** the
 host C, the simulator and the v2 vectors agree, and the on-glass self-test ran the same day (`CLAIMS.md`). **§5 is built on
-both sides by build C1 (2026-11-15 → 17): the host C, the simulator and the v3 vectors agree; the fork's candidate
-`0dab2154…` is not flashed.** §6 is in contract form since 2026-11-13, not yet challenged (the note above §5); §7 and §8
+both sides by build C1 (2026-11-15 → 17): the host C, the simulator and the v3 vectors agree; the fork's build
+`0dab2154…` is installed on Adam's pair since 2026-11-18 (`HANDOFF.md` §88), with nothing of §5 armed.** §6 is in contract form since 2026-11-13, not yet challenged (the note above §5); §7 and §8
 are the decided shape only. **Only the RIGHT lens can send** (`CLAIMS.md`): every reply and notify is
 RIGHT's; the left lens's state is inferred from the same writes. CACHE_KEEP stays unarmed (the atlas skip is the
 phone's bounded one, §3). A section marked *draft* may change until its phase's test stop passes; after that it

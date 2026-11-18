@@ -730,7 +730,8 @@ what an actor may do; the snapshot judge; one look at every page in a real brows
    use gives way (the browser terminal: the lead recommends allowing inline styles for the page so that the emulator
    can run; his word is still owed).
 4. **The app layer's process is lean** (`CLAUDE.md`, protocol item 7): one review pass, the three tests, no mutation
-   lists, removal as welcome as addition. Builds over their size by a quarter stop for a design question.
+   lists, removal as welcome as addition. A build over its planned size says so, with what the extra lines are for, and goes on (Adam, 2026-11-18:
+   absolute size is irrelevant within reason as long as it has purpose); the three tests judge the lines, not their count.
 5. **Robustness work is planned, not left to reviews** (17.4).
 6. **One build at most is stacked on what he has not used.** S1-2 goes to him before S1-3's Kotlin is written.
 
@@ -783,8 +784,10 @@ wasting my whole subscription on very little practical value like we started whe
   rate when lanes run side by side. A build gets a budget in percent at its start; passing it is REPORTED with the
   reason, and the work goes on (Adam, 2026-11-17, midday: "Dont stop for budget just keep going and working and
   checking your work until we have the ultimate system built"). What still stops a run for him: a flash, anything
-  sent to the glasses, an install, and a build a quarter over its planned SIZE (a design question, `CLAUDE.md`
-  protocol item 7).
+  sent to the glasses, and an install. A build over its planned SIZE no longer stops (Adam, 2026-11-18: "as for the
+  stop line, I don't care about that. Absolute size is irrelevant to me (within reason), as long as it has purpose
+  and isn't just useless bloat or abstractions that will never realistically be useful"): it is reported with what
+  the extra lines are for, and the three tests judge them.
 - **The lead's own turns count** (they cost about as much as the agents): few turns, small context, no status message
   that carries no decision.
 - **Near a reset** nothing may be cut off at 100 %: the last starts are sized so that what is running can finish.

@@ -17,8 +17,8 @@ network, for his own use. It is display-rendering and UI work. Keep the wording 
    every build follows —, §7's flash ritual, §8's assumptions, §9 and §10.
 3. **Design still to build:** §4 and Phases 3–8 of §5 — the first flash (C1) is Phase 3's, the second (C2) Phase
    4's, the glasses kit (K) their Damage halves and Phase 6, step G Phases 7–8; `FIRMWARE.md` §5–§6 is C1's and C2's contract.
-4. **History:** Phases 0–2 are done and flashed (Phase 1 2026-09-15; Phase 2 2026-09-16, pin `48172b62…`, on both
-   lenses since); their sections keep what still binds or is cited. Phase 2's test stop T2 is still open.
+4. **History:** Phases 0–2 are done and flashed (Phase 1 2026-09-15; Phase 2 2026-09-16, pin `48172b62…`); **build C1
+   (pin `0dab2154…`) is on both lenses since 2026-11-18, nothing of it armed (`HANDOFF.md` §88)**; their sections keep what still binds or is cited. Phase 2's test stop T2 is still open.
 5. **§11 is an index** of the log; the records are `HANDOFF.md` §48 onward.
 
 **Grading.** Every number is measured, modeled or inferred and says which. Every firmware fact

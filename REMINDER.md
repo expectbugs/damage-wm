@@ -31,7 +31,7 @@ rows; 21 alert rules kept, none refused (the four away rules among them, live si
 on the setup page, not installed** (0.68 was staged from 19:32 and never installed; 0.69 is 0.68 plus build Q,
 `HANDOFF.md` §86: Tmux's tap in scrollback, Music's switch to Spotify, the phone's log kept 10 days). Until it is: the PC ends the 0.67 phone's lane at its hello (`proto`; the phone says
 the builds differ, asks again every 30 s and reads on from its own copy), while its other channels (music, torrents,
-files, tmux, the alerts, sync) attached as before. The glasses run the fork's installed image (pin `48172b62…`). No
+files, tmux, the alerts, sync) attached as before. **The glasses run the fork's C1 build since 2026-11-18** (pin `0dab2154…`, flashed on both lenses on his go, `HANDOFF.md` §88; nothing of C1 is armed; the capability read from the phone's journal is owed; the image before it was `48172b62…`). No
 browser of his is approved yet; he has not said he has used the pages.
 
 **Built (L1 and C1's Damage half are on `main` and pushed; nothing of C1 is flashed):**
