@@ -78,6 +78,9 @@ class RealFeedHttp(private val userAgent: String, private val clock: () -> Long 
             val bytes = (if (status >= 400) conn.errorStream else conn.inputStream)?.use { it.readBytes() } ?: ByteArray(0)
             // an ended exchange's read may return what had come as if it were the whole body: never taken as an answer
             if (f.ended) throw IOException("ended")
+            // S1-3 fix B3: nor a body the site cut short (the JDK hands back what arrived, then EOF, no error)
+            val len = conn.contentLengthLong
+            if (len >= 0 && bytes.size.toLong() != len && status != 204 && status != 304) throw IOException("the body ended at ${bytes.size} of $len bytes")
             val hdrs = HashMap<String, List<String>>()
             for ((k, v) in conn.headerFields) if (k != null) hdrs[k] = v
             return HttpReplyB(status, hdrs, bytes)     // a whole body read: the socket goes back to the keep-alive pool

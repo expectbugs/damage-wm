@@ -625,4 +625,33 @@ class FeedTest {
             server.close(); serving.interrupt(); scope.coroutineContext[kotlinx.coroutines.Job]?.cancel(); tmp.toFile().deleteRecursively()
         }
     }
+
+    /** Pin for S1-3 fix B3: the sibling of B4's case — a site that closes the socket in the middle of the body. The
+     *  answer is a failure, never a short body taken as the whole (an article cut part way extracted, marked and
+     *  cached). The same loopback server as B4's pin, closing instead of waiting; a whole body still comes back. */
+    @Test
+    fun aBodyThatEndsBeforeItsDeclaredLengthIsAFailure() {
+        val server = java.net.ServerSocket(0, 4, java.net.InetAddress.getLoopbackAddress())
+        val serving = Thread {
+            try {
+                for (whole in listOf(false, true)) server.accept().use { s ->
+                    val inp = s.getInputStream().bufferedReader()
+                    while (inp.readLine()?.isNotEmpty() == true) {}
+                    val len = if (whole) 5 else 5000
+                    s.getOutputStream().write("HTTP/1.1 200 OK\r\nContent-Type: text/xml\r\nContent-Length: $len\r\nConnection: close\r\n\r\n<rss>".toByteArray())
+                    s.getOutputStream().flush()
+                }                                                                    // closed: the body ends here
+            } catch (e: Exception) { /* the test closed the socket */ }
+        }.apply { isDaemon = true; start() }
+        try {
+            val http = RealFeedHttp("damage-test")
+            val url = "http://127.0.0.1:${server.localPort}/feed.xml"
+            val e = runCatching { http.get(url) }
+            assertTrue(e.isFailure, "a cut body must fail, not come back as ${e.getOrNull()?.body?.size} bytes")
+            assertTrue("5 of 5000" in e.exceptionOrNull()!!.message.orEmpty() || "5000" in e.exceptionOrNull()!!.message.orEmpty(), "${e.exceptionOrNull()}")
+            assertEquals("<rss>", String(http.get(url).body), "a whole body comes back")
+        } finally {
+            server.close(); serving.interrupt()
+        }
+    }
 }
