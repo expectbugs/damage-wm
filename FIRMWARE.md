@@ -1417,7 +1417,7 @@ that `tools/journal_report.py` counts by cause):
   reboot-like link end** (not one the phone made), **and no `case` note with `in case 1` came between that arming and
   the reset.** It is lifted at the first start after a `case` note with `in case 1` received after the hold-back was
   set (the evening case-in), or failing that at the first start on a later calendar day (04:00 local), or by the
-  Settings row `Local input · re-arm` on the glasses. A reset that follows a case-in holds nothing back; a flash
+  Settings row `Local input · re-arm` on the glasses or `probe c1=4` by hand (the same act). A reset that follows a case-in holds nothing back; a flash
   restarts the glasses outside the case and holds stage 4 back for that day (or until the row). It costs one stage
   (4 → 3), never more; stages 1–3 keep §5.8's rule. A plain radio drop of LEFT reads like a restart and costs local
   input for the rest of that day (none in the five days of his journal, M). The overnight charge does not restart the
@@ -1454,7 +1454,11 @@ itself is the phone's program, not this contract.
 New op `{"input": [devType, eventId, value]}` (after a `tick`, §5.10): the record through the hook on both lenses;
 `"only": "L"` delivers it to LEFT alone (a dropped answer). The stock handler on the host only counts calls; a `wake`
 after it draws step 1. `"N"` gains field-115 bodies (15 and 16 masked) and 114's outcome 3. Every v4 vector carries
-`features` with bit 10, and the v1/v2/v3 sets answer alike on a bit-10 build. Inputs from `make_vectors.py`,
+`features` with bit 10, and the v1/v2/v3 sets answer alike on a bit-10 build — once three v3 inputs are made
+build-neutral (`v3-rulings`' unknown mode-26 sub, `v3-params`' h0/h1 step, `v3-order`'s anchor step take values both
+builds answer alike on; what only a bit-10 build answers moves to v4; an anchor outside the build's range is refused 5,
+as C1 refuses anchor 1). `v4-bind` adds to the format the op `{"page": on}` (a stock page in front) and the per-step
+key `"K"` (`{L, R}`: the stock dispatcher's calls counted in the step) (ruled on the build spec, 2026-11-18). Inputs from `make_vectors.py`,
 expectations from the C (`--write`), the simulator equal; the differential fuzz gains `--c2` (random inputs, LEFT-only
 among them, between messages).
 
@@ -1497,22 +1501,25 @@ the instrument ends the regress, not a further general read of §6. It drives ra
 lost, duplicated and late reports, LEFT handling a gesture alone, re-stagings, covers, link drops and SETTLEs — and the
 stock messages a rubber band drops or delays (§6.1) (D0), `Taps` switches between every pair of values, and lost
 mode-27 messages (SET, CLEAR, LIST) — through the phone's rules against the simulator's two lenses, and checks after
-every sequence seven invariants: (1) no act on a row other than one the phone staged and RIGHT showed pressed (or its
+every sequence eight invariants: (1) no act on a row other than one the phone staged and RIGHT showed pressed (or its
 open local, on 17) — on `report`, the row at RIGHT's cursor, and for a click acted on as today (`phone`, or `report`
 with the tap's 115 lost) the stated residual, the phone's row (D0); (2) no picture on a lens that no later message
-corrects; (3) both lenses on the phone's row after a SETTLE; (4) owes, u and S_heard back at rest; (5) no message
+corrects — read as the truth comparison at rest: each lens's panel equals the phone's belief of it once nothing is
+outstanding; (3) both lenses on the phone's row after a SETTLE; (4) owes, u and S_heard back at rest; (5) no message
 §6.2–§6.6 would refuse; (6) **a fresh tap whose 115 arrives is acted on** — liveness, which (1)–(5) cannot see (a
 state in which no tap is ever acted on passes all five): after the sequence, with nothing lost from then on and the
 list in front uncovered, of two ring taps a round trip apart the second is acted on (the first may meet a repair the
 phone makes in its own batch, §6.7's table repair) (D1); (7) **scroll liveness:** under the same conditions, of two
 notches a round trip apart, away from the staged edge and with nothing else moving the list, the second leaves the
-row moved by its own report — adopted (P3) and committed, so its local picture is the one that stays (D1: P3 and P5
+row moved by its own report — adopted (P3) and committed, so its local picture is the one that stays and is never stopped before its
+COMMIT (D1: P3 and P5
 move the phone's row as today when a notch is not adopted, so the row moving alone would pass with no notch ever
-adopted). **Each defect of the design pass's two focused reads (`C2-focus.md`, `C2-amend-focus.md`) is a seeded
+adopted); (8) **one move per gesture:** each notch or tap moves the phone's row at most once (a notch applied twice —
+one row past his input — breaks none of the other seven; ruled on the build spec, 2026-11-18). **Each defect of the design pass's two focused reads (`C2-focus.md`, `C2-amend-focus.md`) is a seeded
 case that must fail on the rule as it stood** — a pin watched to fail on the old rule. So is each shape of the table
 repair without its re-send: the read before F1's switch whose SET is lost (`C2-F-focus.md` B1) and a lost LIST,
 which fail (6); a lost scroll-entry SET, which fails (7); a lost SET that changed an entry's program, which fails
-(7) and, for the press, (6) (D1); a lost cover CLEAR, which fails none of the seven and is pinned by its count of
+(7) and, for the press, (6) (D1); a lost cover CLEAR, which fails none of the eight and is pinned by its count of
 locals drawn under the cover (D1).
 
 **No vector can prove** (one thread, one lens at a time, no UART): the inter-lens answer-and-drop order, a lost 115 or
@@ -1622,7 +1629,8 @@ content, the stock override gesture, stock fallback on any failure. Written afte
   90,000 ticks, a signed 32-bit compare (R1.7). Later phases add ops (program upload and play, §5.10) and
   `"scratch"` expectations; the self-test form is below. **C1 added** (A.3): the op `{"wake": true}` (§5.10); a
   vector-level `"features"` key, the DamageCaps bits it was written for (the C runs it only on a build with exactly
-  those bits, the model runs at them); and, only in vectors with that key, per step `"N"` (RIGHT's notify-114 bodies,
+  those bits, the model runs at them; since C2 the key may be a list of such sets — the builds the vector answers
+  alike on — and the C runs it on a build whose bits equal one of them, the model at each); and, only in vectors with that key, per step `"N"` (RIGHT's notify-114 bodies,
   hex, in send order, fields 9 and 11 removed — tag and value, not zeroed), `"W"` (`{L, R}`: the pure plan's wait at
   the step's last clock, −1 for ever, 0 when a step is due now with nothing outstanding) and `"G"` (`{L, R}`: field
   17). A step with no expectation in `firmware/vectors/` fails `ConformanceVectorTest` (R1.21); a directory given in
@@ -1818,3 +1826,7 @@ phone's keeper applies the hold-back rule before re-arming.
   matched no entry not counted in u. Sentences marked (D1) are this stage's fillings, each ruled as written on 2026-11-18. Adam's calls of that day are in
   the text: `Taps` defaults to `report`, the press keeps coming forward until the window's first frame, and under
   `report` a tap the phone does not act on shows nothing. Nothing built; contract version unchanged.
+- 2026-11-18 — §6.10, §6.8, §9: ruled on C2's build spec (`private/build072/C2-decisions.md`) — the sequence fuzz's
+  eighth invariant (one move per gesture) and the readings of (2) and (7); three v3 inputs made build-neutral, a
+  vector's `features` as a list, the op `page` and the key `K`; `probe c1=4` lifts stage 4's hold-back as the Settings
+  row does. Nothing built; contract version unchanged.
