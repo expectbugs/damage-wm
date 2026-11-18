@@ -123,12 +123,13 @@ class LocalTmuxProvider(
     // ------------------------------------------------------------ one-shots
     override fun sendKeys(target: TmuxTarget, keys: List<String>) {
         for (k in keys) require(k.matches(Regex("[A-Za-z0-9!-~]{1,16}"))) { "key name '$k'" }
-        run(target.host, "tmux send-keys -t ${shq(target.t)} ${keys.joinToString(" ") { shq(it) }}")
+        // `--`: a key named with a leading '-' is a key, not an option (S1-3 fix A1)
+        run(target.host, "tmux send-keys -t ${shq(target.t)} -- ${keys.joinToString(" ") { shq(tmuxArg(it)) }}")
     }
 
     override fun sendLiteral(target: TmuxTarget, text: String) {
         // `-l --`: literal, and a leading '-' in the text is text, not an option
-        run(target.host, "tmux send-keys -t ${shq(target.t)} -l -- ${shq(text)}")
+        run(target.host, "tmux send-keys -t ${shq(target.t)} -l -- ${shq(tmuxArg(text))}")
     }
 
     /** Build S1-3 B13: one tmux process per op, its runs joined by tmux's own `;` separator so they reach the pane in
@@ -138,7 +139,7 @@ class LocalTmuxProvider(
         if (runs.isEmpty()) return
         val t = shq(target.t)
         run(target.host, "tmux " + runs.joinToString(" ';' ") { r ->
-            if (r.literal) "send-keys -t $t -l -- ${shq(r.text)}"
+            if (r.literal) "send-keys -t $t -l -- ${shq(tmuxArg(r.text))}"
             else "send-keys -t $t -H " + r.text.toByteArray(Charsets.UTF_8).joinToString(" ") { "%02x".format(it) }
         })
     }
@@ -435,6 +436,14 @@ class LocalTmuxProvider(
               tmux capture-pane -p -t "=${'$'}s:" 2>/dev/null | grep -v '^[[:space:]]*${'$'}' | tail -5 || true
             done
         """.trimIndent()
+
+        /** One argument as tmux must receive it on its command line (S1-3 fix A1): tmux reads an argument that ends in
+         *  `;` as a command separator and drops that `;` (`man tmux` 3.5a, "a trailing semicolon is also interpreted as
+         *  a command separator"), unless a `\` stands before it, which it drops instead (`cmd-parse.y`
+         *  `cmd_parse_from_arguments`). So a final `;` is escaped once for tmux. No other character of an argument is
+         *  special there: every printable character and the listed sequences arrive as sent (`TmuxKeysTest`, on a
+         *  throwaway server). */
+        fun tmuxArg(s: String): String = if (s.endsWith(';')) s.dropLast(1) + "\\;" else s
 
         /** POSIX single-quote escaping — literal text crosses ssh safely. */
         fun shq(s: String): String = "'" + s.replace("'", "'\\''") + "'"
