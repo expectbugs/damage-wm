@@ -310,10 +310,14 @@ class TmuxProviderTest {
             statusPacingMs = 40, capturePacingMs = 40)
         val statuses = java.util.concurrent.CopyOnWriteArrayList<List<TmuxSessionInfo>>()
         val alerts = java.util.concurrent.CopyOnWriteArrayList<TmuxSessionInfo>()
+        val heldAtAlert = java.util.concurrent.CopyOnWriteArrayList<TmuxSessionInfo?>()
         p.addListener(object : TmuxProvider.Listener {
             override fun status(sessions: List<TmuxSessionInfo>, cfg: TmuxConfig) { statuses.add(sessions) }
             override fun frame(target: TmuxTarget, frame: PaneFrame) {}
-            override fun alert(session: TmuxSessionInfo) { alerts.add(session) }
+            override fun alert(session: TmuxSessionInfo) {
+                alerts.add(session)
+                heldAtAlert.add(statuses.lastOrNull()?.firstOrNull { it.name == session.name })
+            }
             override fun state(state: String) {}
         })
         try {
@@ -330,6 +334,10 @@ class TmuxProviderTest {
             delay(200)
             assertEquals(1, alerts.size, "level held, no repeat alert")
             assertEquals("claude", alerts[0].name)
+            // S1-3 fix A5: the status that carries the waiting session (and its line) goes out before the alert, so a
+            // presenter holds the line the alert's notice no longer carries
+            assertEquals(true, heldAtAlert[0]?.waiting, "a status holding claude waiting preceded its alert: ${heldAtAlert[0]}")
+            assertEquals(alerts[0].lastLine, heldAtAlert[0]?.lastLine)
             await { statuses.last().first { it.name == "claude" }.waiting }
         } finally {
             p.close()

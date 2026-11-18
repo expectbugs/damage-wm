@@ -69,14 +69,19 @@ class TmuxArrangementsTest {
         shell.start()
         suspend fun settle() = waitUntil(10_000, 10, { "shell did not settle: ${shell.quiescenceReport()}" }) { shell.isQuiescent() }
         settle()
-        p.alert(p.sessions[0].copy(waiting = true, lastLine = "Do you want to make this edit?"))
+        // the provider's order (S1-3 fix A5): the status that carries the waiting session, then its alert
+        p.sessions = listOf(p.sessions[0].copy(waiting = true, lastLine = "Do you want to make this edit?"), p.sessions[1])
+        p.status()
+        p.alert(p.sessions[0])
         waitUntil(10_000, 10, { "no box" }) { shell.notifications.active }
         settle()
         val cur = assertNotNull(shell.notifications.current)
         assertNotNull(cur.record, "the box is the record's notice")
         assertEquals("DAMAGE · tmux", cur.source, "today's source")
         assertEquals("beardos/claude", cur.thread, "one box per session, as today")
-        assertEquals("claude wants input: Do you want to make this edit?", cur.body)
+        assertEquals("claude wants input: Do you want to make this edit?", cur.body, "today's box: the glasses add the line")
+        assertEquals("claude wants input", cur.record?.let { Notices.parse(it.id, host.read(Notices.WINDOW).third.items["rec.notices.${it.id}"]!!.value) }?.body,
+            "the record holds no pane content")
         assertEquals("tmux", cur.appId)
         assertEquals("session:beardos:claude", cur.target)
         assertEquals(0, shell.notifications.queueDepth, "one box")

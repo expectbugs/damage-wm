@@ -226,10 +226,12 @@ class TmuxGlasses(
     override fun onRegistered(ctx: ShellServices) {
         services = ctx
         fromSource(source.state())
-        // S1-3 B14: the PC's record notice of a waiting session marks the window as the raise did (its body as raised)
+        // S1-3 B14: the PC's record notice of a waiting session marks the window as the raise did; fix A5: its body
+        // carries no pane content, so the waiting line is added here from the session this presenter holds at full
+        // level — once its status says it waits (the provider sends that status before the alert), never a stale line
         ctx.noticeFormatter(id) { rec ->
             if (alertsOn && rec.thread !in muted) { dirty = true; ctx.requestRender(this) }
-            rec.body
+            sessions.firstOrNull { it.waiting && mutedKey(it) == rec.thread }?.let { "${rec.body}: ${it.lastLine}" } ?: rec.body
         }
         provider.addListener(listener)   // the waiting mark live from registration on
     }

@@ -65,7 +65,9 @@ class TmuxCoreTest {
         val long = (0 until 120).joinToString("") { ('a' + it % 26).toString() } + "😀"
         p.alert(p.sessions[0].copy(waiting = true, lastLine = long))
         val r = notice("tmux:beardos/claude")
-        assertEquals("claude wants input: $long", r?.body, "today's body, the pane's whole line (one host: no suffix)")
+        // S1-3 fix A5: the record (readable at view level) carries no pane content; the glasses add the line
+        assertEquals("claude wants input", r?.body, "the session wants input, without the pane's line (one host: no suffix)")
+        assertTrue(listOf("abc", "😀").none { it in r!!.body }, "no pane content in the record")
         assertEquals("tmux", r?.app)
         assertEquals("session:beardos:claude", r?.target, "a tap opens that session's live view")
         assertEquals("Tmux", r?.gatedBy)
@@ -85,7 +87,7 @@ class TmuxCoreTest {
         p.sessions = p.sessions + p.sessions[1].copy(host = "slappy")
         p.status()
         p.alert(p.sessions[2].copy(waiting = true, lastLine = "y/n"))
-        assertEquals("build · slappy wants input: y/n", notice("tmux:slappy/build")?.body)
+        assertEquals("build · slappy wants input", notice("tmux:slappy/build")?.body)
         core.detachAlerts()
         assertTrue(p.listeners.isEmpty())
     }

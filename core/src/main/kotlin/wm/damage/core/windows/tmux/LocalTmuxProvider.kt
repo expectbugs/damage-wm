@@ -69,6 +69,10 @@ class LocalTmuxProvider(
 
     private val hostStates = ConcurrentHashMap<String, HostState>()
 
+    /** S1-3 fix A5: waiting edges of polls that have landed, sent right after the status push that carries their
+     *  sessions — so a presenter holds the waiting line before the alert's notice reaches it. */
+    private val alertsDue = java.util.concurrent.ConcurrentLinkedQueue<TmuxSessionInfo>()
+
     /** Hosts with a poll already in flight — a slow host is SKIPPED next tick
      *  rather than piling execs behind itself. Declared BEFORE the init block
      *  that launches the loops: the coroutine can run before the constructor
@@ -242,12 +246,14 @@ class LocalTmuxProvider(
             // a short settle so a healthy local poll (~10 ms) lands in THIS
             // tick's push; a slow host simply lands in a later one
             delay(minOf(300, statusPacingMs / 4))
+            val due = generateSequence { alertsDue.poll() }.toList()     // queued after their sessions were stored
             val merged = mergedSessions()
             val line = stateLine()
             for (l in listeners) {
                 try { l.status(merged, cfg) } catch (e: Exception) { Log.e("tmux", "status listener", e) }
                 try { l.state(line) } catch (e: Exception) { Log.e("tmux", "state listener", e) }
             }
+            for (s in due) for (l in listeners) try { l.alert(s) } catch (e: Exception) { Log.e("tmux", "alert listener", e) }
             delay(statusPacingMs)
         }
     }
@@ -268,9 +274,7 @@ class LocalTmuxProvider(
         val newlyWaiting = nowWaiting - st.wasWaiting
         st.wasWaiting = nowWaiting
         st.sessions = sessions
-        for (s in sessions) if (s.name in newlyWaiting) {
-            for (l in listeners) try { l.alert(s) } catch (e: Exception) { Log.e("tmux", "alert listener", e) }
-        }
+        for (s in sessions) if (s.name in newlyWaiting) alertsDue += s
     }
 
     /** One script answers everything the list needs: the session table, then

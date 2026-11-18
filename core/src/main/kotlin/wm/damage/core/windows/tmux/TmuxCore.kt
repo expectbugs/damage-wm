@@ -185,9 +185,11 @@ class TmuxCore(private val live: () -> TmuxLive? = { null }) : WindowCore {
             return spec.substring(0, cut) to spec.substring(cut + 1)
         }
 
-        /** Today's alert body (`TmuxWindow`'s raise): the pane's whole line; the box wraps and scrolls it. */
+        /** The alert's body in the record: that the session wants input, never the pane's line (S1-3 fix A5: the
+         *  notice record is readable at view level, a pane's content only at full); the glasses' presenter adds the
+         *  line from the session it holds (`TmuxGlasses`' notice formatter), so the box reads as today's raise. */
         fun alertBody(s: TmuxSessionInfo, manyHosts: Boolean): String =
-            "${s.name}${if (manyHosts) " · ${s.host}" else ""} wants input: ${s.lastLine}"
+            "${s.name}${if (manyHosts) " · ${s.host}" else ""} wants input"
 
         // ---- the record's items, read ----
 
