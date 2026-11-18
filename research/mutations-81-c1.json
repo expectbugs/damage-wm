@@ -1175,8 +1175,8 @@
   "file": "transport/CfwTransportBase.kt",
   "edits": [
    [
-    "val to = minOf(c1Stage, was - 1)",
-    "val to = 0"
+    "val to = setC1Stage { minOf(it, was - 1) }",
+    "val to = setC1Stage { 0 }"
    ]
   ],
   "tests": [
@@ -1190,7 +1190,7 @@
   "expect": [
    "theHoldBackDropsOneStageAndKeepsTheRest_6_1"
   ],
-  "note": "spec §6.1: the hold-back drops the last-armed stage only (today's shape: the whole wish)"
+  "note": "spec §6.1: the hold-back drops the last-armed stage only (today's shape: the whole wish) — the edit follows C1-P's setC1Stage line (C1-Q's sweep: it no longer applied)"
  },
  {
   "id": "P-holdback-once-per-reset",
