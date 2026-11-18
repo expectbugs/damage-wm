@@ -3,6 +3,7 @@ package wm.damage.core
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import wm.damage.core.geom.Rect
@@ -198,7 +199,7 @@ class BindSimTest {
         r.bound()
         fun reason(m: ByteArray, flags: Int = ARMED): Int {
             r.sim.conformanceControl(Arm.RIGHT, DamageMsg.OP_FLAGS_SET, flags, r.now)
-            assertFalse(r.msg(m)); return r.sim.refusalRecord(Arm.RIGHT)[1]
+            assertFalse(r.msg(m), "a mode 27 that must be refused was taken"); return r.sim.refusalRecord(Arm.RIGHT)[1]
         }
         val ok = list(1, NONE, 4, 0, 8, 1)
         assertEquals(1, reason(ok.copyOf(11)), "length")
@@ -260,7 +261,7 @@ class BindSimTest {
         r.sent()
         assertTrue(r.msg(commit(0, 1, 0, 5, PA)))
         assertEquals(2, r.bind().lists[0].cursor, "S 1 is not the newest fire: the cursor stays")
-        val newer = r.motion().slots[0]!!
+        val newer = assertNotNull(r.motion().slots[0], "a local tagged newer is left, not closed")
         assertTrue(newer.local && newer.drawing && newer.tag == 2, "a local tagged newer is left drawing")
         assertEquals(9, r.shadow(10, 103), "END written into the shadow, always")
         val end = java.util.zip.CRC32().also { it.update(ByteArray(32 * 8) { 0x99.toByte() }) }.value
@@ -513,11 +514,11 @@ class BindSimTest {
         assertTrue(withDraw(C2, 0, 2, 0, steps = 4).second, "h0 0, h1 2 over four linear steps: H 1, 1, 2, 2")
         for ((h0, h1) in listOf(0 to 1, 1000 to 3000)) {
             val (r, ok) = withDraw(C2, h0, h1, 0, steps = 4)
-            assertFalse(ok); assertEquals(12, r.sim.refusalRecord(Arm.RIGHT)[1], "h0 $h0 h1 $h1")
+            assertFalse(ok, "h0 $h0 h1 $h1: an eased H outside 1..2048 must be refused"); assertEquals(12, r.sim.refusalRecord(Arm.RIGHT)[1], "h0 $h0 h1 $h1")
         }
-        withDraw(C2, 0, 0, 3).let { (r, ok) -> assertFalse(ok); assertEquals(5, r.sim.refusalRecord(Arm.RIGHT)[1], "anchor 3") }
-        withDraw(C1, 4, 4, 0).let { (r, ok) -> assertFalse(ok); assertEquals(12, r.sim.refusalRecord(Arm.RIGHT)[1], "C1: h0/h1 = 0") }
-        withDraw(C1, 0, 0, 1).let { (r, ok) -> assertFalse(ok); assertEquals(5, r.sim.refusalRecord(Arm.RIGHT)[1], "C1: anchor 0") }
+        withDraw(C2, 0, 0, 3).let { (r, ok) -> assertFalse(ok, "anchor 3 must be refused"); assertEquals(5, r.sim.refusalRecord(Arm.RIGHT)[1], "anchor 3") }
+        withDraw(C1, 4, 4, 0).let { (r, ok) -> assertFalse(ok, "C1: h0/h1 must be 0"); assertEquals(12, r.sim.refusalRecord(Arm.RIGHT)[1], "C1: h0/h1 = 0") }
+        withDraw(C1, 0, 0, 1).let { (r, ok) -> assertFalse(ok, "C1: anchor must be 0"); assertEquals(5, r.sim.refusalRecord(Arm.RIGHT)[1], "C1: anchor 0") }
     }
 
     // ------------------------------------------------------------------------------- the encoder of this file
