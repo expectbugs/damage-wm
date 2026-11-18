@@ -181,6 +181,7 @@ class MotionTransportTest {
             Files.writeString(stageFile, "$n\n")
             val restored = startWire(0x1ff, 0, store = stageFile)
             assertEquals(startWire(0x1ff, n), restored, "stage $n restored: the start's bytes are an in-process c1=$n start's")
+            waitUntil(10_000, message = { "stage $n: said: $notes" }) { sayings("C1 ladder: stage $n restored from the last run") > 0 }
             assertEquals(1, sayings("C1 ladder: stage $n restored from the last run"), "stage $n: said once: $notes")
         }
         val want = javaClass.getResource("/startwire/awake-start-contract2.txt")!!.readText().lines().filter { it.isNotBlank() }
@@ -206,12 +207,15 @@ class MotionTransportTest {
         waitUntil(10_000, message = { "the hold-back: $notes" }) { has("keeper", "armed stage 3 — stage 2 from here") }
         assertEquals("2", stored(), "the hold-back stores the stage it lowered to")
         t.stop()
+        notes.clear()
         val t2 = c1Session(stageFile)
         t2.start(full)
         assertEquals(0x24, t2.state.value.flagsInForce, "the new process arms stage 2: ZWRITE and DRAW2, not ENGINE")
         assertEquals(256 * 1024, t2.state.value.cacheSize, "and the 256 KiB cache")
         assertTrue(t2.restartSession("test: the next session"))
         t2.start(full)
+        // the notes come in order on the collector's coroutine: once the second start's DamageCaps line is in, all it said is
+        waitUntil(10_000, message = { "the second start's notes: $notes" }) { notes.count { it.first == "glass" && it.second.startsWith("DamageCaps") } == 2 }
         assertEquals(1, sayings("C1 ladder: stage 2 restored from the last run"), "said once, at the first start: $notes")
         t2.stop()
     }
@@ -224,10 +228,12 @@ class MotionTransportTest {
         for (text in listOf("4", "-1", "x", "")) {
             Files.writeString(stageFile, text)
             assertEquals(base, startWire(0x1ff, 0, store = stageFile), "'$text' starts at stage 0")
+            waitUntil(10_000, message = { "'$text' is said: $notes" }) { sayings("C1 ladder: the stored stage '$text'") > 0 }
             assertEquals(1, sayings("C1 ladder: the stored stage '$text' is not 0..3 — stage 0"), "'$text' is said: $notes")
         }
         Files.delete(stageFile); Files.createDirectory(stageFile)       // a name that cannot be read as a file
         assertEquals(base, startWire(0x1ff, 0, store = stageFile), "an unreadable store starts at stage 0")
+        waitUntil(10_000, message = { "an unreadable store is said: $notes" }) { sayings("C1 ladder: the stored stage could not be read") > 0 }
         assertEquals(1, sayings("C1 ladder: the stored stage could not be read"), "an unreadable store is said: $notes")
     }
 
@@ -240,8 +246,8 @@ class MotionTransportTest {
         assertTrue(!Files.isWritable(stageDir.value), "the pin needs a directory this user cannot write")
         val t = c1Session(stageFile)
         t.devProbe("c1", "3")
-        assertTrue(has("fault", "c1stage: C1 ladder: stage 3 could not be stored"), "the fault: $notes")
-        assertTrue(has("keeper", "C1 ladder: stage 3 could not be stored"), "the note: $notes")
+        waitUntil(10_000, message = { "the fault: $notes" }) { has("fault", "c1stage: C1 ladder: stage 3 could not be stored") }
+        waitUntil(10_000, message = { "the note: $notes" }) { has("keeper", "C1 ladder: stage 3 could not be stored") }
         assertEquals("1", stored(), "the file keeps what it held")
         t.start(full)
         assertEquals(0x2c, t.state.value.flagsInForce, "this run arms stage 3")
