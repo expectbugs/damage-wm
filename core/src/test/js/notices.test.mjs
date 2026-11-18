@@ -35,6 +35,15 @@ test('first contact adopts the highest occurrence and pops nothing old; a later 
   assert.deepEqual(ids(d.review(3, now, 0)), [], 'once');
 });
 
+test('S1-3, G2: a Tmux alert pops on the glasses only — never here, nor when its hold ends; another window\'s beside it pops', () => {
+  const d = new NoticeDesk(mem(), 's1');
+  d.review(3, items(rec('a', 4)), 0);
+  const tmux = (id, occ, extra) => rec(id, occ, 'RAISED', { app: 'tmux', source: 'tmux', ...extra });
+  assert.deepEqual(ids(d.review(3, items(rec('a', 4), tmux('tmux:w/build', 5), rec('b', 6)), 0)), ['b']);
+  assert.deepEqual(ids(d.review(3, items(tmux('tmux:w/build', 7, { heldUntil: 50 })), 0)), []);
+  assert.deepEqual(ids(d.review(3, items(tmux('tmux:w/build', 7, { heldUntil: 50 })), 60)), [], 'not held, so never released');
+});
+
 test('the cursor is kept per stream and epoch: a later visit pops what was raised meanwhile, a reload nothing, a new epoch or stream adopts', () => {
   const store = mem();
   new NoticeDesk(store, 's1').review(3, items(rec('a', 4)), 0);
