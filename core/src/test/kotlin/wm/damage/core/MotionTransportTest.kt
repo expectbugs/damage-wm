@@ -1053,4 +1053,275 @@ class MotionTransportTest {
         hold(false)                                     // the model has one thread: no release point with the word held
         t.stop()
     }
+
+    // --------------------------------------------------------------- DM1: the Kotlin sweep's survivors (C1-DM1-built.md)
+    /** The data field of a single-packet EvenHub image message (`EvenHubMsg.imageFragment`: field 5's wrapper, its
+     *  field 8 — G2CC docs/G2_BLE_PROTOCOL.md §6.5), or null for any other packet. */
+    private fun imageData(p: ByteArray): ByteArray? {
+        if (!StartRig.firstOfImage(p) || p[4].toInt() != 1) return null
+        val wrapper = Pb.fields(StartRig.body(p)).firstOrNull { it.field == 5 }?.bytes ?: return null
+        return Pb.bytesField(wrapper, 8)
+    }
+
+    /** The sub-messages of a mode-8 batch ([8][count][len16][sub]…), or the image itself when it is not one. */
+    private fun subsOf(img: ByteArray): List<ByteArray> {
+        if (img[0].toInt() != 8) return listOf(img)
+        val out = ArrayList<ByteArray>()
+        var i = 2
+        repeat(img[1].toInt() and 0xFF) {
+            val n = (img[i].toInt() and 0xFF) or ((img[i + 1].toInt() and 0xFF) shl 8)
+            out += img.copyOfRange(i + 2, i + 2 + n)
+            i += 2 + n
+        }
+        return out
+    }
+
+    /** DM1 (`P-isC1-features`), spec §6.2 for the hand probe: on the installed image (features 0x7f, no C1 bit) a
+     *  hand-set `flags=` goes out as asked — bits 3 and 5 included, no ladder note — as it did before C1. */
+    @Test
+    fun onTheInstalledImageAHandSetFlagsProbeGoesOutAsAsked_DM1(): Unit = runBlocking {
+        val glass = GlassFirmwareSim().apply { damageContract = 2; damageFeatures = 0x7f }
+        val t = StartRig(glass, scope)
+        t.heapReads = false
+        collect(t)
+        t.start(full)
+        assertEquals(0x4, t.state.value.flagsInForce, "DRAW2 armed")
+        val sets = java.util.concurrent.CopyOnWriteArrayList<String>()
+        t.onWrite = { a, p -> if (StartRig.damageOp(p) == DamageMsg.OP_FLAGS_SET) sets += "${a.name.first()}:${controlArg(p).toString(16)}"; p }
+        t.devProbe("flags", "0x2c")
+        waitUntil(10_000, message = { "the probe's FLAGS_SET written to both arms: $sets" }) { sets.size >= 2 }
+        assertEquals(listOf("L:2c", "R:2c"), sets.take(2).sorted(), "the set goes out as asked: $notes")
+        assertTrue(notes.none { "the C1 ladder's" in it.second }, "no ladder note on a build without a C1 bit: $notes")
+        t.onWrite = null
+        t.stop()
+    }
+
+    /** DM1 (`P-start-holdback-unladdered`, `P-ladder-without-draw2`), spec §6.1: a reset after an arming that carried none
+     *  of the ladder is today's hold-back alone — that start asks 160 KiB and arms nothing of the ladder, though the stage
+     *  was set to 3 by hand since — and the start after it, with DRAW2 held back, arms none of the ladder either (its
+     *  bits ride only with DRAW2). */
+    @Test
+    fun aResetAfterAnArmingWithoutTheLadderArmsNoneOfItThenOrNext_DM1(): Unit = runBlocking {
+        val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = 0x1ff }
+        var clock = 1_000_000L
+        val t = SimTransport(sim, scope, SimTransport.Timing(instant = true), clock = { clock })
+        collect(t)
+        t.start(full)
+        assertEquals(0x4, t.state.value.flagsInForce, "stage 0: DRAW2 only")
+        t.devProbe("c1", "3")
+        fun said() = notes.filter { it.first == "keeper" }.joinToString(" | ") { it.second }
+        clock += 10_000L; sim.uptimeOffsetMs = clock; clock += 200_000L
+        assertTrue(t.restartSession("test: after a reset"))
+        t.start(full)
+        waitUntil(10_000, message = { "today's hold-back: ${said()}" }) { has("keeper", "hold-back: the glasses reset 10 s after flags 0x4 were armed") }
+        assertEquals(0, t.state.value.flagsInForce, "DRAW2 held back as today, nothing of the ladder: ${said()}")
+        assertEquals(160 * 1024, t.state.value.cacheSize, "no 256 KiB ask at the start after the reset")
+        clock += 1_000L
+        assertTrue(t.restartSession("test: the start after"))
+        t.start(full)
+        assertEquals(0, t.state.value.flagsInForce, "DRAW2 still held back, so no ZWRITE or ENGINE: ${said()}")
+        t.stop()
+    }
+
+    /** DM1 (`P-reset-window`), `FORK.md` §3.2's window read by the ladder: a reset 130 s after a stage-3 arming is
+     *  outside the hold-back window — the next start arms stage 3 again. */
+    @Test
+    fun aResetOutsideTheHoldBackWindowLeavesTheStage_DM1(): Unit = runBlocking {
+        val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = 0x1ff }
+        var clock = 1_000_000L
+        val t = SimTransport(sim, scope, SimTransport.Timing(instant = true), clock = { clock })
+        collect(t)
+        t.devProbe("c1", "3")
+        t.start(full)
+        fun said() = notes.filter { it.first == "keeper" }.joinToString(" | ") { it.second }
+        assertEquals(0x2c, t.state.value.flagsInForce, "stage 3 armed: ${said()}")
+        clock += 130_000L; sim.uptimeOffsetMs = clock; clock += 10_000L
+        assertTrue(t.restartSession("test: a reset outside the window"))
+        t.start(full)
+        assertEquals(0x2c, t.state.value.flagsInForce, "stage 3 again: ${said()}")
+        assertEquals(256 * 1024, t.state.value.cacheSize, "the 256 KiB size again")
+        t.stop()
+    }
+
+    /** DM1 (`P-sizerung-got`), B-N4's size rung: it counts only when the session got 256 KiB. Stage 1 allocates its
+     *  cache at 160; `c1=2` and a new session inside the lease (a renewal keeps the cache): op 5 asks 256 and finds the
+     *  160 KiB cache allocated, so the session runs at 160 and the flag set after it records stage 1 — a reset then
+     *  drops to stage 0, not to stage 1. */
+    @Test
+    fun aSizeRungTheSessionDidNotGetIsNotCounted_DM1(): Unit = runBlocking {
+        val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = 0x1ff }
+        var clock = 1_000_000L
+        val t = SimTransport(sim, scope, SimTransport.Timing(instant = true), clock = { clock })
+        collect(t)
+        t.devProbe("c1", "1")
+        t.start(full)
+        fun said() = notes.filter { it.first == "keeper" || it.first == "glass" }.joinToString(" | ") { it.second }
+        assertEquals(0x24, t.state.value.flagsInForce, "stage 1: ${said()}")
+        t.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(CfwModes.cacheUpdate2(listOf(CfwModes.CacheWrite2(1000, ByteArray(64) { it.toByte() })), 160 * 1024))), 0, "ATLAS"))
+        waitUntil(10_000, message = { "the first write allocated the cache" }) { sim.left.textureCache != null && sim.right.textureCache != null }
+        t.devProbe("c1", "2")
+        clock += 1_000L
+        assertTrue(t.restartSession("test: stage 2 asked"))
+        t.start(full)
+        assertEquals(160 * 1024, t.state.value.cacheSize, "asked 256, the 160 KiB cache was still allocated: ${said()}")
+        assertEquals(0x24, t.state.value.flagsInForce, "ZWRITE armed: ${said()}")
+        clock += 10_000L; sim.uptimeOffsetMs = clock; clock += 200_000L
+        assertTrue(t.restartSession("test: after a reset"))
+        t.start(full)
+        waitUntil(10_000, message = { "the hold-back from stage 1: ${said()}" }) { has("keeper", "armed stage 1 — stage 0 from here") }
+        assertEquals(0x4, t.state.value.flagsInForce, "stage 0: ZWRITE gone, DRAW2 kept: ${said()}")
+        t.stop()
+    }
+
+    /** DM1 (`P-probe-close-acked`), §5.8: the disarm waits for its CLOSE — a CLOSE of every instance whose write fails
+     *  is said, and the FLAGS_SET that clears ENGINE is not sent (the glasses keep ENGINE). */
+    @Test
+    fun aDisarmWhoseCloseDidNotLandIsNotSent_DM1(): Unit = runBlocking {
+        val glass = GlassFirmwareSim().apply { damageContract = 2; damageFeatures = 0x1ff }
+        val t = StartRig(glass, scope)
+        t.heapReads = false
+        collect(t)
+        t.devProbe("c1", "3")
+        t.start(full)
+        assertEquals(0x2c, t.state.value.flagsInForce, "ENGINE in force")
+        val sets = java.util.concurrent.CopyOnWriteArrayList<Int>()
+        t.onWrite = { _, p ->
+            if (StartRig.damageOp(p) == DamageMsg.OP_FLAGS_SET) sets += controlArg(p)
+            if (imageData(p)?.contentEquals(CfwModes.motionClose(CfwModes.MOTION_ALL)) == true) throw java.io.IOException("test: the CLOSE's write fails")
+            p
+        }
+        t.devProbe("flags", "0x4")
+        waitUntil(10_000, message = { "the failed CLOSE is said: $notes" }) { has("motion", "CLOSE of every instance not acked") }
+        delay(300)
+        assertEquals(emptyList(), sets.toList(), "no FLAGS_SET clears ENGINE after a CLOSE that did not land")
+        for (arm in Arm.entries) assertEquals(0x2c, glass.damageFlags(arm), "$arm keeps ENGINE")
+        t.onWrite = null
+        t.stop()
+    }
+
+    /** DM1 (`P-closes-lens`, `P-closes-text-to-edge`), §5.6's rule as the transport bounds a write: each lens's write is
+     *  read against that lens's area (a pair here: L at x 100, R at x 300) — a left write over the RIGHT lens's area
+     *  closes nothing — and a cached glyph run counts from its origin to the panel's edges, so one that starts above and
+     *  left of the area closes it. */
+    @Test
+    fun theCloseRuleReadsEachLensAndAGlyphRunToTheEdges_DM1(): Unit = runBlocking {
+        val (sim, t) = engineSession()
+        val p = Motion.program(40_000) { track(Rect(100, 100, 40, 20), Rect(300, 100, 40, 20), Motion.Backdrop.Level(3)) { fill(9, 200) } }
+        assertTrue(t.sendMotion(messages(p, slot = 1, period = 128, tag = 0x81)))
+        waitUntil(10_000, message = { "the PLAY landed" }) { sim.motionWindows(Arm.RIGHT).any { it.slot == 1 } }
+        val batches = java.util.concurrent.CopyOnWriteArrayList<ByteArray>()
+        sim.imageObserver = { arm, img -> if (arm == Arm.RIGHT && img[0].toInt() == 8) batches += img }
+        t.submit(FlushRequest(listOf(DisplayOp.Fill(Rect(300, 104, 8, 4), Rect(500, 104, 8, 4), 7)), 0, "over the other lens's area"))
+        waitUntil(10_000, message = { "the first flush landed" }) { batches.size >= 1 }
+        assertTrue(subsOf(batches[0]).none { it[0].toInt() == 26 }, "each lens's write misses that lens's area: no CLOSE")
+        assertTrue(sim.motionWindows(Arm.RIGHT).any { it.slot == 1 }, "the instance still open")
+        t.submit(FlushRequest(listOf(DisplayOp.DrawText2(1000, 80, 280, 90, 15, byteArrayOf(0x41))), 0, "a glyph run above and left"))
+        waitUntil(10_000, message = { "the second flush landed" }) { batches.size >= 2 }
+        assertEquals(listOf(26, 2, 1), subsOf(batches[1])[0].take(3).map { it.toInt() and 0xFF }, "the run counts to the panel's edges: a CLOSE of slot 1 heads the batch")
+        t.stop()
+    }
+
+    /** DM1 (`P-shell-divergence-keyframe`), spec §6.4: an END CRC that disagrees with the mirror's is a `divergence` note
+     *  and the shell keyframes on it. The probe's `list` runs to its end with END in belief (so nothing else asks for a
+     *  keyframe: `TestProgramsTest`'s R1.16 pin), and RIGHT's notify arrives with its CRC changed by one bit. */
+    @Test
+    fun anEndCrcThatDisagreesKeyframesTheShell_DM1(): Unit = runBlocking {
+        val tmp = Files.createTempDirectory("damage-motion-crc")
+        try {
+            val glass = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = 0x1ff }
+            val t = StartRig(glass, scope)
+            collect(t)
+            t.devProbe("c1", "3")
+            t.onNotify = { _, p ->
+                val m = if (StartRig.sid(p) == SettingsMsg.SID) DamageMsg.parseMotion(StartRig.body(p)) else null
+                if (m?.outcome != DamageMsg.OUTCOME_DREW) p
+                else { val f = java.util.TreeMap(m.fields).also { it[8] = it[8]!! xor 1L }
+                    StartRig.reframe(p, Pb.cat(Pb.v(1, 3), Pb.v(2, 0), Pb.l(DamageMsg.MOTION_FIELD, Pb.cat(f.entries.map { Pb.v(it.key, it.value) })))) }
+            }
+            var clock = Shell.LocalClock(12, 0, "12:00", "PM")
+            val shell = Shell(FakeText(), t, Persistence(tmp.resolve("s.json")), null, scope) { clock }
+            shell.start()
+            waitUntil(10_000, 10, { "shell did not settle" }) { shell.isQuiescent() }
+            assertEquals(0x2c, t.state.value.flagsInForce, "ENGINE in force under the shell")
+            val keyframes = java.util.concurrent.atomic.AtomicInteger()
+            glass.imageObserver = { arm, img -> if (arm == Arm.RIGHT && subsOf(img).any { (it[0].toInt() and 0x7F) == 6 }) keyframes.incrementAndGet() }
+            t.devProbe("motion", "list")
+            waitUntil(10_000, message = { "list played: $notes" }) { notes.any { it.first == "motion" && it.second.startsWith(wm.damage.core.motion.TestPrograms.PLAYED + "list") } }
+            waitUntil(10_000, 10, { "shell did not settle" }) { shell.isQuiescent() }
+            val later = System.currentTimeMillis() + 5_000
+            glass.motionClock = { later }
+            for (arm in Arm.entries) glass.conformanceWake(arm, later)
+            waitUntil(10_000, message = { "the altered notify: $notes" }) { has("divergence", "END CRC") }
+            clock = Shell.LocalClock(12, 1, "12:01", "PM")
+            shell.postMinuteTick()
+            waitUntil(10_000, message = { "a keyframe after the divergence: ${keyframes.get()}" }) { keyframes.get() >= 1 }
+            shell.stop()
+        } finally {
+            tmp.toFile().deleteRecursively()
+        }
+    }
+
+    /** DM1 (`P-zw-one-at-a-time`, `P-zw-max-list`, `P-zw-withdrawn`), spec §2 row 23: one mode 25 waits for its judge at
+     *  a time (a second write while it waits goes as mode 19); a list past the 16,384 B inflate goes as mode 19; a mode-25
+     *  refusal on record with nothing waiting (one the judge took as landed) turns mode 25 off for the session. */
+    @Test
+    fun theMode25JudgesBounds_DM1(): Unit = runBlocking {
+        val glass = GlassFirmwareSim().apply { damageContract = 2; damageFeatures = 0x1ff }
+        val t = StartRig(glass, scope)
+        collect(t)
+        t.devProbe("c1", "1")
+        t.start(full)
+        assertEquals(0x24, t.state.value.flagsInForce, "stage 1: DRAW2 and ZWRITE")
+        val right = java.util.concurrent.CopyOnWriteArrayList<ByteArray>()
+        glass.imageObserver = { arm, img -> if (arm == Arm.RIGHT && (img[0].toInt() == 19 || img[0].toInt() == 25)) right += img }
+        fun list(off4: Int, n: Int = 2000) = CfwModes.cacheUpdate2(listOf(CfwModes.CacheWrite2(off4, ByteArray(n) { (it / 100).toByte() })), 160 * 1024)
+        t.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(list(1000))), 0, "ATLAS"))
+        t.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(list(2000))), 0, "ATLAS"))
+        waitUntil(10_000, message = { "two writes reached RIGHT" }) { right.size >= 2 }
+        assertEquals(listOf(25, 19), right.take(2).map { it[0].toInt() }, "the first waits for its judge; the second goes as mode 19")
+        t.devProbe("telemetry", "read")
+        delay(200)
+        t.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(list(3000, 16_400))), 0, "ATLAS"))
+        waitUntil(10_000, message = { "the long list reached RIGHT: $notes" }) { right.size >= 3 }
+        assertEquals(19, right[2][0].toInt(), "a 16,404 B list is past the inflate: mode 19")
+        // a mode-25 refusal on RIGHT's record that no waiting message answers for
+        val now = System.currentTimeMillis()
+        glass.conformanceControl(Arm.RIGHT, DamageMsg.OP_FLAGS_SET, DamageMsg.FLAG_DRAW2, now)
+        val planted = list(9000)
+        assertTrue(!glass.conformanceMessage(Arm.RIGHT, byteArrayOf(25) + Zl.deflate(planted.copyOfRange(1, planted.size)), now), "RIGHT refuses it (15)")
+        glass.conformanceControl(Arm.RIGHT, DamageMsg.OP_FLAGS_SET, DamageMsg.FLAG_DRAW2 or DamageMsg.FLAG_ZWRITE, now)
+        t.devProbe("telemetry", "read")
+        waitUntil(10_000, message = { "the refusal on record is said: $notes" }) { has("glass", "a mode-25 refusal on record") }
+        val seen = right.size                               // the planted message reached the observer too
+        t.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(list(4000))), 0, "ATLAS"))
+        waitUntil(10_000, message = { "the next write reached RIGHT" }) { right.size > seen }
+        assertEquals(19, right[seen][0].toInt(), "mode 25 off for the session")
+        t.stop()
+    }
+
+    /** DM1 (`P-busy-reason-14`), A-S1: only reason 14 counts — cache writes refused in a row for another reason (5: an
+     *  entry outside the session's cache) say nothing of a busy engine. */
+    @Test
+    fun cacheWritesRefusedForAnotherReasonAreNotSaidAsBusy_DM1(): Unit = runBlocking {
+        val glass = GlassFirmwareSim().apply { damageContract = 2; damageFeatures = 0x1ff }
+        val t = SimTransport(glass, scope, SimTransport.Timing(instant = true))
+        collect(t)
+        t.start(full)
+        assertEquals(160 * 1024, t.state.value.cacheSize)
+        val images = java.util.concurrent.atomic.AtomicInteger()
+        glass.imageObserver = { arm, _ -> if (arm == Arm.RIGHT) images.incrementAndGet() }
+        for (n in 1..4) {
+            val before = images.get()
+            // laid out for 256 KiB, so the encoder takes an entry past this session's 160: RIGHT refuses it 5
+            val list = CfwModes.cacheUpdate2(listOf(CfwModes.CacheWrite2(41_000 + 100 * n, ByteArray(64) { (it + n).toByte() })), 256 * 1024)
+            t.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(list)), 0, "ATLAS"))
+            t.submit(FlushRequest(listOf(DisplayOp.Fill(Rect(400, 300, 8, 4), Rect(400, 300, 8, 4), n)), 0, "elsewhere"))
+            waitUntil(10_000, message = { "write $n and its present reached RIGHT" }) { images.get() >= before + 2 }
+            val r = t.telemetry("test read")
+            assertEquals(5, r?.refusal?.reason, "write $n refused 5: ${r?.describe()}")
+        }
+        delay(200)
+        assertEquals(emptyList(), notes.filter { it.first == "fault" && it.second.startsWith("uploads:") }, "nothing said of a busy engine")
+        t.stop()
+    }
 }

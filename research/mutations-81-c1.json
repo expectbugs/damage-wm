@@ -454,7 +454,12 @@
    "*MotionDslTest*",
    "*TestProgramsTest*",
    "*ConformanceVectorTest*",
-   "*SilentStartTest*"
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
   ],
   "expect": [
    "noMode25Or26ReachesTheWireWithoutTheLaddersBits_6_2"
@@ -677,7 +682,12 @@
    "*MotionDslTest*",
    "*TestProgramsTest*",
    "*ConformanceVectorTest*",
-   "*SilentStartTest*"
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
   ],
   "expect": [
    "everyVectorMatchesOnBothLenses"
@@ -790,7 +800,12 @@
    "*MotionDslTest*",
    "*TestProgramsTest*",
    "*ConformanceVectorTest*",
-   "*SilentStartTest*"
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
   ],
   "expect": [
    "aCloseRidesOnlyWhileEngineIsInForce_BN5"
@@ -878,7 +893,12 @@
    "*MotionDslTest*",
    "*TestProgramsTest*",
    "*ConformanceVectorTest*",
-   "*SilentStartTest*"
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
   ],
   "expect": [
    "theWireNamesC1sFieldsAndParsesANotify_5_8"
@@ -900,7 +920,12 @@
    "*MotionDslTest*",
    "*TestProgramsTest*",
    "*ConformanceVectorTest*",
-   "*SilentStartTest*"
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
   ],
   "expect": [
    "theWireNamesC1sFieldsAndParsesANotify_5_8"
@@ -925,7 +950,9 @@
    "*SilentStartTest*",
    "*TextureCacheTest*",
    "*AtlasCarryTest*",
-   "*Draw2SessionTest*"
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
   ],
   "expect": [
    "aStage2SessionsAtlasLaysOutOverTheWiderCache_6_1"
@@ -1104,7 +1131,12 @@
    "*MotionDslTest*",
    "*TestProgramsTest*",
    "*ConformanceVectorTest*",
-   "*SilentStartTest*"
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
   ],
   "expect": [
    "theInstalledImageAndAStage0C1BuildWriteTodaysStart_6_2"
@@ -1126,7 +1158,12 @@
    "*MotionDslTest*",
    "*TestProgramsTest*",
    "*ConformanceVectorTest*",
-   "*SilentStartTest*"
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
   ],
   "expect": [
    "theHoldBackDropsOneStageAndKeepsTheRest_6_1"
@@ -1258,7 +1295,12 @@
    "*MotionDslTest*",
    "*TestProgramsTest*",
    "*ConformanceVectorTest*",
-   "*SilentStartTest*"
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
   ],
   "expect": [
    "theHoldBackDropsOneStageAndKeepsTheRest_6_1"
@@ -1302,7 +1344,12 @@
    "*MotionDslTest*",
    "*TestProgramsTest*",
    "*ConformanceVectorTest*",
-   "*SilentStartTest*"
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
   ],
   "expect": [
    "aHoldBackDropsFromWhatTheBuildArmed_BN4"
@@ -1394,7 +1441,12 @@
    "*MotionDslTest*",
    "*TestProgramsTest*",
    "*ConformanceVectorTest*",
-   "*SilentStartTest*"
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
   ],
   "expect": [
    "theHoldBackDropsOneStageAndKeepsTheRest_6_1"
@@ -1416,7 +1468,12 @@
    "*MotionDslTest*",
    "*TestProgramsTest*",
    "*ConformanceVectorTest*",
-   "*SilentStartTest*"
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
   ],
   "expect": [
    "eachLadderStageAddsOnlyItsOwnChange_6_2"
@@ -1504,7 +1561,12 @@
    "*MotionDslTest*",
    "*TestProgramsTest*",
    "*ConformanceVectorTest*",
-   "*SilentStartTest*"
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
   ],
   "expect": [
    "aDisarmOfEngineClosesEveryInstanceFirst_5_8"
@@ -1592,7 +1654,12 @@
    "*MotionDslTest*",
    "*TestProgramsTest*",
    "*ConformanceVectorTest*",
-   "*SilentStartTest*"
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
   ],
   "expect": [
    "aWriteThatMeetsAnOpenAreaClosesItInItsBatch_5_6"
@@ -1636,7 +1703,12 @@
    "*MotionDslTest*",
    "*TestProgramsTest*",
    "*ConformanceVectorTest*",
-   "*SilentStartTest*"
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
   ],
   "expect": [
    "aWriteThatMeetsAnOpenAreaClosesItInItsBatch_5_6"
@@ -1658,7 +1730,12 @@
    "*MotionDslTest*",
    "*TestProgramsTest*",
    "*ConformanceVectorTest*",
-   "*SilentStartTest*"
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
   ],
   "expect": [
    "aWriteThatMeetsAnOpenAreaClosesItInItsBatch_5_6"
@@ -1680,7 +1757,12 @@
    "*MotionDslTest*",
    "*TestProgramsTest*",
    "*ConformanceVectorTest*",
-   "*SilentStartTest*"
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
   ],
   "expect": [
    "theShellTellsTheCompositorWhileAnInstanceIsOpen_BN5"
@@ -1724,7 +1806,12 @@
    "*MotionDslTest*",
    "*TestProgramsTest*",
    "*ConformanceVectorTest*",
-   "*SilentStartTest*"
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
   ],
   "expect": [
    "aNotifyIsComparedWithTheMirrorAndAGapIsJournaled_6_4"
@@ -1759,7 +1846,7 @@
   "edits": [
    [
     "            if (tag != null) {\n                // build C1's ruling B-N2",
-    "            if (false) {\n                // build C1's ruling B-N2"
+    "            if (tag != null && false) {\n                // build C1's ruling B-N2"
    ]
   ],
   "tests": [
@@ -1768,7 +1855,12 @@
    "*MotionDslTest*",
    "*TestProgramsTest*",
    "*ConformanceVectorTest*",
-   "*SilentStartTest*"
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
   ],
   "expect": [
    "aRefusedPlayIsMatchedByItsPlaysRecordNotBySlotAtTheNotify_BN2"
@@ -1856,7 +1948,12 @@
    "*MotionDslTest*",
    "*TestProgramsTest*",
    "*ConformanceVectorTest*",
-   "*SilentStartTest*"
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
   ],
   "expect": [
    "aRefusedMode25GoesAgainAsMode19AndTheCountMovesByOne_5_9"
@@ -1878,7 +1975,12 @@
    "*MotionDslTest*",
    "*TestProgramsTest*",
    "*ConformanceVectorTest*",
-   "*SilentStartTest*"
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
   ],
   "expect": [
    "aRefusedMode25GoesAgainAsMode19AndTheCountMovesByOne_5_9"
@@ -1922,7 +2024,12 @@
    "*MotionDslTest*",
    "*TestProgramsTest*",
    "*ConformanceVectorTest*",
-   "*SilentStartTest*"
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
   ],
   "expect": [
    "aRefusedMode25GoesAgainAsMode19AndTheCountMovesByOne_5_9"
@@ -1944,7 +2051,12 @@
    "*MotionDslTest*",
    "*TestProgramsTest*",
    "*ConformanceVectorTest*",
-   "*SilentStartTest*"
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
   ],
   "expect": [
    "aRefusedMode25GoesAgainAsMode19AndTheCountMovesByOne_5_9"
@@ -2054,7 +2166,12 @@
    "*MotionDslTest*",
    "*TestProgramsTest*",
    "*ConformanceVectorTest*",
-   "*SilentStartTest*"
+   "*SilentStartTest*",
+   "*TextureCacheTest*",
+   "*AtlasCarryTest*",
+   "*Draw2SessionTest*",
+   "*BaseMaskTest*",
+   "*DamageMsgTest*"
   ],
   "expect": [
    "threeCacheWritesRefused14InARowAreSaidOncePerSession_AS1"

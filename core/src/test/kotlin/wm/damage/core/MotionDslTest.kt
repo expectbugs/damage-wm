@@ -294,4 +294,20 @@ class MotionDslTest {
         assertEquals("seq 10 slot 0 tag - refused (display-or-engine-busy)", DamageMsg.parseMotion(wm.damage.core.wire.Pb.cat(
             wm.damage.core.wire.Pb.v(1, 3), wm.damage.core.wire.Pb.v(2, 0), wm.damage.core.wire.Pb.l(DamageMsg.MOTION_FIELD, busy)))!!.describe())
     }
+
+    /** DM1 (`W-batch-26`, `W-zwrite-mode19`, `W-zwrite-max`, `W-atlas-max-cache`): the encoders refuse loudly what their
+     *  callers check first today — a mode 26 in a batch where ENGINE is not in force, a mode 25 made of anything but a
+     *  mode-19 message or of a list past the 16,384 B inflate, a v2 atlas wider than its build's cache. */
+    @Test
+    fun theC1EncodersRefuseLoudlyPastTheirBounds_DM1() {
+        val close = CfwModes.motionClose(0)
+        assertFailsWith<LintError>("a 26 in a batch without ENGINE") { CfwModes.batch(listOf(close)) }
+        assertEquals(26, CfwModes.batch(listOf(close), engine = true)[4].toInt(), "with ENGINE in force the 26 rides")
+        fun list19(n: Int) = byteArrayOf(19, 0, 0, (n and 0xFF).toByte(), (n shr 8).toByte()) + ByteArray(n)
+        assertFailsWith<LintError>("mode 25 of a mode-12 message") { CfwModes.zwrite(byteArrayOf(12) + list19(1).copyOfRange(1, 6)) }
+        assertEquals(25, CfwModes.zwrite(list19(16_380))[0].toInt(), "a 16,384 B list deflates")
+        assertFailsWith<LintError>("a 16,385 B list") { CfwModes.zwrite(list19(16_381)) }
+        assertFailsWith<LintError>("a 200 KiB atlas on a 160 KiB build") { TextureCache.Builder(v2 = true, capacity = 200 * 1024) }
+        TextureCache.Builder(v2 = true, capacity = 200 * 1024, maxCache = CfwModes.CACHE2_MAX_RIDERS)
+    }
 }
