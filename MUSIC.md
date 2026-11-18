@@ -160,6 +160,16 @@ moment the PC is reachable again. Spotify is driven through its media session
 (notification-listener grant, one-time) and started cold through its media browser service. Main's
 summary names the live backend (`▶ Spotify · phone`).
 
+**The triggers, as built in APK 0.69 (build Q, after the PC's freeze of 2026-11-16, when the PC kept its connections
+open without answering and nothing switched):** an open that is not cached while the channel reads down; a
+player-library I/O error on a streamed track; a streamed track that waits 15 s for data while it plays
+(`STREAM_STALL_MS`, at its open or mid-song — the supervision of a network stream, not a timeout on a radio, render
+or input path). Only while a track plays or is asked to: a staged open is said, never switched, and nothing switches
+while nothing plays. The library stops at its place; a later play resumes there. A refused start says why (the
+notification grant, or "open Spotify once"). **A Spotify he starts on the phone is followed** whenever it starts
+playing while the library is the backend (Adam, 2026-11-17): his choice, no notice; "Back to PC library" or a
+library play leaves it. The player's decisions are `music` notes in the phone's journal.
+
 ### 3.11 Notifications and Settings → Music
 Sources: track change (on) · queue end (on) · route loss / paused (on) · PC unreachable (off) ·
 YouTube grab done/failed (on) · playlist saved (off). Rows as built: §8.4.

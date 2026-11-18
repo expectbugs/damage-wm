@@ -111,7 +111,9 @@ without writing a row.
   nothing is deleted. The phone serves the archives (`/journals`, and `/journal?…&name=` for one);
   `python3 tools/journal_pull.py --live` copies them and the live file to `~/.damage/phone-journal/` (it keeps no
   `journal-live-…` copy whose lines an archive there holds, and names the archive) and stops at a `/journals` 404
-  (0.63). **Pull before an uninstall.** `journal_report.py` reads a pipe or `<(…)` alone or as `-` (refused among
+  (0.63). From APK 0.69 the phone also keeps its LOG for 10 days, one file a day with date and time on every line
+  (`/logs` lists them, `/log?name=log-YYYYMMDD.txt` streams one; `python3 tools/journal_pull.py --logs` copies them;
+  a day stops at 32 MiB with a line saying so). **Pull before an uninstall.** `journal_report.py` reads a pipe or `<(…)` alone or as `-` (refused among
   several, exit 2); read a journal that spans the upgrade to 0.64 with `--since` — its `cached text:` line reads
   "refusals by reason" and the `cache count:` line names "short on staged strips alone".
 - **The phone's journal, no adb** (`HANDOFF.md` §32): `curl -s 'http://aphone:7403/journal?token=…&tail=2000000' | python3

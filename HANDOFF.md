@@ -8684,3 +8684,30 @@ installed build's 25 sites and none new, 347 KB below the OTA flag, features `0x
 - [ ] After: DamageCaps `0x1ff`; the free survival check (a reset note, then field 16); the v1/v2 self-test (v3 has
       none); fields 27–29 at 160 and 256; one ladder stage per soak (ZWRITE, 256 KiB, ENGINE with the feel session:
       field 33 with uploads in flight, LEFT's end reasons before a drop is read as a restart).
+
+## 86. Build Q (APK 0.69): Tmux's tap in scrollback, Music's switch to Spotify, the phone's log kept 10 days (2026-11-17)
+
+Context for the reader: Damage is Adam's own window manager for his own glasses, phone and PC. Three things from his
+use on the day 0.68 was deployed, built lean in one stage and gated; the spec and the report are in the gitignored
+`private/build069q/`.
+
+- **Tmux:** in the frozen scrollback a single tap does nothing; a double-tap or scrolling down past the end returns to
+  live (`TMUX.md`). His report: a scroll read as a tap opened the keys, and backing out lost his place.
+- **Music:** on 2026-11-16 the PC stopped answering while keeping its connections open. His phone's journal shows him
+  in the Music window for 40 minutes while the channel still read "up" (it learned otherwise only when the socket
+  failed, about 15 minutes after the PC's last answer); every track he opened streamed from a PC that did not answer
+  and ended as a failed stream, which paused with an error. The switch had one trigger — a track open that is not
+  cached while the channel already reads down. Built: the triggers in `MUSIC.md` §3.10 (a stream that fails or gets
+  no data for 15 s switches), and the window follows a Spotify he starts himself. Every player decision is a `music`
+  note in the journal: the incident could not be fully reconstructed because none was.
+- **The phone's log:** it held its last 4,000 lines in memory, without dates, about a day deep; that day's afternoon
+  had rotated out when it was read. Now also one file a day for 10 days (`DAILY.md`), written off the caller's
+  thread, a dropped line counted, `token=` values masked as written.
+- **Gate** (on `wip/q69`, simulator): core 1,508 tests and desktop 51 with 0 failures, `--selfcheck` and
+  `--music-check` pass, lint 0, the snapshot judge 0 px against `main` in both arrangements, the phone build and its
+  wiring check. Every pin was watched failing with its fix off. **Not shown by any test:** the phone's real player
+  library and a real Spotify session (the pins run on the simulator's player); his first use shows those.
+- **Lesson:** a channel that marks a peer down only when its socket fails reads "up" for as long as a stalled peer
+  holds the connection. L1 had already added a 60 s drop for an unanswered quick request on these channels; a
+  decision that depends on "is the PC there" needs the answer's age, not the connection's state.
+
