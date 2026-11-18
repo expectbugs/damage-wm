@@ -570,5 +570,8 @@
  ],
  "contract": 2,
  "start": "zero",
- "features": 511
+ "features": [
+  511,
+  1535
+ ]
 }
