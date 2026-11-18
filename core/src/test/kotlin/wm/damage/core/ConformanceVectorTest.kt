@@ -310,11 +310,11 @@ class ConformanceVectorTest {
             val sets = featureSets(vec)
             for (features in sets ?: listOf(null)) for (arm in Arm.entries) {
                 val lens = if (arm == Arm.LEFT) "L" else "R"
-                val name = if ((sets?.size ?: 0) > 1) "$name@0x${features!!.toString(16)}" else name
+                val label = if ((sets?.size ?: 0) > 1) "$name@0x${features!!.toString(16)}" else name   // which build disagreed
                 val sim = newSim(contract, features)
                 var now = 1000L
                 sim.conformanceLease(arm, true, now)
-                assertTrue(sim.conformanceMessage(arm, wm.damage.core.wire.CfwModes.selfTestBegin(), now), "$name $lens: begin refused")
+                assertTrue(sim.conformanceMessage(arm, wm.damage.core.wire.CfwModes.selfTestBegin(), now), "$label $lens: begin refused")
                 steps.forEachIndexed { i, stepEl ->
                     val step = stepEl.jsonObject
                     val rcs = ArrayList<Int>()
@@ -340,7 +340,7 @@ class ConformanceVectorTest {
                             "flags" in op -> sim.conformanceControl(arm, wm.damage.core.wire.DamageMsg.OP_FLAGS_SET, op["flags"]!!.jsonPrimitive.int, now)
                             "cachesize" in op -> sim.conformanceControl(arm, wm.damage.core.wire.DamageMsg.OP_CACHE_SIZE, op["cachesize"]!!.jsonPrimitive.int, now)
                             "lease" in op -> {}        // an acquire: the runner holds the lease throughout
-                            else -> { out.problems += "$name step $i: no self-test form for $op"; return@forEachIndexed }
+                            else -> { out.problems += "$label step $i: no self-test form for $op"; return@forEachIndexed }
                         }
                     }
                     out.ran += name
@@ -352,16 +352,16 @@ class ConformanceVectorTest {
                     // hashes to. Every vector in the repo draws in its first step, so this only
                     // shows on a sequence that does not (2026-09-16, the differential fuzz).
                     val got = if (sim.selfTestSteps(arm) == 0L) zeroCrc else "%08x".format(sim.selfTestCrc(arm))
-                    if (expect[lens]!!.jsonPrimitive.content != got) out.problems += "$name step $i lens $lens: scratch crc $got, the normal path gives ${expect[lens]!!.jsonPrimitive.content}"
+                    if (expect[lens]!!.jsonPrimitive.content != got) out.problems += "$label step $i lens $lens: scratch crc $got, the normal path gives ${expect[lens]!!.jsonPrimitive.content}"
                     val wantRc = expect["rc"]!!.jsonObject[lens]!!.jsonArray.map { it.jsonPrimitive.int }
-                    if (wantRc != rcs) out.problems += "$name step $i lens $lens: return codes $rcs, the normal path gives $wantRc"
+                    if (wantRc != rcs) out.problems += "$label step $i lens $lens: return codes $rcs, the normal path gives $wantRc"
                     // the refusal's copy sequence is the live count (0 here, nothing presents): not compared
                     expect["ref"]?.jsonObject?.get(lens)?.jsonArray?.map { it.jsonPrimitive.int }?.let { w ->
                         val g = sim.refusalRecord(arm)
-                        if (listOf(w[0], w[1], w[3]) != listOf(g[0], g[1], g[3])) out.problems += "$name step $i lens $lens: refusal record $g, the normal path gives $w"
+                        if (listOf(w[0], w[1], w[3]) != listOf(g[0], g[1], g[3])) out.problems += "$label step $i lens $lens: refusal record $g, the normal path gives $w"
                     }
                     val liveCrc = "%08x".format(sim.shadowCrc32(arm))
-                    if (liveCrc != zeroCrc) out.problems += "$name step $i lens $lens: the live shadow changed ($liveCrc)"
+                    if (liveCrc != zeroCrc) out.problems += "$label step $i lens $lens: the live shadow changed ($liveCrc)"
                     out.compared++
                 }
             }
@@ -515,11 +515,12 @@ class ConformanceVectorTest {
             for ((n, v) in set) Files.writeString(dir.resolve("$n.json"), v.toString())
             val out = runNormal(vectorFiles(dir))
             assertTrue(out.problems.none { it.startsWith("a-self") }, "the model agrees with itself through the runner: ${out.problems}")
-            assertEquals(5 * steps.size * 2, out.compared, "every lens-step of the five compared")
-            assertTrue(out.problems.any { it.startsWith("b-noN step $last: no notify (N)") }, "${out.problems}")
-            assertTrue(out.problems.any { it.startsWith("c-noW step $last lens") }, "${out.problems}")
-            assertTrue(out.problems.any { it.startsWith("d-noG step $last lens") }, "${out.problems}")
-            assertTrue(out.problems.any { it.startsWith("e-wrongN step $last: notify bodies") }, "${out.problems}")
+            val builds = featureSets(answered)!!.size                // C2: a features list runs at each of its builds
+            assertEquals(5 * steps.size * 2 * builds, out.compared, "every lens-step of the five compared")
+            assertTrue(out.problems.any { it.startsWith("b-noN") && "step $last: no notify (N)" in it }, "${out.problems}")
+            assertTrue(out.problems.any { it.startsWith("c-noW") && "step $last lens" in it }, "${out.problems}")
+            assertTrue(out.problems.any { it.startsWith("d-noG") && "step $last lens" in it }, "${out.problems}")
+            assertTrue(out.problems.any { it.startsWith("e-wrongN") && "step $last: notify bodies" in it }, "${out.problems}")
             val self = runSelfTest(vectorFiles(dir))
             assertEquals(emptyList(), self.problems, "an engine vector has no self-test form, and that is not a skipped drawing vector")
         } finally {
