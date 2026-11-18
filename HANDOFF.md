@@ -8775,11 +8775,21 @@ right"), with him at the PC. The per-step logs are in the gitignored `private/bu
   packet per 7.5 ms event (modeled from the throughput).
 - **Nothing is armed.** C1's features are turned on by the phone's ladder one at a time, each after its soak
   (`FORK.md` §7 item 10); at stage 0 the phone sends the bytes it sent before the flash.
-- **Owed, from the phone's journal once its Bluetooth is on again:** DamageCaps on both arms (features `0x1ff`
-  expected: the direct evidence of which image runs), the first telemetry (the arena's free figures with the larger
-  context, fields 27–29), the start's bytes unchanged, no refusal. As of 03:14 the phone's keeper still read
-  "bluetooth is off" (it asks again every 2 s and logs each try: about 6 lines per try in the day log — listed, not
-  changed).
+- **The read from the phone's journal after its reconnect (03:17:55; measured):** `DamageCaps contract 2 features
+  0x1ff` (0x7f in the three sessions before the flash); RIGHT's uptime 5,429 s at the reconnect, so it started at
+  01:47, the flash's end (2,568,476 s, 713 hours, before); the first telemetry with flags 0x0, last status 0 and the
+  C1 fields present, all zero (motion state, motion sequence, engine frames, folds); the cache asked at 160 KiB and
+  DRAW2 armed as in every session before; LE 2M on both arms; at the lease point arena 20 holds 70 KiB free where it
+  held 75 (the larger context, as §87 predicted), arenas 13 and 27 as before; no refusal, fault, divergence or
+  hold-back. LEFT cannot report: its evidence is the flash's verify, its authentication and that it draws.
+- **One difference not explained (measured; open):** in his 84-second test at 03:18 (the glasses reporting "not worn")
+  scroll messages came in bursts — 74 scrolls in 28 bursts, 19 of them of 2 to 6 events with gaps of 17–150 ms, 30
+  gaps under 50 ms. In the two days before the flash (565 scrolls, APK 0.67, the Phase 2 image) no gap was under
+  224 ms. The phone app's input path and carrier page did not change between 0.67 and 0.69 (read in the diff). Open
+  between the image, the flash's side effects (six components rewritten, a fresh start) and the test's conditions;
+  his next worn session's log decides what is read next. Nothing is armed until it is understood.
+- The phone's keeper asked again every 2 s while its Bluetooth was off (01:20–03:17) and logged about 6 lines per
+  try in the day log — listed, not changed.
 - **The way back:** the previous image `48172b62…` (kept built), then Phase 1's `c5e4f8b7…`.
 - **The fork's own records** (`DAMAGE.md`'s pin, the `damage` branch) still name `48172b62…`; moving them to `c1`
   and the fork's push are his.

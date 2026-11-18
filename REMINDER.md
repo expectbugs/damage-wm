@@ -12,9 +12,10 @@ for firmware → earlier by number (§65 Phase 2 and the protocol, §48 the fork
 ## Where we are (2026-11-18)
 
 - **The glasses run the fork's C1 build since 2026-11-18** (pin `0dab2154…`, flashed on both lenses on his go,
-  `HANDOFF.md` §88; the image before it `48172b62…`). **Nothing of C1 is armed.** Owed, from the phone's journal once
-  its Bluetooth is on again: DamageCaps on both arms (`0x1ff` expected), the first telemetry with the larger context,
-  the start's bytes unchanged.
+  `HANDOFF.md` §88; the image before it `48172b62…`). **Nothing of C1 is armed.** The phone's journal after its
+  reconnect confirms it: features `0x1ff`, flags 0x0, no refusal, the arena figures as predicted. **One difference is
+  open:** scroll messages came in bursts of 2–6 in his first test where none had been closer than 224 ms before
+  (§88); his next worn session's log is read before anything is armed.
 - **His phone runs APK 0.69 since 2026-11-17 21:57; the PC service runs 0.69's tree** (`main` `1153ded`, since 21:51;
   0.69 = 0.68 plus build Q, §86). The record opened with its epoch kept; Torrents' and Files' rows were carried at
   0.68's first start. No browser of his is approved yet; he has not said he has used the pages.
