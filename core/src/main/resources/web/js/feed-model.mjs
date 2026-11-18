@@ -377,7 +377,7 @@ export const isComic = (row, s) => (row ? str(row.itemKind).toUpperCase() === 'C
 
 // ---- documents: spans as the renderer takes them (spec §2.3; C§3.2) ----
 
-/** An `href` the page may draw as a link: http or https only; anything else (javascript:, data:, a relative path)
+/** An `href` the page may draw as a link: http or https only; anything else (a script or data URL, a relative path)
  *  is not a link. */
 export function safeHref(href) {
   const s = str(href).trim();
