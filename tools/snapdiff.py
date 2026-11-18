@@ -46,12 +46,8 @@ STATUS_LIVE_X = INSET_X + 120 + 140 - SHIFT          # 276 less the shift
 STATUS_LIVE_W = PANEL_W - STATUS_LIVE_X
 SILENT_CLOCK = (480, 0, PANEL_W - 480, 50)           # silent mode's clock (scene 10), seven segments, right-aligned: room for "12:59"
 FILES_FREE = [(80, 240, 320, 30), (360, 280, 240, 160)]   # scene 11: the lens's free line; the rows' bars and free text
-# a Feed article's meta line (scenes 62, 67): its age ("18s") counts from the scene's own fixture time, and a digit's
-# width moves the rest of the line (seen on 67 at S1-1 P5: "17s" against the base's "18s", 626 px)
-FEED_ARTICLE_META = (180, 118, 340, 20)
-# a Feed comic's meta line (scene 64, "xkcd · 17s ago"): the class's other site — its age counts from the scripted feed's
-# own start, so it moves with how long the run took to reach the scene (S1-1's last stage: "16s" idle, "18s" under load)
-FEED_COMIC_META = (20, 70, 240, 22)
+# (a Feed article's and a Feed comic's meta line, scenes 62, 64, 67, were declared live while their age ran on the wall
+# clock; since build S1-3 J Feed runs on the scene's clock, they read the same in every render and are judged)
 # a notice box's clock (build S1-2 J0, scene 25: a Torrents done notice): the shell stamps a window's notice with the
 # wall clock (`Shell.notifyInternal`), drawn right-aligned in the box's source line (`Notifications.paint`, at
 # `full.right - 8`). Measured on the base render: the 248 px box at x 196..443, "6:07" at x 408..434, y 195..203; the
@@ -98,10 +94,6 @@ def declared_cells(name, px, size):
         cells.append((STATUS_LIVE_X, hh - STATUS_H, STATUS_LIVE_W, STATUS_H))
     if name.startswith("11-"):
         cells.extend(FILES_FREE)
-    if "feed-article" in name:
-        cells.append(FEED_ARTICLE_META)
-    if "feed-comic" in name:
-        cells.append(FEED_COMIC_META)
     if "done-notice" in name:
         cells.append(NOTICE_CLOCK)
     if name.startswith(NOTICE_2LINE_SCENES):
@@ -325,13 +317,13 @@ def selftest():
         for d in (b, b2):
             frame(os.path.join(d, "67-feed-article-288.png"), h=288)
         frame(os.path.join(n, "67-feed-article-288.png"), h=288, dot=(200, 125))
-    case("a Feed article's age is live", 0, feed_age, expect_in="inside")
+    case("a Feed article's age is judged (the scene's clock)", 1, feed_age, expect_in="OUT (200,125)")
 
     def comic_age(b, b2, n):
         for d in (b, b2):
             frame(os.path.join(d, "64-feed-comic.png"))
         frame(os.path.join(n, "64-feed-comic.png"), dot=(100, 80))
-    case("a Feed comic's age is live", 0, comic_age, expect_in="inside")
+    case("a Feed comic's age is judged (the scene's clock)", 1, comic_age, expect_in="OUT (100,80)")
 
     def notice_clock(b, b2, n):
         for d in (b, b2):
