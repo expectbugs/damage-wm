@@ -13,10 +13,9 @@ number of differing pixels and their bounding boxes, split into those INSIDE the
   - the union of the pixels that differ between BASE and BASE2 for that scene (two renders of one tree: whatever
     differs between them is live content, not the change under test), when --mask is given;
   - the declared live cells (`HANDOFF.md` §79.4): the clock cell of the top bar; the status bar's throughput, compass
-    tape and link cells (at the height the scene is drawn at, found from its bottom divider); silent mode's clock; disk
-    free in `11-files-locations`; a Feed article's and a Feed comic's meta line (its age); the clock of a notice box
-    raised from the wall clock (`25-torrents-done-notice`, `09f-tmux-alert-main`, `78-feed-notice-main`); the whole of
-    `38-*` / `39-*` (Music Mode's visualizer runs from the live clock).
+    tape and link cells (at the height the scene is drawn at, found from its bottom divider); silent mode's clock; the
+    clock of a notice box raised from the wall clock (`25-torrents-done-notice`, `09f-tmux-alert-main`,
+    `78-feed-notice-main`); the whole of `38-*` / `39-*` (Music Mode's visualizer runs from the live clock).
 A difference OUTSIDE the mask is a finding: the stage that ran the judge names it or fixes it. A scene present in one
 set and not the other is a failure. With --subset, NEW may hold fewer scenes than BASE (the phone arrangement renders
 Reader's scenes only, into `DIR/phone/`): every scene in NEW must exist in BASE, and the rest of BASE is not compared.
@@ -45,7 +44,8 @@ SHIFT = 8
 STATUS_LIVE_X = INSET_X + 120 + 140 - SHIFT          # 276 less the shift
 STATUS_LIVE_W = PANEL_W - STATUS_LIVE_X
 SILENT_CLOCK = (480, 0, PANEL_W - 480, 50)           # silent mode's clock (scene 10), seven segments, right-aligned: room for "12:59"
-FILES_FREE = [(80, 240, 320, 30), (360, 280, 240, 160)]   # scene 11: the lens's free line; the rows' bars and free text
+# (disk free in `11-files-locations` was declared live while the Files scenes read the machine's volumes; since S1-3's
+# close they show a pinned world, `desktop/…/SceneFiles.kt`, and are judged)
 # (a Feed article's and a Feed comic's meta line, scenes 62, 64, 67, were declared live while their age ran on the wall
 # clock; since build S1-3 J Feed runs on the scene's clock, they read the same in every render and are judged)
 # a notice box's clock (build S1-2 J0, scene 25: a Torrents done notice): the shell stamps a window's notice with the
@@ -92,8 +92,6 @@ def declared_cells(name, px, size):
     if hh is not None:
         cells.append(CLOCK)
         cells.append((STATUS_LIVE_X, hh - STATUS_H, STATUS_LIVE_W, STATUS_H))
-    if name.startswith("11-"):
-        cells.extend(FILES_FREE)
     if "done-notice" in name:
         cells.append(NOTICE_CLOCK)
     if name.startswith(NOTICE_2LINE_SCENES):

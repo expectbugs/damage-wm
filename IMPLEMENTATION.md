@@ -439,9 +439,9 @@ lead's decisions; `CONTRACT.md` §7, §11.2; `BASTION.md` F13). Rules and the co
   the read-back), `first-frame` — journaled as `heap3` notes; the three reads are the existing telemetry read, none in
   Silent Mode, an unanswered one said and never waited on; off on instant test transports.
 
-## The shared window core, the PC record and the web listener (builds S1-1 and S1-2, as L1 left them; `HANDOFF.md` §80, §84)
+## The shared window core, the PC record and the web listener (builds S1-1 and S1-2, as L1 left them, and S1-3; `HANDOFF.md` §80, §84, §89)
 
-The PC owns the converted windows' state (Reader, Torrents' and Files' own rows, the notice record); the phone keeps a
+The PC owns the converted windows' state (Reader, Torrents' and Files' own rows, Feed's and Tmux's, the notice record); the phone keeps a
 working copy; a browser is a third presenter (`CONTRACT.md` §2, §9, §10, §12). Ops and keys: `DAILY.md`.
 
 - **The record** (`core/…/app/`, both PC host builders): `record.json` (`{v, epoch, items, covered}`; items
@@ -460,8 +460,9 @@ working copy; a browser is a third presenter (`CONTRACT.md` §2, §9, §10, §12
   is saved and every op is answered `retry`; the pacing tick opens it again until it opens (L1 R-a, said when it
   opens), and the lane keeps each record or window subscription it refused meanwhile and serves it on the tick after.
   Alerts under `record.` survive a watcher start (`AlertRule.RESERVED_PREFIXES`).
-- **The `app` lane** (`AppWire`, `AppNet`, `AppClient`, `Contracts`): on the content port, its hello `{t: app, proto: 2,
-  stream, contracts}` after the port's own `proto: 1` hello. Per connection one sender thread and an outbox of 4,096
+- **The `app` lane** (`AppWire`, `AppNet`, `AppClient`, `Contracts`): on the content port, its hello `{t: app, proto,
+  stream, contracts}` (`AppWire.PROTO` = 4 since S1-3, equal to the pages' `proto.mjs`, tied by `BundleTest`) after the
+  port's own `proto: 1` hello. Per connection one sender thread and an outbox of 4,096
   frames (a reader that stops reading is ended `slow`); every step that touches the record runs on the executor, and
   an op's answer goes out before its change; an op that changed nothing publishes no change. Every `sub` is answered
   with a snapshot. Reach is decided by the paced ping alone; reconnects on 2 s pacing. `Contracts.MINE` (from
@@ -512,6 +513,40 @@ working copy; a browser is a third presenter (`CONTRACT.md` §2, §9, §10, §12
   name), never replacing; the upload's socket keepalive is 60 s idle, 15 s interval, 4 probes. The trash's
   `manifest.json` is written whole through a forced temp file; trash writes the row before it moves the file. The trash
   folder is refused to every other writer.
+- **Feed** (S1-3; `core/…/windows/feed/`): `FeedCore` (the record `rec.feed.…` — read lists per source, flags, seen
+  stamps, the article `place`, `binge.<src>`, pins, recents, the shared and glasses rows; one engine listener per
+  process raises the notices into the notice record, a first sight writing `seen`; the record's Fetch and Keep handed
+  to `FeedEngine.configure`), `FeedScopes` (`desc/feed` and `feed/src:<id>/page:<n>` on the thread `feed-describe`;
+  `item`, `comments`, `comic`, `num`, `binge` — each may fetch a site — on `feed-reading`; `refresh` and `browse`
+  program ops), `FeedBlobs` (`feed.<key>`, only keys a scope handed out, the 4,096 newest), `FeedAnchor` (the glasses'
+  wrapped line ↔ block and offset), `FeedGlasses` (the presenter; `FeedWindow(…)` the compatibility factory over a
+  `MemoryRecord`), `FeedMigration` at both PC starts before any presenter reads the record (`Migrate` gained offers
+  from sub-keys). The fetch supervisor: `RealFeedHttp.sweep`, from the engine's loop, ends a fetch in flight for 5
+  minutes, says so on the source's health and in the log; the next due time tries again. The phone builds
+  `RemoteFeedProvider` alone (no engine, no switch); its old `feed/` folder's size is said once in the log.
+- **Tmux** (S1-3; `core/…/windows/tmux/`): `TmuxCore` (the record `rec.tmux.…`: `alerts`, `mute.<host>/<name>`,
+  `glasses.size`, `glasses.context`; `desc/tmux`, Main's card; one provider listener per process raises the waiting
+  edge into the notice record, "`<name>` wants input"), `TmuxScopes` (`tmux/session:`, `tmux/history:`, the frames
+  as the live source `live/tmux/frame/<host>/<name>` with colour runs from `Sgr.colourRuns`; the program ops `key`,
+  `snippet`, `line`, `raw`, `new`, `rename`, `end`, `select` on ONE single-thread pool, `AppNet.serve(pool = …)`, a
+  task whose connection ended or was revoked first refused `ended`), `TmuxStream` (the desk's stream: one `tmux -C
+  attach-session -t =<name>: -f ignore-size` client per (host, session) while a viewer holds it, locally or as one ssh
+  exec; its init is a `display-message` and a `capture-pane -p -e` block, then the active pane's `%output`, re-init on
+  a pane, window or layout change, `%session-renamed` → `end{to}`, `%exit` → `end`; the last viewer's leave closes its
+  stdin, its exit waited for on its own thread and said if it lingers), `TmuxGlasses` (the presenter; `TmuxWindow(…)`
+  the compatibility factory), `TmuxMigration`. `LocalTmuxProvider` gained `health()`, `sendRaw` (printable runs `-l
+  --`, the rest `-H`, joined in one tmux process; every argument's final `;` escaped once), the waiting edges sent
+  right after the status push that carries them, and ssh `ServerAliveInterval=15 ServerAliveCountMax=4`.
+- **The live seam** (S1-3; `AppNet.Live`, `AppWire.live`): `sub live/<window>/<src>` checked on the executor at attach
+  (the contract window, then the level), the viewer kept with its need; detached by `unsub`, a need of none, the
+  viewers' sweep (which sends `live{end{again: true}}`; a live `sub` counts as the connection's ping), the
+  connection's end, a revoke or the PC's stop. No numbering: a new connection gets a fresh `init`. A page that cannot
+  keep up is ended `slow` by the outbox (4,096 frames).
+- **The terminal library** (S1-3): `@xterm/xterm` 6.0.0 (MIT) from the WebJar `org.webjars.npm:xterm__xterm:6.0.0`,
+  one pin in the version catalog, `runtimeOnly` in the desktop module (and `testRuntimeOnly` in core for
+  `LookServer`); `VendorSource` / `ClassPathVendor` read it from the class path (its version from the jar's
+  `pom.properties`) and the listener serves exactly `GET /vendor/xterm/{xterm.mjs, xterm.css, LICENSE}` with the
+  bundle's headers to any page; the phone passes none (404 with the reason). No copy in the tree.
 - **The document and the index** (the PC only): `Epub.extract` behind `Epub.load` (today's text unchanged); `EpubDoc`
   (blocks and spans — em, strong, code, link — aligned onto today's text by a markup walk; http(s) links kept, a link
   to another spine document an in-book `jump`, the rest dropped and counted); `ReaderIndex` (`reader-index.json`:
@@ -542,7 +577,11 @@ working copy; a browser is a third presenter (`CONTRACT.md` §2, §9, §10, §12
   `reader-model.mjs`: the shelf, a book one spine part at a time; a place op carries the time of his input and is sent
   at the save point and on leaving; the page follows another device's newer place), Torrents, Files (an upload says
   the name it was placed under; the slot's line shows the slot's job), notices, the devices and diagnosis pages, themes
-  in the glasses' faces. The stream id lives in local storage and a page numbers its ops in memory; every op carries
+  in the glasses' faces; since S1-3 Feed (`feed-model.mjs` decides, `views/feed.mjs` draws; `doc.mjs` the one document
+  renderer, Reader's and Feed's; a place follows Reader's gesture rule) and Tmux (`tmux-model.mjs`, `views/tmux.mjs`;
+  `term-render.mjs` the colour grid and flow; `terminal.mjs` the desk terminal: it loads the PC-served library, swallows
+  the library's answers to terminal queries and drops focus reports, sends his bytes as `raw` ops, pastes through the
+  paste rule; `ctx.live` the live seam). The stream id lives in local storage and a page numbers its ops in memory; every op carries
   `at` on the PC's clock (`pcNow()`, from `welcome.pcClock`); the page keeps no queue. Its three recoveries: a `proto`
   end reloads the page on the 2 s pacing; two pings unanswered in a row let the socket go and make a new one; the reach
   line names the day when it is not today. Seen against the real in-process listener in a real browser (S1-2's looks,
@@ -550,9 +589,12 @@ working copy; a browser is a third presenter (`CONTRACT.md` §2, §9, §10, §12
 - **The judge** (`tools/snapdiff.py`; `Snapshot.kt`'s phone arrangement renders the converted windows' scenes again into `DIR/phone/`
   over a `WorkingCopy` fed from a loopback content host): each scene compared pixel for pixel with a base rendered
   before a build's first product edit, masked by the base pair's union and the declared live cells; a difference outside
-  the mask is named or is a defect.
+  the mask is named or is a defect. Files' scenes read no live machine since S1-3's close: `SceneFiles` answers a pinned
+  list of locations (totals and free space), a made-up root listing and folder and trash with pinned dates, over a
+  provider that reads no mount table; the standing base is `private/build070/base-070/` (mask `base-070-mask/`). Still
+  read from the machine: the books (hash checked around each render) and the desktop's icon theme.
 
-## Feed + comics (2026-09-09, FEED.md — one engine on both hosts, a deliberate switchback)
+## Feed + comics (2026-09-09, FEED.md — one engine, on the PC since S1-3)
 
 Reddit popular, Slashdot, xkcd, SMBC, the 8-Bit Theater archive; `FEED.md` §8 is the record. `core/…/windows/feed/`:
 `FeedModel` · `FeedHttp` (`RealFeedHttp`, `PacedHttp` — one request per minute per Reddit host, a second
@@ -564,14 +606,14 @@ elsewhere, `Retry-After` honoured, `RateLimited`) · `FeedXml` · `Fetchers` (`R
 (`--feed-check [DIR] [live]`), `feedChecks` in `SelfCheck`, `feedScenes` in `Snapshot`. Tests: `FeedTest`,
 `FeedWindowTest`, `FeedNetTest`, `FeedStripsTest`; fixtures `core/src/test/resources/feed/`.
 
-- **`FeedEngine` runs on both hosts** (`FEED.md` §3.6): the PC's is `Config.feedEngine` (files under
-  `~/.damage/feed`) and serves the phone through `FeedService` on the window channel; the phone's own (the app's
-  `files/feed`) starts PAUSED and `SwitchingFeedProvider` resumes it after the `PC loss` threshold; `Back to PC`
-  in the root menu parks it. Nothing switches back on its own. (As built; from step S1 the phone shows the PC's last
-  state with its age instead — `CONTRACT.md` §14 (a) row 1, `FEED.md` verdict 15.)
-- **Reading state is the shell's:** `feed.src.<id>` (read ids capped at 600, flags, `seen`) and `feed.binge.<id>`
-  (episode, strip); read marks UNION on a live apply, flags are LWW. Harness accessors: `rootRowId()`,
-  `levelName`, `itemsLoaded()`, `comicFocusLabel()`.
+- **`FeedEngine` runs on the PC only** since S1-3: `Config.feedEngine` (files under `~/.damage/feed`), serving the
+  phone through `FeedService` on the window channel (articles without spans) and the pages through `FeedScopes`. The
+  phone's own engine, `SwitchingFeedProvider`, the `PC loss` row and `Back to PC` are gone (`CONTRACT.md` §14 (a) row
+  1). The list of names in the paragraph above predates S1-3: `FeedWindow` is now `FeedGlasses` (above, "The shared
+  window core").
+- **Reading state is the PC record's** since S1-3 (`rec.feed.…`, above); the old `window.feed`, `window.feed.src.<id>`
+  and `window.feed.binge.<id>` keys were read once by the migration, and the local blob keeps the view's own state only. Harness
+  accessors: `rootRowId()`, `levelName`, `itemsLoaded()`, `comicFocusLabel()`.
 - **Slashdot**: the story page's rendered thread (`SlashdotRss.parseThread`) plus `POST ajax.pl op=comments_fetch`
   for the ids it lists but does not render (`fetchMissing`) — the one POST in the engine.
 - **Config:** `feedSources` (the day-one five when absent), `feedUserAgent`, `feedDataDir`. No credentials.
@@ -686,7 +728,8 @@ targeting, no `-C` attach). `wm.damage.core.windows.tmux`; `TMUX.md` is the reco
   only); ssh gets BatchMode+ConnectTimeout=5 on connection ESTABLISHMENT only, one multiplexed connection per
   host (`~/.damage/ssh-*`, 60 s persist).
 - **`TmuxNet`** rides the CONTENT port (`{"t":"tmux"}` after the hello → a push channel); `RemoteTmuxProvider`
-  (phone) reconnects keeper-style and surfaces `PC unreachable Ns`. Config (quick keys/snippets/patterns) is
+  (phone) reconnects keeper-style and surfaces `PC unreachable since H:MM` (S1-3; it counted seconds). It no longer
+  carries alerts: since S1-3 the PC raises them into the notice record (`TmuxCore`, above). Config (quick keys/snippets/patterns) is
   served WITH the session list — `~/.damage/config.json` on the PC is the one tuning point.
 - **`TmuxWindow`** — SESSIONS → LIVE (canvas; **scroll-up IS scrollback**) → HISTORY → KEYS → SNIPPETS / WINDOWS
   (targets `=s:idx`, never `select-window`) / SESSION_ACTIONS (mute · Fit pane 64×22 · select · rename · the
@@ -1249,8 +1292,8 @@ Every review's pins were run against the unfixed tree and watched to fail before
   base renders of the parent commit, made before the first product edit; 0 px outside the mask or each difference
   named. **To compare two BUILDS** by eye keep both installs on disk (build, copy `desktop/build/install/desktop` aside, `git stash`, build,
   copy aside, `git stash pop`), run them inside one minute, and judge by WHERE the pixels differ: the status
-  readout sits inside `x∈[240,400]` in a band ≤ 16 rows tall; the live scenes are `11-files-locations`,
-  `38-music-mode-480-bars`, `39-music-mode-288-scope`; `10-silent.png` draws no status line and IS
+  readout sits inside `x∈[240,400]` in a band ≤ 16 rows tall; the live scenes are
+  `38-music-mode-480-bars`, `39-music-mode-288-scope` (`11-files-locations` no longer: S1-3's close pinned Files' world); `10-silent.png` draws no status line and IS
   byte-stable — the useful canary.
 - `tools/lint.py` gates the repo at 0 findings: SYM001/SYM002 (drawn strings and every Kotlin string literal against
   the locked faces), SEC001 (no token in a log line), RO001 (the bus watcher's package, `core/…/bastion/`, reads the

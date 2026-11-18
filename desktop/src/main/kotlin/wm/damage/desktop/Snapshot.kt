@@ -99,9 +99,10 @@ object Snapshot {
         // No new local lives past here: this method is at the JVM's size limit, and each one is saved at every pause
         val tmuxWin = tmuxOn(text, tmuxScripted, scope, pcRecord)
         shell.register(tmuxWin)
-        // build S1-2 J0: the real provider over the books, with a made-up folder and trash shown from the Files
-        // scenes on (`SceneFiles`; the locations are the real provider's until then)
-        val sceneFiles = SceneFiles(wm.damage.core.windows.files.LocalFilesProvider(books, tmp.resolve("trash"), AwtImages()))
+        // build S1-2 J0, S1-3 close: Files' pinned world (`SceneFiles`: the locations, a made-up root, folder and trash);
+        // the provider under it reads no mount table (`SelfCheck`'s precedent)
+        val sceneFiles = SceneFiles(wm.damage.core.windows.files.LocalFilesProvider(books, tmp.resolve("trash"), AwtImages(),
+            mountsFile = tmp.resolve("no-mounts")), cfg.booksDir)
         // S1-2 Q5: Files' presenter on the scratch PC record (its rows), the provider behind the PC's job slot
         val filesPc = wm.damage.core.windows.files.FilesPc(pcRecord, sceneFiles, cfg.booksDir, null, null)
         val filesWin = wm.damage.core.windows.files.FilesGlasses(text, filesPc.core, filesPc.glassesSource(), filesPc.slotted,
@@ -551,10 +552,10 @@ object Snapshot {
         val pcNotices = wm.damage.core.app.NoticeCore(pcRecord)
         val pcTorrents = wm.damage.core.windows.torrents.TorrentsCore()
         pcTorrents.attachNotices(torrentsScripted, torrentsScripted.epoch, pcNotices)
-        // S1-2 Q5: Files on the scratch PC record behind its job slot, over the first arrangement's provider (the real
-        // one over the books for the locations, J0's made-up folder and trash once shown), served to the phone through
-        // the window channel
-        val phoneFiles = SceneFiles(wm.damage.core.windows.files.LocalFilesProvider(books, tmp.resolve("trash"), AwtImages()))
+        // S1-2 Q5: Files on the scratch PC record behind its job slot, over the first arrangement's pinned world
+        // (`SceneFiles`), served to the phone through the window channel
+        val phoneFiles = SceneFiles(wm.damage.core.windows.files.LocalFilesProvider(books, tmp.resolve("trash"), AwtImages(),
+            mountsFile = tmp.resolve("no-mounts")), cfg.booksDir)
         val phoneFilesPc = wm.damage.core.windows.files.FilesPc(pcRecord, phoneFiles, cfg.booksDir, null, null)
         // bound to loopback, and gated like every listener (build W): the strict gate answers loopback only here
         val host = wm.damage.core.content.ContentHostServer(LocalContent(books), 0, token, app = net,

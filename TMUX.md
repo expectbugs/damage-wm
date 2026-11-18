@@ -27,6 +27,37 @@ need a terminal to be entirely live, it's just text."* The FLOW view replaced it
   (the resize action remains, for alternate-screen TUIs and attached PC clients).
 - Cost, chosen with eyes open: columns line up only when a line fits unwrapped.
 
+**Status since build S1-3 (APK 0.70, 2026-11-18; `HANDOFF.md` §89 the record; `CONTRACT.md` §3.4 and §12 the
+contract): Tmux is on the PC's record, with a page**, built and gated on the simulator, the PC and in headless
+Firefox; not yet deployed or used by him. What changed against the sections below:
+- **The record holds only** Alerts, the mutes (`mute.<host>/<name>`), Size and Context rows — one copy with every
+  browser; the glasses' Update stays theirs (one capture pace per PC). Sessions, windows, host health and the served
+  keys are the PC's; frames, the stream and history are live, never stored. His 0.69 rows were carried once at the
+  PC's first start (on a copy of his data: 4 rows). `TmuxCore` (the description, Main's card, the alerts),
+  `TmuxScopes` (session, history, frames, the keys), `TmuxStream` (the desk terminal's control client),
+  `TmuxGlasses` (the old `TmuxWindow`, its picture unchanged).
+- **Alerts are raised once, on the PC**, by the status poll that runs with no viewer, so one raised while the phone was
+  away arrives on its return. The record's notice says only "`<name>` wants input" (it is readable at level view); the
+  glasses add the pane's last line from the session they read at full. They pop on the glasses only; the page and its
+  card show the waiting mark (the lead's call, reversible).
+- **The page, devices at level full only** (a device below full gets nothing of any session; any device at full may
+  type — the lead's call, reversible): at a desk a real terminal (`@xterm/xterm` 6.0.0, served by the PC) over a tmux
+  control-mode client attached with `-f ignore-size`, so the browser never resizes his session — this amends §1's "never
+  a `-C` attach, never a terminal emulator" FOR THE WEB only; at a phone's width the flow view in colour (a full-screen
+  program as a grid) with the quick keys, snippets and Type… behind Run it; history as one page; new, rename, end,
+  select window, mute. A view the PC let go is said and asked again; a new or renamed session is judged gone only by a
+  list taken a status period after it opened.
+- **What reaches his terminals (the review's class A, each pinned):** every key, snippet, line and terminal byte is a
+  never-queued op on ONE thread, so input from every surface reaches tmux in arrival order (the latest real input
+  wins; no key carries the prompt it was meant for). Every `send-keys` argument's final `;` is escaped once for tmux
+  (a `;` typed at the end of a line was dropped on every surface before) and key names follow `--`; a test on a
+  throwaway server types every printable ASCII character, the control bytes and 28 sequences and reads the pane back
+  byte for byte. The desk terminal never answers a program's terminal queries (tmux does) and sends no focus report;
+  with text selected Ctrl+C copies and sends nothing, Ctrl+V pastes through the paste rule (a line break asks). A key
+  whose connection ended or whose device was revoked before its turn is not sent.
+- **ssh hosts** gain `ServerAliveInterval=15`, `ServerAliveCountMax=4` (a dropped link ends in about a minute; a
+  master started before the deploy keeps its old options until it ends). The stream's ssh path was never run here.
+
 `IMPLEMENTATION.md` → "Tmux" is what runs; this file is the rationale. Superseded with the grid:
 the first on-glass revision's FRACTIONAL column pitch (80 columns span the full width; integer
 cells had floored to 560/608 — "narrow and centered") and history rendered THROUGH the live fit
@@ -188,7 +219,8 @@ an optional last-lines pattern list (config; default tuned to CC's permission pr
 Per-session mute in that session's actions. The workday loop is glance → tap → `y`.
 
 - The notice carries `appId = "tmux"`, `target = session:<host>:<name>`, one thread per
-  session, and `TmuxWindow.open(target)` lands in that session's live view (`HANDOFF.md` §29).
+  session, and `TmuxWindow.open(target)` lands in that session's live view (`HANDOFF.md` §29). Since S1-3 the PC
+  raises it into the notice record (status block at the top); the body there carries no pane line.
 - The pattern match runs over the last NON-BLANK lines of `capture-pane -p`
   (`LocalTmuxProvider.STATUS_SCRIPT`; a raw `tail -5` missed every pane that had not filled its
   screen — `HANDOFF.md` §28.2).

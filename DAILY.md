@@ -69,15 +69,19 @@ the 25 rule-managed playlists refresh at service start, after a grab's enrichmen
 window's Rescan row); the log's `music-adaptive` lines say what moved; `--music-check` shows a refresh
 without writing a row.
 
-## Feed + comics (2026-09-09, `FEED.md`) — one engine on both hosts
+## Feed + comics (2026-09-09, `FEED.md`) — one engine, on the PC (since APK 0.70)
 
 - **Nothing to configure for day one.** The service fetches the five sources (Reddit popular, Slashdot, xkcd,
   SMBC, the 8-Bit Theater archive) into `~/.damage/feed/` and serves the phone over the content port. Own
   sources: `feedSources` in `~/.damage/config.json` (copy `SourceCfg.DEFAULTS` and add; `kind: "rss"` + `url`
   [+ `"image": true` for a webcomic]); `feedUserAgent` is the one string every fetch carries. No credentials.
-- **The phone fetches for itself** after the `PC loss` threshold (Settings → Feed, default 1 min) and says
-  `phone engine` in Main's row; it does NOT switch back by itself — the root menu's `Back to PC` row does. (As built;
-  from step S1 the phone shows the PC's last state with its age instead — `CONTRACT.md` §14 (a) row 1.)
+- **The phone never fetches for itself** (from 0.70; before it, after the `PC loss` threshold): with the PC out of
+  reach Feed shows what it last loaded under "PC unreachable since H:MM"; reads, flags, pins and places apply and go
+  to the PC on its return; refresh, browse and anything not loaded say "PC not answering". The phone's old `feed/`
+  folder in the app's files is no longer used (its size is in the service log once); deleting it is his.
+- **From 0.70 Feed and Tmux are on the PC's record and have a page each** (`HANDOFF.md` §89): `/w/feed` on any
+  approved browser; `/w/tmux` only on a browser at level full (at the desk a real terminal that never resizes his
+  session; on a phone the colour text with the quick keys). Tmux alerts still pop on the glasses only.
 - **Reddit is paced to one request a minute** (bursts get 429s): `reddit.com rate-limited · retry N s` on the
   lens; comments opened within a minute of the feed's own fetch wait out the pace and say so on the title
   (`FEED.md` §8.3 item 1 — the first polish item).
@@ -183,7 +187,8 @@ without writing a row.
   (`http://beardos:7403/…`) shows the data host's status, a live mirror only while a manual PC stack drives.
 - **Deploying a new PC build:** `./gradlew :desktop:stageJar && sudo rc-service damage restart` — never touches
   the display (the PC claims nothing). The service runs the stable `~/.damage/damage.jar`; never replace the
-  jar under a running instance.
+  jar under a running instance. **When the lane protocol or the record changes (0.70 does), the PC deploy and the
+  APK install are ONE sitting** — the section "Deploying APK 0.70" below.
 - **Deploying a new APK:** bump versionCode/Name, `./gradlew :phone:stageApk`, download from the setup page
   (`http://beardos:7300/setup` on the tailnet, `SetupServer.kt`), install over; `MY_PACKAGE_REPLACED` restarts
   the phone service by itself. Before any uninstall, pull the archives first (`python3 tools/journal_pull.py
@@ -268,7 +273,7 @@ without writing a row.
   the rule file kept beside it. While `damage.phone` reads `unknown` (the phone's peer offline) a guarded rule has no
   reading: it neither raises, clears an alert nor drops its baseline.
 - **Reading the state:** Settings → Bastion → `Watcher` on the glasses or the phone (the PC watcher's state line — a
-  rule with no usable reading for `haSilentMin` says so there — or "home not answering · PC unreachable Ns");
+  rule with no usable reading for `haSilentMin` says so there — or "home not answering · PC unreachable since H:MM");
   `grep -E ' (bastion|presence|reach): ' ~/.damage/damage.log`; the alerts themselves in `~/.damage/alerts.json`. The
   phone: `Position` (the location state, words only), `place` notes in its journal.
 - **The glasses from the PC by hand** (his call, like every `glassdrive.py` line): set the phone's Target to Sim
@@ -341,6 +346,29 @@ without writing a row.
   from a phone that left the network ends in about two minutes ("the connection was lost"). A trash row marked "not in
   the trash" is a trash cut off before its file arrived: Delete forever clears it. An upload never replaces a file: a
   taken name is placed as `name (1).ext`, and the page says the name it got.
+
+## Deploying APK 0.70 (build S1-3, `HANDOFF.md` §89) — ONE sitting, with his install
+
+The PC is not restarted onto 0.70 until he is about to install the APK: marks made on the 0.69 phone after the new
+PC's first start are not carried (the migration runs only at that start), and a 0.69 phone's Feed and Tmux do not work
+against the 0.70 PC (its lane is ended `proto`; no Tmux alerts reach it). In order, at the PC, from the repository on
+the 0.70 commit:
+
+1. **Back up 0.69** (the service still running it): `mkdir -p ~/.damage/backup/pre-070 && cp -p ~/.damage/damage.jar
+   ~/.damage/backup/damage-0.69-1153ded.jar && cp -p ~/.damage/damage-wm.apk ~/.damage/backup/damage-wm-0.69.apk &&
+   cp -p ~/.damage/record.json ~/.damage/oplog.jsonl ~/.damage/state.json ~/.damage/backup/pre-070/`.
+2. **The PC:** `./gradlew :desktop:stageJar && sudo rc-service damage restart`. Its first start writes the migration
+   (`grep -E ' (record|migrate): ' ~/.damage/damage.log | tail`: the record opened with its epoch kept, the `migrate`
+   lines naming Feed's and Tmux's rows — on a copy of his data 21 and 4 — and none at any later start).
+3. **The APK:** `./gradlew :phone:stageApk` (bumped to 0.70 / 70 already), then **he installs** it from the setup page;
+   `MY_PACKAGE_REPLACED` restarts the phone's service.
+4. **Check:** Feed's sources and his read marks on the glasses as he left them, Tmux's mutes and Alerts row; then
+   `/w/feed` and `/w/tmux` on the desk browser (the terminal is seen in Firefox only so far: Chromium is his first use).
+
+**The way back:** stop the service, put `damage-0.69-1153ded.jar` back as `~/.damage/damage.jar` WITH the three files
+from `pre-070/` (anything written after the deploy is lost; downgrades are not built), start it, and install
+`damage-wm-0.69.apk` (an older versionCode does not install over a newer one: it needs an uninstall first, which
+clears the phone's working copy and queue — pull the phone's journal before, `python3 tools/journal_pull.py --live`).
 
 ## What was verified vs what awaits glass
 

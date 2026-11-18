@@ -8775,11 +8775,154 @@ right"), with him at the PC. The per-step logs are in the gitignored `private/bu
   packet per 7.5 ms event (modeled from the throughput).
 - **Nothing is armed.** C1's features are turned on by the phone's ladder one at a time, each after its soak
   (`FORK.md` §7 item 10); at stage 0 the phone sends the bytes it sent before the flash.
-- **Owed, from the phone's journal once its Bluetooth is on again:** DamageCaps on both arms (features `0x1ff`
-  expected: the direct evidence of which image runs), the first telemetry (the arena's free figures with the larger
-  context, fields 27–29), the start's bytes unchanged, no refusal. As of 03:14 the phone's keeper still read
-  "bluetooth is off" (it asks again every 2 s and logs each try: about 6 lines per try in the day log — listed, not
-  changed).
+- **The read from the phone's journal after its reconnect (03:17:55; measured):** `DamageCaps contract 2 features
+  0x1ff` (0x7f in the three sessions before the flash); RIGHT's uptime 5,429 s at the reconnect, so it started at
+  01:47, the flash's end (2,568,476 s, 713 hours, before); the first telemetry with flags 0x0, last status 0 and the
+  C1 fields present, all zero (motion state, motion sequence, engine frames, folds); the cache asked at 160 KiB and
+  DRAW2 armed as in every session before; LE 2M on both arms; at the lease point arena 20 holds 70 KiB free where it
+  held 75 (the larger context, as §87 predicted), arenas 13 and 27 as before; no refusal, fault, divergence or
+  hold-back. LEFT cannot report: its evidence is the flash's verify, its authentication and that it draws.
+- **One difference not explained (measured; open):** in his 84-second test at 03:18 (the glasses reporting "not worn")
+  scroll messages came in bursts — 74 scrolls in 28 bursts, 19 of them of 2 to 6 events with gaps of 17–150 ms, 30
+  gaps under 50 ms. In the two days before the flash (565 scrolls, APK 0.67, the Phase 2 image) no gap was under
+  224 ms. The phone app's input path and carrier page did not change between 0.67 and 0.69 (read in the diff). Open
+  between the image, the flash's side effects (six components rewritten, a fresh start) and the test's conditions;
+  his next worn session's log decides what is read next. Nothing is armed until it is understood.
+- The phone's keeper asked again every 2 s while its Bluetooth was off (01:20–03:17) and logged about 6 lines per
+  try in the day log — listed, not changed.
 - **The way back:** the previous image `48172b62…` (kept built), then Phase 1's `c5e4f8b7…`.
 - **The fork's own records** (`DAMAGE.md`'s pin, the `damage` branch) still name `48172b62…`; moving them to `c1`
   and the fork's push are his.
+
+## 89. Build S1-3 (APK 0.70): Feed and Tmux on the PC's record, a page each (2026-11-17 → 18)
+
+Context for the reader: Damage is Adam's own window manager for his own glasses, phone and PC (one user, private
+networks). This build converts Feed and Tmux the way S1-1 and S1-2 converted Reader, Torrents and Files: a core on the
+PC's record, the glasses' presenter over it with the picture unchanged, and a browser page for each. Built lean
+(`CLAUDE.md` protocol item 7): a lean spec, three lanes and a merge, one review pass, one fix stage, the gate, a close.
+**Every number below is measured on the simulator (the desktop JVM and the model of the firmware), on the PC, or in
+headless Firefox against the real in-process listener; nothing here has run on his glasses or his phone.** Briefs,
+rulings and reports are in the gitignored `private/build070/` (`S1-3-lean-spec.md`, `S1-3-COMMON.md`,
+`S1-3-R1-decisions.md` rule, in rising precedence). The contract as built is `CONTRACT.md`; what runs is
+`IMPLEMENTATION.md`; the deploy is `DAILY.md`.
+
+### 89.1 What was built
+
+**Feed.** Its state is one copy on the PC's record (`rec.feed.…`): a read list per source (`read.<src>`, the 600
+newest), `flag.<item>`, `seen.<src>`, the open article's `place` (block and offset, Feed's own extractor version), the
+archive's `binge.<src>` (episode and fraction, the glasses' strip kept beside it), pins, browse recents, the shared rows
+(Fetch, Keep, three Notify) and the glasses rows. `FeedCore` raises Feed's notices once, on the PC, from the engine's
+changes (a first sight writes `seen` and raises nothing; a browsed source that is not pinned raises none); `FeedScopes`
+serves the description, the pages of a source, an article with emphasis, code, links and its original page's address
+(the extracted text unchanged, so saved places keep their meaning), comments, comics and the 8-Bit archive, on two
+threads of their own so a slow site never holds the source list; `refresh` and `browse` are program ops; `FeedBlobs`
+serves the pictures. A fetch that stops answering is ended after 5 minutes, said on the source's health, and tried
+again at its next due time (a state only a restart cleared before). **The phone's own fetching is retired** (his
+ruling of 11-12): the phone reads the PC's engine only, Settings → Feed loses `PC loss`, the root menu loses `Back to
+PC`, and with the PC out of reach Feed shows its last state under "PC unreachable since H:MM"; the phone's old `feed/`
+folder stays on disk, its size said once in the log, deleting it is his. `FeedGlasses` (the old `FeedWindow`) reads
+and writes the record; the page draws sources, items, articles, comments, comics as drawn, the archive as one long
+page, Flagged, mark all read, refresh and browse, and follows another device's newer place by Reader's gesture rule.
+
+**Tmux.** The record holds only `alerts`, `mute.<host>/<name>`, `glasses.size` and `glasses.context`; sessions,
+windows, health and the served keys are the PC's source state; frames, the stream and history are live or one-shot,
+never stored. `TmuxCore` raises an alert once, on the PC, from the status poll that runs with no viewer (so one raised
+while the phone was away now arrives on its return); `TmuxScopes` serves a session, its history (1,000 lines in
+colour) and the frames; every key, snippet, typed line and the desk terminal's bytes are never-queued program ops on
+ONE thread, so they reach tmux in arrival order (`raw`: printable runs through `send-keys -l`, the rest `-H`, one exec).
+`TmuxStream` runs one `tmux -C attach-session -f ignore-size` client per session while a desk viewer holds it, so the
+browser never resizes his session. The page: at a desk a real terminal (`@xterm/xterm` 6.0.0, MIT, read from the PC's
+class path and served at `/vendor/xterm/`; no copy in the tree), at a phone's width the glasses' flow view in colour
+with the quick keys, snippets and Type… behind Run it; history, new, rename, end, select window, mute. A device below
+level full gets nothing of any session. ssh hosts gain keepalive options (a dead link ends in about a minute).
+
+**The wire.** A new message `live{src, init | frame | data | end}` for a live source `live/<window>/<src>`, checked
+against its level at attach, with no numbering (a new connection gets a fresh `init`). **The lane protocol rose 3 → 4**
+(`AppWire.PROTO`, `proto.mjs`): a 0.69 phone is ended `proto` and says the builds differ. Feed (version 1, minimum
+view) and Tmux (version 1, minimum full) join the windows registry.
+
+**His state carried over:** one PC-only migration pass at the first start, from the PC store's synced copies, only
+where the record holds none. On a copy of his PC data it wrote **21 Feed rows and 4 Tmux rows** (read lists of 4
+sources, 3 flags, 4 seen stamps, 1 archive place, the shared and glasses rows; Alerts, Context, Size and 1 mute); a
+second start wrote none. The open article's line index is not carried (the next notch writes the shared place).
+
+### 89.2 The review and the fixes
+
+One review pass, three readers (Feed's Kotlin; Tmux's Kotlin and the live lane; the pages), ruled in
+`S1-3-R1-decisions.md`, built by one fix stage, each fix pinned and its pin watched to fail with the fix off.
+- **What is typed into his terminals.** A `;` at the end of a `send-keys` argument was read by tmux as a command
+  separator and dropped, on every surface (older code included): every argument's final `;` is now escaped once, key
+  names follow `--`, and a throwaway-server test types all of printable ASCII, the control bytes and 28 sequences and
+  reads the pane back byte for byte (24 of 295 cases were wrong before). The terminal library no longer answers a
+  program's terminal queries or sends focus reports into his session; Ctrl+C with a selection copies, Ctrl+V pastes
+  through the paste rule; a key whose connection ended or whose device was revoked before its turn is not sent; the
+  notice record says only "`<name>` wants input" — the pane's line is added by the glasses, which read it at full.
+- **Feed.** A browsed, unpinned source raises nothing; the away line is "PC unreachable since H:MM" for every window
+  that uses it and changes once per outage (it counted seconds and repainted the title every 2 s); a body shorter than
+  its declared length is an error; entering Feed from Main does not forget a source a page reads; the page's place
+  moves only by his scroll; a read carries the time he opened the item.
+- **The Tmux page.** A new or renamed session is not marked ended by a list taken before it existed; a viewer the PC's
+  sweep lets go is told and asks again; a new viewer of an idle pane always gets its first picture.
+- **Removed:** the dead alert-receiving half of the phone's Tmux channel; the stream's second attach try; the page's
+  skipped-pictures counter; two unused names; the per-window older-PC tests (different builds are said, not
+  survived); the fake terminal library's colour drawing.
+
+### 89.3 The gate (on `05aab7a`, simulator, the PC and headless Firefox)
+
+Core 216 classes / 1,553 tests, run twice, 0 failures · desktop 13 / 52 · `--selfcheck` ×3, 486 PASS each · 73 books ·
+the music, games, feed (fixtures) and motion checks · the 51 vectors in both forms · lint 0 · wiring 78 ok · node 200 ·
+the tools' self-tests. **The snapshot judge:** 0 px outside the mask in both arrangements except the three named
+differences — `37e` and `37g` (Settings → Feed one row fewer: 72 and 2,729 px) and `79b` (148,072 px: a restart now
+keeps the open article's place, an older defect found by the judge's base and fixed in the build). **The upgrade, on a
+copy of his PC data:** the record opens, 24 of 24 items equal, 161 op-log lines decode with 0 bad, the migration as in
+89.1, 21 alert rules load with none refused. **The look:** 69 pictures, every page acted on and every act read back in
+the listener; 0 policy refusals; a Feed and a Tmux page left open while the listener's process was ended and started
+came back by themselves; a device below full got nothing of Tmux. The real terminal was seen in headless Firefox only,
+never in Chromium (his browsers): his first use shows it. The close (this section's last stage) pinned the judge's
+Files world (89.6), set the version to 0.70 (70) and ran `:desktop:test`, `--selfcheck`, lint, snapdiff's self-test,
+the node tests and `:phone:assembleDebug` with the wiring check again.
+
+### 89.4 Size (reported, not a stop: his word of 2026-11-18)
+
+Product Kotlin **+3,520 −564** against the spec's 2,115–3,190 new (10 % past its upper figure); the pages **+3,831
+−44** against 3,330–3,770; Kotlin tests +2,232 −196 (within); JS tests +2,552 −16 against 1,650–1,910 (34 % over).
+What the extra lines are for: `FeedGlasses` reading the record into its fields with the entry rules of the two places
+(+428 against 250), the archive's and the comics' scopes, a full SGR colour parse for the pages; in the JS tests the
+fake terminal library and the terminal's own tests, the real-listener look scenes and the fix stage's pins.
+
+### 89.5 Calls that stay reversible, and the deploy rule
+
+Ruled by the lead on the spec (`S1-3-COMMON.md`), each his to reverse: (1) **every device at level full may type into
+tmux** from a browser (his phone, the PC's own browser, any browser he approved at full); (2) **Tmux alerts pop on the
+glasses only** — the page and its card show the waiting mark; (3) **Feed is not in the TV's set** for now; (4) **the
+phone's own Feed fetching is retired** (with the PC out of reach Feed shows its last state).
+
+**The deploy rule: APK 0.70 and its PC service go out in ONE sitting**, the PC not restarted onto 0.70 until he is
+about to install: marks made on an older phone after the new PC's first start are dropped (the migration runs only at
+that start), and an older phone's Feed and Tmux may not work against the new PC (the lane is ended `proto`; a 0.69
+phone gets no Tmux alerts meanwhile). Back up the 0.69 jar and APK first. The order: `DAILY.md`.
+
+### 89.6 Not built, listed
+
+- From the review (`S1-3-R1-decisions.md` §E): two devices marking one source within one reach gap — the later list
+  wins and the other's marks of that gap are lost (a stale row, accepted in the spec); a PC restart may repeat one
+  Feed notice per source; the article open on the phone at the install reopens at its top once; Feed's picture ids
+  live per process, so after a PC restart an open page's pictures fail until its scopes are asked again; the archive
+  scope resolves entries one after another (up to 9 × 5 min on a site that stops answering); an ssh master from
+  before the deploy runs without the keepalive options until it ends; `line` and `snippet` are two execs (text, then
+  Enter); a paste over about 128 KiB is refused as one argument (said, nothing cut); the readers' other notes.
+- From the fix stage: Feed's list retry while away with an unloaded list repaints its Loading row every 5 s; after an
+  APK restart the glasses no longer know which browsed sources were theirs, so one stays on the PC (quiet) until the
+  PC restarts; a non-ASCII key reaches tmux through the exec's argv in the JVM's encoding — UTF-8 under OpenRC's
+  profile, I think; the running service's environment was not read.
+- From the gate: the scripted feed's "new" item has a fixed id (harness); the look's shared state took two retakes;
+  the policy probe ran at a phone's width only. Not run here: the ssh path of the stream.
+- The spec's part C (per-item marks, a prompt guard, live numbering, a capture pace per viewer, mixed-build switches,
+  downgrades, migration ledgers) — not built by design.
+
+**Harness lesson.** The picture judge's Files scenes read the live machine through the real provider (the mount table,
+the home folder, each volume's free space, the real `/` with today's times), so a volume mounted at 01:16 moved eight
+scenes between two stages' renders; the close gave `SceneFiles` a pinned world and removed the declared cell that hid
+the free-space bars. A judge's world is pinned whole; anything a scene reaches through a real provider is the machine.
+The base for the next build is `private/build070/base-070/` (mask `base-070-mask/`). Still read from the machine,
+named and left: the real books (their hash is checked around every render) and the desktop's icon theme.

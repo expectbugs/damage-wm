@@ -910,6 +910,20 @@ read in the fork's source (branch `c1`), **M** measured on Adam's pair or counte
 unknown. The design pass's records (the challenge, the prep, the focused read, the rulings) are in the gitignored
 `private/c2-design/`.
 
+**Ruled on 2026-11-18 and not yet worked into the text below (the amendment from the stock input model and its
+focused read; applied whole by C2's first documents stage, before any fork stage):** (a) stock paces the carrier's
+scroll messages with a rubber band after every delivered notch (≈ 200 ms, I): a notch inside it has no scroll
+message, a queued one comes a band later, and **a single tap on RIGHT inside it sends no click** (V) — so in P5 an
+owe of either kind may never be paid; (b) the phone answers per slot once per batch — COMMIT of the newest adopted
+report only when every report since the slot's last answer was adopted, nothing else moved its row, and no drawing sub
+of the batch meets the slot's areas with END applied; otherwise DISCARD(slot, A + 1, list, row) after the drawing subs
+(as placed below, a COMMIT after a drawing sub that meets its areas writes END over the frame: a known defect of this
+text); (c) SETTLE names the lowest S since the last SETTLE; the batch's diff is taken with COMMIT's END applied;
+(d) a local instance closed by a newer fire of its own slot sends no 114; (e) a tap's report is adopted when its
+cursor differs from the phone's row by at most the steps its sequence gap explains; (f) the firmware carries a
+report-only tap entry and `Taps` has three values, `phone` · `report` · `glasses`; (g) Main's wrap stays the staged
+edge; (h) the phone's rules are built with a sequence fuzz against the simulator's two lenses (five invariants).
+
 **What C2 carries, in six lines.** (1) A scroll — ids 4 and 5, ring swipes and temple slides alike — runs a bound
 program on both lenses at once; a ring single tap does too, as a press picture, only when the phone's `Taps` setting
 says `glasses` (default `phone`). (2) A local fire draws a **local instance** on the panel and never writes the shadow;
@@ -1612,6 +1626,7 @@ phone's keeper applies the hold-back rule before re-arming.
   window, the build's checks. §0 features `0x1ff` on the candidate; §3 field 11 bit 5; §4 reason 14's engine-word
   case; §9 the C1 keys and the OS-tick clock. The link item is left out of C1. Fork candidate `0dab2154…`, not
   flashed; contract version unchanged.
+- 2026-11-18 — §6: a dated note of the amendment from the stock input model as ruled (the rubber band's pacing and the tap gate read at instruction level; the per-batch answer; the report-only tap entry; the sequence fuzz); the text itself is amended by C2's first documents stage.
 - 2026-11-18 — §6 rewritten from C2's design pass as ruled (the challenge, the rulings prep, the focused read, Adam's
   answers of 2026-11-17): local scrolls, local taps as a setting (`Taps`, default through the phone), the
   applied-state report with COMMIT / DISCARD / SETTLE, LIST as a shift that always applies, what the phone persists,
