@@ -84,7 +84,7 @@ export function devicesView(ctx) {
           } })));
     }));
     keepFocus(root, 'data-key', () => root.replaceChildren(h('h1', { text: 'Devices' }),
-      ...(d.problem ? [h('p', { class: 'note', text: `The device table was set aside at ${when(d.problem.at)}: every browser is approved again (${d.problem.why}).` })] : []),
+      ...(d.problem ? [h('p', { class: 'note', text: `At the PC's start, ${when(d.problem.at)}: ${d.problem.why}.` })] : []),
       h('h2', { text: 'Waiting for approval' }), pending,
       h('p', { class: 'note', text: 'A new browser shows a code. Pick its level and approve it here, or on the PC: desktop --approve CODE LEVEL.' }),
       h('h2', { text: 'Approved' }), d.rows.length ? rows : h('p', { class: 'note', text: 'No device is approved.' })));
