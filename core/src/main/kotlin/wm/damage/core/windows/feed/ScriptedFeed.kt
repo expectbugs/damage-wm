@@ -133,6 +133,16 @@ class ScriptedFeed(
     override fun article(itemId: String): Article {
         ops.add("article:$itemId")
         val it = item(itemId) ?: throw IllegalArgumentException("no such item")
+        return scripted(it).copy(ver = Article.EXTRACTOR, sourceUrl = it.target.ifEmpty { it.link })
+    }
+
+    /** One paragraph with emphasis, strong words and a link (the web's spans; the glasses draw its text only). */
+    private val marked = listOf(Span("Second paragraph", Span.STRONG), Span(", likewise long enough to matter, describing "),
+        Span("something", Span.EM), Span(" in a few clauses, with commas, and "),
+        Span("a closing thought", href = "https://example.org/thought"), Span(" that runs to the end of the line and past it."))
+
+    private fun scripted(it: Item): Article {
+        val itemId = it.id
         return when (it.kind) {
             ItemKind.TEXT -> Article(itemId, it.title, Extract.fragment(it.body, it.link), true)
             ItemKind.IMAGE -> Article(itemId, it.title, listOf(Block("img", it.title, it.image)), true)
@@ -142,7 +152,7 @@ class ScriptedFeed(
                 Block("h", it.title),
                 Block("p", "First paragraph of the story, which carries enough words to score, and a comma or two, so the container earns its points and the reader has something to read on a small panel."),
                 Block("img", "a photo", "https://example.org/img/${it.id}.jpg"),
-                Block("p", "Second paragraph, likewise long enough to matter, describing something in a few clauses, with commas, and a closing thought that runs to the end of the line and past it."),
+                Block("p", marked.joinToString("") { s -> s.text }, spans = marked),
                 Block("q", "A quoted line that also has enough characters to count as a paragraph on its own."),
                 Block("li", "the first point"), Block("li", "the second point"),
                 Block("p", "Third paragraph closes the piece with another long enough sentence for the scorer to see, again with commas, and again with a tail."),

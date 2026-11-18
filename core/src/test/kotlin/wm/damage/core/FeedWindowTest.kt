@@ -450,4 +450,23 @@ class FeedWindowTest {
             awaitTrue("page 2 asked again (asked ${slow.asked2.get()})") { slow.asked2.get() >= 2 }
         } finally { slow.gate.countDown(); r.stop(); tmp.toFile().deleteRecursively() }
     }
+
+    /** Pin (lane F, found by the snapshot's restart scenes): the presenter read the record before its archive fields
+     *  existed (Kotlin runs initialisers in order), so a record that already held an archive's place — every restart —
+     *  ended the build with a NullPointerException. The archive now opens where the record says. */
+    @Test
+    fun aPresenterBuiltOverARecordHoldingTheArchivesPlaceStartsThere(): Unit = runBlocking {
+        val tmp = Files.createTempDirectory("damage-feed-binge-rec")
+        val record = wm.damage.core.app.MemoryRecord(FeedCore.ACTIONS)
+        val other = wm.damage.core.app.LocalWindowSource(FeedCore(), record)
+        other.act(FeedCore.bingeDraft("8bt", FeedCore.Binge(3, null, 0, Probe.docContentWidth() - 32), at = 1L))
+        wm.damage.core.app.MemoryRecord.SHARED.call {}
+        val r = Rig(tmp, record = record)
+        try {
+            r.start()
+            awaitTrue("root") { r.win.title() == "feed" }
+            r.down(4); r.tap()
+            awaitTrue("the archive opens at the record's page") { r.win.title() == "8bt 3" && r.feed.ops.contains("episode:8bt:3") }
+        } finally { r.stop(); tmp.toFile().deleteRecursively() }
+    }
 }

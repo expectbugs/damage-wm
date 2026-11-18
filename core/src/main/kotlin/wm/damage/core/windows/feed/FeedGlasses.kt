@@ -3,20 +3,14 @@ package wm.damage.core.windows.feed
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonArray
-import kotlinx.serialization.json.putJsonObject
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import wm.damage.core.app.Answer
@@ -488,10 +482,6 @@ class FeedGlasses(
         }
     }
 
-    init {
-        fromSource(source.state())
-        source.addListener(onSource)
-    }
 
     override fun onActivate(ctx: ShellServices, from: ActivationSource) {
         services = ctx
@@ -2145,6 +2135,12 @@ class FeedGlasses(
     /** P7 item 5 (OS-3), step 2: every explicit navigation (`goRoot`, `back`, `openItems`, `openOne`) ends a re-open
      *  the restore armed — its one consumer, a list load, otherwise opened the old article by itself later. */
     private fun clearPendingOpen() { pendingOpenItemId = null; restoredLevel = null }
+
+    // last in the class: every field `fromSource` reaches is initialised by now (a restart's record holds the places)
+    init {
+        fromSource(source.state())
+        source.addListener(onSource)
+    }
 
     companion object {
         const val PAGE = 50

@@ -86,6 +86,12 @@ class FeedScopesTest {
             doc["blocks"]!!.jsonArray.map { it.jsonObject["kind"]!!.jsonPrimitive.content })
         val para = doc["blocks"]!!.jsonArray[1].jsonObject
         assertEquals(1, para["spans"]!!.jsonArray.size, "a block with no spans is one plain span")
+        val marked = doc["blocks"]!!.jsonArray[3].jsonObject["spans"]!!.jsonArray.map { it.jsonObject }
+        assertTrue(marked.any { it["href"]?.jsonPrimitive?.content == "https://example.org/thought" &&
+            it["marks"]!!.jsonArray.map { m -> m.jsonPrimitive.content } == listOf("link") })
+        assertTrue(marked.any { it["marks"]!!.jsonArray.map { m -> m.jsonPrimitive.content } == listOf("strong") })
+        assertEquals(link.target, doc["sourceUrl"]!!.jsonPrimitive.content)
+        assertEquals("1", doc["extractor"]!!.jsonPrimitive.content)
         val ref = doc["blocks"]!!.jsonArray[2].jsonObject["ref"]!!.jsonPrimitive.content
         assertTrue(ref.startsWith("feed."))
         val blob = assertNotNull(scopes.blobs.resolve(ref)) as Blob
