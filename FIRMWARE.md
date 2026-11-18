@@ -911,7 +911,7 @@ unknown. The design pass's records (the challenge, the prep, the focused read, t
 `private/c2-design/`.
 
 **The amendment of 2026-11-18 from the stock input model and its focused read (`C2-rulings.md` §9) is in the text
-below** (change log, 2026-11-18). A sentence marked (D0) filled a detail the rulings left open; the lead ruled each as written on 2026-11-18. The focused read of the report-only entry owed before any fork stage (`C2-rulings.md` §12, subject B) is in the text too (change log, stage D1); a sentence marked (D1) filled a detail its rulings left open.
+below** (change log, 2026-11-18). A sentence marked (D0) filled a detail the rulings left open; the lead ruled each as written on 2026-11-18. The focused read of the report-only entry owed before any fork stage (`C2-rulings.md` §12, subject B) and the rulings on its stage's report (`C2-rulings.md` §13) are in the text too (change log, stage D1); a sentence marked (D1) filled a detail those rulings left open.
 
 **What C2 carries, in six lines.** (1) A scroll — ids 4 and 5, ring swipes and temple slides alike — runs a bound
 program on both lenses at once; a ring single tap sends a report too when the phone's `Taps` setting says `report`,
@@ -1273,14 +1273,8 @@ there.
   click is its echo. **`glasses`:** one tap entry with the press program (eventId 0, devType 4, step 0, the list's slot,
   the press program): the press picture too. **Switching** mid-session sends, in stream order, SET of the tap entry in
   its new form (on, or between `report` and `glasses`) or CLEAR of it (off); nothing else changes — no FLAGS_SET, no
-  re-arm, no keyframe. **A tap 115 whose form disagrees with `Taps`** — fields 10–14 carried under `report`, absent
-  under `glasses` — re-sends the tap entry's SET in its current form in the next batch, journaled (P1's re-send path,
-  here for a SET that did not land); when that batch covers the list, its CLEAR stands instead and the batch that
-  brings the list back SETs the entry (the bound list, above) (D1). The form is read only on outcome 0 and refused 17, the two bodies that carry
-  10–14 for an entry with a program (D1); under `phone` any tap 115 re-sends the tap entry's CLEAR (D1). The tap
-  itself is judged by the tap rule as any tap 115: carried fields that the phone's own entry does not predict fail
-  (5), so until the re-sent message lands a tap meeting the old press form is dropped (`item`), and one meeting the
-  old report-only form under `glasses` is acted on without a press.
+  re-arm, no keyframe. A switch whose message does not land is repaired from the next tap 115's form (the table
+  repair, below).
 - **What a dropped tap shows.** Under `glasses` the press going out is the signal. Under `report` — and under `phone`,
   as today — a tap the phone does not act on shows nothing on the glasses; under `phone` a tap inside a rubber band
   does not reach the phone at all. No notice is built (§6.12): `tapdrop` carries the `Taps` value (D1), so the trial
@@ -1319,6 +1313,46 @@ there.
 - **A scroll fired within a round trip after a tap** that the phone answers is stopped by that DISCARD (its tag is
   after the tap's) and drawn again by its own COMMIT: move, stop, land. Rare in the trial week, where only Main's list
   is bound and its taps open windows.
+
+**The table repair** (the class, ruled 2026-11-18). A mode 27 that did not land — lost, or refused on one lens —
+leaves the lens's table different from the phone's belief. The phone converges on the evidence a later 115 or stock
+message gives, **by re-sending the one object the evidence names**: journaled, in the next batch, after its drawing
+subs as every mode 27 (§6.5). Each re-send is idempotent — a SET writes its entry whole, a CLEAR removes one, a LIST
+with shift 0 keeps the cursor or makes it lost, which the slot's DISCARD after it sets — so a spurious one, from a
+report fired before a real change landed, changes nothing. No firmware change, no new message. The evidence for a
+115, tested in this order (the first that holds names the one object; a second difference shows at the next
+report), then the stock message's:
+- **A 115 from an entry the phone does not hold** (field 4: never SET this session, or CLEARed since — a cover, a
+  switch to `phone`) → that entry's CLEAR. Under `phone` that is any tap 115; under a cover, a fire whose CLEAR was
+  lost, which otherwise draws the list's motion over the cover at every notch (D1).
+- **A 115 whose mark** (field 17) is not the phone's current mark for its list → that list's LIST: its current
+  staging, shift 0, placed before the slot's DISCARD, which P3 already puts after a LIST, naming the row in that
+  staging.
+- **A tap 115 whose form disagrees with `Taps`** — fields 10–14 carried under `report`, absent under `glasses`, read
+  only on outcome 0 and refused 17, the two bodies that carry them for an entry with a program (D1) → the tap entry's
+  SET in its current form.
+- **A 115 whose fields 10–14 differ from the phone's prediction** (P3's for a scroll, the tap rule's (5) for a tap),
+  **or whose fire was refused 5 or 12**, with its mark and its form agreeing → the SET of the entry field 4 names: a
+  SET that changed an entry's program and did not land leaves the old one on the lens, so every notch snaps back and
+  every press tap is dropped (D1).
+- **A stock scroll message applied as unreported** (P5: no owe, a scroll entry held for the list in front) **when no
+  scroll 115 of that list has been handled since the last SETTLE sent** → that list's scroll entries' SETs, in the
+  batch that carries the next SETTLE (D1). A notch whose list holds no live scroll entry on RIGHT takes no S and sends
+  no 115, so P5 applies every such notch as today and none is ever adopted. The bound is the text's own: a notch's
+  own 115 always precedes its stock message (§6.1), so waiting finds no later one; what waiting can bring is another
+  notch's 115 showing the entry live. Inside a burst the next SETTLE goes Q after the last report (P7); at idle it rides
+  the message's own frame batch (every idle batch carries one), so a single notch whose 115 was lost re-sends
+  spuriously.
+The evidence never changes how its report is judged: P3 and the tap rule judge it as any other. So until the
+re-sent object lands, a notch meeting the old entry snaps back, a tap meeting the old press form is dropped (`item`),
+and one meeting the old report-only form under `glasses` is acted on without a press. A batch that already carries a
+message for the object (a LIST for that list; a SET or CLEAR of that entry, a cover's or a return's) sends no
+re-send: that message stands. A SET is never re-sent for a list that is not in front: the batch that brings the list
+back SETs its entries (D1). A refused
+re-send takes P1's path (the refusal record); a lost one repeats at the next evidence. **Not built:** a re-send of a
+tap entry whose SET did not land at a start or a return. No 115 names it; its taps act as today's clicks (`tapsLive`
+false), and the list's next return from a cover or the next start SETs it. Field 39 shows it, and nothing reads that
+for a re-send.
 
 **Counting** (so the snap-back and drop rates are measured numbers; one note per event, a fixed `key=value` detail
 that `tools/journal_report.py` counts by cause):
@@ -1452,17 +1486,23 @@ the instrument ends the regress, not a further general read of §6. It drives ra
 lost, duplicated and late reports, LEFT handling a gesture alone, re-stagings, covers, link drops and SETTLEs — and the
 stock messages a rubber band drops or delays (§6.1) (D0), `Taps` switches between every pair of values, and lost
 mode-27 messages (SET, CLEAR, LIST) — through the phone's rules against the simulator's two lenses, and checks after
-every sequence six invariants: (1) no act on a row other than one the phone staged and RIGHT showed pressed (or its
+every sequence seven invariants: (1) no act on a row other than one the phone staged and RIGHT showed pressed (or its
 open local, on 17) — on `report`, the row at RIGHT's cursor, and for a click acted on as today (`phone`, or `report`
 with the tap's 115 lost) the stated residual, the phone's row (D0); (2) no picture on a lens that no later message
 corrects; (3) both lenses on the phone's row after a SETTLE; (4) owes, u and S_heard back at rest; (5) no message
 §6.2–§6.6 would refuse; (6) **a fresh tap whose 115 arrives is acted on** — liveness, which (1)–(5) cannot see (a
 state in which no tap is ever acted on passes all five): after the sequence, with nothing lost from then on and the
 list in front uncovered, of two ring taps a round trip apart the second is acted on (the first may meet a repair the
-phone makes in its own batch, such as a re-sent tap entry, §6.7) (D1). **Each defect of the design pass's two focused
-reads (`C2-focus.md`, `C2-amend-focus.md`) is a seeded case that must fail on the rule as it stood** — a pin watched
-to fail on the old rule; so is the read before F1's switch whose SET is lost (`C2-F-focus.md` B1), which fails (6)
-without the re-send (D1).
+phone makes in its own batch, §6.7's table repair) (D1); (7) **scroll liveness:** under the same conditions, of two
+notches a round trip apart, away from the staged edge and with nothing else moving the list, the second leaves the
+row moved by its own report — adopted (P3) and committed, so its local picture is the one that stays (D1: P3 and P5
+move the phone's row as today when a notch is not adopted, so the row moving alone would pass with no notch ever
+adopted). **Each defect of the design pass's two focused reads (`C2-focus.md`, `C2-amend-focus.md`) is a seeded
+case that must fail on the rule as it stood** — a pin watched to fail on the old rule. So is each shape of the table
+repair without its re-send: the read before F1's switch whose SET is lost (`C2-F-focus.md` B1) and a lost LIST,
+which fail (6); a lost scroll-entry SET, which fails (7); a lost SET that changed an entry's program, which fails
+(7) and, for the press, (6) (D1); a lost cover CLEAR, which fails none of the seven and is pinned by its count of
+locals drawn under the cover (D1).
 
 **No vector can prove** (one thread, one lens at a time, no UART): the inter-lens answer-and-drop order, a lost 115 or
 stock message, LVGL holding the gate, a release point on another task during a fire, step 1 within a time slice, the
@@ -1487,7 +1527,7 @@ case-in (the journal; the calendar fallback covers a miss) · COMMIT CRCs equal 
 
 | new state, wait or guard | (a) cleared at | (b) a write that never lands | (c) keyed on | (d) other tasks, the other lens | (e) one read | (f) siblings checked |
 |---|---|---|---|---|---|---|
-| `bind_live`, 8 entries, 4 lists (items, count, cursor, pitch, mark, newest S) | a release point (`bind_live`, one store in the masked section); the next accepted mode 27 empties entries and lists first; CLEAR (entries); a restart. Not at arming or disarming | a lost SET or LIST: the lens fires with the old table (P3 or the tap rule finds the mark or prediction differs → DISCARD) or passes through; a refused one is re-sent on the refusal record; every start re-sends | entry, list; the program by off4, walked at every fire | written on the ui_task under the word (mode 27, the fire, COMMIT, DISCARD, SETTLE); `bind_live` cleared by a release point on any task inside the masked section. Each lens applies mode 27 in its own order against input: P3 judges RIGHT's result; SETTLE and DISCARD realign LEFT | the fire reads each once after its claim | SET's shapes and PLAY's walk; the three writers of the cursor (COMMIT, DISCARD/SETTLE, LIST) and the fire's edge test; the simulator's copy |
+| `bind_live`, 8 entries, 4 lists (items, count, cursor, pitch, mark, newest S) | a release point (`bind_live`, one store in the masked section); the next accepted mode 27 empties entries and lists first; CLEAR (entries); a restart. Not at arming or disarming | a lost SET, CLEAR or LIST: the lens fires with the old table (P3 or the tap rule finds the mark or prediction differs → DISCARD) or passes through, and the evidence re-sends the one object it names (§6.7, the table repair); a refused one is re-sent on the refusal record; every start re-sends | entry, list; the program by off4, walked at every fire | written on the ui_task under the word (mode 27, the fire, COMMIT, DISCARD, SETTLE); `bind_live` cleared by a release point on any task inside the masked section. Each lens applies mode 27 in its own order against input: P3 judges RIGHT's result; SETTLE and DISCARD realign LEFT | the fire reads each once after its claim | SET's shapes and PLAY's walk; the three writers of the cursor (COMMIT, DISCARD/SETTLE, LIST) and the fire's edge test; the simulator's copy |
 | S (u16) | a release point (one store beside `bind_live`), a restart | a lost 115 is a gap: P5's owes, P3's bound | per lens, taken at the entry match; LEFT ahead only after a dropped answer | one atomic add on the ui_task; the clear inside the masked section (an add crossing it gives old + 1, read as a gap) | one add per matched event | `eng_seq` (the same shape) |
 | the local instance (C1 slot + local flag + HOLD at d = T; tag S, t0, P, T, d, first range, entry stamp) | §6.4's list | an unanswered one: SETTLE, a keyframe or the lease's lapse; the shadow never held it | slot + tag S; bytes by its first range | opened on the ui_task under the word; drawn by the copy hook under the word (display task, 45); planned by the thread without it (C1's torn-read rule); emptied by release points; LEFT opens it one answer earlier and may hold one RIGHT never had | as §5.11 | C1's instances; the plan's skip; the three present paths; a keyframe's close; a cache write's close-on-meet |
 | the fire's claim and let-down | every exit lets down, refusals and the edge included | a failed claim → refused 14 → today's path | the word's three values | §5.11 row 3; the let-down precedes the sends and the stock call | one compare-exchange each | every ui_task holder: mode 26, a live mode 6, mode 11's closes, cache writes, mode 27 |
@@ -1497,7 +1537,7 @@ case-in (the journal; the calendar fallback covers a miss) · COMMIT CRCs equal 
 | DISCARD | — | lost or refused: a divergence and a keyframe; SETTLE also ends the instance | slot + S (signed 16-bit), list | ui_task under the word | each named slot once | CLOSE, SETTLE |
 | SETTLE | — | lost: the next idle batch carries another; refused: a divergence and a keyframe | slot + S + the held age from t0, P, T | ui_task under the word | each named slot's state and t0 once | DISCARD, CLOSE |
 | the lost cursor (0xFFFF) | DISCARD, SETTLE, the empty table | the next SETTLE or DISCARD sets it | list | ui_task only | once per fire | LIST, COMMIT's cursor write, the fire's edge test |
-| the tap guards: SET's two shapes, a tap entry with a program or report-only (prog 0xFFFF); refused 17. `Taps` is no state on the glasses: the entry's prog carries it | as every entry | a lost SET: no tap entry → `tapsLive` false → today's path (on `report` a click with no 115 is acted on as today anyway). **A switch whose SET or CLEAR does not land** leaves the old form on the lens; RIGHT's next tap 115 shows it (§6.7: fields 10–14 carried under `report`, absent under `glasses`, any under `phone`), that tap is judged by the tap rule, and the next batch re-sends the entry, journaled — so at most the taps before the re-sent message lands meet the old form | entry; the close set's local flags (a done local counts, D1); for a report-only entry its slot's local flag | ui_task under the word; one lens may press while the other refuses 17 — the phone's DISCARD reaches both; a report-only entry draws on neither lens. A switch refused on one lens alone (§6.4's class) leaves the lenses on different forms, which RIGHT's 115 cannot show when LEFT is the one behind: each tap then presses on one eye only, ended by the slot's DISCARD — under `phone` (LEFT's CLEAR refused) by an idle batch's SETTLE, LEFT's extra fires putting its S ahead as a dropped answer does (§6.4) — until the list's next return from a cover SETs the entry again (`report`, `glasses`) or the next start's CLEAR 0xFF | once, in the close pass, before any close | the close pass of PLAY, COMMIT and scroll fires (a scroll may close a press); the report-only fire's skipped steps (§6.2) |
+| the tap guards: SET's two shapes, a tap entry with a program or report-only (prog 0xFFFF); refused 17. `Taps` is no state on the glasses: the entry's prog carries it | as every entry | a lost SET: no tap entry → `tapsLive` false → today's path (on `report` a click with no 115 is acted on as today anyway). **A switch whose SET or CLEAR does not land** leaves the old form on the lens; RIGHT's next tap 115 shows it (§6.7's table repair: the form under `report` and `glasses`, an entry not held under `phone`), that tap is judged by the tap rule, and the next batch re-sends the entry, journaled — so at most the taps before the re-sent message lands meet the old form | entry; the close set's local flags (a done local counts, D1); for a report-only entry its slot's local flag | ui_task under the word; one lens may press while the other refuses 17 — the phone's DISCARD reaches both; a report-only entry draws on neither lens. A switch refused on one lens alone (§6.4's class) leaves the lenses on different forms, which RIGHT's 115 cannot show when LEFT is the one behind: each tap then presses on one eye only, ended by the slot's DISCARD — under `phone` (LEFT's CLEAR refused) by an idle batch's SETTLE, LEFT's extra fires putting its S ahead as a dropped answer does (§6.4) — until the list's next return from a cover SETs the entry again (`report`, `glasses`) or the next start's CLEAR 0xFF | once, in the close pass, before any close | the close pass of PLAY, COMMIT and scroll fires (a scroll may close a press); the report-only fire's skipped steps (§6.2) |
 | a same-slot local close sends no 114 | — | the newer 115 lost: nothing waits on the closed local's body (§6.5) | closer a fire, closed instance local, same slot | ui_task under the word | one test in the close pass | every other close keeps its body; the simulator's close pass |
 | BIND (flag bit 4) | every release point; refused without the lease | a FLAGS_SET that does not land: the reply shows BIND not armed → the phone binds nothing | — | settings task writes; read once under the word; unordered with the image lane per lens (§5.7's class) | once | DRAW2, ENGINE, ZWRITE |
 | the hook's pass-through and page test | — | — | devType + eventId | runs on both lenses' ui_tasks from boot; peek only; `FW_MODE(UI_CTX)` read before the dispatcher (I) | one context read | the inherited long-press and release sites stay inside the dispatcher |
@@ -1507,11 +1547,12 @@ case-in (the journal; the calendar fallback covers a miss) · COMMIT CRCs equal 
 | phone: echo owes and u (P5) | every SETTLE sent, a session start | an owe of either kind may never be paid (stock sends no scroll message for a notch inside its rubber band and no click for a single tap inside it, §6.1) and a paid scroll owe may come a band late; until the next SETTLE an unpaid owe can swallow one later unowed stock message — an unreported scroll message (repaired by the next report's cursor, P3, or the SETTLE) or a click whose 115 was lost (that tap is then neither acted on nor journaled `no-report`) | kind (scroll, click) | reader thread | once per message | P3's bound |
 | phone: the per-slot answer (P3): A, the reports handled since the slot's last answer and whether each was adopted, whether anything else moved its row | A at each answer (the last S it covered), := S_heard at a session start; the rest at each answer | a lost COMMIT or DISCARD: a missing ack or a refusal → a divergence and a keyframe; SETTLE ends what is left | slot; S (signed 16-bit) | the shell's loop composes it after the frame's drawing subs (and after a LIST of its list); the reader thread hands it the reports in order (P2) | once per slot per batch | P4's and P5's DISCARDs, the tap rule's answer and the unowed click's, now this one message; P10's diff with END applied |
 | phone: S_low (P7, P9) | := S_heard + 1 at each SETTLE sent and at a session start | a SETTLE that does not land: a refusal → a divergence and a keyframe; a link drop → the start's keyframe closes every instance | — | the shell's loop | once per SETTLE | S_heard; P9's disarm DISCARD |
-| phone: the entries and lists it holds, its marks, the staged records' places (P9) | each start; each change of the list in front | a lost SET or LIST: P3 or the tap rule; the refusal record → re-send | entry, list, mark | the shell's loop builds them; the transport sends | — | the atlas planner (never overwrites a bound record in place while a burst is open) |
+| phone: the entries and lists it holds, its marks, the staged records' places (P9) | each start; each change of the list in front | a lost SET, CLEAR or LIST: P3 or the tap rule judge the report; the table repair re-sends the object its evidence names; the refusal record → re-send | entry, list, mark | the shell's loop builds them; the transport sends | — | the atlas planner (never overwrites a bound record in place while a burst is open) |
 | phone: SETTLE's pacing (the last report's time, a burst open) | each report; each SETTLE sent alone | — (pacing: nothing waits on it). Q's floor (P7): a scroll message the band held back past the SETTLE that cleared its owe is applied as an unreported notch, so Q stays above the p99 of a burst's last 115 → its last scroll message (the trial's journal; until measured Q ≥ `age` + (T − 1)·P, I) | — | the shell's loop | — | C1's motion scheduler's nominal-end resume |
 | phone: `tapsLive` | session start; a release point it causes; CLEAR of the tap entry sent; a read without field 39 bit 0 | — | session | set by the reader thread; read by the shell once per unowed click on `report` and `glasses` (false: acted on, not counted in u, D1) | once per click | P8's session test |
 | phone: the tap rule and its DISCARD answer | — | a lost DISCARD: a missing ack → keyframe; SETTLE also ends the press | S, list, mark, cursor, the owes n | the shell's loop | each field once | P3 |
-| phone: the bound-list CLEAR/SET around covers (modals, popovers, other windows) | — | a lost CLEAR: a fire under the cover fails "in front" → DISCARD; a lost SET: no local input until the next start | entry | built in the cover's own batch | — | every cover: confirm, popover, keyboard, window switch |
+| phone: the bound-list CLEAR/SET around covers (modals, popovers, other windows) | — | a lost CLEAR: a fire under the cover fails "in front" → DISCARD, and its 115 (an entry not held) re-sends the CLEAR; a lost SET: its scroll entries come back at the first unreported scroll message (the table repair), the tap entry at the next return or start (taps act as today's clicks meanwhile) | entry | built in the cover's own batch | — | every cover: confirm, popover, keyboard, window switch |
+| phone: the table repair (§6.7): the objects owed a re-send; per bound list, whether a scroll 115 was handled since the last SETTLE sent | the owed objects at the batch that carries them; the per-list mark at each SETTLE sent; all at a session start | a re-send that does not land: the next evidence re-sends again; refused: P1's path | list (LIST, the scroll entries), entry (SET, CLEAR) | the reader thread hands the evidence over in order (P2); the shell's loop composes the re-sends after the batch's drawing subs and skips one whose object the batch already carries | once per 115 or unreported stock message | P1's refusal re-send; the cover's CLEAR and the return's SET; P3's and the tap rule's tests, which name the evidence |
 | phone: batch order (26/27 after the drawing subs; a LIST before its slot's answer, D0) | — | a refused sub loses the present only | — | both lenses alike | — | every flush carrying COMMIT, DISCARD, SETTLE, SET, CLEAR or LIST |
 | phone: the persisted stage, `Taps`, the last stage-4 arming, the last case-in, the hold-back | never by a restart of the process; the hold-back at its lifting | the record is written before the rung's first byte (R2 B-M1) | the restart reads: RIGHT's uptime, LEFT's end reasons | the transport | each end read once (R6 B6-2) | C1's stages 1–3 |
 | phone: unknown bound areas (P10); the batch's diff taken with COMMIT's END applied | the SETTLE that ends the burst | — | slot | mirror lock (C1's) | — | C1's unknown drawing areas; the per-slot answer's "no drawing sub meets the areas" |
@@ -1757,9 +1798,11 @@ phone's keeper applies the hold-back rule before re-arming.
   icon grow M2 cut, §6.6); the sequence fuzz as a build condition; the envelope's rows. Sentences marked (D0) are this stage's fillings, ruled as written the same day. Nothing built; contract
   version unchanged.
 - 2026-11-18 — §6: the focused read of the report-only tap entry worked in (C2's documents stage D1, `C2-rulings.md`
-  §12 B): the hook ahead of stock's click gate settled at instruction level (§6.1); a tap 115 whose form disagrees
-  with `Taps` re-sends the tap entry, the switch in §6.11, the fuzz's `Taps` switches and lost mode 27s and its sixth
-  invariant, liveness; an entry's presence is its own mark; what a dropped tap shows per `Taps` value (§6.7, §6.12);
+  §12 B, and §13 on its report): the hook ahead of stock's click gate settled at instruction level (§6.1); the table
+  repair in §6.7 — a mode 27 that did not land is re-sent as the one object a later 115 or stock message names (a
+  tap 115's form, a 115's mark, an entry not held, a differing prediction, an unreported scroll message), with its
+  §6.11 row; the fuzz's `Taps` switches and lost mode 27s, its sixth and seventh invariants (tap and scroll
+  liveness) and the repair's seeded cases; an entry's presence is its own mark; what a dropped tap shows per `Taps` value (§6.7, §6.12);
   field 37 the last fire that drew; the report-only vectors; a done local counts for 17; a click from a tap that
   matched no entry not counted in u. Sentences marked (D1) are this stage's fillings. Nothing built; contract version
   unchanged.
