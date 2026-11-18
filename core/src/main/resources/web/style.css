@@ -92,7 +92,7 @@ main:focus { outline: none; }
 .page { padding: var(--gap) calc(var(--gap) * 1.5); max-width: 80rem; }
 h1 { font-size: 1.5rem; margin: .2rem 0 var(--gap); }
 h2 { font-size: 1.1rem; margin: calc(var(--gap) * 1.2) 0 .5rem; }
-body.away main .page:not(.is-book):not(.torrents), body.away .bookbar { opacity: .55; filter: grayscale(1); }
+body.away main .page:not(.is-book):not(.torrents):not(.feed):not(.tmux), body.away .bookbar { opacity: .55; filter: grayscale(1); }
 /* S1-2 Q4w: Torrents greys its parts, not its page (a filter on the page would anchor the fixed details to it) */
 body.away main .page.torrents > * { opacity: .55; filter: grayscale(1); }
 
@@ -389,4 +389,196 @@ a.btn:hover { border-color: var(--accent); }
   /* the folder's own tools step aside while an entry's pane takes the screen */
   .page.files.pane-open .ftools, .page.files.pane-open .fclip { display: none; }
   .fgrid { grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr)); }
+}
+
+/* ---- S1-3 JF: Feed ---- */
+.page.feed { max-width: none; padding: 0; height: 100%; display: flex; flex-direction: column; }
+.fd-top { padding: .6rem var(--gap) .4rem; border-bottom: 1px solid var(--line); }
+.fd-head h1 { margin: 0; }
+.fd-top .tflying p { margin: .2rem 0 0; }
+.fd-cols { flex: 1; min-height: 0; display: grid; grid-template-columns: 15rem minmax(0, 1fr); }
+.fd-cols > * { overflow: auto; min-height: 0; }
+.fd-src { border-right: 1px solid var(--line); background: var(--bar); padding: .4rem; }
+.fd-list { padding: 0 var(--gap) var(--gap); }
+.fd-read { padding: 0 0 var(--gap); }
+.fd-read:focus { outline: none; }
+.page.feed.show-read .fd-list { display: none; }
+.page.feed:not(.show-read) .fd-read { display: none; }
+/* the way back: always from an item; to the sources only where they are not beside it (a phone) */
+.fd-back { display: none; }
+.fd-up { white-space: nowrap; }
+@media (min-width: 1280px) {
+  .page.feed.show-read.has-list .fd-cols { grid-template-columns: 15rem minmax(18rem, 26rem) minmax(0, 1fr); }
+  .page.feed.show-read.has-list .fd-list { display: block; border-right: 1px solid var(--line); }
+}
+@media (max-width: 899px) {
+  .fd-cols { grid-template-columns: minmax(0, 1fr); }
+  .page.feed:not(.show-src) .fd-src { display: none; }
+  .page.feed.show-src .fd-list { display: none; }
+  .fd-src { border-right: 0; background: none; padding: .4rem var(--gap); }
+  .fd-back { display: inline-block; white-space: nowrap; }
+  /* seen in headless Firefox: on a phone the header and a sticky bar of actions left half the screen to the article;
+     the reading column keeps the screen, its bar scrolling away with the text */
+  .page.feed:not(.show-src) .fd-head { display: none; }
+  .page.feed:not(.show-src) .fd-top { border-bottom: 0; padding: 0 var(--gap); }
+  .fd-read .fd-bar { position: static; }
+  /* seen in headless Firefox: the comic's five buttons wrapped Latest onto a row of its own at 390 px */
+  .fd-cbar { gap: .3rem; }
+  .fd-cbar button { padding: .35rem .5rem; }
+}
+.fd-sources { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .15rem; }
+.fd-s { display: flex; flex-direction: column; gap: .1rem; padding: .45rem .6rem; border-radius: .45rem; color: var(--fg); text-decoration: none; }
+.fd-s:hover { background: var(--card); }
+.fd-s.current { background: var(--card); box-shadow: inset 3px 0 0 var(--accent); }
+.fd-sn { font-weight: 600; }
+.fd-sn.unread { font-weight: 800; }
+.fd-new { color: var(--accent); font-size: .85rem; font-weight: 700; }
+.fd-sl { color: var(--muted); font-size: .82rem; }
+.fd-sh { font-size: .82rem; font-weight: 600; margin: 0; }
+.fd-sh.failing { color: var(--danger); }
+.fd-sh.limited { color: var(--warn); }
+.fd-sep { border-top: 1px solid var(--line); margin: .4rem 0; }
+.fd-sfoot { padding: .5rem .6rem; }
+.fd-lhead { position: sticky; top: 0; z-index: 2; background: var(--bg); padding: .6rem 0 .4rem; border-bottom: 1px solid var(--line); }
+.fd-lt { display: flex; flex-wrap: wrap; gap: .2rem .7rem; align-items: baseline; }
+.fd-lt h2 { margin: 0; }
+.fd-lhead > p { margin: .2rem 0; }
+.fd-acts { display: flex; flex-wrap: wrap; gap: .4rem; margin: .4rem 0 .2rem; }
+.fd-browse summary { cursor: pointer; color: var(--muted); width: max-content; margin-top: .3rem; }
+.fd-bform { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin: .4rem 0; }
+.fd-bform input { flex: 1; min-width: 8rem; padding: .35rem .5rem; border: 1px solid var(--line); border-radius: .4rem; background: var(--bar); }
+.fd-rows { list-style: none; margin: 0; padding: 0; }
+.fd-row { border-bottom: 1px solid var(--line); }
+.fd-open { display: grid; grid-template-columns: 1.1rem minmax(0, 1fr); gap: .1rem .35rem; padding: .55rem .2rem; color: var(--fg); text-decoration: none; }
+.fd-open > .fd-t, .fd-open > .fd-tail { grid-column: 2; }
+.fd-open > .fd-flag { grid-column: 1; grid-row: 1; color: var(--accent); }
+.fd-t { font-weight: 600; }
+.fd-tail { color: var(--muted); font-size: .84rem; }
+.fd-flag .icon { width: 1rem; height: 1rem; }
+.fd-row.read .fd-t { font-weight: 400; color: var(--muted); }
+.fd-row.current { background: var(--card); }
+.fd-hint { padding: var(--gap) 0; }
+.fd-bar { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; padding: .5rem var(--gap); background: var(--bar); border-bottom: 1px solid var(--line); }
+.fd-bar a.out { padding: .35rem .2rem; }
+.fd-btitle { margin: 0; font-size: 1.05rem; }
+.fd-text .fd-title { font-size: 1.45rem; line-height: 1.3; margin: .4rem 0 .3rem; }
+.fd-by, .fd-source { font-family: var(--ui-font); font-size: .9rem; color: var(--muted); margin: 0 0 1em; }
+.fd-floor, .fd-wait { font-family: var(--ui-font); font-size: .95rem; }
+.fd-wait.failed, .fd-bl.failed { color: var(--danger); }
+.fd-fig figcaption, .fd-noimg { font-family: var(--ui-font); font-size: .85rem; }
+.fd-cwrap { max-width: 46em; margin: 0 auto; padding: var(--gap) calc(var(--gap) * 1.5) 30vh; }
+.fd-cwrap .fd-title { font-size: 1.3rem; }
+.fd-thread { list-style: none; margin: 0; padding: 0; }
+.fd-c { margin: 0 0 1rem; padding-left: .7rem; border-left: 2px solid var(--line); }
+.fd-c.d0 { padding-left: 0; border-left: 0; }
+.fd-c.d1 { margin-left: 1rem; } .fd-c.d2 { margin-left: 2rem; } .fd-c.d3 { margin-left: 3rem; } .fd-c.d4 { margin-left: 4rem; }
+.fd-c.d5, .fd-c.d6, .fd-c.d7, .fd-c.d8 { margin-left: 5rem; }
+.fd-ch { display: flex; flex-wrap: wrap; gap: .1rem .6rem; font-size: .88rem; margin-bottom: .2rem; }
+.fd-c p, .fd-c pre, .fd-c blockquote { margin: 0 0 .5em; }
+.fd-c pre { font-family: var(--mono-font); font-size: .85rem; white-space: pre-wrap; background: var(--card); padding: .4rem; border-radius: .3rem; }
+.fd-c blockquote { padding-left: .8rem; border-left: 3px solid var(--line); color: var(--muted); }
+.fd-c .em { font-style: italic; } .fd-c .strong { font-weight: 700; } .fd-c .code { font-family: var(--mono-font); font-size: .9em; }
+.fd-comicwrap { padding: var(--gap); text-align: center; }
+.fd-comicwrap .fd-title { font-size: 1.3rem; margin: .3rem 0 0; }
+.fd-comic { margin: 1rem auto; display: flex; flex-direction: column; align-items: center; gap: .6rem; }
+/* the original as drawn: its own size, never upscaled, scaled down to the column's width */
+.fd-strip { display: block; max-width: 100%; height: auto; }
+.fd-alt { max-width: 38em; font-family: var(--reading-font); font-size: 1.05rem; line-height: 1.5; }
+.fd-cbar { display: flex; flex-wrap: wrap; justify-content: center; gap: .4rem; margin: .6rem 0 1rem; }
+.fd-binge { max-width: 60rem; margin: 0 auto; padding: 0 var(--gap); }
+.fd-ep { margin: 0 0 1.5rem; }
+.fd-eph { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .2rem .8rem; font-size: 1rem; margin: .8rem 0 .4rem; }
+.fd-ep .fd-strip { margin: 0 auto; }
+/* a picture on its way holds a screen's height, so the window grows by what is seen */
+.fd-ep img.fd-strip:not(.loaded) { width: 100%; min-height: 60vh; background: var(--card); }
+.fd-pending { padding: 2rem 1rem; border: 1px dashed var(--line); border-radius: .5rem; text-align: center; }
+.fd-bl { text-align: center; margin: .8rem var(--gap); }
+.fd-jump { display: inline-flex; gap: .3rem; }
+.fd-epin { width: 6.5rem; padding: .3rem .4rem; border: 1px solid var(--line); border-radius: .4rem; background: var(--bar); }
+.fd-settings { padding: var(--gap); max-width: 44rem; }
+.fd-settings .fd-lt { margin-bottom: .4rem; }
+/* out of reach: the chrome greys, an article stays readable (Reader's book rule, C§2.5) */
+body.away .page.feed .fd-top, body.away .page.feed .fd-src, body.away .page.feed .fd-list, body.away .page.feed .fd-bar,
+body.away .page.feed .fd-settings, body.away .page.feed .fd-cbar { opacity: .55; filter: grayscale(1); }
+
+/* ---- S1-3 JT: Tmux (spec §4.7) ---- */
+.tm-hosts { display: flex; flex-direction: column; gap: .3rem; margin-bottom: var(--gap); }
+.tm-host { display: flex; flex-wrap: wrap; gap: .3rem .8rem; align-items: center; padding: .4rem .6rem; border: 1px solid var(--line); border-radius: .5rem; background: var(--card); }
+.tm-hn { font-weight: 700; }
+.tm-hl { color: var(--muted); flex: 1; min-width: 10rem; }
+.tm-host.failing .tm-hl { color: var(--danger); }
+.tm-host.quiet .tm-hl { color: var(--warn); }
+.tm-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .4rem; }
+.tm-sess { display: flex; flex-direction: column; gap: .15rem; padding: .55rem .7rem; border: 1px solid var(--line); border-radius: .5rem; color: var(--fg); text-decoration: none; }
+.tm-sess:hover { border-color: var(--accent); }
+.tm-item.waiting .tm-sess { border-color: var(--warn); box-shadow: inset 3px 0 0 var(--warn); }
+.tm-sn { display: flex; flex-wrap: wrap; gap: .2rem .6rem; align-items: baseline; font-weight: 700; font-size: 1.05rem; }
+.tm-sh { color: var(--muted); font-weight: 400; font-size: .9rem; }
+.tm-last { font-family: var(--mono-font); font-size: .85rem; white-space: pre-wrap; }
+.tm-sl { color: var(--muted); font-size: .85rem; }
+.tm-mark { font-size: .78rem; font-weight: 600; padding: .05rem .4rem; border-radius: .6rem; border: 1px solid var(--line); color: var(--muted); }
+.tm-mark.wait { border-color: var(--warn); color: var(--warn); }
+.tm-set { margin-top: calc(var(--gap) * 1.5); }
+.tm-set summary { cursor: pointer; color: var(--muted); }
+.tm-set .trow { display: flex; flex-wrap: wrap; gap: .3rem .8rem; align-items: center; padding: .35rem 0; }
+.tm-head { display: flex; flex-wrap: wrap; gap: .3rem .8rem; align-items: baseline; margin-bottom: .3rem; }
+.tm-head h1 { margin: 0; }
+.tm-hostname { color: var(--muted); }
+.tm-back { white-space: nowrap; }
+.tm-status { margin: .2rem 0 .5rem; }
+.tm-status:focus { outline: none; }
+.tm-line { margin: .1rem 0; font-size: .88rem; color: var(--muted); }
+.tm-line.typing { color: var(--accent); font-weight: 600; }
+.tm-line.warn { color: var(--warn); }
+.tm-line.bad, .note.bad { color: var(--danger); }
+/* the terminal: the PC's picture on the grid; every box placed at column × --cw from its row's left (term-render.mjs) */
+.tm-term { position: relative; overflow: auto; padding: 6px; border: 1px solid var(--line); border-radius: .4rem; background: var(--bg); color: var(--fg); overflow-wrap: normal;
+  width: fit-content; max-width: 100%; min-width: min(20rem, 100%); }
+.tm-term:focus { outline: none; }
+.tm-term.typing { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.tm-rows {
+  position: relative; font-family: var(--mono-font); font-size: var(--fs, 14px); line-height: var(--ch, 18px);
+  width: calc(var(--cw, 8px) * var(--cols, 80)); min-height: calc(var(--ch, 18px) * var(--rows, 1));
+  font-synthesis: none; font-kerning: none; font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; white-space: pre;
+}
+.tm-row { position: relative; height: var(--ch, 18px); }
+.tm-s { position: absolute; top: 0; left: calc(var(--cw, 8px) * var(--c, 0)); width: calc(var(--cw, 8px) * var(--n, 1)); height: var(--ch, 18px); white-space: pre; overflow: visible; }
+.tm-s.b { font-weight: 700; }
+.tm-s.u { text-decoration: underline; }
+.tm-cur { z-index: 1; }
+.tm-probe { position: absolute; left: 0; top: 0; visibility: hidden; white-space: pre; }
+.page.tmux.gone .tm-term { opacity: .55; }
+.tm-dock { display: flex; flex-direction: column; gap: .4rem; margin: .6rem 0; }
+.tm-prompt { margin: 0; padding: .35rem .6rem; border-left: 3px solid var(--warn); background: var(--card); font-size: .9rem; }
+.tm-keys { display: flex; flex-wrap: wrap; gap: .3rem; align-items: center; }
+.tm-keys.kept .note { font-size: .82rem; }
+.tm-k { flex: none; font-family: var(--mono-font); font-size: .88rem; padding: .3rem .55rem; min-width: 2.4rem; }
+.tm-term.flow { width: auto; overflow-y: auto; scrollbar-gutter: stable; }
+.tm-h2 { margin-top: calc(var(--gap) * 1.5); }
+.tm-host .act, .tm-host button { margin-left: auto; }
+.tm-fold summary { cursor: pointer; color: var(--muted); padding: .3rem 0; }
+.tm-type { display: flex; gap: .4rem; }
+.tm-in { flex: 1; min-width: 6rem; padding: .35rem .5rem; border: 1px solid var(--line); border-radius: .4rem; background: var(--bar); font-family: var(--mono-font); }
+.tm-snips summary { cursor: pointer; color: var(--muted); width: max-content; }
+.tm-snips .tm-keys { margin-top: .3rem; }
+.tm-acts { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
+.tm-hlink { padding: .35rem .3rem; }
+.tm-more .note { font-size: .82rem; }
+.tm-wl { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .3rem; }
+.tm-wl li { display: flex; flex-wrap: wrap; gap: .3rem .6rem; align-items: center; }
+.tm-term.hist { max-height: none; }
+/* out of reach: the keys and actions grey and say why; the last picture stays readable with its age (C§2.5) */
+body.away .page.tmux .tm-dock, body.away .page.tmux .tm-more, body.away .page.tmux .tm-hosts, body.away .page.tmux .tm-set,
+body.away .page.tmux .tm-head .tm-mark { opacity: .55; filter: grayscale(1); }
+body.away .page.tmux .tm-term { opacity: .8; }
+/* a phone: the session fills the screen, its rows flowing to the width, the keys and Type… held above the keyboard */
+@media (max-width: 760px) {
+  .page.tmux.at-session { display: flex; flex-direction: column; height: 100%; padding-bottom: 0; }
+  .page.tmux.at-session .tm-term { flex: 1; min-height: 8rem; }
+  .page.tmux.at-session .tm-head h1 { font-size: 1.2rem; }
+  .page.tmux.at-session .tm-dock { position: sticky; bottom: 0; margin: 0; padding: .4rem 0 .5rem; background: var(--bg); border-top: 1px solid var(--line); }
+  .page.tmux.at-session .tm-k { padding: .25rem .3rem; min-width: 1.9rem; font-size: .8rem; }
+  .page.tmux.at-session .tm-keys { gap: .25rem; }
+  .page.tmux.at-session .tm-more { max-height: 40vh; overflow: auto; }
+  .page.tmux.at-session .tm-status { margin: 0 0 .3rem; }
 }

@@ -40,21 +40,22 @@ export function clear(el) {
 }
 
 /** A link out of the app: only http and https, opened outside the page with no referrer; else plain text. It is
- *  marked (`a.out::after`) and its title names the host it opens (fix round 1, ruling 2.3 (10)). */
-export function outLink(href, kids) {
+ *  marked (`a.out::after`) and its title names the host it opens (fix round 1, ruling 2.3 (10)). S1-3: `where` names
+ *  what it leaves (Reader's "the book", Feed's "Damage"). */
+export function outLink(href, kids, where) {
   if (!/^https?:\/\//i.test(href || '')) return h('span', null, kids);
-  return h('a', { href, target: '_blank', rel: 'noopener noreferrer', class: 'out', title: outTitle(href) }, kids);
+  return h('a', { href, target: '_blank', rel: 'noopener noreferrer', class: 'out', title: outTitle(href, where) }, kids);
 }
 
-/** The title of a link that leaves the book: the host it opens. Pure. */
-export function outTitle(href) {
+/** The title of a link that leaves the book (or `where`): the host it opens. Pure. */
+export function outTitle(href, where = 'the book') {
   let host = '';
   try {
     host = new URL(href).host;
   } catch (e) {
     host = '';
   }
-  return host ? `opens ${host}, outside the book` : 'opens outside the book';
+  return host ? `opens ${host}, outside ${where}` : `opens outside ${where}`;
 }
 
 /**
@@ -103,6 +104,11 @@ const ICONS = {
   file: 'M6 2h8l5 5v15H6zM14 2v5h5',
   image: 'M3 4h18v16H3zM3 16l5-5 4 4 3-3 6 6M15.5 8.5h.01',
   trash: 'M4 6h16M9 6V3h6v3M6 6l1 15h10l1-15M10 10v7M14 10v7',
+  // S1-3: Feed — the rss mark, a dot and two arcs (FEED.md §3's drawn fallback); a flag (its read-later mark)
+  feed: 'M5 19h.01M5 12a7 7 0 0 1 7 7M5 5a14 14 0 0 1 14 14',
+  flag: 'M5 21V4M5 4h11l-2 4 2 4H5',
+  // S1-3: Tmux — a prompt in a frame (TMUX.md §3.6's TERMINAL)
+  terminal: 'M3 4h18v16H3zM7 9l3 3-3 3M12 15h5',
 };
 
 /** A small line icon drawn in the page's own colours. */

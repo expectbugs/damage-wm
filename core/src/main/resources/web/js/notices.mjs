@@ -12,6 +12,9 @@ export const PREFIX = `rec.${WINDOW}.`;
 /** The stored cursor of a stream: `damage.notices.cursor.<stream>` = {"epoch": e, "occ": n}. */
 export const cursorKey = (stream) => `damage.notices.cursor.${stream}`;
 const LIVE = new Set(['RAISED', 'READ']);
+/** S1-3, the lead's ruling G2 (TMUX.md verdict 3): a Tmux alert pops on the glasses only; the Tmux page and its card
+ *  show the waiting mark. A page never pops a notice of these apps. */
+export const GLASSES_ONLY = new Set(['tmux']);
 
 /** An occurrence as a whole number (the PC may write it as a number or as its decimal text), else null. */
 export function occOf(v) {
@@ -97,7 +100,7 @@ export class NoticeDesk {
       }
     }
     for (const n of all) {
-      if (n.occ <= this.cursor.occ || n.v.state !== 'RAISED') continue;
+      if (n.occ <= this.cursor.occ || n.v.state !== 'RAISED' || GLASSES_ONLY.has(n.v.app)) continue;
       if (typeof n.v.heldUntil === 'number' && n.v.heldUntil > pcNow) this.held.set(n.id, n.occ);
       else pop.push(n);
     }

@@ -5,6 +5,8 @@
 
 import { torrentsDesc, torrentsScope, torrentsRecord, torrentsSeries } from './torrents-fixtures.mjs';
 import { filesDesc, filesScope, filesRecord, folderRows, runningCopy, DL, EMPTY } from './files-fixtures.mjs';
+import { feedScope, feedRecord, feedBlobs, feedChange, itemId, F_NOW } from './feed-fixtures.mjs';
+import { tmuxScope, tmuxRecord, tmuxLive, streamData, OUTPUT } from './tmux-fixtures.mjs';
 import { format } from '../../main/resources/web/js/address.mjs';
 
 const ME = 'web-a1b2c3';
@@ -73,13 +75,26 @@ const RAISES = [
 export const fixtures = {
   code: 'K7M4QX',
   // S1-2 Q4w: Torrents' scopes that are not fixed (details, listings, pages) are answered by function; Q5w: Files' too
-  scope: (s) => torrentsScope(s) || filesScope(s),
-  records: { torrents: torrentsRecord, files: () => filesRecord() },
+  scope: (s) => torrentsScope(s) || filesScope(s) || feedScope(s) || tmuxScope(s),
+  records: { torrents: torrentsRecord, files: () => filesRecord(), feed: () => feedRecord(), tmux: () => tmuxRecord() },
+  // S1-3: a live source's messages (Tmux's frames and its terminal stream)
+  live: (scope, scene) => tmuxLive(scope, scene),
+  // S1-3: Feed's pictures, drawn by the fixtures (comics, an archive page, an article's chart)
+  blob: (id) => feedBlobs()[id],
+  // S1-3: what another device or a session does while a page is open (the stand-in's `/__push?name=`)
+  push: (name) => ({
+    // the glasses read on in the open article (block 6) and in the archive (episode 420), later than this page's input
+    'feed-place': [feedChange(41, 'place', { item: itemId('news', 0), b: 6, o: 0, v: 1 }, F_NOW + 3600e3)],
+    'feed-binge': [feedChange(42, 'binge.quest', { ep: 420, f: 0, s: 0, w: 564 }, F_NOW + 3600e3)],
+    // the shell answers what was typed
+    'tmux-output': [{ t: 'live', src: 'live/tmux/stream/workstation/shell', data: streamData(OUTPUT) }],
+  }[name] || []),
   // S1-2 Q5w: an upload op is answered with an id for its body
   program: (op) => (op.window === 'files' && op.action === 'upload' ? { a: 'sent', result: { upload: `u-${op.k}` } } : null),
   blobs: { 'cover-b1': [400, 600, [122, 75, 58]], 'cover-b3': [600, 400, [49, 80, 110]], 'cover-b6': [300, 600, [79, 107, 60]], 'fig-1': [1600, 900, [130, 110, 70]] },
   welcome: (stream, scene = {}) => ({ t: 'welcome', proto: 3, device: ME, level: scene.level || 'full', conn: 7, pcClock: NOW, epoch: 3, seq: 40,
-    contracts: { reader: 1, notices: 1, torrents: 1, files: 1 }, bundle: { hash: 'look' } }),
+    // S1-3: a scene may be an older PC's (a build that names no Feed contract)
+    contracts: scene.contracts || { reader: 1, notices: 1, torrents: 1, files: 1, feed: 1, tmux: 1 }, bundle: { hash: 'look' } }),
   // the notice record at first contact (adopted, nothing pops), and `n` raised after it, one change each
   notices: () => ({ t: 'snap', scope: 'notices', epoch: 3, seq: 40, items: Object.fromEntries([
     notice('a1d00001', 1, 'done · Copper Hill', 'DISMISSED', NOW - 86400e3), notice('a1d00002', 2, 'done · Salt Road', 'RAISED', NOW - 3600e3)]) }),
@@ -95,7 +110,10 @@ export const fixtures = {
       summary: { book: 'b1', line: 'The Salt Road · 4%', progress: 0.04 } },
     { window: 'torrents', name: 'Torrents', icon: 'torrents', min: 'view', availability: 'live',
       summary: { line: '6 downloading · 3.1 MB/s', detail: '28 seeding · 4 stopped · 4 errors', progress: 0.71 } },
-    { window: 'files', name: 'Files', icon: 'folder', min: 'full', availability: 'live', summary: { line: '5 locations · 1.1 TB free in Home' } }], who: { [ME]: 'desk browser', 'phone-1': 'phone' } },
+    { window: 'files', name: 'Files', icon: 'folder', min: 'full', availability: 'live', summary: { line: '5 locations · 1.1 TB free in Home' } },
+    { window: 'feed', name: 'Feed', icon: 'feed', min: 'view', availability: 'live', summary: { line: '25 new · front page 12 · tech news 4', detail: '1 failing · 1 rate-limited' } },
+    { window: 'tmux', name: 'Tmux', icon: 'terminal', min: 'full', availability: 'live', summary: { line: '6 sessions · 1 waiting', detail: 'build wants input' } }],
+    who: { [ME]: 'desk browser', 'phone-1': 'phone' } },
     'desc/reader': { id: 'reader', name: 'Reader', min: 'view', state: 'ok', shelf: { folder: '', folders: ['Essays', 'Series with a long folder name'], books: BOOKS },
       actions: [{ id: 'open', kind: 'r', level: 'view', label: 'Open' }, { id: 'place', kind: 'r', level: 'view', label: 'Place' },
         { id: 'bookmark', kind: 'r', level: 'control', label: 'Bookmark' }, { id: 'reset', kind: 'i', level: 'control', label: 'Reset progress' }] },
@@ -160,6 +178,8 @@ export const SCENES = {
   // the trash, a text, a picture and a PDF in the pane, an upload in progress, a running job, a selection, Delete
   // forever's confirm, a device below full, out of reach
   ...filesScenes(),
+  ...feedScenes(),
+  ...tmuxScenes(),
   'torrents-away': { path: '/w/torrents', steps: [{ wait: '.ttable tbody tr, .tcards li' }, { fetch: '/__away' }, { wait: '#reach:not([hidden])' }] },
 };
 
@@ -185,5 +205,83 @@ function filesScenes() {
     'files-purge': { path: f('trash'), steps: [{ wait: '.ftrash .frow' }, { click: '.frow-acts button.danger' }, { wait: 'dialog[open]' }] },
     'files-below': { path: f(`path:${DL}/`), level: 'control', steps: [{ wait: '.page.files .note' }] },
     'files-away': { path: f(`path:${DL}/`), steps: [listed, { fetch: '/__away' }, { wait: '#reach:not([hidden])' }] },
+  };
+}
+
+/** S1-3 (B17): Tmux — the sessions, each fixture frame (a shell, a full-screen editor, wide characters and box drawing,
+ *  a program waiting with the quick keys; at a desk in the terminal from the stream's init, at a phone's width from the
+ *  pictures), the history, typing into the terminal and its output, the typed line's, the paste's and the end's
+ *  confirms, a burst of pictures, out of reach, a device below full, a desk whose PC serves no terminal library; the
+ *  glass theme's versions of the frames. `tmux-typing` is a desk's scene (LOOK_SIZES=desk). */
+function tmuxScenes() {
+  const t = (target) => format({ window: 'tmux', target });
+  // the grid's boxes at a phone's width, the terminal's rows at a desk's
+  const drawn = { wait: '.tm-rows .tm-row .tm-s, .xterm-screen .xterm-row span' };
+  // the theme as the Settings page sets it, after the page is drawn (the terminal draws itself again in its colours)
+  const glass = (scene) => ({ ...scene, steps: [...scene.steps, { theme: 'glass' }] });
+  const base = {
+    'tmux-sessions': { path: '/w/tmux', steps: [{ wait: '.tm-list .tm-sess' }] },
+    'tmux-shell': { path: t('session:workstation:shell'), steps: [drawn] },
+    'tmux-editor': { path: t('session:workstation:editor'), steps: [drawn, { wait: '.tm-wl li' }] },
+    'tmux-tables': { path: t('session:workstation:tables'), steps: [drawn] },
+    'tmux-waiting': { path: t('session:workstation:build'), steps: [drawn, { wait: '.tm-prompt' }] },
+    'tmux-history': { path: t('history:buildbox:logs'), steps: [{ wait: '.tm-term.hist .tm-row' }] },
+  };
+  const out = { ...base };
+  for (const [k, v] of Object.entries(base)) out[`${k}-glass`] = glass(v);
+  const field = '.xterm-helper-textarea';
+  return {
+    ...out,
+    // his keys typed into the terminal go out as `raw` ops (the stand-in's log), and the session's answer is written
+    'tmux-typing': { path: t('session:workstation:shell'), steps: [drawn, { focus: field }, { key: [field, 'm'] }, { key: [field, 'a'] },
+      { key: [field, 'k'] }, { key: [field, 'e'] }, { key: [field, 'Enter'] }, { fetch: '/__push?name=tmux-output' }, { wait: '.tm-xterm.typing, .tm-xterm' }] },
+    'tmux-type-confirm': { path: t('session:workstation:shell'), steps: [drawn, { type: '.tm-in', text: 'make package && ./run.sh --steep 4' }, { click: '.tm-type button' }, { wait: 'dialog[open]' }] },
+    'tmux-paste-confirm': { path: t('session:workstation:shell'), steps: [drawn, { paste: '.tm-term.tm-xterm, .tm-in', text: 'cd ~/src/kettle\nmake clean\nmake package\n' }, { wait: 'dialog[open]' }] },
+    'tmux-end-confirm': { path: t('session:workstation:shell'), steps: [drawn, { click: '.tm-acts button.danger' }, { wait: 'dialog[open]' }] },
+    'tmux-end-act': { path: t('session:workstation:shell'), steps: [drawn, { click: '.tm-acts button.danger' }, { wait: 'dialog[open]' }, { click: 'dialog[open] button.act' }, { wait: '.tm-list .tm-sess' }] },
+    'tmux-burst': { path: t('session:workstation:tables'), burst: 40, noXterm: true, steps: [drawn] },
+    'tmux-away': { path: t('session:workstation:shell'), steps: [drawn, { fetch: '/__away' }, { wait: '#reach:not([hidden])' }] },
+    'tmux-below': { path: '/w/tmux', level: 'control', steps: [{ wait: '.page.tmux .note' }] },
+    'tmux-nolib': { path: t('session:workstation:shell'), noXterm: true, steps: [{ wait: '.tm-rows .tm-row .tm-s' }, { wait: '.tm-line.warn, .tm-line' }] },
+  };
+}
+
+/** S1-3 (B17): Feed — the sources (one failing with its countdown, one rate-limited), a long list of items, an article
+ *  (emphasis, a link, a picture, a code block), an article whose page did not extract, one still arriving, comments
+ *  four deep and a flat list, a numbered comic at the latest (its bar's next and latest dim), a comic with its bonus
+ *  panel, the archive as one page (a picture still being found), Flagged, mark all read's confirm and act, a read, a
+ *  flag, the follow of another device's place (article and archive), browse, the settings, out of reach, a device at
+ *  level view, and an older PC. */
+function feedScenes() {
+  const f = (target) => format({ window: 'feed', target });
+  const rows = { wait: '.fd-rows .fd-row' };
+  const art = { wait: '.fd-text figure img' };
+  return {
+    'feed-sources': { path: '/w/feed', steps: [{ wait: '.fd-s .fd-sh' }] },
+    'feed-items': { path: f('src:front'), steps: [rows] },
+    'feed-article': { path: f(`item:news:${itemId('news', 0)}`), steps: [art] },
+    'feed-article-floor': { path: f(`item:news:${itemId('news', 1)}`), steps: [{ wait: '.fd-floor' }] },
+    'feed-article-arriving': { path: f(`item:news:${itemId('news', 3)}`), silent: ['feed/item:'], steps: [{ wait: '.fd-wait' }] },
+    'feed-comments': { path: f(`comments:news:${itemId('news', 0)}`), steps: [{ wait: '.fd-c.d4' }] },
+    'feed-comments-flat': { path: f(`comments:front:${itemId('front', 0)}`), steps: [{ wait: '.fd-thread .fd-c' }] },
+    'feed-comic': { path: f('num:stick:2961'), steps: [{ wait: '.fd-comic img' }] },
+    'feed-comic-bonus': { path: f(`item:panel:${itemId('panel', 0)}`), steps: [{ wait: '.fd-bonus img' }] },
+    'feed-binge': { path: f('binge:quest'), steps: [{ wait: '.fd-ep img' }, { wait: '.fd-pending' }] },
+    // an address that names a place in the archive: the episode whose picture is still being found
+    'feed-binge-pending': { path: format({ window: 'feed', target: 'binge:quest', anchor: '@e413.0.9' }), steps: [{ wait: '.fd-ep img' }, { wait: '.fd-pending' }] },
+    'feed-flagged': { path: f('flagged'), steps: [rows] },
+    'feed-markall': { path: f('src:front'), steps: [rows, { click: '.fd-acts button:nth-child(2)' }, { wait: 'dialog[open]' }] },
+    'feed-browse': { path: f('src:front'), steps: [rows, { click: '.fd-browse summary' }, { wait: '.fd-browse[open] input' }, { type: '.fd-browse[open] input', text: 'knots' }] },
+    'feed-settings': { path: f('settings'), steps: [{ wait: '.fd-settings select' }] },
+    // acts: an opened row sends its source's read list and dims; Flag turns to Unflag; mark all read's act dims every row
+    'feed-read': { path: f('src:front'), steps: [rows, { click: '.fd-row:nth-child(3) .fd-open' }, { wait: '.fd-text figure img, .fd-text .blk' }] },
+    'feed-flag': { path: f(`item:news:${itemId('news', 0)}`), steps: [art, { click: '.fd-bar button' }, { wait: '.fd-bar button' }] },
+    'feed-markall-act': { path: f('src:front'), steps: [rows, { click: '.fd-acts button:nth-child(2)' }, { wait: 'dialog[open]' }, { click: 'dialog[open] button.act' }] },
+    // another device reads on in the article shown, and in the archive: the page follows by itself and sends nothing
+    'feed-follow': { path: f(`item:news:${itemId('news', 0)}`), steps: [art, { fetch: '/__push?name=feed-place' }] },
+    'feed-binge-follow': { path: f('binge:quest'), steps: [{ wait: '.fd-ep img' }, { fetch: '/__push?name=feed-binge' }, { wait: '.fd-ep[data-ep="420"] img' }] },
+    'feed-away': { path: f(`item:news:${itemId('news', 0)}`), steps: [art, { fetch: '/__away' }, { wait: '#reach:not([hidden])' }] },
+    'feed-view': { path: f(`item:news:${itemId('news', 0)}`), level: 'view', steps: [art] },
+    'feed-old-pc': { path: '/w/feed', contracts: { reader: 1, notices: 1, torrents: 1, files: 1 }, steps: [{ wait: '.page h1' }] },
   };
 }

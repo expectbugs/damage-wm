@@ -12,6 +12,8 @@ import { readFileSync } from 'node:fs';
 import { deflateSync, crc32 } from 'node:zlib';
 
 const WEB = new URL('../../main/resources/web/', import.meta.url);
+/** S1-3: the terminal library's route (B12) answers with a small fake of its surface, never the library itself. */
+const FAKE_XTERM = new URL('fake-xterm.mjs', import.meta.url);
 const GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'; // RFC 6455 §1.3
 const TYPES = { html: 'text/html; charset=utf-8', mjs: 'text/javascript; charset=utf-8', css: 'text/css; charset=utf-8', svg: 'image/svg+xml' };
 
@@ -68,6 +70,11 @@ export function png(w, h, [r, g, b]) {
     const k = Math.abs(y - h / 2) < h / 8 ? 0.6 : 1;
     for (let x = 0; x < w; x++) raw.set([r * k, g * k, b * k], y * (w * 3 + 1) + 1 + x * 3);
   }
+  return encodePng(w, h, raw);
+}
+
+/** S1-3: a PNG of w × h from `raw`, its RGB rows each led by a filter byte of 0 (Feed's generated pictures). */
+export function encodePng(w, h, raw) {
   const chunk = (type, data) => {
     const td = Buffer.concat([Buffer.from(type), data]);
     const len = Buffer.alloc(4);
@@ -83,8 +90,8 @@ export function png(w, h, [r, g, b]) {
   return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
 }
 
-/** The PC's policy for the bundle (`Bundle.csp`). */
-const csp = (host) => `default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' ws://${host}; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`;
+/** The PC's policy for the bundle (`Bundle.csp`; L1: inline styles allowed, which the terminal library's renderer needs). */
+const csp = (host) => `default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' ws://${host}; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`;
 
 /** The module that walks a scene's steps in the page, then releases the held image (S1-2 Q2: the real-server
  *  look's front uses it too, `front.mjs`). */
@@ -95,6 +102,10 @@ const frames = () => new Promise((ok) => setTimeout(ok, 0)); // a hidden screens
 const note = (t) => fetch('/__note?' + encodeURIComponent(t));
 addEventListener('error', (e) => note('page error: ' + e.message));
 addEventListener('unhandledrejection', (e) => note('page error: ' + (e.reason && e.reason.message)));
+// a hidden screenshot frame runs its first animation frame and then none (S1-3 JT2): a page that draws on animation
+// frames (the terminal library) is given timers instead
+window.requestAnimationFrame = (f) => setTimeout(() => f(performance.now()), 16);
+window.cancelAnimationFrame = (i) => clearTimeout(i);
 async function step(s) {
   if (s.wait) await until(s.wait);
   if (s.click) (await until(s.click)).click();
@@ -107,11 +118,22 @@ async function step(s) {
     (await until(s.drop)).dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
   }
   if (s.fetch) await fetch(s.fetch);
+  // S1-3: text typed into a field, as a keyboard delivers it (Feed's browse stages the name on its button)
+  if (s.type) { const e = await until(s.type); e.focus(); e.value = s.text; e.dispatchEvent(new Event('input', { bubbles: true })); }
+  // S1-3: text pasted into an element, as the browser hands a paste to the page (Tmux's paste rule). Seen: headless
+  // Firefox gives a constructed ClipboardEvent no readable data, so the event carries the text as the page reads it
+  if (s.paste) { const e = await until(s.paste); e.focus(); const ev = new Event('paste', { bubbles: true, cancelable: true }); const text = s.text;
+    Object.defineProperty(ev, 'clipboardData', { value: { getData: (t) => (t === 'text/plain' ? text : '') } }); e.dispatchEvent(ev); }
+  // S1-3: an element focused (the terminal taking the keyboard); a headless window holds no system focus, so the
+  // focus event a click would bring is handed to the page as well
+  if (s.focus) { const e = await until(s.focus); e.focus(); e.dispatchEvent(new FocusEvent('focus')); }
   // L1 R2: an event the page did not make by a click (a tap, a wheel, a window resize), and a scroll of the pane; a
   // hidden screenshot frame runs no rendering steps, so the 'scroll' event a visible frame would fire is fired here
   // (seen in FIX2's look: scrollTop moved 400 px and no event came in 400 ms)
   if (s.fire) (s.fire[0] === 'window' ? window : await until(s.fire[0])).dispatchEvent(new Event(s.fire[1], { bubbles: true }));
   if (s.scroll) { const el = await until(s.scroll[0]); el.scrollTop += s.scroll[1]; el.dispatchEvent(new Event('scroll')); }
+  // S1-3: a key pressed in an element (the terminal's field), as a keyboard delivers it
+  if (s.key) { const el = await until(s.key[0]); el.focus(); el.dispatchEvent(new KeyboardEvent('keydown', { key: s.key[1], bubbles: true, cancelable: true })); }
   // S1-2 Q5: the page in another of its themes (the glass theme), as the Settings page sets it on this device
   if (s.theme) { try { localStorage.setItem('damage.theme', s.theme); } catch (e) { /* a picture without storage */ } document.documentElement.dataset.theme = s.theme; }
   note('step ' + JSON.stringify(s));
@@ -154,7 +176,15 @@ export function standin(scene, fx) {
       case 'sub':
         if (m.scope === 'reader') return send(fx.record());
         if (m.scope === 'notices' && fx.notices) return send(fx.notices());
-        if (fx.records && fx.records[m.scope]) return send(fx.records[m.scope]()); // S1-2 Q4w: a window's record scope
+        if (fx.records && fx.records[m.scope]) return send(fx.records[m.scope](scene)); // S1-2 Q4w: a window's record scope
+        // S1-3: a scope the scene leaves unanswered (an article still arriving), and one it refuses with a reason
+        if (scene.silent && scene.silent.some((x) => m.scope.startsWith(x))) return undefined;
+        // S1-3: a live source answers with its messages (an init, then a scene's frames)
+        if (m.scope.startsWith('live/') && fx.live) {
+          const msgs = fx.live(m.scope, scene);
+          if (msgs) return msgs.forEach(send);
+        }
+        if (scene.refuse && scene.refuse[m.scope]) return send({ t: 'ans', scope: m.scope, answer: { a: 'refused', code: 'scope', reason: scene.refuse[m.scope] } });
         // S1-2 Q4w: a scene may answer a scope its own way (an empty table); fixed scopes, then those made by function
         if (scene.descs && scene.descs[m.scope]) return send({ t: 'snap', scope: m.scope, desc: scene.descs[m.scope] });
         // a list of descriptions is sent as successive snapshots (Torrents' polls)
@@ -203,6 +233,21 @@ export function standin(scene, fx) {
       for (const s of senders) for (const f of fx.raise(n)) s(f);
       return reply(204, 'text/plain', '');
     }
+    if (path === '/__push') {
+      // S1-3: a change another device made, or output a session made, sent to every open page (`fx.push`)
+      const name = new URL(req.url, 'http://x').searchParams.get('name') || '';
+      for (const s of senders) for (const f of fx.push(name, scene)) s(f);
+      return reply(204, 'text/plain', '');
+    }
+    if (path.startsWith('/vendor/xterm/')) {
+      // S1-3 (B12's route): the fake library, its sheet and a licence line; a scene without it pictures the fallback
+      if (scene.noXterm) return reply(404, 'text/plain', 'this host serves no terminal library');
+      const f = path.slice('/vendor/xterm/'.length);
+      if (f === 'xterm.mjs') return reply(200, TYPES.mjs, readFileSync(FAKE_XTERM), { 'Content-Security-Policy': csp(req.headers.host) });
+      if (f === 'xterm.css') return reply(200, TYPES.css, '.fake-xterm .xterm-helper-textarea { position: absolute; opacity: 0; width: 1px; height: 1px; }\n.fake-xterm .xterm-screen { font-family: monospace; white-space: pre; line-height: 1.2; }\n.fake-xterm .xterm-cursor { outline: 1px solid currentColor; }\n');
+      if (f === 'LICENSE') return reply(200, 'text/plain; charset=utf-8', 'a fake of the terminal library for the look harness (test code)');
+      return reply(404, 'text/plain', 'not a file of the terminal library');
+    }
     if (path === '/__note') {
       log.push({ t: 'note', text: decodeURIComponent(req.url.slice(req.url.indexOf('?') + 1)) });
       return reply(204, 'text/plain', '');
@@ -229,8 +274,9 @@ export function standin(scene, fx) {
       return reply(200, 'image/png', png(w, h, c), { 'Content-Security-Policy': 'sandbox' });
     }
     if (path.startsWith('/blob/')) {
-      const b = fx.blobs[path.slice(6)];
-      return b ? reply(200, 'image/png', png(...b), { 'Content-Security-Policy': 'sandbox' }) : reply(404, 'text/plain', 'no such blob');
+      // S1-3: a blob may be a PNG made ahead (Feed's generated comics and pictures) or a flat one's [w, h, rgb]
+      const b = fx.blobs[path.slice(6)] || (fx.blob && fx.blob(path.slice(6)));
+      return b ? reply(200, 'image/png', Buffer.isBuffer(b) ? b : png(...b), { 'Content-Security-Policy': 'sandbox' }) : reply(404, 'text/plain', 'no such blob');
     }
     const name = path === '/' || path.startsWith('/w/') ? 'index.html' : path.slice(1);
     if (!files.has(name)) return reply(404, 'text/plain', `not in files.txt: ${name}`);

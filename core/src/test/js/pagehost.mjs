@@ -19,7 +19,10 @@ const camel = (s) => s.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
 class El extends Node {
   constructor(tag, doc) {
     super();
-    Object.assign(this, { tagName: tag.toUpperCase(), doc, children: [], attrs: {}, dataset: {}, style: {}, on: {}, parentElement: null,
+    // S1-3: `style.setProperty` as the CSSOM (the terminal's boxes carry their column as a custom property)
+    const style = {};
+    Object.defineProperty(style, 'setProperty', { value: (k, v) => { style[k] = String(v); }, enumerable: false });
+    Object.assign(this, { tagName: tag.toUpperCase(), doc, children: [], attrs: {}, dataset: {}, style, on: {}, parentElement: null,
       className: '', hidden: false, scrollTop: 0, nodeType: 1, offsetParent: {} });
     this.classList = {
       contains: (c) => this.className.split(' ').includes(c),
@@ -48,11 +51,15 @@ class El extends Node {
   drop(n) { this.children = this.children.filter((c) => c !== n); n.parentElement = null; }
   remove() { if (this.parentElement) this.parentElement.drop(this); }
   replaceWith(n) { const p = this.parentElement; if (!p) return; const i = p.children.indexOf(this); p.drop(this); p.children.splice(i, 0, n); n.parentElement = p; }
+  /** S1-3: as the DOM (Feed's archive puts earlier episodes above). */
+  insertBefore(n, ref) { if (n.parentElement) n.parentElement.drop(n); const i = this.children.indexOf(ref); this.children.splice(i < 0 ? this.children.length : i, 0, n); n.parentElement = this; return n; }
   get firstChild() { return this.children[0] || null; }
   get textContent() { return this.children.map((c) => c.textContent).join(''); }
   set textContent(t) { this.replaceChildren(String(t)); }
   contains(n) { for (let x = n; x; x = x.parentElement) if (x === this) return true; return false; }
   focus() { this.doc.activeElement = this; }
+  /** S1-3: as the DOM (the terminal lets the keyboard go on Shift+Esc). */
+  blur() { if (this.doc.activeElement === this) this.doc.activeElement = null; this.fire('blur'); }
   scrollIntoView() {}
   getBoundingClientRect() { return { top: 0, left: 0, bottom: 0, right: 0, width: 0, height: 0 }; }
   /** Every element under this one matching one simple selector: `tag`, `.class`, `tag.class` (S1-2 Q4w: the confirm's
@@ -127,6 +134,14 @@ export function handTimers() {
     }
   };
   return t;
+}
+
+/** S1-3: a document alone, for a module that draws without the page shell (`term-render.mjs`); `restore()` takes it
+ *  away. */
+export function bareDocument() {
+  const doc = makeDocument();
+  Object.assign(globalThis, { document: doc, Node });
+  return doc;
 }
 
 let pages = 0;

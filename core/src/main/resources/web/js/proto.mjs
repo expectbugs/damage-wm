@@ -6,8 +6,8 @@
 export const PROTO = 3;
 /** The contract versions of this bundle's windows (the PC's `Contracts.MINE`). S1-2 Q3w: the notice record, read as
  *  the `notices` window (spec §2.1), at version 1. S1-2 Q4w: Torrents (spec §5 X1), at version 1. S1-2 Q5w: Files (spec
- *  §5 X1), at version 1. */
-export const CONTRACTS = { reader: 1, notices: 1, torrents: 1, files: 1 };
+ *  §5 X1), at version 1. S1-3 (B16, B17): Feed and Tmux, at version 1. */
+export const CONTRACTS = { reader: 1, notices: 1, torrents: 1, files: 1, feed: 1, tmux: 1 };
 
 export function hello({ stream, name, replaces }) {
   const h = { t: 'app', proto: PROTO, stream, contracts: { ...CONTRACTS } };
