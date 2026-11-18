@@ -398,9 +398,6 @@ export function spansOf(b) {
 /** A document's blocks ready to draw, each with its index (`b` of a place) and its spans made safe. */
 export const blocksOf = (doc) => ((doc && doc.blocks) || []).map((b, i) => ({ ...b, i, kind: str(b.kind) || 'para', spans: spansOf(b) }));
 
-/** A block's text length (its spans joined). */
-export const blockLen = (b) => (b.spans || []).reduce((n, s) => n + str(s.text).length, 0);
-
 // ---- the shared places this page shows: the open article's (`place`) and the binge's (`binge.<src>`) ----
 
 /**

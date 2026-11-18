@@ -432,7 +432,6 @@ a.btn:hover { border-color: var(--accent); }
 .fd-s.current { background: var(--card); box-shadow: inset 3px 0 0 var(--accent); }
 .fd-sn { font-weight: 600; }
 .fd-sn.unread { font-weight: 800; }
-.fd-new { color: var(--accent); font-size: .85rem; font-weight: 700; }
 .fd-sl { color: var(--muted); font-size: .82rem; }
 .fd-sh { font-size: .82rem; font-weight: 600; margin: 0; }
 .fd-sh.failing { color: var(--danger); }
