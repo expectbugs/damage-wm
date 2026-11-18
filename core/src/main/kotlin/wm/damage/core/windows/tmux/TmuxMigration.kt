@@ -24,13 +24,14 @@ object TmuxMigration {
     )
 
     /** One mute per `muted` entry; and the old blob's absent `height` is Global (it wrote one only for a size of its
-     *  own), so Size becomes 0 there. */
+     *  own), so Size becomes 0 there — only in the 0.68 shape (it always wrote `alerts`): this build's own blob, the
+     *  view's state alone, carries no rows and offers none. */
     fun derived(blob: JsonObject): List<Pair<String, JsonElement>> = buildList {
         for (e in blob["muted"] as? JsonArray ?: JsonArray(emptyList())) {
             val k = (e as? JsonPrimitive)?.takeIf { it.isString }?.content ?: continue
             if ('/' in k) add(TmuxCore.MUTE + k to JsonPrimitive(true))
         }
-        if (blob["height"] == null) add(TmuxCore.SIZE to JsonPrimitive(0))
+        if (blob["height"] == null && blob["alerts"] != null) add(TmuxCore.SIZE to JsonPrimitive(0))
     }
 
     val MIGRATE = Migrate(TmuxCore.WINDOW, FIELDS, TmuxCore.MIGRATE, ::derived)

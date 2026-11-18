@@ -131,6 +131,10 @@ class TmuxCoreTest {
         val global = Persistence(dir.resolve("pc2.json"))
         global.tryApplyRemote("window.tmux", buildJsonObject { put("alerts", true) }, stamp)
         assertEquals(listOf(TmuxCore.SIZE to JsonPrimitive(0)), TmuxMigration.derived(global.get("window.tmux")!!))
+        // this build's own blob (the view's state alone) offers nothing: Size is never turned to Global by it
+        val mine = buildJsonObject { put("level", "live"); put("host", "beardos"); put("session", "claude"); put("window", -1); put("paceMs", 1_000) }
+        assertEquals(emptyList(), TmuxMigration.derived(mine))
+        assertEquals(emptyList(), TmuxMigration.FIELDS.mapNotNull { f -> mine[f.name]?.let(f.read) })
         assertTrue(Record.key(TmuxCore.WINDOW, TmuxCore.SIZE).startsWith("rec.tmux."))
     }
 }

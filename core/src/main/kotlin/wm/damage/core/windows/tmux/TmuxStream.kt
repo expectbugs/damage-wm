@@ -161,6 +161,7 @@ class TmuxStream(
         /** Under [lock]: asks tmux for the pane's place and screen; [keys] wait for it (their `%output` dropped until
          *  it lands: the capture holds it). [all]: every viewer, after a change of pane, window or layout. */
         private fun requestInit(keys: Collection<Long>, all: Boolean) {
+            if (keys.isEmpty()) return
             if (all && inits.any { it.all && !it.begun }) return      // one not yet run already sees the change
             val g = ++gen
             for (k in keys) viewers[k]?.waitingFor = g
@@ -297,6 +298,7 @@ class TmuxStream(
                         put("visible", d[6] == "1")
                     })
                     put("alternate", d[5] == "1")
+                    put("capturedAt", System.currentTimeMillis())     // the picture's age while the PC is away
                     put("data", Base64.getEncoder().encodeToString(out.toByteArray()))
                 })
             }

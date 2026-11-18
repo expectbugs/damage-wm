@@ -226,6 +226,11 @@ class TmuxGlasses(
     override fun onRegistered(ctx: ShellServices) {
         services = ctx
         fromSource(source.state())
+        // S1-3 B14: the PC's record notice of a waiting session marks the window as the raise did (its body as raised)
+        ctx.noticeFormatter(id) { rec ->
+            if (alertsOn && rec.thread !in muted) { dirty = true; ctx.requestRender(this) }
+            rec.body
+        }
         provider.addListener(listener)   // the waiting mark live from registration on
     }
 
@@ -237,6 +242,7 @@ class TmuxGlasses(
         provider.subscribe(listener, null)
         provider.removeListener(listener)
         source.removeListener(onSource)
+        services?.noticeFormatter(id, null)
     }
 
     // ================================================================ the record (S1-3 B14)
