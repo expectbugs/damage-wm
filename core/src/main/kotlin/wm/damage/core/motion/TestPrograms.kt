@@ -26,8 +26,9 @@ import wm.damage.core.wire.TextureCache
  * over whatever the lens shows (a `self` track takes the live content).
  */
 object TestPrograms {
-    /** The names `probe motion=NAME` and the tool take, in the tool's order. */
-    val NAMES: List<String> = listOf("list", "popover", "recede", "flip")
+    /** The names `probe motion=NAME` and the tool take, in the tool's order: C1's four, then Main's pan at k = 1, 2, 3
+     *  rows each side of the band and over the whole list (build C2, stage DM0). */
+    val NAMES: List<String> = listOf("list", "popover", "recede", "flip", "mainpan1", "mainpan2", "mainpan3", "mainpanall")
 
     /** The transport's `motion` note once a test program's PLAY is acknowledged (build C1's ruling R1.16): the shell
      *  puts END into its belief of both lenses on it ([TestProgram.paintEnd]). */
@@ -138,7 +139,10 @@ object TestPrograms {
 
     /** [name] laid out for a session whose cache holds [cacheSize] bytes; null for a name that is not one. Refuses
      *  (loudly) a cache too small to hold it in its top [CfwModes.STAGE_RESERVE] bytes. */
-    fun build(name: String, cacheSize: Int): TestProgram? {
+    fun build(name: String, cacheSize: Int): TestProgram? = build(name, cacheSize, MainPan.HEIGHT)
+
+    /** [build] with Main's pan laid out for Main at [mainHeight] (the tests build every height). */
+    internal fun build(name: String, cacheSize: Int, mainHeight: Int): TestProgram? {
         if (name !in NAMES) return null
         if (cacheSize < CfwModes.STAGE_RESERVE || cacheSize > CfwModes.CACHE2_MAX_RIDERS || cacheSize % 4 != 0)
             throw LintError("no test program for a cache of $cacheSize B (a contract-2 session's 64..256 KiB)")
@@ -147,7 +151,9 @@ object TestPrograms {
             "list" -> list(lay)
             "popover" -> popover(lay)
             "recede" -> recede(lay)
-            else -> flip(lay)
+            "flip" -> flip(lay)
+            "mainpanall" -> mainPan(lay, name, null, mainHeight)
+            else -> mainPan(lay, name, name.removePrefix("mainpan").toInt(), mainHeight)
         }
         if (tp.end > cacheSize) throw LintError("test program ${tp.name} ends at ${tp.end}, past the $cacheSize B cache")
         return tp
@@ -272,6 +278,65 @@ object TestPrograms {
                 fillRect(176, 212, 136, 72, lv(3)); fillRect(188, 228, 90, 10, lv(11)); fillRect(188, 252, 60, 10, lv(7))
                 fillRect(328, 212, 136, 72, lv(3)); fillRect(340, 228, 100, 10, lv(11)); fillRect(340, 252, 70, 10, lv(7))
             }, lay.cacheSize, lay.images.toMap())
+    }
+
+    // ---------------------------------------------------------------------------------------------------- Main's pan
+    /**
+     * Build C2, stage DM0 (`C2-decisions.md` C; spec §6.4, §9 item 1): one notch down on Main, from the cursor at
+     * [MainPan.CURSOR] to the next row, over [MainPan.T] steps at P = 34 — to read field 34 (the step's drawing time)
+     * by area on the glasses, and for Adam's first look at Main's own motion. [k] rows each side of the band (null:
+     * every row Main shows at [height]). Main's pictures are [MainPan]'s.
+     *
+     * Three tracks, all per lens: the rows above the band and the rows below it, each one DRAW of the strip (rows 0..7
+     * in row form at the pitch) panned one pitch up with ease-out, in the list plane; and the band, where the leaving
+     * row's band form goes back to the list plane and dims over [MainPan.SWAP] steps, then the entering row's comes
+     * forward from there to the band's plane and brightens. No size change: every DRAW is a record at its own size.
+     *
+     * Why the strip is two tracks and not one: the band is two pitches tall and holds one row, so the rows below it sit
+     * one pitch lower than a stacked strip drawn for the rows above would put them; the strip record is drawn twice,
+     * at y one pitch apart, each clipped to its side. The rows pass behind the band's edges (the band is the nearer
+     * plane): the leaving row's row form comes out above it, the entering row's goes in below it.
+     */
+    private fun mainPan(lay: Layout, name: String, k: Int?, height: Int): TestProgram {
+        val m = MainPan.at(height)
+        val l = m.layout
+        val kA = k ?: l.rowsAbove
+        val kB = k ?: l.rowsBelow
+        if (kA > l.rowsAbove || kB > l.rowsBelow)
+            throw LintError("test program $name: $k rows each side of the band, but Main at height $height shows ${l.rowsAbove} above and ${l.rowsBelow} below")
+        val c = MainPan.CURSOR
+        // where Main's list wraps, a row past either end is the other end's — the strip is rows 0..7 once, so none may be
+        // needed (where it does not wrap, a slot past an end is blank, as the strip's backdrop leaves it)
+        if (m.wraps && (c - kA < 0 || c + 1 + kB >= m.rows))
+            throw LintError("test program $name: Main wraps at height $height, and rows ${c - kA}..${c + 1 + kB} pass the ends of its ${m.rows}")
+        val pitch = l.rowH
+        val x = l.content.x
+        val shift = MainPan.LIST_D - MainPan.BAND_D
+        val strip = lay.record(m.strip)
+        val leave = lay.record(m.band(c))
+        val enter = lay.record(m.band(c + 1))
+        val prog = Motion.program(lay.next4, listOf(strip, leave, enter)) {
+            // the rows above the band: the strip with row c at the band's top, panned up one pitch
+            track(Rect(x - MainPan.LIST_D, l.lens.y - kA * pitch, m.rowW, kA * pitch), Rect(x + MainPan.LIST_D, l.lens.y - kA * pitch, m.rowW, kA * pitch), Motion.Backdrop.Level(0)) {
+                draw(strip, x = x - MainPan.LIST_D, xR = x + MainPan.LIST_D, y = l.lens.y - c * pitch, dy = -pitch, ease = Motion.Ease.easeOut, n = MainPan.T)
+            }
+            // the rows below it: the strip with row c + 1 at the band's bottom, panned up one pitch
+            track(Rect(x - MainPan.LIST_D, l.lens.bottom, m.rowW, kB * pitch), Rect(x + MainPan.LIST_D, l.lens.bottom, m.rowW, kB * pitch), Motion.Backdrop.Level(0)) {
+                draw(strip, x = x - MainPan.LIST_D, xR = x + MainPan.LIST_D, y = l.lens.bottom - (c + 1) * pitch, dy = -pitch, ease = Motion.Ease.easeOut, n = MainPan.T)
+            }
+            // the band: its area covers both planes' x on each lens
+            track(Rect(x - MainPan.LIST_D, l.lens.y, m.rowW + shift, l.lens.h), Rect(x + MainPan.BAND_D, l.lens.y, m.rowW + shift, l.lens.h), Motion.Backdrop.Level(0)) {
+                draw(leave, x = x - MainPan.BAND_D, xR = x + MainPan.BAND_D, y = l.lens.y, dx = -shift, dxR = shift,
+                    lvl0 = 15, lvl1 = MainPan.LVL_BACK, ease = Motion.Ease.easeOut, n = MainPan.SWAP)
+                draw(enter, x = x - MainPan.LIST_D, xR = x + MainPan.LIST_D, y = l.lens.y, dx = shift, dxR = -shift,
+                    lvl0 = MainPan.LVL_BACK, lvl1 = 15, ease = Motion.Ease.easeOut, n = MainPan.T - MainPan.SWAP)
+            }
+        }
+        val cap4 = lay.program(prog)
+        val rows = if (k == null) "every row Main shows ($kA above, $kB below)" else "$k row(s) each side"
+        return TestProgram(name, "Main at height $height, one notch down (row $c to ${c + 1}): the strip over the band and $rows " +
+            "pans one pitch with ease-out; the band's row goes back and dims, the next comes forward and brightens; no size change (text drawn as boxes)",
+            prog, lay.writes.toList(), cap4, 0x0C20 + NAMES.indexOf(name) - 3, m.picture(c), lay.cacheSize, lay.images.toMap())
     }
 
     // ---------------------------------------------------------------------------------------------------- the card
