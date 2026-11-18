@@ -688,7 +688,9 @@ on both lenses (the meeting's row 11).
   carried lease, the start's first FLAGS_SET clears ENGINE with no CLOSE first — no PLAY is in flight, a disarm closes
   nothing, and the warmup keyframe (a live mode 6) closes every instance.
 - **The phone's ladder (as built in C1; A.17):** a stage 0..3 (0 nothing · 1 ZWRITE · 2 and op 5 at 256 KiB · 3 and
-  ENGINE), kept in the transport across sessions (a process restart returns it to 0, the safe end), set only by hand
+  ENGINE), kept in the transport across sessions and in one small file in the app's data directory, so a restart of
+  the process keeps it, a hold-back's lowering included (build C1-P; the hold-back's clocks are not kept: the first
+  start after a restart cannot blame a reset from before it; an unreadable file reads as 0), set only by hand
   (`probe c1=N`), never advanced by itself; stage 0, the default, sends today's bytes, and a hand `flags=` probe cannot
   arm bit 3 or 5 beyond the stage. Every rung records itself — the time and the stage this build can arm (a build
   without the engine records 2 at stage 3) — before its first byte (R2 B-M1, B-N4): op 5's rung before it goes out, a

@@ -1,0 +1,236 @@
+[
+ {
+  "id": "P-c1p-restore",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        if (n > 0) c1StageSay = \"C1 ladder: stage $n restored from the last run (${ladderSays(n)})\"\n        return n\n",
+    "        if (n > 0) c1StageSay = \"C1 ladder: stage $n restored from the last run (${ladderSays(n)})\"\n        return 0\n"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": [
+   "aStoredStageStartsAsAC1ProbeInTheSameProcessDoes_C1P",
+   "theProbeAndTheHoldBackStoreTheStageAndARestartStartsThere_C1P"
+  ],
+  "note": "build C1-P: the stored stage is not restored"
+ },
+ {
+  "id": "P-c1p-range-low",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "if (n == null || n !in 0..C1_TOP_STAGE) {\n            c1StageSay",
+    "if (n == null || n > C1_TOP_STAGE) {\n            c1StageSay"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": [
+   "aStoredStageThatCannotBeUsedReadsAs0AndIsSaid_C1P"
+  ],
+  "note": "build C1-P: a stored -1 is taken"
+ },
+ {
+  "id": "P-c1p-range-high",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "if (n == null || n !in 0..C1_TOP_STAGE) {\n            c1StageSay",
+    "if (n == null || n !in 0..C1_TOP_STAGE + 1) {\n            c1StageSay"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": [
+   "aStoredStageThatCannotBeUsedReadsAs0AndIsSaid_C1P"
+  ],
+  "note": "build C1-P: a stored 4 is taken"
+ },
+ {
+  "id": "P-c1p-unreadable",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "catch (e: Exception) {\n            c1StageSay = \"C1 ladder: the stored stage could not be read",
+    "catch (e: UnsupportedOperationException) {\n            c1StageSay = \"C1 ladder: the stored stage could not be read"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": [
+   "aStoredStageThatCannotBeUsedReadsAs0AndIsSaid_C1P"
+  ],
+  "note": "build C1-P: an unreadable file ends the transport's creation"
+ },
+ {
+  "id": "P-c1p-absent-quiet",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "catch (e: java.nio.file.NoSuchFileException) { return 0 } ",
+    ""
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": "(no pin yet: an absent file - the first run - says 'could not be read' once)",
+  "note": "build C1-P: the first run says a false note"
+ },
+ {
+  "id": "P-c1p-say",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "c1StageSay?.let { c1StageSay = null; emitNote(\"keeper\", it) }",
+    "c1StageSay?.let { c1StageSay = null }"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": [
+   "aStoredStageStartsAsAC1ProbeInTheSameProcessDoes_C1P",
+   "aStoredStageThatCannotBeUsedReadsAs0AndIsSaid_C1P"
+  ],
+  "note": "build C1-P: the restore is not said"
+ },
+ {
+  "id": "P-c1p-say-once",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "c1StageSay?.let { c1StageSay = null; emitNote(\"keeper\", it) }",
+    "c1StageSay?.let { emitNote(\"keeper\", it) }"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": [
+   "theProbeAndTheHoldBackStoreTheStageAndARestartStartsThere_C1P"
+  ],
+  "note": "build C1-P: the restore is said at every start"
+ },
+ {
+  "id": "P-c1p-probe-write",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "setC1Stage { was = it; n }",
+    "was = c1Stage; c1Stage = n"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": [
+   "theProbeAndTheHoldBackStoreTheStageAndARestartStartsThere_C1P"
+  ],
+  "note": "build C1-P: c1=N is not stored"
+ },
+ {
+  "id": "P-c1p-holdback-write",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "val to = setC1Stage { minOf(it, was - 1) }",
+    "val to = minOf(c1Stage, was - 1).also { c1Stage = it }"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": [
+   "theProbeAndTheHoldBackStoreTheStageAndARestartStartsThere_C1P"
+  ],
+  "note": "build C1-P: a hold-back's lowering is not stored"
+ },
+ {
+  "id": "P-c1p-write-catch",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "sync = true) } catch (e: Exception) {",
+    "sync = true) } catch (e: UnsupportedOperationException) {"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": [
+   "aStageThatCannotBeStoredIsAFaultAndStillAppliesToThisRun_C1P"
+  ],
+  "note": "build C1-P: a failed write ends the probe"
+ },
+ {
+  "id": "P-c1p-write-fault",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            emitNote(\"keeper\", text)\n            emitFault(\"c1stage\", text)\n",
+    "            emitNote(\"keeper\", text)\n"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": [
+   "aStageThatCannotBeStoredIsAFaultAndStillAppliesToThisRun_C1P"
+  ],
+  "note": "build C1-P: a failed write is no fault"
+ },
+ {
+  "id": "P-c1p-write-note",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            emitNote(\"keeper\", text)\n            emitFault(\"c1stage\", text)\n",
+    "            emitFault(\"c1stage\", text)\n"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": [
+   "aStageThatCannotBeStoredIsAFaultAndStillAppliesToThisRun_C1P"
+  ],
+  "note": "build C1-P: a failed write is no note"
+ },
+ {
+  "id": "P-c1p-lock",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "= synchronized(c1StageLock) {",
+    "= run {"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": "(no pin: the probe's thread racing a start's hold-back; a single-threaded test cannot order it)",
+  "note": "build C1-P: the stage and its file can end different"
+ },
+ {
+  "id": "P-c1p-write-sync",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "writeAtomic(f, \"$to\\n\", sync = true)",
+    "writeAtomic(f, \"$to\\n\", sync = false)"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": "(no pin: only a power loss right after the write shows it)",
+  "note": "build C1-P: the stored stage is not forced to disk"
+ }
+]

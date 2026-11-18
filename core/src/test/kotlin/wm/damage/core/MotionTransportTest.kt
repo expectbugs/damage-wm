@@ -61,9 +61,10 @@ class MotionTransportTest {
 
     // ------------------------------------------------------------------------------------------- the start's bytes
     /** One awake start's packets as `SilentStartTest.anAwakeStartWritesWhatItWroteBefore` takes them. */
-    private suspend fun startWire(features: Int?, stage: Int): List<String> {
+    private suspend fun startWire(features: Int?, stage: Int, store: java.nio.file.Path? = null): List<String> {
         val glass = GlassFirmwareSim().apply { damageContract = 2; damageFeatures = features }
-        val t = StartRig(glass, scope, clock = { 1_763_000_000_000L }, instantPacing = false)
+        val t = StartRig(glass, scope, clock = { 1_763_000_000_000L }, instantPacing = false, c1StageFile = store)
+        if (store != null) collect(t)
         t.heapReads = false
         if (stage != 0) t.devProbe("c1", "$stage")
         val sent = java.util.Collections.synchronizedList(ArrayList<String>())
@@ -157,6 +158,93 @@ class MotionTransportTest {
         resetAndStart()
         waitUntil(10_000, message = { "today's hold-back below stage 0: ${said()}" }) { has("keeper", "hold-back: the glasses reset 10 s after flags 0x4 were armed") }
         assertEquals(0, t.state.value.flagsInForce, "DRAW2 held back, as today")
+        t.stop()
+    }
+
+    // ------------------------------------------------------------------------------------------- build C1-P: the stored stage
+    /** A disposable directory, made when a test asks for it; the stage's file in it. */
+    private val stageDir = lazy { Files.createTempDirectory("c1p-") }
+    private val stageFile by lazy { stageDir.value.resolve(CfwTransportBase.C1_STAGE_FILE) }
+    @AfterTest fun cleanStageDir() { if (stageDir.isInitialized()) stageDir.value.toFile().let { d ->
+        d.walkTopDown().forEach { it.setWritable(true) }; d.deleteRecursively() } }
+    private fun stored() = Files.readString(stageFile).trim()
+    private fun sayings(prefix: String) = notes.count { it.first == "keeper" && it.second.startsWith(prefix) }
+    private fun c1Session(file: java.nio.file.Path, clock: () -> Long = System::currentTimeMillis) =
+        StartRig(GlassFirmwareSim().apply { damageContract = 2; damageFeatures = 0x1ff }, scope, clock = clock, c1StageFile = file).also { collect(it) }
+
+    /** C1-P (1): a transport made over a file holding N sends at its first start, byte for byte, what a start after
+     *  `c1=N` in the same process sends — N = 1, 2, 3 on a C1 build — and says the restore once; a build without a C1
+     *  bit (the installed image before C1, an upstream-shaped build) sends today's start over a stored 3. */
+    @Test
+    fun aStoredStageStartsAsAC1ProbeInTheSameProcessDoes_C1P(): Unit = runBlocking {
+        for (n in 1..CfwTransportBase.C1_TOP_STAGE) {
+            Files.writeString(stageFile, "$n\n")
+            val restored = startWire(0x1ff, 0, store = stageFile)
+            assertEquals(startWire(0x1ff, n), restored, "stage $n restored: the start's bytes are an in-process c1=$n start's")
+            assertEquals(1, sayings("C1 ladder: stage $n restored from the last run"), "stage $n: said once: $notes")
+        }
+        val want = javaClass.getResource("/startwire/awake-start-contract2.txt")!!.readText().lines().filter { it.isNotBlank() }
+        Files.writeString(stageFile, "3\n")
+        for (features in listOf(null, 0x7f)) assertEquals(want, startWire(features, 0, store = stageFile), "features $features over a stored 3")
+    }
+
+    /** C1-P (2), (3): `c1=N` stores N; a hold-back stores the stage it lowered to, and a new transport over that file —
+     *  a restart of the process — starts at the lowered stage and says so once, not again at its next start. */
+    @Test
+    fun theProbeAndTheHoldBackStoreTheStageAndARestartStartsThere_C1P(): Unit = runBlocking {
+        var clock = 1_000_000L
+        val t = c1Session(stageFile) { clock }
+        t.devProbe("c1", "2")
+        assertEquals("2", stored(), "c1=2 stores 2")
+        t.devProbe("c1", "3")
+        assertEquals("3", stored(), "c1=3 stores 3")
+        t.start(full)
+        assertEquals(0x2c, t.state.value.flagsInForce, "stage 3 armed")
+        clock += 10_000L; t.glass.uptimeOffsetMs = clock; clock += 200_000L
+        assertTrue(t.restartSession("test: after a reset"))
+        t.start(full)
+        waitUntil(10_000, message = { "the hold-back: $notes" }) { has("keeper", "armed stage 3 — stage 2 from here") }
+        assertEquals("2", stored(), "the hold-back stores the stage it lowered to")
+        t.stop()
+        val t2 = c1Session(stageFile)
+        t2.start(full)
+        assertEquals(0x24, t2.state.value.flagsInForce, "the new process arms stage 2: ZWRITE and DRAW2, not ENGINE")
+        assertEquals(256 * 1024, t2.state.value.cacheSize, "and the 256 KiB cache")
+        assertTrue(t2.restartSession("test: the next session"))
+        t2.start(full)
+        assertEquals(1, sayings("C1 ladder: stage 2 restored from the last run"), "said once, at the first start: $notes")
+        t2.stop()
+    }
+
+    /** C1-P (4): a stored stage out of 0..3, not a number, empty, or a file that cannot be read reads as 0 — today's
+     *  stage-0 start — and is said. */
+    @Test
+    fun aStoredStageThatCannotBeUsedReadsAs0AndIsSaid_C1P(): Unit = runBlocking {
+        val base = startWire(0x1ff, 0)
+        for (text in listOf("4", "-1", "x", "")) {
+            Files.writeString(stageFile, text)
+            assertEquals(base, startWire(0x1ff, 0, store = stageFile), "'$text' starts at stage 0")
+            assertEquals(1, sayings("C1 ladder: the stored stage '$text' is not 0..3 — stage 0"), "'$text' is said: $notes")
+        }
+        Files.delete(stageFile); Files.createDirectory(stageFile)       // a name that cannot be read as a file
+        assertEquals(base, startWire(0x1ff, 0, store = stageFile), "an unreadable store starts at stage 0")
+        assertEquals(1, sayings("C1 ladder: the stored stage could not be read"), "an unreadable store is said: $notes")
+    }
+
+    /** C1-P (5): a stage that cannot be stored is a fault and a `keeper` note, the file keeps what it held, and the run
+     *  arms the stage asked for. */
+    @Test
+    fun aStageThatCannotBeStoredIsAFaultAndStillAppliesToThisRun_C1P(): Unit = runBlocking {
+        Files.writeString(stageFile, "1\n")
+        stageDir.value.toFile().setWritable(false)
+        assertTrue(!Files.isWritable(stageDir.value), "the pin needs a directory this user cannot write")
+        val t = c1Session(stageFile)
+        t.devProbe("c1", "3")
+        assertTrue(has("fault", "c1stage: C1 ladder: stage 3 could not be stored"), "the fault: $notes")
+        assertTrue(has("keeper", "C1 ladder: stage 3 could not be stored"), "the note: $notes")
+        assertEquals("1", stored(), "the file keeps what it held")
+        t.start(full)
+        assertEquals(0x2c, t.state.value.flagsInForce, "this run arms stage 3")
         t.stop()
     }
 

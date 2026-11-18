@@ -72,7 +72,10 @@ class BleTransport(
      *  name match. */
     private val remembered: () -> Remembered = { Remembered() },
     private val remember: (Remembered) -> Unit = { },
-) : CfwTransportBase(scope, "ble") {
+    /** Build C1-P: where the C1 ladder's stage is kept across a restart of the process (the app's data directory) —
+     *  no default, so the one construction cannot leave it out. */
+    c1StageFile: java.nio.file.Path,
+) : CfwTransportBase(scope, "ble", c1StageFile = c1StageFile) {
 
     data class Remembered(
         val leftAddress: String? = null, val leftName: String? = null,

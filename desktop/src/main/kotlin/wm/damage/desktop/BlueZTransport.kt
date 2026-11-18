@@ -39,7 +39,9 @@ class BlueZTransport(
     scope: CoroutineScope,
     private val cachedAddresses: () -> Pair<String?, String?> = { null to null },
     private val rememberAddresses: (left: String, right: String) -> Unit = { _, _ -> },
-) : CfwTransportBase(scope, "ble") {
+    /** Build C1-P: where the C1 ladder's stage is kept across a restart of the process (the data directory). */
+    c1StageFile: java.nio.file.Path? = null,
+) : CfwTransportBase(scope, "ble", c1StageFile = c1StageFile) {
 
     // written on the start/stop path, READ from other threads — writePath by
     // the image and control lanes (writeArm), devicePath by the maintenance

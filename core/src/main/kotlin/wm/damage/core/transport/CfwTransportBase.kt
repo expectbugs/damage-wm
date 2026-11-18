@@ -85,6 +85,9 @@ abstract class CfwTransportBase(
     protected val scope: CoroutineScope,
     private val name: String,
     mirrorSim: GlassFirmwareSim? = null,
+    /** Build C1-P: the one small file that keeps the C1 ladder's stage across a restart of the process ([c1Stage]) —
+     *  the app's data directory on the phone and the PC; null keeps it in memory only (the simulator, the tests). */
+    private val c1StageFile: java.nio.file.Path? = null,
 ) : Transport {
 
     /** The firmware model behind [mirror]. */
@@ -270,8 +273,8 @@ abstract class CfwTransportBase(
             "c1" -> {
                 val n = value.toIntOrNull()
                 if (n == null || n !in 0..C1_TOP_STAGE) { Log.w(this.name, "probe c1=$value: expected 0..$C1_TOP_STAGE"); return }
-                val was = c1Stage
-                c1Stage = n
+                var was = 0
+                setC1Stage { was = it; n }
                 emitNote("keeper", "C1 ladder: stage $was → $n (${ladderSays(n)}) — the next session start arms it" +
                     (damageCaps?.let { if (isC1(it)) "" else "; this build reports no C1 bit, so it arms nothing" } ?: ""))
             }
@@ -904,10 +907,53 @@ abstract class CfwTransportBase(
     @Volatile private var heldBackForResetAt: Long? = null
     /** A hold-back caught DRAW2 in the arming: no start arms it again until a hand-set flag set asks. */
     @Volatile private var draw2HeldBack = false
+    /** Build C1-P: what the read of [c1StageFile] at creation has to say — a stage restored, or a file that could not be
+     *  used — said once, at the first start, where the shell hears notes. Declared before [c1Stage], whose initializer
+     *  writes it. */
+    @Volatile private var c1StageSay: String? = null
     /** Build C1 (C1-decisions A.17, spec §6.1): the arming ladder's stage — 0 nothing (the default), 1 ZWRITE, 2 and
      *  the 256 KiB cache, 3 and ENGINE. Set only by the probe `c1=N`, lowered only by a hold-back; kept where the wish
-     *  is kept (this transport, across sessions; a process restart starts again at 0, the safe end). */
-    @Volatile private var c1Stage = 0
+     *  is kept (this transport, across sessions) and, since build C1-P, in [c1StageFile]: read once here, so a restart
+     *  of the process (an APK install) arms what was armed; written with every change ([setC1Stage]). */
+    @Volatile private var c1Stage = readC1Stage()
+    private val c1StageLock = Any()
+
+    /** Build C1-P: the stage [c1StageFile] holds. No store, or no file yet: 0, nothing said. A file that cannot be read,
+     *  or holds anything but 0..[C1_TOP_STAGE]: 0, the safe end, and said. */
+    private fun readC1Stage(): Int {
+        val f = c1StageFile ?: return 0
+        val text = try { java.nio.file.Files.readString(f).trim() } catch (e: java.nio.file.NoSuchFileException) { return 0 } catch (e: Exception) {
+            c1StageSay = "C1 ladder: the stored stage could not be read (${e.javaClass.simpleName}: ${e.message}) — stage 0"
+            Log.w(name, c1StageSay!!)
+            return 0
+        }
+        val n = text.toIntOrNull()
+        if (n == null || n !in 0..C1_TOP_STAGE) {
+            c1StageSay = "C1 ladder: the stored stage '$text' is not 0..$C1_TOP_STAGE — stage 0"
+            Log.w(name, c1StageSay!!)
+            return 0
+        }
+        if (n > 0) c1StageSay = "C1 ladder: stage $n restored from the last run (${ladderSays(n)})"
+        return n
+    }
+
+    /** Build C1-P: [c1Stage] and its file move together under one lock, so the file ends equal to the memory whichever
+     *  of the probe's thread and the start's coroutine comes last; [update] gets the stage as it is under the lock (the
+     *  hold-back's lowering and its write are one step). A plain small synchronous write: on the probe's own thread, or
+     *  inside a start before its session is up, where no flush exists to wait on it. A write that fails is a fault and
+     *  a `keeper` note, and the stage still applies for this run. */
+    private fun setC1Stage(update: (Int) -> Int): Int = synchronized(c1StageLock) {
+        val to = update(c1Stage)
+        c1Stage = to
+        val f = c1StageFile ?: return to
+        try { wm.damage.core.shell.Persistence.writeAtomic(f, "$to\n", sync = true) } catch (e: Exception) {
+            val text = "C1 ladder: stage $to could not be stored (${e.javaClass.simpleName}: ${e.message}) — it applies to this " +
+                "run; a restart of the process starts at the stage stored before"
+            emitNote("keeper", text)
+            emitFault("c1stage", text)
+        }
+        to
+    }
     /** The ladder stage the latest arming left the glasses at (0: nothing of the ladder) — what a hold-back blames.
      *  Build C1's rulings B-M1 and B-N4: written with [lastArmedAtMs] by every send that arms — op 5's 256 KiB rung at
      *  a start, each FLAGS_SET ([flagsSet], the hand probe) — before its first byte, as the stage of what it carries. */
@@ -986,8 +1032,7 @@ abstract class CfwTransportBase(
         val armedAt = lastArmedAtMs!!
         if (leftEnd != null) heldBackForLeftEndAt = leftEnd
         val was = ladderArmedStage
-        val to = minOf(c1Stage, was - 1)
-        c1Stage = to
+        val to = setC1Stage { minOf(it, was - 1) }
         val why = if (resetAt != null) {
             heldBackForResetAt = resetAt
             "the glasses reset ${(resetAt - armedAt) / 1000} s after the C1 ladder armed stage $was"
@@ -2224,6 +2269,7 @@ abstract class CfwTransportBase(
         val epoch = sessionEpoch.incrementAndGet()
         started = true
         sayStaleTees("at the next start")     // P5 item 16: a link end the keeper did not follow with a stop
+        c1StageSay?.let { c1StageSay = null; emitNote("keeper", it) }   // build C1-P: what the read at creation found, once
         // A new session does not inherit the last one's Silent Mode (2026-09-16 review). `noteSilent`
         // is the only writer. What the READ path does: it sets the state on a field-14 value above
         // 0 and clears it only on an explicit 0 — `parseSilentRestored` returns null when the
@@ -3949,6 +3995,8 @@ abstract class CfwTransportBase(
         private const val REASON_BUSY = 14
         /** Build C1: the ladder's top stage (spec §6.1) and the two flag bits it owns. */
         const val C1_TOP_STAGE = 3
+        /** Build C1-P: the stage's file in the app's data directory (one line, the stage's digit). */
+        const val C1_STAGE_FILE = "c1-stage"
         /** The ladder's stage whose own change is the 256 KiB cache (spec §6.1). */
         private const val LADDER_SIZE_STAGE = 2
         /** Build C1's ruling B-S2: the keyframes motion divergences may ask for per instance (a CRC mismatch's own). */

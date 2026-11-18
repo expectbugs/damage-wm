@@ -1056,7 +1056,8 @@ class DesktopStack(
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private fun ble(): Transport = BlueZTransport(BlueZDbus(), scope,
         cachedAddresses = { Config.load().let { it.leftAddress.ifEmpty { null } to it.rightAddress.ifEmpty { null } } },
-        rememberAddresses = { l, r -> Config.store(Config.load().copy(leftAddress = l, rightAddress = r)) })
+        rememberAddresses = { l, r -> Config.store(Config.load().copy(leftAddress = l, rightAddress = r)) },
+        c1StageFile = Path.of(cfg.dataDir).resolve(wm.damage.core.transport.CfwTransportBase.C1_STAGE_FILE))
 
     private fun remote(): Transport =
         RemoteTransportClient(remoteHost ?: cfg.phoneHost, cfg.transportPort, cfg.token, scope)

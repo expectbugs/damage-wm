@@ -368,7 +368,8 @@ class ShellService : Service() {
             // glasses reads settings and refuses to paint.
             BleTransport(this, scope,
                 remembered = { BleTransport.Remembered(prefs.leftAddress, prefs.leftName, prefs.rightAddress, prefs.rightName) },
-                remember = { r -> prefs.rememberPair(r) })
+                remember = { r -> prefs.rememberPair(r) },
+                c1StageFile = dataDir.resolve(wm.damage.core.transport.CfwTransportBase.C1_STAGE_FILE))
         } else {
             SimTransport(GlassFirmwareSim(), scope)
         }
