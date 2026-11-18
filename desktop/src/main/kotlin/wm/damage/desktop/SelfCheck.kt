@@ -280,7 +280,18 @@ object SelfCheck {
         shell.register(gamesWin)
         // Feed (FEED.md): the scripted provider — five sources, articles, strips, the archive
         val feedScripted = wm.damage.core.windows.feed.ScriptedFeed()
-        val feedWin = wm.damage.core.windows.feed.FeedWindow(text, feedScripted, scope)
+        // build S1-3 B16: Feed's presenter over a scratch PC record in this run's temp directory; its core raises the
+        // new-item notices into it and this shell shows them through a notice mirror (`runShell`'s arrangement)
+        val feedRecord = wm.damage.core.app.AppHost.inScratchDir(Files.createDirectories(tmp.resolve("record")))
+        val feedCore = wm.damage.core.windows.feed.FeedCore(feedScripted)
+        feedCore.startOnPc(feedRecord, wm.damage.core.app.NoticeCore(feedRecord)) { _, _ -> }
+        val feedMirror = wm.damage.core.app.NoticeMirror(wm.damage.core.app.HostBackend(feedRecord,
+            wm.damage.core.app.Peer.LOCAL.device, wm.damage.core.app.OpQueue.newStream()))
+        shell.noticeInput = feedMirror
+        feedMirror.attach(shell.noticeSink)
+        val feedWin = wm.damage.core.windows.feed.FeedGlasses(text, feedScripted, scope, feedCore,
+            wm.damage.core.app.LocalWindowSource(feedCore, wm.damage.core.app.HostBackend(feedRecord,
+                wm.damage.core.app.Peer.LOCAL.device, wm.damage.core.app.OpQueue.newStream())))
         shell.register(feedWin)
         /** Open the Music menu (from the root) and commit the row LABELLED
          *  [label] — by name, never by counting notches, so a new row cannot
@@ -961,7 +972,9 @@ object SelfCheck {
         transport.injectText("7")                                       // a replica line commits the draft
         awaitTrue("page 7 opens") { feedWin.title() == "8bt 7" }
         settle(shell, "feed-binge-7")
-        check("the archive position is a record", feedWin.saveSubState().containsKey("binge.8bt"))
+        awaitTrue("the archive position is a record") {      // B6: sent at the shell's save point
+            wm.damage.core.windows.feed.FeedCore.bingeOf(feedWin.source.state().itemNamed("binge.8bt")?.value)?.ep == 7
+        }
         shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)                   // → root
         awaitTrue("root after the archive") { feedWin.title() == "feed" }
         // the new-item notice: off by default, on behind its own row (verdict 13)
@@ -969,6 +982,10 @@ object SelfCheck {
         delay(500)
         check("no notice while Notify · Reddit is off", !shell.notifications.active)
         shell.services.runOnShell { feedWin.appSettings().first { it.name == "Notify · Reddit" }.apply("on") }
+        // B2: the PC's core reads the row from the record when it raises
+        awaitTrue("Notify · Reddit reached the record") {
+            wm.damage.core.windows.feed.FeedCore.bool(feedWin.source.state().itemNamed("notify.reddit")?.value) == true
+        }
         feedScripted.fireNew("popular", "Loud one")
         awaitTrue("a new item raises the notification box") { shell.notifications.active }
         check("the notice marks the window dirty", feedWin.dirty)
