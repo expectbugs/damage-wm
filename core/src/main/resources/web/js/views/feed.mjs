@@ -517,6 +517,7 @@ export function feedView(ctx) {
   }
 
   function showBlock(b, o) {
+    art.touch = false; // the page's own move: not his scroll
     const el = art.blockEls[Math.max(0, Math.min(b, art.blockEls.length - 1))];
     const pane = els.read;
     if (!el) return;
@@ -570,6 +571,7 @@ export function feedView(ctx) {
 
   /** A save point: the place at the top, as a position op carrying its input's time, when input moved it (B1 `place`). */
   function saveArticle() {
+    if (art) art.touch = false;
     if (!art || art.kind !== 'article' || !art.moved || !art.entered) return;
     clearTimeout(art.timer);
     const why = ctx.canAct('view');
@@ -623,6 +625,7 @@ export function feedView(ctx) {
   }
 
   function saveComments() {
+    if (art) art.touch = false;
     if (!art || art.kind !== 'comments' || !art.moved) return;
     art.moved = false;
     const y = els.read.getBoundingClientRect().top + TOP_PAD + 2;
@@ -816,6 +819,7 @@ export function feedView(ctx) {
     if (!el || (num !== null && num !== bg.want.ep)) return;
     const r = el.getBoundingClientRect();
     els.read.scrollTop += r.top - els.read.getBoundingClientRect().top - cover(bg.els.bar) + (bg.want.f || 0) * r.height;
+    bg.touch = false; // the page's own move: not his scroll
     if (bg.moved) armSave();
   }
 
@@ -833,6 +837,7 @@ export function feedView(ctx) {
   }
 
   function saveBinge() {
+    if (bg) bg.touch = false;
     if (!bg || !bg.moved || !bg.entered) return;
     clearTimeout(bg.timer);
     const why = ctx.canAct('view');
@@ -928,24 +933,26 @@ export function feedView(ctx) {
 
   // ---- input and the page's own moves ----
 
-  // L1 R2 B1's rule: an input of his is stamped once, when it is made (a resize, a reflow or the page's own move never)
+  // L1 R2 B1's rule, Reader's (S1-3 fix B5): an input of his is stamped once, when it is made, and starts a gesture; a
+  // scroll counts as his only while that gesture is live (until its save point) — a click (Flag, Open the original), a
+  // resize, a reflow or the page's own move never marks the place as moved
   const onInput = () => {
-    if (art) {
-      art.moved = true;
-      if (art.follow) art.follow.inputAt = pcNow();
+    for (const t of [art, bg]) if (t) {
+      t.touch = true;
+      if (t.follow) t.follow.inputAt = pcNow();
     }
-    if (bg) {
-      bg.moved = true;
-      bg.follow.inputAt = pcNow();
-      bg.want = null; // input moved the page: the entry's place is not put back as pictures load
-    }
+    armSave();
   };
   const onKey = (e) => {
     if (['PageDown', 'PageUp', ' ', 'ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) onInput();
   };
   const onReadScroll = () => {
     if (bg) bingeMore();
-    if ((art && art.moved) || (bg && bg.moved)) armSave();
+    for (const t of [art, bg]) if (t && t.touch) {
+      t.moved = true;
+      if (t === bg) bg.want = null; // his scroll moved the page: the entry's place is not put back as pictures load
+      armSave();
+    }
     if (bg) drawBingeBarSoon();
   };
   let barSoon = null;

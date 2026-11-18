@@ -232,6 +232,32 @@ test('an article\'s place is sent once per pause of the scroll after input, carr
   assert.equal(left[1].result.b, 3);
 });
 
+test('fix B5: a click in the reading column (Flag, Open the original) never moves the place — leaving after it, or a scroll the page makes after its save point, sends none; in the archive too', async () => {
+  const { p, ws, timers } = await page({ path: `/w/feed/item:news:${ID0}` });
+  snap(ws, `feed/item:news:${ID0}`, article('news', ID0));
+  const read = byClass(p, 'fd-read');
+  read.fire('pointerdown'); // the click on Flag, as the column hears it
+  find(p, 'BUTTON', 'Flag').fire('click');
+  assert.equal(queued(ws, 'flag').length, 1, 'the flag went');
+  read.fire('pointerdown');
+  timers.fire(2000); // its save point: the gesture is over
+  read.fire('scroll'); // a picture loaded above: the page's own move
+  timers.fire(2000);
+  p.go('/w/feed/src:news');
+  assert.deepEqual(queued(ws, 'place'), [], 'no place from a click, leaving included');
+  // the archive: a click, then pictures loading move the top after the save point
+  const b = await page({ path: '/w/feed/binge:quest' });
+  snap(b.ws, 'feed/binge:quest/around:412', bingeWindow('quest', 412));
+  const col = byClass(b.p, 'fd-read');
+  col.fire('pointerdown');
+  b.timers.fire(2000);
+  col.fire('scroll');
+  col.fire('scroll');
+  b.timers.fire(2000);
+  b.p.go('/w/feed/src:news');
+  assert.deepEqual(queued(b.ws, 'binge'), [], 'no archive place from a click');
+});
+
 test('the page\'s own move into an article (an entry at its place) is never sent, leaving included; another article\'s place opens this one at its top', async () => {
   const { p, ws } = await page({ path: `/w/feed/item:news:${ID0}` });
   ws.frame(feedChange(41, 'place', { item: ID0, b: 4, o: 0, v: 1 }));
