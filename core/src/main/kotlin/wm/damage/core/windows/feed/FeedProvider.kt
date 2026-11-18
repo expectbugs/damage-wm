@@ -16,7 +16,7 @@ interface FeedProvider : AutoCloseable {
         fun state(line: String)
     }
 
-    /** "" = healthy; else the link's staleness (`PC unreachable 40 s`). */
+    /** "" = healthy; else the link's staleness (`PC unreachable since 14:02`). */
     fun stateLine(): String
     /** Which engine is serving — `PC`, `phone`, `local` — for the summary. */
     fun engineName(): String

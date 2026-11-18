@@ -202,7 +202,7 @@ Ingester), the SQL seam `Db` with `PgDb` in `:desktop`.
 ## 6. Contracts
 
 ### 6.1 `MusicLibrary` (core; Local on the PC, Remote on the phone)
-The interface is `MusicModel.kt`. Semantics that bind: `stateLine()` is "" or `PC unreachable 40s`
+The interface is `MusicModel.kt`. Semantics that bind: `stateLine()` is "" or `PC unreachable since 14:02`
 / `library: <err>`; `catalog()` is cached and Remote serves its disk cache offline;
 `refreshCatalog()` is paced on a version cursor; `ask()` never throws for a lane failure;
 `setPlaylistTracks` on an adaptive playlist throws "adaptive"; `art(id, px)` is px×px 4-bit gray,
@@ -294,7 +294,7 @@ and never applies the record's volume — the phone's stream is the truth (revie
 - **Prefetch** (`TrackCache`): the next N (default 3) entries' files for the current profile over
   the media endpoint into the app's cache dir, LRU beyond N+2, current + next always kept;
   ExoPlayer plays the local file when present. With the PC down the queue plays from cache and the
-  card shows `PC unreachable 2m` (channel staleness first, media second).
+  card shows `PC unreachable since 14:02` (channel staleness first, media second).
 - **Sleep**: off · after this track · 15/30/60/90 min — a deadline checked on ticks; ends with
   pause and a notice.
 - **Spotify** (`SpotifyRemote`): sessions via `MediaSessionManager.getActiveSessions(listener)`;

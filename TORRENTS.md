@@ -223,7 +223,7 @@ reads at most one host interval behind — simpler than an on-demand `maxAge` po
   outlives the stack.
 - **`TorrentsService` / `RemoteTorrentsProvider`** (`TorrentsNet.kt`): ops `snap`, `detail`,
   `start`, `stop`, `recheck`, `delete`, `tlcats`, `tlbrowse`, `tlsearch`, `tldetail`, `tladd`,
-  `tlaccount`, `open`. The remote `stateLine` is the channel's (`PC unreachable Ns`) first,
+  `tlaccount`, `open`. The remote `stateLine` is the channel's (`PC unreachable since H:MM`) first,
   the host's own (`qBittorrent unreachable Ns`, `host answer not understood`) second.
   App-alone the window is honestly unavailable — a torrent client does not cache. (As built; from
   S1 the phone keeps the last snapshot and shows it with its age, actions dim — `REPLAN.md` §14.3

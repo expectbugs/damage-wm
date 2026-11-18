@@ -68,7 +68,7 @@ A window built after the re-plan's steps is described once for every interface (
 - **Every irreversible or outbound act stages a confirm** — deletes, sends, ending a session, typed text
   (`onTypedText` always stages). Recorded exemption: the read-only Torrents search (`TORRENTS.md` §3.1).
 - **LOUD failures:** provider errors ride the one-shot notice on the title; staleness is said with a duration
-  (`PC unreachable 40s`); a missing need marks the window unavailable in Main and says why (§10.5). No timeouts.
+  (`PC unreachable since 14:02`, changing once per outage); a missing need marks the window unavailable in Main and says why (§10.5). No timeouts.
 - 🔴 **Staleness reaches EVERY level, and Main's row** (`HANDOFF.md` §30): the TITLE carries it wherever the
   level does not paint it, the summary carries it into Main (Tmux said it on the live pane only — a quiet host
   went unreported for half an hour on the live walk).
