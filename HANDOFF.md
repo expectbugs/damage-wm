@@ -9022,6 +9022,21 @@ stage armed by hand for a soak would have returned to 0 at the next install with
    and the comics fetch normally. Not caused by 0.70, but since 0.70 the PC's copy is the only one. Whether Reddit
    stopped anonymous feeds for everyone or for this network path is not established (one request from another
    network would say).
-6. **Also running:** the read owed before C2's fork stage came back and is ruled (`private/c2-design/C2-rulings.md`
-   §12); its two stages — the offline checker's step 8 (fork branch `c2`, tools only) and §6's text — are in work.
+6. **0.71 installed 16:18:50** (the session up 16 s later). On the glasses the journal reads as built: "C1 ladder:
+   stage 3 restored from the last run" (C1-P), then "cache size: asked 160 KiB, status 4, 160 KiB this session
+   (allocated already at 256 KiB on RIGHT, kept until its next release point); 256 KiB waits for a start after a
+   lapsed lease" (C1-Q), flags 0x2c, the atlas rebuilt and counted.
+7. **The engine's first look (his "Play, I'm watching", 16:20).** The four test programs by `probe motion=…`, each
+   at period 34 ms: list T 26, popover T 28, recede T 26, flip T 10 — every step drawn, none folded, the largest
+   step's drawing 17.6 / 8.8 / 16.5 / 3.2 ms; four last-step notifies, sequence 1–4, no gap; each PLAY acknowledged and
+   its END put into the phone's belief of both lenses. **His verdict: "They all looked perfect! Nice!!"** A test
+   program writes into the cache, so the shell drops its atlas for that session; the session was rebuilt after
+   (rest on/off). One `slow` note on the phone during recede (a handler of 365 ms) is not looked into.
+8. **His answers (about 16:25, "I agree with all your recommendations"):** a tapped row keeps coming forward until
+   the window's first frame; `Taps` defaults to `report`; under `report` a tap the phone does not act on shows
+   nothing and is counted; and after C2 the motion kit's shell part comes before S2 (`REPLAN.md` §17.3 item 6).
+9. **C2's build has started.** The read owed before its fork stage is ruled (`private/c2-design/C2-rulings.md`
+   §12–§15): the contract's text gained the table repair for a mode 27 that did not land and tap and scroll liveness
+   as the sequence fuzz's sixth and seventh invariants (`FIRMWARE.md` §6, merged); the offline checker's step 8 is
+   being corrected on the fork's `c2` (tools only); the build spec is being written (`private/build072/`).
 

@@ -15,13 +15,11 @@ for firmware → earlier by number (§65 Phase 2 and the protocol, §48 the fork
 - **The glasses run the fork's C1 build since 2026-11-18** (pin `0dab2154…`, `HANDOFF.md` §88; the image before it
   `48172b62…`). **The C1 ladder is at stage 3 since 15:43 on his word** (§91.3: ZWRITE, the 256 KiB cache, ENGINE;
   flags 0x2c; "enable all the stuff … asap" — one stage per soak is dropped). The first 19 minutes: no fault, no
-  refusal, arena 13 at 130 KiB free with the 256 KiB cache. The engine has played nothing yet: the four test programs
-  (`probe motion=list|popover|recede|flip`) wait for his "play".
-- **His phone runs APK 0.70 since 14:29 (0.71 is staged for his install); the PC service runs 0.71's tree since
-  16:07** (§91). 0.70 = S1-3 (Feed and Tmux on the PC's record, a page each, the lane protocol 4) + C1-P (the
+  refusal, arena 13 at 130 KiB free with the 256 KiB cache. **He watched the engine's four test programs at 16:20
+  (`probe motion=list|popover|recede|flip`): "They all looked perfect!"** (§91.7: every step drawn at period 34 ms).
+- **His phone runs APK 0.71 since 16:18; the PC service runs 0.71's tree since 16:07** (§91). 0.70 = S1-3 (Feed and Tmux on the PC's record, a page each, the lane protocol 4) + C1-P (the
   ladder's stage kept across a restart of the phone's process); 0.71 = 0.70 + C1-Q (the session's cache size when
-  the two lenses' caches may differ). Until 0.71 is on the phone, a lens that restarts alone can leave the left eye
-  without some cached drawing until the next Silent Mode sleep and wake (§90.4).
+  the two lenses' caches may differ).
 - **After a new phone process the session is 160 KiB** until a start that follows about 103 s with no lease renewal
   (C1-Q's rule, §91.4): the first start after a night in the case, or a rest of two minutes by hand.
 - **Reddit in Feed is stale since 11-17 11:45** (§91.5): every subreddit feed answers "Not Found" to the PC, which is
@@ -35,9 +33,9 @@ for firmware → earlier by number (§65 Phase 2 and the protocol, §48 the fork
 | L1 (the cleanup; S1-2 inside it) + Q | `main` | deployed (0.69) |
 | C1 (motion programs) | fork `c1` `561f8b7` (pin `0dab2154…`); its Damage half on `main` | **flashed 11-18; stage 3 in force since 15:43** |
 | S1-3 (Feed, Tmux) + C1-P (the stored stage) | `main` | **deployed: APK 0.70 installed 11-18 14:29** |
-| C1-Q (the session's cache size) | `main` | **gated; the PC runs it; APK 0.71 staged, his install** |
+| C1-Q (the session's cache size) | `main` | **deployed: APK 0.71 installed 11-18 16:18** |
 | S1-4 (Music) | a spec only | five questions are his (below) |
-| C2 (the second flash: local input) | its contract, `FIRMWARE.md` §6 | not built: after C1's numbers; the read before its fork stage is ruled, its two stages (the checker's step 8, §6's text) in work |
+| C2 (the second flash: local input) | its contract, `FIRMWARE.md` §6 | **in build since 11-18** (his calls made, §91.8): the contract's text is final for the build; the checker's step 8 and the build spec are in work; then the two lanes |
 
 The counts of APK 0.71's tree (simulator; §91.4): core 1,572 tests · desktop 13 classes / 52 · `--selfcheck` 486 PASS
 ×2 · snapshot 94 renders + 66 in `phone/`, 0 px outside the mask · the 51 conformance vectors in both forms · node
@@ -50,11 +48,13 @@ every stage are in the gitignored `private/build068` … `build071`, `lean`, `c1
 
 The order is `REPLAN.md` §17.3. **Every run: its size and what he gets for it first, both meters read before and
 after** (§17.6). New firmware features are armed and tested at once on his go, not over days (§91.3).
-1. **His install of 0.71**, then the journal read of its first start (the session at 160 KiB with the stage's flags).
-2. **The engine's first look:** the four test programs on his "play" (each drops the shell's atlas for that session:
-   rebuild the session after); then C1's numbers from the journal as he uses the glasses (fields 27–29, 33, 34, the
-   114 gap counts) for C2.
-3. **C2's build:** stage F0b (the checker) and D1 (§6's text) first, then his calls E2 and E3 and the fork stage F1.
+1. **C2's build** (§91.9): rule the spec's open questions, then the fork lane (F1, F2 after the checker's stage)
+   and the Damage lane (the vectors and the fuzz, the simulator, the phone's half with the sequence fuzz, Main's
+   strip and programs) apart, the meeting, the reviews, the instruments; then its flash on his go per lens and
+   stage 4 armed the same day.
+2. **C1's numbers as he uses the glasses** (the 114 gap counts, field 33 under a working shell, the round trip's
+   p90) feed C2's constants (`FIRMWARE.md` §6.9).
+3. **After C2: the motion kit's shell part** (`REPLAN.md` §17.3 item 6), before S2.
 4. **Reddit in Feed** (§91.5): which network path still gets a feed; then the fix.
 5. **S1-4** (Music: five questions are his), **S1-5** (the alerts onto the notice record; the phone's caches), **R-b**
    (one health view on every surface, §17.4), then §16.1's order. His answer is owed on moving the motion kit's shell
