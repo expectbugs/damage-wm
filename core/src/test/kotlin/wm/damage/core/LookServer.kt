@@ -171,7 +171,11 @@ fun main(args: Array<String>) {
         val states = c.effect.items.filterKeys { it.startsWith("rec.notices.") }.map { (k, i) ->
             Notices.parse(k.removePrefix("rec.notices."), i.value)?.let { "${it.id} occ ${it.occ} ${it.state}" } ?: k }
         // L1 R2 B1: a place's writer and input time, so the look reads what the record took, not the page
-        val places = c.effect.items.filterKeys { it.startsWith("rec.reader.place.") }.map { (k, i) -> "${k.removePrefix("rec.reader.")} by ${i.by} at ${i.at}" }
+        val places = c.effect.items.filterKeys { it.startsWith("rec.reader.place.") }.map { (k, i) -> "${k.removePrefix("rec.reader.")} by ${i.by} at ${i.at}" } +
+            // S1-3 stage M: Feed's and Tmux's record writes with their writer and input time (a read list by its size)
+            c.effect.items.filterKeys { it.startsWith("rec.feed.") || it.startsWith("rec.tmux.") }.map { (k, i) ->
+                val v = (i.value as? JsonArray)?.let { "${it.size} id(s)" } ?: i.value.toString().take(120)
+                "${k.removePrefix("rec.")}=$v by ${i.by} at ${i.at}" }
         println("LOOK change ${c.seq}: ${c.effect.items.keys.sorted()}" +
             (if (states.isEmpty()) "" else " $states") + (if (places.isEmpty()) "" else " $places"))
     }
@@ -180,6 +184,7 @@ fun main(args: Array<String>) {
     tscopes.core.attachNotices(torrents, torrents.epoch, notices)
     fscopes.core.startOnPc(host, notices) { f, k -> println("LOOK feed configure fetch ${f / 60_000} min keep ${k / 86_400_000} d") }
     var slow: CountDownLatch? = null
+    var tmuxEchoed = 0
     val other = HostBackend(host, "made-up-phone", "look-phone")
     val noticeId = "torrent:c0ffee01"
     fun recordOf() = host.read(Notices.WINDOW).third.items["rec.notices.$noticeId"]?.let { Notices.parse(noticeId, it.value) }
@@ -205,12 +210,38 @@ fun main(args: Array<String>) {
                 "the tracker answers · files: ${filesPc.jobs.current()}" }
             "done" -> { torrents.event("done", "c0ffee01", torrents.transfers.first { it.hash == "c0ffee01" }.name); "c0ffee01 done" }
             "feed-new" -> { val it = feed.fireNew("popular", "A made-up new story"); "feed: ${it.id} new on popular" }
+            // S1-3 stage M: another device (the made-up phone) writes Feed's place in slashdot's first story at block 6, as
+            // his glasses' notch reaches the PC; `feed-ops` lists the refreshes the program ops reached the feed with
+            "feed-place-other" -> {
+                val it = feed.items("slashdot", 0, 1).items.first()
+                val v = wm.damage.core.windows.feed.FeedCore.Place(it.id, 6, 0, wm.damage.core.windows.feed.Article.EXTRACTOR).json()
+                host.executor.execute("look feed place") {
+                    other.submit(wm.damage.core.windows.feed.FeedCore.WINDOW, wm.damage.core.app.Draft(wm.damage.core.windows.feed.FeedCore.A_PLACE,
+                        listOf(wm.damage.core.windows.feed.FeedCore.PLACE), v, at = System.currentTimeMillis()))
+                }
+                repeat(4) { host.executor.call {} }
+                "feed place by made-up-phone: ${it.id} block 6"
+            }
+            "feed-ops" -> "feed ops: ${feed.ops.filter { it.startsWith("refresh") }}"
             // deny the newest waiting browser (not the made-up tablet), as the Devices page's Deny does
             "deny-browser" -> devices.pending().filter { it.name != "made-up tablet" }.maxByOrNull { it.since }
                 ?.let { "denied ${it.code}: ${devices.deny(it.code, "look") ?: "ok"}" } ?: "no browser waiting"
             "ops" -> "torrents ops: ${torrents.ops.filter { it != "refresh" }}"
             "tmux-out" -> { tmuxControls.filter { !it.closed }.forEach { it.output("made-up output line\r\n") }; "streams written: ${tmuxControls.count { !it.closed }}" }
             "tmux-ops" -> "tmux ops: ${tmux.sent}"
+            // S1-3 stage M: the raw ops typed since the last echo, written back into every open stream as a shell's echo
+            // would reach the control client (an Enter as CR LF), so the look sees a typed key come back as output
+            "tmux-echo" -> {
+                val typed = tmux.sent.filter { it.startsWith("raw:") }.drop(tmuxEchoed).also { tmuxEchoed += it.size }
+                val text = typed.joinToString("") { e ->
+                    Regex("""^raw:.*?:(-[lH] .*)$""").find(e)?.groupValues?.get(1).orEmpty().split('|').joinToString("") { r ->
+                        if (r.startsWith("-l ")) r.removePrefix("-l ")
+                        else r.removePrefix("-H ").split(' ').filter { it.isNotEmpty() }.map { it.toInt(16).toChar() }.joinToString("").replace("\r", "\r\n")
+                    }
+                }
+                tmuxControls.filter { !it.closed }.forEach { it.output(text) }
+                "echoed ${text.length} char(s) into ${tmuxControls.count { !it.closed }} stream(s)"
+            }
             // L1 R2: the PC's time before an act, to read an op's input time against
             "mark" -> "mark at ${System.currentTimeMillis()}"
             // L1 R2 B5: one trash row's file taken out of the trash (a trash cut off before its file arrived)

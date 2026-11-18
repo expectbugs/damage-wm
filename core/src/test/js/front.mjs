@@ -15,6 +15,7 @@ import { connect } from 'node:net';
 import { readFileSync, appendFileSync, existsSync } from 'node:fs';
 import { lookModule } from './standin.mjs';
 import { format } from '../../main/resources/web/js/address.mjs';
+import { PROTO } from '../../main/resources/web/js/proto.mjs';
 
 const TYPES = { mjs: 'text/javascript; charset=utf-8' };
 
@@ -152,7 +153,8 @@ function otherPlace(up, book, offset) {
   const ws = new WebSocket(`ws://${up.host}/ws`, { headers: { origin: `http://${up.host}`, cookie: `damage=${secret}` } });
   let device = null;
   return new Promise((ok, no) => {
-    ws.onopen = () => ws.send(JSON.stringify({ t: 'app', proto: 3, stream: 'a1a2a3a4a5a6a7a8', contracts: { reader: 1 } }));
+    // the lane's protocol from the bundle (S1-3's merge: a literal 3 was ended `proto` once the protocol rose to 4)
+    ws.onopen = () => ws.send(JSON.stringify({ t: 'app', proto: PROTO, stream: 'a1a2a3a4a5a6a7a8', contracts: { reader: 1 } }));
     ws.onerror = () => no(new Error('the other device\'s socket failed'));
     ws.onmessage = (e) => {
       const f = JSON.parse(e.data);
@@ -323,6 +325,14 @@ function feedRealScenes(reach) {
     'real-feed-binge': { path: '/w/feed/binge:8bt', steps: [{ wait: '.fd-ep, .fd-bl' }, reach, { fetch: '/__wait?ms=1000' },
       { fire: ['.fd-read', 'wheel'] }, { scroll: ['.fd-read', 600] }, { fetch: '/__wait?ms=2600' }] },
     'real-feed-flagged': { path: '/w/feed/flagged', steps: [{ wait: '.fd-lhead' }, reach] },
+    // S1-3 stage M: another device's later place in the open article (block 6 of slashdot's first story, written by
+    // LookServer's made-up phone) moves the page by itself, and the page writes no place after it (the change lines)
+    'real-feed-follow': { path: '/w/feed/src:slashdot', steps: [rows, reach, { click: '.fd-row:nth-child(1) .fd-open' }, { wait: '.fd-text .blk' },
+      { fetch: '/__wait?ms=1000' }, { fetch: '/__ctl?feed-place-other' }, { fetch: '/__wait?ms=3000' }] },
+    // S1-3 stage M: the listener ended and started again under an open source (a deploy); the page comes back by itself
+    // and shows a new item the restarted PC lands after it (LookServer's word feed-new)
+    'real-feed-restart': { path: '/w/feed/src:popular', steps: [rows, reach, { fetch: '/__wait?ms=800' }, { fetch: '/__restart' },
+      { fetch: '/__wait?ms=6000' }, reach, { fetch: '/__ctl?feed-new' }, { fetch: '/__wait?ms=2500' }] },
   };
 }
 
@@ -339,9 +349,14 @@ function tmuxRealScenes(reach) {
   return {
     'real-tmux-sessions': { path: '/w/tmux', steps: [{ wait: '.tm-list .tm-sess' }, reach] },
     'real-tmux-terminal': { path: t(`session:${at}`), steps: [drawn, reach, { fetch: '/__wait?ms=1500' }] },
-    'real-tmux-key': { path: t(`session:${at}`), steps: [drawn, reach, { focus: field }, { key: [field, 'x'] }, { key: [field, 'Enter'] }, { fetch: '/__wait?ms=1500' }] },
+    'real-tmux-key': { path: t(`session:${at}`), steps: [drawn, reach, { focus: field }, { key: [field, 'x'] }, { key: [field, 'Enter'] }, { fetch: '/__wait?ms=1500' },
+      { fetch: '/__ctl?tmux-ops' }, { fetch: '/__ctl?tmux-echo' }, { fetch: '/__wait?ms=1500' }] },
     'real-tmux-end': { path: t(`session:${at}`), steps: [drawn, reach, { click: '.tm-acts button.danger' }, { wait: 'dialog[open]' },
       { click: 'dialog[open] button.act' }, { fetch: '/__wait?ms=1500' }] },
     'real-tmux-below': { path: t(`session:${at}`), control: true, steps: [{ wait: '.page.tmux .note' }] },
+    // S1-3 stage M: the listener ended and started again under an open session; the page subscribes again by itself
+    // and a line the restarted PC's stream writes after that is drawn (tmux-out says how many streams it wrote)
+    'real-tmux-restart': { path: t(`session:${at}`), steps: [drawn, reach, { fetch: '/__wait?ms=800' }, { fetch: '/__restart' },
+      { fetch: '/__wait?ms=6000' }, reach, { fetch: '/__ctl?tmux-out' }, { fetch: '/__wait?ms=1500' }] },
   };
 }
