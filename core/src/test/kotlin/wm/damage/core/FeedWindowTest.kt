@@ -394,9 +394,16 @@ class FeedWindowTest {
             r.tap(); awaitTrue("popular") { r.win.title() == "popular" && r.win.itemsLoaded() }
             r.down(16); awaitTrue("item 16 under the cursor") { s(r, "itemCursorId") == item16 }
             r.tap(); awaitTrue("the article") { r.win.title() == "article" && r.feed.ops.contains("article:$item16") && r.win.placeNow() != null }
-            r.down(2)
-            awaitTrue("both notches taken") { r.shell.isQuiescent() && (r.win.placeNow()?.b ?: 0) >= 1 }
-            val p1 = r.win.placeNow()
+            // notch by notch, each at rest, until the top is past the headline (the picture may lengthen the page late)
+            awaitTrue("the article's picture asked") { r.feed.ops.any { it.startsWith("image:") } }
+            var p1: FeedCore.Place? = null
+            for (k in 0 until 8) {
+                awaitTrue("at rest") { r.shell.isQuiescent() }
+                p1 = r.win.placeNow()
+                if (p1 != null && p1.b >= 1) break
+                r.down(1)
+            }
+            assertTrue((p1?.b ?: 0) >= 1, "the page never left its headline: $p1")
             awaitTrue("the save point sent the place") { state(r); FeedCore.placeOf(rec(r, FeedCore.PLACE)) == p1 }
             r.stop()
             assertEquals(p1, FeedCore.placeOf(rec(r, FeedCore.PLACE)), "the stop's save sent no other place")
