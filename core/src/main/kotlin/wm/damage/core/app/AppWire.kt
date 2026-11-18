@@ -17,13 +17,13 @@ import kotlinx.serialization.json.put
  * Context for the reader: Damage is Adam's own window manager for his own glasses, phone and PC on his own network.
  * Build S1-1, package P2 (`CONTRACT.md` §9.1–§9.3; the spec's §2 P2 and §4 "Versioning"; dec. A.4): the messages of
  * the `app` lane on the content port, in its framing (a 4-byte length, then one JSON object). The lane's own hello is
- * the frame that asks for the lane, `{"t":"app","proto":3,"stream":…,"contracts":{…}}` — ONE frame, so an old PC
+ * the frame that asks for the lane, `{"t":"app","proto":4,"stream":…,"contracts":{…}}` — ONE frame, so an old PC
  * answers it with its one in-band "unknown request" and the stream stays aligned (`Content.kt`'s cross-version law);
  * the content port's own hello before it stays `proto: 1`.
  *
  * Client → PC: `sub {scope, epoch?, seq?}` · `unsub {scope}` · `op {op}` · `ping {k}` · `end {reason}`.
  * PC → client: `welcome` · `snap {scope, epoch, seq, items}` · `chg {scope, epoch, seq, patches}` ·
- * `ans {stream, n | conn, k | scope, answer}` · `pong {k}` · `end {reason}`.
+ * `ans {stream, n | conn, k | scope, answer}` · `pong {k}` · `end {reason}` · S1-3: `live {src, init | frame | data | end}`.
  * A patch is `{addr, set}` (an item's whole entry): entries are absolute, never removed (a removal is the entry's
  * `gone`), so a patch applied twice changes nothing.
  */
@@ -81,9 +81,10 @@ data class Ans(
 object AppWire {
     /** The lane's protocol (dec. A.4): carried in the lane's hello, never in the content port's. 3 since build L1
      *  (APK 0.68): ops carry their input time and no expectation, every subscription is a snapshot, the welcome has
-     *  no high-water marks. A phone still on APK 0.67 (protocol 2) is ended with [END_PROTO] at its hello: it says
-     *  the builds differ, asks again at its slow pacing, and reads on from its own copy until 0.68 is installed. */
-    const val PROTO = 3
+     *  no high-water marks. 4 since build S1-3 (B11): the `live` message of a live source. A phone on an older build
+     *  is ended with [END_PROTO] at its hello: it says the builds differ, asks again at its slow pacing, and reads on
+     *  from its own copy until the matching APK is installed. */
+    const val PROTO = 4
     /** The content port's lane name, and the `t` of the lane's hello. */
     const val LANE = "app"
     /** The scope of every shared window's records (C§9.6). */
@@ -209,6 +210,18 @@ object AppWire {
         put("scope", scope)
         put("desc", desc)
     }
+
+    /** S1-3 B11 (C§9.2): one message of the live source [src] — [body] holds one of `init`, `frame`, `data` (stream
+     *  bytes as base64) or `end` (`{reason, to?}`). No numbering: one socket is ordered, and a new connection subscribes
+     *  again and is answered with a fresh `init`. */
+    fun live(src: String, body: JsonObject): JsonObject = buildJsonObject {
+        put("t", "live")
+        put("src", src)
+        for ((k, v) in body) put(k, v)
+    }
+
+    /** The prefix of a live source's scope: `live/<window>/<src>`. */
+    const val LIVE = "live/"
 
     /** C§9.2 `pending`: the waiting state of an unapproved page (P6). */
     fun pending(code: String): JsonObject = buildJsonObject { put("t", "pending"); put("code", code) }

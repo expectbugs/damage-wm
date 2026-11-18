@@ -44,6 +44,11 @@ import wm.damage.core.web.Devices
  * source version moved is described again ([Described.version]: a paged listing's pages); viewers with a need and
  * the ping liveness rule ([viewers]); and never-queued program ops by `(conn, k)`, checked here at apply time and run
  * on the window's own pool, answered Sent (with the call's `result`) or Refused to their connection only.
+ *
+ * Build S1-3, piece B11 (C§8, C§9.2): live sources ([Live], `live/<window>/<src>`): a `sub` is checked against the
+ * source's level at attach, takes a viewer with its need, and the source sends `live {src, …}` frames through the
+ * connection's outbox (a page that cannot keep up is ended `slow` and comes back to a fresh `init`); its `unsub`, a
+ * need of none, the viewers' sweep and the connection's end detach it. Each takes the usage note of a described scope.
  */
 class AppNet(
     private val host: AppHost,
@@ -102,6 +107,24 @@ class AppNet(
      *  cards, the diagnosis), [min] the level it needs. */
     data class Gate(val window: String?, val min: String)
 
+    /**
+     * S1-3 B11 (C§8, C§9.2): one window's live sources, `live/<window>/<src>` — a stream or pictures that run only while
+     * a viewer holds them and are never in the record. [gate] runs on the executor and is cheap; [attach] and [detach]
+     * are called there and must not block (a process is started or ended on a thread of the source's own).
+     */
+    interface Live {
+        /** What [scope] needs, or null when this source does not serve it. */
+        fun gate(scope: String): Gate?
+
+        /** [scope] for connection [conn]: its messages through [send] (any thread, in order), each an object with one of
+         *  `init`, `frame`, `data`, `end`. Called again for the same pair (a page shown again): started afresh, a new
+         *  `init`. A source that cannot start throws, and the subscription is refused in its words. */
+        fun attach(scope: String, conn: Long, send: (JsonObject) -> Unit)
+
+        /** [conn] no longer holds [scope]: nothing more is sent to it. */
+        fun detach(scope: String, conn: Long)
+    }
+
     /** Connection ids grow across restarts (seeded from the clock), so an op naming a connection of an earlier
      *  process never matches a new one. */
     private val nextConn = AtomicLong(clock() * 1_000)
@@ -122,6 +145,9 @@ class AppNet(
     private class Program(val handler: ProgramHandler, val pool: ExecutorService, val own: Boolean)
 
     private val programs = ConcurrentHashMap<String, Program>()
+
+    /** S1-3 B11: the live sources served here, asked in the order registered. */
+    private val lives = CopyOnWriteArrayList<Live>()
 
     /** S1-2 Q2 (the spec's §2.3): the viewers of this lane's scopes; a live source reads [Viewers.of] per tick. */
     val viewers = Viewers(pingEveryMs)
@@ -151,6 +177,8 @@ class AppNet(
         val flights = LinkedHashMap<Long, Flight>()
         /** L1 R-a: subscriptions refused while the record's log was closed, served again on the tick it opens. */
         val closedSubs = ArrayList<() -> Unit>()
+        /** S1-3 B11: the live sources this connection holds (one viewer each). Executor only. */
+        val lives = LinkedHashMap<String, Live>()
     }
 
     /** The live connections. Executor only. */
@@ -175,6 +203,9 @@ class AppNet(
         host.addListener(listener)
         host.addTickListener(sweep)
         devices?.table?.addListener(devicesListener)
+        // S1-3 B11: a live viewer that ends — its `unsub`, a need of none, the viewers' sweep — detaches its source; a
+        // connection's end detaches its sources itself ([detachLives]) before its viewers end
+        viewers.addListener { v, ended, _ -> if (ended && v.scope.startsWith(AppWire.LIVE)) liveEnded(v.conn, v.scope) }
     }
 
     /** How many connections are live (for the start line and the tests); read on the executor. */
@@ -185,7 +216,7 @@ class AppNet(
     fun connectionLines(): List<String> = host.executor.call {
         val now = clock()
         conns.values.map { c ->
-            "${c.peer.device} (${c.peer.level}) · connection ${c.id} · ${c.scopes.size + c.described.size} scope(s)" +
+            "${c.peer.device} (${c.peer.level}) · connection ${c.id} · ${c.scopes.size + c.described.size + c.lives.size} scope(s)" +
                 viewers.lines(c.id).joinToString("") { " · viewer $it" } +
                 c.flights.values.joinToString("") { " · ${it.window} ${it.action} sent ${(now - it.at) / 1000} s ago, no answer yet" }
         }
@@ -207,7 +238,8 @@ class AppNet(
      * host builders, once per window, before a page can ask.
      */
     fun serve(window: String, scopes: Described? = null, program: ProgramHandler? = null,
-              card: (() -> JsonObject?)? = null, pool: ExecutorService? = null) {
+              card: (() -> JsonObject?)? = null, pool: ExecutorService? = null, live: Live? = null) {
+        live?.let { lives += it }      // S1-3 B11: the window's live sources
         if (scopes != null || card != null) add(Provider(scopes ?: NO_SCOPES, scopes?.describeOn ?: describing, window, card))
         if (program != null) programs.put(window, Program(program, pool ?: Executors.newCachedThreadPool { r ->
             Thread(r, "program-$window").apply { isDaemon = true }
@@ -340,7 +372,10 @@ class AppNet(
             outbox.stop()
             closeQuietly(sock)
             host.executor.execute("app end $id") {
-                conns.remove(id)?.let { c -> for (s in c.scopes + c.described.keys) used(c, "leave", s) }
+                conns.remove(id)?.let { c ->
+                    for (s in c.scopes + c.described.keys) used(c, "leave", s)
+                    detachLives(c)
+                }
                 ended(id, "its connection ended")
             }
         }
@@ -352,7 +387,10 @@ class AppNet(
         host.removeTickListener(sweep)
         devices?.table?.removeListener(devicesListener)
         host.executor.call {
-            for (c in conns.values) c.outbox.finish(AppWire.encode(AppWire.end(AppWire.END_SHUTTING_DOWN)))
+            for (c in conns.values) {
+                c.outbox.finish(AppWire.encode(AppWire.end(AppWire.END_SHUTTING_DOWN)))
+                detachLives(c)
+            }
             conns.clear()
         }
         describing.shutdownNow()
@@ -383,6 +421,15 @@ class AppNet(
         } catch (e: IllegalArgumentException) {
             val no = Answer.Refused("the subscription's need does not decode (${e.message})", Answer.INVALID)
             host.executor.execute("app sub refused ${conn.id}") { conn.outbox.offer(AppWire.encode(AppWire.ans(Ans(null, scope, no)))) }
+            return
+        }
+        if (scope.startsWith(AppWire.LIVE)) {
+            val l = lives.firstOrNull { it.gate(scope) != null }
+            if (l != null) liveSub(conn, scope, l.gate(scope)!!, l, need)
+            else host.executor.execute("app sub refused ${conn.id}") {
+                conn.outbox.offer(AppWire.encode(AppWire.ans(Ans(null, scope,
+                    Answer.Refused("$scope names no live source on this PC", Answer.UNKNOWN)))))
+            }
             return
         }
         for (p in providers) {
@@ -455,6 +502,69 @@ class AppNet(
                 viewers.put(conn.id, scope, w, need ?: NO_NEED)
                 describeFor(conn, scope)
             }
+        }
+    }
+
+    /**
+     * S1-3 B11: a live source, checked on the executor at attach (the contract window, then the level against the
+     * source's minimum: refused `level`), its viewer registered with the `sub`'s need (none given = focus: a live source
+     * runs only for a viewer), then attached — again for a second `sub`, which starts it afresh. A need of none ends the
+     * viewer, and its end detaches the source ([liveEnded]).
+     */
+    private fun liveSub(conn: Conn, scope: String, g: Gate, l: Live, need: Viewers.Need?) {
+        host.executor.execute("app sub live ${conn.id}") {
+            val w = g.window
+            val no = when {
+                conns[conn.id] !== conn -> return@execute
+                w != null && w !in conn.shared -> Answer.Refused(
+                    if (w in contracts) Contracts.mismatchLine(w) else "this PC shares no window '$w'", Answer.CONTRACT)
+                else -> Levels.refusal(conn.peer.level, g.min, scope)
+            }
+            if (no != null) {
+                conn.outbox.offer(AppWire.encode(AppWire.ans(Ans(null, scope, no))))
+                return@execute
+            }
+            val n = need ?: LIVE_NEED
+            if (n.kind == Viewers.Need.NONE) {
+                viewers.remove(conn.id, scope, "its need is none")
+                return@execute
+            }
+            if (conn.lives.put(scope, l) == null) used(conn, "open", scope)
+            viewers.put(conn.id, scope, w, n)
+            try {
+                l.attach(scope, conn.id) { body -> conn.outbox.offer(AppWire.encode(AppWire.live(scope, body))) }
+            } catch (e: Exception) {
+                Log.w(TAG, "the live source $scope did not start for connection ${conn.id}: ${e::class.simpleName}: ${e.message}")
+                conn.lives.remove(scope)
+                viewers.remove(conn.id, scope, "its source did not start")
+                conn.outbox.offer(AppWire.encode(AppWire.ans(Ans(null, scope,
+                    Answer.Refused("$scope did not start (${e.message ?: e::class.simpleName})", Answer.RETRY)))))
+            }
+        }
+    }
+
+    /** Executor only: [conn]'s viewer of [scope] ended — the source is detached and the leave noted. */
+    private fun liveEnded(conn: Long, scope: String) {
+        val c = conns[conn] ?: return
+        val l = c.lives.remove(scope) ?: return
+        used(c, "leave", scope)
+        detachQuietly(l, scope, conn)
+    }
+
+    /** Executor only: a connection that ends or is ended leaves every live source it holds. */
+    private fun detachLives(c: Conn) {
+        for ((s, l) in c.lives) {
+            used(c, "leave", s)
+            detachQuietly(l, s, c.id)
+        }
+        c.lives.clear()
+    }
+
+    private fun detachQuietly(l: Live, scope: String, conn: Long) {
+        try {
+            l.detach(scope, conn)
+        } catch (e: Exception) {
+            Log.e(TAG, "the live source $scope could not be detached from connection $conn", e)
         }
     }
 
@@ -589,7 +699,7 @@ class AppNet(
      * line of the phone's own journal (`win`), and their notices' read and dismiss are ops. Executor only.
      */
     private fun used(conn: Conn, action: String, scope: String) {
-        val window = scope.removePrefix("desc/").substringBefore('/')
+        val window = scope.removePrefix("desc/").removePrefix(AppWire.LIVE).substringBefore('/')
         if (conn.page) host.noteAs("usage", "${conn.peer.device} web $window $action $scope")
     }
 
@@ -615,6 +725,7 @@ class AppNet(
             c.endedBy = reason
             c.outbox.finish(AppWire.encode(AppWire.end(reason)))
             conns.remove(c.id)
+            detachLives(c)
             ended(c.id, "its device was $reason")
         }
         if (mine.isNotEmpty()) Log.i(TAG, "${mine.size} connection(s) of $device ended: $reason")
@@ -680,6 +791,8 @@ class AppNet(
         /** The frames a connection's outbox holds before it ends the connection as slow. */
         const val OUTBOX_CAP = 4_096
         private val NO_NEED = Viewers.Need(Viewers.Need.NONE)
+        /** S1-3 B11: a live `sub` that names no need is a viewer in front. */
+        private val LIVE_NEED = Viewers.Need(Viewers.Need.FOCUS)
 
         /** A window served with a card and no scopes of its own. */
         private val NO_SCOPES = object : Described {

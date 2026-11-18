@@ -131,6 +131,17 @@ fun main(args: Array<String>) {
             torrents.poll()
         }
     }, "look-torrents-poll").apply { isDaemon = true }.start()
+    // S1-3 B16: Tmux, as `Main.tmuxParts` serves it, over a scripted provider (made-up sessions `beardos/claude` and
+    // `beardos/build`: LOOK_TMUX=beardos:claude) and a scripted control-mode client — never a tmux server; the word
+    // `tmux-out` writes a made-up line into every stream, `tmux-ops` lists what reached the provider
+    val tmux = TestTmux()
+    val tmuxControls = java.util.concurrent.CopyOnWriteArrayList<FakeControl>()
+    val tmuxScopes = wm.damage.core.windows.tmux.TmuxScopes(host, tmux, wm.damage.core.windows.tmux.TmuxStream({ h, s -> listOf("scripted", h, s) }) {
+        FakeControl(listOf("\u001b[1;32mmade-up@pc\u001b[0m:~\$ ls", "notes.txt  \u001b[34mprojects\u001b[0m", "\u001b[1;32mmade-up@pc\u001b[0m:~\$ "))
+            .also { tmuxControls += it }
+    }).also { it.start() }
+    net.serve(wm.damage.core.windows.tmux.TmuxCore.WINDOW, tmuxScopes.table, tmuxScopes.program, tmuxScopes::card,
+        pool = tmuxScopes.pool, live = tmuxScopes.live)
     val uploads = Uploads(data)
     net.addEndListener(uploads::connectionEnded)
     // S1-2 Q5: Files over a made-up tree in this run's own directory ONLY (LookFiles refuses any other path, reads
@@ -143,7 +154,8 @@ fun main(args: Array<String>) {
     println("LOOK again=$again")
     val server = WebServer(System.getenv("LOOK_PORT")?.toInt() ?: 0, ReachGate(Side.PC), Access(Access.LOOPBACK_NAMES + listOfNotNull(System.getenv("LOOK_NAME")), ownBrowserFull = System.getenv("LOOK_OWN") == "1"), devices, net, Bundle.fromResources(),
         BlobSources(mapOf(ReaderBlobs.PREFIX to ReaderBlobs(reader, docs), wm.damage.core.windows.files.FilesBlobs.PREFIX to filesPc.blobs)),
-        bindAddress = InetAddress.getLoopbackAddress(), uploads = uploads)
+        bindAddress = InetAddress.getLoopbackAddress(), uploads = uploads,
+        vendor = wm.damage.core.web.ClassPathVendor(TestTmux::class.java.classLoader))    // S1-3 B12: as the PC serves it
     server.start()
     reader.refreshLibrary()
     host.addListener { c ->
@@ -186,6 +198,8 @@ fun main(args: Array<String>) {
             "deny-browser" -> devices.pending().filter { it.name != "made-up tablet" }.maxByOrNull { it.since }
                 ?.let { "denied ${it.code}: ${devices.deny(it.code, "look") ?: "ok"}" } ?: "no browser waiting"
             "ops" -> "torrents ops: ${torrents.ops.filter { it != "refresh" }}"
+            "tmux-out" -> { tmuxControls.filter { !it.closed }.forEach { it.output("made-up output line\r\n") }; "streams written: ${tmuxControls.count { !it.closed }}" }
+            "tmux-ops" -> "tmux ops: ${tmux.sent}"
             // L1 R2: the PC's time before an act, to read an op's input time against
             "mark" -> "mark at ${System.currentTimeMillis()}"
             // L1 R2 B5: one trash row's file taken out of the trash (a trash cut off before its file arrived)

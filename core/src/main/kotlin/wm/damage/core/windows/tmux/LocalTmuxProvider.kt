@@ -22,7 +22,9 @@ import wm.damage.core.util.Log
  * ESTABLISHMENT (`-o ConnectTimeout=5 -o BatchMode=yes`) — equivalent to a
  * refused connect, surfaced and retried on the next tick; without it a down
  * host would wedge its loop in silence, which is the failure mode the
- * NO-SILENT-FAILURES rule exists to prevent.
+ * NO-SILENT-FAILURES rule exists to prevent. Build S1-3 B13: and ssh's own
+ * keepalive ([sshArgv]), so a link that drops after the connect ends the exec
+ * instead of leaving its poll or capture in flight until a restart.
  */
 class LocalTmuxProvider(
     hosts: List<TmuxHostCfg>,
@@ -38,6 +40,10 @@ class LocalTmuxProvider(
      *  exists and an alternate-screen pane has none (TmuxModel.PaneFrame). */
     private val contextRows: Int = 12,
 ) : TmuxProvider {
+
+    /** Build S1-3 B13: one run of a terminal's bytes — [literal] printable text, else control characters (C0 and
+     *  DEL) sent by their byte values. */
+    data class RawRun(val literal: Boolean, val text: String)
 
     /** The exec seam — tests inject a fake; production runs processes. */
     fun interface TmuxExec {
@@ -123,6 +129,43 @@ class LocalTmuxProvider(
     override fun sendLiteral(target: TmuxTarget, text: String) {
         // `-l --`: literal, and a leading '-' in the text is text, not an option
         run(target.host, "tmux send-keys -t ${shq(target.t)} -l -- ${shq(text)}")
+    }
+
+    /** Build S1-3 B13: one tmux process per op, its runs joined by tmux's own `;` separator so they reach the pane in
+     *  order: printable text through `send-keys -l --`, control bytes through `send-keys -H` (`man tmux` 3.5a). */
+    override fun sendRaw(target: TmuxTarget, data: String) {
+        val runs = rawRuns(data)
+        if (runs.isEmpty()) return
+        val t = shq(target.t)
+        run(target.host, "tmux " + runs.joinToString(" ';' ") { r ->
+            if (r.literal) "send-keys -t $t -l -- ${shq(r.text)}"
+            else "send-keys -t $t -H " + r.text.toByteArray(Charsets.UTF_8).joinToString(" ") { "%02x".format(it) }
+        })
+    }
+
+    override fun capture(target: TmuxTarget): PaneFrame =
+        parseCapture(run(target.host, captureScript(target)))
+            ?: throw IllegalStateException("tmux answered no pane geometry for ${target.label}")
+
+    override fun health(): List<TmuxHostHealth> {
+        val now = System.currentTimeMillis()
+        return hosts.map { h ->
+            val st = hostStates.getValue(h.name)
+            val err = st.error
+            TmuxHostHealth(h.name, when {
+                err != null -> "failing"
+                st.lastOkMs > 0 && now - st.lastOkMs > statusPacingMs * 4 -> "quiet"
+                else -> "ok"
+            }, err, st.lastOkMs)
+        }
+    }
+
+    /** Build S1-3 B10: the argv of one control-mode client of [session] on [host] (`TmuxStream`), attached with
+     *  `ignore-size` so it never changes the size of his own clients; null for a host this provider does not know. */
+    fun controlArgv(host: String, session: String): List<String>? {
+        val h = hosts.firstOrNull { it.name == host } ?: return null
+        val attach = listOf("tmux", "-C", "attach-session", "-t", "=$session:", "-f", "ignore-size")
+        return if (h.ssh.isEmpty()) attach else sshArgv(h) + attach.joinToString(" ") { shq(it) }
     }
 
     override fun history(target: TmuxTarget, lines: Int): List<String> =
@@ -395,15 +438,30 @@ class LocalTmuxProvider(
 
         /** POSIX single-quote escaping — literal text crosses ssh safely. */
         fun shq(s: String): String = "'" + s.replace("'", "'\\''") + "'"
-    }
 
-    /** Production exec: `sh -c` locally, one `ssh` exec for a remote host.
-     *  stderr rides the failure message; stdout is the answer. */
-    class ProcessExec : TmuxExec {
-        override fun run(host: TmuxHostCfg, script: String): String {
-            val argv = if (host.ssh.isEmpty()) listOf("sh", "-c", script)
-            else listOf("ssh", "-p", host.sshPort.toString(), "-o", "BatchMode=yes",
+        /** [data] split into runs, in order (a run never mixes the two kinds). */
+        fun rawRuns(data: String): List<RawRun> {
+            val out = ArrayList<RawRun>()
+            val sb = StringBuilder()
+            var lit = true
+            for (ch in data) {
+                val l = ch.code >= 0x20 && ch.code != 0x7F
+                if (sb.isNotEmpty() && l != lit) { out += RawRun(lit, sb.toString()); sb.setLength(0) }
+                lit = l
+                sb.append(ch)
+            }
+            if (sb.isNotEmpty()) out += RawRun(lit, sb.toString())
+            return out
+        }
+
+        /** The ssh argv before the remote command: batch mode, a bounded CONNECT (a refused connect, said and retried
+         *  on the next tick), and S1-3 B13 the two keepalive options — a link that drops mid-exec ends the exec in about
+         *  a minute (4 unanswered probes 15 s apart), so a status poll or a capture never stays in flight for good (the
+         *  spec's part D: a state only a restart cleared). */
+        fun sshArgv(host: TmuxHostCfg): List<String> =
+            listOf("ssh", "-p", host.sshPort.toString(), "-o", "BatchMode=yes",
                 "-o", "ConnectTimeout=5",
+                "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=4",
                 // one MULTIPLEXED connection per host (2026-09-05, §32): the
                 // capture loop runs this once a second, and a fresh ssh
                 // session per poll is a key exchange per poll. The master
@@ -412,7 +470,14 @@ class LocalTmuxProvider(
                 // connection with a warning, never a failed poll.
                 "-o", "ControlMaster=auto", "-o", "ControlPersist=60",
                 "-o", "ControlPath=${System.getProperty("user.home")}/.damage/ssh-%C",
-                host.ssh, script)
+                host.ssh)
+    }
+
+    /** Production exec: `sh -c` locally, one `ssh` exec for a remote host.
+     *  stderr rides the failure message; stdout is the answer. */
+    class ProcessExec : TmuxExec {
+        override fun run(host: TmuxHostCfg, script: String): String {
+            val argv = if (host.ssh.isEmpty()) listOf("sh", "-c", script) else sshArgv(host) + script
             // through the deadlock-proof runner (R2#14): the old
             // stdout-then-stderr read stalled once a chatty child filled the
             // 64 KiB stderr pipe mid-stream — the exact pattern Exec removes

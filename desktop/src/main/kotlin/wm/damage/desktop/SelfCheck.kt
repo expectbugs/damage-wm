@@ -255,7 +255,9 @@ object SelfCheck {
         val reader = ReaderWindow(text, LocalContent(books), scope, AwtImages())
         shell.register(reader)
         val tmuxScripted = ScriptedTmux()
-        val tmuxWin = wm.damage.core.windows.tmux.TmuxWindow(text, tmuxScripted, scope)
+        // build S1-3 B16: Tmux over a scratch PC record whose core raises the alert once (`TmuxOnRecord`)
+        val tmuxRig = TmuxOnRecord(text, tmuxScripted, scope, tmp, shell)
+        val tmuxWin = tmuxRig.win
         shell.register(tmuxWin)
         val filesWin = wm.damage.core.windows.files.FilesWindow(text, filesProvider, scope, AwtImages())
         shell.register(filesWin)
@@ -677,6 +679,7 @@ object SelfCheck {
         shell.stop()
         torrentsWin.detach()                                // the stack-stop rule, mirrored (review P1)
         musicWin.detach()
+        tmuxRig.stop(shell)                                 // S1-3 B16: the stop leaves the record's source and its alerts
 
         val persistence2 = Persistence(tmp.resolve("state.json"))
         val scope2 = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -1332,5 +1335,35 @@ object SelfCheck {
             delay(25)
         }
         println("  PASS  $what")
+    }
+}
+
+/**
+ * Build S1-3 B16: Tmux in `--selfcheck` as the PC runs it — the presenter over a scratch PC record, its core raising a
+ * waiting session's alert once into the notice record, which this shell's mirror shows — so the alert check walks the
+ * service's path. A class of its own: the script's one method is at the JVM's size limit.
+ */
+private class TmuxOnRecord(text: wm.damage.core.text.TextRasterizer, scripted: ScriptedTmux,
+                           scope: kotlinx.coroutines.CoroutineScope, tmp: Path, shell: Shell) {
+    private val record = wm.damage.core.app.AppHost.inScratchDir(java.nio.file.Files.createDirectories(tmp.resolve("tmux-record")))
+    private val mirror = wm.damage.core.app.NoticeMirror(wm.damage.core.app.HostBackend(record,
+        wm.damage.core.app.Peer.LOCAL.device, wm.damage.core.app.OpQueue.newStream()))
+    private val core = wm.damage.core.windows.tmux.TmuxCore()
+    val win = wm.damage.core.windows.tmux.TmuxGlasses(text, scripted, scope, core,
+        wm.damage.core.app.LocalWindowSource(core, wm.damage.core.app.HostBackend(record,
+            wm.damage.core.app.Peer.LOCAL.device, wm.damage.core.app.OpQueue.newStream())))
+
+    init {
+        shell.noticeInput = mirror
+        mirror.attach(shell.noticeSink)
+        core.attachAlerts(scripted, wm.damage.core.app.NoticeCore(record)) {
+            wm.damage.core.app.WindowState(core.window, record.read(core.window).third.items)
+        }
+    }
+
+    fun stop(shell: Shell) {
+        win.detach()
+        core.detachAlerts()
+        mirror.detach(shell.noticeSink)
     }
 }

@@ -47,6 +47,8 @@ class BundleTest {
         for (m in modules) {
             for (hit in imports.findAll(text(m))) {
                 val spec = hit.groupValues[1].ifEmpty { hit.groupValues[2] }
+                // S1-3 B12: the terminal library the PC serves beside the bundle, by its one route
+                if (spec == WebServer.VENDOR_PREFIX + "xterm.mjs") continue
                 assertTrue(spec.startsWith("./") || spec.startsWith("../"), "$m imports $spec: only the bundle's own modules")
                 val resolved = java.nio.file.Path.of(m).resolveSibling(spec).normalize().toString().replace('\\', '/')
                 assertTrue(resolved in bundle.files, "$m imports $spec ($resolved), which the bundle lacks")

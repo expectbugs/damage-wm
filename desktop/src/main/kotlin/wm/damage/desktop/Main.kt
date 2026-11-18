@@ -758,7 +758,7 @@ private fun startWeb(cfg: Config, scope: CoroutineScope, reach: wm.damage.core.n
     app.addEndListener(uploads::connectionEnded)
     return try {
         web.server(cfg.webPort, reach, cfg.webHosts + listOfNotNull(own, own?.substringBefore('.')), app, sources, presence::tailnetName,
-            webFonts(), uploads)
+            webFonts(), uploads, vendor = wm.damage.core.web.ClassPathVendor(DesktopStack::class.java.classLoader))
             .also { s -> bindOrRetry(scope, "web interface", cfg.webPort) { s.start() } }
     } catch (e: Exception) {
         Log.e("damage", "web interface failed to start on :${cfg.webPort}", e)
@@ -788,6 +788,28 @@ private fun torrentsParts(appNet: wm.damage.core.app.AppNet, appHost: wm.damage.
     scopes.watch(appNet.viewers) { who, focused, pace -> provider.setFocusedBy(who, focused, pace) }
     scopes.core.attachNotices(provider, provider.epoch, notices)
     Log.i("damage", "Torrents' core on the PC record (${scopes.core.window}): its table, tracker and program ops on the lane, its notices raised here")
+    return scopes
+}
+
+/**
+ * Build S1-3 B16: Tmux's PC-served parts, made at a PROCESS START by both host builders over the process-wide
+ * [provider], before the content host or the web listener can ask: its scopes, its program ops on one thread (keys in
+ * arrival order), its live sources (the frames; the control-mode stream, which ends with its last viewer and with this
+ * process), Main's card, and the alerts — raised once, here, into the notice record. Never per stack, never from a tool.
+ */
+private fun tmuxParts(appNet: wm.damage.core.app.AppNet, appHost: wm.damage.core.app.AppHost,
+                      provider: wm.damage.core.windows.tmux.LocalTmuxProvider,
+                      notices: wm.damage.core.app.NoticeCore): wm.damage.core.windows.tmux.TmuxScopes {
+    val scopes = wm.damage.core.windows.tmux.TmuxScopes(appHost, provider,
+        wm.damage.core.windows.tmux.TmuxStream(provider::controlArgv))
+    scopes.start()
+    appNet.serve(wm.damage.core.windows.tmux.TmuxCore.WINDOW, scopes.table, scopes.program, scopes::card,
+        pool = scopes.pool, live = scopes.live)
+    scopes.core.attachAlerts(provider, notices) {
+        wm.damage.core.app.WindowState(wm.damage.core.windows.tmux.TmuxCore.WINDOW,
+            appHost.read(wm.damage.core.windows.tmux.TmuxCore.WINDOW).third.items)
+    }
+    Log.i("damage", "Tmux's core on the PC record (${scopes.core.window}): its scopes, keys and live sources on the lane, its alerts raised here")
     return scopes
 }
 
@@ -918,6 +940,10 @@ private suspend fun hostOnly(cfg: Config) {
     // runShell (host-only has no presenter: the core serves the web and raises the notices)
     wm.damage.core.windows.torrents.TorrentsMigration.onHost(appHost, store) { }
     torrentsParts(appNet, appHost, torrents, noticeCore)
+    // build S1-3 (B15, B16): Tmux's rows from before its conversion, then its parts on the lane and its alerts, as in
+    // runShell (host-only has no presenter)
+    wm.damage.core.windows.tmux.TmuxMigration.onHost(appHost, store) { }
+    tmuxParts(appNet, appHost, tmux, noticeCore)
 
     // build S1-2 (Q5): Files' rows from before its conversion become record items where the record holds none, then
     // Files on the PC record: the one job slot every PC caller meets (the phone's glasses through the window channel,
@@ -998,6 +1024,9 @@ class DesktopStack(
     /** Build S1-2 Q4: Torrents' process-wide core and the source on the PC record its presenter reads (device `local`);
      *  null in tools, which build Torrents the way it was built before (`TorrentsWindow`, a record in memory). */
     private val torrentsCore: Pair<wm.damage.core.windows.torrents.TorrentsCore, wm.damage.core.app.WindowSource>? = null,
+    /** Build S1-3 B16: Tmux's process-wide core and the source on the PC record its presenter reads (device `local`);
+     *  null in tools, which build Tmux the way it was built before (`TmuxWindow`, a record in memory). */
+    private val tmuxCore: Pair<wm.damage.core.windows.tmux.TmuxCore, wm.damage.core.app.WindowSource>? = null,
 ) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private fun ble(): Transport = BlueZTransport(BlueZDbus(), scope,
@@ -1040,7 +1069,11 @@ class DesktopStack(
             wm.damage.core.windows.reader.ReaderGlasses(text, core, source, scope, AwtImages())
         } ?: ReaderWindow(text, LocalContent(Path.of(cfg.booksDir)), scope, AwtImages())
         shell.register(readerGlasses)
-        tmux?.let { tmuxWindow = wm.damage.core.windows.tmux.TmuxWindow(text, it, scope).also(shell::register) }
+        tmux?.let { p ->
+            // build S1-3 B16: over the PC record, where the PC raises Tmux's alerts and this stack's shell shows them
+            tmuxWindow = (tmuxCore?.let { (core, source) -> wm.damage.core.windows.tmux.TmuxGlasses(text, p, scope, core, source) }
+                ?: wm.damage.core.windows.tmux.TmuxWindow(text, p, scope)).also(shell::register)
+        }
         files?.let {
             // S1-2 Q5: on the PC record through a source of this stack's own when the provider is the PC's slotted one
             // (it outlives the stack; the presenter leaves the source at the stop), else as before (a tool)
@@ -1266,6 +1299,12 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
     val torrentsScopes = torrentsParts(appNet, appHost, torrentsProvider, noticeCore)
     val torrentsSource = wm.damage.core.app.LocalWindowSource(torrentsScopes.core,
         wm.damage.core.app.HostBackend(appHost, wm.damage.core.app.Peer.LOCAL.device, wm.damage.core.app.OpQueue.newStream()))
+    // build S1-3 (B15, B16): Tmux's rows from before its conversion (a `migrate` note), then its parts on the lane and its
+    // alerts (`tmuxParts`), and the source every stack's glasses presenter reads (device `local`)
+    wm.damage.core.windows.tmux.TmuxMigration.onHost(appHost, store) { line -> Journal.appendNote(journalFile, "migrate", line) }
+    val tmuxScopes = tmuxParts(appNet, appHost, tmuxProvider, noticeCore)
+    val tmuxSource = wm.damage.core.app.LocalWindowSource(tmuxScopes.core,
+        wm.damage.core.app.HostBackend(appHost, wm.damage.core.app.Peer.LOCAL.device, wm.damage.core.app.OpQueue.newStream()))
 
     // build S1-2 (Q5): Files' rows from before its conversion become record items where the record holds none, then
     // Files on the PC record: the one job slot every PC caller meets (every stack's glasses, the phone's glasses
@@ -1357,7 +1396,8 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
     build = { m -> DesktopStack(cfg, m, remoteHost, text, onStatus = { keeperStatus.set(it) },
         onSwitch = { switchTo(it) }, tmux = tmuxProvider, sharedStore = store,
         files = filesProvider, themeIcons = themeIcons, torrents = torrentsProvider, music = musicLibrary, feed = feedEngine,
-        reader = readerCore to readerSource, notices = noticeMirror, torrentsCore = torrentsScopes.core to torrentsSource) }
+        reader = readerCore to readerSource, notices = noticeMirror, torrentsCore = torrentsScopes.core to torrentsSource,
+        tmuxCore = tmuxScopes.core to tmuxSource) }
 
     if (mode != "auto") {
         val first = build(mode)

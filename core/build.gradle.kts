@@ -22,6 +22,9 @@ dependencies {
     implementation(libs.jsoup)
     testImplementation(kotlin("test"))
     testImplementation(libs.junit)
+    // Build S1-3 B12: the terminal library on the TEST class path only, so the real-server look (`LookServer`) serves
+    // it as the PC does; core's own code never depends on it (the phone never carries it)
+    testRuntimeOnly(libs.xterm)
 }
 
 tasks.test {

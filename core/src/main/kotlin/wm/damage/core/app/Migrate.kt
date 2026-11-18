@@ -3,6 +3,7 @@ package wm.damage.core.app
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CountDownLatch
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import wm.damage.core.shell.Persistence
 import wm.damage.core.util.Log
 
@@ -20,6 +21,9 @@ class Migrate(
     val fields: List<Field>,
     /** The window's migrate action (declared with the position kind). */
     val action: String = ACTION,
+    /** S1-3 B15: items read from the whole blob rather than one field each (Tmux's `muted` list → one
+     *  `mute.<host>/<name>` per entry), as (record item, value); taken only where the record holds none. */
+    val derived: (JsonObject) -> List<Pair<String, JsonElement>> = { emptyList() },
 ) {
     /** One register field: [name] in the blob, [item] the record item it becomes, [read] its value as the record
      *  holds it (null: nothing to migrate — absent, or not a value of that row). */
@@ -34,7 +38,8 @@ class Migrate(
         return fields.mapNotNull { f ->
             if (Record.key(window, f.item) in held) null
             else blob[f.name]?.let(f.read)?.let { v -> Draft(action, listOf(f.item), v, at = stamp) }
-        }
+        } + derived(blob).filter { (item, _) -> Record.key(window, item) !in held }
+            .map { (item, v) -> Draft(action, listOf(item), v, at = stamp) }
     }
 
     /** The PC's pass at its process start: each offer is handed to [host] and answered on its executor (the record

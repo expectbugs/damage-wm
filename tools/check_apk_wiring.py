@@ -520,6 +520,12 @@ def check(root=ROOT, say=print):
                                               ('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'runShell')],
             ('Main', 'torrentsParts'): [('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'hostOnly'),
                                         ('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'runShell')],
+            # build S1-3 (B15, B16): Tmux's rows from before its conversion migrate at the PC's two starts, and its parts
+            # (scopes, keys, live sources, the alerts raised once per PC process) are made there — never per stack or tool
+            ('TmuxMigration', 'onHost'): [('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'hostOnly'),
+                                          ('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'runShell')],
+            ('Main', 'tmuxParts'): [('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'hostOnly'),
+                                    ('desktop/src/main/kotlin/wm/damage/desktop/Main.kt', 'runShell')],
             ('LocalSecret', 'ensure'): [('core/src/main/kotlin/wm/damage/core/web/WebAccess.kt', 'atProcessStart')],
             ('LocalSecret', 'read'): [('core/src/main/kotlin/wm/damage/core/app/DeviceCli.kt', 'run'),
                                       ('core/src/main/kotlin/wm/damage/core/web/WebAccess.kt', 'localSecret')],
@@ -527,6 +533,7 @@ def check(root=ROOT, say=print):
     said_as = {'InstanceLock': 'two PC starts (runShell, hostOnly)', 'AppHost': 'two PC starts (runShell, hostOnly)',
                'WebAccess': 'two PC starts (runShell, hostOnly)', 'Main': 'two PC starts (runShell, hostOnly)',
                'NoticeCore': 'two PC starts (runShell, hostOnly)', 'TorrentsMigration': 'two PC starts (runShell, hostOnly)',
+               'TmuxMigration': 'two PC starts (runShell, hostOnly)',
                'LocalSecret': 'start\'s access state (and the device commands\' client)', 'DeviceCli': 'command line\'s main'}
     for (owner, name), expect in want.items():
         got = callers(root, owner, name)
@@ -695,6 +702,19 @@ def check(root=ROOT, say=print):
          'no recordNotices = { wc.shares(core.window) && wc.shares(…Notices.WINDOW) } in startStack')
     gone = [w for w in ('torrentsGlasses?.detach()', 'torrentsSource?.close()') if w not in stop]
     line(not gone, 'ShellService.stopStack: Torrents\' presenter leaves its source, and the source the working copy',
+         'not in stopStack: ' + ', '.join(gone))
+
+    # 13. build S1-3 (B16): Tmux on both hosts. The PC hands every stack the process's core and source (the PC raises
+    #     the alerts; no presenter raises any); the phone builds the presenter over its working copy and leaves the
+    #     source at a stop.
+    line('tmuxCore = tmuxScopes.core to tmuxSource' in run,
+         'runShell: Tmux\'s process-wide core and source, handed to every stack it builds',
+         'no tmuxCore = tmuxScopes.core to tmuxSource in DesktopStack(…) of runShell')
+    line('TmuxGlasses(text, tp, scope, core, src)' in stack,
+         'ShellService.startStack: Tmux\'s presenter over the working copy',
+         'no TmuxGlasses(text, tp, scope, core, src) in startStack')
+    gone = [w for w in ('tmuxGlasses?.detach()', 'tmuxSource?.close()') if w not in stop]
+    line(not gone, 'ShellService.stopStack: Tmux\'s presenter leaves its source, and the source the working copy',
          'not in stopStack: ' + ', '.join(gone))
 
     for n in notes:

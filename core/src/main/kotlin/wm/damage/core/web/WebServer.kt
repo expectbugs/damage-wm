@@ -46,7 +46,9 @@ import wm.damage.core.util.Log
  *  - P7: `GET /w/…` (an address, `CONTRACT.md` §5) answers the bundle's page, so a reload or a link lands on the
  *    client, which reads the address; `GET /font/<name>`: one of the glasses' faces (the glass theme), for an approved
  *    device ([FontSource]).
- * With no approved device it therefore serves only the bundle and the pairing socket. Security in proportion (dec.
+ *  - S1-3 B12: `GET /vendor/xterm/{xterm.mjs, xterm.css, LICENSE}`: the terminal library ([VendorSource]), as a
+ *    bundle file is served.
+ * With no approved device it therefore serves only the bundle, the library and the pairing socket. Security in proportion (dec.
  * B.3): no captcha, no rate limiter beyond the code's own, no second factor.
  *
  * Build S1-2, package Q2 (the spec's §2.4): `GET /blob/<id>` through the blob registry ([BlobSources]), `?r=` a
@@ -75,6 +77,8 @@ class WebServer(
     private val clock: () -> Long = { System.currentTimeMillis() },
     /** S1-2 Q2: the uploads a window's `upload` op minted; null = no upload route. */
     private val uploads: Uploads? = null,
+    /** S1-3 B12: the terminal library ([VENDOR_FILES]); none on a host without it. */
+    private val vendor: VendorSource = VendorSource { null },
 ) : AutoCloseable {
     @Volatile private var server: ServerSocket? = null
     @Volatile private var running = false
@@ -142,6 +146,7 @@ class WebServer(
                 req.method == "PUT" && path.startsWith(UPLOAD_PREFIX) -> upload(sock, inp, out, req, device, path.removePrefix(UPLOAD_PREFIX))
                 req.method == "GET" && path.startsWith(BLOB_PREFIX) -> blob(sock, out, req, device, path.removePrefix(BLOB_PREFIX))
                 req.method == "GET" && path.startsWith(FONT_PREFIX) -> font(sock, out, device, path.removePrefix(FONT_PREFIX))
+                req.method == "GET" && path.startsWith(VENDOR_PREFIX) -> vendorFile(out, req, path.removePrefix(VENDOR_PREFIX))
                 // P7: an address is the client's to read; the server answers its page
                 req.method == "GET" && (path == ADDRESS_ROOT || path.startsWith("$ADDRESS_ROOT/")) ->
                     page(out, req, "/", device?.let { secret })
@@ -248,6 +253,23 @@ class WebServer(
             val buf = ByteArray(64 * 1024)
             while (inp.read(buf) >= 0) { /* dropped: the upload was refused */ }
         }
+    }
+
+    /** S1-3 B12: one of the terminal library's three files, served as the bundle's files are (public MIT code, nothing
+     *  of his: no device needed), with the bundle's headers; any other name, or a host without it, 404 with the reason. */
+    private fun vendorFile(out: OutputStream, req: HttpRequest, name: String) {
+        val type = VENDOR_FILES[name]
+        val b = type?.let { vendor.file(name) }
+        if (b == null) {
+            HttpWs.reply(out, 404, "text/plain; charset=utf-8",
+                if (type == null) "no file '$name' in the terminal library" else "this host serves no terminal library")
+            return
+        }
+        HttpWs.replyBytes(out, 200, type, b, listOf(
+            "Content-Security-Policy" to Bundle.csp(req.headers["host"] ?: ""),
+            "X-Content-Type-Options" to "nosniff",
+            "Referrer-Policy" to "no-referrer",
+            "Cache-Control" to "no-cache"))
     }
 
     /** P7: one of the glasses' faces, by its fixed name, for an approved device (a data path wants the secret). */
@@ -407,6 +429,11 @@ class WebServer(
         /** P7: the faces' route and the addresses' root (`/w/<window>/<target>`, `CONTRACT.md` §5). */
         const val FONT_PREFIX = "/font/"
         const val ADDRESS_ROOT = "/w"
+        /** S1-3 B12: the terminal library's route and its files, exactly these, with their types (LICENSE has no
+         *  extension, so `Bundle.typeOf` alone would call it octet-stream). */
+        const val VENDOR_PREFIX = "/vendor/xterm/"
+        val VENDOR_FILES: Map<String, String> = mapOf("xterm.mjs" to "text/javascript; charset=utf-8",
+            "xterm.css" to "text/css; charset=utf-8", "LICENSE" to "text/plain; charset=utf-8")
         /** The faces a page may ask for: each of the glasses' four (`text/Text.kt`'s `Face`), regular and bold. */
         val FONTS: Set<String> = listOf("system", "list", "reader", "mono").flatMap { listOf("$it-regular", "$it-bold") }.toSet()
         /** The default `webPort` (dec. B.3): the next of the PC's ports (7300 setup, 7401–7404 content, transport,

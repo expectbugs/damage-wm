@@ -23,6 +23,8 @@ dependencies {
     // Music (MUSIC.md §9.1): Postgres over the Unix socket, peer auth
     implementation(libs.postgresql)
     implementation(libs.junixsocket.core)
+    // Tmux's desk terminal (build S1-3 B12): resources only, read from the class path by `ClassPathVendor`
+    runtimeOnly(libs.xterm)
     testImplementation(kotlin("test"))
     testImplementation(libs.junit)
 }

@@ -151,6 +151,79 @@ object Sgr {
         return out
     }
 
+    /** Build S1-3 B9: one span of a line in its own colours, for the web — [fg]/[bg] [DEFAULT_COLOUR], an xterm index
+     *  0..255, or [RGB] or'd with a true colour; [flags] the BOLD/DIM/UNDERLINE/REVERSE set. */
+    class ColourRun(val text: String, val fg: Int, val bg: Int, val flags: Int)
+
+    const val DEFAULT_COLOUR = -1
+    const val RGB = 1 shl 24
+
+    private class ColourState {
+        var fg = DEFAULT_COLOUR
+        var bg = DEFAULT_COLOUR
+        var flags = 0
+    }
+
+    /** [line] as colour runs (the same escapes as [parseRuns]; the glasses' gray mapping untouched). */
+    fun colourRuns(line: String): List<ColourRun> {
+        val out = ArrayList<ColourRun>(4)
+        val sb = StringBuilder()
+        val st = ColourState()
+        var fg = st.fg
+        var bg = st.bg
+        var fl = st.flags
+        var i = 0
+        while (i < line.length) {
+            if (line[i] == ESC) {
+                i = scanEscape(line, i, { applyColour(it, st) }) {}
+                if (st.fg != fg || st.bg != bg || st.flags != fl) {
+                    if (sb.isNotEmpty()) { out.add(ColourRun(sb.toString(), fg, bg, fl)); sb.setLength(0) }
+                    fg = st.fg; bg = st.bg; fl = st.flags
+                }
+                continue
+            }
+            sb.append(line[i])
+            i++
+        }
+        if (sb.isNotEmpty()) out.add(ColourRun(sb.toString(), fg, bg, fl))
+        return out
+    }
+
+    private fun applyColour(params: String, st: ColourState) {
+        val p = if (params.isEmpty()) intArrayOf(0) else params.split(';', ':').map { it.toIntOrNull() ?: 0 }.toIntArray()
+        var i = 0
+        while (i < p.size) {
+            when (val n = p[i]) {
+                0 -> { st.fg = DEFAULT_COLOUR; st.bg = DEFAULT_COLOUR; st.flags = 0 }
+                1 -> st.flags = st.flags or BOLD
+                2 -> st.flags = st.flags or DIM
+                4 -> st.flags = st.flags or UNDERLINE
+                7 -> st.flags = st.flags or REVERSE
+                21, 22 -> st.flags = st.flags and (BOLD or DIM).inv()
+                24 -> st.flags = st.flags and UNDERLINE.inv()
+                27 -> st.flags = st.flags and REVERSE.inv()
+                in 30..37 -> st.fg = n - 30
+                39 -> st.fg = DEFAULT_COLOUR
+                in 40..47 -> st.bg = n - 40
+                49 -> st.bg = DEFAULT_COLOUR
+                in 90..97 -> st.fg = n - 90 + 8
+                in 100..107 -> st.bg = n - 100 + 8
+                38, 48 -> {
+                    val mode = p.getOrNull(i + 1)
+                    val c = if (mode == 5 && i + 2 < p.size) { i += 2; p[i].coerceIn(0, 255) }
+                    else if (mode == 2 && i + 4 < p.size) {
+                        val rgb = (p[i + 2].coerceIn(0, 255) shl 16) or (p[i + 3].coerceIn(0, 255) shl 8) or p[i + 4].coerceIn(0, 255)
+                        i += 4
+                        RGB or rgb
+                    } else { i = p.size; null }   // malformed extension: drop the rest of this SGR
+                    if (c != null) { if (n == 38) st.fg = c else st.bg = c }
+                }
+                else -> { /* unsupported attribute (blink, italic, …): ignored, as the glasses' parse */ }
+            }
+            i++
+        }
+    }
+
     /** Strip every escape from [line] — the history/reading path wants plain
      *  text through the ordinary wrap machinery. */
     fun strip(line: String): String {
@@ -167,7 +240,12 @@ object Sgr {
 
     /** Consume one escape sequence at [i]; SGR mutates [st], everything else
      *  is skipped and reported through [onSkip]. Returns the next index. */
-    private inline fun skipOrApplyEscape(line: String, i: Int, st: State, onSkip: () -> Unit): Int {
+    private inline fun skipOrApplyEscape(line: String, i: Int, st: State, onSkip: () -> Unit): Int =
+        scanEscape(line, i, { applySgr(it, st) }, onSkip)
+
+    /** Consume one escape sequence at [i]: an SGR's parameters go to [onSgr], anything else is skipped and reported
+     *  through [onSkip]. Returns the next index. */
+    private inline fun scanEscape(line: String, i: Int, onSgr: (String) -> Unit, onSkip: () -> Unit): Int {
         var j = i + 1
         if (j >= line.length) return j
         when (line[j]) {
@@ -177,7 +255,7 @@ object Sgr {
                 while (j < line.length && line[j].code in 0x20..0x3F) j++
                 if (j < line.length) {
                     val final = line[j]
-                    if (final == 'm') applySgr(line.substring(start, j), st) else onSkip()
+                    if (final == 'm') onSgr(line.substring(start, j)) else onSkip()
                     j++
                 } else onSkip()
             }

@@ -387,6 +387,41 @@ class TmuxProviderTest {
             scope.cancel()
         }
     }
+
+    /** S1-3 B13: a terminal's bytes in ONE exec and one tmux process, in order — printable runs literal, control bytes
+     *  by value; the ssh argv carries the two keepalive options; the control client attaches with `ignore-size`. */
+    @Test
+    fun rawBytesGoInOneExecAsLiteralAndHexRuns_andSshKeepsItsLinkAlive(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val exec = FakeExec()
+        val p = LocalTmuxProvider(listOf(TmuxHostCfg("local"), TmuxHostCfg("far", ssh = "far.example", sshPort = 80)),
+            TmuxConfig(), scope, exec, statusPacingMs = 60_000, capturePacingMs = 60_000)
+        try {
+            val before = exec.scripts.size
+            p.sendRaw(TmuxTarget("local", "claude"), "ls -la\r\u001b[Aé")
+            val mine = exec.scripts.drop(before).filter { "send-keys" in it }
+            assertEquals(1, mine.size, "one exec per op: $mine")
+            assertEquals("tmux send-keys -t '=claude:' -l -- 'ls -la' ';' send-keys -t '=claude:' -H 0d 1b ';' " +
+                "send-keys -t '=claude:' -l -- '[Aé'", mine.single())
+            assertEquals(listOf(LocalTmuxProvider.RawRun(true, "a"), LocalTmuxProvider.RawRun(false, "\t\u007f")),
+                LocalTmuxProvider.rawRuns("a\t\u007f"))
+            val ssh = LocalTmuxProvider.sshArgv(TmuxHostCfg("far", ssh = "far.example", sshPort = 80))
+            for (o in listOf("ServerAliveInterval=15", "ServerAliveCountMax=4", "BatchMode=yes", "ConnectTimeout=5"))
+                assertTrue(o in ssh, "ssh carries $o: $ssh")
+            assertEquals(listOf("tmux", "-C", "attach-session", "-t", "=claude:", "-f", "ignore-size"), p.controlArgv("local", "claude"))
+            assertEquals("'tmux' '-C' 'attach-session' '-t' '=claude:' '-f' 'ignore-size'", p.controlArgv("far", "claude")!!.last())
+            assertEquals(null, p.controlArgv("nowhere", "claude"))
+            // the web's colours: indexes, true colour, flags; default colours absent
+            val runs = Sgr.colourRuns("\u001b[1;31mred\u001b[0m plain \u001b[38;2;1;2;3;48;5;200mx")
+            assertEquals(listOf("red", " plain ", "x"), runs.map { it.text })
+            assertEquals(1, runs[0].fg); assertEquals(Sgr.BOLD, runs[0].flags)
+            assertEquals(Sgr.DEFAULT_COLOUR, runs[1].fg)
+            assertEquals(Sgr.RGB or 0x010203, runs[2].fg); assertEquals(200, runs[2].bg)
+        } finally {
+            p.close()
+            scope.cancel()
+        }
+    }
 }
 
 // ------------------------------------------------------------------ the wire
@@ -758,24 +793,16 @@ class TmuxWindowTest {
         await { w.title().contains("history") }
     }
 
-    /** Review §29 (the live walk): the alert notice was app-less, so a tap on
-     *  the box only dismissed it — TMUX.md §3.5's loop is glance → TAP → y.
-     *  The notice now names the window and the session, coalesces per
-     *  session, and the window's deep link opens that session's live view. */
+    /** Review §29 (the live walk): a tap on the alert's box lands in the live view of the session that wants input.
+     *  S1-3 B14: the box is the PC's record notice (`TmuxCore` raises it, `TmuxCoreTest` pins its body, thread and
+     *  target); the presenter raises none, and its deep link still opens that session. */
     @Test
-    fun anAlertNoticeDeepLinksIntoItsSession() {
+    fun anAlertIsNotRaisedByThePresenter_andItsDeepLinkOpensTheSession() {
         val (w, p, svc) = build()
         p.pushStatus(session("claude"), session("build"))
         p.pushAlert(session("claude", waiting = true))
-        p.pushAlert(session("build", waiting = true))
-        assertEquals(2, svc.notices.count { "wants input" in it })
-        val (appId, thread, target) = svc.links.first { it.third != null }
-        assertEquals("tmux", appId, "the tap knows the window")
-        assertEquals("local/claude", thread, "coalesces per SESSION, not per window")
-        assertEquals("session:local:claude", target)
-        assertTrue(svc.links.map { it.second }.toSet().size == 2, "two sessions waiting are two threads")
-        // the shell's tap: commit + activate + open(target) — the window lands
-        // in the live view of THAT session, subscribed
+        assertTrue(svc.notices.none { "wants input" in it }, "the PC raises the alert, never the presenter: ${svc.notices}")
+        assertTrue(w.dirty, "a waiting edge still marks the window")
         assertTrue(w.open("session:local:build"), "the deep link resolves")
         assertEquals(TmuxTarget("local", "build"), p.subscribed.last())
         assertTrue(w.title().startsWith("build"), "the live view of the session that wants input (was '${w.title()}')")
@@ -783,54 +810,25 @@ class TmuxWindowTest {
         assertFalse(w.open("session:nocolon"), "a malformed target is refused")
     }
 
-    /** R4 item 1 (review 3A-1): the alert's body carried `lastLine.take(80)`
-     *  — the pane's line cut at 80 characters with no mark, and a cut that
-     *  can split a surrogate pair (the lone half then draws as '?'). The box
-     *  wraps and scrolls, so the whole line goes in (No Truncation). */
     @Test
-    fun anAlertNoticeCarriesThePanesWholeLine() {
-        val (_, p, svc) = build()
-        val long = (0 until 120).joinToString("") { ('a' + it % 26).toString() }
+    fun theOpenSessionRoundTripsAndTheRowsComeFromTheRecord() {
+        val (w, p, _) = build()
         p.pushStatus(session("claude"))
-        p.pushAlert(session("claude", waiting = true).copy(lastLine = long))
-        val body = svc.notices.single { "wants input" in it }
-        assertTrue(body.endsWith(long.takeLast(20)), "the line's last 20 characters are in the body (was '$body')")
-    }
-
-    /** R4 item 1's second half: an emoji whose two halves sit at 79 and 80
-     *  — the old cut kept the high half alone. */
-    @Test
-    fun anAlertNoticeNeverSplitsASurrogatePair() {
-        val (_, p, svc) = build()
-        val emoji = "x".repeat(79) + "😀" + "y".repeat(10)
-        p.pushStatus(session("build"))
-        p.pushAlert(session("build", waiting = true).copy(lastLine = emoji))
-        val body2 = svc.notices.single { "build" in it && "wants input" in it }
-        val lone = body2.indices.filter { i ->
-            val c = body2[i]
-            (c.isHighSurrogate() && (i + 1 >= body2.length || !body2[i + 1].isLowSurrogate())) ||
-                (c.isLowSurrogate() && (i == 0 || !body2[i - 1].isHighSurrogate()))
-        }
-        assertTrue(lone.isEmpty(), "no lone surrogate in the body (at $lone)")
-        assertTrue(body2.endsWith("y".repeat(10)), "the emoji's line arrives whole")
-    }
-
-    @Test
-    fun alertsNotifyUnmutedSessionsAndPersistenceRoundTrips() {
-        val (w, p, svc) = build()
-        p.pushStatus(session("claude"))
-        p.pushAlert(session("claude", waiting = true))
-        assertEquals(1, svc.notices.count { "wants input" in it })
-        assertTrue(w.dirty)
-        // persistence: target + settings survive; deep levels restore to LIVE
+        // the view's own state: target + pace survive; deep levels restore to LIVE
         (w.view() as WindowView.ListView).onCommit(0)
         (w.view() as WindowView.CanvasView).onTap!!()
         val blob = w.saveState()
+        assertEquals(setOf("level", "host", "session", "window", "paceMs"), blob.keys,
+            "S1-3 B14: the blob keeps this view's state only (Alerts, mutes, Context rows and Size are the record's)")
         val (w2, p2, _) = build()
         w2.restoreState(blob)
         p2.pushStatus(session("claude"))
         assertEquals("claude", w2.title(), "restores to the live grid")
         assertEquals(480, w2.preferredHeight, "the design-point height default")
+        // a row changed on the glasses goes to the record (field first, op after), and back from it
+        w2.appSettings().first { it.name == "Size" }.apply("352")
+        assertEquals(352, w2.preferredHeight)
+        await { wm.damage.core.windows.tmux.TmuxCore.size(w2.source.state()) == 352 }
     }
 }
 
