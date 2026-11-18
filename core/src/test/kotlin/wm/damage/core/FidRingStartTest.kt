@@ -205,7 +205,7 @@ class FidRingStartTest {
         val starting = scope.async { runCatching { t.start(full) } }
         // the window is full (three copies written, their acks held) and copies are queued behind it
         waitUntil(15_000, message = { "five re-asks, one of them queued behind a full window: ${heldCount.get()} acks held; " +
-            "${seen.controlNotes("fid-ring clear went unacked")}" }) {
+            seen.controlNotes("fid-ring clear went unacked").let { "${it.size} re-asks, ${it.count { r -> "queued" in r }} queued, the last ${it.takeLast(2)}" } }) {
             val reasks = seen.controlNotes("fid-ring clear went unacked")
             heldCount.get() == CfwTransportBase.WINDOW && reasks.size >= 5 && reasks.any { "queued" in it }
         }
