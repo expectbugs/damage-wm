@@ -459,14 +459,18 @@ class FeedWindowTest {
         val tmp = Files.createTempDirectory("damage-feed-binge-rec")
         val record = wm.damage.core.app.MemoryRecord(FeedCore.ACTIONS)
         val other = wm.damage.core.app.LocalWindowSource(FeedCore(), record)
-        other.act(FeedCore.bingeDraft("8bt", FeedCore.Binge(3, null, 0, Probe.docContentWidth() - 32), at = 1L))
+        // its strip made at the glasses' width (the shell's document column at full size); read at the entry, not
+        // at the build, when the width is not known yet (the snapshot's 80b showed the page's top instead)
+        other.act(FeedCore.bingeDraft("8bt", FeedCore.Binge(3, null, 2, 564), at = 1L))
         wm.damage.core.app.MemoryRecord.SHARED.call {}
         val r = Rig(tmp, record = record)
         try {
             r.start()
             awaitTrue("root") { r.win.title() == "feed" }
             r.down(4); r.tap()
-            awaitTrue("the archive opens at the record's page") { r.win.title() == "8bt 3" && r.feed.ops.contains("episode:8bt:3") }
+            awaitTrue("the archive opens at the record's page and strip (${r.win.bingePlaceNow()})") {
+                r.win.title() == "8bt 3" && r.feed.ops.contains("episode:8bt:3") && r.win.bingePlaceNow() == (3 to 2)
+            }
         } finally { r.stop(); tmp.toFile().deleteRecursively() }
     }
 }

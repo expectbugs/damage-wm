@@ -1233,6 +1233,9 @@ class FeedGlasses(
     /** For harnesses: the open article's place as this view shows it. */
     fun placeNow(): FeedCore.Place? = if (placeSeated) currentPlace() else null
 
+    /** For harnesses: the archive's (episode, strip) under the top line. */
+    fun bingePlaceNow(): Pair<Int, Int>? = if (loaded.isEmpty()) null else bingePosNow()
+
     /** [s] wrapped into lines of [block]; each knows where its text starts in the block's text ([lead] characters of
      *  [s] are not the block's: the list item's dash). */
     private fun wrapTo(s: String, f: FontSpec, width: Int, lv: Int, indent: Int, block: Int, out: MutableList<DocLine>, lead: Int = 0) {
@@ -1708,7 +1711,9 @@ class FeedGlasses(
         val src = bingeSource ?: return
         if (episodes.isEmpty()) { loadBingeIndex(src); return }
         if (loaded.isEmpty() && !bingeLoading) {
-            val anchor = pendingBingeAnchor ?: bingePos[src] ?: (episodes.first().num to 0)
+            // a place taken from the record is read at this width now (the record's intake ran before the shell said it)
+            val taken = bingeTaken.remove(src)?.let { b -> anchorOf(b).also { pendingBingeFrac = it.second }.first }
+            val anchor = pendingBingeAnchor ?: taken ?: bingePos[src] ?: (episodes.first().num to 0)
             pendingBingeAnchor = anchor
             bingeSeat = true                         // an entry's place: shown, not sent
             loadEpisode(src, anchor.first, where = ANCHOR)
@@ -1721,6 +1726,8 @@ class FeedGlasses(
     private val bingeKnown = HashMap<String, Pair<Int, Int>>()
     /** Per source, this view's last input on its place (the time its op carried). */
     private val bingeInputAt = HashMap<String, Long>()
+    /** Per source, another device's place taken for the source list and the next entry, read at the width then. */
+    private val bingeTaken = HashMap<String, FeedCore.Binge>()
     /** The anchor's fraction into its episode, for a place made at another width (the web's, another glasses'). */
     private var pendingBingeFrac: Double? = null
     /** The anchor being loaded is an entry's (shown, not sent); a jump's is an input. */
@@ -1737,7 +1744,8 @@ class FeedGlasses(
         if (it.at <= (bingeInputAt[src] ?: Long.MIN_VALUE)) return false
         if (bingeSource == src && (level == Level_.BINGE || level == Level_.BINGE_ACTIONS)) return false
         val b = FeedCore.bingeOf(it.value) ?: return false
-        val pos = anchorOf(b).first
+        bingeTaken[src] = b
+        val pos = b.ep to (b.s ?: 0)
         if (bingePos[src] == pos) return false
         bingePos[src] = pos
         return true
@@ -1749,6 +1757,7 @@ class FeedGlasses(
         if (it.at <= (bingeInputAt[src] ?: Long.MIN_VALUE)) return
         val b = FeedCore.bingeOf(it.value) ?: return
         val (pos, frac) = anchorOf(b)
+        bingeTaken.remove(src)
         if (bingeKnown[src] == pos || (loaded.isNotEmpty() && bingePosNow() == pos)) return
         bingePos[src] = pos
         bingeKnown[src] = pos
@@ -1881,7 +1890,7 @@ class FeedGlasses(
 
     private fun rememberBingePos() {
         val src = bingeSource ?: return
-        bingePosNow()?.let { bingePos[src] = it }
+        bingePosNow()?.let { bingePos[src] = it; bingeTaken.remove(src) }
     }
 
     private fun paintBingeLine(g: Gray8, i: Int, r: Rect) {
