@@ -152,7 +152,7 @@ abstract class CfwTransportBase(
         if (n > 0) emitNote("control", "$n packet(s) of the ended session left after its end and were not applied to the mirror ($where)")
     }
 
-    override fun injectInput(type: Int) = emitInput(type, EvenHubMsg.SRC_RING)
+    override fun injectInput(type: Int) = emitInput(type, EvenHubMsg.SRC_RING, injected = true)
 
     override fun injectText(line: String) {
         if (!_events.tryEmit(TransportEvent.Text(line))) {
@@ -2140,13 +2140,16 @@ abstract class CfwTransportBase(
         }
     }
 
-    private fun emitInput(type: Int, source: Int) {
+    private fun emitInput(type: Int, source: Int, injected: Boolean = false) {
         // Log every inbound gesture. At first light (2026-08-30) input did not work
         // and NOTHING in the log could say whether events were arriving and being
         // mishandled or never arriving at all — the two have completely different
         // causes and we could not tell them apart. An input path you cannot observe
         // is a silent failure even when every individual component is loud.
-        Log.i(name, "input: ${EvenHubMsg.eventName(type)} (type $type, source $source)")
+        // A gesture made on this app's own screen (the mirror's taps and drags) is stamped as the ring's so the shell
+        // treats it alike; the log says which it was — a drag there gives a notch per touch sample, 17 ms apart, which
+        // read as the glasses' own scroll pacing on 2026-11-18 (HANDOFF §88).
+        Log.i(name, "input${if (injected) " (from this app's screen)" else ""}: ${EvenHubMsg.eventName(type)} (type $type, source $source)")
         if (!_events.tryEmit(TransportEvent.Input(type, source))) {
             Log.e(name, "input event buffer overflow — a gesture was DROPPED")
         }
