@@ -54,14 +54,11 @@ class TmuxStream(
     /** [key] views (host, session): its messages go to [send]. A second attach of the same key starts it afresh. */
     fun attach(host: String, session: String, key: Long, send: (JsonObject) -> Unit) {
         val at = host to session
-        var why = ""
-        // twice at most: a client its last viewer is closing gives way to a new one; one that ends at once (no such
-        // session) ends this viewer with tmux's words — never a loop of new processes
-        repeat(2) {
-            val c = clients.computeIfAbsent(at) { Client(host, session) }
-            why = c.join(key, send) ?: return
-            clients.remove(at, c)
-        }
+        // one try: a client its last viewer closes has already left [clients] ([Client.finish]); one that has ended
+        // (its session gone, or no such session) ends this viewer with tmux's words — never a loop of new processes
+        val c = clients.computeIfAbsent(at) { Client(host, session) }
+        val why = c.join(key, send) ?: return
+        clients.remove(at, c)
         send(end(why))
     }
 
