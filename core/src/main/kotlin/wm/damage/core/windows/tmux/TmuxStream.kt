@@ -104,6 +104,10 @@ class TmuxStream(
         /** The block being read: its number, and whether it is one of ours (flag 1). */
         private var block: String? = null
         private var ours = false
+        /** The attach's own block's lines (flag 0): when it ends `%error`, its words are the viewers' end reason (a
+         *  session that does not exist: `can't find session: <name>`, then `%exit`; measured). */
+        private val attachLines = ArrayList<String>()
+        private var attachError: String? = null
         private val proc: Proc
 
         init {
@@ -214,10 +218,12 @@ class TmuxStream(
                     if (f.getOrNull(2) == b) {
                         block = null
                         if (ours) blockDone(f[0] == "%error")
+                        else if (f[0] == "%error") attachError = attachLines.joinToString(" ").ifEmpty { null }
                         return
                     }
                 }
                 if (ours) inits.firstOrNull()?.let { i -> if (i.blocks == 0) i.display = String(l, Charsets.UTF_8) else i.capture += l }
+                else attachLines += String(l, Charsets.UTF_8)
                 return
             }
             if (l.isEmpty() || l[0] != '%'.code.toByte()) return
@@ -234,7 +240,7 @@ class TmuxStream(
                 "%begin" -> {
                     block = f.getOrNull(2)
                     ours = f.getOrNull(3) == "1" && inits.isNotEmpty()
-                    if (ours) inits.first().begun = true
+                    if (ours) inits.first().begun = true else attachLines.clear()
                 }
                 "%session-changed" -> if (sessionId == null) sessionId = f.getOrNull(1)
                 "%window-pane-changed", "%session-window-changed", "%layout-change" ->
@@ -251,7 +257,7 @@ class TmuxStream(
                     finish("renamed to $to")
                 }
                 "%exit" -> {
-                    val why = s.removePrefix("%exit").trim().ifEmpty { "the session ended" }
+                    val why = s.removePrefix("%exit").trim().ifEmpty { attachError?.let { "tmux: $it" } ?: "the session ended" }
                     for (v in viewers.values) v.send(end(why))
                     viewers.clear()
                     closing = true                 // tmux ends it; the reader sees the end of the output

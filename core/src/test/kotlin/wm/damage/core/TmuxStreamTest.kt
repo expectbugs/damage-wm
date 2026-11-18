@@ -110,7 +110,8 @@ class TmuxStreamTest {
         val c = Viewer()
         tmux("new-session", "-d", "-s", "keep", "sh", "-c", "exec cat")     // the server stays up
         stream.attach("local", "nosuch", 3) { c.q.put(it) }
-        assertTrue(c.next().containsKey("end"), "an unknown session ends its viewer")
+        assertEquals("tmux: can't find session: nosuch", c.next()["end"]!!.jsonObject["reason"]!!.jsonPrimitive.content,
+            "an unknown session ends its viewer in tmux's words")
         eventually("nothing left running") { stream.running() == 0 }
     }
 }
