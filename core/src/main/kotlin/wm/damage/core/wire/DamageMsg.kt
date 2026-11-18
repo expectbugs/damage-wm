@@ -27,6 +27,10 @@ package wm.damage.core.wire
  *  - field 113 `DamagePresented`, a device-sent notify after each panel transfer of a Damage
  *    frame while flag bit 0 is armed: `{1 sequence, 2 worker µs, 3 copy µs, 4 transfer µs, 5 lens,
  *    6 path}`
+ *  - build C1 (`FIRMWARE.md` §5.8, §5.9): features bit 7 the engine and bit 8 the riders; flags bit 3
+ *    ENGINE and bit 5 ZWRITE; telemetry 27–34; op 5 up to 256 KiB on a bit-8 build; field 114
+ *    `DamageMotion`, a device-sent notify each time an instance stops drawing or a mode-26 message is
+ *    refused ([parseMotion])
  *
  * Requests are fire-and-forget like the lease (MagicRandom 0) and go to both arms. **Only the
  * RIGHT lens answers**: the stock senders refuse on the left lens (`CLAIMS.md`, 2026-09-14), so a
@@ -51,8 +55,16 @@ object DamageMsg {
     const val FEATURE_DRAW2 = 1 shl 5
     /** Bit 6: the link edits are in the image — LE 2M offered, 7.5 ms fast profile, no slow set. */
     const val FEATURE_LINK = 1 shl 6
+    /** Bit 7 (build C1, `FIRMWARE.md` §5.1): the motion engine — image mode 26, flag bit 3, notify field 114,
+     *  telemetry 30–34. */
+    const val FEATURE_ENGINE = 1 shl 7
+    /** Bit 8 (build C1, §5.9): the riders — op 5 up to 256 KiB, telemetry 27–29, mode 25 with flag bit 5. */
+    const val FEATURE_RIDERS = 1 shl 8
     const val PHASE1_FEATURES = FEATURE_TELEMETRY or FEATURE_FLAGS or FEATURE_PRESENTED or FEATURE_CACHE_KEEP or FEATURE_SELF_TEST
     const val PHASE2_FEATURES = PHASE1_FEATURES or FEATURE_DRAW2 or FEATURE_LINK
+
+    /** Notify field 114 DamageMotion (§5.8), RIGHT only. */
+    const val MOTION_FIELD = 114
 
     const val OP_TELEMETRY = 1
     const val OP_FLAGS_SET = 2
@@ -65,6 +77,10 @@ object DamageMsg {
     /** The smallest CACHE_SIZE a build takes: the v1 window modes 12/13/14 address is the first 64 KiB
      *  of whatever the cache is, so a smaller cache would put their bounds past its end (2026-09-15 review). */
     const val CACHE_MIN_KIB = 64
+    /** The largest CACHE_SIZE a bit-8 build takes (§5.9); the v1 window stays the first 64 KiB. */
+    const val CACHE_BUDGET_RIDERS_KIB = 256
+    /** The largest CACHE_SIZE a build with [caps] takes: 256 KiB on a bit-8 build, else [CACHE_BUDGET_KIB]. */
+    fun cacheBudgetKib(caps: Caps?): Int = if (caps?.has(FEATURE_RIDERS) == true) CACHE_BUDGET_RIDERS_KIB else CACHE_BUDGET_KIB
 
     /** Bit 0: a field-113 notify after each panel transfer of a Damage frame (F1.3). */
     const val FLAG_PRESENTED = 1 shl 0
@@ -72,6 +88,10 @@ object DamageMsg {
     const val FLAG_CACHE_KEEP = 1 shl 1
     /** Bit 2: the v2 drawing ops answer (contract 2; `FIRMWARE.md` §4). */
     const val FLAG_DRAW2 = 1 shl 2
+    /** Bit 3 (build C1, §5.8): mode 26 answers — needs DRAW2 armed too; cleared at every release point. */
+    const val FLAG_ENGINE = 1 shl 3
+    /** Bit 5 (build C1, §5.9): mode 25, the deflated cache write, answers. */
+    const val FLAG_ZWRITE = 1 shl 5
     /** Bit 15: no behaviour — it proves arming, the echo and the clear-on-lapse. */
     const val FLAG_PROBE = 1 shl 15
     /** What the Phase 1 build implements; any other bit is refused with status 2. */
@@ -93,8 +113,16 @@ object DamageMsg {
     val REASONS = mapOf(1 to "length", 2 to "bounds", 3 to "no-lease", 4 to "no-shadow", 5 to "record", 6 to "code",
         7 to "scratch", 8 to "mode", 9 to "draw2-unarmed", 10 to "no-batch", 11 to "no-memory", 12 to "value", 13 to "stream",
         // `FIRMWARE.md` §4: the display gate came free with the previous frame still pending, so the
-        // message was dropped whole — the one reason that means belief and glass have parted
-        14 to "display-busy")
+        // message was dropped whole — the one reason that means belief and glass have parted. Build C1
+        // (ruling R1.15): also a cache write, PLAY, RETARGET or live mode 6 that could not claim the
+        // engine's busy word (§5.11 row 3), refused whole the same way
+        14 to "display-or-engine-busy",
+        // §5.8 (build C1): the op's own flag not armed (ENGINE for 26, ZWRITE for 25); no such instance
+        15 to "unarmed", 16 to "no-instance")
+
+    /** Field 11, sticky diagnostic bit 5 (build C1, decision A.19): a telemetry reply that could not be sent. The
+     *  journal names it after the hex; every other bit is journaled as the hex alone, as before. */
+    const val DIAG_REPLY_DROPPED = 1 shl 5
 
     fun control(op: Int, arg: Int): ByteArray {
         // the body carries the arg in two bytes: anything wider would be TRUNCATED on the wire,
@@ -153,12 +181,15 @@ object DamageMsg {
         /** Contract 2: the last image-lane refusal, or null when none has been recorded. */
         val refusal: Refusal? get() = fields[23]?.let { m -> Refusal(m.toInt(), (fields[24] ?: 0L).toInt(), fields[25] ?: 0L) }
         val lastPath get() = fields[26]
+        /** Build C1, field 31: the last notify-114 sequence taken (since boot); null on a build without the engine. */
+        val motionSeq get() = fields[31]
 
         /** The journal's one-line form: named, in field order. */
         fun describe(): String = fields.toSortedMap().entries.joinToString(" ") { (k, v) ->
             val name = NAMES[k] ?: "f$k"
             when (k) {
-                3, 11 -> "$name=0x${v.toString(16)}"
+                3, 30 -> "$name=0x${v.toString(16)}"
+                11 -> "$name=0x${v.toString(16)}" + (if (v and DIAG_REPLY_DROPPED.toLong() != 0L) "(reply-dropped)" else "")
                 10 -> "$name=0x${v.toString(16)}${PANELS[v]?.let { "($it)" } ?: ""}"
                 19, 22 -> "$name=%08x".format(v)
                 else -> "$name=$v"
@@ -170,7 +201,11 @@ object DamageMsg {
         6 to "copyUs", 7 to "free13KiB", 8 to "free20KiB", 9 to "free27KiB", 10 to "panel", 11 to "diag",
         12 to "leaseTicks", 13 to "boots", 14 to "lens", 15 to "transferUs", 16 to "presents", 17 to "cacheGen",
         18 to "cacheSize", 19 to "cacheCrc", 20 to "stSteps", 21 to "stRefused", 22 to "stCrc",
-        23 to "refMode", 24 to "refReason", 25 to "refSeq", 26 to "path")
+        23 to "refMode", 24 to "refReason", 25 to "refSeq", 26 to "path",
+        // build C1 (§5.8, §5.9): the largest free block per arena, the engine's slots, the last notify sequence,
+        // engine frames and folds since boot, the last present's step-drawing µs
+        27 to "max13KiB", 28 to "max20KiB", 29 to "max27KiB", 30 to "motion", 31 to "motionSeq",
+        32 to "engineFrames", 33 to "folds", 34 to "stepUs")
 
     /** One image-lane refusal as telemetry fields 23–25 report it. */
     data class Refusal(val mode: Int, val reason: Int, val seq: Long) {
@@ -200,6 +235,50 @@ object DamageMsg {
         Pb.bytesField(payload, PRESENTED_FIELD)?.let { body ->
             val f = Pb.fields(body).filter { it.wireType == 0 && it.varint != null }.associate { it.field to it.varint!! }
             Presented(f[1] ?: 0L, f[2] ?: 0L, f[3] ?: 0L, f[4] ?: 0L, f[5] ?: 0L, f[6] ?: 0L)
+        }
+    } catch (e: IllegalArgumentException) {
+        null
+    }
+
+    const val OUTCOME_DREW = 0
+    const val OUTCOME_CLOSED = 1
+    const val OUTCOME_REFUSED = 2
+
+    /** One notify-114 body (§5.8; build C1's decision A.2): `1 sequence · 2 slot · 3 tag · 4 outcome (0 drew its last
+     *  step · 1 closed before it · 2 refused) · 5 END ordinal · 6 steps drawn · 7 steps folded · 8 the END CRC · 9 the
+     *  largest step-drawing µs · 10 the reason · 11 uptime`. Outcomes 0 and 1 carry 1–11; a refusal carries 1, 2 and 3
+     *  when its message held them, 4, 10 and 11 — an absent field is null, never 0. */
+    data class Motion(val fields: Map<Int, Long>) {
+        val seq get() = fields[1]
+        val slot get() = fields[2]?.toInt()
+        val tag get() = fields[3]?.toInt()
+        val outcome get() = fields[4]?.toInt()
+        val ordinal get() = fields[5]?.toInt()
+        val drawn get() = fields[6]
+        val folded get() = fields[7]
+        val endCrc get() = fields[8]
+        val stepUs get() = fields[9]
+        val reason get() = fields[10]?.toInt()
+        val uptimeTicks get() = fields[11]
+
+        /** The `motion` note's form: slot, tag, outcome, ordinal, drawn, folded, µs, reason, in that order. */
+        fun describe(): String {
+            val what = when (outcome) {
+                OUTCOME_DREW -> "drew its last step"
+                OUTCOME_CLOSED -> "closed while drawing"
+                OUTCOME_REFUSED -> "refused (${reason?.let { REASONS[it] ?: "reason $it" } ?: "no reason"})"
+                else -> "outcome $outcome"
+            }
+            return "seq ${seq ?: "-"} slot ${slot ?: "-"} tag ${tag?.let { "0x%04x".format(it) } ?: "-"} $what" +
+                (if (outcome == OUTCOME_REFUSED) "" else " ordinal $ordinal drawn $drawn folded $folded stepUs $stepUs" +
+                    " endCrc ${endCrc?.let { "%08x".format(it) }}")
+        }
+    }
+
+    /** Field 114 of a device-sent settings message; null when absent. */
+    fun parseMotion(payload: ByteArray): Motion? = try {
+        Pb.bytesField(payload, MOTION_FIELD)?.let { body ->
+            Motion(Pb.fields(body).filter { it.wireType == 0 && it.varint != null }.associate { it.field to it.varint!! })
         }
     } catch (e: IllegalArgumentException) {
         null

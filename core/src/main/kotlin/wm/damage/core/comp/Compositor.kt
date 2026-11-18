@@ -87,6 +87,12 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
     var epoch: Long = 0
         private set
 
+    /** Build C1's ruling B-N5: the mirror holds a motion instance open, so the transport may add one CLOSE of every
+     *  instance at the batch's head (`FIRMWARE.md` §5.6) — [subsLeft] keeps one sub-message of the count back for it.
+     *  Set by the shell before each assemble from the mirror ([wm.damage.core.transport.LensPanels.motionOpen]); false
+     *  on every build without the engine, so their batches are what they were. */
+    @Volatile var motionOpen: Boolean = false
+
     /** The whole batch must fit the firmware's bmp_max (Geometry.MODE8_MAX)
      *  with the batch header and a margin for the emitter's framing. A var so
      *  a test can lower it and drive the byte-refusal path deterministically. */
@@ -523,6 +529,14 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
     /** What the compositor believes a lens shows — test/selfcheck oracle
      *  against the simulator's own panels. */
     internal fun expectedLens(left: Boolean): Gray8 = if (left) shadowL else shadowR
+
+    /** Build C1 (ruling R1.16): [paint] changes what the compositor believes each lens shows, with no flush — for
+     *  pixels the glasses wrote into their own shadow (a motion program's END, written at its PLAY), so belief
+     *  follows the glass. The truth is untouched: the next damage over those pixels repaints them from the truth. */
+    internal fun paintBelief(paint: (left: Boolean, belief: Gray8) -> Unit) {
+        paint(true, shadowL)
+        paint(false, shadowR)
+    }
 
     // ------------------------------------------------------------------ truth
     /** Render the per-lens truth of `composed` under the plane map. */
@@ -1711,13 +1725,15 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
     }
 
     /** Sub-messages the batch being assembled can still take ([MAX_BATCH_SUBS], less the one kept
-     *  for the mode-24 hint, which is appended last). Read at every site that appends to an
+     *  for the mode-24 hint, which is appended last, and — while [motionOpen] — one more for the
+     *  CLOSE the transport puts at the batch's head when the flush meets an open motion instance,
+     *  build C1's ruling B-N5). Read at every site that appends to an
      *  assemble's `ops`: a cached rect that needs more answers `batch-count` and goes out as one
      *  pixel delta in the same flush (its records end with this assemble, so waiting would send
      *  pixels anyway); a pixel delta and a black box wait for the next flush at none left; a staged
      *  placement takes three, and with one or two left its rect goes on in this same pass as pixels
      *  or draws — it waits only at none (`R1-verify.md` §5.2 f). */
-    private fun subsLeft(ops: List<DisplayOp>): Int = MAX_BATCH_SUBS - 1 - ops.size
+    private fun subsLeft(ops: List<DisplayOp>): Int = MAX_BATCH_SUBS - 1 - (if (motionOpen) 1 else 0) - ops.size
 
     private fun markUnknown(unknown: BooleanArray, r: Rect) = setCells(unknown, r, true)
     private fun markKnown(unknown: BooleanArray, r: Rect) = setCells(unknown, r, false)

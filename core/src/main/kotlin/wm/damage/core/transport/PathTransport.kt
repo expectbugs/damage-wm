@@ -275,6 +275,8 @@ class PathTransport(
         }
         override fun <T> readPanel(arm: Arm, block: (ByteArray) -> T): T =
             inner?.readPanel(arm, block) ?: block(blank.copyOf())
+        override fun unknownAreas(arm: Arm): List<wm.damage.core.geom.Rect> = inner?.unknownAreas(arm) ?: emptyList()
+        override fun motionOpen(): Boolean = inner?.motionOpen() ?: false
         override fun addListener(l: LensPanels.LensListener) { listeners.add(l) }
         override fun removeListener(l: LensPanels.LensListener) { listeners.remove(l) }
     }

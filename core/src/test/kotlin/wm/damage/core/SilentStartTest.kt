@@ -503,4 +503,45 @@ class SilentStartTest {
         }
         if (missing.isNotEmpty()) throw AssertionError("no expectation for " + missing.joinToString("; "))
     }
+
+    /**
+     * Build C1, package D3b (spec §6.2): a C1 build (DamageCaps 0x1ff) whose arming ladder is at stage 1, 2 or 3 starts
+     * with the contract-2 start plus exactly what the stages up to it add — stage 1 a FLAGS_SET 0x24 (ZWRITE) after
+     * the 0x4, to both arms; stage 2 that and the cache size 256 KiB in place of 160; stage 3 the 256 KiB size and
+     * FLAGS_SET 0xc then 0x2c (ENGINE, then ZWRITE) after the 0x4 — and every other packet as
+     * `awake-start-contract2.txt` has it, apart from the AA sequence bytes, EvenHub msgIds and CRCs the extra control
+     * writes move. Stage 0 writing the contract-2 file itself is `MotionTransportTest`'s pin (package D3a).
+     * Same rig, clock and pacing as [anAwakeStartWritesWhatItWroteBefore]. The files were written by this test's first
+     * run on `wip/068` after e6c7700 and read by hand once against the contract-2 file (`C1-D3b-built.md`).
+     */
+    @Test
+    fun aC1StartAtEachLadderStageWritesItsOwnFile_6_2(): Unit = runBlocking {
+        val missing = ArrayList<String>()
+        for (stage in 1..3) {
+            val name = "awake-start-c1-stage$stage.txt"
+            val glass = GlassFirmwareSim().apply { damageContract = 2; damageFeatures = 0x1ff }
+            val t = Rig(glass, scope, clock = { 1_763_000_000_000L }, instant = false)
+            t.heapReads = false
+            t.devProbe("c1", "$stage")
+            val sent = java.util.Collections.synchronizedList(ArrayList<String>())
+            t.onWrite = { a, p -> sent.add("${a.name.first()} " + p.joinToString("") { "%02x".format(it) }); p }
+            val warmup = wm.damage.core.gfx.Zl.encodeCfw(wm.damage.core.gfx.Pack.rect(wm.damage.core.gfx.Gray8(640, 480),
+                wm.damage.core.geom.Rect(0, 0, 640, 480)))
+            scope.async { t.start(warmup) }.await()
+            delay(300)
+            val got = synchronized(sent) { sent.toList() }
+            t.stop()
+            val res = javaClass.getResource("/startwire/$name")
+            if (res == null) {
+                val out = Paths.get("build", "startwire").also { Files.createDirectories(it) }.resolve(name)
+                Files.write(out, got)
+                missing.add("$name: this run's ${got.size} packets written to ${out.toAbsolutePath()}")
+                continue
+            }
+            val want = res.readText().lines().filter { it.isNotBlank() }
+            assertEquals(want.size, got.size, "$name: packet count")
+            for (i in want.indices) assertEquals(want[i], got[i], "$name: packet $i differs")
+        }
+        if (missing.isNotEmpty()) throw AssertionError("no expectation for " + missing.joinToString("; "))
+    }
 }

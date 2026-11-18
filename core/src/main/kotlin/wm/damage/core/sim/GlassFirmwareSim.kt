@@ -62,6 +62,16 @@ private object Fw {
     val BATCH_SUBMODES = setOf(3, 6, 9, 13, 14, 15, 17, 18, 20, 21, 22, 23, 24)
     /** §3: what a self-test step may carry — the batch's set plus a batch of its own. */
     val SELF_TEST_MODES = BATCH_SUBMODES + 8
+    /** §5.1 / §5.8 (build C1): DamageCaps bit 7 ENGINE and bit 8 the riders; flag bits 3 ENGINE and 5 ZWRITE. */
+    const val FEATURE_ENGINE = 1 shl 7
+    const val FEATURE_RIDERS = 1 shl 8
+    const val FLAG_ENGINE = 1 shl 3
+    const val FLAG_ZWRITE = 1 shl 5
+    /** §5.9: op 5 takes 64..256 KiB on a bit-8 build; mode 25 inflates to at most 16,384 B. */
+    const val CACHE_MAX_KIB_RIDERS = 256
+    const val ZWRITE_MAX = 16384
+    /** §5.5: a PLAY is 18 B, a RETARGET 11, a CLOSE 3 (READING: any other sub is held to 3, as mode 23's are). */
+    fun motionLength(sub: Int) = when (sub) { 0 -> 18; 1 -> 11; else -> 3 }
 }
 
 class GlassFirmwareSim() : LensPanels {
@@ -219,6 +229,15 @@ class GlassFirmwareSim() : LensPanels {
         /** Set by [present] so a top-level message knows whether anything reached the panel. */
         var presented = false
         val slotBytes: Int get() = slots.sumOf { it?.bytes ?: 0 }
+        /** `FIRMWARE.md` §5.2 (build C1): the framebuffer. A present copies the shadow into it, the engine draws its
+         *  steps into it, and the panel takes it whole or by a hint's rows. With nothing drawing it is the copied
+         *  shadow, so the panel shows what it showed before the engine existed. */
+        val fb = ByteArray(stride * Geometry.PANEL_H)
+        /** The copy hook's `direct_active`: a Damage frame was copied, so a refresh with no direct job preserves it
+         *  while the lease is live; a stock copy and a fresh acquire clear it (§5.6). */
+        var directActive = false
+        /** §5: this lens's motion engine — slots, counters, notify bodies. */
+        val motion = MotionSim()
     }
 
     /** One captured rect (mode 23): the levels row-major, [bytes] what it takes in the pool. */
@@ -372,6 +391,34 @@ class GlassFirmwareSim() : LensPanels {
      *  has it (`CLAIMS.md`, 2026-09-14); LEFT runs every op and reports nothing. */
     @Volatile var damageContract: Int? = null
 
+    /** DamageCaps field 3, the features word: null answers what [damageContract] implies (0x1f for contract 1, 0x7f for
+     *  contract 2 — the installed image), so the awake-start pins keep their meaning; a C1 build answers 0x1ff, which
+     *  turns on mode 26 and the riders (`FIRMWARE.md` §5.1). Meaningful only on a Damage build of contract 2. */
+    @Volatile var damageFeatures: Int? = null
+    private fun features(): Int = damageFeatures ?: if ((damageContract ?: 0) >= 2) DamageMsg.PHASE2_FEATURES else DamageMsg.PHASE1_FEATURES
+    private fun engineBuild() = (damageContract ?: 0) >= 2 && features() and Fw.FEATURE_ENGINE != 0
+    private fun ridersBuild() = (damageContract ?: 0) >= 2 && features() and Fw.FEATURE_RIDERS != 0
+
+    /** `FIRMWARE.md` §5.10: in the vectors the `tick` op's value IS the OS tick the engine reads (the C's `FW_MS_TICK`,
+     *  a `uint32_t`); live, the clock is milliseconds and the tick runs 1.024 per ms. Only the engine reads it. */
+    @Volatile var clockIsOsTick = false
+    private fun osTick(now: Long): Long = (if (clockIsOsTick) now else msToTicks(now)) and MotionSim.U32
+    private fun uptimeTicks(now: Long): Long = if (clockIsOsTick) now and MotionSim.U32 else msToTicks(now - uptimeOffsetMs)
+
+    /** The lease's span from an acquire: on the live clock 87,891 ms (the firmware's 90,000 ticks at 1.024 per ms);
+     *  on the vectors' OS-tick clock the firmware's own 90,000 ticks (build C1's ruling R1.7; `FIRMWARE.md` §3). */
+    private fun leaseSpan(): Long = if (clockIsOsTick) LEASE_TICKS else SettingsMsg.LEASE_EXPIRY_MS
+
+    /** Whether a lease held with [c]'s deadline has lapsed at [now]. On the OS-tick clock the deadline test is the
+     *  firmware's signed 32-bit compare, `(int32_t)(deadline − now) <= 0` (ruling R1.7), so a lease that crosses the
+     *  tick's wrap holds for its 90,000 ticks; on the live millisecond clock, `now >= deadline`. Call it only with a
+     *  lease held (`leaseDeadline != 0`, which an acquire on either clock never leaves 0: `now` is never negative). */
+    private fun leaseLapsed(c: LensCtx, now: Long): Boolean =
+        if (clockIsOsTick) ((c.leaseDeadline - now) and MotionSim.U32).toInt() <= 0 else now >= c.leaseDeadline
+
+    /** A lease held and live at [now]. */
+    private fun leaseLive(c: LensCtx, now: Long): Boolean = c.leaseDeadline != 0L && !leaseLapsed(c, now)
+
     /** The glasses' uptime as telemetry reports it is the modeled clock less this
      *  offset; a test models a reset by setting the offset to the clock (uptime 0). */
     @Volatile var uptimeOffsetMs = 0L
@@ -482,7 +529,7 @@ class GlassFirmwareSim() : LensPanels {
     fun tick(now: Long) {
         for (arm in Arm.entries) {
             val c = ctx(arm)
-            if (c.leaseDeadline != 0L && now >= c.leaseDeadline) {
+            if (c.leaseDeadline != 0L && leaseLapsed(c, now)) {
                 c.leaseDeadline = 0
                 // The texture cache is lease-scoped: the firmware frees it when the
                 // lease ends, so a resumed session must upload its atlas again —
@@ -707,11 +754,26 @@ class GlassFirmwareSim() : LensPanels {
      *  §4: a message that could have changed the shadow (the modes that hold the display gate) and
      *  ended without presenting leaves those changes off the panel, so the next present goes whole. */
     private fun dispatchTop(arm: Arm, src: ByteArray, now: Long): Boolean {
+        imageObserver?.invoke(arm, src)
         val c = ctx(arm)
         c.presented = false
         val ok = dispatchImage(arm, src, now)
-        if (src.isNotEmpty() && (src[0].toInt() and 0x7F) in GATED_MODES && !c.presented) c.panelStale = true
+        val mode = if (src.isNotEmpty()) src[0].toInt() and 0x7F else -1
+        // §5.5: mode 26 takes the display gate — on a build that has it (elsewhere it has no handler, as before)
+        if ((mode in GATED_MODES || (mode == 26 && engineBuild())) && !c.presented) c.panelStale = true
+        // decision A.2: the ui_task's notifies go at the end of the image worker, after its present — slot order,
+        // then the refusal
+        for (b in c.motion.takeUiSends()) sendMotion(arm, c, b)
         return ok
+    }
+
+    /** Notify field 114 (`FIRMWARE.md` §5.8), RIGHT only: `G2SettingPackage{1: 3, 2: 0, 114: body}`. LEFT builds the
+     *  body (its sequence moves) and cannot send it. */
+    private fun sendMotion(arm: Arm, c: LensCtx, body: ByteArray) {
+        if (arm != Arm.RIGHT) return
+        c.motion.sent += body
+        diag.notify(arm, AaFrame.frame(nextSeq(), SettingsMsg.SID, SettingsMsg.FLAG_RESPONSE,
+            Pb.cat(Pb.v(1, 3), Pb.v(2, 0), Pb.l(MOTION_FIELD, body)), AaFrame.TYPE_RESPONSE).single())
     }
 
     /** zlib_glue.c image_dispatch, per lens. present=false only inside mode 8; [batch] is the
@@ -730,6 +792,9 @@ class GlassFirmwareSim() : LensPanels {
                     return refuse(c, src, REF_LENGTH)
                 }
                 cfwDiag(c, hasFid = false, fid = 0)
+                // `FIRMWARE.md` §5.6 and decision A.8: a live keyframe closes every instance, decided from the bytes
+                // alone before the inflate (a refused stream still leaves its rows); a self-test step's closes nothing
+                if (!c.stActive && c.motion.anyOpen) underWord(c) { c.motion.closeAll(uptimeTicks(now)) }
                 // the firmware decodes STRAIGHT INTO the shadow, so a stream that fails part-way
                 // leaves the rows it had already written — not the previous frame (2026-09-16
                 // review: the model rolled back, the glasses cannot)
@@ -831,7 +896,10 @@ class GlassFirmwareSim() : LensPanels {
                         diag.event("decode", "$arm mode-8 bad seglen"); return refuse(c, src, REF_LENGTH)
                     }
                     val subMode = src[pos].toInt() and 0x7F
-                    if (subMode !in Fw.BATCH_SUBMODES) {
+                    // §5.5: mode 26 rides a batch. Build C1's ruling R1.4: the batch's own list decides first, whatever
+                    // the sub's length — a mode 25 (a cache write) is refused here, 8 with the batch's byte; a mode 26
+                    // in a batch inside a step passes here and is refused by the step's rule in [motionMessage]
+                    if (subMode !in Fw.BATCH_SUBMODES && !(subMode == 26 && engineBuild())) {
                         diag.event("decode", "$arm mode-8 sub-mode $subMode rejected"); return refuse(c, src, REF_MODE)
                     }
                     // a mode-15 sub-message goes to the same branch as a top-level one: its length and
@@ -874,6 +942,7 @@ class GlassFirmwareSim() : LensPanels {
                 // FIRMWARE.md §3: the cache goes regardless of CACHE_KEEP, the latch and
                 // the self-test scratch with it.
                 c.leaseDeadline = 0
+                c.motion.endAll()                    // §5.6 and decision A.7: a release point — every instance ends, no notify
                 releaseCache(c)
                 c.damageFlags = 0
                 c.cacheKeepLatched = false
@@ -918,6 +987,8 @@ class GlassFirmwareSim() : LensPanels {
                     return refuse(c, src, REF_NO_LEASE)
                 }
                 val cache = c.textureCache ?: allocateCache(arm, c)
+                // §5.6: an instance whose read ranges it meets closes first, under the engine word (R1.15: 14 without it)
+                if (!closeMeetingWrite(c, src, 1, 1, now)) return refuse(c, src, REF_BUSY)
                 pos = 1
                 while (pos < src.size) {
                     val off = rd16at(src, pos)
@@ -933,6 +1004,9 @@ class GlassFirmwareSim() : LensPanels {
             // are modes with no handler (recorded 8, then the stock BMP loader refuses them)
             16 -> if (damageContract != null) selfTest(arm, c, src, now) else noHandler(arm, c, src)
             in 17..24 -> if ((damageContract ?: 0) >= 2) dispatchV2(arm, c, src, now, present, batch) else noHandler(arm, c, src)
+            // `FIRMWARE.md` §5.9 / §5.5: modes 25 and 26 have handlers only on a build that reports bits 8 / 7
+            25 -> if (ridersBuild()) zwrite(arm, c, src, now, batch) else noHandler(arm, c, src)
+            26 -> if (engineBuild()) motionMessage(arm, c, src, now, present, batch) else noHandler(arm, c, src)
             13, 14 -> {
                 // the C's order: the message's length, then the lease, then the records
                 val m = modeByte and 0x7F
@@ -1039,7 +1113,7 @@ class GlassFirmwareSim() : LensPanels {
         // release points (FIRMWARE.md §3) — whatever the flags hold stays until one comes
         // (2026-09-14, second review: this check used to clear them, the C's does not)
         if (c.leaseDeadline == 0L) return false
-        if (now >= c.leaseDeadline) {
+        if (leaseLapsed(c, now)) {
             val had = c.textureCache != null
             val kept = leaseEnded(arm, c)
             if (had) diag.event("texture", "$arm texture cache ${if (kept) "kept under CACHE_KEEP" else "freed"}: the FB lease has lapsed")
@@ -1053,6 +1127,7 @@ class GlassFirmwareSim() : LensPanels {
      *  fresh acquire that follows and decides the cache now; the self-test scratch never
      *  outlives the lease. Returns whether the cache was kept. */
     private fun leaseEnded(arm: Arm, c: LensCtx): Boolean {
+        c.motion.endAll()                                // §5.6: a release point — every instance ends, no notify
         freeScratch(c)
         if (!c.lapseSettled) {
             c.lapseSettled = true
@@ -1075,6 +1150,8 @@ class GlassFirmwareSim() : LensPanels {
      *  and the next lease starts unsettled. */
     private fun leaseFreshAcquire(arm: Arm, c: LensCtx) {
         if (!c.lapseSettled) leaseEnded(arm, c)
+        c.motion.endAll()                                // §5.6: a fresh acquire is a release point
+        c.directActive = false                           // "a fresh lease must earn preservation with a newly presented direct frame"
         freeScratch(c)
         if (!c.cacheKeepLatched) releaseCache(c)
         else if (c.textureCache == null) c.cacheBytes = 0
@@ -1259,18 +1336,28 @@ class GlassFirmwareSim() : LensPanels {
         // §4: the hint is honoured only while the panel still shows the whole previous frame and no
         // overlay sits in the framebuffer; otherwise this frame goes whole (the second review)
         val hide = !c.overlayShown
-        val rows = batch?.hint?.takeIf { panelRecord == PANEL_JBD4010 && !c.panelStale && hide && !c.overlayInFb }
+        // `FIRMWARE.md` §5.3: a present that draws a step goes whole (the hint is ignored for it)
+        val rows = batch?.hint?.takeIf { panelRecord == PANEL_JBD4010 && !c.panelStale && hide && !c.overlayInFb && !c.motion.anyDrawing }
         c.panelStale = false
         c.overlayInFb = !hide
         c.presented = true
-        if (c.leaseDeadline <= now) {
+        val live = leaseLive(c, now)
+        if (!live) {
             // No lease: our present lands, but stock will clobber it on its next
             // repaint. Model the present as landing, then rely on tick() for the
             // clobber; a real session must simply hold the lease.
             diag.event("lease", "$arm present WITHOUT a live FB lease — stock will repaint over this")
         }
-        if (rows == null) c.shadow.copyInto(c.panel)
-        else System.arraycopy(c.shadow, rows.first * c.stride, c.panel, rows.first * c.stride, (rows.last - rows.first + 1) * c.stride)
+        // the copy hook's direct path: the shadow into the framebuffer, then the engine's due steps over it (§5.2).
+        // Build C1's ruling R1.20: the hook draws a step only with a live lease, as §5.6 words it ("`direct_active` with
+        // a live lease"); without one — a lapse no message has noticed yet, then a v1 frame, which reads no lease — it
+        // takes the stock path: no step, every drawing instance done, no notify (§5.3)
+        c.shadow.copyInto(c.fb)
+        c.directActive = true
+        val hook = c.motion.hookPresent(c.fb, c.stride, fwSide(arm) == 2, osTick(now), live, uptimeTicks(now))
+        if (rows == null) c.fb.copyInto(c.panel)
+        else System.arraycopy(c.fb, rows.first * c.stride, c.panel, rows.first * c.stride, (rows.last - rows.first + 1) * c.stride)
+        if (hook.lastStep) c.panelStale = true       // decision A.12: the next present goes whole
         // P6 item 5: the rows this present wrote — every row for an unhinted one
         if (rows == null) { c.changedLo = 0; c.changedHi = Geometry.PANEL_H - 1 }
         else { c.changedLo = minOf(c.changedLo, rows.first); c.changedHi = maxOf(c.changedHi, rows.last) }
@@ -1285,6 +1372,254 @@ class GlassFirmwareSim() : LensPanels {
                 if ((damageContract ?: 0) >= 2) Pb.v(6, c.lastPath) else ByteArray(0))
             diag.notify(arm, AaFrame.frame(nextSeq(), SettingsMsg.SID, SettingsMsg.FLAG_RESPONSE,
                 Pb.cat(Pb.v(1, 3), Pb.v(2, 0), Pb.l(DamageMsg.PRESENTED_FIELD, body)), AaFrame.TYPE_RESPONSE).single())
+        }
+        // §5.8: the refresh hook sends the owed last-step bodies after the refresh, slot order
+        for (b in c.motion.takeOwed()) sendMotion(arm, c, b)
+    }
+
+    // ------------------------------------------------------------------ the engine's refresh (§5.2, §5.10)
+    /** The copy hook with no direct job: it preserves the Damage frame while the lease is live (the engine draws its
+     *  steps over it), else takes the stock path (§5.3: no step, every drawing instance done, no notify, then the
+     *  stock copy — `FIRMWARE.md` §9's convention for stock content). The hook's own deadline test notices nothing:
+     *  a lapse becomes a release point only inside `cfw_fb_lease_active` (§5.6). */
+    private fun hookPreserves(c: LensCtx, now: Long) = c.directActive && leaseLive(c, now)
+
+    /** One refresh queued with no direct job, run through the copy hook and transferred whole. Not stamped as a
+     *  Damage frame: fields 15/16, 26 and the presented notify ignore it (§5.3). */
+    private fun noJobRefresh(arm: Arm, c: LensCtx, now: Long) {
+        if (hookPreserves(c, now)) {
+            val hook = c.motion.hookPresent(c.fb, c.stride, fwSide(arm) == 2, osTick(now), true, uptimeTicks(now))
+            c.fb.copyInto(c.panel)
+            if (hook.lastStep) c.panelStale = true
+        } else {
+            c.motion.hookPresent(c.fb, c.stride, fwSide(arm) == 2, osTick(now), false, uptimeTicks(now))
+            stockPattern(c.fb)
+            c.directActive = false
+            c.fb.copyInto(c.panel)
+            c.panelStale = true
+        }
+        c.changedLo = 0; c.changedHi = Geometry.PANEL_H - 1
+        diag.panelChanged(arm)
+        for (b in c.motion.takeOwed()) sendMotion(arm, c, b)
+    }
+
+    /** §5.10's `{"wake": true}` on [arm] at [now]: the thread plans; a step due with no refresh outstanding is a try
+     *  of the gate and a put (both succeed in the model; field 32), then the display task's copy hook and refresh,
+     *  synchronously. Nothing due: the thread waits and nothing presents. */
+    @Synchronized
+    fun conformanceWake(arm: Arm, now: Long) {
+        val c = ctx(arm)
+        if (c.motion.plan(osTick(now)) != MotionSim.PLAN_ACT) return
+        c.motion.engineFrames++
+        c.motion.outstanding = true
+        noJobRefresh(arm, c, now)
+    }
+
+    /** The thread's plan on [arm] at [now] — the vectors' `W`: a wait in OS ticks, [MotionSim.PLAN_FOREVER] with
+     *  nothing drawing, [MotionSim.PLAN_ACT] when a step is due and the thread would queue at once. */
+    @Synchronized
+    fun conformancePlan(arm: Arm, now: Long): Long = ctx(arm).motion.plan(osTick(now))
+
+    /** The notify-114 bodies [arm] has sent since the last call, in send order (only RIGHT sends). */
+    @Synchronized
+    fun conformanceNotifies(arm: Arm): List<ByteArray> = ctx(arm).motion.sent.toList().also { ctx(arm).motion.sent.clear() }
+
+    /** Field 17 on [arm] (the vectors' `G`). */
+    @Synchronized
+    fun conformanceGen(arm: Arm): Long = ctx(arm).cacheGen
+
+    /** One open instance as the phone's mirror needs it (`FIRMWARE.md` §5.6, spec §6.5): its slot, END ordinal and END
+     *  CRC, whether it still draws, its areas on [arm]'s lens, and its nominal end — the OS tick its step T is due. */
+    data class MotionWindow(val slot: Int, val ordinal: Int, val endCrc: Long, val drawing: Boolean, val areas: List<Rect>, val nominalEndTick: Long)
+
+    /** The open instances on [arm], slot order: the read side of the area-unknown window (the window itself is the
+     *  transport's: it ends at the later of RIGHT's notify for (slot, ordinal) and the nominal end). */
+    @Synchronized
+    fun motionWindows(arm: Arm): List<MotionWindow> = ctx(arm).motion.slots.filterNotNull().map { o ->
+        MotionWindow(o.slot, o.ordinal, o.endCrc, o.drawing, o.prog.tracks.map { it.rect(fwSide(arm) == 2) },
+            (o.t0 + (o.T - 1).toLong() * o.period) and MotionSim.U32)
+    }
+
+    // ---- build C1, D3a: the phone's side of the mirror (spec §2 rows 21–22, §6.5). Nothing here changes what the
+    // model does with a message; it keeps what the phone's transport compares and what the shell's check skips.
+    /** RIGHT's END CRC per (slot, tag, ordinal) since the session's start, written when an accepted PLAY or RETARGET
+     *  wrote END (`FIRMWARE.md` §5.6). */
+    private val endCrcs = HashMap<Triple<Int, Int, Int>, Long>()
+    /** The (slot, tag, ordinal) RIGHT's notify has reported (the transport tells the mirror, spec §6.5). */
+    private val motionNotified = HashSet<Triple<Int, Int, Int>>()
+    /** The clock the area-unknown window reads (a hardware transport sets its own; the vectors never read it). */
+    @Volatile var motionClock: () -> Long = System::currentTimeMillis
+    /** A test's view of every image message the model takes at the top level, both lenses, before it is handled. */
+    @Volatile var imageObserver: ((Arm, ByteArray) -> Unit)? = null
+
+    /** The (tag, ordinal) of the instance open in [slot] on [arm]'s lens, or null when the slot is empty (build C1's
+     *  ruling B-S2: a refusal notify for a slot the mirror holds open is a divergence). */
+    @Synchronized
+    fun motionOpenIn(arm: Arm, slot: Int): Pair<Int, Int>? =
+        ctx(arm).motion.slots.getOrNull(slot)?.let { it.tag to it.ordinal }
+
+    /** True while an instance is open on either lens (build C1's ruling B-N5: the compositor keeps one sub-message of
+     *  the batch's count back for the transport's CLOSE). */
+    @Synchronized
+    override fun motionOpen(): Boolean = left.motion.anyOpen || right.motion.anyOpen
+
+    /** The END CRC RIGHT's model wrote for (slot, tag, ordinal) this session, or null. */
+    @Synchronized
+    fun motionEndCrc(slot: Int, tag: Int, ordinal: Int): Long? = endCrcs[Triple(slot, tag, ordinal)]
+
+    /** RIGHT's notify for (slot, tag, ordinal) arrived: half of that instance's area-unknown window has ended. */
+    @Synchronized
+    fun motionNotified(slot: Int, tag: Int, ordinal: Int) { motionNotified += Triple(slot, tag, ordinal) }
+
+    /** A session start (the transport's): the records above start again, with the mirror. */
+    @Synchronized
+    fun motionSessionStart() { endCrcs.clear(); motionNotified.clear() }
+
+    /** Spec §6.5: each open instance's areas on [arm]'s lens from its PLAY until the later of RIGHT's notify for that
+     *  (slot, tag, ordinal) and its nominal end — the step-T tick on this model's clock, a signed 32-bit compare — and,
+     *  build C1's ruling B-S1, until this model no longer draws it: a tee'd mirror is given no engine wake, so its panel
+     *  holds the step its last present drew until a present at or past the end draws step T; the window ends when this
+     *  panel really shows END. A closed instance (a CLOSE, a release point, a live keyframe, a meeting write) is not
+     *  listed: its END is up. */
+    @Synchronized
+    override fun unknownAreas(arm: Arm): List<Rect> {
+        val m = ctx(arm).motion
+        if (!m.anyOpen) return emptyList()
+        val now = osTick(motionClock())
+        val left = fwSide(arm) == 2
+        val out = ArrayList<Rect>()
+        for (o in m.slots) {
+            if (o == null) continue
+            val end = (o.t0 + (o.T - 1).toLong() * o.period) and MotionSim.U32
+            val past = ((now - end) and MotionSim.U32).toInt() >= 0
+            if (past && Triple(o.slot, o.tag, o.ordinal) in motionNotified && !o.drawing) continue
+            for (t in o.prog.tracks) out += t.rect(left)
+        }
+        return out
+    }
+
+    /** The engine's state on [arm], for tests (read under the monitor; not a copy). */
+    @Synchronized
+    fun motionForTest(arm: Arm): MotionSim = ctx(arm).motion
+
+    /** The engine's busy word around one ui_task section: claimed by compare-exchange from IDLE, let down on every
+     *  exit (§5.11 row 3). The model has one thread, so the claim cannot fail; a hook that ran inside would fold.
+     *  Every close happens inside one of these sections (a CLOSE, a PLAY's own closes, a live mode 6's, a cache write's
+     *  meet), so the stale mark a close owes is set here, before the section's present (rulings R1.1 and B-N13). */
+    private inline fun <T> underWord(c: LensCtx, block: () -> T): T {
+        c.motion.claim()
+        try { return block() } finally {
+            c.motion.letDown()
+            if (c.motion.takeStaleMark()) c.panelStale = true
+        }
+    }
+
+    /** §5.6's close-on-meet for a cache write: the entries of [msg] from [start] (`off` in units of [unit] bytes).
+     *  `FIRMWARE.md` §5.11 row 3: on a build with the engine every cache write holds the engine's busy word around its
+     *  close-on-meet test and its write, and ruling R1.15: a write that cannot claim it is refused 14, whole. The model
+     *  has one thread, so only a word another holder keeps fails the claim — planted by a test, as a restart that RAM
+     *  survives with the word held leaves it (`C1-R5-decisions.md` A-S1). False then: the caller refuses 14. */
+    private fun closeMeetingWrite(c: LensCtx, msg: ByteArray, start: Int, unit: Int, now: Long): Boolean {
+        if (engineBuild() && c.motion.wordHeld) return false
+        if (!c.motion.anyOpen) return true
+        val spans = ArrayList<MotionSim.Span>()
+        var pos = start
+        while (pos + 4 <= msg.size) {
+            val off = rd16at(msg, pos) * unit
+            val len = rd16at(msg, pos + 2)
+            spans += MotionSim.Span(off, off + len)
+            pos += 4 + len
+        }
+        underWord(c) { c.motion.closeMeeting(spans, uptimeTicks(now)) }
+        return true
+    }
+
+    // ------------------------------------------------------------------ mode 26 (§5.5)
+    /** `[26][sub]…`: a self-test step (8) → length (1) → the lease (3) → DRAW2 (9) → ENGINE (15) → the sub's own checks
+     *  ([MotionSim]) — then the act under the engine word, let down before the present. Every refusal records its
+     *  reason and is captured as an outcome-2 body. Decision A.6's "no shadow" (4) has nothing to read here: the
+     *  model's shadow always exists, as for modes 17–23. */
+    private fun motionMessage(arm: Arm, c: LensCtx, src: ByteArray, now: Long, present: Boolean, batch: BatchCtx?): Boolean {
+        val e = c.motion
+        fun no(reason: Int): Boolean {
+            diag.event("motion", "$arm mode-26 refused: reason $reason")
+            e.captureRefusal(src, reason, uptimeTicks(now))
+            return refuse(c, src, reason)
+        }
+        // build C1's ruling R1.4 (as C1-R6 B6-1 reads it): the step's list is asked before the message's length, also
+        // for a mode 26 a batch inside a step carries — 8 with the message's byte, as the step refuses one at its top
+        // level. Reached with a step running only from inside a batch: the step's own list refuses a top-level 26.
+        if (c.stActive) return no(REF_MODE)
+        val sub = if (src.size >= 2) src[1].toInt() and 0xFF else -1
+        if (sub < 0 || src.size != Fw.motionLength(sub)) return no(REF_LENGTH)
+        if (!fbLeaseActive(arm, now)) return no(REF_NO_LEASE)
+        if (c.damageFlags and DamageMsg.FLAG_DRAW2 == 0) return no(REF_DRAW2)
+        if (c.damageFlags and Fw.FLAG_ENGINE == 0) return no(REF_UNARMED)
+        val slot = src[2].toInt() and 0xFF
+        val left = fwSide(arm) == 2
+        val tick = osTick(now)
+        fun params(at: Int) = IntArray(4) { rd16at(src, at + 2 * it).toShort().toInt() }
+        // decision A.10: no range on P0..P3 here; READING: an unknown sub is a value (12) at this position
+        val reason = when (sub) {
+            0 -> { val period = src[3].toInt() and 0xFF
+                   if (slot >= MotionSim.SLOTS || period !in MotionSim.P_MIN..MotionSim.P_MAX) REF_VALUE
+                   else underWord(c) { e.play(c.textureCache, c.shadow, c.stride, left, slot, period, rd16at(src, 4), rd16at(src, 6),
+                                              rd16at(src, 8), params(10), tick, uptimeTicks(now)) } }
+            1 -> if (slot >= MotionSim.SLOTS) REF_VALUE
+                 else underWord(c) { e.retarget(c.textureCache, c.shadow, c.stride, left, slot, params(3), tick) }
+            // build C1's ruling R1.1: a CLOSE that ends an open instance (drawing or done) marks the panel stale ([underWord]
+            // sets it), so the present that follows — its own alone, the batch's in a batch — goes whole and shows END
+            2 -> if (slot >= MotionSim.SLOTS && slot != 0xFF) REF_VALUE
+                 else underWord(c) { if (slot == 0xFF) e.closeAll(uptimeTicks(now)) else e.close(slot, uptimeTicks(now)); 0 }
+            // ruling R1.8: an unknown sub (3..255) held to length 3 above, then 12 here; its body carries no slot
+            else -> REF_VALUE
+        }
+        if (reason != 0) return no(reason)
+        diag.event("motion", "$arm mode-26 sub $sub slot $slot accepted")
+        // build C1, D3a (spec §2 row 21): the mirror's record of RIGHT's END CRC per (slot, tag, ordinal), for the
+        // phone's compare with a notify that may arrive after the instance is gone
+        if (arm == Arm.RIGHT && sub != 2) e.slots[slot]?.let { o -> endCrcs[Triple(o.slot, o.tag, o.ordinal)] = o.endCrc }
+        // ruling R1.1: every accepted mode-26 message presents as the other gated modes do, a CLOSE too
+        if (present) present(arm, now, batch)
+        return true
+    }
+
+    // ------------------------------------------------------------------ mode 25 (§5.9)
+    /** `[25][zlib]`: length ≥ 3 (1) → not in a batch or a step (8) → the lease (3) → DRAW2 (9) → ZWRITE (15) → the
+     *  inflate, at most 16,384 B and ending cleanly (13; the model never runs short of memory, 11) → mode 19's own
+     *  checks and semantics on the list, one bump per message. READING: bytes after the stream's end are ignored,
+     *  as mode 6's decode ignores them. */
+    private fun zwrite(arm: Arm, c: LensCtx, src: ByteArray, now: Long, batch: BatchCtx?): Boolean {
+        // ruling R1.4: a batch's or a step's own list refuses mode 25 before this handler is reached, so §5.9's
+        // "not in a batch or a step (8)" is decided there; reaching it from inside one is a defect of this model
+        check(batch == null && !c.stActive) { "mode 25 reached its handler inside a batch or a self-test step" }
+        if (src.size < 3) return refuse(c, src, REF_LENGTH)
+        if (!fbLeaseActive(arm, now)) return refuse(c, src, REF_NO_LEASE)
+        if (c.damageFlags and DamageMsg.FLAG_DRAW2 == 0) return refuse(c, src, REF_DRAW2)
+        if (c.damageFlags and Fw.FLAG_ZWRITE == 0) return refuse(c, src, REF_UNARMED)
+        val list = inflateList(src) ?: run {
+            diag.event("decode", "$arm mode-25 stream does not inflate cleanly to at most ${Fw.ZWRITE_MAX} B")
+            return refuse(c, src, REF_STREAM)
+        }
+        return cacheWriteList(arm, c, src, list, 0, now)
+    }
+
+    private fun inflateList(src: ByteArray): ByteArray? {
+        val inf = java.util.zip.Inflater()
+        try {
+            inf.setInput(src, 1, src.size - 1)
+            val out = ByteArray(Fw.ZWRITE_MAX + 1)
+            var o = 0
+            while (!inf.finished()) {
+                val n = try { inf.inflate(out, o, out.size - o) } catch (e: java.util.zip.DataFormatException) { return null }
+                o += n
+                if (o > Fw.ZWRITE_MAX) return null
+                if (inf.finished()) break
+                if (n == 0 && (inf.needsInput() || inf.needsDictionary())) return null
+            }
+            return out.copyOf(o)
+        } finally {
+            inf.end()
         }
     }
 
@@ -1313,7 +1648,10 @@ class GlassFirmwareSim() : LensPanels {
                 val scratch = c.stShadow ?: run { diag.event("selftest", "$arm step refused: no begin"); return refuse(c, src, REF_SCRATCH) }
                 val msg = src.copyOfRange(2, src.size)
                 var ok = false
-                if ((msg[0].toInt() and 0x7F) in Fw.SELF_TEST_MODES) {
+                val inner = msg[0].toInt() and 0x7F
+                // build C1's ruling R1.4: the step's own list decides first, whatever the message's length — modes 25
+                // and 26 are not drawing messages here, refused 8 with the message's byte (below)
+                if (inner in Fw.SELF_TEST_MODES) {
                     val live = c.shadow; val liveSeeded = c.seeded
                     c.shadow = scratch; c.seeded = c.stSeeded
                     swapDiag(c)                          // the self-test's diagnostics; mode 23 picks its own slot set
@@ -1326,6 +1664,9 @@ class GlassFirmwareSim() : LensPanels {
                     }
                 } else {
                     diag.event("selftest", "$arm step refused: mode ${msg[0].toInt() and 0x7F} is not a drawing message")
+                    // decision A.2 on a build with the engine: a refused mode 26 is captured as an outcome-2 body, the
+                    // step's refusal too (the fields the message holds)
+                    if (inner == 26 && engineBuild()) c.motion.captureRefusal(msg, REF_MODE, uptimeTicks(now))
                     refuse(c, msg, REF_MODE)             // recorded with the step's message, as the C does
                 }
                 c.stSeq++
@@ -1414,10 +1755,19 @@ class GlassFirmwareSim() : LensPanels {
      *  path is not active — after a release point, a lapse, or a copy that failed — which is the
      *  §4 stale condition this event exists to drive. */
     @Synchronized        // P6 item 5: the panel's other writer, under the monitor [readPanel] reads it with
-    fun stockRepaint(arm: Arm) {
+    fun stockRepaint(arm: Arm, now: Long) {
         val c = ctx(arm)
-        if (c.leaseDeadline != 0L && c.seeded) return       // the direct frame is preserved
-        stockPattern(c.panel)
+        // the copy hook decides as for an engine refresh (§5.2): a Damage frame copied and a live lease preserve it —
+        // and while an instance draws, that present draws its due step (§5.3: "an engine refresh or any phone frame"
+        // includes a refresh that is neither); the stock path turns every drawing instance done, no notify
+        if (hookPreserves(c, now)) {
+            if (c.motion.anyDrawing) noJobRefresh(arm, c, now)
+            return                                           // the direct frame is preserved
+        }
+        c.motion.hookPresent(c.fb, c.stride, fwSide(arm) == 2, osTick(now), false, uptimeTicks(now))
+        stockPattern(c.fb)
+        c.directActive = false
+        c.fb.copyInto(c.panel)
         c.changedLo = 0; c.changedHi = Geometry.PANEL_H - 1
         c.panelStale = true
         diag.panelChanged(arm)
@@ -1481,14 +1831,14 @@ class GlassFirmwareSim() : LensPanels {
                     // "was there one?" question has to be asked BEFORE it runs
                     // or this narration can never fire (review 2026-09-02)
                     val hadCache = c.textureCache != null
-                    if (c.leaseDeadline == 0L || now >= c.leaseDeadline) {
+                    if (c.leaseDeadline == 0L || leaseLapsed(c, now)) {
                         leaseFreshAcquire(arm, c)
                         if (hadCache)
                             diag.event("texture", "$arm fresh FB lease after a lapse — " +
                                 (if (c.textureCache != null) "texture cache carried over under CACHE_KEEP (FIRMWARE.md §3)"
                                 else "texture cache freed; the atlas must be uploaded again"))
                     }
-                    c.leaseDeadline = now + SettingsMsg.LEASE_EXPIRY_MS
+                    c.leaseDeadline = now + leaseSpan()
                     diag.event("lease", "$arm FB lease acquired/renewed (90 s)")
                 }
                 SettingsMsg.OP_FB_RELEASE -> {
@@ -1548,8 +1898,7 @@ class GlassFirmwareSim() : LensPanels {
                 Pb.l(SettingsMsg.CAPABILITY_FIELD, capabilityString.toByteArray(Charsets.UTF_8)),
                 Pb.l(SettingsMsg.MIC_STATUS_FIELD, micStatusBody()),
                 damageContract?.let { v ->
-                    Pb.l(DamageMsg.CAPS_FIELD, Pb.cat(Pb.s(1, "DMG"), Pb.v(2, v),
-                        Pb.v(3, if (v >= 2) DamageMsg.PHASE2_FEATURES else DamageMsg.PHASE1_FEATURES)))
+                    Pb.l(DamageMsg.CAPS_FIELD, Pb.cat(Pb.s(1, "DMG"), Pb.v(2, v), Pb.v(3, features())))
                 } ?: ByteArray(0),
             )
             diag.notify(Arm.RIGHT, AaFrame.frame(nextSeq(), SettingsMsg.SID,
@@ -1624,7 +1973,11 @@ class GlassFirmwareSim() : LensPanels {
         val op = body[3].toInt() and 0xFF
         val arg = (body[4].toInt() and 0xFF) or ((body[5].toInt() and 0xFF) shl 8)
         val contract2 = (damageContract ?: 1) >= 2
-        val implemented = if (contract2) DamageMsg.FLAGS_IMPLEMENTED else DamageMsg.FLAGS_IMPLEMENTED_V1
+        // §5.8: a C1 build implements flag bit 3 ENGINE (feature bit 7) and bit 5 ZWRITE (feature bit 8). READING: §5.8's
+        // "ENGINE (needs DRAW2 armed too)" is the PLAY's order (9 before 15), not a refusal of the FLAGS_SET
+        val implemented = (if (contract2) DamageMsg.FLAGS_IMPLEMENTED else DamageMsg.FLAGS_IMPLEMENTED_V1) or
+            (if (engineBuild()) Fw.FLAG_ENGINE else 0) or (if (ridersBuild()) Fw.FLAG_ZWRITE else 0)
+        val cacheMaxKib = if (ridersBuild()) Fw.CACHE_MAX_KIB_RIDERS else DamageMsg.CACHE_BUDGET_KIB   // §5.9
         var requestId = 0
         var withCacheCrc = false
         when (op) {
@@ -1640,7 +1993,7 @@ class GlassFirmwareSim() : LensPanels {
                 // contract 2: the size the cache is allocated at by its first write
                 if (!contract2) c.damageStatus = DamageMsg.STATUS_MALFORMED
                 else if (!fbLeaseActive(arm, now)) c.damageStatus = DamageMsg.STATUS_NO_LEASE
-                else if (arg < DamageMsg.CACHE_MIN_KIB || arg > DamageMsg.CACHE_BUDGET_KIB) c.damageStatus = DamageMsg.STATUS_BUDGET
+                else if (arg < DamageMsg.CACHE_MIN_KIB || arg > cacheMaxKib) c.damageStatus = DamageMsg.STATUS_BUDGET
                 else if (c.textureCache != null) c.damageStatus = DamageMsg.STATUS_ALLOCATED
                 else { c.cacheBytes = arg * 1024; c.damageStatus = DamageMsg.STATUS_OK }
             else -> c.damageStatus = DamageMsg.STATUS_MALFORMED   // unknown op: recorded and answered
@@ -1652,7 +2005,8 @@ class GlassFirmwareSim() : LensPanels {
             // fields 2 and 12 are OS TICKS, 1.024 per wall-clock ms, as the firmware sends them
             // (`FIRMWARE.md` §3): the model carries milliseconds, so it converts on the way out
             Pb.v(1, requestId), Pb.v(2, msToTicks(now - uptimeOffsetMs)), Pb.v(3, c.damageFlags), Pb.v(4, c.damageStatus),
-            Pb.v(11, diagBits), Pb.v(12, if (leased) msToTicks(c.leaseDeadline - now) else 0L), Pb.v(14, fwSide(arm)),
+            Pb.v(11, diagBits), Pb.v(12, if (!leased) 0L else if (clockIsOsTick) (c.leaseDeadline - now) and MotionSim.U32
+                                         else msToTicks(c.leaseDeadline - now)), Pb.v(14, fwSide(arm)),
             // field 15 is the last Damage frame's panel-transfer µs and the model has no clock
             // (it says so at the top of this file). §3: "a field omitted when its value is not
             // known" — sending 0 made a reader take an unknown as a fact, where fields 5 and 6,
@@ -1664,6 +2018,11 @@ class GlassFirmwareSim() : LensPanels {
             if (c.stSeq > 0) Pb.cat(Pb.v(21, if (c.stRefused) 1 else 0), Pb.v(22, c.stCrc)) else ByteArray(0),
             if (contract2 && c.refSeen) Pb.cat(Pb.v(23, c.refMode), Pb.v(24, c.refReason), Pb.v(25, c.refSeq)) else ByteArray(0),
             if (contract2) Pb.v(26, c.lastPath) else ByteArray(0),
+            // §5.8 (build C1): 30 the slots and the thread, 31 the last notify sequence, 32 engine frames, 33 folds;
+            // 34 (a present's step-drawing µs) and 27–29 (the arenas' largest blocks) are values the model does not
+            // know, so they are left out, as 7–9 and 15 are
+            if (engineBuild()) Pb.cat(Pb.v(30, c.motion.field30()), Pb.v(31, c.motion.sequence),
+                Pb.v(32, c.motion.engineFrames), Pb.v(33, c.motion.foldsSinceBoot)) else ByteArray(0),
         )
         diag.event("damage", "$arm op $op status ${c.damageStatus} flags 0x${c.damageFlags.toString(16)}")
         // only RIGHT can send: FUN_00475b14 refuses on the left lens (CLAIMS.md, 2026-09-14)
@@ -1793,42 +2152,7 @@ class GlassFirmwareSim() : LensPanels {
         }
         val clip = Rect(0, 0, Geometry.PANEL_W, Geometry.PANEL_H).let { p -> batch?.clip?.let { p.intersect(it) } ?: p }
         when (mode) {
-            19 -> {
-                // `FIRMWARE.md` §4, mode 19: every entry's shape (1), the lease (3), DRAW2 (9), every entry
-                // inside the session's cache (5); a list with no data is then accepted with nothing written
-                var pos = 1
-                while (pos < src.size) {
-                    if (src.size - pos < 4) return refuse(c, src, REF_LENGTH)
-                    val len = rd16at(src, pos + 2)
-                    pos += 4
-                    if (len > src.size - pos) return refuse(c, src, REF_LENGTH)
-                    pos += len
-                }
-                if (!leaseAndFlag()) return false
-                val size = cacheSizeOf(c)
-                var hasData = false
-                pos = 1
-                while (pos < src.size) {
-                    val off = rd16at(src, pos) * 4
-                    val len = rd16at(src, pos + 2)
-                    pos += 4
-                    if (off > size || len > size - off) return refuse(c, src, REF_RECORD)
-                    if (len > 0) hasData = true
-                    pos += len
-                }
-                if (!hasData) return true
-                val cache = c.textureCache ?: allocateCache(arm, c)
-                pos = 1
-                while (pos < src.size) {
-                    val off = rd16at(src, pos) * 4
-                    val len = rd16at(src, pos + 2)
-                    pos += 4
-                    src.copyInto(cache, off, pos, pos + len)
-                    pos += len
-                }
-                c.cacheGen++
-                return true
-            }
+            19 -> return cacheWriteList(arm, c, src, src, 1, now)
             20 -> {
                 if (src.size != (if (pair) 17 else 9)) return refuse(c, src, REF_LENGTH)
                 if (present || batch == null) { diag.event("decode", "$arm mode-20 outside a batch"); return refuse(c, src, REF_NO_BATCH) }
@@ -1945,6 +2269,48 @@ class GlassFirmwareSim() : LensPanels {
         }
     }
 
+    /** `FIRMWARE.md` §4, mode 19, on the entry list in [list] from [start] (the message itself from byte 1, or mode 25's
+     *  inflated list from byte 0 — §5.9: "mode 19's own checks and semantics", one function): every entry's shape (1),
+     *  the lease (3), DRAW2 (9), every entry inside the session's cache (5); a list with no data is then accepted with
+     *  nothing written and no bump. Refusals are recorded against [msg], the message the lane received. */
+    private fun cacheWriteList(arm: Arm, c: LensCtx, msg: ByteArray, list: ByteArray, start: Int, now: Long): Boolean {
+        var pos = start
+        while (pos < list.size) {
+            if (list.size - pos < 4) return refuse(c, msg, REF_LENGTH)
+            val len = rd16at(list, pos + 2)
+            pos += 4
+            if (len > list.size - pos) return refuse(c, msg, REF_LENGTH)
+            pos += len
+        }
+        if (!fbLeaseActive(arm, now)) { diag.event("decode", "$arm mode-${msg[0].toInt() and 0x7F} with no FB lease"); return refuse(c, msg, REF_NO_LEASE) }
+        if (c.damageFlags and DamageMsg.FLAG_DRAW2 == 0) { diag.event("decode", "$arm mode-${msg[0].toInt() and 0x7F} with DRAW2 not armed"); return refuse(c, msg, REF_DRAW2) }
+        val size = cacheSizeOf(c)
+        var hasData = false
+        pos = start
+        while (pos < list.size) {
+            val off = rd16at(list, pos) * 4
+            val len = rd16at(list, pos + 2)
+            pos += 4
+            if (off > size || len > size - off) return refuse(c, msg, REF_RECORD)
+            if (len > 0) hasData = true
+            pos += len
+        }
+        if (!hasData) return true
+        val cache = c.textureCache ?: allocateCache(arm, c)
+        // §5.6: an instance whose read ranges it meets closes first, under the engine word (R1.15: 14 without it)
+        if (!closeMeetingWrite(c, list, start, 4, now)) return refuse(c, msg, REF_BUSY)
+        pos = start
+        while (pos < list.size) {
+            val off = rd16at(list, pos) * 4
+            val len = rd16at(list, pos + 2)
+            pos += 4
+            list.copyInto(cache, off, pos, pos + len)
+            pos += len
+        }
+        c.cacheGen++
+        return true
+    }
+
     /** A v2 image record at byte offset [off]: [w u16][h u16][RLE of w*h], bounded by the
      *  session's cache size; null when it is not a record. */
     private fun image2At(c: LensCtx, off: Int): CachedImage? {
@@ -2005,5 +2371,15 @@ class GlassFirmwareSim() : LensPanels {
         const val REF_NO_MEMORY = 11
         const val REF_VALUE = 12
         const val REF_STREAM = 13
+        /** `FIRMWARE.md` §4 / build C1's ruling R1.15: the display gate or the engine's busy word could not be had. */
+        const val REF_BUSY = 14
+        /** `FIRMWARE.md` §5.8: 15 the op's own flag not armed (ENGINE for 26, ZWRITE for 25) · 16 no such instance. */
+        const val REF_UNARMED = 15
+        const val REF_NO_INSTANCE = 16
+        /** §5.8: notify field 114, DamageMotion. */
+        const val MOTION_FIELD = 114
+        /** The lease's expiry in OS ticks (`FIRMWARE.md` §3: 90,000 ticks, 87.9 s), the span on the vectors' clock
+         *  (build C1's ruling R1.7). */
+        const val LEASE_TICKS = 90_000L
     }
 }

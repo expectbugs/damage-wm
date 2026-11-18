@@ -73,7 +73,9 @@ import wm.damage.core.wire.TextureCache
  * `Compositor.emitCachedV2` ships a rect on a depth plane as one stereo base delta
  * plus the draws at each lens's own x, no widening and no copy.
  */
-class GlyphAtlas(private val base: TextRasterizer, val v2: Boolean = false, val capacity: Int = CfwModes.TEXTURE_CACHE_SIZE) {
+class GlyphAtlas(private val base: TextRasterizer, val v2: Boolean = false, val capacity: Int = CfwModes.TEXTURE_CACHE_SIZE,
+                 /** The largest cache the session's build allocates (`TextureCache.Builder.maxCache`). */
+                 private val maxCache: Int = CfwModes.CACHE2_MAX) {
 
     /**
      * One packed font: its table, one image per table entry (the tofu where the entry holds no
@@ -159,7 +161,7 @@ class GlyphAtlas(private val base: TextRasterizer, val v2: Boolean = false, val 
         class Queued(val ext: Ext) : Extended()
     }
 
-    private var builder = TextureCache.Builder(v2, capacity)
+    private var builder = TextureCache.Builder(v2, capacity, maxCache)
     /** Read off the loop by `measure` (a layout thread): a concurrent map, and an entry is never mutated. */
     private val entries: MutableMap<FontSpec, Entry> = java.util.concurrent.ConcurrentHashMap()
     private val refused = HashSet<FontSpec>()
@@ -494,7 +496,7 @@ class GlyphAtlas(private val base: TextRasterizer, val v2: Boolean = false, val 
         foldPending()
         val fonts = keepFonts.mapNotNull { s -> entries[s]?.let { s to it } }
         val icons = keepImages.mapNotNull { k -> images[k]?.let { k to it.image } }
-        builder = TextureCache.Builder(v2, capacity)
+        builder = TextureCache.Builder(v2, capacity, maxCache)
         entries.clear(); refused.clear(); extRefused.clear(); extBroken.clear()
         images.clear(); refusedImages.clear(); imageBytes = 0
         faces.keys.retainAll(fonts.map { it.first }.toSet())     // an evicted face is rendered again if it returns

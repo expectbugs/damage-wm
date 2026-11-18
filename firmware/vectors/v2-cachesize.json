@@ -78,7 +78,7 @@
   {
    "ops": [
     {
-     "cachesize": 161
+     "cachesize": 257
     }
    ],
    "expect": {

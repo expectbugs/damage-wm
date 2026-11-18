@@ -2707,6 +2707,14 @@ class Shell(
                 // the one dev probe that is the shell's (the ledger lives here): the transport journals
                 // every probe as this note and sends nothing for this one
                 if (ev.kind == "probe" && ev.detail == "cache=miscount") probeCacheMiscount()
+                // build C1 (`FIRMWARE.md` §5.6, spec §6.4): RIGHT's END CRC in a motion notify disagrees with the
+                // mirror's — the shadow is not what belief holds there; one keyframe reseeds both (it also closes
+                // every instance on the glasses, decision A.8)
+                if (ev.kind == "divergence" && ev.detail.startsWith("motion")) comp.requestKeyframe()
+                // build C1's ruling R1.16: the feel session's probe played a test program and its PLAY is acknowledged
+                // — END goes into belief as the glasses wrote it into their shadow, so when the instance ends the
+                // agreement check finds END on both sides (no divergence, no keyframe)
+                if (ev.kind == "motion") wm.damage.core.motion.TestPrograms.playedName(ev.detail)?.let { testProgramEndIntoBelief(it) }
             }
             is TransportEvent.Presented ->         // FIRMWARE.md §3 (F1.3): a panel transfer timed on the glasses; §4: its path
                 journal.present(ev.seq, ev.workerUs, ev.copyUs, ev.transferUs, ev.path, ev.atMs)
@@ -2972,7 +2980,9 @@ class Shell(
             // session's cache (mode 19, 224-entry tables, per-lens draws); otherwise the v1 one
             val st = transport.state.value
             atlasForeignWriter = st.cacheWriter  // a fresh atlas writes over whatever is there
-            atlas = GlyphAtlas(ct.base, v2 = st.draw2, capacity = st.atlasCapacity)
+            // build C1: a build with the riders allocates up to 256 KiB (the ladder's stage 2), so its atlas may be wider
+            atlas = GlyphAtlas(ct.base, v2 = st.draw2, capacity = st.atlasCapacity,
+                maxCache = if (st.damageFeatures and wm.damage.core.wire.DamageMsg.FEATURE_RIDERS != 0) CfwModes.CACHE2_MAX_RIDERS else CfwModes.CACHE2_MAX)
             ct.atlas = atlas
             // §73: the layout metric lays out for the atlas's contract (which codes a run may
             // hold, so which pairs kern). It moves only when a session's contract differs from
@@ -4380,6 +4390,15 @@ class Shell(
                 source = "cache")
     }
 
+    /** Build C1's ruling R1.16: END of the test program [name] — played by the `motion=NAME` dev probe, its PLAY
+     *  acknowledged — painted into belief on both lenses. END's pixels do not depend on where in the cache the
+     *  program's records sit, so the program is built for any contract-2 cache. */
+    private fun testProgramEndIntoBelief(name: String) {
+        val tp = wm.damage.core.motion.TestPrograms.build(name, CfwModes.CACHE2_MAX) ?: return
+        comp.paintBelief { left, belief -> tp.paintEnd(left, belief) }
+        journal.note("motion", "test program $name: END put into belief on both lenses (its PLAY is acknowledged)")
+    }
+
     /** The `cache=miscount` dev probe (sent only on Adam's word, `tools/glassdrive.py probe:cache=miscount`):
      *  one atlas ack the glasses never saw is added to the ledger, with the last acked message as
      *  what it wrote. The count then reads one short and the real path runs end to end on glass —
@@ -5103,9 +5122,12 @@ class Shell(
             if (lo > hi) continue
             mirrorRowsCompared += hi - lo + 1
             val said = m.readPanel(arm) { panel ->
-                val first = firstDisagreement(belief, panel, stride, lo, hi) ?: return@readPanel null
+                // build C1 (spec §6.5): a motion instance's areas, from its PLAY to the later of RIGHT's notify and its
+                // nominal end, are the lens's own to draw — not compared (none: every pixel, as before)
+                val skip = m.unknownAreas(arm)
+                val first = firstDisagreement(belief, panel, stride, lo, hi, skip) ?: return@readPanel null
                 if (report != null) return@readPanel ""
-                val diffs = countDisagreements(belief, panel, stride, lo, hi)
+                val diffs = countDisagreements(belief, panel, stride, lo, hi, skip)
                 "$arm: $diffs px differ, first at (${first.first},${first.second}) belief " +
                     "${belief[first.first, first.second]} (level ${LEVEL[belief[first.first, first.second]]}) mirror level ${nibble(panel, stride, first.first, first.second)}"
             }
@@ -5151,8 +5173,14 @@ class Shell(
 
     /** The first pixel whose quantised belief differs from the panel, or null
      *  — a cheap early-out scan (a lookup table replaces the per-pixel divide). */
-    private fun firstDisagreement(belief: Gray8, panel: ByteArray, stride: Int, lo: Int, hi: Int): Pair<Int, Int>? {
+    private fun firstDisagreement(belief: Gray8, panel: ByteArray, stride: Int, lo: Int, hi: Int,
+                                  skip: List<Rect> = emptyList()): Pair<Int, Int>? {
         val w = comp.width
+        if (skip.isNotEmpty()) {
+            for (y in lo..hi) for (x in 0 until w)
+                if (!inAny(skip, x, y) && LEVEL[belief[x, y]] != nibble(panel, stride, x, y)) return x to y
+            return null
+        }
         for (y in lo..hi) {
             val row = y * stride
             var x = 0
@@ -5166,11 +5194,15 @@ class Shell(
         return null
     }
 
-    private fun countDisagreements(belief: Gray8, panel: ByteArray, stride: Int, lo: Int, hi: Int): Int {
+    private fun inAny(skip: List<Rect>, x: Int, y: Int) = skip.any { x >= it.x && x < it.right && y >= it.y && y < it.bottom }
+
+    private fun countDisagreements(belief: Gray8, panel: ByteArray, stride: Int, lo: Int, hi: Int,
+                                   skip: List<Rect> = emptyList()): Int {
         var diffs = 0
         for (y in lo..hi) {
             val row = y * stride
             for (x in 0 until comp.width) {
+                if (skip.isNotEmpty() && inAny(skip, x, y)) continue
                 if (LEVEL[belief[x, y]] != nibble(panel, stride, x, y)) diffs++
             }
         }
@@ -6101,6 +6133,10 @@ class Shell(
         }
         if (comp.hasPending || comp.needsKeyframe) {
             comp.placements = stagePlacements()   // §66: what this frame may draw from the reserve
+            // build C1's B-N5: room for the transport's CLOSE — asked of the mirror (and its lock) only while ENGINE is
+            // in force, the one state in which the transport adds a CLOSE (ruling B-N4); elsewhere, today's firmware
+            // included, the assemble path is what it was
+            comp.motionOpen = st.flagsInForce and wm.damage.core.wire.DamageMsg.FLAG_ENGINE != 0 && transport.mirror.motionOpen()
             val assembleT0 = System.nanoTime()
             val assembled = try {
                 comp.assembleFlush(Geometry.rectBudget(st.window))

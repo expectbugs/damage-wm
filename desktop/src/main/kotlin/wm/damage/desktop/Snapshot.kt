@@ -118,7 +118,11 @@ object Snapshot {
         val musicLib = ScriptedMusic()
         var musicSkew = 0L
         val musicClock: () -> Long = { System.currentTimeMillis() + musicSkew }
-        val musicPlayer = wm.damage.core.windows.music.SimMusicPlayer(musicLib, musicClock)
+        // C1-R6 B6-7: the player's position runs on the scene's clock — a fixed instant that only the scene moves (the
+        // skew) — so every render shows the same elapsed time; on the wall clock the card read "1:05" or "1:06" by how
+        // long a run took to reach it. The window keeps the wall clock, with the skew, for its card pace and notices.
+        val musicSceneT0 = 1_763_000_000_000L
+        val musicPlayer = wm.damage.core.windows.music.SimMusicPlayer(musicLib, now = { musicSceneT0 + musicSkew })
         val musicWin = wm.damage.core.windows.music.MusicWindow(text, musicLib, musicPlayer, scope, clock = musicClock)
         shell.register(musicWin)
         val gamesWin = wm.damage.core.windows.games.GamesWindow(text, scope)
@@ -270,6 +274,10 @@ object Snapshot {
         shell.services.runOnShell { musicWin.appSettings().first { it.name == "Size" }.apply("288") }
         shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // → Main
         settle(shell)
+        // C1-R6 B6-7: the scene's clock moves on half a second between the two cards, as the wall clock did: the
+        // wall-clock renders read in build C1 drew the 480 card before 65.211 s (5 of its bar's 38 blocks lit; the 6th
+        // lights there) and this one after it (6 lit, "1:05" or "1:06")
+        musicSkew += 500
         shell.postGesture(EvenHubMsg.EV_CLICK)             // → Music at 288
         waitFor("music at 288") { musicWin.title() == "now playing" }
         iconsSettled()
