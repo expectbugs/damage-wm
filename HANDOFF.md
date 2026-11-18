@@ -8623,8 +8623,13 @@ installed build's 25 sites and none new, 347 KB below the OTA flag, features `0x
 - The fork's mutation sweep at `a512b77`: 297 mutants, 256 caught, the rest classified; FX5's A-N8 lines 6 of 6; nothing
   after them but comments, so no sweep was owed. **The Kotlin list `research/mutations-81-c1.json` (spec §5) was not
   written in the build; the lead ruled it RUN as stage DM1 (the second instrument on the glasses' wire, before any flash
-  conversation), which also settles `FidRingStartTest`'s one miss (product or harness).** It was still running when C1's Damage half was merged for APK 0.68
-  (its numbers and pins are recorded when it ends: `REMINDER.md`).
+  conversation), which also settles `FidRingStartTest`'s one miss (product or harness).** It ended after APK 0.68 was deployed: 94 entries, 71 of 93 caught by C1's own
+  tests; of the 22 survivors 19 were real guards with no pin, pinned now by 12 tests (20 of 20 guard-off runs failed on
+  their own pin); none ran away in 117 variant runs; no survivor showed a product defect. Left unpinned and listed:
+  one real guard on the mode-25 judge (its absence costs one extra copy and mode 25 off for a session), one believed
+  unreachable, one equivalent. `FidRingStartTest`'s miss is the product's and harmless (acks back to back let one more
+  2-byte ring-clear copy out per ack at a session start); the product is not changed before a flash and the test is
+  corrected to deliver acks as the radio does.
 - `tools/verify.py` 31 PASS, 0 FAIL; `--selftest` 18/18; `test_damage_ext.py` 210 pass.
 - Pins, each watched to fail with its one guard disabled (every report's table); the last round: 4 Damage pins in 5
   variants (DX7), 12 planted cases against the checker (FX7), 2 watches on the new vector (FX6). None ran away.

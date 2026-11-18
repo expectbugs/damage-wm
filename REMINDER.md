@@ -38,7 +38,7 @@ browser of his is approved yet; he has not said he has used the pages.
 | build | where | state |
 |---|---|---|
 | L1 (the cleanup; S1-2 inside it) | `main` `e4aa770` (FIX2 `c82487b`; merged with C1's Damage half `2d414c2`; the lane protocol 3 `e87bf35`) | done: two fix stages, the last gate green on the merged tree (§84.6), deployed on the PC, APK 0.68 staged |
-| C1 (the first flash's build: motion programs) | fork `c1` `561f8b7` (candidate pin `0dab2154…`); Damage `wip/068` `f72f67f` | built, two review passes and a focused read ruled, the fork and the simulator agree on 51 vectors and both fuzz sets (§85); its Damage half is on `main` (inert on today's firmware); **stage DM1, the Kotlin mutation sweep, was still running at this record** (its tests go to `main` when it ends; §85); NOT flashed |
+| C1 (the first flash's build: motion programs) | fork `c1` `561f8b7` (candidate pin `0dab2154…`); Damage `wip/068` `f72f67f` | built, two review passes and a focused read ruled, the fork and the simulator agree on 51 vectors and both fuzz sets (§85); its Damage half is on `main` (inert on today's firmware); the Kotlin mutation sweep is done (71 of 93 caught, 19 guards pinned since, §85) and its tests are on `main`; NOT flashed |
 | S1-3 (Feed, Tmux) | pages only: `wip/070-web` `12ae299` (Feed page; Tmux page as a colour grid) | Kotlin not started and to be specified again, lean; the pages now allow inline styles, so the terminal emulator can run (the lead's call, §84.2) |
 | S1-4 (Music) | a spec only | five questions are his (below) |
 | C2 (the second flash) | its design challenge only | 3 MUST-FIX in the design; the narrow shape is preferred (17.3 item 5) |
