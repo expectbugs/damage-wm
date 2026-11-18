@@ -1172,8 +1172,8 @@ there.
   unscaled); anchor 0 top · 1 centre (`y + ((h − H) >> 1)`) · 2 bottom (`y + h − H`), h the source's height. On a
   bit-10 build §5.5's "h0/h1 = 0" becomes: h0 and h1 both 0, or every step's eased H (after substitution) inside
   1..2048, else 12 — at a PLAY, a COMMIT and a fire alike; on RETARGET's restart path H is clamped to 1..2048 as levels
-  are (R1.10). The wheel's drum (`MOTION.md` W1/W2), the icon grow (M2) and Pulse use it. `tools/verify.py` step 7 is
-  run again on the grown engine function.
+  are (R1.10). The wheel's drum (`MOTION.md` W1/W2) and Pulse use it; the icon grow (M2) was cut on 2026-11-18 (Adam:
+  no size change in Main's focus motion). `tools/verify.py` step 7 is run again on the grown engine function.
 
 ### 6.7 The phone's rules (built in its transport and shell; none of them is firmware)
 
@@ -1375,17 +1375,14 @@ wait for C1's flash, soaks and feel session (`HANDOFF.md` §85's checklist):
 | the ladder on glass (hold-back, LEFT's end reasons) | how stage 4's hold-back reads them |
 | the fast-spin probe (`REMINDER.md`) | the highest fire rate → the ui_task's load per fire and the COMMIT rate; scroll messages per notch at a fast spin — how the rubber band paces them on this build (§6.1; its length I) |
 
-**Main's focus motion on the trial surface — what C1's engine can express** (read on `c1`, `damage_motion.c`, as the
-amendment's focused read has it; Adam's description is the selected row coming forward and growing). Each row's sizes
-travel in that row's **sheet**, one record of its forms stacked, a segment drawing it at the y that brings one form
-into the track's area; both rows' icons can change size only if their sizes are inside the rows' sheets (the strip and
-the two sheets take three of a fire's four parameters; separate icon records for both rows would need two more). Forms
-in one sheet are separated by blank rows at least the track's area high, or a neighbouring form shows inside it, since
-a track paints its whole area at every step. A per-row text scale is not expressible (mode 28 and DRAW's h0/h1 scale
-rows only, §6.6). The press continuing forward until the window's first frame replaces it is expressible (the tap
-entry's program, holding until the slot's DISCARD after the act's first frame). Main has 8 rows: the base program is
-about 50–60 KB (I), so fields 27–29 decide whether it fits beside the 192 KiB atlas. The look itself (his calls E1 and
-E2) is the phone's program, not this contract.
+**Main's focus motion on the trial surface** (Adam, 2026-11-18): the selected row comes forward in depth — a per-lens x
+step, which C1's DRAW expresses with dxL ≠ dxR over a segment — and takes the highlight and brightness it has in
+today's design; the row it leaves goes back. **No size change of any kind** (a grow of the selected row was considered
+and cut). The press continuing forward until the window's first frame replaces it is expressible (the tap entry's
+program, holding until the slot's DISCARD after the act's first frame; his call E2). Main has 8 rows; the program —
+the strip and one band form per row, today's highlight — was estimated at about 50–60 KB (I, `C2-amend-focus.md` §3,
+"Arithmetic"), and fields 27–29 decide whether it fits beside the 192 KiB atlas; its size is read at the build. The look
+itself is the phone's program, not this contract.
 
 ### 6.10 Vectors, and what only the glasses can show
 
@@ -1724,6 +1721,6 @@ phone's keeper applies the hold-back rule before re-arming.
   P3's answer per slot once per batch, which closes the text's COMMIT-over-the-frame defect; P5's owes that may never
   be paid; SETTLE from the lowest S since the last SETTLE; P10's diff with END applied; no 114 for a same-slot local
   close; the tap rule's n-step bound; the report-only tap entry and `Taps`' three values; Main's wrap as the staged
-  edge; Q's floor; what C1's engine expresses for Main's focus motion; the sequence fuzz as a build condition; the
-  envelope's rows. Sentences marked (D0) are this stage's fillings, for the lead to rule. Nothing built; contract
+  edge; Q's floor; Main's focus motion as Adam ruled it the same day (depth and today's highlight, no size change; the
+  icon grow M2 cut, §6.6); the sequence fuzz as a build condition; the envelope's rows. Sentences marked (D0) are this stage's fillings, for the lead to rule. Nothing built; contract
   version unchanged.
