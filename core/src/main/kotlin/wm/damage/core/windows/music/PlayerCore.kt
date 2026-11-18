@@ -50,6 +50,10 @@ abstract class PlayerCore(
         /** Keep the next tracks' files at hand (the prefetch store). */
         fun prefetch(urls: List<Pair<Int, String>>)
         fun isPlaying(): Boolean
+        /** The open item streams from the PC (it is not played from the cache). */
+        fun streamed(): Boolean
+        /** The open item has no data to play from (the player is buffering), whether or not it should play. */
+        fun waitingForData(): Boolean
     }
 
     /** A sink that cannot open because the PC is down and the file is not
@@ -111,6 +115,19 @@ abstract class PlayerCore(
     private var quietWarned = false
     private var lastPersistPos = 0L
     @Volatile private var pcDownSince = 0L
+    /** When the current streamed track was first seen waiting for data while it should play; 0 = it is not. */
+    private var waitingSince = 0L
+    /** Spotify's session was PLAYING at its last report: a Spotify he starts is the edge from not playing. */
+    private var spotifyWasPlaying = false
+
+    /** The phone's journal (`music` notes): the player's decisions, one line each (M6). Set by the host. */
+    @Volatile var journal: (String) -> Unit = {}
+
+    /** A decision of the player: one line in the log and one note in the journal. */
+    protected fun decided(line: String) {
+        Log.i("player", line)
+        try { journal(line) } catch (e: Exception) { Log.e("player", "journal note not written", e) }
+    }
 
     // ------------------------------------------------------------------ state
     protected fun snapshot(): PlayerState = PlayerState(
@@ -154,11 +171,17 @@ abstract class PlayerCore(
         closeHistory(cause)
         val t = e.track
         if (curBoost != 100) { curBoost = 100; try { sink.setBoostPct(100) } catch (ex: Exception) { Log.w("player", "boost off: ${ex.message}") }; emit(PlayerEvent.BoostOff) }
+        waitingSince = 0
         try {
             sink.open(currentUrl(t), startMs, playNow, t)
         } catch (ex: StalledException) {
             Log.w("player", "open of track ${t.id} stalled: ${ex.message}")
-            libraryStalled(ex.message ?: "not cached")
+            // M3: a staged open (paused, the sleep timer's next track) is not a request to play: it is said, never switched
+            if (playNow) libraryStalled(ex.message ?: "not cached", resumeAt = startMs)
+            else {
+                decided("stall of a staged track, not switched: ${ex.message}")
+                emit(PlayerEvent.Error("PC unreachable and no cached track — ${ex.message ?: "not cached"}"))
+            }
             return
         } catch (ex: Exception) {
             Log.e("player", "open of track ${t.id} failed", ex)
@@ -307,7 +330,10 @@ abstract class PlayerCore(
 
     override fun playQueue(tracks: List<TrackRef>, startIndex: Int, mode: Mode, label: String) = post {
         if (tracks.isEmpty()) { emit(PlayerEvent.Error("nothing to play")); return@post }
-        if (curBackend == Backend.SPOTIFY && !spotifyAuto) curBackend = Backend.LIBRARY    // a deliberate library play leaves a chosen Spotify
+        if (curBackend == Backend.SPOTIFY && !spotifyAuto) {    // a deliberate library play leaves a chosen Spotify
+            curBackend = Backend.LIBRARY
+            decided("back to the PC library (a library play)")
+        }
         queueGen++
         advanceAfterFill = null
         engine.set(tracks, startIndex, mode, label)
@@ -508,6 +534,7 @@ abstract class PlayerCore(
     protected fun tick() {
         val now = clock()
         val pos = positionMs()
+        watchStream(now)
         // sleep (verdict 28): a deadline checked on ticks — pacing, never a timer wrapper
         if (curSleep.kind == Sleep.Kind.TIMER && now >= curSleep.deadlineMs && play == PlayState.PLAYING) {
             curSleep = Sleep.OFF
@@ -530,8 +557,11 @@ abstract class PlayerCore(
         advance("ended", playNow = true)
     }
 
-    fun onSinkError(detail: String) = post {
+    /** [sourceFailed]: the error's cause is the source or the network (the player library's I/O codes). */
+    fun onSinkError(detail: String, sourceFailed: Boolean = false) = post {
         Log.e("player", "sink: $detail")
+        // M1 (a): a stream the PC cannot serve switches like an open that cannot be served (the setting off: said)
+        if (sourceFailed && streamWanted()) { streamStalled("the stream failed: $detail"); return@post }
         problem = detail
         play = PlayState.PAUSED
         emit(PlayerEvent.Error(detail))
@@ -552,31 +582,77 @@ abstract class PlayerCore(
     }
 
     /** The PC link as the library reports it (staleness with duration). */
-    fun onPcLink(up: Boolean) = post {
+    fun onPcLink(up: Boolean, detail: String = "") = post {
         val was = pcLink
         pcLink = if (up) PcLink(true, 0) else PcLink(false, if (was.up) clock() else was.sinceMs)
-        if (!up && was.up) { pcDownSince = clock(); emit(PlayerEvent.PcUnreachable(pcDownSince)) }
-        if (up && !was.up) { pcDownSince = 0 }
+        if (!up && was.up) {
+            pcDownSince = clock()
+            decided("PC link down: ${detail.ifEmpty { "no reason given" }}")
+            emit(PlayerEvent.PcUnreachable(pcDownSince))
+        }
+        if (up && !was.up) {
+            val since = was.sinceMs
+            decided("PC link up" + if (since > 0) " — down since ${clockTime(since)}, ${(clock() - since) / 1000} s" else "")
+            pcDownSince = 0
+        }
         changed()
+    }
+
+    private fun clockTime(ms: Long): String =
+        java.time.Instant.ofEpochMilli(ms).atZone(java.time.ZoneId.systemDefault()).toLocalTime().withNano(0).toString()
+
+    // ------------------------------------------------------------------ the stream's supervision (M1)
+    /** The library should be playing a track the PC streams, with the automatic switch on. */
+    private fun streamWanted(): Boolean =
+        curBackend == Backend.LIBRARY && curSpotifyFallback && play == PlayState.PLAYING && sink.streamed()
+
+    /** On the ticks: a streamed track that has waited [STREAM_STALL_MS] for data while it should play is a PC that
+     *  does not serve it — the stream's open, or a stall mid-song. */
+    private fun watchStream(now: Long) {
+        if (!(streamWanted() && sink.waitingForData())) { waitingSince = 0; return }
+        if (waitingSince == 0L) { waitingSince = now; return }
+        if (now - waitingSince >= STREAM_STALL_MS) streamStalled("no data from the PC for ${(now - waitingSince) / 1000} s")
+    }
+
+    /** The current streamed track cannot be served: the library stops trying and the automatic switch decides. */
+    private fun streamStalled(why: String) {
+        waitingSince = 0
+        val t = engine.current?.track
+        libraryStalled(if (t != null) "'${t.title}': $why" else why, resumeAt = positionMs())
+    }
+
+    /** The library's place is kept and its player paused (a switch away from it). */
+    private fun pauseLibrary() {
+        if (play != PlayState.PLAYING) return
+        lastPos = positionMs()
+        try { sink.pause() } catch (e: Exception) { Log.w("player", "library pause at the switch: ${e.message}") }
+        play = PlayState.PAUSED
     }
 
     // ------------------------------------------------------------------ Spotify (verdicts 3/20/25)
     /** The subclass's Spotify session, when it has one. */
     protected open fun spotifyCmd(cmd: String) { emit(PlayerEvent.Error("Spotify is not available on this host")) }
-    protected open fun spotifyStart(): Boolean = false
+    /** Start (or resume) Spotify: null when it was started, else the reason it was not (M5: [SPOTIFY_NO_GRANT],
+     *  [SPOTIFY_NOT_STARTED]). */
+    protected open fun spotifyStart(): String? = SPOTIFY_NOT_STARTED
 
     override fun setBackend(b: Backend) = post {
         if (b == curBackend) return@post
         if (b == Backend.SPOTIFY) {
             if (play == PlayState.PLAYING) pause()
-            if (!spotifyStart()) { emit(PlayerEvent.Error("Spotify could not be started on the phone")); return@post }
+            spotifyStart()?.let { why ->
+                decided("Spotify's start refused: $why")
+                emit(PlayerEvent.Error(why)); return@post
+            }
             curBackend = Backend.SPOTIFY
             spotifyAuto = false
+            decided("switched to Spotify (chosen)")
             emit(PlayerEvent.BackendChanged(Backend.SPOTIFY, automatic = false))
         } else {
             spotifyCmd("pause")
             curBackend = Backend.LIBRARY
             spotifyAuto = false
+            decided("back to the PC library (chosen)")
             emit(PlayerEvent.BackendChanged(Backend.LIBRARY, automatic = false))
         }
         changed()
@@ -584,15 +660,55 @@ abstract class PlayerCore(
 
     override fun backToPc() = setBackend(Backend.LIBRARY)
 
-    /** The library backend cannot continue (the PC is down and the prefetch
-     *  ran out): switch to Spotify automatically when the setting allows. */
-    protected fun libraryStalled(why: String) {
+    /** The library backend cannot continue (a track that is not cached and a PC that does not serve it): switch
+     *  to Spotify automatically when the setting allows. Called only for a track that is playing or asked to (M3).
+     *  The library stops where it was ([resumeAt]): a later play opens the track again there, which a player
+     *  left in its failed state would not. */
+    protected fun libraryStalled(why: String, resumeAt: Long = positionMs()) {
         if (curBackend == Backend.SPOTIFY) return
+        decided("stall: $why")
         if (!curSpotifyFallback) { emit(PlayerEvent.Error("PC unreachable and no cached track — $why")); return }
-        if (!spotifyStart()) { emit(PlayerEvent.Error("PC unreachable, Spotify could not start — $why")); return }
+        if (play == PlayState.PLAYING) {
+            try { sink.stop() } catch (e: Exception) { Log.w("player", "library stop at the stall: ${e.message}") }
+            play = PlayState.STOPPED
+        }
+        lastPos = resumeAt
+        spotifyStart()?.let { refused ->
+            decided("Spotify's start refused: $refused")
+            problem = refused
+            emit(PlayerEvent.Error("PC unreachable — $refused"))
+            changed(); return
+        }
         curBackend = Backend.SPOTIFY
         spotifyAuto = true
+        decided("switched to Spotify (automatic): $why")
         emit(PlayerEvent.BackendChanged(Backend.SPOTIFY, automatic = true))
+        changed()
+    }
+
+    /** Spotify did not start after a start that was dispatched (the cold start's connection was refused): the
+     *  switch is undone and the reason said (M5). */
+    protected fun spotifyStartFailed(why: String) {
+        decided("Spotify's start refused: $why")
+        if (curBackend == Backend.SPOTIFY) {
+            curBackend = Backend.LIBRARY
+            spotifyAuto = false
+            decided("back to the PC library (Spotify did not start)")
+        }
+        emit(PlayerEvent.Error(why))
+        changed()
+    }
+
+    /** M4: Spotify's media session as the phone reports it. When it starts PLAYING while the library is the
+     *  backend — a Spotify he started himself — the window follows it: a deliberate choice, no notice. */
+    protected fun onSpotifySession(playing: Boolean) {
+        val started = playing && !spotifyWasPlaying
+        spotifyWasPlaying = playing
+        if (!started || curBackend != Backend.LIBRARY) return
+        pauseLibrary()
+        curBackend = Backend.SPOTIFY
+        spotifyAuto = false
+        decided("switched to Spotify (followed: its session started playing on the phone)")
         changed()
     }
 
@@ -677,5 +793,11 @@ abstract class PlayerCore(
         const val LIMITER_DROP = 25
         const val RESET_MAX = 3
         const val RESET_WINDOW_MS = 10 * 60_000L
+        /** The supervision of a network stream (M1): a streamed track that has waited this long for data while it
+         *  should play is a PC that does not serve it. Outside the radio, render and input paths. */
+        const val STREAM_STALL_MS = 15_000L
+        /** Why Spotify did not start (M5), in the notice's words. */
+        const val SPOTIFY_NO_GRANT = "Spotify could not start: notification access is not granted on the phone"
+        const val SPOTIFY_NOT_STARTED = "Spotify did not start — open it once on the phone"
     }
 }

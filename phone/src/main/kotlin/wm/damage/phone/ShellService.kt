@@ -476,6 +476,7 @@ class ShellService : Service() {
             onState = { line -> mp[0]?.onPcLinkLine(line) })
         musicLibrary = ml
         val player = wm.damage.phone.music.AndroidMusicPlayer(this, ml, scope, onEngaged = { promoteToMediaPlayback() })
+        player.journal = { line -> sh.journalNote("music", line) }      // M6: the player's decisions in the journal
         mp[0] = player
         musicPlayer = player
         sh.register(wm.damage.core.windows.music.MusicWindow(text, ml, player, scope))
