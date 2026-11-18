@@ -93,8 +93,7 @@ export const fixtures = {
   program: (op) => (op.window === 'files' && op.action === 'upload' ? { a: 'sent', result: { upload: `u-${op.k}` } } : null),
   blobs: { 'cover-b1': [400, 600, [122, 75, 58]], 'cover-b3': [600, 400, [49, 80, 110]], 'cover-b6': [300, 600, [79, 107, 60]], 'fig-1': [1600, 900, [130, 110, 70]] },
   welcome: (stream, scene = {}) => ({ t: 'welcome', proto: 3, device: ME, level: scene.level || 'full', conn: 7, pcClock: NOW, epoch: 3, seq: 40,
-    // S1-3: a scene may be an older PC's (a build that names no Feed contract)
-    contracts: scene.contracts || { reader: 1, notices: 1, torrents: 1, files: 1, feed: 1, tmux: 1 }, bundle: { hash: 'look' } }),
+    contracts: { reader: 1, notices: 1, torrents: 1, files: 1, feed: 1, tmux: 1 }, bundle: { hash: 'look' } }),
   // the notice record at first contact (adopted, nothing pops), and `n` raised after it, one change each
   notices: () => ({ t: 'snap', scope: 'notices', epoch: 3, seq: 40, items: Object.fromEntries([
     notice('a1d00001', 1, 'done · Copper Hill', 'DISMISSED', NOW - 86400e3), notice('a1d00002', 2, 'done · Salt Road', 'RAISED', NOW - 3600e3)]) }),
@@ -250,7 +249,7 @@ function tmuxScenes() {
  *  four deep and a flat list, a numbered comic at the latest (its bar's next and latest dim), a comic with its bonus
  *  panel, the archive as one page (a picture still being found), Flagged, mark all read's confirm and act, a read, a
  *  flag, the follow of another device's place (article and archive), browse, the settings, out of reach, a device at
- *  level view, and an older PC. */
+ *  level view. */
 function feedScenes() {
   const f = (target) => format({ window: 'feed', target });
   const rows = { wait: '.fd-rows .fd-row' };
@@ -281,6 +280,5 @@ function feedScenes() {
     'feed-binge-follow': { path: f('binge:quest'), steps: [{ wait: '.fd-ep img' }, { fetch: '/__push?name=feed-binge' }, { wait: '.fd-ep[data-ep="420"] img' }] },
     'feed-away': { path: f(`item:news:${itemId('news', 0)}`), steps: [art, { fetch: '/__away' }, { wait: '#reach:not([hidden])' }] },
     'feed-view': { path: f(`item:news:${itemId('news', 0)}`), level: 'view', steps: [art] },
-    'feed-old-pc': { path: '/w/feed', contracts: { reader: 1, notices: 1, torrents: 1, files: 1 }, steps: [{ wait: '.page h1' }] },
   };
 }

@@ -3,7 +3,7 @@
 // stand-in. A page load, a reload or an address marks nothing read — only the input that opens an item does (its
 // source's whole list, B1), and an item opened while the PC is out of reach is marked when it answers again; mark all
 // read sends the record's list with the unread ids held; a Flag is sent and its answer drawn; an action the level does
-// not allow is not offered; an older PC is never asked for Feed; refresh and browse are program ops with their
+// not allow is not offered; refresh and browse are program ops with their
 // connection; a place is sent once per pause of the scroll, only after input, carrying that input's time; another
 // device's newer input on the article shown moves the page and sends nothing (Reader's follow rule); a place answered
 // `ended` goes again at the next welcome; the binge's place likewise; `seen` only after input; the comments' place
@@ -32,14 +32,14 @@ function at(ms, fn) {
 }
 const noExpect = (ops) => ops.every((o) => !('expect' in o));
 
-async function page({ path = '/w/feed', level = 'full', contracts, record = true, storage = browserStorage() } = {}) {
+async function page({ path = '/w/feed', level = 'full', record = true, storage = browserStorage() } = {}) {
   const timers = handTimers();
   const p = await openPage({ path, storage, timers, fetchAnswer: () => { throw new Error('no fetch expected'); } });
   const ws = p.sockets[0];
   ws.open();
-  ws.frame(welcome(ws.sent[0].stream, { level, ...(contracts ? { contracts } : {}) }));
-  if (!contracts) ws.frame({ t: 'snap', scope: 'desc/feed', desc: feedDesc() });
-  if (record && !contracts) ws.frame(feedRecord());
+  ws.frame(welcome(ws.sent[0].stream, { level }));
+  ws.frame({ t: 'snap', scope: 'desc/feed', desc: feedDesc() });
+  if (record) ws.frame(feedRecord());
   return { p, ws, timers, stream: ws.sent[0].stream };
 }
 
@@ -138,15 +138,6 @@ test('a device at level view reads everything and is offered nothing that change
   assert.equal(byClass(p, 'fd-browse'), undefined, 'no browse');
   p.go('/w/feed/settings');
   assert.match(main(p).textContent, /Fetch15 minchanging it needs level control/);
-});
-
-test('a PC whose build names no Feed contract is never asked for it; the page and the rail say why', async () => {
-  const { p, ws } = await page({ contracts: { reader: 1, notices: 1, torrents: 1, files: 1 } });
-  assert.equal(subs(ws).some((s) => s === 'desc/feed' || s === 'feed' || s.startsWith('feed/')), false);
-  assert.match(main(p).textContent, /Not shown here: the PC's build has no Feed page yet/);
-  const rail = all(p.doc.byId.rail).find((e) => e.getAttribute('data-key') === 'rail:feed');
-  assert.ok(rail.classList.contains('dim'));
-  assert.match(rail.getAttribute('data-why'), /no Feed page yet/);
 });
 
 test('out of reach: actions dim with why; an item opened then is marked read when the PC answers again, and only that one', async () => {

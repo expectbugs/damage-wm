@@ -6,8 +6,7 @@
 // expectation), pipelined in order; a desk whose PC serves no library draws the pictures and says why; at a phone's
 // width the pictures are drawn newest-only. Out of reach a key is refused at once and said, never held; a paste of
 // more than one line asks first naming its lines, and its confirm is void once the connection changed; a typed line
-// goes only through Run it's confirm; ending a session asks, Cancel at rest; a device below full and an older PC are
-// asked nothing; hidden → need none; a session that ends under the page is said and takes no key; a Tmux alert pops
+// goes only through Run it's confirm; ending a session asks, Cancel at rest; a device below full is asked nothing; hidden → need none; a session that ends under the page is said and takes no key; a Tmux alert pops
 // no toast (G2).
 
 import { test, afterEach } from 'node:test';
@@ -26,15 +25,15 @@ const FRAMES = (name) => `live/tmux/frame/workstation/${name}`;
 const STREAM = (name) => `live/tmux/stream/workstation/${name}`;
 const NO_LIB = async () => { throw new Error('the answer was 404: this host serves no terminal library'); };
 
-async function page({ path = '/w/tmux', level = 'full', contracts, storage = browserStorage(), desc = tmuxDesc(), phone = false, lib = 'fake' } = {}) {
+async function page({ path = '/w/tmux', level = 'full', storage = browserStorage(), desc = tmuxDesc(), phone = false, lib = 'fake' } = {}) {
   X.lib.load = lib === 'fake' ? async () => ({ Terminal }) : NO_LIB;
   const timers = handTimers();
   const p = await openPage({ path, storage, timers, fetchAnswer: () => { throw new Error('no fetch expected'); } });
   p.win.matchMedia = (q) => ({ matches: phone && /max-width/.test(q), addEventListener() {}, removeEventListener() {} });
   const ws = p.sockets[0];
   ws.open();
-  ws.frame(welcome({ level, ...(contracts ? { contracts } : {}) }));
-  if (!contracts && level === 'full') {
+  ws.frame(welcome({ level }));
+  if (level === 'full') {
     ws.frame({ t: 'snap', scope: 'desc/tmux', desc });
     ws.frame(tmuxRecord());
   }
@@ -251,12 +250,6 @@ test('a device below full is shown nothing of any session and asks the PC for no
   assert.equal(byClass(p, 'tm-term'), undefined);
   const rail = p.doc.byId.rail.children.find((a) => a.getAttribute('data-key') === 'rail:tmux');
   assert.ok(rail.classList.contains('dim'));
-});
-
-test('a PC whose build names no Tmux contract is never asked for it', async () => {
-  const { p, ws } = await page({ path: '/w/tmux', contracts: { reader: 1, notices: 1, torrents: 1, files: 1, feed: 1 } });
-  assert.deepEqual(subs(ws).map((f) => f.scope).filter((s) => /tmux/.test(s)), []);
-  assert.match(main(p).textContent, /the PC's build has no Tmux page yet/);
 });
 
 test('the pictures at a phone\'s width: logical lines flowed, the cursor a tail mark; frames faster than the page draws are drawn newest-only', async () => {
