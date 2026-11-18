@@ -279,7 +279,6 @@ abstract class CfwTransportBase(
                 var was = 0
                 setC1Stage { was = it; n }
                 c1StageSay = null       // C1-P R1 §2 (A 2.2): what the read at creation found no longer stands; this note names it
-                sizeWaitSaid = false    // C1-Q: a new hand request — a wait for the 256 KiB size is said again
                 emitNote("keeper", "C1 ladder: stage $was → $n (${ladderSays(n)}) — the next session start arms it" +
                     (damageCaps?.let { if (isC1(it)) "" else "; this build reports no C1 bit, so it arms nothing" } ?: ""))
             }
@@ -822,8 +821,9 @@ abstract class CfwTransportBase(
      *  for) read as success: the session then laid a 160 KiB atlas over a 64 KiB cache and every
      *  record above the line was refused in silence (2026-09-15, the third review). Re-asked on
      *  the pacing tick like every other start message. Returns the size in bytes this session's
-     *  cache has or will have; throws when the request could not be placed on both arms. */
-    private suspend fun requestCacheSize(epoch: Long, kib: Int): Int {
+     *  cache has or will have; throws when the request could not be placed on both arms. Build C1-Q:
+     *  [wants] is the size the session would have asked for; the note says why when [kib] is less. */
+    private suspend fun requestCacheSize(epoch: Long, kib: Int, wants: Int = kib): Int {
         val waiter = CompletableDeferred<DamageMsg.Telemetry>()
         val writtenBoth = CompletableDeferred<Unit>()
         val firstFailed = CompletableDeferred<String>()
@@ -883,7 +883,8 @@ abstract class CfwTransportBase(
             allocated == null -> ""
             allocated > size -> " (allocated already at ${allocated / 1024} KiB on RIGHT, kept until its next release point)"
             else -> " (allocated already)"
-        })
+        } + (if (kib < wants) "; $wants KiB waits for a start after a lapsed lease (a lens may still hold the last " +
+            "session's smaller cache)" else ""))
         return size
     }
 
@@ -988,12 +989,10 @@ abstract class CfwTransportBase(
     @Volatile private var ladderArmedStage = 0
     /** This session asked for the 256 KiB rung and has it (cleared at each start's op 5). */
     @Volatile private var ladderSizeInForce = false
-    /** Build C1-Q: the KiB the last answered op 5 gave the session (64 after a start with no DRAW2); null before this
-     *  transport's first size ask, read as 160. Written and read by the start alone; the next ask is at most this unless
-     *  both lenses are known to hold no cache. */
+    /** Build C1-Q: the KiB the last answered op 5 gave the session; null before this transport's first size ask, read
+     *  as 160. Written and read by the start alone; the next ask is at most this unless both lenses are known to hold no
+     *  cache. */
     @Volatile private var lastSessionKib: Int? = null
-    /** Build C1-Q: "the 256 KiB size waits" has been said — once per hand request: `c1=N` clears it. */
-    @Volatile private var sizeWaitSaid = false
     /** Build C1's ruling B-S1 (`C1-R5-decisions.md`): LEFT's last link end of the kind a lens restart looks like from
      *  here ([REBOOT_LIKE_ENDS]), on the phone's clock, and its reason. RIGHT's restarts show in its uptime; LEFT's
      *  show only this way. Read by the ladder's hold-back alone ([leftEndDueAt]); today's hold-back (DRAW2) does not. */
@@ -1406,9 +1405,10 @@ abstract class CfwTransportBase(
          *  emptied, and the skip kept the atlas on the lease timing alone): a supervision timeout, a
          *  link loss, a reason the platform could not name, or a host that reports none (BlueZ). */
         var timedOut = false
-        /** Build C1-Q: the newest ACQUIRE written to the arm, NEVER struck — an acquire that may have arrived renewed
-         *  the lease, so the "known fresh" lapse ([leaseKnownFresh]) counts from it (the carry's record errs the other way). */
-        var lastWrittenAt: Long? = null
+        /** Build C1-Q: when an ACQUIRE was last ATTEMPTED on the arm — stamped before its write, never struck: an acquire
+         *  that may have reached the lens renewed its lease, a write reported failed included (the focused read's F2), so
+         *  the "known fresh" lapse ([leaseKnownFresh]) counts from it (the carry's record errs the other way). */
+        var lastAttemptAt: Long? = null
     }
     private val leaseLog = mapOf(Arm.LEFT to LeaseLog(), Arm.RIGHT to LeaseLog())   // guarded by itself
     /** The carry-over is decided once per session, at its first ACQUIRE. */
@@ -1429,11 +1429,13 @@ abstract class CfwTransportBase(
                 if (l.acquires.lastOrNull() != now) l.acquires.addLast(now)
                 while (l.acquires.size > LEASE_LOG_DEPTH) l.acquires.removeFirst()
                 l.released = false
-                l.lastWrittenAt = now
             }
             SettingsMsg.OP_FB_RELEASE -> l.released = true
         }
     }
+
+    /** Build C1-Q: an ACQUIRE is about to be written to [arm] ([LeaseLog.lastAttemptAt]). */
+    private fun leaseAttempted(arm: Arm, now: Long) = synchronized(leaseLog) { leaseLog.getValue(arm).lastAttemptAt = now }
 
     /** The link ended at [now]: the acquires of the last [LINK_SETTLE_MS] may never have
      *  reached the glasses and are struck from the record; an arm the [reason] names as having
@@ -1513,13 +1515,13 @@ abstract class CfwTransportBase(
         updateState { it.copy(leaseCarried = carried, leaseCarry = detail) }
     }
 
-    /** Build C1-Q (`C1-Q-ruling.md` §2): are BOTH lenses known to hold no texture cache at [now], before this start's
-     *  ACQUIRE joins the record? Per arm: a RELEASE written after its last ACQUIRE, or its newest ACQUIRE written (struck
-     *  or not) older than [LEASE_FRESH_AFTER_MS]. No record — a process's first start — is not known fresh, nor is a lens
-     *  that restarted (LEFT's cannot be read, and RIGHT's says nothing of LEFT). [decideLeaseCarry] reads the same log
-     *  and errs the other way. A RELEASE written is taken as applied: LEFT cannot say (the ruling's "Not built" 1). */
+    /** Build C1-Q (`C1-Q-ruling.md` §2, §7): are BOTH lenses known to hold no texture cache at [now], before this start's
+     *  ACQUIRE joins the record? Only by the lapse: every arm's last ACQUIRE attempted is on record and older than
+     *  [LEASE_FRESH_AFTER_MS]. A RELEASE is not read here (one the phone's stack took may never reach the lens — the
+     *  focused read's F1); a process's first start (no record) and a lens that restarted are not known fresh.
+     *  [decideLeaseCarry] reads the same log and errs the other way. */
     private fun leaseKnownFresh(now: Long): Boolean = synchronized(leaseLog) {
-        leaseLog.values.all { l -> l.released || l.lastWrittenAt.let { it != null && now - it >= LEASE_FRESH_AFTER_MS } }
+        leaseLog.values.all { l -> l.lastAttemptAt.let { it != null && now - it >= LEASE_FRESH_AFTER_MS } }
     }
 
     private class PendingAck(val flushId: Long, val windowed: Boolean) {
@@ -2627,23 +2629,18 @@ abstract class CfwTransportBase(
                 // build C1-Q (`C1-Q-ruling.md` §2). THE INVARIANT: after every completed start, each lens's cache — or the
                 // size its first write allocates at — is at least the session's size. Only RIGHT reports its size, and a
                 // cache goes only at a release point, so the ask rises above the last session's size only when both
-                // lenses are known to hold none (a release this transport wrote, or a lapsed lease); any other start asks
-                // at most that size (160 KiB before this transport has asked any), which every lens that carries a cache
-                // holds, and [requestCacheSize] takes the smaller of RIGHT's size and the ask
+                // lenses are known to hold none (a lease lapsed on both arms, by the phone's own record of its acquires);
+                // any other start asks at most that size (160 KiB before this transport has asked any), which every lens
+                // that carries a cache holds, and [requestCacheSize] takes the smaller of RIGHT's size and the ask
                 val kib = if (knownFresh) want else minOf(want, lastSessionKib ?: DamageMsg.CACHE_BUDGET_KIB)
                 // build C1's ruling B-M1: the 256 KiB size is the ladder's stage-2 rung — it records itself (the time and
                 // stage 2) BEFORE op 5 goes out, so glasses that reset on it are held back at the next start; the flag
                 // sets that follow record theirs in [flagsSet]. Stage 0 (every build without a C1 bit) asks 160 as
                 // before: nothing is recorded here. C1-Q: the rung is the ask that really goes out
                 val sizeRung = kib == DamageMsg.CACHE_BUDGET_RIDERS_KIB
-                if (!sizeRung && want == DamageMsg.CACHE_BUDGET_RIDERS_KIB && !sizeWaitSaid) {
-                    sizeWaitSaid = true
-                    emitNote("keeper", "C1 ladder: the 256 KiB size waits for a start after a release or a lapsed lease — " +
-                        "this start asks $kib KiB (a lens may still hold a smaller cache from the last session)")
-                }
                 ladderSizeInForce = false
                 if (sizeRung) { lastArmedAtMs = nowMs(); ladderSizeInForce = true; ladderArmedStage = LADDER_SIZE_STAGE }
-                val size = requestCacheSize(epoch, kib)
+                val size = requestCacheSize(epoch, kib, want)
                 lastSessionKib = size / 1024
                 // what the flag sets record from here: the size rung counts while this session asked for it and got it
                 ladderSizeInForce = sizeRung && size >= kib * 1024
@@ -2656,7 +2653,7 @@ abstract class CfwTransportBase(
                 if (heldBack) emitNote("keeper", "DRAW2 held back since a reset followed its arming — this session draws with v1 shapes (probe flags=0x… with bit 2 to try again)")
                 else if (!roomForV2) emitNote("keeper", "DRAW2 not armed: this session's cache is ${size / 1024} KiB and a v2 atlas needs " +
                     "${(CfwModes.TEXTURE_CACHE_SIZE + CfwModes.STAGE_RESERVE) / 1024} KiB (64 for the atlas, 64 for the strips) — " +
-                    "this session draws with v1 shapes; a start after a release or a lapsed lease asks for the size again")
+                    "this session draws with v1 shapes; a start after a lapsed lease asks for the size again")
                 // ZWRITE and ENGINE need DRAW2 in force (mode 25's check 9, ENGINE's own rule, §5.8, §5.9): the ladder's
                 // bits ride only with it; on a C1 build a wish never carries them past the stage (the probe's rule)
                 armFeatures(epoch, extra = if (armDraw2) DamageMsg.FLAG_DRAW2 or ladderFlags(stage, caps2) else 0,
@@ -2664,7 +2661,6 @@ abstract class CfwTransportBase(
                         (if (isC1(caps2)) C1_FLAGS and (if (armDraw2) ladderFlags(stage, caps2) else 0).inv() else 0))
             } else {
                 updateState { it.copy(cacheSize = CfwModes.TEXTURE_CACHE_SIZE) }
-                lastSessionKib = CfwModes.TEXTURE_CACHE_SIZE / 1024     // C1-Q: no op 5 — a first write allocates the v1 64 KiB
             }
 
             // 4. The sacrificial warmup frame — the firmware silently drops the
@@ -3945,6 +3941,7 @@ abstract class CfwTransportBase(
                                         for (arm in Arm.entries) {
                                             val nonce = (nowMs() and 0xFFFF).toInt()
                                             try {
+                                                if (work.op == SettingsMsg.OP_FB_ACQUIRE) leaseAttempted(arm, nowMs())   // C1-Q: before the write
                                                 for (p in AaFrame.frame(nextSeqLocked(), SettingsMsg.SID,
                                                         SettingsMsg.FLAG_REQUEST, SettingsMsg.control(work.op, nonce))) {
                                                     writePacket(arm, p, work.epoch)
@@ -4119,7 +4116,7 @@ abstract class CfwTransportBase(
         const val LEASE_CARRY_MARGIN_MS = 10_000L
         const val LEASE_CARRY_WINDOW_MS = SettingsMsg.LEASE_EXPIRY_MS - LEASE_CARRY_MARGIN_MS
         /** Build C1-Q: past the firmware's expiry (`FIRMWARE.md` §3: 90,000 ticks, [SettingsMsg.LEASE_EXPIRY_MS]) by this
-         *  much, an arm's newest ACQUIRE written is taken as lapsed. It covers that acquire's delivery after its write —
+         *  much, an arm's last ACQUIRE attempted is taken as lapsed. It covers that acquire's delivery after its write —
          *  the lease runs from when the lens applied it, up to [LINK_SETTLE_MS] later (the same derivation) — and 5 s for
          *  the lens's tick against the phone's clock. It errs toward "not known fresh", which only delays the 256 KiB
          *  rung; the carry window errs the other way and is not this. Derived, not measured. */

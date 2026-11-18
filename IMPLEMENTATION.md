@@ -1070,7 +1070,8 @@ These mechanisms are load-bearing and easy to break by accident:
   success from op 5's OWN id-0 reply, never from the status register (TELEMETRY records none, so it is
   sticky) and re-asks on the pacing tick; since C1-Q the session's size is the smaller of RIGHT's field 18 and the ask,
   and the ask rises above the last session's size only at a start where the lease log says both lenses hold no cache
-  (a release written, or a lapse — `leaseKnownFresh`, `LEASE_FRESH_AFTER_MS`), so a lens that carries a cache always
+  (a lease lapsed on both arms — `leaseKnownFresh`, `LEASE_FRESH_AFTER_MS`, stamped at each ACQUIRE's attempt; a release
+  is not counted), so a lens that carries a cache always
   holds the session's size; the atlas read-back judges a cache SMALLER than the layout, not a different one. `CtlWork.BothArms.written` latches on SUCCESS — "some attempt
   reached both arms" — and the gate waits for it against the reply (`settleWrite`); reading the failure
   deferred instead latched on the first attempt that threw. Telemetry fields 2 and 12 are OS TICKS
