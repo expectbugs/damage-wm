@@ -8782,12 +8782,15 @@ right"), with him at the PC. The per-step logs are in the gitignored `private/bu
   DRAW2 armed as in every session before; LE 2M on both arms; at the lease point arena 20 holds 70 KiB free where it
   held 75 (the larger context, as §87 predicted), arenas 13 and 27 as before; no refusal, fault, divergence or
   hold-back. LEFT cannot report: its evidence is the flash's verify, its authentication and that it draws.
-- **One difference not explained (measured; open):** in his 84-second test at 03:18 (the glasses reporting "not worn")
-  scroll messages came in bursts — 74 scrolls in 28 bursts, 19 of them of 2 to 6 events with gaps of 17–150 ms, 30
-  gaps under 50 ms. In the two days before the flash (565 scrolls, APK 0.67, the Phase 2 image) no gap was under
-  224 ms. The phone app's input path and carrier page did not change between 0.67 and 0.69 (read in the diff). Open
-  between the image, the flash's side effects (six components rewritten, a fresh start) and the test's conditions;
-  his next worn session's log decides what is read next. Nothing is armed until it is understood.
+- **One difference, explained the same day — it was the phone's screen, not the glasses.** In his 84-second test at
+  03:18 the log showed 74 scroll events in 28 bursts with gaps of 17–150 ms, where the two days before the flash
+  (565 scrolls) had none under 224 ms. His word at 11:20: the ring was on its charger; he scrolled on the phone app's
+  mirror. In the code: a drag there gives one notch per 24 dp at each touch sample (`LensView.onScroll`), and it was
+  logged with the same line and source as a ring event (`CfwTransportBase.injectInput`). So **nothing about the
+  glasses' scroll pacing on C1 was measured, and no ring input on C1 has been timed yet**; the only real events from
+  the glasses in that test were three long-press releases (temple touches). The line now says "(from this app's
+  screen)" for such a gesture (§90). The lesson: before timing a log line, find every writer of it — none of the ten
+  explanations listed that night was "the events did not come from the glasses".
 - The phone's keeper asked again every 2 s while its Bluetooth was off (01:20–03:17) and logged about 6 lines per
   try in the day log — listed, not changed.
 - **The way back:** the previous image `48172b62…` (kept built), then Phase 1's `c5e4f8b7…`.
@@ -8926,3 +8929,43 @@ scenes between two stages' renders; the close gave `SceneFiles` a pinned world a
 the free-space bars. A judge's world is pinned whole; anything a scene reaches through a real provider is the machine.
 The base for the next build is `private/build070/base-070/` (mask `base-070-mask/`). Still read from the machine,
 named and left: the real books (their hash is checked around every render) and the desktop's icon theme.
+
+## 90. Build C1-P: the ladder's stage is kept across a restart of the phone's process (in APK 0.70; 2026-11-18)
+
+Why: every APK install restarts the phone's process, and the C1 ladder's stage lived in the transport's memory — a
+stage armed by hand for a soak would have returned to 0 at the next install without a word.
+
+1. **Built.** One file, `c1-stage`, in the app's data directory (the phone's `filesDir`; on the PC `~/.damage`, only
+   in mode `ble`): read once at the transport's creation, written by `probe c1=N` and by a hold-back under one lock,
+   an unreadable file read as 0 and said. What was restored is said once at the first start. The hold-back's clocks
+   are not kept (the first start after a restart cannot blame a reset from before it).
+2. **The review** (two readers) found nothing wrong in what was built, and that it removed a recovery: a process that
+   ended on an uncaught error used to come back at stage 0. **The step-down, ruled and built:** at the phone's
+   process start, when the last run left its uncaught-error record (the FILE is tested, before the pickup, which
+   returns nothing on its "the same again" path — a start loop's path) and the stored stage is above 0, the first
+   stack starts at stage 0 and the file holds 0, said once as a `keeper` note and a `holdback` fault ("probe c1=n to
+   try again"). To 0, not n − 1; no clock. Also: `FORK.md` §7 item 7 opens with `probe c1=0` before any flash; a
+   `c1=` probe clears the creation's pending note; one test's wait corrected (it changed the simulator's state after a
+   count taken in a write hook — the 29 such hooks in 8 test files read, only that one).
+3. **Instruments and gates** (simulator): the mutation list `research/mutations-c1p.json`, 21 entries — the 9 of the
+   step-down each caught for its stated reason, none ran away, the other 12 from the build stage's sweep;
+   `MotionTransportTest` 20 of 20. On `main` with C1-P merged: core 1,559 tests, 0 failures · desktop 52 · lint 0 ·
+   the phone build and its wiring check 79 ok (check 10 is new: the first stack is told what the file said), selftest
+   40 of 40 · node 200 · `--selfcheck` 486 PASS, twice · the
+   four content checks pass · the snapshot's 94 renders and 66 in `phone/`, 0 px outside the mask against 0.70's base.
+4. **Found by reader B in C1's own code, reproduced in the simulator, not on glass — and not fixed in this build:**
+   with stage 2 in force (both lenses at 256 KiB), a restart of LEFT alone and a start inside RIGHT's lease: the
+   hold-back lowers the stage, the start asks 160 KiB, RIGHT answers "allocated already, 256", LEFT allocates 160,
+   and the session takes RIGHT's 256 — LEFT then refuses every cache record above its own size, so the two eyes would
+   draw from different cache content. The class: one lens fresh, the other carrying, the ask changed in between, and
+   the phone reads RIGHT only. **Ruled as build C1-Q** (no new message: the ask rises only at a start where both
+   lenses are known fresh, and the session's size is never above RIGHT's allocated size or the ask), in progress.
+   **Stage 2 is not armed before C1-Q is installed.** Stages 0 and 1 ask 160 KiB at every start and are not affected.
+5. **In the same merge:** the input log line says "(from this app's screen)" for a gesture made on the phone app's
+   mirror or the PC's preview (§88's explained difference).
+6. **Size** (the whole of C1-P): product about +124 lines in six files (`CfwTransportBase.kt` 91 of them), tests +170,
+   the wiring check +33, the mutation list +366.
+7. **Not built, listed:** no clock on the step-down (an unrelated uncaught error late in a run steps the stage down
+   too, and says so); a native fault, an ANR or Android ending the app leaves no record, so the stage stays, as after
+   an install; the PC's own transport has no step-down; the phone's wiring is pinned by a text check, not by a run
+   on Android; the keeper's in-process "start failed, retrying in 2 s" at a stage is not covered.

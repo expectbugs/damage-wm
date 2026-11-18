@@ -58,7 +58,7 @@ whatever content had to be staged, not N frames on the wire.
 | # | trigger | candidate motion | verbs | staged on glass | phase | notes |
 |---|---|---|---|---|---|---|
 | M1 | scroll one notch | the list pans one row through the fixed lens band, ease-out | MV + FILL | the neighbour rows as cached rows | P4 | today: COPY+STRIP per frame (§4.2, 880–1,460 B/notch measured). The list-pan is the flagship local case |
-| M2 | notch settles on a new row | the lens icon grows from row-size (20 px) to band-size (56 px) as the row enters the band | VS or CB | both icon scales cached | P4 | the focused-row icon is band-height (§4.5b); a grow reads the focus |
+| M2 | notch settles on a new row | the lens icon grows from row-size (20 px) to band-size (56 px) as the row enters the band | VS or CB | both icon scales cached | P4 | the focused-row icon is band-height (§4.5b); a grow reads the focus. **CUT by Adam, 2026-11-18** ("it already does that enough plus the come-forward depth effect") — no size change in Main's focus motion |
 | M3 | notch settles | the entering row's summary brightens from DIM to BODY as it reaches the lens; the leaving row dims | CB | the row text cached at two levels | P4 | brightness is the primary focus cue (§4.2); a ramp instead of a snap |
 | M4 | resting → active (input arrives) | the dropped rows rise from level 2–3 back to full ink | CB | the resting and active row sets | P3 | §4.2 resting state; a fade-up on wake-from-idle |
 | M5 | active → resting (input goes quiet) | the reverse: non-lens rows fade toward level 0 | CB | — | P3 | "input has gone quiet" is scheduler priority, not a timer (§4.2) |
@@ -319,7 +319,7 @@ begins after the phone's round trip. The response that begins on the glasses the
 | # | decision | ruling | why |
 |---|---|---|---|
 | A1 | The core set: move a rect per lens, fill a rect, a cached draw with a brightness ramp, a progressive reveal, wait | in | they carry all but a handful of the 98 rows |
-| A2 | The vertical-scale draw (the wheel's drum W1/W2, the icon grow M2, Pulse) | moved to the second flash (`REPLAN.md` §14; `FIRMWARE.md` §6.6) | its main user, the wheel's notch, is a local (P4) row; until then the wheel keeps today's phone-drawn spin |
+| A2 | The vertical-scale draw (the wheel's drum W1/W2, Pulse; the icon grow M2 was cut on 2026-11-18) | moved to the second flash (`REPLAN.md` §14; `FIRMWARE.md` §6.6) | its main user, the wheel's notch, is a local (P4) row; until then the wheel keeps today's phone-drawn spin |
 | A3 | The card flip (P-2): a horizontal-scale operation, or three cached images swapped (back, sliver, front) | the swap | one row; no new operation |
 | A4 | The tick | 30 Hz to start, moved at the feel session | a full panel refresh measured 4.4 ms median on his glasses (`HANDOFF.md` §65), so the panel is not the limit; the battery cost is the unknown |
 | A5 | Riding the same flash, as recorded (`HANDOFF.md` §67, §68): the cache limit 160 → 256 KiB, a largest-free-block figure in telemetry, the compressed cache write | all three stay | a flash is the expensive unit; cache writes were 61 % of the image lane's bytes and compression takes 43 % off (measured, §68) |
@@ -342,6 +342,10 @@ begins after the phone's round trip. The response that begins on the glasses the
 | C2 | D7's targets | confirmed: phone-started motion begins within about 100 ms of the ring event; no visible mismatch between the lenses | the numbers the test stop judges against |
 | C3 | D7's open number: the battery a workday of motion may cost | **no limit** — "By default the system should be as nice as possible, but have various settings for power saving in case the default uses too much to get through a day" (`REPLAN.md` §14.1, R12) | — |
 | C4 | A Global `Motion` row (off · subtle · full, and a speed) in place of `Slide frames` and `Slide fill` | as `FORK.md` plans; default `full` (follows C3; taken as recommended) | one setting for one engine, and the power-saving setting C3 asks for |
+
+**His priority, 2026-11-18** (asked how Main's selected row should grow): "What's more important is smooth quick
+animations for all the movements and transitions." No row of §1–§2 is ruled by it; it says what the motion kit is
+judged by — every movement and transition smooth and quick — and that this outranks any single effect.
 
 **D. Scope, order and budget — D1–D4 fell away with `REPLAN.md` §14:** D1 (the first programs: they are the
 glasses kit's, built once after the second flash, step K), D2 (the order of the halves), D3 (before the flash: a day
