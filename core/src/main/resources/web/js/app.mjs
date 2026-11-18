@@ -20,6 +20,8 @@ import { homeView } from './views/home.mjs';
 import { readerView } from './views/reader.mjs';
 import { torrentsView } from './views/torrents.mjs';
 import { filesView } from './views/files.mjs';
+import { feedView } from './views/feed.mjs';
+import { tmuxView } from './views/tmux.mjs';
 import { devicesView } from './views/devices.mjs';
 import { diagView } from './views/diag.mjs';
 import { settingsView, applyLooks } from './views/settings.mjs';
@@ -62,6 +64,9 @@ const noticeToasts = new Map(); // id → its toast
 let noticeWake = null;
 
 const subs = new Map(); // the views' PC-served scopes → their need (S1-2 Q4w) or null, sent again at each welcome
+// S1-3 (B11, B17): the views' live sources (`live/<window>/<src>`) → {need, onFrame}; asked again at each welcome, and
+// the PC answers each with a fresh `init` (no numbering: one socket is ordered, a new one starts over)
+const lives = new Map();
 // S1-2 Q4w: a converted window's record scope beside Reader's (Torrents' recents and rows), each with its own copy for
 // the reason the notices have theirs; kept across the view's visits (a return draws it until its new snapshot)
 const recs = new Map(); // window → ClientRecord
@@ -151,6 +156,7 @@ function onFrame(f) {
     case 'snap': return f.desc ? desc(f.scope, f.desc) : f.scope === NOTICES ? noticeSnap(f) : recs.has(f.scope) ? winRecSnap(f) : recordSnap(f);
     case 'chg': return f.scope === NOTICES ? noticeChg(f) : recs.has(f.scope) ? winRecChg(f) : recordChg(f);
     case 'ans': return answer(f);
+    case 'live': return live(f);
     case 'end': return ended(f);
     case 'closed': return closed();
     case 'undecodable': return say(`a message from the PC did not decode (${f.detail})`, { from: 'Damage' });
@@ -187,6 +193,7 @@ function welcome(f) {
   for (const w of recSubs) send(P.sub(w));
   if (P.atLeast(S.level, 'full') && !subs.has('devices')) subs.set('devices', null);
   for (const [s, need] of subs) send(P.sub(s, need));
+  for (const [s, l] of lives) send(P.sub(s, l.need));
   const back = reachAtWelcome;
   reachAtWelcome = false;
   if (first) route();
@@ -360,6 +367,13 @@ function noticeToast(n) {
   place(t, urgent);
 }
 
+/** S1-3 (B11): a message of a live source (`live{src, init | frame | data | end}`) to the view that holds it. One for a
+ *  source this page let go was on its way when it did: dropped here (the PC detaches the source at `unsub`). */
+function live(f) {
+  const l = lives.get(f.src);
+  if (l) l.onFrame(f);
+}
+
 function desc(scope, d) {
   S.descs.set(scope, d);
   if (scope === 'desc/main') S.names = d.who || {};
@@ -430,6 +444,15 @@ const ctx = {
     if (!subs.delete(scope)) return;
     S.descs.delete(scope);
     if (S.phase === 'open') send(P.unsub(scope));
+  },
+  /** S1-3 (B11): a live source, its messages to `onFrame`. Called again (a new need: the page hidden or shown) it is
+   *  sent again; the PC answers a fresh `init`. */
+  live(scope, need, onFrame) {
+    lives.set(scope, { need, onFrame });
+    if (S.phase === 'open') send(P.sub(scope, need));
+  },
+  unlive(scope) {
+    if (lives.delete(scope) && S.phase === 'open') send(P.unsub(scope));
   },
   /** S1-2 Q4w: a converted window's record copy, and its subscription while a view holds it. */
   rec(window) {
@@ -515,10 +538,14 @@ const ctx = {
 const VIEWS = {
   main: { make: homeView, label: 'Home', icon: 'home' },
   reader: { make: readerView, label: 'Reader', icon: 'book' },
+  // S1-3 (B17): Feed, at level view; a PC whose build names no Feed contract is never asked for it
+  feed: { make: feedView, label: 'Feed', icon: 'feed', contract: 'feed' },
   // S1-2 Q4w: a window the PC shares only when both name the same contract version (C§9.7 item 2)
   torrents: { make: torrentsView, label: 'Torrents', icon: 'torrents', contract: 'torrents' },
   // S1-2 Q5w: Files, full as a whole (C§10.4): below full its page says so and asks the PC for nothing
   files: { make: filesView, label: 'Files', icon: 'folder', contract: 'files', need: 'full' },
+  // S1-3 (B9, B17): Tmux, full as a whole (the window's minimum is full)
+  tmux: { make: tmuxView, label: 'Tmux', icon: 'terminal', contract: 'tmux', need: 'full' },
   devices: { make: devicesView, label: 'Devices', icon: 'devices', need: 'full' },
   diag: { make: diagView, label: 'Diagnosis', icon: 'pulse', need: 'full' },
   settings: { make: settingsView, label: 'Settings', icon: 'gear' },

@@ -11,7 +11,8 @@
 //  - bookmark here, go to the bookmark, and reset progress through the confirm shape.
 // Nothing is cut: a part is drawn whole and scrolls.
 
-import { h, fill, bar, outLink, icon, keepFocus } from '../dom.mjs';
+import { h, fill, bar, icon, keepFocus } from '../dom.mjs';
+import { blockEl } from '../doc.mjs';
 import { offsetOf } from '../anchor.mjs';
 import { progress, percent, partFor, placeAt } from '../reader-model.mjs';
 import { key } from '../record.mjs';
@@ -282,38 +283,10 @@ export function readerView(ctx) {
       d.part + 1 < d.parts ? step(d.part + 1, `Next: ${title(d.part + 1)} →`) : h('p', { class: 'end', text: 'The end of the book.' }));
   }
 
-  function block(b) {
-    let el;
-    switch (b.kind) {
-      case 'heading': el = h(`h${Math.min(6, (b.level || 1) + 1)}`); break;
-      case 'item': el = h('p', { class: `item d${Math.min(6, b.level || 1)}` }); break;
-      case 'quote': el = h('blockquote'); break;
-      case 'mono': el = h('pre'); break;
-      case 'image': el = h('figure', null, h('img', { src: `/blob/${b.ref}`, alt: '', loading: 'lazy' })); break;
-      case 'rule': el = h('hr'); break;
-      default: el = h('p');
-    }
-    el.classList.add('blk');
-    el.dataset.s = b.charStart;
-    el.dataset.e = b.charEnd;
-    let at = b.charStart;
-    for (const s of b.spans || []) {
-      el.append(run(s, at));
-      at += s.text.length;
-    }
-    return el;
-  }
-
-  function run(s, at) {
-    let el;
-    if (s.href) el = outLink(s.href, s.text);
-    else if (s.jump) el = h('a', { href: address({ window: W, target: `book:${B.id}`, anchor: s.jump }), class: 'jump',
-      on: { click: (e) => { e.preventDefault(); showAt(offsetOf(s.jump) ?? 0, true); } } }, s.text);
-    else el = h('span', null, s.text);
-    for (const m of s.marks || []) if (m === 'em' || m === 'strong' || m === 'code') el.classList.add(m);
-    el.dataset.c = at;
-    return el;
-  }
+  // S1-3 (B17): the block and span renderer is `doc.mjs`'s, shared with Feed; Reader adds its in-book jumps
+  const jump = (s) => h('a', { href: address({ window: W, target: `book:${B.id}`, anchor: s.jump }), class: 'jump',
+    on: { click: (e) => { e.preventDefault(); showAt(offsetOf(s.jump) ?? 0, true); } } }, s.text);
+  const block = (b) => blockEl(b, { jump });
 
   /** Puts `offset` at the top of the reading pane. A move the page makes counts as input only when asked ([input]). */
   function placeView(offset, input) {

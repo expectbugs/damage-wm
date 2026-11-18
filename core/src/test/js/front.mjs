@@ -177,6 +177,8 @@ export function realScenes(book) {
   const reach = { wait: '#reach[hidden]' };
   return {
     ...filesRealScenes(reach),
+    ...feedRealScenes(reach),
+    ...tmuxRealScenes(reach),
     'real-waiting': { path: '/', anon: true, steps: [{ wait: '.pair .pcode' }] },
     'real-home': { path: '/', steps: [{ wait: '.cards .card' }, reach] },
     'real-shelf': { path: '/w/reader', steps: [{ wait: '.shelf .book' }, reach] },
@@ -295,5 +297,51 @@ function filesRealScenes(reach) {
       { late: true, fetch: '/__ctl?release' }] },
     'real-files-glass': { path: many, steps: [listed, reach, { theme: 'glass' }] },
     'real-files-below': { path: many, control: true, steps: [{ wait: '.page.files .note' }] },
+  };
+}
+
+/** S1-3 (B17): Feed's scenes against the real listener over `ScriptedFeed`'s made-up world (its own source ids; no site
+ *  is contacted), once LookServer serves Feed (LOOK_FEED=1; none without it). What each must show it can do, read in
+ *  the listener's log: an opened row sends its source's read list and a page load none; a flag lands; mark all read
+ *  carries the list; refresh is a program op; a comic opens and random opens a `num:` address the PC answers; the
+ *  archive's scroll writes its place once per pause. */
+function feedRealScenes(reach) {
+  if (!process.env.LOOK_FEED) return {};
+  const rows = { wait: '.fd-rows .fd-row' };
+  const settle = { fetch: '/__wait?ms=1500' };
+  return {
+    'real-feed-sources': { path: '/w/feed', steps: [{ wait: '.fd-sources .fd-s' }, reach] },
+    'real-feed-open': { path: '/w/feed/src:popular', steps: [rows, reach, { click: '.fd-row:nth-child(2) .fd-open' }, { wait: '.fd-text' }, settle] },
+    'real-feed-article': { path: '/w/feed/src:slashdot', steps: [rows, reach, { click: '.fd-row:nth-child(1) .fd-open' }, { wait: '.fd-text .blk, .fd-floor' }, settle] },
+    'real-feed-flag': { path: '/w/feed/src:slashdot', steps: [rows, reach, { click: '.fd-row:nth-child(1) .fd-open' }, { wait: '.fd-bar button' },
+      { click: '.fd-bar button' }, settle] },
+    'real-feed-markall': { path: '/w/feed/src:popular', steps: [rows, reach, { click: '.fd-acts button:nth-child(2)' }, { wait: 'dialog[open]' },
+      { click: 'dialog[open] button.act' }, settle] },
+    'real-feed-refresh': { path: '/w/feed/src:popular', steps: [rows, reach, { click: '.fd-acts button:nth-child(1)' }, settle] },
+    'real-feed-comic': { path: '/w/feed/src:xkcd', steps: [rows, reach, { click: '.fd-row:nth-child(1) .fd-open' }, { wait: '.fd-comic img' },
+      { click: '[data-key="bar:random"]' }, { wait: '.fd-comic img' }, settle] },
+    'real-feed-binge': { path: '/w/feed/binge:8bt', steps: [{ wait: '.fd-ep, .fd-bl' }, reach, { fetch: '/__wait?ms=1000' },
+      { fire: ['.fd-read', 'wheel'] }, { scroll: ['.fd-read', 600] }, { fetch: '/__wait?ms=2600' }] },
+    'real-feed-flagged': { path: '/w/feed/flagged', steps: [{ wait: '.fd-lhead' }, reach] },
+  };
+}
+
+/** S1-3 (B17): Tmux's scenes against the real listener over LookServer's scripted Tmux (LOOK_TMUX=<host>:<session>, a
+ *  session of its made-up world; none without it): the terminal shows the scripted control-mode output; a key typed in
+ *  it reaches the fake provider as a `raw` op (the listener's log); the end confirm's act; a device below full is asked
+ *  nothing (LOOK_SECRET_CONTROL). */
+function tmuxRealScenes(reach) {
+  const at = process.env.LOOK_TMUX;
+  if (!at) return {};
+  const t = (target) => format({ window: 'tmux', target });
+  const field = '.xterm-helper-textarea';
+  const drawn = { wait: '.xterm-screen, .tm-rows .tm-row' };
+  return {
+    'real-tmux-sessions': { path: '/w/tmux', steps: [{ wait: '.tm-list .tm-sess' }, reach] },
+    'real-tmux-terminal': { path: t(`session:${at}`), steps: [drawn, reach, { fetch: '/__wait?ms=1500' }] },
+    'real-tmux-key': { path: t(`session:${at}`), steps: [drawn, reach, { focus: field }, { key: [field, 'x'] }, { key: [field, 'Enter'] }, { fetch: '/__wait?ms=1500' }] },
+    'real-tmux-end': { path: t(`session:${at}`), steps: [drawn, reach, { click: '.tm-acts button.danger' }, { wait: 'dialog[open]' },
+      { click: 'dialog[open] button.act' }, { fetch: '/__wait?ms=1500' }] },
+    'real-tmux-below': { path: t(`session:${at}`), control: true, steps: [{ wait: '.page.tmux .note' }] },
   };
 }

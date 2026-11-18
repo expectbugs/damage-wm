@@ -8,7 +8,9 @@ js/address.mjs
 js/anchor.mjs
 js/confirm.mjs
 js/conn.mjs
+js/doc.mjs
 js/dom.mjs
+js/feed-model.mjs
 js/files-model.mjs
 js/focus.mjs
 js/notices.mjs
@@ -16,11 +18,16 @@ js/proto.mjs
 js/reader-model.mjs
 js/record.mjs
 js/stream.mjs
+js/term-render.mjs
+js/terminal.mjs
+js/tmux-model.mjs
 js/torrents-model.mjs
 js/views/devices.mjs
 js/views/diag.mjs
+js/views/feed.mjs
 js/views/files.mjs
 js/views/home.mjs
 js/views/reader.mjs
 js/views/settings.mjs
+js/views/tmux.mjs
 js/views/torrents.mjs
