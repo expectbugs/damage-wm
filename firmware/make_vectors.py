@@ -1760,6 +1760,7 @@ TOUCH_L, TOUCH_R, RING, ANY = 0, 1, 4, 0xFF                              # §6.1
 NONE = 0xFFFF                              # §6.3 LIST's "none"; a tap entry's prog for the report-only form
 K_ARG, K_ITEM, K_PITCH = 0, 1, 2           # §6.2 step 9: arg · the item table at c' + arg · c' × pitch + arg
 M32 = 0xFFFFFFFF
+PAST = 0x4000                              # off4 of byte 65,536: just past the 64 KiB cache every v4 vector allocates
 
 def bind_set(entry, dev, ev, lst, stp, slot, period, prog4, params=()):
     """Mode 27 SET (§6.3): entry devType eventId list u8 · step s8 · slot period u8 · prog u16 · 4 × {kind u8, arg s16}."""
@@ -1882,7 +1883,7 @@ def vectors_v4(kf):
         bind_set(0, ANY, UP, 0, 1, 0, P, f.v2prog),              # a program of version 2: 5
         bind_set(0, ANY, UP, 0, 1, 0, P, f.selfbd),              # a track's backdrop `self`: 5
         bind_set(0, ANY, UP, 0, 1, 0, P, f.selfdraw),            # a DRAW of `self`: 5
-        bind_set(0, ANY, UP, 0, 1, 0, P, 0x3FFE),                # a program past the cache: 5
+        bind_set(0, ANY, UP, 0, 1, 0, P, PAST),                # a program past the cache: 5
         bind_set(8, ANY, UP, 0, 1, 0, P, f.v2prog),              # entry 8 and a bad program: 12 before 5
         bad(bind_set(0, ANY, UP, 0, 1, 0, P, f.pan0)[:-1]),      # 22 B: 1
         bad(bind_set(8, ANY, UP, 0, 1, 0, P, f.pan0) + b"\0"),   # 24 B and entry 8: 1 before 12
@@ -2264,7 +2265,7 @@ def vectors_v4(kf):
     for e in [bind_set(0, ANY, UP, 0, 1, 0, P, f.offl16, [(K_PITCH, 100)]),               # S 5: an area off the panel (and level 16): 2 before 12
               bind_set(0, ANY, UP, 0, 1, 0, P, f.nonel16, [(K_PITCH, 100)]),              # S 6: a `none` backdrop outside track 1: 2
               bind_set(0, ANY, UP, 0, 1, 0, P, f.lvlp, [(K_ARG, 16)]),                    # S 7: level 16 after substitution: 12
-              bind_set(0, ANY, UP, 0, 1, 0, P, f.srcp, [(K_ARG, 0x3FFE), (K_ARG, 16)]),   # S 8: a record past the cache (and level 16): 5 before 12
+              bind_set(0, ANY, UP, 0, 1, 0, P, f.srcp, [(K_ARG, PAST), (K_ARG, 16)]),   # S 8: a record past the cache (and level 16): 5 before 12
               bind_set(0, ANY, UP, 0, 1, 0, P, f.lvlp, [(K_ARG, 15)])]:                   # S 9: level 15: drew
         st += [step(tk(t), msg(e), inp(RING, UP))]; t += 10
     st += [step(tk(t), wake()), step(tk(1500), msg(up_e(f)))]
@@ -2349,8 +2350,8 @@ def vectors_v4(kf):
               batch(fill(rect(530, 0, 100, 100), 4), vscale_pair(r30, 530, 546, 20, 0x0C, 15)),
               bad(vscale(r30, 0, 0, 0x0F, 30)[:-1]), bad(vscale(r30, 0, 0, 0x0F, 30) + b"\0"),   # 9 B, 11 B: 1
               bad(vscale_pair(r30, 0, 0, 0, 0x0F, 30)[:-1]),                              # 0x9C of 11 B: 1
-              vscale(0x3FFE, 0, 0, 0x0F, 0), vscale(r30, 0, 0, 0x0F, 2049),               # H 0 (and a record past the cache): 12 before 5; H 2049: 12
-              vscale(0x3FFE, 0, 0, 0x0F, 30),                                             # a record past the cache: 5
+              vscale(PAST, 0, 0, 0x0F, 0), vscale(r30, 0, 0, 0x0F, 2049),               # H 0 (and a record past the cache): 12 before 5; H 2049: 12
+              vscale(PAST, 0, 0, 0x0F, 30),                                             # a record past the cache: 5
               batch(fill(rect(0, 460, 640, 4), 5), vscale(r30, 0, 0, 0x0F, 0))]:           # refused in a batch: the fill in the shadow, no present
         st.append(step(msg(m)))
     vec("v4-vscale", st)
@@ -2404,8 +2405,8 @@ def vectors_v4(kf):
            step(tk(t + 10 * P), msg(retarget(2, (5, 5)))),
            step(tk(t + 14 * P), wake()), step(tk(t + 17 * P), wake())]
     t += 1000
-    st += [step(tk(t), flags(ENGINE | BIND), msg(vscale(0x3FFE, 0, 0, 0x0F, 0)), flags(full)),   # mode 28 with DRAW2 clear: 9 before 12
-           step(tk(t + 10), {"lease": "release"}, msg(vscale(0x3FFE, 0, 0, 0x0F, 0)))]          # no lease: 3 before 12
+    st += [step(tk(t), flags(ENGINE | BIND), msg(vscale(PAST, 0, 0, 0x0F, 0)), flags(full)),   # mode 28 with DRAW2 clear: 9 before 12
+           step(tk(t + 10), {"lease": "release"}, msg(vscale(PAST, 0, 0, 0x0F, 0)))]          # no lease: 3 before 12
     vec("v4-vscale-draw", st)
 
     for vec_ in v:
