@@ -597,7 +597,11 @@ class MotionTransportTest {
         t.heapReads = false
         collect(t)
         t.devProbe("c1", "3")
-        t.start(full); t.stop()          // C1-Q: the start below is known fresh, so it asks 256 KiB
+        // C1-Q: the start below is known fresh (this stop's release), so it asks 256 KiB. The clock then moves past the
+        // hold-back's window, so the arming this start's own FLAGS_SETs stamped is not what a reset below is read against
+        // — only the size rung's own stamp can be (C1-Q's sweep: without the move, `P-sizerung-stamp` was not caught)
+        t.start(full); t.stop()
+        clock += 200_000L
         val sizes = java.util.concurrent.CopyOnWriteArrayList<String>()
         val swallow = java.util.concurrent.atomic.AtomicBoolean(true)
         t.onWrite = { a, p ->
