@@ -38,7 +38,9 @@
    "theAskDoesNotRiseWhileLeftCarries_H2_C1Q",
    "aDraw2HoldBackLiftedByHandKeepsTheHeldBackSizeUntilAFreshStart_C1Q",
    "aStruckAcquireStillCountsForTheLapse_C1Q",
-   "aProcessesFirstStartAsksNoMoreThan160_C1Q"
+   "aProcessesFirstStartAsksNoMoreThan160_C1Q",
+   "aReleaseLeftNeverAppliedDoesNotRaiseTheAsk_F1_C1Q",
+   "anAcquireReportedFailedAfterLeftAppliedItDoesNotRaiseTheAsk_F2_C1Q"
   ],
   "note": "C1-Q rule 1: every start asks the stage's size (no cap at the last session's)"
  },
@@ -79,49 +81,12 @@
   "note": "C1-Q rule 3: `last` is not moved by an answered op 5"
  },
  {
-  "id": "Q-last-nodraw2",
-  "file": "transport/CfwTransportBase.kt",
-  "edits": [
-   [
-    "                lastSessionKib = CfwModes.TEXTURE_CACHE_SIZE / 1024     // C1-Q: no op 5 — a first write allocates the v1 64 KiB\n",
-    ""
-   ]
-  ],
-  "tests": [
-   "*MotionTransportTest*"
-  ],
-  "expect": [
-   "(no pin: the case needs the build to lose DRAW2 under a live lease, and only a flash changes the build — it restarts both lenses; the line keeps `last` conservative, listed in C1-Q-built.md)"
-  ],
-  "note": "C1-Q rule 3: a start with no DRAW2 (no op 5) does not set `last` to 64"
- },
- {
-  "id": "Q-fresh-release",
-  "file": "transport/CfwTransportBase.kt",
-  "edits": [
-   [
-    "leaseLog.values.all { l -> l.released || l.lastWrittenAt.let",
-    "leaseLog.values.all { l -> l.lastWrittenAt.let"
-   ]
-  ],
-  "tests": [
-   "*MotionTransportTest*"
-  ],
-  "expect": [
-   "aRenewalWaitsAndTheWakeAfterTheReleaseAsks256_C1Q",
-   "aDraw2HoldBackLiftedByHandKeepsTheHeldBackSizeUntilAFreshStart_C1Q",
-   "aRestartOfLeftAloneWithTheNextStartInsideTheLease_H1_C1Q",
-   "eachLadderStageAddsOnlyItsOwnChange_6_2"
-  ],
-  "note": "C1-Q: a release this transport wrote does not make an arm known fresh"
- },
- {
   "id": "Q-fresh-lapse",
   "file": "transport/CfwTransportBase.kt",
   "edits": [
    [
-    "l.released || l.lastWrittenAt.let { it != null && now - it >= LEASE_FRESH_AFTER_MS }",
-    "l.released"
+    "leaseLog.values.all { l -> l.lastAttemptAt.let { it != null && now - it >= LEASE_FRESH_AFTER_MS } }",
+    "false"
    ]
   ],
   "tests": [
@@ -129,10 +94,13 @@
   ],
   "expect": [
    "aLapsedLeaseIsKnownFreshOnlyPastItsMargin_C1Q",
+   "aRenewalOrAWakeWaitsAndTheStartAfterALapseAsks256_C1Q",
    "aResetOutsideTheHoldBackWindowLeavesTheStage_DM1",
-   "aLadderBitArmedByHandRecordsItsStage_BM1"
+   "aLadderBitArmedByHandRecordsItsStage_BM1",
+   "aRestartOfLeftAloneWithTheNextStartInsideTheLease_H1_C1Q",
+   "eachLadderStageAddsOnlyItsOwnChange_6_2"
   ],
-  "note": "C1-Q: a lapsed lease does not make an arm known fresh"
+  "note": "C1-Q: no start is known fresh (the lapse, the only route since §7, never counts)"
  },
  {
   "id": "Q-fresh-margin",
@@ -156,8 +124,8 @@
   "file": "transport/CfwTransportBase.kt",
   "edits": [
    [
-    "l.released || l.lastWrittenAt.let {",
-    "l.released || l.acquires.lastOrNull().let {"
+    "leaseLog.values.all { l -> l.lastAttemptAt.let {",
+    "leaseLog.values.all { l -> l.acquires.lastOrNull().let {"
    ]
   ],
   "tests": [
@@ -173,8 +141,8 @@
   "file": "transport/CfwTransportBase.kt",
   "edits": [
    [
-    "l.lastWrittenAt.let { it != null && now - it >= LEASE_FRESH_AFTER_MS }",
-    "l.lastWrittenAt.let { it == null || now - it >= LEASE_FRESH_AFTER_MS }"
+    "l.lastAttemptAt.let { it != null && now - it >= LEASE_FRESH_AFTER_MS }",
+    "l.lastAttemptAt.let { it == null || now - it >= LEASE_FRESH_AFTER_MS }"
    ]
   ],
   "tests": [
@@ -203,10 +171,71 @@
    "*MotionTransportTest*"
   ],
   "expect": [
-   "aRenewalWaitsAndTheWakeAfterTheReleaseAsks256_C1Q",
+   "aRenewalOrAWakeWaitsAndTheStartAfterALapseAsks256_C1Q",
    "aLapsedLeaseIsKnownFreshOnlyPastItsMargin_C1Q"
   ],
   "note": "C1-Q: the classification is read after the start's own ACQUIRE joined the record"
+ },
+ {
+  "id": "Q-release-route-back",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "leaseLog.values.all { l -> l.lastAttemptAt.let {",
+    "leaseLog.values.all { l -> l.released || l.lastAttemptAt.let {"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": [
+   "aReleaseLeftNeverAppliedDoesNotRaiseTheAsk_F1_C1Q",
+   "aRenewalOrAWakeWaitsAndTheStartAfterALapseAsks256_C1Q",
+   "aDraw2HoldBackLiftedByHandKeepsTheHeldBackSizeUntilAFreshStart_C1Q"
+  ],
+  "note": "C1-Q §7 (the focused read's F1): a release the phone wrote makes an arm known fresh again"
+ },
+ {
+  "id": "Q-stamp-after-write",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "                                                if (work.op == SettingsMsg.OP_FB_ACQUIRE) leaseAttempted(arm, nowMs())   // C1-Q: before the write\n",
+    ""
+   ],
+   [
+    "                                                leaseWritten(arm, work.op, nowMs())\n",
+    "                                                leaseWritten(arm, work.op, nowMs())\n                                                if (work.op == SettingsMsg.OP_FB_ACQUIRE) leaseAttempted(arm, nowMs())\n"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": [
+   "anAcquireReportedFailedAfterLeftAppliedItDoesNotRaiseTheAsk_F2_C1Q"
+  ],
+  "note": "C1-Q §7 (the focused read's F2): the ACQUIRE is stamped after its write, not at the attempt"
+ },
+ {
+  "id": "Q-note-reason",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "} + (if (kib < wants) \"; $wants KiB waits",
+    "} + (if (false) \"; $wants KiB waits"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": [
+   "aRenewalOrAWakeWaitsAndTheStartAfterALapseAsks256_C1Q",
+   "theAskDoesNotRiseWhileLeftCarries_H2_C1Q",
+   "aRenewalAfterH1AsksNoMoreThanTheLastSession_H3_C1Q",
+   "aDraw2HoldBackLiftedByHandKeepsTheHeldBackSizeUntilAFreshStart_C1Q",
+   "aProcessesFirstStartAsksNoMoreThan160_C1Q"
+  ],
+  "note": "C1-Q §7: the cache-size note does not say why the ask is below what the session wants"
  },
  {
   "id": "Q-rung-actual",
@@ -221,63 +250,9 @@
    "*MotionTransportTest*"
   ],
   "expect": [
-   "aRenewalWaitsAndTheWakeAfterTheReleaseAsks256_C1Q"
+   "aRenewalOrAWakeWaitsAndTheStartAfterALapseAsks256_C1Q"
   ],
-  "note": "C1-Q rule 4: the size rung follows the stage's size, not the ask that goes out"
- },
- {
-  "id": "Q-wait-said",
-  "file": "transport/CfwTransportBase.kt",
-  "edits": [
-   [
-    "if (!sizeRung && want == DamageMsg.CACHE_BUDGET_RIDERS_KIB && !sizeWaitSaid) {",
-    "if (false) {"
-   ]
-  ],
-  "tests": [
-   "*MotionTransportTest*"
-  ],
-  "expect": [
-   "aRenewalWaitsAndTheWakeAfterTheReleaseAsks256_C1Q",
-   "theAskDoesNotRiseWhileLeftCarries_H2_C1Q",
-   "aRenewalAfterH1AsksNoMoreThanTheLastSession_H3_C1Q"
-  ],
-  "note": "C1-Q rule 4: the wait for the 256 KiB size is not said"
- },
- {
-  "id": "Q-wait-once",
-  "file": "transport/CfwTransportBase.kt",
-  "edits": [
-   [
-    "                    sizeWaitSaid = true\n",
-    ""
-   ]
-  ],
-  "tests": [
-   "*MotionTransportTest*"
-  ],
-  "expect": [
-   "aRenewalWaitsAndTheWakeAfterTheReleaseAsks256_C1Q",
-   "theAskDoesNotRiseWhileLeftCarries_H2_C1Q"
-  ],
-  "note": "C1-Q rule 4: the wait is said at every start that waits"
- },
- {
-  "id": "Q-wait-probe",
-  "file": "transport/CfwTransportBase.kt",
-  "edits": [
-   [
-    "                sizeWaitSaid = false    // C1-Q: a new hand request — a wait for the 256 KiB size is said again\n",
-    ""
-   ]
-  ],
-  "tests": [
-   "*MotionTransportTest*"
-  ],
-  "expect": [
-   "aRenewalWaitsAndTheWakeAfterTheReleaseAsks256_C1Q"
-  ],
-  "note": "C1-Q rule 4: a new c1=N does not let the wait be said again"
+  "note": "C1-Q rule 4: the size rung follows the stage's size, not the ask that goes out (pinned through the hold-back's blame)"
  },
  {
   "id": "Q-bound-reported",

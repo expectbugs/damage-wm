@@ -533,10 +533,12 @@ class SilentStartTest {
      * writes move. Stage 0 writing the contract-2 file itself is `MotionTransportTest`'s pin (package D3a).
      * Same rig, clock and pacing as [anAwakeStartWritesWhatItWroteBefore]. The files were written by this test's first
      * run on `wip/068` after e6c7700 and read by hand once against the contract-2 file (`C1-D3b-built.md`).
-     * Build C1-Q: each is a transport's FIRST start, which asks at most 160 KiB (no record says the lenses hold no
-     * cache), so stage 2's file is now stage 1's and stage 3's asks 160 — rewritten by this test's run on `wip/c1q` and
-     * read by hand against the files before (only op 5's argument and the CRC changed). The 256 KiB rung's own bytes
-     * are `MotionTransportTest.eachLadderStageAddsOnlyItsOwnChange_6_2`'s, at a start after a release.
+     * Build C1-Q (the focused read's F4, the lead's §7): a transport's FIRST start asks at most 160 KiB, so each stage's
+     * start here is the one after a stage-0 first start and a lapse (the session ends, the clock moves 110 s, past the
+     * lease's 87.9 s and its 15 s margin): both lenses are known to hold no cache and stage 2 asks its own 256 KiB again.
+     * The three files were rewritten by this test's run on `wip/c1q` and read by hand: stage 2's differs from stage 1's
+     * in op 5's argument and its CRC only, as before; each differs from its file before C1-Q only in what the earlier
+     * start moves (the AA sequence bytes, the READs' message ids, the lease's nonce from the clock, the CRCs).
      */
     @Test
     fun aC1StartAtEachLadderStageWritesItsOwnFile_6_2(): Unit = runBlocking {
@@ -544,13 +546,18 @@ class SilentStartTest {
         for (stage in 1..3) {
             val name = "awake-start-c1-stage$stage.txt"
             val glass = GlassFirmwareSim().apply { damageContract = 2; damageFeatures = 0x1ff }
-            val t = Rig(glass, scope, clock = { 1_763_000_000_000L }, instant = false)
+            var now = 1_763_000_000_000L
+            val t = Rig(glass, scope, clock = { now }, instant = false)
             t.heapReads = false
+            val warmup = wm.damage.core.gfx.Zl.encodeCfw(wm.damage.core.gfx.Pack.rect(wm.damage.core.gfx.Gray8(640, 480),
+                wm.damage.core.geom.Rect(0, 0, 640, 480)))
+            scope.async { t.start(warmup) }.await()           // C1-Q: a stage-0 first start, then a lapse
+            delay(300)
+            assertTrue(t.restartSession("test: the session ends"))
+            now += 110_000L
             t.devProbe("c1", "$stage")
             val sent = java.util.Collections.synchronizedList(ArrayList<String>())
             t.onWrite = { a, p -> sent.add("${a.name.first()} " + p.joinToString("") { "%02x".format(it) }); p }
-            val warmup = wm.damage.core.gfx.Zl.encodeCfw(wm.damage.core.gfx.Pack.rect(wm.damage.core.gfx.Gray8(640, 480),
-                wm.damage.core.geom.Rect(0, 0, 640, 480)))
             scope.async { t.start(warmup) }.await()
             delay(300)
             val got = synchronized(sent) { sent.toList() }
