@@ -34,7 +34,7 @@ export function feedView(ctx) {
   let from = null; // 'flagged' when an item was opened from Flagged
   let art = null; // the reading column's article, comic or comments
   let bg = null; // the binge
-  let owedRead = null; // {src, id}: an item opened by input while the PC was out of reach: its `read` goes when it answers
+  let owedRead = null; // {src, id, at}: an item opened by input while the PC was out of reach: its `read` goes when it answers
   let seenOwed = null; // a source opened by input: its `seen` goes once a page of it is shown
   let ticker = null;
   let flyTimer = null;
@@ -75,16 +75,17 @@ export function feedView(ctx) {
     return sent;
   }
 
-  /** `read` on the input that opened an item (never a page load, a restore, a reconnect or a list shown). */
-  function readOnInput(srcId, id) {
+  /** `read` on the input that opened an item (never a page load, a restore, a reconnect or a list shown), stamped with
+   *  the time he opened it, also when it goes later (S1-3 fix B6: the PC then keeps the later input's list). */
+  function readOnInput(srcId, id, at = pcNow()) {
     if (M.readOf(rec, pend, srcId, id, pages && pages.find(id))) return;
     if (!ctx.S.reach.ok || ctx.S.phase !== 'open') {
-      owedRead = { src: srcId, id }; // a mark, not a queue: only the item still open when the PC answers
+      owedRead = { src: srcId, id, at }; // a mark, not a queue: only the item still open when the PC answers
       return;
     }
     owedRead = null;
     const d = M.readDraft(srcId, id, M.readList(rec, pend, srcId));
-    if (d) sendRecord(d, `read.${srcId}`, 'Marked read');
+    if (d) sendRecord({ ...d, at }, `read.${srcId}`, 'Marked read');
   }
 
   function setRead(row, srcId, read) {
@@ -1107,7 +1108,7 @@ export function feedView(ctx) {
       if (!ctx.S.reach.ok) return;
       // a mark, not a queue: the item still open when the PC answers again is marked read; a place read meanwhile
       // is sent once (Reader's rule, C§2.5)
-      if (owedRead && art && art.src === owedRead.src && (art.id === owedRead.id || (art.d && art.d.item && art.d.item.id === owedRead.id))) readOnInput(owedRead.src, owedRead.id);
+      if (owedRead && art && art.src === owedRead.src && (art.id === owedRead.id || (art.d && art.d.item && art.d.item.id === owedRead.id))) readOnInput(owedRead.src, owedRead.id, owedRead.at);
       owedRead = null;
       if (art && art.moved) saveArticle();
       if (bg && bg.moved) saveBinge();

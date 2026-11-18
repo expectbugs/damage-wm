@@ -157,11 +157,15 @@ test('out of reach: actions dim with why; an item opened then is marked read whe
   assert.ok(p.doc.body.classList.contains('away'));
   const mark = find(p, 'BUTTON', 'Mark all read');
   assert.match(mark.getAttribute('data-why'), /PC not answering since/);
-  byKey(p, `item:${itemId('front', 2)}`).fire('click');
+  const t0 = Date.now();
+  at(t0 + 5000, () => byKey(p, `item:${itemId('front', 2)}`).fire('click'));
   assert.deepEqual(queued(ws, 'read'), [], 'nothing sent out of reach');
   assert.match(main(p).textContent, /as the PC last described it at/);
-  ws.frame({ t: 'pong', k: 2 });
+  at(t0 + 65000, () => ws.frame({ t: 'pong', k: 2 }));
   assert.deepEqual(queued(ws, 'read').map((o) => [o.targets, o.result.at(-1)]), [[['read.front'], itemId('front', 2)]], 'sent once it answers');
+  // S1-3 fix B6: stamped with the time he opened it, not the time it went (the PC keeps the later input's list)
+  const [r] = queued(ws, 'read');
+  assert.ok(Math.abs(r.at - (F_NOW + 5000)) < 1000, `the opening's time (${r.at - F_NOW})`);
 });
 
 test('refresh is a program op with its connection and source; Sent is said, a refusal says the PC\'s reason', async () => {
