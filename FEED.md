@@ -15,6 +15,31 @@ the window keeps working **on the phone alone** wherever plain HTTP reaches (*"L
 fallback for everything that we can"* — as built; verdict 15's note). Where §3–§5 (design) and
 §8 (as built) differ, §8 is what runs; `IMPLEMENTATION.md` → "Feed" is the running inventory.
 
+**Status since build S1-3 (APK 0.70, 2026-11-18; `HANDOFF.md` §89 the record; `CONTRACT.md` §12 the contract):
+Feed is on the PC's record**, built and gated on the simulator, the PC and in headless Firefox; not yet deployed or
+used by him. What changed against the sections below:
+- **One copy on the PC.** `FeedCore` holds his state in the record (`rec.feed.…`: a read list per source, the 600
+  newest; flags; seen stamps; the open article's place as block and offset; the archive's place; pins; browse recents;
+  Fetch, Keep and the three Notify rows; the glasses rows) and raises Feed's notices once, on the PC (a first sight of
+  a source raises nothing; a browsed source that is not pinned raises none). `FeedScopes` serves the description and
+  the pages to every interface; `FeedGlasses` (the old `FeedWindow`) is the glasses' presenter over the record, its
+  picture unchanged but for Settings → Feed one row fewer. His rows from 0.69 were carried once, at the PC's first
+  start (on a copy of his data: 21 rows); the open article's line index was not (the next notch writes the place).
+- **The phone's own fetching is retired** (verdict 15 as amended; his ruling of 11-12): no phone engine, no `PC loss`
+  row, no `Back to PC`; with the PC out of reach Feed shows what it last had under "PC unreachable since H:MM" (the
+  outage's start; it no longer counts seconds). Reads, flags, pins and places apply at once and queue; refresh, browse
+  and anything not loaded say "PC not answering". The phone's old `feed/` folder stays; deleting it is his.
+- **The engine:** articles carry emphasis, code, links (http and https only) and the original page's address, the
+  extracted text unchanged; a fetch that stops answering is ended after 5 minutes, said on the source's health and
+  tried again at its next due time; a body shorter than its declared length is a failure, never cached.
+- **The page** (any browser at view level or more; not in the TV's set for now): sources with new counts and health,
+  a source a page at a time, articles in Damage's own text, comments as a thread, comics as drawn with alt text and
+  SMBC's bonus, the 8-Bit archive as one long page, Flagged, mark all read, refresh and browse. It follows another
+  device's newer place (article and archive) as the Reader page does; only his scroll during a gesture moves its own
+  place (a click on Flag or a link never does); a read carries the time he opened the item.
+- **Not built:** the phone's disk cache of Feed (S1-5); the binge's strips as a named rendition; a transient source
+  forgotten from the web (only the glasses' leaving forgets one).
+
 ---
 
 ## 1. Verdicts (Adam, 2026-09-09)
@@ -35,7 +60,7 @@ fallback for everything that we can"* — as built; verdict 15's note). Where §
 | 12 | retention | 30 days or 500 items per source, whichever first. |
 | 13 | notifications | **default OFF**, per-source-kind rows in Settings → Feed. |
 | 14 | YouTube / Reader hand-off / Open on PC | all **OUT**. *"YT is a video service, we don't do video."* Open on PC: *"if I'm at my PC I will just open it with the PC."* (For the glasses; on big screens a plain link to the original page is added, still no video — `REPLAN.md` §15 B5.) |
-| 15 | phone fallback | **YES, for everything plain HTTP reaches**: the engine is core Kotlin and runs on the phone whenever the PC is unreachable; switchback is deliberate (§3.6). → **Replaced for the design to come** (step S1): with the PC out of reach Feed shows the PC's last state with its age and the phone's own fetching retires — `REPLAN.md` §14.3 #2, `CONTRACT.md` §14 (a) row 1 (his to reverse). As built until then. |
+| 15 | phone fallback | **YES, for everything plain HTTP reaches**: the engine is core Kotlin and runs on the phone whenever the PC is unreachable; switchback is deliberate (§3.6). → **Replaced in S1-3** (APK 0.70): with the PC out of reach Feed shows the PC's last state with its age and the phone's own fetching is retired — `REPLAN.md` §14.3 #2, `CONTRACT.md` §14 (a) row 1 (his to reverse). |
 
 Recorded so it is not re-pitched: Hacker News; a Reddit login or private feed token; the merged
 river as root; a 1:1 zoom with sideways panning (each pan is a full ~17 KB repaint); YouTube; a
@@ -161,7 +186,7 @@ article.
 
 ```
 SOURCES (List, root) ─tap─▶ ITEMS (List, one source) ─tap─▶ ARTICLE (Doc) ─tap─▶ item ACTIONS (List)
-   │ wrap-end "Feed" ─▶ root MENU: Refresh all · Flagged (n) · Back to PC (§3.6, when it applies) · Settings
+   │ wrap-end "Feed" ─▶ root MENU: Refresh all · Flagged (n) · Settings   (Back to PC: removed in S1-3)
    │                          │ wrap-end "<source>" ─▶ source MENU: Mark all read · Refresh · Browse… · recents · Pin/Unpin
    │                          │ comic items ─tap─▶ COMIC (Doc: strip + text) ─tap─▶ item ACTIONS
    └─ 8-Bit Theater row ─tap─▶ BINGE (Doc, endless) ─tap─▶ binge ACTIONS
@@ -207,7 +232,7 @@ SOURCES (List, root) ─tap─▶ ITEMS (List, one source) ─tap─▶ ARTICLE 
 - **FLAGGED** (from the root menu): flagged items across sources, the source name in the tail.
 - **Staleness reaches every level and Main's row** (`WINDOWS.md` §1): the title carries it where
   the level does not paint it; the summary carries it into Main (`12 new · popular 8 · xkcd 1` /
-  `PC unreachable 40 s`).
+  `PC unreachable since 14:02` since S1-3).
 
 ### 3.2 Heights
 
@@ -227,7 +252,7 @@ ordinary xkcd (596×218, 7 strips) fits one 288 screen (224 px of content) with 
 | Comic levels | 16 · 8 · 4 | 16 | verdict 10; a change re-derives strips from the cached source image, never a refetch |
 | Fetch | 5 min · 15 min · 30 min · 60 min | 15 min | feeds; comics check hourly regardless |
 | Keep | 7 d · 30 d · 90 d | 30 d | with the 500-per-source cap |
-| PC loss | 30 s · 1 min · 5 min | 1 min | the sustained-loss threshold that starts the phone engine (§3.6); goes with that engine at S1 |
+| ~~PC loss~~ | — | — | removed in S1-3 with the phone's engine (§3.6) |
 | Notify · Reddit | off · on | off | verdict 13 |
 | Notify · Slashdot | off · on | off | |
 | Notify · comics | off · on | off | xkcd + SMBC; a binge archive never notifies |
@@ -243,7 +268,7 @@ becomes light), else as-is. xkcd inverts (measured 96.5 % lit → 16.8 %); SMBC 
 `never` / `always` override per comic source. Article images follow the same rule under `auto` —
 a diagram inverts, a photo does not.
 
-### 3.5 State and sync (§16.4 — the phone fallback decides this)
+### 3.5 State and sync (§16.4 — the phone fallback decides this) — *superseded in S1-3: the PC's record (status block at the top)*
 
 Reading state lives in the **shell's synced store**, never inside an engine, so both engines see
 one truth (§16.4's "host-side feed read marks" note is superseded here). As built; from S1 one
@@ -281,7 +306,7 @@ line + strips blob; `index` → the episode table) · `comments` (text blob) · 
 all) · `browse` (kind + name → a transient source id) · push `changed` (source, version) so an
 active list repaints only what changed. Strips ride the blob lane as packed 4-bit rows, deflated.
 
-**The switch (verdict 15, Music's shape; as built — it retires at S1, verdict 15's note):**
+**The switch (verdict 15, Music's shape; retired in S1-3 — the phone reads the PC's engine only):**
 `SwitchingFeedProvider` wraps `remote` (preferred) and `local`. Past the `PC loss` threshold the
 phone engine starts its pacer and serves, with a notice `PC unreachable 1 min · fetching on the
 phone` and the summary naming `phone engine`.
@@ -290,7 +315,7 @@ menu when the channel is back; tapping it parks the phone engine (no pacer, no s
 desktop the local engine is the only provider. Every source is plain HTTP (§2), so the fallback is
 complete; the one difference is that the phone extracts on demand rather than ahead.
 
-**Announcements**: the serving engine decides "new since `lastSeen`" per source once per fetch;
+**Announcements** (*since S1-3 raised once by the PC's `FeedCore` into the notice record, the same rule and body*): the serving engine decides "new since `lastSeen`" per source once per fetch;
 the window raises `notifyInternal("feed", "3 new · xkcd 3297 …", appId = "feed", thread = <source
 id>, target = "src:<id>")` (a single new comic targets `item:<id>`), gated on the source kind's
 row; coalescing per thread means a PC standby shell and the phone shell replace rather than stack.
