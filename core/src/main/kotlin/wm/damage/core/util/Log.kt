@@ -27,7 +27,8 @@ object Log {
      *  (§42, 2026-09-09): served by every host's replica at `/log`, because
      *  the phone has no adb on Adam's setup and a morning's three-minute loop
      *  of session attempts left only its side effects in the journal. Each
-     *  line: `HH:mm:ss.SSS L tag: message`, local time. */
+     *  line: `HH:mm:ss.SSS L tag: message`, local time. The phone also keeps
+     *  every line 10 days in day files, with dates (`DayLog`, build Q). */
     const val RECENT_LINES = 4000
     private val recentLines = ArrayDeque<String>(RECENT_LINES)
     private val stamp = java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss.SSS")

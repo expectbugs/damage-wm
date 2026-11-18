@@ -190,6 +190,9 @@ class ShellService : Service() {
         }
         logSink = sink
         Log.addSink(sink)      // removed at the END of this instance's shutdown (onDestroy)
+        // build Q (L): every line also goes to its day's file, kept 10 days (`DayLog`). Once per PROCESS, never
+        // removed: `Log` is process-wide, and one writer per file (a service recreated in the same process keeps it)
+        if (dayLog == null) dayLog = wm.damage.core.util.DayLog(filesDir.toPath().resolve(LOG_DIR)).also { Log.addSink(it) }
         // the connectedDevice type ONLY at start: Android 15 refuses a service
         // started from BOOT_COMPLETED whose types include mediaPlayback; that
         // type is added when playback engages (review 2026-09-02)
@@ -615,7 +618,8 @@ class ShellService : Service() {
                     if (shell?.devProbe(n, v) != true)
                         transport?.devProbe(n, v) ?: Log.w("service", "probe $n=$v with no transport")
                 },
-                journalPath = { filesDir.toPath().resolve("journal.jsonl") }, reach = reach)
+                journalPath = { filesDir.toPath().resolve("journal.jsonl") },
+                logDir = { filesDir.toPath().resolve(LOG_DIR) }, reach = reach)
             rs.start()
             replica = rs
         } catch (e: Exception) {
@@ -1183,6 +1187,10 @@ class ShellService : Service() {
 
     companion object {
         private const val NOTIF_ID = 1
+        /** Build Q (L): the day files of the log, in the app's own storage. */
+        private const val LOG_DIR = "logs"
+        /** The process's one day-file writer (see onCreate). */
+        @Volatile private var dayLog: wm.damage.core.util.DayLog? = null
         /** 0.64: the low-battery notification. 1 is the foreground notification, 1000-1063 the urgent
          *  ones, 0xD02E the boot receiver's. */
         private const val BATTERY_NOTIF_ID = 2
