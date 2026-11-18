@@ -325,6 +325,10 @@ function feedRealScenes(reach) {
     'real-feed-article': { path: '/w/feed/src:slashdot', steps: [rows, reach, { click: '.fd-row:nth-child(1) .fd-open' }, { wait: '.fd-text .blk, .fd-floor' }, settle] },
     'real-feed-flag': { path: '/w/feed/src:slashdot', steps: [rows, reach, { click: '.fd-row:nth-child(1) .fd-open' }, { wait: '.fd-bar button' },
       { click: '.fd-bar button' }, settle] },
+    // S1-3 fix B5: a click in the reading column (its pointerdown, then Flag) past the save point, then leaving by
+    // opening the next item: no `place` from this page (the change lines), only the flag and the reads
+    'real-feed-flag-place': { path: '/w/feed/src:slashdot', steps: [rows, reach, { click: '.fd-row:nth-child(1) .fd-open' }, { wait: '.fd-bar button' },
+      { fire: ['.fd-bar button', 'pointerdown'] }, { click: '.fd-bar button' }, { fetch: '/__wait?ms=2600' }, { click: '.fd-row:nth-child(2) .fd-open' }, settle] },
     'real-feed-markall': { path: '/w/feed/src:popular', steps: [rows, reach, { click: '.fd-acts button:nth-child(2)' }, { wait: 'dialog[open]' },
       { click: 'dialog[open] button.act' }, settle] },
     'real-feed-refresh': { path: '/w/feed/src:popular', steps: [rows, reach, { click: '.fd-acts button:nth-child(1)' }, settle] },
@@ -362,6 +366,20 @@ function tmuxRealScenes(reach) {
     'real-tmux-end': { path: t(`session:${at}`), steps: [drawn, reach, { click: '.tm-acts button.danger' }, { wait: 'dialog[open]' },
       { click: 'dialog[open] button.act' }, { fetch: '/__wait?ms=1500' }] },
     'real-tmux-below': { path: t(`session:${at}`), control: true, steps: [{ wait: '.page.tmux .note' }] },
+    // S1-3 fix stage: A1 a ';' typed reaches the provider and is echoed; A2 a stream of terminal queries (and the focus
+    // they turn on) types nothing; A3 Ctrl+C with nothing selected is sent, with a word selected it copies and sends
+    // nothing, Ctrl+V sends no ^V; C1 a new session is not called ended; C2 a view the sweep let go asks again
+    'real-tmux-semicolon': { path: t(`session:${at}`), steps: [drawn, reach, { focus: field }, { key: [field, ';'] }, { key: [field, 'Enter'] },
+      { fetch: '/__wait?ms=1500' }, { fetch: '/__ctl?tmux-ops' }, { fetch: '/__ctl?tmux-echo' }, { fetch: '/__wait?ms=1500' }] },
+    'real-tmux-query': { path: t(`session:${at}`), steps: [drawn, reach, { fetch: '/__wait?ms=800' }, { fetch: '/__ctl?tmux-ops' }, { fetch: '/__ctl?tmux-query' },
+      { fetch: '/__wait?ms=1500' }, { focus: field }, { fetch: '/__wait?ms=1000' }, { fetch: '/__ctl?tmux-ops' }] },
+    'real-tmux-copy': { path: t(`session:${at}`), steps: [drawn, reach, { focus: field }, { key: [field, 'c', { ctrlKey: true }] }, { fetch: '/__wait?ms=800' },
+      { fetch: '/__ctl?tmux-ops' }, { select: '.xterm-screen' }, { key: [field, 'c', { ctrlKey: true }] }, { key: [field, 'v', { ctrlKey: true }] },
+      { fetch: '/__wait?ms=1000' }, { fetch: '/__ctl?tmux-ops' }, { key: [field, 'k'] }, { fetch: '/__wait?ms=800' }, { fetch: '/__ctl?tmux-ops' }] },
+    'real-tmux-new': { path: '/w/tmux', steps: [{ wait: '.tm-list .tm-sess' }, reach, { click: '.tm-host button' }, drawn, { fetch: '/__wait?ms=4000' },
+      { focus: field }, { key: [field, 'z'] }, { fetch: '/__wait?ms=1000' }, { fetch: '/__ctl?tmux-ops' }] },
+    'real-tmux-sweep': { path: t(`session:${at}`), steps: [drawn, reach, { fetch: '/__wait?ms=800' }, { fetch: '/__ctl?tmux-sweep' }, { fetch: '/__wait?ms=1500' },
+      { fetch: '/__ctl?tmux-out' }, { fetch: '/__wait?ms=1500' }] },
     // S1-3 stage M: the listener ended and started again under an open session; the page subscribes again by itself
     // and a line the restarted PC's stream writes after that is drawn (tmux-out says how many streams it wrote)
     'real-tmux-restart': { path: t(`session:${at}`), steps: [drawn, reach, { fetch: '/__wait?ms=800' }, { fetch: '/__restart' },

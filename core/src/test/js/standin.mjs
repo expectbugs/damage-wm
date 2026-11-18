@@ -134,9 +134,16 @@ async function step(s) {
   if (s.scroll) { const el = await until(s.scroll[0]); el.scrollTop += s.scroll[1]; el.dispatchEvent(new Event('scroll')); }
   // S1-3: a key pressed in an element (the terminal's field), as a keyboard delivers it — with its legacy keyCode too
   // (S1-3's merge: the real terminal library reads keyCode, and a keydown without one typed nothing in the real look)
+  // (S1-3 fix stage: with modifiers, s.key[2], as {ctrlKey: true})
   if (s.key) { const el = await until(s.key[0]); el.focus(); const k = s.key[1];
     const keyCode = k.length === 1 ? k.toUpperCase().charCodeAt(0) : ({ Enter: 13, Escape: 27, Tab: 9, Backspace: 8, ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40 })[k] || 0;
-    el.dispatchEvent(new KeyboardEvent('keydown', { key: k, keyCode, bubbles: true, cancelable: true })); }
+    el.dispatchEvent(new KeyboardEvent('keydown', { key: k, keyCode, bubbles: true, cancelable: true, ...(s.key[2] || {}) })); }
+  // S1-3 fix stage: a word of the terminal selected as a double click selects it (at the element's top left, 3 cells in)
+  if (s.select) { const el = await until(s.select); const r = el.getBoundingClientRect(); const x = r.left + 24, y = r.top + 6;
+    el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0, detail: 2, clientX: x, clientY: y }));
+    document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0, detail: 2, clientX: x, clientY: y }));
+    await new Promise((ok) => setTimeout(ok, 400));
+    note('selection drawn: ' + document.querySelectorAll('.xterm-selection div').length + ' box(es)'); }
   // S1-2 Q5: the page in another of its themes (the glass theme), as the Settings page sets it on this device
   if (s.theme) { try { localStorage.setItem('damage.theme', s.theme); } catch (e) { /* a picture without storage */ } document.documentElement.dataset.theme = s.theme; }
   note('step ' + JSON.stringify(s));

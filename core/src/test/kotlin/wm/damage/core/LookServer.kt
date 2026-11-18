@@ -95,7 +95,9 @@ fun main(args: Array<String>) {
     if (System.getenv("LOOK_BAD_TABLE") == "1") Files.writeString(data.resolve(Devices.FILE), "not a device table (made up)")
     val devices = Devices(data.resolve(Devices.FILE)).load()
     val core = DevicesCore(devices)
-    val net = AppNet(host, devices = core)
+    // S1-3 fix stage: the lane's clock ahead of the wall while the word `tmux-sweep` runs (a page gone quiet)
+    var skewMs = 0L
+    val net = AppNet(host, clock = { System.currentTimeMillis() + skewMs }, devices = core)
     val reader = ReaderCore(LocalContent(books), scope, ReaderIndex(null, scope))
     val docs = ReaderDocs(reader::pathOf)
     net.attach(PcScopes(host, reader, docs,
@@ -229,6 +231,20 @@ fun main(args: Array<String>) {
             "ops" -> "torrents ops: ${torrents.ops.filter { it != "refresh" }}"
             "tmux-out" -> { tmuxControls.filter { !it.closed }.forEach { it.output("made-up output line\r\n") }; "streams written: ${tmuxControls.count { !it.closed }}" }
             "tmux-ops" -> "tmux ops: ${tmux.sent}"
+            // S1-3 fix A2: a program's terminal queries in the pane's output (device attributes, status and cursor
+            // reports, mode and setting requests, colour queries, focus reports turned on): the page must type nothing
+            "tmux-query" -> {
+                val q = "\u001b[c\u001b[>c\u001b[5n\u001b[6n\u001b[?6n\u001b[4\$p\u001b[?2004\$p\u001bP\$qm\u001b\\" +
+                    "\u001b]10;?\u0007\u001b]11;?\u001b\\\u001b]4;1;?\u0007\u001b[?1004hqueries written\r\n"
+                tmuxControls.filter { !it.closed }.forEach { it.output(q) }
+                "queries written into ${tmuxControls.count { !it.closed }} stream(s); tmux ops: ${tmux.sent}"
+            }
+            // S1-3 fix C2: the viewers' sweep as if the page had sent no ping for a minute (its socket still up)
+            "tmux-sweep" -> {
+                skewMs = 60_000
+                val n = try { net.sweepViewers() } finally { skewMs = 0 }
+                "swept $n viewer(s); streams running: ${tmuxControls.count { !it.closed }}"
+            }
             // S1-3 stage M: the raw ops typed since the last echo, written back into every open stream as a shell's echo
             // would reach the control client (an Enter as CR LF), so the look sees a typed key come back as output
             "tmux-echo" -> {
