@@ -349,7 +349,8 @@ inside a phase.
 
 1. `verify` reproducible from stock; hashes pinned. 2. Size ceiling, preamble length, TOC and CRC
 fixups. 3. Thumb-bit audit. 4. Host vectors green. 5. Simulator vectors green. 6. **Adam's
-in-the-moment go.** 7. Dry-run staircase, per lens with `--lens`: `--stop-before heartbeat` (connect and discovery, nothing sent) →
+in-the-moment go.** 7. `probe c1=0` on the phone before any flash (forward, a fix, or back): the stored stage arms at
+the first start after it (build C1-P); then one stage per soak again (item 10). Dry-run staircase, per lens with `--lens`: `--stop-before heartbeat` (connect and discovery, nothing sent) →
 `--stop-before file_check` (notifications and the stock authentication, nothing stored) → `--stop-before flash` only
 directly before that lens's full flash (its begin step writes and removes a 4 KiB storage test file; its file check
 empties `firmware/codec.bin` until the flash rewrites it). An interrupted flash, or this last rung not followed

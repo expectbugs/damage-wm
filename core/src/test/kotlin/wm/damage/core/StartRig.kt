@@ -21,8 +21,9 @@ import wm.damage.core.wire.Pb
  *  - [disconnectGate]: while set, `disconnectLink()` waits on it — the phone's two disconnects in turn.
  */
 internal open class StartRig(val glass: GlassFirmwareSim, scope: CoroutineScope, private val clock: () -> Long = System::currentTimeMillis,
-                        private val instantPacing: Boolean = true, c1StageFile: java.nio.file.Path? = null) :
-    CfwTransportBase(scope, "start-rig", c1StageFile = c1StageFile) {
+                        private val instantPacing: Boolean = true, c1StageFile: java.nio.file.Path? = null,
+                        c1StageStepDown: Boolean = false) :
+    CfwTransportBase(scope, "start-rig", c1StageFile = c1StageFile, c1StageStepDown = c1StageStepDown) {
     /** P5 verify: false gives the product's paced bounds (the stall tick's 10 s) to a pin that holds an ack by hand. */
     override val instant: Boolean get() = instantPacing
     @Volatile var onWrite: ((Arm, ByteArray) -> ByteArray?)? = null

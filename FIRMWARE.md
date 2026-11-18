@@ -690,7 +690,8 @@ on both lenses (the meeting's row 11).
 - **The phone's ladder (as built in C1; A.17):** a stage 0..3 (0 nothing · 1 ZWRITE · 2 and op 5 at 256 KiB · 3 and
   ENGINE), kept in the transport across sessions and in one small file in the app's data directory, so a restart of
   the process keeps it, a hold-back's lowering included (build C1-P; the hold-back's clocks are not kept: the first
-  start after a restart cannot blame a reset from before it; an unreadable file reads as 0), set only by hand
+  start after a restart cannot blame a reset from before it; an unreadable file reads as 0; a run that ended on an
+  uncaught error steps it down to 0 at the phone's next process start, said as a `holdback` fault), set only by hand
   (`probe c1=N`), never advanced by itself; stage 0, the default, sends today's bytes, and a hand `flags=` probe cannot
   arm bit 3 or 5 beyond the stage. Every rung records itself — the time and the stage this build can arm (a build
   without the engine records 2 at stage 3) — before its first byte (R2 B-M1, B-N4): op 5's rung before it goes out, a
@@ -1282,8 +1283,8 @@ that `tools/journal_report.py` counts by cause):
 - **What the phone persists** (on its own storage, written before the arming it records; not held in transport memory,
   so a restart of the phone's process — every APK install, M — loses nothing): the ladder stage (0..4), the `Taps`
   row, the time of the last session in which stage 4 was armed, the last `case` note with `in case 1`, and the
-  hold-back (its time and reason). Each start re-arms what is persisted. **This replaces §5.8's "a process restart
-  returns it to 0" for every stage.**
+  hold-back (its time and reason). Each start re-arms what is persisted. **This extends §5.8's stored stage (build
+  C1-P) with the rest of this list.**
 - **The hold-back for stage 4** (a fault in the hook comes at a gesture, any time, so C1's 120-s window does not apply
   to this stage): at a start the phone holds stage 4 back — it arms stage 3 and says so once, as a `keeper` note and a
   `holdback` fault ("local input held back until tomorrow's first start: a lens restarted at HH:MM while it was on;

@@ -369,6 +369,11 @@ object UncaughtRecord {
 
     private const val NL = '\n'.code.toByte()
 
+    /** Whether the last run left a record ([PENDING] is there), read BEFORE [takePending] takes the file: the pickup
+     *  returns null on its "the same again" path, which is what a start loop is (build C1-P R1 §1, the phone's step-down
+     *  of the C1 ladder). */
+    fun isPending(dir: Path): Boolean = Files.isRegularFile(dir.resolve(PENDING))
+
     /**
      * The pickup, at a process start, before the stack is built: journals the last run's record
      * and marks it said. Returns the one line for the log (the caller logs it at ERROR level; the

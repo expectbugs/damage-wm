@@ -75,7 +75,10 @@ class BleTransport(
     /** Build C1-P: where the C1 ladder's stage is kept across a restart of the process (the app's data directory) —
      *  no default, so the one construction cannot leave it out. */
     c1StageFile: java.nio.file.Path,
-) : CfwTransportBase(scope, "ble", c1StageFile = c1StageFile) {
+    /** Build C1-P R1 §1: the last run ended on an uncaught error — a stored stage steps down to 0 (the first stack
+     *  only; no default, as above). */
+    c1StageStepDown: Boolean,
+) : CfwTransportBase(scope, "ble", c1StageFile = c1StageFile, c1StageStepDown = c1StageStepDown) {
 
     data class Remembered(
         val leftAddress: String? = null, val leftName: String? = null,

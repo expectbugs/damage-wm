@@ -223,6 +223,10 @@ class ShellService : Service() {
         //   here would otherwise end every launch with nothing readable.
         val dir = filesDir.toPath()
         val journalFile = dir.resolve("journal.jsonl")
+        // build C1-P R1 §1: the last run ended on an uncaught error — read from the file before the pickup takes it (the
+        // pickup returns null on its "the same again" path, which a start loop is); the first stack steps a stored C1
+        // ladder stage down to 0. Outside the try: a step below that fails must not leave it unread
+        val lastRunEndedByError = UncaughtRecord.isPending(dir)
         var lastRun: String? = null
         try {
             Journal.rotateAtStart(journalFile)
@@ -248,7 +252,7 @@ class ShellService : Service() {
         // S1-1 P3: before the first stack, so the stack finds the copy (and reconnects its lane if the PC moved)
         startWorkingCopy(dir, journalFile)
         try {
-            startStack(Prefs(this).target)
+            startStack(Prefs(this).target, c1StepDown = lastRunEndedByError)
         } finally {
             // 0.65 P7 item 2: logged as before (the sink's path: the phone's notification when `Phone notifications`
             // is on, else the WM's courtesy notice), then raised on the glasses as a `process` fault — shown whatever
@@ -352,7 +356,8 @@ class ShellService : Service() {
         wakeLock = null
     }
 
-    private fun startStack(target: Prefs.Target) {
+    /** [c1StepDown]: build C1-P R1 §1 — onCreate's first stack only (a rebuild in the same process passes false). */
+    private fun startStack(target: Prefs.Target, c1StepDown: Boolean = false) {
         val prefs = Prefs(this)
         val dataDir = filesDir.toPath()
         // S1-1 P3: the working copy outlives the stack; its app lane follows the PC's address and credential
@@ -369,7 +374,8 @@ class ShellService : Service() {
             BleTransport(this, scope,
                 remembered = { BleTransport.Remembered(prefs.leftAddress, prefs.leftName, prefs.rightAddress, prefs.rightName) },
                 remember = { r -> prefs.rememberPair(r) },
-                c1StageFile = dataDir.resolve(wm.damage.core.transport.CfwTransportBase.C1_STAGE_FILE))
+                c1StageFile = dataDir.resolve(wm.damage.core.transport.CfwTransportBase.C1_STAGE_FILE),
+                c1StageStepDown = c1StepDown)
         } else {
             SimTransport(GlassFirmwareSim(), scope)
         }

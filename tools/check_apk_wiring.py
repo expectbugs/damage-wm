@@ -57,7 +57,10 @@ It checks, and prints one line each:
      hands it to the channel's copy; `stopStack` stops it, and that stop reaches `removeUpdates` (`PlaceWatch.close`
      -> `AndroidPlaceSource.stop`); the adapter asks only the passive and network providers (no GPS provider, no
      fused provider); and none of the adapter's log calls names a coordinate, a distance or an accuracy (G.6).
-Checks 3-9 read the sources as text: they catch a line removed or moved, not a wrong meaning. The
+  10. (build C1-P R1 §1) `ShellService.onCreate` reads whether the last run's uncaught-error record is pending
+     (`UncaughtRecord.isPending`) before the pickup (in 4's order: the pickup returns null on its "the same again"
+     path, which a start loop is) and hands that to its first stack, which steps a stored C1 ladder stage down to 0.
+Checks 3-10 read the sources as text: they catch a line removed or moved, not a wrong meaning. The
 text is read with its comments blanked by one pass that knows a string from a comment (`blank_comments`).
 
 A build output OLDER than the source manifest is judged by content, not refused by its time: when the
@@ -389,13 +392,21 @@ def check(root=ROOT, say=print):
 
     # 4. the order in ShellService.onCreate
     svc = body_of(kotlin_code(os.path.join(root, 'phone/src/main/kotlin/wm/damage/phone/ShellService.kt')), 'override fun onCreate()')
-    steps = ['Log.addSink(', 'startForeground(', 'Journal.rotateAtStart(', 'Journal.archivesSaid(', 'UncaughtRecord.installedLine(',
-             'UncaughtRecord.takePending(', 'startWorkingCopy(', 'startStack(', 'Log.e("uncaught", it)', 'raiseHostFault("process", it)']
+    steps = ['Log.addSink(', 'startForeground(', 'UncaughtRecord.isPending(', 'Journal.rotateAtStart(', 'Journal.archivesSaid(',
+             'UncaughtRecord.installedLine(', 'UncaughtRecord.takePending(', 'startWorkingCopy(', 'startStack(', 'Log.e("uncaught", it)',
+             'raiseHostFault("process", it)']
     at = [svc.find(s) if svc else -1 for s in steps]
     missing = [s for s, i in zip(steps, at) if i < 0]
-    line(not missing and at == sorted(at), 'ShellService.onCreate: sink, foreground, rotation, the archives counted for the process note, record in place, '
-         'pickup, the working copy, stack, then the last run\'s line (logged, then raised as a `process` fault)',
+    line(not missing and at == sorted(at), 'ShellService.onCreate: sink, foreground, whether a record is pending, rotation, the archives counted '
+         'for the process note, record in place, pickup, the working copy, stack, then the last run\'s line (logged, then raised as a `process` fault)',
          ('missing ' + ', '.join(missing)) if missing else 'out of order: ' + ' < '.join(s for _, s in sorted(zip(at, steps))))
+    # 10. (build C1-P R1 §1) the first stack is told what the file said, not what the pickup returned
+    pend = re.search(r'\bval (\w+) = UncaughtRecord\.isPending\(', svc or '')
+    i = svc.find('startStack(') if svc else -1
+    first = call_args(svc, i + len('startStack')) if i >= 0 else None
+    line(bool(pend and first and re.search(r'\bc1StepDown = %s$' % pend.group(1), first.strip())),
+         'ShellService.onCreate hands its first stack c1StepDown = the pending record, read before the pickup (C1-P R1 §1)',
+         'no `val X = UncaughtRecord.isPending(…)`' if not pend else 'its startStack(…) is (%s)' % (first or '').strip())
 
     # 4b. the same order at the desktop's start, ahead of the store and the content host — and FIRST the claim of
     #     the data directory (R2, RE-3): a second process on it would rename the service's journal and take its
@@ -1019,6 +1030,18 @@ def selftest():
                           'said %r' % said(out, 'FAIL') if said(out, 'FAIL') != ['FAIL  ShellService keeps the working copy, its core '
                           'executor and its app lane for the service: built in onCreate, closed in onDestroy, neither in startStack nor in '
                           'stopStack (S1-1 P3): per stack: closeWorkingCopy('] else ''] if n])
+        open(svc_path, 'w', encoding='utf-8').write(svc_kept)
+
+        # build C1-P R1 §1: a first stack told what the pickup returned (null on a start loop's "the same again" path)
+        step = 'startStack(Prefs(this).target, c1StepDown = lastRunEndedByError)'
+        assert svc_kept.count(step) == 1, step
+        open(svc_path, 'w', encoding='utf-8').write(svc_kept.replace(step, 'startStack(Prefs(this).target, c1StepDown = lastRun != null)'))
+        code, out = run()
+        case('C1-P R1 §1: a first stack stepped down on the pickup\'s answer, not the pending file, is a FAIL line (exit 1)',
+             [n for n in ['exit %d, not 1' % code if code != 1 else '',
+                          'said %r' % said(out, 'FAIL') if said(out, 'FAIL') != ['FAIL  ShellService.onCreate hands its first stack '
+                          'c1StepDown = the pending record, read before the pickup (C1-P R1 §1): its startStack(…) is '
+                          '(Prefs(this).target, c1StepDown = lastRun != null)'] else ''] if n])
         open(svc_path, 'w', encoding='utf-8').write(svc_kept)
 
         # the reader of Kotlin text itself: what must stay, what must be blanked, and nothing may move

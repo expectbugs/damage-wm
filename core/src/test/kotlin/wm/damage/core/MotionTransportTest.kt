@@ -29,6 +29,7 @@ import wm.damage.core.transport.DisplayOp
 import wm.damage.core.transport.FlushRequest
 import wm.damage.core.transport.SimTransport
 import wm.damage.core.transport.TransportEvent
+import wm.damage.core.util.UncaughtRecord
 import wm.damage.core.wire.CfwModes
 import wm.damage.core.wire.DamageMsg
 import wm.damage.core.wire.EvenHubMsg
@@ -61,9 +62,9 @@ class MotionTransportTest {
 
     // ------------------------------------------------------------------------------------------- the start's bytes
     /** One awake start's packets as `SilentStartTest.anAwakeStartWritesWhatItWroteBefore` takes them. */
-    private suspend fun startWire(features: Int?, stage: Int, store: java.nio.file.Path? = null): List<String> {
+    private suspend fun startWire(features: Int?, stage: Int, store: java.nio.file.Path? = null, stepDown: Boolean = false): List<String> {
         val glass = GlassFirmwareSim().apply { damageContract = 2; damageFeatures = features }
-        val t = StartRig(glass, scope, clock = { 1_763_000_000_000L }, instantPacing = false, c1StageFile = store)
+        val t = StartRig(glass, scope, clock = { 1_763_000_000_000L }, instantPacing = false, c1StageFile = store, c1StageStepDown = stepDown)
         if (store != null) collect(t)
         t.heapReads = false
         if (stage != 0) t.devProbe("c1", "$stage")
@@ -169,8 +170,12 @@ class MotionTransportTest {
         d.walkTopDown().forEach { it.setWritable(true) }; d.deleteRecursively() } }
     private fun stored() = Files.readString(stageFile).trim()
     private fun sayings(prefix: String) = notes.count { it.first == "keeper" && it.second.startsWith(prefix) }
-    private fun c1Session(file: java.nio.file.Path, clock: () -> Long = System::currentTimeMillis) =
-        StartRig(GlassFirmwareSim().apply { damageContract = 2; damageFeatures = 0x1ff }, scope, clock = clock, c1StageFile = file).also { collect(it) }
+    private fun c1Session(file: java.nio.file.Path, stepDown: Boolean = false, clock: () -> Long = System::currentTimeMillis) =
+        StartRig(GlassFirmwareSim().apply { damageContract = 2; damageFeatures = 0x1ff }, scope, clock = clock, c1StageFile = file,
+            c1StageStepDown = stepDown).also { collect(it) }
+    /** The starts whose DamageCaps line is in: the notes come in order on the collector's coroutine, so all a start said
+     *  before that line is in too. */
+    private fun startsSaid() = notes.count { it.first == "glass" && it.second.startsWith("DamageCaps") }
 
     /** C1-P (1): a transport made over a file holding N sends at its first start, byte for byte, what a start after
      *  `c1=N` in the same process sends — N = 1, 2, 3 on a C1 build — and says the restore once; a build without a C1
@@ -182,7 +187,6 @@ class MotionTransportTest {
             val restored = startWire(0x1ff, 0, store = stageFile)
             assertEquals(startWire(0x1ff, n), restored, "stage $n restored: the start's bytes are an in-process c1=$n start's")
             waitUntil(10_000, message = { "stage $n: said: $notes" }) { sayings("C1 ladder: stage $n restored from the last run") > 0 }
-            assertEquals(1, sayings("C1 ladder: stage $n restored from the last run"), "stage $n: said once: $notes")
         }
         val want = javaClass.getResource("/startwire/awake-start-contract2.txt")!!.readText().lines().filter { it.isNotBlank() }
         Files.writeString(stageFile, "3\n")
@@ -214,8 +218,7 @@ class MotionTransportTest {
         assertEquals(256 * 1024, t2.state.value.cacheSize, "and the 256 KiB cache")
         assertTrue(t2.restartSession("test: the next session"))
         t2.start(full)
-        // the notes come in order on the collector's coroutine: once the second start's DamageCaps line is in, all it said is
-        waitUntil(10_000, message = { "the second start's notes: $notes" }) { notes.count { it.first == "glass" && it.second.startsWith("DamageCaps") } == 2 }
+        waitUntil(10_000, message = { "the second start's notes: $notes" }) { startsSaid() == 2 }
         assertEquals(1, sayings("C1 ladder: stage 2 restored from the last run"), "said once, at the first start: $notes")
         t2.stop()
     }
@@ -252,6 +255,66 @@ class MotionTransportTest {
         t.start(full)
         assertEquals(0x2c, t.state.value.flagsInForce, "this run arms stage 3")
         t.stop()
+    }
+
+    /** C1-P R1 §1 (a), (c): the last run ended on an uncaught error (the phone's first stack is told so). A stored 2 reads
+     *  as 0: the first start sends stage 0's bytes, the file holds 0, and the step-down is said once — a `keeper` note
+     *  and a `holdback` fault — not again at the next start. A stored 0 says nothing. (b), no such error and a stored 2,
+     *  is pin (1). And R1 §2 (A 2.2): a `c1=N` before the first start leaves only its own note standing. */
+    @Test
+    fun anUncaughtErrorInTheLastRunStepsAStoredStageDownTo0_C1P(): Unit = runBlocking {
+        val base = startWire(0x1ff, 0)
+        val said = "C1 ladder: an uncaught error ended the last run with stage 2 stored — stage 0 from here (probe c1=2 to try again)"
+        fun ladder() = notes.filter { "C1 ladder" in it.second }
+        Files.writeString(stageFile, "2\n")
+        assertEquals(base, startWire(0x1ff, 0, store = stageFile, stepDown = true), "(a) a stored 2: stage 0's bytes")
+        assertEquals("0", stored(), "(a) the file holds 0")
+        Files.writeString(stageFile, "2\n")
+        notes.clear()
+        val t = c1Session(stageFile, stepDown = true)
+        t.start(full)
+        assertEquals(0x4, t.state.value.flagsInForce, "(a) stage 0: DRAW2 only")
+        assertTrue(t.restartSession("test: the next session"))
+        t.start(full)
+        waitUntil(10_000, message = { "(a) the second start's notes: $notes" }) { startsSaid() == 2 }
+        assertEquals(listOf("keeper" to said, "fault" to "holdback: $said"), ladder(), "(a) said once, a note and a fault")
+        t.stop()
+        notes.clear()
+        Files.writeString(stageFile, "0\n")
+        assertEquals(base, startWire(0x1ff, 0, store = stageFile, stepDown = true), "(c) a stored 0: stage 0")
+        waitUntil(10_000, message = { "(c) the start's notes: $notes" }) { startsSaid() == 1 }
+        assertEquals(emptyList(), ladder(), "(c) a stored 0: nothing said")
+        for ((stepDown, was) in listOf(false to 2, true to 0)) {
+            notes.clear()
+            Files.writeString(stageFile, "2\n")
+            val p = c1Session(stageFile, stepDown)
+            p.devProbe("c1", "1")
+            p.start(full)
+            waitUntil(10_000, message = { "A 2.2, step-down $stepDown: the start's notes: $notes" }) { startsSaid() == 1 }
+            assertEquals(listOf("C1 ladder: stage $was → 1"), ladder().map { it.second.substringBefore(" (") }, "A 2.2, step-down $stepDown")
+            p.stop()
+        }
+    }
+
+    /** C1-P R1 §1 (d): a start loop on one fault takes the uncaught-error record's "the same again" path, whose pickup
+     *  says nothing (null) past 8. The phone reads the pending file before the pickup ([UncaughtRecord.isPending]), so
+     *  the ninth start steps down all the same. */
+    @Test
+    fun theSameAgainPathOfTheUncaughtRecordStepsDownToo_C1P(): Unit = runBlocking {
+        val dir = Files.createDirectories(stageDir.value.resolve("data"))
+        val previous = Thread.UncaughtExceptionHandler { _, _ -> }
+        var pending = false
+        var picked: String? = ""
+        for (i in 1..9) {            // nine processes, each ended by the same fault (one call line)
+            UncaughtRecord.handlerFor(dir, "b", previous).uncaughtException(Thread("DefaultDispatcher-worker-$i"), IllegalStateException("start $i"))
+            pending = UncaughtRecord.isPending(dir)
+            picked = UncaughtRecord.takePending(dir, null)
+        }
+        assertEquals(null, picked, "the ninth pickup of one fault says nothing")
+        assertTrue(pending, "the record was pending before it")
+        Files.writeString(stageFile, "2\n")
+        assertEquals(startWire(0x1ff, 0), startWire(0x1ff, 0, store = stageFile, stepDown = pending), "a stored 2: stage 0's bytes")
+        assertEquals("0", stored(), "the file holds 0")
     }
 
     // ------------------------------------------------------------------------------------------- motion on a session
@@ -881,6 +944,10 @@ class MotionTransportTest {
             val list = CfwModes.cacheUpdate2(listOf(CfwModes.CacheWrite2(1000, ByteArray(2000) { (it / 100).toByte() })), 160 * 1024)
             t.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(list)), 0, "ATLAS"))
             waitUntil(10_000, message = { "$case: the mode 25 went out" }) { images.get() == 1 }
+            // C1-P R1 §2: the count is taken before the model has the packet (StartRig.writeArm), so the case's change
+            // could reach the model first; RIGHT's own refusal record of the mode 25 is the model having taken it
+            waitUntil(10_000, message = { "$case: RIGHT's model took the mode 25: ${glass.refusalRecord(Arm.RIGHT)}" }) {
+                (glass.refusalRecord(Arm.RIGHT)[0] and 0x7F) == 25 }
             if (case == "silent") {
                 glass.setSilent(true)
                 waitUntil(10_000, message = { "$case: the push" }) { t.state.value.glassesSilent }

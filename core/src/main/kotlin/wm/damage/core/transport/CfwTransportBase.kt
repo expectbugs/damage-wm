@@ -88,6 +88,9 @@ abstract class CfwTransportBase(
     /** Build C1-P: the one small file that keeps the C1 ladder's stage across a restart of the process ([c1Stage]) —
      *  the app's data directory on the phone and the PC; null keeps it in memory only (the simulator, the tests). */
     private val c1StageFile: java.nio.file.Path? = null,
+    /** Build C1-P R1 §1: the last run ended on an uncaught error (its record was pending when this process started; the
+     *  phone's first stack only). A stored stage above 0 then reads as 0 and the file is set to 0 ([readC1Stage]). */
+    private val c1StageStepDown: Boolean = false,
 ) : Transport {
 
     /** The firmware model behind [mirror]. */
@@ -275,6 +278,7 @@ abstract class CfwTransportBase(
                 if (n == null || n !in 0..C1_TOP_STAGE) { Log.w(this.name, "probe c1=$value: expected 0..$C1_TOP_STAGE"); return }
                 var was = 0
                 setC1Stage { was = it; n }
+                c1StageSay = null       // C1-P R1 §2 (A 2.2): what the read at creation found no longer stands; this note names it
                 emitNote("keeper", "C1 ladder: stage $was → $n (${ladderSays(n)}) — the next session start arms it" +
                     (damageCaps?.let { if (isC1(it)) "" else "; this build reports no C1 bit, so it arms nothing" } ?: ""))
             }
@@ -911,6 +915,9 @@ abstract class CfwTransportBase(
      *  used — said once, at the first start, where the shell hears notes. Declared before [c1Stage], whose initializer
      *  writes it. */
     @Volatile private var c1StageSay: String? = null
+    /** Build C1-P R1 §1: [c1StageSay] is the step-down after an uncaught error, so the first start also raises it as a
+     *  `holdback` fault, as a hold-back's own is raised. */
+    @Volatile private var c1StageSayIsHoldBack = false
     /** Build C1 (C1-decisions A.17, spec §6.1): the arming ladder's stage — 0 nothing (the default), 1 ZWRITE, 2 and
      *  the 256 KiB cache, 3 and ENGINE. Set only by the probe `c1=N`, lowered only by a hold-back; kept where the wish
      *  is kept (this transport, across sessions) and, since build C1-P, in [c1StageFile]: read once here, so a restart
@@ -930,6 +937,19 @@ abstract class CfwTransportBase(
         val n = text.toIntOrNull()
         if (n == null || n !in 0..C1_TOP_STAGE) {
             c1StageSay = "C1 ladder: the stored stage '$text' is not 0..$C1_TOP_STAGE — stage 0"
+            Log.w(name, c1StageSay!!)
+            return 0
+        }
+        if (n > 0 && c1StageStepDown) {
+            // R1 §1: to 0, not n − 1 (any rung's phone-side code may be the cause, and the way back takes one restart).
+            // Nothing else can reach this transport while it is made, so the write takes no lock; it is setC1Stage's write
+            val kept = try { wm.damage.core.shell.Persistence.writeAtomic(f, "0\n", sync = true); "" } catch (e: Exception) {
+                "; stage 0 could not be stored (${e.javaClass.simpleName}: ${e.message}) — it applies to this run, and a " +
+                    "restart of the process starts at stage $n again"
+            }
+            c1StageSay = "C1 ladder: an uncaught error ended the last run with stage $n stored — stage 0 from here " +
+                "(probe c1=$n to try again)$kept"
+            c1StageSayIsHoldBack = true
             Log.w(name, c1StageSay!!)
             return 0
         }
@@ -2269,7 +2289,9 @@ abstract class CfwTransportBase(
         val epoch = sessionEpoch.incrementAndGet()
         started = true
         sayStaleTees("at the next start")     // P5 item 16: a link end the keeper did not follow with a stop
-        c1StageSay?.let { c1StageSay = null; emitNote("keeper", it) }   // build C1-P: what the read at creation found, once
+        c1StageSay?.let {   // build C1-P: what the read at creation found, once
+            c1StageSay = null; emitNote("keeper", it); if (c1StageSayIsHoldBack) emitFault("holdback", it)
+        }
         // A new session does not inherit the last one's Silent Mode (2026-09-16 review). `noteSilent`
         // is the only writer. What the READ path does: it sets the state on a field-14 value above
         // 0 and clears it only on an explicit 0 — `parseSilentRestored` returns null when the
