@@ -1193,9 +1193,9 @@ These mechanisms are load-bearing and easy to break by accident:
 
 ## Verification
 
-The battery is `CLAUDE.md`'s list; **the current counts are `REMINDER.md`'s** (at L1's gate's first run, simulator,
-before the last fix stage: core 1,413 · desktop 48 · `--selfcheck` 484 PASS lines ×3 · 67 snapshot renders + 31 in
-`phone/` · node 113 · lint 0). The phone build runs in its own gradle call
+The battery is `CLAUDE.md`'s list; **the current counts are `REMINDER.md`'s** (at APK 0.68's gate, simulator:
+core 1,499 · desktop 51 · `--selfcheck` 484 PASS lines ×3 · 67 snapshot renders + 31 in
+`phone/` · node 118 · lint 0). The phone build runs in its own gradle call
 (`:phone:assembleDebug` — `:phone:stageApk` STAGES the APK for install and is never a battery step). The fork:
 `tools/verify.py` · `host/run_vectors.py` · `host/run_self_test.py` · `host/test_damage_ext.py`.
 Every review's pins were run against the unfixed tree and watched to fail before they counted.

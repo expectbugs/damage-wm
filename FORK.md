@@ -351,7 +351,7 @@ inside a phase.
 fixups. 3. Thumb-bit audit. 4. Host vectors green. 5. Simulator vectors green. 6. **Adam's
 in-the-moment go.** 7. Dry-run staircase (`--stop-before heartbeat` → `file_check` → `flash`).
 8. Both lenses, one at a time, the same image (the cross-lens deferred path runs the same code on
-both). 9. Reconnect, capability check (`DamageCaps … features 0x1f` in the journal), self-test on glass
+both). 9. Reconnect, capability check (`DamageCaps … features 0x1f` in the journal on the Phase 2 build; `0x1ff` on a C1 build), self-test on glass
 (`tools/glassdrive.py … selftest:firmware/vectors/v1-keyframe.json` and the other drawing vectors — RIGHT
 reports), telemetry read (`probe:telemetry=read`: uptime, the panel record, the heap figures). 10. Arm
 features one at a time (`probe:flags=0x8000` PROBE first, then `0x0001` PRESENTED, then `0x0003`; the

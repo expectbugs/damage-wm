@@ -584,8 +584,10 @@ hold is fetched from the PC when reachable, and is otherwise shown as "not on th
 The PC serves the web client as one bundle (named by its content `hash`), with a content security policy that allows no
 inline script and allows inline styles (`style-src 'self' 'unsafe-inline'`, the lead's call, L1, so that a terminal
 emulator can run on the Tmux page; scripts stay `'self'`). The bundle is served `no-cache`, so a page's reload takes the
-deployed one. A page carries the protocol version it speaks (`proto.mjs` `PROTO`, equal to the PC's); a PC that speaks
-another ends it `proto` and the page reloads (§9.2). Not built, for the phone app: the app keeps the last bundle it
+deployed one. A page carries the protocol version it speaks (`proto.mjs` `PROTO`, equal to the PC's: 3 since L1, whose wire a
+protocol-2 client cannot read); a PC that speaks another ends it `proto` and the page reloads (§9.2). A phone still on
+APK 0.67 (protocol 2) is ended the same way at its `hello`: it says the builds differ, asks again at its slow pacing
+and reads on from its own copy until 0.68 is installed. Not built, for the phone app: the app keeps the last bundle it
 fetched and a fallback set inside the APK. At `welcome`:
 same hash → run it; different, PC reachable → fetch into a temp directory, swap whole, reload; PC unreachable, or the
 cached set needs a protocol the app's bridge does not speak → the cached or the APK's set, and the away line says which

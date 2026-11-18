@@ -8472,8 +8472,9 @@ fixed (L1 X3).
 By stage, product / tests net: lane S (S1, S2) −1,718 / −1,874; F (Files, full protocol) +113 / +378; W (the watcher)
 −89 / +46; X (access) −50 / +9; P (the pages) −413 / −317; FIX1 +70 / +397. The cuts came in near the estimates where
 they were pure removals (S, X, P); the gap is what the rulings added (the supervisor and the file-safety fixes with a
-pin for every guard, the record's input time, A1, R-a's lane half). FIX2: TODO-LEAD (its shortstat, and the totals
-after it).
+pin for every guard, the record's input time, A1, R-a's lane half). FIX2: Kotlin +76 / −41, pages +37 / −23; tests Kotlin +176 / −20, JS and the look harness +183 / −12.
+**The cleanup's totals against where it began (`ff1232e..c82487b`): product Kotlin −1,632 net (+1,282 / −2,914), the
+pages −399 (+308 / −707), Kotlin tests −888, JS tests −146, and the three app-layer mutation lists −6,549.**
 
 ### 84.5 The reviews, and how each was ruled
 
@@ -8512,8 +8513,16 @@ record opens, 20 of 20 items equal, the 157 op-log lines decode with 0 bad, M1 w
 second start writes none with every byte equal, his 17 rules load with none refused. **Every page acted on in a real
 browser against the real in-process listener**, the desk browser approving itself, a page left open while the
 listener's process was ended and started again coming back by itself, the page policy refusing nothing (its probe
-counted 2 of 2). FIX1's own gate on `bd39307`: core 199 / 1,427, desktop 48, lint 0. The last gate, on the tree merged
-with C1's Damage half as APK 0.68: TODO-LEAD.
+counted 2 of 2). FIX1's own gate on `bd39307`: core 199 / 1,427, desktop 48, lint 0. The last gate (G2), on the tree merged
+with C1's Damage half as APK 0.68 (`9e31b6f`): nothing red — core 203 classes / 1,499 tests, run twice, 0 failures
+(both tests that had each missed once under load that day passed both times); desktop 12 / 51; `--selfcheck` 484 PASS
+×3; 73 books; the music, games, feed and motion checks; the 51 vectors in both forms; the judge 0 px against `main`
+(58 + 11 scenes) and against `ff1232e` (67 + 31); the upgrade check as above; 85 pictures of the look with every act
+read back, the fix stages' four among them; node 118; wiring 67 ok. **After that gate the lead raised the lane's
+protocol to 3** (`e87bf35`): L1 had changed the wire without changing its number, so a phone still on APK 0.67 would
+have met a welcome it cannot decode and asked again every 2 s; with the number raised the PC ends its hello `proto` and
+0.67 says the builds differ and waits. The lane, web and bundle classes, the node tests and the whole core and
+desktop suites were run again on the merged tree (`b4405c8`) before the deploy.
 
 ### 84.7 Not built (the whole build)
 
@@ -8571,6 +8580,9 @@ with C1's Damage half as APK 0.68: TODO-LEAD.
   file-safety work; the estimate counted cuts only.
 - Harness lines a gate needs (a fixed port, A1 on, a restart under an open page) are kept as the standing look, not in
   a throwaway copy.
+- "Not built: a phone and PC on different builds beyond saying so" still needs the saying: a wire that changes takes a
+  new protocol number in the same commit. L1 changed the wire and kept the number; no stage, reviewer or gate met a
+  0.67 client, and the lead found it only when planning the hours between the PC's deploy and the APK's install.
 
 ## 85. Build C1 built: mode 26, its riders and the phone's half — a candidate, not flashed (2026-11-15 → 17)
 
