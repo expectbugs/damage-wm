@@ -45,7 +45,8 @@ import wm.damage.core.util.Log
  *                    same face, size, width, colours (Adam 2026-08-31: no
  *                    font/size switch when scrolling); notches move 5 display
  *                    lines, and the notch that reaches the live edge RETURNS
- *                    TO LIVE; double-tap returns too
+ *                    TO LIVE; double-tap returns too; a single tap does
+ *                    nothing (Adam, 2026-11-17)
  *   KEYS (list)      the quick dozen (verdict 4) + Snippets/Type/Windows/
  *                    Session…; every send drops back to LIVE to watch it run
  *   plus SNIPPETS, WINDOWS (view any window non-invasively), SESSION_ACTIONS
@@ -285,10 +286,11 @@ class TmuxWindow(
             onScroll = { d -> if (d < 0) enterHistory() },   // scroll-up = time; down at live = no-op
             onTap = { level = Level_.KEYS; keysModel.cursor = 0 },
         )
+        // a single tap in scrollback does nothing (Adam, 2026-11-17): a swipe read as a tap opened the keys, and
+        // backing out of them landed on live, losing his place. Double-tap or a scroll past the end leaves it.
         Level_.HISTORY -> WindowView.CanvasView(
             paint = { g, r -> paintHistory(g, r) },
             onScroll = { d -> histScroll(d) },
-            onTap = { level = Level_.KEYS; keysModel.cursor = 0 },
         )
         Level_.KEYS -> listView(keysModel, { keysRows().size }, { g, i, r, dim -> paintPlainRow(g, keysRows()[i], i, r, dim) },
             { g, r, i -> paintPlainLens(g, r, keysRows().getOrElse(i) { "" }) }, { i -> keysCommit(i) })
