@@ -19,8 +19,13 @@ import wm.damage.core.wire.Pb
  *
  * Where §5's text allows two readings, the reading this model takes is marked "READING" in a comment, with the
  * other one: each is a question for the vectors' meeting, not a settled fact.
+ *
+ * Build C2 (`FIRMWARE.md` §6, from its text alone): the local instance a bound fire opens ([openLocal]: no END, tag S,
+ * HOLD at step T), the fire's close set ([closeSet], [closeForFire]), mode 26's subs 3–5 ([commit], [discard],
+ * [settle]) and outcome 3, the walk that refuses `self` (5), and DRAW's h0/h1/anchor with the H rule (§6.6) on a build
+ * whose [scaled] answers true (DamageCaps bit 10). [BindSim] holds the table and the hook.
  */
-class MotionSim {
+class MotionSim(private val scaled: () -> Boolean = { false }) {
 
     /** A 4bpp source: [w]×[h] levels, row-major. */
     class Img(val w: Int, val h: Int, val px: ByteArray)
@@ -43,6 +48,9 @@ class MotionSim {
         val opt = u8(raw, 20)
         val table = u16(raw, 22)
         var h0 = u16(raw, 24); var h1 = u16(raw, 26)
+        val anchor = u8(raw, 28)
+        /** §6.6: h0 and h1 both 0 is unscaled. */
+        val isScaled: Boolean get() = h0 != 0 || h1 != 0
         /** E[0..n] once the values check has passed; the uploaded table's E[1..n] once the walk has read it. */
         var e = IntArray(0)
         var tableE: IntArray? = null
@@ -64,8 +72,9 @@ class MotionSim {
         val T: Int = tracks.maxOf { t -> t.segs.sumOf { it.steps } }
     }
 
-    /** The values a track shows at one step, on this lens (§5.11 row 1's "last drawn values"). */
-    data class Vals(val x: Int, val y: Int, val lvl: Int, val e: Int)
+    /** The values a track shows at one step, on this lens (§5.11 row 1's "last drawn values"); [h] a scaled DRAW's
+     *  eased H (§6.6), 0 for an unscaled one. */
+    data class Vals(val x: Int, val y: Int, val lvl: Int, val e: Int, val h: Int = 0)
 
     /** §5.11 row 1: one instance slot. */
     class Instance(val slot: Int, val tag: Int, val period: Int, val prog4: Int, var prog: Prog, val cap: Span?, val caps: Array<Img?>) {
@@ -80,6 +89,9 @@ class MotionSim {
         var last: Array<Vals?> = arrayOfNulls(prog.tracks.size)
         /** Per track: a RETARGET's restart — its one moving segment eased from these values (§5.5). */
         var from: Array<Vals?> = arrayOfNulls(prog.tracks.size)
+        /** §6.4: opened by a bound fire, never written into the shadow; HOLDs at step T. Cleared only by a COMMIT's
+         *  adoption (the slot's emptying ends the instance) — a stock-path present turns it done and leaves it. */
+        var local = false
         val T: Int get() = prog.T
     }
 
@@ -108,8 +120,16 @@ class MotionSim {
      *  (decision A.2), and every body this lens SENT, in send order (RIGHT only sends; the vectors' "N"). */
     private val owed = arrayOfNulls<ByteArray>(SLOTS)
     private val uiCaptures = arrayOfNulls<ByteArray>(SLOTS)
+    /** §6.5: a COMMIT's outcome-3 body per slot, sent after the slots' close captures. READING: §5.8's "slots in order,
+     *  then the refusal" names closes and a refusal only; an outcome-3 body is kept apart from its slot's close capture
+     *  (a COMMIT may close what else was in its slot), so neither replaces the other, and goes after every close. */
+    private val uiCommits = arrayOfNulls<ByteArray>(SLOTS)
     private var uiRefusal: ByteArray? = null
-    val sent = ArrayList<ByteArray>()
+    /** Every notify this lens SENT, in send order, with its field: 114 bodies and (build C2, [BindSim]) 115 bodies. */
+    val sent = ArrayList<Pair<Int, ByteArray>>()
+    /** RIGHT's END CRC of the last accepted COMMIT (§6.5), for the mirror's record. */
+    var lastCommitCrc = 0L
+        private set
 
     val anyOpen: Boolean get() = slots.any { it != null }
     val anyDrawing: Boolean get() = slots.any { it?.drawing == true }
@@ -126,8 +146,8 @@ class MotionSim {
      * and table it names" on: the walk (5), the areas (2), the `none` backdrops (2), the values (12). Returns the
      * program, or the reason as a negative number.
      */
-    fun validate(cache: ByteArray?, prog4: Int, p: IntArray): Any {
-        val prog = walk(cache, prog4, p) ?: return -REF_RECORD
+    fun validate(cache: ByteArray?, prog4: Int, p: IntArray, noSelf: Boolean = false): Any {
+        val prog = walk(cache, prog4, p, noSelf) ?: return -REF_RECORD
         for (t in prog.tracks) if (!rectOk(t.rectL) || !rectOk(t.rectR) ||
             (t.perLens && (t.rectL.w != t.rectR.w || t.rectL.h != t.rectR.h || t.rectL.y != t.rectR.y))) return -REF_BOUNDS
         // READING: "inside an earlier track's area" — one earlier track whose two rects each contain this track's
@@ -144,8 +164,10 @@ class MotionSim {
 
     /** §5.4's record walk with substitution: null for any fault of structure, of a named record or of a table (5).
      *  Decision A.9: reserved bytes, `anchor` and opt bits a verb does not use must be 0; enumerations (version,
-     *  counts, backdrop, perLens, verb, ease, kind, a pref's field) are structure. */
-    private fun walk(cache: ByteArray?, prog4: Int, p: IntArray): Prog? {
+     *  counts, backdrop, perLens, verb, ease, kind, a pref's field) are structure. Build C2: [noSelf] refuses a `self`
+     *  backdrop or source (a fire, a COMMIT, a SET: §6.2 step 10, §6.3, §6.5); [ownOnly] stops after the record's own
+     *  bytes — what §6.3's SET checks — and names no record or table (what the parameters name is checked at a fire). */
+    private fun walk(cache: ByteArray?, prog4: Int, p: IntArray, noSelf: Boolean = false, ownOnly: Boolean = false): Prog? {
         val off = prog4 * 4
         if (cache == null || off + 4 > cache.size) return null
         if (u8(cache, off) != 1) return null
@@ -175,6 +197,8 @@ class MotionSim {
             tracks += Track(rL, rR, bd, pl == 1, segs)
         }
         if (pos != end) return null                            // §5.4: parsing must end exactly at `length`
+        if (noSelf && tracks.any { it.usesSelf }) return null
+        if (ownOnly) return Prog(tracks, Span(off, end))
         var lo = off; var hi = end
         for (t in tracks) for (s in t.segs) {
             if (s.moves && s.kind == KIND_RECORD) {
@@ -199,8 +223,16 @@ class MotionSim {
         return Prog(tracks, Span(lo, hi))
     }
 
+    /** §6.3 SET (build C2): the program record's own structure at [prog4] — header, tracks, segments, enumerations and
+     *  reserved bytes — and no `self` (5). Nothing it names is read. */
+    fun ownStructureOk(cache: ByteArray?, prog4: Int): Boolean = walk(cache, prog4, IntArray(4), noSelf = true, ownOnly = true) != null
+
     private fun structureOk(s: Seg): Boolean {
-        if (s.verb > REVEAL || u8(s.raw, 21) != 0 || u8(s.raw, 29) != 0 || u8(s.raw, 28) != 0) return false
+        // §6.6 (build C2): DRAW's anchor is 0 top · 1 centre · 2 bottom; another anchor is an enumeration outside the
+        // build's range (5, the decisions on the build spec B.2). READING: on every other verb the anchor stays one of
+        // the zeros §5.5 requires (5), as in C1 — §6.6 gives it a meaning for DRAW only
+        val anchorOk = if (s.verb == DRAW && scaled()) u8(s.raw, 28) <= ANCHOR_BOTTOM else u8(s.raw, 28) == 0
+        if (s.verb > REVEAL || u8(s.raw, 21) != 0 || u8(s.raw, 29) != 0 || !anchorOk) return false
         for (pr in intArrayOf(u8(s.raw, 30), u8(s.raw, 31))) if (pr and 0x80 != 0 && ((pr shr 2) and 0x1F) > PREF_STEPS) return false
         // build C1's ruling R1.3: `ease` is checked on every segment (0..2, else 5), whatever the verb
         if (s.ease > EASE_TABLE) return false
@@ -234,12 +266,18 @@ class MotionSim {
     private fun valuesOk(prog: Prog): Boolean {
         for (t in prog.tracks) {
             for (s in t.segs) {
-                if (s.steps < 1 || s.h0 != 0 || s.h1 != 0) return false
+                if (s.steps < 1) return false
+                // §5.5 "h0/h1 = 0"; §6.6 on a bit-10 build, DRAW only: both 0, or every step's eased H inside 1..2048.
+                // READING (§6.6 also says "both 1..2048, or both 0"): "every step's" is j = 1..steps, so h0 = 0 with
+                // an h1 whose eased steps stay in range is taken (the build spec's 9.2 worked it so: h0 0, h1 2 over
+                // four linear steps → H 1, 1, 2, 2). READING: another verb keeps C1's h0/h1 = 0 (§6.6 is DRAW's)
+                if ((s.h0 != 0 || s.h1 != 0) && (s.verb != DRAW || !scaled())) return false
                 when (s.verb) {
                     FILL -> { if (s.kind > 15) return false; s.e = IntArray(s.steps + 1) }
                     DRAW -> {
                         s.e = easeE(s.ease, s.steps, s.tableE)
                         if (s.e.any { eased(s.lvl0, s.lvl1 - s.lvl0, it) !in 0..15 }) return false
+                        if (s.isScaled && (1..s.steps).any { eased(s.h0, s.h1 - s.h0, s.e[it]) !in 1..H_MAX }) return false
                     }
                     REVEAL -> {
                         if (s.kind == KIND_LEVEL && (s.src > 15 || s.dxL < 1 || s.dy < 1)) return false
@@ -380,16 +418,21 @@ class MotionSim {
      *  carries none (build C1's ruling R1.8); the tag only a PLAY holds. */
     fun captureRefusal(msg: ByteArray, reason: Int, uptime: Long) {
         val sub = if (msg.size >= 2) msg[1].toInt() and 0xFF else -1
+        // build C2 (§6.5): on a bit-10 build subs 3–5 are known — each names a slot after its sub, and S where a PLAY
+        // names its tag: READING, field 3 carries a COMMIT's, DISCARD's or SETTLE's S, as outcome 3's "the tag = S"
+        val known = if (scaled()) 0..5 else 0..2
         uiRefusal = Pb.cat(Pb.v(1, ++sequence),
-            if (sub in 0..2 && msg.size >= 3) Pb.v(2, msg[2].toInt() and 0xFF) else ByteArray(0),
-            if (sub == 0 && msg.size >= 8) Pb.v(3, u16(msg, 6)) else ByteArray(0),
+            if (sub in known && msg.size >= 3) Pb.v(2, msg[2].toInt() and 0xFF) else ByteArray(0),
+            if (sub == 0 && msg.size >= 8) Pb.v(3, u16(msg, 6))
+            else if (sub in 3..5 && sub in known && msg.size >= 5) Pb.v(3, u16(msg, 3)) else ByteArray(0),
             Pb.v(4, OUTCOME_REFUSED), Pb.v(10, reason), Pb.v(11, uptime))
     }
 
-    /** The ui_task's sends at the end of the image worker (decision A.2): slot order, then the refusal. */
+    /** The ui_task's sends at the end of the image worker (decision A.2): slot order, then (build C2) the COMMITs'
+     *  outcome-3 bodies in slot order, then the refusal. */
     fun takeUiSends(): List<ByteArray> {
-        val out = uiCaptures.filterNotNull() + listOfNotNull(uiRefusal)
-        uiCaptures.fill(null); uiRefusal = null
+        val out = uiCaptures.filterNotNull() + uiCommits.filterNotNull() + listOfNotNull(uiRefusal)
+        uiCaptures.fill(null); uiCommits.fill(null); uiRefusal = null
         return out
     }
 
@@ -405,7 +448,7 @@ class MotionSim {
      * The copy hook's engine function (§5.2, §5.3): [draws] is false on the stock path, which draws no step and turns
      * every drawing instance done with no notify. It clears the outstanding mark on every run, claimed or not.
      */
-    fun hookPresent(fb: ByteArray, stride: Int, left: Boolean, tick: Long, draws: Boolean, uptime: Long): Hook {
+    fun hookPresent(fb: ByteArray, stride: Int, left: Boolean, tick: Long, draws: Boolean, uptime: Long, preserve: Boolean = false): Hook {
         outstanding = false
         if (!anyDrawing) return Hook(false, false)
         if (wordHeld) { foldsSinceBoot++; return Hook(false, false) }   // a lost claim folds the step; never waits
@@ -414,12 +457,16 @@ class MotionSim {
         for (o in slots) {
             if (o == null || !o.drawing) continue
             val k = dueStep(o, tick)
+            // §5.3: the preserve path draws an instance only when k > d (its framebuffer still holds step d — a HOLD's
+            // step T too, §6.4); the direct path redraws every drawing one over the shadow it has just copied
+            if (preserve && k <= o.d) continue
             // decision A.11: field 6 counts distinct steps (k > d), field 7 the steps passed over
             if (k > o.d) { o.drawn++; val skipped = k - o.d - 1; o.folded += skipped; foldsSinceBoot += skipped }
             paint(o, k, fb, stride, left)
             o.d = k
             o.last = Array(o.prog.tracks.size) { trackVals(o, it, k, left) }
-            if (k == o.T) {
+            // §6.4 HOLD: at step T a local instance stays drawing at d = T and owes no 114 (nothing has ended)
+            if (k == o.T && !o.local) {
                 o.drawing = false
                 owed[o.slot] = body(++sequence, o.slot, o.tag, OUTCOME_DREW, o, 0, uptime)
                 last = true
@@ -450,7 +497,13 @@ class MotionSim {
             when (s.verb) {
                 FILL -> fill(buf, stride, area, s.kind)
                 // the level is 0..15 here: [vals] clamps a RETARGET's overshoot (ruling R1.10)
-                DRAW -> blit(buf, stride, if (s.kind == KIND_SELF) o.caps[i]!! else s.image!!, v.x, v.y, area, (s.opt and 0x30) or v.lvl)
+                DRAW -> {
+                    val img = if (s.kind == KIND_SELF) o.caps[i]!! else s.image!!
+                    val opts = (s.opt and 0x30) or v.lvl
+                    if (!s.isScaled) blit(buf, stride, img, v.x, v.y, area, opts)
+                    // §6.6: H rows tall, placed by the anchor; an H of 0 (h0 = 0 at j = 0) draws no row
+                    else if (v.h > 0) blitScaled(buf, stride, img, v.x, anchoredY(v.y, img.h, v.h, s.anchor), v.h, area, opts)
+                }
                 REVEAL -> reveal(buf, stride, o, i, s, v, area)
             }
         }
@@ -504,9 +557,15 @@ class MotionSim {
         // build C1's ruling R1.10: a restart eased by an overshooting table can take a level or an extent out of its
         // range between two in-range ends — it is clamped (0..15, 0..F); the validator holds a program's own path in
         // range, so the clamp changes nothing else. The clamped value is what this lens draws, and so what it last drew.
+        // §6.6: a scaled DRAW's H eased from h0 to h1; on RETARGET's restart path from the H this lens last drew, clamped
+        // to 1..2048 as levels are (R1.10). READING: a restart from an unscaled draw eases from the source's own height
+        val h = if (s.verb != DRAW || !s.isScaled) 0
+                else if (f == null) eased(s.h0, s.h1 - s.h0, e)
+                else { val from = if (f.h > 0) f.h else (if (s.kind == KIND_SELF) o.caps[i]!!.h else s.image!!.h)
+                       eased(from, s.h1 - from, e).coerceIn(1, H_MAX) }
         return when (s.verb) {
-            DRAW -> if (f == null) Vals(eased(x0, dx, e), eased(s.y, s.dy, e), eased(s.lvl0, s.lvl1 - s.lvl0, e).coerceIn(0, 15), 0)
-                    else Vals(eased(f.x, x0 + dx - f.x, e), eased(f.y, s.y + s.dy - f.y, e), eased(f.lvl, s.lvl1 - f.lvl, e).coerceIn(0, 15), 0)
+            DRAW -> if (f == null) Vals(eased(x0, dx, e), eased(s.y, s.dy, e), eased(s.lvl0, s.lvl1 - s.lvl0, e).coerceIn(0, 15), 0, h)
+                    else Vals(eased(f.x, x0 + dx - f.x, e), eased(f.y, s.y + s.dy - f.y, e), eased(f.lvl, s.lvl1 - f.lvl, e).coerceIn(0, 15), 0, h)
             REVEAL -> Vals(x0, s.y, 15, (if (f == null) eased(0, s.extentMax, e) else eased(f.e, s.extentMax - f.e, e)).coerceIn(0, s.extentMax))
             else -> Vals(0, 0, if (s.verb == FILL) s.kind else 0, 0)
         }
@@ -537,6 +596,106 @@ class MotionSim {
             setNib(buf, stride, xx, yy, if (options == null) c else ((if (inverse) 15 - c else c) * top) / 15)
         }
     }
+
+    /** §6.6: [img] drawn [hOut] rows tall at (x0, y0) — output row r takes source row [scaledRow] — columns as they
+     *  are, clipped to [clip], with DRAW's options (the v1 LUT, as [blit]). */
+    private fun blitScaled(buf: ByteArray, stride: Int, img: Img, x0: Int, y0: Int, hOut: Int, clip: Rect, options: Int) {
+        val top = options and 0x0F
+        val inverse = options and 0x20 != 0
+        val transparent = options and 0x10 != 0
+        val yA = maxOf(clip.y, y0); val yB = minOf(clip.bottom, y0 + hOut)
+        val xA = maxOf(clip.x, x0); val xB = minOf(clip.right, x0 + img.w)
+        for (yy in yA until yB) {
+            val row = scaledRow(yy - y0, img.h, hOut) * img.w
+            for (xx in xA until xB) {
+                val c = img.px[row + (xx - x0)].toInt()
+                if (transparent && c == 0) continue
+                setNib(buf, stride, xx, yy, ((if (inverse) 15 - c else c) * top) / 15)
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------------------- build C2: the local instance
+    /** §6.2 step 11: the fire's close set — the entry's [slot] and every open instance whose areas meet [prog]'s, in
+     *  slot order. */
+    fun closeSet(slot: Int, prog: Prog): List<Int> = (0 until SLOTS).filter { i ->
+        val o = slots[i]
+        o != null && (i == slot || meets(o.prog, prog))
+    }
+
+    /** §6.2 step 11: one close of the fire's close pass — a local instance of the fire's own slot silently whatever
+     *  its state (nothing waits on its body, §6.5), any other as [close] does (a drawing one's outcome-1 body). */
+    fun closeForFire(i: Int, fireSlot: Int, uptime: Long) {
+        val o = slots[i] ?: return
+        if (i == fireSlot && o.local) { slots[i] = null; staleMarkOwed = true } else close(i, uptime)
+    }
+
+    /** §6.2 step 12, §6.4: the local instance — tag [tag] (the fire's S), t0 the fire's tick, d 0, the entry's period,
+     *  its first read range from the walk, no capture range, nothing written into the shadow (END ordinal 0, CRC 0). */
+    fun openLocal(slot: Int, tag: Int, period: Int, prog4: Int, prog: Prog, tick: Long, left: Boolean) {
+        val inst = Instance(slot, tag, period, prog4, prog, null, arrayOfNulls(prog.tracks.size))
+        inst.local = true
+        inst.t0 = tick and U32
+        inst.last = Array(prog.tracks.size) { startVals(inst, it, left) }
+        slots[slot] = inst
+    }
+
+    /** §6.5 COMMIT, past mode 26's prefix and its values: PLAY's walk (5; `self` 5), areas (2), `none` backdrops (2),
+     *  values (12, with §6.6's H rule) — then PLAY's close pass over the OTHER slots, END(prog, P) into the shadow
+     *  always and its CRC, the slot's local instance tagged [s] adopted (a holding one turns done, no body), a local
+     *  tagged newer left as it is, anything else closed; one outcome-3 body. Returns 0 or the reason. */
+    fun commit(cache: ByteArray?, shadow: ByteArray, stride: Int, left: Boolean, slot: Int, s: Int, prog4: Int, p: IntArray, uptime: Long): Int {
+        val v = validate(cache, prog4, p, noSelf = true)
+        val prog = v as? Prog ?: return -(v as Int)
+        for (i in 0 until SLOTS) if (i != slot && slots[i]?.let { meets(it.prog, prog) } == true) close(i, uptime)
+        val end = Instance(slot, s, 0, prog4, prog, null, arrayOfNulls(prog.tracks.size))
+        paint(end, end.T, shadow, stride, left)
+        val crc = endCrc(shadow, stride, prog, left)
+        lastCommitCrc = crc
+        val o = slots[slot]
+        var adopted: Instance? = null
+        if (o != null && o.local && o.tag == s) {
+            adopted = o
+            o.local = false
+            o.endCrc = crc                                  // its own outcome-0 body at step T carries COMMIT's CRC
+            if (o.drawing && o.d >= o.T) o.drawing = false   // a holding one turns done, no body
+            staleMarkOwed = true                            // "a close or an adoption sets the stale mark"
+        } else if (o != null && !(o.local && seqAfter(o.tag, s) > 0)) close(slot, uptime)
+        uiCommits[slot] = Pb.cat(Pb.v(1, ++sequence), Pb.v(2, slot), Pb.v(3, s), Pb.v(4, OUTCOME_COMMITTED), Pb.v(5, 0),
+            Pb.v(6, adopted?.drawn ?: 0), Pb.v(7, adopted?.folded ?: 0), Pb.v(8, crc), Pb.v(9, 0), Pb.v(10, 0), Pb.v(11, uptime))
+        return 0
+    }
+
+    /** §6.5 DISCARD's act: in each named slot ([slot] or 0xFF all) every local instance tagged at or after [s] —
+     *  `(int16_t)(tag − S) ≥ 0` — is stopped (a drawing or holding one with its outcome-1 body, a done one emptied
+     *  silently); ordinary instances are untouched. */
+    fun discard(slot: Int, s: Int, uptime: Long) {
+        for (i in named(slot)) { val o = slots[i] ?: continue; if (o.local && seqAfter(o.tag, s) >= 0) close(i, uptime) }
+    }
+
+    /** §6.5 SETTLE's pass: in each named slot each local instance tagged at or after [s] that has held its last step
+     *  for at least [age] ticks — d = T and `now − (t0 + (T−1)·P) ≥ age`, an unsigned 32-bit difference — is stopped,
+     *  outcome 1. True when it stopped one. READING: "held its last step" is a HOLD — drawing at d = T; a done local is
+     *  not holding and is left (DISCARD names a done one, SETTLE does not). */
+    fun settle(slot: Int, s: Int, age: Int, tick: Long, uptime: Long): Boolean {
+        var stopped = false
+        for (i in named(slot)) {
+            val o = slots[i] ?: continue
+            if (!o.local || !o.drawing || o.d < o.T || seqAfter(o.tag, s) < 0) continue
+            if (((tick - (o.t0 + (o.T - 1).toLong() * o.period)) and U32) < age) continue
+            close(i, uptime); stopped = true
+        }
+        return stopped
+    }
+
+    /** §6.5 SETTLE's cursor test: a local instance tagged at or after [s] still drawing in a named slot. */
+    fun localDrawingFrom(slot: Int, s: Int): Boolean =
+        named(slot).any { i -> slots[i]?.let { it.local && it.drawing && seqAfter(it.tag, s) >= 0 } == true }
+
+    private fun named(slot: Int): IntRange = if (slot == 0xFF) 0 until SLOTS else slot..slot
+
+    /** §5.5 "meets": the bounding box of any track's pair in one intersects that of any track's pair in the other. */
+    private fun meets(a: Prog, b: Prog): Boolean = a.tracks.any { x -> b.tracks.any { y -> x.bbox.overlaps(y.bbox) } }
 
     // ------------------------------------------------------------------------------------------ notify bodies
     /** Decision A.2: outcomes 0 and 1 carry fields 1–11 (9, the step-drawing µs, is 0: the model has no clock). */
@@ -571,6 +730,25 @@ class MotionSim {
         private const val REVEAL_OPT = 0x07
         /** §5.8 field 4. */
         const val OUTCOME_DREW = 0; const val OUTCOME_CLOSED = 1; const val OUTCOME_REFUSED = 2
+        /** §6.5 (build C2): outcome 3, committed. */
+        const val OUTCOME_COMMITTED = 3
+        /** §6.6: H 1..2048; DRAW's anchor 0 top · 1 centre · 2 bottom. */
+        const val H_MAX = 2048
+        const val ANCHOR_TOP = 0; const val ANCHOR_CENTRE = 1; const val ANCHOR_BOTTOM = 2
+
+        /** §6.6: output row r of an H-row draw takes source row `⌊(2r + 1)·h / (2H)⌋`. */
+        fun scaledRow(r: Int, h: Int, hOut: Int): Int = (((2L * r + 1) * h) / (2L * hOut)).toInt()
+
+        /** §6.6: the top row of an H-row draw of an h-row source at y — top `y`, centre `y + ((h − H) >> 1)` (arithmetic),
+         *  bottom `y + h − H`. */
+        fun anchoredY(y: Int, h: Int, hOut: Int, anchor: Int): Int = when (anchor) {
+            ANCHOR_CENTRE -> y + ((h - hOut) shr 1)
+            ANCHOR_BOTTOM -> y + h - hOut
+            else -> y
+        }
+
+        /** §6.5: `(int16_t)(a − b)` — how far 16-bit sequence [a] is after [b], across the wrap. */
+        fun seqAfter(a: Int, b: Int): Int = ((a - b) and 0xFFFF).toShort().toInt()
         /** §4's v2 image record: w 1..640, h 1..2048. */
         private const val IMG_MAX_W = 640
         private const val IMG_MAX_H = 2048
@@ -587,8 +765,8 @@ class MotionSim {
          * §5.2's plan, a pure function. Of the drawing slots whose P reads 16..128, with `k = min(T, 1 + ⌊(now − t0) / P⌋)`
          * (an unsigned 32-bit difference): one with k > d is due now — the thread queues ([PLAN_ACT]) unless a
          * refresh is outstanding or the last try or put failed, when it waits one period, the smallest P among the
-         * due; otherwise the wait is `max(1, (int32)(due − now))` over the earliest due time `t0 + d·P` (never past
-         * step T); with nothing drawing, [PLAN_FOREVER]. READING: "due now with nothing outstanding" is answered 0
+         * due; otherwise the wait is `max(1, (int32)(due − now))` over the earliest due time `t0 + d·P` (a slot with
+         * d ≥ T gives none, so never past step T); with nothing to draw, [PLAN_FOREVER]. READING: "due now with nothing outstanding" is answered 0
          * in the vectors' `W` — the text gives the thread's action, not a wait.
          */
         fun plan(now: Long, slots: List<PlanSlot?>, outstanding: Boolean, failed: Boolean): Long {
@@ -596,11 +774,13 @@ class MotionSim {
             var dueP = Int.MAX_VALUE
             var wait = Long.MAX_VALUE
             for (s in slots) {
-                if (s == null || !s.drawing || s.period !in P_MIN..P_MAX) continue
+                // §5.2: "a slot whose P reads outside 16..128 is skipped, and one with d ≥ T has nothing left to draw
+                // and gives no due time" — build C2's HOLD (§6.4) is that slot: a table of HOLDs alone waits for ever
+                if (s == null || !s.drawing || s.period !in P_MIN..P_MAX || s.d >= s.T) continue
                 anyDrawing = true
                 val k = minOf(s.T.toLong(), 1 + ((now - s.t0) and U32) / s.period)
                 if (k > s.d) { dueP = minOf(dueP, s.period); continue }
-                val due = (s.t0 + minOf(s.d, s.T - 1).toLong() * s.period) and U32
+                val due = (s.t0 + s.d.toLong() * s.period) and U32
                 wait = minOf(wait, ((due - now) and U32).toInt().toLong())
             }
             return when {
