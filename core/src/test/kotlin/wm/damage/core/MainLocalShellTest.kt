@@ -527,15 +527,23 @@ class MainLocalShellTest {
             r.up()
             val at = r.right.size
             var fired: Int? = null
-            r.onAnyImage = { a, img -> if (a == Arm.RIGHT && fired == null && r.cacheWrite(img)) fired = r.fire(CfwModes.EV_UPROLL) }
-            r.rows[3].s = r.rows[3].s.copy(line = "summary 33", detail = "a longer detail line of 3")
+            // the re-stage's first piece: a cache write into Main's own region (the atlas lies below it) — a mode 19 or its
+            // deflated form, mode 25 (ZWRITE is armed at stage 4)
+            val regionStart = CfwModes.mainRegion(256 * 1024, true).first
+            fun firstOff(img: ByteArray): Int = when (img[0].toInt() and 0x7F) {
+                19 -> r.u16(img, 1) * 4
+                25 -> java.util.zip.Inflater().run { setInput(img, 1, img.size - 1); val out = ByteArray(4); inflate(out); end(); r.u16(out, 0) * 4 }
+                else -> -1
+            }
+            r.onAnyImage = { a, img -> if (a == Arm.RIGHT && fired == null && r.cacheWrite(img) && firstOff(img) >= regionStart) fired = r.fire(CfwModes.EV_UPROLL) }
+            r.rows[3].s = r.rows[3].s.copy(line = "summary 33")
             r.shell.services.requestRender(r.rows[3])
             r.until("a notch fired as the re-stage's first piece went out", 15_000) { fired != null }
             r.onAnyImage = null
             r.until("the re-stage booked", 15_000) { r.notes("mainstage").any { it.startsWith("row 3 re-staged") } }
             r.settle("the re-stage written")
             val imgs = r.right.drop(at)
-            val writes = imgs.withIndex().filter { (_, img) -> r.cacheWrite(img) }.map { it.index }
+            val writes = imgs.withIndex().filter { (_, img) -> r.cacheWrite(img) && firstOff(img) >= regionStart }.map { it.index }
             assertTrue(writes.size >= 2, "the re-stage went in pieces: ${writes.size}")
             val settleAt = imgs.withIndex().firstOrNull { (i, img) -> i > writes[0] && r.subs(img).any { r.isSub(it, 26, 5) } }?.index ?: -1
             assertTrue(settleAt in writes[0] until writes[1], "the second piece after the burst's SETTLE: SETTLE at $settleAt, pieces at $writes")
