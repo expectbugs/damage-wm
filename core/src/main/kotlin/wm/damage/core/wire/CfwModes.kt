@@ -148,14 +148,15 @@ object CfwModes {
      *  cached glyphs rides in the SAME single flush as the pixel deltas, which is
      *  the whole point of batching. Of those, only mode 3 burns a fid. */
     /** [engine]: the batch may carry mode 26 too — only where ENGINE is in force (`FIRMWARE.md` §5.5: "allowed alone
-     *  or as a mode-8 sub-message"); a build without the engine has no handler for it. */
-    fun batch(subs: List<ByteArray>, engine: Boolean = false): ByteArray {
+     *  or as a mode-8 sub-message"); a build without the engine has no handler for it. [bind] (build C2, §6.3, §6.6): it
+     *  may carry modes 27 and 28 too — only where BIND is in force on a bit-10 build. */
+    fun batch(subs: List<ByteArray>, engine: Boolean = false, bind: Boolean = false): ByteArray {
         if (subs.isEmpty()) throw LintError("empty mode-8 batch")
         if (subs.size > 0xFF) throw LintError("mode-8 count ${subs.size} exceeds the u8 field")
         for ((i, s) in subs.withIndex()) {
             if (s.isEmpty()) throw LintError("mode-8 sub $i empty")
             val m = s[0].toInt() and 0x7F
-            if (m !in BATCH_SUBMODES && !(engine && m == MOTION_MODE))
+            if (m !in BATCH_SUBMODES && !(engine && m == MOTION_MODE) && !(bind && (m == BIND_MODE || m == VSCALE_MODE)))
                 throw LintError("mode-8 sub $i is mode $m; the firmware accepts only " +
                     "shadow ops ${BATCH_SUBMODES.joinToString("/")}")
             if (s.size > 0xFFFF) throw LintError("mode-8 sub $i length ${s.size} exceeds len16")
@@ -602,6 +603,196 @@ object CfwModes {
         if (mode19.size < 5 || mode19[0].toInt() != 19) throw LintError("mode 25 deflates a mode-19 message, not mode ${mode19.firstOrNull()}")
         if (mode19.size - 1 > ZWRITE_MAX) throw LintError("a mode-25 list of ${mode19.size - 1} B exceeds the $ZWRITE_MAX B inflate")
         return byteArrayOf(ZWRITE_MODE.toByte()) + wm.damage.core.gfx.Zl.deflate(mode19.copyOfRange(1, mode19.size))
+    }
+
+    // ---- build C2 (`FIRMWARE.md` §6.3, §6.5, §6.6): mode 27 the bindings, mode 26's subs 3–5 the answers, mode 28 the
+    // vertical-scale draw. Sent only on a bit-10 build with BIND in force (`CfwTransportBase`'s gate at the image lane);
+    // the encoders lint every field §6 bounds offline. What depends on the glasses' table (one slot per list, a cursor
+    // below its list's count, the program's walk) is the glasses' to refuse, and the phone's rules never send it.
+    const val BIND_MODE = 27
+    const val VSCALE_MODE = 28
+    const val BIND_SET = 0
+    const val BIND_CLEAR = 1
+    const val BIND_LIST = 2
+    const val MOTION_COMMIT = 3
+    const val MOTION_DISCARD = 4
+    const val MOTION_SETTLE = 5
+    /** §6.3: entries 0..7, lists 0..3; CLEAR's and DISCARD/SETTLE's "every" and "none". */
+    const val BIND_ENTRIES = 8
+    const val BIND_LISTS = 4
+    const val BIND_ALL = 0xFF
+    /** SET's devType for a scroll entry (any source) and a tap entry (the ring); §6.1's event ids. */
+    const val DEV_ANY = 0xFF
+    const val DEV_RING = 4
+    const val EV_TAP = 0
+    const val EV_UPROLL = 4
+    const val EV_DOWNROLL = 5
+    /** SET's prog for a report-only tap entry, LIST's items for "no table" (§6.3). */
+    const val PROG_NONE = 0xFFFF
+    const val ITEMS_NONE = 0xFFFF
+    /** §6.3 LIST: a list holds 1..1024 rows. */
+    const val LIST_MAX = 1024
+    /** §6.2 step 9's parameter kinds: 0 the arg · 1 the item table's entry at c' + arg · 2 c' × pitch + arg. */
+    const val KIND_ARG = 0
+    const val KIND_ITEM = 1
+    const val KIND_PITCH = 2
+    /** §6.6: mode 28's and a scaled DRAW's output height. */
+    val VSCALE_H = 1..2048
+
+    /** One parameter of a SET (§6.3: `kind u8 (0..2) · arg s16`). */
+    data class BindParam(val kind: Int, val arg: Int)
+
+    /** Mode 27 sub 0 SET (§6.3): `entry u8 · devType u8 · eventId u8 · list u8 · step s8 · slot u8 · period u8 · prog u16 ·
+     *  4 × {kind u8, arg s16}` — 23 B with the header. Two shapes only: a scroll entry (eventId 4 or 5, devType 0xFF, step
+     *  ≠ 0) and a tap entry (eventId 0, devType 4, step 0); a tap entry with prog [PROG_NONE] is report-only. */
+    fun bindSet(entry: Int, devType: Int, eventId: Int, list: Int, step: Int, slot: Int, period: Int, prog4: Int,
+                params: List<BindParam>): ByteArray {
+        if (entry !in 0 until BIND_ENTRIES) throw LintError("mode-27 SET entry $entry is not 0..7")
+        if (list !in 0 until BIND_LISTS) throw LintError("mode-27 SET list $list is not 0..3")
+        if (slot !in 0 until MOTION_SLOTS) throw LintError("mode-27 SET slot $slot is not 0..3")
+        if (period !in MOTION_PERIODS) throw LintError("mode-27 SET period $period is not 16..128 ticks")
+        if (step !in Byte.MIN_VALUE..Byte.MAX_VALUE) throw LintError("mode-27 SET step $step is not an s8")
+        checkOff4(prog4, "mode-27 SET program")
+        val scroll = (eventId == EV_UPROLL || eventId == EV_DOWNROLL) && devType == DEV_ANY && step != 0
+        val tap = eventId == EV_TAP && devType == DEV_RING && step == 0
+        if (!scroll && !tap) throw LintError("mode-27 SET entry $entry (devType $devType, eventId $eventId, step $step) is " +
+            "neither a scroll entry (id 4 or 5, devType 0xFF, step ≠ 0) nor a tap entry (id 0, devType 4, step 0) — refused (12)")
+        if (scroll && prog4 == PROG_NONE) throw LintError("mode-27 SET: a scroll entry naming prog 0xFFFF — refused (5): no program fits there")
+        if (params.size > 4) throw LintError("mode-27 SET carries four parameters, not ${params.size}")
+        val out = ByteArray(23)
+        out[0] = BIND_MODE.toByte(); out[1] = BIND_SET.toByte()
+        out[2] = entry.toByte(); out[3] = devType.toByte(); out[4] = eventId.toByte(); out[5] = list.toByte()
+        out[6] = step.toByte(); out[7] = slot.toByte(); out[8] = period.toByte()
+        put16(out, 9, prog4)
+        for (i in 0 until 4) {
+            val p = params.getOrElse(i) { BindParam(KIND_ARG, 0) }
+            if (p.kind !in KIND_ARG..KIND_PITCH) throw LintError("mode-27 SET parameter $i kind ${p.kind} is not 0..2")
+            if (p.arg !in Short.MIN_VALUE..Short.MAX_VALUE) throw LintError("mode-27 SET parameter $i arg ${p.arg} is not an s16")
+            out[11 + 3 * i] = p.kind.toByte()
+            putS16(out, 12 + 3 * i, p.arg)
+        }
+        return out
+    }
+
+    /** Mode 27 sub 1 CLEAR (§6.3): one entry, or [BIND_ALL]. Lists stay. */
+    fun bindClear(entry: Int): ByteArray {
+        if (entry !in 0 until BIND_ENTRIES && entry != BIND_ALL) throw LintError("mode-27 CLEAR entry $entry is not 0..7 or 0xFF")
+        return byteArrayOf(BIND_MODE.toByte(), BIND_CLEAR.toByte(), entry.toByte())
+    }
+
+    /** Mode 27 sub 2 LIST (§6.3): `list u8 · items u16 (off4, or [ITEMS_NONE]) · count u16 (1..1024) · shift s16 · pitch
+     *  s16 · mark u8` — 12 B with the header. Always applied on the glasses: the cursor moves by [shift] or is lost. */
+    fun bindList(list: Int, items4: Int, count: Int, shift: Int, pitch: Int, mark: Int): ByteArray {
+        if (list !in 0 until BIND_LISTS) throw LintError("mode-27 LIST list $list is not 0..3")
+        checkOff4(items4, "mode-27 LIST item table")
+        if (count !in 1..LIST_MAX) throw LintError("mode-27 LIST count $count is not 1..$LIST_MAX")
+        if (shift !in Short.MIN_VALUE..Short.MAX_VALUE) throw LintError("mode-27 LIST shift $shift is not an s16")
+        if (pitch !in Short.MIN_VALUE..Short.MAX_VALUE) throw LintError("mode-27 LIST pitch $pitch is not an s16")
+        if (mark !in 0..0xFF) throw LintError("mode-27 LIST mark $mark is not a u8")
+        val out = ByteArray(12)
+        out[0] = BIND_MODE.toByte(); out[1] = BIND_LIST.toByte(); out[2] = list.toByte()
+        put16(out, 3, items4); put16(out, 5, count); putS16(out, 7, shift); putS16(out, 9, pitch)
+        out[11] = mark.toByte()
+        return out
+    }
+
+    /** Mode 26 sub 3 COMMIT (§6.5): `slot u8 · S u16 · list u8 · cursor u16 · prog u16 · P0..P3 s16` — 18 B with the
+     *  header. The phone agrees with the report S: END(prog, P) into both shadows. */
+    fun motionCommit(slot: Int, s: Int, list: Int, cursor: Int, prog4: Int, p: IntArray): ByteArray {
+        if (slot !in 0 until MOTION_SLOTS) throw LintError("mode-26 COMMIT slot $slot is not 0..3")
+        if (list !in 0 until BIND_LISTS) throw LintError("mode-26 COMMIT list $list is not 0..3")
+        checkS(s, "COMMIT"); checkCursor(cursor, "COMMIT"); checkOff4(prog4, "mode-26 COMMIT program")
+        val out = ByteArray(18)
+        out[0] = MOTION_MODE.toByte(); out[1] = MOTION_COMMIT.toByte(); out[2] = slot.toByte()
+        put16(out, 3, s); out[5] = list.toByte(); put16(out, 6, cursor); put16(out, 8, prog4)
+        putParams(out, 10, p)
+        return out
+    }
+
+    /** Mode 26 sub 4 DISCARD (§6.5): `slot u8 (0xFF all) · S u16 · list u8 (0xFF none) · cursor u16` — 8 B with the
+     *  header. Stops every local instance tagged at or after [s] in the named slots; sets the named list's cursor. */
+    fun motionDiscard(slot: Int, s: Int, list: Int, cursor: Int): ByteArray {
+        checkSlotOrAll(slot, "DISCARD"); checkListOrNone(list, "DISCARD"); checkS(s, "DISCARD"); checkCursor(cursor, "DISCARD")
+        val out = ByteArray(8)
+        out[0] = MOTION_MODE.toByte(); out[1] = MOTION_DISCARD.toByte(); out[2] = slot.toByte()
+        put16(out, 3, s); out[5] = list.toByte(); put16(out, 6, cursor)
+        return out
+    }
+
+    /** Mode 26 sub 5 SETTLE (§6.5): `slot u8 (0xFF all) · S u16 · list u8 (0xFF none) · cursor u16 · age u16` — 10 B with
+     *  the header. Stops each local tagged at or after [s] that has held its last step at least [age] OS ticks. */
+    fun motionSettle(slot: Int, s: Int, list: Int, cursor: Int, age: Int): ByteArray {
+        checkSlotOrAll(slot, "SETTLE"); checkListOrNone(list, "SETTLE"); checkS(s, "SETTLE"); checkCursor(cursor, "SETTLE")
+        if (age !in 0..0xFFFF) throw LintError("mode-26 SETTLE age $age is not a u16")
+        val out = ByteArray(10)
+        out[0] = MOTION_MODE.toByte(); out[1] = MOTION_SETTLE.toByte(); out[2] = slot.toByte()
+        put16(out, 3, s); out[5] = list.toByte(); put16(out, 6, cursor); put16(out, 8, age)
+        return out
+    }
+
+    /** Mode 28 (§6.6): the v2 record at [off4] drawn [hOut] rows tall (1..2048) at a signed (x, y) — `off4 u16 · x s16 ·
+     *  y s16 · options u8 · H u16`, 10 B with the mode byte. [w] is the record's width, for the lint that a draw wholly
+     *  off the panel costs a message for nothing. Clip, options and transparency as mode 17. */
+    fun drawScaled(off4: Int, x: Int, y: Int, options: Int, hOut: Int, w: Int): ByteArray {
+        checkOff4(off4, "mode-28 record")
+        if (hOut !in VSCALE_H) throw LintError("mode-28 H $hOut is not 1..2048 — refused (12)")
+        checkDraw2(x, y, w, hOut, "mode-28")
+        checkOptions(options, "mode-28")
+        val out = ByteArray(10)
+        out[0] = VSCALE_MODE.toByte()
+        put16(out, 1, off4); putS16(out, 3, x); putS16(out, 5, y); out[7] = options.toByte(); put16(out, 8, hOut)
+        return out
+    }
+
+    /** Mode 28's per-lens form (`0x9C`): the left lens draws at [xL], the right at [xR] — 12 B with the mode byte. */
+    fun drawScaledPair(off4: Int, xL: Int, xR: Int, y: Int, options: Int, hOut: Int, w: Int): ByteArray {
+        checkOff4(off4, "mode-28 record")
+        if (hOut !in VSCALE_H) throw LintError("mode-28 H $hOut is not 1..2048 — refused (12)")
+        checkDraw2(xL, y, w, hOut, "mode-28 L"); checkDraw2(xR, y, w, hOut, "mode-28 R")
+        checkOptions(options, "mode-28")
+        val out = ByteArray(12)
+        out[0] = (VSCALE_MODE or STEREO_BIT).toByte()
+        put16(out, 1, off4); putS16(out, 3, xL); putS16(out, 5, xR); putS16(out, 7, y); out[9] = options.toByte(); put16(out, 10, hOut)
+        return out
+    }
+
+    /** Build C2's gate (§6.8: "the phone sends none of them without it"): true when [image] — top level, a mode-8 batch's
+     *  sub-messages, a self-test step's message — carries mode 27, mode 28 or a mode-26 sub 3..5. */
+    fun carriesBind(image: ByteArray): Boolean {
+        fun one(m: ByteArray, from: Int, to: Int): Boolean {
+            if (to - from < 1) return false
+            val mode = m[from].toInt() and 0x7F
+            return when {
+                mode == BIND_MODE || mode == VSCALE_MODE -> true
+                mode == MOTION_MODE -> to - from >= 2 && (m[from + 1].toInt() and 0xFF) in MOTION_COMMIT..MOTION_SETTLE
+                mode == 8 && to - from >= 2 -> {
+                    var i = from + 2
+                    var k = 0
+                    val n = m[from + 1].toInt() and 0xFF
+                    while (k < n && i + 2 <= to) {
+                        val len = (m[i].toInt() and 0xFF) or ((m[i + 1].toInt() and 0xFF) shl 8)
+                        if (one(m, i + 2, minOf(to, i + 2 + len))) return true
+                        i += 2 + len; k++
+                    }
+                    false
+                }
+                mode == SELF_TEST_MODE && to - from >= 3 && m[from + 1].toInt() == 1 -> one(m, from + 2, to)
+                else -> false
+            }
+        }
+        return one(image, 0, image.size)
+    }
+
+    private fun checkS(s: Int, what: String) { if (s !in 0..0xFFFF) throw LintError("mode-26 $what S $s is not a u16") }
+    private fun checkCursor(c: Int, what: String) {
+        // a cursor names a row of a list of 1..1024: 0..1023 (whether it is below the named list's count is the glasses')
+        if (c !in 0 until LIST_MAX) throw LintError("mode-26 $what cursor $c is not 0..${LIST_MAX - 1}")
+    }
+    private fun checkSlotOrAll(slot: Int, what: String) {
+        if (slot !in 0 until MOTION_SLOTS && slot != BIND_ALL) throw LintError("mode-26 $what slot $slot is not 0..3 or 0xFF")
+    }
+    private fun checkListOrNone(list: Int, what: String) {
+        if (list !in 0 until BIND_LISTS && list != BIND_ALL) throw LintError("mode-26 $what list $list is not 0..3 or 0xFF")
     }
 
     private fun checkOff4(off4: Int, what: String) {

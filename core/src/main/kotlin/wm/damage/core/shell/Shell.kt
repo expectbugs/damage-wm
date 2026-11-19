@@ -704,7 +704,8 @@ class Shell(
             is TransportEvent.Link -> journal.note("link", if (ev.connected) "up: ${ev.detail}" else "DOWN: ${ev.detail}", ev.atMs)
             is TransportEvent.Fault -> journal.note("fault", "${ev.what}: ${ev.detail} (no session running)", ev.atMs)
             is TransportEvent.Input, is TransportEvent.Lease, is TransportEvent.SilentMode,
-            is TransportEvent.DiagFlags, is TransportEvent.Wear -> transEventsDroppedWhileDown.incrementAndGet()
+            is TransportEvent.DiagFlags, is TransportEvent.Wear,
+            is TransportEvent.Applied, is TransportEvent.LocalRead -> transEventsDroppedWhileDown.incrementAndGet()
         }
         return false
     }
@@ -2625,6 +2626,10 @@ class Shell(
             // 0.64 build 1 of rest mode READS only (`DESIGN.md` §0): a wear report acts on nothing here —
             // the transport's `wear` note is the record, and `LinkState.worn` the state
             is TransportEvent.Wear -> {}
+            // build C2 (stage DP1): the transport hands the 115 reports and field 39 over in order; the rules that act on
+            // them (P1–P11, the tap rule, the table repair) are stage DP2's. The transport's `applied` and `local` notes
+            // are the record until then.
+            is TransportEvent.Applied, is TransportEvent.LocalRead -> {}
             is TransportEvent.SilentMode ->
                 if (ev.on) enterSleep(SleepReason.SILENT, "the firmware's Silent Mode is on")
                 else when (sleep) {                                 // one read
@@ -5179,8 +5184,23 @@ class Shell(
                                   skip: List<Rect> = emptyList()): Pair<Int, Int>? {
         val w = comp.width
         if (skip.isNotEmpty()) {
-            for (y in lo..hi) for (x in 0 until w)
-                if (!inAny(skip, x, y) && LEVEL[belief[x, y]] != nibble(panel, stride, x, y)) return x to y
+            // build C2 (C2-decisions F, stage DP1): under an open motion the skipped areas are taken out of each row as
+            // spans, once per row, and the rest of the row is compared straight — the per-pixel area test made this scan
+            // about ten times the cost of the plain one on every FlushDone while a motion was open (365 ms seen on his
+            // phone, 2026-11-18 16:21:12)
+            for (y in lo..hi) {
+                val n = openSpans(skip, y, w)
+                val row = y * stride
+                for (k in 0 until n) {
+                    val x1 = spanBuf[2 * k + 1]
+                    var x = spanBuf[2 * k]
+                    while (x < x1) {
+                        val b = panel[row + (x shr 1)].toInt() and 0xFF
+                        if (LEVEL[belief[x, y]] != (if (x and 1 == 0) b shr 4 else b and 0x0F)) return x to y
+                        x++
+                    }
+                }
+            }
             return null
         }
         for (y in lo..hi) {
@@ -5196,17 +5216,49 @@ class Shell(
         return null
     }
 
-    private fun inAny(skip: List<Rect>, x: Int, y: Int) = skip.any { x >= it.x && x < it.right && y >= it.y && y < it.bottom }
+    /** Build C2 (stage DP1): the x-spans of row [y] in [0, w) that no rect of [skip] covers, merged and in order, into
+     *  [spanBuf] as (start, end) pairs; the count of spans. Loop thread only (the agreement check's own buffer). */
+    private fun openSpans(skip: List<Rect>, y: Int, w: Int): Int {
+        var m = 0
+        for (r in skip) {
+            if (y < r.y || y >= r.bottom) continue
+            val s = maxOf(0, r.x); val e = minOf(w, r.right)
+            if (s >= e) continue
+            // insertion by start: a handful of areas (four slots, eight tracks each at most)
+            var i = m++
+            if (2 * m > coverBuf.size) coverBuf = coverBuf.copyOf(4 * m)
+            while (i > 0 && coverBuf[2 * (i - 1)] > s) { coverBuf[2 * i] = coverBuf[2 * (i - 1)]; coverBuf[2 * i + 1] = coverBuf[2 * i - 1]; i-- }
+            coverBuf[2 * i] = s; coverBuf[2 * i + 1] = e
+        }
+        var n = 0
+        var at = 0
+        fun open(s: Int, e: Int) {
+            if (2 * (n + 1) > spanBuf.size) spanBuf = spanBuf.copyOf(4 * (n + 1))
+            spanBuf[2 * n] = s; spanBuf[2 * n + 1] = e; n++
+        }
+        for (i in 0 until m) {
+            val s = coverBuf[2 * i]; val e = coverBuf[2 * i + 1]
+            if (s > at) open(at, s)
+            if (e > at) at = e
+        }
+        if (at < w) open(at, w)
+        return n
+    }
+    private var spanBuf = IntArray(16)
+    private var coverBuf = IntArray(16)
 
     private fun countDisagreements(belief: Gray8, panel: ByteArray, stride: Int, lo: Int, hi: Int,
                                    skip: List<Rect> = emptyList()): Int {
         var diffs = 0
+        val w = comp.width
         for (y in lo..hi) {
-            val row = y * stride
-            for (x in 0 until comp.width) {
-                if (skip.isNotEmpty() && inAny(skip, x, y)) continue
-                if (LEVEL[belief[x, y]] != nibble(panel, stride, x, y)) diffs++
+            if (skip.isEmpty()) {
+                for (x in 0 until w) if (LEVEL[belief[x, y]] != nibble(panel, stride, x, y)) diffs++
+                continue
             }
+            val n = openSpans(skip, y, w)                     // build C2 (stage DP1): as [firstDisagreement]
+            for (k in 0 until n) for (x in spanBuf[2 * k] until spanBuf[2 * k + 1])
+                if (LEVEL[belief[x, y]] != nibble(panel, stride, x, y)) diffs++
         }
         return diffs
     }

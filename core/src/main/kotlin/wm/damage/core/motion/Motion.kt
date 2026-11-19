@@ -96,17 +96,20 @@ object Motion {
     /** REVEAL's edge (`opt` bits 0–1). */
     enum class Edge(val code: Int) { TOP(0), BOTTOM(1), LEFT(2), RIGHT(3) }
 
-    /** One segment as the builder took it (before any parameter). */
+    /** One segment as the builder took it (before any parameter). [h0], [h1] and [anchor] (build C2, §6.6) are DRAW's
+     *  only, and 0 unless the program is built for a bit-10 build. */
     class Segment internal constructor(val verb: Int, val steps: Int, val ease: Ease, val kind: Int, val src: Int,
         val xL: Int, val xR: Int, val y: Int, val dxL: Int, val dxR: Int, val dy: Int, val lvl0: Int, val lvl1: Int,
-        val opt: Int, val prefs: List<Pref>, val source: Source?) {
+        val opt: Int, val prefs: List<Pref>, val source: Source?, val h0: Int = 0, val h1: Int = 0, val anchor: Int = 0) {
         fun bytes(): ByteArray {
             val b = ByteArray(SEGMENT_BYTES)
             b[0] = verb.toByte(); b[1] = steps.toByte(); b[2] = ease.code.toByte(); b[3] = kind.toByte()
             put16(b, 4, src); put16(b, 6, xL); put16(b, 8, xR); put16(b, 10, y); put16(b, 12, dxL); put16(b, 14, dxR); put16(b, 16, dy)
             b[18] = lvl0.toByte(); b[19] = lvl1.toByte(); b[20] = opt.toByte()
             put16(b, 22, (ease as? Ease.Table)?.off4 ?: 0)
-            // 24..27 h0 h1 and 28 anchor stay 0 in C1 (§5.4); 21 and 29 are reserved
+            // 24..27 h0 h1 and 28 anchor (§5.4's layout; 0 in C1, §6.6 gives them meaning on a bit-10 build); 21 and 29
+            // are reserved
+            put16(b, 24, h0); put16(b, 26, h1); b[28] = anchor.toByte()
             prefs.getOrNull(0)?.let { b[30] = it.byte.toByte() }
             prefs.getOrNull(1)?.let { b[31] = it.byte.toByte() }
             return b
@@ -118,7 +121,7 @@ object Motion {
         val usesSelf: Boolean get() = backdrop is Backdrop.Self || segments.any { it.verb >= DRAW && it.kind == KIND_SELF }
     }
 
-    class TrackBuilder internal constructor(private val perLens: Boolean, private val area: Rect) {
+    class TrackBuilder internal constructor(private val perLens: Boolean, private val area: Rect, private val bit10: Boolean = false) {
         internal val segments = ArrayList<Segment>()
 
         fun wait(n: Int) = add(Segment(WAIT, n, Ease.Linear, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, emptyList(), null))
@@ -130,14 +133,24 @@ object Motion {
         }
 
         /** DRAW (§5.4): [src] a record or `self` at (x + off(dx), y + off(dy)), its level eased lvl0 → lvl1; [opt] bits 4
-         *  (transparent) and 5 (inverse) only. [xR]/[dxR] only on a per-lens track (they default to the left lens's). */
+         *  (transparent) and 5 (inverse) only. [xR]/[dxR] only on a per-lens track (they default to the left lens's).
+         *  Build C2 (§6.6), on a program built for a bit-10 build only: the output height eased from [h0] to [h1] (both 0
+         *  = unscaled, or both 1..2048 with every eased H inside 1..2048), placed by [anchor] (0 top · 1 centre · 2 bottom
+         *  of the source's own height). A scaled `self` is not built: END could not express it as one §4 op. */
         fun draw(src: Source, x: Int, y: Int, dx: Int = 0, dy: Int = 0, lvl0: Int = 15, lvl1: Int = 15, ease: Ease = Ease.Linear,
-                 n: Int, opt: Int = 0, xR: Int? = null, dxR: Int? = null, prefs: List<Pref> = emptyList()) {
+                 n: Int, opt: Int = 0, xR: Int? = null, dxR: Int? = null, prefs: List<Pref> = emptyList(),
+                 h0: Int = 0, h1: Int = 0, anchor: Int = 0) {
             if (src is Source.Level) throw LintError("DRAW draws a record or self, not a level")
             if (opt and 0x30.inv() != 0) throw LintError("DRAW's opt takes bits 4 and 5 only, not 0x${opt.toString(16)}")
             onePair(xR, dxR)
+            val scaled = h0 != 0 || h1 != 0 || prefs.any { it.target == Field.H0 || it.target == Field.H1 }
+            if (!bit10 && (scaled || anchor != 0))
+                throw LintError("h0/h1/anchor must be 0 in C1 (§5.4) — a scaled DRAW needs a program built for a bit-10 build (§6.6)")
+            if (anchor !in 0..2) throw LintError("DRAW's anchor $anchor is not 0..2 — refused (5)")
+            if (h0 !in 0..0xFFFF || h1 !in 0..0xFFFF) throw LintError("DRAW's h0 $h0 / h1 $h1 are not u16")
+            if (scaled && src is Source.Self) throw LintError("a scaled DRAW of `self` is not built: END could not draw the capture scaled as one §4 op")
             add(Segment(DRAW, n, ease, if (src is Source.Self) KIND_SELF else KIND_RECORD, (src as? Source.Record)?.off4 ?: 0,
-                x, if (perLens) xR ?: x else 0, y, dx, if (perLens) dxR ?: dx else 0, dy, lvl0, lvl1, opt, prefs, src))
+                x, if (perLens) xR ?: x else 0, y, dx, if (perLens) dxR ?: dx else 0, dy, lvl0, lvl1, opt, prefs, src, h0, h1, anchor))
         }
 
         /** REVEAL (§5.4): [src] wiped or slid in from [edge]. The source draws as it is (lvl0 = lvl1 = 15 sent, opt bits 4–5
@@ -161,7 +174,9 @@ object Motion {
         private fun add(s: Segment) {
             if (s.steps !in 1..MAX_STEPS && s.prefs.none { it.target == Field.STEPS }) throw LintError("a segment's steps are 1..255, not ${s.steps}")
             if (s.prefs.size > 2) throw LintError("a segment carries two parameter uses, not ${s.prefs.size}")
-            if (s.prefs.any { it.target == Field.H0 || it.target == Field.H1 }) throw LintError("h0/h1 must be 0 in C1 (§5.4): no parameter may set them")
+            if (s.prefs.any { it.target == Field.H0 || it.target == Field.H1 } && (!bit10 || s.verb != DRAW))
+                throw LintError(if (!bit10) "h0/h1 must be 0 in C1 (§5.4): no parameter may set them"
+                    else "h0/h1 are DRAW's (§6.6): a parameter setting them on another verb is refused (12)")
             for (v in listOf(s.xL, s.xR, s.y, s.dxL, s.dxR, s.dy)) if (v !in Short.MIN_VALUE..Short.MAX_VALUE) throw LintError("a segment coordinate $v is not an s16")
             if (s.lvl0 !in 0..255 || s.lvl1 !in 0..255) throw LintError("a segment level is a u8")
             if (s.ease is Ease.Table && s.ease.e.size != s.steps) throw LintError("an easing table of ${s.ease.e.size} values for a segment of ${s.steps} steps — the firmware refuses it (5)")
@@ -169,24 +184,25 @@ object Motion {
         }
     }
 
-    class ProgramBuilder internal constructor() {
+    class ProgramBuilder internal constructor(private val bit10: Boolean = false) {
         internal val tracks = ArrayList<Track>()
         /** A track over one [area] on both lenses. */
         fun track(area: Rect, backdrop: Backdrop, build: TrackBuilder.() -> Unit) = add(area, area, false, backdrop, build)
         /** A per-lens track: [left] on the left lens, [right] on the right (one size, one row range). */
         fun track(left: Rect, right: Rect, backdrop: Backdrop, build: TrackBuilder.() -> Unit) = add(left, right, true, backdrop, build)
         private fun add(l: Rect, r: Rect, perLens: Boolean, backdrop: Backdrop, build: TrackBuilder.() -> Unit) {
-            val b = TrackBuilder(perLens, l).apply(build)
+            val b = TrackBuilder(perLens, l, bit10).apply(build)
             if (b.segments.size !in 1..MAX_SEGMENTS) throw LintError("a track holds 1..8 segments, not ${b.segments.size}")
             tracks += Track(l, r, perLens, backdrop, b.segments.toList())
         }
     }
 
     /** A program placed at [at] (off4) in the cache. [records]: the image records a `src` parameter may name — the
-     *  builder checks a substituted record only against these, and refuses one it was not given. */
-    fun program(at: Int, records: List<Source.Record> = emptyList(), build: ProgramBuilder.() -> Unit): MotionProgram {
+     *  builder checks a substituted record only against these, and refuses one it was not given. [bit10] (build C2): the
+     *  program is for a bit-10 build, so DRAW may carry h0/h1/anchor (§6.6); a C1 build refuses them (12, 5). */
+    fun program(at: Int, records: List<Source.Record> = emptyList(), bit10: Boolean = false, build: ProgramBuilder.() -> Unit): MotionProgram {
         if (at !in 0..0xFFFF) throw LintError("a program at off4 $at is outside the u16 field")
-        val tracks = ProgramBuilder().apply(build).tracks.toList()
+        val tracks = ProgramBuilder(bit10).apply(build).tracks.toList()
         if (tracks.size !in 1..MAX_TRACKS) throw LintError("a program holds 1..8 tracks, not ${tracks.size}")
         for ((i, t) in tracks.withIndex()) {
             for (r in listOf(t.areaL, t.areaR)) if (r.w <= 0 || r.h <= 0 || r.x < 0 || r.y < 0 || r.right > Geometry.PANEL_W || r.bottom > Geometry.PANEL_H)
@@ -235,6 +251,14 @@ object Motion {
 
     fun close(slot: Int): ByteArray = CfwModes.motionClose(slot)
 
+    /** Build C2: mode 26 COMMIT of [program] (§6.5) for the report [s] at [cursor] of [list] — the parameters' checks run
+     *  first, as a PLAY's (COMMIT walks the program and checks every step's values, with the H rule; a refusal the phone
+     *  can foresee is never sent). */
+    fun commit(program: MotionProgram, slot: Int, s: Int, list: Int, cursor: Int, p: IntArray): ByteArray {
+        program.resolve(p, staticOnly = false)
+        return CfwModes.motionCommit(slot, s, list, cursor, program.at, p)
+    }
+
     /** One op of END (§5.4's closing paragraph): a §4 sub-message the batch carries as it is, or a track's capture. */
     sealed class EndOp {
         /** Mode 20 (the track's area), mode 21 or mode 17, single or per-lens, ready for a mode-8 batch. */
@@ -265,9 +289,21 @@ object Motion {
             when {
                 s.verb == FILL -> out += EndOp.Sub(fillOf(aL, aR, s.kind))
                 s.kind == KIND_SELF -> out += EndOp.Capture(i, aL, aR, xL, xR, y, if (s.verb == DRAW) (s.opt and 0x30) or s.lvl1 else null)
+                s.kind == KIND_RECORD && s.verb == DRAW && s.h1 != 0 -> {
+                    // build C2 (§6.6): a scaled DRAW at rest is the record H = h1 rows tall (v(n) = h0 + (h1 − h0) exactly),
+                    // placed by its anchor — mode 28 under the area's clip, as the lens draws its step T
+                    val r = s.record ?: throw LintError("track $i's record at off4 ${s.src} was not named to the builder")
+                    val hOut = s.h1
+                    val yOut = anchoredY(y, r.h, hOut, s.anchor)
+                    if (Rect(xL, yOut, r.w, hOut).intersect(aL) == null && Rect(xR, yOut, r.w, hOut).intersect(aR) == null) return@forEachIndexed
+                    val opt = (s.opt and 0x30) or s.lvl1
+                    out += EndOp.Sub(if (xL == xR) CfwModes.drawScaled(s.src, xL, yOut, opt, hOut, r.w)
+                        else CfwModes.drawScaledPair(s.src, xL, xR, yOut, opt, hOut, r.w))
+                }
                 s.kind == KIND_RECORD -> {
                     val r = s.record ?: throw LintError("track $i's record at off4 ${s.src} was not named to the builder")
-                    // a draw that cannot reach its area paints nothing: no message
+                    // a draw that cannot reach its area paints nothing: no message (an unscaled DRAW's anchor moves it by
+                    // (h − h) = 0, §6.6)
                     if (Rect(xL, y, r.w, r.h).intersect(aL) == null && Rect(xR, y, r.w, r.h).intersect(aR) == null) return@forEachIndexed
                     val opt = if (s.verb == DRAW) (s.opt and 0x30) or s.lvl1 else 15
                     out += EndOp.Sub(if (xL == xR) CfwModes.drawImage2(s.src, xL, y, opt, r.w, r.h)
@@ -304,6 +340,14 @@ object Motion {
 
     /** §5.4: `v(j) = v0 + ((D·E[j] + 2048) >> 12)`, a signed 32-bit product, `>>` arithmetic. */
     fun eased(v0: Int, d: Int, e: Int): Int = v0 + ((d * e + 2048) shr 12)
+
+    /** §6.6: where a DRAW of a source [h] rows tall drawn [hOut] rows tall starts — anchor 0 top (y) · 1 centre
+     *  (`y + ((h − H) >> 1)`, arithmetic shift) · 2 bottom (`y + h − H`). */
+    fun anchoredY(y: Int, h: Int, hOut: Int, anchor: Int): Int = when (anchor) {
+        1 -> y + ((h - hOut) shr 1)
+        2 -> y + h - hOut
+        else -> y
+    }
 }
 
 /**
@@ -343,7 +387,8 @@ class MotionProgram internal constructor(val at: Int, val bytes: ByteArray, val 
 
     /** One segment after substitution. */
     internal class Resolved(val verb: Int, var steps: Int, val ease: Motion.Ease, val kind: Int, var src: Int, var xL: Int, var xR: Int,
-        var y: Int, var dxL: Int, var dxR: Int, var dy: Int, var lvl0: Int, var lvl1: Int, val opt: Int, var record: Motion.Source.Record?)
+        var y: Int, var dxL: Int, var dxR: Int, var dy: Int, var lvl0: Int, var lvl1: Int, val opt: Int, var record: Motion.Source.Record?,
+        var h0: Int = 0, var h1: Int = 0, val anchor: Int = 0)
 
     /** Every segment with [p] substituted, checked as §5.5's values position does (12) and the record walk (5). With
      *  [staticOnly] only what no parameter can change is checked (a field a parameter replaces is skipped). */
@@ -351,7 +396,7 @@ class MotionProgram internal constructor(val at: Int, val bytes: ByteArray, val 
         if (p.size != 4) throw LintError("a PLAY carries four parameters, not ${p.size}")
         val out = tracks.mapIndexed { ti, t -> t.segments.map { s ->
             val r = Resolved(s.verb, s.steps, s.ease, s.kind, s.src, s.xL, s.xR, s.y, s.dxL, s.dxR, s.dy, s.lvl0, s.lvl1, s.opt,
-                s.source as? Motion.Source.Record)
+                s.source as? Motion.Source.Record, s.h0, s.h1, s.anchor)
             val touched = HashSet<Motion.Field>()
             for (pr in s.prefs) {
                 touched += pr.target
@@ -365,7 +410,8 @@ class MotionProgram internal constructor(val at: Int, val bytes: ByteArray, val 
                     Motion.Field.DY -> r.dy = v
                     Motion.Field.LVL0 -> r.lvl0 = v and 0xFF; Motion.Field.LVL1 -> r.lvl1 = v and 0xFF
                     Motion.Field.STEPS -> r.steps = v and 0xFF
-                    Motion.Field.H0, Motion.Field.H1 -> {}
+                    // build C2 (§6.6; the builder lets only a bit-10 DRAW name them): u16 fields take the s16's 16 bits
+                    Motion.Field.H0 -> r.h0 = v and 0xFFFF; Motion.Field.H1 -> r.h1 = v and 0xFFFF
                 }
             }
             check(ti, r, touched, staticOnly)
@@ -389,6 +435,14 @@ class MotionProgram internal constructor(val at: Int, val bytes: ByteArray, val 
         if (r.ease is Motion.Ease.Table && r.ease.e.size != r.steps) throw LintError("track $ti: a table of ${r.ease.e.size} for ${r.steps} steps — refused (5)")
         if (r.verb == Motion.DRAW && !skip(Motion.Field.LVL0, Motion.Field.LVL1) && e.any { Motion.eased(r.lvl0, r.lvl1 - r.lvl0, it) !in 0..15 })
             throw LintError("track $ti: DRAW's level leaves 0..15 along its ease (lvl ${r.lvl0} → ${r.lvl1}) — refused (12)")
+        // build C2's H rule (§6.6 as ruled 2026-11-18): h0 and h1 both 0, or both inside 1..2048 and every step's eased H
+        // inside 1..2048 — else 12, at a PLAY, a COMMIT and a fire alike
+        if (r.verb == Motion.DRAW && !skip(Motion.Field.H0, Motion.Field.H1) && (r.h0 != 0 || r.h1 != 0)) {
+            if (r.h0 !in CfwModes.VSCALE_H || r.h1 !in CfwModes.VSCALE_H)
+                throw LintError("track $ti: DRAW's h0 ${r.h0} / h1 ${r.h1} are not both 0 or both 1..2048 — refused (12)")
+            if (e.any { Motion.eased(r.h0, r.h1 - r.h0, it) !in CfwModes.VSCALE_H })
+                throw LintError("track $ti: DRAW's eased H leaves 1..2048 (h ${r.h0} → ${r.h1}) — refused (12)")
+        }
         if (r.verb == Motion.REVEAL) {
             if (r.kind == Motion.KIND_LEVEL && (r.src > 15 || r.dxL < 1 || r.dy < 1)) throw LintError("track $ti: a level source ${r.src} of ${r.dxL}x${r.dy} — refused (12)")
             val f = when (r.kind) {

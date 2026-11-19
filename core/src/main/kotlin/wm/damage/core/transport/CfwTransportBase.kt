@@ -222,9 +222,11 @@ abstract class CfwTransportBase(
                 // build C1 (spec §6.1): on a C1 build ZWRITE and ENGINE are the ladder's, never a hand-set wish's —
                 // a bit the stage does not allow is taken out here, and said
                 val caps0 = damageCaps
-                val beyond = if (op == DamageMsg.OP_FLAGS_SET && isC1(caps0)) asked and C1_FLAGS and ladderFlags(c1Stage, caps0!!).inv() else 0
-                if (beyond != 0) emitNote("probe", "$name=$value: flag bit(s) 0x${beyond.toString(16)} are the C1 ladder's (stage $c1Stage) — " +
-                    "not armed by hand; probe c1=N sets the stage")
+                // build C2 (§6.8): and BIND on a bit-10 build — "a hand flags= probe cannot arm bit 4 beyond the stage" (a
+                // held-back stage 4 is 3)
+                val beyond = if (op == DamageMsg.OP_FLAGS_SET && isC1(caps0)) asked and ladderBits(caps0) and ladderFlags(effectiveStage(), caps0!!).inv() else 0
+                if (beyond != 0) emitNote("probe", "$name=$value: flag bit(s) 0x${beyond.toString(16)} are the C1 ladder's (stage $c1Stage" +
+                    (if (effectiveStage() != c1Stage) ", held back to ${effectiveStage()}" else "") + ") — not armed by hand; probe c1=N sets the stage")
                 val arg = asked and beyond.inv()
                 if (op == DamageMsg.OP_FLAGS_SET) wantedFlags = arg
                 if (op == DamageMsg.OP_FLAGS_CLEAR) wantedFlags = 0
@@ -237,6 +239,7 @@ abstract class CfwTransportBase(
                     // build C1's ruling B-M1: a ladder bit armed by hand (within the stage) is a rung's byte too — it
                     // records its stage before it goes out; a set that only takes bits away keeps the record it found
                     if (isC1(caps0)) ladderArmedStage = maxOf(ladderArmedStage, ladderStageOf(arg))
+                    if (isC1(caps0) && ladderStageOf(arg) == LADDER_TOP_STAGE) bindArmed(lastArmedAtMs!!)     // build C2: stage 4's rung by hand
                 }
                 // DRAW2 is the session's, not the wish's: while it is in force the shell draws with modes
                 // 17–24 and its atlas is a v2 layout, so a hand-set flag set keeps bit 2 on the wire (a clear
@@ -265,9 +268,17 @@ abstract class CfwTransportBase(
                 val send = { controlQueue.trySend(CtlWork.BothArms(epoch, SettingsMsg.SID, "damage op $wireOp") { DamageMsg.control(wireOp, wireArg) }) }
                 // `FIRMWARE.md` §5.8: a disarm closes nothing on the glasses, so a FLAGS_SET that clears ENGINE goes
                 // out only after a CLOSE of every instance has reached both lenses (its ack)
-                if (_state.value.flagsInForce and DamageMsg.FLAG_ENGINE != 0 &&
-                    (wireOp == DamageMsg.OP_FLAGS_CLEAR || (wireOp == DamageMsg.OP_FLAGS_SET && wireArg and DamageMsg.FLAG_ENGINE == 0)))
-                    scope.launch { if (closeAllMotion(epoch, "the probe's flags clear ENGINE")) send() }
+                fun clears(bit: Int) = _state.value.flagsInForce and bit != 0 &&
+                    (wireOp == DamageMsg.OP_FLAGS_CLEAR || (wireOp == DamageMsg.OP_FLAGS_SET && wireArg and bit == 0))
+                // build C2 (§6.7 P9): and one that clears BIND only after a DISCARD(0xFF, S_low, 0xFF, 0) has (its ack) —
+                // a disarm clears nothing, and a local instance left drawing would hold its picture until the lease lapses
+                val clearsBind = clears(DamageMsg.FLAG_BIND)
+                val clearsEngine = clears(DamageMsg.FLAG_ENGINE)
+                if (clearsBind || clearsEngine) scope.launch {
+                    if (clearsBind && !discardAllLocal(epoch, "the probe's flags clear BIND")) return@launch
+                    if (clearsEngine && !closeAllMotion(epoch, "the probe's flags clear ENGINE")) return@launch
+                    send()
+                }
                 else send()
             }
             // build C1 (C1-decisions A.17, spec §6.1): the arming ladder's stage, set only here, by hand — 0 nothing, 1
@@ -275,12 +286,40 @@ abstract class CfwTransportBase(
             // by the transport (a hold-back only lowers it).
             "c1" -> {
                 val n = value.toIntOrNull()
-                if (n == null || n !in 0..C1_TOP_STAGE) { Log.w(this.name, "probe c1=$value: expected 0..$C1_TOP_STAGE"); return }
-                var was = 0
-                setC1Stage { was = it; n }
+                if (n == null || n !in 0..LADDER_TOP_STAGE) { Log.w(this.name, "probe c1=$value: expected 0..$LADDER_TOP_STAGE"); return }
+                var was = LadderRecord()
+                // build C2 (§6.8, C2-decisions B.5): `c1=4` lifts a stage-4 hold-back, as the Settings row `Local input`
+                // does (the same act); the stage and the lift are one write
+                setRecord("C1 ladder: stage") { was = it; it.copy(stage = n, holdBackAt = if (n == LADDER_TOP_STAGE) null else it.holdBackAt,
+                    holdBackWhy = if (n == LADDER_TOP_STAGE) "" else it.holdBackWhy) }
                 c1StageSay = null       // C1-P R1 §2 (A 2.2): what the read at creation found no longer stands; this note names it
-                emitNote("keeper", "C1 ladder: stage $was → $n (${ladderSays(n)}) — the next session start arms it" +
-                    (damageCaps?.let { if (isC1(it)) "" else "; this build reports no C1 bit, so it arms nothing" } ?: ""))
+                val caps = damageCaps
+                emitNote("keeper", "C1 ladder: stage ${was.stage} → $n (${ladderSays(n)}) — the next session start arms it" +
+                    (caps?.let { if (!isC1(it)) "; this build reports no C1 bit, so it arms nothing"
+                        else if (n == LADDER_TOP_STAGE && !hasBind(it)) "; this build reports no local input (bit 10), so it arms stage 3" else "" } ?: "") +
+                    (if (n == LADDER_TOP_STAGE && was.holdBackAt != null) "; local input's hold-back (${was.holdBackWhy}) is lifted" else ""))
+                refreshLocalState()
+            }
+            // build C2 (§6.3, §6.7): the `Taps` value — kept in the record; mid-session the shell sends the tap entry's SET
+            // or CLEAR it changes (LinkState.taps)
+            "taps" -> {
+                if (value !in LadderRecord.TAPS) { Log.w(this.name, "probe taps=$value: expected ${LadderRecord.TAPS.joinToString(" | ")}"); return }
+                var was = ""
+                setRecord("local input: Taps") { was = it.taps; it.copy(taps = value) }
+                emitNote("keeper", "Taps: $was → $value" + (if (!hasBind(damageCaps) || effectiveStage() < LADDER_TOP_STAGE)
+                    " (no effect: ${if (!hasBind(damageCaps)) "this firmware" else "stage ${effectiveStage()}"})" else ""))
+                refreshLocalState()
+            }
+            // build C2: what the transport holds for local input, in one `local` note
+            "local" -> {
+                if (value != "state") { Log.w(this.name, "probe local=$value: expected local=state"); return }
+                val r = record
+                val st = _state.value
+                emitNote("local", "state: ${st.localInput.ifEmpty { "(no session yet)" }}; stage ${r.stage} (arms ${effectiveStage()}); " +
+                    "BIND ${if (st.flagsInForce and DamageMsg.FLAG_BIND != 0) "in force" else "not in force"} (flags 0x${st.flagsInForce.toString(16)}); " +
+                    "bit 10 ${if (hasBind(damageCaps)) "reported" else "not reported"}; Taps ${r.taps}; last stage-4 arming " +
+                    (r.bindArmedAt?.let { "${hhmm(it)} (${localDay(it)})" } ?: "none") + "; case-in " + (r.caseInAt?.let { hhmm(it) } ?: "none") +
+                    "; hold-back " + (r.holdBackAt?.let { "since ${hhmm(it)}: ${r.holdBackWhy}" } ?: "none") + "; S_heard at the start $bindSHeard0")
             }
             // build C1 (spec §3 D3b, A.15): the feel session plays one test program by hand — its records as mode-19
             // writes in the top of this session's cache, then its PLAY — through [sendMotion], which sends nothing (and
@@ -359,7 +398,7 @@ abstract class CfwTransportBase(
                     emitNote("wear", "query not sent (probe): no session")
                 }
             }
-            else -> Log.w(this.name, "probe $name=$value: not a probe this transport runs (diag, logger, telemetry, cache, flags, selftest, wear, c1, motion)")
+            else -> Log.w(this.name, "probe $name=$value: not a probe this transport runs (diag, logger, telemetry, cache, flags, selftest, wear, c1, motion, taps, local)")
         }
     }
 
@@ -614,6 +653,9 @@ abstract class CfwTransportBase(
                 if (first) {
                     lastArmedAtMs = nowMs()
                     ladderArmedStage = if (isC1(damageCaps)) ladderStageOf(set) else 0
+                    // build C2 (§6.8): the session in which stage 4 is armed is recorded on the phone's storage before its
+                    // FLAGS_SET's first byte, so a restart it causes is held back whatever happens to this process
+                    if (ladderArmedStage == LADDER_TOP_STAGE) bindArmed(lastArmedAtMs!!)
                 }
                 controlQueue.trySend(CtlWork.BothArms(epoch, SettingsMsg.SID, "damage flags 0x${set.toString(16)}",
                     failed = if (first) firstFailed else null, written = writtenBoth, rightFailed = rightFailed) { DamageMsg.control(DamageMsg.OP_FLAGS_SET, set) })
@@ -705,6 +747,7 @@ abstract class CfwTransportBase(
             if (uptime < prev.first || uptime + RESET_SLACK_MS < predicted) {
                 lastResetAtMs = now - uptime                       // the reset's time on the phone's clock
                 emitNote("keeper", "the glasses reset: uptime ${uptime / 1000} s, was ${prev.first / 1000} s ${(now - prev.second) / 1000} s ago")
+                bindEvidence(now - uptime, "RIGHT's uptime")       // build C2 (§6.8): stage 4's hold-back reads it too
             }
         }
         lastUptime = uptime to now
@@ -752,25 +795,35 @@ abstract class CfwTransportBase(
             // build C1: a reset seen only by this read (after the start's own hold-back was decided) while this arming
             // carries the ladder's bits drops one stage, as [ladderAtStart] does; this session arms nothing (today's
             // shape), and the wish and DRAW2 are kept for the next start
-            if (extraLeft and C1_FLAGS != 0 && ladderArmedStage > 0) {
+            // build C2 (§6.8): after an arming of stage 4 the restart is stage 4's own hold-back ([bindEvidence] decided it
+            // as the read came in): BIND is left out and the rest is armed — one stage, never more
+            if (ladderArmedStage == LADDER_TOP_STAGE && extraLeft and DamageMsg.FLAG_BIND != 0) {
+                heldBackForResetAt = resetAt
+                extraLeft = extraLeft and DamageMsg.FLAG_BIND.inv()
+                emitNote("keeper", "the glasses reset ${(resetAt - armedAt) / 1000} s after stage 4 was armed — this session " +
+                    "arms stage 3 (flags 0x${wish().toString(16)}); local input is held back as its rule says")
+            } else if (extraLeft and C1_FLAGS != 0 && ladderArmedStage > 0) {
                 ladderHoldBack(resetAt, leftEndDueAt())
                 ladderArmedStage = 0
                 return
+            } else {
+                wantedFlags = 0
+                // the session's own DRAW2 is held back too: the start adds it to every session, and without
+                // this latch the next start would arm it again whatever reset it may have caused (2026-09-15
+                // review) — asking for it by hand (`probe flags=0x…` with bit 2) lifts the latch
+                if (extraLeft and DamageMsg.FLAG_DRAW2 != 0) draw2HeldBack = true
+                heldBackForResetAt = resetAt                       // decided on: the next reset is its own; the carry keeps its evidence
+                val text = "hold-back: the glasses reset ${(resetAt - armedAt) / 1000} s after flags 0x${wanted.toString(16)} were armed — not re-armed (probe flags=… to try again)"
+                emitNote("keeper", text)
+                emitFault("holdback", text)
+                return
             }
-            wantedFlags = 0
-            // the session's own DRAW2 is held back too: the start adds it to every session, and without
-            // this latch the next start would arm it again whatever reset it may have caused (2026-09-15
-            // review) — asking for it by hand (`probe flags=0x…` with bit 2) lifts the latch
-            if (extraLeft and DamageMsg.FLAG_DRAW2 != 0) draw2HeldBack = true
-            heldBackForResetAt = resetAt                       // decided on: the next reset is its own; the carry keeps its evidence
-            val text = "hold-back: the glasses reset ${(resetAt - armedAt) / 1000} s after flags 0x${wanted.toString(16)} were armed — not re-armed (probe flags=… to try again)"
-            emitNote("keeper", text)
-            emitFault("holdback", text)
-            return
         }
-        var want = wanted
+        var want = wish()
         var set = 0
-        for (bit in 0 until 16) {
+        // build C2 (§6.8, spec §6.2): BIND goes last, after ENGINE and the rest, so stage 4's start is stage 3's with its
+        // own rung appended; every other bit lowest first, as before
+        for (bit in ARM_ORDER) {
             val b = 1 shl bit
             if (want and b == 0) continue
             if (epoch != sessionEpoch.get() || wish() != want) return   // the session ended, or the wish changed under us
@@ -928,31 +981,49 @@ abstract class CfwTransportBase(
      *  `holdback` fault, as a hold-back's own is raised. */
     @Volatile private var c1StageSayIsHoldBack = false
     /** Build C1 (C1-decisions A.17, spec §6.1): the arming ladder's stage — 0 nothing (the default), 1 ZWRITE, 2 and
-     *  the 256 KiB cache, 3 and ENGINE. Set only by the probe `c1=N`, lowered only by a hold-back; kept where the wish
-     *  is kept (this transport, across sessions) and, since build C1-P, in [c1StageFile]: read once here, so a restart
-     *  of the process (an APK install) arms what was armed; written with every change ([setC1Stage]). */
-    @Volatile private var c1Stage = readC1Stage()
-    private val c1StageLock = Any()
+     *  the 256 KiB cache, 3 and ENGINE, and build C2's 4 and BIND (`FIRMWARE.md` §6.8). Set only by the probe `c1=N`,
+     *  lowered only by C1's hold-back (stages 1–3; stage 4's own hold-back holds it back without lowering it); kept where
+     *  the wish is kept (this transport, across sessions) and, since build C1-P, in [c1StageFile]: read once here, so a
+     *  restart of the process (an APK install) arms what was armed; written with every change ([setC1Stage]). Build C2
+     *  grows the file into [LadderRecord]: the stage, `Taps`, the last stage-4 arming, the case-in, the hold-back. */
+    /** Build C2: a note about the record that the read at creation has to say once, at the first start (unused lines).
+     *  Declared before [record], whose initializer writes it. */
+    @Volatile private var recordSay: String? = null
+    /** The zone [localDay] and [hhmm] read: the device's. A test sets it. Declared before [record], whose initializer
+     *  reads it. */
+    @Volatile var localZone: java.time.ZoneId = java.time.ZoneId.systemDefault()
+    @Volatile private var record = readRecord()
+    private val c1Stage: Int get() = record.stage
+    private val recordLock = Any()
 
-    /** Build C1-P: the stage [c1StageFile] holds. No store, or no file yet: 0, nothing said. A file that cannot be read,
-     *  or holds anything but 0..[C1_TOP_STAGE]: 0, the safe end, and said. */
-    private fun readC1Stage(): Int {
-        val f = c1StageFile ?: return 0
-        val text = try { java.nio.file.Files.readString(f).trim() } catch (e: java.nio.file.NoSuchFileException) { return 0 } catch (e: Exception) {
+    /** Build C1-P: the record [c1StageFile] holds. No store, or no file yet: the default (stage 0), nothing said. A file
+     *  that cannot be read, or whose stage is anything but 0..[LADDER_TOP_STAGE]: the default, the safe end, and said. */
+    private fun readRecord(): LadderRecord {
+        val f = c1StageFile ?: return LadderRecord()
+        val text = try { java.nio.file.Files.readString(f) } catch (e: java.nio.file.NoSuchFileException) { return LadderRecord() } catch (e: Exception) {
             c1StageSay = "C1 ladder: the stored stage could not be read (${e.javaClass.simpleName}: ${e.message}) — stage 0"
             Log.w(name, c1StageSay!!)
-            return 0
+            return LadderRecord()
         }
-        val n = text.toIntOrNull()
-        if (n == null || n !in 0..C1_TOP_STAGE) {
-            c1StageSay = "C1 ladder: the stored stage '$text' is not 0..$C1_TOP_STAGE — stage 0"
+        val read = LadderRecord.decode(text, LADDER_TOP_STAGE)
+        read.stageText?.let { bad ->
+            c1StageSay = "C1 ladder: the stored stage '$bad' is not 0..$LADDER_TOP_STAGE — stage 0"
             Log.w(name, c1StageSay!!)
-            return 0
+            return LadderRecord()
         }
+        var r = read.record
+        if (read.problems.isNotEmpty()) {
+            val text2 = "local input: the stored record's line(s) ${read.problems.joinToString(" · ") { "'$it'" }} could not be used — left at their defaults"
+            Log.w(name, text2)
+            recordSay = text2
+        }
+        val n = r.stage
         if (n > 0 && c1StageStepDown) {
             // R1 §1: to 0, not n − 1 (any rung's phone-side code may be the cause, and the way back takes one restart).
-            // Nothing else can reach this transport while it is made, so the write takes no lock; it is setC1Stage's write
-            val kept = try { wm.damage.core.shell.Persistence.writeAtomic(f, "0\n", sync = true); "" } catch (e: Exception) {
+            // Nothing else can reach this transport while it is made, so the write takes no lock; it is setRecord's write.
+            // Build C2: the rest of the record is kept (Taps, the arming's time, the hold-back)
+            r = r.copy(stage = 0)
+            val kept = try { wm.damage.core.shell.Persistence.writeAtomic(f, r.encode(), sync = true); "" } catch (e: Exception) {
                 "; stage 0 could not be stored (${e.javaClass.simpleName}: ${e.message}) — it applies to this run, and a " +
                     "restart of the process starts at stage $n again"
             }
@@ -960,29 +1031,46 @@ abstract class CfwTransportBase(
                 "(probe c1=$n to try again)$kept"
             c1StageSayIsHoldBack = true
             Log.w(name, c1StageSay!!)
-            return 0
+            return r
         }
-        if (n > 0) c1StageSay = "C1 ladder: stage $n restored from the last run (${ladderSays(n)})"
-        return n
+        if (n > 0) c1StageSay = "C1 ladder: stage $n restored from the last run (${ladderSays(n)})" +
+            (r.holdBackAt?.let { "; local input held back since ${hhmm(it)}: ${r.holdBackWhy}" } ?: "")
+        return r
     }
 
     /** Build C1-P: [c1Stage] and its file move together under one lock, so the file ends equal to the memory whichever
      *  of the probe's thread and the start's coroutine comes last; [update] gets the stage as it is under the lock (the
-     *  hold-back's lowering and its write are one step). A plain small synchronous write: on the probe's own thread, or
-     *  inside a start before its session is up, where no flush exists to wait on it. A write that fails is a fault and
-     *  a `keeper` note, and the stage still applies for this run. */
-    private fun setC1Stage(update: (Int) -> Int): Int = synchronized(c1StageLock) {
-        val to = update(c1Stage)
-        c1Stage = to
+     *  hold-back's lowering and its write are one step). */
+    private fun setC1Stage(update: (Int) -> Int): Int = setRecord("C1 ladder: stage") { it.copy(stage = update(it.stage)) }.stage
+
+    /** Build C2 (§6.8: "written before the arming it records"): the record and its file move together under one lock,
+     *  [update] getting the record as it is under it. A plain small synchronous write: on the probe's own thread, inside
+     *  a start before its first byte of the arming it records, or where evidence arrives (a lens restart, a case-in:
+     *  once each per arming). A write that fails is a fault and a `keeper` note, and the record still applies for this
+     *  run. [what] names it in that note. */
+    private fun setRecord(what: String, update: (LadderRecord) -> LadderRecord): LadderRecord = synchronized(recordLock) {
+        val to = update(record)
+        record = to
         val f = c1StageFile ?: return to
-        try { wm.damage.core.shell.Persistence.writeAtomic(f, "$to\n", sync = true) } catch (e: Exception) {
-            val text = "C1 ladder: stage $to could not be stored (${e.javaClass.simpleName}: ${e.message}) — it applies to this " +
-                "run; a restart of the process starts at the stage stored before"
+        try { wm.damage.core.shell.Persistence.writeAtomic(f, to.encode(), sync = true) } catch (e: Exception) {
+            val text = (if (what == "C1 ladder: stage") "C1 ladder: stage ${to.stage}" else what) +
+                " could not be stored (${e.javaClass.simpleName}: ${e.message}) — it applies to this run; a restart of the " +
+                "process starts at what was stored before"
             emitNote("keeper", text)
             emitFault("c1stage", text)
         }
         to
     }
+
+    /** Test only (spec §6.2's hold-back pin): the record moved as its evidence would move it, nothing sent. */
+    internal fun ladderRecordForTest(update: (LadderRecord) -> LadderRecord): LadderRecord = setRecord("test", update)
+
+    /** [ms] on the phone's clock as HH:MM in [localZone]. */
+    private fun hhmm(ms: Long): String = java.time.Instant.ofEpochMilli(ms).atZone(localZone).toLocalTime().let { "%02d:%02d".format(it.hour, it.minute) }
+
+    /** Build C2 (§6.8): the calendar day a time falls in, the day starting at 04:00 local. */
+    private fun localDay(ms: Long): java.time.LocalDate =
+        java.time.Instant.ofEpochMilli(ms).atZone(localZone).minusHours(DAY_STARTS_AT_HOUR.toLong()).toLocalDate()
     /** The ladder stage the latest arming left the glasses at (0: nothing of the ladder) — what a hold-back blames.
      *  Build C1's rulings B-M1 and B-N4: written with [lastArmedAtMs] by every send that arms — op 5's 256 KiB rung at
      *  a start, each FLAGS_SET ([flagsSet], the hand probe) — before its first byte, as the stage of what it carries. */
@@ -1005,6 +1093,7 @@ abstract class CfwTransportBase(
      *  a rung counts only when its own change goes out): ENGINE is stage 3's, the 256 KiB size stage 2's, ZWRITE
      *  stage 1's. A build without the engine (0x17f) at stage 3 thus records 2, and its hold-back drops the size. */
     private fun ladderStageOf(set: Int): Int = when {
+        set and DamageMsg.FLAG_BIND != 0 && hasBind(damageCaps) -> LADDER_TOP_STAGE      // build C2: BIND is stage 4's
         set and DamageMsg.FLAG_ENGINE != 0 -> C1_TOP_STAGE
         ladderSizeInForce -> LADDER_SIZE_STAGE
         set and DamageMsg.FLAG_ZWRITE != 0 -> 1
@@ -1016,12 +1105,24 @@ abstract class CfwTransportBase(
         caps != null && caps.contract >= DamageMsg.CONTRACT && (caps.has(DamageMsg.FEATURE_ENGINE) || caps.has(DamageMsg.FEATURE_RIDERS))
 
     /** The flag bits the ladder adds at [stage] (spec §6.1): ZWRITE from stage 1 on a bit-8 build, ENGINE at stage 3 on
-     *  a bit-7 build; nothing elsewhere. */
+     *  a bit-7 build, and build C2's BIND at stage 4 on a bit-10 build (`FIRMWARE.md` §6.8); nothing elsewhere. [stage]
+     *  is the stage this start arms — a held-back stage 4 is 3 ([bindStageAtStart]). */
     private fun ladderFlags(stage: Int, caps: DamageMsg.Caps?): Int {
         if (!isC1(caps)) return 0
         return (if (stage >= 1 && caps!!.has(DamageMsg.FEATURE_RIDERS)) DamageMsg.FLAG_ZWRITE else 0) or
-            (if (stage >= 3 && caps!!.has(DamageMsg.FEATURE_ENGINE)) DamageMsg.FLAG_ENGINE else 0)
+            (if (stage >= 3 && caps!!.has(DamageMsg.FEATURE_ENGINE)) DamageMsg.FLAG_ENGINE else 0) or
+            (if (stage >= LADDER_TOP_STAGE && hasBind(caps) && caps!!.has(DamageMsg.FEATURE_ENGINE)) DamageMsg.FLAG_BIND else 0)
     }
+
+    /** The flag bits the ladder owns on a build with [caps]: ZWRITE and ENGINE on a C1 build, and BIND on a bit-10 build.
+     *  A hand-set wish never carries them past the stage (the probe's rule, §6.8). */
+    private fun ladderBits(caps: DamageMsg.Caps?): Int = if (!isC1(caps)) 0 else C1_FLAGS or (if (hasBind(caps)) DamageMsg.FLAG_BIND else 0)
+
+    /** Build C2: a build that reports local input (`FIRMWARE.md` §6.8: features bit 10, contract 2). */
+    private fun hasBind(caps: DamageMsg.Caps?): Boolean = caps != null && caps.contract >= DamageMsg.CONTRACT && caps.has(DamageMsg.FEATURE_BIND)
+
+    /** The stage a start would arm now: stage 4 held back is 3 (§6.8). For the probe's rule and the state's words. */
+    private fun effectiveStage(): Int = record.let { r -> if (r.stage >= LADDER_TOP_STAGE && r.holdBackAt != null) LADDER_TOP_STAGE - 1 else r.stage }
 
     /** The cache size a start asks for at [stage]: 256 KiB from stage 2 on a bit-8 build, else §4's 160. */
     private fun ladderKib(stage: Int, caps: DamageMsg.Caps?): Int =
@@ -1031,7 +1132,8 @@ abstract class CfwTransportBase(
         0 -> "nothing of C1"
         1 -> "ZWRITE"
         2 -> "ZWRITE and the 256 KiB cache"
-        else -> "ZWRITE, the 256 KiB cache and ENGINE"
+        3 -> "ZWRITE, the 256 KiB cache and ENGINE"
+        else -> "ZWRITE, the 256 KiB cache, ENGINE and BIND"
     }
 
     /** RIGHT's reset (its time on the phone's clock) when it followed the last arming within [HOLD_BACK_MS] and no
@@ -1092,11 +1194,172 @@ abstract class CfwTransportBase(
         // C1-R6 B6-2: each of the two ends is read once; the hold-back is given what was read
         val resetAt = resetDueAt()
         val leftEnd = leftEndDueAt()
-        return when {
+        // build C2 (§6.8): after an arming of stage 4, C1's window is not that stage's rule — a fault in the hook comes at a
+        // gesture, any time — so the restart is stage 4's own hold-back, decided when its evidence came ([bindEvidence]),
+        // and costs one stage, never more; the end is spent here so that no later arming is blamed for it
+        if (ladderArmedStage == LADDER_TOP_STAGE && (resetAt != null || leftEnd != null)) {
+            resetAt?.let { heldBackForResetAt = it }
+            leftEnd?.let { heldBackForLeftEndAt = it }
+            return bindStageAtStart(stage, caps)
+        }
+        return bindStageAtStart(when {
             resetAt == null && leftEnd == null -> stage
             ladderArmedStage == 0 -> 0
             else -> ladderHoldBack(resetAt, leftEnd)
+        }, caps)
+    }
+
+    // ---- build C2 (`FIRMWARE.md` §6.8): stage 4's hold-back, its evidence and its lifts ---------------------------------
+
+    /** Whether this process has said the hold-back now in force (its set time), so a start says it once. */
+    @Volatile private var bindHoldBackSaidFor: Long? = null
+
+    /** Stage 4 at a start: lifted first — by a case-in received after the hold-back was set (the evening case-in), or at
+     *  the first start on a later calendar day (04:00 local) — then, while one is in force, held back to stage 3, said
+     *  once as a `keeper` note and a `holdback` fault. Any other stage, or a build without bit 10, passes as it is. */
+    private fun bindStageAtStart(stage: Int, caps: DamageMsg.Caps): Int {
+        if (stage < LADDER_TOP_STAGE || !hasBind(caps)) return stage
+        val r = record
+        val at = r.holdBackAt ?: return stage
+        val now = nowMs()
+        val lift = when {
+            r.caseInAt != null && r.caseInAt > at -> "a case-in at ${hhmm(r.caseInAt)} came after it"
+            localDay(now) > localDay(at) -> "this is the first start on a later day"
+            else -> null
         }
+        if (lift != null) {
+            setRecord("local input: the hold-back's lift") { it.copy(holdBackAt = null, holdBackWhy = "") }
+            emitNote("keeper", "local input re-armed: the hold-back set at ${hhmm(at)} (${r.holdBackWhy}) is lifted — $lift")
+            return stage
+        }
+        if (bindHoldBackSaidFor != at) {
+            bindHoldBackSaidFor = at
+            val text = "local input held back until tomorrow's first start: ${r.holdBackWhy} while it was on; Settings · " +
+                "Local input re-arms it (or probe c1=4) — this session arms stage 3"
+            emitNote("keeper", text)
+            emitFault("holdback", text)
+        }
+        return LADDER_TOP_STAGE - 1
+    }
+
+    /** Evidence of a lens restart at [at] (phone clock): RIGHT's reset placed at now − uptime ([noteUptime]) or LEFT's
+     *  reboot-like link end ([leaseLinkEnded]). It holds stage 4 back when the stored stage is 4, stage 4 was armed in an
+     *  earlier session (or this one) before it, and no case-in came between that arming and the restart — decided here,
+     *  where it is seen, and kept in the record, so a restart of the phone's process between it and the next start loses
+     *  nothing (`C2-DP1-built.md` §0). One already in force is kept as it is (its set time decides its lift). */
+    private fun bindEvidence(at: Long, what: String) {
+        val r = record
+        if (r.stage < LADDER_TOP_STAGE || r.holdBackAt != null) return
+        val armed = r.bindArmedAt ?: return
+        // the arming's own write may land a little after its record (C1's rule reads its window the same way)
+        if (at < armed - CAPABILITY_REASK_MS) return
+        if (r.caseInAt != null && r.caseInAt >= armed && r.caseInAt <= at) {
+            emitNote("keeper", "local input: $what at ${hhmm(at)}, after a case-in at ${hhmm(r.caseInAt)} — nothing held back")
+            return
+        }
+        val why = "a lens restarted at ${hhmm(at)} ($what)"
+        setRecord("local input: the hold-back") { it.copy(holdBackAt = nowMs(), holdBackWhy = why) }
+        emitNote("keeper", "local input: $why after stage 4 was armed at ${hhmm(armed)} — stage 4 is held back from the next start " +
+            "until a case-in, the first start on a later day, Settings · Local input or probe c1=4")
+        refreshLocalState()
+    }
+
+    /** A `case` note saying `in case 1` at [now]: kept when it is the first after the later of the last stage-4 arming and
+     *  the hold-back (the only one a decision reads; [LadderRecord]). */
+    private fun bindCaseIn(now: Long) {
+        val r = record
+        if (r.stage < LADDER_TOP_STAGE) return
+        val ref = listOfNotNull(r.bindArmedAt, r.holdBackAt).maxOrNull() ?: return
+        if (r.caseInAt != null && r.caseInAt > ref) return
+        setRecord("local input: the case-in") { if (it.caseInAt != null && it.caseInAt > ref) it else it.copy(caseInAt = now) }
+    }
+
+    /** Stage 4's rung going out at [at]: the record's last stage-4 arming. */
+    private fun bindArmed(at: Long) {
+        setRecord("local input: the stage-4 arming's time") { it.copy(bindArmedAt = at) }
+    }
+
+    /** Build C2 (§6.7 P1): S_heard at this session's start — 0 on a fresh acquire, field 36 of the start's own read on a
+     *  carried lease ([bindStartRead]); the disarm's DISCARD reaches every local instance of the session from one past it
+     *  (P9). The last image-lane refusal handed to the shell ([bindTelemetry]). Both the session's. */
+    @Volatile private var bindSHeard0 = 0
+    @Volatile private var resetCheckLastS: Long? = null
+    @Volatile private var bindRefusalSeen: Triple<Int, Int, Long>? = null
+    @Volatile private var bindRefusalBaseline = true
+
+    private fun bindSessionStart() {
+        bindSHeard0 = 0
+        resetCheckLastS = null
+        bindRefusalSeen = null
+        bindRefusalBaseline = true
+    }
+
+    /** After the lease's carry is decided: S_heard's start ([bindSHeard0]) and the state's words. */
+    private fun bindStartRead() {
+        val carried = _state.value.leaseCarried
+        bindSHeard0 = if (carried) (resetCheckLastS ?: 0L).toInt() and 0xFFFF else 0
+        updateState { it.copy(bindSHeard0 = bindSHeard0) }
+    }
+
+    /** The shell's S_low for P9's disarm (DP2 sets it); null: the session's own floor, S_heard at its start + 1 — every
+     *  local instance of the session is tagged after it, LEFT's included (the start's keyframe closed the rest). */
+    @Volatile var bindSLow: (() -> Int)? = null
+
+    /** A RIGHT telemetry record on a bit-10 build (§6.7 P1, the tap rule's `tapsLive`): field 39 to the shell every time,
+     *  and the image-lane refusal when it is new and names mode 27 (the record is sticky until the next refusal, so it is
+     *  handed once; the session's first record — the start's reset check, before this session sent anything — is the
+     *  baseline: what it shows is an earlier session's, and the start sends the whole table anyway). */
+    private fun bindTelemetry(t: DamageMsg.Telemetry) {
+        if (!hasBind(damageCaps)) return
+        val ref = t.refusal
+        val rec = ref?.let { Triple(it.mode and 0x7F, it.reason, it.seq) }
+        val fresh = rec != null && rec != bindRefusalSeen
+        val baseline = bindRefusalBaseline
+        bindRefusalBaseline = false
+        bindRefusalSeen = rec
+        val names27 = fresh && !baseline && rec!!.first == CfwModes.BIND_MODE
+        if (names27) emitNote("local", "the glasses refused a mode 27 (${ref!!.describe()}) — the shell sends the whole table again")
+        if (!_events.tryEmit(TransportEvent.LocalRead(t.boundIds, if (names27) ref else null)))
+            Log.e(name, "LocalRead event DROPPED (buffer full)")
+    }
+
+    /** One notify-115 report (§6.5): RIGHT only. A `applied` note, and the report to the shell in arrival order, beside
+     *  the stock input events (P2). */
+    private fun onAppliedNotify(arm: Arm, a: DamageMsg.Applied) {
+        if (arm != Arm.RIGHT) { emitNote("applied", "a 115 report arrived on LEFT, which cannot send — ignored: ${a.describe()}"); return }
+        emitNote("applied", a.describe())
+        if (!_events.tryEmit(TransportEvent.Applied(a))) {
+            Log.e(name, "Applied event DROPPED (buffer full): S ${a.s}")
+            emitFault("applied", "a 115 report was not handed to the shell (the event buffer is full): S ${a.s}")
+        }
+    }
+
+    /** The image lane's gate (§6.8: "the phone sends none of them without it"; spec §6.2): no mode 27, mode 28 or mode-26
+     *  sub 3..5 leaves the phone — top level, in a batch, in a self-test step — unless DamageCaps bit 10 is reported and
+     *  BIND is in force (the ladder's stage 4, armed this session). One test at the one place every image passes. */
+    private fun bindGate(image: ByteArray) {
+        if (!CfwModes.carriesBind(image)) return
+        val st = _state.value
+        if (hasBind(damageCaps) && st.flagsInForce and DamageMsg.FLAG_BIND != 0) return
+        val why = "a ${image.size} B image carrying mode 27, 28 or a mode-26 COMMIT/DISCARD/SETTLE (mode ${image[0].toInt() and 0xFF}) " +
+            "is not sent: " + (if (!hasBind(damageCaps)) "this build reports no local input (DamageCaps bit 10)" else
+                "BIND is not in force (flags 0x${st.flagsInForce.toString(16)}, stage ${record.stage})")
+        emitFault("bind", why)
+        throw LintError(why)
+    }
+
+    /** The `Local input` row's state in words (§6.3), and `Taps`, in [LinkState]. */
+    private fun refreshLocalState() {
+        val r = record
+        val caps = damageCaps
+        val st = _state.value
+        val words = when {
+            !hasBind(caps) -> "this firmware has no local input"
+            r.stage >= LADDER_TOP_STAGE && r.holdBackAt != null -> "held back until tomorrow: ${r.holdBackWhy}"
+            st.started && st.flagsInForce and DamageMsg.FLAG_BIND != 0 -> "on"
+            else -> "off: stage ${r.stage}"
+        }
+        updateState { it.copy(taps = r.taps, localInput = words) }
     }
 
     /** Build C1 (`FIRMWARE.md` §5.8, spec §6.4): one notify-114 body. A `motion` note always; for an instance that
@@ -1218,6 +1481,28 @@ abstract class CfwTransportBase(
             false
         }
     }
+    /** Build C2 (§6.7 P9): DISCARD(0xFF, S_low, 0xFF, 0) on the image lane, waited to its ack — before a mid-session BIND
+     *  disarm (the probe path only). S_low is the shell's ([bindSLow]) or, until it gives one, the session's floor. False,
+     *  with a note, when it was not queued or not acked: then the disarm is not sent. */
+    private suspend fun discardAllLocal(epoch: Long, why: String): Boolean {
+        val sLow = (bindSLow?.invoke() ?: (bindSHeard0 + 1)) and 0xFFFF
+        val done = CompletableDeferred<Unit>()
+        if (!imageQueue.trySend(ImgWork.Raw(epoch, CfwModes.motionDiscard(CfwModes.BIND_ALL, sLow, CfwModes.BIND_ALL, 0), done)).isSuccess) {
+            emitNote("local", "DISCARD of every local instance from S $sLow not queued ($why) — the disarm is not sent")
+            return false
+        }
+        return try {
+            done.await()
+            emitNote("local", "DISCARD of every local instance from S $sLow acked before $why")
+            true
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            emitNote("local", "DISCARD of every local instance from S $sLow not acked ($why): ${e.message} — the disarm is not sent")
+            false
+        }
+    }
+
     /** The reset check's record (step 1b): whether RIGHT reported an allocated cache (field 18). */
     @Volatile private var resetCheckCache: Long? = null
     @Volatile private var resetCheckRead = false
@@ -1447,7 +1732,10 @@ abstract class CfwTransportBase(
                 l.timedOut = true
                 // build C1's ruling B-S1: LEFT cannot report its uptime, so this end is the only sign of a restart of
                 // that lens alone — kept for the ladder's hold-back ([leftEndDueAt])
-                if (arm == Arm.LEFT) { leftEndAtMs = now; leftEndReason = reason }
+                if (arm == Arm.LEFT) {
+                    leftEndAtMs = now; leftEndReason = reason
+                    bindEvidence(now, "LEFT's link ended as a restart would: $reason")    // build C2 (§6.8)
+                }
             }
         }
     }
@@ -1725,6 +2013,9 @@ abstract class CfwTransportBase(
                 // build C1 (`FIRMWARE.md` §5.8): a motion notify (field 114), RIGHT only — a journal note per body, the
                 // END CRC compared with the mirror's, the area-unknown window told
                 DamageMsg.parseMotion(frame.payload)?.let { m -> onMotionNotify(arm, m); return }
+                // build C2 (`FIRMWARE.md` §6.5): a report of a matched gesture (field 115), RIGHT only — to the shell in
+                // arrival order, beside the e0-01 events this same thread emits (P2)
+                DamageMsg.parseApplied(frame.payload)?.let { a -> onAppliedNotify(arm, a); return }
                 // FIRMWARE.md §3: a Damage build's telemetry record (commandId 3, field 111)
                 DamageMsg.parseTelemetry(frame.payload)?.let { t ->
                     // R2 (RG-5): RIGHT answers every control request twice (`HANDOFF.md` §59) — the second
@@ -1754,6 +2045,7 @@ abstract class CfwTransportBase(
                     t.motionSeq?.let { noteMotionGaps(it) }
                     zwriteJudge(t)
                     cacheBusyJudge(t)
+                    bindTelemetry(t)
                     t.requestId?.let { id ->
                         // a FLAGS_SET reply (id 0) is taken only when it answers the set being armed:
                         // RIGHT answers every control request twice (2026-09-15 12:54, `HANDOFF.md`
@@ -2016,6 +2308,7 @@ abstract class CfwTransportBase(
              else "no case info ") + "(cmd ${v(info.cmd)}, "
         Log.i(name, "case: " + head + hex(frame.payload) + ")")
         emitNote("case", head + hexPerFrame(LONG_CASE_FRAME, frame.payload) + ")")
+        if (info.hasInfo && info.inCase == 1) bindCaseIn(nowMs())        // build C2 (§6.8): the case-in stage 4's hold-back reads
     }
 
     /** What a device-info block said, as the journal has it: field 10's value, whether field 14 was there
@@ -2324,6 +2617,8 @@ abstract class CfwTransportBase(
         c1StageSay?.let {   // build C1-P: what the read at creation found, once
             c1StageSay = null; emitNote("keeper", it); if (c1StageSayIsHoldBack) emitFault("holdback", it)
         }
+        recordSay?.let { recordSay = null; emitNote("keeper", it) }      // build C2: lines of the record it could not use
+        bindSessionStart()
         // A new session does not inherit the last one's Silent Mode (2026-09-16 review). `noteSilent`
         // is the only writer. What the READ path does: it sets the state on a field-14 value above
         // 0 and clears it only on an explicit 0 — `parseSilentRestored` returns null when the
@@ -2520,6 +2815,8 @@ abstract class CfwTransportBase(
                     (if (epoch != sessionEpoch.get()) "the session ended" else "a re-ask could not be written to RIGHT"))
                 resetCheckCache = t.cacheSize
                 resetCheckRead = true
+                resetCheckLastS = t.lastS          // build C2 (P1): S_heard's start on a carried lease
+
                 heapRecord("pre-create", t)       // build W (dec. E.1): this record is heap3's first point, no new read
             } else if (heapReadsOn()) emitNote("heap3", "point=pre-create not read: this build does not answer telemetry")
 
@@ -2604,6 +2901,7 @@ abstract class CfwTransportBase(
             controlQueue.trySend(CtlWork.Lease(epoch, SettingsMsg.OP_FB_ACQUIRE, leaseWritten))
             leaseWritten.await()
             heapPoint(epoch, "lease")             // build W: heap3's second point — launched, never awaited
+            bindStartRead()                       // build C2 (P1): S_heard's start, now that the carry is decided
 
             // 3b. Contract 2 (`FIRMWARE.md` §4): the cache's size for the session and DRAW2 armed
             //     BEFORE the shell paints — its atlas is a v2 layout written with mode 19 and
@@ -2714,6 +3012,7 @@ abstract class CfwTransportBase(
             }
             startInProgress = false
             commitLeaseCarry()                // §54: the shell acts on this session's carry decision now
+            refreshLocalState()               // build C2 (§6.3): the `Local input` row's words for this session
             // What this build offers the radio (the phone asks for LE 2M on a bit-6 build): asked
             // once the session is up, not inside the start. The request goes into the arm's own
             // request queue and completes when the controllers answer, and a request that never
@@ -3688,6 +3987,7 @@ abstract class CfwTransportBase(
      */
     private suspend fun writeImage(image: ByteArray, atEpoch: Long, unlessDone: CompletableDeferred<Unit>? = null): PendingAck? {
         require(image.isNotEmpty()) { "empty image buffer" }
+        bindGate(image)                    // build C2: no mode 27, 28 or 26 sub 3..5 without bit 10 and BIND in force
         lastImageAtMs = nowMs()
         if (sessionPenalty) {
             sessionPenalty = false
@@ -4060,6 +4360,13 @@ abstract class CfwTransportBase(
         private const val REASON_BUSY = 14
         /** Build C1: the ladder's top stage (spec §6.1) and the two flag bits it owns. */
         const val C1_TOP_STAGE = 3
+        /** Build C2 (`FIRMWARE.md` §6.8): the ladder's stage 4, BIND. */
+        const val LADDER_TOP_STAGE = 4
+        /** §6.8: "the first start on a later calendar day (04:00 local)". */
+        const val DAY_STARTS_AT_HOUR = 4
+        /** The order [armFeatures] arms the wanted bits in: lowest first, BIND (bit 4) last (spec §6.2: stage 4's start is
+         *  stage 3's plus its rung). */
+        val ARM_ORDER: List<Int> = (0 until 16).filter { it != 4 } + 4
         /** Build C1-P: the stage's file in the app's data directory (one line, the stage's digit). */
         const val C1_STAGE_FILE = "c1-stage"
         /** The ladder's stage whose own change is the 256 KiB cache (spec §6.1). */

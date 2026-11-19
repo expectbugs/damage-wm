@@ -551,6 +551,20 @@ class RemoteTransportClient(
                 else Log.w("remote-transport", "malformed present control: ${c.detail}")
             }
             "state" -> c.state?.let { st -> updateState { st.toState() } }
+            // build C2: the server's toCtl forms
+            "applied" -> {
+                val f = c.detail.split(',').filter { it.isNotEmpty() }.mapNotNull { kv ->
+                    val k = kv.substringBefore(':').toIntOrNull(); val v = kv.substringAfter(':', "").toLongOrNull()
+                    if (k == null || v == null) null else k to v }
+                if (f.isEmpty()) Log.w("remote-transport", "malformed applied control: ${c.detail}")
+                else emit(TransportEvent.Applied(wm.damage.core.wire.DamageMsg.Applied(f.toMap())), "Applied")
+            }
+            "localread" -> {
+                val v = c.detail.split(':')
+                val ref = if (v.size == 4) wm.damage.core.wire.DamageMsg.Refusal(v[1].toIntOrNull() ?: -1, v[2].toIntOrNull() ?: -1,
+                    v[3].toLongOrNull() ?: -1) else null
+                emit(TransportEvent.LocalRead(v.firstOrNull()?.toLongOrNull(), ref), "LocalRead")
+            }
             else -> Log.w("remote-transport", "unknown control ${c.t}")
         }
     }
@@ -1101,6 +1115,11 @@ class RemoteTransportServer(
         is TransportEvent.Battery -> Ctl(t = "batt", gPct = ev.glassesPct, gChg = ev.glassesCharging, rPct = ev.ringPct)
         // FIRMWARE.md §3 (F1.3): the four numbers, colon-separated, like a note's kind:detail
         is TransportEvent.Presented -> Ctl(t = "present", detail = "${ev.seq}:${ev.workerUs}:${ev.copyUs}:${ev.transferUs}:${ev.path}")
+        // build C2: a 115 report's fields as "field:value" pairs, and a telemetry read's field 39 and mode-27 refusal, in
+        // the detail string the control frame already has — no new JSON key; an older peer logs an unknown control
+        is TransportEvent.Applied -> Ctl(t = "applied", detail = ev.report.fields.entries.joinToString(",") { "${it.key}:${it.value}" })
+        is TransportEvent.LocalRead -> Ctl(t = "localread", detail = "${ev.boundIds ?: ""}:" +
+            (ev.refusal27?.let { "${it.mode}:${it.reason}:${it.seq}" } ?: ""))
         is TransportEvent.FlushDone -> null   // delivered per-flush with id mapping
     }
 

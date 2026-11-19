@@ -31,6 +31,8 @@ package wm.damage.core.wire
  *    ENGINE and bit 5 ZWRITE; telemetry 27–34; op 5 up to 256 KiB on a bit-8 build; field 114
  *    `DamageMotion`, a device-sent notify each time an instance stops drawing or a mode-26 message is
  *    refused ([parseMotion])
+ *  - build C2 (`FIRMWARE.md` §6.5, §6.8): features bit 10 local input; flags bit 4 BIND; telemetry 35–39; reasons 17
+ *    and 18; 114's outcome 3; field 115 `DamageApplied`, a device-sent report per matched gesture ([parseApplied])
  *
  * Requests are fire-and-forget like the lease (MagicRandom 0) and go to both arms. **Only the
  * RIGHT lens answers**: the stock senders refuse on the left lens (`CLAIMS.md`, 2026-09-14), so a
@@ -60,11 +62,17 @@ object DamageMsg {
     const val FEATURE_ENGINE = 1 shl 7
     /** Bit 8 (build C1, §5.9): the riders — op 5 up to 256 KiB, telemetry 27–29, mode 25 with flag bit 5. */
     const val FEATURE_RIDERS = 1 shl 8
+    /** Bit 10 (build C2, `FIRMWARE.md` §6.8): local input — the hook, mode 27, mode 26's subs 3–5, notify 115 and 114's
+     *  outcome 3, mode 28 and DRAW's h0/h1/anchor, telemetry 35–39, reasons 17 and 18, flag bit 4. The phone sends none
+     *  of them without it. (Bit 9, the link item, is not in C2.) */
+    const val FEATURE_BIND = 1 shl 10
     const val PHASE1_FEATURES = FEATURE_TELEMETRY or FEATURE_FLAGS or FEATURE_PRESENTED or FEATURE_CACHE_KEEP or FEATURE_SELF_TEST
     const val PHASE2_FEATURES = PHASE1_FEATURES or FEATURE_DRAW2 or FEATURE_LINK
 
     /** Notify field 114 DamageMotion (§5.8), RIGHT only. */
     const val MOTION_FIELD = 114
+    /** Notify field 115 DamageApplied (build C2, §6.5), RIGHT only: one report per matched gesture. */
+    const val APPLIED_FIELD = 115
 
     const val OP_TELEMETRY = 1
     const val OP_FLAGS_SET = 2
@@ -90,6 +98,9 @@ object DamageMsg {
     const val FLAG_DRAW2 = 1 shl 2
     /** Bit 3 (build C1, §5.8): mode 26 answers — needs DRAW2 armed too; cleared at every release point. */
     const val FLAG_ENGINE = 1 shl 3
+    /** Bit 4 (build C2, §6.8): BIND — the hook fires on bound gestures and mode 27 answers; needs ENGINE and DRAW2 (each
+     *  checked at a fire and a mode 27, not at the FLAGS_SET); cleared at every release point; refused without the lease. */
+    const val FLAG_BIND = 1 shl 4
     /** Bit 5 (build C1, §5.9): mode 25, the deflated cache write, answers. */
     const val FLAG_ZWRITE = 1 shl 5
     /** Bit 15: no behaviour — it proves arming, the echo and the clear-on-lapse. */
@@ -118,7 +129,9 @@ object DamageMsg {
         // engine's busy word (§5.11 row 3), refused whole the same way
         14 to "display-or-engine-busy",
         // §5.8 (build C1): the op's own flag not armed (ENGINE for 26, ZWRITE for 25); no such instance
-        15 to "unarmed", 16 to "no-instance")
+        15 to "unarmed", 16 to "no-instance",
+        // §6.8 (build C2): a tap fire whose close set holds a local instance (nothing closed); a fire on a lost cursor
+        17 to "tap-over-local", 18 to "cursor-lost")
 
     /** Field 11, sticky diagnostic bit 5 (build C1, decision A.19): a telemetry reply that could not be sent. The
      *  journal names it after the hex; every other bit is journaled as the hex alone, as before. */
@@ -183,12 +196,23 @@ object DamageMsg {
         val lastPath get() = fields[26]
         /** Build C1, field 31: the last notify-114 sequence taken (since boot); null on a build without the engine. */
         val motionSeq get() = fields[31]
+        /** Build C2 (§6.8), field 35: matched events since boot (every S taken, whatever its outcome). */
+        val matchedEvents get() = fields[35]
+        /** Field 36: the lens's last S (0 after a release point). */
+        val lastS get() = fields[36]
+        /** Field 37: the last fire that drew, µs from the hook's entry to its first drawn step; absent until one this boot. */
+        val fireUs get() = fields[37]
+        /** Field 38: reports whose send returned non-zero since boot. */
+        val reportSendFails get() = fields[38]
+        /** Field 39: the event ids with a live entry on RIGHT, bit n for id n (bit 0 the tap entry of either form, 4 and 5
+         *  the scroll entries); 0 while `bind_live` is clear. */
+        val boundIds get() = fields[39]
 
         /** The journal's one-line form: named, in field order. */
         fun describe(): String = fields.toSortedMap().entries.joinToString(" ") { (k, v) ->
             val name = NAMES[k] ?: "f$k"
             when (k) {
-                3, 30 -> "$name=0x${v.toString(16)}"
+                3, 30, 39 -> "$name=0x${v.toString(16)}"
                 11 -> "$name=0x${v.toString(16)}" + (if (v and DIAG_REPLY_DROPPED.toLong() != 0L) "(reply-dropped)" else "")
                 10 -> "$name=0x${v.toString(16)}${PANELS[v]?.let { "($it)" } ?: ""}"
                 19, 22 -> "$name=%08x".format(v)
@@ -205,7 +229,9 @@ object DamageMsg {
         // build C1 (§5.8, §5.9): the largest free block per arena, the engine's slots, the last notify sequence,
         // engine frames and folds since boot, the last present's step-drawing µs
         27 to "max13KiB", 28 to "max20KiB", 29 to "max27KiB", 30 to "motion", 31 to "motionSeq",
-        32 to "engineFrames", 33 to "folds", 34 to "stepUs")
+        32 to "engineFrames", 33 to "folds", 34 to "stepUs",
+        // build C2 (§6.8): matched events, the last S, the last drawing fire's µs, failed report sends, the bound ids
+        35 to "matched", 36 to "lastS", 37 to "fireUs", 38 to "reportFails", 39 to "boundIds")
 
     /** One image-lane refusal as telemetry fields 23–25 report it. */
     data class Refusal(val mode: Int, val reason: Int, val seq: Long) {
@@ -243,6 +269,8 @@ object DamageMsg {
     const val OUTCOME_DREW = 0
     const val OUTCOME_CLOSED = 1
     const val OUTCOME_REFUSED = 2
+    /** Build C2 (§6.5): one 114 body at a COMMIT, tag = S, END ordinal 0, field 8 the END CRC. */
+    const val OUTCOME_COMMITTED = 3
 
     /** One notify-114 body (§5.8; build C1's decision A.2): `1 sequence · 2 slot · 3 tag · 4 outcome (0 drew its last
      *  step · 1 closed before it · 2 refused) · 5 END ordinal · 6 steps drawn · 7 steps folded · 8 the END CRC · 9 the
@@ -267,6 +295,7 @@ object DamageMsg {
                 OUTCOME_DREW -> "drew its last step"
                 OUTCOME_CLOSED -> "closed while drawing"
                 OUTCOME_REFUSED -> "refused (${reason?.let { REASONS[it] ?: "reason $it" } ?: "no reason"})"
+                OUTCOME_COMMITTED -> "committed"
                 else -> "outcome $outcome"
             }
             return "seq ${seq ?: "-"} slot ${slot ?: "-"} tag ${tag?.let { "0x%04x".format(it) } ?: "-"} $what" +
@@ -279,6 +308,65 @@ object DamageMsg {
     fun parseMotion(payload: ByteArray): Motion? = try {
         Pb.bytesField(payload, MOTION_FIELD)?.let { body ->
             Motion(Pb.fields(body).filter { it.wireType == 0 && it.varint != null }.associate { it.field to it.varint!! })
+        }
+    } catch (e: IllegalArgumentException) {
+        null
+    }
+
+    /** 115's outcome (field 5): the program drew (a report-only tap entry's fire that is not refused says 0 too). */
+    const val APPLIED_DREW = 0
+    /** 115's outcome: the staged edge — nothing drawn, the cursor kept. */
+    const val APPLIED_EDGE = 1
+    /** 115's outcome: refused, the reason in field 6 (3, 5, 11, 12, 14, 15, 17, 18). */
+    const val APPLIED_REFUSED = 2
+    /** 115's field 8 for a lost cursor (§6.3 LIST). */
+    const val CURSOR_LOST = 0xFFFF
+
+    /** One notify-115 body (build C2, `FIRMWARE.md` §6.5), uint32 varints: `1 S · 2 devType · 3 eventId · 4 the entry ·
+     *  5 outcome · 6 reason · 7 the list · 8 the cursor after the fire · 9 the slot · 10–13 P0..P3 (their 16 bits) ·
+     *  14 prog · 15 uptime ticks · 16 the fire's µs in the hook · 17 the list's mark`. Refused 3 or 14 carry 1, 2, 3, 5,
+     *  6 and 15 only; every other report 1–9 and 15–17, and 10–14 for outcome drew and reason 17 of an entry with a
+     *  program. An absent field is null, never 0. */
+    data class Applied(val fields: Map<Int, Long>) {
+        /** S as the lens's u16 (field 1). */
+        val s get() = fields[1]?.toInt()?.and(0xFFFF)
+        val devType get() = fields[2]?.toInt()
+        val eventId get() = fields[3]?.toInt()
+        val entry get() = fields[4]?.toInt()
+        val outcome get() = fields[5]?.toInt()
+        val reason get() = fields[6]?.toInt()
+        val list get() = fields[7]?.toInt()
+        /** The cursor after the fire; [CURSOR_LOST] for a lost one. */
+        val cursor get() = fields[8]?.toInt()
+        val slot get() = fields[9]?.toInt()
+        /** P0..P3 as s16 when fields 10–13 are carried (the program's parameters were computed), else null. */
+        val params: IntArray? get() = if ((10..13).all { it in fields }) IntArray(4) { fields[10 + it]!!.toInt().toShort().toInt() } else null
+        val prog get() = fields[14]?.toInt()
+        val uptimeTicks get() = fields[15]
+        val fireUs get() = fields[16]
+        val mark get() = fields[17]?.toInt()
+        /** A tap's report (event id 0 from the ring, §6.1). */
+        val isTap get() = eventId == 0
+
+        /** The `applied` note's form: S, the gesture, what the lens did, and the list fields when carried. */
+        fun describe(): String {
+            val what = when (outcome) {
+                APPLIED_DREW -> if (params == null && isTap) "report-only" else "drew"
+                APPLIED_EDGE -> "edge"
+                APPLIED_REFUSED -> "refused (${reason?.let { REASONS[it] ?: "reason $it" } ?: "no reason"})"
+                else -> "outcome $outcome"
+            }
+            fun v(x: Int?) = x?.toString() ?: "-"
+            return "S ${v(s)} dev ${v(devType)} id ${v(eventId)} entry ${v(entry)} $what list ${v(list)} cursor " +
+                (if (cursor == CURSOR_LOST) "lost" else v(cursor)) + " slot ${v(slot)} mark ${v(mark)}" +
+                (params?.let { p -> " P ${p.joinToString(",")} prog ${v(prog)}" } ?: "") + " uptime ${uptimeTicks ?: "-"}"
+        }
+    }
+
+    /** Field 115 of a device-sent settings message; null when absent. */
+    fun parseApplied(payload: ByteArray): Applied? = try {
+        Pb.bytesField(payload, APPLIED_FIELD)?.let { body ->
+            Applied(Pb.fields(body).filter { it.wireType == 0 && it.varint != null }.associate { it.field to it.varint!! })
         }
     } catch (e: IllegalArgumentException) {
         null
