@@ -109,7 +109,7 @@ class BindSimTest {
         val got = r.reports()
         assertEquals(listOf(1L, 2L, 3L, 4L), got.map { it[1] }, "RIGHT's reports carry S")
         assertEquals(listOf(0L, 2L, 1L, 2L), got.map { it[5] }, "drew, refused, edge, refused")
-        assertEquals(listOf(null, 14L, null, 18L), got.map { it[6] })
+        assertEquals(listOf(0L, 14L, 0L, 18L), got.map { it[6] }, "field 6 in every body, 0 unless refused (§6.5: 1–9 and 15–17)")
         assertEquals(listOf(1, 2, 3, 5, 6, 15), got[1].keys.sorted(), "a 14 body carries fields 1, 2, 3, 5, 6 and 15 only")
         // a stock page in front, or BIND not armed: no S
         r.arms.forEach { r.sim.conformancePage(it, false) }
@@ -187,6 +187,50 @@ class BindSimTest {
         assertTrue(order.isEmpty(), "RIGHT never injects it: no report, no stock message")
         assertEquals(listOf(2, 1), listOf(r.bind(Arm.LEFT).seq, r.bind(Arm.RIGHT).seq), "LEFT one ahead")
         assertEquals(listOf(2, 1), listOf(r.bind(Arm.LEFT).lists[0].cursor, r.bind(Arm.RIGHT).lists[0].cursor))
+    }
+
+    // ------------------------------------------------------------- §6.3 the empty table, for every reader (I.1)
+    /** "While `bind_live` is 0 the table is empty for every reader: a mode 27's checks that read entries or lists (one
+     *  slot per list …) read none … and a COMMIT, DISCARD or SETTLE that names a list reads count 0 (its cursor is not
+     *  below it: 12) and writes no cursor" (ruled 2026-11-18). */
+    @Test
+    fun theTableIsEmptyForEveryReaderWhileBindLiveIsZero_6_3() {
+        val r = Rig()
+        r.bound()                                                   // entries 0 and 1 bind list 0 to slot 0; count 16
+        r.input(UPROLL)                                             // S 1, list 0's cursor 1
+        r.sim.conformanceLease(Arm.RIGHT, false, r.now)             // a release point; the bytes stay
+        r.arm()
+        r.sent()
+        for ((what, m) in listOf("COMMIT" to commit(0, 1, 0, 0, PA), "DISCARD" to discard(0xFF, 1, 0, 0), "SETTLE" to settle(0xFF, 1, 0, 0, 0))) {
+            assertFalse(r.msg(m), "$what naming list 0 while bind_live is 0: refused")
+            assertEquals(12, r.sim.refusalRecord(Arm.RIGHT)[1], "$what: list 0 reads count 0")
+        }
+        assertEquals(1, r.bind().lists[0].cursor, "no cursor written")
+        assertTrue(r.msg(discard(0xFF, 1, 0xFF, 0)), "a DISCARD naming no list is taken")
+        // (the release freed the cache, so the re-staging is a report-only tap entry: it names no program)
+        assertTrue(r.msg(set(4, ID_TAP, 0, 0, 2, NONE)), "a re-staging that binds list 0 to slot 2: the entries left are no table")
+        assertEquals(listOf(4), r.bind().entries.withIndex().filter { it.value != null }.map { it.index }, "emptied, then applied")
+    }
+
+    // ------------------------------------------------------------------ §6.5 a refusal body's field 3 (I.3)
+    /** "A refusal sends its outcome-2 114 body …: field 2 the slot when the message holds one (0xFF as sent), and field 3
+     *  for COMMIT only — its S names one instance's tag; a DISCARD's or SETTLE's S is a bound, not a tag, and is not
+     *  carried" (ruled 2026-11-18). */
+    @Test
+    fun aRefusalBodyNamesTheTagForACommitOnly_6_5() {
+        val r = Rig()
+        r.bound()
+        r.sent()
+        for ((m, want) in listOf(commit(4, 0x1234, 0, 0, PA) to listOf(1, 2, 3, 4, 10, 11),
+                                 discard(9, 0x1234, 0, 0) to listOf(1, 2, 4, 10, 11),
+                                 settle(0xFF, 0x1234, 9, 0, 0) to listOf(1, 2, 4, 10, 11))) {
+            assertFalse(r.msg(m))
+            val b = r.sent().single().second
+            assertEquals(want, b.keys.sorted(), "sub ${m[1]}: the body's fields")
+            assertEquals((m[2].toInt() and 0xFF).toLong(), b[2], "sub ${m[1]}: the slot as sent")
+            if (3 in b) assertEquals(0x1234L, b[3], "COMMIT's S, its tag")
+            assertEquals(12L, b[10])
+        }
     }
 
     // ------------------------------------------------------------------------------- §6.3 mode 27's check order
@@ -464,7 +508,7 @@ class BindSimTest {
         r.input(UPROLL)                                            // c' 2: item 2 + 2 = 4 is past the list
         val edge = r.reports().single()
         assertEquals(listOf(1L, 1L), listOf(edge[5], edge[8]), "the edge, the cursor kept")
-        assertNull(edge[6])
+        assertEquals(0L, edge[6], "an edge carries field 6 as 0")
         assertTrue(r.msg(set(0, UPROLL, 0, +1, 0, PA, k = listOf(KIND_PITCH to 30000))))
         assertTrue(r.msg(list(0, 300, 4, 0, 30000, 1)))
         r.input(UPROLL)                                            // 2 × 30000 + 30000 is outside s16
@@ -511,10 +555,11 @@ class BindSimTest {
             assertTrue(ok, "anchor $anchor")
             assertEquals(listOf(1, 1, 2, 2, 3, 3, 4, 4), (0 until 8).map { r.shadow(10, top + it) }, "anchor $anchor: END eight rows from $top")
         }
-        assertTrue(withDraw(C2, 0, 2, 0, steps = 4).second, "h0 0, h1 2 over four linear steps: H 1, 1, 2, 2")
-        for ((h0, h1) in listOf(0 to 1, 1000 to 3000)) {
+        assertTrue(withDraw(C2, 1, 2, 0, steps = 4).second, "h0 1, h1 2 over four linear steps: H 1, 2, 2, 2")
+        // h0 0 with h1 2: every step's H (1, 1, 2, 2) is in range, but h0 is not — both 0 or both 1..2048 (I.4)
+        for ((h0, h1) in listOf(0 to 2, 2 to 0, 0 to 1, 1000 to 3000)) {
             val (r, ok) = withDraw(C2, h0, h1, 0, steps = 4)
-            assertFalse(ok, "h0 $h0 h1 $h1: an eased H outside 1..2048 must be refused"); assertEquals(12, r.sim.refusalRecord(Arm.RIGHT)[1], "h0 $h0 h1 $h1")
+            assertFalse(ok, "h0 $h0 h1 $h1: not both 0, not both in 1..2048 with every step's H in range: must be refused"); assertEquals(12, r.sim.refusalRecord(Arm.RIGHT)[1], "h0 $h0 h1 $h1")
         }
         withDraw(C2, 0, 0, 3).let { (r, ok) -> assertFalse(ok, "anchor 3 must be refused"); assertEquals(5, r.sim.refusalRecord(Arm.RIGHT)[1], "anchor 3") }
         withDraw(C1, 4, 4, 0).let { (r, ok) -> assertFalse(ok, "C1: h0/h1 must be 0"); assertEquals(12, r.sim.refusalRecord(Arm.RIGHT)[1], "C1: h0/h1 = 0") }

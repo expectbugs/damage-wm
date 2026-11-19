@@ -267,16 +267,16 @@ class MotionSim(private val scaled: () -> Boolean = { false }) {
         for (t in prog.tracks) {
             for (s in t.segs) {
                 if (s.steps < 1) return false
-                // §5.5 "h0/h1 = 0"; §6.6 on a bit-10 build, DRAW only: both 0, or every step's eased H inside 1..2048.
-                // READING (§6.6 also says "both 1..2048, or both 0"): "every step's" is j = 1..steps, so h0 = 0 with
-                // an h1 whose eased steps stay in range is taken (the build spec's 9.2 worked it so: h0 0, h1 2 over
-                // four linear steps → H 1, 1, 2, 2). READING: another verb keeps C1's h0/h1 = 0 (§6.6 is DRAW's)
+                // §5.5 "h0/h1 = 0"; §6.6 on a bit-10 build, DRAW only: both 0, or both inside 1..2048 and every step's
+                // eased H inside 1..2048 (h0 = 0 with h1 ≠ 0, or the reverse, is 12: C2-decisions I.4). Another verb
+                // keeps C1's h0/h1 = 0 (§6.6 is DRAW's; I.7)
                 if ((s.h0 != 0 || s.h1 != 0) && (s.verb != DRAW || !scaled())) return false
                 when (s.verb) {
                     FILL -> { if (s.kind > 15) return false; s.e = IntArray(s.steps + 1) }
                     DRAW -> {
                         s.e = easeE(s.ease, s.steps, s.tableE)
                         if (s.e.any { eased(s.lvl0, s.lvl1 - s.lvl0, it) !in 0..15 }) return false
+                        if (s.isScaled && (s.h0 !in 1..H_MAX || s.h1 !in 1..H_MAX)) return false
                         if (s.isScaled && (1..s.steps).any { eased(s.h0, s.h1 - s.h0, s.e[it]) !in 1..H_MAX }) return false
                     }
                     REVEAL -> {
@@ -418,13 +418,13 @@ class MotionSim(private val scaled: () -> Boolean = { false }) {
      *  carries none (build C1's ruling R1.8); the tag only a PLAY holds. */
     fun captureRefusal(msg: ByteArray, reason: Int, uptime: Long) {
         val sub = if (msg.size >= 2) msg[1].toInt() and 0xFF else -1
-        // build C2 (§6.5): on a bit-10 build subs 3–5 are known — each names a slot after its sub, and S where a PLAY
-        // names its tag: READING, field 3 carries a COMMIT's, DISCARD's or SETTLE's S, as outcome 3's "the tag = S"
+        // build C2 (§6.5): on a bit-10 build subs 3–5 are known — each names a slot after its sub (0xFF as sent); field 3
+        // for a COMMIT only, whose S names one instance's tag (a DISCARD's or SETTLE's S is a bound: C2-decisions I.3)
         val known = if (scaled()) 0..5 else 0..2
         uiRefusal = Pb.cat(Pb.v(1, ++sequence),
             if (sub in known && msg.size >= 3) Pb.v(2, msg[2].toInt() and 0xFF) else ByteArray(0),
             if (sub == 0 && msg.size >= 8) Pb.v(3, u16(msg, 6))
-            else if (sub in 3..5 && sub in known && msg.size >= 5) Pb.v(3, u16(msg, 3)) else ByteArray(0),
+            else if (sub == 3 && sub in known && msg.size >= 5) Pb.v(3, u16(msg, 3)) else ByteArray(0),
             Pb.v(4, OUTCOME_REFUSED), Pb.v(10, reason), Pb.v(11, uptime))
     }
 
@@ -501,7 +501,7 @@ class MotionSim(private val scaled: () -> Boolean = { false }) {
                     val img = if (s.kind == KIND_SELF) o.caps[i]!! else s.image!!
                     val opts = (s.opt and 0x30) or v.lvl
                     if (!s.isScaled) blit(buf, stride, img, v.x, v.y, area, opts)
-                    // §6.6: H rows tall, placed by the anchor; an H of 0 (h0 = 0 at j = 0) draws no row
+                    // §6.6: H rows tall, placed by the anchor (H ≥ 1 by the H rule and the restart's clamp; 0 would draw no row)
                     else if (v.h > 0) blitScaled(buf, stride, img, v.x, anchoredY(v.y, img.h, v.h, s.anchor), v.h, area, opts)
                 }
                 REVEAL -> reveal(buf, stride, o, i, s, v, area)

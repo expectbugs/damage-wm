@@ -123,7 +123,7 @@ class BindSim(private val motion: MotionSim) {
         val l = lists[e.list]
         fun body(outcome: Int, reason: Int = 0, p: IntArray? = null): ByteArray = Pb.cat(
             Pb.v(1, s), Pb.v(2, devType), Pb.v(3, id), Pb.v(4, ei), Pb.v(5, outcome),
-            if (outcome == OUTCOME_REFUSED) Pb.v(6, reason) else ByteArray(0),
+            Pb.v(6, reason),                                // §6.5: "1–9 and 15–17" — 0 unless refused (C2-decisions I.7)
             Pb.v(7, e.list), Pb.v(8, l.cursor), Pb.v(9, e.slot),
             if (p != null) Pb.cat(Pb.v(10, p[0] and 0xFFFF), Pb.v(11, p[1] and 0xFFFF), Pb.v(12, p[2] and 0xFFFF),
                                   Pb.v(13, p[3] and 0xFFFF), Pb.v(14, e.prog)) else ByteArray(0),
@@ -189,9 +189,8 @@ class BindSim(private val motion: MotionSim) {
      * → SET's program record, its own structure and no `self` (5) — then the write. Returns 0 or the reason; a refusal
      * changes nothing and sends no notify. Not gated: no present, no fid.
      *
-     * READING: the values check reads the table as it is held — the empty table's emptying is a write, made after the
-     * checks pass ("Only then is anything written") — so while `bind_live` is 0 SET's one-slot-per-list test still
-     * sees the entries the last release point left (the other reading: an empty table from the release point on).
+     * While `bind_live` is 0 the table is empty for every reader (C2-decisions I.1): SET's one-slot-per-list test reads
+     * no entry, so a re-staging that assigns slots differently after a release point is taken.
      */
     fun op27(lens: Lens, src: ByteArray, inStep: Boolean): Int {
         if (inStep) return REF_MODE
@@ -214,7 +213,7 @@ class BindSim(private val motion: MotionSim) {
                     val tap = e.eventId == ID_TAP && e.devType == DEV_RING && e.step == 0
                     if (entry >= ENTRIES || e.list >= LISTS || e.slot >= MotionSim.SLOTS || e.period !in MotionSim.P_MIN..MotionSim.P_MAX ||
                         e.kinds.any { it > KIND_PITCH } || !(scroll || tap) ||
-                        entries.withIndex().any { (j, o) -> j != entry && o != null && o.list == e.list && o.slot != e.slot }) REF_VALUE
+                        (live && entries.withIndex().any { (j, o) -> j != entry && o != null && o.list == e.list && o.slot != e.slot })) REF_VALUE
                     // a report-only tap entry names no program; a scroll entry naming 0xFFFF fails here (no program fits)
                     else if (!(tap && e.prog == NONE) && !motion.ownStructureOk(lens.cache, e.prog)) REF_RECORD
                     else 0
@@ -267,8 +266,9 @@ class BindSim(private val motion: MotionSim) {
     /** §6.5 DISCARD and SETTLE: the named list's cursor, absolute, clearing lost. */
     fun setCursor(list: Int, cursor: Int) { if (list != ALL) lists[list].cursor = cursor }
 
-    /** §6.5 values (12): a named list's cursor below its count. */
-    fun cursorOk(list: Int, cursor: Int): Boolean = list == ALL || cursor < lists[list].count
+    /** §6.5 values (12): a named list's cursor below its count — count 0 while `bind_live` is 0 (the table is empty for
+     *  every reader, C2-decisions I.1), so a COMMIT, DISCARD or SETTLE naming a list is then refused and writes no cursor. */
+    fun cursorOk(list: Int, cursor: Int): Boolean = list == ALL || (live && cursor < lists[list].count)
 
     companion object {
         const val ENTRIES = 8
