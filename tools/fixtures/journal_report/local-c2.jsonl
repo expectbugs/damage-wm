@@ -1,0 +1,9 @@
+{"t": 1800000000000, "ev": "submit", "id": 1, "epoch": 1, "label": "MAIN", "via": "ble", "cached": 0, "cacheMiss": "", "ops": [{"op": "fill", "bytes": 18}]}
+{"t": 1800000000060, "ev": "done", "id": 1, "ok": true, "ackMs": 60, "bytes": 18}
+{"t": 1800000000100, "ev": "note", "kind": "snapback", "detail": "cause=lost-report S=12 list=0 cursor=5 row=4 mark=3 markNow=3 ms=40 frame=yes"}
+{"t": 1800000000200, "ev": "note", "kind": "snapback", "detail": "cause=restaged S=13 list=0 cursor=6 row=5 mark=2 markNow=3 ms=35 frame=yes"}
+{"t": 1800000000300, "ev": "note", "kind": "snapback", "detail": "cause=lost-report S=15 list=0 cursor=7 row=6 mark=3 markNow=3 ms=50 frame=no"}
+{"t": 1800000000400, "ev": "note", "kind": "tapdrop", "detail": "cause=moved S=16 list=0 cursor=7 row=5 mark=3 markNow=3 taps=report"}
+{"t": 1800000000500, "ev": "note", "kind": "tapdrop", "detail": "cause=no-report S=- list=0 cursor=- row=5 mark=3 markNow=3 taps=glasses"}
+{"t": 1800000000600, "ev": "note", "kind": "repair", "detail": "evidence=\"mark 2 not 3\" object=ListAgain(list=0)"}
+{"t": 1800000000700, "ev": "note", "kind": "local", "detail": "35=16 36=16 38=0 39=49 taps=report settles=2 snapback.lost-report=2"}

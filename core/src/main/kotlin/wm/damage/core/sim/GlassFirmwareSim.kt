@@ -1415,11 +1415,15 @@ class GlassFirmwareSim() : LensPanels {
         c.shadow.copyInto(c.fb)
         c.directActive = true
         val hook = c.motion.hookPresent(c.fb, c.stride, fwSide(arm) == 2, osTick(now), live, uptimeTicks(now))
+        // decision N.4 (stage DP2): while a motion instance is open a whole present marks only the rows it really changed
+        // (bookkeeping for the mirror's agreement scan; the panel gets every row as before)
+        val span = if (rows == null && c.motion.slots.any { it != null }) changedSpan(c.fb, c.panel, c.stride) else null
         if (rows == null) c.fb.copyInto(c.panel)
         else System.arraycopy(c.fb, rows.first * c.stride, c.panel, rows.first * c.stride, (rows.last - rows.first + 1) * c.stride)
         if (hook.lastStep) c.panelStale = true       // decision A.12: the next present goes whole
-        // P6 item 5: the rows this present wrote — every row for an unhinted one
-        if (rows == null) { c.changedLo = 0; c.changedHi = Geometry.PANEL_H - 1 }
+        // P6 item 5: the rows this present wrote — every row for an unhinted one (with a motion open: the rows it changed)
+        if (span != null) markRows(c, span)
+        else if (rows == null) { c.changedLo = 0; c.changedHi = Geometry.PANEL_H - 1 }
         else { c.changedLo = minOf(c.changedLo, rows.first); c.changedHi = maxOf(c.changedHi, rows.last) }
         c.lastPath = if (rows == null) 0 else 1
         diag.panelChanged(arm)
@@ -1450,8 +1454,14 @@ class GlassFirmwareSim() : LensPanels {
         if (hookPreserves(c, now)) {
             // the preserve path: an instance is drawn only when its step is due past d (§5.3) — a HOLD is not (§6.4)
             val hook = c.motion.hookPresent(c.fb, c.stride, fwSide(arm) == 2, osTick(now), true, uptimeTicks(now), preserve = true)
+            // decision N.4: an engine step marks only the rows it changed
+            val span = changedSpan(c.fb, c.panel, c.stride)
             c.fb.copyInto(c.panel)
             if (hook.lastStep) c.panelStale = true
+            markRows(c, span)
+            diag.panelChanged(arm)
+            for (b in c.motion.takeOwed()) sendMotion(arm, c, b)
+            return
         } else {
             c.motion.hookPresent(c.fb, c.stride, fwSide(arm) == 2, osTick(now), false, uptimeTicks(now))
             stockPattern(c.fb)
@@ -1462,6 +1472,21 @@ class GlassFirmwareSim() : LensPanels {
         c.changedLo = 0; c.changedHi = Geometry.PANEL_H - 1
         diag.panelChanged(arm)
         for (b in c.motion.takeOwed()) sendMotion(arm, c, b)
+    }
+
+    /** Decision N.4: the rows where [fb] differs from [panel] (null: none). */
+    private fun changedSpan(fb: ByteArray, panel: ByteArray, stride: Int): IntRange? {
+        var lo = -1; var hi = -1
+        for (y in 0 until Geometry.PANEL_H) {
+            val o = y * stride
+            if (java.util.Arrays.mismatch(fb, o, o + stride, panel, o, o + stride) >= 0) { if (lo < 0) lo = y; hi = y }
+        }
+        return if (lo < 0) null else lo..hi
+    }
+
+    private fun markRows(c: LensCtx, span: IntRange?) {
+        if (span == null) return
+        c.changedLo = minOf(c.changedLo, span.first); c.changedHi = maxOf(c.changedHi, span.last)
     }
 
     /** §5.10's `{"wake": true}` on [arm] at [now]: the thread plans; a step due with no refresh outstanding is a try

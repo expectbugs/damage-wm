@@ -283,6 +283,10 @@ data class FlushRequest(
     /** §54: for a cache write, who is writing (the shell's own tag) — the transport
      *  remembers the last one ([LinkState.cacheWriter]). Nothing else reads it. */
     val writer: String = "",
+    /** Build C2 (`FIRMWARE.md` §6.5's batch order, §6.7 P3, P7): the mode-27 and mode-26 sub 3..5 sub-messages the shell's
+     *  local rules owe this batch, encoded — appended AFTER every drawing sub (and after the CLOSEs the transport puts at
+     *  the head). With no ops, they go alone: one as its own image, more as a batch. Empty below stage 4. */
+    val tail: List<ByteArray> = emptyList(),
 )
 
 sealed class TransportEvent {
@@ -297,9 +301,16 @@ sealed class TransportEvent {
 
     /** Build C2 (§6.7 P1, the tap rule's `tapsLive`): at each RIGHT telemetry record of a bit-10 build — field 39 (the
      *  event ids with a live entry on RIGHT; null when the record does not carry it) and, when the record's image-lane
-     *  refusal is new and names mode 27, that refusal (the shell sends the whole table again). */
+     *  refusal is new and names mode 27, that refusal (the shell sends the whole table again); when it is new and names
+     *  a batch dropped whole (mode 8, reason 14 — decisions M.5), [batch14] (the shell re-sends the table subs it sent
+     *  since the last read). [fields] the record's varints (the `local` note's 35, 36, 38, 39). */
     data class LocalRead(val boundIds: Long?, val refusal27: wm.damage.core.wire.DamageMsg.Refusal?,
-        val atMs: Long = System.currentTimeMillis()) : TransportEvent()
+        val atMs: Long = System.currentTimeMillis(), val batch14: wm.damage.core.wire.DamageMsg.Refusal? = null,
+        val fields: Map<Int, Long> = emptyMap(), val flagsInForce: Int? = null) : TransportEvent()
+
+    /** Build C2 (§6.7 Counting): a notify-114 body from RIGHT while BIND is in force — the shell's rules count a local
+     *  instance's stop after a SETTLE (`burst-end`) and a refused COMMIT, DISCARD or SETTLE (`refused`). */
+    data class LocalBody(val slot: Int, val tag: Int, val outcome: Int, val reason: Int?) : TransportEvent()
 
     /** A typed line from a replica ([Transport.injectText]). */
     data class Text(val line: String) : TransportEvent()
@@ -453,14 +464,13 @@ data class LinkState(
     /** What the transport is doing right now, for status lines: "scanning for
      *  the pair", "connecting RIGHT", "connect prelude", "" once driving. */
     val detail: String = "",
-    /** Build C2 (`FIRMWARE.md` §6.3, §6.7): the `Taps` value the transport keeps on the phone's storage — `phone` ·
-     *  `report` · `glasses`. It has effect only while [bind] holds. */
-    val taps: String = "report",
     /** The `Local input` row's state in words (§6.3): "on" · "off: stage N" · "held back until tomorrow: …" · "this
      *  firmware has no local input"; "" before a CFW transport has said. */
     val localInput: String = "",
     /** P1: S_heard at this session's start — 0 on a fresh acquire, field 36 of the start's own read on a carried lease. */
     val bindSHeard0: Int = 0,
+    /** P1: the arming uptime — field 2 (OS ticks) of the reply to the FLAGS_SET that armed BIND this session (P8). */
+    val bindArmUptime: Long = 0,
 )
 
 /** Build C2 (`FIRMWARE.md` §6.8): local input is armed — the build reports bit 10 and BIND is in force (the ladder's

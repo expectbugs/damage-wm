@@ -275,6 +275,7 @@ def main(paths, since_ms=0, glasslog=False):
         # the record in place, the last run's uncaught error
         for n in notes: start_note(n)
         loop_report(notes)
+        local_report(notes)
         refusal_report(notes)
         present_report(presents)
         battery_report(notes)
@@ -360,6 +361,7 @@ def main(paths, since_ms=0, glasslog=False):
     else:
         print('\nno handleMs/assembleMs in this journal (written before §32)')
     loop_report(notes)
+    local_report(notes)
     # §41: the cache's account — rects shipped as draws, and why the rest
     # were pixels (the compositor's own reasons, per flush)
     cached = [r.get('cached') for r in joined if isinstance(r.get('cached'), int) and r.get('cached') >= 0]
@@ -876,6 +878,36 @@ def loop_report(notes):
     handlers = sum(acc[k][1] for k in rest)
     print(f'  handlers {handlers / 1000:.1f} s + pumps {acc.get("pump", [0, 0.0])[1] / 1000:.1f} s on the loop')
 
+LOCAL_CAUSE = re.compile(r'\bcause=(\S+)')
+LOCAL_TAPS = re.compile(r'\btaps=(\S+)')
+
+def local_report(notes):
+    """Build C2 (`FIRMWARE.md` §6.7 Counting, spec §6.5; stage DP2): the phone's local-input notes counted by cause —
+    `snapback` (a DISCARD answering a scroll, a SETTLE stop RIGHT reported, a refused answer), `tapdrop` per `Taps` value
+    (the value in force, carried by the note), `repair` per object kind (the table repair's re-sends), and the last
+    `local` note's session counts. Prints nothing without one of them."""
+    sb, td, rp = collections.Counter(), collections.Counter(), collections.Counter()
+    last_local = None
+    for n in notes:
+        k, d = n.get('kind'), n.get('detail', '')
+        if k == 'snapback':
+            m = LOCAL_CAUSE.search(d); sb[m.group(1) if m else '?'] += 1
+        elif k == 'tapdrop':
+            m, t = LOCAL_CAUSE.search(d), LOCAL_TAPS.search(d)
+            td[(t.group(1) if t else '?', m.group(1) if m else '?')] += 1
+        elif k == 'repair':
+            o = re.search(r'object=(\w+)', d)
+            rp[o.group(1) if o else '?'] += 1
+        elif k == 'local' and re.match(r'35=', d):
+            last_local = d
+    if not (sb or td or rp or last_local): return
+    print(f'\nlocal input (build C2): {sum(sb.values())} snap-back(s), {sum(td.values())} dropped tap(s), {sum(rp.values())} table re-send(s)')
+    if sb: print('  snapback by cause: ' + ', '.join(f'{c} {v}' for c, v in sb.most_common()))
+    for taps in sorted({t for t, _ in td}):
+        print(f'  tapdrop under Taps {taps}: ' + ', '.join(f'{c} {v}' for (t, c), v in sorted(td.items(), key=lambda x: -x[1]) if t == taps))
+    if rp: print('  repair by object: ' + ', '.join(f'{c} {v}' for c, v in rp.most_common()))
+    if last_local: print(f'  last local note: {last_local}')
+
 def selftest():
     """The report's own checks (0.64 R1; review 1a, RD-1 and RD-2): `main` run over the synthetic journals
     under tools/fixtures/journal_report/ and its text read. Every fixture line was written by hand from
@@ -1002,6 +1034,13 @@ def selftest():
          'record, 2 h, not at the late line\'s 1.5 h), and the report says how many came late',
          row(e2, 'lit') is not None and row(e2, 'lit')[0] == '3.00' and '1 line(s) written a second or more after' in e2,
          line(e2, 'lit ') + ' / ' + line(e2, '1 line(s)'))
+    # Build C2 (stage DP2): the local-input notes by cause, tapdrop per Taps value, repairs by object. Synthetic notes
+    # written from `LocalRules`' own note strings.
+    lc = run(['local-c2.jsonl'])[1]
+    case('C2: snapback by cause, tapdrop per Taps value and repair by object print',
+         'snapback by cause: lost-report 2, restaged 1' in lc and 'tapdrop under Taps glasses: no-report 1' in lc
+         and 'tapdrop under Taps report: moved 1' in lc and 'repair by object: ListAgain 1' in lc
+         and 'last local note: 35=16' in lc, line(lc, 'local input') + ' / ' + line(lc, 'snapback by'))
     i3 = run(['inwait-e3.jsonl'])[1]
     case('G §3: a gesture that waited 2,000 ms in the shell for a slot reads input->done 2900 beside its wait of 900',
          line(i3, 'WINDOW ').split()[5:9] == ['900', '/', '900', '2900'], line(i3, 'WINDOW '))

@@ -30,6 +30,10 @@ class BoundList(
     val items4: Int,
     val items: IntArray?,
     val entries: List<Entry>,
+    /** Build C2, stage DP2 (P10): END of the program at [Entry.prog4] with P0..P3 painted into one lens's model ([pic],
+     *  the compositor's shadow) exactly as the lens writes it into its shadow — the staging owner's (DM: Main's own row
+     *  painters, pinned END = paint). Null: the compositor cannot follow a COMMIT here, so the rules answer with DISCARD. */
+    val paintEnd: ((left: Boolean, prog4: Int, p: IntArray, pic: wm.damage.core.gfx.Gray8) -> Unit)? = null,
 ) {
     /** One SET (§6.3). [program] is the program at [prog4] as the DSL built it — null for the report-only tap entry
      *  ([prog4] = [CfwModes.PROG_NONE]). [params] are the entry's four {kind, arg}. */

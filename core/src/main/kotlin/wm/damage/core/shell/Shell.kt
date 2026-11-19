@@ -46,6 +46,7 @@ import wm.damage.core.transport.transferMeasured
 import wm.damage.core.wire.CfwModes
 import wm.damage.core.wire.TextureCache
 import wm.damage.core.transport.draw2
+import wm.damage.core.transport.bind
 import wm.damage.core.transport.TransportEvent
 import wm.damage.core.util.Log
 import wm.damage.core.wire.EvenHubMsg
@@ -705,7 +706,7 @@ class Shell(
             is TransportEvent.Fault -> journal.note("fault", "${ev.what}: ${ev.detail} (no session running)", ev.atMs)
             is TransportEvent.Input, is TransportEvent.Lease, is TransportEvent.SilentMode,
             is TransportEvent.DiagFlags, is TransportEvent.Wear,
-            is TransportEvent.Applied, is TransportEvent.LocalRead -> transEventsDroppedWhileDown.incrementAndGet()
+            is TransportEvent.Applied, is TransportEvent.LocalRead, is TransportEvent.LocalBody -> transEventsDroppedWhileDown.incrementAndGet()
         }
         return false
     }
@@ -1014,7 +1015,9 @@ class Shell(
             settingsWindow = SettingsWindow(chromeText, { settings }, { applySettings(it) },
                 // the shell's own global font rows lead the host's rows
                 { globalFontRows + hostSettings },
-                { settingsApps() })
+                { settingsApps() },
+                localInput = { transport.state.value.localInput },
+                localRearm = { transport.devProbe("c1", "4") })
             register(settingsWindow)
         }
         for (w in windows) w.onRegistered(services)
@@ -1287,6 +1290,7 @@ class Shell(
             atlasAtSessionStart(adopted)
             composeFullSurface()
             comp.requestKeyframe()
+            localSessionStart()                   // build C2 (P1): the start's bind batch rides the keyframe's tail
             // fix round 2 (R2.4): only an AWAKE start enables the atlas. A start that rests has no flags in force
             // (`draw2` false): it built a v1 atlas and moved the layout metric, every window re-wrapped while asleep,
             // and the wake's session moved it back and re-wrapped again before its first flush. Every wake is a
@@ -2604,10 +2608,105 @@ class Shell(
         scope.launch { delay(2_000); if (running) post(Msg.SaveTick(gen)) }
     }
 
+    // ------------------------------------------------------------------ build C2: local input (`FIRMWARE.md` §6.7)
+    /** The phone's rules P1–P11, the tap rule and the table repair (stage DP2). Idle unless BIND is in force at stage 4
+     *  on a bit-10 build: below that nothing here sends a byte. Confined to the loop. */
+    private val local = wm.damage.core.local.LocalRules({ kind, detail -> journal.note(kind, detail) },
+        { why -> journal.note("local", "keyframe: $why"); comp.requestKeyframe(); post(Msg.Pump) })
+    /** The surface that offers a bound list while it is in front and staged — Main's, from stage DM; null until then. */
+    @Volatile var boundSurface: () -> wm.damage.core.local.BoundSurface? = { null }
+    /** The list the rules were last told is in front (identity: a re-stage is a new [BoundList]). */
+    private var localFrontNow: wm.damage.core.local.BoundList? = null
+    /** Tail-only flushes (an answer, the lone SETTLE, a re-send with nothing to draw): a failed one keyframes (§6.11). */
+    private val localOnlyFlushes = HashSet<Long>()
+    /** Every flush that carried the rules' messages, until its completion: a refused one sends the table again. */
+    private val localTailFlushes = HashSet<Long>()
+    private var localSettleAt = Long.MAX_VALUE
+
+    /** The bound list in front with nothing drawn over it (§6.7): the surface's own, while Main is in front and no menu,
+     *  switcher, keyboard or focused notice covers it. */
+    private fun localFront(): Pair<wm.damage.core.local.BoundSurface, wm.damage.core.local.BoundList>? {
+        if (mode != Mode.MAIN || menu.open || switcher.open || keyboard.open || (notifications.active && notifications.focused)) return null
+        val sfc = boundSurface() ?: return null
+        val b = sfc.bound() ?: return null
+        return sfc to b
+    }
+
+    private fun localRow(): Int = localFront()?.first?.row() ?: -1
+
+    /** The list in front, told to the rules in the pump that draws its change (a cover's CLEAR, a return's SET). */
+    private fun syncLocalFront() {
+        if (!local.active) return
+        val f = localFront()
+        val b = f?.second
+        if (b === localFrontNow) return
+        val was = localFrontNow
+        localFrontNow = b
+        local.front(b, f?.first?.row() ?: -1, if (b != null && was != null && was.list == b.list) f.first.shift(was, b) else 0)
+    }
+
+    /** What the shell does with one report or stock message (P3, P5, the tap rule). */
+    private fun localVerdict(v: wm.damage.core.local.LocalRules.Verdict) {
+        when (v) {
+            wm.damage.core.local.LocalRules.Verdict.Nothing -> {}
+            is wm.damage.core.local.LocalRules.Verdict.Apply -> handleInput(v.type, EvenHubMsg.SRC_RING)
+            is wm.damage.core.local.LocalRules.Verdict.Adopt -> {
+                boundSurface()?.setRow(v.row)
+                restGen++; scheduleRest()                     // an adopted notch is input as any other
+                composeContent()
+            }
+            is wm.damage.core.local.LocalRules.Verdict.Act -> {
+                val sfc = boundSurface()
+                if (sfc != null && sfc.row() != v.row) sfc.setRow(v.row)
+                handleInput(EvenHubMsg.EV_CLICK, EvenHubMsg.SRC_RING)
+            }
+        }
+        post(Msg.Pump)
+    }
+
+    /** P1: a session start — S_heard, the arming uptime, the start's bind batch owed to the first flush (the keyframe's
+     *  tail, in stream order after it). */
+    private fun localSessionStart() {
+        val st = transport.state.value
+        val f = localFront()
+        localFrontNow = f?.second
+        localOnlyFlushes.clear(); localTailFlushes.clear()
+        localSettleAt = Long.MAX_VALUE
+        local.sessionStart(st.bind && st.leaseHeld, st.bindSHeard0, st.bindArmUptime, f?.second, f?.first?.row() ?: -1, settings.taps)
+        if (st.bind) journal.note("local", "session start: S_heard ${st.bindSHeard0}, armed at uptime ${st.bindArmUptime}, " +
+            "list in front ${f?.second?.list ?: "none"}, Taps ${settings.taps.word}")
+    }
+
+    /** A flush of the rules' messages alone (nothing to draw): one sub-message as its own image, more as a batch. */
+    private suspend fun submitLocalOnly(tail: List<ByteArray>, label: String) {
+        if (tail.isEmpty()) return
+        try {
+            val id = transport.submit(FlushRequest(emptyList(), comp.epoch, label, tail = tail))
+            localOnlyFlushes += id
+            localTailFlushes += id
+        } catch (e: Exception) {
+            // the link ended between the pump's gate and the submit: the next session's start sends the whole table
+            journal.note("local", "a flush of local-input messages was not submitted: ${e.message ?: e::class.simpleName}")
+        }
+    }
+
+    /** The lone SETTLE's moment (P7): one pump posted for it, on the loop's clock. */
+    private fun scheduleLocalSettle() {
+        val at = local.settleAt() ?: return
+        if (at >= localSettleAt && localSettleAt > System.currentTimeMillis()) return
+        localSettleAt = at
+        scope.launch { delay(maxOf(1L, at - System.currentTimeMillis())); if (running) post(Msg.Pump) }
+    }
+
     // ------------------------------------------------------------------ transport
     private fun handleTransport(ev: TransportEvent) {
         when (ev) {
-            is TransportEvent.Input -> handleInput(ev.type, ev.source)
+            // build C2 (§6.7 P2, P5): a stock scroll message or click is read against the echo owes BEFORE it is handled
+            is TransportEvent.Input -> {
+                val k = wm.damage.core.local.LocalRules.Stock.of(ev.type)
+                if (k == null || ev.source != EvenHubMsg.SRC_RING || !local.active) handleInput(ev.type, ev.source)
+                else localVerdict(local.stock(k, localRow(), System.currentTimeMillis()))
+            }
             is TransportEvent.Text -> handleTypedText(ev.line)
             is TransportEvent.FlushDone -> completeFlush(ev)
             is TransportEvent.Battery -> {
@@ -2634,10 +2733,16 @@ class Shell(
             // 0.64 build 1 of rest mode READS only (`DESIGN.md` §0): a wear report acts on nothing here —
             // the transport's `wear` note is the record, and `LinkState.worn` the state
             is TransportEvent.Wear -> {}
-            // build C2 (stage DP1): the transport hands the 115 reports and field 39 over in order; the rules that act on
-            // them (P1–P11, the tap rule, the table repair) are stage DP2's. The transport's `applied` and `local` notes
-            // are the record until then.
-            is TransportEvent.Applied, is TransportEvent.LocalRead -> {}
+            // build C2 (stage DP2): the 115 reports in the same ordered flow as the stock messages (P2), the telemetry
+            // reads (P1's refusal record, `tapsLive`), RIGHT's 114 bodies while BIND is in force (the counting)
+            is TransportEvent.Applied -> localVerdict(local.report(ev.report, localRow(), ev.atMs))
+            is TransportEvent.LocalRead -> {
+                ev.flagsInForce?.let { local.bindInForce(it and wm.damage.core.wire.DamageMsg.FLAG_BIND != 0) }
+                local.telemetry(ev.boundIds, ev.refusal27, ev.batch14)
+                if (local.active) journal.note("local", local.localNote(ev.fields), ev.atMs)
+                post(Msg.Pump)
+            }
+            is TransportEvent.LocalBody -> local.body114(ev.slot, ev.tag, ev.outcome, ev.reason)
             is TransportEvent.SilentMode ->
                 if (ev.on) enterSleep(SleepReason.SILENT, "the firmware's Silent Mode is on")
                 else when (sleep) {                                 // one read
@@ -2742,6 +2847,17 @@ class Shell(
         if (ev.id == stageInFlight) { stageDone(ev); return }
         val a = inflightFlushes.remove(ev.id)
         journal.flushDone(ev.id, ev.ok, ev.ackMs, ev.bytes, ev.error)
+        // build C2 (§6.11): a tail-only flush that failed — an answer, a SETTLE or a re-send lost — is a divergence: keyframe
+        if (localOnlyFlushes.remove(ev.id) && !ev.ok && !glassesSilent) {
+            journal.note("local", "a flush of local-input messages only failed (${ev.error}) — keyframing (§6.11)")
+            comp.requestKeyframe()
+            post(Msg.Pump)
+        }
+        // a refused flush that carried the rules' messages: the whole table again (`LocalRules.tableAgain`, marked)
+        if (localTailFlushes.remove(ev.id) && !ev.ok && ev.error?.contains("ImgResCmd") == true && !glassesSilent) {
+            local.tableAgain("a flush carrying local-input messages was refused (${ev.error})")
+            post(Msg.Pump)
+        }
         // P5 item 1: an id this session did not send (the start cleared what the last one left; ids never repeat) —
         // its `done` line above is its record; it is no failure, success or link reading of this session's
         if (a == null) return
@@ -4767,6 +4883,15 @@ class Shell(
             })
             return true
         }
+        if (name == "taps") {
+            // build C2 (decisions N.1): `Taps` is a Settings row; the probe goes through the setting's own door
+            Log.i("shell", "probe: $name=$value")
+            journal.note("probe", "$name=$value")
+            val t = wm.damage.core.local.Taps.of(value)
+            if (t == null) { journal.note("local", "taps=$value: expected phone | report | glasses — nothing changed"); return true }
+            post(Msg.Run { applySettings(settings.copy(taps = t)) })
+            return true
+        }
         if (name == "hold") {
             Log.i("shell", "probe: $name=$value")
             journal.note("probe", "$name=$value")
@@ -5918,7 +6043,9 @@ class Shell(
         val recache = s.cachedText != settings.cachedText
         val restage = s.pageStaging != settings.pageStaging
         val relink = s.linkPriority != settings.linkPriority
+        val retaps = s.taps != settings.taps
         settings = s
+        if (retaps) { local.taps(s.taps); post(Msg.Pump) }     // build C2 (§6.7 Switching): the tap entry's SET or CLEAR only
         if (restage && s.pageStaging != "on") stageClear("the Page staging row is off")
         if (rebright) transport.setBrightness(s.brightnessAuto, s.brightness)
         if (relink) transport.setLinkPriority(s.linkPriority)
@@ -6593,15 +6720,31 @@ class Shell(
             if (haltedEpoch == comp.epoch) return       // undisplayable frame, unchanged
             haltedEpoch = null
         }
-        if (comp.hasPending || comp.needsKeyframe) {
+        // build C2 (§6.7): the list in front told to the rules in the pump that draws its change; their tail (answers,
+        // table messages, the idle SETTLE) rides this flush — only while BIND is in force and the lease held (P9)
+        syncLocalFront()
+        val localOn = local.active && st.bind && st.leaseHeld
+        if (local.active && !st.bind) local.bindInForce(false)
+        val localNow = System.currentTimeMillis()
+        if (localOn) scheduleLocalSettle()
+        if (localOn && local.settleDue(localNow) && !local.owed && !comp.hasPending && !comp.needsKeyframe) {
+            submitLocalOnly(local.loneSettle(localRow(), localNow), "SETTLE")       // P7: alone, Q after the burst
+        } else if (comp.hasPending || comp.needsKeyframe || (localOn && local.owed)) {
             comp.placements = stagePlacements()   // §66: what this frame may draw from the reserve
             // build C1's B-N5: room for the transport's CLOSE — asked of the mirror (and its lock) only while ENGINE is
             // in force, the one state in which the transport adds a CLOSE (ruling B-N4); elsewhere, today's firmware
             // included, the assemble path is what it was
             comp.motionOpen = st.flagsInForce and wm.damage.core.wire.DamageMsg.FLAG_ENGINE != 0 && transport.mirror.motionOpen()
             val assembleT0 = System.nanoTime()
+            // build C2 (P3, P10): each planned COMMIT's END applied to the model before the diff; denied when a drawing
+            // sub then meets its slot's areas
+            val plans = if (localOn) local.plan(localRow()) else emptyList()
+            var denied: Set<Int> = emptySet()
             val assembled = try {
-                comp.assembleFlush(Geometry.rectBudget(st.window))
+                if (plans.isEmpty()) comp.assembleFlush(Geometry.rectBudget(st.window))
+                else comp.assembleWithEnds(Geometry.rectBudget(st.window), plans.map { c ->
+                    wm.damage.core.comp.Compositor.EndPlan(c.slot, c.areas, c.list.paintEnd?.let { pe -> { left: Boolean, g: Gray8 -> pe(left, c.prog4, c.p, g) } })
+                }).let { (a, d) -> denied = d; a }
             } catch (e: Exception) {
                 Log.e("shell", "flush assembly failed", e)
                 journal.note("assemble-error", e.toString())
@@ -6621,6 +6764,8 @@ class Shell(
                     return
                 }
             }
+            val localTail = if (localOn) local.tail(localRow(), localNow, denied, frame = assembled != null) else emptyList()
+            if (assembled == null && localTail.isNotEmpty()) submitLocalOnly(localTail, "LOCAL")
             if (assembled != null) {
                 val assembleMs = (System.nanoTime() - assembleT0) / 1_000_000
                 // the loop stamped loopSince when it took the message this
@@ -6629,7 +6774,8 @@ class Shell(
                 val label = "$mode${if (switcher.open) "+switcher" else ""}"
                 try {
                     val id = transport.submit(FlushRequest(assembled.ops, assembled.epoch, label,
-                        wide = assembled.wide))
+                        wide = assembled.wide, tail = localTail))
+                    if (localTail.isNotEmpty()) localTailFlushes += id
                     inflightFlushes[id] = assembled
                     flushesSubmitted++
                     seq?.followUpFor?.let { it.followUp = "flush $id (${assembled.ops.size} op(s))" }

@@ -6,6 +6,7 @@ import wm.damage.core.geom.Rect
 import wm.damage.core.gfx.Gray8
 import wm.damage.core.gfx.Pack
 import wm.damage.core.gfx.Zl
+import wm.damage.core.local.LocalRules
 import wm.damage.core.transport.DisplayOp
 import wm.damage.core.util.Log
 
@@ -280,6 +281,60 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
     var lastCompressNs = 0L; private set
     var lastCompressN = 0; private set
 
+    /** Build C2 (`FIRMWARE.md` §6.7 P3, P10): a COMMIT the local rules plan for a bound slot, as this compositor applies
+     *  it — the slot's [areas] per lens, and [paint] drawing the program's END into one lens's model (null: the list's
+     *  owner gave no painter, so the model could not follow the END and the slot is answered with DISCARD). */
+    class EndPlan(val slot: Int, val areas: List<Pair<Rect, Rect>>, val paint: ((left: Boolean, shadow: Gray8) -> Unit)?)
+
+    /** The areas the COMMITs riding this assemble write ([assembleWithEnds]): in its touched rects, so its hint covers
+     *  them and a rollback marks them unknown. */
+    private var endTouched: List<Touched> = emptyList()
+
+    /**
+     * Build C2, P3's per-batch answer and P10's diff: [assembleFlush] with each planned COMMIT's END applied to the model
+     * first — the END's areas diffed against the truth too, so an adopting batch sends nothing there when END is the
+     * truth — and, when a drawing sub of the batch then meets a slot's areas (by the rect each sub really writes on each
+     * lens, a cached glyph run's cell included), the flush taken again without that END and the slot handed back as
+     * denied (the rules answer it with DISCARD). Returns the flush and the denied slots.
+     */
+    fun assembleWithEnds(rectBudget: Int, ends: List<EndPlan>): Pair<Assembled?, Set<Int>> {
+        val denied = HashSet<Int>()
+        for (e in ends) if (e.paint == null) denied += e.slot
+        while (true) {
+            val live = ends.filter { it.slot !in denied }
+            if (live.isEmpty()) return assembleFlush(rectBudget) to denied
+            val saved = live.flatMap { e -> e.areas.map { (l, r) -> Triple(l to r, grab(shadowL, l), grab(shadowR, r)) } }
+            for (e in live) {
+                e.paint!!(true, shadowL); e.paint(false, shadowR)
+                for ((l, r) in e.areas) { pendingDamage.add(widen(l)); pendingDamage.add(widen(r)) }
+            }
+            val mine = live.flatMap { e -> e.areas.flatMap { (l, r) -> listOf(Touched(true, l), Touched(false, r)) } }
+            endTouched = mine
+            val a = try { assembleFlush(rectBudget) } finally { endTouched = emptyList() }
+            val drawn = a?.touched?.filter { t -> mine.none { it === t } } ?: emptyList()
+            val met = live.filter { e -> LocalRules.meets(drawn.filter { it.left }.map { it.rect }, drawn.filter { !it.left }.map { it.rect }, e.areas) }
+            if (met.isEmpty()) return a to denied
+            // taken again without them: the flush is undone (what it touched is unknown, so the next assemble paints it
+            // from the truth) and the model's areas come back as they were before END
+            if (a != null) rollback(a)
+            for ((lr, l, r) in saved) { put(shadowL, lr.first, l); put(shadowR, lr.second, r); markUnknown(unknownL, lr.first); markUnknown(unknownR, lr.second)
+                pendingDamage.add(widen(lr.first)); pendingDamage.add(widen(lr.second)) }
+            denied += met.map { it.slot }
+        }
+    }
+
+    private fun grab(g: Gray8, r: Rect): ByteArray {
+        val c = r.clip()
+        val out = ByteArray(maxOf(0, c.w) * maxOf(0, c.h))
+        for (y in 0 until c.h) System.arraycopy(g.pix, (c.y + y) * g.w + c.x, out, y * c.w, c.w)
+        return out
+    }
+
+    private fun put(g: Gray8, r: Rect, b: ByteArray) {
+        val c = r.clip()
+        for (y in 0 until c.h) System.arraycopy(b, y * c.w, g.pix, (c.y + y) * g.w + c.x, c.w)
+    }
+
     fun assembleFlush(rectBudget: Int): Assembled? {
         compressCache.clear()          // `composed` may have changed since the last assemble
         failedProofs.clear()           // ...and with it every proof's verdict
@@ -302,7 +357,7 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         if (needsReseed && !v2) { needsReseed = false; needsKeyframe = true }
         val keyframe = needsKeyframe
         val ops = ArrayList<DisplayOp>()
-        val touched = ArrayList<Touched>()
+        val touched = ArrayList<Touched>(endTouched)       // build C2: a riding COMMIT's areas ([assembleWithEnds])
         val full = Rect(0, 0, width, height)
 
         // a reseed paints the whole panel from black, as a keyframe does: declared copies have
