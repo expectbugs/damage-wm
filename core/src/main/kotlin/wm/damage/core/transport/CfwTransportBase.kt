@@ -339,6 +339,11 @@ abstract class CfwTransportBase(
                 if (value !in wm.damage.core.motion.TestPrograms.NAMES) {
                     Log.w(this.name, "probe motion=$value: expected ${wm.damage.core.motion.TestPrograms.NAMES.joinToString(" | ")}"); return
                 }
+                // decisions AW.5: refused while BIND is in force — the test programs lie in the top 64 KiB, which at 256 KiB
+                // overlaps Main's own region (as the `mainseq` probe and `hold` are refused at stage 4)
+                if (_state.value.flagsInForce and DamageMsg.FLAG_BIND != 0) {
+                    emitNote("motion", "test program $value not sent — BIND is in force (stage 4): the test programs' layout overlaps Main's region"); return
+                }
                 // laid out for this session's cache; with no session at a nominal 160 KiB, and sendMotion says "no session"
                 val st = _state.value
                 val built = try { wm.damage.core.motion.TestPrograms.build(value, if (st.started) st.cacheSize else CfwModes.CACHE2_MAX)!! } catch (e: LintError) {

@@ -117,9 +117,9 @@ object MainLocalCheck {
 
         /** The staging as the shell builds it for the bound list: the whole list's pans only (AF.10), and a second strip in
          *  Main's own region at 256 KiB (AD.2). */
-        fun staging(cacheSize: Int, region: IntRange): MainStaging =
+        fun staging(cacheSize: Int, region: IntRange, motion: MainStaging.ScrollMotion? = MainStaging.ScrollMotion.DEFAULT): MainStaging =
             MainStaging.build(layout, view, kit, listD, bandD, cacheSize, region.first, region.last + 1,
-                widths = listOf(MainStaging.WHOLE), twoStrips = region.last + 1 < cacheSize)
+                widths = listOf(MainStaging.WHOLE), twoStrips = region.last + 1 < cacheSize, motion = motion)
     }
 
     /** Runs every case at [heights] × [cachesKib]; [frames] keeps the strips' frames (the desktop writes them). */

@@ -115,6 +115,12 @@ data class ShellSettings(
      *  effect only on a bit-10 build at stage 4. Additive: an old record reads `report`. */
     val taps: wm.damage.core.local.Taps = wm.damage.core.local.Taps.REPORT,
 
+    /** Build ANIM (decisions AV, AW): the `Animations` category — how long one notch's motion on a bound list takes
+     *  (`Scroll length`, ms) and its steps (`Frames`, 0 = Auto: as many as fit at the fitted period). On the PC record with
+     *  the phone's working copy, as `taps`; additive: an older record reads the defaults, an older reader ignores them. */
+    val scrollLength: Int = 450,
+    val frames: Int = 0,
+
     /** Battery alert mode for the <=20 % pulse (§4.1). */
     val batteryAlert: BatteryAlert = BatteryAlert.ON,
 
@@ -198,6 +204,8 @@ data class ShellSettings(
         silentClock = if (silentClock in SILENT_CLOCKS) silentClock else "large",
         keyboardLayout = if (keyboardLayout in KEYBOARDS) keyboardLayout else "qwerty",
         slideFrames = if (slideFrames in SLIDE_FRAMES) slideFrames else "auto",
+        scrollLength = SCROLL_LENGTHS.minByOrNull { kotlin.math.abs(it - scrollLength) } ?: 450,
+        frames = if (frames in FRAME_COUNTS) frames else 0,
         slideFill = if (slideFill in SLIDE_FILLS) slideFill else "auto",
         cachedText = if (cachedText in CACHED_TEXT) cachedText else "off",
         pageStaging = if (pageStaging in PAGE_STAGING) pageStaging else "on",
@@ -233,6 +241,9 @@ data class ShellSettings(
         val KEYBOARDS = listOf("qwerty", "abc")
         /** Slide frames per notch (§40, 2026-09-06): the Global row's order. */
         val SLIDE_FRAMES = listOf("off", "2", "4", "auto", "8", "12")
+        /** Build ANIM (AV): the `Scroll length` ladder (ms) and the `Frames` choices (0 = Auto). */
+        val SCROLL_LENGTHS = listOf(225, 300, 450, 600, 800)
+        val FRAME_COUNTS = listOf(0, 4, 6, 8, 10, 12, 16)
         val SLIDE_FILLS = listOf("auto", "split", "whole")
         /** The texture-cache switch (§40). */
         val CACHED_TEXT = listOf("off", "on")

@@ -90,7 +90,18 @@ class MainStaging private constructor(
     val blobs: List<Blob>,
     /** Strip row s shows Main's row [stripRow]`[s]` (−1: a blank margin row). */
     private val stripRow: IntArray,
+    /** Build ANIM (AW.1): the `Animations` rows the pans were made for; null: the fixed rule (the probes). */
+    val motion: ScrollMotion? = null,
 ) {
+    /** Build ANIM (decisions AV, AW): one notch's motion on a bound list — [lengthMs] (`Scroll length`) and [frames]
+     *  (`Frames`, 0 = Auto). */
+    data class ScrollMotion(val lengthMs: Int, val frames: Int) {
+        companion object {
+            /** `ShellSettings`' defaults: 450 ms, Auto (T 10 at P 46 at height 352). */
+            val DEFAULT = ScrollMotion(450, 0)
+        }
+    }
+
     /** One picture Main's painters drew: [raw] as painted (8-bit; what [paintEnd] puts into belief), [levels] what the
      *  glasses decode, [encoded] the v2 record (`[w u16][h u16][RLE]`, `FIRMWARE.md` §4) at the byte offset [off] in a
      *  slot of [slot] bytes. The strip's [segOff] / [segLen] are its rows' segments inside the record. [raw], [levels]
@@ -439,19 +450,29 @@ class MainStaging private constructor(
          * pan by more, smaller steps, never slower ones); the period sent is P0 with [PERIOD_MARGIN] on it (rounded up),
          * inside 16..128 — a step's own time varies from motion to motion.
          */
-        fun timing(areaPx: Int, stepsFactor: Int = MOTION_STEPS_FACTOR): Pair<Int, Int> {
+        fun timing(areaPx: Int, motion: ScrollMotion? = null): Pair<Int, Int> {
             val stepMs = STEP_MS_BASE + STEP_MS_PER_KPX * areaPx / 1000.0
             val p0 = kotlin.math.ceil(stepMs * 1024.0 / 1000.0).toInt()
-            val t = kotlin.math.round(MOTION_MS / (p0 * 1000.0 / 1024.0)).toInt().coerceAtLeast(MainPan.SWAP + 1) * stepsFactor   // the band's two segments
-            val p = kotlin.math.ceil(p0 * PERIOD_MARGIN).toInt().coerceIn(CfwModes.MOTION_PERIODS.first, CfwModes.MOTION_PERIODS.last)
-            return p to t
+            val pFit = kotlin.math.ceil(p0 * PERIOD_MARGIN).toInt().coerceIn(CfwModes.MOTION_PERIODS.first, CfwModes.MOTION_PERIODS.last)
+            // the fixed rule (T1; the `mainseq` probe keeps it, AW.4): T nearest 200 ms at P0
+            if (motion == null) return pFit to kotlin.math.round(MOTION_MS / (p0 * 1000.0 / 1024.0)).toInt().coerceAtLeast(MIN_STEPS)
+            // build ANIM (AV, AW.1): Auto — the most steps that fit in the length at the fitted period; a fixed count — the
+            // period that spreads it over the length, never under the fitted one (the motion may then run longer)
+            val lenTicks = motion.lengthMs * 1024.0 / 1000.0
+            if (motion.frames <= 0) return pFit to kotlin.math.floor(lenTicks / pFit).toInt().coerceAtLeast(MIN_STEPS)
+            val p = maxOf(pFit, kotlin.math.ceil(lenTicks / motion.frames).toInt()).coerceIn(CfwModes.MOTION_PERIODS.first, CfwModes.MOTION_PERIODS.last)
+            return p to maxOf(motion.frames, MIN_STEPS)
         }
-        /** AU.5 (Adam, 11-19: "maybe twice their current length … too easy to scroll past the selection I want"): the
-         *  whole-list pan's steps, a multiple of the ≈ 200 ms count at the fitted period — 2 would double the pan's length
-         *  (T 10 at P 46 at height 352, ≈ 449 ms a notch, 8.8 px a step); the band's swap scales with it. Left at 1 in
-         *  build T1: what else is timed by the motion's length (Q, the `mainseq` probe's pace, the tests' notch spacing)
-         *  moves with it — `T1-built.md` says what. One constant, so a later Settings row can supply it. */
-        const val MOTION_STEPS_FACTOR = 1
+        /** The fewest steps a pan has: the band's two segments need at least one each (the swap is ≥ 1). */
+        const val MIN_STEPS = 3
+        /** The band's swap — the leaving row's share of the steps — kept at its 2-of-5 proportion for any T. */
+        fun swapOf(t: Int): Int = kotlin.math.round(t * MainPan.SWAP / 5.0).toInt().coerceIn(1, t - 1)
+        /** The pixels one step of the whole-list pan repaints per lens at [l] with the list at [listD] and the band at
+         *  [bandD] (the tracks above and below the band, and the band's area): what [timing] is fitted on. */
+        fun wholeAreaPx(l: Layout, listD: Int, bandD: Int): Int {
+            val rowW = l.content.w - Layout.RAIL_W
+            return (l.rowsAbove + l.rowsBelow) * l.rowH * rowW + l.lens.h * (rowW + kotlin.math.abs(listD - bandD))
+        }
         /** The fit: the slope from the three points measured on 11-18 with the `mainseq` probe at height 352 (76,544 /
          *  114,688 / 152,832 px a step), the base from the bound list's own steps on glass in the first trial at stage 4
          *  (11-19, height 352, 152,832 px: 38.8–41.4 ms, median 39.5 — decisions AU.3; 11-18's fit said 38.2). */
@@ -498,10 +519,11 @@ class MainStaging private constructor(
          */
         fun build(layout: Layout, view: WindowView.ListView, kit: ContentKit, listD: Int, bandD: Int, cacheSize: Int,
                   regionStart: Int = cacheSize - CfwModes.STAGE_RESERVE, regionEnd: Int = cacheSize,
-                  relay: (Gray8, () -> Unit) -> Unit = { _, b -> b() }, widths: List<Int> = WIDTHS + WHOLE, twoStrips: Boolean = false): MainStaging {
+                  relay: (Gray8, () -> Unit) -> Unit = { _, b -> b() }, widths: List<Int> = WIDTHS + WHOLE, twoStrips: Boolean = false,
+                  motion: ScrollMotion? = null): MainStaging {
             val p = Paint(layout, view, kit)
             while (!p.done) p.step(relay)
-            return assemble(p, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips)
+            return assemble(p, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion)
         }
 
         /**
@@ -510,7 +532,8 @@ class MainStaging private constructor(
          * second strip slot and the whole list's pans that draw it (AD.2: Main's own region at 256 KiB).
          */
         fun assemble(paint: Paint, listD: Int, bandD: Int, cacheSize: Int, regionStart: Int = cacheSize - CfwModes.STAGE_RESERVE,
-                     regionEnd: Int = cacheSize, widths: List<Int> = WIDTHS + WHOLE, twoStrips: Boolean = false): MainStaging {
+                     regionEnd: Int = cacheSize, widths: List<Int> = WIDTHS + WHOLE, twoStrips: Boolean = false,
+                     motion: ScrollMotion? = null): MainStaging {
             val layout = paint.layout
             if (cacheSize < CfwModes.STAGE_RESERVE || cacheSize > CfwModes.CACHE2_MAX_RIDERS || cacheSize % 4 != 0)
                 throw LintError("no staging for a cache of $cacheSize B (a contract-2 session's 64..256 KiB)")
@@ -582,8 +605,8 @@ class MainStaging private constructor(
                 val k = asked.first { minOf(it, mA) == kk.first && minOf(it, mB) == kk.second }
                 if (k == WHOLE && stripB != null) listOf(kk to 0, kk to 1) else listOf(kk to 0) }
             // one period and one T for every program of the staging: the whole list's (decisions V)
-            val (period, t) = timing((mA + mB) * l.rowH * rowW + l.lens.h * bandW)
-            val swap = MainPan.SWAP * MOTION_STEPS_FACTOR                // the leaving row's share of the steps, as at factor 1
+            val (period, t) = timing((mA + mB) * l.rowH * rowW + l.lens.h * bandW, motion)
+            val swap = swapOf(t)                                          // the leaving row's share of the steps
             for ((kk, sx) in plans) for (step in intArrayOf(1, -1)) {
                 val (kA, kB) = kk
                 val k = asked.first { minOf(it, mA) == kA && minOf(it, mB) == kB }
@@ -643,7 +666,7 @@ class MainStaging private constructor(
                 Blob("items", items4 * 4, pad(itemBytes), null) +
                 Blob("programs", progs.first().first, pad(progBytes), null)
             return MainStaging(layout, listD, bandD, n, cacheSize, period, t, regionStart, regionEnd, strip, stripB, bands.toMutableList(), items4, itemOffs,
-                mutableMapOf(spareOff to spareSlot), pans, press, blobs, stripRow)
+                mutableMapOf(spareOff to spareSlot), pans, press, blobs, stripRow, motion)
         }
 
         /** Main's row [row] in its row form, [l.rowH] tall and the row's width (the rail aside), at y 0 — the pitch is

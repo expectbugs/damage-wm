@@ -1018,7 +1018,8 @@ class Shell(
                 { settingsApps() },
                 localInput = { transport.state.value.localInput },
                 localRearm = { transport.devProbe("c1", "4") },
-                bindBuild = { transport.state.value.damageFeatures and wm.damage.core.wire.DamageMsg.FEATURE_BIND != 0 })
+                bindBuild = { transport.state.value.damageFeatures and wm.damage.core.wire.DamageMsg.FEATURE_BIND != 0 },
+                motionHint = { motionHint() })
             register(settingsWindow)
         }
         for (w in windows) w.onRegistered(services)
@@ -5395,6 +5396,9 @@ class Shell(
     /** Test introspection, LOOP-ONLY (read inside [sampleIdle]): Main's staging and its counts; what Main offers and its row. */
     internal val mainBinding: MainBinding get() = mainBind
     internal fun mainBoundForTest(): Pair<wm.damage.core.local.BoundList?, Int> = main.bound() to main.row()
+    /** Test introspection (build ANIM, AW.4): Q in force and the bound pan's motion in ms (T × P), loop-only. */
+    internal fun localQForTest(): Long = local.q
+    internal fun motionMsForTest(): Long = mainBind.staging?.let { it.t * it.period * 1000L / 1024 } ?: 0L
     internal fun mainRestingForTest(): Boolean = main.resting
     internal fun notificationsUpForTest(): Boolean = notifications.active || notifications.animating
     internal fun notificationsFocusedForTest(): Boolean = notifications.active && notifications.focused
@@ -5441,6 +5445,22 @@ class Shell(
         else -> null
     }
 
+    /** Build ANIM (AV, AW.1): the motion the `Animations` rows ask for. */
+    private fun motionInForce() = MainStaging.ScrollMotion(settings.scrollLength, settings.frames)
+
+    /** [ms]'s motion in words ("10 frames × 45 ms"), as the `Frames` row's hint says it. */
+    private fun motionWords(ms: MainStaging): String = "${ms.t} frames × ${"%.0f".format(ms.period * 1000.0 / 1024)} ms"
+
+    /** The `Frames` row's hint: the motion in force at Main's height now — the staging's when it was made for these rows,
+     *  else what they give at the current layout. */
+    private fun motionHint(): String {
+        val ms = mainBind.staging
+        if (ms != null && ms.motion == motionInForce()) return motionWords(ms)
+        val (listD, bandD) = mainBindPlanes()
+        val (p, t) = MainStaging.timing(MainStaging.wholeAreaPx(layout, listD, bandD), motionInForce())
+        return "$t frames × ${"%.0f".format(p * 1000.0 / 1024)} ms"
+    }
+
     /** The relay Main's pictures are painted through (Page staging's): a face the glasses hold blits from the atlas. */
     private fun mainBindRelay(): (Gray8, () -> Unit) -> Unit {
         val ct = cachedText
@@ -5465,6 +5485,10 @@ class Shell(
             (ms.listD to ms.bandD) != mainBindPlanes() -> "Main's planes changed (${ms.listD}/${ms.bandD} staged, ${mainBindPlanes().let { "${it.first}/${it.second}" }} now)"
             ms.rows != mainRows().size -> "Main's rows changed (${ms.rows} staged, ${mainRows().size} now)"
             st.cacheSize != ms.cacheSize || mainBindRegion(st).first != ms.regionStart -> "the session's cache or Main's region changed"
+            // build ANIM (AV): the `Animations` rows changed — the pans are made again (the strips with them: no switch
+            // carries a programs record); a change in a burst waits for its SETTLE
+            ms.motion != motionInForce() && !mainBindBurstOpen() -> "the motion changed (${motionWords(ms)} → ${motionInForce().lengthMs} ms, " +
+                "${if (motionInForce().frames == 0) "Auto" else "${motionInForce().frames} frames"})"
             else -> null
         }
         if (why != null) { mainBindDrop(why); return }
@@ -5562,7 +5586,7 @@ class Shell(
         val n = mainRows().size
         // decisions AF.6: the rows' content is part of what a refusal is keyed on — a staging that did not fit is tried
         // again when what it was sized for changes (and at every session start)
-        val what = "$layout $listD/$bandD $n ${region.first}..${region.last} ${st.cacheSize} ${List(n) { main.rowKey(it) }.hashCode()}"
+        val what = "$layout $listD/$bandD $n ${region.first}..${region.last} ${st.cacheSize} ${motionInForce()} ${List(n) { main.rowKey(it) }.hashCode()}"
         if (mainBindRefusedFor == what) return false
         val ct = cachedText
         // decisions AF.8: one row painted per loop turn (its row form and band form); the staging is laid out once every row
@@ -5590,12 +5614,12 @@ class Shell(
         val shared0 = region.last + 1 == st.cacheSize
         val ms = try {
             // the bound list's pans only (AF.10); at 256 KiB Main's own region holds a second strip (AD.2)
-            try { MainStaging.assemble(pt, listD, bandD, st.cacheSize, region.first, region.last + 1, listOf(MainStaging.WHOLE), twoStrips = !shared0) }
+            try { MainStaging.assemble(pt, listD, bandD, st.cacheSize, region.first, region.last + 1, listOf(MainStaging.WHOLE), twoStrips = !shared0, motion = motionInForce()) }
             catch (e: wm.damage.core.geom.LintError) {
                 if (shared0) throw e
                 // decisions AU.1 (b): two strips do not fit Main's region — ONE strip is staged, and a row form's change
                 // withdraws the list as at 160 KiB; never "not staged" while one strip fits
-                MainStaging.assemble(pt, listD, bandD, st.cacheSize, region.first, region.last + 1, listOf(MainStaging.WHOLE), twoStrips = false)
+                MainStaging.assemble(pt, listD, bandD, st.cacheSize, region.first, region.last + 1, listOf(MainStaging.WHOLE), twoStrips = false, motion = motionInForce())
                     .also { journal.note("mainstage", "two strips do not fit Main's region (${e.message}) — one strip staged; a row form's change withdraws the list, as at 160 KiB") }
             }
         } catch (e: wm.damage.core.geom.LintError) {

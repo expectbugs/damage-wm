@@ -492,7 +492,7 @@ class LocalSequenceFuzzTest {
         val s = h.fires[g]?.sR
         assertTrue(s != null && s in h.commitsSent, "S24: the answer was a COMMIT (commits ${h.commitsSent})")
         assertTrue(h.induced.any { it.startsWith("RIGHT mode 27") }, "S24: RIGHT refused the batch at its LIST (${h.induced})")
-        h.runUntil(t0 + LocalRules.Q_MS + 400)            // the lone SETTLE, the read's round trip, the keyframe landing
+        h.runUntil(t0 + h.rules.q + 400)            // the lone SETTLE, the read's round trip, the keyframe landing
         val right = h.truthMismatches().filter { it.startsWith("RIGHT") }
         assertTrue(h.telemetryAsked == 1, "S24: one read asked at the SETTLE (${h.telemetryAsked})")
         assertTrue(right.isEmpty(), "S24: RIGHT equals the belief within a round after the SETTLE: $right")

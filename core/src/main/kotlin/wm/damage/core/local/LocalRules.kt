@@ -56,8 +56,17 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
     companion object {
         /** SETTLE's `age` (§6.6 of the build spec, the lead's decision B.10): 256 OS ticks, ≈ 250 ms. */
         const val AGE_TICKS = 256
-        /** Q, the lone SETTLE's delay after a burst's last report, on the phone's clock (decision B.10). */
+        /** Q's floor, the lone SETTLE's delay after a burst's last report, on the phone's clock (decision B.10); Q itself
+         *  follows the motion in force ([q], decisions AW.2). */
         const val Q_MS = 450L
+
+        /** AW.2: Q for [list]'s pan — max([Q_MS], its length T × P + the [AGE_TICKS] hold of its last step + one period),
+         *  so the lone SETTLE ends the last notch's instance and nothing released by it cuts a last step. */
+        fun qFor(list: BoundList?): Long {
+            val e = list?.entries?.firstOrNull { !it.isTap && it.program != null } ?: return Q_MS
+            val ticks = e.program!!.T.toLong() * e.period + AGE_TICKS + e.period
+            return maxOf(Q_MS, (ticks * 1000 + 1023) / 1024)
+        }
         /** The rubber band's length, modeled (§6.1: ≈ 200 ms plus one LVGL period; I): a tap 115 this soon after the
          *  last scroll message is counted apart when no click follows (§6.10). */
         const val BAND_MS = 200L
@@ -133,6 +142,10 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
     var tapsLive = false; private set
     /** P7: a burst is open from a report until the lone SETTLE. */
     var burstOpen = false; private set
+    /** Q in force (AW.2): the last list in front's ([qFor]); the burst's SETTLE, the re-stages released by it (P9) and
+     *  the burst's end all read it. */
+    var q: Long = Q_MS
+        private set
     private var lastReportMs = 0L
 
     /** The list in front, uncovered (null: covered, another window, nothing bound). */
@@ -202,6 +215,7 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         tapAwaitingClick = null
         discardSinceSettle.clear(); unconfirmed.clear(); committed.clear()
         this.front = if (bind) front else null
+        if (front != null) q = qFor(front)
         rowSeen = row
         if (!bind) return
         pending += Pending.ClearAll
@@ -242,7 +256,7 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
     fun front(list: BoundList?, row: Int, shift: Int = 0) {
         val old = front
         front = list
-        if (list != null) { lastRow[list.list] = row; lastFront = list.list }
+        if (list != null) { lastRow[list.list] = row; lastFront = list.list; q = qFor(list) }
         rowSeen = row
         if (!active) return
         // decisions AF.2: every return of a list to the front (a cover's, a withdrawal's, the first offer after a start)
@@ -549,10 +563,10 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
     val owed: Boolean get() = active && (pending.isNotEmpty() || slots.values.any { it.owed } || repair.owedNow())
 
     /** P7: the lone SETTLE is due — a burst open, Q after its last report, every report answered. */
-    fun settleDue(nowMs: Long): Boolean = active && burstOpen && nowMs - lastReportMs >= Q_MS && slots.values.none { it.owed }
+    fun settleDue(nowMs: Long): Boolean = active && burstOpen && nowMs - lastReportMs >= q && slots.values.none { it.owed }
 
     /** When the lone SETTLE falls due ([settleDue]), on the phone's clock; null with no burst open. */
-    fun settleAt(): Long? = if (active && burstOpen) lastReportMs + Q_MS else null
+    fun settleAt(): Long? = if (active && burstOpen) lastReportMs + q else null
 
     /** The lists a batch's tail will carry a LIST for. */
     private fun listsInTail(): Set<Int> = pending.filterIsInstance<Pending.ListMsg>().map { it.list.list }.toSet()

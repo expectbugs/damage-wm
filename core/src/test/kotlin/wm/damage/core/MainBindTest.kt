@@ -9,6 +9,7 @@ import wm.damage.core.motion.BoxFace
 import wm.damage.core.shell.DamageWindow
 import wm.damage.core.shell.MainLocalCheck
 import wm.damage.core.shell.MainStaging
+import wm.damage.core.shell.ShellSettings
 import wm.damage.core.wire.CfwModes
 import wm.damage.core.wire.DamageMsg
 import wm.damage.core.gfx.Gray8
@@ -149,31 +150,58 @@ class MainBindTest {
         }
     }
 
-    /** The period and steps per height (decisions V, AU.3: the fit 15.66 + 0.156 ms per 1,000 px; P0 the smallest period
-     *  that holds it, T nearest 200 ms at P0, the period P0 with 10 % on it), and AU.3's numbers: P 46 (44.9 ms) T 5 at
-     *  352 — above the first trial's slowest step, 41.4 ms — for the report's table. */
+    /** The fixed rule (decisions V, AU.3; the `mainseq` probe keeps it, AW.4): the fit 15.66 + 0.156 ms per 1,000 px, P0
+     *  the smallest period that holds it, T nearest 200 ms at P0, the period P0 with 10 % on it — P 46 (44.9 ms) T 5 at
+     *  352, above the first trial's slowest step (41.4 ms). */
     @Test
     fun thePeriodAndStepsFollowTheMeasuredFitAtEachHeight_AU3() {
-        // AU.5's factor multiplies T (6/5/4/4 at factor 1, the factor in force in T1), the period unchanged by it
         val want = mapOf(288 to (39 to 6), 352 to (46 to 5), 416 to (52 to 4), 480 to (59 to 4))
-            .mapValues { (_, pt) -> pt.first to pt.second * MainStaging.MOTION_STEPS_FACTOR }
         for (h in listOf(288, 352, 416, 480)) {
             val rig = MainLocalCheck.MainRig(BoxFace, h, MainLocalCheck.sampleRows())
-            val ms = rig.staging(CfwModes.CACHE2_MAX, CfwModes.mainRegion(CfwModes.CACHE2_MAX, true))
+            val ms = rig.staging(CfwModes.CACHE2_MAX, CfwModes.mainRegion(CfwModes.CACHE2_MAX, true), motion = null)
             val pan = ms.pan(MainStaging.WHOLE, 1)
             val stepMs = MainStaging.STEP_MS_BASE + MainStaging.STEP_MS_PER_KPX * pan.areaPx / 1000.0
-            println("DM2-timing h=$h: ${pan.kA}+${pan.kB} rows, ${pan.areaPx} px a step, modeled ${"%.1f".format(stepMs)} ms, P ${ms.period} (${"%.1f".format(ms.period * 1000.0 / 1024)} ms) T ${ms.t} (${"%.0f".format(ms.t * ms.period * 1000.0 / 1024)} ms)")
             assertEquals(rig.layout.rowsAbove to rig.layout.rowsBelow, pan.kA to pan.kB, "$h: the whole list moves")
             val p0 = kotlin.math.ceil(stepMs * 1024.0 / 1000.0).toInt()
-            assertTrue(p0 * 1000.0 / 1024 >= stepMs && (p0 - 1) * 1000.0 / 1024 < stepMs, "$h: P0 the smallest period holding a step")
             assertTrue(ms.period >= p0 * MainStaging.PERIOD_MARGIN && ms.period - 1 < p0 * MainStaging.PERIOD_MARGIN, "$h: the period P0 with the margin, rounded up")
-            val t1 = ms.t / MainStaging.MOTION_STEPS_FACTOR
-            assertEquals(ms.t, t1 * MainStaging.MOTION_STEPS_FACTOR, "$h: T a multiple of the factor")
-            assertTrue(kotlin.math.abs(t1 * p0 * 1000.0 / 1024 - 200) <= p0 * 1000.0 / 1024 / 2 + 0.01, "$h: T / factor nearest 200 ms at P0")
+            assertTrue(kotlin.math.abs(ms.t * p0 * 1000.0 / 1024 - 200) <= p0 * 1000.0 / 1024 / 2 + 0.01, "$h: T nearest 200 ms at P0")
             assertEquals(want[h], ms.period to ms.t, "$h: (P, T)")
             assertEquals(ms.t, ms.pans.first().program.T, "$h: every pan has the staging's T")
             assertEquals(MainStaging.PRESS_T, ms.press.program.T, "$h: the press keeps T = 3")
         }
+    }
+
+    /** Build ANIM (decisions AV, AW.1): the motion in force from the `Animations` rows at every height — Auto: the fitted
+     *  period and the most steps that fit in the length (at least 3); a fixed count: that many steps, the period never
+     *  under the fitted one; the defaults (450 ms, Auto) give T 10 at P 46 at 352. The band's swap keeps its 2-of-5 share. */
+    @Test
+    fun theMotionFollowsTheAnimationsRowsAtEachHeight_ANIM() {
+        val table = ArrayList<String>()
+        for (h in listOf(288, 352, 416, 480)) {
+            val rig = MainLocalCheck.MainRig(BoxFace, h, MainLocalCheck.sampleRows())
+            val region = CfwModes.mainRegion(CfwModes.CACHE2_MAX, true)
+            val fixed = rig.staging(CfwModes.CACHE2_MAX, region, motion = null)
+            val pFit = fixed.period
+            for (len in ShellSettings.SCROLL_LENGTHS) for (f in ShellSettings.FRAME_COUNTS) {
+                val ms = rig.staging(CfwModes.CACHE2_MAX, region, MainStaging.ScrollMotion(len, f))
+                val lenTicks = len * 1024.0 / 1000.0
+                if (f == 0) {
+                    assertEquals(pFit, ms.period, "$h $len ms Auto: the fitted period")
+                    assertEquals(maxOf(MainStaging.MIN_STEPS, kotlin.math.floor(lenTicks / pFit).toInt()), ms.t, "$h $len ms Auto: the steps that fit")
+                } else {
+                    assertEquals(f, ms.t, "$h $len ms $f frames: the count")
+                    assertTrue(ms.period >= pFit, "$h $len ms $f frames: never under the fitted period")
+                    assertEquals(maxOf(pFit, kotlin.math.ceil(lenTicks / f).toInt()).coerceIn(CfwModes.MOTION_PERIODS.first, CfwModes.MOTION_PERIODS.last), ms.period, "$h $len ms $f frames: the period")
+                }
+                assertEquals(ms.t, ms.pans.first().program.T, "$h $len $f: the pans' T")
+                if (f == 0) table += "h$h $len ms Auto: T ${ms.t} at P ${ms.period} (${"%.1f".format(ms.period * 1000.0 / 1024)} ms) = ${"%.0f".format(ms.t * ms.period * 1000.0 / 1024)} ms"
+            }
+        }
+        println("ANIM-table\n" + table.joinToString("\n"))
+        val d = MainLocalCheck.MainRig(BoxFace, 352, MainLocalCheck.sampleRows()).staging(CfwModes.CACHE2_MAX, CfwModes.mainRegion(CfwModes.CACHE2_MAX, true))
+        assertEquals(46 to 10, d.period to d.t, "the defaults at 352: T 10 at P 46")
+        assertEquals(4, MainStaging.swapOf(10), "the band's swap at T 10")
+        assertEquals(2, MainStaging.swapOf(5), "the band's swap at T 5, as before")
     }
 
     /** A summary that grows past its slots' slack is not written in place: a full staging (a new mark) is owed. */

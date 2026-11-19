@@ -40,6 +40,8 @@ class SettingsWindow(
     /** Build C2 (decisions AF.0): the build reports DamageCaps bit 10 — `Taps` and `Local input` are shown only then (on
      *  any other firmware they would be rows that do nothing). */
     private val bindBuild: () -> Boolean = { true },
+    /** Build ANIM (AV): the motion in force at the height in force, in words ("10 frames × 45 ms"), for `Frames`. */
+    private val motionHint: () -> String = { "" },
 ) : DamageWindow("settings", "Settings", IconKind.SETTINGS) {
 
     private val fRow = FontSpec(Face.SYSTEM, 18)
@@ -147,6 +149,22 @@ class SettingsWindow(
         }),
     )
 
+    /** Build ANIM (decisions AV, AW): the `Animations` category — a bound list's notch motion; shown with `Taps` on a
+     *  build that reports local input (bit 10). `Style` joins when there is more than one. */
+    private val animEntries: List<Entry> = listOf(
+        Entry("Scroll length", { "${get().scrollLength} ms" + if (get().scrollLength == 450) " (default)" else "" }, { s, d ->
+            val ls = ShellSettings.SCROLL_LENGTHS
+            s.copy(scrollLength = ls[(ls.indexOf(s.scrollLength).coerceAtLeast(0) + d).coerceIn(0, ls.size - 1)])
+        }),
+        Entry("Frames", {
+            val f = get().frames
+            (if (f == 0) "auto" else "$f") + motionHint().let { if (it.isEmpty()) "" else " ($it)" }
+        }, { s, d ->
+            val fs = ShellSettings.FRAME_COUNTS
+            s.copy(frames = fs[(fs.indexOf(s.frames).coerceAtLeast(0) + d).coerceIn(0, fs.size - 1)])
+        }),
+    )
+
     private fun onOff(b: Boolean) = if (b) "on" else "off"
 
     private fun hostEntry(h: HostSetting) = Entry(h.name, {
@@ -168,6 +186,7 @@ class SettingsWindow(
     private fun cats(): List<Cat> {
         val out = ArrayList<Cat>()
         out.add(Cat("Global", (if (bindBuild()) entries else entries.filter { it.name !in BIND_ROWS }) + host().map(::hostEntry)))
+        if (bindBuild()) out.add(Cat("Animations", animEntries))
         for ((app, rows) in apps()) out.add(Cat(app, rows.map(::hostEntry)))
         return out
     }
@@ -176,6 +195,9 @@ class SettingsWindow(
      *  the state was saved) drops back to the category list. */
     /** Test introspection: the Global category's row names as shown now. */
     internal fun globalRowNamesForTest(): List<String> = cats().first().entries.map { it.name }
+    /** Test introspection (build ANIM): the categories' names, and one category's rows with their values as shown. */
+    internal fun categoryNamesForTest(): List<String> = cats().map { it.name }
+    internal fun rowsForTest(cat: String): List<Pair<String, String>> = cats().firstOrNull { it.name == cat }?.entries?.map { it.name to it.value() } ?: emptyList()
 
     private fun entriesAt(): List<Entry> {
         val cs = cats()
