@@ -422,7 +422,7 @@ abstract class CfwTransportBase(
      *  nothing is sent and the answer is false, with a `motion` note. A mode-19 write here is not the shell's: it is
      *  put on record as another writer's, as a self-test's live write is. Never the shell's paint. [lastDone], when
      *  given, completes with the last message's ack (exceptionally when it fails or the session ends). */
-    fun sendMotion(messages: List<ByteArray>, lastDone: CompletableDeferred<Unit>? = null): Boolean {
+    override fun sendMotion(messages: List<ByteArray>, lastDone: CompletableDeferred<Unit>?): Boolean {
         // build C1's ruling B-N6: [lastDone] rides the last message, so with none it would never complete — fail at once
         if (messages.isEmpty()) {
             emitNote("motion", "not sent: the program has no message")
@@ -3841,25 +3841,6 @@ abstract class CfwTransportBase(
         }
     }
 
-    /** The rects each op of a batch writes, per lens (left, right) — [withMotionCloses]' bound. */
-    private fun motionWriteRects(ops: List<DisplayOp>): List<Pair<wm.damage.core.geom.Rect, wm.damage.core.geom.Rect>> {
-        fun toEdge(x: Int, y: Int) = wm.damage.core.geom.Rect(maxOf(0, x), maxOf(0, y), maxOf(1, Geometry.PANEL_W - maxOf(0, x)), maxOf(1, Geometry.PANEL_H - maxOf(0, y)))
-        return ops.mapNotNull { op ->
-            when (op) {
-                is DisplayOp.Delta -> if (op.disparity == 0) op.box to op.box else op.box.translate(-op.disparity, 0) to op.box.translate(op.disparity, 0)
-                is DisplayOp.StereoPair -> op.left to op.right
-                is DisplayOp.Copy -> if (op.disparity == 0) op.dst to op.dst else op.dst.translate(-op.disparity, 0) to op.dst.translate(op.disparity, 0)
-                is DisplayOp.CopyPair -> op.dstL to op.dstR
-                is DisplayOp.Fill -> op.left to op.right
-                is DisplayOp.DrawImage2 -> wm.damage.core.geom.Rect(op.xL, op.y, op.w, op.h) to wm.damage.core.geom.Rect(op.xR, op.y, op.w, op.h)
-                is DisplayOp.DrawText2 -> toEdge(op.xL, op.y) to toEdge(op.xR, op.y)
-                is DisplayOp.DrawText -> toEdge(op.x, op.y).let { it to it }
-                is DisplayOp.DrawImage -> toEdge(op.x, op.y).let { it to it }
-                is DisplayOp.Keyframe, is DisplayOp.Clip, is DisplayOp.PresentHint, is DisplayOp.CacheWrite, is DisplayOp.CacheWrite2 -> null
-            }
-        }
-    }
-
     /** The previous flush's completion job (image-lane confined): each
      *  completion joins it first, so FlushDone events leave in SUBMISSION
      *  order by construction — acks arrive in wire order, but the completion
@@ -4330,6 +4311,26 @@ abstract class CfwTransportBase(
     }
 
     companion object {
+        /** The rects each op of a batch writes, per lens (left, right) — [withMotionCloses]' bound; build C2's `mainseq`
+         *  probe asks the same of its follow-up flush, so the shell and the transport decide "meets" alike. */
+        fun motionWriteRects(ops: List<DisplayOp>): List<Pair<wm.damage.core.geom.Rect, wm.damage.core.geom.Rect>> {
+            fun toEdge(x: Int, y: Int) = wm.damage.core.geom.Rect(maxOf(0, x), maxOf(0, y), maxOf(1, Geometry.PANEL_W - maxOf(0, x)), maxOf(1, Geometry.PANEL_H - maxOf(0, y)))
+            return ops.mapNotNull { op ->
+                when (op) {
+                    is DisplayOp.Delta -> if (op.disparity == 0) op.box to op.box else op.box.translate(-op.disparity, 0) to op.box.translate(op.disparity, 0)
+                    is DisplayOp.StereoPair -> op.left to op.right
+                    is DisplayOp.Copy -> if (op.disparity == 0) op.dst to op.dst else op.dst.translate(-op.disparity, 0) to op.dst.translate(op.disparity, 0)
+                    is DisplayOp.CopyPair -> op.dstL to op.dstR
+                    is DisplayOp.Fill -> op.left to op.right
+                    is DisplayOp.DrawImage2 -> wm.damage.core.geom.Rect(op.xL, op.y, op.w, op.h) to wm.damage.core.geom.Rect(op.xR, op.y, op.w, op.h)
+                    is DisplayOp.DrawText2 -> toEdge(op.xL, op.y) to toEdge(op.xR, op.y)
+                    is DisplayOp.DrawText -> toEdge(op.x, op.y).let { it to it }
+                    is DisplayOp.DrawImage -> toEdge(op.x, op.y).let { it to it }
+                    is DisplayOp.Keyframe, is DisplayOp.Clip, is DisplayOp.PresentHint, is DisplayOp.CacheWrite, is DisplayOp.CacheWrite2 -> null
+                }
+            }
+        }
+
         /** Faceclaw ships WINDOW_SIZE = 3 on exactly the CFW path (§8.1). */
         const val WINDOW = 3
 

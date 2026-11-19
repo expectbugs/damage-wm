@@ -72,7 +72,8 @@ class ContentKit(private val comp: Compositor) {
         comp.damage(l.content)
     }
 
-    private fun paintLensBand(g: Gray8, l: Layout, v: WindowView.ListView, c: Int) {
+    /** The lens band with row [c] in it, as [paintList] paints it — also Main's staged band forms (`MainStaging`). */
+    internal fun paintLensBand(g: Gray8, l: Layout, v: WindowView.ListView, c: Int) {
         g.fillRect(l.lens, Level.BG)
         // bracketing rules — the shell's motif (§4.2)
         g.fillRect(l.lens.x, l.lens.y, l.lens.w - Layout.RAIL_W, 2, Level.DIM)

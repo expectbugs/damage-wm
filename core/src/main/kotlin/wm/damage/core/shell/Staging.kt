@@ -20,11 +20,17 @@ import wm.damage.core.gfx.Gray8
 /** What a strip is a rendering OF: the document's layout identity (the `DocView.contentKey`), the
  *  lines it covers, the line box and the width it was painted at. Two keys are equal only for the
  *  same layout object — a relayout, a rescale or another book never matches an old record. */
-class StageKey(val content: Any, val firstLine: Int, val lines: Int, val lineH: Int, val w: Int) {
+open class StageKey(val content: Any, val firstLine: Int, val lines: Int, val lineH: Int, val w: Int) {
     override fun equals(other: Any?): Boolean = other is StageKey && other.content === content &&
         other.firstLine == firstLine && other.lines == lines && other.lineH == lineH && other.w == w
     override fun hashCode(): Int = System.identityHashCode(content) * 31 + firstLine * 7 + lines * 3 + lineH + w
     override fun toString() = "lines $firstLine..${firstLine + lines - 1}"
+}
+
+/** Build C2, stage DMS: one of Main's staged records ([MainStaging]) — [content] the staging it belongs to,
+ *  [firstLine] its index there, [name] what the journal calls it. Never a document's: no placement draws it. */
+class MainStageKey(content: Any, index: Int, val name: String) : StageKey(content, index, 1, 0, 0) {
+    override fun toString() = "Main's $name"
 }
 
 /** One staged strip: the pixels as painted (RAW — the diff compares raw bytes, and a slide that
@@ -89,6 +95,22 @@ class StageRing(val start: Int, val end: Int) {
             return overlapping
         }
         return null
+    }
+
+    /** Build C2, stage DMS: place [rec] at the byte offset [off] (Main's records keep their offsets: a program
+     *  names its records by them). Evicts whatever it overlaps unless one of those is [pinned]; null, and nothing
+     *  changes, when it is not inside the ring or a pinned record is in the way. The bump pointer moves past it. */
+    fun placeAt(rec: StagedRecord, off: Int, pinned: (StagedRecord) -> Boolean = { false }): List<StagedRecord>? {
+        val size = rec.size4
+        if (size <= 0 || off % 4 != 0 || off < start || off + size > end) return null
+        val overlapping = held.filter { it !== rec && it.off < off + size && off < it.off + it.size4 }
+        if (overlapping.any(pinned)) return null
+        for (e in overlapping) { e.off = -1; held.remove(e) }
+        held.remove(rec)
+        rec.off = off
+        held.add(rec)
+        next = off + size
+        return overlapping
     }
 
     fun free(rec: StagedRecord) {

@@ -33,6 +33,9 @@ input event, which is then not delivered, rebuilds the session; every case that 
 `probe:hold=on|off` (APK 0.73+, the SHELL's own probe, on Adam's word only: while on, the shell submits no frame, so a
 hand-played test program's picture stays on the lenses between plays; the lease and the page traffic go on; `off`, any
 input event or the session's end releases it and the shell repaints),
+`probe:mainseq=1|2|3|all` (the SHELL's own probe, on Adam's word only: his scroll test on Main's staged rows — six
+notches up 280 ms apart, 2 s, six down 1 s apart, at width k or each k with 3 s between — with ENGINE in force; any
+input event ends it; each width's numbers are a `mainseq` journal note),
 `selftest:PATH.json` (a conformance vector — `firmware/vectors/v1-*.json`, `v2-*.json` —
 driven through the glasses' self-test step by step; after each step RIGHT's telemetry is
 read from the host's `/log` and its scratch CRC, refusal and the refusal record's mode
