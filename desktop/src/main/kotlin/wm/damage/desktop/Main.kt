@@ -55,7 +55,7 @@ import wm.damage.core.windows.reader.ReaderWindow
  * session after every link end. Other entry points, one at a time:
  *
  *   --selfcheck · --snapshot [DIR] · --epub-check [DIR] · --music-check · --games-check [deep]
- *   --feed-check [DIR] [live] · --card-render [DIR] · --motion-check DIR
+ *   --feed-check [DIR] [live] · --card-render [DIR] · --motion-check DIR · --local-check DIR
  *   --host-only · --ble-info
  *   --devices · --approve CODE LEVEL · --deny CODE · --revoke ID   (client calls to the running service, S1-1 P6)
  *   --help | -h
@@ -89,6 +89,13 @@ fun main(args: Array<String>) {
             if (status != 0) kotlin.system.exitProcess(status)
             return@runCli
         }
+        // build C2, stage DM2: the local check likewise — before the config and any stack, headless, DIR only
+        if (cli is Cli.LocalCheck) {
+            System.setProperty("java.awt.headless", "true")
+            val status = LocalCheck.run(Path.of(cli.dir))
+            if (status != 0) kotlin.system.exitProcess(status)
+            return@runCli
+        }
         // --no-preview: the all-day service mode (DAILY.md) — no Swing window, no
         // X needed; the phone screen and the browser replica are the views. Set
         // BEFORE any AWT class loads so the JVM commits to headless.
@@ -104,6 +111,7 @@ fun main(args: Array<String>) {
             is Cli.CardRender -> CardSheet.run(cfg, Path.of(cli.dir))
             is Cli.Snapshot -> Snapshot.run(cfg, Path.of(cli.dir))
             is Cli.MotionCheck -> throw IllegalStateException("--motion-check runs before the config is read (above), never here")
+            is Cli.LocalCheck -> throw IllegalStateException("--local-check runs before the config is read (above), never here")
             is Cli.BleInfo -> bleInfo()
             is Cli.HostOnly -> runBlocking { hostOnly(cfg) }
             is Cli.Shell -> runShell(cfg, cli.mode, cli.remoteHost, preview = cli.preview)
@@ -143,6 +151,11 @@ internal sealed interface Cli {
     data class MotionCheck(val dir: String) : Run {
         override val headless: Boolean get() = true
     }
+    /** Build C2, stage DM2: Main's bound list on the simulator's hook at every height and both caches, a strip per
+     *  case into [dir]. Always headless; it reads no config. */
+    data class LocalCheck(val dir: String) : Run {
+        override val headless: Boolean get() = true
+    }
     data class BleInfo(override val headless: Boolean = false) : Run
     data class HostOnly(override val headless: Boolean = false) : Run
 
@@ -167,7 +180,7 @@ internal const val CLI_REFUSED = 2
 internal val CLI_FLAGS: List<String> = listOf(
     "--transport", "--remote", "--sim", "--ble", "--no-preview",
     "--selfcheck", "--snapshot", "--epub-check", "--music-check", "--games-check", "--feed-check", "--card-render",
-    "--motion-check", "--host-only", "--ble-info",
+    "--motion-check", "--local-check", "--host-only", "--ble-info",
     "--devices", "--approve", "--deny", "--revoke",
     "--help", "-h")
 
@@ -200,6 +213,9 @@ internal val USAGE: String = """
       --card-render [DIR]        the card sheets at 1x (default: ${Cli.CARD_DIR})
       --motion-check DIR         the motion test programs on the simulator, a strip PNG each into DIR;
                                  reads no config, opens no window; exit 1 when a program does not hold
+      --local-check DIR          Main's bound list fired through the simulator's input hook at every
+                                 cursor, both directions and the press, four heights, 160 and 256 KiB;
+                                 a strip PNG per case into DIR; reads no config; exit 1 when one fails
       --host-only                the content host alone, no shell
       --ble-info                 the BlueZ adapter and the devices it knows, no discovery
 
@@ -266,6 +282,7 @@ internal fun parseArgs(args: Array<String>): Cli {
             }
             "--card-render" -> Cli.CardRender(value() ?: Cli.CARD_DIR, headless)
             "--motion-check" -> Cli.MotionCheck(value() ?: return Cli.Refused("--motion-check needs a DIR to write its strips into"))
+            "--local-check" -> Cli.LocalCheck(value() ?: return Cli.Refused("--local-check needs a DIR to write its strips into"))
             "--host-only" -> Cli.HostOnly(headless)
             "--ble-info" -> Cli.BleInfo(headless)
             "--transport" -> {
