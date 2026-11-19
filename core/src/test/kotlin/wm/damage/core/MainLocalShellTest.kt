@@ -516,6 +516,69 @@ class MainLocalShellTest {
         } finally { r.close() }
     }
 
+    /** Decisions AU.1 (b): at 256 KiB, rows fuller than two strips' room (eighteen dense rows) stage with ONE strip —
+     *  never "cannot be staged" while one fits — the list bound; a row form's change then withdraws and returns, as at
+     *  160 KiB. (Two strips when they fit: `aRowFormChangeAt256KiBSwitchesStripsWithNoWithdrawal_AD2`.) */
+    @Test
+    fun fullerRowsStageWithOneStripAt256KiB_AU1(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, nRows = 18, kib256 = true)
+        try {
+            for (w in r.rows) w.s = w.s.copy(line = "W".repeat(80), detail = "W".repeat(80))
+            r.up()
+            assertTrue(r.notes("mainstage").none { it.startsWith("Main's rows cannot be staged") }, "${r.notes("mainstage")}")
+            assertTrue(r.notes("mainstage").any { it.startsWith("two strips do not fit Main's region") }, "one strip staged: ${r.notes("mainstage")}")
+            assertTrue(r.onLoop { r.shell.mainBinding.staging!!.stripB == null }, "no second strip")
+            r.rows[3].s = r.rows[3].s.copy(line = "short 3")
+            r.shell.services.requestRender(r.rows[3])
+            r.until("withdrawn for the row form's change", 15_000) { r.notes("mainstage").any { it.startsWith("withdrawn") } }
+            r.bound("bound again after the strip's write")
+            r.assertOracle("after the withdrawal")
+        } finally { r.close() }
+    }
+
+    /** Decisions AU.2: a face's first use while another window is in front (Settings' faces go live) leaves Main's own
+     *  region intact — no record dropped, no staging byte sent there — and back on Main the list is bound with no staging
+     *  again (rows whose live paint did not change are not re-staged). */
+    @Test
+    fun aFontSetChangeInAnotherWindowLeavesMainsRegionIntact_AU2(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, kib256 = true)
+        try {
+            r.up()
+            val staging0 = r.onLoop { r.shell.mainBinding.staging }
+            val staged0 = r.notes("mainstage").count { it.startsWith("staged") }
+            val live0 = r.onLoop { r.shell.cachedFontsLive.toSet() }
+            val lines0 = Files.readAllLines(r.journal).size
+            r.onLoop { r.shell.services.openWindow("settings", null) }
+            r.until("Settings open") { r.onLoop { r.shell.currentWindowId() } == "settings" }
+            r.until("a face went live in Settings", 15_000) { r.onLoop { r.shell.cachedFontsLive.toSet() } != live0 }
+            r.settle("in Settings")
+            val inSettings = Files.readAllLines(r.journal).drop(lines0)
+            assertTrue(inSettings.none { "\"ev\":\"submit\"" in it && "\"label\":\"STAGE\"" in it }, "no staging byte while Settings is in front")
+            assertTrue(r.onLoop { r.shell.mainBinding.staging } === staging0, "Main's staging kept")
+            r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+            r.until("back on Main") { r.onLoop { r.shell.currentWindowId() } == null }
+            r.bound("bound on Main again")
+            assertEquals(staged0, r.notes("mainstage").count { it.startsWith("staged") }, "no staging again: ${r.notes("mainstage").takeLast(4)}")
+            assertTrue(r.notes("mainstage").none { it.startsWith("dropped") }, "Main's staging never dropped: ${r.notes("mainstage").takeLast(4)}")
+            r.assertOracle("back on Main")
+        } finally { r.close() }
+    }
+
+    /** Decisions AU.4: the `local` counters' note is written when a value changes (and once after a session start), not
+     *  at every telemetry read — no two in a row the same. */
+    @Test
+    fun theCountersNoteIsWrittenOnlyWhenAValueChanges_AU4(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT)
+        try {
+            r.up()
+            repeat(3) { r.fire(CfwModes.EV_UPROLL); delay(400); r.settle("notch $it") }
+            delay(LocalRules.Q_MS + 200); r.settle("after")
+            val ns = r.notes("local").filter { it.startsWith("35=") }
+            assertTrue(ns.isNotEmpty(), "at least one counters' note")
+            assertTrue(ns.zipWithNext().none { (a, b) -> a == b }, "no counters' note repeated: ${ns.size} notes, ${ns.toSet().size} distinct")
+        } finally { r.close() }
+    }
+
     /** Decisions AL.5: a ring Input the rules read is no gesture of its own pump (its echo consumed marks nothing; a verdict
      *  that applies or acts on it marks its own); one they do not read (the temples, a typed line) is. */
     @Test

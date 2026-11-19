@@ -433,21 +433,32 @@ class MainStaging private constructor(
 
         /**
          * The period (OS ticks, 1,024 a second: `FIRMWARE.md` §5.2's 90,000-tick lease is 87.9 s) and the steps of a
-         * program that repaints [areaPx] pixels a step per lens (decisions V): the step's drawing time from the fit to the
-         * three points measured on the glasses with real text (APK 0.74) — ms ≈ 14.4 + 0.156 per 1,000 area pixels — and
-         * the smallest period that is at least that plus 2 ms, inside 16..128; T the whole number of steps nearest to
-         * 200 ms at that period (at least the band's swap plus one).
+         * program that repaints [areaPx] pixels a step per lens (decisions V, AU.3): the step's drawing time from the fit —
+         * ms ≈ [STEP_MS_BASE] + 0.156 per 1,000 area pixels — gives the smallest period P0 that holds it and T, the whole
+         * number of steps nearest to 200 ms at P0 (at least the band's swap plus one), times [stepsFactor] (AU.5: a longer
+         * pan by more, smaller steps, never slower ones); the period sent is P0 with [PERIOD_MARGIN] on it (rounded up),
+         * inside 16..128 — a step's own time varies from motion to motion.
          */
-        fun timing(areaPx: Int): Pair<Int, Int> {
+        fun timing(areaPx: Int, stepsFactor: Int = MOTION_STEPS_FACTOR): Pair<Int, Int> {
             val stepMs = STEP_MS_BASE + STEP_MS_PER_KPX * areaPx / 1000.0
-            val p = kotlin.math.ceil((stepMs + STEP_MARGIN_MS) * 1024.0 / 1000.0).toInt().coerceIn(CfwModes.MOTION_PERIODS.first, CfwModes.MOTION_PERIODS.last)
-            val t = kotlin.math.round(MOTION_MS / (p * 1000.0 / 1024.0)).toInt().coerceAtLeast(MainPan.SWAP + 1)   // the band's two segments
+            val p0 = kotlin.math.ceil(stepMs * 1024.0 / 1000.0).toInt()
+            val t = kotlin.math.round(MOTION_MS / (p0 * 1000.0 / 1024.0)).toInt().coerceAtLeast(MainPan.SWAP + 1) * stepsFactor   // the band's two segments
+            val p = kotlin.math.ceil(p0 * PERIOD_MARGIN).toInt().coerceIn(CfwModes.MOTION_PERIODS.first, CfwModes.MOTION_PERIODS.last)
             return p to t
         }
-        /** The fit (decisions V): the measured points 76,544 / 114,688 / 152,832 px a step at height 352. */
-        const val STEP_MS_BASE = 14.4
+        /** AU.5 (Adam, 11-19: "maybe twice their current length … too easy to scroll past the selection I want"): the
+         *  whole-list pan's steps, a multiple of the ≈ 200 ms count at the fitted period — 2 would double the pan's length
+         *  (T 10 at P 46 at height 352, ≈ 449 ms a notch, 8.8 px a step); the band's swap scales with it. Left at 1 in
+         *  build T1: what else is timed by the motion's length (Q, the `mainseq` probe's pace, the tests' notch spacing)
+         *  moves with it — `T1-built.md` says what. One constant, so a later Settings row can supply it. */
+        const val MOTION_STEPS_FACTOR = 1
+        /** The fit: the slope from the three points measured on 11-18 with the `mainseq` probe at height 352 (76,544 /
+         *  114,688 / 152,832 px a step), the base from the bound list's own steps on glass in the first trial at stage 4
+         *  (11-19, height 352, 152,832 px: 38.8–41.4 ms, median 39.5 — decisions AU.3; 11-18's fit said 38.2). */
+        const val STEP_MS_BASE = 15.66
         const val STEP_MS_PER_KPX = 0.156
-        const val STEP_MARGIN_MS = 2.0
+        /** AU.3: 13 of the first trial's 32 motions folded a step at P 42 (41.0 ms) — the period carries 10 % over the fit. */
+        const val PERIOD_MARGIN = 1.10
         /** The motion's length the steps are chosen for (≈ 200 ms: under the ring's least scroll gap, spec §6.6). */
         const val MOTION_MS = 200.0
         /** Main's list on the glasses and its engine slot (`FIRMWARE.md` §6.3: one slot per list). */
@@ -572,6 +583,7 @@ class MainStaging private constructor(
                 if (k == WHOLE && stripB != null) listOf(kk to 0, kk to 1) else listOf(kk to 0) }
             // one period and one T for every program of the staging: the whole list's (decisions V)
             val (period, t) = timing((mA + mB) * l.rowH * rowW + l.lens.h * bandW)
+            val swap = MainPan.SWAP * MOTION_STEPS_FACTOR                // the leaving row's share of the steps, as at factor 1
             for ((kk, sx) in plans) for (step in intArrayOf(1, -1)) {
                 val (kA, kB) = kk
                 val k = asked.first { minOf(it, mA) == kA && minOf(it, mB) == kB }
@@ -592,9 +604,9 @@ class MainStaging private constructor(
                     // then the entering row's (P1) comes forward and brightens
                     track(Rect(cx - maxOf(listD, bandD), l.lens.y, bandW, l.lens.h), Rect(cx + minOf(listD, bandD), l.lens.y, bandW, l.lens.h), Motion.Backdrop.Level(0)) {
                         draw(bands[0].record, x = cx - bandD, xR = cx + bandD, y = l.lens.y, dx = -shift, dxR = shift,
-                            lvl0 = 15, lvl1 = MainPan.LVL_BACK, ease = Motion.Ease.easeOut, n = MainPan.SWAP, prefs = listOf(Motion.Pref(2, Motion.Field.SRC)))
+                            lvl0 = 15, lvl1 = MainPan.LVL_BACK, ease = Motion.Ease.easeOut, n = swap, prefs = listOf(Motion.Pref(2, Motion.Field.SRC)))
                         draw(bands[0].record, x = cx - listD, xR = cx + listD, y = l.lens.y, dx = shift, dxR = -shift,
-                            lvl0 = MainPan.LVL_BACK, lvl1 = 15, ease = Motion.Ease.easeOut, n = t - MainPan.SWAP, prefs = listOf(Motion.Pref(1, Motion.Field.SRC)))
+                            lvl0 = MainPan.LVL_BACK, lvl1 = 15, ease = Motion.Ease.easeOut, n = t - swap, prefs = listOf(Motion.Pref(1, Motion.Field.SRC)))
                     }
                 }
                 next(prog.bytes.size)

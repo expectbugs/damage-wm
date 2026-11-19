@@ -142,6 +142,9 @@ internal class MainBinding {
     }
 
     fun nextDirty(): Int? = dirty.indices.firstOrNull { dirty[it] }
+
+    /** Decisions AU.2: every row painted again and compared (a live font set changed under the staging's pictures). */
+    fun recheckAll() { if (staging != null) for (i in dirty.indices) dirty[i] = true }
     fun isForced(row: Int) = forced[row]
 
     /** A repaint of [row] found its pictures what the glasses hold. */

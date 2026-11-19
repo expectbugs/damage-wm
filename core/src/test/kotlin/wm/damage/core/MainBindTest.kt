@@ -149,10 +149,14 @@ class MainBindTest {
         }
     }
 
-    /** The period and steps per height (decisions V: the fit 14.4 + 0.156 ms per 1,000 px, the smallest period at least
-     *  that plus 2 ms, T nearest 200 ms), for the report's table. */
+    /** The period and steps per height (decisions V, AU.3: the fit 15.66 + 0.156 ms per 1,000 px; P0 the smallest period
+     *  that holds it, T nearest 200 ms at P0, the period P0 with 10 % on it), and AU.3's numbers: P 46 (44.9 ms) T 5 at
+     *  352 — above the first trial's slowest step, 41.4 ms — for the report's table. */
     @Test
-    fun thePeriodAndStepsFollowTheMeasuredFitAtEachHeight_DM2() {
+    fun thePeriodAndStepsFollowTheMeasuredFitAtEachHeight_AU3() {
+        // AU.5's factor multiplies T (6/5/4/4 at factor 1, the factor in force in T1), the period unchanged by it
+        val want = mapOf(288 to (39 to 6), 352 to (46 to 5), 416 to (52 to 4), 480 to (59 to 4))
+            .mapValues { (_, pt) -> pt.first to pt.second * MainStaging.MOTION_STEPS_FACTOR }
         for (h in listOf(288, 352, 416, 480)) {
             val rig = MainLocalCheck.MainRig(BoxFace, h, MainLocalCheck.sampleRows())
             val ms = rig.staging(CfwModes.CACHE2_MAX, CfwModes.mainRegion(CfwModes.CACHE2_MAX, true))
@@ -160,9 +164,13 @@ class MainBindTest {
             val stepMs = MainStaging.STEP_MS_BASE + MainStaging.STEP_MS_PER_KPX * pan.areaPx / 1000.0
             println("DM2-timing h=$h: ${pan.kA}+${pan.kB} rows, ${pan.areaPx} px a step, modeled ${"%.1f".format(stepMs)} ms, P ${ms.period} (${"%.1f".format(ms.period * 1000.0 / 1024)} ms) T ${ms.t} (${"%.0f".format(ms.t * ms.period * 1000.0 / 1024)} ms)")
             assertEquals(rig.layout.rowsAbove to rig.layout.rowsBelow, pan.kA to pan.kB, "$h: the whole list moves")
-            assertTrue(ms.period * 1000.0 / 1024 >= stepMs + MainStaging.STEP_MARGIN_MS, "$h: the period holds a step and the margin")
-            assertTrue((ms.period - 1) * 1000.0 / 1024 < stepMs + MainStaging.STEP_MARGIN_MS, "$h: the smallest such period")
-            assertTrue(kotlin.math.abs(ms.t * ms.period * 1000.0 / 1024 - 200) <= ms.period * 1000.0 / 1024 / 2 + 0.01, "$h: T nearest 200 ms")
+            val p0 = kotlin.math.ceil(stepMs * 1024.0 / 1000.0).toInt()
+            assertTrue(p0 * 1000.0 / 1024 >= stepMs && (p0 - 1) * 1000.0 / 1024 < stepMs, "$h: P0 the smallest period holding a step")
+            assertTrue(ms.period >= p0 * MainStaging.PERIOD_MARGIN && ms.period - 1 < p0 * MainStaging.PERIOD_MARGIN, "$h: the period P0 with the margin, rounded up")
+            val t1 = ms.t / MainStaging.MOTION_STEPS_FACTOR
+            assertEquals(ms.t, t1 * MainStaging.MOTION_STEPS_FACTOR, "$h: T a multiple of the factor")
+            assertTrue(kotlin.math.abs(t1 * p0 * 1000.0 / 1024 - 200) <= p0 * 1000.0 / 1024 / 2 + 0.01, "$h: T / factor nearest 200 ms at P0")
+            assertEquals(want[h], ms.period to ms.t, "$h: (P, T)")
             assertEquals(ms.t, ms.pans.first().program.T, "$h: every pan has the staging's T")
             assertEquals(MainStaging.PRESS_T, ms.press.program.T, "$h: the press keeps T = 3")
         }
@@ -197,12 +205,16 @@ class MainBindTest {
     fun theAtlasLaysOutUnderMainsRegionOnlyAt256KiBWithBind_DM2() {
         fun st(kib: Int, bind: Boolean) = LinkState(damageContract = 2, damageFeatures = 0x5ff, cacheSize = kib * 1024,
             flagsInForce = DamageMsg.FLAG_DRAW2 or DamageMsg.FLAG_ENGINE or (if (bind) DamageMsg.FLAG_BIND else 0))
-        // AD.2: Main's own region is 96 KiB at 256 (a second strip), the atlas keeps the 96 KiB it has at 160
+        // AD.2, AU.1: Main's own region is 128 KiB at 256 (a second strip), the stage reserve 32 KiB above it, the atlas
+        // keeps the 96 KiB it has at 160
         assertEquals(96 * 1024, st(256, true).atlasCapacity)
         assertEquals(192 * 1024, st(256, false).atlasCapacity)
         assertEquals(96 * 1024, st(160, true).atlasCapacity)
         assertEquals(96 * 1024, st(160, false).atlasCapacity)
-        assertEquals(96 * 1024 until 192 * 1024, CfwModes.mainRegion(256 * 1024, true))
+        assertEquals(96 * 1024 until 224 * 1024, CfwModes.mainRegion(256 * 1024, true))
+        assertEquals(32 * 1024, CfwModes.stageReserve(256 * 1024, true))
+        assertEquals(64 * 1024, CfwModes.stageReserve(256 * 1024, false))
+        assertEquals(64 * 1024, CfwModes.stageReserve(160 * 1024, true))
         assertEquals(96 * 1024 until 160 * 1024, CfwModes.mainRegion(160 * 1024, true))
     }
 

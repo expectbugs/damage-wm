@@ -2649,6 +2649,8 @@ class Shell(
     /** Every flush that carried the rules' messages, until its completion: a refused one sends the table again. */
     private val localTailFlushes = HashSet<Long>()
     private var localSettleAt = Long.MAX_VALUE
+    /** The last `local` counters' note written (AU.4), cleared at a session start. */
+    private var localNoteSaid: String? = null
     /** The held cells' release the loop was last asked back for (AF.7): one wake per motion end. */
     private var deferWakeAt = 0L
 
@@ -2719,6 +2721,7 @@ class Shell(
         val f = localFront()
         localFrontNow = f?.second
         localOnlyFlushes.clear(); localTailFlushes.clear(); mainBind.tailsForgotten()
+        localNoteSaid = null
         localSettleAt = Long.MAX_VALUE
         mainBindRefusedFor = null                         // AF.6: a staging that did not fit is tried again at every start
         mainBindBlockedSaid = null
@@ -2800,7 +2803,8 @@ class Shell(
             is TransportEvent.LocalRead -> {
                 ev.flagsInForce?.let { local.bindInForce(it and wm.damage.core.wire.DamageMsg.FLAG_BIND != 0) }
                 local.telemetry(ev.boundIds, ev.refusal27, ev.batch14)
-                if (local.active) journal.note("local", local.localNote(ev.fields), ev.atMs)
+                // AU.4: the counters' note when a value changes (and once after a session start), not at every read
+                if (local.active) local.localNote(ev.fields).let { n -> if (n != localNoteSaid) { localNoteSaid = n; journal.note("local", n, ev.atMs) } }
                 post(Msg.Pump)
             }
             is TransportEvent.LocalBody -> local.body114(ev.slot, ev.tag, ev.outcome, ev.reason)
@@ -3765,7 +3769,14 @@ class Shell(
         val ct = cachedText ?: return
         // §66: a record's pixels were painted under the previous live set; a live repaint now draws
         // them differently, so the records go (they are re-staged in a moment)
-        if (specs != ct.live || images != ct.liveImages) stageClear("the live font set changed")
+        if (specs != ct.live || images != ct.liveImages) {
+            // decisions AU.2: Main's records are pictures (no atlas offset in them; its programs name only its own region)
+            // and its END and `Same` run on the phone's own copies, so the change costs Main nothing but rows whose live
+            // paint may now differ (a face it draws went live): every row is painted again and compared, and only a row
+            // that differs is re-staged, by the paced re-stage path
+            stagePagesClear("the live font set changed")
+            mainBind.recheckAll()
+        }
         ct.live = specs
         ct.liveImages = images
         comp.cachedText = if (specs.isEmpty() && images.isEmpty()) null else ct
@@ -4045,6 +4056,18 @@ class Shell(
         stage.ring = null                  // sized from the session's cache at the first strip
     }
 
+    /** Decisions AU.2: Page staging's records go (and the `mainseq` probe's are not touched either way: it is refused at
+     *  stage 4), Main's own staging stays — for a reason that concerns Page staging only. */
+    private fun stagePagesClear(why: String) {
+        val gone = stage.records.values.filter { it.key !is MainStageKey }
+        for (r in gone) stage.remove(r)
+        // a write of one in flight completes as any other: its ack is counted, its record is no longer in the registry
+        stageClears++                                  // harnesses count a boundary by it
+        comp.placements = emptyList()
+        stageRecount()
+        if (gone.isNotEmpty()) journal.note("stage", "dropped ${gone.size} record(s) — $why")
+    }
+
     /** Every record and placement goes: nothing draws from the reserve until a strip is staged and
      *  proven again. [why] null = a session boundary (the start's own notes say so). */
     private fun stageClear(why: String?) {
@@ -4097,7 +4120,7 @@ class Shell(
         if (step * lineH > CfwModes.MAX_IMAGE2_H) return false     // a record is at most 2048 rows tall
         val gone = stage.retain(key, lineH, region.w)
         if (gone.isNotEmpty()) { stageRecount(); journal.note("stage", "dropped ${gone.size} record(s) of another layout") }
-        val ring = stage.ring ?: StageRing(st.cacheSize - CfwModes.STAGE_RESERVE, st.cacheSize).also { stage.ring = it }
+        val ring = stage.ring ?: StageRing(st.cacheSize - CfwModes.stageReserve(st.cacheSize, st.bind), st.cacheSize).also { stage.ring = it }
         // the count's base is owed before anything goes out (the backstop, as in `pumpAtlas`); the
         // reading of acked strips is [pumpLedger]'s, and staging writes nothing while a strip is
         // unproven — an unproven record is never drawn
@@ -5567,7 +5590,14 @@ class Shell(
         val shared0 = region.last + 1 == st.cacheSize
         val ms = try {
             // the bound list's pans only (AF.10); at 256 KiB Main's own region holds a second strip (AD.2)
-            MainStaging.assemble(pt, listD, bandD, st.cacheSize, region.first, region.last + 1, listOf(MainStaging.WHOLE), twoStrips = !shared0)
+            try { MainStaging.assemble(pt, listD, bandD, st.cacheSize, region.first, region.last + 1, listOf(MainStaging.WHOLE), twoStrips = !shared0) }
+            catch (e: wm.damage.core.geom.LintError) {
+                if (shared0) throw e
+                // decisions AU.1 (b): two strips do not fit Main's region — ONE strip is staged, and a row form's change
+                // withdraws the list as at 160 KiB; never "not staged" while one strip fits
+                MainStaging.assemble(pt, listD, bandD, st.cacheSize, region.first, region.last + 1, listOf(MainStaging.WHOLE), twoStrips = false)
+                    .also { journal.note("mainstage", "two strips do not fit Main's region (${e.message}) — one strip staged; a row form's change withdraws the list, as at 160 KiB") }
+            }
         } catch (e: wm.damage.core.geom.LintError) {
             mainBindRefused(what, "Main's rows cannot be staged: ${e.message} — the list stays unbound (its scrolls and taps go as today) until Main's layout, planes, rows or their content change, or the next session")
             return false
@@ -5585,7 +5615,12 @@ class Shell(
                 }
                 stage.records[r.key] = r
             }
-        } else for ((i, r) in recs.withIndex()) { r.off = ms.blobs[i].off; stage.records[r.key] = r }
+        } else {
+            // AU.1: a Page staging ring laid out before BIND (the 64 KiB reserve) reaches into Main's own region: its
+            // records go, and the ring is laid out again over the bound session's 32 KiB reserve at its next strip
+            stage.ring?.takeIf { it.start <= region.last }?.let { stagePagesClear("Main's own region takes the bytes below the stage reserve"); stage.ring = null }
+            for ((i, r) in recs.withIndex()) { r.off = ms.blobs[i].off; stage.records[r.key] = r }
+        }
         mainBindRefusedFor = null
         mainBind.begin(ms, recs, List(ms.rows) { main.rowKey(it) }, now)
         mainBindRefusalSaid = null
@@ -6406,7 +6441,7 @@ class Shell(
         val retaps = s.taps != settings.taps
         settings = s
         if (retaps) { local.taps(s.taps); post(Msg.Pump) }     // build C2 (§6.7 Switching): the tap entry's SET or CLEAR only
-        if (restage && s.pageStaging != "on") stageClear("the Page staging row is off")
+        if (restage && s.pageStaging != "on") stagePagesClear("the Page staging row is off")     // AU.2: not Main's region
         if (rebright) transport.setBrightness(s.brightnessAuto, s.brightness)
         if (relink) transport.setLinkPriority(s.linkPriority)
         if (recache) {

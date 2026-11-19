@@ -184,7 +184,7 @@ class MainSeqTest {
                 val to = cursors[i]
                 val step = to - from
                 assertEquals(0, b[2].toInt(), "PLAY ${i + 1}: slot 0")
-                assertEquals(42, b[3].toInt(), "PLAY ${i + 1}: the staging's period at 352 (decisions V)")
+                assertEquals(46, b[3].toInt(), "PLAY ${i + 1}: the staging's period at 352 (decisions V, AU.3)")
                 tags += u16(b, 6)
                 progs.getOrPut(step) { HashSet() } += u16(b, 4)
                 assertEquals(listOf(l.lens.y - (from + l.rowsAbove) * l.rowH, bandOff.getValue(to), bandOff.getValue(from), l.lens.bottom - (from + 1 + l.rowsAbove) * l.rowH),
