@@ -292,6 +292,44 @@ class RestModeTest {
 
     private fun scope() = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
+    // ------------------------------------------------------------------ the hold probe (the feel session)
+    /** `hold=on` (Adam, 2026-11-18: a hand-played test program's picture stays between plays): no frame is submitted
+     *  while it holds, the lease stays, and it ends at `hold=off` or at any input event — the shell then repaints.
+     *  Mutation watched: [Shell.pump]'s `if (testHold) return` removed (the notice's frame goes while holding). */
+    @Test
+    fun holdOnSubmitsNoFrameUntilHoldOffOrAnInputEvent(): Unit = runBlocking {
+        val scope = scope(); val r = Rig(scope)
+        try {
+            assertTrue(r.shell.devProbe("hold", "on"), "the name is the shell's even with no session")
+            assertEquals(listOf("hold=on not taken — no session"), r.notes("hold"))
+            r.up()
+            r.shell.devProbe("hold", "on"); r.barrier()
+            assertTrue(r.notes("hold").any { it.startsWith("holding — ") }, "${r.notes("hold")}")
+            val before = r.flushes()
+            // the surface changes — a notice, ticks — and nothing is sent. Not a gesture: an input ends the hold.
+            r.shell.services.notifyInternal("torrent", "done · something"); r.barrier()
+            repeat(3) { r.shell.postIdleTick(); r.shell.postMinuteTick(); r.barrier() }
+            delay(300); r.barrier()
+            assertEquals(before, r.flushes(), "no flush leaves while the shell holds")
+            assertTrue(r.leaseHeld(), "the lease stays through a hold")
+
+            r.shell.devProbe("hold", "off")
+            r.until("the held change is drawn after hold=off") { r.flushes() > before }
+            r.settle("released"); r.assertGlassMatchesBelief("after hold=off")
+            assertTrue(r.notes("hold").any { it == "released — probe hold=off; the shell repaints its own picture" }, "${r.notes("hold")}")
+
+            // any input event ends a hold, and is then handled as usual
+            r.shell.devProbe("hold", "on"); r.barrier()
+            val held = r.flushes()
+            r.sim.injectGesture(EvenHubMsg.EV_SCROLL_BOTTOM)
+            r.until("an input event ends the hold and its frame goes") { r.flushes() > held }
+            assertTrue(r.notes("hold").any { it == "released — an input event; the shell repaints its own picture" }, "${r.notes("hold")}")
+            r.shell.devProbe("hold", "off"); r.shell.devProbe("hold", "sideways"); r.barrier()
+            assertTrue(r.notes("hold").containsAll(listOf("hold=off — not holding", "hold=sideways not taken — on | off")), "${r.notes("hold")}")
+            r.keeper.stop()
+        } finally { r.close(); scope.cancel() }
+    }
+
     // ------------------------------------------------------------------ the probe: on
     /** Mutation watched: `restProbe`'s "on" enters nothing. */
     @Test

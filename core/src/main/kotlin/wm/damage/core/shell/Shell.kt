@@ -1186,6 +1186,7 @@ class Shell(
         sleep = null
         silentGen++
         sessionSerial++
+        testHold = false                  // the `hold=on` dev probe never crosses a session
         starting = false                  // P5 item 4: the start has its session — a ring event from here on is this session's
         restWakeWanted = false
         restAskNotTakenSaid = false
@@ -1596,6 +1597,7 @@ class Shell(
     }
 
     private fun handleInput(type: Int, source: Int) {
+        if (testHold) releaseHold("an input event")     // the `hold=on` dev probe never outlives a gesture
         // a ring event while the glasses are silent: the person is there —
         // check now rather than at the next pacing tick (§36, §37.0); the
         // input itself is handled normally, the surface stays current.
@@ -4732,6 +4734,20 @@ class Shell(
      * while a start was still on its way, or queued behind a stop, says so in a note and does nothing.
      */
     fun devProbe(name: String, value: String): Boolean {
+        if (name == "hold") {
+            Log.i("shell", "probe: $name=$value")
+            journal.note("probe", "$name=$value")
+            if (!running) {
+                journal.note("hold", "hold=$value not taken — no session")
+                return true
+            }
+            val serial = sessionSerial                          // captured once, on the caller's thread
+            post(Msg.Run(dropped = { journal.note("hold", "hold=$value not taken — the session ended") }) {
+                if (serial != sessionSerial) journal.note("hold", "hold=$value not taken — the session changed")
+                else holdProbe(value)
+            })
+            return true
+        }
         if (name != "rest") return false
         Log.i("shell", "probe: $name=$value")
         journal.note("probe", "$name=$value")
@@ -4745,6 +4761,31 @@ class Shell(
             else restProbe(value)
         })
         return true
+    }
+
+    /** The `hold=on|off` dev probe (the feel session, on Adam's word, 2026-11-18: "keep the blocks rather than going
+     *  back to text each time"): while on, [pump] submits no frame, so what a hand-played test program
+     *  (`probe motion=NAME`) left on the lenses stays there between plays. The lease, its renewals and the page traffic
+     *  go on — they are the transport's own loops — and nothing is sent for the hold itself. It ends at `hold=off`, at
+     *  ANY input event (which is then handled as usual) and with the session; the shell then repaints its own picture
+     *  over the test's. Loop-confined. */
+    private var testHold = false
+
+    private fun holdProbe(value: String) {
+        when (value) {
+            "on" -> if (testHold) journal.note("hold", "hold=on — already holding") else {
+                testHold = true
+                journal.note("hold", "holding — no frame is submitted until hold=off, an input event or the session's end")
+            }
+            "off" -> if (testHold) releaseHold("probe hold=off") else journal.note("hold", "hold=off — not holding")
+            else -> journal.note("hold", "hold=$value not taken — on | off")
+        }
+    }
+
+    private fun releaseHold(why: String) {
+        testHold = false
+        journal.note("hold", "released — $why; the shell repaints its own picture")
+        pumpAfter(0)
     }
 
     private fun restProbe(value: String) {
@@ -5992,6 +6033,8 @@ class Shell(
         comp.v2 = st.draw2 && !v2RefusedThisSession   // contract 2 (`FIRMWARE.md` §4): fills, the reseed, the hint
         // package G (G-design §1): a session with no carrier (a start that rested in Silent Mode) takes no frame
         if (!running || !st.started || !st.carrierUp) return
+        // the `hold=on` dev probe: a hand-played test program's picture stays on the lenses until the hold ends
+        if (testHold) return
         // a cache write that was not this shell's landed in the live cache mid-session (the self-test's
         // `live:` writes, 2026-09-15 review): the atlas's bytes on the glasses are no longer what it
         // packed, so nothing draws from them — pixels until the next session or a Cached text toggle

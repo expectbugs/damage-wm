@@ -30,6 +30,9 @@ on a radio — a host driving the glasses says it runs no such probe):
 watchdog sleep, the 60 s device-info READ goes on and each paced check sends one wear query; `off`, or any
 input event, which is then not delivered, rebuilds the session; every case that does nothing says why in a
 `rest` journal note, and `tools/journal_report.py` prints the battery %/h by state from the `power` notes)),
+`probe:hold=on|off` (APK 0.73+, the SHELL's own probe, on Adam's word only: while on, the shell submits no frame, so a
+hand-played test program's picture stays on the lenses between plays; the lease and the page traffic go on; `off`, any
+input event or the session's end releases it and the shell repaints),
 `selftest:PATH.json` (a conformance vector — `firmware/vectors/v1-*.json`, `v2-*.json` —
 driven through the glasses' self-test step by step; after each step RIGHT's telemetry is
 read from the host's `/log` and its scratch CRC, refusal and the refusal record's mode
