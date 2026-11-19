@@ -337,6 +337,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
 
     private fun phoneReport(a: DamageMsg.Applied, g: Int) {
         beforeReport?.let { beforeReport = null; it() }
+        if (g >= 0 && g !in reportHeardAt) reportHeardAt[g] = now
         val v = rules.report(a, row, now)
         trace?.invoke("[$now] phone 115 g$g ${a.describe()} row $row → $v")
         verdicts += g to v
@@ -347,6 +348,9 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
 
     private fun phoneStock(st: LocalRules.Stock, g: Int) {
         val v = rules.stock(st, row, now)
+        // decisions BC: a stock message applied as today whose own report was heard before a SETTLE that went before it —
+        // an echo later than its burst's SETTLE (its owe was cleared there); the fuzz counts the (8) it causes apart
+        if (v is LocalRules.Verdict.Apply && reportHeardAt[g]?.let { lastSettleAt > it } == true) lateEchoes += g
         trace?.invoke("[$now] phone stock g$g $st row $row → $v")
         verdicts += g to v
         apply(v, g, null)
@@ -392,6 +396,11 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     var wrapPlays = 0
     var wrapOpen = false
     var wrapCuts = 0
+    /** Decisions BC: when the phone handled each gesture's report; when it last sent a SETTLE; the gestures whose stock
+     *  message came after a SETTLE that followed their report and was applied as today. */
+    val reportHeardAt = HashMap<Int, Long>()
+    var lastSettleAt = Long.MIN_VALUE
+    val lateEchoes = HashSet<Int>()
     fun back() { if (!window) return; window = false; if (!covered) rules.front(bound, row); pumpSoon() }
     fun toggleBadge() { badge = !badge; pumpSoon() }
     fun tick() { clock++; pumpSoon() }
@@ -664,6 +673,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         if (all.isEmpty()) return
         lastBatch = all
         for (s in tail) if (s[0].toInt() == 26 && s[1].toInt() == 3) commitsSent += (s[3].toInt() and 0xFF) or ((s[4].toInt() and 0xFF) shl 8)
+        if (tail.any { it[0].toInt() == 26 && it[1].toInt() == 5 }) lastSettleAt = now
         fun image(subs: List<ByteArray>): ByteArray? = when {
             subs.isEmpty() -> null
             subs.size == 1 && (subs[0][0].toInt() == 26 || subs[0][0].toInt() == 27) -> subs[0]
@@ -681,7 +691,13 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         }
         var inducedOn: Arm? = null
         val r27 = refuse27On
-        if (r27 != null && tail.any { it[0].toInt() == 27 }) { refuse27On = null; inducedOn = r27; lossyMessages++ }
+        if (r27 != null && tail.any { it[0].toInt() == 27 }) {
+            refuse27On = null; inducedOn = r27; lossyMessages++
+            // decisions BC: a COMMIT behind the mode 27 RIGHT refuses does not run there (the refused sub ends the batch)
+            // — row A of decisions W, as for a lost answer
+            val i27 = tail.indexOfFirst { it[0].toInt() == 27 }
+            if (r27 == Arm.RIGHT && tail.drop(i27 + 1).any { it[0].toInt() == 26 && it[1].toInt() == 3 }) commitMissedRight = true
+        }
         val rt = refuseTailOn
         if (rt != null && tail.isNotEmpty()) { refuseTailOn = null; inducedOn = rt }
         // the fix round's row for the lead: a COMMIT that does not land on RIGHT alone (its batch refused there, or the

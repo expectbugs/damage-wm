@@ -35,6 +35,18 @@ class LocalSequenceFuzzTest {
 
     class Verdict(val failed: List<String>, val counted: Map<String, Int>, val stats: String = "")
 
+    /** Decisions BC: the declared count for a gesture that moved the row twice because its stock message came after its
+     *  burst's SETTLE (its owe cleared there) and was applied as today — a residual shape, counted with its seed; every
+     *  other (8) fails. Random sequences only: a seeded case counts nothing apart. */
+    private val lateEchoKey = "(8) BC: an echo later than its burst's SETTLE"
+    private fun moved(h: LocalHarness, failed: MutableList<String>, counted: MutableMap<String, Int>, seeded: Boolean, suffix: String) {
+        for ((g, n) in h.moves) {
+            if (n <= 1) continue
+            if (!seeded && g in h.lateEchoes) counted[lateEchoKey] = (counted[lateEchoKey] ?: 0) + 1
+            else failed += "(8) gesture $g moved the row $n times$suffix"
+        }
+    }
+
     // ----------------------------------------------------------------------------------------- the invariants
     /** (1)–(5) and (8) at rest; [lossy]: a mode-27 message was lost or refused this sequence. */
     fun atRest(h: LocalHarness, failed: MutableList<String>, counted: MutableMap<String, Int>, seeded: Boolean = false) {
@@ -65,8 +77,8 @@ class LocalSequenceFuzzTest {
             if (h.lossyMessages == 0) failed += "(5) refused: ${h.refusals.distinct().joinToString("; ")}"
             else counted["(5) after a lost or refused mode 27"] = (counted["(5) after a lost or refused mode 27"] ?: 0) + 1
         }
-        // (8)
-        for ((g, n) in h.moves) if (n > 1) failed += "(8) gesture $g moved the row $n times"
+        // (8) — decisions BC: an echo later than its burst's SETTLE is counted apart in random sequences
+        moved(h, failed, counted, seeded, "")
         // (2)'s cause, read directly (decisions AA.1): a COMMIT never rides a batch whose drawing meets its areas
         if (h.commitOverDraw.isNotEmpty()) failed += "(2) a COMMIT rode a batch with a drawing sub inside its areas at ${h.commitOverDraw}"
         // the fix round's row for the lead (`C2-DP2-built.md`, the fix round, row A): after a COMMIT that did not land on
@@ -166,7 +178,7 @@ class LocalSequenceFuzzTest {
             val k = if (right.isEmpty()) "row A, after the liveness COMMITs: RIGHT agrees" else "row A, after the liveness COMMITs: RIGHT still differs"
             counted[k] = (counted[k] ?: 0) + 1
         }
-        for ((g, k) in h.moves) if (k > 1) failed += "(8) gesture $g moved the row $k times (liveness)"
+        moved(h, failed, counted, false, " (liveness)")
         if (h.commitOverDraw.isNotEmpty()) failed += "(2) a COMMIT rode a batch with a drawing sub inside its areas at ${h.commitOverDraw} (liveness)"
         // decisions AA.1: the answers that are a COMMIT with the areas' drawing held back — each a DISCARD under the rule before
         if (h.heldCommits > 0) {
@@ -618,6 +630,7 @@ class LocalSequenceFuzzTest {
         val bases = System.getenv("LOCAL_FUZZ_BASES")?.split(',')?.map { it.trim().toLong() } ?: listOf(1L, 1001L)
         val fails = ArrayList<String>()
         val counted = HashMap<String, Int>()
+        val declaredSeeds = java.util.TreeMap<String, MutableList<Long>>()
         // `LOCAL_FUZZ_SEEDS=a,b`: exactly these seeds (reading a failure under one rule and another)
         val only = System.getenv("LOCAL_FUZZ_SEEDS")?.split(',')?.map { it.trim().toLong() }
         val seeds = only ?: bases.flatMap { base -> (0 until n).map { i -> base * 100_000 + i } }
@@ -625,7 +638,10 @@ class LocalSequenceFuzzTest {
             val v = try { randomSequence(seed) } catch (e: Throwable) { Verdict(listOf("threw: $e"), emptyMap()) }
             for (f in v.failed) fails += "seed $seed: $f"
             for ((k, c) in v.counted) counted[k] = (counted[k] ?: 0) + c
+            // decisions BC: the declared shapes, with their seeds
+            for (k in v.counted.keys) if (k.startsWith("(8) BC") || k.startsWith("row A: a batch")) declaredSeeds.getOrPut(k) { ArrayList() } += seed
         }
+        println("declared (BC): " + declaredSeeds.entries.joinToString("; ") { (k, s) -> "$k ${s.size} sequence(s): ${s.joinToString()}" })
         println("sequence fuzz: ${seeds.size} sequences (${if (only != null) "seeds ${only.joinToString()}" else "bases ${bases.joinToString()}"}), ${fails.size} failures; counted $counted")
         if (fails.isNotEmpty()) fail(fails.take(30).joinToString("\n") + "\n(${fails.size} in all)")
     }
