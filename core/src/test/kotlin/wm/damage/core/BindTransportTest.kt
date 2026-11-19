@@ -616,7 +616,8 @@ class BindTransportTest {
     }
 
     /** §6.8: a restart of the phone's process keeps all of it — a new transport over the same file arms stage 3 while the
-     *  hold-back stands, says it once more as the restore, keeps `Taps`, and the case-in it then hears lifts it. */
+     *  hold-back stands, says it once more as the restore, and the case-in it then hears lifts it (`Taps` is the shell's
+     *  setting since stage DP2, kept with every Settings row). */
     @Test
     fun aRestartOfTheProcessKeepsAllOfIt_6_8(): Unit = runBlocking {
         var clock = day0
@@ -644,7 +645,6 @@ class BindTransportTest {
         assertEquals(0x3c, t2.state.value.flagsInForce, "lifted in the new process: ${said()}")
         t2.devProbe("local", "state")
         waitUntil(10_000, message = { "the state note" }) { has("local", "state: on; stage 4 (arms 4)") }
-        assertTrue(has("local", "Taps glasses"), said("local"))
         t2.stop()
     }
 
