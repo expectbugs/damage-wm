@@ -71,11 +71,40 @@ class MainBindTest {
         b.changed(tor); b.submitted(r, StagedRecord(MainStageKey(ms, 1000 + tor, "re-stage"), Gray8(1, 1), ByteArray(4)), 1L)
         val second = b.list!!
         assertTrue(second.names(tor, down, down.prog4, pOld), "adopted before the acknowledgement")
-        b.releaseIfDue(b.patches.single(), acked = true, burstOpen = true, entriesSent = true)
+        b.releaseIfDue(b.patches.single(), acked = true, burstOpen = true)
         second.paintEnd!!(true, down.prog4, pOld, Gray8(640, 480))      // the COMMIT planned in the burst: still paintable
         assertTrue(second.previous != null, "kept while the burst is open")
-        b.releaseIfDue(b.patches.single(), acked = true, burstOpen = false, entriesSent = true)
+        b.releaseIfDue(b.patches.single(), acked = true, burstOpen = false)
         assertNull(second.previous, "released once no burst is open")
+    }
+
+    /** AD.2 (follow-up FC): a strip switch is released only once the flush that carried the SETs naming the new strip has
+     *  completed, not when the rules built them (a fire before a lens applied them draws the old pan, and its report comes
+     *  before that flush's ack); a flush that failed leaves it for the next one; a new session forgets the flush in flight. */
+    @Test
+    fun aStripSwitchIsReleasedWhenItsSetsLand_AD2() {
+        val rows = MainLocalCheck.sampleRows()
+        val rig = MainLocalCheck.MainRig(BoxFace, 352, rows)
+        val ms = rig.staging(256 * 1024, CfwModes.mainRegion(256 * 1024, true))
+        val b = wm.damage.core.shell.MainBinding()
+        val keys = { List(ms.rows) { rig.surface.rowKey(it) } }
+        b.begin(ms, emptyList(), keys(), 0L)
+        val mus = rows.indexOfFirst { it.id == "music" }
+        rows[mus].s = rows[mus].s.copy(line = "Night Drive - Low Tides")
+        rig.repainted()
+        b.keysChanged(keys())
+        val r = ms.restage(mus, rig.view, rig.kit, { _, f -> f() }) as MainStaging.Restage.Changed
+        assertEquals(1, r.toStrip, "a row form change at 256 KiB goes to the other strip: stripB ${ms.stripB != null} strip ${r.strip.map { it.what }} band ${r.band != null}")
+        b.changed(mus); b.submitted(r, StagedRecord(MainStageKey(ms, 1000 + mus, "re-stage"), Gray8(1, 1), ByteArray(4)), 1L)
+        val p = b.patches.single(); val list = b.list!!
+        fun kept(what: String) { b.releaseIfDue(p, acked = true, burstOpen = false); assertTrue(list.previous != null && !p.released, what) }
+        b.tailSent(5L, entriesHeld = false); kept("a flush before the rules hold the new pans is not the SETs'")
+        b.tailSent(6L, entriesHeld = true); b.tailDone(5L, ok = true); kept("sent is not landed: the SETs' flush in flight")
+        b.tailDone(6L, ok = false); kept("that flush failed: the next one carries them")
+        b.tailSent(7L, entriesHeld = true); b.tailsForgotten(); b.tailDone(7L, ok = true); kept("a new session forgets the flush in flight")
+        b.tailSent(8L, entriesHeld = true); b.tailDone(8L, ok = true)
+        b.releaseIfDue(p, acked = true, burstOpen = false)
+        assertNull(list.previous, "released once the SETs landed")
     }
 
     /** Decisions AF.8: ONE re-stage per pace in all — the row owed longest first, the next one a whole pace later. */
@@ -94,7 +123,7 @@ class MainBindTest {
         assertEquals(mus, b.nextOwed(10_000L), "the stalest first")
         val r = ms.restage(mus, rig.view, rig.kit, { _, f -> f() }) as MainStaging.Restage.Changed
         b.submitted(r, StagedRecord(MainStageKey(ms, 1000 + mus, "re-stage"), Gray8(1, 1), ByteArray(4)), 10_000L)
-        b.releaseIfDue(b.patches.single(), acked = true, burstOpen = false, entriesSent = true)
+        b.releaseIfDue(b.patches.single(), acked = true, burstOpen = false)
         assertNull(b.nextOwed(14_000L), "the other row waits for the pace in all, not its own")
         assertEquals(tor, b.nextOwed(15_000L), "then the next")
     }

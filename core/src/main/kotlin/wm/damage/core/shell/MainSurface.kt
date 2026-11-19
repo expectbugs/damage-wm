@@ -67,8 +67,12 @@ class MainSurface(
     override fun shift(from: wm.damage.core.local.BoundList, to: wm.damage.core.local.BoundList): Int = 0
 
     /** What a row's staged picture is drawn from, compared at every compose: a change marks the row for its re-stage
-     *  (`MainBinding`). The theme's icons and the faces are not in it: a round-robin repaint catches those. */
-    internal fun rowKey(index: Int): Any? = windows().getOrNull(index)?.let { w -> listOf(w.name, w.icon, w.summary(), w.needs.isNotEmpty()) }
+     *  (`MainBinding`). The theme's icons and the faces are not in it: a round-robin repaint catches those. The progress
+     *  is the bar's lit blocks, as both forms draw it (decisions AL.1: a playing track's position moves at every read). */
+    internal fun rowKey(index: Int): Any? = windows().getOrNull(index)?.let { w ->
+        val s = w.summary()
+        listOf(w.name, w.icon, s.copy(progress = s.progress?.let { Icons.blocksLit(it).toDouble() }), w.needs.isNotEmpty())
+    }
 
     private fun paintRow(g: Gray8, index: Int, r: Rect, dim: Boolean) {
         val w = windows().getOrNull(index) ?: return

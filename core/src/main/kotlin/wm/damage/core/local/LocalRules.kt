@@ -675,7 +675,8 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
     }
 
     private fun snapback(st: Slot, n: Int, row: Int, nowMs: Long, frame: Boolean, denied: Set<Int>) {
-        if (st.handled.isEmpty() && st.moved == REBIND) { count(REBIND); return }      // AF.2: a return names the row
+        // AF.2: a return names the row — with an adopted report before its batch too (AL.6, R4: nothing was discarded)
+        if (st.moved == REBIND && st.handled.none { !it.adopted && !it.tap }) { count(REBIND); return }
         if (st.handled.isNotEmpty() && st.handled.all { it.tap }) return            // a tap's DISCARD: its tapdrop or act says it
         val first = st.handled.firstOrNull { !it.adopted && !it.tap }
         val cause = first?.cause ?: st.moved ?: st.discard ?: if (n in denied) "focus" else "lost-report"

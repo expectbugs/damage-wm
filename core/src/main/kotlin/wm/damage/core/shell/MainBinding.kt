@@ -57,6 +57,10 @@ internal class MainBinding {
     class Patch(val row: Int, val record: StagedRecord, val restage: MainStaging.Restage.Changed) {
         /** Its band switch has been acknowledged and the old slot released. */
         var released = false
+        /** A strip switch (AD.2): the flush that carried the rules' SETs naming the new strip, while it is in flight. */
+        var setsFlush: Long? = null
+        /** ... and that flush completed: both lenses hold the new pans, so no later fire draws the old strip. */
+        var setsLanded = false
     }
     val patches = ArrayList<Patch>()
 
@@ -171,10 +175,26 @@ internal class MainBinding {
 
     /** Decisions AF.4 and AD.2: a switch's old version (the retired band slot, the other strip's pans) is released only
      *  when no report can still name it — its write [acked], no burst open (a report adopted before the ack may still be
-     *  COMMITted from it), and for a strip switch the rules holding the entries that name the new strip ([entriesSent]). */
-    fun releaseIfDue(p: Patch, acked: Boolean, burstOpen: Boolean, entriesSent: Boolean) {
-        if (acked && !burstOpen && (p.restage.toStrip == null || entriesSent)) switchAcked(p)
+     *  COMMITted from it), and for a strip switch the flush carrying the SETs that name the new strip completed
+     *  ([Patch.setsLanded]): a fire before a lens applies them draws the old pan, and its report comes before that ack. */
+    fun releaseIfDue(p: Patch, acked: Boolean, burstOpen: Boolean) {
+        if (acked && !burstOpen && (p.restage.toStrip == null || p.setsLanded)) switchAcked(p)
     }
+
+    /** A flush [id] carrying the rules' messages was submitted; [entriesHeld]: the rules now hold the offered list's scroll
+     *  entries (their SETs were in it, or before it). A strip switch waiting for its SETs takes this flush as theirs. */
+    fun tailSent(id: Long, entriesHeld: Boolean) {
+        if (entriesHeld) for (p in patches) if (p.restage.toStrip != null && !p.setsLanded && p.setsFlush == null) p.setsFlush = id
+    }
+
+    /** The flush [id] completed: its strip switches' SETs landed ([ok]), or not — a later flush carries them again (the
+     *  table sent again after a refusal, a new session's start). */
+    fun tailDone(id: Long, ok: Boolean) {
+        for (p in patches) if (p.setsFlush == id) { if (ok) p.setsLanded = true; p.setsFlush = null }
+    }
+
+    /** A new session: the flushes in flight are not this session's; the start's own batch SETs the entries again. */
+    fun tailsForgotten() { for (p in patches) p.setsFlush = null }
 
     /** A re-stage's flush was acknowledged: its band switch (if any) is released — the old slot is free again and the
      *  list forgets its [BoundList.previous]. */

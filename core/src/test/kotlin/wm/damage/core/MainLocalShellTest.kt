@@ -50,28 +50,38 @@ import wm.damage.core.wire.EvenHubMsg
 class MainLocalShellTest {
 
     private class Row(id: String, name: String, var s: DamageWindow.Summary) : DamageWindow(id, name, IconKind.FILES) {
+        /** A playing track's position (decisions AL.1): the progress read from the clock at every read, as Music's. */
+        @Volatile var progress: (() -> Double)? = null
         override fun view(): WindowView = WindowView.ListView(ListModel(), { 0 }, { _, _, _, _ -> }, { _, _, _ -> }, {})
-        override fun summary() = s
+        override fun summary() = progress?.let { s.copy(progress = it()) } ?: s
         override fun saveState(): JsonObject = JsonObject(emptyMap())
         override fun restoreState(state: JsonObject) {}
     }
 
-    private class Rig(val taps: Taps, val stage: Int = 4, nRows: Int = 7) {
+    /** [kib256]: the transport made over a stored ladder record that holds stage 4 and a 256 KiB last session (decisions
+     *  AD.1, `LadderRecord.sessionKib`), so its first start asks 256 KiB and Main stages into its own region; the start
+     *  rig's mirror is its own model of the phone's bytes, as on glass (not the lens, as `SimTransport`'s is). */
+    private class Rig(val taps: Taps, val stage: Int = 4, nRows: Int = 7, val kib256: Boolean = false) {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val tmp = Files.createTempDirectory("damage-mainlocal")
         val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = 0x5ff }
-        val t = SimTransport(sim, scope, SimTransport.Timing(instant = true))
+        val t: wm.damage.core.transport.CfwTransportBase = if (!kib256) SimTransport(sim, scope, SimTransport.Timing(instant = true))
+            else StartRig(sim, scope, c1StageFile = tmp.resolve("c1-stage").also { f ->
+                Files.writeString(f, wm.damage.core.transport.LadderRecord(stage = 4, sessionKib = 256).encode()) })
         val journal = tmp.resolve("journal.jsonl")
         val shell = Shell(CachedText(FakeText()), t, Persistence(tmp.resolve("state.json")), journal, scope) { Shell.LocalClock(12, 0, "12:00", "PM") }
         val rows = (0 until nRows).map { Row("w$it", "Win $it", DamageWindow.Summary("summary $it", detail = "detail of $it", progress = if (it == 3) 0.25 else null)) }
         /** RIGHT's top-level images, in order. */
         val right = java.util.concurrent.CopyOnWriteArrayList<ByteArray>()
         @Volatile var onImage: ((ByteArray) -> Unit)? = null
+        /** Every top-level image either lens is handed, before it is handled (the first arm to see one: neither has it yet,
+         *  and both have every image before it). */
+        @Volatile var onAnyImage: ((Arm, ByteArray) -> Unit)? = null
 
         init {
             for (r in rows) shell.register(r)
-            t.devProbe("c1", "$stage")
-            sim.imageObserver = { a, img -> if (a == Arm.RIGHT) { right += img; onImage?.invoke(img) } }
+            if (!kib256) t.devProbe("c1", "$stage")
+            sim.imageObserver = { a, img -> onAnyImage?.invoke(a, img); if (a == Arm.RIGHT) { right += img; onImage?.invoke(img) } }
             // the glasses' engine thread: a step due is drawn
             scope.launch { while (true) { val now = System.currentTimeMillis(); for (a in Arm.entries) sim.conformanceWake(a, now); delay(4) } }
         }
@@ -464,11 +474,15 @@ class MainLocalShellTest {
         val r = Rig(Taps.REPORT)
         try {
             r.up()
+            // the start's own settings changes scheduled a save (2 s after the last): let it go first, so the only save
+            // that can carry the notch's row is one the notch itself asks for
+            val state = r.tmp.resolve("state.json")
+            fun storedCursor(): String? = if (!Files.exists(state)) null else Regex("""mainCursor\W+(\d+)""").find(Files.readString(state))?.groupValues?.get(1)
+            delay(2_600); r.settle("no save pending")
+            assertEquals("0", storedCursor(), "the stored record before the notch")
             r.fire(CfwModes.EV_UPROLL)
             r.until("adopted") { r.row() == 1 }
-            r.until("Main's cursor in the stored record", 6_000) {
-                Files.exists(r.tmp.resolve("state.json")) && Regex("""mainCursor\W+1\b""").containsMatchIn(Files.readString(r.tmp.resolve("state.json")))
-            }
+            r.until("Main's cursor in the stored record after the adopted notch", 4_000) { storedCursor() == "1" }
             r.shell.devProbe("hold", "on")
             r.until("hold refused") { r.notes("hold").any { it.startsWith("hold=on not taken — BIND is in force") } }
         } finally { r.close() }
@@ -486,6 +500,21 @@ class MainLocalShellTest {
             r.settle("opened")
             val first = Files.readAllLines(r.journal).drop(lines0).first { "\"ev\":\"submit\"" in it && "\"label\":\"WINDOW" in it }
             assertTrue("\"in\":1" in first, "the act's first flush marked as input: ${first.take(300)}")
+        } finally { r.close() }
+    }
+
+    /** Decisions AL.5: a ring Input the rules read is no gesture of its own pump (its echo consumed marks nothing; a verdict
+     *  that applies or acts on it marks its own); one they do not read (the temples, a typed line) is. */
+    @Test
+    fun anInputTheRulesReadDoesNotMarkItsPump_AL5(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT)
+        try {
+            r.up()
+            val ring = wm.damage.core.transport.TransportEvent.Input(EvenHubMsg.EV_SCROLL_BOTTOM, EvenHubMsg.SRC_RING)
+            val temple = wm.damage.core.transport.TransportEvent.Input(EvenHubMsg.EV_SCROLL_BOTTOM, EvenHubMsg.SRC_GLASSES_R)
+            assertEquals(false, r.onLoop { r.shell.marksInput(ring) }, "a ring scroll the rules read")
+            assertEquals(true, r.onLoop { r.shell.marksInput(temple) }, "a temple scroll")
+            assertEquals(true, r.onLoop { r.shell.marksInput(wm.damage.core.transport.TransportEvent.Text("x")) }, "a typed line")
         } finally { r.close() }
     }
 
@@ -510,9 +539,106 @@ class MainLocalShellTest {
             val dense = "W".repeat(80)
             for (w in r.rows) { w.s = w.s.copy(line = dense, detail = dense); r.shell.services.requestRender(w) }
             r.until("refused", 20_000) { r.notes("mainstage").any { it.startsWith("Main's rows cannot be staged") } }
+            // decisions AL.1: the dense rows with a bar each (other sizes) are refused again for the same reason, said once
+            for (w in r.rows) { w.s = w.s.copy(progress = 0.75); r.shell.services.requestRender(w) }
+            r.settle("refused again"); delay(300); r.settle("refused again")
+            assertEquals(1, r.notes("mainstage").count { it.startsWith("Main's rows cannot be staged") },
+                "the refusal said once for one reason: ${r.notes("mainstage").filter { it.startsWith("Main's rows cannot") }}")
             for ((i, w) in r.rows.withIndex()) { w.s = DamageWindow.Summary("s $i", detail = "d $i"); r.shell.services.requestRender(w) }
             r.until("staged again", 20_000) { r.notes("mainstage").count { it.startsWith("staged") } >= 2 }
             r.bound("bound again")
+        } finally { r.close() }
+    }
+
+    /** Decisions AL.6 (R1): the shell is not quiescent while the held cells wait for an adopted motion's end ((T + 1) × P
+     *  after the report, ≈ 250 ms here): a harness settles after the release, with the repaint sent. */
+    @Test
+    fun theShellIsNotQuiescentWhileHeldCellsWait_AL6(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT)
+        try {
+            r.up()
+            r.fire(CfwModes.EV_UPROLL)
+            r.until("adopted") { r.row() == 1 }
+            val samples = ArrayList<Boolean>()
+            val t0 = System.currentTimeMillis()
+            while (System.currentTimeMillis() - t0 < 100) { samples += r.shell.isQuiescent(); delay(5) }
+            r.settle("the motion ended")
+            assertTrue(samples.none { it }, "not quiescent during the wait: ${samples.count { it }} of ${samples.size} samples quiescent")
+        } finally { r.close() }
+    }
+
+    /** Decisions AL.1: Main's row key carries what Main draws — with a track playing (row 3's progress moving at every
+     *  read, as `MusicWindow.summary` gives it) Main is staged and bound within seconds, and the loop rests between the
+     *  bar's block changes (here one per 22.5 s). V2 reader B's probe, inverted. */
+    @Test
+    fun aPlayingTracksProgressLetsMainBeStagedAndTheLoopRest_AL1(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT)
+        try {
+            val t0 = System.nanoTime()
+            r.rows[3].progress = { ((System.nanoTime() - t0) / 1e6 % 180_000) / 180_000.0 }
+            r.up()                                                    // bound, within up()'s wait
+            var samples = 0; var quiet = 0
+            val start = System.currentTimeMillis()
+            while (System.currentTimeMillis() - start < 2_000) { samples++; if (r.shell.isQuiescent()) quiet++; delay(40) }
+            assertTrue(quiet > samples / 2, "the loop rests while the track plays: quiescent in $quiet of $samples samples")
+        } finally { r.close() }
+    }
+
+    /**
+     * Decisions AD.2 in the shell (follow-up FC), on a 256 KiB session with BIND in force (the stored record's last size,
+     * AD.1): Main's own region holds a second strip, and a row form's change writes the new strip there and SETs the
+     * entries to the pans that name it — no CLEAR of the entries, no unbound moment. A notch before the switch, one fired
+     * between the write and the SETs (when the first lens is handed the batch that SETs the new pans: both lenses then hold
+     * the new strip and the old entries), and one after: each adopted and COMMITted, belief equal to both lenses after
+     * each, the staging's active strip the other one, RIGHT's entries naming its pans. (The same at 160 KiB withdraws and
+     * returns on the right row: `aRowFormChangeWithdrawsTheListAndANotchInBetweenGoesAsToday_DI`.)
+     */
+    @Test
+    fun aRowFormChangeAt256KiBSwitchesStripsWithNoWithdrawal_AD2(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, kib256 = true)
+        try {
+            r.up()
+            assertEquals(256 * 1024, r.t.state.value.cacheSize, "a 256 KiB session from the stored record")
+            assertTrue(r.onLoop { r.shell.mainBinding.staging?.stripB != null }, "Main's own region holds a second strip")
+            val list0 = r.list()
+            val oldProgs = list0.entries.filter { !it.isTap }.map { it.prog4 }.toSet()
+            notch(r, CfwModes.EV_UPROLL, "the notch before the switch")
+            delay(LocalRules.Q_MS + 200); r.settle("the burst closed")
+            val at = r.right.size
+            var between: Int? = null
+            r.onAnyImage = { _, img ->
+                if (between == null && r.subs(img).any { r.isSub(it, 27, 0) && r.u16(it, 9) !in oldProgs && r.u16(it, 9) != 0xFFFF })
+                    between = r.fire(CfwModes.EV_UPROLL)
+            }
+            r.rows[3].s = r.rows[3].s.copy(line = "summary 33")
+            r.shell.services.requestRender(r.rows[3])
+            r.until("a notch fired between the strip's write and the SETs", 15_000) { between != null }
+            r.onAnyImage = null
+            val sB = between!!
+            delay(((list0.entries.first { it.eventId == CfwModes.EV_UPROLL }.let { (it.program!!.T + 1) * it.period }) * 1000L) / 1024 + LocalRules.Q_MS + 200)
+            r.settle("after the notch between")
+            assertEquals(2, r.row(), "the notch between was adopted")
+            assertTrue(r.right.drop(at).any { img -> r.subs(img).any { r.isCommit(it, sB) } }, "the notch between was COMMITted (S $sB): " +
+                "applied ${r.notes("applied").takeLast(2)}; snapback ${r.notes("snapback").takeLast(2)}; mainstage ${r.notes("mainstage").takeLast(3)}; " +
+                "answers ${r.right.drop(at).flatMap { img -> r.subs(img).filter { it[0].toInt() == 26 || it[0].toInt() == 27 }.map { x -> x.joinToString("") { "%02x".format(it) } } }.take(12)}")
+            r.assertOracle("after the notch between the write and the SETs")
+            notch(r, CfwModes.EV_UPROLL, "the notch after the switch")
+            val list1 = r.list()
+            val newDown = list1.entries.first { it.eventId == CfwModes.EV_UPROLL }.prog4
+            assertTrue(newDown !in oldProgs, "the offered list names the other strip's pans")
+            assertEquals(1, r.onLoop { r.shell.mainBinding.staging!!.activeStrip }, "the strip switched")
+            assertEquals(newDown, r.sim.bindForTest(Arm.RIGHT).entries.filterNotNull().first { it.eventId == CfwModes.EV_UPROLL }.prog, "RIGHT's entry names the new pan")
+            assertTrue(r.notes("applied").last().contains("prog $newDown"), "the last notch drew the new strip's pan: ${r.notes("applied").last()}")
+            assertTrue(r.right.drop(at).none { img -> r.subs(img).any { r.isSub(it, 27, 1) } }, "no CLEAR of the entries: no unbound moment")
+            assertTrue(r.notes("mainstage").none { it.startsWith("withdrawn") }, "no withdrawal: ${r.notes("mainstage").filter { it.startsWith("withdrawn") }}")
+            assertTrue(r.notes("snapback").isEmpty() && r.notes("repair").isEmpty(), "no snap-back and no table repair: " +
+                "${r.notes("snapback")} ${r.notes("repair")}")
+            // AL.4: the second strip slot went with the base records, so the switch's flush carries only the changed row
+            val staged = r.notes("mainstage").first { it.startsWith("staged") }
+            val restaged = r.notes("mainstage").first { it.startsWith("row 3 re-staged") }
+            val stripB = Regex("""its second slot (\d+) B""").find(staged)?.groupValues?.get(1)?.toInt()
+            val switchB = Regex("""re-staged — (\d+) B""").find(restaged)!!.groupValues[1].toInt()
+            assertTrue(stripB != null && switchB < stripB / 2, "the second slot staged with the base records ($staged); the switch's flush small ($restaged)")
         } finally { r.close() }
     }
 
