@@ -1148,8 +1148,9 @@ a window when it pops up."* As built (build NT):
   queued behind the box, or a new body for its thread, leaves the timer where it is — a reset he
   sees is one his input made.
 - A step is one small flush paced on the shell's loop, never in the input's reserved slot
-  (modeled, contract 2 with Cached text on: 80 / 120 / 146–186 B for a 1 / 2 / 3-line box; the
-  reset 96 / 136 / 161–179 B; as pixels with Cached text off 0.3–0.6 / 0.9–1.1 / 1.4–1.7 KB).
+  (modeled, contract 2 with Cached text on: 80 / 120 / 186 B for a 1 / 2 / 3-line box, 82 B where
+  the body's level holds; the reset 96 / 136 / 179 B; as pixels with Cached text off 0.3–0.6 /
+  0.9–1.1 / 1.4–1.7 KB).
 - Unchanged: the next box of a queue being cleared arrives focused (bar whole, full ink); the
   silent-mode box has no bar, no fade and its 5 s drop; with the wheel open the timer waits; on
   an unfocused box gestures go to the window under it; no new dismissal. The emergency band runs
