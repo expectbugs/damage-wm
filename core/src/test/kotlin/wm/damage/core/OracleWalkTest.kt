@@ -2,6 +2,7 @@ package wm.damage.core
 
 import java.nio.file.Files
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -58,12 +59,14 @@ class OracleWalkTest {
      *  per-lens draws, fills, the reseed and a mode-24 hint on every flush whose rows fit, with the
      *  model keeping only the hinted rows on its panel — so a hint that misses a changed row fails
      *  the oracle here (2026-09-15, the second review: the standing gates had never run contract 2). */
-    private class Rig(height: Int, seed: Long, contract: Int = 1, cached: Boolean = false) {
+    private class Rig(height: Int, seed: Long, contract: Int = 1, cached: Boolean = false, val stage4: Boolean = false) {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val tmp: java.nio.file.Path = Files.createTempDirectory("damage-walk")
         val store = Persistence(tmp.resolve("state.json"))
-        val sim = GlassFirmwareSim().also { if (contract > 1) it.damageContract = contract }
-        val transport = SimTransport(sim, scope, SimTransport.Timing(instant = true))
+        // build C2, stage DM2: a bit-10 build (DamageCaps 0x5ff) at the ladder's stage 4, so BIND is in force and the
+        // shell stages Main's list
+        val sim = GlassFirmwareSim().also { if (contract > 1) it.damageContract = contract; if (stage4) it.damageFeatures = 0x5ff }
+        val transport = SimTransport(sim, scope, SimTransport.Timing(instant = true)).also { if (stage4) it.devProbe("c1", "4") }
         val clock = Shell.LocalClock(12, 0, "12:00", "PM")
         val text = if (cached) wm.damage.core.comp.CachedText(FakeText()) else FakeText()
         val shell = Shell(text, transport, store, null, scope) { clock }
@@ -77,6 +80,8 @@ class OracleWalkTest {
             shell.register(GamesWindow(FakeText(), scope) { 1_757_000_000_000L })
             shell.register(SurfaceWindow())
             shell.register(WalkDocWindow())
+            // the glasses' engine thread: a step due is drawn (the model draws only when woken, as `MainSeqTest`'s rig)
+            if (stage4) scope.launch { while (true) { val now = System.currentTimeMillis(); for (a in Arm.entries) sim.conformanceWake(a, now); delay(4) } }
             scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
                 transport.events.collect { e ->
                     when (e) {
@@ -496,8 +501,80 @@ class OracleWalkTest {
         }
     }
 
+    /**
+     * Build C2, stage DM2 (decisions B.9): the contract-2 walk on a bit-10 build at stage 4, where the shell stages Main's
+     * list and offers it once counted, with RANDOM LOCAL EVENTS — notches and taps fired through the simulator's input
+     * hook on both lenses (`FIRMWARE.md` §6.2) whenever Main is in front with nothing over it and its list is offered.
+     * The rules (stage DP2) are not in this tree, so the walk stands in for them as conservatively as the contract
+     * allows: the table SET straight into the model when the shell offers a new staging (P1), the lens's cursor put at
+     * the phone's row before each event (what every idle SETTLE does), and every report answered by DISCARD after the
+     * lens has drawn and held the local picture, with the stock message handled as today (P3's "otherwise") — so the
+     * shell repaints. The truth oracle holds at every settle, and the walk must have fired local events that drew.
+     * THE MERGE POINT: with DP2's rules in the tree the stand-in goes, and the shell answers the reports itself.
+     */
+    @Test
+    fun localEventsOnMainsBoundListKeepTheOracle_DM2(): Unit = runBlocking {
+        for (h in ShellSettings.HEIGHTS) {
+            val rig = Rig(h, seed = 0xD2_10CAL + h, contract = 2, cached = true, stage4 = true)
+            val tag = "c2 stage 4 h=$h"
+            var local = 0; var drew = 0; var presses = 0
+            var setList: wm.damage.core.local.BoundList? = null
+            fun toSim(m: ByteArray) { for (arm in Arm.entries) assertTrue(rig.sim.conformanceMessage(arm, m, System.currentTimeMillis()), "$tag: $arm refused ${m[0]}/${m[1]} (${rig.sim.refusalRecord(arm)})") }
+            try {
+                rig.shell.start()
+                rig.settle("$tag boot")
+                rig.assertOracle("$tag boot")
+                for (step in 1..LOCAL_STEPS) {
+                    rig.settle("$tag before step $step")
+                    val offer = if (rig.surface() == "main") rig.shell.sampleIdle { rig.shell.mainBoundForTest() } else null
+                    val list = offer?.first
+                    if (list != null && rig.rnd.nextInt(3) != 0) {
+                        if (list !== setList) {
+                            toSim(wm.damage.core.wire.CfwModes.bindClear(0xFF))
+                            for (b in list.sets()) toSim(b)
+                            toSim(list.listMessage(0))
+                            setList = list
+                        }
+                        val row = offer.second
+                        toSim(wm.damage.core.wire.CfwModes.motionDiscard(list.slot, 1, list.list, row))
+                        val e = list.entries[rig.rnd.nextInt(list.entries.size)]
+                        val before = rig.sim.bindForTest(Arm.RIGHT).seq
+                        for (arm in Arm.entries) rig.sim.conformanceInput(arm, wm.damage.core.wire.CfwModes.DEV_RING, e.eventId.toLong(), 0, System.currentTimeMillis())
+                        assertEquals((before + 1) and 0xFFFF, rig.sim.bindForTest(Arm.RIGHT).seq, "$tag step $step: the fire took an S on RIGHT")
+                        val f = list.predict(row, e)
+                        if (f is wm.damage.core.local.BoundList.Fire.Drew && f.p != null) { drew++; if (e.isTap) presses++ }
+                        // the lens draws and holds the local picture (a period of steps and one more)
+                        val prog = e.program
+                        if (prog != null) delay(((prog.T + 1) * e.period * 1000L / 1024) + 20)
+                        // the conservative answer: DISCARD, then the stock message handled as today (the shell's frame)
+                        toSim(wm.damage.core.wire.CfwModes.motionDiscard(list.slot, 1, list.list, row))
+                        rig.shell.postGesture(wm.damage.core.local.BoundList.stockEvent(e.eventId)!!)
+                        local++
+                        val where = "$tag step $step (local ${if (e.isTap) "tap" else if (e.step > 0) "down" else "up"} from row $row)"
+                        rig.settle(where)
+                        rig.assertOracle(where)
+                        continue
+                    }
+                    // away from Main, a double tap back one level now and then: the local events are Main's
+                    val g = if (rig.surface() != "main" && rig.rnd.nextInt(3) == 0) EvenHubMsg.EV_DOUBLE_CLICK else GESTURES[rig.rnd.nextInt(GESTURES.size)]
+                    rig.shell.postGesture(g)
+                    val where = "$tag step $step (${EvenHubMsg.eventName(g)})"
+                    rig.settle(where)
+                    rig.assertOracle(where)
+                }
+                println("$tag: $local local event(s), $drew drew ($presses press(es)); ${rig.shell.divergencesReported} divergence(s) reported")
+                assertTrue(drew >= 8, "$tag: the walk fired $local local event(s), $drew that drew — it proves less than it claims")
+                assertTrue(presses >= 1, "$tag: no press drew")
+            } finally {
+                rig.stop()
+            }
+        }
+    }
+
     private companion object {
         const val STEPS = 240
+        /** The local walk's steps per height (each local event waits for its picture to be held). */
+        const val LOCAL_STEPS = 120
         const val HANDOFF_EVERY = 17
 
         /** The surfaces the walk visits deliberately, in rotation. */
