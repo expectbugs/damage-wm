@@ -55,7 +55,7 @@ class MainLocalShellTest {
         override fun restoreState(state: JsonObject) {}
     }
 
-    private class Rig(val taps: Taps) {
+    private class Rig(val taps: Taps, val stage: Int = 4) {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val tmp = Files.createTempDirectory("damage-mainlocal")
         val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = 0x5ff }
@@ -69,7 +69,7 @@ class MainLocalShellTest {
 
         init {
             for (r in rows) shell.register(r)
-            t.devProbe("c1", "4")
+            t.devProbe("c1", "$stage")
             sim.imageObserver = { a, img -> if (a == Arm.RIGHT) { right += img; onImage?.invoke(img) } }
             // the glasses' engine thread: a step due is drawn
             scope.launch { while (true) { val now = System.currentTimeMillis(); for (a in Arm.entries) sim.conformanceWake(a, now); delay(4) } }
@@ -313,6 +313,43 @@ class MainLocalShellTest {
             notch(r, CfwModes.EV_UPROLL, "a notch at rest")
             assertTrue(!r.onLoop { r.shell.mainRestingForTest() }, "the adopted notch woke Main")
         } finally { r.close() }
+    }
+
+    /**
+     * The brief's item 4, a measurement (the simulator on this PC's JVM — M for the PC, I for the phone; not a gate: it
+     * runs only with `DI_LOOP=<notches>`): the shell loop's time per notch from the journal's `loop` note (handler time
+     * per message class, the pumps, the mirror scans) with Main bound and the rules on (stage 4: the 115 adopted, the
+     * echo consumed, the COMMIT planned with END painted into the model) against the same notches unbound (stage 3: the
+     * stock message applied as today). Each rig warms up first; the minute tick writes and clears the note.
+     */
+    @Test
+    fun loopTimePerNotch_DI(): Unit = runBlocking {
+        val n = System.getenv("DI_LOOP")?.toInt() ?: return@runBlocking
+        for (stage in listOf(4, 3)) {
+            val r = Rig(Taps.REPORT, stage)
+            try {
+                if (stage == 4) r.up() else {
+                    r.shell.start(); r.settle("start")
+                    r.shell.updateSettings { it.copy(heightMode = 352, cachedText = "on", taps = Taps.REPORT) }
+                    r.until("the atlas goes live") { r.shell.cachedTextActive && r.shell.cachedFontsLive.isNotEmpty() }
+                    r.settle("up")
+                }
+                suspend fun notches(k: Int) = repeat(k) { i ->
+                    val id = if ((i / 3) % 2 == 0) CfwModes.EV_UPROLL else CfwModes.EV_DOWNROLL
+                    if (stage == 4) r.fire(id) else r.t.injectInput(BoundList.stockEvent(id)!!)
+                    delay(300); r.settle("notch")
+                }
+                notches(10)                                              // warm-up
+                delay(LocalRules.Q_MS + 100); r.settle("warm")
+                r.shell.postMinuteTick(); r.settle("minute")
+                val before = r.notes("loop").size
+                notches(n)
+                delay(LocalRules.Q_MS + 100); r.settle("measured")
+                r.shell.postMinuteTick(); r.settle("minute")
+                println("DI-loop stage $stage, $n notches: ${r.notes("loop").drop(before).joinToString(" || ")}")
+                println("DI-loop stage $stage counts: ${r.notes("local").lastOrNull()}; snapbacks ${r.notes("snapback").size}")
+            } finally { r.close() }
+        }
     }
 
     /**
