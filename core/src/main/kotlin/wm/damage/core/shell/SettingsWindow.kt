@@ -174,6 +174,9 @@ class SettingsWindow(
 
     /** The open category's rows; an out-of-range [openCat] (an app gone since
      *  the state was saved) drops back to the category list. */
+    /** Test introspection: the Global category's row names as shown now. */
+    internal fun globalRowNamesForTest(): List<String> = cats().first().entries.map { it.name }
+
     private fun entriesAt(): List<Entry> {
         val cs = cats()
         if (openCat >= cs.size) openCat = -1

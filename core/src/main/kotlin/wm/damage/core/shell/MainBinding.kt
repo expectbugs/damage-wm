@@ -169,6 +169,13 @@ internal class MainBinding {
         restageCount++
     }
 
+    /** Decisions AF.4 and AD.2: a switch's old version (the retired band slot, the other strip's pans) is released only
+     *  when no report can still name it — its write [acked], no burst open (a report adopted before the ack may still be
+     *  COMMITted from it), and for a strip switch the rules holding the entries that name the new strip ([entriesSent]). */
+    fun releaseIfDue(p: Patch, acked: Boolean, burstOpen: Boolean, entriesSent: Boolean) {
+        if (acked && !burstOpen && (p.restage.toStrip == null || entriesSent)) switchAcked(p)
+    }
+
     /** A re-stage's flush was acknowledged: its band switch (if any) is released — the old slot is free again and the
      *  list forgets its [BoundList.previous]. */
     fun switchAcked(p: Patch) {

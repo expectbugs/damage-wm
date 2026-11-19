@@ -116,6 +116,25 @@ class CompositorEndsTest {
         assertEquals(12 * 17 shr 4, c.shadowForTest(true)[band.right + 5, band.y] shr 4, "both cells painted")
     }
 
+    /** Decisions AF.7: the cells held behind a COMMIT wait for the adopted motion's end — no assemble before then sends
+     *  them (a draw outside the areas still goes), and once released the next assemble paints them. */
+    @Test
+    fun theHeldCellsWaitForTheMotionsEnd_AF7() {
+        val c = fresh()
+        c.composed.fillRect(band, 3 * 17); c.damage(band)           // the truth in the area is not END
+        val (a, _) = c.assembleWithEnds(Geometry.rectBudget(3), listOf(Compositor.EndPlan(0, listOf(band to band), { _, g: Gray8 -> g.fillRect(band, 9 * 17) }, untilMs = 1_000)), nowMs = 0)
+        assertTrue(writes(a).none { it.overlaps(band) }, "nothing in the area beside the COMMIT")
+        assertTrue(c.deferring && !c.hasPending, "the area's cells wait (deferring, not pending)")
+        c.composed.fillRect(clock, 12 * 17); c.damage(clock)
+        assertTrue(!c.releaseDeferred(500), "not before the motion's end")
+        val mid = c.assembleFlush(Geometry.rectBudget(3))
+        assertTrue(writes(mid).any { it.overlaps(clock) } && writes(mid).none { it.overlaps(band) }, "a draw outside goes, the area still waits: ${writes(mid)}")
+        assertTrue(c.releaseDeferred(1_000), "released at the motion's end")
+        val after = c.assembleFlush(Geometry.rectBudget(3))
+        assertTrue(writes(after).any { it.overlaps(band) }, "then the area is painted: ${writes(after)}")
+        for (left in listOf(true, false)) assertEquals(3 * 17 shr 4, c.shadowForTest(left)[band.x + 1, band.y + 1] shr 4)
+    }
+
     /** A keyframe writes the whole model and closes every instance: a COMMIT cannot ride it (END would not survive in
      *  the model), so the slot is answered with DISCARD and the keyframe paints the truth. */
     @Test

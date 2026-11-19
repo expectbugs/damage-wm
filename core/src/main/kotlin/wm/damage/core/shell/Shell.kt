@@ -5434,8 +5434,7 @@ class Shell(
             // decisions AF.4: a band form's old slot is released only when no report can still name it — the switch
             // acknowledged AND no burst open (a report adopted before the ack may still be COMMITted from that slot)
             // a strip switch (AD.2) is the SETs' too: released once the rules hold the entries that name the new strip
-            if ((r.state == StagedRecord.State.ACKED || r.state == StagedRecord.State.PROVEN) && !local.burstOpen &&
-                (p.restage.toStrip == null || mainBindEntriesSent())) b.switchAcked(p)
+            b.releaseIfDue(p, r.state == StagedRecord.State.ACKED || r.state == StagedRecord.State.PROVEN, local.burstOpen, mainBindEntriesSent())
             if (r.state == StagedRecord.State.PROVEN && p.released) {
                 b.patchCounted(p)
                 stage.remove(r)
