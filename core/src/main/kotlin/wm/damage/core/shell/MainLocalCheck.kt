@@ -454,7 +454,8 @@ object MainLocalCheck {
                 cur = nl
                 lines += "Music's row form re-staged with the entries cleared: ${r.bytes} B in one flush (${r.writes.joinToString { "${it.what} ${it.bytes.size} B" }}), then ${nl.entries.size} SETs"
             }
-            cases += Case("$tag-strip", "a row form re-staged with the list withdrawn: no notch matches meanwhile; after the SETs a notch is named and committed", Rect(0, 0, 1, 1), emptyList(), lines, fails)
+            cases += Case("$tag-strip", if (ms.stripB != null) "a row form switched to the other strip (AD.2): notches before, during and after the switch, each named and committed; no withdrawal"
+                else "a row form re-staged with the list withdrawn: no notch matches meanwhile; after the SETs a notch is named and committed", Rect(0, 0, 1, 1), emptyList(), lines, fails)
         }
 
         // (c) a row stale by several changes: the notch is named and committed, belief equal to both lenses; the ordinary

@@ -5357,6 +5357,8 @@ class Shell(
     internal val mainBinding: MainBinding get() = mainBind
     internal fun mainBoundForTest(): Pair<wm.damage.core.local.BoundList?, Int> = main.bound() to main.row()
     internal fun mainRestingForTest(): Boolean = main.resting
+    internal fun notificationsUpForTest(): Boolean = notifications.active || notifications.animating
+    internal fun notificationsFocusedForTest(): Boolean = notifications.active && notifications.focused
 
     /** A staging the region could not hold, by what it was painted for: not painted again until one of those changes. */
     private var mainBindRefusedFor: String? = null

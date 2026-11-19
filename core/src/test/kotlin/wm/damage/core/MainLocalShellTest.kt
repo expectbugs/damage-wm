@@ -427,14 +427,27 @@ class MainLocalShellTest {
     }
 
     /** Decisions AF.1: a notice up — floating, not focused — is a cover: the list's entries are CLEARed while its box is
-     *  on screen, and a notch then goes as today (no S taken, the row moves). */
+     *  on screen, and a notch then goes as today (no S taken, the row moves). A first notice puts its face in the atlas
+     *  (which clears the stage registry and so withdraws the list by itself) and is dismissed; the second one, with
+     *  nothing new to draw, is the cover alone. */
     @Test
     fun aNoticeUpIsACover_AF1(): Unit = runBlocking {
         val r = Rig(Taps.REPORT)
         try {
             r.up()
-            r.shell.postNotice(wm.damage.core.shell.Notifications.Notice("TEST · a", "t", "a notice over Main", "12:00"))
-            r.until("the entries CLEARed while the notice is up", 5_000) { r.sim.bindForTest(Arm.RIGHT).field39() == 0 }
+            fun notice() = r.shell.postNotice(wm.damage.core.shell.Notifications.Notice("TEST · a", "t", "a notice over Main", "12:00"))
+            notice()
+            r.until("the first notice focused", 10_000) { r.onLoop { r.shell.notificationsFocusedForTest() } }
+            r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)                 // dismissed
+            r.until("the first notice gone", 10_000) { !r.onLoop { r.shell.notificationsUpForTest() } }
+            r.bound("after the first notice")
+            val staged = r.notes("mainstage").count { it.startsWith("staged") }
+            val t0 = System.currentTimeMillis()
+            notice()
+            // while it floats, unfocused: well inside its 2.5 s grace (a focused notice was a cover before AF.1 too)
+            r.until("the entries CLEARed while the notice floats", 1_500) { r.sim.bindForTest(Arm.RIGHT).field39() == 0 }
+            assertTrue(!r.onLoop { r.shell.notificationsFocusedForTest() } && System.currentTimeMillis() - t0 < 2_400, "CLEARed before the notice took focus")
+            assertEquals(staged, r.notes("mainstage").count { it.startsWith("staged") }, "no staging went: the cover, not a withdrawal, cleared the entries")
             val s0 = r.sim.bindForTest(Arm.RIGHT).seq
             val s = r.fire(CfwModes.EV_UPROLL)
             assertEquals(s0, s, "no entry matched under the notice")
