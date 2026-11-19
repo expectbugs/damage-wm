@@ -614,15 +614,19 @@ class LocalSequenceFuzzTest {
     @Test
     fun randomSequencesHoldTheEightInvariants() {
         val n = System.getenv("LOCAL_FUZZ_N")?.toInt() ?: 60
+        // `LOCAL_FUZZ_BASES=7,4242`: other seed bases for an instrument's extra run (G3); 1 and 1001 otherwise
+        val bases = System.getenv("LOCAL_FUZZ_BASES")?.split(',')?.map { it.trim().toLong() } ?: listOf(1L, 1001L)
         val fails = ArrayList<String>()
         val counted = HashMap<String, Int>()
-        for (base in listOf(1L, 1001L)) for (i in 0 until n) {
-            val seed = base * 100_000 + i
+        // `LOCAL_FUZZ_SEEDS=a,b`: exactly these seeds (reading a failure under one rule and another)
+        val only = System.getenv("LOCAL_FUZZ_SEEDS")?.split(',')?.map { it.trim().toLong() }
+        val seeds = only ?: bases.flatMap { base -> (0 until n).map { i -> base * 100_000 + i } }
+        for (seed in seeds) {
             val v = try { randomSequence(seed) } catch (e: Throwable) { Verdict(listOf("threw: $e"), emptyMap()) }
             for (f in v.failed) fails += "seed $seed: $f"
             for ((k, c) in v.counted) counted[k] = (counted[k] ?: 0) + c
         }
-        println("sequence fuzz: ${2 * n} sequences, ${fails.size} failures; counted $counted")
+        println("sequence fuzz: ${seeds.size} sequences (${if (only != null) "seeds ${only.joinToString()}" else "bases ${bases.joinToString()}"}), ${fails.size} failures; counted $counted")
         if (fails.isNotEmpty()) fail(fails.take(30).joinToString("\n") + "\n(${fails.size} in all)")
     }
 }
