@@ -83,6 +83,8 @@ class BindTransportTest {
         }
     }
     private fun said(kind: String = "keeper") = notes.filter { it.first == kind }.joinToString(" | ") { it.second }
+    /** A note's arrival: the transport's events reach this test's collector on another thread. */
+    private suspend fun saw(kind: String, text: String) = waitUntil(10_000, message = { "a `$kind` note with '$text': ${said(kind)}" }) { has(kind, text) }
     private fun hex(s: String) = ByteArray(s.length / 2) { i -> s.substring(2 * i, 2 * i + 2).toInt(16).toByte() }
     private fun ByteArray.hex() = joinToString("") { "%02x".format(it) }
     private fun u16(b: ByteArray, i: Int) = (b[i].toInt() and 0xFF) or ((b[i + 1].toInt() and 0xFF) shl 8)
@@ -343,7 +345,7 @@ class BindTransportTest {
         assertEquals(listOf(list.set(down), list.set(up), list.set(tap)).map { it.hex() }, list.sets().map { it.hex() })
         assertEquals("1b0000ff0401010222000402070001000001ffff000900", list.set(down).hex())
         assertEquals("1b0201800408000000200005", list.listMessage().hex())
-        assertEquals(32, list.itemTable()!!.size)
+        assertEquals(16, list.itemTable()!!.size, "eight u16 off4 entries")
         assertEquals(1, list.maxStep)
         assertEquals(EvenHubMsg.EV_SCROLL_BOTTOM, BoundList.stockEvent(CfwModes.EV_UPROLL)); assertEquals(1, BoundList.rowStep(CfwModes.EV_UPROLL))
         assertEquals(EvenHubMsg.EV_SCROLL_TOP, BoundList.stockEvent(CfwModes.EV_DOWNROLL)); assertEquals(-1, BoundList.rowStep(CfwModes.EV_DOWNROLL))
@@ -512,12 +514,32 @@ class BindTransportTest {
         assertEquals(4, stored().stage, "the stored stage stays 4")
         assertNotNull(stored().holdBackAt)
         assertTrue("a lens restarted at 15:00" in stored().holdBackWhy, stored().holdBackWhy)
-        assertTrue(has("fault", "holdback: local input held back until tomorrow's first start: a lens restarted at 15:00"), said("fault"))
+        saw("fault", "holdback: local input held back until tomorrow's first start: a lens restarted at 15:00")
         assertTrue(t.state.value.localInput.startsWith("held back until tomorrow: a lens restarted at 15:00"), t.state.value.localInput)
         assertTrue(t.restartSession("test: the next session")); clock += 60_000L
         t.start(full)
         assertEquals(0x2c, t.state.value.flagsInForce, "still held back the same day")
         assertEquals(1, count("keeper", "local input held back until tomorrow's first start"), "said once: ${said()}")
+        t.stop()
+    }
+
+    /** §6.8, "it costs one stage (4 → 3), never more": a reset 10 s after the stage-4 arming — inside C1's 120 s window,
+     *  whose rule lowers the stored stage — holds stage 4 back and leaves the stored stage at 4. */
+    @Test
+    fun aResetSoonAfterTheArmingCostsOneStageAndKeepsTheStoredStage_6_8(): Unit = runBlocking {
+        var clock = day0
+        val sim = c2()
+        val t = rig(sim) { clock }
+        t.devProbe("c1", "4")
+        t.start(full)
+        assertEquals(0x3c, t.state.value.flagsInForce, "stage 4 armed: ${said()}")
+        clock += 10_000L; sim.uptimeOffsetMs = clock; clock += 20_000L
+        assertTrue(t.restartSession("test: a reset 10 s after the arming"))
+        t.start(full)
+        assertEquals(0x2c, t.state.value.flagsInForce, "stage 3 armed: ${said()}")
+        assertEquals(4, stored().stage, "the stored stage stays 4 (C1's rule would store 3): ${said()}")
+        assertTrue(!has("keeper", "hold-back: the glasses reset"), "C1's hold-back did not run: ${said()}")
+        saw("keeper", "local input held back until tomorrow's first start")
         t.stop()
     }
 
@@ -538,7 +560,7 @@ class BindTransportTest {
         t.start(full)
         assertEquals(0x3c, t.state.value.flagsInForce, "nothing held back: ${said()}")
         assertNull(stored().holdBackAt)
-        assertTrue(has("keeper", "after a case-in at 21:00 — nothing held back"), said())
+        saw("keeper", "after a case-in at 21:00 — nothing held back")
         t.stop()
     }
 
@@ -570,7 +592,7 @@ class BindTransportTest {
         assertTrue(t.restartSession("test: the evening start")); clock += 60_000L
         t.start(full)
         assertEquals(0x3c, t.state.value.flagsInForce, "the case-in lifted it: ${said()}")
-        assertTrue(has("keeper", "local input re-armed") && has("keeper", "a case-in at"), said())
+        saw("keeper", "local input re-armed"); saw("keeper", "a case-in at")
         // (2) the next day's first start (04:00 UTC)
         assertTrue(t.restartSession("test: before the next hold-back")); clock += 60_000L
         holdBackByLeft()
@@ -581,13 +603,13 @@ class BindTransportTest {
         assertTrue(t.restartSession("test: after 04:00")); clock = day1 + 120_000L
         t.start(full)
         assertEquals(0x3c, t.state.value.flagsInForce, "04:01 is a later day: ${said()}")
-        assertTrue(has("keeper", "this is the first start on a later day"), said())
+        saw("keeper", "this is the first start on a later day")
         // (3) by hand
         assertTrue(t.restartSession("test: before the third")); clock += 60_000L
         holdBackByLeft()
         t.devProbe("c1", "4")
         assertNull(stored().holdBackAt, "c1=4 lifts it at once")
-        assertTrue(has("keeper", "local input's hold-back (a lens restarted at"), said())
+        saw("keeper", "local input's hold-back (a lens restarted at")
         assertTrue(t.restartSession("test: after the hand lift")); clock += 60_000L
         t.start(full)
         assertEquals(0x3c, t.state.value.flagsInForce, "stage 4 again: ${said()}")
@@ -617,7 +639,7 @@ class BindTransportTest {
         t2.start(full)
         assertEquals(0x2c, t2.state.value.flagsInForce, "the new process holds stage 4 back: ${said()}")
         assertEquals("glasses", t2.state.value.taps)
-        assertTrue(has("keeper", "stage 4 restored from the last run") && has("keeper", "local input held back since"), said())
+        saw("keeper", "stage 4 restored from the last run"); saw("keeper", "local input held back since")
         clock += 60_000L; sim.pushCase(inCase = 1)
         waitUntil(10_000, message = { "the case-in is kept by the new process" }) { stored().caseInAt == clock }
         assertTrue(t2.restartSession("test: the evening")); clock += 60_000L
@@ -680,7 +702,7 @@ class BindTransportTest {
         val order = events.filter { it is TransportEvent.Applied || it is TransportEvent.Input }.map {
             if (it is TransportEvent.Applied) "115 id ${it.report.eventId} outcome ${it.report.outcome} cursor ${it.report.cursor}" else "input ${(it as TransportEvent.Input).type}" }
         assertEquals(listOf("115 id 0 outcome 0 cursor 0", "input ${EvenHubMsg.EV_CLICK}", "115 id 4 outcome 0 cursor 1", "input ${EvenHubMsg.EV_SCROLL_BOTTOM}"), order)
-        assertTrue(has("applied", "S 1 dev 4 id 0 entry 1 report-only list 0 cursor 0") && has("applied", "S 2 dev 4 id 4 entry 0 drew list 0 cursor 1"), said("applied"))
+        saw("applied", "S 1 dev 4 id 0 entry 1 report-only list 0 cursor 0"); saw("applied", "S 2 dev 4 id 4 entry 0 drew list 0 cursor 1")
         t.stop()
     }
 
@@ -702,7 +724,7 @@ class BindTransportTest {
         waitUntil(10_000, message = { "the refusal is handed: $events" }) { events.any { it is TransportEvent.LocalRead } }
         val second = events.filterIsInstance<TransportEvent.LocalRead>().last()
         assertEquals(27, second.refusal27?.mode); assertEquals(12, second.refusal27?.reason)
-        assertTrue(has("local", "the glasses refused a mode 27"), said("local"))
+        saw("local", "the glasses refused a mode 27")
         events.clear()
         t.devProbe("telemetry", "read")
         waitUntil(10_000, message = { "the third read: $events" }) { events.any { it is TransportEvent.LocalRead } }
@@ -722,7 +744,7 @@ class BindTransportTest {
         t.devProbe("flags", "0x2c")
         waitUntil(10_000, message = { "the disarm: $order ${said("local")}" }) { order.any { it.startsWith("flags") } }
         assertEquals(listOf("image " + CfwModes.motionDiscard(0xFF, 1, 0xFF, 0).hex(), "flags 0x2c"), order.toList())
-        assertTrue(has("local", "DISCARD of every local instance from S 1 acked before the probe's flags clear BIND"), said("local"))
+        saw("local", "DISCARD of every local instance from S 1 acked before the probe's flags clear BIND")
         t.stop()
     }
 
@@ -734,14 +756,14 @@ class BindTransportTest {
         val t = rig(sim) { clock }
         t.devProbe("taps", "phone")
         assertEquals("phone", stored().taps)
-        assertTrue(has("keeper", "Taps: report → phone (no effect"), said())
+        saw("keeper", "Taps: report → phone (no effect")
         t.devProbe("taps", "never")
         assertEquals("phone", stored().taps, "an unknown value changes nothing")
         t.devProbe("c1", "3")
         t.start(full)
         assertEquals(0x2c, t.state.value.flagsInForce)
         t.devProbe("flags", "0x3c")
-        assertTrue(has("probe", "flag bit(s) 0x10 are the C1 ladder's (stage 3)"), said("probe"))
+        saw("probe", "flag bit(s) 0x10 are the C1 ladder's (stage 3)")
         waitUntil(10_000, message = { "the hand set lands" }) { has("probe", "flags=0x3c") }
         delay(300)
         assertTrue(!t.state.value.bind, "BIND is not armed by hand below stage 4")

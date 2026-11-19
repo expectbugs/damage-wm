@@ -43,11 +43,12 @@ class MirrorScanMotionTest {
         Regex("""mirror n=(\d+) total=([\d.]+) max=([\d.]+)""").find(detail)?.groupValues?.let { Triple(it[1].toInt(), it[2].toDouble(), it[3].toDouble()) }
     private fun rows(detail: String): Long = Regex("""rows=(\d+)""").find(detail)!!.groupValues[1].toLong()
 
-    /** A repaint at the panel's right edge, clear of every test program's areas (their rightmost edge is x 608). */
+    /** A repaint below every test program's areas (their lowest edge is y 336), whatever the lenses' disparity — a flush
+     *  that met an open area would close the instance in its batch. */
     private suspend fun edgeRepaint(shell: Shell, n: Int) {
         val done = CompletableDeferred<Unit>()
         shell.services.runOnShell {
-            val r = Rect(612, 8 + (n % 18) * 24, 24, 16)
+            val r = Rect(40 + (n % 10) * 56, 380 + (n / 10 % 2) * 32, 40, 16)
             shell.comp.composed.fillRect(r, ((n % 12) + 3) * 17)
             shell.comp.damage(r)
             done.complete(Unit)
@@ -124,10 +125,12 @@ class MirrorScanMotionTest {
             // one pixel of level 9 written raw (the self-test door's live write: the shell's belief never hears of it)
             t.devProbe("selftest", "live:" + wm.damage.core.wire.CfwModes.batch(listOf(wm.damage.core.wire.CfwModes.fill(Rect(x, y, 1, 1), 9)))
                 .joinToString("") { "%02x".format(it) })
+            // the repaint's FlushDone runs the scan that must find it, with the motion still open (the keyframe the
+            // divergence asks for closes it afterwards)
+            assertTrue(sim.motionWindows(Arm.LEFT).isNotEmpty(), "the motion is open before the scan")
             edgeRepaint(shell, 1)
             waitUntil(10_000, 10, { "the planted pixel at ($x, $y) is found: ${shell.lastDivergence}" }) { shell.divergencesReported > 0 }
             assertTrue("1 px differ, first at ($x,$y)" in (shell.lastDivergence ?: ""), "x $x: ${shell.lastDivergence}")
-            assertTrue(sim.motionWindows(Arm.LEFT).isNotEmpty(), "the motion was open when it was found")
             shell.stop()
         }
     }
