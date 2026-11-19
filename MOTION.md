@@ -351,3 +351,59 @@ judged by — every movement and transition smooth and quick — and that this o
 glasses kit's, built once after the second flash, step K), D2 (the order of the halves), D3 (before the flash: a day
 on APK 0.65 and its journal read, which closes Phase 2's test stop, and the free-memory reading at three points of
 a session start — now `REPLAN.md` §5's C1 row) and D4 (the usage: each step is sized, `REPLAN.md` §16).
+
+## 7. The animation plan — RULED (Adam, 2026-11-19: "I agree on all counts. I think we got a good plan here! Let's set this one in stone!")
+
+His sketch and the lead's feedback of the same evening, as agreed. Where it differs from §6 it wins: B1 (a fade is
+an effect he can choose), C4 (the `Animations` Settings category with a "None" in every tier takes the place of the
+Global `Motion` row), C1 (the notice's focus timer of `DESIGN.md` §4.5 is a fourth named exception to "motion
+answers input only"). His standing measures stay: 300 ms is the length he chose on the glasses; what moves, moves
+together; every movement and transition smooth and quick.
+
+**Tiers, each with "None" (the selection or the window lands at once):**
+
+| tier | effects | how one is chosen |
+|---|---|---|
+| **Scroll** | Depth (today's), Slide, Flip, Fall, Glitch, Scramble/Encode, Matrix | ONE effect, no randomness: a default in `Animations`, and a `Scroll effect` row with "default" in each app's own Settings category |
+| **Select** (a tap that opens) | Depth, Warp, Flip, Fall, Glitch, Encode, Matrix, Explode | checkboxes; a random pick among the checked at each use; one checked is always that one |
+| **Close / Back** | each Select effect in reverse | as Select |
+| **Lock Screen** (enter and exit) | Fade, Build/Assemble, Matrix, Encode, Glitch, Explode | as Select |
+| **Popups** | its own tier with several styles and options; the notice's timer bar and fade-in is its first | as Select |
+
+- **Scroll effects are styles of the same one-row move** (his words): Glitch is "the same as slide, but
+  intentionally (and stylishly) glitchy"; Scramble is "a whole screen effect, where the rows and lines and stuff all
+  stay in place but the letters change in random order to the new ones"; Matrix is "the random falling rain letter
+  matrix effect [happening] just far enough for everything to move down (or up) one position". Direction is read
+  from the end position and the ring.
+- **A transition plays in full, every time, at its set length** ("it would also make all window loading/transitions
+  the same speed exactly, which makes the system feel a lot more consistent and less janky overall, which is totally
+  worth adding a few ms to a few window loads"). The window's load starts at the tap, under the animation; a window
+  that is not ready when the animation ends holds the last pose until it is.
+- **Each tier has its own length and frames** (his amendment, the same hour): "each tier should have its own
+  length/frames settings. For example, I think the loading/tap/select animation should take longer than scrolling a
+  notch. 450ms at 10 frames might be better, or even more if the animations don't get old quickly. Either way, it
+  should be adjustable independently, per tier." So every tier carries the two rows Scroll has today (`Length`,
+  `Frames` with Auto); the defaults to start from: Scroll 300 ms / Auto (his choice on the glasses), Select 450 ms /
+  10 frames (his example), the others set when they are built and judged on his face.
+- **Select is a full-screen transition** (his correction of the lead, who had pictured the tapped row alone): "if I'm
+  on Main and I select Reader, almost everything on the screen changes. The Main list goes away entirely and a new
+  list appears. In fact some windows won't even start at a list… I would think that would mean a full screen
+  transition effect into the new app/window." It therefore has two halves: the leaving screen animates out at once
+  (the glasses hold it), the arriving window's first frame comes from the phone under it, and then animates in —
+  which is where "plays in full, every time" and "holds the last pose" apply. Its frame budget is the whole
+  screen's: about 50 ms a step at height 352 by today's fit (modeled), so his "450 ms at 10 frames" is the natural
+  size. Close/Back is the same in reverse. For the firmware build: a transition between the picture on the panel
+  and the one drawn behind it needs no staged copy of either.
+- **The task switcher is "a proper animated wheel or gear type thingy".**
+- **Priority (his):** "all of it is just visual polish, they all matter but none of it is super critical."
+
+**Order (the lead's split by cost, agreed):** with the motion kit's shell part (step K1, `REPLAN.md` §17.3) —
+1. **What today's engine draws** (phone-side programs over pictures already staged): None, Depth, Slide, Fade, Flip,
+   Fall, Build; Glitch if the slice method (the list as horizontal slices with their own offsets per step) reads well
+   on his face; the Close tier; the per-app `Scroll effect`; Popups' first styles; lengths per tier.
+2. **One firmware build, one flash, for what needs new drawing on the glasses:** Scramble/Encode and Matrix (letters
+   drawn from the atlas, step by step), Explode, Warp, sideways scaling for the wheel's icons, and the list's ring
+   cursor (the wrap started by the glasses themselves).
+
+Measured today, for the budget of any effect over Main's whole list at height 352: a step draws in 39–41 ms (about
+22 a second); an effect on the selected row alone is about half that area (modeled).

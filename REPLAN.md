@@ -780,6 +780,13 @@ what an actor may do; the snapshot judge; one look at every page in a real brows
    supervisor for the phone's shell loop (the class the hold loop of §92.9 belongs to), S1-4's spec brought to the
    lean shape (L1 did not do it), and C2's staged records split across flushes (§92.10's cure).
 
+8. **The animation plan, ruled by Adam on 2026-11-19** (`MOTION.md` §7; "Let's set this one in stone!"): five tiers
+   (Scroll, Select, Close/Back, Lock Screen, Popups), each with None and its own length and frames; one Scroll effect
+   per app, no randomness; checkbox-random elsewhere; a transition always plays in full; Select is a full-screen
+   transition; the switcher a wheel or gear. It is built with the motion kit's shell part (item 6's K1): first what
+   today's engine draws, then ONE firmware build and flash for Scramble/Encode, Matrix, Explode, Warp, sideways
+   scaling and the list's ring cursor. Polish by his word ("none of it is super critical"): it does not jump the order.
+
 ### 17.4 Robustness items (each small; sized when its turn comes)
 
 R-a every "until a restart" state gets a supervisor that ends the stuck thing, says so and carries on (the record log
