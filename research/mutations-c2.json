@@ -3036,5 +3036,239 @@
   ],
   "note": "AQ.1: the tree before FE (per-lens hold, no backstop): each assemble repeats; the test's thread bound decides",
   "from": "FE"
+ },
+ {
+  "id": "T1-no-one-strip",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                if (shared0) throw e\n",
+    "                throw e\n"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.fullerRowsStageWithOneStripAt256KiB_AU1"
+  ],
+  "expect": [
+   "fullerRowsStageWithOneStripAt256KiB_AU1"
+  ],
+  "note": "AU.1 (b): no one-strip fallback (two strips or not staged)",
+  "from": "T1"
+ },
+ {
+  "id": "T1-region-96",
+  "file": "wire/CfwModes.kt",
+  "edits": [
+   [
+    "    const val MAIN_REGION = 128 * 1024",
+    "    const val MAIN_REGION = 96 * 1024"
+   ]
+  ],
+  "tests": [
+   "*MainBindTest.theAtlasLaysOutUnderMainsRegionOnlyAt256KiBWithBind_DM2"
+  ],
+  "expect": [
+   "theAtlasLaysOutUnderMainsRegionOnlyAt256KiBWithBind_DM2"
+  ],
+  "note": "AU.1 (a): Main's region back at 96 KiB",
+  "from": "T1"
+ },
+ {
+  "id": "T1-font-set-drops-main",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            stagePagesClear(\"the live font set changed\")\n            mainBind.recheckAll()",
+    "            stageClear(\"the live font set changed\")"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aFontSetChangeInAnotherWindowLeavesMainsRegionIntact_AU2"
+  ],
+  "expect": [
+   "aFontSetChangeInAnotherWindowLeavesMainsRegionIntact_AU2"
+  ],
+  "note": "AU.2: a live font set change drops Main's staging (as before T1)",
+  "from": "T1"
+ },
+ {
+  "id": "T1-period-no-margin",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "        const val PERIOD_MARGIN = 1.10",
+    "        const val PERIOD_MARGIN = 1.0"
+   ]
+  ],
+  "tests": [
+   "*MainBindTest.thePeriodAndStepsFollowTheMeasuredFitAtEachHeight_AU3"
+  ],
+  "expect": [
+   "thePeriodAndStepsFollowTheMeasuredFitAtEachHeight_AU3"
+  ],
+  "note": "AU.3: the period without its 10 % margin",
+  "from": "T1"
+ },
+ {
+  "id": "T1-counters-every-read",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "if (n != localNoteSaid) { localNoteSaid = n; journal.note(\"local\", n, ev.atMs) }",
+    "run { localNoteSaid = n; journal.note(\"local\", n, ev.atMs) }"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.theCountersNoteIsWrittenOnlyWhenAValueChanges_AU4"
+  ],
+  "expect": [
+   "theCountersNoteIsWrittenOnlyWhenAValueChanges_AU4"
+  ],
+  "note": "AU.4: the counters' note at every telemetry read",
+  "from": "T1"
+ },
+ {
+  "id": "ANIM-auto-fixed-rule",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "            if (motion.frames <= 0) return pFit to kotlin.math.floor(lenTicks / pFit).toInt().coerceAtLeast(MIN_STEPS)",
+    "            if (motion.frames <= 0) return pFit to kotlin.math.round(MOTION_MS / (p0 * 1000.0 / 1024.0)).toInt().coerceAtLeast(MIN_STEPS)"
+   ]
+  ],
+  "tests": [
+   "*MainBindTest.theMotionFollowsTheAnimationsRowsAtEachHeight_ANIM"
+  ],
+  "expect": [
+   "theMotionFollowsTheAnimationsRowsAtEachHeight_ANIM"
+  ],
+  "note": "ANIM: Auto ignores the length (the fixed 200 ms rule)",
+  "from": "ANIM"
+ },
+ {
+  "id": "ANIM-fixed-under-fit",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "            val p = maxOf(pFit, kotlin.math.ceil(lenTicks / motion.frames).toInt())",
+    "            val p = kotlin.math.ceil(lenTicks / motion.frames).toInt()"
+   ]
+  ],
+  "tests": [
+   "*MainBindTest.theMotionFollowsTheAnimationsRowsAtEachHeight_ANIM"
+  ],
+  "expect": [
+   "theMotionFollowsTheAnimationsRowsAtEachHeight_ANIM"
+  ],
+  "note": "ANIM: a fixed count's period may go under the fitted one",
+  "from": "ANIM"
+ },
+ {
+  "id": "ANIM-q-fixed",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "            val e = list?.entries?.firstOrNull { !it.isTap && it.program != null } ?: return Q_MS",
+    "            val e = list?.entries?.firstOrNull { !it.isTap && it.program != null }; if (true) return Q_MS; e!!"
+   ]
+  ],
+  "tests": [
+   "*LocalRulesTest.qFollowsTheMotionInForce_AW2"
+  ],
+  "expect": [
+   "qFollowsTheMotionInForce_AW2"
+  ],
+  "note": "AW.2: Q fixed at 450 ms",
+  "from": "ANIM"
+ },
+ {
+  "id": "ANIM-category-always",
+  "file": "shell/SettingsWindow.kt",
+  "edits": [
+   [
+    "        if (bindBuild()) out.add(Cat(\"Animations\", animEntries))",
+    "        out.add(Cat(\"Animations\", animEntries))"
+   ]
+  ],
+  "tests": [
+   "*SettingsLocalRowsTest.theAnimationsCategoryShowsOnlyOnABit10Build_ANIM"
+  ],
+  "expect": [
+   "theAnimationsCategoryShowsOnlyOnABit10Build_ANIM"
+  ],
+  "note": "ANIM: the category shown without bit 10",
+  "from": "ANIM"
+ },
+ {
+  "id": "ANIM-no-defaults-clamp",
+  "file": "shell/ShellSettings.kt",
+  "edits": [
+   [
+    "        frames = if (frames in FRAME_COUNTS) frames else 0,",
+    ""
+   ]
+  ],
+  "tests": [
+   "*SettingsLocalRowsTest.anOlderRecordReadsTheDefaults_ANIM"
+  ],
+  "expect": [
+   "anOlderRecordReadsTheDefaults_ANIM"
+  ],
+  "note": "ANIM: a frames value off the ladder not clamped",
+  "from": "ANIM"
+ },
+ {
+  "id": "ANIM-change-not-restaged",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            ms.motion != motionInForce() && !mainBindBurstOpen() ->",
+    "            false && ms.motion != motionInForce() && !mainBindBurstOpen() ->"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.anAnimationsChangeMakesThePansAgainAndANotchUsesThem_ANIM"
+  ],
+  "expect": [
+   "anAnimationsChangeMakesThePansAgainAndANotchUsesThem_ANIM"
+  ],
+  "note": "ANIM: a change of the rows leaves the old pans",
+  "from": "ANIM"
+ },
+ {
+  "id": "ANIM-B-no-cut",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            st.bind && st.leaseHeld && comp.deferring && comp.deferUntilMs > localNow) {",
+    "            st.bind && st.leaseHeld && comp.deferring && comp.deferUntilMs > localNow && false) {"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aWindowOpenedInsideTheWaitCutsTheMotion_AW3"
+  ],
+  "expect": [
+   "aWindowOpenedInsideTheWaitCutsTheMotion_AW3"
+  ],
+  "note": "AW.3: no cut \u2014 the window's cells wait for the motion's end",
+  "from": "ANIM"
+ },
+ {
+  "id": "ANIM-B-cut-any-cover",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (frontBefore != null && localFrontNow == null && (mode == Mode.WINDOW || mode == Mode.EXCLUSIVE) &&",
+    "        if (frontBefore != null && localFrontNow == null &&"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aNoticeInsideTheWaitStillWaits_AW3"
+  ],
+  "expect": [
+   "aNoticeInsideTheWaitStillWaits_AW3"
+  ],
+  "note": "AW.3: any cover cuts (a notice box too)",
+  "from": "ANIM"
  }
 ]
