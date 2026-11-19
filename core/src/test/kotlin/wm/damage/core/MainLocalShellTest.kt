@@ -352,7 +352,13 @@ class MainLocalShellTest {
                 delay(LocalRules.Q_MS + 100); r.settle("measured")
                 r.shell.postMinuteTick(); r.settle("minute")
                 println("DI-loop stage $stage, $n notches: ${r.notes("loop").drop(before).joinToString(" || ")}")
-                println("DI-loop stage $stage counts: ${r.notes("local").lastOrNull()}; snapbacks ${r.notes("snapback").size}")
+                println("DI-loop stage $stage: snapbacks ${r.notes("snapback").size} ${r.notes("snapback").groupingBy { it.substringBefore(" S=") }.eachCount()}; " +
+                    "CLOSEs ${r.notes("motion").count { it.startsWith("a flush meets open instance") }}; COMMITs ${r.right.count { img -> r.subs(img).any { it[0].toInt() == 26 && it[1].toInt() == 3 } }}; " +
+                    "DISCARDs ${r.right.count { img -> r.subs(img).any { it[0].toInt() == 26 && it[1].toInt() == 4 } }}")
+                // the assemble's own ms per submitted flush in the measured window (the journal's `submit` lines)
+                val sub = Files.readAllLines(r.journal).filter { "\"ev\":\"submit\"" in it }.takeLast(200)
+                    .map { it.substringAfter("\"assembleMs\":").substringBefore(",").toInt() }.sorted()
+                println("DI-loop stage $stage: assembleMs over ${sub.size} flushes: median ${sub.getOrNull(sub.size / 2)} p90 ${sub.getOrNull(sub.size * 9 / 10)} max ${sub.lastOrNull()}")
             } finally { r.close() }
         }
     }
