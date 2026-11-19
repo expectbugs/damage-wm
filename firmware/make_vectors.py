@@ -2409,6 +2409,92 @@ def vectors_v4(kf):
            step(tk(t + 10), {"lease": "release"}, msg(vscale(PAST, 0, 0, 0x0F, 0)))]          # no lease: 3 before 12
     vec("v4-vscale-draw", st)
 
+    # v4-scaled-self — §6.6 "a scaled DRAW's source is a record — `self` with h0/h1 ≠ 0 is 12 (ruled on the fork's first
+    # review pass: no use asks for a scaled capture, and no vector compared one) — at a PLAY, a COMMIT and a fire alike"
+    # (C2-decisions M.2), at the place each check order puts step values: §5.5 "→ every step's values in range after
+    # substitution ... (12) → for a PLAY with a track whose backdrop or any segment is `self`, the capture range ... (5)"
+    # — and RETARGET runs the same checks from the walk on with its new parameters; §6.5 COMMIT "the program walk (5;
+    # `self` 5) → areas (2) → a `none` backdrop's area (2) → step values (12)"; §6.2 step 10 "no `self` source or
+    # backdrop (5) → areas (2) → ... → every step's values after substitution (12; with §6.6's H rule)". So at a COMMIT
+    # and a fire the walk's `self` 5 comes before the values: those steps show which reason the order gives. The
+    # look-alike that stays taken: the same DRAW unscaled (§6.6 "both 0 = unscaled"). A new vector, after DX: no
+    # earlier file changes.
+    c = Cache2()
+    pic = c.add(image2(40, 30, pattern(40, 30, 471)))
+    SA, SB = rect(100, 100, 60, 40), rect(300, 100, 60, 40)                               # the two `self` areas (slots 0, 1)
+    ss_b = prog(track(SA, 2, drawself(4, 100, 100, lvl=(4, 15), h0=10, h1=30)))           # scaled: H 10 → 30 (all in range)
+    su_b = prog(track(SA, 2, drawself(4, 100, 100, lvl=(4, 15))))                         # the same DRAW unscaled
+    ss, su = c.add(ss_b), c.add(su_b)
+    sp = c.add(prog(track(SB, 2, drawself(4, 300, 100, lvl=(4, 15), pref0=pref(0, F_H0), pref1=pref(1, F_H1)))))   # h0 = P0, h1 = P1
+    rp_b = prog(track(rect(100, 300, 120, 60), 2, drawrec(4, pic, 100, 0, pref0=pref(0, F_Y))))   # a record DRAW, y = P0
+    rp = c.add(rp_b)
+    assert len(rp_b) == len(ss_b) == len(su_b)                                            # the fire's record is overwritten in place
+    cap0, cap1 = c.reserve(cap_total((60, 40))), c.reserve(cap_total((60, 40)))
+    st = [step(tk(1000), {"lease": "acquire"}, flags(full), page(True), msg(kf), *writes(c))]
+    t = 2000
+    st += [step(tk(t), msg(play(0, P, ss, 0x6001, cap0))),                                # §6.6 at a PLAY: `self` with h0/h1 ≠ 0 → 12
+           step(tk(t + 10), msg(play(0, P, ss, 0x6002, PAST))),                           # §5.5: the values (12) before the capture range (5): 12
+           step(tk(t + 20), msg(play(0, P, su, 0x6003, PAST))),                           # the look-alike reaches the capture range: 5
+           step(tk(t + 30), msg(play(0, P, su, 0x6004, cap0))),                           # the look-alike, unscaled ("both 0"): taken, step 1 drawn
+           step(tk(t + 30 + P), wake()), step(tk(t + 30 + 3 * P), wake())]               # steps 2, 4 = T of the capture
+    t = 2400
+    st += [step(tk(t), msg(play(1, P, sp, 0x6010, cap1, (10, 30)))),                      # §6.6 "(after substitution)": scaled by P0, P1 → 12
+           step(tk(t + 10), msg(play(1, P, sp, 0x6011, cap1, (0, 0)))),                   # the same program, unscaled by P: taken
+           step(tk(t + 10 + P), wake()),
+           step(tk(t + 20 + P), msg(retarget(1, (10, 30)))),                              # §5.5's checks at a RETARGET, new P scaling `self` → 12
+           step(tk(t + 30 + P), msg(retarget(1, (0, 0)))),                                # the look-alike RETARGET: taken, restarted
+           step(tk(t + 30 + 2 * P), wake())]
+    t = 3000
+    st += [step(tk(t), msg(bind_list(0, NONE, 8, 0, 10, 1)),                              # list 0 live (cursor 0), slot 2, prog rp:
+                msg(bind_set(0, ANY, UP, 0, 1, 2, P, rp, [(K_PITCH, 300)]))),             # y = c' × 10 + 300 (the SET walks rp: no `self`)
+           step(tk(t + 10), msg(commit(2, 1, 0, 0, ss))),                                 # §6.5 at a COMMIT: the walk's `self` 5 before step values
+           step(tk(t + 20), msg(commit(2, 1, 0, 0, su))),                                 # the look-alike at a COMMIT: 5 as well (any `self`)
+           step(tk(t + 30), msg(commit(2, 1, 0, 0, rp, (310,))))]                         # a record program: taken (END, outcome 3; no newest S: the cursor stays 0)
+    t = 3200
+    st += [step(tk(t), msg(cache_write2((rp, ss_b))), inp(RING, UP)),                     # §6.2 step 10 at a fire (S 1): rp's bytes now the scaled `self`: 5
+           step(tk(t + 10), msg(cache_write2((rp, su_b))), inp(RING, UP)),                # the look-alike at a fire (S 2): 5 as well
+           step(tk(t + 20), msg(cache_write2((rp, rp_b))), inp(RING, UP)),                # the record program back (S 3): drew, c' 1
+           step(tk(t + 20), wake())]                                                      # step 1 of the local
+    vec("v4-scaled-self", st)
+
+    # v4-param-order — §6.2 step 9 "The parameters: Pi = arg (kind 0) · the item table's entry at c' + arg (kind 1; no
+    # table, or c' + arg outside 0..count−1 → edge) · c' × pitch + arg (kind 2, computed in s32; outside s16 → refused
+    # 12). The parameters are evaluated in index order, and the first that gives an edge or 12 decides the fire"
+    # (C2-decisions G.3); §6.5 field 5 "1 edge", field 6 "reason (outcome 2)", "fields 10–14 only for outcome drew and
+    # reason 17". The cursor stays at 0 through every edge and 12 (§6.4 "the cursor stays"), so each scroll fire has
+    # c' 1: kind 1 with arg 10 names item 11 of 4 (edge), kind 2 with arg 32767 gives 10 + 32767 (12); arg 0 is inside
+    # either way. The program names no parameter, so only step 9 decides. A new vector, after DX.
+    c = Cache2()
+    pic = c.add(image2(40, 30, pattern(40, 30, 481)))
+    itab = c.add(b"".join(u16(pic) for _ in range(4)))                                   # §6.3: count u16 off4 entries
+    op_ = c.add(prog(track(rect(100, 300, 120, 60), 2, drawrec(4, pic, 100, 310))))       # no parameter in the program
+    E, T12, OK1, OK2 = (K_ITEM, 10), (K_PITCH, 32767), (K_ITEM, 0), (K_PITCH, 0)          # an edge, a 12, and each kind inside
+    def up(*params): return msg(bind_set(0, ANY, UP, 0, 1, 0, P, op_, list(params)))
+    def tap(*params): return msg(bind_set(2, RING, TAP, 0, 0, 0, P, op_, list(params)))
+    st = [step(tk(1000), {"lease": "acquire"}, flags(full), page(True), msg(kf), *writes(c)),
+          step(tk(1010), msg(bind_list(0, itab, 4, 0, 10, 1)))]                           # list 0: 4 items, pitch 10, cursor 0
+    t = 2000
+    for k, (params, why) in enumerate([
+            ((E, T12), "P0 an edge, P1 a 12: the first decides — edge"),
+            ((T12, E), "P0 a 12, P1 an edge: the first decides — 12"),
+            ((E, OK2), "the look-alike: only the edge (P1 inside) — edge"),
+            ((OK1, T12), "the look-alike: only the 12 (P0 inside) — 12"),
+            (((K_ARG, 7), (K_ARG, -7), E, T12), "the pair at P2, P3 behind two kind-0 values: edge"),
+            (((K_ARG, 7), (K_ARG, -7), T12, E), "the pair at P2, P3 reversed: 12"),
+            ((OK1, E, OK2, T12), "an edge at P1, a 12 at P3, inside values around them: edge"),
+            ((OK2, T12, OK1, E), "a 12 at P1, an edge at P3: 12")]):
+        st.append(step(tk(t + 10 * k), up(*params), inp(RING, UP)))                      # step 9's index order, as `why` says
+    t = 2200
+    st += [step(tk(t), msg(bind_list(0, NONE, 4, 0, 10, 2))),                             # no item table: kind 1 is an edge whatever its arg
+           step(tk(t + 10), up(OK1, T12), inp(RING, UP)),                                 # "no table ... → edge" at P0 before P1's 12: edge
+           step(tk(t + 20), up(T12, OK1), inp(RING, UP)),                                 # P0's 12 before P1's no-table edge: 12
+           step(tk(t + 30), msg(bind_list(0, itab, 4, 1, 10, 3))),                        # the table back, the cursor 0 + 1 = 1 (§6.3 LIST's shift)
+           step(tk(t + 40), tap(E, T12), inp(RING, TAP)),                                 # a tap (step 0, c' 1): P0's edge before P1's 12 — edge
+           step(tk(t + 50), tap(T12, E), inp(RING, TAP)),                                 # a tap: P0's 12 before P1's edge — 12
+           step(tk(t + 60), up(OK1, OK2), inp(RING, UP)),                                 # neither (c' 2: item 2, 20): drew, P0..P3 in fields 10–13
+           step(tk(t + 60), wake())]                                                      # step 1 of the local
+    vec("v4-param-order", st)
+
     for vec_ in v:
         vec_["contract"] = 2
         vec_["start"] = "zero"
@@ -2593,6 +2679,8 @@ def main():
     ap.add_argument("--only", metavar="PREFIXES", help="write only vectors whose name starts with one of these "
                     "comma-separated prefixes (e.g. v3 or v2-cachesize,v2-refusals); every other file is left as it is")
     ap.add_argument("--check", action="store_true", help="run the self-check of the C1 builders and write nothing")
+    ap.add_argument("--out", metavar="DIR", help="write into DIR instead of firmware/vectors/ (inputs no runner has "
+                    "filled yet, kept outside the tree: an unfilled file there turns ConformanceVectorTest red)")
     a = ap.parse_args()
     kf = keyframe(pattern(W, H, 1))
     v12, v3, v4 = vectors(), vectors_v3(kf), vectors_v4(kf)
@@ -2608,10 +2696,11 @@ def main():
           f"{len(BAD_SHAPE)} malformed on purpose")
     if a.check: return
     prefixes = tuple(x for x in a.only.split(",") if x) if a.only else None
-    OUT.mkdir(parents=True, exist_ok=True)
+    out = pathlib.Path(a.out) if a.out else OUT
+    out.mkdir(parents=True, exist_ok=True)
     for vec in v12 + v3 + v4:
         if prefixes and not vec["name"].startswith(prefixes): continue
-        p = OUT / f"{vec['name']}.json"
+        p = out / f"{vec['name']}.json"
         vec = _merged(p, vec)
         p.write_text(json.dumps(vec, indent=1) + "\n")
         kept = sum(1 for s in vec["steps"] if s["expect"])
