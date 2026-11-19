@@ -36,7 +36,7 @@ class LocalSequenceFuzzTest {
 
     // ----------------------------------------------------------------------------------------- the invariants
     /** (1)–(5) and (8) at rest; [lossy]: a mode-27 message was lost or refused this sequence. */
-    fun atRest(h: LocalHarness, failed: MutableList<String>, counted: MutableMap<String, Int>) {
+    fun atRest(h: LocalHarness, failed: MutableList<String>, counted: MutableMap<String, Int>, strict: Boolean = false) {
         h.rest()
         // (1)
         for (a in h.acts) {
@@ -52,7 +52,7 @@ class LocalSequenceFuzzTest {
             val arm = if (m.startsWith("LEFT")) Arm.LEFT else Arm.RIGHT
             val behind = arm == Arm.LEFT && LocalRules.after(sR, h.sim.bindForTest(Arm.LEFT).seq) &&
                 h.sim.motionForTest(arm).slots.any { it != null && it.local && LocalRules.after(h.rules.sLow, it.tag) }
-            if (behind) counted["(2) LEFT numbered behind RIGHT: a held local no S reaches"] = (counted["(2) LEFT numbered behind RIGHT: a held local no S reaches"] ?: 0) + 1
+            if (behind && !strict) counted["(2) LEFT numbered behind RIGHT: a held local no S reaches"] = (counted["(2) LEFT numbered behind RIGHT: a held local no S reaches"] ?: 0) + 1
             else failed += "(2) $m"
         }
         // (3)
@@ -169,7 +169,7 @@ class LocalSequenceFuzzTest {
         script(h)
         val failed = ArrayList<String>()
         val counted = HashMap<String, Int>()
-        atRest(h, failed, counted)
+        atRest(h, failed, counted, strict = true)     // a seeded case counts nothing apart: S4's mutant IS LEFT behind
         failed += extra(h)
         if (live) { tapLiveness(h, failed); scrollLiveness(h, failed) }
         for ((g, n) in h.moves) if (n > 1 && g !in before) failed += "(8) gesture $g moved the row $n times"
