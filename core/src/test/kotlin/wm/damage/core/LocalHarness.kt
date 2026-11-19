@@ -374,7 +374,16 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     // ---- covers, windows, re-stages, switches (the shell's own changes, each in the batch that draws it)
     fun cover() { if (covered || window) return; covered = true; rules.front(null, row); pumpSoon() }
     fun uncover() { if (!covered) return; covered = false; if (!window) rules.front(bound, row); pumpSoon() }
-    fun openWindow() { if (window || covered) return; window = true; rules.front(null, row); pumpSoon() }
+    fun openWindow() {
+        if (window || covered) return
+        // decisions AW.3, as the shell does it: a window over the list while a COMMITted instance still draws in the slot —
+        // a CLOSE of the slot goes first, alone, ahead of the window's frame
+        val inst = sim.motionForTest(Arm.RIGHT).slots[0]
+        if (inst != null && inst.drawing && inst.local && inst.tag in commitsSent) { emit(listOf(CfwModes.motionClose(0)), emptyList()); windowCuts++ }
+        window = true; rules.front(null, row); pumpSoon()
+    }
+    /** Windows that cut a COMMITted motion (AW.3), for the fuzz's counted shapes. */
+    var windowCuts = 0
     fun back() { if (!window) return; window = false; if (!covered) rules.front(bound, row); pumpSoon() }
     fun toggleBadge() { badge = !badge; pumpSoon() }
     fun tick() { clock++; pumpSoon() }

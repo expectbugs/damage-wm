@@ -328,20 +328,31 @@ object CfwModes {
      *  five-line strip of Adam's book measured 12–17 KB (an image strip 34 KB), two to four times the 1×
      *  renders' model, and 32 KiB held one. */
     const val STAGE_RESERVE = 64 * 1024
-    /** Build C2 (`C2-decisions.md` B.4; AD.2): on a 256 KiB session with BIND in force, Main's staged rows have a region
-     *  of their own, the 96 KiB below the stage reserve — room for a second strip, so a row-form change is switched with
-     *  no withdrawal — and the atlas lays out over the 96 KiB under it, what it has at 160 KiB (its largest use seen in
-     *  his journal: 78,136 B). Everywhere else (160 KiB, or no BIND: ladder stages 0–3 keep today's layout byte for
-     *  byte) Main stages into the shared reserve when it comes to the front. */
-    const val MAIN_REGION = 96 * 1024
+    /** Build C2 (`C2-decisions.md` B.4; AD.2; AU.1): on a 256 KiB session with BIND in force, Main's staged rows have a
+     *  region of their own, the 128 KiB below a 32 KiB stage reserve — room for a second strip, so a row-form change is
+     *  switched with no withdrawal (and for one strip when two do not fit) — and the atlas lays out over the 96 KiB under
+     *  it, what it has at 160 KiB (its largest use seen in his journal: 78,136 B). 96 KiB held his rows at the first
+     *  trial's start (55,488 B) and not after his app visits (103,088 B, 11-19 12:25). Everywhere else (160 KiB, or no
+     *  BIND: ladder stages 0–3 keep today's layout byte for byte) Main stages into the shared reserve when it comes to the
+     *  front. */
+    const val MAIN_REGION = 128 * 1024
+    /** AU.1: the stage reserve on a 256 KiB session with BIND in force (Page staging's strips; nothing in daily use draws
+     *  on it at stage 4). */
+    const val STAGE_RESERVE_BOUND = 32 * 1024
+
+    private fun ownRegion(cacheSize: Int, bind: Boolean) = bind && cacheSize >= CACHE2_MAX_RIDERS
+
+    /** The stage reserve at the top of a session's cache: [STAGE_RESERVE], or [STAGE_RESERVE_BOUND] when Main has its own
+     *  region below it. */
+    fun stageReserve(cacheSize: Int, bind: Boolean): Int = if (ownRegion(cacheSize, bind)) STAGE_RESERVE_BOUND else STAGE_RESERVE
 
     /** The bytes above the atlas's layout: the stage reserve, and Main's region when [mainRegion] gives it one. */
-    fun reserveAbove(cacheSize: Int, bind: Boolean): Int = STAGE_RESERVE + if (bind && cacheSize >= CACHE2_MAX_RIDERS) MAIN_REGION else 0
+    fun reserveAbove(cacheSize: Int, bind: Boolean): Int = stageReserve(cacheSize, bind) + if (ownRegion(cacheSize, bind)) MAIN_REGION else 0
 
     /** Where Main's staged rows lie in a session of [cacheSize] bytes: its own region on a 256 KiB session with [bind],
      *  else the shared stage reserve (`[cacheSize − STAGE_RESERVE, cacheSize)`). */
     fun mainRegion(cacheSize: Int, bind: Boolean): IntRange =
-        if (bind && cacheSize >= CACHE2_MAX_RIDERS) (cacheSize - STAGE_RESERVE - MAIN_REGION) until (cacheSize - STAGE_RESERVE)
+        if (ownRegion(cacheSize, bind)) (cacheSize - STAGE_RESERVE_BOUND - MAIN_REGION) until (cacheSize - STAGE_RESERVE_BOUND)
         else (cacheSize - STAGE_RESERVE) until cacheSize
     /** The largest offset a u16 in 4-byte units reaches. */
     const val OFF4_REACH = 0xFFFF * 4

@@ -117,9 +117,9 @@ object MainLocalCheck {
 
         /** The staging as the shell builds it for the bound list: the whole list's pans only (AF.10), and a second strip in
          *  Main's own region at 256 KiB (AD.2). */
-        fun staging(cacheSize: Int, region: IntRange): MainStaging =
+        fun staging(cacheSize: Int, region: IntRange, motion: MainStaging.ScrollMotion? = MainStaging.ScrollMotion.DEFAULT): MainStaging =
             MainStaging.build(layout, view, kit, listD, bandD, cacheSize, region.first, region.last + 1,
-                widths = listOf(MainStaging.WHOLE), twoStrips = region.last + 1 < cacheSize)
+                widths = listOf(MainStaging.WHOLE), twoStrips = region.last + 1 < cacheSize, motion = motion)
     }
 
     /** Runs every case at [heights] × [cachesKib]; [frames] keeps the strips' frames (the desktop writes them). */
@@ -132,7 +132,24 @@ object MainLocalCheck {
             cases += r.first
             table += r.second
         }
+        for (h in heights) table += worstCase(text, h, depth)
         return Result(cases, table)
+    }
+
+    /** Decisions AU.1: the fullest his eight rows can draw — every line and detail past the row's width (the ▸ mark), a
+     *  bar on each, dense ink — staged at 256 KiB with two strips and with one, against Main's own region. */
+    fun worstCase(text: TextRasterizer, height: Int, depth: Int = 8): String {
+        val ink = "M@W#".repeat(24)
+        val rows = sampleRows().onEach { it.s = DamageWindow.Summary(ink, detail = ink, more = true, progress = 0.5) }
+        val m = MainRig(text, height, rows, depth)
+        val cache = CfwModes.CACHE2_MAX_RIDERS
+        val region = CfwModes.mainRegion(cache, bind = true)
+        fun bytes(two: Boolean): Int = MainStaging.build(m.layout, m.view, m.kit, m.listD, m.bandD, cache, 0, cache,
+            widths = listOf(MainStaging.WHOLE), twoStrips = two).let { it.end - it.start }
+        val size = region.last + 1 - region.first
+        val two = bytes(true); val one = bytes(false)
+        return "worst case h$height at 256 KiB (Main's region $size B): two strips $two B (${if (two <= size) "fit" else "do not fit"}), " +
+            "one strip $one B (${if (one <= size) "fits" else "DOES NOT FIT"})"
     }
 
     private const val FEATURES_C2 = 0x5ff

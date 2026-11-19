@@ -122,6 +122,10 @@ class MainLocalShellTest {
         /** Field 39 with Main's entries live on RIGHT: ids 4 and 5, and the tap (id 0) unless `phone`. */
         val bound39: Int get() = 0x30 or (if (taps == Taps.PHONE) 0 else 1)
 
+        /** Build ANIM (AW.4): Q in force and the bound pan's length (T × P) — the tests space notches by them. */
+        fun q(): Long = onLoop { shell.localQForTest() }
+        fun motionMs(): Long = onLoop { shell.motionMsForTest() }
+
         suspend fun bound(what: String) {
             until("$what: Main's list bound on RIGHT") { onLoop { shell.mainBoundForTest().first } != null && sim.bindForTest(Arm.RIGHT).field39() == bound39 }
             settle(what)
@@ -219,7 +223,7 @@ class MainLocalShellTest {
             for (y in maxOf(0, a.y) until minOf(Geometry.PANEL_H, a.bottom)) { for (x in maxOf(0, a.x) until minOf(Geometry.PANEL_W, a.right)) if (mid[x, y] != before[x, y]) { moved = true; break }; if (moved) break }
             assertTrue(moved, "$what: the pan's track at $a changed on RIGHT mid-motion (the whole list moves)")
         }
-        delay(((e.program.T + 1) * e.period * 1000L) / 1024 + LocalRules.Q_MS + 200)   // the motion, then the burst's SETTLE
+        delay(((e.program.T + 1) * e.period * 1000L) / 1024 + r.q() + 200)   // the motion, then the burst's SETTLE
         r.settle("$what: after")
         assertEquals(row0 + e.step, r.row(), "$what: the row moved by its step")
         assertTrue(r.right.drop(at).any { img -> r.subs(img).any { r.isCommit(it, s) } }, "$what: a COMMIT of S $s")
@@ -297,14 +301,14 @@ class MainLocalShellTest {
             delay(20)
             r.rows[2].s = r.rows[2].s.copy(detail = "detail of 2, changed")
             r.shell.services.requestRender(r.rows[2])
-            delay(230)
+            delay(r.motionMs() + 30)                               // B after A's motion (AW.4), still inside its burst (Q)
             val tB = System.currentTimeMillis()
             val sB = r.fire(CfwModes.EV_UPROLL)                     // B: onto row 2, whose staged band form is the old one
             r.until("row 2 re-staged", 10_000) { r.notes("mainstage").any { it.startsWith("row 2 re-staged") } }
             // the re-stage waited for the burst's end: Q after B's report (the lone SETTLE), not between A and B
             val restagedAt = assertNotNull(r.noteAt("mainstage", "row 2 re-staged"))
-            assertTrue(restagedAt >= tB + LocalRules.Q_MS / 2, "row 2 re-staged ${restagedAt - tB} ms after B: not before the burst's SETTLE (Q ${LocalRules.Q_MS} ms)")
-            delay(LocalRules.Q_MS + 300)
+            assertTrue(restagedAt >= tB + r.q() / 2, "row 2 re-staged ${restagedAt - tB} ms after B: not before the burst's SETTLE (Q ${r.q()} ms)")
+            delay(r.q() + 300)
             r.settle("after")
             val imgs = r.right.drop(at)
             val commitB = imgs.indexOfFirst { img -> r.subs(img).any { r.isCommit(it, sB) } }
@@ -340,7 +344,7 @@ class MainLocalShellTest {
             val s = r.fire(CfwModes.EV_UPROLL)
             r.until("the notch adopted", 5_000) { r.row() == 1 }
             assertTrue(!r.onLoop { r.shell.mainRestingForTest() }, "the adopted notch woke Main")
-            delay(LocalRules.Q_MS + 400); r.settle("after the notch")
+            delay(r.q() + 400); r.settle("after the notch")
             assertTrue(r.right.drop(at).any { img -> r.subs(img).any { r.isCommit(it, s) } }, "a COMMIT of S $s")
             r.assertOracle("a notch at rest")
         } finally { r.close() }
@@ -368,14 +372,14 @@ class MainLocalShellTest {
                 suspend fun notches(k: Int) = repeat(k) { i ->
                     val id = if ((i / 3) % 2 == 0) CfwModes.EV_UPROLL else CfwModes.EV_DOWNROLL
                     if (stage == 4) r.fire(id) else r.t.injectInput(BoundList.stockEvent(id)!!)
-                    delay(300); r.settle("notch")
+                    delay(r.motionMs() + 50); r.settle("notch")
                 }
                 notches(10)                                              // warm-up
-                delay(LocalRules.Q_MS + 100); r.settle("warm")
+                delay(r.q() + 100); r.settle("warm")
                 r.shell.postMinuteTick(); r.settle("minute")
                 val before = r.notes("loop").size
                 notches(n)
-                delay(LocalRules.Q_MS + 100); r.settle("measured")
+                delay(r.q() + 100); r.settle("measured")
                 r.shell.postMinuteTick(); r.settle("minute")
                 println("DI-loop stage $stage, $n notches: ${r.notes("loop").drop(before).joinToString(" || ")}")
                 println("DI-loop stage $stage: snapbacks ${r.notes("snapback").size} ${r.notes("snapback").groupingBy { it.substringBefore(" S=") }.eachCount()}; " +
@@ -439,9 +443,9 @@ class MainLocalShellTest {
             // top track's rows (from row 3 on at 352), where the divider's mark beside it was merged with it
             repeat(20) { i ->
                 r.fire(if ((i / 5) % 2 == 0) CfwModes.EV_UPROLL else CfwModes.EV_DOWNROLL)
-                delay(300); r.settle("notch $i")
+                delay(r.motionMs() + 50); r.settle("notch $i")
             }
-            delay(LocalRules.Q_MS + 200); r.settle("after")
+            delay(r.q() + 200); r.settle("after")
             val flushes = r.onLoop { r.shell.flushesSubmitted } - f0
             assertTrue(flushes <= FLUSHES_FOR_20, "20 notches took $flushes flushes (at most $FLUSHES_FOR_20: the chrome rides the COMMITs)")
             assertTrue(r.notes("snapback").isEmpty(), "no snap-back: ${r.notes("snapback").take(3)}")
@@ -513,6 +517,136 @@ class MainLocalShellTest {
             r.settle("opened")
             val first = Files.readAllLines(r.journal).drop(lines0).first { "\"ev\":\"submit\"" in it && "\"label\":\"WINDOW" in it }
             assertTrue("\"in\":1" in first, "the act's first flush marked as input: ${first.take(300)}")
+        } finally { r.close() }
+    }
+
+    /** Decisions AU.1 (b): at 256 KiB, rows fuller than two strips' room (eighteen dense rows) stage with ONE strip —
+     *  never "cannot be staged" while one fits — the list bound; a row form's change then withdraws and returns, as at
+     *  160 KiB. (Two strips when they fit: `aRowFormChangeAt256KiBSwitchesStripsWithNoWithdrawal_AD2`.) */
+    @Test
+    fun fullerRowsStageWithOneStripAt256KiB_AU1(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, nRows = 18, kib256 = true)
+        try {
+            for (w in r.rows) w.s = w.s.copy(line = "W".repeat(80), detail = "W".repeat(80))
+            r.up()
+            assertTrue(r.notes("mainstage").none { it.startsWith("Main's rows cannot be staged") }, "${r.notes("mainstage")}")
+            assertTrue(r.notes("mainstage").any { it.startsWith("two strips do not fit Main's region") }, "one strip staged: ${r.notes("mainstage")}")
+            assertTrue(r.onLoop { r.shell.mainBinding.staging!!.stripB == null }, "no second strip")
+            r.rows[3].s = r.rows[3].s.copy(line = "short 3")
+            r.shell.services.requestRender(r.rows[3])
+            r.until("withdrawn for the row form's change", 15_000) { r.notes("mainstage").any { it.startsWith("withdrawn") } }
+            r.bound("bound again after the strip's write")
+            r.assertOracle("after the withdrawal")
+        } finally { r.close() }
+    }
+
+    /** Decisions AU.2: a face's first use while another window is in front (Settings' faces go live) leaves Main's own
+     *  region intact — no record dropped, no staging byte sent there — and back on Main the list is bound with no staging
+     *  again (rows whose live paint did not change are not re-staged). */
+    @Test
+    fun aFontSetChangeInAnotherWindowLeavesMainsRegionIntact_AU2(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, kib256 = true)
+        try {
+            r.up()
+            val staging0 = r.onLoop { r.shell.mainBinding.staging }
+            val staged0 = r.notes("mainstage").count { it.startsWith("staged") }
+            val live0 = r.onLoop { r.shell.cachedFontsLive.toSet() }
+            val lines0 = Files.readAllLines(r.journal).size
+            r.onLoop { r.shell.services.openWindow("settings", null) }
+            r.until("Settings open") { r.onLoop { r.shell.currentWindowId() } == "settings" }
+            r.until("a face went live in Settings", 15_000) { r.onLoop { r.shell.cachedFontsLive.toSet() } != live0 }
+            r.settle("in Settings")
+            val inSettings = Files.readAllLines(r.journal).drop(lines0)
+            assertTrue(inSettings.none { "\"ev\":\"submit\"" in it && "\"label\":\"STAGE\"" in it }, "no staging byte while Settings is in front")
+            assertTrue(r.onLoop { r.shell.mainBinding.staging } === staging0, "Main's staging kept")
+            r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+            r.until("back on Main") { r.onLoop { r.shell.currentWindowId() } == null }
+            r.bound("bound on Main again")
+            assertEquals(staged0, r.notes("mainstage").count { it.startsWith("staged") }, "no staging again: ${r.notes("mainstage").takeLast(4)}")
+            assertTrue(r.notes("mainstage").none { it.startsWith("dropped") }, "Main's staging never dropped: ${r.notes("mainstage").takeLast(4)}")
+            r.assertOracle("back on Main")
+        } finally { r.close() }
+    }
+
+    /** Decisions AU.4: the `local` counters' note is written when a value changes (and once after a session start), not
+     *  at every telemetry read — no two in a row the same. */
+    @Test
+    fun theCountersNoteIsWrittenOnlyWhenAValueChanges_AU4(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT)
+        try {
+            r.up()
+            repeat(3) { r.fire(CfwModes.EV_UPROLL); delay(r.motionMs() + 100); r.settle("notch $it") }
+            delay(r.q() + 200); r.settle("after")
+            val ns = r.notes("local").filter { it.startsWith("35=") }
+            assertTrue(ns.isNotEmpty(), "at least one counters' note")
+            assertTrue(ns.zipWithNext().none { (a, b) -> a == b }, "no counters' note repeated: ${ns.size} notes, ${ns.toSet().size} distinct")
+        } finally { r.close() }
+    }
+
+    /** Build ANIM (AV): a change of the `Animations` rows makes the bound list's pans again — here by a re-staging (no
+     *  switch carries a programs record) — once no burst is open; the list is bound again with the new motion, and a
+     *  notch after it is COMMITted with it (its entry's T and P on RIGHT). */
+    @Test
+    fun anAnimationsChangeMakesThePansAgainAndANotchUsesThem_ANIM(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT)
+        try {
+            r.up()
+            val before = r.list().entries.first { it.eventId == CfwModes.EV_UPROLL }
+            assertEquals(46 to 10, before.period to before.program!!.T, "the defaults at 352")
+            val staged0 = r.notes("mainstage").count { it.startsWith("staged") }
+            r.shell.updateSettings { it.copy(scrollLength = 300, frames = 0) }
+            r.until("staged again with the new motion", 15_000) { r.notes("mainstage").count { it.startsWith("staged") } > staged0 }
+            r.bound("bound with the new motion")
+            val after = r.list().entries.first { it.eventId == CfwModes.EV_UPROLL }
+            assertEquals(46 to 6, after.period to after.program!!.T, "300 ms Auto at 352: T 6 at P 46")
+            assertEquals(46, r.sim.bindForTest(Arm.RIGHT).entries.filterNotNull().first { it.eventId == CfwModes.EV_UPROLL }.period, "RIGHT's entry")
+            assertTrue(r.notes("mainstage").any { it.startsWith("dropped — the motion changed") }, "${r.notes("mainstage").takeLast(4)}")
+            notch(r, CfwModes.EV_UPROLL, "a notch with the new motion")
+        } finally { r.close() }
+    }
+
+    /** Decisions AW.3: a tap that opens a window 100 ms after an adopted notch (its motion ≈ 449 ms at the defaults): a
+     *  CLOSE of the slot goes ahead of the window's first frame, the held cells are not held — the window's cells inside
+     *  the list's areas go with that frame — the lens's instance is closed, and belief equals both lenses after. */
+    @Test
+    fun aWindowOpenedInsideTheWaitCutsTheMotion_AW3(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT)
+        try {
+            r.up()
+            val at = r.right.size
+            val s = r.fire(CfwModes.EV_UPROLL)
+            r.until("adopted") { r.row() == 1 }
+            assertTrue(r.onLoop { r.shell.comp.deferring }, "the held cells wait for the motion's end")
+            delay(100)
+            r.fire(CfwModes.EV_TAP)
+            r.until("the window opens") { r.onLoop { r.shell.currentWindowId() } == "w1" }
+            assertTrue(!r.onLoop { r.shell.comp.deferring }, "nothing waits for the motion once the window is up")
+            assertTrue(r.right.drop(at).any { img -> r.subs(img).any { r.isSub(it, 26, 2) } }, "a CLOSE went to RIGHT")
+            assertTrue(r.right.drop(at).any { img -> r.subs(img).any { r.isCommit(it, s) } }, "the notch was COMMITted first")
+            assertTrue(r.notes("local").any { "adopted motion closed ahead of its frame" in it }, "${r.notes("local").takeLast(3)}")
+            r.settle("the window painted")
+            assertTrue(r.sim.motionForTest(Arm.RIGHT).slots[0] == null, "RIGHT's slot 0 empty: ${r.sim.motionForTest(Arm.RIGHT).slots[0]}")
+            r.assertOracle("after the cut")
+        } finally { r.close() }
+    }
+
+    /** Decisions AW.3: a notice box (a partial cover) inside the wait cuts nothing — the held cells wait for the motion's
+     *  end, the shell sends no CLOSE of its own, and belief equals both lenses after. (The simulator's transport, whose
+     *  mirror is the lens itself, still closes an instance a flush meets — on glass the mirror holds no local instance.) */
+    @Test
+    fun aNoticeInsideTheWaitStillWaits_AW3(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT)
+        try {
+            r.up()
+            val at = r.right.size
+            r.fire(CfwModes.EV_UPROLL)
+            r.until("adopted") { r.row() == 1 }
+            r.shell.postNotice(wm.damage.core.shell.Notifications.Notice("TEST · a", "t", "a notice over Main", "12:00"))
+            r.until("the notice up") { r.onLoop { r.shell.notificationsUpForTest() } }
+            assertTrue(r.onLoop { r.shell.comp.deferring }, "the held cells still wait under a notice")
+            r.settle("the motion's end")
+            assertTrue(r.notes("local").none { "adopted motion closed ahead of its frame" in it }, "the shell cut nothing: ${r.notes("local").takeLast(3)}")
+            r.assertOracle("after the notice")
         } finally { r.close() }
     }
 
@@ -642,7 +776,7 @@ class MainLocalShellTest {
             val list0 = r.list()
             val oldProgs = list0.entries.filter { !it.isTap }.map { it.prog4 }.toSet()
             notch(r, CfwModes.EV_UPROLL, "the notch before the switch")
-            delay(LocalRules.Q_MS + 200); r.settle("the burst closed")
+            delay(r.q() + 200); r.settle("the burst closed")
             val at = r.right.size
             var between: Int? = null
             r.onAnyImage = { _, img ->
@@ -654,7 +788,7 @@ class MainLocalShellTest {
             r.until("a notch fired between the strip's write and the SETs", 15_000) { between != null }
             r.onAnyImage = null
             val sB = between!!
-            delay(((list0.entries.first { it.eventId == CfwModes.EV_UPROLL }.let { (it.program!!.T + 1) * it.period }) * 1000L) / 1024 + LocalRules.Q_MS + 200)
+            delay(((list0.entries.first { it.eventId == CfwModes.EV_UPROLL }.let { (it.program!!.T + 1) * it.period }) * 1000L) / 1024 + r.q() + 200)
             r.settle("after the notch between")
             assertEquals(2, r.row(), "the notch between was adopted")
             assertTrue(r.right.drop(at).any { img -> r.subs(img).any { r.isCommit(it, sB) } }, "the notch between was COMMITted (S $sB): " +

@@ -360,6 +360,16 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         private set
     val deferring: Boolean get() = deferL.isNotEmpty()
 
+    /** Decisions AW.3: the held cells' wait cut — a window covering the list closed the adopted motion ahead of its frame:
+     *  the held cells are unknown and go into the next assemble's scan, repainted from the truth. True when there were any. */
+    fun cutDeferral(): Boolean {
+        if (deferL.isEmpty()) return false
+        for (r in deferL) { markUnknown(unknownL, r); pendingDamage.add(widen(r)) }
+        for (r in deferR) { markUnknown(unknownR, r); pendingDamage.add(widen(r)) }
+        deferL = emptyList(); deferR = emptyList()
+        return true
+    }
+
     /** The shell, at each pump: once [nowMs] is past [deferUntilMs], the held cells go into the next assemble's scan. True
      *  when it released them. Pacing on the loop (the shell asks the loop back at [deferUntilMs]), never a wait. */
     fun releaseDeferred(nowMs: Long): Boolean {

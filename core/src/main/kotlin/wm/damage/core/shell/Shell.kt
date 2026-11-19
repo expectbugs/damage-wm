@@ -1028,7 +1028,8 @@ class Shell(
                 { settingsApps() },
                 localInput = { transport.state.value.localInput },
                 localRearm = { transport.devProbe("c1", "4") },
-                bindBuild = { transport.state.value.damageFeatures and wm.damage.core.wire.DamageMsg.FEATURE_BIND != 0 })
+                bindBuild = { transport.state.value.damageFeatures and wm.damage.core.wire.DamageMsg.FEATURE_BIND != 0 },
+                motionHint = { motionHint() })
             register(settingsWindow)
         }
         for (w in windows) w.onRegistered(services)
@@ -2663,6 +2664,8 @@ class Shell(
     /** Every flush that carried the rules' messages, until its completion: a refused one sends the table again. */
     private val localTailFlushes = HashSet<Long>()
     private var localSettleAt = Long.MAX_VALUE
+    /** The last `local` counters' note written (AU.4), cleared at a session start. */
+    private var localNoteSaid: String? = null
     /** The held cells' release the loop was last asked back for (AF.7): one wake per motion end. */
     private var deferWakeAt = 0L
 
@@ -2733,6 +2736,7 @@ class Shell(
         val f = localFront()
         localFrontNow = f?.second
         localOnlyFlushes.clear(); localTailFlushes.clear(); mainBind.tailsForgotten()
+        localNoteSaid = null
         localSettleAt = Long.MAX_VALUE
         mainBindRefusedFor = null                         // AF.6: a staging that did not fit is tried again at every start
         mainBindBlockedSaid = null
@@ -2814,7 +2818,8 @@ class Shell(
             is TransportEvent.LocalRead -> {
                 ev.flagsInForce?.let { local.bindInForce(it and wm.damage.core.wire.DamageMsg.FLAG_BIND != 0) }
                 local.telemetry(ev.boundIds, ev.refusal27, ev.batch14)
-                if (local.active) journal.note("local", local.localNote(ev.fields), ev.atMs)
+                // AU.4: the counters' note when a value changes (and once after a session start), not at every read
+                if (local.active) local.localNote(ev.fields).let { n -> if (n != localNoteSaid) { localNoteSaid = n; journal.note("local", n, ev.atMs) } }
                 post(Msg.Pump)
             }
             is TransportEvent.LocalBody -> local.body114(ev.slot, ev.tag, ev.outcome, ev.reason)
@@ -3779,7 +3784,14 @@ class Shell(
         val ct = cachedText ?: return
         // §66: a record's pixels were painted under the previous live set; a live repaint now draws
         // them differently, so the records go (they are re-staged in a moment)
-        if (specs != ct.live || images != ct.liveImages) stageClear("the live font set changed")
+        if (specs != ct.live || images != ct.liveImages) {
+            // decisions AU.2: Main's records are pictures (no atlas offset in them; its programs name only its own region)
+            // and its END and `Same` run on the phone's own copies, so the change costs Main nothing but rows whose live
+            // paint may now differ (a face it draws went live): every row is painted again and compared, and only a row
+            // that differs is re-staged, by the paced re-stage path
+            stagePagesClear("the live font set changed")
+            mainBind.recheckAll()
+        }
         ct.live = specs
         ct.liveImages = images
         comp.cachedText = if (specs.isEmpty() && images.isEmpty()) null else ct
@@ -4059,6 +4071,18 @@ class Shell(
         stage.ring = null                  // sized from the session's cache at the first strip
     }
 
+    /** Decisions AU.2: Page staging's records go (and the `mainseq` probe's are not touched either way: it is refused at
+     *  stage 4), Main's own staging stays — for a reason that concerns Page staging only. */
+    private fun stagePagesClear(why: String) {
+        val gone = stage.records.values.filter { it.key !is MainStageKey }
+        for (r in gone) stage.remove(r)
+        // a write of one in flight completes as any other: its ack is counted, its record is no longer in the registry
+        stageClears++                                  // harnesses count a boundary by it
+        comp.placements = emptyList()
+        stageRecount()
+        if (gone.isNotEmpty()) journal.note("stage", "dropped ${gone.size} record(s) — $why")
+    }
+
     /** Every record and placement goes: nothing draws from the reserve until a strip is staged and
      *  proven again. [why] null = a session boundary (the start's own notes say so). */
     private fun stageClear(why: String?) {
@@ -4111,7 +4135,7 @@ class Shell(
         if (step * lineH > CfwModes.MAX_IMAGE2_H) return false     // a record is at most 2048 rows tall
         val gone = stage.retain(key, lineH, region.w)
         if (gone.isNotEmpty()) { stageRecount(); journal.note("stage", "dropped ${gone.size} record(s) of another layout") }
-        val ring = stage.ring ?: StageRing(st.cacheSize - CfwModes.STAGE_RESERVE, st.cacheSize).also { stage.ring = it }
+        val ring = stage.ring ?: StageRing(st.cacheSize - CfwModes.stageReserve(st.cacheSize, st.bind), st.cacheSize).also { stage.ring = it }
         // the count's base is owed before anything goes out (the backstop, as in `pumpAtlas`); the
         // reading of acked strips is [pumpLedger]'s, and staging writes nothing while a strip is
         // unproven — an unproven record is never drawn
@@ -5386,6 +5410,9 @@ class Shell(
     /** Test introspection, LOOP-ONLY (read inside [sampleIdle]): Main's staging and its counts; what Main offers and its row. */
     internal val mainBinding: MainBinding get() = mainBind
     internal fun mainBoundForTest(): Pair<wm.damage.core.local.BoundList?, Int> = main.bound() to main.row()
+    /** Test introspection (build ANIM, AW.4): Q in force and the bound pan's motion in ms (T × P), loop-only. */
+    internal fun localQForTest(): Long = local.q
+    internal fun motionMsForTest(): Long = mainBind.staging?.let { it.t * it.period * 1000L / 1024 } ?: 0L
     internal fun mainRestingForTest(): Boolean = main.resting
     internal fun notificationsUpForTest(): Boolean = notifications.active || notifications.animating
     internal fun notificationsFocusedForTest(): Boolean = notifications.active && notifications.focused
@@ -5432,6 +5459,22 @@ class Shell(
         else -> null
     }
 
+    /** Build ANIM (AV, AW.1): the motion the `Animations` rows ask for. */
+    private fun motionInForce() = MainStaging.ScrollMotion(settings.scrollLength, settings.frames)
+
+    /** [ms]'s motion in words ("10 frames × 45 ms"), as the `Frames` row's hint says it. */
+    private fun motionWords(ms: MainStaging): String = "${ms.t} frames × ${"%.0f".format(ms.period * 1000.0 / 1024)} ms"
+
+    /** The `Frames` row's hint: the motion in force at Main's height now — the staging's when it was made for these rows,
+     *  else what they give at the current layout. */
+    private fun motionHint(): String {
+        val ms = mainBind.staging
+        if (ms != null && ms.motion == motionInForce()) return motionWords(ms)
+        val (listD, bandD) = mainBindPlanes()
+        val (p, t) = MainStaging.timing(MainStaging.wholeAreaPx(layout, listD, bandD), motionInForce())
+        return "$t frames × ${"%.0f".format(p * 1000.0 / 1024)} ms"
+    }
+
     /** The relay Main's pictures are painted through (Page staging's): a face the glasses hold blits from the atlas. */
     private fun mainBindRelay(): (Gray8, () -> Unit) -> Unit {
         val ct = cachedText
@@ -5456,6 +5499,10 @@ class Shell(
             (ms.listD to ms.bandD) != mainBindPlanes() -> "Main's planes changed (${ms.listD}/${ms.bandD} staged, ${mainBindPlanes().let { "${it.first}/${it.second}" }} now)"
             ms.rows != mainRows().size -> "Main's rows changed (${ms.rows} staged, ${mainRows().size} now)"
             st.cacheSize != ms.cacheSize || mainBindRegion(st).first != ms.regionStart -> "the session's cache or Main's region changed"
+            // build ANIM (AV): the `Animations` rows changed — the pans are made again (the strips with them: no switch
+            // carries a programs record); a change in a burst waits for its SETTLE
+            ms.motion != motionInForce() && !mainBindBurstOpen() -> "the motion changed (${motionWords(ms)} → ${motionInForce().lengthMs} ms, " +
+                "${if (motionInForce().frames == 0) "Auto" else "${motionInForce().frames} frames"})"
             else -> null
         }
         if (why != null) { mainBindDrop(why); return }
@@ -5553,7 +5600,7 @@ class Shell(
         val n = mainRows().size
         // decisions AF.6: the rows' content is part of what a refusal is keyed on — a staging that did not fit is tried
         // again when what it was sized for changes (and at every session start)
-        val what = "$layout $listD/$bandD $n ${region.first}..${region.last} ${st.cacheSize} ${List(n) { main.rowKey(it) }.hashCode()}"
+        val what = "$layout $listD/$bandD $n ${region.first}..${region.last} ${st.cacheSize} ${motionInForce()} ${List(n) { main.rowKey(it) }.hashCode()}"
         if (mainBindRefusedFor == what) return false
         val ct = cachedText
         // decisions AF.8: one row painted per loop turn (its row form and band form); the staging is laid out once every row
@@ -5581,7 +5628,14 @@ class Shell(
         val shared0 = region.last + 1 == st.cacheSize
         val ms = try {
             // the bound list's pans only (AF.10); at 256 KiB Main's own region holds a second strip (AD.2)
-            MainStaging.assemble(pt, listD, bandD, st.cacheSize, region.first, region.last + 1, listOf(MainStaging.WHOLE), twoStrips = !shared0)
+            try { MainStaging.assemble(pt, listD, bandD, st.cacheSize, region.first, region.last + 1, listOf(MainStaging.WHOLE), twoStrips = !shared0, motion = motionInForce()) }
+            catch (e: wm.damage.core.geom.LintError) {
+                if (shared0) throw e
+                // decisions AU.1 (b): two strips do not fit Main's region — ONE strip is staged, and a row form's change
+                // withdraws the list as at 160 KiB; never "not staged" while one strip fits
+                MainStaging.assemble(pt, listD, bandD, st.cacheSize, region.first, region.last + 1, listOf(MainStaging.WHOLE), twoStrips = false, motion = motionInForce())
+                    .also { journal.note("mainstage", "two strips do not fit Main's region (${e.message}) — one strip staged; a row form's change withdraws the list, as at 160 KiB") }
+            }
         } catch (e: wm.damage.core.geom.LintError) {
             mainBindRefused(what, "Main's rows cannot be staged: ${e.message} — the list stays unbound (its scrolls and taps go as today) until Main's layout, planes, rows or their content change, or the next session")
             return false
@@ -5599,7 +5653,12 @@ class Shell(
                 }
                 stage.records[r.key] = r
             }
-        } else for ((i, r) in recs.withIndex()) { r.off = ms.blobs[i].off; stage.records[r.key] = r }
+        } else {
+            // AU.1: a Page staging ring laid out before BIND (the 64 KiB reserve) reaches into Main's own region: its
+            // records go, and the ring is laid out again over the bound session's 32 KiB reserve at its next strip
+            stage.ring?.takeIf { it.start <= region.last }?.let { stagePagesClear("Main's own region takes the bytes below the stage reserve"); stage.ring = null }
+            for ((i, r) in recs.withIndex()) { r.off = ms.blobs[i].off; stage.records[r.key] = r }
+        }
         mainBindRefusedFor = null
         mainBind.begin(ms, recs, List(ms.rows) { main.rowKey(it) }, now)
         mainBindRefusalSaid = null
@@ -6420,7 +6479,7 @@ class Shell(
         val retaps = s.taps != settings.taps
         settings = s
         if (retaps) { local.taps(s.taps); post(Msg.Pump) }     // build C2 (§6.7 Switching): the tap entry's SET or CLEAR only
-        if (restage && s.pageStaging != "on") stageClear("the Page staging row is off")
+        if (restage && s.pageStaging != "on") stagePagesClear("the Page staging row is off")     // AU.2: not Main's region
         if (rebright) transport.setBrightness(s.brightnessAuto, s.brightness)
         if (relink) transport.setLinkPriority(s.linkPriority)
         if (recache) {
@@ -7099,10 +7158,23 @@ class Shell(
         }
         // build C2 (§6.7): the list in front told to the rules in the pump that draws its change; their tail (answers,
         // table messages, the idle SETTLE) rides this flush — only while BIND is in force and the lease held (P9)
+        val frontBefore = localFrontNow
         syncLocalFront()
         val localOn = local.active && st.bind && st.leaseHeld
         if (local.active && !st.bind) local.bindInForce(false)
         val localNow = System.currentTimeMillis()
+        // decisions AW.3: a window over the list cuts the adopted motion — the list left the front because another window's
+        // frame (which repaints the whole content area: every cell of the slot's areas) is about to go, while a COMMITted
+        // instance still draws there. A CLOSE of the slot goes first, alone, in stream order ahead of that frame (§5.6: it
+        // presents the shadow, which holds END); the held cells are dropped and the areas made unknown, so the frame
+        // repaints them from the truth now instead of after the motion's end. A notice box, the menu, the keyboard and the
+        // switcher cover part of the list or keep Main under them: their cells still wait (AF.7).
+        if (frontBefore != null && localFrontNow == null && (mode == Mode.WINDOW || mode == Mode.EXCLUSIVE) &&
+            st.bind && st.leaseHeld && comp.deferring && comp.deferUntilMs > localNow) {
+            submitLocalOnly(listOf(CfwModes.motionClose(frontBefore.slot)), "CLOSE")
+            comp.cutDeferral()
+            journal.note("local", "a window over the list: slot ${frontBefore.slot}'s adopted motion closed ahead of its frame — its cells go now")
+        }
         // decisions AF.7: the cells held behind a COMMIT go once the adopted motion has ended on the glasses — the loop is
         // asked back then (pacing, never a wait on a send)
         comp.releaseDeferred(localNow)

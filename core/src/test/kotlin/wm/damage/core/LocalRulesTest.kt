@@ -186,7 +186,7 @@ class LocalRulesTest {
         t.scroll(1, 4); t.batch()                               // COMMIT(1)
         t.r.report(DamageMsg.Applied(mapOf(1 to 3L, 2 to 4L, 3 to 0L, 5 to 2L, 6 to 14L, 15 to 200L)), t.row, t.now)
         t.batch()                                               // S 2 lost; S 3 a tap refused 14: the slot's DISCARD
-        t.now += LocalRules.Q_MS
+        t.now += t.r.q
         assertTrue(t.r.settleDue(t.now))
         val lone = t.r.loneSettle(t.row, t.now)
         val s = lone.last()
@@ -202,7 +202,7 @@ class LocalRulesTest {
     fun noLoneSettleWhileAReportIsUnansweredAndEveryIdleBatchCarriesOne() {
         val t = R(row = 3)
         t.scroll(1, 4)
-        t.now += LocalRules.Q_MS + 1
+        t.now += t.r.q + 1
         assertFalse(t.r.settleDue(t.now), "the 115 is not answered yet")
         assertTrue(t.batch().none { it[0].toInt() == 26 && it[1].toInt() == 5 }, "a burst is open: no SETTLE in its batches")
         assertTrue(t.r.settleDue(t.now))
@@ -214,7 +214,7 @@ class LocalRulesTest {
     fun aDelayedScrollMessageAfterASettleIsAppliedAsUnreported() {
         val t = R(row = 3)
         t.scroll(1, 4); t.batch()
-        t.now += LocalRules.Q_MS
+        t.now += t.r.q
         t.r.loneSettle(t.row, t.now)                            // owes cleared, the band still held S 1's scroll message
         assertEquals(Verdict.Apply(EvenHubMsg.EV_SCROLL_BOTTOM), t.stock(Stock.NEXT), "no owe left: applied as today")
         assertEquals(5, t.row)
@@ -314,7 +314,7 @@ class LocalRulesTest {
         R().let { it.scroll(1, 4, outcome = 2, reason = 3); assertEquals("link", cause(it)) }
         R().let { it.scroll(1, 4); it.batch(denied = setOf(0))     // a drawing sub met the areas: the COMMIT turned
             assertEquals("focus", it.notes.last { n -> n.first == "snapback" }.second.substringAfter("cause=").substringBefore(' ')) }
-        R().let { it.scroll(1, 4); it.batch(); it.now += LocalRules.Q_MS; it.r.loneSettle(it.row, it.now)
+        R().let { it.scroll(1, 4); it.batch(); it.now += it.r.q; it.r.loneSettle(it.row, it.now)
             it.r.body114(0, 1, 1, null)                                 // RIGHT reports the SETTLE stopping a local
             assertEquals("burst-end", it.notes.last { n -> n.first == "snapback" }.second.substringAfter("cause=").substringBefore(' ')) }
         R().let { it.scroll(1, 4); it.batch(); it.r.body114(0, 1, 2, 12)  // the COMMIT refused
@@ -373,7 +373,7 @@ class LocalRulesTest {
         val di = d.indexOfFirst { it[0].toInt() == 26 && it[1].toInt() == 4 }
         assertTrue(dl in 0 until di)
         assertEquals((2 - LocalRules.WIDE) and 0xFFFF, u16(d[di], 3), "DISCARD from A + 1 less 0x4000")
-        t.now += LocalRules.Q_MS; t.r.loneSettle(t.row, t.now)
+        t.now += t.r.q; t.r.loneSettle(t.row, t.now)
         val idle = t.batch()
         assertEquals(listOf(27 to 2, 26 to 5), idle.map { (it[0].toInt() and 0xFF) to it[1].toInt() }, "an idle batch: the LIST, then the SETTLE")
         t.r.front(null, 3)                                      // covered: the SETTLE names no list, so no LIST rides
@@ -400,16 +400,16 @@ class LocalRulesTest {
         val c = t.answer(t.batch()).single()
         assertEquals(3, c[1].toInt(), "a COMMIT")
         assertEquals(recs[4], u16(c, 10), "the COMMIT carries the report's own P0 (the old form's slot), not the new list's")
-        t.now += LocalRules.Q_MS; t.r.loneSettle(t.row, t.now)
+        t.now += t.r.q; t.r.loneSettle(t.row, t.now)
         assertEquals(Verdict.Act(4), t.tap(2, 4, press = true), "a pressed tap naming the old form: acted on")
         t.batch()
-        t.now += LocalRules.Q_MS; t.r.loneSettle(t.row, t.now)
+        t.now += t.r.q; t.r.loneSettle(t.row, t.now)
         assertEquals(Verdict.Adopt(3), t.scroll(3, 3, id = CfwModes.EV_DOWNROLL))
-        t.batch(); t.now += LocalRules.Q_MS; t.r.loneSettle(t.row, t.now)
+        t.batch(); t.now += t.r.q; t.r.loneSettle(t.row, t.now)
         assertEquals(Verdict.Adopt(4), t.scroll(4, 4, p = intArrayOf(recs[9], 0, 0, 0)), "the new form at row 4: adopted")
-        t.batch(); t.now += LocalRules.Q_MS; t.r.loneSettle(t.row, t.now)
+        t.batch(); t.now += t.r.q; t.r.loneSettle(t.row, t.now)
         assertEquals(Verdict.Adopt(3), t.scroll(5, 3, id = CfwModes.EV_DOWNROLL))
-        t.batch(); t.now += LocalRules.Q_MS; t.r.loneSettle(t.row, t.now)
+        t.batch(); t.now += t.r.q; t.r.loneSettle(t.row, t.now)
         assertEquals(Verdict.Apply(EvenHubMsg.EV_SCROLL_BOTTOM), t.scroll(6, 4, p = intArrayOf(recs[7], 0, 0, 0)), "a P naming neither form: not adopted")
     }
 
@@ -466,6 +466,25 @@ class LocalRulesTest {
         r.tail(4, now + 50)
         assertEquals(0, r.counts["snapback.rebind"] ?: 0, "not a snap-back: ${r.counts}; ${notes.filter { it.first == "snapback" }}")
         assertTrue(notes.none { it.first == "snapback" }, "no snap-back noted: ${notes.filter { it.first == "snapback" }}")
+    }
+
+    /** Decisions AW.2: Q follows the motion in force — max(450 ms, T × P + the 256-tick hold of the last step + one period)
+     *  for the list in front: at 352 with the defaults (T 10 at P 46) 745 ms, with the fixed rule's T 5 520 ms; a short
+     *  pan keeps the 450 ms floor. */
+    @Test
+    fun qFollowsTheMotionInForce_AW2() {
+        val rig = wm.damage.core.shell.MainLocalCheck.MainRig(wm.damage.core.motion.BoxFace, 352, wm.damage.core.shell.MainLocalCheck.sampleRows())
+        val region = CfwModes.mainRegion(CfwModes.CACHE2_MAX, true)
+        val long = rig.staging(CfwModes.CACHE2_MAX, region).boundList(1)
+        val fixed = rig.staging(CfwModes.CACHE2_MAX, region, motion = null).boundList(1)
+        assertEquals(745L, LocalRules.qFor(long), "T 10 at P 46")
+        assertEquals(520L, LocalRules.qFor(fixed), "T 5 at P 46")
+        assertEquals(LocalRules.Q_MS, LocalRules.qFor(list()), "a short pan keeps the floor")
+        val r = LocalRules()
+        r.sessionStart(true, 0, 100, long, 0, Taps.REPORT)
+        assertEquals(745L, r.q, "Q in force from the list at the start")
+        r.front(fixed, 0)
+        assertEquals(520L, r.q, "and from the list in front")
     }
 
     /** Decisions AF.5: a refused 3 or 14 body names no list; with none in front its stock message is applied as today. */
