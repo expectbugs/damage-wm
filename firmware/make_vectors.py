@@ -1162,7 +1162,7 @@ def vectors_v3(kf):
         step(tk(2410), msg(play(0, P, pB, 0x0506, P=(pic2, 40, 25, 0x0110)))),    # 9  the low byte 0x10 = 16: 12
         step(tk(2420), msg(play(0, P, pB, 0x0507, P=(0x7FFF, 40, 25, 9)))),       # 10 src substituted past the cache: 5
         step(tk(2430), msg(play(3, P, pE, 0x0508, P=(1, 0)))),                    # 11 h0 = 1: 12
-        step(tk(2440), msg(play(3, P, pE, 0x0509, P=(0, 2)))),                    # 12 h1 = 2: 12
+        step(tk(2440), msg(play(3, P, pE, 0x0509, P=(0, 3000)))),                 # 12 h1 = 3000: 12 (build-neutral since C2, B.2: past 2048 on a bit-10 build too)
         step(tk(2450), msg(play(0, 16, pF, 0x050A, P=(56,)))),                    # 13 200 + 56: T = 256: 12
         step(tk(2460), msg(play(0, 16, pF, 0x050B, P=(0x0137,)))),                # 14 the low byte 55: T = 255, accepted
         step(tk(2460 + 16), wake()),                                              # 15
@@ -1315,7 +1315,7 @@ def vectors_v3(kf):
         ([], play(0, P, bp(track(offp, 2, drawrec(4, pic, 10, 45), res=1)), 0)),       # a track's reserved byte: 5 (A.9)
         ([], play(0, P, bp(track(offp, 2, drawrec(4, pic, 10, 45, res0=1))), 0)),      # a segment's first reserved byte: 5
         ([], play(0, P, bp(track(offp, 2, drawrec(4, pic, 10, 45, res1=1))), 0)),      # its second: 5
-        ([], play(0, P, bp(track(offp, 2, drawrec(4, pic, 10, 45, anchor=1))), 0)),    # anchor 1: 5 (A.9)
+        ([], play(0, P, bp(track(offp, 2, drawrec(4, pic, 10, 45, anchor=3))), 0)),    # anchor 3: 5 (A.9; outside 0..2 on a bit-10 build too, C2 B.2)
         ([], play(0, P, bp(track(offp, 2, drawrec(4, pic, 10, 45, opt=0x01))), 0)),    # an opt bit DRAW does not use: 5
         ([], play(0, P, gp(track((rect(0, 40, 100, 40), rect(560, 40, 100, 40)), 2, drawrec(4, pic, 10, 45, xR=560))), 0)),   # one lens off the panel: 2 on both
         ([], play(0, P, gp(track((rect(0, 40, 100, 40), rect(16, 40, 100, 41)), 2, drawrec(4, pic, 10, 45, xR=16))), 0)),     # a pair of two sizes: 2
@@ -1581,11 +1581,12 @@ def vectors_v3(kf):
     re_ = 2500 + 2 * P + 5                                                                      # pE's RETARGET tick
     vec("v3-rulings", [
         step(*arm, *writes(c)),
-        step(tk(1100), msg(bad(bytes([26, 3, 0])))),                     # 1  R1.8 an unknown sub of length 3: 12, no slot in the body
-        step(tk(1110), msg(bad(bytes([26, 3])))),                        # 2  of length 2: 1
+        # sub 0x40, not 3: unknown on a bit-10 build too, where 3..5 are COMMIT, DISCARD, SETTLE (C2 B.2; v4-fail has sub 3)
+        step(tk(1100), msg(bad(bytes([26, 0x40, 0])))),                  # 1  R1.8 an unknown sub of length 3: 12, no slot in the body
+        step(tk(1110), msg(bad(bytes([26, 0x40])))),                     # 2  of length 2: 1
         step(tk(1120), msg(bad(bytes([26, 7, 1, 2, 3])))),               # 3  of length 5: 1, no slot in the body
         step(tk(1130), msg(bad(bytes([26, 0x80, 2])))),                  # 4  sub 0x80, length 3: 12, no slot
-        step(flags(DRAW2), tk(1140), msg(bad(bytes([26, 3, 0]))), flags(DRAW2 | ENGINE)),   # 5  ENGINE not armed: 15 before the 12
+        step(flags(DRAW2), tk(1140), msg(bad(bytes([26, 0x40, 0]))), flags(DRAW2 | ENGINE)),   # 5  ENGINE not armed: 15 before the 12
         step(tk(1200), msg(batch(fill(rect(0, 220, 8, 2), 3), st25_short))),  # 6  R1.4 a short mode 25 in a batch: 8, the batch's byte
         step(tk(1210), msg(bytes([16, 0])), msg(bytes([16, 1]) + st26_short), msg(bytes([16, 1]) + st25_short), msg(bytes([16, 2]))),  # 7  short 26 and 25 in steps: 8, the message's byte
         step(tk(1300), msg(play(0, P, q1, 0x0D01))),                     # 8  R1.1
@@ -1742,7 +1743,677 @@ def vectors_v3(kf):
     for vec_ in v:
         vec_["contract"] = 2                                            # §5.1: added ops and bits do not bump the contract
         vec_["start"] = "zero"
-        vec_["features"] = FEATURES_C1
+        vec_["features"] = [FEATURES_C1, FEATURES_C2]                  # C2 B.2: build-neutral, run at both
+    return v
+
+# ---- C2: local input (`FIRMWARE.md` §6; build C2's spec §3 DV and §4, `C2-decisions.md` B.2, B.7) ---------------
+# Written from §6.2-§6.6 and §6.10 alone. The vector form adds (§6.10, §9): the op {"input": [devType, eventId,
+# value]} — the record through the hook on both lenses, {"input": …, "only": "L"} on LEFT alone (a dropped inter-lens
+# answer) — after a `tick` op in its step; the op {"page": on} (true: the EvenHub page in front, false: a stock page);
+# a vector's "features" as a list of the builds it answers alike on (v3 since C2); and the expectations "N" (115
+# bodies too), "K" (the stock dispatcher's calls per lens in the step), the C's to fill. Every v4 vector sets the page
+# explicitly in its first step, so none depends on a harness's default.
+BIND = 0x0010                              # §6.8 flag bit 4
+FEATURES_C2 = 0x5FF                        # §6.8: C1's 0x1ff plus bit 10 (bit 9, the link item, still out)
+TAP, DOUBLE, LONG, UP, DOWN, PRESS, RELEASE = 0, 1, 3, 4, 5, 0xD, 0xE    # §6.1 stock's event ids (4 UPROLL, 5 DOWNROLL)
+TOUCH_L, TOUCH_R, RING, ANY = 0, 1, 4, 0xFF                              # §6.1 devTypes; 0xFF a scroll entry's "any" (§6.3)
+NONE = 0xFFFF                              # §6.3 LIST's "none"; a tap entry's prog for the report-only form
+K_ARG, K_ITEM, K_PITCH = 0, 1, 2           # §6.2 step 9: arg · the item table at c' + arg · c' × pitch + arg
+M32 = 0xFFFFFFFF
+PAST = 0x4000                              # off4 of byte 65,536: just past the 64 KiB cache every v4 vector allocates
+
+def bind_set(entry, dev, ev, lst, stp, slot, period, prog4, params=()):
+    """Mode 27 SET (§6.3): entry devType eventId list u8 · step s8 · slot period u8 · prog u16 · 4 × {kind u8, arg s16}."""
+    pr = list(params) + [(0, 0)] * (4 - len(params))
+    assert len(pr) == 4 and -128 <= stp <= 127
+    return (bytes([27, 0, entry, dev, ev, lst, stp & 0xFF, slot, period]) + u16(prog4)
+            + b"".join(bytes([k]) + s16(a) for k, a in pr))
+def bind_clear(entry): return bytes([27, 1, entry])                   # §6.3 sub 1: 1 B (0xFF every entry)
+def bind_list(lst, items, count, shift, pitch, mark):                 # §6.3 sub 2: 10 B
+    return bytes([27, 2, lst]) + u16(items) + u16(count) + s16(shift) + s16(pitch) + bytes([mark])
+def commit(slot, S, lst, cursor, prog4, P=()):                        # §6.5 mode 26 sub 3: 16 B
+    return bytes([26, 3, slot]) + u16(S) + bytes([lst]) + u16(cursor) + u16(prog4) + _p4(P)
+def discard(slot, S, lst, cursor): return bytes([26, 4, slot]) + u16(S) + bytes([lst]) + u16(cursor)          # sub 4: 6 B
+def settle(slot, S, lst, cursor, age): return bytes([26, 5, slot]) + u16(S) + bytes([lst]) + u16(cursor) + u16(age)   # sub 5: 8 B
+def vscale(off4, x, y, options, Hh): return bytes([28]) + u16(off4) + s16(x) + s16(y) + bytes([options]) + u16(Hh)    # §6.6: 9 B
+def vscale_pair(off4, xL, xR, y, options, Hh):                        # §6.6 `0x9C` per lens: 11 B
+    return bytes([0x9C]) + u16(off4) + s16(xL) + s16(xR) + s16(y) + bytes([options]) + u16(Hh)
+def inp(dev, ev, value=0, only=None):
+    d = {"input": [dev, ev, value]}
+    if only: d["only"] = only
+    return d
+def page(on): return {"page": bool(on)}
+
+class Seq:
+    """The S a lens takes at each matched event (§6.2 step 4), counted by the vector's author only to address a
+    COMMIT, DISCARD or SETTLE — an input of the vector, never an expectation."""
+    def __init__(self): self.n = 0
+    def fire(self): self.n = (self.n + 1) & 0xFFFF; return self.n
+
+A0, A1 = rect(100, 100, 120, 80), rect(300, 100, 120, 80)   # the bands of lists 0 and 1 (slots 0 and 1)
+MEET0 = rect(200, 150, 60, 20)                             # meets A0 and not A1
+
+def c2_fixture():
+    """The cache the v4 vectors share: a strip of 8 rows at pitch 10, 8 item records and their table, a press bar,
+    the programs Main's shapes stand for (a pan of T 6 and a press of T 3, `C2-decisions.md` B.10), phone programs
+    and the malformed ones the refusals name."""
+    class F: pass
+    f, c = F(), Cache2()
+    f.rows_bytes = image2(120, 80, pattern(120, 80, 401)); f.rows = c.add(f.rows_bytes)
+    f.items = [c.add(image2(40, 10, pattern(40, 10, 410 + i))) for i in range(8)]
+    f.itab = c.add(b"".join(u16(o) for o in f.items))                         # §6.3: count u16 off4 entries
+    f.bar = c.add(image2(120, 10, [15] * 1200))
+    f.pan0_bytes = prog(track(A0, 2, drawrec(6, f.rows, 100, 0, lvl=(4, 15), pref0=pref(0, F_Y))))   # y = P0
+    f.pan0 = c.add(f.pan0_bytes)
+    f.pan1 = c.add(prog(track(A1, 3, drawrec(6, f.rows, 300, 0, lvl=(4, 15), pref0=pref(0, F_Y)))))
+    f.itemp = c.add(prog(track(A1, 3, drawrec(6, 0, 300, 110, lvl=(4, 15), pref0=pref(0, F_SRC)))))  # src = P0
+    f.press0 = c.add(prog(track(A0, 2, drawrec(3, f.bar, 100, 0, lvl=(6, 15), pref0=pref(0, F_Y)))))
+    f.ph0 = c.add(prog(track(A0, 7, fillseg(8, 11))))                          # phone programs: slot 0's band,
+    f.ph2 = c.add(prog(track(MEET0, 5, fillseg(8, 9))))                        # an area meeting it,
+    f.ph3 = c.add(prog(track(rect(0, 300, 60, 20), 6, fillseg(8, 12))))         # one apart
+    f.lvlp = c.add(prog(track(A0, 2, drawrec(4, f.rows, 100, 100, pref0=pref(0, F_LVL1)))))   # lvl1 = P0
+    f.srcp = c.add(prog(track(A0, 2, drawrec(4, 0, 100, 100, pref0=pref(0, F_SRC), pref1=pref(1, F_LVL1)))))
+    f.offl16 = c.add(prog(track(rect(600, 40, 100, 40), 2, drawrec(4, f.rows, 600, 40, lvl=(15, 16)))))
+    f.nonel16 = c.add(prog(track(rect(100, 100, 60, 40), 3, drawrec(4, f.rows, 100, 100)),
+                           track(rect(250, 100, 60, 40), BD_NONE, drawrec(4, f.rows, 250, 100, lvl=(15, 16)))))
+    f.selfbd = c.add(prog(track(rect(0, 300, 40, 20), BD_SELF, wait(4))))
+    f.selfdraw = c.add(prog(track(rect(0, 300, 40, 20), 2, drawself(4, 0, 300))))
+    f.v2prog = c.add(prog(track(A0, 2, drawrec(4, f.rows, 100, 100)), version=2, bad=True))
+    return c, f
+
+def vectors_v4(kf):
+    """The C2 set (`FIRMWARE.md` §6.10, spec §4): every vector carries "panel" and features 0x5ff; every input, engine
+    message and wake follows a `tick` op in its step. Only `v4-vscale` has a self-test form."""
+    v = []
+    P = 34                                                        # §6.9's starting P
+    full = DRAW2 | ENGINE | BIND
+    kf7 = keyframe(pattern(W, H, 7))
+    def writes(c): return [msg(m) for m in c.messages()]
+    def vec(name, steps): v.append({"name": name, "steps": steps})
+    def arm(c, t=1000, frame=True, fl=full):
+        return step(tk(t), {"lease": "acquire"}, flags(fl), page(True), *([msg(kf)] if frame else []), *writes(c))
+    def up_e(f, e=0, arg=100, lst=0, slot=0, prog4=None):        # a scroll entry: id 4, step +1, y = c' × pitch + arg
+        return bind_set(e, ANY, UP, lst, 1, slot, P, f.pan0 if prog4 is None else prog4, [(K_PITCH, arg)])
+    def dn_e(f, e=1, arg=100, lst=0, slot=0, prog4=None):        # id 5, step −1
+        return bind_set(e, ANY, DOWN, lst, -1, slot, P, f.pan0 if prog4 is None else prog4, [(K_PITCH, arg)])
+    def tap_e(prog4, e=2, arg=100): return bind_set(e, RING, TAP, 0, 0, 0, P, prog4, [(K_PITCH, arg)])
+    def table(f, t=1010, mark=1): return step(tk(t), msg(bind_list(0, f.itab, 8, 0, 10, mark)), msg(up_e(f)), msg(dn_e(f)))
+    def pan_p(cur): return (10 * cur + 100,)                    # the P a COMMIT names for pan0 at a cursor (pitch 10, arg 100)
+    def fire_at(t, *ops): return [step(tk(t), *ops), step(tk(t), wake())]   # an input, then the wake that draws step 1
+    probe = lambda f, mark=9: msg(bind_list(0, f.itab, 8, 0, 10, mark))     # claims the word: a refusal exit that kept it reads 14 here
+
+    # v4-bind — §6.2 step 2 "BIND armed, `bind_live` set, and an entry matching the record — id 4 or 5 against a scroll
+    # entry (devType any), or id 0 with devType 4 against a tap entry — the lowest-numbered matching entry. Otherwise
+    # the stock call, no report"; step 3 "The EvenHub page in front. Otherwise the stock call, no report"; step 4 "every
+    # matched event on the EvenHub page takes one [S]" (the first fire's S 1 shows that nothing before it took one);
+    # §6.4 "it writes nothing into the shadow"; §6.3 SET "Two shapes only: a scroll entry — eventId 4 or 5, devType
+    # 0xFF (any), step ≠ 0; a tap entry — eventId 0, devType 4 (the ring), step 0. Anything else is refused 12. A tap
+    # entry whose prog is 0xFFFF ... is report-only ...; its period and parameters are checked as any SET's" (D0);
+    # "One slot per list: an entry whose list another entry binds to a different slot is refused 12"; the check order
+    # "length (1; SET 23 B, CLEAR 3 B, LIST 12 B ...; an unknown sub, 3..255, must be 3 B) → ... → values (12: every
+    # range in the table above, the two entry shapes, one slot per list; an unknown sub here) → ... SET: the program
+    # record's own structure ... and no track's backdrop or segment `self` (5); ... a scroll entry naming 0xFFFF fails
+    # this check (5)"; "A refused mode 27 changes nothing"; "The mode byte's high bit is ignored". The refused
+    # scroll-shaped SETs name entries 0..5, below the entries that fire later: one that wrote would take the match.
+    c, f = c2_fixture()
+    refused = [
+        bind_set(0, ANY, DOUBLE, 0, 1, 0, P, f.pan0),            # id 1 as a scroll entry: 12
+        bind_set(0, RING, DOUBLE, 0, 0, 0, P, f.press0),         # id 1 as a tap entry: 12
+        bind_set(0, RING, LONG, 0, 0, 0, P, f.press0),           # id 3: 12
+        bind_set(0, ANY, PRESS, 0, 1, 0, P, f.pan0),             # 0xD: 12
+        bind_set(0, RING, RELEASE, 0, 0, 0, P, f.press0),        # 0xE: 12
+        bind_set(0, RING, UP, 0, 1, 0, P, f.pan0),               # id 4 with devType 4, not 0xFF: 12
+        bind_set(0, TOUCH_L, DOWN, 0, -1, 0, P, f.pan0),         # id 5 with devType 0: 12
+        bind_set(0, ANY, UP, 0, 0, 0, P, f.pan0),                # id 4 with step 0: 12
+        bind_set(1, TOUCH_R, TAP, 0, 0, 0, P, f.press0),         # id 0 with devType 1: 12
+        bind_set(1, ANY, TAP, 0, 0, 0, P, f.press0),             # id 0 with devType 0xFF: 12
+        bind_set(1, RING, TAP, 0, 1, 0, P, f.press0),            # id 0 with step 1: 12
+        bind_set(8, ANY, UP, 0, 1, 0, P, f.pan0),                # entry 8: 12
+        bind_set(0, ANY, UP, 4, 1, 0, P, f.pan0),                # list 4: 12
+        bind_set(0, ANY, UP, 0, 1, 4, P, f.pan0),                # slot 4: 12
+        bind_set(0, ANY, UP, 0, 1, 0, 15, f.pan0),               # period 15: 12
+        bind_set(0, ANY, UP, 0, 1, 0, 129, f.pan0),              # period 129: 12
+        bind_set(0, ANY, UP, 0, 1, 0, P, f.pan0, [(K_PITCH, 100), (3, 0)]),   # a kind 3: 12
+        bind_set(0, ANY, UP, 0, 1, 1, P, f.pan0),                # list 0, which entry 7 binds to slot 0, in slot 1: 12
+        bind_set(1, RING, TAP, 0, 0, 2, P, NONE),                # a tap entry shares its list's slot: 12
+        bind_set(0, ANY, UP, 0, 1, 0, P, NONE),                  # a scroll entry naming 0xFFFF: 5 (D0)
+        bind_set(2, RING, TAP, 0, 0, 0, 15, NONE),               # report-only, period 15: 12 (D0)
+        bind_set(2, RING, TAP, 0, 0, 0, 129, NONE),              # report-only, period 129: 12
+        bind_set(2, RING, TAP, 0, 0, 0, P, NONE, [(3, 0)]),      # report-only, a kind 3: 12
+        bind_set(0, ANY, UP, 0, 1, 0, P, f.v2prog),              # a program of version 2: 5
+        bind_set(0, ANY, UP, 0, 1, 0, P, f.selfbd),              # a track's backdrop `self`: 5
+        bind_set(0, ANY, UP, 0, 1, 0, P, f.selfdraw),            # a DRAW of `self`: 5
+        bind_set(0, ANY, UP, 0, 1, 0, P, PAST),                # a program past the cache: 5
+        bind_set(8, ANY, UP, 0, 1, 0, P, f.v2prog),              # entry 8 and a bad program: 12 before 5
+        bad(bind_set(0, ANY, UP, 0, 1, 0, P, f.pan0)[:-1]),      # 22 B: 1
+        bad(bind_set(8, ANY, UP, 0, 1, 0, P, f.pan0) + b"\0"),   # 24 B and entry 8: 1 before 12
+        bad(bind_clear(0)[:-1]), bad(bind_clear(8) + b"\0"),     # CLEAR of 2 B, of 4 B: 1
+        bind_clear(8),                                           # CLEAR entry 8: 12
+        bad(bytes([27, 3, 0])), bad(bytes([27, 0x80, 0])),       # unknown subs of 3 B: 12
+        bad(bytes([27, 3, 0, 0])), bad(bytes([27, 0xFF])),       # of 4 B, of 2 B: 1
+    ]
+    st = [arm(c, fl=DRAW2 | ENGINE),                                                       # 0  BIND not armed
+          step(tk(1100), inp(RING, UP), inp(TOUCH_L, DOWN, 30), inp(RING, TAP)),           # 1  not armed: the stock call (K 3), no 115
+          step(tk(1110), flags(full), inp(RING, UP), inp(TOUCH_R, DOWN, 30), inp(RING, TAP)),   # 2  armed, `bind_live` 0: the same
+          step(tk(1120), msg(bind_list(0, f.itab, 8, 0, 10, 1)), msg(dn_e(f, e=7))),       # 3  the table: list 0, one entry (7, id 5)
+          step(tk(1130), inp(RING, UP), inp(RING, TAP), inp(TOUCH_R, DOUBLE), inp(RING, LONG), inp(TOUCH_L, TAP))]   # 4  no entry matches: K 5, no 115
+    st += [step(tk(1200 + i), msg(m)) for i, m in enumerate(refused)]                     # 5..  each refused, nothing written
+    t = 1300
+    st += [
+        step(tk(t), msg(bytes([0x9B]) + bind_list(0, f.itab, 8, 0, 10, 2)[1:])),           # the mode byte's high bit ignored: a LIST (mark 2)
+        step(tk(t + 10), msg(up_e(f, e=6)), msg(tap_e(NONE))),                              # entry 6 (id 4) and the report-only tap entry: taken
+        step(tk(t + 20), msg(up_e(f, e=5, lst=1, slot=1)), msg(up_e(f, e=5, lst=1, slot=2))),   # one slot per list counts OTHER entries: a re-SET of the only entry on list 1 to slot 2 is taken
+        step(tk(t + 30), msg(bind_clear(5))),
+        step(tk(t + 40), page(False), inp(RING, UP), inp(TOUCH_L, DOWN, 30), inp(RING, TAP)),   # a stock page in front: the stock call, no S, no 115
+        step(tk(t + 50), page(True), inp(TOUCH_R, UP, 40)),                                # S 1: entry 6 (field 4; devType 1 matches "any"), c' 1
+        step(tk(t + 50), wake()),                                                          # step 1 on the panel; the shadow unchanged (L, R as before)
+        step(tk(t + 60), msg(up_e(f, e=4, arg=60))),                                       # a lower entry for id 4
+        step(tk(t + 70), inp(RING, UP)), step(tk(t + 70), wake()),                         # S 2: the lowest matching entry, 4 (P0 = 2 × 10 + 60)
+        step(tk(t + 80), inp(TOUCH_L, DOWN, 30)), step(tk(t + 80), wake()),                # S 3: entry 7 (id 5, step −1), c' 1
+        step(tk(t + 90), msg(bind_clear(4))),
+        step(tk(t + 100), inp(RING, UP)), step(tk(t + 100), wake()),                       # S 4: entry 6 again, c' 2
+        step(tk(t + 110), msg(bind_clear(0xFF))),                                          # every entry; the lists stay
+        step(tk(t + 120), inp(RING, UP), inp(TOUCH_L, DOWN, 30), inp(RING, TAP)),          # no entry: the stock call, no 115
+        step(tk(t + 130), msg(up_e(f, e=3))), step(tk(t + 140), inp(RING, UP)),             # S 5, c' 3: the list kept its cursor across CLEAR 0xFF
+    ]
+    vec("v4-bind", st)
+
+    # v4-edge — §6.2 step 9 "The new cursor c' = cursor + step (step 0 for a tap). Outside 0..count−1 → edge (§6.4).
+    # The parameters: Pi = arg (kind 0) · the item table's entry at c' + arg (kind 1; no table, or c' + arg outside
+    # 0..count−1 → edge) · c' × pitch + arg (kind 2, computed in s32; outside s16 → refused 12)"; §6.4 "The staged
+    # edge: ... nothing is drawn (no bounce ...), the cursor stays, the report says `edge`"; §6.5 field 5 "1 edge" and
+    # "fields 10–14 only for outcome drew and reason 17". An edge exits before the close set: an open local draws on.
+    c, f = c2_fixture()
+    st = [arm(c), step(tk(1010), msg(bind_list(0, f.itab, 3, 0, 10, 1)), msg(up_e(f)), msg(dn_e(f)))]
+    st += [step(tk(2000), inp(RING, DOWN)), step(tk(2000), wake())]                       # 2  c' −1: edge, the cursor 0 (field 8); nothing drawn
+    st += fire_at(2100, inp(RING, UP)) + fire_at(2200, inp(TOUCH_R, UP, 40))              # 4..7  c' 1, c' 2 (the last row)
+    st += [step(tk(2250), inp(RING, UP)),                                                 # 8  c' 3 = count: edge, the cursor stays 2
+           step(tk(2200 + 2 * P), wake())]                                                # 9  the local of c' 2 draws on: step 3
+    # kind 1 (entries 0 and 1 move to list 1, slot 1): the item at c' + arg
+    st += [step(tk(3000), msg(bind_list(1, f.itab, 4, 0, 10, 2)),
+                msg(bind_set(0, ANY, UP, 1, 1, 1, P, f.itemp, [(K_ITEM, 0)])),
+                msg(bind_set(1, ANY, DOWN, 1, -1, 1, P, f.itemp, [(K_ITEM, 2)])))]
+    st += fire_at(3100, inp(RING, UP)) + fire_at(3200, inp(RING, UP)) + fire_at(3300, inp(RING, UP))   # c' 1, 2, 3: items 1..3
+    st += [step(tk(3400), inp(RING, DOWN)),                                               # c' 2, the item at 2 + 2: past the list: edge, the cursor 3
+           step(tk(3500), msg(bind_set(1, ANY, DOWN, 1, -1, 1, P, f.itemp, [(K_ITEM, -3)])), inp(RING, DOWN)),   # c' 2, item −1: edge
+           step(tk(3600), msg(bind_set(1, ANY, DOWN, 1, -1, 1, P, f.itemp, [(K_ITEM, 0)])),
+                msg(bind_list(1, NONE, 4, 0, 10, 3)), inp(RING, DOWN)),                   # no item table: edge
+           step(tk(3650), wake())]                                                        # the local of c' 3 at T (due 3470): the edges closed nothing
+    # kind 2 in s32, refused 12 outside s16 (entries 0 and 1 back on list 0, slot 0; pitch ±20000)
+    st += [step(tk(4000), msg(bind_list(0, NONE, 8, -2, 20000, 4)), msg(up_e(f, arg=12767)), msg(dn_e(f, arg=7231)))]   # cursor 0
+    st += fire_at(4100, inp(RING, UP))                                                    # c' 1: 32,767 drew (cursor 1)
+    st += [step(tk(4200), msg(up_e(f, arg=-7232)), inp(RING, UP))]                        # c' 2: 32,768: 12, the cursor stays 1
+    st += fire_at(4300, msg(up_e(f, arg=-7233)), inp(RING, UP))                           # c' 2: 32,767 drew (cursor 2)
+    st += [step(tk(4400), msg(bind_list(0, NONE, 8, 0, -20000, 5)), msg(up_e(f, arg=27232)), inp(RING, UP)),   # c' 3: −32,768 drew
+           step(tk(4500), inp(RING, UP)),                                                 # c' 4: −52,768: 12
+           step(tk(4600), inp(RING, DOWN)),                                               # c' 2: −40,000 + 7,231 = −32,769: 12
+           step(tk(4700), wake())]
+    vec("v4-edge", st)
+
+    # v4-commit — §6.5 COMMIT "PLAY's close pass over the other slots (instances whose areas meet); END(prog, P) into
+    # the shadow, always, and RIGHT's CRC of the areas right after it; in its slot: the local instance tagged S becomes
+    # ordinary (§6.4), a local one tagged newer ((int16_t)(tag − S) > 0) is left drawing, anything else is closed
+    # (outcome 1 if drawing); the list's cursor := COMMIT's cursor only if S is that list's newest fire; one 114
+    # outcome 3; presents; a close or an adoption sets the stale mark"; §6.4 "a drawing one runs on to step T and sends
+    # its own outcome-0 body; a holding one turns done, no body"; "114 gains outcome 3 ... 6 and 7 the adopted local
+    # instance's steps drawn and passed over so far (0 and 0 when none was adopted) ... carrying the COMMIT's CRC"; the
+    # check order "the container's list (8) → no shadow (4) → length (1) → the lease (3) → the engine's busy word (14)
+    # → DRAW2 (9) → ENGINE (15; BIND is not checked) → values (12: slot 0..3 ...; list 0..3 ...; a named list's cursor
+    # below its count) → COMMIT only: the program walk (5; `self` 5) → areas (2) → a `none` backdrop's area (2) → step
+    # values (12)". 4 and 14 reach no vector (C1's A.6; nothing holds the word between two host messages): host pins.
+    c, f = c2_fixture(); s = Seq()
+    st = [arm(c), step(tk(1010), msg(bind_list(0, f.itab, 8, 0, 10, 1)), msg(up_e(f)), msg(dn_e(f)),
+                       msg(bind_list(1, f.itab, 8, 0, 10, 1)))]                          # list 1: live, no entry (a COMMIT names it)
+    a = s.fire()
+    st += fire_at(2000, inp(RING, UP)) + [                                                # S 1, c' 1
+        step(tk(2000 + P), wake()),                                                       # step 2
+        step(tk(2000 + P + 10), msg(commit(0, a, 0, 1, f.pan0, pan_p(1)))),               # adopts the drawing local: END in the shadow, outcome 3 (6 = 2), the stale mark
+        step(tk(2000 + 5 * P), wake())]                                                   # step 6 = T: the adopted instance's outcome 0 (tag 1, ordinal 0), COMMIT's CRC
+    b = s.fire()
+    st += fire_at(3000, inp(TOUCH_R, UP, 40)) + [                                         # S 2, c' 2
+        step(tk(3000 + 5 * P), wake()),                                                   # step T: HOLD, no 114
+        step(tk(3000 + 5 * P + 40), msg(commit(0, b, 0, 2, f.pan0, pan_p(2)))),           # a holding local adopted: done, no body; outcome 3 (6 + 7 = T)
+        step(tk(3300), wake())]                                                           # nothing drawing: nothing presents
+    c3 = s.fire(); s.fire()
+    st += fire_at(4000, inp(RING, UP)) + fire_at(4010, inp(RING, UP)) + [                 # S 3 (c' 3), S 4 (c' 4; S 3's local closed silently)
+        step(tk(4020), msg(commit(0, c3, 0, 7, f.pan0, pan_p(3)))),                       # older than the newest fire: END written, S 4's local left drawing, the cursor kept (4); 6, 7 = 0, 0
+        step(tk(4010 + 2 * P), wake())]                                                   # S 4 draws on: step 3
+    d = s.fire()
+    st += fire_at(4100, inp(RING, UP)) + [                                                # S 5, c' 5 (field 8: the cursor was kept)
+        step(tk(4110), msg(play(2, P, f.ph2, 0x2001))),                                   # a phone PLAY over MEET0: its close pass closes S 5's local (outcome 1, field 8 = 0)
+        step(tk(4120), msg(commit(0, d, 0, 5, f.pan0, pan_p(5)))),                        # slot 0 empty: END; the close pass closes slot 2 (outcome 1); S 5 newest: the cursor := 5
+        step(tk(4200), msg(play(0, P, f.ph0, 0x2002))),                                   # an ordinary instance in slot 0
+        step(tk(4210), msg(commit(0, d, 0, 5, f.pan0, pan_p(5)))),                        # anything else is closed: outcome 1
+        step(tk(4300), flags(DRAW2 | ENGINE), msg(commit(0, d, 0, 6, f.pan0, pan_p(6))), flags(full))]   # BIND is not checked: taken, the cursor := 6
+    s.fire()
+    st += fire_at(4400, inp(RING, UP)) + [                                                # S 6, c' 7
+        step(tk(4420), msg(play(1, P, f.ph0, 0x2003)))]                                   # slot 1 over slot 0's band: closes S 6's local (outcome 1)
+    st += [step(tk(4500), msg(commit(1, 0x1234, 1, 0, f.pan1, pan_p(0))))]               # a COMMIT into slot 1 for an S never fired: END; its own slot's ordinary closed
+    n = s.n
+    refusals = [                                                                          # (ops before, the refused message, ops after)
+        ([], bad(commit(4, n, 0, 6, NONE)[:-1]), []),                                     # 17 B and slot 4: 1
+        ([], bad(commit(4, n, 0, 6, NONE) + b"\0"), []),                                  # 19 B: 1
+        ([flags(ENGINE | BIND)], commit(4, n, 0, 6, NONE), [flags(full)]),                 # DRAW2 clear: 9 before 15 and 12
+        ([flags(DRAW2 | BIND)], commit(4, n, 0, 6, NONE), [flags(full)]),                  # ENGINE clear: 15 before 12
+        ([], commit(4, n, 0, 6, NONE), []),                                               # slot 4: 12 before 5
+        ([], commit(0, n, 4, 6, NONE), []),                                               # list 4: 12
+        ([], commit(0, n, 0xFF, 6, NONE), []),                                            # list 0xFF (DISCARD's and SETTLE's none): 12
+        ([], commit(0, n, 0, 8, NONE), []),                                               # cursor 8 = count: 12
+        ([], commit(0, n, 2, 0, f.pan0, pan_p(0)), []),                                   # list 2, not live (count 0): 12
+        ([], commit(0, n, 0, 6, NONE), []),                                               # the program past the cache: 5
+        ([], commit(0, n, 0, 6, f.selfbd), []),                                           # a `self` backdrop: 5
+        ([], commit(0, n, 0, 6, f.offl16), []),                                           # an area off the panel (and level 16): 2 before 12
+        ([], commit(0, n, 0, 6, f.nonel16), []),                                          # a `none` backdrop outside track 1 (and level 16): 2
+        ([], commit(0, n, 0, 6, f.lvlp, (16,)), []),                                      # level 16 after substitution: 12
+    ]
+    t = 5000
+    for pre, m, post in refusals:
+        st.append(step(*pre, tk(t), msg(m), *post, probe(f)))                            # the probe LIST taken: the word was let down
+        t += 10
+    st += [step(tk(t), {"lease": "release"}, msg(commit(0, n, 0, 6, f.pan0, pan_p(6))))]  # no lease: 3
+    vec("v4-commit", st)
+
+    # v4-discard — §6.5 DISCARD "in each named slot, stops every local instance tagged at or after S ((int16_t)(tag −
+    # S) ≥ 0), drawing or holding, outcome 1 each (a done one is emptied silently); ordinary instances are untouched;
+    # sets the named list's cursor (clearing lost); presents; a stop sets the stale mark"; values "slot 0..3, also 0xFF
+    # ...; list 0..3, also 0xFF none ...; a named list's cursor below its count". The first part runs before the
+    # session's first Damage frame: (I) a present then takes the copy hook's stock path (§5.3: `direct_active` 0), which
+    # turns a drawing local done and leaves its flag (§6.2 step 11) — the one vector route to a done local found under a
+    # live lease (report §0).
+    c, f = c2_fixture(); s = Seq()
+    st = [arm(c, frame=False), step(tk(1010), msg(bind_list(0, f.itab, 8, 0, 10, 1)), msg(up_e(f)),
+                                    msg(bind_list(1, f.itab, 8, 4, 10, 1)), msg(dn_e(f, lst=1, slot=1, prog4=f.pan1)))]
+    a = s.fire()
+    st += fire_at(2000, inp(RING, UP)) + [                                                # S 1; (I) the wake's present takes the stock path: done, no notify
+        step(tk(2010), msg(discard(0, a, 0, 0))),                                         # a done local emptied silently (no 114); the cursor := 0
+        step(tk(2020), msg(kf))]                                                          # the session's first frame
+    b = s.fire()
+    st += fire_at(2100, inp(RING, UP)) + [                                                # S 2, c' 1
+        step(tk(2110), msg(discard(0, (b + 1) & 0xFFFF, 0, 4))),                          # tag − S = −1: untouched; the cursor := 4 regardless
+        step(tk(2120), msg(discard(0, (b - 0x8000) & 0xFFFF, 0, 4))),                     # tag − S = 0x8000 = −32,768: untouched
+        step(tk(2100 + 2 * P), wake()),                                                   # S 2 draws on: step 3
+        step(tk(2180), msg(discard(0, (b - 11) & 0xFFFF, 0, 4)))]                         # S 0xFFF7, across the wrap: tag − S = 11: stopped (outcome 1)
+    c3 = s.fire()
+    st += fire_at(2300, inp(RING, UP)) + [step(tk(2310), msg(discard(0, c3, 0, 1)))]      # S 3 (c' 5); S = tag: stopped (the ≥ boundary)
+    d = s.fire()
+    st += fire_at(2400, inp(RING, UP)) + [step(tk(2410), msg(discard(0, (d - 0x7FFF) & 0xFFFF, 0, 1)))]   # S 4 (c' 2); tag − S = 0x7FFF: stopped
+    e5 = s.fire(); s.fire()
+    st += fire_at(2600, inp(RING, UP)) + fire_at(2610, inp(TOUCH_L, DOWN, 30)) + [       # S 5 slot 0 (c' 2), S 6 slot 1 (list 1: c' 3)
+        step(tk(2610 + 5 * P), wake()),                                                   # both at T: HOLD
+        step(tk(2800), msg(discard(0xFF, e5, 0xFF, 0)))]                                  # slot 0xFF: both stopped with their bodies; list none: no cursor set
+    s.fire()
+    st += [step(tk(2900), msg(play(3, P, f.ph3, 0x3001)))] + fire_at(2910, inp(RING, UP)) + [   # an ordinary instance in slot 3; S 7 (c' 3: the cursor was kept)
+        step(tk(2920), msg(discard(0xFF, 1, 0xFF, 0))),                                   # S 7's local stopped; slot 3's ordinary one untouched
+        step(tk(2900 + 2 * P), wake())]                                                   # slot 3 draws on
+    s.fire(); g = s.fire()
+    st += [step(tk(3000), msg(bind_list(0, f.itab, 8, -100, 10, 2))), step(tk(3010), inp(RING, UP)),   # lost; S 8: 18
+           step(tk(3020), msg(discard(0, (g + 1) & 0xFFFF, 0, 3)))]                       # the cursor := 3, lost cleared
+    st += fire_at(3030, inp(RING, UP))                                                    # S 9: c' 4
+    n = s.n
+    t = 3100
+    for m in [bad(discard(0, n, 0, 1)[:-1]), bad(discard(0, n, 0, 1) + b"\0"),            # 7 B, 9 B: 1
+              discard(4, n, 0, 1), discard(0, n, 4, 1), discard(0, n, 0, 8), discard(0, n, 2, 0)]:   # slot 4, list 4, cursor 8, list 2 not live: 12
+        st.append(step(tk(t), msg(m), probe(f))); t += 10
+    vec("v4-discard", st)
+
+    # v4-settle — §6.5 SETTLE "in each named slot, stops each local instance tagged at or after S that has held its
+    # last step for at least `age` OS ticks — d = T and now − (t0 + (T−1)·P) ≥ age as an unsigned 32-bit difference —
+    # outcome 1 each; drawing ones, younger ones and ordinary ones are untouched; then sets the named list's cursor
+    # (clearing lost) unless a local instance tagged at or after S is still drawing in a named slot after the pass; it
+    # presents only when it stopped one (alone, a SETTLE that stopped nothing queues no present, so the image worker
+    # marks the panel stale, §4, and the next hinted present goes whole)"; §6.4 "At step T a local instance stays
+    # drawing at d = T"; §6.4 "Both lenses ... SETTLE ends it". The clock starts 4,096 ticks before its 32-bit wrap, so
+    # held + age wraps before now does (step 26) and now wraps after (step 27).
+    c, f = c2_fixture(); s = Seq()
+    T0 = 0xFFFFF000
+    def tt(d): return (T0 + d) & M32
+    st = [arm(c, t=tt(0)), step(tk(tt(10)), msg(bind_list(0, f.itab, 8, 0, 10, 1)), msg(up_e(f)),
+                                msg(bind_list(1, f.itab, 8, 4, 10, 1)), msg(dn_e(f, lst=1, slot=1, prog4=f.pan1)))]
+    a = s.fire()
+    st += fire_at(tt(1000), inp(RING, UP)) + [                                            # S 1, c' 1
+        step(tk(tt(1170)), wake()),                                                       # step 6 = T: HOLD from t0 + 5P
+        step(tk(tt(1170 + 255)), msg(settle(0, a, 0, 0, 256))),                           # held 255 < 256: untouched; it still draws (HOLD): the cursor kept
+        step(tk(tt(1170 + 256)), msg(settle(0, a, 0, 0, 256))),                           # held 256: stopped (outcome 1), the cursor := 0, presents
+        step(tk(tt(1500)), msg(settle(0, a, 0, 2, 256))),                                 # nothing to stop: no present; the cursor := 2
+        step(tk(tt(1510)), msg(batch(fill(rect(0, 440, 640, 2), 5), hint(440, 441)))),     # whole: the SETTLE that ended without presenting left the panel stale
+        step(tk(tt(1520)), msg(batch(fill(rect(0, 300, 8, 8), 9), fill(rect(0, 444, 640, 2), 6), hint(444, 445))))]   # rows only: level 9 stays off the lens
+    b = s.fire()
+    st += fire_at(tt(2000), inp(RING, UP)) + [                                            # S 2, c' 3 (the cursor was 2)
+        step(tk(tt(2010)), msg(settle(0, b, 0, 5, 0))),                                   # drawing (d 1 < T): untouched at age 0; the cursor kept (3)
+        step(tk(tt(2170)), wake()),                                                       # step T: HOLD
+        step(tk(tt(2180)), msg(settle(0, (b + 1) & 0xFFFF, 0, 5, 0))),                    # tagged below S: untouched, and it does not hold the cursor: := 5
+        step(tk(tt(2190)), msg(settle(0, b, 0, 6, 0)))]                                   # held 20 ≥ 0: stopped, the cursor := 6
+    st += [step(tk(tt(2300)), msg(bind_list(0, f.itab, 8, -6, 10, 2)))]                   # the cursor 0
+    x = s.fire(); s.fire()
+    st += fire_at(tt(3000), inp(RING, UP))                                                # S 3 slot 0 (c' 1)
+    st += fire_at(tt(3100), inp(TOUCH_L, DOWN, 30)) + [                                   # S 4 slot 1 (list 1, c' 3)
+        step(tk(tt(3170)), wake()),                                                       # S 3 at T: HOLD; S 4 at step 3: drawing
+        step(tk(tt(3200)), msg(settle(0xFF, x, 0, 4, 0))),                                # slot 0's held: stopped; slot 1's still draws (tag 4 ≥ 3): list 0's cursor kept (1)
+        step(tk(tt(3210)), msg(settle(0, x, 0, 4, 0)))]                                   # slot 0 alone: nothing draws there: the cursor := 4; nothing stopped: no present
+    y = s.fire()
+    st += fire_at(tt(3500), inp(RING, UP)) + [                                            # S 5, c' 5; HOLD from 3670 = 0xFFFFFE56
+        step(tk(tt(3670)), wake()),
+        step(tk(tt(3670 + 300)), msg(settle(0, y, 0, 0, 0x200))),                         # held 300 < 512 (held + age wraps, now does not): untouched
+        step(tk(tt(3670 + 520)), msg(settle(0, y, 0, 0, 0x200)))]                         # now past the wrap, held 520: stopped
+    # a LEFT-only input (a dropped answer, §6.1): LEFT one ahead, then a SETTLE from RIGHT's S + 1 realigns it
+    r_next = (s.n + 1) & 0xFFFF
+    st += [step(tk(tt(5000)), inp(RING, UP, only="L")), step(tk(tt(5000)), wake()),       # LEFT alone: its S 6, its c' 1; RIGHT: K 0, no 115
+           step(tk(tt(5170)), wake()),                                                    # LEFT's local at T: HOLD
+           step(tk(tt(5200)), msg(settle(0, r_next, 0, 0, 0)))]                           # LEFT's local (tag 6 ≥ 6) stopped, LEFT's cursor := 0; RIGHT: cursor := 0
+    st += fire_at(tt(5300), inp(RING, UP))                                                # RIGHT S 6, LEFT S 7: both c' 1, the same row on both panels
+    n = s.n + 1
+    t = 5400
+    for m in [bad(settle(0, n, 0, 1, 0)[:-1]), bad(settle(0, n, 0, 1, 0) + b"\0"),        # 9 B, 11 B: 1
+              settle(4, n, 0, 1, 0), settle(0, n, 4, 1, 0), settle(0, n, 0, 8, 0), settle(0, n, 3, 0, 0)]:   # 12
+        st.append(step(tk(tt(t)), msg(m), probe(f))); t += 10
+    vec("v4-settle", st)
+
+    # v4-list — §6.3 LIST "the staged range, always applied: items, count, pitch and mark replaced; the cursor becomes
+    # old + shift when that is inside 0..count−1, else lost (0xFFFF) — old is the list's cursor (0 for a list that is
+    # not live, count 0); a lost cursor stays lost. A fire on a lost cursor is refused 18 (§6.2 step 8); DISCARD and
+    # SETTLE set an absolute cursor and clear it (§6.5). The newest S is not touched"; "LIST: the item table [items·4,
+    # items·4 + 2·count) inside the cache (5)"; count 1..1024 (12); §6.5 field 17 "the list's mark (the last LIST this
+    # lens applied)"; "The empty table. `bind_live` ... is 0 ... after every release point ... The first mode 27
+    # accepted while `bind_live` is 0 first empties every entry and every list (count 0, cursor 0, mark 0, no newest
+    # S), then applies, then sets `bind_live` to 1. A refused mode 27 changes nothing. Arming or disarming BIND clears
+    # nothing (the table and S stay ...)".
+    c, f = c2_fixture()
+    st = [arm(c), step(tk(1010), msg(up_e(f)), msg(dn_e(f)))]                            # entries, no LIST: list 0 not live
+    st += [step(tk(1100), inp(RING, UP)),                                                 # S 1: c' 1 outside 0..−1: edge, field 17 = 0
+           step(tk(1200), msg(bind_list(0, f.itab, 8, 0, 10, 1)))]                        # a new list from 0: the cursor 0
+    st += fire_at(1210, inp(RING, UP))                                                    # S 2: c' 1, field 17 = 1
+    st += [step(tk(1300), msg(bind_list(0, f.itab, 8, 2, 10, 2)))]                        # the mark 2, the shift: 1 + 2 = 3
+    st += fire_at(1310, inp(RING, UP))                                                    # S 3: c' 4, field 17 = 2
+    st += [step(tk(1400), msg(bind_list(0, f.itab, 8, -5, 10, 3))),                       # 4 − 5: lost
+           step(tk(1410), inp(RING, UP)),                                                 # S 4: 18, field 8 = 0xFFFF; S 3's local not closed
+           step(tk(1500), msg(bind_list(0, f.itab, 8, 5, 10, 4))),                        # a lost cursor stays lost
+           step(tk(1510), inp(TOUCH_L, DOWN, 30)),                                        # S 5: 18
+           step(tk(1600), msg(discard(0, 6, 0, 2)))]                                      # DISCARD sets 2, clearing lost (S 3's local, tag 3 < 6, untouched)
+    st += fire_at(1610, inp(RING, UP))                                                    # S 6: c' 3
+    st += [step(tk(1700), msg(bind_list(0, f.itab, 8, 100, 10, 5))),                      # lost
+           step(tk(1710), msg(settle(0, 7, 0, 1, 0)))]                                    # SETTLE sets 1 (S 6's local is tagged below 7)
+    st += fire_at(1720, inp(RING, UP))                                                    # S 7: c' 2
+    st += [step(tk(1800), msg(bind_list(2, f.itab, 4, 5, 10, 6)), msg(bind_list(1, f.itab, 4, 3, 10, 7)),   # not live: 0 + 5 lost; 0 + 3 = 3
+                msg(up_e(f, lst=2, slot=2)), msg(dn_e(f, lst=1, slot=1, prog4=f.pan1))),
+           step(tk(1810), inp(RING, UP))]                                                 # S 8: list 2 lost at its first LIST: 18
+    st += fire_at(1820, inp(RING, DOWN))                                                  # S 9: list 1, c' 2, field 17 = 7
+    t = 1900
+    for m in [bind_list(0, f.itab, 0, 0, 10, 8), bind_list(0, f.itab, 1025, 0, 10, 8),    # count 0, 1025: 12
+              bind_list(4, f.itab, 8, 0, 10, 8),                                          # list 4: 12
+              bind_list(0, 0x3FFC, 9, 0, 10, 8),                                          # the table [0xFFF0, 0x10002) past 64 KiB: 5
+              bind_list(0, 0x3FFC, 1025, 0, 10, 8),                                       # count 1025 and past the cache: 12 before 5
+              bad(bind_list(0, f.itab, 8, 0, 10, 8)[:-1]), bad(bind_list(0, f.itab, 8, 0, 10, 8) + b"\0")]:   # 11 B, 13 B: 1
+        st.append(step(tk(t), msg(m))); t += 10
+    st += [step(tk(t), msg(bind_list(1, 0x3FFC, 8, 0, 10, 9)), msg(bind_list(3, NONE, 1024, 1, 10, 9)))]   # [0xFFF0, 0x10000) inside; count 1024: taken
+    st += fire_at(t + 10, inp(TOUCH_R, UP, 40))                                           # S 10: list 2 still lost: 18 (a refused LIST changed nothing)
+    st += fire_at(t + 20, msg(up_e(f)), inp(RING, UP))                                    # S 11: list 0, c' 3 (its cursor 2 kept through the refusals)
+    # the empty table after a release point
+    rearm = [{"lease": "acquire"}, flags(full), msg(kf), *writes(c)]
+    st += [step(tk(3000), {"lease": "release"}, *rearm),                                  # a release point: `bind_live` 0, S 0
+           step(tk(3010), inp(RING, UP), inp(RING, DOWN)),                                # `bind_live` 0: the stock call, no 115
+           step(tk(3020), msg(bind_list(0, f.itab, 0, 0, 10, 8))),                        # refused (12): changes nothing, `bind_live` stays 0
+           step(tk(3030), inp(RING, UP)),                                                 # still the stock call
+           step(tk(3040), msg(up_e(f))),                                                  # the first accepted: empties every entry and list, then applies
+           step(tk(3050), inp(RING, UP)),                                                 # S 1 (S cleared): list 0 emptied (count 0): edge, field 17 = 0
+           step(tk(3060), inp(RING, DOWN)),                                               # entry 1 emptied: the stock call, no 115
+           step(tk(3070), msg(bind_list(0, f.itab, 8, 0, 10, 9)))]                        # from cursor 0, not the old 3
+    st += fire_at(3080, inp(RING, UP))                                                    # S 2: c' 1
+    st += [step(tk(3090), flags(DRAW2 | ENGINE), inp(RING, UP)),                          # BIND disarmed: the stock call, nothing cleared
+           step(tk(3100), flags(full))]
+    st += fire_at(3110, inp(RING, UP))                                                    # S 3: c' 2 — the table and S stayed
+    st += [step(tk(3200), {"lease": "release"}, *rearm),                                  # another release point
+           step(tk(3210), msg(bind_list(1, f.itab, 8, 2, 10, 10)), msg(dn_e(f, lst=1, slot=1, prog4=f.pan1)))]   # a LIST first: empties entries too
+    st += fire_at(3220, inp(RING, UP)) + fire_at(3230, inp(RING, DOWN))                   # id 4: no entry, the stock call; S 1: list 1 from 0 + 2: c' 1
+    vec("v4-list", st)
+
+    # v4-local — §6.4 "one slot of C1's instance table flagged local ... it writes nothing into the shadow"; "HOLD. At
+    # step T a local instance stays drawing at d = T and owes no 114: the thread's plan skips it (d ≥ T); the preserve
+    # path skips it (k ≤ d) and leaves the framebuffer holding it; the direct path redraws step T at every phone frame's
+    # present, so while one is open every phone present goes whole"; "Its 114 bodies carry tag S, END ordinal 0 and
+    # field 8 = 0"; "What ends a local instance: ... the next fire in its slot (closed with no body, §6.2 step 11) ...;
+    # a phone PLAY or CLOSE of its slot, a live keyframe (mode 6), a cache write meeting its first read range: outcome 1
+    # ...; a present on the hook's stock path: turned done, no notify"; §6.2 step 15 "the captured 114 bodies, then the
+    # report"; §6.2 step 11 "a local instance of this fire's own slot silently whatever its state".
+    c, f = c2_fixture()
+    st = [arm(c), table(f)]
+    st += fire_at(2000, inp(RING, UP)) + [                                                # S 1: step 1 on the panel; the shadow unchanged
+        step(tk(2000 + P), wake()),                                                       # step 2
+        step(tk(2000 + 5 * P), wake()),                                                   # step 6 = T: HOLD, no 114
+        step(tk(2200), wake()),                                                           # the plan skips a HOLD: nothing presents
+        step(tk(2210), stock()),                                                          # the preserve path: k = T ≤ d, nothing drawn
+        step(tk(2220), msg(batch(fill(rect(0, 440, 640, 2), 5), hint(440, 441)))),        # a phone frame: the direct path redraws step T, whole
+        step(tk(2300), msg(kf7))]                                                         # a live keyframe: outcome 1 (tag 1, ordinal 0, field 8 = 0)
+    st += fire_at(2400, inp(RING, UP)) + [step(tk(2410), msg(cache_write2((f.rows, f.rows_bytes))))]   # S 2; a write over its record: outcome 1
+    st += fire_at(2500, inp(RING, UP)) + [step(tk(2510), msg(play(0, P, f.ph0, 0x4001)))]               # S 3; a phone PLAY into its slot: outcome 1
+    st += [step(tk(2600), msg(play(2, P, f.ph2, 0x4002)))]                                # slot 2 over MEET0 (closes slot 0's PLAY: they meet)
+    st += fire_at(2610, inp(RING, UP))                                                    # S 4: closes slot 2's instance: its 114 before the 115
+    st += fire_at(2700, inp(RING, UP))                                                    # S 5: closes S 4's local silently: the 115 alone
+    st += fire_at(90500, inp(RING, UP)) + [                                               # S 6, the lease (acquired at 1000) still live
+        step(tk(91100), msg(copy((0, 440, 8, 2), (8, 440, 8, 2)))),                       # a v1 copy after the unnoticed lapse: the stock path, S 6 done, no notify
+        step(tk(91200), wake()),                                                          # nothing drawing: nothing presents
+        step(tk(91300), msg(fill(rect(0, 412, 8, 2), 9)))]                                # a v2 op notices the lapse: 3, a release point
+    vec("v4-local", st)
+
+    # v4-tap — §6.2 step 2 "id 0 with devType 4 against a tap entry"; step 9 "step 0 for a tap"; step 11 "A tap fire
+    # whose close set holds a local instance is refused 17, nothing closed ... a done local refuses a tap fire 17 as a
+    # drawing one does"; "A report-only tap entry's fire ... runs steps 1–8 as a tap fire's ... and step 11's test: a
+    # local instance in its slot (a done one included) → refused 17. Otherwise it computes no parameters, walks
+    # nothing, closes and opens nothing, leaves the list as it is (cursor and newest S) and sets no engine flag ...;
+    # it lets the word down and sends its report, outcome 0 with no fields 10–14 (D0)"; §6.4 "The tap press. A tap
+    # entry has step 0, so the cursor never moves ... then HOLD"; §6.10 v4-tap's list (D1: "the newest S untouched,
+    # read through a COMMIT of the preceding scroll sent after the fire and naming a cursor other than the lens's").
+    # The first part runs before the session's first frame, for a done local (I, as v4-discard).
+    c, f = c2_fixture(); s = Seq()
+    st = [arm(c, frame=False), step(tk(1010), msg(bind_list(0, f.itab, 8, 0, 10, 5)), msg(up_e(f)), msg(tap_e(NONE)))]
+    s.fire()
+    st += fire_at(2000, inp(RING, UP)) + [                                                # S 1 (c' 1); (I) the stock path turns it done
+        step(tk(2010), inp(RING, TAP)),                                                   # S 2 report-only: 17 (a done local in its slot)
+        step(tk(2020), msg(tap_e(f.press0)), inp(RING, TAP)),                             # S 3 press entry: 17 (the done local)
+        step(tk(2030), msg(kf))]                                                          # the first frame (closes the done local, no notify)
+    s.fire(); s.fire(); s.fire()                                                          # S 2, S 3 above; S 4 below
+    st += fire_at(2100, inp(RING, TAP)) + [                                               # S 4: a press at the cursor (1), unmoved (field 8 = 1); field 17 = 5
+        step(tk(2100 + 2 * P), wake()),                                                   # step 3 = T: HOLD
+        step(tk(2200), inp(TOUCH_R, TAP), inp(TOUCH_L, TAP))]                             # temple taps: no entry matches, the stock call, no 115
+    sc5 = s.fire(); s.fire()
+    st += fire_at(2300, inp(RING, UP)) + [                                                # S 5: a scroll closes the press silently, c' 2
+        step(tk(2310), inp(RING, TAP)),                                                   # S 6: 17, nothing closed; fields 10–14 carried
+        step(tk(2300 + P), wake()),                                                       # S 5's local draws on
+        step(tk(2320 + P), msg(commit(0, sc5, 0, 2, f.pan0, pan_p(2))))]                  # S 5 adopted: ordinary
+    pr7 = s.fire()
+    st += fire_at(2400, inp(RING, TAP))                                                   # S 7: a press after COMMIT: the ordinary one closed (its 114 first), the press opens
+    st += [step(tk(2500), msg(discard(0, pr7, 0, 2)), msg(tap_e(NONE)))]                  # the press stopped; the report-only form
+    sc8 = s.fire()
+    st += fire_at(2600, inp(RING, UP)) + [step(tk(2610), msg(commit(0, sc8, 0, 3, f.pan0, pan_p(3))))]   # S 8 (c' 3), adopted: ordinary, drawing
+    s.fire()
+    st += fire_at(2620, inp(RING, TAP)) + [step(tk(2600 + 2 * P), wake())]                # S 9: outcome 0, no 10–14, nothing drawn; the ordinary one draws on, no 114
+    sc10 = s.fire(); s.fire(); s.fire()
+    st += fire_at(2700, inp(RING, UP)) + [step(tk(2710), inp(RING, TAP)),                 # S 10 (c' 4); S 11: 17 (an uncommitted scroll)
+           step(tk(2720), msg(bind_list(0, f.itab, 8, -100, 10, 6))),                     # lost
+           step(tk(2730), inp(RING, TAP)),                                                # S 12: 18 before 17
+           step(tk(2800), msg(discard(0, sc10, 0, 2)))]                                   # stops S 10's local; the cursor := 2
+    sc13 = s.fire(); s.fire(); s.fire()
+    st += fire_at(2810, inp(RING, UP)) + [                                                # S 13: c' 3, the list's newest S
+        step(tk(2820), msg(close(0))),                                                    # its slot emptied (outcome 1)
+        step(tk(2830), inp(RING, TAP)),                                                   # S 14: outcome 0; the newest S stays 13
+        step(tk(2840), msg(commit(0, sc13, 0, 6, f.pan0, pan_p(6))))]                     # S 13 still the newest: the cursor := 6 (not the lens's 3)
+    st += fire_at(2850, inp(RING, UP))                                                    # S 15: c' 7 shows it
+    vec("v4-tap", st)
+
+    # v4-fail — §6.2 step 1 "`peek`; no context → the stock call"; step 5 "The lease ... Lapsed → report refused 3"
+    # and §6.5 "refused 3 or 14 ... carry fields 1, 2, 3, 5, 6 and 15 only"; step 7 "DRAW2, ENGINE, BIND and
+    # `bind_live` — any clear → refused 15"; step 10 "§5.5's checks from the walk onward ...: the program record and
+    # every record and table it names inside the cache and well formed, no `self` ... (5) → areas (2) → a `none`
+    # backdrop's area (2) → every step's values after substitution (12 ...)"; §6.3 "SET: the program record's own
+    # structure ... What depends on the parameters (the records they name, areas, step values) is checked at every
+    # fire"; §6.3 mode 27's order "the container's list (8) → length (1) → the lease (3) → the engine's busy word claimed
+    # (14) → DRAW2 (9) → BIND (15) → values (12 ...)"; §6.5 "an unknown sub is now 6..255"; §6.8 "a FLAGS_SET of BIND
+    # alone is taken, status 0, and every fire and mode 27 is then refused 15"; "it is refused without the lease (status
+    # 3)"; step 4 with §6.3 "`bind_live` ... after every release point ... beside the store that sets S to 0". "The word
+    # held → 14" reaches no vector (no op holds the word between host messages): F1's host pin.
+    c, f = c2_fixture()
+    lapsed = 1000 + 90000 + 10
+    st = [step(tk(500), inp(RING, UP)),                                                   # 0  no context yet: the stock call (K 1), nothing else
+          arm(c), table(f)]
+    st += fire_at(1100, inp(RING, UP))                                                    # S 1: nothing took one at step 0
+    st += [step(tk(1200), flags(DRAW2 | BIND), inp(RING, UP)),                            # status 0; S 2: 15 (ENGINE clear), the full body
+           step(tk(1210), flags(ENGINE | BIND), inp(RING, UP)),                           # S 3: 15 (DRAW2 clear)
+           step(tk(1220), flags(DRAW2 | ENGINE), inp(RING, UP)),                          # BIND clear: no match, the stock call, no S
+           step(tk(1230), flags(full)),
+           step(tk(1300), msg(cache_write2((f.pan0, bytes([2]) + f.pan0_bytes[1:]))), inp(RING, UP)),   # a rewritten program (version 2): S 4: 5
+           step(tk(1310), msg(cache_write2((f.pan0, f.pan0_bytes))))]
+    t = 1400
+    for e in [bind_set(0, ANY, UP, 0, 1, 0, P, f.offl16, [(K_PITCH, 100)]),               # S 5: an area off the panel (and level 16): 2 before 12
+              bind_set(0, ANY, UP, 0, 1, 0, P, f.nonel16, [(K_PITCH, 100)]),              # S 6: a `none` backdrop outside track 1: 2
+              bind_set(0, ANY, UP, 0, 1, 0, P, f.lvlp, [(K_ARG, 16)]),                    # S 7: level 16 after substitution: 12
+              bind_set(0, ANY, UP, 0, 1, 0, P, f.srcp, [(K_ARG, PAST), (K_ARG, 16)]),   # S 8: a record past the cache (and level 16): 5 before 12
+              bind_set(0, ANY, UP, 0, 1, 0, P, f.lvlp, [(K_ARG, 15)])]:                   # S 9: level 15: drew
+        st += [step(tk(t), msg(e), inp(RING, UP))]; t += 10
+    st += [step(tk(t), wake()), step(tk(1500), msg(up_e(f)))]
+    t = 1600
+    pairs = [([msg(bytes([16, 0]))], bytes([16, 1]) + bad(bind_list(0, f.itab, 0, 0, 10, 1)[:-1]), [msg(bytes([16, 2]))]),   # in a step, 11 B and count 0: 8
+             ([msg(bytes([16, 0]))], bytes([16, 1]) + batch(fill(rect(0, 300, 8, 8), 3), bind_list(0, f.itab, 8, 0, 10, 1)),
+              [msg(bytes([16, 2]))]),                                                     # in a batch the step carries: 8
+             ([], bad(bind_list(4, f.itab, 0, 0, 10, 1)[:-1]), []),                       # 11 B, list 4: 1 before 12
+             ([flags(ENGINE | BIND)], bind_list(4, f.itab, 0, 0, 10, 1), [flags(full)]),   # DRAW2 clear: 9 before 15, 12
+             ([flags(DRAW2 | ENGINE)], bind_list(4, f.itab, 0, 0, 10, 1), [flags(full)]),  # BIND clear: 15 before 12
+             ([flags(DRAW2 | BIND)], bind_list(4, f.itab, 0, 0, 10, 1), [flags(full)]),    # ENGINE clear, BIND set (report §0: §6.8 reads 15)
+             ([], bad(bytes([26, 3, 0])), []),                                            # sub 3 is COMMIT here: 3 B: 1 (from v3-rulings, B.2)
+             ([], bad(bytes([26, 4, 0])), []),                                            # DISCARD of 3 B: 1
+             ([], bad(bytes([26, 6, 0])), []),                                            # an unknown sub is 6..255: 12, no slot in the body
+             ([], bad(bytes([26, 0xFF, 0])), [])]                                         # 12
+    for pre, m, post in pairs:
+        st.append(step(*pre, tk(t), msg(m), *post)); t += 10
+    st += [step(tk(lapsed), inp(RING, UP)),                                               # S 10 then the lapse: 3 carrying S 10 (fields 1, 2, 3, 5, 6, 15); a release point
+           step(tk(lapsed + 10), msg(bind_list(4, f.itab, 0, 0, 10, 1)), flags(full)),     # no lease: 3 before 12; FLAGS_SET: status 3
+           step(tk(lapsed + 20), {"lease": "acquire"}, flags(full), msg(kf), *writes(c), inp(RING, UP)),   # `bind_live` 0: the stock call, no S
+           step(tk(lapsed + 30), msg(bind_list(0, f.itab, 8, 0, 10, 2)), msg(up_e(f)))]
+    st += fire_at(lapsed + 40, inp(RING, UP))                                             # S 1: S was cleared with `bind_live`
+    vec("v4-fail", st)
+
+    # v4-lens — §6.4 "Both lenses. LEFT fires about one inter-lens answer before RIGHT ... A lost answer leaves a fire on
+    # LEFT that RIGHT and the phone never hear of: LEFT's cursor one ahead and its S one ahead for the rest of the lease
+    # ... SETTLE ends it (§6.5)"; §6.2 step 4 "both lenses number every matched event alike while their tables agree";
+    # §6.5 "On the glasses COMMIT, DISCARD and SETTLE are keyed by S, so the two lenses applying one on different sides
+    # of a fire reach the same shadow, and DISCARD's and SETTLE's absolute cursor realigns them". (S as RIGHT counts it.)
+    c, f = c2_fixture()
+    st = [arm(c), table(f)]
+    st += fire_at(2000, inp(RING, UP))                                                    # S 1 on both, c' 1 on both
+    st += fire_at(2100, inp(RING, UP, only="L"))                                          # LEFT alone: S 2, c' 2; RIGHT: K 0, no 115
+    st += fire_at(2200, inp(RING, UP)) + [                                                # RIGHT S 2 (c' 2), LEFT S 3 (c' 3)
+        step(tk(2210), msg(commit(0, 2, 0, 2, f.pan0, pan_p(2)))),                        # RIGHT adopts; LEFT's tag 3 > 2 left drawing, its cursor kept (3); END on both
+        step(tk(2200 + 5 * P), wake()),                                                   # RIGHT's adopted at T (outcome 0); LEFT's local at T: HOLD
+        step(tk(2400), msg(settle(0, 3, 0, 2, 0)))]                                       # S_low 3: LEFT's local stopped, both cursors := 2
+    st += fire_at(2500, inp(RING, UP)) + [                                                # RIGHT S 3, LEFT S 4: both c' 3, one row on both panels
+        step(tk(2510), msg(discard(0, 3, 0, 3)))]                                         # both stopped (LEFT's tag 4 ≥ 3); both on row 3
+    st += fire_at(2600, inp(TOUCH_L, DOWN, 30)) + fire_at(2610, inp(RING, UP))            # RIGHT S 4, 5; LEFT S 5, 6: both c' 2, then 3
+    vec("v4-lens", st)
+
+    # v4-batch — §6.5 "Batch order. ... a refused sub-message ends its batch with no present (§4 ...), so a refusal of
+    # theirs loses only the batch's present ... and never the frame, which is then in both shadows ... Because END lands
+    # after the frame ..."; §6.3 "alone or as a mode-8 sub-message ... Not gated ... (in a batch the batch's present is
+    # the batch's)"; "A refusal of mode 27 sends no notify".
+    c, f = c2_fixture()
+    st = [arm(c), table(f)]
+    st += fire_at(2000, inp(RING, UP)) + [                                                # S 1
+        step(tk(2010), msg(batch(fill(rect(0, 400, 640, 4), 6), discard(4, 1, 0, 0)))),    # DISCARD refused (slot 4): the fill in both shadows, no present, the local untouched
+        step(tk(2000 + P), wake()),                                                       # S 1 draws on (the fill reaches the lens with this whole present)
+        step(tk(2050), msg(batch(fill(rect(0, 404, 640, 4), 7), discard(0, 1, 0, 0)))),    # accepted after the frame: S 1 stopped, one present
+        step(tk(2060), msg(batch(fill(rect(0, 408, 640, 4), 8), bind_list(0, f.itab, 8, 1, 10, 2), up_e(f)))),   # mode 27 after the drawing subs: taken, one present
+        step(tk(2070), msg(batch(fill(rect(0, 412, 640, 4), 9), bind_list(0, f.itab, 0, 0, 10, 3))))]   # refused (count 0): the fill in the shadow, no present, no notify
+    st += fire_at(2100, inp(RING, UP)) + [                                                # S 2: c' 2 (field 17 = 2: the refused LIST changed nothing)
+        step(tk(2110), msg(batch(fill(rect(0, 416, 640, 4), 10), commit(0, 2, 0, 2, f.pan0, pan_p(2)))))]   # COMMIT after a frame elsewhere: END, one present
+    st += fire_at(2200, inp(RING, UP)) + [                                                # S 3
+        step(tk(2210), msg(batch(fill(rect(110, 110, 40, 20), 3), commit(0, 3, 0, 3, f.pan0, pan_p(3)))))]   # a frame inside the slot's band: END lands over it
+    st += [step(tk(2300), msg(batch(fill(rect(0, 420, 640, 4), 11), settle(0xFF, 4, 0xFF, 0, 0))))]   # a SETTLE that stops nothing: the batch presents
+    vec("v4-batch", st)
+
+    # v4-vscale — §6.6 "Mode 28 (`0x9C` per lens): off4 u16 · x s16 (or xL · xR) · y s16 · options u8 · H u16 (9 B, or 11
+    # B per lens) — the v2 record drawn H rows tall (1..2048): output row r takes source row ⌊(2r + 1)·h / (2H)⌋ ...,
+    # columns as they are; clip, options and transparency as mode 17 ... Order: no shadow (4) → length (1) → the lease
+    # (3) → DRAW2 (9) → H (12) → the record (5). Allowed in a batch and in a self-test step." No lease op after the
+    # first and no engine op, so the self-test form runs it (in a step); 3 and 9 are in `v4-vscale-draw`, 4 is host only.
+    c = Cache2()
+    r30 = c.add(image2(40, 30, pattern(40, 30, 451)))
+    tall = c.add(image2(8, 200, runs_pattern(8, 200, 452)))
+    holes = c.add(image2(20, 10, [0 if (i % 7) < 3 else 12 for i in range(200)]))
+    st = [step(tk(1000), {"lease": "acquire"}, flags(DRAW2), msg(kf), *writes(c))]
+    for m in [vscale(r30, 10, 10, 0x0F, 1),                                               # H 1: the source's middle row
+              vscale(r30, 60, 10, 0x0F, 30),                                              # H = h
+              vscale(r30, 110, 10, 0x0F, 60),                                             # H = 2h
+              vscale(r30, 160, 10, 0x0F, 7),                                              # H 7: the rounding of the row map
+              vscale(r30, 210, 100, 0x0F, 2048),                                          # H 2048: clipped at the bottom
+              vscale(tall, 260, 0, 0x0F, 400),                                            # (2r + 1)·h past 16 bits
+              vscale_pair(r30, 300, 316, 50, 0x0F, 45),                                   # per lens
+              vscale(r30, -20, -10, 0x0F, 50), vscale(r30, 620, 470, 0x0F, 50),           # clipped at the panel's four edges
+              vscale(holes, 360, 50, 0x1A, 25), vscale(holes, 390, 50, 0x27, 25),         # transparent at level 10; inverse at 7
+              batch(fill(rect(420, 0, 100, 100), 3), clip(rect(430, 10, 50, 50)), vscale(r30, 420, 0, 0x0F, 90), hint(0, 99)),   # in a batch, clipped
+              batch(fill(rect(530, 0, 100, 100), 4), vscale_pair(r30, 530, 546, 20, 0x0C, 15)),
+              bad(vscale(r30, 0, 0, 0x0F, 30)[:-1]), bad(vscale(r30, 0, 0, 0x0F, 30) + b"\0"),   # 9 B, 11 B: 1
+              bad(vscale_pair(r30, 0, 0, 0, 0x0F, 30)[:-1]),                              # 0x9C of 11 B: 1
+              vscale(PAST, 0, 0, 0x0F, 0), vscale(r30, 0, 0, 0x0F, 2049),               # H 0 (and a record past the cache): 12 before 5; H 2049: 12
+              vscale(PAST, 0, 0, 0x0F, 30),                                             # a record past the cache: 5
+              batch(fill(rect(0, 460, 640, 4), 5), vscale(r30, 0, 0, 0x0F, 0))]:           # refused in a batch: the fill in the shadow, no present
+        st.append(step(msg(m)))
+    vec("v4-vscale", st)
+
+    # v4-vscale-draw — §6.6 "DRAW's h0, h1, anchor (zero in C1, §5.4): the output height eased from h0 to h1 (both
+    # 1..2048, or both 0 = unscaled); anchor 0 top · 1 centre (y + ((h − H) >> 1)) · 2 bottom (y + h − H), h the source's
+    # height. On a bit-10 build §5.5's 'h0/h1 = 0' becomes: h0 and h1 both 0, or every step's eased H (after
+    # substitution) inside 1..2048, else 12 — at a PLAY, a COMMIT and a fire alike; on RETARGET's restart path H is
+    # clamped to 1..2048 as levels are (R1.10)"; §6.10 "an anchor outside the build's range is refused 5"; the two
+    # bit-10 answers moved from v3 (B.2: `v3-params`' P = (0, 2) and `v3-order`'s anchor 1); mode 28's 9 and 3.
+    c = Cache2()
+    pic = c.add(image2(40, 30, pattern(40, 30, 461)))
+    ov = c.add(easing([900, 2300, 3500, 4300, 4620, 4600, 4420, 4096]))                   # an overshoot past E 4096
+    sc = [c.add(prog(track(rect(20 + 150 * k, 40, 120, 120), 2, drawrec(4, pic, 30 + 150 * k, 60, h0=10, h1=60, anchor=k))))
+          for k in range(3)]                                                              # anchors 0, 1, 2: 10 → 60 rows
+    sc_out = c.add(prog(track(rect(470, 40, 120, 120), 2, drawrec(6, pic, 480, 60, ease=EASE_OUT, h0=30, h1=1, anchor=1))))
+    sc_un = c.add(prog(track(rect(20, 200, 120, 60), 2, drawrec(4, pic, 30, 210, anchor=2))))       # h0 = h1 = 0: unscaled, anchor taken
+    v3p = c.add(prog(track(rect(0, 280, 300, 60), 8, drawrec(4, pic, 10, 290, dx=50, pref0=pref(0, F_H0), pref1=pref(1, F_H1)))))
+    v3a = c.add(prog(track(rect(170, 200, 100, 40), 2, drawrec(4, pic, 180, 205, anchor=1))))        # `v3-order`'s anchor 1, on the panel
+    an3 = c.add(prog(track(rect(300, 200, 100, 40), 2, drawrec(4, pic, 310, 205, anchor=3)), bad=True))   # anchor 3: 5
+    hp = c.add(prog(track(rect(320, 280, 300, 120), 4, drawrec(6, pic, 330, 290, pref0=pref(0, F_H0), pref1=pref(1, F_H1)))))
+    rt = c.add(prog(track(rect(20, 300, 120, 160), 4, drawrec(8, pic, 30, 300, ease=TABLE, table=ov, pref0=pref(0, F_H0), pref1=pref(1, F_H1)))))
+    bads = [c.add(prog(track(rect(400, 200, 100, 40), 2, drawrec(4, pic, 410, 205, h0=h0, h1=h1)))) for h0, h1 in
+            [(0, 3000), (0, 1), (1, 0), (2049, 2049), (0, 2048)]]                          # 12, 12, 12, 12; (0, 2048): H 512.. — taken
+    st = [step(tk(1000), {"lease": "acquire"}, flags(full), page(True), msg(kf), *writes(c))]
+    t = 2000
+    for k, p_ in enumerate(sc + [sc_out, sc_un]):
+        st += [step(tk(t), msg(play(k % 4, P, p_, 0x5001 + k))), step(tk(t + P), wake()), step(tk(t + 5 * P), wake())]
+        t += 300
+    st += [step(tk(t), msg(play(0, P, v3p, 0x5010, P=(0, 2)))),                          # h0 0, h1 2 over 4 linear steps: H 1, 1, 2, 2: taken
+           step(tk(t + 10), msg(play(1, P, v3a, 0x5011))),                                # anchor 1, unscaled: taken
+           step(tk(t + 20), msg(play(2, P, an3, 0x5012)))]                                # anchor 3: 5
+    t += 100
+    for k, b_ in enumerate(bads):
+        st.append(step(tk(t + 10 * k), msg(play(3, P, b_, 0x5020 + k))))
+    t += 100
+    # the H rule at a COMMIT and at a fire (list 0 bound to `hp`: h0 = P0, h1 = P1)
+    st += [step(tk(t), msg(bind_list(0, NONE, 8, 0, 100, 1)),
+                msg(bind_set(0, ANY, UP, 0, 1, 0, P, hp, [(K_ARG, 30), (K_PITCH, 0)])),    # h1 = c' × 100: c' 1 → 100
+                msg(bind_set(1, ANY, DOWN, 0, -1, 0, P, hp, [(K_ARG, 3000), (K_ARG, 3000)])))]   # H 3000
+    st += fire_at(t + 10, inp(RING, UP))                                                  # S 1: H 30 → 100, drew
+    st += [step(tk(t + 20), msg(commit(0, 1, 0, 1, hp, (3000, 3000)))),                   # the H rule at a COMMIT: 12
+           step(tk(t + 30), msg(commit(0, 1, 0, 1, hp, (30, 100)))),                      # taken: adopted
+           step(tk(t + 40), inp(RING, DOWN)),                                             # S 2: the H rule at a fire: 12
+           step(tk(t + 50), msg(play(1, P, hp, 0x5030, P=(0, 3000))))]                    # and at a PLAY: 12
+    t += 400
+    # RETARGET's restart path clamps H to 1..2048 (the overshoot table: 100 → 2040 passes 2048; 2040 → 5 passes 1)
+    st += [step(tk(t), msg(play(2, P, rt, 0x5040, P=(100, 100)))), step(tk(t + P), wake()),
+           step(tk(t + 2 * P), msg(retarget(2, (2040, 2040)))),
+           step(tk(t + 6 * P), wake()), step(tk(t + 9 * P), wake()),
+           step(tk(t + 10 * P), msg(retarget(2, (5, 5)))),
+           step(tk(t + 14 * P), wake()), step(tk(t + 17 * P), wake())]
+    t += 1000
+    st += [step(tk(t), flags(ENGINE | BIND), msg(vscale(PAST, 0, 0, 0x0F, 0)), flags(full)),   # mode 28 with DRAW2 clear: 9 before 12
+           step(tk(t + 10), {"lease": "release"}, msg(vscale(PAST, 0, 0, 0x0F, 0)))]          # no lease: 3 before 12
+    vec("v4-vscale-draw", st)
+
+    for vec_ in v:
+        vec_["contract"] = 2
+        vec_["start"] = "zero"
+        vec_["panel"] = True
+        vec_["features"] = FEATURES_C2
     return v
 
 # ---- the self-check (spec §3 D1): every message decodes by its builder's inverse, every program walks to its
@@ -1769,11 +2440,45 @@ def entries19(body):
         out.append((off4, body[p + 4:p + 4 + n])); p += 4 + n
     return out
 
-def check_v3(vecs):
-    """Raise AssertionError on the first message or program that does not decode as built."""
-    LEN26 = {0: 18, 1: 11, 2: 3}
+def walk_msgs(m):
+    """Every message a message carries, itself first: a batch's sub-messages and a self-test step's message, read
+    leniently (a malformed batch yields what its lengths reach)."""
+    yield m
+    if len(m) >= 3 and m[0] == 16 and m[1] == 1:
+        yield from walk_msgs(m[2:])
+    elif len(m) >= 2 and m[0] == 8:
+        p = 2
+        for _ in range(m[1]):
+            if p + 2 > len(m): return
+            ln = m[p] | m[p + 1] << 8
+            if p + 2 + ln > len(m): return
+            yield from walk_msgs(m[p + 2:p + 2 + ln]); p += 2 + ln
+
+def check_neutral(vecs):
+    """C2 B.2 / `FIRMWARE.md` §6.10: the v1/v2/v3 sets answer alike on a bit-10 build only while none of them sends
+    what bit 10 gives a meaning — mode 27, mode 28 (0x9C included), mode-26 subs 3..5, flag bit 4 — at any depth."""
+    n = 0
+    for vec in vecs:
+        for si, st in enumerate(vec["steps"]):
+            for op in st["ops"]:
+                where = f"{vec['name']} step {si}"
+                assert not ("flags" in op and op["flags"] & BIND), f"{where}: a FLAGS_SET with bit 4"
+                assert not ({"input", "page"} & op.keys()), f"{where}: a C2 op"
+                if "msg" not in op: continue
+                for m in walk_msgs(bytes.fromhex(op["msg"])):
+                    n += 1
+                    if not m: continue
+                    assert m[0] & 0x7F not in (27, 28), f"{where}: mode {m[0]:#x}"
+                    assert not (m[0] & 0x7F == 26 and len(m) >= 2 and m[1] in (3, 4, 5)), f"{where}: mode-26 sub {m[1]}"
+    return n
+
+def check_v3(vecs, c2=False):
+    """Raise AssertionError on the first message, op or program that does not decode as built (C1's set, or with
+    `c2` C2's: modes 26 subs 3..5, 27 and 28, the ops `input` and `page`, the programs SET and COMMIT name)."""
+    LEN26 = {0: 18, 1: 11, 2: 3, **({3: 18, 4: 8, 5: 10} if c2 else {})}
+    LEN27 = {0: 23, 1: 3, 2: 12}                    # §6.3, the two header bytes included
     n_msgs = n_progs = 0
-    found = set()                                   # the records a PLAY found at its prog offset
+    found = set()                                   # the records a PLAY, SET or COMMIT found at its prog offset
     for vec in vecs:
         cache = bytearray(262144)
         def subs(m):
@@ -1785,12 +2490,40 @@ def check_v3(vecs):
                 return out
             if m[0] == 16 and len(m) > 2 and m[1] == 1: return [m[2:]]
             return [m]
+        def named(off4):                            # the program a message names: recorded, and walked when built well formed
+            nonlocal n_progs
+            off = off4 * 4
+            ln = cache[off + 2] | cache[off + 3] << 8 if off + 4 <= len(cache) else 0
+            rec = bytes(cache[off:off + ln])
+            found.add(rec)
+            if rec in WELL_FORMED:
+                assert walk_prog(cache, off) == len(rec); n_progs += 1
+        if c2:
+            assert vec["features"] == FEATURES_C2 and vec["panel"] is True, f"{vec['name']}: features or panel"
+            assert any("page" in op for op in vec["steps"][0]["ops"] + vec["steps"][1]["ops"]) or \
+                not any("input" in op for st in vec["steps"] for op in st["ops"]), f"{vec['name']}: no page op at its start"
+        last = None
         for si, st in enumerate(vec["steps"]):
             clock_set = False
+            where = f"{vec['name']} step {si}"
+            assert st["expect"] == {}, f"{where}: an expectation written by this script"
             for op in st["ops"]:
-                if "tick" in op: clock_set = True; continue
+                if "tick" in op:                    # §5.10: never backward, nor forward by 2^31 or more (mod 2^32)
+                    assert last is None or (op["tick"] - last) & M32 < 1 << 31, f"{where}: the clock goes back to {op['tick']}"
+                    last, clock_set = op["tick"], True
+                    continue
                 if "wake" in op:
-                    assert clock_set, f"{vec['name']} step {si}: a wake with no tick op before it in its step"
+                    assert clock_set, f"{where}: a wake with no tick op before it in its step"
+                    continue
+                if "input" in op:                   # §6.10: [devType, eventId, value] after a tick; "only": "L"
+                    assert c2 and clock_set, f"{where}: an input with no tick op before it in its step"
+                    d, e, val = op["input"]
+                    assert 0 <= d <= 0xFFFF and 0 <= e <= M32 and 0 <= val <= M32 and op.keys() <= {"input", "only"}
+                    assert op.get("only", "L") == "L", f"{where}: only {op.get('only')}"
+                    n_msgs += 1
+                    continue
+                if "page" in op:
+                    assert c2 and isinstance(op["page"], bool) and len(op) == 1, f"{where}: page {op}"
                     continue
                 if op.get("lease") == "release": cache[:] = bytes(len(cache)); continue
                 if "msg" not in op: continue
@@ -1798,17 +2531,21 @@ def check_v3(vecs):
                     if not m: continue
                     mode = m[0] & 0x7F
                     if m in BAD_SHAPE: continue
-                    if mode == 26:
+                    if mode in (27, 28): assert c2, f"{where}: mode {mode} in a C1 vector"
+                    if mode == 27:                  # §6.3
                         n_msgs += 1
-                        assert clock_set, f"{vec['name']} step {si}: an engine message with no tick op before it in its step"
-                        assert len(m) >= 2 and m[1] in LEN26 and len(m) == LEN26[m[1]], f"{vec['name']} step {si}: mode 26 of {len(m)} B"
-                        if m[1] == 0:
-                            off = (m[4] | m[5] << 8) * 4
-                            ln = cache[off + 2] | cache[off + 3] << 8 if off + 4 <= len(cache) else 0
-                            rec = bytes(cache[off:off + ln])
-                            found.add(rec)
-                            if rec in WELL_FORMED:
-                                assert walk_prog(cache, off) == len(rec); n_progs += 1
+                        assert clock_set, f"{where}: mode 27 with no tick op before it in its step"
+                        assert len(m) >= 2 and m[1] in LEN27 and len(m) == LEN27[m[1]], f"{where}: mode 27 of {len(m)} B"
+                        if m[1] == 0 and (m[9] | m[10] << 8) != NONE: named(m[9] | m[10] << 8)
+                    elif mode == 28:                # §6.6
+                        n_msgs += 1
+                        assert len(m) == (12 if m[0] & 0x80 else 10), f"{where}: mode {m[0]:#x} of {len(m)} B"
+                    elif mode == 26:
+                        n_msgs += 1
+                        assert clock_set, f"{where}: an engine message with no tick op before it in its step"
+                        assert len(m) >= 2 and m[1] in LEN26 and len(m) == LEN26[m[1]], f"{where}: mode 26 of {len(m)} B"
+                        if m[1] == 0: named(m[4] | m[5] << 8)
+                        if m[1] == 3: named(m[8] | m[9] << 8)
                     elif mode in (19, 25):
                         if mode == 25:
                             n_msgs += 1
@@ -1823,14 +2560,16 @@ def check_v3(vecs):
                             cache[off:off + len(data)] = data
                     elif mode == 11:
                         cache[:] = bytes(len(cache))
-    # every program built well formed walks, and every program built (well formed or not) was found by a PLAY at
-    # the offset the PLAY names: an offset the builders got wrong reads some other bytes and fails here
+    return n_msgs, n_progs, found
+
+def check_found(found):
+    """Every program built well formed walks, and every program built (well formed or not) was found by a PLAY, SET or
+    COMMIT at the offset it names: an offset the builders got wrong reads some other bytes and fails here."""
     for rec in WELL_FORMED:
         assert walk_prog(bytearray(rec), 0) == len(rec)
     progs_bad = {r for r in BAD_SHAPE if len(r) >= 4 and r[0] in (1, 2) and (r[2] | r[3] << 8) == len(r)}
     missed = (WELL_FORMED | progs_bad) - found
-    assert not missed, f"{len(missed)} program(s) built but never found where a PLAY names them"
-    return n_msgs, n_progs
+    assert not missed, f"{len(missed)} program(s) built but never found where a PLAY, SET or COMMIT names them"
 
 def _merged(p, vec):
     """The vector to write at `p`: its inputs, and the expectations the file already holds for the longest prefix of
@@ -1838,8 +2577,11 @@ def _merged(p, vec):
     an expectation of ours. From the first changed step on, every expectation is empty, for the C to fill."""
     if not p.exists(): return vec
     old = json.loads(p.read_text())
-    meta = lambda d: {k: x for k, x in d.items() if k != "steps"}
-    if meta(old) != meta(vec): return vec
+    meta = lambda d: {k: x for k, x in d.items() if k not in ("steps", "features")}
+    feats = lambda d: set(d["features"]) if isinstance(d.get("features"), list) else {d.get("features")}
+    # `features` widened to a list holding the old value (C2 B.2) keeps the expectations: they are the C's answers on
+    # a build the vector is still for; any other change of a vector-level key empties them all
+    if meta(old) != meta(vec) or not feats(old) <= feats(vec): return vec
     for new_st, old_st in zip(vec["steps"], old["steps"]):
         if new_st["ops"] != old_st["ops"]: break
         new_st["expect"] = old_st.get("expect", {})
@@ -1853,16 +2595,21 @@ def main():
     ap.add_argument("--check", action="store_true", help="run the self-check of the C1 builders and write nothing")
     a = ap.parse_args()
     kf = keyframe(pattern(W, H, 1))
-    v3 = vectors_v3(kf)
-    n_msgs, n_progs = check_v3(v3)
-    again = vectors_v3(kf)
-    assert json.dumps(again) == json.dumps(v3), "vectors_v3 is not deterministic"
-    print(f"self-check: {len(v3)} C1 vectors, {n_msgs} mode-25/26 messages decoded, {n_progs} played programs walked, "
-          f"{len(WELL_FORMED)} programs built well formed, {len(BAD_SHAPE)} malformed on purpose")
+    v12, v3, v4 = vectors(), vectors_v3(kf), vectors_v4(kf)
+    n_msgs, n_progs, found3 = check_v3(v3)
+    m4, p4, found4 = check_v3(v4, c2=True)
+    check_found(found3 | found4)
+    n_neutral = check_neutral(v12 + v3)
+    for build, got in ((vectors_v3, v3), (vectors_v4, v4)):
+        assert json.dumps(build(kf)) == json.dumps(got), f"{build.__name__} is not deterministic"
+    print(f"self-check: {len(v3)} C1 vectors, {n_msgs} mode-25/26 messages decoded, {n_progs} named programs walked; "
+          f"{len(v4)} C2 vectors, {m4} mode-26/27/28 messages and inputs decoded, {p4} named programs walked; "
+          f"{n_neutral} v1/v2/v3 messages build-neutral; {len(WELL_FORMED)} programs built well formed, "
+          f"{len(BAD_SHAPE)} malformed on purpose")
     if a.check: return
     prefixes = tuple(x for x in a.only.split(",") if x) if a.only else None
     OUT.mkdir(parents=True, exist_ok=True)
-    for vec in vectors() + v3:
+    for vec in v12 + v3 + v4:
         if prefixes and not vec["name"].startswith(prefixes): continue
         p = OUT / f"{vec['name']}.json"
         vec = _merged(p, vec)

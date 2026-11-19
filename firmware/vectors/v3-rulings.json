@@ -67,7 +67,7 @@
      "tick": 1100
     },
     {
-     "msg": "1a0300"
+     "msg": "1a4000"
     }
    ],
    "expect": {
@@ -118,7 +118,7 @@
      "tick": 1110
     },
     {
-     "msg": "1a03"
+     "msg": "1a40"
     }
    ],
    "expect": {
@@ -274,7 +274,7 @@
      "tick": 1140
     },
     {
-     "msg": "1a0300"
+     "msg": "1a4000"
     },
     {
      "flags": 12
@@ -2145,5 +2145,8 @@
  "panel": true,
  "contract": 2,
  "start": "zero",
- "features": 511
+ "features": [
+  511,
+  1535
+ ]
 }

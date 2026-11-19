@@ -293,6 +293,10 @@ class ConformanceVectorTest {
         val out = Outcome()
         val unfilled = HashSet<String>()
         val engine = HashSet<String>()
+        // a vector with a `stock` op has no self-test form whether or not it releases the lease (C2's meeting,
+        // 2026-11-18: `v4-local` — a `stock` op and no release — was passed over below and then flagged by the closing
+        // check, which had excused the earlier `stock` vectors only because each of them also releases)
+        val noForm = HashSet<String>()
         for (f in files) {
             val vec = Json.parseToJsonElement(Files.readString(f)).jsonObject
             val name = vec["name"]!!.jsonPrimitive.content
@@ -302,7 +306,7 @@ class ConformanceVectorTest {
             if (name == "v1-lease") continue      // the lapse inside it refuses the step itself: no self-test form
             val ops = steps.flatMap { it.jsonObject["ops"]!!.jsonArray.map { o -> o.jsonObject } }
             if (ops.any { "lease" in it && it["lease"]!!.jsonPrimitive.content != "acquire" }) continue
-            if (ops.any { "stock" in it }) continue          // no self-test form: a step cannot repaint the panel
+            if (ops.any { "stock" in it }) { noForm += name; continue }          // no self-test form: a step cannot repaint the panel
             // §5.10: an engine vector has no self-test form (a wake, or mode 26 alone or in a batch); §6.10 (C2): nor
             // one with an input or a page op
             if (ops.any { "wake" in it || "input" in it || "page" in it || ("msg" in it && carries26(hex(it["msg"]!!.jsonPrimitive.content))) }) { engine += name; continue }
@@ -374,7 +378,7 @@ class ConformanceVectorTest {
             val name = vec["name"]!!.jsonPrimitive.content
             val releases = vec["steps"]!!.jsonArray.any { st -> st.jsonObject["ops"]!!.jsonArray.any { o -> o.jsonObject["lease"]?.jsonPrimitive?.content == "release" } }
             val ran = out.ran.any { it == name || it.startsWith("$name@") }     // a vector run at several builds is named per build
-            if (name != "v1-lease" && !releases && name !in unfilled && name !in engine && !ran) out.problems += "$name: a drawing vector ran no self-test step"
+            if (name != "v1-lease" && !releases && name !in noForm && name !in unfilled && name !in engine && !ran) out.problems += "$name: a drawing vector ran no self-test step"
         }
         return out
     }
