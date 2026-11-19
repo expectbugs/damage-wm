@@ -1298,12 +1298,12 @@
    ]
   ],
   "tests": [
-   "*MainBindShellTest*"
+   "*MainLocalShellTest.aBandFormChangedInABurst*"
   ],
   "expect": [
-   "(no pin: the burst is the rules' state, constant false in this tree until DP2 is merged \u2014 the merge point)"
+   "aBandFormChangedInABurstWaitsForItsSettleAndItsNotchIsStillCommitted_DI"
   ],
-  "note": "re-stages during a burst",
+  "note": "re-stages during a burst (its pin exists since the rules were merged: named by the lead after the sweep of 2026-11-19 showed this test fails under it)",
   "from": "DM2"
  },
  {
@@ -1540,7 +1540,7 @@
    "*LocalSequenceFuzzTest.seededS4_bothLensesNumberEveryMatchAlike"
   ],
   "expect": [
-   "seededS4_bothLensesNumberEveryMatchAlike"
+   "(no pin at the rules' level: the sequence fuzz's invariants do not see this simulator mutant \u2014 the simulator's own test catches it, row S-after-lease)"
   ],
   "note": "1(b)2: S taken after the lease and the claim (the sim's mutant): spec says (3)",
   "from": "FB"
@@ -1576,7 +1576,7 @@
    "*LocalSequenceFuzzTest.seededS6_theEmptyTableEmptiesTheLists"
   ],
   "expect": [
-   "seededS6_theEmptyTableEmptiesTheLists"
+   "(no pin at the rules' level: the sequence fuzz's invariants do not see this simulator mutant \u2014 the simulator's own test catches it, row empty-entries-only)"
   ],
   "note": "1(d)5: the empty table clears entries only (the sim's mutant): spec says (2)",
   "from": "FB"
@@ -1831,7 +1831,7 @@
    "*LocalSequenceFuzzTest.seededS21L_aListLostOnLeftHealsAtTheNextAnswer"
   ],
   "expect": [
-   "seededS21L_aListLostOnLeftHealsAtTheNextAnswer"
+   "(expected not to fail: on LEFT a refused LIST fails the flush's ack, so the table goes again \u2014 row S19 pins that path; the riding LIST is RIGHT's protection)"
   ],
   "note": "decisions U.1 on LEFT: LEFT's refusal fails the flush's ack, so the table goes again (S19) \u2014 expected NOT to fail",
   "from": "FB"
@@ -1998,15 +1998,13 @@
   ],
   "tests": [
    "*LocalRulesTest.aWithdrawn*",
-   "*MainLocalShellTest.aRowFormChange*",
    "*LocalStartTest*"
   ],
   "expect": [
    "aWithdrawnListsAnswersAndItsReturnNameTheCurrentRow_AF2",
-   "aRowFormChangeWithdrawsTheListAndANotchInBetweenGoesAsToday_DI",
    "theStartsBindBatchPerTapsValue_P1"
   ],
-  "note": "AF.2: a return names no row inside a burst",
+  "note": "AF.2: a return names no row inside a burst (the shell's withdrawal case is not named: its return lands after the burst's end, where the SETTLE names the row either way \u2014 the sweep of 2026-11-19 showed it passes under this mutant)",
   "from": "FB"
  },
  {

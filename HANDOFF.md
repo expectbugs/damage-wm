@@ -9143,8 +9143,14 @@ briefs, reports and reviews are under the gitignored `private/build072/`; the co
     `--motion-check` · the four content checks · node 200 · lint 0 · wiring 79 ok · 66 conformance vectors in both
     forms. The rules' sequence fuzz: 2,000 of 2,000 on the last round's tree. **The mutation list of the phone's half
     is `research/mutations-c2.json`, 165 rows** (every stage's rows joined); each row was watched to fail in its
-    stage; the sweep of the whole list on the final tree was still running when this was written — its numbers are
-    in `REMINDER.md` when it ends. One test failed once in a whole-suite run with other lanes beside it
+    stage, and **the whole list was swept on the final tree (one mutant at a time, 6.2 h of machine time in two
+    lanes): 161 caught; 4 with no pin by their own statement** (two simulator mutants the rules' fuzz does not see —
+    the simulator's own tests catch them in their own rows; one expected not to fail; one whose only cost is an extra
+    telemetry read); none not caught, none not judged. The sweep corrected the list twice: a row whose named shell
+    test could not tell its mutant apart (its rules-level test and the start pins do), and a row still marked "no
+    pin until the rules are merged" that a shell test now catches. Earlier, on the tree before the last rounds, it
+    found one guard no test pinned (the model's per-step height rule for a scaled draw: its test's cases were all
+    refused by a later-added rule first) — a case was added. One test failed once in a whole-suite run with other lanes beside it
     (`SeamSessionTest`, the dev seam) and has not failed again (twenty real runs under CPU load clean): listed, not
     explained. A lesson for the record: twenty repeat runs of a test class answered `FROM-CACHE` after the first
     (the script lacked `--no-build-cache`) and were reported as twenty before the next stage caught it.
