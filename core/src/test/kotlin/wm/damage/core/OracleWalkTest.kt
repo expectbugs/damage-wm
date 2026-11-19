@@ -565,7 +565,7 @@ class OracleWalkTest {
         }
     }
 
-    private companion object {
+    internal companion object {
         const val STEPS = 240
         /** The local walk's steps per height (each local event waits for its picture to be held). */
         const val LOCAL_STEPS = 120

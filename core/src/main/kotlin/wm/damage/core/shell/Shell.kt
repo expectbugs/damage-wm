@@ -267,6 +267,12 @@ class Shell(
     @Volatile private var tickGen = 0
     private var restGen = 0
     private var graceGen = 0
+    /** The notice's next timer step, while one is owed ([armGraceStep]); null when none is — cleared by the step's
+     *  handling and by every stop ([stopGrace]). Loop-confined. */
+    private var graceJob: kotlinx.coroutines.Job? = null
+    /** When the running grace started (`System.nanoTime`): step k is due k × 250 ms after it, so a loop that is late
+     *  for one step does not push the rest back. */
+    private var graceT0Ns = 0L
     private var silentDismissGen = 0
     /** §1.3 chord (long-press OFF): event 9 arms this wall-clock instant,
      *  event 10 refreshes it, a double-tap inside [chordWindowMs] opens the
@@ -408,7 +414,8 @@ class Shell(
         when (notifications.withdraw(ref, queuedOnly, silent = quiet)) {
             Notifications.Withdrawn.NOTHING -> return@runOnShell
             Notifications.Withdrawn.QUEUED -> if (notifications.active && !notifications.furlingOut) paintNotification()  // its +N
-            Notifications.Withdrawn.KEPT, Notifications.Withdrawn.FOLDING -> {}   // the furl runs via the pump
+            Notifications.Withdrawn.KEPT -> {}                                     // its timer runs on
+            Notifications.Withdrawn.FOLDING -> stopGrace()   // the furl runs via the pump; a box folding away owes no step
             Notifications.Withdrawn.DROPPED -> repaintAfterSilentDrop()
         }
         scheduleSave()
@@ -1475,6 +1482,7 @@ class Shell(
                         else if (mode != Mode.SILENT) { syncLayout(); composeContent() }
                     is Msg.Run -> m.action()
                     is Msg.Shutdown -> try {
+                        stopGrace()               // the notice's timer owes no step past its session
                         holdPushes()              // §72: keyed pushes are held from here on
                         dropKeyboard()    // the draft goes back to its requester BEFORE the save (review 2026-09-01 K5)
                         // the focused window's session-bound state ends with the
@@ -2466,16 +2474,20 @@ class Shell(
             notifications.post(n, layout, show = false)
             return
         }
+        val shownBefore = notifications.current
         val replacedRect = notifications.post(n, layout)
         if (replacedRect != null) {
             // same-thread coalesce replaced the visible box: its size may have
             // changed — repaint content under the union, then the new box
+            // (its timer runs on: a new body is not an input)
             composeContent()
         } else {
             // a box beginning its unfurl over a mid-flight slide would capture
             // a moving base — motion yields to the overlay (§6.3, round 2 #A4)
             settleSlidesForOverlay()
-            if (notifications.active && !notifications.focused) scheduleGrace()
+            // a NEW box: no step is owed for it until its unfurl ends. One queued behind a shown box leaves that
+            // box's timer alone — a reset he sees must be one his input made (2026-11-19)
+            if (notifications.current !== shownBefore) stopGrace()
             updatePlanes()
             paintNotification()
         }
@@ -2509,6 +2521,7 @@ class Shell(
     private fun dismissNotice(markRead: Boolean, clearing: Boolean = true, op: String = wm.damage.core.app.Notices.DISMISS) {
         settleSlidesForOverlay()      // the furl restores from a snapshot:
         val n = notifications.dismiss(markRead, clearing)  // settle the base
+        stopGrace()                   // a box folding away owes no step
         if (n?.fault == true) faults.mute(n.thread)        // a dismissed fault stays dismissed for its episode (§69)
         n?.record?.let { ref ->
             if (op == wm.damage.core.app.Notices.MARK_READ) noticeInput?.read(ref) else noticeInput?.dismiss(ref)
@@ -2540,16 +2553,30 @@ class Shell(
         if (box != null) comp.damage(box)
     }
 
+    /**
+     * One step of the notice's focus timer (§4.5, Adam 2026-11-19): the top rule grows by an eighth and the ink rises
+     * a step; the eighth step makes the bar whole and gives the box focus. A step paints into the frame and the pump
+     * that follows this message sends it — never in the input's reserved slot (`pumpPriority` is an input's). The
+     * timer ends here when there is nothing for it to do: no box, a box with focus, one folding away, a quiet form
+     * (rule 4), a box still unfurling (the unfurl's end starts it).
+     */
     private fun handleGrace(gen: Int) {
         if (gen != graceGen) return
-        if (quiet) return                                // §4.5 rule 4
-        if (switcher.open) { scheduleGrace(); return }   // never steal the wheel's gestures
-        if (notifications.active && !notifications.focused) {
+        graceJob = null
+        if (!graceRuns()) return
+        if (switcher.open) { scheduleGrace(); return }   // never steal the wheel's gestures: it waits, from empty
+        if (notifications.advanceGrace()) {
             notifications.takeFocus()
             updatePlanes()        // the box steps FORWARD (§4.5); the plane-map
             paintNotification()   // diff re-renders it and cleans its old seams
+        } else {
+            paintNotification()   // this step's eighth of the bar and its ink
+            armGraceStep()
         }
     }
+
+    /** A box the timer runs for: up, fully unfurled, without focus, not folding away, in the window form. */
+    private fun graceRuns(): Boolean = notifications.active && !notifications.focused && !notifications.animating && !quiet
 
     private fun handleSilentTick(gen: Int) {
         if (gen != silentDismissGen || !quiet || !notifications.active) return
@@ -2620,9 +2647,36 @@ class Shell(
         scope.launch { delay(12_000); if (running) post(Msg.RestTick(gen)) }
     }
 
+    /**
+     * The grace starts again (§4.5 rule 1): an input on an unfocused box, a box's unfurl ending, a box shown again
+     * after a surface closed. The bar goes back to empty and the ink to its arrival level AT ONCE — painted into the
+     * frame being composed, so an input's own flush carries it (his words: "showing the bar reset on inputs") — and
+     * the first step is owed 250 ms on. Arms nothing for a box the timer does not run for ([graceRuns]).
+     */
     private fun scheduleGrace() {
-        val gen = ++graceGen
-        scope.launch { delay(2_500); if (running) post(Msg.GraceTick(gen)) }
+        stopGrace()
+        if (!graceRuns()) return
+        if (notifications.resetGrace()) paintNotification()
+        graceT0Ns = System.nanoTime()
+        armGraceStep()
+    }
+
+    /** The next step of the running grace, due at its place on the 250 ms grid from [graceT0Ns]. */
+    private fun armGraceStep() {
+        val gen = graceGen
+        if (graceByHand) { graceJob = kotlinx.coroutines.Job(); return }
+        val due = graceT0Ns + (notifications.graceStep + 1) * Notifications.GRACE_STEP_MS * 1_000_000L
+        graceJob = scope.launch {
+            delay(maxOf(0L, (due - System.nanoTime()) / 1_000_000L))
+            if (running) post(Msg.GraceTick(gen))
+        }
+    }
+
+    /** No step owed: the box was dismissed, the session ends, or a new grace is about to start. */
+    private fun stopGrace() {
+        graceGen++
+        graceJob?.cancel()
+        graceJob = null
     }
 
     private fun scheduleSilentDismiss() {
@@ -5416,6 +5470,13 @@ class Shell(
     internal fun mainRestingForTest(): Boolean = main.resting
     internal fun notificationsUpForTest(): Boolean = notifications.active || notifications.animating
     internal fun notificationsFocusedForTest(): Boolean = notifications.active && notifications.focused
+    /** A harness's clock for the notice's timer (the tests, the desktop render harness): while set, a step owed is
+     *  marked and not launched, and [graceStepByHand] delivers it as the real one is delivered (a `GraceTick` of the
+     *  running grace, handled on the loop). Set before the box arrives. */
+    @Volatile var graceByHand = false
+    fun graceStepByHand() = post(Msg.Run { if (graceJob != null) post(Msg.GraceTick(graceGen)) })
+    /** The timer's step and whether a step is owed — LOOP-ONLY (read it inside [sampleIdle]). */
+    fun graceState(): Pair<Int, Boolean> = notifications.graceStep to (graceJob != null)
 
     /** A staging the region could not hold, by what it was painted for: not painted again until one of those changes. */
     private var mainBindRefusedFor: String? = null

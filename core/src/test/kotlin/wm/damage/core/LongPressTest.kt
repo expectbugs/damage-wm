@@ -65,7 +65,7 @@ class LongPressTest {
             r.shell.start(); settle(r.shell)
             r.shell.postNotice(Notifications.Notice("SMS · TEST", "t1", "still here after a stray press", "12:00"))
             settle(r.shell)
-            delay(3_000)                                       // the 2.5 s grace
+            delay(3_000)                                       // the 2.0 s grace
             settle(r.shell)
             assertTrue(r.shell.notifications.focused, "the box took focus after the grace")
 
