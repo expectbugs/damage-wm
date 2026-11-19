@@ -219,6 +219,13 @@ abstract class CfwTransportBase(
                         DamageMsg.OP_FLAGS_SET to value.drop(2).toInt(16)
                     else -> { Log.w(this.name, "probe $name=$value: expected telemetry=read, cache=info|miscount, cachesize=${DamageMsg.CACHE_MIN_KIB}..${DamageMsg.CACHE_BUDGET_KIB} or flags=clear|probe|0xNNNN"); return }
                 }
+                // build C2-FD (decisions AM.3): a set naming a bit `FIRMWARE.md` §3 does not define (a typing error at the
+                // trial) is not sent — a build refuses it unchanged (status 2) while AG.2 would believe its clears at once
+                if (op == DamageMsg.OP_FLAGS_SET && asked and DamageMsg.FLAGS_DEFINED.inv() != 0) {
+                    emitNote("probe", "$name=$value not sent: bit(s) 0x${(asked and DamageMsg.FLAGS_DEFINED.inv()).toString(16)} are not " +
+                        "flags (defined: 0x${DamageMsg.FLAGS_DEFINED.toString(16)}, FIRMWARE.md §3)")
+                    return
+                }
                 // build C1 (spec §6.1): on a C1 build ZWRITE and ENGINE are the ladder's, never a hand-set wish's —
                 // a bit the stage does not allow is taken out here, and said
                 val caps0 = damageCaps
@@ -787,7 +794,8 @@ abstract class CfwTransportBase(
         var extraLeft = extra
         // P5 item 7: [withhold] keeps bits of the wish this session must not arm (DRAW2 where the start decided against
         // it): the wish itself is not edited, and the "wish changed under us" test below reads the same expression
-        fun wish() = (wantedFlags and withhold.inv()) or extraLeft
+        var withheld = withhold
+        fun wish() = (wantedFlags and withheld.inv()) or extraLeft
         val wanted = wish()
         if (wanted == 0) return
         val armedAt = lastArmedAtMs
@@ -810,6 +818,7 @@ abstract class CfwTransportBase(
             if (ladderArmedStage == LADDER_TOP_STAGE && extraLeft and DamageMsg.FLAG_BIND != 0) {
                 heldBackForResetAt = resetAt
                 extraLeft = extraLeft and DamageMsg.FLAG_BIND.inv()
+                withheld = withheld or DamageMsg.FLAG_BIND      // build C2-FD (AM.1): and from a hand wish, as the start's withhold does
                 emitNote("keeper", "the glasses reset ${(resetAt - armedAt) / 1000} s after stage 4 was armed — this session " +
                     "arms stage 3 (flags 0x${wish().toString(16)}); local input is held back as its rule says")
             } else if (extraLeft and C1_FLAGS != 0 && ladderArmedStage > 0) {
@@ -1002,7 +1011,7 @@ abstract class CfwTransportBase(
      *  grows the file into [LadderRecord]: the stage, `Taps`, the last stage-4 arming, the case-in, the hold-back. */
     /** Build C2: a note about the record that the read at creation has to say once, at the first start (unused lines).
      *  Declared before [record], whose initializer writes it. */
-    @Volatile private var recordSay: String? = null
+    @Volatile private var recordSay: List<String> = emptyList()
     /** The zone [localDay] and [hhmm] read: the device's. A test sets it. Declared before [record], whose initializer
      *  reads it. */
     @Volatile var localZone: java.time.ZoneId = java.time.ZoneId.systemDefault()
@@ -1026,11 +1035,14 @@ abstract class CfwTransportBase(
             return LadderRecord()
         }
         var r = read.record
-        if (read.problems.isNotEmpty()) {
-            val text2 = "local input: the stored record's line(s) ${read.problems.joinToString(" · ") { "'$it'" }} could not be used — left at their defaults"
-            Log.w(name, text2)
-            recordSay = text2
-        }
+        // build C2-FD (decisions AM.4): each unusable line under its own subject — the last session's cache size, or the
+        // ladder's and local input's other fields
+        val (sizeLines, otherLines) = read.problems.partition { it.startsWith("sessionKib=") }
+        recordSay = listOfNotNull(
+            otherLines.takeIf { it.isNotEmpty() }?.let { l -> "local input: the stored record's line(s) ${l.joinToString(" · ") { "'$it'" }} could not be used — left at their defaults" },
+            sizeLines.takeIf { it.isNotEmpty() }?.let { l -> "cache size: the stored record's line(s) ${l.joinToString(" · ") { "'$it'" }} could not be used — " +
+                "the last session's size reads as ${DamageMsg.CACHE_BUDGET_KIB} KiB" })
+        for (t in recordSay) Log.w(name, t)
         val n = r.stage
         if (n > 0 && c1StageStepDown) {
             // R1 §1: to 0, not n − 1 (any rung's phone-side code may be the cause, and the way back takes one restart).
@@ -1389,6 +1401,20 @@ abstract class CfwTransportBase(
         throw LintError(why)
     }
 
+    /** Build C2-FD (decisions AM.2): whether a flush's local-input [tail] may still go — BIND in force as [bindGate] reads
+     *  it. The rules build a tail only while BIND is in force; a hand disarm (AG.2) or the sleep's release
+     *  ([setLease]) can take BIND out of the state while the flush waits for the lane, and the tail then means nothing
+     *  (the glasses would refuse it, 15, and the batch's drawing with it). So it is dropped, one `local` note says so,
+     *  and the drawing goes on its own ([alone]: the flush held nothing else and completes with nothing sent). The gate
+     *  stays the guard for every other image. */
+    private fun tailStillBound(tail: List<ByteArray>, alone: Boolean): Boolean {
+        val flags = _state.value.flagsInForce
+        if (hasBind(damageCaps) && flags and DamageMsg.FLAG_BIND != 0) return true
+        emitNote("local", "a flush's ${tail.size} local-input message(s) not sent: BIND is no longer in force (flags 0x${flags.toString(16)}) — " +
+            if (alone) "nothing else was in the flush" else "its drawing goes without them")
+        return false
+    }
+
     /** The `Local input` row's state in words (§6.3), and `Taps`, in [LinkState]. */
     private fun refreshLocalState() {
         val r = record
@@ -1398,6 +1424,12 @@ abstract class CfwTransportBase(
             !hasBind(caps) -> "this firmware has no local input"
             r.stage >= LADDER_TOP_STAGE && r.holdBackAt != null -> "held back until tomorrow: ${r.holdBackWhy}"
             st.started && st.flagsInForce and DamageMsg.FLAG_BIND != 0 -> "on"
+            // build C2-FD (decisions AM.4): stage 4 whose session is too small for DRAW2, which BIND rides with (a 64 KiB
+            // session — a stored 64 at a new process's first start, a refused op 5)
+            st.started && r.stage >= LADDER_TOP_STAGE && st.flagsInForce and DamageMsg.FLAG_DRAW2 == 0 &&
+                st.cacheSize - CfwModes.STAGE_RESERVE < CfwModes.TEXTURE_CACHE_SIZE ->
+                "off: this session's cache is ${st.cacheSize / 1024} KiB, too small for DRAW2, which local input needs — " +
+                    "a start after a lapsed lease asks for the size again"
             else -> "off: stage ${r.stage}"
         }
         updateState { it.copy(localInput = words) }
@@ -2679,7 +2711,7 @@ abstract class CfwTransportBase(
         c1StageSay?.let {   // build C1-P: what the read at creation found, once
             c1StageSay = null; emitNote("keeper", it); if (c1StageSayIsHoldBack) emitFault("holdback", it)
         }
-        recordSay?.let { recordSay = null; emitNote("keeper", it) }      // build C2: lines of the record it could not use
+        recordSay.also { recordSay = emptyList() }.forEach { emitNote("keeper", it) }      // build C2: lines of the record it could not use
         bindSessionStart()
         // A new session does not inherit the last one's Silent Mode (2026-09-16 review). `noteSilent`
         // is the only writer. What the READ path does: it sets the state on a field-14 value above
@@ -3688,6 +3720,8 @@ abstract class CfwTransportBase(
             // sub-message as its own image, more as a batch. No fid.
             try {
                 val t = work.request.tail
+                // build C2-FD (decisions AM.2): a tail BIND no longer covers is dropped — here nothing else is in the flush
+                if (!tailStillBound(t, alone = true)) { completeAsync(null, work.id, 0, t0, done = null); return }
                 val image = if (t.size == 1) t[0] else CfwModes.batch(t, engine = true, bind = true)
                 val final = writeImage(image, work.epoch)
                 completeAsync(final, work.id, image.size, t0, done = null, sample = AckSample(alone, floor = true, epoch = work.epoch))
@@ -3827,6 +3861,7 @@ abstract class CfwTransportBase(
      */
     private fun withTail(image: ByteArray, tail: List<ByteArray>): Pair<ByteArray, ByteArray?> {
         if (tail.isEmpty()) return image to null
+        if (!tailStillBound(tail, alone = false)) return image to null      // build C2-FD (decisions AM.2)
         if (image[0].toInt() != 8) return image to (if (tail.size == 1) tail[0] else CfwModes.batch(tail, engine = true, bind = true))
         val subs = ArrayList<ByteArray>()
         var i = 2

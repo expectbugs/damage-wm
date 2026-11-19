@@ -544,10 +544,12 @@ class BindSimTest {
      *  they must be 0 (§5.4). */
     @Test
     fun aScaledDrawTakesItsAnchorAndTheHRule_6_6() {
-        fun withDraw(features: Int, h0: Int, h1: Int, anchor: Int, steps: Int = 1): Pair<Rig, Boolean> {
+        fun withDraw(features: Int, h0: Int, h1: Int, anchor: Int, steps: Int = 1, table: IntArray? = null): Pair<Rig, Boolean> {
             val r = Rig(features = features)
             r.write(Arm.RIGHT, 400, u16(2) + u16(4) + byteArrayOf(0x21, 0x22, 0x23, 0x24))
-            r.write(Arm.RIGHT, PD, prog(track(rect(0, 80, 64, 40), 0, seg(DRAW, steps, src = 400, xL = 10, y = 100, lvl0 = 15, lvl1 = 15, h0 = h0, h1 = h1, anchor = anchor))))
+            table?.let { r.write(Arm.RIGHT, 420, easing(*it)) }
+            r.write(Arm.RIGHT, PD, prog(track(rect(0, 80, 64, 40), 0, seg(DRAW, steps, src = 400, xL = 10, y = 100, lvl0 = 15, lvl1 = 15, h0 = h0, h1 = h1, anchor = anchor,
+                ease = if (table != null) 2 else 0, table = if (table != null) 420 else 0))))
             return r to r.msg(play(0, 34, PD, 1))
         }
         for ((anchor, top) in listOf(0 to 100, 1 to 98, 2 to 96)) {        // H 8 from h 4: centre 100 + (−4 >> 1), bottom 100 − 4
@@ -561,6 +563,14 @@ class BindSimTest {
             val (r, ok) = withDraw(C2, h0, h1, 0, steps = 4)
             assertFalse(ok, "h0 $h0 h1 $h1: not both 0, not both in 1..2048 with every step's H in range: must be refused"); assertEquals(12, r.sim.refusalRecord(Arm.RIGHT)[1], "h0 $h0 h1 $h1")
         }
+        // build C2-FD (decisions AM.5): the per-step rule with both ends in range — reached only through an easing table that
+        // overshoots (E 5000 > 4096): from h0 1000 to h1 2000 step 2's H is 1000 + ((1000·5000 + 2048) >> 12) = 2221, past
+        // 2048: 12. The look-alike, the same table from 100 to 200, keeps every step's H inside (150, 222, 225, 200): taken.
+        val overshoot = intArrayOf(2048, 5000, 5100, 4096)
+        withDraw(C2, 1000, 2000, 0, steps = 4, table = overshoot).let { (r, ok) ->
+            assertFalse(ok, "h0 1000 h1 2000 with an overshooting table: a step's H 2221 must be refused")
+            assertEquals(12, r.sim.refusalRecord(Arm.RIGHT)[1], "the per-step H rule: 12") }
+        assertTrue(withDraw(C2, 100, 200, 0, steps = 4, table = overshoot).second, "the same table from 100 to 200: every step's H in range")
         withDraw(C2, 0, 0, 3).let { (r, ok) -> assertFalse(ok, "anchor 3 must be refused"); assertEquals(5, r.sim.refusalRecord(Arm.RIGHT)[1], "anchor 3") }
         withDraw(C1, 4, 4, 0).let { (r, ok) -> assertFalse(ok, "C1: h0/h1 must be 0"); assertEquals(12, r.sim.refusalRecord(Arm.RIGHT)[1], "C1: h0/h1 = 0") }
         withDraw(C1, 0, 0, 1).let { (r, ok) -> assertFalse(ok, "C1: anchor must be 0"); assertEquals(5, r.sim.refusalRecord(Arm.RIGHT)[1], "C1: anchor 0") }
@@ -618,9 +628,11 @@ class BindSimTest {
         fun rect(x: Int, y: Int, w: Int, h: Int) = u16(x) + u16(y) + u16(w) + u16(h)
         /** §5.4: verb steps ease kind · src · xL xR y dxL dxR dy · lvl0 lvl1 opt 0 · table h0 h1 · anchor 0 pref0 pref1. */
         fun seg(verb: Int, steps: Int, kind: Int = 0, src: Int = 0, xL: Int = 0, y: Int = 0, lvl0: Int = 0, lvl1: Int = 0,
-                h0: Int = 0, h1: Int = 0, anchor: Int = 0, pref0: Int = 0, pref1: Int = 0): ByteArray =
-            byteArrayOf(verb.toByte(), steps.toByte(), 0, kind.toByte()) + u16(src) + u16(xL) + u16(0) + u16(y) + u16(0) + u16(0) + u16(0) +
-                byteArrayOf(lvl0.toByte(), lvl1.toByte(), 0, 0) + u16(0) + u16(h0) + u16(h1) + byteArrayOf(anchor.toByte(), 0, pref0.toByte(), pref1.toByte())
+                h0: Int = 0, h1: Int = 0, anchor: Int = 0, pref0: Int = 0, pref1: Int = 0, ease: Int = 0, table: Int = 0): ByteArray =
+            byteArrayOf(verb.toByte(), steps.toByte(), ease.toByte(), kind.toByte()) + u16(src) + u16(xL) + u16(0) + u16(y) + u16(0) + u16(0) + u16(0) +
+                byteArrayOf(lvl0.toByte(), lvl1.toByte(), 0, 0) + u16(table) + u16(h0) + u16(h1) + byteArrayOf(anchor.toByte(), 0, pref0.toByte(), pref1.toByte())
+        /** §5.4 an easing table: `n u8 · 0 · E[1..n] s16`. */
+        fun easing(vararg e: Int) = byteArrayOf(e.size.toByte(), 0) + e.fold(ByteArray(0)) { a, v -> a + u16(v) }
         /** §5.4 a parameter reference: bit 7 used, bits 2-6 the field, bits 0-1 the parameter. */
         fun pref(param: Int, field: Int) = 0x80 or (field shl 2) or param
         fun track(area: ByteArray, backdrop: Int, vararg segs: ByteArray) =

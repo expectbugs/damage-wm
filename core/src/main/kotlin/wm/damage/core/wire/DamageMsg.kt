@@ -106,6 +106,9 @@ object DamageMsg {
     /** Bit 15: no behaviour — it proves arming, the echo and the clear-on-lapse. */
     const val FLAG_PROBE = 1 shl 15
     /** What the Phase 1 build implements; any other bit is refused with status 2. */
+    /** Build C2-FD (decisions AM.3): every flag bit `FIRMWARE.md` defines (§3 bits 0, 1, 15; §4 bit 2; §5.8–§5.9 bits 3,
+     *  5; §6.8 bit 4) — a hand `flags=` probe naming any other is refused at the phone. */
+    const val FLAGS_DEFINED = FLAG_PRESENTED or FLAG_CACHE_KEEP or FLAG_DRAW2 or FLAG_ENGINE or FLAG_BIND or FLAG_ZWRITE or FLAG_PROBE
     const val FLAGS_IMPLEMENTED_V1 = FLAG_PRESENTED or FLAG_CACHE_KEEP or FLAG_PROBE
     /** What the Phase 2 build implements. */
     const val FLAGS_IMPLEMENTED = FLAGS_IMPLEMENTED_V1 or FLAG_DRAW2
