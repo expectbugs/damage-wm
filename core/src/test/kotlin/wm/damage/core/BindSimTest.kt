@@ -566,6 +566,37 @@ class BindSimTest {
         withDraw(C1, 0, 0, 1).let { (r, ok) -> assertFalse(ok, "C1: anchor must be 0"); assertEquals(5, r.sim.refusalRecord(Arm.RIGHT)[1], "C1: anchor 0") }
     }
 
+    /** "a scaled DRAW's source is a record — `self` with h0/h1 ≠ 0 is 12 … at a PLAY, a COMMIT and a fire alike"
+     *  (C2-decisions M.2), at §5.5's values step: before a PLAY's capture range (5). A RETARGET whose parameters scale a
+     *  `self` DRAW is 12 as well (its checks run from the walk on). At a COMMIT and a fire the walk refuses any `self`
+     *  first (5: §6.5 "the program walk (5; `self` 5)", §6.2 step 10). The look-alike, the same DRAW unscaled, is taken. */
+    @Test
+    fun aScaledSelfDrawIsRefusedTwelve_6_6() {
+        val r = Rig()
+        fun selfDraw(h0: Int, h1: Int, pref0: Int = 0, pref1: Int = 0) = prog(track(rect(0, 80, 64, 40), 0,
+            seg(DRAW, 4, kind = KIND_SELF, y = 80, lvl0 = 15, lvl1 = 15, h0 = h0, h1 = h1, pref0 = pref0, pref1 = pref1)))
+        fun reason() = r.sim.refusalRecord(Arm.RIGHT)[1]
+        val cap = 1000; val past = 0x3FFF                          // the capture (1,280 B) at byte 4,000; one past the 64 KiB cache
+        r.write(Arm.RIGHT, PD, selfDraw(8, 8))
+        assertFalse(r.msg(play(0, 34, PD, 1, past)), "a scaled `self` DRAW must be refused")
+        assertEquals(12, reason(), "a scaled `self` DRAW: the values (12) come before the capture range (5)")
+        assertFalse(r.msg(play(0, 34, PD, 2, cap))); assertEquals(12, reason(), "a scaled `self` DRAW at a PLAY")
+        r.write(Arm.RIGHT, PD, selfDraw(0, 0))
+        assertFalse(r.msg(play(0, 34, PD, 3, past))); assertEquals(5, reason(), "the look-alike reaches the capture range")
+        assertTrue(r.msg(play(0, 34, PD, 4, cap)), "the same DRAW unscaled is taken")
+        r.write(Arm.RIGHT, PE, selfDraw(0, 0, pref(0, F_H0), pref(1, F_H1)))   // h0 = P0, h1 = P1
+        assertTrue(r.msg(play(1, 34, PE, 5, cap, intArrayOf(0, 0))), "unscaled through its parameters: taken")
+        assertFalse(r.msg(retarget(1, intArrayOf(8, 8)))); assertEquals(12, reason(), "a RETARGET that scales a `self` DRAW")
+        assertTrue(r.msg(retarget(1, intArrayOf(0, 0))), "a RETARGET that leaves it unscaled is taken")
+        r.bound()
+        r.write(Arm.RIGHT, PD, selfDraw(8, 8))
+        assertFalse(r.msg(commit(0, 1, 0, 0, PD))); assertEquals(5, reason(), "at a COMMIT the walk's `self` 5 decides first")
+        r.write(Arm.RIGHT, PA, selfDraw(8, 8))                      // the SET checked PA as it was; a fire walks it again
+        r.sent()
+        r.input(UPROLL)
+        r.reports().single().let { assertEquals(listOf(2L, 5L), listOf(it[5], it[6]), "at a fire the walk's `self` 5 decides first") }
+    }
+
     // ------------------------------------------------------------------------------- the encoder of this file
     private companion object {
         const val C2 = 0x5FF
@@ -578,17 +609,20 @@ class BindSimTest {
         const val NONE = 0xFFFF
         const val LOST = 0xFFFF
         const val KIND_ITEM = 1; const val KIND_PITCH = 2
-        const val PA = 64; const val PB = 96; const val PC = 128; const val PD = 160
+        const val PA = 64; const val PB = 96; const val PC = 128; const val PD = 160; const val PE = 192
         const val WAIT = 0; const val FILL = 1; const val DRAW = 2
+        const val KIND_SELF = 2; const val F_H0 = 11; const val F_H1 = 12
 
         fun nib(buf: ByteArray, x: Int, y: Int): Int = (buf[y * 320 + x / 2].toInt() and 0xFF).let { if (x % 2 == 0) it shr 4 else it and 0x0F }
         fun u16(v: Int) = byteArrayOf((v and 0xFF).toByte(), ((v shr 8) and 0xFF).toByte())
         fun rect(x: Int, y: Int, w: Int, h: Int) = u16(x) + u16(y) + u16(w) + u16(h)
         /** §5.4: verb steps ease kind · src · xL xR y dxL dxR dy · lvl0 lvl1 opt 0 · table h0 h1 · anchor 0 pref0 pref1. */
         fun seg(verb: Int, steps: Int, kind: Int = 0, src: Int = 0, xL: Int = 0, y: Int = 0, lvl0: Int = 0, lvl1: Int = 0,
-                h0: Int = 0, h1: Int = 0, anchor: Int = 0): ByteArray =
+                h0: Int = 0, h1: Int = 0, anchor: Int = 0, pref0: Int = 0, pref1: Int = 0): ByteArray =
             byteArrayOf(verb.toByte(), steps.toByte(), 0, kind.toByte()) + u16(src) + u16(xL) + u16(0) + u16(y) + u16(0) + u16(0) + u16(0) +
-                byteArrayOf(lvl0.toByte(), lvl1.toByte(), 0, 0) + u16(0) + u16(h0) + u16(h1) + byteArrayOf(anchor.toByte(), 0, 0, 0)
+                byteArrayOf(lvl0.toByte(), lvl1.toByte(), 0, 0) + u16(0) + u16(h0) + u16(h1) + byteArrayOf(anchor.toByte(), 0, pref0.toByte(), pref1.toByte())
+        /** §5.4 a parameter reference: bit 7 used, bits 2-6 the field, bits 0-1 the parameter. */
+        fun pref(param: Int, field: Int) = 0x80 or (field shl 2) or param
         fun track(area: ByteArray, backdrop: Int, vararg segs: ByteArray) =
             byteArrayOf(segs.size.toByte(), backdrop.toByte(), 0, 0) + area + segs.fold(ByteArray(0)) { a, s -> a + s }
         fun prog(vararg tracks: ByteArray): ByteArray {
@@ -596,8 +630,9 @@ class BindSimTest {
             return byteArrayOf(1, tracks.size.toByte()) + u16(4 + body.size) + body
         }
         fun params(p: IntArray) = (0 until 4).fold(ByteArray(0)) { a, i -> a + u16(p.getOrElse(i) { 0 }) }
-        fun play(slot: Int, period: Int, prog4: Int, tag: Int) =
-            byteArrayOf(26, 0, slot.toByte(), period.toByte()) + u16(prog4) + u16(tag) + u16(0) + params(IntArray(0))
+        fun play(slot: Int, period: Int, prog4: Int, tag: Int, cap4: Int = 0, p: IntArray = IntArray(0)) =
+            byteArrayOf(26, 0, slot.toByte(), period.toByte()) + u16(prog4) + u16(tag) + u16(cap4) + params(p)
+        fun retarget(slot: Int, p: IntArray) = byteArrayOf(26, 1, slot.toByte()) + params(p)
         /** §6.3 SET: entry · devType · eventId · list · step s8 · slot · period · prog u16 · 4 × {kind u8, arg s16}. */
         fun set(entry: Int, id: Int, list: Int, step: Int, slot: Int, prog: Int, period: Int = 34,
                 dev: Int = if (id == ID_TAP) RING else 0xFF, k: List<Pair<Int, Int>> = emptyList()) =
