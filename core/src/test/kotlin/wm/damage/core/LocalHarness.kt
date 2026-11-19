@@ -55,6 +55,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         const val W = 640; const val H = 480
         fun level(id: Int) = 2 + id
         const val ARMED = (1 shl 2) or (1 shl 3) or (1 shl 4)
+        const val BAND_MS = 200L
     }
 
     // ------------------------------------------------------------------------------------------- the cache
@@ -225,9 +226,13 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     var lose115 = 0.0; var dup115 = 0.0
     var bandDropScroll = 0.0; var bandDelayScroll = 0.0; var bandDropClick = 0.0
     var dropAnswer = 0.0
-    fun up(sendAt: Long, extra: Long = 0, f: () -> Unit) {
-        val arrive = maxOf(lastUp + 1, sendAt + upLat() + extra)
-        if (extra == 0L) lastUp = arrive
+    /** The last scroll message's arrival: the rubber band holds scroll messages back in ONE FIFO (§6.1), so a delayed one
+     *  delays every later one and none overtakes another; a 115 or a click, put in the hook's own turn, can pass it. */
+    private var lastScrollUp = 0L
+    fun up(sendAt: Long, extra: Long = 0, scroll: Boolean = false, f: () -> Unit) {
+        var arrive = maxOf(lastUp + 1, sendAt + upLat() + extra)
+        if (scroll) { arrive = maxOf(arrive, lastScrollUp + 1); lastScrollUp = arrive }
+        if (extra == 0L) lastUp = maxOf(lastUp, arrive)
         at(arrive, f)
     }
 
@@ -258,8 +263,8 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         val tap = kind == 0
         val id = when (kind) { 0 -> CfwModes.EV_TAP; 1 -> CfwModes.EV_UPROLL; else -> CfwModes.EV_DOWNROLL }
         val f = Fire(g, tap); fires[g] = f
-        val bandNow = band ?: if (tap) (if (rnd.nextDouble() < bandDropClick) "drop" else null) else when {
-            rnd.nextDouble() < bandDropScroll -> "drop"; rnd.nextDouble() < bandDelayScroll -> "delay"; else -> null }
+        // a scripted [band] is taken as given; otherwise the band is RIGHT's own state, decided at RIGHT's fire below
+        val bandNow = band
         fun input(arm: Arm) {
             val b = sim.bindForTest(arm)
             val before = b.seq
@@ -281,13 +286,31 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
             input(Arm.RIGHT)
             drainSent()
             // stock's own message, after the 115 (one FIFO, §6.1): a scroll message after the exchange, a click in the turn
-            if (bandNow != "drop") {
-                val st = if (tap) LocalRules.Stock.CLICK else if (id == CfwModes.EV_UPROLL) LocalRules.Stock.NEXT else LocalRules.Stock.PREV
-                val extra = when { bandNow == "delay" -> bandDelay(); bandNow?.startsWith("delay:") == true -> bandNow.removePrefix("delay:").toLong(); else -> 0L }
-                up(now, extra) { phoneStock(st, g) }
+            val st = if (tap) LocalRules.Stock.CLICK else if (id == CfwModes.EV_UPROLL) LocalRules.Stock.NEXT else LocalRules.Stock.PREV
+            val extra: Long? = when {
+                bandNow == "drop" -> null
+                bandNow == "delay" -> bandDelay()
+                bandNow?.startsWith("delay:") == true -> bandNow.removePrefix("delay:").toLong()
+                bandNow != null -> 0L
+                else -> band(tap)
             }
+            if (extra != null) up(now, extra, scroll = !tap) { phoneStock(st, g) }
         }
         return g
+    }
+
+    /** RIGHT's rubber band (§6.1), modeled: a notch that finds no band running sends its scroll message at once and starts
+     *  a band of [BAND_MS]; one inside a band either sends none ([bandDropScroll]) or queues it to a band's end, one per
+     *  band end, each starting the next band; a single tap inside a band sends no click. Returns the message's extra delay,
+     *  or null for none. (I: the band's length and which of drop and queue happens are not measured.) */
+    private var bandUntil = 0L
+    fun band(tap: Boolean): Long? {
+        if (tap) return if (now < bandUntil) null else 0L
+        if (now >= bandUntil) { bandUntil = now + BAND_MS; return 0L }
+        if (rnd.nextDouble() < bandDropScroll) return null
+        val at = bandUntil
+        bandUntil = at + BAND_MS
+        return at - now
     }
 
     private fun drainSentLeftOnly() { sim.conformanceSent(Arm.LEFT) }
@@ -570,7 +593,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
 
     // ---- a session start (P1): keyframe, the arming, the start's bind batch
     fun start(fresh: Boolean) {
-        q.clear(); lastUp = now; lastDown = now; pumpAt = Long.MAX_VALUE
+        q.clear(); lastUp = now; lastScrollUp = now; lastDown = now; pumpAt = Long.MAX_VALUE
         if (fresh) for (a in Arm.entries) { sim.conformanceLease(a, false, now); sim.conformanceLease(a, true, now) }
         for (a in Arm.entries) sim.conformanceControl(a, DamageMsg.OP_FLAGS_SET, ARMED, now)
         val t = truth()
@@ -629,7 +652,8 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
                     val v = if (x % 2 == 0) b shr 4 else b and 0x0F
                     if (v != t[y * W + x].toInt()) { bad = "($x,$y) lens $v truth ${t[y * W + x]}"; break@loop }
                 }
-                if (bad != null) out += "$a $what $bad"
+                if (bad != null) out += "$a $what $bad" + (if (what == "panel") " (slots ${sim.motionForTest(a).slots.mapNotNull { it?.let { i ->
+                    "${i.slot}: tag ${i.tag} local ${i.local} d ${i.d}/${i.T} drawing ${i.drawing} prog ${i.prog4}" } }}; S ${sim.bindForTest(a).seq})" else "")
             }
         }
         return out

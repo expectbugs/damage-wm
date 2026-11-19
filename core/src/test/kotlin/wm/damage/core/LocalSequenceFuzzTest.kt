@@ -43,8 +43,18 @@ class LocalSequenceFuzzTest {
             if (a.viaRule) { if (a.rightId != a.id) failed += "(1) gesture ${a.gesture}: acted on identity ${a.id}, RIGHT showed ${a.rightId}" }
             else if (a.rightId != null && a.rightId != a.id) counted["(1) residual ${a.taps.word}"] = (counted["(1) residual ${a.taps.word}"] ?: 0) + 1
         }
-        // (2)
-        for (m in h.truthMismatches()) failed += "(2) $m"
+        // (2) — one shape counted apart, the open finding of `C2-DP2-built.md` §0.2: a lens whose numbering fell BEHIND
+        // RIGHT's (a SET that landed between LEFT's and RIGHT's handling of one gesture, or a mode 27 lost on LEFT alone,
+        // so LEFT matched fewer events) holds a local tagged before every S the phone names; DISCARD(A + 1) and
+        // SETTLE(S_low) cannot reach it (§6.4: the lenses number alike "while their tables agree"; §6.11 has LEFT ahead only)
+        val sR = h.sim.bindForTest(Arm.RIGHT).seq
+        for (m in h.truthMismatches()) {
+            val arm = if (m.startsWith("LEFT")) Arm.LEFT else Arm.RIGHT
+            val behind = arm == Arm.LEFT && LocalRules.after(sR, h.sim.bindForTest(Arm.LEFT).seq) &&
+                h.sim.motionForTest(arm).slots.any { it != null && it.local && LocalRules.after(h.rules.sLow, it.tag) }
+            if (behind) counted["(2) LEFT numbered behind RIGHT: a held local no S reaches"] = (counted["(2) LEFT numbered behind RIGHT: a held local no S reaches"] ?: 0) + 1
+            else failed += "(2) $m"
+        }
         // (3)
         if (!h.covered && !h.window) {
             val (l, r) = h.cursors()
@@ -55,7 +65,6 @@ class LocalSequenceFuzzTest {
         if (rr.owesScroll + rr.owesClick + rr.owesAny != 0 || rr.u != 0) failed += "(4) owes ${rr.owesScroll}/${rr.owesClick}/${rr.owesAny} u ${rr.u}"
         if (rr.burstOpen) failed += "(4) a burst still open"
         if (rr.slotOwed(0)) failed += "(4) slot 0 still owes an answer"
-        val sR = h.sim.bindForTest(Arm.RIGHT).seq
         if (LocalRules.after(rr.sHeard, sR)) failed += "(4) S_heard ${rr.sHeard} ahead of RIGHT's S $sR"
         // (5)
         if (h.refusals.isNotEmpty()) {
@@ -94,7 +103,7 @@ class LocalSequenceFuzzTest {
     }
 
     private fun quiet(h: LocalHarness) {
-        h.lose115 = 0.0; h.dup115 = 0.0; h.bandDropScroll = 0.0; h.bandDelayScroll = 0.0; h.bandDropClick = 0.0
+        h.lose115 = 0.0; h.dup115 = 0.0; h.bandDropScroll = 0.0
         h.dropAnswer = 0.0; h.actOpensWindow = 0.0; h.lose27 = null; h.refuse27On = null
         h.uncover(); h.back()
         if (h.badge) h.toggleBadge()                 // a draw over the band is not the staged picture: every notch DISCARDs
@@ -108,7 +117,7 @@ class LocalSequenceFuzzTest {
         val h = LocalHarness(seed, taps)
         if (debug) h.trace = { println(it) }
         h.lose115 = r.nextDouble() * 0.15; h.dup115 = r.nextDouble() * 0.05
-        h.bandDropScroll = r.nextDouble() * 0.15; h.bandDelayScroll = r.nextDouble() * 0.15; h.bandDropClick = r.nextDouble() * 0.15
+        h.bandDropScroll = r.nextDouble()              // inside a band: dropped, else queued to a band's end (§6.1)
         h.dropAnswer = r.nextDouble() * 0.1; h.actOpensWindow = r.nextDouble() * 0.5
         val n = 1 + r.nextInt(events)
         repeat(n) {
