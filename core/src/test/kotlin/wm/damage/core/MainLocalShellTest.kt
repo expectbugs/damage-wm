@@ -605,6 +605,51 @@ class MainLocalShellTest {
         } finally { r.close() }
     }
 
+    /** Decisions AW.3: a tap that opens a window 100 ms after an adopted notch (its motion ≈ 449 ms at the defaults): a
+     *  CLOSE of the slot goes ahead of the window's first frame, the held cells are not held — the window's cells inside
+     *  the list's areas go with that frame — the lens's instance is closed, and belief equals both lenses after. */
+    @Test
+    fun aWindowOpenedInsideTheWaitCutsTheMotion_AW3(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT)
+        try {
+            r.up()
+            val at = r.right.size
+            val s = r.fire(CfwModes.EV_UPROLL)
+            r.until("adopted") { r.row() == 1 }
+            assertTrue(r.onLoop { r.shell.comp.deferring }, "the held cells wait for the motion's end")
+            delay(100)
+            r.fire(CfwModes.EV_TAP)
+            r.until("the window opens") { r.onLoop { r.shell.currentWindowId() } == "w1" }
+            assertTrue(!r.onLoop { r.shell.comp.deferring }, "nothing waits for the motion once the window is up")
+            assertTrue(r.right.drop(at).any { img -> r.subs(img).any { r.isSub(it, 26, 2) } }, "a CLOSE went to RIGHT")
+            assertTrue(r.right.drop(at).any { img -> r.subs(img).any { r.isCommit(it, s) } }, "the notch was COMMITted first")
+            assertTrue(r.notes("local").any { "adopted motion closed ahead of its frame" in it }, "${r.notes("local").takeLast(3)}")
+            r.settle("the window painted")
+            assertTrue(r.sim.motionForTest(Arm.RIGHT).slots[0] == null, "RIGHT's slot 0 empty: ${r.sim.motionForTest(Arm.RIGHT).slots[0]}")
+            r.assertOracle("after the cut")
+        } finally { r.close() }
+    }
+
+    /** Decisions AW.3: a notice box (a partial cover) inside the wait cuts nothing — the held cells wait for the motion's
+     *  end, the shell sends no CLOSE of its own, and belief equals both lenses after. (The simulator's transport, whose
+     *  mirror is the lens itself, still closes an instance a flush meets — on glass the mirror holds no local instance.) */
+    @Test
+    fun aNoticeInsideTheWaitStillWaits_AW3(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT)
+        try {
+            r.up()
+            val at = r.right.size
+            r.fire(CfwModes.EV_UPROLL)
+            r.until("adopted") { r.row() == 1 }
+            r.shell.postNotice(wm.damage.core.shell.Notifications.Notice("TEST · a", "t", "a notice over Main", "12:00"))
+            r.until("the notice up") { r.onLoop { r.shell.notificationsUpForTest() } }
+            assertTrue(r.onLoop { r.shell.comp.deferring }, "the held cells still wait under a notice")
+            r.settle("the motion's end")
+            assertTrue(r.notes("local").none { "adopted motion closed ahead of its frame" in it }, "the shell cut nothing: ${r.notes("local").takeLast(3)}")
+            r.assertOracle("after the notice")
+        } finally { r.close() }
+    }
+
     /** Decisions AL.5: a ring Input the rules read is no gesture of its own pump (its echo consumed marks nothing; a verdict
      *  that applies or acts on it marks its own); one they do not read (the temples, a typed line) is. */
     @Test

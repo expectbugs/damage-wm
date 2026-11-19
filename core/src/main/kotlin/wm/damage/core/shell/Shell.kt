@@ -7144,10 +7144,23 @@ class Shell(
         }
         // build C2 (§6.7): the list in front told to the rules in the pump that draws its change; their tail (answers,
         // table messages, the idle SETTLE) rides this flush — only while BIND is in force and the lease held (P9)
+        val frontBefore = localFrontNow
         syncLocalFront()
         val localOn = local.active && st.bind && st.leaseHeld
         if (local.active && !st.bind) local.bindInForce(false)
         val localNow = System.currentTimeMillis()
+        // decisions AW.3: a window over the list cuts the adopted motion — the list left the front because another window's
+        // frame (which repaints the whole content area: every cell of the slot's areas) is about to go, while a COMMITted
+        // instance still draws there. A CLOSE of the slot goes first, alone, in stream order ahead of that frame (§5.6: it
+        // presents the shadow, which holds END); the held cells are dropped and the areas made unknown, so the frame
+        // repaints them from the truth now instead of after the motion's end. A notice box, the menu, the keyboard and the
+        // switcher cover part of the list or keep Main under them: their cells still wait (AF.7).
+        if (frontBefore != null && localFrontNow == null && (mode == Mode.WINDOW || mode == Mode.EXCLUSIVE) &&
+            st.bind && st.leaseHeld && comp.deferring && comp.deferUntilMs > localNow) {
+            submitLocalOnly(listOf(CfwModes.motionClose(frontBefore.slot)), "CLOSE")
+            comp.cutDeferral()
+            journal.note("local", "a window over the list: slot ${frontBefore.slot}'s adopted motion closed ahead of its frame — its cells go now")
+        }
         // decisions AF.7: the cells held behind a COMMIT go once the adopted motion has ended on the glasses — the loop is
         // asked back then (pacing, never a wait on a send)
         comp.releaseDeferred(localNow)
