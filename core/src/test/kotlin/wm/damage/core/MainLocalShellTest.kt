@@ -890,4 +890,33 @@ class MainLocalShellTest {
             notch(r, CfwModes.EV_UPROLL, "a notch after the re-bind")
         } finally { r.close() }
     }
+
+    /** G1 item 5 (his glasses, 0.79, 2026-11-19 14:46:56): `Scroll length` 600 (T 13 at P 46), a notch to the last row
+     *  and 6 ms later a notch past the edge (the wrap) — the as-on-glass mirror (the start rig's own model) must agree
+     *  with belief throughout: no `divergence` note, belief equal to both lenses after. */
+    @Test
+    fun aWrapSixMsAfterANotchToTheLastRowKeepsBeliefAndMirrorInAgreement_G1_5(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, kib256 = true)
+        try {
+            r.up()
+            val staged0 = r.notes("mainstage").count { it.startsWith("staged") }
+            r.shell.updateSettings { it.copy(scrollLength = 600, frames = 0) }
+            r.until("staged again with the new motion", 15_000) { r.notes("mainstage").count { it.startsWith("staged") } > staged0 }
+            r.bound("bound at 600 ms")
+            val e = r.list().entries.first { it.eventId == CfwModes.EV_UPROLL }
+            assertEquals(46 to 13, e.period to e.program!!.T, "600 ms Auto at 352: T 13 at P 46")
+            val count = r.list().count
+            while (r.row() < count - 2) { r.fire(CfwModes.EV_UPROLL); delay(r.motionMs() + r.q() + 200); r.settle("toward the end") }
+            assertEquals(count - 2, r.row(), "one row above the last")
+            r.fire(CfwModes.EV_UPROLL)
+            delay(6)
+            r.fire(CfwModes.EV_UPROLL)                               // past the edge: the wrap
+            for (k in 0 until 40) { delay(50); assertTrue(r.notes("divergence").isEmpty(), "at ${k * 50} ms after the wrap: ${r.notes("divergence")}; " +
+                "applied ${r.notes("applied").takeLast(2)}; snapback ${r.notes("snapback").takeLast(2)}") }
+            delay(r.motionMs() + r.q() + 300); r.settle("after the wrap")
+            assertTrue(r.notes("divergence").isEmpty(), "${r.notes("divergence")}")
+            assertEquals(0, r.row(), "the wrap landed on the first row")
+            r.assertOracle("after the wrap")
+        } finally { r.close() }
+    }
 }

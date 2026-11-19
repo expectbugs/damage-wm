@@ -6092,7 +6092,9 @@ class Shell(
             val said = m.readPanel(arm) { panel ->
                 // build C1 (spec §6.5): a motion instance's areas, from its PLAY to the later of RIGHT's notify and its
                 // nominal end, are the lens's own to draw — not compared (none: every pixel, as before)
-                val skip = m.unknownAreas(arm)
+                // ...nor the cells the compositor holds behind an adopted motion's end (G1 item 5: a rolled-back sub's
+                // pixels sit in belief there, unknown and unsent, until the release repaints them from the truth)
+                val skip = m.unknownAreas(arm) + comp.heldRects(arm == Arm.LEFT)
                 val first = firstDisagreement(belief, panel, stride, lo, hi, skip) ?: return@readPanel null
                 if (report != null) return@readPanel ""
                 val diffs = countDisagreements(belief, panel, stride, lo, hi, skip)
