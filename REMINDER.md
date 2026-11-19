@@ -1,8 +1,9 @@
 # Where we are, and what to do next
 
 **The entry point for a fresh session**: what is true now, what is next, where the records are; history lives in
-`HANDOFF.md`. Read `CLAUDE.md` → this file → **`HANDOFF.md` §93** (0.77 on his phone; Music's answers; the lanes
-running while the flash waits) → **§92** (build C2: built, reviewed, a candidate image,
+`HANDOFF.md`. Read `CLAUDE.md` → this file → **`HANDOFF.md` §94** (C2 flashed on both lenses and armed at stage 4;
+the first trial and its three defects) → §93 (0.77 on his phone; Music's answers; work goes on while a build waits)
+→ **§92** (build C2: built, reviewed, a candidate image,
 nothing flashed; Main's scroll judged on glass; APK 0.77 staged) → **§91** (0.70 and 0.71 deployed, the ladder at
 stage 3 on his word, build C1-Q, Reddit's feed) → §90 (C1-P) → **§89** (S1-3: Feed and Tmux on the PC's record, APK 0.70; its four
 reversible calls, 89.5) → **§88** (C1 flashed) → §87 (the flash-readiness review) → **§84** (the
@@ -19,11 +20,12 @@ for firmware → earlier by number (§65 Phase 2 and the protocol, §48 the fork
   flags 0x2c; "enable all the stuff … asap" — one stage per soak is dropped). The first 19 minutes: no fault, no
   refusal, arena 13 at 130 KiB free with the 256 KiB cache. **He watched the engine's four test programs at 16:20
   (`probe motion=list|popover|recede|flip`): "They all looked perfect!"** (§91.7: every step drawn at period 34 ms).
-- **Build C2 (local input) is built and reviewed on both sides; NOTHING OF IT IS FLASHED** (§92). The candidate is
-  a file: fork branch `c2` at `5c728bb` (not pushed), pin `b3f04453…`; the flash-readiness review found nothing that
-  should stop a flash (§92.8); the rollback image is kept in `fws/2.2.6.10-cfw-0dab2154/`. **The flash waits for his
-  go, per lens** (`FORK.md` §7: `probe c1=0` and a session start; LEFT first, RIGHT last; no stage 4 before both logs
-  show END status 8 and op 4 status 9; `0x5ff`; then `probe c1=4` and one notch and one tap on Main).
+- **The glasses run the fork's C2 build since 2026-11-19** (pin `b3f04453…`, `HANDOFF.md` §94: LEFT 11:35, RIGHT
+  11:56; the image before it is C1's `0dab2154…`, kept in `fws/`). **The ladder is at stage 4 since 12:22 on his word**
+  (flags 0x3c: DRAW2, ZWRITE, ENGINE, BIND; 256 KiB). The first trial (§94): local scroll and tap worked — 37 fires,
+  32 COMMITs, no fault or reset — and showed three defects in the phone's staging of Main (it stopped fitting after
+  app visits and Main fell back to the old scroll; a font change dropped the staging; the period had no margin).
+  **Their fixes are APK 0.78, in build** (`private/build072/C2-decisions.md` part AU).
 - **His phone runs APK 0.77 since 11-19 11:17 and the PC service since 06:10** (§92.12, §93.1: on the C1 image it
   armed stage 3 as before, the first session at 160 KiB, no fault). 0.72–0.74 carried the test motions he judged (§92.1); 0.77 = C2's whole phone half, which
   sends nothing of C2 below ladder stage 4 on a build that reports bit 10 (four readers traced it).
@@ -49,7 +51,7 @@ for firmware → earlier by number (§65 Phase 2 and the protocol, §48 the fork
 | RA-1 (the shell loop's liveness supervisor, R-a) | `wip/078-ra` | in build since 11-19; nothing deployed |
 | C2's staged records split across flushes | `wip/078-split` | in build; waits for the trial |
 | the test motions (Main's rows staged, `hold`, `mainseq`) | `main` | deployed: APK 0.72 (18:54) and 0.74 (21:55) on 11-18; judged by him (§92.1) |
-| C2 (the second flash: local input) | fork `c2` `5c728bb` (pin `b3f04453…`, a file); its phone half on `main` | **built, two review passes a side, a focused read, the flash-readiness review; APK 0.77 staged 11-19; NOT flashed — his go per lens** |
+| C2 (the second flash: local input) | fork `c2` `5c728bb` (pin `b3f04453…`); its phone half on `main` | **flashed 11-19, stage 4 armed 12:22; first trial done (§94); the trial's fixes in build as APK 0.78** |
 
 The counts of APK 0.77's tree (simulator; §92.11): core 230 classes / 1,762 tests · desktop 13 classes / 52 ·
 `--selfcheck` 486 PASS ×2 · snapshot 94 renders + 66 in `phone/`, 0 px outside the mask · `--local-check` 56 cases ·
@@ -67,8 +69,8 @@ every stage are in the gitignored `private/build068` … `build072` (C2: `build0
 
 The order is `REPLAN.md` §17.3. **Every run: its size and what he gets for it first, both meters read before and
 after** (§17.6). New firmware features are armed and tested at once on his go, not over days (§91.3).
-1. **C2's flash, on his go per lens, with 0.77 on his phone first** (§92.13; `FORK.md` §7), stage 4 armed the same
-   day, then the trial: the feel of Main's scroll and tap; fields 16, 33, 34, 37, 38; `tapdrop`, `snapback`; the 114
+1. **C2's trial goes on with APK 0.78** (§94's three fixes; then his second look at Main), and what the trial
+   still owes: the feel of Main's scroll and tap; fields 16, 33, 34, 37, 38; `tapdrop`, `snapback`; the 114
    and 115 gaps; LEFT's first step on 240 fps video; a gesture's WAIT right after a session start (each staged strip
    is one flush of about 20 KB — two windows of about 1.3 s, modeled; the cure, a record split across flushes, is the
    first build after if it is felt). The `mainseq` probe leaves in the first build after stage 4 is armed.

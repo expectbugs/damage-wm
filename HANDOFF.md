@@ -9185,3 +9185,52 @@ briefs, reports and reviews are under the gitignored `private/build072/`; the co
    self-test path (28 vectors), the extension tests, `research/verify_cfw.py`. The candidate is kept in
    `fws/2.2.6.10-cfw-b3f04453/`, the rollback in `fws/2.2.6.10-cfw-0dab2154/`. **Nothing was sent to the glasses;
    the flash waits for his go per lens.**
+
+## 94. C2 flashed on both lenses and armed; the first trial (2026-11-19)
+
+Context for the reader: Damage is Adam's own window manager for his own G2 glasses, which run his fork of a published
+custom display firmware. This is the record of installing the fork's build C2 (candidate pin `b3f04453…`, fork branch
+`c2` at `5c728bb`, reviewed in §92) on his pair, on his go ("Ok ready to flash the firmware. Phone Bluetooth is off",
+then "go right" for the second lens), and of the first use of local input. Per-step logs: the gitignored
+`private/build072/flash-20261119/`, kept with the image in `fws/2.2.6.10-cfw-b3f04453/`. Every number is from the
+flash tool's logs or his phone's journal — measured on the glasses.
+
+- **Before:** §93.4's offline checks; `probe c1=0` (the journal at 11:29:57: "C1 ladder: stage 3 → 0"); the phone's
+  Bluetooth off by him since 11:22.
+- **Link check, 11:30–11:32:** `--stop-before heartbeat` and `--stop-before file_check` on each lens: discovery and
+  the stock authentication ok on both.
+- **LEFT, 11:32:13–11:36:33:** the last dry-run rung acked and, directly after it, the full flash: 6 components
+  verified in 140 s, 0 block resends, every END status 8; the main image (3,613,912 B) in 115.0 s. The lens answered
+  discovery 38 s after the tool's end and authenticated at 11:36:33.
+- **RIGHT, 11:53:10–11:57:27** (LEFT first, RIGHT last, `FORK.md` §7): 136 s, 0 resends, the main image in 111.9 s;
+  discovery 39 s after the end, authenticated at 11:57:27.
+- **The first session on C2, 12:09:30, stage 0** (he switched the phone's Bluetooth on): `DamageCaps contract 2
+  features 0x5ff`; RIGHT's uptime 779 s at the read, so it started at 11:56:31, the flash's end; flags 0x0, then DRAW2
+  armed (0x4) as at stage 0 on every build; the cache asked at 160 KiB, status 0; telemetry fields 35–39 present and
+  zero; arena 20 at 69 KiB free at the lease point (70 on C1: the larger context, as the review predicted). **About
+  58 ring inputs through the new input site with BIND not armed: no reset, no link end, 124 flushes, none failed.**
+  The notices he saw at the reconnect were the phone's own from 11:22:26 (its Bluetooth going off: "control: Request
+  failed with status -3"), painted when the picture came back — confirmed by him; a fault raised while the phone
+  itself is ending the link should not pop at the next session (listed).
+- **The self-test on glass, 12:19–12:20:** `v1-keyframe`, `v1-delta`, `v2-fill`, `v2-perlens` — all steps match on
+  RIGHT (LEFT runs the same steps and cannot report).
+- **Stage 4 armed on his word ("Arm the improvements!"), 12:22:36:** `probe c1=4`, a rest of two minutes so that the
+  start asks 256 KiB (status 0; arena 13 then 130 KiB free, largest block 114), flags 0x4 → 0xc → 0x2c → 0x3c, each
+  answered by RIGHT; Main staged in 5 s (55,488 B in 12 records: the strip 17,308 B and its second slot, 8 band
+  forms, the item table and 5 programs) and bound at 12:22:44 (8 rows, the whole list, P 42, T 5).
+- **The first trial, his words (about 12:27):** "mixed results. At first it was pretty good, response was quick,
+  animations worked and looked decent, a little lagg on them occasionally but around 70-80% good. I opened and exited
+  a couple of apps and when I came back to main, animations had stopped working and it seems to have reverted to old
+  behavior." **Measured:** 37 fires matched on the glasses, 32 COMMITs, 3 snap-backs (2 at the list's edge, 1 lost
+  report right after a re-offer), 3 taps acted, field 38 = 0; no fault, refusal, hold-back or reset; the longest loop
+  turn 830 ms. **Three defects, all in the phone's staging of Main** (ruled in `private/build072/C2-decisions.md`
+  part AU; the fixes are APK 0.78):
+  1. **The staging stopped fitting and there was no fallback.** After his app visits the rows' text was fuller: the
+     strip 22,180 B (17,308 at the start), twice, with 8 band forms at their 6,432 B pitch and a spare — 103,088 B for
+     the 98,304 B region the lead had ruled for it; refused at 12:25:17, and the list stayed unbound for the rest of
+     the session. The focused read's "no one-strip fallback is no loss" was wrong (one strip needs 80,908 B).
+  2. **Every first use of a face dropped Main's whole staging** ("the live font set changed": four times in two
+     minutes, 55 KB and about 3 s of link each, mostly while another window was in front).
+  3. **The period had no margin:** 13 of 32 motions folded one of their five steps; a step drew in 38.8–41.4 ms
+     (median 39.5) against P 42 = 41.0 ms.
+- **The way back:** the C1 image `0dab2154…` (`fws/2.2.6.10-cfw-0dab2154/`), then Phase 2's `48172b62…`.
