@@ -2974,5 +2974,69 @@
   ],
   "note": "AL.6 R4: a return after an adopted report noted as a snap-back",
   "from": "FC"
+ },
+ {
+  "id": "FE-per-lens-hold",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "for (t in drawn) if (t.sub in met) (if (t.left) hl else hr) += t.rect",
+    "drawn.filter { t -> (if (t.left) hl else hr).any { t.rect.overlaps(it) } }.forEach { t -> (if (t.left) hl else hr) += t.rect }"
+   ]
+  ],
+  "tests": [
+   "*HoldLoopTest"
+  ],
+  "expect": [
+   "aRightMarginCellUnknownAtACommitEnds_AQ1",
+   "aRolledBackMergedFlushThenACommitEnds_AQ1",
+   "theBandPlaneGoingDuringTheWaitEnds_AQ1",
+   "aWindowWithItsOwnDepthDuringTheWaitEnds_AQ1"
+  ],
+  "note": "AQ.1: a met sub held on the met lens only (the tree before FE), the backstop kept: the loop throws, not spins",
+  "from": "FE"
+ },
+ {
+  "id": "FE-per-lens-hold-shell",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "for (t in drawn) if (t.sub in met) (if (t.left) hl else hr) += t.rect",
+    "drawn.filter { t -> (if (t.left) hl else hr).any { t.rect.overlaps(it) } }.forEach { t -> (if (t.left) hl else hr) += t.rect }"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aTapInsideTheWaitOpensAWindowAndTheShellStaysLive_AQ1"
+  ],
+  "expect": [
+   "aTapInsideTheWaitOpensAWindowAndTheShellStaysLive_AQ1"
+  ],
+  "note": "AQ.1 in the shell: the per-lens hold with the backstop \u2014 a tap inside the wait that opens a window reaches the assemble-error path",
+  "from": "FE"
+ },
+ {
+  "id": "FE-per-lens-no-backstop",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "for (t in drawn) if (t.sub in met) (if (t.left) hl else hr) += t.rect",
+    "drawn.filter { t -> (if (t.left) hl else hr).any { t.rect.overlaps(it) } }.forEach { t -> (if (t.left) hl else hr) += t.rect }"
+   ],
+   [
+    "if (++rounds >= HOLD_ROUNDS_MAX) {",
+    "if (++rounds < 0) {"
+   ]
+  ],
+  "tests": [
+   "*HoldLoopTest"
+  ],
+  "expect": [
+   "aRightMarginCellUnknownAtACommitEnds_AQ1",
+   "aRolledBackMergedFlushThenACommitEnds_AQ1",
+   "theBandPlaneGoingDuringTheWaitEnds_AQ1",
+   "aWindowWithItsOwnDepthDuringTheWaitEnds_AQ1"
+  ],
+  "note": "AQ.1: the tree before FE (per-lens hold, no backstop): each assemble repeats; the test's thread bound decides",
+  "from": "FE"
  }
 ]
