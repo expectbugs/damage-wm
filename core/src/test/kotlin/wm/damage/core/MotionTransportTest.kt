@@ -280,16 +280,17 @@ class MotionTransportTest {
         t2.stop()
     }
 
-    /** C1-P (4): a stored stage out of 0..3, not a number, empty, or a file that cannot be read reads as 0 — today's
-     *  stage-0 start — and is said. */
+    /** C1-P (4): a stored stage out of 0..4 (build C2 added stage 4, `FIRMWARE.md` §6.8; this pin read "4" as out of
+     *  range before it), not a number, empty, or a file that cannot be read reads as 0 — today's stage-0 start — and is
+     *  said. */
     @Test
     fun aStoredStageThatCannotBeUsedReadsAs0AndIsSaid_C1P(): Unit = runBlocking {
         val base = startWire(0x1ff, 0)
-        for (text in listOf("4", "-1", "x", "")) {
+        for (text in listOf("5", "-1", "x", "")) {
             Files.writeString(stageFile, text)
             assertEquals(base, startWire(0x1ff, 0, store = stageFile), "'$text' starts at stage 0")
             waitUntil(10_000, message = { "'$text' is said: $notes" }) { sayings("C1 ladder: the stored stage '$text'") > 0 }
-            assertEquals(1, sayings("C1 ladder: the stored stage '$text' is not 0..3 — stage 0"), "'$text' is said: $notes")
+            assertEquals(1, sayings("C1 ladder: the stored stage '$text' is not 0..4 — stage 0"), "'$text' is said: $notes")
         }
         Files.delete(stageFile); Files.createDirectory(stageFile)       // a name that cannot be read as a file
         assertEquals(base, startWire(0x1ff, 0, store = stageFile), "an unreadable store starts at stage 0")
