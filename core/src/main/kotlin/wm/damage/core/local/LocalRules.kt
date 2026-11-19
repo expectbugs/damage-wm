@@ -47,7 +47,11 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
                  /** The rules ask the compositor for ONE keyframe ([why] for the journal): the tap rule's (5) divergence (§6.7)
                   *  and a refusal record naming mode 27 (decisions on DP2's fix round: the batch's later subs did not run on
                   *  RIGHT, so its shadow is not what the phone believes). */
-                 private val keyframe: (why: String) -> Unit = {}) {
+                 private val keyframe: (why: String) -> Unit = {},
+                 /** The rules ask for ONE telemetry read of RIGHT (the existing read; decisions AA.2): at a burst's lone
+                  *  SETTLE a COMMIT sent since the last SETTLE has had no outcome-3 body, so a refused tail may lie behind
+                  *  it — the record then names mode 27 and [telemetry] does the rest. */
+                 private val readTelemetry: (why: String) -> Unit = {}) {
 
     companion object {
         /** SETTLE's `age` (§6.6 of the build spec, the lead's decision B.10): 256 OS ticks, ≈ 250 ms. */
@@ -72,7 +76,8 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
          *  refusal of theirs then loses only the batch's present, never the frame (§6.5; `C2-focus.md` 1(a) 5). */
         fun batchOrder(draw: List<ByteArray>, tail: List<ByteArray>): List<ByteArray> = draw + tail
 
-        /** P3's "a drawing sub of the batch meets the slot's areas": each sub judged by the REAL rect it writes on each
+        /** "A drawing sub of the batch meets the slot's areas" (P3; since AA.1 such a sub waits for the next batch instead
+         *  of turning the COMMIT): each sub judged by the REAL rect it writes on each
          *  lens ([left], [right] — the compositor's own touched rects, a cached glyph run's cell included, never the
          *  transport's reading of a cached draw as reaching the panel's edges). */
         fun meets(left: List<Rect>, right: List<Rect>, areas: List<Pair<Rect, Rect>>): Boolean =
@@ -100,7 +105,7 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
     }
 
     /** A planned COMMIT (P3): the compositor applies [list]'s END for ([prog4], [p]) to a copy of its model before the
-     *  diff, and turns it into a DISCARD when a drawing sub then meets [areas] (P10). */
+     *  diff and holds back the drawing that meets [areas] to the next batch (P10, AA.1). */
     class Commit(val slot: Int, val s: Int, val list: BoundList, val cursor: Int, val prog4: Int, val p: IntArray) {
         val areas: List<Pair<Rect, Rect>> get() = list.areas
     }
@@ -186,7 +191,7 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         wireMark.fill(-1); staged.fill(null)
         repair.sessionStart()
         tapAwaitingClick = null
-        discardSinceSettle.clear()
+        discardSinceSettle.clear(); unconfirmed.clear()
         this.front = if (bind) front else null
         rowSeen = row
         if (!bind) return
@@ -366,11 +371,11 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         if (a.mark != wireMark[f.list]) return asToday("restaged")
         val e = heldFor(f.list, id) ?: f.entryFor(id) ?: return asToday("restaged")
         val c = a.cursor ?: return asToday("restaged")
-        val pred = if (c in 0 until f.count) f.paramsAt(c, e) else null
-        if (pred == null || pred === BoundList.REFUSED_12 || a.prog != e.prog4 || !(a.params?.contentEquals(pred) ?: false))
-            return asToday("restaged")
+        // the prediction is the staging's own, before or after a band form's switch until that write is acknowledged
+        // (decisions X.2, `BoundList.names`); the COMMIT carries the report's own prog and P, whose pictures the phone holds
+        if (!f.names(c, e, a.prog, a.params)) return asToday("restaged")
         if (kotlin.math.abs(c - row) > (n + 1) * kotlin.math.abs(e.step)) return asToday("lost-report")
-        st.handled += Handled(s, true, false, f.list, c, e.prog4, pred, nowMs, "")
+        st.handled += Handled(s, true, false, f.list, c, a.prog!!, a.params!!, nowMs, "")
         rowSeen = c
         lastRow[f.list] = c
         return Verdict.Adopt(c)
@@ -395,8 +400,7 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
             // the phone's own tap entry under `Taps` now: under `report` and `phone` it has no program, so carried fields
             // cannot equal its prediction (a lens still on the press form, `C2-F-focus.md` B1)
             val e = tapEntry(f)?.takeIf { !it.reportOnly }
-            val pred = e?.let { if (c in 0 until f.count) f.paramsAt(c, it) else null }
-            if (e == null || pred == null || pred === BoundList.REFUSED_12 || a.prog != e.prog4 || !p.contentEquals(pred)) {
+            if (e == null || !f.names(c, e, a.prog, p)) {
                 note("divergence", "a tap 115's program or parameters differ from the phone's prediction at cursor $c (tap rule 5): ${a.describe()}")
                 count("divergence")
                 keyframe("a tap 115's program or parameters differ from the prediction (tap rule 5)")
@@ -536,8 +540,8 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
     /**
      * P3, the first half of a batch's answer: the slots whose answer would be a COMMIT — every report of the slot handled
      * since its last answer adopted (none a tap), nothing else moved its row, no LIST of its list in this batch. The
-     * compositor applies each one's END to its model before the diff and hands back the slots whose areas a drawing sub
-     * then meets ([tail]'s `denied`).
+     * compositor applies each one's END to its model before the diff, holds back what meets the areas to the next batch
+     * (AA.1), and hands back the slots it cannot follow ([tail]'s `denied`: no END painter, or a keyframe's batch).
      */
     fun plan(row: Int): List<Commit> {
         observe(row)
@@ -556,8 +560,8 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
     /**
      * The batch's tail, after its drawing subs (§6.5): the table messages owed (start, cover, return, re-stage, switch,
      * refusal), the table repair's re-sends not already carried, each owed slot's answer (a LIST before its slot's
-     * answer), and — while no burst is open — one SETTLE. [denied]: planned COMMITs the compositor turned to DISCARD (a
-     * drawing sub meets the slot's areas once END is applied). [frame]: the batch draws something (for the notes).
+     * answer), and — while no burst is open — one SETTLE. [denied]: planned COMMITs the compositor turned to DISCARD (no
+     * END painter, or the batch is a keyframe). [frame]: the batch draws something (for the notes).
      * Everything returned is taken as sent: the shell sends it in this batch or not at all (a rolled-back flush keyframes,
      * and the keyframe's start re-sends the table).
      */
@@ -593,6 +597,7 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
                 ridingList(out, h!!.list, listed)
                 out += CfwModes.motionCommit(n, h.s, h.list, h.cursor, h.prog4, h.p!!)
                 count("commit")
+                unconfirmed += n to h.s
             } else {
                 val cur = if (list != null && front?.list == list) row else list?.let { lastRow[it] }
                 val named = if (list != null && cur != null && cur >= 0) list else CfwModes.BIND_ALL
@@ -662,6 +667,12 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         observe(row)
         if (!settleDue(nowMs)) return emptyList()
         burstOpen = false
+        // decisions AA.2: a COMMIT of this burst whose outcome-3 body has not come — its batch may have been refused on
+        // RIGHT at a tail sub that sends no notify (the riding LIST): one read now, not the minute's
+        if (unconfirmed.isNotEmpty()) {
+            count("commitUnconfirmed")
+            readTelemetry("no outcome-3 body for COMMIT ${unconfirmed.joinToString { "slot ${it.first} S ${it.second}" }} by the burst's SETTLE")
+        }
         val out = ArrayList<ByteArray>()
         // the 5th kind's re-sends ride the batch that carries the next SETTLE
         val listed = HashSet<Int>()
@@ -681,6 +692,7 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         owesScroll = 0; owesClick = 0; owesAny = 0; u = 0
         repair.settleSent()
         discardSinceSettle.clear()
+        unconfirmed.clear()
         count("settles")
         return m
     }
@@ -690,6 +702,9 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
 
     /** Slots answered with a DISCARD since the last SETTLE sent: a local stop RIGHT reports after a SETTLE is the SETTLE's. */
     private val discardSinceSettle = HashSet<Int>()
+    /** COMMITs sent since the last SETTLE, (slot, S), whose outcome-3 body has not come from RIGHT (AA.2): cleared by that
+     *  body, at each SETTLE sent and at a session start. */
+    private val unconfirmed = HashSet<Pair<Int, Int>>()
 
     /**
      * One notify-114 body from RIGHT in a bound slot (the shell hands every one): a stop (outcome 1) of a local instance
@@ -699,6 +714,7 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
      */
     fun body114(slot: Int, tag: Int, outcome: Int, reason: Int?) {
         if (!active) return
+        if (outcome == DamageMsg.OUTCOME_COMMITTED) unconfirmed.remove(slot to tag)
         val st = slots[slot] ?: return
         val why = when {
             outcome == DamageMsg.OUTCOME_REFUSED -> "refused"

@@ -290,49 +290,54 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
      *  them and a rollback marks them unknown. */
     private var endTouched: List<Touched> = emptyList()
 
+    /** The cells [assembleWithEnds] holds back from this assemble, per lens (a riding COMMIT's areas): not dirty here. */
+    private var holdL: List<Rect> = emptyList()
+    private var holdR: List<Rect> = emptyList()
+
     /**
-     * Build C2, P3's per-batch answer and P10's diff: [assembleFlush] with each planned COMMIT's END applied to the model
-     * first — the END's areas diffed against the truth too, so an adopting batch sends nothing there when END is the
-     * truth — and, when a drawing sub of the batch then meets a slot's areas (by the rect each sub really writes on each
-     * lens, a cached glyph run's cell included), the flush taken again without that END and the slot handed back as
-     * denied (the rules answer it with DISCARD). Returns the flush and the denied slots.
+     * Build C2, P3's per-batch answer and P10's diff (`C2-decisions.md` X.1, AA.1): [assembleFlush] with each planned
+     * COMMIT's END applied to the model first and the slots' areas HELD BACK — the batch carries the COMMIT and only the
+     * drawing subs that do not meet the areas (by the rect each sub really writes on each lens, a cached glyph run's cell
+     * included); the cells inside them that still differ from the truth once END is in the model (a row staged before
+     * Main's last repaint of it, a draw over the list) stay dirty and go in the next batch, an ordinary repaint over the
+     * adopted picture. Nothing inside the areas is drawn before the END, so END never lands over a frame of the same
+     * batch (§6.5). A sub that still meets them (a delta spanning them, a cached box grown into them) is held too and the
+     * flush taken again; each round holds at least one more dirty cell, so it ends. Denied (the rules answer DISCARD): a
+     * slot whose list gave no END painter, and every slot when this flush is a keyframe or a reseed — it writes the whole
+     * model (END would not survive it) and closes every instance on the glasses. Returns the flush and the denied slots.
      */
     fun assembleWithEnds(rectBudget: Int, ends: List<EndPlan>): Pair<Assembled?, Set<Int>> {
-        val denied = HashSet<Int>()
-        for (e in ends) if (e.paint == null) denied += e.slot
-        while (true) {
-            val live = ends.filter { it.slot !in denied }
-            if (live.isEmpty()) return assembleFlush(rectBudget) to denied
-            val saved = live.flatMap { e -> e.areas.map { (l, r) -> Triple(l to r, grab(shadowL, l), grab(shadowR, r)) } }
-            for (e in live) {
-                e.paint!!(true, shadowL); e.paint(false, shadowR)
-                for ((l, r) in e.areas) { pendingDamage.add(widen(l)); pendingDamage.add(widen(r)) }
+        val regrounds = needsKeyframe || needsReseed
+        val denied = ends.filter { it.paint == null || regrounds }.map { it.slot }.toSet()
+        val live = ends.filter { it.slot !in denied }
+        if (live.isEmpty()) return assembleFlush(rectBudget) to denied
+        val areas = live.flatMap { it.areas }
+        // the areas join the scan, so the truth is rendered and the held cells can be read after the assemble
+        for (e in live) { e.paint!!(true, shadowL); e.paint(false, shadowR) }
+        for ((l, r) in areas) { pendingDamage.add(widen(l)); pendingDamage.add(widen(r)) }
+        val mine = areas.flatMap { (l, r) -> listOf(Touched(true, l), Touched(false, r)) }
+        val hl = ArrayList(areas.map { it.first }); val hr = ArrayList(areas.map { it.second })
+        try {
+            while (true) {
+                holdL = hl; holdR = hr; endTouched = mine
+                val a = try { assembleFlush(rectBudget) } finally { holdL = emptyList(); holdR = emptyList(); endTouched = emptyList() }
+                val drawn = a?.touched?.filter { t -> mine.none { it === t } } ?: emptyList()
+                val metL = drawn.filter { it.left && LocalRules.meets(listOf(it.rect), emptyList(), areas) }
+                val metR = drawn.filter { !it.left && LocalRules.meets(emptyList(), listOf(it.rect), areas) }
+                if (metL.isEmpty() && metR.isEmpty()) {
+                    // the held cells that still differ from the truth: dirty for the next assemble (a residual covers them)
+                    if (residual == null) {
+                        if (dirtyCells(true, hl).isNotEmpty()) for (r in hl) pendingDamage.add(widen(r))
+                        if (dirtyCells(false, hr).isNotEmpty()) for (r in hr) pendingDamage.add(widen(r))
+                    }
+                    return a to denied
+                }
+                // a sub that still meets them: undone (what it touched is unknown, so the next assemble paints it from the
+                // truth), held, and the flush taken again — END stays in the model
+                rollback(a!!.copy(touched = drawn))
+                hl += metL.map { it.rect }; hr += metR.map { it.rect }
             }
-            val mine = live.flatMap { e -> e.areas.flatMap { (l, r) -> listOf(Touched(true, l), Touched(false, r)) } }
-            endTouched = mine
-            val a = try { assembleFlush(rectBudget) } finally { endTouched = emptyList() }
-            val drawn = a?.touched?.filter { t -> mine.none { it === t } } ?: emptyList()
-            val met = live.filter { e -> LocalRules.meets(drawn.filter { it.left }.map { it.rect }, drawn.filter { !it.left }.map { it.rect }, e.areas) }
-            if (met.isEmpty()) return a to denied
-            // taken again without them: the flush is undone (what it touched is unknown, so the next assemble paints it
-            // from the truth) and the model's areas come back as they were before END
-            if (a != null) rollback(a)
-            for ((lr, l, r) in saved) { put(shadowL, lr.first, l); put(shadowR, lr.second, r); markUnknown(unknownL, lr.first); markUnknown(unknownR, lr.second)
-                pendingDamage.add(widen(lr.first)); pendingDamage.add(widen(lr.second)) }
-            denied += met.map { it.slot }
-        }
-    }
-
-    private fun grab(g: Gray8, r: Rect): ByteArray {
-        val c = r.clip()
-        val out = ByteArray(maxOf(0, c.w) * maxOf(0, c.h))
-        for (y in 0 until c.h) System.arraycopy(g.pix, (c.y + y) * g.w + c.x, out, y * c.w, c.w)
-        return out
-    }
-
-    private fun put(g: Gray8, r: Rect, b: ByteArray) {
-        val c = r.clip()
-        for (y in 0 until c.h) System.arraycopy(b, y * c.w, g.pix, (c.y + y) * g.w + c.x, c.w)
+        } finally { holdL = emptyList(); holdR = emptyList() }
     }
 
     fun assembleFlush(rectBudget: Int): Assembled? {
@@ -675,6 +680,9 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
                 }
             }
         }
+        // build C2 ([assembleWithEnds]): a cell meeting a riding COMMIT's areas is held back from this assemble
+        val hold = if (left) holdL else holdR
+        if (hold.isNotEmpty()) out.keys.removeIf { idx -> val c = Rect((idx % cellsW) * CW, (idx / cellsW) * CH, CW, CH); hold.any { it.overlaps(c) } }
         return out
     }
 

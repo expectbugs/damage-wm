@@ -2612,9 +2612,24 @@ class Shell(
     /** The phone's rules P1–P11, the tap rule and the table repair (stage DP2). Idle unless BIND is in force at stage 4
      *  on a bit-10 build: below that nothing here sends a byte. Confined to the loop. */
     private val local = wm.damage.core.local.LocalRules({ kind, detail -> journal.note(kind, detail) },
-        { why -> journal.note("local", "keyframe: $why"); comp.requestKeyframe(); post(Msg.Pump) })
-    /** The surface that offers a bound list while it is in front and staged — Main's, from stage DM; null until then. */
-    @Volatile var boundSurface: () -> wm.damage.core.local.BoundSurface? = { null }
+        { why -> journal.note("local", "keyframe: $why"); comp.requestKeyframe(); post(Msg.Pump) },
+        { why -> localTelemetryRead(why) })
+
+    /** Decisions AA.2: ONE telemetry read of RIGHT, launched (nothing waits on it); its record reaches the rules as every
+     *  record does (`TransportEvent.LocalRead`: a refusal record naming mode 27 sends the table again and keyframes). A
+     *  read that ends without an answer is said; the minute's read still comes. */
+    private fun localTelemetryRead(why: String) {
+        journal.note("local", "telemetry read asked: $why")
+        scope.launch {
+            val failed = try { if (transport.telemetry("local check") == null) "no record (the session ended, or this build has none)" else null }
+                catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                catch (e: wm.damage.core.transport.ReadingEnded) { e.message ?: "ended" }
+                catch (e: Exception) { e.message ?: e.toString() }
+            if (failed != null) post(Msg.Run { journal.note("local", "the telemetry read asked at a burst's SETTLE was not answered: $failed") })
+        }
+    }
+    /** The surface that offers a bound list while it is in front and staged: Main's (stage DI joins it to the rules). */
+    @Volatile var boundSurface: () -> wm.damage.core.local.BoundSurface? = { main }
     /** The list the rules were last told is in front (identity: a re-stage is a new [BoundList]). */
     private var localFrontNow: wm.damage.core.local.BoundList? = null
     /** Tail-only flushes (an answer, the lone SETTLE, a re-send with nothing to draw): a failed one keyframes (§6.11). */
@@ -2653,6 +2668,7 @@ class Shell(
             is wm.damage.core.local.LocalRules.Verdict.Adopt -> {
                 boundSurface()?.setRow(v.row)
                 restGen++; scheduleRest()                     // an adopted notch is input as any other
+                main.resting = false                          // ...so it wakes Main from its rest, as `handleInput` does
                 composeContent()
             }
             is wm.damage.core.local.LocalRules.Verdict.Act -> {
@@ -5347,10 +5363,9 @@ class Shell(
         return { g, paint -> if (ct != null) ct.via(g, 0, 0, NO_RECORDS) { paint() } else paint() }
     }
 
-    /** Whether a burst is open (`FIRMWARE.md` §6.7 P7): a re-stage waits while one is (P9). The burst is the rules' (stage
-     *  DP2's `LocalRules`); before they are merged nothing SETs an entry, so no report arrives and none is open. THE MERGE
-     *  POINT: this returns the rules' own burst state. */
-    private fun mainBindBurstOpen(): Boolean = false
+    /** Whether a burst is open (`FIRMWARE.md` §6.7 P7): a re-stage waits while one is (P9) — the rules' own state, from
+     *  a report until the lone SETTLE. */
+    private fun mainBindBurstOpen(): Boolean = local.burstOpen
 
     /** Each pump, before anything asks: the staging checked against Main as it is now, the re-stages the count has
      *  judged, and what `MainSurface` offers. */
