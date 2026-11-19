@@ -328,11 +328,12 @@ object CfwModes {
      *  five-line strip of Adam's book measured 12–17 KB (an image strip 34 KB), two to four times the 1×
      *  renders' model, and 32 KiB held one. */
     const val STAGE_RESERVE = 64 * 1024
-    /** Build C2 (`C2-decisions.md` B.4, the spec's §9.4 as recommended): on a 256 KiB session with BIND in force, Main's
-     *  staged rows have a region of their own, the 64 KiB below the stage reserve — the atlas lays out over the 128 KiB
-     *  under it (still above a 160 KiB session's 96). Everywhere else (160 KiB, or no BIND: ladder stages 0–3 keep
-     *  today's layout byte for byte) Main stages into the shared reserve when it comes to the front. */
-    const val MAIN_REGION = 64 * 1024
+    /** Build C2 (`C2-decisions.md` B.4; AD.2): on a 256 KiB session with BIND in force, Main's staged rows have a region
+     *  of their own, the 96 KiB below the stage reserve — room for a second strip, so a row-form change is switched with
+     *  no withdrawal — and the atlas lays out over the 96 KiB under it, what it has at 160 KiB (its largest use seen in
+     *  his journal: 78,136 B). Everywhere else (160 KiB, or no BIND: ladder stages 0–3 keep today's layout byte for
+     *  byte) Main stages into the shared reserve when it comes to the front. */
+    const val MAIN_REGION = 96 * 1024
 
     /** The bytes above the atlas's layout: the stage reserve, and Main's region when [mainRegion] gives it one. */
     fun reserveAbove(cacheSize: Int, bind: Boolean): Int = STAGE_RESERVE + if (bind && cacheSize >= CACHE2_MAX_RIDERS) MAIN_REGION else 0

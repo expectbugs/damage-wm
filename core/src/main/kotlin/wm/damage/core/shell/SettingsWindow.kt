@@ -37,6 +37,9 @@ class SettingsWindow(
     private val localInput: () -> String = { "" },
     /** Build C2 (§6.8's lift): a tap on `Local input` while it is held back re-arms it — `probe c1=4`'s act. */
     private val localRearm: () -> Unit = {},
+    /** Build C2 (decisions AF.0): the build reports DamageCaps bit 10 — `Taps` and `Local input` are shown only then (on
+     *  any other firmware they would be rows that do nothing). */
+    private val bindBuild: () -> Boolean = { true },
 ) : DamageWindow("settings", "Settings", IconKind.SETTINGS) {
 
     private val fRow = FontSpec(Face.SYSTEM, 18)
@@ -164,13 +167,16 @@ class SettingsWindow(
      *  rows, then one per app that contributes rows. */
     private fun cats(): List<Cat> {
         val out = ArrayList<Cat>()
-        out.add(Cat("Global", entries + host().map(::hostEntry)))
+        out.add(Cat("Global", (if (bindBuild()) entries else entries.filter { it.name !in BIND_ROWS }) + host().map(::hostEntry)))
         for ((app, rows) in apps()) out.add(Cat(app, rows.map(::hostEntry)))
         return out
     }
 
     /** The open category's rows; an out-of-range [openCat] (an app gone since
      *  the state was saved) drops back to the category list. */
+    /** Test introspection: the Global category's row names as shown now. */
+    internal fun globalRowNamesForTest(): List<String> = cats().first().entries.map { it.name }
+
     private fun entriesAt(): List<Entry> {
         val cs = cats()
         if (openCat >= cs.size) openCat = -1
@@ -378,11 +384,18 @@ class SettingsWindow(
         // which is the shell describing a program that is not running. The
         // value already carries "(tap applies)"; the hint now agrees with it.
         val hint = when {
+            // build C2 (decisions AF.9): `Local input` is not adjusted — a tap re-arms it only while it is held back
+            e.tap != null -> if (localInput().startsWith("held back")) "tap re-arms" else "state only"
             adjusting == null -> "tap to adjust"
             stages(e) -> "scroll picks · tap applies · double-tap reverts"
             else -> "scroll adjusts live · tap keeps · double-tap reverts"
         }
         text.draw(g, r.x + 44, Draw.lineBelow(text, fRowB, r.y + 8, r.y + 34) / 2 * 2, hint, FontSpec(Face.SYSTEM, 14), Level.DIM)
+    }
+
+    private companion object {
+        /** Build C2's two rows, shown only on a build that reports bit 10 (decisions AF.0). */
+        val BIND_ROWS = setOf("Taps", "Local input")
     }
 
     override fun summary() = Summary("global · reader · …")

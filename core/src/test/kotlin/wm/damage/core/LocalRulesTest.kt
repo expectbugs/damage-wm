@@ -413,6 +413,62 @@ class LocalRulesTest {
         assertEquals(Verdict.Apply(EvenHubMsg.EV_SCROLL_BOTTOM), t.scroll(6, 4, p = intArrayOf(recs[7], 0, 0, 0)), "a P naming neither form: not adopted")
     }
 
+    /** Decisions AF.2 (review V1Db §2, its test turned into the pin): a list withdrawn while Main stays in front (the
+     *  shell hands the surface's own row, offered or not); a 115 fired before the CLEAR landed is applied as today, and its
+     *  DISCARD names the CURRENT row; a second notch after the CLEAR moves the row as today; the list's return inside the
+     *  burst names the current row again (a DISCARD after its SETs), so the next fire starts where the frame is. */
+    @Test
+    fun aWithdrawnListsAnswersAndItsReturnNameTheCurrentRow_AF2() {
+        val l = list()
+        val r = LocalRules()
+        var now = 10_000L
+        r.sessionStart(true, 0, 100, l, 3, Taps.REPORT)
+        val mark = r.tail(3, now).first { it[0].toInt() == 27 && it[1].toInt() == 2 }[11].toInt() and 0xFF
+        var row = 3
+        r.front(null, row)                                          // withdrawn: Main in front, nothing offered
+        r.tail(row, now)                                            // the CLEAR batch
+        now += 40
+        val f = HashMap<Int, Long>(mapOf(1 to 1L, 2 to 0xFFL, 3 to CfwModes.EV_UPROLL.toLong(), 4 to 0L, 5 to 0L, 6 to 0L,
+            7 to 0L, 8 to 4L, 9 to 0L, 15 to 200L, 17 to mark.toLong()))
+        for (i in 0..3) f[10 + i] = (intArrayOf(recs[4], 0, 0, 0)[i] and 0xFFFF).toLong(); f[14] = scroll.at.toLong()
+        assertTrue(r.report(DamageMsg.Applied(f), row, now) is Verdict.Apply, "applied as today (focus)")
+        row = 4
+        assertEquals(Verdict.Nothing, r.stock(Stock.NEXT, row, now + 5), "its echo consumed")
+        val d = r.tail(row, now + 10).first { it[0].toInt() == 26 && it[1].toInt() == 4 }
+        assertEquals(4, u16(d, 6), "the DISCARD names the current row")
+        assertTrue(r.stock(Stock.NEXT, row, now + 20) is Verdict.Apply, "a notch after the CLEAR landed: as today")
+        row = 5
+        now += 150
+        r.front(l, row)                                             // the return, inside the burst
+        val back = r.tail(row, now)
+        val di = back.indexOfFirst { it[0].toInt() == 26 && it[1].toInt() == 4 }
+        assertTrue(di > back.indexOfLast { it[0].toInt() == 27 && it[1].toInt() == 0 }, "the return batch names the row after its SETs: ${back.map { "${it[0]}/${it[1]}" }}")
+        assertEquals(5, u16(back[di], 6), "...the current row")
+        assertEquals(0, r.counts["snapback.rebind"] ?: 0, "a re-bind is not a snap-back")
+    }
+
+    /** Decisions AF.5: a refused 3 or 14 body names no list; with none in front its stock message is applied as today. */
+    @Test
+    fun aRefusedReportNamingNoListLeavesItsStockMessage_AF5() {
+        val t = R(row = 3)
+        t.r.front(null, 3)                                          // a cover
+        t.batch()
+        val f = HashMap<Int, Long>(mapOf(1 to 1L, 2 to 0xFFL, 3 to CfwModes.EV_UPROLL.toLong(), 5 to 2L, 6 to 14L, 15 to 200L))
+        assertEquals(Verdict.Nothing, t.r.report(DamageMsg.Applied(f), 3, t.now))
+        assertEquals(Verdict.Apply(EvenHubMsg.EV_SCROLL_BOTTOM), t.r.stock(Stock.NEXT, 3, t.now + 5), "the scroll message goes as today")
+    }
+
+    /** Decisions AF.9: a COMMITted instance closed by the next fire (outcome 1 for its tag) is not a snap-back. */
+    @Test
+    fun aClosedCommittedInstanceIsNoSnapback_AF9() {
+        val t = R(row = 3)
+        t.scroll(1, 4)
+        assertTrue(t.answer(t.batch()).single()[1].toInt() == 3, "a COMMIT")
+        t.r.body114(0, 1, 1, null)                                  // closed by the next fire of a fast burst
+        assertEquals(0, t.r.counts.filterKeys { it.startsWith("snapback") }.values.sum(), "no snap-back: ${t.r.counts}")
+        assertEquals(1, t.r.counts["closedCommitted"])
+    }
+
     @Test
     fun belowStage4NothingIsPlannedOrSent() {
         val r = LocalRules()

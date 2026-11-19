@@ -68,6 +68,9 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
          *  landed between the two lenses' handling of one gesture, a mode 27 lost on LEFT alone). On RIGHT every local
          *  older than the answer's own S is already answered; SETTLE's `age` still protects a fresh fire. */
         const val WIDE = 0x4000
+        /** A slot's answer owed because its list came back to the front (decisions AF.2): a DISCARD naming the row, counted
+         *  as a re-bind, not a snap-back. */
+        const val REBIND = "rebind"
 
         /** A newer than b, signed 16-bit (§6.5's sequence compare). */
         fun after(a: Int, b: Int): Boolean = s16(a - b) > 0
@@ -106,7 +109,11 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
 
     /** A planned COMMIT (P3): the compositor applies [list]'s END for ([prog4], [p]) to a copy of its model before the
      *  diff and holds back the drawing that meets [areas] to the next batch (P10, AA.1). */
-    class Commit(val slot: Int, val s: Int, val list: BoundList, val cursor: Int, val prog4: Int, val p: IntArray) {
+    class Commit(val slot: Int, val s: Int, val list: BoundList, val cursor: Int, val prog4: Int, val p: IntArray,
+                 /** When the adopted fire's motion has ended on the glasses at the latest, on the phone's clock: the newest
+                  *  report's arrival plus T × P and one period (decisions AF.7 — the compositor sends nothing it held back
+                  *  inside the areas before then). */
+                 val motionEndsMs: Long = 0L) {
         val areas: List<Pair<Rect, Rect>> get() = list.areas
     }
 
@@ -133,6 +140,8 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
     private var rowSeen = -1
     /** The last row the shell gave for each list (a DISCARD of a slot whose list is covered names it). */
     private val lastRow = HashMap<Int, Int>()
+    /** The list last in front (−1 none this session): its row is kept current while it is withdrawn (AF.2). */
+    private var lastFront = -1
 
     /** An entry the phone holds on the glasses: SET sent, no CLEAR since. */
     class Held(val list: Int, val entry: BoundList.Entry)
@@ -187,11 +196,11 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         sHeard = sHeard0 and 0xFFFF; this.armUptime = armUptime
         owesScroll = 0; owesClick = 0; owesAny = 0; u = 0
         tapsLive = false; burstOpen = false; bindFlag = true
-        slots.clear(); held.clear(); pending.clear(); touchedSinceRead.clear(); lastRow.clear()
+        slots.clear(); held.clear(); pending.clear(); touchedSinceRead.clear(); lastRow.clear(); lastFront = front?.list ?: -1
         wireMark.fill(-1); staged.fill(null)
         repair.sessionStart()
         tapAwaitingClick = null
-        discardSinceSettle.clear(); unconfirmed.clear()
+        discardSinceSettle.clear(); unconfirmed.clear(); committed.clear()
         this.front = if (bind) front else null
         rowSeen = row
         if (!bind) return
@@ -233,9 +242,14 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
     fun front(list: BoundList?, row: Int, shift: Int = 0) {
         val old = front
         front = list
-        if (list != null) lastRow[list.list] = row
+        if (list != null) { lastRow[list.list] = row; lastFront = list.list }
         rowSeen = row
         if (!active) return
+        // decisions AF.2: every return of a list to the front (a cover's, a withdrawal's, the first offer after a start)
+        // names the phone's CURRENT row in the batch that binds it again, a burst open or not — the slot's answer in that
+        // batch is a DISCARD naming it (a notch applied as today while the list was away moved the row, not the lens's
+        // cursor); it is a re-bind, not a snap-back
+        if (list != null && row >= 0 && (old == null || old.list != list.list)) slot(list.slot).let { st -> st.list = list.list; st.moved = st.moved ?: REBIND }
         if (old != null && (list == null || list.list != old.list)) {
             // the old list leaves the front: CLEAR every entry the phone holds for it (and any SET still owed)
             pending.removeAll { it is Pending.Set && it.list.list == old.list }
@@ -295,6 +309,9 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         }
         rowSeen = row
         if (f != null) lastRow[f.list] = row
+        // decisions AF.2: the shell hands the surface's row while it is uncovered, offered or not — a withdrawn list's row
+        // stays current, so a DISCARD naming it (a report answered while it is away) names where the frame is
+        else if (row >= 0 && lastFront >= 0) lastRow[lastFront] = row
     }
 
     /** A slot first heard of: A is S_heard as it stands before the report that names it (the session start's, or the last
@@ -339,7 +356,10 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         val heldE = (a.entry?.let { held[it] }) ?: f?.let { fl -> a.eventId?.let { id -> heldFor(fl.list, id)?.let { held[it.entry] } } }
         val listId = a.list ?: heldE?.list ?: f?.list ?: -1
         val slotNo = a.slot ?: f?.takeIf { it.list == listId }?.slot ?: return Verdict.Nothing.also {
-            note("local", "a 115 naming no slot the phone knows — not answered: ${a.describe()}")
+            // decisions AF.5 (P4): a refused 3 or 14 body names no list, and with none in front it is nobody's to answer —
+            // its own owe is taken back, so its stock message is applied as today (the gesture on a cover is not lost)
+            if (tap) owesClick-- else owesScroll--
+            note("local", "a 115 naming no slot the phone knows — not answered; its stock message goes as today: ${a.describe()}")
         }
         val st = slot(slotNo, heardBefore)
         st.list = listId
@@ -487,7 +507,7 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
             count("keyframe")
             keyframe("RIGHT's refusal record names mode 27 (reason ${refusal27.reason}): the rest of that batch did not run there")
         } else if (batch14 != null && touchedSinceRead.isNotEmpty()) {
-            note("repair", "evidence=refusal mode=8 reason=14 object=${touchedSinceRead.joinToString(",")}")
+            note("repair", "evidence=refusal mode=8 reason=14 object=batch(${touchedSinceRead.joinToString(",")})")
             count("repair.batch")
             for (o in touchedSinceRead.toList()) when (o) {
                 is Int -> { val f = front; val h = held[o]
@@ -552,7 +572,9 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
             val h = st.handled.lastOrNull() ?: continue
             if (st.moved != null || st.discard != null || st.handled.any { !it.adopted || it.tap } || st.list in lists) continue
             val bl = front?.takeIf { it.list == h.list && it.slot == n } ?: continue
-            out += Commit(n, h.s, bl, h.cursor, h.prog4, h.p!!)
+            val e = bl.entries.firstOrNull { it.prog4 == h.prog4 } ?: bl.previous?.entries?.firstOrNull { it.prog4 == h.prog4 }
+            val stepsMs = e?.program?.let { (it.T + 1).toLong() * e.period * 1000L / 1024 } ?: 0L
+            out += Commit(n, h.s, bl, h.cursor, h.prog4, h.p!!, h.atMs + stepsMs)
         }
         return out
     }
@@ -598,6 +620,7 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
                 out += CfwModes.motionCommit(n, h.s, h.list, h.cursor, h.prog4, h.p!!)
                 count("commit")
                 unconfirmed += n to h.s
+                committed += n to h.s
             } else {
                 val cur = if (list != null && front?.list == list) row else list?.let { lastRow[it] }
                 val named = if (list != null && cur != null && cur >= 0) list else CfwModes.BIND_ALL
@@ -652,6 +675,7 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
     }
 
     private fun snapback(st: Slot, n: Int, row: Int, nowMs: Long, frame: Boolean, denied: Set<Int>) {
+        if (st.handled.isEmpty() && st.moved == REBIND) { count(REBIND); return }      // AF.2: a return names the row
         if (st.handled.isNotEmpty() && st.handled.all { it.tap }) return            // a tap's DISCARD: its tapdrop or act says it
         val first = st.handled.firstOrNull { !it.adopted && !it.tap }
         val cause = first?.cause ?: st.moved ?: st.discard ?: if (n in denied) "focus" else "lost-report"
@@ -692,7 +716,7 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         owesScroll = 0; owesClick = 0; owesAny = 0; u = 0
         repair.settleSent()
         discardSinceSettle.clear()
-        unconfirmed.clear()
+        unconfirmed.clear(); committed.clear()
         count("settles")
         return m
     }
@@ -705,6 +729,9 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
     /** COMMITs sent since the last SETTLE, (slot, S), whose outcome-3 body has not come from RIGHT (AA.2): cleared by that
      *  body, at each SETTLE sent and at a session start. */
     private val unconfirmed = HashSet<Pair<Int, Int>>()
+    /** COMMITs sent since the last SETTLE, (slot, S): a close of one is not counted as a snap-back (AF.9). Cleared at each
+     *  SETTLE sent and at a session start. */
+    private val committed = HashSet<Pair<Int, Int>>()
 
     /**
      * One notify-114 body from RIGHT in a bound slot (the shell hands every one): a stop (outcome 1) of a local instance
@@ -718,6 +745,8 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         val st = slots[slot] ?: return
         val why = when {
             outcome == DamageMsg.OUTCOME_REFUSED -> "refused"
+            // decisions AF.9: a COMMITted instance (ordinary on the lens) closed by the next fire of a fast burst is no snap-back
+            outcome == 1 && (slot to tag) in committed -> { count("closedCommitted"); return }
             outcome == 1 && slot !in discardSinceSettle -> "burst-end"
             else -> return
         }

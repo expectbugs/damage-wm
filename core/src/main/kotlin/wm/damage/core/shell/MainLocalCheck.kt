@@ -115,8 +115,11 @@ object MainLocalCheck {
         /** Forgets the truths (a row's summary changed). */
         fun repainted() = truths.clear()
 
+        /** The staging as the shell builds it for the bound list: the whole list's pans only (AF.10), and a second strip in
+         *  Main's own region at 256 KiB (AD.2). */
         fun staging(cacheSize: Int, region: IntRange): MainStaging =
-            MainStaging.build(layout, view, kit, listD, bandD, cacheSize, region.first, region.last + 1)
+            MainStaging.build(layout, view, kit, listD, bandD, cacheSize, region.first, region.last + 1,
+                widths = listOf(MainStaging.WHOLE), twoStrips = region.last + 1 < cacheSize)
     }
 
     /** Runs every case at [heights] × [cachesKib]; [frames] keeps the strips' frames (the desktop writes them). */
@@ -405,6 +408,34 @@ object MainLocalCheck {
             m.repainted()
             val r = ms.restage(music, m.view, m.kit, relay0)
             if (r !is MainStaging.Restage.Changed || r.strip.isEmpty()) fails += "a change of Music's line: ${(r as? MainStaging.Restage.Outgrown)?.why ?: r}, not its strip segment"
+            else if (ms.stripB != null) {
+                // AD.2: Main's own region at 256 KiB holds a second strip — the new strip is written there and the entries are
+                // SET to its pans, with no withdrawal: notches before, during (written, not yet SET) and after the switch are
+                // each named by their report and committed
+                if (r.toStrip == null) fails += "a row-form change at 256 KiB is not switched to the other strip"
+                val before = fireHeld(down, c0, fails)
+                if (!named(cur, before, down)) fails += "the notch before the switch is not named: ${before?.describe()}"
+                before?.let { commitReport(it, c0, fails, "the notch before the switch") }
+                for (w in r.writes) lens.write(w.off, w.bytes, w.what, fails)
+                ms.apply(r)
+                val nl = ms.boundList(cur.mark, previous = cur)
+                if (nl.entries.filter { !it.isTap }.any { e -> cur.entryFor(e.eventId)?.prog4 == e.prog4 }) fails += "the switched list's pans are the old ones"
+                val during = fireHeld(down, c0, fails)
+                if (!named(nl, during, down)) fails += "the notch after the write, before the SETs, is not named: ${during?.describe()}"
+                during?.let { commitReport(it, c0, fails, "the notch during the switch") }
+                for (b in nl.sets()) lens.send("a SET of the other strip's pans", b, fails)
+                val after = fireHeld(down, c0, fails)
+                if (!named(nl, after, down)) fails += "the notch after the switch is not named: ${after?.describe()}"
+                if (after != null) {
+                    if (after.prog == before?.prog) fails += "the notch after the switch drew the old strip's pan"
+                    commitReport(after, c0, fails, "the notch after the switch")
+                    for (arm in Arm.entries) differ(lens.shadow(arm), m.truth(music, arm == Arm.LEFT), ms.pan(MainStaging.WHOLE, 1).areas(arm == Arm.LEFT))
+                        .let { if (it > 0) fails += "after the switch $arm: $it px of END not Main's paint" }
+                }
+                r.band?.let { ms.release(it.oldOff4) }; nl.previous = null
+                cur = nl
+                lines += "Music's row form switched to the other strip: ${r.bytes} B in one flush (${r.writes.joinToString { "${it.what} ${it.bytes.size} B" }}), then ${nl.entries.size} SETs; no withdrawal"
+            }
             else {
                 for (e in cur.entries) lens.send("CLEAR ${e.entry}", CfwModes.bindClear(e.entry), fails)
                 if (fireHeld(down, c0, fails) != null) fails += "a notch while the entries are cleared still matched an entry"
@@ -423,7 +454,8 @@ object MainLocalCheck {
                 cur = nl
                 lines += "Music's row form re-staged with the entries cleared: ${r.bytes} B in one flush (${r.writes.joinToString { "${it.what} ${it.bytes.size} B" }}), then ${nl.entries.size} SETs"
             }
-            cases += Case("$tag-strip", "a row form re-staged with the list withdrawn: no notch matches meanwhile; after the SETs a notch is named and committed", Rect(0, 0, 1, 1), emptyList(), lines, fails)
+            cases += Case("$tag-strip", if (ms.stripB != null) "a row form switched to the other strip (AD.2): notches before, during and after the switch, each named and committed; no withdrawal"
+                else "a row form re-staged with the list withdrawn: no notch matches meanwhile; after the SETs a notch is named and committed", Rect(0, 0, 1, 1), emptyList(), lines, fails)
         }
 
         // (c) a row stale by several changes: the notch is named and committed, belief equal to both lenses; the ordinary

@@ -6,7 +6,6 @@ import wm.damage.core.geom.Rect
 import wm.damage.core.gfx.Gray8
 import wm.damage.core.gfx.Pack
 import wm.damage.core.gfx.Zl
-import wm.damage.core.local.LocalRules
 import wm.damage.core.transport.DisplayOp
 import wm.damage.core.util.Log
 
@@ -284,7 +283,9 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
     /** Build C2 (`FIRMWARE.md` §6.7 P3, P10): a COMMIT the local rules plan for a bound slot, as this compositor applies
      *  it — the slot's [areas] per lens, and [paint] drawing the program's END into one lens's model (null: the list's
      *  owner gave no painter, so the model could not follow the END and the slot is answered with DISCARD). */
-    class EndPlan(val slot: Int, val areas: List<Pair<Rect, Rect>>, val paint: ((left: Boolean, shadow: Gray8) -> Unit)?)
+    class EndPlan(val slot: Int, val areas: List<Pair<Rect, Rect>>, val paint: ((left: Boolean, shadow: Gray8) -> Unit)?,
+                  /** When the adopted motion has ended on the glasses at the latest (phone clock; AF.7). */
+                  val untilMs: Long = 0L)
 
     /** The areas the COMMITs riding this assemble write ([assembleWithEnds]): in its touched rects, so its hint covers
      *  them and a rollback marks them unknown. */
@@ -323,7 +324,7 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
      * slot whose list gave no END painter, and every slot when this flush is a keyframe or a reseed — it writes the whole
      * model (END would not survive it) and closes every instance on the glasses. Returns the flush and the denied slots.
      */
-    fun assembleWithEnds(rectBudget: Int, ends: List<EndPlan>): Pair<Assembled?, Set<Int>> {
+    fun assembleWithEnds(rectBudget: Int, ends: List<EndPlan>, nowMs: Long = 0L): Pair<Assembled?, Set<Int>> {
         val regrounds = needsKeyframe || needsReseed
         val denied = ends.filter { it.paint == null || regrounds }.map { it.slot }.toSet()
         val live = ends.filter { it.slot !in denied }
@@ -333,31 +334,69 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         for (e in live) { e.paint!!(true, shadowL); e.paint(false, shadowR) }
         for ((l, r) in areas) { pendingDamage.add(widen(l)); pendingDamage.add(widen(r)) }
         val mine = areas.flatMap { (l, r) -> listOf(Touched(true, l), Touched(false, r)) }
-        val hl = ArrayList(areas.map { it.first }); val hr = ArrayList(areas.map { it.second })
+        val hl = ArrayList(areas.map { it.first } + deferL); val hr = ArrayList(areas.map { it.second } + deferR)
+        val a = assembleHolding(rectBudget, hl, hr, mine)
+        val until = live.maxOf { it.untilMs }
+        if (until > nowMs) {
+            // decisions AF.7: what was held waits for the adopted motion's end on the glasses — sent earlier, the
+            // instance's remaining steps paint over it and nothing presents it again
+            deferL = hl; deferR = hr; deferUntilMs = maxOf(deferUntilMs, until)
+        } else if (residual == null) {
+            // the held cells that still differ from the truth: dirty for the next assemble (a residual covers them)
+            if (dirtyCells(true, hl).isNotEmpty()) for (r in hl) pendingDamage.add(widen(r))
+            if (dirtyCells(false, hr).isNotEmpty()) for (r in hr) pendingDamage.add(widen(r))
+        }
+        return a to denied
+    }
+
+    /** The cells inside a bound list's areas that wait for an adopted motion's end (decisions AF.7: [assembleWithEnds]
+     *  holds them; every assemble holds them until [deferUntilMs], then [releaseDeferred] makes them dirty). */
+    private var deferL: List<Rect> = emptyList()
+    private var deferR: List<Rect> = emptyList()
+    var deferUntilMs = 0L
+        private set
+    val deferring: Boolean get() = deferL.isNotEmpty()
+
+    /** The shell, at each pump: once [nowMs] is past [deferUntilMs], the held cells go into the next assemble's scan. True
+     *  when it released them. Pacing on the loop (the shell asks the loop back at [deferUntilMs]), never a wait. */
+    fun releaseDeferred(nowMs: Long): Boolean {
+        if (deferL.isEmpty() || nowMs < deferUntilMs) return false
+        for (r in deferL) pendingDamage.add(widen(r))
+        for (r in deferR) pendingDamage.add(widen(r))
+        deferL = emptyList(); deferR = emptyList()
+        return true
+    }
+
+    /** [assembleFlushOnce] with the cells meeting [hl] / [hr] held back (AA.1): a sub that still meets [hl] / [hr] — a
+     *  delta spanning them, a cached box grown into them — is undone (what it touched is unknown, so the next assemble paints
+     *  it from the truth), held, and the flush taken again; each round holds at least one more dirty cell, so it ends.
+     *  The frame's text records serve every round and end with the last (decisions AF.8). [mine] are a riding COMMIT's
+     *  areas, in the flush's touched rects for its hint and a rollback. */
+    private fun assembleHolding(rectBudget: Int, hl: ArrayList<Rect>, hr: ArrayList<Rect>, mine: List<Touched>): Assembled? {
         try {
             while (true) {
                 holdL = hl; holdR = hr; endTouched = mine
-                val a = try { assembleFlush(rectBudget) } finally { holdL = emptyList(); holdR = emptyList(); endTouched = emptyList() }
+                val a = try { assembleFlushOnce(rectBudget, endFrame = false) } finally { holdL = emptyList(); holdR = emptyList(); endTouched = emptyList() }
                 val drawn = a?.touched?.filter { t -> mine.none { it === t } } ?: emptyList()
-                val metL = drawn.filter { it.left && LocalRules.meets(listOf(it.rect), emptyList(), areas) }
-                val metR = drawn.filter { !it.left && LocalRules.meets(emptyList(), listOf(it.rect), areas) }
-                if (metL.isEmpty() && metR.isEmpty()) {
-                    // the held cells that still differ from the truth: dirty for the next assemble (a residual covers them)
-                    if (residual == null) {
-                        if (dirtyCells(true, hl).isNotEmpty()) for (r in hl) pendingDamage.add(widen(r))
-                        if (dirtyCells(false, hr).isNotEmpty()) for (r in hr) pendingDamage.add(widen(r))
-                    }
-                    return a to denied
-                }
-                // a sub that still meets them: undone (what it touched is unknown, so the next assemble paints it from the
-                // truth), held, and the flush taken again — END stays in the model
+                val metL = drawn.filter { t -> t.left && hl.any { t.rect.overlaps(it) } }
+                val metR = drawn.filter { t -> !t.left && hr.any { t.rect.overlaps(it) } }
+                if (metL.isEmpty() && metR.isEmpty()) return a
                 rollback(a!!.copy(touched = drawn))
                 hl += metL.map { it.rect }; hr += metR.map { it.rect }
             }
-        } finally { holdL = emptyList(); holdR = emptyList() }
+        } finally { holdL = emptyList(); holdR = emptyList(); cachedText?.endFrame() }
     }
 
     fun assembleFlush(rectBudget: Int): Assembled? {
+        if (deferL.isNotEmpty()) {
+            // a keyframe or a reseed writes the whole model and closes every instance: nothing waits behind it
+            if (needsKeyframe || needsReseed) { deferL = emptyList(); deferR = emptyList() }
+            else return assembleHolding(rectBudget, ArrayList(deferL), ArrayList(deferR), emptyList())
+        }
+        return assembleFlushOnce(rectBudget, endFrame = true)
+    }
+
+    private fun assembleFlushOnce(rectBudget: Int, endFrame: Boolean): Assembled? {
         compressCache.clear()          // `composed` may have changed since the last assemble
         failedProofs.clear()           // ...and with it every proof's verdict
         lastTruthNs = 0L; lastCompressNs = 0L; lastCompressN = 0
@@ -369,7 +408,7 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         } finally {
             compressCache.clear()      // the ops hold their own payloads; nothing else may
             failedProofs.clear()
-            cachedText?.endFrame()     // §40: the records were this frame's; the next paints anew
+            if (endFrame) cachedText?.endFrame()     // §40: the records were this frame's; the next paints anew
         }
     }
 

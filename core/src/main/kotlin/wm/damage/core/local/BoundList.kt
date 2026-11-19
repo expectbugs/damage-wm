@@ -73,12 +73,15 @@ class BoundList(
      *  the phone no longer holds is the only `restaged` discard). The answer's COMMIT carries the report's own (prog, P),
      *  and [paintEnd] paints the pictures they name. */
     fun names(c: Int, e: Entry, prog: Int?, p: IntArray?): Boolean {
-        fun on(l: BoundList): Boolean {
-            if (c !in 0 until l.count || prog != e.prog4 || p == null) return false
-            val pred = l.paramsAt(c, e)
-            return pred != null && pred !== REFUSED_12 && pred.contentEquals(p)
-        }
-        return on(this) || previous?.let { on(it) } == true
+        // the program and the parameters each judged against both stagings (AD.2): a strip switch at 256 KiB writes the
+        // other strip with the band form's move and its item word in one flush, then SETs the scroll entries to the pans
+        // of that strip — a fire between the two draws the OLD pan with the NEW item table. Each list's own entry for the
+        // event ([e] when it holds none); the two pans' rules are the same, only their programs and the table differ.
+        if (p == null) return false
+        val lists = listOfNotNull(this, previous)
+        val progOk = lists.any { (it.entryFor(e.eventId) ?: e).prog4 == prog }
+        val pOk = lists.any { l -> c in 0 until l.count && l.paramsAt(c, l.entryFor(e.eventId) ?: e).let { it != null && it !== REFUSED_12 && it.contentEquals(p) } }
+        return progOk && pOk
     }
 
     /** The entry an event id fires, or null. */

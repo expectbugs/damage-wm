@@ -50,6 +50,55 @@ class MainBindTest {
         assertEquals(4 * 2 * 7, r.cases.size, "every height and cache ran its seven cases")
     }
 
+    /** Decisions AF.4 (review V1Db §4, its probe turned into the pin): a report adopted before a band switch's
+     *  acknowledgement names the retired slot; while a burst is open the slot is NOT released by the ack, so the COMMIT
+     *  planned after it still paints END from it; with no burst open it is released. */
+    @Test
+    fun aBandSlotIsReleasedOnlyWithNoBurstOpen_AF4() {
+        val rows = MainLocalCheck.sampleRows()
+        val rig = MainLocalCheck.MainRig(BoxFace, 352, rows)
+        val ms = rig.staging(CfwModes.CACHE2_MAX, CfwModes.mainRegion(CfwModes.CACHE2_MAX, true))
+        val b = wm.damage.core.shell.MainBinding()
+        val keys = { List(ms.rows) { rig.surface.rowKey(it) } }
+        b.begin(ms, emptyList(), keys(), 0L)
+        val first = b.list!!
+        val tor = rows.indexOfFirst { it.id == "torrents" }
+        val down = first.entries.first { it.eventId == CfwModes.EV_UPROLL }
+        val pOld = (first.predict(tor - 1, down) as wm.damage.core.local.BoundList.Fire.Drew).p!!
+        rows[tor].s = rows[tor].s.copy(detail = "iso 9%")
+        b.keysChanged(keys())
+        val r = ms.restage(tor, rig.view, rig.kit, { _, f -> f() }) as MainStaging.Restage.Changed
+        b.changed(tor); b.submitted(r, StagedRecord(MainStageKey(ms, 1000 + tor, "re-stage"), Gray8(1, 1), ByteArray(4)), 1L)
+        val second = b.list!!
+        assertTrue(second.names(tor, down, down.prog4, pOld), "adopted before the acknowledgement")
+        b.releaseIfDue(b.patches.single(), acked = true, burstOpen = true, entriesSent = true)
+        second.paintEnd!!(true, down.prog4, pOld, Gray8(640, 480))      // the COMMIT planned in the burst: still paintable
+        assertTrue(second.previous != null, "kept while the burst is open")
+        b.releaseIfDue(b.patches.single(), acked = true, burstOpen = false, entriesSent = true)
+        assertNull(second.previous, "released once no burst is open")
+    }
+
+    /** Decisions AF.8: ONE re-stage per pace in all — the row owed longest first, the next one a whole pace later. */
+    @Test
+    fun oneReStagePerPaceInAllTheStalestFirst_AF8() {
+        val rows = MainLocalCheck.sampleRows()
+        val rig = MainLocalCheck.MainRig(BoxFace, 352, rows)
+        val ms = rig.staging(CfwModes.CACHE2_MAX, CfwModes.mainRegion(CfwModes.CACHE2_MAX, false))
+        val b = wm.damage.core.shell.MainBinding()
+        val keys = { List(ms.rows) { rig.surface.rowKey(it) } }
+        b.begin(ms, emptyList(), keys(), 0L)
+        val tor = rows.indexOfFirst { it.id == "torrents" }; val mus = rows.indexOfFirst { it.id == "music" }
+        rows[tor].s = rows[tor].s.copy(detail = "iso 9%"); rows[mus].s = rows[mus].s.copy(detail = "Low Tide · q 6/12")
+        b.keysChanged(keys())
+        b.changed(tor, 2_000L); b.changed(mus, 1_000L)                 // Music owed longer
+        assertEquals(mus, b.nextOwed(10_000L), "the stalest first")
+        val r = ms.restage(mus, rig.view, rig.kit, { _, f -> f() }) as MainStaging.Restage.Changed
+        b.submitted(r, StagedRecord(MainStageKey(ms, 1000 + mus, "re-stage"), Gray8(1, 1), ByteArray(4)), 10_000L)
+        b.releaseIfDue(b.patches.single(), acked = true, burstOpen = false, entriesSent = true)
+        assertNull(b.nextOwed(14_000L), "the other row waits for the pace in all, not its own")
+        assertEquals(tor, b.nextOwed(15_000L), "then the next")
+    }
+
     /** A strip row's segment decodes to exactly its levels at every length from its natural one to well past the slack,
      *  and a length below the natural one is refused (the re-stage then asks for a full staging). */
     @Test
@@ -119,11 +168,12 @@ class MainBindTest {
     fun theAtlasLaysOutUnderMainsRegionOnlyAt256KiBWithBind_DM2() {
         fun st(kib: Int, bind: Boolean) = LinkState(damageContract = 2, damageFeatures = 0x5ff, cacheSize = kib * 1024,
             flagsInForce = DamageMsg.FLAG_DRAW2 or DamageMsg.FLAG_ENGINE or (if (bind) DamageMsg.FLAG_BIND else 0))
-        assertEquals(128 * 1024, st(256, true).atlasCapacity)
+        // AD.2: Main's own region is 96 KiB at 256 (a second strip), the atlas keeps the 96 KiB it has at 160
+        assertEquals(96 * 1024, st(256, true).atlasCapacity)
         assertEquals(192 * 1024, st(256, false).atlasCapacity)
         assertEquals(96 * 1024, st(160, true).atlasCapacity)
         assertEquals(96 * 1024, st(160, false).atlasCapacity)
-        assertEquals(128 * 1024 until 192 * 1024, CfwModes.mainRegion(256 * 1024, true))
+        assertEquals(96 * 1024 until 192 * 1024, CfwModes.mainRegion(256 * 1024, true))
         assertEquals(96 * 1024 until 160 * 1024, CfwModes.mainRegion(160 * 1024, true))
     }
 

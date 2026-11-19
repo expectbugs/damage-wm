@@ -1017,7 +1017,8 @@ class Shell(
                 { globalFontRows + hostSettings },
                 { settingsApps() },
                 localInput = { transport.state.value.localInput },
-                localRearm = { transport.devProbe("c1", "4") })
+                localRearm = { transport.devProbe("c1", "4") },
+                bindBuild = { transport.state.value.damageFeatures and wm.damage.core.wire.DamageMsg.FEATURE_BIND != 0 })
             register(settingsWindow)
         }
         for (w in windows) w.onRegistered(services)
@@ -1642,32 +1643,7 @@ class Shell(
             Log.i("shell", "non-ring gesture $type from source $source ignored (§1)")
             return
         }
-        val newEcho = when (type) {
-            // a FIXED vocabulary (`InputEcho`): the status cell is measured for it
-            EvenHubMsg.EV_CLICK -> InputEcho.TAP
-            EvenHubMsg.EV_DOUBLE_CLICK -> InputEcho.DOUBLE
-            EvenHubMsg.EV_SCROLL_TOP -> InputEcho.UP
-            EvenHubMsg.EV_SCROLL_BOTTOM -> InputEcho.DOWN
-            EvenHubMsg.EV_RING_LONG_PRESS -> InputEcho.HOLD
-            // a bare release means "a touch ended" and follows almost every
-            // swipe (HANDOFF.md §11): echoing it would permanently overwrite
-            // the last real gesture, so it echoes only when a chord is armed
-            EvenHubMsg.EV_RING_LONG_PRESS_RELEASE ->
-                if (chordArmedAtMs != 0L) InputEcho.RELEASE else inputEcho
-            else -> InputEcho.unknown(type)
-        }
-        if (newEcho != inputEcho) {
-            inputEcho = newEcho          // input echo rides the next flush (§9.2)
-            chromeDirty = true
-        }
-        // input restarts the grace and the rest transition (§4.5, §4.2)
-        restGen++
-        scheduleRest()
-        if (main.resting) {
-            main.resting = false
-            if (mode == Mode.MAIN) composeContent()
-        }
-        if (notifications.active && !notifications.focused && !quiet) scheduleGrace()
+        gestureBookkeeping(type)
 
         // EXCLUSIVE (§4.9): the same law as silent — everything swallowed
         // except double-tap, which returns to the window; the chord never arms
@@ -1767,6 +1743,41 @@ class Shell(
             EvenHubMsg.EV_DOUBLE_CLICK -> backFocused()
             EvenHubMsg.EV_RING_LONG_PRESS_RELEASE -> {}      // banked, unused (§1.2)
         }
+    }
+
+    /** What every gesture does before its own effect (decisions AF.3: one function, called by `handleInput` and by an
+     *  adopted 115): the dev probes end, the input echo, the rest and the notice's grace restart, Main wakes, and a scroll
+     *  or a tap ends the long-press chord. */
+    private fun gestureBookkeeping(type: Int) {
+        if (testHold) releaseHold("an input event")     // the `hold=on` dev probe never outlives a gesture
+        mainSeq?.let { mainSeqEnd(it, "an input event") }  // nor does the `mainseq` probe's scroll test
+        if (type == EvenHubMsg.EV_SCROLL_TOP || type == EvenHubMsg.EV_SCROLL_BOTTOM || type == EvenHubMsg.EV_CLICK) chordArmedAtMs = 0L
+        val newEcho = when (type) {
+            // a FIXED vocabulary (`InputEcho`): the status cell is measured for it
+            EvenHubMsg.EV_CLICK -> InputEcho.TAP
+            EvenHubMsg.EV_DOUBLE_CLICK -> InputEcho.DOUBLE
+            EvenHubMsg.EV_SCROLL_TOP -> InputEcho.UP
+            EvenHubMsg.EV_SCROLL_BOTTOM -> InputEcho.DOWN
+            EvenHubMsg.EV_RING_LONG_PRESS -> InputEcho.HOLD
+            // a bare release means "a touch ended" and follows almost every
+            // swipe (HANDOFF.md §11): echoing it would permanently overwrite
+            // the last real gesture, so it echoes only when a chord is armed
+            EvenHubMsg.EV_RING_LONG_PRESS_RELEASE ->
+                if (chordArmedAtMs != 0L) InputEcho.RELEASE else inputEcho
+            else -> InputEcho.unknown(type)
+        }
+        if (newEcho != inputEcho) {
+            inputEcho = newEcho          // input echo rides the next flush (§9.2)
+            chromeDirty = true
+        }
+        // input restarts the grace and the rest transition (§4.5, §4.2)
+        restGen++
+        scheduleRest()
+        if (main.resting) {
+            main.resting = false
+            if (mode == Mode.MAIN) composeContent()
+        }
+        if (notifications.active && !notifications.focused && !quiet) scheduleGrace()
     }
 
     private fun handleNotificationGesture(type: Int) {
@@ -2637,17 +2648,25 @@ class Shell(
     /** Every flush that carried the rules' messages, until its completion: a refused one sends the table again. */
     private val localTailFlushes = HashSet<Long>()
     private var localSettleAt = Long.MAX_VALUE
+    /** The held cells' release the loop was last asked back for (AF.7): one wake per motion end. */
+    private var deferWakeAt = 0L
 
-    /** The bound list in front with nothing drawn over it (§6.7): the surface's own, while Main is in front and no menu,
-     *  switcher, keyboard or focused notice covers it. */
+    /** Main in front with nothing drawn over it (§6.7): no menu, switcher or keyboard, and no notice up at all — focused,
+     *  floating, unfurling or furling (decisions AF.1: its box lies over the list's rows). */
+    private fun localUncovered(): Boolean = mode == Mode.MAIN && !menu.open && !switcher.open && !keyboard.open &&
+        !notifications.active && !notifications.animating
+
+    /** The bound list in front with nothing drawn over it: the surface's own while it is uncovered and offered. */
     private fun localFront(): Pair<wm.damage.core.local.BoundSurface, wm.damage.core.local.BoundList>? {
-        if (mode != Mode.MAIN || menu.open || switcher.open || keyboard.open || (notifications.active && notifications.focused)) return null
+        if (!localUncovered()) return null
         val sfc = boundSurface() ?: return null
         val b = sfc.bound() ?: return null
         return sfc to b
     }
 
-    private fun localRow(): Int = localFront()?.first?.row() ?: -1
+    /** The row the rules read: the surface's own whenever it is uncovered, offered or not — a withdrawn list's row stays
+     *  current, so a DISCARD naming it is right (decisions AF.2) — and −1 under a cover, where it cannot move. */
+    private fun localRow(): Int = if (localUncovered()) boundSurface()?.row() ?: -1 else -1
 
     /** The list in front, told to the rules in the pump that draws its change (a cover's CLEAR, a return's SET). */
     private fun syncLocalFront() {
@@ -2664,14 +2683,19 @@ class Shell(
     private fun localVerdict(v: wm.damage.core.local.LocalRules.Verdict) {
         when (v) {
             wm.damage.core.local.LocalRules.Verdict.Nothing -> {}
-            is wm.damage.core.local.LocalRules.Verdict.Apply -> handleInput(v.type, EvenHubMsg.SRC_RING)
+            is wm.damage.core.local.LocalRules.Verdict.Apply -> { asInput(); handleInput(v.type, EvenHubMsg.SRC_RING) }
             is wm.damage.core.local.LocalRules.Verdict.Adopt -> {
+                // an adopted notch is a gesture as any other (decisions AF.3): the same bookkeeping as `handleInput`'s, the
+                // cursor saved to the record; its picture is the lens's own, so no slide and no input slot (its COMMIT
+                // needs none)
+                val was = boundSurface()?.row() ?: v.row
                 boundSurface()?.setRow(v.row)
-                restGen++; scheduleRest()                     // an adopted notch is input as any other
-                main.resting = false                          // ...so it wakes Main from its rest, as `handleInput` does
+                gestureBookkeeping(if (v.row < was) EvenHubMsg.EV_SCROLL_TOP else EvenHubMsg.EV_SCROLL_BOTTOM)
+                scheduleSave()
                 composeContent()
             }
             is wm.damage.core.local.LocalRules.Verdict.Act -> {
+                asInput()
                 val sfc = boundSurface()
                 if (sfc != null && sfc.row() != v.row) sfc.setRow(v.row)
                 handleInput(EvenHubMsg.EV_CLICK, EvenHubMsg.SRC_RING)
@@ -2679,6 +2703,10 @@ class Shell(
         }
         post(Msg.Pump)
     }
+
+    /** Decisions AF.8: an act or a gesture applied from a 115 (not from the stock message, which is an input message of
+     *  its own) is input — its first flush may take the reserved slot, and the journal marks it so the trial prices it. */
+    private fun asInput() { pumpPriority = true; inputFlushPending = true }
 
     /** P1: a session start — S_heard, the arming uptime, the start's bind batch owed to the first flush (the keyframe's
      *  tail, in stream order after it). */
@@ -2688,6 +2716,8 @@ class Shell(
         localFrontNow = f?.second
         localOnlyFlushes.clear(); localTailFlushes.clear()
         localSettleAt = Long.MAX_VALUE
+        mainBindRefusedFor = null                         // AF.6: a staging that did not fit is tried again at every start
+        mainBindBlockedSaid = null
         local.sessionStart(st.bind && st.leaseHeld, st.bindSHeard0, st.bindArmUptime, f?.second, f?.first?.row() ?: -1, settings.taps)
         if (st.bind) journal.note("local", "session start: S_heard ${st.bindSHeard0}, armed at uptime ${st.bindArmUptime}, " +
             "list in front ${f?.second?.list ?: "none"}, Taps ${settings.taps.word}")
@@ -4951,7 +4981,9 @@ class Shell(
 
     private fun holdProbe(value: String) {
         when (value) {
-            "on" -> if (testHold) journal.note("hold", "hold=on — already holding") else {
+            // decisions AF.3: refused while BIND is in force — a hold would keep the rules' answers and SETTLEs from going
+            "on" -> if (transport.state.value.bind) journal.note("hold", "hold=on not taken — BIND is in force (stage 4)")
+            else if (testHold) journal.note("hold", "hold=on — already holding") else {
                 testHold = true
                 journal.note("hold", "holding — no frame is submitted until hold=off, an input event or the session's end")
             }
@@ -5083,7 +5115,7 @@ class Shell(
         val ct = cachedText
         val want0 = ct?.wantVersion; val seen0 = ct?.seenVersion
         val ms = try {
-            MainStaging.build(layout, main.view(), kit, listD, bandD, st.cacheSize) { g, paint -> if (ct != null) ct.via(g, 0, 0, NO_RECORDS) { paint() } else paint() }
+            MainStaging.build(layout, main.view(), kit, listD, bandD, st.cacheSize, relay = { g, paint -> if (ct != null) ct.via(g, 0, 0, NO_RECORDS) { paint() } else paint() })
         } catch (e: wm.damage.core.geom.LintError) { mainSeqEnd(run, "Main's rows cannot be staged: ${e.message}"); return false }
         run.staging = ms
         if (ct != null && (ct.wantVersion != want0 || ct.seenVersion != seen0)) {
@@ -5325,9 +5357,18 @@ class Shell(
     internal val mainBinding: MainBinding get() = mainBind
     internal fun mainBoundForTest(): Pair<wm.damage.core.local.BoundList?, Int> = main.bound() to main.row()
     internal fun mainRestingForTest(): Boolean = main.resting
+    internal fun notificationsUpForTest(): Boolean = notifications.active || notifications.animating
+    internal fun notificationsFocusedForTest(): Boolean = notifications.active && notifications.focused
 
     /** A staging the region could not hold, by what it was painted for: not painted again until one of those changes. */
     private var mainBindRefusedFor: String? = null
+    /** The staging being painted a row per loop turn (AF.8), the key it is painted for, and the atlas's versions at its
+     *  start (a change means the paint met characters the atlas did not hold: painted again once it does). */
+    private var mainBindPaint: MainStaging.Paint? = null
+    private var mainBindPaintFor: String? = null
+    private var mainBindPaintVersions: Pair<Any?, Any?>? = null
+    /** The last reason Main was not staged that the journal was told (AF.9), cleared at a session start. */
+    private var mainBindBlockedSaid: String? = null
     private var mainBindWakeAtMs = 0L
     /** Pumps so far: a strip write goes in a later pump than the withdrawal that let the rules' CLEAR go first. */
     private var mainBindPumps = 0L
@@ -5392,8 +5433,11 @@ class Shell(
                 mainBindDrop("row ${p.row}'s re-stage left the stage registry before it was counted (the stage notes say why)")
                 return
             }
-            if (r.state == StagedRecord.State.ACKED || r.state == StagedRecord.State.PROVEN) b.switchAcked(p)
-            if (r.state == StagedRecord.State.PROVEN) {
+            // decisions AF.4: a band form's old slot is released only when no report can still name it — the switch
+            // acknowledged AND no burst open (a report adopted before the ack may still be COMMITted from that slot)
+            // a strip switch (AD.2) is the SETs' too: released once the rules hold the entries that name the new strip
+            b.releaseIfDue(p, r.state == StagedRecord.State.ACKED || r.state == StagedRecord.State.PROVEN, local.burstOpen, mainBindEntriesSent())
+            if (r.state == StagedRecord.State.PROVEN && p.released) {
                 b.patchCounted(p)
                 stage.remove(r)
                 stageRecount()
@@ -5406,6 +5450,11 @@ class Shell(
                 "mark ${offer.mark}, ${offer.entries.size} entries (the whole list, P ${ms.period} T ${ms.t}), items at off4 ${offer.items4}")
         }
     }
+
+    /** The rules hold the scroll entries of the list Main offers now (their SETs were sent): a strip switch's old pans can
+     *  no longer be named by a fire after them in stream order (AD.2). */
+    private fun mainBindEntriesSent(): Boolean = main.offered?.let { l ->
+        l.entries.filter { !it.isTap }.all { e -> local.heldFor(l.list, e.eventId)?.prog4 == e.prog4 } } == true
 
     /** The staging goes: its records leave the registry and the list is withdrawn. */
     private fun mainBindDrop(why: String) {
@@ -5425,7 +5474,13 @@ class Shell(
     /** The idle pump's step for Main's list, after the atlas's: a staging painted and placed, one record written, a row
      *  painted again, or a row's re-stage written. True when it did something. */
     private suspend fun pumpMainBind(st: LinkState): Boolean {
-        if (mainBindBlocked(st) != null) return false
+        val blocked = mainBindBlocked(st)
+        // decisions AF.9: why Main is not staged, once per reason, while BIND is in force and Main is in front
+        if (st.bind && mode == Mode.MAIN && blocked != mainBindBlockedSaid) {
+            mainBindBlockedSaid = blocked
+            if (blocked != null) journal.note("mainstage", "not staged — $blocked; Main's scrolls and taps go as today until it is")
+        }
+        if (blocked != null) return false
         if (atlasInFlight != null || atlasQueue.isNotEmpty() || atlasLapsedOwed || atlasCheckInFlight) return false
         if (stageInFlight != null || ledgerReadInFlight) return false
         if (st.inFlight != 0 || comp.hasPending || comp.needsKeyframe) return false
@@ -5454,22 +5509,41 @@ class Shell(
         val region = mainBindRegion(st)
         val (listD, bandD) = mainBindPlanes()
         val n = mainRows().size
-        val what = "$layout $listD/$bandD $n ${region.first}..${region.last} ${st.cacheSize}"
+        // decisions AF.6: the rows' content is part of what a refusal is keyed on — a staging that did not fit is tried
+        // again when what it was sized for changes (and at every session start)
+        val what = "$layout $listD/$bandD $n ${region.first}..${region.last} ${st.cacheSize} ${List(n) { main.rowKey(it) }.hashCode()}"
         if (mainBindRefusedFor == what) return false
         val ct = cachedText
-        val want0 = ct?.wantVersion; val seen0 = ct?.seenVersion
-        val ms = try {
-            MainStaging.build(layout, main.view(), kit, listD, bandD, st.cacheSize, region.first, region.last + 1, mainBindRelay())
-        } catch (e: wm.damage.core.geom.LintError) {
-            mainBindRefusedFor = what
-            journal.note("mainstage", "Main's rows cannot be staged: ${e.message} — the list stays unbound (its scrolls and taps go as today) until Main's layout, planes or rows change")
-            return false
+        // decisions AF.8: one row painted per loop turn (its row form and band form); the staging is laid out once every row
+        // is painted for this same key — a change of layout, planes, rows or their content starts the paint again
+        val pt = mainBindPaint?.takeIf { mainBindPaintFor == what && it.n == n } ?: run {
+            mainBindPaintFor = what; mainBindPaintVersions = ct?.wantVersion to ct?.seenVersion
+            MainStaging.Paint(layout, main.view(), kit).also { mainBindPaint = it }
         }
-        if (ct != null && (ct.wantVersion != want0 || ct.seenVersion != seen0) && ++mainBind.paints <= MainBinding.PAINTS_MAX) {
+        if (!pt.done) {
+            try { pt.step(mainBindRelay()) } catch (e: wm.damage.core.geom.LintError) {
+                mainBindRefusedFor = what; mainBindPaint = null
+                journal.note("mainstage", "Main's row ${pt.next} cannot be painted for staging: ${e.message} — the list stays unbound (its scrolls and taps go as today) until Main's layout, planes or rows change")
+                return false
+            }
+            post(Msg.Pump)
+            return true
+        }
+        mainBindPaint = null
+        if (ct != null && mainBindPaintVersions != (ct.wantVersion to ct.seenVersion) && ++mainBind.paints <= MainBinding.PAINTS_MAX) {
             // §73, Page staging's rule: the atlas goes first, and Main is painted again once it holds what the paint drew
             journal.note("mainstage", "Main's rows drew characters the atlas does not hold yet — the atlas goes first, then they are painted again")
             post(Msg.Pump)
             return true
+        }
+        val shared0 = region.last + 1 == st.cacheSize
+        val ms = try {
+            // the bound list's pans only (AF.10); at 256 KiB Main's own region holds a second strip (AD.2)
+            MainStaging.assemble(pt, listD, bandD, st.cacheSize, region.first, region.last + 1, listOf(MainStaging.WHOLE), twoStrips = !shared0)
+        } catch (e: wm.damage.core.geom.LintError) {
+            mainBindRefusedFor = what
+            journal.note("mainstage", "Main's rows cannot be staged: ${e.message} — the list stays unbound (its scrolls and taps go as today) until Main's layout, planes, rows or their content change, or the next session")
+            return false
         }
         val recs = ms.blobs.mapIndexed { i, blob -> StagedRecord(MainStageKey(ms, i, blob.name), blob.raw ?: Gray8(1, 1), blob.bytes) }
         val shared = region.last + 1 == st.cacheSize
@@ -5513,7 +5587,9 @@ class Shell(
             MainStaging.Restage.Same -> { mainBind.sameWhileWithdrawn(row); post(Msg.Pump) }
             is MainStaging.Restage.Outgrown -> mainBindDrop("a full staging is owed (a new mark): ${r.why}")
             is MainStaging.Restage.Changed -> if (!write) { mainBind.changed(row); post(Msg.Pump) }
-            else if (r.strip.isNotEmpty() && mainBind.withdrawnFor != row) {
+            // at 160 KiB a strip write needs the list withdrawn; at 256 it goes to the other strip slot and the entries are
+            // SET to the pans that name it (AD.2: no unbound moment)
+            else if (r.strip.isNotEmpty() && r.toStrip == null && mainBind.withdrawnFor != row) {
                 // the strip is named only inside the pan programs: its segments are written with no entry live (X.2)
                 mainBind.withdraw(row, mainBindPumps)
                 main.offered = null
@@ -6985,6 +7061,12 @@ class Shell(
         val localOn = local.active && st.bind && st.leaseHeld
         if (local.active && !st.bind) local.bindInForce(false)
         val localNow = System.currentTimeMillis()
+        // decisions AF.7: the cells held behind a COMMIT go once the adopted motion has ended on the glasses — the loop is
+        // asked back then (pacing, never a wait on a send)
+        comp.releaseDeferred(localNow)
+        if (comp.deferring && comp.deferUntilMs > localNow && comp.deferUntilMs != deferWakeAt) {
+            deferWakeAt = comp.deferUntilMs; pumpAfter(comp.deferUntilMs - localNow)
+        }
         if (localOn) scheduleLocalSettle()
         if (localOn && local.settleDue(localNow) && !local.owed && !comp.hasPending && !comp.needsKeyframe) {
             submitLocalOnly(local.loneSettle(localRow(), localNow), "SETTLE")       // P7: alone, Q after the burst
@@ -7004,8 +7086,8 @@ class Shell(
             val assembled = try {
                 if (plans.isEmpty()) comp.assembleFlush(Geometry.rectBudget(st.window))
                 else comp.assembleWithEnds(Geometry.rectBudget(st.window), plans.map { c ->
-                    wm.damage.core.comp.Compositor.EndPlan(c.slot, c.areas, c.list.paintEnd?.let { pe -> { left: Boolean, g: Gray8 -> pe(left, c.prog4, c.p, g) } })
-                }).let { (a, d) -> denied = d; a }
+                    wm.damage.core.comp.Compositor.EndPlan(c.slot, c.areas, c.list.paintEnd?.let { pe -> { left: Boolean, g: Gray8 -> pe(left, c.prog4, c.p, g) } }, c.motionEndsMs)
+                }, localNow).let { (a, d) -> denied = d; a }
             } catch (e: Exception) {
                 Log.e("shell", "flush assembly failed", e)
                 journal.note("assemble-error", e.toString())
