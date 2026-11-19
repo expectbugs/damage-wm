@@ -1336,6 +1336,11 @@ abstract class CfwTransportBase(
      *  names it (decisions AA.3). Written on the notify path, read by the disarm. */
     @Volatile private var bindSHeard = 0
     @Volatile private var resetCheckLastS: Long? = null
+    /** Decisions AZ.3: RIGHT's lease ticks left at the reset check (field 12), and when that read was ASKED (phone clock):
+     *  the time since is never less than the time since RIGHT answered, so the remainder computed from it is never more
+     *  than the lens's own. Null: not read. */
+    @Volatile private var resetCheckLeaseTicks: Long? = null
+    @Volatile private var resetCheckAskedMs = 0L
     @Volatile private var bindRefusalSeen: Triple<Int, Int, Long>? = null
     @Volatile private var bindRefusalBaseline = true
 
@@ -1344,14 +1349,32 @@ abstract class CfwTransportBase(
         bindSHeard = 0
         updateState { it.copy(bindArmUptime = 0) }
         resetCheckLastS = null
+        resetCheckLeaseTicks = null
         bindRefusalSeen = null
         bindRefusalBaseline = true
     }
 
+    /**
+     * Decisions AZ.3 (G1 item 3: an app update ended the process while the lease ran, the phone's lease record went with
+     * it, and the lens kept S at 37): RIGHT's own reset-check read showed the lease live with time to spare, so the lens
+     * counts this start's acquire as a renewal — no release point, S kept — and field 36 is the S it goes on from. The
+     * spare is [SEED_SPARE_TICKS] past the time since the read was asked: the acquire is written by now but the lens
+     * handles it a link delivery later, and it must still find the lease running then. A lease that lapses in between is
+     * a release point on the lens (S := 0): its remainder at the read is below the spare, so the seed is not used and
+     * S_heard is 0 as before. A lens that restarted holds no lease (field 12 is 0) and its field 36 is 0 anyway.
+     */
+    private fun leaseLiveAtAcquire(): Boolean {
+        val left = resetCheckLeaseTicks ?: return false
+        val since = msToOsTicks(nowMs() - resetCheckAskedMs)
+        return left - since > SEED_SPARE_TICKS
+    }
+
+    private fun msToOsTicks(ms: Long): Long = (maxOf(0L, ms) * 1024 + 999) / 1000
+
     /** After the lease's carry is decided: S_heard's start ([bindSHeard0]) and the state's words. */
     private fun bindStartRead() {
         val carried = _state.value.leaseCarried
-        bindSHeard0 = if (carried) (resetCheckLastS ?: 0L).toInt() and 0xFFFF else 0
+        bindSHeard0 = if (carried || leaseLiveAtAcquire()) (resetCheckLastS ?: 0L).toInt() and 0xFFFF else 0
         bindSHeard = bindSHeard0
         updateState { it.copy(bindSHeard0 = bindSHeard0) }
     }
@@ -2917,11 +2940,13 @@ abstract class CfwTransportBase(
             resetCheckRead = false
             if (damageCaps?.has(DamageMsg.FEATURE_TELEMETRY) == true) {
                 updateState { it.copy(detail = "reset check") }
+                resetCheckAskedMs = nowMs()
                 val t = telemetryRead(epoch, label = "reset check") ?: throw LintError("reset check ended early — " +
                     (if (epoch != sessionEpoch.get()) "the session ended" else "a re-ask could not be written to RIGHT"))
                 resetCheckCache = t.cacheSize
                 resetCheckRead = true
                 resetCheckLastS = t.lastS          // build C2 (P1): S_heard's start on a carried lease
+                resetCheckLeaseTicks = t.leaseTicksLeft ?: 0L   // AZ.3: and on a lease the lens still runs
 
                 heapRecord("pre-create", t)       // build W (dec. E.1): this record is heap3's first point, no new read
             } else if (heapReadsOn()) emitNote("heap3", "point=pre-create not read: this build does not answer telemetry")
@@ -4483,6 +4508,10 @@ abstract class CfwTransportBase(
     }
 
     companion object {
+        /** Decisions AZ.3: the lease ticks the reset check must still show past the time since it was asked for S_heard to
+         *  be seeded from it — the acquire's delivery to the lens on a busy link, with room: 2 s (2,048 OS ticks). */
+        const val SEED_SPARE_TICKS = 2_048L
+
         /** The rects each op of a batch writes, per lens (left, right) — [withMotionCloses]' bound; build C2's `mainseq`
          *  probe asks the same of its follow-up flush, so the shell and the transport decide "meets" alike. */
         fun motionWriteRects(ops: List<DisplayOp>): List<Pair<wm.damage.core.geom.Rect, wm.damage.core.geom.Rect>> {

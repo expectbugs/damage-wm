@@ -187,7 +187,9 @@ class MainSeqTest {
                 assertEquals(46, b[3].toInt(), "PLAY ${i + 1}: the staging's period at 352 (decisions V, AU.3)")
                 tags += u16(b, 6)
                 progs.getOrPut(step) { HashSet() } += u16(b, 4)
-                assertEquals(listOf(l.lens.y - (from + l.rowsAbove) * l.rowH, bandOff.getValue(to), bandOff.getValue(from), l.lens.bottom - (from + 1 + l.rowsAbove) * l.rowH),
+                // the strip's top margin: the rows shown above, and one more where Main wraps (decisions AZ.4; eight rows wrap at 352)
+                val sA = l.rowsAbove + 1
+                assertEquals(listOf(l.lens.y - (from + sA) * l.rowH, bandOff.getValue(to), bandOff.getValue(from), l.lens.bottom - (from + 1 + sA) * l.rowH),
                     (0 until 4).map { s16(b, 10 + 2 * it) }, "PLAY ${i + 1} ($from→$to): P0..P3")
                 from = to
             }

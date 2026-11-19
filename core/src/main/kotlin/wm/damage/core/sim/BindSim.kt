@@ -67,6 +67,10 @@ class BindSim(private val motion: MotionSim) {
      *  entries and lists stay in memory; the next accepted mode 27 empties them. */
     fun releasePoint() { live = false; seq = 0 }
 
+    /** Tests only (decisions AZ.3): a lens that took [s] matched events since its last release point — what an earlier
+     *  process's session left on it. No wire semantics change. */
+    internal fun seqForTest(s: Int) { seq = s and 0xFFFF; matched = s.toLong() }
+
     /** Telemetry 39: bit n for event id n with a live entry on this lens (bit 0 the tap entry of either form, 4 and 5
      *  the scroll entries), 0 while `bind_live` is clear. */
     fun field39(): Int = if (!live) 0 else entries.fold(0) { v, e -> if (e == null) v else v or (1 shl e.eventId) }

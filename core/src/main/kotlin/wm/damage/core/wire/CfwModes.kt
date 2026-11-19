@@ -650,9 +650,10 @@ object CfwModes {
     /** Build C2-FA (decisions AG.5): the sub-messages a batch keeps for the local rules' tail while a bound list is in
      *  front with BIND in force (`Compositor.subsLeft`) — the most one change of the list in front puts in a tail, read
      *  from `LocalRules.tail`: one list's CLEARs and the next one's SETs and LIST (2·8 + 1), the table repair's re-sends
-     *  (8), an answer per slot (4) with its list's riding LIST (4), a SETTLE (1). A tail that passes it anyway is refused
-     *  loudly with its batch ([batch]: the count is one byte), never wrapped. */
-    const val BIND_TAIL_SUBS = 2 * BIND_ENTRIES + 1 + BIND_ENTRIES + MOTION_SLOTS + BIND_LISTS + 1
+     *  (8), an answer per slot (4) with its list's riding LIST (4), a SETTLE (1), and the wrap's PLAY ahead of them
+     *  (decisions AZ.4, 1). A tail that passes it anyway is refused loudly with its batch ([batch]: the count is one byte),
+     *  never wrapped. */
+    const val BIND_TAIL_SUBS = 2 * BIND_ENTRIES + 1 + BIND_ENTRIES + MOTION_SLOTS + BIND_LISTS + 1 + 1
     /** SET's devType for a scroll entry (any source) and a tap entry (the ring); §6.1's event ids. */
     const val DEV_ANY = 0xFF
     const val DEV_RING = 4

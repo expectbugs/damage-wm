@@ -360,6 +360,11 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         private set
     val deferring: Boolean get() = deferL.isNotEmpty()
 
+    /** G1 item 5 (his glasses, 2026-11-19 14:46:57): the held cells on one lens. A sub the hold loop rolled back left its
+     *  pixels in belief and its cells unknown inside them, never sent, and they stay so until the release — the agreement
+     *  check leaves these rects out while they wait, as it leaves out a motion's areas on the mirror. */
+    fun heldRects(left: Boolean): List<Rect> = if (left) deferL else deferR
+
     /** Decisions AW.3: the held cells' wait cut — a window covering the list closed the adopted motion ahead of its frame:
      *  the held cells are unknown and go into the next assemble's scan, repainted from the truth. True when there were any. */
     fun cutDeferral(): Boolean {

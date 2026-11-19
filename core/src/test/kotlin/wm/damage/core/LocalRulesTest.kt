@@ -469,13 +469,13 @@ class LocalRulesTest {
     }
 
     /** Decisions AW.2: Q follows the motion in force — max(450 ms, T × P + the 256-tick hold of the last step + one period)
-     *  for the list in front: at 352 with the defaults (T 10 at P 46) 745 ms, with the fixed rule's T 5 520 ms; a short
+     *  for the list in front: at 352 at 450 ms Auto (T 10 at P 46) 745 ms, with the fixed rule's T 5 520 ms; a short
      *  pan keeps the 450 ms floor. */
     @Test
     fun qFollowsTheMotionInForce_AW2() {
         val rig = wm.damage.core.shell.MainLocalCheck.MainRig(wm.damage.core.motion.BoxFace, 352, wm.damage.core.shell.MainLocalCheck.sampleRows())
         val region = CfwModes.mainRegion(CfwModes.CACHE2_MAX, true)
-        val long = rig.staging(CfwModes.CACHE2_MAX, region).boundList(1)
+        val long = rig.staging(CfwModes.CACHE2_MAX, region, wm.damage.core.shell.MainStaging.ScrollMotion(450, 0)).boundList(1)
         val fixed = rig.staging(CfwModes.CACHE2_MAX, region, motion = null).boundList(1)
         assertEquals(745L, LocalRules.qFor(long), "T 10 at P 46")
         assertEquals(520L, LocalRules.qFor(fixed), "T 5 at P 46")

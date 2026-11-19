@@ -53,6 +53,8 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         const val MODAL = 1
         const val BADGE_LEVEL = 14
         const val PERIOD = 16
+        /** Decisions AZ.4: the wrap's PLAY slot (`MainStaging.WRAP_SLOT`). */
+        const val WRAP_SLOT = 1
         const val T_SCROLL = 3
         const val T_PRESS = 2
         const val W = 640; const val H = 480
@@ -250,6 +252,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
             if (field == 114) {
                 val slot = m[2]?.toInt() ?: -1; val tag = if (m.containsKey(3)) m[3]!!.toInt() else -1; val outcome = m[4]?.toInt() ?: -1
                 bodies114 += Triple(slot, tag, outcome)
+                if (slot == WRAP_SLOT && outcome in 0..1) up(now) { wrapOpen = false }
                 up(now) { rules.body114(slot, tag, outcome, m[10]?.toInt()) }
                 // a refused COMMIT names its S as the tag: the mirror took it, so the transport calls it a divergence
                 // and the shell keyframes (`CfwTransportBase.onMotionNotify`); a DISCARD's or SETTLE's names none
@@ -334,6 +337,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
 
     private fun phoneReport(a: DamageMsg.Applied, g: Int) {
         beforeReport?.let { beforeReport = null; it() }
+        if (g >= 0 && g !in reportHeardAt) reportHeardAt[g] = now
         val v = rules.report(a, row, now)
         trace?.invoke("[$now] phone 115 g$g ${a.describe()} row $row → $v")
         verdicts += g to v
@@ -344,6 +348,9 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
 
     private fun phoneStock(st: LocalRules.Stock, g: Int) {
         val v = rules.stock(st, row, now)
+        // decisions BC: a stock message applied as today whose own report was heard before a SETTLE that went before it —
+        // an echo later than its burst's SETTLE (its owe was cleared there); the fuzz counts the (8) it causes apart
+        if (v is LocalRules.Verdict.Apply && reportHeardAt[g]?.let { lastSettleAt > it } == true) lateEchoes += g
         trace?.invoke("[$now] phone stock g$g $st row $row → $v")
         verdicts += g to v
         apply(v, g, null)
@@ -384,6 +391,16 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     }
     /** Windows that cut a COMMITted motion (AW.3), for the fuzz's counted shapes. */
     var windowCuts = 0
+    /** Decisions AZ.4: the wrap's PLAYs sent; whether the phone holds one open (until RIGHT's body for it or a keyframe);
+     *  the batches that closed one to draw in its areas. */
+    var wrapPlays = 0
+    var wrapOpen = false
+    var wrapCuts = 0
+    /** Decisions BC: when the phone handled each gesture's report; when it last sent a SETTLE; the gestures whose stock
+     *  message came after a SETTLE that followed their report and was applied as today. */
+    val reportHeardAt = HashMap<Int, Long>()
+    var lastSettleAt = Long.MIN_VALUE
+    val lateEchoes = HashSet<Int>()
     fun back() { if (!window) return; window = false; if (!covered) rules.front(bound, row); pumpSoon() }
     fun toggleBadge() { badge = !badge; pumpSoon() }
     fun tick() { clock++; pumpSoon() }
@@ -511,6 +528,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     /** The phone's keyframe (a divergence): the truth whole to both lenses, every instance closed. */
     fun keyframe(why: String) {
         trace?.invoke("[$now] keyframe: $why")
+        wrapOpen = false
         keyframes++
         val t = truth()
         val packed = ByteArray(320 * 480)
@@ -612,13 +630,28 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         val m2 = model.copyOf()
         val dirty = HashSet(changed)
         for (c in plan) { paintEnd(m2, c); dirty += BAND; dirty += BADGE }
+        // decisions AZ.4 (the shell's `mainWrapPlan`): an edge at an end with the row now the other end — the scroll's PLAY
+        // in slot 1 from the end to the row past it, END (the wrapped row's record) into the model, its areas held
+        val wrap = rules.wrapPlan(row)
+        val wrapPlay = wrap?.let { w ->
+            val prog = w.list.entries.first { it.step == w.step }.program!!
+            val p = intArrayOf(recs[ids[w.cPrime.mod(ids.size)]], 0, 0, 0)
+            paint(m2, BAND, 0); paint(m2, BAND, level(ids[w.cPrime.mod(ids.size)])); dirty += BAND; dirty += BADGE
+            Motion.play(prog, WRAP_SLOT, PERIOD, 0xB000 + (wrapPlays and 0xFFF), 0, p)
+        }
+        val wrapAreas = wrap?.list?.areas ?: emptyList()
         // decisions AA.1: with a COMMIT planned, a region meeting its areas is not drawn in this batch; what still differs
         // from the truth once END is in the model goes in the next one
-        val hold = if (plan.isEmpty()) emptySet() else regions.filter { r -> plan.any { c -> LocalRules.meets(listOf(r), listOf(r), c.areas) } }.toSet()
-        val subs = diff(m2, t, dirty - hold)
+        val hold = if (plan.isEmpty() && wrap == null) emptySet() else regions.filter { r -> plan.any { c -> LocalRules.meets(listOf(r), listOf(r), c.areas) } ||
+            LocalRules.meets(listOf(r), listOf(r), wrapAreas) }.toSet()
+        var subs = diff(m2, t, dirty - hold)
+        // the transport's rule (`CfwTransportBase.withMotionCloses`): a batch drawing inside the wrap's instance while the
+        // phone holds it open CLOSEs it first
+        if (wrapOpen && subs.any { it.second.overlaps(BAND) }) { subs = listOf(CfwModes.motionClose(WRAP_SLOT) to BAND) + subs; wrapOpen = false; wrapCuts++ }
         held = (dirty intersect hold).filter { differs(m2, t, it) }.toSet()
         if (held.isNotEmpty()) heldBatches++
-        val tail = rules.tail(row, now, emptySet(), frame = subs.isNotEmpty())
+        val tail = listOfNotNull(wrapPlay) + rules.tail(row, now, emptySet(), frame = subs.isNotEmpty(), wrapped = wrapPlay != null)
+        if (wrapPlay != null) { wrapOpen = true; wrapPlays++ }
         for (c in tail) if (c[0].toInt() == 26 && c[1].toInt() == 3) {
             commitBatches += ((c[3].toInt() and 0xFF) or ((c[4].toInt() and 0xFF) shl 8)) to subs.map { it.second }
             if (held.isNotEmpty()) heldCommits++
@@ -640,6 +673,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         if (all.isEmpty()) return
         lastBatch = all
         for (s in tail) if (s[0].toInt() == 26 && s[1].toInt() == 3) commitsSent += (s[3].toInt() and 0xFF) or ((s[4].toInt() and 0xFF) shl 8)
+        if (tail.any { it[0].toInt() == 26 && it[1].toInt() == 5 }) lastSettleAt = now
         fun image(subs: List<ByteArray>): ByteArray? = when {
             subs.isEmpty() -> null
             subs.size == 1 && (subs[0][0].toInt() == 26 || subs[0][0].toInt() == 27) -> subs[0]
@@ -657,7 +691,13 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         }
         var inducedOn: Arm? = null
         val r27 = refuse27On
-        if (r27 != null && tail.any { it[0].toInt() == 27 }) { refuse27On = null; inducedOn = r27; lossyMessages++ }
+        if (r27 != null && tail.any { it[0].toInt() == 27 }) {
+            refuse27On = null; inducedOn = r27; lossyMessages++
+            // decisions BC: a COMMIT behind the mode 27 RIGHT refuses does not run there (the refused sub ends the batch)
+            // — row A of decisions W, as for a lost answer
+            val i27 = tail.indexOfFirst { it[0].toInt() == 27 }
+            if (r27 == Arm.RIGHT && tail.drop(i27 + 1).any { it[0].toInt() == 26 && it[1].toInt() == 3 }) commitMissedRight = true
+        }
         val rt = refuseTailOn
         if (rt != null && tail.isNotEmpty()) { refuseTailOn = null; inducedOn = rt }
         // the fix round's row for the lead: a COMMIT that does not land on RIGHT alone (its batch refused there, or the

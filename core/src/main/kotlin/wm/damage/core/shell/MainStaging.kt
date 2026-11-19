@@ -24,7 +24,8 @@ import wm.damage.core.wire.CfwModes
  * - **The strip:** every row in its row form (`MainSurface.paintRow`, not resting) stacked at the row pitch, with
  *   [Layout.rowsAbove] margin rows before row 0 and [Layout.rowsBelow] after the last — the rows Main shows past either
  *   end at the cursor's extremes (the other end's rows where Main wraps, blank where it does not), so a program's END
- *   is Main's own paint at EVERY cursor. The margins carry no wrap motion: a notch across the wrap is an edge (below).
+ *   is Main's own paint at EVERY cursor. Where Main wraps, each margin holds one row more of the other end (decisions
+ *   AZ.4): the row a pan ACROSS the wrap shows at its last step, which the phone starts itself ([wrapParams]).
  *   **Each strip row is one segment of a fixed length** inside the one record: its own token stream (no run crosses it),
  *   padded to its length by splitting runs ([rlePadded]) — so a row whose row form changes is written again in its
  *   segment alone, and the record, its offsets and the list's mark stay. The strip is named only inside the pan
@@ -97,8 +98,8 @@ class MainStaging private constructor(
      *  (`Frames`, 0 = Auto). */
     data class ScrollMotion(val lengthMs: Int, val frames: Int) {
         companion object {
-            /** `ShellSettings`' defaults: 450 ms, Auto (T 10 at P 46 at height 352). */
-            val DEFAULT = ScrollMotion(450, 0)
+            /** `ShellSettings`' defaults: 300 ms, Auto (T 6 at P 46 at height 352; decisions AY.7, AZ.7). */
+            val DEFAULT = ScrollMotion(300, 0)
         }
     }
 
@@ -165,6 +166,28 @@ class MainStaging private constructor(
     /** PLAY's P0..P3 for [pan] landing on the new cursor [cPrime], by each parameter's rule — null at an edge (a new
      *  cursor, or an item, outside the rows: no local motion there). A kind-2 value outside s16 is the firmware's 12. */
     fun params(pan: Pan, cPrime: Int): IntArray? = paramsBy(pan.rules, cPrime)
+
+    /** Decisions AZ.4: Main wraps here — its strip's margins hold the other end's rows (none blank), one more at each end. */
+    val wraps: Boolean get() = stripRow.size > rows && stripRow.all { it >= 0 }
+
+    /**
+     * Decisions AZ.4: PLAY's P0..P3 for [pan] across the wrap — from the end row to the row just past it, [cPrime] −1 (an
+     * up notch from row 0) or [rows] (a down notch from the last row) — or null where Main does not wrap or [cPrime] is not
+     * that. A kind-1 parameter names the other end's row (the item at c' mod [rows]); a kind-2 one takes c' unwrapped, and
+     * the strip's extra margin row is what it shows at the last step — so END is Main's own paint at the wrapped row, the
+     * picture slides one row as at every other notch, and the lens's cursor is the answer's to set (its DISCARD names it).
+     */
+    fun wrapParams(pan: Pan, cPrime: Int): IntArray? {
+        if (!wraps || (cPrime != -1 && cPrime != rows) || cPrime - pan.step !in 0 until rows) return null
+        val p = IntArray(4)
+        for ((i, r) in pan.rules.withIndex()) p[i] = when (r.kind) {
+            CfwModes.KIND_ARG -> r.arg
+            CfwModes.KIND_ITEM -> s16(itemOffs[(cPrime + r.arg).mod(rows)])
+            CfwModes.KIND_PITCH -> (cPrime * pitch + r.arg).also { if (it !in Short.MIN_VALUE..Short.MAX_VALUE) throw LintError("P$i = $it is outside s16 — refused (12)") }
+            else -> throw LintError("a parameter rule of kind ${r.kind}")
+        }
+        return p
+    }
 
     /** The press's P0..P3 at the cursor [c] (a tap does not move it), or null outside the rows. */
     fun pressParams(c: Int): IntArray? = paramsBy(press.rules, c)
@@ -485,6 +508,9 @@ class MainStaging private constructor(
         /** Main's list on the glasses and its engine slot (`FIRMWARE.md` §6.3: one slot per list). */
         const val LIST = 0
         const val SLOT = 0
+        /** Decisions AZ.4: the phone's PLAY across the wrap goes in a slot no list is bound to (P9: no PLAY into a bound
+         *  slot); the next fire in [SLOT] closes it (its close pass meets the same areas), as a PLAY's or COMMIT's would. */
+        const val WRAP_SLOT = 1
         /** The entries' numbers (§6.3: 0..7; the lowest-numbered match fires, and each event id has one). */
         const val ENTRY_DOWN = 0
         const val ENTRY_UP = 1
@@ -548,13 +574,15 @@ class MainStaging private constructor(
             val rowW = l.content.w - Layout.RAIL_W
             val mA = l.rowsAbove; val mB = l.rowsBelow
             val wraps = n > l.rowsAbove + l.rowsBelow + 1             // `ContentKit.wrapIndex`
-            val stripRows = mA + n + mB
+            // decisions AZ.4: the strip's margins — one row more at each end where Main wraps, for the pan across the wrap
+            val sA = if (wraps) mA + 1 else mA; val sB = if (wraps) mB + 1 else mB
+            val stripRows = sA + n + sB
             if (stripRows * l.rowH > CfwModes.MAX_IMAGE2_H) throw LintError("Main's strip of $stripRows rows is taller than a record (${CfwModes.MAX_IMAGE2_H})")
             var at = regionStart
             fun next(size: Int): Int { val o = at; at += (size + 3) and 3.inv(); return o }
 
             // the strip: row form at the pitch, margins as Main shows past the ends; one fixed segment per strip row
-            val stripRow = IntArray(stripRows) { s -> val i = s - mA; if (wraps) i.mod(n) else if (i in 0 until n) i else -1 }
+            val stripRow = IntArray(stripRows) { s -> val i = s - sA; if (wraps) i.mod(n) else if (i in 0 until n) i else -1 }
             val sg = Gray8(rowW, stripRows * l.rowH)
             for (s in 0 until stripRows) if (stripRow[s] >= 0)
                 paint.rowForms[stripRow[s]]!!.pix.copyInto(sg.pix, s * l.rowH * rowW)
@@ -635,10 +663,10 @@ class MainStaging private constructor(
                 next(prog.bytes.size)
                 progs += at4 * 4 to prog.bytes
                 pans += Pan(k, kA, kB, step, prog, listOf(
-                    Rule(CfwModes.KIND_PITCH, l.lens.y + (step - mA) * l.rowH),            // P0: lens.y − (c + mA) × rowH, c = c' − step
+                    Rule(CfwModes.KIND_PITCH, l.lens.y + (step - sA) * l.rowH),            // P0: lens.y − (c + sA) × rowH, c = c' − step
                     Rule(CfwModes.KIND_ITEM, 0),                                            // P1: the entering row's band form
                     Rule(CfwModes.KIND_ITEM, -step),                                        // P2: the leaving row's
-                    Rule(CfwModes.KIND_PITCH, l.lens.bottom + (step - 1 - mA) * l.rowH)), sx)   // P3: lens.bottom − (c + 1 + mA) × rowH
+                    Rule(CfwModes.KIND_PITCH, l.lens.bottom + (step - 1 - sA) * l.rowH)), sx)   // P3: lens.bottom − (c + 1 + sA) × rowH
             }
             // the press: the band row at the cursor, one depth notch nearer, never nearer than the screen plane (`DESIGN.md`
             // §3.1's rule for the selection, which the press continues; at Global Depth 4 or less it cannot come forward)

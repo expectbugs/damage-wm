@@ -18,7 +18,8 @@ import wm.damage.core.transport.Arm
  *      acted on as today is the stated residual — counted, not failed;
  *  (2) at rest each lens's panel and shadow equal the phone's truth;
  *  (3) both lenses' cursors on the phone's row after a SETTLE (the list in front);
- *  (4) at rest: no owes, u 0, no burst open, no slot owing an answer, S_heard not ahead of RIGHT's S;
+ *  (4) at rest: no owes, no burst open, no slot owing an answer, S_heard not ahead of RIGHT's S (u is not read: since
+ *      decisions BB it counts the unreported stock messages since S_heard last advanced, kept across a SETTLE);
  *  (5) no message of the phone's refused (the refusals the harness induced kept apart; a sequence that lost or had
  *      refused a mode-27 message is counted, not failed — the phone's later messages may then name what the lens lacks);
  *  (6) with nothing lost from then on and the list uncovered, of two taps a round trip apart the second is acted on;
@@ -33,6 +34,18 @@ class LocalSequenceFuzzTest {
     private var debug = false
 
     class Verdict(val failed: List<String>, val counted: Map<String, Int>, val stats: String = "")
+
+    /** Decisions BC: the declared count for a gesture that moved the row twice because its stock message came after its
+     *  burst's SETTLE (its owe cleared there) and was applied as today — a residual shape, counted with its seed; every
+     *  other (8) fails. Random sequences only: a seeded case counts nothing apart. */
+    private val lateEchoKey = "(8) BC: an echo later than its burst's SETTLE"
+    private fun moved(h: LocalHarness, failed: MutableList<String>, counted: MutableMap<String, Int>, seeded: Boolean, suffix: String) {
+        for ((g, n) in h.moves) {
+            if (n <= 1) continue
+            if (!seeded && g in h.lateEchoes) counted[lateEchoKey] = (counted[lateEchoKey] ?: 0) + 1
+            else failed += "(8) gesture $g moved the row $n times$suffix"
+        }
+    }
 
     // ----------------------------------------------------------------------------------------- the invariants
     /** (1)–(5) and (8) at rest; [lossy]: a mode-27 message was lost or refused this sequence. */
@@ -55,7 +68,7 @@ class LocalSequenceFuzzTest {
         }
         // (4)
         val rr = h.rules
-        if (rr.owesScroll + rr.owesClick + rr.owesAny != 0 || rr.u != 0) failed += "(4) owes ${rr.owesScroll}/${rr.owesClick}/${rr.owesAny} u ${rr.u}"
+        if (rr.owesScroll + rr.owesClick + rr.owesAny != 0) failed += "(4) owes ${rr.owesScroll}/${rr.owesClick}/${rr.owesAny} (u ${rr.u})"
         if (rr.burstOpen) failed += "(4) a burst still open"
         if (rr.slotOwed(0)) failed += "(4) slot 0 still owes an answer"
         if (LocalRules.after(rr.sHeard, sR)) failed += "(4) S_heard ${rr.sHeard} ahead of RIGHT's S $sR"
@@ -64,8 +77,8 @@ class LocalSequenceFuzzTest {
             if (h.lossyMessages == 0) failed += "(5) refused: ${h.refusals.distinct().joinToString("; ")}"
             else counted["(5) after a lost or refused mode 27"] = (counted["(5) after a lost or refused mode 27"] ?: 0) + 1
         }
-        // (8)
-        for ((g, n) in h.moves) if (n > 1) failed += "(8) gesture $g moved the row $n times"
+        // (8) — decisions BC: an echo later than its burst's SETTLE is counted apart in random sequences
+        moved(h, failed, counted, seeded, "")
         // (2)'s cause, read directly (decisions AA.1): a COMMIT never rides a batch whose drawing meets its areas
         if (h.commitOverDraw.isNotEmpty()) failed += "(2) a COMMIT rode a batch with a drawing sub inside its areas at ${h.commitOverDraw}"
         // the fix round's row for the lead (`C2-DP2-built.md`, the fix round, row A): after a COMMIT that did not land on
@@ -165,7 +178,7 @@ class LocalSequenceFuzzTest {
             val k = if (right.isEmpty()) "row A, after the liveness COMMITs: RIGHT agrees" else "row A, after the liveness COMMITs: RIGHT still differs"
             counted[k] = (counted[k] ?: 0) + 1
         }
-        for ((g, k) in h.moves) if (k > 1) failed += "(8) gesture $g moved the row $k times (liveness)"
+        moved(h, failed, counted, false, " (liveness)")
         if (h.commitOverDraw.isNotEmpty()) failed += "(2) a COMMIT rode a batch with a drawing sub inside its areas at ${h.commitOverDraw} (liveness)"
         // decisions AA.1: the answers that are a COMMIT with the areas' drawing held back — each a DISCARD under the rule before
         if (h.heldCommits > 0) {
@@ -175,6 +188,9 @@ class LocalSequenceFuzzTest {
         if (h.telemetryAsked > 0) counted["AA.2: sequences with a read asked at a SETTLE"] = (counted["AA.2: sequences with a read asked at a SETTLE"] ?: 0) + 1
         // decisions AW.3: windows that opened over a COMMITted motion still drawing, cut by a CLOSE ahead of their frame
         if (h.windowCuts > 0) counted["AW.3: windows that cut a COMMITted motion"] = (counted["AW.3: windows that cut a COMMITted motion"] ?: 0) + h.windowCuts
+        // decisions AZ.4: the wraps animated from the phone, and those a later batch's drawing in the list closed first
+        if (h.wrapPlays > 0) counted["AZ.4: wrap PLAYs"] = (counted["AZ.4: wrap PLAYs"] ?: 0) + h.wrapPlays
+        if (h.wrapCuts > 0) counted["AZ.4: wraps closed by a draw in the list"] = (counted["AZ.4: wraps closed by a draw in the list"] ?: 0) + h.wrapCuts
         val stats = "outcome %08x keyframes ${h.keyframes} ".format(h.outcome.value) + "taps ${h.rules.taps.word} events $n sent ${h.sent} commits ${h.commitsSent.size} held ${h.heldCommits} acts ${h.acts.size} " +
             "verdicts ${h.verdicts.groupingBy { it.second::class.simpleName }.eachCount()} counts ${h.rules.counts}"
         return Verdict(failed.distinct(), counted, stats)
@@ -486,6 +502,63 @@ class LocalSequenceFuzzTest {
      *  minute's. The COMMIT's outcome-3 body never comes, so the burst's lone SETTLE asks for ONE read; its record names
      *  mode 27 and P1 sends the table again with one keyframe: RIGHT equals the belief within a round after the SETTLE.
      *  Without the read RIGHT keeps the pre-gesture row until the minute's read. */
+    /** S25 (decisions AZ.4; G1 item 5's shape on his glasses): a notch to the last row, a notch past the end 6 ms later
+     *  (the wrap), and a notch 10 ticks after the wrap's PLAY lands: the wrap is a phone PLAY in slot 1 beside the DISCARD
+     *  naming row 0, the next notch's fire closes it and is adopted from row 0, and every invariant holds at rest. */
+    @Test fun seededS25_aWrapIsAnimatedAndTheNextNotchClosesIt() = seeded(Taps.REPORT, rows = 0, script = { h ->
+        repeat(h.ids.size - 2) { h.gesture(1, answer = true, band = "none"); h.runUntil(h.now + 600) }
+        h.rest()
+        h.gesture(1, answer = true, band = "none")
+        h.runUntil(h.now + 6)
+        h.gesture(1, answer = true, band = "none")
+        var played = false
+        repeat(400) { if (!played) { h.runUntil(h.now + 1); played = h.sim.motionForTest(Arm.RIGHT).slots[LocalHarness.WRAP_SLOT] != null } }
+        h.runUntil(h.now + 10)                          // inside its T × P = 48 ticks
+        h.gesture(1, answer = true, band = "none")
+        h.rest()
+    }, extra = { h -> listOfNotNull(
+        if (h.wrapPlays != 1) "the wrap was played ${h.wrapPlays} times" else null,
+        if (h.row != 1) "the row is ${h.row}, not 1 (the wrap to 0, then one notch)" else null,
+        if (h.bodies114.none { it.first == LocalHarness.WRAP_SLOT && it.third == 1 }) "the next notch's fire did not close the wrap's instance on RIGHT: ${h.bodies114.filter { it.first == LocalHarness.WRAP_SLOT }}" else null) })
+
+    /** S26 (decisions AZ.4): two notches past the last row handled before one answer (a busy link) — the phone's row moved
+     *  twice (to 0, then 1), so no PLAY across the wrap (its END would be row 0): the DISCARD names row 1 as today. */
+    @Test fun seededS26_twoEdgesInOneAnswerAreNotAnimated() = seeded(Taps.REPORT, rows = 0, script = { h ->
+        repeat(h.ids.size - 1) { h.gesture(1, answer = true, band = "none"); h.runUntil(h.now + 600) }
+        h.rest()
+        h.pumpDelay = 80                                // both reports handled before one batch
+        h.afterReport = { h.pumpDelay = 80 }
+        h.gesture(1, answer = true, band = "none")
+        h.runUntil(h.now + 20)
+        h.gesture(1, answer = true, band = "none")
+        h.runUntil(h.now + 100)
+        h.pumpDelay = 3
+        h.rest()
+    }, extra = { h -> listOfNotNull(
+        if (h.wrapPlays != 0) "a wrap was played ${h.wrapPlays} time(s) with the row moved twice" else null,
+        if (h.row != 1) "the row is ${h.row}, not 1" else null) })
+
+    /** S27 (decisions BB; the fuzz's seed 100100988 on G2): two notches whose reports are lost — their scroll messages come
+     *  and are applied as today — then the burst's SETTLE; a notch later finds the gap of 2. Those two messages already
+     *  came, so no echo owe is left for them: a click 50 ms after that notch (`Taps · phone`: no tap entry, the click acts
+     *  as today) is acted on. Charged in full, the gap's two owes swallowed it. */
+    @Test fun seededS27_aGapFoundAfterASettleOwesNothingForMessagesThatCame() {
+        var tap = -1
+        seeded(Taps.PHONE, script = { h ->
+            h.loseNext115 = 2
+            h.gesture(1, answer = true, band = "none"); h.runUntil(h.now + 300)
+            h.gesture(1, answer = true, band = "none"); h.runUntil(h.now + 300)
+            h.rest()
+            h.gesture(1, answer = true, band = "none")
+            h.runUntil(h.now + 50)
+            tap = h.gesture(0, answer = true, band = "none")
+            h.rest()
+        }, extra = { h -> listOfNotNull(
+            if (h.acts.none { it.gesture == tap }) "the click 50 ms after the gap's report was not acted on (owes ${h.rules.owesAny}; " +
+                "verdicts ${h.verdicts.filter { it.first == tap }.map { it.second }})" else null,
+            if (h.rules.counts["gap"] != 2) "the gap counted ${h.rules.counts["gap"]}, not 2 (the shape did not happen)" else null) })
+    }
+
     @Test fun seededS24_aRefusedTailOnRightIsSeenAtTheSettle() = seeded(Taps.REPORT, live = false, script = { h ->
         h.refuse27On = Arm.RIGHT
         val t0 = h.now
@@ -553,15 +626,23 @@ class LocalSequenceFuzzTest {
     @Test
     fun randomSequencesHoldTheEightInvariants() {
         val n = System.getenv("LOCAL_FUZZ_N")?.toInt() ?: 60
+        // `LOCAL_FUZZ_BASES=7,4242`: other seed bases for an instrument's extra run (G3); 1 and 1001 otherwise
+        val bases = System.getenv("LOCAL_FUZZ_BASES")?.split(',')?.map { it.trim().toLong() } ?: listOf(1L, 1001L)
         val fails = ArrayList<String>()
         val counted = HashMap<String, Int>()
-        for (base in listOf(1L, 1001L)) for (i in 0 until n) {
-            val seed = base * 100_000 + i
+        val declaredSeeds = java.util.TreeMap<String, MutableList<Long>>()
+        // `LOCAL_FUZZ_SEEDS=a,b`: exactly these seeds (reading a failure under one rule and another)
+        val only = System.getenv("LOCAL_FUZZ_SEEDS")?.split(',')?.map { it.trim().toLong() }
+        val seeds = only ?: bases.flatMap { base -> (0 until n).map { i -> base * 100_000 + i } }
+        for (seed in seeds) {
             val v = try { randomSequence(seed) } catch (e: Throwable) { Verdict(listOf("threw: $e"), emptyMap()) }
             for (f in v.failed) fails += "seed $seed: $f"
             for ((k, c) in v.counted) counted[k] = (counted[k] ?: 0) + c
+            // decisions BC: the declared shapes, with their seeds
+            for (k in v.counted.keys) if (k.startsWith("(8) BC") || k.startsWith("row A: a batch")) declaredSeeds.getOrPut(k) { ArrayList() } += seed
         }
-        println("sequence fuzz: ${2 * n} sequences, ${fails.size} failures; counted $counted")
+        println("declared (BC): " + declaredSeeds.entries.joinToString("; ") { (k, s) -> "$k ${s.size} sequence(s): ${s.joinToString()}" })
+        println("sequence fuzz: ${seeds.size} sequences (${if (only != null) "seeds ${only.joinToString()}" else "bases ${bases.joinToString()}"}), ${fails.size} failures; counted $counted")
         if (fails.isNotEmpty()) fail(fails.take(30).joinToString("\n") + "\n(${fails.size} in all)")
     }
 }
