@@ -593,13 +593,13 @@ class MainLocalShellTest {
         try {
             r.up()
             val before = r.list().entries.first { it.eventId == CfwModes.EV_UPROLL }
-            assertEquals(46 to 10, before.period to before.program!!.T, "the defaults at 352")
+            assertEquals(46 to 6, before.period to before.program!!.T, "the defaults at 352 (300 ms, decisions AZ.7)")
             val staged0 = r.notes("mainstage").count { it.startsWith("staged") }
-            r.shell.updateSettings { it.copy(scrollLength = 300, frames = 0) }
+            r.shell.updateSettings { it.copy(scrollLength = 450, frames = 0) }
             r.until("staged again with the new motion", 15_000) { r.notes("mainstage").count { it.startsWith("staged") } > staged0 }
             r.bound("bound with the new motion")
             val after = r.list().entries.first { it.eventId == CfwModes.EV_UPROLL }
-            assertEquals(46 to 6, after.period to after.program!!.T, "300 ms Auto at 352: T 6 at P 46")
+            assertEquals(46 to 10, after.period to after.program!!.T, "450 ms Auto at 352: T 10 at P 46")
             assertEquals(46, r.sim.bindForTest(Arm.RIGHT).entries.filterNotNull().first { it.eventId == CfwModes.EV_UPROLL }.period, "RIGHT's entry")
             assertTrue(r.notes("mainstage").any { it.startsWith("dropped — the motion changed") }, "${r.notes("mainstage").takeLast(4)}")
             notch(r, CfwModes.EV_UPROLL, "a notch with the new motion")
@@ -1012,6 +1012,7 @@ class MainLocalShellTest {
             r.fire(CfwModes.EV_UPROLL)
             delay(r.motionMs() + r.q() + 300); r.settle("after the edge")
             assertTrue(wrapBatch(r, at) == null, "no wrap PLAY")
+            assertTrue(r.notes("local").none { "wrap's PLAY is refused" in it }, "none was even made: ${r.notes("local").takeLast(2)}")
             assertTrue(r.notes("snapback").last().let { "cause=edge" in it && "wrap=play" !in it }, r.notes("snapback").last())
             r.assertOracle("after the edge")
         } finally { r.close() }

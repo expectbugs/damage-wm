@@ -328,6 +328,51 @@ object MainLocalCheck {
                 union(ms.press.areas(true) + ms.press.areas(false)), kept, lines, fails)
         }
 
+        // ---- decisions AZ.4: the wrap where Main wraps — the edge at each end, then the phone's PLAY of the same pan in
+        //      the wrap's slot beside the DISCARD naming the other end: every step drawn, the last one Main's paint at the
+        //      wrapped row, END in the shadow as belief takes it, RIGHT's cursor there, the instance's last step notified
+        if (ms.wraps) for ((e, name) in listOf(down to "wrap-down", up to "wrap-up")) {
+            val fails = ArrayList<String>(); val lines = ArrayList<String>()
+            val c = if (e.step > 0) ms.rows - 1 else 0
+            val cPrime = c + e.step
+            val to = cPrime.mod(ms.rows)
+            val frames: MutableList<Frame>? = if (keepFrames) ArrayList() else null
+            lens.now += 1_000
+            lens.keyframe(m.truth(c, true), m.truth(c, false))
+            lens.send("DISCARD to cursor $c", CfwModes.motionDiscard(MainStaging.SLOT, 1, MainStaging.LIST, c), fails)
+            lens.notifies()
+            frames?.add(Frame("before", lens.panel(Arm.LEFT), lens.panel(Arm.RIGHT)))
+            val a = lens.fire(CfwModes.DEV_RING, e.eventId)
+            s++
+            if (a == null || a.outcome != DamageMsg.APPLIED_EDGE || a.cursor != c) fails += "$name from $c: the lens did not report the edge (${a?.describe()})"
+            val pan = ms.pan(MainStaging.WHOLE, e.step)
+            val p = ms.wrapParams(pan, cPrime)
+            if (p == null) fails += "$name from $c: no parameters across the wrap"
+            else {
+                val play = Motion.play(pan.program, MainStaging.WRAP_SLOT, ms.period, Shell.WRAP_TAG, 0, p)
+                lens.send("the wrap's PLAY and DISCARD", CfwModes.batch(listOf(play, CfwModes.motionDiscard(MainStaging.SLOT, (s + 1 - 0x4000) and 0xFFFF, MainStaging.LIST, to)), engine = true, bind = true), fails)
+                val t0 = lens.now
+                frames?.add(Frame("step 1", lens.panel(Arm.LEFT), lens.panel(Arm.RIGHT)))     // the PLAY's own present
+                for (k in 2..ms.t) { lens.wake(t0 + (k - 1).toLong() * ms.period); frames?.add(Frame("step $k", lens.panel(Arm.LEFT), lens.panel(Arm.RIGHT))) }
+                lens.wake(t0 + ms.t.toLong() * ms.period)
+                for (arm in Arm.entries) {
+                    val left = arm == Arm.LEFT
+                    differ(lens.panel(arm), m.truth(to, left), pan.areas(left)).let { if (it > 0) fails += "$name $arm: $it px of the last step not Main's paint at $to" }
+                    val belief = m.truth(c, left).copy().also { ms.paintEnd(pan, p, left, it) }
+                    differ(lens.shadow(arm), belief, null).let { if (it > 0) fails += "$name $arm: $it px where END in the shadow is not what belief takes" }
+                    differ(lens.shadow(arm), m.truth(to, left), pan.areas(left)).let { if (it > 0) fails += "$name $arm: $it px of END not Main's paint at $to" }
+                    if (sim.panelCrc32(arm) != sim.shadowCrc32(arm)) fails += "$name $arm: after the last step the lens does not show the shadow"
+                    if (sim.bindForTest(arm).lists[MainStaging.LIST].cursor != to) fails += "$name $arm: the list's cursor ${sim.bindForTest(arm).lists[MainStaging.LIST].cursor}, not $to"
+                }
+                val bodies = lens.notifies()
+                if (bodies.none { it.slot == MainStaging.WRAP_SLOT && it.outcome == DamageMsg.OUTCOME_DREW } || bodies.any { it.outcome == 2 })
+                    fails += "$name: RIGHT's notifies ${bodies.map { it.describe() }}"
+                lines += "$name from $c → $to: PLAY slot ${MainStaging.WRAP_SLOT} prog ${pan.prog4} P ${p.joinToString(",")}, ${ms.t} steps at P ${ms.period}"
+            }
+            cases += Case("$tag-$name", "the wrap from row $c to row $to: the edge, then the phone's PLAY of the pan across it (decisions AZ.4)",
+                union(pan.areasL + pan.areasR), frames ?: emptyList(), lines, fails)
+        }
+
         // ---- the report-only tap entry (Taps · report)
         run {
             val fails = ArrayList<String>()

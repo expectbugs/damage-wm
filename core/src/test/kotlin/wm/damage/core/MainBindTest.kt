@@ -48,7 +48,9 @@ class MainBindTest {
         for (line in r.table) println("DM2-staging $line")
         for (c in r.cases) for (l in c.lines.take(2)) println("DM2-case ${c.name}: $l")
         assertTrue(r.failures.isEmpty(), "failures:\n" + r.failures.take(40).joinToString("\n"))
-        assertEquals(4 * 2 * 7, r.cases.size, "every height and cache ran its seven cases")
+        // decisions AZ.4: and the wrap both ways where Main wraps (288 and 352 with the sample's eight rows), on both caches
+        assertEquals(4 * 2 * 7 + 2 * 2 * 2, r.cases.size, "every height and cache ran its seven cases, and the wrapping heights their two wraps")
+        assertEquals(8, r.cases.count { it.name.contains("-wrap-") }, "the wrap cases: ${r.cases.filter { it.name.contains("-wrap-") }.map { it.name }}")
     }
 
     /** Decisions AF.4 (review V1Db §4, its probe turned into the pin): a report adopted before a band switch's
@@ -173,7 +175,7 @@ class MainBindTest {
 
     /** Build ANIM (decisions AV, AW.1): the motion in force from the `Animations` rows at every height — Auto: the fitted
      *  period and the most steps that fit in the length (at least 3); a fixed count: that many steps, the period never
-     *  under the fitted one; the defaults (450 ms, Auto) give T 10 at P 46 at 352. The band's swap keeps its 2-of-5 share. */
+     *  under the fitted one; the defaults (300 ms since decisions AZ.7, Auto) give T 6 at P 46 at 352. The band's swap keeps its 2-of-5 share. */
     @Test
     fun theMotionFollowsTheAnimationsRowsAtEachHeight_ANIM() {
         val table = ArrayList<String>()
@@ -199,7 +201,7 @@ class MainBindTest {
         }
         println("ANIM-table\n" + table.joinToString("\n"))
         val d = MainLocalCheck.MainRig(BoxFace, 352, MainLocalCheck.sampleRows()).staging(CfwModes.CACHE2_MAX, CfwModes.mainRegion(CfwModes.CACHE2_MAX, true))
-        assertEquals(46 to 10, d.period to d.t, "the defaults at 352: T 10 at P 46")
+        assertEquals(46 to 6, d.period to d.t, "the defaults at 352 (300 ms since decisions AZ.7): T 6 at P 46")
         assertEquals(4, MainStaging.swapOf(10), "the band's swap at T 10")
         assertEquals(2, MainStaging.swapOf(5), "the band's swap at T 5, as before")
     }
@@ -224,7 +226,7 @@ class MainBindTest {
         println("DM2-restage torrents: ${r2.bytes} B in ${r2.writes.size} write(s): ${r2.writes.joinToString { "${it.what} ${it.bytes.size} B" }}")
         assertTrue(r2.writes.all { it.off % 4 == 0 && it.bytes.size % 4 == 0 }, "every write 4-aligned")
         val strip = r2.writes.filter { it.what.startsWith("strip") }
-        assertEquals(1, strip.size, "Torrents shows once in the strip at 352 (no margin copy)")
+        assertEquals(2, strip.size, "Torrents shows twice in the strip at 352: its row and one margin copy (each margin holds four rows since decisions AZ.4: three shown and the one a pan across the wrap shows)")
     }
 
     /** Decisions B.4: on a 256 KiB session with BIND in force the atlas lays out over 128 KiB, under Main's own region;

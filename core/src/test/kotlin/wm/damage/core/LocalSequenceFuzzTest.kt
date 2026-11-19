@@ -508,6 +508,23 @@ class LocalSequenceFuzzTest {
         if (h.row != 1) "the row is ${h.row}, not 1 (the wrap to 0, then one notch)" else null,
         if (h.bodies114.none { it.first == LocalHarness.WRAP_SLOT && it.third == 1 }) "the next notch's fire did not close the wrap's instance on RIGHT: ${h.bodies114.filter { it.first == LocalHarness.WRAP_SLOT }}" else null) })
 
+    /** S26 (decisions AZ.4): two notches past the last row handled before one answer (a busy link) — the phone's row moved
+     *  twice (to 0, then 1), so no PLAY across the wrap (its END would be row 0): the DISCARD names row 1 as today. */
+    @Test fun seededS26_twoEdgesInOneAnswerAreNotAnimated() = seeded(Taps.REPORT, rows = 0, script = { h ->
+        repeat(h.ids.size - 1) { h.gesture(1, answer = true, band = "none"); h.runUntil(h.now + 600) }
+        h.rest()
+        h.pumpDelay = 80                                // both reports handled before one batch
+        h.afterReport = { h.pumpDelay = 80 }
+        h.gesture(1, answer = true, band = "none")
+        h.runUntil(h.now + 20)
+        h.gesture(1, answer = true, band = "none")
+        h.runUntil(h.now + 100)
+        h.pumpDelay = 3
+        h.rest()
+    }, extra = { h -> listOfNotNull(
+        if (h.wrapPlays != 0) "a wrap was played ${h.wrapPlays} time(s) with the row moved twice" else null,
+        if (h.row != 1) "the row is ${h.row}, not 1" else null) })
+
     @Test fun seededS24_aRefusedTailOnRightIsSeenAtTheSettle() = seeded(Taps.REPORT, live = false, script = { h ->
         h.refuse27On = Arm.RIGHT
         val t0 = h.now
