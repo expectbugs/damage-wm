@@ -97,6 +97,25 @@ class CompositorEndsTest {
         assertEquals(12 * 17 shr 4, c.shadowForTest(true)[band.x - 7, band.y] shr 4, "then the model is the truth there")
     }
 
+    /** Stage DI, the chrome overlap settled: with the bound list's areas kept out, two deltas either side of them (the
+     *  top divider's mark and Main's rail thumb, at one disparity) are not merged into one rect across them — the
+     *  compressed union would be cheaper, which is why the planner took it. Without the keep-out the union is taken. */
+    @Test
+    fun noMergeAcrossTheBoundListsAreas_DI() {
+        fun sides(c: Compositor) {
+            c.composed.fillRect(Rect(band.x - 8, band.y, 4, 2), 12 * 17); c.composed.fillRect(Rect(band.right + 4, band.y, 4, 2), 12 * 17)
+            c.damage(Rect(band.x - 8, band.y, 4, 2)); c.damage(Rect(band.right + 4, band.y, 4, 2))
+        }
+        val plain = fresh(); sides(plain)
+        assertTrue(writes(plain.assembleFlush(Geometry.rectBudget(3))).any { it.overlaps(band) }, "without the keep-out the union across the band is taken (else this proves nothing)")
+        val c = fresh(); sides(c)
+        c.keepOut = listOf(band to band)
+        val a = c.assembleFlush(Geometry.rectBudget(3))
+        assertTrue(writes(a).none { it.overlaps(band) }, "nothing written inside the kept-out areas: ${writes(a)}")
+        assertEquals(12 * 17 shr 4, c.shadowForTest(true)[band.x - 7, band.y] shr 4, "both cells painted")
+        assertEquals(12 * 17 shr 4, c.shadowForTest(true)[band.right + 5, band.y] shr 4, "both cells painted")
+    }
+
     /** A keyframe writes the whole model and closes every instance: a COMMIT cannot ride it (END would not survive in
      *  the model), so the slot is answered with DISCARD and the keyframe paints the truth. */
     @Test

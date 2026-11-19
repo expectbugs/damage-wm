@@ -290,6 +290,23 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
      *  them and a rollback marks them unknown. */
     private var endTouched: List<Touched> = emptyList()
 
+    /**
+     * Build C2 (stage DI, the chrome overlap settled): the bound list's areas per lens while it is in front with BIND in
+     * force — the shell sets them each pump, empty otherwise. No merge of two deltas may make a rect that meets one of
+     * them where neither part did ([keepsOut]). Measured at the four heights: the top divider's position mark (chrome's
+     * ink, rows 32–33) and Main's rail thumb (x 616–619 from row 34), both at the Global depth, were unioned into one
+     * delta across the pad and into the pan's top track ((244,32 376×22) at 352) — a write over the adopted instance for
+     * the transport, a held repaint for [assembleWithEnds]. A rect already inside an area may grow inside it.
+     */
+    var keepOut: List<Pair<Rect, Rect>> = emptyList()
+
+    /** Whether the union [u] of [a] and [b] (nominal, at disparity [d]) meets no [keepOut] area on a lens that neither
+     *  part meets (lens x = nominal − d on the left, + d on the right, as [planOps] places them). */
+    private fun keepsOut(a: Rect, b: Rect, u: Rect, d: Int): Boolean = keepOut.none { (al, ar) ->
+        (u.translate(-d, 0).overlaps(al) && !a.translate(-d, 0).overlaps(al) && !b.translate(-d, 0).overlaps(al)) ||
+            (u.translate(d, 0).overlaps(ar) && !a.translate(d, 0).overlaps(ar) && !b.translate(d, 0).overlaps(ar))
+    }
+
     /** The cells [assembleWithEnds] holds back from this assemble, per lens (a riding COMMIT's areas): not dirty here. */
     private var holdL: List<Rect> = emptyList()
     private var holdR: List<Rect> = emptyList()
@@ -843,7 +860,7 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
                 for (i in rects.indices) for (j in i + 1 until rects.size) {
                     val u = rects[i].union(rects[j])
                     val grow = u.area.toLong() - rects[i].area - rects[j].area
-                    if (grow < best && ok(u)) { best = grow; bo = own; bi = i; bj = j }
+                    if (grow < best && ok(u) && keepsOut(rects[i], rects[j], u, dOf.getValue(own))) { best = grow; bo = own; bi = i; bj = j }
                 }
             }
             if (bi < 0) break                    // nothing left that may merge within an owner
@@ -866,9 +883,9 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
             if (list.size <= share) { result.addAll(list); continue }
             val remainder = list.filter { it.owner == OWNER_REMAINDER }
             val inPieces = list.filter { it.owner != OWNER_REMAINDER }
-            for (r in mergeToBudget(inPieces.map { it.rect }, maxOf(1, share - minOf(1, remainder.size))) { u -> samePlane(u, d) })
+            for (r in mergeToBudget(inPieces.map { it.rect }, maxOf(1, share - minOf(1, remainder.size))) { a, b, u -> samePlane(u, d) && keepsOut(a, b, u, d) })
                 result.add(Planned.Delta(r, d, OWNER_MIXED))
-            for (r in mergeToBudget(remainder.map { it.rect }, 1) { u -> planes.none { it.rect.overlaps(u) } })
+            for (r in mergeToBudget(remainder.map { it.rect }, 1) { a, b, u -> planes.none { it.rect.overlaps(u) } && keepsOut(a, b, u, 0) })
                 result.add(Planned.Delta(r, 0, OWNER_REMAINDER))
         }
         return price(result)
@@ -894,7 +911,7 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
                 val u = a.rect.union(b.rect)
                 val ok = if (a.owner == OWNER_REMAINDER || b.owner == OWNER_REMAINDER)
                     planes.none { it.rect.overlaps(u) } else samePlane(u, a.d)
-                if (!ok) continue
+                if (!ok || !keepsOut(a.rect, b.rect, u, a.d)) continue
                 val cu = compress(u).size + SUB_HEADER
                 val cab = compress(a.rect).size + compress(b.rect).size + 2 * SUB_HEADER
                 if (cu <= cab) {
@@ -910,14 +927,14 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
 
     /** Least-area-growth pairwise merging down to [budget], skipping pairs
      *  [ok] refuses. Called on lists already coarsened to a small n. */
-    private fun mergeToBudget(rects: List<Rect>, budget: Int, ok: (Rect) -> Boolean): List<Rect> {
+    private fun mergeToBudget(rects: List<Rect>, budget: Int, ok: (Rect, Rect, Rect) -> Boolean): List<Rect> {
         val out = rects.toMutableList()
         while (out.size > budget && out.size > 1) {
             var bi = -1; var bj = -1; var best = Long.MAX_VALUE
             for (i in out.indices) for (j in i + 1 until out.size) {
                 val u = out[i].union(out[j])
                 val grow = u.area.toLong() - out[i].area - out[j].area
-                if (grow < best && ok(u)) { best = grow; bi = i; bj = j }
+                if (grow < best && ok(out[i], out[j], u)) { best = grow; bi = i; bj = j }
             }
             if (bi < 0) break                    // nothing left that may merge
             val u = out[bi].union(out[bj])

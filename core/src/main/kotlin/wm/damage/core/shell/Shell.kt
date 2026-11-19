@@ -6994,6 +6994,8 @@ class Shell(
             // in force, the one state in which the transport adds a CLOSE (ruling B-N4); elsewhere, today's firmware
             // included, the assemble path is what it was
             comp.motionOpen = st.flagsInForce and wm.damage.core.wire.DamageMsg.FLAG_ENGINE != 0 && transport.mirror.motionOpen()
+            // build C2, stage DI: no delta is merged across the bound list's areas (chrome's ink beside Main's rail thumb)
+            comp.keepOut = if (localOn) local.front?.areas ?: emptyList() else emptyList()
             val assembleT0 = System.nanoTime()
             // build C2 (P3, P10): each planned COMMIT's END applied to the model before the diff; denied when a drawing
             // sub then meets its slot's areas

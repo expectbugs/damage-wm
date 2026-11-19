@@ -15,6 +15,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import wm.damage.core.comp.CachedText
 import wm.damage.core.geom.Geometry
+import wm.damage.core.geom.Rect
 import wm.damage.core.gfx.Gray8
 import wm.damage.core.gfx.IconKind
 import wm.damage.core.local.BoundList
@@ -359,6 +360,106 @@ class MainLocalShellTest {
                 val sub = Files.readAllLines(r.journal).filter { "\"ev\":\"submit\"" in it }.takeLast(200)
                     .map { it.substringAfter("\"assembleMs\":").substringBefore(",").toInt() }.sorted()
                 println("DI-loop stage $stage: assembleMs over ${sub.size} flushes: median ${sub.getOrNull(sub.size / 2)} p90 ${sub.getOrNull(sub.size * 9 / 10)} max ${sub.lastOrNull()}")
+            } finally { r.close() }
+        }
+    }
+
+    /**
+     * Stage DI, the chrome overlap settled: at the four heights, every program of Main's bound list (its areas are fixed
+     * per program — the cursor picks pictures, never areas) lies inside Main's content clip on each lens (at the depths
+     * Main's content is drawn at: the list's, the band's, the press's) and meets no chrome cell, bar or divider on either
+     * lens (each at its own plane's disparity).
+     */
+    @Test
+    fun theProgramsAreasLieInsideMainsContentAndMeetNoChrome_DI(): Unit = runBlocking {
+        for (h in listOf(288, 352, 416, 480)) {
+            val r = Rig(Taps.GLASSES)
+            try {
+                r.shell.start(); r.settle("start")
+                r.shell.updateSettings { it.copy(heightMode = h, cachedText = "on", taps = Taps.GLASSES) }
+                r.until("the atlas goes live") { r.shell.cachedTextActive && r.shell.cachedFontsLive.isNotEmpty() }
+                r.bound("h=$h")
+                val (l, planes) = r.onLoop { r.shell.layout to r.shell.comp.planes.toList() }
+                fun dAt(x: Rect) = planes.lastOrNull { it.rect.contains(x) }?.disparity ?: 0
+                val chrome = l.chromeCells().values + listOf(l.topBar, l.topDivider, l.bottomDivider, l.statusBar)
+                // the content's planes, and the press's (the band row one depth notch nearer, never past the screen plane:
+                // `MainStaging`, DM2 §0.3) — the band row drawn at that depth is still Main's content
+                val listDs = planes.filter { l.content.contains(it.rect) }.map { it.disparity }.toSet()
+                val contentDs = listDs + maxOf(0, listDs.min() - Geometry.X_STEP)
+                for (e in r.list().entries) for (t in e.program!!.tracks) for (left in listOf(true, false)) {
+                    val a = t.area(left)
+                    val clip = contentDs.map { d -> l.content.translate(if (left) -d else d, 0) }.reduce(Rect::union)
+                    assertTrue(clip.contains(a), "h=$h entry ${e.entry}: ${if (left) "L" else "R"} area $a inside Main's content clip $clip")
+                    for (c in chrome) {
+                        val d = dAt(c)
+                        val lens = c.translate(if (left) -d else d, 0)
+                        assertTrue(!lens.overlaps(a), "h=$h entry ${e.entry}: ${if (left) "L" else "R"} area $a meets chrome $lens")
+                    }
+                }
+            } finally { r.close() }
+        }
+    }
+
+    /** Stage DI, the chrome overlap settled, in the shell: a fast series of notches at 352 (one every 300 ms — the
+     *  measurement's series cut 27 of 40 pans right after their COMMIT) — every pan runs to its end: no flush meets
+     *  the adopted instance (no CLOSE by the transport), no snap-back. */
+    @Test
+    fun aFastSeriesOfNotchesIsNeverCutByTheChromeRefresh_DI(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT)
+        try {
+            r.up()
+            // five down from the top, five back: the rail's thumb moves deep enough that its change reaches the pan's
+            // top track's rows (from row 3 on at 352), where the divider's mark beside it was merged with it
+            repeat(20) { i ->
+                r.fire(if ((i / 5) % 2 == 0) CfwModes.EV_UPROLL else CfwModes.EV_DOWNROLL)
+                delay(300); r.settle("notch $i")
+            }
+            delay(LocalRules.Q_MS + 200); r.settle("after")
+            val closes = r.notes("motion").filter { it.startsWith("a flush meets open instance") }
+            assertTrue(closes.isEmpty(), "${closes.size} pan(s) cut by a flush meeting the adopted instance")
+            assertTrue(r.notes("snapback").isEmpty(), "no snap-back: ${r.notes("snapback").take(3)}")
+            r.assertOracle("after the series")
+        } finally { r.close() }
+    }
+
+    /** Fact finding for the chrome overlap (run with `DI_FACTS=1`): at the four heights, Main's content clip, the rows
+     *  Main paints, the rail, the dividers and the chrome cells, the planes, each program's tracks per lens; then one
+     *  adopted notch — which pixels changed in the nominal frame, by element, and the flushes that carried them. */
+    @Test
+    fun chromeOverlapFacts_DI(): Unit = runBlocking {
+        System.getenv("DI_FACTS") ?: return@runBlocking
+        for (h in listOf(288, 352, 416, 480)) {
+            val r = Rig(Taps.REPORT)
+            try {
+                r.shell.start(); r.settle("start")
+                r.shell.updateSettings { it.copy(heightMode = h, cachedText = "on", taps = Taps.REPORT) }
+                r.until("the atlas goes live") { r.shell.cachedTextActive && r.shell.cachedFontsLive.isNotEmpty() }
+                r.bound("h=$h")
+                val l = r.onLoop { r.shell.layout }
+                val above = (0 until l.rowsAbove).map { Rect(l.content.x, l.lens.y - (l.rowsAbove - it) * l.rowH, l.content.w - wm.damage.core.geom.Layout.RAIL_W, l.rowH) }
+                val below = (0 until l.rowsBelow).map { Rect(l.content.x, l.lens.bottom + it * l.rowH, l.content.w - wm.damage.core.geom.Layout.RAIL_W, l.rowH) }
+                println("FACT h=$h safe ${l.safe} topBar ${l.topBar} topDivider ${l.topDivider} content ${l.content} rail ${l.rail} lens ${l.lens} rowH ${l.rowH} " +
+                    "rows above ${l.rowsAbove} (first ${above.firstOrNull()}) below ${l.rowsBelow} (last ${below.lastOrNull()}) bottomDivider ${l.bottomDivider} statusBar ${l.statusBar}")
+                println("FACT h=$h chrome cells ${l.chromeCells()}")
+                println("FACT h=$h planes ${r.onLoop { r.shell.comp.planes.joinToString { p -> "${p.rect}@${p.disparity}" } }}")
+                val list = r.list()
+                for (e in list.entries) e.program?.let { p -> println("FACT h=$h entry ${e.entry} id ${e.eventId}: tracks " + p.tracks.joinToString { "L ${it.areaL} R ${it.areaR}" }) }
+                // one adopted notch: the nominal frame before and after, and the flushes
+                val before = r.onLoop { r.shell.comp.composed.pix.copyOf() }
+                val lines0 = Files.readAllLines(r.journal).size
+                r.fire(CfwModes.EV_UPROLL)
+                delay(700); r.settle("after")
+                val after = r.onLoop { r.shell.comp.composed.pix.copyOf() }
+                val regions = linkedMapOf("topDivider" to l.topDivider, "pad above" to Rect(l.content.x, l.content.y, l.content.w - wm.damage.core.geom.Layout.RAIL_W, above.first().y - l.content.y),
+                    "rail" to l.rail, "topBar" to l.topBar, "statusBar+div" to Rect(l.statusBar.x, l.bottomDivider.y, l.statusBar.w, l.statusBar.bottom - l.bottomDivider.y))
+                val w = Geometry.PANEL_W
+                for ((name, rr) in regions) {
+                    var x0 = Int.MAX_VALUE; var y0 = Int.MAX_VALUE; var x1 = -1; var y1 = -1
+                    for (y in rr.y until rr.bottom) for (x in rr.x until rr.right) if (before[y * w + x] != after[y * w + x]) { x0 = minOf(x0, x); y0 = minOf(y0, y); x1 = maxOf(x1, x); y1 = maxOf(y1, y) }
+                    println("FACT h=$h notch: $name $rr changed " + (if (x1 < 0) "nothing" else "ink (${x0},${y0})-(${x1},${y1})"))
+                }
+                println("FACT h=$h flushes after the notch:\n" + Files.readAllLines(r.journal).drop(lines0).filter { "\"ev\":\"submit\"" in it || "open instance" in it }
+                    .joinToString("\n") { "  " + (if ("submit" in it) it.substringAfter("\"ops\":") else it.substringAfter("\"detail\":\"").substringBefore("\"")) })
             } finally { r.close() }
         }
     }
