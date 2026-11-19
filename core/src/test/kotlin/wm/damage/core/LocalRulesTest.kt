@@ -447,6 +447,27 @@ class LocalRulesTest {
         assertEquals(0, r.counts["snapback.rebind"] ?: 0, "a re-bind is not a snap-back")
     }
 
+    /** Decisions AL.6 (R4): a list's return whose batch follows an adopted report (the withdrawal's CLEAR superseded, the lens
+     *  still holding the entries) is a re-bind, not a snap-back. */
+    @Test
+    fun aReturnAfterAnAdoptedReportIsARebindNotASnapback_AL6() {
+        val l = list()
+        val notes = ArrayList<Pair<String, String>>()
+        val r = LocalRules({ k, d -> notes += k to d })
+        val now = 10_000L
+        r.sessionStart(true, 0, 100, l, 3, Taps.REPORT)
+        val mark = r.tail(3, now).first { it[0].toInt() == 27 && it[1].toInt() == 2 }[11].toInt() and 0xFF
+        r.front(null, 3)                                            // withdrawn; its CLEAR not sent yet
+        r.front(l, 3)                                               // back: the CLEAR superseded, the slot marked for its re-bind
+        val f = HashMap<Int, Long>(mapOf(1 to 1L, 2 to 0xFFL, 3 to CfwModes.EV_UPROLL.toLong(), 4 to 0L, 5 to 0L, 6 to 0L,
+            7 to 0L, 8 to 4L, 9 to 0L, 15 to 200L, 17 to mark.toLong()))
+        for (i in 0..3) f[10 + i] = (intArrayOf(recs[4], 0, 0, 0)[i] and 0xFFFF).toLong(); f[14] = scroll.at.toLong()
+        assertEquals(Verdict.Adopt(4), r.report(DamageMsg.Applied(f), 3, now + 40), "adopted on the returned list")
+        r.tail(4, now + 50)
+        assertEquals(0, r.counts["snapback.rebind"] ?: 0, "not a snap-back: ${r.counts}; ${notes.filter { it.first == "snapback" }}")
+        assertTrue(notes.none { it.first == "snapback" }, "no snap-back noted: ${notes.filter { it.first == "snapback" }}")
+    }
+
     /** Decisions AF.5: a refused 3 or 14 body names no list; with none in front its stock message is applied as today. */
     @Test
     fun aRefusedReportNamingNoListLeavesItsStockMessage_AF5() {

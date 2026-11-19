@@ -50,8 +50,10 @@ import wm.damage.core.wire.EvenHubMsg
 class MainLocalShellTest {
 
     private class Row(id: String, name: String, var s: DamageWindow.Summary) : DamageWindow(id, name, IconKind.FILES) {
+        /** A playing track's position (decisions AL.1): the progress read from the clock at every read, as Music's. */
+        @Volatile var progress: (() -> Double)? = null
         override fun view(): WindowView = WindowView.ListView(ListModel(), { 0 }, { _, _, _, _ -> }, { _, _, _ -> }, {})
-        override fun summary() = s
+        override fun summary() = progress?.let { s.copy(progress = it()) } ?: s
         override fun saveState(): JsonObject = JsonObject(emptyMap())
         override fun restoreState(state: JsonObject) {}
     }
@@ -498,6 +500,23 @@ class MainLocalShellTest {
             r.settle("opened")
             val first = Files.readAllLines(r.journal).drop(lines0).first { "\"ev\":\"submit\"" in it && "\"label\":\"WINDOW" in it }
             assertTrue("\"in\":1" in first, "the act's first flush marked as input: ${first.take(300)}")
+            val marked = Files.readAllLines(r.journal).drop(lines0).filter { "\"ev\":\"submit\"" in it && "\"in\":1" in it }
+            assertEquals(1, marked.size, "only the act's flush is input, not the consumed echo's (AL.5): ${marked.map { it.take(160) }}")
+        } finally { r.close() }
+    }
+
+    /** Decisions AL.5: a ring Input the rules read is no gesture of its own pump (its echo consumed marks nothing; a verdict
+     *  that applies or acts on it marks its own); one they do not read (the temples, a typed line) is. */
+    @Test
+    fun anInputTheRulesReadDoesNotMarkItsPump_AL5(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT)
+        try {
+            r.up()
+            val ring = wm.damage.core.transport.TransportEvent.Input(EvenHubMsg.EV_SCROLL_BOTTOM, EvenHubMsg.SRC_RING)
+            val temple = wm.damage.core.transport.TransportEvent.Input(EvenHubMsg.EV_SCROLL_BOTTOM, EvenHubMsg.SRC_GLASSES_R)
+            assertEquals(false, r.onLoop { r.shell.marksInput(ring) }, "a ring scroll the rules read")
+            assertEquals(true, r.onLoop { r.shell.marksInput(temple) }, "a temple scroll")
+            assertEquals(true, r.onLoop { r.shell.marksInput(wm.damage.core.transport.TransportEvent.Text("x")) }, "a typed line")
         } finally { r.close() }
     }
 
@@ -522,9 +541,48 @@ class MainLocalShellTest {
             val dense = "W".repeat(80)
             for (w in r.rows) { w.s = w.s.copy(line = dense, detail = dense); r.shell.services.requestRender(w) }
             r.until("refused", 20_000) { r.notes("mainstage").any { it.startsWith("Main's rows cannot be staged") } }
+            // decisions AL.1: other dense rows (other sizes) are refused again for the same reason, which is said once
+            for (w in r.rows) { w.s = w.s.copy(line = "M".repeat(80)); r.shell.services.requestRender(w) }
+            r.settle("refused again"); delay(300); r.settle("refused again")
+            assertEquals(1, r.notes("mainstage").count { it.startsWith("Main's rows cannot be staged") },
+                "the refusal said once for one reason: ${r.notes("mainstage").filter { it.startsWith("Main's rows cannot") }}")
             for ((i, w) in r.rows.withIndex()) { w.s = DamageWindow.Summary("s $i", detail = "d $i"); r.shell.services.requestRender(w) }
             r.until("staged again", 20_000) { r.notes("mainstage").count { it.startsWith("staged") } >= 2 }
             r.bound("bound again")
+        } finally { r.close() }
+    }
+
+    /** Decisions AL.6 (R1): the shell is not quiescent while the held cells wait for an adopted motion's end ((T + 1) × P
+     *  after the report, ≈ 250 ms here): a harness settles after the release, with the repaint sent. */
+    @Test
+    fun theShellIsNotQuiescentWhileHeldCellsWait_AL6(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT)
+        try {
+            r.up()
+            r.fire(CfwModes.EV_UPROLL)
+            r.until("adopted") { r.row() == 1 }
+            val samples = ArrayList<Boolean>()
+            val t0 = System.currentTimeMillis()
+            while (System.currentTimeMillis() - t0 < 100) { samples += r.shell.isQuiescent(); delay(5) }
+            r.settle("the motion ended")
+            assertTrue(samples.none { it }, "not quiescent during the wait: ${samples.count { it }} of ${samples.size} samples quiescent")
+        } finally { r.close() }
+    }
+
+    /** Decisions AL.1: Main's row key carries what Main draws — with a track playing (row 3's progress moving at every
+     *  read, as `MusicWindow.summary` gives it) Main is staged and bound within seconds, and the loop rests between the
+     *  bar's block changes (here one per 22.5 s). V2 reader B's probe, inverted. */
+    @Test
+    fun aPlayingTracksProgressLetsMainBeStagedAndTheLoopRest_AL1(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT)
+        try {
+            val t0 = System.nanoTime()
+            r.rows[3].progress = { ((System.nanoTime() - t0) / 1e6 % 180_000) / 180_000.0 }
+            r.up()                                                    // bound, within up()'s wait
+            var samples = 0; var quiet = 0
+            val start = System.currentTimeMillis()
+            while (System.currentTimeMillis() - start < 2_000) { samples++; if (r.shell.isQuiescent()) quiet++; delay(40) }
+            assertTrue(quiet > samples / 2, "the loop rests while the track plays: quiescent in $quiet of $samples samples")
         } finally { r.close() }
     }
 
@@ -577,6 +635,12 @@ class MainLocalShellTest {
             assertTrue(r.notes("mainstage").none { it.startsWith("withdrawn") }, "no withdrawal: ${r.notes("mainstage").filter { it.startsWith("withdrawn") }}")
             assertTrue(r.notes("snapback").isEmpty() && r.notes("repair").isEmpty(), "no snap-back and no table repair: " +
                 "${r.notes("snapback")} ${r.notes("repair")}")
+            // AL.4: the second strip slot went with the base records, so the switch's flush carries only the changed row
+            val staged = r.notes("mainstage").first { it.startsWith("staged") }
+            val restaged = r.notes("mainstage").first { it.startsWith("row 3 re-staged") }
+            val stripB = Regex("""its second slot (\d+) B""").find(staged)?.groupValues?.get(1)?.toInt()
+            val switchB = Regex("""re-staged — (\d+) B""").find(restaged)!!.groupValues[1].toInt()
+            assertTrue(stripB != null && switchB < stripB / 2, "the second slot staged with the base records ($staged); the switch's flush small ($restaged)")
         } finally { r.close() }
     }
 

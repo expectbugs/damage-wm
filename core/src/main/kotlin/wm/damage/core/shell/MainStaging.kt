@@ -333,15 +333,13 @@ class MainStaging private constructor(
             val ow = ArrayList<Write>()
             val to = 1 - activeStrip
             val oOff = o.segOff!!; val oLen = o.segLen!!
-            if (o.encoded.isEmpty()) ow += Write(o.off, pad(full), "the whole strip into slot $to")
-            else {
-                // segment by segment against what that slot holds (the header — w, h — is the same in both); where the two
-                // layouts part (a tail laid out again in either), the rest goes as one piece. Segments are 4-byte aligned.
-                for (k in nLens.indices) {
-                    if (oOff[k] != nOffs[k] || oLen[k] != nLens[k]) { ow += Write(o.off + nOffs[k], pad(full.copyOfRange(nOffs[k], full.size)), "strip rows $k.. into slot $to"); break }
-                    val seg = full.copyOfRange(nOffs[k], nOffs[k] + nLens[k])
-                    if (!seg.contentEquals(o.encoded.copyOfRange(oOff[k], oOff[k] + oLen[k]))) ow += Write(o.off + nOffs[k], seg, "strip row $k into slot $to")
-                }
+            // segment by segment against what that slot holds (written with the base records; the header — w, h — is the
+            // same in both); where the two layouts part (a tail laid out again in either), the rest goes as one piece.
+            // Segments are 4-byte aligned.
+            for (k in nLens.indices) {
+                if (oOff[k] != nOffs[k] || oLen[k] != nLens[k]) { ow += Write(o.off + nOffs[k], pad(full.copyOfRange(nOffs[k], full.size)), "strip rows $k.. into slot $to"); break }
+                val seg = full.copyOfRange(nOffs[k], nOffs[k] + nLens[k])
+                if (!seg.contentEquals(o.encoded.copyOfRange(oOff[k], oOff[k] + oLen[k]))) ow += Write(o.off + nOffs[k], seg, "strip row $k into slot $to")
             }
             writes = ow
             toStrip = 1 - activeStrip
@@ -541,9 +539,10 @@ class MainStaging private constructor(
             // the strip's slot: its segments and an eighth more, so a row grown past its segment re-lays the tail in place
             val stripSlot = (stripEnc.size + stripEnc.size / STRIP_EXTRA_DIV + 3) and 3.inv()
             val strip = Picture("strip", sg, slv, stripEnc, next(stripSlot), stripSlot, segOff, segLen)
-            // AD.2: the second strip slot, one size with the first; not written until a row-form change switches to it
+            // AD.2: the second strip slot, one size with the first, written with the base records (decisions AL.4: so a
+            // row-form change switches with only its differing segments, never the whole strip in the switch's flush)
             val stripB = if (!twoStrips) null else Picture("strip B", Gray8(sg.w, sg.h).also { sg.pix.copyInto(it.pix) }, slv.copyOf(),
-                ByteArray(0), next(stripSlot), stripSlot, segOff.copyOf(), segLen.copyOf())
+                stripEnc.copyOf(), next(stripSlot), stripSlot, segOff.copyOf(), segLen.copyOf())
             // each row's band form, painted where the band is (the painters snap x and y to the panel's grid), in a slot
             // every band slot one size — the largest band form's with its slack — so a row's moved band form fits any free
             // slot, the spare or one a switch freed (a smaller row has the difference as its headroom besides)
@@ -626,7 +625,7 @@ class MainStaging private constructor(
                 for ((o2, b) in progs) b.copyInto(out, o2 - progs.first().first)
             }
             val itemBytes = ByteArray(2 * n).also { b -> itemOffs.forEachIndexed { i, v -> put16(b, 2 * i, v) } }
-            val blobs = listOf(Blob(strip.name, strip.off, pad(strip.encoded), strip.raw)) +
+            val blobs = listOfNotNull(Blob(strip.name, strip.off, pad(strip.encoded), strip.raw), stripB?.let { Blob(it.name, it.off, pad(it.encoded), it.raw) }) +
                 // a band form's slack past its record is never read (a record ends at w × h pixels): not sent
                 bands.map { Blob(it.name, it.off, pad(it.encoded), it.raw) } +
                 Blob("items", items4 * 4, pad(itemBytes), null) +

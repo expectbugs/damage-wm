@@ -30,11 +30,15 @@ object Icons {
      *  bar is not. */
     fun blocks(s: Gray8, x: Int, y: Int, w: Int, h: Int, frac: Double, n: Int = 8, level: Int = Level.BODY) {
         val bw = (w - (n - 1) * 2) / n
+        val lit = blocksLit(frac, n)
         for (k in 0 until n) {
             val bx = x + k * (bw + 2)
-            s.fillRect(bx, y, bw, h, if ((k + 1).toDouble() / n <= frac) level else Level.FAINT)
+            s.fillRect(bx, y, bw, h, if (k < lit) level else Level.FAINT)
         }
     }
+
+    /** How many of [blocks]' [n] blocks [frac] lights: block k is lit when (k + 1) / n <= [frac]. */
+    fun blocksLit(frac: Double, n: Int = 8): Int = (0 until n).count { (it + 1).toDouble() / n <= frac }
 
     /** Battery: a plain fill bar, deliberately NOT segmented (§4.1 — measured;
      *  do not "fix" it by segmenting or widening without reading that section). */

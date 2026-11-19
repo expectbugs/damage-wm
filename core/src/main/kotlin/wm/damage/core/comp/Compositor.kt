@@ -334,13 +334,15 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         for (e in live) { e.paint!!(true, shadowL); e.paint(false, shadowR) }
         for ((l, r) in areas) { pendingDamage.add(widen(l)); pendingDamage.add(widen(r)) }
         val mine = areas.flatMap { (l, r) -> listOf(Touched(true, l), Touched(false, r)) }
-        val hl = ArrayList(areas.map { it.first } + deferL); val hr = ArrayList(areas.map { it.second } + deferR)
+        val hl = ArrayList((areas.map { it.first } + deferL).distinct()); val hr = ArrayList((areas.map { it.second } + deferR).distinct())
         val a = assembleHolding(rectBudget, hl, hr, mine)
         val until = live.maxOf { it.untilMs }
         if (until > nowMs) {
             // decisions AF.7: what was held waits for the adopted motion's end on the glasses — sent earlier, the
-            // instance's remaining steps paint over it and nothing presents it again
-            deferL = hl; deferR = hr; deferUntilMs = maxOf(deferUntilMs, until)
+            // instance's remaining steps paint over it and nothing presents it again; a new wait takes its own end
+            // (AL.6, R3: a clock stepped back is not carried into it), a burst's the latest
+            deferUntilMs = if (deferL.isEmpty()) until else maxOf(deferUntilMs, until)
+            deferL = hl.distinct(); deferR = hr.distinct()
         } else if (residual == null) {
             // the held cells that still differ from the truth: dirty for the next assemble (a residual covers them)
             if (dirtyCells(true, hl).isNotEmpty()) for (r in hl) pendingDamage.add(widen(r))
@@ -391,7 +393,12 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         if (deferL.isNotEmpty()) {
             // a keyframe or a reseed writes the whole model and closes every instance: nothing waits behind it
             if (needsKeyframe || needsReseed) { deferL = emptyList(); deferR = emptyList() }
-            else return assembleHolding(rectBudget, ArrayList(deferL), ArrayList(deferR), emptyList())
+            else {
+                // what the hold loop grew (a sub spanning the areas, held whole) waits with them and is made dirty at the
+                // release (decisions AL.2: dropped, its cells outside the areas were never sent)
+                val hl = ArrayList(deferL); val hr = ArrayList(deferR)
+                return assembleHolding(rectBudget, hl, hr, emptyList()).also { deferL = hl.distinct(); deferR = hr.distinct() }
+            }
         }
         return assembleFlushOnce(rectBudget, endFrame = true)
     }

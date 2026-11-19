@@ -31,6 +31,7 @@ class CompositorEndsTest {
     }
 
     private fun end(level: Int) = Compositor.EndPlan(0, listOf(band to band), { _, g: Gray8 -> g.fillRect(band, level * 17) })
+    private fun endUntil(level: Int, untilMs: Long) = Compositor.EndPlan(0, listOf(band to band), { _, g: Gray8 -> g.fillRect(band, level * 17) }, untilMs = untilMs)
 
     /** The rects the flush's drawing ops write (the touched list also carries a riding COMMIT's areas, for its hint). */
     private fun writes(a: Compositor.Assembled?): List<Rect> = (a?.ops ?: emptyList()).flatMap { op ->
@@ -153,5 +154,50 @@ class CompositorEndsTest {
         c.composed.fillRect(band, 9 * 17); c.damage(band)
         val (_, denied) = c.assembleWithEnds(Geometry.rectBudget(3), listOf(Compositor.EndPlan(0, listOf(band to band), null)))
         assertEquals(setOf(0), denied, "a list whose owner gave no END painter is answered with DISCARD")
+    }
+
+    /** Decisions AL.2 (V2 reader B's component test, inverted): during the held cells' wait, a sub the planner spans across
+     *  the areas (one rect allowed, a draw above and below them with no keep-out) is held whole by the re-hold loop; what it
+     *  held waits with the areas and is made dirty at the release, so the cells above and below go then. */
+    @Test
+    fun aSpanHeldWholeDuringTheDeferralGoesAtTheRelease_AL2() {
+        val above = Rect(band.x, band.y - 20, 4, 2)
+        val below = Rect(band.x, band.bottom + 12, 4, 2)
+        fun sides(c: Compositor) {
+            c.composed.fillRect(above, 12 * 17); c.composed.fillRect(below, 12 * 17); c.damage(above); c.damage(below)
+        }
+        val plain = fresh(); sides(plain)
+        assertTrue(writes(plain.assembleFlush(Geometry.rectBudget(1))).any { it.overlaps(band) }, "the planner spans the band here, one rect allowed")
+        val c = fresh()
+        c.composed.fillRect(band, 3 * 17); c.damage(band)
+        c.assembleWithEnds(Geometry.rectBudget(3), listOf(Compositor.EndPlan(0, listOf(band to band), { _, g: Gray8 -> g.fillRect(band, 9 * 17) }, untilMs = 1_000)), nowMs = 0)
+        assertTrue(c.deferring, "deferring until the motion's end")
+        sides(c)
+        val mid = writes(c.assembleFlush(Geometry.rectBudget(1)))
+        assertTrue(mid.none { it.overlaps(band) }, "nothing over the areas during the wait: $mid")
+        assertTrue(c.releaseDeferred(1_000), "released at the motion's end")
+        val sent = ArrayList<Rect>()
+        repeat(3) { sent += writes(c.assembleFlush(Geometry.rectBudget(1))) }
+        val unk = c.unknownForTest(true); val cw = c.cellsWForTest; val cellW = 640 / cw; val cellH = 480 / (unk.size / cw)
+        fun unknownAt(r: Rect) = unk[(r.y / cellH) * cw + r.x / cellW]
+        assertTrue((mid + sent).any { it.overlaps(above) } && (mid + sent).any { it.overlaps(below) } && !unknownAt(above) && !unknownAt(below),
+            "the cells above and below the band were sent: during $mid, after $sent; unknown above ${unknownAt(above)} below ${unknownAt(below)}")
+        assertEquals(12, c.shadowForTest(true)[above.x + 1, above.y] shr 4, "above: the truth")
+        assertEquals(12, c.shadowForTest(true)[below.x + 1, below.y] shr 4, "below: the truth")
+    }
+
+    /** Decisions AL.6 (R3): a wait that starts with nothing deferred takes its own end — a clock stepped back after the last
+     *  one is not carried into it; within one burst the latest end holds. */
+    @Test
+    fun aNewWaitTakesItsOwnEnd_AL6() {
+        val c = fresh()
+        c.composed.fillRect(band, 3 * 17); c.damage(band)
+        c.assembleWithEnds(Geometry.rectBudget(3), listOf(endUntil(9, 10_000)), nowMs = 9_000)
+        assertTrue(c.releaseDeferred(10_000), "released at the first motion's end")
+        c.composed.fillRect(band, 4 * 17); c.damage(band)
+        c.assembleWithEnds(Geometry.rectBudget(3), listOf(endUntil(9, 5_000)), nowMs = 4_000)    // the clock stepped back
+        assertEquals(5_000, c.deferUntilMs, "the new wait's own end")
+        c.assembleWithEnds(Geometry.rectBudget(3), listOf(endUntil(9, 4_800)), nowMs = 4_100)
+        assertEquals(5_000, c.deferUntilMs, "within the burst, the latest end")
     }
 }

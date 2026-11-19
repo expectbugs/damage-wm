@@ -1425,8 +1425,7 @@ class Shell(
             loopSince = System.currentTimeMillis()
             // a ring event (or a typed line) is the one message whose flush
             // may take the window's last slot — see pump()
-            pumpPriority = m is Msg.In ||
-                (m is Msg.Trans && (m.ev is TransportEvent.Input || m.ev is TransportEvent.Text))
+            pumpPriority = m is Msg.In || (m is Msg.Trans && marksInput(m.ev))
             if (pumpPriority) inputFlushPending = true
             mirrorNsThisMsg = 0L
             textNsAtMsgStart = wm.damage.core.text.TextProfile.drawNs.get()
@@ -2391,11 +2390,12 @@ class Shell(
 
     /** Live preview (§4.3): the window BEHIND the panel becomes the selected
      *  one — a RENDER, never an activation; lowest-priority, runs on settle. */
-    private fun settlePreview() {
-        if (!switcher.open || switcher.spinning) return
-        val sel = switcher.selected() ?: return
+    /** The wheel's preview of the selected window, once per selection when the spin has stopped. True when it painted. */
+    private fun settlePreview(): Boolean {
+        if (!switcher.open || switcher.spinning) return false
+        val sel = switcher.selected() ?: return false
         val key = sel.window?.id ?: "@main"
-        if (previewPainted == key) return
+        if (previewPainted == key) return false
         previewPainted = key
         notifications.invalidateUnder()     // preview repaints beneath the box
         paintContentOf(sel.window)          // no lifecycle hooks — render only
@@ -2407,6 +2407,7 @@ class Shell(
         // has no flush behind it — without this pump the preview waits for
         // the next incidental message, up to the 5 s idle tick (R3s#5)
         post(Msg.Pump)
+        return true
     }
 
     // ------------------------------------------------------------------ notices
@@ -2680,7 +2681,8 @@ class Shell(
     }
 
     /** What the shell does with one report or stock message (P3, P5, the tap rule). */
-    private fun localVerdict(v: wm.damage.core.local.LocalRules.Verdict) {
+    /** [eventId]: the report's (a verdict on a 115), which says an adopted notch's direction. */
+    private fun localVerdict(v: wm.damage.core.local.LocalRules.Verdict, eventId: Int? = null) {
         when (v) {
             wm.damage.core.local.LocalRules.Verdict.Nothing -> {}
             is wm.damage.core.local.LocalRules.Verdict.Apply -> { asInput(); handleInput(v.type, EvenHubMsg.SRC_RING) }
@@ -2690,7 +2692,9 @@ class Shell(
                 // needs none)
                 val was = boundSurface()?.row() ?: v.row
                 boundSurface()?.setRow(v.row)
-                gestureBookkeeping(if (v.row < was) EvenHubMsg.EV_SCROLL_TOP else EvenHubMsg.EV_SCROLL_BOTTOM)
+                // the echo's direction is the report's event's (AL.6, R5: a correction may leave the row where it was)
+                gestureBookkeeping(eventId?.let { wm.damage.core.local.BoundList.stockEvent(it) }
+                    ?: if (v.row < was) EvenHubMsg.EV_SCROLL_TOP else EvenHubMsg.EV_SCROLL_BOTTOM)
                 scheduleSave()
                 composeContent()
             }
@@ -2718,6 +2722,7 @@ class Shell(
         localSettleAt = Long.MAX_VALUE
         mainBindRefusedFor = null                         // AF.6: a staging that did not fit is tried again at every start
         mainBindBlockedSaid = null
+        mainBindRefusalSaid = null
         local.sessionStart(st.bind && st.leaseHeld, st.bindSHeard0, st.bindArmUptime, f?.second, f?.first?.row() ?: -1, settings.taps)
         if (st.bind) journal.note("local", "session start: S_heard ${st.bindSHeard0}, armed at uptime ${st.bindArmUptime}, " +
             "list in front ${f?.second?.list ?: "none"}, Taps ${settings.taps.word}")
@@ -2746,13 +2751,22 @@ class Shell(
     }
 
     // ------------------------------------------------------------------ transport
+    /** A stock scroll message or click from the ring while the rules are active (§6.7 P2, P5): read against the echo owes
+     *  before it is handled. */
+    private fun localReads(ev: TransportEvent.Input): Boolean =
+        ev.source == EvenHubMsg.SRC_RING && local.active && wm.damage.core.local.LocalRules.Stock.of(ev.type) != null
+
+    /** Whether a transport event's pump is a gesture's (its flush may take the window's last slot and is journaled as
+     *  input): a typed line, or an Input — but not one the rules read, which is input only when their verdict applies or
+     *  acts on it (`asInput`; decisions AL.5: a consumed echo marks nothing). */
+    internal fun marksInput(ev: TransportEvent): Boolean = ev is TransportEvent.Text || (ev is TransportEvent.Input && !localReads(ev))
+
     private fun handleTransport(ev: TransportEvent) {
         when (ev) {
             // build C2 (§6.7 P2, P5): a stock scroll message or click is read against the echo owes BEFORE it is handled
             is TransportEvent.Input -> {
-                val k = wm.damage.core.local.LocalRules.Stock.of(ev.type)
-                if (k == null || ev.source != EvenHubMsg.SRC_RING || !local.active) handleInput(ev.type, ev.source)
-                else localVerdict(local.stock(k, localRow(), System.currentTimeMillis()))
+                if (!localReads(ev)) handleInput(ev.type, ev.source)
+                else localVerdict(local.stock(wm.damage.core.local.LocalRules.Stock.of(ev.type)!!, localRow(), System.currentTimeMillis()))
             }
             is TransportEvent.Text -> handleTypedText(ev.line)
             is TransportEvent.FlushDone -> completeFlush(ev)
@@ -2782,7 +2796,7 @@ class Shell(
             is TransportEvent.Wear -> {}
             // build C2 (stage DP2): the 115 reports in the same ordered flow as the stock messages (P2), the telemetry
             // reads (P1's refusal record, `tapsLive`), RIGHT's 114 bodies while BIND is in force (the counting)
-            is TransportEvent.Applied -> localVerdict(local.report(ev.report, localRow(), ev.atMs))
+            is TransportEvent.Applied -> localVerdict(local.report(ev.report, localRow(), ev.atMs), ev.report.eventId)
             is TransportEvent.LocalRead -> {
                 ev.flagsInForce?.let { local.bindInForce(it and wm.damage.core.wire.DamageMsg.FLAG_BIND != 0) }
                 local.telemetry(ev.boundIds, ev.refusal27, ev.batch14)
@@ -5371,6 +5385,9 @@ class Shell(
     private var mainBindPaintVersions: Pair<Any?, Any?>? = null
     /** The last reason Main was not staged that the journal was told (AF.9), cleared at a session start. */
     private var mainBindBlockedSaid: String? = null
+    /** The last "cannot be staged" note (AF.6), said once per change of its reason; cleared at a session start and when
+     *  Main is staged (decisions AL.1). */
+    private var mainBindRefusalSaid: String? = null
     private var mainBindWakeAtMs = 0L
     /** Pumps so far: a strip write goes in a later pump than the withdrawal that let the rules' CLEAR go first. */
     private var mainBindPumps = 0L
@@ -5507,6 +5524,14 @@ class Shell(
         return false
     }
 
+    /** A staging refused for [what] (AF.6: tried again when it changes); its [note] said once per change of the reason —
+     *  the note without its numbers (the sizes move with the rows' content, the reason does not: decisions AL.1). */
+    private fun mainBindRefused(what: String, note: String) {
+        mainBindRefusedFor = what
+        val reason = note.replace(Regex("\\d+"), "#")
+        if (reason != mainBindRefusalSaid) { mainBindRefusalSaid = reason; journal.note("mainstage", note) }
+    }
+
     /** Paints Main's staging and puts its records in the registry at their offsets (WANTED). */
     private fun mainBindStage(st: LinkState, now: Long): Boolean {
         val region = mainBindRegion(st)
@@ -5525,8 +5550,8 @@ class Shell(
         }
         if (!pt.done) {
             try { pt.step(mainBindRelay()) } catch (e: wm.damage.core.geom.LintError) {
-                mainBindRefusedFor = what; mainBindPaint = null
-                journal.note("mainstage", "Main's row ${pt.next} cannot be painted for staging: ${e.message} — the list stays unbound (its scrolls and taps go as today) until Main's layout, planes or rows change")
+                mainBindPaint = null
+                mainBindRefused(what, "Main's row ${pt.next} cannot be painted for staging: ${e.message} — the list stays unbound (its scrolls and taps go as today) until Main's layout, planes or rows change")
                 return false
             }
             post(Msg.Pump)
@@ -5544,8 +5569,7 @@ class Shell(
             // the bound list's pans only (AF.10); at 256 KiB Main's own region holds a second strip (AD.2)
             MainStaging.assemble(pt, listD, bandD, st.cacheSize, region.first, region.last + 1, listOf(MainStaging.WHOLE), twoStrips = !shared0)
         } catch (e: wm.damage.core.geom.LintError) {
-            mainBindRefusedFor = what
-            journal.note("mainstage", "Main's rows cannot be staged: ${e.message} — the list stays unbound (its scrolls and taps go as today) until Main's layout, planes, rows or their content change, or the next session")
+            mainBindRefused(what, "Main's rows cannot be staged: ${e.message} — the list stays unbound (its scrolls and taps go as today) until Main's layout, planes, rows or their content change, or the next session")
             return false
         }
         val recs = ms.blobs.mapIndexed { i, blob -> StagedRecord(MainStageKey(ms, i, blob.name), blob.raw ?: Gray8(1, 1), blob.bytes) }
@@ -5555,9 +5579,8 @@ class Shell(
             val ring = stage.ring?.takeIf { it.start == region.first && it.end == st.cacheSize } ?: StageRing(region.first, st.cacheSize).also { stage.ring = it }
             for ((i, r) in recs.withIndex()) {
                 if (ring.placeAt(r, ms.blobs[i].off) == null) {
-                    journal.note("mainstage", "Main's ${ms.blobs[i].name} does not fit the reserve at ${ms.blobs[i].off} — not staged")
                     for (q in recs) if (stage.records[q.key] === q) stage.remove(q)
-                    mainBindRefusedFor = what
+                    mainBindRefused(what, "Main's ${ms.blobs[i].name} does not fit the reserve at ${ms.blobs[i].off} — not staged")
                     return false
                 }
                 stage.records[r.key] = r
@@ -5565,10 +5588,12 @@ class Shell(
         } else for ((i, r) in recs.withIndex()) { r.off = ms.blobs[i].off; stage.records[r.key] = r }
         mainBindRefusedFor = null
         mainBind.begin(ms, recs, List(ms.rows) { main.rowKey(it) }, now)
+        mainBindRefusalSaid = null
         stageRecount()
         journal.note("mainstage", "staged — ${ms.bytes} B in ${ms.blobs.size} record(s) at ${ms.start}..${ms.end} of the ${st.cacheSize / 1024} KiB cache " +
-            "(${if (shared) "the shared reserve" else "Main's own region"}): the strip ${ms.blobs[0].bytes.size} B, ${ms.rows} band forms " +
-            "${ms.blobs.drop(1).take(ms.rows).sumOf { it.bytes.size }} B, the item table and ${ms.pans.size + 1} programs ${ms.blobs.takeLast(2).sumOf { it.bytes.size }} B; " +
+            "(${if (shared) "the shared reserve" else "Main's own region"}): the strip ${ms.blobs[0].bytes.size} B" +
+            (if (ms.stripB != null) " and its second slot ${ms.blobs[1].bytes.size} B" else "") + ", ${ms.rows} band forms " +
+            "${ms.blobs.drop(if (ms.stripB != null) 2 else 1).take(ms.rows).sumOf { it.bytes.size }} B, the item table and ${ms.pans.size + 1} programs ${ms.blobs.takeLast(2).sumOf { it.bytes.size }} B; " +
             "planes $listD/$bandD, press to ${ms.press.pressD}; ${mainBind.stagings} staging(s) and ${mainBind.stagedBytes} B this process")
         post(Msg.Pump)
         return true
@@ -7173,7 +7198,9 @@ class Shell(
                 seq.followUpFor?.let { if (it.followUp == "none" || it.followUp == "deferred") it.followUp = "nothing to send" }
                 return
             }
-            if (!animated && !pumpMainStage(st) && !pumpLedger(st) && !pumpAtlas(st) && !pumpMainBind(st) && !pumpStage(st)) settlePreview()
+            // the wheel's preview over Main before Main's staging step (decisions AL.1): a staging's paint turns are not
+            // what the preview waits for
+            if (!animated && !pumpMainStage(st) && !pumpLedger(st) && !pumpAtlas(st) && !settlePreview() && !pumpMainBind(st)) pumpStage(st)
         }
 
         // animations continue on the next completion or message; make sure one
@@ -7280,7 +7307,7 @@ class Shell(
 
     /** Everything quiescence asks for EXCEPT the message queue. */
     private fun idleApartFromMessages(): Boolean =
-        (glassesSilent || (!comp.hasPending && !comp.needsKeyframe)) && inflightFlushes.isEmpty() &&
+        (glassesSilent || (!comp.hasPending && !comp.needsKeyframe && !comp.deferring)) && inflightFlushes.isEmpty() &&
             !notifications.animating && slides.none { it.active } && !switcher.spinning
 
     /**
