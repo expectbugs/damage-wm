@@ -1260,7 +1260,11 @@ is stated there.
   when every report of the slot handled since its last answer was adopted, nothing else moved the phone's row since
   (P4's application, P5's unreported scroll message, a refused report applied as today) — and then the batch carries
   only the drawing subs that do NOT meet the slot's areas once END is applied to the model: the cells inside the areas
-  that still differ from the truth stay dirty and go in the NEXT batch, over the adopted picture (ruled 2026-11-18,
+  that still differ from the truth stay dirty and go in a LATER batch, over the adopted picture — **not before the
+  adopted fire's motion has ended on the glasses: the phone holds them until the newest adopted report's arrival plus
+  (T + 1) × P** (ruled 2026-11-19, decisions AF.7, AL.2: sent earlier, the instance's remaining steps paint over them
+  and nothing presents them again; a draw that reaches into the areas during the wait is held whole and goes with
+  them; a keyframe or reseed ends the wait; pacing on the shell's loop, never a wait on a send) (ruled 2026-11-18,
   decisions AA.1: with the whole list moving, the earlier form — a DISCARD whenever a drawing sub met the areas — made
   every notch over a row whose staged picture was merely older than Main's a snap-back; nothing inside the areas is
   drawn before the END, so the defect that form guarded, END written over a frame, cannot occur; a keyframe or reseed
@@ -1320,9 +1324,18 @@ is stated there.
   the phone holds them, never past its writing over them; a staged row merely older than the window's truth is not a
   reason to discard: the phone's END for the fire is taken from its own copy of the staged records (P10), the answer is
   a COMMIT, and the ordinary repaint brings the changed cell; a report naming a staging the phone no longer holds is the
-  only discard keeping rows current causes (`snapback cause=restaged`). The re-staging is paced: one row per 5 s, only
-  while the list's window is in front, no burst is open and nothing is in flight; its bytes are journaled (`mainstage`
-  notes). COMMIT, DISCARD and SETTLE only while the lease is held and BIND is in force — never in Silent Mode, never
+  only discard keeping rows current causes (`snapback cause=restaged`). The re-staging is paced: one row per 5 s in
+  all, the row owed longest first, only while the list's window is in front, no burst is open and nothing is in
+  flight; its bytes are journaled (`mainstage` notes). **A change of a row's form in the strip** (its text or icon as
+  every row shows it): on a 160 KiB session there is no room for a second strip, so the list is withdrawn (CLEAR), the
+  strip written and the list bound again (about two flushes unbound; the return names the row, above); **on a 256 KiB
+  session the phone's own region holds a second strip slot** (the atlas keeps 96 KiB, the bound list's region is
+  96 KiB, the stage reserve 64): the new strip is written into the slot no table names, with the band's move and its
+  item word, and the entries are SET to the programs that name it — no withdrawal; a fire between the write and the
+  SETs draws the old pan with the new item table and is judged against both stagings (P3); the old strip's programs
+  are released only when no burst is open and the SETs have landed on both lenses (ruled 2026-11-19, decisions AD.2,
+  AL.3). A staging that did not fit is tried again at each session start and when the rows' drawn content changes
+  (decisions AF.6, AL.1: the key is what the rows draw, never a value that moves without the picture). COMMIT, DISCARD and SETTLE only while the lease is held and BIND is in force — never in Silent Mode, never
   into a released lease. Each of them that names a list rides behind that list's LIST with shift 0 (12 B, idempotent),
   so a lens that missed a LIST — lost, or refused there — holds the current count and mark whenever an answer is checked
   and is never refused for a stale count; the miss heals at the next answer with no evidence (decisions U). Before a
@@ -1339,7 +1352,12 @@ is stated there.
 - **The bound list is the list in front.** The phone keeps entries bound only to the list in front: it CLEARs a list's
   entries in the batch that draws anything over it or in its place (another window, a modal, a popover, the keyboard)
   and SETs them again in the batch that brings it back. A fire that lands before the CLEAR fails P3's "in front" and is
-  answered with DISCARD.
+  answered with DISCARD. A notice box on screen is a cover whether or not it holds the focus (decisions AF.1).
+  **Every return of a list to the front — a cover's, a withdrawal's (P9), the first offer after a start — names the
+  phone's CURRENT row in the batch that binds it again:** after its SETs and LIST that batch carries DISCARD(slot,
+  A + 1 − 0x4000, list, row), a burst open or not, because a gesture applied as today while the list was away moved
+  the phone's row and not the lens's cursor (ruled 2026-11-19, decisions AF.2; counted `rebind`, not a snap-back; a
+  DISCARD of a slot with no instance stops nothing and sets the cursor, §6.5). At a start the idle SETTLE follows it.
 
 **Taps.**
 - **P11 the act is the phone's,** on a row of its own staging, always. Every irreversible act opens a CONFIRM worded by
@@ -1979,3 +1997,9 @@ phone's keeper applies the hold-back rule before re-arming.
   and the drawing subs that meet its areas wait for the next batch; P1: a telemetry read at a burst's SETTLE when a
   COMMIT has had no outcome-3 body; P9: the disarm's DISCARD from S_heard + 1 − 0x4000 at the disarm). The compositor
   does not merge two rects into one that reaches into a bound list's area where neither did (stage DI).
+- 2026-11-19 — §6.7: the phone-side rulings of the fix rounds after the two review passes of the phone's half
+  (decisions AF, AD.2, AL): every return of a list to the front names the phone's current row (a DISCARD after the
+  SETs in the batch that binds it again); the cells held back behind a COMMIT wait for the adopted motion's end; on
+  a 256 KiB session a row-form change is switched to a second strip with no withdrawal; a notice on screen is a
+  cover; the re-stage pace is one row per 5 s in all. §6.2: the hook's cost with BIND not armed as read at
+  instruction level in the candidate image (the flash-readiness review).
