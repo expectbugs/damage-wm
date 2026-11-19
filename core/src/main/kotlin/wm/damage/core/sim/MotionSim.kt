@@ -276,6 +276,10 @@ class MotionSim(private val scaled: () -> Boolean = { false }) {
                     DRAW -> {
                         s.e = easeE(s.ease, s.steps, s.tableE)
                         if (s.e.any { eased(s.lvl0, s.lvl1 - s.lvl0, it) !in 0..15 }) return false
+                        // §6.6: "a scaled DRAW's source is a record — `self` with h0/h1 ≠ 0 is 12 … at a PLAY, a COMMIT
+                        // and a fire alike" (C2-decisions M.2); a RETARGET whose parameters scale it too. At a COMMIT and
+                        // a fire the walk's `self` 5 decides first, so the 12 is reached at a PLAY and a RETARGET
+                        if (s.isScaled && s.kind == KIND_SELF) return false
                         if (s.isScaled && (s.h0 !in 1..H_MAX || s.h1 !in 1..H_MAX)) return false
                         if (s.isScaled && (1..s.steps).any { eased(s.h0, s.h1 - s.h0, s.e[it]) !in 1..H_MAX }) return false
                     }
@@ -498,11 +502,11 @@ class MotionSim(private val scaled: () -> Boolean = { false }) {
                 FILL -> fill(buf, stride, area, s.kind)
                 // the level is 0..15 here: [vals] clamps a RETARGET's overshoot (ruling R1.10)
                 DRAW -> {
-                    val img = if (s.kind == KIND_SELF) o.caps[i]!! else s.image!!
                     val opts = (s.opt and 0x30) or v.lvl
-                    if (!s.isScaled) blit(buf, stride, img, v.x, v.y, area, opts)
-                    // §6.6: H rows tall, placed by the anchor (H ≥ 1 by the H rule and the restart's clamp; 0 would draw no row)
-                    else if (v.h > 0) blitScaled(buf, stride, img, v.x, anchoredY(v.y, img.h, v.h, s.anchor), v.h, area, opts)
+                    if (!s.isScaled) blit(buf, stride, if (s.kind == KIND_SELF) o.caps[i]!! else s.image!!, v.x, v.y, area, opts)
+                    // §6.6: a record H rows tall (a scaled `self` is refused 12), placed by the anchor (H ≥ 1 by the H
+                    // rule and the restart's clamp; 0 would draw no row)
+                    else if (v.h > 0) blitScaled(buf, stride, s.image!!, v.x, anchoredY(v.y, s.image!!.h, v.h, s.anchor), v.h, area, opts)
                 }
                 REVEAL -> reveal(buf, stride, o, i, s, v, area)
             }
@@ -561,7 +565,7 @@ class MotionSim(private val scaled: () -> Boolean = { false }) {
         // to 1..2048 as levels are (R1.10). READING: a restart from an unscaled draw eases from the source's own height
         val h = if (s.verb != DRAW || !s.isScaled) 0
                 else if (f == null) eased(s.h0, s.h1 - s.h0, e)
-                else { val from = if (f.h > 0) f.h else (if (s.kind == KIND_SELF) o.caps[i]!!.h else s.image!!.h)
+                else { val from = if (f.h > 0) f.h else s.image!!.h
                        eased(from, s.h1 - from, e).coerceIn(1, H_MAX) }
         return when (s.verb) {
             DRAW -> if (f == null) Vals(eased(x0, dx, e), eased(s.y, s.dy, e), eased(s.lvl0, s.lvl1 - s.lvl0, e).coerceIn(0, 15), 0, h)
