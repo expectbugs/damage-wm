@@ -13,6 +13,7 @@ formats through that file's builders, never from the firmware C.
     python3 firmware/fuzz_vectors.py OUT_DIR 40 25            # 40 vectors, 25 random steps each
     python3 firmware/fuzz_vectors.py OUT_DIR 40 25 --seed 1000 --corrupt
     python3 firmware/fuzz_vectors.py OUT_DIR 40 25 --c1       # C1's set: modes 25 and 26 too (`FIRMWARE.md` §5)
+    python3 firmware/fuzz_vectors.py OUT_DIR 40 25 --c2       # C2's set: local input too (`FIRMWARE.md` §6)
 
     (cd ~/damage-cfw && python3 host/run_vectors.py --dir OUT_DIR --write)   # the C answers
     DAMAGE_VECTOR_DIR=OUT_DIR ./gradlew :core:cleanTest :core:test \
@@ -39,6 +40,14 @@ programs' and records' bytes; mode 25 near its 16,384-byte limit; `{"wake": true
 between them; mode 11, the lease, `{"stock": true}`. Every engine message and every wake follows a `tick` op in
 its step; every vector carries a wake, so none has a self-test form, and "features": 0x1ff. Without `--c1` the
 generator is unchanged: a seed writes the vector it wrote before.
+
+`--c2` (build C2, spec §5) is `--c1`'s set with BIND armed and a table bound at every session's start, and among the
+same messages: mode 27 (SET in both entry shapes and report-only, CLEAR, LIST; valid and invalid; lists 0..4, shifts
+past both ends, marks), mode 26's COMMIT / DISCARD / SETTLE (slots 0..4 and 0xFF, S near RIGHT's last fire and across
+the 16-bit wrap, cursors in and out of range, ages 0..0xFFFF), mode 28 and DRAWs with h0 / h1 / anchor, `input` ops
+(ids 0, 1, 3, 4, 5, 0xD, 0xE; devTypes 0, 1, 4; one in five `"only": "L"`) and `page` switches between messages, each
+input after a `tick`; "features": 0x5ff. `--c1` keeps every draw it made: its seeds write the vectors they wrote
+before. C2's sets are written under `private/build072/fuzz-c2/`, never into the repository.
 """
 import argparse, json, pathlib, random, sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -51,11 +60,14 @@ from make_vectors import (  # noqa: E402
     capture, capture_pair, restore, free_slot, hint, step, msg, Cache2,
     seg, track, prog, easing, play, retarget, close, zwrite, wake,
     ENGINE, ZWRITE, FEATURES_C1,
+    drawrec, pref, F_Y, bind_set, bind_clear, bind_list, commit, discard, settle, vscale, vscale_pair,
+    BIND, FEATURES_C2, NONE,
 )
 
 DRAW2, PROBE = 0x0004, 0x8000
 CORRUPT = False
 C1 = False
+C2 = False
 def rnd_rect(r, wild=False):
     if wild and r.random() < 0.35:
         l = r.choice([0, 1, 639, 640, 641, 65535])
@@ -99,7 +111,7 @@ def corrupt(r, b):
     return bytes(b) + bytes(r.randrange(1, 8))                                  # trailing junk
 
 def gen(seed, nsteps):
-    if C1: return gen_c1(seed, nsteps)
+    if C1 or C2: return gen_c1(seed, nsteps, c2=C2)
     r = random.Random(seed)
     c, recs, table_off4 = build_cache(r)
     steps = [step({"tick": 1000}, {"lease": "acquire"},
@@ -138,7 +150,7 @@ def gen(seed, nsteps):
 
 def rnd_msg(r, recs, table_off4, fid, depth=0, cc=None):
     if cc is not None and r.random() < 0.4:           # --c1: two in five messages are C1's (a PLAY the likeliest)
-        return rnd_c1(r, r.choice([22, 22, 23, 24, 25]), cc, depth)
+        return rnd_c1(r, r.choice([22, 22, 23, 24, 25, 26, 26, 27, 27, 28] if cc.get("c2") else [22, 22, 23, 24, 25]), cc, depth)
     k = r.randrange(22)
     wild = r.random() < 0.3
     if k == 0:   # mode 3 delta (aligned)
@@ -218,7 +230,7 @@ def rnd_pref(r, tame=False):
     field = r.randrange(14) if r.random() < 0.95 else r.randrange(14, 32)
     return 0x80 | (field << 2) | r.randrange(4)
 
-def rnd_seg(r, recs, tables, tame, pair):
+def rnd_seg(r, recs, tables, tame, pair, c2=False):
     verb = r.randrange(4)
     steps = r.randrange(1, 9) if tame else r.choice([1, 2, r.randrange(1, 13), r.randrange(1, 40), 255, r.randrange(256)])
     ease = r.choice([0, 1, 2]) if tame else r.choice([0, 1, 2, 2, r.randrange(256)])
@@ -245,8 +257,19 @@ def rnd_seg(r, recs, tables, tame, pair):
     xL, xR, y = xy(), xy(), xy()
     dxL, dxR, dy = (d(), d(), d()) if verb == 2 else (w, 0, h)
     if tame and not pair: xR = dxR = 0                # a track with one rect uses xL and dxL on both lenses
-    return seg(verb, steps, ease, kind, src, xL, xR, y, dxL, dxR, dy, lv(), lv(), opt, table, odd(), odd(), odd(),
-               rnd_pref(r, tame), rnd_pref(r, tame), odd(), odd())
+    l0, l1 = lv(), lv()                               # the C1 draws, in C1's order
+    h0, h1, an = odd(), odd(), odd()
+    p0, p1 = rnd_pref(r, tame), rnd_pref(r, tame)
+    q0, q1 = odd(), odd()
+    if c2 and verb == 2 and r.random() < 0.35:        # --c2: a scaled DRAW (§6.6), inside and outside the H rule
+        if tame:
+            h0, h1 = (0, 0) if r.random() < 0.2 else (r.randrange(1, 120), r.randrange(1, 120))
+            an = r.randrange(3)
+        else:
+            hh = lambda: r.choice([0, 1, 2, 30, 2048, 2049, r.randrange(1, 300), r.randrange(0x10000)])
+            h0, h1 = hh(), hh()
+            an = r.choice([0, 1, 2, 3, r.randrange(256)])
+    return seg(verb, steps, ease, kind, src, xL, xR, y, dxL, dxR, dy, l0, l1, opt, table, h0, h1, an, p0, p1, q0, q1)
 
 def rnd_area(r, pair, tame):
     if not tame and r.random() < 0.3:
@@ -259,18 +282,20 @@ def rnd_area(r, pair, tame):
     if not tame and r.random() < 0.15: return (rect(l, t, w, h), rect(l2, t, w + 1 if w < 640 else w - 1, h))   # two sizes
     return (rect(l, t, w, h), rect(l2, t, w, h))
 
-def rnd_prog(r, recs, tables, tame):
+def rnd_prog(r, recs, tables, tame, c2=False):
     tracks = []
     for i in range(r.randrange(1, 4) if tame else r.randrange(1, 9)):
         pair = r.random() < 0.3
         bd = r.choice([r.randrange(16), r.randrange(16), 0x20]) if tame else \
             r.choice([r.randrange(16), 0x20, 0xFF, r.randrange(256)])
-        segs = [rnd_seg(r, recs, tables, tame, pair) for _ in range(r.randrange(1, 3) if tame else r.randrange(1, 9))]
+        segs = [rnd_seg(r, recs, tables, tame, pair, c2) for _ in range(r.randrange(1, 3) if tame else r.randrange(1, 9))]
         tracks.append(track(rnd_area(r, pair, tame), bd, *segs))
     return prog(*tracks)
 
-def build_cache_c1(r):
-    """The v1/v2 cache of `build_cache`, then easing tables, programs and a region reserved for captures."""
+def build_cache_c1(r, c2=False):
+    """The v1/v2 cache of `build_cache`, then easing tables, programs and a region reserved for captures; with `c2`
+    also list programs (a band whose DRAW takes y from P0: what a binding draws, `FIRMWARE.md` §6.2 step 9) and an
+    item table of 8 records (§6.3)."""
     c, recs, table_off4 = build_cache(r)
     tables = []
     for _ in range(r.randrange(1, 4)):
@@ -279,11 +304,71 @@ def build_cache_c1(r):
         tables.append(c.add(easing(E)))
     progs = []
     for _ in range(r.randrange(2, 6)):
-        rec = rnd_prog(r, recs, tables, tame=r.random() < 0.6)
+        rec = rnd_prog(r, recs, tables, tame=r.random() < 0.6, c2=c2)
         progs.append((c.add(rec), rec))
     capreg = c.reserve(r.randrange(64, 8192))
-    return c, recs, table_off4, {"recs": recs, "tables": tables, "progs": progs, "cap": capreg,
-                                 "rec_bytes": {o4: d for o4, d in c.entries}}
+    cc = {"recs": recs, "tables": tables, "progs": progs, "cap": capreg}
+    if c2:
+        cc["lprogs"] = []
+        for _ in range(r.randrange(1, 4)):
+            w, h = r.randrange(20, 200), r.randrange(10, 100)
+            l, t = r.randrange(0, 640 - w + 1), r.randrange(0, 480 - h + 1)
+            rec = prog(track(rect(l, t, w, h), r.randrange(16),
+                             drawrec(r.choice([1, 3, 6, r.randrange(1, 12)]), r.choice(recs), l, 0, lvl=(r.randrange(16), 15),
+                                     pref0=pref(0, F_Y))))
+            cc["lprogs"].append(c.add(rec))
+        cc["itab"] = c.add(b"".join(u16(r.choice(recs)) for _ in range(8)))
+        cc["c2"], cc["seq"] = True, 0
+    cc["rec_bytes"] = {o4: d for o4, d in c.entries}
+    return c, recs, table_off4, cc
+
+# ---- --c2: mode 27, mode 26 subs 3..5, mode 28 (`FIRMWARE.md` §6.3, §6.5, §6.6), through make_vectors' C2 builders ------
+def rnd_bind(r, cc):
+    """A mode-27 message: SET in both shapes and none, CLEAR, LIST — valid and invalid, lists 0..4."""
+    lst = r.choice([0, 0, 1, 1, 2, 3, 4])
+    k = r.random()
+    if k < 0.5:
+        shape = r.random()
+        if shape < 0.5: dev, ev, stp = 0xFF, r.choice([4, 5]), r.choice([1, -1, 1, -1, 2, -3])     # a scroll entry
+        elif shape < 0.75: dev, ev, stp = 4, 0, 0                                                 # a tap entry
+        else: dev, ev, stp = r.choice([0, 1, 4, 0xFF, 7]), r.choice([0, 1, 2, 3, 4, 5, 0xD, 0xE]), r.choice([0, 1, -1, 127, -128])
+        if ev == 0 and r.random() < 0.4: p4 = NONE                                                # report-only
+        elif r.random() < 0.7: p4 = r.choice(cc["lprogs"])
+        elif r.random() < 0.8: p4 = r.choice(cc["progs"])[0]
+        else: p4 = r.choice([NONE, r.randrange(0x10000)])
+        params = [(r.choice([0, 1, 2, 2, 2, 0]) if r.random() < 0.95 else r.choice([3, 255]),
+                   r.choice(S16_EDGES + [0, 0, 10, 100, -100, r.randrange(-200, 700)])) for _ in range(r.randrange(0, 5))]
+        return bind_set(r.randrange(8) if r.random() < 0.95 else r.choice([8, 0xFF]), dev, ev, lst, stp,
+                        r.choice([0, 0, 1, 1, 2, 3]) if r.random() < 0.95 else 4,
+                        r.choice([34, 34, 16, 128, r.randrange(16, 129)]) if r.random() < 0.9 else r.choice([0, 15, 129, 255]),
+                        p4, params)
+    if k < 0.62: return bind_clear(r.choice([0, 1, 2, 3, 7, 0xFF, 0xFF, 8]))
+    items = cc["itab"] if r.random() < 0.7 else r.choice([NONE, r.randrange(0x10000)])
+    return bind_list(lst, items, r.choice([1, 2, 4, 8, 8, 8, 0, 1024, 1025, r.randrange(1, 9)]),
+                     r.choice([0, 0, 1, -1, 3, -3, 8, -8, 2000, -2000, 32767, -32768]),
+                     r.choice([10, -10, 0, 34, 20000, -20000]), r.randrange(256))
+
+def rnd_answer(r, cc, slot, pv):
+    """COMMIT, DISCARD or SETTLE (§6.5): S near the last fire RIGHT counted and across the 16-bit wrap, cursors in and
+    out of range, any age."""
+    n = cc["seq"]
+    S = ((n + r.choice([-2, -1, 0, 0, 1, 2])) if r.random() < 0.8 else r.choice([n + 0x8000, n - 0x7FFF, r.randrange(0x10000)])) & 0xFFFF
+    lst = r.choice([0, 0, 1, 2, 3, 0xFF, 4])
+    cur = r.choice([0, 1, 3, 7, r.randrange(10), 1023, 1024, 0xFFFF])
+    k = r.random()
+    if k < 0.4:
+        p4 = r.choice(cc["lprogs"]) if r.random() < 0.7 else r.choice(cc["progs"])[0]
+        return commit(slot(), S, lst, cur, p4, [pv() for _ in range(4)])
+    if k < 0.7: return discard(slot(), S, lst, cur)
+    return settle(slot(), S, lst, cur, r.choice([0, 1, 34, 256, 450, 0xFFFF, r.randrange(0x10000)]))
+
+def rnd_vscale(r, cc):
+    """Mode 28 (§6.6), alone or per lens: H at 0, 1, the record's height and past 2048, clipped at every edge."""
+    rec = r.choice(cc["recs"]) if r.random() < 0.9 else r.randrange(0x10000)
+    Hh = r.choice([0, 1, 2, 7, 30, 64, 480, 2048, 2049, r.randrange(1, 600), r.randrange(0x10000)])
+    x, y, opt = r.randrange(-100, 700), r.randrange(-100, 520), r.randrange(256)
+    if r.random() < 0.3: return vscale_pair(rec, x, r.randrange(-100, 700), y, opt, Hh)
+    return vscale(rec, x, y, opt, Hh)
 
 def rnd_c1(r, k, cc, depth):
     progs = cc["progs"]
@@ -304,6 +389,9 @@ def rnd_c1(r, k, cc, depth):
             data = bytes((i * 13 + r.randrange(3)) & 0xFF for i in range(total - 4))
             return zwrite((0x2000, data))             # byte 32,768: past build_cache's content in any cache size
         return zwrite(*[(o4, d) for o4, d in r.sample(sorted(cc["rec_bytes"].items()), min(2, len(cc["rec_bytes"])))])
+    if k == 26: return rnd_bind(r, cc)                # --c2's three kinds
+    if k == 27: return rnd_answer(r, cc, slot, pv)
+    if k == 28: return rnd_vscale(r, cc)
     # k == 25: a cache write over what an open instance reads, or mode 11
     if r.random() < 0.15 and not depth: return bytes([11])
     o4, d = r.choice(sorted(cc["rec_bytes"].items()))
@@ -326,20 +414,58 @@ def is_engine(m):
             p += 2 + ln
     return False
 
-def gen_c1(seed, nsteps):
+def carries(m, mode):
+    """`mode` at the top level, inside a batch or inside a self-test step (`is_engine`'s walk, for any mode)."""
+    if not m: return False
+    if m[0] & 0x7F == mode: return True
+    if m[0] == 16 and len(m) > 2: return carries(m[2:], mode)
+    if m[0] == 8 and len(m) >= 2:
+        p = 2
+        for _ in range(m[1]):
+            if p + 2 > len(m): return False
+            ln = m[p] | m[p + 1] << 8
+            if carries(m[p + 2:p + 2 + ln], mode): return True
+            p += 2 + ln
+    return False
+
+def gen_c1(seed, nsteps, c2=False):
+    """C1's set; with `c2` C2's (`FIRMWARE.md` §6.10, spec §5): BIND armed and a table bound at the start (and after
+    every session that comes back), inputs (ids 0, 1, 3, 4, 5, 0xD, 0xE; devTypes 0, 1, 4; one in five on LEFT alone)
+    and page switches between messages, modes 27 and 28 and mode 26's subs 3..5 among them. Without `c2` every
+    random draw is C1's, so a seed writes the vector it wrote before."""
     r = random.Random(seed)
-    c, recs, table_off4, cc = build_cache_c1(r)
-    full = DRAW2 | ENGINE | ZWRITE
-    armed = full if r.random() < 0.85 else r.choice([DRAW2 | ENGINE, DRAW2 | ZWRITE, ENGINE | ZWRITE])
+    c, recs, table_off4, cc = build_cache_c1(r, c2)
+    full = DRAW2 | ENGINE | ZWRITE | (BIND if c2 else 0)
+    armed = full if r.random() < 0.85 else r.choice([DRAW2 | ENGINE, DRAW2 | ZWRITE, ENGINE | ZWRITE]) | (BIND if c2 else 0)
     prelude = [{"tick": 1000}, {"lease": "acquire"}, {"cachesize": r.choice([64, 96, 160, 256])}, {"flags": armed}]
     writes = [msg(m) for m in c.messages(chunk=2500)]
     kf = msg(keyframe(pattern(W, H, seed)))
-    steps = [step(*prelude), *[step(w) for w in writes], step(kf), step({"tick": 1001}, wake())]
+    table = []
+    if c2:
+        prelude.append({"page": True})
+        lp = cc["lprogs"]
+        table = [msg(bind_list(0, cc["itab"], 8, 0, 10, 1)), msg(bind_list(1, cc["itab"], 8, 4, -10, 1)),
+                 msg(bind_set(0, 0xFF, 4, 0, 1, 0, 34, lp[0], [(2, 0)])),
+                 msg(bind_set(1, 0xFF, 5, 1, -1, 1, 34, r.choice(lp), [(2, 0)])),
+                 msg(bind_set(2, 4, 0, 0, 0, 0, 34, r.choice([NONE, r.choice(lp)]), [(2, 0)]))]
+    steps = [step(*prelude), *[step(w) for w in writes], step(kf), step({"tick": 1001}, *table, wake())]
     now, fid = 1001, 1
-    last = (now, 34)                                  # the last PLAY's tick and period: wakes aim at its steps
+    last = (now, 34)                                  # the last PLAY's (or fire's) tick and period: wakes aim at its steps
     for _ in range(nsteps):
         ops = []
         for _ in range(r.randrange(1, 4)):
+            if c2:
+                x = r.random()
+                if x < 0.22:                          # an input between messages (§6.10), after a tick
+                    ev, dev = r.choice([0, 0, 1, 3, 4, 4, 5, 5, 0xD, 0xE]), r.choice([0, 1, 4, 4])
+                    now += r.choice([0, 1, r.randrange(1, 60)])
+                    o = {"input": [dev, ev, r.randrange(200)]}
+                    if r.random() < 0.2: o["only"] = "L"
+                    elif ev in (4, 5) or (ev == 0 and dev == 4): cc["seq"] += 1      # RIGHT's S, as the phone would count it (roughly)
+                    if ev in (4, 5, 0): last = (now, 34)
+                    ops += [{"tick": now}, o]; continue
+                if x < 0.25:
+                    ops.append({"page": r.random() < 0.65}); continue
             k = r.random()
             if k < 0.03:
                 now += r.randrange(1, 20_000); ops.append({"tick": now}); continue
@@ -348,11 +474,15 @@ def gen_c1(seed, nsteps):
                 ops.append({"lease": ev})
                 if ev == "release" and r.random() < 0.7:          # most sessions come back: a fresh lease, armed, its cache
                     ops += [{"lease": "acquire"}, {"flags": full}, kf, *writes]
+                    if c2: ops += [{"tick": now}, *table]          # and its table: the release point emptied it
+                if c2 and ev == "release": cc["seq"] = 0
                 continue
             if k < 0.07:
                 ops.append({"cachesize": r.choice([32, 63, 64, 160, 161, 256, 257])}); continue
             if k < 0.10:
-                ops.append({"flags": r.choice([0, DRAW2, full, DRAW2 | ENGINE, DRAW2 | ZWRITE, ENGINE, full | PROBE, 0xFFFF])}); continue
+                fl = [0, DRAW2, full, DRAW2 | ENGINE, DRAW2 | ZWRITE, ENGINE, full | PROBE, 0xFFFF]
+                if c2: fl += [DRAW2 | BIND, DRAW2 | ENGINE | ZWRITE, ENGINE | BIND, full, full]
+                ops.append({"flags": r.choice(fl)}); continue
             if k < 0.12:
                 ops.append({"stock": True}); continue
             if k < 0.32:                              # a wake on a step boundary of the last PLAY, or between two
@@ -363,21 +493,22 @@ def gen_c1(seed, nsteps):
             m = rnd_msg(r, recs, table_off4, fid, cc=cc)
             if m[:1] == b"\x03" or m[:1] == b"\x83": fid += 1
             if m == bytes([11]) and r.random() < 0.7:
-                extra = [{"lease": "acquire"}, {"flags": full}, kf, *writes]
+                extra = [{"lease": "acquire"}, {"flags": full}, kf, *writes] + ([{"tick": now}, *table] if c2 else [])
             else:
                 extra = []
             if CORRUPT and r.random() < 0.12: m = corrupt(r, m)
-            if is_engine(m):
+            if is_engine(m) or (c2 and carries(m, 27)):
                 now += r.choice([0, 1, r.randrange(1, 60)])
                 ops.append({"tick": now})
                 if m[0] & 0x7F == 26 and len(m) > 4 and m[1] == 0: last = (now, max(1, m[3]))
             ops.append(msg(m))
             ops += extra
         steps.append(step(*ops))
-    return {"name": f"fuzzc1-{seed:04d}", "contract": 2, "panel": True, "features": FEATURES_C1, "steps": steps}
+    return {"name": f"fuzzc{2 if c2 else 1}-{seed:04d}", "contract": 2, "panel": True,
+            "features": FEATURES_C2 if c2 else FEATURES_C1, "steps": steps}
 
 def main():
-    global CORRUPT, C1
+    global CORRUPT, C1, C2
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("out", help="directory to write the vectors into")
     ap.add_argument("count", type=int, help="how many vectors")
@@ -385,9 +516,12 @@ def main():
     ap.add_argument("--seed", type=int, default=1, help="the first vector's seed; each one after it is seed+i")
     ap.add_argument("--corrupt", action="store_true", help="truncate or flip a byte in one message in eight")
     ap.add_argument("--c1", action="store_true", help="C1's set: modes 25 and 26, wakes, mode 11 (FIRMWARE.md §5)")
+    ap.add_argument("--c2", action="store_true", help="C2's set: C1's, plus modes 27 and 28, mode 26 subs 3..5, inputs "
+                    "and page switches, BIND (FIRMWARE.md §6)")
     a = ap.parse_args()
     CORRUPT = a.corrupt
-    C1 = a.c1
+    C1, C2 = a.c1, a.c2
+    if C1 and C2: ap.error("--c1 and --c2 are two sets; give one")
     out = pathlib.Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     for i in range(a.count):

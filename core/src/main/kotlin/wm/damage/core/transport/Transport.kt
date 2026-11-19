@@ -289,6 +289,18 @@ sealed class TransportEvent {
     /** A ring/temple gesture, already decoded. type = EvenHubMsg.EV_*, source = SRC_*. */
     data class Input(val type: Int, val source: Int) : TransportEvent()
 
+    /** Build C2 (`FIRMWARE.md` §6.5, §6.7 P2): one notify-115 report of a gesture the glasses matched, in arrival order
+     *  with the [Input] events (a stock message is handled after every report that preceded it on the link). */
+    data class Applied(val report: wm.damage.core.wire.DamageMsg.Applied,
+        /** When the report was read — as [Link.atMs]. */
+        val atMs: Long = System.currentTimeMillis()) : TransportEvent()
+
+    /** Build C2 (§6.7 P1, the tap rule's `tapsLive`): at each RIGHT telemetry record of a bit-10 build — field 39 (the
+     *  event ids with a live entry on RIGHT; null when the record does not carry it) and, when the record's image-lane
+     *  refusal is new and names mode 27, that refusal (the shell sends the whole table again). */
+    data class LocalRead(val boundIds: Long?, val refusal27: wm.damage.core.wire.DamageMsg.Refusal?,
+        val atMs: Long = System.currentTimeMillis()) : TransportEvent()
+
     /** A typed line from a replica ([Transport.injectText]). */
     data class Text(val line: String) : TransportEvent()
 
@@ -441,7 +453,21 @@ data class LinkState(
     /** What the transport is doing right now, for status lines: "scanning for
      *  the pair", "connecting RIGHT", "connect prelude", "" once driving. */
     val detail: String = "",
+    /** Build C2 (`FIRMWARE.md` §6.3, §6.7): the `Taps` value the transport keeps on the phone's storage — `phone` ·
+     *  `report` · `glasses`. It has effect only while [bind] holds. */
+    val taps: String = "report",
+    /** The `Local input` row's state in words (§6.3): "on" · "off: stage N" · "held back until tomorrow: …" · "this
+     *  firmware has no local input"; "" before a CFW transport has said. */
+    val localInput: String = "",
+    /** P1: S_heard at this session's start — 0 on a fresh acquire, field 36 of the start's own read on a carried lease. */
+    val bindSHeard0: Int = 0,
 )
+
+/** Build C2 (`FIRMWARE.md` §6.8): local input is armed — the build reports bit 10 and BIND is in force (the ladder's
+ *  stage 4 this session). Only then does the phone send mode 27, mode 28 or a COMMIT, DISCARD or SETTLE. */
+val LinkState.bind: Boolean
+    get() = damageFeatures and wm.damage.core.wire.DamageMsg.FEATURE_BIND != 0 &&
+        flagsInForce and wm.damage.core.wire.DamageMsg.FLAG_BIND != 0
 
 /** The floor is a reading, not its default (an older peer that reports no count is taken at its word). */
 val LinkState.floorMeasured: Boolean get() = floorSamples < 0 || floorSamples >= LinkEstimator.MIN_SAMPLES
