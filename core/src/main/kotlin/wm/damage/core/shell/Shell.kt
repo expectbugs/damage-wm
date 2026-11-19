@@ -5065,11 +5065,14 @@ class Shell(
     }
 
     /** The follow-up's flush [a] would write into the pan's areas while an instance there may still be drawing (a PLAY
-     *  unacknowledged, or the latest one before its last step) — the transport would CLOSE it first and cut the motion. */
+     *  unacknowledged, or the latest one before its last step) — the transport would CLOSE it first and cut the motion.
+     *  "Writes" is the transport's own bound ([wm.damage.core.transport.CfwTransportBase.motionWriteRects]): a cached
+     *  glyph run counts to the panel's right and bottom edges, so a follow-up that draws cached text waits too. */
     private fun mainSeqFollowUpMeets(run: MainSeqRun, a: Compositor.Assembled): Boolean {
         if (run.unacked.isEmpty() && System.currentTimeMillis() >= run.instanceEndsMs) return false
         val pan = run.lastPan ?: return false
-        return a.touched.any { t -> pan.areas(t.left).any { it.overlaps(t.rect) } }
+        return wm.damage.core.transport.CfwTransportBase.motionWriteRects(a.ops).any { (l, r) ->
+            pan.areasL.any { it.overlaps(l) } || pan.areasR.any { it.overlaps(r) } }
     }
 
     /** The follow-up met a drawing instance: rolled back (its cells go again from the truth) and tried again at that
