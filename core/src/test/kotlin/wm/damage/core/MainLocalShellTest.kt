@@ -279,16 +279,16 @@ class MainLocalShellTest {
             val tB = System.currentTimeMillis()
             val sB = r.fire(CfwModes.EV_UPROLL)                     // B: onto row 2, whose staged band form is the old one
             r.until("row 2 re-staged", 10_000) { r.notes("mainstage").any { it.startsWith("row 2 re-staged") } }
-            delay(300)
+            // the re-stage waited for the burst's end: Q after B's report (the lone SETTLE), not between A and B
+            val restagedAt = assertNotNull(r.noteAt("mainstage", "row 2 re-staged"))
+            assertTrue(restagedAt >= tB + LocalRules.Q_MS / 2, "row 2 re-staged ${restagedAt - tB} ms after B: not before the burst's SETTLE (Q ${LocalRules.Q_MS} ms)")
+            delay(LocalRules.Q_MS + 300)
             r.settle("after")
             val imgs = r.right.drop(at)
             val commitB = imgs.indexOfFirst { img -> r.subs(img).any { r.isCommit(it, sB) } }
             assertTrue(commitB >= 0, "B onto the stale row is answered with a COMMIT (S $sB)")
             val settle = imgs.indexOfFirst { img -> r.subs(img).any { r.isSub(it, 26, 5) } }
             assertTrue(settle > commitB, "the burst's lone SETTLE after B's COMMIT (COMMIT $commitB, SETTLE $settle)")
-            // the re-stage waited for the burst's end: Q after B's report (the lone SETTLE), not between A and B
-            val restagedAt = assertNotNull(r.noteAt("mainstage", "row 2 re-staged"))
-            assertTrue(restagedAt >= tB + LocalRules.Q_MS / 2, "row 2 re-staged ${restagedAt - tB} ms after B: not before the burst's SETTLE (Q ${LocalRules.Q_MS} ms)")
             // no snap-back of the rules' own: no DISCARD answered A or B. (In the simulator the transport's mirror IS the
             // lens, so the row's repaint that follows the COMMIT meets B's adopted instance while it still draws and the
             // transport CLOSEs it first (§5.6) — RIGHT's stop reads as `burst-end`. On glass the mirror holds no local or
@@ -310,8 +310,13 @@ class MainLocalShellTest {
             r.up()
             r.until("Main rests", 20_000) { r.onLoop { r.shell.mainRestingForTest() } }
             r.settle("resting")
-            notch(r, CfwModes.EV_UPROLL, "a notch at rest")
+            val at = r.right.size
+            val s = r.fire(CfwModes.EV_UPROLL)
+            r.until("the notch adopted", 5_000) { r.row() == 1 }
             assertTrue(!r.onLoop { r.shell.mainRestingForTest() }, "the adopted notch woke Main")
+            delay(LocalRules.Q_MS + 400); r.settle("after the notch")
+            assertTrue(r.right.drop(at).any { img -> r.subs(img).any { r.isCommit(it, s) } }, "a COMMIT of S $s")
+            r.assertOracle("a notch at rest")
         } finally { r.close() }
     }
 
