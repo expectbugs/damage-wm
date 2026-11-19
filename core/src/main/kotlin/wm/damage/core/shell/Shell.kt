@@ -5115,7 +5115,7 @@ class Shell(
         val ct = cachedText
         val want0 = ct?.wantVersion; val seen0 = ct?.seenVersion
         val ms = try {
-            MainStaging.build(layout, main.view(), kit, listD, bandD, st.cacheSize) { g, paint -> if (ct != null) ct.via(g, 0, 0, NO_RECORDS) { paint() } else paint() }
+            MainStaging.build(layout, main.view(), kit, listD, bandD, st.cacheSize, relay = { g, paint -> if (ct != null) ct.via(g, 0, 0, NO_RECORDS) { paint() } else paint() })
         } catch (e: wm.damage.core.geom.LintError) { mainSeqEnd(run, "Main's rows cannot be staged: ${e.message}"); return false }
         run.staging = ms
         if (ct != null && (ct.wantVersion != want0 || ct.seenVersion != seen0)) {
@@ -5360,6 +5360,11 @@ class Shell(
 
     /** A staging the region could not hold, by what it was painted for: not painted again until one of those changes. */
     private var mainBindRefusedFor: String? = null
+    /** The staging being painted a row per loop turn (AF.8), the key it is painted for, and the atlas's versions at its
+     *  start (a change means the paint met characters the atlas did not hold: painted again once it does). */
+    private var mainBindPaint: MainStaging.Paint? = null
+    private var mainBindPaintFor: String? = null
+    private var mainBindPaintVersions: Pair<Any?, Any?>? = null
     /** The last reason Main was not staged that the journal was told (AF.9), cleared at a session start. */
     private var mainBindBlockedSaid: String? = null
     private var mainBindWakeAtMs = 0L
@@ -5428,7 +5433,9 @@ class Shell(
             }
             // decisions AF.4: a band form's old slot is released only when no report can still name it — the switch
             // acknowledged AND no burst open (a report adopted before the ack may still be COMMITted from that slot)
-            if ((r.state == StagedRecord.State.ACKED || r.state == StagedRecord.State.PROVEN) && !local.burstOpen) b.switchAcked(p)
+            // a strip switch (AD.2) is the SETs' too: released once the rules hold the entries that name the new strip
+            if ((r.state == StagedRecord.State.ACKED || r.state == StagedRecord.State.PROVEN) && !local.burstOpen &&
+                (p.restage.toStrip == null || mainBindEntriesSent())) b.switchAcked(p)
             if (r.state == StagedRecord.State.PROVEN && p.released) {
                 b.patchCounted(p)
                 stage.remove(r)
@@ -5442,6 +5449,11 @@ class Shell(
                 "mark ${offer.mark}, ${offer.entries.size} entries (the whole list, P ${ms.period} T ${ms.t}), items at off4 ${offer.items4}")
         }
     }
+
+    /** The rules hold the scroll entries of the list Main offers now (their SETs were sent): a strip switch's old pans can
+     *  no longer be named by a fire after them in stream order (AD.2). */
+    private fun mainBindEntriesSent(): Boolean = main.offered?.let { l ->
+        l.entries.filter { !it.isTap }.all { e -> local.heldFor(l.list, e.eventId)?.prog4 == e.prog4 } } == true
 
     /** The staging goes: its records leave the registry and the list is withdrawn. */
     private fun mainBindDrop(why: String) {
@@ -5501,19 +5513,36 @@ class Shell(
         val what = "$layout $listD/$bandD $n ${region.first}..${region.last} ${st.cacheSize} ${List(n) { main.rowKey(it) }.hashCode()}"
         if (mainBindRefusedFor == what) return false
         val ct = cachedText
-        val want0 = ct?.wantVersion; val seen0 = ct?.seenVersion
-        val ms = try {
-            MainStaging.build(layout, main.view(), kit, listD, bandD, st.cacheSize, region.first, region.last + 1, mainBindRelay())
-        } catch (e: wm.damage.core.geom.LintError) {
-            mainBindRefusedFor = what
-            journal.note("mainstage", "Main's rows cannot be staged: ${e.message} — the list stays unbound (its scrolls and taps go as today) until Main's layout, planes or rows change")
-            return false
+        // decisions AF.8: one row painted per loop turn (its row form and band form); the staging is laid out once every row
+        // is painted for this same key — a change of layout, planes, rows or their content starts the paint again
+        val pt = mainBindPaint?.takeIf { mainBindPaintFor == what && it.n == n } ?: run {
+            mainBindPaintFor = what; mainBindPaintVersions = ct?.wantVersion to ct?.seenVersion
+            MainStaging.Paint(layout, main.view(), kit).also { mainBindPaint = it }
         }
-        if (ct != null && (ct.wantVersion != want0 || ct.seenVersion != seen0) && ++mainBind.paints <= MainBinding.PAINTS_MAX) {
+        if (!pt.done) {
+            try { pt.step(mainBindRelay()) } catch (e: wm.damage.core.geom.LintError) {
+                mainBindRefusedFor = what; mainBindPaint = null
+                journal.note("mainstage", "Main's row ${pt.next} cannot be painted for staging: ${e.message} — the list stays unbound (its scrolls and taps go as today) until Main's layout, planes or rows change")
+                return false
+            }
+            post(Msg.Pump)
+            return true
+        }
+        mainBindPaint = null
+        if (ct != null && mainBindPaintVersions != (ct.wantVersion to ct.seenVersion) && ++mainBind.paints <= MainBinding.PAINTS_MAX) {
             // §73, Page staging's rule: the atlas goes first, and Main is painted again once it holds what the paint drew
             journal.note("mainstage", "Main's rows drew characters the atlas does not hold yet — the atlas goes first, then they are painted again")
             post(Msg.Pump)
             return true
+        }
+        val shared0 = region.last + 1 == st.cacheSize
+        val ms = try {
+            // the bound list's pans only (AF.10); at 256 KiB Main's own region holds a second strip (AD.2)
+            MainStaging.assemble(pt, listD, bandD, st.cacheSize, region.first, region.last + 1, listOf(MainStaging.WHOLE), twoStrips = !shared0)
+        } catch (e: wm.damage.core.geom.LintError) {
+            mainBindRefusedFor = what
+            journal.note("mainstage", "Main's rows cannot be staged: ${e.message} — the list stays unbound (its scrolls and taps go as today) until Main's layout, planes, rows or their content change, or the next session")
+            return false
         }
         val recs = ms.blobs.mapIndexed { i, blob -> StagedRecord(MainStageKey(ms, i, blob.name), blob.raw ?: Gray8(1, 1), blob.bytes) }
         val shared = region.last + 1 == st.cacheSize
@@ -5557,7 +5586,9 @@ class Shell(
             MainStaging.Restage.Same -> { mainBind.sameWhileWithdrawn(row); post(Msg.Pump) }
             is MainStaging.Restage.Outgrown -> mainBindDrop("a full staging is owed (a new mark): ${r.why}")
             is MainStaging.Restage.Changed -> if (!write) { mainBind.changed(row); post(Msg.Pump) }
-            else if (r.strip.isNotEmpty() && mainBind.withdrawnFor != row) {
+            // at 160 KiB a strip write needs the list withdrawn; at 256 it goes to the other strip slot and the entries are
+            // SET to the pans that name it (AD.2: no unbound moment)
+            else if (r.strip.isNotEmpty() && r.toStrip == null && mainBind.withdrawnFor != row) {
                 // the strip is named only inside the pan programs: its segments are written with no entry live (X.2)
                 mainBind.withdraw(row, mainBindPumps)
                 main.offered = null

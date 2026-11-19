@@ -160,7 +160,7 @@ internal class MainBinding {
     fun submitted(r: MainStaging.Restage.Changed, rec: StagedRecord, nowMs: Long) {
         val ms = staging!!
         ms.apply(r)
-        if (r.band != null) list = ms.boundList(mark, previous = list)
+        if (r.band != null || r.toStrip != null) list = ms.boundList(mark, previous = list)
         if (withdrawnFor == r.row) withdrawnFor = null
         patches += Patch(r.row, rec, r)
         owed[r.row] = false; forced[r.row] = false; dirty[r.row] = false
@@ -174,7 +174,8 @@ internal class MainBinding {
     fun switchAcked(p: Patch) {
         if (p.released) return
         p.released = true
-        p.restage.band?.let { m -> staging?.release(m.oldOff4); list?.previous = null }
+        p.restage.band?.let { m -> staging?.release(m.oldOff4) }
+        if (p.restage.band != null || p.restage.toStrip != null) list?.previous = null
     }
 
     /** A re-stage's record was counted: it leaves the books (its bytes are the staging's now). */

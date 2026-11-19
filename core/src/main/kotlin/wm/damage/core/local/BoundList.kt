@@ -73,9 +73,12 @@ class BoundList(
      *  the phone no longer holds is the only `restaged` discard). The answer's COMMIT carries the report's own (prog, P),
      *  and [paintEnd] paints the pictures they name. */
     fun names(c: Int, e: Entry, prog: Int?, p: IntArray?): Boolean {
+        // each list judged by its OWN entry for the event (AD.2: a strip switch SETs the scroll entries to the pans of the
+        // other strip, so the two lists' programs differ; [e] when the list holds none for it)
         fun on(l: BoundList): Boolean {
-            if (c !in 0 until l.count || prog != e.prog4 || p == null) return false
-            val pred = l.paramsAt(c, e)
+            val le = l.entryFor(e.eventId) ?: e
+            if (c !in 0 until l.count || prog != le.prog4 || p == null) return false
+            val pred = l.paramsAt(c, le)
             return pred != null && pred !== REFUSED_12 && pred.contentEquals(p)
         }
         return on(this) || previous?.let { on(it) } == true
