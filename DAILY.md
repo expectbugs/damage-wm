@@ -249,7 +249,7 @@ without writing a row.
   {"rules": [
     {"id": "fresh-low", "entity": "sensor.fresh_tank", "kind": "below", "at": 20, "clearAt": 25, "forMin": 5,
      "text": "Fresh tank low", "repeatMin": 120},
-    {"id": "fresh-change-away", "entity": "sensor.fresh_tank", "kind": "change", "at": 3, "forMin": 10,
+    {"id": "fresh-change-away", "entity": "sensor.fresh_tank", "kind": "change", "at": 4, "forMin": 10,
      "when": {"entity": "damage.phone", "equals": "away"}, "text": "Fresh tank changed while away"},
     {"id": "level-quiet", "entity": "sensor.example_level", "kind": "unavailable", "forMin": 30,
      "text": "Level sensor not reporting", "severity": "urgent"}
@@ -260,7 +260,9 @@ without writing a row.
   `repeatMin` (0 = said once), `severity` (`normal` · `urgent`: every 10 min until acknowledged, passes quiet hours),
   `note`, `when` (`{entity, equals | notEquals}`: a hub entity, or `damage.phone` = `home` / `away`). By kind: `above` /
   `below` take `at` and `clearAt` (the band); `equals` / `notEquals` take `value`; `unavailable` needs `forMin` above
-  0; `change` takes `at` (the size of a change from the baseline taken at arming, in the entity's units) and
+  0; `change` takes `at` (the size of a change from the baseline taken at arming, in the entity's units — it fires at
+  a difference of `at` OR MORE, so "more than 3" is `at: 4`; a sensor that reports in steps of 3 and flickers between
+  two neighbouring steps needs `at` above one step, Adam's correction of 2026-11-18) and
   `direction` (`any`, the default · `up` · `down`). L1 removed the kind `stale` and the option `withinMin`: a rule that
   names either is refused (said, `watcher.rule.<id>`). An edit applies at the next start; a severity edit from the
   alert's next episode. The token file alone is read again once a minute while it cannot be used or its token is
