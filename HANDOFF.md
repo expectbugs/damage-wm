@@ -9164,3 +9164,24 @@ briefs, reports and reviews are under the gitignored `private/build072/`; the co
     `snapback` counts; the 114 and 115 gaps; LEFT's first step on 240 fps video; the `mainstage` notes and a
     gesture's WAIT right after a session start (item 10's two windows). After C2: the motion kit's shell part
     (`REPLAN.md` §17.3 item 6).
+
+## 93. APK 0.77 on his phone; Music's five answers; work goes on while a build waits (2026-11-19)
+
+1. **0.77 installed 11:17:21** (the phone's log: `PACKAGE_UPDATED`); the session up at 11:17:38 on the C1 image:
+   op 5 answered status 4 with the 160 KiB session (arena 13 free 226 KiB — a record without a stored size asks 160,
+   §92.6), flags armed 0x4 → 0xc → 0x2c (stage 3 restored), nothing of BIND; five minutes with no fault, then he
+   switched the phone's Bluetooth off (11:22) to prepare the flash sitting. Measured on the glasses' telemetry.
+2. **Music's five questions (S1-4's spec §10 items 1–5): "All recommendations."** The answers are in `REPLAN.md`
+   §17.3 item 7.
+3. **"I'll prep for C2 install, but also you should be working on whatever future work is safe to start working on
+   regardless of C2. Let's waste no time. ABC, always be coding."** Ruled into `REPLAN.md` §17.3 item 7 and
+   `CLAUDE.md`: what goes onto his devices still goes one build at a time; the next planned work that does not
+   depend on the waiting build is built and reviewed ahead on its own branch. Started on that word, each on its own
+   branch, nothing deployed: **RA-1**, R-a's liveness supervisor for the shell's loop (`wip/078-ra`); **S1-4's spec
+   brought to the lean shape** (L1 had not done it; `private/build078/S1-4-lean-spec.md`); **C2's staged records
+   split across flushes** (`wip/078-split`, §92.10's cure, waiting for the trial).
+4. **Before the sitting, offline, all passing** (logs in `private/build072/flash-20261119/`): `tools/verify.py` on
+   the candidate (38 PASS; the image rebuilds to pin `b3f04453…`; 334 KB below the OTA flag), the host vectors, the
+   self-test path (28 vectors), the extension tests, `research/verify_cfw.py`. The candidate is kept in
+   `fws/2.2.6.10-cfw-b3f04453/`, the rollback in `fws/2.2.6.10-cfw-0dab2154/`. **Nothing was sent to the glasses;
+   the flash waits for his go per lens.**

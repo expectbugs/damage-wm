@@ -193,7 +193,10 @@ hours and every lane's work in `/tmp` was lost at the reboot. Since then:
   ended with no reason): read `/var/log/kern.log` for `oom` before ruling anything.
 - **Scratch, worktrees and briefs live under `private/`** (gitignored), never `/tmp` (wiped at boot); work in
   progress is committed at every stage boundary. One heavy JVM job at a time (`private/tools/jvm`).
-- **No more than one build is stacked on what he has not yet used.** What nobody has looked at has not passed.
+- **No more than one build goes ONTO his devices ahead of what he has used** — what nobody has looked at has not
+  passed. Building and reviewing ahead on branches is wanted (Adam, 2026-11-19: "you should be working on whatever
+  future work is safe to start working on regardless of C2. Let's waste no time. ABC, always be coding";
+  `REPLAN.md` §17.3 item 7): while a build waits on him, the next planned work that does not depend on it starts.
 - **His subscription is a budget, watched all the time** (`REPLAN.md` §17.6). Before a run: its size in percent of
   his week and what he will see or be able to do for it — "nothing he would notice" goes to him first. Both meters
   are read before and after every run and the change is reported; a build that passes its budget says so and goes

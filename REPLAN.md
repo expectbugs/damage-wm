@@ -768,6 +768,18 @@ what an actor may do; the snapshot judge; one look at every page in a real brows
    the movements and transitions". The lead's placement inside that yes: directly after C2, with S1-5 beside or after
    it.
 
+7. **Amended by Adam on 2026-11-19** (`HANDOFF.md` §93). **Work goes on while a build waits on him:** "I'll prep for
+   C2 install, but also you should be working on whatever future work is safe to start working on regardless of C2.
+   Let's waste no time. ABC, always be coding". So 17.2's item 6 reads: what goes ONTO his phone and PC still goes
+   one build at a time, in order (the lead's reading, so that a fault is attributable); the next planned work that
+   does not depend on the waiting build is built and reviewed ahead on its own branch. **Music's five questions are
+   answered the same day: "All recommendations"** (S1-4's spec §10 items 1–5: the output stays the phone until he
+   chooses the PC's, which plays to one device he names; away with the output on the PC, Play on the phone takes the
+   output and says on return until when the PC played; a service restart stops the PC's output; earbud taps go to
+   the PC's output while it is chosen; lossless, stereo, the player at 100 %, boost dim). In work from that word: R-a's
+   supervisor for the phone's shell loop (the class the hold loop of §92.9 belongs to), S1-4's spec brought to the
+   lean shape (L1 did not do it), and C2's staged records split across flushes (§92.10's cure).
+
 ### 17.4 Robustness items (each small; sized when its turn comes)
 
 R-a every "until a restart" state gets a supervisor that ends the stuck thing, says so and carries on (the record log

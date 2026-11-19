@@ -1,7 +1,8 @@
 # Where we are, and what to do next
 
 **The entry point for a fresh session**: what is true now, what is next, where the records are; history lives in
-`HANDOFF.md`. Read `CLAUDE.md` → this file → **`HANDOFF.md` §92** (build C2: built, reviewed, a candidate image,
+`HANDOFF.md`. Read `CLAUDE.md` → this file → **`HANDOFF.md` §93** (0.77 on his phone; Music's answers; the lanes
+running while the flash waits) → **§92** (build C2: built, reviewed, a candidate image,
 nothing flashed; Main's scroll judged on glass; APK 0.77 staged) → **§91** (0.70 and 0.71 deployed, the ladder at
 stage 3 on his word, build C1-Q, Reddit's feed) → §90 (C1-P) → **§89** (S1-3: Feed and Tmux on the PC's record, APK 0.70; its four
 reversible calls, 89.5) → **§88** (C1 flashed) → §87 (the flash-readiness review) → **§84** (the
@@ -23,8 +24,8 @@ for firmware → earlier by number (§65 Phase 2 and the protocol, §48 the fork
   should stop a flash (§92.8); the rollback image is kept in `fws/2.2.6.10-cfw-0dab2154/`. **The flash waits for his
   go, per lens** (`FORK.md` §7: `probe c1=0` and a session start; LEFT first, RIGHT last; no stage 4 before both logs
   show END status 8 and op 4 status 9; `0x5ff`; then `probe c1=4` and one notch and one tap on Main).
-- **His phone runs APK 0.74 (11-18 21:55) until he installs 0.77, staged 11-19 06:10; the PC service runs 0.77
-  since 06:10** (§92.12). 0.72–0.74 carried the test motions he judged (§92.1); 0.77 = C2's whole phone half, which
+- **His phone runs APK 0.77 since 11-19 11:17 and the PC service since 06:10** (§92.12, §93.1: on the C1 image it
+  armed stage 3 as before, the first session at 160 KiB, no fault). 0.72–0.74 carried the test motions he judged (§92.1); 0.77 = C2's whole phone half, which
   sends nothing of C2 below ladder stage 4 on a build that reports bit 10 (four readers traced it).
 - **Main's scroll, his verdict on the glasses (§92.1):** only the whole list moving together looked good — "what
   moves, moves together" binds every later motion; the period is chosen so a step fits (P 42 ticks, T 5 at height
@@ -44,7 +45,9 @@ for firmware → earlier by number (§65 Phase 2 and the protocol, §48 the fork
 | C1 (motion programs) | fork `c1` `561f8b7` (pin `0dab2154…`); its Damage half on `main` | **flashed 11-18; stage 3 in force since 15:43** |
 | S1-3 (Feed, Tmux) + C1-P (the stored stage) | `main` | **deployed: APK 0.70 installed 11-18 14:29** |
 | C1-Q (the session's cache size) | `main` | **deployed: APK 0.71 installed 11-18 16:18** |
-| S1-4 (Music) | a spec only | five questions are his (below) |
+| S1-4 (Music) | the old spec + his five answers ("All recommendations", 11-19); the lean spec in work (`private/build078/`) | not built |
+| RA-1 (the shell loop's liveness supervisor, R-a) | `wip/078-ra` | in build since 11-19; nothing deployed |
+| C2's staged records split across flushes | `wip/078-split` | in build; waits for the trial |
 | the test motions (Main's rows staged, `hold`, `mainseq`) | `main` | deployed: APK 0.72 (18:54) and 0.74 (21:55) on 11-18; judged by him (§92.1) |
 | C2 (the second flash: local input) | fork `c2` `5c728bb` (pin `b3f04453…`, a file); its phone half on `main` | **built, two review passes a side, a focused read, the flash-readiness review; APK 0.77 staged 11-19; NOT flashed — his go per lens** |
 
@@ -74,14 +77,13 @@ after** (§17.6). New firmware features are armed and tested at once on his go, 
    p90) feed C2's constants (`FIRMWARE.md` §6.9).
 3. **After C2: the motion kit's shell part** (`REPLAN.md` §17.3 item 6), before S2.
 4. **Reddit in Feed** (§91.5): which network path still gets a feed; then the fix.
-5. **S1-4** (Music: five questions are his), **S1-5** (the alerts onto the notice record; the phone's caches), **R-b**
+5. **S1-4** (Music: his five answers are in, `REPLAN.md` §17.3 item 7; the lean spec, then the build), **S1-5** (the alerts onto the notice record; the phone's caches), **R-b**
    (one health view on every surface, §17.4), then §16.1's order. His answer is owed on moving the motion kit's shell
    part ahead of S2.
 6. **The first days of 0.66 and 0.67** (§79.9, §80.10) are still unread on his devices.
 
 **What waits on him:** the 0.70 sitting (the PC deploy and his install together, `DAILY.md`); each C1 stage's arming;
-Music's five questions (where the PC plays; away with the output on the PC; a service restart while the PC plays;
-earbud taps while the PC output is chosen; what the PC plays and how loud). Also his, whenever he likes: the lead's
+**his go per lens for C2's flash** (prepared: §93.4). Also his, whenever he likes: the lead's
 calls in §84.2 and S1-3's four in §89.5 (each reversible); a hardware watchdog for the PC (R-c); the fork's push and
 its records' move to `c1`; "delete" for the stray private page (§79.8); which alerts are urgent; deleting the phone's
 old `feed/` folder after 0.70.
