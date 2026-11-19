@@ -265,7 +265,19 @@ abstract class CfwTransportBase(
                     return
                 }
                 val epoch = sessionEpoch.get()
-                val send = { controlQueue.trySend(CtlWork.BothArms(epoch, SettingsMsg.SID, "damage op $wireOp") { DamageMsg.control(wireOp, wireArg) }) }
+                val send = {
+                    // build C2-FA (decisions AG.2): the bits a hand FLAGS_SET or FLAGS_CLEAR takes away leave the flag state
+                    // as it is sent — the phone stops using them before the lenses stop taking them, and the gate, the
+                    // shell and the `Local input` row read the state. A bit set by hand is believed only when a start arms
+                    // it, as before. (Every other writer of `flagsInForce` — the arming, a lease that ends, the capability
+                    // gate, the link's end — keeps it in step already.)
+                    val keep = if (wireOp == DamageMsg.OP_FLAGS_CLEAR) 0 else if (wireOp == DamageMsg.OP_FLAGS_SET) wireArg else -1
+                    if (epoch == sessionEpoch.get() && _state.value.flagsInForce and keep.inv() != 0) {
+                        updateState { it.copy(flagsInForce = it.flagsInForce and keep) }
+                        refreshLocalState()
+                    }
+                    controlQueue.trySend(CtlWork.BothArms(epoch, SettingsMsg.SID, "damage op $wireOp") { DamageMsg.control(wireOp, wireArg) })
+                }
                 // `FIRMWARE.md` §5.8: a disarm closes nothing on the glasses, so a FLAGS_SET that clears ENGINE goes
                 // out only after a CLOSE of every instance has reached both lenses (its ack)
                 fun clears(bit: Int) = _state.value.flagsInForce and bit != 0 &&
@@ -294,6 +306,7 @@ abstract class CfwTransportBase(
                 setRecord("C1 ladder: stage") { was = it; it.copy(stage = n, holdBackAt = if (n == LADDER_TOP_STAGE) null else it.holdBackAt,
                     holdBackWhy = if (n == LADDER_TOP_STAGE) "" else it.holdBackWhy) }
                 c1StageSay = null       // C1-P R1 §2 (A 2.2): what the read at creation found no longer stands; this note names it
+                c1StageRestored = null
                 val caps = damageCaps
                 emitNote("keeper", "C1 ladder: stage ${was.stage} → $n (${ladderSays(n)}) — the next session start arms it" +
                     (caps?.let { if (!isC1(it)) "; this build reports no C1 bit, so it arms nothing"
@@ -977,6 +990,10 @@ abstract class CfwTransportBase(
     /** Build C1-P R1 §1: [c1StageSay] is the step-down after an uncaught error, so the first start also raises it as a
      *  `holdback` fault, as a hold-back's own is raised. */
     @Volatile private var c1StageSayIsHoldBack = false
+    /** Build C2-FA (decisions AG.4): a stage above 0 restored by the read at creation, said at the first start once the
+     *  build's DamageCaps are read, in the words of what it arms on that build (a stored 4 on a build without local input
+     *  arms stage 3). Declared before [record], whose initializer writes it. */
+    @Volatile private var c1StageRestored: Int? = null
     /** Build C1 (C1-decisions A.17, spec §6.1): the arming ladder's stage — 0 nothing (the default), 1 ZWRITE, 2 and
      *  the 256 KiB cache, 3 and ENGINE, and build C2's 4 and BIND (`FIRMWARE.md` §6.8). Set only by the probe `c1=N`,
      *  lowered only by C1's hold-back (stages 1–3; stage 4's own hold-back holds it back without lowering it); kept where
@@ -1030,8 +1047,7 @@ abstract class CfwTransportBase(
             Log.w(name, c1StageSay!!)
             return r
         }
-        if (n > 0) c1StageSay = "C1 ladder: stage $n restored from the last run (${ladderSays(n)})" +
-            (r.holdBackAt?.let { "; local input held back since ${hhmm(it)}: ${r.holdBackWhy}" } ?: "")
+        if (n > 0) c1StageRestored = n
         return r
     }
 
@@ -1059,6 +1075,12 @@ abstract class CfwTransportBase(
         to
     }
 
+    /** Build C2-FA (decisions AD.1): the last session's cache size in the record (null: "unknown") — synced, as the stage
+     *  is, by the start alone, around its op 5. */
+    private fun storeSessionKib(kib: Int?) {
+        setRecord("the last session's cache size (${kib?.let { "$it KiB" } ?: "unknown"})") { it.copy(sessionKib = kib) }
+    }
+
     /** Test only (spec §6.2's hold-back pin): the record moved as its evidence would move it, nothing sent. */
     internal fun ladderRecordForTest(update: (LadderRecord) -> LadderRecord): LadderRecord = setRecord("test", update)
 
@@ -1074,10 +1096,12 @@ abstract class CfwTransportBase(
     @Volatile private var ladderArmedStage = 0
     /** This session asked for the 256 KiB rung and has it (cleared at each start's op 5). */
     @Volatile private var ladderSizeInForce = false
-    /** Build C1-Q: the KiB the last answered op 5 gave the session; null before this transport's first size ask, read
-     *  as 160. Written and read by the start alone; the next ask is at most this unless both lenses are known to hold no
-     *  cache. */
-    @Volatile private var lastSessionKib: Int? = null
+    /** Build C1-Q: the KiB the last answered op 5 gave the session; null read as 160. Written and read by the start alone;
+     *  the next ask is at most this unless both lenses are known to hold no cache. Build C2-FA (decisions AD.1): it starts
+     *  at the stored record's [LadderRecord.sessionKib] — the last process's last answered op 5 — so a new process (an APK
+     *  install, a target rebuild) asks what the last one would have; "unknown", absent or unusable there is null. Every
+     *  write goes to the record too ([storeSessionKib]). */
+    @Volatile private var lastSessionKib: Int? = record.sessionKib
     /** Build C1's ruling B-S1 (`C1-R5-decisions.md`): LEFT's last link end of the kind a lens restart looks like from
      *  here ([REBOOT_LIKE_ENDS]), on the phone's clock, and its reason. RIGHT's restarts show in its uptime; LEFT's
      *  show only this way. Read by the ladder's hold-back alone ([leftEndDueAt]); today's hold-back (DRAW2) does not. */
@@ -1125,12 +1149,21 @@ abstract class CfwTransportBase(
     private fun ladderKib(stage: Int, caps: DamageMsg.Caps?): Int =
         if (stage >= 2 && isC1(caps) && caps!!.has(DamageMsg.FEATURE_RIDERS)) DamageMsg.CACHE_BUDGET_RIDERS_KIB else DamageMsg.CACHE_BUDGET_KIB
 
-    private fun ladderSays(stage: Int) = when (stage) {
-        0 -> "nothing of C1"
-        1 -> "ZWRITE"
-        2 -> "ZWRITE and the 256 KiB cache"
-        3 -> "ZWRITE, the 256 KiB cache and ENGINE"
-        else -> "ZWRITE, the 256 KiB cache, ENGINE and BIND"
+    /** What [stage] arms, in words; with [caps] known, what it arms on that build (build C2-FA, decisions AG.4). */
+    private fun ladderSays(stage: Int, caps: DamageMsg.Caps? = null): String {
+        val words = when (stage) {
+            0 -> "nothing of C1"
+            1 -> "ZWRITE"
+            2 -> "ZWRITE and the 256 KiB cache"
+            3 -> "ZWRITE, the 256 KiB cache and ENGINE"
+            else -> "ZWRITE, the 256 KiB cache, ENGINE and BIND"
+        }
+        return when {
+            caps == null || stage == 0 -> words
+            !isC1(caps) -> "$words — this build reports no C1 bit, so it arms nothing"
+            stage >= LADDER_TOP_STAGE && !hasBind(caps) -> "${ladderSays(LADDER_TOP_STAGE - 1)}: stage 3, as this build reports no local input (bit 10)"
+            else -> words
+        }
     }
 
     /** RIGHT's reset (its time on the phone's clock) when it followed the last arming within [HOLD_BACK_MS] and no
@@ -2057,7 +2090,10 @@ abstract class CfwTransportBase(
                     t.motionSeq?.let { noteMotionGaps(it) }
                     zwriteJudge(t)
                     cacheBusyJudge(t)
-                    bindTelemetry(t)
+                    // build C2-FA (decisions AG.4): field 39 and a refusal go to the shell once per read, not once per copy
+                    // (each copy was a `local` note and a pump); id 0's copies — op 5's and the FLAGS_SET replies, the start
+                    // and the hand probes — are not told apart by their id and still go twice
+                    if (second == null) bindTelemetry(t)
                     t.requestId?.let { id ->
                         // a FLAGS_SET reply (id 0) is taken only when it answers the set being armed:
                         // RIGHT answers every control request twice (2026-09-15 12:54, `HANDOFF.md`
@@ -2070,6 +2106,15 @@ abstract class CfwTransportBase(
                         val answers = id != 0L || (if (cacheSizePending != null) cacheSizeReplyAnswers(t) else flagsReplyAnswers(t))
                         if (w != null && answers) { telemetryWaiters.remove(id.toInt(), w); w.complete(t) }
                     }
+                    return
+                }
+                // build C2-FA (decisions AG.4): a 114 or 115 (or a 111, a 113) whose body does not parse is journaled and
+                // counted — it fell to the capability gate's "outside the gate" debug line below before, lost with no record
+                for ((field, kind) in UNPARSED_BODIES) DamageMsg.unparsedBody(frame.payload, field)?.let { why ->
+                    val n = unparsedBodies.incrementAndGet()
+                    val text = "a $field body from $arm does not parse ($why) — dropped, $n in this run: ${hexWhole(frame.payload)}"
+                    Log.w(name, text)
+                    emitNote(kind, text)
                     return
                 }
                 // §47: an answer to one of OUR sid-0x09 requests (a READ's or
@@ -2220,6 +2265,8 @@ abstract class CfwTransportBase(
      *  on glass). */
     private val telemetryIdsSeen = ArrayDeque<Pair<Long, Long>>()
     private var telemetrySecondCopySaid = false
+    /** Build C2-FA (decisions AG.4): 114 and 115 bodies that did not parse, this run — the count each note carries. */
+    private val unparsedBodies = java.util.concurrent.atomic.AtomicInteger()
 
     /** Null when [id]'s record is to be logged and journaled (id 0 — the FLAGS ops' shared echo — absent, or
      *  not among the last eight: it is then recorded); otherwise the gap in ms since its first copy and
@@ -2798,6 +2845,13 @@ abstract class CfwTransportBase(
                 throw CapabilityRefused(msg)
             }
             updateState { it.copy(capability = cap, damageContract = damageCaps?.contract ?: 0, damageFeatures = damageCaps?.features ?: 0, flagsInForce = 0) }
+            // build C1-P's restore note, once, now that the build is known (build C2-FA, decisions AG.4: what it arms here)
+            c1StageRestored?.let { n ->
+                c1StageRestored = null
+                val r = record
+                emitNote("keeper", "C1 ladder: stage $n restored from the last run (${ladderSays(n, damageCaps)})" +
+                    (r.holdBackAt?.let { "; local input held back since ${hhmm(it)}: ${r.holdBackWhy}" } ?: ""))
+            }
             // The private mirror models the build this session talks to: without its contract it has
             // no handler for mode 16 or for the v2 ops, so every self-test message and every flush
             // carrying a fill, a per-lens draw or a hint would raise a `mirror/decode` fault and put
@@ -2940,8 +2994,9 @@ abstract class CfwTransportBase(
                 // size its first write allocates at — is at least the session's size. Only RIGHT reports its size, and a
                 // cache goes only at a release point, so the ask rises above the last session's size only when both
                 // lenses are known to hold none (a lease lapsed on both arms, by the phone's own record of its acquires);
-                // any other start asks at most that size (160 KiB before this transport has asked any), which every lens
-                // that carries a cache holds, and [requestCacheSize] takes the smaller of RIGHT's size and the ask
+                // any other start asks at most that size (at a new process's first start the stored one, decisions AD.1;
+                // 160 KiB when it is unknown), which every lens that carries a cache holds, and [requestCacheSize] takes
+                // the smaller of RIGHT's size and the ask
                 val kib = if (knownFresh) want else minOf(want, lastSessionKib ?: DamageMsg.CACHE_BUDGET_KIB)
                 // build C1's ruling B-M1: the 256 KiB size is the ladder's stage-2 rung — it records itself (the time and
                 // stage 2) BEFORE op 5 goes out, so glasses that reset on it are held back at the next start; the flag
@@ -2950,8 +3005,12 @@ abstract class CfwTransportBase(
                 val sizeRung = kib == DamageMsg.CACHE_BUDGET_RIDERS_KIB
                 ladderSizeInForce = false
                 if (sizeRung) { lastArmedAtMs = nowMs(); ladderSizeInForce = true; ladderArmedStage = LADDER_SIZE_STAGE }
+                // build C2-FA (decisions AD.1): the stored size is "unknown" before op 5's first byte, and the session's
+                // size once it is answered — a process that ends in between leaves "unknown", read as 160 by the next one
+                storeSessionKib(null)
                 val size = requestCacheSize(epoch, kib, want)
                 lastSessionKib = size / 1024
+                storeSessionKib(lastSessionKib)
                 // what the flag sets record from here: the size rung counts while this session asked for it and got it
                 ladderSizeInForce = sizeRung && size >= kib * 1024
                 updateState { it.copy(cacheSize = size) }
@@ -2965,10 +3024,12 @@ abstract class CfwTransportBase(
                     "${(CfwModes.TEXTURE_CACHE_SIZE + CfwModes.STAGE_RESERVE) / 1024} KiB (64 for the atlas, 64 for the strips) — " +
                     "this session draws with v1 shapes; a start after a lapsed lease asks for the size again")
                 // ZWRITE and ENGINE need DRAW2 in force (mode 25's check 9, ENGINE's own rule, §5.8, §5.9): the ladder's
-                // bits ride only with it; on a C1 build a wish never carries them past the stage (the probe's rule)
+                // bits ride only with it; on a C1 build a wish never carries them past the stage (the probe's rule) —
+                // build C2-FA (decisions AG.1): BIND included, so a hand wish that took BIND at stage 4 is held to the
+                // stage at every later start (a stage-4 hold-back, `c1=3`), as the probe holds it
                 armFeatures(epoch, extra = if (armDraw2) DamageMsg.FLAG_DRAW2 or ladderFlags(stage, caps2) else 0,
                     withhold = (if (armDraw2) 0 else DamageMsg.FLAG_DRAW2) or
-                        (if (isC1(caps2)) C1_FLAGS and (if (armDraw2) ladderFlags(stage, caps2) else 0).inv() else 0))
+                        (if (isC1(caps2)) ladderBits(caps2) and (if (armDraw2) ladderFlags(stage, caps2) else 0).inv() else 0))
             } else {
                 updateState { it.copy(cacheSize = CfwModes.TEXTURE_CACHE_SIZE) }
             }
@@ -3051,7 +3112,9 @@ abstract class CfwTransportBase(
                 else "DamageCaps contract ${caps.contract} features 0x${caps.features.toString(16)}")
             // FORK.md §3.2: the wanted flags, re-armed one at a time under the hold-back rule;
             // off the start's own path (the shell paints meanwhile), ended by the session's sweep
-            if (caps != null && wantedFlags != 0 && !caps.has(DamageMsg.FEATURE_DRAW2)) scope.launch { armFeatures(epoch) }
+            // (build C2-FA, AG.1's class: the ladder's bits ride only with DRAW2, so none of them from a wish here — on every
+            // build without DRAW2 that exists `ladderBits` is 0 and this arms what it armed before)
+            if (caps != null && wantedFlags != 0 && !caps.has(DamageMsg.FEATURE_DRAW2)) scope.launch { armFeatures(epoch, withhold = ladderBits(caps)) }
         } catch (e: Exception) {
             startInProgress = false
             // Roll back COMPLETELY (round 3 D4): a failed start must not leave
@@ -3673,11 +3736,14 @@ abstract class CfwTransportBase(
             // build C2 (§6.5's batch order): the local rules' tail after every drawing sub — in the batch, or, behind a
             // bare keyframe, as the next image in stream order
             val (image, after) = withTail(closed, work.request.tail)
-            val final = writeImage(image, work.epoch).let { k -> if (after != null) writeImage(after, work.epoch) else k }
+            val first = writeImage(image, work.epoch)
+            val final = if (after != null) writeImage(after, work.epoch) else first
             flushWritten = true
             // the flush is on the wire: its completion is its own, whatever
-            // happens to the wrap clear below (round 7 D4)
-            completeAsync(final, work.id, image.size, t0, done = null, sample = AckSample(alone, floor = true, epoch = work.epoch))
+            // happens to the wrap clear below (round 7 D4). Build C2-FA (decisions AG.3): a bare keyframe and its tail
+            // are judged by both acks — the keyframe's refusal fails the flush as the tail's would
+            completeAsync(final, work.id, image.size, t0, done = null, sample = AckSample(alone, floor = true, epoch = work.epoch),
+                first = if (after != null) first else null)
             if (fids.wrapPending) {
                 // the flush ended EXACTLY on 0xFFFE: the mode-7 sub-0 clear
                 // resets the FIRMWARE's fid ring, flags and lastFid; the host
@@ -3964,6 +4030,10 @@ abstract class CfwTransportBase(
         done: CompletableDeferred<Unit>?,
         /** Null = never an estimator observation (a raw image: its clock starts after its write). */
         sample: AckSample? = null,
+        /** Build C2-FA (decisions AG.3): an earlier image of the same flush (a bare keyframe ahead of its tail), whose
+         *  refusal fails the flush as [final]'s does. Image acks come in order on one arm, so when [final]'s is in, this
+         *  one's is in too — or was released as lost by it (§34), and then [final] decides alone, as for a fragment. */
+        first: PendingAck? = null,
     ) {
         val prev = lastCompletion
         if (final == null) {
@@ -3984,15 +4054,21 @@ abstract class CfwTransportBase(
             fun close() { if (open) { open = false; openAckClocks.decrementAndGet() } }
             try {
                 prev?.join()          // inside the try: a cancelled join still
-                val ack = final.done.await()   // fails `done` below, never parks it
+                val last = final.done.await()   // fails `done` below, never parks it
+                val firstAck = first?.let { p ->
+                    try { p.done.await() } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { null }
+                }
+                // the first refusal of the flush's images is its answer (the keyframe's, then the tail's)
+                val ack = firstAck?.takeIf { it.errorCode != null } ?: last
                 onImageDelivered()
                 val ackMs = nowMs() - t0
                 close()
                 if (ack.errorCode != null) {
                     sessionPenalty = true
-                    done?.completeExceptionally(LintError("ImgResCmd ${ack.statusText} (${ack.errorCode})"))
+                    val which = if (ack !== last) " on the flush's first image (its tail's ack: ${last.statusText})" else ""
+                    done?.completeExceptionally(LintError("ImgResCmd ${ack.statusText} (${ack.errorCode})$which"))
                     if (flushId >= 0) _events.emit(TransportEvent.FlushDone(flushId, false, ackMs,
-                        bytes, "ImgResCmd ${ack.statusText} (${ack.errorCode}) — damage recomputes with a fresh fid"))
+                        bytes, "ImgResCmd ${ack.statusText} (${ack.errorCode})$which — damage recomputes with a fresh fid"))
                 } else {
                     updateEma(ackMs, bytes, sample)
                     done?.complete(Unit)
@@ -4459,6 +4535,11 @@ abstract class CfwTransportBase(
         const val DEVICE_INFO_SHAPES_MAX = 16
         /** R2 (RG-5): how many of the session's last telemetry request ids the second-copy rule remembers. */
         const val TELEMETRY_IDS_KEPT = 8
+        /** Build C2-FA (decisions AG.4): the Damage bodies whose parse failure is journaled, each under its own note kind —
+         *  the two reports the ruling names and their two siblings that fell to the same debug line (a reply, a presented
+         *  notify). */
+        private val UNPARSED_BODIES = listOf(DamageMsg.MOTION_FIELD to "motion", DamageMsg.APPLIED_FIELD to "applied",
+            DamageMsg.TELEMETRY_FIELD to "glass", DamageMsg.PRESENTED_FIELD to "glass")
 
         /** §54, the bounded atlas skip. A lease write that left within this long of
          *  the link's end is not taken as arrived: the platform's write callback means
