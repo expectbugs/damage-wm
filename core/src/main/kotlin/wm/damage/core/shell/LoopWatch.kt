@@ -132,8 +132,7 @@ class LoopWatch(
         val now = turns.clock()
         val awake = (now - lastLook).coerceIn(0L, MAX_CREDIT_PERIODS * periodMs)
         lastLook = now
-        val t = turns.open()
-        if (t == null) { seen = 0L; credited = 0L; return false }
+        val t = turns.open() ?: return false            // idle: the next turn has a new number, which resets below
         if (t.seq != seen) {
             // a turn not seen before: credited with its own age, but no more than this look's running time
             seen = t.seq
