@@ -229,6 +229,10 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
             for ((no, h) in held.toList()) if (h.list == old.list) pending += Pending.Clear(no)
         }
         if (list == null) return
+        // a CLEAR owed for this list's entries and not yet sent is superseded: the lens still holds them (the class of a
+        // pending message overtaken before it went — the cover's SETs are dropped above, a switch's below)
+        val mine = entriesOf(list).map { it.entry }.toSet()
+        pending.removeAll { it is Pending.Clear && it.entry in mine && held[it.entry]?.list == list.list }
         val was = staged[list.list]
         if (was == null || was.items4 != list.items4 || was.count != list.count || was.pitch != list.pitch || was.mark != list.mark) {
             // a staging the glasses do not hold (P9: a row's index or identity changed, a new mark): a LIST; a program's
@@ -247,8 +251,11 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         val f = front ?: return
         if (!active) return
         val e = tapEntry(f)
+        // a tap entry's SET or CLEAR still owed is superseded by this switch: decide from what the lens holds
+        val no = e?.entry ?: f.entries.firstOrNull { it.isTap }?.entry ?: held.entries.firstOrNull { it.value.list == f.list && it.value.entry.isTap }?.key
+        pending.removeAll { (it is Pending.Set && it.entry.isTap) || (it is Pending.Clear && it.entry == no) }
         if (e == null) held.entries.firstOrNull { it.value.list == f.list && it.value.entry.isTap }?.let { pending += Pending.Clear(it.key) }
-        else pending += Pending.Set(f, e)
+        else if (!holds(f.list, e)) pending += Pending.Set(f, e)
     }
 
     private fun holds(list: Int, e: BoundList.Entry): Boolean {

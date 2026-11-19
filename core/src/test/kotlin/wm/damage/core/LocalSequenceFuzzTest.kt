@@ -364,6 +364,20 @@ class LocalSequenceFuzzTest {
         h.rest()
     })
 
+    /** S20 (this stage's fuzz, seed 100100028): a tap that opens a window and a return before the window's batch goes —
+     *  the CLEARs owed for the list are superseded by the return (the lens still holds the entries). Sent anyway, they
+     *  leave the list in front with no entry on the glasses and nothing that would ever re-send one. */
+    @Test fun seededS20_aReturnSupersedesAnUnsentClear() = seeded(Taps.REPORT, script = { h ->
+        h.actOpensWindow = 1.0
+        h.pumpDelay = 40
+        h.gesture(0, answer = true, band = "none")
+        h.runUntil(h.now + 35)
+        h.actOpensWindow = 0.0
+        h.back()
+        h.pumpDelay = 3
+        h.rest()
+    })
+
     /** The coordinator's point 2 (DMS's finding): the transport's CLOSE rule reads only its mirror's instances, and a local
      *  instance never enters the mirror — the mirror applies the phone's bytes and no input (a COMMIT there opens nothing),
      *  and P9 sends no PLAY into a bound slot. So a cached draw outside a local's areas can never close it. */
