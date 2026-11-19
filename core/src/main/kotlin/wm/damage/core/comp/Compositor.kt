@@ -1852,7 +1852,7 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
      *  pixels anyway); a pixel delta and a black box wait for the next flush at none left; a staged
      *  placement takes three, and with one or two left its rect goes on in this same pass as pixels
      *  or draws — it waits only at none (`R1-verify.md` §5.2 f). */
-    private fun subsLeft(ops: List<DisplayOp>): Int = MAX_BATCH_SUBS - 1 - (if (motionOpen) 1 else 0) - ops.size
+    private fun subsLeft(ops: List<DisplayOp>): Int = MAX_BATCH_SUBS - 1 - (if (motionOpen) 1 else 0) - (if (keepOut.isNotEmpty()) wm.damage.core.wire.CfwModes.BIND_TAIL_SUBS else 0) - ops.size   // build C2-FA (AG.5): and room for the local rules' tail while a bound list is in front with BIND in force ([keepOut]'s areas set)
 
     private fun markUnknown(unknown: BooleanArray, r: Rect) = setCells(unknown, r, true)
     private fun markKnown(unknown: BooleanArray, r: Rect) = setCells(unknown, r, false)

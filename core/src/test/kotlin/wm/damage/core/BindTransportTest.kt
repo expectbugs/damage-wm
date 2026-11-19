@@ -766,4 +766,170 @@ class BindTransportTest {
         assertTrue(!t.state.value.bind, "BIND is not armed by hand below stage 4")
         t.stop()
     }
+
+    // ============================================== build C2-FA: the transport's fixes after V1 reader A (decisions AG)
+
+    /** AG.1 (V1Da-1, the reader's test made a pin): a hand `flags=0x3c` at stage 4 (the stage allows BIND) is the wish
+     *  for the rest of the process; a reset an hour later holds stage 4 back, and the next start arms stage 3 (0x2c) —
+     *  the start's withhold takes the ladder's bits, BIND included, as the probe's rule does. */
+    @Test
+    fun aHandWishWithBindIsHeldBackWithStage4_AG1(): Unit = runBlocking {
+        var clock = day0
+        val sim = c2()
+        val t = rig(sim) { clock }
+        t.devProbe("c1", "4")
+        t.start(full)
+        assertEquals(0x3c, t.state.value.flagsInForce, "stage 4 armed: ${said()}")
+        t.devProbe("flags", "0x3c")
+        delay(500)
+        clock += 3_600_000L; sim.uptimeOffsetMs = clock; clock += 30_000L        // RIGHT restarts an hour later
+        assertTrue(t.restartSession("test: after a reset"))
+        t.start(full)
+        waitUntil(10_000, message = { "held back: ${said()}" }) { has("keeper", "local input held back until tomorrow's first start") }
+        assertEquals(0x2c, t.state.value.flagsInForce, "the hold-back arms stage 3 (localInput '${t.state.value.localInput}')")
+        t.stop()
+    }
+
+    /** AG.1 (V1Da-2): the same hand wish, then `c1=3` by hand — the next start arms no BIND (below stage 4). */
+    @Test
+    fun aHandWishWithBindIsHeldToALoweredStage_AG1(): Unit = runBlocking {
+        var clock = day0
+        val sim = c2()
+        val t = rig(sim) { clock }
+        t.devProbe("c1", "4")
+        t.start(full)
+        t.devProbe("flags", "0x3c")
+        delay(500)
+        t.devProbe("c1", "3")
+        assertTrue(t.restartSession("test: the next session")); clock += 60_000L
+        t.start(full)
+        assertEquals(0x2c, t.state.value.flagsInForce, "stage 3 arms no BIND: ${said()}")
+        t.stop()
+    }
+
+    /** AG.2 (V1Da-3): after a mid-session hand disarm of BIND (P9's path: the DISCARD acked, then FLAGS_SET 0x2c), the
+     *  state the gate and the shell read says BIND is no longer in force, and the `Local input` row follows. */
+    @Test
+    fun aHandDisarmTakesBindOutOfTheStateAsItIsSent_AG2(): Unit = runBlocking {
+        val (_, t) = armedSession()
+        val sets = java.util.concurrent.CopyOnWriteArrayList<Int>()
+        var bindAtTheSet: Boolean? = null
+        t.onWrite = { a, p ->
+            if (a == Arm.RIGHT && StartRig.damageOp(p) == DamageMsg.OP_FLAGS_SET) { if (bindAtTheSet == null) bindAtTheSet = t.state.value.bind; sets += controlArg(p) }
+            p
+        }
+        t.devProbe("flags", "0x2c")
+        waitUntil(10_000, message = { "the disarm went: $sets ${said("local")}" }) { 0x2c in sets }
+        assertEquals(false, bindAtTheSet, "BIND left the state before the FLAGS_SET's first byte")
+        assertEquals(0x2c, t.state.value.flagsInForce, "flags in force after the disarm")
+        assertTrue(!t.state.value.bind, "the state the gate and the shell read")
+        assertEquals("off: stage 4", t.state.value.localInput, "the row follows")
+        t.stop()
+    }
+
+    /** AG.3: a bare keyframe that carries a tail goes as two images (§6.5's order); the keyframe's ack carries a refusal
+     *  (status 5) while the tail's is clean — the flush fails, as it would on the tail's refusal. */
+    @Test
+    fun aKeyframeWithATailIsJudgedByBothAcks_AG3(): Unit = runBlocking {
+        val (_, t) = armedSession()
+        val refuseNext = java.util.concurrent.atomic.AtomicBoolean(false)
+        val images = java.util.concurrent.atomic.AtomicInteger()
+        t.onNotify = { _, p ->
+            val ack = if (StartRig.sid(p) == EvenHubMsg.SID && (p[7].toInt() and 0xFF) == EvenHubMsg.FLAG_ACK) EvenHubMsg.parseAck(StartRig.body(p)) else null
+            if (ack != null && ack.ackType == EvenHubMsg.CMD_IMAGE + 1) images.incrementAndGet()
+            if (ack != null && ack.ackType == EvenHubMsg.CMD_IMAGE + 1 && refuseNext.compareAndSet(true, false))
+                StartRig.reframe(p, Pb.cat(Pb.v(1, (EvenHubMsg.CMD_IMAGE + 1).toLong()), Pb.v(2, ack.msgId.toLong()), Pb.l(5, Pb.v(8, 5))))
+            else p
+        }
+        events.clear()
+        images.set(0)
+        refuseNext.set(true)
+        val id = t.submit(wm.damage.core.transport.FlushRequest(listOf(wm.damage.core.transport.DisplayOp.Keyframe(full)), 0, "KEY",
+            tail = listOf(CfwModes.motionSettle(CfwModes.MOTION_ALL, 1, CfwModes.BIND_ALL, 0, 256))))
+        waitUntil(10_000, message = { "the flush is answered: $events" }) { events.any { it is TransportEvent.FlushDone && it.id == id } }
+        val done = events.filterIsInstance<TransportEvent.FlushDone>().first { it.id == id }
+        assertEquals(2, images.get(), "the shape guard: two images, the keyframe and its tail")
+        assertTrue(!done.ok, "the keyframe's refusal fails the flush: ${done.error}")
+        assertTrue("on the flush's first image" in "${done.error}", "and says which image: ${done.error}")
+        t.stop()
+    }
+
+    /** AG.4: RIGHT answers each control request twice (`HANDOFF.md` §59); one telemetry read hands the shell one
+     *  `LocalRead` (each was a `local` note and a pump). */
+    @Test
+    fun oneTelemetryReadIsOneLocalRead_AG4(): Unit = runBlocking {
+        val (sim, t) = armedSession()
+        sim.duplicateControlReplies = true
+        events.clear()
+        t.devProbe("telemetry", "read")
+        waitUntil(10_000, message = { "the read's second copy came: ${said("glass")}" }) { has("glass", "a second copy of reply id") }
+        delay(200)
+        assertEquals(1, events.count { it is TransportEvent.LocalRead }, "one LocalRead for the read: $events")
+        t.stop()
+    }
+
+    /** AG.4: a 115 (and a 114) whose body does not parse — a varint past ten bytes, which `Pb` refuses — is journaled
+     *  with a count, under its own note kind, and nothing is handed to the shell; it fell to a debug line before. */
+    @Test
+    fun aReportWhoseBodyDoesNotParseIsJournaledAndCounted_AG4(): Unit = runBlocking {
+        val (sim, t) = armedSession()
+        val bad = byteArrayOf(0x08) + ByteArray(11) { 0xFF.toByte() }
+        val replace = java.util.concurrent.atomic.AtomicInteger(0)
+        t.onNotify = { _, p ->
+            if (StartRig.sid(p) == wm.damage.core.wire.SettingsMsg.SID && DamageMsg.parseApplied(StartRig.body(p)) != null) {
+                val field = when (replace.getAndIncrement()) { 0 -> DamageMsg.APPLIED_FIELD; 1 -> DamageMsg.MOTION_FIELD; else -> 0 }
+                if (field == 0) p else StartRig.reframe(p, Pb.cat(Pb.v(1, 3), Pb.v(2, 0), Pb.l(field, bad)))
+            } else p
+        }
+        events.clear()
+        sim.injectGesture(EvenHubMsg.EV_SCROLL_BOTTOM)
+        saw("applied", "a 115 body from RIGHT does not parse (varint: malformed")
+        assertTrue(has("applied", "dropped, 1 in this run"), said("applied"))
+        sim.injectGesture(EvenHubMsg.EV_SCROLL_BOTTOM)
+        saw("motion", "a 114 body from RIGHT does not parse (varint: malformed")
+        assertTrue(has("motion", "dropped, 2 in this run"), said("motion"))
+        assertEquals(0, events.count { it is TransportEvent.Applied }, "nothing handed to the shell: $events")
+        t.stop()
+    }
+
+    /** AG.4: a stored stage 4 restored on a build without local input (the installed C1 image) is said as what it arms
+     *  there — stage 3 — and a stored 3 on a build without a C1 bit as arming nothing. */
+    @Test
+    fun aRestoredStageIsSaidAsWhatTheBuildArms_AG4(): Unit = runBlocking {
+        for ((features, stored, words) in listOf(
+                Triple(0x1ff, 4, "C1 ladder: stage 4 restored from the last run (ZWRITE, the 256 KiB cache and ENGINE: stage 3, as this build reports no local input (bit 10))"),
+                Triple(0x7f, 3, "C1 ladder: stage 3 restored from the last run (ZWRITE, the 256 KiB cache and ENGINE — this build reports no C1 bit, so it arms nothing)"),
+                Triple(0x5ff, 4, "C1 ladder: stage 4 restored from the last run (ZWRITE, the 256 KiB cache, ENGINE and BIND)"))) {
+            notes.clear()
+            Files.writeString(recordFile, "$stored\n")
+            val t = rig(GlassFirmwareSim().apply { damageContract = 2; damageFeatures = features }) { day0 }
+            t.start(full)
+            saw("keeper", "C1 ladder: stage $stored restored")
+            assertTrue(has("keeper", words), "features 0x${features.toString(16)}: ${said()}")
+            t.stop()
+        }
+    }
+
+    /** AG.5: the batch's count is one byte — a flush whose drawing subs and tail pass 255 is refused loudly (the flush
+     *  fails, saying so) and nothing of it reaches the glasses; 245 and 10 go out. */
+    @Test
+    fun aBatchWhoseTailPassesTheCountIsRefusedLoudly_AG5(): Unit = runBlocking {
+        val (sim, t) = armedSession()
+        val reached = java.util.concurrent.atomic.AtomicInteger()
+        sim.imageObserver = { arm, img -> if (arm == Arm.LEFT && img[0].toInt() == 8) reached.incrementAndGet() }
+        val tail = List(10) { CfwModes.motionSettle(CfwModes.MOTION_ALL, 1, CfwModes.BIND_ALL, 0, 256) }
+        fun fills(n: Int) = List(n) { wm.damage.core.transport.DisplayOp.Fill(Rect(0, 0, 8, 8), Rect(0, 0, 8, 8), 0) }
+        events.clear()
+        val over = t.submit(wm.damage.core.transport.FlushRequest(fills(250), 0, "OVER", tail = tail))
+        waitUntil(10_000, message = { "the flush is answered: $events" }) { events.any { it is TransportEvent.FlushDone && it.id == over } }
+        val refused = events.filterIsInstance<TransportEvent.FlushDone>().first { it.id == over }
+        assertTrue(!refused.ok && "mode-8 count 260 exceeds the u8 field" in "${refused.error}", "refused, saying so: ${refused.error}")
+        delay(200)
+        assertEquals(0, reached.get(), "nothing of it reached the glasses")
+        val fits = t.submit(wm.damage.core.transport.FlushRequest(fills(245), 0, "FITS", tail = tail))
+        waitUntil(10_000, message = { "the second flush is answered: $events" }) { events.any { it is TransportEvent.FlushDone && it.id == fits } }
+        assertTrue(events.filterIsInstance<TransportEvent.FlushDone>().first { it.id == fits }.ok, "the shape guard: 255 goes out")
+        assertEquals(1, reached.get(), "and reached the glasses")
+        t.stop()
+    }
 }

@@ -371,4 +371,12 @@ object DamageMsg {
     } catch (e: IllegalArgumentException) {
         null
     }
+
+    /** Build C2-FA (decisions AG.4): why field [field] of a device-sent settings message is there and its body does not
+     *  parse (`Pb`'s refusal), or null — the field absent, its body parsing, or the message itself not parsing (then it
+     *  is not known to carry the field). [parseApplied] and [parseMotion] return null for both cases. */
+    fun unparsedBody(payload: ByteArray, field: Int): String? {
+        val body = try { Pb.bytesField(payload, field) } catch (e: IllegalArgumentException) { null } ?: return null
+        return try { Pb.fields(body); null } catch (e: IllegalArgumentException) { e.message ?: e.javaClass.simpleName }
+    }
 }
