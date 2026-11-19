@@ -173,9 +173,10 @@ class LoopWatchTest {
     }
 
     /**
-     * The shell itself: a settled shell on the simulator stays unwatched-quiet while idle (every turn it takes ends),
-     * then a handler that does not return is acted on — the record is in the data directory, named as the next start's
-     * pickup says it, with the handler's frame and the message's type, and the hook (which records here) is called.
+     * The shell itself: a settled shell on the simulator has no open turn between messages and is not acted on while
+     * it runs, then a handler that does not return is acted on — the record is in the data directory, named as the
+     * next start's pickup says it, with the handler's frame and the message's type, and the hook (which records here)
+     * is called.
      */
     @Test
     fun aHandlerThatDoesNotReturnIsRecordedAndEnded(): Unit = runBlocking {
@@ -195,13 +196,18 @@ class LoopWatchTest {
             shell.services.runOnShell { settled.complete(Unit) }
             waitUntil(10_000, 10, { "the loop runs a posted action" }) { settled.isCompleted }
 
+            // every turn the loop takes ends: between messages no turn is open. Read directly — the idle tick posts a
+            // message every second, which would hide a turn left open from a watcher with a threshold of a second;
+            // a rest or Silent Mode posts none, and there such a turn would be acted on
+            waitUntil(5_000, 1, { "an idle shell has no open turn: ${shell.turns.open()?.what()}" }) { shell.turns.open() == null }
+
             val ended = CompletableDeferred<LoopWatch.Stall>()
             val w = LoopWatch(shell.turns, UncaughtRecord.recorderFor(tmp, "test build"), { ended.complete(it) },
                 stuckMs = 1_000, periodMs = 20)
             watch = w
             w.start()
-            delay(3_000)
-            assertFalse(w.fired, "an idle shell is never stuck: every turn it took has ended")
+            delay(1_500)
+            assertFalse(w.fired, "a live shell's ordinary turns are not stuck")
             assertFalse(UncaughtRecord.isPending(tmp))
 
             val inside = CountDownLatch(1)
