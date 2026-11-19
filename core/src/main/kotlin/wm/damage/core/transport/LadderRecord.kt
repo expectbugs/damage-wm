@@ -24,11 +24,12 @@ data class LadderRecord(
     val holdBackAt: Long? = null,
     /** Its reason as the fault says it ("a lens restarted at 14:02 (RIGHT's uptime)"). */
     val holdBackWhy: String = "",
-    /** Build C2-FA (decisions AD.1): the KiB of the last answered op 5 — the last session's cache size, so that a new
-     *  process's first start asks at most it (C1-Q's rule with the last session remembered). Null, the default and no
-     *  line in the file, is "unknown": written before each start's op 5 goes out, so a process that ends before the
-     *  answer leaves it; an older record has no line either. Both read as 160 KiB, as a value outside
-     *  [SESSION_KIB_RANGE] or one that is not a number does (said as a line that could not be used). */
+    /** Build C2-FA (decisions AD.1, AH.1): the last session's cache size, so that a new process's first start asks at
+     *  most it (C1-Q's rule with the last session remembered). Before each start's op 5 goes out it becomes
+     *  min(itself, the ask) — a lower bound of every lens's cache whenever the process ends — and after the answer the
+     *  session's size; written only when it changes. Null, the default and no line in the file, is an older record
+     *  (before this field), read as 160 KiB until its first ask; a value outside [SESSION_KIB_RANGE] or one that is not
+     *  a number reads the same (said as a line that could not be used). */
     val sessionKib: Int? = null,
 ) {
     fun encode(): String = buildString {

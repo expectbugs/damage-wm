@@ -1075,10 +1075,11 @@ abstract class CfwTransportBase(
         to
     }
 
-    /** Build C2-FA (decisions AD.1): the last session's cache size in the record (null: "unknown") — synced, as the stage
-     *  is, by the start alone, around its op 5. */
-    private fun storeSessionKib(kib: Int?) {
-        setRecord("the last session's cache size (${kib?.let { "$it KiB" } ?: "unknown"})") { it.copy(sessionKib = kib) }
+    /** Build C2-FA (decisions AD.1, AH.1): the last session's cache size in the record — [kib], written and synced as the
+     *  stage is, only when it differs from what the record holds (so a start whose size is the stored one writes
+     *  nothing). By the start alone, around its op 5; [what] names the write in a failure's note. */
+    private fun storeSessionKib(kib: Int, what: String) = synchronized(recordLock) {
+        if (record.sessionKib != kib) setRecord("the last session's cache size ($kib KiB, $what)") { it.copy(sessionKib = kib) }
     }
 
     /** Test only (spec §6.2's hold-back pin): the record moved as its evidence would move it, nothing sent. */
@@ -1099,8 +1100,9 @@ abstract class CfwTransportBase(
     /** Build C1-Q: the KiB the last answered op 5 gave the session; null read as 160. Written and read by the start alone;
      *  the next ask is at most this unless both lenses are known to hold no cache. Build C2-FA (decisions AD.1): it starts
      *  at the stored record's [LadderRecord.sessionKib] — the last process's last answered op 5 — so a new process (an APK
-     *  install, a target rebuild) asks what the last one would have; "unknown", absent or unusable there is null. Every
-     *  write goes to the record too ([storeSessionKib]). */
+     *  install, a target rebuild) asks no more than the last one would have (the stored value is the last session's size,
+     *  or a lower bound of every lens's cache, decisions AH.1); a record without the line (an older one) or with an
+     *  unusable line is null. Every write goes to the record too ([storeSessionKib]). */
     @Volatile private var lastSessionKib: Int? = record.sessionKib
     /** Build C1's ruling B-S1 (`C1-R5-decisions.md`): LEFT's last link end of the kind a lens restart looks like from
      *  here ([REBOOT_LIKE_ENDS]), on the phone's clock, and its reason. RIGHT's restarts show in its uptime; LEFT's
@@ -2996,8 +2998,8 @@ abstract class CfwTransportBase(
                 // cache goes only at a release point, so the ask rises above the last session's size only when both
                 // lenses are known to hold none (a lease lapsed on both arms, by the phone's own record of its acquires);
                 // any other start asks at most that size (at a new process's first start the stored one, decisions AD.1;
-                // 160 KiB when it is unknown), which every lens that carries a cache holds, and [requestCacheSize] takes
-                // the smaller of RIGHT's size and the ask
+                // 160 KiB for a record without it), which every lens that carries a cache holds, and [requestCacheSize]
+                // takes the smaller of RIGHT's size and the ask
                 val kib = if (knownFresh) want else minOf(want, lastSessionKib ?: DamageMsg.CACHE_BUDGET_KIB)
                 // build C1's ruling B-M1: the 256 KiB size is the ladder's stage-2 rung — it records itself (the time and
                 // stage 2) BEFORE op 5 goes out, so glasses that reset on it are held back at the next start; the flag
@@ -3006,12 +3008,14 @@ abstract class CfwTransportBase(
                 val sizeRung = kib == DamageMsg.CACHE_BUDGET_RIDERS_KIB
                 ladderSizeInForce = false
                 if (sizeRung) { lastArmedAtMs = nowMs(); ladderSizeInForce = true; ladderArmedStage = LADDER_SIZE_STAGE }
-                // build C2-FA (decisions AD.1): the stored size is "unknown" before op 5's first byte, and the session's
-                // size once it is answered — a process that ends in between leaves "unknown", read as 160 by the next one
-                storeSessionKib(null)
+                // build C2-FA (decisions AD.1, AH.1): before op 5's first byte the stored size becomes a lower bound,
+                // min(stored, ask) — a lens that carries a cache holds at least the stored size, a fresh one allocates at
+                // the ask, so every cache is at least that whenever the process ends — and the session's size once op 5
+                // is answered; each written only when it changes (an ordinary start writes nothing)
+                storeSessionKib(minOf(record.sessionKib ?: DamageMsg.CACHE_BUDGET_KIB, kib), "a lower bound while op 5 asks $kib KiB")
                 val size = requestCacheSize(epoch, kib, want)
                 lastSessionKib = size / 1024
-                storeSessionKib(lastSessionKib)
+                storeSessionKib(size / 1024, "op 5's answer")
                 // what the flag sets record from here: the size rung counts while this session asked for it and got it
                 ladderSizeInForce = sizeRung && size >= kib * 1024
                 updateState { it.copy(cacheSize = size) }
