@@ -138,6 +138,9 @@ data class WireState(
     // build W, package G: whether the far end's session has its carrier (a start that rested in Silent Mode has
     // none); an older peer reads true, "up", as before
     val carrierUp: Boolean = true,
+    // build C2 (stage DP1): `Taps`, the `Local input` row's words and S_heard at the start, so a shell across the seam
+    // reads the far end's local input; an older peer reads the defaults ("report", "", 0)
+    val taps: String = "report", val localInput: String = "", val bindSHeard0: Int = 0,
 )
 
 // named on both sides: the two classes order their fields differently, and a
@@ -151,7 +154,8 @@ private fun LinkState.toWire() = WireState(connected = connected, started = star
     damageContract = damageContract, damageFeatures = damageFeatures, flagsInForce = flagsInForce, cacheSize = cacheSize,
     floorSamples = floorSamples, transferSamples = transferSamples,
     worn = worn, wearSwitch = wearSwitch,
-    linkIntervalMs = linkIntervalMs, linkLatency = linkLatency, carrierUp = carrierUp)
+    linkIntervalMs = linkIntervalMs, linkLatency = linkLatency, carrierUp = carrierUp,
+    taps = taps, localInput = localInput, bindSHeard0 = bindSHeard0)
 
 private fun WireState.toState() = LinkState(connected = connected, started = started, leaseHeld = leaseHeld,
     inFlight = inFlight, window = window, ackMsEma = ackMsEma, bytesPerSecEma = bytesPerSecEma,
@@ -162,6 +166,7 @@ private fun WireState.toState() = LinkState(connected = connected, started = sta
     worn = worn, wearSwitch = wearSwitch,
     floorSamples = floorSamples, transferSamples = transferSamples,
     linkIntervalMs = linkIntervalMs, linkLatency = linkLatency, carrierUp = carrierUp,
+    taps = taps, localInput = localInput, bindSHeard0 = bindSHeard0,
     capability = capability, rssiDbm = rssiDbm, transportName = "remote:$transportName", detail = detail)
 
 private fun DataOutputStream.send(c: Ctl, blob: ByteArray? = null) {
