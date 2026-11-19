@@ -55,7 +55,11 @@ class ShellLoopStalled(message: String) : Exception(message)
 /**
  * The watcher. [record] is `UncaughtRecord::recordOnly` in the hosts (true when the record was written); [end] is the
  * host's hook that ends the process, and a test's that records. A stuck turn is acted on ONCE: after [end] returns
- * (a test's hook) the watcher stops.
+ * (a test's hook) the watcher stops. [end] is called whatever the record and the log lines did (a `finally`).
+ *
+ * What survives the end: the record (written and synced before [end]). On the phone the log lines may not — the day
+ * log's writer thread may not have written them, and the error notice, with `Phone notifications` off, is a post into
+ * the stuck shell — so there the record is the one durable channel.
  *
  * **Running time, not clock time.** Each look credits the open turn with the time since the last look, but never
  * more than [MAX_CREDIT_PERIODS] periods: a look that comes much later than its period means this process (or this
@@ -74,15 +78,10 @@ class ShellLoopStalled(message: String) : Exception(message)
 class LoopWatch(
     private val turns: LoopTurns,
     private val record: (Thread, Throwable) -> Boolean,
-    private val end: (Stall) -> Unit,
+    private val end: () -> Unit,
     private val stuckMs: Long = STUCK_MS,
     private val periodMs: Long = PERIOD_MS,
 ) {
-    /** What the watcher saw when it acted: the turn's message type, its thread, the running time it was seen open and
-     *  its age on the clock, the recorded error (its frames are the thread's), and whether the record was written. */
-    class Stall(val what: String, val thread: Thread, val runningMs: Long, val openMs: Long,
-                val error: ShellLoopStalled, val recorded: Boolean)
-
     // The watcher's own state: read and written by the thread that calls [look] only.
     private var lastLook = turns.clock()
     private var seen = 0L
@@ -113,8 +112,7 @@ class LoopWatch(
             try {
                 Thread.sleep(periodMs)
             } catch (e: InterruptedException) {
-                if (!closed) Log.w("watch", "the loop watcher was interrupted while not closed: it keeps watching")
-                continue
+                return                      // only close() interrupts this thread
             }
             if (closed) return
             try {
@@ -144,24 +142,29 @@ class LoopWatch(
         return true
     }
 
+    /** The record first, then the log lines; [end] in a `finally` (the review's finding 1: a log sink that threw
+     *  skipped it, and the watcher stopped with the loop still stuck). */
     private fun act(t: LoopTurns.Turn, now: Long) {
-        val what = t.what()
-        val frames = t.thread.stackTrace
-        val inShell = frames.any { it.className == SHELL_CLASS || it.className.startsWith("$SHELL_CLASS\$") }
-        val text = "the shell's loop has not finished one turn for ${credited / 1000} s of running time " +
-            "(${(now - t.since) / 1000} s on the clock): it is handling $what on thread ${t.thread.name} (${t.thread.state}); " +
-            (if (inShell) "the frames are that thread's" else "that thread is not in the shell's code now (the turn " +
-                "is suspended or moved threads): the frames are that thread's, not the turn's") +
-            " - the process ends itself so that it is started again"
-        val error = ShellLoopStalled(text).apply { stackTrace = frames }
-        val recorded = try { record(t.thread, error) } catch (e: Exception) {
-            Log.e("watch", "the stuck loop's record was not written", e)
-            false
+        try {
+            val what = t.what()
+            val frames = t.thread.stackTrace
+            val inShell = frames.any { it.className == SHELL_CLASS || it.className.startsWith("$SHELL_CLASS\$") }
+            val text = "the shell's loop has not finished one turn for ${credited / 1000} s of running time " +
+                "(${(now - t.since) / 1000} s on the clock): it is handling $what on thread ${t.thread.name} (${t.thread.state}); " +
+                (if (inShell) "the frames are that thread's" else "that thread is not in the shell's code now (the turn " +
+                    "is suspended or moved threads): the frames are that thread's, not the turn's") +
+                " - the process ends itself so that it is started again"
+            val error = ShellLoopStalled(text).apply { stackTrace = frames }
+            val recorded = try { record(t.thread, error) } catch (e: Exception) {
+                Log.e("watch", "the stuck loop's record was not written", e)
+                false
+            }
+            Log.e("watch", text + if (recorded) " (the record is kept for the next start)"
+                else " (NO record was written: the next start will not say it, and on the phone this line may not outlive the end)")
+            Log.w("watch", "the loop thread's frames:\n" + frames.joinToString("\n") { "\tat $it" })
+        } finally {
+            end()                           // whatever the record and the log lines did
         }
-        Log.e("watch", text + if (recorded) " (the record is kept for the next start)"
-            else " (NO record was written: the next start will not say it; this log holds it)")
-        Log.w("watch", "the loop thread's frames:\n" + frames.joinToString("\n") { "\tat $it" })
-        end(Stall(what, t.thread, credited, now - t.since, error, recorded))
     }
 
     companion object {

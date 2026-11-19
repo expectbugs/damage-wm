@@ -369,14 +369,20 @@ class ShellService : Service() {
      *    `ActivityManagerService.appDiedLocked` → `handleAppDiedLocked(…, allowRestart = true, …)` →
      *    `ActiveServices.killServicesLocked`, which schedules the restart of a started service that is not
      *    stop-if-killed (`scheduleServiceRestartLocked`; 1 s, ×4 when it ends again within 60 s). Android's own
-     *    uncaught-error handler (`RuntimeInit`) first reports a crash (`handleApplicationCrash`): its services' crash
-     *    count rises, and two crashes inside `MIN_CRASH_INTERVAL` (2 min) mark the process bad, restrict the app and
-     *    restart nothing (`AppErrors.handleAppCrashLocked`). Hence the two calls below are that handler's LAST two
-     *    (`Process.killProcess(myPid)`, then `System.exit(10)`), without the report before them;
-     *  - measured on his phone (2026-11-04, `HANDOFF.md` §71): the process ended twice, 22 s apart, and the service
-     *    came back by itself each time with a new session (the kind of end was not settled);
-     *  - inferred, not tried (no device here): that the restarted service may call `startForeground` from the
-     *    background — documented as allowed when the app is exempt from battery optimisation, which this app asks for.
+     *    uncaught-error handler (`RuntimeInit`) first reports a crash (`handleApplicationCrash` →
+     *    `AppErrors.handleAppCrashLocked`): the services' crash count rises (restarts stop at
+     *    `BOUND_SERVICE_MAX_CRASH_RETRY`, 16 by the reviewer's memory, not read), and a second crash inside
+     *    `MIN_CRASH_INTERVAL` (2 min) marks the process bad and restricts the app in App Standby (`FLAG_BUGGY`) —
+     *    a foreground service is still restarted then (`tryAgain`, read). A stall at every start through that
+     *    handler would stop being restarted after the limit; the two calls below are that handler's LAST two
+     *    (`Process.killProcess(myPid)`, then `System.exit(10)`), without the report before them, and avoid all three;
+     *  - measured on his phone (2026-11-04, `HANDOFF.md` §71; the next start's exit notes): two ends by `CRASH`
+     *    25 s apart (10:25:03, 10:25:28, importance 125: the foreground service, no activity), and the service came
+     *    back after each, going foreground from the background through the same `appDied` restart path a self-end
+     *    takes. A self-end (`SIGNALED`) has not been seen on his phone yet: the next start's "an earlier process
+     *    ended" note will show the first;
+     *  - documented: a foreground service may start from the background when "the user turns off battery
+     *    optimizations for your app", which this app asks for.
      * Nothing here touches the shell, the transport or the radio: the loop is stuck, and anything that waits on it
      * would keep the process up.
      */

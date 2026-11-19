@@ -53,8 +53,9 @@ class LoopWatchTest {
     private class Watched(c: Clock) {
         val turns = LoopTurns { "type:$it" }.apply { clock = { c.now } }
         val records = java.util.concurrent.CopyOnWriteArrayList<Pair<Thread, Throwable>>()
-        val stalls = java.util.concurrent.CopyOnWriteArrayList<LoopWatch.Stall>()
-        val watch = LoopWatch(turns, { t, e -> records += t to e; true }, { stalls += it })
+        /** How many times the host's hook was called. */
+        val ends = java.util.concurrent.atomic.AtomicInteger()
+        val watch = LoopWatch(turns, { t, e -> records += t to e; true }, { ends.incrementAndGet() })
     }
 
     /** One turn open 30 s of running time: acted on at the look that reaches it, not before, once — the record holds
@@ -75,15 +76,37 @@ class LoopWatchTest {
             assertTrue(e.stackTrace.any { it.methodName == "heldInAHandler" }, "the frames are the turn's thread's: ${e.stackTrace.take(4)}")
             assertTrue("type:transport FlushDone" in e.message!!, e.message)
             assertTrue("fake-loop-7" in e.message!!, e.message)
-            val s = w.stalls.single()
-            assertEquals("type:transport FlushDone", s.what)
-            assertSame(e, s.error)
-            assertTrue(s.recorded)
-            assertEquals(LoopWatch.STUCK_MS, s.runningMs)
+            assertTrue("for ${LoopWatch.STUCK_MS / 1000} s of running time" in e.message!!, e.message)
+            assertEquals(1, w.ends.get())
             repeat(20) { c.now += LoopWatch.PERIOD_MS; assertFalse(w.watch.look(), "acted on once") }
             assertEquals(1, w.records.size)
-            assertEquals(1, w.stalls.size)
+            assertEquals(1, w.ends.get())
         } finally {
+            p.release()
+        }
+    }
+
+    /** The review's finding 1: a log line that throws (a sink of the host's) never keeps the hook from being called —
+     *  once; the throw still reaches the caller, and the watcher acts no more. */
+    @Test
+    fun aLogLineThatThrowsStillEndsTheProcess() {
+        val c = Clock()
+        val w = Watched(c)
+        val p = Parked(w.turns, "Run held")
+        val sink = wm.damage.core.util.Log.Sink { level, tag, _ ->
+            if (tag == "watch" && level == wm.damage.core.util.Log.Level.ERROR) throw IllegalStateException("test: this sink throws")
+        }
+        wm.damage.core.util.Log.addSink(sink)
+        try {
+            repeat(5) { c.now += LoopWatch.PERIOD_MS; assertFalse(w.watch.look()) }
+            c.now += LoopWatch.PERIOD_MS
+            kotlin.test.assertFailsWith<IllegalStateException> { w.watch.look() }
+            assertEquals(1, w.records.size, "the record came first")
+            assertEquals(1, w.ends.get(), "the hook was called although the log line threw")
+            repeat(10) { c.now += LoopWatch.PERIOD_MS; assertFalse(w.watch.look()) }
+            assertEquals(1, w.ends.get())
+        } finally {
+            wm.damage.core.util.Log.removeSink(sink)
             p.release()
         }
     }
@@ -107,7 +130,8 @@ class LoopWatchTest {
         } finally {
             second.release()
         }
-        assertEquals(listOf("type:Run first"), w.stalls.map { it.what })
+        assertEquals(1, w.ends.get())
+        assertTrue("type:Run first" in w.records.single().second.message!!)
         assertEquals(1, w.records.size)
     }
 
@@ -117,7 +141,7 @@ class LoopWatchTest {
         val c = Clock()
         val w = Watched(c)
         repeat(2_000) { c.now += LoopWatch.PERIOD_MS; assertFalse(w.watch.look()) }
-        assertTrue(w.records.isEmpty() && w.stalls.isEmpty())
+        assertTrue(w.records.isEmpty() && w.ends.get() == 0)
     }
 
     /** Many short turns, a different one open at every look (each begun just under one period before it): their
@@ -133,7 +157,7 @@ class LoopWatchTest {
             c.now += LoopWatch.PERIOD_MS - 100
             assertFalse(w.watch.look(), "look $i")
         }
-        assertTrue(w.records.isEmpty() && w.stalls.isEmpty())
+        assertTrue(w.records.isEmpty() && w.ends.get() == 0)
     }
 
     /** A clock that does not move (a device asleep) credits nothing: an open turn is never stuck by it. */
@@ -147,7 +171,7 @@ class LoopWatchTest {
         } finally {
             p.release()
         }
-        assertTrue(w.records.isEmpty() && w.stalls.isEmpty())
+        assertTrue(w.records.isEmpty() && w.ends.get() == 0)
     }
 
     /** A gap between two looks far longer than the period is time the process did not run (frozen by the system, a
@@ -166,7 +190,8 @@ class LoopWatchTest {
             repeat(2) { c.now += LoopWatch.PERIOD_MS; assertFalse(w.watch.look()) } // 25 s
             c.now += LoopWatch.PERIOD_MS
             assertTrue(w.watch.look(), "30 s of running time")
-            assertEquals(LoopWatch.STUCK_MS, w.stalls.single().runningMs)
+            assertEquals(1, w.ends.get())
+            assertTrue("for ${LoopWatch.STUCK_MS / 1000} s of running time" in w.records.single().second.message!!)
         } finally {
             p.release()
         }
@@ -201,8 +226,10 @@ class LoopWatchTest {
             // a rest or Silent Mode posts none, and there such a turn would be acted on
             waitUntil(5_000, 1, { "an idle shell has no open turn: ${shell.turns.open()?.what()}" }) { shell.turns.open() == null }
 
-            val ended = CompletableDeferred<LoopWatch.Stall>()
-            val w = LoopWatch(shell.turns, UncaughtRecord.recorderFor(tmp, "test build"), { ended.complete(it) },
+            val ended = CompletableDeferred<Unit>()
+            val write = UncaughtRecord.recorderFor(tmp, "test build")
+            val wrote = CompletableDeferred<Pair<Thread, Boolean>>()
+            val w = LoopWatch(shell.turns, { th, e -> write(th, e).also { wrote.complete(th to it) } }, { ended.complete(Unit) },
                 stuckMs = 1_000, periodMs = 20)
             watch = w
             w.start()
@@ -213,15 +240,14 @@ class LoopWatchTest {
             val inside = CountDownLatch(1)
             shell.services.runOnShell { heldInAHandler(inside, release) }
             waitUntil(10_000, 10, { "the watcher acts on the held turn" }) { ended.isCompleted }
-            val s = ended.await()
+            val (stuckThread, recorded) = wrote.await()          // the record comes before the hook
             assertTrue(inside.count == 0L, "the handler was entered")
-            assertEquals("Run runOnShell", s.what)
-            assertTrue(s.recorded)
+            assertTrue(recorded)
             assertTrue(UncaughtRecord.isPending(tmp), "the record is where the next start looks")
             val text = Files.readString(tmp.resolve(UncaughtRecord.PENDING))
             assertTrue(ShellLoopStalled::class.java.name in text && "heldInAHandler" in text && "Run runOnShell" in text, text)
             val line = assertNotNull(UncaughtRecord.takePending(tmp, tmp.resolve("journal-next.jsonl")))
-            assertTrue("an uncaught ${ShellLoopStalled::class.java.name} in thread ${s.thread.name}" in line, line)
+            assertTrue("an uncaught ${ShellLoopStalled::class.java.name} in thread ${stuckThread.name}" in line, line)
 
             release.countDown()
             keeper.stop()
