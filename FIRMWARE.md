@@ -1232,7 +1232,10 @@ is stated there.
   refusal record naming mode 27** (fields 23–25, read once per telemetry record) makes the phone re-send the whole table
   — CLEAR 0xFF, the SETs, the LISTs with a fresh mark — in its next batch, journaled, and ask for ONE keyframe: a
   refused mode 27 sends no notify and ends its batch on that lens, so what followed it — the answer that rides behind
-  its LIST among it — did not run there. **A flush that carried the rules' messages** (COMMIT, DISCARD, SETTLE, SET,
+  its LIST among it — did not run there. The record is read with each telemetry record, once a minute at rest; so
+  that a refusal on RIGHT is seen within about Q, **at a burst's lone SETTLE a COMMIT sent since the last SETTLE that
+  has had no outcome-3 body from RIGHT asks for one telemetry read** (the existing read; a lost body costs one read
+  and nothing else; decisions AA.2). **A flush that carried the rules' messages** (COMMIT, DISCARD, SETTLE, SET,
   CLEAR or LIST) **and was refused** — its image ack failed; the transport cannot say on which lens or at which sub (I)
   — sends the whole table again the same way, journaled, beside the shell's usual repaint of what a failed flush drew: a
   lens that refused one of them ends its batch there, and on LEFT nothing else is heard of it. **A refusal record naming
@@ -1253,8 +1256,13 @@ is stated there.
   per report). A slot is answered in a batch when a report of it was handled since its last answer or something else
   moved its row since (D0). The answer is **COMMIT(slot, S, list, cursor, prog, P) of the newest adopted report only
   when every report of the slot handled since its last answer was adopted, nothing else moved the phone's row since
-  (P4's application, P5's unreported scroll message, a refused report applied as today), and no drawing sub of the batch
-  meets the slot's areas once END is applied to the model; otherwise DISCARD(slot, A + 1 − 0x4000, list, row) after the
+  (P4's application, P5's unreported scroll message, a refused report applied as today) — and then the batch carries
+  only the drawing subs that do NOT meet the slot's areas once END is applied to the model: the cells inside the areas
+  that still differ from the truth stay dirty and go in the NEXT batch, over the adopted picture (ruled 2026-11-18,
+  decisions AA.1: with the whole list moving, the earlier form — a DISCARD whenever a drawing sub met the areas — made
+  every notch over a row whose staged picture was merely older than Main's a snap-back; nothing inside the areas is
+  drawn before the END, so the defect that form guarded, END written over a frame, cannot occur; a keyframe or reseed
+  batch is still answered by DISCARD); otherwise DISCARD(slot, A + 1 − 0x4000, list, row) after the
   drawing subs**, A the last S the slot's previous answer covered (S_heard at the session start); the lens's compare is
   signed 16-bit, so the bound also reaches a lens numbered behind RIGHT (a SET that landed between the two lenses'
   handling of one gesture, a mode 27 lost on LEFT alone) — the frame that draws its row rides the same batch, so the
@@ -1316,9 +1324,9 @@ is stated there.
   into a released lease. Each of them that names a list rides behind that list's LIST with shift 0 (12 B, idempotent),
   so a lens that missed a LIST — lost, or refused there — holds the current count and mark whenever an answer is checked
   and is never refused for a stale count; the miss heals at the next answer with no evidence (decisions U). Before a
-  mid-session disarm of BIND (the probe path): DISCARD(0xFF, S_heard at the session start + 1 − 0x4000, 0xFF, 0) after
-  every 115 heard is answered, waited to its ack (it reaches every local instance of the session on either lens while
-  the session has numbered at most 16,384 matched events: the compare is signed 16-bit); without one the disarm is not
+  mid-session disarm of BIND (the probe path): DISCARD(0xFF, S_heard + 1 − 0x4000 as it stands at the disarm, 0xFF, 0)
+  after every 115 heard is answered, waited to its ack (it reaches every local instance either lens can still hold;
+  decisions AA.3); without one the disarm is not
   sent and a note says so (§5.8's rule for ENGINE). At a carried-lease start the start's FLAGS_SET may clear BIND with
   no DISCARD (the warmup keyframe closes every instance, R1.17).
 - **P10 the mirror.** A bound list's areas are unknown on the panel from the first report of a burst to the SETTLE that
@@ -1965,3 +1973,7 @@ phone's keeper applies the hold-back rule before re-arming.
   shows, at a period by height that a step fits (the step times measured on his pair, M), with what it costs in a
   burst; staged rows kept current by re-staging into fresh space, never by a discard for age; Main's wrap rows read
   from the code; the fuzz's answers that do not land and three seeded cases declared. Nothing built.
+- 2026-11-19 — §6.7: three phone-side rulings from the walk of the text against decisions U–X (P3: a COMMIT stands
+  and the drawing subs that meet its areas wait for the next batch; P1: a telemetry read at a burst's SETTLE when a
+  COMMIT has had no outcome-3 body; P9: the disarm's DISCARD from S_heard + 1 − 0x4000 at the disarm). The compositor
+  does not merge two rects into one that reaches into a bound list's area where neither did (stage DI).
