@@ -191,6 +191,14 @@ class NoticeTimerRenderTest {
             repeat(5) { shell.graceStepByHand(); calm("again: step") }
             val reset = priced("reset") { shell.postGesture(EvenHubMsg.EV_RING_LONG_PRESS_RELEASE, 0) }
             assertEquals(0 to true, idle("reset") { shell.graceState() }, "$tag: the release reset the timer")
+            if (cached) {
+                // the pin of the defect build NT found: a step that changed the rule's first pixels sent the box's text
+                // as pixels (437 B for a one-line box where a step is 80) — every step and the reset carry draws
+                for ((i, p) in (steps.dropLast(1) + listOf(reset)).withIndex()) {
+                    val what = if (i < steps.size - 1) "step ${i + 1}" else "the reset"
+                    assertTrue(p.any { "T2(" in it.shape }, "$tag, $what: the box's strings went as draws (${p.joinToString { it.shape }})")
+                }
+            }
             sb.append("NT bytes, ${if (cached) "Cached text on" else "pixels"}, $tag box: arrival ${say(arrival)}; ")
             sb.append("steps 1-7 ${steps.take(7).joinToString(" ") { say(it) }}; focus ${say(steps.last())}; ")
             sb.append("the input's reset at step 5 ${say(reset)}\n")
