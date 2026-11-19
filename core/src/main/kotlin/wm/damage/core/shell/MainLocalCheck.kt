@@ -434,7 +434,7 @@ object MainLocalCheck {
                 }
                 r.band?.let { ms.release(it.oldOff4) }; nl.previous = null
                 cur = nl
-                lines += "Music's row form switched to the other strip: ${r.bytes} B in one flush (${r.writes.joinToString { "${it.what} ${it.bytes.size} B" }}), then ${nl.entries.size} SETs; no withdrawal"
+                lines += "Music's row form switched to the other strip: ${r.bytes} B written (${r.writes.joinToString { "${it.what} ${it.bytes.size} B" }}), then ${nl.entries.size} SETs; no withdrawal"
             }
             else {
                 for (e in cur.entries) lens.send("CLEAR ${e.entry}", CfwModes.bindClear(e.entry), fails)
@@ -452,7 +452,7 @@ object MainLocalCheck {
                 }
                 r.band?.let { ms.release(it.oldOff4) }; nl.previous = null
                 cur = nl
-                lines += "Music's row form re-staged with the entries cleared: ${r.bytes} B in one flush (${r.writes.joinToString { "${it.what} ${it.bytes.size} B" }}), then ${nl.entries.size} SETs"
+                lines += "Music's row form re-staged with the entries cleared: ${r.bytes} B written (${r.writes.joinToString { "${it.what} ${it.bytes.size} B" }}), then ${nl.entries.size} SETs"
             }
             cases += Case("$tag-strip", if (ms.stripB != null) "a row form switched to the other strip (AD.2): notches before, during and after the switch, each named and committed; no withdrawal"
                 else "a row form re-staged with the list withdrawn: no notch matches meanwhile; after the SETs a notch is named and committed", Rect(0, 0, 1, 1), emptyList(), lines, fails)
