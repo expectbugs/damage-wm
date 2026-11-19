@@ -994,7 +994,9 @@ version stays 2; DamageCaps bit 10 (§6.8).
       report-only fire's test below reads it the same way (D1). Otherwise each is closed — a drawing one's outcome-1 body captured for the ui_task's
       send (§5.8), a done one silently, **and a local instance of this fire's own slot silently whatever its state**
       (this fire's 115 names the slot; nothing waits on a local body, §6.5) — and each close sets the panel-stale mark
-      (§5.3).
+      (§5.3). A fire presents nothing for its closes: what a closed instance had drawn outside the new program's areas
+      stays on the panel until the next present, which the stale mark makes whole (the phone's answer brings one; a
+      gate take on the input path to do it sooner is not built).
   12. Open the local instance (§6.4): tag S, t0 now, d 0, the entry's period, its first read range from step 10's walk,
       no capture range, the hook's entry stamp (field 37). The list's newest S := S; its cursor := c'.
   13. Let the word down, settling a PENDING release point as every holder does (§5.11 row 3).
@@ -1196,7 +1198,9 @@ there.
 - **DRAW's h0, h1, anchor** (zero in C1, §5.4): the output height eased from h0 to h1 (both 1..2048, or both 0 =
   unscaled); anchor 0 top · 1 centre (`y + ((h − H) >> 1)`) · 2 bottom (`y + h − H`), h the source's height. On a
   bit-10 build §5.5's "h0/h1 = 0" becomes: h0 and h1 both 0, or both inside 1..2048 and every step's eased H (after
-  substitution) inside 1..2048, else 12 (h0 = 0 with h1 ≠ 0, or the reverse, is 12: ruled 2026-11-18) — at a PLAY, a COMMIT and a fire alike; on RETARGET's restart path H is clamped to 1..2048 as levels
+  substitution) inside 1..2048, else 12 (h0 = 0 with h1 ≠ 0, or the reverse, is 12: ruled 2026-11-18); a scaled DRAW's
+  source is a record — `self` with h0/h1 ≠ 0 is 12 (ruled on the fork's first review pass: no use asks for a scaled
+  capture, and no vector compared one) — at a PLAY, a COMMIT and a fire alike; on RETARGET's restart path H is clamped to 1..2048 as levels
   are (R1.10). The wheel's drum (`MOTION.md` W1/W2) and Pulse use it; the icon grow (M2) was cut on 2026-11-18 (Adam:
   no size change in Main's focus motion). `tools/verify.py` step 7 is run again on the grown engine function.
 
@@ -1850,3 +1854,5 @@ phone's keeper applies the hold-back rule before re-arming.
   where the text was silent, ruled before their meeting — the table is empty for every reader while `bind_live` is 0;
   the ui_task's send order with outcome-3 bodies; a refusal body's field 3 for COMMIT only; h0 and h1 both 0 or both
   1..2048; mode 28's length counts from after the mode byte; field 37 at the first drawn step.
+- 2026-11-18 — §6.2, §6.6: from the first review pass of the fork's C2 code — a fire presents nothing for its closes
+  (said in step 11); a scaled DRAW's source is never `self` (12).
