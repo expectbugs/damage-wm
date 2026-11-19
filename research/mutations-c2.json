@@ -2084,8 +2084,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    " ${st.cacheSize} ${List(n) { main.rowKey(it) }.hashCode()}\"",
-    " ${st.cacheSize}\""
+    " ${st.cacheSize} ${motionInForce()} ${List(n) { main.rowKey(it) }.hashCode()}\"",
+    " ${st.cacheSize} ${motionInForce()}\""
    ]
   ],
   "tests": [
@@ -2156,8 +2156,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "listOf(MainStaging.WHOLE), twoStrips = !shared0)",
-    "MainStaging.WIDTHS + MainStaging.WHOLE, twoStrips = !shared0)"
+    "listOf(MainStaging.WHOLE), twoStrips = !shared0, motion = motionInForce())",
+    "MainStaging.WIDTHS + MainStaging.WHOLE, twoStrips = !shared0, motion = motionInForce())"
    ]
   ],
   "tests": [
