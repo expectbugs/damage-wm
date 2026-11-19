@@ -1131,17 +1131,17 @@
   "file": "shell/MainStaging.kt",
   "edits": [
    [
-    "(stepMs + STEP_MARGIN_MS) * 1024.0",
-    "(stepMs) * 1024.0"
+    "        const val PERIOD_MARGIN = 1.10",
+    "        const val PERIOD_MARGIN = 1.0"
    ]
   ],
   "tests": [
    "*MainBindTest*"
   ],
   "expect": [
-   "thePeriodAndStepsFollowTheMeasuredFitAtEachHeight_DM2"
+   "thePeriodAndStepsFollowTheMeasuredFitAtEachHeight_AU3"
   ],
-  "note": "the period without the 2 ms margin",
+  "note": "the period without its margin (AU.3: 10 % on the period, was the fit's 2 ms)",
   "from": "DM2"
  },
  {
