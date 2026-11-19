@@ -160,14 +160,15 @@ class MainSeqTest {
             assertTrue(tags.all { it in Shell.MAINSEQ_TAG until Shell.MAINSEQ_TAG + 0x1000 }, "the probe's tags: $tags")
             assertEquals(1, progs.getValue(-1).size, "one program up"); assertEquals(1, progs.getValue(1).size, "one program down")
             assertTrue(progs.getValue(-1) != progs.getValue(1), "two programs")
-            // the spacing, as the plays reached the glasses
-            val gaps = r.plays.zipWithNext { a, b -> b.first - a.first }
-            val want = MainSeqPlan.plan(listOf(2), 8, pace).drop(1).map { it.afterMs }
-            for ((i, g) in gaps.withIndex()) assertTrue(g >= want[i] - 5 && g < want[i] + 600, "gap ${i + 1}: $g ms, the plan's ${want[i]}")
             // the note: per notch RIGHT's 114 — every instance drew its six steps, none was closed by a follow-up
             val note = r.notes("mainseq").single { it.startsWith("k=2") }
-            println("DMS-journal mainseq: ${r.notes("mainseq").joinToString("\n")}")
+            println("DMS-journal mainseq: ${r.notes("mainseq").joinToString("\n")}\nDMS-journal stage: ${r.notes("stage").joinToString("\n")}\nDMS-journal atlas: ${r.notes("atlas").takeLast(12).joinToString("\n")}")
             assertEquals(12, Regex("114 drew drawn (\\d+) folded (\\d+)").findAll(note).count { it.groupValues[1].toInt() + it.groupValues[2].toInt() == 6 }, note)
+            // the spacing between PLAYs as sent (the note's "+N ms"; the lane may hold one a little, not space them)
+            val sent = Regex("tag 0x[0-9a-f]{4} \\+(\\d+) ms").findAll(note).map { it.groupValues[1].toLong() }.toList()
+            val want = MainSeqPlan.plan(listOf(2), 8, pace).map { it.afterMs }
+            assertEquals(12, sent.size, note)
+            for (i in 1 until 12) assertTrue(sent[i] >= want[i] && sent[i] < want[i] + 600, "PLAY ${i + 1} sent ${sent[i]} ms after the one before, the plan's ${want[i]}")
             assertTrue(r.notes("mainseq").any { "Main's cursor back at row 0" in it }, "the cursor back where it was: ${r.notes("mainseq")}")
         } finally { r.close() }
     }

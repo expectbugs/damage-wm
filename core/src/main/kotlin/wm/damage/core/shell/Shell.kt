@@ -4840,7 +4840,7 @@ class Shell(
      * of the link state per decision. (f) Its siblings: the `hold` probe's gate and input end, the test programs' END
      * into belief, the rest tick, the sleep.
      */
-    private class MainSeqRun(val value: String, val ks: List<Int>, val saved: Int, val serial: Int,
+    private class MainSeqRun(val ks: List<Int>, val saved: Int, val serial: Int,
         val plan: List<MainSeqPlan.Notch>, val pace: MainSeqPlan.Pace) {
         var staging: MainStaging? = null
         /** Main's records in the stage registry (the registry's own objects), in [MainStaging.blobs]' order. */
@@ -4909,19 +4909,16 @@ class Shell(
         val n = mainRows().size
         if (n < 2) { journal.note("mainseq", "mainseq=$value not taken — Main has $n row(s): no notch to play"); return }
         val pace = mainSeqPace
-        val run = MainSeqRun(value, ks, main.model.cursor, sessionSerial, MainSeqPlan.plan(ks, n, pace), pace)
+        val run = MainSeqRun(ks, main.model.cursor, sessionSerial, MainSeqPlan.plan(ks, n, pace), pace)
         mainSeq = run
         // Main as it is drawn at the last row, awake (no rest while the test runs: the RestTick waits for no run)
         restGen++
         main.resting = false
         main.model.cursor = n - 1
         composeContent()
+        journal.note("mainseq", "mainseq=$value — Main at its last row of $n (from row ${run.saved}); its rows are staged, and the frames are held " +
+            "once they are counted and nothing is in flight")
         if (!mainSeqStage(run, st)) return
-        val ms = run.staging!!
-        journal.note("mainseq", "mainseq=$value — Main at its last row of $n (from row ${run.saved}); staged ${ms.bytes} B in ${ms.blobs.size} record(s) at " +
-            "${ms.start}..${ms.end} of the ${st.cacheSize / 1024} KiB cache (the strip ${ms.blobs.first().bytes.size} B, ${ms.rows} band forms " +
-            "${ms.blobs.drop(1).dropLast(1).sumOf { it.bytes.size }} B, ${ms.pans.size} programs ${ms.blobs.last().bytes.size} B); the frames are held once " +
-            "they are counted and nothing is in flight")
         post(Msg.Pump)
         mainSeqAfter(run, 0) { mainSeqPoll(run) }
     }
@@ -4931,10 +4928,19 @@ class Shell(
     private fun mainSeqStage(run: MainSeqRun, st: LinkState): Boolean {
         val (listD, bandD) = mainSeqPlanes()
         val ct = cachedText
+        val want0 = ct?.wantVersion; val seen0 = ct?.seenVersion
         val ms = try {
             MainStaging.build(layout, main.view(), kit, listD, bandD, st.cacheSize) { g, paint -> if (ct != null) ct.via(g, 0, 0, NO_RECORDS) { paint() } else paint() }
         } catch (e: wm.damage.core.geom.LintError) { mainSeqEnd(run, "Main's rows cannot be staged: ${e.message}"); return false }
         run.staging = ms
+        if (ct != null && (ct.wantVersion != want0 || ct.seenVersion != seen0)) {
+            // §73, Page staging's rule: the paint showed a face characters (or an icon) the atlas does not hold yet — the
+            // atlas goes first, and Main is painted again once it is done (written now, the records would stop matching
+            // Main the moment those glyphs went live; a character the atlas cannot give is not new the second time)
+            run.records = emptyList()
+            journal.note("mainseq", "Main's rows drew characters the atlas does not hold yet — the atlas goes first, then they are painted again")
+            return true
+        }
         val old = stage.records.values.filter { it.key is MainStageKey }
         if (old.size == ms.blobs.size && ms.blobs.withIndex().all { (i, b) -> old.any { r -> r.key.firstLine == i && r.off == b.off &&
                 r.state == StagedRecord.State.PROVEN && r.encoded.contentEquals(b.bytes) } }) {
@@ -4951,6 +4957,9 @@ class Shell(
             stage.records[r.key] = r
         }
         stageRecount()
+        journal.note("mainseq", "Main's rows staged: ${ms.bytes} B in ${ms.blobs.size} record(s) at ${ms.start}..${ms.end} of the ${st.cacheSize / 1024} KiB " +
+            "cache (the strip ${ms.blobs.first().bytes.size} B, ${ms.rows} band forms ${ms.blobs.drop(1).dropLast(1).sumOf { it.bytes.size }} B, " +
+            "${ms.pans.size} programs ${ms.blobs.last().bytes.size} B), planes ${ms.listD}/${ms.bandD}")
         return true
     }
 
@@ -4977,7 +4986,14 @@ class Shell(
         if (run.playing) return
         val st = transport.state.value
         mainSeqBlocked(st, run)?.let { mainSeqEnd(run, it); return }
-        if (run.records.any { stage.records[it.key] !== it }) {
+        if (run.records.isEmpty()) {
+            // the atlas first ([mainSeqStage]): Main is painted again once nothing of the atlas is queued or on its way
+            if (atlasQueue.isEmpty() && atlasInFlight == null && !cacheWorkInFlight && !atlasLapsedOwed) {
+                if (++run.restages > MAINSEQ_RESTAGES) { mainSeqEnd(run, "Main's rows kept drawing characters the atlas did not hold (${run.restages - 1} paints)"); return }
+                if (!mainSeqStage(run, st)) return
+                post(Msg.Pump)
+            }
+        } else if (run.records.any { stage.records[it.key] !== it }) {
             if (++run.restages > MAINSEQ_RESTAGES) { mainSeqEnd(run, "Main's records left the reserve ${run.restages - 1} times while staging (the stage notes say why)"); return }
             journal.note("mainseq", "a record of Main's left the reserve while staging (the stage notes say why) — Main is painted and staged again (${run.restages} of $MAINSEQ_RESTAGES)")
             if (!mainSeqStage(run, st)) return
@@ -5017,10 +5033,9 @@ class Shell(
         run.unacked.addLast(played)
         run.played += played
         run.next++
-        val serial = sessionSerial
         scope.launch {
             val error = try { done.await(); null } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { e.message ?: e.toString() }
-            if (running) post(Msg.Run { mainSeqAcked(run, played, serial, error) })
+            if (running) post(Msg.Run { mainSeqAcked(run, played, error) })
         }
         if (run.next < run.plan.size) mainSeqAfter(run, run.plan[run.next].afterMs) { mainSeqNotch(run) }
         else mainSeqAfter(run, run.pace.slowMs) { mainSeqEnd(run, "the test is done") }
@@ -5028,9 +5043,9 @@ class Shell(
 
     /** A PLAY of the run acknowledged ([error] null) or not. END goes into belief whatever the run's state — the lens wrote
      *  it into its shadow — and, while the run goes on, Main's cursor moves and the follow-up is due. */
-    private fun mainSeqAcked(run: MainSeqRun, p: MainSeqPlayed, serial: Int, error: String?) {
+    private fun mainSeqAcked(run: MainSeqRun, p: MainSeqPlayed, error: String?) {
         run.unacked.remove(p)
-        if (serial != sessionSerial) return                  // another session: its start re-grounds belief
+        if (run.serial != sessionSerial) return              // another session: its start re-grounds belief
         val now = System.currentTimeMillis()
         if (error == null) {
             val ms = run.staging!!
