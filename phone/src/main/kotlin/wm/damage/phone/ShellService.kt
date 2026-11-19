@@ -100,6 +100,8 @@ class ShellService : Service() {
     @Volatile var shell: Shell? = null
         private set
     @Volatile private var keeper: ShellKeeper? = null     // read by isRunning() off the rebuild thread
+    /** Build RA-1: the running stack's loop watcher (`core/…/shell/LoopWatch.kt`); closed after its shell stopped. */
+    private var loopWatch: wm.damage.core.shell.LoopWatch? = null
     private var seamServer: RemoteTransportServer? = null
     private var replica: ReplicaServer? = null
     private var tmuxProvider: RemoteTmuxProvider? = null
@@ -356,6 +358,39 @@ class ShellService : Service() {
         wakeLock = null
     }
 
+    /**
+     * Build RA-1: the loop watcher's end — after the record is on disk, this process ends itself so the system starts
+     * the service again. What that rests on:
+     *  - read here: [onStartCommand] returns `START_STICKY`, and the service is started (`startForegroundService` from
+     *    `MainActivity` and `BootReceiver`) and never stopped by this app;
+     *  - documented (`Service.START_STICKY`): "if this service's process is killed while it is started … leave it in
+     *    the started state … Later the system will try to re-create the service";
+     *  - read in AOSP main, not on his phone's build: a process that dies without a crash report reaches
+     *    `ActivityManagerService.appDiedLocked` → `handleAppDiedLocked(…, allowRestart = true, …)` →
+     *    `ActiveServices.killServicesLocked`, which schedules the restart of a started service that is not
+     *    stop-if-killed (`scheduleServiceRestartLocked`; 1 s, ×4 when it ends again within 60 s). Android's own
+     *    uncaught-error handler (`RuntimeInit`) first reports a crash (`handleApplicationCrash` →
+     *    `AppErrors.handleAppCrashLocked`): the services' crash count rises (restarts stop at
+     *    `BOUND_SERVICE_MAX_CRASH_RETRY`, 16 by the reviewer's memory, not read), and a second crash inside
+     *    `MIN_CRASH_INTERVAL` (2 min) marks the process bad and restricts the app in App Standby (`FLAG_BUGGY`) —
+     *    a foreground service is still restarted then (`tryAgain`, read). A stall at every start through that
+     *    handler would stop being restarted after the limit; the two calls below are that handler's LAST two
+     *    (`Process.killProcess(myPid)`, then `System.exit(10)`), without the report before them, and avoid all three;
+     *  - measured on his phone (2026-11-04, `HANDOFF.md` §71; the next start's exit notes): two ends by `CRASH`
+     *    25 s apart (10:25:03, 10:25:28, importance 125: the foreground service, no activity), and the service came
+     *    back after each, going foreground from the background through the same `appDied` restart path a self-end
+     *    takes. A self-end (`SIGNALED`) has not been seen on his phone yet: the next start's "an earlier process
+     *    ended" note will show the first;
+     *  - documented: a foreground service may start from the background when "the user turns off battery
+     *    optimizations for your app", which this app asks for.
+     * Nothing here touches the shell, the transport or the radio: the loop is stuck, and anything that waits on it
+     * would keep the process up.
+     */
+    private fun endForRestart() {
+        android.os.Process.killProcess(android.os.Process.myPid())
+        kotlin.system.exitProcess(10)
+    }
+
     /** [c1StepDown]: build C1-P R1 §1 — onCreate's first stack only (a rebuild in the same process passes false). */
     private fun startStack(target: Prefs.Target, c1StepDown: Boolean = false) {
         val prefs = Prefs(this)
@@ -393,6 +428,7 @@ class ShellService : Service() {
         persistence.load()
         val sh = Shell(text, t, persistence, dataDir.resolve("journal.jsonl"), scope)
         sh.loopClock = AndroidLoopClock         // build W, package G (E4): the `slow` note's clocks
+        sh.turns.clock = android.os.SystemClock::uptimeMillis   // RA-1: the watcher's clock; it stops in deep sleep
         sh.buildTag = "apk ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"
         shell = sh
 
@@ -602,6 +638,9 @@ class ShellService : Service() {
             onTerminal = { reason -> onTerminal(target, reason) })
         keeper = k
         stackGeneration++
+        // RA-1: a turn of this shell's loop open past LoopWatch.STUCK_MS of running time is recorded (the uncaught-
+        // error record: the next start raises it as a `process` fault and steps the C1 ladder down) and ends the process
+        loopWatch = wm.damage.core.shell.LoopWatch(sh.turns, UncaughtRecord::recordOnly, { endForRestart() }).also { it.start() }
         k.start()
 
         // the notification follows the transport's detail line
@@ -710,6 +749,9 @@ class ShellService : Service() {
                 Log.e("service", "keeper stop failed", e)
             }
         }
+        // RA-1: only now — a stop that waits on a stuck loop is still watched until it returns
+        loopWatch?.close()
+        loopWatch = null
         // THIS host owns the radio session ("the session outlives the
         // driver", 2026-08-31): remote drivers only ever release their claim,
         // and a PAUSED shell's stop() skips the transport — so the stack

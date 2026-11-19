@@ -850,6 +850,16 @@ class Shell(
     @Volatile private var loopHandling: String? = null
     @Volatile private var loopSince = 0L
 
+    /** Build RA-1: the loop's turns, for the host's liveness watcher ([LoopWatch]); a message is described only when
+     *  its turn is stuck (the `slow` note's words). The host sets [LoopTurns.clock] before the start. */
+    val turns = LoopTurns { m ->
+        when (m) {
+            is Msg.Trans -> "transport ${m.ev.javaClass.simpleName}"
+            is Msg.Run -> "Run " + m.tag.ifEmpty { "(untagged)" }
+            else -> m.javaClass.simpleName
+        }
+    }
+
     /** The word the status cell shows, from the pump's ONE link-state snapshot; a change marks
      *  the chrome dirty and rides the next flush or the idle tick like any other cell (§8.3). */
     private fun refreshStatusWord(st: LinkState) {
@@ -1421,6 +1431,7 @@ class Shell(
         var leftThroughShutdown = false    // P5 item 1: the drain re-posts what it keeps only then
         try {
         for (m in msgs) {
+            turns.begin(m)                 // RA-1: a turn begins (the liveness watcher's measure)
             loopHandling = m::class.simpleName
             loopSince = System.currentTimeMillis()
             // a ring event (or a typed line) is the one message whose flush
@@ -1436,6 +1447,7 @@ class Shell(
                 if (m is Msg.Run && m.dropped != null)
                     try { m.dropped.invoke() } catch (e: Exception) { Log.e("shell", "a dropped message's answer failed", e) }
                 queued.decrementAndGet()
+                turns.end()                // RA-1: this turn ends here
                 continue
             }
             try {
@@ -1523,9 +1535,11 @@ class Shell(
             notePower()                   // 0.64: a state change this message made (a string compare, no layout)
             queued.decrementAndGet()
             loopHandling = null
+            turns.end()                    // RA-1: the turn is over; the loop is idle until its next message
             if (!running && m is Msg.Shutdown) { leftThroughShutdown = true; break }
         }
         } finally {
+            turns.end()                    // RA-1: a loop that ends mid-turn (its scope cancelled) leaves no open turn
             loopAlive = false
             // whatever is still in the channel will never be handled: the
             // count must not outlive the loop that would have cleared it.

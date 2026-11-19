@@ -1161,12 +1161,31 @@ class DesktopStack(
 
     private var feedWindow: wm.damage.core.windows.feed.FeedWindow? = null
 
-    fun start() = keeper.start()
+    /**
+     * Build RA-1: this stack's loop watcher (`core/…/shell/LoopWatch.kt`). A stack exists only in a run's `runShell`
+     * (the service's PC-direct BLE by hand, a dev session); the tools build their shells without one. Its end, after
+     * the record is on disk: `Runtime.halt`, not `exitProcess` — the shutdown hook's `endOrderly` stops this stack,
+     * which waits on the stuck loop, so an exit through the hooks would never finish. What brings the process back
+     * (read: `/etc/init.d/damage`, OpenRC 0.63.3's `supervise-daemon.c`): `supervisor="supervise-daemon"`,
+     * `respawn_delay=5`, `respawn_max=0` — the supervisor forks the command again after ANY exit of the child it did
+     * not ask for (the status is only logged), 5 s plus 128 ms per recent respawn later, without a limit. The process
+     * comes back as the service runs it: `--transport auto`, the data host; a PC stack driven by hand is not started
+     * again (PC-direct BLE stays a manual choice). A dev session (`:desktop:run`) is not supervised: it ends, with
+     * its record and its log line.
+     */
+    private val loopWatch = wm.damage.core.shell.LoopWatch(shell.turns, UncaughtRecord::recordOnly,
+        { Runtime.getRuntime().halt(wm.damage.core.shell.LoopWatch.EXIT_STATUS) })
+
+    fun start() {
+        loopWatch.start()
+        keeper.start()
+    }
 
     suspend fun stop() {
         try {
             keeper.stop()
         } finally {
+            loopWatch.close()          // RA-1: only now — a stop that waits on a stuck loop is watched until it returns
             try {
                 // the providers outlive this stack: detach even when the stop
                 // threw, or the leak returns on the failure path (R2-W12)
