@@ -16,7 +16,6 @@ import wm.damage.core.gfx.IconKind
 import wm.damage.core.gfx.Pack
 import wm.damage.core.gfx.Zl
 import wm.damage.core.motion.BoxFace
-import wm.damage.core.motion.MainPan
 import wm.damage.core.motion.Motion
 import wm.damage.core.shell.ContentKit
 import wm.damage.core.shell.DamageWindow
@@ -162,16 +161,16 @@ class MainStagingTest {
                     val start = before.copy().also { ms.paintStart(pan, p, left, it) }
                     assertEquals(0, rawDiffer(start, before, pan.areas(left)), "$what $arm: px where the start state is not Main at $c")
                     assertTrue(sim.conformanceMessage(arm, CfwModes.keyframe(Zl.encodeCfw(Pack.rect(before, full))), t))
-                    assertTrue(sim.conformanceMessage(arm, Motion.play(pan.program, 0, Motion.PERIOD_30HZ, tag, 0, p), t), "$what $arm: ${sim.refusalRecord(arm)}")
+                    assertTrue(sim.conformanceMessage(arm, Motion.play(pan.program, 0, ms.period, tag, 0, p), t), "$what $arm: ${sim.refusalRecord(arm)}")
                     val sh = shadowLevels(sim, arm)
                     var off = 0
                     for (i in sh.indices) if (sh[i] != Pack.level(end.pix[i].toInt() and 0xFF)) off++
                     assertEquals(0, off, "$what $arm: px where the shadow the PLAY wrote is not END (what belief takes)")
                 }
-                for (k in 2..MainPan.T) for (arm in Arm.entries) sim.conformanceWake(arm, t + (k - 1) * Motion.PERIOD_30HZ)
+                for (k in 2..ms.t) for (arm in Arm.entries) sim.conformanceWake(arm, t + (k - 1) * ms.period)    // decisions V: the staging's P and T
                 val drew = sim.conformanceNotifies(Arm.RIGHT).map { DamageMsg.parseMotion(Pb.l(DamageMsg.MOTION_FIELD, it))!! }
                     .filter { it.tag == tag && it.outcome == DamageMsg.OUTCOME_DREW }
-                assertEquals(listOf(MainPan.T.toLong() to 0L), drew.map { it.drawn to it.folded }, "$what: RIGHT's notify, every step drawn, none folded")
+                assertEquals(listOf(ms.t.toLong() to 0L), drew.map { it.drawn to it.folded }, "$what: RIGHT's notify, every step drawn, none folded")
                 for (arm in Arm.entries) assertEquals(sim.shadowCrc32(arm), sim.panelCrc32(arm), "$what $arm: the lens shows END after the last step")
                 t += 300
             }
@@ -209,7 +208,7 @@ class MainStagingTest {
             for (pan in ms.pans) {
                 for (cPrime in 0 until ms.rows) {
                     val p = ms.params(pan, cPrime) ?: continue
-                    Motion.play(pan.program, 0, Motion.PERIOD_30HZ, 1, 0, p)
+                    Motion.play(pan.program, 0, ms.period, 1, 0, p)
                     val first = pan.program.firstRange(p)
                     assertTrue(first.first >= ms.start && first.last < ms.end, "$h k${pan.k}: the first read range $first inside ${ms.start}..${ms.end}")
                 }

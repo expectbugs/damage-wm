@@ -62,6 +62,25 @@ class BoundList(
         for (e in entries) CfwModes.bindSet(e.entry, e.devType, e.eventId, list, e.step, slot, e.period, e.prog4, e.params)   // its lint
     }
 
+    /** Build C2, stage DM2 (decisions X.2): the list as it stood before its owner's last switch of a record (Main's band
+     *  form moved to another slot and the item table's word written once), kept until that write is acknowledged — a
+     *  report from a fire before the switch names the old slot in its P, and the phone still holds that picture. Null:
+     *  no switch is on its way. Set by the staging's owner. */
+    var previous: BoundList? = null
+
+    /** Whether a report's program [prog] and P0..P3 [p] at the cursor after the fire [c] (the 115's field 8) name a
+     *  staging the phone holds — this list's prediction, or [previous]'s (decisions X.2: a report that names a staging
+     *  the phone no longer holds is the only `restaged` discard). The answer's COMMIT carries the report's own (prog, P),
+     *  and [paintEnd] paints the pictures they name. */
+    fun names(c: Int, e: Entry, prog: Int?, p: IntArray?): Boolean {
+        fun on(l: BoundList): Boolean {
+            if (c !in 0 until l.count || prog != e.prog4 || p == null) return false
+            val pred = l.paramsAt(c, e)
+            return pred != null && pred !== REFUSED_12 && pred.contentEquals(p)
+        }
+        return on(this) || previous?.let { on(it) } == true
+    }
+
     /** The entry an event id fires, or null. */
     fun entryFor(eventId: Int): Entry? = entries.firstOrNull { it.eventId == eventId }
 
@@ -121,7 +140,10 @@ class BoundList(
                     val t = items ?: return null
                     val k = cPrime + p.arg
                     if (k !in 0 until count) return null
-                    t[k]
+                    // the lens carries the entry's 16 bits as an s16 P (§6.2 step 9, §6.5 fields 10–13; `parseApplied`
+                    // reads them so): an off4 past 32767 — a record in the top half of a 256 KiB cache — is negative
+                    // (build C2, stage DM2: the pin against the simulator's fire found it on Main's 256 KiB region)
+                    t[k].toShort().toInt()
                 }
                 else -> {
                     val v = cPrime.toLong() * pitch + p.arg

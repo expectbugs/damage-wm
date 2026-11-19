@@ -4117,14 +4117,18 @@ class Shell(
         return StagedRecord(key, g, padded)
     }
 
-    private suspend fun stageSubmit(rec: StagedRecord, st: LinkState) {
+    /** [rec]'s write as one flush; [parts] (build C2, stage DM2: a row of Main's re-staged in place) are its pieces at
+     *  their own offsets — by default the record whole at its place. */
+    private suspend fun stageSubmit(rec: StagedRecord, st: LinkState, parts: List<Pair<Int, ByteArray>> = listOf(rec.off to rec.encoded)) {
         val ops = ArrayList<DisplayOp>()
-        var pos = 0
-        while (pos < rec.encoded.size) {
-            val len = minOf(STAGE_CHUNK, rec.encoded.size - pos)
-            val part = rec.encoded.copyOfRange(pos, pos + len)
-            ops.add(DisplayOp.CacheWrite2(CfwModes.cacheUpdate2(listOf(CfwModes.CacheWrite2((rec.off + pos) / 4, part)), st.cacheSize)))
-            pos += len
+        for ((off, bytes) in parts) {
+            var pos = 0
+            while (pos < bytes.size) {
+                val len = minOf(STAGE_CHUNK, bytes.size - pos)
+                val part = bytes.copyOfRange(pos, pos + len)
+                ops.add(DisplayOp.CacheWrite2(CfwModes.cacheUpdate2(listOf(CfwModes.CacheWrite2((off + pos) / 4, part)), st.cacheSize)))
+                pos += len
+            }
         }
         val id = try {
             transport.submit(FlushRequest(ops, comp.epoch, "STAGE", writer = atlasTag))
@@ -5016,6 +5020,9 @@ class Shell(
         !linkUpAndSteady(st) -> "the link is down or the session is rebuilding"
         st.flagsInForce and wm.damage.core.wire.DamageMsg.FLAG_ENGINE == 0 ->
             "ENGINE is not in force (flags 0x${st.flagsInForce.toString(16)}): the ladder's stage 3 on an engine build"
+        // build C2, stage DM2: at stage 4 Main's list is bound in this slot (P9: no PLAY into a bound slot), and its
+        // records are the binding's — the scroll test is stage 3's
+        st.bind -> "BIND is in force (stage 4): Main's list is bound on the glasses, and the scroll test plays at stage 3"
         sleep != null -> "the glasses are asleep"
         mode != Mode.MAIN -> "Main is not in front"
         switcher.open -> "the switcher is open"
@@ -5154,7 +5161,7 @@ class Shell(
         val pan = ms.pan(notch.k, notch.to - notch.from)
         val p = ms.params(pan, notch.to) ?: return mainSeqEnd(run, "notch ${run.next + 1} (${notch.from}→${notch.to}) is an edge")
         val tag = MAINSEQ_TAG + (mainSeqTags++ and 0xFFF)
-        val play = try { wm.damage.core.motion.Motion.play(pan.program, 0, wm.damage.core.motion.Motion.PERIOD_30HZ, tag, 0, p) }
+        val play = try { wm.damage.core.motion.Motion.play(pan.program, 0, ms.period, tag, 0, p) }
             catch (e: wm.damage.core.geom.LintError) { mainSeqEnd(run, "notch ${run.next + 1}'s PLAY is refused offline: ${e.message}"); return }
         val done = CompletableDeferred<Unit>()
         val now = System.currentTimeMillis()
@@ -5183,7 +5190,7 @@ class Shell(
             val ms = run.staging!!
             comp.paintBelief { left, belief -> ms.paintEnd(p.pan, p.params, left, belief) }
             p.ackMs = now - p.sentMs
-            run.instanceEndsMs = now + wm.damage.core.motion.MainPan.T * wm.damage.core.motion.Motion.PERIOD_30HZ * 1000L / 1024
+            run.instanceEndsMs = now + ms.t * ms.period * 1000L / 1024     // decisions V: the staging's own T and period
             if (mainSeq === run && run.ending == null) {
                 main.model.cursor = p.notch.to
                 composeContent()
@@ -5278,6 +5285,239 @@ class Shell(
         journal.note("mainseq", "k=$k" + (if (pan.kA != k) " (capped at ${pan.kA} rows at this height)" else "") +
             ": ${pan.kA} above, ${pan.kB} below, ${pan.areaPx} px a step per lens, Main ${layout.safe.h} high with ${ms.rows} rows, planes ${ms.listD}/${ms.bandD}; " +
             "${ps.size} notch(es): $notches")
+    }
+
+    // ------------------------------------------------------ Main's bound list (build C2, stage DM2)
+    /**
+     * Main's list staged on the glasses for local input (`C2-spec.md` §6.4; decisions B.4; `FIRMWARE.md` §6.7 P9). While
+     * BIND is in force and Main is in front, the idle pump paints Main's staging from Main's own painters ([MainStaging]),
+     * places its records — in the shared stage reserve at 160 KiB (the document's strips go; Reader stages again on its
+     * return), in Main's own region at 256 ([CfwModes.mainRegion]) — and writes them through the stage lane; once the
+     * count (field 17) has proven every one, `MainSurface.bound()` offers the list and the rules SET its entries. A row
+     * whose picture changes is painted again and re-staged, paced per row ([MainBinding.RESTAGE_PACE_MS]), only while
+     * no burst is open and nothing is in flight, and never under a table that still names what is written (decisions
+     * X.2): its band form goes into a free slot and the one item-table word that names it follows in the same flush (the
+     * report's P names the slot drawn, before and after); its strip segments go only with the list withdrawn — the rules'
+     * CLEAR rides a flush between, since the idle step that writes never runs in a pump that flushes, and the SETs come
+     * back after the write. A row older than Main's truth is not a reason to discard (X.1). A full re-stage (the layout,
+     * the planes, the rows or the region changed, a row outgrew its slot) withdraws the list the same way. The envelope
+     * is [MainBinding]'s.
+     */
+    private val mainBind = MainBinding()
+
+    /** Test introspection, LOOP-ONLY (read inside [sampleIdle]): Main's staging and its counts; what Main offers and its row. */
+    internal val mainBinding: MainBinding get() = mainBind
+    internal fun mainBoundForTest(): Pair<wm.damage.core.local.BoundList?, Int> = main.bound() to main.row()
+
+    /** A staging the region could not hold, by what it was painted for: not painted again until one of those changes. */
+    private var mainBindRefusedFor: String? = null
+    private var mainBindWakeAtMs = 0L
+    /** Pumps so far: a strip write goes in a later pump than the withdrawal that let the rules' CLEAR go first. */
+    private var mainBindPumps = 0L
+
+    /** Main's planes as `updatePlanes` gives them while Main is in front with nothing over it: the list at the Global
+     *  `Depth`, the band one notch nearer, never nearer than the screen plane (0 / 0 at Depth 0). Read from the setting,
+     *  not the plane map, so a cover that drops the band's plane does not re-stage Main. */
+    private fun mainBindPlanes(): Pair<Int, Int> = settings.depth.let { d -> if (d == 0) 0 to 0 else d to maxOf(0, d - 4) }
+
+    /** Where Main's records lie this session: its own region on a 256 KiB session with BIND in force — unless the atlas
+     *  was laid out over it (an atlas made before BIND was armed: the shared reserve then); else the shared reserve. */
+    private fun mainBindRegion(st: LinkState): IntRange {
+        val own = CfwModes.mainRegion(st.cacheSize, st.bind)
+        val a = atlas
+        return if (own.last + 1 < st.cacheSize && a != null && a.capacity > own.first) CfwModes.mainRegion(st.cacheSize, false) else own
+    }
+
+    /** Why Main's list is not staged now; null when it is wanted. */
+    private fun mainBindBlocked(st: LinkState): String? = when {
+        !st.bind -> "BIND is not in force"
+        !linkUpAndSteady(st) -> "the link is down or the session is rebuilding"
+        sleep != null || glassesSilent -> "the glasses are asleep"
+        mode != Mode.MAIN -> "Main is not in front"
+        testHold -> "hold=on is in force"
+        stageFailed -> "staging is off for this session"
+        !st.draw2 || !st.leaseHeld -> "DRAW2 or the lease is not in force"
+        !transport.cacheCheckSupported || !ledgerReadable(st) -> "the cache count cannot be read here"
+        else -> null
+    }
+
+    /** The relay Main's pictures are painted through (Page staging's): a face the glasses hold blits from the atlas. */
+    private fun mainBindRelay(): (Gray8, () -> Unit) -> Unit {
+        val ct = cachedText
+        return { g, paint -> if (ct != null) ct.via(g, 0, 0, NO_RECORDS) { paint() } else paint() }
+    }
+
+    /** Whether a burst is open (`FIRMWARE.md` §6.7 P7): a re-stage waits while one is (P9). The burst is the rules' (stage
+     *  DP2's `LocalRules`); before they are merged nothing SETs an entry, so no report arrives and none is open. THE MERGE
+     *  POINT: this returns the rules' own burst state. */
+    private fun mainBindBurstOpen(): Boolean = false
+
+    /** Each pump, before anything asks: the staging checked against Main as it is now, the re-stages the count has
+     *  judged, and what `MainSurface` offers. */
+    private fun mainBindPoll(st: LinkState) {
+        mainBindPumps++
+        val b = mainBind
+        val ms = b.staging
+        if (ms == null) { main.offered = null; return }
+        val gone = b.records.firstOrNull { stage.records[it.key] !== it }
+        val why = when {
+            gone != null -> "$gone left the stage registry (the stage notes say why)"
+            ms.layout != layout -> "Main's layout changed"
+            (ms.listD to ms.bandD) != mainBindPlanes() -> "Main's planes changed (${ms.listD}/${ms.bandD} staged, ${mainBindPlanes().let { "${it.first}/${it.second}" }} now)"
+            ms.rows != mainRows().size -> "Main's rows changed (${ms.rows} staged, ${mainRows().size} now)"
+            st.cacheSize != ms.cacheSize || mainBindRegion(st).first != ms.regionStart -> "the session's cache or Main's region changed"
+            else -> null
+        }
+        if (why != null) { mainBindDrop(why); return }
+        for (p in b.patches.toList()) {
+            val r = stage.records[p.record.key]
+            if (r !== p.record) {
+                // a write failed or the count called it short: what the item table and the slots hold is not known
+                mainBindDrop("row ${p.row}'s re-stage left the stage registry before it was counted (the stage notes say why)")
+                return
+            }
+            if (r.state == StagedRecord.State.ACKED || r.state == StagedRecord.State.PROVEN) b.switchAcked(p)
+            if (r.state == StagedRecord.State.PROVEN) {
+                b.patchCounted(p)
+                stage.remove(r)
+                stageRecount()
+            }
+        }
+        val offer = if (st.bind && b.counted && b.withdrawnFor == null) b.list else null
+        if (offer !== main.offered) {
+            main.offered = offer
+            if (offer != null) journal.note("mainstage", "offered — Main's ${ms.rows} rows counted on the glasses: list ${offer.list} slot ${offer.slot} " +
+                "mark ${offer.mark}, ${offer.entries.size} entries (the whole list, P ${ms.period} T ${ms.t}), items at off4 ${offer.items4}")
+        }
+    }
+
+    /** The staging goes: its records leave the registry and the list is withdrawn. */
+    private fun mainBindDrop(why: String) {
+        for (r in mainBind.drop()) if (stage.records[r.key] === r) stage.remove(r)
+        main.offered = null
+        stageRecount()
+        journal.note("mainstage", "dropped — $why; Main's list is offered again once it is staged and counted")
+        post(Msg.Pump)
+    }
+
+    /** At a compose of Main: rows whose key changed are marked for their repaint. */
+    private fun mainBindKeys() {
+        val ms = mainBind.staging ?: return
+        mainBind.keysChanged(List(ms.rows) { main.rowKey(it) })
+    }
+
+    /** The idle pump's step for Main's list, after the atlas's: a staging painted and placed, one record written, a row
+     *  painted again, or a row's re-stage written. True when it did something. */
+    private suspend fun pumpMainBind(st: LinkState): Boolean {
+        if (mainBindBlocked(st) != null) return false
+        if (atlasInFlight != null || atlasQueue.isNotEmpty() || atlasLapsedOwed || atlasCheckInFlight) return false
+        if (stageInFlight != null || ledgerReadInFlight) return false
+        if (st.inFlight != 0 || comp.hasPending || comp.needsKeyframe) return false
+        if (ledgerBaseOwed(st)) return tryLedgerRead(st)
+        if (atlasResendMissing > 0L) return false
+        val b = mainBind
+        val now = System.currentTimeMillis()
+        val ms = b.staging ?: return mainBindStage(st, now)
+        // the base records, back to back (one reading counts them all; the reading is [pumpLedger]'s)
+        val rec = b.records.firstOrNull { it.state == StagedRecord.State.WANTED && stage.records[it.key] === it }
+        if (rec != null) { stageSubmit(rec, st); stageRecount(); return true }
+        if (!b.counted) return false
+        b.verifyDue(now)
+        b.nextDirty()?.let { row -> return mainBindRow(st, ms, row, write = false, now) }
+        // a withdrawn list's strip write, in a pump after the one that withdrew it (the rules' CLEAR went between)
+        b.withdrawnFor?.let { row -> return if (mainBindPumps > b.withdrawnAtPump) mainBindRow(st, ms, row, write = true, now) else false }
+        if (!mainBindBurstOpen()) b.nextOwed(now)?.let { row -> return mainBindRow(st, ms, row, write = true, now) }
+        listOfNotNull(b.dueInMs(now), b.verifyInMs(now)).minOrNull()?.let { wait ->
+            if (mainBindWakeAtMs <= now || now + wait < mainBindWakeAtMs) { mainBindWakeAtMs = now + wait; pumpAfter(wait) }
+        }
+        return false
+    }
+
+    /** Paints Main's staging and puts its records in the registry at their offsets (WANTED). */
+    private fun mainBindStage(st: LinkState, now: Long): Boolean {
+        val region = mainBindRegion(st)
+        val (listD, bandD) = mainBindPlanes()
+        val n = mainRows().size
+        val what = "$layout $listD/$bandD $n ${region.first}..${region.last} ${st.cacheSize}"
+        if (mainBindRefusedFor == what) return false
+        val ct = cachedText
+        val want0 = ct?.wantVersion; val seen0 = ct?.seenVersion
+        val ms = try {
+            MainStaging.build(layout, main.view(), kit, listD, bandD, st.cacheSize, region.first, region.last + 1, mainBindRelay())
+        } catch (e: wm.damage.core.geom.LintError) {
+            mainBindRefusedFor = what
+            journal.note("mainstage", "Main's rows cannot be staged: ${e.message} — the list stays unbound (its scrolls and taps go as today) until Main's layout, planes or rows change")
+            return false
+        }
+        if (ct != null && (ct.wantVersion != want0 || ct.seenVersion != seen0) && ++mainBind.paints <= MainBinding.PAINTS_MAX) {
+            // §73, Page staging's rule: the atlas goes first, and Main is painted again once it holds what the paint drew
+            journal.note("mainstage", "Main's rows drew characters the atlas does not hold yet — the atlas goes first, then they are painted again")
+            post(Msg.Pump)
+            return true
+        }
+        val recs = ms.blobs.mapIndexed { i, blob -> StagedRecord(MainStageKey(ms, i, blob.name), blob.raw ?: Gray8(1, 1), blob.bytes) }
+        val shared = region.last + 1 == st.cacheSize
+        if (shared) {
+            if (stage.records.isNotEmpty()) stageClear("Main's rows take the shared stage reserve (Reader stages again on its return)")
+            val ring = stage.ring?.takeIf { it.start == region.first && it.end == st.cacheSize } ?: StageRing(region.first, st.cacheSize).also { stage.ring = it }
+            for ((i, r) in recs.withIndex()) {
+                if (ring.placeAt(r, ms.blobs[i].off) == null) {
+                    journal.note("mainstage", "Main's ${ms.blobs[i].name} does not fit the reserve at ${ms.blobs[i].off} — not staged")
+                    for (q in recs) if (stage.records[q.key] === q) stage.remove(q)
+                    mainBindRefusedFor = what
+                    return false
+                }
+                stage.records[r.key] = r
+            }
+        } else for ((i, r) in recs.withIndex()) { r.off = ms.blobs[i].off; stage.records[r.key] = r }
+        mainBindRefusedFor = null
+        mainBind.begin(ms, recs, List(ms.rows) { main.rowKey(it) }, now)
+        stageRecount()
+        journal.note("mainstage", "staged — ${ms.bytes} B in ${ms.blobs.size} record(s) at ${ms.start}..${ms.end} of the ${st.cacheSize / 1024} KiB cache " +
+            "(${if (shared) "the shared reserve" else "Main's own region"}): the strip ${ms.blobs[0].bytes.size} B, ${ms.rows} band forms " +
+            "${ms.blobs.drop(1).take(ms.rows).sumOf { it.bytes.size }} B, the item table and ${ms.pans.size + 1} programs ${ms.blobs.takeLast(2).sumOf { it.bytes.size }} B; " +
+            "planes $listD/$bandD, press to ${ms.press.pressD}; ${mainBind.stagings} staging(s) and ${mainBind.stagedBytes} B this process")
+        post(Msg.Pump)
+        return true
+    }
+
+    /** Row [row] painted again: [write] false — the repaint after its key changed or its round-robin turn (it marks the row
+     *  owed or current); true — its re-stage, painted at the write so what goes is what Main shows now. */
+    private suspend fun mainBindRow(st: LinkState, ms: MainStaging, row: Int, write: Boolean, now: Long): Boolean {
+        val ct = cachedText
+        val want0 = ct?.wantVersion; val seen0 = ct?.seenVersion
+        val r = try { ms.restage(row, main.view(), kit, mainBindRelay(), force = mainBind.isForced(row)) }
+            catch (e: wm.damage.core.geom.LintError) { mainBindDrop("Main's row $row cannot be painted again: ${e.message}"); return true }
+        if (ct != null && (ct.wantVersion != want0 || ct.seenVersion != seen0)) {
+            // the atlas first: the row stays marked, and is painted again once the atlas holds what it drew
+            post(Msg.Pump)
+            return true
+        }
+        when (r) {
+            MainStaging.Restage.Same -> { mainBind.sameWhileWithdrawn(row); post(Msg.Pump) }
+            is MainStaging.Restage.Outgrown -> mainBindDrop("a full staging is owed (a new mark): ${r.why}")
+            is MainStaging.Restage.Changed -> if (!write) { mainBind.changed(row); post(Msg.Pump) }
+            else if (r.strip.isNotEmpty() && mainBind.withdrawnFor != row) {
+                // the strip is named only inside the pan programs: its segments are written with no entry live (X.2)
+                mainBind.withdraw(row, mainBindPumps)
+                main.offered = null
+                journal.note("mainstage", "withdrawn — row $row's row form changed: its strip segment(s) go once the entries are cleared, and the list is offered again after them")
+                post(Msg.Pump)
+            } else {
+                val key = MainStageKey(ms, MainBinding.PATCH_KEY + row, "row $row's re-stage")
+                val bytes = ByteArray(r.bytes).also { out -> var o = 0; for (w in r.writes) { w.bytes.copyInto(out, o); o += w.bytes.size } }
+                val rec = StagedRecord(key, Gray8(1, 1), bytes).also { it.off = r.writes.first().off }
+                stage.records[key] = rec
+                stageSubmit(rec, st, r.writes.map { it.off to it.bytes })
+                if (rec.state != StagedRecord.State.SENT) { mainBind.notWritten(row); return true }   // not submitted: said there, the row stays owed
+                mainBind.submitted(r, rec, now)
+                stageRecount()
+                journal.note("mainstage", "row $row re-staged — ${r.bytes} B in one flush (${r.writes.joinToString { "${it.what} ${it.bytes.size} B" }})" +
+                    (r.band?.let { m -> "; its band form moved to off4 ${m.off / 4}, the item table switched by one write, the old slot free once acknowledged" } ?: "") +
+                    "; mark kept; ${mainBind.restageCount} re-stage(s), ${mainBind.restagedBytes} B this process")
+            }
+        }
+        return true
     }
 
     private fun restProbe(value: String) {
@@ -6121,6 +6361,7 @@ class Shell(
         // swap it back to the current window under a settled preview
         // (review 2026-09-01 F7). Render-only, never an activation.
         paintContentOf(contentWindow())
+        if (mode == Mode.MAIN) mainBindKeys()             // build C2, stage DM2: a row whose key changed is re-staged
         if (switcher.open) paintSwitcherFrame()
         if (menu.open) {
             menu.invalidateUnder()        // recapture over the fresh content
@@ -6587,6 +6828,8 @@ class Shell(
             journal.note("atlas", "the texture cache was written by '${st.cacheWriter}' mid-session — the atlas is dropped, cached text is pixels until the next session or a Cached text toggle")
             atlasReset()
         }
+        // build C2, stage DM2: what Main offers the rules is decided before anything below asks for it
+        mainBindPoll(st)
         // One slot is RESERVED for the response to input (2026-09-05,
         // `HANDOFF.md` §32): animation frames, poll-driven repaints and the
         // visualizer may keep at most window-1 flushes in flight, so a
@@ -6827,7 +7070,7 @@ class Shell(
                 seq.followUpFor?.let { if (it.followUp == "none" || it.followUp == "deferred") it.followUp = "nothing to send" }
                 return
             }
-            if (!animated && !pumpMainStage(st) && !pumpLedger(st) && !pumpAtlas(st) && !pumpStage(st)) settlePreview()
+            if (!animated && !pumpMainStage(st) && !pumpLedger(st) && !pumpAtlas(st) && !pumpMainBind(st) && !pumpStage(st)) settlePreview()
         }
 
         // animations continue on the next completion or message; make sure one

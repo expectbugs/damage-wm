@@ -328,6 +328,20 @@ object CfwModes {
      *  five-line strip of Adam's book measured 12–17 KB (an image strip 34 KB), two to four times the 1×
      *  renders' model, and 32 KiB held one. */
     const val STAGE_RESERVE = 64 * 1024
+    /** Build C2 (`C2-decisions.md` B.4, the spec's §9.4 as recommended): on a 256 KiB session with BIND in force, Main's
+     *  staged rows have a region of their own, the 64 KiB below the stage reserve — the atlas lays out over the 128 KiB
+     *  under it (still above a 160 KiB session's 96). Everywhere else (160 KiB, or no BIND: ladder stages 0–3 keep
+     *  today's layout byte for byte) Main stages into the shared reserve when it comes to the front. */
+    const val MAIN_REGION = 64 * 1024
+
+    /** The bytes above the atlas's layout: the stage reserve, and Main's region when [mainRegion] gives it one. */
+    fun reserveAbove(cacheSize: Int, bind: Boolean): Int = STAGE_RESERVE + if (bind && cacheSize >= CACHE2_MAX_RIDERS) MAIN_REGION else 0
+
+    /** Where Main's staged rows lie in a session of [cacheSize] bytes: its own region on a 256 KiB session with [bind],
+     *  else the shared stage reserve (`[cacheSize − STAGE_RESERVE, cacheSize)`). */
+    fun mainRegion(cacheSize: Int, bind: Boolean): IntRange =
+        if (bind && cacheSize >= CACHE2_MAX_RIDERS) (cacheSize - STAGE_RESERVE - MAIN_REGION) until (cacheSize - STAGE_RESERVE)
+        else (cacheSize - STAGE_RESERVE) until cacheSize
     /** The largest offset a u16 in 4-byte units reaches. */
     const val OFF4_REACH = 0xFFFF * 4
 
