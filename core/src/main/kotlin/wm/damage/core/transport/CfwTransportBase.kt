@@ -383,7 +383,7 @@ abstract class CfwTransportBase(
      *  nothing is sent and the answer is false, with a `motion` note. A mode-19 write here is not the shell's: it is
      *  put on record as another writer's, as a self-test's live write is. Never the shell's paint. [lastDone], when
      *  given, completes with the last message's ack (exceptionally when it fails or the session ends). */
-    fun sendMotion(messages: List<ByteArray>, lastDone: CompletableDeferred<Unit>? = null): Boolean {
+    override fun sendMotion(messages: List<ByteArray>, lastDone: CompletableDeferred<Unit>?): Boolean {
         // build C1's ruling B-N6: [lastDone] rides the last message, so with none it would never complete — fail at once
         if (messages.isEmpty()) {
             emitNote("motion", "not sent: the program has no message")
