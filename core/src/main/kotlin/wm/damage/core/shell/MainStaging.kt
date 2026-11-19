@@ -292,17 +292,17 @@ internal object MainSeqPlan {
      *  `DamageMsg.Motion.describe()`'s, which `MainStagingTest` pins. */
     data class Notify(val tag: Int, val outcome: String, val drawn: Long?, val folded: Long?, val stepUs: Long?)
 
-    private val NOTIFY = Regex("""^seq \S+ slot \S+ tag 0x([0-9a-f]{4}) (drew its last step|closed while drawing|refused \(([^)]*)\)|outcome \S+)(?: ordinal \S+ drawn (\S+) folded (\S+) stepUs (\S+))?""")
+    private val NOTIFY = Regex("""^seq \S+ slot \S+ tag 0x([0-9a-f]{4}) (?:(drew its last step|closed while drawing|outcome \S+) ordinal \S+ drawn (\S+) folded (\S+) stepUs (\S+)|refused \((.*)\))""")
 
     fun parseNotify(detail: String): Notify? {
         val m = NOTIFY.find(detail) ?: return null
-        val what = m.groupValues[2]
+        val g = m.groupValues
         val outcome = when {
-            what == "drew its last step" -> "drew"
-            what == "closed while drawing" -> "closed"
-            what.startsWith("refused") -> "refused: ${m.groupValues[3]}"
-            else -> what
+            g[2] == "drew its last step" -> "drew"
+            g[2] == "closed while drawing" -> "closed"
+            g[2].isNotEmpty() -> g[2]
+            else -> "refused: ${g[6]}"
         }
-        return Notify(m.groupValues[1].toInt(16), outcome, m.groupValues[4].toLongOrNull(), m.groupValues[5].toLongOrNull(), m.groupValues[6].toLongOrNull())
+        return Notify(g[1].toInt(16), outcome, g[3].toLongOrNull(), g[4].toLongOrNull(), g[5].toLongOrNull())
     }
 }

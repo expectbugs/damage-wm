@@ -4942,7 +4942,8 @@ class Shell(
             return true
         }
         val old = stage.records.values.filter { it.key is MainStageKey }
-        if (old.size == ms.blobs.size && ms.blobs.withIndex().all { (i, b) -> old.any { r -> r.key.firstLine == i && r.off == b.off &&
+        // taken only while the shell was the cache's last writer (a hand-played test program writes the same reserve)
+        if (st.cacheWriter == atlasTag && old.size == ms.blobs.size && ms.blobs.withIndex().all { (i, b) -> old.any { r -> r.key.firstLine == i && r.off == b.off &&
                 r.state == StagedRecord.State.PROVEN && r.encoded.contentEquals(b.bytes) } }) {
             run.records = ms.blobs.indices.map { i -> old.first { it.key.firstLine == i } }
             journal.note("mainseq", "Main's ${ms.blobs.size} records are on the glasses already, counted — nothing to write")
@@ -5016,6 +5017,7 @@ class Shell(
         if (run.records.any { stage.records[it.key] !== it || it.state != StagedRecord.State.PROVEN }) {
             mainSeqEnd(run, "Main's staged records left the reserve (the stage notes say why)"); return
         }
+        if (st.cacheWriter != atlasTag) { mainSeqEnd(run, "another writer ('${st.cacheWriter}') wrote the cache since Main's rows were staged"); return }
         val ms = run.staging!!
         val notch = run.plan[run.next]
         run.played.lastOrNull()?.let { if (it.notch.k != notch.k) mainSeqNoteK(run, run.ks.indexOf(it.notch.k)) }
@@ -5085,6 +5087,7 @@ class Shell(
      *  glyph run counts to the panel's right and bottom edges, so a follow-up that draws cached text waits too. */
     private fun mainSeqFollowUpMeets(run: MainSeqRun, a: Compositor.Assembled): Boolean {
         if (run.unacked.isEmpty() && System.currentTimeMillis() >= run.instanceEndsMs) return false
+        if (a.keyframe || a.ops.any { it is DisplayOp.Keyframe }) return true    // a live mode 6 closes every instance
         val pan = run.lastPan ?: return false
         return wm.damage.core.transport.CfwTransportBase.motionWriteRects(a.ops).any { (l, r) ->
             pan.areasL.any { it.overlaps(l) } || pan.areasR.any { it.overlaps(r) } }

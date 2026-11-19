@@ -137,13 +137,14 @@ class MainStagingTest {
      * - the start state (every track's first segment at j = 0) is Main as the lens shows it — no jump at step 1;
      * - played on the firmware model over that lens's picture, the PLAY writes into the shadow exactly END's levels
      *   everywhere, every step is drawn and none folded, and after the last step the lens shows the shadow.
+     * At 352 also on a 256 KiB cache, where the band forms' offsets pass 32767 and P1 / P2 go out as negative s16.
      */
     @Test
     fun endOfEveryPanAtEveryCursorIsMainsOwnPaintAtTheMovedCursor_DMS() {
         val full = Rect(0, 0, 640, 480)
-        for (h in listOf(288, 352, 416, 480)) {
+        for ((h, size) in listOf(288, 352, 416, 480).map { it to CfwModes.CACHE2_MAX } + (352 to CfwModes.CACHE2_MAX_RIDERS)) {
             val m = Main(h)
-            val ms = m.staging()
+            val ms = m.staging(size)
             val sim = simWith(ms)
             var t = 2000L
             var tag = 0
@@ -151,7 +152,7 @@ class MainStagingTest {
                 val c = cPrime - pan.step
                 if (c !in 0 until ms.rows) { assertNull(ms.params(pan, cPrime), "$h k${pan.k} step ${pan.step}: c' $cPrime from $c is an edge"); continue }
                 val p = assertNotNull(ms.params(pan, cPrime))
-                val what = "$h k${pan.k} step ${pan.step} $c→$cPrime"
+                val what = "$h (${size / 1024} KiB) k${pan.k} step ${pan.step} $c→$cPrime"
                 tag++
                 for (arm in Arm.entries) {
                     val left = arm == Arm.LEFT
