@@ -46,7 +46,8 @@ class LocalRulesTest {
     /** A rules instance at stage 4 with [l] in front at [row], its start batch sent (S_heard 0, armed at uptime 100). */
     private class R(taps: Taps = Taps.REPORT, val l: BoundList = list(), row: Int = 3) {
         val notes = ArrayList<Pair<String, String>>()
-        val r = LocalRules { k, d -> notes += k to d }
+        val keyframes = ArrayList<String>()
+        val r = LocalRules({ k, d -> notes += k to d }, { keyframes += it })
         var row = row
         var now = 10_000L
         var mark = 0
@@ -296,7 +297,7 @@ class LocalRulesTest {
         R(Taps.GLASSES).let { val f = HashMap(mapOf(1 to 1L, 2 to 4L, 3 to 0L, 4 to 2L, 5 to 0L, 7 to 0L, 8 to 3L, 9 to 0L, 15 to 200L, 17 to it.mark.toLong(),
             10 to recs[5].toLong(), 11 to 0L, 12 to 0L, 13 to 0L, 14 to press.at.toLong()))
             it.r.report(DamageMsg.Applied(f), it.row, it.now); assertEquals("item", cause(it))
-            assertTrue(it.notes.any { n -> n.first == "divergence" }) }
+            assertTrue(it.notes.any { n -> n.first == "divergence" }); assertEquals(1, it.keyframes.size, "a divergence: one keyframe") }
         R().let { it.tap(1, 3, outcome = 2, reason = 3); assertEquals("refused-3", cause(it)) }
         R().let { it.tap(1, 3, outcome = 2, reason = 14); assertEquals("refused-14", cause(it)) }
         R(Taps.GLASSES).let { it.r.telemetry(1L, null); it.stock(Stock.CLICK); assertEquals("no-report", cause(it)) }
@@ -330,6 +331,7 @@ class LocalRulesTest {
         assertEquals(3, b.count { it[0].toInt() == 27 && it[1].toInt() == 0 }, "every SET")
         val list = b.single { it[0].toInt() == 27 && it[1].toInt() == 2 }
         assertTrue((list[11].toInt() and 0xFF) != t.mark, "a fresh mark")
+        assertEquals(1, t.keyframes.size, "and ONE keyframe: the rest of that batch did not run on RIGHT (row A, ruled)")
     }
 
     @Test

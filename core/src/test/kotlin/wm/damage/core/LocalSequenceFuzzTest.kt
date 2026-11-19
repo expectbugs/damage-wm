@@ -73,7 +73,7 @@ class LocalSequenceFuzzTest {
             val mine = failed.drop(before)
             val rowA = mine.filter { it.startsWith("(2) RIGHT") || it.startsWith("(1)") }
             if (rowA.isNotEmpty()) {
-                counted["row A: a batch or its COMMIT that did not land on RIGHT alone"] = (counted["row A: a batch or its COMMIT that did not land on RIGHT alone"] ?: 0) + 1
+                counted["row A: a batch that did not land on RIGHT alone"] = (counted["row A: a batch that did not land on RIGHT alone"] ?: 0) + 1
                 repeat(mine.size) { failed.removeAt(failed.size - 1) }
                 failed += mine - rowA.toSet()
             }
@@ -157,6 +157,12 @@ class LocalSequenceFuzzTest {
         atRest(h, failed, counted)
         tapLiveness(h, failed)
         scrollLiveness(h, failed)
+        // row A's first trigger (declined, declared): does a batch lost on RIGHT alone heal once COMMITs land again?
+        if (h.commitMissedRight) {
+            val right = h.truthMismatches().filter { it.startsWith("RIGHT") }
+            val k = if (right.isEmpty()) "row A, after the liveness COMMITs: RIGHT agrees" else "row A, after the liveness COMMITs: RIGHT still differs"
+            counted[k] = (counted[k] ?: 0) + 1
+        }
         for ((g, k) in h.moves) if (k > 1) failed += "(8) gesture $g moved the row $k times (liveness)"
         val stats = "outcome %08x keyframes ${h.keyframes} ".format(h.outcome.value) + "taps ${h.rules.taps.word} events $n sent ${h.sent} commits ${h.commitsSent.size} acts ${h.acts.size} " +
             "verdicts ${h.verdicts.groupingBy { it.second::class.simpleName }.eachCount()} counts ${h.rules.counts}"
@@ -442,6 +448,21 @@ class LocalSequenceFuzzTest {
         notch(h, kind = 2)                              // both fire; LEFT's tag is one behind RIGHT's
         h.rest()
     })
+
+    /** S23 (row A's second trigger, ruled): a batch whose riding LIST is refused 14 on RIGHT with a COMMIT behind it. The
+     *  COMMIT never runs there and no notify says so; RIGHT's refusal record names mode 27 at the next telemetry read, and
+     *  the phone sends the table again AND asks for one keyframe, which brings RIGHT back to the belief. Without the
+     *  keyframe RIGHT keeps the pre-gesture row while the phone believes the new one. */
+    @Test fun seededS23_aMode27RefusedOnRightKeyframes() = seeded(Taps.REPORT, live = false, script = { h ->
+        h.refuse27On = Arm.RIGHT
+        val g = notch(h)
+        h.runUntil(h.now + 120)                          // the COMMIT's batch lands: refused on RIGHT at its LIST
+        val s = h.fires[g]?.sR
+        assertTrue(s != null && s in h.commitsSent, "S23: the answer was a COMMIT (commits ${h.commitsSent})")
+        assertTrue(h.induced.any { it.startsWith("RIGHT mode 27") }, "S23: RIGHT refused the batch at its LIST (${h.induced})")
+        h.readTelemetry()
+        h.rest()
+    }, extra = { h -> if (h.keyframes == 0) listOf("S23: no keyframe was asked") else emptyList() })
 
     /** The coordinator's point 2 (DMS's finding): the transport's CLOSE rule reads only its mirror's instances, and a local
      *  instance never enters the mirror — the mirror applies the phone's bytes and no input (a COMMIT there opens nothing),

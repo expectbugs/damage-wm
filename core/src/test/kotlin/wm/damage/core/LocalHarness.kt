@@ -39,7 +39,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     var now = 1000L
     val notes = ArrayList<Pair<String, String>>()
     var trace: ((String) -> Unit)? = null
-    val rules = LocalRules { k, d -> notes += k to d; trace?.invoke("  [$now] note $k: $d") }
+    val rules = LocalRules({ k, d -> notes += k to d; trace?.invoke("  [$now] note $k: $d") }, { why -> keyframe(why) })
 
     // ------------------------------------------------------------------------------------------- geometry
     companion object {
@@ -456,13 +456,18 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
                 stoppedBeforeCommit += "$arm S $s"
         }
         val lens = if (arm == Arm.LEFT) sim.left else sim.right
+        // the sim's refusal record is sticky until the next refusal (§4) and telemetry reads it: cleared only to see whether
+        // THIS message was refused, and put back as it was when it was not
+        val kept = listOf(lens.refSeen, lens.refMode, lens.refReason, lens.refSeq)
         lens.refSeen = false
         if (induce) sim.motionForTest(arm).holdWordForTest(true)
         sim.conformanceMessage(arm, img, now)
         if (induce) sim.motionForTest(arm).holdWordForTest(false)
+        val refusedNow = lens.refSeen
+        if (!refusedNow) { lens.refSeen = kept[0] as Boolean; lens.refMode = kept[1] as Int; lens.refReason = kept[2] as Int; lens.refSeq = kept[3] as Long }
         trace?.invoke("[$now] $arm gets ${subsOf(img).joinToString(" ") { it.take(3).joinToString("") { b -> "%02x".format(b) } }}" +
-            (if (lens.refSeen) " REFUSED mode ${lens.refMode and 0x7F} reason ${lens.refReason}" else "") + if (induce) " (induced)" else "")
-        if (lens.refSeen) {
+            (if (refusedNow) " REFUSED mode ${lens.refMode and 0x7F} reason ${lens.refReason}" else "") + if (induce) " (induced)" else "")
+        if (refusedNow) {
             val r = "$arm mode ${lens.refMode and 0x7F} reason ${lens.refReason}"
             if (induce) induced += r else refusals += r
             // the image lane writes LEFT (`CfwTransportBase.writeImage`), so the flush's ack is LEFT's [I]: a refusal there
@@ -628,7 +633,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         // the fix round's row for the lead: a COMMIT that does not land on RIGHT alone (its batch refused there, or the
         // forward to RIGHT lost) — nothing reports it; counted apart by the fuzz, never by a seeded case
         val commits = tail.any { it[0].toInt() == 26 && it[1].toInt() == 3 }
-        if (commits && inducedOn == Arm.RIGHT) commitMissedRight = true      // the COMMIT behind the refused sub never ran
+        // (a COMMIT behind a sub refused on RIGHT: its record names 27 at the next read and the phone keyframes — ruled)
         val la = loseAnswerOn
         if (la != null && tail.any { it[0].toInt() == 26 && it[1].toInt() in 3..5 }) {
             if (la == setOf(Arm.RIGHT)) commitMissedRight = true             // the frame and the answer both missing there
@@ -697,7 +702,9 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     /** Lets everything outstanding land: the uplink and downlink drain, the lone SETTLE goes, the engine runs out, an idle
      *  frame (the clock) carries a SETTLE past `age`. */
     fun rest() {
-        runUntil(now + 1200)
+        runUntil(now + 600)
+        readTelemetry()                                 // the poll reads RIGHT's telemetry (once a minute on the phone)
+        runUntil(now + 600)
         tick()
         runUntil(now + 600)
         tick()

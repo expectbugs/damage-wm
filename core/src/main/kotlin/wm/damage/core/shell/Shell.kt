@@ -2605,7 +2605,8 @@ class Shell(
     // ------------------------------------------------------------------ build C2: local input (`FIRMWARE.md` §6.7)
     /** The phone's rules P1–P11, the tap rule and the table repair (stage DP2). Idle unless BIND is in force at stage 4
      *  on a bit-10 build: below that nothing here sends a byte. Confined to the loop. */
-    private val local = wm.damage.core.local.LocalRules { kind, detail -> journal.note(kind, detail) }
+    private val local = wm.damage.core.local.LocalRules({ kind, detail -> journal.note(kind, detail) },
+        { why -> journal.note("local", "keyframe: $why"); comp.requestKeyframe(); post(Msg.Pump) })
     /** The surface that offers a bound list while it is in front and staged — Main's, from stage DM; null until then. */
     @Volatile var boundSurface: () -> wm.damage.core.local.BoundSurface? = { null }
     /** The list the rules were last told is in front (identity: a re-stage is a new [BoundList]). */

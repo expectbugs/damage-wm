@@ -43,7 +43,11 @@ interface BoundSurface {
  * that does not land is the table repair's ([TableRepair]) or a divergence's (a refusal body, a keyframe); it is read
  * and written on the shell's loop only.
  */
-class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _, _ -> }) {
+class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _, _ -> },
+                 /** The rules ask the compositor for ONE keyframe ([why] for the journal): the tap rule's (5) divergence (§6.7)
+                  *  and a refusal record naming mode 27 (decisions on DP2's fix round: the batch's later subs did not run on
+                  *  RIGHT, so its shadow is not what the phone believes). */
+                 private val keyframe: (why: String) -> Unit = {}) {
 
     companion object {
         /** SETTLE's `age` (§6.6 of the build spec, the lead's decision B.10): 256 OS ticks, ≈ 250 ms. */
@@ -395,6 +399,7 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
             if (e == null || pred == null || pred === BoundList.REFUSED_12 || a.prog != e.prog4 || !p.contentEquals(pred)) {
                 note("divergence", "a tap 115's program or parameters differ from the phone's prediction at cursor $c (tap rule 5): ${a.describe()}")
                 count("divergence")
+                keyframe("a tap 115's program or parameters differ from the prediction (tap rule 5)")
                 return drop("item")
             }
         }
@@ -473,6 +478,10 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
             note("repair", "evidence=refusal mode=27 reason=${refusal27.reason} object=table")
             count("repair.table")
             wholeTable()
+            // RIGHT refused a mode 27 and sent no notify: what came after it in that batch — a COMMIT's END among it —
+            // did not run there, so RIGHT's shadow is not what the phone believes (row A's second trigger, ruled): one keyframe
+            count("keyframe")
+            keyframe("RIGHT's refusal record names mode 27 (reason ${refusal27.reason}): the rest of that batch did not run there")
         } else if (batch14 != null && touchedSinceRead.isNotEmpty()) {
             note("repair", "evidence=refusal mode=8 reason=14 object=${touchedSinceRead.joinToString(",")}")
             count("repair.batch")
