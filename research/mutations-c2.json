@@ -1041,8 +1041,8 @@
   "file": "shell/MainStaging.kt",
   "edits": [
    [
-    "val stripRow = IntArray(stripRows) { s -> val i = s - mA; if (wraps) i.mod(n) else if (i in 0 until n) i else -1 }",
-    "val stripRow = IntArray(stripRows) { s -> val i = s - mA; if (i in 0 until n) i else -1 }"
+    "val stripRow = IntArray(stripRows) { s -> val i = s - sA; if (wraps) i.mod(n) else if (i in 0 until n) i else -1 }",
+    "val stripRow = IntArray(stripRows) { s -> val i = s - sA; if (i in 0 until n) i else -1 }"
    ]
   ],
   "tests": [
@@ -1051,7 +1051,7 @@
   "expect": [
    "theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2"
   ],
-  "note": "no wrapped rows in the strip's margins: END is not Main's paint near the ends where Main wraps",
+  "note": "no wrapped rows in the strip's margins: END is not Main's paint near the ends where Main wraps (retargeted by the lead after G2: the margin is sA rows now)",
   "from": "DM2"
  },
  {
@@ -3270,5 +3270,236 @@
   ],
   "note": "AW.3: any cover cuts (a notice box too)",
   "from": "ANIM"
+ },
+ {
+  "id": "AZ3-no-seed-on-live-lease",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        bindSHeard0 = if (carried || leaseLiveAtAcquire()) (resetCheckLastS ?: 0L).toInt() and 0xFFFF else 0",
+    "        bindSHeard0 = if (carried) (resetCheckLastS ?: 0L).toInt() and 0xFFFF else 0"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aStartWhoseLensKeptItsLeaseSeedsSHeardFromRightsRead_AZ3"
+  ],
+  "expect": [
+   "aStartWhoseLensKeptItsLeaseSeedsSHeardFromRightsRead_AZ3"
+  ],
+  "note": "AZ.3: the update case seeds 0 (today's gap 37)",
+  "from": "G2"
+ },
+ {
+  "id": "AZ3-seed-unconditionally",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        bindSHeard0 = if (carried || leaseLiveAtAcquire()) (resetCheckLastS ?: 0L).toInt() and 0xFFFF else 0",
+    "        bindSHeard0 = (resetCheckLastS ?: 0L).toInt() and 0xFFFF"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aLeaseThatLapsesBeforeTheAcquireIsNotSeededFrom_AZ3",
+   "*MainLocalShellTest.aLeaseUnderTheSpareIsNotSeededFrom_AZ3"
+  ],
+  "expect": [
+   "aLeaseThatLapsesBeforeTheAcquireIsNotSeededFrom_AZ3",
+   "aLeaseUnderTheSpareIsNotSeededFrom_AZ3"
+  ],
+  "note": "AZ.3: field 36 whatever the lease (the one-liner)",
+  "from": "G2"
+ },
+ {
+  "id": "AZ3-no-spare",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        return left - since > SEED_SPARE_TICKS",
+    "        return left - since > 0"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aLeaseUnderTheSpareIsNotSeededFrom_AZ3",
+   "*MainLocalShellTest.aLeaseThatLapsesBeforeTheAcquireIsNotSeededFrom_AZ3"
+  ],
+  "expect": [
+   "aLeaseUnderTheSpareIsNotSeededFrom_AZ3",
+   "aLeaseThatLapsesBeforeTheAcquireIsNotSeededFrom_AZ3"
+  ],
+  "note": "AZ.3: any lease left at the read seeds",
+  "from": "G2"
+ },
+ {
+  "id": "AZ3-restart",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        val left = resetCheckLeaseTicks ?: return false",
+    "        val left = resetCheckLeaseTicks ?: return true"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aStartAfterALensRestartSeedsZero_AZ3"
+  ],
+  "expect": [
+   "(declared, no pin: after a lens restart field 36 is 0, so no phone variant of the seed changes S_heard; the test is a check of that)"
+  ],
+  "note": "AZ.3: the restart case",
+  "from": "G2"
+ },
+ {
+  "id": "AZ4-no-wrap-plan",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "        val st = slots[f.slot]?.takeIf { it.owed && it.discard == null } ?: return null",
+    "        val st = slots[f.slot]?.takeIf { false } ?: return null"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.theWrapSlidesOneRowBothWays_AZ4",
+   "*MainLocalShellTest.aNotchDuringTheWrapClosesItAndIsAnOrdinaryFire_AZ4",
+   "*MainLocalShellTest.aTapOrAWindowDuringTheWrapClosesIt_AZ4",
+   "*MainLocalShellTest.theWrapTakesTheAnimationsRowsAndTheSettleComesAfterIt_AZ4",
+   "*LocalSequenceFuzzTest.seededS25_aWrapIsAnimatedAndTheNextNotchClosesIt"
+  ],
+  "expect": [
+   "theWrapSlidesOneRowBothWays_AZ4",
+   "aNotchDuringTheWrapClosesItAndIsAnOrdinaryFire_AZ4",
+   "aTapOrAWindowDuringTheWrapClosesIt_AZ4",
+   "theWrapTakesTheAnimationsRowsAndTheSettleComesAfterIt_AZ4",
+   "seededS25_aWrapIsAnimatedAndTheNextNotchClosesIt"
+  ],
+  "note": "AZ.4: no wrap is planned (today's edge)",
+  "from": "G2"
+ },
+ {
+  "id": "AZ4-row-not-checked",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "        if ((cPrime != -1 && cPrime != f.count) || row != cPrime.mod(f.count)) return null",
+    "        if (cPrime != -1 && cPrime != f.count) return null"
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.seededS26_twoEdgesInOneAnswerAreNotAnimated"
+  ],
+  "expect": [
+   "seededS26_twoEdgesInOneAnswerAreNotAnimated"
+  ],
+  "note": "AZ.4: a wrap planned with the row elsewhere (two edges in one answer)",
+  "from": "G2"
+ },
+ {
+  "id": "AZ4-margins-not-grown",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "            val sA = if (wraps) mA + 1 else mA; val sB = if (wraps) mB + 1 else mB",
+    "            val sA = mA; val sB = mB"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.theWrapSlidesOneRowBothWays_AZ4",
+   "*MainBindTest.theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2"
+  ],
+  "expect": [
+   "theWrapSlidesOneRowBothWays_AZ4",
+   "theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2"
+  ],
+  "note": "AZ.4: no extra margin row \u2014 the last step's far row reads past the strip (blank until the release repaints it)",
+  "from": "G2"
+ },
+ {
+  "id": "AZ4-wraps-guard",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "        if (!wraps || (cPrime != -1 && cPrime != rows) || cPrime - pan.step !in 0 until rows) return null",
+    "        if ((cPrime != -1 && cPrime != rows) || cPrime - pan.step !in 0 until rows) return null"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aListThatDoesNotWrapKeepsTodaysEdge_AZ4"
+  ],
+  "expect": [
+   "aListThatDoesNotWrapKeepsTodaysEdge_AZ4"
+  ],
+  "note": "AZ.4: a list that does not wrap gets a PLAY past its blank margin",
+  "from": "G2"
+ },
+ {
+  "id": "AZ4-play-after-discard",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            val localTail = if (localOn) listOfNotNull(wrapPlay) + local.tail(localRow(), localNow, denied, frame = assembled != null, wrapped = wrapPlay != null)",
+    "            val localTail = if (localOn) local.tail(localRow(), localNow, denied, frame = assembled != null, wrapped = wrapPlay != null) + listOfNotNull(wrapPlay)"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.theWrapSlidesOneRowBothWays_AZ4"
+  ],
+  "expect": [
+   "theWrapSlidesOneRowBothWays_AZ4"
+  ],
+  "note": "AZ.4: the PLAY behind the rules' answers (\u00a76.5's batch order)",
+  "from": "G2"
+ },
+ {
+  "id": "AZ4-wrap-into-bound-slot",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "        const val WRAP_SLOT = 1",
+    "        const val WRAP_SLOT = 0"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aNotchDuringTheWrapClosesItAndIsAnOrdinaryFire_AZ4"
+  ],
+  "expect": [
+   "(declared, no pin: in the model a PLAY into the bound slot behaves alike \u2014 the next fire's close set ends it with RIGHT's outcome-1 body either way (watched: not caught, 11-19); P9 is the contract's rule, kept by one constant)"
+  ],
+  "note": "AZ.4: the PLAY into the bound slot (P9): the next fire ends it silently, the mirror never hears",
+  "from": "G2"
+ },
+ {
+  "id": "AZ7-default-450",
+  "file": "shell/ShellSettings.kt",
+  "edits": [
+   [
+    "    val scrollLength: Int = 300,",
+    "    val scrollLength: Int = 450,"
+   ]
+  ],
+  "tests": [
+   "*SettingsLocalRowsTest*",
+   "*MainBindTest*"
+  ],
+  "expect": [
+   "theDefaultScrollLengthIs300_AZ7"
+  ],
+  "note": "AZ.7: the old default",
+  "from": "G2"
+ },
+ {
+  "id": "BB-u-reset-at-settle",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "        owesScroll = 0; owesClick = 0; owesAny = 0\n        repair.settleSent()",
+    "        owesScroll = 0; owesClick = 0; owesAny = 0; u = 0\n        repair.settleSent()"
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.seededS27_aGapFoundAfterASettleOwesNothingForMessagesThatCame"
+  ],
+  "expect": [
+   "seededS27_aGapFoundAfterASettleOwesNothingForMessagesThatCame"
+  ],
+  "note": "BB: u reset at the SETTLE (the rule before G3): a gap found by the next burst is charged in full",
+  "from": "G3"
  }
 ]
