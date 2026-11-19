@@ -406,7 +406,7 @@ object SelfCheck {
             "SMS · TEST", "t1", "on my way, should be there in about twenty minutes", "14:32"))
         settle(shell, "notice")
         check("notification box appears", shell.notifications.active)
-        delay(3_000)                                        // the 2.5 s grace
+        delay(3_000)                                        // the 2.0 s grace
         settle(shell, "grace")
         check("notification takes focus after the grace", shell.notifications.focused)
         shell.postGesture(EvenHubMsg.EV_RING_LONG_PRESS)    // no-op by default (§4.5, 2026-08-30)

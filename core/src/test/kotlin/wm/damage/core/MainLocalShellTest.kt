@@ -471,7 +471,7 @@ class MainLocalShellTest {
             val staged = r.notes("mainstage").count { it.startsWith("staged") }
             val t0 = System.currentTimeMillis()
             notice()
-            // while it floats, unfocused: well inside its 2.5 s grace (a focused notice was a cover before AF.1 too)
+            // while it floats, unfocused: well inside its 2.0 s grace (a focused notice was a cover before AF.1 too)
             r.until("the entries CLEARed while the notice floats", 1_500) { r.sim.bindForTest(Arm.RIGHT).field39() == 0 }
             assertTrue(!r.onLoop { r.shell.notificationsFocusedForTest() } && System.currentTimeMillis() - t0 < 2_400, "CLEARed before the notice took focus")
             assertEquals(staged, r.notes("mainstage").count { it.startsWith("staged") }, "no staging went: the cover, not a withdrawal, cleared the entries")

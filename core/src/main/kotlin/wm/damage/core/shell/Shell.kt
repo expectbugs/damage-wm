@@ -414,7 +414,8 @@ class Shell(
         when (notifications.withdraw(ref, queuedOnly, silent = quiet)) {
             Notifications.Withdrawn.NOTHING -> return@runOnShell
             Notifications.Withdrawn.QUEUED -> if (notifications.active && !notifications.furlingOut) paintNotification()  // its +N
-            Notifications.Withdrawn.KEPT, Notifications.Withdrawn.FOLDING -> {}   // the furl runs via the pump
+            Notifications.Withdrawn.KEPT -> {}                                     // its timer runs on
+            Notifications.Withdrawn.FOLDING -> stopGrace()   // the furl runs via the pump; a box folding away owes no step
             Notifications.Withdrawn.DROPPED -> repaintAfterSilentDrop()
         }
         scheduleSave()
@@ -2663,7 +2664,7 @@ class Shell(
     /** The next step of the running grace, due at its place on the 250 ms grid from [graceT0Ns]. */
     private fun armGraceStep() {
         val gen = graceGen
-        if (graceManualForTest) { graceJob = kotlinx.coroutines.Job(); return }
+        if (graceByHand) { graceJob = kotlinx.coroutines.Job(); return }
         val due = graceT0Ns + (notifications.graceStep + 1) * Notifications.GRACE_STEP_MS * 1_000_000L
         graceJob = scope.launch {
             delay(maxOf(0L, (due - System.nanoTime()) / 1_000_000L))
@@ -5469,12 +5470,13 @@ class Shell(
     internal fun mainRestingForTest(): Boolean = main.resting
     internal fun notificationsUpForTest(): Boolean = notifications.active || notifications.animating
     internal fun notificationsFocusedForTest(): Boolean = notifications.active && notifications.focused
-    /** Tests: the notice's timer on the harness's clock — while set, a step owed is marked and not launched, and
-     *  [graceStepForTest] delivers it as the real one would be (a `GraceTick` of the running grace). */
-    @Volatile internal var graceManualForTest = false
-    internal fun graceStepForTest() = post(Msg.Run { if (graceJob != null) post(Msg.GraceTick(graceGen)) })
-    /** Tests, on the loop: the timer's step and whether a step is owed. */
-    internal fun graceForTest(): Pair<Int, Boolean> = notifications.graceStep to (graceJob != null)
+    /** A harness's clock for the notice's timer (the tests, the desktop render harness): while set, a step owed is
+     *  marked and not launched, and [graceStepByHand] delivers it as the real one is delivered (a `GraceTick` of the
+     *  running grace, handled on the loop). Set before the box arrives. */
+    @Volatile var graceByHand = false
+    fun graceStepByHand() = post(Msg.Run { if (graceJob != null) post(Msg.GraceTick(graceGen)) })
+    /** The timer's step and whether a step is owed — LOOP-ONLY (read it inside [sampleIdle]). */
+    fun graceState(): Pair<Int, Boolean> = notifications.graceStep to (graceJob != null)
 
     /** A staging the region could not hold, by what it was painted for: not painted again until one of those changes. */
     private var mainBindRefusedFor: String? = null

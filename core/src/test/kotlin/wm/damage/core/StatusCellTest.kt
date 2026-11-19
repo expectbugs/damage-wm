@@ -184,7 +184,7 @@ class StatusCellTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val r = Rig(scope)
         try {
-            r.shell.faultQuietMs = 5_000L          // longer than the box's 2.5 s grace: the dismissal lands INSIDE the episode
+            r.shell.faultQuietMs = 5_000L          // longer than the box's 2.0 s grace: the dismissal lands INSIDE the episode
             r.shell.start(); r.settle("start")
             r.transport.extra.emit(TransportEvent.Fault("wrap", "first"))
             r.until("the notice is up") { r.shell.notifications.current?.body == "wrap: first" }
