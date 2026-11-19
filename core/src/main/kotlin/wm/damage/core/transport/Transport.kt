@@ -483,4 +483,5 @@ val LinkState.draw2: Boolean
  *  64 KiB otherwise — a size taken before an arming that did not happen (a hold-back, a refusal)
  *  is not a v1 atlas's (2026-09-15 review: the v1 builder refused it and cached text stayed off). */
 val LinkState.atlasCapacity: Int
-    get() = if (draw2) cacheSize - wm.damage.core.wire.CfwModes.STAGE_RESERVE else wm.damage.core.wire.CfwModes.TEXTURE_CACHE_SIZE
+    // build C2 (decisions B.4): less Main's own region on a 256 KiB session with BIND in force (`CfwModes.reserveAbove`)
+    get() = if (draw2) cacheSize - wm.damage.core.wire.CfwModes.reserveAbove(cacheSize, bind) else wm.damage.core.wire.CfwModes.TEXTURE_CACHE_SIZE

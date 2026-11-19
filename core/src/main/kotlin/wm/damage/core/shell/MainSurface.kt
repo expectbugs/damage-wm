@@ -46,6 +46,31 @@ class MainSurface(
 
     fun focusedWindow(): DamageWindow? = windows().getOrNull(model.cursor)
 
+    // ------------------------------------------------------------------ build C2: Main's bound list (stage DM2)
+    /** Main's list as staged on the glasses, set by the shell ([MainBinding]) once every record is counted (field 17)
+     *  and cleared when the staging goes; null while nothing staged is counted. Loop-confined, like the model. */
+    internal var offered: wm.damage.core.local.BoundList? = null
+
+    /** What Main offers the rules while it is in front (`FIRMWARE.md` §6.7 "the bound list is the list in front"; the
+     *  shell decides "in front, nothing over it"): its staged list once counted, else null. */
+    fun bound(): wm.damage.core.local.BoundList? = offered
+
+    /** Main's row (the phone's own, P3). */
+    fun row(): Int = model.cursor
+
+    /** row := [row] — an adoption (P3) or a tap's correction (the tap rule (4)): the lens drew it, nothing of the phone's
+     *  own moves. */
+    fun setRow(row: Int) { model.cursor = row }
+
+    /** A re-stage's cursor shift (the LIST's): Main's rows never reorder — a staging is of the windows in their one
+     *  order, and the cursor is an index into it — so 0. */
+    @Suppress("UNUSED_PARAMETER")
+    fun shift(from: wm.damage.core.local.BoundList, to: wm.damage.core.local.BoundList): Int = 0
+
+    /** What a row's staged picture is drawn from, compared at every compose: a change marks the row for its re-stage
+     *  (`MainBinding`). The theme's icons and the faces are not in it: a round-robin repaint catches those. */
+    internal fun rowKey(index: Int): Any? = windows().getOrNull(index)?.let { w -> listOf(w.name, w.icon, w.summary(), w.needs.isNotEmpty()) }
+
     private fun paintRow(g: Gray8, index: Int, r: Rect, dim: Boolean) {
         val w = windows().getOrNull(index) ?: return
         if (dim && resting) {

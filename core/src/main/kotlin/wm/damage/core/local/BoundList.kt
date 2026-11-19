@@ -30,6 +30,10 @@ class BoundList(
     val items4: Int,
     val items: IntArray?,
     val entries: List<Entry>,
+    /** Build C2, stage DP2 (P10): END of the program at [Entry.prog4] with P0..P3 painted into one lens's model ([pic],
+     *  the compositor's shadow) exactly as the lens writes it into its shadow — the staging owner's (DM: Main's own row
+     *  painters, pinned END = paint). Null: the compositor cannot follow a COMMIT here, so the rules answer with DISCARD. */
+    val paintEnd: ((left: Boolean, prog4: Int, p: IntArray, pic: wm.damage.core.gfx.Gray8) -> Unit)? = null,
 ) {
     /** One SET (§6.3). [program] is the program at [prog4] as the DSL built it — null for the report-only tap entry
      *  ([prog4] = [CfwModes.PROG_NONE]). [params] are the entry's four {kind, arg}. */
@@ -57,6 +61,12 @@ class BoundList(
         if (entries.map { it.eventId }.toSet().size != entries.size) throw LintError("two entries for one event id: the second never fires")
         for (e in entries) CfwModes.bindSet(e.entry, e.devType, e.eventId, list, e.step, slot, e.period, e.prog4, e.params)   // its lint
     }
+
+    /** Build C2, stage DM2 (`FIRMWARE.md` §6.7 P9; spec §6.4 "Kept current"): true when a fire of the entry landing at
+     *  the cursor c' (a tap's c' is its cursor) draws a row whose staged picture is stale — the row's picture changed and
+     *  its re-stage in place has not been sent — so the rules' answer is a DISCARD with `cause=restaged`. Set by the
+     *  staging's owner (Main's); false for a list whose pictures never change. */
+    var staleAt: (Entry, Int) -> Boolean = { _, _ -> false }
 
     /** The entry an event id fires, or null. */
     fun entryFor(eventId: Int): Entry? = entries.firstOrNull { it.eventId == eventId }
@@ -117,7 +127,10 @@ class BoundList(
                     val t = items ?: return null
                     val k = cPrime + p.arg
                     if (k !in 0 until count) return null
-                    t[k]
+                    // the lens carries the entry's 16 bits as an s16 P (§6.2 step 9, §6.5 fields 10–13; `parseApplied`
+                    // reads them so): an off4 past 32767 — a record in the top half of a 256 KiB cache — is negative
+                    // (build C2, stage DM2: the pin against the simulator's fire found it on Main's 256 KiB region)
+                    t[k].toShort().toInt()
                 }
                 else -> {
                     val v = cPrime.toLong() * pitch + p.arg

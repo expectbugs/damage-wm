@@ -143,7 +143,10 @@ class Staging {
     /** Drop every record that is not of [content] at this line box and width (a relayout, another
      *  book, a rescale): their pixels can never be shown again. Returns what was dropped. */
     fun retain(content: Any?, lineH: Int, w: Int): List<StagedRecord> {
-        val gone = records.values.filter { it.key.content !== content || it.key.lineH != lineH || it.key.w != w }
+        // build C2, stage DM2: Main's records outside the ring (its own region at 256 KiB, a row's re-stage) are not the
+        // document's to drop; in the ring (the shared reserve at 160 KiB) the document's strips take their place
+        val gone = records.values.filter { (it.key !is MainStageKey || it in ring?.resident.orEmpty()) &&
+            (it.key.content !== content || it.key.lineH != lineH || it.key.w != w) }
         for (r in gone) { ring?.free(r); records.remove(r.key) }
         return gone
     }
