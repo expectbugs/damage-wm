@@ -179,7 +179,8 @@ class MainBindShellTest {
             r.until("re-staged again", 10_000) { r.notes("mainstage").count { it.startsWith("row 3 re-staged") } == 2 }
             r.until("offered again") { r.offered()?.first != null }
             println("DM2-shell restage 2: ${r.notes("mainstage").last { it.startsWith("row 3 re-staged") }}")
-            assertTrue(waited >= wm.damage.core.shell.MainBinding.RESTAGE_PACE_MS - 500, "the second re-stage waited for the row's pace ($waited ms)")
+            // the ruled pace said here on its own (decisions X.3: 5 s a row), so a changed constant is seen
+            assertTrue(waited >= 4_500, "the second re-stage waited for the row's 5 s pace ($waited ms)")
             assertEquals(list.mark, r.offered()?.first?.mark, "the mark kept")
             assertEquals(1, r.notes("mainstage").count { it.startsWith("staged") }, "no full staging: ${r.notes("mainstage")}")
         } finally { r.close() }
