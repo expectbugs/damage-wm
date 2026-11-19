@@ -215,7 +215,11 @@ class MotionTransportTest {
     private val stageFile by lazy { stageDir.value.resolve(CfwTransportBase.C1_STAGE_FILE) }
     @AfterTest fun cleanStageDir() { if (stageDir.isInitialized()) stageDir.value.toFile().let { d ->
         d.walkTopDown().forEach { it.setWritable(true) }; d.deleteRecursively() } }
-    private fun stored() = Files.readString(stageFile).trim()
+    /** The stored stage: the record's first line (build C2-FA: the record also keeps the last session's cache size once a
+     *  start has asked one, decisions AD.1). */
+    private fun stored() = Files.readString(stageFile).lines().first().trim()
+    /** The whole stored record, decoded. */
+    private fun storedRecord() = wm.damage.core.transport.LadderRecord.decode(Files.readString(stageFile), CfwTransportBase.LADDER_TOP_STAGE)
     private fun sayings(prefix: String) = notes.count { it.first == "keeper" && it.second.startsWith(prefix) }
     private fun c1Session(file: java.nio.file.Path, stepDown: Boolean = false, clock: () -> Long = System::currentTimeMillis) =
         StartRig(GlassFirmwareSim().apply { damageContract = 2; damageFeatures = 0x1ff }, scope, clock = clock, c1StageFile = file,
@@ -268,9 +272,10 @@ class MotionTransportTest {
         val t2 = c1Session(stageFile) { clock }
         t2.start(full)
         assertEquals(0x24, t2.state.value.flagsInForce, "the new process arms stage 2: ZWRITE and DRAW2, not ENGINE")
-        // C1-Q: a process's first start asks at most 160 KiB (it cannot know what the last process left on the lenses);
-        // the focused read's F4 — stage 1 gives the same, so the start after a lapse shows stage 2's own size
-        assertEquals(160 * 1024, t2.state.value.cacheSize, "and 160 KiB until a start after a lapsed lease")
+        // C1-Q: a process's first start asks at most the last session's size — build C2-FA (decisions AD.1): the stored one,
+        // here the held-back start's 256 KiB, so stage 2's own size goes out at once (stage 1 would ask 160); the start
+        // after a lapse asks it again
+        assertEquals(256 * 1024, t2.state.value.cacheSize, "and the stored 256 KiB at its first start: $notes")
         assertTrue(t2.restartSession("test: the next session"))
         clock += PAST_THE_LAPSE
         t2.start(full)
@@ -1961,11 +1966,12 @@ class MotionTransportTest {
         for (arm in listOf('L', 'R')) assertEquals(listOf("5:a0", "2:4", "2:24"), controls(first2, arm), "a first start at stage 2: $arm")
     }
 
-    /** C1-Q: a process's first start has no record and is not known fresh — it asks at most 160 KiB. (1) The last process
-     *  left both lenses at 160 with a stored 2 and ended with no release; RIGHT restarts alone; the next process's first
-     *  start asks 160 (LEFT still holds 160) and says the wait; the start after its own release asks 256. (2) The C1-P fix
-     *  stage's "check and say": a process at 256 KiB ends with no release, the next one steps a stored 2 down after an
-     *  uncaught error and starts 5 s later inside the lease — the session is the 160 it asks while RIGHT keeps 256. */
+    /** C1-Q: a process's first start has no lease record and is not known fresh — it asks at most the last session's size
+     *  (build C2-FA, decisions AD.1: the stored one; 160 KiB when unknown). (1) The last process left both lenses at 160
+     *  with a stored 2 and ended with no release; RIGHT restarts alone; the next process's first start asks 160 (LEFT still
+     *  holds 160) and says the wait; the start after its own release asks 256. (2) The C1-P fix stage's "check and say": a
+     *  process at 256 KiB ends with no release, the next one steps a stored 2 down after an uncaught error (keeping the
+     *  stored 256 KiB) and starts 5 s later inside the lease — the session is the 160 it asks while RIGHT keeps 256. */
     @Test
     fun aProcessesFirstStartAsksNoMoreThan160_C1Q(): Unit = runBlocking {
         val clock = java.util.concurrent.atomic.AtomicLong(1_000_000L)
@@ -2010,11 +2016,218 @@ class MotionTransportTest {
         old2.cancel()
         clock.addAndGet(5_000L)
         val q2 = process(glass2, scope, stepDown = true)
+        assertEquals(wm.damage.core.transport.LadderRecord(stage = 0, sessionKib = 256), storedRecord().record,
+            "AD.1's sweep: the step-down keeps the rest of the record, the last session's size included")
         q2.start(full)
         assertEquals(0x4, q2.state.value.flagsInForce, "stepped down to stage 0: ${said()}")
         assertEquals(160 * 1024, q2.state.value.cacheSize, "the session is the 160 KiB it asked: ${said()}")
         assertEquals(256 * 1024, glass2.cacheSize(Arm.RIGHT), "RIGHT keeps its 256 KiB until its next release point")
         writesLandOnBoth(glass2, q2, "the stepped-down start inside the lease")
         q2.stop()
+    }
+
+    // ------------------------------------------------- build C2-FA (decisions AD.1): the last session's size, stored
+    /** A process over the stored record: its own scope [s] (cancelled: the process ends with no stop and no release). */
+    private fun processOver(glass: GlassFirmwareSim, s: CoroutineScope, clock: java.util.concurrent.atomic.AtomicLong) =
+        StartRig(glass, s, clock = { clock.get() }, c1StageFile = stageFile).also { it.heapReads = false; collect(it) }
+    private fun asked(kib: Int, status: Int, session: Int) = has("glass", "cache size: asked $kib KiB, status $status, $session KiB this session")
+
+    /** AD.1: the record keeps the KiB of the last answered op 5 as one line; "unknown" is no line, as in an older record;
+     *  a value op 5 cannot give (outside 64..256) or not a number is a line that cannot be used — said, read as unknown. */
+    @Test
+    fun theRecordKeepsTheLastSessionsSize_AD1() {
+        fun decode(text: String) = wm.damage.core.transport.LadderRecord.decode(text, CfwTransportBase.LADDER_TOP_STAGE)
+        assertEquals(wm.damage.core.transport.LadderRecord(stage = 2, sessionKib = 256), decode("2\nsessionKib=256\n").record)
+        assertEquals("2\nsessionKib=160\n", wm.damage.core.transport.LadderRecord(stage = 2, sessionKib = 160).encode())
+        assertEquals("2\n", wm.damage.core.transport.LadderRecord(stage = 2).encode(), "unknown is no line")
+        for (bad in listOf("999", "63", "257", "x", "")) {
+            val r = decode("3\nsessionKib=$bad\n")
+            assertEquals(wm.damage.core.transport.LadderRecord(stage = 3), r.record, "'$bad' reads as unknown")
+            assertEquals(listOf("sessionKib=$bad"), r.problems, "'$bad' is said")
+        }
+    }
+
+    /** AD.1: a new process's first start asks the stored size — after a 256 KiB session 256, and RIGHT answers that it is
+     *  allocated already; after a 160 KiB session 160 — and every write the session allows lands on both lenses. The
+     *  size is stored once op 5 is answered. */
+    @Test
+    fun aNewProcessAsksTheLastSessionsStoredSize_AD1(): Unit = runBlocking {
+        val clock = java.util.concurrent.atomic.AtomicLong(1_000_000L)
+        for ((kib, fresh) in listOf(256 to true, 160 to false)) {
+            notes.clear()
+            Files.deleteIfExists(stageFile)
+            val glass = c1Sim()
+            countCacheWrites(glass)
+            val old = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            val p1 = processOver(glass, old, clock)
+            p1.devProbe("c1", "2")
+            if (fresh) startKnownFresh(p1) { clock.addAndGet(PAST_THE_LAPSE) } else p1.start(full)
+            assertEquals(kib * 1024, p1.state.value.cacheSize, "process 1: ${said()}")
+            writesLandOnBoth(glass, p1, "process 1 at $kib KiB")
+            assertEquals(kib, storedRecord().record.sessionKib, "the session's size stored after op 5's answer")
+            old.cancel()                                      // the process ends: no stop, no release
+            clock.addAndGet(5_000L)
+            notes.clear()
+            val p2 = processOver(glass, scope, clock)
+            p2.start(full)
+            assertEquals(kib * 1024, p2.state.value.cacheSize, "process 2's first start after a $kib KiB session: ${said()}")
+            assertTrue(asked(kib, 4, kib) && has("glass", "$kib KiB this session (allocated already)"), "asked $kib, allocated already: ${said()}")
+            writesLandOnBoth(glass, p2, "process 2's first start after a $kib KiB session")
+            p2.stop()
+        }
+    }
+
+    /** AD.1: one lens restarted between two processes. After a 256 KiB session, RIGHT restarted (status 0, the session
+     *  takes the ask; LEFT carries 256) or LEFT restarted (RIGHT carries 256; LEFT allocates at the ask): the stored 256 is
+     *  asked and each lens ends at or above it. After a 64 KiB session (DRAW2 held back after a reset, asked of two
+     *  lapsed lenses), RIGHT restarted: the stored 64 is asked — C1-Q's "Not built 2", where a first start's 160 left
+     *  LEFT's 64 KiB cache under a 160 KiB session — and the writes land on both. */
+    @Test
+    fun aLensRestartedBetweenTwoProcessesHoldsTheSessionsSize_AD1(): Unit = runBlocking {
+        val clock = java.util.concurrent.atomic.AtomicLong(1_000_000L)
+        for (restarted in Arm.entries) {
+            notes.clear()
+            Files.deleteIfExists(stageFile)
+            val glass = c1Sim()
+            countCacheWrites(glass)
+            val old = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            val p1 = processOver(glass, old, clock)
+            p1.devProbe("c1", "2")
+            startKnownFresh(p1) { clock.addAndGet(PAST_THE_LAPSE) }
+            writesLandOnBoth(glass, p1, "process 1 at 256 KiB")
+            old.cancel()
+            clock.addAndGet(2_000L)
+            glass.rebootForTest(restarted, clock.get())
+            clock.addAndGet(3_000L)
+            val p2 = processOver(glass, scope, clock)
+            p2.start(full)
+            assertEquals(256 * 1024, p2.state.value.cacheSize, "$restarted restarted: the stored 256 KiB asked: ${said()}")
+            writesLandOnBoth(glass, p2, "$restarted restarted between the processes")
+            p2.stop()
+        }
+        notes.clear()
+        Files.deleteIfExists(stageFile)
+        val glass = c1Sim()
+        countCacheWrites(glass)
+        val old = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val p1 = processOver(glass, old, clock)
+        p1.start(full)                                        // stage 0: 160 KiB, DRAW2 armed
+        assertEquals(0x4, p1.state.value.flagsInForce)
+        clock.addAndGet(10_000L); glass.uptimeOffsetMs = clock.get(); clock.addAndGet(200_000L)    // RIGHT resets 10 s after the arming
+        assertTrue(p1.restartSession("test: after a reset"))
+        p1.start(full)
+        waitUntil(10_000, message = { "today's hold-back: ${said()}" }) { has("keeper", "hold-back: the glasses reset 10 s after flags 0x4 were armed") }
+        assertTrue(p1.restartSession("test: the next session"))
+        clock.addAndGet(PAST_THE_LAPSE)                       // both lenses lapse: the held-back start asks 64 of fresh lenses
+        p1.start(full)
+        assertEquals(64 * 1024, p1.state.value.cacheSize, "DRAW2 held back: a 64 KiB session: ${said()}")
+        writesLandOnBoth(glass, p1, "the 64 KiB session", v1 = true)
+        assertEquals(64, storedRecord().record.sessionKib)
+        old.cancel()
+        clock.addAndGet(2_000L)
+        glass.rebootForTest(Arm.RIGHT, clock.get())           // LEFT keeps its lease and its 64 KiB cache
+        clock.addAndGet(3_000L)
+        notes.clear()
+        val p2 = processOver(glass, scope, clock)
+        p2.start(full)
+        assertEquals(64 * 1024, p2.state.value.cacheSize, "the stored 64 KiB asked, not 160: ${said()}")
+        assertTrue(asked(64, 0, 64), said())
+        writesLandOnBoth(glass, p2, "RIGHT restarted after a 64 KiB session", v1 = true)
+        p2.stop()
+    }
+
+    /** AD.1, the window: the record says "unknown" (no size line) before a start's op 5 goes out. A process that ends
+     *  there — after a 256 KiB session, its next start's op 5 the last thing it wrote — leaves "unknown", and the next
+     *  process's first start asks 160 (RIGHT keeps its 256 KiB; the writes land on both). */
+    @Test
+    fun aProcessThatEndsBetweenOp5AndItsAnswerLeavesUnknown_AD1(): Unit = runBlocking {
+        val clock = java.util.concurrent.atomic.AtomicLong(1_000_000L)
+        val glass = c1Sim()
+        countCacheWrites(glass)
+        val old = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val p1 = processOver(glass, old, clock)
+        p1.devProbe("c1", "2")
+        startKnownFresh(p1) { clock.addAndGet(PAST_THE_LAPSE) }
+        assertEquals(256 * 1024, p1.state.value.cacheSize, said())
+        writesLandOnBoth(glass, p1, "process 1 at 256 KiB")
+        assertEquals("2\nsessionKib=256\n", Files.readString(stageFile))
+        val ended = java.util.concurrent.atomic.AtomicBoolean(false)
+        var fileAtOp5: String? = null
+        p1.onWrite = { _, p ->
+            if (ended.get()) null
+            else if (StartRig.damageOp(p) == DamageMsg.OP_CACHE_SIZE) { fileAtOp5 = Files.readString(stageFile); ended.set(true); null }
+            else p
+        }
+        assertTrue(p1.restartSession("test: the session ends"))
+        clock.addAndGet(1_000L)
+        // (not joined: a cancelled start's rollback waits on a lane the cancel ended — a process that ends runs nothing, and
+        // everything it would write is swallowed above)
+        old.launch { try { p1.start(full) } catch (e: Exception) { notes.add("test" to "process 1's start ended: $e") } }
+        waitUntil(10_000, message = { "op 5 went out: ${said()}" }) { ended.get() }
+        old.cancel()                                          // the process ends between op 5 and its answer
+        assertEquals("2\n", fileAtOp5, "'unknown' was on the phone's storage before op 5's first byte")
+        assertEquals("2\n", Files.readString(stageFile), "and stays: the answer never came")
+        clock.addAndGet(4_000L)
+        notes.clear()
+        val p2 = processOver(glass, scope, clock)
+        p2.start(full)
+        assertEquals(160 * 1024, p2.state.value.cacheSize, "unknown reads as 160: ${said()}")
+        assertTrue(has("glass", "cache size: asked 160 KiB, status 4, 160 KiB this session (allocated already at 256 KiB on RIGHT"), said())
+        writesLandOnBoth(glass, p2, "the first start after an unknown")
+        p2.stop()
+    }
+
+    /** AD.1: an older record (no size line, as APK 0.75 and before wrote it) reads as 160 and is not rewritten by the read;
+     *  its first ask writes the line. The last process ran at 256 KiB (its record in memory). */
+    @Test
+    fun anOlderRecordReadsAs160AndIsNotRewrittenBeforeTheFirstAsk_AD1(): Unit = runBlocking {
+        val clock = java.util.concurrent.atomic.AtomicLong(1_000_000L)
+        val glass = c1Sim()
+        countCacheWrites(glass)
+        val old = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val p0 = StartRig(glass, old, clock = { clock.get() }).also { it.heapReads = false; collect(it) }
+        p0.devProbe("c1", "2")
+        startKnownFresh(p0) { clock.addAndGet(PAST_THE_LAPSE) }
+        writesLandOnBoth(glass, p0, "the older process at 256 KiB")
+        old.cancel()
+        Files.writeString(stageFile, "2\n")
+        clock.addAndGet(5_000L)
+        notes.clear()
+        val p2 = processOver(glass, scope, clock)
+        delay(200)
+        assertEquals("2\n", Files.readString(stageFile), "not rewritten by the read")
+        p2.start(full)
+        assertEquals(160 * 1024, p2.state.value.cacheSize, "an older record reads as 160: ${said()}")
+        assertTrue(has("glass", "cache size: asked 160 KiB, status 4, 160 KiB this session (allocated already at 256 KiB on RIGHT"), said())
+        writesLandOnBoth(glass, p2, "the first start over an older record")
+        assertEquals("2\nsessionKib=160\n", Files.readString(stageFile), "written at its first ask")
+        p2.stop()
+    }
+
+    /** AD.1, stage 0's bytes: a new process's first start at stage 0 asks 160 whatever size is stored (256 or 160) — the
+     *  cache size and flag sets of today's stage-0 start (C1-Q's `aStage0StartSendsTodaysBytesAtEveryKindOfStart_C1Q`
+     *  holds the other kinds of start). */
+    @Test
+    fun stage0AsksTodaysSizeAtANewProcesssFirstStartWhateverIsStored_AD1(): Unit = runBlocking {
+        val clock = java.util.concurrent.atomic.AtomicLong(1_000_000L)
+        for ((kib, fresh) in listOf(256 to true, 160 to false)) {
+            Files.deleteIfExists(stageFile)
+            val glass = c1Sim()
+            val old = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            val p1 = processOver(glass, old, clock)
+            p1.devProbe("c1", "2")
+            if (fresh) startKnownFresh(p1) { clock.addAndGet(PAST_THE_LAPSE) } else p1.start(full)
+            p1.devProbe("c1", "0")
+            assertEquals(wm.damage.core.transport.LadderRecord(stage = 0, sessionKib = kib), storedRecord().record)
+            old.cancel()
+            clock.addAndGet(5_000L)
+            val p2 = processOver(glass, scope, clock)
+            val sent = java.util.Collections.synchronizedList(ArrayList<String>())
+            p2.onWrite = { a, p -> sent.add("${a.name.first()} " + p.joinToString("") { "%02x".format(it) }); p }
+            p2.start(full)
+            val got = synchronized(sent) { sent.toList() }
+            for (arm in listOf('L', 'R')) assertEquals(listOf("5:a0", "2:4"), controls(got, arm), "a stored $kib KiB, stage 0: $arm")
+            p2.stop()
+        }
     }
 }

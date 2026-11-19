@@ -864,6 +864,45 @@ class BaseMaskTest {
         }
     }
 
+    /**
+     * Build C2-FA (decisions AG.5): while a bound list is in front with BIND in force (the shell sets [Compositor.keepOut]
+     * to its areas) the transport appends the local rules' tail to the batch, so the compositor keeps
+     * `CfwModes.BIND_TAIL_SUBS` of the one-byte count back for it. The scene is the one above: three blocks that fill the
+     * count to its last with nothing kept back; with a bound list's areas set (far from the blocks) the third block finds
+     * too few left, answers `batch-count` and goes as one pixel delta in the same flush, and the batch leaves the tail's room.
+     * Mutation watched: `subsLeft` not keeping the tail's room.
+     */
+    @Test
+    fun whileABoundListIsInFrontTheBatchKeepsRoomForTheLocalTail_AG5() {
+        val fB = FontSpec(Face.SYSTEM, 8)
+        val sep1 = Rect(136, 100, 8, 40); val sep2 = Rect(220, 100, 8, 40)
+        class Block(val x: Int, val cols: Int, val rows: Int) { val rect get() = Rect(x, 100, 4 * cols, 8 * rows) }
+        val blocks = listOf(Block(40, 24, 4), Block(144, 19, 5), Block(228, 12, 5))   // 96, 95 and 60 draws
+        val area = Rect(0, 400, 64, 32)
+        for (bound in booleanArrayOf(false, true)) {
+            val r = Rig(true, BlockText())
+            r.face(fB, "A")
+            r.comp.planes = listOf(Compositor.PlaneRegion(sep1, 0), Compositor.PlaneRegion(sep2, 0))
+            for (b in blocks) {
+                for (row in 0 until b.rows) for (col in 0 until b.cols) r.ct.draw(r.g, b.x + 4 * col, 100 + 8 * row, "A", fB, Level.HOT)
+                r.comp.damage(b.rect)
+            }
+            r.comp.keepOut = if (bound) listOf(area to area) else emptyList()
+            val a = r.flush("three blocks at the batch's count, ${if (bound) "a bound list in front" else "no bound list"}")
+            val what = "bound $bound: ${a.ops.size} sub-messages, ${textDraws(a)} draws, misses '${r.misses}'"
+            if (!bound) {
+                assertEquals(255, a.ops.size, "the shape guard: no bound list, the count is full to its last — $what")
+                assertEquals(0, counted(r.misses, "batch-count"), what)
+            } else {
+                assertTrue(a.ops.size <= 255 - wm.damage.core.wire.CfwModes.BIND_TAIL_SUBS, "the tail's room kept — $what")
+                assertEquals(1, counted(r.misses, "batch-count"), "the third block is the one refusal, by its own word — $what")
+                assertTrue(a.ops.last() is DisplayOp.PresentHint, "the hint still rides — $what")
+            }
+            for (b in blocks) r.assertBeliefIsComposed(what, b.rect)
+            r.assertGlassIsBelief(what)
+        }
+    }
+
     private companion object {
         const val NOW = 1_000L
     }

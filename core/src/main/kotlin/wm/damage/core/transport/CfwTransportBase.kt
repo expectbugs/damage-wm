@@ -2265,7 +2265,8 @@ abstract class CfwTransportBase(
      *  on glass). */
     private val telemetryIdsSeen = ArrayDeque<Pair<Long, Long>>()
     private var telemetrySecondCopySaid = false
-    /** Build C2-FA (decisions AG.4): 114 and 115 bodies that did not parse, this run — the count each note carries. */
+    /** Build C2-FA (decisions AG.4): Damage bodies ([UNPARSED_BODIES]) that did not parse, this run — the count each note
+     *  carries. */
     private val unparsedBodies = java.util.concurrent.atomic.AtomicInteger()
 
     /** Null when [id]'s record is to be logged and journaled (id 0 — the FLAGS ops' shared echo — absent, or
