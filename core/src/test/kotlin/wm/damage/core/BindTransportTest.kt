@@ -932,4 +932,110 @@ class BindTransportTest {
         assertEquals(1, reached.get(), "and reached the glasses")
         t.stop()
     }
+
+    // ===================================================== build C2-FD: the last fix round after V2 reader A (decisions AM)
+
+    /** AM.1 (the reader's V2Da test made the pin): the stage-4 hold-back decided INSIDE the arming — a reset first seen by a
+     *  reply after the start's own decision — withholds a hand-wished BIND as well as the ladder's. Stored stage 4 at
+     *  160 KiB (no size rung at the next start, so the last arming's stage 4 is what the read blames), `flags=0x3c` by
+     *  hand, then RIGHT's uptime restarts in the model from op 5's reply on. */
+    @Test
+    fun aHandWishedBindIsWithheldByTheHoldBackInsideTheArming_AM1(): Unit = runBlocking {
+        var clock = day0
+        val sim = c2()
+        Files.writeString(recordFile, "4\nsessionKib=160\n")
+        val t = rig(sim) { clock }
+        t.start(full)
+        assertEquals(0x3c, t.state.value.flagsInForce, "stage 4 at 160 KiB: ${said()}")
+        assertEquals(160 * 1024, t.state.value.cacheSize)
+        clock += 5_000L
+        t.devProbe("flags", "0x3c")                         // a hand re-arm within the stage (P9's undo)
+        clock += 5_000L
+        assertTrue(t.restartSession("test: the session ends"))
+        clock += 5_000L
+        t.onWrite = { _, p -> if (StartRig.damageOp(p) == DamageMsg.OP_CACHE_SIZE) sim.uptimeOffsetMs = clock; p }
+        t.start(full)
+        saw("keeper", "after stage 4 was armed — this session arms stage 3 (flags 0x2c)")
+        delay(300)
+        assertEquals(0x2c, t.state.value.flagsInForce, "the session the note calls stage 3 arms no BIND: ${said()}")
+        t.stop()
+    }
+
+    /** AM.2 (the reader's V2Da test, turned round): a flush built while BIND was in force — its tail a SETTLE — that
+     *  reaches the lane after BIND left the state, (a) at the sleep's release, (b) after a hand disarm: no `bind` fault,
+     *  the drawing goes without its tail (it reaches the model), one `local` note says so. A tail-only flush in that state
+     *  sends nothing, completes, and says so. */
+    @Test
+    fun aTailBindNoLongerCoversIsDroppedAndTheDrawingGoes_AM2(): Unit = runBlocking {
+        for (how in listOf("sleep", "disarm")) {
+            notes.clear()
+            val (sim, t) = armedSession()
+            val reached = java.util.concurrent.CopyOnWriteArrayList<Int>()
+            sim.imageObserver = { arm, img -> if (arm == Arm.LEFT) reached += img[0].toInt() and 0xFF }
+            if (how == "sleep") t.setLeaseWanted(false)
+            else {
+                t.devProbe("flags", "0x2c")
+                waitUntil(10_000, message = { "the disarm: ${said("local")}" }) { !t.state.value.bind }
+            }
+            assertTrue(!t.state.value.bind, "$how: BIND is out of the state")
+            delay(200)
+            reached.clear()
+            events.clear()
+            val tail = listOf(CfwModes.motionSettle(CfwModes.MOTION_ALL, 1, CfwModes.BIND_ALL, 0, 256))
+            val id = t.submit(wm.damage.core.transport.FlushRequest(List(2) { wm.damage.core.transport.DisplayOp.Fill(Rect(0, 0, 8, 8), Rect(0, 0, 8, 8), 0) }, 0, "LATE", tail = tail))
+            waitUntil(10_000, message = { "$how: the flush is answered: $events" }) { events.any { it is TransportEvent.FlushDone && it.id == id } }
+            val done = events.filterIsInstance<TransportEvent.FlushDone>().first { it.id == id }
+            assertTrue(done.ok, "$how: the flush went: ${done.error}")
+            assertEquals(listOf(8), reached.toList(), "$how: its drawing reached the model, one batch, no tail image")
+            assertTrue(!has("fault", "bind: "), "$how: no `bind` fault: ${notes.filter { it.first == "fault" }}")
+            assertTrue(has("local", "a flush's 1 local-input message(s) not sent: BIND is no longer in force") &&
+                has("local", "its drawing goes without them"), "$how: one `local` note: ${said("local")}")
+            val alone = t.submit(wm.damage.core.transport.FlushRequest(emptyList(), 0, "SETTLE", tail = tail))
+            waitUntil(10_000, message = { "$how: the tail-only flush is answered: $events" }) { events.any { it is TransportEvent.FlushDone && it.id == alone } }
+            assertTrue(events.filterIsInstance<TransportEvent.FlushDone>().first { it.id == alone }.ok, "$how: the tail-only flush completes")
+            delay(200)
+            assertEquals(listOf(8), reached.toList(), "$how: and sends nothing")
+            assertTrue(has("local", "nothing else was in the flush") && !has("fault", "bind: "), "$how: said, no fault: ${said("local")}")
+            t.stop()
+        }
+    }
+
+    /** AM.3: a hand `flags=` naming a bit `FIRMWARE.md` does not define is refused at the phone — no FLAGS_SET, the state
+     *  as it was (AG.2 believes nothing of it), said by a `probe` note; the same set without that bit goes. */
+    @Test
+    fun aFlagsProbeNamingAnUndefinedBitIsRefused_AM3(): Unit = runBlocking {
+        val (_, t) = armedSession()
+        val sets = java.util.concurrent.CopyOnWriteArrayList<Int>()
+        t.onWrite = { a, p -> if (a == Arm.RIGHT && StartRig.damageOp(p) == DamageMsg.OP_FLAGS_SET) sets += controlArg(p); p }
+        t.devProbe("flags", "0x6c")                         // 0x2c and bit 6, a typing error
+        saw("probe", "flags=0x6c not sent: bit(s) 0x40 are not flags")
+        delay(300)
+        assertEquals(emptyList(), sets.toList(), "nothing on the wire")
+        assertEquals(0x3c, t.state.value.flagsInForce, "the state as it was")
+        t.devProbe("flags", "0x2c")
+        waitUntil(10_000, message = { "the shape guard: the defined set goes: $sets" }) { 0x2c in sets }
+        t.stop()
+    }
+
+    /** AM.4: the `Local input` row names the reason when a 64 KiB session keeps DRAW2, and so BIND, off at stage 4 (a new
+     *  process over a stored 64); an unusable `sessionKib=` line is said under its own subject, beside the other lines'. */
+    @Test
+    fun theRowAndTheRecordSayTheirOwnSubjects_AM4(): Unit = runBlocking {
+        Files.writeString(recordFile, "4\nsessionKib=64\n")
+        val t = rig(c2()) { day0 }
+        t.start(full)
+        assertEquals(64 * 1024, t.state.value.cacheSize, said())
+        assertTrue(!t.state.value.bind)
+        assertEquals("off: this session's cache is 64 KiB, too small for DRAW2, which local input needs — a start after a lapsed lease " +
+            "asks for the size again", t.state.value.localInput)
+        t.stop()
+        notes.clear()
+        Files.writeString(recordFile, "2\nsessionKib=999\nbogus=1\n")
+        val t2 = rig(c2()) { day0 }
+        t2.start(full)
+        saw("keeper", "cache size: the stored record's line(s) 'sessionKib=999' could not be used — the last session's size reads as 160 KiB")
+        saw("keeper", "local input: the stored record's line(s) 'bogus=1' could not be used")
+        assertTrue(!has("keeper", "local input: the stored record's line(s) 'sessionKib"), said())
+        t2.stop()
+    }
 }

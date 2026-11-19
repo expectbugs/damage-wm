@@ -215,16 +215,17 @@ class DamageMsgTest {
             }
             fun has(kind: String, text: String) = synchronized(notes) { notes.any { it.first == kind && text in it.second } }
             fun armedNotes() = synchronized(notes) { notes.count { it.first == "keeper" && "armed bit 15 — flags in force 0x8000" in it.second } }
-            fun dropFaults() = synchronized(faults) { faults.count { "bit 8 is not implemented" in it } }
+            fun dropFaults() = synchronized(faults) { faults.count { "bit 2 is not implemented" in it } }
             val full = Zl.encodeCfw(Pack.rect(Gray8(640, 480), Rect(0, 0, 640, 480)))
             t.start(full)
-            t.devProbe("flags", "0x8100")                      // PROBE plus bit 8, which no Phase 1 build implements
+            t.devProbe("flags", "0x8004")                      // PROBE plus DRAW2 (bit 2), which no Phase 1 build implements — a
+            // defined bit: one outside the defined flags is refused at the phone since build C2-FD (decisions AM.3)
             until("the whole set was refused by the build") { has("glass", "lastStatus=2") }
             assertTrue(Arm.entries.all { sim.damageFlags(it) == 0 }, "a refused set changes nothing")
             clock += 200_000L                                   // a lapse on the glasses' clock; no reset
             assertTrue(t.restartSession("test: no reset"))
             t.start(full)
-            until("bit 8 dropped with a fault") { dropFaults() == 1 }
+            until("bit 2 dropped with a fault") { dropFaults() == 1 }
             until("bit 15 armed all the same") { armedNotes() == 1 }
             until("in force on both arms") { Arm.entries.all { sim.damageFlags(it) == DamageMsg.FLAG_PROBE } }
             clock += 200_000L
@@ -346,7 +347,7 @@ class DamageMsgTest {
                 until("RIGHT answered with the flag in force") { has("glass", "R ") && has("glass", "flags=0x8000") }
                 delay(200)
                 assertTrue(synchronized(notes) { notes.none { it.first == "glass" && it.second.startsWith("L ") } }, "LEFT sends nothing")
-                t.devProbe("flags", "0x0100")            // bit 8: no Phase 1 build implements it
+                t.devProbe("flags", "0x0004")            // DRAW2 (bit 2): no Phase 1 build implements it (a defined bit, AM.3)
                 until("an unimplemented bit answers with the register at 2") { has("glass", "lastStatus=2") }
                 assertTrue(Arm.entries.all { sim.damageFlags(it) == DamageMsg.FLAG_PROBE }, "a refused set changes nothing")
                 // a lease lapse on the glasses' clock clears the flags (the texture cache's release points)
