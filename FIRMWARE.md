@@ -1203,8 +1203,9 @@ there.
   unscaled); anchor 0 top · 1 centre (`y + ((h − H) >> 1)`) · 2 bottom (`y + h − H`), h the source's height. On a
   bit-10 build §5.5's "h0/h1 = 0" becomes: h0 and h1 both 0, or both inside 1..2048 and every step's eased H (after
   substitution) inside 1..2048, else 12 (h0 = 0 with h1 ≠ 0, or the reverse, is 12: ruled 2026-11-18); a scaled DRAW's
-  source is a record — `self` with h0/h1 ≠ 0 is 12 (ruled on the fork's first review pass: no use asks for a scaled
-  capture, and no vector compared one) — at a PLAY, a COMMIT and a fire alike; on RETARGET's restart path H is clamped to 1..2048 as levels
+  source is a record — `self` with h0/h1 ≠ 0 is 12 at a PLAY and at a RETARGET whose parameters scale it; a COMMIT
+  and a fire refuse ANY `self` earlier in their order, with 5 (§6.5, §6.2 step 10) (ruled on the fork's first review
+  pass: no use asks for a scaled capture; `v4-scaled-self` pins the four sites) — at a PLAY, a COMMIT and a fire alike; on RETARGET's restart path H is clamped to 1..2048 as levels
   are (R1.10). The wheel's drum (`MOTION.md` W1/W2) and Pulse use it; the icon grow (M2) was cut on 2026-11-18 (Adam:
   no size change in Main's focus motion). `tools/verify.py` step 7 is run again on the grown engine function.
 
@@ -1865,3 +1866,5 @@ phone's keeper applies the hold-back rule before re-arming.
 - 2026-11-18 — §6.5, §6.8, §5.11: from the fork's second review pass — a 115's field 16 and telemetry 37 are left out
   when the cycle counter was not running (the hook starts it at a matched entry, as upstream's timing start does);
   mode 28 named among the modes that read the cache without the engine word.
+- 2026-11-18 — §6.6: a scaled `self` is 12 at a PLAY and a RETARGET, 5 at a COMMIT and a fire (their order refuses
+  any `self` first); two vectors added and filled, `v4-scaled-self` and `v4-param-order` (66 in all).
