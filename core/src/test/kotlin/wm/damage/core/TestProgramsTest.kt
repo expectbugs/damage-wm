@@ -13,10 +13,14 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import wm.damage.core.geom.Layout
+import wm.damage.core.geom.LintError
 import wm.damage.core.geom.Rect
 import wm.damage.core.gfx.Gray8
 import wm.damage.core.gfx.Pack
 import wm.damage.core.gfx.Zl
+import wm.damage.core.motion.MainPan
+import wm.damage.core.motion.Motion
 import wm.damage.core.motion.TestPrograms
 import wm.damage.core.sim.GlassFirmwareSim
 import wm.damage.core.transport.Arm
@@ -24,6 +28,7 @@ import wm.damage.core.transport.SimTransport
 import wm.damage.core.transport.TransportEvent
 import wm.damage.core.wire.CfwModes
 import wm.damage.core.wire.DamageMsg
+import wm.damage.core.wire.Pb
 
 /**
  * Build C1, package D3b (spec §3 D3b, decision A.15): the feel session's test programs and the probe that plays one.
@@ -159,7 +164,7 @@ class TestProgramsTest {
     }
 
     /** Build C1's ruling R1.16, through the shell on the simulator: the probe's PLAY acknowledged, END goes into the
-     *  shell's belief of both lenses, so when `list` and `flip` (each ends on new content) have run to their last step
+     *  shell's belief of both lenses, so when `list`, `flip` and `mainpan2` (each ends on new content) have run to their last step
      *  the agreement check finds END on both sides — no divergence and no keyframe. */
     @Test
     fun theProbesPlayPutsEndIntoBeliefSoListAndFlipEndWithNoDivergence_R1_16(): Unit = runBlocking {
@@ -177,7 +182,7 @@ class TestProgramsTest {
             val keyframes = java.util.concurrent.atomic.AtomicInteger()
             val images = java.util.concurrent.atomic.AtomicInteger()
             sim.imageObserver = { arm, img -> if (arm == Arm.RIGHT) { images.incrementAndGet(); if ((img[0].toInt() and 0x7F) == 6) keyframes.incrementAndGet() } }
-            for ((i, name) in listOf("list", "flip").withIndex()) {
+            for ((i, name) in listOf("list", "flip", "mainpan2").withIndex()) {
                 t.devProbe("motion", name)
                 waitUntil(10_000, message = { "$name played: $notes" }) { notes.any { it.first == "motion" && it.second.startsWith(TestPrograms.PLAYED + name) } }
                 waitUntil(10_000, 10, { "shell did not settle" }) { shell.isQuiescent() }
@@ -199,6 +204,110 @@ class TestProgramsTest {
             shell.stop()
         } finally {
             tmp.toFile().deleteRecursively()
+        }
+    }
+
+    // ------------------------------------------------------------------------------- build C2, stage DM0: Main's pan
+    private val mainPans = TestPrograms.NAMES.filter { it.startsWith("mainpan") }
+
+    /** One lens's picture of Main's nominal [g] under the shell's planes at Global `Depth` 8, as `Compositor.renderTruth`
+     *  makes it: the content vacated, then the list at disparity 8 and the band (the content's full width) at 4, the
+     *  left lens at x − d, the right at x + d. */
+    private fun onLens(g: Gray8, l: Layout, left: Boolean): Gray8 {
+        val out = Gray8(640, 480).also { g.pix.copyInto(it.pix) }
+        out.fillRect(l.content, 0)
+        for (y in l.content.y until l.content.bottom) {
+            val d = if (y in l.lens.y until l.lens.bottom) 4 else 8
+            for (x in l.content.x until l.content.right) out[x + (if (left) -d else d), y] = g[x, y]
+        }
+        return out
+    }
+
+    /** Every track's state before its first step (`FIRMWARE.md` §5.4: its backdrop, then its first segment at j = 0)
+     *  painted onto [pic] — what the lens would show if step 1 drew nothing new. */
+    private fun paintStart(tp: TestPrograms.TestProgram, left: Boolean, pic: Gray8) {
+        for (t in tp.program.tracks) {
+            val area = t.area(left)
+            (t.backdrop as? Motion.Backdrop.Level)?.let { pic.fillRect(area, it.code * 17) }
+            val s = t.segments.first { it.verb != Motion.WAIT }
+            val img = tp.images.getValue(s.src)
+            val x0 = if (t.perLens && !left) s.xR else s.xL
+            for (yy in maxOf(area.y, s.y) until minOf(area.bottom, s.y + img.h))
+                for (xx in maxOf(area.x, x0) until minOf(area.right, x0 + img.w))
+                    pic[xx, yy] = (img.levels[(yy - s.y) * img.w + (xx - x0)] * s.lvl0 / 15) * 17
+        }
+    }
+
+    private fun differ(a: Gray8, b: Gray8, areas: List<Rect>): Int {
+        var n = 0
+        for (r in areas) for (y in r.y until r.bottom) for (x in r.x until r.right) if (Pack.level(a[x, y]) != Pack.level(b[x, y])) n++
+        return n
+    }
+
+    /** Stage DM0: at each of Main's four heights, each `mainpan` program, played on the simulator over each lens's own
+     *  picture of Main (the cursor on row 3, the planes' shifts), starts from Main as the lens shows it — no jump at step
+     *  1 — and ends, every step drawn and none folded, on Main one notch on (row 4 at the cursor) in every area it
+     *  draws; the shadow its PLAY wrote is END painted on that picture ([TestPrograms.TestProgram.paintEnd], what the
+     *  shell puts into belief), and each lens shows it after the last step. `mainpan3` is refused at 288, where Main
+     *  shows two rows each side. */
+    @Test
+    fun mainPanStartsOnMainAndEndsOnMainOneNotchOnAtEveryHeight_DM0() {
+        val c = MainPan.CURSOR
+        for (h in listOf(288, 352, 416, 480)) {
+            val m = MainPan.at(h)
+            for (name in mainPans) {
+                val tp = try { TestPrograms.build(name, CfwModes.CACHE2_MAX, h)!! } catch (e: LintError) {
+                    assertTrue(h == 288 && name == "mainpan3", "$name at $h refused: ${e.message}"); continue
+                }
+                assertEquals(MainPan.T, tp.program.T, "$name at $h: T")
+                val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = 0x1ff; it.clockIsOsTick = true }
+                val before = Arm.entries.associateWith { onLens(m.picture(c), m.layout, it == Arm.LEFT) }
+                for (arm in Arm.entries) {
+                    sim.conformanceLease(arm, true, 1000)
+                    sim.conformanceControl(arm, DamageMsg.OP_CACHE_SIZE, CfwModes.CACHE2_MAX / 1024, 1000)
+                    sim.conformanceControl(arm, DamageMsg.OP_FLAGS_SET, DamageMsg.FLAG_DRAW2 or DamageMsg.FLAG_ENGINE, 1000)
+                    assertTrue(sim.conformanceMessage(arm, CfwModes.keyframe(Zl.encodeCfw(Pack.rect(before.getValue(arm), Rect(0, 0, 640, 480)))), 1000))
+                    for (msg in tp.messages()) assertTrue(sim.conformanceMessage(arm, msg, 2000), "$name at $h, $arm: ${sim.refusalRecord(arm)}")
+                }
+                for (k in 2..MainPan.T) for (arm in Arm.entries) sim.conformanceWake(arm, 2000L + (k - 1) * tp.period)
+                val notifies = sim.conformanceNotifies(Arm.RIGHT).map { DamageMsg.parseMotion(Pb.l(DamageMsg.MOTION_FIELD, it))!! }
+                assertEquals(listOf(MainPan.T.toLong() to 0L), notifies.filter { it.outcome == DamageMsg.OUTCOME_DREW }.map { it.drawn to it.folded },
+                    "$name at $h: RIGHT's notify, every step drawn, none folded: ${notifies.map { it.describe() }}")
+                for (arm in Arm.entries) {
+                    val left = arm == Arm.LEFT
+                    val areas = tp.program.tracks.map { it.area(left) }
+                    val pic = before.getValue(arm)
+                    val start = pic.copy().also { paintStart(tp, left, it) }
+                    assertEquals(0, differ(start, pic, areas), "$name at $h, $arm: px where the start state is not Main as the lens shows it")
+                    val end = pic.copy().also { tp.paintEnd(left, it) }
+                    assertEquals(0, differ(end, onLens(m.picture(c + 1), m.layout, left), areas), "$name at $h, $arm: px where END is not Main one notch on")
+                    val shadow = if (left) sim.left.shadow else sim.right.shadow
+                    var off = 0
+                    for (y in 0 until 480) for (x in 0 until 640) {
+                        val b = shadow[y * 320 + x / 2].toInt() and 0xFF
+                        if (Pack.level(end[x, y]) != (if (x % 2 == 0) b shr 4 else b and 0x0F)) off++
+                    }
+                    assertEquals(0, off, "$name at $h, $arm: px where the shadow the PLAY wrote is not END (the belief)")
+                    assertEquals(sim.shadowCrc32(arm), sim.panelCrc32(arm), "$name at $h, $arm: the lens shows END after the last step")
+                }
+            }
+        }
+    }
+
+    /** Stage DM0: the area a step repaints grows with k — each program's tracks lie side by side (none meets another),
+     *  the band's between the two strips', and `mainpanall` at the staged height covers every row Main shows. */
+    @Test
+    fun mainPanAreasGrowWithKAndAllCoversEveryRowMainShows_DM0() {
+        val l = MainPan.at(MainPan.HEIGHT).layout
+        val areas = mainPans.map { n -> TestPrograms.build(n, CfwModes.CACHE2_MAX)!!.program.tracks.sumOf { it.areaL.w * it.areaL.h } }
+        assertEquals(areas.sorted(), areas, "area per step by program: $areas")
+        val all = TestPrograms.build("mainpanall", CfwModes.CACHE2_MAX)!!.program.tracks
+        assertEquals(listOf(l.lens.y - l.rowsAbove * l.rowH, l.lens.bottom, l.lens.y), all.map { it.areaL.y }, "the strips' and the band's tops")
+        assertEquals(listOf(l.rowsAbove * l.rowH, l.rowsBelow * l.rowH, l.lens.h), all.map { it.areaL.h }, "the strips' and the band's heights")
+        for (n in mainPans) {
+            val t = TestPrograms.build(n, CfwModes.CACHE2_MAX)!!.program.tracks
+            for (left in listOf(true, false)) for (i in t.indices) for (j in t.indices)
+                if (i < j) assertNull(t[i].area(left).intersect(t[j].area(left)), "$n: tracks $i and $j meet")
         }
     }
 }

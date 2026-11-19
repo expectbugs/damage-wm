@@ -51,8 +51,12 @@ class MotionSimTest {
         assertEquals(PLAN_FOREVER, p.plan(1100, listOf(slot(1000, 15, 8, 1)), false, false))
         assertEquals(PLAN_FOREVER, p.plan(1100, listOf(slot(1000, 129, 8, 1)), false, false))
         assertEquals(24L, p.plan(1010, listOf(slot(1000, 200, 8, 0), slot(1000, 34, 8, 1)), false, false))   // P 200 would be due
-        // "never past step T" and the floor of one tick: a time already passed gives 1, never 0 nor ≈ 2³²
-        assertEquals(1L, p.plan(1000, listOf(slot(0, 16, 4, 4)), false, false))
+        // "one with d ≥ T has nothing left to draw and gives no due time" (§5.2) — build C2's HOLD (§6.4) is such a
+        // slot, drawing at d = T: alone it plans nothing; beside another it is ignored. (This line read the clamp
+        // "never past step T" as a due time of t0 + (T−1)·P and the floor of one tick before HOLD existed; with d < T a
+        // passed due time is always "due now", so the floor is §5.2's guard only, reached by no input.)
+        assertEquals(PLAN_FOREVER, p.plan(1000, listOf(slot(0, 16, 4, 4)), false, false))
+        assertEquals(24L, p.plan(1010, listOf(slot(0, 16, 4, 4), slot(1000, 34, 8, 1)), false, false))
         // the wrap: now − t0 unsigned (k = 1 + ⌊240/64⌋ = 4 = d), due t0 + 4·64 = 2³² ≡ 0, signed: 16 ticks ahead
         assertEquals(16L, p.plan(0xFFFFFFF0, listOf(slot(0xFFFFFF00, 64, 8, 4)), false, false))
         // across it: now − t0 = 261 unsigned, k = 5 > 4: due now
