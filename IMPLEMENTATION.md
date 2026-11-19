@@ -1237,6 +1237,27 @@ These mechanisms are load-bearing and easy to break by accident:
   effort per arm. `ShellKeeperTest`, `SilentGlassesTest`.
 - **The keeper narrates into the journal** (`Shell.journalNote`, `keeper` notes, §42) and every host serves
   `/log`; silent checks are counted (`silentChecks`); atlas chunks are `ATLAS` submits with their `via`.
+- **Build C2's phone half (APK 0.77, `HANDOFF.md` §92; nothing of it runs below ladder stage 4 on a build that
+  reports DamageCaps bit 10).** The one gate: `CfwTransportBase.writeImage` → `bindGate` holds back every C2
+  message without BIND in force, and a tail built with BIND in force and written after it left the flag state is
+  dropped with a `local` note (`tailStillBound`). **The session's cache size across a restart of the process**
+  (`LadderRecord.sessionKib`, `storeSessionKib`): before op 5 the stored value becomes min(stored, ask), after the
+  answer the session's size, written only when it changes — each lens that carries a cache holds at least the stored
+  value at any instant the process can end; a new process's first start asks at most it. **A hand `flags=` wish
+  never carries a ladder bit past the stage** (the probe's `beyond`, the start's `withhold` = `ladderBits`, the
+  arming's stage-4 branch), and a set naming an undefined bit is not sent. **The rules** (`local/LocalRules.kt`): one
+  answer per bound slot per batch; every return of a list to the front re-binds it with a DISCARD naming the phone's
+  row; table repair by evidence, one re-send each. **The compositor's COMMIT path** (`assembleWithEnds`,
+  `assembleHolding`): END is applied to the model; a drawing that meets a bound list's areas is held on BOTH lenses
+  (`Touched.sub`, `addPair`) until the adopted motion has ended on the glasses (`deferUntilMs`, `releaseDeferred`,
+  the shell's one wake; `isQuiescent` waits for it); the hold loop has a throwing backstop (`HOLD_ROUNDS_MAX`) that
+  lands in the shell's assemble-error path — it was the one loop on the shell's thread whose end rested on an
+  argument, and the focused read showed the argument false for the per-lens form. **Main as the bound list**
+  (`shell/MainStaging.kt`, `MainBinding.kt`): the strip covers every row; the row key is what the row DRAWS (never a
+  value that moves without the picture — the Music row's progress as its lit blocks); at 256 KiB a second strip slot,
+  written with the base records, takes a row-form change with no withdrawal, released only when no burst is open and
+  the SETs' flush has completed. The instruments: `LocalSequenceFuzzTest` (eight invariants), `desktop --local-check`,
+  `research/mutations-c2.json`.
 
 ## Verification
 

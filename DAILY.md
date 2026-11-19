@@ -376,6 +376,25 @@ from `pre-070/` (anything written after the deploy is lost; downgrades are not b
 `damage-wm-0.69.apk` (an older versionCode does not install over a newer one: it needs an uninstall first, which
 clears the phone's working copy and queue — pull the phone's journal before, `python3 tools/journal_pull.py --live`).
 
+## The firmware ladder and local input (C1 since 11-18; C2's phone half in APK 0.77, `HANDOFF.md` §91, §92)
+
+- **The ladder's stage** is kept on the phone (`c1-stage` in its files) and armed at each session start: 0 nothing ·
+  1 ZWRITE · 2 and the 256 KiB cache · 3 and ENGINE · 4 and BIND (local input; only on a build that reports
+  DamageCaps bit 10 — on the C1 image a stored 4 arms stage 3's bytes). Set by hand only: the replica WebSocket's
+  `{"t":"probe","name":"c1","value":"N"}`; it changes the STORED stage, and the next session start arms it (rest on,
+  then off, starts one). A lens reset after an arming steps the stage down by itself and says so (`holdback`).
+- **The session's cache size** is the stored last one after an app install or restart (since 0.77); it rises to the
+  stage's 256 KiB only at a start after about 103 s with no lease renewal — in daily use the first start after a
+  night in the case.
+- **Other probes** (same door): `local=state` (what is armed and why not), `taps=phone|report|glasses` (also the
+  Settings row, shown on a C2 build), `hold=on|off` and `mainseq=1|2|3|all` (test pictures; both refused at stage 4),
+  `flags=0xNNNN` (refuses a bit `FIRMWARE.md` does not define, and any ladder bit beyond the stage), `rest=on|off`.
+- **After stage 4 is armed, read in the phone's journal:** `local` (reports, answers, what was not sent and why),
+  `mainstage` (what was staged, its bytes, "not staged — why"), `snapback` (with its cause), `tapdrop`, `repair`,
+  and the telemetry fields 35–39. `tools/journal_report.py` prints them.
+- **The flash** is `FORK.md` §7, on his go per lens, never otherwise. The C2 candidate is a file in the fork's
+  `c2` worktree (pin `b3f04453…`); the installed C1 image is kept in `fws/2.2.6.10-cfw-0dab2154/` as the rollback.
+
 ## What was verified vs what awaits glass
 
 The §13 hardware pass ran 2026-08-31 (`HANDOFF.md` §13); the §19 re-shape is

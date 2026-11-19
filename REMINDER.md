@@ -1,8 +1,9 @@
 # Where we are, and what to do next
 
 **The entry point for a fresh session**: what is true now, what is next, where the records are; history lives in
-`HANDOFF.md`. Read `CLAUDE.md` → this file → **`HANDOFF.md` §91** (0.70 and 0.71 deployed, the ladder at stage 3 on
-his word, build C1-Q, Reddit's feed) → §90 (C1-P) → **§89** (S1-3: Feed and Tmux on the PC's record, APK 0.70; its four
+`HANDOFF.md`. Read `CLAUDE.md` → this file → **`HANDOFF.md` §92** (build C2: built, reviewed, a candidate image,
+nothing flashed; Main's scroll judged on glass; APK 0.77 staged) → **§91** (0.70 and 0.71 deployed, the ladder at
+stage 3 on his word, build C1-Q, Reddit's feed) → §90 (C1-P) → **§89** (S1-3: Feed and Tmux on the PC's record, APK 0.70; its four
 reversible calls, 89.5) → **§88** (C1 flashed) → §87 (the flash-readiness review) → **§84** (the
 cleanup L0 and L1; the lead's calls he may reverse, 84.2) → §85 (build C1) → §86 (0.69) → §83 (his lean correction) →
 §80 (S1-1, APK 0.67) → §79 (0.66, the alert watcher W; what is owed on glass) → **`REPLAN.md`** (§17 the order of work
@@ -10,18 +11,27 @@ as corrected; §14 his rulings) → **`CONTRACT.md`** (before any window or inte
 for firmware → earlier by number (§65 Phase 2 and the protocol, §48 the fork). Firmware facts: `CLAIMS.md` →
 `research/fork-reads-2026-09-13.md`.
 
-## Where we are (2026-11-18)
+## Where we are (2026-11-19)
 
 - **The glasses run the fork's C1 build since 2026-11-18** (pin `0dab2154…`, `HANDOFF.md` §88; the image before it
   `48172b62…`). **The C1 ladder is at stage 3 since 15:43 on his word** (§91.3: ZWRITE, the 256 KiB cache, ENGINE;
   flags 0x2c; "enable all the stuff … asap" — one stage per soak is dropped). The first 19 minutes: no fault, no
   refusal, arena 13 at 130 KiB free with the 256 KiB cache. **He watched the engine's four test programs at 16:20
   (`probe motion=list|popover|recede|flip`): "They all looked perfect!"** (§91.7: every step drawn at period 34 ms).
-- **His phone runs APK 0.71 since 16:18; the PC service runs 0.71's tree since 16:07** (§91). 0.70 = S1-3 (Feed and Tmux on the PC's record, a page each, the lane protocol 4) + C1-P (the
-  ladder's stage kept across a restart of the phone's process); 0.71 = 0.70 + C1-Q (the session's cache size when
-  the two lenses' caches may differ).
-- **After a new phone process the session is 160 KiB** until a start that follows about 103 s with no lease renewal
-  (C1-Q's rule, §91.4): the first start after a night in the case, or a rest of two minutes by hand.
+- **Build C2 (local input) is built and reviewed on both sides; NOTHING OF IT IS FLASHED** (§92). The candidate is
+  a file: fork branch `c2` at `5c728bb` (not pushed), pin `b3f04453…`; the flash-readiness review found nothing that
+  should stop a flash (§92.8); the rollback image is kept in `fws/2.2.6.10-cfw-0dab2154/`. **The flash waits for his
+  go, per lens** (`FORK.md` §7: `probe c1=0` and a session start; LEFT first, RIGHT last; no stage 4 before both logs
+  show END status 8 and op 4 status 9; `0x5ff`; then `probe c1=4` and one notch and one tap on Main).
+- **His phone runs APK 0.74 (11-18 21:55) until he installs 0.77, staged 11-19 06:10; the PC service runs 0.77
+  since 06:10** (§92.12). 0.72–0.74 carried the test motions he judged (§92.1); 0.77 = C2's whole phone half, which
+  sends nothing of C2 below ladder stage 4 on a build that reports bit 10 (four readers traced it).
+- **Main's scroll, his verdict on the glasses (§92.1):** only the whole list moving together looked good — "what
+  moves, moves together" binds every later motion; the period is chosen so a step fits (P 42 ticks, T 5 at height
+  352).
+- **The session's cache size:** 256 KiB at stage 2 and above; since 0.77 the last session's size is kept across a
+  restart of the phone's process (§92.6), so an install no longer drops a 256 KiB session to 160 (the first session
+  after 0.77's own install still asks 160; the first start after the next night in the case asks 256).
 - **Reddit in Feed is stale since 11-17 11:45** (§91.5): every subreddit feed answers "Not Found" to the PC, which is
   the only fetcher since 0.70. Open.
 - No browser of his is approved yet; he has not said he has used the pages, or looked at Feed and Tmux on 0.70.
@@ -35,23 +45,30 @@ for firmware → earlier by number (§65 Phase 2 and the protocol, §48 the fork
 | S1-3 (Feed, Tmux) + C1-P (the stored stage) | `main` | **deployed: APK 0.70 installed 11-18 14:29** |
 | C1-Q (the session's cache size) | `main` | **deployed: APK 0.71 installed 11-18 16:18** |
 | S1-4 (Music) | a spec only | five questions are his (below) |
-| C2 (the second flash: local input) | its contract, `FIRMWARE.md` §6 | **in build since 11-18** (his calls made, §91.8): the contract's text is final for the build; the checker's step 8 and the build spec are in work; then the two lanes |
+| the test motions (Main's rows staged, `hold`, `mainseq`) | `main` | deployed: APK 0.72 (18:54) and 0.74 (21:55) on 11-18; judged by him (§92.1) |
+| C2 (the second flash: local input) | fork `c2` `5c728bb` (pin `b3f04453…`, a file); its phone half on `main` | **built, two review passes a side, a focused read, the flash-readiness review; APK 0.77 staged 11-19; NOT flashed — his go per lens** |
 
-The counts of APK 0.71's tree (simulator; §91.4): core 1,572 tests · desktop 13 classes / 52 · `--selfcheck` 486 PASS
-×2 · snapshot 94 renders + 66 in `phone/`, 0 px outside the mask · the 51 conformance vectors in both forms · node
-200 · lint 0 · wiring 79 ok.
+The counts of APK 0.77's tree (simulator; §92.11): core 230 classes / 1,762 tests · desktop 13 classes / 52 ·
+`--selfcheck` 486 PASS ×2 · snapshot 94 renders + 66 in `phone/`, 0 px outside the mask · `--local-check` 56 cases ·
+the 66 conformance vectors in both forms · node 200 · lint 0 · wiring 79 ok. The fork at `c2`: `tools/verify.py` 38
+PASS, the self-test 78 of 78, host tests 310, its sweep 279 caught of 318. The phone half's mutation list:
+`research/mutations-c2.json`, 165 rows, each watched to fail in its stage (the whole list's sweep on the final
+tree was still running on 11-19 06:15; its result goes here and into §92.11).
 The judge's standing base is `private/build070/base-070/` (mask `base-070-mask/`). The briefs, rulings and reports of
-every stage are in the gitignored `private/build068` … `build071`, `lean`, `c1-design`, `c2-design`;
+every stage are in the gitignored `private/build068` … `build072` (C2: `build072/C2-decisions.md`, parts A–AS),
+`lean`, `c1-design`, `c2-design`;
 **`private/RESUME.md` is the working handoff**.
 
 ## Next
 
 The order is `REPLAN.md` §17.3. **Every run: its size and what he gets for it first, both meters read before and
 after** (§17.6). New firmware features are armed and tested at once on his go, not over days (§91.3).
-1. **C2's build** (§91.9): rule the spec's open questions, then the fork lane (F1, F2 after the checker's stage)
-   and the Damage lane (the vectors and the fuzz, the simulator, the phone's half with the sequence fuzz, Main's
-   strip and programs) apart, the meeting, the reviews, the instruments; then its flash on his go per lens and
-   stage 4 armed the same day.
+1. **C2's flash, on his go per lens, with 0.77 on his phone first** (§92.13; `FORK.md` §7), stage 4 armed the same
+   day, then the trial: the feel of Main's scroll and tap; fields 16, 33, 34, 37, 38; `tapdrop`, `snapback`; the 114
+   and 115 gaps; LEFT's first step on 240 fps video; a gesture's WAIT right after a session start (each staged strip
+   is one flush of about 20 KB — two windows of about 1.3 s, modeled; the cure, a record split across flushes, is the
+   first build after if it is felt). The `mainseq` probe leaves in the first build after stage 4 is armed.
+   **Recommended to him, not built:** a liveness supervisor for the phone's shell loop (§92.10).
 2. **C1's numbers as he uses the glasses** (the 114 gap counts, field 33 under a working shell, the round trip's
    p90) feed C2's constants (`FIRMWARE.md` §6.9).
 3. **After C2: the motion kit's shell part** (`REPLAN.md` §17.3 item 6), before S2.

@@ -9040,3 +9040,121 @@ stage armed by hand for a soak would have returned to 0 at the next install with
    as the sequence fuzz's sixth and seventh invariants (`FIRMWARE.md` §6, merged); the offline checker's step 8 is
    being corrected on the fork's `c2` (tools only); the build spec is being written (`private/build072/`).
 
+## 92. Build C2: local input — built, reviewed, a candidate image; Main's scroll judged on glass; APK 0.72–0.77 (2026-11-18/19)
+
+Sim or glass, per item: "on the glasses" is the phone's journal of that session; everything else is the simulator and
+the host on the PC. **Nothing of C2 is flashed.** The candidate is a file: fork branch `c2` at `5c728bb`, pin
+`b3f044539d62a97b37a92686ecf754359ed883b67da87f1d1aac982d61bf611d`. The build's rulings (parts A–AM; later parts win),
+briefs, reports and reviews are under the gitignored `private/build072/`; the contract is `FIRMWARE.md` §6.
+
+1. **Main's scroll as engine-played test motions, on the glasses (APK 0.72, 18:54; 0.74, 21:55).** 0.72 staged
+   Main's rows as block text and played three widths of the moving area by `probe motion=mainpanN` at period 34:
+   18.6 ms a step for the band and one row each side (76,544 px), 24.5 ms for two rows (114,688 px), 30.4–30.8 ms
+   with one step of six folded for the whole list (152,832 px). He could not judge single 0.2 s plays between two
+   picture swaps ("it's all so quick"), and asked for sequences: six notches up quickly, 2 s, six down one at a
+   time, per width. Built for it: the `hold=on|off` shell probe (no frame submitted while held; released by any
+   input event or a session start; APK 0.73, never staged) and `MainStaging` + the probe `mainseq=1|2|3|all` (Main's
+   real rows with real text, panned by PLAY parameters; APK 0.74). **Measured with real text (0.74, 21:56):** one
+   row each side 25.3–28.5 ms a step, none folded; two rows 31.2–34.4 ms, one step of six folded at every notch;
+   the whole list 37.2–39.4 ms, one folded at every notch — real text costs 7–8 ms a step more than block rows.
+   **His verdict (22:02): "Both the first and second tests looked janky and disjointed, due to not everything on the
+   screen moving together. Only the third test looked good, but it did look good."** Ruled: the strip covers every
+   row Main shows and the period is chosen so a step fits (by the fit, step ms ≈ 14.4 + 0.156 per 1,000 area px:
+   P 36/42/48/54 ticks and T 6/5/4/4 at heights 288/352/416/480); **what moves, moves together** is the rule for
+   every later motion. The lead's earlier ruling for two rows each side rested on block text and is withdrawn.
+2. **The bus watcher's `change` rule (22:45, his correction):** "more than 3" is > 3; his tank sensors step by 3 and
+   flicker between neighbouring steps. The four tank rules went from `at: 3` to `at: 4` in his rules file; `DAILY.md`
+   says the comparison (`at` or more).
+3. **The fork's side of C2** (`~/damage-cfw`, branch `c2`; not pushed): the input hook at `0x443FB0`, image mode 27
+   (lists and bindings), the local instance, the 115 report, COMMIT / DISCARD / SETTLE (mode 26 subs 3–5), mode 28,
+   the vertical-scale draw, telemetry 35–39, DamageCaps bit 10. Two review passes and their fix rounds; LEFT's page
+   test settled at instruction level (it reads 0xE0 whenever RIGHT's does; `research/rwinit.py` recovers the stock
+   image's initialised RAM); the cycle counter is turned on at a matched entry through upstream's own helper.
+   **Numbers on the final tree:** `tools/verify.py` 38 PASS 0 FAIL, the self-test 78 of 78, host tests 310, the
+   mutation sweep 279 caught of 318 with a reason for each of the rest.
+4. **The two models agree.** The simulator's model of C2 (`sim/BindSim.kt`, `MotionSim.kt`) was built apart from the
+   C and compared on conformance vectors the fork's runner filled: 66 vectors (3,448 lens-steps) and both `--c2`
+   fuzz seeds at 0 mismatches on the final fork, after eleven points the contract left open were ruled into its text
+   first.
+5. **The phone's half** (merged in stages; `main`): the wire and the ladder's stage 4 (`CfwTransportBase`,
+   `LadderRecord`, `CfwModes`, `DamageMsg`), the rules (`local/LocalRules.kt`, `TableRepair.kt`, `BoundList.kt`), the
+   compositor's COMMIT path (`assembleWithEnds`: END applied to the model, the cells that meet a bound list's areas
+   held back; no merge of two rects into a bound list's area), Main as the bound list (`shell/MainStaging.kt`,
+   `MainBinding.kt`), the `Taps` and `Local input` rows, `desktop --local-check`. Its instruments: the sequence fuzz
+   (2,000 sequences, eight invariants, seeded cases) and the stages' mutation rows.
+6. **His three questions about the cache (2026-11-19, about 00:45–01:00) and what they changed.** "Is the 160kb a
+   hard cap or is there room to use a bigger cache size?" — no: the installed firmware takes 256 KiB (in use on
+   11-18 with 130 KiB of that arena free); the phone asked 160 only after each app restart, by build C1-Q's rule.
+   "Why does the 160-at-start rule exist?" — a new process did not know what size each lens still held. Ruled from
+   it: **the last session's size is kept on the phone's storage** (`LadderRecord.sessionKib`): before op 5 the
+   stored value becomes min(stored, ask), after the answer the session's size, written only when it changes; a new
+   process's first start asks at most it (`FIRMWARE.md` §4, §5.8). And **at 256 KiB Main's region holds a second
+   strip**, so a row whose text changes is switched with no unbound moment (§6.7 P9).
+7. **Two general review passes of the phone's half, two readers each, and their fix rounds** (the protocol's two;
+   no third). Both passes, both areas: **nothing found that changes his use before the flash** — below ladder stage
+   4, and on the installed C1 image at any stored stage, the phone sends what 0.74 sends, with one ruled exception
+   shown by a reader's test at his stage 3: op 5's argument at a new process's first start (256 after a 256 KiB
+   session, where 0.74 asks 160). What the passes found was for stage 4: a hand `flags=` wish that kept BIND through
+   a hold-back (three sites, the third found by the second pass in a branch the first fix round's sweep called
+   safe); a notice not treated as a cover; a list returning to the front without naming the phone's row (now a
+   DISCARD in the batch that binds it again — a wire fact, in the start pins); an adopted report skipping a
+   gesture's bookkeeping; a keyframe with a tail judged by one ack; the batch count's room for the tail; **and
+   three defects in mechanisms the lead had ruled in the first fix round** — the row key carrying Music's playback
+   position (Main never staged while a track played), the held cells' wait dropping a held span's cells outside the
+   areas, a strip switch released when its SETs were built. All fixed at their class with pins watched to fail.
+8. **The flash-readiness review** (two readers, the built images compared at instruction level; `FORK.md` §7 and
+   `FIRMWARE.md` §6.2 carry its points): **nothing that should stop a flash.** Both pins reproduce from `git archive`
+   copies; the whole difference from the installed image is 6 header fields, 15 call-site words and the appended
+   block (13,056 B more); the one new stock site `0x443FB0` is reached only for input messages and passes through
+   when there is no context — not on a start path; nothing new runs at start; the flash-receive ranges and the boot
+   program are byte-identical; with BIND not armed a touch runs about twenty more instructions and writes only the
+   stack; BIND is clear after any restart of a lens and C2 writes no storage, so a fault on the armed path cannot
+   repeat by itself (the phone's stage-4 hold-back) and the receiver needs no gesture. For the sitting: `probe c1=0`
+   then a session start; **LEFT first, RIGHT last; no stage 4 before both logs show END status 8 and op 4 status 9**
+   (the phone learns the build from RIGHT alone); `0x5ff`; the first touches at stage 0; the self-test; then at
+   stage 4 one notch and one tap, their 115s, the uptime unbroken. The installed image is kept as the rollback in
+   `fws/2.2.6.10-cfw-0dab2154/`. Listed for after the flash: `tools/verify.py` does not check the preamble's CRC-32
+   and sorts patches by their description (the reader's own checks cover this image).
+9. **The focused read (one fresh reader, six mechanisms invented during the build, each attacked) found the one
+   serious defect of the phone's half, after both general passes had read past it:** the compositor's hold loop
+   (`assembleHolding`, the cells held back behind a COMMIT) could repeat without end — a drawing held on the lens
+   whose rect met the list's areas only, and planned again every round from the other lens's cells; Main's per-lens
+   geometry at his Depth allows it. Shown on Main's real geometry by a component test (four of four cases); reached
+   in use by a tap inside the wait after an adopted notch that opens a window, the menu, the keyboard or the
+   switcher (read, not run on glass). The shell's loop would have stopped until the app was restarted. Stage 4 only.
+   Fixed in the last round: a drawing that meets the areas is held on BOTH lenses (each drawing's two lens rects
+   carry one id), the comment's argument for the loop's end is now true of the code, and a backstop of 32 rounds
+   throws into the shell's assemble-error path (a keyframe and a notice) instead of stalling; every other loop on the
+   shell's thread was listed — this was the only one whose end rested on an argument. APK 0.77.
+   The other five (the second strip, the table repair, the row key, a dropped tail with a COMMIT, the text records
+   across the loop's rounds) were not broken.
+10. **Not built, by ruling** (`private/build072/C2-decisions.md` has each with its reason): a batch lost on RIGHT
+    alone; a SET refused on LEFT alone after a strip switch; the held cells' text records across batches (they go as
+    pixels after the motion); a staged record split across flushes (each strip is one flush of about 20 KB: two
+    windows of about 1.3 s after a session start in which a gesture's first flush waits — modeled; the trial reads
+    it; the cure is named); a record write that fails on the phone's storage (said by a note and a fault); the hand
+    probes' edges (`cachesize=`, a lease the PC wrote, CACHE_KEEP by hand); C1's fields 9/34 reading 0 µs when stock
+    stops the cycle counter; `tools/verify.py`'s two gaps (the preamble's CRC-32; the sort key); the `mainseq` probe
+    stays until C2 is armed and leaves in the first build after. **Recommended to Adam, not built:** a liveness
+    supervisor for the phone's shell loop.
+11. **The instruments and the last gates (simulator, the PC).** The whole battery on the final tree `7ce7ab7`
+    (APK 0.77): core 230 classes / 1,762 tests / 0 failures, none from cache · desktop 13 classes / 52 · `--selfcheck`
+    486 PASS twice · the snapshot 94 + 66 renders, 0 px outside the mask · `--local-check` 56 cases hold ·
+    `--motion-check` · the four content checks · node 200 · lint 0 · wiring 79 ok · 66 conformance vectors in both
+    forms. The rules' sequence fuzz: 2,000 of 2,000 on the last round's tree. **The mutation list of the phone's half
+    is `research/mutations-c2.json`, 165 rows** (every stage's rows joined); each row was watched to fail in its
+    stage; the sweep of the whole list on the final tree was still running when this was written — its numbers are
+    in `REMINDER.md` when it ends. One test failed once in a whole-suite run with other lanes beside it
+    (`SeamSessionTest`, the dev seam) and has not failed again (twenty real runs under CPU load clean): listed, not
+    explained. A lesson for the record: twenty repeat runs of a test class answered `FROM-CACHE` after the first
+    (the script lacked `--no-build-cache`) and were reported as twenty before the next stage caught it.
+12. **Deployed.** The PC service runs 0.77 since 2026-11-19 06:10; **APK 0.77 is staged** (0.75 and 0.76 were built
+    and never installed; his phone runs 0.74 until he installs). On today's glasses 0.77 sends what 0.74 sends but
+    for item 6's op 5 argument: the first session after the install asks 160 KiB (0.74 left no stored size), the
+    first start after the next lapse asks 256, and installs after that keep it. Backups of 0.74:
+    `~/.damage/backup/damage-0.74-293f750.jar`, `damage-wm-0.74.apk`.
+13. **Next: the sitting, on his go per lens** (`FORK.md` §7 as amended; item 8's list), stage 4 armed the same day
+    (`probe c1=4`), then the trial: the feel of Main's scroll and tap; fields 16, 33, 34, 37, 38; the `tapdrop` and
+    `snapback` counts; the 114 and 115 gaps; LEFT's first step on 240 fps video; the `mainstage` notes and a
+    gesture's WAIT right after a session start (item 10's two windows). After C2: the motion kit's shell part
+    (`REPLAN.md` §17.3 item 6).
