@@ -1,0 +1,2982 @@
+[
+ {
+  "id": "S-after-lease",
+  "file": "sim/BindSim.kt",
+  "edits": [
+   [
+    "        seq = s\n        matched++\n",
+    "        matched++\n"
+   ],
+   [
+    "        motion.claim()\n        val report",
+    "        seq = s\n        motion.claim()\n        val report"
+   ]
+  ],
+  "tests": [
+   "*BindSimTest*"
+  ],
+  "expect": [
+   "sIsTakenAtTheEntryMatchWhateverFollowsOnBothLenses_6_2"
+  ],
+  "note": "6.2 step 4: S taken after the lease and the claim (the old place)",
+  "from": "DS"
+ },
+ {
+  "id": "empty-entries-only",
+  "file": "sim/BindSim.kt",
+  "edits": [
+   [
+    "                for (l in lists) { l.items = NONE; l.count = 0; l.cursor = 0; l.pitch = 0; l.mark = 0; l.newest = null }\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*BindSimTest*"
+  ],
+  "expect": [
+   "theEmptyTableAfterAReleasePoint_6_3"
+  ],
+  "note": "6.3: the empty table clears entries only",
+  "from": "DS"
+ },
+ {
+  "id": "live-kept-at-release",
+  "file": "sim/BindSim.kt",
+  "edits": [
+   [
+    "fun releasePoint() { live = false; seq = 0 }",
+    "fun releasePoint() { seq = 0 }"
+   ]
+  ],
+  "tests": [
+   "*BindSimTest*"
+  ],
+  "expect": [
+   "theEmptyTableAfterAReleasePoint_6_3"
+  ],
+  "note": "6.3: bind_live not cleared at a release point",
+  "from": "DS"
+ },
+ {
+  "id": "S-kept-at-release",
+  "file": "sim/BindSim.kt",
+  "edits": [
+   [
+    "fun releasePoint() { live = false; seq = 0 }",
+    "fun releasePoint() { live = false }"
+   ]
+  ],
+  "tests": [
+   "*BindSimTest*"
+  ],
+  "expect": [
+   "theEmptyTableAfterAReleasePoint_6_3"
+  ],
+  "note": "6.3: S not cleared at a release point (telemetry 36)",
+  "from": "DS"
+ },
+ {
+  "id": "LIST-refused-out-of-range",
+  "file": "sim/BindSim.kt",
+  "edits": [
+   [
+    "if (list >= LISTS || count !in 1..COUNT_MAX) REF_VALUE",
+    "if (list >= LISTS || count !in 1..COUNT_MAX || (lists[list].cursor + MotionSim.s16(src, 7)) !in 0 until count) REF_VALUE"
+   ]
+  ],
+  "tests": [
+   "*BindSimTest*"
+  ],
+  "expect": [
+   "listIsTotalAndALostCursorStaysLostUntilDiscardOrSettle_6_3"
+  ],
+  "note": "6.3: LIST refused instead of lost",
+  "from": "DS"
+ },
+ {
+  "id": "DISCARD-not-clearing-lost",
+  "file": "sim/BindSim.kt",
+  "edits": [
+   [
+    "{ if (list != ALL) lists[list].cursor = cursor }",
+    "{ if (list != ALL && lists[list].cursor != LOST) lists[list].cursor = cursor }"
+   ]
+  ],
+  "tests": [
+   "*BindSimTest*"
+  ],
+  "expect": [
+   "listIsTotalAndALostCursorStaysLostUntilDiscardOrSettle_6_3"
+  ],
+  "note": "6.5: DISCARD/SETTLE's cursor does not clear lost",
+  "from": "DS"
+ },
+ {
+  "id": "COMMIT-cursor-always",
+  "file": "sim/BindSim.kt",
+  "edits": [
+   [
+    "{ if (it.newest == s) it.cursor = cursor }",
+    "{ it.cursor = cursor }"
+   ]
+  ],
+  "tests": [
+   "*BindSimTest*"
+  ],
+  "expect": [
+   "commitWritesTheCursorOnlyForTheNewestFire_6_5"
+  ],
+  "note": "6.5: COMMIT's cursor written regardless of newest S",
+  "from": "DS"
+ },
+ {
+  "id": "COMMIT-closes-newer",
+  "file": "sim/MotionSim.kt",
+  "edits": [
+   [
+    "} else if (o != null && !(o.local && seqAfter(o.tag, s) > 0)) close(slot, uptime)",
+    "} else if (o != null) close(slot, uptime)"
+   ]
+  ],
+  "tests": [
+   "*BindSimTest*"
+  ],
+  "expect": [
+   "commitWritesTheCursorOnlyForTheNewestFire_6_5"
+  ],
+  "note": "6.5: a local tagged newer closed by COMMIT",
+  "from": "DS"
+ },
+ {
+  "id": "DISCARD-unsigned",
+  "file": "sim/MotionSim.kt",
+  "edits": [
+   [
+    "if (o.local && seqAfter(o.tag, s) >= 0) close(i, uptime)",
+    "if (o.local && ((o.tag - s) and 0xFFFF) >= 0) close(i, uptime)"
+   ]
+  ],
+  "tests": [
+   "*BindSimTest*"
+  ],
+  "expect": [
+   "discardStopsLocalsAtOrAfterSAcrossTheWrap_6_5"
+  ],
+  "note": "6.5: DISCARD's compare unsigned",
+  "from": "DS"
+ },
+ {
+  "id": "DISCARD-strict",
+  "file": "sim/MotionSim.kt",
+  "edits": [
+   [
+    "if (o.local && seqAfter(o.tag, s) >= 0) close(i, uptime)",
+    "if (o.local && seqAfter(o.tag, s) > 0) close(i, uptime)"
+   ]
+  ],
+  "tests": [
+   "*BindSimTest*"
+  ],
+  "expect": [
+   "discardStopsLocalsAtOrAfterSAcrossTheWrap_6_5"
+  ],
+  "note": "6.5: DISCARD's >= 0 -> > 0",
+  "from": "DS"
+ },
+ {
+  "id": "SETTLE-age-unmasked",
+  "file": "sim/MotionSim.kt",
+  "edits": [
+   [
+    "if (((tick - (o.t0 + (o.T - 1).toLong() * o.period)) and U32) < age) continue",
+    "if ((tick - (o.t0 + (o.T - 1).toLong() * o.period)) < age) continue"
+   ]
+  ],
+  "tests": [
+   "*BindSimTest*"
+  ],
+  "expect": [
+   "settlesAgeIsAnUnsignedDifferenceAcrossTheWrap_6_5"
+  ],
+  "note": "6.5: SETTLE's age not an unsigned 32-bit difference",
+  "from": "DS"
+ },
+ {
+  "id": "SETTLE-cursor-while-drawing",
+  "file": "sim/GlassFirmwareSim.kt",
+  "edits": [
+   [
+    "if (!e.localDrawingFrom(slot, s)) c.bind.setCursor(list, cursor)",
+    "c.bind.setCursor(list, cursor)"
+   ]
+  ],
+  "tests": [
+   "*BindSimTest*"
+  ],
+  "expect": [
+   "settlesAgeIsAnUnsignedDifferenceAcrossTheWrap_6_5"
+  ],
+  "note": "6.5: SETTLE sets the cursor while a local still draws",
+  "from": "DS"
+ },
+ {
+  "id": "HOLD-owes-114",
+  "file": "sim/MotionSim.kt",
+  "edits": [
+   [
+    "if (k == o.T && !o.local) {",
+    "if (k == o.T) {"
+   ]
+  ],
+  "tests": [
+   "*BindSimTest*"
+  ],
+  "expect": [
+   "holdStaysDrawingAtStepTOwesNoBodyAndIsRedrawnByAPhoneFrame_6_4"
+  ],
+  "note": "6.4: HOLD owing a 114 at step T",
+  "from": "DS"
+ },
+ {
+  "id": "HOLD-turns-done",
+  "file": "sim/MotionSim.kt",
+  "edits": [
+   [
+    "            o.d = k\n",
+    "            o.d = k\n            if (k == o.T && o.local) o.drawing = false\n"
+   ]
+  ],
+  "tests": [
+   "*BindSimTest*"
+  ],
+  "expect": [
+   "holdStaysDrawingAtStepTOwesNoBodyAndIsRedrawnByAPhoneFrame_6_4"
+  ],
+  "note": "6.4: HOLD turned DONE at step T",
+  "from": "DS"
+ },
+ {
+  "id": "plan-no-d-ge-T-skip",
+  "file": "sim/MotionSim.kt",
+  "edits": [
+   [
+    "s.period !in P_MIN..P_MAX || s.d >= s.T) continue",
+    "s.period !in P_MIN..P_MAX) continue"
+   ]
+  ],
+  "tests": [
+   "*BindSimTest*"
+  ],
+  "expect": [
+   "holdStaysDrawingAtStepTOwesNoBodyAndIsRedrawnByAPhoneFrame_6_4"
+  ],
+  "note": "5.2: the plan's d >= T skip",
+  "from": "DS"
+ },
+ {
+  "id": "stock-path-clears-local",
+  "file": "sim/MotionSim.kt",
+  "edits": [
+   [
+    "if (!draws) { for (o in slots) if (o != null) o.drawing = false; return Hook(false, false) }",
+    "if (!draws) { for (o in slots) if (o != null) { o.drawing = false; o.local = false }; return Hook(false, false) }"
+   ]
+  ],
+  "tests": [
+   "*BindSimTest*"
+  ],
+  "expect": [
+   "holdStaysDrawingAtStepTOwesNoBodyAndIsRedrawnByAPhoneFrame_6_4"
+  ],
+  "note": "6.4: the stock path clearing the local flag",
+  "from": "DS"
+ },
+ {
+  "id": "same-slot-close-sends-114",
+  "file": "sim/MotionSim.kt",
+  "edits": [
+   [
+    "if (i == fireSlot && o.local) { slots[i] = null; staleMarkOwed = true } else close(i, uptime)",
+    "close(i, uptime)"
+   ]
+  ],
+  "tests": [
+   "*BindSimTest*"
+  ],
+  "expect": [
+   "aFireClosesItsOwnSlotsLocalSilentlyAndAnotherSlotsWithItsBody_6_2"
+  ],
+  "note": "6.2 step 11: the same-slot local close sending a 114",
+  "from": "DS"
+ },
+ {
+  "id": "17-done-not-counted",
+  "file": "sim/BindSim.kt",
+  "edits": [
+   [
+    "if (e.tap && set.any { motion.slots[it]!!.local })",
+    "if (e.tap && set.any { motion.slots[it]!!.let { o -> o.local && o.drawing } })"
+   ]
+  ],
+  "tests": [
+   "*BindSimTest*"
+  ],
+  "expect": [
+   "aDoneLocalRefusesATapSeventeenAndDiscardEmptiesItSilently_6_2"
+  ],
+  "note": "6.2 step 11: a done local not counted for 17 (a tap with a program)",
+  "from": "DS"
+ },
+ {
+  "id": "17-done-not-counted-report-only",
+  "file": "sim/BindSim.kt",
+  "edits": [
+   [
+    "if (motion.slots[e.slot]?.local == true) return body(OUTCOME_REFUSED, REF_LOCAL)",
+    "if (motion.slots[e.slot]?.let { it.local && it.drawing } == true) return body(OUTCOME_REFUSED, REF_LOCAL)"
+   ]
+  ],
+  "tests": [
+   "*BindSimTest*"
+  ],
+  "expect": [
+   "aDoneLocalRefusesATapSeventeenAndDiscardEmptiesItSilently_6_2"
+  ],
+  "note": "6.2: the report-only fire's 17 not counting a done local",
+  "from": "DS"
+ },
+ {
+  "id": "17-removed",
+  "file": "sim/BindSim.kt",
+  "edits": [
+   [
+    "if (e.tap && set.any { motion.slots[it]!!.local }) return body(OUTCOME_REFUSED, REF_LOCAL, p)\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*BindSimTest*"
+  ],
+  "expect": [
+   "aDoneLocalRefusesATapSeventeenAndDiscardEmptiesItSilently_6_2"
+  ],
+  "note": "6.2 step 11: the tap's 17 test removed",
+  "from": "DS"
+ },
+ {
+  "id": "report-only-sets-newest",
+  "file": "sim/BindSim.kt",
+  "edits": [
+   [
+    "            return body(OUTCOME_DREW)\n        }",
+    "            l.newest = s\n            return body(OUTCOME_DREW)\n        }"
+   ]
+  ],
+  "tests": [
+   "*BindSimTest*"
+  ],
+  "expect": [
+   "theReportOnlyFireDrawsNothingAndLeavesTheList_6_2"
+  ],
+  "note": "6.2: the report-only fire writing the newest S",
+  "from": "DS"
+ },
+ {
+  "id": "kind2-no-s16-check",
+  "file": "sim/BindSim.kt",
+  "edits": [
+   [
+    "if (v !in -32768..32767) return body(OUTCOME_REFUSED, REF_VALUE)",
+    ""
+   ]
+  ],
+  "tests": [
+   "*BindSimTest*"
+  ],
+  "expect": [
+   "theParametersAndTheStagedEdge_6_2"
+  ],
+  "note": "6.2 step 9: kind 2 outside s16 not refused 12",
+  "from": "DS"
+ },
+ {
+  "id": "kind1-no-edge",
+  "file": "sim/BindSim.kt",
+  "edits": [
+   [
+    "if (l.items == NONE || k !in 0 until l.count) return body(OUTCOME_EDGE)",
+    "if (l.items == NONE) return body(OUTCOME_EDGE)"
+   ]
+  ],
+  "tests": [
+   "*BindSimTest*"
+  ],
+  "expect": [
+   "theParametersAndTheStagedEdge_6_2"
+  ],
+  "note": "6.2 step 9: a kind-1 item past the list not an edge",
+  "from": "DS"
+ },
+ {
+  "id": "row-map-2r",
+  "file": "sim/MotionSim.kt",
+  "edits": [
+   [
+    "(((2L * r + 1) * h) / (2L * hOut))",
+    "(((2L * r) * h) / (2L * hOut))"
+   ]
+  ],
+  "tests": [
+   "*BindSimTest*"
+  ],
+  "expect": [
+   "mode28sRowMapAtHOneHAndTwoH_6_6"
+  ],
+  "note": "6.6: mode 28's row map 2r+1 -> 2r",
+  "from": "DS"
+ },
+ {
+  "id": "centre-anchor-no-halving",
+  "file": "sim/MotionSim.kt",
+  "edits": [
+   [
+    "ANCHOR_CENTRE -> y + ((h - hOut) shr 1)",
+    "ANCHOR_CENTRE -> y + (h - hOut)"
+   ]
+  ],
+  "tests": [
+   "*BindSimTest*"
+  ],
+  "expect": [
+   "aScaledDrawTakesItsAnchorAndTheHRule_6_6"
+  ],
+  "note": "6.6: the centre anchor's >> 1 dropped",
+  "from": "DS"
+ },
+ {
+  "id": "H-rule-removed",
+  "file": "sim/MotionSim.kt",
+  "edits": [
+   [
+    "if (s.isScaled && (1..s.steps).any { eased(s.h0, s.h1 - s.h0, s.e[it]) !in 1..H_MAX }) return false",
+    ""
+   ]
+  ],
+  "tests": [
+   "*BindSimTest*"
+  ],
+  "expect": [
+   "aScaledDrawTakesItsAnchorAndTheHRule_6_6"
+  ],
+  "note": "6.6: every step's eased H not held to 1..2048",
+  "from": "DS"
+ },
+ {
+  "id": "C1-h-rule-dropped",
+  "file": "sim/MotionSim.kt",
+  "edits": [
+   [
+    "(s.verb != DRAW || !scaled())",
+    "(s.verb != DRAW)"
+   ]
+  ],
+  "tests": [
+   "*BindSimTest*"
+  ],
+  "expect": [
+   "aScaledDrawTakesItsAnchorAndTheHRule_6_6"
+  ],
+  "note": "5.4: h0/h1 taken on a build without bit 10",
+  "from": "DS"
+ },
+ {
+  "id": "mode27-no-ENGINE",
+  "file": "sim/BindSim.kt",
+  "edits": [
+   [
+    "            if (f and FLAG_ENGINE == 0) return REF_UNARMED         // ruled 2026-11-18 (C2-decisions G.2): ENGINE, then BIND\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*BindSimTest*"
+  ],
+  "expect": [
+   "mode27sCheckOrder_6_3"
+  ],
+  "note": "6.3 as ruled (G.2): mode 27 refused 15 with ENGINE clear",
+  "from": "DS"
+ },
+ {
+  "id": "mode27-no-BIND",
+  "file": "sim/BindSim.kt",
+  "edits": [
+   [
+    "            if (f and FLAG_BIND == 0) return REF_UNARMED\n            fun u8",
+    "            fun u8"
+   ]
+  ],
+  "tests": [
+   "*BindSimTest*"
+  ],
+  "expect": [
+   "mode27sCheckOrder_6_3"
+  ],
+  "note": "6.3: mode 27 refused 15 with BIND clear",
+  "from": "DS"
+ },
+ {
+  "id": "I1-commit-reads-held-list",
+  "file": "sim/BindSim.kt",
+  "edits": [
+   [
+    "list == ALL || (live && cursor < lists[list].count)",
+    "list == ALL || cursor < lists[list].count"
+   ]
+  ],
+  "tests": [
+   "*BindSimTest*"
+  ],
+  "expect": [
+   "theTableIsEmptyForEveryReaderWhileBindLiveIsZero_6_3"
+  ],
+  "note": "I.1: COMMIT/DISCARD/SETTLE reading the list a release point left",
+  "from": "DS"
+ },
+ {
+  "id": "I1-slot-check-reads-held-entries",
+  "file": "sim/BindSim.kt",
+  "edits": [
+   [
+    "(live && entries.withIndex().any { (j, o) ->",
+    "(entries.withIndex().any { (j, o) ->"
+   ]
+  ],
+  "tests": [
+   "*BindSimTest*"
+  ],
+  "expect": [
+   "theTableIsEmptyForEveryReaderWhileBindLiveIsZero_6_3"
+  ],
+  "note": "I.1: SET's one-slot-per-list reading the entries a release point left",
+  "from": "DS"
+ },
+ {
+  "id": "I3-field3-for-every-sub",
+  "file": "sim/MotionSim.kt",
+  "edits": [
+   [
+    "else if (sub == 3 && sub in known && msg.size >= 5)",
+    "else if (sub in 3..5 && sub in known && msg.size >= 5)"
+   ]
+  ],
+  "tests": [
+   "*BindSimTest*"
+  ],
+  "expect": [
+   "aRefusalBodyNamesTheTagForACommitOnly_6_5"
+  ],
+  "note": "I.3: field 3 carried for DISCARD and SETTLE too",
+  "from": "DS"
+ },
+ {
+  "id": "I4-h0-h1-not-both-in-range",
+  "file": "sim/MotionSim.kt",
+  "edits": [
+   [
+    "                        if (s.isScaled && (s.h0 !in 1..H_MAX || s.h1 !in 1..H_MAX)) return false\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*BindSimTest*"
+  ],
+  "expect": [
+   "aScaledDrawTakesItsAnchorAndTheHRule_6_6"
+  ],
+  "note": "I.4: h0 = 0 with h1 != 0 taken",
+  "from": "DS"
+ },
+ {
+  "id": "I7-field6-refused-only",
+  "file": "sim/BindSim.kt",
+  "edits": [
+   [
+    "            Pb.v(6, reason),                                // \u00a76.5",
+    "            if (outcome == OUTCOME_REFUSED) Pb.v(6, reason) else ByteArray(0),                                // \u00a76.5"
+   ]
+  ],
+  "tests": [
+   "*BindSimTest*"
+  ],
+  "expect": [
+   "sIsTakenAtTheEntryMatchWhateverFollowsOnBothLenses_6_2",
+   "theParametersAndTheStagedEdge_6_2"
+  ],
+  "note": "I.7 / 6.5: field 6 only in a refused body",
+  "from": "DS"
+ },
+ {
+  "id": "DX-scaled-self-taken",
+  "file": "sim/MotionSim.kt",
+  "edits": [
+   [
+    "                        if (s.isScaled && s.kind == KIND_SELF) return false\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*BindSimTest*"
+  ],
+  "expect": [
+   "aScaledSelfDrawIsRefusedTwelve_6_6"
+  ],
+  "note": "M.2 / FIRMWARE.md 6.6: a scaled `self` DRAW refused 12 at the values step",
+  "from": "DX"
+ },
+ {
+  "id": "gate-dropped",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "if (!CfwModes.carriesBind(image)) return",
+    "return"
+   ]
+  ],
+  "tests": [
+   "*BindTransportTest*"
+  ],
+  "expect": [
+   "noBindByteReachesTheWireBelowStage4_6_2"
+  ],
+  "note": "the image lane gate gone: C2 bytes below stage 4 reach the wire",
+  "from": "DP1"
+ },
+ {
+  "id": "bind-without-bit10",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "stage >= LADDER_TOP_STAGE && hasBind(caps) && caps!!.has",
+    "stage >= LADDER_TOP_STAGE && caps!!.has"
+   ]
+  ],
+  "tests": [
+   "*BindTransportTest*"
+  ],
+  "expect": [
+   "aC1BuildAtStage4WritesStage3sStartUnderEachTaps_6_2"
+  ],
+  "note": "stage 4 arms BIND on a build without bit 10",
+  "from": "DP1"
+ },
+ {
+  "id": "bind-below-stage4",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "stage >= LADDER_TOP_STAGE && hasBind(caps) && caps!!.has",
+    "stage >= 3 && hasBind(caps) && caps!!.has"
+   ]
+  ],
+  "tests": [
+   "*BindTransportTest*"
+  ],
+  "expect": [
+   "aC2BuildBelowStage4WritesTodaysStartsUnderEachTaps_6_2"
+  ],
+  "note": "BIND leaks to stage 3",
+  "from": "DP1"
+ },
+ {
+  "id": "bind-not-last",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "val ARM_ORDER: List<Int> = (0 until 16).filter { it != 4 } + 4",
+    "val ARM_ORDER: List<Int> = (0 until 16).toList()"
+   ]
+  ],
+  "tests": [
+   "*BindTransportTest*"
+  ],
+  "expect": [
+   "aC2BuildAtStage4WritesStage3sStartPlusItsBindRung_6_2"
+  ],
+  "note": "the bits armed lowest first: BIND before ZWRITE",
+  "from": "DP1"
+ },
+ {
+  "id": "holdback-not-applied",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        return LADDER_TOP_STAGE - 1\n",
+    "        return stage\n"
+   ]
+  ],
+  "tests": [
+   "*BindTransportTest*"
+  ],
+  "expect": [
+   "aResetDuringWearHoldsStage4BackAndSaysSoOnce_6_8",
+   "aC2BuildAtStage4WritesStage3sStartPlusItsBindRung_6_2"
+  ],
+  "note": "a hold-back in force arms stage 4 anyway",
+  "from": "DP1"
+ },
+ {
+  "id": "right-evidence-ignored",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "bindEvidence(now - uptime, \"RIGHT's uptime\")",
+    "Unit"
+   ]
+  ],
+  "tests": [
+   "*BindTransportTest*"
+  ],
+  "expect": [
+   "aResetDuringWearHoldsStage4BackAndSaysSoOnce_6_8"
+  ],
+  "note": "RIGHT's reset not read as evidence",
+  "from": "DP1"
+ },
+ {
+  "id": "c1-rule-at-stage4",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "if (ladderArmedStage == LADDER_TOP_STAGE && (resetAt != null || leftEnd != null)) {",
+    "if (false) {"
+   ]
+  ],
+  "tests": [
+   "*BindTransportTest*"
+  ],
+  "expect": [
+   "aResetSoonAfterTheArmingCostsOneStageAndKeepsTheStoredStage_6_8"
+  ],
+  "note": "C1's 120-s rule lowers a stage-4 arming's stored stage",
+  "from": "DP1"
+ },
+ {
+  "id": "caseIn-ignored",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "if (r.caseInAt != null && r.caseInAt >= armed && r.caseInAt <= at) {",
+    "if (r.caseInAt != null && false) {"
+   ]
+  ],
+  "tests": [
+   "*BindTransportTest*"
+  ],
+  "expect": [
+   "aResetAfterACaseInHoldsNothingBack_6_8"
+  ],
+  "note": "a reset after a case-in holds back",
+  "from": "DP1"
+ },
+ {
+  "id": "no-caseIn-lift",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "r.caseInAt != null && r.caseInAt > at -> \"a case-in",
+    "r.caseInAt != null && false -> \"a case-in"
+   ]
+  ],
+  "tests": [
+   "*BindTransportTest*"
+  ],
+  "expect": [
+   "theHoldBackLiftsAtACaseInTheNextDayAndByHand_6_8"
+  ],
+  "note": "a case-in after the hold-back lifts nothing",
+  "from": "DP1"
+ },
+ {
+  "id": "day-at-midnight",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "const val DAY_STARTS_AT_HOUR = 4",
+    "const val DAY_STARTS_AT_HOUR = 0"
+   ]
+  ],
+  "tests": [
+   "*BindTransportTest*"
+  ],
+  "expect": [
+   "theHoldBackLiftsAtACaseInTheNextDayAndByHand_6_8"
+  ],
+  "note": "the later day starts at 00:00, not 04:00",
+  "from": "DP1"
+ },
+ {
+  "id": "c1-4-no-lift",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "holdBackAt = if (n == LADDER_TOP_STAGE) null else it.holdBackAt,",
+    "holdBackAt = it.holdBackAt,"
+   ]
+  ],
+  "tests": [
+   "*BindTransportTest*"
+  ],
+  "expect": [
+   "theHoldBackLiftsAtACaseInTheNextDayAndByHand_6_8"
+  ],
+  "note": "probe c1=4 does not lift",
+  "from": "DP1"
+ },
+ {
+  "id": "armed-after-reply",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "if (ladderArmedStage == LADDER_TOP_STAGE) bindArmed(lastArmedAtMs!!)",
+    "Unit"
+   ],
+   [
+    "        // only RIGHT answers, so RIGHT's reply says nothing about the other lens",
+    "        if (ladderArmedStage == LADDER_TOP_STAGE) bindArmed(nowMs())\n        // only RIGHT answers, so RIGHT's reply says nothing about the other lens"
+   ]
+  ],
+  "tests": [
+   "*BindTransportTest*"
+  ],
+  "expect": [
+   "aResetDuringWearHoldsStage4BackAndSaysSoOnce_6_8"
+  ],
+  "note": "stage 4's arming recorded after its reply, not before its first byte",
+  "from": "DP1"
+ },
+ {
+  "id": "holdback-not-stored",
+  "file": "transport/LadderRecord.kt",
+  "edits": [
+   [
+    "        holdBackAt?.let { append(\"holdBackAt=\").append(it).append('\\n').append(\"holdBackWhy=\").append(holdBackWhy.replace('\\n', ' ')).append('\\n') }\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*BindTransportTest*"
+  ],
+  "expect": [
+   "aRestartOfTheProcessKeepsAllOfIt_6_8",
+   "theRecordGrowsC1PsFileInPlace_P12"
+  ],
+  "note": "the hold-back kept in memory only",
+  "from": "DP1"
+ },
+ {
+  "id": "refusal-every-read",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "val fresh = rec != null && rec != bindRefusalSeen",
+    "val fresh = rec != null"
+   ]
+  ],
+  "tests": [
+   "*BindTransportTest*"
+  ],
+  "expect": [
+   "field39AndANewMode27RefusalReachTheShell_P1"
+  ],
+  "note": "a sticky mode-27 refusal handed at every read",
+  "from": "DP1"
+ },
+ {
+  "id": "disarm-no-discard",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "if (clearsBind && !discardAllLocal(epoch, \"the probe's flags clear BIND\")) return@launch",
+    "Unit"
+   ]
+  ],
+  "tests": [
+   "*BindTransportTest*"
+  ],
+  "expect": [
+   "aMidSessionDisarmOfBindSendsItsDiscardFirst_P9"
+  ],
+  "note": "a BIND disarm with no DISCARD first",
+  "from": "DP1"
+ },
+ {
+  "id": "hand-bind-beyond",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "asked and ladderBits(caps0) and",
+    "asked and C1_FLAGS and"
+   ]
+  ],
+  "tests": [
+   "*BindTransportTest*"
+  ],
+  "expect": [
+   "theProbesKeepTapsAndCannotArmBindBeyondTheStage_6_8"
+  ],
+  "note": "flags= arms BIND below stage 4",
+  "from": "DP1"
+ },
+ {
+  "id": "applied-not-handed",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "if (!_events.tryEmit(TransportEvent.Applied(a))) {",
+    "if (false) {"
+   ]
+  ],
+  "tests": [
+   "*BindTransportTest*"
+  ],
+  "expect": [
+   "aReportReachesTheShellAheadOfItsStockEvent_P2"
+  ],
+  "note": "the 115 not handed to the shell",
+  "from": "DP1"
+ },
+ {
+  "id": "span-tail-dropped",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (at < w) open(at, w)\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*MirrorScanMotionTest*"
+  ],
+  "expect": [
+   "aPixelBesideTheMotionsAreaOnItsRowsIsStillFound_C2F"
+  ],
+  "note": "the span right of the area dropped",
+  "from": "DP1"
+ },
+ {
+  "id": "span-head-dropped",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            if (s > at) open(at, s)",
+    "            if (s > at && at > 0) open(at, s)"
+   ]
+  ],
+  "tests": [
+   "*MirrorScanMotionTest*"
+  ],
+  "expect": [
+   "aPixelBesideTheMotionsAreaOnItsRowsIsStillFound_C2F"
+  ],
+  "note": "the span left of the area dropped",
+  "from": "DP1"
+ },
+ {
+  "id": "encoder-list-swap",
+  "file": "wire/CfwModes.kt",
+  "edits": [
+   [
+    "putS16(out, 7, shift); putS16(out, 9, pitch)",
+    "putS16(out, 7, pitch); putS16(out, 9, shift)"
+   ]
+  ],
+  "tests": [
+   "*BindTransportTest*"
+  ],
+  "expect": [
+   "theEncodersWriteEveryV4MessageAsTheVectorInputsDo_6_3_6_5_6_6"
+  ],
+  "note": "LIST shift and pitch swapped",
+  "from": "DP1"
+ },
+ {
+  "id": "anchor-shift-dropped",
+  "file": "motion/Motion.kt",
+  "edits": [
+   [
+    "1 -> y + ((h - hOut) shr 1)",
+    "1 -> y + (h - hOut)"
+   ]
+  ],
+  "tests": [
+   "*BindTransportTest*"
+  ],
+  "expect": [
+   "endOfAScaledDrawLeavesTheShadowThePlayLeaves_6_6"
+  ],
+  "note": "END's centre anchor without its >> 1",
+  "from": "DP1"
+ },
+ {
+  "id": "predict-unsigned",
+  "file": "local/BoundList.kt",
+  "edits": [
+   [
+    "                    t[k].toShort().toInt()\n",
+    "                    t[k]\n"
+   ]
+  ],
+  "tests": [
+   "*MainBindTest*"
+  ],
+  "expect": [
+   "theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2"
+  ],
+  "note": "predict reads a kind-1 item unsigned: at 256 KiB the lens's P (s16) differs",
+  "from": "DM2"
+ },
+ {
+  "id": "margins-blank",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "val stripRow = IntArray(stripRows) { s -> val i = s - mA; if (wraps) i.mod(n) else if (i in 0 until n) i else -1 }",
+    "val stripRow = IntArray(stripRows) { s -> val i = s - mA; if (i in 0 until n) i else -1 }"
+   ]
+  ],
+  "tests": [
+   "*MainBindTest*"
+  ],
+  "expect": [
+   "theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2"
+  ],
+  "note": "no wrapped rows in the strip's margins: END is not Main's paint near the ends where Main wraps",
+  "from": "DM2"
+ },
+ {
+  "id": "whole-list-not-bound",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "val down = pan(WHOLE, 1); val up = pan(WHOLE, -1)",
+    "val down = pan(2, 1); val up = pan(2, -1)"
+   ]
+  ],
+  "tests": [
+   "*MainBindTest*"
+  ],
+  "expect": [
+   "theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2"
+  ],
+  "note": "decisions V: the bound list's pans are k = 2, not the whole list",
+  "from": "DM2"
+ },
+ {
+  "id": "press-not-forward",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "val pressD = maxOf(0, bandD - Geometry.X_STEP)",
+    "val pressD = bandD"
+   ]
+  ],
+  "tests": [
+   "*MainBindTest*"
+  ],
+  "expect": [
+   "theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2"
+  ],
+  "note": "the press does not come forward",
+  "from": "DM2"
+ },
+ {
+  "id": "apply-band-raw-kept",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "bands[m.row] = Picture(\"band ${m.row}\", m.g, levelsOf(m.g), m.encoded, m.off, m.slot)",
+    "bands[m.row] = Picture(\"band ${m.row}\", old.raw, old.levels, m.encoded, m.off, m.slot)"
+   ]
+  ],
+  "tests": [
+   "*MainBindTest*"
+  ],
+  "expect": [
+   "theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2"
+  ],
+  "note": "a moved band form's new pictures not put where belief is painted from",
+  "from": "DM2"
+ },
+ {
+  "id": "pad-past-class",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "                val floor = if (n <= 15) 1 else if (n <= 255) 16 else 256\n",
+    "                val floor = 1\n"
+   ]
+  ],
+  "tests": [
+   "*MainBindTest*"
+  ],
+  "expect": [
+   "aSegmentPaddedToItsSlotDecodesToItsLevels_DM2"
+  ],
+  "note": "a peel crosses a token class: the segment is not its length",
+  "from": "DM2"
+ },
+ {
+  "id": "timing-no-margin",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "(stepMs + STEP_MARGIN_MS) * 1024.0",
+    "(stepMs) * 1024.0"
+   ]
+  ],
+  "tests": [
+   "*MainBindTest*"
+  ],
+  "expect": [
+   "thePeriodAndStepsFollowTheMeasuredFitAtEachHeight_DM2"
+  ],
+  "note": "the period without the 2 ms margin",
+  "from": "DM2"
+ },
+ {
+  "id": "atlas-full-at-256",
+  "file": "transport/Transport.kt",
+  "edits": [
+   [
+    "cacheSize - wm.damage.core.wire.CfwModes.reserveAbove(cacheSize, bind)",
+    "cacheSize - wm.damage.core.wire.CfwModes.STAGE_RESERVE"
+   ]
+  ],
+  "tests": [
+   "*MainBindTest*"
+  ],
+  "expect": [
+   "theAtlasLaysOutUnderMainsRegionOnlyAt256KiBWithBind_DM2"
+  ],
+  "note": "the atlas lays out over Main's region at 256 KiB",
+  "from": "DM2"
+ },
+ {
+  "id": "retain-drops-main",
+  "file": "shell/Staging.kt",
+  "edits": [
+   [
+    "(it.key !is MainStageKey || it in ring?.resident.orEmpty()) &&\n            ",
+    ""
+   ]
+  ],
+  "tests": [
+   "*MainBindTest*"
+  ],
+  "expect": [
+   "aDocumentsStripsTakeTheSharedReserveNeverMainsOwnRegion_DM2"
+  ],
+  "note": "a document's staging drops Main's own region",
+  "from": "DM2"
+ },
+ {
+  "id": "offer-uncounted",
+  "file": "shell/MainBinding.kt",
+  "edits": [
+   [
+    "val counted: Boolean get() = records.isNotEmpty() && records.all { it.state == StagedRecord.State.PROVEN }",
+    "val counted: Boolean get() = records.isNotEmpty()"
+   ]
+  ],
+  "tests": [
+   "*MainBindShellTest*"
+  ],
+  "expect": [
+   "mainIsStagedAtStageFourAndOfferedOnlyOnceCounted_DM2"
+  ],
+  "note": "the list offered before field 17 counts the writes",
+  "from": "DM2"
+ },
+ {
+  "id": "no-pace",
+  "file": "shell/MainBinding.kt",
+  "edits": [
+   [
+    "const val RESTAGE_PACE_MS = 5_000L",
+    "const val RESTAGE_PACE_MS = 0L"
+   ]
+  ],
+  "tests": [
+   "*MainBindShellTest*"
+  ],
+  "expect": [
+   "aRowWhosePictureChangesIsRestagedWithTheMarkKept_DM2"
+  ],
+  "note": "a row re-staged at every change",
+  "from": "DM2"
+ },
+ {
+  "id": "no-key",
+  "file": "shell/MainBinding.kt",
+  "edits": [
+   [
+    "if (keysNow[i] != keys[i]) { keys[i] = keysNow[i]; dirty[i] = true }",
+    "if (keysNow[i] != keys[i]) { keys[i] = keysNow[i] }"
+   ]
+  ],
+  "tests": [
+   "*MainBindShellTest*"
+  ],
+  "expect": [
+   "aRowWhosePictureChangesIsRestagedWithTheMarkKept_DM2"
+  ],
+  "note": "a changed row found only by the round-robin repaint",
+  "from": "DM2"
+ },
+ {
+  "id": "probe-at-stage4",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        st.bind -> \"BIND is in force (stage 4): Main's list is bound on the glasses, and the scroll test plays at stage 3\"\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*MainBindShellTest*"
+  ],
+  "expect": [
+   "theScrollTestIsRefusedWhileMainsListIsBound_DM2"
+  ],
+  "note": "the scroll test plays into the bound slot",
+  "from": "DM2"
+ },
+ {
+  "id": "planes-not-checked",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            (ms.listD to ms.bandD) != mainBindPlanes() -> ",
+    "            false -> "
+   ]
+  ],
+  "tests": [
+   "*MainBindShellTest*"
+  ],
+  "expect": [
+   "aDepthChangeOrAnOutgrownRowIsAFullStagingWithANewMark_DM2"
+  ],
+  "note": "a depth change keeps a staging drawn for the old planes",
+  "from": "DM2"
+ },
+ {
+  "id": "outgrown-ignored",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            is MainStaging.Restage.Outgrown -> mainBindDrop(\"a full staging is owed (a new mark): ${r.why}\")",
+    "            is MainStaging.Restage.Outgrown -> mainBind.same(row)"
+   ]
+  ],
+  "tests": [
+   "*MainBindShellTest*"
+  ],
+  "expect": [
+   "aDepthChangeOrAnOutgrownRowIsAFullStagingWithANewMark_DM2"
+  ],
+  "note": "an outgrown row left stale for good",
+  "from": "DM2"
+ },
+ {
+  "id": "burst-gate",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (!mainBindBurstOpen()) b.nextOwed(now)",
+    "        b.nextOwed(now)"
+   ]
+  ],
+  "tests": [
+   "*MainBindShellTest*"
+  ],
+  "expect": [
+   "(no pin: the burst is the rules' state, constant false in this tree until DP2 is merged \u2014 the merge point)"
+  ],
+  "note": "re-stages during a burst",
+  "from": "DM2"
+ },
+ {
+  "id": "band-in-place",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "            val (off, slot) = spares.entries.filter { it.value >= enc.size }.minByOrNull { it.value }?.toPair()\n                ?: return",
+    "            val (off, slot) = (old.off to old.slot).takeIf { it.second >= enc.size }\n                ?: return"
+   ]
+  ],
+  "tests": [
+   "*MainBindTest*"
+  ],
+  "expect": [
+   "theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2"
+  ],
+  "note": "the band form rewritten in its own slot under the table that names it",
+  "from": "DM2"
+ },
+ {
+  "id": "item-word-neighbour-zero",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "row -> off / 4; in 0 until rows -> itemOffs[w0 + k]; else -> 0 }",
+    "row -> off / 4; else -> 0 }"
+   ]
+  ],
+  "tests": [
+   "*MainBindTest*"
+  ],
+  "expect": [
+   "theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2"
+  ],
+  "note": "the switch's word clears the neighbour row's entry",
+  "from": "DM2"
+ },
+ {
+  "id": "strip-tail-not-relaid",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "            if (seg == null) { if (outgrown < 0) outgrown = s; continue }",
+    "            if (seg == null) return Restage.Outgrown(\"strip row $s outgrew its segment\")"
+   ]
+  ],
+  "tests": [
+   "*MainBindTest*"
+  ],
+  "expect": [
+   "aRowFormGrownPastItsSegmentReLaysTheStripsTail_DM2"
+  ],
+  "note": "a grown row form is a full staging",
+  "from": "DM2"
+ },
+ {
+  "id": "AA2-no-read",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "        if (unconfirmed.isNotEmpty()) {",
+    "        if (false) {"
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.seededS24_*"
+  ],
+  "expect": [
+   "seededS24_aRefusedTailOnRightIsSeenAtTheSettle"
+  ],
+  "note": "AA.2: no telemetry read at the burst's SETTLE for a COMMIT with no outcome-3 body \u2014 RIGHT stays on the old row until the minute's read",
+  "from": "DI"
+ },
+ {
+  "id": "AA2-body-ignored",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "        if (outcome == DamageMsg.OUTCOME_COMMITTED) unconfirmed.remove(slot to tag)\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.seededS24_*",
+   "*LocalSequenceFuzzTest.seededS18a_*"
+  ],
+  "expect": [
+   "(no pin: an extra read costs one read and nothing else \u2014 AA.2's own words; the counted shape shows it)"
+  ],
+  "note": "AA.2: an outcome-3 body not taken as the COMMIT's confirmation \u2014 every burst would ask a read",
+  "from": "DI"
+ },
+ {
+  "id": "AA3-session-floor",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        val sFloor = (bindSHeard + 1 - wm.damage.core.local.LocalRules.WIDE) and 0xFFFF",
+    "        val sFloor = (bindSHeard0 + 1 - wm.damage.core.local.LocalRules.WIDE) and 0xFFFF"
+   ]
+  ],
+  "tests": [
+   "*BindTransportTest.aMidSessionDisarm*"
+  ],
+  "expect": [
+   "aMidSessionDisarmOfBindSendsItsDiscardFirst_P9"
+  ],
+  "note": "AA.3: the disarm's DISCARD from the session's first S, not S_heard + 1 as at the disarm",
+  "from": "DI"
+ },
+ {
+  "id": "DI-tap-old-prediction",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "            if (e == null || !f.names(c, e, a.prog, p)) {",
+    "            if (e == null || f.paramsAt(c, e)?.let { it !== BoundList.REFUSED_12 && it.contentEquals(p) && a.prog == e.prog4 } != true) {"
+   ]
+  ],
+  "tests": [
+   "*LocalRulesTest.aReportNamingTheFormBefore*"
+  ],
+  "expect": [
+   "aReportNamingTheFormBeforeASwitchIsAdoptedWithItsOwnP_DI"
+  ],
+  "note": "merge point, the class's second reader: the tap rule's (5) by DP2's own prediction \u2014 a pressed tap naming the old form is dropped",
+  "from": "DI"
+ },
+ {
+  "id": "DI-no-burst-gate",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "    private fun mainBindBurstOpen(): Boolean = local.burstOpen",
+    "    private fun mainBindBurstOpen(): Boolean = false"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aBandForm*"
+  ],
+  "expect": [
+   "aBandFormChangedInABurstWaitsForItsSettleAndItsNotchIsStillCommitted_DI"
+  ],
+  "note": "merge point: the re-stage does not wait for an open burst (DM2's stand-in) \u2014 the item-table word a live list names is rewritten mid-burst",
+  "from": "DI"
+ },
+ {
+  "id": "DI-null-surface",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "    @Volatile var boundSurface: () -> wm.damage.core.local.BoundSurface? = { main }",
+    "    @Volatile var boundSurface: () -> wm.damage.core.local.BoundSurface? = { null }"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.reportNotchesAndATap_DI",
+   "*LocalStartTest*"
+  ],
+  "expect": [
+   "reportNotchesAndATap_DI",
+   "theStartsBindBatchPerTapsValue_P1"
+  ],
+  "note": "merge point: DP2's stand-in (no list in front) \u2014 Main's list is never bound",
+  "from": "DI"
+ },
+ {
+  "id": "DI-chrome-no-keepout",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "    private fun keepsOut(a: Rect, b: Rect, u: Rect, d: Int): Boolean = keepOut.none { (al, ar) ->",
+    "    private fun keepsOut(a: Rect, b: Rect, u: Rect, d: Int): Boolean = true || keepOut.none { (al, ar) ->"
+   ]
+  ],
+  "tests": [
+   "*CompositorEndsTest*",
+   "*MainLocalShellTest.aFastSeries*"
+  ],
+  "expect": [
+   "noMergeAcrossTheBoundListsAreas_DI",
+   "aFastSeriesOfNotchesIsNeverCutByTheChromeRefresh_DI"
+  ],
+  "note": "the chrome overlap: merges across the bound list's areas allowed (the tree before the fix)",
+  "from": "DI"
+ },
+ {
+  "id": "DI-commit-predicted-P",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "        st.handled += Handled(s, true, false, f.list, c, a.prog!!, a.params!!, nowMs, \"\")",
+    "        st.handled += Handled(s, true, false, f.list, c, e.prog4, (f.paramsAt(c, e) ?: a.params!!), nowMs, \"\")"
+   ]
+  ],
+  "tests": [
+   "*LocalRulesTest.aReportNamingTheFormBefore*"
+  ],
+  "expect": [
+   "aReportNamingTheFormBeforeASwitchIsAdoptedWithItsOwnP_DI"
+  ],
+  "note": "merge point: the COMMIT built from the phone's prediction on the current list, not the report's own (prog, P) \u2014 END would draw the new slot where the lens drew the old",
+  "from": "DI"
+ },
+ {
+  "id": "S2-discard-before-frame",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "fun batchOrder(draw: List<ByteArray>, tail: List<ByteArray>): List<ByteArray> = draw + tail",
+    "fun batchOrder(draw: List<ByteArray>, tail: List<ByteArray>): List<ByteArray> = tail.filter { it[0].toInt() == 26 && it[1].toInt() == 4 } + draw + tail.filterNot { it[0].toInt() == 26 && it[1].toInt() == 4 }"
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.seededS2_aDiscardRefusedOnLeftLosesOnlyThePresent"
+  ],
+  "expect": [
+   "seededS2_aDiscardRefusedOnLeftLosesOnlyThePresent"
+  ],
+  "note": "1(a)5: the DISCARD before the frame's drawing subs, refused on LEFT: (2)",
+  "from": "FB"
+ },
+ {
+  "id": "S4-S-after-lease",
+  "file": "sim/BindSim.kt",
+  "edits": [
+   [
+    "        val s = (seq + 1) and 0xFFFF\n        seq = s\n        matched++",
+    "        val s = (seq + 1) and 0xFFFF\n        if (lens.leaseActive() && !motion.wordHeld) { seq = s; matched++ }"
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.seededS4_bothLensesNumberEveryMatchAlike"
+  ],
+  "expect": [
+   "seededS4_bothLensesNumberEveryMatchAlike"
+  ],
+  "note": "1(b)2: S taken after the lease and the claim (the sim's mutant): spec says (3)",
+  "from": "FB"
+ },
+ {
+  "id": "S5-no-idle-settle",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "val settleHere = !burstOpen",
+    "val settleHere = false"
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.seededS5_aLeftOnlyGestureAtIdle"
+  ],
+  "expect": [
+   "seededS5_aLeftOnlyGestureAtIdle"
+  ],
+  "note": "1(b)3: no SETTLE in idle batches: (2), (3)",
+  "from": "FB"
+ },
+ {
+  "id": "S6-empty-table-entries-only",
+  "file": "sim/BindSim.kt",
+  "edits": [
+   [
+    "                for (l in lists) { l.items = NONE; l.count = 0; l.cursor = 0; l.pitch = 0; l.mark = 0; l.newest = null }\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.seededS6_theEmptyTableEmptiesTheLists"
+  ],
+  "expect": [
+   "seededS6_theEmptyTableEmptiesTheLists"
+  ],
+  "note": "1(d)5: the empty table clears entries only (the sim's mutant): spec says (2)",
+  "from": "FB"
+ },
+ {
+  "id": "S7-list-refused-out-of-range",
+  "file": "sim/BindSim.kt",
+  "edits": [
+   [
+    "if (list >= LISTS || count !in 1..COUNT_MAX) REF_VALUE",
+    "if (list >= LISTS || count !in 1..COUNT_MAX || (lists[list].cursor != LOST && (lists[list].cursor + MotionSim.s16(src, 7)) !in 0 until count)) REF_VALUE"
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.seededS7_aListIsAlwaysApplied"
+  ],
+  "expect": [
+   "seededS7_aListIsAlwaysApplied"
+  ],
+  "note": "1(e): LIST refused out of range (the sim's mutant, LEFT one ahead): spec says (3)",
+  "from": "FB"
+ },
+ {
+  "id": "S9-discard-newest-not-adopted",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "out += CfwModes.motionDiscard(n, (st.a + 1 - WIDE) and 0xFFFF,",
+    "out += CfwModes.motionDiscard(n, (st.handled.lastOrNull { !it.adopted }?.s ?: (st.a + 1)) and 0xFFFF,"
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.seededS9_anEdgeDoesNotLeaveTheOlderLocalOpen"
+  ],
+  "expect": [
+   "seededS9_anEdgeDoesNotLeaveTheOlderLocalOpen"
+  ],
+  "note": "Defect B: DISCARD at the newest not-adopted S: (1), (2)",
+  "from": "FB"
+ },
+ {
+  "id": "S12-no-form-resend",
+  "file": "local/TableRepair.kt",
+  "edits": [
+   [
+    "{ if (f != null && f.list == list) owe(Owed.Set(entry), \"tap form",
+    "{ return; if (f != null && f.list == list) owe(Owed.Set(entry), \"tap form"
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.seededS12_aSwitchWhoseSetDidNotLand"
+  ],
+  "expect": [
+   "seededS12_aSwitchWhoseSetDidNotLand"
+  ],
+  "note": "C2-F-focus B1: no re-send of the tap entry on a form disagreement: (6)",
+  "from": "FB"
+ },
+ {
+  "id": "S14-no-scroll-sets-resend",
+  "file": "local/TableRepair.kt",
+  "edits": [
+   [
+    "if (list !in scrolledSinceSettle && rules.front?.list == list) owe(Owed.ScrollSets(list)",
+    "if (false) owe(Owed.ScrollSets(list)"
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.seededS14_lostScrollSetsComeBack"
+  ],
+  "expect": [
+   "seededS14_lostScrollSetsComeBack"
+  ],
+  "note": "D1 0.3 (2a): no scroll-entry SET re-send: (7)",
+  "from": "FB"
+ },
+ {
+  "id": "S15-no-set-resend-on-difference",
+  "file": "local/TableRepair.kt",
+  "edits": [
+   [
+    "if ((refused512 || differs) && f != null && f.list == list)",
+    "if (false)"
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.seededS15_aProgramChangeWhoseSetDidNotLand"
+  ],
+  "expect": [
+   "seededS15_aProgramChangeWhoseSetDidNotLand"
+  ],
+  "note": "D1 0.3 (2b): no SET re-send on a fields-10-14 difference or a 5/12 refusal: (7)",
+  "from": "FB"
+ },
+ {
+  "id": "S16-no-clear-resend",
+  "file": "local/TableRepair.kt",
+  "edits": [
+   [
+    "if (!rules.holdsEntry(entry)) { owe(Owed.Clear(entry), \"entry $entry not held\"); return }",
+    "if (!rules.holdsEntry(entry)) { return }"
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.seededS16_aTapReportUnderPhoneClearsTheEntry"
+  ],
+  "expect": [
+   "seededS16_aTapReportUnderPhoneClearsTheEntry"
+  ],
+  "note": "D1 \u00a71 item 3: no CLEAR re-send for a tap 115 under phone: (6)",
+  "from": "FB"
+ },
+ {
+  "id": "S17-no-clear-resend-cover",
+  "file": "local/TableRepair.kt",
+  "edits": [
+   [
+    "if (!rules.holdsEntry(entry)) { owe(Owed.Clear(entry), \"entry $entry not held\"); return }",
+    "if (!rules.holdsEntry(entry)) { return }"
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.seededS17_aLostCoverClearIsRepaired"
+  ],
+  "expect": [
+   "seededS17_aLostCoverClearIsRepaired"
+  ],
+  "note": "D1 filling (2): no CLEAR re-send for a lost cover CLEAR: pinned by its count of locals under the cover",
+  "from": "FB"
+ },
+ {
+  "id": "S18a-whole-panel-reading",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "areas.any { (al, ar) -> left.any { it.overlaps(al) } || right.any { it.overlaps(ar) } }",
+    "left.isNotEmpty() || right.isNotEmpty()"
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.seededS18a_aDrawOutsideTheAreasKeepsTheCommit"
+  ],
+  "expect": [
+   "seededS18a_aDrawOutsideTheAreasKeepsTheCommit"
+  ],
+  "note": "DMS / AA.1: a draw judged as reaching the panel's edges \u2014 the clock is held back from the COMMIT's batch",
+  "from": "FB"
+ },
+ {
+  "id": "S18b-meets-never",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "areas.any { (al, ar) -> left.any { it.overlaps(al) } || right.any { it.overlaps(ar) } }",
+    "false"
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.seededS18b_*"
+  ],
+  "expect": [
+   "seededS18b_aDrawCrossingTheAreasWaitsForTheNextBatch"
+  ],
+  "note": "DMS / AA.1: a draw really crossing the areas not seen \u2014 it rides the COMMIT's batch and END lands over it",
+  "from": "FB"
+ },
+ {
+  "id": "S19-no-table-again",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "        count(\"repair.table\")\n        wholeTable()\n    }\n\n    /** P1's whole table again",
+    "        count(\"repair.table\")\n    }\n\n    /** P1's whole table again"
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.seededS19_aRefusedTableMessageSendsTheTableAgain"
+  ],
+  "expect": [
+   "seededS19_aRefusedTableMessageSendsTheTableAgain"
+  ],
+  "note": "this stage: no table re-send on a refused flush: LEFT stale (2)",
+  "from": "FB"
+ },
+ {
+  "id": "S20-no-supersede",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "        pending.removeAll { it is Pending.Clear && it.entry in mine && held[it.entry]?.list == list.list }\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.seededS20_aReturnSupersedesAnUnsentClear"
+  ],
+  "expect": [
+   "seededS20_aReturnSupersedesAnUnsentClear"
+  ],
+  "note": "this stage's fuzz: an unsent CLEAR not superseded by the return: (6)/(7)",
+  "from": "FB"
+ },
+ {
+  "id": "S18c-compositor-whole-panel",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "                val metL = drawn.filter { t -> t.left && hl.any { t.rect.overlaps(it) } }",
+    "                val metL = drawn.filter { t -> t.left && hl.any { Rect(t.rect.x, t.rect.y, width - t.rect.x, height - t.rect.y).overlaps(it) } }"
+   ],
+   [
+    "                val metR = drawn.filter { t -> !t.left && hr.any { t.rect.overlaps(it) } }",
+    "                val metR = drawn.filter { t -> !t.left && hr.any { Rect(t.rect.x, t.rect.y, width - t.rect.x, height - t.rect.y).overlaps(it) } }"
+   ]
+  ],
+  "tests": [
+   "*CompositorEndsTest*"
+  ],
+  "expect": [
+   "aDrawOutsideTheAreasKeepsTheCommit",
+   "aDrawCrossingTheAreasWaitsForTheNextBatch"
+  ],
+  "note": "DMS / AA.1: the compositor judging a draw by the transport's reading (origin to the panel's right and bottom edges): the clock is held back",
+  "from": "FB"
+ },
+ {
+  "id": "S21-no-riding-list",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "        if (list !in 0 until CfwModes.BIND_LISTS || list in listed) return\n        val f = staged[list]",
+    "        return\n        val f = staged[list]"
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.seededS21_*",
+   "*LocalSequenceFuzzTest.seededS13_*"
+  ],
+  "expect": [
+   "seededS21_aListLostOnRightHealsAtTheNextAnswer",
+   "seededS13_aStaleMarkResendsTheList"
+  ],
+  "note": "decisions U.1: no riding LIST \u2014 a LIST lost on RIGHT alone makes RIGHT refuse every idle SETTLE (S21); a re-stage's LIST lost on both lenses is never sent again now that the stale-mark repair is gone (S13)",
+  "from": "FB"
+ },
+ {
+  "id": "S21L-no-riding-list",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "        if (list !in 0 until CfwModes.BIND_LISTS || list in listed) return\n        val f = staged[list]",
+    "        return\n        val f = staged[list]"
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.seededS21L_aListLostOnLeftHealsAtTheNextAnswer"
+  ],
+  "expect": [
+   "seededS21L_aListLostOnLeftHealsAtTheNextAnswer"
+  ],
+  "note": "decisions U.1 on LEFT: LEFT's refusal fails the flush's ack, so the table goes again (S19) \u2014 expected NOT to fail",
+  "from": "FB"
+ },
+ {
+  "id": "S22a-narrow-S",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "        const val WIDE = 0x4000",
+    "        const val WIDE = 0"
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.seededS22a_aSetBetweenTheLensesLeavesLeftBehind"
+  ],
+  "expect": [
+   "seededS22a_aSetBetweenTheLensesLeavesLeftBehind"
+  ],
+  "note": "decisions U.2: DISCARD and SETTLE at their old S (A + 1, S_heard + 1): a SET between the lenses' handling of one notch leaves LEFT behind, its local unreached",
+  "from": "FB"
+ },
+ {
+  "id": "S22b-narrow-S",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "        const val WIDE = 0x4000",
+    "        const val WIDE = 0"
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.seededS22b_aSetLostOnLeftLeavesLeftBehind"
+  ],
+  "expect": [
+   "seededS22b_aSetLostOnLeftLeavesLeftBehind"
+  ],
+  "note": "decisions U.2: the old S: a SET lost on LEFT alone leaves LEFT behind, its local unreached",
+  "from": "FB"
+ },
+ {
+  "id": "S23-no-keyframe-on-27",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "            count(\"keyframe\")\n            keyframe(\"RIGHT's refusal record names mode 27",
+    "            count(\"keyframe\")\n            if (false) keyframe(\"RIGHT's refusal record names mode 27"
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.seededS23_*"
+  ],
+  "expect": [
+   "seededS23_aMode27RefusedOnRightKeyframes"
+  ],
+  "note": "row A's second trigger (ruled): no keyframe when RIGHT's refusal record names mode 27 \u2014 the COMMIT behind the refused LIST never ran on RIGHT",
+  "from": "FB"
+ },
+ {
+  "id": "AA1-no-hold-compositor",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "                holdL = hl; holdR = hr; endTouched = mine",
+    "                holdL = emptyList(); holdR = emptyList(); endTouched = mine"
+   ],
+   [
+    "                if (metL.isEmpty() && metR.isEmpty()) return a",
+    "                if (true) return a"
+   ]
+  ],
+  "tests": [
+   "*CompositorEndsTest*"
+  ],
+  "expect": [
+   "aDrawCrossingTheAreasWaitsForTheNextBatch",
+   "aDeltaSpanningTheAreasIsHeldToo"
+  ],
+  "note": "AA.1: no hold",
+  "from": "FB"
+ },
+ {
+  "id": "AA1-no-reloop",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "                if (metL.isEmpty() && metR.isEmpty()) return a",
+    "                if (true) return a"
+   ]
+  ],
+  "tests": [
+   "*CompositorEndsTest*"
+  ],
+  "expect": [
+   "aDeltaSpanningTheAreasIsHeldToo"
+  ],
+  "note": "AA.1's loop",
+  "from": "FB"
+ },
+ {
+  "id": "AF7-no-defer",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "        if (until > nowMs) {",
+    "        if (false) {"
+   ]
+  ],
+  "tests": [
+   "*CompositorEndsTest*",
+   "*MainLocalShellTest.aBandForm*"
+  ],
+  "expect": [
+   "theHeldCellsWaitForTheMotionsEnd_AF7",
+   "aBandFormChangedInABurstWaitsForItsSettleAndItsNotchIsStillCommitted_DI"
+  ],
+  "note": "AF.7: the held cells sent at once, during the adopted motion",
+  "from": "FB"
+ },
+ {
+  "id": "AF0-rows-always",
+  "file": "shell/SettingsWindow.kt",
+  "edits": [
+   [
+    "(if (bindBuild()) entries else entries.filter { it.name !in BIND_ROWS })",
+    "(if (true) entries else entries.filter { it.name !in BIND_ROWS })"
+   ]
+  ],
+  "tests": [
+   "*SettingsLocalRowsTest*"
+  ],
+  "expect": [
+   "theLocalInputRowsShowOnlyOnABit10Build_AF0"
+  ],
+  "note": "AF.0",
+  "from": "FB"
+ },
+ {
+  "id": "AF2-lastrow-stale",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "        else if (row >= 0 && lastFront >= 0) lastRow[lastFront] = row\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*LocalRulesTest.aWithdrawn*"
+  ],
+  "expect": [
+   "aWithdrawnListsAnswersAndItsReturnNameTheCurrentRow_AF2"
+  ],
+  "note": "AF.2: a withdrawn list's DISCARD names the row before the notch",
+  "from": "FB"
+ },
+ {
+  "id": "AF2-no-rebind",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "        if (list != null && row >= 0 && (old == null || old.list != list.list)) slot(list.slot).let { st -> st.list = list.list; st.moved = st.moved ?: REBIND }\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*LocalRulesTest.aWithdrawn*",
+   "*MainLocalShellTest.aRowFormChange*",
+   "*LocalStartTest*"
+  ],
+  "expect": [
+   "aWithdrawnListsAnswersAndItsReturnNameTheCurrentRow_AF2",
+   "aRowFormChangeWithdrawsTheListAndANotchInBetweenGoesAsToday_DI",
+   "theStartsBindBatchPerTapsValue_P1"
+  ],
+  "note": "AF.2: a return names no row inside a burst",
+  "from": "FB"
+ },
+ {
+  "id": "AF3-hold-at-stage4",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            \"on\" -> if (transport.state.value.bind) journal",
+    "            \"on\" -> if (false) journal"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.anAdoptedNotch*"
+  ],
+  "expect": [
+   "anAdoptedNotchIsAGestureAndHoldIsRefusedAtStage4_AF3"
+  ],
+  "note": "AF.3: hold taken at stage 4",
+  "from": "FB"
+ },
+ {
+  "id": "AF3-no-rest-wake",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                gestureBookkeeping(eventId?.let { wm.damage.core.local.BoundList.stockEvent(it) }\n                    ?: if (v.row < was) EvenHubMsg.EV_SCROLL_TOP else EvenHubMsg.EV_SCROLL_BOTTOM)\n",
+    "                if (false) gestureBookkeeping(0)\n"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aNotchAdoptedWhileMainRests*"
+  ],
+  "expect": [
+   "aNotchAdoptedWhileMainRestsWakesMain_DI"
+  ],
+  "note": "AF.3/DI: an adopted notch without the gesture's bookkeeping leaves Main resting (retargeted by the lead after FC: the call spans two lines)",
+  "from": "FB"
+ },
+ {
+  "id": "AF4-release-in-burst",
+  "file": "shell/MainBinding.kt",
+  "edits": [
+   [
+    "        if (acked && !burstOpen && (p.restage.toStrip == null || p.setsLanded)) switchAcked(p)",
+    "        if (acked && (p.restage.toStrip == null || p.setsLanded)) switchAcked(p)"
+   ]
+  ],
+  "tests": [
+   "*MainBindTest.aBandSlot*"
+  ],
+  "expect": [
+   "aBandSlotIsReleasedOnlyWithNoBurstOpen_AF4"
+  ],
+  "note": "AF.4 (retargeted by the lead after FC: setsLanded)",
+  "from": "FB"
+ },
+ {
+  "id": "AF5-owe-kept",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "            if (tap) owesClick-- else owesScroll--\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*LocalRulesTest.aRefused*"
+  ],
+  "expect": [
+   "aRefusedReportNamingNoListLeavesItsStockMessage_AF5"
+  ],
+  "note": "AF.5",
+  "from": "FB"
+ },
+ {
+  "id": "AF6-key-without-content",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    " ${st.cacheSize} ${List(n) { main.rowKey(it) }.hashCode()}\"",
+    " ${st.cacheSize}\""
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aStagingThatDidNotFit*"
+  ],
+  "expect": [
+   "aStagingThatDidNotFitIsTriedAgainWhenItsContentChanges_AF6"
+  ],
+  "note": "AF.6",
+  "from": "FB"
+ },
+ {
+  "id": "AF8-act-not-input",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "    private fun asInput() { pumpPriority = true; inputFlushPending = true }",
+    "    private fun asInput() {}"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.anActFromAReport*"
+  ],
+  "expect": [
+   "anActFromAReportIsInput_AF8"
+  ],
+  "note": "AF.8",
+  "from": "FB"
+ },
+ {
+  "id": "AF8-pace-per-row",
+  "file": "shell/MainBinding.kt",
+  "edits": [
+   [
+    "    fun nextOwed(nowMs: Long): Int? = if (nowMs < lastAnyWriteMs + RESTAGE_PACE_MS || patches.any { p -> !p.released }) null",
+    "    fun nextOwed(nowMs: Long): Int? = if (patches.any { p -> !p.released }) null"
+   ]
+  ],
+  "tests": [
+   "*MainBindTest.oneReStage*"
+  ],
+  "expect": [
+   "oneReStagePerPaceInAllTheStalestFirst_AF8"
+  ],
+  "note": "AF.8: no pace in all",
+  "from": "FB"
+ },
+ {
+  "id": "AF9-committed-closes-counted",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "            outcome == 1 && (slot to tag) in committed -> { count(\"closedCommitted\"); return }\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*LocalRulesTest.aClosedCommitted*"
+  ],
+  "expect": [
+   "aClosedCommittedInstanceIsNoSnapback_AF9"
+  ],
+  "note": "AF.9",
+  "from": "FB"
+ },
+ {
+  "id": "AF10-test-widths",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "listOf(MainStaging.WHOLE), twoStrips = !shared0)",
+    "MainStaging.WIDTHS + MainStaging.WHOLE, twoStrips = !shared0)"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.theBoundStaging*"
+  ],
+  "expect": [
+   "theBoundStagingHoldsOnlyTheWholeListsPans_AF10"
+  ],
+  "note": "AF.10",
+  "from": "FB"
+ },
+ {
+  "id": "AD2-names-current-prog",
+  "file": "local/BoundList.kt",
+  "edits": [
+   [
+    "        val progOk = lists.any { (it.entryFor(e.eventId) ?: e).prog4 == prog }",
+    "        val progOk = (entryFor(e.eventId) ?: e).prog4 == prog"
+   ]
+  ],
+  "tests": [
+   "*MainBindTest.theLocalCheck*"
+  ],
+  "expect": [
+   "theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2"
+  ],
+  "note": "AD.2: a fire of the old strip's pan, before the SETs, not named",
+  "from": "FB"
+ },
+ {
+  "id": "S1-pairing",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "owesAny += n",
+    "owesAny += 0"
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.seededS1_aLostReportOvertaken"
+  ],
+  "expect": [
+   "seededS1_aLostReportOvertaken"
+  ],
+  "note": "C2-focus 1(a)1: a stock message paired with the latest unpaired 115 (no gap owes): (8)",
+  "from": "FB"
+ },
+ {
+  "id": "S3-blind-discard",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "        val listed = HashSet<Int>()\n        takeRepairs(out, true, listed, HashSet(), HashSet())\n        front?.let { ridingList(out, it.list, listed) }\n        out += settle(row)",
+    "        val listed = HashSet<Int>()\n        takeRepairs(out, true, listed, HashSet(), HashSet())\n        settle(row); out += CfwModes.motionDiscard(front?.slot ?: 0, (sHeard + 1) and 0xFFFF, front?.list ?: CfwModes.BIND_ALL, if (front != null) row else 0)"
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.seededS3_aFireCrossingTheBurstsEnd"
+  ],
+  "expect": [
+   "seededS3_aFireCrossingTheBurstsEnd"
+  ],
+  "note": "1(b)1: the blind end-of-burst DISCARD(S_heard + 1): (7)",
+  "from": "FB"
+ },
+ {
+  "id": "S8-answered-as-2b",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "    private val discardSinceSettle = HashSet<Int>()",
+    "    private val discardSinceSettle = HashSet<Int>()\n    private val stuck2b = HashSet<Int>()"
+   ],
+   [
+    "slots.values.none { it.owed }\n",
+    "slots.values.none { it.owed } && stuck2b.isEmpty()\n"
+   ],
+   [
+    "                out += CfwModes.motionDiscard(n, (st.a + 1 - WIDE) and 0xFFFF, named, if (named == CfwModes.BIND_ALL) 0 else cur!!)",
+    "                val s2b = st.handled.firstOrNull { !it.adopted }?.s\n                if (s2b != null && st.handled.any { it.adopted && after(s2b, it.s) }) stuck2b += n\n                out += CfwModes.motionDiscard(n, (s2b ?: (st.a + 1)) and 0xFFFF, named, if (named == CfwModes.BIND_ALL) 0 else cur!!)"
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.seededS8_everyReportBeforeABatchIsAnsweredByIt"
+  ],
+  "expect": [
+   "seededS8_everyReportBeforeABatchIsAnsweredByIt"
+  ],
+  "note": "Defect A: answered as 2b defined it (a DISCARD at the oldest not-adopted S answers nothing older): (4), (3)",
+  "from": "FB"
+ },
+ {
+  "id": "S10-commit-over-a-draw",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "areas.any { (al, ar) -> left.any { it.overlaps(al) } || right.any { it.overlaps(ar) } }",
+    "false"
+   ],
+   [
+    "val bl = front?.takeIf { it.list == h.list && it.slot == n } ?: continue",
+    "val bl = staged[h.list] ?: continue"
+   ],
+   [
+    "st.list !in listed && n !in denied && front?.let { it.list == h.list && it.slot == n } == true",
+    "st.list !in listed && n !in denied"
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.seededS10_noCommitInABatchThatDrawsOverTheList"
+  ],
+  "expect": [
+   "seededS10_noCommitInABatchThatDrawsOverTheList"
+  ],
+  "note": "Defect C: the old rule's COMMIT of the newest adopted report whatever the batch draws \u2014 both of this build's guards removed (the meets check, and the list in front at the answer, which alone also catches a cover: S18b pins the meets check alone): (2)",
+  "from": "FB"
+ },
+ {
+  "id": "AD2-no-switch",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "        if (o != null && writes.isNotEmpty()) {",
+    "        if (o != null && writes.isNotEmpty() && rows < 0) {"
+   ]
+  ],
+  "tests": [
+   "*MainBindTest.theLocalCheck*"
+  ],
+  "expect": [
+   "theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2"
+  ],
+  "note": "AD.2: a row-form change at 256 written in place (no second strip)",
+  "from": "FB"
+ },
+ {
+  "id": "AF1-focused-only",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        !notifications.active && !notifications.animating",
+    "        !(notifications.active && notifications.focused)"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aNotice*"
+  ],
+  "expect": [
+   "aNoticeUpIsACover_AF1"
+  ],
+  "note": "AF.1: only a focused notice a cover",
+  "from": "FB"
+ },
+ {
+  "id": "fa-ag1-withhold",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "(if (isC1(caps2)) ladderBits(caps2) and (if (armDraw2)",
+    "(if (isC1(caps2)) C1_FLAGS and (if (armDraw2)"
+   ]
+  ],
+  "tests": [
+   "*BindTransportTest*"
+  ],
+  "expect": [
+   "aHandWishWithBindIsHeldBackWithStage4_AG1",
+   "aHandWishWithBindIsHeldToALoweredStage_AG1"
+  ],
+  "note": "AG.1: the start's withhold back to C1_FLAGS (BIND not in it)",
+  "from": "FA"
+ },
+ {
+  "id": "fa-ag2-state",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "if (epoch == sessionEpoch.get() && _state.value.flagsInForce and keep.inv() != 0) {",
+    "if (false) {"
+   ]
+  ],
+  "tests": [
+   "*BindTransportTest*"
+  ],
+  "expect": [
+   "aHandDisarmTakesBindOutOfTheStateAsItIsSent_AG2"
+  ],
+  "note": "AG.2: a hand clear leaves flagsInForce as it was",
+  "from": "FA"
+ },
+ {
+  "id": "fa-ag3-first",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "val ack = firstAck?.takeIf { it.errorCode != null } ?: last",
+    "val ack = last"
+   ]
+  ],
+  "tests": [
+   "*BindTransportTest*"
+  ],
+  "expect": [
+   "aKeyframeWithATailIsJudgedByBothAcks_AG3"
+  ],
+  "note": "AG.3: the keyframe's ack not judged",
+  "from": "FA"
+ },
+ {
+  "id": "fa-ag4-copies",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "if (second == null) bindTelemetry(t)",
+    "bindTelemetry(t)"
+   ]
+  ],
+  "tests": [
+   "*BindTransportTest*"
+  ],
+  "expect": [
+   "oneTelemetryReadIsOneLocalRead_AG4"
+  ],
+  "note": "AG.4: field 39 handed for both copies",
+  "from": "FA"
+ },
+ {
+  "id": "fa-ag4-unparsed",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "for ((field, kind) in UNPARSED_BODIES) DamageMsg.unparsedBody",
+    "for ((field, kind) in emptyList<Pair<Int, String>>()) DamageMsg.unparsedBody"
+   ]
+  ],
+  "tests": [
+   "*BindTransportTest*"
+  ],
+  "expect": [
+   "aReportWhoseBodyDoesNotParseIsJournaledAndCounted_AG4"
+  ],
+  "note": "AG.4: an unparsed body dropped at the debug line again",
+  "from": "FA"
+ },
+ {
+  "id": "fa-ag4-words",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "caps == null || stage == 0 -> words",
+    "true -> words"
+   ]
+  ],
+  "tests": [
+   "*BindTransportTest*"
+  ],
+  "expect": [
+   "aRestoredStageIsSaidAsWhatTheBuildArms_AG4"
+  ],
+  "note": "AG.4: the restore note's words not the build's",
+  "from": "FA"
+ },
+ {
+  "id": "fa-ag5-count",
+  "file": "wire/CfwModes.kt",
+  "edits": [
+   [
+    "if (subs.size > 0xFF) throw LintError(\"mode-8 count ${subs.size} exceeds the u8 field\")",
+    ""
+   ]
+  ],
+  "tests": [
+   "*BindTransportTest*"
+  ],
+  "expect": [
+   "aBatchWhoseTailPassesTheCountIsRefusedLoudly_AG5"
+  ],
+  "note": "AG.5: the batch's count check gone (the count byte wraps)",
+  "from": "FA"
+ },
+ {
+  "id": "fa-ag5-room",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    " - (if (keepOut.isNotEmpty()) wm.damage.core.wire.CfwModes.BIND_TAIL_SUBS else 0)",
+    ""
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*"
+  ],
+  "expect": [
+   "whileABoundListIsInFrontTheBatchKeepsRoomForTheLocalTail_AG5"
+  ],
+  "note": "AG.5: the compositor keeps no room for the tail",
+  "from": "FA"
+ },
+ {
+  "id": "fa-ad1-read",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "@Volatile private var lastSessionKib: Int? = record.sessionKib",
+    "@Volatile private var lastSessionKib: Int? = null"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": [
+   "aNewProcessAsksTheLastSessionsStoredSize_AD1",
+   "aLensRestartedBetweenTwoProcessesHoldsTheSessionsSize_AD1"
+  ],
+  "note": "AD.1: a new process does not read the stored size",
+  "from": "FA"
+ },
+ {
+  "id": "fa-ad1-store",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "                storeSessionKib(size / 1024, \"op 5's answer\")\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": [
+   "aNewProcessAsksTheLastSessionsStoredSize_AD1"
+  ],
+  "note": "AD.1: the answered size not stored",
+  "from": "FA"
+ },
+ {
+  "id": "fa-ad1-range",
+  "file": "transport/LadderRecord.kt",
+  "edits": [
+   [
+    "value.toIntOrNull()?.takeIf { it in SESSION_KIB_RANGE }?.let { r.copy(sessionKib = it) }",
+    "value.toIntOrNull()?.let { r.copy(sessionKib = it) }"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": [
+   "theRecordKeepsTheLastSessionsSize_AD1"
+  ],
+  "note": "AD.1: an out-of-range stored size taken",
+  "from": "FA"
+ },
+ {
+  "id": "fa-ah1-unknown",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "storeSessionKib(minOf(record.sessionKib ?: DamageMsg.CACHE_BUDGET_KIB, kib), \"a lower bound while op 5 asks $kib KiB\")",
+    "setRecord(\"the old form\") { it.copy(sessionKib = null) }"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": [
+   "aProcessThatEndsInsideOp5LeavesALowerBound_AH1",
+   "aLensRestartedBetweenTwoProcessesHoldsTheSessionsSize_AD1",
+   "anUnchangedSizeWritesNothing_AH1"
+  ],
+  "note": "AH.1: the built 'unknown' before op 5 put back",
+  "from": "FA"
+ },
+ {
+  "id": "fa-ah1-ask",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "minOf(record.sessionKib ?: DamageMsg.CACHE_BUDGET_KIB, kib), \"a lower bound",
+    "kib, \"a lower bound"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": [
+   "aProcessThatEndsInsideOp5LeavesALowerBound_AH1"
+  ],
+  "note": "AH.1: the bound is the ask, not min(stored, ask)",
+  "from": "FA"
+ },
+ {
+  "id": "fa-ah1-gone",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "                storeSessionKib(minOf(record.sessionKib ?: DamageMsg.CACHE_BUDGET_KIB, kib), \"a lower bound while op 5 asks $kib KiB\")\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": [
+   "aProcessThatEndsInsideOp5LeavesALowerBound_AH1"
+  ],
+  "note": "AH.1: no write before op 5",
+  "from": "FA"
+ },
+ {
+  "id": "fa-ah1-always",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "if (record.sessionKib != kib) setRecord",
+    "if (true) setRecord"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": [
+   "anUnchangedSizeWritesNothing_AH1"
+  ],
+  "note": "AH.1: written at every start, changed or not",
+  "from": "FA"
+ },
+ {
+  "id": "fd-am1-withheld",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "                withheld = withheld or DamageMsg.FLAG_BIND      // build C2-FD (AM.1): and from a hand wish, as the start's withhold does\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*BindTransportTest*"
+  ],
+  "expect": [
+   "aHandWishedBindIsWithheldByTheHoldBackInsideTheArming_AM1"
+  ],
+  "note": "AM.1: the in-arming hold-back leaves a hand-wished BIND in the wish",
+  "from": "FD"
+ },
+ {
+  "id": "fd-am2-tail",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        if (!tailStillBound(tail, alone = false)) return image to null      // build C2-FD (decisions AM.2)\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*BindTransportTest*"
+  ],
+  "expect": [
+   "aTailBindNoLongerCoversIsDroppedAndTheDrawingGoes_AM2"
+  ],
+  "note": "AM.2: withTail writes the tail whatever the state (the gate refuses the whole image)",
+  "from": "FD"
+ },
+ {
+  "id": "fd-am2-alone",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "                if (!tailStillBound(t, alone = true)) { completeAsync(null, work.id, 0, t0, done = null); return }\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*BindTransportTest*"
+  ],
+  "expect": [
+   "aTailBindNoLongerCoversIsDroppedAndTheDrawingGoes_AM2"
+  ],
+  "note": "AM.2: the tail-only flush goes to the gate",
+  "from": "FD"
+ },
+ {
+  "id": "fd-am3-defined",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "if (op == DamageMsg.OP_FLAGS_SET && asked and DamageMsg.FLAGS_DEFINED.inv() != 0) {",
+    "if (false) {"
+   ]
+  ],
+  "tests": [
+   "*BindTransportTest*"
+  ],
+  "expect": [
+   "aFlagsProbeNamingAnUndefinedBitIsRefused_AM3"
+  ],
+  "note": "AM.3: an undefined bit sent",
+  "from": "FD"
+ },
+ {
+  "id": "fd-am4-row",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            st.started && r.stage >= LADDER_TOP_STAGE && st.flagsInForce and DamageMsg.FLAG_DRAW2 == 0 &&",
+    "            false && st.flagsInForce and DamageMsg.FLAG_DRAW2 == 0 &&"
+   ]
+  ],
+  "tests": [
+   "*BindTransportTest*"
+  ],
+  "expect": [
+   "theRowAndTheRecordSayTheirOwnSubjects_AM4"
+  ],
+  "note": "AM.4: the row does not name a 64 KiB session",
+  "from": "FD"
+ },
+ {
+  "id": "fd-am4-subject",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "read.problems.partition { it.startsWith(\"sessionKib=\") }",
+    "read.problems.partition { false }"
+   ]
+  ],
+  "tests": [
+   "*BindTransportTest*"
+  ],
+  "expect": [
+   "theRowAndTheRecordSayTheirOwnSubjects_AM4"
+  ],
+  "note": "AM.4: the size line said as local input's",
+  "from": "FD"
+ },
+ {
+  "id": "fd-am5-hrule",
+  "file": "sim/MotionSim.kt",
+  "edits": [
+   [
+    "                        if (s.isScaled && (1..s.steps).any { eased(s.h0, s.h1 - s.h0, s.e[it]) !in 1..H_MAX }) return false\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*BindSimTest*"
+  ],
+  "expect": [
+   "aScaledDrawTakesItsAnchorAndTheHRule_6_6"
+  ],
+  "note": "AM.5: stage DS's H-rule-removed (mutations-c2.json), the per-step H rule gone",
+  "from": "FD"
+ },
+ {
+  "id": "FC-AD2-no-switch",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "if (o != null && writes.isNotEmpty()) {",
+    "if (o != null && writes.isNotEmpty() && rows < 0) {"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aRowFormChangeAt256KiBSwitchesStripsWithNoWithdrawal_AD2"
+  ],
+  "expect": [
+   "aRowFormChangeAt256KiBSwitchesStripsWithNoWithdrawal_AD2"
+  ],
+  "note": "FC: the strip switch disabled at 256 KiB (the 160 KiB withdrawal instead)",
+  "from": "FC"
+ },
+ {
+  "id": "FC-release-at-sent",
+  "file": "shell/MainBinding.kt",
+  "edits": [
+   [
+    "(p.restage.toStrip == null || p.setsLanded)",
+    "(p.restage.toStrip == null || p.setsLanded || p.setsFlush != null)"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aRowFormChangeAt256KiBSwitchesStripsWithNoWithdrawal_AD2",
+   "*MainBindTest.aStripSwitchIsReleasedWhenItsSetsLand_AD2"
+  ],
+  "expect": [
+   "aRowFormChangeAt256KiBSwitchesStripsWithNoWithdrawal_AD2",
+   "aStripSwitchIsReleasedWhenItsSetsLand_AD2"
+  ],
+  "note": "FC: the strip switch released when its SETs are sent (the defect)",
+  "from": "FC"
+ },
+ {
+  "id": "FC-failed-flush-lands",
+  "file": "shell/MainBinding.kt",
+  "edits": [
+   [
+    "{ if (ok) p.setsLanded = true; p.setsFlush = null }",
+    "{ p.setsLanded = true; p.setsFlush = null }"
+   ]
+  ],
+  "tests": [
+   "*MainBindTest.aStripSwitchIsReleasedWhenItsSetsLand_AD2"
+  ],
+  "expect": [
+   "aStripSwitchIsReleasedWhenItsSetsLand_AD2"
+  ],
+  "note": "FC: a failed SETs flush counted as landed",
+  "from": "FC"
+ },
+ {
+  "id": "FC-session-keeps-flush",
+  "file": "shell/MainBinding.kt",
+  "edits": [
+   [
+    "fun tailsForgotten() { for (p in patches) p.setsFlush = null }",
+    "fun tailsForgotten() { }"
+   ]
+  ],
+  "tests": [
+   "*MainBindTest.aStripSwitchIsReleasedWhenItsSetsLand_AD2"
+  ],
+  "expect": [
+   "aStripSwitchIsReleasedWhenItsSetsLand_AD2"
+  ],
+  "note": "FC: a new session keeps the old session's flush in flight",
+  "from": "FC"
+ },
+ {
+  "id": "FC-AF3-no-save",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "?: if (v.row < was) EvenHubMsg.EV_SCROLL_TOP else EvenHubMsg.EV_SCROLL_BOTTOM)\n                scheduleSave()",
+    "?: if (v.row < was) EvenHubMsg.EV_SCROLL_TOP else EvenHubMsg.EV_SCROLL_BOTTOM)"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.anAdoptedNotchIsAGestureAndHoldIsRefusedAtStage4_AF3"
+  ],
+  "expect": [
+   "anAdoptedNotchIsAGestureAndHoldIsRefusedAtStage4_AF3"
+  ],
+  "note": "FC: an adopted notch does not save Main's cursor",
+  "from": "FC"
+ },
+ {
+  "id": "AL1-key-raw-progress",
+  "file": "shell/MainSurface.kt",
+  "edits": [
+   [
+    "listOf(w.name, w.icon, s.copy(progress = s.progress?.let { Icons.blocksLit(it).toDouble() }), w.needs.isNotEmpty())",
+    "listOf(w.name, w.icon, s, w.needs.isNotEmpty())"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aPlayingTracksProgressLetsMainBeStagedAndTheLoopRest_AL1"
+  ],
+  "expect": [
+   "aPlayingTracksProgressLetsMainBeStagedAndTheLoopRest_AL1"
+  ],
+  "note": "AL.1: the row key carries the raw progress (a playing track moves it at every read)",
+  "from": "FC"
+ },
+ {
+  "id": "AL1-note-every-time",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "if (reason != mainBindRefusalSaid) { mainBindRefusalSaid = reason; journal.note(\"mainstage\", note) }",
+    "run { mainBindRefusalSaid = reason; journal.note(\"mainstage\", note) }"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aStagingThatDidNotFitIsTriedAgainWhenItsContentChanges_AF6"
+  ],
+  "expect": [
+   "aStagingThatDidNotFitIsTriedAgainWhenItsContentChanges_AF6"
+  ],
+  "note": "AL.1: the refusal note at every retry",
+  "from": "FC"
+ },
+ {
+  "id": "AL1-note-with-numbers",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "val reason = note.replace(Regex(\"\\\\d+\"), \"#\")",
+    "val reason = note"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aStagingThatDidNotFitIsTriedAgainWhenItsContentChanges_AF6"
+  ],
+  "expect": [
+   "aStagingThatDidNotFitIsTriedAgainWhenItsContentChanges_AF6"
+  ],
+  "note": "AL.1: the refusal's reason compared with its sizes in it",
+  "from": "FC"
+ },
+ {
+  "id": "AL2-growth-dropped",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "return assembleHolding(rectBudget, hl, hr, emptyList()).also { deferL = hl.distinct(); deferR = hr.distinct() }",
+    "return assembleHolding(rectBudget, hl, hr, emptyList())"
+   ]
+  ],
+  "tests": [
+   "*CompositorEndsTest.aSpanHeldWholeDuringTheDeferralGoesAtTheRelease_AL2"
+  ],
+  "expect": [
+   "aSpanHeldWholeDuringTheDeferralGoesAtTheRelease_AL2"
+  ],
+  "note": "AL.2: the deferral branch drops what the hold loop grew",
+  "from": "FC"
+ },
+ {
+  "id": "AL4-strip-in-switch",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "stripEnc.copyOf(), next(stripSlot), stripSlot, segOff.copyOf(), segLen.copyOf())",
+    "ByteArray(0), next(stripSlot), stripSlot, segOff.copyOf(), segLen.copyOf())"
+   ],
+   [
+    "listOfNotNull(Blob(strip.name, strip.off, pad(strip.encoded), strip.raw), stripB?.let { Blob(it.name, it.off, pad(it.encoded), it.raw) }) +",
+    "listOf(Blob(strip.name, strip.off, pad(strip.encoded), strip.raw)) +"
+   ],
+   [
+    "            for (k in nLens.indices) {\n                if (oOff[k] != nOffs[k]",
+    "            if (o.encoded.isEmpty()) ow += Write(o.off, pad(full), \"the whole strip into slot $to\") else for (k in nLens.indices) {\n                if (oOff[k] != nOffs[k]"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aRowFormChangeAt256KiBSwitchesStripsWithNoWithdrawal_AD2"
+  ],
+  "expect": [
+   "aRowFormChangeAt256KiBSwitchesStripsWithNoWithdrawal_AD2"
+  ],
+  "note": "AL.4: slot B left for the first switch's flush (the strip whole in it), as before",
+  "from": "FC"
+ },
+ {
+  "id": "AL5-echo-marks",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "internal fun marksInput(ev: TransportEvent): Boolean = ev is TransportEvent.Text || (ev is TransportEvent.Input && !localReads(ev))",
+    "internal fun marksInput(ev: TransportEvent): Boolean = ev is TransportEvent.Text || ev is TransportEvent.Input"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.anInputTheRulesReadDoesNotMarkItsPump_AL5"
+  ],
+  "expect": [
+   "anInputTheRulesReadDoesNotMarkItsPump_AL5"
+  ],
+  "note": "AL.5: every Input marks its pump, a consumed echo too",
+  "from": "FC"
+ },
+ {
+  "id": "R1-quiescent-ignores-deferral",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "(!comp.hasPending && !comp.needsKeyframe && !comp.deferring)",
+    "(!comp.hasPending && !comp.needsKeyframe)"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.theShellIsNotQuiescentWhileHeldCellsWait_AL6"
+  ],
+  "expect": [
+   "theShellIsNotQuiescentWhileHeldCellsWait_AL6"
+  ],
+  "note": "AL.6 R1: isQuiescent reads quiescent while the held cells wait",
+  "from": "FC"
+ },
+ {
+  "id": "R3-end-maxed",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "deferUntilMs = if (deferL.isEmpty()) until else maxOf(deferUntilMs, until)",
+    "deferUntilMs = maxOf(deferUntilMs, until)"
+   ]
+  ],
+  "tests": [
+   "*CompositorEndsTest.aNewWaitTakesItsOwnEnd_AL6"
+  ],
+  "expect": [
+   "aNewWaitTakesItsOwnEnd_AL6"
+  ],
+  "note": "AL.6 R3: a new wait carries the last one's end",
+  "from": "FC"
+ },
+ {
+  "id": "R4-rebind-only-alone",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "if (st.moved == REBIND && st.handled.none { !it.adopted && !it.tap }) { count(REBIND); return }",
+    "if (st.handled.isEmpty() && st.moved == REBIND) { count(REBIND); return }"
+   ]
+  ],
+  "tests": [
+   "*LocalRulesTest.aReturnAfterAnAdoptedReportIsARebindNotASnapback_AL6"
+  ],
+  "expect": [
+   "aReturnAfterAnAdoptedReportIsARebindNotASnapback_AL6"
+  ],
+  "note": "AL.6 R4: a return after an adopted report noted as a snap-back",
+  "from": "FC"
+ }
+]
