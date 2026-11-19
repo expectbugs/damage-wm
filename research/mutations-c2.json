@@ -1486,7 +1486,7 @@
   ],
   "expect": [
    "noMergeAcrossTheBoundListsAreas_DI",
-   "aFastSeriesOfNotchesIsNeverCutByTheChromeRefresh_DI"
+   "aFastSeriesOfNotchesTakesAboutOneFlushEach_AQ2"
   ],
   "note": "the chrome overlap: merges across the bound list's areas allowed (the tree before the fix)",
   "from": "DI"
@@ -1784,12 +1784,8 @@
   "file": "comp/Compositor.kt",
   "edits": [
    [
-    "                val metL = drawn.filter { t -> t.left && hl.any { t.rect.overlaps(it) } }",
-    "                val metL = drawn.filter { t -> t.left && hl.any { Rect(t.rect.x, t.rect.y, width - t.rect.x, height - t.rect.y).overlaps(it) } }"
-   ],
-   [
-    "                val metR = drawn.filter { t -> !t.left && hr.any { t.rect.overlaps(it) } }",
-    "                val metR = drawn.filter { t -> !t.left && hr.any { Rect(t.rect.x, t.rect.y, width - t.rect.x, height - t.rect.y).overlaps(it) } }"
+    "                val met = drawn.filter { t -> (if (t.left) hl else hr).any { t.rect.overlaps(it) } }.map { it.sub }.toSet()",
+    "                val met = drawn.filter { t -> (if (t.left) hl else hr).any { Rect(t.rect.x, t.rect.y, width - t.rect.x, height - t.rect.y).overlaps(it) } }.map { it.sub }.toSet()"
    ]
   ],
   "tests": [
@@ -1799,7 +1795,7 @@
    "aDrawOutsideTheAreasKeepsTheCommit",
    "aDrawCrossingTheAreasWaitsForTheNextBatch"
   ],
-  "note": "DMS / AA.1: the compositor judging a draw by the transport's reading (origin to the panel's right and bottom edges): the clock is held back",
+  "note": "DMS / AA.1: the compositor judging a draw by the transport's reading (origin to the panel's right and bottom edges): the clock is held back (retargeted at FE's one met judgement, both lenses)",
   "from": "FB"
  },
  {
@@ -1903,7 +1899,7 @@
     "                holdL = emptyList(); holdR = emptyList(); endTouched = mine"
    ],
    [
-    "                if (metL.isEmpty() && metR.isEmpty()) return a",
+    "                if (met.isEmpty()) return a",
     "                if (true) return a"
    ]
   ],
@@ -1914,7 +1910,7 @@
    "aDrawCrossingTheAreasWaitsForTheNextBatch",
    "aDeltaSpanningTheAreasIsHeldToo"
   ],
-  "note": "AA.1: no hold",
+  "note": "AA.1: no hold (retargeted at FE)",
   "from": "FB"
  },
  {
@@ -1922,7 +1918,7 @@
   "file": "comp/Compositor.kt",
   "edits": [
    [
-    "                if (metL.isEmpty() && metR.isEmpty()) return a",
+    "                if (met.isEmpty()) return a",
     "                if (true) return a"
    ]
   ],
@@ -1932,7 +1928,7 @@
   "expect": [
    "aDeltaSpanningTheAreasIsHeldToo"
   ],
-  "note": "AA.1's loop",
+  "note": "AA.1's loop (retargeted at FE)",
   "from": "FB"
  },
  {
