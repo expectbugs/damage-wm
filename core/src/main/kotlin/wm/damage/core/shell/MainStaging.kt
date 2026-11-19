@@ -290,7 +290,7 @@ class MainStaging private constructor(
             val tail = java.io.ByteArrayOutputStream()
             for (k in first until stripRow.size) {
                 val lk = if (newStrip.any { it.first == k }) lv else strip.levels.copyOfRange(k * segPx, (k + 1) * segPx)
-                lens[k] = slack(rleSize(lk, 0, lk.size))
+                lens[k] = segSlack(rleSize(lk, 0, lk.size))
                 tail.write(rlePadded(lk, 0, lk.size, lens[k])!!)
             }
             if (segOff[first] + tail.size() > strip.slot)
@@ -392,11 +392,17 @@ class MainStaging private constructor(
         const val SLACK_MIN = 64
         /** The strip's own slot beyond its segments: an eighth of them (a longer title re-lays the tail into it). */
         const val STRIP_EXTRA_DIV = 8
+        /** A strip segment's slack: an eighth of its row form. */
+        const val SEG_SLACK_DIV = 8
 
         private fun s16(v: Int) = v.toShort().toInt()
 
         /** A slot for a record of [n] bytes: [n] plus the slack, 4-byte aligned. */
         fun slack(n: Int): Int = (n + maxOf(n / SLACK_DIV, SLACK_MIN) + 3) and 3.inv()
+
+        /** A strip segment for a row form of [n] bytes: an eighth more (the strip's own extra room takes a larger growth,
+         *  [STRIP_EXTRA_DIV]). */
+        fun segSlack(n: Int): Int = (n + maxOf(n / SEG_SLACK_DIV, SLACK_MIN) + 3) and 3.inv()
 
         /**
          * Main at [layout] staged for a session cache of [cacheSize] bytes, its records laid out from [regionStart] and
@@ -433,7 +439,7 @@ class MainStaging private constructor(
                 paintStripRow(view, l, stripRow[s], relay).pix.copyInto(sg.pix, s * l.rowH * rowW)
             val slv = levelsOf(sg)
             val segPx = l.rowH * rowW
-            val segLen = IntArray(stripRows) { s -> slack(rleSize(slv, s * segPx, (s + 1) * segPx)) }
+            val segLen = IntArray(stripRows) { s -> segSlack(rleSize(slv, s * segPx, (s + 1) * segPx)) }
             val segOff = IntArray(stripRows)
             val stripEnc = ByteArray(4 + segLen.sum())
             put16(stripEnc, 0, rowW); put16(stripEnc, 2, sg.h)
@@ -448,9 +454,10 @@ class MainStaging private constructor(
             val strip = Picture("strip", sg, slv, stripEnc, next(stripSlot), stripSlot, segOff, segLen)
             // each row's band form, painted where the band is (the painters snap x and y to the panel's grid), in a slot
             // every band slot one size — the largest band form's with its slack — so a row's moved band form fits any free
-            // slot, the spare or one a switch freed
+            // slot, the spare or one a switch freed (a smaller row has the difference as its headroom besides)
             val bandPics = (0 until n).map { i -> paintBandForm(view, kit, l, i, relay).let { g -> g to TextureCacheImage.encode(g) } }
-            val bandSlot = slack(bandPics.maxOf { it.second.size })
+            val bandMax = bandPics.maxOf { it.second.size }
+            val bandSlot = slack(bandMax)
             val bands = bandPics.mapIndexed { i, (g, enc) -> Picture("band $i", g, levelsOf(g), enc, next(bandSlot), bandSlot) }
             // one spare band slot, the largest band form's: a re-stage writes there and switches the item table to it
             val spareSlot = bandSlot
