@@ -83,6 +83,9 @@ object MainLocalCheck {
         val view = surface.view()
         val listD = depth
         val bandD = if (depth == 0) 0 else maxOf(0, depth - Geometry.X_STEP)
+        /** Where the press puts the band row, said here on its own (`FIRMWARE.md` §6.4, §6.9; `DESIGN.md` §3.1): one depth
+         *  notch nearer than the band, never nearer than the screen plane. */
+        val pressD = maxOf(0, bandD - Geometry.X_STEP)
 
         private fun planes(band: Int): List<Compositor.PlaneRegion> {
             val out = ArrayList<Compositor.PlaneRegion>()
@@ -282,6 +285,7 @@ object MainLocalCheck {
         // ---- the press at every cursor (Taps · glasses)
         run {
             val fails = ArrayList<String>(); val lines = ArrayList<String>()
+            if (ms.press.pressD != m.pressD) fails += "the press goes to depth ${ms.press.pressD}, not one notch nearer than the band's ${ms.bandD} (${m.pressD})"
             var kept: List<Frame> = emptyList()
             for (c in 0 until ms.rows) {
                 val frames: MutableList<Frame>? = if (keepFrames && c == ms.rows / 2) ArrayList() else null
@@ -289,7 +293,7 @@ object MainLocalCheck {
                     for (arm in Arm.entries) {
                         val left = arm == Arm.LEFT
                         val areas = ms.press.areas(left)
-                        differ(lens.panel(arm), m.truth(cP, left, band = ms.press.pressD), areas).let { if (it > 0) fails += "tap at $c $arm: $it px at HOLD where the press is not the band row at the forward depth" }
+                        differ(lens.panel(arm), m.truth(cP, left, band = m.pressD), areas).let { if (it > 0) fails += "tap at $c $arm: $it px at HOLD where the press is not the band row at the forward depth" }
                         val end = m.truth(cP, left).copy().also { ms.paintEndOf(ms.press.prog4, p, left, it) }
                         differ(lens.panel(arm), end, areas).let { if (it > 0) fails += "tap at $c $arm: $it px at HOLD where the lens is not the press's END" }
                     }
