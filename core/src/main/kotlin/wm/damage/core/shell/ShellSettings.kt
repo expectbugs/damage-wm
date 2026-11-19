@@ -110,6 +110,11 @@ data class ShellSettings(
      *  pre-revision grammar. */
     val longPress: LongPress = LongPress.OFF,
 
+    /** Build C2 (`FIRMWARE.md` §6.7, §6.3): `Taps` — `phone` · `report` (the default, Adam 2026-11-18) · `glasses`: what a
+     *  ring tap on a bound list does on the glasses. On the PC record with the phone's working copy, as every row; it has
+     *  effect only on a bit-10 build at stage 4. Additive: an old record reads `report`. */
+    val taps: wm.damage.core.local.Taps = wm.damage.core.local.Taps.REPORT,
+
     /** Battery alert mode for the <=20 % pulse (§4.1). */
     val batteryAlert: BatteryAlert = BatteryAlert.ON,
 

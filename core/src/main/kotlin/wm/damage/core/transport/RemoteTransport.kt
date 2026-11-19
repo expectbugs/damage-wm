@@ -138,9 +138,9 @@ data class WireState(
     // build W, package G: whether the far end's session has its carrier (a start that rested in Silent Mode has
     // none); an older peer reads true, "up", as before
     val carrierUp: Boolean = true,
-    // build C2 (stage DP1): `Taps`, the `Local input` row's words and S_heard at the start, so a shell across the seam
-    // reads the far end's local input; an older peer reads the defaults ("report", "", 0)
-    val taps: String = "report", val localInput: String = "", val bindSHeard0: Int = 0,
+    // build C2 (stage DP1): the `Local input` row's words and S_heard at the start, so a shell across the seam reads the
+    // far end's local input; an older peer reads the defaults ("", 0). (`Taps` is a Settings row since DP2.)
+    val localInput: String = "", val bindSHeard0: Int = 0, val bindArmUptime: Long = 0,
 )
 
 // named on both sides: the two classes order their fields differently, and a
@@ -155,7 +155,7 @@ private fun LinkState.toWire() = WireState(connected = connected, started = star
     floorSamples = floorSamples, transferSamples = transferSamples,
     worn = worn, wearSwitch = wearSwitch,
     linkIntervalMs = linkIntervalMs, linkLatency = linkLatency, carrierUp = carrierUp,
-    taps = taps, localInput = localInput, bindSHeard0 = bindSHeard0)
+    localInput = localInput, bindSHeard0 = bindSHeard0, bindArmUptime = bindArmUptime)
 
 private fun WireState.toState() = LinkState(connected = connected, started = started, leaseHeld = leaseHeld,
     inFlight = inFlight, window = window, ackMsEma = ackMsEma, bytesPerSecEma = bytesPerSecEma,
@@ -166,7 +166,7 @@ private fun WireState.toState() = LinkState(connected = connected, started = sta
     worn = worn, wearSwitch = wearSwitch,
     floorSamples = floorSamples, transferSamples = transferSamples,
     linkIntervalMs = linkIntervalMs, linkLatency = linkLatency, carrierUp = carrierUp,
-    taps = taps, localInput = localInput, bindSHeard0 = bindSHeard0,
+    localInput = localInput, bindSHeard0 = bindSHeard0, bindArmUptime = bindArmUptime,
     capability = capability, rssiDbm = rssiDbm, transportName = "remote:$transportName", detail = detail)
 
 private fun DataOutputStream.send(c: Ctl, blob: ByteArray? = null) {
@@ -610,6 +610,9 @@ class RemoteTransportClient(
             is DisplayOp.PresentHint -> ops.add(WireOp("ph", box = listOf(op.y0, op.y1, 0, 0)))
             is DisplayOp.CacheWrite2 -> { ops.add(WireOp("cw2", len = op.payload.size)); blobLen += op.payload.size }
         }
+        // build C2: the batch's tail of mode-27 / mode-26 sub 3..5 sub-messages, one "tl" op each after the ops (an older
+        // peer rejects the flush loudly as an unknown kind — never sends a batch without its answer)
+        for (t in flush.tail) { ops.add(WireOp("tl", len = t.size)); blobLen += t.size }
         val blob = ByteArray(blobLen)
         var off = 0
         for (op in flush.ops) {
@@ -627,6 +630,7 @@ class RemoteTransportClient(
             p.copyInto(blob, off)
             off += p.size
         }
+        for (t in flush.tail) { t.copyInto(blob, off); off += t.size }
         pendingSubmits[id] = System.currentTimeMillis()
         // the blocking write moves to an IO THREAD; the caller still awaits
         // it (withContext suspends), so a wedged link parks the pump COROUTINE
@@ -967,6 +971,7 @@ class RemoteTransportServer(
                     }
                     "flush" -> {
                         val ops = ArrayList<DisplayOp>(c.ops.size)
+                        val tail = ArrayList<ByteArray>()
                         var off = 0
                         var bad = false
                         for (w in c.ops) {
@@ -1010,6 +1015,7 @@ class RemoteTransportServer(
                                     off += w.len
                                 }
                                 "di" -> ops.add(DisplayOp.DrawImage(w.off, w.box[0], w.box[1], w.disp))
+                                "tl" -> { tail.add(blob!!.copyOfRange(off, off + w.len)); off += w.len }
                                 else -> {
                                     // an unknown kind desynchronizes the payload
                                     // offsets — every later op would carry the
@@ -1028,7 +1034,7 @@ class RemoteTransportServer(
                             val clientId = c.id
                             try {
                                 val innerId = runBlocking {
-                                    inner.submit(FlushRequest(ops, c.epoch, c.label, c.wide, c.writer))
+                                    inner.submit(FlushRequest(ops, c.epoch, c.label, c.wide, c.writer, tail))
                                 }
                                 val prev = rendezvous.putIfAbsent(innerId, clientId)
                                 if (prev is TransportEvent.FlushDone) {
@@ -1126,6 +1132,8 @@ class RemoteTransportServer(
         is TransportEvent.LocalRead -> Ctl(t = "localread", detail = "${ev.boundIds ?: ""}:" +
             (ev.refusal27?.let { "${it.mode}:${it.reason}:${it.seq}" } ?: ""))
         is TransportEvent.FlushDone -> null   // delivered per-flush with id mapping
+        // build C2: the rules' 114 counting is not carried across the seam (the dev override); the `motion` note is
+        is TransportEvent.LocalBody -> null
     }
 
     override fun close() {

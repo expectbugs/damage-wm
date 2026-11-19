@@ -300,16 +300,6 @@ abstract class CfwTransportBase(
                     (if (n == LADDER_TOP_STAGE && was.holdBackAt != null) "; local input's hold-back (${was.holdBackWhy}) is lifted" else ""))
                 refreshLocalState()
             }
-            // build C2 (§6.3, §6.7): the `Taps` value — kept in the record; mid-session the shell sends the tap entry's SET
-            // or CLEAR it changes (LinkState.taps)
-            "taps" -> {
-                if (value !in LadderRecord.TAPS) { Log.w(this.name, "probe taps=$value: expected ${LadderRecord.TAPS.joinToString(" | ")}"); return }
-                var was = ""
-                setRecord("local input: Taps") { was = it.taps; it.copy(taps = value) }
-                emitNote("keeper", "Taps: $was → $value" + (if (!hasBind(damageCaps) || effectiveStage() < LADDER_TOP_STAGE)
-                    " (no effect: ${if (!hasBind(damageCaps)) "this firmware" else "stage ${effectiveStage()}"})" else ""))
-                refreshLocalState()
-            }
             // build C2: what the transport holds for local input, in one `local` note
             "local" -> {
                 if (value != "state") { Log.w(this.name, "probe local=$value: expected local=state"); return }
@@ -317,7 +307,7 @@ abstract class CfwTransportBase(
                 val st = _state.value
                 emitNote("local", "state: ${st.localInput.ifEmpty { "(no session yet)" }}; stage ${r.stage} (arms ${effectiveStage()}); " +
                     "BIND ${if (st.flagsInForce and DamageMsg.FLAG_BIND != 0) "in force" else "not in force"} (flags 0x${st.flagsInForce.toString(16)}); " +
-                    "bit 10 ${if (hasBind(damageCaps)) "reported" else "not reported"}; Taps ${r.taps}; last stage-4 arming " +
+                    "bit 10 ${if (hasBind(damageCaps)) "reported" else "not reported"}; last stage-4 arming " +
                     (r.bindArmedAt?.let { "${hhmm(it)} (${localDay(it)})" } ?: "none") + "; case-in " + (r.caseInAt?.let { hhmm(it) } ?: "none") +
                     "; hold-back " + (r.holdBackAt?.let { "since ${hhmm(it)}: ${r.holdBackWhy}" } ?: "none") + "; S_heard at the start $bindSHeard0")
             }
@@ -398,7 +388,7 @@ abstract class CfwTransportBase(
                     emitNote("wear", "query not sent (probe): no session")
                 }
             }
-            else -> Log.w(this.name, "probe $name=$value: not a probe this transport runs (diag, logger, telemetry, cache, flags, selftest, wear, c1, motion, taps, local)")
+            else -> Log.w(this.name, "probe $name=$value: not a probe this transport runs (diag, logger, telemetry, cache, flags, selftest, wear, c1, motion, local; taps= is the shell's)")
         }
     }
 
@@ -680,7 +670,13 @@ abstract class CfwTransportBase(
         // attempt reached BOTH arms, the left lens has not armed the set and cannot report it
         // (2026-09-15, second review)
         if (reply != null) settleWrite(writtenBoth, firstFailed)
-        if (reply != null && writtenBoth.isCompleted) return reply
+        if (reply != null && writtenBoth.isCompleted) {
+            // build C2 (§6.7 P1): the arming uptime — field 2 of the reply to the FLAGS_SET that armed BIND; a report fired
+            // before it is stale (P8)
+            if (set and DamageMsg.FLAG_BIND != 0 && (reply.flags ?: 0L).toInt() and DamageMsg.FLAG_BIND != 0)
+                updateState { it.copy(bindArmUptime = reply.uptimeTicks ?: 0L) }
+            return reply
+        }
         // a session that ended is not a fault: the sweep fails the waiter AND the queued write's own
         // deferred, so both look like a refusal from here
         if (epoch != sessionEpoch.get() || !running) return null
@@ -1289,6 +1285,7 @@ abstract class CfwTransportBase(
 
     private fun bindSessionStart() {
         bindSHeard0 = 0
+        updateState { it.copy(bindArmUptime = 0) }
         resetCheckLastS = null
         bindRefusalSeen = null
         bindRefusalBaseline = true
@@ -1319,7 +1316,12 @@ abstract class CfwTransportBase(
         bindRefusalSeen = rec
         val names27 = fresh && !baseline && rec!!.first == CfwModes.BIND_MODE
         if (names27) emitNote("local", "the glasses refused a mode 27 (${ref!!.describe()}) — the shell sends the whole table again")
-        if (!_events.tryEmit(TransportEvent.LocalRead(t.boundIds, if (names27) ref else null)))
+        // decisions M.5: a batch dropped whole is recorded as mode 8 / reason 14, never 27 — the shell re-sends the table
+        // subs it sent since the last read
+        val batch14 = fresh && !baseline && rec!!.first == 8 && rec.second == 14
+        if (batch14) emitNote("local", "the glasses dropped a batch whole (${ref!!.describe()}) — the shell re-sends the table messages it sent since the last read")
+        if (!_events.tryEmit(TransportEvent.LocalRead(t.boundIds, if (names27) ref else null, batch14 = if (batch14) ref else null,
+                fields = t.fields, flagsInForce = t.flags?.toInt())))
             Log.e(name, "LocalRead event DROPPED (buffer full)")
     }
 
@@ -1359,7 +1361,7 @@ abstract class CfwTransportBase(
             st.started && st.flagsInForce and DamageMsg.FLAG_BIND != 0 -> "on"
             else -> "off: stage ${r.stage}"
         }
-        updateState { it.copy(taps = r.taps, localInput = words) }
+        updateState { it.copy(localInput = words) }
     }
 
     /** Build C1 (`FIRMWARE.md` §5.8, spec §6.4): one notify-114 body. A `motion` note always; for an instance that
@@ -1375,6 +1377,10 @@ abstract class CfwTransportBase(
             return
         }
         emitNote("motion", m.describe())
+        // build C2: while BIND is in force the shell's rules read every body (P7's stops, a refused answer)
+        if (hasBind(damageCaps) && _state.value.flagsInForce and DamageMsg.FLAG_BIND != 0 && m.slot != null && m.outcome != null)
+            if (!_events.tryEmit(TransportEvent.LocalBody(m.slot!!, m.tag ?: -1, m.outcome!!, m.reason)))
+                Log.e(name, "LocalBody event DROPPED (buffer full)")
         m.seq?.let { s -> synchronized(motionSeqs) { if (motionAccounted.let { it == null || s > it }) motionSeqs += s } }
         if (m.outcome == DamageMsg.OUTCOME_REFUSED) {
             // an unknown sub's body names no slot (ruling R1.8), and 0xFF (a CLOSE of all) names none of the four
@@ -3603,6 +3609,21 @@ abstract class CfwTransportBase(
             }
             return
         }
+        if (work.request.ops.isEmpty() && work.request.tail.isNotEmpty()) {
+            // build C2: a batch with nothing to draw — an owed answer, the lone SETTLE (P7), a re-send — goes alone: one
+            // sub-message as its own image, more as a batch. No fid.
+            try {
+                val t = work.request.tail
+                val image = if (t.size == 1) t[0] else CfwModes.batch(t, engine = true, bind = true)
+                val final = writeImage(image, work.epoch)
+                completeAsync(final, work.id, image.size, t0, done = null, sample = AckSample(alone, floor = true, epoch = work.epoch))
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _events.emit(TransportEvent.FlushDone(work.id, false, nowMs() - t0, 0, e.message ?: e.toString()))
+            }
+            return
+        }
         // state to hand back if the WRITE fails after the encode consumed fids
         // (round 5 F3): the glasses never saw them
         var firstFid = fids.peek()
@@ -3642,8 +3663,11 @@ abstract class CfwTransportBase(
                 window = if (work.request.wide) depth else WINDOW)
             // build C1 (`FIRMWARE.md` §5.6, ruling 4 of `HANDOFF.md` §81): a write that meets an open instance's area
             // CLOSEs that instance first, in the same batch; with nothing open the image is the encoder's, unchanged
-            val image = withMotionCloses(work.request, encoded.image)
-            val final = writeImage(image, work.epoch)
+            val closed = withMotionCloses(work.request, encoded.image)
+            // build C2 (§6.5's batch order): the local rules' tail after every drawing sub — in the batch, or, behind a
+            // bare keyframe, as the next image in stream order
+            val (image, after) = withTail(closed, work.request.tail)
+            val final = writeImage(image, work.epoch).let { k -> if (after != null) writeImage(after, work.epoch) else k }
             flushWritten = true
             // the flush is on the wire: its completion is its own, whatever
             // happens to the wrap clear below (round 7 D4)
@@ -3716,6 +3740,27 @@ abstract class CfwTransportBase(
         if (out.size > Geometry.MODE8_MAX) throw LintError("BUD002 flush ${out.size} B with its motion CLOSEs exceeds the firmware cap ${Geometry.MODE8_MAX}")
         emitNote("motion", "a flush meets open instance(s) ${slots.joinToString()} — CLOSE first, in its batch (§5.6)")
         return out
+    }
+
+    /**
+     * Build C2 (`FIRMWARE.md` §6.5's batch order): [image] with the local rules' [tail] after every sub-message it holds
+     * — a mode-8 batch grows by the tail; any other image (a bare keyframe) goes first and the tail follows as the next
+     * image (one sub-message alone, more as a batch), so the order is the same. A batch past the firmware's cap is
+     * refused loudly, as [withMotionCloses] refuses one.
+     */
+    private fun withTail(image: ByteArray, tail: List<ByteArray>): Pair<ByteArray, ByteArray?> {
+        if (tail.isEmpty()) return image to null
+        if (image[0].toInt() != 8) return image to (if (tail.size == 1) tail[0] else CfwModes.batch(tail, engine = true, bind = true))
+        val subs = ArrayList<ByteArray>()
+        var i = 2
+        repeat(image[1].toInt() and 0xFF) {
+            val n = (image[i].toInt() and 0xFF) or ((image[i + 1].toInt() and 0xFF) shl 8)
+            subs += image.copyOfRange(i + 2, i + 2 + n)
+            i += 2 + n
+        }
+        val out = CfwModes.batch(wm.damage.core.local.LocalRules.batchOrder(subs, tail), engine = true, bind = true)
+        if (out.size > Geometry.MODE8_MAX) throw LintError("BUD002 flush ${out.size} B with its local-input tail exceeds the firmware cap ${Geometry.MODE8_MAX}")
+        return out to null
     }
 
     /**

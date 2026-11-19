@@ -33,6 +33,10 @@ class SettingsWindow(
     private val host: () -> List<HostSetting> = { emptyList() },
     /** Per-app categories: (window name, its rows), read on every render. */
     private val apps: () -> List<Pair<String, List<HostSetting>>> = { emptyList() },
+    /** Build C2 (§6.3): the `Local input` row's state in words, as the transport says it ("" before a session). */
+    private val localInput: () -> String = { "" },
+    /** Build C2 (§6.8's lift): a tap on `Local input` while it is held back re-arms it — `probe c1=4`'s act. */
+    private val localRearm: () -> Unit = {},
 ) : DamageWindow("settings", "Settings", IconKind.SETTINGS) {
 
     private val fRow = FontSpec(Face.SYSTEM, 18)
@@ -58,6 +62,8 @@ class SettingsWindow(
         val value: () -> String,
         val step: ((ShellSettings, Int) -> ShellSettings)?,
         val hostRow: HostSetting? = null,
+        /** A row a tap acts on (no adjusting): build C2's `Local input`. */
+        val tap: (() -> Unit)? = null,
     )
 
     private inner class Cat(val name: String, val entries: List<Entry>)
@@ -96,6 +102,19 @@ class SettingsWindow(
             if (get().longPress == ShellSettings.LongPress.OFF) "off (default)" else "switcher"
         }, { s, d ->
             s.copy(longPress = if (d > 0) ShellSettings.LongPress.SWITCHER else ShellSettings.LongPress.OFF)
+        }),
+        // build C2 (`FIRMWARE.md` §6.3, §6.7): what a ring tap on a bound list does on the glasses — beside Long-press
+        Entry("Taps", {
+            val t = get().taps
+            t.word + (if (t == wm.damage.core.local.Taps.REPORT) " (default)" else "") +
+                (if (localInput() != "on") " (no effect: this firmware / stage)" else "")
+        }, { s, d ->
+            val ts = wm.damage.core.local.Taps.entries
+            s.copy(taps = ts[(s.taps.ordinal + d).coerceIn(0, ts.size - 1)])
+        }),
+        // §6.3: its state in words; a tap re-arms it while it is held back (§6.8's lift). It changes nothing else.
+        Entry("Local input", { localInput().ifEmpty { "no session" } }, null, tap = {
+            if (localInput().startsWith("held back")) localRearm()
         }),
         Entry("Battery alert", { get().batteryAlert.name.lowercase() }, { s, d ->
             s.copy(batteryAlert = ShellSettings.BatteryAlert.entries[
@@ -177,6 +196,7 @@ class SettingsWindow(
             paintLens = { g, r, i -> paintLens(g, r, i) },
             onCommit = { i ->
                 val e = entriesAt().getOrNull(i) ?: return@ListView
+                e.tap?.let { it(); return@ListView }
                 if (e.step != null || e.name == "Size" || e.hostRow != null) {
                     adjusting = e
                     revertTo = get()

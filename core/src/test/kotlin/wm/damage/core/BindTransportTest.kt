@@ -357,9 +357,10 @@ class BindTransportTest {
 
     /** One awake start's packets, as `SilentStartTest`'s two start pins take them: stage 0 a transport's first start
      *  (`awake-start-contract2.txt`); stages 1–4 the start after a stage-0 first start and a lapse (C1-Q), the shape the
-     *  stage files were written from. [taps] goes in by the probe before the measured start; [holdBack] puts a stage-4
-     *  hold-back in force the way its evidence would ([CfwTransportBase.ladderRecordForTest]). */
-    private suspend fun startWire(features: Int, stage: Int, taps: String, holdBack: Boolean = false): List<String> {
+     *  stage files were written from. [holdBack] puts a stage-4 hold-back in force the way its evidence would
+     *  ([CfwTransportBase.ladderRecordForTest]). `Taps` is not the transport's (stage DP2, decisions N.1): its start bytes
+     *  are one file per stage, and the bind batch per `Taps` value is the shell's (`LocalStartTest`). */
+    private suspend fun startWire(features: Int, stage: Int, holdBack: Boolean = false): List<String> {
         val glass = GlassFirmwareSim().apply { damageContract = 2; damageFeatures = features }
         var now = 1_763_000_000_000L
         val t = StartRig(glass, scope, clock = { now }, instantPacing = false)
@@ -371,7 +372,6 @@ class BindTransportTest {
             now += 110_000L
             t.devProbe("c1", "$stage")
         }
-        t.devProbe("taps", taps)
         if (holdBack) t.ladderRecordForTest { it.copy(bindArmedAt = now - 3_600_000L, holdBackAt = now - 600_000L, holdBackWhy = "a lens restarted at 09:00 (test)") }
         val sent = java.util.Collections.synchronizedList(ArrayList<String>())
         t.onWrite = { a, p -> sent.add("${a.name.first()} " + p.joinToString("") { "%02x".format(it) }); p }
@@ -393,20 +393,19 @@ class BindTransportTest {
         for (i in want.indices) assertEquals(want[i], got[i], "$what: packet $i differs from $name")
     }
 
-    /** Spec §6.2: a C1 build (0x1ff) at stage 4 writes exactly stage 3's file, under each `Taps` value — stage 4 sends
-     *  nothing without bit 10. */
+    /** Spec §6.2: a C1 build (0x1ff) at stage 4 writes exactly stage 3's file — stage 4 sends nothing without bit 10. */
     @Test
     fun aC1BuildAtStage4WritesStage3sStartUnderEachTaps_6_2(): Unit = runBlocking {
-        for (taps in LadderRecord.TAPS) assertWire("awake-start-c1-stage3.txt", startWire(0x1ff, 4, taps), "0x1ff stage 4 Taps $taps")
+        assertWire("awake-start-c1-stage3.txt", startWire(0x1ff, 4), "0x1ff stage 4")
     }
 
     /** Spec §6.2: a C2 build (0x5ff) at stages 0, 1, 2, 3 writes exactly today's files, under each `Taps` value — bit 10
      *  does not leak below stage 4. */
     @Test
     fun aC2BuildBelowStage4WritesTodaysStartsUnderEachTaps_6_2(): Unit = runBlocking {
-        for (taps in LadderRecord.TAPS) for (stage in 0..3) {
+        for (stage in 0..3) {
             val name = if (stage == 0) "awake-start-contract2.txt" else "awake-start-c1-stage$stage.txt"
-            assertWire(name, startWire(0x5ff, stage, taps), "0x5ff stage $stage Taps $taps")
+            assertWire(name, startWire(0x5ff, stage), "0x5ff stage $stage")
         }
     }
 
@@ -416,11 +415,11 @@ class BindTransportTest {
      *  stage-4 hold-back leaves stage 3's bytes exactly. */
     @Test
     fun aC2BuildAtStage4WritesStage3sStartPlusItsBindRung_6_2(): Unit = runBlocking {
-        for (taps in LadderRecord.TAPS) assertWire("awake-start-c2-stage4.txt", startWire(0x5ff, 4, taps), "0x5ff stage 4 Taps $taps")
+        assertWire("awake-start-c2-stage4.txt", startWire(0x5ff, 4), "0x5ff stage 4")
         val s3 = file("awake-start-c1-stage3.txt")!!
         val s4 = file("awake-start-c2-stage4.txt")!!
         assertEquals(s3.size + 2, s4.size, "stage 4 is stage 3 and one FLAGS_SET to each arm")
-        for (taps in LadderRecord.TAPS) assertWire("awake-start-c1-stage3.txt", startWire(0x5ff, 4, taps, holdBack = true), "0x5ff stage 4 held back, Taps $taps")
+        assertWire("awake-start-c1-stage3.txt", startWire(0x5ff, 4, holdBack = true), "0x5ff stage 4 held back")
     }
 
     /** Spec §6.2: below stage 4 — a C1 build (0x1ff) at stages 3 and 4, a C2 build (0x5ff) at 0..3 — a seeded walk of the
@@ -624,7 +623,6 @@ class BindTransportTest {
         val sim = c2()
         val t = rig(sim) { clock }
         t.devProbe("c1", "4")
-        t.devProbe("taps", "glasses")
         t.start(full)
         clock += 3_600_000L; sim.uptimeOffsetMs = clock; clock += 30_000L
         assertTrue(t.restartSession("test: after a reset"))
@@ -632,13 +630,12 @@ class BindTransportTest {
         assertEquals(0x2c, t.state.value.flagsInForce)
         t.stop()
         val kept = stored()
-        assertEquals(4, kept.stage); assertEquals("glasses", kept.taps); assertNotNull(kept.bindArmedAt); assertNotNull(kept.holdBackAt)
+        assertEquals(4, kept.stage); assertNotNull(kept.bindArmedAt); assertNotNull(kept.holdBackAt)
         notes.clear()
         clock += 60_000L
         val t2 = rig(sim) { clock }
         t2.start(full)
         assertEquals(0x2c, t2.state.value.flagsInForce, "the new process holds stage 4 back: ${said()}")
-        assertEquals("glasses", t2.state.value.taps)
         saw("keeper", "stage 4 restored from the last run"); saw("keeper", "local input held back since")
         clock += 60_000L; sim.pushCase(inCase = 1)
         waitUntil(10_000, message = { "the case-in is kept by the new process" }) { stored().caseInAt == clock }
@@ -657,7 +654,7 @@ class BindTransportTest {
     fun theRecordGrowsC1PsFileInPlace_P12() {
         assertEquals(LadderRecord(stage = 3), LadderRecord.decode("3\n", 4).record)
         assertEquals("2\n", LadderRecord(stage = 2).encode())
-        val r = LadderRecord(4, "phone", 11L, 12L, 13L, "a lens restarted at 09:00 (x=y)")
+        val r = LadderRecord(4, 11L, 12L, 13L, "a lens restarted at 09:00 (x=y)")
         assertEquals(r, LadderRecord.decode(r.encode(), 4).record)
         val odd = LadderRecord.decode("4\ntaps=sometimes\nbindArmedAt=7\nother=1\n", 4)
         assertEquals(LadderRecord(stage = 4, bindArmedAt = 7L), odd.record)
@@ -748,17 +745,12 @@ class BindTransportTest {
         t.stop()
     }
 
-    /** The probes: `taps=` keeps its value and says when it has no effect; `flags=` cannot arm BIND beyond the stage. */
+    /** The probes: `flags=` cannot arm BIND beyond the stage (`taps=` is the shell's since stage DP2, decisions N.1). */
     @Test
     fun theProbesKeepTapsAndCannotArmBindBeyondTheStage_6_8(): Unit = runBlocking {
         var clock = day0
         val sim = c2()
         val t = rig(sim) { clock }
-        t.devProbe("taps", "phone")
-        assertEquals("phone", stored().taps)
-        saw("keeper", "Taps: report → phone (no effect")
-        t.devProbe("taps", "never")
-        assertEquals("phone", stored().taps, "an unknown value changes nothing")
         t.devProbe("c1", "3")
         t.start(full)
         assertEquals(0x2c, t.state.value.flagsInForce)

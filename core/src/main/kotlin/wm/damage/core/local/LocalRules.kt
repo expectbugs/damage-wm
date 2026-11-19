@@ -1,0 +1,678 @@
+package wm.damage.core.local
+
+import wm.damage.core.geom.Rect
+import wm.damage.core.wire.CfwModes
+import wm.damage.core.wire.DamageMsg
+import wm.damage.core.wire.EvenHubMsg
+
+/** The `Taps` setting (`FIRMWARE.md` §6.7): `phone` binds no tap; `report` (the default) a report-only tap entry;
+ *  `glasses` the press program. It has effect only on a bit-10 build at stage 4. */
+enum class Taps {
+    PHONE, REPORT, GLASSES;
+    val word: String get() = name.lowercase()
+    companion object { fun of(w: String): Taps? = entries.firstOrNull { it.word == w } }
+}
+
+/** What a surface offers the rules (`FIRMWARE.md` §6.7, "the bound list is the list in front"): the list it has staged
+ *  on the glasses while it is in front (null: nothing staged), its row, and P3's one working-copy op. Main's from stage
+ *  DM; nothing implements it before. */
+interface BoundSurface {
+    fun bound(): BoundList?
+    fun row(): Int
+    /** row := [row] — an adoption (P3) or a tap's correction (the tap rule (4)): no motion of the phone's own, the lens drew it. */
+    fun setRow(row: Int)
+    /** A re-stage's cursor shift from [from] to [to] (the LIST's shift: the row at the cursor's index in [to] minus its
+     *  index in [from]); 0 when the rows did not move. */
+    fun shift(from: BoundList, to: BoundList): Int = 0
+}
+
+/**
+ * Build C2, the phone's rules P1–P11 and the tap rule (`FIRMWARE.md` §6.7), as one state machine with no clock, no
+ * thread and no I/O of its own: the shell hands it, in arrival order (P2), every notify-115 report ([report]) and every
+ * stock scroll message and click ([stock]) before it handles them, each telemetry read ([telemetry]), each session start
+ * ([sessionStart]), the list in front ([front]) and `Taps` ([taps]); it answers what the shell does with each (a
+ * [Verdict]) and, for every batch the shell sends while BIND is in force, the batch's tail of mode-27 and mode-26
+ * sub-messages ([plan], then [tail]) — which go AFTER the batch's drawing subs (§6.5's batch order). Nothing here names
+ * Main: a bound list is a [BoundList] (spec §6.7).
+ *
+ * The row of the list in front is the shell's; every entry point takes it, and a row that changed since the rules last
+ * saw it, other than by an adoption or a tap's correction they ordered, is "something else moved the row" (P3).
+ *
+ * The six questions (`FORK.md` §3.8) for the state here are `FIRMWARE.md` §6.11's phone rows; in short: every field is
+ * cleared at a session start; nothing waits (the lone SETTLE is due by the shell's pacing tick, [settleDue]); a message
+ * that does not land is the table repair's ([TableRepair]) or a divergence's (a refusal body, a keyframe); it is read
+ * and written on the shell's loop only.
+ */
+class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _, _ -> }) {
+
+    companion object {
+        /** SETTLE's `age` (§6.6 of the build spec, the lead's decision B.10): 256 OS ticks, ≈ 250 ms. */
+        const val AGE_TICKS = 256
+        /** Q, the lone SETTLE's delay after a burst's last report, on the phone's clock (decision B.10). */
+        const val Q_MS = 450L
+        /** The rubber band's length, modeled (§6.1: ≈ 200 ms plus one LVGL period; I): a tap 115 this soon after the
+         *  last scroll message is counted apart when no click follows (§6.10). */
+        const val BAND_MS = 200L
+
+        private fun s16(v: Int): Int = v.toShort().toInt()
+        /** A newer than b, signed 16-bit (§6.5's sequence compare). */
+        fun after(a: Int, b: Int): Boolean = s16(a - b) > 0
+
+        /** §6.5's batch order: every mode-26 sub 3..5 and mode 27 ([tail]) after every drawing sub-message ([draw]) — a
+         *  refusal of theirs then loses only the batch's present, never the frame (§6.5; `C2-focus.md` 1(a) 5). */
+        fun batchOrder(draw: List<ByteArray>, tail: List<ByteArray>): List<ByteArray> = draw + tail
+
+        /** P3's "a drawing sub of the batch meets the slot's areas": each sub judged by the REAL rect it writes on each
+         *  lens ([left], [right] — the compositor's own touched rects, a cached glyph run's cell included, never the
+         *  transport's reading of a cached draw as reaching the panel's edges). */
+        fun meets(left: List<Rect>, right: List<Rect>, areas: List<Pair<Rect, Rect>>): Boolean =
+            areas.any { (al, ar) -> left.any { it.overlaps(al) } || right.any { it.overlaps(ar) } }
+    }
+
+    /** What the shell does with one report or stock message. */
+    sealed class Verdict {
+        /** An echo, a stale report, a dropped tap: nothing. */
+        object Nothing : Verdict() { override fun toString() = "Nothing" }
+        /** P3: row := [row] (one working-copy op, no animation of its own: the lens drew it). */
+        data class Adopt(val row: Int) : Verdict()
+        /** The gesture applied as today ([type] an `EvenHubMsg.EV_*`, from the ring). */
+        data class Apply(val type: Int) : Verdict()
+        /** The tap rule: act on [row] of the list in front, the row moved there first when it differs. */
+        data class Act(val row: Int) : Verdict()
+    }
+
+    /** A stock message (§6.1): id 4 → the next row, id 5 → the one before, the click. */
+    enum class Stock(val type: Int, val click: Boolean) {
+        NEXT(EvenHubMsg.EV_SCROLL_BOTTOM, false), PREV(EvenHubMsg.EV_SCROLL_TOP, false), CLICK(EvenHubMsg.EV_CLICK, true);
+        companion object {
+            fun of(type: Int): Stock? = entries.firstOrNull { it.type == type }
+        }
+    }
+
+    /** A planned COMMIT (P3): the compositor applies [list]'s END for ([prog4], [p]) to a copy of its model before the
+     *  diff, and turns it into a DISCARD when a drawing sub then meets [areas] (P10). */
+    class Commit(val slot: Int, val s: Int, val list: BoundList, val cursor: Int, val prog4: Int, val p: IntArray) {
+        val areas: List<Pair<Rect, Rect>> get() = list.areas
+    }
+
+    // ---------------------------------------------------------------------------------------------------- state
+    /** BIND in force this session (bit 10, stage 4, armed): nothing is planned or sent otherwise (P1, P9). */
+    var active = false; private set
+    var taps = Taps.REPORT; private set
+    /** P1, P8: the last S heard; the arming uptime (OS ticks). */
+    var sHeard = 0; private set
+    var armUptime = 0L; private set
+    /** P7: S_heard + 1 as it stood at the last SETTLE sent (or the start). */
+    var sLow = 1; private set
+    /** P5: the echo owes per kind and of either kind, and the unowed stock messages applied since S_heard moved. */
+    var owesScroll = 0; private set
+    var owesClick = 0; private set
+    var owesAny = 0; private set
+    var u = 0; private set
+    /** The tap rule's `tapsLive`: RIGHT has shown it holds the tap entry this session (and BIND is in force, M.4). */
+    var tapsLive = false; private set
+    /** P7: a burst is open from a report until the lone SETTLE. */
+    var burstOpen = false; private set
+    private var lastReportMs = 0L
+
+    /** The list in front, uncovered (null: covered, another window, nothing bound). */
+    var front: BoundList? = null; private set
+    private var rowSeen = -1
+    /** The last row the shell gave for each list (a DISCARD of a slot whose list is covered names it). */
+    private val lastRow = HashMap<Int, Int>()
+
+    /** An entry the phone holds on the glasses: SET sent, no CLEAR since. */
+    class Held(val list: Int, val entry: BoundList.Entry)
+    private val held = HashMap<Int, Held>()
+    /** The mark of the last LIST sent per list (the wire mark field 17 is compared with); −1 none this session. */
+    private val wireMark = IntArray(CfwModes.BIND_LISTS) { -1 }
+    /** The staging each list's wire mark stands for (its BoundList), so a re-stage is seen. */
+    private val staged = arrayOfNulls<BoundList>(CfwModes.BIND_LISTS)
+    private var markCounter = 0
+
+    /** P3's per-slot answer state: A, the reports handled since the last answer, whether anything else moved the row. */
+    private class Handled(val s: Int, val adopted: Boolean, val tap: Boolean, val list: Int, val cursor: Int, val prog4: Int,
+                          val p: IntArray?, val atMs: Long, val cause: String)
+    private class Slot(var a: Int) {
+        val handled = ArrayList<Handled>()
+        var moved: String? = null            // why the row moved other than by an adoption (null: it did not)
+        var discard: String? = null          // an answer forced to DISCARD by a click (glasses, no report)
+        var list = -1
+        val owed: Boolean get() = handled.isNotEmpty() || moved != null || discard != null
+    }
+    private val slots = HashMap<Int, Slot>()
+
+    /** Table messages owed by a start, a cover, a return, a re-stage, a switch or a refusal record, in stream order. */
+    private sealed class Pending {
+        object ClearAll : Pending()
+        class Clear(val entry: Int) : Pending()
+        class Set(val list: BoundList, val entry: BoundList.Entry) : Pending()
+        class ListMsg(val list: BoundList, val shift: Int, val fresh: Boolean) : Pending()
+    }
+    private val pending = ArrayList<Pending>()
+    /** Mode-8/14 (decisions M.5): every table object a batch touched since the last telemetry read. */
+    private val touchedSinceRead = LinkedHashSet<Any>()
+
+    val repair = TableRepair()
+
+    // ---- counting (§6.7 Counting; the `local` note)
+    val counts = java.util.TreeMap<String, Int>()
+    private fun count(k: String, n: Int = 1) { counts[k] = (counts[k] ?: 0) + n }
+    private var tapAwaitingClick: Long? = null          // a tap 115's receipt, until its click or the next tap / SETTLE
+    private var lastScrollMsgMs = Long.MIN_VALUE / 2
+
+    // ------------------------------------------------------------------------------------------ session (P1)
+    /**
+     * A session start. [bind]: BIND in force (bit 10, stage 4, armed) — else the rules are idle and send nothing (today's
+     * start, byte for byte). [sHeard0]: 0 on a fresh acquire, field 36 on a carried lease; [armUptime]: field 2 of the
+     * reply to the FLAGS_SET that armed BIND. The start's bind batch (CLEAR 0xFF, the SETs of the list in front, its LIST
+     * with a fresh mark) is owed to the first batch after the warmup keyframe, which closed every instance.
+     */
+    fun sessionStart(bind: Boolean, sHeard0: Int, armUptime: Long, front: BoundList?, row: Int, taps: Taps) {
+        this.taps = taps
+        active = bind
+        sHeard = sHeard0 and 0xFFFF; this.armUptime = armUptime; sLow = (sHeard + 1) and 0xFFFF
+        owesScroll = 0; owesClick = 0; owesAny = 0; u = 0
+        tapsLive = false; burstOpen = false; bindFlag = true
+        slots.clear(); held.clear(); pending.clear(); touchedSinceRead.clear(); lastRow.clear()
+        wireMark.fill(-1); staged.fill(null)
+        repair.sessionStart()
+        tapAwaitingClick = null
+        discardSinceSettle.clear()
+        this.front = if (bind) front else null
+        rowSeen = row
+        if (!bind) return
+        pending += Pending.ClearAll
+        front?.let { f -> for (e in entriesOf(f)) pending += Pending.Set(f, e); pending += Pending.ListMsg(f, 0, fresh = true) }
+        count("starts")
+    }
+
+    /** The link or the session ended: nothing more is planned until the next start. */
+    fun sessionEnd() { active = false; front = null; pending.clear() }
+
+    /** BIND in the flags in force, as the last telemetry record (or the transport's state) shows it: `tapsLive` needs it
+     *  as well as field 39's bit (decisions M.4). Whether anything is SENT is the shell's gate (BIND in force and the
+     *  lease held, P9), not this. */
+    private var bindFlag = true
+    fun bindInForce(on: Boolean) { bindFlag = on; if (!on) tapsLive = false }
+
+    // ---------------------------------------------------------------------------------------- the list in front
+    /** The entries the phone SETs for [list] under the current `Taps` (§6.7): its scroll entries, and the tap entry in
+     *  the form `Taps` asks — none (`phone`), report-only (`report`), the press program (`glasses`; report-only when the
+     *  list stages no press). */
+    fun entriesOf(list: BoundList): List<BoundList.Entry> = list.entries.filter { !it.isTap } + listOfNotNull(tapEntry(list))
+
+    fun tapEntry(list: BoundList): BoundList.Entry? {
+        if (taps == Taps.PHONE) return null
+        val press = list.entries.firstOrNull { it.isTap }
+        if (taps == Taps.GLASSES && press != null && !press.reportOnly) return press
+        val no = press?.entry ?: (0 until CfwModes.BIND_ENTRIES).first { n -> list.entries.none { it.entry == n } }
+        return BoundList.Entry(no, CfwModes.EV_TAP, 0, press?.period ?: 34, CfwModes.PROG_NONE,
+            press?.params ?: List(4) { CfwModes.BindParam(CfwModes.KIND_ARG, 0) }, null)
+    }
+
+    /**
+     * The shell's list in front changed — a cover opened or closed, another window, a re-stage of the same list (a new
+     * [BoundList], its [shift] the cursor's move in the new staging) — in the batch that draws it (P9, "the bound list is
+     * the list in front"): CLEARs of the old list's entries, SETs of the new one's, a LIST for a staging the glasses do
+     * not hold. [row] is the row in the new list.
+     */
+    fun front(list: BoundList?, row: Int, shift: Int = 0) {
+        val old = front
+        front = list
+        if (list != null) lastRow[list.list] = row
+        rowSeen = row
+        if (!active) return
+        if (old != null && (list == null || list.list != old.list)) {
+            // the old list leaves the front: CLEAR every entry the phone holds for it (and any SET still owed)
+            pending.removeAll { it is Pending.Set && it.list.list == old.list }
+            for ((no, h) in held.toList()) if (h.list == old.list) pending += Pending.Clear(no)
+        }
+        if (list == null) return
+        val was = staged[list.list]
+        if (was == null || was.items4 != list.items4 || was.count != list.count || was.pitch != list.pitch || was.mark != list.mark) {
+            // a staging the glasses do not hold (P9: a row's index or identity changed, a new mark): a LIST; a program's
+            // change alone is its SET (below), a row's picture updated in place keeps its mark and sends nothing
+            if (old != null && old.list == list.list) slot(list.slot).moved = slot(list.slot).moved ?: "restaged"
+            pending += Pending.ListMsg(list, if (was == null) 0 else shift, fresh = true)
+        } else staged[list.list] = list
+        // SETs for every entry the glasses do not hold in its current form
+        for (e in entriesOf(list)) if (!holds(list.list, e)) pending += Pending.Set(list, e)
+    }
+
+    /** `Taps` changed (§6.7 Switching): only the tap entry's SET in its new form, or its CLEAR; nothing else. */
+    fun taps(t: Taps) {
+        if (t == taps) return
+        taps = t
+        val f = front ?: return
+        if (!active) return
+        val e = tapEntry(f)
+        if (e == null) held.entries.firstOrNull { it.value.list == f.list && it.value.entry.isTap }?.let { pending += Pending.Clear(it.key) }
+        else pending += Pending.Set(f, e)
+    }
+
+    private fun holds(list: Int, e: BoundList.Entry): Boolean {
+        val h = held[e.entry] ?: return false
+        return h.list == list && sameEntry(h.entry, e)
+    }
+
+    private fun sameEntry(a: BoundList.Entry, b: BoundList.Entry) = a.entry == b.entry && a.eventId == b.eventId &&
+        a.step == b.step && a.period == b.period && a.prog4 == b.prog4 && a.params == b.params
+
+    /** The entry the phone holds for [eventId] on [list] (SET sent, no CLEAR since), or null. */
+    fun heldFor(list: Int, eventId: Int): BoundList.Entry? =
+        held.values.firstOrNull { it.list == list && it.entry.eventId == eventId }?.entry
+    fun holdsEntry(entry: Int): Boolean = held.containsKey(entry)
+    fun heldEntry(entry: Int): Held? = held[entry]
+    fun markOf(list: Int): Int = if (list in 0 until CfwModes.BIND_LISTS) wireMark[list] else -1
+
+    // ----------------------------------------------------------------------------- reports and stock messages
+    private fun observe(row: Int) {
+        val f = front
+        if (f != null && row != rowSeen && rowSeen >= 0) {
+            val s = slot(f.slot)
+            if (s.moved == null) s.moved = "moved"
+        }
+        rowSeen = row
+        if (f != null) lastRow[f.list] = row
+    }
+
+    private fun slot(n: Int): Slot = slots.getOrPut(n) { Slot((sLow - 1) and 0xFFFF) }
+
+    /**
+     * One notify-115 report, in arrival order (P2), with the phone's row of the list in front. P8, then P5's count, then
+     * the table repair's evidence, then P3 (a scroll) or the tap rule (a tap).
+     */
+    fun report(a: DamageMsg.Applied, row: Int, nowMs: Long): Verdict {
+        observe(row)
+        if (!active) return Verdict.Nothing
+        val s = a.s ?: return Verdict.Nothing.also { note("local", "a 115 without S — ignored: ${a.describe()}") }
+        val tap = a.isTap
+        // P8: not after S_heard, or before this session's arming
+        val up = a.uptimeTicks
+        if (!after(s, sHeard) || (up != null && (up - armUptime).toInt() < 0)) {
+            count("stale")
+            note("local", "stale 115 dropped (P8): S $s, S_heard $sHeard" + (up?.let { ", uptime $it, armed at $armUptime" } ?: ""))
+            if (tap) tapdrop("stale", a, row)
+            return Verdict.Nothing
+        }
+        // P5: the gap g, the owes it adds (n), then this report's own owe
+        val g = s16(s - sHeard - 1).coerceAtLeast(0)
+        val n = (g - u).coerceAtLeast(0)
+        owesAny += n
+        count("gap", g)
+        u = 0
+        sHeard = s
+        if (tap) owesClick++ else owesScroll++
+        burstOpen = true
+        lastReportMs = nowMs
+        if (tap) {
+            tapNoClick()
+            tapAwaitingClick = nowMs
+            tapsLive = bindFlag                      // RIGHT has shown it holds the tap entry this session
+        }
+        // the slot and list (a 3 or 14 body carries neither: the entry the phone holds for its event id names them)
+        val f = front
+        val heldE = (a.entry?.let { held[it] }) ?: f?.let { fl -> a.eventId?.let { id -> heldFor(fl.list, id)?.let { held[it.entry] } } }
+        val listId = a.list ?: heldE?.list ?: f?.list ?: -1
+        val slotNo = a.slot ?: f?.takeIf { it.list == listId }?.slot ?: return Verdict.Nothing.also {
+            note("local", "a 115 naming no slot the phone knows — not answered: ${a.describe()}")
+        }
+        val st = slot(slotNo)
+        st.list = listId
+        repair.onReport(a, this)
+        return if (tap) tapRule(a, st, n, row, nowMs) else scrollRule(a, st, n, row, nowMs)
+    }
+
+    private fun scrollRule(a: DamageMsg.Applied, st: Slot, n: Int, row: Int, nowMs: Long): Verdict {
+        val s = a.s!!
+        val id = a.eventId ?: -1
+        val type = BoundList.stockEvent(id) ?: return Verdict.Nothing
+        val f = front
+        fun asToday(cause: String): Verdict {
+            st.handled += Handled(s, false, false, a.list ?: st.list, a.cursor ?: -1, -1, null, nowMs, cause)
+            return Verdict.Apply(type)
+        }
+        when (a.outcome) {
+            DamageMsg.APPLIED_REFUSED -> {
+                val r = a.reason ?: 0
+                if (r == 5 || r == 12) note("local", "a fire refused $r (P4): ${a.describe()}")
+                return asToday(if (r == 5 || r == 12 || r == 18) "restaged" else "link")
+            }
+            DamageMsg.APPLIED_EDGE -> return asToday("edge")
+            DamageMsg.APPLIED_DREW -> {}
+            else -> return asToday("refused")
+        }
+        // P3: in front, the mark, the prediction, the bound
+        if (f == null || a.list != f.list) return asToday("focus")
+        if (a.mark != wireMark[f.list]) return asToday("restaged")
+        val e = heldFor(f.list, id) ?: f.entryFor(id) ?: return asToday("restaged")
+        val c = a.cursor ?: return asToday("restaged")
+        val pred = if (c in 0 until f.count) f.paramsAt(c, e) else null
+        if (pred == null || pred === BoundList.REFUSED_12 || a.prog != e.prog4 || !(a.params?.contentEquals(pred) ?: false))
+            return asToday("restaged")
+        if (kotlin.math.abs(c - row) > (n + 1) * kotlin.math.abs(e.step)) return asToday("lost-report")
+        st.handled += Handled(s, true, false, f.list, c, e.prog4, pred, nowMs, "")
+        rowSeen = c
+        lastRow[f.list] = c
+        return Verdict.Adopt(c)
+    }
+
+    private fun tapRule(a: DamageMsg.Applied, st: Slot, n: Int, row: Int, nowMs: Long): Verdict {
+        val s = a.s!!
+        fun drop(cause: String): Verdict {
+            st.handled += Handled(s, false, true, a.list ?: st.list, a.cursor ?: -1, -1, null, nowMs, cause)
+            tapdrop(cause, a, row)
+            return Verdict.Nothing
+        }
+        if (a.outcome == DamageMsg.APPLIED_REFUSED && (a.reason == 3 || a.reason == 14)) return drop("refused-${a.reason}")
+        val f = front
+        if (f == null || a.list != f.list) return drop("focus")                                   // (2)
+        if (a.mark != wireMark[f.list]) return drop("restaged")                                   // (3)
+        val c = a.cursor ?: return drop("lost")
+        if (c == BoundList.LOST) return drop("lost")
+        if (c != row && kotlin.math.abs(c - row) > n * f.maxStep) return drop("moved")            // (4)
+        val p = a.params
+        if (p != null) {                                                                          // (5)
+            // the phone's own tap entry under `Taps` now: under `report` and `phone` it has no program, so carried fields
+            // cannot equal its prediction (a lens still on the press form, `C2-F-focus.md` B1)
+            val e = tapEntry(f)?.takeIf { !it.reportOnly }
+            val pred = e?.let { if (c in 0 until f.count) f.paramsAt(c, it) else null }
+            if (e == null || pred == null || pred === BoundList.REFUSED_12 || a.prog != e.prog4 || !p.contentEquals(pred)) {
+                note("divergence", "a tap 115's program or parameters differ from the phone's prediction at cursor $c (tap rule 5): ${a.describe()}")
+                count("divergence")
+                return drop("item")
+            }
+        }
+        st.handled += Handled(s, false, true, f.list, c, -1, null, nowMs, "tap")
+        count("tapActed")
+        if (c != row) count("tapActedCorrected")
+        if (a.outcome == DamageMsg.APPLIED_REFUSED && a.reason == 17 || p == null) count("tapActedNoPress")
+        rowSeen = c
+        lastRow[f.list] = c
+        return Verdict.Act(c)
+    }
+
+    private fun tapdrop(cause: String, a: DamageMsg.Applied, row: Int) {
+        count("tapdrop.$cause")
+        val l = a.list
+        note("tapdrop", "cause=$cause S=${a.s} list=${l ?: "-"} cursor=${a.cursor ?: "-"} row=$row mark=${a.mark ?: "-"} " +
+            "markNow=${l?.let { markOf(it) } ?: "-"} taps=${taps.word}")
+    }
+
+    /**
+     * One stock scroll message or click from the ring, before the shell handles it (P5, the click): consumed as an
+     * echo, applied as today, or dropped.
+     */
+    fun stock(kind: Stock, row: Int, nowMs: Long): Verdict {
+        observe(row)
+        if (!active) return Verdict.Apply(kind.type)
+        if (!kind.click) lastScrollMsgMs = nowMs
+        if (kind.click && owesClick > 0) { owesClick--; clickArrived(); return Verdict.Nothing }
+        if (!kind.click && owesScroll > 0) { owesScroll--; return Verdict.Nothing }
+        if (owesAny > 0) { owesAny--; if (kind.click) clickArrived(); return Verdict.Nothing }
+        val f = front
+        if (!kind.click) {
+            val e = f?.let { fl -> heldFor(fl.list, CfwModes.EV_UPROLL) ?: heldFor(fl.list, CfwModes.EV_DOWNROLL) }
+            if (f == null || e == null) return Verdict.Apply(kind.type)                 // unbound: as today
+            u++
+            val st = slot(f.slot)
+            st.list = f.list
+            st.moved = st.moved ?: "lost-report"
+            count("unreported")
+            repair.onUnreportedScroll(f.list, this)
+            return Verdict.Apply(kind.type)
+        }
+        val tapHeld = f?.let { heldFor(it.list, CfwModes.EV_TAP) } != null
+        if (f == null || !tapHeld || !tapsLive) return Verdict.Apply(kind.type)        // no tap matched: as today, not in u
+        return when (taps) {
+            Taps.GLASSES -> {
+                val st = slot(f.slot)
+                st.list = f.list
+                st.discard = "no-report"
+                count("tapdrop.no-report")
+                note("tapdrop", "cause=no-report S=- list=${f.list} cursor=- row=$row mark=${markOf(f.list)} markNow=${markOf(f.list)} taps=${taps.word}")
+                Verdict.Nothing
+            }
+            else -> { u++; Verdict.Apply(kind.type) }
+        }
+    }
+
+    /** A tap 115 whose click has not come (§6.10: one within a band of the last scroll message is counted apart). */
+    private fun tapNoClick() {
+        tapAwaitingClick?.let { t -> count(if (t - lastScrollMsgMs <= BAND_MS) "tapNoClickInBand" else "tapNoClick") }
+        tapAwaitingClick = null
+    }
+
+    private fun clickArrived() {
+        if (tapAwaitingClick != null) { count("tapClick"); tapAwaitingClick = null }
+    }
+
+    /**
+     * A RIGHT telemetry read (P1, the tap rule): field 39 (null: not carried) and a new refusal record naming mode 27
+     * ([refusal27]) or a batch dropped whole ([batch14], mode 8 reason 14 — decisions M.5).
+     */
+    fun telemetry(boundIds: Long?, refusal27: DamageMsg.Refusal?, batch14: DamageMsg.Refusal? = null) {
+        if (!active) { tapsLive = false; return }
+        if (boundIds != null) tapsLive = bindFlag && boundIds and 1L != 0L
+        if (refusal27 != null) {
+            note("repair", "evidence=refusal mode=27 reason=${refusal27.reason} object=table")
+            count("repair.table")
+            wholeTable()
+        } else if (batch14 != null && touchedSinceRead.isNotEmpty()) {
+            note("repair", "evidence=refusal mode=8 reason=14 object=${touchedSinceRead.joinToString(",")}")
+            count("repair.batch")
+            for (o in touchedSinceRead.toList()) when (o) {
+                is Int -> { val f = front; val h = held[o]
+                    if (h != null && f != null && h.list == f.list) pending += Pending.Set(f, h.entry) else if (h == null) pending += Pending.Clear(o) }
+                is String -> { val f = front; val l = o.removePrefix("list").toInt()
+                    if (f != null && f.list == l) pending += Pending.ListMsg(f, 0, fresh = false) }
+            }
+        }
+        touchedSinceRead.clear()
+    }
+
+    /**
+     * A flush that carried the rules' messages was refused by a lens (its image ack failed, `[I]`: the transport cannot
+     * say which sub-message or lens). Marked as the conservative form of a place `FIRMWARE.md` §6 is silent on
+     * (`C2-DP2-built.md` §0): a lens that missed a LIST (lost, or refused there for a shared reason) refuses every later
+     * COMMIT, DISCARD and SETTLE whose cursor lies outside the count it holds (12), and each refusal ends that lens's
+     * batch before its present — so its panel stops updating, every idle batch carrying a SETTLE; RIGHT's sticky refusal
+     * record then names mode 26, not 27, so P1's re-send never fires, and LEFT's is never read at all. The answer is P1's:
+     * the whole table again in the next batch (CLEAR 0xFF, the SETs, the LIST with a fresh mark), which the batch's SETTLE
+     * then realigns. Idempotent: a refusal for any other reason costs one table's bytes.
+     */
+    fun tableAgain(why: String) {
+        if (!active) return
+        note("repair", "evidence=\"$why\" object=table")
+        count("repair.table")
+        wholeTable()
+    }
+
+    /** P1's whole table again: CLEAR 0xFF, the SETs, the LIST with a fresh mark. */
+    private fun wholeTable() {
+        pending.clear()
+        pending += Pending.ClearAll
+        front?.let { f -> for (e in entriesOf(f)) pending += Pending.Set(f, e); pending += Pending.ListMsg(f, 0, fresh = true) }
+    }
+
+    // ------------------------------------------------------------------------------------------------ the batch
+    /** True when the next batch must carry something of the rules' even with nothing to draw: an owed answer, a table
+     *  message, a repair. */
+    val owed: Boolean get() = active && (pending.isNotEmpty() || slots.values.any { it.owed } || repair.owedNow())
+
+    /** P7: the lone SETTLE is due — a burst open, Q after its last report, every report answered. */
+    fun settleDue(nowMs: Long): Boolean = active && burstOpen && nowMs - lastReportMs >= Q_MS && slots.values.none { it.owed }
+
+    /** When the lone SETTLE falls due ([settleDue]), on the phone's clock; null with no burst open. */
+    fun settleAt(): Long? = if (active && burstOpen) lastReportMs + Q_MS else null
+
+    /** The lists a batch's tail will carry a LIST for. */
+    private fun listsInTail(): Set<Int> = (pending.filterIsInstance<Pending.ListMsg>().map { it.list.list } +
+        repair.owedLists(this)).toSet()
+
+    /**
+     * P3, the first half of a batch's answer: the slots whose answer would be a COMMIT — every report of the slot handled
+     * since its last answer adopted (none a tap), nothing else moved its row, no LIST of its list in this batch. The
+     * compositor applies each one's END to its model before the diff and hands back the slots whose areas a drawing sub
+     * then meets ([tail]'s `denied`).
+     */
+    fun plan(row: Int): List<Commit> {
+        observe(row)
+        if (!active) return emptyList()
+        val lists = listsInTail()
+        val out = ArrayList<Commit>()
+        for ((n, st) in slots) {
+            val h = st.handled.lastOrNull() ?: continue
+            if (st.moved != null || st.discard != null || st.handled.any { !it.adopted || it.tap } || st.list in lists) continue
+            val bl = front?.takeIf { it.list == h.list && it.slot == n } ?: continue
+            out += Commit(n, h.s, bl, h.cursor, h.prog4, h.p!!)
+        }
+        return out
+    }
+
+    /**
+     * The batch's tail, after its drawing subs (§6.5): the table messages owed (start, cover, return, re-stage, switch,
+     * refusal), the table repair's re-sends not already carried, each owed slot's answer (a LIST before its slot's
+     * answer), and — while no burst is open — one SETTLE. [denied]: planned COMMITs the compositor turned to DISCARD (a
+     * drawing sub meets the slot's areas once END is applied). [frame]: the batch draws something (for the notes).
+     * Everything returned is taken as sent: the shell sends it in this batch or not at all (a rolled-back flush keyframes,
+     * and the keyframe's start re-sends the table).
+     */
+    fun tail(row: Int, nowMs: Long, denied: Set<Int> = emptySet(), frame: Boolean = true): List<ByteArray> {
+        observe(row)
+        if (!active) return emptyList()
+        val out = ArrayList<ByteArray>()
+        val listed = HashSet<Int>()
+        val setEntries = HashSet<Int>()
+        val clearedEntries = HashSet<Int>()
+        // 1. the owed table messages, in the order they were owed
+        for (p in pending) when (p) {
+            is Pending.ClearAll -> { out += CfwModes.bindClear(CfwModes.BIND_ALL); held.clear(); clearedEntries.addAll(0 until CfwModes.BIND_ENTRIES) }
+            is Pending.Clear -> { out += CfwModes.bindClear(p.entry); held.remove(p.entry); clearedEntries += p.entry; touchedSinceRead += p.entry
+                if (front?.let { f -> tapEntryNo(f) == p.entry } != false) tapsLive = false }
+            is Pending.Set -> { out += p.list.set(p.entry); held[p.entry.entry] = Held(p.list.list, p.entry); setEntries += p.entry.entry; touchedSinceRead += p.entry.entry }
+            is Pending.ListMsg -> { out += listMsg(p.list, p.shift, p.fresh); listed += p.list.list }
+        }
+        val hadClearAll = pending.any { it is Pending.ClearAll }
+        pending.clear()
+        if (hadClearAll) tapsLive = false
+        // 2. the table repair's re-sends (the 5th kind waits for a batch that carries a SETTLE)
+        val settleHere = !burstOpen
+        takeRepairs(out, settleHere, listed, setEntries, clearedEntries)
+        // 3. the answers, one per owed slot
+        for ((n, st) in slots.toSortedMap()) {
+            if (!st.owed) continue
+            val h = st.handled.lastOrNull()
+            val commit = h != null && st.moved == null && st.discard == null && st.handled.all { it.adopted && !it.tap } &&
+                st.list !in listed && n !in denied && front?.let { it.list == h.list && it.slot == n } == true
+            val list = st.list.takeIf { it in 0 until CfwModes.BIND_LISTS }
+            if (commit) {
+                out += CfwModes.motionCommit(n, h!!.s, h.list, h.cursor, h.prog4, h.p!!)
+                count("commit")
+            } else {
+                val cur = if (list != null && front?.list == list) row else list?.let { lastRow[it] }
+                val named = if (list != null && cur != null && cur >= 0) list else CfwModes.BIND_ALL
+                out += CfwModes.motionDiscard(n, (st.a + 1) and 0xFFFF, named, if (named == CfwModes.BIND_ALL) 0 else cur!!)
+                discardSinceSettle += n
+                snapback(st, n, row, nowMs, frame, denied)
+            }
+            st.a = sHeard
+            st.handled.clear(); st.moved = null; st.discard = null
+        }
+        // 4. the idle batch's SETTLE (P7): while no burst is open, every batch carries one
+        if (settleHere) out += settle(row)
+        return out
+    }
+
+    /** The table repair's re-sends for this batch, each journaled ([TableRepair.take]). */
+    private fun takeRepairs(out: MutableList<ByteArray>, settleHere: Boolean, listed: MutableSet<Int>, setEntries: Set<Int>, clearedEntries: Set<Int>) {
+        for (o in repair.take(this, settleHere, listed, setEntries, clearedEntries)) when (o) {
+            is TableRepair.Owed.Clear -> { out += CfwModes.bindClear(o.entry); held.remove(o.entry); touchedSinceRead += o.entry
+                if (front?.let { tapEntryNo(it) } == o.entry) tapsLive = false }
+            is TableRepair.Owed.ListAgain -> { val f = front!!; out += listMsg(f, 0, false); listed += f.list }
+            is TableRepair.Owed.Set -> { val f = front!!; val e = entriesOf(f).first { it.entry == o.entry }
+                out += f.set(e); held[e.entry] = Held(f.list, e); touchedSinceRead += e.entry }
+            is TableRepair.Owed.ScrollSets -> { val f = front!!
+                for (e in entriesOf(f).filter { !it.isTap }) { out += f.set(e); held[e.entry] = Held(f.list, e); touchedSinceRead += e.entry } }
+        }
+    }
+
+    private fun tapEntryNo(f: BoundList): Int? = tapEntry(f)?.entry ?: f.entries.firstOrNull { it.isTap }?.entry
+
+    private fun listMsg(f: BoundList, shift: Int, fresh: Boolean): ByteArray {
+        if (fresh || wireMark[f.list] < 0) { markCounter = (markCounter + 1) and 0xFF; wireMark[f.list] = markCounter }
+        staged[f.list] = f
+        touchedSinceRead += "list${f.list}"
+        return CfwModes.bindList(f.list, f.items4, f.count, shift, f.pitch, wireMark[f.list])
+    }
+
+    private fun snapback(st: Slot, n: Int, row: Int, nowMs: Long, frame: Boolean, denied: Set<Int>) {
+        if (st.handled.isNotEmpty() && st.handled.all { it.tap }) return            // a tap's DISCARD: its tapdrop or act says it
+        val first = st.handled.firstOrNull { !it.adopted && !it.tap }
+        val cause = first?.cause ?: st.moved ?: st.discard ?: if (n in denied) "focus" else "lost-report"
+        val h = first ?: st.handled.firstOrNull()
+        count("snapback.$cause")
+        note("snapback", "cause=$cause S=${h?.s ?: "-"} list=${st.list} cursor=${h?.cursor ?: "-"} row=$row " +
+            "mark=${front?.let { markOf(it.list) } ?: "-"} markNow=${if (st.list >= 0) markOf(st.list) else "-"} " +
+            "ms=${h?.let { nowMs - it.atMs } ?: "-"} frame=${if (frame) "yes" else "no"}")
+    }
+
+    /** The lone SETTLE (P7), Q after the last report with every 115 answered, alone in its batch. */
+    fun loneSettle(row: Int, nowMs: Long): List<ByteArray> {
+        observe(row)
+        if (!settleDue(nowMs)) return emptyList()
+        burstOpen = false
+        val out = ArrayList<ByteArray>()
+        // the 5th kind's re-sends ride the batch that carries the next SETTLE
+        takeRepairs(out, true, HashSet(), HashSet(), HashSet())
+        out += settle(row)
+        return out
+    }
+
+    private fun settle(row: Int): ByteArray {
+        val f = front
+        val m = CfwModes.motionSettle(CfwModes.MOTION_ALL, sLow, f?.list ?: CfwModes.BIND_ALL, if (f != null) row else 0, AGE_TICKS)
+        if (owesScroll + owesClick + owesAny > 0) count("owesAtSettle", owesScroll + owesClick + owesAny)
+        tapNoClick()
+        owesScroll = 0; owesClick = 0; owesAny = 0; u = 0
+        sLow = (sHeard + 1) and 0xFFFF
+        repair.settleSent()
+        discardSinceSettle.clear()
+        count("settles")
+        return m
+    }
+
+    /** One re-send of the table repair, journaled (`repair`, §6.5). */
+    internal fun repairNote(detail: String) { count("repair"); note("repair", detail) }
+
+    /** Slots answered with a DISCARD since the last SETTLE sent: a local stop RIGHT reports after a SETTLE is the SETTLE's. */
+    private val discardSinceSettle = HashSet<Int>()
+
+    /**
+     * One notify-114 body from RIGHT in a bound slot (the shell hands every one): a stop (outcome 1) of a local instance
+     * with no DISCARD sent to its slot since the last SETTLE is the SETTLE's — `snapback cause=burst-end`; a refusal
+     * (outcome 2) is a COMMIT, DISCARD or SETTLE refused — `snapback cause=refused` (C1's divergence path keyframes).
+     * A body naming a slot no list is bound to is not the rules'.
+     */
+    fun body114(slot: Int, tag: Int, outcome: Int, reason: Int?) {
+        if (!active) return
+        val st = slots[slot] ?: return
+        val why = when {
+            outcome == DamageMsg.OUTCOME_REFUSED -> "refused"
+            outcome == 1 && slot !in discardSinceSettle -> "burst-end"
+            else -> return
+        }
+        count("snapback.$why")
+        note("snapback", "cause=$why S=$tag list=${st.list} cursor=- row=$rowSeen mark=- markNow=${if (st.list >= 0) markOf(st.list) else "-"} " +
+            "ms=- frame=no" + (reason?.let { " reason=$it" } ?: ""))
+    }
+
+    /** The `local` note's detail at a telemetry read (§6.5): RIGHT's fields and the session's counts. */
+    fun localNote(t: Map<Int, Long>): String = "35=${t[35] ?: "-"} 36=${t[36] ?: "-"} 38=${t[38] ?: "-"} 39=${t[39] ?: "-"} " +
+        "taps=${taps.word} " + counts.entries.joinToString(" ") { "${it.key}=${it.value}" }
+
+    /** For the harnesses: every slot's A and whether it owes an answer. */
+    fun slotA(n: Int): Int? = slots[n]?.a
+    fun slotOwed(n: Int): Boolean = slots[n]?.owed == true
+}
