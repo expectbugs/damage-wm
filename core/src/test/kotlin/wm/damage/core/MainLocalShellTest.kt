@@ -974,8 +974,19 @@ class MainLocalShellTest {
             for (y in maxOf(0, a.y) until minOf(Geometry.PANEL_H, a.bottom)) { for (x in maxOf(0, a.x) until minOf(Geometry.PANEL_W, a.right)) if (mid[x, y] != before[x, y]) { moved = true; break }; if (moved) break }
             assertTrue(moved, "$what: the pan's track at $a changed on RIGHT mid-motion")
         }
-        noDivergenceFor(r, r.motionMs() + 300, what)
+        // the instance's last step, before the held cells go (they wait past its end): what the lens shows in the areas then
+        // must be what it shows at rest — END is Main's paint at the wrapped row, and the release has nothing to send there
+        r.until("$what: the wrap's last step on RIGHT") { r.sim.motionForTest(Arm.RIGHT).slots[MainStaging.WRAP_SLOT]?.drawing != true }
+        val atEnd = r.panel(false)
+        assertTrue(r.notes("divergence").isEmpty(), "$what: ${r.notes("divergence")}")
         delay(r.q() + 200); r.settle("$what: after")
+        val rest = r.panel(false)
+        for (track in e.program.tracks) {
+            val a = track.areaR
+            var off = 0
+            for (y in maxOf(0, a.y) until minOf(Geometry.PANEL_H, a.bottom)) for (x in maxOf(0, a.x) until minOf(Geometry.PANEL_W, a.right)) if (atEnd[x, y] != rest[x, y]) off++
+            assertEquals(0, off, "$what: px of the pan's track at $a where the last step is not Main's paint at the wrapped row")
+        }
         assertEquals(to, r.row(), "$what: the row is the other end")
         assertEquals(to, r.sim.bindForTest(Arm.RIGHT).lists[0].cursor, "$what: RIGHT's cursor is on it")
         assertTrue(r.notes("motion").any { "slot ${MainStaging.WRAP_SLOT} " in it && "drew its last step" in it }, "$what: the wrap's instance drew its last step: ${r.notes("motion").takeLast(3)}")
@@ -1036,6 +1047,9 @@ class MainLocalShellTest {
             delay(60)
             val s = r.fire(CfwModes.EV_UPROLL)
             r.until("the wrap's instance closed on RIGHT") { r.sim.motionForTest(Arm.RIGHT).slots[MainStaging.WRAP_SLOT]?.drawing != true }
+            // P9: in a slot of its own, the fire's close pass ends it with RIGHT's outcome-1 body, so the mirror hears of it (in
+            // the bound slot the fire would end it silently)
+            r.until("RIGHT's body for the closed wrap") { r.notes("motion").any { "slot ${MainStaging.WRAP_SLOT} " in it && "closed while drawing" in it } }
             noDivergenceFor(r, r.motionMs() + 300, "after the notch")
             delay(r.q() + 300); r.settle("after the notch")
             assertEquals(1, r.row(), "the notch from the wrapped row was adopted")
