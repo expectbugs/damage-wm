@@ -133,7 +133,11 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
     /** P1, P8: the last S heard; the arming uptime (OS ticks). */
     var sHeard = 0; private set
     var armUptime = 0L; private set
-    /** P5: the echo owes per kind and of either kind, and the unowed stock messages applied since S_heard moved. */
+    /** P5: the echo owes per kind and of either kind — each for a stock message still to come, cleared at every SETTLE —
+     *  and [u], the stock messages that arrived unreported for the bound list since S_heard last advanced (scroll messages
+     *  and clicks alike: a gap says how many reports were missed, never their kinds). Decisions BB: [u] is kept across a
+     *  SETTLE and cleared only when S_heard advances, where a gap is charged against it first and only the remainder
+     *  becomes owes — a message that already came and was applied as today is owed nothing. */
     var owesScroll = 0; private set
     var owesClick = 0; private set
     var owesAny = 0; private set
@@ -352,7 +356,8 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
             if (tap) tapdrop("stale", a, row)
             return Verdict.Nothing
         }
-        // P5: the gap g, the owes it adds (n), then this report's own owe
+        // P5: the gap g, the owes it adds (n: the gap less the unreported messages that already came since S_heard last
+        // advanced, decisions BB — those were applied as today, whatever SETTLE came between), then this report's own owe
         val g = s16(s - sHeard - 1).coerceAtLeast(0)
         val n = (g - u).coerceAtLeast(0)
         owesAny += n
@@ -751,7 +756,9 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         val m = CfwModes.motionSettle(CfwModes.MOTION_ALL, (sHeard + 1 - WIDE) and 0xFFFF, f?.list ?: CfwModes.BIND_ALL, if (f != null) row else 0, AGE_TICKS)
         if (owesScroll + owesClick + owesAny > 0) count("owesAtSettle", owesScroll + owesClick + owesAny)
         tapNoClick()
-        owesScroll = 0; owesClick = 0; owesAny = 0; u = 0
+        // the owes go (a stock message still owed may never come: the rubber band); u stays until S_heard advances
+        // (decisions BB: the next burst's first report charges its gap against the messages that already came)
+        owesScroll = 0; owesClick = 0; owesAny = 0
         repair.settleSent()
         discardSinceSettle.clear()
         unconfirmed.clear(); committed.clear()

@@ -18,7 +18,8 @@ import wm.damage.core.transport.Arm
  *      acted on as today is the stated residual — counted, not failed;
  *  (2) at rest each lens's panel and shadow equal the phone's truth;
  *  (3) both lenses' cursors on the phone's row after a SETTLE (the list in front);
- *  (4) at rest: no owes, u 0, no burst open, no slot owing an answer, S_heard not ahead of RIGHT's S;
+ *  (4) at rest: no owes, no burst open, no slot owing an answer, S_heard not ahead of RIGHT's S (u is not read: since
+ *      decisions BB it counts the unreported stock messages since S_heard last advanced, kept across a SETTLE);
  *  (5) no message of the phone's refused (the refusals the harness induced kept apart; a sequence that lost or had
  *      refused a mode-27 message is counted, not failed — the phone's later messages may then name what the lens lacks);
  *  (6) with nothing lost from then on and the list uncovered, of two taps a round trip apart the second is acted on;
@@ -55,7 +56,7 @@ class LocalSequenceFuzzTest {
         }
         // (4)
         val rr = h.rules
-        if (rr.owesScroll + rr.owesClick + rr.owesAny != 0 || rr.u != 0) failed += "(4) owes ${rr.owesScroll}/${rr.owesClick}/${rr.owesAny} u ${rr.u}"
+        if (rr.owesScroll + rr.owesClick + rr.owesAny != 0) failed += "(4) owes ${rr.owesScroll}/${rr.owesClick}/${rr.owesAny} (u ${rr.u})"
         if (rr.burstOpen) failed += "(4) a burst still open"
         if (rr.slotOwed(0)) failed += "(4) slot 0 still owes an answer"
         if (LocalRules.after(rr.sHeard, sR)) failed += "(4) S_heard ${rr.sHeard} ahead of RIGHT's S $sR"
@@ -524,6 +525,27 @@ class LocalSequenceFuzzTest {
     }, extra = { h -> listOfNotNull(
         if (h.wrapPlays != 0) "a wrap was played ${h.wrapPlays} time(s) with the row moved twice" else null,
         if (h.row != 1) "the row is ${h.row}, not 1" else null) })
+
+    /** S27 (decisions BB; the fuzz's seed 100100988 on G2): two notches whose reports are lost — their scroll messages come
+     *  and are applied as today — then the burst's SETTLE; a notch later finds the gap of 2. Those two messages already
+     *  came, so no echo owe is left for them: a click 50 ms after that notch (`Taps · phone`: no tap entry, the click acts
+     *  as today) is acted on. Charged in full, the gap's two owes swallowed it. */
+    @Test fun seededS27_aGapFoundAfterASettleOwesNothingForMessagesThatCame() {
+        var tap = -1
+        seeded(Taps.PHONE, script = { h ->
+            h.loseNext115 = 2
+            h.gesture(1, answer = true, band = "none"); h.runUntil(h.now + 300)
+            h.gesture(1, answer = true, band = "none"); h.runUntil(h.now + 300)
+            h.rest()
+            h.gesture(1, answer = true, band = "none")
+            h.runUntil(h.now + 50)
+            tap = h.gesture(0, answer = true, band = "none")
+            h.rest()
+        }, extra = { h -> listOfNotNull(
+            if (h.acts.none { it.gesture == tap }) "the click 50 ms after the gap's report was not acted on (owes ${h.rules.owesAny}; " +
+                "verdicts ${h.verdicts.filter { it.first == tap }.map { it.second }})" else null,
+            if (h.rules.counts["gap"] != 2) "the gap counted ${h.rules.counts["gap"]}, not 2 (the shape did not happen)" else null) })
+    }
 
     @Test fun seededS24_aRefusedTailOnRightIsSeenAtTheSettle() = seeded(Taps.REPORT, live = false, script = { h ->
         h.refuse27On = Arm.RIGHT
