@@ -115,7 +115,8 @@ class MirrorScanMotionTest {
             val held = 1_763_480_000_000L
             val t = SimTransport(sim, scope, SimTransport.Timing(instant = true), clock = { held })
             t.devProbe("c1", "3")
-            val shell = Shell(FakeText(), t, Persistence(dir.resolve("s.json")), null, scope)
+            val journal = dir.resolve("journal.jsonl")
+            val shell = Shell(FakeText(), t, Persistence(dir.resolve("s.json")), journal, scope)
             shell.start()
             waitUntil(30_000, 10, { "the session settles" }) { shell.isQuiescent() }
             t.devProbe("motion", "list")                  // LIST: x 32..608, from y 74
@@ -129,8 +130,10 @@ class MirrorScanMotionTest {
             // divergence asks for closes it afterwards)
             assertTrue(sim.motionWindows(Arm.LEFT).isNotEmpty(), "the motion is open before the scan")
             edgeRepaint(shell, 1)
-            waitUntil(10_000, 10, { "the planted pixel at ($x, $y) is found: ${shell.lastDivergence}" }) { shell.divergencesReported > 0 }
-            assertTrue("1 px differ, first at ($x,$y)" in (shell.lastDivergence ?: ""), "x $x: ${shell.lastDivergence}")
+            // the journal's `divergence` note: the report itself is cleared again once the keyframe restores agreement
+            fun episodes() = lines(journal).filter { "\"kind\":\"divergence\"" in it && "episode" in it }
+            waitUntil(10_000, 10, { "the planted pixel at ($x, $y) is found: ${episodes()}" }) { episodes().isNotEmpty() }
+            assertTrue(episodes().any { "1 px differ, first at ($x,$y)" in it }, "x $x: ${episodes()}")
             shell.stop()
         }
     }
