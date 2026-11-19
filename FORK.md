@@ -352,17 +352,29 @@ fixups. 3. Thumb-bit audit. 4. Host vectors green. 5. Simulator vectors green. 6
 in-the-moment go.** 7. `probe c1=0` on the phone before any flash (forward, a fix, or back): the stored stage arms at
 the first start after it (build C1-P); then the stages again by hand on his go — all at once since his ruling of
 2026-11-18 ("enable all the stuff, we need to test this new stuff asap", `HANDOFF.md` §91; one stage per soak was
-the plan before it; the transport's hold-back still lowers one stage per reset). Dry-run staircase, per lens with `--lens`: `--stop-before heartbeat` (connect and discovery, nothing sent) →
+the plan before it; the transport's hold-back still lowers one stage per reset). The probe changes the STORED stage,
+not the session in progress: the flags already armed stay set on the glasses until the next session start or the
+lease's lapse (87.9 s after the phone's last renewal) — so before a lens that already runs a build with local input
+(a rollback, a fix flash) receives a flash, a session has started after the probe or the phone's Bluetooth has been
+off for 90 s (the C2 flash review, reader B, 2026-11-19: a bound gesture in that first minute would still draw and
+send a 115 beside the transfer). Dry-run staircase, per lens with `--lens`: `--stop-before heartbeat` (connect and discovery, nothing sent) →
 `--stop-before file_check` (notifications and the stock authentication, nothing stored) → `--stop-before flash` only
 directly before that lens's full flash (its begin step writes and removes a 4 KiB storage test file; its file check
 empties `firmware/codec.bin` until the flash rewrites it). An interrupted flash, or this last rung not followed
 through, is finished with a full flash of that lens in the same sitting (`HANDOFF.md` §87).
 8. Both lenses, one at a time, the same image (the cross-lens deferred path runs the same code on
-both). 9. Reconnect, capability check (`DamageCaps … features 0x1f` in the journal on the Phase 2 build; `0x1ff` on a C1 build), self-test on glass
+both) — **LEFT first, RIGHT last**: the phone learns the build from RIGHT alone, so with LEFT alone on the new image
+it treats the pair as the old one and sends nothing new at any stage; **no ladder stage beyond what the old image
+takes is set before both lenses' logs show END status 8 and op 4 status 9** (with RIGHT alone on a C2 image a stage 4
+would send mode 27 and the answers to a C1 LEFT, which refuses them: its picture stops following until `c1=3` and a
+new start). 9. Reconnect, capability check (`DamageCaps … features 0x1f` in the journal on the Phase 2 build; `0x1ff` on a C1 build; `0x5ff` on a C2 build), the first touches at stage 0 with RIGHT's uptime rising (the new input site with local input not armed), self-test on glass
 (`tools/glassdrive.py … selftest:firmware/vectors/v1-keyframe.json` and the other drawing vectors — RIGHT
 reports), telemetry read (`probe:telemetry=read`: uptime, the panel record, the heap figures). 10. Arm
 features one at a time (`probe:flags=0x8000` PROBE first, then `0x0001` PRESENTED, then `0x0003`; the
-keeper re-arms the wanted set after every rebuild under the hold-back rule). 11. Soak. 12. Journal and
+keeper re-arms the wanted set after every rebuild under the hold-back rule). **A C2 build's own check, which the
+self-test cannot make (mode 27 is refused in a self-test step; a fire needs real input): at stage 4, one notch and
+one tap on Main — each brings a 115 (S 1, 2), no reset note and no end of LEFT's link follow, telemetry fields 35,
+36, 38 and 39 read (38 stays 0, 35 counts the gestures).** 11. Soak. 12. Journal and
 `/log` read (`journal_report.py`: the transfer section). Rollback = reflash the last-known-good image, kept built
 in `fws/`. The site list of every candidate (`~/damage-cfw/tools/verify.py` step 6) is reviewed against §3.1 (no new boot-path site) before step 6.
 

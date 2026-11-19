@@ -1021,7 +1021,9 @@ version stays 2; DamageCaps bit 10 (§6.8).
   the word); the stock handler's own inter-lens send after the hook.
 - **Cost:** a fire walks its program and every record it names to their ends (an RLE walk, proportional to the record;
   field 16 measures it); the phone keeps staged records small. Before BIND is armed the hook costs a lookup, a flag
-  test and the stock call (modeled only).
+  test and the stock call — read at instruction level in the candidate image (the flash review of 2026-11-19): about
+  twenty instructions a touch, nothing written but the stack (the fire's 728-byte frame is taken before its flag test:
+  2,122 B at the deepest of the input task's 48 KiB); its time on glass is not measured.
 - **What never runs on the glasses:** a draw for a double tap, a long press, 0xD, 0xE or a temple tap; a write of the
   shadow by a fire; a take of the display gate; an allocation; a `self` capture; a fire outside the EvenHub page, the
   lease, BIND, ENGINE and DRAW2; any decision about what a tap acts on.
