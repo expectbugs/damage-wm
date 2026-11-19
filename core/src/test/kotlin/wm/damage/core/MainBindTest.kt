@@ -10,6 +10,15 @@ import wm.damage.core.shell.DamageWindow
 import wm.damage.core.shell.MainLocalCheck
 import wm.damage.core.shell.MainStaging
 import wm.damage.core.wire.CfwModes
+import wm.damage.core.wire.DamageMsg
+import wm.damage.core.gfx.Gray8
+import wm.damage.core.shell.MainStageKey
+import wm.damage.core.shell.StageKey
+import wm.damage.core.shell.StageRing
+import wm.damage.core.shell.StagedRecord
+import wm.damage.core.shell.Staging
+import wm.damage.core.transport.LinkState
+import wm.damage.core.transport.atlasCapacity
 
 /**
  * Build C2, stage DM2 (`C2-DM2-brief.md`; spec §3 DM, §6.4; decisions B.4, V): Main's bound list. Context for the
@@ -100,5 +109,64 @@ class MainBindTest {
         assertTrue(r2.writes.all { it.off % 4 == 0 && it.bytes.size % 4 == 0 }, "every write 4-aligned")
         val strip = r2.writes.filter { it.what.startsWith("strip") }
         assertEquals(1, strip.size, "Torrents shows once in the strip at 352 (no margin copy)")
+    }
+
+    /** Decisions B.4: on a 256 KiB session with BIND in force the atlas lays out over 128 KiB, under Main's own region;
+     *  everywhere else (160 KiB, or no BIND: ladder stages 0–3) as before. */
+    @Test
+    fun theAtlasLaysOutUnderMainsRegionOnlyAt256KiBWithBind_DM2() {
+        fun st(kib: Int, bind: Boolean) = LinkState(damageContract = 2, damageFeatures = 0x5ff, cacheSize = kib * 1024,
+            flagsInForce = DamageMsg.FLAG_DRAW2 or DamageMsg.FLAG_ENGINE or (if (bind) DamageMsg.FLAG_BIND else 0))
+        assertEquals(128 * 1024, st(256, true).atlasCapacity)
+        assertEquals(192 * 1024, st(256, false).atlasCapacity)
+        assertEquals(96 * 1024, st(160, true).atlasCapacity)
+        assertEquals(96 * 1024, st(160, false).atlasCapacity)
+        assertEquals(128 * 1024 until 192 * 1024, CfwModes.mainRegion(256 * 1024, true))
+        assertEquals(96 * 1024 until 160 * 1024, CfwModes.mainRegion(160 * 1024, true))
+    }
+
+    /** A document's strips take the shared reserve (Main's records placed in the ring at 160 KiB go), never Main's own
+     *  region (its records outside the ring at 256 KiB stay). */
+    @Test
+    fun aDocumentsStripsTakeTheSharedReserveNeverMainsOwnRegion_DM2() {
+        val stg = Staging()
+        stg.ring = StageRing(192 * 1024, 256 * 1024)
+        val ms = Any()
+        val own = StagedRecord(MainStageKey(ms, 0, "strip"), Gray8(1, 1), ByteArray(8)).also { it.off = 128 * 1024 }
+        stg.records[own.key] = own
+        val shared = StagedRecord(MainStageKey(ms, 1, "band 0"), Gray8(1, 1), ByteArray(8))
+        assertTrue(stg.ring!!.placeAt(shared, 192 * 1024) != null)
+        stg.records[shared.key] = shared
+        val doc = Any()
+        val strip = StagedRecord(StageKey(doc, 0, 3, 24, 300), Gray8(1, 1), ByteArray(8))
+        stg.records[strip.key] = strip
+        val gone = stg.retain(doc, 24, 300)
+        assertEquals(listOf(shared), gone, "the shared reserve's record of Main's goes, Main's own region's stays")
+        assertTrue(stg.records.containsKey(own.key) && stg.records.containsKey(strip.key))
+    }
+
+    /** What the rules read for `snapback cause=restaged` ([wm.damage.core.local.BoundList.staleAt]): a row whose key
+     *  changed is stale for every fire that draws it — every notch (the whole list moves) and the press at that row, not
+     *  the press at another — until its re-stage is submitted. */
+    @Test
+    fun aStaleRowIsSaidForTheFiresThatDrawIt_DM2() {
+        val rows = MainLocalCheck.sampleRows()
+        val rig = MainLocalCheck.MainRig(BoxFace, 352, rows)
+        val ms = rig.staging(CfwModes.CACHE2_MAX, CfwModes.mainRegion(CfwModes.CACHE2_MAX, true))
+        val b = wm.damage.core.shell.MainBinding()
+        val keys = { List(ms.rows) { rig.surface.rowKey(it) } }
+        b.begin(ms, emptyList(), keys(), 0L)
+        val list = b.list!!
+        val down = list.entryFor(CfwModes.EV_UPROLL)!!; val tap = list.entryFor(CfwModes.EV_TAP)!!
+        assertTrue((0 until ms.rows).none { list.staleAt(down, it) || list.staleAt(tap, it) }, "nothing stale at first")
+        rows[3].s = rows[3].s.copy(progress = 0.95)
+        b.keysChanged(keys())
+        assertTrue(b.stale(3) && b.staleRows == listOf(3))
+        assertTrue((1 until ms.rows).all { list.staleAt(down, it) }, "every notch draws the whole list, row 3 with it")
+        assertTrue(list.staleAt(tap, 3) && !list.staleAt(tap, 2), "the press draws its own row only")
+        val r = ms.restage(3, rig.view, rig.kit, { _, f -> f() }) as MainStaging.Restage.Changed
+        b.changed(3)
+        b.submitted(r, StagedRecord(MainStageKey(ms, 1003, "row 3's re-stage"), Gray8(1, 1), ByteArray(4)), 1L)
+        assertTrue(!b.stale(3) && (0 until ms.rows).none { list.staleAt(down, it) }, "current once its re-stage is submitted")
     }
 }

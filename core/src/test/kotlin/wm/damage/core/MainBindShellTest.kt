@@ -148,7 +148,9 @@ class MainBindShellTest {
             val list = assertNotNull(r.offered()?.first)
             r.rows[3].s = r.rows[3].s.copy(line = "summary 3 grew", progress = 0.75)
             r.shell.services.requestRender(r.rows[3])
-            r.until("re-staged in place") { r.notes("mainstage").any { it.startsWith("row 3 re-staged in place") } }
+            // within the pace's first turn — by the row's key at the compose, not the round-robin repaint (row 3's turn is
+            // 20 s after the staging)
+            r.until("re-staged in place", 3_000) { r.notes("mainstage").any { it.startsWith("row 3 re-staged in place") } }
             r.settle("re-staged")
             val after = assertNotNull(r.offered())
             assertSame(list, after.first, "the same list, its mark kept")
@@ -215,6 +217,31 @@ class MainBindShellTest {
             r.settle("still")
             assertTrue(r.notes("mainstage").isEmpty(), "${r.notes("mainstage")}")
             assertNull(r.offered()?.first)
+        } finally { r.close() }
+    }
+
+    /** A change of Global `Depth` moves Main's planes: the staging goes (the list withdrawn first) and Main is staged
+     *  again with a new mark; so does a row grown past its slot's slack. */
+    @Test
+    fun aDepthChangeOrAnOutgrownRowIsAFullStagingWithANewMark_DM2(): Unit = runBlocking {
+        val r = Rig()
+        try {
+            r.up()
+            r.until("offered") { r.offered()?.first != null }
+            r.settle("offered")
+            val first = assertNotNull(r.offered()?.first)
+            r.shell.updateSettings { it.copy(depth = 12) }
+            r.until("dropped for the planes") { r.notes("mainstage").any { it.startsWith("dropped — Main's planes changed") } }
+            r.until("offered again") { r.offered()?.first.let { it != null && it !== first } }
+            val second = assertNotNull(r.offered()?.first)
+            assertTrue(second.mark != first.mark, "a new mark: ${first.mark} → ${second.mark}")
+            r.settle("staged at depth 12")
+            r.rows[2].s = DamageWindow.Summary("a summary much longer than the one staged, running well past its slot", detail = "and a detail of the same kind, long enough to need a new slot", progress = 0.5, more = true)
+            r.shell.services.requestRender(r.rows[2])
+            r.until("dropped for the outgrown row") { r.notes("mainstage").any { it.startsWith("dropped — a full staging is owed") } }
+            r.until("offered a third time") { r.offered()?.first.let { it != null && it !== second } }
+            assertTrue(r.offered()!!.first!!.mark !in setOf(first.mark, second.mark), "a third mark")
+            println("DM2-shell full stagings: ${r.notes("mainstage").filter { it.startsWith("dropped") || it.startsWith("staged") }.joinToString("\n")}")
         } finally { r.close() }
     }
 }
