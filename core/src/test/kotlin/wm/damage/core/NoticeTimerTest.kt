@@ -85,7 +85,7 @@ class NoticeTimerTest {
             assertEquals(full, box)
             val m = measure(g, full)
             val focus = s == GRACE_STEPS
-            val want = if (focus) full.w else full.w * s / GRACE_STEPS / 4 * 4
+            val want = if (focus) full.w else (full.w - 2 * Notifications.BAR_INSET) * s / GRACE_STEPS / 4 * 4
             assertEquals(want, m.lit, "step $s: the bar's lit width")
             assertTrue(m.lit > lastLit, "step $s: the bar grew (from $lastLit to ${m.lit})")
             lastLit = m.lit
@@ -126,9 +126,11 @@ class NoticeTimerTest {
         val g = Gray8(Geometry.PANEL_W, Geometry.PANEL_H)
         n.paint(g, l, silent = false)
         val full = n.fullRect(n.current!!, l, silent = false)
-        val share = full.w * 3 / GRACE_STEPS / 4 * 4
-        assertEquals(setOf(Level.HOT), (full.x until full.x + share).map { g[it, full.y] }.toSet(), "lit to the timer's share")
-        assertEquals(setOf(Level.MID), (full.x + share until full.right).map { g[it, full.y] }.toSet(), "dim beyond it")
+        val inset = Notifications.BAND_INSET
+        val share = (full.w - 2 * inset) * 3 / GRACE_STEPS / 4 * 4
+        assertEquals(setOf(Level.MID), (full.x until full.x + inset).map { g[it, full.y] }.toSet(), "dim before the text column")
+        assertEquals(setOf(Level.HOT), (full.x + inset until full.x + inset + share).map { g[it, full.y] }.toSet(), "lit to the timer's share")
+        assertEquals(setOf(Level.MID), (full.x + inset + share until full.right).map { g[it, full.y] }.toSet(), "dim beyond it")
         assertEquals(setOf(Level.HOT), (full.x until full.right).map { g[it, full.y + 4] }.toSet(), "the inner rule as before")
         n.takeFocus()
         n.paint(g, l, silent = false)
@@ -358,14 +360,23 @@ class NoticeTimerTest {
         fun ruleRow(g: Gray8, full: Rect): Int =
             (full.y until full.bottom).first { y -> (full.x until full.right).all { g[it, y] == Level.DIM || g[it, y] == Level.FAINT } }
 
+        /** The rule's lit width: the whole rule when every pixel is lit (focus); else a run that starts
+         *  [Notifications.BAR_INSET] in, level 1 on both sides of it. */
         fun measure(g: Gray8, full: Rect): Measure {
             val y = ruleRow(g, full)
+            var lit = -1
             for (yy in y until y + 2) {
                 val row = (full.x until full.right).map { g[it, yy] }
-                val lit = row.takeWhile { it == Level.DIM }.size
-                assertTrue(row.drop(lit).all { it == Level.FAINT }, "the rule beyond the lit part is level 1: $row")
+                val l = if (row.all { it == Level.DIM }) row.size else {
+                    val inset = Notifications.BAR_INSET
+                    assertTrue(row.take(inset).all { it == Level.FAINT }, "the rule before the text column is level 1: $row")
+                    val run = row.drop(inset).takeWhile { it == Level.DIM }.size
+                    assertTrue(row.drop(inset + run).all { it == Level.FAINT }, "the rule beyond the lit part is level 1: $row")
+                    run
+                }
+                if (lit >= 0) assertEquals(lit, l, "both rows of the rule agree")
+                lit = l
             }
-            val lit = (full.x until full.right).takeWhile { g[it, y] == Level.DIM }.count()
             fun max(x0: Int, x1: Int, y0: Int, y1: Int): Int {
                 var m = 0
                 for (yy in y0 until y1) for (x in x0 until x1) m = maxOf(m, g[x, yy])
@@ -437,7 +448,7 @@ class NoticeTimerTest {
             assertFalse(b.focused, "$what: not focused")
             assertEquals(8, b.plane, "$what: the box sits at the content plane until focus")
             val m = measure(b.g, b.full)
-            assertEquals(b.full.w * k / GRACE_STEPS / 4 * 4, m.lit, "$what: the bar's lit width")
+            assertEquals((b.full.w - 2 * Notifications.BAR_INSET) * k / GRACE_STEPS / 4 * 4, m.lit, "$what: the bar's lit width")
             assertEquals(graceInk(Level.HEAD, k), m.source, "$what: the source line's level")
             assertEquals(graceInk(Level.BODY, k), m.body, "$what: the body's level")
         }

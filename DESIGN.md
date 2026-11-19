@@ -1106,8 +1106,9 @@ state transition, not a time-bounded execution wrapper (see Silent mode below).
 **Rules:**
 
 1. **The grace restarts on every input.** Focus transfers at the next lull, not on a fixed clock —
-   an interaction in progress is *never* interrupted. 2–3 s is the floor. Same "settle when the
-   input stream goes quiet" signal as live preview (§4.3 rule 2); share the machinery.
+   an interaction in progress is *never* interrupted. **2.0 s** since 2026-11-19 (the timer below;
+   "2–3 s" before it). Same "settle when the input stream goes quiet" signal as live preview (§4.3
+   rule 2); share the machinery.
 2. 🔴 **The grace does NOT apply to the next item in a queue you are actively clearing.** A fixed
    grace would send your following gestures to the window underneath while you clear the backlog.
    The grace protects against *unexpected* focus theft; a queue you are working through is expected.
@@ -1115,6 +1116,44 @@ state transition, not a time-bounded execution wrapper (see Silent mode below).
    draft that had them take focus immediately and *swallow* input, which ate gestures aimed at the
    underlying window, the very problem the grace exists to fix). One grace rule, everything.
 4. Moot in silent mode — notifications there never take focus at all.
+
+##### 🔑 The timer is visible (Adam, 2026-11-19)
+
+On glass he could not tell an unfocused box from a focused one, so gestures meant for it went
+underneath and restarted the grace each time. His ruling: *"Let's just make the focus timer more
+obvious. Like, a progress bar at the top of it, going left to right, giving it focus when the bar
+is all the way full (let's make that 2s flat), and showing the bar reset on inputs to make it clear
+that inputs are resetting the timer. The pop-up can also increase in brightness from like 30% to
+90% gradually as the timer goes, creating a bit of a fade-in effect. This should solve it elegantly
+without adding a risk of accidentally dismissing a notification instantly unread as I'm tapping on
+a window when it pops up."* As built (build NT):
+
+- **8 steps of 250 ms**, counted from the end of the unfurl; the eighth makes the bar whole and
+  the box takes focus (full ink, the step forward in depth) in the same flush.
+- **The top rule is the bar**: level 1, lit at its own level 3 under the text column (8 px in from
+  each end) to an eighth more per step; whole at focus. A horizontal run — no new mark. (Run from
+  the box's edge, a step that changed the rule's first pixels crossed, through the box's depth
+  shift, cells of the plane beside it, and the box's text went as pixels: 437 B instead of 80.)
+- **The ink fades in**: each mark at about 30 % of its level at arrival rising evenly to about
+  90 % at step 7, rounded to the 16 levels, never below 1:
+
+  | step | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | focus |
+  |---|---|---|---|---|---|---|---|---|---|
+  | source (12), the scroll mark | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 |
+  | body (8) | 2 | 3 | 4 | 4 | 5 | 6 | 7 | 7 | 8 |
+  | time, `+N` (3) | 1 | 1 | 1 | 2 | 2 | 2 | 2 | 3 | 3 |
+  | bottom rule (1) | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 |
+
+- **An input resets both at once**, in the input's own flush, and the steps start again. A notice
+  queued behind the box, or a new body for its thread, leaves the timer where it is — a reset he
+  sees is one his input made.
+- A step is one small flush paced on the shell's loop, never in the input's reserved slot
+  (modeled, contract 2 with Cached text on: 80 / 120 / 146–186 B for a 1 / 2 / 3-line box; the
+  reset 96 / 136 / 161–179 B; as pixels with Cached text off 0.3–0.6 / 0.9–1.1 / 1.4–1.7 KB).
+- Unchanged: the next box of a queue being cleared arrives focused (bar whole, full ink); the
+  silent-mode box has no bar, no fade and its 5 s drop; with the wheel open the timer waits; on
+  an unfocused box gestures go to the window under it; no new dismissal. The emergency band runs
+  the same timer on its outer top rule (lit 15, the rest 6) without the fade.
 
 ##### The focus indicator is free, and it should be depth
 
@@ -1125,8 +1164,8 @@ depth ladder encodes urgency (§3.1's crossed-disparity slot, deliberately the u
 direction for the one case where discomfort is the point). **+4 bytes** for the stereo box pair.
 
 ⚠ **Depth is the enhancement, not the primary cue** — at `d = 0` it vanishes. **Brightness is the
-primary indicator**: dim on arrival, full on focus, in quantised steps (§8.5). One box repaint,
-390–650 B — one round trip.
+primary indicator**: dim on arrival, full on focus, in quantised steps (§8.5) — since 2026-11-19
+rising with the visible timer above, the bar its second cue.
 
 #### Silent mode
 

@@ -16,7 +16,8 @@ import wm.damage.core.text.Wrap
  * floats marks in the gap, bracketed by two horizontal rules (RLE-cheap).
  * It unfurls downward from a rule (the reveal costs the same bytes as one
  * static paint), arrives at the content plane, and STEPS FORWARD when it takes
- * focus after the grace period. One box at a time; queue coalesces by
+ * focus after the grace period — which it shows: its top rule fills and its ink
+ * fades in as the timer runs ([graceStep]). One box at a time; queue coalesces by
  * source+thread; emergencies get the 608-wide doubled-rule band at plane +1.
  */
 class Notifications(private val text: TextRasterizer) {
@@ -443,10 +444,13 @@ class Notifications(private val text: TextRasterizer) {
             for (yy in intArrayOf(full.y, full.y + 4, full.bottom - 6, full.bottom - 2)) {
                 if (yy < box.bottom) g.fillRect(full.x, yy, full.w, 2, Level.HOT)
             }
-            // the same grace, so the same timer (§4.5 rule 3): the outer top rule is its bar, lit to the timer's
-            // share and dim beyond it until the band takes focus. No fade — level 15 is spent here.
-            val share = barShare(full.w)
-            g.fillRect(full.x + share, full.y, full.w - share, 2, Level.MID)
+            // the same grace, so the same timer (§4.5 rule 3): the outer top rule is its bar — dim, and lit at its
+            // own level under the text column to the timer's share — until the band takes focus. No fade: level 15 is
+            // spent here.
+            if (!focused) {
+                g.fillRect(full.x, full.y, full.w, 2, Level.MID)
+                g.fillRect(full.x + BAND_INSET, full.y, barShare(full.w - 2 * BAND_INSET), 2, Level.HOT)
+            }
             if (box.h >= 30) drawStr(g, full.x + 16, full.y + 12, "EMERGENCY ALERT", Level.HOT, fSmall)
             // FITTED: the band is 608 px and the body is external text — an
             // unbounded draw at fBig walks off the band into undamaged pixels
@@ -466,13 +470,16 @@ class Notifications(private val text: TextRasterizer) {
         }
         val srcH = srcH()
         val pitch = pitch()
-        // top rule + source line. In the window form before focus the rule is the timer's bar (2026-11-19): lit at
-        // the rule's own level to the timer's share, dim beyond it — one run a row more, no new mark. Drawn once the
-        // box has grown past it (the unfurl's first frames are shorter: ink outside the box is never sent)
+        // top rule + source line. In the window form before focus the rule is the timer's bar (2026-11-19): level 1,
+        // and lit at the rule's own level under the text column to the timer's share — one run a row more, no new
+        // mark; whole at focus. Drawn once the box has grown past it (the unfurl's first frames are shorter: ink
+        // outside the box is never sent)
         if (box.h >= srcH + 2) {
-            val share = if (silent) full.w else barShare(full.w)
-            g.fillRect(full.x, full.y + srcH, share, 2, if (silent) lv(Level.DIM) else Level.DIM)
-            g.fillRect(full.x + share, full.y + srcH, full.w - share, 2, Level.FAINT)
+            if (silent || focused) g.fillRect(full.x, full.y + srcH, full.w, 2, lv(Level.DIM))
+            else {
+                g.fillRect(full.x, full.y + srcH, full.w, 2, Level.FAINT)
+                g.fillRect(full.x + BAR_INSET, full.y + srcH, barShare(full.w - 2 * BAR_INSET), 2, Level.DIM)
+            }
         }
         if (box.h >= 16) {
             val tw = text.measure(n.timeHHMM, fTiny)
@@ -528,9 +535,8 @@ class Notifications(private val text: TextRasterizer) {
         return box
     }
 
-    /** The width of the top rule the timer has lit: [GRACE_STEPS] equal parts, each a multiple of 4 px; whole once
-     *  the box has focus. */
-    fun barShare(w: Int): Int = if (focused) w else w * graceStep / GRACE_STEPS / 4 * 4
+    /** The width of the bar's run [span] the timer has lit: [GRACE_STEPS] equal parts, each a multiple of 4 px. */
+    fun barShare(span: Int): Int = if (focused) span else span * graceStep / GRACE_STEPS / 4 * 4
 
     companion object {
         /** The silent/exclusive box's width (§1.5) — narrower than the window
@@ -541,6 +547,15 @@ class Notifications(private val text: TextRasterizer) {
         /** The grace (§4.5, Adam 2026-11-19: "let's make that 2s flat"): [GRACE_STEPS] steps of [GRACE_STEP_MS]. */
         const val GRACE_STEPS = 8
         const val GRACE_STEP_MS = 250L
+        /**
+         * How far in from each end of its rule the bar runs: under the text column (the box's text is 8 px in, the
+         * band's 16), so a step never changes the rule's ends. Measured (build NT, `NoticeTimerRenderTest`): with the
+         * bar running from the box's edge, a step that changed the rule's first pixels — the first step, an input's
+         * reset — reached, through the box's depth shift, cells the plane beside it owns; the compositor then refused
+         * the box's strings as draws and sent its text as pixels (437 B for a one-line box where a step is 80).
+         */
+        const val BAR_INSET = 8
+        const val BAND_INSET = 16
         /** The window form's ink before focus: "from like 30% to 90% gradually as the timer goes" (his words). */
         const val ARRIVAL_PCT = 30
         const val LAST_PCT = 90
@@ -549,13 +564,8 @@ class Notifications(private val text: TextRasterizer) {
          * The ink of a mark whose focused level is [base] (a [Level] value) at grace step [step]: [ARRIVAL_PCT] % of
          * its level at arrival (step 0), rising evenly to [LAST_PCT] % at the last step before focus
          * ([GRACE_STEPS] − 1), rounded to the nearest of the 16 levels and never below level 1 — a mark that shows
-         * at focus shows throughout. At focus the box draws its full levels. The table (`DESIGN.md` §4.5):
-         *
-         *     step              0   1   2   3   4   5   6   7 | focus
-         *     source (12)       4   5   6   7   8   9  10  11 |  12
-         *     body (8)          2   3   4   4   5   6   7   7 |   8
-         *     time, +N (3)      1   1   1   2   2   2   2   3 |   3
-         *     bottom rule (1)   1   1   1   1   1   1   1   1 |   1
+         * at focus shows throughout. At focus the box draws its full levels. The table per element is
+         * `DESIGN.md` §4.5's "The timer is visible" (pinned by `NoticeTimerTest`).
          */
         fun graceInk(base: Int, step: Int): Int {
             val lvl = (base + 8) / 17
