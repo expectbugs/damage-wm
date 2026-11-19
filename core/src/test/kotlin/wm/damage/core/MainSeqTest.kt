@@ -23,8 +23,13 @@ import wm.damage.core.shell.Persistence
 import wm.damage.core.shell.Shell
 import wm.damage.core.shell.WindowView
 import wm.damage.core.sim.GlassFirmwareSim
+import wm.damage.core.geom.Layout
+import wm.damage.core.geom.Rect
 import wm.damage.core.transport.Arm
+import wm.damage.core.transport.DisplayOp
+import wm.damage.core.transport.FlushRequest
 import wm.damage.core.transport.SimTransport
+import wm.damage.core.transport.Transport
 import wm.damage.core.wire.CfwModes
 import wm.damage.core.wire.EvenHubMsg
 
@@ -52,8 +57,13 @@ class MainSeqTest {
         val tmp = Files.createTempDirectory("damage-mainseq")
         val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = 0x1ff }
         val t = SimTransport(sim, scope, SimTransport.Timing(instant = true))
+        /** Every flush the shell submitted, by the id the transport gave it. */
+        val submitted = java.util.concurrent.ConcurrentHashMap<Long, FlushRequest>()
+        private val spy = object : Transport by t {
+            override suspend fun submit(flush: FlushRequest): Long = t.submit(flush).also { submitted[it] = flush }
+        }
         val journal = tmp.resolve("journal.jsonl")
-        val shell = Shell(CachedText(FakeText()), t, Persistence(tmp.resolve("state.json")), journal, scope) { Shell.LocalClock(12, 0, "12:00", "PM") }
+        val shell = Shell(CachedText(FakeText()), spy, Persistence(tmp.resolve("state.json")), journal, scope) { Shell.LocalClock(12, 0, "12:00", "PM") }
         val rows = (0 until 7).map { Row("w$it", "Win $it", "summary $it") }
         /** The PLAYs RIGHT took, with the wall clock at their arrival. */
         val plays = java.util.concurrent.CopyOnWriteArrayList<Pair<Long, ByteArray>>()
@@ -109,6 +119,31 @@ class MainSeqTest {
 
     private fun u16(b: ByteArray, at: Int) = (b[at].toInt() and 0xFF) or ((b[at + 1].toInt() and 0xFF) shl 8)
     private fun s16(b: ByteArray, at: Int) = u16(b, at).toShort().toInt()
+
+    /** Where each op of [f] writes on each lens — a cached run or image at its origin (its ink stays in its row). */
+    private fun writes(f: FlushRequest): List<Pair<Rect, Rect>> = f.ops.mapNotNull { op ->
+        fun at(x: Int, y: Int) = Rect(x, y, 1, 1)
+        when (op) {
+            is DisplayOp.Delta -> op.box.translate(-op.disparity, 0) to op.box.translate(op.disparity, 0)
+            is DisplayOp.StereoPair -> op.left to op.right
+            is DisplayOp.Fill -> op.left to op.right
+            is DisplayOp.Copy -> op.dst.translate(-op.disparity, 0) to op.dst.translate(op.disparity, 0)
+            is DisplayOp.CopyPair -> op.dstL to op.dstR
+            is DisplayOp.DrawImage2 -> Rect(op.xL, op.y, op.w, op.h) to Rect(op.xR, op.y, op.w, op.h)
+            is DisplayOp.DrawText2 -> at(op.xL, op.y) to at(op.xR, op.y)
+            is DisplayOp.DrawText -> at(op.x, op.y).let { it to it }
+            is DisplayOp.DrawImage -> at(op.x, op.y).let { it to it }
+            else -> null
+        }
+    }
+
+    /** Main's k-row pan areas at [l] on planes 8 / 4 (Global `Depth` 8): (left, right) per track. */
+    private fun panAreas(l: Layout, k: Int): List<Pair<Rect, Rect>> {
+        val x = l.content.x; val w = l.content.w - Layout.RAIL_W
+        return listOf(Rect(x - 8, l.lens.y - k * l.rowH, w, k * l.rowH) to Rect(x + 8, l.lens.y - k * l.rowH, w, k * l.rowH),
+            Rect(x - 8, l.lens.bottom, w, k * l.rowH) to Rect(x + 8, l.lens.bottom, w, k * l.rowH),
+            Rect(x - 8, l.lens.y, w + 4, l.lens.h) to Rect(x + 4, l.lens.y, w + 4, l.lens.h))
+    }
 
     private val pace = MainSeqPlan.Pace(fastMs = 250, pauseMs = 1_500, slowMs = 250, betweenMs = 300, followUpMs = 20)
 
@@ -170,6 +205,16 @@ class MainSeqTest {
             assertEquals(12, sent.size, note)
             for (i in 1 until 12) assertTrue(sent[i] >= want[i] && sent[i] < want[i] + 600, "PLAY ${i + 1} sent ${sent[i]} ms after the one before, the plan's ${want[i]}")
             assertTrue(r.notes("mainseq").any { "Main's cursor back at row 0" in it }, "the cursor back where it was: ${r.notes("mainseq")}")
+            // END is in belief at each ack: no follow-up carries anything inside the pan's areas (the rows there did not
+            // change, so with END in belief nothing there differs from the truth)
+            val areas = panAreas(l, 2)
+            val followUps = Regex("follow-up flush (\\d+)").findAll(note).map { it.groupValues[1].toLong() }.toList()
+            assertEquals(12, followUps.size, "a follow-up flush per notch: $note")
+            for (id in followUps) {
+                val f = r.submitted.getValue(id)
+                val inside = writes(f).filter { (wl, wr) -> areas.any { (al, ar) -> al.overlaps(wl) || ar.overlaps(wr) } }
+                assertTrue(inside.isEmpty(), "follow-up flush $id writes inside the pan's areas: $inside")
+            }
         } finally { r.close() }
     }
 
