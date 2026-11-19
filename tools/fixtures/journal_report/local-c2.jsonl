@@ -5,5 +5,6 @@
 {"t": 1800000000300, "ev": "note", "kind": "snapback", "detail": "cause=lost-report S=15 list=0 cursor=7 row=6 mark=3 markNow=3 ms=50 frame=no"}
 {"t": 1800000000400, "ev": "note", "kind": "tapdrop", "detail": "cause=moved S=16 list=0 cursor=7 row=5 mark=3 markNow=3 taps=report"}
 {"t": 1800000000500, "ev": "note", "kind": "tapdrop", "detail": "cause=no-report S=- list=0 cursor=- row=5 mark=3 markNow=3 taps=glasses"}
-{"t": 1800000000600, "ev": "note", "kind": "repair", "detail": "evidence=\"mark 2 not 3\" object=ListAgain(list=0)"}
+{"t": 1800000000600, "ev": "note", "kind": "repair", "detail": "evidence=\"parameters differ from the prediction\" object=Set(entry=0)"}
+{"t": 1800000000650, "ev": "note", "kind": "repair", "detail": "evidence=refusal mode=8 reason=14 object=batch(0,1,list0)"}
 {"t": 1800000000700, "ev": "note", "kind": "local", "detail": "35=16 36=16 38=0 39=49 taps=report settles=2 snapback.lost-report=2"}

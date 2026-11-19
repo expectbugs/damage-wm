@@ -1039,7 +1039,7 @@ def selftest():
     lc = run(['local-c2.jsonl'])[1]
     case('C2: snapback by cause, tapdrop per Taps value and repair by object print',
          'snapback by cause: lost-report 2, restaged 1' in lc and 'tapdrop under Taps glasses: no-report 1' in lc
-         and 'tapdrop under Taps report: moved 1' in lc and 'repair by object: ListAgain 1' in lc
+         and 'tapdrop under Taps report: moved 1' in lc and 'Set 1' in lc and 'batch 1' in lc and 'repair by object:' in lc
          and 'last local note: 35=16' in lc, line(lc, 'local input') + ' / ' + line(lc, 'snapback by'))
     i3 = run(['inwait-e3.jsonl'])[1]
     case('G §3: a gesture that waited 2,000 ms in the shell for a slot reads input->done 2900 beside its wait of 900',
