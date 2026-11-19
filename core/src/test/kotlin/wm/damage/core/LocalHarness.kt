@@ -199,8 +199,10 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     }
 
     private fun wakeBoth() {
-        for (a in Arm.entries) if (sim.motionForTest(a).anyDrawing) sim.conformanceWake(a, now)
+        var any = false
+        for (a in Arm.entries) if (sim.motionForTest(a).anyDrawing) { sim.conformanceWake(a, now); any = true }
         drainSent()
+        if (any) traceOutcome()
     }
 
     /** Scripted cases run with fixed delays (uplink 20, downlink 25, the inter-lens answer 8, a band 200); random ones
@@ -240,7 +242,14 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         sim.conformanceSent(Arm.LEFT)
         for ((field, body) in sim.conformanceSent(Arm.RIGHT)) {
             val m = Pb.fields(body).associate { it.field to (it.varint ?: 0L) }
-            if (field == 114) bodies114 += Triple(m[2]?.toInt() ?: -1, m[3]?.toInt() ?: -1, m[4]?.toInt() ?: -1)
+            if (field == 114) {
+                val slot = m[2]?.toInt() ?: -1; val tag = if (m.containsKey(3)) m[3]!!.toInt() else -1; val outcome = m[4]?.toInt() ?: -1
+                bodies114 += Triple(slot, tag, outcome)
+                up(now) { rules.body114(slot, tag, outcome, m[10]?.toInt()) }
+                // a refused COMMIT names its S as the tag: the mirror took it, so the transport calls it a divergence
+                // and the shell keyframes (`CfwTransportBase.onMotionNotify`); a DISCARD's or SETTLE's names none
+                if (outcome == 2 && m.containsKey(3) && slot in 0..3) up(now) { keyframe("a COMMIT refused on RIGHT") }
+            }
             if (field == 115) {
                 val a = DamageMsg.Applied(m)
                 val g = a.s?.let { bySR[it] } ?: -1
@@ -419,6 +428,9 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     var refuse27On: Arm? = null
     /** The next batch carrying any mode-27 or mode-26 sub 3..5 is refused on [arm] at its first such sub. */
     var refuseTailOn: Arm? = null
+    /** The next batch carrying a COMMIT, DISCARD or SETTLE does not land on [loseAnswerOn] (LEFT among them: the write is
+     *  lost and its ack fails; RIGHT alone: the inter-lens forward is lost, which nobody hears). */
+    var loseAnswerOn: Set<Arm>? = null
 
     private var lastDown = 0L
     private fun sendDown(image: ByteArray, perArm: Map<Arm, ByteArray?> = emptyMap(), inducedOn: Arm? = null) {
@@ -453,11 +465,52 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         if (lens.refSeen) {
             val r = "$arm mode ${lens.refMode and 0x7F} reason ${lens.refReason}"
             if (induce) induced += r else refusals += r
-            // the image's ack fails: the phone hears it a link's delay later (`Shell.completeFlush` → `tableAgain`)
-            if (subsOf(img).any { (it[0].toInt() == 27) || (it[0].toInt() == 26 && it.size > 1 && it[1].toInt() in 3..5) })
-                up(now) { rules.tableAgain("a flush carrying local-input messages was refused ($r)"); pumpSoon() }
-        }
+            // the image lane writes LEFT (`CfwTransportBase.writeImage`), so the flush's ack is LEFT's [I]: a refusal there
+            // fails the flush — the shell rolls it back and, for a flush that carried the rules' messages, sends the table
+            if (arm == Arm.LEFT) up(now) { failed(img, "refused ($r)") }
+            refusalStreak = if (arm == Arm.LEFT) refusalStreak + 1 else refusalStreak
+            maxRefusalStreak = maxOf(maxRefusalStreak, refusalStreak)
+        } else if (arm == Arm.LEFT) refusalStreak = 0
         drainSent()
+        traceOutcome()
+    }
+
+    /** A flush whose ack failed (`Shell.completeFlush`): rolled back — what it drew is unknown and painted again from the
+     *  truth — and, when it carried the rules' messages, the whole table again (`LocalRules.tableAgain`). */
+    private fun failed(img: ByteArray, why: String) {
+        rollbackAll = true
+        if (subsOf(img).any { (it[0].toInt() == 27) || (it[0].toInt() == 26 && it.size > 1 && it[1].toInt() in 3..5) })
+            rules.tableAgain("a flush carrying local-input messages failed: $why")
+        pumpSoon()
+    }
+    /** A batch, or the COMMIT in it, did not land on RIGHT alone this sequence (the fix round's row A for the lead). */
+    var commitMissedRight = false
+    var refusalStreak = 0
+    var maxRefusalStreak = 0
+    private var rollbackAll = false
+
+    /** The phone's keyframe (a divergence): the truth whole to both lenses, every instance closed. */
+    fun keyframe(why: String) {
+        trace?.invoke("[$now] keyframe: $why")
+        keyframes++
+        val t = truth()
+        val packed = ByteArray(320 * 480)
+        for (y in 0 until H) for (x in 0 until W) { val l = t[y * W + x].toInt(); val i = y * 320 + x / 2
+            packed[i] = (if (x % 2 == 0) (packed[i].toInt() and 0x0F) or (l shl 4) else (packed[i].toInt() and 0xF0) or l).toByte() }
+        model = t.copyOf(); lastTruth = t.copyOf()
+        sendDown(CfwModes.keyframe(Zl.encodeCfw(packed)))
+    }
+    var keyframes = 0
+
+    /** A running digest of what each lens shows in the band and the clock and what its slot holds, after every message
+     *  and engine step — two runs whose digests agree showed the same pictures in the same order. */
+    val outcome = java.util.zip.CRC32()
+    private fun traceOutcome() {
+        for (a in Arm.entries) {
+            val p = (if (a == Arm.LEFT) sim.left else sim.right).panel
+            for (r in listOf(BAND, CLOCK)) for (y in r.y until r.bottom) outcome.update(p, y * 320 + r.x / 2, r.w / 2)
+            for (i in sim.motionForTest(a).slots) outcome.update(if (i == null) 0 else (i.tag * 31 + i.d * 7 + (if (i.local) 1 else 0) + (if (i.drawing) 2 else 0)))
+        }
     }
 
     private fun commitsIn(img: ByteArray): List<Int> = subsOf(img).filter { it.size >= 5 && it[0].toInt() == 26 && it[1].toInt() == 3 }
@@ -517,6 +570,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     fun pump() {
         if (!rules.active) return
         val t = truth()
+        if (rollbackAll) { rollbackAll = false; java.util.Arrays.fill(model, 0x7F.toByte()); java.util.Arrays.fill(lastTruth, 0x7F.toByte()) }
         val changed = regions.filter { differs(t, lastTruth, it) }.toMutableSet()
         if (rules.settleDue(now) && changed.isEmpty() && !rules.owed) {
             val subs = rules.loneSettle(row, now)
@@ -571,6 +625,17 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         if (r27 != null && tail.any { it[0].toInt() == 27 }) { refuse27On = null; inducedOn = r27; lossyMessages++ }
         val rt = refuseTailOn
         if (rt != null && tail.isNotEmpty()) { refuseTailOn = null; inducedOn = rt }
+        // the fix round's row for the lead: a COMMIT that does not land on RIGHT alone (its batch refused there, or the
+        // forward to RIGHT lost) — nothing reports it; counted apart by the fuzz, never by a seeded case
+        val commits = tail.any { it[0].toInt() == 26 && it[1].toInt() == 3 }
+        if (commits && inducedOn == Arm.RIGHT) commitMissedRight = true      // the COMMIT behind the refused sub never ran
+        val la = loseAnswerOn
+        if (la != null && tail.any { it[0].toInt() == 26 && it[1].toInt() in 3..5 }) {
+            if (la == setOf(Arm.RIGHT)) commitMissedRight = true             // the frame and the answer both missing there
+            loseAnswerOn = null; lossyMessages++
+            for (a in la) per[a] = null
+            if (Arm.LEFT in la) { val img = image(all)!!; up(now + downLat()) { failed(img, "lost") } }
+        }
         sendDown(image(all)!!, per, inducedOn)
     }
 

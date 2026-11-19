@@ -119,8 +119,8 @@ class LocalStartTest {
         r.shell.updateSettings { it.copy(taps = Taps.PHONE) }
         waitUntil(10_000, 10, { "the switch's batch" }) { r.images.drop(before).any { CfwModes.carriesBind(unhex(it)) } }
         val b = unhex(r.images.drop(before).first { CfwModes.carriesBind(unhex(it)) })
-        val t27 = subs(b).filter { it[0].toInt() == 27 }
-        assertEquals(1, t27.size, "one mode-27 message")
+        val t27 = subs(b).filter { it[0].toInt() == 27 && it[1].toInt() in 0..1 }    // the idle SETTLE's riding LIST aside (U.1)
+        assertEquals(1, t27.size, "one SET or CLEAR")
         assertTrue(t27[0].contentEquals(CfwModes.bindClear(2)), "the tap entry's CLEAR")
         r.shell.stop()
     }

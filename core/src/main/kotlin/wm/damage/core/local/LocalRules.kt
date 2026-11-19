@@ -55,6 +55,12 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         const val BAND_MS = 200L
 
         private fun s16(v: Int): Int = v.toShort().toInt()
+        /** Ruled on stage DP2's report (`C2-decisions.md` U.2): DISCARD and SETTLE name their S less this, so the lens's
+         *  signed 16-bit "at or after" covers a lens numbered behind RIGHT by up to 16,383 matched events (a SET that
+         *  landed between the two lenses' handling of one gesture, a mode 27 lost on LEFT alone). On RIGHT every local
+         *  older than the answer's own S is already answered; SETTLE's `age` still protects a fresh fire. */
+        const val WIDE = 0x4000
+
         /** A newer than b, signed 16-bit (§6.5's sequence compare). */
         fun after(a: Int, b: Int): Boolean = s16(a - b) > 0
 
@@ -102,8 +108,6 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
     /** P1, P8: the last S heard; the arming uptime (OS ticks). */
     var sHeard = 0; private set
     var armUptime = 0L; private set
-    /** P7: S_heard + 1 as it stood at the last SETTLE sent (or the start). */
-    var sLow = 1; private set
     /** P5: the echo owes per kind and of either kind, and the unowed stock messages applied since S_heard moved. */
     var owesScroll = 0; private set
     var owesClick = 0; private set
@@ -171,7 +175,7 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
     fun sessionStart(bind: Boolean, sHeard0: Int, armUptime: Long, front: BoundList?, row: Int, taps: Taps) {
         this.taps = taps
         active = bind
-        sHeard = sHeard0 and 0xFFFF; this.armUptime = armUptime; sLow = (sHeard + 1) and 0xFFFF
+        sHeard = sHeard0 and 0xFFFF; this.armUptime = armUptime
         owesScroll = 0; owesClick = 0; owesAny = 0; u = 0
         tapsLive = false; burstOpen = false; bindFlag = true
         slots.clear(); held.clear(); pending.clear(); touchedSinceRead.clear(); lastRow.clear()
@@ -284,7 +288,9 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         if (f != null) lastRow[f.list] = row
     }
 
-    private fun slot(n: Int): Slot = slots.getOrPut(n) { Slot((sLow - 1) and 0xFFFF) }
+    /** A slot first heard of: A is S_heard as it stands before the report that names it (the session start's, or the last
+     *  one heard — the answer's wide bound covers every local of the session before it, decisions U.2). */
+    private fun slot(n: Int, heard: Int = sHeard): Slot = slots.getOrPut(n) { Slot(heard) }
 
     /**
      * One notify-115 report, in arrival order (P2), with the phone's row of the list in front. P8, then P5's count, then
@@ -294,6 +300,7 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         observe(row)
         if (!active) return Verdict.Nothing
         val s = a.s ?: return Verdict.Nothing.also { note("local", "a 115 without S — ignored: ${a.describe()}") }
+        val heardBefore = sHeard
         val tap = a.isTap
         // P8: not after S_heard, or before this session's arming
         val up = a.uptimeTicks
@@ -325,7 +332,7 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         val slotNo = a.slot ?: f?.takeIf { it.list == listId }?.slot ?: return Verdict.Nothing.also {
             note("local", "a 115 naming no slot the phone knows — not answered: ${a.describe()}")
         }
-        val st = slot(slotNo)
+        val st = slot(slotNo, heardBefore)
         st.list = listId
         repair.onReport(a, this)
         return if (tap) tapRule(a, st, n, row, nowMs) else scrollRule(a, st, n, row, nowMs)
@@ -575,12 +582,14 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
                 st.list !in listed && n !in denied && front?.let { it.list == h.list && it.slot == n } == true
             val list = st.list.takeIf { it in 0 until CfwModes.BIND_LISTS }
             if (commit) {
-                out += CfwModes.motionCommit(n, h!!.s, h.list, h.cursor, h.prog4, h.p!!)
+                ridingList(out, h!!.list, listed)
+                out += CfwModes.motionCommit(n, h.s, h.list, h.cursor, h.prog4, h.p!!)
                 count("commit")
             } else {
                 val cur = if (list != null && front?.list == list) row else list?.let { lastRow[it] }
                 val named = if (list != null && cur != null && cur >= 0) list else CfwModes.BIND_ALL
-                out += CfwModes.motionDiscard(n, (st.a + 1) and 0xFFFF, named, if (named == CfwModes.BIND_ALL) 0 else cur!!)
+                if (named != CfwModes.BIND_ALL) ridingList(out, named, listed)
+                out += CfwModes.motionDiscard(n, (st.a + 1 - WIDE) and 0xFFFF, named, if (named == CfwModes.BIND_ALL) 0 else cur!!)
                 discardSinceSettle += n
                 snapback(st, n, row, nowMs, frame, denied)
             }
@@ -588,8 +597,24 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
             st.handled.clear(); st.moved = null; st.discard = null
         }
         // 4. the idle batch's SETTLE (P7): while no burst is open, every batch carries one
-        if (settleHere) out += settle(row)
+        if (settleHere) { front?.let { ridingList(out, it.list, listed) }; out += settle(row) }
         return out
+    }
+
+    /**
+     * Ruled on stage DP2's report (`C2-decisions.md` U.1): every COMMIT, DISCARD or SETTLE that names a list rides behind
+     * that list's LIST with shift 0 — its current staging and mark, idempotent, 12 B — unless the batch carries a LIST
+     * for it already. A lens that missed a LIST (lost, or refused there, which nobody hears from LEFT) then holds the
+     * current count and mark whenever an answer is checked, so no answer is refused for a stale count and the miss heals
+     * at the next answer with no evidence needed. Added after the answer is decided: it never turns a COMMIT (P3's "a
+     * batch with a LIST for the slot's list" means a NEW staging).
+     */
+    private fun ridingList(out: MutableList<ByteArray>, list: Int, listed: MutableSet<Int>) {
+        if (list !in 0 until CfwModes.BIND_LISTS || list in listed) return
+        val f = staged[list]?.takeIf { wireMark[list] >= 0 } ?: return
+        out += listMsg(f, 0, fresh = false)
+        listed += list
+        count("ridingList")
     }
 
     /** The table repair's re-sends for this batch, each journaled ([TableRepair.take]). */
@@ -632,18 +657,21 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         burstOpen = false
         val out = ArrayList<ByteArray>()
         // the 5th kind's re-sends ride the batch that carries the next SETTLE
-        takeRepairs(out, true, HashSet(), HashSet(), HashSet())
+        val listed = HashSet<Int>()
+        takeRepairs(out, true, listed, HashSet(), HashSet())
+        front?.let { ridingList(out, it.list, listed) }
         out += settle(row)
         return out
     }
 
     private fun settle(row: Int): ByteArray {
         val f = front
-        val m = CfwModes.motionSettle(CfwModes.MOTION_ALL, sLow, f?.list ?: CfwModes.BIND_ALL, if (f != null) row else 0, AGE_TICKS)
+        // decisions U.2: S_heard + 1 less 0x4000 — with the wide bound, P7's S_low decided no outcome in 2,000 sequences
+        // (stage DP2's fix round), so it is gone
+        val m = CfwModes.motionSettle(CfwModes.MOTION_ALL, (sHeard + 1 - WIDE) and 0xFFFF, f?.list ?: CfwModes.BIND_ALL, if (f != null) row else 0, AGE_TICKS)
         if (owesScroll + owesClick + owesAny > 0) count("owesAtSettle", owesScroll + owesClick + owesAny)
         tapNoClick()
         owesScroll = 0; owesClick = 0; owesAny = 0; u = 0
-        sLow = (sHeard + 1) and 0xFFFF
         repair.settleSent()
         discardSinceSettle.clear()
         count("settles")

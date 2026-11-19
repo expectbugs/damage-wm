@@ -36,25 +36,18 @@ class LocalSequenceFuzzTest {
 
     // ----------------------------------------------------------------------------------------- the invariants
     /** (1)–(5) and (8) at rest; [lossy]: a mode-27 message was lost or refused this sequence. */
-    fun atRest(h: LocalHarness, failed: MutableList<String>, counted: MutableMap<String, Int>, strict: Boolean = false) {
+    fun atRest(h: LocalHarness, failed: MutableList<String>, counted: MutableMap<String, Int>, seeded: Boolean = false) {
+        val before = failed.size
         h.rest()
         // (1)
         for (a in h.acts) {
             if (a.viaRule) { if (a.rightId != a.id) failed += "(1) gesture ${a.gesture}: acted on identity ${a.id}, RIGHT showed ${a.rightId}" }
             else if (a.rightId != null && a.rightId != a.id) counted["(1) residual ${a.taps.word}"] = (counted["(1) residual ${a.taps.word}"] ?: 0) + 1
         }
-        // (2) — one shape counted apart, the open finding of `C2-DP2-built.md` §0.2: a lens whose numbering fell BEHIND
-        // RIGHT's (a SET that landed between LEFT's and RIGHT's handling of one gesture, or a mode 27 lost on LEFT alone,
-        // so LEFT matched fewer events) holds a local tagged before every S the phone names; DISCARD(A + 1) and
-        // SETTLE(S_low) cannot reach it (§6.4: the lenses number alike "while their tables agree"; §6.11 has LEFT ahead only)
+        // (2) — strict for every shape: a lens numbered behind RIGHT (counted apart before decisions U.2) fails too
         val sR = h.sim.bindForTest(Arm.RIGHT).seq
-        for (m in h.truthMismatches()) {
-            val arm = if (m.startsWith("LEFT")) Arm.LEFT else Arm.RIGHT
-            val behind = arm == Arm.LEFT && LocalRules.after(sR, h.sim.bindForTest(Arm.LEFT).seq) &&
-                h.sim.motionForTest(arm).slots.any { it != null && it.local && LocalRules.after(h.rules.sLow, it.tag) }
-            if (behind && !strict) counted["(2) LEFT numbered behind RIGHT: a held local no S reaches"] = (counted["(2) LEFT numbered behind RIGHT: a held local no S reaches"] ?: 0) + 1
-            else failed += "(2) $m"
-        }
+        for (m in h.truthMismatches()) failed += "(2) $m"
+        if (h.maxRefusalStreak >= 3) failed += "(5) three refused flushes in a row (the shell sleeps on that): ${h.maxRefusalStreak}"
         // (3)
         if (!h.covered && !h.window) {
             val (l, r) = h.cursors()
@@ -73,6 +66,18 @@ class LocalSequenceFuzzTest {
         }
         // (8)
         for ((g, n) in h.moves) if (n > 1) failed += "(8) gesture $g moved the row $n times"
+        // the fix round's row for the lead (`C2-DP2-built.md`, the fix round, row A): after a COMMIT that did not land on
+        // RIGHT alone, RIGHT's shadow lacks END and nothing reports it — its (1) and RIGHT-side (2) are counted apart in
+        // random sequences; every other failure stays a failure, and a seeded case counts nothing apart
+        if (!seeded && h.commitMissedRight) {
+            val mine = failed.drop(before)
+            val rowA = mine.filter { it.startsWith("(2) RIGHT") || it.startsWith("(1)") }
+            if (rowA.isNotEmpty()) {
+                counted["row A: a batch or its COMMIT that did not land on RIGHT alone"] = (counted["row A: a batch or its COMMIT that did not land on RIGHT alone"] ?: 0) + 1
+                repeat(mine.size) { failed.removeAt(failed.size - 1) }
+                failed += mine - rowA.toSet()
+            }
+        }
     }
 
     /** (6): two taps a round trip apart, nothing lost; the second acted on. */
@@ -104,7 +109,7 @@ class LocalSequenceFuzzTest {
 
     private fun quiet(h: LocalHarness) {
         h.lose115 = 0.0; h.dup115 = 0.0; h.bandDropScroll = 0.0
-        h.dropAnswer = 0.0; h.actOpensWindow = 0.0; h.lose27 = null; h.refuse27On = null
+        h.dropAnswer = 0.0; h.actOpensWindow = 0.0; h.lose27 = null; h.refuse27On = null; h.refuseTailOn = null; h.loseAnswerOn = null
         h.uncover(); h.back()
         if (h.badge) h.toggleBadge()                 // a draw over the band is not the staged picture: every notch DISCARDs
         h.rest()
@@ -123,7 +128,7 @@ class LocalSequenceFuzzTest {
         repeat(n) {
             val x = r.nextInt(100)
             h.trace?.invoke("[${h.now}] drive $x" + when { x < 50 -> ""; x < 55 -> " cover/uncover"; x < 58 -> " back"; x < 62 -> " restage"
-                x < 66 -> " taps"; x < 68 -> " session start"; x < 72 -> " lose a mode 27"; x < 74 -> " refuse a mode 27"; x < 76 -> " word held"
+                x < 66 -> " taps"; x < 68 -> " session start"; x < 72 -> " lose a mode 27"; x < 73 -> " refuse a mode 27"; x < 74 -> " an answer refused or lost"; x < 76 -> " word held"
                 x < 79 -> " badge"; x < 82 -> " tick"; x < 90 -> " telemetry"; else -> " wait" })
             when {
                 x < 36 -> h.gesture(1 + r.nextInt(2))
@@ -134,7 +139,9 @@ class LocalSequenceFuzzTest {
                 x < 66 -> h.switchTaps(Taps.entries[r.nextInt(3)])
                 x < 68 -> h.start(fresh = r.nextBoolean())
                 x < 72 -> h.lose27 = listOf("set", "clear", "list")[r.nextInt(3)] to listOf(setOf(Arm.LEFT), setOf(Arm.RIGHT), setOf(Arm.LEFT, Arm.RIGHT))[r.nextInt(3)]
-                x < 74 -> h.refuse27On = if (r.nextBoolean()) Arm.LEFT else Arm.RIGHT
+                x < 73 -> h.refuse27On = if (r.nextBoolean()) Arm.LEFT else Arm.RIGHT
+                x < 74 -> if (r.nextBoolean()) h.refuseTailOn = if (r.nextBoolean()) Arm.LEFT else Arm.RIGHT
+                    else h.loseAnswerOn = listOf(setOf(Arm.LEFT), setOf(Arm.RIGHT), setOf(Arm.LEFT, Arm.RIGHT))[r.nextInt(3)]
                 x < 76 -> h.gesture(r.nextInt(3), holdWordOn = if (r.nextBoolean()) Arm.LEFT else Arm.RIGHT)
                 x < 79 -> h.toggleBadge()
                 x < 82 -> h.tick()
@@ -151,7 +158,7 @@ class LocalSequenceFuzzTest {
         tapLiveness(h, failed)
         scrollLiveness(h, failed)
         for ((g, k) in h.moves) if (k > 1) failed += "(8) gesture $g moved the row $k times (liveness)"
-        val stats = "taps ${h.rules.taps.word} events $n sent ${h.sent} commits ${h.commitsSent.size} acts ${h.acts.size} " +
+        val stats = "outcome %08x keyframes ${h.keyframes} ".format(h.outcome.value) + "taps ${h.rules.taps.word} events $n sent ${h.sent} commits ${h.commitsSent.size} acts ${h.acts.size} " +
             "verdicts ${h.verdicts.groupingBy { it.second::class.simpleName }.eachCount()} counts ${h.rules.counts}"
         return Verdict(failed.distinct(), counted, stats)
     }
@@ -169,7 +176,7 @@ class LocalSequenceFuzzTest {
         script(h)
         val failed = ArrayList<String>()
         val counted = HashMap<String, Int>()
-        atRest(h, failed, counted, strict = true)     // a seeded case counts nothing apart: S4's mutant IS LEFT behind
+        atRest(h, failed, counted, seeded = true)
         failed += extra(h)
         if (live) { tapLiveness(h, failed); scrollLiveness(h, failed) }
         for ((g, n) in h.moves) if (n > 1 && g !in before) failed += "(8) gesture $g moved the row $n times"
@@ -286,15 +293,6 @@ class LocalSequenceFuzzTest {
         h.rest()
     })
 
-    /** S11 — `C2-amend-focus.md` §4 item 3: a local left open below S_heard + 1 (its report lost, a later fire an edge). */
-    @Test fun seededS11_settleNamesSLow() = seeded(Taps.REPORT, rows = 6, script = { h ->
-        h.loseNext115 = 1
-        notch(h)
-        h.runUntil(h.now + 60)
-        notch(h)
-        h.rest()
-    })
-
     /** S12 — `C2-F-focus.md` B1: `glasses` → `report` whose SET does not land: the lens keeps the press form; the first
      *  tap's form disagrees and the tap entry's SET is sent again, so the second tap is acted on. */
     @Test fun seededS12_aSwitchWhoseSetDidNotLand() = seeded(Taps.GLASSES, script = { h ->
@@ -391,6 +389,55 @@ class LocalSequenceFuzzTest {
         h.rest()
     })
 
+    /** S21 (decisions U.1): a LIST lost on one lens alone (a re-stage), then idle batches and notches. The batch that
+     *  carried the lost LIST may lose its own present on that lens (its SETTLE names a cursor past the old count); from
+     *  the next answer on, every answer carries its list's LIST before it, so the lens holds the current count when the
+     *  answer is checked, refuses nothing more, keeps presenting, and both lenses agree at the next SETTLE. RIGHT is the
+     *  lens nobody hears from (the image lane writes LEFT, so the flush's ack is LEFT's [I]; RIGHT's refused DISCARD or
+     *  SETTLE sends a body naming no tag, which is no divergence): without the riding LIST it refuses every idle SETTLE
+     *  until a report's mark shows it. LEFT's refusal fails the flush's ack, so the table goes again anyway (S19). */
+    private fun listLostOn(arm: Arm) = seeded(Taps.REPORT, rows = 7, script = { h ->
+        h.lose27 = "list" to setOf(arm)
+        h.restage("top+")
+        h.runUntil(h.now + 150)                         // the re-stage's batch lands (its own present may go on that lens)
+        refusedBefore = h.refusals.count { it.startsWith(arm.name) }
+        h.rest()
+        notch(h, kind = 2); h.runUntil(h.now + 400); notch(h)
+        h.rest()
+    }, extra = { h -> h.refusals.filter { it.startsWith(arm.name) }.drop(refusedBefore).let {
+        if (it.isEmpty()) emptyList() else listOf("S21: $arm refused ${it.size} more after the re-stage's batch: ${it.distinct()}") } })
+    private var refusedBefore = 0
+
+    @Test fun seededS21_aListLostOnRightHealsAtTheNextAnswer() = listLostOn(Arm.RIGHT)
+    @Test fun seededS21L_aListLostOnLeftHealsAtTheNextAnswer() = listLostOn(Arm.LEFT)
+
+    /** S22a (decisions U.2): a SET landing between LEFT's and RIGHT's handling of one notch (a return from a cover with a
+     *  notch inside the inter-lens skew) leaves LEFT numbered one behind; a later notch whose report is lost is answered
+     *  by DISCARD, which must reach LEFT's local too. With the S the text first named (A + 1), LEFT keeps it held. */
+    @Test fun seededS22a_aSetBetweenTheLensesLeavesLeftBehind() = seeded(Taps.REPORT, script = { h ->
+        h.cover(); h.rest()
+        val t0 = h.now
+        h.uncover()                                     // its batch: pumped at +3, lands at +28
+        h.runUntil(t0 + 24)
+        notch(h)                                        // LEFT at +24 (no entry yet), RIGHT at +32 (the entry landed)
+        h.runUntil(h.now + 500)
+        h.loseNext115 = 1
+        notch(h)
+        h.rest()
+    })
+
+    /** S22b (decisions U.2): a scroll entry's SET lost on LEFT alone (a return): LEFT never fires that direction, falls
+     *  behind, and its local from the other direction must still be reached by the DISCARD that answers a lost report. */
+    @Test fun seededS22b_aSetLostOnLeftLeavesLeftBehind() = seeded(Taps.REPORT, script = { h ->
+        h.cover(); h.rest()
+        h.lose27 = "set" to setOf(Arm.LEFT)               // the first SET: entry 0, id 4 (the next row)
+        h.uncover(); h.rest()
+        notch(h, kind = 1); h.runUntil(h.now + 500)     // RIGHT alone numbers it
+        h.loseNext115 = 1
+        notch(h, kind = 2)                              // both fire; LEFT's tag is one behind RIGHT's
+        h.rest()
+    })
+
     /** The coordinator's point 2 (DMS's finding): the transport's CLOSE rule reads only its mirror's instances, and a local
      *  instance never enters the mirror — the mirror applies the phone's bytes and no input (a COMMIT there opens nothing),
      *  and P9 sends no PLAY into a bound slot. So a cached draw outside a local's areas can never close it. */
@@ -412,6 +459,22 @@ class LocalSequenceFuzzTest {
         println("smoke: ${v.stats}")
         assertTrue(v.failed.isEmpty(), v.failed.joinToString("\n"))
         assertTrue("commits 0" !in v.stats && "acts 0" !in v.stats, "the harness drove nothing: ${v.stats}")
+    }
+
+    /** Decisions U.2's question, whether any outcome still depends on P7's S_low: `LOCAL_FUZZ_SIG=<file>` writes one line
+     *  per sequence — its seed and the digest of every picture both lenses showed in the band and the clock and what their
+     *  slots held, after every message and engine step — for comparing two builds' runs. Passes when the variable is unset. */
+    @Test
+    fun outcomeDigests() {
+        val out = System.getenv("LOCAL_FUZZ_SIG") ?: return
+        val n = System.getenv("LOCAL_FUZZ_N")?.toInt() ?: 60
+        val lines = ArrayList<String>()
+        for (base in listOf(1L, 1001L)) for (i in 0 until n) {
+            val seed = base * 100_000 + i
+            val v = randomSequence(seed)
+            lines += "$seed ${v.stats.substringBefore(" taps")} ${if (v.failed.isEmpty()) "ok" else "FAILED"}"
+        }
+        java.nio.file.Files.write(java.nio.file.Paths.get(out), lines)
     }
 
     /** One seed with its whole record (`LOCAL_FUZZ_SEED=<seed>`): for reading a failure. Passes when the variable is not set. */

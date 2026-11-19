@@ -1298,9 +1298,6 @@ abstract class CfwTransportBase(
         updateState { it.copy(bindSHeard0 = bindSHeard0) }
     }
 
-    /** The shell's S_low for P9's disarm (DP2 sets it); null: the session's own floor, S_heard at its start + 1 — every
-     *  local instance of the session is tagged after it, LEFT's included (the start's keyframe closed the rest). */
-    @Volatile var bindSLow: (() -> Int)? = null
 
     /** A RIGHT telemetry record on a bit-10 build (§6.7 P1, the tap rule's `tapsLive`): field 39 to the shell every time,
      *  and the image-lane refusal when it is new and names mode 27 (the record is sticky until the next refusal, so it is
@@ -1487,24 +1484,26 @@ abstract class CfwTransportBase(
             false
         }
     }
-    /** Build C2 (§6.7 P9): DISCARD(0xFF, S_low, 0xFF, 0) on the image lane, waited to its ack — before a mid-session BIND
-     *  disarm (the probe path only). S_low is the shell's ([bindSLow]) or, until it gives one, the session's floor. False,
-     *  with a note, when it was not queued or not acked: then the disarm is not sent. */
+    /** Build C2 (§6.7 P9): DISCARD(0xFF, S, 0xFF, 0) on the image lane, waited to its ack — before a mid-session BIND
+     *  disarm (the probe path only). S is the session's floor (S_heard at its start + 1: every local instance of the
+     *  session is tagged after it, the start's keyframe closed the rest) less 0x4000, as every DISCARD names it since
+     *  decisions U.2 — a lens numbered behind RIGHT is reached too. False, with a note, when it was not queued or not
+     *  acked: then the disarm is not sent. */
     private suspend fun discardAllLocal(epoch: Long, why: String): Boolean {
-        val sLow = (bindSLow?.invoke() ?: (bindSHeard0 + 1)) and 0xFFFF
+        val sFloor = (bindSHeard0 + 1 - wm.damage.core.local.LocalRules.WIDE) and 0xFFFF
         val done = CompletableDeferred<Unit>()
-        if (!imageQueue.trySend(ImgWork.Raw(epoch, CfwModes.motionDiscard(CfwModes.BIND_ALL, sLow, CfwModes.BIND_ALL, 0), done)).isSuccess) {
-            emitNote("local", "DISCARD of every local instance from S $sLow not queued ($why) — the disarm is not sent")
+        if (!imageQueue.trySend(ImgWork.Raw(epoch, CfwModes.motionDiscard(CfwModes.BIND_ALL, sFloor, CfwModes.BIND_ALL, 0), done)).isSuccess) {
+            emitNote("local", "DISCARD of every local instance from S $sFloor not queued ($why) — the disarm is not sent")
             return false
         }
         return try {
             done.await()
-            emitNote("local", "DISCARD of every local instance from S $sLow acked before $why")
+            emitNote("local", "DISCARD of every local instance from S $sFloor acked before $why")
             true
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
-            emitNote("local", "DISCARD of every local instance from S $sLow not acked ($why): ${e.message} — the disarm is not sent")
+            emitNote("local", "DISCARD of every local instance from S $sFloor not acked ($why): ${e.message} — the disarm is not sent")
             false
         }
     }

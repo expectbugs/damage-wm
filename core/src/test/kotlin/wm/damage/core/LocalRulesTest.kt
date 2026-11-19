@@ -80,7 +80,8 @@ class LocalRulesTest {
     }
 
     private fun isCommit(b: ByteArray, s: Int) = b[1].toInt() == 3 && u16(b, 3) == s
-    private fun isDiscard(b: ByteArray, s: Int, cursor: Int? = null) = b[1].toInt() == 4 && u16(b, 3) == s && (cursor == null || u16(b, 6) == cursor)
+    /** A DISCARD from [s] — named less [LocalRules.WIDE] on the wire (decisions U.2). */
+    private fun isDiscard(b: ByteArray, s: Int, cursor: Int? = null) = b[1].toInt() == 4 && u16(b, 3) == ((s - LocalRules.WIDE) and 0xFFFF) && (cursor == null || u16(b, 6) == cursor)
 
     // ------------------------------------------------------------------------------- the tap rule's condition (4)
     @Test
@@ -176,20 +177,24 @@ class LocalRulesTest {
     }
 
     // ------------------------------------------------------------------------------------------ SETTLE (P7)
+    /** P7 as ruled on DP2's report (decisions U.2): SETTLE names S_heard + 1 less 0x4000 (S_low decided no outcome once
+     *  the bound was wide, so it is gone), its list's LIST riding before it (U.1). */
     @Test
-    fun settleNamesSLowNotSHeardPlusOne() {
+    fun settleNamesSHeardPlusOneLessWide() {
         val t = R(row = 3)
         t.scroll(1, 4); t.batch()                               // COMMIT(1)
         t.r.report(DamageMsg.Applied(mapOf(1 to 3L, 2 to 4L, 3 to 0L, 5 to 2L, 6 to 14L, 15 to 200L)), t.row, t.now)
         t.batch()                                               // S 2 lost; S 3 a tap refused 14: the slot's DISCARD
         t.now += LocalRules.Q_MS
         assertTrue(t.r.settleDue(t.now))
-        val s = t.r.loneSettle(t.row, t.now).single()
+        val lone = t.r.loneSettle(t.row, t.now)
+        val s = lone.last()
         assertEquals(5, s[1].toInt())
-        assertEquals(1, u16(s, 3), "S_low is S_heard + 1 at the session start (1), not S_heard + 1 now (4)")
+        assertTrue(lone.first()[0].toInt() == 27 && lone.first()[1].toInt() == 2 && lone.first()[7].toInt() == 0 && lone.first()[8].toInt() == 0,
+            "the list's LIST with shift 0 rides before the SETTLE (decisions U.1)")
+        assertEquals((4 - LocalRules.WIDE) and 0xFFFF, u16(s, 3), "S_heard + 1 (4) less 0x4000")
         assertEquals(4, u16(s, 6), "the phone's row")
         assertEquals(LocalRules.AGE_TICKS, u16(s, 8))
-        assertEquals(4, t.r.sLow, "S_low moves to S_heard + 1 at the SETTLE sent")
     }
 
     @Test
@@ -347,6 +352,31 @@ class LocalRulesTest {
         assertTrue(b.any { it[0].toInt() == 27 && it[1].toInt() == 2 }, "the LIST, with a fresh mark")
         assertTrue(b.last()[0].toInt() == 26 && b.last()[1].toInt() == 5, "and the idle SETTLE after it, which realigns the cursor")
         assertTrue(t.notes.any { it.first == "repair" && "object=table" in it.second })
+    }
+
+    /** Decisions U.1: every COMMIT, DISCARD or SETTLE naming a list rides behind that list's LIST with shift 0 (its
+     *  current mark), and the riding LIST never turns a COMMIT into a DISCARD. U.2: DISCARD's and SETTLE's S less 0x4000. */
+    @Test
+    fun everyAnswerNamingAListRidesBehindItsList_U1_U2() {
+        val t = R(row = 3)
+        t.scroll(1, 4)
+        val b = t.batch()
+        val li = b.indexOfFirst { it[0].toInt() == 27 && it[1].toInt() == 2 }
+        val ci = b.indexOfFirst { it[0].toInt() == 26 && it[1].toInt() == 3 }
+        assertTrue(li in 0 until ci, "the LIST before the COMMIT, and the answer still a COMMIT")
+        assertEquals(0, u16(b[li], 7), "shift 0"); assertEquals(t.mark, b[li][11].toInt() and 0xFF, "the current mark, not a fresh one")
+        t.scroll(2, 5, m = 99)                                  // not adopted: a DISCARD, its LIST before it
+        val d = t.batch()
+        val dl = d.indexOfFirst { it[0].toInt() == 27 && it[1].toInt() == 2 }
+        val di = d.indexOfFirst { it[0].toInt() == 26 && it[1].toInt() == 4 }
+        assertTrue(dl in 0 until di)
+        assertEquals((2 - LocalRules.WIDE) and 0xFFFF, u16(d[di], 3), "DISCARD from A + 1 less 0x4000")
+        t.now += LocalRules.Q_MS; t.r.loneSettle(t.row, t.now)
+        val idle = t.batch()
+        assertEquals(listOf(27 to 2, 26 to 5), idle.map { (it[0].toInt() and 0xFF) to it[1].toInt() }, "an idle batch: the LIST, then the SETTLE")
+        t.r.front(null, 3)                                      // covered: the SETTLE names no list, so no LIST rides
+        val covered = t.batch().filter { it[0].toInt() == 26 || (it[0].toInt() == 27 && it[1].toInt() == 2) }
+        assertEquals(listOf(26 to 5), covered.map { (it[0].toInt() and 0xFF) to it[1].toInt() })
     }
 
     @Test

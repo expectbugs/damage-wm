@@ -729,7 +729,7 @@ class BindTransportTest {
         t.stop()
     }
 
-    /** P9: a mid-session disarm of BIND by hand (`flags=0x2c`) goes out only after a DISCARD(0xFF, S_low, 0xFF, 0) has its
+    /** P9: a mid-session disarm of BIND by hand (`flags=0x2c`) goes out only after a DISCARD(0xFF, S − 0x4000, 0xFF, 0) has its
      *  ack — the DISCARD on the image lane, then the FLAGS_SET; S_low on a fresh acquire is 1. */
     @Test
     fun aMidSessionDisarmOfBindSendsItsDiscardFirst_P9(): Unit = runBlocking {
@@ -740,8 +740,8 @@ class BindTransportTest {
         t.onWrite = { a, p -> if (a == Arm.RIGHT && StartRig.damageOp(p) == DamageMsg.OP_FLAGS_SET) order += "flags 0x${controlArg(p).toString(16)}"; p }
         t.devProbe("flags", "0x2c")
         waitUntil(10_000, message = { "the disarm: $order ${said("local")}" }) { order.any { it.startsWith("flags") } }
-        assertEquals(listOf("image " + CfwModes.motionDiscard(0xFF, 1, 0xFF, 0).hex(), "flags 0x2c"), order.toList())
-        saw("local", "DISCARD of every local instance from S 1 acked before the probe's flags clear BIND")
+        assertEquals(listOf("image " + CfwModes.motionDiscard(0xFF, (1 - wm.damage.core.local.LocalRules.WIDE) and 0xFFFF, 0xFF, 0).hex(), "flags 0x2c"), order.toList())
+        saw("local", "DISCARD of every local instance from S ${(1 - wm.damage.core.local.LocalRules.WIDE) and 0xFFFF} acked before the probe's flags clear BIND")
         t.stop()
     }
 
