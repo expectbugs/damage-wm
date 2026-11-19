@@ -128,6 +128,20 @@ object UncaughtRecord {
                             previous: Thread.UncaughtExceptionHandler?): Thread.UncaughtExceptionHandler =
         Recorder(dir.resolve(PENDING), build, previous)
 
+    /**
+     * Build RA-1 (`shell/LoopWatch.kt`): [e] on [thread] written as an uncaught error's record is — through this
+     * process's installed handler, so the same file, the same bounds and the same pickup at the next start — WITHOUT
+     * handing it on: the caller ends the process itself. On the phone that matters: Android's own handler reports a
+     * crash to the system, and two within its crash interval mark the app bad (no restart of its service). True when
+     * the record was written; false when the record is not installed in this process (a tool's or a test's shell), a
+     * bound stopped it, or the write failed (said on stderr). Never throws.
+     */
+    fun recordOnly(thread: Thread, e: Throwable): Boolean = (ours as? Recorder)?.recordOnly(thread, e) ?: false
+
+    /** [recordOnly] into [dir] with a recorder of its own (tests: nothing is installed). */
+    internal fun recorderFor(dir: Path, build: String): (Thread, Throwable) -> Boolean =
+        Recorder(dir.resolve(PENDING), build, null)::recordOnly
+
     private class Recorder(private val file: Path, private val build: String,
                            private val previous: Thread.UncaughtExceptionHandler?) : Thread.UncaughtExceptionHandler {
         // both under [lock]; one Recorder per process in production, so these are per process
@@ -152,11 +166,20 @@ object UncaughtRecord {
             }
         }
 
-        private fun record(thread: Thread, e: Throwable) {
-            if (written >= MAX_PER_PROCESS) { close("$MAX_PER_PROCESS records in this process"); return }
+        /** RA-1: the record alone, never handed on; true when it was written (see [UncaughtRecord.recordOnly]). */
+        fun recordOnly(thread: Thread, e: Throwable): Boolean = try {
+            synchronized(lock) { record(thread, e) }
+        } catch (t: Throwable) {
+            try { System.err.println("damage: the record was not written: $t") } catch (unsaid: Throwable) { }
+            false
+        }
+
+        /** True when a record was written (a bound that stopped it says so in [close]). */
+        private fun record(thread: Thread, e: Throwable): Boolean {
+            if (written >= MAX_PER_PROCESS) { close("$MAX_PER_PROCESS records in this process"); return false }
             val size = if (Files.exists(file)) Files.size(file) else 0L
             val room = MAX_PENDING_BYTES - CLOSING_ROOM - size
-            if (room <= 0) { close("the file's limit of $MAX_PENDING_BYTES B"); return }
+            if (room <= 0) { close("the file's limit of $MAX_PENDING_BYTES B"); return false }
             written++
             var cut = false
             FileOutputStream(file.toFile(), true).use { fos ->
@@ -183,6 +206,7 @@ object UncaughtRecord {
                 closed = true
                 System.err.println("damage: uncaught errors are no longer recorded in ${file.fileName}: the file's limit of $MAX_PENDING_BYTES B")
             }
+            return true
         }
 
         /** `--- root cause: <class>: <message> ---` when [e] has a cause, else null. Built inside its own
