@@ -118,7 +118,7 @@ data class ShellSettings(
     /** Build ANIM (decisions AV, AW): the `Animations` category — how long one notch's motion on a bound list takes
      *  (`Scroll length`, ms) and its steps (`Frames`, 0 = Auto: as many as fit at the fitted period). On the PC record with
      *  the phone's working copy, as `taps`; additive: an older record reads the defaults, an older reader ignores them. */
-    val scrollLength: Int = 450,
+    val scrollLength: Int = 300,
     val frames: Int = 0,
 
     /** Battery alert mode for the <=20 % pulse (§4.1). */
@@ -204,7 +204,7 @@ data class ShellSettings(
         silentClock = if (silentClock in SILENT_CLOCKS) silentClock else "large",
         keyboardLayout = if (keyboardLayout in KEYBOARDS) keyboardLayout else "qwerty",
         slideFrames = if (slideFrames in SLIDE_FRAMES) slideFrames else "auto",
-        scrollLength = SCROLL_LENGTHS.minByOrNull { kotlin.math.abs(it - scrollLength) } ?: 450,
+        scrollLength = SCROLL_LENGTHS.minByOrNull { kotlin.math.abs(it - scrollLength) } ?: 300,
         frames = if (frames in FRAME_COUNTS) frames else 0,
         slideFill = if (slideFill in SLIDE_FILLS) slideFill else "auto",
         cachedText = if (cachedText in CACHED_TEXT) cachedText else "off",

@@ -167,7 +167,9 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
 
     /** P3's per-slot answer state: A, the reports handled since the last answer, whether anything else moved the row. */
     private class Handled(val s: Int, val adopted: Boolean, val tap: Boolean, val list: Int, val cursor: Int, val prog4: Int,
-                          val p: IntArray?, val atMs: Long, val cause: String)
+                          val p: IntArray?, val atMs: Long, val cause: String,
+                          /** The report's event id (decisions AZ.4: an edge's step is its entry's). */
+                          val eventId: Int = -1)
     private class Slot(var a: Int) {
         val handled = ArrayList<Handled>()
         var moved: String? = null            // why the row moved other than by an adoption (null: it did not)
@@ -387,7 +389,7 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         val type = BoundList.stockEvent(id) ?: return Verdict.Nothing
         val f = front
         fun asToday(cause: String): Verdict {
-            st.handled += Handled(s, false, false, a.list ?: st.list, a.cursor ?: -1, -1, null, nowMs, cause)
+            st.handled += Handled(s, false, false, a.list ?: st.list, a.cursor ?: -1, -1, null, nowMs, cause, id)
             return Verdict.Apply(type)
         }
         when (a.outcome) {
@@ -593,6 +595,26 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         return out
     }
 
+    /** Decisions AZ.4: the wrap a batch animates from the phone — the bound slot of the list in front owes its answer,
+     *  its newest report is an edge at one end of the list ([from], the lens's cursor, which an edge leaves), and the
+     *  phone's row is now the other end (the edge's stock move applied: Main's wrap). [cPrime] is the row just past the
+     *  end (−1 or the count), [step] the entry's. The answer stays the DISCARD naming the row ([tail]); the shell puts the
+     *  pan's PLAY ahead of it in a free slot when the list's staging wraps. */
+    class Wrap(val slot: Int, val list: BoundList, val step: Int, val from: Int, val cPrime: Int)
+
+    fun wrapPlan(row: Int): Wrap? {
+        observe(row)
+        if (!active) return null
+        val f = front ?: return null
+        val st = slots[f.slot]?.takeIf { it.owed && it.discard == null } ?: return null
+        val h = st.handled.lastOrNull() ?: return null
+        if (h.adopted || h.tap || h.cause != "edge" || h.list != f.list) return null
+        val e = f.entryFor(h.eventId)?.takeIf { !it.isTap && it.step != 0 } ?: return null
+        val cPrime = h.cursor + e.step
+        if ((cPrime != -1 && cPrime != f.count) || row != cPrime.mod(f.count)) return null
+        return Wrap(f.slot, f, e.step, h.cursor, cPrime)
+    }
+
     /**
      * The batch's tail, after its drawing subs (§6.5): the table messages owed (start, cover, return, re-stage, switch,
      * refusal), the table repair's re-sends not already carried, each owed slot's answer (a LIST before its slot's
@@ -601,7 +623,7 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
      * Everything returned is taken as sent: the shell sends it in this batch or not at all (a rolled-back flush keyframes,
      * and the keyframe's start re-sends the table).
      */
-    fun tail(row: Int, nowMs: Long, denied: Set<Int> = emptySet(), frame: Boolean = true): List<ByteArray> {
+    fun tail(row: Int, nowMs: Long, denied: Set<Int> = emptySet(), frame: Boolean = true, wrapped: Boolean = false): List<ByteArray> {
         observe(row)
         if (!active) return emptyList()
         val out = ArrayList<ByteArray>()
@@ -641,7 +663,7 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
                 if (named != CfwModes.BIND_ALL) ridingList(out, named, listed)
                 out += CfwModes.motionDiscard(n, (st.a + 1 - WIDE) and 0xFFFF, named, if (named == CfwModes.BIND_ALL) 0 else cur!!)
                 discardSinceSettle += n
-                snapback(st, n, row, nowMs, frame, denied)
+                snapback(st, n, row, nowMs, frame, denied, wrapped)
             }
             st.a = sHeard
             st.handled.clear(); st.moved = null; st.discard = null
@@ -688,7 +710,7 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         return CfwModes.bindList(f.list, f.items4, f.count, shift, f.pitch, wireMark[f.list])
     }
 
-    private fun snapback(st: Slot, n: Int, row: Int, nowMs: Long, frame: Boolean, denied: Set<Int>) {
+    private fun snapback(st: Slot, n: Int, row: Int, nowMs: Long, frame: Boolean, denied: Set<Int>, wrapped: Boolean = false) {
         // AF.2: a return names the row — with an adopted report before its batch too (AL.6, R4: nothing was discarded)
         if (st.moved == REBIND && st.handled.none { !it.adopted && !it.tap }) { count(REBIND); return }
         if (st.handled.isNotEmpty() && st.handled.all { it.tap }) return            // a tap's DISCARD: its tapdrop or act says it
@@ -698,7 +720,8 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         count("snapback.$cause")
         note("snapback", "cause=$cause S=${h?.s ?: "-"} list=${st.list} cursor=${h?.cursor ?: "-"} row=$row " +
             "mark=${front?.let { markOf(it.list) } ?: "-"} markNow=${if (st.list >= 0) markOf(st.list) else "-"} " +
-            "ms=${h?.let { nowMs - it.atMs } ?: "-"} frame=${if (frame) "yes" else "no"}")
+            "ms=${h?.let { nowMs - it.atMs } ?: "-"} frame=${if (frame) "yes" else "no"}" + if (wrapped) " wrap=play" else "")
+        if (wrapped) count("wrapPlay")
     }
 
     /** The lone SETTLE (P7), Q after the last report with every 115 answered, alone in its batch. */

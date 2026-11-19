@@ -175,6 +175,9 @@ class LocalSequenceFuzzTest {
         if (h.telemetryAsked > 0) counted["AA.2: sequences with a read asked at a SETTLE"] = (counted["AA.2: sequences with a read asked at a SETTLE"] ?: 0) + 1
         // decisions AW.3: windows that opened over a COMMITted motion still drawing, cut by a CLOSE ahead of their frame
         if (h.windowCuts > 0) counted["AW.3: windows that cut a COMMITted motion"] = (counted["AW.3: windows that cut a COMMITted motion"] ?: 0) + h.windowCuts
+        // decisions AZ.4: the wraps animated from the phone, and those a later batch's drawing in the list closed first
+        if (h.wrapPlays > 0) counted["AZ.4: wrap PLAYs"] = (counted["AZ.4: wrap PLAYs"] ?: 0) + h.wrapPlays
+        if (h.wrapCuts > 0) counted["AZ.4: wraps closed by a draw in the list"] = (counted["AZ.4: wraps closed by a draw in the list"] ?: 0) + h.wrapCuts
         val stats = "outcome %08x keyframes ${h.keyframes} ".format(h.outcome.value) + "taps ${h.rules.taps.word} events $n sent ${h.sent} commits ${h.commitsSent.size} held ${h.heldCommits} acts ${h.acts.size} " +
             "verdicts ${h.verdicts.groupingBy { it.second::class.simpleName }.eachCount()} counts ${h.rules.counts}"
         return Verdict(failed.distinct(), counted, stats)
@@ -486,6 +489,25 @@ class LocalSequenceFuzzTest {
      *  minute's. The COMMIT's outcome-3 body never comes, so the burst's lone SETTLE asks for ONE read; its record names
      *  mode 27 and P1 sends the table again with one keyframe: RIGHT equals the belief within a round after the SETTLE.
      *  Without the read RIGHT keeps the pre-gesture row until the minute's read. */
+    /** S25 (decisions AZ.4; G1 item 5's shape on his glasses): a notch to the last row, a notch past the end 6 ms later
+     *  (the wrap), and a notch 10 ticks after the wrap's PLAY lands: the wrap is a phone PLAY in slot 1 beside the DISCARD
+     *  naming row 0, the next notch's fire closes it and is adopted from row 0, and every invariant holds at rest. */
+    @Test fun seededS25_aWrapIsAnimatedAndTheNextNotchClosesIt() = seeded(Taps.REPORT, rows = 0, script = { h ->
+        repeat(h.ids.size - 2) { h.gesture(1, answer = true, band = "none"); h.runUntil(h.now + 600) }
+        h.rest()
+        h.gesture(1, answer = true, band = "none")
+        h.runUntil(h.now + 6)
+        h.gesture(1, answer = true, band = "none")
+        var played = false
+        repeat(400) { if (!played) { h.runUntil(h.now + 1); played = h.sim.motionForTest(Arm.RIGHT).slots[LocalHarness.WRAP_SLOT] != null } }
+        h.runUntil(h.now + 10)                          // inside its T × P = 48 ticks
+        h.gesture(1, answer = true, band = "none")
+        h.rest()
+    }, extra = { h -> listOfNotNull(
+        if (h.wrapPlays != 1) "the wrap was played ${h.wrapPlays} times" else null,
+        if (h.row != 1) "the row is ${h.row}, not 1 (the wrap to 0, then one notch)" else null,
+        if (h.bodies114.none { it.first == LocalHarness.WRAP_SLOT && it.third == 1 }) "the next notch's fire did not close the wrap's instance on RIGHT: ${h.bodies114.filter { it.first == LocalHarness.WRAP_SLOT }}" else null) })
+
     @Test fun seededS24_aRefusedTailOnRightIsSeenAtTheSettle() = seeded(Taps.REPORT, live = false, script = { h ->
         h.refuse27On = Arm.RIGHT
         val t0 = h.now

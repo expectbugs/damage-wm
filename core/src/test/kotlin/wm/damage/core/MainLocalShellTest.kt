@@ -23,6 +23,7 @@ import wm.damage.core.local.LocalRules
 import wm.damage.core.local.Taps
 import wm.damage.core.shell.DamageWindow
 import wm.damage.core.shell.ListModel
+import wm.damage.core.shell.MainStaging
 import wm.damage.core.shell.Persistence
 import wm.damage.core.shell.Shell
 import wm.damage.core.shell.WindowView
@@ -917,6 +918,275 @@ class MainLocalShellTest {
             assertTrue(r.notes("divergence").isEmpty(), "${r.notes("divergence")}")
             assertEquals(0, r.row(), "the wrap landed on the first row")
             r.assertOracle("after the wrap")
+        } finally { r.close() }
+    }
+    // ---------------------------------------------------------------------------------------------- AZ.4: the wrap
+    /** Notches to [to], each one's motion and burst let out. */
+    private suspend fun walkTo(r: Rig, to: Int) {
+        while (r.row() != to) {
+            r.fire(if (to > r.row()) CfwModes.EV_UPROLL else CfwModes.EV_DOWNROLL)
+            delay(r.motionMs() + r.q() + 200); r.settle("toward row $to")
+        }
+    }
+
+    private fun isWrapPlay(s: ByteArray) = s[0].toInt() == 26 && s[1].toInt() == 0 && s[2].toInt() == MainStaging.WRAP_SLOT
+
+    /** RIGHT's first image since [at] that carries the wrap's PLAY, and that image's sub-messages. */
+    private fun wrapBatch(r: Rig, at: Int): List<ByteArray>? = r.right.drop(at).map { r.subs(it) }.firstOrNull { subs -> subs.any { isWrapPlay(it) } }
+
+    /** No `divergence` note for [ms], read every 50 ms. */
+    private suspend fun noDivergenceFor(r: Rig, ms: Long, what: String) {
+        var t = 0L
+        while (t < ms) { delay(50); t += 50; assertTrue(r.notes("divergence").isEmpty(), "$what, $t ms in: ${r.notes("divergence")}") }
+    }
+
+    /** The wrap down from the last row: [direction] +1 (UPROLL from the last row) or −1 (DOWNROLL from row 0). Returns the
+     *  batch that carried the PLAY. Asserts: the PLAY in slot 1 is the bound entry's program at its period, ahead of the
+     *  DISCARD naming list 0 at the wrapped row; the pan's areas move on RIGHT; at rest the row is the other end, RIGHT's
+     *  cursor on it, the instance drew its last step, no divergence, belief equal to both lenses. */
+    private suspend fun wrap(r: Rig, direction: Int, what: String): List<ByteArray> {
+        val list = r.list()
+        val count = list.count
+        val from = if (direction > 0) count - 1 else 0
+        val to = if (direction > 0) 0 else count - 1
+        assertEquals(from, r.row(), "$what: at the end")
+        val ev = if (direction > 0) CfwModes.EV_UPROLL else CfwModes.EV_DOWNROLL
+        val e = assertNotNull(list.entryFor(ev))
+        val before = r.panel(false)
+        val at = r.right.size
+        r.fire(ev)
+        r.until("$what: the wrap's PLAY on RIGHT") { wrapBatch(r, at) != null }
+        val batch = wrapBatch(r, at)!!
+        val play = batch.first { isWrapPlay(it) }
+        assertEquals(e.period, play[3].toInt() and 0xFF, "$what: the PLAY's period is the entry's (the Animations rows)")
+        assertEquals(e.prog4, r.u16(play, 4), "$what: the PLAY's program is the entry's pan")
+        val iPlay = batch.indexOfFirst { isWrapPlay(it) }
+        val iDiscard = batch.indexOfFirst { r.isSub(it, 26, 4) }
+        assertTrue(iDiscard > iPlay, "$what: the DISCARD follows the PLAY in its batch")
+        assertEquals(0, batch[iDiscard][5].toInt(), "$what: the DISCARD names list 0")
+        assertEquals(to, r.u16(batch[iDiscard], 6), "$what: ...at the wrapped row")
+        assertTrue(batch.none { r.isSub(it, 26, 3) }, "$what: no COMMIT beside it")
+        delay((e.period * 2 * 1000L) / 1024 + 10)
+        val mid = r.panel(false)
+        for (track in e.program!!.tracks) {
+            val a = track.areaR
+            var moved = false
+            for (y in maxOf(0, a.y) until minOf(Geometry.PANEL_H, a.bottom)) { for (x in maxOf(0, a.x) until minOf(Geometry.PANEL_W, a.right)) if (mid[x, y] != before[x, y]) { moved = true; break }; if (moved) break }
+            assertTrue(moved, "$what: the pan's track at $a changed on RIGHT mid-motion")
+        }
+        noDivergenceFor(r, r.motionMs() + 300, what)
+        delay(r.q() + 200); r.settle("$what: after")
+        assertEquals(to, r.row(), "$what: the row is the other end")
+        assertEquals(to, r.sim.bindForTest(Arm.RIGHT).lists[0].cursor, "$what: RIGHT's cursor is on it")
+        assertTrue(r.notes("motion").any { "slot ${MainStaging.WRAP_SLOT} " in it && "drew its last step" in it }, "$what: the wrap's instance drew its last step: ${r.notes("motion").takeLast(3)}")
+        assertTrue(r.notes("snapback").last().endsWith("wrap=play"), "$what: ${r.notes("snapback").last()}")
+        assertTrue(r.notes("divergence").isEmpty(), "$what: ${r.notes("divergence")}")
+        r.assertOracle(what)
+        return batch
+    }
+
+    /** Decisions AZ.4: Main wraps at 352 with its rows (the strip's margins hold one more row of the other end each): a
+     *  notch past the last row slides one row to the first, started by the phone; and back up past row 0 to the last. */
+    @Test
+    fun theWrapSlidesOneRowBothWays_AZ4(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, kib256 = true)
+        try {
+            r.up()
+            assertTrue(r.onLoop { r.shell.mainBinding.staging!!.wraps }, "Main wraps at 352 with its rows")
+            walkTo(r, r.list().count - 1)
+            wrap(r, +1, "down past the last row")
+            wrap(r, -1, "up past row 0")
+            notch(r, CfwModes.EV_DOWNROLL, "a notch after the wraps is an ordinary fire")
+        } finally { r.close() }
+    }
+
+    /** Decisions AZ.4: a list that does not wrap (its rows all fit: blanks past the ends) keeps today's edge — no PLAY. */
+    @Test
+    fun aListThatDoesNotWrapKeepsTodaysEdge_AZ4(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, nRows = 3, kib256 = true)
+        try {
+            r.up()
+            assertTrue(!r.onLoop { r.shell.mainBinding.staging!!.wraps }, "Main's ${r.list().count} rows fit at 352")
+            walkTo(r, r.list().count - 1)
+            val at = r.right.size
+            r.fire(CfwModes.EV_UPROLL)
+            delay(r.motionMs() + r.q() + 300); r.settle("after the edge")
+            assertTrue(wrapBatch(r, at) == null, "no wrap PLAY")
+            assertTrue(r.notes("snapback").last().let { "cause=edge" in it && "wrap=play" !in it }, r.notes("snapback").last())
+            r.assertOracle("after the edge")
+        } finally { r.close() }
+    }
+
+    /** Decisions AZ.4: a notch while the wrap's motion draws — the lens's fire in slot 0 closes the phone's instance in
+     *  slot 1 (their areas meet) and draws from the wrapped row; adopted, COMMITted; belief equal to both lenses. And the
+     *  same with the wrap at the end of a quick burst (the notches inside Q). */
+    @Test
+    fun aNotchDuringTheWrapClosesItAndIsAnOrdinaryFire_AZ4(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, kib256 = true)
+        try {
+            r.up()
+            val count = r.list().count
+            // a burst: every notch inside Q of the last, down to the end, then the wrap, then one more
+            while (r.row() < count - 1) { r.fire(CfwModes.EV_UPROLL); delay(r.motionMs() + 30) }
+            r.until("at the last row") { r.row() == count - 1 }
+            val at = r.right.size
+            r.fire(CfwModes.EV_UPROLL)
+            r.until("the wrap's PLAY on RIGHT") { wrapBatch(r, at) != null }
+            delay(60)
+            val s = r.fire(CfwModes.EV_UPROLL)
+            r.until("the wrap's instance closed on RIGHT") { r.sim.motionForTest(Arm.RIGHT).slots[MainStaging.WRAP_SLOT]?.drawing != true }
+            noDivergenceFor(r, r.motionMs() + 300, "after the notch")
+            delay(r.q() + 300); r.settle("after the notch")
+            assertEquals(1, r.row(), "the notch from the wrapped row was adopted")
+            assertTrue(r.right.drop(at).any { img -> r.subs(img).any { r.isCommit(it, s) } }, "a COMMIT of S $s")
+            assertTrue(r.notes("divergence").isEmpty(), "${r.notes("divergence")}")
+            r.assertOracle("after the notch")
+        } finally { r.close() }
+    }
+
+    /** Decisions AZ.4: a tap while the wrap's motion draws acts on the wrapped row (its window opens; the window's frame
+     *  meets the instance, so the transport CLOSEs it first); and a window opened over the list during the motion closes it
+     *  the same way. Belief equals both lenses after each. */
+    @Test
+    fun aTapOrAWindowDuringTheWrapClosesIt_AZ4(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, kib256 = true)
+        try {
+            r.up()
+            walkTo(r, r.list().count - 1)
+            var at = r.right.size
+            r.fire(CfwModes.EV_UPROLL)
+            r.until("the wrap's PLAY on RIGHT") { wrapBatch(r, at) != null }
+            delay(40)
+            r.fire(CfwModes.EV_TAP)
+            r.until("the first row's window opened") { r.onLoop { r.shell.currentWindowId() } == r.rows[0].id }
+            r.until("the wrap's instance closed on RIGHT") { r.sim.motionForTest(Arm.RIGHT).slots[MainStaging.WRAP_SLOT]?.drawing != true }
+            r.settle("in the window")
+            assertTrue(r.notes("divergence").isEmpty(), "${r.notes("divergence")}")
+            r.assertOracle("in the row's window")
+            r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+            r.until("back on Main") { r.onLoop { r.shell.currentWindowId() } == null }
+            r.bound("bound again")
+            walkTo(r, r.list().count - 1)
+            at = r.right.size
+            r.fire(CfwModes.EV_UPROLL)
+            r.until("the second wrap's PLAY on RIGHT") { wrapBatch(r, at) != null }
+            delay(40)
+            r.onLoop { r.shell.services.openWindow("settings", null) }
+            r.until("Settings open") { r.onLoop { r.shell.currentWindowId() } == "settings" }
+            r.until("the wrap's instance closed on RIGHT by the window") { r.sim.motionForTest(Arm.RIGHT).slots[MainStaging.WRAP_SLOT]?.drawing != true }
+            r.settle("in Settings")
+            assertTrue(r.notes("divergence").isEmpty(), "${r.notes("divergence")}")
+            r.assertOracle("in Settings")
+        } finally { r.close() }
+    }
+
+    /** Decisions AZ.4 with the Animations rows: at Scroll length 600 the wrap's instance on RIGHT has the bound pan's T (13
+     *  at P 46), and the lone SETTLE comes Q after the edge's report, once the wrap's motion has ended. */
+    @Test
+    fun theWrapTakesTheAnimationsRowsAndTheSettleComesAfterIt_AZ4(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, kib256 = true)
+        try {
+            r.up()
+            val staged0 = r.notes("mainstage").count { it.startsWith("staged") }
+            r.shell.updateSettings { it.copy(scrollLength = 600, frames = 0) }
+            r.until("staged again with the new motion", 15_000) { r.notes("mainstage").count { it.startsWith("staged") } > staged0 }
+            r.bound("bound at 600 ms")
+            walkTo(r, r.list().count - 1)
+            val at = r.right.size
+            val firedAt = System.currentTimeMillis()
+            r.fire(CfwModes.EV_UPROLL)
+            r.until("the wrap's PLAY on RIGHT") { wrapBatch(r, at) != null }
+            val inst = assertNotNull(r.sim.motionForTest(Arm.RIGHT).slots[MainStaging.WRAP_SLOT])
+            assertEquals(46 to 13, inst.period to inst.T, "the wrap's instance: the bound pan's period and T at 600 ms")
+            var settleAt: Long? = null
+            r.onImage = { img -> if (settleAt == null && r.subs(img).any { r.isSub(it, 26, 5) }) settleAt = System.currentTimeMillis() }
+            r.until("the lone SETTLE", 10_000) { settleAt != null }
+            r.onImage = null
+            assertTrue(settleAt!! - firedAt >= r.q(), "the SETTLE came ${settleAt!! - firedAt} ms after the edge, Q ${r.q()}")
+            delay(r.motionMs()); r.settle("after")
+            assertTrue(r.notes("motion").any { "slot ${MainStaging.WRAP_SLOT} " in it && "drew its last step" in it }, "the wrap ran to its last step: ${r.notes("motion").takeLast(3)}")
+            r.assertOracle("after the wrap at 600 ms")
+        } finally { r.close() }
+    }
+    // ---------------------------------------------------------------------------------------------- AZ.3: S_heard's seed
+    /** The kib256 rig's glasses before its first start: S at [s] on both lenses and the lease live for [leaseMs] more ms
+     *  (0: none) — a process that ended while the lease ran (an app update), with no lease on the new one's record. */
+    private fun lensKept(r: Rig, s: Int, leaseMs: Long) {
+        for (a in Arm.entries) {
+            r.sim.bindForTest(a).seqForTest(s)
+            if (leaseMs > 0) r.sim.forceLease(a, System.currentTimeMillis() + leaseMs)
+        }
+    }
+
+    /** The first notch of the session after [lensKept]: adopted, COMMITted, and its report took S [s] with no gap (so no
+     *  echo owes and P3's bound one row). */
+    private suspend fun firstNotchHasNoGap(r: Rig, s: Int, what: String) {
+        val got = r.fire(CfwModes.EV_UPROLL)
+        assertEquals(s, got, "$what: RIGHT's S at the first notch")
+        delay(r.motionMs() + r.q() + 300); r.settle("$what: after the first notch")
+        assertEquals(1, r.row(), "$what: the first notch was adopted")
+        assertTrue(r.right.any { img -> r.subs(img).any { r.isCommit(it, s) } }, "$what: a COMMIT of S $s")
+        val counters = r.notes("local").filter { it.startsWith("35=") }
+        assertTrue(counters.none { "gap=" in it || "owesAtSettle=" in it || "stale=" in it }, "$what: ${counters.lastOrNull()}")
+    }
+
+    /** Decisions AZ.3, the update case of 14:40:56: the lens kept S 37 and its lease (40 s left); the phone's lease record
+     *  is empty. S_heard is seeded 37 from RIGHT's read, and the first report, S 38, shows no gap. */
+    @Test
+    fun aStartWhoseLensKeptItsLeaseSeedsSHeardFromRightsRead_AZ3(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, kib256 = true)
+        try {
+            lensKept(r, 37, 40_000)
+            r.up()
+            assertEquals(37, r.t.state.value.bindSHeard0, "S_heard seeded from field 36")
+            firstNotchHasNoGap(r, 38, "the lens kept S 37")
+        } finally { r.close() }
+    }
+
+    /** Decisions AZ.3: a lens that restarted holds no lease and S 0 — S_heard 0, the first report S 1 with no gap. */
+    @Test
+    fun aStartAfterALensRestartSeedsZero_AZ3(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, kib256 = true)
+        try {
+            lensKept(r, 0, 0)
+            r.up()
+            assertEquals(0, r.t.state.value.bindSHeard0, "S_heard 0")
+            firstNotchHasNoGap(r, 1, "a restarted lens")
+        } finally { r.close() }
+    }
+
+    /** Decisions AZ.3: RIGHT's read shows the lease with 1.5 s left, under the 2 s spare, and it lapses before the acquire
+     *  lands (a release point on the lens: S := 0). The seed is not used — S_heard 0, not ahead of the lens's S (a seed
+     *  of 37 would make the phone drop the next 37 reports as stale, P8). The rig's session after a lapse is a 64 KiB one
+     *  (the cache-size rule), so no notch follows here; the fuzz's invariant (4) reads the same order at every start. */
+    @Test
+    fun aLeaseThatLapsesBeforeTheAcquireIsNotSeededFrom_AZ3(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, kib256 = true)
+        try {
+            lensKept(r, 37, 1_500)
+            val lapsed = java.util.concurrent.ConcurrentHashMap.newKeySet<Arm>()
+            (r.t as StartRig).onWrite = { arm, p ->
+                if (StartRig.damageOp(p) == wm.damage.core.wire.SettingsMsg.OP_FB_ACQUIRE && lapsed.add(arm))
+                    r.sim.forceLease(arm, System.currentTimeMillis() - 1)       // this arm's first acquire: lapsed on its way
+                p
+            }
+            r.shell.start(); r.settle("start")
+            (r.t as StartRig).onWrite = null
+            assertEquals(2, lapsed.size, "both arms' acquires met a lapsed lease")
+            assertEquals(0, r.sim.bindForTest(Arm.RIGHT).seq, "the lens's release point reset S")
+            assertEquals(0, r.t.state.value.bindSHeard0, "the seed is not used: S_heard is not ahead of the lens's S")
+        } finally { r.close() }
+    }
+
+    /** Decisions AZ.3: the read shows 1.5 s left, under the spare, and the lease does NOT lapse (the lens renews and keeps
+     *  S 37): the seed is still not used — the spare is the rule, the old wide gap the cost on this side. */
+    @Test
+    fun aLeaseUnderTheSpareIsNotSeededFrom_AZ3(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, kib256 = true)
+        try {
+            lensKept(r, 37, 1_500)
+            r.up()
+            assertEquals(0, r.t.state.value.bindSHeard0, "the seed is not used under the spare")
         } finally { r.close() }
     }
 }

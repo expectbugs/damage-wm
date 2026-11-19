@@ -152,7 +152,7 @@ class SettingsWindow(
     /** Build ANIM (decisions AV, AW): the `Animations` category — a bound list's notch motion; shown with `Taps` on a
      *  build that reports local input (bit 10). `Style` joins when there is more than one. */
     private val animEntries: List<Entry> = listOf(
-        Entry("Scroll length", { "${get().scrollLength} ms" + if (get().scrollLength == 450) " (default)" else "" }, { s, d ->
+        Entry("Scroll length", { "${get().scrollLength} ms" + if (get().scrollLength == ShellSettings().scrollLength) " (default)" else "" }, { s, d ->
             val ls = ShellSettings.SCROLL_LENGTHS
             s.copy(scrollLength = ls[(ls.indexOf(s.scrollLength).coerceAtLeast(0) + d).coerceIn(0, ls.size - 1)])
         }),

@@ -5108,6 +5108,33 @@ class Shell(
 
     private var mainSeq: MainSeqRun? = null
     private var mainSeqTags = 0
+    /** Decisions AZ.4: the wrap's PLAY tags (one per PLAY, cycling through 0x1000). */
+    private var wrapTags = 0
+
+    /** Decisions AZ.4: the wrap's PLAY bytes and its END plan for the assemble. */
+    private class MainWrap(val play: ByteArray, val end: Compositor.EndPlan)
+
+    /**
+     * Decisions AZ.4: the pan across Main's wrap, when the rules found an edge at an end of the bound list with the row now
+     * the other end ([LocalRules.wrapPlan]) and the staging wraps. The same pan as a notch's (the bound entry's program,
+     * period and T: the `Animations` rows), its parameters for the row just past the end ([MainStaging.wrapParams]), in
+     * [MainStaging.WRAP_SLOT]: END is Main's paint at the wrapped row; the model takes it, and holds what Main repaints
+     * inside the areas until the motion has ended — its start a flush after this one, so one allowance
+     * ([WRAP_START_MS]) past the steps. The mirror holds the instance, so a later flush that meets it CLOSEs it first.
+     */
+    private fun mainWrapPlan(nowMs: Long): MainWrap? {
+        val w = local.wrapPlan(localRow()) ?: return null
+        val ms = mainBind.staging ?: return null
+        if (w.list.list != MainStaging.LIST || mainBind.list?.mark != w.list.mark) return null
+        val pan = ms.pan(MainStaging.WHOLE, w.step)
+        val p = ms.wrapParams(pan, w.cPrime) ?: return null
+        val tag = WRAP_TAG + (wrapTags++ and 0xFFF)
+        val play = try { wm.damage.core.motion.Motion.play(pan.program, MainStaging.WRAP_SLOT, ms.period, tag, 0, p) }
+            catch (e: wm.damage.core.geom.LintError) { journal.note("local", "the wrap's PLAY is refused offline (${e.message}) — the row is drawn as today"); return null }
+        val until = nowMs + (ms.t + 1L) * ms.period * 1000L / 1024 + WRAP_START_MS
+        return MainWrap(play, Compositor.EndPlan(MainStaging.WRAP_SLOT, pan.program.tracks.map { it.areaL to it.areaR },
+            { left, g -> ms.paintEnd(pan, p, left, g) }, until))
+    }
     /** The `mainseq` probe's pacing (a test shortens it). */
     @Volatile internal var mainSeqPace = MainSeqPlan.Pace()
 
@@ -7198,12 +7225,15 @@ class Shell(
             // build C2 (P3, P10): each planned COMMIT's END applied to the model before the diff; denied when a drawing
             // sub then meets its slot's areas
             val plans = if (localOn) local.plan(localRow()) else emptyList()
+            // decisions AZ.4: an edge at an end of Main's wrapping list — the pan across the wrap, a phone PLAY in a free slot
+            // whose END goes into the model as a COMMIT's does, its areas held until it ends
+            val wrap = if (localOn) mainWrapPlan(localNow) else null
             var denied: Set<Int> = emptySet()
             val assembled = try {
-                if (plans.isEmpty()) comp.assembleFlush(Geometry.rectBudget(st.window))
+                if (plans.isEmpty() && wrap == null) comp.assembleFlush(Geometry.rectBudget(st.window))
                 else comp.assembleWithEnds(Geometry.rectBudget(st.window), plans.map { c ->
                     wm.damage.core.comp.Compositor.EndPlan(c.slot, c.areas, c.list.paintEnd?.let { pe -> { left: Boolean, g: Gray8 -> pe(left, c.prog4, c.p, g) } }, c.motionEndsMs)
-                }, localNow).let { (a, d) -> denied = d; a }
+                } + listOfNotNull(wrap?.end), localNow).let { (a, d) -> denied = d; a }
             } catch (e: Exception) {
                 Log.e("shell", "flush assembly failed", e)
                 journal.note("assemble-error", e.toString())
@@ -7223,7 +7253,11 @@ class Shell(
                     return
                 }
             }
-            val localTail = if (localOn) local.tail(localRow(), localNow, denied, frame = assembled != null) else emptyList()
+            // the wrap's PLAY goes ahead of the rules' answers (the DISCARD naming the wrapped row); a keyframe's batch
+            // denies it (it closes every instance) and the row is drawn as today
+            val wrapPlay = wrap?.takeIf { it.end.slot !in denied }?.play
+            val localTail = if (localOn) listOfNotNull(wrapPlay) + local.tail(localRow(), localNow, denied, frame = assembled != null, wrapped = wrapPlay != null)
+                else emptyList()
             if (assembled == null && localTail.isNotEmpty()) submitLocalOnly(localTail, "LOCAL")
             if (assembled != null) {
                 val assembleMs = (System.nanoTime() - assembleT0) / 1_000_000
@@ -7726,6 +7760,11 @@ class Shell(
          *  `motion` probe's (1, 2, 3, …); how often a run paints and stages Main again before it gives up; its pace
          *  while staging. */
         const val MAINSEQ_TAG = 0xD000
+        /** Decisions AZ.4: the wrap's PLAY tags, apart from the probes'; and the allowance for its start after the flush
+         *  that carries it (the answer flushes' acks on his glasses, 2026-11-19: 50–400 ms), added to its steps for how long
+         *  the cells inside its areas wait. */
+        const val WRAP_TAG = 0xB000
+        const val WRAP_START_MS = 400L
         const val MAINSEQ_RESTAGES = 3
         const val MAINSEQ_POLL_MS = 50L
         /** §66: a staged record's write goes out in messages of this many bytes (a multiple of 4,
