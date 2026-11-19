@@ -56,14 +56,14 @@ class MainLocalShellTest {
         override fun restoreState(state: JsonObject) {}
     }
 
-    private class Rig(val taps: Taps, val stage: Int = 4) {
+    private class Rig(val taps: Taps, val stage: Int = 4, nRows: Int = 7) {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val tmp = Files.createTempDirectory("damage-mainlocal")
         val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = 0x5ff }
         val t = SimTransport(sim, scope, SimTransport.Timing(instant = true))
         val journal = tmp.resolve("journal.jsonl")
         val shell = Shell(CachedText(FakeText()), t, Persistence(tmp.resolve("state.json")), journal, scope) { Shell.LocalClock(12, 0, "12:00", "PM") }
-        val rows = (0 until 7).map { Row("w$it", "Win $it", DamageWindow.Summary("summary $it", detail = "detail of $it", progress = if (it == 3) 0.25 else null)) }
+        val rows = (0 until nRows).map { Row("w$it", "Win $it", DamageWindow.Summary("summary $it", detail = "detail of $it", progress = if (it == 3) 0.25 else null)) }
         /** RIGHT's top-level images, in order. */
         val right = java.util.concurrent.CopyOnWriteArrayList<ByteArray>()
         @Volatile var onImage: ((ByteArray) -> Unit)? = null
@@ -295,6 +295,10 @@ class MainLocalShellTest {
             // transport CLOSEs it first (§5.6) — RIGHT's stop reads as `burst-end`. On glass the mirror holds no local or
             // adopted instance and sends no such CLOSE: `C2-DI-built.md` §0.)
             assertTrue(imgs.none { img -> r.subs(img).any { r.isSub(it, 26, 4) } }, "no DISCARD answered A or B")
+            // decisions AF.7: the stale row's held cells went once B's motion had ended — no motion was cut by them (in the
+            // simulator the transport's mirror is the lens, so a write meeting a running instance CLOSEs it first: a cut
+            // shows as "closed while drawing"; a CLOSE of the finished instance cuts nothing)
+            assertTrue(r.notes("motion").none { "closed while drawing" in it }, "a held repaint cut a motion: ${r.notes("motion").filter { "closed while drawing" in it }}")
             assertTrue(r.notes("snapback").drop(snaps).all { "cause=burst-end" in it }, "no snap-back but the simulator's CLOSE: ${r.notes("snapback").drop(snaps)}")
             assertEquals(2, r.row())
             r.assertOracle("after the re-stage")
@@ -422,6 +426,83 @@ class MainLocalShellTest {
         } finally { r.close() }
     }
 
+    /** Decisions AF.1: a notice up — floating, not focused — is a cover: the list's entries are CLEARed while its box is
+     *  on screen, and a notch then goes as today (no S taken, the row moves). */
+    @Test
+    fun aNoticeUpIsACover_AF1(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT)
+        try {
+            r.up()
+            r.shell.postNotice(wm.damage.core.shell.Notifications.Notice("TEST · a", "t", "a notice over Main", "12:00"))
+            r.until("the entries CLEARed while the notice is up", 5_000) { r.sim.bindForTest(Arm.RIGHT).field39() == 0 }
+            val s0 = r.sim.bindForTest(Arm.RIGHT).seq
+            val s = r.fire(CfwModes.EV_UPROLL)
+            assertEquals(s0, s, "no entry matched under the notice")
+            r.until("the notch applied as today") { r.row() == 1 }
+            r.settle("as today")
+            r.assertOracle("under the notice")
+        } finally { r.close() }
+    }
+
+    /** Decisions AF.3: an adopted notch does a gesture's bookkeeping — Main's cursor reaches the stored record; and the
+     *  `hold` probe is refused while BIND is in force. */
+    @Test
+    fun anAdoptedNotchIsAGestureAndHoldIsRefusedAtStage4_AF3(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT)
+        try {
+            r.up()
+            r.fire(CfwModes.EV_UPROLL)
+            r.until("adopted") { r.row() == 1 }
+            r.until("Main's cursor in the stored record", 6_000) {
+                Files.exists(r.tmp.resolve("state.json")) && Regex("""mainCursor\W+1\b""").containsMatchIn(Files.readString(r.tmp.resolve("state.json")))
+            }
+            r.shell.devProbe("hold", "on")
+            r.until("hold refused") { r.notes("hold").any { it.startsWith("hold=on not taken — BIND is in force") } }
+        } finally { r.close() }
+    }
+
+    /** Decisions AF.8: a tap acted on from its 115 is input — the window's first flush is journaled as the gesture's. */
+    @Test
+    fun anActFromAReportIsInput_AF8(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT)
+        try {
+            r.up()
+            val lines0 = Files.readAllLines(r.journal).size
+            r.fire(CfwModes.EV_TAP)
+            r.until("the window opens") { r.onLoop { r.shell.currentWindowId() } == "w0" }
+            r.settle("opened")
+            val first = Files.readAllLines(r.journal).drop(lines0).first { "\"ev\":\"submit\"" in it && "\"label\":\"WINDOW" in it }
+            assertTrue("\"in\":1" in first, "the act's first flush marked as input: ${first.take(300)}")
+        } finally { r.close() }
+    }
+
+    /** Decisions AF.10: the bound staging holds the whole list's pans only (the probe's test widths are the probe's). */
+    @Test
+    fun theBoundStagingHoldsOnlyTheWholeListsPans_AF10(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT)
+        try {
+            r.up()
+            val ks = r.onLoop { r.shell.mainBinding.staging!!.pans.map { it.k } }
+            assertTrue(ks.isNotEmpty() && ks.all { it == wm.damage.core.shell.MainStaging.WHOLE }, "pans of widths $ks")
+        } finally { r.close() }
+    }
+
+    /** Decisions AF.6: a staging that did not fit (fourteen dense rows past the 64 KiB reserve) is tried again when the
+     *  content it was sized for changes — the rows short again: staged and bound, with no restart. */
+    @Test
+    fun aStagingThatDidNotFitIsTriedAgainWhenItsContentChanges_AF6(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, nRows = 14)
+        try {
+            r.up()
+            val dense = "W".repeat(80)
+            for (w in r.rows) { w.s = w.s.copy(line = dense, detail = dense); r.shell.services.requestRender(w) }
+            r.until("refused", 20_000) { r.notes("mainstage").any { it.startsWith("Main's rows cannot be staged") } }
+            for ((i, w) in r.rows.withIndex()) { w.s = DamageWindow.Summary("s $i", detail = "d $i"); r.shell.services.requestRender(w) }
+            r.until("staged again", 20_000) { r.notes("mainstage").count { it.startsWith("staged") } >= 2 }
+            r.bound("bound again")
+        } finally { r.close() }
+    }
+
     /** Fact finding for the chrome overlap (run with `DI_FACTS=1`): at the four heights, Main's content clip, the rows
      *  Main paints, the rail, the dividers and the chrome cells, the planes, each program's tracks per lens; then one
      *  adopted notch — which pixels changed in the nominal frame, by element, and the flushes that carried them. */
@@ -491,6 +572,8 @@ class MainLocalShellTest {
             val b = assertNotNull(between, "a notch was fired while the strip's write was on its way, with no entry on RIGHT")
             assertEquals(b.first, b.second, "the notch in between matched no entry (no S taken)")
             assertEquals(1, r.row(), "the notch in between moved the row as today")
+            // decisions AF.2: the return named the phone's current row — RIGHT's list cursor is where the frame is
+            assertEquals(r.row(), r.sim.bindForTest(Arm.RIGHT).lists[0].cursor, "the return named the current row on RIGHT")
             r.assertOracle("bound again")
             notch(r, CfwModes.EV_UPROLL, "a notch after the re-bind")
         } finally { r.close() }
