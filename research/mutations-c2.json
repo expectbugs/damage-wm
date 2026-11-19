@@ -1486,7 +1486,7 @@
   ],
   "expect": [
    "noMergeAcrossTheBoundListsAreas_DI",
-   "aFastSeriesOfNotchesIsNeverCutByTheChromeRefresh_DI"
+   "aFastSeriesOfNotchesTakesAboutOneFlushEach_AQ2"
   ],
   "note": "the chrome overlap: merges across the bound list's areas allowed (the tree before the fix)",
   "from": "DI"

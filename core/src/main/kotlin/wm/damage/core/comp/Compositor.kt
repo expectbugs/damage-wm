@@ -319,10 +319,11 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
      * included); the cells inside them that still differ from the truth once END is in the model (a row staged before
      * Main's last repaint of it, a draw over the list) stay dirty and go in the next batch, an ordinary repaint over the
      * adopted picture. Nothing inside the areas is drawn before the END, so END never lands over a frame of the same
-     * batch (§6.5). A sub that still meets them (a delta spanning them, a cached box grown into them) is held too and the
-     * flush taken again; each round holds at least one more dirty cell, so it ends. Denied (the rules answer DISCARD): a
-     * slot whose list gave no END painter, and every slot when this flush is a keyframe or a reseed — it writes the whole
-     * model (END would not survive it) and closes every instance on the glasses. Returns the flush and the denied slots.
+     * batch (§6.5). A sub that still meets them (a delta spanning them, a cached box grown into them) is held too, on both
+     * lenses, and the flush taken again ([assembleHolding] says why that ends, and its backstop). Denied (the rules answer
+     * DISCARD): a slot whose list gave no END painter, and every slot when this flush is a keyframe or a reseed — it
+     * writes the whole model (END would not survive it) and closes every instance on the glasses. Returns the flush and
+     * the denied slots.
      */
     fun assembleWithEnds(rectBudget: Int, ends: List<EndPlan>, nowMs: Long = 0L): Pair<Assembled?, Set<Int>> {
         val regrounds = needsKeyframe || needsReseed
@@ -369,22 +370,37 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         return true
     }
 
-    /** [assembleFlushOnce] with the cells meeting [hl] / [hr] held back (AA.1): a sub that still meets [hl] / [hr] — a
-     *  delta spanning them, a cached box grown into them — is undone (what it touched is unknown, so the next assemble paints
-     *  it from the truth), held, and the flush taken again; each round holds at least one more dirty cell, so it ends.
-     *  The frame's text records serve every round and end with the last (decisions AF.8). [mine] are a riding COMMIT's
-     *  areas, in the flush's touched rects for its hint and a rollback. */
+    /**
+     * [assembleFlushOnce] with the cells meeting [hl] / [hr] held back (AA.1): a sub that still meets [hl] / [hr] on either
+     * lens — a delta spanning them, a cached box grown into them — is undone (what it touched is unknown, so the next
+     * assemble paints it from the truth), held on BOTH lenses, and the flush taken again. Why it ends: a held cell is not
+     * dirty (`dirtyCells` drops every cell meeting a held rect), so every sub a round draws was planned from dirty cells
+     * that were not held, and each of them lies inside the sub's own rect on its lens; holding both rects of a met sub
+     * therefore holds at least one cell that was not held before. (A declared copy is the one sub not planned from dirty
+     * cells; it goes in the first round only — a rollback turns it into damage — so it can cost one round.) The held
+     * cells only grow and are bounded by the panel's cells, so the loop ends. (A seam black's no-op box on the other lens
+     * is not planned from dirty cells either; its pair's rect is, and both are held.) Held on the met lens alone, a
+     * sub planned from the OTHER lens's cells held nothing new and was planned again every round (decisions AQ.1).
+     * [HOLD_ROUNDS_MAX] is the backstop: a frame that has not converged by then throws [LintError] — the shell's
+     * assemble-error path, a keyframe and a notice — with the wait cleared and a keyframe owed here, never a stalled loop.
+     * The frame's text records serve every round and end with the last (decisions AF.8). [mine] are a riding COMMIT's
+     * areas, in the flush's touched rects for its hint and a rollback.
+     */
     private fun assembleHolding(rectBudget: Int, hl: ArrayList<Rect>, hr: ArrayList<Rect>, mine: List<Touched>): Assembled? {
         try {
+            var rounds = 0
             while (true) {
                 holdL = hl; holdR = hr; endTouched = mine
                 val a = try { assembleFlushOnce(rectBudget, endFrame = false) } finally { holdL = emptyList(); holdR = emptyList(); endTouched = emptyList() }
                 val drawn = a?.touched?.filter { t -> mine.none { it === t } } ?: emptyList()
-                val metL = drawn.filter { t -> t.left && hl.any { t.rect.overlaps(it) } }
-                val metR = drawn.filter { t -> !t.left && hr.any { t.rect.overlaps(it) } }
-                if (metL.isEmpty() && metR.isEmpty()) return a
+                val met = drawn.filter { t -> (if (t.left) hl else hr).any { t.rect.overlaps(it) } }.map { it.sub }.toSet()
+                if (met.isEmpty()) return a
                 rollback(a!!.copy(touched = drawn))
-                hl += metL.map { it.rect }; hr += metR.map { it.rect }
+                for (t in drawn) if (t.sub in met) (if (t.left) hl else hr) += t.rect
+                if (++rounds >= HOLD_ROUNDS_MAX) {
+                    deferL = emptyList(); deferR = emptyList(); needsKeyframe = true
+                    throw LintError("the hold loop did not converge in $rounds rounds (${hl.size} + ${hr.size} held rects) — a keyframe re-grounds the lenses")
+                }
             }
         } finally { holdL = emptyList(); holdR = emptyList(); cachedText?.endFrame() }
     }
@@ -447,7 +463,7 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
             shadowL.clear(0); shadowR.clear(0)
             java.util.Arrays.fill(unknownL, false)
             java.util.Arrays.fill(unknownR, false)
-            touched.add(Touched(true, full)); touched.add(Touched(false, full))
+            touched.addPair(full, full)
             ops.add(DisplayOp.Fill(full, full, 0))
             hints.add(full)
         }
@@ -465,7 +481,7 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
             System.arraycopy(seed.pix, 0, shadowR.pix, 0, seed.pix.size)
             java.util.Arrays.fill(unknownL, false)
             java.util.Arrays.fill(unknownR, false)
-            touched.add(Touched(true, full)); touched.add(Touched(false, full))
+            touched.addPair(full, full)
             val t0 = System.nanoTime()
             val payload = Zl.encodeCfw(Pack.rect(seed, full))
             lastCompressNs += System.nanoTime() - t0; lastCompressN++
@@ -486,12 +502,13 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
             // unknown marks move with the pixels.
             for (c in copies) {
                 val d = disparityAt(c.dst.alignOut())
+                val sub = ++subIds                         // one copy, one sub: its two lens rects share the id
                 for (left in booleanArrayOf(true, false)) {
                     val s = c.src.translate(if (left) -d else d, 0)
                     val t = c.dst.translate(if (left) -d else d, 0)
                     copyWithin(if (left) shadowL else shadowR, s, t)
                     moveCells(if (left) unknownL else unknownR, s, t)
-                    touched.add(Touched(left, t.clip()))
+                    touched.add(Touched(left, t.clip(), sub))
                     appliedCopies.addLast(AppliedCopy(epoch, left, s.clip(), t.clip()))
                 }
                 while (appliedCopies.size > COPY_HISTORY) appliedCopies.removeFirst()
@@ -1101,7 +1118,7 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
                     shadowL.fillRect(p.l, 0)
                     shadowR.fillRect(p.r, 0)
                     markKnown(unknownL, p.l); markKnown(unknownR, p.r)
-                    touched.add(Touched(true, p.l)); touched.add(Touched(false, p.r))
+                    touched.addPair(p.l, p.r)
                     ops.add(DisplayOp.Fill(p.l, p.r, 0))
                     0
                 }
@@ -1111,7 +1128,7 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
                     shadowL.fillRect(p.l, 0)
                     shadowR.fillRect(p.r, 0)
                     markKnown(unknownL, p.l); markKnown(unknownR, p.r)
-                    touched.add(Touched(true, p.l)); touched.add(Touched(false, p.r))
+                    touched.addPair(p.l, p.r)
                     ops.add(DisplayOp.StereoPair(p.l, p.r, payload))
                     1
                 }
@@ -1360,7 +1377,7 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         paintTruth(shadowL, truthL, w)
         paintTruth(shadowR, truthR, w)
         markKnown(unknownL, w); markKnown(unknownR, w)
-        touched.add(Touched(true, w)); touched.add(Touched(false, w))
+        touched.addPair(w, w)
         ops.add(DisplayOp.Delta(w, clear, 0))
         ops.addAll(textOps)
         ops.addAll(imageOps)
@@ -1486,7 +1503,7 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         paintTruth(shadowL, truthL, l)
         paintTruth(shadowR, truthR, rr)
         markKnown(unknownL, l); markKnown(unknownR, rr)
-        touched.add(Touched(true, l)); touched.add(Touched(false, rr))
+        touched.addPair(l, rr)
         ops.add(DisplayOp.Delta(r, clear, d))
         ops.addAll(textOps)
         ops.addAll(imageOps)
@@ -1738,7 +1755,7 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
             paintTruth(shadowL, truthL, l)
             paintTruth(shadowR, truthR, rr)
             markKnown(unknownL, l); markKnown(unknownR, rr)
-            touched.add(Touched(true, l)); touched.add(Touched(false, rr))
+            touched.addPair(l, rr)
             bytes += cost
             covered.add(r)
             stagedRectsThisAssemble++
@@ -1845,7 +1862,7 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         paintNominal(shadowL, rect, -d)
         paintNominal(shadowR, rect, d)
         markKnown(unknownL, l); markKnown(unknownR, r)
-        touched.add(Touched(true, l)); touched.add(Touched(false, r))
+        touched.addPair(l, r)
         ops.add(DisplayOp.Delta(rect, payload, d))
         return 1
     }
@@ -1967,8 +1984,15 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
     private fun touches(a: Rect, b: Rect): Boolean =
         !(a.right < b.x || b.right < a.x || a.bottom < b.y || b.bottom < a.y)
 
-    /** A per-lens rect a flush painted — UNKNOWN again if that flush is lost. */
-    class Touched(val left: Boolean, val rect: Rect)
+    /** A per-lens rect a flush painted — UNKNOWN again if that flush is lost. [sub]: the drawing sub that wrote it, the
+     *  same id on its two lens rects (-1: a riding COMMIT's areas) — the hold loop holds a met sub on both lenses. */
+    class Touched(val left: Boolean, val rect: Rect, val sub: Int = -1)
+
+    /** The ids [Touched.sub] carries (wrapping is harmless: only equality inside one flush is read). */
+    private var subIds = 0
+
+    /** One drawing sub's two lens rects, [l] on the left and [r] on the right, under one fresh [Touched.sub]. */
+    private fun MutableList<Touched>.addPair(l: Rect, r: Rect) { val id = ++subIds; add(Touched(true, l, id)); add(Touched(false, r, id)) }
 
     data class Assembled(
         val ops: List<DisplayOp>,
@@ -1989,6 +2013,10 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         /** The largest shift on the ladder (§3.3 — the whole inset). */
         private const val MAX_SHIFT = 16
         private const val MAX_ITERATIONS = 6
+        /** [assembleHolding]'s backstop: rounds no real frame reaches — every met sub is held at once, so a frame re-holds
+         *  only when holding opened a new meeting (across the shell, oracle and fuzz tests: 8 frames re-held, each once;
+         *  decisions AQ.1) — and far below the panel's cell count that bounds the loop. */
+        internal const val HOLD_ROUNDS_MAX = 32
         /** zlib_glue.c: a mode-8 sub-message is prefixed by rd16 — 65,535 B. */
         private const val MAX_SUB = 0xFFFF
         /** `CfwModes.batch`: a mode-8 batch's count of sub-messages is ONE byte

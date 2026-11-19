@@ -48,11 +48,22 @@ import wm.damage.core.wire.EvenHubMsg
  * goes through as today.
  */
 class MainLocalShellTest {
+    private companion object {
+        /** 20 notches, the chrome riding each COMMIT: 21 flushes measured with the keep-out, 58 without it (the model,
+         *  an instant link; decisions AQ.2). */
+        const val FLUSHES_FOR_20 = 30
+    }
+
 
     private class Row(id: String, name: String, var s: DamageWindow.Summary) : DamageWindow(id, name, IconKind.FILES) {
         /** A playing track's position (decisions AL.1): the progress read from the clock at every read, as Music's. */
         @Volatile var progress: (() -> Double)? = null
-        override fun view(): WindowView = WindowView.ListView(ListModel(), { 0 }, { _, _, _, _ -> }, { _, _, _ -> }, {})
+        /** A first view that is not a list (decisions AQ.1): a canvas with a few marks across its whole width. */
+        @Volatile var canvas = false
+        override fun view(): WindowView = if (canvas) WindowView.CanvasView({ g, r ->
+            g.fillRect(r, 0)
+            for (k in 0 until 6) g.fillRect(r.x + 8 + k * (r.w - 24) / 5, r.y + 6 + k * (r.h - 20) / 5, 8, 8, (6 + k) * 17)
+        }) else WindowView.ListView(ListModel(), { 0 }, { _, _, _, _ -> }, { _, _, _ -> }, {})
         override fun summary() = progress?.let { s.copy(progress = it()) } ?: s
         override fun saveState(): JsonObject = JsonObject(emptyMap())
         override fun restoreState(state: JsonObject) {}
@@ -414,14 +425,16 @@ class MainLocalShellTest {
         }
     }
 
-    /** Stage DI, the chrome overlap settled, in the shell: a fast series of notches at 352 (one every 300 ms — the
-     *  measurement's series cut 27 of 40 pans right after their COMMIT) — every pan runs to its end: no flush meets
-     *  the adopted instance (no CLOSE by the transport), no snap-back. */
+    /** Stage DI's keep-out, measured on what it does since AF.7 (decisions AQ.2): a fast series of notches at 352 (one
+     *  every 300 ms) — the chrome's position mark and the rail thumb beside the list's areas ride each notch's COMMIT
+     *  flush (no merge across the areas), so the series takes about one flush per notch; merged with the areas they
+     *  would be held whole until the motion's end and go in a flush of their own. No snap-back; the oracle holds. */
     @Test
-    fun aFastSeriesOfNotchesIsNeverCutByTheChromeRefresh_DI(): Unit = runBlocking {
+    fun aFastSeriesOfNotchesTakesAboutOneFlushEach_AQ2(): Unit = runBlocking {
         val r = Rig(Taps.REPORT)
         try {
             r.up()
+            val f0 = r.onLoop { r.shell.flushesSubmitted }
             // five down from the top, five back: the rail's thumb moves deep enough that its change reaches the pan's
             // top track's rows (from row 3 on at 352), where the divider's mark beside it was merged with it
             repeat(20) { i ->
@@ -429,8 +442,8 @@ class MainLocalShellTest {
                 delay(300); r.settle("notch $i")
             }
             delay(LocalRules.Q_MS + 200); r.settle("after")
-            val closes = r.notes("motion").filter { it.startsWith("a flush meets open instance") }
-            assertTrue(closes.isEmpty(), "${closes.size} pan(s) cut by a flush meeting the adopted instance")
+            val flushes = r.onLoop { r.shell.flushesSubmitted } - f0
+            assertTrue(flushes <= FLUSHES_FOR_20, "20 notches took $flushes flushes (at most $FLUSHES_FOR_20: the chrome rides the COMMITs)")
             assertTrue(r.notes("snapback").isEmpty(), "no snap-back: ${r.notes("snapback").take(3)}")
             r.assertOracle("after the series")
         } finally { r.close() }
@@ -548,6 +561,32 @@ class MainLocalShellTest {
             r.until("staged again", 20_000) { r.notes("mainstage").count { it.startsWith("staged") } >= 2 }
             r.bound("bound again")
         } finally { r.close() }
+    }
+
+    /** Decisions AQ.1 in the shell: an adopted notch, then — inside the held cells' wait — a tap that opens the row's
+     *  window: one whose first view is not a list (the band plane goes) and one with its own Depth (12). The shell stays
+     *  live (the loop answers), the window paints, no assemble error, and the oracle holds once the wait is over. */
+    @Test
+    fun aTapInsideTheWaitOpensAWindowAndTheShellStaysLive_AQ1(): Unit = runBlocking {
+        for (kind in listOf("canvas", "depth 12")) {
+            val r = Rig(Taps.REPORT)
+            try {
+                if (kind == "canvas") r.rows[1].canvas = true
+                r.up()
+                if (kind == "depth 12") {
+                    r.shell.updateSettings { it.copy(appStyles = mapOf("w1" to wm.damage.core.shell.ShellSettings.AppStyle(depth = 12))) }
+                    r.settle("$kind: the per-app depth")
+                }
+                r.fire(CfwModes.EV_UPROLL)
+                r.until("$kind: adopted") { r.row() == 1 }
+                assertTrue(r.onLoop { r.shell.isQuiescent() }.not(), "$kind: inside the wait")
+                r.fire(CfwModes.EV_TAP)
+                r.until("$kind: the window opens", 10_000) { r.onLoop { r.shell.currentWindowId() } == "w1" }
+                r.settle("$kind: the window painted, the wait over")
+                r.assertOracle("$kind: after the wait")
+                assertTrue(r.notes("assemble-error").isEmpty(), "$kind: no assemble error (the oracle held): ${r.notes("assemble-error")}")
+            } finally { r.close() }
+        }
     }
 
     /** Decisions AL.6 (R1): the shell is not quiescent while the held cells wait for an adopted motion's end ((T + 1) × P
