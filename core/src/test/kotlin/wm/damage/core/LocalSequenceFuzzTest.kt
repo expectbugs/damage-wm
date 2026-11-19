@@ -175,9 +175,9 @@ class LocalSequenceFuzzTest {
      *  the latest unpaired report applies S2's own message as a third row. */
     @Test fun seededS1_aLostReportOvertaken() = seeded(Taps.REPORT, script = { h ->
         h.loseNext115 = 1
-        notch(h, band = "delay")
+        notch(h, band = "delay:81")                     // S1's scroll message arrives between S2's report and S2's message
         h.runUntil(h.now + 60)
-        notch(h)
+        notch(h, band = "delay:30")
         h.rest()
     })
 
@@ -242,7 +242,7 @@ class LocalSequenceFuzzTest {
      *  unanswered and no SETTLE ever followed (a LEFT-only gesture after it then stays). */
     @Test fun seededS8_everyReportBeforeABatchIsAnsweredByIt() = seeded(Taps.REPORT, script = { h ->
         h.pumpDelay = 60
-        h.beforeReport = { h.cover(); notch(h) }
+        h.afterReport = { h.cover(); notch(h) }
         notch(h)
         h.runUntil(h.now + 300)
         h.pumpDelay = 3
@@ -257,10 +257,14 @@ class LocalSequenceFuzzTest {
      *  lens. DISCARD(A + 1) stops it; DISCARD at the newest not-adopted S leaves the top row shown over the wrapped row,
      *  and a tap there acts on a row he does not see. */
     @Test fun seededS9_anEdgeDoesNotLeaveTheOlderLocalOpen() = seeded(Taps.REPORT, rows = 1, script = { h ->
+        h.pumpDelay = 80                                // both reports handled before one batch (a busy link)
+        h.afterReport = { h.pumpDelay = 80 }
         notch(h, kind = 2)
         h.runUntil(h.now + 60)
         notch(h, kind = 2)
-        h.runUntil(h.now + 150)
+        h.runUntil(h.now + 100)
+        h.pumpDelay = 3
+        h.runUntil(h.now + 60)
         h.gesture(0, answer = true, band = "none")
         h.rest()
     })
@@ -268,7 +272,7 @@ class LocalSequenceFuzzTest {
     /** S10 — Defect C (ii): a cover opening between a report and its answer. The cover's draw meets the slot's areas, so
      *  the answer is a DISCARD; a COMMIT would write END over the cover. */
     @Test fun seededS10_noCommitInABatchThatDrawsOverTheList() = seeded(Taps.REPORT, script = { h ->
-        h.beforeReport = { h.cover() }
+        h.afterReport = { h.cover() }                   // after the adoption, before its answer's batch
         notch(h)
         h.rest()
     })

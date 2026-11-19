@@ -214,6 +214,9 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     /** Called once when the next 115 reaches the phone, before the phone handles it (a cover or a draw landing between a
      *  report and its answer). */
     var beforeReport: (() -> Unit)? = null
+    /** Called once after the phone handled the next 115 and before its pump (a cover opening between an adoption and its
+     *  answer). */
+    var afterReport: (() -> Unit)? = null
     /** The phone's pump runs this long after an event (a busy link holds a batch back). */
     var pumpDelay = 3L
 
@@ -280,7 +283,8 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
             // stock's own message, after the 115 (one FIFO, §6.1): a scroll message after the exchange, a click in the turn
             if (bandNow != "drop") {
                 val st = if (tap) LocalRules.Stock.CLICK else if (id == CfwModes.EV_UPROLL) LocalRules.Stock.NEXT else LocalRules.Stock.PREV
-                up(now, if (bandNow == "delay") bandDelay() else 0L) { phoneStock(st, g) }
+                val extra = when { bandNow == "delay" -> bandDelay(); bandNow?.startsWith("delay:") == true -> bandNow.removePrefix("delay:").toLong(); else -> 0L }
+                up(now, extra) { phoneStock(st, g) }
             }
         }
         return g
@@ -297,6 +301,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         trace?.invoke("[$now] phone 115 g$g ${a.describe()} row $row → $v")
         verdicts += g to v
         apply(v, g, a)
+        afterReport?.let { afterReport = null; it() }
         pumpSoon()
     }
 
