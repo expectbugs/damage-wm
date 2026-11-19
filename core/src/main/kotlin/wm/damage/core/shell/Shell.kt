@@ -2648,6 +2648,8 @@ class Shell(
     /** Every flush that carried the rules' messages, until its completion: a refused one sends the table again. */
     private val localTailFlushes = HashSet<Long>()
     private var localSettleAt = Long.MAX_VALUE
+    /** The held cells' release the loop was last asked back for (AF.7): one wake per motion end. */
+    private var deferWakeAt = 0L
 
     /** Main in front with nothing drawn over it (§6.7): no menu, switcher or keyboard, and no notice up at all — focused,
      *  floating, unfurling or furling (decisions AF.1: its box lies over the list's rows). */
@@ -7027,6 +7029,12 @@ class Shell(
         val localOn = local.active && st.bind && st.leaseHeld
         if (local.active && !st.bind) local.bindInForce(false)
         val localNow = System.currentTimeMillis()
+        // decisions AF.7: the cells held behind a COMMIT go once the adopted motion has ended on the glasses — the loop is
+        // asked back then (pacing, never a wait on a send)
+        comp.releaseDeferred(localNow)
+        if (comp.deferring && comp.deferUntilMs > localNow && comp.deferUntilMs != deferWakeAt) {
+            deferWakeAt = comp.deferUntilMs; pumpAfter(comp.deferUntilMs - localNow)
+        }
         if (localOn) scheduleLocalSettle()
         if (localOn && local.settleDue(localNow) && !local.owed && !comp.hasPending && !comp.needsKeyframe) {
             submitLocalOnly(local.loneSettle(localRow(), localNow), "SETTLE")       // P7: alone, Q after the burst
@@ -7046,8 +7054,8 @@ class Shell(
             val assembled = try {
                 if (plans.isEmpty()) comp.assembleFlush(Geometry.rectBudget(st.window))
                 else comp.assembleWithEnds(Geometry.rectBudget(st.window), plans.map { c ->
-                    wm.damage.core.comp.Compositor.EndPlan(c.slot, c.areas, c.list.paintEnd?.let { pe -> { left: Boolean, g: Gray8 -> pe(left, c.prog4, c.p, g) } })
-                }).let { (a, d) -> denied = d; a }
+                    wm.damage.core.comp.Compositor.EndPlan(c.slot, c.areas, c.list.paintEnd?.let { pe -> { left: Boolean, g: Gray8 -> pe(left, c.prog4, c.p, g) } }, c.motionEndsMs)
+                }, localNow).let { (a, d) -> denied = d; a }
             } catch (e: Exception) {
                 Log.e("shell", "flush assembly failed", e)
                 journal.note("assemble-error", e.toString())

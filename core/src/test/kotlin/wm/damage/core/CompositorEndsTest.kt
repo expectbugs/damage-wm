@@ -30,7 +30,7 @@ class CompositorEndsTest {
         return c
     }
 
-    private fun end(level: Int) = Compositor.EndPlan(0, listOf(band to band)) { _, g: Gray8 -> g.fillRect(band, level * 17) }
+    private fun end(level: Int) = Compositor.EndPlan(0, listOf(band to band), { _, g: Gray8 -> g.fillRect(band, level * 17) })
 
     /** The rects the flush's drawing ops write (the touched list also carries a riding COMMIT's areas, for its hint). */
     private fun writes(a: Compositor.Assembled?): List<Rect> = (a?.ops ?: emptyList()).flatMap { op ->
