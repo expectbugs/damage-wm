@@ -259,7 +259,7 @@ class CliTest {
      *
      * One line was added after the chain, for a flag born after it (build C1, dec. A.15): `--motion-check DIR`. The
      * chain sent it to the shell; its line here is what it means now, so the walk holds the rest of any list that
-     * carries it to the chain (one entry point, no shell flag beside it).
+     * carries it to the chain (one entry point, no shell flag beside it). Build C2's `--local-check DIR` the same way.
      */
     private fun before(args: List<String>): Cli.Run {
         fun after(flag: String): String? = args.getOrNull(args.indexOf(flag) + 1)?.takeIf { !it.startsWith("-") }
@@ -274,6 +274,7 @@ class CliTest {
             "--card-render" in args -> Cli.CardRender(after("--card-render") ?: "design/shots/cards", headless)
             "--snapshot" in args -> Cli.Snapshot(after("--snapshot") ?: "snapshots", headless)
             "--motion-check" in args -> Cli.MotionCheck(after("--motion-check") ?: "(none)")
+            "--local-check" in args -> Cli.LocalCheck(after("--local-check") ?: "(none)")
             "--ble-info" in args -> Cli.BleInfo(headless)
             "--host-only" in args -> Cli.HostOnly(headless)
             else -> {

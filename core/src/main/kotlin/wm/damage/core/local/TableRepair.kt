@@ -66,10 +66,10 @@ class TableRepair {
         }
         // 4. parameters that differ from the phone's prediction, or a fire refused 5 or 12
         val refused512 = a.outcome == DamageMsg.APPLIED_REFUSED && (a.reason == 5 || a.reason == 12)
+        // (judged as P3 judges it: the staging before or after a band form's switch, `BoundList.names`)
         val differs = a.params?.let { p ->
             val c = a.cursor ?: return@let false
-            val pred = if (f != null && f.list == list && c in 0 until f.count) f.paramsAt(c, held) else null
-            pred == null || pred === BoundList.REFUSED_12 || a.prog != held.prog4 || !p.contentEquals(pred)
+            !(f != null && f.list == list && f.names(c, held, a.prog, p))
         } ?: false
         if ((refused512 || differs) && f != null && f.list == list)
             owe(Owed.Set(entry), if (refused512) "fire refused ${a.reason}" else "parameters differ from the prediction")

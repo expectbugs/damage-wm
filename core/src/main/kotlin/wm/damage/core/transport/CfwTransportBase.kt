@@ -270,8 +270,9 @@ abstract class CfwTransportBase(
                 // out only after a CLOSE of every instance has reached both lenses (its ack)
                 fun clears(bit: Int) = _state.value.flagsInForce and bit != 0 &&
                     (wireOp == DamageMsg.OP_FLAGS_CLEAR || (wireOp == DamageMsg.OP_FLAGS_SET && wireArg and bit == 0))
-                // build C2 (§6.7 P9): and one that clears BIND only after a DISCARD(0xFF, S_low, 0xFF, 0) has (its ack) —
-                // a disarm clears nothing, and a local instance left drawing would hold its picture until the lease lapses
+                // build C2 (§6.7 P9): and one that clears BIND only after a DISCARD(0xFF, S_heard + 1 − 0x4000, 0xFF, 0) has
+                // (its ack) — a disarm clears nothing, and a local instance left drawing would hold its picture until the
+                // lease lapses
                 val clearsBind = clears(DamageMsg.FLAG_BIND)
                 val clearsEngine = clears(DamageMsg.FLAG_ENGINE)
                 if (clearsBind || clearsEngine) scope.launch {
@@ -1279,12 +1280,16 @@ abstract class CfwTransportBase(
      *  carried lease ([bindStartRead]); the disarm's DISCARD reaches every local instance of the session from one past it
      *  (P9). The last image-lane refusal handed to the shell ([bindTelemetry]). Both the session's. */
     @Volatile private var bindSHeard0 = 0
+    /** The newest S a 115 of this session has carried (signed 16-bit), from [bindSHeard0]: S_heard as the disarm's DISCARD
+     *  names it (decisions AA.3). Written on the notify path, read by the disarm. */
+    @Volatile private var bindSHeard = 0
     @Volatile private var resetCheckLastS: Long? = null
     @Volatile private var bindRefusalSeen: Triple<Int, Int, Long>? = null
     @Volatile private var bindRefusalBaseline = true
 
     private fun bindSessionStart() {
         bindSHeard0 = 0
+        bindSHeard = 0
         updateState { it.copy(bindArmUptime = 0) }
         resetCheckLastS = null
         bindRefusalSeen = null
@@ -1295,6 +1300,7 @@ abstract class CfwTransportBase(
     private fun bindStartRead() {
         val carried = _state.value.leaseCarried
         bindSHeard0 = if (carried) (resetCheckLastS ?: 0L).toInt() and 0xFFFF else 0
+        bindSHeard = bindSHeard0
         updateState { it.copy(bindSHeard0 = bindSHeard0) }
     }
 
@@ -1327,6 +1333,7 @@ abstract class CfwTransportBase(
     private fun onAppliedNotify(arm: Arm, a: DamageMsg.Applied) {
         if (arm != Arm.RIGHT) { emitNote("applied", "a 115 report arrived on LEFT, which cannot send — ignored: ${a.describe()}"); return }
         emitNote("applied", a.describe())
+        a.s?.let { s -> if (wm.damage.core.local.LocalRules.after(s, bindSHeard)) bindSHeard = s and 0xFFFF }
         if (!_events.tryEmit(TransportEvent.Applied(a))) {
             Log.e(name, "Applied event DROPPED (buffer full): S ${a.s}")
             emitFault("applied", "a 115 report was not handed to the shell (the event buffer is full): S ${a.s}")
@@ -1485,12 +1492,12 @@ abstract class CfwTransportBase(
         }
     }
     /** Build C2 (§6.7 P9): DISCARD(0xFF, S, 0xFF, 0) on the image lane, waited to its ack — before a mid-session BIND
-     *  disarm (the probe path only). S is the session's floor (S_heard at its start + 1: every local instance of the
-     *  session is tagged after it, the start's keyframe closed the rest) less 0x4000, as every DISCARD names it since
-     *  decisions U.2 — a lens numbered behind RIGHT is reached too. False, with a note, when it was not queued or not
-     *  acked: then the disarm is not sent. */
+     *  disarm (the probe path only). S is S_heard + 1 as it stands at the disarm ([bindSHeard], decisions AA.3) less
+     *  0x4000, as every DISCARD names it since decisions U.2: every local instance tagged in the 16,384 matched events
+     *  before it is reached, a lens numbered behind RIGHT too (the session's first S named it, which reached only a
+     *  session's first 16,384). False, with a note, when it was not queued or not acked: then the disarm is not sent. */
     private suspend fun discardAllLocal(epoch: Long, why: String): Boolean {
-        val sFloor = (bindSHeard0 + 1 - wm.damage.core.local.LocalRules.WIDE) and 0xFFFF
+        val sFloor = (bindSHeard + 1 - wm.damage.core.local.LocalRules.WIDE) and 0xFFFF
         val done = CompletableDeferred<Unit>()
         if (!imageQueue.trySend(ImgWork.Raw(epoch, CfwModes.motionDiscard(CfwModes.BIND_ALL, sFloor, CfwModes.BIND_ALL, 0), done)).isSuccess) {
             emitNote("local", "DISCARD of every local instance from S $sFloor not queued ($why) — the disarm is not sent")

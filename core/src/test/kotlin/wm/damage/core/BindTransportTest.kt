@@ -730,18 +730,23 @@ class BindTransportTest {
     }
 
     /** P9: a mid-session disarm of BIND by hand (`flags=0x2c`) goes out only after a DISCARD(0xFF, S − 0x4000, 0xFF, 0) has its
-     *  ack — the DISCARD on the image lane, then the FLAGS_SET; S_low on a fresh acquire is 1. */
+     *  ack — the DISCARD on the image lane, then the FLAGS_SET. S is S_heard + 1 as it stands at the disarm (decisions
+     *  AA.3): two notches heard (S 1 and 2), so 3 − 0x4000 — the session's first S (1) reached only its first 16,384. */
     @Test
     fun aMidSessionDisarmOfBindSendsItsDiscardFirst_P9(): Unit = runBlocking {
         val (sim, t) = armedSession()
+        events.clear()
         sim.injectGesture(EvenHubMsg.EV_SCROLL_BOTTOM)
+        sim.injectGesture(EvenHubMsg.EV_SCROLL_BOTTOM)
+        waitUntil(10_000, message = { "two reports heard: $events" }) { events.count { it is TransportEvent.Applied } == 2 }
         val order = java.util.concurrent.CopyOnWriteArrayList<String>()
         sim.imageObserver = { arm, img -> if (arm == Arm.RIGHT && (img[0].toInt() and 0x7F) == CfwModes.MOTION_MODE) order += "image ${img.hex()}" }
         t.onWrite = { a, p -> if (a == Arm.RIGHT && StartRig.damageOp(p) == DamageMsg.OP_FLAGS_SET) order += "flags 0x${controlArg(p).toString(16)}"; p }
         t.devProbe("flags", "0x2c")
         waitUntil(10_000, message = { "the disarm: $order ${said("local")}" }) { order.any { it.startsWith("flags") } }
-        assertEquals(listOf("image " + CfwModes.motionDiscard(0xFF, (1 - wm.damage.core.local.LocalRules.WIDE) and 0xFFFF, 0xFF, 0).hex(), "flags 0x2c"), order.toList())
-        saw("local", "DISCARD of every local instance from S ${(1 - wm.damage.core.local.LocalRules.WIDE) and 0xFFFF} acked before the probe's flags clear BIND")
+        val s = (2 + 1 - wm.damage.core.local.LocalRules.WIDE) and 0xFFFF
+        assertEquals(listOf("image " + CfwModes.motionDiscard(0xFF, s, 0xFF, 0).hex(), "flags 0x2c"), order.toList())
+        saw("local", "DISCARD of every local instance from S $s acked before the probe's flags clear BIND")
         t.stop()
     }
 
