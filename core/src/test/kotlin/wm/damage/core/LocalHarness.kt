@@ -28,8 +28,8 @@ import wm.damage.core.wire.TextureCache
  * The list: [n0] rows of distinct solid pictures (identity k is level 2 + k) shown in one band, a scroll program per
  * direction (DRAW of the item at c', kind 1) and a press program (the row drawn inverse, then HOLD). The phone's
  * compositor stands in for `Compositor`: a region diff driven by what changed in the truth since the last batch, its
- * model with each planned COMMIT's END applied first — the END's areas diffed too — and a planned COMMIT turned to
- * DISCARD when a drawing sub then meets its areas (by the sub's real rect, P3/P10).
+ * model with each planned COMMIT's END applied first — the END's areas diffed too — and, with a COMMIT planned, every
+ * region meeting its areas (by the region's real rect) held back to the next batch (P3/P10 as decisions AA.1 rule it).
  *
  * Every hook a seeded case needs is here; the invariants are [LocalSequenceFuzzTest]'s.
  */
@@ -39,7 +39,10 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     var now = 1000L
     val notes = ArrayList<Pair<String, String>>()
     var trace: ((String) -> Unit)? = null
-    val rules = LocalRules({ k, d -> notes += k to d; trace?.invoke("  [$now] note $k: $d") }, { why -> keyframe(why) })
+    val rules = LocalRules({ k, d -> notes += k to d; trace?.invoke("  [$now] note $k: $d") }, { why -> keyframe(why) },
+        { why -> telemetryAsked++; trace?.invoke("  [$now] telemetry read asked: $why"); at(now + READ_MS) { readTelemetry() } })
+    /** Telemetry reads the rules asked for (decisions AA.2). */
+    var telemetryAsked = 0
 
     // ------------------------------------------------------------------------------------------- geometry
     companion object {
@@ -56,6 +59,8 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         fun level(id: Int) = 2 + id
         const val ARMED = (1 shl 2) or (1 shl 3) or (1 shl 4)
         const val BAND_MS = 200L
+        /** A telemetry read's round trip, fixed (no draw from the sequence's random stream). */
+        const val READ_MS = 60L
     }
 
     // ------------------------------------------------------------------------------------------- the cache
@@ -502,7 +507,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         val packed = ByteArray(320 * 480)
         for (y in 0 until H) for (x in 0 until W) { val l = t[y * W + x].toInt(); val i = y * 320 + x / 2
             packed[i] = (if (x % 2 == 0) (packed[i].toInt() and 0x0F) or (l shl 4) else (packed[i].toInt() and 0xF0) or l).toByte() }
-        model = t.copyOf(); lastTruth = t.copyOf()
+        model = t.copyOf(); lastTruth = t.copyOf(); held = emptySet()
         sendDown(CfwModes.keyframe(Zl.encodeCfw(packed)))
     }
     var keyframes = 0
@@ -571,12 +576,23 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     }
 
     var lastBatch: List<ByteArray> = emptyList()
+    /** Regions a riding COMMIT held back that still differ from the truth (decisions AA.1): diffed at the next batch. */
+    private var held: Set<Rect> = emptySet()
+    /** Batches that held a region back, and batches that carried a COMMIT beside a drawing sub meeting its areas (the
+     *  defect AA.1's hold prevents: END written over that frame). */
+    var heldBatches = 0
+    val commitOverDraw = ArrayList<Int>()
+    /** Batches that carried a COMMIT while a region was held back — each one a DISCARD under the rule before AA.1. */
+    var heldCommits = 0
+    /** Each batch that carried a COMMIT: its S and the rects of the drawing subs beside it. */
+    val commitBatches = ArrayList<Pair<Int, List<Rect>>>()
 
     fun pump() {
         if (!rules.active) return
         val t = truth()
         if (rollbackAll) { rollbackAll = false; java.util.Arrays.fill(model, 0x7F.toByte()); java.util.Arrays.fill(lastTruth, 0x7F.toByte()) }
         val changed = regions.filter { differs(t, lastTruth, it) }.toMutableSet()
+        changed += held
         if (rules.settleDue(now) && changed.isEmpty() && !rules.owed) {
             val subs = rules.loneSettle(row, now)
             if (subs.isNotEmpty()) emit(subs, emptyList())
@@ -584,24 +600,29 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         }
         if (changed.isEmpty() && !rules.owed) { rules.settleAt()?.let { s -> if (s > now) at(s) { pump() } }; return }
         val plan = rules.plan(row)
-        var denied = emptySet<Int>()
-        var m2: ByteArray
-        var subs: List<Pair<ByteArray, Rect>>
-        while (true) {
-            m2 = model.copyOf()
-            val dirty = HashSet(changed)
-            for (c in plan) if (c.slot !in denied) { paintEnd(m2, c); dirty += BAND; dirty += BADGE }
-            subs = diff(m2, t, dirty)
-            val meets = plan.filter { c -> c.slot !in denied && LocalRules.meets(subs.map { it.second }, subs.map { it.second }, c.areas) }.map { it.slot }
-            if (meets.isEmpty()) break
-            denied = denied + meets
+        val m2 = model.copyOf()
+        val dirty = HashSet(changed)
+        for (c in plan) { paintEnd(m2, c); dirty += BAND; dirty += BADGE }
+        // decisions AA.1: with a COMMIT planned, a region meeting its areas is not drawn in this batch; what still differs
+        // from the truth once END is in the model goes in the next one
+        val hold = if (plan.isEmpty()) emptySet() else regions.filter { r -> plan.any { c -> LocalRules.meets(listOf(r), listOf(r), c.areas) } }.toSet()
+        val subs = diff(m2, t, dirty - hold)
+        held = (dirty intersect hold).filter { differs(m2, t, it) }.toSet()
+        if (held.isNotEmpty()) heldBatches++
+        val tail = rules.tail(row, now, emptySet(), frame = subs.isNotEmpty())
+        for (c in tail) if (c[0].toInt() == 26 && c[1].toInt() == 3) {
+            commitBatches += ((c[3].toInt() and 0xFF) or ((c[4].toInt() and 0xFF) shl 8)) to subs.map { it.second }
+            if (held.isNotEmpty()) heldCommits++
         }
-        val tail = rules.tail(row, now, denied, frame = subs.isNotEmpty())
+        // (read by plain overlap, not by `LocalRules.meets`, so a seeded mutant of that function cannot hide it)
+        if (tail.any { it[0].toInt() == 26 && it[1].toInt() == 3 } && plan.any { c -> c.areas.any { (al, ar) -> subs.any { it.second.overlaps(al) || it.second.overlaps(ar) } } })
+            commitOverDraw += now.toInt()
         model = m2
         lastTruth = t
         // stagings by wire mark, for invariant (1)
         for (s in tail) if (s[0].toInt() == 27 && s[1].toInt() == 2) stagings[s[11].toInt() and 0xFF] = ids.copyOf()
         emit(tail, subs.map { it.first })
+        if (held.isNotEmpty()) pumpSoon()
         rules.settleAt()?.let { s -> if (s > now) at(s) { pump() } }
     }
 
@@ -676,7 +697,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
             if (fresh || true) sim.conformanceMessage(a, write19(tableAt[tableSlot], itemTable(ids)), now)
         }
         drainSent()
-        model = t.copyOf(); lastTruth = t.copyOf()
+        model = t.copyOf(); lastTruth = t.copyOf(); held = emptySet()
         val s0 = if (fresh) 0 else sim.bindForTest(Arm.RIGHT).seq
         rules.sessionStart(true, s0, now, if (covered || window) null else bound, row, rules.taps)
         pump()

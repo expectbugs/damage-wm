@@ -59,7 +59,8 @@ class OracleWalkTest {
      *  per-lens draws, fills, the reseed and a mode-24 hint on every flush whose rows fit, with the
      *  model keeping only the hinted rows on its panel — so a hint that misses a changed row fails
      *  the oracle here (2026-09-15, the second review: the standing gates had never run contract 2). */
-    private class Rig(height: Int, seed: Long, contract: Int = 1, cached: Boolean = false, val stage4: Boolean = false) {
+    private class Rig(height: Int, seed: Long, contract: Int = 1, cached: Boolean = false, val stage4: Boolean = false,
+                      taps: wm.damage.core.local.Taps = wm.damage.core.local.Taps.REPORT) {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val tmp: java.nio.file.Path = Files.createTempDirectory("damage-walk")
         val store = Persistence(tmp.resolve("state.json"))
@@ -75,7 +76,7 @@ class OracleWalkTest {
         val faults = ArrayList<String>()
 
         init {
-            store.put("shell.settings", ShellSettings(heightMode = height, cachedText = if (cached) "on" else "off").toJson())
+            store.put("shell.settings", ShellSettings(heightMode = height, cachedText = if (cached) "on" else "off", taps = taps).toJson())
             // Games is the one real window core can build with no host at all
             shell.register(GamesWindow(FakeText(), scope) { 1_757_000_000_000L })
             shell.register(SurfaceWindow())
@@ -502,24 +503,22 @@ class OracleWalkTest {
     }
 
     /**
-     * Build C2, stage DM2 (decisions B.9): the contract-2 walk on a bit-10 build at stage 4, where the shell stages Main's
-     * list and offers it once counted, with RANDOM LOCAL EVENTS — notches and taps fired through the simulator's input
-     * hook on both lenses (`FIRMWARE.md` §6.2) whenever Main is in front with nothing over it and its list is offered.
-     * The rules (stage DP2) are not in this tree, so the walk stands in for them as conservatively as the contract
-     * allows: the table SET straight into the model when the shell offers a new staging (P1), the lens's cursor put at
-     * the phone's row before each event (what every idle SETTLE does), and every report answered by DISCARD after the
-     * lens has drawn and held the local picture, with the stock message handled as today (P3's "otherwise") — so the
-     * shell repaints. The truth oracle holds at every settle, and the walk must have fired local events that drew.
-     * THE MERGE POINT: with DP2's rules in the tree the stand-in goes, and the shell answers the reports itself.
+     * Build C2 (decisions B.9; stage DI joined the halves): the contract-2 walk on a bit-10 build at stage 4, where the
+     * shell stages Main's list, offers it once counted, and its own rules SET the entries and answer every report — with
+     * RANDOM LOCAL EVENTS: notches and taps fired through the simulator's input hook on both lenses (`FIRMWARE.md` §6.2)
+     * whenever Main is in front with nothing over it and its entries are live on RIGHT, each followed by its stock message
+     * through the transport (the echo, after the 115 the hook sent). Nothing stands in for the rules: the shell adopts,
+     * COMMITs, DISCARDs, SETTLEs and acts as it would on the glasses. One `Taps` value per height (`report`, `glasses`,
+     * `phone`, `report`). The truth oracle holds at every settle, and the walk must have fired local events that drew.
      */
     @Test
-    fun localEventsOnMainsBoundListKeepTheOracle_DM2(): Unit = runBlocking {
-        for (h in ShellSettings.HEIGHTS) {
-            val rig = Rig(h, seed = 0xD2_10CAL + h, contract = 2, cached = true, stage4 = true)
-            val tag = "c2 stage 4 h=$h"
-            var local = 0; var drew = 0; var presses = 0
-            var setList: wm.damage.core.local.BoundList? = null
-            fun toSim(m: ByteArray) { for (arm in Arm.entries) assertTrue(rig.sim.conformanceMessage(arm, m, System.currentTimeMillis()), "$tag: $arm refused ${m[0]}/${m[1]} (${rig.sim.refusalRecord(arm)})") }
+    fun localEventsOnMainsBoundListKeepTheOracle_DI(): Unit = runBlocking {
+        val tapsByHeight = listOf(wm.damage.core.local.Taps.REPORT, wm.damage.core.local.Taps.GLASSES, wm.damage.core.local.Taps.PHONE, wm.damage.core.local.Taps.REPORT)
+        for ((hi, h) in ShellSettings.HEIGHTS.withIndex()) {
+            val taps = tapsByHeight[hi]
+            val rig = Rig(h, seed = 0xD2_10CAL + h, contract = 2, cached = true, stage4 = true, taps = taps)
+            val tag = "c2 stage 4 h=$h taps=${taps.word}"
+            var local = 0; var drew = 0; var presses = 0; var acted = 0
             try {
                 rig.shell.start()
                 rig.settle("$tag boot")
@@ -528,27 +527,21 @@ class OracleWalkTest {
                     rig.settle("$tag before step $step")
                     val offer = if (rig.surface() == "main") rig.shell.sampleIdle { rig.shell.mainBoundForTest() } else null
                     val list = offer?.first
-                    if (list != null && rig.rnd.nextInt(3) != 0) {
-                        if (list !== setList) {
-                            toSim(wm.damage.core.wire.CfwModes.bindClear(0xFF))
-                            for (b in list.sets()) toSim(b)
-                            toSim(list.listMessage(0))
-                            setList = list
-                        }
+                    // the entries live on RIGHT (the rules' SETs landed): ids 4 and 5 at least
+                    val live = list != null && rig.sim.bindForTest(Arm.RIGHT).field39() and 0x30 == 0x30
+                    if (live && rig.rnd.nextInt(3) != 0) {
+                        val e = list!!.entries[rig.rnd.nextInt(list.entries.size)]
                         val row = offer.second
-                        toSim(wm.damage.core.wire.CfwModes.motionDiscard(list.slot, 1, list.list, row))
-                        val e = list.entries[rig.rnd.nextInt(list.entries.size)]
                         val before = rig.sim.bindForTest(Arm.RIGHT).seq
-                        for (arm in Arm.entries) rig.sim.conformanceInput(arm, wm.damage.core.wire.CfwModes.DEV_RING, e.eventId.toLong(), 0, System.currentTimeMillis())
-                        assertEquals((before + 1) and 0xFFFF, rig.sim.bindForTest(Arm.RIGHT).seq, "$tag step $step: the fire took an S on RIGHT")
-                        val f = list.predict(row, e)
-                        if (f is wm.damage.core.local.BoundList.Fire.Drew && f.p != null) { drew++; if (e.isTap) presses++ }
-                        // the lens draws and holds the local picture (a period of steps and one more)
+                        val now = System.currentTimeMillis()
+                        for (arm in Arm.entries) rig.sim.conformanceInput(arm, wm.damage.core.wire.CfwModes.DEV_RING, e.eventId.toLong(), 0, now)
+                        val fired = rig.sim.bindForTest(Arm.RIGHT).seq != before
+                        rig.transport.injectInput(wm.damage.core.local.BoundList.stockEvent(e.eventId)!!)
+                        if (fired && !e.isTap) { val f = list.predict(row, e); if (f is wm.damage.core.local.BoundList.Fire.Drew) drew++ }
+                        if (fired && e.isTap) { acted++; if (taps == wm.damage.core.local.Taps.GLASSES) presses++ }
+                        // the lens draws the local picture to its end (a period of steps and one more)
                         val prog = e.program
                         if (prog != null) delay(((prog.T + 1) * e.period * 1000L / 1024) + 20)
-                        // the conservative answer: DISCARD, then the stock message handled as today (the shell's frame)
-                        toSim(wm.damage.core.wire.CfwModes.motionDiscard(list.slot, 1, list.list, row))
-                        rig.shell.postGesture(wm.damage.core.local.BoundList.stockEvent(e.eventId)!!)
                         local++
                         val where = "$tag step $step (local ${if (e.isTap) "tap" else if (e.step > 0) "down" else "up"} from row $row)"
                         rig.settle(where)
@@ -562,9 +555,10 @@ class OracleWalkTest {
                     rig.settle(where)
                     rig.assertOracle(where)
                 }
-                println("$tag: $local local event(s), $drew drew ($presses press(es)); ${rig.shell.divergencesReported} divergence(s) reported")
-                assertTrue(drew >= 8, "$tag: the walk fired $local local event(s), $drew that drew — it proves less than it claims")
-                assertTrue(presses >= 1, "$tag: no press drew")
+                println("$tag: $local local event(s), $drew notch(es) drew, $acted tap(s) fired the entry ($presses press(es)); " +
+                    "${rig.shell.divergencesReported} divergence(s) reported")
+                assertTrue(drew >= 8, "$tag: the walk fired $local local event(s), $drew notches that drew — it proves less than it claims")
+                if (taps == wm.damage.core.local.Taps.GLASSES) assertTrue(presses >= 1, "$tag: no press drew")
             } finally {
                 rig.stop()
             }

@@ -66,6 +66,8 @@ class LocalSequenceFuzzTest {
         }
         // (8)
         for ((g, n) in h.moves) if (n > 1) failed += "(8) gesture $g moved the row $n times"
+        // (2)'s cause, read directly (decisions AA.1): a COMMIT never rides a batch whose drawing meets its areas
+        if (h.commitOverDraw.isNotEmpty()) failed += "(2) a COMMIT rode a batch with a drawing sub inside its areas at ${h.commitOverDraw}"
         // the fix round's row for the lead (`C2-DP2-built.md`, the fix round, row A): after a COMMIT that did not land on
         // RIGHT alone, RIGHT's shadow lacks END and nothing reports it — its (1) and RIGHT-side (2) are counted apart in
         // random sequences; every other failure stays a failure, and a seeded case counts nothing apart
@@ -164,7 +166,14 @@ class LocalSequenceFuzzTest {
             counted[k] = (counted[k] ?: 0) + 1
         }
         for ((g, k) in h.moves) if (k > 1) failed += "(8) gesture $g moved the row $k times (liveness)"
-        val stats = "outcome %08x keyframes ${h.keyframes} ".format(h.outcome.value) + "taps ${h.rules.taps.word} events $n sent ${h.sent} commits ${h.commitsSent.size} acts ${h.acts.size} " +
+        if (h.commitOverDraw.isNotEmpty()) failed += "(2) a COMMIT rode a batch with a drawing sub inside its areas at ${h.commitOverDraw} (liveness)"
+        // decisions AA.1: the answers that are a COMMIT with the areas' drawing held back — each a DISCARD under the rule before
+        if (h.heldCommits > 0) {
+            counted["AA.1: sequences with a COMMIT that was a DISCARD before"] = (counted["AA.1: sequences with a COMMIT that was a DISCARD before"] ?: 0) + 1
+            counted["AA.1: such COMMITs"] = (counted["AA.1: such COMMITs"] ?: 0) + h.heldCommits
+        }
+        if (h.telemetryAsked > 0) counted["AA.2: sequences with a read asked at a SETTLE"] = (counted["AA.2: sequences with a read asked at a SETTLE"] ?: 0) + 1
+        val stats = "outcome %08x keyframes ${h.keyframes} ".format(h.outcome.value) + "taps ${h.rules.taps.word} events $n sent ${h.sent} commits ${h.commitsSent.size} held ${h.heldCommits} acts ${h.acts.size} " +
             "verdicts ${h.verdicts.groupingBy { it.second::class.simpleName }.eachCount()} counts ${h.rules.counts}"
         return Verdict(failed.distinct(), counted, stats)
     }
@@ -352,9 +361,10 @@ class LocalSequenceFuzzTest {
         h.rest()
     }, extra = { h -> if (h.localsUnderCover > 1) listOf("S17: ${h.localsUnderCover} locals drawn under the cover (the first one only is allowed)") else emptyList() })
 
-    /** S18 (stage DMS's finding, 2026-11-18) — the answer judges a drawing sub by the rect it really writes: (a) an answer
-     *  whose only draw is outside the slot's areas (the clock) is a COMMIT and the local stands to it; (b) a draw that
-     *  really crosses the areas (the badge) turns it to DISCARD. */
+    /** S18 (stage DMS's finding, 2026-11-18; decisions AA.1) — the answer judges a drawing sub by the rect it really writes:
+     *  (a) a draw outside the slot's areas (the clock) rides the COMMIT's own batch and the local stands to it; (b) a draw
+     *  that really crosses the areas (the badge) does not: the answer is still a COMMIT, the badge goes one batch later,
+     *  and belief equals both lenses at rest. */
     @Test fun seededS18a_aDrawOutsideTheAreasKeepsTheCommit() = seeded(Taps.REPORT, live = false, script = { h ->
         h.beforeReport = { h.tick() }
         val g = notch(h)
@@ -362,14 +372,20 @@ class LocalSequenceFuzzTest {
         val s = h.fires[g]?.sR
         assertTrue(s != null && s in h.commitsSent, "S18a: the answer to S $s is a COMMIT (commits ${h.commitsSent})")
         assertTrue(h.stoppedBeforeCommit.isEmpty(), "S18a: ${h.stoppedBeforeCommit}")
+        val with = h.commitBatches.first { it.first == s }.second
+        assertTrue(with.any { it.overlaps(LocalHarness.CLOCK) }, "S18a: the clock's draw rides the COMMIT's batch (beside it: $with)")
     })
 
-    @Test fun seededS18b_aDrawCrossingTheAreasTurnsItToDiscard() = seeded(Taps.REPORT, live = false, script = { h ->
+    @Test fun seededS18b_aDrawCrossingTheAreasWaitsForTheNextBatch() = seeded(Taps.REPORT, live = false, script = { h ->
         h.beforeReport = { h.toggleBadge() }
         val g = notch(h)
         h.rest()
         val s = h.fires[g]?.sR
-        assertTrue(s != null && s !in h.commitsSent, "S18b: the answer to S $s is not a COMMIT")
+        assertTrue(s != null && s in h.commitsSent, "S18b: the answer to S $s is a COMMIT (commits ${h.commitsSent})")
+        val with = h.commitBatches.first { it.first == s }.second
+        assertTrue(with.none { it.overlaps(LocalHarness.BAND) }, "S18b: nothing inside the areas rides the COMMIT's batch (beside it: $with)")
+        assertTrue(h.heldBatches > 0, "S18b: the badge was held back to the next batch")
+        assertTrue(h.truthMismatches().isEmpty(), "S18b: belief equals both lenses with the badge on: ${h.truthMismatches()}")
         h.toggleBadge(); h.rest()
     })
 
@@ -463,6 +479,25 @@ class LocalSequenceFuzzTest {
         h.readTelemetry()
         h.rest()
     }, extra = { h -> if (h.keyframes == 0) listOf("S23: no keyframe was asked") else emptyList() })
+
+    /** S24 (decisions AA.2): the riding LIST refused 14 on RIGHT with a COMMIT behind it, and no telemetry read until the
+     *  minute's. The COMMIT's outcome-3 body never comes, so the burst's lone SETTLE asks for ONE read; its record names
+     *  mode 27 and P1 sends the table again with one keyframe: RIGHT equals the belief within a round after the SETTLE.
+     *  Without the read RIGHT keeps the pre-gesture row until the minute's read. */
+    @Test fun seededS24_aRefusedTailOnRightIsSeenAtTheSettle() = seeded(Taps.REPORT, live = false, script = { h ->
+        h.refuse27On = Arm.RIGHT
+        val t0 = h.now
+        val g = notch(h)
+        h.runUntil(t0 + 120)
+        val s = h.fires[g]?.sR
+        assertTrue(s != null && s in h.commitsSent, "S24: the answer was a COMMIT (commits ${h.commitsSent})")
+        assertTrue(h.induced.any { it.startsWith("RIGHT mode 27") }, "S24: RIGHT refused the batch at its LIST (${h.induced})")
+        h.runUntil(t0 + LocalRules.Q_MS + 400)            // the lone SETTLE, the read's round trip, the keyframe landing
+        val right = h.truthMismatches().filter { it.startsWith("RIGHT") }
+        assertTrue(h.telemetryAsked == 1, "S24: one read asked at the SETTLE (${h.telemetryAsked})")
+        assertTrue(right.isEmpty(), "S24: RIGHT equals the belief within a round after the SETTLE: $right")
+        h.rest()
+    })
 
     /** The coordinator's point 2 (DMS's finding): the transport's CLOSE rule reads only its mirror's instances, and a local
      *  instance never enters the mirror — the mirror applies the phone's bytes and no input (a COMMIT there opens nothing),

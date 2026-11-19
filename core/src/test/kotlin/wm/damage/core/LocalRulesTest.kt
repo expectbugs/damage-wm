@@ -381,6 +381,38 @@ class LocalRulesTest {
         assertEquals(listOf(26 to 5), covered.map { (it[0].toInt() and 0xFF) to it[1].toInt() })
     }
 
+    /** Stage DI (decisions X.2 and Z, `BoundList.names`): Main's band form switched by one item-table write — a new list,
+     *  the same mark and table place, whose `previous` is the list before until that write is acknowledged. The switch
+     *  sends no table message. A report from a fire before the switch names the old form in its P: a notch onto that row is
+     *  adopted and its COMMIT carries the report's own P (the phone holds that picture), a pressed tap there is acted on;
+     *  the new form is named too; a P naming neither is not adopted. */
+    @Test
+    fun aReportNamingTheFormBeforeASwitchIsAdoptedWithItsOwnP_DI() {
+        val l1 = list()
+        val moved = IntArray(8) { recs[it] }.also { it[4] = recs[9] }     // row 4's band form moved to another slot
+        val l2 = BoundList(0, 0, 8, 8, l1.mark, l1.items4, moved, l1.entries).also { it.previous = l1 }
+        val t = R(Taps.GLASSES, l = l1, row = 3)
+        t.r.front(l2, t.row)
+        val sw = t.batch()
+        assertTrue(sw.none { it[0].toInt() == 27 && it[1].toInt() in 0..1 }, "a band switch sends no SET or CLEAR")
+        assertTrue(sw.filter { it[0].toInt() == 27 && it[1].toInt() == 2 }.all { (it[11].toInt() and 0xFF) == t.mark }, "nor a LIST with a fresh mark (the idle SETTLE's riding LIST names the current one)")
+        assertEquals(Verdict.Adopt(4), t.scroll(1, 4, p = intArrayOf(recs[4], 0, 0, 0)), "the old form at row 4: adopted")
+        val c = t.answer(t.batch()).single()
+        assertEquals(3, c[1].toInt(), "a COMMIT")
+        assertEquals(recs[4], u16(c, 10), "the COMMIT carries the report's own P0 (the old form's slot), not the new list's")
+        t.now += LocalRules.Q_MS; t.r.loneSettle(t.row, t.now)
+        assertEquals(Verdict.Act(4), t.tap(2, 4, press = true), "a pressed tap naming the old form: acted on")
+        t.batch()
+        t.now += LocalRules.Q_MS; t.r.loneSettle(t.row, t.now)
+        assertEquals(Verdict.Adopt(3), t.scroll(3, 3, id = CfwModes.EV_DOWNROLL))
+        t.batch(); t.now += LocalRules.Q_MS; t.r.loneSettle(t.row, t.now)
+        assertEquals(Verdict.Adopt(4), t.scroll(4, 4, p = intArrayOf(recs[9], 0, 0, 0)), "the new form at row 4: adopted")
+        t.batch(); t.now += LocalRules.Q_MS; t.r.loneSettle(t.row, t.now)
+        assertEquals(Verdict.Adopt(3), t.scroll(5, 3, id = CfwModes.EV_DOWNROLL))
+        t.batch(); t.now += LocalRules.Q_MS; t.r.loneSettle(t.row, t.now)
+        assertEquals(Verdict.Apply(EvenHubMsg.EV_SCROLL_BOTTOM), t.scroll(6, 4, p = intArrayOf(recs[7], 0, 0, 0)), "a P naming neither form: not adopted")
+    }
+
     @Test
     fun belowStage4NothingIsPlannedOrSent() {
         val r = LocalRules()
