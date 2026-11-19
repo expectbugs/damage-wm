@@ -226,7 +226,12 @@ size** (build C1-Q): the smaller of RIGHT's field 18 and what the start asked �
 earlier session while the other, fresh, allocates at the ask, and only RIGHT reports — and a start asks more than the last
 session's size only when both lenses are known to hold no cache — a lease lapsed on both arms by the phone's own record
 of its acquires (a release is not counted: one the phone's stack took may never reach a lens) — so each lens holds at
-least the session's size. The v1 window addressed by modes
+least the session's size. **The last session's size is kept on the phone's storage across a restart of its process**
+(with the ladder's stage; ruled 2026-11-19, decisions AD.1 and AH.1, read twice): before op 5 goes out the stored
+value becomes the smaller of itself and the ask, after the answer the session's size, written only when it changes —
+at every instant the process can end, each lens that carries a cache holds at least the stored value — and a new
+process's first start, which is never known fresh, asks at most it (160 KiB for a record without the line). The v1
+window addressed by modes
 12/13/14 stays the first 64 KiB; a v2 record or table may lie anywhere in the allocated size. **FLAGS_SET with no
 lease → status 3** (Adam's ruling), and so CACHE_SIZE. Status codes: 0 ok · 1 malformed · 2 unsupported flag · 3 no
 lease · 4 cache allocated · 5 outside 64..160 KiB. **Contract version 2** (FLAGS_SET's meaning changed); DamageCaps features
@@ -703,8 +708,9 @@ on both lenses (the meeting's row 11).
   arm bit 3 or 5 beyond the stage. The 256 KiB size goes out only at a start where both lenses are known to hold no
   cache — a lease lapsed on both arms (87.9 s and a 15 s margin since the last acquire attempted; build C1-Q, §4's op
   5): in daily use the first start after a night in the case — so a stored or probed stage 2 asks no more than the last
-  session's size (160 KiB before the process's first ask) at a renewal, after a Silent Mode wake, after a lens
-  restarted alone and at a process's first start, says why in the start's `cache size:` note, and records no size rung
+  session's size at a renewal, after a Silent Mode wake, after a lens restarted alone and at a process's first start
+  (there the size stored by the last process, §4's op 5 — so an app install after a 256 KiB session asks 256 again;
+  160 KiB for a record that holds none), says why in the start's `cache size:` note, and records no size rung
   until then;
   a lowered stage takes effect at once (the session is the smaller size asked, RIGHT keeping its bigger cache until
   its next release point). Every rung records itself — the time and the stage this build can arm (a build
@@ -2003,3 +2009,5 @@ phone's keeper applies the hold-back rule before re-arming.
   a 256 KiB session a row-form change is switched to a second strip with no withdrawal; a notice on screen is a
   cover; the re-stage pace is one row per 5 s in all. §6.2: the hook's cost with BIND not armed as read at
   instruction level in the candidate image (the flash-readiness review).
+- 2026-11-19 — §4 (op 5), §5.8: the last session's cache size is kept across a restart of the phone's process as a
+  lower bound of every lens's cache (decisions AD.1, AH.1); a new process's first start asks at most it.
