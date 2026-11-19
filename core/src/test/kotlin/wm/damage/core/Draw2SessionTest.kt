@@ -42,7 +42,9 @@ class Draw2SessionTest {
     @AfterTest fun clean() { scope.cancel() }
 
     private val full = Zl.encodeCfw(Pack.rect(Gray8(640, 480), Rect(0, 0, 640, 480)))
-    private val notes = ArrayList<Pair<String, String>>()
+    // a CopyOnWriteArrayList: the assertions print it (`"…: $notes"`) while the collector below still appends — a plain
+    // ArrayList threw ConcurrentModificationException from a message being built (seen once, 2026-11-19)
+    private val notes = java.util.concurrent.CopyOnWriteArrayList<Pair<String, String>>()
     private fun has(kind: String, text: String) = synchronized(notes) { notes.any { it.first == kind && text in it.second } }
     private fun collect(t: CfwTransportBase) {
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
