@@ -184,7 +184,7 @@ class MainSeqTest {
                 val to = cursors[i]
                 val step = to - from
                 assertEquals(0, b[2].toInt(), "PLAY ${i + 1}: slot 0")
-                assertEquals(34, b[3].toInt(), "PLAY ${i + 1}: period 34")
+                assertEquals(42, b[3].toInt(), "PLAY ${i + 1}: the staging's period at 352 (decisions V)")
                 tags += u16(b, 6)
                 progs.getOrPut(step) { HashSet() } += u16(b, 4)
                 assertEquals(listOf(l.lens.y - (from + l.rowsAbove) * l.rowH, bandOff.getValue(to), bandOff.getValue(from), l.lens.bottom - (from + 1 + l.rowsAbove) * l.rowH),
@@ -198,7 +198,7 @@ class MainSeqTest {
             // the note: per notch RIGHT's 114 — every instance drew its six steps, none was closed by a follow-up
             val note = r.notes("mainseq").single { it.startsWith("k=2") }
             println("DMS-journal mainseq: ${r.notes("mainseq").joinToString("\n")}\nDMS-journal stage: ${r.notes("stage").joinToString("\n")}\nDMS-journal atlas: ${r.notes("atlas").takeLast(12).joinToString("\n")}")
-            assertEquals(12, Regex("114 drew drawn (\\d+) folded (\\d+)").findAll(note).count { it.groupValues[1].toInt() + it.groupValues[2].toInt() == 6 }, note)
+            assertEquals(12, Regex("114 drew drawn (\\d+) folded (\\d+)").findAll(note).count { it.groupValues[1].toInt() + it.groupValues[2].toInt() == 5 }, note)   // T 5 at 352 (decisions V)
             // the spacing between PLAYs as sent (the note's "+N ms"; the lane may hold one a little, not space them)
             val sent = Regex("tag 0x[0-9a-f]{4} \\+(\\d+) ms").findAll(note).map { it.groupValues[1].toLong() }.toList()
             val want = MainSeqPlan.plan(listOf(2), 8, pace).map { it.afterMs }
@@ -276,7 +276,7 @@ class MainSeqTest {
             val written = r.notes("stage").count { it.startsWith("Main's") }
             r.shell.devProbe("mainseq", "1")
             r.until("the second test plays") { r.plays.size > after }
-            assertTrue(r.notes("mainseq").any { it.startsWith("Main's 10 records are on the glasses already") }, "${r.notes("mainseq")}")
+            assertTrue(r.notes("mainseq").any { it.startsWith("Main's 11 records are on the glasses already") }, "${r.notes("mainseq")}")
             assertEquals(written, r.notes("stage").count { it.startsWith("Main's") }, "nothing of Main's written again: ${r.notes("stage")}")
             r.sim.injectGesture(EvenHubMsg.EV_SCROLL_TOP)
             r.until("the second test released by the input") { r.notes("mainseq").count { it.startsWith("released — an input event") } == 2 }

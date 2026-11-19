@@ -5178,8 +5178,9 @@ class Shell(
      */
     private val mainBind = MainBinding()
 
-    /** Test introspection, LOOP-ONLY (read inside [sampleIdle]): Main's staging and its counts. */
+    /** Test introspection, LOOP-ONLY (read inside [sampleIdle]): Main's staging and its counts; what Main offers and its row. */
     internal val mainBinding: MainBinding get() = mainBind
+    internal fun mainBoundForTest(): Pair<wm.damage.core.local.BoundList?, Int> = main.bound() to main.row()
 
     /** A staging the region could not hold, by what it was painted for: not painted again until one of those changes. */
     private var mainBindRefusedFor: String? = null
