@@ -201,7 +201,9 @@ class LocalSequenceFuzzTest {
      *  in LEFT's shadow and the next present shows it; before the frame, LEFT never gets the frame. */
     @Test fun seededS2_aDiscardRefusedOnLeftLosesOnlyThePresent() = seeded(Taps.REPORT, script = { h ->
         h.loseNext115 = 1                               // the scroll message is unreported: the row moves, a DISCARD answers
-        h.refuseTailOn = Arm.LEFT
+        // on RIGHT, whose refusal nobody hears (the image lane's ack is LEFT's, and a DISCARD's refusal body names no tag):
+        // on LEFT the refused flush's ack rolls the frame back and paints it again, which hides the order
+        h.refuseTailOn = Arm.RIGHT
         notch(h)
         h.rest()
     })
@@ -365,15 +367,18 @@ class LocalSequenceFuzzTest {
         h.toggleBadge(); h.rest()
     })
 
-    /** S19 (this stage's own finding, marked conservative form): a re-stage's batch refused on LEFT (its word held at the
-     *  LIST) leaves LEFT on the old count; every idle SETTLE naming the new row past it is refused there and ends LEFT's
-     *  batch before its present, so LEFT's panel stops updating — the refused flush's ack makes the phone send the whole
-     *  table again, which heals it. Without that re-send LEFT stays stale with no report to show it. */
-    @Test fun seededS19_aRefusedTableMessageSendsTheTableAgain() = seeded(Taps.REPORT, rows = 7, live = false, script = { h ->
+    /** S19 (this stage's finding, kept after the rulings): a cover's batch refused on LEFT (its word held at the first
+     *  CLEAR) leaves LEFT holding the list's entries under the cover. The refused flush's ack (the image lane's is LEFT's)
+     *  makes the phone send the whole table again — under a cover, CLEAR 0xFF — so LEFT stops matching; without it LEFT
+     *  draws the list's motion over the cover at every notch (no riding message covers an entry). */
+    @Test fun seededS19_aRefusedTableMessageSendsTheTableAgain() = seeded(Taps.REPORT, live = false, script = { h ->
         h.refuse27On = Arm.LEFT
-        h.restage("top+")
+        h.cover()
+        h.runUntil(h.now + 200)
+        repeat(4) { notch(h); h.runUntil(h.now + 300) }
+        h.uncover()
         h.rest()
-    })
+    }, extra = { h -> if (h.localsUnderCover > 1) listOf("S19: LEFT drew ${h.localsUnderCover} locals under the cover (one at most)") else emptyList() })
 
     /** S20 (this stage's fuzz, seed 100100028): a tap that opens a window and a return before the window's batch goes —
      *  the CLEARs owed for the list are superseded by the return (the lens still holds the entries). Sent anyway, they

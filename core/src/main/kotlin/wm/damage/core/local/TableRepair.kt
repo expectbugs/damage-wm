@@ -7,17 +7,20 @@ import wm.damage.core.wire.DamageMsg
  * Build C2, the table repair (`FIRMWARE.md` §6.7, ruled 2026-11-18): a mode 27 that did not land — lost, or refused on
  * one lens — leaves the lens's table different from the phone's belief, and the phone converges on the evidence a later
  * 115 or stock message gives by re-sending the ONE object the evidence names, journaled, in the next batch, after its
- * drawing subs. Each re-send is idempotent (a SET writes its entry whole, a CLEAR removes one, a LIST with shift 0 keeps
- * the cursor or makes it lost, which the slot's DISCARD after it sets), so a spurious one changes nothing.
+ * drawing subs. Each re-send is idempotent (a SET writes its entry whole, a CLEAR removes one), so a spurious one
+ * changes nothing. A stale LIST needs no evidence since the rulings on stage DP2 (`C2-decisions.md` U.1): every answer
+ * naming a list rides behind that list's LIST with shift 0, so a report whose mark is not the phone's is answered by a
+ * DISCARD that carries the LIST again.
  *
  * The evidence for a 115, in this order (the first that holds names the object; a second difference shows at the next
- * report): an entry the phone does not hold → its CLEAR; a mark that is not the phone's → the list's LIST; a tap's form
+ * report): an entry the phone does not hold → its CLEAR; a mark that is not the phone's → nothing more is read (the
+ * answer's riding LIST repairs it, and fields 10–14 from another staging say nothing); a tap's form
  * that disagrees with `Taps` → the tap entry's SET; parameters that differ from the phone's prediction, or a fire refused
  * 5 or 12, with mark and form agreeing → the SET of the entry field 4 names. Then the stock message's: a scroll message
  * applied as unreported when no scroll 115 of that list was handled since the last SETTLE sent → the list's scroll
  * entries' SETs, in the batch that carries the next SETTLE.
  *
- * A batch that already carries a message for the object (a LIST for that list; a SET or CLEAR of that entry) sends no
+ * A batch that already carries a message for the object (a SET or CLEAR of that entry) sends no
  * re-send; a SET is never re-sent for a list that is not in front (the batch that brings it back SETs its entries).
  * State (`FORK.md` §3.8): the owed objects, cleared at the batch that carries them and at a session start; per list,
  * whether a scroll 115 was handled since the last SETTLE sent, cleared at each SETTLE sent. Nothing waits.
@@ -25,7 +28,6 @@ import wm.damage.core.wire.DamageMsg
 class TableRepair {
     sealed class Owed {
         data class Clear(val entry: Int) : Owed()
-        data class ListAgain(val list: Int) : Owed()
         data class Set(val entry: Int) : Owed()
         data class ScrollSets(val list: Int) : Owed()
     }
@@ -44,11 +46,6 @@ class TableRepair {
     fun owedNow(): Boolean = owed.keys.any { it !is Owed.ScrollSets }
     fun owedObjects(): Set<Owed> = owed.keys.toSet()
 
-    /** The lists whose LIST is owed and would go in the next batch (P3: a batch with a LIST for the slot's list answers
-     *  with DISCARD). */
-    fun owedLists(rules: LocalRules): Set<Int> =
-        owed.keys.filterIsInstance<Owed.ListAgain>().map { it.list }.filter { rules.front?.list == it }.toSet()
-
     /** One handled 115's evidence (it never changes how the report is judged). */
     fun onReport(a: DamageMsg.Applied, rules: LocalRules) {
         val entry = a.entry ?: return                    // a 3 or 14 body carries no entry, list or mark: no evidence
@@ -57,11 +54,8 @@ class TableRepair {
         val f = rules.front
         // 1. an entry the phone does not hold (never SET this session, or CLEARed since: a cover, a switch to `phone`)
         if (!rules.holdsEntry(entry)) { owe(Owed.Clear(entry), "entry $entry not held"); return }
-        // 2. a mark that is not the phone's current mark for its list
-        if (a.mark != rules.markOf(list)) {
-            if (f != null && f.list == list) owe(Owed.ListAgain(list), "mark ${a.mark} not ${rules.markOf(list)}")
-            return
-        }
+        // 2. a mark that is not the phone's current mark for its list: the answer's riding LIST (U.1) re-sends it
+        if (a.mark != rules.markOf(list)) return
         val held = rules.heldEntry(entry)?.entry ?: return
         // 3. a tap's form that disagrees with `Taps` (read on outcome 0 and refused 17, the two bodies that carry 10–14 for
         //    an entry with a program)
@@ -105,14 +99,13 @@ class TableRepair {
             owed.remove(o)
             val carriedBy: String? = when (o) {
                 is Owed.Clear -> if (o.entry in clearedEntries || o.entry in setEntries) "the batch's own message" else null
-                is Owed.ListAgain -> if (o.list in listed) "the batch's own LIST" else if (f == null || f.list != o.list) "list not in front" else null
                 is Owed.Set -> if (o.entry in setEntries || o.entry in clearedEntries) "the batch's own message"
                     else if (f == null || rules.heldEntry(o.entry)?.list != f.list || rules.entriesOf(f).none { it.entry == o.entry }) "list not in front" else null
                 is Owed.ScrollSets -> if (f == null || f.list != o.list) "list not in front"
                     else if (rules.entriesOf(f).filter { !it.isTap }.all { it.entry in setEntries }) "the batch's own SETs" else null
             }
             if (carriedBy != null) continue
-            val kind = when (o) { is Owed.Clear -> "clear"; is Owed.ListAgain -> "list"; is Owed.Set -> "set"; is Owed.ScrollSets -> "scrollsets" }
+            val kind = when (o) { is Owed.Clear -> "clear"; is Owed.Set -> "set"; is Owed.ScrollSets -> "scrollsets" }
             sent[kind] = (sent[kind] ?: 0) + 1
             rules.repairNote("evidence=\"$why\" object=$o")
             out += o

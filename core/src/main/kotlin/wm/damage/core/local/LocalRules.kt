@@ -522,8 +522,7 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
     fun settleAt(): Long? = if (active && burstOpen) lastReportMs + Q_MS else null
 
     /** The lists a batch's tail will carry a LIST for. */
-    private fun listsInTail(): Set<Int> = (pending.filterIsInstance<Pending.ListMsg>().map { it.list.list } +
-        repair.owedLists(this)).toSet()
+    private fun listsInTail(): Set<Int> = pending.filterIsInstance<Pending.ListMsg>().map { it.list.list }.toSet()
 
     /**
      * P3, the first half of a batch's answer: the slots whose answer would be a COMMIT — every report of the slot handled
@@ -622,7 +621,6 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         for (o in repair.take(this, settleHere, listed, setEntries, clearedEntries)) when (o) {
             is TableRepair.Owed.Clear -> { out += CfwModes.bindClear(o.entry); held.remove(o.entry); touchedSinceRead += o.entry
                 if (front?.let { tapEntryNo(it) } == o.entry) tapsLive = false }
-            is TableRepair.Owed.ListAgain -> { val f = front!!; out += listMsg(f, 0, false); listed += f.list }
             is TableRepair.Owed.Set -> { val f = front!!; val e = entriesOf(f).first { it.entry == o.entry }
                 out += f.set(e); held[e.entry] = Held(f.list, e); touchedSinceRead += e.entry }
             is TableRepair.Owed.ScrollSets -> { val f = front!!
