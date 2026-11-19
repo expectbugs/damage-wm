@@ -180,6 +180,13 @@ class StagePiecesTest {
             val stageIds = r.spy.sent.filter { it.label == "STAGE" }.map { it.id }.toSet()
             val lastDone = ls.indexOfLast { l -> "\"ev\":\"done\"" in l && stageIds.any { "\"id\":$it," in l } }
             assertTrue(offered > lastDone && lastDone >= 0, "offered (line $offered) after the last piece's ack (line $lastDone)")
+            // and no record is proven (drawable, countable towards the offer) while it is part-written: no proof between
+            // the strip's first piece and its last
+            val stage = r.notes("stage")
+            val first = stage.indexOfFirst { it.startsWith("Main's strip") && "submitted as flush" in it }
+            val n = Regex("""piece 1 of (\d+)""").find(stage[first])!!.groupValues[1].toInt()
+            val last = stage.indexOfFirst { it.startsWith("Main's strip: piece $n of $n") }
+            assertTrue(n >= 2 && last > first && stage.subList(first, last).none { "proved" in it }, "no proof while the strip was part-written: ${stage.subList(first, maxOf(first, last) + 1)}")
         } finally { r.close() }
     }
 

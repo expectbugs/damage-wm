@@ -516,6 +516,35 @@ class MainLocalShellTest {
         } finally { r.close() }
     }
 
+    /** Build SPLIT: a notch fired as a re-stage's first piece reaches the lens (Main bound at 256 KiB, a row form
+     *  changed) opens a burst; the re-stage's later pieces wait for its lone SETTLE — an instance's read ranges cover
+     *  both strip slots and the spare band slot (§5.6) — so the notch is adopted, COMMITted and drawn whole, with no
+     *  snap-back, and the oracle holds. */
+    @Test
+    fun aNotchBetweenARestagesPiecesHoldsTheRestUntilItsBurstEnds_SPLIT(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, kib256 = true)
+        try {
+            r.up()
+            val at = r.right.size
+            var fired: Int? = null
+            r.onAnyImage = { a, img -> if (a == Arm.RIGHT && fired == null && r.cacheWrite(img)) fired = r.fire(CfwModes.EV_UPROLL) }
+            r.rows[3].s = r.rows[3].s.copy(line = "summary 33", detail = "a longer detail line of 3")
+            r.shell.services.requestRender(r.rows[3])
+            r.until("a notch fired as the re-stage's first piece went out", 15_000) { fired != null }
+            r.onAnyImage = null
+            r.until("the re-stage booked", 15_000) { r.notes("mainstage").any { it.startsWith("row 3 re-staged") } }
+            r.settle("the re-stage written")
+            val imgs = r.right.drop(at)
+            val writes = imgs.withIndex().filter { (_, img) -> r.cacheWrite(img) }.map { it.index }
+            assertTrue(writes.size >= 2, "the re-stage went in pieces: ${writes.size}")
+            val settleAt = imgs.withIndex().firstOrNull { (i, img) -> i > writes[0] && r.subs(img).any { r.isSub(it, 26, 5) } }?.index ?: -1
+            assertTrue(settleAt in writes[0] until writes[1], "the second piece after the burst's SETTLE: SETTLE at $settleAt, pieces at $writes")
+            assertTrue(imgs.any { img -> r.subs(img).any { r.isCommit(it, fired!!) } }, "the notch COMMITted")
+            assertTrue(r.notes("snapback").isEmpty(), "no snap-back: ${r.notes("snapback")}")
+            r.assertOracle("after the re-stage")
+        } finally { r.close() }
+    }
+
     /** Decisions AL.5: a ring Input the rules read is no gesture of its own pump (its echo consumed marks nothing; a verdict
      *  that applies or acts on it marks its own); one they do not read (the temples, a typed line) is. */
     @Test
@@ -678,6 +707,18 @@ class MainLocalShellTest {
             val stripB = Regex("""its second slot (\d+) B""").find(staged)?.groupValues?.get(1)?.toInt()
             val switchB = Regex("""re-staged — (\d+) B""").find(restaged)!!.groupValues[1].toInt()
             assertTrue(stripB != null && switchB < stripB / 2, "the second slot staged with the base records ($staged); the switch's flush small ($restaged)")
+            // build SPLIT: the re-stage is booked (the list that names the other strip) only after every piece before its
+            // naming piece was acknowledged — each of those pieces' `done` line comes before the `re-staged` note
+            val ls = Files.readAllLines(r.journal)
+            val bookedAt = ls.indexOfFirst { "\"kind\":\"mainstage\"" in it && "\"detail\":\"row 3 re-staged" in it }
+            val pieceIds = ls.filter { "\"kind\":\"stage\"" in it && "re-stage" in it && "as flush " in it }
+                .map { it.substringAfter("as flush ").takeWhile { c -> c.isDigit() }.toLong() }
+            val n = Regex("""in (\d+) piece""").find(restaged)!!.groupValues[1].toInt()
+            val naming = if ("item table switched" in restaged) 1 else 0
+            assertEquals(n, pieceIds.size, "the re-stage's pieces: $pieceIds")
+            for (id in pieceIds.take(n - naming)) assertTrue(ls.indexOfFirst { "\"ev\":\"done\"" in it && "\"id\":$id," in it } in 0 until bookedAt,
+                "piece flush $id acknowledged before the booking (line $bookedAt)")
+            if (naming == 1) assertTrue(ls.any { "re-stage: piece $n of $n (4 B, naming the rest)" in it }, "the item word alone, last: ${ls.filter { "re-stage" in it && "\"kind\":\"stage\"" in it }}")
         } finally { r.close() }
     }
 
