@@ -2714,7 +2714,7 @@ class Shell(
         val st = transport.state.value
         val f = localFront()
         localFrontNow = f?.second
-        localOnlyFlushes.clear(); localTailFlushes.clear()
+        localOnlyFlushes.clear(); localTailFlushes.clear(); mainBind.tailsForgotten()
         localSettleAt = Long.MAX_VALUE
         mainBindRefusedFor = null                         // AF.6: a staging that did not fit is tried again at every start
         mainBindBlockedSaid = null
@@ -2730,6 +2730,7 @@ class Shell(
             val id = transport.submit(FlushRequest(emptyList(), comp.epoch, label, tail = tail))
             localOnlyFlushes += id
             localTailFlushes += id
+            mainBind.tailSent(id, mainBindEntriesSent())
         } catch (e: Exception) {
             // the link ended between the pump's gate and the submit: the next session's start sends the whole table
             journal.note("local", "a flush of local-input messages was not submitted: ${e.message ?: e::class.simpleName}")
@@ -2899,6 +2900,7 @@ class Shell(
             comp.requestKeyframe()
             post(Msg.Pump)
         }
+        mainBind.tailDone(ev.id, ev.ok)                // AD.2: a strip switch's SETs landed on both lenses (or go again)
         // a refused flush that carried the rules' messages: the whole table again (`LocalRules.tableAgain`, marked)
         if (localTailFlushes.remove(ev.id) && !ev.ok && ev.error?.contains("ImgResCmd") == true && !glassesSilent) {
             local.tableAgain("a flush carrying local-input messages was refused (${ev.error})")
@@ -5435,8 +5437,9 @@ class Shell(
             }
             // decisions AF.4: a band form's old slot is released only when no report can still name it — the switch
             // acknowledged AND no burst open (a report adopted before the ack may still be COMMITted from that slot)
-            // a strip switch (AD.2) is the SETs' too: released once the rules hold the entries that name the new strip
-            b.releaseIfDue(p, r.state == StagedRecord.State.ACKED || r.state == StagedRecord.State.PROVEN, local.burstOpen, mainBindEntriesSent())
+            // a strip switch (AD.2) is the SETs' too: released once the flush carrying the SETs that name the new strip
+            // completed (a fire before a lens applied them draws the old pan; its report precedes that ack)
+            b.releaseIfDue(p, r.state == StagedRecord.State.ACKED || r.state == StagedRecord.State.PROVEN, local.burstOpen)
             if (r.state == StagedRecord.State.PROVEN && p.released) {
                 b.patchCounted(p)
                 stage.remove(r)
@@ -7118,7 +7121,7 @@ class Shell(
                 try {
                     val id = transport.submit(FlushRequest(assembled.ops, assembled.epoch, label,
                         wide = assembled.wide, tail = localTail))
-                    if (localTail.isNotEmpty()) localTailFlushes += id
+                    if (localTail.isNotEmpty()) { localTailFlushes += id; mainBind.tailSent(id, mainBindEntriesSent()) }
                     inflightFlushes[id] = assembled
                     flushesSubmitted++
                     seq?.followUpFor?.let { it.followUp = "flush $id (${assembled.ops.size} op(s))" }
