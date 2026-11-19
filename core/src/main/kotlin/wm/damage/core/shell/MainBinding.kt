@@ -31,7 +31,7 @@ import wm.damage.core.local.BoundList
  * - The withdrawal for a strip write ([withdrawnFor]): the list is not offered from the pump that withdraws it until the
  *   write is submitted, which goes in a LATER pump — the rules' CLEAR rides the flush between (their list in front is
  *   read at the top of every pump's flush section, and the idle step that writes never runs in a pump that flushes).
- * - The re-staging's pace ([RESTAGE_PACE_MS] per row; [VERIFY_PACE_MS]). No wait of its own: the idle pump decides on
+ * - The re-staging's pace ([RESTAGE_PACE_MS] for one row in all, the stalest first; [VERIFY_PACE_MS]). No wait of its own: the idle pump decides on
  *   each pass and asks the loop back when the next row is due; writes only while Main is in front, no burst is open
  *   (P9) and nothing else is in flight (the stage lane's own rule).
  */
@@ -67,7 +67,10 @@ internal class MainBinding {
     private var owed = BooleanArray(0)
     /** A re-stage write of it failed: what the glasses hold there is not known, so it is written again whatever it shows. */
     private var forced = BooleanArray(0)
-    private var lastWriteMs = LongArray(0)
+    /** When each row's re-stage became owed (its staleness, decisions AF.8: the stalest goes first). */
+    private var owedSinceMs = LongArray(0)
+    /** The last re-stage written, any row: ONE row per [RESTAGE_PACE_MS] in all (AF.8, the contract's wording). */
+    private var lastAnyWriteMs = Long.MIN_VALUE / 2
     private var verifyNext = 0
     private var verifyAtMs = 0L
     /** Paints of the full staging that met characters the atlas did not hold yet (the atlas goes first), this attempt. */
@@ -90,7 +93,7 @@ internal class MainBinding {
         patches.clear()
         keys = keysNow.toTypedArray()
         dirty = BooleanArray(ms.rows); owed = BooleanArray(ms.rows); forced = BooleanArray(ms.rows)
-        lastWriteMs = LongArray(ms.rows)
+        owedSinceMs = LongArray(ms.rows)
         verifyNext = 0
         verifyAtMs = nowMs + VERIFY_PACE_MS
         paints = 0
@@ -104,7 +107,7 @@ internal class MainBinding {
         val out = records + patches.map { it.record }
         staging = null; records = emptyList(); list = null; patches.clear(); withdrawnFor = null
         keys = emptyArray()
-        dirty = BooleanArray(0); owed = BooleanArray(0); forced = BooleanArray(0); lastWriteMs = LongArray(0)
+        dirty = BooleanArray(0); owed = BooleanArray(0); forced = BooleanArray(0); owedSinceMs = LongArray(0)
         paints = 0
         return out
     }
@@ -139,15 +142,16 @@ internal class MainBinding {
 
     /** A repaint of [row] found its pictures what the glasses hold. */
     fun same(row: Int) { dirty[row] = false; owed[row] = false }
-    /** A repaint of [row] found them changed: a re-stage is owed. */
-    fun changed(row: Int) { dirty[row] = false; owed[row] = true }
+    /** A repaint of [row] found them changed: a re-stage is owed (since [nowMs], if it was not already). */
+    fun changed(row: Int, nowMs: Long = System.currentTimeMillis()) { dirty[row] = false; if (!owed[row]) owedSinceMs[row] = nowMs; owed[row] = true }
 
-    /** The owed row whose pace allows a write at [nowMs] (the oldest write first), or null; [dueInMs] says when one is. */
-    fun nextOwed(nowMs: Long): Int? = owed.indices.filter { (owed[it] || forced[it]) && nowMs >= lastWriteMs[it] + RESTAGE_PACE_MS && patches.none { p -> !p.released } }
-        .minByOrNull { lastWriteMs[it] }
+    /** The owed row to write at [nowMs], or null: ONE re-stage per [RESTAGE_PACE_MS] in all, the row owed longest first
+     *  (decisions AF.8; `FIRMWARE.md` §6.7 P9 "one row per 5 s"); [dueInMs] says when one is. */
+    fun nextOwed(nowMs: Long): Int? = if (nowMs < lastAnyWriteMs + RESTAGE_PACE_MS || patches.any { p -> !p.released }) null
+        else owed.indices.filter { owed[it] || forced[it] }.minByOrNull { owedSinceMs[it] }
 
-    fun dueInMs(nowMs: Long): Long? = owed.indices.filter { (owed[it] || forced[it]) && patches.none { p -> p.row == it } }
-        .minOfOrNull { lastWriteMs[it] + RESTAGE_PACE_MS - nowMs }?.coerceAtLeast(0L)
+    fun dueInMs(nowMs: Long): Long? = if (owed.indices.none { owed[it] || forced[it] }) null
+        else (lastAnyWriteMs + RESTAGE_PACE_MS - nowMs).coerceAtLeast(0L)
     fun verifyInMs(nowMs: Long): Long? = if (staging == null) null else (verifyAtMs - nowMs).coerceAtLeast(0L)
 
     /** [r]'s writes were submitted as [rec]: the pictures and the item table become [r]'s, the row is current; a band
@@ -160,7 +164,7 @@ internal class MainBinding {
         if (withdrawnFor == r.row) withdrawnFor = null
         patches += Patch(r.row, rec, r)
         owed[r.row] = false; forced[r.row] = false; dirty[r.row] = false
-        lastWriteMs[r.row] = nowMs
+        lastAnyWriteMs = nowMs
         restagedBytes += r.bytes
         restageCount++
     }
@@ -183,8 +187,8 @@ internal class MainBinding {
     fun sameWhileWithdrawn(row: Int) { same(row); if (withdrawnFor == row) withdrawnFor = null }
 
     companion object {
-        /** A row's re-stage at most this often (decisions X.3: one constant, starting at 5 s per row — a row older than
-         *  Main's truth costs nothing but its cell's repaint after the COMMIT); the trial reads the bytes. */
+        /** One re-stage, of any row, at most this often (decisions AF.8, `FIRMWARE.md` §6.7 P9: one row per 5 s — a row
+         *  older than Main's truth costs nothing but its cell's repaint after the COMMIT); the trial reads the bytes. */
         const val RESTAGE_PACE_MS = 5_000L
         /** One row's pictures painted again this often while Main is in front and staged — what a row's key does not
          *  carry (a theme icon that resolved, a face) is found within one round of the rows. */

@@ -1017,7 +1017,8 @@ class Shell(
                 { globalFontRows + hostSettings },
                 { settingsApps() },
                 localInput = { transport.state.value.localInput },
-                localRearm = { transport.devProbe("c1", "4") })
+                localRearm = { transport.devProbe("c1", "4") },
+                bindBuild = { transport.state.value.damageFeatures and wm.damage.core.wire.DamageMsg.FEATURE_BIND != 0 })
             register(settingsWindow)
         }
         for (w in windows) w.onRegistered(services)
@@ -1642,32 +1643,7 @@ class Shell(
             Log.i("shell", "non-ring gesture $type from source $source ignored (§1)")
             return
         }
-        val newEcho = when (type) {
-            // a FIXED vocabulary (`InputEcho`): the status cell is measured for it
-            EvenHubMsg.EV_CLICK -> InputEcho.TAP
-            EvenHubMsg.EV_DOUBLE_CLICK -> InputEcho.DOUBLE
-            EvenHubMsg.EV_SCROLL_TOP -> InputEcho.UP
-            EvenHubMsg.EV_SCROLL_BOTTOM -> InputEcho.DOWN
-            EvenHubMsg.EV_RING_LONG_PRESS -> InputEcho.HOLD
-            // a bare release means "a touch ended" and follows almost every
-            // swipe (HANDOFF.md §11): echoing it would permanently overwrite
-            // the last real gesture, so it echoes only when a chord is armed
-            EvenHubMsg.EV_RING_LONG_PRESS_RELEASE ->
-                if (chordArmedAtMs != 0L) InputEcho.RELEASE else inputEcho
-            else -> InputEcho.unknown(type)
-        }
-        if (newEcho != inputEcho) {
-            inputEcho = newEcho          // input echo rides the next flush (§9.2)
-            chromeDirty = true
-        }
-        // input restarts the grace and the rest transition (§4.5, §4.2)
-        restGen++
-        scheduleRest()
-        if (main.resting) {
-            main.resting = false
-            if (mode == Mode.MAIN) composeContent()
-        }
-        if (notifications.active && !notifications.focused && !quiet) scheduleGrace()
+        gestureBookkeeping(type)
 
         // EXCLUSIVE (§4.9): the same law as silent — everything swallowed
         // except double-tap, which returns to the window; the chord never arms
@@ -1767,6 +1743,41 @@ class Shell(
             EvenHubMsg.EV_DOUBLE_CLICK -> backFocused()
             EvenHubMsg.EV_RING_LONG_PRESS_RELEASE -> {}      // banked, unused (§1.2)
         }
+    }
+
+    /** What every gesture does before its own effect (decisions AF.3: one function, called by `handleInput` and by an
+     *  adopted 115): the dev probes end, the input echo, the rest and the notice's grace restart, Main wakes, and a scroll
+     *  or a tap ends the long-press chord. */
+    private fun gestureBookkeeping(type: Int) {
+        if (testHold) releaseHold("an input event")     // the `hold=on` dev probe never outlives a gesture
+        mainSeq?.let { mainSeqEnd(it, "an input event") }  // nor does the `mainseq` probe's scroll test
+        if (type == EvenHubMsg.EV_SCROLL_TOP || type == EvenHubMsg.EV_SCROLL_BOTTOM || type == EvenHubMsg.EV_CLICK) chordArmedAtMs = 0L
+        val newEcho = when (type) {
+            // a FIXED vocabulary (`InputEcho`): the status cell is measured for it
+            EvenHubMsg.EV_CLICK -> InputEcho.TAP
+            EvenHubMsg.EV_DOUBLE_CLICK -> InputEcho.DOUBLE
+            EvenHubMsg.EV_SCROLL_TOP -> InputEcho.UP
+            EvenHubMsg.EV_SCROLL_BOTTOM -> InputEcho.DOWN
+            EvenHubMsg.EV_RING_LONG_PRESS -> InputEcho.HOLD
+            // a bare release means "a touch ended" and follows almost every
+            // swipe (HANDOFF.md §11): echoing it would permanently overwrite
+            // the last real gesture, so it echoes only when a chord is armed
+            EvenHubMsg.EV_RING_LONG_PRESS_RELEASE ->
+                if (chordArmedAtMs != 0L) InputEcho.RELEASE else inputEcho
+            else -> InputEcho.unknown(type)
+        }
+        if (newEcho != inputEcho) {
+            inputEcho = newEcho          // input echo rides the next flush (§9.2)
+            chromeDirty = true
+        }
+        // input restarts the grace and the rest transition (§4.5, §4.2)
+        restGen++
+        scheduleRest()
+        if (main.resting) {
+            main.resting = false
+            if (mode == Mode.MAIN) composeContent()
+        }
+        if (notifications.active && !notifications.focused && !quiet) scheduleGrace()
     }
 
     private fun handleNotificationGesture(type: Int) {
@@ -2638,16 +2649,22 @@ class Shell(
     private val localTailFlushes = HashSet<Long>()
     private var localSettleAt = Long.MAX_VALUE
 
-    /** The bound list in front with nothing drawn over it (§6.7): the surface's own, while Main is in front and no menu,
-     *  switcher, keyboard or focused notice covers it. */
+    /** Main in front with nothing drawn over it (§6.7): no menu, switcher or keyboard, and no notice up at all — focused,
+     *  floating, unfurling or furling (decisions AF.1: its box lies over the list's rows). */
+    private fun localUncovered(): Boolean = mode == Mode.MAIN && !menu.open && !switcher.open && !keyboard.open &&
+        !notifications.active && !notifications.animating
+
+    /** The bound list in front with nothing drawn over it: the surface's own while it is uncovered and offered. */
     private fun localFront(): Pair<wm.damage.core.local.BoundSurface, wm.damage.core.local.BoundList>? {
-        if (mode != Mode.MAIN || menu.open || switcher.open || keyboard.open || (notifications.active && notifications.focused)) return null
+        if (!localUncovered()) return null
         val sfc = boundSurface() ?: return null
         val b = sfc.bound() ?: return null
         return sfc to b
     }
 
-    private fun localRow(): Int = localFront()?.first?.row() ?: -1
+    /** The row the rules read: the surface's own whenever it is uncovered, offered or not — a withdrawn list's row stays
+     *  current, so a DISCARD naming it is right (decisions AF.2) — and −1 under a cover, where it cannot move. */
+    private fun localRow(): Int = if (localUncovered()) boundSurface()?.row() ?: -1 else -1
 
     /** The list in front, told to the rules in the pump that draws its change (a cover's CLEAR, a return's SET). */
     private fun syncLocalFront() {
@@ -2664,14 +2681,19 @@ class Shell(
     private fun localVerdict(v: wm.damage.core.local.LocalRules.Verdict) {
         when (v) {
             wm.damage.core.local.LocalRules.Verdict.Nothing -> {}
-            is wm.damage.core.local.LocalRules.Verdict.Apply -> handleInput(v.type, EvenHubMsg.SRC_RING)
+            is wm.damage.core.local.LocalRules.Verdict.Apply -> { asInput(); handleInput(v.type, EvenHubMsg.SRC_RING) }
             is wm.damage.core.local.LocalRules.Verdict.Adopt -> {
+                // an adopted notch is a gesture as any other (decisions AF.3): the same bookkeeping as `handleInput`'s, the
+                // cursor saved to the record; its picture is the lens's own, so no slide and no input slot (its COMMIT
+                // needs none)
+                val was = boundSurface()?.row() ?: v.row
                 boundSurface()?.setRow(v.row)
-                restGen++; scheduleRest()                     // an adopted notch is input as any other
-                main.resting = false                          // ...so it wakes Main from its rest, as `handleInput` does
+                gestureBookkeeping(if (v.row < was) EvenHubMsg.EV_SCROLL_TOP else EvenHubMsg.EV_SCROLL_BOTTOM)
+                scheduleSave()
                 composeContent()
             }
             is wm.damage.core.local.LocalRules.Verdict.Act -> {
+                asInput()
                 val sfc = boundSurface()
                 if (sfc != null && sfc.row() != v.row) sfc.setRow(v.row)
                 handleInput(EvenHubMsg.EV_CLICK, EvenHubMsg.SRC_RING)
@@ -2679,6 +2701,10 @@ class Shell(
         }
         post(Msg.Pump)
     }
+
+    /** Decisions AF.8: an act or a gesture applied from a 115 (not from the stock message, which is an input message of
+     *  its own) is input — its first flush may take the reserved slot, and the journal marks it so the trial prices it. */
+    private fun asInput() { pumpPriority = true; inputFlushPending = true }
 
     /** P1: a session start — S_heard, the arming uptime, the start's bind batch owed to the first flush (the keyframe's
      *  tail, in stream order after it). */
@@ -2688,6 +2714,8 @@ class Shell(
         localFrontNow = f?.second
         localOnlyFlushes.clear(); localTailFlushes.clear()
         localSettleAt = Long.MAX_VALUE
+        mainBindRefusedFor = null                         // AF.6: a staging that did not fit is tried again at every start
+        mainBindBlockedSaid = null
         local.sessionStart(st.bind && st.leaseHeld, st.bindSHeard0, st.bindArmUptime, f?.second, f?.first?.row() ?: -1, settings.taps)
         if (st.bind) journal.note("local", "session start: S_heard ${st.bindSHeard0}, armed at uptime ${st.bindArmUptime}, " +
             "list in front ${f?.second?.list ?: "none"}, Taps ${settings.taps.word}")
@@ -4951,7 +4979,9 @@ class Shell(
 
     private fun holdProbe(value: String) {
         when (value) {
-            "on" -> if (testHold) journal.note("hold", "hold=on — already holding") else {
+            // decisions AF.3: refused while BIND is in force — a hold would keep the rules' answers and SETTLEs from going
+            "on" -> if (transport.state.value.bind) journal.note("hold", "hold=on not taken — BIND is in force (stage 4)")
+            else if (testHold) journal.note("hold", "hold=on — already holding") else {
                 testHold = true
                 journal.note("hold", "holding — no frame is submitted until hold=off, an input event or the session's end")
             }
@@ -5328,6 +5358,8 @@ class Shell(
 
     /** A staging the region could not hold, by what it was painted for: not painted again until one of those changes. */
     private var mainBindRefusedFor: String? = null
+    /** The last reason Main was not staged that the journal was told (AF.9), cleared at a session start. */
+    private var mainBindBlockedSaid: String? = null
     private var mainBindWakeAtMs = 0L
     /** Pumps so far: a strip write goes in a later pump than the withdrawal that let the rules' CLEAR go first. */
     private var mainBindPumps = 0L
@@ -5392,8 +5424,10 @@ class Shell(
                 mainBindDrop("row ${p.row}'s re-stage left the stage registry before it was counted (the stage notes say why)")
                 return
             }
-            if (r.state == StagedRecord.State.ACKED || r.state == StagedRecord.State.PROVEN) b.switchAcked(p)
-            if (r.state == StagedRecord.State.PROVEN) {
+            // decisions AF.4: a band form's old slot is released only when no report can still name it — the switch
+            // acknowledged AND no burst open (a report adopted before the ack may still be COMMITted from that slot)
+            if ((r.state == StagedRecord.State.ACKED || r.state == StagedRecord.State.PROVEN) && !local.burstOpen) b.switchAcked(p)
+            if (r.state == StagedRecord.State.PROVEN && p.released) {
                 b.patchCounted(p)
                 stage.remove(r)
                 stageRecount()
@@ -5425,7 +5459,13 @@ class Shell(
     /** The idle pump's step for Main's list, after the atlas's: a staging painted and placed, one record written, a row
      *  painted again, or a row's re-stage written. True when it did something. */
     private suspend fun pumpMainBind(st: LinkState): Boolean {
-        if (mainBindBlocked(st) != null) return false
+        val blocked = mainBindBlocked(st)
+        // decisions AF.9: why Main is not staged, once per reason, while BIND is in force and Main is in front
+        if (st.bind && mode == Mode.MAIN && blocked != mainBindBlockedSaid) {
+            mainBindBlockedSaid = blocked
+            if (blocked != null) journal.note("mainstage", "not staged — $blocked; Main's scrolls and taps go as today until it is")
+        }
+        if (blocked != null) return false
         if (atlasInFlight != null || atlasQueue.isNotEmpty() || atlasLapsedOwed || atlasCheckInFlight) return false
         if (stageInFlight != null || ledgerReadInFlight) return false
         if (st.inFlight != 0 || comp.hasPending || comp.needsKeyframe) return false
@@ -5454,7 +5494,9 @@ class Shell(
         val region = mainBindRegion(st)
         val (listD, bandD) = mainBindPlanes()
         val n = mainRows().size
-        val what = "$layout $listD/$bandD $n ${region.first}..${region.last} ${st.cacheSize}"
+        // decisions AF.6: the rows' content is part of what a refusal is keyed on — a staging that did not fit is tried
+        // again when what it was sized for changes (and at every session start)
+        val what = "$layout $listD/$bandD $n ${region.first}..${region.last} ${st.cacheSize} ${List(n) { main.rowKey(it) }.hashCode()}"
         if (mainBindRefusedFor == what) return false
         val ct = cachedText
         val want0 = ct?.wantVersion; val seen0 = ct?.seenVersion
