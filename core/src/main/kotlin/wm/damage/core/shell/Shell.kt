@@ -5170,11 +5170,14 @@ class Shell(
      * places its records — in the shared stage reserve at 160 KiB (the document's strips go; Reader stages again on its
      * return), in Main's own region at 256 ([CfwModes.mainRegion]) — and writes them through the stage lane; once the
      * count (field 17) has proven every one, `MainSurface.bound()` offers the list and the rules SET its entries. A row
-     * whose picture changes is painted again and re-staged in place, paced per row, only while no burst is open; until it
-     * is, the list says the row is stale ([wm.damage.core.local.BoundList.staleAt]). A full re-stage (the layout, the
-     * planes, the rows or the region changed, a row outgrew its slot) withdraws the list first: the rules' CLEAR rides the
-     * next flush, and the idle step that writes never runs in a pump that flushes, so the CLEAR precedes the overwrite in
-     * stream order (P9). The envelope is [MainBinding]'s.
+     * whose picture changes is painted again and re-staged, paced per row ([MainBinding.RESTAGE_PACE_MS]), only while
+     * no burst is open and nothing is in flight, and never under a table that still names what is written (decisions
+     * X.2): its band form goes into a free slot and the one item-table word that names it follows in the same flush (the
+     * report's P names the slot drawn, before and after); its strip segments go only with the list withdrawn — the rules'
+     * CLEAR rides a flush between, since the idle step that writes never runs in a pump that flushes, and the SETs come
+     * back after the write. A row older than Main's truth is not a reason to discard (X.1). A full re-stage (the layout,
+     * the planes, the rows or the region changed, a row outgrew its slot) withdraws the list the same way. The envelope
+     * is [MainBinding]'s.
      */
     private val mainBind = MainBinding()
 
@@ -5185,6 +5188,8 @@ class Shell(
     /** A staging the region could not hold, by what it was painted for: not painted again until one of those changes. */
     private var mainBindRefusedFor: String? = null
     private var mainBindWakeAtMs = 0L
+    /** Pumps so far: a strip write goes in a later pump than the withdrawal that let the rules' CLEAR go first. */
+    private var mainBindPumps = 0L
 
     /** Main's planes as `updatePlanes` gives them while Main is in front with nothing over it: the list at the Global
      *  `Depth`, the band one notch nearer, never nearer than the screen plane (0 / 0 at Depth 0). Read from the setting,
@@ -5226,6 +5231,7 @@ class Shell(
     /** Each pump, before anything asks: the staging checked against Main as it is now, the re-stages the count has
      *  judged, and what `MainSurface` offers. */
     private fun mainBindPoll(st: LinkState) {
+        mainBindPumps++
         val b = mainBind
         val ms = b.staging
         if (ms == null) { main.offered = null; return }
@@ -5242,15 +5248,18 @@ class Shell(
         for (p in b.patches.toList()) {
             val r = stage.records[p.record.key]
             if (r !== p.record) {
-                b.patchLost(p)
-                journal.note("mainstage", "row ${p.row}'s re-stage left the stage registry before it was counted (the stage notes say why) — it is written again")
-            } else if (r.state == StagedRecord.State.PROVEN) {
+                // a write failed or the count called it short: what the item table and the slots hold is not known
+                mainBindDrop("row ${p.row}'s re-stage left the stage registry before it was counted (the stage notes say why)")
+                return
+            }
+            if (r.state == StagedRecord.State.ACKED || r.state == StagedRecord.State.PROVEN) b.switchAcked(p)
+            if (r.state == StagedRecord.State.PROVEN) {
                 b.patchCounted(p)
                 stage.remove(r)
                 stageRecount()
             }
         }
-        val offer = if (st.bind && b.counted) b.list else null
+        val offer = if (st.bind && b.counted && b.withdrawnFor == null) b.list else null
         if (offer !== main.offered) {
             main.offered = offer
             if (offer != null) journal.note("mainstage", "offered — Main's ${ms.rows} rows counted on the glasses: list ${offer.list} slot ${offer.slot} " +
@@ -5291,6 +5300,8 @@ class Shell(
         if (!b.counted) return false
         b.verifyDue(now)
         b.nextDirty()?.let { row -> return mainBindRow(st, ms, row, write = false, now) }
+        // a withdrawn list's strip write, in a pump after the one that withdrew it (the rules' CLEAR went between)
+        b.withdrawnFor?.let { row -> return if (mainBindPumps > b.withdrawnAtPump) mainBindRow(st, ms, row, write = true, now) else false }
         if (!mainBindBurstOpen()) b.nextOwed(now)?.let { row -> return mainBindRow(st, ms, row, write = true, now) }
         listOfNotNull(b.dueInMs(now), b.verifyInMs(now)).minOrNull()?.let { wait ->
             if (mainBindWakeAtMs <= now || now + wait < mainBindWakeAtMs) { mainBindWakeAtMs = now + wait; pumpAfter(wait) }
@@ -5359,19 +5370,27 @@ class Shell(
             return true
         }
         when (r) {
-            MainStaging.Restage.Same -> { mainBind.same(row); post(Msg.Pump) }
+            MainStaging.Restage.Same -> { mainBind.sameWhileWithdrawn(row); post(Msg.Pump) }
             is MainStaging.Restage.Outgrown -> mainBindDrop("a full staging is owed (a new mark): ${r.why}")
-            is MainStaging.Restage.Changed -> if (!write) { mainBind.changed(row); post(Msg.Pump) } else {
+            is MainStaging.Restage.Changed -> if (!write) { mainBind.changed(row); post(Msg.Pump) }
+            else if (r.strip.isNotEmpty() && mainBind.withdrawnFor != row) {
+                // the strip is named only inside the pan programs: its segments are written with no entry live (X.2)
+                mainBind.withdraw(row, mainBindPumps)
+                main.offered = null
+                journal.note("mainstage", "withdrawn — row $row's row form changed: its strip segment(s) go once the entries are cleared, and the list is offered again after them")
+                post(Msg.Pump)
+            } else {
                 val key = MainStageKey(ms, MainBinding.PATCH_KEY + row, "row $row's re-stage")
                 val bytes = ByteArray(r.bytes).also { out -> var o = 0; for (w in r.writes) { w.bytes.copyInto(out, o); o += w.bytes.size } }
                 val rec = StagedRecord(key, Gray8(1, 1), bytes).also { it.off = r.writes.first().off }
                 stage.records[key] = rec
                 stageSubmit(rec, st, r.writes.map { it.off to it.bytes })
-                if (rec.state != StagedRecord.State.SENT) return true    // not submitted: said there, the row stays owed
+                if (rec.state != StagedRecord.State.SENT) { mainBind.notWritten(row); return true }   // not submitted: said there, the row stays owed
                 mainBind.submitted(r, rec, now)
                 stageRecount()
-                journal.note("mainstage", "row $row re-staged in place — ${r.bytes} B in ${r.writes.size} write(s) (${r.writes.joinToString { it.what }}), " +
-                    "mark kept; ${mainBind.restageCount} re-stage(s), ${mainBind.restagedBytes} B this process")
+                journal.note("mainstage", "row $row re-staged — ${r.bytes} B in one flush (${r.writes.joinToString { "${it.what} ${it.bytes.size} B" }})" +
+                    (r.band?.let { m -> "; its band form moved to off4 ${m.off / 4}, the item table switched by one write, the old slot free once acknowledged" } ?: "") +
+                    "; mark kept; ${mainBind.restageCount} re-stage(s), ${mainBind.restagedBytes} B this process")
             }
         }
         return true

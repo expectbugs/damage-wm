@@ -21,12 +21,19 @@ import wm.damage.core.local.BoundList
  *   pump. (f) Its siblings: Page staging (the same registry and lane), the `mainseq` probe (refused while BIND is in
  *   force: no PLAY into a bound slot, P9).
  * - A row's stale mark ([stale]: [dirty], [owed], [forced]). Set by a key change at a compose ([keysChanged]), the
- *   round-robin repaint ([verifyDue]) and a re-stage write that failed; cleared when its re-stage is submitted (stream
- *   order: a COMMIT the rules send after it reads the new bytes, `FIRMWARE.md` §6.1) or a repaint shows nothing changed.
- *   Read by the rules through [BoundList.staleAt]. Never persisted: a staging is a session's.
+ *   round-robin repaint ([verifyDue]) and a re-stage write that failed; cleared when its re-stage is submitted or a
+ *   repaint shows nothing changed. It decides only what is re-staged: a row older than Main's truth is NOT a reason to
+ *   discard (decisions X.1 — the phone's END is taken from its own copy of the staged records, so belief equals what
+ *   the lens drew; the ordinary repaint brings the changed cell). Never persisted: a staging is a session's.
+ * - A band switch ([previous] on the list, the retired slot): set when its flush is submitted, released when that flush
+ *   is acknowledged (no later report names the old slot; a later write into it follows the switch in stream order);
+ *   a switch whose write is not counted drops the staging (what the item table holds is then not known).
+ * - The withdrawal for a strip write ([withdrawnFor]): the list is not offered from the pump that withdraws it until the
+ *   write is submitted, which goes in a LATER pump — the rules' CLEAR rides the flush between (their list in front is
+ *   read at the top of every pump's flush section, and the idle step that writes never runs in a pump that flushes).
  * - The re-staging's pace ([RESTAGE_PACE_MS] per row; [VERIFY_PACE_MS]). No wait of its own: the idle pump decides on
- *   each pass and asks the loop back when the next row is due; writes only while no burst is open (P9) and nothing else
- *   is in flight (the stage lane's own rule).
+ *   each pass and asks the loop back when the next row is due; writes only while Main is in front, no burst is open
+ *   (P9) and nothing else is in flight (the stage lane's own rule).
  */
 internal class MainBinding {
     var staging: MainStaging? = null
@@ -38,9 +45,19 @@ internal class MainBinding {
     var list: BoundList? = null
         private set
     private var markNext = 1
+    private var mark = 0
+
+    /** The row whose strip segments wait for their write with the list withdrawn, and the pump that withdrew it. */
+    var withdrawnFor: Int? = null
+        private set
+    var withdrawnAtPump = 0L
+        private set
 
     /** A row's re-stage in flight or acked and not yet counted: the registry's record and what it wrote. */
-    class Patch(val row: Int, val record: StagedRecord, val restage: MainStaging.Restage.Changed)
+    class Patch(val row: Int, val record: StagedRecord, val restage: MainStaging.Restage.Changed) {
+        /** Its band switch has been acknowledged and the old slot released. */
+        var released = false
+    }
     val patches = ArrayList<Patch>()
 
     private var keys: Array<Any?> = emptyArray()
@@ -66,8 +83,10 @@ internal class MainBinding {
     fun begin(ms: MainStaging, recs: List<StagedRecord>, keysNow: List<Any?>, nowMs: Long) {
         staging = ms
         records = recs
-        list = ms.boundList(markNext) { e, c -> staleAt(e, c) }
+        mark = markNext
+        list = ms.boundList(mark)
         markNext = (markNext % 0xFF) + 1                 // a u8, never 0 twice in a row
+        withdrawnFor = null
         patches.clear()
         keys = keysNow.toTypedArray()
         dirty = BooleanArray(ms.rows); owed = BooleanArray(ms.rows); forced = BooleanArray(ms.rows)
@@ -83,7 +102,7 @@ internal class MainBinding {
      *  were, for that. */
     fun drop(): List<StagedRecord> {
         val out = records + patches.map { it.record }
-        staging = null; records = emptyList(); list = null; patches.clear()
+        staging = null; records = emptyList(); list = null; patches.clear(); withdrawnFor = null
         keys = emptyArray()
         dirty = BooleanArray(0); owed = BooleanArray(0); forced = BooleanArray(0); lastWriteMs = LongArray(0)
         paints = 0
@@ -96,12 +115,8 @@ internal class MainBinding {
     fun stale(row: Int): Boolean = row in dirty.indices && (dirty[row] || owed[row] || forced[row])
     val staleRows: List<Int> get() = dirty.indices.filter { stale(it) }
 
-    /** [BoundList.staleAt]: a fire of [e] landing at [cPrime] draws a stale row. */
-    private fun staleAt(e: BoundList.Entry, cPrime: Int): Boolean {
-        val ms = staging ?: return false
-        if (cPrime !in 0 until ms.rows) return false
-        return ms.rowsDrawn(e, cPrime).any { stale(it) }
-    }
+    /** The list is withdrawn so that row [row]'s strip segments can be written (no table names the strip then). */
+    fun withdraw(row: Int, pump: Long) { withdrawnFor = row; withdrawnAtPump = pump }
 
     /** At a compose of Main: the rows whose key ([MainSurface.rowKey]) changed are marked for a repaint. */
     fun keysChanged(keysNow: List<Any?>) {
@@ -128,16 +143,21 @@ internal class MainBinding {
     fun changed(row: Int) { dirty[row] = false; owed[row] = true }
 
     /** The owed row whose pace allows a write at [nowMs] (the oldest write first), or null; [dueInMs] says when one is. */
-    fun nextOwed(nowMs: Long): Int? = owed.indices.filter { (owed[it] || forced[it]) && nowMs >= lastWriteMs[it] + RESTAGE_PACE_MS && patches.none { p -> p.row == it } }
+    fun nextOwed(nowMs: Long): Int? = owed.indices.filter { (owed[it] || forced[it]) && nowMs >= lastWriteMs[it] + RESTAGE_PACE_MS && patches.none { p -> !p.released } }
         .minByOrNull { lastWriteMs[it] }
 
     fun dueInMs(nowMs: Long): Long? = owed.indices.filter { (owed[it] || forced[it]) && patches.none { p -> p.row == it } }
         .minOfOrNull { lastWriteMs[it] + RESTAGE_PACE_MS - nowMs }?.coerceAtLeast(0L)
     fun verifyInMs(nowMs: Long): Long? = if (staging == null) null else (verifyAtMs - nowMs).coerceAtLeast(0L)
 
-    /** [r]'s writes were submitted as [rec]: the pictures become [r]'s and the row is current. */
+    /** [r]'s writes were submitted as [rec]: the pictures and the item table become [r]'s, the row is current; a band
+     *  move makes a new list (same mark) whose [BoundList.previous] is the one before, until [switchAcked]; a withdrawal
+     *  ends (the list is offered again: its SETs ride a later flush, after these writes in stream order). */
     fun submitted(r: MainStaging.Restage.Changed, rec: StagedRecord, nowMs: Long) {
-        staging!!.apply(r)
+        val ms = staging!!
+        ms.apply(r)
+        if (r.band != null) list = ms.boundList(mark, previous = list)
+        if (withdrawnFor == r.row) withdrawnFor = null
         patches += Patch(r.row, rec, r)
         owed[r.row] = false; forced[r.row] = false; dirty[r.row] = false
         lastWriteMs[r.row] = nowMs
@@ -145,17 +165,27 @@ internal class MainBinding {
         restageCount++
     }
 
-    /** A re-stage's record left the registry before it was counted (its write failed, a shortfall, a re-base): what the
-     *  glasses hold there is not known — written again. */
-    fun patchLost(p: Patch) { patches.remove(p); if (p.row in forced.indices) forced[p.row] = true }
+    /** A re-stage's flush was acknowledged: its band switch (if any) is released — the old slot is free again and the
+     *  list forgets its [BoundList.previous]. */
+    fun switchAcked(p: Patch) {
+        if (p.released) return
+        p.released = true
+        p.restage.band?.let { m -> staging?.release(m.oldOff4); list?.previous = null }
+    }
 
     /** A re-stage's record was counted: it leaves the books (its bytes are the staging's now). */
     fun patchCounted(p: Patch) { patches.remove(p) }
 
+    /** A row's re-stage was not written ([withdrawnFor] cleared: the row stays owed). */
+    fun notWritten(row: Int) { if (withdrawnFor == row) withdrawnFor = null }
+
+    /** The repaint of a withdrawn row found nothing to write: the list is offered again. */
+    fun sameWhileWithdrawn(row: Int) { same(row); if (withdrawnFor == row) withdrawnFor = null }
+
     companion object {
-        /** A row's re-stage at most this often (decisions B.4: "one constant, start at 2 s per row"): a row that changes
-         *  every second does not double Main's traffic; the trial reads the bytes and `snapback cause=restaged`. */
-        const val RESTAGE_PACE_MS = 2_000L
+        /** A row's re-stage at most this often (decisions X.3: one constant, starting at 5 s per row — a row older than
+         *  Main's truth costs nothing but its cell's repaint after the COMMIT); the trial reads the bytes. */
+        const val RESTAGE_PACE_MS = 5_000L
         /** One row's pictures painted again this often while Main is in front and staged — what a row's key does not
          *  carry (a theme icon that resolved, a face) is found within one round of the rows. */
         const val VERIFY_PACE_MS = 5_000L

@@ -37,7 +37,9 @@ class MainBindTest {
      * directions [wm.damage.core.local.BoundList.predict] equals what the simulator's fire reports in fields 5, 8,
      * 10–14; the last step is Main's own paint at the moved cursor in the program's areas; COMMIT's END in the shadow is
      * what belief takes; the press's END is the band row at the cursor drawn one notch forward; the report-only entry
-     * draws nothing; a row re-staged in place keeps the mark and a notch onto it lands on its new paint.
+     * draws nothing; and keeping rows current (decisions X): a band form moved to a free slot — a notch before the switch
+     * named and committed after it, one after it on the new slot; a row form written with the entries cleared; a row
+     * stale by several changes committed from the staged copies, then repainted.
      */
     @Test
     fun theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2() {
@@ -45,7 +47,7 @@ class MainBindTest {
         for (line in r.table) println("DM2-staging $line")
         for (c in r.cases) for (l in c.lines.take(2)) println("DM2-case ${c.name}: $l")
         assertTrue(r.failures.isEmpty(), "failures:\n" + r.failures.take(40).joinToString("\n"))
-        assertEquals(4 * 2 * 5, r.cases.size, "every height and cache ran its five cases")
+        assertEquals(4 * 2 * 7, r.cases.size, "every height and cache ran its seven cases")
     }
 
     /** A strip row's segment decodes to exactly its levels at every length from its natural one to well past the slack,
@@ -145,28 +147,66 @@ class MainBindTest {
         assertTrue(stg.records.containsKey(own.key) && stg.records.containsKey(strip.key))
     }
 
-    /** What the rules read for `snapback cause=restaged` ([wm.damage.core.local.BoundList.staleAt]): a row whose key
-     *  changed is stale for every fire that draws it — every notch (the whole list moves) and the press at that row, not
-     *  the press at another — until its re-stage is submitted. */
+    /** The binding's books for decisions X: a band move makes a new list with the same mark whose `previous` names the
+     *  old slot until the switch is acknowledged, then the old slot is free; a row-form change withdraws the list until
+     *  its write is submitted. */
     @Test
-    fun aStaleRowIsSaidForTheFiresThatDrawIt_DM2() {
+    fun aBandSwitchAndAWithdrawalAreKeptInTheBindingsBooks_DM2() {
         val rows = MainLocalCheck.sampleRows()
         val rig = MainLocalCheck.MainRig(BoxFace, 352, rows)
         val ms = rig.staging(CfwModes.CACHE2_MAX, CfwModes.mainRegion(CfwModes.CACHE2_MAX, true))
         val b = wm.damage.core.shell.MainBinding()
         val keys = { List(ms.rows) { rig.surface.rowKey(it) } }
         b.begin(ms, emptyList(), keys(), 0L)
-        val list = b.list!!
-        val down = list.entryFor(CfwModes.EV_UPROLL)!!; val tap = list.entryFor(CfwModes.EV_TAP)!!
-        assertTrue((0 until ms.rows).none { list.staleAt(down, it) || list.staleAt(tap, it) }, "nothing stale at first")
-        rows[3].s = rows[3].s.copy(progress = 0.95)
+        val first = b.list!!
+        val tor = rows.indexOfFirst { it.id == "torrents" }
+        rows[tor].s = rows[tor].s.copy(detail = "iso 9%")
         b.keysChanged(keys())
-        assertTrue(b.stale(3) && b.staleRows == listOf(3))
-        assertTrue((1 until ms.rows).all { list.staleAt(down, it) }, "every notch draws the whole list, row 3 with it")
-        assertTrue(list.staleAt(tap, 3) && !list.staleAt(tap, 2), "the press draws its own row only")
-        val r = ms.restage(3, rig.view, rig.kit, { _, f -> f() }) as MainStaging.Restage.Changed
-        b.changed(3)
-        b.submitted(r, StagedRecord(MainStageKey(ms, 1003, "row 3's re-stage"), Gray8(1, 1), ByteArray(4)), 1L)
-        assertTrue(!b.stale(3) && (0 until ms.rows).none { list.staleAt(down, it) }, "current once its re-stage is submitted")
+        assertTrue(b.stale(tor) && b.staleRows == listOf(tor))
+        val r = ms.restage(tor, rig.view, rig.kit, { _, f -> f() }) as MainStaging.Restage.Changed
+        val mv = r.band!!
+        assertTrue(r.strip.isEmpty(), "the detail is the band form's alone")
+        val rec = StagedRecord(MainStageKey(ms, 1000 + tor, "re-stage"), Gray8(1, 1), ByteArray(4))
+        b.changed(tor); b.submitted(r, rec, 1L)
+        val second = b.list!!
+        assertTrue(second !== first && second.mark == first.mark && second.previous === first, "a new list, the same mark, the old one as previous")
+        assertEquals(mv.off / 4, second.items!![tor]); assertEquals(mv.oldOff4, first.items!![tor])
+        assertTrue(ms.free.isEmpty() && mv.oldOff4 in ms.retired, "the spare taken, the old slot retired")
+        b.switchAcked(b.patches.single())
+        assertNull(second.previous, "previous forgotten once acknowledged")
+        assertEquals(setOf(mv.oldOff4 * 4), ms.free.keys, "the old slot is the spare now")
+        // a row-form change: withdrawn until its write is submitted
+        rows[tor].s = rows[tor].s.copy(line = "3 active, 14.0 MB/s")
+        val r2 = ms.restage(tor, rig.view, rig.kit, { _, f -> f() }) as MainStaging.Restage.Changed
+        assertTrue(r2.strip.isNotEmpty())
+        b.withdraw(tor, 7L)
+        assertEquals(tor, b.withdrawnFor)
+        b.patchCounted(b.patches.single())
+        b.submitted(r2, rec, 2L)
+        assertNull(b.withdrawnFor, "offered again at the write's submission")
+    }
+
+    /** A row form grown past its segment (a longer line) lays the strip's tail out again inside the strip's own slot — one
+     *  write from that segment on, the record and its place kept — and the new strip decodes to Main's rows. */
+    @Test
+    fun aRowFormGrownPastItsSegmentReLaysTheStripsTail_DM2() {
+        val rows = MainLocalCheck.sampleRows()
+        val rig = MainLocalCheck.MainRig(BoxFace, 352, rows)
+        val ms = rig.staging(CfwModes.CACHE2_MAX, CfwModes.mainRegion(CfwModes.CACHE2_MAX, true))
+        val tmux = rows.indexOfFirst { it.id == "tmux" }
+        val off0 = ms.strip.off
+        rows[tmux].s = rows[tmux].s.copy(line = "3 sessions · 2 attached · 1 idle")
+        val r = ms.restage(tmux, rig.view, rig.kit, { _, f -> f() })
+        assertTrue(r is MainStaging.Restage.Changed && r.relaid != null, "re-laid in the strip's slot: $r")
+        r as MainStaging.Restage.Changed
+        val tail = r.strip.single()
+        assertTrue(tail.off >= off0 && tail.off + tail.bytes.size <= off0 + ms.strip.slot, "the tail inside the strip's slot")
+        ms.apply(r)
+        assertEquals(off0, ms.strip.off)
+        // the strip as the glasses hold it now decodes to the rows as painted
+        val enc = ms.strip.encoded
+        val px = Rle.decodeLevels(enc.copyOfRange(4, 4 + ms.strip.segLen!!.sum()), ms.strip.raw.w * ms.strip.raw.h)
+        assertTrue(px.contentEquals(ms.strip.levels), "the re-laid strip decodes to its rows")
+        println("DM2-relaid: ${tail.what} ${tail.bytes.size} B (strip slot ${ms.strip.slot} B)")
     }
 }

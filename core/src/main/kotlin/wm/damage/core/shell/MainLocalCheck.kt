@@ -319,43 +319,139 @@ object MainLocalCheck {
             cases += Case("$tag-report", "the report-only tap entry at every cursor: a report with no fields 10–14, nothing drawn", Rect(0, 0, 1, 1), emptyList(), emptyList(), fails)
         }
 
-        // ---- a re-staged row: Music's summary changes, written in place, the mark kept, a notch lands on the new paint
+        // ---- keeping rows current (decisions X): what a fire drew is always named by its report, and a COMMIT answers it
+        val relay0: (Gray8, () -> Unit) -> Unit = { _, b -> b() }
+        val music = rows.indexOfFirst { it.id == "music" }
+        val c0 = music - 1
+        var cur = list
+        /** [e] fired from cursor [c] — the lens keyframed with Main at [c] (as the phone believes it) and its list's
+         *  cursor put there — and played to its HOLD; RIGHT's report, or null when no entry matched (no report). */
+        fun fireHeld(e: BoundList.Entry, c: Int, fails: MutableList<String>): DamageMsg.Applied? {
+            lens.now += 1_000
+            lens.keyframe(m.truth(c, true), m.truth(c, false))
+            lens.send("DISCARD to cursor $c", CfwModes.motionDiscard(MainStaging.SLOT, 1, MainStaging.LIST, c), fails)
+            lens.notifies()
+            val a = lens.fire(CfwModes.DEV_RING, e.eventId) ?: return null
+            val t0 = lens.now
+            val p = a.params
+            if (a.outcome == DamageMsg.APPLIED_DREW && p != null && a.prog != null)
+                for (k in 1..ms.programAt(a.prog!!).stepsWith(p) + 1) lens.wake(t0 + (k - 1).toLong() * e.period)
+            return a
+        }
+        /** The answer to report [a]: a COMMIT with the report's OWN program and P (X.1) — END into both shadows from the
+         *  records the lens drew — and belief (Main at [cBefore] as keyframed, END painted from the phone's copy of the
+         *  records the P names) equal to both lenses' shadows and panels. */
+        fun commitReport(a: DamageMsg.Applied, cBefore: Int, fails: MutableList<String>, what: String) {
+            val p = a.params ?: run { fails += "$what: the report carries no P (${a.describe()})"; return }
+            val prog = a.prog!!; val cP = a.cursor!!
+            lens.send("$what: COMMIT S ${a.s}", Motion.commit(ms.programAt(prog), MainStaging.SLOT, a.s!!, MainStaging.LIST, cP, p), fails)
+            for (arm in Arm.entries) {
+                val left = arm == Arm.LEFT
+                val belief = m.truth(cBefore, left).copy().also { ms.paintEndOf(prog, p, left, it) }
+                differ(lens.shadow(arm), belief, null).let { if (it > 0) fails += "$what $arm: $it px where the shadow after the COMMIT is not belief" }
+                if (sim.panelCrc32(arm) != sim.shadowCrc32(arm)) fails += "$what $arm: after the COMMIT the lens does not show the shadow"
+            }
+            val bodies = lens.notifies()
+            if (bodies.none { it.outcome == DamageMsg.OUTCOME_COMMITTED } || bodies.any { it.outcome == 2 }) fails += "$what: RIGHT's notifies after the COMMIT ${bodies.map { it.describe() }}"
+        }
+        fun named(l: BoundList, a: DamageMsg.Applied?, e: BoundList.Entry) = a != null && l.names(a.cursor ?: -1, e, a.prog, a.params)
+
+        // (a) a band form re-staged into a free slot: a notch before the switch draws the old slot and is named and
+        //     committed after the switch has landed; a notch after it draws the new slot
         run {
             val fails = ArrayList<String>(); val lines = ArrayList<String>()
-            val row = rows.indexOfFirst { it.id == "music" }
-            (rows[row] as SampleRow).s = DamageWindow.Summary("Night Drive - Low Tide", detail = "2:32 / 4:05", more = true, progress = 0.63)
+            (rows[music] as SampleRow).s = rows[music].summary().copy(detail = "Low Tide · q 6/12 · shuffle")     // the band form shows the detail; the row form does not
             m.repainted()
-            val r = ms.restage(row, m.view, m.kit, { _, b -> b() })
-            var kept: List<Frame> = emptyList()
-            if (r !is MainStaging.Restage.Changed) fails += "Music's row after its summary changed: $r, not a change in place"
+            val r = ms.restage(music, m.view, m.kit, relay0)
+            val mv = (r as? MainStaging.Restage.Changed)?.band
+            if (r !is MainStaging.Restage.Changed || r.strip.isNotEmpty() || mv == null) fails += "a change of Music's detail: ${(r as? MainStaging.Restage.Outgrown)?.why ?: r}, not its band form alone"
             else {
-                for (w in r.writes) {
-                    val slots = ms.strip.segOff!!.indices.map { ms.strip.off + ms.strip.segOff[it] until ms.strip.off + ms.strip.segOff[it] + ms.strip.segLen!![it] } +
-                        ms.bands.map { it.off until it.off + it.slot }
-                    if (slots.none { w.off >= it.first && w.off + w.bytes.size <= it.last + 1 }) fails += "${w.what}'s write ${w.off}+${w.bytes.size} is not inside one slot"
-                    lens.write(w.off, w.bytes, w.what, fails)
-                }
+                val oldOff4 = ms.itemOffs[music]
+                lens.write(mv.write.off, mv.write.bytes, mv.write.what, fails)           // into a slot no table names
+                val before = fireHeld(down, c0, fails)
+                if (before?.params?.get(1) != oldOff4.toShort().toInt()) fails += "the notch before the switch drew ${before?.describe()}, not the old slot ${oldOff4}"
+                if (!named(cur, before, down)) fails += "the notch before the switch is not named by the list as it stands"
+                lens.write(mv.switch.off, mv.switch.bytes, mv.switch.what, fails)        // the one write that names the new slot
                 ms.apply(r)
-                lines += "Music's row re-staged in place: ${r.bytes} B in ${r.writes.size} write(s) (${r.writes.joinToString { "${it.what} ${it.bytes.size} B" }}), mark ${list.mark} kept"
-                val frames: MutableList<Frame>? = if (keepFrames) ArrayList() else null
-                one(down, row - 1, fails, lines, frames) { cP, p, prog4 ->
-                    for (arm in Arm.entries) {
-                        val left = arm == Arm.LEFT
-                        differ(lens.panel(arm), m.truth(cP, left), ms.pan(MainStaging.WHOLE, 1).areas(left)).let { if (it > 0) fails += "the notch onto the re-staged row $arm: $it px not its new paint" }
-                    }
-                    lens.send("COMMIT", Motion.commit(ms.programAt(prog4), MainStaging.SLOT, s, MainStaging.LIST, cP, p), fails)
-                    // belief after the COMMIT is painted from the pictures as re-staged (`MainStaging.apply`)
-                    for (arm in Arm.entries) {
-                        val left = arm == Arm.LEFT
-                        val belief = m.truth(cP - 1, left).copy().also { ms.paintEndOf(prog4, p, left, it) }
-                        differ(lens.shadow(arm), belief, null).let { if (it > 0) fails += "the COMMIT onto the re-staged row $arm: $it px where END in the shadow is not what belief takes" }
-                    }
-                    lens.notifies()
+                val after = ms.boundList(cur.mark, previous = cur)
+                if (!named(after, before, down)) fails += "a report from before the switch is not named once the switch has gone (no previous)"
+                if (named(ms.boundList(cur.mark), before, down)) fails += "the shape guard: without the previous list the old slot is still named"
+                if (before != null) commitReport(before, c0, fails, "the notch before the switch, answered after it")
+                val a2 = fireHeld(down, c0, fails)
+                if (a2?.params?.get(1) != (mv.off / 4).toShort().toInt()) fails += "the notch after the switch drew ${a2?.describe()}, not the new slot ${mv.off / 4}"
+                if (!named(after, a2, down)) fails += "the notch after the switch is not named"
+                if (a2 != null) {
+                    commitReport(a2, c0, fails, "the notch after the switch")
+                    for (arm in Arm.entries) differ(lens.shadow(arm), m.truth(music, arm == Arm.LEFT), ms.pan(MainStaging.WHOLE, 1).areas(arm == Arm.LEFT))
+                        .let { if (it > 0) fails += "after the switch $arm: $it px of END not Main's paint" }
                 }
-                kept = frames ?: emptyList()
+                // the item word's other entry is untouched: a notch onto the neighbour row draws its own band form
+                val nb = music xor 1
+                val a3 = fireHeld(if (nb > music) down else up, music, fails)
+                if (!named(after, a3, if (nb > music) down else up) || a3?.cursor != nb) fails += "the notch onto row $nb (the item word's other entry) is not named: ${a3?.describe()}"
+                else commitReport(a3, music, fails, "the notch onto the item word's other row")
+                ms.release(oldOff4); after.previous = null
+                if (ms.free[oldOff4 * 4] == null) fails += "the old slot is not free once the switch is acknowledged"
+                cur = after
+                lines += "Music's band form moved: ${mv.write.bytes.size} B into the free slot at off4 ${mv.off / 4} and the item word ${mv.switch.bytes.size} B, one flush; the old slot $oldOff4 free once acknowledged"
+            }
+            cases += Case("$tag-switch", "a band form re-staged into a free slot: a notch before the switch and one after, each named by its report and committed", Rect(0, 0, 1, 1), emptyList(), lines, fails)
+        }
+
+        // (b) a row form re-staged: its strip segment written with the list's entries cleared, SET again after
+        run {
+            val fails = ArrayList<String>(); val lines = ArrayList<String>()
+            (rows[music] as SampleRow).s = rows[music].summary().copy(line = "Night Drive - Low Tides")
+            m.repainted()
+            val r = ms.restage(music, m.view, m.kit, relay0)
+            if (r !is MainStaging.Restage.Changed || r.strip.isEmpty()) fails += "a change of Music's line: ${(r as? MainStaging.Restage.Outgrown)?.why ?: r}, not its strip segment"
+            else {
+                for (e in cur.entries) lens.send("CLEAR ${e.entry}", CfwModes.bindClear(e.entry), fails)
+                if (fireHeld(down, c0, fails) != null) fails += "a notch while the entries are cleared still matched an entry"
+                for (w in r.writes) lens.write(w.off, w.bytes, w.what, fails)
+                ms.apply(r)
+                val nl = ms.boundList(cur.mark, previous = if (r.band != null) cur else null)
+                for (b in nl.sets()) lens.send("a SET again", b, fails)
+                val a = fireHeld(down, c0, fails)
+                if (!named(nl, a, down)) fails += "the notch after the strip's write is not named: ${a?.describe()}"
+                if (a != null) {
+                    commitReport(a, c0, fails, "the notch after the strip's write")
+                    for (arm in Arm.entries) differ(lens.shadow(arm), m.truth(music, arm == Arm.LEFT), ms.pan(MainStaging.WHOLE, 1).areas(arm == Arm.LEFT))
+                        .let { if (it > 0) fails += "after the strip's write $arm: $it px of END not Main's paint" }
+                }
+                r.band?.let { ms.release(it.oldOff4) }; nl.previous = null
+                cur = nl
+                lines += "Music's row form re-staged with the entries cleared: ${r.bytes} B in one flush (${r.writes.joinToString { "${it.what} ${it.bytes.size} B" }}), then ${nl.entries.size} SETs"
+            }
+            cases += Case("$tag-strip", "a row form re-staged with the list withdrawn: no notch matches meanwhile; after the SETs a notch is named and committed", Rect(0, 0, 1, 1), emptyList(), lines, fails)
+        }
+
+        // (c) a row stale by several changes: the notch is named and committed, belief equal to both lenses; the ordinary
+        //     repaint then brings the changed cell
+        run {
+            val fails = ArrayList<String>(); val lines = ArrayList<String>()
+            for ((i, pr) in listOf(0.70, 0.83, 0.97).withIndex())
+                (rows[music] as SampleRow).s = rows[music].summary().copy(progress = pr, detail = "Low Tide · q ${7 + i}/12 · shuffle")
+            m.repainted()
+            val frames: MutableList<Frame>? = if (keepFrames) ArrayList() else null
+            frames?.add(Frame("before", lens.panel(Arm.LEFT), lens.panel(Arm.RIGHT)))
+            val a = fireHeld(down, c0, fails)
+            if (!named(cur, a, down)) fails += "the notch onto the stale row is not named: ${a?.describe()}"
+            if (a != null) {
+                frames?.add(Frame("held", lens.panel(Arm.LEFT), lens.panel(Arm.RIGHT)))
+                commitReport(a, c0, fails, "the notch onto the stale row")
+                val areas = { left: Boolean -> ms.pan(MainStaging.WHOLE, 1).areas(left) }
+                if (Arm.entries.none { arm -> differ(lens.shadow(arm), m.truth(music, arm == Arm.LEFT), areas(arm == Arm.LEFT)) > 0 })
+                    fails += "the shape guard: the stale row's staged pictures equal Main's truth"
+                // the ordinary repaint (the phone's frame of what differs from belief)
+                lens.keyframe(m.truth(music, true), m.truth(music, false))
+                frames?.add(Frame("repainted", lens.panel(Arm.LEFT), lens.panel(Arm.RIGHT)))
+                for (arm in Arm.entries) differ(lens.panel(arm), m.truth(music, arm == Arm.LEFT), null).let { if (it > 0) fails += "after the repaint $arm: $it px not Main's paint" }
+                lines += "Music's row three changes behind its staging: the notch named and committed from the staged copies, then the repaint"
             }
             val pan = ms.pan(MainStaging.WHOLE, 1)
-            cases += Case("$tag-restaged", "Music's summary changed: its row re-staged in place, the mark kept, a notch onto it", union(pan.areasL + pan.areasR), kept, lines, fails)
+            cases += Case("$tag-stale", "a row stale by several changes: a COMMIT from the staged copies, belief equal to both lenses, then the repaint",
+                union(pan.areasL + pan.areasR), frames ?: emptyList(), lines, fails)
         }
         return cases to tableLine
     }

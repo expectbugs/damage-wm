@@ -145,40 +145,42 @@ class MainBindShellTest {
     }
 
     /**
-     * A row whose summary changes while Main is in front is painted again and re-staged IN PLACE: one write of its
-     * segment(s) and band form, the list (its object, its mark) kept, the bytes journaled; the row is stale from the
-     * change until the write is submitted. A second change of the same row inside [wm.damage.core.shell.MainBinding.RESTAGE_PACE_MS]
-     * waits for the pace.
+     * Decisions X: a row whose band form changes (its detail) is re-staged into a free slot and switched by one write of
+     * the item table — a new list with the same mark, the old one its `previous` until that flush is acknowledged; a row
+     * whose row form changes (its line) withdraws the list, writes its strip segment and offers the list again; a row's
+     * second re-stage waits for [wm.damage.core.shell.MainBinding.RESTAGE_PACE_MS]. No full staging.
      */
     @Test
-    fun aRowWhosePictureChangesIsRestagedInPlaceWithTheMarkKept_DM2(): Unit = runBlocking {
+    fun aRowWhosePictureChangesIsRestagedWithTheMarkKept_DM2(): Unit = runBlocking {
         val r = Rig()
         try {
             r.up()
             r.until("offered") { r.offered()?.first != null }
             r.settle("offered")
             val list = assertNotNull(r.offered()?.first)
-            r.rows[3].s = r.rows[3].s.copy(line = "summary 3 grew", progress = 0.75)
+            r.rows[3].s = r.rows[3].s.copy(detail = "detail of 3, a longer one")
             r.shell.services.requestRender(r.rows[3])
-            // within the pace's first turn — by the row's key at the compose, not the round-robin repaint (row 3's turn is
-            // 20 s after the staging)
-            r.until("re-staged in place", 3_000) { r.notes("mainstage").any { it.startsWith("row 3 re-staged in place") } }
+            // by the row's key at the compose, not the round-robin repaint (row 3's turn is 20 s after the staging)
+            r.until("re-staged", 3_000) { r.notes("mainstage").any { it.startsWith("row 3 re-staged") } }
             r.settle("re-staged")
-            val after = assertNotNull(r.offered())
-            assertSame(list, after.first, "the same list, its mark kept")
-            val note = r.notes("mainstage").first { it.startsWith("row 3 re-staged in place") }
+            val t1 = System.currentTimeMillis()
+            val l2 = assertNotNull(r.offered()?.first)
+            val note = r.notes("mainstage").first { it.startsWith("row 3 re-staged") }
             println("DM2-shell restage: $note")
-            assertTrue(Regex("— (\\d+) B in (\\d) write").find(note) != null, note)
-            assertTrue(r.onLoop { r.shell.mainBinding.staleRows }.isEmpty(), "nothing stale once written")
-            // a second change at once waits for the row's pace
-            val t0 = System.currentTimeMillis()
-            r.rows[3].s = r.rows[3].s.copy(line = "summary 3 again", progress = 0.5)
+            assertTrue("its band form moved" in note, note)
+            assertTrue(l2 !== list && l2.mark == list.mark, "a new list, the same mark")
+            assertTrue(l2.items!![3] != list.items!![3], "row 3's item names another slot")
+            assertNull(r.onLoop { l2.previous }, "the switch acknowledged: no previous kept")
+            // the row form: withdrawn, written, offered again — after the row's pace
+            r.rows[3].s = r.rows[3].s.copy(line = "summary 33")
             r.shell.services.requestRender(r.rows[3])
-            r.until("stale until its pace") { r.onLoop { r.shell.mainBinding.stale(3) } }
-            r.until("re-staged again", 10_000) { r.notes("mainstage").count { it.startsWith("row 3 re-staged in place") } == 2 }
-            val waited = System.currentTimeMillis() - t0
-            assertTrue(waited >= 1_000, "the second re-stage waited for the row's pace ($waited ms)")
-            assertSame(list, r.offered()?.first, "still the same list")
+            r.until("withdrawn", 10_000) { r.notes("mainstage").any { it.startsWith("withdrawn — row 3") } }
+            val waited = System.currentTimeMillis() - t1
+            r.until("re-staged again", 10_000) { r.notes("mainstage").count { it.startsWith("row 3 re-staged") } == 2 }
+            r.until("offered again") { r.offered()?.first != null }
+            println("DM2-shell restage 2: ${r.notes("mainstage").last { it.startsWith("row 3 re-staged") }}")
+            assertTrue(waited >= wm.damage.core.shell.MainBinding.RESTAGE_PACE_MS - 500, "the second re-stage waited for the row's pace ($waited ms)")
+            assertEquals(list.mark, r.offered()?.first?.mark, "the mark kept")
             assertEquals(1, r.notes("mainstage").count { it.startsWith("staged") }, "no full staging: ${r.notes("mainstage")}")
         } finally { r.close() }
     }
