@@ -471,14 +471,14 @@ class Notifications(private val text: TextRasterizer) {
         val srcH = srcH()
         val pitch = pitch()
         // top rule + source line. In the window form before focus the rule is the timer's bar (2026-11-19): level 1,
-        // and lit at the rule's own level under the text column to the timer's share — one run a row more, no new
-        // mark; whole at focus. Drawn once the box has grown past it (the unfurl's first frames are shorter: ink
+        // and lit at [BAR_LIT] under the text column to the timer's share — one run a row more, no new mark; at focus
+        // the rule as it always was, whole at its own level. Drawn once the box has grown past it (the unfurl's first frames are shorter: ink
         // outside the box is never sent)
         if (box.h >= srcH + 2) {
             if (silent || focused) g.fillRect(full.x, full.y + srcH, full.w, 2, lv(Level.DIM))
             else {
                 g.fillRect(full.x, full.y + srcH, full.w, 2, Level.FAINT)
-                g.fillRect(full.x + BAR_INSET, full.y + srcH, barShare(full.w - 2 * BAR_INSET), 2, Level.DIM)
+                g.fillRect(full.x + BAR_INSET, full.y + srcH, barShare(full.w - 2 * BAR_INSET), 2, BAR_LIT)
             }
         }
         if (box.h >= 16) {
@@ -555,6 +555,10 @@ class Notifications(private val text: TextRasterizer) {
          * the box's strings as draws and sent its text as pixels (437 B for a one-line box where a step is 80).
          */
         const val BAR_INSET = 8
+        /** The bar's lit part: the body's reading level, so it reads against the level-1 rule it fills — "make the
+         *  focus timer more obvious" (the lead's look at the renders, 2026-11-19: the rule's own level 3 on 1 was too
+         *  close). Not faded: the bar is the timer, not the box's ink. */
+        val BAR_LIT = Level.BODY
         const val BAND_INSET = 16
         /** The window form's ink before focus: "from like 30% to 90% gradually as the timer goes" (his words). */
         const val ARRIVAL_PCT = 30

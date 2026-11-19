@@ -1130,8 +1130,10 @@ a window when it pops up."* As built (build NT):
 
 - **8 steps of 250 ms**, counted from the end of the unfurl; the eighth makes the bar whole and
   the box takes focus (full ink, the step forward in depth) in the same flush.
-- **The top rule is the bar**: level 1, lit at its own level 3 under the text column (8 px in from
-  each end) to an eighth more per step; whole at focus. A horizontal run — no new mark. (Run from
+- **The top rule is the bar**: level 1, lit at **level 8** (the body's reading level, not faded)
+  under the text column (8 px in from each end) to an eighth more per step, 2 px high; at focus
+  the rule as before, whole at its own level 3. A horizontal run — no new mark. (Lit at the rule's
+  own 3 on 1 it was too close to read as the timer — the lead's look at the renders. Run from
   the box's edge, a step that changed the rule's first pixels crossed, through the box's depth
   shift, cells of the plane beside it, and the box's text went as pixels: 437 B instead of 80.)
 - **The ink fades in**: each mark at about 30 % of its level at arrival rising evenly to about

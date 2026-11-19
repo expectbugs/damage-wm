@@ -65,6 +65,7 @@ class NoticeTimerTest {
             assertTrue(kotlin.math.abs(steps.last() - lvl * 0.90) <= 0.5, "about 90 % at the last step: $lvl → ${steps.last()}")
         }
         assertEquals(0, graceInk(0, 3), "no ink stays no ink")
+        assertEquals(Level.BODY, Notifications.BAR_LIT, "the bar's lit part is the body's reading level, level 8 (2026-11-19)")
     }
 
     /** Each step: the rule lit from the left edge to an eighth more of the box, the rest level 1; the source, the time,
@@ -358,10 +359,10 @@ class NoticeTimerTest {
     private companion object {
         /** FakeText's band: the source line's 16 px, then the 2 px rule. */
         fun ruleRow(g: Gray8, full: Rect): Int =
-            (full.y until full.bottom).first { y -> (full.x until full.right).all { g[it, y] == Level.DIM || g[it, y] == Level.FAINT } }
+            (full.y until full.bottom).first { y -> (full.x until full.right).all { g[it, y] == Level.DIM || g[it, y] == Level.FAINT || g[it, y] == Notifications.BAR_LIT } }
 
-        /** The rule's lit width: the whole rule when every pixel is lit (focus); else a run that starts
-         *  [Notifications.BAR_INSET] in, level 1 on both sides of it. */
+        /** The rule's lit width: the whole rule when every pixel is at the rule's level 3 (focus); else a run of
+         *  [Notifications.BAR_LIT] that starts [Notifications.BAR_INSET] in, level 1 on both sides of it. */
         fun measure(g: Gray8, full: Rect): Measure {
             val y = ruleRow(g, full)
             var lit = -1
@@ -370,7 +371,7 @@ class NoticeTimerTest {
                 val l = if (row.all { it == Level.DIM }) row.size else {
                     val inset = Notifications.BAR_INSET
                     assertTrue(row.take(inset).all { it == Level.FAINT }, "the rule before the text column is level 1: $row")
-                    val run = row.drop(inset).takeWhile { it == Level.DIM }.size
+                    val run = row.drop(inset).takeWhile { it == Notifications.BAR_LIT }.size
                     assertTrue(row.drop(inset + run).all { it == Level.FAINT }, "the rule beyond the lit part is level 1: $row")
                     run
                 }
