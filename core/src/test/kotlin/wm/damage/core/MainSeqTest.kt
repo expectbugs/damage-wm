@@ -205,6 +205,11 @@ class MainSeqTest {
             assertEquals(12, sent.size, note)
             for (i in 1 until 12) assertTrue(sent[i] >= want[i] && sent[i] < want[i] + 600, "PLAY ${i + 1} sent ${sent[i]} ms after the one before, the plan's ${want[i]}")
             assertTrue(r.notes("mainseq").any { "Main's cursor back at row 0" in it }, "the cursor back where it was: ${r.notes("mainseq")}")
+            // the atlas went first (Page staging's rule): Main's rows drew a face's new characters, so nothing was written
+            // until the atlas held them — no record written and then dropped when the live font set changed
+            assertTrue(r.notes("mainseq").any { "the atlas goes first" in it }, "${r.notes("mainseq")}")
+            assertEquals(1, r.notes("stage").count { it.startsWith("Main's strip") }, "Main's strip written once: ${r.notes("stage")}")
+            assertTrue(r.notes("mainseq").none { "left the reserve" in it }, "${r.notes("mainseq")}")
             // END is in belief at each ack: no follow-up carries anything inside the pan's areas (the rows there did not
             // change, so with END in belief nothing there differs from the truth)
             val areas = panAreas(l, 2)
@@ -267,6 +272,16 @@ class MainSeqTest {
             r.assertGlassMatchesBelief("after the input")
             assertEquals(0, r.shell.divergencesReported, "no divergence: ${r.shell.lastDivergence}")
             assertTrue(r.notes("mainseq").any { it.startsWith("k=2") && "notch(es)" in it }, "what it played is journaled: ${r.notes("mainseq")}")
+            // a second test in the session finds Main's records on the glasses, counted, and writes nothing again
+            val written = r.notes("stage").count { it.startsWith("Main's") }
+            r.shell.devProbe("mainseq", "1")
+            r.until("the second test plays") { r.plays.size > after }
+            assertTrue(r.notes("mainseq").any { it.startsWith("Main's 10 records are on the glasses already") }, "${r.notes("mainseq")}")
+            assertEquals(written, r.notes("stage").count { it.startsWith("Main's") }, "nothing of Main's written again: ${r.notes("stage")}")
+            r.sim.injectGesture(EvenHubMsg.EV_SCROLL_TOP)
+            r.until("the second test released by the input") { r.notes("mainseq").count { it.startsWith("released — an input event") } == 2 }
+            r.settle("released again")
+            r.assertGlassMatchesBelief("after the second test")
         } finally { r.close() }
     }
 
