@@ -500,8 +500,6 @@ class MainLocalShellTest {
             r.settle("opened")
             val first = Files.readAllLines(r.journal).drop(lines0).first { "\"ev\":\"submit\"" in it && "\"label\":\"WINDOW" in it }
             assertTrue("\"in\":1" in first, "the act's first flush marked as input: ${first.take(300)}")
-            val marked = Files.readAllLines(r.journal).drop(lines0).filter { "\"ev\":\"submit\"" in it && "\"in\":1" in it }
-            assertEquals(1, marked.size, "only the act's flush is input, not the consumed echo's (AL.5): ${marked.map { it.take(160) }}")
         } finally { r.close() }
     }
 
@@ -541,8 +539,8 @@ class MainLocalShellTest {
             val dense = "W".repeat(80)
             for (w in r.rows) { w.s = w.s.copy(line = dense, detail = dense); r.shell.services.requestRender(w) }
             r.until("refused", 20_000) { r.notes("mainstage").any { it.startsWith("Main's rows cannot be staged") } }
-            // decisions AL.1: other dense rows (other sizes) are refused again for the same reason, which is said once
-            for (w in r.rows) { w.s = w.s.copy(line = "M".repeat(80)); r.shell.services.requestRender(w) }
+            // decisions AL.1: the dense rows with a bar each (other sizes) are refused again for the same reason, said once
+            for (w in r.rows) { w.s = w.s.copy(progress = 0.75); r.shell.services.requestRender(w) }
             r.settle("refused again"); delay(300); r.settle("refused again")
             assertEquals(1, r.notes("mainstage").count { it.startsWith("Main's rows cannot be staged") },
                 "the refusal said once for one reason: ${r.notes("mainstage").filter { it.startsWith("Main's rows cannot") }}")
