@@ -146,7 +146,7 @@ on it, and journals every sid-0x10 frame as a `wear` note; what op 7 answers wit
     18 cache size in bytes (when allocated) · 19 cache CRC-32 (CACHE_INFO, when allocated) · 20
     self-test steps since the last begin · 21 the last step refused (0/1) and 22 the scratch CRC-32
     after it (both after a step)` — all uint32 varints (later fields: 23–26 §4, 27–29 §5.9, 30–34 §5.8, 35–39
-    §6.8, 40 §7.9). **The status register (field 4)** holds the
+    §6.8, 40 and 41 §7.9). **The status register (field 4)** holds the
     status recorded by the last op that records one: FLAGS_SET (0, or 2 for a bit this build lacks),
     FLAGS_CLEAR (0), a malformed or unknown request (1 — recorded even when, for a bad body, nothing is
     answered). TELEMETRY and CACHE_INFO record nothing, so a refusal the phone did not see is still
@@ -1806,7 +1806,7 @@ for randomness. (5) **PLAY-AFTER** (§7.7): an in half that starts on each lens 
 step. (6) **The ring list** and SET's **kind 3** (§7.8). (7) **The plan's late step** (§7.10). (8) **The step budget and the fast DRAW path** (§7.12): a
 version-2 program is refused when the steps of every instance that could then draw would cost more than the largest
 period (about 125 ms) together, and DRAW reaches its pixels without walking a record whole at every step. One flag bit (6
-EFFECTS), one ladder stage (5), DamageCaps bit 11, refusal 19, telemetry 40, the 115's field 18. **One new patch
+EFFECTS), one ladder stage (5), DamageCaps bit 11, refusal 19, telemetry 40 and 41, the 115's field 18. **One new patch
 site, `0x00493DAC`, not on a start path** (the container's destroy, §7.3); contract version stays 2.
 
 ### 7.1 Facts C3 rests on
@@ -2224,11 +2224,18 @@ instance, owning; sets the engine's flag; the message's present).
   open, which no message can open with bit 6 clear (§7.3).
 - **DamageCaps bit 11:** version-2 records, OWN and LAND, PIECES, SHRINK, GLYPHS, `new`, the two-axis DRAW, the source
   window, the step budget, the fast DRAW path, PLAY-AFTER,
-  LIST-RING, kind 3, refusal 19, field 18 of the 115, telemetry 40, the plan's late step (§7.10). Features `0xdff`.
+  LIST-RING, kind 3, refusal 19, field 18 of the 115, telemetry 40 and 41, the plan's late step (§7.10). Features `0xdff`.
 - **Telemetry 40:** bits 0–3 the slots that own, bits 4–7 the slots in state drawing, opened by a PLAY-AFTER, with
   d = 0 (a closed or emptied slot never shows); computed at each read
   without the word (a torn read costs one wrong bit); always sent on a bit-11 build; the record's compile-time bound
   grows by one two-byte-tag field.
+- **Telemetry 41:** the bytes of the display task's own 2,048-B stack that were never written, as that task last
+  read them (it reads its own stack only, upward from the stack's base to the first byte that is not the fill, and
+  only while bit 6 is armed); sent once it has been read this boot and kept at its last value after a disarm or a
+  release, as 34 and 37 are (a stale figure after a disarm is not a fault; the next armed read replaces it); a
+  second two-byte-tag field in the record's bound. It is the glasses' own reading of the stack figure of §7.12 (the
+  display task's worst path on the candidate is 1,924 B by `tools/verify.py` step 7: a reading under 124 is a
+  finding).
 - **Reason 19:** a fire whose close set holds an owning instance (§7.3).
 - **Ladder stage 5 = EFFECTS** with stage 4's flags (flags 0x7c), set by hand as every stage (`probe c1=5`), never
   advanced by itself; a hand `flags=` probe cannot arm bit 6 beyond the stage; its rung is recorded before its
@@ -2438,7 +2445,8 @@ list's length.
 | LIST-RING, kind 3, field 18; the budget | ≈ 1 KB | a flag byte per list; each instance's C (8 B × 4) | — | the budget's terms at the walk and the sum over four slots: µs |
 
 The engine's chain under the copy hook grows from 572 B to ≈ 1,000–1,200 B against `tools/verify.py` step 7's ≈ 1,512-B
-bound; the appended block grows ≈ 24–36 KB (≈ 250 KB stays below `0x7F0000`); the context grows ≈ 2.5 KB a lens (arena 20:
+bound (as built: 908 B, and the display task's worst path 1,924 of its 2,048 B, V by step 7 on the candidate; telemetry
+41 reads it on the glasses, §7.9); the appended block grows ≈ 24–36 KB (≈ 250 KB stays below `0x7F0000`); the context grows ≈ 2.5 KB a lens (arena 20:
 69 KiB free with today's 6,684 B, M, `HANDOFF.md` §94). Field 34 per verb on the glasses decides the periods.
 
 ### 7.13 Vectors, and what only the glasses can show
