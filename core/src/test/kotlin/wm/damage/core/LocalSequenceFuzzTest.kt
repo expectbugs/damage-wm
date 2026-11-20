@@ -20,8 +20,9 @@ import wm.damage.core.transport.Arm
  *      his taps come ≥ 696 ms after a scroll message, `FIRMWARE.md` §6.1) — per tap, never for a sequence;
  *  (2) at rest each lens's panel and shadow equal the phone's truth;
  *  (3) both lenses' cursors on the phone's row after a SETTLE (the list in front);
- *  (4) at rest: no owes, no burst open, no slot owing an answer, S_heard not ahead of RIGHT's S (u is not read: since
- *      decisions BB it counts the unreported stock messages since S_heard last advanced, kept across a SETTLE);
+ *  (4) at rest: no owes but those a carry holds (C1: the scroll owes a lone SETTLE left open, for one band each), no
+ *      burst open, no slot owing an answer, S_heard not ahead of RIGHT's S (u is not read: since decisions BB it counts the
+ *      unreported stock messages since S_heard last advanced, kept across a SETTLE);
  *  (5) no message of the phone's refused (the refusals the harness induced kept apart; a sequence that lost or had
  *      refused a mode-27 message is counted, not failed — the phone's later messages may then name what the lens lacks);
  *  (6) with nothing lost from then on and the list uncovered, of two taps a round trip apart the second is acted on;
@@ -95,7 +96,7 @@ class LocalSequenceFuzzTest {
         }
         // (4)
         val rr = h.rules
-        if (rr.owesScroll + rr.owesClick + rr.owesAny != 0) failed += "(4) owes ${rr.owesScroll}/${rr.owesClick}/${rr.owesAny} (u ${rr.u})"
+        if (rr.owesUncarried(h.now) != 0) failed += "(4) owes ${rr.owesScroll}/${rr.owesClick}/${rr.owesAny} no carry holds (u ${rr.u})"
         if (rr.burstOpen) failed += "(4) a burst still open"
         if (rr.slotOwed(0)) failed += "(4) slot 0 still owes an answer"
         if (LocalRules.after(rr.sHeard, sR)) failed += "(4) S_heard ${rr.sHeard} ahead of RIGHT's S $sR"
@@ -677,33 +678,35 @@ class LocalSequenceFuzzTest {
         println("J-case: row ${h.row}, ring ${h.ringRow()}, counts ${h.rules.counts.filterKeys { it in J_KEYS }}, failed ${failed.distinct()}")
         return h to failed.distinct()
     }
-    private val J_KEYS = setOf("unreported", "owesAtSettle", "settles", "snapback.lost-report",
+    private val J_KEYS = setOf("unreported", "lateEcho", "lateEchoUnpaid", "owesExpired", "owesAtSettle", "settles", "snapback.lost-report",
         "snapback.edge", "repair", "commit")
 
     /** J1 — his 23:17:20.163–21.731 (the run of eight; also 22:57:53.983, 23:16:40.458, 23:17:07.877, 23:17:26.480): RIGHT
      *  takes a clump of notches back to back (his S694–S701: eight fires inside 39 ticks, four drawn and four edges at the
      *  list's end) and the rubber band queues their scroll messages, one per band end (§6.1; the harness's band, 200 ms,
-     *  every message queued, none dropped). The queue drains past the burst's lone SETTLE, which clears the owes, so the
-     *  late echoes are applied as unreported (0.82) or held and then applied at Q (0.83): the phone's row runs past the
-     *  ring's count, one row per late echo, and each answer's DISCARD takes both lenses with it. ASSUMED where his journal
-     *  does not say: which reports his eight messages belonged to (their directions match S698–S705), the queue's length
-     *  and its drain rate (his eight came 194–240 ms apart). */
-    @Test fun j1_lateEchoesAfterTheLoneSettle_showsDefect() {
+     *  every message queued, none dropped). The queue drains past the burst's lone SETTLE. On 0.82 that SETTLE cleared
+     *  the owes and each late echo was applied as unreported: the phone's row ran past the ring's count, one row per late
+     *  echo, and each answer's DISCARD took both lenses with it. Since C1 the SETTLE carries the owes it leaves open (one
+     *  band each, the list in front) and the late echoes pay them: the row at rest is the ring's. ASSUMED where his
+     *  journal does not say: which reports his eight messages belonged to (their directions match S698–S705), the queue's
+     *  length and its drain rate (his eight came 194–240 ms apart). Watched to fail with the carry off. */
+    @Test fun j1_lateEchoesAfterTheLoneSettlePayTheCarriedOwes() {
         val (h, failed) = observed(Taps.REPORT, rows = 3, script = { h ->
             h.bandDropScroll = 0.0
             for (d in longArrayOf(10, 9, 7, 8, 1, 2, 2, 0)) { h.gesture(1, answer = true); h.runUntil(h.now + d) }
             h.rest()
         })
-        assertTrue((h.rules.counts["unreported"] ?: 0) > 0, "J1: no stock message applied as unreported (the shape did not happen): ${h.rules.counts}")
-        assertTrue(failed.any { it.startsWith("(9)") }, "J1: the row at rest equals the ring's count — the late echoes no longer move it: $failed")
+        assertTrue((h.rules.counts["lateEcho"] ?: 0) > 0, "J1: no late echo paid by a carried owe (the shape did not happen): ${h.rules.counts}")
+        assertTrue(failed.isEmpty(), "J1: $failed")
     }
 
     /** J2 — his 22:57:53.983 and 23:16:40.458: a clump's last queued echo arrives just after its burst's lone SETTLE, and
-     *  the next notch (a new burst) comes right after it. On 0.82 the echo is unreported (its owe went at the SETTLE) and
-     *  the new notch's own message pays the new owe; on 0.83 the echo is held, the new report pairs it, and the new notch's
-     *  own message is held and applied at Q. Either way the row ends one past the ring's count. ASSUMED: the clump of five
-     *  (his were the reports of the burst before, S537–S541 and S564–S566), the second notch 650 ms after the clump. */
-    @Test fun j2_aLateEchoAcrossTheNextBurstsFirstReport_showsDefect() {
+     *  the next notch (a new burst) comes right after it. On 0.82 the echo was unreported (its owe went at the SETTLE) and
+     *  the new notch's own message paid the new owe: the row ended one past the ring's count. Since C1 the carried owes
+     *  pay the late echoes, the one still running at the new burst's first report joining its owes: the row at rest is
+     *  the ring's. ASSUMED: the clump of five (his were the reports of the burst before, S537–S541 and S564–S566), the
+     *  second notch 650 ms after the clump. Watched to fail with the carry off. */
+    @Test fun j2_aLateEchoAcrossTheNextBurstsFirstReportPaysACarriedOwe() {
         val (h, failed) = observed(Taps.REPORT, rows = 0, script = { h ->
             h.bandDropScroll = 0.0
             repeat(5) { h.gesture(1, answer = true); h.runUntil(h.now + 6) }
@@ -711,7 +714,8 @@ class LocalSequenceFuzzTest {
             h.gesture(1, answer = true)
             h.rest()
         })
-        assertTrue(failed.any { it.startsWith("(9)") }, "J2: the row at rest equals the ring's count: $failed")
+        assertTrue((h.rules.counts["unreported"] ?: 0) == 0, "J2: a stock message applied as unreported: ${h.rules.counts}")
+        assertTrue(failed.isEmpty(), "J2: $failed")
     }
 
     /** J3 — his 23:16:36.266–37.126 (and 22:57:51.008–52.251, 23:16:38.446–39.084, 23:17:15.157–15.902): notches past the

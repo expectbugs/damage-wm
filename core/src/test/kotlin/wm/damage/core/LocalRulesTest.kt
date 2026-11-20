@@ -222,18 +222,63 @@ class LocalRulesTest {
         assertTrue(t.batch().any { it[0].toInt() == 26 && it[1].toInt() == 5 }, "idle: every batch carries one")
     }
 
+    /** C1 (decisions BM.2; his late echoes, `B083-real.md`): the scroll owe a burst's lone SETTLE leaves open is carried
+     *  for one band ([LocalRules.BAND_DRAIN_MS]) while the list is in front, so S 1's scroll message, which the band still
+     *  held, pays it — one notch from row 3 ends on row 4, nothing moves the row again, no DISCARD. Once the carry has run
+     *  out a scroll message with no owe is unreported as before: applied as today, u 1, the slot's DISCARD in its frame's
+     *  batch. Watched to fail with the carry off (row 5 after one notch). */
     @Test
-    fun aDelayedScrollMessageAfterASettleIsAppliedAsUnreported() {
+    fun aDelayedScrollMessageAfterASettleIsPaidByTheCarriedOwe_C1() {
         val t = R(row = 3)
         t.scroll(1, 4); t.batch()
         t.now += t.r.q
-        t.r.loneSettle(t.row, t.now)                            // owes cleared, the band still held S 1's scroll message
-        assertEquals(Verdict.Apply(EvenHubMsg.EV_SCROLL_BOTTOM), t.stock(Stock.NEXT), "no owe left: applied as today")
-        assertEquals(5, t.row)
-        assertEquals(1, t.r.u)
-        val d = t.answer(t.batch())
+        t.r.loneSettle(t.row, t.now)                            // the band still holds S 1's scroll message
+        t.now += LocalRules.BAND_DRAIN_MS - 1
+        assertEquals(Verdict.Nothing, t.stock(Stock.NEXT), "inside the carry: the late echo pays its owe")
+        assertEquals(4, t.row, "one notch from row 3, one row")
+        assertEquals(0, t.r.u)
+        assertEquals(1, t.r.counts["lateEcho"])
+        assertTrue(t.answer(t.batch()).isEmpty(), "nothing moved the row: no answer")
+        // past the carry: unreported, as before
+        val v = R(row = 3)
+        v.scroll(1, 4); v.batch()
+        v.now += v.r.q
+        v.r.loneSettle(v.row, v.now)
+        v.now += LocalRules.BAND_DRAIN_MS
+        assertEquals(Verdict.Apply(EvenHubMsg.EV_SCROLL_BOTTOM), v.stock(Stock.NEXT), "the carry ran out: applied as today")
+        assertEquals(5, v.row)
+        assertEquals(1, v.r.u)
+        assertEquals(1, v.r.counts["owesExpired"])
+        val d = v.answer(v.batch())
         assertTrue(isDiscard(d.single(), 2, 5), "it moved the row: the slot's DISCARD in its frame's batch")
-        assertTrue(t.notes.any { it.first == "snapback" && "cause=moved" in it.second || "cause=lost-report" in it.second })
+        assertTrue(v.notes.any { it.first == "snapback" && "cause=lost-report" in it.second })
+    }
+
+    /** C1's envelope (`FORK.md` §3.8): the carry holds owes by direction (C4 counts a message of the other direction
+     *  `lateEchoUnpaid`), ends when the list leaves the front (a late echo then reaching the window above it is that
+     *  window's notch, counted), at BIND read off and at a session start; click owes clear at the SETTLE as before. */
+    @Test
+    fun theCarryHoldsByDirectionAndEndsWhereItsListGoes_C1() {
+        fun settled(): R { val t = R(row = 3); t.scroll(1, 4); t.batch(); t.now += t.r.q; t.r.loneSettle(t.row, t.now); return t }
+        val a = settled()
+        assertEquals(Verdict.Apply(EvenHubMsg.EV_SCROLL_TOP), a.stock(Stock.PREV), "a PREV meets only a NEXT owe: unreported")
+        assertEquals(1, a.r.counts["lateEchoUnpaid"])
+        assertEquals(Verdict.Nothing, a.stock(Stock.NEXT), "the NEXT's late echo still pays its own")
+        val b = settled()
+        b.r.front(null, b.row)                                  // a cover: the list leaves the front
+        assertEquals(0, b.r.owesScroll, "the carry ends with its list in front")
+        assertEquals(Verdict.Apply(EvenHubMsg.EV_SCROLL_BOTTOM), b.stock(Stock.NEXT), "unbound: as today, for what is in front")
+        assertEquals(1, b.r.counts["lateEchoUnpaid"])
+        assertEquals(1, b.r.counts["owesExpired"])
+        val c = settled()
+        c.r.bindInForce(false)
+        assertEquals(0, c.r.owesScroll, "BIND read off ends the carry")
+        val d = settled()
+        d.r.sessionStart(true, 0, 100, d.l, d.row, Taps.REPORT)
+        assertEquals(0, d.r.owesScroll, "a session start ends the carry")
+        val e = R(row = 3)
+        e.tap(1, 3); e.batch(); e.now += e.r.q; e.r.loneSettle(e.row, e.now)
+        assertEquals(0, e.r.owesClick, "click owes are not carried")
     }
 
     // ------------------------------------------------------------------------------------------ P5, both orders
