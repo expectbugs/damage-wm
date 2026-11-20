@@ -424,15 +424,45 @@ class MusicHostsTest {
     }
 
     @Test
-    fun theQueue_randomIds_andAtMostAHundredPlayedBehind() {
+    fun theQueue_randomIds_andAHundredPlayedBehind_trimmedInBatches() {
         val e = QueueEngine()
-        e.set((1..150).map { TrackRef(it, "t$it") }, 0, Mode.QUEUE, "")
-        assertEquals(150, e.entries.map { it.qid }.toSet().size)
+        e.set((1..300).map { TrackRef(it, "t$it") }, 0, Mode.QUEUE, "")
+        assertEquals(300, e.entries.map { it.qid }.toSet().size)
         assertTrue(e.entries.all { it.qid > 0 })
-        repeat(130) { e.next() }
+        repeat(149) { e.next() }
+        assertEquals(149, e.index, "49 past the hundred: no trim yet")
+        assertEquals(300, e.size)
+        e.next()                                                     // 50 past the hundred: one trim, back to 100
         assertEquals(QueueEngine.KEEP_PLAYED, e.index)
-        assertEquals(131, e.current!!.track.id)
-        assertEquals(120, e.size)
+        assertEquals(151, e.current!!.track.id)
+        assertEquals(250, e.size)
+    }
+
+    @Test
+    fun trackChangesWriteNowAlone_andTheQueueOnceAFiftyPastTheHundred() {
+        // the lead's ruling after the upgrade check: a long queue (his: 1,415 entries) is not rewritten at every track
+        val phone = SimMusicPlayer(Lib(), clock, source = source("phone"), host = MusicCore.PHONE)
+        val tracks = (1..400).map { TrackRef(it, "Track $it", "Artist", "Album", 200_000) }
+        phone.playQueue(tracks, 100, Mode.QUEUE, "long")             // 100 played behind the current, as after a trim
+        val log = dir.resolve("pc").resolve("oplog.jsonl")
+        fun lines() = Files.readAllLines(log).map { kotlinx.serialization.json.Json.parseToJsonElement(it) as JsonObject }
+        fun action(l: JsonObject) = ((l["op"] as JsonObject)["action"] as JsonPrimitive).content
+        await("the queue in the record") { lines().any { action(it) == MusicCore.A_QUEUE } }
+        val base = lines().size
+        fun since() = lines().drop(base)
+        for (i in 1..20) { t += 1_000; phone.next(); await("now $i") { since().count { action(it) == MusicCore.A_NOW } == i } }
+        assertEquals(0, since().count { action(it) == MusicCore.A_QUEUE }, "twenty track changes rewrite no queue")
+        assertEquals(20, since().count { action(it) == MusicCore.A_NOW })
+        for (i in 21..49) { t += 1_000; phone.next(); await("now $i") { since().count { action(it) == MusicCore.A_NOW } == i } }
+        assertEquals(0, since().count { action(it) == MusicCore.A_QUEUE }, "49 past the hundred: still no queue")
+        t += 1_000; phone.next()                                     // 50 past the hundred: one trim
+        await("the trim's one queue") { since().count { action(it) == MusicCore.A_QUEUE } == 1 }
+        val q = MusicCore.queueOf(rec())!!
+        assertEquals(QueueEngine.KEEP_PLAYED + 1 + (400 - 151), q.entries.size)
+        // the record's own counts, for the report: an op-log line's bytes per kind
+        val bytes = Files.readAllLines(log).drop(base).groupBy { action(kotlinx.serialization.json.Json.parseToJsonElement(it) as JsonObject) }
+            .mapValues { (_, v) -> v.sumOf { it.toByteArray().size } / v.size }
+        println("S1-4 trim: op-log bytes per line by action $bytes; the queue after the trim ${q.entries.size} entries")
     }
 
     /** [url] the stream prefix for every track, or for [only] that track (the others `sim://`). */

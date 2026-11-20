@@ -57,11 +57,13 @@ class QueueEngine(private val random: java.util.Random = java.util.Random()) {
     /** S1-4: `q` as the record holds it. */
     fun recordJson(): JsonObject = MusicCore.queueJson(list, mode, label)
 
-    /** S1-4: at most [KEEP_PLAYED] played entries are kept behind the current one (hours of radio would grow every
-     *  `q` write without bound). */
+    /** S1-4: [KEEP_PLAYED] played entries are kept behind the current one (hours of radio would grow every `q` write
+     *  without bound), trimmed in batches: only once [TRIM_BATCH] or more lie past them, so a track change between
+     *  trims leaves `q` as it was and writes `now` alone (the lead's ruling after the upgrade check: one whole-queue
+     *  rewrite about every 50 tracks, not every track). */
     private fun trimPlayed() {
         val drop = index - KEEP_PLAYED
-        if (drop <= 0) return
+        if (drop < TRIM_BATCH) return
         repeat(drop) { list.removeAt(0) }
         index -= drop
     }
@@ -211,6 +213,8 @@ class QueueEngine(private val random: java.util.Random = java.util.Random()) {
         const val LOW_WATER = 2
         /** S1-4: the played entries kept behind the current one. */
         const val KEEP_PLAYED = 100
+        /** S1-4: the played entries past [KEEP_PLAYED] that make one trim (and so one `q` rewrite). */
+        const val TRIM_BATCH = 50
 
         /** The same record from a SNAPSHOT (a caller off the engine's thread). */
         fun jsonOf(queue: List<QueueEntry>, index: Int, mode: Mode, label: String, nextQid: Long = 0L,
