@@ -1204,4 +1204,124 @@ class MainLocalShellTest {
             assertEquals(0, r.t.state.value.bindSHeard0, "the seed is not used under the spare")
         } finally { r.close() }
     }
+    // ---------------------------------------------------------------------------------------------- G4
+    /** G4 item 1 (his glasses, 0.80: the wrap's slide began a median 555 ms after the edge's report): the wrap's PLAY goes
+     *  before the shell assembles the wrap's frame — no assemble between the edge's verdict and the PLAY — in a flush of
+     *  its own with the rules' answer and no drawing sub; the wrap still lands whole (belief equal to both lenses). */
+    @Test
+    fun theWrapsPlayGoesBeforeItsFramesAssemble_G4(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, kib256 = true)
+        try {
+            r.up()
+            walkTo(r, r.list().count - 1)
+            val at = r.right.size
+            r.fire(CfwModes.EV_UPROLL)
+            r.until("the wrap's PLAY on RIGHT") { wrapBatch(r, at) != null }
+            val batch = wrapBatch(r, at)!!
+            assertTrue(batch.none { r.drawing(it) && !isWrapPlay(it) }, "the PLAY's flush draws nothing: ${batch.map { "${it[0]}/${it[1]}" }}")
+            assertEquals(0, r.onLoop { r.shell.wrapAssemblesBeforeForTest() }, "no frame was assembled before the wrap's PLAY")
+            delay(r.motionMs() + r.q() + 300); r.settle("after the wrap")
+            assertEquals(0, r.row())
+            assertTrue(r.notes("divergence").isEmpty(), "${r.notes("divergence")}")
+            r.assertOracle("after the wrap")
+        } finally { r.close() }
+    }
+
+    private fun motionIn(p: ByteArray): wm.damage.core.wire.DamageMsg.Motion? {
+        val f = wm.damage.core.wire.AaFrame.Reassembler { }.offer(p) ?: return null
+        val b = wm.damage.core.wire.Pb.bytesField(f.payload, wm.damage.core.wire.DamageMsg.MOTION_FIELD) ?: return null
+        return wm.damage.core.wire.DamageMsg.parseMotion(wm.damage.core.wire.Pb.l(wm.damage.core.wire.DamageMsg.MOTION_FIELD, b))
+    }
+
+    /** G4 item 2 (his glasses, 18:53:34, five keyframes in ten minutes): a re-stage's write closes a notch's local
+     *  instance on the lens (§5.6: a cache write meeting its read range) before the notch's COMMIT lands, and RIGHT's
+     *  "closed while drawing" body — END CRC 0, no END written (§6.4) — reaches the phone after the COMMIT went. That is
+     *  no divergence: no keyframe; the closed instance's areas are repainted; belief equals both lenses after. */
+    @Test
+    fun aLocalClosedBeforeItsCommitLandsIsNoDivergence_G4(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, kib256 = true)
+        try {
+            r.up()
+            val rig = r.t as StartRig
+            val regionStart = CfwModes.mainRegion(256 * 1024, true).first
+            fun firstOff(img: ByteArray): Int = when (img[0].toInt() and 0x7F) {
+                19 -> r.u16(img, 1) * 4
+                25 -> java.util.zip.Inflater().run { setInput(img, 1, img.size - 1); val out = ByteArray(4); inflate(out); end(); r.u16(out, 0) * 4 }
+                else -> -1
+            }
+            var s: Int? = null
+            val held = java.util.concurrent.CopyOnWriteArrayList<ByteArray>()
+            // RIGHT's closed body for the notch's instance is held until the notch's COMMIT has been written (the link's
+            // order on his glasses: the body came after the COMMIT went)
+            rig.onNotify = { arm, p -> val m = motionIn(p)
+                if (arm == Arm.RIGHT && s != null && m != null && m.slot == 0 && m.tag == s && m.outcome == wm.damage.core.wire.DamageMsg.OUTCOME_CLOSED) { held += p; null } else p }
+            r.onAnyImage = { a, img ->
+                if (a == Arm.RIGHT && s == null && r.cacheWrite(img) && firstOff(img) >= regionStart) s = r.fire(CfwModes.EV_UPROLL)
+                if (a == Arm.RIGHT && s != null && held.isNotEmpty() && r.subs(img).any { r.isCommit(it, s!!) })
+                    r.scope.launch { delay(20); for (p in held) rig.deliver(Arm.RIGHT, p); held.clear() }
+            }
+            r.rows[3].s = r.rows[3].s.copy(line = "summary 33")
+            r.shell.services.requestRender(r.rows[3])
+            r.until("a notch fired as the re-stage's write went out", 15_000) { s != null }
+            r.until("the closed body delivered after the COMMIT", 15_000) { r.notes("motion").any { "tag 0x%04x".format(s) in it && "closed while drawing" in it } }
+            r.onAnyImage = null; rig.onNotify = null
+            delay(r.motionMs() + r.q() + 300); r.settle("after")
+            assertTrue(r.notes("divergence").isEmpty(), "no divergence: ${r.notes("divergence")}")
+            assertTrue(r.notes("motion").any { "local instance's own body" in it }, "the body was read as a local's own: ${r.notes("motion").takeLast(4)}")
+            r.assertOracle("after the closed local and its COMMIT")
+        } finally { r.close() }
+    }
+
+    /** Decisions BF (G4): steps measured at 48 ms against P 46 (44.9 ms; the model folds one step a motion then) raise the
+     *  period within a few motions — SETs alone, with no burst open — and the folds stop; a run of fast steps (30 ms) brings
+     *  it down only after a whole window of eight motions since the change. */
+    @Test
+    fun thePeriodFollowsTheMeasuredSteps_BF(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT)
+        try {
+            r.up()
+            assertEquals(46, r.onLoop { r.shell.periodInForceForTest() }, "the fit at 352")
+            for (a in Arm.entries) r.sim.motionForTest(a).stepUsForTest = 48_000L
+            val at = r.right.size
+            var notches = 0
+            while (r.onLoop { r.shell.periodInForceForTest() } == 46 && notches < 4) {
+                r.fire(if (r.row() < r.list().count - 2) CfwModes.EV_UPROLL else CfwModes.EV_DOWNROLL); notches++
+                delay(r.motionMs() + r.q() + 300); r.settle("slow notch $notches")
+            }
+            assertEquals(55, r.onLoop { r.shell.periodInForceForTest() }, "48 ms × 1.10 → 55 ticks, after $notches notch(es)")
+            assertTrue(notches <= 2, "within a few motions: $notches")
+            assertTrue(r.notes("mainstage").any { it.startsWith("period 46 → 55") }, "${r.notes("mainstage").takeLast(2)}")
+            // the change's flush: SETs alone (no cache write, no LIST), after the burst's SETTLE
+            val imgs = r.right.drop(at)
+            val setAt = imgs.indexOfFirst { img -> r.subs(img).any { r.isSub(it, 27, 0) && (it[8].toInt() and 0xFF) == 55 } }
+            assertTrue(setAt >= 0, "the entries SET with P 55")
+            val setSubs = r.subs(imgs[setAt]).filter { r.isSub(it, 27, 0) }
+            println("BF-sets: ${setSubs.size} SET(s), ${setSubs.sumOf { it.size }} B")
+            assertTrue(imgs.none { r.cacheWrite(it) }, "no re-stage")
+            assertTrue(imgs.take(setAt).any { img -> r.subs(img).any { r.isSub(it, 26, 5) } }, "the SETs only once the burst's lone SETTLE went")
+            assertTrue(r.subs(imgs[setAt]).none { r.isSub(it, 26, 3) }, "not in a COMMIT's batch (a burst's answer)")
+            // the next notches: no fold at P 55
+            val bodies0 = r.notes("motion").size
+            repeat(2) { r.fire(CfwModes.EV_DOWNROLL); delay(r.motionMs() + r.q() + 300); r.settle("notch at P 55") }
+            val after = r.notes("motion").drop(bodies0).filter { "committed" in it }
+            assertTrue(after.isNotEmpty() && after.all { "folded 0" in it }, "no fold at P 55: $after")
+            // steps a little faster (47 ms: 53 ticks, 2 under 55) for a whole window: no change — the hysteresis
+            for (a in Arm.entries) r.sim.motionForTest(a).stepUsForTest = 47_000L
+            repeat(Shell.PERIOD_WINDOW + 1) { i ->
+                r.fire(if (i % 2 == 0) CfwModes.EV_UPROLL else CfwModes.EV_DOWNROLL)
+                delay(r.motionMs() + r.q() + 300); r.settle("47 ms notch $i")
+            }
+            assertEquals(55, r.onLoop { r.shell.periodInForceForTest() }, "a two-tick gain does not bring it down (hysteresis ${Shell.PERIOD_HYSTERESIS})")
+            // fast steps: down only after eight motions since the change
+            for (a in Arm.entries) r.sim.motionForTest(a).stepUsForTest = 30_000L
+            var n = 0
+            while (r.onLoop { r.shell.periodInForceForTest() } == 55 && n < 12) {
+                r.fire(if (n % 2 == 0) CfwModes.EV_UPROLL else CfwModes.EV_DOWNROLL); n++
+                delay(r.motionMs() + r.q() + 300); r.settle("fast notch $n")
+            }
+            assertEquals(34, r.onLoop { r.shell.periodInForceForTest() }, "30 ms × 1.10 → 34 ticks")
+            assertTrue(n >= Shell.PERIOD_WINDOW, "not before the slower steps left the window: $n fast motions")
+            r.assertOracle("after the period came down")
+        } finally { r.close() }
+    }
 }

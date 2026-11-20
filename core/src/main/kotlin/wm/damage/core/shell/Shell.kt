@@ -2756,7 +2756,7 @@ class Shell(
     private fun localVerdict(v: wm.damage.core.local.LocalRules.Verdict, eventId: Int? = null) {
         when (v) {
             wm.damage.core.local.LocalRules.Verdict.Nothing -> {}
-            is wm.damage.core.local.LocalRules.Verdict.Apply -> { asInput(); handleInput(v.type, EvenHubMsg.SRC_RING) }
+            is wm.damage.core.local.LocalRules.Verdict.Apply -> { asInput(); edgeAssembleMark = assembleCalls; handleInput(v.type, EvenHubMsg.SRC_RING) }
             is wm.damage.core.local.LocalRules.Verdict.Adopt -> {
                 // an adopted notch is a gesture as any other (decisions AF.3): the same bookkeeping as `handleInput`'s, the
                 // cursor saved to the record; its picture is the lens's own, so no slide and no input slot (its COMMIT
@@ -2790,6 +2790,7 @@ class Shell(
         val f = localFront()
         localFrontNow = f?.second
         localOnlyFlushes.clear(); localTailFlushes.clear(); mainBind.tailsForgotten()
+        stepWindow.clear(); periodSamplesSinceChange = 0          // decisions BF: the measured window is the session's
         localNoteSaid = null
         localSettleAt = Long.MAX_VALUE
         mainBindRefusedFor = null                         // AF.6: a staging that did not fit is tried again at every start
@@ -2876,7 +2877,7 @@ class Shell(
                 if (local.active) local.localNote(ev.fields).let { n -> if (n != localNoteSaid) { localNoteSaid = n; journal.note("local", n, ev.atMs) } }
                 post(Msg.Pump)
             }
-            is TransportEvent.LocalBody -> local.body114(ev.slot, ev.tag, ev.outcome, ev.reason)
+            is TransportEvent.LocalBody -> { local.body114(ev.slot, ev.tag, ev.outcome, ev.reason); localBodyRead(ev) }
             is TransportEvent.SilentMode ->
                 if (ev.on) enterSleep(SleepReason.SILENT, "the firmware's Silent Mode is on")
                 else when (sleep) {                                 // one read
@@ -5165,6 +5166,93 @@ class Shell(
     /** Decisions AZ.4: the wrap's PLAY tags (one per PLAY, cycling through 0x1000). */
     private var wrapTags = 0
 
+    /** G4 item 1: assembles made so far (the pump's), the count at the last edge report's verdict, and the assembles
+     *  between that verdict and its wrap's PLAY. */
+    private var assembleCalls = 0
+    private var edgeAssembleMark = 0
+    private var lastWrapAssemblesBefore = -1
+
+    /**
+     * G4 item 1 (his glasses, 0.80: the wrap's slide began a median 555 ms after the edge's report). Its PLAY rode the
+     * batch of the pump that drew the wrap's frame, after that frame's assemble — Main's whole list repainted behind the
+     * held cells, 100–170 ms of the phone's loop — and was sent after it. Now the PLAY and the rules' answer (the DISCARD
+     * naming the wrapped row, the riding LIST, whatever table messages are owed) go first, in a flush of their own, before
+     * the frame is assembled: the model takes END and holds the areas as the batch path did. Not when a COMMIT is planned
+     * (the batch path applies its END first) or a keyframe is owed (it closes every instance; the row is drawn as today).
+     */
+    private suspend fun mainWrapFirst(st: LinkState, nowMs: Long): Boolean {
+        if (!(local.active && st.bind && st.leaseHeld) || comp.needsKeyframe) return false
+        if (local.plan(localRow()).isNotEmpty()) return false
+        val wrap = mainWrapPlan(nowMs) ?: return false
+        comp.holdEnds(listOf(wrap.end), nowMs)
+        val tail = listOf(wrap.play) + local.tail(localRow(), nowMs, emptySet(), frame = false, wrapped = true)
+        lastWrapAssemblesBefore = assembleCalls - edgeAssembleMark
+        submitLocalOnly(tail, "WRAP")
+        journal.note("local", "the wrap's PLAY went ahead of its frame: ${tail.size} message(s), ${tail.sumOf { it.size }} B")
+        return true
+    }
+
+    /**
+     * Decisions BF (G4): the period follows the MEASURED step. Each complete motion of Main's bound list (its slot's local
+     * instances and the wrap's) gives its largest step time; the last [PERIOD_WINDOW] are kept. The period in force is
+     * raised as soon as the window's maximum × [PERIOD_MARGIN_MEASURED] needs more ticks, and lowered — to what it needs —
+     * only after a whole window since the last change that needs at least [PERIOD_HYSTERESIS] ticks less (so it does not
+     * go back and forth). Clamped to the engine's 16..128. Applied with no burst open: new SETs only (the programs, their T
+     * and the records are kept, so a longer period runs the motion longer); the next staging starts from the fit again.
+     */
+    private val stepWindow = ArrayDeque<Long>()
+    private var periodSamplesSinceChange = 0
+
+    private fun localBodyRead(ev: TransportEvent.LocalBody) {
+        val ms = mainBind.staging ?: return
+        val list = mainBind.list ?: return
+        if (ev.slot != list.slot && ev.slot != MainStaging.WRAP_SLOT) return
+        val steps = (ev.drawn ?: 0L) + (ev.folded ?: 0L)
+        val complete = ev.outcome == wm.damage.core.wire.DamageMsg.OUTCOME_DREW || steps >= ms.t
+        // G4 item 2: a local instance's own body (no END written) closed by RIGHT: every step drawn is at END; short of
+        // them, its areas hold a partial step on the panel — repainted from the truth, never a keyframe
+        if (ev.outcome == wm.damage.core.wire.DamageMsg.OUTCOME_CLOSED && ev.endCrc == 0L && ev.slot == list.slot) {
+            if (steps >= ms.t) local.counts.merge("localClosedAtEnd", 1, Int::plus)
+            else {
+                local.counts.merge("localClosedShort", 1, Int::plus)
+                comp.markAreasUnknown(list.areas)
+                journal.note("local", "slot ${ev.slot} tag 0x%04x closed on the glasses after $steps of ${ms.t} steps — its areas are repainted".format(ev.tag))
+                post(Msg.Pump)
+            }
+        }
+        val us = ev.stepUs ?: return
+        if (!complete || steps != ms.t.toLong() || us <= 0L) return
+        stepWindow.addLast(us)
+        while (stepWindow.size > PERIOD_WINDOW) stepWindow.removeFirst()
+        periodSamplesSinceChange++
+        if (mainPeriodWanted() != null) post(Msg.Pump)
+    }
+
+    private fun mainPeriodWanted(): Int? {
+        val ms = mainBind.staging ?: return null
+        val max = stepWindow.maxOrNull() ?: return null
+        val need = kotlin.math.ceil(max / 1000.0 * PERIOD_MARGIN_MEASURED * 1.024).toInt()
+            .coerceIn(CfwModes.MOTION_PERIODS.first, CfwModes.MOTION_PERIODS.last)
+        val p = ms.periodInForce
+        return when {
+            need > p -> need
+            stepWindow.size >= PERIOD_WINDOW && periodSamplesSinceChange >= PERIOD_WINDOW && need <= p - PERIOD_HYSTERESIS -> need
+            else -> null
+        }
+    }
+
+    private fun mainPeriodApply() {
+        if (local.burstOpen) return
+        val ms = mainBind.staging ?: return
+        val want = mainPeriodWanted() ?: return
+        val was = ms.periodInForce
+        ms.periodInForce = want
+        periodSamplesSinceChange = 0
+        mainBind.relisted()
+        journal.note("mainstage", "period $was → $want: steps measured up to ${"%.1f".format((stepWindow.maxOrNull() ?: 0L) / 1000.0)} ms " +
+            "over the last ${stepWindow.size} motion(s) (×${PERIOD_MARGIN_MEASURED}); the entries are SET again, ${ms.t} frames × ${"%.0f".format(want * 1000.0 / 1024)} ms")
+    }
+
     /** Decisions AZ.4: the wrap's PLAY bytes and its END plan for the assemble. */
     private class MainWrap(val play: ByteArray, val end: Compositor.EndPlan)
 
@@ -5183,9 +5271,9 @@ class Shell(
         val pan = ms.pan(MainStaging.WHOLE, w.step)
         val p = ms.wrapParams(pan, w.cPrime) ?: return null
         val tag = WRAP_TAG + (wrapTags++ and 0xFFF)
-        val play = try { wm.damage.core.motion.Motion.play(pan.program, MainStaging.WRAP_SLOT, ms.period, tag, 0, p) }
+        val play = try { wm.damage.core.motion.Motion.play(pan.program, MainStaging.WRAP_SLOT, ms.periodInForce, tag, 0, p) }
             catch (e: wm.damage.core.geom.LintError) { journal.note("local", "the wrap's PLAY is refused offline (${e.message}) — the row is drawn as today"); return null }
-        val until = nowMs + (ms.t + 1L) * ms.period * 1000L / 1024 + WRAP_START_MS
+        val until = nowMs + (ms.t + 1L) * ms.periodInForce * 1000L / 1024 + WRAP_START_MS
         return MainWrap(play, Compositor.EndPlan(MainStaging.WRAP_SLOT, pan.program.tracks.map { it.areaL to it.areaR },
             { left, g -> ms.paintEnd(pan, p, left, g) }, until))
     }
@@ -5493,7 +5581,11 @@ class Shell(
     internal fun mainBoundForTest(): Pair<wm.damage.core.local.BoundList?, Int> = main.bound() to main.row()
     /** Test introspection (build ANIM, AW.4): Q in force and the bound pan's motion in ms (T × P), loop-only. */
     internal fun localQForTest(): Long = local.q
-    internal fun motionMsForTest(): Long = mainBind.staging?.let { it.t * it.period * 1000L / 1024 } ?: 0L
+    internal fun motionMsForTest(): Long = mainBind.staging?.let { it.t * it.periodInForce * 1000L / 1024 } ?: 0L
+    /** G4 item 1: assembles the shell made between the last edge report's verdict and its wrap's PLAY (0: the PLAY went
+     *  first); the period in force (BF); the measured window. Loop-only. */
+    internal fun wrapAssemblesBeforeForTest(): Int = lastWrapAssemblesBefore
+    internal fun periodInForceForTest(): Int = mainBind.staging?.periodInForce ?: 0
     internal fun mainRestingForTest(): Boolean = main.resting
     internal fun notificationsUpForTest(): Boolean = notifications.active || notifications.animating
     internal fun notificationsFocusedForTest(): Boolean = notifications.active && notifications.focused
@@ -5551,7 +5643,7 @@ class Shell(
     private fun motionInForce() = MainStaging.ScrollMotion(settings.scrollLength, settings.frames)
 
     /** [ms]'s motion in words ("10 frames × 45 ms"), as the `Frames` row's hint says it. */
-    private fun motionWords(ms: MainStaging): String = "${ms.t} frames × ${"%.0f".format(ms.period * 1000.0 / 1024)} ms"
+    private fun motionWords(ms: MainStaging): String = "${ms.t} frames × ${"%.0f".format(ms.periodInForce * 1000.0 / 1024)} ms"
 
     /** The `Frames` row's hint: the motion in force at Main's height now — the staging's when it was made for these rows,
      *  else what they give at the current layout. */
@@ -5616,7 +5708,7 @@ class Shell(
         if (offer !== main.offered) {
             main.offered = offer
             if (offer != null) journal.note("mainstage", "offered — Main's ${ms.rows} rows counted on the glasses: list ${offer.list} slot ${offer.slot} " +
-                "mark ${offer.mark}, ${offer.entries.size} entries (the whole list, P ${ms.period} T ${ms.t}), items at off4 ${offer.items4}")
+                "mark ${offer.mark}, ${offer.entries.size} entries (the whole list, P ${ms.periodInForce} T ${ms.t}), items at off4 ${offer.items4}")
         }
     }
 
@@ -5749,6 +5841,7 @@ class Shell(
         }
         mainBindRefusedFor = null
         mainBind.begin(ms, recs, List(ms.rows) { main.rowKey(it) }, now)
+        stepWindow.clear(); periodSamplesSinceChange = 0          // decisions BF: a staging starts from the fit
         mainBindRefusalSaid = null
         stageRecount()
         journal.note("mainstage", "staged — ${ms.bytes} B in ${ms.blobs.size} record(s) at ${ms.start}..${ms.end} of the ${st.cacheSize / 1024} KiB cache " +
@@ -7111,8 +7204,13 @@ class Shell(
             journal.note("atlas", "the texture cache was written by '${st.cacheWriter}' mid-session — the atlas is dropped, cached text is pixels until the next session or a Cached text toggle")
             atlasReset()
         }
+        // decisions BF (G4): a period the measured steps call for, set with no burst open (before the offer below)
+        mainPeriodApply()
         // build C2, stage DM2: what Main offers the rules is decided before anything below asks for it
         mainBindPoll(st)
+        // G4 item 1: the wrap's PLAY goes now, alone and small, ahead of this pump's frame (whose assemble behind the held
+        // cells took 100–170 ms on his phone) and whatever the window holds — the transport queues it in stream order
+        mainWrapFirst(st, System.currentTimeMillis())
         // One slot is RESERVED for the response to input (2026-09-05,
         // `HANDOFF.md` §32): animation frames, poll-driven repaints and the
         // visualizer may keep at most window-1 flushes in flight, so a
@@ -7289,6 +7387,7 @@ class Shell(
             // decisions AZ.4: an edge at an end of Main's wrapping list — the pan across the wrap, a phone PLAY in a free slot
             // whose END goes into the model as a COMMIT's does, its areas held until it ends
             val wrap = if (localOn) mainWrapPlan(localNow) else null
+            assembleCalls++
             var denied: Set<Int> = emptySet()
             val assembled = try {
                 if (plans.isEmpty() && wrap == null) comp.assembleFlush(Geometry.rectBudget(st.window))
@@ -7825,6 +7924,11 @@ class Shell(
          *  that carries it (the answer flushes' acks on his glasses, 2026-11-19: 50–400 ms), added to its steps for how long
          *  the cells inside its areas wait. */
         const val WRAP_TAG = 0xB000
+        /** Decisions BF (G4): the measured period's window (complete motions), its margin over the largest step, and how
+         *  many ticks lower a window must call for before the period comes down. */
+        const val PERIOD_WINDOW = 8
+        const val PERIOD_MARGIN_MEASURED = 1.10
+        const val PERIOD_HYSTERESIS = 3
         const val WRAP_START_MS = 400L
         const val MAINSEQ_RESTAGES = 3
         const val MAINSEQ_POLL_MS = 50L
