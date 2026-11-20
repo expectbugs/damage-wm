@@ -141,9 +141,9 @@ class FilesArrangementsTest {
 
     /** Pin (FILES, ruled 2026-11-20), from the test above's order-dependent miss: the lane is up, the Files window
      *  channel is not yet, and the folder is opened. Its listing fails at once ("not reachable": logged, and on the
-     *  glasses the This-folder row's line); the summary says "not listed", never an empty folder. When the channel
-     *  comes up the folder is listed again by itself (before the ruling it stayed on "0 folders · 0 files" until he
-     *  moved: the state that test timed out on). */
+     *  glasses the This-folder row's line) while the summary says the channel's own line. When the channel comes up
+     *  the folder is listed again by itself, once (before the ruling it stayed on "0 folders · 0 files" until he moved:
+     *  the state that test timed out on). */
     @Test
     fun aFolderOpenedBeforeTheWindowChannelIsUp_isListedWhenItComesUp(): Unit = runBlocking {
         val winPort = java.net.ServerSocket(0).use { it.localPort }              // nothing serves it yet
@@ -157,18 +157,32 @@ class FilesArrangementsTest {
             readerAwait("the lane is up") { a.wc.client?.contractState?.shared(FilesCore.WINDOW) == true }
             assertTrue(a.remote.stateLine().isNotEmpty(), "the window channel is not up yet: '${a.remote.stateLine()}'")
             assertTrue(a.services.onLoop { a.g.open("path:$dir/") })
-            await(a, "the listing failed, said as such") { a.services.onLoop { a.g.summary().detail } == FilesGlasses.NOT_LISTED }
-            assertEquals(1, failed.size, "logged once: ${failed.toList()}")
+            await(a, "the listing failed") { failed.isNotEmpty() }
+            assertEquals(a.remote.stateLine(), a.services.onLoop { a.g.summary().line }, "the summary says the channel's line")
             val win = ContentHostServer(LocalContent(java.nio.file.Files.createDirectories(rig.books)), winPort, ReaderRig.TOKEN,
                 bindAddress = InetAddress.getLoopbackAddress(), win = mapOf("files" to FilesService(a.pc.slotted)))
             win.start()
             rig.keep(win)
             await(a, "listed once the channel is up") { a.services.onLoop { a.g.summary().detail } == "0 folders · 1 files" }
             assertEquals("", a.remote.stateLine())
+            assertEquals(1, failed.size, "the failed listing was not tried again while the channel was down: ${failed.toList()}")
             assertEquals(emptyList(), a.services.notices.toList())
         } finally {
             wm.damage.core.util.Log.removeSink(sink)
         }
+    }
+
+    /** Pin (FILES, ruled 2026-11-20): a folder the PC answers with an error (the channel up, nothing cached) says "not
+     *  listed" in its summary, never "0 folders · 0 files" as if it were empty; his next look lists it as before. */
+    @Test
+    fun aFolderThePcCannotList_saysNotListed_neverAnEmptyFolder(): Unit = runBlocking {
+        val a = arrange()
+        val dir = tree.home.resolve("gone").toString()                       // never made: the PC's listing refuses it
+        assertTrue(a.services.onLoop { a.g.open("path:$dir/") })
+        await(a, "said as not listed") { a.services.onLoop { a.g.summary().detail } == FilesGlasses.NOT_LISTED }
+        tree.dir("gone")
+        assertTrue(a.services.onLoop { a.g.open("path:$dir/") })               // his next look lists it, as before
+        await(a, "listed on the next look") { a.services.onLoop { a.g.summary().detail } == "0 folders · 0 files" }
     }
 
     /** The wrong-file class swept into the trash: newest first, so an entry trashed elsewhere shifts every index; a
