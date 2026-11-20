@@ -35,7 +35,8 @@ class SettingsWindow(
     private val apps: () -> List<Pair<String, List<HostSetting>>> = { emptyList() },
     /** Build C2 (§6.3): the `Local input` row's state in words, as the transport says it ("" before a session). */
     private val localInput: () -> String = { "" },
-    /** Build C2 (§6.8's lift): a tap on `Local input` while it is held back re-arms it — `probe c1=4`'s act. */
+    /** Build C2 (§6.8's lift): a tap on `Local input` while it is held back re-arms it. Build C3 (§7.9 as ruled,
+     *  decisions W, D-2): it lifts the hold-back and keeps the stored stage — `probe local=rearm`. */
     private val localRearm: () -> Unit = {},
     /** Build C2 (decisions AF.0): the build reports DamageCaps bit 10 — `Taps` and `Local input` are shown only then (on
      *  any other firmware they would be rows that do nothing). */
@@ -115,7 +116,8 @@ class SettingsWindow(
         Entry("Taps", {
             val t = get().taps
             t.word + (if (t == wm.damage.core.local.Taps.REPORT) " (default)" else "") +
-                (if (localInput() != "on") " (no effect: this firmware / stage)" else "")
+                (if (localInput().startsWith("held back")) " (no effect: local input held back, stage 3 armed)"
+                 else if (localInput() != "on") " (no effect: this firmware / stage)" else "")
         }, { s, d ->
             val ts = wm.damage.core.local.Taps.entries
             s.copy(taps = ts[(s.taps.ordinal + d).coerceIn(0, ts.size - 1)])

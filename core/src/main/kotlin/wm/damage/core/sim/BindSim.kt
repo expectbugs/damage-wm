@@ -185,7 +185,7 @@ class BindSim(private val motion: MotionSim, private val effects: () -> Boolean 
         val prog = v as? MotionSim.Prog ?: return body(OUTCOME_REFUSED, -(v as Int))
         // §7.12 (C3): the step budget after the values — the local instance's C in the sum over its close set's leavings
         val cost = if (effects()) motion.cost(prog) else 0L
-        if (effects() && !motion.fireBudgetOk(prog, e.slot, cost)) return body(OUTCOME_REFUSED, REF_VALUE)
+        if (effects() && !motion.fireBudgetOk(prog, e.slot, s, cost)) return body(OUTCOME_REFUSED, REF_VALUE)
         motion.threadExists = true                          // the thread and its flags at first use (11 never: static memory)
         // 11: the close set; §7.3 (C3) one holding an owning instance is refused 19, nothing closed, before 17's test; a
         // tap fire whose set holds a local instance (a done one counts) is refused 17, nothing closed

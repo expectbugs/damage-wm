@@ -586,6 +586,86 @@ class EffectsSimTest {
         }
     }
 
+    /** §7.12 (decisions Y, C-1, Reader C's case 1): "an instance *waits on* another when it is a PLAY-AFTER whose `after`
+     *  slot still holds that other's recorded triple", over the slots drawing "once the operation's closes are done". An
+     *  out half O in slot 0, its in half W (4,000,000) waiting in slot 1; a PLAY of X (OWN, apart from W) into slot 0
+     *  closes O, so W waits on none and counts its own C: X 4,000,000 takes the sum to the cap (taken), X 4,000,001 one
+     *  over (12). With X tagged as O was (a reused tag, ordinal 0) slot 0 holds W's recorded triple again: W waits on X
+     *  and the two count as the larger (taken) — a plain "not the replaced slot" reading would refuse it. */
+    @Test
+    fun aWaiterWhoseRecordedSlotIsPlayedOverWaitsOnNone_7_12() {
+        for ((case, xRows, xTag, ok) in listOf(Quad("at the cap", 64, 0x33, true), Quad("one over", 65, 0x33, false),
+                                                Quad("a reused tag", 65, 0x11, true))) {
+            val r = Rig()
+            r.write(16, prog2(OWN, track(rect(0, 0, 10, 10), 2, seg2(WAIT, 8))))
+            r.write(64, half(0, 64))
+            r.write(1024, half(320, xRows))
+            assertTrue(r.msg(play(0, 20, 16, 0x11)), case)
+            r.now += 5
+            assertTrue(r.msg(after(1, 20, 64, 0x22, 0)), case)
+            assertEquals(4_000_000L, r.motion().slots[1]!!.cost)
+            r.now += 5
+            assertEquals(ok, r.msg(play(0, 20, 1024, xTag)), case)
+            if (!ok) assertEquals(12, r.reason(), case)
+            if (!ok) assertEquals(0x11, r.motion().slots[0]!!.tag, "$case: nothing opened or changed")
+        }
+    }
+
+    /** §7.12 (decisions Y, C-1, Reader C's case 2, and the text's cycle rule): B in slot 0, A waiting on it in slot 1
+     *  (4,000,000), Z apart in slot 2 (4,000,000); a PLAY-AFTER of N into slot 0 naming A closes B — A then waits on none,
+     *  N waits on A, and f(A) = max(4,000,000, C_N) with Z: N 4,000,001 is one over (12). With N tagged as B was, slot 0
+     *  holds A's recorded triple again and the records form a cycle: "its members count each by its own C" — A and N
+     *  without Z, 4,000,000 + C_N: N 4,000,000 at the cap (taken), 4,000,001 one over (12). */
+    @Test
+    fun aReplacedSlotFormsNoCycleAndARealCycleCountsEachMember_7_12() {
+        for ((case, nRows, nTag, ok) in listOf(Quad("replaced, at the cap", 64, 0x55, true), Quad("replaced, one over", 65, 0x55, false),
+                                                Quad("a cycle at the cap", 64, 0x11, true), Quad("a cycle one over", 65, 0x11, false))) {
+            val r = Rig()
+            val cycle = nTag == 0x11
+            r.write(16, prog2(OWN, track(rect(0, 0, 10, 10), 2, seg2(WAIT, 8))))
+            r.write(64, half(0, 64))
+            r.write(1024, half(320, 64))
+            r.write(2048, half(0, nRows))
+            assertTrue(r.msg(play(0, 20, 16, 0x11)), case)
+            r.now += 5
+            assertTrue(r.msg(after(1, 20, 64, 0x22, 0)), case)
+            if (!cycle) { r.now += 1; assertTrue(r.msg(play(2, 20, 1024, 0x44)), "$case: B/A as the larger with Z, exactly the cap") }
+            r.now += 5
+            assertEquals(ok, r.msg(after(0, 20, 2048, nTag, 1)), case)
+            if (!ok) assertEquals(12, r.reason(), case)
+            if (ok && cycle) assertEquals(Triple(0, 0x11, 0), r.motion().slots[1]!!.rec, "$case: A's recorded triple names N")
+        }
+    }
+
+    /** §7.12 at a fire (§6.2 step 10) before step 11's 19 (decisions Y, C-1): an owner O in the entry's slot 0 with W
+     *  waiting on it in slot 1 (4,000,000), Z apart in slot 2. The fire's close set closes O, so W waits on none: W + Z + the
+     *  local's C one over the cap is refused 12 — read with O still holding W's triple, W would fold under the local and
+     *  the fire would pass the budget and be refused 19 at step 11. At the cap: 19 (the owner in the close set). */
+    @Test
+    fun aFireOverAnOwnerWithAWaiterIsJudgedByTheBudgetBefore19_7_12() {
+        val local = prog2(0, track(rect(0, 300, 100, 50), 2, seg2(FILL, 3, kind = 9)))     // 1,024 + 2·5,000 = 11,024
+        for ((zCost, want) in listOf(8_000_000L - 4_000_000L - 11_024L to 19, 8_000_001L - 4_000_000L - 11_024L to 12)) {
+            val r = Rig()
+            r.write(16, prog2(OWN, track(rect(600, 460, 10, 10), 2, seg2(WAIT, 8))))
+            r.write(64, heavy(0, 0, 320, 240, 4_000_000L))
+            r.write(1024, heavy(320, 0, 320, 240, zCost))
+            r.write(2048, local)
+            assertTrue(r.msg(list(0, 0xFFFF, 8, 0, 8, 1)))
+            assertTrue(r.msg(set(0, UPROLL, 0, +1, 0, 2048)))
+            assertTrue(r.msg(play(0, 20, 16, 0x11)))
+            r.now += 2
+            assertTrue(r.msg(after(1, 20, 64, 0x22, 0)))
+            r.now += 2
+            assertTrue(r.msg(play(2, 20, 1024, 0x44)), "Z: W as O's waiter with Z, under the cap")
+            assertEquals(zCost, r.motion().slots[2]!!.cost)
+            r.sent()
+            r.sim.conformanceInput(r.arm, 4, UPROLL.toLong(), 0, r.now)
+            val rep = r.sent().single { it.first == 115 }.second
+            assertEquals(listOf(2L, want.toLong()), listOf(rep[5], rep[6]), "Z $zCost: refused $want")
+            assertTrue(r.motion().slots[0]?.owns == true, "nothing closed")
+        }
+    }
+
     /** §7.3 as ruled (the seventeen, item 4): the stock path ends done owners too, and a claim the hook loses there counts
      *  in field 33 like every lost claim. A done owner (T 1), the lease lapsed unnoticed: a stock repaint with the engine
      *  word held loses the claim (one fold counted, the owner untouched); the next one ends its owns mark. */
@@ -736,5 +816,35 @@ class EffectsSimTest {
         /** §7.8 LIST-RING: LIST's body, then `flags u8`. */
         fun ring(list: Int, items: Int, count: Int, shift: Int, pitch: Int, mark: Int, flags: Int) =
             list(list, items, count, shift, pitch, mark).also { it[1] = 4 } + byteArrayOf(flags.toByte())
+
+        /** An OWN in half over the panel's half at [x] (Reader C's form, `C3-V1D-C-review.md`, with 8 steps so that one
+         *  played alone is still drawing at the next message): two 320 × 480 tracks of backdrop `new` under a two-axis DRAW
+         *  of `new` (1,024 + 11·153,600 each), one of 164 × 376 (1,024 + 10·61,664) and a FILL of 1 × [rows]
+         *  (1,024 + rows): 4,000,000 u at 64 rows, one unit more a row. */
+        fun half(x: Int, rows: Int): ByteArray {
+            val big = track(rect(x, 0, 320, 480), BD_NEW, seg2(DRAW, 8, kind = 4, lvl0 = 15, lvl1 = 15, w0 = 160, w1 = 160))
+            return prog2(OWN, big, big, track(rect(x, 0, 164, 376), NONE, seg2(DRAW, 8, kind = 4, lvl0 = 15, lvl1 = 15, w0 = 80, w1 = 80)),
+                track(rect(x, 0, 1, rows), NONE, seg2(FILL, 8, kind = 5)))
+        }
+
+        /** An OWN program inside (x, y, w, h) whose §7.12 C is exactly [target], 8 steps long (so that it still draws at
+         *  the next message): n tracks of the whole rect and one of w × q0, each backdrop `new` under a two-axis DRAW of
+         *  `new` (1,024 + 11·A), then two level backdrops over a WAIT (1,024 + A) of w × q2 and k2 × 1. */
+        fun heavy(x: Int, y: Int, w: Int, h: Int, target: Long): ByteArray {
+            val a = w.toLong() * h
+            val unit = 1024 + 11 * a
+            fun scaled(rw: Int, rh: Int) = track(rect(x, y, rw, rh), BD_NEW, seg2(DRAW, 8, kind = 4, lvl0 = 15, lvl1 = 15, w0 = 1, w1 = 1))
+            fun level(rw: Int, rh: Int) = track(rect(x, y, rw, rh), 2, seg2(WAIT, 8))
+            val n = ((target - 3 * 1024 - 12L * w - 1) / unit).toInt()
+            require(n in 0..5) { "heavy: $target u needs $n whole tracks" }
+            val m = target - n * unit - 3 * 1024
+            val q0 = minOf(h.toLong(), (m - w - 1) / (11L * w)).toInt()
+            val rem = m - 11L * w * q0
+            val q2 = ((rem - 1) / w).toInt(); val k2 = (rem - q2.toLong() * w).toInt()
+            require(q0 in 1..h && q2 in 1..h && k2 in 1..w) { "heavy: q0 $q0 q2 $q2 k2 $k2" }
+            return prog2(OWN, *Array(n) { scaled(w, h) }, scaled(w, q0), level(w, q2), level(k2, 1))
+        }
     }
+
+    private data class Quad<A, B, C, D>(val a: A, val b: B, val c: C, val d: D)
 }

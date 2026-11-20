@@ -1036,7 +1036,8 @@ class Shell(
                 { globalFontRows + hostSettings },
                 { settingsApps() },
                 localInput = { transport.state.value.localInput },
-                localRearm = { transport.devProbe("c1", "4") },
+                // §7.9 as ruled (decisions W, D-2): the row lifts the hold-back and keeps the stored stage
+                localRearm = { transport.devProbe("local", "rearm") },
                 bindBuild = { transport.state.value.damageFeatures and wm.damage.core.wire.DamageMsg.FEATURE_BIND != 0 },
                 motionHint = { motionHint() },
                 effectsInForce = { transport.state.value.effects })

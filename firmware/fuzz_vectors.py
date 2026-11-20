@@ -60,6 +60,16 @@ invalid shape; PLAY-AFTER into the slot of the last owning PLAY (drawing or done
 kind 3 among mode 27, a ring list and kind-3 entries in the start's table; phone frames under owners (the same
 drawing messages); wakes at and between step boundaries; "features": 0xdff. Its sets are written under
 `private/c3-design/fuzz-c3/` (seeds 1 and 1001, 40 vectors of 25 steps), never into the repository.
+
+`--c3x` (with `--c3`; stage X2D, `C3-decisions.md` Y, C-2) adds the shapes `--c3` never made, every draw behind the
+switch so that `--c3` seeds write the vectors they wrote before: programs whose §7.12 costs straddle the cap in twos and
+threes (OWN two-axis DRAWs of `new`, or bound two-axis DRAWs of a record, inside halves, thirds and the whole of the
+panel, at exactly the cap's share and one unit past it); ease-2 tables for every step count, never falling and falling
+once; later tracks with backdrop none (a lone REVEAL in an OWN program, one inside an earlier whole-area track); per-lens
+version-2 tracks; prefs 14–17 (and into unused fields) with parameters near the fields' ranges; GLYPHS at their limits (a
+512-cell list, a 224-code alphabet, a 1,024-entry cell table, rain of 128 columns and a trail of 32); a source window and
+a cell index set by a parameter (also as list programs a SET's kind 2 or 3 drives). Its sets are written under
+`private/c3-design/fuzz-c3x/` (seeds 2 and 1002), never into the repository.
 """
 import argparse, json, pathlib, random, sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -77,6 +87,7 @@ from make_vectors import (  # noqa: E402
     prog2, d2, dnew, r2, pc, sh, gly, w2, f2, glyph, font224, alphabet, cell, cell_list, cell_table, rain_rec,
     play_after, bind_ring, anc, EFFECTS, FEATURES_C3, K_OLD, K_NEW, CELLS, RAIN, BD_NEW, OWN, LAND, K_CUR,
     UNIFORM, RADIAL, RANDOM, F_AUX0, TOP, BOTTOM, LEFT, RIGHT, SLIDE, K_LEVEL,
+    TABLE, F_W0, F_W1, F_AUX1, pcost, CAP,
 )
 
 DRAW2, PROBE = 0x0004, 0x8000
@@ -84,6 +95,7 @@ CORRUPT = False
 C1 = False
 C2 = False
 C3 = False
+C3X = False
 def rnd_rect(r, wild=False):
     if wild and r.random() < 0.35:
         l = r.choice([0, 1, 639, 640, 641, 65535])
@@ -166,7 +178,8 @@ def gen(seed, nsteps):
 
 def rnd_msg(r, recs, table_off4, fid, depth=0, cc=None):
     if cc is not None and r.random() < 0.4:           # --c1: two in five messages are C1's (a PLAY the likeliest)
-        return rnd_c1(r, r.choice(([22, 22, 23, 24, 25, 26, 26, 27, 27, 28] + ([29, 29, 29, 30] if cc.get("c3") else []))
+        return rnd_c1(r, r.choice(([22, 22, 23, 24, 25, 26, 26, 27, 27, 28] + ([29, 29, 29, 30] if cc.get("c3") else [])
+                                   + ([29, 29, 29, 29] if cc.get("c3x") else []))
                                   if cc.get("c2") else [22, 22, 23, 24, 25]), cc, depth)
     k = r.randrange(22)
     wild = r.random() < 0.3
@@ -436,6 +449,7 @@ def build_c3(r, c, cc):
                       r.choice([0xFF, r.randrange(16)]), r.choice([15, 8, 0x2F, r.randrange(16)])) for _ in range(r.randrange(1, 41))]
         lists.append(c.add(cell_list(r.choice(alphas), r.randrange(0, 4), cells)))
     cc["ctab"], cc["nlists"] = c.add(cell_table(lists)), len(lists)
+    cc["font"], cc["lists"], cc["alphas"] = fnt, lists, alphas         # --c3x builds at the limits beside them (no draw here)
     cc["rains"] = [c.add(rain_rec(r.randrange(1, 40), r.randrange(1, 9), r.randrange(4, 14), r.randrange(6, 16), fnt,
                                   r.choice(alphas), r.randrange(16), r.randrange(16), rv, r.randrange(16), r.randrange(8),
                                   r.randrange(1, 6))) for rv in (0, 1, 2)]
@@ -456,12 +470,15 @@ def rnd_area2(r, avoid=None):
             return a
     return None
 
-def rnd_seg2(r, cc, own, area):
-    """One version-2 segment of a track that is not in place (§7.2's verbs, kinds and fields; values mostly in range)."""
+def rnd_seg2(r, cc, own, area, pair=None):
+    """One version-2 segment of a track that is not in place (§7.2's verbs, kinds and fields; values mostly in range).
+    --c3x: [pair] (the right rect's shift on a per-lens track) gives the segment its R side; an ease-2 table of the
+    segment's own n (`rnd_ease`); a pref 14–17 now and then (`rnd_pref2`)."""
     l, t, w, h = area
     n, lv, ease = r.randrange(1, 9), (r.randrange(16), r.randrange(16)), r.choice([0, 0, 1])
     v = r.choice(["wait", "fill", "draw", "draw", "reveal", "cells", "rain"] + (["new", "pieces", "pieces", "rnew"] if own else []))
     xy = dict(x=l + r.randrange(-40, 41), y=t + r.randrange(-30, 31))
+    if cc.get("c3x"): return rnd_seg2x(r, cc, own, area, pair, n, lv, ease, v, xy)
     if v == "wait": return w2(n)
     if v == "fill": return f2(n, r.randrange(16))
     if v in ("draw", "new"):
@@ -491,6 +508,67 @@ def rnd_seg2(r, cc, own, area):
                    dx=r.randrange(-20, 21), dy=r.randrange(-10, 11), lvl=lv, seed=r.randrange(0x10000), opt=r.choice([0, 0x80]), ease=ease)
     return gly(n, RAIN, cc["rains"][0], x=r.randrange(-5, 6), y=r.randrange(-5, 6), dx=r.randrange(-20, 21), dy=r.randrange(-10, 11),
                lvl=lv, seed=r.randrange(0x10000), ease=ease)
+
+def rnd_ease(r, cc, n):
+    """--c3x: an ease-2 table of n entries (`build_c3x_tables`) one segment in three — the falling one one time in four —
+    or None."""
+    if r.random() < 0.33:
+        rise, fall = cc["etab"][n]
+        return fall if fall is not None and r.random() < 0.25 else rise
+    return None
+
+def rnd_pref2(r, fields, P_unused=True):
+    """--c3x: a pref writing a parameter into one of [fields] (§7.2's 14–17 among them), or into a field the verb does
+    not use one time in six (5 when the parameter is not 0); 0 (none) two times in three."""
+    if r.random() < 0.67: return 0
+    f = r.choice(fields) if fields and not (P_unused and r.random() < 0.17) else r.choice([F_W1, F_AUX1, 12])
+    return pref(r.randrange(4), f)
+
+def rnd_seg2x(r, cc, own, area, pair, n, lv, ease, v, xy):
+    """`rnd_seg2` under --c3x: the same verbs, with ease 2, the R side of a per-lens track and prefs 14–17."""
+    l, t, w, h = area
+    tab = rnd_ease(r, cc, n)
+    ez = dict(ease=TABLE, table=tab) if tab is not None else dict(ease=ease)
+    rk = {} if pair is None else dict(xR=xy["x"] + pair + r.choice([0, 0, 1, -2]))
+    if v == "wait": return w2(n)
+    if v == "fill": return f2(n, r.randrange(16), pref0=rnd_pref2(r, []))
+    if v in ("draw", "new"):
+        kw = dict(dx=r.randrange(-120, 121), dy=r.randrange(-60, 61), lvl=lv, opt=r.choice([0, 0, 0x10, 0x20, 0x30]), **ez)
+        if pair is not None: kw["dxR"] = kw["dx"] + r.choice([0, 0, 3, -5])
+        if r.random() < 0.3: kw.update(w0=r.randrange(1, 300), w1=r.randrange(1, 300), anchor=anc(r.randrange(3), r.randrange(3)),
+                                       pref0=rnd_pref2(r, [F_W0, F_W1]))
+        if r.random() < 0.3: kw.update(h0=r.randrange(1, 200), h1=r.randrange(1, 200), anchor=anc(r.randrange(3), r.randrange(3)))
+        if v == "new": return dnew(n, l, t, **({"xR": l + pair} if pair is not None else {}), **kw)
+        if r.random() < 0.35:                         # a source window of the strip (§7.5), its rows by a parameter now and then
+            a1 = r.randrange(1, 40)
+            return d2(n, cc["strip"], **xy, **rk, aux0=r.randrange(0, 121 - a1), aux1=a1, pref1=rnd_pref2(r, [F_AUX0, F_AUX1]), **kw)
+        return d2(n, r.choice(cc["recs"]), **xy, **rk, **kw)
+    if v in ("reveal", "rnew"):
+        edge = r.randrange(4) | r.choice([0, SLIDE])
+        if v == "rnew": return r2(n, edge, K_NEW, l, t, xR=None if pair is None else l + pair, **ez)
+        if r.random() < 0.5: return r2(n, edge, K_LEVEL, **xy, **rk, src=r.randrange(16), w=r.randrange(1, 80), h=r.randrange(1, 60), **ez)
+        return r2(n, edge, 0, **xy, **rk, src=r.choice(cc["recs"]), **ez)
+    if v == "pieces":
+        model = r.choice([UNIFORM, RADIAL, RANDOM])
+        grid = (1, 1) if model == UNIFORM else (r.randrange(1, 17), r.randrange(1, 17))
+        stg = r.choice([0, 0, 0, 1, 3]) if n > 3 else 0
+        if tab is not None: ez = dict(ease=TABLE, table=cc["etab"][n - stg][0 if r.random() < 0.85 or n - stg < 3 else 1])
+        dx = 0 if model == RADIAL else r.randrange(-100, 101)
+        pk = {} if pair is None else dict(xR=l + r.randrange(w) + pair, dxR=0 if model == RADIAL else dx + r.choice([0, 4, -7]))
+        return pc(n, K_NEW, grid=grid, model=model, stagger=stg, x=l + r.randrange(w), y=t + r.randrange(h),
+                  dx=dx, dy=0 if model == RADIAL else r.randrange(-60, 61), **pk,
+                  lvl=lv, seed=r.randrange(0x10000), f=r.choice([(0, 4096), (4096, 0), (0, -2048), (1024, 3000)]),
+                  opt=r.choice([0, 0x10, 0x40, 0x80, 0xD0]), pref0=rnd_pref2(r, [F_W0, F_W1, F_AUX1]), **ez)
+    if v == "cells":
+        n = max(n, 4)
+        if tab is not None: ez = dict(ease=TABLE, table=cc["etab"][n][0])
+        ck = {} if pair is None else dict(xR=r.randrange(-30, 31), dxR=r.randrange(-20, 21))
+        return gly(n, CELLS, cc["ctab"], r.randrange(cc["nlists"]), x=r.randrange(-30, 31), y=r.randrange(-20, 21), **ck,
+                   dx=r.randrange(-20, 21), dy=r.randrange(-10, 11), lvl=lv, seed=r.randrange(0x10000), opt=r.choice([0, 0x80]),
+                   pref0=rnd_pref2(r, [F_AUX0]), **ez)
+    rk = {} if pair is None else dict(xR=r.randrange(-5, 6), dxR=r.randrange(-20, 21))
+    return gly(n, RAIN, cc["rains"][0], x=r.randrange(-5, 6), y=r.randrange(-5, 6), dx=r.randrange(-20, 21), dy=r.randrange(-10, 11),
+               **rk, lvl=lv, seed=r.randrange(0x10000), **ez)
 
 def rnd_prog2(r, cc, tame):
     """A version-2 program (§7.2): OWN (a third with LAND) or bound-shaped. A first in-place track (PIECES layer old,
@@ -524,11 +602,41 @@ def rnd_prog2(r, cc, tame):
             sg = gly(n, RAIN, cc["rains"][r.choice([1, 2])], x=r.randrange(-4, 5), seed=r.randrange(0x10000),
                      lvl=(r.randrange(16), 15), ease=r.choice([0, 1]))
         tracks.append(track(rect(*A), 0xFF, *lead, sg))
+    whole = []                                        # --c3x: single-rect tracks that paint their whole area
     for _ in range(r.randrange(0 if tracks else 1, 4)):
         area = rnd_area2(r, A if moving else None)
         if area is None: continue
         bd = r.choice([r.randrange(16), r.randrange(16), r.randrange(16)] + ([BD_NEW] if own else []))
+        if cc.get("c3x") and r.random() < 0.3:        # a per-lens track: one size, one row range, the right rect shifted
+            l, t, w, h = area
+            lR = min(640 - w, max(0, l + r.randrange(-24, 25)))
+            if not (A is not None and moving and overlaps((lR, t, w, h), A)):
+                tracks.append(track((rect(*area), rect(lR, t, w, h)), bd,
+                                    *[rnd_seg2(r, cc, own, area, pair=lR - l) for _ in range(r.randrange(1, 3))]))
+                continue
         tracks.append(track(rect(*area), bd, *[rnd_seg2(r, cc, own, area) for _ in range(r.randrange(1, 3))]))
+        whole.append(area)
+    if cc.get("c3x") and len(tracks) < 8 and r.random() < 0.4:
+        # backdrop none (§7.2's rule for a version-2 record): a lone REVEAL between WAITs in an OWN program (its ease never
+        # falls), or a track inside an earlier one that paints its whole area — apart from any in-place track either way
+        if own and (not whole or r.random() < 0.5):
+            area = rnd_area2(r, A)
+            if area is not None:
+                l, t, w, h = area
+                n_ = r.randrange(1, 9)
+                tab = cc["etab"][n_][0] if r.random() < 0.3 else None
+                ez = dict(ease=TABLE, table=tab) if tab is not None else dict(ease=r.choice([0, 1]))
+                kind = r.choice([K_LEVEL, 0, K_NEW])
+                rv = (r2(n_, r.randrange(4) | r.choice([0, SLIDE]), K_NEW, l, t, **ez) if kind == K_NEW else
+                      r2(n_, r.randrange(4), K_LEVEL, l, t, src=r.randrange(16), w=r.randrange(1, w + 1), h=r.randrange(1, h + 1), **ez)
+                      if kind == K_LEVEL else r2(n_, r.randrange(4), 0, l, t, src=r.choice(cc["recs"]), **ez))
+                tracks.append(track(rect(*area), 0xFF, *([w2(r.randrange(1, 3))] if r.random() < 0.3 else []), rv))
+        elif whole:
+            l, t, w, h = r.choice(whole)
+            w2_, h2_ = r.randrange(1, w + 1), r.randrange(1, h + 1)
+            inner = (l + r.randrange(0, w - w2_ + 1), t + r.randrange(0, h - h2_ + 1), w2_, h2_)
+            if A is None or not overlaps(inner, A):
+                tracks.append(track(rect(*inner), 0xFF, rnd_seg2(r, cc, own, inner)))
     rec = bytearray(prog2(*tracks, fl=fl, reg=False))
     if not tame:                                      # one field perturbed
         k = r.random()
@@ -545,6 +653,9 @@ def rnd_play2(r, cc, slot, pv):
     p4, rec = r.choice(cc["v2"]) if r.random() < 0.93 else (r.randrange(0x10000), b"")
     period = r.choice([16, 34, 34, 50, 128, r.randrange(15, 130)])
     P = [pv() for _ in range(4)] if r.random() < 0.3 else [0, 0, 0, 0]
+    if cc.get("c3x"):
+        if r.random() < 0.6: p4, rec = r.choice(cc["heavy"])                # a program priced at its share of the cap
+        if r.random() < 0.5: P = [r.choice([0, 0, 1, 2, 3, 5, 10, 20, 60, 100, 119, 120, 300, 2048, 4096, -1]) for _ in range(4)]
     tag = r.randrange(0x10000)
     owning = len(rec) > 4 and rec[0] == 2 and rec[4] & OWN
     if r.random() < 0.4:
@@ -566,6 +677,85 @@ def rnd_ring(r, cc):
     ev = r.choice([4, 5])
     return bind_set(r.randrange(8), 0xFF, ev, lst, 1 if ev == 4 else -1, r.choice([0, 0, 1, 2, 3]), 34,
                     r.choice(cc["lprogs"]), [(K_CUR, r.choice([0, 0, 1, -1, 32767, -32768]))] + [(2, 0)] * r.randrange(0, 3))
+
+# ---- --c3x (stage X2D, `C3-decisions.md` Y, C-2): what `--c3` never made. Only gen_c1's c3 path with C3X reaches it.
+def overlaps(a, b):
+    return a[0] < b[0] + b[2] and b[0] < a[0] + a[2] and a[1] < b[1] + b[3] and b[1] < a[1] + a[3]
+
+def build_c3x_tables(r, c, cc):
+    """Ease-2 tables (§5.4: n entries, E[n] = 4096) for every step count 1..8: one whose E never falls and, from n = 3,
+    one that falls once — a segment of n steps (n' under stagger) names one of its own n."""
+    cc["etab"] = {}
+    for n in range(1, 9):
+        rise = sorted(r.randrange(0, 4097) for _ in range(n - 1)) + [4096]
+        fall = None
+        if n >= 3:
+            f = list(rise)
+            k = r.randrange(1, n - 1)                 # E[k + 1] below E[k]
+            f[k - 1] = max(f[k - 1], 600)
+            f[k] = f[k - 1] - r.randrange(1, f[k - 1] + 1)
+            fall = c.add(easing(f))
+        cc["etab"][n] = (c.add(easing(rise)), fall)
+
+def tune_x(c, region, target, own, rec4=None):
+    """A program inside `region` (l, t, w, h) whose §7.12 C is exactly `target`, T 8: tracks of the region and one of
+    w × q0 — OWN two-axis DRAWs of `new` over backdrop `new` (1,024 + 11·A), or bound two-axis DRAWs of the record
+    `rec4` over a level (1,024 + 26·L + Ha·(11·w + its width)) — then two level backdrops over a WAIT (1,024 + A) of
+    w × q2 and k2 × 1. None when the region cannot hold it in eight tracks."""
+    l, t, w, h = region
+    fl = OWN if own else 0
+    def big(hh): return (track(rect(l, t, w, hh), BD_NEW, dnew(8, l, t, w0=1, w1=1)) if own else
+                         track(rect(l, t, w, hh), 3, d2(8, rec4, l, t, w0=1, w1=1)))
+    def lvl(ww, hh): return track(rect(l, t, ww, hh), 2, w2(8))
+    cost1 = lambda tr: pcost(c, prog2(tr, fl=fl, reg=False))
+    b0 = cost1(big(2)) - cost1(big(1)); a0 = cost1(big(1)) - b0; unit = cost1(big(h))
+    assert unit == a0 + b0 * h
+    n = (target - 2048 - a0 - b0 - w - 1) // unit
+    if not 0 <= n <= 5: return None
+    m = target - n * unit
+    q0 = min(h, (m - 2048 - a0 - w - 1) // b0)
+    rem = m - 2048 - a0 - b0 * q0
+    q2 = (rem - 1) // w; k2 = rem - q2 * w
+    if not (1 <= q0 <= h and 1 <= q2 <= h and 1 <= k2 <= w): return None
+    rec = prog2(*([big(h)] * n), big(q0), lvl(w, q2), lvl(k2, 1), fl=fl, reg=False)
+    assert pcost(c, rec) == target, (pcost(c, rec), target)
+    return rec
+
+def build_c3x(r, c, cc):
+    """The programs priced at the cap's shares (`cc["heavy"]`); GLYPHS at their limits; a source window and a cell index
+    set by a parameter, in `cc["v2"]` and as list programs. `cc["rec_bytes"]` is taken again at the end."""
+    cc["heavy"] = []
+    half, third = CAP // 2, CAP // 3
+    plan = [((0, 0, 320, 480), half), ((320, 0, 320, 480), CAP - half), ((320, 0, 320, 480), CAP - half + 1),
+            ((0, 0, 213, 480), third), ((213, 0, 214, 480), third), ((427, 0, 213, 480), CAP - 2 * third),
+            ((427, 0, 213, 480), CAP - 2 * third + 1), ((0, 0, 640, 480), CAP), ((0, 0, 640, 480), CAP + 1)]
+    for region, target in plan:
+        own = r.random() < 0.6
+        rec = tune_x(c, region, target, own, r.choice(cc["recs"]))
+        if rec is None: rec = tune_x(c, region, target, True)
+        if rec is not None: cc["heavy"].append((c.add(rec), rec))
+    fnt = cc["font"]
+    al224 = c.add(alphabet(list(range(32, 256))))     # every code an alphabet may hold
+    big = c.add(cell_list(al224, r.randrange(0, 4), [cell(r.randrange(-10, 630), r.randrange(-10, 470), r.randrange(1, 20),
+                r.randrange(1, 24), fnt, r.choice([0, 32, r.randrange(33, 256)]), r.choice([0, 32, r.randrange(33, 256)]),
+                r.choice([0xFF, r.randrange(16)]), r.choice([15, 8, 0x2F, r.randrange(16)])) for _ in range(512)]))
+    t1024 = c.add(cell_table([big] + [r.choice(cc["lists"] + [big]) for _ in range(1023)]))
+    rv = r.choice([0, 0, 2])                          # reveal 2: in place, so OWN, first, over no backdrop (§7.2)
+    rain = c.add(rain_rec(128, 32, r.choice([1, 2, 4, 5]), r.choice([2, 3, 6, 8]), fnt, r.choice([al224] + cc["alphas"]),
+                          r.randrange(16), r.randrange(16), rv, r.randrange(16), r.randrange(8), r.randrange(1, 6)))
+    win = prog2(track(rect(40, 300, 240, 40), r.randrange(16), d2(r.randrange(1, 9), cc["strip"], 50, 305, aux1=r.randrange(1, 40),
+                                                                     pref0=pref(0, F_AUX0))), reg=False)      # rows by P0
+    idx = prog2(track(rect(0, 0, 640, 480), r.randrange(16), gly(r.randrange(4, 9), CELLS, t1024, 0, pref0=pref(1, F_AUX0),
+                                                                    seed=r.randrange(0x10000))), reg=False)   # index by P1
+    lim = [prog2(track(rect(0, 0, 640, 480), r.randrange(16), gly(r.randrange(4, 9), CELLS, t1024, r.randrange(1024),
+                                                                 seed=r.randrange(0x10000))), reg=False),
+           prog2(track(rect(0, 0, 640, 480), 0xFF if rv == 2 else r.randrange(16), gly(r.randrange(1, 9), RAIN, rain, seed=r.randrange(0x10000))),
+                 fl=OWN if rv == 2 or r.random() < 0.5 else 0, reg=False)]
+    for rec in [win, idx] + lim:
+        o4 = c.add(rec)
+        cc["v2"].append((o4, rec))
+        if rec in (win, idx): cc["lprogs"].append(o4)  # a SET's kind 2 or 3 parameter drives them on a list
+    cc["rec_bytes"] = {o4: d for o4, d in c.entries}
 
 def is_engine(m):
     """Mode 26 at the top level, inside a batch or inside a self-test step."""
@@ -602,7 +792,11 @@ def gen_c1(seed, nsteps, c2=False, c3=False):
     random draw is C1's, so a seed writes the vector it wrote before."""
     r = random.Random(seed)
     c, recs, table_off4, cc = build_cache_c1(r, c2)
+    if c3 and C3X:                                    # every --c3x draw behind its switch: --c3 seeds keep their vectors
+        cc["c3x"] = True
+        build_c3x_tables(r, c, cc)
     if c3: build_c3(r, c, cc)                         # every draw for C3 behind its flag: --c1 and --c2 seeds keep their vectors
+    if c3 and C3X: build_c3x(r, c, cc)
     full = DRAW2 | ENGINE | ZWRITE | (BIND if c2 else 0) | (EFFECTS if c3 else 0)
     armed = full if r.random() < 0.85 else r.choice([DRAW2 | ENGINE, DRAW2 | ZWRITE, ENGINE | ZWRITE]) | (BIND if c2 else 0)
     if c3 and armed != full and r.random() < 0.5: armed |= EFFECTS
@@ -682,7 +876,7 @@ def gen_c1(seed, nsteps, c2=False, c3=False):
             "features": FEATURES_C3 if c3 else FEATURES_C2 if c2 else FEATURES_C1, "steps": steps}
 
 def main():
-    global CORRUPT, C1, C2, C3
+    global CORRUPT, C1, C2, C3, C3X
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("out", help="directory to write the vectors into")
     ap.add_argument("count", type=int, help="how many vectors")
@@ -694,10 +888,14 @@ def main():
                     "and page switches, BIND (FIRMWARE.md §6)")
     ap.add_argument("--c3", action="store_true", help="C3's set: C2's, plus version-2 programs over every verb, OWN and "
                     "LAND, PLAY-AFTER, LIST-RING and kind 3, EFFECTS (FIRMWARE.md §7)")
+    ap.add_argument("--c3x", action="store_true", help="with --c3: the shapes --c3 never made — costs at the cap's shares, "
+                    "ease-2 tables, backdrop-none later tracks, per-lens tracks, prefs 14-17, GLYPHS at their limits, "
+                    "windows and cell indexes by a parameter (stage X2D)")
     a = ap.parse_args()
     CORRUPT = a.corrupt
-    C1, C2, C3 = a.c1, a.c2, a.c3
+    C1, C2, C3, C3X = a.c1, a.c2, a.c3, a.c3x
     if C1 + C2 + C3 > 1: ap.error("--c1, --c2 and --c3 are three sets; give one")
+    if C3X and not C3: ap.error("--c3x extends --c3; give both")
     out = pathlib.Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     for i in range(a.count):

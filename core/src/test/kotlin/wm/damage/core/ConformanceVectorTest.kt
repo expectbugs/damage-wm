@@ -404,6 +404,14 @@ class ConformanceVectorTest {
     fun everyVectorMatchesOnBothLenses() {
         val out = normalPath(vectorDir(), repoVectorDir())
         assertTrue(out.compared > 0, "no vector step was compared")
+        // §7.13 "build-neutral" (decisions Y, C-4): the repo's every v3 and v4 vector lists the bit-11 build, so the fork's
+        // runner runs it on the C3 build — a list that loses 0xdff would drop that comparison silently
+        if (isRepo(vectorDir())) for (f in vectorFiles(vectorDir())) {
+            val vec = Json.parseToJsonElement(Files.readString(f)).jsonObject
+            val name = vec["name"]!!.jsonPrimitive.content
+            if (name.startsWith("v3-") || name.startsWith("v4-"))
+                assertTrue(featureSets(vec)?.contains(C3_FEATURES) == true, "$name: its features ${vec["features"]} do not list 0xdff (§7.13)")
+        }
         assertEquals(emptyList(), out.problems, "the simulator disagrees with the firmware C:\n" + out.problems.joinToString("\n"))
     }
 
@@ -453,9 +461,18 @@ class ConformanceVectorTest {
      *  one vector or by more than two is a problem. */
     @Test
     fun everyPairOfVectorsEndsOnTheSamePanel() {
-        val problems = pairProblems(vectorFiles(vectorDir()))
+        val files = vectorFiles(vectorDir())
+        // decisions Y, C-4: in the repo the four fold pairs must be there — with none the comparison below holds nothing
+        if (isRepo(vectorDir())) {
+            val keys = files.mapNotNull { Json.parseToJsonElement(Files.readString(it)).jsonObject["pair"]?.jsonPrimitive?.content }.toSet()
+            assertTrue(keys.containsAll(FOLD_PAIRS), "the repo's fold pairs ${FOLD_PAIRS - keys} are missing (have $keys)")
+        }
+        val problems = pairProblems(files)
         assertEquals(emptyList(), problems, "the fold pairs:\n" + problems.joinToString("\n"))
     }
+
+    /** Whether [dir] is the repo's own `firmware/vectors/` (not a set `DAMAGE_VECTOR_DIR` names). */
+    private fun isRepo(dir: Path): Boolean = repoVectorDir()?.let { Files.isSameFile(dir, it) } == true
 
     private fun pairProblems(files: List<Path>): List<String> {
         val problems = ArrayList<String>()
@@ -794,5 +811,7 @@ class ConformanceVectorTest {
         const val C2_FEATURES = 0x5FF
         /** §7.9: C3 adds bit 11. */
         const val C3_FEATURES = 0xDFF
+        /** §7.13's four fold pairs (`make_vectors.py`'s `"pair"` keys). */
+        val FOLD_PAIRS = setOf("v5-fold-dim", "v5-fold-pieces", "v5-fold-rain", "v5-fold-shrink")
     }
 }

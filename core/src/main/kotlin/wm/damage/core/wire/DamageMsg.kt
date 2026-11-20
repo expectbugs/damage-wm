@@ -224,6 +224,10 @@ object DamageMsg {
         /** Field 40 (build C3, §7.9): bits 0–3 the slots that own, bits 4–7 the slots in state drawing opened by a
          *  PLAY-AFTER with d = 0; always sent on a bit-11 build. */
         val effectSlots get() = fields[40]
+        /** Field 41 (build C3, §7.9): the bytes of the display task's own 2,048-B stack never written, as that task last
+         *  read them (only while EFFECTS is armed; kept at its last value after a disarm or a release, as 34 and 37). A
+         *  reading under [STACK_FREE_FINDING] is a finding (§7.9, §7.12). */
+        val stackFree get() = fields[41]
 
         /** The journal's one-line form: named, in field order. */
         fun describe(): String = fields.toSortedMap().entries.joinToString(" ") { (k, v) ->
@@ -248,7 +252,13 @@ object DamageMsg {
         27 to "max13KiB", 28 to "max20KiB", 29 to "max27KiB", 30 to "motion", 31 to "motionSeq",
         32 to "engineFrames", 33 to "folds", 34 to "stepUs",
         // build C2 (§6.8): matched events, the last S, the last drawing fire's µs, failed report sends, the bound ids
-        35 to "matched", 36 to "lastS", 37 to "fireUs", 38 to "reportFails", 39 to "boundIds", 40 to "effectSlots")
+        35 to "matched", 36 to "lastS", 37 to "fireUs", 38 to "reportFails", 39 to "boundIds", 40 to "effectSlots",
+        // build C3 (§7.9): the display task's never-written stack bytes
+        41 to "stackFree")
+
+    /** §7.9 (build C3): telemetry 41 under this many bytes is a finding — the display task's worst path on the candidate
+     *  is 1,924 of its 2,048 B (`tools/verify.py` step 7, §7.12), so 124 B is what that figure leaves. */
+    const val STACK_FREE_FINDING = 124L
 
     /** One image-lane refusal as telemetry fields 23–25 report it. */
     data class Refusal(val mode: Int, val reason: Int, val seq: Long) {
@@ -364,6 +374,8 @@ object DamageMsg {
         val mark get() = fields[17]?.toInt()
         /** §7.8 (build C3): field 18 = 1 — a ring fire whose virtual row is not c' (it wrapped). */
         val wrapped get() = fields[18] == 1L
+        /** Field 18 as carried, whatever its value (decisions W, D-8: a value other than 1 is shown, not dropped). */
+        val field18 get() = fields[18]
         /** A tap's report (event id 0 from the ring, §6.1). */
         val isTap get() = eventId == 0
 
@@ -378,7 +390,8 @@ object DamageMsg {
             fun v(x: Int?) = x?.toString() ?: "-"
             return "S ${v(s)} dev ${v(devType)} id ${v(eventId)} entry ${v(entry)} $what list ${v(list)} cursor " +
                 (if (cursor == CURSOR_LOST) "lost" else v(cursor)) + " slot ${v(slot)} mark ${v(mark)}" +
-                (params?.let { p -> " P ${p.joinToString(",")} prog ${v(prog)}" } ?: "") + (if (wrapped) " wrapped" else "") +
+                (params?.let { p -> " P ${p.joinToString(",")} prog ${v(prog)}" } ?: "") +
+                (field18?.let { if (it == 1L) " wrapped" else " field18=$it" } ?: "") +
                 " uptime ${uptimeTicks ?: "-"}"
         }
     }

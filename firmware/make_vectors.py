@@ -2673,14 +2673,15 @@ def cells_term(buf, s, Wa, Ha, memo):
         t += min(bw, Wa) * min(bh, Ha) + 64 + (16 * max(g[1] for g in gs) + 10 * max(g[0] for g in gs) if gs else 0)
     return t
 def rain_term(buf, s, A, count32, memo):
-    """§7.12 GLYPHS RAIN: A + cols·trail·(11·cw·ch + 16·Lg + 64), Lg the longest RLE among the glyphs the alphabet names
-    in its font. Whether code 32 names one here is two-way in §7 (the CELLS bullet excludes it, this one does not say):
-    `count32` picks the reading, and v5-budget carries one step at each."""
+    """§7.12 GLYPHS RAIN (as ruled, C3-decisions Y, C-5): A + cols·trail·(cw·ch + 64 + G), with G = 16·Lg + 10·cw·ch when
+    the alphabet holds a code other than 32, else 0, and Lg the longest RLE length among the glyph records the alphabet's
+    codes other than 32 name in its font (§7.6: code 32 names no glyph). `count32` builds the reading the contract did
+    not take — code 32 naming its glyph like any code — which v5-budget's second rC pair still carries."""
     r = s["src"] * 4
     cols, trail, cw, ch, font, alpha = buf[r], buf[r + 1], buf[r + 2], buf[r + 3], rd16(buf, r + 4), rd16(buf, r + 6) * 4
     codes = [x for x in buf[alpha + 1:alpha + 1 + buf[alpha]] if count32 or x != 32]
-    Lg = max((glyph_at(buf, font, x, memo)[1] for x in codes), default=0)
-    return A + cols * trail * (11 * cw * ch + 16 * Lg + 64)
+    G = 16 * max(glyph_at(buf, font, x, memo)[1] for x in codes) + 10 * cw * ch if codes else 0
+    return A + cols * trail * (cw * ch + 64 + G)
 def cost(buf, off4, P=(), count32=False, memo=None):
     """§7.12's C of the program at `off4` under parameters P, unsigned and unbounded (Python ints): per track 1,024 + the
     backdrop's term + the largest of its segments' terms, from both lenses' rects (A the larger area, Wa and Ha the larger
@@ -3866,6 +3867,392 @@ def vectors_v5(kf):
         vec_["features"] = [FEATURES_C3]
     return v
 
+def vectors_v5_x2(kf):
+    """Stage X2D's C3 inputs (`C3-decisions.md` W and Y; the X2D brief's item 8 and C-6): NEW files `v5-x2-*` only — the
+    86 earlier files stay byte-identical. Each case is shaped so that the rule absent, or read the other way, answers
+    differently; each step's comment names the §7 sentence and the other answer. The forms are `vectors_v5`'s: features
+    [0xdff], "panel", contract 2, every engine message, input and wake after a `tick` op in its step."""
+    v = []
+    P = 34                                                        # §5.3's starting period
+    def writes(c): return [msg(m) for m in c.messages()]
+    def vec(name, steps): v.append({"name": name, "steps": steps})
+    def arm(c, t=1000, fl=FULL5):
+        assert len(c.buf) < 60 * 1024, f"{len(c.buf)} B: past a 64 KiB session's cache"
+        return step(tk(t), {"lease": "acquire"}, flags(fl), page(True), msg(kf), *writes(c))
+    def gp(c, *tr, **kw): return c.add(prog2(*tr, **kw))
+    def bp(c, *tr, **kw): return c.add(prog2(*tr, bad=True, **kw))
+    def owner(c): return c.add(prog2(track(rect(600, 440, 20, 20), 5, w2(8)), fl=OWN))   # an out half: 1,124 u, T 8, apart
+    def tune(c, region, target, tracks=(), fl=OWN):
+        """An OWN program of `tracks` and fillers inside `region` (l, t, w, h) whose §7.12 C is exactly `target`, T 8:
+        n tracks of the region and one of w × q0, each backdrop `new` under a two-axis DRAW of `new` (1,024 + 11·A), then
+        two level backdrops over a WAIT (1,024 + A) of w × q2 and k2 × 1 (EffectsSimTest's `heavy`, the same form)."""
+        l, t0, w, h = region
+        base = pcost(c, prog2(*tracks, fl=fl, reg=False)) if tracks else 0
+        A = w * h
+        unit = 1024 + 11 * A
+        def big(hh): return track(rect(l, t0, w, hh), BD_NEW, dnew(8, l, t0, w0=1, w1=1))
+        def lvl(ww, hh): return track(rect(l, t0, ww, hh), 2, w2(8))
+        rest = target - base
+        n = (rest - 3 * 1024 - 12 * w - 1) // unit
+        assert 0 <= n <= 5 - len(tracks), (target, n)
+        m = rest - n * unit - 3 * 1024
+        q0 = min(h, (m - w - 1) // (11 * w))
+        rem = m - 11 * w * q0
+        q2, k2 = (rem - 1) // w, rem - (rem - 1) // w * w
+        assert 1 <= q0 <= h and 1 <= q2 <= h and 1 <= k2 <= w, (q0, q2, k2)
+        rec = prog2(*tracks, *([big(h)] * n), big(q0), lvl(w, q2), lvl(k2, 1), fl=fl)
+        assert pcost(c, rec) == target, (pcost(c, rec), target)
+        return c.add(rec)
+
+    # ---------------------------------------------------------------------------------------------------------------
+    # v5-x2-budget — §7.12 "The cap ... bounds the sum over every instance that can draw after the message or fire: every
+    # slot of this lens in state drawing once the operation's closes are done ... an instance *waits on* another when it is
+    # a PLAY-AFTER whose `after` slot still holds that other's recorded triple. Each instance counts f(i) = max(C_i, Σ f(w)
+    # over the instances w that wait on i), and the sum runs over the instances that wait on none ... instances waiting on
+    # one instance draw together once it is done, so they add. (Should the records form a cycle — only a reused tag can
+    # ... — its members count each by its own C.)"; §7.3 "an OWN program being opened meets by its own meeting box in its
+    # PLAY's or PLAY-AFTER's close pass"; §6.2 step 10's budget before step 11's 19; the terms "DRAW or REVEAL of a record:
+    # 26·L + 4·A" (a DRAW scaled in H only stays there) and "GLYPHS RAIN: A + cols·trail·(cw·ch + 64 + G), with G = ... 0"
+    # for an alphabet of only code 32. Every program here is T 8, so each stays drawing through its group's messages.
+    c = Cache2()
+    O = owner(c)
+    X = c.add(prog(track(rect(290, 100, 60, 200), 2, fillseg(8, 4))))  # version 1, in G's gap: 1,024 + 2·12,000 = 25,024
+    assert cost(c.buf, X) == 25_024
+    right = track(rect(360, 0, 280, 480), BD_NEW, dnew(8, 360, 0, w0=1, w1=1))   # G's right side; its left side the fillers
+    G_at, G_over = (tune(c, (0, 0, 280, 480), CAP + k, tracks=[right]) for k in (0, 1))   # a gap [280, 360) inside G's box
+    W4 = tune(c, (0, 0, 320, 480), 4_000_000)                           # an in half over the left half
+    X4, X4o = (tune(c, (320, 0, 320, 400), 4_000_000 + k) for k in (0, 1))   # an OWN PLAY apart from W4
+    A4 = tune(c, (0, 0, 320, 240), 4_000_000)
+    Z4 = tune(c, (320, 0, 320, 400), 4_000_000)                         # apart from A4, N4 and the owner
+    N4, N4o = (tune(c, (0, 240, 320, 240), 4_000_000 + k) for k in (0, 1))
+    A2 = tune(c, (0, 0, 320, 240), 2_000_000)
+    H4 = tune(c, (320, 0, 320, 400), 4_000_000)
+    N2, N2o = (tune(c, (0, 240, 320, 240), 2_000_000 + k) for k in (0, 1))
+    Lb = c.add(prog2(track(rect(0, 300, 100, 50), 2, f2(3, 9))))       # a fire's bound program: 1,024 + 2·5,000 = 11,024
+    CL = cost(c.buf, Lb)
+    assert CL == 11_024
+    Z19, Z12 = (tune(c, (320, 0, 320, 240), CAP + k - 4_000_000 - CL) for k in (0, 1))
+    Z4b = tune(c, (0, 240, 600, 240), 4_000_000)                        # beside the owner (its x 600 is outside)
+    W2b, W2bo = (tune(c, (320, 0, 320, 240), 2_000_000 + k) for k in (0, 1))
+    img = c.add(image2(40, 30, pattern(40, 30, 7101)))
+    hdraw = [track(rect(0, 0, 640, 240), 2, d2(8, img, 10, 10, h0=30, h1=60))]          # H scaled, the width not
+    H_at, H_over = (tune(c, (0, 240, 640, 240), CAP + k, tracks=hdraw) for k in (0, 1))
+    g6 = c.add(glyph(6, 10, pattern(6, 10, 7102)))
+    f32 = c.add(font224([g6] * 224))
+    al32 = c.add(alphabet([32]))
+    r32 = c.add(rain_rec(10, 4, 8, 12, f32, al32, fill=2))
+    rain32 = [track(rect(0, 0, 640, 240), 2, gly(8, RAIN, r32))]       # 153,600 + 40·(96 + 64) = 160,000 by the term
+    R_at, R_over = (tune(c, (0, 240, 640, 240), CAP + k, tracks=rain32) for k in (0, 1))
+    st = [arm(c)]
+    t = 2000
+    st += [step(tk(t), msg(play(0, P, X, 0x7A00))),                         # X draws in what will be G's gap
+           step(tk(t + 5), msg(play(1, P, G_at, 0x7A01))),                 # G meets X by its own box: X closed (its body), G alone
+                                                                           # at the cap: taken. Budget judged before that close: 12
+           step(tk(t + 10), msg(close(0xFF))),
+           step(tk(t + 20), msg(play(0, P, X, 0x7A02))),
+           step(tk(t + 25), msg(play(1, P, G_over, 0x7A03))),              # G alone one over: 12, X left open
+           step(tk(t + 30), msg(close(0xFF)))]
+    t += 300
+    for i, (x_, tag) in enumerate(((X4, 0x7A13), (X4o, 0x7A23), (X4o, 0x7A31))):
+        b = 0x7A11 + 16 * i
+        st += [step(tk(t), msg(play(0, P, O, b))),                          # O, an out half, in slot 0
+               step(tk(t + 5), msg(play_after(1, P, W4, b + 1, 0))),       # W waits on O: records (0, O's tag, 0)
+               step(tk(t + 10), msg(play(0, P, x_, tag))),                 # X replaces O: W waits on none and counts its own C —
+                                                                           # 4,000,000 + X: X at 4,000,000 taken, one over 12; with O's
+                                                                           # tag reused W waits on X (the larger): taken
+               step(tk(t + 15), msg(close(0xFF)))]
+        t += 100
+    t += 200
+    for i, n_ in enumerate((N4, N4o)):
+        b = 0x7A41 + 16 * i
+        st += [step(tk(t), msg(play(0, P, O, b))),                          # B in slot 0
+               step(tk(t + 5), msg(play_after(1, P, A4, b + 1, 0))),       # A waits on B
+               step(tk(t + 6), msg(play(2, P, Z4, b + 2))),                # f(B) = 4,000,000 with Z's: exactly the cap, taken
+               step(tk(t + 10), msg(play_after(0, P, n_, b + 3, 1))),      # N replaces B: A waits on none, N waits on A — f(A) +
+                                                                           # Z: N 4,000,000 taken, one over 12 (with A read as still
+                                                                           # waiting on slot 0, A and N count nothing: taken)
+               step(tk(t + 15), msg(close(0xFF)))]
+        t += 100
+    for i, n_ in enumerate((N4, N4o)):
+        b = 0x7A61 + 16 * i
+        st += [step(tk(t), msg(play(0, P, O, b))),
+               step(tk(t + 5), msg(play_after(1, P, A4, b + 1, 0))),
+               step(tk(t + 10), msg(play_after(0, P, n_, b, 1))),          # N with B's tag: slot 0 holds A's triple again, A waits
+                                                                           # on N and N on A — a cycle, each member by its own C:
+                                                                           # 4,000,000 + N, taken at the cap, one over 12 (as the
+                                                                           # larger, or counted nothing: taken)
+               step(tk(t + 15), msg(close(0xFF)))]
+        t += 100
+    for i, n_ in enumerate((N2, N2o)):
+        b = 0x7A81 + 16 * i
+        st += [step(tk(t), msg(play(0, P, O, b))),
+               step(tk(t + 5), msg(play_after(1, P, A2, b + 1, 0))),       # A (2,000,000) waits on B
+               step(tk(t + 6), msg(play_after(2, P, H4, b + 2, 1))),       # H (4,000,000) waits on A: f(B) = 4,000,000, taken
+               step(tk(t + 10), msg(play_after(0, P, n_, b, 1))),          # the cycle A–N with H waiting on A (H neither a root nor a
+                                                                           # member): the text names the members only — READING
+                                                                           # (C3-X2D): H by its own C too, 2,000,000 + H + N: N
+                                                                           # 2,000,000 taken, one over 12
+               step(tk(t + 15), msg(close(0xFF)))]
+        t += 100
+    st += [step(tk(t), page(True), msg(bind_list(0, NONE, 8, 0, 10, 1)),
+                msg(bind_set(0, ANY, UP, 0, 1, 0, P, Lb)))]                 # an entry on slot 0, its program Lb
+    for i, z_ in enumerate((Z19, Z12)):
+        b = 0x7AA1 + 16 * i
+        st += [step(tk(t + 5), msg(play(0, P, O, b))),                      # an owner in the entry's slot
+               step(tk(t + 7), msg(play_after(1, P, A4, b + 1, 0))),       # W (4,000,000) waits on it
+               step(tk(t + 9), msg(play(2, P, z_, b + 2))),                # Z apart from W and Lb
+               step(tk(t + 11), inp(RING, UP)),                            # the close set closes the owner, so W waits on none:
+                                                                           # W + Z + 11,024 at the cap passes the budget and step 11
+                                                                           # refuses 19; one over: 12 (W folded under the local: 19)
+               step(tk(t + 15), msg(close(0xFF)))]
+        t += 100
+    for i, w_ in enumerate((W2b, W2bo)):
+        b = 0x7AC1 + 16 * i
+        st += [step(tk(t), msg(play(3, P, Z4b, b))),                        # Z (4,000,000) beside them
+               step(tk(t + 3), msg(play(0, P, O, b + 1))),                 # the out half
+               step(tk(t + 6), msg(play_after(1, P, A2, b + 2, 0))),       # two waiters on it: 2,000,000 ...
+               step(tk(t + 9), msg(play_after(2, P, w_, b + 3, 0))),       # ... and 2,000,000 add: with Z exactly the cap, taken; the
+                                                                           # second one over: 12 (as the larger: taken)
+               step(tk(t + 15), msg(close(0xFF)))]
+        t += 100
+    for i, (at, over) in enumerate(((H_at, H_over), (R_at, R_over))):
+        b = 0x7AE1 + 16 * i
+        st += [step(tk(t), msg(play(0, P, at, b))),                         # at the cap with 26·L + 4·A for the H-scaled DRAW, or
+                                                                           # G = 0 for the rain of only code 32: taken (10·A + w·Ha,
+                                                                           # or a G counted: 12)
+               step(tk(t + 5), msg(close(0xFF))),
+               step(tk(t + 10), msg(play(0, P, over, b + 1))),             # one over: 12
+               step(tk(t + 15), msg(close(0xFF)))]
+        t += 100
+    vec("v5-x2-budget", st)
+
+    # ---------------------------------------------------------------------------------------------------------------
+    # v5-x2-meet — §7.3 "Every meeting decision uses the box — a PLAY's and a PLAY-AFTER's close pass, a COMMIT's close
+    # pass, close-on-meet's area test, and the fire's close set"; "two owning instances meet when their meeting boxes
+    # intersect" — here two per-lens owners whose own rects meet on neither lens.
+    c = Cache2()
+    OAg = gp(c, track(rect(100, 80, 60, 40), 3, w2(8)), track(rect(300, 80, 60, 40), 4, w2(8)), fl=OWN)   # box [100, 360) × [80, 120)
+    band = c.add(prog(track(rect(200, 90, 40, 20), 6, fillseg(3, 9))))      # in OAg's gap: meets its box, neither track
+    P1 = gp(c, track((rect(100, 300, 40, 30), rect(180, 300, 40, 30)), 3, w2(8)), fl=OWN)   # box [100, 220)
+    P2 = gp(c, track((rect(190, 300, 40, 30), rect(230, 300, 40, 30)), 4, w2(8)), fl=OWN)   # box [190, 270); apart on each lens
+    st = [arm(c)]
+    t = 2000
+    st += [step(tk(t), page(True), msg(bind_list(0, NONE, 8, 0, 10, 1))),
+           step(tk(t + 5), msg(play(0, P, OAg, 0x7B01))),
+           step(tk(t + 10), msg(commit(3, 1, 0, 0, band))),                # the COMMIT's close pass meets OAg by its box: closed (its
+                                                                           # outcome-1 body); by its tracks: left open
+           step(tk(t + 10 + P), wake()),
+           step(tk(t + 20 + P), msg(close(0xFF))),
+           step(tk(t + 100), msg(play(0, P, P1, 0x7B02))),
+           step(tk(t + 105), msg(play(1, P, P2, 0x7B03))),                 # the boxes meet: P1 closed on both lenses (by each lens's
+                                                                           # own rects: P1 left open)
+           step(tk(t + 105 + P), wake()),
+           step(tk(t + 115 + P), msg(close(0xFF)))]
+    vec("v5-x2-meet", st)
+
+    # ---------------------------------------------------------------------------------------------------------------
+    # v5-x2-stagger — §7.4 "Layer new ... through the level ramp `make_lut(lvl(t))` with lvl(t) eased from lvl0 to lvl1 as
+    # DRAW's — at the segment's local step t over its steps; under stagger, ease 2 (whose table holds n' entries) reads E
+    # at min(t, n'), E[n'] = 4096 standing for every later step". A level ramp 2 → 15 under stagger 3 of 8, at ease 0, 1
+    # and 2, a wake at every step: the panel shows each step's level (read over n' = 5 for ease 0 and 1: other panels).
+    c = Cache2()
+    stab = c.add(easing([600, 1500, 2600, 3500, 4096]))                      # n 5 = 8 − 3
+    sg = [gp(c, track(rect(40 + 300 * (k % 2), 40 + 220 * (k // 2), 240, 160), 2,
+                      pc(8, K_NEW, grid=(4, 3), model=RANDOM, stagger=3, dx=-60, dy=30, f=(4096, 0), lvl=(2, 15), seed=21 + k, **kw)), fl=OWN)
+          for k, kw in enumerate(({}, dict(ease=EASE_OUT), dict(ease=TABLE, table=stab)))]
+    st = [arm(c)]
+    t = 2000
+    for i, p_ in enumerate(sg):
+        st += [step(tk(t), msg(play(i, P, p_, 0x7C01 + i)))] + [step(tk(t + k * P), wake()) for k in range(1, 8)]
+        st += [step(tk(t + 7 * P + 10), msg(close(0xFF)))]
+        t += 400
+    vec("v5-x2-stagger", st)
+
+    # ---------------------------------------------------------------------------------------------------------------
+    # v5-x2-effects — §7.9 "Nothing of C3 is taken with flag bit 6 clear: a version-2 record is 5 wherever it is walked (a
+    # PLAY, RETARGET, fire, COMMIT or SET)"; "A disarm closes nothing". The RETARGET, the fire and the COMMIT with EFFECTS
+    # clear (each taken were EFFECTS not read there), then the same three after EFFECTS is armed again: taken.
+    c = Cache2()
+    pic = c.add(image2(40, 30, pattern(40, 30, 7201)))
+    Rv = gp(c, track(rect(0, 400, 300, 40), 2, d2(4, pic, 10, 405, dx=200)))           # version 2, retargetable
+    Fv = gp(c, track(rect(0, 300, 300, 40), 3, d2(3, pic, 10, 305, dx=100)))           # version 2, an entry's
+    Cv = gp(c, track(rect(320, 300, 300, 40), 4, f2(3, 9)))                            # version 2, a COMMIT's
+    NE = DRAW2 | ENGINE | BIND | ZWRITE                                                 # 0x3c: EFFECTS clear
+    st = [arm(c)]
+    t = 2000
+    st += [step(tk(t), page(True), msg(bind_list(0, NONE, 8, 0, 10, 1)), msg(bind_set(0, ANY, UP, 0, 1, 1, P, Fv))),
+           step(tk(t + 5), msg(play(0, P, Rv, 0x7D01))),
+           step(flags(NE)),                                                # EFFECTS cleared: the instance draws on
+           step(tk(t + 10), msg(retarget(0))),                             # its walk: version 2 without EFFECTS, 5 (taken: unread)
+           step(tk(t + 15), inp(RING, UP)),                                # the fire's walk: 5
+           step(tk(t + 20), msg(commit(2, 0x7D10, 0, 0, Cv))),             # the COMMIT's walk: 5
+           step(tk(t + 25), wake()),
+           step(flags(FULL5)),
+           step(tk(t + 30), msg(retarget(0))),                             # EFFECTS armed again: restarted
+           step(tk(t + 35), inp(RING, UP)),                                # drew
+           step(tk(t + 40), msg(commit(2, 0x7D11, 0, 0, Cv))),             # taken
+           step(tk(t + 40 + P), wake()),
+           step(tk(t + 50 + P), msg(close(0xFF)))]
+    vec("v5-x2-effects", st)
+
+    # ---------------------------------------------------------------------------------------------------------------
+    # v5-x2-order — §7.2 rules no earlier vector answers differently without: "Every eased level of DRAW, PIECES, SHRINK
+    # and GLYPHS is 0..15 ... (12)" (SHRINK's); "On a track that is not per-lens no rule reads xR or dxR: for every verb of a
+    # version-2 record they are ignored" (each verb with an R side, the radial PIECES among them: per-lens readings draw
+    # other pictures on RIGHT or refuse 12 or 5); pref 17 substituted into aux1; "a pref that writes a parameter into such a
+    # field ... is 5 at a PLAY, PLAY-AFTER, RETARGET ... whose parameter there is not 0"; "a PIECES kind 0 or SHRINK segment
+    # in a program without OWN is 5 at ... a PLAY-AFTER" (before "the program carries OWN", 12); "its ease is
+    # non-decreasing ... checked at the walk on every non-WAIT segment of the track (5), before the one-non-WAIT-segment
+    # shape (12)"; "it moves pixels unless it is PIECES with f1 = 0 ... SHRINK with both axes unscaled" (still forms under a
+    # later track: taken); §7.5 "Both window rules are decided in the walk at the record ... never at a SET".
+    c = Cache2()
+    pic = c.add(image2(40, 30, pattern(40, 30, 7301)))
+    strip = c.add(image2(60, 20, pattern(60, 20, 7302)))
+    fall = c.add(easing([1500, 1200, 3000, 4096]))                           # E falls 1500 → 1200
+    gA = c.add(glyph(6, 10, pattern(6, 10, 7303)))
+    fA = c.add(font224([gA] * 224))
+    alA = c.add(alphabet([65, 66, 67]))
+    ctab = c.add(cell_table([c.add(cell_list(alA, 1, [cell(0, 0, 8, 12, fA, 65, 66, 3), cell(20, 0, 8, 12, fA, 67, 65, 5)]))]))
+    rain2 = c.add(rain_rec(6, 3, 8, 12, fA, alA, reveal=2, fill=4))
+    O = owner(c)
+    sh_bad = gp(c, track(rect(100, 100, 200, 100), BD_NONE, sh(4, h=(100, 40), lvl=(15, 16))), fl=OWN)   # SHRINK's level 16: 12
+    sh_ok = gp(c, track(rect(100, 100, 200, 100), BD_NONE, sh(4, h=(100, 40), lvl=(15, 15))), fl=OWN)
+    rside = [
+        gp(c, track(rect(20, 20, 200, 60), 2, d2(4, pic, 30, 30, dx=60, xR=150, dxR=-40))),                    # DRAW
+        gp(c, track(rect(240, 20, 200, 60), 3, r2(4, LEFT, K_RECORD, 250, 30, src=pic, xR=380, dxR=7))),        # REVEAL
+        gp(c, track(rect(460, 20, 160, 60), 4, pc(4, K_NEW, dx=20, dxR=-30, dy=5, xR=9)), fl=OWN),             # PIECES uniform
+        gp(c, track(rect(20, 100, 160, 80), 2, pc(4, K_NEW, grid=(4, 2), model=RADIAL, x=100, y=140, xR=60, dxR=12,
+                                                    f=(0, 2048))), fl=OWN),                                    # PIECES radial (12)
+        gp(c, track(rect(200, 100, 160, 80), BD_NONE, pc(4, K_OLD, dxR=9, vacate=3)),
+           track(rect(250, 120, 40, 20), 6, f2(4, 9)), fl=OWN),                                                # still: dxR (12)
+        gp(c, track(rect(380, 100, 200, 80), 1, gly(4, CELLS, ctab, 0, x=4, xR=40, dx=10, dxR=-20, seed=5))),  # CELLS
+        gp(c, track(rect(20, 200, 200, 80), BD_NONE, gly(4, RAIN, rain2, xR=15, dxR=7, seed=6)), fl=OWN),      # rain in place (12)
+        gp(c, track(rect(240, 200, 160, 80), BD_NONE, sh(4, h=(80, 30), xR=11, dxR=-5)), fl=OWN)]              # SHRINK (5)
+    p17 = gp(c, track(rect(20, 300, 200, 40), 2, d2(4, strip, 30, 305, pref0=pref(0, F_AUX1))))   # aux1 = P0: the window's height
+    pa_own = gp(c, track(rect(300, 300, 100, 40), 2, f2(4, 3, pref0=pref(0, F_W1))), fl=OWN)    # P0 into FILL's w1 (unused)
+    rt_f = gp(c, track(rect(420, 300, 100, 40), 2, f2(4, 3, pref0=pref(0, F_W1))))
+    npa = bp(c, track(rect(100, 380, 200, 60), BD_NONE, pc(4, K_OLD, dx=20, vacate=3)))         # in place, no OWN
+    f2s = bp(c, track(rect(320, 380, 200, 60), BD_NONE, pc(4, K_OLD, dx=20, vacate=3),
+                      pc(4, K_OLD, dx=20, ease=TABLE, table=fall, vacate=3)), fl=OWN)          # the second segment's ease falls
+    still_f = gp(c, track(rect(100, 100, 200, 100), BD_NONE, pc(4, K_OLD, dx=40, f=(0, 0), vacate=2)),
+                 track(rect(150, 120, 60, 30), 6, f2(4, 9)), fl=OWN)                            # PIECES with f1 = 0 is still
+    still_s = gp(c, track(rect(100, 100, 200, 100), BD_NONE, sh(4)), track(rect(150, 120, 60, 30), 6, f2(4, 9)), fl=OWN)   # SHRINK unscaled
+    wpast = bp(c, track(rect(20, 300, 200, 40), 2, d2(4, strip, 30, 305, aux0=15, aux1=10)))    # rows 15..24 of 20: past it
+    wzero = bp(c, track(rect(20, 300, 200, 40), 2, d2(4, strip, 30, 305, aux0=3, aux1=0)))      # aux1 0 with aux0 3
+    st = [arm(c)]
+    t = 2000
+    st += [step(tk(t), msg(play(0, P, sh_bad, 0x7E01))),                   # 12
+           step(tk(t + 5), msg(play(0, P, sh_ok, 0x7E02))),                # taken
+           step(tk(t + 5 + 3 * P), wake()),
+           step(tk(t + 15 + 3 * P), msg(close(0xFF)))]
+    t += 300
+    for i, p_ in enumerate(rside):
+        st += [step(tk(t), msg(play(1, P, p_, 0x7E10 + i)))] + [step(tk(t + k * P), wake()) for k in (1, 3)]
+        st += [step(tk(t + 3 * P + 10), msg(close(0xFF)))]
+        t += 200
+    st += [step(tk(t), msg(play(0, P, p17, 0x7E20, P=(5,)))),              # the window's rows 0..4 (aux1 left 0: the whole record)
+           step(tk(t + 3 * P), wake()),
+           step(tk(t + 3 * P + 10), msg(close(0xFF)))]
+    t += 200
+    st += [step(tk(t), msg(play(0, P, O, 0x7E30))),
+           step(tk(t + 5), msg(play_after(1, P, pa_own, 0x7E31, 0, P=(3,)))),   # a parameter into an unused field: 5
+           step(tk(t + 10), msg(play_after(1, P, pa_own, 0x7E32, 0, P=(0,)))),  # its parameter 0: taken
+           step(tk(t + 15), msg(play_after(2, P, npa, 0x7E33, 0))),        # in place without OWN: 5 (the OWN test's 12 comes later)
+           step(tk(t + 20), msg(close(0xFF))),
+           step(tk(t + 25), msg(play(2, P, rt_f, 0x7E34, P=(0,)))),
+           step(tk(t + 30), msg(retarget(2, (3,)))),                       # a RETARGET's parameter into the unused field: 5, unchanged
+           step(tk(t + 35), msg(retarget(2, (0,)))),                       # 0: restarted
+           step(tk(t + 40), msg(close(0xFF))),
+           step(tk(t + 45), msg(play(0, P, f2s, 0x7E35))),                 # the second segment's falling ease: 5 (the shape's 12 later)
+           step(tk(t + 50), msg(play(0, P, still_f, 0x7E36))),             # a later track over PIECES with f1 = 0: taken (moving: 12)
+           step(tk(t + 50 + 3 * P), wake()),
+           step(tk(t + 60 + 3 * P), msg(play(0, P, still_s, 0x7E37))),     # over SHRINK unscaled: taken (moving: 12)
+           step(tk(t + 60 + 6 * P), wake()),
+           step(tk(t + 70 + 6 * P), msg(close(0xFF)))]
+    t += 600
+    st += [step(tk(t), page(True), msg(bind_list(1, NONE, 8, 0, 10, 2)),
+                msg(bind_set(2, ANY, UP, 1, 1, 3, P, wpast))),             # a window past its record: taken at the SET
+           step(tk(t + 5), inp(RING, UP)),                                 # the fire's walk: 5
+           step(tk(t + 10), msg(bind_set(2, ANY, UP, 1, 1, 3, P, wzero))), # aux1 0 with aux0 3: taken at the SET
+           step(tk(t + 15), inp(RING, UP))]                                # 5
+    vec("v5-x2-order", st)
+
+    # ---------------------------------------------------------------------------------------------------------------
+    # v5-x2-cells — §7.6 "Read range: the program, the cell table and the list aux0 selects — no other list of the table is
+    # followed or read — ... every font from which the walk reads a glyph entry ... — a font named only through codes 0
+    # and 32 is not read and not in the range ... A cache write that meets it closes the instance (§5.6)"; §5.6's range
+    # `[lowest, highest)`. The list aux0 does not select and a font named only through codes 0 and 32 lie below every
+    # byte the instance reads: a write over each leaves it drawing to its step T (in the range: closed, outcome 1); a
+    # write over the font it reads closes it.
+    c = Cache2()
+    g2 = c.add(glyph(6, 10, pattern(6, 10, 7401)))
+    F2 = c.add(font224([g2] * 224))                                          # named by a cell only through codes 0 and 32
+    al1 = c.add(alphabet([66]))
+    l1_b = cell_list(al1, 1, [cell(0, 0, 8, 12, F2, 66, 66, 2)])
+    l1 = c.add(l1_b)                                                         # the list aux0 does not select
+    g1 = c.add(glyph(6, 10, pattern(6, 10, 7402)))
+    F1_b = font224([g1] * 224)
+    F1 = c.add(F1_b)
+    al = c.add(alphabet([32]))
+    l0 = c.add(cell_list(al, 1, [cell(0, 0, 8, 12, F1, 65, 66, 3), cell(12, 0, 8, 12, F2, 0, 32, 4)]))
+    ct = c.add(cell_table([l0, l1]))
+    cp = gp(c, track(rect(100, 100, 120, 40), 1, gly(6, CELLS, ct, 0, x=4, y=4, seed=9)))
+    F2_b = font224([g2] * 224)
+    st = [arm(c)]
+    t = 2000
+    st += [step(tk(t), msg(play(0, P, cp, 0x7F01))),
+           step(tk(t + 5), msg(cache_write2((l1, l1_b)))),                  # the other list: not read, the instance draws on
+           step(tk(t + 10), msg(cache_write2((F2, F2_b)))),                 # the font of codes 0 and 32: not read, draws on
+           *[step(tk(t + k * P), wake()) for k in range(1, 6)],            # to its step T: outcome 0
+           step(tk(t + 6 * P), msg(close(0xFF))),
+           step(tk(t + 300), msg(play(0, P, cp, 0x7F02))),
+           step(tk(t + 305), msg(cache_write2((F1, F1_b)))),                # the font it reads: closed (outcome 1)
+           step(tk(t + 305 + P), wake())]
+    vec("v5-x2-cells", st)
+
+    # ---------------------------------------------------------------------------------------------------------------
+    # v5-x2-ring — §7.8 "a plain LIST clears it; the empty table (§6.3) clears it": a ring list wraps; after a release point
+    # the first mode 27 empties the table (§6.3: count 0); a fire on the list it names is the edge (c' = 1 is not below a
+    # count of 0). Read with RING kept, the fire takes c' modulo a count of 0. (This row tells the readings apart by a
+    # fault on the other side only.)
+    c = Cache2()
+    rp = gp(c, track(rect(100, 100, 200, 40), 2, f2(3, 7)))
+    st = [arm(c)]
+    t = 2000
+    st += [step(tk(t), page(True), msg(bind_ring(0, NONE, 4, 0, 10, 1)), msg(bind_set(0, ANY, UP, 0, 1, 0, P, rp)))]
+    st += [step(tk(t + 10 * k), inp(RING, UP)) for k in range(1, 5)]       # cursor 1, 2, 3, then 0: wrapped (field 18)
+    st += [step(tk(t + 50), {"lease": "release"}),                          # a release point: the table empty, RING with it
+           step(stock()),
+           step(tk(t + 60), {"lease": "acquire"}, flags(FULL5), page(True), msg(kf), *writes(c)),
+           step(tk(t + 70), msg(bind_set(0, ANY, UP, 0, 1, 0, P, rp))),    # the first mode 27: the table emptied (list 0's count 0)
+           step(tk(t + 75), inp(RING, UP))]                                # the edge
+    vec("v5-x2-ring", st)
+
+    # ---------------------------------------------------------------------------------------------------------------
+    # v5-x2-retarget — §7.5 "RETARGET's restart path clamps W to 1..2048 and restarts it from the width the track last
+    # drew — the source's own width when it drew unscaled, as C2's H from the source's height". A DRAW drawn unscaled
+    # (w0 = w1 = 0 by its parameters), then a RETARGET to w0 5, w1 20: W eases from the record's 40 to 20 (from w0's 5: other
+    # panels). The form whose RETARGET also changes the record (src by a parameter) is not here: a segment holds two prefs,
+    # and the unscaled-to-scaled change needs both for w0 and w1.
+    c = Cache2()
+    rec = c.add(image2(40, 20, pattern(40, 20, 7501)))
+    rw = gp(c, track(rect(100, 100, 300, 60), 2, d2(6, rec, 110, 110, dx=120, pref0=pref(0, F_W0), pref1=pref(1, F_W1))))
+    st = [arm(c)]
+    t = 2000
+    st += [step(tk(t), msg(play(0, P, rw, 0x7F11, P=(0, 0)))),             # unscaled
+           step(tk(t + P), wake()), step(tk(t + 2 * P), wake()),
+           step(tk(t + 2 * P + 5), msg(retarget(0, (5, 20))))] + \
+          [step(tk(t + 2 * P + 5 + k * P), wake()) for k in range(1, 6)] + \
+          [step(tk(t + 8 * P + 20), msg(close(0xFF)))]
+    vec("v5-x2-retarget", st)
+
+    for vec_ in v:
+        vec_["contract"] = 2
+        vec_["start"] = "zero"
+        vec_["panel"] = True
+        vec_["features"] = [FEATURES_C3]
+    return v
+
 # ---- the self-check (spec §3 D1): every message decodes by its builder's inverse, every program walks to its
 # own length. It proves the encoders' lengths, not the semantics (that is the C's and the simulator's).
 def walk_prog(buf, off):
@@ -4077,18 +4464,19 @@ def main():
     a = ap.parse_args()
     kf = keyframe(pattern(W, H, 1))
     v12, v3, v4, v5 = vectors(), vectors_v3(kf), vectors_v4(kf), vectors_v5(kf)
+    v5x = vectors_v5_x2(kf)                          # stage X2D: new files only (`v5-x2-*`); the 86 above stay as they are
     n_msgs, n_progs, found3, _ = check_v3(v3)
     m4, p4, found4, _ = check_v3(v4, c2=True)
-    m5, p5, found5, g5 = check_v3(v5, c3=True)
+    m5, p5, found5, g5 = check_v3(v5 + v5x, c3=True)
     n_pairs = check_pairs(v5)
     check_found(found3 | found4 | found5)
     n_neutral = check_neutral(v12 + v3)
     n_neutral3 = check_neutral_c3(v12 + v3 + v4)
-    for build, got in ((vectors_v3, v3), (vectors_v4, v4), (vectors_v5, v5)):
+    for build, got in ((vectors_v3, v3), (vectors_v4, v4), (vectors_v5, v5), (vectors_v5_x2, v5x)):
         assert json.dumps(build(kf)) == json.dumps(got), f"{build.__name__} is not deterministic"
     print(f"self-check: {len(v3)} C1 vectors, {n_msgs} mode-25/26 messages decoded, {n_progs} named programs walked; "
           f"{len(v4)} C2 vectors, {m4} mode-26/27/28 messages and inputs decoded, {p4} named programs walked; "
-          f"{len(v5)} C3 vectors ({n_pairs} fold pairs), {m5} mode-26/27/28 messages and inputs decoded, {p5} named programs "
+          f"{len(v5)} + {len(v5x)} C3 vectors ({n_pairs} fold pairs), {m5} mode-26/27/28 messages and inputs decoded, {p5} named programs "
           f"walked, {g5} GLYPHS segments' tables, lists, alphabets, rain records and glyphs read; "
           f"{n_neutral} v1/v2/v3 messages build-neutral; {n_neutral3} v1–v4 messages neutral on a bit-11 build; "
           f"{len(WELL_FORMED)} programs built well formed, "
@@ -4097,7 +4485,7 @@ def main():
     prefixes = tuple(x for x in a.only.split(",") if x) if a.only else None
     out = pathlib.Path(a.out) if a.out else OUT
     out.mkdir(parents=True, exist_ok=True)
-    for vec in v12 + v3 + v4 + v5:
+    for vec in v12 + v3 + v4 + v5 + v5x:
         if prefixes and not vec["name"].startswith(prefixes): continue
         p = out / f"{vec['name']}.json"
         vec = _merged(p, vec)

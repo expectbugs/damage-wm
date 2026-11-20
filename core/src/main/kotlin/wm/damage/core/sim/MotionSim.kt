@@ -582,7 +582,7 @@ class MotionSim(private val scaled: () -> Boolean = { false }, private val effec
         }
         // §7.12 (C3): the step budget after the values (12), before the capture range
         val cost = if (effects()) cost(prog) else 0L
-        if (effects() && prog.version == 2 && !budgetOk(slot, cost, closes.toSet(), null)) return REF_VALUE
+        if (effects() && prog.version == 2 && !budgetOk(slot, cost, tag, 0, closes.toSet(), null)) return REF_VALUE
         if (layout != null && (layout.second.hi > cache!!.size || layout.second.meets(prog.first))) return REF_RECORD
         for (i in closes) close(i, uptime)
         val caps = arrayOfNulls<Img>(prog.tracks.size)
@@ -626,7 +626,7 @@ class MotionSim(private val scaled: () -> Boolean = { false }, private val effec
         }
         val cost = cost(prog)
         val owner = slots[after]?.takeIf { it.owns }
-        if (!budgetOk(slot, cost, closes.toSet(), if (owner?.drawing == true) after else null)) return REF_VALUE
+        if (!budgetOk(slot, cost, tag, 0, closes.toSet(), if (owner?.drawing == true) after else null)) return REF_VALUE
         for (i in closes) close(i, uptime)
         val now = tick and U32
         val inst = Instance(slot, tag, period, prog4, prog, null, arrayOfNulls(prog.tracks.size))
@@ -701,30 +701,40 @@ class MotionSim(private val scaled: () -> Boolean = { false }, private val effec
      * other count as the larger, and a chain as its largest member. True when the sum is at most the cap. Ruled (C3, the
      * seventeen, item 5): f(i) = max(C_i, Σ f(waiters of i)) — two waiters on one instance draw together once it is done,
      * so they add; each root's f is summed.
+     *
+     * "Still holds" is read against the table as it stands once the operation is done (decisions Y, C-1): slot [slot]
+     * then holds the instance being opened or restarted — tag [tag], ordinal [ordinal] — so a waiter that recorded the
+     * instance it replaced waits on none, and one whose recorded triple equals the new instance's (a reused tag) waits on
+     * it. Should the records form a cycle (only a reused tag can), its members count each by its own C; an instance no
+     * root reaches — a cycle's member, or one that waits on a member — counts by its own C (READING (C3-X2D): the text
+     * names the members only; counting the rest too is the larger sum).
      */
-    private fun budgetOk(slot: Int, c: Long, closed: Set<Int>, newWaitsOn: Int?): Boolean {
+    private fun budgetOk(slot: Int, c: Long, tag: Int, ordinal: Int, closed: Set<Int>, newWaitsOn: Int?): Boolean {
         val cost = LongArray(SLOTS) { i -> slots[i]?.takeIf { i != slot && i !in closed && it.drawing }?.cost ?: -1L }
         cost[slot] = c
-        // the instance each one waits on, when that one is counted too (no cycle: a recorded triple names an instance
-        // opened before its waiter)
+        fun holds(r: Triple<Int, Int, Int>): Boolean =
+            if (r.first == slot) r.second == tag && r.third == ordinal
+            else slots[r.first]?.let { it.tag == r.second && it.ordinal == r.third } == true
+        // the instance each one waits on, when that one is counted too
         val waitsOn = IntArray(SLOTS) { i ->
             if (cost[i] < 0) -1
-            else (if (i == slot) newWaitsOn else slots[i]!!.rec?.let { r ->
-                slots[r.first]?.takeIf { it.tag == r.second && it.ordinal == r.third }?.let { r.first } })?.takeIf { cost[it] >= 0 } ?: -1
+            else (if (i == slot) newWaitsOn else slots[i]!!.rec?.takeIf { holds(it) }?.first)?.takeIf { cost[it] >= 0 } ?: -1
         }
-        fun f(i: Int, depth: Int): Long {
-            check(depth <= SLOTS) { "a cycle of PLAY-AFTER waits" }
-            return maxOf(cost[i], (0 until SLOTS).filter { waitsOn[it] == i }.sumOf { f(it, depth + 1) })
+        val reached = BooleanArray(SLOTS)
+        fun f(i: Int): Long {
+            reached[i] = true
+            return maxOf(cost[i], (0 until SLOTS).filter { waitsOn[it] == i }.sumOf { f(it) })
         }
         var sum = 0L
-        for (i in 0 until SLOTS) if (cost[i] >= 0 && waitsOn[i] < 0) { sum += f(i, 0); if (sum > BUDGET_CAP) return false }
-        return true
+        for (i in 0 until SLOTS) if (cost[i] >= 0 && waitsOn[i] < 0) sum += f(i)
+        for (i in 0 until SLOTS) if (cost[i] >= 0 && !reached[i]) sum += cost[i]
+        return sum <= BUDGET_CAP
     }
 
-    /** §7.12 at a fire (§6.2 step 10): the local instance's [c] in [slot], the fire's close set closed. Version-1
-     *  programs are counted, never refused. */
-    fun fireBudgetOk(prog: Prog, slot: Int, c: Long): Boolean =
-        prog.version == 1 || budgetOk(slot, c, closeSet(slot, prog).toSet(), null)
+    /** §7.12 at a fire (§6.2 step 10): the local instance's [c] in [slot] — tagged the fire's [s], ordinal 0 — the
+     *  fire's close set closed. Version-1 programs are counted, never refused. */
+    fun fireBudgetOk(prog: Prog, slot: Int, s: Int, c: Long): Boolean =
+        prog.version == 1 || budgetOk(slot, c, s, 0, closeSet(slot, prog).toSet(), null)
 
     /** RETARGET (§5.5): an open instance only (16); the shape rule's 12 right after the empty-slot test, decided from
      *  the instance's validated program (a parameter cannot change a verb or a segment count) — build C1's ruling
@@ -738,7 +748,7 @@ class MotionSim(private val scaled: () -> Boolean = { false }, private val effec
         val v = validate(cache, inst.prog4, p, Op.RETARGET, armed)
         val prog = v as? Prog ?: return -(v as Int)
         val cost = if (effects()) cost(prog) else 0L
-        if (effects() && prog.version == 2 && !budgetOk(slot, cost, emptySet(), null)) return REF_VALUE
+        if (effects() && prog.version == 2 && !budgetOk(slot, cost, inst.tag, inst.ordinal + 1, emptySet(), null)) return REF_VALUE
         if (inst.cap != null && prog.first.meets(inst.cap)) return REF_RECORD
         inst.cost = cost
         // each moving segment from the state this lens last drew (the start state when nothing is drawn yet, A.13)

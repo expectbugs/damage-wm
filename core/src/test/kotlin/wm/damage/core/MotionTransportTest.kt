@@ -506,22 +506,93 @@ class MotionTransportTest {
         t.stop()
     }
 
-    /** Build C3 (§7.9): below stage 5 no PLAY-AFTER, LIST-RING or kind-3 SET reaches the glasses — offered through the
-     *  motion API at stage 4 on a bit-11 build — while at stage 5 the same PLAY-AFTER does (the gate is not a wall). */
+    /** Build C3 (§7.9, §7.11; decisions W, D-5): no PLAY-AFTER, LIST-RING or kind-3 SET leaves the phone unless DamageCaps
+     *  bit 11 is reported and EFFECTS is in force. Each form is offered through the transport's raw door (a self-test live
+     *  write, as C2's `noBindByteReachesTheWireBelowStage4_6_2` offers its forms): alone, a LIST-RING inside a batch, a
+     *  PLAY-AFTER inside a self-test step — and each refused offer is one `effects` fault, with BIND in force every time so
+     *  that the bind gate passes and this gate alone decides: at stage 4 on a bit-11 build; on a C2 build with a stored stage
+     *  5 (0x5ff: it arms 4); after a hand disarm of EFFECTS at stage 5; in a session restart before RIGHT's answer to the
+     *  0x7c FLAGS_SET is heard (BIND already in force). At stage 5 — and in that session once the answer is heard — every
+     *  offer reaches the glasses, each image seen on the wire. */
     @Test
-    fun noEffectsFormReachesTheGlassesBelowStage5_7_9(): Unit = runBlocking {
-        for (stage in listOf(4, 5)) {
-            val (sim, t) = effectsSession(stage)
-            val seen = java.util.concurrent.CopyOnWriteArrayList<String>()
-            sim.imageObserver = { _, img -> if (CfwModes.carriesEffects(img)) seen += img.joinToString("") { "%02x".format(it) } }
-            val offers = listOf(CfwModes.motionPlayAfter(1, 32, 10_000, 1, 0, IntArray(4)),
-                CfwModes.bindListRing(0, CfwModes.ITEMS_NONE, 4, 0, 8, 1, true),
-                CfwModes.bindSet(0, 0xFF, 4, 0, 1, 0, 34, 10_000, listOf(CfwModes.BindParam(CfwModes.KIND_CURSOR, 0)), effects = true))
-            for (o in offers) runCatching { t.sendMotion(listOf(o)) }
+    fun noEffectsFormReachesTheGlassesWithoutEffectsInForce_7_9(): Unit = runBlocking {
+        fun h(b: ByteArray) = b.joinToString("") { "%02x".format(it) }
+        fun unhex(x: String) = ByteArray(x.length / 2) { i -> x.substring(2 * i, 2 * i + 2).toInt(16).toByte() }
+        val playAfter = CfwModes.motionPlayAfter(1, 32, 10_000, 1, 0, IntArray(4))
+        val listRing = CfwModes.bindListRing(0, CfwModes.ITEMS_NONE, 4, 0, 8, 1, true)
+        val kind3 = CfwModes.bindSet(0, 0xFF, 4, 0, 1, 0, 34, 10_000, listOf(CfwModes.BindParam(CfwModes.KIND_CURSOR, 0)), effects = true)
+        val offers = listOf("live:" + h(playAfter), "live:" + h(listRing), "live:" + h(kind3),
+            "live:" + h(CfwModes.batch(listOf(CfwModes.fill(Rect(0, 470, 640, 10), 3), listRing), bind = true)),
+            "step:" + h(playAfter))
+        // the image each offer puts on the wire: a live write is the message itself, a step rides mode 16 sub 1
+        val images = offers.map { o -> if (o.startsWith("live:")) h(unhex(o.removePrefix("live:"))) else "1001" + o.removePrefix("step:") }
+        fun flagsArg(p: ByteArray): Int {
+            val b = StartRig.body(p); val i = StartRig.controlAt(b)
+            return (b[i + 4].toInt() and 0xFF) or ((b[i + 5].toInt() and 0xFF) shl 8)
+        }
+        class Session(val sim: GlassFirmwareSim, val t: StartRig, val seen: MutableSet<String>)
+        fun session(features: Int, stage: Int): Session {
+            val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = features }
+            val seen = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+            sim.imageObserver = { _, img -> if (CfwModes.carriesEffects(img)) seen += h(img) }
+            val t = StartRig(sim, scope)
+            notes.clear(); collect(t)
+            t.devProbe("c1", "$stage")
+            return Session(sim, t, seen)
+        }
+        suspend fun refused(s: Session, what: String) {
+            assertTrue(s.t.state.value.flagsInForce and DamageMsg.FLAG_BIND != 0, "$what: BIND in force, so the bind gate passes")
+            for (o in offers) s.t.devProbe("selftest", o)
+            waitUntil(10_000, message = { "$what: the offers decided: ${notes.filter { it.first == "fault" }}" }) {
+                notes.count { it.first == "fault" && it.second.startsWith("effects: ") } >= offers.size }
+            delay(200)
+            assertEquals(offers.size, notes.count { it.first == "fault" && it.second.startsWith("effects: ") }, "$what: one `effects` fault an offer")
+            assertEquals(emptySet(), s.seen.toSet(), "$what: nothing of C3 on the wire")
+        }
+        suspend fun taken(s: Session, what: String) {
+            for (o in offers) s.t.devProbe("selftest", o)
+            waitUntil(10_000, message = { "$what: every offer seen: ${s.seen} of $images" }) { s.seen.containsAll(images) }
+            assertEquals(0, notes.count { it.first == "fault" && it.second.startsWith("effects: ") }, "$what: no offer refused")
+        }
+        // stage 4 on a bit-11 build
+        session(0xdff, 4).let { s -> s.t.start(full); assertEquals(0x3c, s.t.state.value.flagsInForce); refused(s, "stage 4 on 0xdff"); s.t.stop() }
+        // a C2 build with a stored stage 5: it arms 4
+        session(0x5ff, 5).let { s -> s.t.start(full); assertEquals(0x3c, s.t.state.value.flagsInForce); refused(s, "stored 5 on 0x5ff"); s.t.stop() }
+        // stage 5: every form goes
+        session(0xdff, 5).let { s -> s.t.start(full); assertEquals(0x7c, s.t.state.value.flagsInForce); taken(s, "stage 5"); s.t.stop() }
+        // stage 5, then a hand disarm of EFFECTS (its CLOSE-all first, §7.11)
+        session(0xdff, 5).let { s ->
+            s.t.start(full)
+            assertEquals(0x7c, s.t.state.value.flagsInForce)
+            s.t.devProbe("flags", "0x3c")
+            waitUntil(10_000, message = { "the disarm went" }) { s.t.state.value.flagsInForce == 0x3c }
+            refused(s, "a hand disarm at stage 5")
+            s.t.stop()
+        }
+        // stage 5, a session restart, and RIGHT's answer to the 0x7c FLAGS_SET not yet heard (the write held back): BIND
+        // is in force but the session has not started, so the doors themselves hold every offer (the raw door and the
+        // motion door test the state's `started`) — nothing reaches the gate or the wire; once the answer is heard every
+        // form goes. (This case is the window's, not the gate's: the gate is not reached in it.)
+        session(0xdff, 5).let { s ->
+            s.t.start(full)
+            assertEquals(0x7c, s.t.state.value.flagsInForce)
+            assertTrue(s.t.restartSession("test: before the flags are heard again"))
+            val held = java.util.concurrent.atomic.AtomicInteger()
+            val holding = java.util.concurrent.atomic.AtomicBoolean(true)
+            s.t.onWrite = { _, p -> if (holding.get() && StartRig.damageOp(p) == DamageMsg.OP_FLAGS_SET && flagsArg(p) == 0x7c) { held.incrementAndGet(); null } else p }
+            val start = scope.launch { s.t.start(full) }
+            waitUntil(10_000, message = { "the restart reaches the EFFECTS rung: flags 0x${s.t.state.value.flagsInForce.toString(16)}" }) {
+                held.get() > 0 && s.t.state.value.flagsInForce == 0x3c }
+            for (o in offers) s.t.devProbe("selftest", o)
+            assertTrue(!s.t.sendMotion(listOf(playAfter)), "the motion door: no session yet")
             delay(300)
-            if (stage == 4) assertEquals(emptyList(), seen.toList(), "stage 4: nothing of C3 on the wire")
-            else assertTrue(seen.isNotEmpty(), "stage 5: the forms go")
-            t.stop()
+            assertEquals(emptySet(), s.seen.toSet(), "a restart before the flags are heard again: nothing of C3 on the wire")
+            holding.set(false)
+            start.join()
+            assertEquals(0x7c, s.t.state.value.flagsInForce, "the answer heard: EFFECTS in force")
+            notes.clear()
+            taken(s, "the same session once the answer is heard")
+            s.t.stop()
         }
     }
 

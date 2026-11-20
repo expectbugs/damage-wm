@@ -225,7 +225,7 @@ class Version2MotionTest {
 
     private enum class Namer { PLAY, AFTER, COMMIT, SET }
 
-    /** Every program record and table the 20 `v5-*` vectors name — by a PLAY, a PLAY-AFTER, a COMMIT or a SET, batches
+    /** Every program record and table the 28 `v5-*` vectors name — by a PLAY, a PLAY-AFTER, a COMMIT or a SET, batches
      *  unwrapped, against the cache their mode-19 writes have left at that message — rebuilt through the DSL: equal byte
      *  for byte, or listed (a record the DSL cannot say, or one it refuses, with the walk's answer beside it). And at
      *  every naming message the DSL's verdict against the model's walk: the DSL never accepts what the walk refuses, and
@@ -233,7 +233,8 @@ class Version2MotionTest {
     @Test
     fun everyV5ProgramAndTableIsTheDslsByteForByte_7_2() {
         val files = Files.list(vectorDir()).use { s -> s.filter { it.fileName.toString().let { n -> n.startsWith("v5-") && n.endsWith(".json") } }.sorted().toList() }
-        assertEquals(20, files.size, "the 20 v5 vectors")
+        // stage X2D (decisions Y, C-3) added eight `v5-x2-*` files beside the 20: every one is read here too
+        assertEquals(28, files.size, "the 20 v5 vectors and X2D's 8")
         val comparedProg = HashMap<String, Int>(); val comparedTab = HashMap<String, Int>()
         val seenProg = HashSet<String>(); val seenTab = HashSet<String>()
         val inexpressible = LinkedHashMap<String, String>(); val refusedByDsl = LinkedHashMap<String, String>()
@@ -701,5 +702,111 @@ class Version2MotionTest {
         val w5 = base.copyOf(); for (y in 100 until 310) for (x in 200 until 410) setNib(w5, x, y, nib(shadow, x, y))
         assertContentEquals(w5, landed, "LAND: the owned rect (the tracks' bounding box) is the shadow's")
         assertFailsWith<LintError> { Motion.end(glyphProg, IntArray(4)) }
+    }
+
+    /** §7.6's hash, written here from the text (the model's is checked against the contract's table elsewhere). */
+    private fun h(x0: Int): Int { var x = x0; x = x xor (x ushr 16); x *= 0x7FEB352D; x = x xor (x ushr 15); x *= 0x846CA68B.toInt(); return x xor (x ushr 16) }
+    private fun h2(s: Int, a: Int) = h(s xor h(a xor 0x9E3779B9.toInt()))
+    private fun h3(s: Int, a: Int, b: Int) = h(h2(s, a) xor h(b xor 0x85EBCA6B.toInt()))
+    /** §7.5's drop order of a size n: t = 0 .. 2^m − 1 with its m low bits reversed, each value below n in turn. */
+    private fun dropOrder(n: Int): List<Int> {
+        var m = 0; while ((1 shl m) < n) m++
+        return (0 until (1 shl m)).map { t -> (0 until m).fold(0) { a, b -> a or (((t shr b) and 1) shl (m - 1 - b)) } }.filter { it < n }
+    }
+
+    /** Decisions W, D-7: END on the model for the kinds `endOnTheModelIsThePictureAtStepT_7_2` does not hold — SHRINK,
+     *  RAIN, PIECES radial, random, layer new, stagger under a level ramp, the source window, REVEAL of `new` — each picture
+     *  computed here from §7's text (§7.4–§7.6, the v1 LUT `lut[i] = i·level / 15`, `CfwModes` line 70's lineage), never
+     *  from the model's renderers: each checks that the builder's arguments land in the fields the text reads. */
+    @Test
+    fun endOnTheModelForTheOtherKinds_7_2() {
+        val c = ByteArray(64 * 1024)
+        val gLv = ByteArray(6 * 10) { ((it % 5) * 3).toByte() }
+        val gBytes = TextureCache.Image(6, 10, gLv).encode(); gBytes.copyInto(c, 1000 * 4)
+        val f = Motion.Font(1100, IntArray(224) { 1000 }, listOf(Motion.Glyph.of(1000, gBytes))); f.bytes.copyInto(c, 1100 * 4)
+        val al = Motion.Alphabet(1300, intArrayOf(65, 66)); al.bytes.copyInto(c, 1300 * 4)
+        val area = Rect(200, 100, 60, 30)
+        val base = panel(3); val shadow = panel(7)
+        fun end(prog: MotionProgram): ByteArray {
+            for ((o4, b) in prog.records) b.copyInto(c, o4 * 4)
+            return Motion.endOnModel(prog, IntArray(4), c, base, shadow, left = true)
+        }
+        fun inArea(x: Int, y: Int) = x >= area.x && x < area.right && y >= area.y && y < area.bottom
+        fun over(fill: (Int, Int) -> Int): ByteArray = base.copyOf().also { w -> for (y in area.y until area.bottom) for (x in area.x until area.right) setNib(w, x, y, fill(x, y)) }
+
+        // SHRINK both axes to 20 × 9, rows top-anchored, columns centred, vacate 9: at T from base step 0 the kept rows and
+        // columns (the first H and W of each drop order, in increasing index) sit at a + r; the rest is the vacate level
+        run {
+            val rows = dropOrder(30).take(9).sorted(); val cols = dropOrder(60).take(20).sorted()
+            val ax = (60 - 20) shr 1
+            val want = over { x, y ->
+                val i = x - area.x - ax; val j = y - area.y
+                if (i in 0 until 20 && j in 0 until 9) nib(base, area.x + cols[i], area.y + rows[j]) else 9
+            }
+            assertContentEquals(want, end(own { track(area, Backdrop.None) { shrink(2, w0 = 60, w1 = 20, h0 = 30, h1 = 9, anchor = 0, hAnchor = 1, vacate = 9) } }), "SHRINK at step T")
+        }
+        // RAIN reveal 2 at offset (3, 2): at T every head is R + trail, so nothing is lit and every cell box of every column
+        // above the trail (all R rows) is filled with fillLvl, clipped to the area; R = ⌈30 / 7⌉ = 5
+        run {
+            val rain = Motion.Rain(1600, cols = 5, trail = 3, cw = 8, ch = 7, font = f, alphabet = al, reveal = 2, fillLvl = 6)
+            val want = base.copyOf()
+            for (col in 0 until 5) for (r in 0 until 5) for (y in 0 until 7) for (x in 0 until 8) {
+                val px = area.x + 3 + col * 8 + x; val py = area.y + 2 + r * 7 + y
+                if (inArea(px, py)) setNib(want, px, py, 6)
+            }
+            assertContentEquals(want, end(own { track(area, Backdrop.None) { rain(rain, 4, x = 3, y = 2) } }), "RAIN reveal 2 at step T")
+        }
+        // PIECES layer old, radial 3 × 3 about (230, 115), factor 0 → 2048: D_p = ((c − anchor)·f + 2048) >> 12 at f = f1
+        fun homes(gw: Int, gh: Int) = (0 until gh).flatMap { j -> (0 until gw).map { i ->
+            Rect(area.x + i * area.w / gw, area.y + j * area.h / gh, (i + 1) * area.w / gw - i * area.w / gw, (j + 1) * area.h / gh - j * area.h / gh) } }
+        fun inPlace(homes: List<Rect>, d: List<Pair<Int, Int>>, vacate: Int) = over { x, y ->
+            val p = homes.indices.reversed().firstOrNull { k -> homes[k].let { r -> x - d[k].first in r.x until r.right && y - d[k].second in r.y until r.bottom } }
+            if (p == null) vacate else nib(base, x - d[p].first, y - d[p].second)
+        }
+        run {
+            val hs = homes(3, 3)
+            val d = hs.map { r -> ((((r.x + r.right) shr 1) - 230) * 2048 + 2048 shr 12) to ((((r.y + r.bottom) shr 1) - 115) * 2048 + 2048 shr 12) }
+            assertContentEquals(inPlace(hs, d, 9), end(own { track(area, Backdrop.None) {
+                pieces(Motion.LAYER_OLD, 3, gw = 3, gh = 3, model = Motion.RADIAL, x = 230, y = 115, f0 = 0, f1 = 2048, vacate = 9) } }), "PIECES radial at step T")
+        }
+        // PIECES layer old, random slices (gw 1, gh 5, dy 0), dx 9, seed 0x1234: rx = H3(seed, p, 0) & 0xFFFF as s16,
+        // D_p = ((rx·DX) >> 15, 0) with DX = dx at f = 4096
+        run {
+            val hs = homes(1, 5)
+            val d = hs.indices.map { k -> ((h3(0x1234, k, 0) and 0xFFFF).toShort().toInt() * 9 shr 15) to 0 }
+            assertContentEquals(inPlace(hs, d, 2), end(own { track(area, Backdrop.None) {
+                pieces(Motion.LAYER_OLD, 3, gh = 5, model = Motion.RANDOM, dx = 9, seed = 0x1234, vacate = 2) } }), "PIECES random slices at step T")
+        }
+        // PIECES layer new, uniform (one piece), dx 7, dy 3, over backdrop 2: the shadow's area drawn moved by D, clipped
+        run {
+            val want = over { x, y -> if (inArea(x - 7, y - 3)) nib(shadow, x - 7, y - 3) else 2 }
+            assertContentEquals(want, end(own { track(area, Backdrop.Level(2)) { pieces(Motion.LAYER_NEW, 3, dx = 7, dy = 3) } }), "PIECES layer new at step T")
+        }
+        // PIECES layer new, radial 2 × 2 about (230, 115) under stagger 2, factor 0 → 2048, level 15 → 9: at T every piece's
+        // local step is n' (e = 4096) and the level is lvl1; the shadow's pieces in index order through lut(9), over backdrop 2
+        run {
+            val hs = homes(2, 2)
+            val want = over { _, _ -> 2 }
+            for (r in hs) {
+                val dx = (((r.x + r.right) shr 1) - 230) * 2048 + 2048 shr 12; val dy = (((r.y + r.bottom) shr 1) - 115) * 2048 + 2048 shr 12
+                for (y in r.y until r.bottom) for (x in r.x until r.right) if (inArea(x + dx, y + dy)) setNib(want, x + dx, y + dy, nib(shadow, x, y) * 9 / 15)
+            }
+            assertContentEquals(want, end(own { track(area, Backdrop.Level(2)) {
+                pieces(Motion.LAYER_NEW, 6, gw = 2, gh = 2, model = Motion.RADIAL, stagger = 2, x = 230, y = 115, f0 = 0, f1 = 2048, lvl0 = 15, lvl1 = 9, seed = 77) } }),
+                "PIECES layer new under stagger and a level ramp at step T")
+        }
+        // the source window: a record's rows 2..4 drawn at (205, 104), unscaled, over backdrop 0
+        run {
+            val rLv = ByteArray(40 * 6) { (1 + (it % 40) % 15).toByte() }
+            val rec = TextureCache.Image2(40, 6, rLv).encode(); rec.copyInto(c, 2000 * 4)
+            val want = over { x, y -> if (x - 205 in 0 until 40 && y - 104 in 0 until 3) rLv[(2 + y - 104) * 40 + x - 205].toInt() else 0 }
+            assertContentEquals(want, end(bound { track(area, Backdrop.Level(0)) { draw(Source.record(2000, rec), 205, 104, n = 2, windowFirst = 2, windowRows = 3) } }),
+                "a source window at step T")
+        }
+        // REVEAL of `new` at its corner: at T the whole source shows — the area is the shadow's
+        run {
+            val want = over { x, y -> nib(shadow, x, y) }
+            assertContentEquals(want, end(own { track(area, Backdrop.Level(4)) { reveal(Source.New, Edge.LEFT, n = 3, x = 200, y = 100) } }), "REVEAL of `new` at step T")
+        }
     }
 }

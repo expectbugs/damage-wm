@@ -269,13 +269,16 @@ object Motion {
 
     // --------------------------------------------------------------------------------- build C3: the one gate
     /** Proof that EFFECTS is in force this session (`FIRMWARE.md` §7.11 "version 2 only at stage 5"): the only way to
-     *  build a version-2 record ([program2]). Got from [effects] alone. */
+     *  build a version-2 record ([program2]). Got from [effects] alone. It proves one moment, the build it was asked
+     *  for (decisions W, D-6): a builder never keeps one — a session restart, a hold-back or a hand disarm leaves a kept
+     *  token building records the glasses refuse (5). */
     class Effects internal constructor()
 
     /** The one gate every builder of a version-2 record calls (C3-DP1's reading 4, ruled: the transport cannot tell a
      *  record inside a cache write, so nothing builds one below stage 5): DamageCaps bit 11 reported and EFFECTS (flag
      *  bit 6) in force — the transport's state, as its own effects gate reads it. Otherwise a [LintError]: the glasses
-     *  refuse a version-2 record while EFFECTS is clear (§7.2, 5). */
+     *  refuse a version-2 record while EFFECTS is clear (§7.2, 5). **The rule (decisions W, D-6):** a builder calls it at
+     *  each build, from the transport's state as it then is (`caps`, `flagsInForce`), and never keeps the token. */
     fun effects(caps: DamageMsg.Caps?, flagsInForce: Int): Effects {
         if (caps == null || caps.contract < DamageMsg.CONTRACT || !caps.has(DamageMsg.FEATURE_EFFECTS))
             throw LintError("§7.11: version 2 only at stage 5 — this build reports no effects (DamageCaps bit 11; caps $caps)")
