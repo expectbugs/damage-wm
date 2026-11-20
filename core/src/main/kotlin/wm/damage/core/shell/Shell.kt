@@ -1474,7 +1474,9 @@ class Shell(
                     }
                     is Msg.GraceTick -> handleGrace(m.gen)
                     is Msg.SilentTick -> handleSilentTick(m.gen)
-                    is Msg.SaveTick -> if (m.gen == saveGen) saveAll()
+                    // his look at 0.81: the save builds every window's state on the loop (up to 86 ms there; the disk write is
+                    // off it already) — not inside a burst or while Main's motion may still draw: again in 2 s
+                    is Msg.SaveTick -> if (m.gen == saveGen) { if (mainBindBurstOpen() || mainMotionMayDraw()) scheduleSave() else saveAll() }
                     is Msg.Notice -> handleNotice(m.n)
                     // P6 item 2 (LC-1): a parked window's request composes nothing; its divider tick rides the chrome
                     is Msg.Invalidate -> if (!showsRequestOf(m.windowId)) chromeDirty = true
@@ -2841,6 +2843,7 @@ class Shell(
         when (ev) {
             // build C2 (§6.7 P2, P5): a stock scroll message or click is read against the echo owes BEFORE it is handled
             is TransportEvent.Input -> {
+                lastInputAtMs = System.currentTimeMillis()
                 if (!localReads(ev)) handleInput(ev.type, ev.source)
                 else localVerdict(local.stock(wm.damage.core.local.LocalRules.Stock.of(ev.type)!!, localRow(), System.currentTimeMillis()))
             }
@@ -2872,7 +2875,7 @@ class Shell(
             is TransportEvent.Wear -> {}
             // build C2 (stage DP2): the 115 reports in the same ordered flow as the stock messages (P2), the telemetry
             // reads (P1's refusal record, `tapsLive`), RIGHT's 114 bodies while BIND is in force (the counting)
-            is TransportEvent.Applied -> localVerdict(local.report(ev.report, localRow(), ev.atMs), ev.report.eventId)
+            is TransportEvent.Applied -> { lastInputAtMs = System.currentTimeMillis(); localVerdict(local.report(ev.report, localRow(), ev.atMs), ev.report.eventId) }
             is TransportEvent.LocalRead -> {
                 ev.flagsInForce?.let { local.bindInForce(it and wm.damage.core.wire.DamageMsg.FLAG_BIND != 0) }
                 local.telemetry(ev.boundIds, ev.refusal27, ev.batch14)
@@ -2984,7 +2987,7 @@ class Shell(
         if (ev.id == atlasInFlight) { atlasDone(ev); return }
         if (ev.id == stageInFlight) { stageDone(ev); return }
         val a = inflightFlushes.remove(ev.id)
-        journal.flushDone(ev.id, ev.ok, ev.ackMs, ev.bytes, ev.error)
+        journal.flushDone(ev.id, ev.ok, ev.ackMs, ev.bytes, ev.error, ev.tookAtMs, ev.wroteAtMs, ev.ackAtMs)
         // build C2 (§6.11): a tail-only flush that failed — an answer, a SETTLE or a re-send lost — is a divergence: keyframe
         if (localOnlyFlushes.remove(ev.id) && !ev.ok && !glassesSilent) {
             journal.note("local", "a flush of local-input messages only failed (${ev.error}) — keyframing (§6.11)")
@@ -3928,7 +3931,7 @@ class Shell(
 
     private fun atlasDone(ev: TransportEvent.FlushDone) {
         atlasInFlight = null
-        journal.flushDone(ev.id, ev.ok, ev.ackMs, ev.bytes, ev.error)
+        journal.flushDone(ev.id, ev.ok, ev.ackMs, ev.bytes, ev.error, ev.tookAtMs, ev.wroteAtMs, ev.ackAtMs)
         val ct = cachedText ?: return
         if (!ev.ok) {
             cacheLedger.writeLost()        // §66: what landed is unknown; the next reading re-bases
@@ -4401,7 +4404,7 @@ class Shell(
         val rec = stageInFlightRec
         val writes = stageInFlightWrites
         stageInFlight = null; stageInFlightRec = null; stageInFlightWrites = 0
-        journal.flushDone(ev.id, ev.ok, ev.ackMs, ev.bytes, ev.error)
+        journal.flushDone(ev.id, ev.ok, ev.ackMs, ev.bytes, ev.error, ev.tookAtMs, ev.wroteAtMs, ev.ackAtMs)
         val c = stageCursor?.takeIf { it.rec === rec }
         if (!ev.ok) {
             cacheLedger.writeLost()
@@ -5284,6 +5287,8 @@ class Shell(
     private var edgeAssembleMark = 0
     private var lastWrapAssemblesBefore = -1
     private var edgeAtMs = 0L
+    /** Tests only (his look at 0.81): run on the loop right after the wrap's flush is submitted — a loaded loop. */
+    @Volatile internal var afterWrapSubmitForTest: (() -> Unit)? = null
     /** Tests only (the focused read's L1): the wrap's END paint throws after the LEFT lens's. */
     @Volatile internal var wrapPaintFailsForTest = false
 
@@ -5320,19 +5325,27 @@ class Shell(
         // the focused read's N8: the note names the flush, so its `done` row prices the wrap's start against the report
         journal.note("local", "the wrap's PLAY went ahead of its frame as flush ${id ?: "(not submitted)"}: ${tail.size} message(s), " +
             "${tail.sumOf { it.size }} B, ${nowMs - edgeAtMs} ms after the edge's report reached the shell")
+        afterWrapSubmitForTest?.invoke()
         return true
     }
 
     /**
      * Decisions BF (G4): the period follows the MEASURED step. Each complete motion of Main's bound list (its slot's local
      * instances and the wrap's) gives its largest step time; the last [PERIOD_WINDOW] are kept. The period in force is
-     * raised as soon as the window's maximum × [PERIOD_MARGIN_MEASURED] needs more ticks, and lowered — to what it needs —
-     * only after a whole window since the last change that needs at least [PERIOD_HYSTERESIS] ticks less (so it does not
-     * go back and forth). Clamped to the engine's 16..128. Applied with no burst open: new SETs only (the programs, their T
+     * raised as soon as the window's maximum × [PERIOD_MARGIN_MEASURED] needs more ticks, and lowered — to what it needs,
+     * never below the staging's own period (W1) — only after [PERIOD_QUIET_MS] with no input, by [PERIOD_LOWER_MIN] ticks
+     * or more, with no instance open and no burst (his look at 0.81, ruled). Clamped to the engine's 16..128. Applied with no burst open: new SETs only (the programs, their T
      * and the records are kept, so a longer period runs the motion longer); the next staging starts from the fit again.
      */
     private val stepWindow = ArrayDeque<Long>()
     private var periodSamplesSinceChange = 0
+    /** His look at 0.81: the last ring event or glasses' report, for the period's quiet rule. */
+    private var lastInputAtMs = 0L
+    private var periodRecheckGen = 0
+    private fun periodRecheck(inMs: Long) {
+        val gen = ++periodRecheckGen
+        scope.launch { delay(inMs); if (running) post(Msg.Run(dropped = {}) { if (gen == periodRecheckGen) post(Msg.Pump) }) }
+    }
 
     private fun localBodyRead(ev: TransportEvent.LocalBody) {
         val ms = mainBind.staging ?: return
@@ -5371,8 +5384,10 @@ class Shell(
             // the focused read's W1 (ruled): never below the staging's own period — the fit with Auto, the length over the
             // frames with a fixed count — the measurement only raises above it and comes back down to it
             // (the floor itself is reached whatever the hysteresis says, so a small raise does not stay for good)
-            stepWindow.size >= PERIOD_WINDOW && periodSamplesSinceChange >= PERIOD_WINDOW &&
-                maxOf(need, ms.period).let { t -> t < p && (t <= p - PERIOD_HYSTERESIS || t == ms.period) } -> maxOf(need, ms.period)
+            // his look at 0.81 (ruled): lowered only after [PERIOD_QUIET_MS] with no input, by at least [PERIOD_LOWER_MIN]
+            // ticks, never while an instance is open or a burst is ([mainPeriodApply] holds those) — each change is a SET
+            // flush landing on the two lenses at different moments; three came in 25 s of fast scrolling on 0.81
+            stepWindow.size >= PERIOD_WINDOW && maxOf(need, ms.period).let { t -> p - t >= PERIOD_LOWER_MIN } -> maxOf(need, ms.period)
             else -> null
         }
     }
@@ -5382,6 +5397,13 @@ class Shell(
         val ms = mainBind.staging ?: return
         val want = mainPeriodWanted() ?: return
         val was = ms.periodInForce
+        if (want < was) {
+            // a lowering waits for quiet: no motion that may still draw (the burst is held above; the mirror's open slots
+            // keep an instance at its end too, so they are not read), and PERIOD_QUIET_MS since the last input (a re-check)
+            val quietAt = lastInputAtMs + PERIOD_QUIET_MS
+            val now = System.currentTimeMillis()
+            if (mainMotionMayDraw() || now < quietAt) { periodRecheck(maxOf(quietAt, now + 250) - now); return }
+        }
         ms.periodInForce = want
         periodSamplesSinceChange = 0
         mainBind.relisted()
@@ -8088,7 +8110,9 @@ class Shell(
          *  many ticks lower a window must call for before the period comes down. */
         const val PERIOD_WINDOW = 8
         const val PERIOD_MARGIN_MEASURED = 1.10
-        const val PERIOD_HYSTERESIS = 3
+        /** His look at 0.81 (ruled): a lowering waits this long with no input, and goes only by this many ticks or more. */
+        const val PERIOD_QUIET_MS = 5_000L
+        const val PERIOD_LOWER_MIN = 4
         const val WRAP_START_MS = 400L
         const val MAINSEQ_RESTAGES = 3
         const val MAINSEQ_POLL_MS = 50L

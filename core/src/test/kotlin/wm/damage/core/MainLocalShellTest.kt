@@ -1318,22 +1318,23 @@ class MainLocalShellTest {
             repeat(2) { r.fire(CfwModes.EV_DOWNROLL); delay(r.motionMs() + r.q() + 300); r.settle("notch at P 55") }
             val after = r.notes("motion").drop(bodies0).filter { "committed" in it }
             assertTrue(after.isNotEmpty() && after.all { "folded 0" in it }, "no fold at P 55: $after")
-            // steps a little faster (47 ms: 53 ticks, 2 under 55) for a whole window: no change — the hysteresis
+            // steps a little faster (47 ms: 53 ticks, 2 under 55) for a whole window, then quiet: no change — under 4 ticks
             for (a in Arm.entries) r.sim.motionForTest(a).stepUsForTest = 47_000L
             repeat(Shell.PERIOD_WINDOW + 1) { i ->
                 r.fire(if (i % 2 == 0) CfwModes.EV_UPROLL else CfwModes.EV_DOWNROLL)
                 delay(r.motionMs() + r.q() + 300); r.settle("47 ms notch $i")
             }
-            assertEquals(55, r.onLoop { r.shell.periodInForceForTest() }, "a two-tick gain does not bring it down (hysteresis ${Shell.PERIOD_HYSTERESIS})")
-            // fast steps: down only after eight motions since the change
+            delay(Shell.PERIOD_QUIET_MS + 600); r.settle("quiet after 47 ms notches")
+            assertEquals(55, r.onLoop { r.shell.periodInForceForTest() }, "a two-tick gain does not bring it down (under ${Shell.PERIOD_LOWER_MIN})")
+            // fast steps (his look at 0.81, ruled): not lowered while notches keep coming, only after 5 s with no input
             for (a in Arm.entries) r.sim.motionForTest(a).stepUsForTest = 30_000L
-            var n = 0
-            while (r.onLoop { r.shell.periodInForceForTest() } == 55 && n < 12) {
-                r.fire(if (n % 2 == 0) CfwModes.EV_UPROLL else CfwModes.EV_DOWNROLL); n++
+            repeat(Shell.PERIOD_WINDOW + 1) { n ->
+                r.fire(if (n % 2 == 0) CfwModes.EV_UPROLL else CfwModes.EV_DOWNROLL)
                 delay(r.motionMs() + r.q() + 300); r.settle("fast notch $n")
             }
+            assertEquals(55, r.onLoop { r.shell.periodInForceForTest() }, "not lowered while the notches keep coming")
+            delay(Shell.PERIOD_QUIET_MS + 1_000); r.settle("5 s with no input")
             assertEquals(46, r.onLoop { r.shell.periodInForceForTest() }, "30 ms would need 34 ticks; the floor is the staging's own period, 46 (W1)")
-            assertTrue(n >= Shell.PERIOD_WINDOW, "not before the slower steps left the window: $n fast motions")
             r.assertOracle("after the period came down")
         } finally { r.close() }
     }
@@ -1467,6 +1468,7 @@ class MainLocalShellTest {
                 r.fire(if (i % 2 == 0) CfwModes.EV_UPROLL else CfwModes.EV_DOWNROLL)
                 delay(r.motionMs() + r.q() + 300); r.settle("fast notch $i")
             }
+            delay(Shell.PERIOD_QUIET_MS + 1_000); r.settle("5 s with no input")
             assertEquals(62, r.onLoop { r.shell.periodInForceForTest() }, "never below the period his length and frames gave")
         } finally { r.close() }
     }
@@ -1499,6 +1501,34 @@ class MainLocalShellTest {
             assertTrue(pieceAt >= until, "the first piece went ${until - pieceAt} ms before the wrap's wait ended")
             delay(r.q() + 300); r.settle("after")
             r.assertOracle("after the wrap and the re-stage")
+        } finally { r.close() }
+    }
+    /** His look at 0.81 (the wrap's flush seemed to leave 180–590 ms after it was decided): the wrap's flush leaves the
+     *  lane at once however busy the loop is after it — a 300 ms load on the loop right after the submit — measured by the
+     *  transport's own times in the `done` row (`took`, `wrote`), not by the row's `t`, which is when the loop got to it. */
+    @Test
+    fun theWrapsFlushLeavesWhileTheLoopIsBusy_BI(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, kib256 = true)
+        try {
+            r.up()
+            walkTo(r, r.list().count - 1)
+            r.onLoop { r.shell.afterWrapSubmitForTest = { Thread.sleep(300) } }
+            r.fire(CfwModes.EV_UPROLL)
+            delay(r.motionMs() + r.q() + 600)
+            r.onLoop { r.shell.afterWrapSubmitForTest = null }
+            r.settle("after")
+            val lines = Files.readAllLines(r.journal).map { kotlinx.serialization.json.Json.parseToJsonElement(it) as kotlinx.serialization.json.JsonObject }
+            fun JsonObjectLong(o: kotlinx.serialization.json.JsonObject, k: String) = (o[k] as? kotlinx.serialization.json.JsonPrimitive)?.content?.toLongOrNull()
+            val note = lines.lastOrNull { (it["detail"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.contains("went ahead of its frame as flush") == true }
+            assertTrue(note != null, "the wrap went ahead: ${r.notes("local").takeLast(3)}")
+            val detail = (note!!["detail"] as kotlinx.serialization.json.JsonPrimitive).content
+            val id = Regex("as flush (\\d+)").find(detail)!!.groupValues[1].toLong()
+            val done = lines.last { (it["ev"] as? kotlinx.serialization.json.JsonPrimitive)?.content == "done" && JsonObjectLong(it, "id") == id }
+            val decided = JsonObjectLong(note, "t")!!
+            val took = JsonObjectLong(done, "took")!!; val wrote = JsonObjectLong(done, "wrote")!!; val handled = JsonObjectLong(done, "t")!!
+            println("BI-wrap-lane: took +${took - decided} ms, wrote +${wrote - decided} ms, done row +${handled - decided} ms after the decision")
+            assertTrue(took - decided < 60 && wrote - decided < 80, "the lane took it at once: took +${took - decided}, wrote +${wrote - decided}")
+            assertTrue(handled - decided >= 250, "the done row waited for the loaded loop (+${handled - decided}): the row's t is no send time")
         } finally { r.close() }
     }
 }

@@ -111,8 +111,11 @@ class Journal(private val path: Path?) : AutoCloseable {
             (why?.let { """"why":${json(it)},""" } ?: "") + """"ops":[$ops]}""")
     }
 
-    fun flushDone(id: Long, ok: Boolean, ackMs: Long, bytes: Int, error: String?) {
+    /** [took], [wrote], [ack] (B082): the transport's own times for the flush — its lane took it, its last byte went
+     *  to the radio, its answer came — written when said (> 0). `t` is when the shell handled the completion. */
+    fun flushDone(id: Long, ok: Boolean, ackMs: Long, bytes: Int, error: String?, took: Long = 0, wrote: Long = 0, ack: Long = 0) {
         write("""{"t":${System.currentTimeMillis()},"ev":"done","id":$id,"ok":$ok,"ackMs":$ackMs,"bytes":$bytes""" +
+            (if (took > 0) ""","took":$took,"wrote":$wrote,"ack":$ack""" else "") +
             (error?.let { ""","error":${json(it)}""" } ?: "") + "}")
     }
 

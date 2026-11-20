@@ -322,6 +322,10 @@ sealed class TransportEvent {
     data class FlushDone(
         val id: Long, val ok: Boolean, val ackMs: Long,
         val bytes: Int, val error: String? = null,
+        /** B082 (his look at 0.81): the transport's own clock, wall time — when its lane took the flush, when the last
+         *  byte was handed to the radio, when the answer came (0 = not said). The journal's `done` row is written when the
+         *  shell handles this event, which can be later than all three. */
+        val tookAtMs: Long = 0, val wroteAtMs: Long = 0, val ackAtMs: Long = 0,
     ) : TransportEvent()
 
     /** Lease state changed. held=false after start() is a HARD error (fail-open
