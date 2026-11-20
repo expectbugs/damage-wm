@@ -581,7 +581,8 @@ track's area whose backdrop is not `none` (2) → every step's values in range a
 (12) → for a PLAY with a track whose backdrop or any segment is `self`, the capture range — `cap` and the captures'
 total size inside the cache, not meeting this PLAY's own first read range (5) → for a RETARGET, the new first range
 not meeting the instance's capture range (5) → the thread and flags at first use (11: a null handle; both are made from
-static memory). Only then is anything closed, captured or written. **Inside the walk (A.9):** structure, enumerations
+static memory). Only then is anything closed, captured or written. *(C3: on a bit-11 build the order of a PLAY,
+PLAY-AFTER and RETARGET is §7.2's, the step budget after the values, §7.12.)* **Inside the walk (A.9):** structure, enumerations
 and reserved bytes are 5 — every reserved byte, `anchor` and a verb's unused `opt` bits must be 0, `src` of `self` is
 ignored, a table's E[n] ≠ 4096 or n ≠ steps is 5; numeric values are 12, at the values position. "Meets" = the
 bounding box of any track's pair in one instance intersects that of any track's pair in the other, the same decision
@@ -715,7 +716,7 @@ on both lenses (the meeting's row 11).
   ENGINE) and its hold-back drops the bit armed last (the ladder, below). **A disarm closes
   nothing:** FLAGS_SET runs on the settings task, unordered with the image lane, so clearing ENGINE (or DRAW2) leaves
   open instances to run to their end, and a PLAY, RETARGET or CLOSE handled after it is refused (15, or 9); the phone
-  CLOSEs all (0xFF) and lets that reach both lenses before it disarms, as it arms DRAW2 inside the start today — built
+  CLOSEs all (0xFF) and lets that reach both lenses before it disarms ENGINE, DRAW2 or *(C3, §7.9)* EFFECTS, as it arms DRAW2 inside the start today — built
   on the probe path, the only mid-session FLAGS_SET that can clear ENGINE: the CLOSE is waited on to its ack, and
   without one the disarm is not sent and a note says so. **The start's exception (R1.17):** at a session start on a
   carried lease, the start's first FLAGS_SET clears ENGINE with no CLOSE first — no PLAY is in flight, a disarm closes
@@ -1800,8 +1801,9 @@ behind it, with no staged copy of either. (3) **PIECES**, **SHRINK**, the **two-
 §7.5): moves, slices, tiles and nested shrinks of the panel's picture **in place** (OWN programs only), the shadow drawn
 moved, ramped, sliced, tiled or scaled in both axes, and one row of a record drawn scaled or not. (4) **GLYPHS** (§7.6): text cells and rain columns drawn from the atlas, with a stateless hash
 for randomness. (5) **PLAY-AFTER** (§7.7): an in half that starts on each lens when the out half has drawn its last
-step. (6) **The ring list** and SET's **kind 3** (§7.8). (7) **The plan's late step** (§7.10). (8) **The step budget and the fast DRAW path** (§7.12): no legal
-step costs more than about 100 ms, and DRAW reaches its pixels without walking a record whole at every step. One flag bit (6
+step. (6) **The ring list** and SET's **kind 3** (§7.8). (7) **The plan's late step** (§7.10). (8) **The step budget and the fast DRAW path** (§7.12): a
+version-2 program is refused when the steps of every instance that could then draw would cost more than the largest
+period (about 125 ms) together, and DRAW reaches its pixels without walking a record whole at every step. One flag bit (6
 EFFECTS), one ladder stage (5), DamageCaps bit 11, refusal 19, telemetry 40, the 115's field 18. **No new patch
 site**; contract version stays 2.
 
@@ -1848,7 +1850,8 @@ An anchor of 3 on either axis, or anchor bits 4–7, is 5. **§6.6's H rule bind
 5), SHRINK's h0 and h1 follow §7.5. **Every eased level** of DRAW, PIECES and GLYPHS is 0..15 at every j = 0..n after
 substitution (12). **The seed** of a PIECES or GLYPHS segment is its h0 after substitution, exclusive-or the instance's
 tag when opt bit 7 is set (a local fire's tag is its S). **Every product** in §7.4–§7.6 is a 32-bit product that wraps,
-as §5.4's eased value: computed unsigned, read as s32, `>>` arithmetic.
+as §5.4's eased value: computed unsigned, read as s32, `>>` arithmetic. (§7.12's step budget is the exception: its
+terms and sums are 64-bit and never wrap.)
 
 **In-place tracks — OWN programs only.** A track is *in place* when any of its segments is PIECES kind 0, SHRINK, or
 GLYPHS kind 1 whose rain record has reveal 1 or 2; its ease is its non-WAIT segment's. **An in-place track runs only in
@@ -1870,8 +1873,11 @@ unscaled, or a rain track.
 
 **The base.** An in-place track (always in an OWN program) at a present that draws step k starts from **base step
 b = d**: its owned rect holds the picture the instance left after step d, because no present copies the shadow into an
-owned rect (§7.3); at the first drawn step b = 0 and the base is the panel's picture as the opening message's present
-found it. A fold therefore needs no rule of its own: an in-place track's result at step k is a function of the base
+owned rect (§7.3). At the first drawn step b = 0 and the base is what the framebuffer holds in the owned rect when that
+step is drawn: for a PLAY, the picture its own present found there; for a PLAY-AFTER, the out half's last pose where
+the out half owned (its step T, or what it last drew if the phone closed it), and elsewhere the picture the PLAY-AFTER's
+present found (§7.11: an in half's tracks cover its out half's owned rect). No buffer holds a base: it is the
+framebuffer itself. A fold therefore needs no rule of its own: an in-place track's result at step k is a function of the base
 picture, b and k (§7.4–§7.6 define it so), equal to the result of drawing every step between. **Fold-independence with
 later tracks:** the pixels a later track painted at step t inside the in-place track's area are part of the base at
 t + 1; the program is fold-independent when those pixels, carried by the in-place track's move from t to t + 1, lie
@@ -1916,8 +1922,9 @@ walk (5) and values (12) positions, the step budget after their values.
   The mark is cleared by LAND (below), by every close or emptying of the instance (CLOSE, a close pass, a PLAY into its
   slot, a live keyframe, a cache write that meets its read ranges, PLAY-AFTER's deferred empty), on the stock path
   (§5.3: every instance turns done and owns nothing), at mode 11 and at every release point (the settlement).
-- **Meeting.** An owning instance meets another when the other's areas meet its owned rect: a PLAY's close pass, a
-  COMMIT's close pass, close-on-meet and the fire's close set use the owned rect for it (§5.5's "meets" otherwise).
+- **Meeting.** An owning instance meets another when the other's areas meet its owned rect; **two owning instances
+  meet when their owned rects intersect**. A PLAY's close pass, a COMMIT's close pass, close-on-meet and the fire's close
+  set use the owned rect for it (§5.5's "meets" otherwise).
 - **The held present.** `present_shadow` (the image worker, holding the gate) claims the engine word, reads each slot's
   owns mark once and records the owned rect of every slot that owns — drawing, waiting or done — lets the word down,
   then queues the present with the rects (they ride the job as the hint does). A claim that fails records no rect and
@@ -1970,7 +1977,8 @@ moves from home to the full displacement; f0 = 4096, f1 = 0 from the full displa
 - *stagger* (layer new only; else 12): n' = steps − stagger ≥ 1 (12); δ_p = H3(seed, p, 1) mod (stagger + 1); the
   piece's local step t_p = min(max(t − δ_p, 0), n') and e = the segment's ease at t_p over n' steps (ease 0 and 1 by
   §5.4's formulas at n'; ease 2: the table's n must equal n', else 5). With stagger, §5.4's table check reads n = steps −
-  stagger and is made only when stagger < steps (stagger ≥ steps is 12 at the values position). With stagger 0, e = E[t]
+  stagger; when stagger ≥ steps only that n comparison is skipped — the table is still walked (inside the cache,
+  E[n] = 4096 at its own n, 5) — and stagger ≥ steps is 12 at the values position. With stagger 0, e = E[t]
   over the segment's steps. Opt bit 6's t is the segment's local step, not t_p.
 
 **Layer new (kind 4; OWN programs only).** Over the track's backdrop, pieces in index order: the shadow's home rect
@@ -2019,16 +2027,18 @@ horizontal (0 left · 1 centre · 2 right).
 w the source's width — the row map's form (§6.6); the horizontal anchor places the drawn rect at x (left), x + ((w −
 W) >> 1) (centre) or x + w − W (right), the vertical as §6.6. A source pixel (by both maps) is drawn through the level
 ramp, its transparency tested on the source, clipped to the area. Sources: a record (each output row's source row
-decoded from the stream, which is read front to back once), its source window (below), `new`; `self` only unscaled in
+decoded from the stream; a version-2 instance always runs the fast path, which decodes each source row a step
+shows once and reuses it for every output row that takes it, §7.12), its source window (below), `new`; `self` only unscaled in
 both axes (12). RETARGET's restart path clamps W to 1..2048 and restarts it from the width the track last drew (the
 track's drawn state gains it, as C2 added H). **The wheel's sideways icons** are a DRAW v2 of their records with
 w0 → w1 at the centre anchor.
 
 **The source window** (DRAW v2 of a record, kind 0): **aux0** the window's first source row, **aux1** its height in rows
 (both after substitution; aux1 = 0 means the whole record, and then aux0 must be 0). The window must lie inside the
-record, aux0 + aux1 ≤ its height (5, decided in the walk at the record); with kind 2 or 4, aux0 and aux1 must be 0 (5).
-The source is then the record's rows aux0 .. aux0 + aux1 − 1: w × aux1 pixels whose row r is the record's row aux0 + r —
-drawn at (x, y) as any source, its height h = aux1 for the row map, the anchors and the H rule. The read range is the
+record, aux0 + aux1 ≤ its height computed in 32 bits (5, decided in the walk at the record); with kind 2 or 4, aux0
+and aux1 must be 0 (5). The source is then the record's rows aux0 .. aux0 + aux1 − 1: w × aux1 pixels whose row r is the
+record's row aux0 + r — drawn at (x, y) as any source, its height h = aux1 for the row map and the anchors (§6.6's H
+rule does not read h). The read range is the
 whole record's (§5.6). With a kind-2 parameter (c'·pitch + arg, §6.2) substituted into aux0 (pref 16), a bound program
 draws one row of a strip — the leaving or entering row of a list, scaled or not (Flip and Crush on any list).
 
@@ -2045,9 +2055,10 @@ h(0) = 0, h(1) = 0x688990C0, h(0xFFFFFFFF) = 0x6768824A, h(0x12345678) = 0xF5E71
 **Positions.** A GLYPHS segment's x, y are **offsets**: X(t) = x + ((dx·e + 2048) >> 12) for this lens (x_L/dx_L or
 x_R/dx_R), Y(t) = y + ((dy·e + 2048) >> 12). Everything it draws is clipped to the track's area. **Glyphs.** A font is a
 224-entry v2 table (§4, 448 B at an off4); code c (32..255) names entry c − 32, an off4 to a v1 glyph record
-`[w u8][h u8][RLE]`. Every glyph record a step draws is validated again before it is drawn, as DRAW's source is (one
-that fails is not drawn; while the read-range close stands, none fails). A glyph is drawn at its box's corner through the
-cell's LUT, a source pixel of 0 not drawn.
+`[w u8][h u8][RLE]`. **A glyph record is walked once, at the walk that opens the instance; a step does not validate
+it again** (decisions F: a write over it closes the instance first, §5.6). Without a per-step walk the glyph renderer
+reads only inside the record as walked and writes only inside the track's area: a stream that runs out ends that
+glyph's draw. A glyph is drawn at its box's corner through the cell's LUT, a source pixel of 0 not drawn.
 
 **Kind 0 CELLS.** `src` names a **cell table**: `n u16 (1..1024, the largest list count) · 0 u16 · off4[n] u16`, padded to 4 B; **aux0** (after
 substitution) is the index; an index at or past n is 5, decided in the walk at the cell table. The **cell list** it names: `count u16 (1..512) · alphabet off4 u16 · noise u8 · 0
@@ -2078,7 +2089,7 @@ place (§7.2: its base below the head is the picture it keeps).
 **Read range:** the program, the cell table and the list aux0 selects (or the rain record), the alphabet, every font
 named and every glyph record a cell's codes or the alphabet name in each of those fonts — all walked at the PLAY, the
 COMMIT or the fire (5), each (font, code) pair once per message. A cache write that meets it closes the instance (§5.6). **Cost (I):** ≈ 200 cells × (a box fill
-and a glyph of ≈ 200 px at the DRAW rate, validated twice) ≈ 10–15 ms a step; rain ≈ cols × trail glyphs, ≈ 13 ms for
+and a glyph of ≈ 200 px at the DRAW rate, its record decoded once) ≤ 15 ms a step at §7.12's rates; rain ≈ cols × trail glyphs, ≈ 13 ms for
 53 × 8; the walk at a fire ≈ 1–3 ms more in field 16.
 
 ### 7.7 PLAY-AFTER (mode 26 sub 8)
@@ -2123,8 +2134,11 @@ instance, owning; sets the engine's flag; the message's present).
 
 - **Flag bit 6 EFFECTS** (needs DRAW2 and ENGINE; LIST-RING and kind 3 also BIND, as every mode 27 does): read once
   per message or fire, at its first use, under the word where §7.2, §7.7 and §7.8 name it. A FLAGS_SET of it alone is taken (status 0). It clears at every
-  release point, is refused without the lease (status 3), and a disarm closes nothing (§5.8's rule): open instances run
-  on, and the next version-2 PLAY is refused 5.
+  release point and is refused without the lease (status 3). **A disarm closes nothing**, as a clear of ENGINE or BIND
+  closes nothing on the installed build (V-src `damage_ext.c` 532–540: FLAGS_SET writes the flag word and nothing else;
+  §5.8, §6.8): open instances run on to their end, each on the renderer its walk chose (§7.12: the path is the
+  instance's), and the next version-2 PLAY is refused 5. The phone CLOSEs all before it disarms EFFECTS (§5.8's rule,
+  §7.11).
 - **DamageCaps bit 11:** version-2 records, OWN and LAND, PIECES, SHRINK, GLYPHS, `new`, the two-axis DRAW, the source
   window, the step budget, the fast DRAW path, PLAY-AFTER,
   LIST-RING, kind 3, refusal 19, field 18 of the 115, telemetry 40, the plan's late step (§7.10). Features `0xdff`.
@@ -2167,7 +2181,11 @@ one-period wait; with this it is drawn a few ms late.
   cover its out half's owned rect**; an in half with no out half and a frame of several batches is preceded by a
   one-step freeze (PIECES uniform, dx = dy = 0, T 1, OWN). The cover's CLEAR of a bound list rides the out half's batch
   (§6.7). **After RIGHT's outcome-0 body of an in half, the phone's next batch CLOSEs the out half's slot** (empty on
-  RIGHT; it ends an owner a lens kept after losing the in half, which LEFT cannot report).
+  RIGHT; it ends an owner a lens kept after losing the in half, which LEFT cannot report) — **unless the phone has PLAYed
+  that slot again since** (that PLAY's close pass ended any leftover on both lenses). **With no in-half body by the in
+  half's nominal end plus one period**, the phone CLOSEs both slots (the one rule that ends a waiter if one ever stays).
+  **A tag is not reused in a slot while a PLAY-AFTER names that slot** (a later instance matching a recorded triple
+  would be waited on and then emptied).
 - **Pacing.** No PLAY-AFTER before the arriving frame is complete in the shadow; no cache write into an open owning or
   GLYPHS instance's read ranges — each is one interval from the lowest to the highest byte it reads (§5.6), so an atlas
   patch of any face stored between two faces a GLYPHS instance reads waits for its end. An alphabet names only codes
@@ -2180,8 +2198,11 @@ one-period wait; with this it is drawn a few ms late.
 - **The ring list:** LIST-RING only while EFFECTS is in force; the strip's margins hold the other end's rows; without
   EFFECTS (or with LIST-RING refused) the wrap stays the phone's PLAY at the edge report (APK 0.80's).
 - **Version 2 only at stage 5**: a build or a session without EFFECTS keeps version-1 programs (today's pan and press).
-- **Every v3 and v4 vector's `features` list gains `0xdff`** (`make_vectors.py`), so the fork's runner runs them on the C3
-  build; their expectations must come back byte-identical.
+  EFFECTS is armed at the session start, before any PLAY, so every instance the phone opens at stage 5 runs the fast
+  DRAW path (§7.12).
+- **A list whose programs use a source window** (Crush, Flip) stages with pitch = +row height and draws its strip tracks
+  as windows at fixed y's; the strip carries margins (blank rows, or on a ring list the other end's rows, §7.8) so that no
+  window leaves the record (5). The pitch follows the list's Scroll effect: changing the effect re-stages the list.
 
 ### 7.12 Costs, the step budget and the fast DRAW path
 
@@ -2189,69 +2210,137 @@ one-period wait; with this it is drawn a few ms late.
 to the track's area before it walks it — a scaled or two-axis draw never visits an output pixel outside the area, so a
 track's pixel work is bounded by its area (on a bit-11 build, every path).
 
-**The step budget** (version-2 programs; 12, after the values, at a PLAY, a PLAY-AFTER, a COMMIT and a fire). The walk
-computes the program's worst step C in units u (1 u ≈ 1/64 µs of the display task) as the sum over its tracks of 640 + the
-backdrop's term + the largest of its segments' terms, with A the track's area in pixels (one lens's rect):
-- backdrop: a level or `new` A; `self` 10·A; none 0;
-- WAIT 0; FILL A; DRAW or REVEAL of a record 10·A + 16·L (L the record's RLE length in bytes, as the walk measured it); of
-  `self` 10·A; DRAW of `new` A unscaled, 10·A scaled in either axis; REVEAL of `new` or of a level A;
-- PIECES 2·A; SHRINK 2·A, and 10·A more when its width scales;
-- GLYPHS CELLS: Σ over its cells of (the box's area inside the track's area + 26·g_c + 64), g_c the largest w·h of the
-  glyph records the cell's old code, new code and the alphabet's codes name in its font;
-- GLYPHS RAIN: A + cols·trail·(11·cw·ch + 16·g + 64), g the largest w·h of the glyph records the alphabet names in its
-  font (a rain glyph is clipped to its cell, §7.6).
-**C ≤ 6,400,000** (≈ 100 ms), else 12. The constants are the measured renderer and walk rates where there are any —
-10 u = 0.156 µs a painted pixel (M, the step fit's slope), 16 u = 0.25 µs a walked byte (M-derived: 0.80's strip, 3.8 KB
-longer, cost 3.8 ms more over four walks a step) — and upper bounds elsewhere (1 u a pixel of byte-wide work is about
-eight times the measured copy's rate; 26 u a glyph pixel covers its drawing and the walk of a record at most one byte a
-pixel). A budgeted program always runs the fast DRAW path (version 2 needs EFFECTS), which walks a record at most once
-a step and writes runs, so every term is an upper bound of what it costs there. Version-1 programs are not budgeted (C1's
-and C2's rule stands).
-
-**The worst legal step per verb** under the budget (one program at C ≈ 6.4 M; modeled, at the budget's rates):
-
-| verb | the most a step can hold | by the model |
-|---|---|---|
-| DRAW / REVEAL of records | ≈ 640,000 output px (≈ 2 panels across tracks), less 16 u a byte of each record walked | ≤ 100 ms; ≈ 20–30 ms on the fast path (I) |
-| two-axis DRAW of `new` | two full-panel tracks (3.1 M each) | ≤ 100 ms; ≈ 20–50 ms real (I) |
-| PIECES | six full-panel layer-new tracks with level backdrops (0.92 M each) | ≈ 86 ms; ≈ 6–12 ms real |
-| SHRINK, both axes, whole panel | one (3.7 M; one in-place track) | ≈ 58 ms; ≈ 25 ms real |
-| CELLS | 512 cells of 240-px glyphs in 300-px boxes (3.4 M); at the largest glyph (255 × 255) three cells | ≈ 53 ms; 512 cells a step real ≈ 15–25 ms |
-| RAIN | ≈ 950 lit cells of 12 × 20 with 240-px glyphs (128 × 32 = 4,096 such cells: refused) | ≤ 100 ms |
-
-**The fast DRAW path** (on a bit-11 build with EFFECTS armed; with EFFECTS clear the renderers run exactly C2's path).
-Its pixels are C2's pixels by definition — every v1–v4 vector answers alike with it forced on or off, and a host
+**The path is the instance's.** The walk that opens an instance — a PLAY, a PLAY-AFTER or a fire — chooses its renderer
+by the EFFECTS value that message or fire reads (§7.2): armed, the **fast DRAW path** below; clear, exactly C2's path.
+The instance keeps that choice to its end — through a FLAGS_SET (a disarm closes nothing, §7.9) and through a RETARGET
+(which walks again on the instance's path, below); a COMMIT opens no instance, and the local instance it adopts keeps its
+path. A version-2 instance always runs the fast path (version 2 needs EFFECTS); a version-1 instance runs it when it was
+opened with EFFECTS armed. The display task reads no flag to choose: the choice is the instance's. The fast path's
+pixels are C2's pixels by definition — every v1–v4 vector answers alike with it forced on or off, and a host
 differential test compares the two paths on random records, clips, offsets, scales, windows, levels, transparency and
-inversion. Three changes, all in how a renderer reaches its pixels:
-- **One walk stands for the instance's life.** A DRAW or REVEAL track's record is walked at the PLAY, PLAY-AFTER,
-  RETARGET, COMMIT or fire that opens or restarts the instance; its width, height, stream start and length are kept in
+inversion. What it changes is how a DRAW or REVEAL of a record reaches its pixels:
+- **One walk stands for the instance's life.** A track's record is walked at the PLAY, PLAY-AFTER or fire that opens
+  the instance, and **again at a RETARGET**, which walks the records its new parameters name (5 as at a PLAY) and
+  recomputes everything kept for the values it sets; each record's width, height, stream start and length are kept in
   the instance and not walked again at each step. What the per-step walk guarded is guarded by the contract already:
   every writer of the cache (12, 19, 25 and a PLAY's capture) closes an instance whose read range it meets before it
-  writes (§5.6, R1.20), and a release point withdraws the cache under the engine word, ending every instance; the
-  per-step walk only turned a defect in that rule into a skipped draw. The render stays bounded by the kept length and
-  the cache's size.
-- **A kept start and an early stop.** At that walk each DRAW or REVEAL track of a record finds the first source row any
-  of its steps can show inside its area (over j = 0..n of every segment, the row map and window included) and keeps the
-  stream position of that row's first pixel (a byte offset and the pixels of that token already passed); each step
-  decodes from there and stops after the last source row its output inside the area takes.
-- **Runs, not pixels.** A run of one level is written as whole bytes with at most one nibble at each end, through the
-  level's table, transparency tested once per run.
+  writes (§5.6, R1.20), and a release point withdraws the cache under the engine word, ending every instance. **Without
+  a per-step walk a renderer reads only inside the kept stream and writes only inside its area: a stream that runs out
+  ends that draw** (decisions F).
+- **A kept start and an early stop.** Each DRAW or REVEAL segment of a record keeps a start (8 B): the stream position —
+  a byte offset and the pixels of that token already passed — of the first source row any of its steps can show inside
+  its area (over j = 0..n, the row map and the window included). **At a RETARGET the start covers every state the
+  restarted steps can paint, from the state this lens last drew to the new final** (RETARGET's shape gives a track one
+  moving segment, §5.5). Each step decodes from the segment's start and stops after the last source row its output
+  inside the area takes.
+- **A source row is decoded once a step.** A scaled draw decodes each source row it shows once into the 320-B row
+  buffer (only the columns its output inside the area takes) and writes every output row that takes that row from the
+  buffer.
+- **Runs, not pixels.** An unscaled draw writes a run of one level as whole bytes, with at most one nibble at each end,
+  through the level's table, transparency tested once per run; a draw from the row buffer whose width is unscaled writes
+  two pixels a byte through the byte table below; a draw whose width scales writes a pixel at a time (the column map).
+
+**How the other renderers write on a bit-11 build** (their pixels are §7.3–§7.6's; the budget's byte rates are for
+these forms):
+- FILL, a level backdrop, REVEAL of a level, a cell's box, rain's fills and every vacate fill: whole bytes with a
+  nibble at each odd edge — C2's fill (V-src `damage_motion.c` 778–791).
+- The backdrop `new`, REVEAL of `new`, rain's reveal 1 and LAND's copy: a byte copy from the shadow at the same place,
+  a nibble at each odd edge.
+- DRAW of `new` whose width is unscaled, PIECES (both layers) and SHRINK's rows: two pixels a byte through a 256-entry
+  **byte table** built for the track at the step from its level ramp (or G, §7.4), transparency by a mask computed from
+  the source byte, an odd horizontal offset by combining two source bytes, a nibble only at an odd edge; the table lives
+  in the context (256 B a lens).
+- Glyphs, `self` (the capture blit), SHRINK's columns and every draw whose width scales: a pixel at a time, at C2's
+  rate.
 G (§7.4) is built once per present as a 16-entry table; GLYPHS walks each (font, code) pair once per message.
+
+**The step budget** (12, after the values, §7.2's order). At a **PLAY, a PLAY-AFTER, a RETARGET and a fire** on a
+bit-11 build the walk computes the opened or restarted instance's cost **C** and, for a version-2 program, judges the
+**sum** below; a **COMMIT** of a version-2 program, which opens no instance, judges its program's own C against the
+cap. C is in units u (1 u ≈ 1/64 µs of the display task). **Every term is computed from both lenses' rects** — A is the larger of a track's two areas in pixels (one rect
+counts for both), Wa and Ha the larger widths and heights — so both lenses decide alike. C is the sum over the program's
+tracks of 1,024 + the backdrop's term + the largest of its segments' terms:
+- backdrop: a level or `new` A; `self` 10·A; none 0;
+- WAIT 0; FILL A; REVEAL of a level or of `new` A; DRAW or REVEAL of `self` 10·A;
+- DRAW or REVEAL of a record: 26·L + 4·A, and 26·L + 10·A + w·Ha when a DRAW's width scales (w the record's width) —
+  **L the bytes of the tokens that hold a pixel of the source's rows** (the window's rows; the whole record without
+  one), as the walk measured it;
+- DRAW of `new`: 3·A, and 10·A when its width scales;
+- PIECES (either layer): 3·A; SHRINK: 3·A, and 10·A more when its width scales;
+- GLYPHS CELLS: Σ over its cells of (min(bw, Wa)·min(bh, Ha) + 16·Lg_c + 10·g_c + 64), with Lg_c the longest RLE length
+  and g_c the largest w·h among the glyph records the cell's old code, new code and the alphabet's codes name in its font
+  (**codes 0 and 32 name no glyph for this sum**; a cell that names none counts its box and 64);
+- GLYPHS RAIN: A + cols·trail·(11·cw·ch + 16·Lg + 64), Lg the longest RLE length among the glyph records the alphabet
+  names in its font (a rain glyph is clipped to its cell, §7.6);
+- a program with LAND adds its owned rect's area (the larger lens's): LAND's copy at step T.
+
+**The cap is 8,000,000 u — the largest period (128 ticks, 125 ms) — and it bounds the sum over every instance that can
+draw after the message or fire**: every slot of this lens in state drawing once the operation's closes are done (a
+waiting PLAY-AFTER included; a done instance draws nothing, and one a RETARGET restarts is judged by that RETARGET), each
+by the C its own walk kept, the opened or restarted instance by its new C — **except that an instance waiting on another
+(a PLAY-AFTER whose `after` slot still holds its recorded triple) and that other count as the larger of the two**, since
+no present draws both (§7.7), and a chain of such waits as its largest member. Over the cap: 12, nothing opened or
+changed (a refused RETARGET leaves the instance as it was). **Every term, each C and the sum are unsigned 64-bit** (no
+legal input brings a C near 2^40); a walk may stop and refuse as soon as what it has added of that total passes the
+cap — the same answer, since no term is negative. A 32-bit sum is wrong: legal inputs wrap it into an accept (`C3-contract-read.md` A'1, under the terms as they then
+stood: 4,296,298,453 read as 1,331,157). Each instance keeps its C (8 B). **Version-1 programs are not refused by the budget** (C1's and C2's
+rule stands), but a version-1 instance's C is computed at its walk and counts in the sum; one on C2's path costs more
+than its terms (the phone arms EFFECTS before it plays, §7.11).
+
+**The rates**, each an upper bound of the form the text requires above: 10 u = 0.156 µs a pixel written a pixel at a
+time (M, the step fit's slope); 16 u = 0.25 µs a walked byte (M-derived: 0.80's strip, 3.8 KB longer, cost 3.8 ms more
+over four walks a step); 26 u a byte of a record = its walk and at most one run's setup at a pixel's cost (I); 1 u a
+pixel of a byte fill or copy, about eight times the measured copy's rate (I); 3 u a pixel of the byte-table pass (I);
+1,024 u a track's setup — its clip, ease, levels and tables (I). Field 34 on the glasses checks them.
+
+**The worst legal step per verb** (one instance at the cap; ≤ 125 ms at the budget's rates; modeled):
+
+| verb | the most one instance's step can hold |
+|---|---|
+| DRAW / REVEAL of records, width unscaled | ≈ 1.9 M output px at 4 u (about six full panels across tracks), less 26 u a byte of each source |
+| two-axis DRAW of `new` | two full-panel tracks, the first over a level backdrop (3.38 M + 3.07 M) |
+| PIECES | six full-panel layer-new tracks over level backdrops (1.23 M each) |
+| SHRINK, both axes, whole panel | one (3.99 M; one in-place track) |
+| CELLS | 512 cells of 240-px glyphs (RLE ≤ 150 B) in 300-px boxes: 2.64 M a track, three tracks; at the largest glyph (255 × 255, a byte a pixel) four cells |
+| RAIN | ≈ 1,500 lit cells of 12 × 20 with 150-B glyphs (128 × 32 = 4,096 such cells: refused) |
+
+**The designed programs** (I: Main's moving area per height as §6.9 has it, M at 352; Main's strip 21 KB, M-derived on
+0.80; band forms 3 KB; the band 640 × 64; a window list's area (height − 32) × 640 at 2 KB a row; Encode's cells 160 /
+200 / 240 / 280 of 12 × 20 with 150-B glyphs; Matrix 53 × 8 of those; `private/c3-design/work/py/budget_g.py`):
+
+| program | 288 | 352 | 416 | 480 | headroom (worst) |
+|---|---|---|---|---|---|
+| Main's pan (version 1; counted in a sum) | 1.75 M | 1.94 M | 2.13 M | 2.32 M | 71 % |
+| Main's pan, strip 30 KB | 2.21 M | 2.41 M | 2.60 M | 2.79 M | 65 % |
+| Main's Crush (the strip windows counted whole) | 2.19 M | 2.46 M | 2.72 M | 2.99 M | 62 % |
+| Main's Crush, strip 30 KB | 2.66 M | 2.92 M | 3.19 M | 3.46 M | 56 % |
+| a window list's pan, today's form, strip 40 KB | 3.94 M | 4.15 M | 4.35 M | 4.56 M | 43 % |
+| a window list's pan, window form | 1.81 M | 2.22 M | 2.64 M | 3.05 M | 61 % |
+| a window list's Crush (window form) | 2.33 M | 2.82 M | 3.32 M | 3.81 M | 52 % |
+| Warp out (SHRINK both axes) / in (DRAW `new`, two axes) | 2.40 / 2.03 M | 2.93 / 2.48 M | 3.46 / 2.93 M | 3.99 / 3.38 M | 50 % |
+| Encode out (dim + cells) / in (cells over `new`) | 1.37 / 1.00 M | 1.70 / 1.25 M | 2.03 / 1.49 M | 2.35 / 1.74 M | 70 % |
+| Encode out at 512 cells | 3.17 M | 3.29 M | 3.41 M | 3.54 M | 55 % |
+| Matrix out / in (53 × 8) | 2.35 M | 2.39 M | 2.43 M | 2.47 M | 69 % |
+
+Every designed program keeps at least 20 % of the cap at every height. A transition's two halves count as the larger
+(the chain rule above); summed, Warp at 480 would be 7.37 M, 8 % short of the cap. Today's form of a window list's pan
+(the strip walked whole) keeps 20 % up to a strip of ≈ 64 KB at 480; the window form's cost does not grow with the
+list's length.
 
 **What a step costs (modeled from the measured figures above):**
 
 | piece | code | context | stack (display task) | a step |
 |---|---|---|---|---|
 | OWN, LAND, `new`, the job's rects, PLAY-AFTER | 3–5 KB | 64 B of rects, 4 × 6 B of PLAY-AFTER records, the owns marks | ≈ 64 B | the direct path's copy less the owned part; DRAW `new` at rest ≈ 0.6 ms (M for the copy) |
-| PIECES | 4–6 KB | — | ≈ 100 B | 0.6–2 ms whole panel |
-| SHRINK, the two-axis DRAW, the window | 4–7 KB | the drawn width per track | a 320-B row buffer and two 80-B bit marks | rows ≈ 0.6 ms; columns and two-axis 10–25 ms at full size |
-| GLYPHS | 5–8 KB | — | ≈ 100 B | 10–15 ms for 200 cells |
-| the fast DRAW path | 3–5 KB | a kept start per track (8 B × 8 × 4 = 256 B) | ≈ 32 B | Main's pan at 352: ≈ 8 ms against 39.8 (0.79) and 43.6 (0.80) measured |
-| LIST-RING, kind 3, field 18; the budget | ≈ 1 KB | a flag byte per list | — | the budget's sum at the walk: µs |
+| PIECES, the byte table | 4–6 KB | the 256-B byte table (a lens) | ≈ 100 B | 0.6–2 ms whole panel |
+| SHRINK, the two-axis DRAW, the window | 4–7 KB | the drawn width per track | a 320-B row buffer (shared with the fast path's scaled draw) and two 80-B bit marks | rows ≈ 0.6 ms; columns and two-axis 10–25 ms at full size |
+| GLYPHS | 5–8 KB | — | ≈ 100 B | ≤ 15 ms for 200 cells at the budget's rates |
+| the fast DRAW path | 3–5 KB | the path bit per instance; a kept start per DRAW or REVEAL segment of a record (8 B; at most 64 an instance, 2 KiB a lens for four slots) | ≈ 32 B and the row buffer when scaled | Main's pan at 352: ≈ 8 ms against 39.8 (0.79) and 43.6 (0.80) measured |
+| LIST-RING, kind 3, field 18; the budget | ≈ 1 KB | a flag byte per list; each instance's C (8 B × 4) | — | the budget's terms at the walk and the sum over four slots: µs |
 
 The engine's chain under the copy hook grows from 572 B to ≈ 1,000–1,200 B against `tools/verify.py` step 7's ≈ 1,512-B
-bound; the appended block grows ≈ 24–36 KB (≈ 250 KB stays below `0x7F0000`). Field 34 per verb on the glasses decides
-the periods.
+bound; the appended block grows ≈ 24–36 KB (≈ 250 KB stays below `0x7F0000`); the context grows ≈ 2.5 KB a lens (arena 20:
+69 KiB free with today's 6,684 B, M, `HANDOFF.md` §94). Field 34 per verb on the glasses decides the periods.
 
 ### 7.13 Vectors, and what only the glasses can show
 
@@ -2260,30 +2349,39 @@ verbs, and gains the job's owned rects. **The v5 set** (`"features"` a list with
 `K`; inputs from `make_vectors.py`, expectations from the C, the simulator equal): `v5-own` (a phone frame shown outside
 the owned rect and held inside it; LAND; done-and-owning; CLOSE, a close pass, a keyframe, mode 11, a release point,
 `stock`, a cache write (taking effect at the next present) each ending the mark; a new out half closing an earlier
-owner and holding the area; meeting by the owned rect; a fire refused 19 with fields 10–14; OWN at a SET, a fire and a
+owner and holding the area; meeting by the owned rect, two owners by their owned rects; a fire refused 19 with fields 10–14; OWN at a SET, a fire and a
 COMMIT 5; RETARGET 12; the END CRC; the hint with an owner open) · `v5-after` (t0 from a drawing out half; a done owner
 recorded and emptied; a late out half (`W` one P ahead after t0); its step T and the in half's step 1 in separate
-presents whatever the slots; a slot played over in between; a close of a waiting instance) · `v5-new` (DRAW and REVEAL
+presents whatever the slots; a slot played over in between; a close of a waiting instance; an in-place in half (rain,
+reveal 1) starting from the out half's last pose) · `v5-new` (DRAW and REVEAL
 of `new`, the backdrop `new`, per lens, `new` outside OWN 5) · `v5-pieces-old` (uniform per-lens dx with the vacate
 level; radial 4×3 and 8×6 tiles outward; random slices (gw 1); odd and even Δ; G with the vacate not dimmed; a fold and
 its `"pair"`; a later track over a moving in-place track 12; a dim with cells over it; PIECES kind 0 in a bound program 5
 at SET, fire and COMMIT) · `v5-pieces-new` (tiles with f0 4096 → f1 0, stagger 3 with its table at n − 3, stagger ≥ steps
-12, reseed every step at the local step, transparency, per lens) · `v5-shrink` (rows, columns, both; every anchor pair;
+12, stagger ≥ steps with its table outside the cache 5, reseed every step at the local step, transparency, per lens) · `v5-shrink` (rows, columns, both; every anchor pair;
 to 0; the drop orders at n = 1, 5, 6, 12; a fold `"pair"`; SHRINK in a bound program 5) · `v5-draw2` (W on a record and
-on `new`, each anchor, W with H, W = 1, w, 2w, 2048; `self` scaled 12; RETARGET's W clamp; **the source window**: a
+on `new`, each anchor, W with H, W = 1, w, 2w, 2048; `self` scaled 12; RETARGET's W clamp; a RETARGET whose restarted steps show rows the opening steps never showed (the
+fast path's start recomputed: the twice-run compares); **the source window**: a
 window by a kind-2 parameter, scaled and not, past the record 5, aux1 0 with aux0 ≠ 0 5, on `new` 5) · `v5-cells` (the
 schedule at N = 0 and n = N + 1; the fill by phase; codes 0 and 32; fill none; a settled cell over backdrop `new`; the
 index by a kind-3 parameter, past n 5; per lens; a cache write over a glyph record closing it) · `v5-rain` (reveal 0, 1,
 2; reveal 1 outside OWN 5; trail 1; spread 0; flicker; rows only below R; a glyph clipped to its cell; moving offsets
 in place 12; code 32 skipped; a fold `"pair"`) · `v5-ring` (wraps both ways at kinds 1 and 2; count 1 with a step →
 edge, a tap on a one-item ring list not an edge; RING := bit 0; LIST-RING's modular shift; a plain LIST clearing RING;
-EFFECTS cleared → 15; field 18; kind 3 at both ends, without EFFECTS 12, a hand disarm then a fire 15) · `v5-budget` (a
-program at C = 6,400,000 accepted and one unit over refused 12, for each verb's term) · `v5-order` (a refusal per reason
+EFFECTS cleared → 15; field 18; kind 3 at both ends, without EFFECTS 12, a hand disarm then a fire 15) · `v5-budget` (for
+each verb's term a sum of exactly 8,000,000 accepted and one unit over refused 12; a second instance taking the sum one
+unit over refused, a done one not counted, a waiting PLAY-AFTER and its out half counted as the larger; a RETARGET over
+the cap refused 12 with the instance unchanged; A'1's cells, whose 32-bit sum wraps, refused; per-lens rects of
+different sizes judged by the larger on both lenses; codes 0 and 32 not counted; a source window's L; a version-1
+instance counted and never refused) · `v5-order` (a refusal per reason
 in §7.2's order; a version-2 record without EFFECTS 5; each unused field 5; a FILL level 16 12; an eased level past 15
-12; a seed of 5,000 accepted). **The fast path's own proof:** the fork's runner runs every v3, v4 and v5 engine vector
-twice — the fast path forced on, then off — and both must equal the filled expectation; and the host differential test
+12; a seed of 5,000 accepted; EFFECTS cleared mid-motion: the open instance draws on to step T, the next version-2
+PLAY refused 5). **The fast path's own proof:** the fork's runner runs every v3, v4 and v5 engine vector
+twice — the fast path forced on, then off, by a host door over the walk's choice — and both must equal the filled expectation; and the host differential test
 above. **Build-neutral:** every v1–v4 vector answers alike on a bit-11 build (27/3, 26/6 and 26/7 stay unknown subs; a
-version-2 record and kind 3 are refused as before while EFFECTS is clear). **No self-test form** for v5. **The fold
+version-2 record and kind 3 are refused as before while EFFECTS is clear); Damage's tooling adds `0xdff` to every v3 and
+v4 vector's `features` list (`make_vectors.py`), so the fork's runner runs them on the C3 build, and their expectations
+must come back byte-identical. **No self-test form** for v5. **The fold
 invariant** (both harnesses' own tests and the `"pair"` vectors): for every in-place program of the fuzz — generated to
 keep §7.2's fold condition — two wake schedules that draw different steps between the same two steps end with the same
 `P`. The differential fuzz gains `--c3`.
@@ -2304,8 +2402,9 @@ exactly one period under PLAY-AFTER; the fold rate with the late-step rule (fiel
 | G(b → k) | built per present | — | (b, k) and the levels | — | once | DRAW's ramp |
 | GLYPHS: the schedule (stateless), the read range | with the instance | a write over a named record closes it | the read range | written by the ui_task under the word, read by the hook under it | once per step; each (font, code) walked once per message | mode 18's glyph check (reused); the atlas planner (phone) |
 | the seed and the tag | — | — | h0 after substitution, the tag | LEFT's S ahead after a dropped answer draws other noise on LEFT until SETTLE | once | the fire's S |
-| the fast path's kept start and kept record geometry | with the instance; recomputed at RETARGET | — (the walk that keeps them is the opening message's) | the instance; its record bytes are closed on meet | written on the ui_task under the word, read by the hook under it | once per present | every renderer of a record; EFFECTS clear runs C2's path |
-| the step budget | — (a refusal, no state) | — | the program and its records as walked | ui_task | once per walk | the values checks before it |
+| the instance's path bit; the kept start per record segment and the kept record geometry | with the instance; the start and geometry recomputed at RETARGET (the path kept) | — (the walk that keeps them is the opening message's or the RETARGET's) | the instance; its record bytes are closed on meet | written on the ui_task under the word, read by the hook under it; a FLAGS_SET never touches them | once per present | every renderer of a record; an instance opened with EFFECTS clear runs C2's path to its end |
+| the byte table | built per track and step | — | the track's level ramp or G | display task only, under the word | once per track and step | the 16-entry LUT and G |
+| the step budget and each instance's C | C with the instance (written at its walk, replaced at a RETARGET) | — (a refusal changes nothing) | the program, its parameters and its records as walked; both lenses' rects; the slots drawing after the closes and the recorded triples | ui_task under the word | once per walk; each slot's C read once per sum | the values checks before it; PLAY-AFTER's waiting test (the chain rule reads the same triple) |
 | the RING flag, the modular cursor, kind 3 | a plain LIST, release points (the empty table), a restart | a lost LIST-RING: the lens keeps the plain list, a wrap notch is the edge and the phone's PLAY draws it; the table repair re-sends | list + mark | ui_task only | once per fire | LIST's shift, COMMIT/DISCARD/SETTLE's cursors, the fire's edge test |
 | refusal 19 | — | the notch goes the stock path | the close set's owns marks | ui_task under the word | once | refusal 17's place |
 | EFFECTS | every release point; refused without the lease | not armed: the reply shows it; the phone plays version 1 | — | the settings task writes, unordered with the image lane (§5.7's class) | once per message or fire, at its first use | DRAW2, ENGINE, BIND |
@@ -2319,7 +2418,8 @@ contract read; bound programs stay absolute, the scroll's speed comes from the f
 one program · a crossfade, a dissolve, a zoom into the old picture, any upward re-sampling of it · per-step randomness
 of the old picture · rotation of pieces; more than 256 pieces · RETARGET of OWN, in-place, PIECES or GLYPHS instances ·
 text layout on the glasses (cells come from the phone) · an immediate two-axis or windowed draw mode · a row index in the
-record format (the fast path keeps its start in the instance) · a budget for version-1 programs · a Select out half
+record format (the fast path keeps its start in the instance) · a budget refusal of version-1 programs (they count in the sum, never refused) · a close of open instances when EFFECTS
+is cleared (a disarm closes nothing, as ENGINE's and BIND's) · a Select out half
 started by the tap on the glasses (§6.12) · popover-tier verbs · a gate take around the engine word's holders · a change
 to stock's scroll adapter (a notch inside the rubber band has no scroll message, V `0x0049628E`–`0x004962D8`; the phone
 counts it, G3) · the failed try's wait (unchanged).
@@ -2613,3 +2713,13 @@ phone's keeper applies the hold-back rule before re-arming.
   after the in half; **the source window on DRAW version 2**; **renderers clipped to their area and the step budget**
   (≤ 6,400,000 u ≈ 100 ms, 12); **the fast DRAW path** (one walk per instance, a kept start, runs; behind EFFECTS, its
   pixels C2's); pointers in §5.2, §5.3, §5.6, §6.2, §6.3, §6.5, §6.6, §6.12. Nothing built.
+- 2026-11-19 — §7 on the reader's second pass as ruled (`C3-decisions.md` G): **the step budget's cap is 8,000,000 u
+  (the largest period) over the sum of every instance that can draw**, a PLAY-AFTER and the instance it waits on counted
+  as the larger, terms 64-bit and computed from both lenses' rects, RETARGET budgeted, every term an upper bound of the
+  form §7.12 now requires (the run blit, the byte table, a byte fill or copy, the glyph walk by record bytes, a source
+  window's L by its rows), the designed programs at four heights; **the renderer is the instance's** (chosen at its
+  walk; a disarm of EFFECTS closes nothing, as ENGINE's and BIND's on the installed build); a RETARGET walks again and
+  recomputes the kept start; the kept start per record segment; a source row decoded once a step; glyph records
+  walked once (decisions F); a PLAY-AFTER's base is its out half's last pose; the phone's CLOSE after an in half not
+  sent over a slot PLAYed again, its stuck-waiter CLOSE and the tag rule; two owners meet by their rects; the stagger
+  table still walked at stagger ≥ steps; the window's wording; §5.8's CLOSE-all names EFFECTS. Nothing built.
