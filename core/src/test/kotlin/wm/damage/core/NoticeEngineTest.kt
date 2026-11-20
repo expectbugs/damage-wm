@@ -152,50 +152,59 @@ class NoticeEngineTest {
         try {
             val doc = Doc(step); r.shell.register(doc)
             r.up()
+            // fix stage 2 (review 2, item 1): the notice's faces go live in the atlas BEFORE the strips are staged. A face's
+            // first use changes the live set, and that drops Page staging's strips (`atlasLive`, §66 — older than this
+            // build); with the faces live first, "kept" is measured on the strips staged once, never dropped
+            r.shell.postNotice(Notifications.Notice("SMS · WARM", "t0", "the faces go live", "12:00"))
+            r.settle("the first notice")
+            repeat(Notifications.GRACE_STEPS) { if (!r.sample("focus") { r.shell.notifications.focused }) { r.shell.graceStepByHand(); r.settle("a step") } }
+            assertTrue(r.sample("focus") { r.shell.notifications.focused }, "the first notice took focus")
+            r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)        // focused: dismissed
+            r.settle("dismissed")
+            r.until("the box's faces live and the atlas calm") {
+                !r.shell.notifications.active && BODY_FACE in r.shell.cachedFontsLive &&
+                    !r.shell.cacheWorkInFlight && r.shell.cacheCountUnjudged == 0L
+            }
             r.shell.services.runOnShell { r.shell.services.openWindow("doc", null) }
             r.settle("the doc")
             repeat(2) { r.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM); r.settle("a notch") }
-            waitUntil(30_000, 10, { "$strips strip(s) never staged: ${r.strips().map { it.third }}" }) { r.strips().count { it.third == "PROVEN" } >= strips }
-            r.settle("staged")
-            val proven = r.strips().filter { it.third == "PROVEN" }
+            r.until("$strips strip(s) staged") { r.strips().count { it.third == "PROVEN" } >= strips }
+            r.calmCache("staged")
+            // the strips, and the clears so far, read in one evaluation on the loop: from here on nothing drops them
+            val (proven, clears) = r.sample("staged") { r.strips().filter { it.third == "PROVEN" } to r.shell.stageClears }
             println("NoticeEngineTest: step $step strips ${proven.map { "${it.first}+${it.second.size}" }}")
+            assertTrue(proven.size >= strips, "$strips strip(s): ${proven.map { it.first }}")
             assertTrue(proven.maxOf { it.second.size } >= largest, "a strip of at least $largest B: ${proven.map { it.second.size }}")
             val region = CfwModes.noticeRegion(256 * 1024, true)!!
             assertTrue(proven.any { (off, b, _) -> off <= region.last && off + b.size > region.first }, "a strip lies in the notice's slice: $proven")
+            val kept = proven.map { it.first }
+            suspend fun assertKept(what: String) {
+                val (ring, c) = r.sample(what) { r.strips().map { "${it.first}+${it.second.size}:${it.third}" } to r.shell.stageClears }
+                val lost = kept.filter { off -> ring.none { it.startsWith("$off+") && it.endsWith(":PROVEN") } }
+                if (c != clears || lost.isNotEmpty()) {
+                    val notes = r.journalNotes("stage", "atlas", "notice", "submit-STAGE", "done")
+                    println("NoticeEngineTest DIAG step $step ($what): ring $ring clears $clears -> $c; ${r.shell.quiescenceReport()}\n" + notes.joinToString("\n"))
+                }
+                assertEquals(clears, c, "$what: Page staging's strips were dropped (a clear)")
+                assertTrue(lost.isEmpty(), "$what: the strips at $lost are not in the ring, proven: $ring")
+                r.assertStripsIntact(what)
+            }
             r.shell.postNotice(Notifications.Notice("SMS · TEST", "t1", "over the page", "12:00"))
-            r.settle("a notice over the page")
+            r.settle("a notice over the page"); r.calmCache("a notice over the page")
             assertFalse(r.snap("over the page").engine, "with page staging in front the timer is the phone's steps")
-            r.assertStripsIntact("the notice over the page")
-            // the one red (see the report): the notice's faces going live in the atlas make Page staging drop its strips and
-            // stage them again (`atlasLive`, §66 — the atlas's own rule, not the slice). The back to Main waits for that
-            // re-stage to end, ONE evaluation deciding: the strips counted again and no cache work on its way or unjudged
-            waitUntil(30_000, 10, { "the strips were not staged again: ${r.strips().map { it.third }}" }) { r.strips().count { it.third == "PROVEN" } >= strips }
-            r.calmCache("the strips staged again")
-            assertTrue(r.sample("the strips again") { r.strips().count { it.third == "PROVEN" } >= strips }, "the strips staged again, read on the loop")
+            assertKept("the notice over the page")
             r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)        // the box unfocused: the doc's back, to Main
             r.settle("back")
             r.calmCache("idle on Main")                              // the programs' writes and their reading, if any, are over
-            r.assertStripsIntact("back on Main, idle")
-            val ring = r.sample("the ring") { r.strips().map { "${it.first}+${it.second.size}:${it.third}" } }
-            if (ring.count { it.endsWith("PROVEN") } < strips) {
-                // the diagnostic of the one red (the coordinator's ask): the ring, the cache work, and the journal's stage,
-                // count and notice notes from the doc's opening on — which strip, counted or not, what was sent and acked
-                val notes = r.journalNotes("stage", "atlas", "notice", "submit-STAGE", "done")
-                println("NoticeEngineTest DIAG step $step: ring $ring; ${r.shell.quiescenceReport()}; work ${r.shell.cacheWorkInFlight} unjudged ${r.shell.cacheCountUnjudged}\n" +
-                    notes.joinToString("\n"))
-            }
-            assertTrue(ring.count { it.endsWith("PROVEN") } >= strips, "the strips are still in the ring: $ring")
-            // and nothing but the atlas's own rule dropped a strip: no drop for the notice's slice or anything else
-            val drops = r.journalNotes("stage").mapNotNull { Regex("\"detail\":\"(dropped [^\"]*)").find(it)?.groupValues?.get(1) }
-            assertTrue(drops.all { "the live font set changed" in it }, "a strip dropped for another reason: $drops")
+            assertKept("back on Main, idle")
             // and the other way round: the notice holds no program a strip has written over — while the strips are in the
             // slice its programs are not counted there, and a notice on Main takes the phone's steps (no PLAY of them)
             val progs = r.sample("the programs") { r.shell.noticeProgramsForTest() }
             assertTrue(progs.none { it.endsWith("PROVEN") }, "a notice program counted under a strip: $progs")
             r.shell.postNotice(Notifications.Notice("SMS · TEST", "t2", "on Main after reading", "12:00"))
-            r.settle("a notice on Main")
+            r.settle("a notice on Main"); r.calmCache("a notice on Main")
             assertFalse(r.snap("on Main").engine, "while the strips hold the slice the timer is the phone's steps")
-            r.assertStripsIntact("the notice on Main")
+            assertKept("the notice on Main")
         } finally { r.close() }
     }
 
@@ -223,21 +232,29 @@ class NoticeEngineTest {
         } finally { r.close() }
     }
 
-    /** B1: an input that DRAWS (a scroll under the box) — a write closing the timer hands the grace to the phone's steps. */
+    /** B1: an input that DRAWS (a scroll under the box, the list drawn through the shell's cached text as a real window's
+     *  is) — the lens band's cached glyph runs beside the box close the timer on the first notch; the grace goes to the
+     *  phone's steps and stays there (fix B-1): no PLAY after the hand-over, the engine's flag down on every notch. */
     @Test
     fun aScrollUnderTheBoxLeavesItsTimerAlive_B1(): Unit = runBlocking {
-        // four slide frames, as a phone's link gives: the frames after the input's first write into the box
-        val r = Rig(ShellSettings(cachedText = "on", slideFrames = "4"))
+        val r = Rig()
         try {
-            r.shell.register(Rows("list"))
+            r.shell.register(Rows("list", tx = r.text))
             r.up()
             r.shell.services.runOnShell { r.shell.services.openWindow("list", null) }; r.settle("the list"); r.calmCache("the list")
             r.shell.postNotice(Notifications.Notice("SMS · TEST", "t1", "one line of body", "12:00"))
-            r.settle("the box"); assertTrue(r.snap("the box").engine)
+            r.settle("the box"); r.calmCache("the box"); assertTrue(r.snap("the box").engine, "the box's timer on the glasses")
+            var tagsAtHandOver: Set<Int>? = null
             repeat(3) { i ->
                 r.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM); r.settle("notch ${i + 1}"); r.calmCache("notch ${i + 1}")
                 r.assertTimerAlive("notch ${i + 1}")
+                assertFalse(r.snap("notch ${i + 1}").engine, "notch ${i + 1}: the box on the phone's steps after the write into it")
+                if (i == 0) tagsAtHandOver = r.noticeTags().toSet()
             }
+            assertTrue(r.journalNotes("notice").any { "a write into the box closed its timer" in it },
+                "the scroll's write closed the timer and the grace was handed over: ${r.journalNotes("notice")}")
+            val later = r.noticeTags().filter { it !in tagsAtHandOver!! }
+            assertTrue(later.isEmpty(), "a PLAY after the hand-over (the box back on the engine): tags ${later.map { "%04x".format(it) }}")
             r.assertShadowIsBelief("after the notches")
         } finally { r.close() }
     }
@@ -257,19 +274,37 @@ class NoticeEngineTest {
         } finally { r.close() }
     }
 
-    /** A3: a nearer plane over more of the box's edge than the bar's inset (Global Depth 16, a window at 0) — the
-     *  phone's steps for that notice, nothing drawn over the nearer plane. */
+    /** A3: a nearer plane over more of the box's edge than the bar's inset (Global Depth 16, a list app at 8: its lens
+     *  band one notch nearer, at 4, covers 12 columns) — the phone's steps for that notice, nothing drawn over the band. */
     @Test
     fun aNearerPlaneOverTheBarsRunTakesThePhonesSteps_A3(): Unit = runBlocking {
-        val r = Rig(ShellSettings(cachedText = "on", depth = 16, appStyles = mapOf("near" to ShellSettings.AppStyle(depth = 0))))
+        val r = Rig(ShellSettings(cachedText = "on", depth = 16, appStyles = mapOf("near" to ShellSettings.AppStyle(depth = 8))))
         try {
-            r.shell.register(Rows("near"))
+            r.shell.register(Rows("near", tx = r.text))
             r.up()
             r.shell.services.runOnShell { r.shell.services.openWindow("near", null) }; r.settle("the window"); r.calmCache("the window")
             r.shell.postNotice(Notifications.Notice("SMS · TEST", "t1", "one line of body", "12:00"))
             r.settle("the box"); r.calmCache("the box")
-            assertFalse(r.snap("the box").engine, "a 16-column cover: the phone's steps")
-            r.assertShadowIsBelief("the box over the nearer window")
+            assertFalse(r.snap("the box").engine, "a 12-column cover: the phone's steps")
+            assertTrue(r.noticeTags().isEmpty(), "no PLAY under the cover: ${r.noticeTags()}")
+            r.assertShadowIsBelief("the box over the nearer band")
+        } finally { r.close() }
+    }
+
+    /** C-1: the remainder (plane 0, an app at Depth 0) is the base the compositor paints every region over — it covers
+     *  nothing, so the box beside it keeps the engine's timer, and the picture is the compositor's. */
+    @Test
+    fun theRemainderCoversNothingTheTimerRuns_C1(): Unit = runBlocking {
+        val r = Rig(ShellSettings(cachedText = "on", depth = 16, appStyles = mapOf("far" to ShellSettings.AppStyle(depth = 0))))
+        try {
+            r.shell.register(Rows("far", tx = r.text))
+            r.up()
+            r.shell.services.runOnShell { r.shell.services.openWindow("far", null) }; r.settle("the window"); r.calmCache("the window")
+            r.shell.postNotice(Notifications.Notice("SMS · TEST", "t1", "one line of body", "12:00"))
+            r.settle("the box"); r.calmCache("the box")
+            assertTrue(r.snap("the box").engine, "nothing nearer beside the box: the engine's timer")
+            r.assertTimerAlive("the box over the window at 0")
+            r.assertShadowIsBelief("the box over the window at 0")
         } finally { r.close() }
     }
 
@@ -334,6 +369,18 @@ class NoticeEngineTest {
         } finally { r.close() }
     }
 
+    /** C-2: Unfurl off and no other row on, on a build whose engine is not armed (stage 2) — at once, never the unfurl. */
+    @Test
+    fun unfurlOffWithoutTheEngineAppearsAtOnce_C2(): Unit = runBlocking {
+        val r = Rig(ShellSettings(cachedText = "on", popupUnfurl = false), stage = "2")
+        try {
+            r.up(programs = false)
+            r.shell.postNotice(Notifications.Notice("SMS · TEST", "t1", "one line of body", "12:00"))
+            r.settle("the box")
+            assertEquals(Notifications.Arrival.NONE, r.sample("arrival") { r.shell.notifications.arrival }, "at once (the tier's None)")
+        } finally { r.close() }
+    }
+
     /** The phone's own timer arithmetic, on the real clock: a Fade's end sends the timer's PLAY, focus 2.0 s after it. */
     @Test
     fun onTheRealClockTheArrivalThenTheTimer(): Unit = runBlocking {
@@ -351,10 +398,13 @@ class NoticeEngineTest {
         } finally { r.close() }
     }
 
-    private class Rows(id: String, private val height: Int? = null) :
+    /** The box's body face (`Notifications.fBody`): the one face the box draws that nothing earlier in the rig does. */
+    private val BODY_FACE = wm.damage.core.text.FontSpec(wm.damage.core.text.Face.SYSTEM, 17)
+
+    /** A list window; [tx] the rasterizer it draws with (a real window draws with the host's, the shell's cached text). */
+    private class Rows(id: String, private val height: Int? = null, private val tx: wm.damage.core.text.TextRasterizer = FakeText()) :
         wm.damage.core.shell.DamageWindow(id, id.replaceFirstChar { it.uppercase() }, wm.damage.core.gfx.IconKind.FILES) {
         private val model = wm.damage.core.shell.ListModel()
-        private val tx = FakeText()
         private val f = wm.damage.core.text.FontSpec(wm.damage.core.text.Face.SYSTEM, 18)
         override val preferredHeight: Int? get() = height
         override fun view(): wm.damage.core.shell.WindowView = wm.damage.core.shell.WindowView.ListView(model, { 30 },
@@ -405,7 +455,9 @@ class NoticeEngineTest {
         val flaky = Flaky(transport)
         /** The shell's journal (a diagnostic of the test: the stage lane's and the count's notes for a failure's message). */
         val journal: java.nio.file.Path = tmp.resolve("journal.jsonl")
-        val shell = Shell(wm.damage.core.comp.CachedText(FakeText()), flaky, store, journal, scope) { Shell.LocalClock(12, 0, "12:00", "PM") }
+        /** The shell's text, which a window may draw with too (as the hosts hand their windows the one rasterizer). */
+        val text = wm.damage.core.comp.CachedText(FakeText())
+        val shell = Shell(text, flaky, store, journal, scope) { Shell.LocalClock(12, 0, "12:00", "PM") }
         val flushes = AtomicInteger(0)
         private val failures = ArrayList<String>()
         /** The transport's notes (kind, detail): RIGHT's motion bodies and what the transport made of them. */
@@ -446,6 +498,13 @@ class NoticeEngineTest {
         }
 
         suspend fun <T : Any> trySample(block: () -> T): T? = if (shell.isQuiescent()) shell.sampleIdle(block) else null
+
+        /** Waits until [cond] holds, each evaluation on an idle loop (one evaluation decides). */
+        suspend fun until(what: String, cond: () -> Boolean) {
+            val start = System.currentTimeMillis()
+            while (System.currentTimeMillis() - start < 30_000) { if (trySample(cond) == true) return; delay(10) }
+            throw AssertionError("$what: never held — ${shell.quiescenceReport()}")
+        }
 
         /** When [cond] first held on an idle loop (polled every 2 ms; the wall clock of the test). */
         suspend fun firstTime(what: String, cond: () -> Boolean): Long {

@@ -2860,6 +2860,9 @@ class Shell(
             else notifications.graceStepAt((elapsedMs / Notifications.GRACE_STEP_MS).toInt())
             paintNotification()
             armGraceStep()
+            // fix B-1: the rest of this box's grace stays on the phone's steps — the next input's write would close an
+            // engine timer again (a scroll's cached text beside the box on every notch): one hand-over a box at most
+            noticeEngineOff = notifications.current
             noticeStepsSay("a write into the box closed its timer (the phone's steps take the rest of the grace)")
         }
     }
@@ -2933,16 +2936,14 @@ class Shell(
         if (d <= 0) return 0
         val box = notifications.fullRect(n, layout, false)
         var near = d
-        // the box's neighbourhood on each side, as far as its shift reaches: every region there, and the remainder
-        // (plane 0, no region: "a plane at 0 needs no region") wherever no one region holds the strip whole
+        // the box's neighbourhood on each side, as far as its shift reaches: every REGION there (fix C-1: the remainder,
+        // plane 0 with no region, is the base the compositor copies first and paints every region over — it never
+        // covers the box's shifted columns)
         for (strip in listOf(Rect(box.x - d, box.y, d, box.h), Rect(box.right, box.y, d, box.h))) {
-            var held = false
             for (p in comp.planes) {
                 if (p.rect == box || p.rect.intersect(strip) == null) continue
                 near = minOf(near, p.disparity)
-                if (p.rect.contains(strip)) held = true
             }
-            if (!held) near = 0
         }
         return maxOf(0, d - near)
     }
@@ -2971,7 +2972,6 @@ class Shell(
      *  on (none on: at once); the engine's styles only where their program is counted, else today's unfurl. */
     private fun noticeArrival(n: Notifications.Notice): Notifications.Arrival {
         if (quiet || n.emergency) return Notifications.Arrival.UNFURL
-        if (transport.state.value.flagsInForce and wm.damage.core.wire.DamageMsg.FLAG_ENGINE == 0) return Notifications.Arrival.UNFURL
         val on = listOfNotNull(Notifications.Arrival.UNFURL.takeIf { settings.popupUnfurl },
             Notifications.Arrival.FADE.takeIf { settings.popupFade }, Notifications.Arrival.SLIDE.takeIf { settings.popupSlide })
         if (on.isEmpty()) return Notifications.Arrival.NONE
