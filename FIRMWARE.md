@@ -1850,12 +1850,13 @@ a SET, which has no parameters, decides with every parameter 0.
 | REVEAL | kind, src, xL/xR, y, dxL (a level source's width), dy (its height) | 0–2 as §5.4 |
 | PIECES | kind, src (the vacate level, layer old), xL/xR, y, dxL/dxR, dy, lvl0, lvl1, h0 (the seed), w0, w1 (read as s16: the factor's ends), aux0, aux1 | 4 transparent (layer new), 6 reseed every step (layer new), 7 mix the tag |
 | SHRINK | src (the vacate level), lvl0, lvl1, h0, h1, w0, w1, anchor (bits 0–3) | none |
-| GLYPHS | kind, src (a record), xL/xR, y, dxL/dxR, dy (offsets), lvl0, lvl1, h0 (the seed), aux0 (CELLS: the list's index; RAIN: 0) | 7 mix the tag |
+| GLYPHS | kind, src (a record), xL/xR, y, dxL/dxR, dy (offsets), lvl0, lvl1, h0 (the seed), aux0 (CELLS: the list's index; RAIN: must be 0, 5, decided after substitution as an unused field) | 7 mix the tag |
 
 An anchor of 3 on either axis, or anchor bits 4–7, is 5. **§6.6's H rule binds DRAW only**, and C1's "h0 and h1 are
 0" binds FILL, REVEAL and WAIT (12 there, as built); PIECES' and GLYPHS' h0 is a seed (any value; their h1 must be 0,
-5), SHRINK's h0 and h1 follow §7.5. **Every eased level** of DRAW, PIECES and GLYPHS is 0..15 at every j = 0..n after
-substitution (12). **The seed** of a PIECES or GLYPHS segment is its h0 after substitution, exclusive-or the instance's
+5), SHRINK's h0 and h1 follow §7.5. **Every eased level** of DRAW, PIECES, SHRINK and GLYPHS is 0..15 at every j = 0..n
+after substitution (12) — SHRINK's levels feed G (§7.4). **On a track that is not per-lens** xR and dxR of every verb
+are ignored — the track uses xL and dxL on both lenses (§5.4) — PIECES' and GLYPHS' included. **The seed** of a PIECES or GLYPHS segment is its h0 after substitution, exclusive-or the instance's
 tag when opt bit 7 is set (a local fire's tag is its S). **Every product** in §7.4–§7.6 is a 32-bit product that wraps,
 as §5.4's eased value: computed unsigned, read as s32, `>>` arithmetic. (§7.12's step budget is the exception: its
 terms and sums are 64-bit and never wrap.)
@@ -1867,7 +1868,8 @@ a PLAY-AFTER; a rain record with reveal 1 or 2 in such a program is 5 wherever t
 COMMIT, a PLAY, a PLAY-AFTER — a SET walks no named record). Bound programs therefore stay absolute: every pixel a
 bound step paints is a function of its records, parameters and step alone. An in-place track's rules: its backdrop is
 none (5); its segments are WAITs and exactly one non-WAIT segment (12); it is the program's **first** track and the only
-in-place track (12); its ease is non-decreasing — ease 0 or 1, or a table whose E[0..n] never falls (5); a rain track in
+in-place track (12); its ease is non-decreasing — ease 0 or 1, or a table whose E[0..n] never falls — checked at the
+walk on **every** non-WAIT segment of the track (5), before the one-non-WAIT-segment shape (12, at the values); a rain track in
 place has dxL = dxR = dy = 0 (12); and **no later track of the program meets its area while it moves pixels (12)** — it
 moves pixels unless it is PIECES with f1 = 0, PIECES uniform or random with dxL = dxR = dy = 0, SHRINK with both axes
 unscaled, or a rain track.
@@ -1895,7 +1897,8 @@ the differential fuzz `--c3` generates only programs that keep it.
 
 **The none-backdrop rule for a version-2 record** (replaces §5.5's at its position, 2). A track *paints its whole area*
 when its backdrop is a level, `self` or `new`, or it is in place. A track whose backdrop is none and which does not paint
-its whole area must lie (both rects) inside an earlier track's area that does — except, in an OWN program, **a track
+its whole area must lie inside **one** earlier track that does — each of its rects inside that track's rect on the same
+lens (§5.5's form) — except, in an OWN program, **a track
 whose segments are WAITs and exactly one REVEAL, whose ease never falls** (ease 0 or 1, or a table whose E[0..n] never
 falls): its uncovered part is the panel's picture the instance keeps. Otherwise 2. (Two REVEAL segments in one such
 track are not excepted: the second's uncovered part would be the first's result, which a fold past the first's last
@@ -1931,14 +1934,19 @@ walk (5) and values (12) positions, the step budget after their values.
   while its slot is not empty). Its **owned rect** on each lens is the bounding box of its tracks' rects on that lens.
   The mark is cleared by LAND (below), by every close or emptying of the instance (CLOSE, a close pass, a PLAY into its
   slot, a live keyframe, a cache write that meets its read ranges, PLAY-AFTER's deferred empty), on the stock path
-  (§5.3: every instance turns done and owns nothing), at mode 11 and at every release point (the settlement).
+  (§5.3: every instance turns done and owns nothing), at mode 11 and at every release point (the settlement). **The
+  stock path ends done owners too:** it claims the engine word whenever a slot owns, drawing or not; a claim lost there
+  counts in field 33 as every lost claim of the hook does (A.11), though no step is passed over, and the marks end at
+  the next stock-path present.
 - **Meeting: one box over both lenses.** An owning instance's **meeting box** is the bounding box of all its tracks'
   pairs: for each track, the columns from the lesser of its two rects' left edges to the greater of their right edges,
   over its one row range (a pair is one size and one row range, §5.5) — equally, the bounding box of its two owned
   rects; a track with one rect counts it for both lenses. An owning instance meets another when its meeting box
   intersects the bounding box of any track's pair of the other (§5.5's form); **two owning instances meet when their
   meeting boxes intersect**. Every meeting decision uses the box — a PLAY's and a PLAY-AFTER's close pass, a COMMIT's
-  close pass, close-on-meet's area test, and the fire's close set (and so its 19) — so both lenses decide alike, and a box never
+  close pass, close-on-meet's area test, and the fire's close set (and so its 19) — so both lenses decide alike, and
+  **an OWN program being opened meets by its own meeting box** in its PLAY's or PLAY-AFTER's close pass (it owns from
+  that close pass on), and a box never
   closes less than either lens's own rect would. **The held copy and LAND use each lens's own owned rect** (below).
 - **The held present.** `present_shadow` (the image worker, holding the gate) first reads each slot's owns mark once
   without the engine word. **When no slot owns** it claims nothing and queues the present exactly as C2 does (no rects;
@@ -2018,13 +2026,16 @@ moves from home to the full displacement; f0 = 4096, f1 = 0 from the full displa
 - *stagger* (layer new only; else 12): n' = steps − stagger ≥ 1 (12); δ_p = H3(seed, p, 1) mod (stagger + 1); the
   piece's local step t_p = min(max(t − δ_p, 0), n') and e = the segment's ease at t_p over n' steps (ease 0 and 1 by
   §5.4's formulas at n'; ease 2: the table's n must equal n', else 5). With stagger, §5.4's table check reads n = steps −
-  stagger; when stagger ≥ steps only that n comparison is skipped — the table is still walked (inside the cache,
+  stagger on **either layer** (so a layer-old segment with stagger and a table of n = steps is 5 at the walk, before
+  stagger's own 12 at the values); when stagger ≥ steps only that n comparison is skipped — the table is still walked (inside the cache,
   E[n] = 4096 at its own n, 5) — and stagger ≥ steps is 12 at the values position. With stagger 0, e = E[t]
   over the segment's steps. Opt bit 6's t is the segment's local step, not t_p.
 
 **Layer new (kind 4; OWN programs only).** Over the track's backdrop, pieces in index order: the shadow's home rect
 of piece p (this lens) drawn at its home rect moved by D_p at its local step (t_p under stagger), clipped to the track's area, through the level ramp
-`make_lut(lvl(t))` with lvl(t) eased from lvl0 to lvl1 as DRAW's; a source pixel of 0 is not drawn when opt bit 4 is
+`make_lut(lvl(t))` with lvl(t) eased from lvl0 to lvl1 as DRAW's — at the segment's local step t over its steps; under
+stagger, ease 2 (whose table holds n' entries) reads E at min(t, n'), E[n'] = 4096 standing for every later step, and
+every other read of that table (the values' level check) the same; a source pixel of 0 is not drawn when opt bit 4 is
 set. `src` must be 0 (12).
 
 **Layer old (kind 0; in place; OWN programs only, §7.2).** `src` is the vacate level (0..15, 12). Opt bits 4 and 6 are 5. f0 = 0, and f1 ≥ 0 for
@@ -2032,7 +2043,7 @@ the radial model (12): the displacement starts at home and only grows. Model ran
 its home rect moved by D_p(b) (the home rect when b = 0), clipped to the area: every pixel q of the area becomes
 - if q lies in the home rect of some piece p moved by D_p(k) (clipped to the area) and q − Δ_p lies in p's base rect:
   **G(b → k)** of the base picture's pixel at q − Δ_p (when two pieces' moved rects contain q — no accepted input makes
-  that — the higher index wins);
+  that — q takes the highest-indexed piece whose moved rect contains q **and** whose base rect contains q − Δ_p);
 - otherwise `src`.
 **G(b → k)** = g_k ∘ … ∘ g_(b+1) (the identity when b = k; built once per present as a 16-entry table), with L_t the track's level at instance step t (§5.4's
 state rule; L_0 = 15) and g_t(v) = 0 when L_(t−1) = 0, else min(15, ⌊v·L_t / L_(t−1)⌋). The vacate level is not passed
@@ -2070,13 +2081,15 @@ W) >> 1) (centre) or x + w − W (right), the vertical as §6.6. A source pixel 
 ramp, its transparency tested on the source, clipped to the area. Sources: a record (each output row's source row
 decoded from the stream; a version-2 instance always runs the fast path, which decodes each source row a step
 shows once and reuses it for every output row that takes it, §7.12), its source window (below), `new`; `self` only unscaled in
-both axes (12). RETARGET's restart path clamps W to 1..2048 and restarts it from the width the track last drew (the
-track's drawn state gains it, as C2 added H). **The wheel's sideways icons** are a DRAW v2 of their records with
+both axes (12). RETARGET's restart path clamps W to 1..2048 and restarts it from the width the track last drew — the
+source's own width when it drew unscaled, as C2's H from the source's height (the track's drawn state gains it, as C2
+added H). **The wheel's sideways icons** are a DRAW v2 of their records with
 w0 → w1 at the centre anchor.
 
 **The source window** (DRAW v2 of a record, kind 0): **aux0** the window's first source row, **aux1** its height in rows
 (both after substitution; aux1 = 0 means the whole record, and then aux0 must be 0). The window must lie inside the
-record, aux0 + aux1 ≤ its height computed in 32 bits (5, decided in the walk at the record); with kind 2 or 4, aux0
+record, aux0 + aux1 ≤ its height computed in 32 bits (5). **Both window rules are decided in the walk at the record**
+— a PLAY, PLAY-AFTER, RETARGET, fire or COMMIT — **never at a SET**, which walks no named record; with kind 2 or 4, aux0
 and aux1 must be 0 (5). The source is then the record's rows aux0 .. aux0 + aux1 − 1: w × aux1 pixels whose row r is the
 record's row aux0 + r — drawn at (x, y) as any source, its height h = aux1 for the row map and the anchors (§6.6's H
 rule does not read h). The read range is the
@@ -2107,9 +2120,10 @@ them — entry 0's off4 may be anything), they add nothing to the read range, an
 cell or a lit rain cell that shows one shows its box's fill only (CELLS: by phase, when fill is not 0xFF; RAIN:
 fillLvl). An alphabet may hold 32 (its codes are 32..255); only a cell's old and new codes may be 0.
 
-**Kind 0 CELLS.** `src` names a **cell table**: `n u16 (1..1024, the largest list count) · 0 u16 · off4[n] u16`, padded to 4 B; **aux0** (after
+**Kind 0 CELLS.** `src` names a **cell table**: `n u16 (1..1024, the largest list count) · 0 u16 · off4[n] u16`, padded to 4 B (the
+reserved u16 must be 0, 5; the padding is not read and not in the read range); **aux0** (after
 substitution) is the index; an index at or past n is 5, decided in the walk at the cell table. The **cell list** it names: `count u16 (1..512) · alphabet off4 u16 · noise u8 · 0
-· 0 · 0`, then count × `{ bx s16 · by s16 · bw u8 · bh u8 · font off4 u16 · old u8 · new u8 · fill u8 · opt u8 }` (12 B a
+· 0 · 0` (the three reserved bytes must be 0, 5), then count × `{ bx s16 · by s16 · bw u8 · bh u8 · font off4 u16 · old u8 · new u8 · fill u8 · opt u8 }` (12 B a
 cell); old and new 0 or 32..255; fill 0..15 or 0xFF (none); the cell's opt: level bits 0–3, bit 5 inverse, bits 4, 6
 and 7 zero (a glyph's 0 pixels are never drawn, so they leave the box as filled). The **alphabet**: `n u8 (1..224) · codes`
 (each 32..255), padded to 4 B. Any of these out of its range, or outside the cache: 5 (the walk's). With n the segment's
@@ -2142,7 +2156,8 @@ and a glyph of ≈ 200 px at the DRAW rate, its record decoded once) ≤ 15 ms a
 ### 7.7 PLAY-AFTER (mode 26 sub 8)
 
 `[26][8] slot u8 · period u8 · prog u16 · tag u16 · after u8 · P0..P3 s16` (15 B after the two header bytes) on a
-bit-11 build; allowed alone and in a batch, refused 8 in a self-test step; its order is §7.2's. **What it does:** PLAY's
+bit-11 build; allowed alone and in a batch, refused 8 in a self-test step; its order is §7.2's. A refusal sends its outcome-2 114 body as a PLAY's does: field 2
+the slot and **field 3 the tag**, read from the same bytes, whenever the message holds them (§5.8's A.2). **What it does:** PLAY's
 close pass, except that an owning instance in slot `after` is not closed. **If slot `after` holds an owning instance,
 drawing or done**, the new instance records that instance's (slot, tag, ordinal) and takes t0 = the later (signed 32-bit
 compare) of now and t0_a + T_a·P_a (that instance's own t0, T and P) when it is drawing, and t0 = now when it is done;
@@ -2160,7 +2175,9 @@ instance, owning; sets the engine's flag; the message's present).
   decides each slot's waiting test on the slot states as they stood when the present began**, so an out half's step T
   and its in half's first step are never drawn by one present, whatever their slots.
 - **At its first drawn step** the hook empties the recorded instance — when the `after` slot still holds that same
-  triple and it was done when the present began — silently (its notify went at its step T), then draws. k is computed
+  triple and it was done when the present began — silently (its notify went at its step T) and **with no stale mark**
+  (an emptying, not a close: the in half covers the out half's owned rect and this present draws a step, so it goes
+  whole), then draws. k is computed
   from t0 as for any instance, so a late start folds. A recorded instance the phone closed in between is not there to
   empty.
 - **A close of a waiting instance** (one that has drawn nothing) is a close of a drawing instance: outcome 1.
@@ -2175,7 +2192,7 @@ instance, owning; sets the engine's flag; the message's present).
 - **A fire on a RING list** (§6.2 step 9): count 1 with a step ≠ 0 → the edge (a tap on a one-item list is not an edge); else c' = (cursor + step) mod count (Euclidean) and the
   **virtual cursor** v = cursor + step (unwrapped). Parameters: kind 1 the item table's entry at (v + arg) mod count
   (Euclidean; no item table → the edge); kind 2 v·pitch + arg (s32, outside s16 → 12); kinds 0 and 3 as on any list. The
-  list's cursor := c'. The 115 carries **field 18 = 1** when v ≠ c' (outcome drew only). EFFECTS clear at a fire on a
+  list's cursor := c'. The 115 carries **field 18 = 1** when v ≠ c' (outcome drew only); otherwise it carries no field 18. EFFECTS clear at a fire on a
   RING list → 15 (step 7). COMMIT, DISCARD and SETTLE are unchanged (absolute cursors; COMMIT's cursor below the count).
 - **SET's kind 3** (bit-11 build, while EFFECTS is armed; else 12): the parameter is cursor + arg, the cursor **before**
   the move (s32, outside s16 → 12), on any list — the index a per-cursor record needs (a local Encode's cell list). A
@@ -2335,9 +2352,12 @@ tracks of 1,024 + the backdrop's term + the largest of its segments' terms:
 **The cap is 8,000,000 u — the largest period (128 ticks, 125 ms) — and it bounds the sum over every instance that can
 draw after the message or fire**: every slot of this lens in state drawing once the operation's closes are done (a
 waiting PLAY-AFTER included; a done instance draws nothing, and one a RETARGET restarts is judged by that RETARGET), each
-by the C its own walk kept, the opened or restarted instance by its new C — **except that an instance waiting on another
-(a PLAY-AFTER whose `after` slot still holds its recorded triple) and that other count as the larger of the two**, since
-no present draws both (§7.7), and a chain of such waits as its largest member. Over the cap: 12, nothing opened or
+by the C its own walk kept, the opened or restarted instance by its new C — **except where waits join them**: an instance *waits on* another when it is a PLAY-AFTER whose `after` slot still
+holds that other's recorded triple. Each instance counts **f(i) = max(C_i, Σ f(w) over the instances w that wait on
+i)**, and the sum runs over the instances that wait on none. An instance and every instance waiting on it, directly or
+through others, never draw in one present (§7.7's waiting test); instances waiting on one instance draw together once
+it is done, so they add. (Should the records form a cycle — only a reused tag can, which the phone never sends, §7.11 —
+its members count each by its own C.) Over the cap: 12, nothing opened or
 changed (a refused RETARGET leaves the instance as it was). **Every term, each C and the sum are unsigned 64-bit** (no
 legal input brings a C near 2^40); a walk may stop and refuse as soon as what it has added of that total passes the
 cap — the same answer, since no term is negative. A 32-bit sum is wrong: legal inputs wrap it into an accept (`C3-contract-read.md` A'1, under the terms as they then
@@ -2823,3 +2843,11 @@ phone's keeper applies the hold-back rule before re-arming.
   not on EFFECTS** (none open: straight to the stock function, so stages 0–4 stay C2's; one open: ended whatever bit 6
   says); its gate take waits as the image worker's (1,000 ticks, `0x0047383C`) and, not had, withdraws the pending job
   while owners still end and the stock destroy still runs. §7.1, §7.3, §7.13's pin, §7.14's row.
+- 2026-11-19 — the simulator lane's seventeen two-way readings decided (`C3-D2-report.md`, "The seventeen"): an
+  opening OWN program meets by its box; a refused PLAY-AFTER's body carries its tag; the deferred empty sets no stale
+  mark; the stock path ends done owners and a lost claim there counts in field 33; the budget's waits counted as
+  f(i) = max(C_i, Σ f(waiters)); GLYPHS' reserved bytes 0 and RAIN's aux0 0 (5); xR/dxR ignored off per-lens tracks;
+  the stagger table check on either layer; a staggered table's level read at min(t, n'); SHRINK's eased levels 0..15;
+  every non-WAIT segment's ease of an in-place track at the walk; the none-backdrop rule's one containing track;
+  overlapping pieces by both tests; RETARGET's W from the source's width; no field 18 when v = c'; the window's rules
+  at the record walk only. Nothing built.
