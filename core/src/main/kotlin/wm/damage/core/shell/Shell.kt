@@ -5771,7 +5771,8 @@ class Shell(
     // ------------------------------------------------------ Main's bound list (build C2, stage DM2)
     /**
      * Main's list staged on the glasses for local input (`C2-spec.md` §6.4; decisions B.4; `FIRMWARE.md` §6.7 P9). While
-     * BIND is in force and Main is in front, the idle pump paints Main's staging from Main's own painters ([MainStaging]),
+     * BIND is in force and Main is in front — or behind the shell's clock screen, which wakes to Main (decisions BP: the
+     * base staging only, [mainBehindClock]) — the idle pump paints Main's staging from Main's own painters ([MainStaging]),
      * places its records — in the shared stage reserve at 160 KiB (the document's strips go; Reader stages again on its
      * return), in Main's own region at 256 ([CfwModes.mainRegion]) — and writes them through the stage lane; once the
      * count (field 17) has proven every one, `MainSurface.bound()` offers the list and the rules SET its entries. A row
@@ -5838,12 +5839,25 @@ class Shell(
         return if (own.last + 1 < st.cacheSize && a != null && a.capacity > own.first) CfwModes.mainRegion(st.cacheSize, false) else own
     }
 
+    /** Decisions BP (his 0.82 start of 11-20 13:26: 42 s on the clock with nothing of Main written, then 12.4 s of notches
+     *  drawn by the phone after the wake): the shell's own clock screen wakes to Main — its double tap always lands there
+     *  (`exitSilent`, `DESIGN.md` §1.5) — so Main's base staging goes behind it, painted for the layout the wake brings
+     *  ([mainBindLayout]). The list stays unbound until Main is in front: the rules' list in front needs `Mode.MAIN`, and
+     *  the wake's first flush SETs it (the return rule, AF.2). A window's exclusive screen wakes to that window (§4.9):
+     *  nothing of Main is staged there. */
+    private fun mainBehindClock(): Boolean = mode == Mode.SILENT
+
+    /** The layout Main's staging is painted and kept for: the shell's own while Main is in front; behind the clock the one
+     *  its wake brings (`exitSilent`'s `syncLayout`: a height set while the clock shows is applied only there), so the
+     *  staging is not dropped at the wake. */
+    private fun mainBindLayout(): Layout = if (mainBehindClock()) effectiveLayout() else layout
+
     /** Why Main's list is not staged now; null when it is wanted. */
     private fun mainBindBlocked(st: LinkState): String? = when {
         !st.bind -> "BIND is not in force"
         !linkUpAndSteady(st) -> "the link is down or the session is rebuilding"
         sleep != null || glassesSilent -> "the glasses are asleep"
-        mode != Mode.MAIN -> "Main is not in front"
+        mode != Mode.MAIN && !mainBehindClock() -> "Main is not in front"
         testHold -> "hold=on is in force"
         stageFailed -> "staging is off for this session"
         !st.draw2 || !st.leaseHeld -> "DRAW2 or the lease is not in force"
@@ -5892,7 +5906,7 @@ class Shell(
         val gone = b.records.firstOrNull { stage.records[it.key] !== it }
         val why = when {
             gone != null -> "$gone left the stage registry (the stage notes say why)"
-            ms.layout != layout -> "Main's layout changed"
+            ms.layout != mainBindLayout() -> "Main's layout changed"
             (ms.listD to ms.bandD) != mainBindPlanes() -> "Main's planes changed (${ms.listD}/${ms.bandD} staged, ${mainBindPlanes().let { "${it.first}/${it.second}" }} now)"
             ms.rows != mainRows().size -> "Main's rows changed (${ms.rows} staged, ${mainRows().size} now)"
             st.cacheSize != ms.cacheSize || mainBindRegion(st).first != ms.regionStart -> "the session's cache or Main's region changed"
@@ -5955,8 +5969,9 @@ class Shell(
      *  painted again, or a row's re-stage written. True when it did something. */
     private suspend fun pumpMainBind(st: LinkState): Boolean {
         val blocked = mainBindBlocked(st)
-        // decisions AF.9: why Main is not staged, once per reason, while BIND is in force and Main is in front
-        if (st.bind && mode == Mode.MAIN && blocked != mainBindBlockedSaid) {
+        // decisions AF.9: why Main is not staged, once per reason, while BIND is in force and Main is in front (or behind
+        // the clock, decisions BP)
+        if (st.bind && (mode == Mode.MAIN || mainBehindClock()) && blocked != mainBindBlockedSaid) {
             mainBindBlockedSaid = blocked
             if (blocked != null) journal.note("mainstage", "not staged — $blocked; Main's scrolls and taps go as today until it is")
         }
@@ -5973,6 +5988,9 @@ class Shell(
         val rec = b.records.firstOrNull { it.state == StagedRecord.State.WANTED && stage.records[it.key] === it }
         if (rec != null) { stageSubmit(rec, st); stageRecount(); return true }
         if (!b.counted) return false
+        // decisions BP: behind the clock only the base staging goes — no row painted again or re-staged while the list's
+        // window is not in front (P9), and no wake is asked for them: the wake's compose compares the rows' keys
+        if (mainBehindClock()) return false
         b.verifyDue(now)
         b.nextDirty()?.let { row -> return mainBindRow(st, ms, row, write = false, now) }
         // a withdrawn list's strip write, in a pump after the one that withdrew it (the rules' CLEAR went between)
@@ -5998,16 +6016,17 @@ class Shell(
         val region = mainBindRegion(st)
         val (listD, bandD) = mainBindPlanes()
         val n = mainRows().size
+        val lay = mainBindLayout()                       // decisions BP: behind the clock, the layout its wake brings
         // decisions AF.6: the rows' content is part of what a refusal is keyed on — a staging that did not fit is tried
         // again when what it was sized for changes (and at every session start)
-        val what = "$layout $listD/$bandD $n ${region.first}..${region.last} ${st.cacheSize} ${motionInForce()} ${List(n) { main.rowKey(it) }.hashCode()}"
+        val what = "$lay $listD/$bandD $n ${region.first}..${region.last} ${st.cacheSize} ${motionInForce()} ${List(n) { main.rowKey(it) }.hashCode()}"
         if (mainBindRefusedFor == what) return false
         val ct = cachedText
         // decisions AF.8: one row painted per loop turn (its row form and band form); the staging is laid out once every row
         // is painted for this same key — a change of layout, planes, rows or their content starts the paint again
         val pt = mainBindPaint?.takeIf { mainBindPaintFor == what && it.n == n } ?: run {
             mainBindPaintFor = what; mainBindPaintVersions = ct?.wantVersion to ct?.seenVersion
-            MainStaging.Paint(layout, main.view(), kit).also { mainBindPaint = it }
+            MainStaging.Paint(lay, main.view(), kit).also { mainBindPaint = it }
         }
         if (!pt.done) {
             try { pt.step(mainBindRelay()) } catch (e: wm.damage.core.geom.LintError) {
@@ -6072,7 +6091,8 @@ class Shell(
             "${ms.blobs.drop(if (ms.stripB != null) 2 else 1).take(ms.rows).sumOf { it.bytes.size }} B, the item table and ${ms.pans.size + 1} programs ${ms.blobs.takeLast(2).sumOf { it.bytes.size }} B; " +
             "planes $listD/$bandD, press to ${ms.press.pressD}; ${mainBind.stagings} staging(s) and ${mainBind.stagedBytes} B this process" +
             (if (ms.wrap == null && ms.rows > ms.layout.rowsAbove + ms.layout.rowsBelow + 1) "; the wrap's own record left out (the region " +
-                "does not hold it): the wrap goes as the shell's frames" else ""))
+                "does not hold it): the wrap goes as the shell's frames" else "") +
+            (if (mainBehindClock()) " — behind the clock: the list is bound when Main is in front" else ""))
         post(Msg.Pump)
         return true
     }
