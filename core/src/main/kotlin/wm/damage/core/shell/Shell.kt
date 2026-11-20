@@ -2756,7 +2756,7 @@ class Shell(
     private fun localVerdict(v: wm.damage.core.local.LocalRules.Verdict, eventId: Int? = null) {
         when (v) {
             wm.damage.core.local.LocalRules.Verdict.Nothing -> {}
-            is wm.damage.core.local.LocalRules.Verdict.Apply -> { asInput(); edgeAssembleMark = assembleCalls; handleInput(v.type, EvenHubMsg.SRC_RING) }
+            is wm.damage.core.local.LocalRules.Verdict.Apply -> { asInput(); edgeAssembleMark = assembleCalls; edgeAtMs = System.currentTimeMillis(); handleInput(v.type, EvenHubMsg.SRC_RING) }
             is wm.damage.core.local.LocalRules.Verdict.Adopt -> {
                 // an adopted notch is a gesture as any other (decisions AF.3): the same bookkeeping as `handleInput`'s, the
                 // cursor saved to the record; its picture is the lens's own, so no slide and no input slot (its COMMIT
@@ -2802,16 +2802,19 @@ class Shell(
     }
 
     /** A flush of the rules' messages alone (nothing to draw): one sub-message as its own image, more as a batch. */
-    private suspend fun submitLocalOnly(tail: List<ByteArray>, label: String) {
-        if (tail.isEmpty()) return
-        try {
+    /** The flush's id, or null when nothing went (an empty tail, or a submit the ended link refused). */
+    private suspend fun submitLocalOnly(tail: List<ByteArray>, label: String): Long? {
+        if (tail.isEmpty()) return null
+        return try {
             val id = transport.submit(FlushRequest(emptyList(), comp.epoch, label, tail = tail))
             localOnlyFlushes += id
             localTailFlushes += id
             mainBind.tailSent(id, mainBindEntriesSent())
+            id
         } catch (e: Exception) {
             // the link ended between the pump's gate and the submit: the next session's start sends the whole table
             journal.note("local", "a flush of local-input messages was not submitted: ${e.message ?: e::class.simpleName}")
+            null
         }
     }
 
@@ -5280,6 +5283,9 @@ class Shell(
     private var assembleCalls = 0
     private var edgeAssembleMark = 0
     private var lastWrapAssemblesBefore = -1
+    private var edgeAtMs = 0L
+    /** Tests only (the focused read's L1): the wrap's END paint throws after the LEFT lens's. */
+    @Volatile internal var wrapPaintFailsForTest = false
 
     /**
      * G4 item 1 (his glasses, 0.80: the wrap's slide began a median 555 ms after the edge's report). Its PLAY rode the
@@ -5291,13 +5297,29 @@ class Shell(
      */
     private suspend fun mainWrapFirst(st: LinkState, nowMs: Long): Boolean {
         if (!(local.active && st.bind && st.leaseHeld) || comp.needsKeyframe) return false
+        // B082 (the focused read's W2): only once the rules know what is in front — this runs before the pump's
+        // `syncLocalFront`, and asking them earlier, in the pump where a cover appears, made a false DISCARD and a
+        // `snapback cause=moved` record (their `observe` saw the covered row −1 against the list still in front)
+        if (localFront()?.second !== localFrontNow) return false
         if (local.plan(localRow()).isNotEmpty()) return false
         val wrap = mainWrapPlan(nowMs) ?: return false
-        comp.holdEnds(listOf(wrap.end), nowMs)
+        // B082 (the focused read's L1): a throw from the END paint is said, keyframes (a half-applied END on the lens
+        // painted first is re-grounded by it) and leaves the answer to the batch path, which denies the wrap under the
+        // owed keyframe and answers with the DISCARD — so it cannot repeat at every pump
+        try { comp.holdEnds(listOf(wrap.end), nowMs) }
+        catch (e: Exception) {
+            Log.e("shell", "the wrap's END could not be painted", e)
+            journal.note("assemble-error", "the wrap's END: $e")
+            raiseFault("assemble", "the wrap's END could not be painted: ${e.message ?: e::class.simpleName} — keyframing", urgent = true, source = "compositor")
+            comp.requestKeyframe()
+            return false
+        }
         val tail = listOf(wrap.play) + local.tail(localRow(), nowMs, emptySet(), frame = false, wrapped = true)
         lastWrapAssemblesBefore = assembleCalls - edgeAssembleMark
-        submitLocalOnly(tail, "WRAP")
-        journal.note("local", "the wrap's PLAY went ahead of its frame: ${tail.size} message(s), ${tail.sumOf { it.size }} B")
+        val id = submitLocalOnly(tail, "WRAP")
+        // the focused read's N8: the note names the flush, so its `done` row prices the wrap's start against the report
+        journal.note("local", "the wrap's PLAY went ahead of its frame as flush ${id ?: "(not submitted)"}: ${tail.size} message(s), " +
+            "${tail.sumOf { it.size }} B, ${nowMs - edgeAtMs} ms after the edge's report reached the shell")
         return true
     }
 
@@ -5318,15 +5340,16 @@ class Shell(
         if (ev.slot != list.slot && ev.slot != MainStaging.WRAP_SLOT) return
         val steps = (ev.drawn ?: 0L) + (ev.folded ?: 0L)
         val complete = ev.outcome == wm.damage.core.wire.DamageMsg.OUTCOME_DREW || steps >= ms.t
-        // G4 item 2: a local instance's own body (no END written) closed by RIGHT: every step drawn is at END; short of
-        // them, its areas hold a partial step on the panel — repainted from the truth, never a keyframe
+        // G4 item 2: a local instance's own body (no END written) closed by RIGHT — counted, never a keyframe. Every step
+        // drawn: at END. Short of them, the partial step on the panel goes at the next present, which the close makes
+        // whole (the stale mark): the answer's — the COMMIT writes END and presents, the DISCARD presents — or, with the
+        // report lost, the frame of its stock message applied as today; a COMMIT that never lands is a failed flush whose
+        // rollback repaints, a session's end a keyframe (B082, the focused read's W3: the repaint here repaired nothing)
         if (ev.outcome == wm.damage.core.wire.DamageMsg.OUTCOME_CLOSED && ev.endCrc == 0L && ev.slot == list.slot) {
             if (steps >= ms.t) local.counts.merge("localClosedAtEnd", 1, Int::plus)
             else {
                 local.counts.merge("localClosedShort", 1, Int::plus)
-                comp.markAreasUnknown(list.areas)
-                journal.note("local", "slot ${ev.slot} tag 0x%04x closed on the glasses after $steps of ${ms.t} steps — its areas are repainted".format(ev.tag))
-                post(Msg.Pump)
+                journal.note("local", "slot ${ev.slot} tag 0x%04x closed on the glasses after $steps of ${ms.t} steps".format(ev.tag))
             }
         }
         val us = ev.stepUs ?: return
@@ -5345,7 +5368,11 @@ class Shell(
         val p = ms.periodInForce
         return when {
             need > p -> need
-            stepWindow.size >= PERIOD_WINDOW && periodSamplesSinceChange >= PERIOD_WINDOW && need <= p - PERIOD_HYSTERESIS -> need
+            // the focused read's W1 (ruled): never below the staging's own period — the fit with Auto, the length over the
+            // frames with a fixed count — the measurement only raises above it and comes back down to it
+            // (the floor itself is reached whatever the hysteresis says, so a small raise does not stay for good)
+            stepWindow.size >= PERIOD_WINDOW && periodSamplesSinceChange >= PERIOD_WINDOW &&
+                maxOf(need, ms.period).let { t -> t < p && (t <= p - PERIOD_HYSTERESIS || t == ms.period) } -> maxOf(need, ms.period)
             else -> null
         }
     }
@@ -5384,7 +5411,7 @@ class Shell(
             catch (e: wm.damage.core.geom.LintError) { journal.note("local", "the wrap's PLAY is refused offline (${e.message}) — the row is drawn as today"); return null }
         val until = nowMs + (ms.t + 1L) * ms.periodInForce * 1000L / 1024 + WRAP_START_MS
         return MainWrap(play, Compositor.EndPlan(MainStaging.WRAP_SLOT, pan.program.tracks.map { it.areaL to it.areaR },
-            { left, g -> ms.paintEnd(pan, p, left, g) }, until))
+            { left, g -> if (!left && wrapPaintFailsForTest) throw wm.damage.core.geom.LintError("a test: the wrap's END paint fails"); ms.paintEnd(pan, p, left, g) }, until))
     }
     /** The `mainseq` probe's pacing (a test shortens it). */
     @Volatile internal var mainSeqPace = MainSeqPlan.Pace()

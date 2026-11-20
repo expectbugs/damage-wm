@@ -1331,7 +1331,7 @@ class MainLocalShellTest {
                 r.fire(if (n % 2 == 0) CfwModes.EV_UPROLL else CfwModes.EV_DOWNROLL); n++
                 delay(r.motionMs() + r.q() + 300); r.settle("fast notch $n")
             }
-            assertEquals(34, r.onLoop { r.shell.periodInForceForTest() }, "30 ms × 1.10 → 34 ticks")
+            assertEquals(46, r.onLoop { r.shell.periodInForceForTest() }, "30 ms would need 34 ticks; the floor is the staging's own period, 46 (W1)")
             assertTrue(n >= Shell.PERIOD_WINDOW, "not before the slower steps left the window: $n fast motions")
             r.assertOracle("after the period came down")
         } finally { r.close() }
@@ -1406,6 +1406,69 @@ class MainLocalShellTest {
             assertEquals(0, r.row(), "the wrap landed on the first row")
             assertTrue(r.notes("divergence").isEmpty(), "${r.notes("divergence")}")
             r.assertOracle("after the wrap and the re-stage")
+        } finally { r.close() }
+    }
+    // ---------------------------------------------------------------------------------------------- the focused read of G4
+    /** The focused read's L1: a throw from the wrap's END paint (after the LEFT lens's) is said once and keyframes — the
+     *  half-applied END on LEFT is re-grounded — and the batch path answers with the DISCARD: no PLAY, no repeat at every
+     *  pump, the row at the first, belief equal to both lenses. */
+    @Test
+    fun aThrowFromTheWrapsEndPaintKeyframesOnce_L1(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, kib256 = true)
+        try {
+            r.up()
+            walkTo(r, r.list().count - 1)
+            val at = r.right.size
+            r.onLoop { r.shell.wrapPaintFailsForTest = true }
+            r.fire(CfwModes.EV_UPROLL)
+            r.until("the keyframe") { r.right.drop(at).any { (it[0].toInt() and 0x7F) == 6 || r.subs(it).any { s -> (s[0].toInt() and 0x7F) == 6 } } }
+            delay(r.motionMs() + r.q() + 300)
+            r.onLoop { r.shell.wrapPaintFailsForTest = false }
+            r.settle("after")
+            assertEquals(1, r.notes("assemble-error").count { "the wrap's END" in it }, "said once: ${r.notes("assemble-error")}")
+            assertTrue(wrapBatch(r, at) == null, "no wrap PLAY")
+            assertEquals(0, r.row(), "the edge moved the row as today")
+            r.assertOracle("after the failed wrap")
+        } finally { r.close() }
+    }
+
+    /** The focused read's W2: a cover over Main (a notice) asks the rules nothing before they know the front — no
+     *  `snapback` record, no DISCARD in the cover's frame. */
+    @Test
+    fun aCoverOverMainWritesNoSnapbackRecord_W2(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, kib256 = true)
+        try {
+            r.up()
+            notch(r, CfwModes.EV_UPROLL, "a notch first")
+            delay(r.q() + 300); r.settle("the burst closed")
+            val at = r.right.size
+            val snaps = r.notes("snapback").size
+            r.shell.postNotice(wm.damage.core.shell.Notifications.Notice("TEST · a", "t", "a notice over Main", "12:00"))
+            r.until("the notice up") { r.onLoop { r.shell.notificationsUpForTest() } }
+            delay(300); r.settle("under the notice")
+            assertEquals(snaps, r.notes("snapback").size, "no snap-back record: ${r.notes("snapback").takeLast(2)}")
+            assertTrue(r.right.drop(at).none { img -> r.subs(img).any { r.isSub(it, 26, 4) } }, "no DISCARD in the cover's frames")
+        } finally { r.close() }
+    }
+
+    /** The focused read's W1 (ruled): with `Frames` fixed, the measured period never goes below the staging's own — 600 ms
+     *  over 10 frames is P 62 — however fast the steps measure. */
+    @Test
+    fun aFixedFramesPeriodIsNeverLoweredBelowItsOwn_W1(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT)
+        try {
+            r.up()
+            val staged0 = r.notes("mainstage").count { it.startsWith("staged") }
+            r.shell.updateSettings { it.copy(scrollLength = 600, frames = 10) }
+            r.until("staged again with the new motion", 15_000) { r.notes("mainstage").count { it.startsWith("staged") } > staged0 }
+            r.bound("bound at 600 ms, 10 frames")
+            assertEquals(62, r.onLoop { r.shell.periodInForceForTest() }, "614 ticks over 10 frames")
+            for (a in Arm.entries) r.sim.motionForTest(a).stepUsForTest = 30_000L
+            repeat(Shell.PERIOD_WINDOW + 2) { i ->
+                r.fire(if (i % 2 == 0) CfwModes.EV_UPROLL else CfwModes.EV_DOWNROLL)
+                delay(r.motionMs() + r.q() + 300); r.settle("fast notch $i")
+            }
+            assertEquals(62, r.onLoop { r.shell.periodInForceForTest() }, "never below the period his length and frames gave")
         } finally { r.close() }
     }
 }

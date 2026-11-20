@@ -380,12 +380,6 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         }
     }
 
-    /** G4 item 2: a local instance RIGHT closed short of its steps left a partial step in its areas on the panel — the
-     *  areas are unknown and go into the next scan, repainted from the truth (never a keyframe). */
-    fun markAreasUnknown(areas: List<Pair<Rect, Rect>>) {
-        for ((l, r) in areas) { markUnknown(unknownL, l); markUnknown(unknownR, r); pendingDamage.add(widen(l)); pendingDamage.add(widen(r)) }
-    }
-
     /** Decisions AW.3: the held cells' wait cut — a window covering the list closed the adopted motion ahead of its frame:
      *  the held cells are unknown and go into the next assemble's scan, repainted from the truth. True when there were any. */
     fun cutDeferral(): Boolean {
