@@ -415,7 +415,8 @@ last step the hook drew** (written by the hook under the engine word, read here 
 after ≈ 48.5 days), an instance with k > d is **due now**; otherwise its next due time is `t0 + d·P`, never past step T.
 *(C3, §7.7: on a bit-11 build a slot whose t0 is ahead of now — `(int32_t)(now − t0) < 0` — has nothing due and its
 due time is t0; after t0, a slot that waits on a PLAY-AFTER's recorded instance has nothing due and its due time is now
-plus its own P. Only PLAY-AFTER makes such a slot; with none, the rule changes nothing.)*
+plus its own P. Only PLAY-AFTER makes such a slot; with none, the rule changes nothing. The plan's wait stays the
+earliest due time over all slots, a waiting slot's included — §7.7 states what W is then.)*
 When one is due now and no engine refresh is outstanding, the thread tries the gate and queues (below), then plans
 again and waits that plan's w — one refresh per wake (R1.13) *(C3, §7.10: on a bit-11 build with EFFECTS armed, when
 the present that followed the put drew a step and the second plan finds every due slot exactly one step late with
@@ -2093,6 +2094,12 @@ it again** (decisions F: a write over it closes the instance first, §5.6). With
 reads only inside the record as walked and writes only inside the track's area: a stream that runs out ends that
 glyph's draw. A glyph is drawn at its box's corner through the cell's LUT, a source pixel of 0 not drawn.
 
+**Codes 0 and 32 — one rule for CELLS and RAIN.** Wherever a code appears (a cell's old or new code, an alphabet), 0
+and 32 **draw nothing and name no glyph record**: their font entries are never read or walked (a font need not hold
+them — entry 0's off4 may be anything), they add nothing to the read range, and they add nothing to §7.12's terms. A
+cell or a lit rain cell that shows one shows its box's fill only (CELLS: by phase, when fill is not 0xFF; RAIN:
+fillLvl). An alphabet may hold 32 (its codes are 32..255); only a cell's old and new codes may be 0.
+
 **Kind 0 CELLS.** `src` names a **cell table**: `n u16 (1..1024, the largest list count) · 0 u16 · off4[n] u16`, padded to 4 B; **aux0** (after
 substitution) is the index; an index at or past n is 5, decided in the walk at the cell table. The **cell list** it names: `count u16 (1..512) · alphabet off4 u16 · noise u8 · 0
 · 0 · 0`, then count × `{ bx s16 · by s16 · bw u8 · bh u8 · font off4 u16 · old u8 · new u8 · fill u8 · opt u8 }` (12 B a
@@ -2103,7 +2110,7 @@ steps after substitution and N = noise, n − N ≥ 1 (12). **The schedule** of 
 at local step t the cell shows its **old** code for t < s_c, **alphabet[H3(seed, c, t) mod n_alpha]** for s_c ≤ t <
 s_c + N, its **new** code from s_c + N on. Each step, cells in list order: when fill is not 0xFF, the box `[bx + X, bx + X + bw) × [by + Y, by + Y + bh)`
 is filled with `fill` unless t ≥ s_c + N and new ≠ 0 (by phase, not by the code shown); then, unless the code shown is 0
-or 32, its glyph is drawn at (bx + X, by + Y) through the cell's LUT `make_lut((opt & 0x20) | ⌊(opt & 15)·lvl(t) / 15⌋)`,
+or 32 (above), its glyph is drawn at (bx + X, by + Y) through the cell's LUT `make_lut((opt & 0x20) | ⌊(opt & 15)·lvl(t) / 15⌋)`,
 lvl(t) eased from lvl0 to lvl1.
 
 **Kind 1 RAIN.** `src` names a **rain record** (16 B): `cols u8 (1..128) · trail u8 (1..32) · cw u8 (1..255) · ch u8
@@ -2113,15 +2120,15 @@ Column c lies at x_c = l + X(t) + c·cw, its cell row r at y_r = top + Y(t) + r�
 and its head at local step t `head_c = −o_c + (((R + o_c + trail)·e) >> 12)` (e = E[t], `>>` arithmetic). **Lit cells** r with head_c −
 trail < r ≤ head_c and 0 ≤ r < R, u = head_c − r: the box `[x_c, x_c + cw) × [y_r, y_r + ch)` filled with fillLvl, then
 the glyph alphabet[H3(seed, c, r·256 + ⌊t / flicker⌋) mod n_alpha] drawn at (x_c, y_r), **clipped to its cell's box**
-(code 32 draws nothing, as in CELLS), through `make_lut(⌊L_u·lvl(t) /
+(code 32 draws nothing — the rule above), through `make_lut(⌊L_u·lvl(t) /
 15⌋)` with L_u = (headLvl·(trail − 1 − u) + tailLvl·u) / (trail − 1) (headLvl when trail = 1). **Above the trail**
 (0 ≤ r < R and r ≤ head_c − trail): reveal 1 paints the column's cell boxes from the shadow (`new`, OWN programs only), reveal 2
 fills them with fillLvl, reveal 0 leaves them. Below the head nothing is painted. With reveal 1 or 2 the track is in
 place (§7.2: its base below the head is the picture it keeps).
 
 **Read range:** the program, the cell table and the list aux0 selects (or the rain record), the alphabet, every font
-named and every glyph record a cell's codes or the alphabet name in each of those fonts — all walked at the PLAY, the
-COMMIT or the fire (5), each (font, code) pair once per message. A cache write that meets it closes the instance (§5.6). **Cost (I):** ≈ 200 cells × (a box fill
+named and every glyph record a cell's codes or the alphabet name in each of those fonts, codes 0 and 32 excepted (above)
+— all walked at the PLAY, the COMMIT or the fire (5), each (font, code) pair once per message. A cache write that meets it closes the instance (§5.6). **Cost (I):** ≈ 200 cells × (a box fill
 and a glyph of ≈ 200 px at the DRAW rate, its record decoded once) ≤ 15 ms a step at §7.12's rates; rain ≈ cols × trail glyphs, ≈ 13 ms for
 53 × 8; the walk at a fire ≈ 1–3 ms more in field 16.
 
@@ -2136,7 +2143,13 @@ otherwise t0 = now and nothing is recorded. The rest is PLAY's (no END: the prog
 instance, owning; sets the engine's flag; the message's present).
 - **When it is due:** while its t0 is ahead of now (`(int32_t)(now − t0) < 0`), nothing is due and its due time is t0
   (§5.2); after t0, while its `after` slot holds the recorded (slot, tag, ordinal) in state drawing, nothing is due and
-  its due time is now plus its own P. The plan reads both without the word (a torn read costs a wake). **The copy hook
+  its due time is now plus its own P. The plan reads both without the word (a torn read costs a wake). **The plan's W
+  (§5.2; the vectors' `W`) is the earliest due time over all slots, a waiting slot's included, and 0 when any slot has a
+  step due with nothing outstanding** — so a waiting slot's own due time decides W only when no other slot is due
+  earlier. After t0 its recorded instance, while drawing, always has its step T due (that step fell due at
+  t0_a + (T_a − 1)·P_a, before t0), so W is 0 there, set by the late out half; once the recorded instance is done, a
+  future t0 is the waiting slot's due time (W = t0 − now when nothing else is due earlier: the in half one period after
+  the out half's last step). **The copy hook
   decides each slot's waiting test on the slot states as they stood when the present began**, so an out half's step T
   and its in half's first step are never drawn by one present, whatever their slots.
 - **At its first drawn step** the hook empties the recorded instance — when the `after` slot still holds that same
@@ -2303,9 +2316,13 @@ tracks of 1,024 + the backdrop's term + the largest of its segments' terms:
 - PIECES (either layer): 3·A; SHRINK: 3·A, and 10·A more when its width scales;
 - GLYPHS CELLS: Σ over its cells of (min(bw, Wa)·min(bh, Ha) + 16·Lg_c + 10·g_c + 64), with Lg_c the longest RLE length
   and g_c the largest w·h among the glyph records the cell's old code, new code and the alphabet's codes name in its font
-  (**codes 0 and 32 name no glyph for this sum**; a cell that names none counts its box and 64);
-- GLYPHS RAIN: A + cols·trail·(11·cw·ch + 16·Lg + 64), Lg the longest RLE length among the glyph records the alphabet
-  names in its font (a rain glyph is clipped to its cell, §7.6);
+  (codes 0 and 32 name none, §7.6; a cell that names none counts its box and 64);
+- GLYPHS RAIN: A + cols·trail·(cw·ch + 64 + G), with G = 16·Lg + 10·cw·ch when the alphabet holds a code other than 32,
+  else 0, and Lg the longest RLE length among the glyph records the alphabet's codes other than 32 name in its font
+  (§7.6). **This bound ignores which codes the hash picks:** it counts every lit cell as drawing the longest of those
+  glyphs (a rain glyph is clipped to its cell, so 10·cw·ch bounds its pixels);
+- a glyph record's **RLE length** is its token bytes after `[w][h]`; a width **scales** when w0 or w1 is not 0 (DRAW:
+  both are, §7.5; SHRINK: w0 = w1 = 0 is unscaled), whatever W comes to;
 - a program with LAND adds its owned rect's area (the larger lens's): LAND's copy at step T.
 
 **The cap is 8,000,000 u — the largest period (128 ticks, 125 ms) — and it bounds the sum over every instance that can
@@ -2386,7 +2403,8 @@ the owned rect and held inside it; LAND; done-and-owning; CLOSE, a close pass, a
 owner and holding the area; meeting by the meeting box — a per-lens owner (xL ≠ xR) and a PLAY meeting only one
 lens's owned rect, closed on both; a fire meeting one lens's only, 19 on both — two owners by their boxes; a fire refused 19 with fields 10–14; OWN at a SET, a fire and a
 COMMIT 5; RETARGET 12; the END CRC; the hint with an owner open) · `v5-after` (t0 from a drawing out half; a done owner
-recorded and emptied; a late out half (`W` one P ahead after t0); its step T and the in half's step 1 in separate
+recorded and emptied; a late out half (`W` 0 after t0: its own step T is due); `W` = t0 − now once the out half is done
+and before t0; its step T and the in half's step 1 in separate
 presents whatever the slots; a slot played over in between; a close of a waiting instance; an in-place in half (rain,
 reveal 1) starting from the out half's last pose) · `v5-new` (DRAW and REVEAL
 of `new`, the backdrop `new`, per lens, `new` outside OWN 5; the REVEAL exception — a REVEAL between WAITs over
@@ -2400,7 +2418,8 @@ on `new`, each anchor, W with H, W = 1, w, 2w, 2048; `self` scaled 12; RETARGET'
 fast path's start recomputed: the twice-run compares); **the source window**: a
 window by a kind-2 parameter, scaled and not, past the record 5, aux1 0 with aux0 ≠ 0 5, on `new` 5) · `v5-cells` (the
 schedule at N = 0 and n = N + 1; the fill by phase; codes 0 and 32; fill none; a settled cell over backdrop `new`; the
-index by a kind-3 parameter, past n 5; per lens; a cache write over a glyph record closing it) · `v5-rain` (reveal 0, 1,
+index by a kind-3 parameter, past n 5; per lens; a cache write over a glyph record closing it; a cell whose old code is 32 in a font whose code-32 entry lies
+outside the cache taken — code 32 is not walked) · `v5-rain` (reveal 0, 1,
 2; reveal 1 outside OWN 5; trail 1; spread 0; flicker; rows only below R; a glyph clipped to its cell; moving offsets
 in place 12; code 32 skipped; a fold `"pair"`) · `v5-ring` (wraps both ways at kinds 1 and 2; count 1 with a step →
 edge, a tap on a one-item ring list not an edge; RING := bit 0; LIST-RING's modular shift; a plain LIST clearing RING;
@@ -2408,10 +2427,14 @@ EFFECTS cleared → 15; field 18; kind 3 at both ends, without EFFECTS 12, a han
 each verb's term a sum of exactly 8,000,000 accepted and one unit over refused 12; a second instance taking the sum one
 unit over refused, a done one not counted, a waiting PLAY-AFTER and its out half counted as the larger; a RETARGET over
 the cap refused 12 with the instance unchanged; A'1's cells, whose 32-bit sum wraps, refused; per-lens rects of
-different sizes judged by the larger on both lenses; codes 0 and 32 not counted; a source window's L; a version-1
+different sizes judged by the larger on both lenses; codes 0 and 32 not counted, in CELLS and in RAIN (a rain
+alphabet `[32, 67]` whose code-32 glyph is the longest: the at/over pair exact without 32 answers taken/12, the pair
+exact with 32 answers taken/taken); a source window's L; a version-1
 instance counted and never refused) · `v5-order` (a refusal per reason
 in §7.2's order; a version-2 record without EFFECTS 5; each unused field 5; a FILL level 16 12; an eased level past 15
-12; a seed of 5,000 accepted; the header's reserved byte and u16 5; a pref 15 into a FILL's w1 — taken at a SET,
+12; a seed of 5,000 accepted; the header's reserved byte and u16 5; a version-2 PLAY with a `self` backdrop whose
+capture range passes the cache 5 (v3-order's three capture steps pass `cap` in the tag's place and never reach that
+rule; v1–v4 stay frozen); a pref 15 into a FILL's w1 — taken at a SET,
 5 at a fire and a PLAY whose parameter is not 0, taken at a PLAY whose parameter is 0; EFFECTS cleared mid-motion: the open instance draws on to step T, the next version-2
 PLAY refused 5). **The fast path's own proof:** the fork's runner runs every v3, v4 and v5 engine vector
 twice — the fast path forced on, then off, by a host door over the walk's choice — and both must equal the filled expectation; and the host differential test
@@ -2769,3 +2792,9 @@ phone's keeper applies the hold-back rule before re-arming.
   the version-2 header's reserved bytes 0 (5); the field rules decided after substitution; the none-backdrop rule's
   REVEAL exception narrowed to exactly one REVEAL between WAITs (the lane's "every non-WAIT segment" accepts two, which a
   fold makes lens-dependent); telemetry 40 bits 4–7 count drawing slots only. Nothing built here.
+- 2026-11-19 — §7 on the vector lane's three two-way readings as ruled: **codes 0 and 32 draw nothing, name no glyph
+  record, are never walked and add nothing to the budget, in CELLS and RAIN alike** (§7.6, pointed to from the draw, the
+  read range and §7.12); RAIN's term counts every lit cell by the longest glyph among the alphabet's other codes (a
+  bound that ignores which codes are drawn); RLE length and "its width scales" defined; **the plan's W while a slot
+  waits is the earliest due time over all slots** — 0 behind a late out half, t0 − now once it is done (§7.7, §5.2);
+  `v5-order` gains a version-2 capture range past the cache. Nothing built.
