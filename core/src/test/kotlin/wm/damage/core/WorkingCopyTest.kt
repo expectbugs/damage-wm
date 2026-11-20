@@ -2,7 +2,11 @@ package wm.damage.core
 
 import java.net.InetAddress
 import java.nio.file.Files
+import java.nio.file.Path
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executor
+import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.test.AfterTest
@@ -31,6 +35,7 @@ import wm.damage.core.app.HostBackend
 import wm.damage.core.app.LocalWindowSource
 import wm.damage.core.app.Op
 import wm.damage.core.app.OpId
+import wm.damage.core.app.OpQueue
 import wm.damage.core.app.Snap
 import wm.damage.core.app.SourceListener
 import wm.damage.core.app.WindowCore
@@ -38,6 +43,7 @@ import wm.damage.core.app.WindowState
 import wm.damage.core.app.WorkingCopy
 import wm.damage.core.content.ContentHostServer
 import wm.damage.core.content.LocalContent
+import wm.damage.core.shell.Persistence
 
 /**
  * Build S1-1, package P3 (`CONTRACT.md` §2.3, §2.4, §9.3, §13 (b) "working copy"; the spec's §2 P3 and §3 "Where the
@@ -134,9 +140,54 @@ class WorkingCopyTest {
         }
     }
 
-    private fun phone(pc: Pc, note: (String) -> Unit = {}, wrap: (WorkingCopy) -> AppClient.Listener = { it }): WorkingCopy {
+    /** One of the phone's writers for a test: the writes from the [holdFrom]th on wait at a door, which opens when a
+     *  task is handed to the writer while a write waits there (what a close that waits for its writes has to do), or
+     *  at the test's end, where a write still held is dropped (the instance that held it has stopped). */
+    private class Door(private val real: (Path, String) -> Unit, private val holdFrom: Int) {
+        private val gate = CountDownLatch(1)
+        private val writes = AtomicInteger()
+        val held = AtomicInteger()
+        val landed = AtomicInteger()
+        @Volatile private var dropped = false
+        private val thread = Executors.newSingleThreadExecutor { r -> Thread(r, "test-door-writer").apply { isDaemon = true } }
+        val writer = Executor { r -> if (held.get() > 0) gate.countDown(); thread.execute(r) }
+        val write: (Path, String) -> Unit = { f, t ->
+            if (writes.incrementAndGet() >= holdFrom && gate.count > 0) {
+                held.incrementAndGet()
+                gate.await()
+                held.decrementAndGet()
+            }
+            check(!dropped) { "a write of an instance the test stopped: not written" }
+            real(f, t)
+            landed.incrementAndGet()
+        }
+
+        fun drop() {
+            dropped = true
+            gate.countDown()
+        }
+
+        fun end() = thread.shutdown()
+    }
+
+    /** A door around the copy's saves or the queue's appends: the door opens (and drops) before the instance's close
+     *  at the test's end, its thread ends after it. */
+    private fun door(real: (Path, String) -> Unit, holdFrom: Int, phone: (Door) -> WorkingCopy): Pair<WorkingCopy, Door> {
+        val d = Door(real, holdFrom)
+        closing += AutoCloseable { d.end() }
+        val wc = phone(d)
+        closing += AutoCloseable { d.drop() }
+        return wc to d
+    }
+
+    private fun phone(pc: Pc, note: (String) -> Unit = {},
+                      saver: Executor = Executors.newSingleThreadExecutor { r -> Thread(r, "test-copy-saver").apply { isDaemon = true } },
+                      saveWrite: (Path, String) -> Unit = SAVE, queueWriter: Executor = OpQueue.defaultWriter(),
+                      queueAppend: (Path, String) -> Unit = OpQueue::appendForced,
+                      wrap: (WorkingCopy) -> AppClient.Listener = { it }): WorkingCopy {
         val wc = WorkingCopy(phoneDir, TEST_ACTIONS, CoreExecutor("damage-core-phone-test"), contracts = mapOf("t" to 1),
-            clock = now::get, note = note)
+            clock = now::get, note = note, queueWriter = queueWriter, queueAppend = queueAppend, saveWrite = saveWrite,
+            saver = saver)
         wc.start { s ->
             AppClient("127.0.0.1", pc.port, AppClient.Credential.Token("tok"), s, wrap(wc), scope, contracts = mapOf("t" to 1),
                 retryPacingMs = 20, refusedPacingMs = 50, pingEveryMs = 0, clock = now::get)
@@ -256,6 +307,100 @@ class WorkingCopyTest {
         pc.back()
         waitUntil(10_000, 5, { "sent at the welcome" }) { pc.item("b")?.value == j("two") && again.queue.waiting == 0 }
         assertEquals("phone", pc.item("b")!!.by)
+    }
+
+    /** Pin (WC, 2026-11-20): a clean close lands the copy's pending save before it returns. The snapshot's save waits
+     *  at a door in the copy's writer; the close, then the restart BEFORE the door opens. A close that returns with the
+     *  save still held leaves the restart no cursor — the whole-suite failure of the test above ("the cursor came back
+     *  … was null"), made certain. */
+    @Test
+    fun aCleanClose_landsTheCopysPendingSave_beforeItReturns(): Unit = runBlocking {
+        val pc = keep(Pc())
+        pc.write("desk", "d1", 1, "a", "one")
+        val (first, door) = door(SAVE, holdFrom = 1) { d -> phone(pc, saver = d.writer, saveWrite = d.write) }
+        synced(first, pc)
+        cut(pc, first)                                                  // the restart's cursor can only come from disk
+        waitUntil(10_000, 5, { "the snapshot's save at the door" }) { door.held.get() == 1 }
+        val at = first.cursor
+        first.close()
+        first.executor.shutdown()
+        val heldAtClose = door.held.get()
+        val again = phone(pc)
+        waitUntil(10_000, 5, { "loaded" }) { again.client != null }
+        assertEquals(at, again.cursor, "the cursor came back (saves held at the close's return: $heldAtClose)")
+        assertEquals(j("one"), state(again).itemNamed("a")!!.value, "the PC's state came back")
+    }
+
+    /** Pin (WC, the class's sweep): a clean close lands the op lines handed to the queue's writer before it returns —
+     *  an op taken just before the close is on disk, drawn and sent after the restart. */
+    @Test
+    fun aCleanClose_landsTheQueuesPendingLine_beforeItReturns(): Unit = runBlocking {
+        val pc = keep(Pc())
+        pc.write("desk", "d1", 1, "a", "one")
+        val (first, door) = door(OpQueue::appendForced, holdFrom = 1) { d ->
+            phone(pc, queueWriter = d.writer, queueAppend = d.write)
+        }
+        synced(first, pc)
+        cut(pc, first)
+        first.executor.call { first.submit("t", Draft("set", listOf("b"), j("two"))) }
+        waitUntil(10_000, 5, { "the op's line at the door" }) { door.held.get() == 1 }
+        first.close()
+        first.executor.shutdown()
+        val heldAtClose = door.held.get()
+        val again = phone(pc)
+        waitUntil(10_000, 5, { "loaded" }) { again.client != null }
+        assertEquals(1, again.queue.waiting, "the op came back (lines held at the close's return: $heldAtClose)")
+        assertEquals(j("two"), state(again).itemNamed("b")?.value, "and is drawn")
+        pc.back()
+        waitUntil(10_000, 5, { "sent at the welcome" }) { pc.item("b")?.value == j("two") && again.queue.waiting == 0 }
+    }
+
+    /** WC, the unclean stop (the process ends; no close): the copy's last save has not landed. Only the cursor's last
+     *  advance is lost — the next start shows the copy as last saved (an older cursor), and its connection takes a
+     *  SNAPSHOT (L1 C2: every subscription names no cursor; there is no catch-up). The op the PC took before the stop is
+     *  still in the queue (its line leaves only after a save that holds it): it is drawn, sent once more and changes
+     *  nothing on the PC (its `seq` stays). Nothing the phone queued is lost or applied twice. */
+    @Test
+    fun anUncleanStop_losesOnlyTheCursorsLastAdvance_andTheNextStartComesBackBySnapshot(): Unit = runBlocking {
+        val pc = keep(Pc())
+        pc.write("desk", "d1", 1, "a", "one")
+        val (first, door) = door(SAVE, holdFrom = 2) { d -> phone(pc, saver = d.writer, saveWrite = d.write) }
+        synced(first, pc)
+        val epoch = pc.host.epoch
+        waitUntil(10_000, 5, { "the snapshot's save landed" }) { door.landed.get() == 1 }
+        first.executor.call { first.submit("t", Draft("set", listOf("b"), j("two"))) }
+        synced(first, pc)
+        waitUntil(10_000, 5, { "the next save at the door" }) { door.held.get() == 1 }
+        assertEquals(Cursor(epoch, 2), first.cursor)
+        val b = pc.item("b")
+        pc.cut()
+        first.client!!.close()                                          // the process ends: its wire with it
+        val snaps = CopyOnWriteArrayList<Snap>()
+        val again = phone(pc) { w ->
+            object : AppClient.Listener by w {
+                override fun snap(s: Snap) {
+                    snaps += s
+                    w.snap(s)
+                }
+            }
+        }
+        waitUntil(10_000, 5, { "loaded" }) { again.client != null }
+        assertEquals(Cursor(epoch, 1), again.cursor, "the copy as last saved: the cursor's last advance is lost")
+        val s = state(again)
+        assertEquals(j("one"), s.itemNamed("a")!!.value)
+        assertEquals(j("two"), s.itemNamed("b")?.value, "the op the PC took is drawn from the queue")
+        assertEquals(1, again.queue.waiting)
+        pc.back()
+        // the op sent again takes a line of the PC's log with no effect (its seq is sent to no one): wait on the queue
+        waitUntil(10_000, 5, { "answered: ${again.queue.waiting} waiting, cursor ${again.cursor}, the PC at ${pc.host.seq}" }) {
+            again.client?.welcome != null && again.queue.waiting == 0 && pc.host.seq == 3L
+        }
+        again.executor.call {}
+        assertEquals(listOf(2L), snaps.map { it.seq }, "one snapshot, at the PC's place")
+        assertEquals(Cursor(epoch, 2), again.cursor, "the snapshot brought the lost advance back")
+        assertEquals(b, pc.item("b"), "the op sent again changed nothing on the PC")
+        assertEquals(j("two"), state(again).itemNamed("b")!!.value)
+        assertEquals(emptySet(), state(again).pending)
     }
 
     @Test
@@ -483,5 +628,7 @@ class WorkingCopyTest {
     private companion object {
         /** 2023-11-14 22:13:20 UTC. */
         const val T0 = 1_700_000_000_000L
+        /** The copy's save as the product makes it. */
+        val SAVE: (Path, String) -> Unit = { f, t -> Persistence.writeAtomic(f, t, sync = true) }
     }
 }
