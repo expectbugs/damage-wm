@@ -1821,13 +1821,18 @@ class MainLocalShellTest {
                 r.upOn("SILENT")
                 r.until("$how: Main's second piece submitted behind the clock", 60_000) { r.flushes().count { it.label == "STAGE" } >= 2 }
                 if (how == "silent") r.sim.setSilent(true) else assertTrue(r.shell.devProbe("rest", "on"), "the probe is the shell's")
-                r.until("$how: asleep") { r.shell.glassesAsleep }
-                val asleepAt = assertNotNull(r.noteAt("power", if (how == "silent") "fw-silent" else "rest"), "$how: ${r.notes("power")}")
+                // the journal's own order decides (one writer, in order): the note the sleep writes as it begins, then no
+                // STAGE or ATLAS submit after it
+                val begun: (String) -> Boolean = if (how == "silent") { l -> "\"kind\":\"silent\"" in l && "\"detail\":\"glasses asleep" in l }
+                    else { l -> "\"kind\":\"rest\"" in l && "\"detail\":\"resting" in l }
+                r.until("$how: asleep") { r.shell.glassesAsleep && Files.readAllLines(r.journal).any(begun) }
                 delay(2_000)
-                val fl = r.flushes()
-                val late = fl.filter { it.t > asleepAt && it.label in setOf("STAGE", "ATLAS") }
-                println("BP-5 $how: ${fl.count { it.label == "STAGE" }} STAGE flush(es), the last ${fl.lastOrNull { it.label == "STAGE" }?.let { it.t - asleepAt }} ms from the sleep")
-                assertTrue(late.isEmpty(), "$how: nothing staged after the sleep began: $late")
+                val lines = Files.readAllLines(r.journal)
+                val at = lines.indexOfFirst(begun)
+                val staged = lines.withIndex().filter { (_, l) -> "\"ev\":\"submit\"" in l && ("\"label\":\"STAGE\"" in l || "\"label\":\"ATLAS\"" in l) }.map { it.index }
+                println("BP-5 $how: ${staged.size} STAGE/ATLAS submit(s), ${staged.count { it < at }} before the sleep's note, ${staged.count { it > at }} after it")
+                assertTrue(staged.any { it < at && "STAGE" in lines[it] }, "$how: the sleep began while Main was being staged")
+                assertTrue(staged.none { it > at }, "$how: nothing staged after the sleep began: ${staged.filter { it > at }.map { lines[it].take(120) }}")
             } finally { r.close() }
         }
     }
