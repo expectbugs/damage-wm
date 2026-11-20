@@ -604,7 +604,10 @@ class MainStaging private constructor(
     fun switchTo(p: Programs) {
         if (p.slot == activeProgs) throw LintError("a programs switch into the slot in force")
         retiredPans = pans
-        pans = p.pans; period = p.period; t = p.t; motion = p.motion; periodInForce = p.periodInForce
+        pans = p.pans; period = p.period; t = p.t; motion = p.motion
+        // a new effect starts from its own fit; Auto's steps keep the period in force as it is now (a raise between the
+        // re-make and its count stands, and owes the next re-make)
+        if (p.reset) periodInForce = p.periodInForce
         activeProgs = p.slot
     }
 
