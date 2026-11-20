@@ -9234,3 +9234,62 @@ flash tool's logs or his phone's journal — measured on the glasses.
   3. **The period had no margin:** 13 of 32 motions folded one of their five steps; a step drew in 38.8–41.4 ms
      (median 39.5) against P 42 = 41.0 ms.
 - **The way back:** the C1 image `0dab2154…` (`fws/2.2.6.10-cfw-0dab2154/`), then Phase 2's `48172b62…`.
+
+## 95. C2's second and third looks: APK 0.79 and 0.80; the notice's focus timer; the animation plan ruled (2026-11-19)
+
+Everything "on the glasses" is his phone's journal of that session (saved under the gitignored
+`private/journal/pull-20261119/`); the rest is the simulator and the PC. Rulings: `private/build072/C2-decisions.md`
+parts AU–BE.
+
+1. **APK 0.79 (installed 14:40) = 0.77 + the first trial's three fixes (§94) + the `Animations` category + RA-1.**
+   Main's region is 128 KiB at 256 KiB (the atlas 96, the stage reserve 32) with a one-strip fallback; a face's first
+   use no longer drops Main's staging; the period is fitted on the trial's own step times with 10 % (P 39/46/52/59
+   at 288/352/416/480). **`Animations`** (shown on a build with local input): `Scroll length` 225 · 300 · 450 · 600 ·
+   800 ms and `Frames` auto · 4…16; the burst's SETTLE wait follows the motion; a window that opens over the list
+   closes the adopted motion ahead of its frame. **RA-1** (`REPLAN.md` §17.4 R-a): a turn of the shell's loop open
+   for 30 s of running time is recorded through the uncaught-error record and the process ends itself for its
+   service's restart (the longest turn seen on his phone with C2 armed: 0.83 s); one review pass, no way found for it
+   to end a healthy process.
+2. **The second trial, his words:** at about 450 ms "this speed is way, way better, they look pretty awesome now";
+   after trying the steps, **"I like 300ms, that seems like the perfect length for the animations to feel quick and
+   agile but still slow enough to look good"** (the default since 0.80). On the glasses: the session after the
+   install asked 256 KiB and was answered "allocated already" (the stored size, §92.6); about 200 notches drawn by
+   the glasses and COMMITted. Found in that session:
+   - **"The loop doesn't animate"** — Main is drawn as a ring (the lead had described it wrongly; he corrected it),
+     and at the wrap the lens reports an edge instead of firing. Since 0.80 the phone starts the same one-row motion
+     itself on the edge report (a PLAY in a free slot beside the DISCARD naming the other end; the strip one row
+     longer at each end; it starts about 0.11–0.26 s after the notch, modeled). The glasses' own ring cursor is on
+     the list for the next firmware build.
+   - **A "belief and mirror disagree" notice** (14:46:57, `Scroll length` 600, a wrap 6 ms after a notch): a false
+     alarm of the phone's agreement check, which compared cells it was holding behind the adopted motion with the
+     mirror; reproduced in the rig and fixed (the check leaves held cells out until they are released).
+   - **A notice he could not dismiss:** it was not stuck — each of his inputs restarted the grace and went to the
+     window under it; it took focus 2.6 s after his last input. His ruling in place of a new dismissal gesture:
+     **"Let's just make the focus timer more obvious. Like, a progress bar at the top of it, going left to right,
+     giving it focus when the bar is all the way full (let's make that 2s flat), and showing the bar reset on
+     inputs… The pop-up can also increase in brightness from like 30% to 90% gradually as the timer goes"** — built
+     as NT (`DESIGN.md` §4.5): the rule under the source line fills over a 2.0 s grace in 8 steps of 80–186 B, the
+     ink fades in, an input's reset rides that input's own flush.
+   - **S_heard after an app update with the lens's lease still live** (the lens kept S 37, the phone seeded 0): since
+     0.80 seeded from RIGHT's own read when it shows the lease live with time to spare.
+   - **One folded step in every motion at T ≥ 10** — not the COMMIT (it always lands after the motion); the first
+     step's cost or stock's own work per gesture: open; a test for him (`Scroll length` 600 with `Frames` 10).
+3. **The rules' fuzz, run longer (8,000 sequences):** one real defect — a gap in S found after a SETTLE was charged
+   in full as echo owes although the missing reports' stock messages had already come, and an owe swallowed a real
+   tap; fixed (the unreported messages are kept across a SETTLE and counted against a gap first). Two older shapes
+   are DECLARED and counted apart: an echo later than its burst's SETTLE (measured on his glasses the same day: the
+   stock message 2–44 ms after its report on 9 isolated gestures; in 10 of 35 bursts FEWER stock messages than
+   reports, none late — a small sample, to be read again from a day of use), and a COMMIT that never ran on RIGHT
+   behind a refused mode 27.
+4. **APK 0.80 (staged 17:51; the PC on it since 17:51) = 0.79 + items 2 and 3 + `Scroll length` 300 ms by default.**
+   The whole battery: core 232 classes / 1,806 tests / 0 failures, none from cache · desktop 14 / 53 · `--selfcheck`
+   486 PASS twice · `--local-check` 64 cases · the snapshot 0 px outside the mask but for ONE scene, as intended —
+   `07-notification-arrived`, the notice at the timer's first step (looked at; that scene is refreshed in the
+   judge's base, the old renders kept) · node 200 · lint 0 · wiring 79. `research/mutations-c2.json`: 190 rows, all
+   applying; the new rows were each watched to fail in their rounds; the whole list has not been swept on this tree.
+5. **The animation plan, ruled ("Let's set this one in stone!"):** `MOTION.md` §7; `REPLAN.md` §17.3 item 8. Not
+   started as a build; its phase-1 spec and the firmware build's design pass were begun the same evening.
+6. **"Do not hold new work, keep going full throttle, I intend to use my reset so don't hold back"** (17:55; the
+   lead had said it would hold new work for the weekly allowance). In work from that word: S1-4's first half
+   (`wip/s14-k`; lane P's player process done on `wip/s14-p`), the staged-record split on today's tree
+   (`wip/081-split`), the two documents of item 5, and the fork's `tools/verify.py` gaps (§92.8).
