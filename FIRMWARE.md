@@ -2203,9 +2203,11 @@ backdrop's term + the largest of its segments' terms, with A the track's area in
 10 u = 0.156 µs a painted pixel (M, the step fit's slope), 16 u = 0.25 µs a walked byte (M-derived: 0.80's strip, 3.8 KB
 longer, cost 3.8 ms more over four walks a step) — and upper bounds elsewhere (1 u a pixel of byte-wide work is about
 eight times the measured copy's rate; 26 u a glyph pixel covers its drawing and the walk of a record at most one byte a
-pixel). Version-1 programs are not budgeted (C1's and C2's rule stands).
+pixel). A budgeted program always runs the fast DRAW path (version 2 needs EFFECTS), which walks a record at most once
+a step and writes runs, so every term is an upper bound of what it costs there. Version-1 programs are not budgeted (C1's
+and C2's rule stands).
 
-**The worst legal step per verb** under the budget (one program at C ≈ 6.4 M; modeled, on the C2 path's rates):
+**The worst legal step per verb** under the budget (one program at C ≈ 6.4 M; modeled, at the budget's rates):
 
 | verb | the most a step can hold | by the model |
 |---|---|---|
