@@ -1,0 +1,86 @@
+package wm.damage.core
+
+import kotlin.test.Test
+import kotlin.test.assertTrue
+import wm.damage.core.local.Taps
+import wm.damage.core.transport.Arm
+
+/**
+ * B083 (2d), the instrument for his "if I scroll very quickly, the left and right lenses get out of sync and the behavior
+ * gets janky until I stop" (APK 0.81, 2026-11-19): [LocalHarness]'s rules, batch composer and the simulator's two lenses,
+ * with the ring's event and each of the phone's messages delivered to each lens on its own — the later lens by a skew drawn
+ * per notch and per message, 0..80 ms, LEFT later or RIGHT later — and fast bursts at 40–150 ms gaps. Sampled after every
+ * event and every engine wake (8 ms): whether the two panels differ over the list's band, by a step (either lens
+ * mid-motion) or by a whole row (each shows a row, not the same one), for how long, and what ran when they agreed again.
+ *
+ * Rule sets: 0.82's (an unreported scroll message applied at its arrival), 2b (held for its report). Each cell runs
+ * [SEEDS] seeded bursts (seed = cell base + i, so a cell's numbers repeat exactly); his journals' share of stock messages
+ * before their report (27 of 332) is the reversal rate. Printed as a table (`skew-rig:` lines); asserted: only that every
+ * burst ended with both lenses equal to the phone's truth at rest, which the fuzz's invariants already say.
+ */
+class LocalSkewRigTest {
+    private companion object {
+        val SEEDS = System.getenv("SKEW_RIG_SEEDS")?.toInt() ?: 30
+        const val NOTCHES = 6
+        const val STEP = 1; const val ROW = 2
+    }
+
+    class Result(var msStep: Long = 0, var msRow: Long = 0, var longest: Long = 0, var stretches: Int = 0,
+                 val endedBy: java.util.TreeMap<String, Int> = java.util.TreeMap(), var notAtRest: Int = 0, var bursts: Int = 0)
+
+    /** One burst: [NOTCHES] notches down, [gap] ms apart, from row 0 of 12 rows ([wrap] false) or across the end of 8 rows
+     *  (from row 5: the third notch is the edge, Main's wrap). */
+    private fun burst(seed: Long, rule: Int, leftLate: Boolean, skewMax: Int, gap: Int, wrap: Boolean, into: Result) {
+        val h = LocalHarness(seed, Taps.REPORT, n0 = if (wrap) 8 else 12)
+        h.rules.holdStock = rule >= 1
+        if (wrap) { repeat(5) { h.gesture(1, answer = true, band = "none"); h.runUntil(h.now + 600) }; h.rest() }
+        h.stockFirst = 27.0 / 332; h.stockLeadMax = 60
+        h.skewMax = skewMax; h.leftLate = leftLate
+        var state = 0; var since = h.now; var stretchFrom = -1L
+        fun classify(): Int {
+            if (!h.bandsDiffer()) return 0
+            val l = h.shownOn(Arm.LEFT); val r = h.shownOn(Arm.RIGHT)
+            return if (l >= 0 && r >= 0 && l != r) ROW else STEP
+        }
+        h.sampler = {
+            val s = classify()
+            val dt = h.now - since
+            if (state == STEP) into.msStep += dt else if (state == ROW) into.msRow += dt
+            if (s != 0 && stretchFrom < 0) stretchFrom = h.now
+            if (s == 0 && stretchFrom >= 0) {
+                into.longest = maxOf(into.longest, h.now - stretchFrom); into.stretches++
+                val w = h.what
+                val key = if (" gets " !in w) w else w.substringBefore(" gets ") + " gets " + w.substringAfter(" gets ").split(' ')
+                    .filter { it in setOf("COMMIT", "DISCARD", "SETTLE", "PLAY", "CLOSE", "keyframe", "draw") }.distinct().joinToString("+").ifEmpty { "table" }
+                into.endedBy.merge(key, 1, Int::plus)
+                stretchFrom = -1
+            }
+            state = s; since = h.now
+        }
+        repeat(NOTCHES) { h.gesture(1, answer = true); h.runUntil(h.now + gap) }
+        h.rest()
+        h.sampler = null
+        if (stretchFrom >= 0) { into.longest = maxOf(into.longest, h.now - stretchFrom); into.endedBy.merge("(still differing at rest)", 1, Int::plus) }
+        into.bursts++
+        if (h.truthMismatches().isNotEmpty()) into.notAtRest++
+    }
+
+    @Test
+    fun theTwoLensesUnderASkewedLink_2d() {
+        val rules = (System.getenv("SKEW_RIG_RULES") ?: "0,1").split(',').map { it.trim().toInt() }
+        val ruleName = mapOf(0 to "0.82", 1 to "2b")
+        val out = StringBuilder()
+        var notAtRest = 0
+        for (wrap in listOf(false, true)) for (rule in rules) for ((skew, leftLate) in listOf(0 to true, 80 to true, 80 to false)) for (gap in listOf(40, 70, 100, 150)) {
+            val r = Result()
+            val base = 9_000_000L + (if (wrap) 100_000 else 0) + gap * 1_000L + (if (leftLate) 0 else 500) + skew
+            for (i in 0 until SEEDS) burst(base + i, rule, leftLate, skew, gap, wrap, r)
+            notAtRest += r.notAtRest
+            val dir = if (skew == 0) "none (L first, 4-11)" else if (leftLate) "LEFT late 0-$skew" else "RIGHT late 0-$skew"
+            out.append("skew-rig: ${if (wrap) "wrap" else "mid "} | rules ${ruleName[rule]} | skew $dir | gap $gap | per burst: step ${r.msStep / r.bursts} ms, " +
+                "row ${r.msRow / r.bursts} ms | stretches ${r.stretches} | longest ${r.longest} ms | ended by ${r.endedBy} | not at rest ${r.notAtRest}/${r.bursts}\n")
+        }
+        println(out)
+        assertTrue(notAtRest == 0, "bursts that did not end with both lenses equal to the truth: $notAtRest\n$out")
+    }
+}

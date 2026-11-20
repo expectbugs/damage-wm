@@ -55,6 +55,8 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         const val PERIOD = 16
         /** Decisions AZ.4: the wrap's PLAY slot (`MainStaging.WRAP_SLOT`). */
         const val WRAP_SLOT = 1
+        /** The shell's start allowance for the wrap's motion (`Shell.WRAP_START_MS`). */
+        const val WRAP_START = 400L
         const val T_SCROLL = 3
         const val T_PRESS = 2
         const val W = 640; const val H = 480
@@ -198,14 +200,16 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         while (true) {
             val nextWake = ((now / 8) + 1) * 8
             val e = q.peek()
-            if (e != null && e.t <= until && e.t <= nextWake) { q.poll(); now = maxOf(now, e.t); e.run(); drainSent(); continue }
+            if (e != null && e.t <= until && e.t <= nextWake) { q.poll(); now = maxOf(now, e.t); e.run(); drainSent(); sampler?.invoke(); continue }
             if (nextWake > until) { now = until; break }
             now = nextWake
             wakeBoth()
+            sampler?.invoke()
         }
     }
 
     private fun wakeBoth() {
+        if (sim.motionForTest(Arm.LEFT).anyDrawing || sim.motionForTest(Arm.RIGHT).anyDrawing) what = "engine step"
         var any = false
         for (a in Arm.entries) if (sim.motionForTest(a).anyDrawing) { sim.conformanceWake(a, now); any = true }
         drainSent()
@@ -307,11 +311,15 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
             if (arm == Arm.LEFT && (covered || window) && sim.motionForTest(arm).slots.any { it?.local == true && it.tag == s }) localsUnderCover++
         }
         trace?.invoke("[$now] gesture g$g kind $kind answer $answer band $bandNow hold $holdWordOn")
-        input(Arm.LEFT)
-        drainSentLeftOnly()
+        // B083 (2d): with a skew, the ring's event reaches each lens on its own — the later one by 0..[skewMax] ms, drawn per
+        // notch from the rig's own generator; without one, LEFT now and RIGHT one inter-lens answer later (§6.1), as before
+        val (dL, dR) = skewPair() ?: (0L to lensGap().toLong())
+        if (dL == 0L) { what = "fire LEFT"; input(Arm.LEFT); drainSentLeftOnly() }
+        else at(now + dL) { what = "fire LEFT"; input(Arm.LEFT); drainSentLeftOnly() }
         if (!answer) return g
-        val tR = now + lensGap()
+        val tR = now + dR
         at(tR) {
+            what = "fire RIGHT"
             // stock's own message, after the 115 (one FIFO, §6.1): a scroll message after the exchange, a click in the turn
             val st = if (tap) LocalRules.Stock.CLICK else if (id == CfwModes.EV_UPROLL) LocalRules.Stock.NEXT else LocalRules.Stock.PREV
             val extra: Long? = when {
@@ -494,17 +502,68 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     var loseAnswerOn: Set<Arm>? = null
 
     private var lastDown = 0L
+    private val lastDownArm = HashMap<Arm, Long>()
     private fun sendDown(image: ByteArray, perArm: Map<Arm, ByteArray?> = emptyMap(), inducedOn: Arm? = null) {
         val arrive = maxOf(lastDown + 1, now + downLat())
         lastDown = arrive
         sent++
-        at(arrive) {
+        val skew = skewPair()
+        if (skew == null) at(arrive) {
             for (arm in listOf(Arm.LEFT, Arm.RIGHT)) {
                 val img = if (perArm.containsKey(arm)) perArm[arm] else image
                 if (img == null) continue
                 deliver(arm, img, inducedOn == arm)
             }
+        } else for ((arm, d) in listOf(Arm.LEFT to skew.first, Arm.RIGHT to skew.second)) {
+            // B083 (2d): each lens gets the message on its own, the later one by the drawn skew; each lens's stream stays
+            // in order
+            val img = if (perArm.containsKey(arm)) perArm[arm] else image
+            if (img == null) continue
+            val t = maxOf((lastDownArm[arm] ?: 0L) + 1, arrive + d)
+            lastDownArm[arm] = t
+            at(t) { what = "$arm gets ${subsOf(img).joinToString(" ") { kindOf(it) }}"; deliver(arm, img, inducedOn == arm) }
         }
+    }
+
+    // ---- B083 (2d): the skewed two-lens rig
+    /** The later lens's lag, 0..[skewMax] ms, drawn per notch and per message from [skewRnd]; [leftLate] says which lens is
+     *  later. 0 (the default): no skew — the fuzz's link exactly as before. */
+    var skewMax = 0
+    var leftLate = true
+    val skewRnd = java.util.Random(seed * 7 + 13)
+    private fun skewPair(): Pair<Long, Long>? {
+        if (skewMax <= 0) return null
+        val d = skewRnd.nextInt(skewMax + 1).toLong()
+        return if (leftLate) d to 0L else 0L to d
+    }
+    /** What ran last (for what ends a stretch of the two panels differing). */
+    var what = ""
+    /** Called after every event and every engine wake, with the time ([sampleAt]). */
+    var sampler: (() -> Unit)? = null
+    fun kindOf(sub: ByteArray): String = when (sub[0].toInt()) {
+        26 -> when (sub[1].toInt()) { 0 -> "PLAY"; 2 -> "CLOSE"; 3 -> "COMMIT"; 4 -> "DISCARD"; 5 -> "SETTLE"; else -> "26/${sub[1]}" }
+        27 -> when (sub[1].toInt()) { 0 -> "SET"; 1 -> "CLEAR"; 2 -> "LIST"; else -> "27/${sub[1]}" }
+        6 -> "keyframe"; 19 -> "write"
+        else -> "draw"
+    }
+    /** The row identity [arm]'s panel shows in the band: the band's one level when it is uniform (−1 otherwise, or a level
+     *  that names no row: mid-step or the modal). */
+    fun shownOn(arm: Arm): Int {
+        val p = (if (arm == Arm.LEFT) sim.left else sim.right).panel
+        var l0 = -1
+        for (y in BAND.y until BAND.bottom) for (x in BAND.x until BAND.right) {
+            val b = p[y * 320 + x / 2].toInt() and 0xFF
+            val l = if (x % 2 == 0) b shr 4 else b and 0x0F
+            if (l0 < 0) l0 = l else if (l != l0) return -1
+        }
+        val id = l0 - 2
+        return if (id in 0 until IDS) id else -1
+    }
+    /** Whether the two panels differ over the band. */
+    fun bandsDiffer(): Boolean {
+        val a = sim.left.panel; val b = sim.right.panel
+        for (y in BAND.y until BAND.bottom) for (x in BAND.x / 2 until BAND.right / 2) if (a[y * 320 + x] != b[y * 320 + x]) return true
+        return false
     }
 
     private fun deliver(arm: Arm, img: ByteArray, induce: Boolean) {
@@ -559,6 +618,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     fun keyframe(why: String) {
         trace?.invoke("[$now] keyframe: $why")
         wrapOpen = false
+        deferAreas = emptyList()
         keyframes++
         val t = truth()
         val packed = ByteArray(320 * 480)
@@ -678,9 +738,15 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         }
         val wrapAreas = wrap?.list?.areas ?: emptyList()
         // decisions AA.1: with a COMMIT planned, a region meeting its areas is not drawn in this batch; what still differs
-        // from the truth once END is in the model goes in the next one
-        val hold = if (plan.isEmpty() && wrap == null) emptySet() else regions.filter { r -> plan.any { c -> LocalRules.meets(listOf(r), listOf(r), c.areas) } ||
-            LocalRules.meets(listOf(r), listOf(r), wrapAreas) }.toSet()
+        // from the truth once END is in the model goes in the next one. B083 (2c): as the shell's compositor does it (AF.7,
+        // `Compositor.deferUntilMs`), the held regions wait for the motion's end on the glasses — a COMMIT's (its report's
+        // arrival plus T × P and a period) or the wrap's (its steps and the shell's start allowance) — across batches,
+        // not only in the batch that carries the answer; a keyframe ends the wait
+        if (deferAreas.isNotEmpty() && now >= deferUntil) deferAreas = emptyList()
+        val until = (plan.map { it.motionEndsMs } + listOfNotNull(wrap?.let { now + (T_SCROLL + 1L) * PERIOD + WRAP_START })).maxOrNull()
+        if (until != null && until > now) { deferAreas = (deferAreas + plan.flatMap { it.areas } + wrapAreas).distinct(); deferUntil = maxOf(deferUntil, until) }
+        val hold = if (plan.isEmpty() && wrap == null && deferAreas.isEmpty()) emptySet() else regions.filter { r -> plan.any { c -> LocalRules.meets(listOf(r), listOf(r), c.areas) } ||
+            LocalRules.meets(listOf(r), listOf(r), wrapAreas) || (carryHold && LocalRules.meets(listOf(r), listOf(r), deferAreas)) }.toSet()
         var subs = diff(m2, t, dirty - hold)
         // the transport's rule (`CfwTransportBase.withMotionCloses`): a batch drawing inside the wrap's instance while the
         // phone holds it open CLOSEs it first
@@ -701,9 +767,16 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         // stagings by wire mark, for invariant (1)
         for (s in tail) if (s[0].toInt() == 27 && s[1].toInt() == 2) stagings[s[11].toInt() and 0xFF] = ids.copyOf()
         emit(tail, subs.map { it.first })
-        if (held.isNotEmpty()) pumpSoon()
+        if (held.isNotEmpty()) { if (carryHold && deferAreas.isNotEmpty() && deferUntil > now) at(deferUntil) { pump() } else pumpSoon() }
         rules.settleAt()?.let { s -> if (s > now) at(s) { pump() } }
     }
+
+    /** B083 (2c): the areas whose drawing waits for a motion's end on the glasses, and that end (the shell's deferral). */
+    private var deferAreas: List<Pair<Rect, Rect>> = emptyList()
+    private var deferUntil = 0L
+    /** The hold carried across batches (the shell's rule, the default); false: held in the answer's batch alone (the
+     *  harness before B083 — the skewed rig's 0.82 rule set). */
+    var carryHold = true
 
     private fun emit(tail: List<ByteArray>, draw: List<ByteArray>) {
         val all = LocalRules.batchOrder(draw, tail)
@@ -772,6 +845,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     fun start(fresh: Boolean) {
         q.clear(); lastUp = now; lastScrollUp = now; lastDown = now; pumpAt = Long.MAX_VALUE
         heldGesture.clear()                             // 2b: the rules' start clears the hold
+        deferAreas = emptyList()                        // the start's keyframe ends every motion's wait
         if (fresh) for (a in Arm.entries) { sim.conformanceLease(a, false, now); sim.conformanceLease(a, true, now) }
         for (a in Arm.entries) sim.conformanceControl(a, DamageMsg.OP_FLAGS_SET, ARMED, now)
         val t = truth()

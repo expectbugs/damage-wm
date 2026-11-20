@@ -85,17 +85,20 @@ internal class MainBinding {
     var restagedBytes = 0L; private set
     var restageCount = 0; private set
 
-    /** B082 (row slack): the segment room each row's window has earned by changing — the largest picture it drew in a
-     *  staging and a margin ([MainStaging.roomFor]) — carried into the next staging by window, for this process. */
+    /** B082 (row slack): the segment room each row's window has earned by changing — the largest picture it drew in the
+     *  last staging and a margin ([MainStaging.roomFor]) — carried into the next staging by window. B083 (the focused read
+     *  of 0.82, S3): from that staging alone, so it comes down — a row that keeps changing keeps room for what it drew
+     *  lately, one that stopped changing (a long title gone back) loses it, and every step walks less. */
     val roomById = HashMap<String, Int>()
     private var ids: List<String?> = emptyList()
 
-    /** The current staging's changed rows into [roomById] (at a drop and before the next staging). */
+    /** The current staging's rows into [roomById] (at a drop and before the next staging): a changed row's room from the
+     *  largest picture it drew in this staging, an unchanged row's taken away. Idempotent for one staging. */
     private fun harvestRoom() {
         val ms = staging ?: return
         for (r in 0 until minOf(ms.rows, ids.size)) {
             val id = ids[r] ?: continue
-            if (r < ms.changed.size && ms.changed[r]) roomById[id] = maxOf(roomById[id] ?: 0, MainStaging.roomFor(ms.seenMax[r]))
+            if (r < ms.changed.size && ms.changed[r]) roomById[id] = MainStaging.roomFor(ms.seenMax[r]) else roomById.remove(id)
         }
     }
 

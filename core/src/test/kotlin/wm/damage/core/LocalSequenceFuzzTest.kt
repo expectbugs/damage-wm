@@ -593,6 +593,19 @@ class LocalSequenceFuzzTest {
         if (h.rules.counts["stockReleased"] != 1) "released ${h.rules.counts["stockReleased"]} (held ${h.rules.counts["stockHeld"]}, paired ${h.rules.counts["stockPaired"]})" else null,
         if (h.row != 2) "the row is ${h.row}, not 2" else null) })
 
+    /** S30 (B083, 2c; his look at 0.81: edge reports in a burst at Main's wrap): two notches past the end 20 ms apart, the
+     *  second an edge too (the wrap's DISCARD has not landed): the wrap's PLAY draws whole on both lenses — the second
+     *  edge's frame waits for its end, as the shell's compositor holds it (AF.7), instead of closing it after a step — and
+     *  the list then shows the burst's row. */
+    @Test fun seededS30_aSecondEdgeDoesNotCloseTheWrap() = seeded(Taps.REPORT, rows = 7, script = { h ->
+        h.gesture(1, answer = true, band = "none"); h.runUntil(h.now + 20)
+        h.gesture(1, answer = true, band = "none")
+        h.rest()
+    }, extra = { h -> listOfNotNull(
+        if (h.wrapPlays != 1) "${h.wrapPlays} wrap PLAYs (the shape did not happen)" else null,
+        if (h.wrapCuts != 0 || h.bodies114.any { it.first == LocalHarness.WRAP_SLOT && it.third == 1 }) "the wrap closed while drawing: cuts ${h.wrapCuts}, bodies ${h.bodies114.filter { it.first == LocalHarness.WRAP_SLOT }}" else null,
+        if (h.row != 1) "the row is ${h.row}, not 1" else null) })
+
     @Test fun seededS24_aRefusedTailOnRightIsSeenAtTheSettle() = seeded(Taps.REPORT, live = false, script = { h ->
         h.refuse27On = Arm.RIGHT
         val t0 = h.now

@@ -68,6 +68,11 @@ class StagePiecesTest {
             if (ev is TransportEvent.FlushDone) ordinalOf[ev.id]?.let { n -> onStageDone?.invoke(n) }
             if (ev is TransportEvent.FlushDone && ev.id in failIds) ev.copy(ok = false, error = "test: the piece's ack never came") else ev
         }
+        /** B083 (S4): every reading the shell asks, in the same order as [sent] (label "READ <its label>"). */
+        override suspend fun telemetry(label: String): wm.damage.core.wire.DamageMsg.Telemetry? {
+            sent += Sent(-1, "READ $label", -1, 0)
+            return inner.telemetry(label)
+        }
         override suspend fun submit(flush: FlushRequest): Long {
             val n = if (flush.label == "STAGE") synchronized(this) { ++stageN } else 0
             if (n > 0) onStage?.invoke(n)
@@ -169,6 +174,27 @@ class StagePiecesTest {
             val between = r.spy.sent.subList(i0 + 1, i1).filter { it.label != "STAGE" }
             val inputFlushes = r.lines().filter { "\"ev\":\"submit\"" in it && "\"in\":1" in it }.map { it.substringAfter("\"id\":").substringBefore(",").toLong() }.toSet()
             assertTrue(between.any { it.id in inputFlushes }, "the gesture's flush between the strip's first two pieces: between ${between.map { "${it.label}#${it.id}" }}, input flushes $inputFlushes")
+            r.assertOracle("after the staging")
+        } finally { r.close() }
+    }
+
+    /** B083 (the focused read of 0.82, S4): a record in pieces is read by the cache count at its end, as an atlas batch is
+     *  — no reading between the strip's first and last piece (each was a RIGHT round trip lengthening the staging), and a
+     *  reading after its last before the list is offered. */
+    @Test
+    fun theCountIsReadAtARecordsEndNotBetweenItsPieces_S4(): Unit = runBlocking {
+        val r = Rig()
+        try {
+            r.start()
+            r.bound("staged and bound")
+            val strip = stripFlushes(r)
+            assertTrue(strip.size >= 2, "the strip went in pieces: ${strip.map { it.bytes }}")
+            val log = r.spy.sent.toList()
+            val i0 = log.indexOf(strip.first()); val i1 = log.indexOf(strip.last())
+            fun counting(s: Sent) = s.label == "READ stage check" || s.label == "READ cache count"
+            val between = log.subList(i0, i1).filter { counting(it) }
+            assertTrue(between.isEmpty(), "${between.size} reading(s) between the strip's ${strip.size} pieces: ${log.subList(i0, i1 + 1).map { it.label }}")
+            assertTrue(log.drop(i1 + 1).any { counting(it) }, "a reading after its last piece: ${log.drop(i1 + 1).map { it.label }}")
             r.assertOracle("after the staging")
         } finally { r.close() }
     }

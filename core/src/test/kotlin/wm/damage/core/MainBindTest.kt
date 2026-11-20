@@ -303,6 +303,38 @@ class MainBindTest {
         assertTrue(ms3.strip.segLen!![s] >= room[music] && ms3.strip.segLen!![s] > ms2.strip.segLen!![s], "Music's segment starts with its room: ${ms3.strip.segLen!![s]} vs ${ms2.strip.segLen!![s]}")
     }
 
+    /** B083 (the focused read of 0.82, S3): a row's room comes down at a staging — from the largest picture it drew in the
+     *  staging before alone. Music draws a long title (room for it), goes back and draws nothing new for a staging (no room
+     *  after it), then draws a shorter title (room for that one only). */
+    @Test
+    fun aRowsRoomComesDownAtAStaging_S3() {
+        val rows = MainLocalCheck.sampleRows()
+        val rig = MainLocalCheck.MainRig(BoxFace, 352, rows)
+        val region = CfwModes.mainRegion(CfwModes.CACHE2_MAX, true)
+        val b = MainBinding()
+        val ids = rows.map { it.id }
+        val music = rows.indexOfFirst { it.id == "music" }
+        val row = rows[music] as MainLocalCheck.SampleRow
+        val plain = row.s
+        fun staged(change: String?): MainStaging {
+            val ms = rig.staging(CfwModes.CACHE2_MAX, region)
+            b.begin(ms, emptyList(), List(ms.rows) { null }, 0L, ids)
+            if (change != null) { row.s = plain.copy(line = change); assertTrue(ms.restage(music, rig.view, rig.kit, { _, bb -> bb() }) is MainStaging.Restage.Changed) }
+            b.drop()
+            return ms
+        }
+        val long = staged("Night Drive - Low Tide (live at the Roundhouse, 1998, remastered)")
+        val roomLong = b.roomFor(ids)[music]
+        assertEquals(MainStaging.roomFor(long.seenMax[music]), roomLong, "the long title's room")
+        row.s = plain
+        staged(null)
+        assertEquals(0, b.roomFor(ids)[music], "a staging in which the row drew nothing new: its room is taken away (was $roomLong)")
+        val short = staged("Low Tide")
+        val roomShort = b.roomFor(ids)[music]
+        assertEquals(MainStaging.roomFor(short.seenMax[music]), roomShort, "the shorter title's room alone")
+        assertTrue(roomShort < roomLong, "the room came down: $roomShort, from $roomLong")
+    }
+
     /** B082: room is given only where the region holds it — a room past the region leaves the staging as it was without
      *  it, never a staging refused (Main unbound) for the sake of the room. */
     @Test

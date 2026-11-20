@@ -160,6 +160,20 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
     private fun holdEndAt(): Long? = heldStock.lastOrNull()?.let { (_, at) -> maxOf(if (burstOpen) lastReportMs else 0L, at) + q }
     /** For the harnesses: the stock messages held now (2b). */
     val stockHeldNow: Int get() = heldStock.size
+    /** 2b in force (the default). False only in the skewed two-lens rig, which measures the rules before it (0.82): an
+     *  unreported scroll message is then applied at its arrival. */
+    internal var holdStock = true
+
+    /** P5: a scroll message applied unreported while [f] is bound — counted in u, the slot's snap-back (`lost-report`),
+     *  the table repair's evidence. */
+    private fun unreported(f: BoundList) {
+        u++
+        val st = slot(f.slot)
+        st.list = f.list
+        st.moved = st.moved ?: "lost-report"
+        count("unreported")
+        repair.onUnreportedScroll(f.list, this)
+    }
 
     /** The list in front, uncovered (null: covered, another window, nothing bound). */
     var front: BoundList? = null; private set
@@ -499,6 +513,7 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         if (!kind.click) {
             val e = f?.let { fl -> heldFor(fl.list, CfwModes.EV_UPROLL) ?: heldFor(fl.list, CfwModes.EV_DOWNROLL) }
             if (f == null || e == null) return Verdict.Apply(kind.type)                 // unbound: as today
+            if (!holdStock) { unreported(f); return Verdict.Apply(kind.type) }
             // ruled 11-19 (2b): no report yet, a list bound — a possible echo whose report is still on its way (the lens
             // always answers a bound notch with a 115: drew, edge or refused). Held until a report pairs it, or the burst
             // ends ([releaseHeld]); nothing is drawn for it meanwhile
@@ -608,14 +623,7 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
             val (type, _) = heldStock.removeFirst()
             val f = front
             val e = f?.let { fl -> heldFor(fl.list, CfwModes.EV_UPROLL) ?: heldFor(fl.list, CfwModes.EV_DOWNROLL) }
-            if (!unbound && f != null && e != null) {
-                u++
-                val st = slot(f.slot)
-                st.list = f.list
-                st.moved = st.moved ?: "lost-report"
-                count("unreported")
-                repair.onUnreportedScroll(f.list, this)
-            }
+            if (!unbound && f != null && e != null) unreported(f)
             count("stockReleased")
             out += Verdict.Apply(type)
         }

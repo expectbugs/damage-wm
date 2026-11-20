@@ -4023,7 +4023,8 @@ class Shell(
 
     /** One mode-19 message of a record's write: at most [STAGE_CHUNK] bytes of data; [names]: it names the rest (a band
      *  switch's item word), so it goes alone and only after every piece before it was acknowledged. */
-    private class StagePiece(val op: DisplayOp, val bytes: Int, val names: Boolean)
+    /** [ranges]: the cache bytes it writes (B083, S1: a wrap may play from a record whose written pieces miss its range). */
+    private class StagePiece(val op: DisplayOp, val bytes: Int, val names: Boolean, val ranges: List<IntRange> = emptyList())
 
     /**
      * A record written piece by piece (build SPLIT): one piece per STAGE flush, the next only after the last one's ack,
@@ -4326,7 +4327,8 @@ class Shell(
         var room = STAGE_CHUNK + 4                                  // header + data of the message's entries
         fun close(names: Boolean) {
             if (entries.isEmpty()) return
-            out += StagePiece(DisplayOp.CacheWrite2(CfwModes.cacheUpdate2(entries, cacheSize)), entries.sumOf { it.data.size }, names)
+            out += StagePiece(DisplayOp.CacheWrite2(CfwModes.cacheUpdate2(entries, cacheSize)), entries.sumOf { it.data.size }, names,
+                entries.map { it.off4 * 4 until it.off4 * 4 + it.data.size })
             entries = ArrayList(); room = STAGE_CHUNK + 4
         }
         for ((i, part) in parts.withIndex()) {
@@ -4490,6 +4492,9 @@ class Shell(
         if (cacheLedger.unjudged == 0L) return false                          // nothing acked past the last agreed reading
         val based = cacheLedger.baseGen != null && !cacheLedger.unsure
         if (based && atlasQueue.isNotEmpty()) return false                    // a batch is read at its end
+        // B083 (the focused read of 0.82, S4): so is a record in pieces — a reading between two of them judges none of it
+        // (it stays SENT to its last ack) and cost a RIGHT round trip per piece, lengthening the re-stage
+        if (based && stageCursor?.let { it.next in 1 until it.pieces.size } == true) return false
         if (comp.hasPending || comp.needsKeyframe) return false               // yields to content, as a chunk does
         // the pace; a base counts nothing short and ignores it
         if (based && System.currentTimeMillis() < ledgerReadNotBeforeMs) return false
@@ -5439,11 +5444,18 @@ class Shell(
         val w = local.wrapPlan(localRow()) ?: return null
         val ms = mainBind.staging ?: return null
         if (w.list.list != MainStaging.LIST || mainBind.list?.mark != w.list.mark) return null
-        // B082: the wrap draws its own record, which a re-stage in pieces may be writing — no PLAY until it is booked (the
-        // edge goes as today)
-        if (stageCursor?.rec?.key is MainStageKey) return null
         val pan = ms.wrapPan(w.step) ?: return null
         val p = ms.wrapParams(pan, w.cPrime) ?: return null
+        // B082: the wrap draws its own record, which a re-stage in pieces may be writing. B083 (the focused read of 0.82,
+        // S1): it plays from the records as they stand while no piece written or on its way meets its read range (§5.6)
+        // — its END is the phone's copy, which takes the re-stage only at its booking, and the pieces still to come wait
+        // for the motion's end (`mayGo`); else no PLAY until it is booked (the edge goes as today)
+        val c = stageCursor
+        if (c != null && c.rec.key is MainStageKey) {
+            val range = pan.program.firstRange(p)
+            val sent = c.pieces.take(c.next + (if (stageInFlightRec === c.rec) 1 else 0))
+            if (sent.any { pc -> pc.ranges.any { it.first <= range.last && range.first <= it.last } }) return null
+        }
         val tag = WRAP_TAG + (wrapTags++ and 0xFFF)
         val play = try { wm.damage.core.motion.Motion.play(pan.program, MainStaging.WRAP_SLOT, ms.periodInForce, tag, 0, p) }
             catch (e: wm.damage.core.geom.LintError) { journal.note("local", "the wrap's PLAY is refused offline (${e.message}) — the row is drawn as today"); return null }
