@@ -11,7 +11,8 @@ import wm.damage.core.local.BoundList
  *
  * **The six questions (`FORK.md` §3.8) for its state.**
  * - The staged records ([staging], [records]). (a) Written at a full staging — Main in front, BIND in force, the count
- *   readable — and a row's re-stage in place; gone with every registry clear (a session start, a lapse, a sleep, the
+ *   readable; or behind the shell's clock screen, which wakes to Main (decisions BP: the base records only, no repaint or
+ *   re-stage there, the list bound by the wake's first flush) — and a row's re-stage in place; gone with every registry clear (a session start, a lapse, a sleep, the
  *   atlas reset or its live set changed, cached text off, the Page staging row off), at 160 KiB when a document's strips
  *   take the shared reserve (`Staging.retain`), and at a full re-stage ([drop]: the layout, the planes, the rows or the
  *   region changed, a row outgrew its slot). (b) Each write's wait is the stage lane's — its FlushDone and the count's
@@ -32,7 +33,7 @@ import wm.damage.core.local.BoundList
  *   write is submitted, which goes in a LATER pump — the rules' CLEAR rides the flush between (their list in front is
  *   read at the top of every pump's flush section, and the idle step that writes never runs in a pump that flushes).
  * - The re-staging's pace ([RESTAGE_PACE_MS] for one row in all, the stalest first; [VERIFY_PACE_MS]). No wait of its own: the idle pump decides on
- *   each pass and asks the loop back when the next row is due; writes only while Main is in front, no burst is open
+ *   each pass and asks the loop back when the next row is due; writes only while Main is in front (never behind the clock), no burst is open
  *   (P9) and nothing else is in flight (the stage lane's own rule).
  */
 internal class MainBinding {

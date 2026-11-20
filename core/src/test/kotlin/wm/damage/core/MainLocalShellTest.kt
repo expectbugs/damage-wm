@@ -86,7 +86,8 @@ class MainLocalShellTest {
             else -> StartRig(sim, scope, c1StageFile = c1())
         }
         val journal = tmp.resolve("journal.jsonl")
-        val shell = Shell(CachedText(FakeText()), t, Persistence(tmp.resolve("state.json")), journal, scope) { Shell.LocalClock(12, 0, "12:00", "PM") }
+        val persistence = Persistence(tmp.resolve("state.json"))
+        val shell = Shell(CachedText(FakeText()), t, persistence, journal, scope) { Shell.LocalClock(12, 0, "12:00", "PM") }
         val rows = (0 until nRows).map { Row("w$it", "Win $it", DamageWindow.Summary("summary $it", detail = "detail of $it", progress = if (it == 3) 0.25 else null)) }
         /** RIGHT's top-level images, in order. */
         val right = java.util.concurrent.CopyOnWriteArrayList<ByteArray>()
@@ -143,6 +144,42 @@ class MainLocalShellTest {
             until("the atlas goes live") { shell.cachedTextActive && shell.cachedFontsLive.isNotEmpty() }
             bound("up")
         }
+
+        /** B083-ms (decisions BP): a first session started where the stored state leaves the shell — [mode] (`SILENT`: the
+         *  shell's own clock screen; `EXCLUSIVE` with [current]: that window's exclusive screen) with [up]'s settings
+         *  already stored, as a phone restart finds them. */
+        suspend fun upOn(mode: String, current: String? = null) {
+            persistence.put("shell.settings", wm.damage.core.shell.ShellSettings().copy(heightMode = 352, cachedText = "on", taps = taps).toJson())
+            persistence.put("shell.state", JsonObject(buildMap {
+                put("mode", kotlinx.serialization.json.JsonPrimitive(mode))
+                if (current != null) put("current", kotlinx.serialization.json.JsonPrimitive(current))
+            }))
+            shell.start(); settle("start on $mode")
+        }
+
+        /** The shell's power state is its own clock screen (the last `power` note). */
+        fun onClock(): Boolean = notes("power").lastOrNull()?.startsWith("shell-silent") == true
+
+        /** One flush as the journal holds it: its submit (time, label, the shell's mode) and its completion (the shell's
+         *  time for it, 0 until done; the transport's `took` and `wrote`). */
+        data class Flush(val id: Long, val t: Long, val label: String, val mode: String, val doneT: Long, val took: Long, val wrote: Long, val bytes: Long)
+
+        fun flushes(): List<Flush> {
+            if (!Files.exists(journal)) return emptyList()
+            val lines = Files.readAllLines(journal)
+            fun num(l: String, k: String) = Regex("\"$k\":(-?\\d+)").find(l)?.groupValues?.get(1)?.toLong() ?: 0L
+            fun str(l: String, k: String) = Regex("\"$k\":\"([^\"]*)\"").find(l)?.groupValues?.get(1) ?: ""
+            val done = lines.filter { "\"ev\":\"done\"" in it }.associateBy { num(it, "id") }
+            return lines.filter { "\"ev\":\"submit\"" in it }.map { l ->
+                val d = done[num(l, "id")]
+                Flush(num(l, "id"), num(l, "t"), str(l, "label"), str(l, "mode"), d?.let { num(it, "t") } ?: 0L, d?.let { num(it, "took") } ?: 0L,
+                    d?.let { num(it, "wrote") } ?: 0L, Regex("\"bytes\":(\\d+)").findAll(l).sumOf { it.groupValues[1].toLong() })
+            }
+        }
+
+        /** Nothing pending and nothing submitted for [quietMs]. */
+        suspend fun idle(what: String, quietMs: Long = 1_000, maxMs: Long = 60_000) =
+            until("$what: idle for $quietMs ms", maxMs) { shell.isQuiescent() && (flushes().lastOrNull()?.t ?: 0L) < System.currentTimeMillis() - quietMs }
 
         fun list(): BoundList = assertNotNull(onLoop { shell.mainBoundForTest().first })
         fun row(): Int = onLoop { shell.mainBoundForTest().second }
@@ -1671,6 +1708,217 @@ class MainLocalShellTest {
             r.until("the screen tap opens row 2's window", 5_000) { r.onLoop { r.shell.currentWindowId() } == "w2" }
             assertTrue(r.notes("tapdrop").isEmpty(), "no tap dropped: ${r.notes("tapdrop")}")
         } finally { r.close() }
+    }
+
+    // ---------------------------------------------------------------------------------------------- B083-ms (decisions BP)
+    /** Decisions BP, pin 1 (his 0.82 start of 13:26:43: the session came up on the shell's own clock screen and nothing of
+     *  Main went for 42 s): after a start on the clock, with no input, Main's atlas and its records are written and counted
+     *  while the clock shows — and the list is NOT bound: no SET on RIGHT, no entry held there. */
+    @Test
+    fun aStartOnTheClockStagesMainBehindItAndBindsNothing_BP(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT)
+        try {
+            r.upOn("SILENT")
+            assertTrue(r.onClock(), "the session started on the clock: ${r.notes("power")}")
+            r.until("Main's list counted while the clock shows") { r.notes("mainstage").any { it.startsWith("offered") } }
+            r.idle("counted behind the clock")
+            assertTrue(r.onClock(), "still on the clock: ${r.notes("power")}")
+            val fl = r.flushes()
+            println("BP-1: ${fl.groupBy { "${it.label}/${it.mode}" }.mapValues { it.value.size }}; mainstage ${r.notes("mainstage").map { it.take(90) }}")
+            assertTrue(fl.any { it.label == "ATLAS" && it.mode == "SILENT" }, "atlas chunks while the clock shows: ${fl.map { "${it.label}/${it.mode}" }}")
+            val stage = fl.filter { it.label == "STAGE" }
+            assertTrue(stage.size >= 12 && stage.all { it.mode == "SILENT" }, "Main's twelve records written while the clock shows: ${stage.map { it.mode }}")
+            assertTrue(r.notes("mainstage").any { it.startsWith("staged") && "behind the clock" in it }, "the staging says where: ${r.notes("mainstage")}")
+            assertTrue(r.notes("stage").any { "proved" in it }, "a reading of the count proved them: ${r.notes("stage").takeLast(4)}")
+            assertEquals(0, r.sim.bindForTest(Arm.RIGHT).field39(), "no entry held on RIGHT while the clock shows")
+            assertTrue(r.right.none { img -> r.subs(img).any { r.isSub(it, CfwModes.BIND_MODE, CfwModes.BIND_SET) } }, "no SET sent while the clock shows")
+        } finally { r.close() }
+    }
+
+    /** Decisions BP, pin 2: the wake (a double tap on the clock) opens Main, and the flush that draws Main binds its list
+     *  (the return rule, AF.2: the entries are held on RIGHT once that flush is acknowledged); the first notch after it is a
+     *  local fire, adopted and committed — no notch drawn by the phone first, nothing staged again. Before decisions BP the
+     *  same sequence starts Main's staging at the wake (the message says when the first STAGE flush went). */
+    @Test
+    fun theWakeBindsMainInItsFirstFlushAndTheFirstNotchIsLocal_BP(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT)
+        try {
+            r.upOn("SILENT")
+            r.idle("behind the clock")                       // BP: Main staged and counted; before it: the clock's atlas only
+            assertTrue(r.onClock(), "on the clock: ${r.notes("power")}")
+            val n0 = r.flushes().size
+            val tap = System.currentTimeMillis()
+            r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+            r.until("Main's first flush after the wake acknowledged") { r.flushes().drop(n0).firstOrNull { it.label == "MAIN" }?.let { it.doneT > 0 } == true }
+            val held = r.sim.bindForTest(Arm.RIGHT).field39()
+            val firstStage = r.flushes().firstOrNull { it.label == "STAGE" }
+            assertEquals(r.bound39, held, "the wake's first flush bound Main's list (field 39 at its ack) — the first STAGE flush went " +
+                (firstStage?.let { "${it.t - tap} ms from the wake (${it.mode})" } ?: "never"))
+            notch(r, CfwModes.EV_UPROLL, "the first notch after the wake")
+            val after = r.flushes().drop(n0)
+            assertTrue(after.none { it.label == "STAGE" }, "nothing staged after the wake: ${after.map { it.label }}")
+            assertEquals(1, r.notes("mainstage").count { it.startsWith("staged") }, "one staging: ${r.notes("mainstage")}")
+            assertTrue(r.notes("mainstage").none { it.startsWith("dropped") || it.startsWith("withdrawn") || " re-staged" in it }, "${r.notes("mainstage")}")
+        } finally { r.close() }
+    }
+
+    /** Decisions BP, pin 3, over a link that takes time ([LinkRig]: 20 ms a packet): the wake comes while one of Main's
+     *  pieces is in flight behind the clock. Its frame is submitted with no piece between, and waits in the lane at most
+     *  that piece's write; the staging then carries on (the rest of its pieces go after the wake) and is not started again. */
+    @Test
+    fun aWakeDuringAPieceWaitsAtMostThatPieceAndTheStagingCarriesOn_BP(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, link = 20L to 30L)
+        try {
+            r.upOn("SILENT")
+            // the strip's first piece (a whole STAGE_CHUNK) in flight behind the clock
+            r.until("Main's first piece submitted behind the clock", 60_000) { r.flushes().count { it.label == "STAGE" } >= 1 }
+            val n0 = r.flushes().size
+            val tap = System.currentTimeMillis()
+            r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+            r.bound("after the wake")
+            val fl = r.flushes()
+            val piece = fl.take(n0).last { it.label == "STAGE" }
+            val wake = fl.drop(n0).first { it.label == "MAIN" }
+            val pieceMs = piece.wrote - piece.took
+            val waited = wake.took - wake.t
+            println("BP-3: the wake's frame (${wake.bytes} B) submitted ${wake.t - tap} ms after the tap, taken by the lane ${waited} ms later; the piece " +
+                "in flight (${piece.bytes} B) written in $pieceMs ms (done ${piece.doneT - tap} ms after the tap); STAGE after the wake ${fl.drop(n0).count { it.label == "STAGE" }}")
+            assertTrue(piece.doneT > tap, "the piece was in flight at the tap (done ${piece.doneT - tap} ms after it)")
+            assertTrue(fl.none { it.label == "STAGE" && it.t in tap..wake.t }, "no piece submitted between the tap and the wake's frame")
+            assertTrue(waited <= pieceMs + 50, "the wake's frame waited $waited ms in the lane; one piece is written in $pieceMs ms")
+            assertTrue(fl.drop(n0).any { it.label == "STAGE" && it.mode == "MAIN" }, "the rest of Main's pieces went after the wake")
+            assertEquals(1, r.notes("mainstage").count { it.startsWith("staged") }, "carried on, not staged again: ${r.notes("mainstage")}")
+            assertTrue(r.notes("mainstage").none { it.startsWith("dropped") }, "${r.notes("mainstage")}")
+        } finally { r.close() }
+    }
+
+    /** Decisions BP, pin 4: where the wake returns to another window — a window's exclusive screen, whose double tap goes
+     *  back to that window (`DESIGN.md` §4.9) — nothing of Main is staged, there or back in the window. */
+    @Test
+    fun aWakeThatReturnsToAWindowStagesNothingOfMain_BP(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT)
+        try {
+            r.upOn("EXCLUSIVE", current = "w1")
+            assertTrue(r.shell.exclusiveMode, "restored into w1's exclusive screen")
+            r.idle("in the exclusive screen", quietMs = 1_500)
+            assertTrue(r.flushes().none { it.label == "STAGE" } && r.notes("mainstage").none { it.startsWith("staged") },
+                "nothing of Main staged behind the exclusive screen: ${r.notes("mainstage")}")
+            r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+            r.until("back in w1") { !r.shell.exclusiveMode && r.onLoop { r.shell.currentWindowId() } == "w1" }
+            r.idle("in w1", quietMs = 1_500)
+            assertTrue(r.flushes().none { it.label == "STAGE" } && r.notes("mainstage").none { it.startsWith("staged") },
+                "nothing of Main staged in w1: ${r.notes("mainstage")}")
+        } finally { r.close() }
+    }
+
+    /** Decisions BP, pin 5: the firmware's Silent Mode, or a rest, begun while Main is staged behind the clock — no piece
+     *  (and no atlas chunk) is submitted after the sleep began. */
+    @Test
+    fun aSleepBegunWhileStagingBehindTheClockSendsNoFurtherPiece_BP(): Unit = runBlocking {
+        for (how in listOf("silent", "rest")) {
+            val r = Rig(Taps.REPORT, link = 20L to 30L)
+            try {
+                r.upOn("SILENT")
+                r.until("$how: Main's second piece submitted behind the clock", 60_000) { r.flushes().count { it.label == "STAGE" } >= 2 }
+                if (how == "silent") r.sim.setSilent(true) else assertTrue(r.shell.devProbe("rest", "on"), "the probe is the shell's")
+                // the journal's own order decides (one writer, in order): the note the sleep writes as it begins, then no
+                // STAGE or ATLAS submit after it
+                val begun: (String) -> Boolean = if (how == "silent") { l -> "\"kind\":\"silent\"" in l && "\"detail\":\"glasses asleep" in l }
+                    else { l -> "\"kind\":\"rest\"" in l && "\"detail\":\"resting" in l }
+                r.until("$how: asleep") { r.shell.glassesAsleep && Files.readAllLines(r.journal).any(begun) }
+                delay(2_000)
+                val lines = Files.readAllLines(r.journal)
+                val at = lines.indexOfFirst(begun)
+                val staged = lines.withIndex().filter { (_, l) -> "\"ev\":\"submit\"" in l && ("\"label\":\"STAGE\"" in l || "\"label\":\"ATLAS\"" in l) }.map { it.index }
+                println("BP-5 $how: ${staged.size} STAGE/ATLAS submit(s), ${staged.count { it < at }} before the sleep's note, ${staged.count { it > at }} after it")
+                assertTrue(staged.any { it < at && "STAGE" in lines[it] }, "$how: the sleep began while Main was being staged")
+                assertTrue(staged.none { it > at }, "$how: nothing staged after the sleep began: ${staged.filter { it > at }.map { lines[it].take(120) }}")
+            } finally { r.close() }
+        }
+    }
+
+    /** Decisions BP, pin 6: one row's text changed three times while the clock shows, after the staging is counted. Behind
+     *  the clock nothing is sent for it — not at the change, not at that row's round-robin turn ([MainBinding.VERIFY_PACE_MS]
+     *  after the staging); after the wake the row is re-staged ONCE (its latest text; P9's pace) and Main is not staged
+     *  again. */
+    @Test
+    fun aRowChangedBehindTheClockIsRestagedOnceAfterTheWake_BP(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT)
+        try {
+            r.upOn("SILENT")
+            r.until("Main's list counted while the clock shows") { r.notes("mainstage").any { it.startsWith("offered") } }
+            r.idle("counted behind the clock")
+            val stagedAt = assertNotNull(r.noteAt("mainstage", "staged"))
+            val n0 = r.flushes().size
+            for (k in 1..3) {
+                r.rows[0].s = r.rows[0].s.copy(line = "summary 0, take $k")
+                r.shell.services.requestRender(r.rows[0])
+                r.settle("change $k"); delay(300)
+            }
+            val turn = stagedAt + wm.damage.core.shell.MainBinding.VERIFY_PACE_MS + 1_500 - System.currentTimeMillis()
+            if (turn > 0) delay(turn)                         // past row 0's round-robin turn
+            r.settle("past row 0's turn")
+            assertTrue(r.onClock(), "still on the clock: ${r.notes("power")}")
+            val behind = r.flushes().drop(n0).filter { it.label == "STAGE" || it.label == "ATLAS" }
+            assertTrue(behind.isEmpty(), "three changes of row 0 behind the clock sent nothing: $behind; ${r.notes("mainstage")}")
+            r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+            r.until("row 0 re-staged after the wake", 15_000) { r.notes("mainstage").any { it.startsWith("row 0 re-staged") } }
+            r.bound("after row 0's re-stage")
+            delay(wm.damage.core.shell.MainBinding.RESTAGE_PACE_MS + 500); r.settle("a pace later")
+            println("BP-6: ${r.notes("mainstage").filter { it.startsWith("row ") || it.startsWith("withdrawn") || it.startsWith("staged") }.map { it.take(100) }}")
+            assertEquals(1, r.notes("mainstage").count { it.startsWith("row 0 re-staged") }, "row 0 re-staged once: ${r.notes("mainstage")}")
+            assertTrue(r.notes("mainstage").none { it.startsWith("row ") && " re-staged" in it && !it.startsWith("row 0 ") }, "no other row: ${r.notes("mainstage")}")
+            assertEquals(1, r.notes("mainstage").count { it.startsWith("staged") }, "no full staging: ${r.notes("mainstage")}")
+        } finally { r.close() }
+    }
+
+    /** Decisions BP, the second site the reader named: a height set while the clock shows (applied to the shell's layout
+     *  only at the wake) — Main is staged again behind the clock for the height the wake brings, and the wake keeps that
+     *  staging: nothing dropped, the first flush binds the list. */
+    @Test
+    fun aHeightSetBehindTheClockIsStagedForAndKeptAtTheWake_BP(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT)
+        try {
+            r.upOn("SILENT")
+            r.until("Main's list counted while the clock shows") { r.notes("mainstage").any { it.startsWith("offered") } }
+            r.idle("counted behind the clock")
+            r.shell.updateSettings { it.copy(heightMode = 416) }
+            r.until("staged again behind the clock for 416") { r.notes("mainstage").count { it.startsWith("offered") } == 2 }
+            r.idle("counted again behind the clock")
+            assertTrue(r.onClock(), "still on the clock: ${r.notes("power")}")
+            assertTrue(r.notes("mainstage").any { it.startsWith("dropped — Main's layout changed") }, "${r.notes("mainstage")}")
+            val m0 = r.notes("mainstage").size
+            val n0 = r.flushes().size
+            r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+            r.until("Main's first flush after the wake acknowledged") { r.flushes().drop(n0).firstOrNull { it.label == "MAIN" }?.let { it.doneT > 0 } == true }
+            assertEquals(r.bound39, r.sim.bindForTest(Arm.RIGHT).field39(), "the wake's first flush bound the list: ${r.notes("mainstage").drop(m0)}")
+            r.settle("after the wake")
+            assertTrue(r.notes("mainstage").drop(m0).none { it.startsWith("dropped") || it.startsWith("staged") }, "kept at the wake: ${r.notes("mainstage").drop(m0)}")
+            r.assertOracle("Main at 416 after the wake")
+        } finally { r.close() }
+    }
+
+    /** B083-ms: what decisions BP must not change, as bytes — every top-level image either lens is handed, by its hash, in
+     *  order: (a) a session whose first screen is Main at stage 4, up to the list bound; (b) a start on the clock at stage 3;
+     *  (c) the drawing images of a start on the clock at stage 4 (the clock's own picture). Written to `B083MS_DUMP` when it
+     *  is set (run on two trees and compared); passes when unset. */
+    @Test
+    fun theBytesBPMustNotChange_dump(): Unit = runBlocking {
+        val out = System.getenv("B083MS_DUMP")?.let { java.nio.file.Paths.get(it) } ?: return@runBlocking
+        fun sha(b: ByteArray) = java.security.MessageDigest.getInstance("SHA-256").digest(b).take(6).joinToString("") { "%02x".format(it) }
+        val lines = ArrayList<String>()
+        suspend fun take(name: String, stage: Int, block: suspend (Rig) -> Unit, keep: (ByteArray) -> Boolean = { true }) {
+            val r = Rig(Taps.REPORT, stage = stage)
+            val seen = java.util.concurrent.CopyOnWriteArrayList<String>()
+            r.onAnyImage = { a, img -> if (keep(img)) seen += "$a ${img[0].toInt() and 0xFF} ${img.size} ${sha(img)}" }
+            try { block(r) } finally { r.close() }
+            lines += "== $name ${seen.size}"; lines += seen
+        }
+        take("main-first stage 4", 4, { r -> r.up() })
+        take("clock-first stage 3", 3, { r -> r.upOn("SILENT"); r.idle("stage 3 on the clock", quietMs = 1_500) })
+        take("clock-first stage 4, drawing images", 4, { r -> r.upOn("SILENT"); r.idle("stage 4 on the clock", quietMs = 1_500) },
+            keep = { img -> (img[0].toInt() and 0x7F) !in setOf(12, 19, 25) })
+        Files.write(out, lines)
     }
 
     /** 2c (his look at 0.81: edge reports in a burst at Main's wrap): k notches past the end 60 ms apart over a link that
