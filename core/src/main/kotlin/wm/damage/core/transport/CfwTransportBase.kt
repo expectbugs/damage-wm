@@ -1478,7 +1478,7 @@ abstract class CfwTransportBase(
         emitNote("motion", m.describe())
         // build C2: while BIND is in force the shell's rules read every body (P7's stops, a refused answer)
         if (hasBind(damageCaps) && _state.value.flagsInForce and DamageMsg.FLAG_BIND != 0 && m.slot != null && m.outcome != null)
-            if (!_events.tryEmit(TransportEvent.LocalBody(m.slot!!, m.tag ?: -1, m.outcome!!, m.reason)))
+            if (!_events.tryEmit(TransportEvent.LocalBody(m.slot!!, m.tag ?: -1, m.outcome!!, m.reason, m.drawn, m.folded, m.endCrc, m.stepUs)))
                 Log.e(name, "LocalBody event DROPPED (buffer full)")
         m.seq?.let { s -> synchronized(motionSeqs) { if (motionAccounted.let { it == null || s > it }) motionSeqs += s } }
         if (m.outcome == DamageMsg.OUTCOME_REFUSED) {
@@ -1504,6 +1504,15 @@ abstract class CfwTransportBase(
         val slot = m.slot; val tag = m.tag; val ordinal = m.ordinal; val crc = m.endCrc
         if (slot == null || tag == null || ordinal == null || crc == null) {
             emitNote("divergence", "motion: a notify of outcome ${m.outcome} without its slot, tag, ordinal or END CRC (${m.describe()}) — keyframing")
+            return
+        }
+        // G4 item 2 (his glasses, 0.80, 18:53:34): a local instance's own body carries field 8 = 0 — no END was written
+        // for it (§6.4) — until a COMMIT adopts it. Closed by a cache write before its COMMIT landed, its body reaches the
+        // phone after the COMMIT went, when the mirror already holds the COMMIT's END for (slot, S, 0): that is not a
+        // divergence. The shell reads the body (every step drawn: at END; short of them: its areas repainted)
+        if (crc == 0L && hasBind(damageCaps) && _state.value.flagsInForce and DamageMsg.FLAG_BIND != 0) {
+            synchronized(mirrorSim) { mirrorSim.motionNotified(slot, tag, ordinal) }
+            emitNote("motion", "slot $slot tag 0x%04x: a local instance's own body (no END written) — not compared".format(tag))
             return
         }
         val want = synchronized(mirrorSim) {
