@@ -203,7 +203,8 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
      *  (a cover or a window came meanwhile): the release applied the notch to what was in front then. The fuzz names
      *  this shape in (9)'s failure when it is the whole difference — still a failure. */
     val ringReleasedOffFront = LinkedHashSet<Int>()
-    /** Gestures RIGHT took whose 115, an edge, was lost (the lens did not move; P5 counts every lost report as drawn). */
+    /** Gestures RIGHT took whose 115 was lost for a fire that did not draw — an edge or a refusal: the lens did not move,
+     *  while P5 counts every lost report as one it drew. */
     val ringLostEdge = LinkedHashSet<Int>()
     /** Gestures RIGHT did not take whose held message a report paired as an echo (its notch is then never applied). */
     val ringUntakenPaired = LinkedHashSet<Int>()
@@ -361,8 +362,8 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
             if (field == 115) {
                 val a = DamageMsg.Applied(m)
                 val g = a.s?.let { bySR[it] } ?: -1
-                if (loseNext115 > 0) { loseNext115--; if (a.outcome == DamageMsg.APPLIED_EDGE && g >= 0) ringLostEdge += g; continue }
-                if (rnd.nextDouble() < lose115) { if (a.outcome == DamageMsg.APPLIED_EDGE && g >= 0) ringLostEdge += g; continue }
+                if (loseNext115 > 0) { loseNext115--; if (a.outcome != DamageMsg.APPLIED_DREW && !a.isTap && g >= 0) ringLostEdge += g; continue }
+                if (rnd.nextDouble() < lose115) { if (a.outcome != DamageMsg.APPLIED_DREW && !a.isTap && g >= 0) ringLostEdge += g; continue }
                 val rev = reverse115At; reverse115At = null
                 // 2b: after its stock message, and in order with everything sent after it (RIGHT's one notify stream)
                 if (rev != null) { val t = maxOf(lastUp + 1, rev); lastUp = t; at(t) { phoneReport(a, g) } } else

@@ -77,7 +77,7 @@ class LocalSequenceFuzzTest {
         else subsets(xs.drop(1), n - 1).map { listOf(xs[0]) + it } + subsets(xs.drop(1), n)
     /** The (9) shapes the harness can name. */
     val offFrontShape = "held message(s) released with Main not in front"
-    val lostEdgeShape = "lost edge report(s) counted as drawn"
+    val lostEdgeShape = "lost report(s) of a fire that did not draw (an edge or a refusal) counted as drawn"
     val untakenShape = "untaken notch(es) paired as an echo"
     val restagedShape = "held message(s) applied after a re-stage"
 
