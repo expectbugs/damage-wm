@@ -89,7 +89,12 @@ class ConformanceVectorTest {
      *  not-filled vector of [out], with its steps, becomes a problem when [dir] is [repo]. */
     private fun notFilledFailsInTheRepo(dir: Path, repo: Path?, out: Outcome) {
         if (repo == null || !Files.isSameFile(dir, repo)) return
-        for (n in out.notFilled) out.problems += "$n: not filled — a step in firmware/vectors/ with no expectation fails the test (ruling R1.21)"
+        // build C3 (spec §3 package DS): the `v5-*` inputs are committed before the fork's runner fills them at the
+        // meeting (M), so until then they are reported "not filled" with a count and run through the model
+        // ([theUnfilledVectorsRunThroughTheModel]); every v1–v4 vector stays under R1.21. M removes this exception.
+        val v5 = out.notFilled.filter { it.startsWith("v5-") }
+        if (v5.isNotEmpty()) println("ConformanceVectorTest: ${v5.size} v5 vector(s) not filled until the meeting (C3): ${v5.joinToString("; ")}")
+        for (n in out.notFilled - v5.toSet()) out.problems += "$n: not filled — a step in firmware/vectors/ with no expectation fails the test (ruling R1.21)"
     }
 
     private fun vectorFiles(dir: Path): List<Path> =
@@ -127,9 +132,7 @@ class ConformanceVectorTest {
         println("ConformanceVectorTest ($form): ${out.ran.size} vector(s) run, ${out.compared} lens-step(s) compared, ${out.notFilled.size} not filled")
     }
 
-    /** [atBuild] (C3, §7.13 "build-neutral"): run every vector that carries `features` at that build alone, against its
-     *  own expectations (a vector without `features` is skipped). */
-    private fun runNormal(files: List<Path>, featuresOverride: Int? = null, atBuild: Int? = null): Outcome {
+    private fun runNormal(files: List<Path>, featuresOverride: Int? = null): Outcome {
         val out = Outcome()
         for (f in files) {
             val vec = Json.parseToJsonElement(Files.readString(f)).jsonObject
@@ -140,13 +143,12 @@ class ConformanceVectorTest {
             val contract = vec["contract"]?.jsonPrimitive?.int ?: 1
             val sets = featureSets(vec)
             if (featuresOverride != null && sets != null) continue      // the override is for vectors written without one
-            if (atBuild != null && sets == null) continue
             out.ran += name
             val c2Vector = sets != null && sets.all { it and BIND_FEATURE != 0 }
-            for (features in (if (atBuild != null) listOf(atBuild) else sets ?: listOf(featuresOverride))) for (arm in Arm.entries) {
+            for (features in sets ?: listOf(featuresOverride)) for (arm in Arm.entries) {
                 val lens = if (arm == Arm.LEFT) "L" else "R"
                 // one name per run: a vector run at two builds says which one disagreed
-                val name = if ((sets?.size ?: 0) > 1 || atBuild != null) "$name@0x${features!!.toString(16)}" else name
+                val name = if ((sets?.size ?: 0) > 1) "$name@0x${features!!.toString(16)}" else name
                 val sim = newSim(contract, features)
                 var now = 0L
                 steps.forEachIndexed { i, stepEl ->
@@ -434,18 +436,15 @@ class ConformanceVectorTest {
         assertEquals(emptyList(), out.problems, "a C2 build answers a v1/v2 vector differently:\n" + out.problems.joinToString("\n"))
     }
 
-    /** Build C3 (`FIRMWARE.md` §7.13, "build-neutral"): every v1–v4 vector answers alike on a bit-11 build with EFFECTS
-     *  clear — the v1 and v2 vectors at features 0xdff, and every vector that carries `features` (v3, v4) run at 0xdff
-     *  alone against the C's expectations, before `make_vectors.py` adds 0xdff to their lists. A model change for C3 that
-     *  leaks into today's behaviour shows here. */
+    /** Build C3 (`FIRMWARE.md` §7.13, "build-neutral"): the v1 and v2 vectors answer alike on a bit-11 build (features
+     *  0xdff) with EFFECTS clear; the v3 and v4 vectors carry 0xdff in their own `features` lists (`make_vectors.py`) and
+     *  are run there by [everyVectorMatchesOnBothLenses]. */
     @Test
-    fun theV1ToV4VectorsAnswerTheSameOnAC3Build() {
-        val v12 = runNormal(vectorFiles(vectorDir()), featuresOverride = C3_FEATURES)
-        report("normal path, v1/v2 at features 0xdff", v12)
-        val v34 = runNormal(vectorFiles(vectorDir()), atBuild = C3_FEATURES)
-        report("normal path, every features vector at 0xdff", v34)
-        assertTrue(v12.compared > 0 && v34.compared > 0, "no vector step was compared")
-        assertEquals(emptyList(), v12.problems + v34.problems, "a C3 build answers a v1–v4 vector differently:\n" + (v12.problems + v34.problems).joinToString("\n"))
+    fun theV1AndV2VectorsAnswerTheSameOnAC3Build() {
+        val out = runNormal(vectorFiles(vectorDir()), featuresOverride = C3_FEATURES)
+        report("normal path, features 0xdff", out)
+        assertTrue(out.compared > 0, "no vector step was compared")
+        assertEquals(emptyList(), out.problems, "a C3 build answers a v1/v2 vector differently:\n" + out.problems.joinToString("\n"))
     }
 
     /** Build C3 (spec §5, the fold invariant; `FIRMWARE.md` §7.13): vectors that share a `"pair"` key hold the same

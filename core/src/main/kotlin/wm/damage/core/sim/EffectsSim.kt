@@ -240,7 +240,9 @@ object EffectsSim {
     }
 
     /** §7.6 RAIN: the 16-B rain record at byte [off] (ranges, reserved bytes 0), its alphabet, its font and every glyph
-     *  its alphabet names there. Null for any fault (5). */
+     *  its alphabet names there. Null for any fault (5). READING (C3; with the contract's author, raised by the vector
+     *  lane: codes 0 and 32 in CELLS and RAIN alike): code 32 in an alphabet is walked here as in CELLS — the
+     *  conservative form (a malformed entry 0 refuses, its bytes are in the read range). */
     fun walkRain(cache: ByteArray, off: Int, reads: Reads): Rain? {
         if (off + 16 > cache.size) return null
         val cols = u8(cache, off); val trail = u8(cache, off + 1); val cw = u8(cache, off + 2); val ch = u8(cache, off + 3)

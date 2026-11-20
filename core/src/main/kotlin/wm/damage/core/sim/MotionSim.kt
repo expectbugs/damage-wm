@@ -682,8 +682,9 @@ class MotionSim(private val scaled: () -> Boolean = { false }, private val effec
                     10L * (gs.maxOfOrNull { it.w * it.h } ?: 0) + 64
             }
         } ?: s.rain!!.let { r ->
-            // RAIN: A + cols·trail·(11·cw·ch + 16·Lg + 64). READING (C3): Lg over every code the alphabet names, 32
-            // included (the "no glyph" of codes 0 and 32 is written for CELLS' sum)
+            // RAIN: A + cols·trail·(11·cw·ch + 16·Lg + 64), taken literally — every column times the trail, whatever
+            // R and the area clip. READING (C3; the term and codes 0/32 are with the contract's author, raised by the
+            // vector lane): Lg over every code the alphabet names, 32 included — the conservative form (counts more)
             a + r.cols.toLong() * r.trail * (11L * r.cw * r.ch + 16L * (r.glyphs.values.maxOfOrNull { it.rle } ?: 0) + 64)
         }
     }
@@ -903,7 +904,10 @@ class MotionSim(private val scaled: () -> Boolean = { false }, private val effec
         minOf(o.T.toLong(), 1 + ((tick - o.t0) and U32) / o.period).toInt()
 
     /** The thread's plan at [tick] for this lens's table (§5.2). §7.7 (C3): a PLAY-AFTER whose t0 is ahead has its due
-     *  time at t0; one that waits on its recorded instance, at now plus its own P. */
+     *  time at t0; one that waits on its recorded instance, at now plus its own P. READING (C3; with the contract's
+     *  author, raised by the vector lane): a waiting slot's due time joins §5.2's rule as one more candidate — when its
+     *  late out half is itself due (k > d) the plan acts (0) or, outstanding, waits the smallest due P; the waiter's
+     *  now + P shows in `W` only when nothing is due. */
     fun plan(tick: Long, failed: Boolean = false): Long {
         val now = slots.map { o -> o?.let { Triple(it.tag, it.ordinal, it.drawing) } }
         return plan(tick, slots.map { o -> o?.let {
