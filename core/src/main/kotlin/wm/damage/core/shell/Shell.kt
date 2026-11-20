@@ -2754,6 +2754,9 @@ class Shell(
         val why = when {
             st.flagsInForce and wm.damage.core.wire.DamageMsg.FLAG_ENGINE == 0 -> return null     // no engine: NT, nothing to say
             CfwModes.noticeRegion(st.cacheSize, st.bind) == null -> "no notice region in a ${st.cacheSize / 1024} KiB cache without BIND"
+            // the coordinator's ruling (a): a notice costs Reader nothing — the slice is Page staging's while it pages
+            pagingInFront() -> "page staging in front"
+            sliceHeld(CfwModes.noticeRegion(st.cacheSize, st.bind)!!) -> "page staging's strips hold the slice"
             !st.draw2 || !st.leaseHeld || glassesSilent || sleep != null -> return null
             !ledgerReadable(st) -> "its programs cannot be counted on the glasses (Cached text off, or no count on this build)"
             noticeProgsFor != noticeLayoutKey(st) -> "its programs are not laid out for this layout yet"
@@ -2830,6 +2833,9 @@ class Shell(
      */
     private suspend fun pumpNoticeStage(st: LinkState): Boolean {
         val key = noticeLayoutKey(st) ?: return false
+        val region = CfwModes.noticeRegion(st.cacheSize, st.bind) ?: return false
+        if (pagingInFront()) { noticeYield("page staging in front"); return false }
+        if (sliceHeld(region)) { noticeYield("page staging's strips hold the slice"); return false }
         if (stageFailed || glassesSilent || !st.draw2 || !st.leaseHeld || !ledgerReadable(st)) return false
         if (key != noticeProgsFor) noticeLayout(st, key)
         for (p in noticeProgs) if (p.rec.state == StagedRecord.State.SENT && stageInFlightRec !== p.rec) p.rec.state = StagedRecord.State.WANTED
@@ -2862,6 +2868,28 @@ class Shell(
         noticeProgsFor = key
         journal.note("notice", "the notice's ${out.size} program(s) laid out (${out.sumOf { it.rec.encoded.size }} B at ${region.first}, " +
             "the capture at ${region.first + CfwModes.NOTICE_PROGRAMS})")
+    }
+
+    /**
+     * The coordinator's ruling (2026-11-19, form (a)): a notice costs Reader nothing it has today. Page staging keeps its
+     * whole stage reserve; the notice's slice of it is the notice's only while no window that stages pages is in front
+     * and none of Page staging's strips lies in it — strips stay in the ring when their window leaves, and are not
+     * written over.
+     */
+    private fun pagingInFront(): Boolean = settings.pageStaging == "on" && stagedDoc() != null
+    private fun sliceHeld(region: IntRange): Boolean =
+        stage.ring?.resident.orEmpty().any { it.off >= 0 && it.off <= region.last && it.off + it.size4 > region.first }
+
+    /**
+     * The slice goes back to Page staging: the notice's programs leave the books (an owed PLAY naming them with them)
+     * before Page staging writes there. A timer still drawing from them ends on the glasses at the first write over the
+     * slice (close-on-meet, `FIRMWARE.md` §5.6), the box showing the shadow — its END, full ink — until its focus tick, so
+     * the picture never stays dim; a restart then takes NT's steps from the start. Said once each time.
+     */
+    private fun noticeYield(why: String) {
+        if (noticeProgs.isEmpty() && noticeProgsFor == null) return
+        noticeProgs = emptyList(); noticeProgsFor = null; noticePlay = null
+        journal.note("notice", "the notice's programs leave the slice — $why")
     }
 
     /** A new session (a fresh lease frees the cache), a cache another writer touched: every program goes again. */
@@ -4404,6 +4432,7 @@ class Shell(
         if (stageInFlight != null || ledgerReadInFlight) return false
         if (st.inFlight != 0 || comp.hasPending || comp.needsKeyframe) return false
         val v = stagedDoc() ?: return false
+        noticeYield("page staging in front")          // build K1-4a (a): before any strip goes where the notice's programs are
         val key = v.contentKey() ?: return false
         val region = docRegion(v)
         val lineH = v.lineHeight
@@ -5820,6 +5849,9 @@ class Shell(
     fun graceState(): Pair<Int, Boolean> = notifications.graceStep to (graceJob != null)
     /** Build K1-4a, tests: the notice's programs as "STYLE lines STATE" (a wait's condition; read off the loop). */
     internal fun noticeProgramsForTest(): List<String> = noticeProgs.map { "${it.style} ${it.lines} ${it.rec.state}" }
+    /** Build K1-4a, tests: Page staging's records in the ring (offset, bytes, state) — the strips a notice must leave alone. */
+    internal fun pageStripsForTest(): List<Triple<Int, ByteArray, String>> =
+        stage.ring?.resident.orEmpty().filter { it.key !is MainStageKey }.map { Triple(it.off, it.encoded, it.state.name) }
     /** Build K1-4a, tests: why the programs are not written (one line; off the loop, a diagnosis only). */
     internal fun noticeDiagForTest(): String = transport.state.value.let { st ->
         "key ${noticeLayoutKey(st) != null} region ${CfwModes.noticeRegion(st.cacheSize, st.bind)} cache ${st.cacheSize} bind ${st.bind} " +

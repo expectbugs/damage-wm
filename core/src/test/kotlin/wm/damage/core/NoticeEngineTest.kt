@@ -134,20 +134,62 @@ class NoticeEngineTest {
         } finally { r.close() }
     }
 
-    /** What the notice's slice costs Page staging: its ring (the stage reserve below the slice) at each cache layout. Only
-     *  a 256 KiB session with BIND in force has the slice — its ring 16 KiB of the 32 it had; 160 KiB, and 256 KiB
-     *  without BIND, keep the 64 KiB ring byte for byte. */
+    /**
+     * The coordinator's ruling (2026-11-19): a notice costs Reader nothing it has today. Page staging keeps its whole 32 KiB
+     * reserve at stage 4: with a paging window in front its strips are staged there (two of 12 KB, or one over 16 KiB),
+     * one of them in the notice's slice, and a notice takes the phone's steps; back on Main, while the strips are in the
+     * ring, the notice's programs are not written over them — every strip's bytes on the glasses are still its record's.
+     */
     @Test
-    fun theSliceCostsPageStagingOnlyAtStage4() {
-        fun ring(cache: Int, bind: Boolean) = CfwModes.stageRingEnd(cache, bind) - (cache - CfwModes.stageReserve(cache, bind))
-        assertEquals(16 * 1024, ring(256 * 1024, true), "stage 4 at 256 KiB: the ring is 16 KiB (it was 32)")
-        assertEquals(64 * 1024, ring(256 * 1024, false), "256 KiB without BIND: the 64 KiB ring as before")
-        assertEquals(64 * 1024, ring(160 * 1024, true), "160 KiB: the 64 KiB ring as before")
-        assertEquals(64 * 1024, ring(160 * 1024, false), "160 KiB: the 64 KiB ring as before")
-        assertNull(CfwModes.noticeRegion(160 * 1024, true)); assertNull(CfwModes.noticeRegion(256 * 1024, false))
-        val r = assertNotNull(CfwModes.noticeRegion(256 * 1024, true))
-        assertEquals(256 * 1024 - CfwModes.NOTICE_REGION, r.first, "the slice is the top 16 KiB")
-        assertTrue(CfwModes.mainRegion(256 * 1024, true).last < CfwModes.stageRingEnd(256 * 1024, true), "Main's own region is below the ring")
+    fun theSliceCostsPageStagingNothingTwoStripsKept(): Unit = runBlocking { pagesKept(step = 9, strips = 2, largest = 0) }
+
+    @Test
+    fun theSliceCostsPageStagingNothingAStripOver16KiBKept(): Unit = runBlocking { pagesKept(step = 13, strips = 1, largest = 16 * 1024 + 1) }
+
+    private suspend fun pagesKept(step: Int, strips: Int, largest: Int) {
+        val r = Rig()
+        try {
+            val doc = Doc(step); r.shell.register(doc)
+            r.up()
+            r.shell.services.runOnShell { r.shell.services.openWindow("doc", null) }
+            r.settle("the doc")
+            repeat(2) { r.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM); r.settle("a notch") }
+            waitUntil(30_000, 10, { "$strips strip(s) never staged: ${r.strips().map { it.third }}" }) { r.strips().count { it.third == "PROVEN" } >= strips }
+            r.settle("staged")
+            val proven = r.strips().filter { it.third == "PROVEN" }
+            println("NoticeEngineTest: step $step strips ${proven.map { "${it.first}+${it.second.size}" }}")
+            assertTrue(proven.maxOf { it.second.size } >= largest, "a strip of at least $largest B: ${proven.map { it.second.size }}")
+            val region = CfwModes.noticeRegion(256 * 1024, true)!!
+            assertTrue(proven.any { (off, b, _) -> off <= region.last && off + b.size > region.first }, "a strip lies in the notice's slice: $proven")
+            r.shell.postNotice(Notifications.Notice("SMS · TEST", "t1", "over the page", "12:00"))
+            r.settle("a notice over the page")
+            assertFalse(r.snap("over the page").engine, "with page staging in front the timer is the phone's steps")
+            r.assertStripsIntact("the notice over the page")
+            r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)        // the box unfocused: the doc's back, to Main
+            r.settle("back")
+            delay(500); r.settle("idle")
+            r.assertStripsIntact("back on Main, idle")
+            assertTrue(r.strips().count { it.third == "PROVEN" } >= strips, "the strips are still in the ring: ${r.strips().map { it.third }}")
+            // and the other way round: the notice holds no program a strip has written over — while the strips are in the
+            // slice its programs are not counted there, and a notice on Main takes the phone's steps (no PLAY of them)
+            assertTrue(r.shell.noticeProgramsForTest().none { it.endsWith("PROVEN") }, "a notice program counted under a strip: ${r.shell.noticeProgramsForTest()}")
+            r.shell.postNotice(Notifications.Notice("SMS · TEST", "t2", "on Main after reading", "12:00"))
+            r.settle("a notice on Main")
+            assertFalse(r.snap("on Main").engine, "while the strips hold the slice the timer is the phone's steps")
+            r.assertStripsIntact("the notice on Main")
+        } finally { r.close() }
+    }
+
+    private class Doc(private val step: Int) : wm.damage.core.shell.DamageWindow("doc", "Doc", wm.damage.core.gfx.IconKind.READER) {
+        val model = wm.damage.core.shell.DocModel()
+        private val f = wm.damage.core.text.FontSpec(wm.damage.core.text.Face.SYSTEM, 18)
+        private val tx = FakeText()
+        override fun view() = wm.damage.core.shell.WindowView.DocView(model, { 400 }, 24,
+            { g, i, rr -> tx.draw(g, rr.x + 4, rr.y + 4, "line $i of a page that fills the width " + "abcdefghij".repeat(6).substring(i % 9), f, ((i % 10) + 3) * 17) },
+            {}, stepLines = { step }, contentKey = { model })
+        override fun summary() = Summary("doc")
+        override fun saveState(): kotlinx.serialization.json.JsonObject = kotlinx.serialization.json.buildJsonObject {}
+        override fun restoreState(state: kotlinx.serialization.json.JsonObject) {}
     }
 
     // ------------------------------------------------------------------ the rig
@@ -262,6 +304,18 @@ class NoticeEngineTest {
             }
             OracleWalkTest.firstDiff(s[0], s[2])?.let { throw AssertionError("$what: LEFT belief != glass at $it") }
             OracleWalkTest.firstDiff(s[1], s[3])?.let { throw AssertionError("$what: RIGHT belief != glass at $it") }
+        }
+
+        fun strips() = shell.pageStripsForTest()
+
+        /** Every proven strip's bytes in RIGHT's cache are its record's (no notice program or capture over them). */
+        suspend fun assertStripsIntact(what: String) {
+            val bad = sample(what) {
+                val cache = sim.right.textureCache ?: ByteArray(0)
+                strips().filter { it.third == "PROVEN" }.filter { (off, b, _) -> off + b.size > cache.size || !cache.copyOfRange(off, off + b.size).contentEquals(b) }
+                    .map { "${it.first}+${it.second.size}" }
+            }
+            assertTrue(bad.isEmpty(), "$what: strips overwritten on the glasses: $bad")
         }
 
         suspend fun close() {
