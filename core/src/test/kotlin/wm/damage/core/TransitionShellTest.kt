@@ -1012,11 +1012,17 @@ class TransitionShellTest {
         Rig(stage = 5, kib256 = true).let { r -> try {
             r.up(only("encode", "matrix"))
             r.shell.transitionShareForTest = 1
-            selectAndSettle(r)
+            // the Depth that plays instead held at its frame phase: the reserve is read while that run is in hand
+            r.shell.transitionHoldInHalfForTest = true
+            r.tap()
+            r.until("the frame phase") { r.onLoop { r.shell.transitionPhaseForTest() } == "FRAME" }
+            assertTrue(!r.onLoop { r.shell.reserveOwnedForTest() }, "an act Encode does not play (left out: a refused half) takes no reserve")
+            r.shell.transitionHoldInHalfForTest = false
+            r.shell.postIdleTick()
+            runEnds(r, "the Depth ends")
             val n = r.notes("transition")
             assertTrue(n.any { it.startsWith("left out of this act's pick: ") && "Encode (a half costs" in it && "Matrix (a half costs" in it }, "$n")
             assertTrue(n.any { it.startsWith("owed: Select Depth") }, "$n")
-            assertTrue(!r.onLoop { r.shell.reserveOwnedForTest() }, "an act Encode does not play takes no reserve")
         } finally { r.close() } }
         // the lists do not fit: the arriving window draws in eight faces the glasses hold
         Rig(stage = 5, kib256 = true).let { r -> try {
