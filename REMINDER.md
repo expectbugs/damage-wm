@@ -36,7 +36,7 @@ for firmware → earlier by number (§65 Phase 2 and the protocol, §48 the fork
   findings, the staged records split across flushes, slack on rows that change, the wrap's rows out of the strips.
 - **The animation plan** (`MOTION.md` §7; §95.5): its first phase is specified (`private/build081/K1-spec.md`,
   §96.6) and the notice's timer on the engine is built on `wip/k1-4a`; **the effects build C3 is designed, its
-  contract (`FIRMWARE.md` §7 on `wip/c3d1`, not merged) read twice, nothing built** (§96.7; rulings
+  contract (`FIRMWARE.md` §7, merged 11-19) read twice; its build lanes started 11-19, nothing flashed** (§96.7; rulings
   `private/c3-design/C3-decisions.md`). Open with him: Crush, flat or overlapping (§96.8).
 - **Main's scroll, his verdict on the glasses (§92.1):** only the whole list moving together looked good — "what
   moves, moves together" binds every later motion; the period is chosen so a step fits (P 42 ticks, T 5 at height
