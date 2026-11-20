@@ -70,6 +70,10 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         /** The rubber band's length, modeled (§6.1: ≈ 200 ms plus one LVGL period; I): a tap 115 this soon after the
          *  last scroll message is counted apart when no click follows (§6.10). */
         const val BAND_MS = 200L
+        /** C1 (decisions BM.2): the rubber band sends a queued scroll message one band after another (§6.1; his run of
+         *  eight came 194–240 ms apart, the floor 224 ms in 565 messages, measured): the carry's length per owe left open
+         *  at a burst's lone SETTLE. */
+        const val BAND_DRAIN_MS = 250L
 
         private fun s16(v: Int): Int = v.toShort().toInt()
         /** Ruled on stage DP2's report (`C2-decisions.md` U.2): DISCARD and SETTLE name their S less this, so the lens's
@@ -133,12 +137,18 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
     /** P1, P8: the last S heard; the arming uptime (OS ticks). */
     var sHeard = 0; private set
     var armUptime = 0L; private set
-    /** P5: the echo owes per kind and of either kind — each for a stock message still to come, cleared at every SETTLE —
-     *  and [u], the stock messages that arrived unreported for the bound list since S_heard last advanced (scroll messages
+    /** P5: the echo owes per kind and of either kind — each for a stock message still to come, cleared at a SETTLE (the
+     *  scroll owes a burst's lone SETTLE leaves open are carried, C1: [owesCarriedUntil]) — and [u], the stock messages that arrived unreported for the bound list since S_heard last advanced (scroll messages
      *  and clicks alike: a gap says how many reports were missed, never their kinds). Decisions BB: [u] is kept across a
      *  SETTLE and cleared only when S_heard advances, where a gap is charged against it first and only the remainder
      *  becomes owes — a message that already came and was applied as today is owed nothing. */
     var owesScroll = 0; private set
+    /** [owesScroll] by the direction of the report that owes it (its stock type): a scroll message pays an owe of its own
+     *  direction, else one of either kind, else it is unreported (B083 fix stage, the focused read's 4 — a message of the
+     *  other direction is a notch the lens did not report, never another notch's echo: the fuzz's seed 100100487). */
+    private val owesDir = HashMap<Int, Int>()
+    private fun owesDirInc(type: Int?) { if (type != null) owesDir[type] = (owesDir[type] ?: 0) + 1 }
+    private fun owesDirDec(type: Int?) { if (type != null) owesDir[type] = ((owesDir[type] ?: 0) - 1).coerceAtLeast(0) }
     var owesClick = 0; private set
     var owesAny = 0; private set
     var u = 0; private set
@@ -151,6 +161,87 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
     var q: Long = Q_MS
         private set
     private var lastReportMs = 0L
+
+    /** C1 (decisions BM.2; `B083-real.md`: his late echoes): the scroll owes — of either kind too — a burst's lone SETTLE
+     *  leaves open stay open, by direction, until this time on the phone's clock, one [BAND_DRAIN_MS] each (the rubber
+     *  band's queue sends one message per band end, §6.1), while the bound list stays in front: a late echo then pays its
+     *  owe instead of moving the row a second time. [Long.MIN_VALUE]: none carried. Read at every stock message, at a new
+     *  burst's first report and at every SETTLE ([expireOwes]); cleared at a session start, BIND read off and the list
+     *  leaving the front (inside a burst that joined it too, decisions BO.1). A carry still running when a new burst opens
+     *  joins it: its owes do not run out inside that burst, and the burst's lone SETTLE carries what is left again. No
+     *  message waits on it. */
+    private var owesCarriedUntil = Long.MIN_VALUE
+    /** C4: the last lone SETTLE's carry window as it was set, kept when the carry is cleared early (the list left the
+     *  front): a scroll message unpaid inside it is counted `lateEchoUnpaid`. */
+    private var carryWindowUntil = Long.MIN_VALUE
+    /** For the harnesses: the carry's end (MIN: none). */
+    val owesCarriedUntilMs: Long get() = owesCarriedUntil
+
+    // ---- C4's counts of the carry (decisions BO.2, BO.4; counting only: nothing is decided on them)
+    /** The carried owes a new burst joined, by direction, and of either kind: a scroll message inside that burst that pays
+     *  beyond the burst's own owes pays one of them and is counted `lateEcho` ([joinedPaid]). Cleared at the burst's SETTLE
+     *  (what is left is carried again) and wherever the owes go. */
+    private val joinedDir = HashMap<Int, Int>()
+    private var joinedAny = 0
+    /** When the running carry began — the lone SETTLE that carried owes while none ran; a carry a burst joined runs on
+     *  through that burst into its SETTLE's new window — for `carryMaxMs` (MIN: none). */
+    private var carryFromMs = Long.MIN_VALUE
+    /** The latest clock the rules were handed (a report, a stock message, a batch): a carry's clear is timed by it, since
+     *  [front], [bindInForce] and [sessionStart] carry none. */
+    private var clockMs = Long.MIN_VALUE
+    /** The window of the last carry a change of the front dropped, and its list: a scroll message reaching another front
+     *  inside it is counted `lateEchoOtherFront` (BM.2's "counted first": the late echo or that front's own notch). */
+    private var otherFrontUntil = Long.MIN_VALUE
+    private var otherFrontList = -1
+
+    /** `carryMaxMs`: the running carry ended at [atMs] — its window's end when it ran out, the payment that left no scroll
+     *  owe, or its clear. */
+    private fun carryEnds(atMs: Long) {
+        val from = carryFromMs
+        if (from == Long.MIN_VALUE) return
+        carryFromMs = Long.MIN_VALUE
+        val ms = (atMs - from).coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
+        if (ms > (counts["carryMaxMs"] ?: -1)) counts["carryMaxMs"] = ms
+    }
+
+    /** `lateEcho` inside the burst that joined a carry. The burst's own owes are paid first — a report's echo comes 2–44 ms
+     *  after it on isolated gestures (decisions BC, measured), and a joined owe may be one whose message never comes —
+     *  so a scroll message that paid an owe of its direction ([type]; null: of either kind) is a late echo only when the
+     *  owes it left fall below the joined ones. (Paying the joined ones first counted 32 late echoes per 100 notches in
+     *  his session's profile where the harness, which knows each message's report, counts 3.5: modeled, 300 sequences.) */
+    private fun joinedPaid(type: Int?): Boolean {
+        if (!burstOpen) return false
+        if (type == null) { if (owesAny >= joinedAny) return false; joinedAny = owesAny; return true }
+        val left = owesDir[type] ?: 0
+        if (left >= (joinedDir[type] ?: 0)) return false
+        joinedDir[type] = left
+        return true
+    }
+
+    /** C4: a stock message paid a scroll owe ([type] its direction; null: one of either kind) — a late echo when a carry
+     *  held it ([carried]: no burst open) or the burst joined it; the carry ends when no scroll owe is left. */
+    private fun paid(kind: Stock, carried: Boolean, type: Int?, nowMs: Long) {
+        if (!kind.click && (carried || joinedPaid(type))) count("lateEcho")
+        if (owesScroll + owesAny == 0) carryEnds(nowMs)
+    }
+
+    /** C1: the scroll owes outside a burst that no carry holds go — a carry that ran out or whose list left the front,
+     *  or owes left with none. A burst's own owes go only at its SETTLE. */
+    private fun expireOwes(nowMs: Long) {
+        if (burstOpen) return
+        if (owesScroll + owesAny > 0 && nowMs < owesCarriedUntil && front != null) return
+        dropScrollOwes(if (owesCarriedUntil == Long.MIN_VALUE) nowMs else minOf(nowMs, owesCarriedUntil))
+    }
+    /** [endMs]: when the carry ended, for `carryMaxMs` (a clear with no clock of its own: the latest the rules were handed). */
+    private fun dropScrollOwes(endMs: Long = clockMs) {
+        if (owesCarriedUntil != Long.MIN_VALUE && owesScroll + owesAny > 0) count("owesExpired", owesScroll + owesAny)
+        carryEnds(endMs)
+        owesScroll = 0; owesAny = 0; owesDir.clear(); owesCarriedUntil = Long.MIN_VALUE
+        joinedDir.clear(); joinedAny = 0
+    }
+    /** The owes open at [nowMs] that no carry holds (the fuzz's invariant (4) at rest): a carried owe, live or run out
+     *  before the next event clears it, is not counted. */
+    fun owesUncarried(nowMs: Long): Int = owesClick + if (!burstOpen && owesCarriedUntil != Long.MIN_VALUE) 0 else owesScroll + owesAny
 
     /** The list in front, uncovered (null: covered, another window, nothing bound). */
     var front: BoundList? = null; private set
@@ -213,7 +304,9 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         this.taps = taps
         active = bind
         sHeard = sHeard0 and 0xFFFF; this.armUptime = armUptime
-        owesScroll = 0; owesClick = 0; owesAny = 0; u = 0
+        owesScroll = 0; owesClick = 0; owesAny = 0; u = 0; owesDir.clear()
+        owesCarriedUntil = Long.MIN_VALUE; carryWindowUntil = Long.MIN_VALUE
+        carryEnds(clockMs); joinedDir.clear(); joinedAny = 0; otherFrontUntil = Long.MIN_VALUE; otherFrontList = -1
         tapsLive = false; burstOpen = false; bindFlag = true
         slots.clear(); held.clear(); pending.clear(); touchedSinceRead.clear(); lastRow.clear(); lastFront = front?.list ?: -1
         wireMark.fill(-1); staged.fill(null)
@@ -238,8 +331,8 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
     private var bindFlag = true
     /** RIGHT's read of BIND. Off (a hand FLAGS_CLEAR inside a burst's wait): the burst can no longer close by its SETTLE
      *  (no rule sends one while unbound), so it is closed here — else the save, a re-stage's pieces and the period waited
-     *  on it until the next session (the focused read of B082, N1). */
-    fun bindInForce(on: Boolean) { bindFlag = on; if (!on) { tapsLive = false; burstOpen = false } }
+     *  on it until the next session (the focused read of B082, N1). Its scroll owes go with it (C1: no SETTLE can come). */
+    fun bindInForce(on: Boolean) { bindFlag = on; if (!on) { tapsLive = false; burstOpen = false; dropScrollOwes() } }
 
     // ---------------------------------------------------------------------------------------- the list in front
     /** The entries the phone SETs for [list] under the current `Taps` (§6.7): its scroll entries, and the tap entry in
@@ -274,6 +367,21 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         // cursor); it is a re-bind, not a snap-back
         if (list != null && row >= 0 && (old == null || old.list != list.list)) slot(list.slot).let { st -> st.list = list.list; st.moved = st.moved ?: REBIND }
         if (old != null && (list == null || list.list != old.list)) {
+            // C1: a carry ends when its list leaves the front — a late echo then reaching a window is that window's notch
+            // as today (decisions BM.2: counted, not ruled). Inside a burst too, once that burst has joined a carry
+            // (decisions BO.1): a tap's report opens a burst and its act opens a window, whose first notch the joined owe
+            // swallowed. What a drop costs (decisions BR): under a notice without focus — which takes no scroll, so a notch
+            // goes to Main — the echoes still queued in the band reach Main with no owe and move it a second time, as before
+            // the carry; the case is a notice arriving within the band's drain after a fast burst (counted `lateEchoUnpaid`
+            // and `lateEchoOtherFront`), and with BO.1 one arriving inside a burst that joined a carry (counted
+            // `lateEchoOtherFront` while the dropped carry's window lasts; `lateEchoUnpaid` reads only with no burst open);
+            // accepted; the dropped owes are counted `owesExpired`. A burst that joined no carry keeps its owes through a
+            // cover, as before.
+            if (!burstOpen || owesCarriedUntil != Long.MIN_VALUE) {
+                // C4 (decisions BO.4): the window of the carry this change drops, for `lateEchoOtherFront`
+                if (owesCarriedUntil != Long.MIN_VALUE && owesScroll + owesAny > 0) { otherFrontUntil = carryWindowUntil; otherFrontList = old.list }
+                dropScrollOwes()
+            }
             // the old list leaves the front: CLEAR every entry the phone holds for it (and any SET still owed)
             pending.removeAll { it is Pending.Set && it.list.list == old.list }
             for ((no, h) in held.toList()) if (h.list == old.list) pending += Pending.Clear(no)
@@ -348,6 +456,7 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
     fun report(a: DamageMsg.Applied, row: Int, nowMs: Long): Verdict {
         observe(row)
         if (!active) return Verdict.Nothing
+        clockMs = maxOf(clockMs, nowMs)
         val s = a.s ?: return Verdict.Nothing.also { note("local", "a 115 without S — ignored: ${a.describe()}") }
         val heardBefore = sHeard
         val tap = a.isTap
@@ -359,6 +468,10 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
             if (tap) tapdrop("stale", a, row)
             return Verdict.Nothing
         }
+        // C1: a new burst's first report first ends a carry that ran out (one still running joins this burst's owes)
+        expireOwes(nowMs)
+        // C4 (decisions BO.4): the owes of a carry this burst joins, by direction — a late echo pays one inside it
+        if (!burstOpen && owesCarriedUntil != Long.MIN_VALUE) { joinedDir.clear(); joinedDir.putAll(owesDir); joinedAny = owesAny }
         // P5: the gap g, the owes it adds (n: the gap less the unreported messages that already came since S_heard last
         // advanced, decisions BB — those were applied as today, whatever SETTLE came between), then this report's own owe
         val g = s16(s - sHeard - 1).coerceAtLeast(0)
@@ -367,7 +480,8 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         count("gap", g)
         u = 0
         sHeard = s
-        if (tap) owesClick++ else owesScroll++
+        val ownType = if (tap) null else a.eventId?.let { BoundList.stockEvent(it) }
+        if (tap) owesClick++ else { owesScroll++; owesDirInc(ownType) }
         burstOpen = true
         lastReportMs = nowMs
         if (tap) {
@@ -382,7 +496,7 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         val slotNo = a.slot ?: f?.takeIf { it.list == listId }?.slot ?: return Verdict.Nothing.also {
             // decisions AF.5 (P4): a refused 3 or 14 body names no list, and with none in front it is nobody's to answer —
             // its own owe is taken back, so its stock message is applied as today (the gesture on a cover is not lost)
-            if (tap) owesClick-- else owesScroll--
+            if (tap) owesClick-- else { owesScroll--; owesDirDec(ownType) }
             note("local", "a 115 naming no slot the phone knows — not answered; its stock message goes as today: ${a.describe()}")
         }
         val st = slot(slotNo, heardBefore)
@@ -474,10 +588,24 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
     fun stock(kind: Stock, row: Int, nowMs: Long): Verdict {
         observe(row)
         if (!active) return Verdict.Apply(kind.type)
+        clockMs = maxOf(clockMs, nowMs)
         if (!kind.click) lastScrollMsgMs = nowMs
+        expireOwes(nowMs)                                       // C1: a carry that ran out pays nothing
+        // C4: a scroll message paid by an owe the lone SETTLE carried — a late echo of the band's queue (inside the burst
+        // that joined the carry too: [paid])
+        val carried = !burstOpen && owesCarriedUntil != Long.MIN_VALUE
         if (kind.click && owesClick > 0) { owesClick--; clickArrived(); return Verdict.Nothing }
-        if (!kind.click && owesScroll > 0) { owesScroll--; return Verdict.Nothing }
-        if (owesAny > 0) { owesAny--; if (kind.click) clickArrived(); return Verdict.Nothing }
+        // B083 fix stage (the focused read's 4): a scroll message pays an owe of its own direction, else one of either kind,
+        // else it is unreported (seed 100100487: a notch made under a cover, its message held back by the rubber band past
+        // the uncover, paid a later notch's owe of the other direction, whose own message then moved the row a second time)
+        if (!kind.click && (owesDir[kind.type] ?: 0) > 0) { owesScroll--; owesDirDec(kind.type); paid(kind, carried, kind.type, nowMs); return Verdict.Nothing }
+        if (owesAny > 0) { owesAny--; if (kind.click) clickArrived(); paid(kind, carried, null, nowMs); return Verdict.Nothing }
+        // C4: unpaid inside the last lone SETTLE's carry window — the list no longer in front, or no carried owe of its
+        // direction left
+        if (!kind.click && !burstOpen && nowMs < carryWindowUntil) count("lateEchoUnpaid")
+        // C4 (decisions BO.4): reaching another front (a window, a cover) inside the window of a carry that front's change
+        // dropped — the late echo or that front's own notch, not told apart; applied there as today
+        if (!kind.click && nowMs < otherFrontUntil && front?.list != otherFrontList) count("lateEchoOtherFront")
         val f = front
         if (!kind.click) {
             val e = f?.let { fl -> heldFor(fl.list, CfwModes.EV_UPROLL) ?: heldFor(fl.list, CfwModes.EV_DOWNROLL) }
@@ -634,6 +762,7 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
     fun tail(row: Int, nowMs: Long, denied: Set<Int> = emptySet(), frame: Boolean = true, wrapped: Boolean = false): List<ByteArray> {
         observe(row)
         if (!active) return emptyList()
+        clockMs = maxOf(clockMs, nowMs)
         val out = ArrayList<ByteArray>()
         val listed = HashSet<Int>()
         val setEntries = HashSet<Int>()
@@ -677,7 +806,7 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
             st.handled.clear(); st.moved = null; st.discard = null
         }
         // 4. the idle batch's SETTLE (P7): while no burst is open, every batch carries one
-        if (settleHere) { front?.let { ridingList(out, it.list, listed) }; out += settle(row) }
+        if (settleHere) { front?.let { ridingList(out, it.list, listed) }; out += settle(row, nowMs) }
         return out
     }
 
@@ -736,6 +865,7 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
     fun loneSettle(row: Int, nowMs: Long): List<ByteArray> {
         observe(row)
         if (!settleDue(nowMs)) return emptyList()
+        clockMs = maxOf(clockMs, nowMs)
         burstOpen = false
         // decisions AA.2: a COMMIT of this burst whose outcome-3 body has not come — its batch may have been refused on
         // RIGHT at a tail sub that sends no notify (the riding LIST): one read now, not the minute's
@@ -748,20 +878,31 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         val listed = HashSet<Int>()
         takeRepairs(out, true, listed, HashSet(), HashSet())
         front?.let { ridingList(out, it.list, listed) }
-        out += settle(row)
+        out += settle(row, nowMs, lone = true)
         return out
     }
 
-    private fun settle(row: Int): ByteArray {
+    private fun settle(row: Int, nowMs: Long, lone: Boolean = false): ByteArray {
         val f = front
         // decisions U.2: S_heard + 1 less 0x4000 — with the wide bound, P7's S_low decided no outcome in 2,000 sequences
         // (stage DP2's fix round), so it is gone
         val m = CfwModes.motionSettle(CfwModes.MOTION_ALL, (sHeard + 1 - WIDE) and 0xFFFF, f?.list ?: CfwModes.BIND_ALL, if (f != null) row else 0, AGE_TICKS)
-        if (owesScroll + owesClick + owesAny > 0) count("owesAtSettle", owesScroll + owesClick + owesAny)
+        // C1: the lone SETTLE carries the scroll owes it leaves open while the list is in front; the owes a SETTLE clears
+        // are counted here, a carried one when its carry ends unpaid (`owesExpired`) or a late echo pays it (`lateEcho`)
+        val carry = lone && f != null && owesScroll + owesAny > 0
+        val cleared = owesClick + if (carry || (!lone && owesCarriedUntil != Long.MIN_VALUE)) 0 else owesScroll + owesAny
+        if (cleared > 0) count("owesAtSettle", cleared)
         tapNoClick()
-        // the owes go (a stock message still owed may never come: the rubber band); u stays until S_heard advances
+        // the click owes go (a click inside a rubber band is dropped, never queued: §6.1); the scroll owes go unless
+        // carried (a stock message still owed may never come: the rubber band drops some); u stays until S_heard advances
         // (decisions BB: the next burst's first report charges its gap against the messages that already came)
-        owesScroll = 0; owesClick = 0; owesAny = 0
+        owesClick = 0
+        if (lone) { owesCarriedUntil = if (carry) nowMs + (owesScroll + owesAny) * BAND_DRAIN_MS else Long.MIN_VALUE; carryWindowUntil = owesCarriedUntil }
+        // C4 (decisions BO.2): a carry begins at the lone SETTLE that carries owes while none runs (one a burst joined runs
+        // on into this new window); a lone SETTLE that carries nothing ends the one that ran. The joined owes go back to
+        // being carried owes.
+        if (lone) { if (!carry) carryEnds(nowMs) else if (carryFromMs == Long.MIN_VALUE) carryFromMs = nowMs; joinedDir.clear(); joinedAny = 0 }
+        expireOwes(nowMs)
         repair.settleSent()
         discardSinceSettle.clear()
         unconfirmed.clear(); committed.clear()

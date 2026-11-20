@@ -248,7 +248,7 @@ class RemoteTransportClient(
     override val mirror: RemoteMirror = RemoteMirror()
 
     override fun injectInput(type: Int) =
-        emit(TransportEvent.Input(type, EvenHubMsg.SRC_RING), "Input")
+        emit(TransportEvent.Input(type, EvenHubMsg.SRC_RING, injected = true), "Input")
 
     override fun injectText(line: String) = emit(TransportEvent.Text(line), "Text")
 

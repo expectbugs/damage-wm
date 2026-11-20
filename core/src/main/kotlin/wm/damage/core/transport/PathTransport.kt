@@ -81,7 +81,7 @@ class PathTransport(
     val activeName: String? get() = active?.name
 
     override fun injectInput(type: Int) {
-        if (!_events.tryEmit(TransportEvent.Input(type, EvenHubMsg.SRC_RING)))
+        if (!_events.tryEmit(TransportEvent.Input(type, EvenHubMsg.SRC_RING, injected = true)))
             Log.e("path", "input event buffer overflow — a gesture was DROPPED")
     }
 

@@ -3144,9 +3144,11 @@ class Shell(
 
     // ------------------------------------------------------------------ transport
     /** A stock scroll message or click from the ring while the rules are active (§6.7 P2, P5): read against the echo owes
-     *  before it is handled. */
+     *  before it is handled. A gesture made on a screen ([TransportEvent.Input.injected]) is no stock message — no lens fired
+     *  for it — so it is handled at once as today, and the rules see the row move ([LocalRules] `observe`: the slot's
+     *  answer is a DISCARD naming it). */
     private fun localReads(ev: TransportEvent.Input): Boolean =
-        ev.source == EvenHubMsg.SRC_RING && local.active && wm.damage.core.local.LocalRules.Stock.of(ev.type) != null
+        !ev.injected && ev.source == EvenHubMsg.SRC_RING && local.active && wm.damage.core.local.LocalRules.Stock.of(ev.type) != null
 
     /** Whether a transport event's pump is a gesture's (its flush may take the window's last slot and is journaled as
      *  input): a typed line, or an Input — but not one the rules read, which is input only when their verdict applies or
@@ -4340,7 +4342,8 @@ class Shell(
 
     /** One mode-19 message of a record's write: at most [STAGE_CHUNK] bytes of data; [names]: it names the rest (a band
      *  switch's item word), so it goes alone and only after every piece before it was acknowledged. */
-    private class StagePiece(val op: DisplayOp, val bytes: Int, val names: Boolean)
+    /** [ranges]: the cache bytes it writes (B083, S1: a wrap may play from a record whose written pieces miss its range). */
+    private class StagePiece(val op: DisplayOp, val bytes: Int, val names: Boolean, val ranges: List<IntRange> = emptyList())
 
     /**
      * A record written piece by piece (build SPLIT): one piece per STAGE flush, the next only after the last one's ack,
@@ -4630,27 +4633,34 @@ class Shell(
      *  owner's gate, read afresh on every pump). [onBooked]: what makes the record nameable — run when the naming piece
      *  is submitted, else at the last piece's ack. The first piece goes now. */
     private suspend fun stageSubmit(rec: StagedRecord, st: LinkState, parts: List<Pair<Int, ByteArray>> = listOf(rec.off to rec.encoded),
-                                    namesLast: Boolean = false, mayGo: () -> Boolean = { true }, onBooked: (() -> Unit)? = null) {
-        stageCursor = StageCursor(rec, stagePieces(parts, namesLast, st.cacheSize), mayGo, onBooked)
+                                    namesLast: Boolean = false, mayGo: () -> Boolean = { true }, apartFrom: IntRange? = null,
+                                    onBooked: (() -> Unit)? = null) {
+        stageCursor = StageCursor(rec, stagePieces(parts, namesLast, st.cacheSize, apartFrom), mayGo, onBooked)
         stageSendPiece(st)
     }
 
     /** [parts] as pieces of one mode-19 message each: consecutive data parts packed at their own offsets, split so a
      *  message carries at most [STAGE_CHUNK] bytes of data (its entries' 4-byte headers beside them; parts are 4-byte
-     *  aligned, so a split keeps every offset aligned); with [namesLast] the last part alone, last. */
-    private fun stagePieces(parts: List<Pair<Int, ByteArray>>, namesLast: Boolean, cacheSize: Int): List<StagePiece> {
+     *  aligned, so a split keeps every offset aligned); with [namesLast] the last part alone, last. B083 (S1): with
+     *  [apartFrom] (the wraps' read ranges), the parts that miss it go first and no piece holds both kinds — a wrap may
+     *  play from the records as they stand until the first piece that meets it is written. */
+    private fun stagePieces(parts0: List<Pair<Int, ByteArray>>, namesLast: Boolean, cacheSize: Int, apartFrom: IntRange? = null): List<StagePiece> {
+        fun meets(p: Pair<Int, ByteArray>) = apartFrom != null && p.first <= apartFrom.last && apartFrom.first < p.first + p.second.size
+        val body = if (namesLast) parts0.dropLast(1) else parts0
+        val parts = if (apartFrom == null) parts0 else body.filter { !meets(it) } + body.filter { meets(it) } + (if (namesLast) parts0.takeLast(1) else emptyList())
         val out = ArrayList<StagePiece>()
         var entries = ArrayList<CfwModes.CacheWrite2>()
         var room = STAGE_CHUNK + 4                                  // header + data of the message's entries
         fun close(names: Boolean) {
             if (entries.isEmpty()) return
-            out += StagePiece(DisplayOp.CacheWrite2(CfwModes.cacheUpdate2(entries, cacheSize)), entries.sumOf { it.data.size }, names)
+            out += StagePiece(DisplayOp.CacheWrite2(CfwModes.cacheUpdate2(entries, cacheSize)), entries.sumOf { it.data.size }, names,
+                entries.map { it.off4 * 4 until it.off4 * 4 + it.data.size })
             entries = ArrayList(); room = STAGE_CHUNK + 4
         }
         for ((i, part) in parts.withIndex()) {
             val (off, bytes) = part
             val naming = namesLast && i == parts.size - 1
-            if (naming) close(false)
+            if (naming || (i > 0 && meets(part) && !meets(parts[i - 1]))) close(false)
             var pos = 0
             while (pos < bytes.size) {
                 if (room < 4 + 4) close(false)
@@ -4812,6 +4822,9 @@ class Shell(
         if (cacheLedger.unjudged == 0L) return false                          // nothing acked past the last agreed reading
         val based = cacheLedger.baseGen != null && !cacheLedger.unsure
         if (based && atlasQueue.isNotEmpty()) return false                    // a batch is read at its end
+        // B083 (the focused read of 0.82, S4): so is a record in pieces — a reading between two of them judges none of it
+        // (it stays SENT to its last ack) and cost a RIGHT round trip per piece, lengthening the re-stage
+        if (based && stageCursor?.let { it.next in 1 until it.pieces.size } == true) return false
         if (comp.hasPending || comp.needsKeyframe) return false               // yields to content, as a chunk does
         // the pace; a base counts nothing short and ignores it
         if (based && System.currentTimeMillis() < ledgerReadNotBeforeMs) return false
@@ -5666,6 +5679,7 @@ class Shell(
         // the focused read's N8: the note names the flush, so its `done` row prices the wrap's start against the report
         journal.note("local", "the wrap's PLAY went ahead of its frame as flush ${id ?: "(not submitted)"}: ${tail.size} message(s), " +
             "${tail.sumOf { it.size }} B, ${nowMs - edgeAtMs} ms after the edge's report reached the shell")
+        wrapSent(wrap)
         afterWrapSubmitForTest?.invoke()
         return true
     }
@@ -5690,6 +5704,17 @@ class Shell(
     }
 
     private fun localBodyRead(ev: TransportEvent.LocalBody) {
+        // B083 (2c; his edge bursts): the wrap drew its last step — what Main holds behind it (the row a burst of edges
+        // reached) goes now, not at the end of the wrap's start allowance, unless a later motion holds those cells too.
+        // Pacing on a report; a lost body leaves the allowance's end, as before
+        if (ev.slot == MainStaging.WRAP_SLOT && ev.tag == wrapTagOut && ev.outcome == wm.damage.core.wire.DamageMsg.OUTCOME_DREW &&
+            comp.deferring && comp.deferUntilMs <= wrapHeldUntil) {
+            val early = comp.deferUntilMs - System.currentTimeMillis()
+            if (comp.releaseDeferred(Long.MAX_VALUE)) {
+                journal.note("local", "the wrap's last step came: the cells held behind it go now, $early ms before its allowance ended")
+                post(Msg.Pump)
+            }
+        }
         val ms = mainBind.staging ?: return
         val list = mainBind.list ?: return
         if (ev.slot != list.slot && ev.slot != MainStaging.WRAP_SLOT) return
@@ -5753,7 +5778,11 @@ class Shell(
     }
 
     /** Decisions AZ.4: the wrap's PLAY bytes and its END plan for the assemble. */
-    private class MainWrap(val play: ByteArray, val end: Compositor.EndPlan)
+    private class MainWrap(val play: ByteArray, val end: Compositor.EndPlan, val tag: Int)
+    /** B083 (2c): the last wrap PLAY sent — its tag and the end of the wait its held cells were given ([wrapSent]). */
+    private var wrapTagOut = -1
+    private var wrapHeldUntil = 0L
+    private fun wrapSent(w: MainWrap) { wrapTagOut = w.tag; wrapHeldUntil = w.end.untilMs }
 
     /**
      * Decisions AZ.4: the pan across Main's wrap, when the rules found an edge at an end of the bound list with the row now
@@ -5767,17 +5796,24 @@ class Shell(
         val w = local.wrapPlan(localRow()) ?: return null
         val ms = mainBind.staging ?: return null
         if (w.list.list != MainStaging.LIST || mainBind.list?.mark != w.list.mark) return null
-        // B082: the wrap draws its own record, which a re-stage in pieces may be writing — no PLAY until it is booked (the
-        // edge goes as today)
-        if (stageCursor?.rec?.key is MainStageKey) return null
         val pan = ms.wrapPan(w.step) ?: return null
         val p = ms.wrapParams(pan, w.cPrime) ?: return null
+        // B082: the wrap draws its own record, which a re-stage in pieces may be writing. B083 (the focused read of 0.82,
+        // S1): it plays from the records as they stand while no piece written or on its way meets its read range (§5.6)
+        // — its END is the phone's copy, which takes the re-stage only at its booking, and the pieces still to come wait
+        // for the motion's end (`mayGo`); else no PLAY until it is booked (the edge goes as today)
+        val c = stageCursor
+        if (c != null && c.rec.key is MainStageKey) {
+            val range = pan.program.firstRange(p)
+            val sent = c.pieces.take(c.next + (if (stageInFlightRec === c.rec) 1 else 0))
+            if (sent.any { pc -> pc.ranges.any { it.first <= range.last && range.first <= it.last } }) return null
+        }
         val tag = WRAP_TAG + (wrapTags++ and 0xFFF)
         val play = try { wm.damage.core.motion.Motion.play(pan.program, MainStaging.WRAP_SLOT, ms.periodInForce, tag, 0, p) }
             catch (e: wm.damage.core.geom.LintError) { journal.note("local", "the wrap's PLAY is refused offline (${e.message}) — the row is drawn as today"); return null }
         val until = nowMs + (ms.t + 1L) * ms.periodInForce * 1000L / 1024 + WRAP_START_MS
         return MainWrap(play, Compositor.EndPlan(MainStaging.WRAP_SLOT, pan.program.tracks.map { it.areaL to it.areaR },
-            { left, g -> if (!left && wrapPaintFailsForTest) throw wm.damage.core.geom.LintError("a test: the wrap's END paint fails"); ms.paintEnd(pan, p, left, g) }, until))
+            { left, g -> if (!left && wrapPaintFailsForTest) throw wm.damage.core.geom.LintError("a test: the wrap's END paint fails"); ms.paintEnd(pan, p, left, g) }, until), tag)
     }
     /** The `mainseq` probe's pacing (a test shortens it). */
     @Volatile internal var mainSeqPace = MainSeqPlan.Pace()
@@ -6063,7 +6099,8 @@ class Shell(
     // ------------------------------------------------------ Main's bound list (build C2, stage DM2)
     /**
      * Main's list staged on the glasses for local input (`C2-spec.md` §6.4; decisions B.4; `FIRMWARE.md` §6.7 P9). While
-     * BIND is in force and Main is in front, the idle pump paints Main's staging from Main's own painters ([MainStaging]),
+     * BIND is in force and Main is in front — or behind the shell's clock screen, which wakes to Main (decisions BP: the
+     * base staging only, [mainBehindClock]) — the idle pump paints Main's staging from Main's own painters ([MainStaging]),
      * places its records — in the shared stage reserve at 160 KiB (the document's strips go; Reader stages again on its
      * return), in Main's own region at 256 ([CfwModes.mainRegion]) — and writes them through the stage lane; once the
      * count (field 17) has proven every one, `MainSurface.bound()` offers the list and the rules SET its entries. A row
@@ -6085,6 +6122,8 @@ class Shell(
     internal fun localQForTest(): Long = local.q
     /** K1-1: whether a burst is open (the rules' P7), loop-only. */
     internal fun localBurstOpenForTest(): Boolean = local.burstOpen
+    /** The rules' counters (`unreported`, `lateEcho`, …), read on the loop. */
+    internal fun localCountsForTest(): Map<String, Int> = local.counts.toMap()
     internal fun motionMsForTest(): Long = mainBind.staging?.let { it.t * it.periodInForce * 1000L / 1024 } ?: 0L
     /** G4 item 1: assembles the shell made between the last edge report's verdict and its wrap's PLAY (0: the PLAY went
      *  first); the period in force (BF); the measured window. Loop-only. */
@@ -6153,13 +6192,26 @@ class Shell(
         return if (own.last + 1 < st.cacheSize && a != null && a.capacity > own.first) CfwModes.mainRegion(st.cacheSize, false) else own
     }
 
+    /** Decisions BP (his 0.82 start of 11-20 13:26: 42 s on the clock with nothing of Main written, then 12.4 s of notches
+     *  drawn by the phone after the wake): the shell's own clock screen wakes to Main — its double tap always lands there
+     *  (`exitSilent`, `DESIGN.md` §1.5) — so Main's base staging goes behind it, painted for the layout the wake brings
+     *  ([mainBindLayout]). The list stays unbound until Main is in front: the rules' list in front needs `Mode.MAIN`, and
+     *  the wake's first flush SETs it (the return rule, AF.2). A window's exclusive screen wakes to that window (§4.9):
+     *  nothing of Main is staged there. */
+    private fun mainBehindClock(): Boolean = mode == Mode.SILENT
+
+    /** The layout Main's staging is painted and kept for: the shell's own while Main is in front; behind the clock the one
+     *  its wake brings (`exitSilent`'s `syncLayout`: a height set while the clock shows is applied only there), so the
+     *  staging is not dropped at the wake. */
+    private fun mainBindLayout(): Layout = if (mainBehindClock()) effectiveLayout() else layout
+
     /** Why Main's list is not staged now; null when it is wanted. [front] false: every reason but Main being covered
      *  (K1-1's fix stage: the pans' re-make runs then too). */
     private fun mainBindBlocked(st: LinkState, front: Boolean = true): String? = when {
         !st.bind -> "BIND is not in force"
         !linkUpAndSteady(st) -> "the link is down or the session is rebuilding"
         sleep != null || glassesSilent -> "the glasses are asleep"
-        front && mode != Mode.MAIN -> "Main is not in front"
+        front && mode != Mode.MAIN && !mainBehindClock() -> "Main is not in front"
         testHold -> "hold=on is in force"
         stageFailed -> "staging is off for this session"
         !st.draw2 || !st.leaseHeld -> "DRAW2 or the lease is not in force"
@@ -6211,7 +6263,7 @@ class Shell(
         val gone = b.records.firstOrNull { stage.records[it.key] !== it }
         val why = when {
             gone != null -> "$gone left the stage registry (the stage notes say why)"
-            ms.layout != layout -> "Main's layout changed"
+            ms.layout != mainBindLayout() -> "Main's layout changed"
             (ms.listD to ms.bandD) != mainBindPlanes() -> "Main's planes changed (${ms.listD}/${ms.bandD} staged, ${mainBindPlanes().let { "${it.first}/${it.second}" }} now)"
             ms.rows != mainRows().size -> "Main's rows changed (${ms.rows} staged, ${mainRows().size} now)"
             st.cacheSize != ms.cacheSize || mainBindRegion(st).first != ms.regionStart -> "the session's cache or Main's region changed"
@@ -6275,8 +6327,9 @@ class Shell(
      *  painted again, or a row's re-stage written. True when it did something. */
     private suspend fun pumpMainBind(st: LinkState): Boolean {
         val blocked = mainBindBlocked(st)
-        // decisions AF.9: why Main is not staged, once per reason, while BIND is in force and Main is in front
-        if (st.bind && mode == Mode.MAIN && blocked != mainBindBlockedSaid) {
+        // decisions AF.9: why Main is not staged, once per reason, while BIND is in force and Main is in front (or behind
+        // the clock, decisions BP)
+        if (st.bind && (mode == Mode.MAIN || mainBehindClock()) && blocked != mainBindBlockedSaid) {
             mainBindBlockedSaid = blocked
             if (blocked != null) journal.note("mainstage", "not staged — $blocked; Main's scrolls and taps go as today until it is")
         }
@@ -6297,6 +6350,9 @@ class Shell(
         val rec = b.records.firstOrNull { it.state == StagedRecord.State.WANTED && stage.records[it.key] === it }
         if (rec != null) { stageSubmit(rec, st); stageRecount(); return true }
         if (!b.counted) return false
+        // decisions BP: behind the clock only the base staging goes — no row painted again or re-staged while the list's
+        // window is not in front (P9), and no wake is asked for them: the wake's compose compares the rows' keys
+        if (mainBehindClock()) return false
         b.verifyDue(now)
         b.nextDirty()?.let { row -> return mainBindRow(st, ms, row, write = false, now) }
         // a withdrawn list's strip write, in a pump after the one that withdrew it (the rules' CLEAR went between)
@@ -6323,16 +6379,17 @@ class Shell(
         val region = mainBindRegion(st)
         val (listD, bandD) = mainBindPlanes()
         val n = mainRows().size
+        val lay = mainBindLayout()                       // decisions BP: behind the clock, the layout its wake brings
         // decisions AF.6: the rows' content is part of what a refusal is keyed on — a staging that did not fit is tried
         // again when what it was sized for changes (and at every session start)
-        val what = "$layout $listD/$bandD $n ${region.first}..${region.last} ${st.cacheSize} ${motionInForce()} ${List(n) { main.rowKey(it) }.hashCode()}"
+        val what = "$lay $listD/$bandD $n ${region.first}..${region.last} ${st.cacheSize} ${motionInForce()} ${List(n) { main.rowKey(it) }.hashCode()}"
         if (mainBindRefusedFor == what) return false
         val ct = cachedText
         // decisions AF.8: one row painted per loop turn (its row form and band form); the staging is laid out once every row
         // is painted for this same key — a change of layout, planes, rows or their content starts the paint again
         val pt = mainBindPaint?.takeIf { mainBindPaintFor == what && it.n == n } ?: run {
             mainBindPaintFor = what; mainBindPaintVersions = ct?.wantVersion to ct?.seenVersion
-            MainStaging.Paint(layout, main.view(), kit).also { mainBindPaint = it }
+            MainStaging.Paint(lay, main.view(), kit).also { mainBindPaint = it }
         }
         if (!pt.done) {
             try { pt.step(mainBindRelay()) } catch (e: wm.damage.core.geom.LintError) {
@@ -6397,7 +6454,8 @@ class Shell(
             "${ms.blobs.drop(if (ms.stripB != null) 2 else 1).take(ms.rows).sumOf { it.bytes.size }} B, the item table and ${ms.pans.size + 1} programs ${ms.blobs.takeLast(2).sumOf { it.bytes.size }} B; " +
             "planes $listD/$bandD, press to ${ms.press.pressD}; ${mainBind.stagings} staging(s) and ${mainBind.stagedBytes} B this process" +
             (if (ms.wrap == null && ms.rows > ms.layout.rowsAbove + ms.layout.rowsBelow + 1) "; the wrap's own record left out (the region " +
-                "does not hold it): the wrap goes as the shell's frames" else ""))
+                "does not hold it): the wrap goes as the shell's frames" else "") +
+            (if (mainBehindClock()) " — behind the clock: the list is bound when Main is in front" else ""))
         post(Msg.Pump)
         return true
     }
@@ -6490,7 +6548,11 @@ class Shell(
                 // list that names it, the patch — only when nothing unwritten remains: at the item word's submission (it
                 // goes alone, after every other piece was acknowledged), else at the last piece's ack
                 var pieces = 0
-                stageSubmit(rec, st, r.writes.map { it.off to it.bytes }, namesLast = r.band != null, mayGo = { !mainBindBurstOpen() && !mainMotionMayDraw() }) {
+                // B083 (S1): what the wraps read goes last, so a wrap during the pieces plays from the records as they stand
+                val wrapReads = listOf(-1, 1).mapNotNull { d -> ms.wrapPan(d)?.let { pan -> ms.wrapParams(pan, if (d > 0) ms.rows else -1)?.let { pan.program.firstRange(it) } } }
+                    .reduceOrNull { a, b -> minOf(a.first, b.first)..maxOf(a.last, b.last) }
+                stageSubmit(rec, st, r.writes.map { it.off to it.bytes }, namesLast = r.band != null, mayGo = { !mainBindBurstOpen() && !mainMotionMayDraw() },
+                    apartFrom = wrapReads) {
                     if (mainBind.staging !== ms) return@stageSubmit       // the staging went meanwhile (its drop said so)
                     mainBind.submitted(r, rec, System.currentTimeMillis())
                     stageRecount()
@@ -8031,7 +8093,11 @@ class Shell(
             }
             // the wrap's PLAY goes ahead of the rules' answers (the DISCARD naming the wrapped row); a keyframe's batch
             // denies it (it closes every instance) and the row is drawn as today
-            val wrapPlay = wrap?.takeIf { it.end.slot !in denied }?.play
+            val wrapPlay = wrap?.takeIf { it.end.slot !in denied }?.also { wrapSent(it) }?.play
+            // B083 fix stage (the focused read's 1): no answer waits for the wrap's held cells — a DISCARD held with them let
+            // the next notch fire from the wrap's row and be adopted, a notch of an edge burst lost; a tap inside the wait
+            // acting on a row the panel does not show yet is the declared residual (his taps come ≥ 696 ms after a scroll
+            // message, `FIRMWARE.md` §6.1)
             val localTail = if (localOn) listOfNotNull(wrapPlay) + local.tail(localRow(), localNow, denied, frame = assembled != null, wrapped = wrapPlay != null)
                 else emptyList()
             // build K1-4a: the notice's PLAY after every drawing sub (the box's END picture is in the shadow when it is

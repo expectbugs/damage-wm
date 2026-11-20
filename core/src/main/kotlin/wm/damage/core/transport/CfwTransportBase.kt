@@ -153,6 +153,8 @@ abstract class CfwTransportBase(
     }
 
     override fun injectInput(type: Int) = emitInput(type, EvenHubMsg.SRC_RING, injected = true)
+    /** For the shell rigs: the ring's own stock message, as [routeEvent] emits it (not a screen's gesture). */
+    internal fun ringStockForTest(type: Int) = emitInput(type, EvenHubMsg.SRC_RING)
 
     override fun injectText(line: String) {
         if (!_events.tryEmit(TransportEvent.Text(line))) {
@@ -2603,7 +2605,7 @@ abstract class CfwTransportBase(
         // treats it alike; the log says which it was — a drag there gives a notch per touch sample, 17 ms apart, which
         // read as the glasses' own scroll pacing on 2026-11-18 (HANDOFF §88).
         Log.i(name, "input${if (injected) " (from this app's screen)" else ""}: ${EvenHubMsg.eventName(type)} (type $type, source $source)")
-        if (!_events.tryEmit(TransportEvent.Input(type, source))) {
+        if (!_events.tryEmit(TransportEvent.Input(type, source, injected))) {
             Log.e(name, "input event buffer overflow — a gesture was DROPPED")
         }
     }

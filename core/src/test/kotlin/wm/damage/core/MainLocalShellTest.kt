@@ -73,15 +73,21 @@ class MainLocalShellTest {
     /** [kib256]: the transport made over a stored ladder record that holds stage 4 and a 256 KiB last session (decisions
      *  AD.1, `LadderRecord.sessionKib`), so its first start asks 256 KiB and Main stages into its own region; the start
      *  rig's mirror is its own model of the phone's bytes, as on glass (not the lens, as `SimTransport`'s is). */
-    private class Rig(val taps: Taps, val stage: Int = 4, nRows: Int = 7, val kib256: Boolean = false) {
+    private class Rig(val taps: Taps, val stage: Int = 4, nRows: Int = 7, val kib256: Boolean = false, val link: Pair<Long, Long>? = null,
+                      val linkLatency: Long = 0) {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val tmp = Files.createTempDirectory("damage-mainlocal")
         val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = 0x5ff }
-        val t: wm.damage.core.transport.CfwTransportBase = if (!kib256) SimTransport(sim, scope, SimTransport.Timing(instant = true))
-            else StartRig(sim, scope, c1StageFile = tmp.resolve("c1-stage").also { f ->
-                Files.writeString(f, wm.damage.core.transport.LadderRecord(stage = 4, sessionKib = 256).encode()) })
+        private fun c1(): java.nio.file.Path = tmp.resolve("c1-stage").also { f ->
+            Files.writeString(f, wm.damage.core.transport.LadderRecord(stage = 4, sessionKib = 256).encode()) }
+        val t: wm.damage.core.transport.CfwTransportBase = when {
+            link != null -> LinkRig(sim, scope, c1(), link.first, link.second, linkLatency)
+            !kib256 -> SimTransport(sim, scope, SimTransport.Timing(instant = true))
+            else -> StartRig(sim, scope, c1StageFile = c1())
+        }
         val journal = tmp.resolve("journal.jsonl")
-        val shell = Shell(CachedText(FakeText()), t, Persistence(tmp.resolve("state.json")), journal, scope) { Shell.LocalClock(12, 0, "12:00", "PM") }
+        val persistence = Persistence(tmp.resolve("state.json"))
+        val shell = Shell(CachedText(FakeText()), t, persistence, journal, scope) { Shell.LocalClock(12, 0, "12:00", "PM") }
         val rows = (0 until nRows).map { Row("w$it", "Win $it", DamageWindow.Summary("summary $it", detail = "detail of $it", progress = if (it == 3) 0.25 else null)) }
         /** RIGHT's top-level images, in order. */
         val right = java.util.concurrent.CopyOnWriteArrayList<ByteArray>()
@@ -92,7 +98,7 @@ class MainLocalShellTest {
 
         init {
             for (r in rows) shell.register(r)
-            if (!kib256) t.devProbe("c1", "$stage")
+            if (!kib256 && link == null) t.devProbe("c1", "$stage")
             sim.imageObserver = { a, img -> onAnyImage?.invoke(a, img); if (a == Arm.RIGHT) { right += img; onImage?.invoke(img) } }
             // the glasses' engine thread: a step due is drawn
             scope.launch { while (true) { val now = System.currentTimeMillis(); for (a in Arm.entries) sim.conformanceWake(a, now); delay(4) } }
@@ -143,6 +149,42 @@ class MainLocalShellTest {
             until("the notice's programs counted") { onLoop { shell.noticeLaneDoneForTest() && !shell.cacheWorkInFlight } }
         }
 
+        /** B083-ms (decisions BP): a first session started where the stored state leaves the shell — [mode] (`SILENT`: the
+         *  shell's own clock screen; `EXCLUSIVE` with [current]: that window's exclusive screen) with [up]'s settings
+         *  already stored, as a phone restart finds them. */
+        suspend fun upOn(mode: String, current: String? = null) {
+            persistence.put("shell.settings", wm.damage.core.shell.ShellSettings().copy(heightMode = 352, cachedText = "on", taps = taps).toJson())
+            persistence.put("shell.state", JsonObject(buildMap {
+                put("mode", kotlinx.serialization.json.JsonPrimitive(mode))
+                if (current != null) put("current", kotlinx.serialization.json.JsonPrimitive(current))
+            }))
+            shell.start(); settle("start on $mode")
+        }
+
+        /** The shell's power state is its own clock screen (the last `power` note). */
+        fun onClock(): Boolean = notes("power").lastOrNull()?.startsWith("shell-silent") == true
+
+        /** One flush as the journal holds it: its submit (time, label, the shell's mode) and its completion (the shell's
+         *  time for it, 0 until done; the transport's `took` and `wrote`). */
+        data class Flush(val id: Long, val t: Long, val label: String, val mode: String, val doneT: Long, val took: Long, val wrote: Long, val bytes: Long)
+
+        fun flushes(): List<Flush> {
+            if (!Files.exists(journal)) return emptyList()
+            val lines = Files.readAllLines(journal)
+            fun num(l: String, k: String) = Regex("\"$k\":(-?\\d+)").find(l)?.groupValues?.get(1)?.toLong() ?: 0L
+            fun str(l: String, k: String) = Regex("\"$k\":\"([^\"]*)\"").find(l)?.groupValues?.get(1) ?: ""
+            val done = lines.filter { "\"ev\":\"done\"" in it }.associateBy { num(it, "id") }
+            return lines.filter { "\"ev\":\"submit\"" in it }.map { l ->
+                val d = done[num(l, "id")]
+                Flush(num(l, "id"), num(l, "t"), str(l, "label"), str(l, "mode"), d?.let { num(it, "t") } ?: 0L, d?.let { num(it, "took") } ?: 0L,
+                    d?.let { num(it, "wrote") } ?: 0L, Regex("\"bytes\":(\\d+)").findAll(l).sumOf { it.groupValues[1].toLong() })
+            }
+        }
+
+        /** Nothing pending and nothing submitted for [quietMs]. */
+        suspend fun idle(what: String, quietMs: Long = 1_000, maxMs: Long = 60_000) =
+            until("$what: idle for $quietMs ms", maxMs) { shell.isQuiescent() && (flushes().lastOrNull()?.t ?: 0L) < System.currentTimeMillis() - quietMs }
+
         fun list(): BoundList = assertNotNull(onLoop { shell.mainBoundForTest().first })
         fun row(): Int = onLoop { shell.mainBoundForTest().second }
 
@@ -151,7 +193,9 @@ class MainLocalShellTest {
         fun fire(eventId: Int): Int {
             val now = System.currentTimeMillis()
             for (a in Arm.entries) sim.conformanceInput(a, CfwModes.DEV_RING, eventId.toLong(), 0, now)
-            t.injectInput(BoundList.stockEvent(eventId)!!)
+            val stock = BoundList.stockEvent(eventId)!!
+            // a link that takes time: the stock message rides the uplink behind the 115 the hook just sent (§6.1)
+            (t as? LinkRig)?.later { t.ringStockForTest(stock) } ?: t.ringStockForTest(stock)
             return sim.bindForTest(Arm.RIGHT).seq
         }
 
@@ -1562,10 +1606,31 @@ class MainLocalShellTest {
         } finally { r.close() }
     }
 
-    /** Build SPLIT on 0.81, B082 (the wrap's own record): a wrap whose edge report comes as a 256 KiB re-stage's first
-     *  piece goes out — the re-stage writes the changed row into the wrap's record too — sends no PLAY (that record may be
-     *  part-written): the edge goes as today, the row moves to the first, the re-stage's later pieces wait for the burst
-     *  and it is booked after. At rest belief equals both lenses. */
+    /** The cache byte ranges a mode-19 (or deflated mode-25) image writes; empty for any other image. */
+    private fun writeRanges(r: Rig, img: ByteArray): List<IntRange> {
+        val body = when (img[0].toInt() and 0x7F) {
+            19 -> img.copyOfRange(1, img.size)
+            25 -> java.util.zip.Inflater().run { setInput(img, 1, img.size - 1); val o = java.io.ByteArrayOutputStream(); val b = ByteArray(4096)
+                while (!finished()) { val n = inflate(b); if (n == 0 && (needsInput() || needsDictionary())) break; o.write(b, 0, n) }; end(); o.toByteArray() }
+            else -> return emptyList()
+        }
+        val out = ArrayList<IntRange>(); var i = 0
+        while (i + 4 <= body.size) { val off = r.u16(body, i) * 4; val n = r.u16(body, i + 2); out += off until off + n; i += 4 + n }
+        return out
+    }
+
+    /** The first read range (§5.6) of the wrap's pan down from the last row, as Main's staging now plans it. */
+    private fun wrapRange(r: Rig): IntRange = r.onLoop {
+        val ms = r.shell.mainBinding.staging!!
+        val pan = ms.wrapPan(+1)!!
+        pan.program.firstRange(ms.wrapParams(pan, ms.rows)!!)
+    }
+
+    /** Build SPLIT on 0.81, B082 (the wrap's own record): a wrap whose edge report comes as a 256 KiB re-stage's piece that
+     *  meets the wrap's read range goes out — the re-stage writes the changed row into the wrap's record too — sends no
+     *  PLAY (that record may be part-written): the edge goes as today, the row moves to the first, the re-stage's later
+     *  pieces wait for the burst and it is booked after. At rest belief equals both lenses. (B083, S1: the trigger is the
+     *  first piece that meets the range — before it the wrap plays, `aWrapDuringARestagesPiecesPlaysFromTheRecordsAsTheyStand_S1`.) */
     @Test
     fun aWrapBetweenARestagesPiecesDrawsTheWholeStrip_SPLIT2(): Unit = runBlocking {
         val r = Rig(Taps.REPORT, kib256 = true)
@@ -1573,22 +1638,52 @@ class MainLocalShellTest {
             r.up()
             walkTo(r, r.list().count - 1)
             val regionStart = CfwModes.mainRegion(256 * 1024, true).first
-            fun firstOff(img: ByteArray): Int = when (img[0].toInt() and 0x7F) {
-                19 -> r.u16(img, 1) * 4
-                25 -> java.util.zip.Inflater().run { setInput(img, 1, img.size - 1); val out = ByteArray(4); inflate(out); end(); r.u16(out, 0) * 4 }
-                else -> -1
-            }
+            val range = wrapRange(r)
             val at = r.right.size
             var fired = false
-            r.onAnyImage = { a, img -> if (a == Arm.RIGHT && !fired && r.cacheWrite(img) && firstOff(img) >= regionStart) { fired = true; r.fire(CfwModes.EV_UPROLL) } }
+            r.onAnyImage = { a, img -> if (a == Arm.RIGHT && !fired && r.cacheWrite(img) && writeRanges(r, img).let { w -> w.isNotEmpty() && w.first().first >= regionStart &&
+                w.any { it.first <= range.last && range.first <= it.last } }) { fired = true; r.fire(CfwModes.EV_UPROLL) } }
             r.rows[3].s = r.rows[3].s.copy(line = "summary 33")
             r.shell.services.requestRender(r.rows[3])
-            r.until("the wrap fired as the re-stage's first piece went out", 15_000) { fired }
+            r.until("the wrap fired as a re-stage piece meeting its range went out", 15_000) { fired }
             r.onAnyImage = null
             r.until("the re-stage booked", 15_000) { r.notes("mainstage").any { it.startsWith("row 3 re-staged") } }
             assertTrue(wrapBatch(r, at) == null, "no wrap PLAY while the re-stage was in pieces")
             assertTrue(r.notes("snapback").last().let { "cause=edge" in it && "wrap=play" !in it }, r.notes("snapback").last())
             delay(r.q() + 200); r.settle("after")
+            assertEquals(0, r.row(), "the wrap landed on the first row")
+            assertTrue(r.notes("divergence").isEmpty(), "${r.notes("divergence")}")
+            r.assertOracle("after the wrap and the re-stage")
+        } finally { r.close() }
+    }
+    /** B083 (the focused read of 0.82, S1): a wrap whose edge comes as a 256 KiB re-stage's first piece goes out, that
+     *  piece missing the wrap's read range (a row in the middle of 12: not in the wrap's record), plays from the records
+     *  as they stand — its END is the phone's copy, which takes the re-stage only at the booking — and the re-stage's later
+     *  pieces wait for its motion. At rest: the row on the first, the re-stage booked, no divergence, belief equal to both
+     *  lenses. Before S1 every wrap during a Main re-stage's pieces went as today (the row jumped). */
+    @Test
+    fun aWrapDuringARestagesPiecesPlaysFromTheRecordsAsTheyStand_S1(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, nRows = 12, kib256 = true)
+        try {
+            r.up()
+            walkTo(r, r.list().count - 1)
+            val regionStart = CfwModes.mainRegion(256 * 1024, true).first
+            val range = wrapRange(r)
+            val at = r.right.size
+            var fired = false
+            var first: List<IntRange>? = null
+            r.onAnyImage = { a, img -> if (a == Arm.RIGHT && !fired && r.cacheWrite(img) && writeRanges(r, img).let { w -> w.isNotEmpty() && w.first().first >= regionStart }) {
+                fired = true; first = writeRanges(r, img); r.fire(CfwModes.EV_UPROLL) } }
+            r.rows[6].s = r.rows[6].s.copy(line = "summary 66")
+            r.shell.services.requestRender(r.rows[6])
+            r.until("the wrap fired as the re-stage's first piece went out", 15_000) { fired }
+            r.onAnyImage = null
+            val f = first!!
+            println("S1: the wrap's read range $range; the first piece writes $f")
+            assertTrue(f.none { it.first <= range.last && range.first <= it.last }, "the case: the first piece misses the wrap's range $range: $f")
+            r.until("the re-stage booked", 15_000) { r.notes("mainstage").any { it.startsWith("row 6 re-staged") } }
+            assertTrue(wrapBatch(r, at) != null, "the wrap PLAYed while the re-stage was in pieces: snapbacks ${r.notes("snapback").takeLast(2)}")
+            delay(r.motionMs() + r.q() + 300); r.settle("after")
             assertEquals(0, r.row(), "the wrap landed on the first row")
             assertTrue(r.notes("divergence").isEmpty(), "${r.notes("divergence")}")
             r.assertOracle("after the wrap and the re-stage")
@@ -1659,11 +1754,16 @@ class MainLocalShellTest {
     }
 
     /** B082 (the split on 0.81): a re-stage that comes due while the wrap's held wait still runs — past the burst's lone
-     *  SETTLE by the wrap's start allowance — sends its first piece only once that wait has ended: a cache write meeting
-     *  a drawing instance's read range closes it (§5.6). */
+     *  SETTLE — sends its first piece only once that wait has ended: a cache write meeting a drawing instance's read range
+     *  closes it (§5.6). B083 fix stage (item 7; the focused read's area 6): a pin that bites. Over the per-packet link rig
+     *  the wrap's PLAY leaves behind a stall of [stall] ms on the downlink (a frame of several KB in flight when the edge's
+     *  report comes; his 0.81 journal: the wrap started 332–442 ms after the edge's report, measured), so the wrap draws
+     *  after the burst's SETTLE; a band-only row change is owed meanwhile. The first piece must reach RIGHT with the wrap's
+     *  instance no longer drawing; without the gate it goes at the SETTLE, once the PLAY is acknowledged, and meets it. */
     @Test
     fun aRestageWaitsForTheWrapsMotionNotJustItsBurst_B082(): Unit = runBlocking {
-        val r = Rig(Taps.REPORT, kib256 = true)
+        val r = Rig(Taps.REPORT, link = 20L to 30L)
+        val stall = 400L
         try {
             r.up()
             walkTo(r, r.list().count - 1)
@@ -1673,17 +1773,25 @@ class MainLocalShellTest {
                 25 -> java.util.zip.Inflater().run { setInput(img, 1, img.size - 1); val out = ByteArray(4); inflate(out); end(); r.u16(out, 0) * 4 }
                 else -> -1
             }
-            val at = r.right.size
-            var pieceAt = 0L
-            r.onAnyImage = { a, img -> if (a == Arm.RIGHT && pieceAt == 0L && r.cacheWrite(img) && firstOff(img) >= regionStart) pieceAt = System.currentTimeMillis() }
+            val t0 = System.currentTimeMillis()
+            var playAt = 0L; var pieceAt = 0L; var pieceBytes = 0
+            var wrapDrawing: String? = null
+            r.onAnyImage = { a, img -> if (a == Arm.RIGHT) {
+                if (playAt == 0L && r.subs(img).any { isWrapPlay(it) }) playAt = System.currentTimeMillis()
+                if (pieceAt == 0L && r.cacheWrite(img) && firstOff(img) >= regionStart) {
+                    pieceAt = System.currentTimeMillis(); pieceBytes = img.size
+                    r.sim.motionForTest(Arm.RIGHT).slots[MainStaging.WRAP_SLOT]?.takeIf { it.drawing && it.d < it.T }?.let { wrapDrawing = "step ${it.d} of ${it.T}" } } } }
+            (r.t as LinkRig).stallNextMs = stall
             r.fire(CfwModes.EV_UPROLL)                                       // the wrap
-            r.until("the wrap's PLAY on RIGHT") { wrapBatch(r, at) != null }
-            val until = r.onLoop { r.shell.comp.deferUntilMs }
-            r.rows[3].s = r.rows[3].s.copy(line = "summary 33")                // a re-stage owed now
+            r.until("the wrap's PLAY decided") { r.notes("local").any { "went ahead of its frame" in it } }
+            r.rows[3].s = r.rows[3].s.copy(line = "summary 33")                // a band-only row change owed now
             r.shell.services.requestRender(r.rows[3])
             r.until("the re-stage's first piece", 15_000) { pieceAt != 0L }
             r.onAnyImage = null
-            assertTrue(pieceAt >= until, "the first piece went ${until - pieceAt} ms before the wrap's wait ended")
+            println("B082-pin: stall $stall ms; the PLAY on RIGHT +${playAt - t0} ms, the first piece ($pieceBytes B) +${pieceAt - t0} ms; " +
+                "Q ${r.q()} ms, the motion ${r.motionMs()} ms; ${wrapDrawing ?: "the wrap no longer drawing"}")
+            assertTrue(playAt - t0 >= stall, "the shape: the PLAY reached RIGHT behind the stall (+${playAt - t0} ms)")
+            assertTrue(wrapDrawing == null, "the first piece reached RIGHT while the wrap drew ($wrapDrawing)")
             delay(r.q() + 300); r.settle("after")
             r.assertOracle("after the wrap and the re-stage")
         } finally { r.close() }
@@ -1715,5 +1823,383 @@ class MainLocalShellTest {
             assertTrue(took - decided < 60 && wrote - decided < 80, "the lane took it at once: took +${took - decided}, wrote +${wrote - decided}")
             assertTrue(handled - decided >= 250, "the done row waited for the loaded loop (+${handled - decided}): the row's t is no send time")
         } finally { r.close() }
+    }
+    /** B083 fix stage (item 2; the focused read's 1, shown in this shell): over the slow link, k notches past the end 60 ms
+     *  apart — all edges, the wrap's DISCARD has not landed — and one notch more once the later edges' DISCARD has landed,
+     *  or 740 ms after the first at the latest. The DISCARD now goes when the link has room (its frame still waits behind
+     *  the wrap; it lands about +600 ms here), so that notch fires from the burst's row: the row at rest is the ring's, k.
+     *  With the DISCARD held for the wrap's wait it went with the frame and landed about +860 ms, the notch fired from the
+     *  wrap's row 0 and was adopted at the burst's row: k = 2 ended on row 1, k = 3 on row 1 (a forward notch moved the
+     *  row back). */
+    @Test
+    fun aNotchInsideTheWrapsWaitAfterAnEdgeBurst_B083F2(): Unit = runBlocking {
+        for (k in listOf(2, 3)) {
+            val r = Rig(Taps.REPORT, link = 20L to 30L, linkLatency = 250)
+            try {
+                r.up()
+                walkTo(r, r.list().count - 1)
+                val img0 = r.right.size
+                val t0 = System.currentTimeMillis()
+                repeat(k) { r.fire(CfwModes.EV_UPROLL); delay(60) }
+                while (System.currentTimeMillis() < t0 + 740 && r.sim.bindForTest(Arm.RIGHT).lists[0].cursor != k - 1) delay(4)
+                val firedAt = System.currentTimeMillis() - t0
+                val lensCursor = r.sim.bindForTest(Arm.RIGHT).lists[0].cursor
+                val rowBefore = r.row()
+                val wrapDrawing = r.sim.motionForTest(Arm.RIGHT).slots[MainStaging.WRAP_SLOT]?.drawing == true
+                r.fire(CfwModes.EV_UPROLL)
+                delay(r.motionMs() + r.q() + 1500); r.settle("after k=$k")
+                val told = r.right.drop(img0).flatMap { r.subs(it) }.filter { it[0].toInt() == 26 && it[1].toInt() in 3..5 && it.size >= 8 }
+                    .map { (if (it[1].toInt() == 3) "C" else if (it[1].toInt() == 4) "D" else "S") + ((it[6].toInt() and 0xFF) or ((it[7].toInt() and 0xFF) shl 8)) }
+                println("B083F2 k=$k: the extra notch at +$firedAt ms, the lens's cursor $lensCursor, the phone's row $rowBefore, the wrap drawing $wrapDrawing; " +
+                    "at rest row ${r.row()} (the ring says $k); told $told; the motion ${r.motionMs()} ms")
+                assertEquals(k, r.row(), "k=$k: the row at rest is the ring's")
+                r.assertOracle("after k=$k and the extra notch")
+            } finally { r.close() }
+        }
+    }
+
+    /** B083 fix stage (item 3; the focused read's 3): a drag on the phone's mirror of Main — three notches 25 ms apart
+     *  through `injectInput`, no lens firing — is no ring event: each is handled at once as today, nothing counts in u, no
+     *  table repair goes. Read as the ring's, each was an unreported scroll message — counted in u with a `lost-report`
+     *  snap-back — and the table repair re-sent the scroll SETs. */
+    @Test
+    fun aDragOnTheMirrorIsHandledAtOnce_B083F3(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT)
+        try {
+            r.up()
+            walkTo(r, 1)
+            val repairs0 = r.notes("repair").size
+            repeat(3) { r.t.injectInput(EvenHubMsg.EV_SCROLL_BOTTOM); delay(25) }
+            r.until("the drag applied at once, inside Q (${r.q()} ms)", 350) { r.row() == 4 }
+            delay(r.q() + 300); r.settle("after the drag")
+            assertEquals(4, r.row(), "three notches, three rows")
+            val c = r.onLoop { r.shell.localCountsForTest() }
+            assertEquals(null, c["unreported"], "nothing counted in u: $c")
+            assertEquals(repairs0, r.notes("repair").size, "no table repair: ${r.notes("repair").drop(repairs0)}")
+            r.assertOracle("after the drag")
+        } finally { r.close() }
+    }
+
+    /** B083 fix stage (item 3): under `Taps · glasses`, with RIGHT known to hold the tap entry (a ring tap first), a tap on
+     *  the phone's screen acts — before, it was read as a click whose 115 was lost and dropped (`tapdrop no-report`). */
+    @Test
+    fun aScreenTapActsUnderTapsGlasses_B083F3(): Unit = runBlocking {
+        val r = Rig(Taps.GLASSES)
+        try {
+            r.up()
+            tap(r)                                                         // a ring tap: tapsLive, then back on Main
+            walkTo(r, 2)
+            r.t.injectInput(EvenHubMsg.EV_CLICK)
+            r.until("the screen tap opens row 2's window", 5_000) { r.onLoop { r.shell.currentWindowId() } == "w2" }
+            assertTrue(r.notes("tapdrop").isEmpty(), "no tap dropped: ${r.notes("tapdrop")}")
+        } finally { r.close() }
+    }
+
+    // ---------------------------------------------------------------------------------------------- B083-ms (decisions BP)
+    /** Decisions BP, pin 1 (his 0.82 start of 13:26:43: the session came up on the shell's own clock screen and nothing of
+     *  Main went for 42 s): after a start on the clock, with no input, Main's atlas and its records are written and counted
+     *  while the clock shows — and the list is NOT bound: no SET on RIGHT, no entry held there. */
+    @Test
+    fun aStartOnTheClockStagesMainBehindItAndBindsNothing_BP(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT)
+        try {
+            r.upOn("SILENT")
+            assertTrue(r.onClock(), "the session started on the clock: ${r.notes("power")}")
+            r.until("Main's list counted while the clock shows") { r.notes("mainstage").any { it.startsWith("offered") } }
+            r.idle("counted behind the clock")
+            assertTrue(r.onClock(), "still on the clock: ${r.notes("power")}")
+            val fl = r.flushes()
+            println("BP-1: ${fl.groupBy { "${it.label}/${it.mode}" }.mapValues { it.value.size }}; mainstage ${r.notes("mainstage").map { it.take(90) }}")
+            assertTrue(fl.any { it.label == "ATLAS" && it.mode == "SILENT" }, "atlas chunks while the clock shows: ${fl.map { "${it.label}/${it.mode}" }}")
+            val stage = fl.filter { it.label == "STAGE" }
+            assertTrue(stage.size >= 12 && stage.all { it.mode == "SILENT" }, "Main's twelve records written while the clock shows: ${stage.map { it.mode }}")
+            assertTrue(r.notes("mainstage").any { it.startsWith("staged") && "behind the clock" in it }, "the staging says where: ${r.notes("mainstage")}")
+            assertTrue(r.notes("stage").any { "proved" in it }, "a reading of the count proved them: ${r.notes("stage").takeLast(4)}")
+            assertEquals(0, r.sim.bindForTest(Arm.RIGHT).field39(), "no entry held on RIGHT while the clock shows")
+            assertTrue(r.right.none { img -> r.subs(img).any { r.isSub(it, CfwModes.BIND_MODE, CfwModes.BIND_SET) } }, "no SET sent while the clock shows")
+        } finally { r.close() }
+    }
+
+    /** Decisions BP, pin 2: the wake (a double tap on the clock) opens Main, and the flush that draws Main binds its list
+     *  (the return rule, AF.2: the entries are held on RIGHT once that flush is acknowledged); the first notch after it is a
+     *  local fire, adopted and committed — no notch drawn by the phone first, nothing staged again. Before decisions BP the
+     *  same sequence starts Main's staging at the wake (the message says when the first STAGE flush went). */
+    @Test
+    fun theWakeBindsMainInItsFirstFlushAndTheFirstNotchIsLocal_BP(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT)
+        try {
+            r.upOn("SILENT")
+            r.idle("behind the clock")                       // BP: Main staged and counted; before it: the clock's atlas only
+            assertTrue(r.onClock(), "on the clock: ${r.notes("power")}")
+            val n0 = r.flushes().size
+            val tap = System.currentTimeMillis()
+            r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+            r.until("Main's first flush after the wake acknowledged") { r.flushes().drop(n0).firstOrNull { it.label == "MAIN" }?.let { it.doneT > 0 } == true }
+            val held = r.sim.bindForTest(Arm.RIGHT).field39()
+            val firstStage = r.flushes().firstOrNull { it.label == "STAGE" }
+            assertEquals(r.bound39, held, "the wake's first flush bound Main's list (field 39 at its ack) — the first STAGE flush went " +
+                (firstStage?.let { "${it.t - tap} ms from the wake (${it.mode})" } ?: "never"))
+            notch(r, CfwModes.EV_UPROLL, "the first notch after the wake")
+            val after = r.flushes().drop(n0)
+            assertTrue(after.none { it.label == "STAGE" }, "nothing staged after the wake: ${after.map { it.label }}")
+            assertEquals(1, r.notes("mainstage").count { it.startsWith("staged") }, "one staging: ${r.notes("mainstage")}")
+            assertTrue(r.notes("mainstage").none { it.startsWith("dropped") || it.startsWith("withdrawn") || " re-staged" in it }, "${r.notes("mainstage")}")
+        } finally { r.close() }
+    }
+
+    /** Decisions BP, pin 3, over a link that takes time ([LinkRig]: 20 ms a packet): the wake comes while one of Main's
+     *  pieces is in flight behind the clock. Its frame is submitted with no piece between, and waits in the lane at most
+     *  that piece's write; the staging then carries on (the rest of its pieces go after the wake) and is not started again. */
+    @Test
+    fun aWakeDuringAPieceWaitsAtMostThatPieceAndTheStagingCarriesOn_BP(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, link = 20L to 30L)
+        try {
+            r.upOn("SILENT")
+            // the strip's first piece (a whole STAGE_CHUNK) in flight behind the clock
+            r.until("Main's first piece submitted behind the clock", 60_000) { r.flushes().count { it.label == "STAGE" } >= 1 }
+            val n0 = r.flushes().size
+            val tap = System.currentTimeMillis()
+            r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+            r.bound("after the wake")
+            val fl = r.flushes()
+            val piece = fl.take(n0).last { it.label == "STAGE" }
+            val wake = fl.drop(n0).first { it.label == "MAIN" }
+            val pieceMs = piece.wrote - piece.took
+            val waited = wake.took - wake.t
+            println("BP-3: the wake's frame (${wake.bytes} B) submitted ${wake.t - tap} ms after the tap, taken by the lane ${waited} ms later; the piece " +
+                "in flight (${piece.bytes} B) written in $pieceMs ms (done ${piece.doneT - tap} ms after the tap); STAGE after the wake ${fl.drop(n0).count { it.label == "STAGE" }}")
+            assertTrue(piece.doneT > tap, "the piece was in flight at the tap (done ${piece.doneT - tap} ms after it)")
+            assertTrue(fl.none { it.label == "STAGE" && it.t in tap..wake.t }, "no piece submitted between the tap and the wake's frame")
+            assertTrue(waited <= pieceMs + 50, "the wake's frame waited $waited ms in the lane; one piece is written in $pieceMs ms")
+            assertTrue(fl.drop(n0).any { it.label == "STAGE" && it.mode == "MAIN" }, "the rest of Main's pieces went after the wake")
+            assertEquals(1, r.notes("mainstage").count { it.startsWith("staged") }, "carried on, not staged again: ${r.notes("mainstage")}")
+            assertTrue(r.notes("mainstage").none { it.startsWith("dropped") }, "${r.notes("mainstage")}")
+        } finally { r.close() }
+    }
+
+    /** Decisions BP, pin 4: where the wake returns to another window — a window's exclusive screen, whose double tap goes
+     *  back to that window (`DESIGN.md` §4.9) — nothing of Main is staged, there or back in the window. */
+    @Test
+    fun aWakeThatReturnsToAWindowStagesNothingOfMain_BP(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT)
+        try {
+            r.upOn("EXCLUSIVE", current = "w1")
+            assertTrue(r.shell.exclusiveMode, "restored into w1's exclusive screen")
+            r.idle("in the exclusive screen", quietMs = 1_500)
+            assertTrue(r.flushes().none { it.label == "STAGE" } && r.notes("mainstage").none { it.startsWith("staged") },
+                "nothing of Main staged behind the exclusive screen: ${r.notes("mainstage")}")
+            r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+            r.until("back in w1") { !r.shell.exclusiveMode && r.onLoop { r.shell.currentWindowId() } == "w1" }
+            r.idle("in w1", quietMs = 1_500)
+            assertTrue(r.flushes().none { it.label == "STAGE" } && r.notes("mainstage").none { it.startsWith("staged") },
+                "nothing of Main staged in w1: ${r.notes("mainstage")}")
+        } finally { r.close() }
+    }
+
+    /** Decisions BP, pin 5: the firmware's Silent Mode, or a rest, begun while Main is staged behind the clock — no piece
+     *  (and no atlas chunk) is submitted after the sleep began. */
+    @Test
+    fun aSleepBegunWhileStagingBehindTheClockSendsNoFurtherPiece_BP(): Unit = runBlocking {
+        for (how in listOf("silent", "rest")) {
+            val r = Rig(Taps.REPORT, link = 20L to 30L)
+            try {
+                r.upOn("SILENT")
+                r.until("$how: Main's second piece submitted behind the clock", 60_000) { r.flushes().count { it.label == "STAGE" } >= 2 }
+                if (how == "silent") r.sim.setSilent(true) else assertTrue(r.shell.devProbe("rest", "on"), "the probe is the shell's")
+                // the journal's own order decides (one writer, in order): the note the sleep writes as it begins, then no
+                // STAGE or ATLAS submit after it
+                val begun: (String) -> Boolean = if (how == "silent") { l -> "\"kind\":\"silent\"" in l && "\"detail\":\"glasses asleep" in l }
+                    else { l -> "\"kind\":\"rest\"" in l && "\"detail\":\"resting" in l }
+                r.until("$how: asleep") { r.shell.glassesAsleep && Files.readAllLines(r.journal).any(begun) }
+                delay(2_000)
+                val lines = Files.readAllLines(r.journal)
+                val at = lines.indexOfFirst(begun)
+                val staged = lines.withIndex().filter { (_, l) -> "\"ev\":\"submit\"" in l && ("\"label\":\"STAGE\"" in l || "\"label\":\"ATLAS\"" in l) }.map { it.index }
+                println("BP-5 $how: ${staged.size} STAGE/ATLAS submit(s), ${staged.count { it < at }} before the sleep's note, ${staged.count { it > at }} after it")
+                assertTrue(staged.any { it < at && "STAGE" in lines[it] }, "$how: the sleep began while Main was being staged")
+                assertTrue(staged.none { it > at }, "$how: nothing staged after the sleep began: ${staged.filter { it > at }.map { lines[it].take(120) }}")
+            } finally { r.close() }
+        }
+    }
+
+    /** Decisions BP, pin 6: one row's text changed three times while the clock shows, after the staging is counted. Behind
+     *  the clock nothing is sent for it — not at the change, not at that row's round-robin turn ([MainBinding.VERIFY_PACE_MS]
+     *  after the staging); after the wake the row is re-staged ONCE (its latest text; P9's pace) and Main is not staged
+     *  again. */
+    @Test
+    fun aRowChangedBehindTheClockIsRestagedOnceAfterTheWake_BP(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT)
+        try {
+            r.upOn("SILENT")
+            r.until("Main's list counted while the clock shows") { r.notes("mainstage").any { it.startsWith("offered") } }
+            r.idle("counted behind the clock")
+            val stagedAt = assertNotNull(r.noteAt("mainstage", "staged"))
+            val n0 = r.flushes().size
+            for (k in 1..3) {
+                r.rows[0].s = r.rows[0].s.copy(line = "summary 0, take $k")
+                r.shell.services.requestRender(r.rows[0])
+                r.settle("change $k"); delay(300)
+            }
+            val turn = stagedAt + wm.damage.core.shell.MainBinding.VERIFY_PACE_MS + 1_500 - System.currentTimeMillis()
+            if (turn > 0) delay(turn)                         // past row 0's round-robin turn
+            r.settle("past row 0's turn")
+            assertTrue(r.onClock(), "still on the clock: ${r.notes("power")}")
+            val behind = r.flushes().drop(n0).filter { it.label == "STAGE" || it.label == "ATLAS" }
+            assertTrue(behind.isEmpty(), "three changes of row 0 behind the clock sent nothing: $behind; ${r.notes("mainstage")}")
+            r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+            r.until("row 0 re-staged after the wake", 15_000) { r.notes("mainstage").any { it.startsWith("row 0 re-staged") } }
+            r.bound("after row 0's re-stage")
+            delay(wm.damage.core.shell.MainBinding.RESTAGE_PACE_MS + 500); r.settle("a pace later")
+            println("BP-6: ${r.notes("mainstage").filter { it.startsWith("row ") || it.startsWith("withdrawn") || it.startsWith("staged") }.map { it.take(100) }}")
+            assertEquals(1, r.notes("mainstage").count { it.startsWith("row 0 re-staged") }, "row 0 re-staged once: ${r.notes("mainstage")}")
+            assertTrue(r.notes("mainstage").none { it.startsWith("row ") && " re-staged" in it && !it.startsWith("row 0 ") }, "no other row: ${r.notes("mainstage")}")
+            assertEquals(1, r.notes("mainstage").count { it.startsWith("staged") }, "no full staging: ${r.notes("mainstage")}")
+        } finally { r.close() }
+    }
+
+    /** Decisions BP, the second site the reader named: a height set while the clock shows (applied to the shell's layout
+     *  only at the wake) — Main is staged again behind the clock for the height the wake brings, and the wake keeps that
+     *  staging: nothing dropped, the first flush binds the list. */
+    @Test
+    fun aHeightSetBehindTheClockIsStagedForAndKeptAtTheWake_BP(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT)
+        try {
+            r.upOn("SILENT")
+            r.until("Main's list counted while the clock shows") { r.notes("mainstage").any { it.startsWith("offered") } }
+            r.idle("counted behind the clock")
+            r.shell.updateSettings { it.copy(heightMode = 416) }
+            r.until("staged again behind the clock for 416") { r.notes("mainstage").count { it.startsWith("offered") } == 2 }
+            r.idle("counted again behind the clock")
+            assertTrue(r.onClock(), "still on the clock: ${r.notes("power")}")
+            assertTrue(r.notes("mainstage").any { it.startsWith("dropped — Main's layout changed") }, "${r.notes("mainstage")}")
+            val m0 = r.notes("mainstage").size
+            val n0 = r.flushes().size
+            r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+            r.until("Main's first flush after the wake acknowledged") { r.flushes().drop(n0).firstOrNull { it.label == "MAIN" }?.let { it.doneT > 0 } == true }
+            assertEquals(r.bound39, r.sim.bindForTest(Arm.RIGHT).field39(), "the wake's first flush bound the list: ${r.notes("mainstage").drop(m0)}")
+            r.settle("after the wake")
+            assertTrue(r.notes("mainstage").drop(m0).none { it.startsWith("dropped") || it.startsWith("staged") }, "kept at the wake: ${r.notes("mainstage").drop(m0)}")
+            r.assertOracle("Main at 416 after the wake")
+        } finally { r.close() }
+    }
+
+    /** B083-ms: what decisions BP must not change, as bytes — every top-level image either lens is handed, by its hash, in
+     *  order: (a) a session whose first screen is Main at stage 4, up to the list bound; (b) a start on the clock at stage 3;
+     *  (c) the drawing images of a start on the clock at stage 4 (the clock's own picture). Written to `B083MS_DUMP` when it
+     *  is set (run on two trees and compared); passes when unset. */
+    @Test
+    fun theBytesBPMustNotChange_dump(): Unit = runBlocking {
+        val out = System.getenv("B083MS_DUMP")?.let { java.nio.file.Paths.get(it) } ?: return@runBlocking
+        fun sha(b: ByteArray) = java.security.MessageDigest.getInstance("SHA-256").digest(b).take(6).joinToString("") { "%02x".format(it) }
+        val lines = ArrayList<String>()
+        suspend fun take(name: String, stage: Int, block: suspend (Rig) -> Unit, keep: (ByteArray) -> Boolean = { true }) {
+            val r = Rig(Taps.REPORT, stage = stage)
+            val seen = java.util.concurrent.CopyOnWriteArrayList<String>()
+            r.onAnyImage = { a, img -> if (keep(img)) seen += "$a ${img[0].toInt() and 0xFF} ${img.size} ${sha(img)}" }
+            try { block(r) } finally { r.close() }
+            lines += "== $name ${seen.size}"; lines += seen
+        }
+        take("main-first stage 4", 4, { r -> r.up() })
+        take("clock-first stage 3", 3, { r -> r.upOn("SILENT"); r.idle("stage 3 on the clock", quietMs = 1_500) })
+        take("clock-first stage 4, drawing images", 4, { r -> r.upOn("SILENT"); r.idle("stage 4 on the clock", quietMs = 1_500) },
+            keep = { img -> (img[0].toInt() and 0x7F) !in setOf(12, 19, 25) })
+        Files.write(out, lines)
+    }
+
+    /** 2c (his look at 0.81: edge reports in a burst at Main's wrap): k notches past the end 60 ms apart over a link that
+     *  takes time ([LinkRig]: 20 ms a packet down, 30 ms up), so the later notches meet the lens before the wrap's PLAY
+     *  does, as on his glasses. Recorded per k (printed `2c-k`; strips of RIGHT's frames under `B083_RENDERS` when set):
+     *  the wrap instance's outcome, what closed it, the cursors the lens was told, when the burst's row was first shown. */
+    @Test
+    fun edgesInABurstPastTheEndOverALink_2c(): Unit = runBlocking { edgeBursts(0, "fast") }
+
+    /** 2c over a slow link (250 ms one-way down besides each packet's 20 ms, his measured wrap start of about 330 ms after
+     *  the edge): every later notch of the burst meets the lens before the wrap's PLAY, so all are edges — the wrap draws
+     *  whole (the later edges' DISCARDs stop nothing in its slot, their frames wait behind it, AF.7) and the cells held
+     *  behind it — the burst's row — go at its last-step report, not at the end of its start allowance. */
+    @Test
+    fun edgesInABurstPastTheEndOverASlowLink_2c(): Unit = runBlocking { edgeBursts(250, "slow") }
+
+    private suspend fun edgeBursts(latency: Long, name: String) {
+        val out = System.getenv("B083_RENDERS")?.let { java.nio.file.Paths.get(it) }
+        for (k in listOf(2, 3, 5)) {
+            val r = Rig(Taps.REPORT, link = 20L to 30L, linkLatency = latency)
+            try {
+                try { r.up() } catch (e: Throwable) { println("2c-$k: up failed — stage ${r.notes("stage").takeLast(8)}; faults ${r.allNotes().filter { it.first in setOf("fault", "atlas", "count") }.takeLast(8)}"); throw e }
+                walkTo(r, r.list().count - 1)
+                val m0 = r.notes("motion").size; val s0 = r.notes("snapback").size; val img0 = r.right.size; val l0 = r.notes("local").size
+                val frames = java.util.concurrent.CopyOnWriteArrayList<Pair<Long, Gray8>>()
+                val t0 = System.currentTimeMillis()
+                val sampler = r.scope.launch {
+                    var last: Gray8? = null
+                    while (true) {
+                        val g = r.panel(false)
+                        if (last == null || !g.pix.contentEquals(last.pix)) { frames += (System.currentTimeMillis() - t0) to g; last = g }
+                        delay(8)
+                    }
+                }
+                repeat(k) { r.fire(CfwModes.EV_UPROLL); delay(60) }
+                delay(r.motionMs() + r.q() + 1500); r.settle("after $k")
+                sampler.cancel()
+                val final = r.panel(false)
+                val shownAt = frames.indexOfLast { !it.second.pix.contentEquals(final.pix) }.let { i -> frames.getOrNull(i + 1)?.first }
+                val told = r.right.drop(img0).flatMap { r.subs(it) }.filter { it[0].toInt() == 26 && it[1].toInt() in 3..5 && it.size >= 8 }
+                    .map { (if (it[1].toInt() == 3) "C" else if (it[1].toInt() == 4) "D" else "S") + ((it[6].toInt() and 0xFF) or ((it[7].toInt() and 0xFF) shl 8)) }
+                val wrapLines = r.notes("motion").drop(m0).filter { "slot 1 " in it || "meets open" in it }.map { it.substringBefore(" stepUs").substringAfter("motion ") }
+                val early = r.notes("local").drop(l0).firstOrNull { it.startsWith("the wrap's last step came") }
+                println("2c-$name-$k: row ${r.row()} (wanted ${k - 1}); the burst's row first shown +${shownAt} ms; told ${told}; wrap ${wrapLines}; " +
+                    "snapbacks ${r.notes("snapback").drop(s0).map { it.substringBefore(" mark") }}; RIGHT frames ${frames.size}; ${early ?: "held cells at the allowance's end"}")
+                if (out != null) writeStrip(out.resolve("2c-$name-$k-${System.getenv("B083_TAG") ?: "run"}.png"), frames)
+                assertEquals(k - 1, r.row(), "the burst's row")
+                if (latency > 0) {
+                    assertTrue(wrapLines.any { "slot 1" in it && "drew its last step" in it } && wrapLines.none { "slot 1" in it && "closed while drawing" in it },
+                        "every later notch an edge: the wrap drew whole — $wrapLines; told $told")
+                    assertTrue(early != null, "the held cells went at the wrap's last step: ${r.notes("local").drop(l0).takeLast(4)}")
+                }
+                r.assertOracle("after $k notches past the end")
+            } finally { r.close() }
+        }
+    }
+
+    /** RIGHT's frames, the list's part (rows 32..351) at half size, one under the other, each with its time in ms as a
+     *  run of ticks along its left edge (one tick per 20 ms) — for a reader to see the motion, not for a check. */
+    private fun writeStrip(path: java.nio.file.Path, frames: List<Pair<Long, Gray8>>) {
+        val y0 = 32; val h = 320; val fw = 320; val fh = h / 2; val gap = 4
+        val img = java.awt.image.BufferedImage(fw + 24, frames.size * (fh + gap), java.awt.image.BufferedImage.TYPE_BYTE_GRAY)
+        for ((n, f) in frames.withIndex()) {
+            val (t, g) = f
+            val oy = n * (fh + gap)
+            for (y in 0 until fh) for (x in 0 until fw) img.raster.setSample(24 + x, oy + y, 0, g[x * 2, y0 + y * 2])
+            for (k in 0 until minOf(fh / 3, (t / 20).toInt())) img.raster.setSample(2 + (k % 4) * 5, oy + (k / 4) * 3, 0, 255)
+        }
+        java.nio.file.Files.createDirectories(path.parent)
+        javax.imageio.ImageIO.write(img, "png", path.toFile())
+    }
+}
+
+/** B083 (2c, 2d): a start rig whose link takes time — every packet written waits [downMs] before it reaches the glasses
+ *  (one packet's air time: ~232 B in 20 ms is about 11.6 KB/s, the order of the phone's measured rate), and every notify
+ *  from the glasses — and, through [later], the ring's stock message behind its 115 — reaches the transport [upMs] later,
+ *  in order (one queue). The glasses' clock and the engine are the rig's wall clock, as `StartRig`'s. */
+private class LinkRig(glass: GlassFirmwareSim, scope: CoroutineScope, c1: java.nio.file.Path, val downMs: Long, val upMs: Long,
+                      /** A one-way latency on the way down besides each packet's air time (a pipe: packets in flight together). */
+                      val latencyMs: Long = 0) :
+    StartRig(glass, scope, instantPacing = false, c1StageFile = c1) {
+    private val up = kotlinx.coroutines.channels.Channel<Pair<Long, () -> Unit>>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+    private val down = kotlinx.coroutines.channels.Channel<Pair<Long, () -> Unit>>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+    init {
+        onNotify = { arm, p -> later { deliver(arm, p) }; null }
+        for (ch in listOf(up, down)) scope.launch { for ((due, f) in ch) { val w = due - System.currentTimeMillis(); if (w > 0) delay(w); f() } }
+    }
+    fun later(f: () -> Unit) { up.trySend(System.currentTimeMillis() + upMs to f) }
+    /** B083 fix stage (item 7): the next packet written to LEFT (the image lane) waits this long first, and every later one
+     *  behind it (a frame of several KB in flight ahead of it, in one ordered lane). */
+    @Volatile var stallNextMs = 0L
+    override suspend fun writeArm(arm: Arm, packet: ByteArray) {
+        val stall = stallNextMs
+        if (arm == Arm.LEFT && stall > 0) { stallNextMs = 0; delay(stall) }
+        delay(downMs)
+        if (latencyMs <= 0) { glass.write(arm, packet, nowMs()); return }
+        down.trySend(System.currentTimeMillis() + latencyMs to { glass.write(arm, packet, nowMs()) })
     }
 }

@@ -222,18 +222,185 @@ class LocalRulesTest {
         assertTrue(t.batch().any { it[0].toInt() == 26 && it[1].toInt() == 5 }, "idle: every batch carries one")
     }
 
+    /** C1 (decisions BM.2; his late echoes, `B083-real.md`): the scroll owe a burst's lone SETTLE leaves open is carried
+     *  for one band, 250 ms, while the list is in front, so S 1's scroll message, which the band still held, pays it —
+     *  one notch from row 3 ends on row 4, nothing moves the row again, no DISCARD. Once the carry has run out a scroll
+     *  message with no owe is unreported as before: applied as today, u 1, the slot's DISCARD in its frame's batch.
+     *  Watched to fail with the carry off (row 5 after one notch). The times are literal (B083 v3, decisions BO.3): the
+     *  row does not move with [LocalRules.BAND_DRAIN_MS], so a carry too long fails it as one too short does. */
     @Test
-    fun aDelayedScrollMessageAfterASettleIsAppliedAsUnreported() {
+    fun aDelayedScrollMessageAfterASettleIsPaidByTheCarriedOwe_C1() {
         val t = R(row = 3)
         t.scroll(1, 4); t.batch()
         t.now += t.r.q
-        t.r.loneSettle(t.row, t.now)                            // owes cleared, the band still held S 1's scroll message
-        assertEquals(Verdict.Apply(EvenHubMsg.EV_SCROLL_BOTTOM), t.stock(Stock.NEXT), "no owe left: applied as today")
-        assertEquals(5, t.row)
-        assertEquals(1, t.r.u)
-        val d = t.answer(t.batch())
+        t.r.loneSettle(t.row, t.now)                            // the band still holds S 1's scroll message
+        t.now += 249
+        assertEquals(Verdict.Nothing, t.stock(Stock.NEXT), "inside the carry: the late echo pays its owe")
+        assertEquals(4, t.row, "one notch from row 3, one row")
+        assertEquals(0, t.r.u)
+        assertEquals(1, t.r.counts["lateEcho"])
+        assertTrue(t.answer(t.batch()).isEmpty(), "nothing moved the row: no answer")
+        // past the carry: unreported, as before
+        val v = R(row = 3)
+        v.scroll(1, 4); v.batch()
+        v.now += v.r.q
+        v.r.loneSettle(v.row, v.now)
+        v.now += 250
+        assertEquals(Verdict.Apply(EvenHubMsg.EV_SCROLL_BOTTOM), v.stock(Stock.NEXT), "the carry ran out: applied as today")
+        assertEquals(5, v.row)
+        assertEquals(1, v.r.u)
+        assertEquals(1, v.r.counts["owesExpired"])
+        val d = v.answer(v.batch())
         assertTrue(isDiscard(d.single(), 2, 5), "it moved the row: the slot's DISCARD in its frame's batch")
-        assertTrue(t.notes.any { it.first == "snapback" && "cause=moved" in it.second || "cause=lost-report" in it.second })
+        assertTrue(v.notes.any { it.first == "snapback" && "cause=lost-report" in it.second })
+    }
+
+    /** C1's envelope (`FORK.md` §3.8): the carry holds owes by direction (C4 counts a message of the other direction
+     *  `lateEchoUnpaid`), ends when the list leaves the front (a late echo then reaching the window above it is that
+     *  window's notch, counted), at BIND read off and at a session start; click owes clear at the SETTLE as before. */
+    @Test
+    fun theCarryHoldsByDirectionAndEndsWhereItsListGoes_C1() {
+        fun settled(): R { val t = R(row = 3); t.scroll(1, 4); t.batch(); t.now += t.r.q; t.r.loneSettle(t.row, t.now); return t }
+        val a = settled()
+        assertEquals(Verdict.Apply(EvenHubMsg.EV_SCROLL_TOP), a.stock(Stock.PREV), "a PREV meets only a NEXT owe: unreported")
+        assertEquals(1, a.r.counts["lateEchoUnpaid"])
+        assertEquals(Verdict.Nothing, a.stock(Stock.NEXT), "the NEXT's late echo still pays its own")
+        val b = settled()
+        b.r.front(null, b.row)                                  // a cover: the list leaves the front
+        assertEquals(0, b.r.owesScroll, "the carry ends with its list in front")
+        assertEquals(Verdict.Apply(EvenHubMsg.EV_SCROLL_BOTTOM), b.stock(Stock.NEXT), "unbound: as today, for what is in front")
+        assertEquals(1, b.r.counts["lateEchoUnpaid"])
+        assertEquals(1, b.r.counts["owesExpired"])
+        val c = settled()
+        c.r.bindInForce(false)
+        assertEquals(0, c.r.owesScroll, "BIND read off ends the carry")
+        val d = settled()
+        d.r.sessionStart(true, 0, 100, d.l, d.row, Taps.REPORT)
+        assertEquals(0, d.r.owesScroll, "a session start ends the carry")
+        val e = R(row = 3)
+        e.tap(1, 3); e.batch(); e.now += e.r.q; e.r.loneSettle(e.row, e.now)
+        assertEquals(0, e.r.owesClick, "click owes are not carried")
+    }
+
+    /** The carry's end in literal numbers (B083 v3, decisions BO.3; the focused read's 3): two owes left open at the lone
+     *  SETTLE are carried 500 ms — a late echo at +480 ms pays one, a scroll message at +501 ms finds the carry run out and
+     *  is applied as an unreported notch. Fails with the window too long (20 times: the +501 ms message is paid) as with it
+     *  too short or off. */
+    @Test
+    fun aCarryOfTwoOwesEndsFiveHundredMsAfterTheSettle_C1() {
+        val t = R(row = 3)
+        t.scroll(1, 4); t.scroll(2, 5); t.batch()               // two notches adopted; the band holds both messages
+        t.now += t.r.q
+        t.r.loneSettle(t.row, t.now)
+        t.now += 480
+        assertEquals(Verdict.Nothing, t.stock(Stock.NEXT), "+480 ms: a late echo pays a carried owe")
+        t.now += 21
+        assertEquals(Verdict.Apply(EvenHubMsg.EV_SCROLL_BOTTOM), t.stock(Stock.NEXT), "+501 ms: the carry ran out, the message is unreported")
+        assertEquals(6, t.row)
+        assertEquals(1, t.r.counts["owesExpired"], "the second owe ran out unpaid")
+    }
+
+    /** B083 v3 (decisions BO.1; the focused read's f3): a carry still running when a tap's report opens a burst joins it,
+     *  and the act opens a window — the list leaves the front inside that burst, and the carry ends there as it does with
+     *  no burst open, so a notch in the window after its CLEAR landed on RIGHT (no 115) is applied there, as on 0.82.
+     *  Watched to fail on `1fbd543a` (`Nothing`: the joined owe swallowed the window's notch). */
+    @Test
+    fun aCarryEndsWhenItsListLeavesTheFrontInsideATapsBurst_BO1() {
+        val t = R(row = 3)
+        t.scroll(1, 4); t.batch()                               // S 1 adopted; its scroll message never comes (the band)
+        t.now += t.r.q
+        t.r.loneSettle(t.row, t.now)                            // one NEXT owe carried for 250 ms
+        t.now += 150
+        assertEquals(Verdict.Act(4), t.tap(2, 4), "a tap inside the carry")
+        assertTrue(t.r.burstOpen)
+        assertEquals(1, t.r.owesScroll, "the carry joined the tap's burst")
+        assertEquals(Verdict.Nothing, t.stock(Stock.CLICK), "the tap's click pays its own owe")
+        t.r.front(null, -1); t.r.tail(-1, t.now)                // the act opened a window: the pump's sync, the burst open
+        assertEquals(0, t.r.owesScroll, "the carry ends with its list leaving the front, inside the burst too")
+        assertEquals(1, t.r.counts["owesExpired"])
+        t.now += 250                                            // a notch in the window, RIGHT's entries CLEARed: no 115
+        assertEquals(Verdict.Apply(EvenHubMsg.EV_SCROLL_BOTTOM), t.r.stock(Stock.NEXT, -1, t.now), "the window's own notch is applied there")
+    }
+
+    /** `carryMaxMs` (B083 v3, decisions BO.2; counting only): the longest carry of the session, from the lone SETTLE that
+     *  began it to its end — the window running out (two owes: 500 ms, one of them paid on the way), the payment that left
+     *  no scroll owe (one owe paid at +120 ms: shorter, the count stays), a carry a new burst joined running on through that
+     *  burst and its SETTLE's new window (100 ms + Q + 500 ms). */
+    @Test
+    fun carryMaxMsIsTheLongestCarryFromItsSettleToItsEnd_BO2() {
+        val t = R(row = 3)
+        t.scroll(1, 4); t.scroll(2, 5); t.batch()
+        t.now += t.r.q; t.r.loneSettle(t.row, t.now)
+        t.now += 100
+        assertEquals(Verdict.Nothing, t.stock(Stock.NEXT), "one late echo")
+        t.now += 600; t.batch()                                 // an idle batch past the window: the carry ran out at +500
+        assertEquals(500, t.r.counts["carryMaxMs"], "ran out: lone SETTLE to its window's end")
+        t.scroll(3, 6); t.batch(); t.now += t.r.q; t.r.loneSettle(t.row, t.now)
+        t.now += 120
+        assertEquals(Verdict.Nothing, t.stock(Stock.NEXT), "the late echo pays the last owe: that carry ends at +120 ms")
+        assertEquals(500, t.r.counts["carryMaxMs"], "a shorter carry leaves the longest")
+        val v = R(row = 3)
+        v.scroll(1, 4); v.batch(); v.now += v.r.q; v.r.loneSettle(v.row, v.now)
+        v.now += 100
+        v.scroll(2, 5); v.batch()                               // a new burst joins the running carry
+        v.now += v.r.q; v.r.loneSettle(v.row, v.now)            // two owes carried again: 500 ms
+        v.now += 600; v.batch()
+        assertEquals(100 + v.r.q.toInt() + 500, v.r.counts["carryMaxMs"], "a joined carry runs on to its last window's end")
+    }
+
+    /** `lateEcho` inside the next burst (B083 v3, decisions BO.4; counting only): a carried NEXT owe joined by a new burst
+     *  whose own report owes a NEXT too. The burst's own owe is paid first (a report's echo comes within tens of ms of it),
+     *  so the first NEXT message is counted as its echo and the second, which pays beyond the burst's own owes, as the
+     *  late echo: one late echo inside the next burst. A joined owe whose message never comes is not counted. */
+    @Test
+    fun aLateEchoPaidInsideTheNextBurstIsCounted_BO4() {
+        val t = R(row = 3)
+        t.scroll(1, 4); t.batch(); t.now += t.r.q; t.r.loneSettle(t.row, t.now)
+        t.now += 100
+        t.scroll(2, 5); t.batch()                               // a new burst joins the carried NEXT owe
+        assertTrue(t.r.burstOpen)
+        assertEquals(Verdict.Nothing, t.stock(Stock.NEXT), "the first NEXT: the burst's own echo")
+        assertEquals(null, t.r.counts["lateEcho"], "the burst's own owe is paid first")
+        assertEquals(Verdict.Nothing, t.stock(Stock.NEXT), "the second NEXT pays the joined owe")
+        assertEquals(1, t.r.counts["lateEcho"], "a late echo inside the next burst is counted")
+        assertEquals(5, t.row)
+        // a joined owe whose message never comes: the burst's own echo is not a late echo
+        val v = R(row = 3)
+        v.scroll(1, 4); v.batch(); v.now += v.r.q; v.r.loneSettle(v.row, v.now)
+        v.now += 100
+        v.scroll(2, 5); v.batch()
+        assertEquals(Verdict.Nothing, v.stock(Stock.NEXT))
+        assertEquals(null, v.r.counts["lateEcho"], "only the burst's own echo came")
+    }
+
+    /** `lateEchoOtherFront` (B083 v3, decisions BO.4 — BM.2's "counted first", counting only): a scroll message reaching
+     *  another front inside the window of a carry that the front's change dropped — a window opened inside a tap's burst
+     *  (+200 ms, counted; +300 ms, past the 250 ms window, not), and a cover with no burst open; a message reaching the
+     *  carry's own list again after Back is not counted. Whether it is the late echo or the front's own notch is not told
+     *  apart: it is applied there as today. */
+    @Test
+    fun aScrollMessageReachingAnotherFrontInsideADroppedCarryIsCounted_BO4() {
+        val t = R(row = 3)
+        t.scroll(1, 4); t.batch(); t.now += t.r.q; t.r.loneSettle(t.row, t.now)
+        t.now += 100
+        t.tap(2, 4); t.stock(Stock.CLICK)
+        t.r.front(null, -1); t.r.tail(-1, t.now)                // the act opened a window: the carry is dropped
+        t.now += 100
+        assertEquals(Verdict.Apply(EvenHubMsg.EV_SCROLL_BOTTOM), t.r.stock(Stock.NEXT, -1, t.now))
+        assertEquals(1, t.r.counts["lateEchoOtherFront"], "+200 ms, the window in front: counted")
+        t.now += 100
+        t.r.stock(Stock.NEXT, -1, t.now)
+        assertEquals(1, t.r.counts["lateEchoOtherFront"], "+300 ms: past the carry's window")
+        val c = R(row = 3)
+        c.scroll(1, 4); c.batch(); c.now += c.r.q; c.r.loneSettle(c.row, c.now)
+        c.r.front(null, c.row)                                  // a cover, no burst open
+        c.now += 100
+        c.stock(Stock.NEXT)
+        assertEquals(1, c.r.counts["lateEchoOtherFront"], "under a cover: counted")
+        c.r.front(c.l, c.row); c.batch()                        // Main again
+        c.now += 50
+        c.stock(Stock.NEXT)
+        assertEquals(1, c.r.counts["lateEchoOtherFront"], "the carry's own list in front again: not another front")
     }
 
     // ------------------------------------------------------------------------------------------ P5, both orders
@@ -253,6 +420,20 @@ class LocalRulesTest {
         assertEquals(Verdict.Nothing, b.stock(Stock.NEXT))
         assertEquals(5, b.row)
         assertEquals(0, b.r.owesScroll + b.r.owesAny)
+    }
+
+    /** B083 fix stage (item 4; the focused read's 4, the fuzz's seed 100100487): a scroll message pays an owe of its own
+     *  direction, else one of either kind, else it is unreported. A NEXT reported and adopted, then a PREV message no report
+     *  owns (a notch RIGHT did not take): unreported — applied as today, counted in u — not the NEXT's echo; the NEXT's own
+     *  message pays its owe. Paid by the PREV, the NEXT's own message was unreported as well: the NEXT moved the row twice. */
+    @Test
+    fun aScrollMessagePaysAnOweOfItsOwnDirection_B083F4() {
+        val t = R(row = 3)
+        assertEquals(Verdict.Adopt(4), t.scroll(1, 4), "a NEXT adopted: one NEXT owe")
+        assertEquals(Verdict.Apply(EvenHubMsg.EV_SCROLL_TOP), t.stock(Stock.PREV), "a PREV with no owe of its direction: unreported")
+        assertEquals(1, t.r.u, "the PREV counted in u, not taken as the NEXT's echo")
+        assertEquals(Verdict.Nothing, t.stock(Stock.NEXT), "the NEXT's own message pays its owe")
+        assertEquals(3, t.row, "a NEXT and a PREV: the row where it began")
     }
 
     @Test

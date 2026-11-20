@@ -11,7 +11,8 @@ import wm.damage.core.local.BoundList
  *
  * **The six questions (`FORK.md` §3.8) for its state.**
  * - The staged records ([staging], [records]). (a) Written at a full staging — Main in front, BIND in force, the count
- *   readable — and a row's re-stage in place; gone with every registry clear (a session start, a lapse, a sleep, the
+ *   readable; or behind the shell's clock screen, which wakes to Main (decisions BP: the base records only, no repaint or
+ *   re-stage there, the list bound by the wake's first flush) — and a row's re-stage in place; gone with every registry clear (a session start, a lapse, a sleep, the
  *   atlas reset or its live set changed, cached text off, the Page staging row off), at 160 KiB when a document's strips
  *   take the shared reserve (`Staging.retain`), and at a full re-stage ([drop]: the layout, the planes, the rows or the
  *   region changed, a row outgrew its slot). (b) Each write's wait is the stage lane's — its FlushDone and the count's
@@ -32,7 +33,7 @@ import wm.damage.core.local.BoundList
  *   write is submitted, which goes in a LATER pump — the rules' CLEAR rides the flush between (their list in front is
  *   read at the top of every pump's flush section, and the idle step that writes never runs in a pump that flushes).
  * - The re-staging's pace ([RESTAGE_PACE_MS] for one row in all, the stalest first; [VERIFY_PACE_MS]). No wait of its own: the idle pump decides on
- *   each pass and asks the loop back when the next row is due; writes only while Main is in front, no burst is open
+ *   each pass and asks the loop back when the next row is due; writes only while Main is in front (never behind the clock), no burst is open
  *   (P9) and nothing else is in flight (the stage lane's own rule).
  */
 internal class MainBinding {
@@ -136,17 +137,20 @@ internal class MainBinding {
     var restagedBytes = 0L; private set
     var restageCount = 0; private set
 
-    /** B082 (row slack): the segment room each row's window has earned by changing — the largest picture it drew in a
-     *  staging and a margin ([MainStaging.roomFor]) — carried into the next staging by window, for this process. */
+    /** B082 (row slack): the segment room each row's window has earned by changing — the largest picture it drew in the
+     *  last staging and a margin ([MainStaging.roomFor]) — carried into the next staging by window. B083 (the focused read
+     *  of 0.82, S3): from that staging alone, so it comes down — a row that keeps changing keeps room for what it drew
+     *  lately, one that stopped changing (a long title gone back) loses it, and every step walks less. */
     val roomById = HashMap<String, Int>()
     private var ids: List<String?> = emptyList()
 
-    /** The current staging's changed rows into [roomById] (at a drop and before the next staging). */
+    /** The current staging's rows into [roomById] (at a drop and before the next staging): a changed row's room from the
+     *  largest picture it drew in this staging, an unchanged row's taken away. Idempotent for one staging. */
     private fun harvestRoom() {
         val ms = staging ?: return
         for (r in 0 until minOf(ms.rows, ids.size)) {
             val id = ids[r] ?: continue
-            if (r < ms.changed.size && ms.changed[r]) roomById[id] = maxOf(roomById[id] ?: 0, MainStaging.roomFor(ms.seenMax[r]))
+            if (r < ms.changed.size && ms.changed[r]) roomById[id] = MainStaging.roomFor(ms.seenMax[r]) else roomById.remove(id)
         }
     }
 
