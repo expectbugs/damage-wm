@@ -5350,6 +5350,7 @@ class Shell(
         // the focused read's N8: the note names the flush, so its `done` row prices the wrap's start against the report
         journal.note("local", "the wrap's PLAY went ahead of its frame as flush ${id ?: "(not submitted)"}: ${tail.size} message(s), " +
             "${tail.sumOf { it.size }} B, ${nowMs - edgeAtMs} ms after the edge's report reached the shell")
+        wrapSent(wrap)
         afterWrapSubmitForTest?.invoke()
         return true
     }
@@ -5373,6 +5374,17 @@ class Shell(
     }
 
     private fun localBodyRead(ev: TransportEvent.LocalBody) {
+        // B083 (2c; his edge bursts): the wrap drew its last step — what Main holds behind it (the row a burst of edges
+        // reached) goes now, not at the end of the wrap's start allowance, unless a later motion holds those cells too.
+        // Pacing on a report; a lost body leaves the allowance's end, as before
+        if (ev.slot == MainStaging.WRAP_SLOT && ev.tag == wrapTagOut && ev.outcome == wm.damage.core.wire.DamageMsg.OUTCOME_DREW &&
+            comp.deferring && comp.deferUntilMs <= wrapHeldUntil) {
+            val early = comp.deferUntilMs - System.currentTimeMillis()
+            if (comp.releaseDeferred(Long.MAX_VALUE)) {
+                journal.note("local", "the wrap's last step came: the cells held behind it go now, $early ms before its allowance ended")
+                post(Msg.Pump)
+            }
+        }
         val ms = mainBind.staging ?: return
         val list = mainBind.list ?: return
         if (ev.slot != list.slot && ev.slot != MainStaging.WRAP_SLOT) return
@@ -5436,7 +5448,11 @@ class Shell(
     }
 
     /** Decisions AZ.4: the wrap's PLAY bytes and its END plan for the assemble. */
-    private class MainWrap(val play: ByteArray, val end: Compositor.EndPlan)
+    private class MainWrap(val play: ByteArray, val end: Compositor.EndPlan, val tag: Int)
+    /** B083 (2c): the last wrap PLAY sent — its tag and the end of the wait its held cells were given ([wrapSent]). */
+    private var wrapTagOut = -1
+    private var wrapHeldUntil = 0L
+    private fun wrapSent(w: MainWrap) { wrapTagOut = w.tag; wrapHeldUntil = w.end.untilMs }
 
     /**
      * Decisions AZ.4: the pan across Main's wrap, when the rules found an edge at an end of the bound list with the row now
@@ -5467,7 +5483,7 @@ class Shell(
             catch (e: wm.damage.core.geom.LintError) { journal.note("local", "the wrap's PLAY is refused offline (${e.message}) — the row is drawn as today"); return null }
         val until = nowMs + (ms.t + 1L) * ms.periodInForce * 1000L / 1024 + WRAP_START_MS
         return MainWrap(play, Compositor.EndPlan(MainStaging.WRAP_SLOT, pan.program.tracks.map { it.areaL to it.areaR },
-            { left, g -> if (!left && wrapPaintFailsForTest) throw wm.damage.core.geom.LintError("a test: the wrap's END paint fails"); ms.paintEnd(pan, p, left, g) }, until))
+            { left, g -> if (!left && wrapPaintFailsForTest) throw wm.damage.core.geom.LintError("a test: the wrap's END paint fails"); ms.paintEnd(pan, p, left, g) }, until), tag)
     }
     /** The `mainseq` probe's pacing (a test shortens it). */
     @Volatile internal var mainSeqPace = MainSeqPlan.Pace()
@@ -7637,7 +7653,7 @@ class Shell(
             }
             // the wrap's PLAY goes ahead of the rules' answers (the DISCARD naming the wrapped row); a keyframe's batch
             // denies it (it closes every instance) and the row is drawn as today
-            val wrapPlay = wrap?.takeIf { it.end.slot !in denied }?.play
+            val wrapPlay = wrap?.takeIf { it.end.slot !in denied }?.also { wrapSent(it) }?.play
             val localTail = if (localOn) listOfNotNull(wrapPlay) + local.tail(localRow(), localNow, denied, frame = assembled != null, wrapped = wrapPlay != null)
                 else emptyList()
             if (assembled == null && localTail.isNotEmpty()) submitLocalOnly(localTail, "LOCAL")

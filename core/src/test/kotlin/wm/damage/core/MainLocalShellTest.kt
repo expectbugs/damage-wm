@@ -73,14 +73,15 @@ class MainLocalShellTest {
     /** [kib256]: the transport made over a stored ladder record that holds stage 4 and a 256 KiB last session (decisions
      *  AD.1, `LadderRecord.sessionKib`), so its first start asks 256 KiB and Main stages into its own region; the start
      *  rig's mirror is its own model of the phone's bytes, as on glass (not the lens, as `SimTransport`'s is). */
-    private class Rig(val taps: Taps, val stage: Int = 4, nRows: Int = 7, val kib256: Boolean = false, val link: Pair<Long, Long>? = null) {
+    private class Rig(val taps: Taps, val stage: Int = 4, nRows: Int = 7, val kib256: Boolean = false, val link: Pair<Long, Long>? = null,
+                      val linkLatency: Long = 0) {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val tmp = Files.createTempDirectory("damage-mainlocal")
         val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = 0x5ff }
         private fun c1(): java.nio.file.Path = tmp.resolve("c1-stage").also { f ->
             Files.writeString(f, wm.damage.core.transport.LadderRecord(stage = 4, sessionKib = 256).encode()) }
         val t: wm.damage.core.transport.CfwTransportBase = when {
-            link != null -> LinkRig(sim, scope, c1(), link.first, link.second)
+            link != null -> LinkRig(sim, scope, c1(), link.first, link.second, linkLatency)
             !kib256 -> SimTransport(sim, scope, SimTransport.Timing(instant = true))
             else -> StartRig(sim, scope, c1StageFile = c1())
         }
@@ -1636,14 +1637,23 @@ class MainLocalShellTest {
      *  does, as on his glasses. Recorded per k (printed `2c-k`; strips of RIGHT's frames under `B083_RENDERS` when set):
      *  the wrap instance's outcome, what closed it, the cursors the lens was told, when the burst's row was first shown. */
     @Test
-    fun edgesInABurstPastTheEndOverALink_2c(): Unit = runBlocking {
+    fun edgesInABurstPastTheEndOverALink_2c(): Unit = runBlocking { edgeBursts(0, "fast") }
+
+    /** 2c over a slow link (250 ms one-way down besides each packet's 20 ms, his measured wrap start of about 330 ms after
+     *  the edge): every later notch of the burst meets the lens before the wrap's PLAY, so all are edges — the wrap draws
+     *  whole (the later edges' DISCARDs stop nothing in its slot, their frames wait behind it, AF.7) and the cells held
+     *  behind it — the burst's row — go at its last-step report, not at the end of its start allowance. */
+    @Test
+    fun edgesInABurstPastTheEndOverASlowLink_2c(): Unit = runBlocking { edgeBursts(250, "slow") }
+
+    private suspend fun edgeBursts(latency: Long, name: String) {
         val out = System.getenv("B083_RENDERS")?.let { java.nio.file.Paths.get(it) }
         for (k in listOf(2, 3, 5)) {
-            val r = Rig(Taps.REPORT, link = 20L to 30L)
+            val r = Rig(Taps.REPORT, link = 20L to 30L, linkLatency = latency)
             try {
                 try { r.up() } catch (e: Throwable) { println("2c-$k: up failed — stage ${r.notes("stage").takeLast(8)}; faults ${r.allNotes().filter { it.first in setOf("fault", "atlas", "count") }.takeLast(8)}"); throw e }
                 walkTo(r, r.list().count - 1)
-                val m0 = r.notes("motion").size; val s0 = r.notes("snapback").size; val img0 = r.right.size
+                val m0 = r.notes("motion").size; val s0 = r.notes("snapback").size; val img0 = r.right.size; val l0 = r.notes("local").size
                 val frames = java.util.concurrent.CopyOnWriteArrayList<Pair<Long, Gray8>>()
                 val t0 = System.currentTimeMillis()
                 val sampler = r.scope.launch {
@@ -1662,9 +1672,16 @@ class MainLocalShellTest {
                 val told = r.right.drop(img0).flatMap { r.subs(it) }.filter { it[0].toInt() == 26 && it[1].toInt() in 3..5 && it.size >= 8 }
                     .map { (if (it[1].toInt() == 3) "C" else if (it[1].toInt() == 4) "D" else "S") + ((it[6].toInt() and 0xFF) or ((it[7].toInt() and 0xFF) shl 8)) }
                 val wrapLines = r.notes("motion").drop(m0).filter { "slot 1 " in it || "meets open" in it }.map { it.substringBefore(" stepUs").substringAfter("motion ") }
-                println("2c-$k: row ${r.row()} (wanted ${k - 1}); the burst's row first shown +${shownAt} ms; told ${told}; wrap ${wrapLines}; " +
-                    "snapbacks ${r.notes("snapback").drop(s0).map { it.substringBefore(" mark") }}; RIGHT frames ${frames.size}")
-                if (out != null) writeStrip(out.resolve("2c-$k-${System.getenv("B083_TAG") ?: "run"}.png"), frames)
+                val early = r.notes("local").drop(l0).firstOrNull { it.startsWith("the wrap's last step came") }
+                println("2c-$name-$k: row ${r.row()} (wanted ${k - 1}); the burst's row first shown +${shownAt} ms; told ${told}; wrap ${wrapLines}; " +
+                    "snapbacks ${r.notes("snapback").drop(s0).map { it.substringBefore(" mark") }}; RIGHT frames ${frames.size}; ${early ?: "held cells at the allowance's end"}")
+                if (out != null) writeStrip(out.resolve("2c-$name-$k-${System.getenv("B083_TAG") ?: "run"}.png"), frames)
+                assertEquals(k - 1, r.row(), "the burst's row")
+                if (latency > 0) {
+                    assertTrue(wrapLines.any { "slot 1" in it && "drew its last step" in it } && wrapLines.none { "slot 1" in it && "closed while drawing" in it },
+                        "every later notch an edge: the wrap drew whole — $wrapLines; told $told")
+                    assertTrue(early != null, "the held cells went at the wrap's last step: ${r.notes("local").drop(l0).takeLast(4)}")
+                }
                 r.assertOracle("after $k notches past the end")
             } finally { r.close() }
         }
@@ -1690,13 +1707,20 @@ class MainLocalShellTest {
  *  (one packet's air time: ~232 B in 20 ms is about 11.6 KB/s, the order of the phone's measured rate), and every notify
  *  from the glasses — and, through [later], the ring's stock message behind its 115 — reaches the transport [upMs] later,
  *  in order (one queue). The glasses' clock and the engine are the rig's wall clock, as `StartRig`'s. */
-private class LinkRig(glass: GlassFirmwareSim, scope: CoroutineScope, c1: java.nio.file.Path, val downMs: Long, val upMs: Long) :
+private class LinkRig(glass: GlassFirmwareSim, scope: CoroutineScope, c1: java.nio.file.Path, val downMs: Long, val upMs: Long,
+                      /** A one-way latency on the way down besides each packet's air time (a pipe: packets in flight together). */
+                      val latencyMs: Long = 0) :
     StartRig(glass, scope, instantPacing = false, c1StageFile = c1) {
     private val up = kotlinx.coroutines.channels.Channel<Pair<Long, () -> Unit>>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+    private val down = kotlinx.coroutines.channels.Channel<Pair<Long, () -> Unit>>(kotlinx.coroutines.channels.Channel.UNLIMITED)
     init {
         onNotify = { arm, p -> later { deliver(arm, p) }; null }
-        scope.launch { for ((due, f) in up) { val w = due - System.currentTimeMillis(); if (w > 0) delay(w); f() } }
+        for (ch in listOf(up, down)) scope.launch { for ((due, f) in ch) { val w = due - System.currentTimeMillis(); if (w > 0) delay(w); f() } }
     }
     fun later(f: () -> Unit) { up.trySend(System.currentTimeMillis() + upMs to f) }
-    override suspend fun writeArm(arm: Arm, packet: ByteArray) { delay(downMs); super.writeArm(arm, packet) }
+    override suspend fun writeArm(arm: Arm, packet: ByteArray) {
+        delay(downMs)
+        if (latencyMs <= 0) { glass.write(arm, packet, nowMs()); return }
+        down.trySend(System.currentTimeMillis() + latencyMs to { glass.write(arm, packet, nowMs()) })
+    }
 }

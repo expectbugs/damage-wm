@@ -246,7 +246,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
      *  the 115 then comes [stockLeadMax] ms or less after it. */
     var stockFirst = 0.0
     var stockLeadMax = 150
-    private var reverseNext115: Long? = null
+    private var reverse115At: Long? = null
 
     // ---- the uplink: RIGHT's notifies and stock messages, FIFO
     private var lastUp = 0L
@@ -256,11 +256,12 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     /** The last scroll message's arrival: the rubber band holds scroll messages back in ONE FIFO (§6.1), so a delayed one
      *  delays every later one and none overtakes another; a 115 or a click, put in the hook's own turn, can pass it. */
     private var lastScrollUp = 0L
-    fun up(sendAt: Long, extra: Long = 0, scroll: Boolean = false, f: () -> Unit) {
+    fun up(sendAt: Long, extra: Long = 0, scroll: Boolean = false, f: () -> Unit): Long {
         var arrive = maxOf(lastUp + 1, sendAt + upLat() + extra)
         if (scroll) { arrive = maxOf(arrive, lastScrollUp + 1); lastScrollUp = arrive }
         if (extra == 0L) lastUp = maxOf(lastUp, arrive)
         at(arrive, f)
+        return arrive
     }
 
     private fun drainSent() {
@@ -281,8 +282,9 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
                 val g = a.s?.let { bySR[it] } ?: -1
                 if (loseNext115 > 0) { loseNext115--; continue }
                 if (rnd.nextDouble() < lose115) continue
-                val rev = reverseNext115; reverseNext115 = null
-                if (rev != null) up(now, extra = rev) { phoneReport(a, g) } else
+                val rev = reverse115At; reverse115At = null
+                // 2b: after its stock message, and in order with everything sent after it (RIGHT's one notify stream)
+                if (rev != null) { val t = maxOf(lastUp + 1, rev); lastUp = t; at(t) { phoneReport(a, g) } } else
                 up(now) { phoneReport(a, g) }
                 if (rnd.nextDouble() < dup115) up(now) { phoneReport(a, g) }
             }
@@ -333,12 +335,14 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
                 bandNow != null -> 0L
                 else -> band(tap)
             }
-            // 2b: this gesture's 115 reaches the phone after its stock message (by up to [stockLeadMax] ms)
-            if (!tap && extra != null && stockFirst > 0 && rnd.nextDouble() < stockFirst) reverseNext115 = extra + 1 + rnd.nextInt(stockLeadMax)
+            // 2b: this gesture's stock message reaches the phone before its 115, which follows by 1..[stockLeadMax] ms — for
+            // a message the stock path sends at once (one the rubber band holds back comes long after its 115 anyway)
+            val reversed = !tap && extra == 0L && stockFirst > 0 && rnd.nextDouble() < stockFirst
+            if (reversed) up(now, 0, scroll = true) { phoneStock(st, g) }.let { t -> reverse115At = t + 1 + rnd.nextInt(stockLeadMax) }
             input(Arm.RIGHT)
             drainSent()
-            reverseNext115 = null
-            if (extra != null) up(now, extra, scroll = !tap) { phoneStock(st, g) }
+            reverse115At = null
+            if (extra != null && !reversed) up(now, extra, scroll = !tap) { phoneStock(st, g) }
         }
         return g
     }
