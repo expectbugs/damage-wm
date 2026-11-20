@@ -435,6 +435,17 @@ class BindTransportTest {
         assertWire("awake-start-c1-stage3.txt", startWire(0xdff, 4, holdBack = true), "0xdff stage 4 held back")
     }
 
+    /** Build C3 (§7.9): stage 5 on a bit-11 build writes stage 4's start plus its EFFECTS rung — one FLAGS_SET 0x7c to
+     *  each arm after the 0x3c (the file written by this test's first run and read by hand against stage 4's); on a C2
+     *  build (bit 10 only) a stored stage 5 arms 4 and writes exactly stage 4's file; held back, stage 5 is stage 4. */
+    @Test
+    fun stage5AppendsTheEffectsRungOnABit11BuildAndArms4Elsewhere_7_9(): Unit = runBlocking {
+        assertWire("awake-start-c3-stage5.txt", startWire(0xdff, 5), "0xdff stage 5")
+        assertEquals(file("awake-start-c2-stage4.txt")!!.size + 2, file("awake-start-c3-stage5.txt")!!.size, "stage 5 is stage 4 and one FLAGS_SET to each arm")
+        assertWire("awake-start-c2-stage4.txt", startWire(0x5ff, 5), "0x5ff stage 5: this build can arm 4")
+        assertWire("awake-start-c2-stage4.txt", startWire(0xdff, 5, holdBack = true), "0xdff stage 5 held back")
+    }
+
     /** Spec §6.2: below stage 4 — a C1 build (0x1ff) at stages 3 and 4, a C2 build (0x5ff) at 0..3 — a seeded walk of the
      *  shell, and the transport's raw doors (a self-test live write, a self-test step, the motion API) offered every C2
      *  form, put no mode 27, 28 or mode-26 sub 3..5 on the wire, top level, in a batch or in a step; each offer is a
@@ -1020,8 +1031,9 @@ class BindTransportTest {
         val (_, t) = armedSession()
         val sets = java.util.concurrent.CopyOnWriteArrayList<Int>()
         t.onWrite = { a, p -> if (a == Arm.RIGHT && StartRig.damageOp(p) == DamageMsg.OP_FLAGS_SET) sets += controlArg(p); p }
-        t.devProbe("flags", "0x6c")                         // 0x2c and bit 6, a typing error
-        saw("probe", "flags=0x6c not sent: bit(s) 0x40 are not flags")
+        // build C3 (§7.9) defines bit 6 (EFFECTS): the undefined bit of this example moves to bit 7, as the fork's own did
+        t.devProbe("flags", "0xac")                         // 0x2c and bit 7, a typing error
+        saw("probe", "flags=0xac not sent: bit(s) 0x80 are not flags")
         delay(300)
         assertEquals(emptyList(), sets.toList(), "nothing on the wire")
         assertEquals(0x3c, t.state.value.flagsInForce, "the state as it was")

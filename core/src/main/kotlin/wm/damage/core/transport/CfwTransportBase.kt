@@ -246,7 +246,7 @@ abstract class CfwTransportBase(
                     // build C1's ruling B-M1: a ladder bit armed by hand (within the stage) is a rung's byte too — it
                     // records its stage before it goes out; a set that only takes bits away keeps the record it found
                     if (isC1(caps0)) ladderArmedStage = maxOf(ladderArmedStage, ladderStageOf(arg))
-                    if (isC1(caps0) && ladderStageOf(arg) == LADDER_TOP_STAGE) bindArmed(lastArmedAtMs!!)     // build C2: stage 4's rung by hand
+                    if (isC1(caps0) && ladderStageOf(arg) >= BIND_STAGE) bindArmed(lastArmedAtMs!!)     // build C2: stage 4's rung by hand (C3: or 5's)
                 }
                 // DRAW2 is the session's, not the wish's: while it is in force the shell draws with modes
                 // 17–24 and its atlas is a v2 layout, so a hand-set flag set keeps bit 2 on the wire (a clear
@@ -294,9 +294,12 @@ abstract class CfwTransportBase(
                 // lease lapses
                 val clearsBind = clears(DamageMsg.FLAG_BIND)
                 val clearsEngine = clears(DamageMsg.FLAG_ENGINE)
-                if (clearsBind || clearsEngine) scope.launch {
+                // build C3 (§7.11, §5.8's rule with EFFECTS added): a disarm of EFFECTS also waits for a CLOSE-all on both
+                // lenses — mid-transition it would refuse the in half and leave the out half owning
+                val clearsEffects = clears(DamageMsg.FLAG_EFFECTS)
+                if (clearsBind || clearsEngine || clearsEffects) scope.launch {
                     if (clearsBind && !discardAllLocal(epoch, "the probe's flags clear BIND")) return@launch
-                    if (clearsEngine && !closeAllMotion(epoch, "the probe's flags clear ENGINE")) return@launch
+                    if ((clearsEngine || clearsEffects) && !closeAllMotion(epoch, "the probe's flags clear ${if (clearsEngine) "ENGINE" else "EFFECTS"}")) return@launch
                     send()
                 }
                 else send()
@@ -307,18 +310,20 @@ abstract class CfwTransportBase(
             "c1" -> {
                 val n = value.toIntOrNull()
                 if (n == null || n !in 0..LADDER_TOP_STAGE) { Log.w(this.name, "probe c1=$value: expected 0..$LADDER_TOP_STAGE"); return }
+                // build C3 (§7.9): `c1=4` and `c1=5` each lift a hold-back of stage 4 or 5 (one rule, stage 4's)
                 var was = LadderRecord()
                 // build C2 (§6.8, C2-decisions B.5): `c1=4` lifts a stage-4 hold-back, as the Settings row `Local input`
                 // does (the same act); the stage and the lift are one write
-                setRecord("C1 ladder: stage") { was = it; it.copy(stage = n, holdBackAt = if (n == LADDER_TOP_STAGE) null else it.holdBackAt,
-                    holdBackWhy = if (n == LADDER_TOP_STAGE) "" else it.holdBackWhy) }
+                setRecord("C1 ladder: stage") { was = it; it.copy(stage = n, holdBackAt = if (n >= BIND_STAGE) null else it.holdBackAt,
+                    holdBackWhy = if (n >= BIND_STAGE) "" else it.holdBackWhy) }
                 c1StageSay = null       // C1-P R1 §2 (A 2.2): what the read at creation found no longer stands; this note names it
                 c1StageRestored = null
                 val caps = damageCaps
                 emitNote("keeper", "C1 ladder: stage ${was.stage} → $n (${ladderSays(n)}) — the next session start arms it" +
                     (caps?.let { if (!isC1(it)) "; this build reports no C1 bit, so it arms nothing"
-                        else if (n == LADDER_TOP_STAGE && !hasBind(it)) "; this build reports no local input (bit 10), so it arms stage 3" else "" } ?: "") +
-                    (if (n == LADDER_TOP_STAGE && was.holdBackAt != null) "; local input's hold-back (${was.holdBackWhy}) is lifted" else ""))
+                        else if (n >= BIND_STAGE && !hasBind(it)) "; this build reports no local input (bit 10), so it arms stage 3"
+                        else if (n == LADDER_TOP_STAGE && !hasEffects(it)) "; this build can arm 4 (no effects, bit 11)" else "" } ?: "") +
+                    (if (n >= BIND_STAGE && was.holdBackAt != null) "; local input's hold-back (${was.holdBackWhy}) is lifted" else ""))
                 refreshLocalState()
             }
             // build C2: what the transport holds for local input, in one `local` note
@@ -671,7 +676,7 @@ abstract class CfwTransportBase(
                     ladderArmedStage = if (isC1(damageCaps)) ladderStageOf(set) else 0
                     // build C2 (§6.8): the session in which stage 4 is armed is recorded on the phone's storage before its
                     // FLAGS_SET's first byte, so a restart it causes is held back whatever happens to this process
-                    if (ladderArmedStage == LADDER_TOP_STAGE) bindArmed(lastArmedAtMs!!)
+                    if (ladderArmedStage >= BIND_STAGE) bindArmed(lastArmedAtMs!!)
                 }
                 controlQueue.trySend(CtlWork.BothArms(epoch, SettingsMsg.SID, "damage flags 0x${set.toString(16)}",
                     failed = if (first) firstFailed else null, written = writtenBoth, rightFailed = rightFailed) { DamageMsg.control(DamageMsg.OP_FLAGS_SET, set) })
@@ -820,12 +825,14 @@ abstract class CfwTransportBase(
             // shape), and the wish and DRAW2 are kept for the next start
             // build C2 (§6.8): after an arming of stage 4 the restart is stage 4's own hold-back ([bindEvidence] decided it
             // as the read came in): BIND is left out and the rest is armed — one stage, never more
-            if (ladderArmedStage == LADDER_TOP_STAGE && extraLeft and DamageMsg.FLAG_BIND != 0) {
+            // build C3 (§7.9): after an arming of stage 5 the same rule leaves EFFECTS out (stage 4's hold-back, one stage)
+            val topBit = if (ladderArmedStage == LADDER_TOP_STAGE) DamageMsg.FLAG_EFFECTS else DamageMsg.FLAG_BIND
+            if (ladderArmedStage >= BIND_STAGE && extraLeft and topBit != 0) {
                 heldBackForResetAt = resetAt
-                extraLeft = extraLeft and DamageMsg.FLAG_BIND.inv()
-                withheld = withheld or DamageMsg.FLAG_BIND      // build C2-FD (AM.1): and from a hand wish, as the start's withhold does
-                emitNote("keeper", "the glasses reset ${(resetAt - armedAt) / 1000} s after stage 4 was armed — this session " +
-                    "arms stage 3 (flags 0x${wish().toString(16)}); local input is held back as its rule says")
+                extraLeft = extraLeft and topBit.inv()
+                withheld = withheld or topBit      // build C2-FD (AM.1): and from a hand wish, as the start's withhold does
+                emitNote("keeper", "the glasses reset ${(resetAt - armedAt) / 1000} s after stage $ladderArmedStage was armed — this session " +
+                    "arms stage ${ladderArmedStage - 1} (flags 0x${wish().toString(16)}); it is held back as its rule says")
             } else if (extraLeft and C1_FLAGS != 0 && ladderArmedStage > 0) {
                 ladderHoldBack(resetAt, leftEndDueAt())
                 ladderArmedStage = 0
@@ -1133,7 +1140,8 @@ abstract class CfwTransportBase(
      *  a rung counts only when its own change goes out): ENGINE is stage 3's, the 256 KiB size stage 2's, ZWRITE
      *  stage 1's. A build without the engine (0x17f) at stage 3 thus records 2, and its hold-back drops the size. */
     private fun ladderStageOf(set: Int): Int = when {
-        set and DamageMsg.FLAG_BIND != 0 && hasBind(damageCaps) -> LADDER_TOP_STAGE      // build C2: BIND is stage 4's
+        set and DamageMsg.FLAG_EFFECTS != 0 && hasEffects(damageCaps) -> LADDER_TOP_STAGE   // build C3: EFFECTS is stage 5's
+        set and DamageMsg.FLAG_BIND != 0 && hasBind(damageCaps) -> BIND_STAGE      // build C2: BIND is stage 4's
         set and DamageMsg.FLAG_ENGINE != 0 -> C1_TOP_STAGE
         ladderSizeInForce -> LADDER_SIZE_STAGE
         set and DamageMsg.FLAG_ZWRITE != 0 -> 1
@@ -1151,18 +1159,27 @@ abstract class CfwTransportBase(
         if (!isC1(caps)) return 0
         return (if (stage >= 1 && caps!!.has(DamageMsg.FEATURE_RIDERS)) DamageMsg.FLAG_ZWRITE else 0) or
             (if (stage >= 3 && caps!!.has(DamageMsg.FEATURE_ENGINE)) DamageMsg.FLAG_ENGINE else 0) or
-            (if (stage >= LADDER_TOP_STAGE && hasBind(caps) && caps!!.has(DamageMsg.FEATURE_ENGINE)) DamageMsg.FLAG_BIND else 0)
+            (if (stage >= BIND_STAGE && hasBind(caps) && caps!!.has(DamageMsg.FEATURE_ENGINE)) DamageMsg.FLAG_BIND else 0) or
+            // build C3 (§7.9): stage 5 is EFFECTS with stage 4's flags (0x7c), on a bit-11 build only
+            (if (stage >= LADDER_TOP_STAGE && hasEffects(caps) && hasBind(caps) && caps!!.has(DamageMsg.FEATURE_ENGINE)) DamageMsg.FLAG_EFFECTS else 0)
     }
 
     /** The flag bits the ladder owns on a build with [caps]: ZWRITE and ENGINE on a C1 build, and BIND on a bit-10 build.
      *  A hand-set wish never carries them past the stage (the probe's rule, §6.8). */
-    private fun ladderBits(caps: DamageMsg.Caps?): Int = if (!isC1(caps)) 0 else C1_FLAGS or (if (hasBind(caps)) DamageMsg.FLAG_BIND else 0)
+    private fun ladderBits(caps: DamageMsg.Caps?): Int = if (!isC1(caps)) 0 else C1_FLAGS or (if (hasBind(caps)) DamageMsg.FLAG_BIND else 0) or
+        (if (hasEffects(caps)) DamageMsg.FLAG_EFFECTS else 0)
+
+    /** Build C3: a build that reports effects (`FIRMWARE.md` §7.9: features bit 11, contract 2). */
+    private fun hasEffects(caps: DamageMsg.Caps?): Boolean = caps != null && caps.contract >= DamageMsg.CONTRACT && caps.has(DamageMsg.FEATURE_EFFECTS)
+
+    /** Build C3: the highest stage this build arms — 5 with bit 11, 4 with bit 10, else 3 (§6.8, §7.9). */
+    private fun buildTop(caps: DamageMsg.Caps?): Int = if (hasEffects(caps) && hasBind(caps)) LADDER_TOP_STAGE else if (hasBind(caps)) BIND_STAGE else C1_TOP_STAGE
 
     /** Build C2: a build that reports local input (`FIRMWARE.md` §6.8: features bit 10, contract 2). */
     private fun hasBind(caps: DamageMsg.Caps?): Boolean = caps != null && caps.contract >= DamageMsg.CONTRACT && caps.has(DamageMsg.FEATURE_BIND)
 
     /** The stage a start would arm now: stage 4 held back is 3 (§6.8). For the probe's rule and the state's words. */
-    private fun effectiveStage(): Int = record.let { r -> if (r.stage >= LADDER_TOP_STAGE && r.holdBackAt != null) LADDER_TOP_STAGE - 1 else r.stage }
+    private fun effectiveStage(): Int = record.let { r -> if (r.stage >= BIND_STAGE && r.holdBackAt != null) r.stage - 1 else r.stage }
 
     /** The cache size a start asks for at [stage]: 256 KiB from stage 2 on a bit-8 build, else §4's 160. */
     private fun ladderKib(stage: Int, caps: DamageMsg.Caps?): Int =
@@ -1175,12 +1192,14 @@ abstract class CfwTransportBase(
             1 -> "ZWRITE"
             2 -> "ZWRITE and the 256 KiB cache"
             3 -> "ZWRITE, the 256 KiB cache and ENGINE"
-            else -> "ZWRITE, the 256 KiB cache, ENGINE and BIND"
+            4 -> "ZWRITE, the 256 KiB cache, ENGINE and BIND"
+            else -> "ZWRITE, the 256 KiB cache, ENGINE, BIND and EFFECTS"
         }
         return when {
             caps == null || stage == 0 -> words
             !isC1(caps) -> "$words — this build reports no C1 bit, so it arms nothing"
-            stage >= LADDER_TOP_STAGE && !hasBind(caps) -> "${ladderSays(LADDER_TOP_STAGE - 1)}: stage 3, as this build reports no local input (bit 10)"
+            stage >= BIND_STAGE && !hasBind(caps) -> "${ladderSays(C1_TOP_STAGE)}: stage 3, as this build reports no local input (bit 10)"
+            stage >= LADDER_TOP_STAGE && !hasEffects(caps) -> "${ladderSays(BIND_STAGE)}: this build can arm 4 (no effects, bit 11)"
             else -> words
         }
     }
@@ -1246,7 +1265,7 @@ abstract class CfwTransportBase(
         // build C2 (§6.8): after an arming of stage 4, C1's window is not that stage's rule — a fault in the hook comes at a
         // gesture, any time — so the restart is stage 4's own hold-back, decided when its evidence came ([bindEvidence]),
         // and costs one stage, never more; the end is spent here so that no later arming is blamed for it
-        if (ladderArmedStage == LADDER_TOP_STAGE && (resetAt != null || leftEnd != null)) {
+        if (ladderArmedStage >= BIND_STAGE && (resetAt != null || leftEnd != null)) {
             resetAt?.let { heldBackForResetAt = it }
             leftEnd?.let { heldBackForLeftEndAt = it }
             return bindStageAtStart(stage, caps)
@@ -1267,7 +1286,7 @@ abstract class CfwTransportBase(
      *  the first start on a later calendar day (04:00 local) — then, while one is in force, held back to stage 3, said
      *  once as a `keeper` note and a `holdback` fault. Any other stage, or a build without bit 10, passes as it is. */
     private fun bindStageAtStart(stage: Int, caps: DamageMsg.Caps): Int {
-        if (stage < LADDER_TOP_STAGE || !hasBind(caps)) return stage
+        if (stage < BIND_STAGE || !hasBind(caps)) return stage
         val r = record
         val at = r.holdBackAt ?: return stage
         val now = nowMs()
@@ -1288,7 +1307,8 @@ abstract class CfwTransportBase(
             emitNote("keeper", text)
             emitFault("holdback", text)
         }
-        return LADDER_TOP_STAGE - 1
+        // build C3 (§7.9): stage 5's hold-back is stage 4's — one stage below what this build would arm
+        return minOf(stage, buildTop(caps)) - 1
     }
 
     /** Evidence of a lens restart at [at] (phone clock): RIGHT's reset placed at now − uptime ([noteUptime]) or LEFT's
@@ -1298,7 +1318,7 @@ abstract class CfwTransportBase(
      *  nothing (`C2-DP1-built.md` §0). One already in force is kept as it is (its set time decides its lift). */
     private fun bindEvidence(at: Long, what: String) {
         val r = record
-        if (r.stage < LADDER_TOP_STAGE || r.holdBackAt != null) return
+        if (r.stage < BIND_STAGE || r.holdBackAt != null) return
         val armed = r.bindArmedAt ?: return
         // the arming's own write may land a little after its record (C1's rule reads its window the same way)
         if (at < armed - CAPABILITY_REASK_MS) return
@@ -1317,7 +1337,7 @@ abstract class CfwTransportBase(
      *  the hold-back (the only one a decision reads; [LadderRecord]). */
     private fun bindCaseIn(now: Long) {
         val r = record
-        if (r.stage < LADDER_TOP_STAGE) return
+        if (r.stage < BIND_STAGE) return
         val ref = listOfNotNull(r.bindArmedAt, r.holdBackAt).maxOrNull() ?: return
         if (r.caseInAt != null && r.caseInAt > ref) return
         setRecord("local input: the case-in") { if (it.caseInAt != null && it.caseInAt > ref) it else it.copy(caseInAt = now) }
@@ -1429,6 +1449,20 @@ abstract class CfwTransportBase(
         throw LintError(why)
     }
 
+    /** Build C3 (`FIRMWARE.md` §7.9, §7.11): no C3 form ([CfwModes.carriesEffects]: mode 26 sub 8, mode 27 sub 4, a SET's
+     *  kind 3) leaves the phone unless DamageCaps bit 11 is reported and EFFECTS is in force (the ladder's stage 5, armed
+     *  this session). Beside [bindGate], at the one place every image passes. */
+    private fun effectsGate(image: ByteArray) {
+        if (!CfwModes.carriesEffects(image)) return
+        val st = _state.value
+        if (hasEffects(damageCaps) && st.flagsInForce and DamageMsg.FLAG_EFFECTS != 0) return
+        val why = "a ${image.size} B image carrying PLAY-AFTER, LIST-RING or a kind-3 parameter (mode ${image[0].toInt() and 0xFF}) " +
+            "is not sent: " + (if (!hasEffects(damageCaps)) "this build reports no effects (DamageCaps bit 11)" else
+                "EFFECTS is not in force (flags 0x${st.flagsInForce.toString(16)}, stage ${record.stage})")
+        emitFault("effects", why)
+        throw LintError(why)
+    }
+
     /** Build C2-FD (decisions AM.2): whether a flush's local-input [tail] may still go — BIND in force as [bindGate] reads
      *  it. The rules build a tail only while BIND is in force; a hand disarm (AG.2) or the sleep's release
      *  ([setLease]) can take BIND out of the state while the flush waits for the lane, and the tail then means nothing
@@ -1450,11 +1484,11 @@ abstract class CfwTransportBase(
         val st = _state.value
         val words = when {
             !hasBind(caps) -> "this firmware has no local input"
-            r.stage >= LADDER_TOP_STAGE && r.holdBackAt != null -> "held back until tomorrow: ${r.holdBackWhy}"
+            r.stage >= BIND_STAGE && r.holdBackAt != null -> "held back until tomorrow: ${r.holdBackWhy}"
             st.started && st.flagsInForce and DamageMsg.FLAG_BIND != 0 -> "on"
             // build C2-FD (decisions AM.4): stage 4 whose session is too small for DRAW2, which BIND rides with (a 64 KiB
             // session — a stored 64 at a new process's first start, a refused op 5)
-            st.started && r.stage >= LADDER_TOP_STAGE && st.flagsInForce and DamageMsg.FLAG_DRAW2 == 0 &&
+            st.started && r.stage >= BIND_STAGE && st.flagsInForce and DamageMsg.FLAG_DRAW2 == 0 &&
                 st.cacheSize - CfwModes.STAGE_RESERVE < CfwModes.TEXTURE_CACHE_SIZE ->
                 "off: this session's cache is ${st.cacheSize / 1024} KiB, too small for DRAW2, which local input needs — " +
                     "a start after a lapsed lease asks for the size again"
@@ -4175,6 +4209,7 @@ abstract class CfwTransportBase(
     private suspend fun writeImage(image: ByteArray, atEpoch: Long, unlessDone: CompletableDeferred<Unit>? = null): PendingAck? {
         require(image.isNotEmpty()) { "empty image buffer" }
         bindGate(image)                    // build C2: no mode 27, 28 or 26 sub 3..5 without bit 10 and BIND in force
+        effectsGate(image)                 // build C3: no 26/8, 27/4 or kind 3 without bit 11 and EFFECTS in force
         lastImageAtMs = nowMs()
         if (sessionPenalty) {
             sessionPenalty = false
@@ -4572,12 +4607,15 @@ abstract class CfwTransportBase(
         /** Build C1: the ladder's top stage (spec §6.1) and the two flag bits it owns. */
         const val C1_TOP_STAGE = 3
         /** Build C2 (`FIRMWARE.md` §6.8): the ladder's stage 4, BIND. */
-        const val LADDER_TOP_STAGE = 4
+        /** Build C3 (§7.9): the ladder's top, stage 5 = EFFECTS with stage 4's flags. */
+        const val LADDER_TOP_STAGE = 5
+        /** Build C2 (§6.8): stage 4 = BIND; its hold-back rule is also stage 5's. */
+        const val BIND_STAGE = 4
         /** §6.8: "the first start on a later calendar day (04:00 local)". */
         const val DAY_STARTS_AT_HOUR = 4
         /** The order [armFeatures] arms the wanted bits in: lowest first, BIND (bit 4) last (spec §6.2: stage 4's start is
          *  stage 3's plus its rung). */
-        val ARM_ORDER: List<Int> = (0 until 16).filter { it != 4 } + 4
+        val ARM_ORDER: List<Int> = (0 until 16).filter { it != 4 && it != 6 } + 4 + 6
         /** Build C1-P: the stage's file in the app's data directory (one line, the stage's digit). */
         const val C1_STAGE_FILE = "c1-stage"
         /** The ladder's stage whose own change is the 256 KiB cache (spec §6.1). */

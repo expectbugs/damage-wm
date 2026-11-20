@@ -33,7 +33,7 @@ import wm.damage.core.wire.Pb
  * states as the present began, the deferred empty), the step budget (§7.12: [cost], [budgetOk]) and telemetry 40.
  * [EffectsSim] draws PIECES, SHRINK and GLYPHS. EFFECTS (flag bit 6) is read once by the caller per message or fire and
  * passed in as `armed`. The fast DRAW path is not modeled (its pixels are C2's, §7.12), nor the late step (§7.10: the
- * model has no thread; the pure plan, so `W`, is unchanged). C3's READINGs are marked "READING (C3)".
+ * model has no thread; the pure plan, so `W`, is unchanged). C3's READINGs are marked "Ruled (C3, the seventeen)".
  */
 class MotionSim(private val scaled: () -> Boolean = { false }, private val effects: () -> Boolean = { false }) {
 
@@ -344,7 +344,7 @@ class MotionSim(private val scaled: () -> Boolean = { false }, private val effec
                 val n = u8(cache, tOff)
                 // decision A.9: n ≠ steps and E[n] ≠ 4096 are 5; the table's reserved byte is required 0. §7.4: under
                 // a PIECES stagger the n compared is steps − stagger, and with stagger ≥ steps that comparison alone is
-                // skipped (the table is still walked). READING (C3): "with stagger" reads aux1 >> 8 on either layer
+                // skipped (the table is still walked). Ruled (C3, the seventeen): "with stagger" reads aux1 >> 8 on either layer
                 // (layer old's stagger is 12 at the values, after this)
                 val stagger = if (s.verb == PIECES) s.aux1 shr 8 else 0
                 val nWant = if (stagger >= s.steps) -1 else s.steps - stagger
@@ -355,7 +355,7 @@ class MotionSim(private val scaled: () -> Boolean = { false }, private val effec
                 lo = minOf(lo, tOff); hi = maxOf(hi, tOff + 2 + 2 * n)
             }
         }
-        // §7.2: an in-place track's backdrop is none and its ease never falls (5). READING (C3): every non-WAIT segment of
+        // §7.2: an in-place track's backdrop is none and its ease never falls (5). Ruled (C3, the seventeen): every non-WAIT segment of
         // an in-place track is checked (the text names "its non-WAIT segment's" ease; two of them are 12 at the values)
         for (t in tracks) if (t.inPlace && (t.backdrop != BD_NONE || t.segs.any { it.verb != WAIT && !nonDecreasing(it) })) return null
         return Prog(tracks, Span(lo, hi), version, own, land)
@@ -400,7 +400,7 @@ class MotionSim(private val scaled: () -> Boolean = { false }, private val effec
 
     /** §7.2's field rules for a version-2 segment, after substitution (5): a field verbs 4–6 do not list, and w0, w1,
      *  aux0, aux1 for every verb that does not list them, must be 0 (§5.4's "ignored" stands for verbs 0–3 otherwise).
-     *  PIECES' model 3 and aux1 bits 2–7 (§7.4); DRAW of `self` or `new` takes no source window (§7.5). READING (C3):
+     *  PIECES' model 3 and aux1 bits 2–7 (§7.4); DRAW of `self` or `new` takes no source window (§7.5). Ruled (C3, the seventeen):
      *  RAIN's aux0 ("RAIN: 0" in the table) must be 0; xL/xR, listed for PIECES and GLYPHS, are not required 0 on a
      *  track that is not per-lens. */
     private fun fieldsOk(s: Seg): Boolean = when (s.verb) {
@@ -482,7 +482,7 @@ class MotionSim(private val scaled: () -> Boolean = { false }, private val effec
                     }
                     PIECES -> if (!piecesOk(t, s)) return false
                     SHRINK -> {
-                        // §7.5: w0 = w1 = 0 unscaled, else 0 ≤ w1 ≤ w0 ≤ Wa; h likewise against Ha; src 0..15. READING (C3):
+                        // §7.5: w0 = w1 = 0 unscaled, else 0 ≤ w1 ≤ w0 ≤ Wa; h likewise against Ha; src 0..15. Ruled (C3, the seventeen):
                         // §5.5's "levels 0..15" binds SHRINK's eased level too (it feeds G, §7.4); §7.2 names DRAW, PIECES
                         // and GLYPHS only
                         val a = t.rectL
@@ -506,7 +506,7 @@ class MotionSim(private val scaled: () -> Boolean = { false }, private val effec
     }
 
     /** §7.4's values (12) for a PIECES segment, and its eases: the grid, the model's rules, stagger, the layers' rules,
-     *  every eased level. READING (C3): under stagger with an uploaded table (n = steps − stagger), lvl(t) reads the
+     *  every eased level. Ruled (C3, the seventeen): under stagger with an uploaded table (n = steps − stagger), lvl(t) reads the
      *  table at min(t, n') (E[n'] = 4096 holds past it); with ease 0 or 1 it is eased over the segment's steps as DRAW's
      *  (the other reading: the level eased over n' too). */
     private fun piecesOk(t: Track, s: Seg): Boolean {
@@ -694,25 +694,26 @@ class MotionSim(private val scaled: () -> Boolean = { false }, private val effec
      * §7.12's sum: every slot of this lens in state drawing once the operation's [closed] slots are closed, each by the
      * C its walk kept, the instance opened or restarted in [slot] by [c] — except that an instance waiting on another
      * (a PLAY-AFTER whose `after` slot still holds its recorded triple; [newWaitsOn] for the one opened now) and that
-     * other count as the larger, and a chain as its largest member. True when the sum is at most the cap. READING (C3):
-     * waiters joined into one group count as its largest member even when two wait on one instance (the other reading:
-     * two waiters released by one present both count).
+     * other count as the larger, and a chain as its largest member. True when the sum is at most the cap. Ruled (C3, the
+     * seventeen, item 5): f(i) = max(C_i, Σ f(waiters of i)) — two waiters on one instance draw together once it is done,
+     * so they add; each root's f is summed.
      */
     private fun budgetOk(slot: Int, c: Long, closed: Set<Int>, newWaitsOn: Int?): Boolean {
         val cost = LongArray(SLOTS) { i -> slots[i]?.takeIf { i != slot && i !in closed && it.drawing }?.cost ?: -1L }
         cost[slot] = c
-        val group = IntArray(SLOTS) { it }
-        fun root(x: Int): Int { var r = x; while (group[r] != r) r = group[r]; return r }
-        for (i in 0 until SLOTS) {
-            if (cost[i] < 0) continue
-            val w = if (i == slot) newWaitsOn else slots[i]!!.rec?.let { r ->
-                slots[r.first]?.takeIf { it.tag == r.second && it.ordinal == r.third }?.let { r.first } }
-            if (w != null && cost[w] >= 0) group[root(i)] = root(w)
+        // the instance each one waits on, when that one is counted too (no cycle: a recorded triple names an instance
+        // opened before its waiter)
+        val waitsOn = IntArray(SLOTS) { i ->
+            if (cost[i] < 0) -1
+            else (if (i == slot) newWaitsOn else slots[i]!!.rec?.let { r ->
+                slots[r.first]?.takeIf { it.tag == r.second && it.ordinal == r.third }?.let { r.first } })?.takeIf { cost[it] >= 0 } ?: -1
         }
-        val largest = LongArray(SLOTS)
-        for (i in 0 until SLOTS) if (cost[i] >= 0) largest[root(i)] = maxOf(largest[root(i)], cost[i])
+        fun f(i: Int, depth: Int): Long {
+            check(depth <= SLOTS) { "a cycle of PLAY-AFTER waits" }
+            return maxOf(cost[i], (0 until SLOTS).filter { waitsOn[it] == i }.sumOf { f(it, depth + 1) })
+        }
         var sum = 0L
-        for (v in largest) { sum += v; if (sum > BUDGET_CAP) return false }
+        for (i in 0 until SLOTS) if (cost[i] >= 0 && waitsOn[i] < 0) { sum += f(i, 0); if (sum > BUDGET_CAP) return false }
         return true
     }
 
@@ -800,7 +801,7 @@ class MotionSim(private val scaled: () -> Boolean = { false }, private val effec
         val sub = if (msg.size >= 2) msg[1].toInt() and 0xFF else -1
         // build C2 (§6.5): on a bit-10 build subs 3–5 are known — each names a slot after its sub (0xFF as sent); field 3
         // for a COMMIT only, whose S names one instance's tag (a DISCARD's or SETTLE's S is a bound: C2-decisions I.3)
-        // build C3 (§5.5's table): sub 8 PLAY-AFTER is known on a bit-11 build and names its slot. READING (C3): its tag
+        // build C3 (§5.5's table): sub 8 PLAY-AFTER is known on a bit-11 build and names its slot. Ruled (C3, the seventeen): its tag
         // (bytes 6–7, as a PLAY's) is field 3 — "fields 1, 2 and 3 when the message holds them" (A.2); C1's "the tag only
         // a PLAY holds" was written when only a PLAY held one
         val after = effects() && sub == SUB_AFTER
@@ -848,8 +849,9 @@ class MotionSim(private val scaled: () -> Boolean = { false }, private val effec
         val drawingAtEntry = anyDrawing
         // §7.3 (C3): the stock path ends every owns mark, a done owner's too — so a table of done owners still flips
         if (!drawingAtEntry && (draws || slots.none { it?.owns == true })) return Hook(false, false)
-        // a lost claim folds the step; never waits. READING (C3): with only done owners open nothing is folded or counted
-        if (wordHeld) { if (drawingAtEntry) foldsSinceBoot++; return Hook(false, false, drawingAtEntry) }
+        // a lost claim folds the step; never waits. Ruled (C3, the seventeen, item 4): the stock path ends done owners too,
+        // and a claim lost there counts in field 33 like every lost claim of the hook
+        if (wordHeld) { foldsSinceBoot++; return Hook(false, false, drawingAtEntry) }
         if (!draws) { for (o in slots) if (o != null) { o.drawing = false; o.owns = false }; return Hook(false, false, drawingAtEntry) }
         // §7.7: each slot's waiting test is decided on the slot states as the present began
         val began = slots.map { o -> o?.let { Triple(it.tag, it.ordinal, it.drawing) } }
@@ -866,7 +868,7 @@ class MotionSim(private val scaled: () -> Boolean = { false }, private val effec
             // an owning instance draws only at k > d on every path (its owned rect was not copied)
             if ((preserve || o.owns) && k <= o.d) continue
             // §7.7: at its first drawn step a PLAY-AFTER empties the recorded instance, silently, when its slot still
-            // holds that triple and it was done when the present began. READING (C3): the emptying owes no stale mark
+            // holds that triple and it was done when the present began. Ruled (C3, the seventeen): the emptying owes no stale mark
             // (this present draws a step and goes whole; the text calls it an emptying, not a close)
             o.rec?.let { r ->
                 val a = slots[r.first]
@@ -1088,7 +1090,7 @@ class MotionSim(private val scaled: () -> Boolean = { false }, private val effec
                 else if (f == null) eased(s.h0, s.h1 - s.h0, e)
                 else { val from = if (f.h > 0) f.h else s.source!!.h
                        eased(from, s.h1 - from, e).coerceIn(1, H_MAX) }
-        // §7.5 (C3): W likewise, restarted from the width this lens last drew, clamped to 1..2048. READING (C3): a restart
+        // §7.5 (C3): W likewise, restarted from the width this lens last drew, clamped to 1..2048. Ruled (C3, the seventeen): a restart
         // from an unscaled width eases from the source's own width (as C2's H from the source's own height)
         val w = if (s.verb != DRAW || !s.isWScaled) 0
                 else if (f == null) eased(s.w0, s.w1 - s.w0, e)
@@ -1240,7 +1242,7 @@ class MotionSim(private val scaled: () -> Boolean = { false }, private val effec
 
     /** §7.3 (build C3): an open instance [o] meets a program being opened — an owning instance meets when its meeting
      *  box ([Prog.ownedBoth]) intersects any track pair's box of the other, two owners when their boxes intersect;
-     *  otherwise §5.5's. READING (C3): an OWN program being opened (a PLAY or PLAY-AFTER) meets by its box as the owner
+     *  otherwise §5.5's. Ruled (C3, the seventeen): an OWN program being opened (a PLAY or PLAY-AFTER) meets by its box as the owner
      *  it becomes (the other reading: by its tracks until it is open). */
     private fun meets(o: Instance, prog: Prog): Boolean = when {
         o.owns && prog.own -> o.prog.ownedBoth.overlaps(prog.ownedBoth)

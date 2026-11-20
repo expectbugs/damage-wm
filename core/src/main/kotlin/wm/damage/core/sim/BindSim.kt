@@ -134,7 +134,7 @@ class BindSim(private val motion: MotionSim, private val effects: () -> Boolean 
             if (p != null) Pb.cat(Pb.v(10, p[0] and 0xFFFF), Pb.v(11, p[1] and 0xFFFF), Pb.v(12, p[2] and 0xFFFF),
                                   Pb.v(13, p[3] and 0xFFFF), Pb.v(14, e.prog)) else ByteArray(0),
             Pb.v(15, lens.uptime), Pb.v(16, 0), Pb.v(17, l.mark),
-            // §7.8 (C3): field 18 = 1 when the virtual row is not c' (a drawn ring fire). READING (C3): absent otherwise
+            // §7.8 (C3): field 18 = 1 when the virtual row is not c' (a drawn ring fire). Ruled (C3, the seventeen): absent otherwise
             if (wrapped) Pb.v(18, 1) else ByteArray(0))
         // 7: each flag once under the word
         val f = lens.flags

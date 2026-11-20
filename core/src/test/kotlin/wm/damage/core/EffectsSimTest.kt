@@ -81,6 +81,19 @@ class EffectsSimTest {
         assertEquals(listOf(12, 12, 4, 4), (0 until 4).map { EffectsSim.nib(buf, 320, it, 0) })       // ⌊10·6/15⌋ = 4
     }
 
+    /** §7.4 as ruled (the seventeen, item 14): where two pieces' moved rects overlap, the highest-indexed piece that passes
+     *  both tests wins. Two pieces of a 4×1 area, radial about x 2, the factor 4096 at b and −4096 at k (the pieces cross;
+     *  no accepted input does this — the function is called directly): D0 = −1 → +1, D1 = +1 → −1. At q 1 piece 1 passes
+     *  (base 3); at q 2 piece 1's source (4) is outside its clipped base rect and piece 0 passes (base 0). */
+    @Test
+    fun theHighestPieceThatPassesBothTestsWins_7_4() {
+        val buf = ByteArray(320 * 480)
+        for (x in 0 until 4) EffectsSim.setNib(buf, 320, x, 0, x + 1)
+        val a = EffectsSim.PiecesArgs(2, 1, EffectsSim.MODEL_RADIAL, 0, 0, 4096, 2, 0, 0, 0, 0, false, intArrayOf(0, 4096, -4096), null)
+        EffectsSim.piecesOld(buf, 320, Rect(0, 0, 4, 1), a, 1, 2, EffectsSim.gTable(intArrayOf(15, 15)), 9)
+        assertEquals(listOf(9, 4, 1, 9), (0 until 4).map { EffectsSim.nib(buf, 320, it, 0) })
+    }
+
     // ------------------------------------------------------------------------- §7.5 a SHRINK centre step by hand
     /** Wa = 6 to W = 3 at the centre: the drop order of 6 is 0, 4, 2, 1, 5, 3, so columns {0, 2, 4} are kept, placed at
      *  a = (6 − 3) >> 1 = 1: [v, c0, c2, c4, v, v]. Then 3 → 1 keeps column 0 at a = 2, read from its place at W = 3 (1),
@@ -509,6 +522,50 @@ class EffectsSimTest {
             assertEquals(case != "over", r.msg(play(1, 20, 128, 2)), case)
             if (case == "over") assertEquals(12, r.reason())
         }
+    }
+
+    /** §7.12 as ruled (the seventeen, item 5): f(i) = max(C_i, Σ f(waiters of i)) — two PLAY-AFTERs waiting on one out
+     *  half draw together once it is done, so they add. Each in half: two half-panel tracks of backdrop `new` under a
+     *  two-axis DRAW of `new` (1,024 + 11·153,600), one of 164 × 376 (1,024 + 10·61,664) and a FILL of 1 × 64 (1,088):
+     *  4,000,000; the two together exactly the cap, taken; the second at 1 × 65 one unit over, refused 12. */
+    @Test
+    fun twoWaitersOnOneOutHalfAddInTheBudget_7_12() {
+        for ((h, ok) in listOf(64 to true, 65 to false)) {
+            val r = Rig()
+            r.write(64, prog2(OWN, track(rect(0, 0, 10, 10), 2, seg2(WAIT, 8))))
+            fun half(x: Int, fillH: Int): ByteArray {
+                val big = track(rect(x, 0, 320, 480), BD_NEW, seg2(DRAW, 1, kind = 4, lvl0 = 15, lvl1 = 15, w0 = 160, w1 = 160))
+                return prog2(OWN, big, big, track(rect(x, 0, 164, 376), NONE, seg2(DRAW, 1, kind = 4, lvl0 = 15, lvl1 = 15, w0 = 80, w1 = 80)),
+                    track(rect(x, 0, 1, fillH), NONE, seg2(FILL, 1, kind = 5)))
+            }
+            r.write(128, half(0, 64))
+            r.write(256, half(320, h))
+            assertTrue(r.msg(play(0, 20, 64, 1)))
+            assertTrue(r.msg(after(1, 20, 128, 2, 0)))
+            assertEquals(4_000_000L, r.motion().slots[1]!!.cost)
+            assertEquals(ok, r.msg(after(2, 20, 256, 3, 0)), "the second waiter at 1 × $h")
+            if (!ok) assertEquals(12, r.reason())
+        }
+    }
+
+    /** §7.3 as ruled (the seventeen, item 4): the stock path ends done owners too, and a claim the hook loses there counts
+     *  in field 33 like every lost claim. A done owner (T 1), the lease lapsed unnoticed: a stock repaint with the engine
+     *  word held loses the claim (one fold counted, the owner untouched); the next one ends its owns mark. */
+    @Test
+    fun theStockPathEndsADoneOwnerAndALostClaimThereIsCounted_7_3() {
+        val r = Rig()
+        r.write(64, prog2(OWN, track(rect(100, 100, 40, 20), 5, seg2(WAIT, 1))))
+        assertTrue(r.msg(play(0, 20, 64, 1)))
+        assertEquals(1, r.motion().field40(), "done and owning")
+        r.now += 90_001L                                                     // the lease's 90,000 ticks, unnoticed
+        val folds = r.motion().foldsSinceBoot
+        r.motion().holdWordForTest(true)
+        r.sim.stockRepaint(r.arm, r.now)
+        r.motion().holdWordForTest(false)
+        assertEquals(folds + 1, r.motion().foldsSinceBoot, "the lost claim counted")
+        assertEquals(1, r.motion().field40(), "nothing ended without the claim")
+        r.sim.stockRepaint(r.arm, r.now)
+        assertEquals(0, r.motion().field40(), "the stock path ends the done owner's mark")
     }
 
     // ----------------------------------------------------------------------------- §7.8 the ring list, kind 3

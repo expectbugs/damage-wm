@@ -291,11 +291,12 @@ class MotionTransportTest {
     @Test
     fun aStoredStageThatCannotBeUsedReadsAs0AndIsSaid_C1P(): Unit = runBlocking {
         val base = startWire(0x1ff, 0)
-        for (text in listOf("5", "-1", "x", "")) {
+        // build C3 (§7.9) makes 5 a stage: the unusable example is 6
+        for (text in listOf("6", "-1", "x", "")) {
             Files.writeString(stageFile, text)
             assertEquals(base, startWire(0x1ff, 0, store = stageFile), "'$text' starts at stage 0")
             waitUntil(10_000, message = { "'$text' is said: $notes" }) { sayings("C1 ladder: the stored stage '$text'") > 0 }
-            assertEquals(1, sayings("C1 ladder: the stored stage '$text' is not 0..4 — stage 0"), "'$text' is said: $notes")
+            assertEquals(1, sayings("C1 ladder: the stored stage '$text' is not 0..5 — stage 0"), "'$text' is said: $notes")
         }
         Files.delete(stageFile); Files.createDirectory(stageFile)       // a name that cannot be read as a file
         assertEquals(base, startWire(0x1ff, 0, store = stageFile), "an unreadable store starts at stage 0")
@@ -435,6 +436,67 @@ class MotionTransportTest {
         assertEquals(listOf(3, 0, 26, 2, 1), (2 until 7).map { b[it].toInt() and 0xFF }, "the CLOSE of slot 1 heads the batch")
         assertTrue(sim.motionWindows(Arm.RIGHT).none { it.slot == 1 }, "the instance is closed")
         t.stop()
+    }
+
+    /** Build C3: a session at ladder stage [stage] on a bit-11 build (0xdff). */
+    private suspend fun effectsSession(stage: Int = 5): Pair<GlassFirmwareSim, SimTransport> {
+        val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = 0xdff }
+        val t = SimTransport(sim, scope, SimTransport.Timing(instant = true))
+        collect(t)
+        t.devProbe("c1", "$stage")
+        t.start(full)
+        assertEquals(if (stage == 5) 0x7c else 0x3c, t.state.value.flagsInForce, "stage $stage in force")
+        return sim to t
+    }
+
+    /** §7.2 by hand: a version-2 OWN record of [areas], each backdrop level 3 and one WAIT of [steps]. */
+    private fun ownRecord(areas: List<Rect>, steps: Int): ByteArray {
+        fun u16(v: Int) = byteArrayOf((v and 0xFF).toByte(), ((v shr 8) and 0xFF).toByte())
+        val body = areas.fold(ByteArray(0)) { acc, a -> acc + byteArrayOf(1, 3, 0, 0) + u16(a.x) + u16(a.y) + u16(a.w) + u16(a.h) +
+            byteArrayOf(0, steps.toByte()) + ByteArray(38) }
+        return byteArrayOf(2, areas.size.toByte()) + u16(8 + body.size) + byteArrayOf(1, 0, 0, 0) + body
+    }
+
+    /** Build C3 (`FIRMWARE.md` §7.11): a write the phone wants shown inside an owning instance's owned rect — here in the
+     *  gap between its two tracks, which no track meets — carries a CLOSE of it at the head of its batch; a write outside
+     *  the owned rect goes as the encoder made it. */
+    @Test
+    fun aWriteInAnOwnedRectClosesTheOwnerInItsBatch_7_11(): Unit = runBlocking {
+        val (sim, t) = effectsSession()
+        val rec = ownRecord(listOf(Rect(100, 100, 20, 20), Rect(160, 100, 20, 20)), 200)
+        assertTrue(t.sendMotion(listOf(CfwModes.cacheUpdate2(listOf(CfwModes.CacheWrite2(10_000, rec)), 256 * 1024),
+            CfwModes.motionPlay(1, 128, 10_000, 0x51, 0, IntArray(4)))))
+        waitUntil(10_000, message = { "the OWN PLAY landed: refusal ${sim.refusalRecord(Arm.RIGHT)}, flags 0x${sim.damageFlags(Arm.RIGHT).toString(16)}, cache ${sim.cacheSize(Arm.RIGHT)}" }) {
+            sim.motionForTest(Arm.RIGHT).slots[1]?.owns == true }
+        val batches = java.util.concurrent.CopyOnWriteArrayList<ByteArray>()
+        sim.imageObserver = { arm, img -> if (arm == Arm.RIGHT && img[0].toInt() == 8) batches += img }
+        t.submit(FlushRequest(listOf(DisplayOp.Fill(Rect(400, 300, 8, 4), Rect(400, 300, 8, 4), 7)), 0, "elsewhere"))
+        waitUntil(10_000, message = { "the first flush landed" }) { batches.size >= 1 }
+        assertEquals(1, batches[0][1].toInt(), "a write outside the owned rect: one sub")
+        t.submit(FlushRequest(listOf(DisplayOp.Fill(Rect(130, 104, 8, 4), Rect(130, 104, 8, 4), 7)), 0, "in the gap"))
+        waitUntil(10_000, message = { "the second flush landed" }) { batches.size >= 2 }
+        assertEquals(listOf(2, 3, 0, 26, 2, 1), (1 until 7).map { batches[1][it].toInt() and 0xFF }, "the CLOSE of slot 1 heads the batch")
+        assertTrue(sim.motionForTest(Arm.RIGHT).slots[1] == null, "the owner is closed")
+        t.stop()
+    }
+
+    /** Build C3 (§7.9): below stage 5 no PLAY-AFTER, LIST-RING or kind-3 SET reaches the glasses — offered through the
+     *  motion API at stage 4 on a bit-11 build — while at stage 5 the same PLAY-AFTER does (the gate is not a wall). */
+    @Test
+    fun noEffectsFormReachesTheGlassesBelowStage5_7_9(): Unit = runBlocking {
+        for (stage in listOf(4, 5)) {
+            val (sim, t) = effectsSession(stage)
+            val seen = java.util.concurrent.CopyOnWriteArrayList<String>()
+            sim.imageObserver = { _, img -> if (CfwModes.carriesEffects(img)) seen += img.joinToString("") { "%02x".format(it) } }
+            val offers = listOf(CfwModes.motionPlayAfter(1, 32, 10_000, 1, 0, IntArray(4)),
+                CfwModes.bindListRing(0, CfwModes.ITEMS_NONE, 4, 0, 8, 1, true),
+                CfwModes.bindSet(0, 0xFF, 4, 0, 1, 0, 34, 10_000, listOf(CfwModes.BindParam(CfwModes.KIND_CURSOR, 0)), effects = true))
+            for (o in offers) runCatching { t.sendMotion(listOf(o)) }
+            delay(300)
+            if (stage == 4) assertEquals(emptyList(), seen.toList(), "stage 4: nothing of C3 on the wire")
+            else assertTrue(seen.isNotEmpty(), "stage 5: the forms go")
+            t.stop()
+        }
     }
 
     /** Spec §6.4: a notify's END CRC equal to the mirror's is a `motion` note only; a different one is a `divergence`

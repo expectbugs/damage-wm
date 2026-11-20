@@ -123,31 +123,25 @@ object EffectsSim {
      * §7.2). [jb] and [jk] are the segment's local steps of the track's states at b and k. Every pixel q of the area
      * becomes G of the base pixel at q − Δ_p when q lies in some piece p's home rect moved by D_p(k) (clipped) and
      * q − Δ_p lies in p's base rect (its home rect moved by D_p(b), clipped); otherwise the vacate level [vacate], not
-     * passed through G. READING: when two pieces' moved rects contain q (no accepted input makes that) the higher
-     * index is THE piece for q and its base-rect test decides (the other reading: the highest index among the pieces
-     * that pass both tests).
+     * passed through G. Ruled (C3, the seventeen, item 14): where two pieces' moved rects overlap, the highest-indexed
+     * piece that passes both tests wins.
      */
     fun piecesOld(buf: ByteArray, stride: Int, area: Rect, a: PiecesArgs, jb: Int, jk: Int, g: IntArray, vacate: Int) {
         val n = a.gw * a.gh
         val base = grab(buf, stride, area)
-        val owner = IntArray(area.w * area.h) { -1 }
-        val dk = Array(n) { displacement(a, area, it, jk) }
-        val db = Array(n) { displacement(a, area, it, jb) }
-        for (p in 0 until n) {
-            val dest = home(area, a.gw, a.gh, p).translate(dk[p][0], dk[p][1]).intersect(area) ?: continue
-            for (yy in dest.y until dest.bottom) for (xx in dest.x until dest.right) owner[(yy - area.y) * area.w + (xx - area.x)] = p
-        }
-        for (yy in area.y until area.bottom) for (xx in area.x until area.right) {
-            val p = owner[(yy - area.y) * area.w + (xx - area.x)]
-            var v = vacate
-            if (p >= 0) {
-                val baseRect = home(area, a.gw, a.gh, p).translate(db[p][0], db[p][1]).intersect(area)
-                val sx = xx - (dk[p][0] - db[p][0]); val sy = yy - (dk[p][1] - db[p][1])
-                if (baseRect != null && sx >= baseRect.x && sx < baseRect.right && sy >= baseRect.y && sy < baseRect.bottom)
-                    v = g[base[(sy - area.y) * area.w + (sx - area.x)].toInt()]
+        val out = IntArray(area.w * area.h) { vacate }
+        for (p in 0 until n) {                                           // index order: a later piece that passes wins
+            val dk = displacement(a, area, p, jk); val db = displacement(a, area, p, jb)
+            val hr = home(area, a.gw, a.gh, p)
+            val dest = hr.translate(dk[0], dk[1]).intersect(area) ?: continue
+            val baseRect = hr.translate(db[0], db[1]).intersect(area) ?: continue
+            for (yy in dest.y until dest.bottom) for (xx in dest.x until dest.right) {
+                val sx = xx - (dk[0] - db[0]); val sy = yy - (dk[1] - db[1])
+                if (sx >= baseRect.x && sx < baseRect.right && sy >= baseRect.y && sy < baseRect.bottom)
+                    out[(yy - area.y) * area.w + (xx - area.x)] = g[base[(sy - area.y) * area.w + (sx - area.x)].toInt()]
             }
-            setNib(buf, stride, xx, yy, v)
         }
+        for (yy in area.y until area.bottom) for (xx in area.x until area.right) setNib(buf, stride, xx, yy, out[(yy - area.y) * area.w + (xx - area.x)])
     }
 
     // ---------------------------------------------------------------------------------------- §7.5 SHRINK

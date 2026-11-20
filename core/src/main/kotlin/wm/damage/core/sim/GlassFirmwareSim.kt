@@ -1589,9 +1589,15 @@ class GlassFirmwareSim() : LensPanels {
      *  transport's: it ends at the later of RIGHT's notify for (slot, ordinal) and the nominal end). */
     @Synchronized
     fun motionWindows(arm: Arm): List<MotionWindow> = ctx(arm).motion.slots.filterNotNull().map { o ->
-        MotionWindow(o.slot, o.ordinal, o.endCrc, o.drawing, o.prog.tracks.map { it.rect(fwSide(arm) == 2) },
+        MotionWindow(o.slot, o.ordinal, o.endCrc, o.drawing, areasOf(o, fwSide(arm) == 2),
             (o.t0 + (o.T - 1).toLong() * o.period) and MotionSim.U32)
     }
+
+    /** An open instance's areas on a lens as the phone's rules read them: its tracks' rects, or for an owning instance
+     *  (build C3, `FIRMWARE.md` §7.11) its owned rect on that lens — the rect no present copies into, so a write the
+     *  phone wants shown there carries a CLOSE first and the mirror's view of it waits for the instance's end. */
+    private fun areasOf(o: MotionSim.Instance, left: Boolean): List<Rect> =
+        if (o.owns) listOf(o.prog.owned(left)) else o.prog.tracks.map { it.rect(left) }
 
     // ---- build C1, D3a: the phone's side of the mirror (spec §2 rows 21–22, §6.5). Nothing here changes what the
     // model does with a message; it keeps what the phone's transport compares and what the shell's check skips.
@@ -1646,7 +1652,7 @@ class GlassFirmwareSim() : LensPanels {
             val end = (o.t0 + (o.T - 1).toLong() * o.period) and MotionSim.U32
             val past = ((now - end) and MotionSim.U32).toInt() >= 0
             if (past && Triple(o.slot, o.tag, o.ordinal) in motionNotified && !o.drawing) continue
-            for (t in o.prog.tracks) out += t.rect(left)
+            out += areasOf(o, left)
         }
         return out
     }
