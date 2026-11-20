@@ -5453,6 +5453,8 @@ class Shell(
     private var wrapTagOut = -1
     private var wrapHeldUntil = 0L
     private fun wrapSent(w: MainWrap) { wrapTagOut = w.tag; wrapHeldUntil = w.end.untilMs }
+    /** B083 (2c): the cells held are the wrap's (no later motion holds them) and its wait still runs. */
+    private fun wrapHolding(nowMs: Long) = comp.deferring && comp.deferUntilMs <= wrapHeldUntil && nowMs < comp.deferUntilMs
 
     /**
      * Decisions AZ.4: the pan across Main's wrap, when the rules found an edge at an end of the bound list with the row now
@@ -7654,7 +7656,8 @@ class Shell(
             // the wrap's PLAY goes ahead of the rules' answers (the DISCARD naming the wrapped row); a keyframe's batch
             // denies it (it closes every instance) and the row is drawn as today
             val wrapPlay = wrap?.takeIf { it.end.slot !in denied }?.also { wrapSent(it) }?.play
-            val localTail = if (localOn) listOfNotNull(wrapPlay) + local.tail(localRow(), localNow, denied, frame = assembled != null, wrapped = wrapPlay != null)
+            val localTail = if (localOn) listOfNotNull(wrapPlay) + local.tail(localRow(), localNow, denied, frame = assembled != null, wrapped = wrapPlay != null,
+                    waitCursor = wrapPlay == null && wrapHolding(localNow))
                 else emptyList()
             if (assembled == null && localTail.isNotEmpty()) submitLocalOnly(localTail, "LOCAL")
             if (assembled != null) {

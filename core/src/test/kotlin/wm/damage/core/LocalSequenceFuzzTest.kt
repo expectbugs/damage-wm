@@ -644,6 +644,21 @@ class LocalSequenceFuzzTest {
         if ((h.rules.counts["unreported"] ?: 0) != 0) "${h.rules.counts["unreported"]} applied as unreported" else null,
         if (h.row != 2) "the row is ${h.row}, not 2" else null) })
 
+    /** S33 (B083, 2c; the fuzz's seed 101032 once the harness held the wrap's cells as the shell does): a notch past the
+     *  end (the wrap) and, 15 ms later, a notch back that the lens draws before the wrap's PLAY lands — the phone moves
+     *  back (`lost-report`) and its frame waits behind the wrap. A tap 100 ms after the first notch, the wrap ended on the
+     *  glasses and its frame still held: its DISCARD waited with the frame, so the lens's cursor is still the wrap's row
+     *  under the wrap's picture and the tap is not acted on another row ((1)). Sent ahead of the frame, the DISCARD set
+     *  the cursor to row 7 under row 0's picture and the tap acted on row 7. */
+    @Test fun seededS33_noCursorAheadOfTheWrapsPicture() = seeded(Taps.REPORT, rows = 7, script = { h ->
+        h.gesture(1, answer = true, band = "none"); h.runUntil(h.now + 15)
+        h.gesture(2, answer = true, band = "none"); h.runUntil(h.now + 85)
+        h.gesture(0, answer = true, band = "none")
+        h.rest()
+    }, extra = { h -> listOfNotNull(
+        if (h.wrapPlays != 1) "${h.wrapPlays} wrap PLAYs (the shape did not happen)" else null,
+        if (h.rules.counts["snapback.lost-report"] == null) "no lost-report answer (the shape did not happen): ${h.rules.counts}" else null) })
+
     @Test fun seededS24_aRefusedTailOnRightIsSeenAtTheSettle() = seeded(Taps.REPORT, live = false, script = { h ->
         h.refuse27On = Arm.RIGHT
         val t0 = h.now

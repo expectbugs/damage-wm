@@ -271,7 +271,12 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
             if (field == 114) {
                 val slot = m[2]?.toInt() ?: -1; val tag = if (m.containsKey(3)) m[3]!!.toInt() else -1; val outcome = m[4]?.toInt() ?: -1
                 bodies114 += Triple(slot, tag, outcome)
-                if (slot == WRAP_SLOT && outcome in 0..1) up(now) { wrapOpen = false }
+                if (slot == WRAP_SLOT && outcome in 0..1) up(now) {
+                    wrapOpen = false
+                    // B083 (2c), the shell's `localBodyRead`: the wrap drew its last step — the cells held behind it go now
+                    // when no later motion holds them
+                    if (outcome == 0 && carryHold && deferAreas.isNotEmpty() && deferUntil <= wrapUntil) { deferAreas = emptyList(); pumpSoon() }
+                }
                 up(now) { rules.body114(slot, tag, outcome, m[10]?.toInt()) }
                 // a refused COMMIT names its S as the tag: the mirror took it, so the transport calls it a divergence
                 // and the shell keyframes (`CfwTransportBase.onMotionNotify`); a DISCARD's or SETTLE's names none
@@ -754,7 +759,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         // not only in the batch that carries the answer; a keyframe ends the wait
         if (deferAreas.isNotEmpty() && now >= deferUntil) deferAreas = emptyList()
         val until = (plan.map { it.motionEndsMs } + listOfNotNull(wrap?.let { now + (tScroll + 1L) * period * 1000 / 1024 + WRAP_START })).maxOrNull()
-        if (until != null && until > now) { deferAreas = (deferAreas + plan.flatMap { it.areas } + wrapAreas).distinct(); deferUntil = maxOf(deferUntil, until) }
+        if (until != null && until > now) { deferUntil = if (deferAreas.isEmpty()) until else maxOf(deferUntil, until); deferAreas = (deferAreas + plan.flatMap { it.areas } + wrapAreas).distinct() }
         val hold = if (plan.isEmpty() && wrap == null && deferAreas.isEmpty()) emptySet() else regions.filter { r -> plan.any { c -> LocalRules.meets(listOf(r), listOf(r), c.areas) } ||
             LocalRules.meets(listOf(r), listOf(r), wrapAreas) || (carryHold && LocalRules.meets(listOf(r), listOf(r), deferAreas)) }.toSet()
         var subs = diff(m2, t, dirty - hold)
@@ -763,8 +768,11 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         if (wrapOpen && subs.any { it.second.overlaps(BAND) }) { subs = listOf(CfwModes.motionClose(WRAP_SLOT) to BAND) + subs; wrapOpen = false; wrapCuts++ }
         held = (dirty intersect hold).filter { differs(m2, t, it) }.toSet()
         if (held.isNotEmpty()) heldBatches++
-        val tail = listOfNotNull(wrapPlay) + rules.tail(row, now, emptySet(), frame = subs.isNotEmpty(), wrapped = wrapPlay != null)
-        if (wrapPlay != null) { wrapOpen = true; wrapPlays++ }
+        // B083 (2c), the shell's `wrapHolding`: while the wrap's wait runs, no DISCARD or SETTLE sets the cursor ahead of the
+        // panel (the list's frame waits behind the wrap)
+        val waitCursor = wrapPlay == null && carryHold && deferAreas.isNotEmpty() && now < deferUntil && deferUntil <= wrapUntil
+        val tail = listOfNotNull(wrapPlay) + rules.tail(row, now, emptySet(), frame = subs.isNotEmpty(), wrapped = wrapPlay != null, waitCursor = waitCursor)
+        if (wrapPlay != null) { wrapOpen = true; wrapPlays++; wrapUntil = deferUntil }
         for (c in tail) if (c[0].toInt() == 26 && c[1].toInt() == 3) {
             commitBatches += ((c[3].toInt() and 0xFF) or ((c[4].toInt() and 0xFF) shl 8)) to subs.map { it.second }
             if (held.isNotEmpty()) heldCommits++
@@ -784,6 +792,8 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     /** B083 (2c): the areas whose drawing waits for a motion's end on the glasses, and that end (the shell's deferral). */
     private var deferAreas: List<Pair<Rect, Rect>> = emptyList()
     private var deferUntil = 0L
+    /** The end of the wait the last wrap PLAY was given (the shell's `wrapHeldUntil`). */
+    private var wrapUntil = 0L
     /** The hold carried across batches (the shell's rule, the default); false: held in the answer's batch alone (the
      *  harness before B083 — the skewed rig's 0.82 rule set). */
     var carryHold = true

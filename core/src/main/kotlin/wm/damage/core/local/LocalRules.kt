@@ -686,7 +686,12 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
      * Everything returned is taken as sent: the shell sends it in this batch or not at all (a rolled-back flush keyframes,
      * and the keyframe's start re-sends the table).
      */
-    fun tail(row: Int, nowMs: Long, denied: Set<Int> = emptySet(), frame: Boolean = true, wrapped: Boolean = false): List<ByteArray> {
+    fun tail(row: Int, nowMs: Long, denied: Set<Int> = emptySet(), frame: Boolean = true, wrapped: Boolean = false,
+             /** B083 (2c; the fuzz's seed 101032 once the harness held as the shell does): the wrap's held wait runs, so the
+              *  list's frame cannot go — a DISCARD or SETTLE would set the lens's cursor to a row its panel does not show
+              *  (the wrap's END stands there), and a tap then acts on a row he never saw. They wait with the frame (the
+              *  slot stays owed); a COMMIT, which writes its END with its cursor, goes. */
+             waitCursor: Boolean = false): List<ByteArray> {
         observe(row)
         if (!active) return emptyList()
         val out = ArrayList<ByteArray>()
@@ -705,7 +710,7 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         pending.clear()
         if (hadClearAll) tapsLive = false
         // 2. the table repair's re-sends (the 5th kind waits for a batch that carries a SETTLE)
-        val settleHere = !burstOpen
+        val settleHere = !burstOpen && !waitCursor
         takeRepairs(out, settleHere, listed, setEntries, clearedEntries)
         // 3. the answers, one per owed slot
         for ((n, st) in slots.toSortedMap()) {
@@ -714,6 +719,7 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
             val commit = h != null && st.moved == null && st.discard == null && st.handled.all { it.adopted && !it.tap } &&
                 st.list !in listed && n !in denied && front?.let { it.list == h.list && it.slot == n } == true
             val list = st.list.takeIf { it in 0 until CfwModes.BIND_LISTS }
+            if (!commit && waitCursor) continue
             if (commit) {
                 ridingList(out, h!!.list, listed)
                 out += CfwModes.motionCommit(n, h.s, h.list, h.cursor, h.prog4, h.p!!)
