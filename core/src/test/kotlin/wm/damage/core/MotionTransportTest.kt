@@ -449,31 +449,26 @@ class MotionTransportTest {
         return sim to t
     }
 
-    /** §7.2 by hand: a version-2 OWN record of [areas], each backdrop level 3 and one WAIT of [steps]. */
-    private fun ownRecord(areas: List<Rect>, steps: Int): ByteArray {
-        fun u16(v: Int) = byteArrayOf((v and 0xFF).toByte(), ((v shr 8) and 0xFF).toByte())
-        val body = areas.fold(ByteArray(0)) { acc, a -> acc + byteArrayOf(1, 3, 0, 0) + u16(a.x) + u16(a.y) + u16(a.w) + u16(a.h) +
-            byteArrayOf(0, steps.toByte()) + ByteArray(38) }
-        return byteArrayOf(2, areas.size.toByte()) + u16(8 + body.size) + byteArrayOf(1, 0, 0, 0) + body
-    }
-
-    /** Build C3 (`FIRMWARE.md` §7.11): a write the phone wants shown inside an owning instance's owned rect — here in the
-     *  gap between its two tracks, which no track meets — carries a CLOSE of it at the head of its batch; a write outside
-     *  the owned rect goes as the encoder made it. */
+    /** Build C3 (`FIRMWARE.md` §7.11, §7.3; C3-DP1's reading 5 as ruled, decisions N): a write the phone wants shown inside
+     *  an owning instance's MEETING BOX — the one box over both lenses, by which the glasses make every meeting decision —
+     *  carries a CLOSE of it at the head of its batch, even where it misses each lens's own owned rect: here a per-lens
+     *  track at x 100 on the left lens and 160 on the right, and the write at x 130 on both. A write outside the box goes
+     *  as the encoder made it. */
     @Test
-    fun aWriteInAnOwnedRectClosesTheOwnerInItsBatch_7_11(): Unit = runBlocking {
+    fun aWriteInAnOwnersMeetingBoxClosesTheOwnerInItsBatch_7_11(): Unit = runBlocking {
         val (sim, t) = effectsSession()
-        val rec = ownRecord(listOf(Rect(100, 100, 20, 20), Rect(160, 100, 20, 20)), 200)
-        assertTrue(t.sendMotion(listOf(CfwModes.cacheUpdate2(listOf(CfwModes.CacheWrite2(10_000, rec)), 256 * 1024),
-            CfwModes.motionPlay(1, 128, 10_000, 0x51, 0, IntArray(4)))))
+        val fx = Motion.effects(DamageMsg.Caps(2, 0xdff), t.state.value.flagsInForce)
+        val prog = Motion.program2(10_000, fx, own = true) { track(Rect(100, 100, 20, 20), Rect(160, 100, 20, 20), Motion.Backdrop.Level(3)) { wait(200) } }
+        assertTrue(t.sendMotion(listOf(CfwModes.cacheUpdate2(prog.records.map { (o, b) -> CfwModes.CacheWrite2(o, b) }, 256 * 1024),
+            Motion.play(prog, 1, 128, 0x51, 0, IntArray(4)))))
         waitUntil(10_000, message = { "the OWN PLAY landed: refusal ${sim.refusalRecord(Arm.RIGHT)}, flags 0x${sim.damageFlags(Arm.RIGHT).toString(16)}, cache ${sim.cacheSize(Arm.RIGHT)}" }) {
             sim.motionForTest(Arm.RIGHT).slots[1]?.owns == true }
         val batches = java.util.concurrent.CopyOnWriteArrayList<ByteArray>()
         sim.imageObserver = { arm, img -> if (arm == Arm.RIGHT && img[0].toInt() == 8) batches += img }
         t.submit(FlushRequest(listOf(DisplayOp.Fill(Rect(400, 300, 8, 4), Rect(400, 300, 8, 4), 7)), 0, "elsewhere"))
         waitUntil(10_000, message = { "the first flush landed" }) { batches.size >= 1 }
-        assertEquals(1, batches[0][1].toInt(), "a write outside the owned rect: one sub")
-        t.submit(FlushRequest(listOf(DisplayOp.Fill(Rect(130, 104, 8, 4), Rect(130, 104, 8, 4), 7)), 0, "in the gap"))
+        assertEquals(1, batches[0][1].toInt(), "a write outside the meeting box: one sub")
+        t.submit(FlushRequest(listOf(DisplayOp.Fill(Rect(130, 104, 8, 4), Rect(130, 104, 8, 4), 7)), 0, "between the lenses' rects"))
         waitUntil(10_000, message = { "the second flush landed" }) { batches.size >= 2 }
         assertEquals(listOf(2, 3, 0, 26, 2, 1), (1 until 7).map { batches[1][it].toInt() and 0xFF }, "the CLOSE of slot 1 heads the batch")
         assertTrue(sim.motionForTest(Arm.RIGHT).slots[1] == null, "the owner is closed")
@@ -532,6 +527,38 @@ class MotionTransportTest {
         waitUntil(10_000, message = { "the third PLAY landed" }) { glass.motionForTest(Arm.RIGHT).sequence >= 3 }
         t.devProbe("telemetry", "read")
         waitUntil(10_000, message = { "the gap: $notes" }) { has("motion", "gap: notify sequence(s) 3 not received by the telemetry read (field 31 = 3)") }
+        t.stop()
+    }
+
+    /** Build C3 (`FIRMWARE.md` §7.3, §5.8; the pin DP1 left): an owning instance writes no END — its body's field 8 is
+     *  RIGHT's CRC of the shadow over its areas right after the PLAY's closes — and the mirror, which took the same PLAY,
+     *  keeps that CRC for (slot, tag, 0): an equal body is a `motion` note only; one altered on the way reaches the
+     *  divergence path once (one `divergence` note, on which the shell keyframes). */
+    @Test
+    fun anOwnersEndCrcIsComparedWithTheMirrors_7_3(): Unit = runBlocking {
+        val glass = GlassFirmwareSim().apply { damageContract = 2; damageFeatures = 0xdff }
+        val t = StartRig(glass, scope)
+        collect(t)
+        t.devProbe("c1", "5")
+        t.start(full)
+        assertEquals(0x7c, t.state.value.flagsInForce, "stage 5 in force")
+        t.onNotify = { arm, p ->
+            val m = if (StartRig.sid(p) == SettingsMsg.SID) DamageMsg.parseMotion(StartRig.body(p)) else null
+            val out = if (m?.tag == 0x72) { val f = java.util.TreeMap(m.fields).also { it[8] = it[8]!! xor 1L }
+                StartRig.reframe(p, Pb.cat(Pb.v(1, 3), Pb.v(2, 0), Pb.l(DamageMsg.MOTION_FIELD, Pb.cat(f.entries.map { Pb.v(it.key, it.value) })))) } else p
+            if (m == null) out else { scope.launch { delay(20); t.deliver(arm, out) }; null }
+        }
+        val fx = Motion.effects(DamageMsg.Caps(2, 0xdff), t.state.value.flagsInForce)
+        // T = 1: the PLAY's own present draws its last step; without LAND the owner is done and keeps owning
+        val own = Motion.program2(40_000, fx, own = true) { track(Rect(200, 200, 40, 20), Motion.Backdrop.Level(3)) { fill(9, 1) } }
+        assertTrue(t.sendMotion(messages(own, 0, 34, 0x71)))
+        waitUntil(10_000, message = { "the owner's notify: $notes" }) { has("motion", "tag 0x0071 drew its last step") }
+        assertTrue(notes.none { it.first == "divergence" || "not compared" in it.second }, "an equal END CRC, compared: no divergence: $notes")
+        assertTrue(glass.motionEndCrc(0, 0x71, 0) != null, "the mirror keeps the owner's CRC")
+        assertTrue(t.sendMotion(listOf(Motion.play(own, 0, 34, 0x72, 0, IntArray(4)))))
+        waitUntil(10_000, message = { "the altered notify: $notes" }) { has("divergence", "motion: slot 0 tag 0x0072 ordinal 0 END CRC") }
+        delay(300)
+        assertEquals(1, notes.count { it.first == "divergence" && "tag 0x0072" in it.second }, "one divergence for the altered body: $notes")
         t.stop()
     }
 

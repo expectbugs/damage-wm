@@ -1582,20 +1582,25 @@ class GlassFirmwareSim() : LensPanels {
     fun conformanceGen(arm: Arm): Long = ctx(arm).cacheGen
 
     /** One open instance as the phone's mirror needs it (`FIRMWARE.md` §5.6, spec §6.5): its slot, END ordinal and END
-     *  CRC, whether it still draws, its areas on [arm]'s lens, and its nominal end — the OS tick its step T is due. */
+     *  CRC, whether it still draws, its areas on [arm]'s lens (an owning instance's: its meeting box, build C3), and its
+     *  nominal end — the OS tick its step T is due. */
     data class MotionWindow(val slot: Int, val ordinal: Int, val endCrc: Long, val drawing: Boolean, val areas: List<Rect>, val nominalEndTick: Long)
 
     /** The open instances on [arm], slot order: the read side of the area-unknown window (the window itself is the
      *  transport's: it ends at the later of RIGHT's notify for (slot, ordinal) and the nominal end). */
     @Synchronized
     fun motionWindows(arm: Arm): List<MotionWindow> = ctx(arm).motion.slots.filterNotNull().map { o ->
-        MotionWindow(o.slot, o.ordinal, o.endCrc, o.drawing, areasOf(o, fwSide(arm) == 2),
+        MotionWindow(o.slot, o.ordinal, o.endCrc, o.drawing, if (o.owns) listOf(o.prog.ownedBoth) else areasOf(o, fwSide(arm) == 2),
             (o.t0 + (o.T - 1).toLong() * o.period) and MotionSim.U32)
     }
+    // build C3 (C3-DP1's reading 5, ruled: decisions N): an owning instance's window is its MEETING BOX, the one box over
+    // both lenses (§7.3) — the transport's CLOSE-before-a-write rule reads it, as the glasses' own meeting decisions do,
+    // so the phone expects the closes the glasses make; the area-unknown skip ([unknownAreas]) keeps each lens's own
+    // owned rect, the rect no present on that lens copies into
 
-    /** An open instance's areas on a lens as the phone's rules read them: its tracks' rects, or for an owning instance
-     *  (build C3, `FIRMWARE.md` §7.11) its owned rect on that lens — the rect no present copies into, so a write the
-     *  phone wants shown there carries a CLOSE first and the mirror's view of it waits for the instance's end. */
+    /** An open instance's areas on a lens as the shell's unknown-area skip reads them: its tracks' rects, or for an
+     *  owning instance (build C3, `FIRMWARE.md` §7.11) its owned rect on that lens — the rect no present copies into, so
+     *  the mirror's view of it waits for the instance's end. */
     private fun areasOf(o: MotionSim.Instance, left: Boolean): List<Rect> =
         if (o.owns) listOf(o.prog.owned(left)) else o.prog.tracks.map { it.rect(left) }
 

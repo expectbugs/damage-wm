@@ -639,6 +639,68 @@ class BindTransportTest {
         t.stop()
     }
 
+    /** Build C3 (§7.9: stage 5's hold-back is stage 4's; the pin DP1 left): on a bit-11 build at stage 5 (0x7c), LEFT's
+     *  reboot-like end holds back ONE stage — stage 4 (0x3c) — and each of §6.8's lifts re-arms stage 5: a case-in after
+     *  the hold-back (at the next start), the first start on a later day, `probe c1=5` and `probe c1=4` by hand (which
+     *  sets stage 4: it lifts and arms 4). */
+    @Test
+    fun stage5sHoldBackLiftsAtACaseInTheNextDayAndByEitherProbe_7_9(): Unit = runBlocking {
+        var clock = day0
+        val sim = GlassFirmwareSim().apply { damageContract = 2; damageFeatures = 0xdff }
+        val t = rig(sim) { clock }
+        t.devProbe("c1", "5")
+        suspend fun holdBackByLeft() {
+            t.start(full)
+            assertEquals(0x7c, t.state.value.flagsInForce, "stage 5: ${said()}")
+            clock += 1_800_000L
+            sim.rebootForTest(Arm.LEFT, clock)
+            t.endLink("LEFT disconnected: supervision timeout")
+            waitUntil(10_000, message = { "LEFT's end is evidence: ${said()}" }) { stored().holdBackAt != null }
+            clock += 30_000L
+            t.start(full)
+            assertEquals(0x3c, t.state.value.flagsInForce, "held back one stage, to 4: ${said()}")
+            assertEquals(5, stored().stage, "the stored stage stays 5")
+        }
+        // (1) a case-in after it, at the next start
+        holdBackByLeft()
+        clock += 60_000L; sim.pushCase(inCase = 1)
+        waitUntil(10_000, message = { "the case-in after the hold-back is kept" }) { stored().caseInAt == clock }
+        assertTrue(t.restartSession("test: the evening start")); clock += 60_000L
+        t.start(full)
+        assertEquals(0x7c, t.state.value.flagsInForce, "the case-in lifted it: ${said()}")
+        saw("keeper", "a case-in at")
+        // (2) the next day's first start (04:00 UTC)
+        assertTrue(t.restartSession("test: before the next hold-back")); clock += 60_000L
+        holdBackByLeft()
+        val day1 = java.time.LocalDate.ofEpochDay((clock + 86_400_000L) / 86_400_000L).atTime(3, 59).toInstant(java.time.ZoneOffset.UTC).toEpochMilli()
+        assertTrue(t.restartSession("test: before 04:00")); clock = day1
+        t.start(full)
+        assertEquals(0x3c, t.state.value.flagsInForce, "03:59 is still the same day: ${said()}")
+        assertTrue(t.restartSession("test: after 04:00")); clock = day1 + 120_000L
+        t.start(full)
+        assertEquals(0x7c, t.state.value.flagsInForce, "04:01 is a later day: ${said()}")
+        saw("keeper", "this is the first start on a later day")
+        // (3) probe c1=5 by hand
+        assertTrue(t.restartSession("test: before the third")); clock += 60_000L
+        holdBackByLeft()
+        t.devProbe("c1", "5")
+        assertNull(stored().holdBackAt, "c1=5 lifts it at once")
+        assertTrue(t.restartSession("test: after c1=5")); clock += 60_000L
+        t.start(full)
+        assertEquals(0x7c, t.state.value.flagsInForce, "stage 5 again: ${said()}")
+        // (4) probe c1=4 by hand: lifts it and sets stage 4
+        assertTrue(t.restartSession("test: before the fourth")); clock += 60_000L
+        holdBackByLeft()
+        t.devProbe("c1", "4")
+        assertNull(stored().holdBackAt, "c1=4 lifts it at once")
+        assertEquals(4, stored().stage)
+        assertTrue(t.restartSession("test: after c1=4")); clock += 60_000L
+        t.start(full)
+        assertEquals(0x3c, t.state.value.flagsInForce, "stage 4, not held back: ${said()}")
+        assertNull(stored().holdBackAt)
+        t.stop()
+    }
+
     /** §6.8: a restart of the phone's process keeps all of it — a new transport over the same file arms stage 3 while the
      *  hold-back stands, says it once more as the restore, and the case-in it then hears lifts it (`Taps` is the shell's
      *  setting since stage DP2, kept with every Settings row). */
