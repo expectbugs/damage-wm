@@ -1556,7 +1556,7 @@ that `tools/journal_report.py` counts by cause):
   reboot-like link end** (not one the phone made), **and no `case` note with `in case 1` came between that arming and
   the reset.** It is lifted at the first start after a `case` note with `in case 1` received after the hold-back was
   set (the evening case-in), or failing that at the first start on a later calendar day (04:00 local), or by the
-  Settings row `Local input · re-arm` on the glasses or `probe c1=4` by hand (the same act). A reset that follows a case-in holds nothing back; a flash
+  Settings row `Local input · re-arm` on the glasses or `probe c1=4` by hand (the same act at a stored stage 4; at a stored 5 the row keeps the stage, §7.9). A reset that follows a case-in holds nothing back; a flash
   restarts the glasses outside the case and holds stage 4 back for that day (or until the row). It costs one stage
   (4 → 3), never more; stages 1–3 keep §5.8's rule. A plain radio drop of LEFT reads like a restart and costs local
   input for the rest of that day (none in the five days of his journal, M). The overnight charge does not restart the
@@ -2239,11 +2239,16 @@ instance, owning; sets the engine's flag; the message's present).
 - **Reason 19:** a fire whose close set holds an owning instance (§7.3).
 - **Ladder stage 5 = EFFECTS** with stage 4's flags (flags 0x7c), set by hand as every stage (`probe c1=5`), never
   advanced by itself; a hand `flags=` probe cannot arm bit 6 beyond the stage; its rung is recorded before its
-  FLAGS_SET. **Its hold-back is stage 4's (§6.8)** — a reset after stage 5 was armed holds it back to stage 4 until the
-  next case-in or calendar day, the row or `probe c1=5`; one stage, never more. Persisted as §6.8's record. **On a build
-  that cannot arm stage 5** (no DamageCaps bit 11) a stored stage 5 arms stage 4 and writes stage 4's record, and its
-  hold-back is one stage below what the build arms (3). **`probe c1=4`** with a stored, held-back stage 5 lifts the
-  hold-back as `probe c1=5` does (§6.8's "`c1=4` lifts") and sets stage 4. **EFFECTS is armed after BIND:** stage 5's
+  FLAGS_SET. **Its hold-back is stage 4's (§6.8) and lands where stage 4's does** — a reset after stage 5 was armed
+  holds it back to **stage 3** (no input hook) until the next case-in or calendar day, the row or `probe c1=5`: on a
+  bit-11 build stage 4 already runs this build's fire path (the budget's C at every fire, refusal 19's test, the RING
+  and kind-3 checks), so a fault there would come again at every bound gesture were BIND left armed (the first
+  review pass of the phone's wire, D-1, 2026-11-20). The stored stage stays 5; the lifts restore it. Persisted as
+  §6.8's record. **On a build that cannot arm stage 5** (no DamageCaps bit 11) a stored stage 5 arms stage 4 and
+  writes stage 4's record, and its hold-back arms stage 3 alike. **The Settings row `Local input · re-arm` lifts the
+  hold-back and keeps the stored stage** (a stored 5 arms 5 again); **`probe c1=4`** with a stored, held-back
+  stage 5 lifts the hold-back as `probe c1=5` does (§6.8's "`c1=4` lifts") and sets stage 4. While a hold-back is in
+  force the row and the keeper's note say the stage the session arms (3) and what is held back. **EFFECTS is armed after BIND:** stage 5's
   start is stage 4's with one rung appended — each arm's FLAGS_SET `0x7c` after its `0x3c`.
 
 ### 7.10 The plan's late step
@@ -2269,9 +2274,14 @@ one-period wait; with this it is drawn a few ms late.
 
 - **Owners in the mirror.** The mirror holds every owning instance and its owned rects per lens; a write that meets an
   owner's **meeting box** (§7.3: both lenses' owned rects, as the glasses' own closes decide) CLOSEs the owner in the same
-  batch first (C1's rule for a write meeting an open instance);
+  batch first (C1's rule for a write meeting an open instance) — **except the batches of a transition's arriving
+  frame**, from its out half's PLAY to the PLAY-AFTER naming that slot (and those behind the one-step freeze, below):
+  they are written under the out half on purpose, the held present keeps them off the panel, and they leave that
+  owner open; any other write meeting the box closes it first, as before;
   the panel model leaves an owned rect as it is through every held present, and takes the shadow there at LAND or at a
-  close.
+  close. **An owned rect stays out of the phone's agreement scan while its mark stands** — a done owner (an out
+  half, the freeze) holds step T there while belief moves on beneath it; the scan reads the rect again after LAND or
+  a close.
 - **A transition** is an out half (OWN, no LAND) played when the phone acts, the arriving frame in as many batches as it
   takes, and the in half (OWN + LAND) by PLAY-AFTER naming the out half's slot in the last of them; **an in half's tracks
   cover its out half's owned rect**; an in half with no out half and a frame of several batches is preceded by a
