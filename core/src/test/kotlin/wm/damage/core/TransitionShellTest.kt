@@ -47,7 +47,7 @@ import wm.damage.core.wire.EvenHubMsg
  */
 class TransitionShellTest {
 
-    private class Row(id: String, name: String, var s: DamageWindow.Summary) : DamageWindow(id, name, IconKind.FILES) {
+    internal class Row(id: String, name: String, var s: DamageWindow.Summary) : DamageWindow(id, name, IconKind.FILES) {
         /** A mark in the window's picture a test may move (DP2: a write that is not his input). */
         @Volatile var mark = 0
         /** A busy picture (a level per 4 × 2 block): its frame takes several flushes. */
@@ -55,19 +55,26 @@ class TransitionShellTest {
         /** X2P2: a 120 × 40 box at full level in the middle of the content — what a scroll in this window (his input) or
          *  a test (the window's own repaint) puts up. */
         @Volatile var big = false
+        /** X3D (`ShipVectors`, the cut act): with [levels] a tap in the window opens its second level — a Select inside
+         *  the window, drawn as a band across the content. Off by default: a tap changes nothing, as before. */
+        @Volatile var levels = false
+        @Volatile var deep = false
+        override fun levelDepth(): Int = if (deep) 2 else 1
         override fun view(): WindowView = WindowView.CanvasView({ g, r ->
             g.fillRect(r, 0)
             if (noise) { val rnd = java.util.Random(7); for (y in r.y until r.bottom - 1 step 2) for (x in r.x until r.right - 3 step 4) g.fillRect(x, y, 4, 2, rnd.nextInt(16) * 17) }
             for (k in 0 until 6) g.fillRect(r.x + 8 + k * (r.w - 24) / 5, r.y + 6 + k * (r.h - 20) / 5, 8, 8, (6 + k) * 17)
             if (mark != 0) g.fillRect(r.x + 40 + mark * 8, r.y + r.h / 2, 24, 12, 15 * 17)
             if (big) g.fillRect(r.x + r.w / 2 - 60, r.y + r.h / 2 - 20, 120, 40, 15 * 17)
-        }, onScroll = { big = true })
+            if (deep) g.fillRect(r.x + 16, r.y + r.h / 3, r.w - 32, 32, 12 * 17)
+        }, onScroll = { big = true }, onTap = if (levels) ({ deep = !deep }) else null)
         override fun summary() = s
         override fun saveState(): JsonObject = JsonObject(emptyMap())
         override fun restoreState(state: JsonObject) {}
     }
 
-    private class Rig(val features: Int = 0xdff, val stage: Int = 4, val taps: Taps = Taps.REPORT, nRows: Int = 5) {
+    /** The shell over the firmware model on the instant link (X3D: `ShipVectors` takes the shipped programs from it). */
+    internal class Rig(val features: Int = 0xdff, val stage: Int = 4, val taps: Taps = Taps.REPORT, nRows: Int = 5) {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val tmp = Files.createTempDirectory("damage-transition")
         val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = features }

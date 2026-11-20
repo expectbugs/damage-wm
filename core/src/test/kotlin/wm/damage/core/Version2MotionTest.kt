@@ -233,8 +233,9 @@ class Version2MotionTest {
     @Test
     fun everyV5ProgramAndTableIsTheDslsByteForByte_7_2() {
         val files = Files.list(vectorDir()).use { s -> s.filter { it.fileName.toString().let { n -> n.startsWith("v5-") && n.endsWith(".json") } }.sorted().toList() }
-        // stage X2D (decisions Y, C-3) added eight `v5-x2-*` files beside the 20: every one is read here too
-        assertEquals(28, files.size, "the 20 v5 vectors and X2D's 8")
+        // stage X2D (decisions Y, C-3) added eight `v5-x2-*` files beside the 20: every one is read here too; stage X3D the
+        // shipped transitions (`v5-ship-*`, their records written as mode 25 where ZWRITE is in force)
+        assertEquals(28 + ShipVectors.specs().size, files.size, "the 20 v5 vectors, X2D's 8 and X3D's ship vectors")
         val comparedProg = HashMap<String, Int>(); val comparedTab = HashMap<String, Int>()
         val seenProg = HashSet<String>(); val seenTab = HashSet<String>()
         val inexpressible = LinkedHashMap<String, String>(); val refusedByDsl = LinkedHashMap<String, String>()
@@ -248,12 +249,13 @@ class Version2MotionTest {
                 val h = op.jsonObject["msg"]?.jsonPrimitive?.content ?: continue
                 for (m in subs(hex(h))) {
                     val mode = u8(m, 0); val sub = if (m.size > 1) u8(m, 1) else -1
-                    if (mode == 19) { var i = 1; while (i + 4 <= m.size) { val o = u16(m, i) * 4; val n = u16(m, i + 2); m.copyInto(cache, o, i + 4, i + 4 + n); i += 4 + n }; continue }
+                    if (mode == 19 || mode == 25) { for ((o, d) in ShipVectors.cacheWrites(m)) d.copyInto(cache, o); continue }
                     val (namer, prog4, p) = when {
                         mode == 26 && sub == 0 && m.size == 18 -> Triple(Namer.PLAY, u16(m, 4), params(m, 10))
                         mode == 26 && sub == 8 && m.size == 17 -> Triple(Namer.AFTER, u16(m, 4), params(m, 9))
                         mode == 26 && sub == 3 && m.size == 18 -> Triple(Namer.COMMIT, u16(m, 8), params(m, 10))
-                        mode == 27 && sub == 0 && m.size == 23 -> Triple(Namer.SET, u16(m, 9), null)
+                        // a tap entry naming 0xFFFF is report-only (§6.3): no program (the shell's own, in the ship vectors)
+                        mode == 27 && sub == 0 && m.size == 23 && u16(m, 9) != 0xFFFF -> Triple(Namer.SET, u16(m, 9), null)
                         else -> continue
                     }
                     val at = "$name step $si ${namer.name} off4 $prog4"

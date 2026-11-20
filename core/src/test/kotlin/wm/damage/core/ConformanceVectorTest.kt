@@ -90,8 +90,13 @@ class ConformanceVectorTest {
     private fun notFilledFailsInTheRepo(dir: Path, repo: Path?, out: Outcome) {
         if (repo == null || !Files.isSameFile(dir, repo)) return
         // build C3's exception for the `v5-*` inputs (committed before the fork's runner filled them) ended with X2D's
-        // phase 2: every vector file in the repo is filled, and an unfilled one fails like any other
-        for (n in out.notFilled) out.problems += "$n: not filled — a step in firmware/vectors/ with no expectation fails the test (ruling R1.21)"
+        // phase 2. Stage X3D's inputs — the shipped programs `v5-ship-*` and `v5-x3-hint` — are committed before the
+        // fork's runner fills them, as X2D's phase 1 did for `v5-x2-*`: reported "not filled" with a count and run
+        // through the model ([theUnfilledVectorsRunThroughTheModel]); every other file stays under R1.21. The comparison
+        // removes this exception.
+        val x3 = out.notFilled.filter { it.startsWith(ShipVectors.PREFIX) || it.startsWith("$X3_HINT ") }
+        if (x3.isNotEmpty()) println("ConformanceVectorTest: ${x3.size} X3D vector(s) not filled until the comparison: ${x3.joinToString("; ")}")
+        for (n in out.notFilled - x3.toSet()) out.problems += "$n: not filled — a step in firmware/vectors/ with no expectation fails the test (ruling R1.21)"
     }
 
     private fun vectorFiles(dir: Path): List<Path> =
@@ -787,17 +792,67 @@ class ConformanceVectorTest {
             Files.writeString(dir.resolve("a-one-unfilled.json"), unfilled.toString())
             // a `v5-` name too: build C3's exception for the v5 inputs ended with X2D's phase 2, so it fails like any other
             Files.writeString(dir.resolve("v5-one-unfilled.json"), JsonObject(unfilled + ("name" to JsonPrimitive("v5-one-unfilled"))).toString())
+            // stage X3D's exception is narrow: a `v5-ship-` file and `v5-x3-hint` are reported, a name that only begins
+            // like them (`v5-x3-hint2`) fails
+            for (n in listOf("v5-ship-one-unfilled", X3_HINT, "${X3_HINT}2"))
+                Files.writeString(dir.resolve("$n.json"), JsonObject(unfilled + ("name" to JsonPrimitive(n))).toString())
             // the only problems are the rule's own lines: the filled steps agree
             val asRepo = normalPath(dir, dir)
-            assertEquals(listOf("a-one-unfilled", "v5-one-unfilled").map { "$it (steps $last..$last of ${steps.size}): not filled — a step in " +
+            assertEquals(listOf("a-one-unfilled", "v5-one-unfilled", "${X3_HINT}2").map { "$it (steps $last..$last of ${steps.size}): not filled — a step in " +
                 "firmware/vectors/ with no expectation fails the test (ruling R1.21)" }, asRepo.problems, "the repo's own set: each unfilled step fails, by name")
             val asOther = normalPath(dir, other)
             assertEquals(emptyList(), asOther.problems, "another set (DAMAGE_VECTOR_DIR): reported, not failed")
-            assertEquals(listOf("a-one-unfilled", "v5-one-unfilled").map { "$it (steps $last..$last of ${steps.size})" }, asOther.notFilled)
+            assertEquals(listOf("a-one-unfilled", "v5-one-unfilled", "v5-ship-one-unfilled", X3_HINT, "${X3_HINT}2").map { "$it (steps $last..$last of ${steps.size})" }, asOther.notFilled)
         } finally {
             Files.list(dir).use { s -> s.forEach { Files.delete(it) } }
             Files.delete(dir); Files.delete(other)
         }
+    }
+
+    /**
+     * Build C3, stage X3D (`C3-decisions.md` AP (1)): the `v5-ship-*` vectors hold the programs the phone ships. Every act
+     * of [ShipVectors.specs] is played again by the shell itself on the instant link, and its program bytes — each cache
+     * write holding a version-2 program record, every PLAY and PLAY-AFTER of the act — must equal the committed file's,
+     * so a changed effect cannot keep a stale vector; a spec without a file, or a `v5-ship-` file no spec makes, fails
+     * too. With `DAMAGE_SHIP_DUMP=DIR` the regenerated files are written into DIR (a file's expectations kept for the
+     * steps whose inputs did not change) and nothing is compared. Under `DAMAGE_VECTOR_DIR` (another set) it compares
+     * nothing and says so.
+     */
+    @Test
+    fun theShipVectorsHoldTheProgramsTheShellSends_X3D(): Unit = kotlinx.coroutines.runBlocking {
+        val dump = System.getenv("DAMAGE_SHIP_DUMP")?.let { Path.of(it).toAbsolutePath() }
+        if (dump == null && !isRepo(vectorDir())) { println("ConformanceVectorTest: DAMAGE_VECTOR_DIR is set — the ship vectors are not compared"); return@runBlocking }
+        if (dump != null) Files.createDirectories(dump)
+        // `DAMAGE_SHIP_ONLY=a,b`: only the specs whose names hold one of these (one file regenerated or looked at)
+        val only = System.getenv("DAMAGE_SHIP_ONLY")?.split(',')?.filter { it.isNotEmpty() }
+        val specs = ShipVectors.specs().filter { s -> only == null || only.any { it in s.name } }
+        val problems = ArrayList<String>()
+        if (dump == null && only == null) {
+            val files = vectorFiles(vectorDir()).map { it.fileName.toString().removeSuffix(".json") }.filter { it.startsWith(ShipVectors.PREFIX) }.toSet()
+            for (n in files - specs.map { it.name }.toSet()) problems += "$n: a ship vector no spec makes"
+        }
+        for (spec in specs) {
+            val got = ShipVectors.capture(spec)
+            val steps = got.vector["steps"]!!.jsonArray.size
+            if (dump != null) {
+                val p = dump.resolve("${spec.name}.json")
+                val merged = ShipVectors.merged(p, got.vector)
+                Files.writeString(p, ShipVectors.format(merged))
+                val kept = merged["steps"]!!.jsonArray.count { filled(it.jsonObject) }
+                println("ShipVectors: wrote ${p.fileName}: $steps steps ($kept expectations kept), ${Files.size(p)} B; " +
+                    "program records ${ShipVectors.programBytes(got.vector)} B; ${got.owed.joinToString(" | ")}")
+                continue
+            }
+            val f = vectorDir().resolve("${spec.name}.json")
+            if (!Files.exists(f)) { problems += "${spec.name}: no file — the act the shell plays is in no vector (DAMAGE_SHIP_DUMP writes it)"; continue }
+            val want = ShipVectors.programs(Json.parseToJsonElement(Files.readString(f)).jsonObject)
+            val now = ShipVectors.programs(got.vector)
+            if (want.isEmpty()) problems += "${spec.name}: the file holds no program"
+            if (want != now) problems += "${spec.name}: the program bytes the shell sends today differ from the file's inputs " +
+                "(${now.size} against ${want.size}; first difference at ${now.indices.firstOrNull { it >= want.size || now[it] != want[it] } ?: want.size}) — regenerate it"
+        }
+        println("ConformanceVectorTest: ${specs.size} shipped acts played again${dump?.let { ", written to $it" } ?: ", their programs compared with the files"}")
+        assertEquals(emptyList(), problems, "the ship vectors:\n" + problems.joinToString("\n"))
     }
 
     private fun hex(s: String) = ByteArray(s.length / 2) { i -> s.substring(2 * i, 2 * i + 2).toInt(16).toByte() }
@@ -810,6 +865,8 @@ class ConformanceVectorTest {
         const val C2_FEATURES = 0x5FF
         /** §7.9: C3 adds bit 11. */
         const val C3_FEATURES = 0xDFF
+        /** Stage X3D's model-follows-§7.3 file (`make_vectors.py`): a hinted present with an owner open. */
+        const val X3_HINT = "v5-x3-hint"
         /** §7.13's four fold pairs (`make_vectors.py`'s `"pair"` keys). */
         val FOLD_PAIRS = setOf("v5-fold-dim", "v5-fold-pieces", "v5-fold-rain", "v5-fold-shrink")
     }
