@@ -4255,6 +4255,36 @@ def vectors_v5_x2(kf):
         vec_["features"] = [FEATURES_C3]
     return v
 
+def vectors_v5_x3(kf):
+    """Stage X3D's hand-made C3 input (`C3-decisions.md` AP (2); the X3D brief's item 2): one NEW file, `v5-x3-hint` — the
+    94 earlier files stay byte-identical (the shipped programs, `v5-ship-*`, come from the Kotlin `ShipVectors`). §7.3
+    Steps, as built (the second review pass, 2026-11-20): "a present whose copy left an owned rect out leaves the panel's
+    stale mark set, so while any instance owns, every later present's copy is whole whatever its hint says". v5-own's
+    hinted steps hint exactly the rows they change, so a whole and a hinted present gave the same P there; here each
+    hint misses the rows its fill changed, so the two readings give different panels while the owner is open, and the
+    same once it is closed. The forms are `vectors_v5`'s."""
+    v = []
+    P = 34                                                        # §5.3's starting period
+    c = Cache2()
+    hold = c.add(prog2(track(rect(360, 80, 160, 100), 5, w2(3)), fl=OWN))   # T 3, no LAND: done and owning, level 5 held in rows 80–179
+    st = [step(tk(1000), {"lease": "acquire"}, flags(FULL5), page(True), msg(kf), *[msg(m) for m in c.messages()])]
+    t = 2000
+    st += [step(tk(t), msg(play(0, P, hold, 0x7301))),                     # 1  owns its rect; this present draws step 1
+           step(tk(t + P), wake()),                                         # 2  step 2
+           step(tk(t + 2 * P), wake()),                                     # 3  step 3 = T: done and owning; its present marks the panel stale
+           step(tk(t + 2 * P + 10), msg(batch(fill(rect(0, 200, 640, 10), 3), hint(200, 209)))),   # 4  whole in either reading (the last step's mark); its copy leaves the owned rect out
+           step(tk(t + 2 * P + 20), msg(batch(fill(rect(0, 300, 640, 10), 7), hint(400, 409)))),   # 5  the hint misses rows 300–309: whole while an instance owns (as built), so they reach the lens (honoured: they would not)
+           step(tk(t + 2 * P + 30), msg(batch(fill(rect(0, 320, 640, 10), 9), hint(420, 429)))),   # 6  every later present: whole again (honoured: rows 320–329 off the lens too)
+           step(tk(t + 2 * P + 40), msg(close(0))),                         # 7  the owner closed (a done owner: no notify); its present copies the shadow whole
+           step(tk(t + 2 * P + 50), msg(batch(fill(rect(0, 340, 640, 10), 11), hint(440, 449))))]  # 8  nothing owns: the hint is honoured (C2's rule) — rows 340–349 stay off the lens
+    v.append({"name": "v5-x3-hint", "steps": st})
+    for vec_ in v:
+        vec_["contract"] = 2
+        vec_["start"] = "zero"
+        vec_["panel"] = True
+        vec_["features"] = [FEATURES_C3]
+    return v
+
 # ---- the self-check (spec §3 D1): every message decodes by its builder's inverse, every program walks to its
 # own length. It proves the encoders' lengths, not the semantics (that is the C's and the simulator's).
 def walk_prog(buf, off):
@@ -4467,6 +4497,7 @@ def main():
     kf = keyframe(pattern(W, H, 1))
     v12, v3, v4, v5 = vectors(), vectors_v3(kf), vectors_v4(kf), vectors_v5(kf)
     v5x = vectors_v5_x2(kf)                          # stage X2D: new files only (`v5-x2-*`); the 86 above stay as they are
+    v5x += vectors_v5_x3(kf)                         # stage X3D: one new file (`v5-x3-hint`); `v5-ship-*` are ShipVectors' (Kotlin)
     n_msgs, n_progs, found3, _ = check_v3(v3)
     m4, p4, found4, _ = check_v3(v4, c2=True)
     m5, p5, found5, g5 = check_v3(v5 + v5x, c3=True)
@@ -4474,7 +4505,7 @@ def main():
     check_found(found3 | found4 | found5)
     n_neutral = check_neutral(v12 + v3)
     n_neutral3 = check_neutral_c3(v12 + v3 + v4)
-    for build, got in ((vectors_v3, v3), (vectors_v4, v4), (vectors_v5, v5), (vectors_v5_x2, v5x)):
+    for build, got in ((vectors_v3, v3), (vectors_v4, v4), (vectors_v5, v5), (lambda k: vectors_v5_x2(k) + vectors_v5_x3(k), v5x)):
         assert json.dumps(build(kf)) == json.dumps(got), f"{build.__name__} is not deterministic"
     print(f"self-check: {len(v3)} C1 vectors, {n_msgs} mode-25/26 messages decoded, {n_progs} named programs walked; "
           f"{len(v4)} C2 vectors, {m4} mode-26/27/28 messages and inputs decoded, {p4} named programs walked; "

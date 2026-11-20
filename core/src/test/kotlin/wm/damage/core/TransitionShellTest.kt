@@ -51,7 +51,7 @@ import wm.damage.core.wire.EvenHubMsg
  */
 class TransitionShellTest {
 
-    private class Row(id: String, name: String, var s: DamageWindow.Summary) : DamageWindow(id, name, IconKind.FILES) {
+    internal class Row(id: String, name: String, var s: DamageWindow.Summary) : DamageWindow(id, name, IconKind.FILES) {
         /** A mark in the window's picture a test may move (DP2: a write that is not his input). */
         @Volatile var mark = 0
         /** A busy picture (a level per 4 × 2 block): its frame takes several flushes. */
@@ -67,6 +67,11 @@ class TransitionShellTest {
         /** C3 X2T: no squares — the labels alone on black (the notice row reads every glyph's block on each lens). */
         @Volatile var plain = false
         @Volatile var text: CachedText? = null
+        /** X3D (`ShipVectors`, the cut act): with [levels] a tap in the window opens its second level — a Select inside
+         *  the window, drawn as a band across the content. Off by default: a tap changes nothing, as before. */
+        @Volatile var levels = false
+        @Volatile var deep = false
+        override fun levelDepth(): Int = if (deep) 2 else 1
         override fun view(): WindowView = WindowView.CanvasView({ g, r ->
             g.fillRect(r, 0)
             if (noise) { val rnd = java.util.Random(7); for (y in r.y until r.bottom - 1 step 2) for (x in r.x until r.right - 3 step 4) g.fillRect(x, y, 4, 2, rnd.nextInt(16) * 17) }
@@ -74,7 +79,8 @@ class TransitionShellTest {
             if (mark != 0) g.fillRect(r.x + 40 + mark * 8, r.y + r.h / 2, 24, 12, 15 * 17)
             if (big) g.fillRect(r.x + r.w / 2 - 60, r.y + r.h / 2 - 20, 120, 40, 15 * 17)
             labels.forEachIndexed { i, (l, f) -> text?.draw(g, r.x + 40, r.y + 40 + gap * i, l, f, 255) }
-        }, onScroll = { big = true })
+            if (deep) g.fillRect(r.x + 16, r.y + r.h / 3, r.w - 32, 32, 12 * 17)
+        }, onScroll = { big = true }, onTap = if (levels) ({ deep = !deep }) else null)
         override fun summary() = s
         override fun saveState(): JsonObject = JsonObject(emptyMap())
         override fun restoreState(state: JsonObject) {}
@@ -104,8 +110,9 @@ class TransitionShellTest {
 
     /** [kib256] (C3 DM-T): the transport made over a stored ladder record that holds [stage] and a 256 KiB last session
      *  (`MainLocalShellTest`'s form, decisions AD.1), so the first start asks 256 KiB — the session Encode plays on.
-     *  [nRows] (X2P2 stage 2): Main's row count, for a frame that takes several flushes. */
-    private class Rig(val features: Int = 0xdff, val stage: Int = 4, val taps: Taps = Taps.REPORT, val kib256: Boolean = false, nRows: Int = 5) {
+     *  [nRows] (X2P2 stage 2): Main's row count, for a frame that takes several flushes. The shell over the firmware
+     *  model on the instant link; internal since X3D: `ShipVectors` takes the shipped programs from it. */
+    internal class Rig(val features: Int = 0xdff, val stage: Int = 4, val taps: Taps = Taps.REPORT, val kib256: Boolean = false, nRows: Int = 5) {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val tmp = Files.createTempDirectory("damage-transition")
         val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = features }

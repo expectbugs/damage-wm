@@ -1443,6 +1443,9 @@ class GlassFirmwareSim() : LensPanels {
         if (rows == null) c.fb.copyInto(c.panel)
         else System.arraycopy(c.fb, rows.first * c.stride, c.panel, rows.first * c.stride, (rows.last - rows.first + 1) * c.stride)
         if (hook.lastStep) c.panelStale = true       // decision A.12: the next present goes whole
+        // §7.3 Steps, as built (the second review pass, 2026-11-20): a copy that left an owned rect out leaves the stale
+        // mark set, so while any instance owns every later present's copy is whole whatever its hint says
+        if (live && owned.isNotEmpty()) c.panelStale = true
         // P6 item 5: the rows this present wrote — every row for an unhinted one (with a motion open: the rows it changed)
         if (span != null) markRows(c, span)
         else if (rows == null) { c.changedLo = 0; c.changedHi = Geometry.PANEL_H - 1 }

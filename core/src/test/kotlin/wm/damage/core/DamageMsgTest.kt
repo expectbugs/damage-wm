@@ -511,7 +511,7 @@ class DamageMsgTest {
         val t = DamageMsg.Telemetry(mapOf(40 to 0x11L, 41 to 96L))
         assertEquals(96L, t.stackFree)
         assertEquals("effectSlots=0x11 stackFree=96", t.describe())
-        assertEquals(124L, DamageMsg.STACK_FREE_FINDING)
+        assertEquals(132L, DamageMsg.STACK_FREE_FINDING, "§7.9: the worst path's 1,916 of 2,048 B leaves 132")
         fun applied(f18: Long?) = DamageMsg.Applied(mapOf(1 to 5L, 2 to 4L, 3 to 4L, 4 to 0L, 5 to 0L, 6 to 0L, 7 to 0L, 8 to 1L, 9 to 1L,
             15 to 9L, 17 to 2L) + (f18?.let { mapOf(18 to it) } ?: emptyMap()))
         assertTrue(" wrapped " in applied(1L).describe(), applied(1L).describe())
