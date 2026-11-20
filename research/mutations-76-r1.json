@@ -722,7 +722,7 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        get() = atlasInFlight != null || atlasCheckInFlight || stageInFlight != null || ledgerReadInFlight\n",
+    "        get() = atlasInFlight != null || atlasCheckInFlight || stageInFlight != null || stageCursor != null || ledgerReadInFlight\n",
     "        get() = false\n"
    ]
   ],
@@ -732,15 +732,15 @@
   "expect": [
    "theRigIsNotAtRestWhileAReadBackIsNotYetApplied"
   ],
-  "note": "RB-7: the harness's rest reads the shell's own flags on the loop; without them calm returns between a read-back's answer and the run that applies it (the spy's counts already agree). theRigIsNotAtRestWhileACountReadingIsOut does NOT fail under this one: a reading that has not answered is also seen by the spy's counts and by cacheCountUnjudged"
+  "note": "RB-7: the harness's rest reads the shell's own flags on the loop; without them calm returns between a read-back's answer and the run that applies it (the spy's counts already agree). theRigIsNotAtRestWhileACountReadingIsOut does NOT fail under this one: a reading that has not answered is also seen by the spy's counts and by cacheCountUnjudged (retargeted at the getter as build SPLIT left it)"
  },
  {
   "id": "R1c-02-the-cache-work-getter-does-not-read-the-read-backs-flag",
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        get() = atlasInFlight != null || atlasCheckInFlight || stageInFlight != null || ledgerReadInFlight\n",
-    "        get() = atlasInFlight != null || stageInFlight != null || ledgerReadInFlight\n"
+    "        get() = atlasInFlight != null || atlasCheckInFlight || stageInFlight != null || stageCursor != null || ledgerReadInFlight\n",
+    "        get() = atlasInFlight != null || stageInFlight != null || stageCursor != null || ledgerReadInFlight\n"
    ]
   ],
   "tests": [
@@ -749,7 +749,7 @@
   "expect": [
    "theRigIsNotAtRestWhileAReadBackIsNotYetApplied"
   ],
-  "note": "RB-7: the read-back's term of the getter. The other three terms (a cache write between submit and ack, a staged strip's write, a count reading between the transport's return and its run) have no pin of their own in this round: R1c-built.md says why"
+  "note": "RB-7: the read-back's term of the getter. The other three terms (a cache write between submit and ack, a staged strip's write, a count reading between the transport's return and its run) have no pin of their own in this round: R1c-built.md says why (retargeted at the getter as build SPLIT left it)"
  },
  {
   "id": "R1v-01-the-row-merely-off-empties-the-books",

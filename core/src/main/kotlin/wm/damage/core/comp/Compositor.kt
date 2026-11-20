@@ -122,11 +122,17 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
      *  page, a dense pane — the fill and every draw fit ONE flush (736 B, 17 draws on the rows
      *  window, against 741 B for the v1 keyframe there), so the follow-up path is the keyframe's own
      *  and unchanged. */
-    fun requestReseed() {
-        if (!v2) { requestKeyframe(); return }
+    fun requestReseed(why: String) {
+        if (!v2) { requestKeyframe(why); return }
+        if (!needsKeyframe && !needsReseed) wholeWhy = why
         needsReseed = true
         damageAll()
     }
+
+    /** B082 (`tools/journal_report.py`'s "whole repaints by cause"): why the keyframe or reseed owed was asked — the first
+     *  ask since the last one went; the flush that carries it says it ([Assembled.why], the journal's `why`). */
+    var wholeWhy: String = "session start"
+        private set
 
     /** Rows a flush may hint (mode 24) — a taller change ships with the full refresh; the
      *  journal's `present` records and `tools/journal_report.py` price the two paths (F1.7).
@@ -258,7 +264,8 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
     val hasPending: Boolean get() =
         pendingDamage.isNotEmpty() || pendingCopies.isNotEmpty() || residual != null
 
-    fun requestKeyframe() {
+    fun requestKeyframe(why: String) {
+        if (!needsKeyframe && !needsReseed) wholeWhy = why
         needsKeyframe = true
         epoch++
     }
@@ -380,12 +387,6 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         }
     }
 
-    /** G4 item 2: a local instance RIGHT closed short of its steps left a partial step in its areas on the panel — the
-     *  areas are unknown and go into the next scan, repainted from the truth (never a keyframe). */
-    fun markAreasUnknown(areas: List<Pair<Rect, Rect>>) {
-        for ((l, r) in areas) { markUnknown(unknownL, l); markUnknown(unknownR, r); pendingDamage.add(widen(l)); pendingDamage.add(widen(r)) }
-    }
-
     /** Decisions AW.3: the held cells' wait cut — a window covering the list closed the adopted motion ahead of its frame:
      *  the held cells are unknown and go into the next assemble's scan, repainted from the truth. True when there were any. */
     fun cutDeferral(): Boolean {
@@ -434,7 +435,9 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
                 rollback(a!!.copy(touched = drawn))
                 for (t in drawn) if (t.sub in met) (if (t.left) hl else hr) += t.rect
                 if (++rounds >= HOLD_ROUNDS_MAX) {
-                    deferL = emptyList(); deferR = emptyList(); needsKeyframe = true
+                    deferL = emptyList(); deferR = emptyList()
+                    if (!needsKeyframe && !needsReseed) wholeWhy = "the hold loop did not converge"
+                    needsKeyframe = true
                     throw LintError("the hold loop did not converge in $rounds rounds (${hl.size} + ${hr.size} held rects) — a keyframe re-grounds the lenses")
                 }
             }
@@ -476,6 +479,7 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         // keyframe: a mode-21 fill there would be refused and leave belief black over the old glass
         if (needsReseed && !v2) { needsReseed = false; needsKeyframe = true }
         val keyframe = needsKeyframe
+        val why = if (keyframe || needsReseed) wholeWhy else null
         val ops = ArrayList<DisplayOp>()
         val touched = ArrayList<Touched>(endTouched)       // build C2: a riding COMMIT's areas ([assembleWithEnds])
         val full = Rect(0, 0, width, height)
@@ -647,7 +651,7 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
             if (y1 >= y0 && y1 - y0 + 1 <= hintMaxRows) ops.add(DisplayOp.PresentHint(y0, y1))
         }
         val wide = keyframe || dirtyLeft || fids > rectBudget
-        return Assembled(ops, epoch, touched, copies, hints, keyframe = keyframe, wide = wide)
+        return Assembled(ops, epoch, touched, copies, hints, keyframe = keyframe, wide = wide, why = why)
     }
 
     /**
@@ -698,7 +702,10 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
             // §40: a cached draw's pixels lie inside the clear delta before it
             is DisplayOp.DrawText, is DisplayOp.DrawImage, is DisplayOp.CacheWrite -> {}
         }
-        if (a.keyframe) needsKeyframe = true
+        if (a.keyframe) {
+            if (!needsKeyframe && !needsReseed) wholeWhy = "its keyframe's flush failed (${a.why ?: "unnamed"})"
+            needsKeyframe = true
+        }
         epoch++
     }
 
@@ -2041,6 +2048,8 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         /** Needs the window drained (depth 1): a keyframe, a budget-limited
          *  flush, or more rects than the pipelined budget — §8.2 #4. */
         val wide: Boolean = false,
+        /** B082: the cause of the keyframe or reseed this flush carries ([wholeWhy]); null when it carries neither. */
+        val why: String? = null,
     )
 
     companion object {

@@ -153,7 +153,7 @@ class SeamMirrorTest {
 
             comp.composed.fillRect(l.topBar, 3 * 17)
             comp.composed.fillRect(l.content, 6 * 17)
-            comp.requestKeyframe()
+            comp.requestKeyframe("test")
             drain("keyframe")
             comp.composed.fillRect(l.lens, 12 * 17)
             comp.damage(l.lens)
