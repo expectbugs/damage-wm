@@ -1413,9 +1413,11 @@ class TransitionShellTest {
             r.up(only("depth"))
             r.onLoop { r.shell.services.openWindow("pages", null) }
             r.until("the document in front") { r.onLoop { r.shell.currentWindowId() } == "pages" }
-            r.settle("the document")
+            // one layout every run: the three strips ahead staged at the top, then a notch down stages the one behind and
+            // one more ahead — five strips of 5.9 KB in the 32 KiB reserve, 3.3 KB left above them (measured on the model)
+            r.until("the three strips ahead proven") { r.shell.stagedProvenCount >= 3 && r.shell.isQuiescent() && !r.shell.cacheWorkInFlight }
             r.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM); r.settle("a notch down: the strip behind is wanted too")
-            r.until("four strips proven") { r.shell.stagedProvenCount >= 4 && r.shell.isQuiescent() }
+            r.until("five strips proven") { r.shell.stagedProvenCount >= 5 && r.shell.isQuiescent() && !r.shell.cacheWorkInFlight }
             val st = r.t.state.value
             val reserve = (st.cacheSize - CfwModes.stageReserve(st.cacheSize, st.bind)) until st.cacheSize
             val before = r.onLoop { r.shell.stagedRecordsForTest() }.filter { it.key !is wm.damage.core.shell.MainStageKey && it.state == wm.damage.core.shell.StagedRecord.State.PROVEN }
@@ -1482,8 +1484,10 @@ class TransitionShellTest {
         try {
             val f = wm.damage.core.text.FontSpec(wm.damage.core.text.Face.SYSTEM, 18)
             // eight lines of words across the box's columns (the box sits in the middle of the content), all inside the
-            // content rect (a run across a plane's edge takes no plane's offset, and the compositor splits it there too)
-            r.rows[0].labels = (0 until 8).map { i -> "Ab${'c' + i}d efgh ijk lmnop qrs tuvw xyz Abc defg hij kl" to f }
+            // content rect (a run across a plane's edge takes no plane's offset, and the compositor splits it there too); a
+            // soft hyphen (no cached code: the host draws it) ends each line's first run, so the second run — 208..312 —
+            // lies wholly inside the box on the lines it covers: a plane is taken by the region that holds a run's rect
+            r.rows[0].labels = (0 until 8).map { i -> "Ab${'c' + i}d efgh ijk lmno\u00ADpqrs tuvw xyz" to f }
             r.rows[0].plain = true
             r.up({ s -> s.withTier(Tier.SELECT, effects = listOf("depth")).withTier(Tier.BACK, effects = listOf("encode"))
                 .withAppStyle("w0") { it.copy(depth = 16) } })
@@ -1508,7 +1512,7 @@ class TransitionShellTest {
                 val list = seg.cells?.lists?.get(seg.aux0) ?: continue
                 for (c in list.cells) {
                     cells++
-                    if (wm.damage.core.geom.Rect(c.bx, c.by, c.bw, c.bh).overlaps(box)) under++
+                    if (box.contains(wm.damage.core.geom.Rect(c.bx, c.by, c.bw, c.bh))) under++
                     for ((g, dx, lens) in listOf(Triple(l0, seg.xL, "LEFT"), Triple(r0, if (t.perLens) seg.xR else seg.xL, "RIGHT"))) {
                         val x = c.bx + dx
                         val lit = (0 until 6).all { i -> (2 until 12).all { j -> g[x + i, c.by + j] != 0 } }
