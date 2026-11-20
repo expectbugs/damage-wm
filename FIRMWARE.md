@@ -2007,7 +2007,7 @@ x_R/dx_R), Y(t) = y + ((dy·e + 2048) >> 12). Everything it draws is clipped to 
 that fails is not drawn; while the read-range close stands, none fails). A glyph is drawn at its cell's corner, through
 the cell's table, a source pixel of 0 not drawn.
 
-**Kind 0 CELLS.** `src` names a **cell table**: `n u16 (1..64) · 0 u16 · off4[n] u16`, padded to 4 B; **aux0** (after
+**Kind 0 CELLS.** `src` names a **cell table**: `n u16 (1..1024, a list's count at most) · 0 u16 · off4[n] u16`, padded to 4 B; **aux0** (after
 substitution) is the index, < n (12). The **cell list** it names: `count u16 (1..512) · alphabet off4 u16 · noise u8 · 0
 · 0 · 0`, then count × `{ x s16 · y s16 · w u8 · h u8 · font off4 u16 · old u8 · new u8 · fill u8 · opt u8 }` (12 B a
 cell); old and new 0 or 32..255; fill 0..15 or 0xFF (none); the cell's opt: level bits 0–3, bit 5 inverse, bits 4, 6
@@ -2110,7 +2110,8 @@ due time was passed over by the one-period wait; with this it is drawn a few ms 
   out half and a frame of several batches is preceded by a one-step freeze (PIECES uniform, dx = dy = 0, T 1, OWN). The
   cover's CLEAR of a bound list rides the out half's batch (§6.7).
 - **Pacing.** No PLAY-AFTER before the arriving frame is complete in the shadow; no cache write into an open owning or
-  GLYPHS instance's read ranges; atlas patches into a face a GLYPHS instance reads wait for its end.
+  GLYPHS instance's read ranges; atlas patches into a face a GLYPHS instance reads wait for its end. An alphabet names
+  only codes packed as real glyphs in every font its cells use (an unpacked code draws the shared tofu record).
 - **Bound in-place programs** (the pan): the entering content's DRAW track covers every place new content can occupy
   over the whole motion; each later track repaints at every step what it painted at the step before; a host-side test of
   the phone's own programs checks that two fold patterns end in the same picture.
