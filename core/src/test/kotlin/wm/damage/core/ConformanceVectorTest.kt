@@ -89,12 +89,9 @@ class ConformanceVectorTest {
      *  not-filled vector of [out], with its steps, becomes a problem when [dir] is [repo]. */
     private fun notFilledFailsInTheRepo(dir: Path, repo: Path?, out: Outcome) {
         if (repo == null || !Files.isSameFile(dir, repo)) return
-        // build C3 (spec §3 package DS): the `v5-*` inputs are committed before the fork's runner fills them at the
-        // meeting (M), so until then they are reported "not filled" with a count and run through the model
-        // ([theUnfilledVectorsRunThroughTheModel]); every v1–v4 vector stays under R1.21. M removes this exception.
-        val v5 = out.notFilled.filter { it.startsWith("v5-") }
-        if (v5.isNotEmpty()) println("ConformanceVectorTest: ${v5.size} v5 vector(s) not filled until the meeting (C3): ${v5.joinToString("; ")}")
-        for (n in out.notFilled - v5.toSet()) out.problems += "$n: not filled — a step in firmware/vectors/ with no expectation fails the test (ruling R1.21)"
+        // build C3's exception for the `v5-*` inputs (committed before the fork's runner filled them) ended with X2D's
+        // phase 2: every vector file in the repo is filled, and an unfilled one fails like any other
+        for (n in out.notFilled) out.problems += "$n: not filled — a step in firmware/vectors/ with no expectation fails the test (ruling R1.21)"
     }
 
     private fun vectorFiles(dir: Path): List<Path> =
@@ -788,13 +785,15 @@ class ConformanceVectorTest {
         val other = Files.createTempDirectory("conformance-r21-other")
         try {
             Files.writeString(dir.resolve("a-one-unfilled.json"), unfilled.toString())
-            // the only problem is the rule's own line: its filled steps agree
+            // a `v5-` name too: build C3's exception for the v5 inputs ended with X2D's phase 2, so it fails like any other
+            Files.writeString(dir.resolve("v5-one-unfilled.json"), JsonObject(unfilled + ("name" to JsonPrimitive("v5-one-unfilled"))).toString())
+            // the only problems are the rule's own lines: the filled steps agree
             val asRepo = normalPath(dir, dir)
-            assertEquals(listOf("a-one-unfilled (steps $last..$last of ${steps.size}): not filled — a step in firmware/vectors/ with no " +
-                "expectation fails the test (ruling R1.21)"), asRepo.problems, "the repo's own set: the unfilled step fails, by name")
+            assertEquals(listOf("a-one-unfilled", "v5-one-unfilled").map { "$it (steps $last..$last of ${steps.size}): not filled — a step in " +
+                "firmware/vectors/ with no expectation fails the test (ruling R1.21)" }, asRepo.problems, "the repo's own set: each unfilled step fails, by name")
             val asOther = normalPath(dir, other)
             assertEquals(emptyList(), asOther.problems, "another set (DAMAGE_VECTOR_DIR): reported, not failed")
-            assertEquals(listOf("a-one-unfilled (steps $last..$last of ${steps.size})"), asOther.notFilled)
+            assertEquals(listOf("a-one-unfilled", "v5-one-unfilled").map { "$it (steps $last..$last of ${steps.size})" }, asOther.notFilled)
         } finally {
             Files.list(dir).use { s -> s.forEach { Files.delete(it) } }
             Files.delete(dir); Files.delete(other)
