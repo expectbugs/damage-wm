@@ -188,10 +188,21 @@ class MainStagingTest {
             val ms = m.staging()
             val l = m.layout
             val wraps = ms.rows > l.rowsAbove + l.rowsBelow + 1
-            // decisions AZ.4: where Main wraps each margin holds one row more — what a pan across the wrap shows
-            val sA = if (wraps) l.rowsAbove + 1 else l.rowsAbove; val sB = if (wraps) l.rowsBelow + 1 else l.rowsBelow
+            // B082: the strips hold the rows Main shows past either end only; the pan across the wrap draws its own record
+            val sA = l.rowsAbove; val sB = l.rowsBelow
             assertEquals(wraps, ms.wraps, "$h: the staging says whether it wraps")
             assertEquals((sA + ms.rows + sB) * l.rowH, ms.strip.raw.h, "$h: the strip's height")
+            if (wraps) {
+                val wp = ms.wrap!!
+                assertEquals((l.rowsAbove + l.rowsBelow + 2) * l.rowH, wp.raw.h, "$h: the wrap record's height")
+                // its rows: (n−1−rowsAbove … n−1, 0 … rowsBelow), each as the strip draws it
+                for (j in 0 until l.rowsAbove + l.rowsBelow + 2) {
+                    val row = (ms.rows - 1 - l.rowsAbove + j).mod(ms.rows)
+                    val s = sA + row
+                    for (y in 0 until l.rowH) for (x in 0 until wp.raw.w)
+                        if (wp.raw[x, j * l.rowH + y] != ms.strip.raw[x, s * l.rowH + y]) throw AssertionError("$h: wrap row $j is not Main's row $row at ($x,$y)")
+                }
+            } else assertTrue(ms.wrap == null, "$h: no wrap record")
             assertEquals(l.content.w - Layout.RAIL_W, ms.strip.raw.w, "$h: the strip's width (the rail aside)")
             val lastRowInMargin = ms.strip.raw.let { g -> (0 until l.rowH).any { y -> (0 until g.w).any { x -> g[x, (sA - 1) * l.rowH + y] != 0 } } }
             assertEquals(wraps, lastRowInMargin, "$h: the margin row before row 0 holds the last row exactly where Main wraps")

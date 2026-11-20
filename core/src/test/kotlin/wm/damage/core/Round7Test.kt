@@ -97,7 +97,7 @@ class Round7Test {
             val comp = rig.comp
             comp.composed.fillRect(l.content, 3 * 17)
             comp.planes = listOf(Compositor.PlaneRegion(l.content, 8), Compositor.PlaneRegion(l.lens, 0))
-            comp.requestKeyframe()
+            comp.requestKeyframe("test")
             rig.drain("keyframe")
             val band = Rect(l.content.x, l.lens.bottom, l.content.w - Layout.RAIL_W, l.rowsBelow * Layout.ROW_H)
             // the lost flush: a row inside the band
@@ -147,7 +147,7 @@ class Round7Test {
             }
             grain()
             comp.planes = listOf(Compositor.PlaneRegion(l.content, 8), Compositor.PlaneRegion(l.lens, 0))
-            comp.requestKeyframe()
+            comp.requestKeyframe("test")
             rig.drain("grain keyframe", maxFlushes = 60)
             rig.assertBeliefMatchesGlass("grain keyframe")
             // a whole-content change under a lowered batch cap (a displayable

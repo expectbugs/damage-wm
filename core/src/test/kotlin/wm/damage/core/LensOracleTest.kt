@@ -171,7 +171,7 @@ class LensOracleTest {
                 val content = listOf(Compositor.PlaneRegion(l.content, d), Compositor.PlaneRegion(l.lens, 0))
                 paintScene(comp.composed, l, d)
                 comp.planes = content
-                comp.requestKeyframe()
+                comp.requestKeyframe("test")
                 rig.drain("keyframe d=$d")
                 rig.assertBeliefMatchesGlass("keyframe d=$d")
                 rig.assertGlassIsTruth("keyframe d=$d", content)

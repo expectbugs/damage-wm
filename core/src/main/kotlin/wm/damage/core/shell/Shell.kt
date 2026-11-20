@@ -1308,7 +1308,7 @@ class Shell(
             mirrorSpanLo = Int.MAX_VALUE; mirrorSpanHi = -1; mirrorWhole = true    // P6 item 5: the first check is whole
             atlasAtSessionStart(adopted)
             composeFullSurface()
-            comp.requestKeyframe()
+            comp.requestKeyframe("session start")
             localSessionStart()                   // build C2 (P1): the start's bind batch rides the keyframe's tail
             // fix round 2 (R2.4): only an AWAKE start enables the atlas. A start that rests has no flags in force
             // (`draw2` false): it built a v1 atlas and moved the layout metric, every window re-wrapped while asleep,
@@ -1474,7 +1474,9 @@ class Shell(
                     }
                     is Msg.GraceTick -> handleGrace(m.gen)
                     is Msg.SilentTick -> handleSilentTick(m.gen)
-                    is Msg.SaveTick -> if (m.gen == saveGen) saveAll()
+                    // his look at 0.81: the save builds every window's state on the loop (up to 86 ms there; the disk write is
+                    // off it already) — not inside a burst or while Main's motion may still draw: again in 2 s
+                    is Msg.SaveTick -> if (m.gen == saveGen) { if (mainBindBurstOpen() || mainMotionMayDraw()) scheduleSave() else saveAll() }
                     is Msg.Notice -> handleNotice(m.n)
                     // P6 item 2 (LC-1): a parked window's request composes nothing; its divider tick rides the chrome
                     is Msg.Invalidate -> if (!showsRequestOf(m.windowId)) chromeDirty = true
@@ -2087,7 +2089,7 @@ class Shell(
         current?.let { w -> try { w.onExclusive(false) } catch (e: Exception) { Log.e("shell", "onExclusive(false) of ${w.id}", e) } }
         notifications.requeueCurrent()
         composeFullSurface()
-        comp.requestReseed()
+        comp.requestReseed("exclusive mode ended")
         if (notifications.showNextIfIdle()) {
             updatePlanes()
             paintNotification()
@@ -2693,7 +2695,7 @@ class Shell(
     /** The phone's rules P1–P11, the tap rule and the table repair (stage DP2). Idle unless BIND is in force at stage 4
      *  on a bit-10 build: below that nothing here sends a byte. Confined to the loop. */
     private val local = wm.damage.core.local.LocalRules({ kind, detail -> journal.note(kind, detail) },
-        { why -> journal.note("local", "keyframe: $why"); comp.requestKeyframe(); post(Msg.Pump) },
+        { why -> journal.note("local", "keyframe: $why"); comp.requestKeyframe("local input: $why"); post(Msg.Pump) },
         { why -> localTelemetryRead(why) })
 
     /** Decisions AA.2: ONE telemetry read of RIGHT, launched (nothing waits on it); its record reaches the rules as every
@@ -2756,7 +2758,7 @@ class Shell(
     private fun localVerdict(v: wm.damage.core.local.LocalRules.Verdict, eventId: Int? = null) {
         when (v) {
             wm.damage.core.local.LocalRules.Verdict.Nothing -> {}
-            is wm.damage.core.local.LocalRules.Verdict.Apply -> { asInput(); edgeAssembleMark = assembleCalls; handleInput(v.type, EvenHubMsg.SRC_RING) }
+            is wm.damage.core.local.LocalRules.Verdict.Apply -> { asInput(); edgeAssembleMark = assembleCalls; edgeAtMs = System.currentTimeMillis(); handleInput(v.type, EvenHubMsg.SRC_RING) }
             is wm.damage.core.local.LocalRules.Verdict.Adopt -> {
                 // an adopted notch is a gesture as any other (decisions AF.3): the same bookkeeping as `handleInput`'s, the
                 // cursor saved to the record; its picture is the lens's own, so no slide and no input slot (its COMMIT
@@ -2802,16 +2804,19 @@ class Shell(
     }
 
     /** A flush of the rules' messages alone (nothing to draw): one sub-message as its own image, more as a batch. */
-    private suspend fun submitLocalOnly(tail: List<ByteArray>, label: String) {
-        if (tail.isEmpty()) return
-        try {
+    /** The flush's id, or null when nothing went (an empty tail, or a submit the ended link refused). */
+    private suspend fun submitLocalOnly(tail: List<ByteArray>, label: String): Long? {
+        if (tail.isEmpty()) return null
+        return try {
             val id = transport.submit(FlushRequest(emptyList(), comp.epoch, label, tail = tail))
             localOnlyFlushes += id
             localTailFlushes += id
             mainBind.tailSent(id, mainBindEntriesSent())
+            id
         } catch (e: Exception) {
             // the link ended between the pump's gate and the submit: the next session's start sends the whole table
             journal.note("local", "a flush of local-input messages was not submitted: ${e.message ?: e::class.simpleName}")
+            null
         }
     }
 
@@ -2838,6 +2843,7 @@ class Shell(
         when (ev) {
             // build C2 (§6.7 P2, P5): a stock scroll message or click is read against the echo owes BEFORE it is handled
             is TransportEvent.Input -> {
+                lastInputAtMs = System.currentTimeMillis()
                 if (!localReads(ev)) handleInput(ev.type, ev.source)
                 else localVerdict(local.stock(wm.damage.core.local.LocalRules.Stock.of(ev.type)!!, localRow(), System.currentTimeMillis()))
             }
@@ -2869,7 +2875,7 @@ class Shell(
             is TransportEvent.Wear -> {}
             // build C2 (stage DP2): the 115 reports in the same ordered flow as the stock messages (P2), the telemetry
             // reads (P1's refusal record, `tapsLive`), RIGHT's 114 bodies while BIND is in force (the counting)
-            is TransportEvent.Applied -> localVerdict(local.report(ev.report, localRow(), ev.atMs), ev.report.eventId)
+            is TransportEvent.Applied -> { lastInputAtMs = System.currentTimeMillis(); localVerdict(local.report(ev.report, localRow(), ev.atMs), ev.report.eventId) }
             is TransportEvent.LocalRead -> {
                 ev.flagsInForce?.let { local.bindInForce(it and wm.damage.core.wire.DamageMsg.FLAG_BIND != 0) }
                 local.telemetry(ev.boundIds, ev.refusal27, ev.batch14)
@@ -2895,7 +2901,7 @@ class Shell(
                     // fail-open fired: stock repainted; a keyframe is required on
                     // reacquire (§5.16) and the failure is surfaced loudly
                     raiseFault("lease", "framebuffer lease lost — ${ev.detail}", urgent = true)
-                    comp.requestKeyframe()
+                    comp.requestKeyframe("the lease was lost")
                     atlasLapsed()                // §40: the cache went with the lease
                     // a Damage build cleared the session's flags and the cache's size with the lease
                     // (`FIRMWARE.md` §3, §4): the renewal that follows is a fresh acquire nothing re-arms,
@@ -2927,7 +2933,7 @@ class Shell(
                     // any sticky flag is a HARD error: panic keyframe (§9.2b)
                     journal.note("panic", setFlags.joinToString())
                     raiseFault("diag", "divergence flags: $setFlags — keyframing", urgent = true)
-                    comp.requestKeyframe()
+                    comp.requestKeyframe("the shadow reported divergence flags")
                     scope.launch { transport.clearDiagFlags() }
                 }
             }
@@ -2963,7 +2969,7 @@ class Shell(
                 // build C1 (`FIRMWARE.md` §5.6, spec §6.4): RIGHT's END CRC in a motion notify disagrees with the
                 // mirror's — the shadow is not what belief holds there; one keyframe reseeds both (it also closes
                 // every instance on the glasses, decision A.8)
-                if (ev.kind == "divergence" && ev.detail.startsWith("motion")) comp.requestKeyframe()
+                if (ev.kind == "divergence" && ev.detail.startsWith("motion")) comp.requestKeyframe("a motion END CRC disagreed (${ev.detail})")
                 // build C1's ruling R1.16: the feel session's probe played a test program and its PLAY is acknowledged
                 // — END goes into belief as the glasses wrote it into their shadow, so when the instance ends the
                 // agreement check finds END on both sides (no divergence, no keyframe)
@@ -2981,11 +2987,11 @@ class Shell(
         if (ev.id == atlasInFlight) { atlasDone(ev); return }
         if (ev.id == stageInFlight) { stageDone(ev); return }
         val a = inflightFlushes.remove(ev.id)
-        journal.flushDone(ev.id, ev.ok, ev.ackMs, ev.bytes, ev.error)
+        journal.flushDone(ev.id, ev.ok, ev.ackMs, ev.bytes, ev.error, ev.tookAtMs, ev.wroteAtMs, ev.ackAtMs)
         // build C2 (§6.11): a tail-only flush that failed — an answer, a SETTLE or a re-send lost — is a divergence: keyframe
         if (localOnlyFlushes.remove(ev.id) && !ev.ok && !glassesSilent) {
             journal.note("local", "a flush of local-input messages only failed (${ev.error}) — keyframing (§6.11)")
-            comp.requestKeyframe()
+            comp.requestKeyframe("a local-input flush failed")
             post(Msg.Pump)
         }
         mainBind.tailDone(ev.id, ev.ok)                // AD.2: a strip switch's SETs landed on both lenses (or go again)
@@ -3051,7 +3057,7 @@ class Shell(
                 // damage and reset with a keyframe, loudly
                 journal.note("panic", "flush failure streak — keyframing")
                 raiseFault("resync", "repeated flush failures (${ev.error}) — keyframe resync", urgent = true, source = "compositor")
-                comp.requestKeyframe()
+                comp.requestKeyframe("three flushes failed in a row")
                 flushFailStreak = 0
             }
         } else {
@@ -3402,7 +3408,7 @@ class Shell(
                     // (`HANDOFF.md` §69: found when a fault notice's own hole was such a fill).
                     v2RefusedThisSession = true
                     journal.note("glass", "DRAW2 is not armed on the glasses — v1 shapes until the next session; keyframing")
-                    comp.requestKeyframe()
+                    comp.requestKeyframe("DRAW2 not armed")
                 }
                 raiseFault("atlas", "cached text is off for this session — the atlas check failed: $why")
                 Log.e("shell", "atlas check failed: $why")
@@ -3513,7 +3519,7 @@ class Shell(
         if (!keyframe) journal.note("atlas", "$what; no keyframe: nothing is sent while asleep, and the wake's session start keyframes")
         else {
             journal.note("atlas", "$what; keyframing")
-            comp.requestKeyframe()
+            comp.requestKeyframe("atlas: " + what.substringBefore(" —"))
         }
     }
 
@@ -3546,7 +3552,7 @@ class Shell(
             atlasUnproven.clear(); atlasResendMissing = 0L
             journal.note("atlas", "count ended — cached text is off for this session with $n atlas message(s) acked and not judged" +
                 (if (resend) " and a re-send owed" else "") + "; keyframing")
-            comp.requestKeyframe()
+            comp.requestKeyframe("atlas: the count ended")
         }
     }
 
@@ -3925,7 +3931,7 @@ class Shell(
 
     private fun atlasDone(ev: TransportEvent.FlushDone) {
         atlasInFlight = null
-        journal.flushDone(ev.id, ev.ok, ev.ackMs, ev.bytes, ev.error)
+        journal.flushDone(ev.id, ev.ok, ev.ackMs, ev.bytes, ev.error, ev.tookAtMs, ev.wroteAtMs, ev.ackAtMs)
         val ct = cachedText ?: return
         if (!ev.ok) {
             cacheLedger.writeLost()        // §66: what landed is unknown; the next reading re-bases
@@ -3971,7 +3977,7 @@ class Shell(
         if (done?.resend == true && !ledgerJudges(st) && (atlas?.resendsQueued ?: 0) == 0) {
             atlasResendMissing = 0L
             journal.note("atlas", "re-send unjudged — a re-send was acked with the count off for this session: nothing judges it; keyframing")
-            comp.requestKeyframe()
+            comp.requestKeyframe("atlas: a re-send went unjudged")
         }
         countStateChanged(st)
         if (atlasQueue.isEmpty()) {
@@ -4014,6 +4020,32 @@ class Shell(
     private var stageInFlight: Long? = null
     private var stageInFlightRec: StagedRecord? = null
     private var stageInFlightWrites = 0
+
+    /** One mode-19 message of a record's write: at most [STAGE_CHUNK] bytes of data; [names]: it names the rest (a band
+     *  switch's item word), so it goes alone and only after every piece before it was acknowledged. */
+    private class StagePiece(val op: DisplayOp, val bytes: Int, val names: Boolean)
+
+    /**
+     * A record written piece by piece (build SPLIT): one piece per STAGE flush, the next only after the last one's ack,
+     * from the idle pump ([pumpStagePiece]) — so a gesture's flush waits behind one piece, never a whole ~20 KB record.
+     * The envelope (`FORK.md` §3.8): (a) cleared with the registry ([stageClear]: a session start, a lapse, a reset, a
+     * clear), by a failed or unsubmitted piece, by a reading that re-bases the count or calls the interval of an acked
+     * piece short, and when its record leaves the registry (a dropped staging, another layout) — then abandoned, never
+     * named; (b) a piece's wait is its FlushDone (ok, not ok, or the session's sweep); a piece that cannot go waits on the
+     * idle pump's own gates and [mayGo], each read afresh on every pump; (c) keyed on the record object itself (the
+     * registry's identity check); (d) the loop only; the image lane's writes stay in stream order, LEFT cannot report; (e)
+     * one read of the link state per pump; (f) every record [stageSubmit] sends — Page staging's strips, Main's base
+     * records and re-stages, the `mainseq` probe's — and the ledger's two verdicts that drop records.
+     */
+    private class StageCursor(val rec: StagedRecord, val pieces: List<StagePiece>, val mayGo: () -> Boolean, val onBooked: (() -> Unit)?) {
+        /** The next piece to send. */
+        var next = 0
+        /** The ledger's mark at the last acked piece's ack (-1: none acked yet). */
+        var lastAckedAt = -1L
+        /** [onBooked] has run (at the naming piece's submission, else at the last piece's ack). */
+        var booked = false
+    }
+    private var stageCursor: StageCursor? = null
     private var stageFailed = false
     /** Writes that could not be submitted or came back not ok, in a row (a success resets it). */
     private var stageWriteFailures = 0
@@ -4088,7 +4120,7 @@ class Shell(
      * and not for another thread: it reads four plain fields of the loop.
      */
     val cacheWorkInFlight: Boolean
-        get() = atlasInFlight != null || atlasCheckInFlight || stageInFlight != null || ledgerReadInFlight
+        get() = atlasInFlight != null || atlasCheckInFlight || stageInFlight != null || stageCursor != null || ledgerReadInFlight
     /** First-time atlas messages chosen to be written once more after a shortfall, so far (never reset). */
     @Volatile var atlasWritesChosenAgain = 0
         private set
@@ -4144,6 +4176,7 @@ class Shell(
         val had = stage.records.size
         stage.clear()
         stageInFlight = null; stageInFlightRec = null; stageInFlightWrites = 0
+        stageCursor = null                 // build SPLIT: a part-written record goes with the registry, never named
         // 0.64: NOT the count's reading. It is the cache's, about every acked write, and a clear of
         // the registry (the row off, a live-set change, a reset) leaves it valid; dropping its flag
         // here released both write lanes under a reading still on its way.
@@ -4179,7 +4212,7 @@ class Shell(
         val ct = cachedText ?: return false
         if (settings.cachedText != "on" || atlasFailed || atlas == null) return false
         if (atlasInFlight != null || atlasQueue.isNotEmpty() || atlasLapsedOwed || atlasCheckInFlight) return false
-        if (stageInFlight != null || ledgerReadInFlight) return false
+        if (stageInFlight != null || stageCursor != null || ledgerReadInFlight) return false
         if (st.inFlight != 0 || comp.hasPending || comp.needsKeyframe) return false
         val v = stagedDoc() ?: return false
         val key = v.contentKey() ?: return false
@@ -4272,58 +4305,136 @@ class Shell(
         return StagedRecord(key, g, padded)
     }
 
-    /** [rec]'s write as one flush; [parts] (build C2, stage DM2: a row of Main's re-staged in place) are its pieces at
-     *  their own offsets — by default the record whole at its place. */
-    private suspend fun stageSubmit(rec: StagedRecord, st: LinkState, parts: List<Pair<Int, ByteArray>> = listOf(rec.off to rec.encoded)) {
-        val ops = ArrayList<DisplayOp>()
-        for ((off, bytes) in parts) {
+    /** [rec]'s write, piece by piece (build SPLIT: one piece per flush, the idle pump between them, input first);
+     *  [parts] (build C2, stage DM2: a row of Main's re-staged) are its writes at their own offsets — by default the
+     *  record whole at its place. [namesLast]: the last part names the rest (a band switch's item word) and goes alone,
+     *  after every other piece was acknowledged. [mayGo]: whether a piece after the first may go now (the record's
+     *  owner's gate, read afresh on every pump). [onBooked]: what makes the record nameable — run when the naming piece
+     *  is submitted, else at the last piece's ack. The first piece goes now. */
+    private suspend fun stageSubmit(rec: StagedRecord, st: LinkState, parts: List<Pair<Int, ByteArray>> = listOf(rec.off to rec.encoded),
+                                    namesLast: Boolean = false, mayGo: () -> Boolean = { true }, onBooked: (() -> Unit)? = null) {
+        stageCursor = StageCursor(rec, stagePieces(parts, namesLast, st.cacheSize), mayGo, onBooked)
+        stageSendPiece(st)
+    }
+
+    /** [parts] as pieces of one mode-19 message each: consecutive data parts packed at their own offsets, split so a
+     *  message carries at most [STAGE_CHUNK] bytes of data (its entries' 4-byte headers beside them; parts are 4-byte
+     *  aligned, so a split keeps every offset aligned); with [namesLast] the last part alone, last. */
+    private fun stagePieces(parts: List<Pair<Int, ByteArray>>, namesLast: Boolean, cacheSize: Int): List<StagePiece> {
+        val out = ArrayList<StagePiece>()
+        var entries = ArrayList<CfwModes.CacheWrite2>()
+        var room = STAGE_CHUNK + 4                                  // header + data of the message's entries
+        fun close(names: Boolean) {
+            if (entries.isEmpty()) return
+            out += StagePiece(DisplayOp.CacheWrite2(CfwModes.cacheUpdate2(entries, cacheSize)), entries.sumOf { it.data.size }, names)
+            entries = ArrayList(); room = STAGE_CHUNK + 4
+        }
+        for ((i, part) in parts.withIndex()) {
+            val (off, bytes) = part
+            val naming = namesLast && i == parts.size - 1
+            if (naming) close(false)
             var pos = 0
             while (pos < bytes.size) {
-                val len = minOf(STAGE_CHUNK, bytes.size - pos)
-                val part = bytes.copyOfRange(pos, pos + len)
-                ops.add(DisplayOp.CacheWrite2(CfwModes.cacheUpdate2(listOf(CfwModes.CacheWrite2((off + pos) / 4, part)), st.cacheSize)))
+                if (room < 4 + 4) close(false)
+                val len = minOf(room - 4, bytes.size - pos)
+                entries += CfwModes.CacheWrite2((off + pos) / 4, bytes.copyOfRange(pos, pos + len))
+                room -= 4 + len
                 pos += len
             }
+            if (naming) close(true)
         }
+        close(false)
+        return out
+    }
+
+    /** The cursor's next piece as one STAGE flush; at the naming piece the record is booked. */
+    private suspend fun stageSendPiece(st: LinkState) {
+        val c = stageCursor ?: return
+        val rec = c.rec
+        val p = c.pieces[c.next]
         val id = try {
-            transport.submit(FlushRequest(ops, comp.epoch, "STAGE", writer = atlasTag))
+            transport.submit(FlushRequest(listOf(p.op), comp.epoch, "STAGE", writer = atlasTag))
         } catch (e: Exception) {
             Log.e("shell", "staged record submit failed", e)
+            stageCursor = null
             stage.remove(rec)
             stageRecount()
             if (++stageWriteFailures >= STAGE_FAILURES_MAX) stageOff("$stageWriteFailures writes in a row could not be submitted, the last: ${e.message}")
-            else journal.note("stage", "${rec.key} could not be submitted (${e.message}) — it goes again later")
+            else journal.note("stage", "${rec.key} could not be submitted (${e.message}) at piece ${c.next + 1} of ${c.pieces.size} — it goes again later")
             return
         }
         rec.state = StagedRecord.State.SENT
-        stageInFlight = id; stageInFlightRec = rec; stageInFlightWrites = ops.size
-        journal.flushSubmitted(id, comp.epoch, ops, "STAGE", st.transportName,
+        stageInFlight = id; stageInFlightRec = rec; stageInFlightWrites = 1
+        journal.flushSubmitted(id, comp.epoch, listOf(p.op), "STAGE", st.transportName,
             Journal.Timing(win = current?.id ?: "", mode = mode.name))     // package G (E4): on every submit record
-        journal.note("stage", "${rec.key} (${rec.encoded.size} B at ${rec.off}) submitted as flush $id in ${ops.size} write(s)")
+        if (c.next == 0) journal.note("stage", "${rec.key} (${rec.encoded.size} B at ${rec.off}) submitted as flush $id — piece 1 of ${c.pieces.size} (${p.bytes} B)")
+        else journal.note("stage", "${rec.key}: piece ${c.next + 1} of ${c.pieces.size} (${p.bytes} B${if (p.names) ", naming the rest" else ""}) as flush $id")
+        if (p.names && !c.booked) { c.booked = true; c.onBooked?.invoke() }
+    }
+
+    /** The idle pump's step for a part-written record (build SPLIT): its next piece, once the lane is idle — nothing in
+     *  flight, nothing pending (a gesture's flush goes first), no reading on its way — and its owner lets it go. True when
+     *  it did something. A record that left the registry meanwhile is abandoned: nothing names it. */
+    private suspend fun pumpStagePiece(st: LinkState): Boolean {
+        val c = stageCursor ?: return false
+        if (stage.records[c.rec.key] !== c.rec) {
+            stageCursor = null
+            journal.note("stage", "${c.rec.key} left the registry after ${c.next} of ${c.pieces.size} piece(s) — its write ends there, nothing names it")
+            return false
+        }
+        if (stageFailed || glassesSilent || !st.draw2 || !st.leaseHeld) return false
+        if (atlasInFlight != null || atlasCheckInFlight || stageInFlight != null || ledgerReadInFlight) return false
+        if (st.inFlight != 0 || comp.hasPending || comp.needsKeyframe) return false
+        if (ledgerBaseOwed(st)) return tryLedgerRead(st)
+        if (atlasResendMissing > 0L || !c.mayGo()) return false
+        stageSendPiece(st)
+        return true
+    }
+
+    /** Build SPLIT: a part-written record the count can no longer vouch for (its acked pieces fall in what a reading
+     *  re-based or called short) goes — abandoned, never named; its owner writes it again. */
+    private fun stagePartialDropped(why: String) {
+        val c = stageCursor ?: return
+        stageCursor = null
+        if (stage.records[c.rec.key] === c.rec) stage.remove(c.rec)
+        journal.note("stage", "${c.rec.key} dropped after ${c.next} of ${c.pieces.size} piece(s) — $why; it goes again")
     }
 
     private fun stageDone(ev: TransportEvent.FlushDone) {
         val rec = stageInFlightRec
         val writes = stageInFlightWrites
         stageInFlight = null; stageInFlightRec = null; stageInFlightWrites = 0
-        journal.flushDone(ev.id, ev.ok, ev.ackMs, ev.bytes, ev.error)
+        journal.flushDone(ev.id, ev.ok, ev.ackMs, ev.bytes, ev.error, ev.tookAtMs, ev.wroteAtMs, ev.ackAtMs)
+        val c = stageCursor?.takeIf { it.rec === rec }
         if (!ev.ok) {
             cacheLedger.writeLost()
+            // a failed piece fails its record: which earlier bytes survived is not known (a refusal for a lapse, a lost
+            // ack), so the record goes again whole — its owner's rule, as for a record written in one flush
+            if (c != null) stageCursor = null
             if (rec != null) {
                 stage.remove(rec)
                 stageRecount()
             }
             if (++stageWriteFailures >= STAGE_FAILURES_MAX) stageOff("$stageWriteFailures writes in a row failed, the last: ${ev.error}")
-            else journal.note("stage", "${rec?.key ?: "a record"}'s write ${ev.id} failed (${ev.error}) — it goes again later")
+            else journal.note("stage", "${rec?.key ?: "a record"}'s write ${ev.id}${c?.let { " (piece ${it.next + 1} of ${it.pieces.size})" } ?: ""} failed (${ev.error}) — it goes again later")
             post(Msg.Pump)
             return
         }
         stageWriteFailures = 0
         cacheLedger.writeAcked(writes, atlas = false)
         cacheWriteLastAckMs = System.currentTimeMillis()
-        if (rec != null && rec.state == StagedRecord.State.SENT && stage.records[rec.key] === rec) {
+        var more = false
+        if (c != null) {
+            c.next++
+            c.lastAckedAt = cacheLedger.acked
+            if (stage.records[c.rec.key] !== c.rec) stageCursor = null          // left the registry: abandoned, never named
+            else if (c.next < c.pieces.size) more = true                         // the next piece on the idle pump, input first
+            else stageCursor = null
+        }
+        if (!more && rec != null && rec.state == StagedRecord.State.SENT && stage.records[rec.key] === rec) {
             rec.state = StagedRecord.State.ACKED
             rec.ackedAt = cacheLedger.acked
+            if (c != null && !c.booked) { c.booked = true; c.onBooked?.invoke() }
         }
         stageRecount()
         countStateChanged(transport.state.value)
@@ -4454,7 +4565,7 @@ class Shell(
                             "cache writes are not judged by the count for the rest of this session" +
                             (if (hasCount) "" else " (this build's capabilities carry no telemetry: there is no count to read)") +
                             (if (reSendAcked) "; a re-send was acked and not yet judged: keyframing" else ""))
-                        if (reSendAcked) comp.requestKeyframe()
+                        if (reSendAcked) comp.requestKeyframe("atlas: the count went off")
                         if (!stageFailed) stageOff("the cache generation read did not answer $ledgerReadFailures times$because")
                         // 0.64 R1 (the lead's ruling on review 1a, RC-2): SAID, once per session. With the
                         // count off Page staging is off and the one check that says a cache write was not
@@ -4507,6 +4618,8 @@ class Shell(
                 val unproven = stage.records.values.filter { it.state == StagedRecord.State.ACKED }
                 for (r in unproven) stage.remove(r)
                 if (unproven.isNotEmpty()) journal.note("stage", "$from re-based the generation count at ${v.gen} — ${unproven.size} acked record(s) go again")
+                // build SPLIT: a part-written record's acked pieces cannot be counted either
+                if ((stageCursor?.lastAckedAt ?: -1L) >= 0L) stagePartialDropped("$from re-based the count under its acked pieces")
                 // the atlas's half: the messages acked before it leave the books unjudged; a re-send
                 // among them can no longer be read, so the lens is put right by a keyframe instead
                 val dropped = atlasUnproven.toList()
@@ -4520,7 +4633,7 @@ class Shell(
                     journal.note("atlas", "count re-based — ${dropped.size} atlas message(s) acked before it are not judged (" +
                         (if (v.first) "the session's first reading" else "a write was lost before the reading") + ", generation ${v.gen})" +
                         (if (resent) "; a re-send among them: keyframing" else ""))
-                    if (resent) comp.requestKeyframe()
+                    if (resent) comp.requestKeyframe("atlas: the count was re-based")
                 }
             }
             is CacheLedger.Verdict.Proven -> {
@@ -4538,7 +4651,7 @@ class Shell(
                     // repaint would send nothing, so the lens is put right by one keyframe
                     atlasResendMissing = 0L
                     journal.note("atlas", "re-send counted — $again atlas message(s) sent a second time were counted by RIGHT; keyframing")
-                    comp.requestKeyframe()
+                    comp.requestKeyframe("atlas: a re-send was counted")
                 }
             }
             is CacheLedger.Verdict.Pending -> {
@@ -4567,6 +4680,8 @@ class Shell(
             is CacheLedger.Verdict.Shortfall -> {
                 val lost = stage.records.values.filter { it.state == StagedRecord.State.ACKED && it.ackedAt > v.fromAcked && it.ackedAt <= v.toAcked }
                 for (r in lost) stage.remove(r)
+                // build SPLIT: a part-written record with a piece acked in the short interval may miss that piece
+                if ((stageCursor?.lastAckedAt ?: -1L) > v.fromAcked) stagePartialDropped("$from called the interval of an acked piece short")
                 // the atlas is NOT switched off on a shortfall (2026-09-16 21:xx, §66.1): the 0.57 ledger took
                 // cached text down for the evening on three lagged readings forty minutes apart. 0.64 (Adam's
                 // ruling, §75.1): no gate either — a shortfall is SAID, the atlas messages of its interval are
@@ -4612,7 +4727,7 @@ class Shell(
                         // re-send wrote it, and the lens keeps what was drawn meanwhile — the keyframe
                         journal.note("atlas", "re-send counted — $again atlas message(s) sent a second time were counted by RIGHT, " +
                             "and ${v.extra} of the $missing write(s) called short bumped late; keyframing")
-                        comp.requestKeyframe()
+                        comp.requestKeyframe("atlas: a re-send was counted")
                     }
                 }
             }
@@ -5171,6 +5286,11 @@ class Shell(
     private var assembleCalls = 0
     private var edgeAssembleMark = 0
     private var lastWrapAssemblesBefore = -1
+    private var edgeAtMs = 0L
+    /** Tests only (his look at 0.81): run on the loop right after the wrap's flush is submitted — a loaded loop. */
+    @Volatile internal var afterWrapSubmitForTest: (() -> Unit)? = null
+    /** Tests only (the focused read's L1): the wrap's END paint throws after the LEFT lens's. */
+    @Volatile internal var wrapPaintFailsForTest = false
 
     /**
      * G4 item 1 (his glasses, 0.80: the wrap's slide began a median 555 ms after the edge's report). Its PLAY rode the
@@ -5182,26 +5302,50 @@ class Shell(
      */
     private suspend fun mainWrapFirst(st: LinkState, nowMs: Long): Boolean {
         if (!(local.active && st.bind && st.leaseHeld) || comp.needsKeyframe) return false
+        // B082 (the focused read's W2): only once the rules know what is in front — this runs before the pump's
+        // `syncLocalFront`, and asking them earlier, in the pump where a cover appears, made a false DISCARD and a
+        // `snapback cause=moved` record (their `observe` saw the covered row −1 against the list still in front)
+        if (localFront()?.second !== localFrontNow) return false
         if (local.plan(localRow()).isNotEmpty()) return false
         val wrap = mainWrapPlan(nowMs) ?: return false
-        comp.holdEnds(listOf(wrap.end), nowMs)
+        // B082 (the focused read's L1): a throw from the END paint is said, keyframes (a half-applied END on the lens
+        // painted first is re-grounded by it) and leaves the answer to the batch path, which denies the wrap under the
+        // owed keyframe and answers with the DISCARD — so it cannot repeat at every pump
+        try { comp.holdEnds(listOf(wrap.end), nowMs) }
+        catch (e: Exception) {
+            Log.e("shell", "the wrap's END could not be painted", e)
+            journal.note("assemble-error", "the wrap's END: $e")
+            raiseFault("assemble", "the wrap's END could not be painted: ${e.message ?: e::class.simpleName} — keyframing", urgent = true, source = "compositor")
+            comp.requestKeyframe("the wrap's END could not be painted")
+            return false
+        }
         val tail = listOf(wrap.play) + local.tail(localRow(), nowMs, emptySet(), frame = false, wrapped = true)
         lastWrapAssemblesBefore = assembleCalls - edgeAssembleMark
-        submitLocalOnly(tail, "WRAP")
-        journal.note("local", "the wrap's PLAY went ahead of its frame: ${tail.size} message(s), ${tail.sumOf { it.size }} B")
+        val id = submitLocalOnly(tail, "WRAP")
+        // the focused read's N8: the note names the flush, so its `done` row prices the wrap's start against the report
+        journal.note("local", "the wrap's PLAY went ahead of its frame as flush ${id ?: "(not submitted)"}: ${tail.size} message(s), " +
+            "${tail.sumOf { it.size }} B, ${nowMs - edgeAtMs} ms after the edge's report reached the shell")
+        afterWrapSubmitForTest?.invoke()
         return true
     }
 
     /**
      * Decisions BF (G4): the period follows the MEASURED step. Each complete motion of Main's bound list (its slot's local
      * instances and the wrap's) gives its largest step time; the last [PERIOD_WINDOW] are kept. The period in force is
-     * raised as soon as the window's maximum × [PERIOD_MARGIN_MEASURED] needs more ticks, and lowered — to what it needs —
-     * only after a whole window since the last change that needs at least [PERIOD_HYSTERESIS] ticks less (so it does not
-     * go back and forth). Clamped to the engine's 16..128. Applied with no burst open: new SETs only (the programs, their T
+     * raised as soon as the window's maximum × [PERIOD_MARGIN_MEASURED] needs more ticks, and lowered — to what it needs,
+     * never below the staging's own period (W1) — only after [PERIOD_QUIET_MS] with no input, by [PERIOD_LOWER_MIN] ticks
+     * or more, with no instance open and no burst (his look at 0.81, ruled). Clamped to the engine's 16..128. Applied with no burst open: new SETs only (the programs, their T
      * and the records are kept, so a longer period runs the motion longer); the next staging starts from the fit again.
      */
     private val stepWindow = ArrayDeque<Long>()
     private var periodSamplesSinceChange = 0
+    /** His look at 0.81: the last ring event or glasses' report, for the period's quiet rule. */
+    private var lastInputAtMs = 0L
+    private var periodRecheckGen = 0
+    private fun periodRecheck(inMs: Long) {
+        val gen = ++periodRecheckGen
+        scope.launch { delay(inMs); if (running) post(Msg.Run(dropped = {}) { if (gen == periodRecheckGen) post(Msg.Pump) }) }
+    }
 
     private fun localBodyRead(ev: TransportEvent.LocalBody) {
         val ms = mainBind.staging ?: return
@@ -5209,15 +5353,16 @@ class Shell(
         if (ev.slot != list.slot && ev.slot != MainStaging.WRAP_SLOT) return
         val steps = (ev.drawn ?: 0L) + (ev.folded ?: 0L)
         val complete = ev.outcome == wm.damage.core.wire.DamageMsg.OUTCOME_DREW || steps >= ms.t
-        // G4 item 2: a local instance's own body (no END written) closed by RIGHT: every step drawn is at END; short of
-        // them, its areas hold a partial step on the panel — repainted from the truth, never a keyframe
+        // G4 item 2: a local instance's own body (no END written) closed by RIGHT — counted, never a keyframe. Every step
+        // drawn: at END. Short of them, the partial step on the panel goes at the next present, which the close makes
+        // whole (the stale mark): the answer's — the COMMIT writes END and presents, the DISCARD presents — or, with the
+        // report lost, the frame of its stock message applied as today; a COMMIT that never lands is a failed flush whose
+        // rollback repaints, a session's end a keyframe (B082, the focused read's W3: the repaint here repaired nothing)
         if (ev.outcome == wm.damage.core.wire.DamageMsg.OUTCOME_CLOSED && ev.endCrc == 0L && ev.slot == list.slot) {
             if (steps >= ms.t) local.counts.merge("localClosedAtEnd", 1, Int::plus)
             else {
                 local.counts.merge("localClosedShort", 1, Int::plus)
-                comp.markAreasUnknown(list.areas)
-                journal.note("local", "slot ${ev.slot} tag 0x%04x closed on the glasses after $steps of ${ms.t} steps — its areas are repainted".format(ev.tag))
-                post(Msg.Pump)
+                journal.note("local", "slot ${ev.slot} tag 0x%04x closed on the glasses after $steps of ${ms.t} steps".format(ev.tag))
             }
         }
         val us = ev.stepUs ?: return
@@ -5236,7 +5381,13 @@ class Shell(
         val p = ms.periodInForce
         return when {
             need > p -> need
-            stepWindow.size >= PERIOD_WINDOW && periodSamplesSinceChange >= PERIOD_WINDOW && need <= p - PERIOD_HYSTERESIS -> need
+            // the focused read's W1 (ruled): never below the staging's own period — the fit with Auto, the length over the
+            // frames with a fixed count — the measurement only raises above it and comes back down to it
+            // (the floor itself is reached whatever the hysteresis says, so a small raise does not stay for good)
+            // his look at 0.81 (ruled): lowered only after [PERIOD_QUIET_MS] with no input, by at least [PERIOD_LOWER_MIN]
+            // ticks, never while an instance is open or a burst is ([mainPeriodApply] holds those) — each change is a SET
+            // flush landing on the two lenses at different moments; three came in 25 s of fast scrolling on 0.81
+            stepWindow.size >= PERIOD_WINDOW && maxOf(need, ms.period).let { t -> p - t >= PERIOD_LOWER_MIN } -> maxOf(need, ms.period)
             else -> null
         }
     }
@@ -5246,6 +5397,13 @@ class Shell(
         val ms = mainBind.staging ?: return
         val want = mainPeriodWanted() ?: return
         val was = ms.periodInForce
+        if (want < was) {
+            // a lowering waits for quiet: no motion that may still draw (the burst is held above; the mirror's open slots
+            // keep an instance at its end too, so they are not read), and PERIOD_QUIET_MS since the last input (a re-check)
+            val quietAt = lastInputAtMs + PERIOD_QUIET_MS
+            val now = System.currentTimeMillis()
+            if (mainMotionMayDraw() || now < quietAt) { periodRecheck(maxOf(quietAt, now + 250) - now); return }
+        }
         ms.periodInForce = want
         periodSamplesSinceChange = 0
         mainBind.relisted()
@@ -5268,14 +5426,17 @@ class Shell(
         val w = local.wrapPlan(localRow()) ?: return null
         val ms = mainBind.staging ?: return null
         if (w.list.list != MainStaging.LIST || mainBind.list?.mark != w.list.mark) return null
-        val pan = ms.pan(MainStaging.WHOLE, w.step)
+        // B082: the wrap draws its own record, which a re-stage in pieces may be writing — no PLAY until it is booked (the
+        // edge goes as today)
+        if (stageCursor?.rec?.key is MainStageKey) return null
+        val pan = ms.wrapPan(w.step) ?: return null
         val p = ms.wrapParams(pan, w.cPrime) ?: return null
         val tag = WRAP_TAG + (wrapTags++ and 0xFFF)
         val play = try { wm.damage.core.motion.Motion.play(pan.program, MainStaging.WRAP_SLOT, ms.periodInForce, tag, 0, p) }
             catch (e: wm.damage.core.geom.LintError) { journal.note("local", "the wrap's PLAY is refused offline (${e.message}) — the row is drawn as today"); return null }
         val until = nowMs + (ms.t + 1L) * ms.periodInForce * 1000L / 1024 + WRAP_START_MS
         return MainWrap(play, Compositor.EndPlan(MainStaging.WRAP_SLOT, pan.program.tracks.map { it.areaL to it.areaR },
-            { left, g -> ms.paintEnd(pan, p, left, g) }, until))
+            { left, g -> if (!left && wrapPaintFailsForTest) throw wm.damage.core.geom.LintError("a test: the wrap's END paint fails"); ms.paintEnd(pan, p, left, g) }, until))
     }
     /** The `mainseq` probe's pacing (a test shortens it). */
     @Volatile internal var mainSeqPace = MainSeqPlan.Pace()
@@ -5379,7 +5540,7 @@ class Shell(
         if (run.playing || run.ending != null) return false
         if (stageFailed || glassesSilent || !st.draw2 || !st.leaseHeld) return false
         if (atlasInFlight != null || atlasQueue.isNotEmpty() || atlasLapsedOwed || atlasCheckInFlight) return false
-        if (stageInFlight != null || ledgerReadInFlight) return false
+        if (stageInFlight != null || stageCursor != null || ledgerReadInFlight) return false
         if (st.inFlight != 0 || comp.hasPending || comp.needsKeyframe) return false
         if (ledgerBaseOwed(st)) return tryLedgerRead(st)
         if (atlasResendMissing > 0L) return false
@@ -5469,7 +5630,7 @@ class Shell(
             }
         } else {
             journal.note("mainseq", "notch ${p.index + 1}'s PLAY (tag 0x%04x) was not acknowledged ($error) — END is not put into belief; keyframing".format(p.tag))
-            comp.requestKeyframe()
+            comp.requestKeyframe("a scripted notch PLAY was not acknowledged")
             mainSeqEnd(run, "notch ${p.index + 1}'s PLAY was not acknowledged")
         }
         if (run.ending != null && run.unacked.isEmpty() && mainSeq === run) mainSeqRelease(run)
@@ -5665,6 +5826,11 @@ class Shell(
      *  a report until the lone SETTLE. */
     private fun mainBindBurstOpen(): Boolean = local.burstOpen
 
+    /** B082 (the split on 0.81): a motion of Main's list may still draw on the glasses — the cells held behind an adopted
+     *  motion or the wrap's PLAY wait until its end (AF.7, AZ.4: the wrap's wait runs past Q by its start allowance), and
+     *  a re-stage's next piece waits with them: a cache write meeting the instance's read range closes it (§5.6). */
+    private fun mainMotionMayDraw(): Boolean = comp.deferring && comp.deferUntilMs > System.currentTimeMillis()
+
     /** Each pump, before anything asks: the staging checked against Main as it is now, the re-stages the count has
      *  judged, and what `MainSurface` offers. */
     private fun mainBindPoll(st: LinkState) {
@@ -5720,6 +5886,8 @@ class Shell(
     /** The staging goes: its records leave the registry and the list is withdrawn. */
     private fun mainBindDrop(why: String) {
         for (r in mainBind.drop()) if (stage.records[r.key] === r) stage.remove(r)
+        // build SPLIT: a re-stage still in pieces (not booked) belongs to the staging that goes
+        stageCursor?.rec?.let { r -> if (r.key is MainStageKey && stage.records[r.key] === r) stage.remove(r) }
         main.offered = null
         stageRecount()
         journal.note("mainstage", "dropped — $why; Main's list is offered again once it is staged and counted")
@@ -5743,7 +5911,7 @@ class Shell(
         }
         if (blocked != null) return false
         if (atlasInFlight != null || atlasQueue.isNotEmpty() || atlasLapsedOwed || atlasCheckInFlight) return false
-        if (stageInFlight != null || ledgerReadInFlight) return false
+        if (stageInFlight != null || stageCursor != null || ledgerReadInFlight) return false
         if (st.inFlight != 0 || comp.hasPending || comp.needsKeyframe) return false
         if (ledgerBaseOwed(st)) return tryLedgerRead(st)
         if (atlasResendMissing > 0L) return false
@@ -5757,8 +5925,9 @@ class Shell(
         b.verifyDue(now)
         b.nextDirty()?.let { row -> return mainBindRow(st, ms, row, write = false, now) }
         // a withdrawn list's strip write, in a pump after the one that withdrew it (the rules' CLEAR went between)
-        b.withdrawnFor?.let { row -> return if (mainBindPumps > b.withdrawnAtPump) mainBindRow(st, ms, row, write = true, now) else false }
-        if (!mainBindBurstOpen()) b.nextOwed(now)?.let { row -> return mainBindRow(st, ms, row, write = true, now) }
+        // B082: a re-stage's first piece too waits while a motion of the list may still draw (its later ones: `mayGo`)
+        b.withdrawnFor?.let { row -> return if (mainBindPumps > b.withdrawnAtPump && !mainMotionMayDraw()) mainBindRow(st, ms, row, write = true, now) else false }
+        if (!mainBindBurstOpen() && !mainMotionMayDraw()) b.nextOwed(now)?.let { row -> return mainBindRow(st, ms, row, write = true, now) }
         listOfNotNull(b.dueInMs(now), b.verifyInMs(now)).minOrNull()?.let { wait ->
             if (mainBindWakeAtMs <= now || now + wait < mainBindWakeAtMs) { mainBindWakeAtMs = now + wait; pumpAfter(wait) }
         }
@@ -5806,14 +5975,16 @@ class Shell(
             return true
         }
         val shared0 = region.last + 1 == st.cacheSize
+        // B082: rows whose window changed in an earlier staging start with segment room
+        val room = mainBind.roomFor(List(pt.n) { main.rowIdentity(it) })
         val ms = try {
             // the bound list's pans only (AF.10); at 256 KiB Main's own region holds a second strip (AD.2)
-            try { MainStaging.assemble(pt, listD, bandD, st.cacheSize, region.first, region.last + 1, listOf(MainStaging.WHOLE), twoStrips = !shared0, motion = motionInForce()) }
+            try { MainStaging.assemble(pt, listD, bandD, st.cacheSize, region.first, region.last + 1, listOf(MainStaging.WHOLE), twoStrips = !shared0, motion = motionInForce(), room = room) }
             catch (e: wm.damage.core.geom.LintError) {
                 if (shared0) throw e
                 // decisions AU.1 (b): two strips do not fit Main's region — ONE strip is staged, and a row form's change
                 // withdraws the list as at 160 KiB; never "not staged" while one strip fits
-                MainStaging.assemble(pt, listD, bandD, st.cacheSize, region.first, region.last + 1, listOf(MainStaging.WHOLE), twoStrips = false, motion = motionInForce())
+                MainStaging.assemble(pt, listD, bandD, st.cacheSize, region.first, region.last + 1, listOf(MainStaging.WHOLE), twoStrips = false, motion = motionInForce(), room = room)
                     .also { journal.note("mainstage", "two strips do not fit Main's region (${e.message}) — one strip staged; a row form's change withdraws the list, as at 160 KiB") }
             }
         } catch (e: wm.damage.core.geom.LintError) {
@@ -5840,7 +6011,7 @@ class Shell(
             for ((i, r) in recs.withIndex()) { r.off = ms.blobs[i].off; stage.records[r.key] = r }
         }
         mainBindRefusedFor = null
-        mainBind.begin(ms, recs, List(ms.rows) { main.rowKey(it) }, now)
+        mainBind.begin(ms, recs, List(ms.rows) { main.rowKey(it) }, now, List(ms.rows) { main.rowIdentity(it) })
         stepWindow.clear(); periodSamplesSinceChange = 0          // decisions BF: a staging starts from the fit
         mainBindRefusalSaid = null
         stageRecount()
@@ -5848,7 +6019,9 @@ class Shell(
             "(${if (shared) "the shared reserve" else "Main's own region"}): the strip ${ms.blobs[0].bytes.size} B" +
             (if (ms.stripB != null) " and its second slot ${ms.blobs[1].bytes.size} B" else "") + ", ${ms.rows} band forms " +
             "${ms.blobs.drop(if (ms.stripB != null) 2 else 1).take(ms.rows).sumOf { it.bytes.size }} B, the item table and ${ms.pans.size + 1} programs ${ms.blobs.takeLast(2).sumOf { it.bytes.size }} B; " +
-            "planes $listD/$bandD, press to ${ms.press.pressD}; ${mainBind.stagings} staging(s) and ${mainBind.stagedBytes} B this process")
+            "planes $listD/$bandD, press to ${ms.press.pressD}; ${mainBind.stagings} staging(s) and ${mainBind.stagedBytes} B this process" +
+            (if (ms.wrap == null && ms.rows > ms.layout.rowsAbove + ms.layout.rowsBelow + 1) "; the wrap's own record left out (the region " +
+                "does not hold it): the wrap goes as the shell's frames" else ""))
         post(Msg.Pump)
         return true
     }
@@ -5882,13 +6055,22 @@ class Shell(
                 val bytes = ByteArray(r.bytes).also { out -> var o = 0; for (w in r.writes) { w.bytes.copyInto(out, o); o += w.bytes.size } }
                 val rec = StagedRecord(key, Gray8(1, 1), bytes).also { it.off = r.writes.first().off }
                 stage.records[key] = rec
-                stageSubmit(rec, st, r.writes.map { it.off to it.bytes })
+                // build SPLIT: the writes go in pieces (no piece while a burst is open: an instance's read ranges cover both
+                // strip slots and the spare band slot, §5.6); the books take the re-stage — the staging's pictures, the
+                // list that names it, the patch — only when nothing unwritten remains: at the item word's submission (it
+                // goes alone, after every other piece was acknowledged), else at the last piece's ack
+                var pieces = 0
+                stageSubmit(rec, st, r.writes.map { it.off to it.bytes }, namesLast = r.band != null, mayGo = { !mainBindBurstOpen() && !mainMotionMayDraw() }) {
+                    if (mainBind.staging !== ms) return@stageSubmit       // the staging went meanwhile (its drop said so)
+                    mainBind.submitted(r, rec, System.currentTimeMillis())
+                    stageRecount()
+                    journal.note("mainstage", "row $row re-staged — ${r.bytes} B in $pieces piece(s) (${r.writes.joinToString { "${it.what} ${it.bytes.size} B" }})" +
+                        (r.band?.let { m -> "; its band form moved to off4 ${m.off / 4}, the item table switched by one write after the rest was acknowledged, the old slot free once acknowledged" } ?: "") +
+                        "; mark kept; ${mainBind.restageCount} re-stage(s), ${mainBind.restagedBytes} B this process")
+                    post(Msg.Pump)
+                }
+                pieces = stageCursor?.takeIf { it.rec === rec }?.pieces?.size ?: 0
                 if (rec.state != StagedRecord.State.SENT) { mainBind.notWritten(row); return true }   // not submitted: said there, the row stays owed
-                mainBind.submitted(r, rec, now)
-                stageRecount()
-                journal.note("mainstage", "row $row re-staged — ${r.bytes} B in one flush (${r.writes.joinToString { "${it.what} ${it.bytes.size} B" }})" +
-                    (r.band?.let { m -> "; its band form moved to off4 ${m.off / 4}, the item table switched by one write, the old slot free once acknowledged" } ?: "") +
-                    "; mark kept; ${mainBind.restageCount} re-stage(s), ${mainBind.restagedBytes} B this process")
             }
         }
         return true
@@ -6314,7 +6496,7 @@ class Shell(
             "belief and mirror disagree — $report — keyframing" +
                 (if (divergenceRun == DIVERGE_EPISODES_MAX) " (last notice: further episodes go to the journal until agreement holds)" else ""),
             wallClock().hhmm, fault = true)))
-        comp.requestKeyframe()
+        comp.requestKeyframe("the mirror disagreed with belief")
     }
 
     private fun nibble(panel: ByteArray, stride: Int, x: Int, y: Int): Int {
@@ -6478,7 +6660,7 @@ class Shell(
         for (w in windows) w.onLayoutChanged()
         comp.composed.clear(0)
         composeFullSurface()
-        comp.requestReseed()     // a height change re-lays out the whole shell (§4.2); v2: a fill + draws
+        comp.requestReseed("the height changed")     // a height change re-lays out the whole shell (§4.2); v2: a fill + draws
         return true
     }
 
@@ -6522,7 +6704,7 @@ class Shell(
             for (w in windows) w.onLayoutChanged()
             comp.composed.clear(0)
             composeFullSurface()
-            comp.requestReseed()
+            comp.requestReseed("the font or the style changed")
         }
     }
 
@@ -7401,7 +7583,7 @@ class Shell(
                 // a throw mid-assembly can leave shadows seeded with nothing
                 // on the wire (R3s#7): a keyframe re-grounds belief — cheap
                 // insurance on a path that should never run
-                comp.requestKeyframe()
+                comp.requestKeyframe("a flush could not be assembled")
                 null
             }
             if (seq != null) {
@@ -7482,7 +7664,7 @@ class Shell(
             }
             // the wheel's preview over Main before Main's staging step (decisions AL.1): a staging's paint turns are not
             // what the preview waits for
-            if (!animated && !pumpMainStage(st) && !pumpLedger(st) && !pumpAtlas(st) && !settlePreview() && !pumpMainBind(st)) pumpStage(st)
+            if (!animated && !pumpMainStage(st) && !pumpLedger(st) && !pumpAtlas(st) && !settlePreview() && !pumpStagePiece(st) && !pumpMainBind(st)) pumpStage(st)
         }
 
         // animations continue on the next completion or message; make sure one
@@ -7928,7 +8110,9 @@ class Shell(
          *  many ticks lower a window must call for before the period comes down. */
         const val PERIOD_WINDOW = 8
         const val PERIOD_MARGIN_MEASURED = 1.10
-        const val PERIOD_HYSTERESIS = 3
+        /** His look at 0.81 (ruled): a lowering waits this long with no input, and goes only by this many ticks or more. */
+        const val PERIOD_QUIET_MS = 5_000L
+        const val PERIOD_LOWER_MIN = 4
         const val WRAP_START_MS = 400L
         const val MAINSEQ_RESTAGES = 3
         const val MAINSEQ_POLL_MS = 50L

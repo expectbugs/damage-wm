@@ -374,7 +374,7 @@ class Contract2Test {
         gone.damageAll()
         var guard = 0
         while ((gone.hasPending || gone.needsKeyframe) && guard++ < 40) gone.assembleFlush(5) ?: break
-        gone.requestReseed()
+        gone.requestReseed("test")
         gone.v2 = false                                            // the lease took DRAW2 with it
         val after = gone.assembleFlush(5)
         assertTrue(after != null && after.keyframe && after.ops.any { it is DisplayOp.Keyframe },
@@ -388,7 +388,7 @@ class Contract2Test {
         guard = 0
         while ((kept.hasPending || kept.needsKeyframe) && guard++ < 40) kept.assembleFlush(5) ?: break
         kept.declareShift(Rect(0, 100, 640, 200), Rect(0, 60, 640, 200))
-        kept.requestReseed()
+        kept.requestReseed("test")
         val flush = kept.assembleFlush(5)
         assertTrue(flush != null, "the reseed ships")
         assertTrue(flush!!.ops.none { it is DisplayOp.Copy || it is DisplayOp.CopyPair },

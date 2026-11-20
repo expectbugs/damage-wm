@@ -390,7 +390,7 @@ class PlaneCacheTest {
             rig.shell.services.runOnShell { rig.shell.services.openWindow("rows", null) }
             rig.settle("open rows")
             val n0 = rig.all().size
-            rig.shell.services.runOnShell { rig.shell.comp.requestKeyframe(); rig.shell.comp.damage(rig.shell.layout.content) }
+            rig.shell.services.runOnShell { rig.shell.comp.requestKeyframe("test"); rig.shell.comp.damage(rig.shell.layout.content) }
             rig.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)
             rig.settle("keyframe")
             val kf = rig.all().drop(n0).firstOrNull { f -> f.ops.any { it is DisplayOp.Keyframe } }
@@ -401,7 +401,7 @@ class PlaneCacheTest {
             // and at depth 0 the keyframe IS the frame
             rig.shell.updateSettings { it.copy(depth = 0) }; rig.settle("depth 0")
             val n1 = rig.all().size
-            rig.shell.services.runOnShell { rig.shell.comp.requestKeyframe(); rig.shell.comp.damage(rig.shell.layout.content) }
+            rig.shell.services.runOnShell { rig.shell.comp.requestKeyframe("test"); rig.shell.comp.damage(rig.shell.layout.content) }
             rig.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)
             rig.settle("flat keyframe")
             val kf0 = rig.all().drop(n1).firstOrNull { f -> f.ops.any { it is DisplayOp.Keyframe } }
