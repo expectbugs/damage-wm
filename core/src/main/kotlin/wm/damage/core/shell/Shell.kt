@@ -1687,7 +1687,7 @@ class Shell(
         if (mode == Mode.SILENT) {
             chordArmedAtMs = 0L
             if (type == EvenHubMsg.EV_DOUBLE_CLICK) {
-                val before = screenKey()              // build C3 (DP2): leaving the silent clock is the Lock tier, reversed
+                val before = screenKey(wm.damage.core.motion.Transitions.Tier.LOCK)   // build C3 (DP2): leaving the silent clock is the Lock tier, reversed
                 exitSilent()
                 transitionAct(before, wm.damage.core.motion.Transitions.Tier.LOCK, reversed = true)
             }
@@ -1939,7 +1939,7 @@ class Shell(
             scheduleSave()
             return
         }
-        val before = screenKey()                  // build C3 (DP2): a tap that changes the screen is a Select
+        val before = screenKey(wm.damage.core.motion.Transitions.Tier.SELECT)      // build C3 (DP2): a tap that changes the screen is a Select
         when (val v = focusedView()) {
             is WindowView.ListView -> v.onCommit(v.model.cursor)
             is WindowView.DocView -> v.onTap()
@@ -1975,7 +1975,7 @@ class Shell(
     private fun backFocused() {
         // build C3 (DP2): leaving a window or a level is a Back (Select reversed in time); entering the shell's silent
         // clock and leaving it are the Lock tier, leaving it reversed
-        val before = screenKey()
+        val before = screenKey(if (mode == Mode.WINDOW) wm.damage.core.motion.Transitions.Tier.BACK else wm.damage.core.motion.Transitions.Tier.LOCK)
         backFocusedInner()
         when (before.mode) {
             Mode.WINDOW -> transitionAct(before, wm.damage.core.motion.Transitions.Tier.BACK, reversed = true)
@@ -3893,6 +3893,7 @@ class Shell(
     private suspend fun pumpAtlas(st: LinkState): Boolean {
         val ct = cachedText ?: return false
         if (settings.cachedText != "on" || atlasFailed || glassesSilent) return false
+        if (cacheWritesHeld()) return false               // C3 DM-T (D6): an Encode or Matrix run reads the fonts
         // §73: nothing grows and nothing is sent while the lease is gone. The lapse path leaves
         // `atlasSeenVersion` alone on purpose (a grow there hands out the whole forgotten layout
         // and its first chunk is refused, which switches cached text off for the session) — and
@@ -4233,6 +4234,7 @@ class Shell(
      *  and written. True when it did something. */
     private suspend fun pumpStage(st: LinkState): Boolean {
         if (settings.pageStaging != "on" || stageFailed || glassesSilent || !st.draw2 || !st.leaseHeld) return false
+        if (cacheWritesHeld() || reserveOwner != null) return false     // C3 DM-T: D6's hold; the reserve is Encode's
         if (!transport.cacheCheckSupported) return false     // no proof possible, so nothing is ever drawn from a record
         val ct = cachedText ?: return false
         if (settings.cachedText != "on" || atlasFailed || atlas == null) return false
@@ -4410,6 +4412,7 @@ class Shell(
             return false
         }
         if (stageFailed || glassesSilent || !st.draw2 || !st.leaseHeld) return false
+        if (cacheWritesHeld() || reserveOwner != null) return false     // C3 DM-T: D6's hold; the reserve is Encode's
         if (atlasInFlight != null || atlasCheckInFlight || stageInFlight != null || ledgerReadInFlight) return false
         if (st.inFlight != 0 || comp.hasPending || comp.needsKeyframe) return false
         if (ledgerBaseOwed(st)) return tryLedgerRead(st)
@@ -5579,6 +5582,7 @@ class Shell(
         val run = mainSeq ?: return false
         if (run.playing || run.ending != null) return false
         if (stageFailed || glassesSilent || !st.draw2 || !st.leaseHeld) return false
+        if (cacheWritesHeld()) return false               // C3 DM-T (D6)
         if (atlasInFlight != null || atlasQueue.isNotEmpty() || atlasLapsedOwed || atlasCheckInFlight) return false
         if (stageInFlight != null || stageCursor != null || ledgerReadInFlight) return false
         if (st.inFlight != 0 || comp.hasPending || comp.needsKeyframe) return false
@@ -5960,6 +5964,7 @@ class Shell(
         // paints nothing of Main and writes a slot nothing names — so his return SETs the new pans directly
         val covered = blocked != null && mode != Mode.MAIN && mainBindBlocked(st, front = false) == null
         if (blocked != null && !covered) return false
+        if (cacheWritesHeld()) return false               // C3 DM-T (D6): its staging and its re-make wait for the run's end
         if (atlasInFlight != null || atlasQueue.isNotEmpty() || atlasLapsedOwed || atlasCheckInFlight) return false
         if (stageInFlight != null || stageCursor != null || ledgerReadInFlight) return false
         if (st.inFlight != 0 || comp.hasPending || comp.needsKeyframe) return false
@@ -7798,12 +7803,30 @@ class Shell(
     // ------------------------------------------------------------------ build C3, stage DP2: transitions
     /** What an act compares before and after: the mode, the window and its list level (Settings' adjust level changes a
      *  row, not the screen). [bottom] is the layout's bottom at the time (not compared). */
-    private data class ScreenKey(val mode: Mode, val window: String?, val level: Int) { var bottom = 0 }
+    private data class ScreenKey(val mode: Mode, val window: String?, val level: Int) {
+        var bottom = 0
+        /** C3 DM-T: the screen's cells as it stood before the act (Encode's out half), recorded only where Encode may be
+         *  picked; not compared. */
+        var cells: wm.damage.core.motion.CellLists.Screen? = null
+    }
 
-    private fun screenKey(): ScreenKey {
+    /** [tier]: the act this key stands before — the leaving screen's cells are recorded when Encode is checked there and
+     *  this session may play it (one paint into a scratch, [screenRuns]). */
+    private fun screenKey(tier: wm.damage.core.motion.Transitions.Tier? = null): ScreenKey {
         val w = if (mode == Mode.WINDOW) current else null
         return ScreenKey(mode, w?.id, w?.let { if (it === settingsWindow) settingsWindow.listLevel() else it.levelDepth() } ?: 0)
-            .also { it.bottom = layout.safe.bottom }
+            .also { k ->
+                k.bottom = layout.safe.bottom
+                if (tier != null && encodeMayPlay(tier)) k.cells = screenCells(screenRuns(), Rect(0, 0, comp.width, layout.safe.bottom))
+            }
+    }
+
+    /** Encode is checked in [tier] and this session could play it: stage 5, a 256 KiB cache with BIND (the stage reserve
+     *  holds its lists, the DM spec's D5), cached text on. */
+    private fun encodeMayPlay(tier: wm.damage.core.motion.Transitions.Tier): Boolean {
+        val st = transport.state.value
+        return st.transitionRegion != null && st.bind && st.cacheSize >= CfwModes.CACHE2_MAX_RIDERS && atlas != null &&
+            cachedText != null && wm.damage.core.motion.Transitions.Effect.ENCODE.id in settings.effectsOf(tier)
     }
 
     /** The transition in hand (`FIRMWARE.md` §7.11: the out half, the held frame, the in half); null when none. */
@@ -7823,6 +7846,9 @@ class Shell(
     /** Transitions that ran whole (RIGHT's in-half body, outcome 0) this process. */
     private var transitionsWhole = 0
     internal fun transitionCountsForTest(): Pair<Int, Int> = transitionActs to transitionsWhole
+    /** C3 DM-T: the transitions that ran whole, by effect id (tests: the walk's picks). */
+    private val transitionsWholeBy = HashMap<String, Int>()
+    internal fun transitionsWholeByEffectForTest(): Map<String, Int> = HashMap(transitionsWholeBy)
 
     /**
      * An act changed the screen ([before] → now): with ladder stage 5 in force and an effect checked in [tier], the
@@ -7839,33 +7865,36 @@ class Shell(
         if (!st.bind || !st.leaseHeld || glassesSilent || sleep != null || switcher.open) return
         val ids = settings.effectsOf(tier)
         if (ids.isEmpty()) return                                        // None: the screen lands at once
-        val effect = wm.damage.core.motion.Transitions.Effect.of(ids[transitionRandom.nextInt(ids.size)]) ?: return
         val k = transitionActs++
         val area = Rect(0, 0, comp.width, maxOf(before.bottom, layout.safe.bottom))
-        val timing = wm.damage.core.motion.Transitions.timing(settings.lengthOf(tier), settings.framesOf(tier))
         val at4 = (region.first + (k and 1) * CfwModes.TRANSITION_SLOT) / 4
         val tagOut = TransitionRun.TAG_OUT + (k and 0xFFF)
         val tagIn = TransitionRun.TAG_IN + (k and 0xFFF)
-        val what = "${tier.word} ${effect.label}${if (reversed) " reversed" else ""}"
-        val run = try {
-            val fx = wm.damage.core.motion.Motion.effects(wm.damage.core.wire.DamageMsg.Caps(st.damageContract, st.damageFeatures), st.flagsInForce)
-            // each refusal names its half ("the out half: …", "the in half's PLAY-AFTER: …")
-            val b = wm.damage.core.motion.Transitions.build(fx, effect, reversed, area, timing, at4, CfwModes.TRANSITION_SLOT,
-                settings.depth, seed = k and 0xFFFF)
-            val out = try { wm.damage.core.motion.Motion.play(b.out, TransitionRun.OUT_SLOT, timing.period, tagOut, 0, IntArray(4)) }
-                catch (e: wm.damage.core.geom.LintError) { throw wm.damage.core.geom.LintError("the out half's PLAY: ${e.message}") }
-            // the step budget (§7.12): the in half waits on the out half, which may still be drawing
-            val inn = try {
-                wm.damage.core.motion.Motion.playAfter(b.inn, TransitionRun.IN_SLOT, timing.period, tagIn, TransitionRun.OUT_SLOT,
-                    IntArray(4), listOf(wm.damage.core.motion.Motion.Drawing(b.out.cost())), 0)
-            } catch (e: wm.damage.core.geom.LintError) { throw wm.damage.core.geom.LintError("the in half's PLAY-AFTER: ${e.message}") }
-            TransitionRun(tier, b, CfwModes.cacheUpdate2(listOf(CfwModes.CacheWrite2(at4, b.blob)), st.cacheSize), out, inn,
-                tagOut, tagIn, System.currentTimeMillis())
-        } catch (e: wm.damage.core.geom.LintError) {
-            journal.note("transition", "$what is refused offline (${e.message}) — the screen lands at once, as without stage 5")
-            return
+        // C3 DM-T (`MOTION.md` §7: a random pick among the checked): an Encode or Matrix whose preconditions this act does not
+        // meet leaves the pick, said once with its reason, and the pick is made again among the rest; when nothing checked is
+        // left, the tier's defaults play — never a refusal he sees
+        val pool = ids.mapNotNull { wm.damage.core.motion.Transitions.Effect.of(it) }.toMutableList()
+        val leftOut = ArrayList<String>()
+        var run: TransitionRun? = null
+        var what = ""
+        while (run == null) {
+            val effect = if (pool.isNotEmpty()) pool[transitionRandom.nextInt(pool.size)] else wm.damage.core.motion.Transitions.defaultsOf(tier).first()
+            what = "${tier.word} ${effect.label}${if (reversed) " reversed" else ""}"
+            try {
+                run = transitionRunOf(st, tier, effect, reversed, area, at4, k, tagOut, tagIn, before)
+            } catch (e: wm.damage.core.geom.LintError) {
+                if (effect.glyphs && pool.remove(effect)) { leftOut += "${effect.label} (${e.message})"; continue }
+                if (leftOut.isNotEmpty()) journal.note("transition", "left out of this act's pick: ${leftOut.joinToString("; ")}")
+                journal.note("transition", "$what is refused offline (${e.message}) — the screen lands at once, as without stage 5")
+                return
+            }
         }
+        if (leftOut.isNotEmpty()) journal.note("transition", "left out of this act's pick: ${leftOut.joinToString("; ")} — $what plays")
         transition?.let { journal.note("transition", "a new act replaces ${it.tier.word}'s (${it.phase}): its PLAY closes what is left of it") }
+        // the stage reserve's owner: an Encode run takes it from page staging (whose strips there it overwrites), any other
+        // act that replaces one gives it back
+        if (run.built.effect == wm.damage.core.motion.Transitions.Effect.ENCODE) reserveTake(run)
+        else if (reserveOwner != null) reserveGiveBack("a new act replaced the Encode run")
         // K1 §9: a box on screen goes back to the queue unread, and returns after the transition
         if (notifications.active) {
             if (notifications.furlingOut) {
@@ -7883,6 +7912,85 @@ class Shell(
         transitionDeadlineGen++
         journal.note("transition", "owed: ${run.describe()}")
         post(Msg.Pump)
+    }
+
+    /**
+     * An act's run for [effect]: both programs built (each refusal names its half), the PLAY and the PLAY-AFTER judged
+     * offline. C3 DM-T, Encode and Matrix (the DM spec §3, §4): refused here — and so left out of the act's pick — when an
+     * atlas chunk is queued or in flight (the fonts it reads could move), on a session without 256 KiB and BIND (Encode:
+     * the stage reserve holds its lists), when a screen's lists do not fit, or when a half passes 80 % of the step budget;
+     * their period and frames follow "the length holds, frames give" ([wm.damage.core.motion.Transitions.timingFor]).
+     */
+    private fun transitionRunOf(st: LinkState, tier: wm.damage.core.motion.Transitions.Tier, effect: wm.damage.core.motion.Transitions.Effect,
+                                reversed: Boolean, area: Rect, at4: Int, k: Int, tagOut: Int, tagIn: Int, before: ScreenKey): TransitionRun {
+        val fx = wm.damage.core.motion.Motion.effects(wm.damage.core.wire.DamageMsg.Caps(st.damageContract, st.damageFeatures), st.flagsInForce)
+        val glyphs = if (!effect.glyphs) null else {
+            if (atlasInFlight != null || atlasQueue.isNotEmpty() || atlasBusyForTest)
+                throw wm.damage.core.geom.LintError("an atlas chunk is queued or in flight — the fonts it reads could move")
+            if (effect == wm.damage.core.motion.Transitions.Effect.MATRIX) wm.damage.core.motion.Transitions.Glyphs(rain = rainFace())
+            else {
+                if (st.cacheSize < CfwModes.CACHE2_MAX_RIDERS || !st.bind)
+                    throw wm.damage.core.geom.LintError("Encode plays on a 256 KiB session with BIND only (this one: ${st.cacheSize / 1024} KiB${if (st.bind) "" else ", no BIND"})")
+                val reserve = CfwModes.stageReserve(st.cacheSize, st.bind)
+                wm.damage.core.motion.Transitions.Glyphs(leaving = before.cells, arriving = screenCells(screenRuns(), Rect(0, 0, comp.width, layout.safe.bottom)),
+                    reserveAt4 = (st.cacheSize - reserve) / 4, reserveRoom = reserve)
+            }
+        }
+        val timing = wm.damage.core.motion.Transitions.timingFor(effect, settings.lengthOf(tier), settings.framesOf(tier), area, glyphs?.cells ?: 0)
+        val b = wm.damage.core.motion.Transitions.build(fx, effect, reversed, area, timing, at4, CfwModes.TRANSITION_SLOT,
+            settings.depth, seed = k and 0xFFFF, glyphs = glyphs)
+        if (effect.glyphs && (!b.withinShare || maxOf(b.outCost, b.inCost) * 100 > wm.damage.core.motion.Motion.BUDGET_CAP * transitionShareForTest))
+            throw wm.damage.core.geom.LintError("a half costs ${maxOf(b.outCost, b.inCost)} u, past " +
+                "${minOf(wm.damage.core.motion.Transitions.SHARE_MAX_PERCENT, transitionShareForTest)} % of the step budget's cap")
+        val out = try { wm.damage.core.motion.Motion.play(b.out, TransitionRun.OUT_SLOT, timing.period, tagOut, 0, IntArray(4)) }
+            catch (e: wm.damage.core.geom.LintError) { throw wm.damage.core.geom.LintError("the out half's PLAY: ${e.message}") }
+        // the step budget (§7.12): the in half waits on the out half, which may still be drawing
+        val inn = try {
+            wm.damage.core.motion.Motion.playAfter(b.inn, TransitionRun.IN_SLOT, timing.period, tagIn, TransitionRun.OUT_SLOT,
+                IntArray(4), listOf(wm.damage.core.motion.Motion.Drawing(b.out.cost())), 0)
+        } catch (e: wm.damage.core.geom.LintError) { throw wm.damage.core.geom.LintError("the in half's PLAY-AFTER: ${e.message}") }
+        // Encode: the out half's lists ride the records' write (one message); the in half's go after the out PLAY
+        return TransitionRun(tier, b, CfwModes.cacheUpdate2(listOfNotNull(CfwModes.CacheWrite2(at4, b.blob),
+            b.outLists?.let { CfwModes.CacheWrite2(it.at4, it.bytes) }), st.cacheSize), out, inn, tagOut, tagIn, System.currentTimeMillis(),
+            listWrite = b.inLists?.let { CfwModes.cacheUpdate2(listOf(CfwModes.CacheWrite2(it.at4, it.bytes)), st.cacheSize) })
+    }
+
+    /** Tests only: the atlas reads as busy (a chunk queued or in flight) at the act. */
+    @Volatile internal var atlasBusyForTest = false
+    /** Tests only: the share of the step budget an Encode or Matrix half may take, in percent (the rule's: 80). */
+    @Volatile internal var transitionShareForTest = wm.damage.core.motion.Transitions.SHARE_MAX_PERCENT
+
+    /** Matrix's face: of the faces the glasses hold, the one that packs the most of A–Z a–z 0–9 (the DM spec §3). */
+    private fun rainFace(): wm.damage.core.motion.CellLists.Face? {
+        val ct = cachedText ?: return null
+        val a = atlas ?: return null
+        return ct.live.filter { a.isAcked(it) }.mapNotNull { s -> a.entry(s)?.let { s to it } }
+            .maxByOrNull { (_, e) -> wm.damage.core.motion.CellLists.ALNUM.count { e.packs(it.toChar()) } }
+            ?.let { (s, e) -> wm.damage.core.motion.CellLists.face(s, e) }?.takeIf { it.alphabet.isNotEmpty() }
+    }
+
+    /** C3 DM-T, the DM spec's D6: no other cache write while an Encode or Matrix run is in hand — their read range runs from
+     *  the atlas's fonts to their records (Encode's to its lists in the stage reserve, above Main's region), and a write
+     *  that meets it closes the half on the glasses. The five writers read it ([pumpAtlas], [pumpMainStage], [pumpMainBind],
+     *  [pumpStagePiece], [pumpStage]); every end of a run goes through [transitionEnd] or a new act, each posting a pump. */
+    private fun cacheWritesHeld(): Boolean = transition?.holdsCache == true
+
+    /** C3 DM-T, the stage reserve's owner (the DM spec's D5, minimal): null — page staging's; an Encode run takes it at
+     *  its act and gives it back at its end (every [transitionEnd]: its body, the deadline, a cut, the session start that
+     *  ends every run, the shell asleep) and when a non-Encode act replaces it — so it is only ever the run in hand. Page
+     *  staging stages again by itself when its document is in front and idle. */
+    private var reserveOwner: TransitionRun? = null
+    internal fun reserveOwnedForTest(): Boolean = reserveOwner != null
+
+    private fun reserveTake(run: TransitionRun) {
+        if (reserveOwner == null) stagePagesClear("an Encode transition takes the stage reserve for its cell lists")
+        reserveOwner = run
+    }
+
+    private fun reserveGiveBack(why: String) {
+        if (reserveOwner == null) return
+        reserveOwner = null
+        journal.note("transition", "the stage reserve is page staging's again ($why)")
     }
 
     /** The pump's first step for an owed transition: the records' write (one mode-19 message, this shell's tag), then
@@ -7916,6 +8024,16 @@ class Shell(
         tr.outId = submitLocalOnly(clears + listOf(tr.playOut) + tail.drop(clears.size), "TRANSITION")
         tr.phase = TransitionRun.Phase.FRAME
         tr.outSentAtMs = now
+        // C3 DM-T, Encode: the in half's lists after the out PLAY, above the out lists (they meet no range the out half
+        // reads), ahead of the frame and the PLAY-AFTER in stream order
+        tr.listWrite?.let { lw ->
+            tr.listId = try {
+                transport.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(lw)), comp.epoch, "TRANSITION", writer = atlasTag)).also { transitionWrites += it }
+            } catch (e: Exception) {
+                transitionEnd("its in half's lists could not be submitted (${e.message})", close = true)
+                return
+            }
+        }
         tr.outId?.let { id ->
             // the out PLAY is what he sees first: journaled as the gesture's first flush (`in`, the wait for a slot), so
             // `tools/journal_report.py`'s WAIT column prices it; the frame under it no longer counts as the first
@@ -7958,6 +8076,7 @@ class Shell(
         val inFrame = tr.phase == TransitionRun.Phase.FRAME || tr.phase == TransitionRun.Phase.IN
         when (ev.id) {
             tr.writeId -> if (!ev.ok) transitionEnd("its records' write failed (${ev.error})", close = true)
+            tr.listId -> if (!ev.ok) transitionEnd("its in half's lists' write failed (${ev.error})", close = true)
             // the deadline is armed at whichever of the two acks comes second (the review's finding 4: from the out PLAY's
             // ack, not its submit, so a busy link cannot make it fall inside the in half)
             tr.outId -> if (!ev.ok) transitionEnd("its out half's flush failed (${ev.error})", close = true)
@@ -7993,6 +8112,7 @@ class Shell(
                 journal.note("transition", "in half's last step drawn on RIGHT (${ev.drawn ?: "?"} drawn, ${ev.folded ?: "?"} folded), " +
                     "${System.currentTimeMillis() - tr.actAtMs} ms after the act")
                 transitionsWhole++
+                transitionsWholeBy.merge(tr.built.effect.id, 1, Int::plus)
                 transitionEnd(null, closeOut = true)
             }
             else -> transitionEnd("its in half ended on RIGHT with outcome ${ev.outcome}${ev.reason?.let { " (reason $it)" } ?: ""}")
@@ -8006,6 +8126,7 @@ class Shell(
         transition = null
         transitionDeadlineGen++
         if (why != null) journal.note("transition", "${tr.tier.word} ${tr.built.effect.label} ended in ${tr.phase}: $why")
+        if (reserveOwner === tr) reserveGiveBack("its Encode run ended")
         val owners = tr.phase == TransitionRun.Phase.FRAME || tr.phase == TransitionRun.Phase.IN
         val closes = when {
             !owners || glassesSilent -> emptyList()

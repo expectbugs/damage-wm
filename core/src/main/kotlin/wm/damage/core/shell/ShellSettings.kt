@@ -247,13 +247,13 @@ data class ShellSettings(
         scrollEffect = if (scrollEffect in SCROLL_EFFECTS) scrollEffect else "depth",
         selectLength = SCROLL_LENGTHS.minByOrNull { kotlin.math.abs(it - selectLength) } ?: 450,
         selectFrames = if (selectFrames in FRAME_COUNTS) selectFrames else 10,
-        selectEffects = tierEffects(wm.damage.core.motion.Transitions.Tier.SELECT, selectEffects),
+        selectEffects = storedEffects(wm.damage.core.motion.Transitions.Tier.SELECT, selectEffects),
         backLength = SCROLL_LENGTHS.minByOrNull { kotlin.math.abs(it - backLength) } ?: 450,
         backFrames = if (backFrames in FRAME_COUNTS) backFrames else 10,
-        backEffects = tierEffects(wm.damage.core.motion.Transitions.Tier.BACK, backEffects),
+        backEffects = storedEffects(wm.damage.core.motion.Transitions.Tier.BACK, backEffects),
         lockLength = SCROLL_LENGTHS.minByOrNull { kotlin.math.abs(it - lockLength) } ?: 450,
         lockFrames = if (lockFrames in FRAME_COUNTS) lockFrames else 10,
-        lockEffects = tierEffects(wm.damage.core.motion.Transitions.Tier.LOCK, lockEffects),
+        lockEffects = storedEffects(wm.damage.core.motion.Transitions.Tier.LOCK, lockEffects),
         slideFill = if (slideFill in SLIDE_FILLS) slideFill else "auto",
         cachedText = if (cachedText in CACHED_TEXT) cachedText else "off",
         pageStaging = if (pageStaging in PAGE_STAGING) pageStaging else "on",
@@ -297,6 +297,10 @@ data class ShellSettings(
         /** Build C3 (DP2): a tier's checked effects as stored — the ids that tier offers, once each, in its rows' order. */
         fun tierEffects(t: wm.damage.core.motion.Transitions.Tier, ids: List<String>): List<String> =
             wm.damage.core.motion.Transitions.effectsOf(t).map { it.id }.filter { it in ids }
+        /** C3 DM-T: a stored value as read — [tierEffects]; a value that named effects but none this build draws reads the
+         *  tier's defaults (an empty one stays None, his choice). Never a refusal he sees. */
+        fun storedEffects(t: wm.damage.core.motion.Transitions.Tier, ids: List<String>): List<String> =
+            tierEffects(t, ids).ifEmpty { if (ids.isEmpty()) emptyList() else wm.damage.core.motion.Transitions.defaultsOf(t).map { it.id } }
         val SLIDE_FILLS = listOf("auto", "split", "whole")
         /** The texture-cache switch (§40). */
         val CACHED_TEXT = listOf("off", "on")

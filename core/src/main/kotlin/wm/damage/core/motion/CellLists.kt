@@ -110,9 +110,10 @@ object CellLists {
         return Screen.Cells(lists)
     }
 
-    /** A half's lists laid out in the cache: [table] (its lists in [screen]'s order), the lists' disparities in that order,
-     *  and the bytes from [at4] — the table, each list, each face's alphabet once. */
-    class Laid(val table: Motion.CellTable, val disparities: List<Int>, val at4: Int, val blob: ByteArray) {
+    /** A half's lists laid out in the cache: [table] (its lists in [screen]'s order; null for a screen with no text the
+     *  glasses hold — the half then draws no cells), the lists' disparities in that order, and the bytes from [at4] — the
+     *  table, each list, each face's alphabet once. */
+    class Laid(val table: Motion.CellTable?, val disparities: List<Int>, val at4: Int, val blob: ByteArray) {
         val end4: Int get() = at4 + blob.size / 4
     }
 
@@ -123,7 +124,7 @@ object CellLists {
      * not filled once settled). Every box filled with 0. [steps] sets the noise: ⌊steps / 3⌋, at least 1 (n − N ≥ 1, §7.6).
      */
     fun lay(screen: Screen.Cells, at4: Int, room: Int, steps: Int, out: Boolean, why: (String) -> Unit = {}): Laid? {
-        if (screen.lists.isEmpty()) { why("no text the atlas holds"); return null }
+        if (screen.lists.isEmpty()) return Laid(null, emptyList(), at4, ByteArray(0))
         val noise = if (steps >= 2) maxOf(1, steps / 3) else 0
         var off = at4 + words(4 + 2 * screen.lists.size)
         val alphabets = LinkedHashMap<FontSpec, Motion.Alphabet>()

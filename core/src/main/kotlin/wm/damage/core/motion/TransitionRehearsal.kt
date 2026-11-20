@@ -1,5 +1,8 @@
 package wm.damage.core.motion
 
+import wm.damage.core.comp.CachedText
+import wm.damage.core.comp.GlyphAtlas
+import wm.damage.core.comp.TextDraw
 import wm.damage.core.geom.Geometry
 import wm.damage.core.geom.Rect
 import wm.damage.core.gfx.Gray8
@@ -7,6 +10,8 @@ import wm.damage.core.gfx.Pack
 import wm.damage.core.gfx.Zl
 import wm.damage.core.sim.GlassFirmwareSim
 import wm.damage.core.sim.MotionSim
+import wm.damage.core.text.Face
+import wm.damage.core.text.FontSpec
 import wm.damage.core.transport.Arm
 import wm.damage.core.wire.CfwModes
 import wm.damage.core.wire.DamageMsg
@@ -19,6 +24,11 @@ import wm.damage.core.wire.Pb
  * in slot 3 naming slot 2 in the last of them (or [Plan.lateBy] periods after the out half's end, alone), then a wake at
  * every due time until nothing is planned. Context for the reader: Adam's own glasses on his own firmware fork; nothing
  * here contacts a device. `desktop --motion-check` draws its frames; the tests read its checks.
+ *
+ * C3 DM-T: Encode and Matrix draw from a font in the cache, so for them the rehearsal writes one (a face of its own, its
+ * letters and digits as [face] draws them, packed as the atlas packs a face) and writes lines of text in it on both
+ * pictures; Encode's cells are those lines' runs ([CellLists]), its out lists written with the records and its in lists
+ * after the out PLAY, as the shell writes them.
  */
 object TransitionRehearsal {
     class Frame(val label: String, val tick: Long, val l: ByteArray, val r: ByteArray)
@@ -32,13 +42,73 @@ object TransitionRehearsal {
     const val OUT_SLOT = 2
     const val IN_SLOT = 3
     private const val AT4 = 1024
+    /** Encode and Matrix: the records above the rehearsal's font; Encode's lists in the stage reserve of a 256 KiB session
+     *  with BIND (`CfwModes.stageReserve`). */
+    private const val GLYPH_AT4 = 4096
     private const val CACHE_KIB = 256
+    private val RESERVE = CfwModes.stageReserve(CACHE_KIB * 1024, bind = true)
+
+    /** The rehearsal's face: its letters, digits and a few signs, each [FACE_H] px tall, packed as the atlas packs one. */
+    private const val FACE_H = 18
+    private val faceSpec = FontSpec(Face.SYSTEM, FACE_H)
+    private val face: Pair<GlyphAtlas.Entry, ByteArray> by lazy {
+        val codes = CellLists.ALNUM + listOf(' '.code, '.'.code, '-'.code)
+        val glyphs = codes.associate { c ->
+            val ch = c.toChar()
+            val w = if (ch == ' ') 6 else 7 + c % 4
+            ch to wm.damage.core.wire.TextureCache.Image(w, FACE_H, ByteArray(w * FACE_H) { i ->
+                val x = i % w; val y = i / w
+                // a glyph-like mark: two stems and the code's bits as bars (a space is empty)
+                if (ch == ' ' || y < 3 || y > FACE_H - 4 || x == w - 1) 0
+                else if (x == 1 || x == w - 3 || ((c shr (y / 3)) and 1 == 1 && y % 3 == 0)) (9 + (c + y) % 7).toByte() else 0
+            })
+        }
+        val tofu = wm.damage.core.wire.TextureCache.Image(6, FACE_H, ByteArray(6 * FACE_H) { 5 })
+        val b = wm.damage.core.wire.TextureCache.Builder(v2 = true, capacity = CACHE_KIB * 1024, maxCache = CACHE_KIB * 1024)
+        val font = b.addFont(glyphs, tofu)
+        val n = font.glyphOffsets.size
+        val images = Array(n) { glyphs[(wm.damage.core.wire.TextureCache.FIRST_CHAR + it).toChar()] ?: tofu }
+        val content = b.content()
+        GlyphAtlas.Entry(font, images, FACE_H, glyphs, tofu, content.size, BooleanArray(n) { (wm.damage.core.wire.TextureCache.FIRST_CHAR + it).toChar() in glyphs }, content.size) to content
+    }
+
+    /** Lines of text in the rehearsal's face on a copy of [g] (Encode's cells come from them), and their runs. */
+    private fun withText(g: Gray8, lines: List<String>, h: Int): Pair<Gray8, List<TextDraw>> {
+        val e = face.first
+        val out = Gray8(g.w, g.h).also { g.pix.copyInto(it.pix) }
+        val runs = ArrayList<TextDraw>()
+        for ((i, line) in lines.withIndex()) {
+            val y = 24 + i * 28
+            if (y + FACE_H > h) break
+            out.fillRect(Rect(20, y, 600, FACE_H), 0)
+            val w = CachedText.blit(out, 24, y, line, e, 255)
+            runs += TextDraw(Rect(24, y, w, FACE_H), line, faceSpec, 24, y, 255)
+        }
+        return out to runs
+    }
+    /** The rehearsal's font as the cache holds it from offset 0 (the tests' model draws from it too). */
+    val fontBytes: ByteArray get() = face.second
+
+    /** Encode's and Matrix's inputs over the [height] area — the rehearsal's face for the rain, the cells of lines of text
+     *  written on copies of [old] and [new] — and those two pictures. */
+    fun glyphInputs(height: Int, old: Gray8, new: Gray8): Triple<Transitions.Glyphs, Gray8, Gray8> {
+        val area = Rect(0, 0, Geometry.PANEL_W, height)
+        val (o, oRuns) = withText(old, LEAVING, height); val (n, nRuns) = withText(new, ARRIVING, height)
+        fun cells(runs: List<TextDraw>) = CellLists.screen(runs, { face.first }, { { _, _ -> 0 } }, { 0 }, area)
+        return Triple(Transitions.Glyphs(CellLists.face(faceSpec, face.first), cells(oRuns), cells(nRuns),
+            (CACHE_KIB * 1024 - RESERVE) / 4, RESERVE), o, n)
+    }
+
+    private val LEAVING = listOf("THE LEAVING SCREEN 0123", "row one - alpha", "row two - beta 42", "row three - gamma", "the last row 9")
+    private val ARRIVING = listOf("Arriving window 4567", "Settings 8 rows", "Reader page 12 of 30", "Music - now playing", "Files 3")
 
     fun play(plan: Plan, oldPicture: Gray8, newPicture: Gray8): Result {
         // as the shell's screens are: black below the layout's height, the transition's area
-        val old = below(oldPicture, plan.height); val new = below(newPicture, plan.height)
-        val control = run(plan, old, new, frame = false).frames
-        val r = run(plan, old, new, frame = true)
+        var old = below(oldPicture, plan.height); var new = below(newPicture, plan.height)
+        var glyphs: Transitions.Glyphs? = null
+        if (plan.effect.glyphs) glyphInputs(plan.height, old, new).let { (g, o, n) -> glyphs = g; old = o; new = n }
+        val control = run(plan, old, new, frame = false, glyphs).frames
+        val r = run(plan, old, new, frame = true, glyphs)
         val failures = ArrayList(r.failures)
         // the arriving frame shows nothing of itself before the in half: every frame up to the out half's last step
         // equals the control run's (no frame written)
@@ -54,7 +124,7 @@ object TransitionRehearsal {
 
     private class Run(val built: Transitions.Built, val frames: List<Frame>, val notifies: List<DamageMsg.Motion>, val failures: List<String>)
 
-    private fun run(plan: Plan, old: Gray8, new: Gray8, frame: Boolean): Run {
+    private fun run(plan: Plan, old: Gray8, new: Gray8, frame: Boolean, glyphs: Transitions.Glyphs?): Run {
         val failures = ArrayList<String>()
         val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = 0xdff; it.clockIsOsTick = true }
         var now = 1000L
@@ -71,8 +141,11 @@ object TransitionRehearsal {
         send("the leaving picture's keyframe", CfwModes.keyframe(Zl.encodeCfw(Pack.rect(old, full))))
         val effects = Motion.effects(DamageMsg.Caps(2, 0xdff), flags)
         val area = Rect(0, 0, Geometry.PANEL_W, plan.height)
-        val b = Transitions.build(effects, plan.effect, plan.reversed, area, plan.timing, AT4, 2048, plan.depth)
-        send("the records", CfwModes.cacheUpdate2(listOf(CfwModes.CacheWrite2(AT4, b.blob)), CACHE_KIB * 1024))
+        if (glyphs != null) send("the rehearsal's font", CfwModes.cacheUpdate2(listOf(CfwModes.CacheWrite2(0, face.second)), CACHE_KIB * 1024))
+        val at4 = if (glyphs != null) GLYPH_AT4 else AT4
+        val b = Transitions.build(effects, plan.effect, plan.reversed, area, plan.timing, at4, CfwModes.TRANSITION_SLOT, plan.depth, glyphs = glyphs)
+        // the records' write: the slot's records and, for Encode, the out half's lists, in one message (the shell's form)
+        send("the records", CfwModes.cacheUpdate2(listOfNotNull(CfwModes.CacheWrite2(at4, b.blob), b.outLists?.let { CfwModes.CacheWrite2(it.at4, it.bytes) }), CACHE_KIB * 1024))
         val frames = ArrayList<Frame>()
         val notifies = ArrayList<DamageMsg.Motion>()
         fun take(label: String) { frames += Frame(label, now, sim.snapshot(Arm.LEFT), sim.snapshot(Arm.RIGHT)) }
@@ -87,6 +160,8 @@ object TransitionRehearsal {
         val n = plan.timing.steps
         send("the out PLAY", Motion.play(b.out, OUT_SLOT, p, TAG_OUT, 0, IntArray(4)))
         notes(); take("out 1")
+        // Encode: the in half's lists after the out PLAY, above the out lists (they meet no range the out half reads)
+        b.inLists?.let { send("the in half's lists", CfwModes.cacheUpdate2(listOf(CfwModes.CacheWrite2(it.at4, it.bytes)), CACHE_KIB * 1024)) }
         val playAfter = Motion.playAfter(b.inn, IN_SLOT, p, TAG_IN, OUT_SLOT, IntArray(4), listOf(Motion.Drawing(b.outCost)), 0)
         // the arriving frame as horizontal bands, one mode-3 batch each (fid 1, 2, ...), the first right after the PLAY,
         // the next after each out step; PLAY-AFTER rides the last band's batch unless the plan makes it late

@@ -19,24 +19,34 @@ import wm.damage.core.wire.CfwModes
  *
  * Every program is built through [Motion.program2] — the one gate, so nothing here is built below stage 5 — and so is
  * refused offline where the glasses would refuse it, the step budget at the PLAY and the PLAY-AFTER included.
+ *
+ * C3 stage DM-T: Encode and Matrix (GLYPHS, §7.6) are not paths: Matrix is rain over the panel's picture (reveal 2: the
+ * area above the trail filled, in place) and then over the shadow (reveal 1: the shadow above the trail, in place, LAND);
+ * Encode a dim with the leaving screen's letters turning to noise and gone over it, then the arriving screen with its
+ * letters masked, turning to noise and revealed ([CellLists]). Both read the atlas's fonts, so the shell holds every other
+ * cache write while one is in hand (the spec's D6), and Encode's cell lists live in the stage reserve.
  */
 object Transitions {
     /** The tiers that play a transition. */
     enum class Tier(val word: String) { SELECT("Select"), BACK("Back"), LOCK("Lock") }
 
-    /** `MOTION.md` §7's effects that this build draws. Encode and Matrix (GLYPHS) are not built in DP2 (their cell lists
-     *  from the screens' text are DM's `CellLists`): their rows are not shown. */
+    /** `MOTION.md` §7's effects that this build draws. [glyphs]: Encode and Matrix (C3 DM-T), drawn from the atlas. */
     enum class Effect(val id: String, val label: String) {
         DEPTH("depth", "Depth"), WARP("warp", "Warp"), FLIP("flip", "Flip"), FALL("fall", "Fall"),
-        GLITCH("glitch", "Glitch"), EXPLODE("explode", "Explode"), FADE("fade", "Fade"), BUILD("build", "Build");
+        GLITCH("glitch", "Glitch"), EXPLODE("explode", "Explode"), FADE("fade", "Fade"), BUILD("build", "Build"),
+        ENCODE("encode", "Encode"), MATRIX("matrix", "Matrix");
+        val glyphs: Boolean get() = this == ENCODE || this == MATRIX
         companion object { fun of(id: String): Effect? = entries.firstOrNull { it.id == id } }
     }
 
-    /** The effects each tier offers, in its rows' order (Close/Back: Select's, each reversed in time). */
+    /** The effects each tier offers, in its rows' order — `MOTION.md` §7's (Close/Back: Select's, each reversed in time). */
     fun effectsOf(tier: Tier): List<Effect> = when (tier) {
-        Tier.SELECT, Tier.BACK -> listOf(Effect.DEPTH, Effect.WARP, Effect.FLIP, Effect.FALL, Effect.GLITCH, Effect.EXPLODE)
-        Tier.LOCK -> listOf(Effect.FADE, Effect.BUILD, Effect.GLITCH, Effect.EXPLODE)
+        Tier.SELECT, Tier.BACK -> listOf(Effect.DEPTH, Effect.WARP, Effect.FLIP, Effect.FALL, Effect.GLITCH, Effect.ENCODE, Effect.MATRIX, Effect.EXPLODE)
+        Tier.LOCK -> listOf(Effect.FADE, Effect.BUILD, Effect.MATRIX, Effect.ENCODE, Effect.GLITCH, Effect.EXPLODE)
     }
+
+    /** The tier's effects as first stored — what a stored value that names nothing this build draws reads as. */
+    fun defaultsOf(tier: Tier): List<Effect> = if (tier == Tier.LOCK) listOf(Effect.FADE) else listOf(Effect.DEPTH)
 
     /** Steps a half and the period (OS ticks) for a tier's `length` (ms) and `frames` (0 = Auto: about one frame per
      *  45 ms, the measured step of today's pans — `MOTION.md` §7's "450 ms at 10 frames"). Each half is half the length;
@@ -52,6 +62,38 @@ object Transitions {
         val p = Math.round(lengthMs / 2.0 / steps * 1.024).toInt().coerceIn(CfwModes.MOTION_PERIODS.first, CfwModes.MOTION_PERIODS.last)
         return Timing(steps, p)
     }
+
+    /**
+     * The DM spec §3, "the length holds, frames give": Encode's and Matrix's step is longer than the period [timing] gives
+     * at short lengths and many frames, so their period is the larger of that one and the step's fit, and their frames the
+     * fewer of the tier's and what the length holds at that period (even, at least 2). The step (I, the spec's model on
+     * §7.12's fast-path figure): 0.5 ms + 0.036 µs a pixel of the area + 0.058 ms a cell (Encode, the larger half) or 0.065
+     * ms a lit rain cell (Matrix); the period ⌈⌈ms·1.024⌉·1.10⌉ ticks in 16..128. Every other effect: [timing].
+     */
+    fun timingFor(effect: Effect, lengthMs: Int, frames: Int, area: Rect, cells: Int = 0): Timing {
+        val base = timing(lengthMs, frames)
+        val px = area.w.toDouble() * area.h
+        val ms = when (effect) {
+            Effect.ENCODE -> 0.5 + 0.036e-3 * px + 0.058 * cells
+            Effect.MATRIX -> 0.5 + 0.036e-3 * px + 0.065 * rainCols(area) * RAIN_TRAIL
+            else -> return base
+        }
+        val fit = Math.ceil(Math.ceil(ms * 1.024) * 1.10).toInt().coerceIn(CfwModes.MOTION_PERIODS.first, CfwModes.MOTION_PERIODS.last)
+        val p = maxOf(base.period, fit)
+        val f = (minOf(base.steps * 2, Math.floor(lengthMs * 1.024 / p).toInt()) / 2 * 2).coerceAtLeast(2)
+        return Timing(f / 2, p)
+    }
+
+    /** What Encode and Matrix draw from (C3 DM-T): [rain] the atlas face the rain draws (Matrix); the leaving and the
+     *  arriving screens' cells (Encode), whose lists are laid out from [reserveAt4] in at most [reserveRoom] bytes. */
+    class Glyphs(val rain: CellLists.Face? = null, val leaving: CellLists.Screen? = null, val arriving: CellLists.Screen? = null,
+                 val reserveAt4: Int = 0, val reserveRoom: Int = 0) {
+        /** The larger half's cells (Encode's step fit). */
+        val cells: Int get() = maxOf((leaving as? CellLists.Screen.Cells)?.cells ?: 0, (arriving as? CellLists.Screen.Cells)?.cells ?: 0)
+    }
+
+    /** One cache write a transition makes besides its slot's: [at4] and its bytes. */
+    class Write(val at4: Int, val bytes: ByteArray)
 
     // ------------------------------------------------------------------------------------------------- the paths
     enum class EaseKind { LINEAR, OUT, IN;
@@ -90,19 +132,27 @@ object Transitions {
             Effect.FADE -> Path(level = 0) to Path(level = 0)
             // its out half Explode's; its in half the pieces arriving one after another
             Effect.BUILD -> Path(spread = SPREAD, level = 0, ease = EaseKind.OUT) to Path(spread = SPREAD, level = 0, stagger = true)
+            Effect.ENCODE, Effect.MATRIX -> throw LintError("${e.label} is not a path (C3 DM-T: [build] draws it from the atlas)")
         }
     }
 
     // --------------------------------------------------------------------------------------------- the programs
     /** A transition's two programs and the records that hold them, laid out from [at4] (4-byte units) in one blob. */
     class Built internal constructor(val effect: Effect, val reversed: Boolean, val area: Rect, val timing: Timing,
-                                     val out: MotionProgram, val inn: MotionProgram, val at4: Int, val blob: ByteArray) {
+                                     val out: MotionProgram, val inn: MotionProgram, val at4: Int, val blob: ByteArray,
+                                     /** Encode: the out half's cell lists (written with the records) and the in half's (written
+                                      *  after the out PLAY, above the out lists: they meet no range the out half reads). */
+                                     val outLists: Write? = null, val inLists: Write? = null) {
         /** The out half's and the in half's C (§7.12, u) and the sum the PLAY-AFTER is judged by (the in half waits on
          *  the out half: the larger). */
         val outCost: Long get() = out.cost()
         val inCost: Long get() = inn.cost()
         fun describe(): String = "${effect.label}${if (reversed) " reversed" else ""} over $area, ${timing.steps} steps a half at P ${timing.period}, " +
-            "records ${blob.size} B at off4 $at4 (out ${out.bytes.size} B, in ${inn.bytes.size} B), C out ${outCost} / in ${inCost} u"
+            "records ${blob.size} B at off4 $at4 (out ${out.bytes.size} B, in ${inn.bytes.size} B), C out ${outCost} / in ${inCost} u" +
+            (outLists?.let { o -> ", cell lists ${o.bytes.size} B at off4 ${o.at4} (out) and ${inLists?.bytes?.size} B at off4 ${inLists?.at4} (in)" } ?: "") +
+            (if (effect.glyphs) ", glyph walk ${maxOf(out.walkBytes(), inn.walkBytes())} B" else "")
+        /** The DM spec §3: each half at most [SHARE_MAX] of the step budget's cap, alone (the rest is for what else draws). */
+        val withinShare: Boolean get() = maxOf(outCost, inCost) * 100 <= Motion.BUDGET_CAP * SHARE_MAX_PERCENT
     }
 
     /**
@@ -114,7 +164,10 @@ object Transitions {
      * frame count (pinned offline), so §7.11's one-step freeze is not built.
      */
     fun build(effects: Motion.Effects, effect: Effect, reversed: Boolean, area: Rect, timing: Timing, at4: Int, room: Int,
-              depth: Int = 8, seed: Int = 0x5EED): Built {
+              depth: Int = 8, seed: Int = 0x5EED, glyphs: Glyphs? = null): Built {
+        if (effect == Effect.MATRIX) return matrix(effects, reversed, area, timing, at4, room, seed, glyphs)
+        if (effect == Effect.ENCODE) return encode(effects, reversed, area, timing, at4, room, seed,
+            glyphs ?: throw LintError("Encode: no cells were recorded for it"))
         val (o, i) = paths(effect, area, depth)
         // forward: out runs O on the panel, in runs I from the shadow; reversed in time: out runs I backwards on the
         // panel (identity → I's far pose, its ease reversed), in runs O backwards from the shadow
@@ -136,6 +189,94 @@ object Transitions {
         for ((o4, b) in out.records + inn.records) b.copyInto(blob, (o4 - at4) * 4)
         return Built(effect, reversed, area, timing, out, inn, at4, blob)
     }
+
+    /**
+     * Matrix (C3 DM-T; the DM spec §3): the out half rain with reveal 2 over the panel's picture — the area above the trail
+     * filled with level 0, in place — and the in half rain with reveal 1 — the shadow above the trail, in place, then
+     * LAND — both [rainCols] columns of [RAIN_CW] × [RAIN_CH] cells (the panel's width covered), trail [RAIN_TRAIL], the
+     * columns' starts spread over half the rows, the glyphs changing every step, in the atlas face [Glyphs.rain] with its
+     * letters and digits. RAIN falls one way (the spec's S1, ruled): reversed in time the pair is the same — the out half
+     * eases in, the in half out, and swapping them and reversing each ease gives that again.
+     */
+    private fun matrix(effects: Motion.Effects, reversed: Boolean, area: Rect, timing: Timing, at4: Int, room: Int, seed: Int, g: Glyphs?): Built {
+        val face = g?.rain ?: throw LintError("Matrix: no face the glasses hold has a letter or a digit")
+        if (face.alphabet.isEmpty()) throw LintError("Matrix: the face ${face.spec} holds no letter or digit")
+        val n = timing.steps
+        var off = at4
+        val alphabet = Motion.Alphabet(off, face.alphabet).also { off += words(it.bytes.size) }
+        val rows = (area.h + RAIN_CH - 1) / RAIN_CH
+        fun rainRecord(reveal: Int) = Motion.Rain(off, rainCols(area), RAIN_TRAIL, RAIN_CW, RAIN_CH, face.font, alphabet,
+            headLvl = 15, tailLvl = 4, reveal = reveal, fillLvl = 0, spread = (rows / 2).coerceIn(0, 255), flicker = 1).also { off += 4 }
+        val rainOut = rainRecord(2); val rainIn = rainRecord(1)
+        val outTable = tableFor(EaseKind.IN, n, off)?.also { off += words(it.record.size) }
+        val out = half("out") { Motion.program2(off, effects, own = true) { track(area, Motion.Backdrop.None) { rain(rainOut, n, outTable!!, seed = seed and 0xFFFF) } } }
+        off += words(out.bytes.size)
+        val inn = half("in") { Motion.program2(off, effects, own = true, land = true) { track(area, Motion.Backdrop.None) { rain(rainIn, n, Motion.Ease.EaseOut, seed = (seed + 1) and 0xFFFF) } } }
+        off += words(inn.bytes.size)
+        return Built(Effect.MATRIX, reversed, area, timing, out, inn, at4, blobOf(at4, off, room, out, inn))
+    }
+
+    /**
+     * Encode (C3 DM-T; the DM spec §3). Out half: PIECES uniform layer old over the area — no move, its level 15 → 0 (the
+     * dim; in place, the first track) — then one CELLS track per list of the leaving screen: each letter shown, then noise,
+     * then gone (its box filled with 0 over the dim). In half: the shadow over the area (backdrop `new`), then one CELLS
+     * track per list of the arriving screen: each letter masked, noise, then revealed (32: the box no longer filled), LAND.
+     * Reversed in time (Back; leaving the clock) the pair swaps as every effect's does: the out half runs the in half
+     * backwards — the leaving picture whole, its letters turning to noise and masked (the dim's level held at 15) — and the
+     * in half the out half backwards — the shadow brought up from black (DRAW `new`, level 0 → 15) with its letters
+     * masked, noise, then revealed. Each list's track is offset by its plane's disparity (−d left, +d right). The out lists
+     * go in the stage reserve with the records' write; the in lists above them, after the out PLAY.
+     */
+    private fun encode(effects: Motion.Effects, reversed: Boolean, area: Rect, timing: Timing, at4: Int, room: Int, seed: Int, g: Glyphs): Built {
+        val leaving = g.leaving as? CellLists.Screen.Cells ?: throw LintError("Encode: the leaving screen " + ((g.leaving as? CellLists.Screen.NoFit)?.why ?: "was not recorded"))
+        val arriving = g.arriving as? CellLists.Screen.Cells ?: throw LintError("Encode: the arriving screen " + ((g.arriving as? CellLists.Screen.NoFit)?.why ?: "was not recorded"))
+        val n = timing.steps
+        var why = ""
+        val outL = CellLists.lay(leaving, g.reserveAt4, g.reserveRoom, n, out = true) { why = it } ?: throw LintError("Encode: the leaving screen's cells do not fit: $why")
+        val inL = CellLists.lay(arriving, outL.end4, g.reserveRoom - outL.blob.size, n, out = false) { why = it }
+            ?: throw LintError("Encode: the arriving screen's cells do not fit beside the leaving screen's: $why")
+        var off = at4
+        val out = half("out") { Motion.program2(off, effects, own = true) {
+            track(area, Motion.Backdrop.None) { pieces(Motion.LAYER_OLD, n, Motion.Ease.Linear, lvl0 = 15, lvl1 = if (reversed) 15 else 0) }
+            cellTracks(this, outL, area, n, seed)
+        } }
+        off += words(out.bytes.size)
+        val inn = half("in") { Motion.program2(off, effects, own = true, land = true) {
+            if (!reversed) track(area, Motion.Backdrop.New) { wait(n) }
+            else track(area, Motion.Backdrop.Level(0)) { draw(Motion.Source.New, area.x, area.y, lvl0 = 0, lvl1 = 15, ease = Motion.Ease.Linear, n = n) }
+            cellTracks(this, inL, area, n, seed + 1)
+        } }
+        off += words(inn.bytes.size)
+        // every record the programs name is in the slot's blob or in one of the two lists' blobs, byte for byte
+        val lists = listOf(outL, inL)
+        for ((o4, b) in out.records + inn.records) if (o4 !in at4 until off) {
+            val l = lists.firstOrNull { o4 in it.at4 until it.end4 } ?: throw LintError("Encode: a record at off4 $o4 is in neither the slot nor the lists")
+            if (!b.contentEquals(l.blob.copyOfRange((o4 - l.at4) * 4, (o4 - l.at4) * 4 + b.size))) throw LintError("Encode: the record at off4 $o4 differs from its list's bytes")
+        }
+        return Built(Effect.ENCODE, reversed, area, timing, out, inn, at4, blobOf(at4, off, room, out, inn),
+            Write(outL.at4, outL.blob).takeIf { outL.blob.isNotEmpty() }, Write(inL.at4, inL.blob).takeIf { inL.blob.isNotEmpty() })
+    }
+
+    /** One CELLS track per list of [l] over [area], offset by its disparity on each lens (a pair of one rect when it has one). */
+    private fun cellTracks(b: Motion.ProgramBuilder, l: CellLists.Laid, area: Rect, n: Int, seed: Int) {
+        val table = l.table ?: return
+        l.disparities.forEachIndexed { i, d ->
+            if (d == 0) b.track(area, Motion.Backdrop.None) { cells(table, i, n, seed = seed and 0xFFFF) }
+            else b.track(area, area, Motion.Backdrop.None) { cells(table, i, n, x = -d, xR = d, seed = seed and 0xFFFF) }
+        }
+    }
+
+    /** The slot's bytes from [at4] to [end4]: every record of [out] and [inn] there (a record elsewhere is a list's). */
+    private fun blobOf(at4: Int, end4: Int, room: Int, out: MotionProgram, inn: MotionProgram): ByteArray {
+        val size = (end4 - at4) * 4
+        if (size > room) throw LintError("the transition's records are $size B, past the $room B their slot holds")
+        val blob = ByteArray(size)
+        for ((o4, b) in out.records + inn.records) if (o4 in at4 until end4) b.copyInto(blob, (o4 - at4) * 4)
+        return blob
+    }
+
+    /** Matrix's columns over [area]: enough [RAIN_CW]-px columns to cover its width (§7.6: at most 128). */
+    fun rainCols(area: Rect): Int = ((area.w + RAIN_CW - 1) / RAIN_CW).coerceIn(1, 128)
 
     /** [build]'s refusal of one half, said with its name ("the out half: …"), so the journal says which half it was. */
     private fun <T> half(name: String, f: () -> T): T =
@@ -197,4 +338,10 @@ object Transitions {
     private const val TEAR_PX = 48
     /** Explode's spread: an edge piece flies 1.5 times its distance from the centre further out. */
     private const val SPREAD = 6144
+    /** Matrix's rain (§7.12's designed form): 12 × 20 cells, a trail of 8. */
+    const val RAIN_CW = 12
+    const val RAIN_CH = 20
+    const val RAIN_TRAIL = 8
+    /** The DM spec §3: an Encode or Matrix half takes at most this share of the step budget's cap. */
+    const val SHARE_MAX_PERCENT = 80L
 }

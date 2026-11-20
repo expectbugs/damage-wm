@@ -80,11 +80,13 @@ class CellListsTest {
         }
         /** The screen's cells once every face it draws is held by the glasses (a face drawn for the first time is packed in
          *  idle; the capture is taken again until it records no new face). */
+        /** The entries the capture read, taken on the loop in the same turn (a face may gain glyphs later). */
+        var entries: Map<FontSpec, wm.damage.core.comp.GlyphAtlas.Entry?> = emptyMap()
         suspend fun cells(what: String): Pair<List<TextDraw>, CellLists.Screen> {
             var last: Pair<List<TextDraw>, CellLists.Screen>? = null
             until("$what: every face it draws held") {
                 if (!shell.isQuiescent()) false else {
-                    val c = onLoop { shell.screenCellsForTest() }
+                    val c = onLoop { shell.screenCellsForTest().also { c -> entries = c.first.map { it.spec }.distinct().associateWith { shell.atlasEntryForTest(it) } } }
                     last = c
                     c.first.isNotEmpty() && c.first.all { shell.cachedFontsLive.contains(it.spec) }
                 }
@@ -101,13 +103,13 @@ class CellListsTest {
             assertTrue(g.glyphs.size in 1..CellLists.MAX_CELLS, "$what: a list of ${g.glyphs.size} cells")
             assertTrue(g.face.alphabet.size <= CellLists.MAX_ALPHABET, "$what: an alphabet of ${g.face.alphabet.size}")
             // the alphabet: the face's packed codes among A–Z a–z 0–9, each a real glyph (§7.11)
-            val e = assertNotNull(rig.onLoop { rig.shell.atlasEntryForTest(g.face.spec) }, "$what: the face ${g.face.spec} is held")
+            val e = assertNotNull(rig.entries[g.face.spec], "$what: the face ${g.face.spec} is held")
             assertEquals(CellLists.ALNUM.filter { e.packs(it.toChar()) }, g.face.alphabet.toList(), "$what: the alphabet of ${g.face.spec}")
             assertEquals(g.face.alphabet.maxOfOrNull { e.images[it - TextureCache.FIRST_CHAR].w } ?: 0, g.face.widestAlpha)
         }
         for (out in listOf(true, false)) {
             val laid = assertNotNull(CellLists.lay(s, 1000, 32 * 1024, 5, out) { fail("$what: $it") })
-            for ((i, l) in laid.table.lists.withIndex()) {
+            for ((i, l) in laid.table!!.lists.withIndex()) {
                 val g = s.lists[i]
                 assertEquals(if (g.face.alphabet.size >= CellLists.NOISE_MIN_CODES) 1 else 0, l.noise, "$what: noise ⌊5/3⌋ where 4 codes or more")
                 for ((c, gl) in l.cells.zip(g.glyphs)) {
@@ -172,8 +174,8 @@ class CellListsTest {
         val few = synthetic(codes = "AB")
         val f = CellLists.screen(listOf(TextDraw(Rect(0, 0, 40, 18), "ABAB", spec, 0, 0, 255)), { few }, { { _, _ -> 0 } }, { 0 }, Rect(0, 0, 640, 480)) as CellLists.Screen.Cells
         val laid = CellLists.lay(f, 1000, 4096, 5, out = true)!!
-        assertEquals(0, laid.table.lists[0].noise)
-        assertEquals(listOf('A'.code, 'B'.code), laid.table.lists[0].alphabet.codes.toList())
+        assertEquals(0, laid.table!!.lists[0].noise)
+        assertEquals(listOf('A'.code, 'B'.code), laid.table!!.lists[0].alphabet.codes.toList())
     }
 
     /** Decisions AF, the walk bound: a CELLS program whose list names 64 fonts of the largest glyphs (255 × 255, a byte a

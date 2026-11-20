@@ -69,7 +69,11 @@ class OracleWalkTest {
         // build C2, stage DM2: a bit-10 build (DamageCaps 0x5ff) at the ladder's stage 4, so BIND is in force and the
         // shell stages Main's list
         val sim = GlassFirmwareSim().also { if (contract > 1) it.damageContract = contract; if (stage4) it.damageFeatures = 0x5ff; if (stage5) it.damageFeatures = 0xdff }
-        val transport = SimTransport(sim, scope, SimTransport.Timing(instant = true)).also { if (stage4) it.devProbe("c1", "4"); if (stage5) it.devProbe("c1", "5") }
+        // C3 DM-T: the stage-5 walk on a 256 KiB session (a stored ladder record's last size, `MainLocalShellTest`'s form),
+        // as stage 5 runs on his glasses — Encode plays only there
+        val transport: wm.damage.core.transport.CfwTransportBase = if (stage5) StartRig(sim, scope, c1StageFile = java.nio.file.Files.createTempFile("damage-walk", ".c1").also { f ->
+                java.nio.file.Files.writeString(f, wm.damage.core.transport.LadderRecord(stage = 5, sessionKib = 256).encode()); f.toFile().deleteOnExit() })
+            else SimTransport(sim, scope, SimTransport.Timing(instant = true)).also { if (stage4) it.devProbe("c1", "4") }
         val clock = Shell.LocalClock(12, 0, "12:00", "PM")
         val text = if (cached) wm.damage.core.comp.CachedText(FakeText()) else FakeText()
         val shell = Shell(text, transport, store, null, scope) { clock }
@@ -578,6 +582,7 @@ class OracleWalkTest {
      */
     @Test
     fun transitionsKeepTheOracleAtEveryHeight_DP2(): Unit = runBlocking {
+        val byEffect = HashMap<String, Int>()
         for (h in ShellSettings.HEIGHTS) {
             val rig = Rig(h, seed = 0xD9_7A_25L + h, contract = 2, cached = true, stage5 = true)
             val tag = "c3 stage 5 h=$h"
@@ -601,13 +606,17 @@ class OracleWalkTest {
                     rig.assertOracle(where)
                 }
                 val (acts, whole) = rig.shell.transitionCountsForTest()
-                println("$tag: $acts transition(s) owed, $whole ran whole; ${rig.shell.divergencesReported} divergence(s) reported")
+                println("$tag: $acts transition(s) owed, $whole ran whole (${rig.shell.transitionsWholeByEffectForTest().toSortedMap()}); ${rig.shell.divergencesReported} divergence(s) reported")
+                rig.shell.transitionsWholeByEffectForTest().forEach { (k, v) -> byEffect.merge(k, v, Int::plus) }
                 assertTrue(whole >= 6, "$tag: $acts transition(s), $whole ran whole — the walk proves less than it claims")
                 assertEquals(0, rig.shell.divergencesReported, "$tag: no divergence")
             } finally {
                 rig.stop()
             }
         }
+        // C3 DM-T: Encode and Matrix are among the walk's picks, and ran whole (over the four heights)
+        println("c3 stage 5: whole by effect over the four heights ${byEffect.toSortedMap()}")
+        assertTrue((byEffect["encode"] ?: 0) > 0 && (byEffect["matrix"] ?: 0) > 0, "Encode and Matrix in the walk: $byEffect")
     }
 
     internal companion object {

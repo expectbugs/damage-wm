@@ -32,6 +32,8 @@ class TransitionsTest {
     private val plays: List<Triple<Transitions.Tier, Transitions.Effect, Boolean>> =
         Transitions.effectsOf(Transitions.Tier.SELECT).flatMap { listOf(Triple(Transitions.Tier.SELECT, it, false), Triple(Transitions.Tier.BACK, it, true)) } +
             Transitions.effectsOf(Transitions.Tier.LOCK).flatMap { listOf(Triple(Transitions.Tier.LOCK, it, false), Triple(Transitions.Tier.LOCK, it, true)) }
+    /** The plays whose programs are paths (C3 DM-T: Encode and Matrix draw from the atlas and have rows of their own below). */
+    private val pathPlays = plays.filter { !it.second.glyphs }
 
     /** A leaving screen: bars like a list's rows, a band, a rail — every level somewhere. */
     private fun oldScreen(): Gray8 = Gray8(Geometry.PANEL_W, Geometry.PANEL_H).also { g ->
@@ -75,6 +77,7 @@ class TransitionsTest {
     // ------------------------------------------------------------------------------------- the model's paint
     private fun program(p: MotionProgram): Pair<MotionSim, MotionSim.Instance> {
         val cache = ByteArray(256 * 1024)
+        TransitionRehearsal.fontBytes.copyInto(cache, 0)          // C3 DM-T: what Encode's and Matrix's glyphs are drawn from
         for ((o4, b) in p.records) b.copyInto(cache, o4 * 4)
         val m = MotionSim(scaled = { true }, effects = { true })
         val prog = m.validate(cache, p.at, IntArray(4), MotionSim.Op.PLAY, armed = true) as? MotionSim.Prog
@@ -122,7 +125,8 @@ class TransitionsTest {
         val lit = Gray8(Geometry.PANEL_W, Geometry.PANEL_H).also { it.fillRect(area, 15 * 17) }
         val pic = Pack.rect(lit, Rect(0, 0, Geometry.PANEL_W, Geometry.PANEL_H))
         val black = ByteArray(pic.size)
-        val pairs = Transitions.effectsOf(Transitions.Tier.SELECT).map { Transitions.Tier.SELECT to it } + Transitions.effectsOf(Transitions.Tier.LOCK).map { Transitions.Tier.LOCK to it }
+        val pairs = (Transitions.effectsOf(Transitions.Tier.SELECT).map { Transitions.Tier.SELECT to it } + Transitions.effectsOf(Transitions.Tier.LOCK).map { Transitions.Tier.LOCK to it })
+            .filter { !it.second.glyphs }                 // C3 DM-T: Encode's and Matrix's reversal has its own row
         val failures = ArrayList<String>()
         for ((tier, e) in pairs) {
             val fwd = Transitions.build(fx, e, false, area, timing, 1024, 2048)
@@ -167,7 +171,9 @@ class TransitionsTest {
         val n = timing.steps
         val area = Rect(0, 0, Geometry.PANEL_W, 416)
         val pic = Pack.rect(oldScreen(), Rect(0, 0, Geometry.PANEL_W, Geometry.PANEL_H))
-        val outs = plays.map { (t, e, rev) -> "${t.word} ${e.label}${if (rev) " reversed" else ""}" to Transitions.build(fx, e, rev, area, timing, 1024, 2048).out }
+        // C3 DM-T: Encode's and Matrix's out halves too, over the rehearsal's font (the model draws their glyphs from it)
+        val outs = pathPlays.map { (t, e, rev) -> "${t.word} ${e.label}${if (rev) " reversed" else ""}" to Transitions.build(fx, e, rev, area, timing, 1024, 2048).out } +
+            plays.filter { it.second.glyphs }.map { (t, e, rev) -> "${t.word} ${e.label}${if (rev) " reversed" else ""}" to glyphBuilt(e, rev, area.h, timing).out }
         for ((name, p) in outs) for (left in listOf(true, false)) {
             val t = p.T
             val every = HashMap<Int, ByteArray>()
@@ -194,7 +200,7 @@ class TransitionsTest {
     fun theStepBudgetsHeadroomPerEffectAtTheFourHeights_DP2() {
         val timing = Transitions.timing(450, 10)
         val rows = StringBuilder("effect, direction | 288 | 352 | 416 | 480 (C out / in, M u) | headroom, worst\n")
-        for ((tier, e, rev) in plays) {
+        for ((tier, e, rev) in pathPlays) {
             var worst = 0L
             val cells = listOf(288, 352, 416, 480).map { h ->
                 val b = Transitions.build(fx, e, rev, Rect(0, 0, Geometry.PANEL_W, h), timing, 1024, 2048)
@@ -216,7 +222,7 @@ class TransitionsTest {
     fun theRecordsFitTheirSlotAndTheTimingsAreAsRuled_DP2() {
         assertEquals(Transitions.Timing(5, 46), Transitions.timing(450, 10))
         assertEquals(5, Transitions.timing(450, 0).steps, "Auto at 450 ms: 10 frames")
-        for (f in listOf(0, 4, 6, 8, 10, 12, 16)) for (len in listOf(225, 300, 450, 600, 800)) for ((_, e, rev) in plays) for (h in listOf(288, 480)) {
+        for (f in listOf(0, 4, 6, 8, 10, 12, 16)) for (len in listOf(225, 300, 450, 600, 800)) for ((_, e, rev) in pathPlays) for (h in listOf(288, 480)) {
             val b = Transitions.build(fx, e, rev, Rect(0, 0, Geometry.PANEL_W, h), Transitions.timing(len, f), 1024, wm.damage.core.wire.CfwModes.TRANSITION_SLOT)
             assertTrue(b.blob.size <= wm.damage.core.wire.CfwModes.TRANSITION_SLOT)
         }
@@ -237,7 +243,7 @@ class TransitionsTest {
         var checked = 0
         for (len in wm.damage.core.shell.ShellSettings.SCROLL_LENGTHS) for (f in wm.damage.core.shell.ShellSettings.FRAME_COUNTS) {
             val timing = Transitions.timing(len, f)
-            for ((tier, e, rev) in plays) for (h in listOf(288, 352, 416, 480)) for (depth in listOf(0, 16)) {
+            for ((tier, e, rev) in pathPlays) for (h in listOf(288, 352, 416, 480)) for (depth in listOf(0, 16)) {
                 val what = "${tier.word} ${e.label}${if (rev) " reversed" else ""} at $h, $len ms, ${if (f == 0) "Auto" else "$f"} frames, depth $depth"
                 try {
                     val b = Transitions.build(fx, e, rev, Rect(0, 0, Geometry.PANEL_W, h), timing, 1024, wm.damage.core.wire.CfwModes.TRANSITION_SLOT, depth, seed = len * 31 + f)
@@ -248,7 +254,7 @@ class TransitionsTest {
             }
         }
         assertTrue(refused.isEmpty(), "${refused.size} refused:\n" + refused.take(20).joinToString("\n"))
-        assertEquals(5 * 7 * plays.size * 4 * 2, checked)
+        assertEquals(5 * 7 * pathPlays.size * 4 * 2, checked)
         val table = StringBuilder("length \\ frames | " + wm.damage.core.shell.ShellSettings.FRAME_COUNTS.joinToString(" | ") { if (it == 0) "Auto" else "$it" } +
             "   (each cell: what a transition plays, 2 × T × P, in ms — T steps a half at P ticks)\n")
         for (len in wm.damage.core.shell.ShellSettings.SCROLL_LENGTHS) {
@@ -275,17 +281,106 @@ class TransitionsTest {
         val rows = w(true).rowsForTest("Animations")
         assertEquals(scrollRows, rows.take(3).map { it.first }, "the tier rows after the scroll rows")
         val names = rows.drop(3).map { it.first }
-        assertEquals(listOf("Select length", "Select frames", "Select · Depth", "Select · Warp", "Select · Flip", "Select · Fall", "Select · Glitch", "Select · Explode",
-            "Back length", "Back frames", "Back · Depth", "Back · Warp", "Back · Flip", "Back · Fall", "Back · Glitch", "Back · Explode",
-            "Lock length", "Lock frames", "Lock · Fade", "Lock · Build", "Lock · Glitch", "Lock · Explode"), names)
+        // C3 DM-T: Encode and Matrix in `MOTION.md` §7's order (Select: … Glitch, Encode, Matrix, Explode; Lock: Fade,
+        // Build, Matrix, Encode, Glitch, Explode)
+        assertEquals(listOf("Select length", "Select frames", "Select · Depth", "Select · Warp", "Select · Flip", "Select · Fall", "Select · Glitch", "Select · Encode", "Select · Matrix", "Select · Explode",
+            "Back length", "Back frames", "Back · Depth", "Back · Warp", "Back · Flip", "Back · Fall", "Back · Glitch", "Back · Encode", "Back · Matrix", "Back · Explode",
+            "Lock length", "Lock frames", "Lock · Fade", "Lock · Build", "Lock · Matrix", "Lock · Encode", "Lock · Glitch", "Lock · Explode"), names)
         val v = rows.toMap()
         assertEquals("450 ms (default)", v["Select length"]); assertEquals("10 (5 × 45 ms a half) (default)", v["Select frames"])
         assertEquals("on", v["Select · Depth"]); assertEquals("off", v["Select · Warp"]); assertEquals("on", v["Back · Depth"]); assertEquals("on", v["Lock · Fade"])
         st = st.withTier(Transitions.Tier.SELECT, effects = wm.damage.core.shell.ShellSettings.tierEffects(Transitions.Tier.SELECT, st.selectEffects + "warp"))
         assertEquals(listOf("depth", "warp"), st.selectEffects)
-        val old = wm.damage.core.shell.ShellSettings.fromJson(kotlinx.serialization.json.buildJsonObject {
-            put("lockEffects", kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.JsonPrimitive("matrix"), kotlinx.serialization.json.JsonPrimitive("build")))) })
+        fun stored(vararg ids: String) = wm.damage.core.shell.ShellSettings.fromJson(kotlinx.serialization.json.buildJsonObject {
+            put("lockEffects", kotlinx.serialization.json.JsonArray(ids.map { kotlinx.serialization.json.JsonPrimitive(it) })) })
+        val old = stored("matrix", "build")
         assertEquals(Triple(450, 10, listOf("depth")), Triple(old.selectLength, old.selectFrames, old.selectEffects))
-        assertEquals(listOf("build"), old.lockEffects, "an id this build does not draw is dropped")
+        assertEquals(listOf("build", "matrix"), old.lockEffects, "C3 DM-T: Matrix is drawn now; the tier's order")
+        assertEquals(listOf("build"), stored("sparkle", "build").lockEffects, "an id this build does not draw is dropped")
+        assertEquals(listOf("fade"), stored("sparkle").lockEffects, "a stored value naming nothing this build draws reads the defaults")
+        assertEquals(emptyList(), stored().lockEffects, "an empty one stays None")
+    }
+
+    // ------------------------------------------------------------------------------------- C3 DM-T: Encode and Matrix
+    /** Encode or Matrix over the rehearsal's font and lines of text, the records from off4 4096 (above the font). */
+    private fun glyphBuilt(e: Transitions.Effect, rev: Boolean, h: Int, timing: Transitions.Timing): Transitions.Built {
+        val (g, _, _) = TransitionRehearsal.glyphInputs(h, oldScreen(), newScreen())
+        return Transitions.build(fx, e, rev, Rect(0, 0, Geometry.PANEL_W, h), timing, 4096, wm.damage.core.wire.CfwModes.TRANSITION_SLOT, glyphs = g)
+    }
+
+    /**
+     * Back is Select reversed (the DM spec §5.1): Matrix's rain falls one way (S1), so its reversed pair is its own — the
+     * same records byte for byte; Encode's reversed out half keeps the leaving picture whole (the dim's level held at 15)
+     * while its letters go, and its reversed in half brings the shadow up from black (DRAW `new`, level 0 → 15) while the
+     * arriving letters come — Select's halves run backwards.
+     */
+    @Test
+    fun encodeAndMatrixBackIsSelectReversed_DMT() {
+        val timing = Transitions.timing(450, 10)
+        for (h in listOf(288, 352, 416, 480)) {
+            val m = glyphBuilt(Transitions.Effect.MATRIX, false, h, timing); val mr = glyphBuilt(Transitions.Effect.MATRIX, true, h, timing)
+            assertTrue(m.blob.contentEquals(mr.blob), "Matrix at $h: Back's records are Select's")
+            val e = glyphBuilt(Transitions.Effect.ENCODE, false, h, timing); val er = glyphBuilt(Transitions.Effect.ENCODE, true, h, timing)
+            val dim = e.out.tracks[0].segments[0]; val held = er.out.tracks[0].segments[0]
+            assertEquals(Motion.PIECES to (15 to 0), dim.verb to (dim.lvl0 to dim.lvl1), "Encode at $h: Select's out half dims")
+            assertEquals(Motion.PIECES to (15 to 15), held.verb to (held.lvl0 to held.lvl1), "Encode at $h: Back's out half keeps the picture")
+            assertTrue(e.inn.tracks[0].backdrop is Motion.Backdrop.New && e.inn.tracks[0].segments[0].verb == Motion.WAIT, "Encode at $h: Select's in half is the shadow")
+            val up = er.inn.tracks[0].segments[0]
+            assertTrue(er.inn.tracks[0].backdrop is Motion.Backdrop.Level && up.verb == Motion.DRAW && up.lvl0 == 0 && up.lvl1 == 15, "Encode at $h: Back's in half from black")
+            // the cells are the same lists both ways: the leaving screen's in the out half, the arriving screen's in the in half
+            assertTrue(e.outLists!!.bytes.contentEquals(er.outLists!!.bytes) && e.inLists!!.bytes.contentEquals(er.inLists!!.bytes), "Encode at $h: the same lists")
+            // the in lists lie above the out lists, inside the stage reserve
+            assertTrue(e.inLists!!.at4 >= e.outLists!!.at4 + e.outLists!!.bytes.size / 4, "Encode at $h: the in lists above the out lists")
+        }
+    }
+
+    /**
+     * The DM spec §3's table, on the DSL (I: glyphs of 12 × 20 with an RLE of the face's own, the cells as §7.12 designs them —
+     * typical 160 / 200 / 240 / 280, dense a Reader page of 24-px lines of 45 glyphs): each half's C at the four heights
+     * stays within 80 % of the cap, the glyph walk inside decisions AF's bound, and "the length holds, frames give": at
+     * 450 ms / 10 frames a dense page at 480 plays 6 frames. Printed for the report.
+     */
+    @Test
+    fun encodeAndMatrixBudgetsAndTimingsAtTheFourHeights_DMT() {
+        val glyphs = (('A'..'Z') + ('a'..'z') + ('0'..'9')).associateWith { ch ->
+            wm.damage.core.wire.TextureCache.Image(12, 20, ByteArray(240) { i -> (((i * 7 + ch.code) % 5) * 3 + (i / 12) % 2).toByte() })
+        }
+        val tofu = wm.damage.core.wire.TextureCache.Image(6, 20, ByteArray(120) { 5 })
+        val builder = wm.damage.core.wire.TextureCache.Builder(v2 = true, capacity = 160 * 1024)
+        val font = builder.addFont(glyphs, tofu)
+        val entry = wm.damage.core.comp.GlyphAtlas.Entry(font, Array(224) { glyphs[(32 + it).toChar()] ?: tofu }, 20, glyphs, tofu,
+            builder.content().size, BooleanArray(224) { (32 + it).toChar() in glyphs }, builder.content().size)
+        val spec = wm.damage.core.text.FontSpec(wm.damage.core.text.Face.READER, 20)
+        val face = wm.damage.core.motion.CellLists.face(spec, entry)!!
+        val lg = glyphs.values.maxOf { it.encode().size - 2 }
+        val rows = StringBuilder("glyphs 12×20, RLE up to $lg B\nH | screen | cells (lists) | C out / in (M u, % of cap) | step (I) | P | frames at 450 ms / 10 | walk out / in\n")
+        for ((h, typical) in listOf(288 to 160, 352 to 200, 416 to 240, 480 to 280)) {
+            val area = Rect(0, 0, Geometry.PANEL_W, h)
+            for ((name, cells) in listOf("typical" to typical, "dense" to ((h - 32) / 24) * 45)) {
+                val runs = (0 until (cells + 44) / 45).map { i ->
+                    val n = minOf(45, cells - 45 * i)
+                    wm.damage.core.comp.TextDraw(Rect(8, 8 + 24 * i % (h - 28), 12 * n, 20), "Ab3".repeat(15).take(n), spec, 8, 8 + (24 * i) % (h - 28), 255)
+                }
+                val screen = wm.damage.core.motion.CellLists.screen(runs, { entry }, { { _, _ -> 0 } }, { 0 }, area)
+                val g = Transitions.Glyphs(face, screen, screen, (256 * 1024 - 32 * 1024) / 4, 32 * 1024)
+                val t = Transitions.timingFor(Transitions.Effect.ENCODE, 450, 10, area, g.cells)
+                val b = Transitions.build(fx, Transitions.Effect.ENCODE, false, area, t, 4096, wm.damage.core.wire.CfwModes.TRANSITION_SLOT, glyphs = g)
+                assertTrue(b.withinShare, "Encode $name at $h: ${b.outCost} / ${b.inCost} u within 80 %")
+                assertTrue(maxOf(b.out.walkBytes(), b.inn.walkBytes()) <= Motion.WALK_BYTES_MAX)
+                val lists = (screen as wm.damage.core.motion.CellLists.Screen.Cells).lists.size
+                rows.append("$h | Encode $name | ${g.cells} ($lists) | %.2f / %.2f (%.0f %%) | %.1f ms | ${t.period} | ${2 * t.steps} | ${b.out.walkBytes()} / ${b.inn.walkBytes()} B\n".format(
+                    b.outCost / 1e6, b.inCost / 1e6, 100.0 * maxOf(b.outCost, b.inCost) / Motion.BUDGET_CAP,
+                    0.5 + 0.036e-3 * area.w * area.h + 0.058 * g.cells))
+                if (h == 480 && name == "dense") assertEquals(6, 2 * t.steps, "a dense page at 480: the length holds, frames give")
+            }
+            val mg = Transitions.Glyphs(rain = face)
+            val mt = Transitions.timingFor(Transitions.Effect.MATRIX, 450, 10, area)
+            val m = Transitions.build(fx, Transitions.Effect.MATRIX, false, area, mt, 4096, wm.damage.core.wire.CfwModes.TRANSITION_SLOT, glyphs = mg)
+            assertTrue(m.withinShare, "Matrix at $h: ${m.outCost} / ${m.inCost} u within 80 %")
+            rows.append("$h | Matrix | ${Transitions.rainCols(area)} × ${Transitions.RAIN_TRAIL} lit | %.2f / %.2f (%.0f %%) | %.1f ms | ${mt.period} | ${2 * mt.steps} | ${m.out.walkBytes()} / ${m.inn.walkBytes()} B\n".format(
+                m.outCost / 1e6, m.inCost / 1e6, 100.0 * maxOf(m.outCost, m.inCost) / Motion.BUDGET_CAP,
+                0.5 + 0.036e-3 * area.w * area.h + 0.065 * Transitions.rainCols(area) * Transitions.RAIN_TRAIL))
+        }
+        println("DM-T budget table (modeled):\n$rows")
     }
 }
