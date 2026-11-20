@@ -1965,7 +1965,10 @@ walk (5) and values (12) positions, the step budget after their values.
   everywhere but its owned rect. Nothing new is sent for it.
 - **Steps.** An owning instance draws a step only when k > d, on every path (its owned rect still holds step d). A
   present on the direct path that draws no step may carry its mode-24 hint as §4 allows (the owned rect's rows show what
-  the panel already shows).
+  the panel already shows). **As built** (the second review pass, 2026-11-20): a present whose copy left an owned rect
+  out leaves the panel's stale mark set, so while any instance owns, every later present's copy is whole whatever
+  its hint says — 2.0 ms median, 5.3 ms p90 on the display task (§5.3's measured transfer), no byte more on the radio,
+  and bounded by the owners' lives (a transition; a done owner without LAND until the phone's CLOSE).
 - **No END.** A PLAY or PLAY-AFTER of an OWN program writes nothing into the shadow. Its 114 bodies carry END ordinal 0
   and, in field 8, RIGHT's CRC-32 of the shadow over the instance's areas (§5.6's form) taken right after the message's
   closes.
@@ -1978,7 +1981,9 @@ walk (5) and values (12) positions, the step budget after their values.
 - **What each close does.** Every close of an owning instance clears the mark and marks the panel stale (§5.3), so the
   closing message's present — taken after its closes — copies the shadow into what was owned, **except inside the rects
   of instances that own at that present** (a new out half's PLAY that closes an earlier owner over the same area holds
-  it again). A close by a cache write presents nothing; it takes effect at the next present.
+  it again). A close by a cache write presents nothing; it takes effect at the next present —
+  and when a present's job was already pending at that close, that job's copy still leaves the rect out (the ended
+  owner's pose shows once more) and, the mark staying set through such a copy, the present after it is whole.
 - **The fire.** A fire whose close set holds an owning instance is refused **19**, nothing closed (§6.2 step 11, tested
   before 17's test; a report-only fire closes nothing and is not tested). A COMMIT's close pass closes an owning
   instance as any other.
@@ -1994,7 +1999,9 @@ walk (5) and values (12) positions, the step budget after their values.
   so an owner left open by a hand disarm, or by a clear that landed on one lens, is ended here instead of reading a
   freed block later (the phone's CLOSE-all before a disarm, §5.8, stays the first line) — it takes the display gate as
   the image worker's take does: it waits up to 1,000 ticks (the installed take at `0x0047383C`) and reads the result;
-  had, a pending job is copied first; not had, the pending job is withdrawn, so it never copies the old block. Then it
+  **had or not, a pending job is withdrawn** (the gate can be free with a job still pending — the second review pass,
+  2026-11-20; the copy hook never waits between its first and its last read of the shadow and the display task
+  outranks the ui_task, so the ui_task does not run while a copy is under way), so no job copies the old block. Then it
   claims the engine word, ends every owning instance — the owns mark cleared, the panel's stale mark set, the 114 body
   a close gives (outcome 1 if it was drawing; a done owner sends none) — withdraws the published shadow pointer, lets
   the word and the gate (when had) go, and calls the stock function: owners end and the stock destroy runs either way.
@@ -2044,7 +2051,10 @@ every other read of that table (the values' level check) the same; a source pixe
 set. `src` must be 0 (12).
 
 **Layer old (kind 0; in place; OWN programs only, §7.2).** `src` is the vacate level (0..15, 12). Opt bits 4 and 6 are 5. f0 = 0, and f1 ≥ 0 for
-the radial model (12): the displacement starts at home and only grows. Model random only with gw = 1 and dy = 0 (12). From base step b (§7.2) to step k, with Δ_p = D_p(k) − D_p(b) and the **base rect** of piece p =
+the radial model (12): the displacement starts at home and only grows. Model random only with gw = 1 and dy = 0 (12) — and for it the equality with every step drawn (§7.2) holds only
+while the displacement's product does not wrap: |dx·f| ≤ 2^28 at every step (§7.2's wrapped arithmetic; a dx near
+32,767 with a factor above 2 passes it, and D_p is then not monotone). The values do not bound that product (no 12):
+no designed program comes near it, and the phone's programs keep it. From base step b (§7.2) to step k, with Δ_p = D_p(k) − D_p(b) and the **base rect** of piece p =
 its home rect moved by D_p(b) (the home rect when b = 0), clipped to the area: every pixel q of the area becomes
 - if q lies in the home rect of some piece p moved by D_p(k) (clipped to the area) and q − Δ_p lies in p's base rect:
   **G(b → k)** of the base picture's pixel at q − Δ_p (when two pieces' moved rects contain q — no accepted input makes
@@ -2092,7 +2102,9 @@ decoded from the stream; a version-2 instance always runs the fast path, which d
 shows once and reuses it for every output row that takes it, §7.12), its source window (below), `new`; `self` only unscaled in
 both axes (12). RETARGET's restart path clamps W to 1..2048 and restarts it from the width the track last drew — the
 source's own width when it drew unscaled, as C2's H from the source's height (the track's drawn state gains it, as C2
-added H). **The wheel's sideways icons** are a DRAW v2 of their records with
+added H). "The source" is the one the track DREW FROM: when the RETARGET's parameters name another record, W and H
+still start from what was last drawn on that lens, and on an axis the new segment does not scale the new source is
+drawn at its own size from the first restarted step (ruled from both sides' answers, 2026-11-20). **The wheel's sideways icons** are a DRAW v2 of their records with
 w0 → w1 at the centre anchor.
 
 **The source window** (DRAW v2 of a record, kind 0): **aux0** the window's first source row, **aux1** its height in rows
@@ -2285,7 +2297,10 @@ one-period wait; with this it is drawn a few ms late.
   step) and at LAND otherwise, so nothing waits and **a transition plays in full** (`MOTION.md` §7; the first review
   pass of the transitions, 2026-11-20). They leave both owners open; a write meeting any OTHER owner's box closes
   that one first, as before; a second act replaces the run (its out PLAY's close pass ends what is left: the latest
-  input wins);
+  input wins). **The phone sends no other PLAY whose close pass would meet the owners while a transition is in hand**:
+  a notch at Main's end under a Back is applied without its wrap motion — the row shows at the in half's next step or
+  at LAND, and the transition plays in full (the second review pass of the transitions, 2026-11-20; were such a PLAY
+  sent, its close pass would end the run as a second act's does);
   the panel model leaves an owned rect as it is through every held present, and takes the shadow there at LAND or at a
   close. **An owned rect stays out of the phone's agreement scan while its mark stands** — a done owner (an out
   half, the freeze) holds step T there while belief moves on beneath it; the scan reads the rect again after LAND or
@@ -2404,7 +2419,11 @@ holds that other's recorded triple. Each instance counts **f(i) = max(C_i, Σ f(
 i)**, and the sum runs over the instances that wait on none. An instance and every instance waiting on it, directly or
 through others, never draw in one present (§7.7's waiting test); instances waiting on one instance draw together once
 it is done, so they add. (Should the records form a cycle — only a reused tag can, which the phone never sends, §7.11 —
-its members count each by its own C.) Over the cap: 12, nothing opened or
+it is cut before f is taken: for i = 0, 1, 2, 3 in order, if following *waits on* from slot i, with the cuts made so
+far, comes back to i, slot i's own wait is dropped — i then waits on none. So only a cycle's lowest-numbered member
+is cut, and the cycle with everything waiting on it counts as one group by f — the largest C of a plain ring. Its
+members never draw until a close ends the cycle, so this sum costs no step time; ruled from both sides' answers,
+2026-11-20.) Over the cap: 12, nothing opened or
 changed (a refused RETARGET leaves the instance as it was). **Every term, each C and the sum are unsigned 64-bit** (no
 legal input brings a C near 2^40); a walk may stop and refuse as soon as what it has added of that total passes the
 cap — the same answer, since no term is negative. A 32-bit sum is wrong: legal inputs wrap it into an accept (`C3-contract-read.md` A'1, under the terms as they then
@@ -2420,8 +2439,11 @@ pixel of a byte fill or copy, about eight times the measured copy's rate (I); 3 
 
 **What the terms do not carry** (the first review pass of the built code, 2026-11-20): each term bounds its verb's
 pixel and byte work at these rates; work per element that no term names is outside the budget. RAIN visits every
-cell of its area, lit or not (at cells of a few pixels that passes the area's term; the designed cells of 12×20 do
-not); PIECES layer new sets up each piece (≤ 256 a track); SHRINK builds its drop marks; GLYPHS walks a (font,
+cell of its cols × R grid, lit or not and inside the track's area or not (a column outside the area is walked row by
+row and skipped; at cells of a few pixels, or columns far wider than the area, that passes the area's term; the
+designed cells of 12×20 over their own area do not); a fill, a cell box or a piece one pixel wide costs a row's setup
+at every pixel (boxes and rain fills 1 px wide reach 4–5 times their term, layer-new pieces 1 px wide 3–4 times; the
+designed boxes and pieces are wider); PIECES layer new sets up each piece (≤ 256 a track); SHRINK builds its drop marks; GLYPHS walks a (font,
 code) pair once a walk only for a program's first four fonts (below). Layer old's destination row makes three row
 passes (5 u a pixel at these rates against the term's 3) and a SHRINK with its width unscaled two (4 against 3):
 both sit inside the copy rate's eightfold slack. This budget is the glasses' backstop against a step longer than
@@ -2532,7 +2554,8 @@ a marker before freeing it. **No owner open**, with EFFECTS set and with it clea
 no claim (the shim counts both). **An owner open**, with EFFECTS set and with it clear, once before a direct present and
 once before a preserve-path step: the owner ends at the destroy (its close's 114, the stale mark), the pointer is
 withdrawn before the free and no byte of the old block is read; and a gate take that a host door makes fail: the pending
-job withdrawn (it copies nothing), the owner ended, the stock call made. Each watched to fail one variant at a time. **The fold
+job withdrawn (it copies nothing), the owner ended, the stock call made; and the gate had with a job pending: withdrawn
+as well, and with nothing pending nothing changed. Each watched to fail one variant at a time. **The fold
 invariant** (both harnesses' own tests and the `"pair"` vectors): for every in-place program of the fuzz — generated to
 keep §7.2's fold condition — two wake schedules that draw different steps between the same two steps end with the same
 `P`. The differential fuzz gains `--c3`.
@@ -2548,7 +2571,7 @@ exactly one period under PLAY-AFTER; the fold rate with the late-step rule (fiel
 | the owns mark, the owned rect (per lens) and the meeting box (both lenses) | LAND, every close or emptying, PLAY-AFTER's deferred empty, a keyframe, mode 11, release points (the settlement), the stock path, a container rebuild, a restart | a lost in-half PLAY: the out pose holds until the phone's CLOSE (its rule after every in half), a keyframe or a session; with no phone the lease lapses within 87.9 s and the stock path ends it | slot + tag + ordinal; the rect by the tracks' rects per lens; the box by both lenses' | written on the ui_task under the word; read by the worker first without the word (exact for "none owns": only that task makes an owner), then under it when one owns | once per job | the hint's publication; the three present paths; close-on-meet and the close passes (by the meeting box); the fire's close set (19, by the box) |
 | the job's owned rects | consumed with the job | a claim that fails (made only while a slot owns): no rect, a whole copy, counted (33) | the job | written by the worker under the gate and the word, read once by the copy hook; a release point between them skips the copy in a rect once, then its stale mark and the stock repaint follow | once | the mode-24 hint, the direct-shadow pointer |
 | LAND's copy | — | a folded step T stays due (C1) and lands at the next drawing present | the instance | display task under the word | once | A.12's stale mark |
-| the destroy site `damage_container_destroy` (`0x00493DAC`) and the published shadow pointer | no state of its own: the pointer is withdrawn at each armed destroy and published again by the next `present_shadow` | the site always runs before the stock free (the redirect calls the stock function last); its gate take waits as the image worker's does (up to 1,000 ticks, `0x0047383C`) and reads the result — not had: the pending job is withdrawn (it never copies the old block), owners still end and the stock destroy still runs; a close's 114 that does not fit its buffer sets sticky bit 5 as any close's | an owning instance open (the owns marks read once at entry; none open: straight to the stock function) — not EFFECTS | the ui_task, holding the gate (so the copy hook is not running, a pending job copied first) and the engine word; each lens ends its own owners — a stock-started destroy on one lens alone leaves the other's, which RIGHT's close bodies or the keyframe after the page's restart reach (§5.6's divergence path) | the owns marks once without the word, then once under it | the image worker's gate take (the same take); the stock path's ending of owners (§5.3); release points (the settlement); a close's body and stale mark (§7.3) |
+| the destroy site `damage_container_destroy` (`0x00493DAC`) and the published shadow pointer | no state of its own: the pointer is withdrawn at each armed destroy and published again by the next `present_shadow` | the site always runs before the stock free (the redirect calls the stock function last); its gate take waits as the image worker's does (up to 1,000 ticks, `0x0047383C`) and reads the result — had or not: a pending job is withdrawn (it never copies the old block), owners still end and the stock destroy still runs; a close's 114 that does not fit its buffer sets sticky bit 5 as any close's | an owning instance open (the owns marks read once at entry; none open: straight to the stock function) — not EFFECTS | the ui_task, holding the gate when had (no copy is under way while the ui_task runs: the hook does not wait between its reads of the shadow; a pending job is withdrawn either way) and the engine word; each lens ends its own owners — a stock-started destroy on one lens alone leaves the other's, which RIGHT's close bodies or the keyframe after the page's restart reach (§5.6's divergence path) | the owns marks once without the word, then once under it | the image worker's gate take (the same take); the stock path's ending of owners (§5.3); release points (the settlement); a close's body and stale mark (§7.3) |
 | PLAY-AFTER's t0 and recorded triple | the first drawn step, a close, release points | lost: the out half holds until the phone's CLOSE; the phone's divergence path | (slot, tag, ordinal) | the thread reads t0 and the `after` slot's state without the word (a torn read costs a wake); the hook decides on the states as the present began | once per plan; once per present | the plan's k, the hook's k, PLAY's close pass, the stock path |
 | the in-place base (b = d, OWN only) | with the instance | — | d | display task under the word; each lens moves its own picture | once per present | the overlay (carried along when shown); later tracks (§7.2's fold rule) |
 | G(b → k) | built per present | — | (b, k) and the levels | — | once | DRAW's ramp |
@@ -2918,3 +2941,9 @@ phone's keeper applies the hold-back rule before re-arming.
   or dxR (§7.2 says it once; §7.4's radial rule, the in-place rain and "moves pixels" tests and GLYPHS' positions read the
   R side on a per-lens track only); §7.8 repeats §6.3's check — a LIST-RING with EFFECTS clear is refused 15; §7.9 lists
   every C3 sub, kind and record form with its refusal when bit 6 is clear. Nothing built.
+- 2026-11-20 — the two review passes of the built code and their fix rounds (`C3-decisions.md` T–AH): §7.9 telemetry 41
+  and the hold-back to stage 3; §7.11 "a transition plays in full" (its writes leave both owners open; the phone
+  sends no wrap PLAY while one is in hand); §7.12 what the budget's terms do not carry and the cycle's cut at its
+  lowest slot; §7.4 the fold bound for random pieces; §7.3 and §7.14 as built after the second fix round — the destroy
+  withdraws any pending job, a copy that left an owned rect out keeps the stale mark, so presents are whole while an
+  instance owns.
