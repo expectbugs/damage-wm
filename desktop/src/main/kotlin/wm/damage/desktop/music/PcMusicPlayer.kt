@@ -20,8 +20,9 @@ import wm.damage.core.windows.music.TrackRef
  */
 class PcMusicPlayer(
     library: MusicLibrary,
-    /** The player program (lane P): started lazily by the sink, stopped by [close]. */
-    private val process: MpvProcess,
+    /** The player program (lane P's [MpvProcess]; a fake's socket in the tests): started lazily by the sink, stopped
+     *  by [close]. */
+    private val process: MpvLink,
     device: String?,
     /** What mpv opens for a track: its local file (`LocalMusicLibrary.resolveMedia`, lossless). */
     private val media: (TrackRef) -> String,
@@ -86,7 +87,7 @@ class PcMusicPlayer(
         endOrderly(why)
         post { done.countDown() }
         done.await()
-        try { process.stop(why) } catch (e: Exception) { Log.e("player-pc", "the player program did not stop", e) }
+        try { (process as? MpvProcess)?.stop(why) } catch (e: Exception) { Log.e("player-pc", "the player program did not stop", e) }
         thread.shutdown()
         io.shutdown()
     }
