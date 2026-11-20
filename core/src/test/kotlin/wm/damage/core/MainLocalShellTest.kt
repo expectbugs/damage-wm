@@ -1602,49 +1602,6 @@ class MainLocalShellTest {
             assertTrue(handled - decided >= 250, "the done row waited for the loaded loop (+${handled - decided}): the row's t is no send time")
         } finally { r.close() }
     }
-    /** Ruled 11-19 (2b), on the phone: a notch whose stock message reaches the shell 40 ms before its 115 (his journals: 27
-     *  of 332) — the message is held, the report pairs it: the glasses' motion is adopted and COMMITted, nothing is applied
-     *  as today, no snap-back, the row moves once. Before 2b it was applied unreported: a phone frame and a `lost-report`
-     *  DISCARD into a list the glasses were animating. */
-    @Test
-    fun aStockMessageBeforeItsReportIsPairedNotApplied_2b(): Unit = runBlocking {
-        val r = Rig(Taps.REPORT)
-        try {
-            r.up()
-            walkTo(r, 2)
-            val s0 = r.notes("snapback").size; val at = r.right.size
-            r.t.ringStockForTest(BoundList.stockEvent(CfwModes.EV_UPROLL)!!)
-            delay(40)
-            val now = System.currentTimeMillis()
-            for (a in Arm.entries) r.sim.conformanceInput(a, CfwModes.DEV_RING, CfwModes.EV_UPROLL.toLong(), 0, now)
-            val s = r.sim.bindForTest(Arm.RIGHT).seq
-            delay(r.motionMs() + r.q() + 300); r.settle("after")
-            assertEquals(3, r.row(), "one notch, one row")
-            assertTrue(r.notes("snapback").drop(s0).isEmpty(), "no snap-back: ${r.notes("snapback").drop(s0)}")
-            assertTrue(r.right.drop(at).any { img -> r.subs(img).any { r.isCommit(it, s) } }, "the notch (S $s) COMMITted")
-            r.assertOracle("after the notch")
-        } finally { r.close() }
-    }
-
-    /** 2b: a stock scroll message whose 115 never comes (lost) is held, then applied as today at the burst's end — Q after
-     *  it — by the shell's pump: the row moves once, the slot's snap-back is the old `lost-report` one. */
-    @Test
-    fun aHeldStockMessageWithNoReportGoesAtTheBurstsEnd_2b(): Unit = runBlocking {
-        val r = Rig(Taps.REPORT)
-        try {
-            r.up()
-            walkTo(r, 2)
-            val s0 = r.notes("snapback").size
-            r.t.ringStockForTest(BoundList.stockEvent(CfwModes.EV_UPROLL)!!)
-            delay(60)
-            assertEquals(2, r.row(), "held: nothing applied yet")
-            delay(r.q() + 300); r.settle("after")
-            assertEquals(3, r.row(), "applied as today at the burst's end")
-            assertTrue(r.notes("snapback").drop(s0).any { "cause=lost-report" in it }, "the lost-report snap-back: ${r.notes("snapback").drop(s0)}")
-            r.assertOracle("after the release")
-        } finally { r.close() }
-    }
-
     /** B083 fix stage (item 2; the focused read's 1, shown in this shell): over the slow link, k notches past the end 60 ms
      *  apart — all edges, the wrap's DISCARD has not landed — and one notch more once the later edges' DISCARD has landed,
      *  or 740 ms after the first at the latest. The DISCARD now goes when the link has room (its frame still waits behind
@@ -1681,8 +1638,8 @@ class MainLocalShellTest {
 
     /** B083 fix stage (item 3; the focused read's 3): a drag on the phone's mirror of Main — three notches 25 ms apart
      *  through `injectInput`, no lens firing — is no ring event: each is handled at once as today, nothing counts in u, no
-     *  table repair goes. Before, 2b held each as a possible echo for Q and released them together, each counted in u with
-     *  a `lost-report` snap-back, and the table repair re-sent the scroll SETs. */
+     *  table repair goes. Read as the ring's, each was an unreported scroll message — counted in u with a `lost-report`
+     *  snap-back — and the table repair re-sent the scroll SETs. */
     @Test
     fun aDragOnTheMirrorIsHandledAtOnce_B083F3(): Unit = runBlocking {
         val r = Rig(Taps.REPORT)
@@ -1696,7 +1653,6 @@ class MainLocalShellTest {
             assertEquals(4, r.row(), "three notches, three rows")
             val c = r.onLoop { r.shell.localCountsForTest() }
             assertEquals(null, c["unreported"], "nothing counted in u: $c")
-            assertEquals(null, c["stockHeld"], "nothing held: $c")
             assertEquals(repairs0, r.notes("repair").size, "no table repair: ${r.notes("repair").drop(repairs0)}")
             r.assertOracle("after the drag")
         } finally { r.close() }

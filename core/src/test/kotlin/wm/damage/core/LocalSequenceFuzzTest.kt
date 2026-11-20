@@ -43,16 +43,12 @@ class LocalSequenceFuzzTest {
      *  burst's SETTLE (its owe cleared there) and was applied as today — a residual shape, counted with its seed; every
      *  other (8) fails. Random sequences only: a seeded case counts nothing apart. */
     private val lateEchoKey = "(8) BC: an echo later than its burst's SETTLE"
-    /** B083 (2b with decisions BB): a gap charged against a released message — declared on the gesture whose report was
-     *  charged only (B083 fix stage, item 1; it was sequence-wide), random sequences only; (9) still judges the row. */
-    private val gapOnReleasedKey = "(8) 2b+BB: a gap charged against a released message"
     /** B083 fix stage (item 2): S33's shape, a declared residual since the cursor wait was removed. */
     val s33Key = "(1) S33: a tap inside a wrap's held wait acted on the row its cursor named"
     private fun moved(h: LocalHarness, failed: MutableList<String>, counted: MutableMap<String, Int>, seeded: Boolean, suffix: String) {
         for ((g, n) in h.moves) {
             if (n <= 1) continue
             if (!seeded && g in h.lateEchoes) counted[lateEchoKey] = (counted[lateEchoKey] ?: 0) + 1
-            else if (!seeded && g in h.gapCharged) counted[gapOnReleasedKey] = (counted[gapOnReleasedKey] ?: 0) + 1
             else failed += "(8) gesture $g moved the row $n times$suffix"
         }
     }
@@ -61,25 +57,19 @@ class LocalSequenceFuzzTest {
     private fun ringCount(h: LocalHarness, failed: MutableList<String>, suffix: String) {
         val want = h.ringRow()
         if (h.row == want) return
-        // the shapes named when they make the whole difference (still a failure each): 2b's hold across a cover or a
-        // window, a lost edge report counted as drawn, an untaken notch's message paired as a report's echo
-        val shapes = listOf(offFrontShape to h.ringReleasedOffFront, lostEdgeShape to h.ringLostEdge, untakenShape to h.ringUntakenPaired,
-            restagedShape to h.ringAppliedAfterRestage.keys).filter { it.second.isNotEmpty() }
+        // the shape named when it makes the whole difference (still a failure): a lost edge report counted as drawn
+        val shapes = listOf(lostEdgeShape to h.ringLostEdge).filter { it.second.isNotEmpty() }
         var named = ""
         search@ for (n in 1..shapes.size) for (pick in subsets(shapes.indices.toList(), n)) {
-            val gs = pick.filter { shapes[it].first != restagedShape }.flatMap { shapes[it].second }.toSet()
-            val late = if (pick.any { shapes[it].first == restagedShape }) h.ringAppliedAfterRestage.keys else emptySet()
-            if (h.ringRow(gs, late) == h.row) { named = " — " + pick.joinToString(" + ") { "${shapes[it].first} (g${shapes[it].second.joinToString(",g")})" }; break@search }
+            val gs = pick.flatMap { shapes[it].second }.toSet()
+            if (h.ringRow(gs) == h.row) { named = " — " + pick.joinToString(" + ") { "${shapes[it].first} (g${shapes[it].second.joinToString(",g")})" }; break@search }
         }
         failed += "(9) the row at rest is ${h.row}, the ring's count says $want$suffix$named"
     }
     private fun subsets(xs: List<Int>, n: Int): List<List<Int>> = if (n == 0) listOf(emptyList()) else if (xs.size < n) emptyList()
         else subsets(xs.drop(1), n - 1).map { listOf(xs[0]) + it } + subsets(xs.drop(1), n)
     /** The (9) shapes the harness can name. */
-    val offFrontShape = "held message(s) released with Main not in front"
     val lostEdgeShape = "lost report(s) of a fire that did not draw (an edge or a refusal) counted as drawn"
-    val untakenShape = "untaken notch(es) paired as an echo"
-    val restagedShape = "held message(s) applied after a re-stage"
 
     // ----------------------------------------------------------------------------------------- the invariants
     /** (1)–(5) and (8) at rest; [lossy]: a mode-27 message was lost or refused this sequence. */
@@ -150,9 +140,7 @@ class LocalSequenceFuzzTest {
         quiet(h)
         val dir = if (h.row + 2 < h.ids.size) 1 else 2
         h.gesture(dir, answer = true, band = "none")
-        // ruled 11-19 (2b): a first notch the lens did not report (its scroll entries lost — S14) is held to its burst's end,
-        // Q after it, and only then applied and its table repaired; the second notch comes a round trip after that
-        h.runUntil(h.now + maxOf(400L, h.rules.q + 150))
+        h.runUntil(h.now + 400)
         val stopped = h.stoppedBeforeCommit.size
         val g2 = h.gesture(dir, answer = true, band = "none")
         h.rest()
@@ -181,10 +169,6 @@ class LocalSequenceFuzzTest {
         h.lose115 = r.nextDouble() * 0.15; h.dup115 = r.nextDouble() * 0.05
         h.bandDropScroll = r.nextDouble()              // inside a band: dropped, else queued to a band's end (§6.1)
         h.dropAnswer = r.nextDouble() * 0.1; h.actOpensWindow = r.nextDouble() * 0.5
-        // ruled 11-19 (2b): the stock message before its report, 0–150 ms, in a share of the scroll gestures (his journal:
-        // 27 of 332) — from a generator of its own, so a sequence with none (a third) runs exactly as before
-        h.stockFirst = java.util.Random(seed * 31 + 2_011).let { k -> if (k.nextInt(3) == 0) 0.0 else k.nextDouble() * 0.4 }
-        if (h.stockFirst > 0) counted0 += "2b: sequences with stock messages before their report"
         val n = 1 + r.nextInt(events)
         repeat(n) {
             val x = r.nextInt(100)
@@ -240,8 +224,6 @@ class LocalSequenceFuzzTest {
         if (h.windowCuts > 0) counted["AW.3: windows that cut a COMMITted motion"] = (counted["AW.3: windows that cut a COMMITted motion"] ?: 0) + h.windowCuts
         // decisions AZ.4: the wraps animated from the phone, and those a later batch's drawing in the list closed first
         if (h.wrapPlays > 0) counted["AZ.4: wrap PLAYs"] = (counted["AZ.4: wrap PLAYs"] ?: 0) + h.wrapPlays
-        // ruled 11-19 (2b): stock messages held, paired by their report, released at a burst's end
-        for (k in listOf("stockHeld", "stockPaired", "stockReleased")) h.rules.counts[k]?.let { c -> counted["2b: $k"] = (counted["2b: $k"] ?: 0) + c }
         if (h.wrapCuts > 0) counted["AZ.4: wraps closed by a draw in the list"] = (counted["AZ.4: wraps closed by a draw in the list"] ?: 0) + h.wrapCuts
         val stats = "outcome %08x keyframes ${h.keyframes} ".format(h.outcome.value) + "taps ${h.rules.taps.word} events $n sent ${h.sent} commits ${h.commitsSent.size} held ${h.heldCommits} acts ${h.acts.size} " +
             "verdicts ${h.verdicts.groupingBy { it.second::class.simpleName }.eachCount()} counts ${h.rules.counts}"
@@ -613,40 +595,6 @@ class LocalSequenceFuzzTest {
             if (h.rules.counts["gap"] != 2) "the gap counted ${h.rules.counts["gap"]}, not 2 (the shape did not happen)" else null) })
     }
 
-    /** S28 (ruled 11-19, 2b; his journals: 27 of 332 stock messages before their report, two `lost-report` snap-backs on
-     *  0.81, one drawing a phone frame into a list the glasses were animating): three notches 80 ms apart whose stock
-     *  messages each come 1–60 ms before their 115 — each is held, then paired by its report: the glasses' own motions
-     *  stand, nothing is applied as today, no snap-back, the row moves once per notch. */
-    @Test fun seededS28_aStockMessageBeforeItsReportIsPairedNotApplied() = seeded(Taps.REPORT, rows = 0, script = { h ->
-        h.stockFirst = 1.0; h.stockLeadMax = 60
-        repeat(3) { h.gesture(1, answer = true, band = "none"); h.runUntil(h.now + 80) }
-        h.rest()
-    }, extra = { h -> listOfNotNull(
-        if (h.rules.counts["stockPaired"] != 3) "paired ${h.rules.counts["stockPaired"]} of 3 (held ${h.rules.counts["stockHeld"]}; the shape did not happen?)" else null,
-        if ((h.rules.counts["unreported"] ?: 0) != 0) "${h.rules.counts["unreported"]} stock message(s) applied as unreported" else null,
-        if ((h.rules.counts["snapback.lost-report"] ?: 0) != 0) "a lost-report snap-back" else null,
-        if (h.row != 3) "the row is ${h.row}, not 3" else null) })
-
-    /** S29 (2b): a stock message whose 115 never comes (lost) is applied as today at the burst's end — never held for
-     *  good: the row moves once, the slot's snap-back is the old `lost-report` one, and the hold leaves nothing behind.
-     *  The burst's SETTLE waits for the release: sent before it, it would name the row the message has not moved yet and
-     *  set the lens's cursor back under the motion it drew — RIGHT's row seen going back (2 → 1 → 2). */
-    @Test fun seededS29_aHeldStockMessageWithNoReportGoesAtTheBurstsEnd() {
-        val seen = ArrayList<Int>()
-        seeded(Taps.REPORT, rows = 0, script = { h ->
-            h.stockFirst = 1.0; h.stockLeadMax = 1
-            h.gesture(1, answer = true, band = "none"); h.runUntil(h.now + 200)       // a burst open, then one whose 115 is lost
-            h.loseNext115 = 1
-            h.sampler = { val id = h.shownOn(Arm.RIGHT); if (id >= 0 && seen.lastOrNull() != id) seen += id }
-            h.gesture(1, answer = true, band = "none")
-            h.rest()
-            h.sampler = null
-        }, extra = { h -> listOfNotNull(
-            if (h.rules.counts["stockReleased"] != 1) "released ${h.rules.counts["stockReleased"]} (held ${h.rules.counts["stockHeld"]}, paired ${h.rules.counts["stockPaired"]})" else null,
-            if (h.row != 2) "the row is ${h.row}, not 2" else null,
-            if (seen.windowed(3).any { (a, b, c) -> a == c && a != b }) "RIGHT's row went back and forth: $seen" else null) })
-    }
-
     /** S30 (B083, 2c; his look at 0.81: edge reports in a burst at Main's wrap): two notches past the end 20 ms apart, the
      *  second an edge too (the wrap's DISCARD has not landed): the wrap's PLAY draws whole on both lenses — the second
      *  edge's frame waits for its end, as the shell's compositor holds it (AF.7), instead of closing it after a step — and
@@ -659,36 +607,6 @@ class LocalSequenceFuzzTest {
         if (h.wrapPlays != 1) "${h.wrapPlays} wrap PLAYs (the shape did not happen)" else null,
         if (h.wrapCuts != 0 || h.bodies114.any { it.first == LocalHarness.WRAP_SLOT && it.third == 1 }) "the wrap closed while drawing: cuts ${h.wrapCuts}, bodies ${h.bodies114.filter { it.first == LocalHarness.WRAP_SLOT }}" else null,
         if (h.row != 1) "the row is ${h.row}, not 1" else null) })
-
-    /** S31 (B083, 2b; the fuzz's seed 100004 on the first build of 2b): a NEXT the lens did not report (its entry's SET lost
-     *  at a return) is held; a PREV 100 ms later is reported and adopted. Its owe pairs a held message of its own direction
-     *  only — the held NEXT is applied at the burst's end — so the row ends where it began. Paired with the NEXT, the PREV's
-     *  own message was applied as unreported too: two rows down for one notch. */
-    @Test fun seededS31_aHeldMessageIsPairedOnlyByAReportOfItsDirection() = seeded(Taps.REPORT, script = { h ->
-        h.cover(); h.rest()
-        h.lose27 = "set" to setOf(Arm.LEFT, Arm.RIGHT)  // the return's first SET (entry 0, the NEXT entry) does not land
-        h.uncover(); h.rest()
-        h.gesture(1, answer = true, band = "none"); h.runUntil(h.now + 100)
-        h.gesture(2, answer = true, band = "none")
-        h.rest()
-    }, extra = { h -> listOfNotNull(
-        if ((h.rules.counts["stockHeld"] ?: 0) < 1) "nothing held (the shape did not happen): ${h.rules.counts}" else null,
-        if (h.row != 3) "the row is ${h.row}, not 3 (a NEXT and a PREV)" else null) })
-
-    /** S32 (B083, 2b): two notches whose 115s are lost — their stock messages then have no owe and are held — and a third
-     *  notch 60 ms later, whose report finds the gap of 2: its own owe pairs one held message, the gap's owes the other
-     *  (the lens drew those notches; the adopted cursor counts them), so the row moves to 3 and nothing is applied as today.
-     *  (With one lost report the report's own owe alone pairs it: the gap's pairing is watched only with two.) */
-    @Test fun seededS32_aGapsOwePairsTheHeldMessageOfTheLostReport() = seeded(Taps.REPORT, rows = 0, script = { h ->
-        h.loseNext115 = 2
-        h.gesture(1, answer = true, band = "none"); h.runUntil(h.now + 60)
-        h.gesture(1, answer = true, band = "none"); h.runUntil(h.now + 60)
-        h.gesture(1, answer = true, band = "none")
-        h.rest()
-    }, extra = { h -> listOfNotNull(
-        if (h.rules.counts["stockPaired"] != 2) "paired ${h.rules.counts["stockPaired"]} (held ${h.rules.counts["stockHeld"]}): the shape did not happen?" else null,
-        if ((h.rules.counts["unreported"] ?: 0) != 0) "${h.rules.counts["unreported"]} applied as unreported" else null,
-        if (h.row != 3) "the row is ${h.row}, not 3" else null) })
 
     /** S33 (B083, 2c; the fuzz's seed 101032 once the harness held the wrap's cells as the shell does) — since the B083 fix
      *  stage the DECLARED RESIDUAL: a notch past the end (the wrap) and, 15 ms later, a notch back that the lens draws
@@ -722,28 +640,6 @@ class LocalSequenceFuzzTest {
         if (h.row != k) "the row is ${h.row}, not $k (the ring's count)" else null) })
     @Test fun seededS34_twoEdgesThenANotchInTheWrapsWait() = edgeBurstThenANotch(2, 20)
     @Test fun seededS35_threeEdgesThenANotchInTheWrapsWait() = edgeBurstThenANotch(3, 10)
-
-    /** S37 (B083 fix stage, item 5; the focused read's 5): one notch whose 115 is lost — both lenses draw it, its stock
-     *  message is held, no burst opens — and an unrelated frame (the clock) 320 ms later. Its idle SETTLE waits for the
-     *  release: sent before it, it named the row the message had not moved yet and set RIGHT back a row under the notch it
-     *  drew (RIGHT's row 3 → 4 → 3 → 4); now the batch that draws the release carries it. */
-    @Test fun seededS37_theIdleSettleWaitsForTheRelease() {
-        val seen = ArrayList<Int>()
-        var released0 = 0
-        seeded(Taps.REPORT, script = { h ->
-            released0 = h.rules.counts["stockReleased"] ?: 0
-            h.sampler = { val id = h.shownOn(Arm.RIGHT); if (id >= 0 && seen.lastOrNull() != id) seen += id }
-            h.loseNext115 = 1
-            val t0 = h.now
-            h.gesture(1, answer = true, band = "none")
-            h.runUntil(t0 + 320)
-            h.tick()
-            h.rest()
-            h.sampler = null
-        }, extra = { h -> listOfNotNull(
-            if ((h.rules.counts["stockReleased"] ?: 0) - released0 != 1) "released ${(h.rules.counts["stockReleased"] ?: 0) - released0} (the shape did not happen)" else null,
-            if (seen.windowed(3).any { (a, b, c) -> a == c && a != b }) "RIGHT's row went back and forth: $seen" else null) })
-    }
 
     @Test fun seededS24_aRefusedTailOnRightIsSeenAtTheSettle() = seeded(Taps.REPORT, live = false, script = { h ->
         h.refuse27On = Arm.RIGHT
@@ -781,7 +677,7 @@ class LocalSequenceFuzzTest {
         println("J-case: row ${h.row}, ring ${h.ringRow()}, counts ${h.rules.counts.filterKeys { it in J_KEYS }}, failed ${failed.distinct()}")
         return h to failed.distinct()
     }
-    private val J_KEYS = setOf("unreported", "stockHeld", "stockPaired", "stockReleased", "owesAtSettle", "settles", "snapback.lost-report",
+    private val J_KEYS = setOf("unreported", "owesAtSettle", "settles", "snapback.lost-report",
         "snapback.edge", "repair", "commit")
 
     /** J1 — his 23:17:20.163–21.731 (the run of eight; also 22:57:53.983, 23:16:40.458, 23:17:07.877, 23:17:26.480): RIGHT
@@ -927,7 +823,7 @@ class LocalSequenceFuzzTest {
             for (f in v.failed) fails += "seed $seed: $f"
             for ((k, c) in v.counted) counted[k] = (counted[k] ?: 0) + c
             // decisions BC: the declared shapes, with their seeds
-            for (k in v.counted.keys) if (k.startsWith("(8) BC") || k.startsWith("(8) 2b") || k.startsWith("row A: a batch") || k.startsWith("(9)") || k.startsWith("(1) S33")) declaredSeeds.getOrPut(k) { ArrayList() } += seed
+            for (k in v.counted.keys) if (k.startsWith("(8) BC") || k.startsWith("row A: a batch") || k.startsWith("(9)") || k.startsWith("(1) S33")) declaredSeeds.getOrPut(k) { ArrayList() } += seed
         }
         // every failure, one line each, for reading the shapes (the assertion's message keeps the first 30)
         for (f in fails) println("FAIL $f")

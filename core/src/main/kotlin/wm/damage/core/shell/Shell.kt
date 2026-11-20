@@ -5791,7 +5791,7 @@ class Shell(
     internal fun mainBoundForTest(): Pair<wm.damage.core.local.BoundList?, Int> = main.bound() to main.row()
     /** Test introspection (build ANIM, AW.4): Q in force and the bound pan's motion in ms (T × P), loop-only. */
     internal fun localQForTest(): Long = local.q
-    /** The rules' counters (`unreported`, `stockHeld`, …), read on the loop. */
+    /** The rules' counters (`unreported`, `lateEcho`, …), read on the loop. */
     internal fun localCountsForTest(): Map<String, Int> = local.counts.toMap()
     internal fun motionMsForTest(): Long = mainBind.staging?.let { it.t * it.periodInForce * 1000L / 1024 } ?: 0L
     /** G4 item 1: assembles the shell made between the last edge report's verdict and its wrap's PLAY (0: the PLAY went
@@ -7426,11 +7426,6 @@ class Shell(
         // fills, per-lens draws and a hint for lenses that no longer had DRAW2 in force.
         val st = transport.state.value
         comp.v2 = st.draw2 && !v2RefusedThisSession   // contract 2 (`FIRMWARE.md` §4): fills, the reseed, the hint
-        // ruled 11-19 (2b): stock messages held for a report that did not come go as today at the burst's end — first, as
-        // a message arriving then would — and at once when the rules' messages no longer go (BIND off, the lease or the
-        // link gone), so no notch is lost with the session
-        if (running && local.stockHeldNow > 0) for (v in local.releaseHeld(localRow(), System.currentTimeMillis(),
-                unbound = !(local.active && st.started && st.bind && st.leaseHeld))) localVerdict(v)
         // package G (G-design §1): a session with no carrier (a start that rested in Silent Mode) takes no frame
         if (!running || !st.started || !st.carrierUp) return
         // the `hold=on` dev probe: a hand-played test program's picture stays on the lenses until the hold ends

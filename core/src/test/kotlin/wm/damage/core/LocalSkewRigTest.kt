@@ -14,10 +14,10 @@ import wm.damage.core.transport.Arm
  * drawing on either lens) or by a whole row (both at rest, showing different rows), for how long, and what ran when they
  * agreed again. The motion is his phone's (T 6 at P 46, 0.81's).
  *
- * Rule sets: 0.82's (an unreported scroll message applied at its arrival), 2b (held for its report). Each cell runs
- * [SEEDS] seeded bursts (seed = cell base + i, so a cell's numbers repeat exactly); his journals' share of stock messages
- * before their report (27 of 332) is the reversal rate. Printed as a table (`skew-rig:` lines); asserted: only that every
- * burst ended with both lenses equal to the phone's truth at rest, which the fuzz's invariants already say.
+ * The rules as they stand (an unreported scroll message applied at its arrival, as 0.82; B083's 2b hold was removed,
+ * decisions BM). Each cell runs [SEEDS] seeded bursts (seed = cell base + i, so a cell's numbers repeat exactly). Printed
+ * as a table (`skew-rig:` lines); asserted: only that every burst ended with both lenses equal to the phone's truth at
+ * rest, which the fuzz's invariants already say.
  */
 class LocalSkewRigTest {
     private companion object {
@@ -31,15 +31,12 @@ class LocalSkewRigTest {
 
     /** One burst: [NOTCHES] notches down, [gap] ms apart, from row 0 of 12 rows ([wrap] false) or across the end of 8 rows
      *  (from row 5: the third notch is the edge, Main's wrap). */
-    private fun burst(seed: Long, rule: Int, leftLate: Boolean, skewMax: Int, gap: Int, wrap: Boolean, into: Result, trace: Boolean = false) {
+    private fun burst(seed: Long, leftLate: Boolean, skewMax: Int, gap: Int, wrap: Boolean, into: Result, trace: Boolean = false) {
         val h = LocalHarness(seed, Taps.REPORT, n0 = if (wrap) 8 else 12, tScroll = 6, period = 46)
-        if (trace) h.trace = { println("rule $rule $it") }
-        h.rules.holdStock = rule >= 1
-        // the session's start batch lands first (a notch racing it finds RIGHT with no entry: unreported, a start artifact
-        // that 2b holds to the burst's end — seen as LEFT a row ahead for ~0.9 s in every 2b burst before this rest)
+        if (trace) h.trace = { println(it) }
+        // the session's start batch lands first (a notch racing it finds RIGHT with no entry: unreported, a start artifact)
         h.rest()
         if (wrap) { repeat(5) { h.gesture(1, answer = true, band = "none"); h.runUntil(h.now + 600) }; h.rest() }
-        h.stockFirst = 27.0 / 332; h.stockLeadMax = 60
         h.skewMax = skewMax; h.leftLate = leftLate
         var state = 0; var since = h.now; var stretchFrom = -1L
         // the band's pictures are solid rows (a step draws the new row's record): "a step apart" is the panels differing
@@ -70,7 +67,7 @@ class LocalSkewRigTest {
         if (h.truthMismatches().isNotEmpty()) into.notAtRest++
     }
 
-    /** For reading a cell (`SKEW_RIG_CELL=wrap|mid,LEFT|RIGHT,<gap>`): each seed's numbers under both rule sets, and with
+    /** For reading a cell (`SKEW_RIG_CELL=wrap|mid,LEFT|RIGHT,<gap>`): each seed's numbers, and with
      *  `SKEW_RIG_TRACE=<seed>` that seed's whole record. Passes when the variable is unset. */
     @Test
     fun oneCellPerSeed() {
@@ -78,26 +75,24 @@ class LocalSkewRigTest {
         val wrap = cell[0] == "wrap"; val leftLate = cell[1] == "LEFT"; val gap = cell[2].toInt()
         val base = 9_000_000L + (if (wrap) 100_000 else 0) + gap * 1_000L + (if (leftLate) 0 else 500) + 80
         val trace = System.getenv("SKEW_RIG_TRACE")?.toLong()
-        for (i in 0 until SEEDS) for (rule in listOf(0, 1)) {
+        for (i in 0 until SEEDS) {
             val r = Result()
-            burst(base + i, rule, leftLate, 80, gap, wrap, r, trace == base + i)
-            println("cell seed ${base + i} rule $rule: step ${r.msStep} row ${r.msRow} longest ${r.longest} ended ${r.endedBy}")
+            burst(base + i, leftLate, 80, gap, wrap, r, trace == base + i)
+            println("cell seed ${base + i}: step ${r.msStep} row ${r.msRow} longest ${r.longest} ended ${r.endedBy}")
         }
     }
 
     @Test
     fun theTwoLensesUnderASkewedLink_2d() {
-        val rules = (System.getenv("SKEW_RIG_RULES") ?: "0,1").split(',').map { it.trim().toInt() }
-        val ruleName = mapOf(0 to "0.82", 1 to "2b")
         val out = StringBuilder()
         var notAtRest = 0
-        for (wrap in listOf(false, true)) for (rule in rules) for ((skew, leftLate) in listOf(0 to true, 80 to true, 80 to false)) for (gap in listOf(40, 70, 100, 150)) {
+        for (wrap in listOf(false, true)) for ((skew, leftLate) in listOf(0 to true, 80 to true, 80 to false)) for (gap in listOf(40, 70, 100, 150)) {
             val r = Result()
             val base = 9_000_000L + (if (wrap) 100_000 else 0) + gap * 1_000L + (if (leftLate) 0 else 500) + skew
-            for (i in 0 until SEEDS) burst(base + i, rule, leftLate, skew, gap, wrap, r)
+            for (i in 0 until SEEDS) burst(base + i, leftLate, skew, gap, wrap, r)
             notAtRest += r.notAtRest
             val dir = if (skew == 0) "none (L first, 4-11)" else if (leftLate) "LEFT late 0-$skew" else "RIGHT late 0-$skew"
-            out.append("skew-rig: ${if (wrap) "wrap" else "mid "} | rules ${ruleName[rule]} | skew $dir | gap $gap | per burst: step ${r.msStep / r.bursts} ms, " +
+            out.append("skew-rig: ${if (wrap) "wrap" else "mid "} | skew $dir | gap $gap | per burst: step ${r.msStep / r.bursts} ms, " +
                 "row ${r.msRow / r.bursts} ms | stretches ${r.stretches} | longest ${r.longest} ms | ended by ${r.endedBy} | not at rest ${r.notAtRest}/${r.bursts}\n")
         }
         println(out)
