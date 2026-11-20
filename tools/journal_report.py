@@ -391,7 +391,7 @@ def main(paths, since_ms=0, glasslog=False):
         stage_flushes = [r for r in joined if r.get('label') == 'STAGE']
         stage_bytes = sum(o.get('bytes', 0) for r in stage_flushes for o in r.get('ops', []))
         print(f'page staging: {sum(staged)} rect(s) shipped as staged draws over {sum(1 for s in staged if s > 0)} flushes; '
-              f'{len(stage_flushes)} record write(s), {stage_bytes} B off the gesture path')
+              f'{len(stage_flushes)} stage flush(es) (a record goes in pieces since build SPLIT), {stage_bytes} B off the gesture path')
     atlas_report(joined, notes)
     # §42: time to first visible change per gesture. A burst = consecutive
     # flushes less than BURST_GAP_MS apart; its first flush's bytes and ack are

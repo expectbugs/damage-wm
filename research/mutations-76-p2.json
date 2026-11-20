@@ -729,8 +729,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        if (stageInFlight != null || ledgerReadInFlight) return false\n",
-    "        if (stageInFlight != null) return false\n"
+    "        if (stageInFlight != null || stageCursor != null || ledgerReadInFlight) return false\n        if (st.inFlight != 0 || comp.hasPending || comp.needsKeyframe) return false\n        val v = stagedDoc()",
+    "        if (stageInFlight != null || stageCursor != null) return false\n        if (st.inFlight != 0 || comp.hasPending || comp.needsKeyframe) return false\n        val v = stagedDoc()"
    ]
   ],
   "tests": [
@@ -739,7 +739,7 @@
   "expect": [
    "aStageClearDoesNotReleaseTheLanesUnderAReading"
   ],
-  "note": "the stage lane's own hold (P2-22 is the clear that used to release it)"
+  "note": "the stage lane's own hold (P2-22 is the clear that used to release it) (retargeted at pumpStage's line as build SPLIT left it)"
  },
  {
   "id": "P2-45-a-reading-launched-under-a-reading",

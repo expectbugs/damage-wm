@@ -350,11 +350,11 @@ class StagingTest {
     }
 
     /**
-     * P5 item 5, the staged-strip case (wait-no-escape finding 2's corrected condition): a staged strip is ONE flush
-     * of several cache writes, each holding a window slot, and tracked as the stage's flush — not among the display
-     * flushes in flight. Its two writes' acks lost leave the reserve holding with no display flush in flight; a
-     * yield keyed on display flushes never comes. Fixed (keyed on the slots the room check reads): two idle ticks,
-     * the held repaint goes out, its ack releases the two writes ("acked first") and the stage flush fails.
+     * P5 item 5, the staged-strip case (wait-no-escape finding 2's corrected condition), as build SPLIT left it: a staged
+     * strip used to be ONE flush of several cache writes, each holding a window slot, so its two writes' acks lost held
+     * the reserve with no display flush in flight. A record now goes one piece (one write) per flush: the first piece's
+     * ack lost holds one slot, the repaint goes out beside it at once, its ack releases the lost one ("acked first"), the
+     * piece's flush fails — and the strip goes again whole, from its first piece (a failed piece fails its record).
      */
     @Test
     fun aStagedStripWhoseAcksAreLostDoesNotHoldTheOtherFrames(): Unit = runBlocking {
@@ -375,19 +375,20 @@ class StagingTest {
             rig.until("the first strip's writes are out with their acks lost: writes=${writes.get()} inFlight=${rig.simT.state.value.inFlight}") {
                 writes.get() > 0 && drop.get() == 0 && rig.simT.state.value.inFlight == writes.get()
             }
-            assertEquals(2, writes.get(), "the staged strip went out in two writes (the case the pin reads): ${rig.notes("stage").takeLast(3)}")
+            assertEquals(1, writes.get(), "the staged strip's first piece went out as one write: ${rig.notes("stage").takeLast(3)}")
+            val strip = "\"detail\":\"" + rig.notes("stage").first { "submitted as flush" in it }.substringAfter("\"detail\":\"").substringBefore(" (")
+            assertTrue(rig.notes("stage").first { "submitted as flush" in it }.contains("piece 1 of 2"), "a strip of two pieces: ${rig.notes("stage").takeLast(3)}")
             val held = rig.all().size
             nonInputRepaint(rig.shell, 2)
-            assertTrue(rig.all().size == held && "pending" in rig.shell.quiescenceReport(),
-                "the repaint is held by the reserve: ${rig.shell.quiescenceReport()}")
-            rig.shell.postIdleTick(); rig.shell.postIdleTick()
-            rig.until("the held repaint went out past the reserve: ${rig.all().size - held} flush(es)") { rig.all().size > held }
-            rig.until("the strip's two writes are released by the later ack and its flush fails") {
+            rig.until("the repaint goes out beside the one piece in flight: ${rig.all().size - held} flush(es)") { rig.all().size > held }
+            rig.until("the piece's write is released by the later ack and its flush fails") {
                 rig.notes("stage").any { "acked first" in it } || (Files.exists(rig.tmp.resolve("journal.jsonl")) &&
                     Files.readAllLines(rig.tmp.resolve("journal.jsonl")).any { "\"ev\":\"done\"" in it && "acked first" in it })
             }
             assertTrue(Files.readAllLines(rig.tmp.resolve("journal.jsonl")).none { "counter cycled" in it }, "released by a later ack, not the counter")
             rig.simT.notifyFilter = null
+            rig.until("the strip goes again whole, from its first piece") { rig.notes("stage").count { strip in it && "submitted as flush" in it } >= 2 }
+            assertTrue(rig.notes("stage").any { strip in it && "(piece 1 of 2) failed" in it }, "the failed piece said: ${rig.notes("stage").filter { strip in it }}")
             rig.settle("after the repair")
             rig.shell.stop()
         } finally {
