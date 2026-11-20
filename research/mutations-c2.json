@@ -1293,8 +1293,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        if (!mainBindBurstOpen()) b.nextOwed(now)",
-    "        b.nextOwed(now)"
+    "        if (!mainBindBurstOpen() && !mainMotionMayDraw()) b.nextOwed(now)",
+    "        if (!mainMotionMayDraw()) b.nextOwed(now)"
    ]
   ],
   "tests": [
@@ -1303,7 +1303,7 @@
   "expect": [
    "aBandFormChangedInABurstWaitsForItsSettleAndItsNotchIsStillCommitted_DI"
   ],
-  "note": "re-stages during a burst (its pin exists since the rules were merged: named by the lead after the sweep of 2026-11-19 showed this test fails under it)",
+  "note": "re-stages during a burst (its pin exists since the rules were merged: named by the lead after the sweep of 2026-11-19 showed this test fails under it) [re-targeted at the 0.83 integration: B082 added the motion gate beside the burst gate on this line]",
   "from": "DM2"
  },
  {
@@ -1936,8 +1936,8 @@
   "file": "comp/Compositor.kt",
   "edits": [
    [
-    "        if (until > nowMs) {",
-    "        if (false) {"
+    "        val until = live.maxOf { it.untilMs }\n        if (until > nowMs) {",
+    "        val until = live.maxOf { it.untilMs }\n        if (false) {"
    ]
   ],
   "tests": [
@@ -1948,7 +1948,7 @@
    "theHeldCellsWaitForTheMotionsEnd_AF7",
    "aBandFormChangedInABurstWaitsForItsSettleAndItsNotchIsStillCommitted_DI"
   ],
-  "note": "AF.7: the held cells sent at once, during the adopted motion",
+  "note": "AF.7: the held cells sent at once, during the adopted motion [re-targeted at the 0.83 integration: 0.82's holdEnds has the same line; the adopted motion's wait is the one after `live.maxOf`]",
   "from": "FB"
  },
  {
@@ -2066,7 +2066,7 @@
   "file": "local/LocalRules.kt",
   "edits": [
    [
-    "            if (tap) owesClick-- else owesScroll--\n",
+    "            if (tap) owesClick-- else { owesScroll--; owesDirDec(ownType) }\n",
     ""
    ]
   ],
@@ -2076,8 +2076,8 @@
   "expect": [
    "aRefusedReportNamingNoListLeavesItsStockMessage_AF5"
   ],
-  "note": "AF.5",
-  "from": "FB"
+  "note": "AF.5 (edit text changed by the direction owes)",
+  "from": "FB, changed by B083-v2"
  },
  {
   "id": "AF6-key-without-content",
@@ -2120,8 +2120,8 @@
   "file": "shell/MainBinding.kt",
   "edits": [
    [
-    "    fun nextOwed(nowMs: Long): Int? = if (nowMs < lastAnyWriteMs + RESTAGE_PACE_MS || patches.any { p -> !p.released }) null",
-    "    fun nextOwed(nowMs: Long): Int? = if (patches.any { p -> !p.released }) null"
+    "    fun nextOwed(nowMs: Long): Int? = if (nowMs < lastAnyWriteMs + RESTAGE_PACE_MS || patches.any { p -> !p.released } || reprogram != null) null",
+    "    fun nextOwed(nowMs: Long): Int? = if (patches.any { p -> !p.released } || reprogram != null) null"
    ]
   ],
   "tests": [
@@ -2130,7 +2130,7 @@
   "expect": [
    "oneReStagePerPaceInAllTheStalestFirst_AF8"
   ],
-  "note": "AF.8: no pace in all",
+  "note": "AF.8: no pace in all [re-targeted at the 0.83 integration: K1-1 added `|| reprogram != null`]",
   "from": "FB"
  },
  {
@@ -2156,8 +2156,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "listOf(MainStaging.WHOLE), twoStrips = !shared0, motion = motionInForce())",
-    "MainStaging.WIDTHS + MainStaging.WHOLE, twoStrips = !shared0, motion = motionInForce())"
+    "listOf(MainStaging.WHOLE), twoStrips = !shared0, motion = motionInForce(), room = room)",
+    "MainStaging.WIDTHS + MainStaging.WHOLE, twoStrips = !shared0, motion = motionInForce(), room = room)"
    ]
   ],
   "tests": [
@@ -2166,7 +2166,7 @@
   "expect": [
    "theBoundStagingHoldsOnlyTheWholeListsPans_AF10"
   ],
-  "note": "AF.10",
+  "note": "AF.10 [re-targeted at the 0.83 integration: B082 added the `room` argument]",
   "from": "FB"
  },
  {
@@ -2210,18 +2210,18 @@
   "file": "local/LocalRules.kt",
   "edits": [
    [
-    "        val listed = HashSet<Int>()\n        takeRepairs(out, true, listed, HashSet(), HashSet())\n        front?.let { ridingList(out, it.list, listed) }\n        out += settle(row)",
-    "        val listed = HashSet<Int>()\n        takeRepairs(out, true, listed, HashSet(), HashSet())\n        settle(row); out += CfwModes.motionDiscard(front?.slot ?: 0, (sHeard + 1) and 0xFFFF, front?.list ?: CfwModes.BIND_ALL, if (front != null) row else 0)"
+    "        val listed = HashSet<Int>()\n        takeRepairs(out, true, listed, HashSet(), HashSet())\n        front?.let { ridingList(out, it.list, listed) }\n        out += settle(row, nowMs, lone = true)",
+    "        val listed = HashSet<Int>()\n        takeRepairs(out, true, listed, HashSet(), HashSet())\n        settle(row, nowMs, lone = true); out += CfwModes.motionDiscard(front?.slot ?: 0, (sHeard + 1) and 0xFFFF, front?.list ?: CfwModes.BIND_ALL, if (front != null) row else 0)"
    ]
   ],
   "tests": [
-   "*LocalSequenceFuzzTest.seededS3_aFireCrossingTheBurstsEnd"
+   "*LocalSequenceFuzzTest.seededS3*"
   ],
   "expect": [
    "seededS3_aFireCrossingTheBurstsEnd"
   ],
-  "note": "1(b)1: the blind end-of-burst DISCARD(S_heard + 1): (7)",
-  "from": "FB"
+  "note": "1(b)1: the blind DISCARD in place of the lone SETTLE (edit text changed by C1's settle signature)",
+  "from": "FB, changed by B083-v2"
  },
  {
   "id": "S8-answered-as-2b",
@@ -2772,8 +2772,8 @@
   "file": "shell/MainBinding.kt",
   "edits": [
    [
-    "fun tailsForgotten() { for (p in patches) p.setsFlush = null }",
-    "fun tailsForgotten() { }"
+    "fun tailsForgotten() { for (p in patches) p.setsFlush = null; reprogram?.setsFlush = null }",
+    "fun tailsForgotten() { reprogram?.setsFlush = null }"
    ]
   ],
   "tests": [
@@ -2782,7 +2782,7 @@
   "expect": [
    "aStripSwitchIsReleasedWhenItsSetsLand_AD2"
   ],
-  "note": "FC: a new session keeps the old session's flush in flight",
+  "note": "FC: a new session keeps the old session's flush in flight [re-targeted at the 0.83 integration: K1-1 added the re-make's flush beside the patches'; the row keeps the patches' (its pin is a strip switch)]",
   "from": "FC"
  },
  {
@@ -2942,8 +2942,8 @@
   "file": "comp/Compositor.kt",
   "edits": [
    [
-    "deferUntilMs = if (deferL.isEmpty()) until else maxOf(deferUntilMs, until)",
-    "deferUntilMs = maxOf(deferUntilMs, until)"
+    "(AL.6, R3: a clock stepped back is not carried into it), a burst's the latest\n            deferUntilMs = if (deferL.isEmpty()) until else maxOf(deferUntilMs, until)",
+    "(AL.6, R3: a clock stepped back is not carried into it), a burst's the latest\n            deferUntilMs = maxOf(deferUntilMs, until)"
    ]
   ],
   "tests": [
@@ -2952,7 +2952,7 @@
   "expect": [
    "aNewWaitTakesItsOwnEnd_AL6"
   ],
-  "note": "AL.6 R3: a new wait carries the last one's end",
+  "note": "AL.6 R3: a new wait carries the last one's end [re-targeted at the 0.83 integration: 0.82's holdEnds has the same line; the adopted motion's (under R3's comment) is the row's]",
   "from": "FC"
  },
  {
@@ -3222,8 +3222,12 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "            ms.motion != motionInForce() && !mainBindBurstOpen() ->",
-    "            false && ms.motion != motionInForce() && !mainBindBurstOpen() ->"
+    "            ms.progSlots == null && ms.motion != motionInForce() && !mainBindBurstOpen() ->",
+    "            false && ms.progSlots == null && ms.motion != motionInForce() && !mainBindBurstOpen() ->"
+   ],
+   [
+    "        if (ms.remakeOwed(want) == null) return false",
+    "        return false"
    ]
   ],
   "tests": [
@@ -3232,7 +3236,7 @@
   "expect": [
    "anAnimationsChangeMakesThePansAgainAndANotchUsesThem_ANIM"
   ],
-  "note": "ANIM: a change of the rows leaves the old pans",
+  "note": "ANIM: a change of the rows leaves the old pans [re-targeted at the 0.83 integration: K1-1 split a change of the rows into the drop (no spare pan slot) and the re-make (a spare slot): both off is 'the old pans left']",
   "from": "ANIM"
  },
  {
@@ -3392,44 +3396,6 @@
   "from": "G2"
  },
  {
-  "id": "AZ4-margins-not-grown",
-  "file": "shell/MainStaging.kt",
-  "edits": [
-   [
-    "            val sA = if (wraps) mA + 1 else mA; val sB = if (wraps) mB + 1 else mB",
-    "            val sA = mA; val sB = mB"
-   ]
-  ],
-  "tests": [
-   "*MainLocalShellTest.theWrapSlidesOneRowBothWays_AZ4",
-   "*MainBindTest.theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2"
-  ],
-  "expect": [
-   "theWrapSlidesOneRowBothWays_AZ4",
-   "theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2"
-  ],
-  "note": "AZ.4: no extra margin row \u2014 the last step's far row reads past the strip (blank until the release repaints it)",
-  "from": "G2"
- },
- {
-  "id": "AZ4-wraps-guard",
-  "file": "shell/MainStaging.kt",
-  "edits": [
-   [
-    "        if (!wraps || (cPrime != -1 && cPrime != rows) || cPrime - pan.step !in 0 until rows) return null",
-    "        if ((cPrime != -1 && cPrime != rows) || cPrime - pan.step !in 0 until rows) return null"
-   ]
-  ],
-  "tests": [
-   "*MainLocalShellTest.aListThatDoesNotWrapKeepsTodaysEdge_AZ4"
-  ],
-  "expect": [
-   "aListThatDoesNotWrapKeepsTodaysEdge_AZ4"
-  ],
-  "note": "AZ.4: a list that does not wrap gets a PLAY past its blank margin",
-  "from": "G2"
- },
- {
   "id": "AZ4-play-after-discard",
   "file": "shell/Shell.kt",
   "edits": [
@@ -3489,8 +3455,8 @@
   "file": "local/LocalRules.kt",
   "edits": [
    [
-    "        owesScroll = 0; owesClick = 0; owesAny = 0\n        repair.settleSent()",
-    "        owesScroll = 0; owesClick = 0; owesAny = 0; u = 0\n        repair.settleSent()"
+    "        owesClick = 0\n        if (lone)",
+    "        owesClick = 0; u = 0\n        if (lone)"
    ]
   ],
   "tests": [
@@ -3499,16 +3465,16 @@
   "expect": [
    "seededS27_aGapFoundAfterASettleOwesNothingForMessagesThatCame"
   ],
-  "note": "BB: u reset at the SETTLE (the rule before G3): a gap found by the next burst is charged in full",
-  "from": "G3"
+  "note": "BB: u reset at the SETTLE (the rule before G3); edit text changed by C1",
+  "from": "G3, changed by B083-v2"
  },
  {
   "id": "G4-wrap-not-first",
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        if (!(local.active && st.bind && st.leaseHeld) || comp.needsKeyframe) return false\n        if (local.plan(localRow()).isNotEmpty()) return false",
-    "        if (true || !(local.active && st.bind && st.leaseHeld) || comp.needsKeyframe) return false\n        if (local.plan(localRow()).isNotEmpty()) return false"
+    "        if (!(local.active && st.bind && st.leaseHeld) || comp.needsKeyframe) return false\n        // B082 (the focused read's W2)",
+    "        if (true || !(local.active && st.bind && st.leaseHeld) || comp.needsKeyframe) return false\n        // B082 (the focused read's W2)"
    ]
   ],
   "tests": [
@@ -3517,7 +3483,7 @@
   "expect": [
    "theWrapsPlayGoesBeforeItsFramesAssemble_G4"
   ],
-  "note": "G4 item 1: the PLAY rides the frame's pump after its assemble (0.80)",
+  "note": "G4 item 1: the PLAY rides the frame's pump after its assemble (0.80) [re-targeted at the 0.83 integration: B082 (W2) put a line between the two the row named; the first line alone]",
   "from": "G4"
  },
  {
@@ -3579,8 +3545,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "            stepWindow.size >= PERIOD_WINDOW && periodSamplesSinceChange >= PERIOD_WINDOW && need <= p - PERIOD_HYSTERESIS -> need",
-    "            need < p -> need"
+    "            stepWindow.size >= PERIOD_WINDOW && maxOf(need, ms.period).let { t -> p - t >= PERIOD_LOWER_MIN } -> maxOf(need, ms.period)",
+    "            maxOf(need, ms.period).let { t -> t < p } -> maxOf(need, ms.period)"
    ]
   ],
   "tests": [
@@ -3589,7 +3555,7 @@
   "expect": [
    "thePeriodFollowsTheMeasuredSteps_BF"
   ],
-  "note": "BF: down at the first fast motion (back and forth)",
+  "note": "BF: down at the first fast motion (back and forth) [re-targeted at the 0.83 integration: 0.82 (W1) rewrote the lowering: a full window and PERIOD_LOWER_MIN ticks; the floor stays (its own row)]",
   "from": "G4"
  },
  {
@@ -3615,8 +3581,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "                maxOf(need, ms.period).let { t -> t < p && (t <= p - PERIOD_HYSTERESIS || t == ms.period) } -> maxOf(need, ms.period)",
-    "                need.let { t -> t < p && t <= p - PERIOD_HYSTERESIS } -> need"
+    "            stepWindow.size >= PERIOD_WINDOW && maxOf(need, ms.period).let { t -> p - t >= PERIOD_LOWER_MIN } -> maxOf(need, ms.period)",
+    "            stepWindow.size >= PERIOD_WINDOW && need.let { t -> p - t >= PERIOD_LOWER_MIN } -> need"
    ]
   ],
   "tests": [
@@ -3627,7 +3593,7 @@
    "thePeriodFollowsTheMeasuredSteps_BF",
    "aFixedFramesPeriodIsNeverLoweredBelowItsOwn_W1"
   ],
-  "note": "the focused read's W1: lowered below the staging's own period (0.81)",
+  "note": "the focused read's W1: lowered below the staging's own period (0.81) [re-targeted at the 0.83 integration: 0.82 (W1) rewrote the lowering (PERIOD_LOWER_MIN); the floor `maxOf(need, ms.period)` is the guard]",
   "from": "B082"
  },
  {
@@ -3663,16 +3629,16 @@
   "expect": [
    "aRestageWaitsForTheWrapsMotionNotJustItsBurst_B082"
   ],
-  "note": "B082 step 1: a re-stage's first piece goes as the burst ends, inside the wrap's wait",
-  "from": "B082"
+  "note": "B082 step 1, watched again on B083's pin (it now reads the lens: the piece lands while the wrap draws) — B083 fix stage (item 7): its pin rewritten over the per-packet link with the wrap's PLAY held back",
+  "from": "B082 (pin rewritten by the B083 fix stage)"
  },
  {
   "id": "B082-later-pieces-no-motion-gate",
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "mayGo = { !mainBindBurstOpen() && !mainMotionMayDraw() }",
-    "mayGo = { !mainBindBurstOpen() }"
+    "namesLast = r.band != null, mayGo = { !mainBindBurstOpen() && !mainMotionMayDraw() }",
+    "namesLast = r.band != null, mayGo = { !mainBindBurstOpen() }"
    ]
   ],
   "tests": [
@@ -3681,7 +3647,7 @@
   "expect": [
    "(declared, no pin: a local motion ends inside its burst (Q covers T × P), and the wrap's PLAY does not start while a re-stage is in pieces, so the later pieces' motion gate is a belt the burst gate already holds)"
   ],
-  "note": "B082 step 1: the later pieces' motion gate",
+  "note": "B082 step 1: the later pieces' motion gate [re-targeted at the 0.83 integration: K1-1's re-make has the same `mayGo`; the re-stage's is the one after `namesLast`]",
   "from": "B082"
  },
  {
@@ -3736,24 +3702,6 @@
    "theStripCarriesMainsRowsPastEitherEndAsMarginRows_DMS"
   ],
   "note": "B082 step 3: the strips keep G2's extra rows (every step walks them)",
-  "from": "B082"
- },
- {
-  "id": "B082-wrap-during-pieces",
-  "file": "shell/Shell.kt",
-  "edits": [
-   [
-    "        if (stageCursor?.rec?.key is MainStageKey) return null\n        val pan = ms.wrapPan(w.step) ?: return null",
-    "        val pan = ms.wrapPan(w.step) ?: return null"
-   ]
-  ],
-  "tests": [
-   "*MainLocalShellTest.aWrapBetweenARestagesPiecesDrawsTheWholeStrip_SPLIT2"
-  ],
-  "expect": [
-   "aWrapBetweenARestagesPiecesDrawsTheWholeStrip_SPLIT2"
-  ],
-  "note": "B082 step 3: a wrap PLAY while a re-stage writes the wrap record in pieces",
   "from": "B082"
  },
  {
@@ -3815,7 +3763,7 @@
   "file": "shell/MainStaging.kt",
   "edits": [
    [
-    "                room != null && room.any { it > 0 } -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, null, wrapFit)\n",
+    "                room != null && room.any { it > 0 } -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, null, wrapFit, false)\n",
     ""
    ]
   ],
@@ -3825,7 +3773,7 @@
   "expect": [
    "aRoomTheRegionCannotHoldIsLeftOut_B082"
   ],
-  "note": "B082 step 2: a room past the region gives up the wrap record's slack (or the record) instead of the room",
+  "note": "B082 step 2: a room past the region gives up the wrap record's slack (or the record) instead of the room [re-targeted at the 0.83 integration: K1-1 added the `progSpare` argument (false on the ladder's later rungs)]",
   "from": "B082"
  },
  {
@@ -3833,8 +3781,8 @@
   "file": "shell/MainStaging.kt",
   "edits": [
    [
-    "                wrapPic != null -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, null, wrapFit + 1)",
-    "                wrapPic != null -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, null, WRAP_NONE)"
+    "                wrapPic != null -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, null, wrapFit + 1, false)",
+    "                wrapPic != null -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, null, WRAP_NONE, false)"
    ]
   ],
   "tests": [
@@ -3843,7 +3791,7 @@
   "expect": [
    "aWrapRecordTheRegionCannotHoldIsLaidTightThenLeftOut_B082"
   ],
-  "note": "B082 step 3: a short region leaves the wrap record out where it would fit tight",
+  "note": "B082 step 3: a short region leaves the wrap record out where it would fit tight [re-targeted at the 0.83 integration: K1-1 added the `progSpare` argument]",
   "from": "B082"
  },
  {
@@ -3851,7 +3799,7 @@
   "file": "shell/MainStaging.kt",
   "edits": [
    [
-    "                wrapPic != null -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, null, wrapFit + 1)\n",
+    "                wrapPic != null -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, null, wrapFit + 1, false)\n",
     ""
    ]
   ],
@@ -3861,7 +3809,7 @@
   "expect": [
    "aWrapRecordTheRegionCannotHoldIsLaidTightThenLeftOut_B082"
   ],
-  "note": "B082 step 3: a region that cannot hold the wrap record refuses the staging (288 at 160 KiB with the desktop's font)",
+  "note": "B082 step 3: a region that cannot hold the wrap record refuses the staging (288 at 160 KiB with the desktop's font) [re-targeted at the 0.83 integration: K1-1 added the `progSpare` argument]",
   "from": "B082"
  },
  {
@@ -3977,8 +3925,8 @@
   "file": "local/LocalRules.kt",
   "edits": [
    [
-    "    fun bindInForce(on: Boolean) { bindFlag = on; if (!on) { tapsLive = false; burstOpen = false } }",
-    "    fun bindInForce(on: Boolean) { bindFlag = on; if (!on) { tapsLive = false } }"
+    "    fun bindInForce(on: Boolean) { bindFlag = on; if (!on) { tapsLive = false; burstOpen = false; dropScrollOwes() } }",
+    "    fun bindInForce(on: Boolean) { bindFlag = on; if (!on) { tapsLive = false; dropScrollOwes() } }"
    ]
   ],
   "tests": [
@@ -3987,7 +3935,1138 @@
   "expect": [
    "aBurstIsClosedWhenBindGoes_N1"
   ],
-  "note": "the focused read of B082 (N1): a burst left open when BIND goes",
-  "from": "B082"
+  "note": "N1: BIND read off leaves the burst open (edit text changed by C1)",
+  "from": "FR2, changed by B083-v2"
+ },
+ {
+  "id": "K11-depth-bytes",
+  "file": "motion/ScrollEffects.kt",
+  "edits": [
+   [
+    "lvl0 = 15, lvl1 = MainPan.LVL_BACK, ease = ease, n = swap,",
+    "lvl0 = 15, lvl1 = MainPan.LVL_BACK - 1, ease = ease, n = swap,"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.depthIsTodaysProgramsByteForByte_K11"
+  ],
+  "expect": [
+   "depthIsTodaysProgramsByteForByte_K11"
+  ],
+  "note": "Depth's leaving form dims one level less far: END is unchanged (its last state is the entering form at 15), only the bytes pin sees it",
+  "from": "K1-1"
+ },
+ {
+  "id": "K11-slide-end-off",
+  "file": "motion/ScrollEffects.kt",
+  "edits": [
+   [
+    "y = l.lens.y + step * l.lens.h, dy = -step * l.lens.h, ease = ease, n = t,",
+    "y = l.lens.y + step * l.lens.h + 2, dy = -step * l.lens.h, ease = ease, n = t,"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.everyEffectsEndIsMainsPaintAtEveryCursorBothWays_K11",
+   "*MainBindTest.theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2"
+  ],
+  "expect": [
+   "everyEffectsEndIsMainsPaintAtEveryCursorBothWays_K11",
+   "theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2"
+  ],
+  "note": "Slide's and Fall's entering band form lands 2 px low: END is not Main's paint",
+  "from": "K1-1"
+ },
+ {
+  "id": "K11-none-draws-leaving",
+  "file": "motion/ScrollEffects.kt",
+  "edits": [
+   [
+    "draw(s.band, x = cx - bandD, xR = cx + bandD, y = l.lens.y, n = 1, prefs = listOf(Motion.Pref(1, Motion.Field.SRC)))",
+    "draw(s.band, x = cx - bandD, xR = cx + bandD, y = l.lens.y, n = 1, prefs = listOf(Motion.Pref(2, Motion.Field.SRC)))"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.everyEffectsEndIsMainsPaintAtEveryCursorBothWays_K11",
+   "*MainBindTest.theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2"
+  ],
+  "expect": [
+   "everyEffectsEndIsMainsPaintAtEveryCursorBothWays_K11",
+   "theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2"
+  ],
+  "note": "None's one step draws the leaving row's band form",
+  "from": "K1-1"
+ },
+ {
+  "id": "K11-row-change-restages",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            ms.progSlots == null && ms.motion != motionInForce() && !mainBindBurstOpen() -> \"the motion changed",
+    "            ms.motion != motionInForce() && !mainBindBurstOpen() -> \"the motion changed"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aScrollRowChangeWritesThePansAloneNeverAStrip_K11",
+   "*MainLocalShellTest.anAnimationsChangeMakesThePansAgainAndANotchUsesThem_ANIM"
+  ],
+  "expect": [
+   "aScrollRowChangeWritesThePansAloneNeverAStrip_K11",
+   "anAnimationsChangeMakesThePansAgainAndANotchUsesThem_ANIM"
+  ],
+  "note": "0.82's behaviour: a change of the scroll rows drops the staging and stages Main whole (strips and all)",
+  "from": "K1-1"
+ },
+ {
+  "id": "K11-remake-in-burst",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (mainBindBurstOpen() || mainMotionMayDraw()) return false\n        val want = motionInForce()",
+    "        if (mainMotionMayDraw()) return false\n        val want = motionInForce()"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aScrollRowChangeInABurstWaitsForItsSettle_K11"
+  ],
+  "expect": [
+   "aScrollRowChangeInABurstWaitsForItsSettle_K11"
+  ],
+  "note": "the re-make's write no longer waits for the burst's SETTLE",
+  "from": "K1-1"
+ },
+ {
+  "id": "K11-switch-in-burst",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (!r.switched && r.record.state == StagedRecord.State.PROVEN && !local.burstOpen) {",
+    "        if (!r.switched && r.record.state == StagedRecord.State.PROVEN) {"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aScrollRowChangeInABurstWaitsForItsSettle_K11"
+  ],
+  "expect": [
+   "(declared, no pin: the write itself goes only with no burst open, so the switch is reached in a burst only when a burst opens between the write's submit and its count — tens of ms on the instant rig; the run shows what fails beside it)"
+  ],
+  "note": "the switch's SETs no longer wait for a burst opened after the write",
+  "from": "K1-1"
+ },
+ {
+  "id": "K11-auto-steps-ignore-period",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "        val tp = ScrollEffects.stepsAt(want, periodInForce, t)\n",
+    "        val tp = t\n"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.autosStepsFollowThePeriodInForce_K11",
+   "*ScrollEffectsTest.theRemakeFollowsTheRowsAndAutosStepsTheMeasuredPeriod_K11"
+  ],
+  "expect": [
+   "autosStepsFollowThePeriodInForce_K11",
+   "theRemakeFollowsTheRowsAndAutosStepsTheMeasuredPeriod_K11"
+  ],
+  "note": "0.82's behaviour: Auto's steps stay at the staging's while the measured period changes (the motion runs T x P long)",
+  "from": "K1-1"
+ },
+ {
+  "id": "K11-release-before-sets-land",
+  "file": "shell/MainBinding.kt",
+  "edits": [
+   [
+    "        if (!r.switched || !r.setsLanded || burstOpen) return null",
+    "        if (!r.switched || burstOpen) return null"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aScrollRowChangeWritesThePansAloneNeverAStrip_K11"
+  ],
+  "expect": [
+   "(declared, no pin: an early release matters only when a second change of the rows is re-made into the old slot before the first one's SETs land on both lenses, and that re-make waits for idle; the run shows what fails beside it)"
+  ],
+  "note": "the old pans' slot freed when switched, before the SETs naming the new ones landed",
+  "from": "K1-1"
+ },
+ {
+  "id": "K11-switch-at-acked",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (!r.switched && r.record.state == StagedRecord.State.PROVEN && !local.burstOpen) {",
+    "        if (!r.switched && (r.record.state == StagedRecord.State.ACKED || r.record.state == StagedRecord.State.PROVEN) && !local.burstOpen) {"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aScrollRowChangeWritesThePansAloneNeverAStrip_K11"
+  ],
+  "expect": [
+   "aScrollRowChangeWritesThePansAloneNeverAStrip_K11"
+  ],
+  "note": "the switch (and so the SETs) at the write's ack, before the count (field 17) proved it",
+  "from": "K1-1 fix stage"
+ },
+ {
+  "id": "K11-covered-remake-off",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        val covered = blocked != null && mode != Mode.MAIN && mainBindBlocked(st, front = false) == null\n",
+    "        val covered = false\n"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aChangeMadeInSettingsPlaysOnTheFirstNotchBackOnMain_K11"
+  ],
+  "expect": [
+   "aChangeMadeInSettingsPlaysOnTheFirstNotchBackOnMain_K11"
+  ],
+  "note": "the review's finding 1, the unfixed tree: the re-make waits for Main in front, so the first notch back plays the old effect",
+  "from": "K1-1 fix stage"
+ },
+ {
+  "id": "K14a-END-full",
+  "file": "motion/PopupPrograms.kt",
+  "edits": [
+   [
+    "            draw(Motion.Source.self, xl, y, lvl0 = LVL_LAST, lvl1 = 15, n = 1, xR = xr)\n        }\n        barTrack(g, lead = 1",
+    "            draw(Motion.Source.self, xl, y, lvl0 = LVL_LAST, lvl1 = LVL_LAST, n = 1, xR = xr)\n        }\n        barTrack(g, lead = 1"
+   ]
+  ],
+  "tests": [
+   "*NoticeEngineTest*"
+  ],
+  "expect": [
+   "theTimerIsOnePlayAndRestartsCaptureTheSamePicture"
+  ],
+  "note": "the timer's END at 14 of 15 (his 90 %) instead of full ink: each restart captures the dimmed shadow (§5.4, §5.5)",
+  "from": "K1-4a"
+ },
+ {
+  "id": "K14a-engine-paints-END",
+  "file": "shell/Notifications.kt",
+  "edits": [
+   [
+    "            focused || engine -> base\n",
+    "            focused -> base\n"
+   ]
+  ],
+  "tests": [
+   "*NoticeEngineTest*"
+  ],
+  "expect": [
+   "theTimerIsOnePlayAndRestartsCaptureTheSamePicture"
+  ],
+  "note": "the box drawn at NT's dim levels while the engine runs: the PLAY captures a dim box (the fade starts at 30 % of 30 %)",
+  "from": "K1-4a"
+ },
+ {
+  "id": "K14a-per-lens-areas",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "notifications.ruleOffset(), Notifications.BAR_INSET, settings.depth)",
+    "notifications.ruleOffset(), Notifications.BAR_INSET, 0)"
+   ]
+  ],
+  "tests": [
+   "*NoticeEngineTest*"
+  ],
+  "expect": [
+   "theTimerIsOnePlayAndRestartsCaptureTheSamePicture",
+   "noStyleOnTheBoxAppearsAtOnce"
+  ],
+  "note": "the programs laid out at disparity 0 while the box sits at the depth: tracks capture and draw beside it",
+  "from": "K1-4a"
+ },
+ {
+  "id": "K14a-bar-run-only",
+  "file": "motion/PopupPrograms.kt",
+  "edits": [
+   [
+    "        val rule: Rect get() = Rect(box.x + barInset, box.y + ruleOff, box.w - 2 * barInset, 2)",
+    "        val rule: Rect get() = Rect(box.x, box.y + ruleOff, box.w, 2)"
+   ],
+   [
+    "                x = g.l(g.rule).x, xR = g.r(g.rule).x, y = g.rule.y)",
+    "                x = g.l(g.rule).x + g.barInset, xR = g.r(g.rule).x + g.barInset, y = g.rule.y)"
+   ]
+  ],
+  "tests": [
+   "*NoticeEngineTest*"
+  ],
+  "expect": [
+   "theTimerIsOnePlayAndRestartsCaptureTheSamePicture",
+   "noStyleOnTheBoxAppearsAtOnce"
+  ],
+  "note": "the bar's track over the whole rule: its level-1 backdrop paints the box's edge columns a nearer plane owns on each lens (found in the build)",
+  "from": "K1-4a"
+ },
+ {
+  "id": "K14a-restart-in-input-flush",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            if (!notifications.engine) { notifications.engine = true; paintNotification() }   // the box as the program's END",
+    "            val wasEngine = notifications.engine\n            if (!notifications.engine) { notifications.engine = true; paintNotification() }   // the box as the program's END"
+   ],
+   [
+    "            noticeOwed = prog.style\n            noticeArrivalMs",
+    "            if (!wasEngine) noticeOwed = prog.style\n            noticeArrivalMs"
+   ]
+  ],
+  "tests": [
+   "*NoticeEngineTest*"
+  ],
+  "expect": [
+   "theTimerIsOnePlayAndRestartsCaptureTheSamePicture"
+  ],
+  "note": "an input on an unfocused box restarts the phone's tick but sends no PLAY: the glasses' timer is not reset [re-targeted at the 0.83 integration: K1-4a's fix A1: a restart owes a style (`noticeOwed`), built into a PLAY in the pump]",
+  "from": "K1-4a"
+ },
+ {
+  "id": "F1-A1-stale-play",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "    private var noticeOwed: PopupPrograms.Style? = null",
+    "    private var noticeOwed: PopupPrograms.Style? = null\n    private var noticeStale: NoticeProg? = null"
+   ],
+   [
+    "            noticeOwed = prog.style\n",
+    "            noticeOwed = prog.style\n            noticeStale = prog\n"
+   ],
+   [
+    "        val p = noticeProg(owed, n) ?: if (owed != PopupPrograms.Style.TIMER) noticeProg(PopupPrograms.Style.TIMER, n) else null\n        if (p == null) { noticeFallback(\"its program for the box as it is now",
+    "        val p = noticeStale ?: if (owed != PopupPrograms.Style.TIMER) noticeProg(PopupPrograms.Style.TIMER, n) else null\n        if (p == null) { noticeFallback(\"its program for the box as it is now"
+   ]
+  ],
+  "tests": [
+   "*NoticeEngineTest*"
+  ],
+  "expect": [
+   "aGestureThatMovesTheBoxPlaysTheBoxWhereItIs_A1"
+  ],
+  "note": "the PLAY built before the input's act (the program of the box's old place)",
+  "from": "K1-4a fix 1"
+ },
+ {
+  "id": "F1-A2-base",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                for (p in noticeProgs) if (p.rec.state == StagedRecord.State.ACKED) p.rec.state = StagedRecord.State.WANTED\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*NoticeEngineTest*"
+  ],
+  "expect": [
+   "aBaseOrAShortfallSendsTheProgramAgain_A2"
+  ],
+  "note": "a Base leaves an acked notice program to be proven by a count that cannot see it",
+  "from": "K1-4a fix 1"
+ },
+ {
+  "id": "F1-A2-shortfall",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                for (p in noticeProgs) if (p.rec.state == StagedRecord.State.ACKED && p.rec.ackedAt > v.fromAcked && p.rec.ackedAt <= v.toAcked)\n                    p.rec.state = StagedRecord.State.WANTED\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*NoticeEngineTest*"
+  ],
+  "expect": [
+   "aBaseOrAShortfallSendsTheProgramAgain_A2"
+  ],
+  "note": "a Shortfall over a notice program's write leaves it acked",
+  "from": "K1-4a fix 1"
+ },
+ {
+  "id": "F1-B3-two-chains",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (notifications.engine) { notifications.engine = false; noticeOwed = null; paintNotification() }",
+    "        if (notifications.engine) noticeFallback(null)"
+   ]
+  ],
+  "tests": [
+   "*NoticeEngineTest*"
+  ],
+  "expect": [
+   "theFallbackInsideARestartKeepsTheTwoSeconds_B3"
+  ],
+  "note": "the fallback inside a restart arms a second tick chain (focus early)",
+  "from": "K1-4a fix 1"
+ },
+ {
+  "id": "F1-B4-play-lost",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                    mirrorWhole = true                     // P6 item 5: a rolled-back flush — the next check is whole\n                    if (noticeTail != null) noticeFallback(\"its PLAY's flush was not submitted (${e.message})\")   // fix B4\n",
+    "                    mirrorWhole = true                     // P6 item 5: a rolled-back flush — the next check is whole\n"
+   ]
+  ],
+  "tests": [
+   "*NoticeEngineTest*"
+  ],
+  "expect": [
+   "aPlayWhoseFlushIsNotSubmittedTakesThePhonesSteps_B4"
+  ],
+  "note": "a PLAY lost with its flush's submit: the box at END with no timer",
+  "from": "K1-4a fix 1"
+ },
+ {
+  "id": "F1-B5-unfurl",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        return ok.randomOrNull() ?: if (settings.popupUnfurl) Notifications.Arrival.UNFURL else Notifications.Arrival.NONE",
+    "        return ok.randomOrNull() ?: Notifications.Arrival.UNFURL"
+   ]
+  ],
+  "tests": [
+   "*NoticeEngineTest*"
+  ],
+  "expect": [
+   "anEngineStyleThatCannotRunAppearsAtOnce_B5"
+  ],
+  "note": "an engine style that cannot run gives the unfurl he switched off",
+  "from": "K1-4a fix 1"
+ },
+ {
+  "id": "F1-B2-held-cells",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "leavesPending = (assembled != null && comp.hasPending) || comp.deferring)",
+    "leavesPending = assembled != null && comp.hasPending)"
+   ]
+  ],
+  "tests": [
+   "*NoticeEngineTest*"
+  ],
+  "expect": "(no pin: a notice at once inside a local COMMIT's hold needs the stage-4 local rig's fires; declared)",
+  "note": "the PLAY in a batch whose box cells are held behind a local motion",
+  "from": "K1-4a fix 1"
+ },
+ {
+  "id": "F2-B1-no-handover",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (n.outcome == \"closed\" && notifications.engine && graceRuns() && noticeOwed == null) {",
+    "        if (false) {"
+   ]
+  ],
+  "tests": [
+   "*NoticeEngineTest*"
+  ],
+  "expect": [
+   "aScrollUnderTheBoxLeavesItsTimerAlive_B1",
+   "aBadgeWrittenIntoTheBoxLeavesItsTimerAlive_B1"
+  ],
+  "note": "the tree before B1: a closed timer left as it is (the box at END, no timer)",
+  "from": "K1-4a fix 2 (C-3)"
+ },
+ {
+  "id": "F2-B-1-re-engage",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            noticeEngineOff = notifications.current\n            noticeStepsSay(\"a write into the box closed its timer",
+    "            noticeStepsSay(\"a write into the box closed its timer"
+   ]
+  ],
+  "tests": [
+   "*NoticeEngineTest*"
+  ],
+  "expect": [
+   "aScrollUnderTheBoxLeavesItsTimerAlive_B1"
+  ],
+  "note": "B1 without B-1's line: the next input puts the box back on the engine",
+  "from": "K1-4a fix 2 (B-1)"
+ },
+ {
+  "id": "F2-C1-remainder",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        for (strip in listOf(Rect(box.x - d, box.y, d, box.h), Rect(box.right, box.y, d, box.h))) {\n            for (p in comp.planes) {\n                if (p.rect == box || p.rect.intersect(strip) == null) continue\n                near = minOf(near, p.disparity)\n            }\n        }",
+    "        for (strip in listOf(Rect(box.x - d, box.y, d, box.h), Rect(box.right, box.y, d, box.h))) {\n            var held = false\n            for (p in comp.planes) {\n                if (p.rect == box || p.rect.intersect(strip) == null) continue\n                near = minOf(near, p.disparity)\n                if (p.rect.contains(strip)) held = true\n            }\n            if (!held) near = 0\n        }"
+   ]
+  ],
+  "tests": [
+   "*NoticeEngineTest*"
+  ],
+  "expect": [
+   "theRemainderCoversNothingTheTimerRuns_C1"
+  ],
+  "note": "the remainder clause back: plane 0 counted as covering the box",
+  "from": "K1-4a fix 2 (C-1)"
+ },
+ {
+  "id": "F2-C2-engine-line",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (quiet || n.emergency) return Notifications.Arrival.UNFURL\n        val on =",
+    "        if (quiet || n.emergency) return Notifications.Arrival.UNFURL\n        if (transport.state.value.flagsInForce and wm.damage.core.wire.DamageMsg.FLAG_ENGINE == 0) return Notifications.Arrival.UNFURL\n        val on ="
+   ]
+  ],
+  "tests": [
+   "*NoticeEngineTest*"
+  ],
+  "expect": [
+   "unfurlOffWithoutTheEngineAppearsAtOnce_C2"
+  ],
+  "note": "the ENGINE line back: Unfurl off ignored without the engine",
+  "from": "K1-4a fix 2 (C-2)"
+ },
+ {
+  "id": "F2-A3-no-cover",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            noticeCover(n) > Notifications.BAR_INSET -> ",
+    "            false && noticeCover(n) > Notifications.BAR_INSET -> "
+   ]
+  ],
+  "tests": [
+   "*NoticeEngineTest*"
+  ],
+  "expect": [
+   "aNearerPlaneOverTheBarsRunTakesThePhonesSteps_A3"
+  ],
+  "note": "no cover check: the engine's timer under a band covering 12 columns",
+  "from": "K1-4a fix 2 (A3 re-made)"
+ },
+ {
+  "id": "F2-slice-held-off",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        stage.ring?.resident.orEmpty().any { it.off >= 0 && it.off <= region.last && it.off + it.size4 > region.first }",
+    "        false"
+   ]
+  ],
+  "tests": [
+   "*NoticeEngineTest*"
+  ],
+  "expect": [
+   "theSliceCostsPageStagingNothingTwoStripsKept"
+  ],
+  "note": "the slice taken while a strip lies in it",
+  "from": "K1-4a fix 2 (the slice pin, new form)"
+ },
+ {
+  "id": "F2-slice-drop-restage",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "    private fun scheduleGrace() {\n        stopGrace()\n",
+    "    private fun scheduleGrace() {\n        stagePagesClear(\"mutant\")\n        stopGrace()\n"
+   ]
+  ],
+  "tests": [
+   "*NoticeEngineTest*"
+  ],
+  "expect": [
+   "theSliceCostsPageStagingNothingTwoStripsKept",
+   "theSliceCostsPageStagingNothingAStripOver16KiBKept"
+  ],
+  "note": "a notice drops the strips (they re-stage behind it): the pin measures strips never dropped",
+  "from": "K1-4a fix 2 (review 2 item 1)"
+ },
+ {
+  "id": "B083-2c-wrap-cells-not-held",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "            deferL = (deferL + areas.map { it.first }).distinct(); deferR = (deferR + areas.map { it.second }).distinct()",
+    "            if (false) { deferL = (deferL + areas.map { it.first }).distinct(); deferR = (deferR + areas.map { it.second }).distinct() }"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.edgesInABurstPastTheEndOverASlowLink_2c"
+  ],
+  "expect": [
+   "edgesInABurstPastTheEndOverASlowLink_2c"
+  ],
+  "note": "2c: a phone PLAY's (the wrap's) areas not held — a later edge's frame meets the wrap and closes it",
+  "from": "B083"
+ },
+ {
+  "id": "B083-2c-held-to-allowance",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            if (comp.releaseDeferred(Long.MAX_VALUE)) {\n                journal.note(\"local\", \"the wrap's last step came",
+    "            if (false && comp.releaseDeferred(Long.MAX_VALUE)) {\n                journal.note(\"local\", \"the wrap's last step came"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.edgesInABurstPastTheEndOverASlowLink_2c"
+  ],
+  "expect": [
+   "edgesInABurstPastTheEndOverASlowLink_2c"
+  ],
+  "note": "2c: the cells held behind the wrap wait for its start allowance's end, not its last-step report (0.82)",
+  "from": "B083"
+ },
+ {
+  "id": "B083-S1-refused-in-pieces",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (c != null && c.rec.key is MainStageKey) {\n            val range = pan.program.firstRange(p)",
+    "        if (c != null && c.rec.key is MainStageKey) return null\n        if (c != null && c.rec.key is MainStageKey) {\n            val range = pan.program.firstRange(p)"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aWrapDuringARestagesPiecesPlaysFromTheRecordsAsTheyStand_S1"
+  ],
+  "expect": [
+   "aWrapDuringARestagesPiecesPlaysFromTheRecordsAsTheyStand_S1"
+  ],
+  "note": "S1: every wrap during a Main re-stage's pieces goes as today (0.82)",
+  "from": "B083"
+ },
+ {
+  "id": "B083-S1-pieces-mixed",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            if (naming || (i > 0 && meets(part) && !meets(parts[i - 1]))) close(false)",
+    "            if (naming) close(false)"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aWrapDuringARestagesPiecesPlaysFromTheRecordsAsTheyStand_S1"
+  ],
+  "expect": [
+   "aWrapDuringARestagesPiecesPlaysFromTheRecordsAsTheyStand_S1"
+  ],
+  "note": "S1: a piece holding both a part the wraps read and one they do not (0.82: the strip's row and the band form in one message)",
+  "from": "B083"
+ },
+ {
+  "id": "B083-S1-pieces-unordered",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        val parts = if (apartFrom == null) parts0 else body.filter { !meets(it) } + body.filter { meets(it) } + (if (namesLast) parts0.takeLast(1) else emptyList())",
+    "        val parts = parts0"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aWrapDuringARestagesPiecesPlaysFromTheRecordsAsTheyStand_S1"
+  ],
+  "expect": "(declared, no pin: Main's re-stage lists its strip rows ahead of what the wraps read, so the sort changes nothing it writes today; it keeps that order for a list in any order)",
+  "note": "S1: a re-stage's parts in their own order",
+  "from": "B083"
+ },
+ {
+  "id": "B083-S1-no-range-check",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            if (sent.any { pc -> pc.ranges.any { it.first <= range.last && range.first <= it.last } }) return null\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aWrapBetweenARestagesPiecesDrawsTheWholeStrip_SPLIT2"
+  ],
+  "expect": [
+   "aWrapBetweenARestagesPiecesDrawsTheWholeStrip_SPLIT2"
+  ],
+  "note": "S1: a wrap plays while a piece meeting its read range is written or on its way",
+  "from": "B083"
+ },
+ {
+  "id": "B083-S3-room-kept",
+  "file": "shell/MainBinding.kt",
+  "edits": [
+   [
+    "            if (r < ms.changed.size && ms.changed[r]) roomById[id] = MainStaging.roomFor(ms.seenMax[r]) else roomById.remove(id)",
+    "            if (r < ms.changed.size && ms.changed[r]) roomById[id] = maxOf(roomById[id] ?: 0, MainStaging.roomFor(ms.seenMax[r]))"
+   ]
+  ],
+  "tests": [
+   "*MainBindTest.aRowsRoomComesDownAtAStaging_S3",
+   "*MainBindTest.aChangedRowsRoomIsCarriedIntoTheNextStaging_B082"
+  ],
+  "expect": [
+   "aRowsRoomComesDownAtAStaging_S3"
+  ],
+  "note": "S3: a row's room kept for the life of the process (0.82)",
+  "from": "B083"
+ },
+ {
+  "id": "B083-S4-read-between-pieces",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (based && stageCursor?.let { it.next in 1 until it.pieces.size } == true) return false\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*StagePiecesTest.theCountIsReadAtARecordsEndNotBetweenItsPieces_S4"
+  ],
+  "expect": [
+   "theCountIsReadAtARecordsEndNotBetweenItsPieces_S4"
+  ],
+  "note": "S4: the cache count read between every piece (0.82)",
+  "from": "B083"
+ },
+ {
+  "id": "B083F-3-shell-reads-injected",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        !ev.injected && ev.source == EvenHubMsg.SRC_RING && local.active",
+    "        ev.source == EvenHubMsg.SRC_RING && local.active"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aDragOnTheMirrorIsHandledAtOnce_B083F3",
+   "*MainLocalShellTest.aScreenTapActsUnderTapsGlasses_B083F3"
+  ],
+  "expect": [
+   "aDragOnTheMirrorIsHandledAtOnce_B083F3",
+   "aScreenTapActsUnderTapsGlasses_B083F3"
+  ],
+  "note": "item 3 (kept): its pin lost its 2b assertion (nothing held); watched again",
+  "from": "B083-fix"
+ },
+ {
+  "id": "B083F-3-cfw-not-marked",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "TransportEvent.Input(type, source, injected)",
+    "TransportEvent.Input(type, source)"
+   ]
+  ],
+  "tests": [
+   "*InjectedInputTest.theCfwTransportsMarkAScreenGesture",
+   "*MainLocalShellTest.aDragOnTheMirrorIsHandledAtOnce_B083F3"
+  ],
+  "expect": [
+   "theCfwTransportsMarkAScreenGesture",
+   "aDragOnTheMirrorIsHandledAtOnce_B083F3"
+  ],
+  "note": "item 3: the CFW transports' injectInput leaves the flag off",
+  "from": "B083-fix"
+ },
+ {
+  "id": "B083F-3-remote-not-marked",
+  "file": "transport/RemoteTransport.kt",
+  "edits": [
+   [
+    "TransportEvent.Input(type, EvenHubMsg.SRC_RING, injected = true), \"Input\")",
+    "TransportEvent.Input(type, EvenHubMsg.SRC_RING), \"Input\")"
+   ]
+  ],
+  "tests": [
+   "*InjectedInputTest.theSeamsClientMarksAScreenGesture"
+  ],
+  "expect": [
+   "theSeamsClientMarksAScreenGesture"
+  ],
+  "note": "item 3: the seam client's injectInput leaves the flag off",
+  "from": "B083-fix"
+ },
+ {
+  "id": "B083F-3-path-not-marked",
+  "file": "transport/PathTransport.kt",
+  "edits": [
+   [
+    "TransportEvent.Input(type, EvenHubMsg.SRC_RING, injected = true)",
+    "TransportEvent.Input(type, EvenHubMsg.SRC_RING)"
+   ]
+  ],
+  "tests": [
+   "*PathTransportTest*"
+  ],
+  "expect": [
+   "theFirstPathToStartWinsAndTheOtherIsCancelled"
+  ],
+  "note": "item 3: the path transport's injectInput leaves the flag off",
+  "from": "B083-fix"
+ },
+ {
+  "id": "B083F-4-any-direction-at-arrival",
+  "from": "B083-fix, changed by B083-v2",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "        if (!kind.click && (owesDir[kind.type] ?: 0) > 0) { owesScroll--; owesDirDec(kind.type); paid(kind, carried, kind.type, nowMs); return Verdict.Nothing }",
+    "        if (!kind.click && owesScroll > 0) { owesScroll--; owesDirDec(kind.type); paid(kind, carried, kind.type, nowMs); return Verdict.Nothing }"
+   ]
+  ],
+  "tests": [
+   "*LocalRulesTest.aScrollMessagePaysAnOweOfItsOwnDirection_B083F4"
+  ],
+  "expect": [
+   "aScrollMessagePaysAnOweOfItsOwnDirection_B083F4"
+  ],
+  "note": "item 4 (kept by v2): a scroll message pays any scroll owe at arrival (0.82's rule); edit text and pin changed with 2b's removal (unreported, not held) (B083 v3: the line calls `paid`)"
+ },
+ {
+  "id": "B083v2-C1-no-carry",
+  "from": "B083-v2",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "if (lone) { owesCarriedUntil = if (carry) nowMs",
+    "if (lone) { owesCarriedUntil = if (false) nowMs"
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.j1*",
+   "*LocalSequenceFuzzTest.j2*",
+   "*LocalRulesTest.aDelayedScrollMessageAfterASettleIsPaidByTheCarriedOwe_C1",
+   "*LocalRulesTest.aCarryOfTwoOwesEndsFiveHundredMsAfterTheSettle_C1"
+  ],
+  "expect": [
+   "j1_lateEchoesAfterTheLoneSettlePayTheCarriedOwes",
+   "j2_aLateEchoAcrossTheNextBurstsFirstReportPaysACarriedOwe",
+   "aDelayedScrollMessageAfterASettleIsPaidByTheCarriedOwe_C1",
+   "aCarryOfTwoOwesEndsFiveHundredMsAfterTheSettle_C1"
+  ],
+  "note": "C1: the lone SETTLE clears the scroll owes as 0.82 did (no carry): the late echoes move the row again (B083 v3: J1 and J2 now say the late echo moved the row a second time; the literal two-owe row added)"
+ },
+ {
+  "id": "B083v2-C1-no-expiry",
+  "from": "B083-v2",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "if (owesScroll + owesAny > 0 && nowMs < owesCarriedUntil && front != null) return",
+    "if (owesScroll + owesAny > 0 && owesCarriedUntil != Long.MIN_VALUE && front != null) return"
+   ]
+  ],
+  "tests": [
+   "*LocalRulesTest.aDelayedScrollMessageAfterASettleIsPaidByTheCarriedOwe_C1",
+   "*LocalRulesTest.aCarryOfTwoOwesEndsFiveHundredMsAfterTheSettle_C1"
+  ],
+  "expect": [
+   "aDelayedScrollMessageAfterASettleIsPaidByTheCarriedOwe_C1",
+   "aCarryOfTwoOwesEndsFiveHundredMsAfterTheSettle_C1"
+  ],
+  "note": "C1: a carry never runs out (owes x 250 ms not read): a message past it is swallowed (B083 v3: the literal two-owe row added)"
+ },
+ {
+  "id": "B083v2-C1-kept-off-front",
+  "from": "B083-v2",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "            if (!burstOpen || owesCarriedUntil != Long.MIN_VALUE) {\n",
+    "            if (false) {\n"
+   ]
+  ],
+  "tests": [
+   "*LocalRulesTest.theCarryHoldsByDirectionAndEndsWhereItsListGoes_C1",
+   "*LocalRulesTest.aCarryEndsWhenItsListLeavesTheFrontInsideATapsBurst_BO1"
+  ],
+  "expect": [
+   "theCarryHoldsByDirectionAndEndsWhereItsListGoes_C1",
+   "aCarryEndsWhenItsListLeavesTheFrontInsideATapsBurst_BO1"
+  ],
+  "note": "C1: the carry kept when its list leaves the front, burst or not (B083 v3: the anchor is BO.1's condition)"
+ },
+ {
+  "id": "B083v2-C1-bind-off-kept",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "burstOpen = false; dropScrollOwes() } }",
+    "burstOpen = false } }"
+   ]
+  ],
+  "tests": [
+   "*LocalRulesTest.theCarryHoldsByDirectionAndEndsWhereItsListGoes_C1"
+  ],
+  "expect": [
+   "theCarryHoldsByDirectionAndEndsWhereItsListGoes_C1"
+  ],
+  "note": "C1: BIND read off leaves the scroll owes (no SETTLE can come)",
+  "from": "B083-v2"
+ },
+ {
+  "id": "B083v2-C1-click-carried",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "        owesClick = 0\n        if (lone)",
+    "        if (lone)"
+   ]
+  ],
+  "tests": [
+   "*LocalRulesTest.theCarryHoldsByDirectionAndEndsWhereItsListGoes_C1"
+  ],
+  "expect": [
+   "theCarryHoldsByDirectionAndEndsWhereItsListGoes_C1"
+  ],
+  "note": "C1: click owes left open at a SETTLE (a click inside a band is dropped, never queued: they must clear)",
+  "from": "B083-v2"
+ },
+ {
+  "id": "B083v2-C4-no-lateEcho",
+  "from": "B083-v2",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "        if (!kind.click && (carried || joinedPaid(type))) count(\"lateEcho\")\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*LocalRulesTest.aDelayedScrollMessageAfterASettleIsPaidByTheCarriedOwe_C1",
+   "*LocalSequenceFuzzTest.j1*",
+   "*LocalRulesTest.aLateEchoPaidInsideTheNextBurstIsCounted_BO4"
+  ],
+  "expect": [
+   "aDelayedScrollMessageAfterASettleIsPaidByTheCarriedOwe_C1",
+   "j1_lateEchoesAfterTheLoneSettlePayTheCarriedOwes",
+   "aLateEchoPaidInsideTheNextBurstIsCounted_BO4"
+  ],
+  "note": "C4: lateEcho not counted (B083 v3: the count moved into `paid`)"
+ },
+ {
+  "id": "B083v2-C4-no-unpaid",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "        if (!kind.click && !burstOpen && nowMs < carryWindowUntil) count(\"lateEchoUnpaid\")\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*LocalRulesTest.theCarryHoldsByDirectionAndEndsWhereItsListGoes_C1"
+  ],
+  "expect": [
+   "theCarryHoldsByDirectionAndEndsWhereItsListGoes_C1"
+  ],
+  "note": "C4: a scroll message unpaid inside a carry's window is not counted",
+  "from": "B083-v2"
+ },
+ {
+  "id": "B083v3-BO1-burst-gate",
+  "from": "B083-v3",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "            if (!burstOpen || owesCarriedUntil != Long.MIN_VALUE) {\n",
+    "            if (!burstOpen) {\n"
+   ]
+  ],
+  "tests": [
+   "*LocalRulesTest.aCarryEndsWhenItsListLeavesTheFrontInsideATapsBurst_BO1",
+   "*LocalSequenceFuzzTest.seededS36*",
+   "*LocalSequenceFuzzTest.seededS38*"
+  ],
+  "expect": [
+   "aCarryEndsWhenItsListLeavesTheFrontInsideATapsBurst_BO1",
+   "seededS36_aWindowsNotchInsideTheTapsBurstIsApplied",
+   "seededS38_aNotchRacingTheReturnInsideTheTapsBurstIsApplied"
+  ],
+  "note": "BO.1 undone (the tree at 1fbd543a): a carry a burst joined is kept when the list leaves the front — the window's notch is swallowed"
+ },
+ {
+  "id": "B083v3-C1-window-20x",
+  "from": "B083-v3",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "const val BAND_DRAIN_MS = 250L",
+    "const val BAND_DRAIN_MS = 5_000L"
+   ]
+  ],
+  "tests": [
+   "*LocalRulesTest.aDelayedScrollMessageAfterASettleIsPaidByTheCarriedOwe_C1",
+   "*LocalRulesTest.aCarryOfTwoOwesEndsFiveHundredMsAfterTheSettle_C1"
+  ],
+  "expect": [
+   "aDelayedScrollMessageAfterASettleIsPaidByTheCarriedOwe_C1",
+   "aCarryOfTwoOwesEndsFiveHundredMsAfterTheSettle_C1"
+  ],
+  "note": "BO.3: the carry 20 times too long — the rows in literal numbers fail (the gate was blind to it before, the focused read's 3)"
+ },
+ {
+  "id": "B083v3-C4-no-carryMax",
+  "from": "B083-v3",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "        if (ms > (counts[\"carryMaxMs\"] ?: -1)) counts[\"carryMaxMs\"] = ms\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*LocalRulesTest.carryMaxMsIsTheLongestCarryFromItsSettleToItsEnd_BO2"
+  ],
+  "expect": [
+   "carryMaxMsIsTheLongestCarryFromItsSettleToItsEnd_BO2"
+  ],
+  "note": "BO.2: carryMaxMs not counted"
+ },
+ {
+  "id": "B083v3-C4-carry-restarts-at-join",
+  "from": "B083-v3",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "if (!carry) carryEnds(nowMs) else if (carryFromMs == Long.MIN_VALUE) carryFromMs = nowMs",
+    "if (!carry) carryEnds(nowMs) else { carryEnds(nowMs); carryFromMs = nowMs }"
+   ]
+  ],
+  "tests": [
+   "*LocalRulesTest.carryMaxMsIsTheLongestCarryFromItsSettleToItsEnd_BO2"
+  ],
+  "expect": [
+   "carryMaxMsIsTheLongestCarryFromItsSettleToItsEnd_BO2"
+  ],
+  "note": "BO.2: a carry a burst joined measured from that burst's SETTLE, not from the SETTLE that began it"
+ },
+ {
+  "id": "B083v3-C4-lateEcho-not-joined",
+  "from": "B083-v3",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "        if (!burstOpen) return false\n",
+    "        if (burstOpen || !burstOpen) return false\n"
+   ]
+  ],
+  "tests": [
+   "*LocalRulesTest.aLateEchoPaidInsideTheNextBurstIsCounted_BO4",
+   "*LocalSequenceFuzzTest.j2*"
+  ],
+  "expect": [
+   "aLateEchoPaidInsideTheNextBurstIsCounted_BO4",
+   "j2_aLateEchoAcrossTheNextBurstsFirstReportPaysACarriedOwe"
+  ],
+  "note": "BO.4: a late echo paid inside the burst that joined the carry not counted"
+ },
+ {
+  "id": "B083v3-C4-no-otherFront",
+  "from": "B083-v3",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "        if (!kind.click && nowMs < otherFrontUntil && front?.list != otherFrontList) count(\"lateEchoOtherFront\")\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*LocalRulesTest.aScrollMessageReachingAnotherFrontInsideADroppedCarryIsCounted_BO4"
+  ],
+  "expect": [
+   "aScrollMessageReachingAnotherFrontInsideADroppedCarryIsCounted_BO4"
+  ],
+  "note": "BO.4: lateEchoOtherFront not counted"
+ },
+ {
+  "id": "B083ms-M4-exclusive-behind-clock",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "private fun mainBehindClock(): Boolean = mode == Mode.SILENT",
+    "private fun mainBehindClock(): Boolean = mode == Mode.SILENT || mode == Mode.EXCLUSIVE"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aWakeThatReturnsToAWindowStagesNothingOfMain_BP"
+  ],
+  "expect": [
+   "aWakeThatReturnsToAWindowStagesNothingOfMain_BP"
+  ],
+  "note": "decisions BP: a window's exclusive screen counted as behind the clock: Main staged behind it",
+  "from": "B083-ms"
+ },
+ {
+  "id": "B083ms-M6-no-return-once-counted",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (mainBehindClock()) return false\n        b.verifyDue(now)",
+    "        b.verifyDue(now)"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aRowChangedBehindTheClockIsRestagedOnceAfterTheWake_BP"
+  ],
+  "expect": [
+   "aRowChangedBehindTheClockIsRestagedOnceAfterTheWake_BP"
+  ],
+  "note": "decisions BP: no early return once counted behind the clock: a row's round-robin re-stage writes there",
+  "from": "B083-ms"
+ },
+ {
+  "id": "B083ms-M7-layout-both-sites",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "private fun mainBindLayout(): Layout = if (mainBehindClock()) effectiveLayout() else layout",
+    "private fun mainBindLayout(): Layout = layout"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aHeightSetBehindTheClockIsStagedForAndKeptAtTheWake_BP"
+  ],
+  "expect": [
+   "aHeightSetBehindTheClockIsStagedForAndKeptAtTheWake_BP"
+  ],
+  "note": "decisions BP: behind the clock the shell's layout, not the one the wake brings (both sites)",
+  "from": "B083-ms"
+ },
+ {
+  "id": "B083ms-M7p-layout-poll-site",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "ms.layout != mainBindLayout() -> \"Main's layout changed\"",
+    "ms.layout != layout -> \"Main's layout changed\""
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aHeightSetBehindTheClockIsStagedForAndKeptAtTheWake_BP"
+  ],
+  "expect": [
+   "aHeightSetBehindTheClockIsStagedForAndKeptAtTheWake_BP"
+  ],
+  "note": "decisions BP: the poll's layout check on the shell's layout: never staged again for a height set behind the clock",
+  "from": "B083-ms"
+ },
+ {
+  "id": "B083ms-M7s-layout-paint-site",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            MainStaging.Paint(lay, main.view(), kit).also { mainBindPaint = it }",
+    "            MainStaging.Paint(layout, main.view(), kit).also { mainBindPaint = it }"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aHeightSetBehindTheClockIsStagedForAndKeptAtTheWake_BP"
+  ],
+  "expect": [
+   "aHeightSetBehindTheClockIsStagedForAndKeptAtTheWake_BP"
+  ],
+  "note": "decisions BP: the paint on the shell's layout: an unbounded loop of stage then drop behind the clock (12,153 stagings in the test's 30 s on its run; ended by the test's own wait)",
+  "from": "B083-ms"
  }
 ]
