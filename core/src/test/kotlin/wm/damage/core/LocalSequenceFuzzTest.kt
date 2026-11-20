@@ -1,6 +1,7 @@
 package wm.damage.core
 
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.test.fail
 import wm.damage.core.local.LocalRules
@@ -33,7 +34,10 @@ import wm.damage.core.wire.DamageMsg
  *  (9) the row at rest equals the ring's net count (B083 fix stage, item 1; [LocalHarness.ringRow] states the rule): a
  *      notch lost or applied twice fails here even when the phone and both lenses agree on the row. In random sequences
  *      the count is first adjusted by the exact per-gesture declarations ([declarations], B083 v2 item 4); a seeded case
- *      declares nothing.
+ *      declares nothing;
+ * (10) a notch made with a window or a cover in front after that front's CLEAR landed on RIGHT (no 115), its stock message
+ *      reaching the phone while that front still stands, is applied there — counted per front and compared at rest, never
+ *      declared (B083 v3, decisions BO.3: the window's own notch the joined carry swallowed, the focused read's 1).
  * Every seeded case (spec §5's S1–S17, and S18 from the stage beside this one) is a scripted sequence here; each one is
  * watched to fail on the rule as it stood through `research/mutate_core.py` (`private/build072/work-DP2/seeded.json`).
  */
@@ -161,7 +165,7 @@ class LocalSequenceFuzzTest {
     }
 
     /** (8): a gesture moves the phone's row at most once (never declared since C1 reversed BC). */
-    private fun moved(h: LocalHarness, failed: MutableList<String>, counted: MutableMap<String, Int>, seeded: Boolean, suffix: String) {
+    private fun moved(h: LocalHarness, failed: MutableList<String>, suffix: String) {
         for ((g, n) in h.moves) if (n > 1) failed += "(8) gesture $g moved the row $n times$suffix"
     }
 
@@ -182,7 +186,7 @@ class LocalSequenceFuzzTest {
     /** The declared (class, gesture) pairs of the random sequence being judged. */
     private var declaredNow = HashSet<Pair<String, Int>>()
 
-    /** (1)–(5) and (8) at rest; [lossy]: a mode-27 message was lost or refused this sequence. */
+    /** (1)–(5) and (8)–(10) at rest. */
     fun atRest(h: LocalHarness, failed: MutableList<String>, counted: MutableMap<String, Int>, seeded: Boolean = false,
                /** S33's residual counted apart: every random sequence, and the one seeded case that pins it. */
                residualS33: Boolean = !seeded) {
@@ -214,10 +218,15 @@ class LocalSequenceFuzzTest {
             if (h.lossyMessages == 0) failed += "(5) refused: ${h.refusals.distinct().joinToString("; ")}"
             else counted["(5) after a lost or refused mode 27"] = (counted["(5) after a lost or refused mode 27"] ?: 0) + 1
         }
-        // (8) — decisions BC: an echo later than its burst's SETTLE is counted apart in random sequences
-        moved(h, failed, counted, seeded, "")
+        // (8)
+        moved(h, failed, "")
         // (9)
         ringCount(h, failed, "", if (seeded) null else declaredNow)
+        // (10) — never declared: a front's own notch the phone did not apply is a notch lost there
+        for ((kind, made) in h.frontMade) {
+            val applied = h.frontApplied[kind] ?: 0
+            if (applied != made) failed += "(10) $kind: ${made - applied} of its own $made notch(es) not applied there: ${h.frontMissed.filter { "($kind," in it }}"
+        }
         // (2)'s cause, read directly (decisions AA.1): a COMMIT never rides a batch whose drawing meets its areas
         if (h.commitOverDraw.isNotEmpty()) failed += "(2) a COMMIT rode a batch with a drawing sub inside its areas at ${h.commitOverDraw}"
         // the fix round's row for the lead (`C2-DP2-built.md`, the fix round, row A): after a COMMIT that did not land on
@@ -232,6 +241,11 @@ class LocalSequenceFuzzTest {
                 failed += mine - rowA.toSet()
             }
         }
+    }
+
+    /** (10)'s reach, counted (not failures): the fronts' own notches the sequence made and judged. */
+    private fun frontChecked(h: LocalHarness, counted: MutableMap<String, Int>) {
+        for ((kind, made) in h.frontMade) counted["(10) checked: $kind notches"] = (counted["(10) checked: $kind notches"] ?: 0) + made
     }
 
     /** (6): two taps a round trip apart, nothing lost; the second acted on. */
@@ -320,12 +334,12 @@ class LocalSequenceFuzzTest {
             val k = if (right.isEmpty()) "row A, after the liveness COMMITs: RIGHT agrees" else "row A, after the liveness COMMITs: RIGHT still differs"
             counted[k] = (counted[k] ?: 0) + 1
         }
-        moved(h, failed, counted, false, " (liveness)")
+        moved(h, failed, " (liveness)")
         ringCount(h, failed, " (liveness)", declaredNow)
         for ((k, _) in declaredNow) counted[k] = (counted[k] ?: 0) + 1
         h.trace?.invoke("declared: " + declarations(h).joinToString("; ") { "${it.key} g${it.g} ${it.rows} at ${it.t}" })
-        if (h.ringLostAtStart.isNotEmpty()) counted["(9) not counted: notches in flight at a session start"] =
-            (counted["(9) not counted: notches in flight or held at a session start"] ?: 0) + h.ringLostAtStart.size
+        if (h.ringLostAtStart.isNotEmpty()) counted["(9) not counted: notches in flight at a session start"] = h.ringLostAtStart.size
+        frontChecked(h, counted)
         if (h.commitOverDraw.isNotEmpty()) failed += "(2) a COMMIT rode a batch with a drawing sub inside its areas at ${h.commitOverDraw} (liveness)"
         // decisions AA.1: the answers that are a COMMIT with the areas' drawing held back — each a DISCARD under the rule before
         if (h.heldCommits > 0) {
@@ -372,6 +386,8 @@ class LocalSequenceFuzzTest {
      *    has rested: no start race beyond a real start; `Taps · report` (his setting).
      * Modeled throughout: the rates it gives belong to this model of his session.
      */
+    private val CARRY_MAX = "profile: carryMaxMs"
+
     private object His {
         /** The gaps between his clumps and single notches (the 301 of 356 over 12 ticks, bursts' 13 over 1.5 s left out). */
         val GAP_BINS = longArrayOf(13, 30, 60, 100, 150, 200, 300, 450, 700, 1000, 1500)
@@ -432,14 +448,20 @@ class LocalSequenceFuzzTest {
         counted["profile: notches"] = notches
         counted["profile: owes never paid or paid late"] = (c["owesAtSettle"] ?: 0) + (c["owesExpired"] ?: 0) + (c["lateEcho"] ?: 0) +
             (if (h.rules.owesCarriedUntilMs != Long.MIN_VALUE) h.rules.owesScroll + h.rules.owesAny else 0)   // the last carry, still running
-        for (k in listOf("lateEcho", "lateEchoUnpaid", "owesExpired", "unreported", "snapback.lost-report", "snapback.edge", "repair")) counted["profile: $k"] = c[k] ?: 0
+        for (k in listOf("lateEcho", "lateEchoUnpaid", "lateEchoOtherFront", "owesExpired", "unreported", "snapback.lost-report", "snapback.edge", "repair")) counted["profile: $k"] = c[k] ?: 0
+        // decisions BO.2: the longest carry that had ended by the last burst's rest (aggregated by its maximum, not summed)
+        counted[CARRY_MAX] = c["carryMaxMs"] ?: 0
+        // decisions BO.4: the late echoes as the harness knows them, beside the rules' `lateEcho` (which cannot tell a
+        // message's report)
+        counted["profile: late echoes (harness)"] = lateEchoes(h).size
         atRest(h, failed, counted)
         tapLiveness(h, failed)
         scrollLiveness(h, failed)
-        moved(h, failed, counted, false, " (liveness)")
+        moved(h, failed, " (liveness)")
         ringCount(h, failed, " (liveness)", declaredNow)
         for ((k, _) in declaredNow) counted[k] = (counted[k] ?: 0) + 1
         h.trace?.invoke("declared: " + declarations(h).joinToString("; ") { "${it.key} g${it.g} ${it.rows} at ${it.t}" })
+        frontChecked(h, counted)
         // J3's adjustments in steps of its own gesture: −1 a notch adopted where the phone stood, −2 adopted a row back, …
         for (d in declarations(h)) if (d.key.startsWith(j3Key)) h.stepOf(d.g)?.let { st -> val key = "profile: J3 adjusted by ${d.rows * st} step(s)"; counted[key] = (counted[key] ?: 0) + 1 }
         if (h.ringLostAtStart.isNotEmpty()) counted["(9) not counted: notches in flight at a session start"] = h.ringLostAtStart.size
@@ -459,14 +481,14 @@ class LocalSequenceFuzzTest {
             val seed = 5L * 100_000 + i
             val v = try { hisSessionSequence(seed) } catch (e: Throwable) { Verdict(listOf("threw: $e"), emptyMap()) }
             for (f in v.failed) fails += "seed $seed: $f"
-            for ((k, c) in v.counted) counted[k] = (counted[k] ?: 0) + c
+            for ((k, c) in v.counted) counted[k] = if (k == CARRY_MAX) maxOf(counted[k] ?: 0, c) else (counted[k] ?: 0) + c
             for (k in v.counted.keys) if (k.startsWith("(9)") || k.startsWith("(1) S33") || k.startsWith("row A")) declaredSeeds.getOrPut(k) { ArrayList() } += seed
         }
         for (f in fails) println("HISFAIL $f")
         val notches = (counted["profile: notches"] ?: 0).coerceAtLeast(1)
         fun per100(k: String) = "%.1f".format(100.0 * (counted[k] ?: 0) / notches)
-        println("his profile: $n sequences, ${counted["profile: notches"]} notches; per 100 notches: owes never paid or paid late ${per100("profile: owes never paid or paid late")} " +
-            "(his 45.6), late echoes paid by a carry ${per100("profile: lateEcho")} (his 13 late echoes: 3.7), lateEchoUnpaid ${per100("profile: lateEchoUnpaid")}, " +
+        println("his profile: $n sequences, ${counted["profile: notches"]} notches; the longest carry ${counted[CARRY_MAX]} ms; per 100 notches: owes never paid or paid late ${per100("profile: owes never paid or paid late")} " +
+            "(his 45.6), late echoes paid by a carry ${per100("profile: lateEcho")} (the harness's own count ${per100("profile: late echoes (harness)")}; his 13 late echoes: 3.7), lateEchoUnpaid ${per100("profile: lateEchoUnpaid")}, " +
             "unreported ${per100("profile: unreported")}, lost-report snap-backs ${per100("profile: snapback.lost-report")}, edge answers ${per100("profile: snapback.edge")}, repairs ${per100("profile: repair")}")
         println("his declared: " + declaredSeeds.entries.joinToString("; ") { (k, s) -> "$k ${counted[k]} gesture(s) in ${s.size} sequence(s): ${s.take(12).joinToString()}" })
         println("his profile counted: $counted; ${fails.size} failures")
@@ -897,6 +919,64 @@ class LocalSequenceFuzzTest {
     @Test fun seededS34_twoEdgesThenANotchInTheWrapsWait() = edgeBurstThenANotch(2, 20)
     @Test fun seededS35_threeEdgesThenANotchInTheWrapsWait() = edgeBurstThenANotch(3, 10)
 
+    /** A notch whose scroll message the band drops leaves its owe open at the burst's lone SETTLE, which carries it (C1);
+     *  a tap [tapAfterMs] after the notch, inside the carry: its report opens a burst, which joins the carry, and its act
+     *  opens a window (the list leaves the front inside that burst). Returns (the carry's time left at the tap, the tap). */
+    private fun tapInsideACarry(h: LocalHarness, tapAfterMs: Long): Pair<Long, Int> {
+        val t0 = h.now
+        h.gesture(1, answer = true, band = "drop")
+        h.runUntil(t0 + tapAfterMs)
+        val left = if (h.rules.burstOpen || h.rules.owesCarriedUntilMs == Long.MIN_VALUE) -1L else h.rules.owesCarriedUntilMs - h.now
+        h.actOpensWindow = 1.0
+        val tap = h.gesture(0, answer = true, band = "none")
+        return left to tap
+    }
+
+    /** S36 (B083 v3, decisions BO.1; the focused read's f3): [tapInsideACarry] — then, 300 ms after the tap, a notch in the
+     *  window after its CLEAR landed on RIGHT (no 115). The carry ends with its list leaving the front, inside the tap's
+     *  burst too, so the window's notch is applied there, as on 0.82; on the tree before BO.1 the joined owe swallowed it
+     *  ((10)). Watched to fail on `1fbd543a`. */
+    @Test fun seededS36_aWindowsNotchInsideTheTapsBurstIsApplied() {
+        var left = -1L; var tap = -1; var gw = -1; var windowAtFire = false
+        seeded(Taps.REPORT, script = { h ->
+            tapInsideACarry(h, h.rules.q + 150).let { left = it.first; tap = it.second }
+            h.runUntil(h.now + 300)
+            h.actOpensWindow = 0.0
+            gw = h.gesture(1, answer = true, band = "none")
+            windowAtFire = h.window
+            h.runUntil(h.now + 1500)
+            h.back()
+            h.rest()
+        }, extra = { h -> listOfNotNull(
+            if (left < 50) "the carry had ${left} ms left at the tap (the shape did not happen)" else null,
+            if (!windowAtFire || h.fires[gw]?.sR != null) "the notch was not a window's own (window $windowAtFire, RIGHT's S ${h.fires[gw]?.sR}): the shape did not happen" else null,
+            if (h.verdicts.filter { it.first == gw }.map { it.second } != listOf(LocalRules.Verdict.Apply(wm.damage.core.wire.EvenHubMsg.EV_SCROLL_BOTTOM)))
+                "the window's own notch: ${h.verdicts.filter { it.first == gw }.map { it.second }} (tap g$tap: ${h.verdicts.filter { it.first == tap }.map { it.second }})" else null) })
+    }
+
+    /** S38 (B083 v3, decisions BO.1; the focused read's f6): [tapInsideACarry] — then Back 200 ms after the tap, inside its
+     *  burst, and a notch 5 ms after Back, racing the return's SETs: neither lens holds an entry yet, so no 115; its stock
+     *  message reaches the phone with Main in front and is applied as an unreported notch (the ring counts it). On the tree
+     *  before BO.1 the joined owe swallowed it: a notch lost on Main ((9)), the three agreeing on the row. Watched to fail
+     *  on `1fbd543a`. */
+    @Test fun seededS38_aNotchRacingTheReturnInsideTheTapsBurstIsApplied() {
+        var left = -1L; var gm = -1; var burstAtNotch = false
+        seeded(Taps.REPORT, script = { h ->
+            left = tapInsideACarry(h, h.rules.q + 150).first
+            h.runUntil(h.now + 200)
+            h.actOpensWindow = 0.0
+            h.back()
+            h.runUntil(h.now + 5)
+            burstAtNotch = h.rules.burstOpen
+            gm = h.gesture(1, answer = true, band = "none")
+            h.rest()
+        }, extra = { h -> listOfNotNull(
+            if (left < 50 || !burstAtNotch) "the carry had ${left} ms left at the tap, the tap's burst open at the notch: $burstAtNotch (the shape did not happen)" else null,
+            if (h.fires[gm]?.sR != null) "RIGHT took the notch after Back (S ${h.fires[gm]?.sR}): the shape did not happen" else null,
+            if (h.verdicts.filter { it.first == gm }.map { it.second } != listOf(LocalRules.Verdict.Apply(wm.damage.core.wire.EvenHubMsg.EV_SCROLL_BOTTOM)))
+                "the notch after Back: ${h.verdicts.filter { it.first == gm }.map { it.second }}" else null) })
+    }
+
     @Test fun seededS24_aRefusedTailOnRightIsSeenAtTheSettle() = seeded(Taps.REPORT, live = false, script = { h ->
         h.refuse27On = Arm.RIGHT
         val t0 = h.now
@@ -951,8 +1031,26 @@ class LocalSequenceFuzzTest {
             for (d in longArrayOf(10, 9, 7, 8, 1, 2, 2, 0)) { h.gesture(1, answer = true); h.runUntil(h.now + d) }
             h.rest()
         })
-        assertTrue((h.rules.counts["lateEcho"] ?: 0) > 0, "J1: no late echo paid by a carried owe (the shape did not happen): ${h.rules.counts}")
-        assertTrue(failed.isEmpty(), "J1: $failed")
+        lateEchoesPaid("J1", h, failed)
+    }
+
+    /** The late echoes as the harness knows them (each message's own gesture): scroll messages that reached the phone
+     *  after the lone SETTLE that followed their own report. */
+    private fun lateEchoes(h: LocalHarness) = h.phoneMoves.filter { m -> !m.by115 && h.stepOf(m.g) != null &&
+        h.reportHeardAt[m.g]?.let { r -> h.loneSettles.any { it > r && it <= m.t } } == true }
+
+    /** J1's and J2's judgment, read from the harness before the rules' counts (B083 v3, decisions BO.5): the shape is a
+     *  scroll message reaching the phone after the lone SETTLE that followed its own report (a late echo); the defect is
+     *  one of them moving the phone's row (a second move of its gesture, 0.82's rules); the cure pays each one with a
+     *  carried owe, every one counted `lateEcho`. */
+    private fun lateEchoesPaid(name: String, h: LocalHarness, failed: List<String>) {
+        val late = lateEchoes(h)
+        assertTrue(late.isNotEmpty(), "$name: no scroll message reached the phone after its burst's lone SETTLE (the shape did not happen)")
+        val twice = late.filter { it.after != it.before }
+        assertTrue(twice.isEmpty(), "$name: ${twice.size} of ${late.size} late echo(es) moved the row a second time " +
+            "(gestures ${twice.joinToString { "g${it.g} ${it.before}→${it.after}" }}): $failed; ${h.rules.counts}")
+        assertTrue(failed.isEmpty(), "$name: $failed")
+        assertEquals(late.size, h.rules.counts["lateEcho"] ?: 0, "$name: every late echo counted `lateEcho` (${h.rules.counts})")
     }
 
     /** J2 — his 22:57:53.983 and 23:16:40.458: a clump's last queued echo arrives just after its burst's lone SETTLE, and
@@ -969,8 +1067,8 @@ class LocalSequenceFuzzTest {
             h.gesture(1, answer = true)
             h.rest()
         })
+        lateEchoesPaid("J2", h, failed)
         assertTrue((h.rules.counts["unreported"] ?: 0) == 0, "J2: a stock message applied as unreported: ${h.rules.counts}")
-        assertTrue(failed.isEmpty(), "J2: $failed")
     }
 
     /** J3 — his 23:16:36.266–37.126 (and 22:57:51.008–52.251, 23:16:38.446–39.084, 23:17:15.157–15.902): notches past the
@@ -1084,12 +1182,12 @@ class LocalSequenceFuzzTest {
             val v = try { randomSequence(seed) } catch (e: Throwable) { Verdict(listOf("threw: $e"), emptyMap()) }
             for (f in v.failed) fails += "seed $seed: $f"
             for ((k, c) in v.counted) counted[k] = (counted[k] ?: 0) + c
-            // decisions BC: the declared shapes, with their seeds
+            // the declared shapes (row A, decisions W and BC's refused 27; (9)'s exact classes, B083 v2; S33), with their seeds
             for (k in v.counted.keys) if (k.startsWith("row A: a batch") || k.startsWith("(9)") || k.startsWith("(1) S33")) declaredSeeds.getOrPut(k) { ArrayList() } += seed
         }
         // every failure, one line each, for reading the shapes (the assertion's message keeps the first 30)
         for (f in fails) println("FAIL $f")
-        println("declared (BC): " + declaredSeeds.entries.joinToString("; ") { (k, s) -> "$k ${s.size} sequence(s): ${s.joinToString()}" })
+        println("declared: " + declaredSeeds.entries.joinToString("; ") { (k, s) -> "$k ${s.size} sequence(s): ${s.joinToString()}" })
         println("sequence fuzz: ${seeds.size} sequences (${if (only != null) "seeds ${only.joinToString()}" else "bases ${bases.joinToString()}"}), ${fails.size} failures; counted $counted")
         if (fails.isNotEmpty()) fail(fails.take(30).joinToString("\n") + "\n(${fails.size} in all)")
     }

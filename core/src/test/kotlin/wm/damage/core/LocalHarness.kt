@@ -256,6 +256,21 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     /** When the phone decided each message that reset RIGHT's cursor: what moved the phone's row after it is unknown to RIGHT. */
     val rightResetAt = ArrayList<Long>()
     val rightResetLanded = ArrayList<Long>()
+    // ---- B083 v3 (decisions BO.3): a front's own notches, the fuzz's invariant (10)
+    /** Bumped at every change of what is in front (a cover, a window, Main again): a message is a front's only while that
+     *  front stands. */
+    private var frontGen = 0
+    /** Per scroll gesture RIGHT handled with a window or a cover in front and no scroll entry of its direction on RIGHT
+     *  (that front's CLEAR has landed there, so no 115): the front's kind and generation at RIGHT's fire. */
+    private val frontNotchAt = HashMap<Int, Pair<String, Int>>()
+    /** Per front kind ("window", "cover" — both take the scroll in this model): its own notches whose stock message
+     *  reached the phone with it still in front, and those the phone applied; the gestures it did not apply. */
+    val frontMade = java.util.TreeMap<String, Int>()
+    val frontApplied = java.util.TreeMap<String, Int>()
+    val frontMissed = ArrayList<String>()
+    /** When each lone SETTLE was sent (J1 and J2 read their late echoes against them). */
+    val loneSettles = ArrayList<Long>()
+
     /** Refusals of the phone's messages (mode, reason, arm), those the harness induced kept apart. */
     val refusals = ArrayList<String>()
     val induced = ArrayList<String>()
@@ -410,6 +425,12 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
             // B083 fix stage (item 2): a tap RIGHT takes while the last wrap's held wait — or the frame it released — can
             // still stand between the lens's cursor and its panel: S33's shape, the declared residual
             else if (wrapPlays > 0 && now < wrapUntil + WRAP_FRAME_MS) tapNearWrap += g
+            // B083 v3 (invariant (10)): a notch made with a window or a cover in front whose CLEAR has landed on RIGHT (RIGHT
+            // holds no scroll entry of its direction, so it sends no 115) is that front's own
+            if (!tap && !mainInFront()) {
+                val b = sim.bindForTest(Arm.RIGHT)
+                if (!b.live || b.entries.none { it != null && it.eventId == id }) frontNotchAt[g] = (if (window) "window" else "cover") to frontGen
+            }
             input(Arm.RIGHT)
             drainSent()
             if (extra != null) up(now, extra, scroll = !tap) { phoneStock(st, g) }
@@ -492,6 +513,13 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         val v = rules.stock(st, row, now)
         trace?.invoke("[$now] phone stock g$g $st row $row → $v (carried $carried)")
         verdicts += g to v
+        // invariant (10): a front's own notch, its message reaching the phone while that front still stands, is applied there
+        frontNotchAt[g]?.let { (kind, gen) ->
+            if (!st.click && gen == frontGen && !mainInFront()) {
+                frontMade[kind] = (frontMade[kind] ?: 0) + 1
+                if (v is LocalRules.Verdict.Apply) frontApplied[kind] = (frontApplied[kind] ?: 0) + 1 else frontMissed += "g$g ($kind, $v at $now)"
+            }
+        }
         apply(v, g, null)
         record(g, false, v, before, carried, null)
         pumpSoon()
@@ -519,15 +547,15 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     }
 
     // ---- covers, windows, re-stages, switches (the shell's own changes, each in the batch that draws it)
-    fun cover() { if (covered || window) return; covered = true; rules.front(null, row); pumpSoon() }
-    fun uncover() { if (!covered) return; covered = false; if (!window) rules.front(bound, row); pumpSoon() }
+    fun cover() { if (covered || window) return; covered = true; frontGen++; rules.front(null, row); pumpSoon() }
+    fun uncover() { if (!covered) return; covered = false; frontGen++; if (!window) rules.front(bound, row); pumpSoon() }
     fun openWindow() {
         if (window || covered) return
         // decisions AW.3, as the shell does it: a window over the list while a COMMITted instance still draws in the slot —
         // a CLOSE of the slot goes first, alone, ahead of the window's frame
         val inst = sim.motionForTest(Arm.RIGHT).slots[0]
         if (inst != null && inst.drawing && inst.local && inst.tag in commitsSent) { emit(listOf(CfwModes.motionClose(0)), emptyList()); windowCuts++ }
-        window = true; rules.front(null, row); pumpSoon()
+        window = true; frontGen++; rules.front(null, row); pumpSoon()
     }
     /** Windows that cut a COMMITted motion (AW.3), for the fuzz's counted shapes. */
     var windowCuts = 0
@@ -538,7 +566,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     var wrapCuts = 0
     /** When the phone first handled each gesture's report. */
     val reportHeardAt = HashMap<Int, Long>()
-    fun back() { if (!window) return; window = false; if (!covered) rules.front(bound, row); pumpSoon() }
+    fun back() { if (!window) return; window = false; frontGen++; if (!covered) rules.front(bound, row); pumpSoon() }
     fun toggleBadge() { badge = !badge; pumpSoon() }
     fun tick() { clock++; pumpSoon() }
     fun switchTaps(t: Taps) { rules.taps(t); pumpSoon() }
@@ -818,7 +846,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         changed += held
         if (rules.settleDue(now) && changed.isEmpty() && !rules.owed) {
             val subs = rules.loneSettle(row, now)
-            if (subs.isNotEmpty()) emit(subs, emptyList())
+            if (subs.isNotEmpty()) { loneSettles += now; emit(subs, emptyList()) }
             return
         }
         if (changed.isEmpty() && !rules.owed) { rules.settleAt()?.let { s -> if (s > now) at(s) { pump() } }; return }
