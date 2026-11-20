@@ -1,6 +1,7 @@
 package wm.damage.core.windows.music
 
 import java.util.concurrent.CopyOnWriteArrayList
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -10,6 +11,10 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.booleanOrNull
+import wm.damage.core.app.Draft
+import wm.damage.core.app.SourceListener
+import wm.damage.core.app.WindowSource
+import wm.damage.core.app.WindowState
 import wm.damage.core.util.Log
 
 /**
@@ -54,6 +59,8 @@ abstract class PlayerCore(
         fun streamed(): Boolean
         /** The open item has no data to play from (the player is buffering), whether or not it should play. */
         fun waitingForData(): Boolean
+        /** S1-4: the host's end (the PC's player process is stopped by its host's shutdown hook, not here). */
+        fun close() {}
     }
 
     /** A sink that cannot open because the PC is down and the file is not
@@ -132,18 +139,27 @@ abstract class PlayerCore(
     // ------------------------------------------------------------------ state
     protected fun snapshot(): PlayerState = PlayerState(
         backend = curBackend, play = play, queue = engine.entries.toList(), index = engine.index,
-        posMs = positionMs(), posAtMs = clock(), durMs = if (curBackend == Backend.LIBRARY) sink.durationMs().takeIf { it > 0 } ?: (engine.current?.track?.durMs?.toLong() ?: 0L) else (spotifyNow?.durMs ?: 0L),
-        mode = engine.mode, volume = volume, boost = curBoost, output = curOutput, outputs = safeOutputs(),
+        posMs = positionMs(), posAtMs = clock(), durMs = if (curBackend == Backend.LIBRARY && !offHost()) sink.durationMs().takeIf { it > 0 } ?: (engine.current?.track?.durMs?.toLong() ?: 0L) else if (curBackend == Backend.LIBRARY) (engine.current?.track?.durMs?.toLong() ?: 0L) else (spotifyNow?.durMs ?: 0L),
+        mode = engine.mode, volume = volume, boost = curBoost, output = shownOutput(), outputs = safeOutputs(),
         pcLink = pcLink, sleep = curSleep, holdVolume = curHold, profile = curProfile, label = engine.label,
         spotify = spotifyNow, spotifyAuto = spotifyAuto, problem = problem, listenerGranted = listenerGranted,
     )
 
-    private fun safeOutputs(): List<Output> = try { listOf(Output.AUTO_OUTPUT) + sink.outputs().filter { it.id != Output.AUTO } } catch (e: Exception) { listOf(Output.AUTO_OUTPUT) }
+    private fun safeOutputs(): List<Output> = try { hostOutputs() } catch (e: Exception) { listOf(Output.AUTO_OUTPUT) }
+
+    /** The Output menu's rows: the phone's routes (Auto first), then the PC once this player is on the record (S1-4,
+     *  ruling 8). The PC's player lists the phone, then its one device (`PcMusicPlayer`). */
+    protected open fun hostOutputs(): List<Output> =
+        listOf(Output.AUTO_OUTPUT) + sink.outputs().filter { it.id != Output.AUTO } + (if (bound) listOf(Output.PC_OUTPUT) else emptyList())
+
+    /** The output shown: this host's own while it plays, the other host's output id while that one does. */
+    private fun shownOutput(): String = if (!offHost()) curOutput else if (out.host == MusicCore.PC) Output.PC else Output.PHONE
 
     @Volatile private var cached: PlayerState = PlayerState()
     override val state: PlayerState get() = cached
 
     protected fun changed() {
+        writeRecord()
         cached = snapshot()
         for (l in listeners) try { l.state(cached) } catch (e: Exception) { Log.e("player", "state listener", e) }
     }
@@ -153,6 +169,7 @@ abstract class PlayerCore(
     }
 
     override fun positionMs(): Long {
+        if (offHost()) return recNow?.posAt(clock()) ?: lastPos           // S1-4: the playing host's place, extrapolated
         if (curBackend == Backend.SPOTIFY) return spotifyPos()
         return if (play == PlayState.PLAYING) {
             val p = try { sink.positionMs() } catch (e: Exception) { lastPos }
@@ -163,11 +180,15 @@ abstract class PlayerCore(
     protected open fun spotifyPos(): Long = 0L
 
     // ------------------------------------------------------------------ transport
-    private fun currentUrl(t: TrackRef): String = library.streamUrl(t.id, curProfile)
+    /** S1-4: what the sink opens for [t] — the phone's stream URL; the PC reads a local path (`PcMusicPlayer`). */
+    protected open fun mediaFor(t: TrackRef): String = library.streamUrl(t.id, curProfile)
+    private fun currentUrl(t: TrackRef): String = mediaFor(t)
 
     /** Open the current entry (a real open ends the previous track's history row). */
-    protected fun openCurrent(startMs: Long, playNow: Boolean, cause: String) {
-        val e = engine.current ?: run { Log.w("player", "openCurrent($cause): empty queue"); return }
+    protected fun openCurrent(startMs: Long, playNow: Boolean, cause: String): Boolean {
+        val e = engine.current ?: run { Log.w("player", "openCurrent($cause): empty queue"); return false }
+        // S1-4 (§3.4): one output — a call that makes sound runs only on the host `out` names, or in its own take-over
+        if (playNow && !mayPlay()) { refuseSound("open ($cause)"); return false }
         closeHistory(cause)
         val t = e.track
         if (curBoost != 100) { curBoost = 100; try { sink.setBoostPct(100) } catch (ex: Exception) { Log.w("player", "boost off: ${ex.message}") }; emit(PlayerEvent.BoostOff) }
@@ -182,12 +203,12 @@ abstract class PlayerCore(
                 decided("stall of a staged track, not switched: ${ex.message}")
                 emit(PlayerEvent.Error("PC unreachable and no cached track — ${ex.message ?: "not cached"}"))
             }
-            return
+            return false
         } catch (ex: Exception) {
             Log.e("player", "open of track ${t.id} failed", ex)
             problem = "open failed: ${ex.message}"
             emit(PlayerEvent.Error("open failed: ${ex.message}"))
-            changed(); return
+            changed(); return false
         }
         play = if (playNow) PlayState.PLAYING else PlayState.PAUSED
         if (playNow) warnIfQuiet()
@@ -198,6 +219,7 @@ abstract class PlayerCore(
         prefetchAhead()
         maybeFill("open")
         changed()
+        return true
     }
 
     /**
@@ -240,15 +262,20 @@ abstract class PlayerCore(
     }
 
     override fun play() = post {
-        if (curBackend == Backend.SPOTIFY) { spotifyCmd("play"); return@post }
+        if (routed("play")) return@post
+        if (curBackend == Backend.SPOTIFY) { if (mayPlay()) spotifyCmd("play") else refuseSound("Spotify play"); return@post }
         when (play) {
             PlayState.PLAYING -> {}
-            PlayState.PAUSED -> { try { sink.play() } catch (e: Exception) { fail("play", e); return@post }; play = PlayState.PLAYING; warnIfQuiet(); changed() }
+            PlayState.PAUSED -> {
+                if (!mayPlay()) { refuseSound("play"); return@post }
+                try { sink.play() } catch (e: Exception) { fail("play", e); return@post }; play = PlayState.PLAYING; warnIfQuiet(); changed()
+            }
             PlayState.STOPPED -> if (!engine.isEmpty) openCurrent(lastPos, true, "play") else emit(PlayerEvent.Error("nothing queued"))
         }
     }
 
     override fun pause() = post {
+        if (routed("pause")) return@post
         if (curBackend == Backend.SPOTIFY) { spotifyCmd("pause"); return@post }
         if (play != PlayState.PLAYING) return@post
         lastPos = positionMs()
@@ -258,7 +285,8 @@ abstract class PlayerCore(
     }
 
     override fun toggle() = post {
-        if (curBackend == Backend.SPOTIFY) { spotifyCmd("toggle"); return@post }
+        if (routed("toggle")) return@post
+        if (curBackend == Backend.SPOTIFY) { if (mayPlay()) spotifyCmd("toggle") else refuseSound("Spotify toggle"); return@post }
         when (play) {
             PlayState.PLAYING -> pause()
             PlayState.PAUSED -> play()
@@ -267,6 +295,7 @@ abstract class PlayerCore(
     }
 
     override fun next() = post {
+        if (routed("next")) return@post
         if (curBackend == Backend.SPOTIFY) { spotifyCmd("next"); return@post }
         advance("next", playNow = play != PlayState.STOPPED)
     }
@@ -291,10 +320,12 @@ abstract class PlayerCore(
         play = PlayState.STOPPED
         lastPos = 0
         emit(PlayerEvent.QueueEnd)
+        nowWhy = QUEUE_ENDED
         changed()
     }
 
     override fun prev() = post {
+        if (routed("prev")) return@post
         if (curBackend == Backend.SPOTIFY) { spotifyCmd("prev"); return@post }
         if (engine.isEmpty) return@post
         // Spotify-identical: ≥ 3 s in restarts the track; at the head restarts too
@@ -303,6 +334,7 @@ abstract class PlayerCore(
     }
 
     override fun stop() = post {
+        if (routed("pause")) return@post         // S1-4: off the playing host, Stop pauses it (no stop verb on the door)
         if (curBackend == Backend.SPOTIFY) { spotifyCmd("pause"); return@post }
         quietWarned = false
         closeHistory("stop")
@@ -318,11 +350,13 @@ abstract class PlayerCore(
     }
 
     override fun seekTo(ms: Long) = post {
+        if (routed("seek", obj("pos" to ms))) return@post
         if (curBackend == Backend.SPOTIFY || play == PlayState.STOPPED) return@post
         val dur = sink.durationMs().takeIf { it > 0 } ?: engine.current?.track?.durMs?.toLong() ?: Long.MAX_VALUE
         val v = ms.coerceIn(0, dur)
         try { sink.seekTo(v) } catch (e: Exception) { fail("seek", e); return@post }
         lastPos = v; lastPosAt = clock()
+        writeNowIfActive()                        // S1-4: a seek moves the place without changing the state
         changed()
     }
 
@@ -330,6 +364,11 @@ abstract class PlayerCore(
 
     override fun playQueue(tracks: List<TrackRef>, startIndex: Int, mode: Mode, label: String) = post {
         if (tracks.isEmpty()) { emit(PlayerEvent.Error("nothing to play")); return@post }
+        if (offHost()) {
+            engine.set(tracks, startIndex, mode, label)          // the asker's ids, drawn at once (the first flush)
+            send("playNow", obj("entries" to MusicCore.entriesJson(engine.entries), "index" to engine.index, "mode" to mode.name, "label" to label))
+            changed(); return@post
+        }
         if (curBackend == Backend.SPOTIFY && !spotifyAuto) {    // a deliberate library play leaves a chosen Spotify
             curBackend = Backend.LIBRARY
             decided("back to the PC library (a library play)")
@@ -341,6 +380,7 @@ abstract class PlayerCore(
     }
 
     override fun playFrom(qid: Long) = post {
+        if (routed("playFrom", obj("e" to qid))) return@post
         if (!engine.playFrom(qid)) { emit(PlayerEvent.Error("that row is gone")); return@post }
         pickGen++
         advanceAfterFill = null
@@ -349,14 +389,16 @@ abstract class PlayerCore(
 
     override fun playNext(tracks: List<TrackRef>) = post {
         if (tracks.isEmpty()) return@post
-        engine.insertNext(tracks)
+        val fresh = engine.insertNext(tracks)
+        if (offHost()) { send("playNext", obj("entries" to MusicCore.entriesJson(fresh))); changed(); return@post }
         prefetchAhead()
         changed()
     }
 
     override fun append(tracks: List<TrackRef>) = post {
         if (tracks.isEmpty()) return@post
-        engine.append(tracks)
+        val fresh = engine.append(tracks)
+        if (offHost()) { send("add", obj("entries" to MusicCore.entriesJson(fresh))); changed(); return@post }
         prefetchAhead()
         changed()
     }
@@ -364,13 +406,18 @@ abstract class PlayerCore(
     override fun replace(tracks: List<TrackRef>, label: String) = playQueue(tracks, 0, engine.mode, label)
 
     override fun remove(qid: Long) = post {
+        if (offHost()) { if (engine.remove(qid)) changed(); send("remove", obj("e" to qid)); return@post }
         if (!engine.remove(qid)) emit(PlayerEvent.Error("the current track cannot be removed"))
         else { prefetchAhead(); changed() }
     }
 
-    override fun move(qid: Long, delta: Int) = post { if (engine.move(qid, delta)) { prefetchAhead(); changed() } }
+    override fun move(qid: Long, delta: Int) = post {
+        if (offHost()) { if (engine.move(qid, delta)) changed(); send("moveEntry", obj("e" to qid, "delta" to delta)); return@post }
+        if (engine.move(qid, delta)) { prefetchAhead(); changed() }
+    }
 
     override fun clear() = post {
+        if (offHost()) { engine.clear(); send("clear"); changed(); return@post }
         closeHistory("clear")
         try { sink.stop() } catch (e: Exception) { Log.w("player", "stop on clear: ${e.message}") }
         queueGen++
@@ -380,9 +427,13 @@ abstract class PlayerCore(
         changed()
     }
 
-    override fun shuffleRest() = post { engine.shuffleRest(); prefetchAhead(); changed() }
+    override fun shuffleRest() = post {
+        if (offHost()) { send("shuffleRest"); return@post }            // the playing host shuffles; its `q` follows
+        engine.shuffleRest(); prefetchAhead(); changed()
+    }
 
     override fun setMode(mode: Mode) = post {
+        if (offHost()) { send("mode", obj("mode" to mode.name)); return@post }
         engine.setMode(mode)
         maybeFill("mode")
         prefetchAhead()
@@ -425,6 +476,7 @@ abstract class PlayerCore(
     // ------------------------------------------------------------------ volume, curBoost, hold
     override fun setVolume(pct: Int, cause: String) = post {
         val v = pct.coerceIn(0, 100)
+        if (offHost()) { volume = v; send("volume", obj("pct" to v)); changed(); return@post }   // shown as asked until `now` moves
         Log.i("player", "volume $volume → $v ($cause)")
         ourVolume = v
         heldVolume = v
@@ -489,6 +541,7 @@ abstract class PlayerCore(
 
     override fun setBoost(pct: Int) = post {
         val v = pct.coerceIn(100, 400)
+        if (offHost() || host == MusicCore.PC) { if (v != 100) emit(PlayerEvent.Error("boost is not on the PC output")); return@post }
         curBoost = v
         try { sink.setBoostPct(v) } catch (e: Exception) { fail("boost", e) }
         if (v > 100 && volume >= 100) emit(PlayerEvent.BoostLoud(volume, v))
@@ -496,6 +549,7 @@ abstract class PlayerCore(
     }
 
     override fun setOutput(id: String) = post {
+        if (bound && moveOutput(id)) return@post
         val ok = try { sink.setOutput(id) } catch (e: Exception) { fail("output", e); false }
         if (ok) {
             curOutput = id
@@ -522,7 +576,10 @@ abstract class PlayerCore(
 
     override fun outputs(): List<Output> = safeOutputs()
 
-    override fun setSleep(s: Sleep) = post { curSleep = s; changed() }
+    override fun setSleep(s: Sleep) = post {
+        if (offHost()) { send("sleep", obj("choice" to s.choice())); return@post }
+        curSleep = s; changed()
+    }
     override fun setHoldVolume(on: Boolean) = post { curHold = on; if (on) heldVolume = volume; changed() }
     override fun setProfile(p: AudioProfile) = post { curProfile = p; prefetchAhead(); changed() }
     override fun setPrefetch(n: Int) = post { prefetchN = n.coerceIn(1, 10); prefetchAhead(); changed() }
@@ -560,6 +617,7 @@ abstract class PlayerCore(
     /** [sourceFailed]: the error's cause is the source or the network (the player library's I/O codes). */
     fun onSinkError(detail: String, sourceFailed: Boolean = false) = post {
         Log.e("player", "sink: $detail")
+        if (takeoverFailed(detail)) return@post
         // M1 (a): a stream the PC cannot serve switches like an open that cannot be served (the setting off: said)
         if (sourceFailed && streamWanted()) { streamStalled("the stream failed: $detail"); return@post }
         problem = detail
@@ -639,6 +697,7 @@ abstract class PlayerCore(
     override fun setBackend(b: Backend) = post {
         if (b == curBackend) return@post
         if (b == Backend.SPOTIFY) {
+            if (!mayPlay()) { refuseSound("Spotify"); return@post }
             if (play == PlayState.PLAYING) pause()
             spotifyStart()?.let { why ->
                 decided("Spotify's start refused: $why")
@@ -673,6 +732,7 @@ abstract class PlayerCore(
             play = PlayState.STOPPED
         }
         lastPos = resumeAt
+        if (!mayPlay()) { refuseSound("Spotify (a stall)"); changed(); return }
         spotifyStart()?.let { refused ->
             decided("Spotify's start refused: $refused")
             problem = refused
@@ -712,6 +772,399 @@ abstract class PlayerCore(
         changed()
     }
 
+    // ------------------------------------------------------------------ the record (S1-4, the lean spec's §3.4, §3.5)
+    /** A transport or queue verb for the host that plays, and its answer: null = taken, else the refusal in words with
+     *  [unreachable] true when that host could not be reached at all (the phone's away rule reads it). */
+    fun interface Remote {
+        fun send(verb: String, args: JsonObject, done: (why: String?, unreachable: Boolean) -> Unit)
+    }
+
+    private var src: WindowSource? = null
+    /** This player's host on the record: `phone` or `pc`. */
+    protected var host: String = MusicCore.PHONE
+        private set
+    private var remote: Remote? = null
+    @Volatile private var out = MusicCore.Out(MusicCore.PHONE, 0L)
+    /** The record's `now` while another host plays (the place this host shows, extrapolated). */
+    @Volatile private var recNow: MusicCore.Now? = null
+    private var lastQ: JsonObject? = null
+    private var lastNowKey: List<Any?>? = null
+    /** A stop's reason, written with the next `now`. */
+    private var nowWhy: String? = null
+    /** This host's take-over in flight (§3.5): the move's input time and who waits for its answer. */
+    private class Takeover(val t: Long, val playing: Boolean, val done: (String?) -> Unit) { var written = false }
+    private var takeover: Takeover? = null
+    /** Since when the other host has not answered a verb (0: it answers): the words "PC not answering since 14:02". */
+    private var remoteDownSince = 0L
+
+    /** True once this player is on the record ([bind]); a player with none plays as before (tests, no working copy). */
+    val bound: Boolean get() = src != null
+
+    /** True when `out` names this host (or there is no record). */
+    val isOutput: Boolean get() = src == null || out.host == host
+
+    /** Off the playing host and not taking over: verbs go to the host that plays. */
+    private fun offHost(): Boolean = src != null && out.host != host && takeover == null
+
+    /** §3.4's guard at the calls that make sound: `out` names this host, or its own take-over is in flight. */
+    protected fun mayPlay(): Boolean = src == null || out.host == host || takeover != null
+
+    private fun refuseSound(what: String) {
+        decided("$what refused: the output is the ${out.host}")
+        emit(PlayerEvent.Error("the music plays on the ${hostName(out.host)} — move the output here first"))
+    }
+
+    private fun hostName(h: String) = if (h == MusicCore.PC) "PC" else "phone"
+
+    /**
+     * Puts this player on the record ([source]: Music's source on this host's record), as [host], with [remote] the way
+     * to the other host (the phone: its music channel to the PC; the PC: the relay to the phone). At a process start,
+     * never on a gesture. The queue and place are loaded from `q` and `now`; while `out` names this host and `now` says
+     * playing (the process ended while it played), `now` is written stopped at its place with the reason. Nothing here
+     * makes sound.
+     */
+    fun bind(source: WindowSource, host: String, remote: Remote?) {
+        this.host = host
+        this.remote = remote
+        source.addListener(object : SourceListener {
+            override fun changed(state: WindowState, keys: Set<String>) = post { onRecord(state) }
+        })
+        post {
+            src = source
+            val st = source.state()
+            out = MusicCore.outOf(st)
+            val n = MusicCore.nowOf(st)
+            MusicCore.queueOf(st)?.let { engine.load(it, n?.e) }
+            lastQ = engine.recordJson()
+            if (n != null) {
+                lastPos = n.pos; volume = n.vol
+                if (out.host == host && n.state != MusicCore.STOPPED && n.state != MusicCore.PAUSED) {
+                    nowWhy = "stopped when the $host's player ended; Play resumes at ${Fmt.mmss(n.pos)}"
+                    decided("the record said playing at this start: $nowWhy")
+                    writeNow()
+                } else if (out.host == host) lastNowKey = nowKey()
+            }
+            if (out.host != host) follow(st)
+            changed()
+        }
+    }
+
+    /** The record moved (the player's thread). */
+    private fun onRecord(st: WindowState) {
+        if (src == null) return                                   // the binding reads the state itself
+        val o = MusicCore.outOf(st)
+        val was = out
+        out = o
+        val tk = takeover
+        if (tk != null) {
+            when {
+                o.host == host -> takeover = null                   // this host's `out` stands: it plays
+                o.t > tk.t -> { takeover = null; stopHere("a later move (${hostName(o.host)}) stands"); if (!tk.written) tk.done("a later move stands") }
+            }
+            changed(); return
+        }
+        if (was.host == host && o.host != host) leave(o)
+        if (o.host != host) follow(st)
+        changed()
+    }
+
+    /** §3.5 step 3: `out` left this host — a stop, not a pause; a move made while this host was out of reach is said. */
+    private fun leave(o: MusicCore.Out) {
+        val now = clock()
+        val wasPlaying = play == PlayState.PLAYING
+        stopHere("the output moved to the ${hostName(o.host)}")
+        if (wasPlaying && now - o.t > MOVED_SAY_MS) movedAway(if (host == MusicCore.PC) "the PC output played until ${clockTime(now).take(5)}"
+            else "music moved to the ${hostName(o.host)} output at ${clockTime(o.t).take(5)}")
+    }
+
+    private fun stopHere(why: String) {
+        if (play != PlayState.STOPPED || curBackend == Backend.SPOTIFY) {
+            lastPos = positionMs()
+            closeHistory("moved")
+            try { sink.stop() } catch (e: Exception) { Log.w("player", "stop at a move: ${e.message}") }
+            play = PlayState.STOPPED
+            decided("stopped: $why")
+        }
+    }
+
+    /** A move made while this host was out of reach, said: the phone on the glasses; the PC raises its notice. */
+    protected open fun movedAway(text: String) = emit(PlayerEvent.MovedAway(text))
+
+    /** Off the playing host: the queue, the place and the state as the record has them; `now`'s moves become today's
+     *  events, so the notices are today's. */
+    private fun follow(st: WindowState) {
+        val n = MusicCore.nowOf(st)
+        val before = recNow
+        val beforeQid = engine.current?.qid
+        MusicCore.queueOf(st)?.let { engine.load(it, n?.e) } ?: n?.let { engine.playFrom(it.e) }
+        recNow = n
+        if (n == null) return
+        play = when (n.state) { MusicCore.PLAYING, MusicCore.BUFFERING -> PlayState.PLAYING; MusicCore.PAUSED -> PlayState.PAUSED; else -> PlayState.STOPPED }
+        volume = n.vol
+        lastPos = n.pos
+        val e = engine.current
+        if (e != null && e.qid != beforeQid && n.playing && before != null) emit(PlayerEvent.TrackChange(e.track, engine.index, engine.size))
+        if (n.why == QUEUE_ENDED && before?.why != QUEUE_ENDED && before != null) emit(PlayerEvent.QueueEnd)
+    }
+
+    /** On the playing host, after each change of the player: `q` when the queue differs from the last written, `now`
+     *  when the entry, the state, the volume, sleep or boost differs (never on a tick: the place alone moves nothing). */
+    private fun writeRecord() {
+        if (src == null || out.host != host || takeover != null) return
+        val q = engine.recordJson()
+        if (q != lastQ) { lastQ = q; act(MusicCore.A_QUEUE, MusicCore.Q, q) }
+        if (nowKey() != lastNowKey || nowWhy != null) writeNow()
+    }
+
+    private fun writeNowIfActive() { if (src != null && out.host == host && takeover == null) writeNow() }
+
+    private fun nowState(): String = when {
+        curBackend == Backend.SPOTIFY -> MusicCore.SPOTIFY
+        play == PlayState.PLAYING && (try { sink.waitingForData() } catch (e: Exception) { false }) -> MusicCore.BUFFERING
+        play == PlayState.PLAYING -> MusicCore.PLAYING
+        play == PlayState.PAUSED -> MusicCore.PAUSED
+        else -> MusicCore.STOPPED
+    }
+
+    private fun nowKey(): List<Any?> = listOf(engine.current?.qid, nowState(), volume, curSleep.choice(), curBoost)
+
+    private fun writeNow() {
+        val e = engine.current ?: return
+        lastNowKey = nowKey()
+        val n = MusicCore.Now(e.qid, positionMs(), clock(), nowState(), volume,
+            curSleep.takeIf { it.kind != Sleep.Kind.OFF }?.choice(), curBoost.takeIf { it != 100 }, nowWhy)
+        nowWhy = null
+        act(MusicCore.A_NOW, MusicCore.NOW, n.json())
+    }
+
+    private fun writeOut(t: Long) = act(MusicCore.A_OUT, MusicCore.OUT, MusicCore.Out(host, t).json(), at = t)
+
+    private fun act(action: String, item: String, value: kotlinx.serialization.json.JsonElement, at: Long? = null) {
+        val s = src ?: return
+        try {
+            s.act(Draft(action, listOf(item), value, at = at))
+        } catch (e: Exception) {
+            Log.e("player", "the record did not take $action", e)
+        }
+    }
+
+    /** True when [verb] went to the host that plays (this host does not play and takes over nothing). */
+    private fun routed(verb: String, args: JsonObject = JsonObject(emptyMap())): Boolean {
+        if (!offHost()) return false
+        send(verb, args)
+        return true
+    }
+
+    private fun send(verb: String, args: JsonObject = JsonObject(emptyMap())) {
+        val r = remote ?: run { emit(PlayerEvent.Error("the ${hostName(out.host)} plays and is not reachable from here")); return }
+        r.send(verb, args) { why, unreachable -> post { answered(verb, args, why, unreachable) } }
+    }
+
+    /** The other host's answer to a relayed verb (the player's thread). The phone's away rule (answer 2): while the PC
+     *  does not answer, a verb that would start sound takes the output; any other says since when. */
+    private fun answered(verb: String, args: JsonObject, why: String?, unreachable: Boolean) {
+        if (why == null) { remoteDownSince = 0; return }
+        if (unreachable && remoteDownSince == 0L) remoteDownSince = clock()
+        val starts = verb in setOf("play", "playNow", "playFrom") || (verb == "toggle" && play != PlayState.PLAYING)
+        if (unreachable && host == MusicCore.PHONE && starts && offHost()) {
+            val n = recNow
+            val (e, p) = when (verb) {
+                "playFrom" -> (MusicCore.long(args["e"]) ?: return) to 0L
+                "playNow" -> (engine.current?.qid ?: return) to 0L
+                else -> placeOf(n)
+            }
+            decided("the ${hostName(out.host)} is not answering: Play on the phone takes the output")
+            takeOver(e, p, true, clock()) { w -> if (w != null) emit(PlayerEvent.Error(w)) }
+            return
+        }
+        val words = if (unreachable) "${hostName(out.host)} not answering since ${clockTime(remoteDownSince).take(5)}" else why
+        emit(PlayerEvent.Error(words))
+    }
+
+    /** The place to start from when this host takes over without the asker's exact place: `now` extrapolated, and
+     *  past the entry's end the next entry from its start (§3.5). */
+    private fun placeOf(n: MusicCore.Now?): Pair<Long, Long> {
+        val cur = engine.current ?: return 0L to 0L
+        if (n == null) return cur.qid to lastPos
+        val p = n.posAt(clock())
+        val i = engine.indexOf(n.e).takeIf { it >= 0 } ?: return cur.qid to 0L
+        val dur = engine.entries[i].track.durMs.toLong()
+        return if (dur > 0 && p >= dur && i + 1 < engine.size) engine.entries[i + 1].qid to 0L else n.e to p
+    }
+
+    /** §3.5 for the output id chosen in the Output menu: true when it was a move (or nothing to do). */
+    private fun moveOutput(id: String): Boolean {
+        val target = when {
+            id == Output.PC -> MusicCore.PC
+            id == Output.PHONE -> MusicCore.PHONE
+            host == MusicCore.PHONE && out.host == MusicCore.PC -> {      // a phone route chosen while the PC plays
+                try { if (sink.setOutput(id)) { curOutput = id; val o = sink.outputs().firstOrNull { it.id == id }; curOutputName = o?.name ?: ""; curOutputKind = o?.kind ?: "" } }
+                catch (e: Exception) { Log.w("player", "route $id: ${e.message}") }
+                MusicCore.PHONE
+            }
+            else -> return false
+        }
+        move(target, null, clock()) { why -> if (why != null) emit(PlayerEvent.Error(why)) }
+        return true
+    }
+
+    /**
+     * A move of the output to [to] (§3.5), asked here at [t]. [args]: the asker's exact place (`e`, `pos`, `playing`)
+     * when it was sent by the host that played, else null. The target takes over; when this host is the one that
+     * plays, it sends its exact place to the target and plays on until `out` moves. [done] gets null or the words.
+     */
+    fun move(to: String, args: JsonObject?, t: Long, done: (String?) -> Unit) = post {
+        when {
+            to == host && out.host == host -> { writeOut(t); done(null) }   // the same output: `out` again, a newer time
+            to == host -> {
+                val e = args?.let { MusicCore.long(it["e"]) }
+                val (qe, p) = if (e != null) e to (MusicCore.long(args["pos"]) ?: 0L) else placeOf(recNow)
+                val playing = args?.let { MusicCore.bool(it["playing"]) } ?: (recNow?.playing ?: false)
+                takeOver(qe, p, playing, t, done)
+            }
+            out.host == host -> {
+                val e = engine.current ?: run { done("nothing is queued to move"); return@post }
+                val r = remote ?: run { done("the ${hostName(to)} is not reachable from here"); return@post }
+                r.send("move", obj("to" to to, "e" to e.qid, "pos" to positionMs(), "playing" to (play == PlayState.PLAYING), "t" to t)) { why, _ -> done(why) }
+            }
+            else -> {
+                val r = remote ?: run { done("the ${hostName(to)} is not reachable from here"); return@post }
+                r.send("move", obj("to" to to, "t" to t)) { why, _ -> done(why) }
+            }
+        }
+    }
+
+    /** §3.5 steps 1–2 on the target: open [e] at [p], playing or staged; `out` and `now` are written when it plays
+     *  ([onStarted]) or, staged, once opened; a failure stops here, `out` unchanged, and says why. */
+    protected fun takeOver(e: Long, p: Long, playing: Boolean, t: Long, done: (String?) -> Unit) {
+        if (!engine.playFrom(e)) { done("that entry is not in the queue on the ${hostName(host)}"); return }
+        if (curBackend == Backend.SPOTIFY) { curBackend = Backend.LIBRARY; spotifyAuto = false }
+        val tk = Takeover(t, playing, done)
+        takeover = tk
+        if (!openCurrent(p, playing, "move")) {
+            takeover = null
+            stopHere("the take-over did not open")
+            done(problem.ifEmpty { "the ${hostName(host)} could not open the track" })
+            changed(); return
+        }
+        if (!playing || !startsAsync) started(tk)
+    }
+
+    /** True when the sink reports playback started later ([onStarted]): the PC's player and ExoPlayer. */
+    protected open val startsAsync: Boolean = false
+
+    /** The sink plays now ([playing]) or has opened staged: a take-over in flight writes `out` then `now`. Any thread. */
+    fun onStarted(playing: Boolean) = post {
+        val tk = takeover ?: return@post
+        if (!tk.written && (playing || !tk.playing)) started(tk)
+    }
+
+    private fun started(tk: Takeover) {
+        tk.written = true
+        writeOut(tk.t)
+        lastQ = engine.recordJson()
+        act(MusicCore.A_QUEUE, MusicCore.Q, lastQ!!)
+        out = MusicCore.Out(host, tk.t)                     // this host plays from here; the record's echo confirms it
+        takeover = null
+        writeNow()
+        decided("took the output at ${Fmt.mmss(positionMs())}")
+        tk.done(null)
+        changed()
+    }
+
+    private fun takeoverFailed(detail: String): Boolean {
+        val tk = takeover ?: return false
+        takeover = null
+        stopHere("the take-over failed: $detail")
+        emit(PlayerEvent.Error(detail))
+        tk.done(detail)
+        changed()
+        return true
+    }
+
+    /**
+     * A verb from another surface for this host (the relay's `cmd` on the phone, `MusicProgram` on the PC; §3.2):
+     * applied while this host plays, else refused. A verb naming an entry this host does not hold is refused in words.
+     */
+    fun command(verb: String, args: JsonObject, done: (String?) -> Unit) = post {
+        if (verb == "move") {
+            val to = MusicCore.text(args["to"]) ?: run { done("a move names its output"); return@post }
+            move(to, args.takeIf { it["e"] != null }, MusicCore.long(args["t"]) ?: clock(), done)
+            return@post
+        }
+        if (src != null && out.host != host) { done("the ${hostName(host)} is not the output now"); return@post }
+        val e = MusicCore.long(args["e"])
+        if (verb in setOf("playFrom", "remove", "moveEntry") && (e == null || engine.indexOf(e) < 0)) {
+            done("that entry is not in the queue on the ${hostName(host)}"); return@post
+        }
+        fun entries(): List<QueueEntry> = MusicCore.queueOf(JsonObject(mapOf("entries" to (args["entries"] ?: JsonArray(emptyList()))))).entries
+        when (verb) {
+            "play" -> play()
+            "pause" -> pause()
+            "toggle" -> toggle()
+            "next" -> next()
+            "prev" -> prev()
+            "seek" -> seekTo(MusicCore.long(args["pos"]) ?: 0L)
+            "playFrom" -> playFrom(e!!)
+            "volume" -> setVolume(MusicCore.int(args["pct"]) ?: volume, "relayed")
+            "sleep" -> setSleep(Sleep.fromChoice(MusicCore.text(args["choice"]) ?: "off", clock()))
+            "boost" -> setBoost(MusicCore.int(args["pct"]) ?: 100)
+            "mode" -> Mode.entries.firstOrNull { it.name == MusicCore.text(args["mode"]) }?.let { setMode(it) }
+            "add" -> { engine.appendEntries(entries()); prefetchAhead(); changed() }
+            "playNext" -> { engine.insertNextEntries(entries()); prefetchAhead(); changed() }
+            "playNow" -> {
+                val es = entries()
+                if (es.isEmpty()) { done("nothing to play"); return@post }
+                if (curBackend == Backend.SPOTIFY && !spotifyAuto) curBackend = Backend.LIBRARY
+                queueGen++; advanceAfterFill = null
+                engine.setEntries(es, MusicCore.int(args["index"]) ?: 0,
+                    Mode.entries.firstOrNull { it.name == MusicCore.text(args["mode"]) } ?: engine.mode, MusicCore.text(args["label"]) ?: "")
+                openCurrent(0, true, "new-queue")
+            }
+            "moveEntry" -> move(e!!, MusicCore.int(args["delta"]) ?: 0)
+            "remove" -> remove(e!!)
+            "clear" -> clear()
+            "shuffleRest" -> shuffleRest()
+            else -> { done("no such verb \"$verb\""); return@post }
+        }
+        done(null)
+    }
+
+    /** The host's orderly end (the PC's shutdown hook): `now` written with the exact place and stopped. */
+    fun endOrderly(why: String) = post {
+        if (src == null || out.host != host || play == PlayState.STOPPED) return@post
+        lastPos = positionMs()
+        play = PlayState.STOPPED
+        nowWhy = "$why; Play resumes at ${Fmt.mmss(lastPos)}"
+        writeNow()
+        decided("ended in order: $nowWhy")
+    }
+
+    /** The sink's program ended with nobody asking (the PC's player process): stopped at its place, said. */
+    protected fun sinkExited(detail: String) = post {
+        lastPos = positionMs()
+        if (takeoverFailed("the PC player ended: $detail")) return@post
+        if (play == PlayState.STOPPED) return@post
+        play = PlayState.STOPPED
+        problem = "the player ended: $detail"
+        nowWhy = "the player ended ($detail); Play resumes at ${Fmt.mmss(lastPos)}"
+        decided(nowWhy!!)
+        emit(PlayerEvent.Error("the PC player ended: $detail"))
+        changed()
+    }
+
+    private fun obj(vararg kv: Pair<String, Any?>): JsonObject = buildJsonObject {
+        for ((k, v) in kv) when (v) {
+            null -> {}
+            is String -> put(k, v)
+            is Int -> put(k, v)
+            is Long -> put(k, v)
+            is Boolean -> put(k, v)
+            is kotlinx.serialization.json.JsonElement -> put(k, v)
+            else -> put(k, v.toString())
+        }
+    }
+
     // ------------------------------------------------------------------ persistence
     /** P6 item 3: the queue list [persist] last built its array from, and that array (immutable). The caller's thread
      *  only — the shell loop's save; one reference, so a reader never pairs one call's list with another's array. */
@@ -726,7 +1179,8 @@ abstract class PlayerCore(
         // list's equality (data classes), not its identity; the pair is one reference, read and written once here.
         val kept = persistedQueue?.takeIf { it.first == s.queue }
             ?: (s.queue to QueueEngine.queueJsonOf(s.queue)).also { persistedQueue = it }
-        put("engine", QueueEngine.jsonOf(s.queue, s.index, s.mode, s.label, queueJson = kept.second))
+        // S1-4: on the record the queue is `q` (§3.4); only a player with no record keeps it here
+        if (!bound) put("engine", QueueEngine.jsonOf(s.queue, s.index, s.mode, s.label, queueJson = kept.second))
         put("play", s.play.name)           // the truth for the mirror; a RESTORE never auto-plays (see restore)
         put("posMs", s.posMs)
         put("posAt", s.posAtMs)
@@ -744,8 +1198,11 @@ abstract class PlayerCore(
 
     override fun restore(o: JsonObject) = post {
         try {
-            (o["engine"] as? JsonObject)?.let { engine.fromJson(it) }
-            lastPos = o["posMs"]?.jsonPrimitive?.longOrNull ?: 0L
+            // S1-4: on the record the queue and place are `q` and `now`, loaded at the binding, never here
+            if (!bound) {
+                (o["engine"] as? JsonObject)?.let { engine.fromJson(it) }
+                lastPos = o["posMs"]?.jsonPrimitive?.longOrNull ?: 0L
+            }
             curBackend = o["backend"]?.jsonPrimitive?.contentOrNull?.let { n -> Backend.entries.firstOrNull { it.name == n } } ?: Backend.LIBRARY
             spotifyAuto = o["spotifyAuto"]?.jsonPrimitive?.booleanOrNull ?: false
             // the media stream's level is the PHONE's truth, read from the sink
@@ -761,7 +1218,7 @@ abstract class PlayerCore(
             curOutputName = o["outputName"]?.jsonPrimitive?.contentOrNull ?: ""
             curOutputKind = o["outputKind"]?.jsonPrimitive?.contentOrNull ?: ""
             // NEVER auto-play on boot: a restored queue is STAGED (a tap or Play starts it)
-            play = PlayState.STOPPED
+            if (!bound) play = PlayState.STOPPED
             onRestored()
             changed()
         } catch (e: Exception) {
@@ -785,6 +1242,10 @@ abstract class PlayerCore(
 
     companion object {
         const val PREV_RESTART_MS = 3_000L
+        /** S1-4 (§3.5 step 3): a move whose input is older than this at the stop was made while this host was away. */
+        const val MOVED_SAY_MS = 5_000L
+        /** `now.why` at the queue's end (another host's presenter raises today's "queue ended" from it). */
+        const val QUEUE_ENDED = "queue ended"
         const val RADIO_BATCH = 10
         /** At or below this the media stream is not going to be heard: an
          *  8 % session is what put this here (2026-09-02). */

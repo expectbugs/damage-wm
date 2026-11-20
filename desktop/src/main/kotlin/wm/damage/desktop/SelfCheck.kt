@@ -778,7 +778,7 @@ object SelfCheck {
      */
     private suspend fun typeLadderTopEnd(
         shell: Shell,
-        musicWin: wm.damage.core.windows.music.MusicWindow,
+        musicWin: wm.damage.core.windows.music.MusicGlasses,
         musicPlayer: wm.damage.core.windows.music.SimMusicPlayer,
         musicMenu: suspend (String) -> Unit,
     ) {

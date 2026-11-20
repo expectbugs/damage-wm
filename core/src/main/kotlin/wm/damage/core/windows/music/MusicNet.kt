@@ -34,8 +34,56 @@ import wm.damage.core.util.Log
  */
 private val json = musicJson
 
+/** S1-4 (§3.3): the answer to a relayed verb whose connection ended before it answered. */
+const val NOT_KNOWN = "not known whether it ran — see the state"
+
 class MusicService(private val lib: MusicLibrary) : WinService {
     private val pushers = CopyOnWriteArrayList<WinService.Push>()
+
+    // ---- S1-4 (the lean spec's §3.3; decisions B.2): the phone's verbs in, the PC's relayed verbs out ----
+
+    /** The PC's door for the phone's `request("player", …)` (set by the PC's host builders; null: refused). */
+    @Volatile var program: MusicProgram? = null
+
+    /** "Is the phone there": its `app` connection, kept alive by that lane's paced ping (`AppNet.connected`), never
+     *  this socket's state. Set by the PC's host builders. */
+    @Volatile var phoneUp: () -> Boolean = { true }
+
+    private val relays = java.util.concurrent.ConcurrentHashMap<Long, (String?, Boolean) -> Unit>()
+    private val nextK = java.util.concurrent.atomic.AtomicLong(1)
+    @Volatile private var phoneGoneAt = 0L
+
+    /**
+     * A verb for the phone's player (§3.3): a push `cmd {k, verb, args}` on the music channel the phone keeps open,
+     * answered by its `cmd.done`. With no phone attached it is refused at once (`unreachable` true); one pending when
+     * the channel or the phone's `app` connection ends is answered "not known whether it ran — see the state", never
+     * applied late. Any thread; [done] runs on the channel's thread or the caller's.
+     */
+    fun relay(verb: String, args: JsonObject, done: (why: String?, unreachable: Boolean) -> Unit) {
+        val p = pushers.lastOrNull()
+        if (p == null || !phoneUp()) {
+            val since = phoneGoneAt.takeIf { it > 0 }?.let { " since " + java.time.Instant.ofEpochMilli(it)
+                .atZone(java.time.ZoneId.systemDefault()).toLocalTime().toString().take(5) } ?: ""
+            done("the phone has not answered$since", true)
+            return
+        }
+        val k = nextK.getAndIncrement()
+        relays[k] = done
+        p.send("cmd", buildJsonObject { put("k", k); put("verb", verb); put("args", args) })
+    }
+
+    /** The phone's `app` connection ended (`AppNet.addEndListener`, on the record's executor): what it was sent and
+     *  did not answer is said as not known. */
+    fun phoneEnded() {
+        if (phoneUp()) return
+        endRelays()
+    }
+
+    private fun endRelays() {
+        for (k in relays.keys.toList()) relays.remove(k)?.let { d ->
+            try { d(NOT_KNOWN, false) } catch (e: Exception) { Log.e("music-host", "a relay's answer failed", e) }
+        }
+    }
 
     private val listener = object : MusicLibrary.Listener {
         override fun catalogChanged(c: Catalog) {
@@ -54,8 +102,11 @@ class MusicService(private val lib: MusicLibrary) : WinService {
 
     init { lib.addListener(listener) }
 
-    override fun attached(push: WinService.Push) { pushers.addIfAbsent(push) }
-    override fun detached(push: WinService.Push) { pushers.remove(push) }
+    override fun attached(push: WinService.Push) { pushers.addIfAbsent(push); phoneGoneAt = 0L }
+    override fun detached(push: WinService.Push) {
+        pushers.remove(push)
+        if (pushers.isEmpty()) { phoneGoneAt = System.currentTimeMillis(); endRelays() }
+    }
 
     override fun request(op: String, args: JsonObject): WinService.Answer {
         fun s(k: String): String = args[k]?.jsonPrimitive?.contentOrNull ?: throw IllegalArgumentException("missing '$k'")
@@ -117,6 +168,20 @@ class MusicService(private val lib: MusicLibrary) : WinService {
             "played" -> { lib.played(i("id", 0), l("started", 0), l("ended", 0), b("completed", false), b("skipped", false)); WinService.Answer() }
             "pretranscode" -> WinService.Answer(buildJsonObject { put("line", lib.pretranscode(profile())) })
             "rescan" -> WinService.Answer(buildJsonObject { put("line", lib.rescan()) })
+            // S1-4: the phone's verb for the PC's player, answered when it is taken (a move to the PC: when it plays)
+            "player" -> {
+                val prog = program ?: throw IllegalStateException("this PC plays nothing (no player is wired)")
+                prog.actAndWait(s("verb"), (args["args"] as? JsonObject) ?: JsonObject(emptyMap()), MusicCore.PHONE)
+                    ?.let { throw IllegalStateException(it) }
+                WinService.Answer()
+            }
+            // S1-4: the phone's answer to a relayed `cmd`
+            "cmd.done" -> {
+                val k = l("k", 0)
+                val why = if (b("ok", false)) null else (args["why"]?.jsonPrimitive?.contentOrNull ?: "refused")
+                relays.remove(k)?.invoke(why, false) ?: Log.w("music-host", "cmd.done for $k, which nothing waits for")
+                WinService.Answer()
+            }
             else -> throw IllegalArgumentException("unknown music op '$op'")
         }
     }
@@ -176,7 +241,18 @@ class RemoteMusicLibrary(
                 hostVersion = v
                 if (v != cat.version) scope.launch(Dispatchers.IO) { try { refreshCatalog() } catch (e: Exception) { /* said */ } }
             }
-            "yt" -> try {
+            // S1-4 (§3.3): a verb the PC relays to this phone's player; handled off the read thread, answered `cmd.done`
+        "cmd" -> {
+            val k = args["k"]?.jsonPrimitive?.longOrNull ?: 0L
+            val verb = args["verb"]?.jsonPrimitive?.contentOrNull ?: ""
+            val a = args["args"] as? JsonObject ?: JsonObject(emptyMap())
+            scope.launch(Dispatchers.IO) {
+                val h = onCmd
+                if (h == null) cmdDone(k, "this phone has no player")
+                else try { h(verb, a) { why -> cmdDone(k, why) } } catch (e: Exception) { cmdDone(k, e.message ?: "the player failed") }
+            }
+        }
+        "yt" -> try {
                 val j = json.decodeFromJsonElement(YtJob.serializer(), args)
                 for (l in listeners) try { l.ytJob(j) } catch (e: Exception) { Log.e("music-remote", "yt listener", e) }
             } catch (e: Exception) { Log.w("music-remote", "yt push undecodable: ${e.message}") }
@@ -185,6 +261,33 @@ class RemoteMusicLibrary(
             else -> Log.w("music-remote", "unknown push '$op' ignored")
         }
     })
+
+    /** S1-4: the phone's player, which takes the PC's relayed verbs (set by the service). */
+    @Volatile var onCmd: ((verb: String, args: JsonObject, done: (String?) -> Unit) -> Unit)? = null
+
+    private fun cmdDone(k: Long, why: String?) {
+        scope.launch(Dispatchers.IO) {
+            try {
+                ch.request("cmd.done", buildJsonObject { put("k", k); put("ok", why == null); why?.let { put("why", it) } })
+            } catch (e: Exception) {
+                Log.w("music-remote", "the answer to the PC's cmd $k was not sent: ${e.message}")
+            }
+        }
+    }
+
+    /** S1-4: a verb for the PC's player (the phone while the PC plays), off the caller's thread; refused at once when
+     *  the channel is down ([done]'s `unreachable`: the channel was not up). */
+    fun player(verb: String, args: JsonObject, done: (why: String?, unreachable: Boolean) -> Unit) {
+        scope.launch(Dispatchers.IO) {
+            try {
+                ch.request("player", buildJsonObject { put("verb", verb); put("args", args) })
+                done(null, false)
+            } catch (e: Exception) {
+                val m = e.message ?: "the PC did not take it"
+                done(m, chanState.isNotEmpty() || "not reachable" in m || "channel to" in m || "request not sent" in m)
+            }
+        }
+    }
 
     private fun pushState() {
         val line = stateLine()

@@ -14,6 +14,11 @@ class SimMusicPlayer(
     private val now: () -> Long = { System.currentTimeMillis() },
     /** Spotify pretend: null = "not available"; a name = a session that starts. */
     private val spotify: String? = null,
+    /** S1-4: Music's source on a record, with this player's host and its way to the other host; null = no record
+     *  (the player plays as before). */
+    source: wm.damage.core.app.WindowSource? = null,
+    host: String = MusicCore.PHONE,
+    remote: Remote? = null,
 ) : PlayerCore(library, now) {
 
     val opened = ArrayList<String>()
@@ -117,5 +122,6 @@ class SimMusicPlayer(
     init {
         Log.d("player", "sim player ready")
         changed()
+        if (source != null) bind(source, host, remote)
     }
 }
