@@ -415,7 +415,8 @@ last step the hook drew** (written by the hook under the engine word, read here 
 after ≈ 48.5 days), an instance with k > d is **due now**; otherwise its next due time is `t0 + d·P`, never past step T.
 *(C3, §7.7: on a bit-11 build a slot whose t0 is ahead of now — `(int32_t)(now − t0) < 0` — has nothing due and its
 due time is t0; after t0, a slot that waits on a PLAY-AFTER's recorded instance has nothing due and its due time is now
-plus its own P. Only PLAY-AFTER makes such a slot; with none, the rule changes nothing.)*
+plus its own P. Only PLAY-AFTER makes such a slot; with none, the rule changes nothing. The plan's wait stays the
+earliest due time over all slots, a waiting slot's included — §7.7 states what W is then.)*
 When one is due now and no engine refresh is outstanding, the thread tries the gate and queues (below), then plans
 again and waits that plan's w — one refresh per wake (R1.13) *(C3, §7.10: on a bit-11 build with EFFECTS armed, when
 the present that followed the put drew a step and the second plan finds every due slot exactly one step late with
@@ -1805,8 +1806,8 @@ for randomness. (5) **PLAY-AFTER** (§7.7): an in half that starts on each lens 
 step. (6) **The ring list** and SET's **kind 3** (§7.8). (7) **The plan's late step** (§7.10). (8) **The step budget and the fast DRAW path** (§7.12): a
 version-2 program is refused when the steps of every instance that could then draw would cost more than the largest
 period (about 125 ms) together, and DRAW reaches its pixels without walking a record whole at every step. One flag bit (6
-EFFECTS), one ladder stage (5), DamageCaps bit 11, refusal 19, telemetry 40, the 115's field 18. **No new patch
-site**; contract version stays 2.
+EFFECTS), one ladder stage (5), DamageCaps bit 11, refusal 19, telemetry 40, the 115's field 18. **One new patch
+site, `0x00493DAC`, not on a start path** (the container's destroy, §7.3); contract version stays 2.
 
 ### 7.1 Facts C3 rests on
 
@@ -1818,6 +1819,7 @@ site**; contract version stays 2.
 | `present_shadow` publishes the mode-24 hint with the shadow pointer while the worker holds the gate; the copy hook latches it once | V-src `zlib_glue.c` 785–798, 1074–1080 |
 | The fire stamps c0 after the match, walks the program at step 10 and sets t0 at step 12 | V-src `damage_input.c` 340, 361, 381 |
 | A record DRAW is walked whole every step (validation, then the render), one nibble written per pixel through a clip test; a full-panel byte copy with its cache clean measures 0.54–0.62 ms | V-src `damage_draw.c` 120–145, 194–235; M (telemetry field 6) |
+| **Buffer A's one free, and the one new site.** Stock allocates buffer A in one place (`common_image_create` at `0x004DBEDE`: A = malloc at `0x004DC23E`, kept at the state's +0x8) and frees it in one (`common_image_destroy` `FUN_004DCA3C`: free(+0x8) at `0x004DCB24`), whose one caller is `evenhub_container_list_destroy` `FUN_00493D02`, by the call at **`0x00493DAC`**. Five ways lead there: the page rebuild and the cleanup of a failed build (`FUN_00493AB6`: `0x00493B0E`, `0x00493B86`, `0x00493C34`, `0x00493CAC`), the shutdown (`0x00496BA6`), the timeout page (`0x00496D2E`) and the main event handler (`0x004E1896`) — **the last three started by stock with the phone not involved**. No gate or lock covers the free, nothing the copy hook reads shows it, and a changed pointer is no test (the allocator hands a freed block back). The call at `0x00493DAC` is C3's one new site, on a page rebuild or exit only — not a start path (`FORK.md` §3.1) | V (`private/c3-design/C3-F2-facts.md` points 1–4, 6, 7); I: every destroy runs on the ui_task (point 5); not every store at +0x8 in the image traced (point 2) |
 
 ### 7.2 Program records version 2, and where each program may run
 
@@ -1967,23 +1969,25 @@ walk (5) and values (12) positions, the step budget after their values.
 - **The fire.** A fire whose close set holds an owning instance is refused **19**, nothing closed (§6.2 step 11, tested
   before 17's test; a report-only fire closes nothing and is not tested). A COMMIT's close pass closes an owning
   instance as any other.
-- **The shadow an owner reads is always the live one.** At every present, direct or preserve, the copy hook reads the
-  shadow — `new`, LAND's copy, rain's reveal 1 — through the pointer published with that present's job while its
-  publisher holds the gate: `present_shadow`'s, or the engine refresh's (which holds the gate from its try to the give
-  after the hook and publishes the live pointer with its job as `present_shadow` does). No pointer kept from an earlier
-  present is read through. **A rebuild of the container — stock freeing or replacing buffer A — ends every owning
-  instance:** ownership ends, the panel's stale mark is set, and each sends the 114 body a close gives (outcome 1 if it
-  was drawing; a done owner sends none). A lens sees the rebuild as the live pointer differing, under the gate, from the
-  one the last present used (kept for that comparison only, never read through), unless `C3-F2-facts.md` names a stock
-  signal for it, which §7.1 then cites; a rebuild that hands back the same block is read safely, and the warmup keyframe
-  (a live mode 6) the phone sends after a container start closes every instance (§5.8, R1.17). **The model's form:** §9's format
-  has no op for a container rebuild (its ops are `tick`, `lease`, `msg`, `wake`, `stock`, `input` and `page`), so no vector
-  carries one.
-  The fork's host pin covers it: the shim replaces buffer A (a new block, the old one overwritten with a marker) between
-  two presents while an owner draws, once on the direct path and once on the preserve path; the next present ends the
-  owner as above and reads no byte of the old block. The simulator: `GlassFirmwareSim`'s EvenHub CREATE handling, and
-  REBUILD's (acked unmodeled today), end every owning instance on both lenses as a close does; its shadow is one array a
-  CREATE does not replace, so nothing there reads a freed buffer.
+- **The shadow an owner reads is always the live one, and a rebuild or teardown of the container ends every owning
+  instance — through C3's one new patch site.** Stock frees buffer A in one place, reached only by the call at
+  `0x00493DAC` (§7.1); that call goes to `damage_container_destroy`, which runs where stock runs the destroy (the
+  ui_task, on an EvenHub page rebuild or exit). **With EFFECTS clear** (stages 0–4) it does nothing but pass to the
+  stock function, so a C3 image below stage 5 destroys a container exactly as C2 does — **C2's own window included**:
+  a free can land between a job's publication and its copy while the display task waits out a panel transfer
+  (`C3-F2-facts.md` point 5), and below stage 5 that window is not closed. No owner exists with EFFECTS clear (version
+  2 needs it, a release point ends every instance, and the phone disarms only after a CLOSE-all that reached both
+  lenses, §5.8). **With EFFECTS armed** it takes the display gate as the image worker does (a pending job is copied
+  first), claims the engine word, ends every owning instance — the owns mark cleared, the panel's stale mark set, the
+  114 body a close gives (outcome 1 if it was drawing; a done owner sends none) — withdraws the published shadow
+  pointer, lets the word and the gate go, then calls the stock function. So at every present, direct or preserve, the
+  copy hook reads the shadow (`new`, LAND's copy, rain's reveal 1) only through the pointer `present_shadow` last
+  published, which names a live buffer A whenever it is read; after a withdrawal nothing reads the shadow until the next
+  `present_shadow` publishes the new one. **The model's form:** §9's format has no op for a container rebuild (its ops
+  are `tick`, `lease`, `msg`, `wake`, `stock`, `input` and `page`), so no vector carries one and no `v5` expectation
+  depends on it. The fork's host pin covers the site (§7.13). The simulator: `GlassFirmwareSim`'s EvenHub CREATE
+  handling, and REBUILD's (acked unmodeled today), end every owning instance on both lenses as the site does when
+  armed; its shadow is one array a CREATE does not replace, so nothing there reads a freed buffer.
 - **The source `new`** (DRAW, REVEAL, PIECES kind 4) and **the backdrop `new`**: this lens's track area of the live
   shadow, read by the copy hook under the engine word at every step it draws, as a source of the area's width and
   height whose pixel (c, r) is the shadow's pixel (l + c, t + r) of this lens's rect. A DRAW of `new` at rest (x, y = the
@@ -2093,6 +2097,12 @@ it again** (decisions F: a write over it closes the instance first, §5.6). With
 reads only inside the record as walked and writes only inside the track's area: a stream that runs out ends that
 glyph's draw. A glyph is drawn at its box's corner through the cell's LUT, a source pixel of 0 not drawn.
 
+**Codes 0 and 32 — one rule for CELLS and RAIN.** Wherever a code appears (a cell's old or new code, an alphabet), 0
+and 32 **draw nothing and name no glyph record**: their font entries are never read or walked (a font need not hold
+them — entry 0's off4 may be anything), they add nothing to the read range, and they add nothing to §7.12's terms. A
+cell or a lit rain cell that shows one shows its box's fill only (CELLS: by phase, when fill is not 0xFF; RAIN:
+fillLvl). An alphabet may hold 32 (its codes are 32..255); only a cell's old and new codes may be 0.
+
 **Kind 0 CELLS.** `src` names a **cell table**: `n u16 (1..1024, the largest list count) · 0 u16 · off4[n] u16`, padded to 4 B; **aux0** (after
 substitution) is the index; an index at or past n is 5, decided in the walk at the cell table. The **cell list** it names: `count u16 (1..512) · alphabet off4 u16 · noise u8 · 0
 · 0 · 0`, then count × `{ bx s16 · by s16 · bw u8 · bh u8 · font off4 u16 · old u8 · new u8 · fill u8 · opt u8 }` (12 B a
@@ -2103,7 +2113,7 @@ steps after substitution and N = noise, n − N ≥ 1 (12). **The schedule** of 
 at local step t the cell shows its **old** code for t < s_c, **alphabet[H3(seed, c, t) mod n_alpha]** for s_c ≤ t <
 s_c + N, its **new** code from s_c + N on. Each step, cells in list order: when fill is not 0xFF, the box `[bx + X, bx + X + bw) × [by + Y, by + Y + bh)`
 is filled with `fill` unless t ≥ s_c + N and new ≠ 0 (by phase, not by the code shown); then, unless the code shown is 0
-or 32, its glyph is drawn at (bx + X, by + Y) through the cell's LUT `make_lut((opt & 0x20) | ⌊(opt & 15)·lvl(t) / 15⌋)`,
+or 32 (above), its glyph is drawn at (bx + X, by + Y) through the cell's LUT `make_lut((opt & 0x20) | ⌊(opt & 15)·lvl(t) / 15⌋)`,
 lvl(t) eased from lvl0 to lvl1.
 
 **Kind 1 RAIN.** `src` names a **rain record** (16 B): `cols u8 (1..128) · trail u8 (1..32) · cw u8 (1..255) · ch u8
@@ -2113,15 +2123,15 @@ Column c lies at x_c = l + X(t) + c·cw, its cell row r at y_r = top + Y(t) + r�
 and its head at local step t `head_c = −o_c + (((R + o_c + trail)·e) >> 12)` (e = E[t], `>>` arithmetic). **Lit cells** r with head_c −
 trail < r ≤ head_c and 0 ≤ r < R, u = head_c − r: the box `[x_c, x_c + cw) × [y_r, y_r + ch)` filled with fillLvl, then
 the glyph alphabet[H3(seed, c, r·256 + ⌊t / flicker⌋) mod n_alpha] drawn at (x_c, y_r), **clipped to its cell's box**
-(code 32 draws nothing, as in CELLS), through `make_lut(⌊L_u·lvl(t) /
+(code 32 draws nothing — the rule above), through `make_lut(⌊L_u·lvl(t) /
 15⌋)` with L_u = (headLvl·(trail − 1 − u) + tailLvl·u) / (trail − 1) (headLvl when trail = 1). **Above the trail**
 (0 ≤ r < R and r ≤ head_c − trail): reveal 1 paints the column's cell boxes from the shadow (`new`, OWN programs only), reveal 2
 fills them with fillLvl, reveal 0 leaves them. Below the head nothing is painted. With reveal 1 or 2 the track is in
 place (§7.2: its base below the head is the picture it keeps).
 
 **Read range:** the program, the cell table and the list aux0 selects (or the rain record), the alphabet, every font
-named and every glyph record a cell's codes or the alphabet name in each of those fonts — all walked at the PLAY, the
-COMMIT or the fire (5), each (font, code) pair once per message. A cache write that meets it closes the instance (§5.6). **Cost (I):** ≈ 200 cells × (a box fill
+named and every glyph record a cell's codes or the alphabet name in each of those fonts, codes 0 and 32 excepted (above)
+— all walked at the PLAY, the COMMIT or the fire (5), each (font, code) pair once per message. A cache write that meets it closes the instance (§5.6). **Cost (I):** ≈ 200 cells × (a box fill
 and a glyph of ≈ 200 px at the DRAW rate, its record decoded once) ≤ 15 ms a step at §7.12's rates; rain ≈ cols × trail glyphs, ≈ 13 ms for
 53 × 8; the walk at a fire ≈ 1–3 ms more in field 16.
 
@@ -2136,7 +2146,13 @@ otherwise t0 = now and nothing is recorded. The rest is PLAY's (no END: the prog
 instance, owning; sets the engine's flag; the message's present).
 - **When it is due:** while its t0 is ahead of now (`(int32_t)(now − t0) < 0`), nothing is due and its due time is t0
   (§5.2); after t0, while its `after` slot holds the recorded (slot, tag, ordinal) in state drawing, nothing is due and
-  its due time is now plus its own P. The plan reads both without the word (a torn read costs a wake). **The copy hook
+  its due time is now plus its own P. The plan reads both without the word (a torn read costs a wake). **The plan's W
+  (§5.2; the vectors' `W`) is the earliest due time over all slots, a waiting slot's included, and 0 when any slot has a
+  step due with nothing outstanding** — so a waiting slot's own due time decides W only when no other slot is due
+  earlier. After t0 its recorded instance, while drawing, always has its step T due (that step fell due at
+  t0_a + (T_a − 1)·P_a, before t0), so W is 0 there, set by the late out half; once the recorded instance is done, a
+  future t0 is the waiting slot's due time (W = t0 − now when nothing else is due earlier: the in half one period after
+  the out half's last step). **The copy hook
   decides each slot's waiting test on the slot states as they stood when the present began**, so an out half's step T
   and its in half's first step are never drawn by one present, whatever their slots.
 - **At its first drawn step** the hook empties the recorded instance — when the `after` slot still holds that same
@@ -2303,9 +2319,13 @@ tracks of 1,024 + the backdrop's term + the largest of its segments' terms:
 - PIECES (either layer): 3·A; SHRINK: 3·A, and 10·A more when its width scales;
 - GLYPHS CELLS: Σ over its cells of (min(bw, Wa)·min(bh, Ha) + 16·Lg_c + 10·g_c + 64), with Lg_c the longest RLE length
   and g_c the largest w·h among the glyph records the cell's old code, new code and the alphabet's codes name in its font
-  (**codes 0 and 32 name no glyph for this sum**; a cell that names none counts its box and 64);
-- GLYPHS RAIN: A + cols·trail·(11·cw·ch + 16·Lg + 64), Lg the longest RLE length among the glyph records the alphabet
-  names in its font (a rain glyph is clipped to its cell, §7.6);
+  (codes 0 and 32 name none, §7.6; a cell that names none counts its box and 64);
+- GLYPHS RAIN: A + cols·trail·(cw·ch + 64 + G), with G = 16·Lg + 10·cw·ch when the alphabet holds a code other than 32,
+  else 0, and Lg the longest RLE length among the glyph records the alphabet's codes other than 32 name in its font
+  (§7.6). **This bound ignores which codes the hash picks:** it counts every lit cell as drawing the longest of those
+  glyphs (a rain glyph is clipped to its cell, so 10·cw·ch bounds its pixels);
+- a glyph record's **RLE length** is its token bytes after `[w][h]`; a width **scales** when w0 or w1 is not 0 (DRAW:
+  both are, §7.5; SHRINK: w0 = w1 = 0 is unscaled), whatever W comes to;
 - a program with LAND adds its owned rect's area (the larger lens's): LAND's copy at step T.
 
 **The cap is 8,000,000 u — the largest period (128 ticks, 125 ms) — and it bounds the sum over every instance that can
@@ -2386,7 +2406,8 @@ the owned rect and held inside it; LAND; done-and-owning; CLOSE, a close pass, a
 owner and holding the area; meeting by the meeting box — a per-lens owner (xL ≠ xR) and a PLAY meeting only one
 lens's owned rect, closed on both; a fire meeting one lens's only, 19 on both — two owners by their boxes; a fire refused 19 with fields 10–14; OWN at a SET, a fire and a
 COMMIT 5; RETARGET 12; the END CRC; the hint with an owner open) · `v5-after` (t0 from a drawing out half; a done owner
-recorded and emptied; a late out half (`W` one P ahead after t0); its step T and the in half's step 1 in separate
+recorded and emptied; a late out half (`W` 0 after t0: its own step T is due); `W` = t0 − now once the out half is done
+and before t0; its step T and the in half's step 1 in separate
 presents whatever the slots; a slot played over in between; a close of a waiting instance; an in-place in half (rain,
 reveal 1) starting from the out half's last pose) · `v5-new` (DRAW and REVEAL
 of `new`, the backdrop `new`, per lens, `new` outside OWN 5; the REVEAL exception — a REVEAL between WAITs over
@@ -2400,7 +2421,8 @@ on `new`, each anchor, W with H, W = 1, w, 2w, 2048; `self` scaled 12; RETARGET'
 fast path's start recomputed: the twice-run compares); **the source window**: a
 window by a kind-2 parameter, scaled and not, past the record 5, aux1 0 with aux0 ≠ 0 5, on `new` 5) · `v5-cells` (the
 schedule at N = 0 and n = N + 1; the fill by phase; codes 0 and 32; fill none; a settled cell over backdrop `new`; the
-index by a kind-3 parameter, past n 5; per lens; a cache write over a glyph record closing it) · `v5-rain` (reveal 0, 1,
+index by a kind-3 parameter, past n 5; per lens; a cache write over a glyph record closing it; a cell whose old code is 32 in a font whose code-32 entry lies
+outside the cache taken — code 32 is not walked) · `v5-rain` (reveal 0, 1,
 2; reveal 1 outside OWN 5; trail 1; spread 0; flicker; rows only below R; a glyph clipped to its cell; moving offsets
 in place 12; code 32 skipped; a fold `"pair"`) · `v5-ring` (wraps both ways at kinds 1 and 2; count 1 with a step →
 edge, a tap on a one-item ring list not an edge; RING := bit 0; LIST-RING's modular shift; a plain LIST clearing RING;
@@ -2408,18 +2430,27 @@ EFFECTS cleared → 15; field 18; kind 3 at both ends, without EFFECTS 12, a han
 each verb's term a sum of exactly 8,000,000 accepted and one unit over refused 12; a second instance taking the sum one
 unit over refused, a done one not counted, a waiting PLAY-AFTER and its out half counted as the larger; a RETARGET over
 the cap refused 12 with the instance unchanged; A'1's cells, whose 32-bit sum wraps, refused; per-lens rects of
-different sizes judged by the larger on both lenses; codes 0 and 32 not counted; a source window's L; a version-1
+different sizes judged by the larger on both lenses; codes 0 and 32 not counted, in CELLS and in RAIN (a rain
+alphabet `[32, 67]` whose code-32 glyph is the longest: the at/over pair exact without 32 answers taken/12, the pair
+exact with 32 answers taken/taken); a source window's L; a version-1
 instance counted and never refused) · `v5-order` (a refusal per reason
 in §7.2's order; a version-2 record without EFFECTS 5; each unused field 5; a FILL level 16 12; an eased level past 15
-12; a seed of 5,000 accepted; the header's reserved byte and u16 5; a pref 15 into a FILL's w1 — taken at a SET,
+12; a seed of 5,000 accepted; the header's reserved byte and u16 5; a version-2 PLAY with a `self` backdrop whose
+capture range passes the cache 5 (v3-order's three capture steps pass `cap` in the tag's place and never reach that
+rule; v1–v4 stay frozen); a pref 15 into a FILL's w1 — taken at a SET,
 5 at a fire and a PLAY whose parameter is not 0, taken at a PLAY whose parameter is 0; EFFECTS cleared mid-motion: the open instance draws on to step T, the next version-2
 PLAY refused 5). **The fast path's own proof:** the fork's runner runs every v3, v4 and v5 engine vector
 twice — the fast path forced on, then off, by a host door over the walk's choice — and both must equal the filled expectation; and the host differential test
 above. **Build-neutral:** every v1–v4 vector answers alike on a bit-11 build (27/3, 26/6 and 26/7 stay unknown subs; a
 version-2 record and kind 3 are refused as before while EFFECTS is clear); Damage's tooling adds `0xdff` to every v3 and
 v4 vector's `features` list (`make_vectors.py`), so the fork's runner runs them on the C3 build, and their expectations
-must come back byte-identical. **No self-test form** for v5. **No vector carries a container rebuild** (§7.3: the fork's host pin and the simulator's
-CREATE handling cover it). **The fold
+must come back byte-identical. **No self-test form** for v5. **No vector carries a container rebuild** (§7.3). **The site's host pin:** the shim runs the
+destroy path — `damage_container_destroy`, then a stand-in for the stock function that overwrites the old buffer A with
+a marker before freeing it — with an owner open: with EFFECTS armed, once before a direct present and once before a
+preserve-path step, the owner ends at the destroy (its close's 114, the stale mark), the pointer is withdrawn before the
+free and no byte of the old block is read; with EFFECTS clear (the owner set up by a host door, since none exists then)
+the site calls the stock function and nothing else — no gate take, no claim, the owner untouched (the shim counts
+both). Both watched to fail one variant at a time. **The fold
 invariant** (both harnesses' own tests and the `"pair"` vectors): for every in-place program of the fuzz — generated to
 keep §7.2's fold condition — two wake schedules that draw different steps between the same two steps end with the same
 `P`. The differential fuzz gains `--c3`.
@@ -2435,7 +2466,7 @@ exactly one period under PLAY-AFTER; the fold rate with the late-step rule (fiel
 | the owns mark, the owned rect (per lens) and the meeting box (both lenses) | LAND, every close or emptying, PLAY-AFTER's deferred empty, a keyframe, mode 11, release points (the settlement), the stock path, a container rebuild, a restart | a lost in-half PLAY: the out pose holds until the phone's CLOSE (its rule after every in half), a keyframe or a session; with no phone the lease lapses within 87.9 s and the stock path ends it | slot + tag + ordinal; the rect by the tracks' rects per lens; the box by both lenses' | written on the ui_task under the word; read by the worker first without the word (exact for "none owns": only that task makes an owner), then under it when one owns | once per job | the hint's publication; the three present paths; close-on-meet and the close passes (by the meeting box); the fire's close set (19, by the box) |
 | the job's owned rects | consumed with the job | a claim that fails (made only while a slot owns): no rect, a whole copy, counted (33) | the job | written by the worker under the gate and the word, read once by the copy hook; a release point between them skips the copy in a rect once, then its stale mark and the stock repaint follow | once | the mode-24 hint, the direct-shadow pointer |
 | LAND's copy | — | a folded step T stays due (C1) and lands at the next drawing present | the instance | display task under the word | once | A.12's stale mark |
-| the live shadow pointer and the last present's pointer (compared, never read through) | the last pointer replaced at every present; mode 11 and release points | a rebuild between presents: the next present ends every owner (a close's body, stale set); the same block handed back: read safely, the keyframe after the container start closes all | the job | published with each job under the gate (`present_shadow`, the engine's refresh); read by the copy hook | once per present | `new`, LAND, rain's reveal 1; the preserve path (no latched pointer) |
+| the destroy site `damage_container_destroy` (`0x00493DAC`) and the published shadow pointer | no state of its own: the pointer is withdrawn at each armed destroy and published again by the next `present_shadow` | the site always runs before the stock free (the redirect calls the stock function last); its gate take waits as the image worker's does, no time bound; a close's 114 that does not fit its buffer sets sticky bit 5 as any close's | EFFECTS (read once at entry; clear: straight to the stock function); every slot's owns mark | the ui_task, holding the gate (so the copy hook is not running, a pending job copied first) and the engine word; each lens ends its own owners — a stock-started destroy on one lens alone leaves the other's, which RIGHT's close bodies or the keyframe after the page's restart reach (§5.6's divergence path) | EFFECTS once; each slot's mark once under the word | the image worker's gate take (the same take); the stock path's ending of owners (§5.3); release points (the settlement); a close's body and stale mark (§7.3) |
 | PLAY-AFTER's t0 and recorded triple | the first drawn step, a close, release points | lost: the out half holds until the phone's CLOSE; the phone's divergence path | (slot, tag, ordinal) | the thread reads t0 and the `after` slot's state without the word (a torn read costs a wake); the hook decides on the states as the present began | once per plan; once per present | the plan's k, the hook's k, PLAY's close pass, the stock path |
 | the in-place base (b = d, OWN only) | with the instance | — | d | display task under the word; each lens moves its own picture | once per present | the overlay (carried along when shown); later tracks (§7.2's fold rule) |
 | G(b → k) | built per present | — | (b, k) and the levels | — | once | DRAW's ramp |
@@ -2451,7 +2482,8 @@ exactly one period under PLAY-AFTER; the fold rate with the late-step rule (fiel
 
 ### 7.15 Not in this contract
 
-A capture of the panel at any size (the out half stays in place) · **in-place verbs in a bound program** (a bound
+A capture of the panel at any size (the out half stays in place) · a build without the destroy site (§7.3): its preserve
+path could never read the shadow, so arriving halves would be drawn only on the phone's frames, as cuts — not built · **in-place verbs in a bound program** (a bound
 in-place pan would start from what the panel holds and end short after a notch that closes a motion mid-way, B1 of the
 contract read; bound programs stay absolute, the scroll's speed comes from the fast DRAW path) · two in-place tracks in
 one program · a crossfade, a dissolve, a zoom into the old picture, any upward re-sampling of it · per-step randomness
@@ -2769,3 +2801,17 @@ phone's keeper applies the hold-back rule before re-arming.
   the version-2 header's reserved bytes 0 (5); the field rules decided after substitution; the none-backdrop rule's
   REVEAL exception narrowed to exactly one REVEAL between WAITs (the lane's "every non-WAIT segment" accepts two, which a
   fold makes lens-dependent); telemetry 40 bits 4–7 count drawing slots only. Nothing built here.
+- 2026-11-19 — §7 on the vector lane's three two-way readings as ruled: **codes 0 and 32 draw nothing, name no glyph
+  record, are never walked and add nothing to the budget, in CELLS and RAIN alike** (§7.6, pointed to from the draw, the
+  read range and §7.12); RAIN's term counts every lit cell by the longest glyph among the alphabet's other codes (a
+  bound that ignores which codes are drawn); RLE length and "its width scales" defined; **the plan's W while a slot
+  waits is the earliest due time over all slots** — 0 behind a late out half, t0 − now once it is done (§7.7, §5.2);
+  `v5-order` gains a version-2 capture range past the cache. Nothing built.
+- 2026-11-19 — §7.3's live-shadow paragraph corrected on `C3-F2-facts.md`: the display gate does not exclude stock's free
+  of buffer A and nothing the copy hook reads shows it, so the rule needs one new patch site at `0x00493DAC` (Adam's
+  word); the no-site form the fork builds until then, and its effect on the vectors, stated for the lead's ruling.
+- 2026-11-19 — **the one new patch site** as ruled (`C3-decisions.md` I): the call at `0x00493DAC` to
+  `damage_container_destroy`, inert below stage 5 (C2's window between a job's publication and its copy stays there),
+  armed: the gate, the word, every owner ended, the published pointer withdrawn, then the stock destroy. §7.1's facts,
+  §7.3's rule (the no-site form removed; §7.15 says why it is not built), §7.13's host pin, §7.14's row; "no new patch
+  site" became "one new site, `0x00493DAC`, not on a start path".
