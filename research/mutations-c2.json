@@ -3539,24 +3539,6 @@
   "from": "G4"
  },
  {
-  "id": "G4-closed-short-not-repainted",
-  "file": "shell/Shell.kt",
-  "edits": [
-   [
-    "                comp.markAreasUnknown(list.areas)\n",
-    ""
-   ]
-  ],
-  "tests": [
-   "*MainLocalShellTest.aLocalClosedBeforeItsCommitLandsIsNoDivergence_G4"
-  ],
-  "expect": [
-   "(declared, no pin: the closed instance's areas are covered by its COMMIT's END and that COMMIT's whole present when adopted, by the DISCARD's present when not; the repaint is insurance for a body whose answer went before it)"
-  ],
-  "note": "G4 item 2: the closed-short repaint",
-  "from": "G4"
- },
- {
   "id": "BF-no-raise",
   "file": "shell/Shell.kt",
   "edits": [
@@ -3609,5 +3591,367 @@
   ],
   "note": "BF: down at the first fast motion (back and forth)",
   "from": "G4"
+ },
+ {
+  "id": "FR-L1-no-try",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        try { comp.holdEnds(listOf(wrap.end), nowMs) }\n        catch (e: Exception) {",
+    "        comp.holdEnds(listOf(wrap.end), nowMs)\n        if (false) try {} catch (e: Exception) {"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aThrowFromTheWrapsEndPaintKeyframesOnce_L1"
+  ],
+  "expect": [
+   "aThrowFromTheWrapsEndPaintKeyframesOnce_L1"
+  ],
+  "note": "the focused read's L1: the END paint outside a try (0.81)",
+  "from": "B082"
+ },
+ {
+  "id": "FR-W1-no-floor",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                maxOf(need, ms.period).let { t -> t < p && (t <= p - PERIOD_HYSTERESIS || t == ms.period) } -> maxOf(need, ms.period)",
+    "                need.let { t -> t < p && t <= p - PERIOD_HYSTERESIS } -> need"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.thePeriodFollowsTheMeasuredSteps_BF",
+   "*MainLocalShellTest.aFixedFramesPeriodIsNeverLoweredBelowItsOwn_W1"
+  ],
+  "expect": [
+   "thePeriodFollowsTheMeasuredSteps_BF",
+   "aFixedFramesPeriodIsNeverLoweredBelowItsOwn_W1"
+  ],
+  "note": "the focused read's W1: lowered below the staging's own period (0.81)",
+  "from": "B082"
+ },
+ {
+  "id": "FR-W2-no-front-check",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (localFront()?.second !== localFrontNow) return false\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aCoverOverMainWritesNoSnapbackRecord_W2"
+  ],
+  "expect": [
+   "aCoverOverMainWritesNoSnapbackRecord_W2"
+  ],
+  "note": "the focused read's W2: the rules asked before they know the front (0.81)",
+  "from": "B082"
+ },
+ {
+  "id": "B082-first-piece-no-motion-gate",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (!mainBindBurstOpen() && !mainMotionMayDraw()) b.nextOwed(now)?.let { row -> return mainBindRow(st, ms, row, write = true, now) }",
+    "        if (!mainBindBurstOpen()) b.nextOwed(now)?.let { row -> return mainBindRow(st, ms, row, write = true, now) }"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aRestageWaitsForTheWrapsMotionNotJustItsBurst_B082"
+  ],
+  "expect": [
+   "aRestageWaitsForTheWrapsMotionNotJustItsBurst_B082"
+  ],
+  "note": "B082 step 1: a re-stage's first piece goes as the burst ends, inside the wrap's wait",
+  "from": "B082"
+ },
+ {
+  "id": "B082-later-pieces-no-motion-gate",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "mayGo = { !mainBindBurstOpen() && !mainMotionMayDraw() }",
+    "mayGo = { !mainBindBurstOpen() }"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aRestageWaitsForTheWrapsMotionNotJustItsBurst_B082"
+  ],
+  "expect": [
+   "(declared, no pin: a local motion ends inside its burst (Q covers T × P), and the wrap's PLAY does not start while a re-stage is in pieces, so the later pieces' motion gate is a belt the burst gate already holds)"
+  ],
+  "note": "B082 step 1: the later pieces' motion gate",
+  "from": "B082"
+ },
+ {
+  "id": "B082-no-room",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "            var tail = layTail(room = true)\n            if (segOff[first] + tail.size() > c.slot) tail = layTail(room = false)",
+    "            var tail = layTail(room = false)\n            if (segOff[first] + tail.size() > c.slot) tail = layTail(room = false)"
+   ]
+  ],
+  "tests": [
+   "*MainBindTest.aChangingRowGetsRoomSoItsNextChangeIsItsSegmentAlone_B082"
+  ],
+  "expect": [
+   "aChangingRowGetsRoomSoItsNextChangeIsItsSegmentAlone_B082"
+  ],
+  "note": "B082 step 2: the tail laid out again with plain slack (its next change the tail again)",
+  "from": "B082"
+ },
+ {
+  "id": "B082-room-not-carried",
+  "file": "shell/MainBinding.kt",
+  "edits": [
+   [
+    "    fun roomFor(idsNow: List<String?>): IntArray { harvestRoom(); return IntArray(idsNow.size) { idsNow[it]?.let { id -> roomById[id] } ?: 0 } }",
+    "    fun roomFor(idsNow: List<String?>): IntArray { harvestRoom(); return IntArray(idsNow.size) { 0 } }"
+   ]
+  ],
+  "tests": [
+   "*MainBindTest.aChangedRowsRoomIsCarriedIntoTheNextStaging_B082"
+  ],
+  "expect": [
+   "aChangedRowsRoomIsCarriedIntoTheNextStaging_B082"
+  ],
+  "note": "B082 step 2: the room forgotten at the next staging",
+  "from": "B082"
+ },
+ {
+  "id": "B082-strip-margins-grown",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "            val sA = mA; val sB = mB",
+    "            val sA = if (wraps) mA + 1 else mA; val sB = if (wraps) mB + 1 else mB"
+   ]
+  ],
+  "tests": [
+   "*MainStagingTest.theStripCarriesMainsRowsPastEitherEndAsMarginRows_DMS"
+  ],
+  "expect": [
+   "theStripCarriesMainsRowsPastEitherEndAsMarginRows_DMS"
+  ],
+  "note": "B082 step 3: the strips keep G2's extra rows (every step walks them)",
+  "from": "B082"
+ },
+ {
+  "id": "B082-wrap-during-pieces",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (stageCursor?.rec?.key is MainStageKey) return null\n        val pan = ms.wrapPan(w.step) ?: return null",
+    "        val pan = ms.wrapPan(w.step) ?: return null"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aWrapBetweenARestagesPiecesDrawsTheWholeStrip_SPLIT2"
+  ],
+  "expect": [
+   "aWrapBetweenARestagesPiecesDrawsTheWholeStrip_SPLIT2"
+  ],
+  "note": "B082 step 3: a wrap PLAY while a re-stage writes the wrap record in pieces",
+  "from": "B082"
+ },
+ {
+  "id": "B082-wrap-record-not-written",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "                if (wrapRow[j] != row) continue\n",
+    "                if (true) continue\n"
+   ]
+  ],
+  "tests": [
+   "*MainBindTest.aRestageWritesTheRowIntoTheWrapRecordToo_B082"
+  ],
+  "expect": [
+   "aRestageWritesTheRowIntoTheWrapRecordToo_B082"
+  ],
+  "note": "B082 step 3: a changed row not written into the wrap record",
+  "from": "B082"
+ },
+ {
+  "id": "B082-wrap-index",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "        val idx = if (pan.step > 0) layout.rowsAbove else layout.rowsAbove + 1",
+    "        val idx = if (pan.step > 0) layout.rowsAbove + 1 else layout.rowsAbove"
+   ]
+  ],
+  "tests": [
+   "*MainBindTest.theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2"
+  ],
+  "expect": [
+   "theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2"
+  ],
+  "note": "B082 step 3: the wrap's start row in its record off by one",
+  "from": "B082"
+ },
+ {
+  "id": "B082-relay-room-no-fallback",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "            if (segOff[first] + tail.size() > c.slot) tail = layTail(room = false)\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*MainBindTest.aRowFormGrownPastItsSegmentReLaysTheStripsTail_DM2"
+  ],
+  "expect": [
+   "aRowFormGrownPastItsSegmentReLaysTheStripsTail_DM2"
+  ],
+  "note": "B082 step 2: a tail laid out with room that its slot cannot hold is a full staging owed",
+  "from": "B082"
+ },
+ {
+  "id": "B082-region-room-not-dropped",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "                room != null && room.any { it > 0 } -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, null, wrapFit)\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*MainBindTest.aRoomTheRegionCannotHoldIsLeftOut_B082"
+  ],
+  "expect": [
+   "aRoomTheRegionCannotHoldIsLeftOut_B082"
+  ],
+  "note": "B082 step 2: a room past the region gives up the wrap record's slack (or the record) instead of the room",
+  "from": "B082"
+ },
+ {
+  "id": "B082-wrap-ladder-no-tight",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "                wrapPic != null -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, null, wrapFit + 1)",
+    "                wrapPic != null -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, null, WRAP_NONE)"
+   ]
+  ],
+  "tests": [
+   "*MainBindTest.aWrapRecordTheRegionCannotHoldIsLaidTightThenLeftOut_B082"
+  ],
+  "expect": [
+   "aWrapRecordTheRegionCannotHoldIsLaidTightThenLeftOut_B082"
+  ],
+  "note": "B082 step 3: a short region leaves the wrap record out where it would fit tight",
+  "from": "B082"
+ },
+ {
+  "id": "B082-wrap-ladder-none",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "                wrapPic != null -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, null, wrapFit + 1)\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*MainBindTest.aWrapRecordTheRegionCannotHoldIsLaidTightThenLeftOut_B082"
+  ],
+  "expect": [
+   "aWrapRecordTheRegionCannotHoldIsLaidTightThenLeftOut_B082"
+  ],
+  "note": "B082 step 3: a region that cannot hold the wrap record refuses the staging (288 at 160 KiB with the desktop's font)",
+  "from": "B082"
+ },
+ {
+  "id": "B082-tools-why-not-carried",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "        val why = if (keyframe || needsReseed) wholeWhy else null\n",
+    "        val why: String? = null\n"
+   ]
+  ],
+  "tests": [
+   "*CompositorEndsTest.aKeyframesFlushCarriesTheCauseItWasAskedFor_B082"
+  ],
+  "expect": [
+   "aKeyframesFlushCarriesTheCauseItWasAskedFor_B082"
+  ],
+  "note": "B082 tools: a keyframe's flush carries no cause",
+  "from": "B082"
+ },
+ {
+  "id": "B082-tools-last-cause-wins",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "    fun requestKeyframe(why: String) {\n        if (!needsKeyframe && !needsReseed) wholeWhy = why",
+    "    fun requestKeyframe(why: String) {\n        wholeWhy = why"
+   ]
+  ],
+  "tests": [
+   "*CompositorEndsTest.aKeyframesFlushCarriesTheCauseItWasAskedFor_B082"
+  ],
+  "expect": [
+   "aKeyframesFlushCarriesTheCauseItWasAskedFor_B082"
+  ],
+  "note": "B082 tools: a later ask while one is owed overwrites the first cause",
+  "from": "B082"
+ },
+ {
+  "id": "BI-2a-no-quiet",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            if (mainMotionMayDraw() || now < quietAt) { periodRecheck(maxOf(quietAt, now + 250) - now); return }",
+    "            if (mainMotionMayDraw()) { periodRecheck(maxOf(quietAt, now + 250) - now); return }"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.thePeriodFollowsTheMeasuredSteps_BF"
+  ],
+  "expect": [
+   "thePeriodFollowsTheMeasuredSteps_BF"
+  ],
+  "note": "his look at 0.81 (2a): a lowering while the notches keep coming",
+  "from": "B082"
+ },
+ {
+  "id": "BI-2a-min-1",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        const val PERIOD_LOWER_MIN = 4",
+    "        const val PERIOD_LOWER_MIN = 1"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.thePeriodFollowsTheMeasuredSteps_BF"
+  ],
+  "expect": [
+   "thePeriodFollowsTheMeasuredSteps_BF"
+  ],
+  "note": "his look at 0.81 (2a): a lowering by fewer than 4 ticks",
+  "from": "B082"
+ },
+ {
+  "id": "BI-save-in-burst",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "if (mainBindBurstOpen() || mainMotionMayDraw()) scheduleSave() else saveAll()",
+    "saveAll()"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.thePeriodFollowsTheMeasuredSteps_BF"
+  ],
+  "expect": [
+   "(declared, no pin: the save's cost is loop time inside a burst; nothing the model draws changes, only the phone's loop notes show it)"
+  ],
+  "note": "his look at 0.81: a save inside a burst",
+  "from": "B082"
  }
 ]
