@@ -31,8 +31,9 @@ class LocalSkewRigTest {
 
     /** One burst: [NOTCHES] notches down, [gap] ms apart, from row 0 of 12 rows ([wrap] false) or across the end of 8 rows
      *  (from row 5: the third notch is the edge, Main's wrap). */
-    private fun burst(seed: Long, rule: Int, leftLate: Boolean, skewMax: Int, gap: Int, wrap: Boolean, into: Result) {
+    private fun burst(seed: Long, rule: Int, leftLate: Boolean, skewMax: Int, gap: Int, wrap: Boolean, into: Result, trace: Boolean = false) {
         val h = LocalHarness(seed, Taps.REPORT, n0 = if (wrap) 8 else 12, tScroll = 6, period = 46)
+        if (trace) h.trace = { println("rule $rule $it") }
         h.rules.holdStock = rule >= 1
         if (wrap) { repeat(5) { h.gesture(1, answer = true, band = "none"); h.runUntil(h.now + 600) }; h.rest() }
         h.stockFirst = 27.0 / 332; h.stockLeadMax = 60
@@ -46,6 +47,7 @@ class LocalSkewRigTest {
             val s = classify()
             val dt = h.now - since
             if (state == STEP) into.msStep += dt else if (state == ROW) into.msRow += dt
+            if (s != state) h.trace?.invoke("[${h.now}] panels ${listOf("agree", "a step apart", "a row apart")[s]} (L ${h.shownOn(Arm.LEFT)} R ${h.shownOn(Arm.RIGHT)}) after ${h.what}")
             if (s != 0 && stretchFrom < 0) stretchFrom = h.now
             if (s == 0 && stretchFrom >= 0) {
                 into.longest = maxOf(into.longest, h.now - stretchFrom); into.stretches++
@@ -63,6 +65,21 @@ class LocalSkewRigTest {
         if (stretchFrom >= 0) { into.longest = maxOf(into.longest, h.now - stretchFrom); into.endedBy.merge("(still differing at rest)", 1, Int::plus) }
         into.bursts++
         if (h.truthMismatches().isNotEmpty()) into.notAtRest++
+    }
+
+    /** For reading a cell (`SKEW_RIG_CELL=wrap|mid,LEFT|RIGHT,<gap>`): each seed's numbers under both rule sets, and with
+     *  `SKEW_RIG_TRACE=<seed>` that seed's whole record. Passes when the variable is unset. */
+    @Test
+    fun oneCellPerSeed() {
+        val cell = System.getenv("SKEW_RIG_CELL")?.split(',') ?: return
+        val wrap = cell[0] == "wrap"; val leftLate = cell[1] == "LEFT"; val gap = cell[2].toInt()
+        val base = 9_000_000L + (if (wrap) 100_000 else 0) + gap * 1_000L + (if (leftLate) 0 else 500) + 80
+        val trace = System.getenv("SKEW_RIG_TRACE")?.toLong()
+        for (i in 0 until SEEDS) for (rule in listOf(0, 1)) {
+            val r = Result()
+            burst(base + i, rule, leftLate, 80, gap, wrap, r, trace == base + i)
+            println("cell seed ${base + i} rule $rule: step ${r.msStep} row ${r.msRow} longest ${r.longest} ended ${r.endedBy}")
+        }
     }
 
     @Test

@@ -1533,7 +1533,8 @@ class MainLocalShellTest {
 
     /** B082 (the split on 0.81): a re-stage that comes due while the wrap's held wait still runs — past the burst's lone
      *  SETTLE by the wrap's start allowance — sends its first piece only once that wait has ended: a cache write meeting
-     *  a drawing instance's read range closes it (§5.6). */
+     *  a drawing instance's read range closes it (§5.6). B083 (2c): the wait ends at the wrap's last-step report when that
+     *  comes first, so the pin reads the lens itself — the piece reaches RIGHT with the wrap's instance no longer drawing. */
     @Test
     fun aRestageWaitsForTheWrapsMotionNotJustItsBurst_B082(): Unit = runBlocking {
         val r = Rig(Taps.REPORT, kib256 = true)
@@ -1548,7 +1549,10 @@ class MainLocalShellTest {
             }
             val at = r.right.size
             var pieceAt = 0L
-            r.onAnyImage = { a, img -> if (a == Arm.RIGHT && pieceAt == 0L && r.cacheWrite(img) && firstOff(img) >= regionStart) pieceAt = System.currentTimeMillis() }
+            var wrapDrawing: String? = null
+            r.onAnyImage = { a, img -> if (a == Arm.RIGHT && pieceAt == 0L && r.cacheWrite(img) && firstOff(img) >= regionStart) {
+                pieceAt = System.currentTimeMillis()
+                r.sim.motionForTest(Arm.RIGHT).slots[MainStaging.WRAP_SLOT]?.takeIf { it.drawing && it.d < it.T }?.let { wrapDrawing = "step ${it.d} of ${it.T}" } } }
             r.fire(CfwModes.EV_UPROLL)                                       // the wrap
             r.until("the wrap's PLAY on RIGHT") { wrapBatch(r, at) != null }
             val until = r.onLoop { r.shell.comp.deferUntilMs }
@@ -1556,7 +1560,7 @@ class MainLocalShellTest {
             r.shell.services.requestRender(r.rows[3])
             r.until("the re-stage's first piece", 15_000) { pieceAt != 0L }
             r.onAnyImage = null
-            assertTrue(pieceAt >= until, "the first piece went ${until - pieceAt} ms before the wrap's wait ended")
+            assertTrue(wrapDrawing == null, "the first piece reached RIGHT while the wrap drew (${wrapDrawing}), ${until - pieceAt} ms before its allowance ended")
             delay(r.q() + 300); r.settle("after")
             r.assertOracle("after the wrap and the re-stage")
         } finally { r.close() }
