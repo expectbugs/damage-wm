@@ -41,8 +41,10 @@ import wm.damage.core.wire.EvenHubMsg
  * the glasses are the firmware model behind [SimTransport], its engine woken every 4 ms, on a bit-11 build (DamageCaps
  * 0xdff) at the ladder's stage 4 or 5.
  *
- * The first pin is taken on the tree as it came from APK 0.82, before any of DP2 was built: without stage 5 a Select, a
- * Back and the silent clock's enter and exit write exactly 0.82's bytes.
+ * The first pin is taken on the tree below stage 5 as it stands without any C3 code: without stage 5 a Select, a Back and
+ * the silent clock's enter and exit write exactly the bytes of `wip/083-int` at 495dbc9e (APK 0.82 with 0.83's
+ * integration: K1-1's scroll framework and the Files relist; C3 DM-T stage 0 recorded it there, 0.82's own recording
+ * having been DP2's).
  */
 class TransitionShellTest {
 
@@ -174,7 +176,8 @@ class TransitionShellTest {
 
     /**
      * The images as the pin compares them, measured on the recordings of the tree as it came from 0.82 (five runs: the
-     * same drawing bytes every time, two readings that are not the act's varying): each image a lens took as its
+     * same drawing bytes every time, two readings that are not the act's varying; `wip/083-int`'s four runs, DM-T: the
+     * same under this form, the link cell's "K/s" text varying): each image a lens took as its
      * sub-messages (a lone image is one), less (1) an image holding only mode-26/27 messages — the rules' answers
      * (COMMIT, DISCARD, SETTLE) and tables (SET, CLEAR, LIST), a table repair's re-send to RIGHT — whose moment follows
      * the telemetry reads (in two runs of five one of them fell inside the recording); a lone CLOSE, PLAY or PLAY-AFTER
@@ -215,12 +218,15 @@ class TransitionShellTest {
 
     /**
      * DP2 item 4: without stage 5 — a bit-11 build at stage 4 — a Select, a Back and the silent clock's enter and exit
-     * write exactly APK 0.82's bytes (the file written by this test's first run, on the tree as it came from 0.82 before
-     * DP2's code, and the same again on a second run); no mode-26 sub 8 and no version-2 record among them — read raw in
-     * every image, inside every cache write too (X2P2 item 5).
+     * write exactly the bytes of the tree below stage 5 without C3: `wip/083-int` at 495dbc9e (C3 DM-T stage 0: the file
+     * is that tree's recording, made by this rig — Row, Rig and [fourActs] copied verbatim — in a scratch copy holding
+     * none of the C3 branch's code, four runs agreeing under [normal]; against 0.82's recording, which this one replaced,
+     * the only difference is K1-1's program layout: the two scroll entries' SETs name the pans 56 B higher, `0x6b81` →
+     * `0x6b8f` and `0x6bb1` → `0x6bbf`, in the two frames that bind Main's list); no mode-26 sub 8 and no version-2 record
+     * among them — read raw in every image, inside every cache write too (X2P2 item 5).
      */
     @Test
-    fun withoutStage5TheFourActsWrite082sBytes_DP2(): Unit = runBlocking {
+    fun withoutStage5TheFourActsWriteTheBytesOf083int_DP2(): Unit = runBlocking {
         val r = Rig(stage = 4)
         try {
             r.up()
@@ -241,7 +247,7 @@ class TransitionShellTest {
                     assertTrue(ss.all { (it[0].toInt() and 0x7F) == 27 || (it[1].toInt() and 0xFF) in 3..5 }, "an image the comparison leaves out holds more than the rules' answers and tables: $line")
             }
             assertTrue(writes > 0, "the recording holds cache writes (the check above read some)")
-            assertWire("acts-0xdff-stage4.txt", got, "0xdff stage 4")
+            assertWire("acts-0xdff-stage4-083int.txt", got, "0xdff stage 4")
             // and the shell did not so much as plan one (no program built, no note): the act is today's cut
             assertTrue(r.notes("transition").isEmpty(), "no transition below stage 5: ${r.notes("transition")}")
         } finally { r.close() }

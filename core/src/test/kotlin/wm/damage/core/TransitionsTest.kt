@@ -269,10 +269,12 @@ class TransitionsTest {
         var st = wm.damage.core.shell.ShellSettings()
         fun w(effects: Boolean) = wm.damage.core.shell.SettingsWindow(FakeText(), { st }, { st = it }, bindBuild = { true },
             motionHint = { "10 frames × 45 ms" }, effectsInForce = { effects })
-        assertEquals(listOf("Scroll length", "Frames"), w(false).rowsForTest("Animations").map { it.first }, "no stage 5: the scroll rows only")
+        // K1-1's Scroll tier rows (`private/build083/K1-1-built.md`: `Scroll effect`, `Scroll length`, `Scroll frames`)
+        val scrollRows = listOf("Scroll effect", "Scroll length", "Scroll frames")
+        assertEquals(scrollRows, w(false).rowsForTest("Animations").map { it.first }, "no stage 5: the scroll rows only")
         val rows = w(true).rowsForTest("Animations")
-        assertEquals(listOf("Scroll length", "Frames"), rows.take(2).map { it.first }, "the tier rows after the scroll rows")
-        val names = rows.drop(2).map { it.first }
+        assertEquals(scrollRows, rows.take(3).map { it.first }, "the tier rows after the scroll rows")
+        val names = rows.drop(3).map { it.first }
         assertEquals(listOf("Select length", "Select frames", "Select · Depth", "Select · Warp", "Select · Flip", "Select · Fall", "Select · Glitch", "Select · Explode",
             "Back length", "Back frames", "Back · Depth", "Back · Warp", "Back · Flip", "Back · Fall", "Back · Glitch", "Back · Explode",
             "Lock length", "Lock frames", "Lock · Fade", "Lock · Build", "Lock · Glitch", "Lock · Explode"), names)
