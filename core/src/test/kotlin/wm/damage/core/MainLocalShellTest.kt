@@ -1253,4 +1253,38 @@ class MainLocalShellTest {
             assertEquals(0, r.t.state.value.bindSHeard0, "the seed is not used under the spare")
         } finally { r.close() }
     }
+    /** Build SPLIT on 0.80 (decisions AZ.4 beside AQ): a wrap whose edge report comes as a 256 KiB re-stage's first piece
+     *  (a row form changed: the other strip slot is being written) draws the strip the bound entries name — whole — not
+     *  the one in pieces: the re-stage is booked only after its pieces, and its later pieces wait for the wrap's burst.
+     *  At rest the re-stage is booked and belief equals both lenses. */
+    @Test
+    fun aWrapBetweenARestagesPiecesDrawsTheWholeStrip_SPLIT2(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, kib256 = true)
+        try {
+            r.up()
+            walkTo(r, r.list().count - 1)
+            val oldProg = assertNotNull(r.list().entryFor(CfwModes.EV_UPROLL)).prog4
+            val regionStart = CfwModes.mainRegion(256 * 1024, true).first
+            fun firstOff(img: ByteArray): Int = when (img[0].toInt() and 0x7F) {
+                19 -> r.u16(img, 1) * 4
+                25 -> java.util.zip.Inflater().run { setInput(img, 1, img.size - 1); val out = ByteArray(4); inflate(out); end(); r.u16(out, 0) * 4 }
+                else -> -1
+            }
+            val at = r.right.size
+            var fired = false
+            r.onAnyImage = { a, img -> if (a == Arm.RIGHT && !fired && r.cacheWrite(img) && firstOff(img) >= regionStart) { fired = true; r.fire(CfwModes.EV_UPROLL) } }
+            r.rows[3].s = r.rows[3].s.copy(line = "summary 33")
+            r.shell.services.requestRender(r.rows[3])
+            r.until("the wrap fired as the re-stage's first piece went out", 15_000) { fired }
+            r.onAnyImage = null
+            r.until("the wrap's PLAY on RIGHT") { wrapBatch(r, at) != null }
+            val play = wrapBatch(r, at)!!.first { isWrapPlay(it) }
+            assertEquals(oldProg, r.u16(play, 4), "the wrap draws the strip the bound entries name, not the one in pieces")
+            r.until("the re-stage booked", 15_000) { r.notes("mainstage").any { it.startsWith("row 3 re-staged") } }
+            delay(r.q() + 200); r.settle("after")
+            assertEquals(0, r.row(), "the wrap landed on the first row")
+            assertTrue(r.notes("divergence").isEmpty(), "${r.notes("divergence")}")
+            r.assertOracle("after the wrap and the re-stage")
+        } finally { r.close() }
+    }
 }
