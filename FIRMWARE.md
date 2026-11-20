@@ -703,7 +703,8 @@ on both lenses (the meeting's row 11).
   notify still in flight then is journaled as a gap and again when it arrives: row 48).
 - **Telemetry:** `30` open slots (bits 0–3), drawing (4–7), the engine thread exists (8) · `31` the last notify-114
   sequence · `32` engine frames since boot (the thread's successful puts, A.11) · `33` steps folded since boot (steps
-  passed over + failed gate tries + failed puts + lost claims, A.11; a fold rhythm near 2 s would point at the stock
+  passed over + failed gate tries + failed puts + lost claims, A.11; *C3: `present_shadow`'s claim is made, and so
+  counted, only while a slot owns, §7.3*; a fold rhythm near 2 s would point at the stock
   panel status check — type 6, every 2,000 ticks while the panel is on, V `0x00473B40` — whose duration is U: expected,
   not shown; the rhythm is read on the glasses after the flash. It also counts folds that are not real ones (R2 A-N5):
   a PLAY sets the engine flag before its own present is queued — mid-batch in a batch — and a time slice that hands the
@@ -1820,8 +1821,9 @@ site**; contract version stays 2.
 
 ### 7.2 Program records version 2, and where each program may run
 
-**Header** (8 B): `version u8 = 2 · tracks u8 (1..8) · length u16 · flags u8 · 0 u8 · 0 u16`. Flags: bit 0 **OWN**
-(§7.3), bit 1 **LAND** (needs OWN), bits 2–7 zero. **Track:** as §5.4. **Segment** (40 B): §5.4's 32 B, then `w0 u16 ·
+**Header** (8 B): `version u8 = 2 · tracks u8 (1..8) · length u16 · flags u8 · 0 u8 · 0 u16`; the reserved byte (offset
+5) and u16 (offsets 6–7) must be 0, else 5, as a track header's reserved byte. Flags: bit 0 **OWN** (§7.3), bit 1
+**LAND** (needs OWN), bits 2–7 zero. **Track:** as §5.4. **Segment** (40 B): §5.4's 32 B, then `w0 u16 ·
 w1 u16 · aux0 u16 · aux1 u16`. A version-2 record is **malformed (5) unless EFFECTS (flag bit 6) is armed**; a
 message or a fire reads EFFECTS once, at its first use, and every later test in it uses that value. A version-1 record
 keeps §5.4's and §6.6's enumerations and rules exactly.
@@ -1835,7 +1837,10 @@ track area of the live shadow) · 0xFF none; any other: 5. `pref` field codes: �
 aux0 · 17 aux1** (u16 fields take the whole value); above 17: 5.
 
 **Which fields each verb uses** (a field not listed for verbs 4–6, and w0, w1, aux0, aux1 for every verb that does
-not list them, must be 0, else 5; for verbs 0–3, §5.4's "a field a verb does not use is ignored" stands):
+not list them, must be 0, else 5; for verbs 0–3, §5.4's "a field a verb does not use is ignored" stands). **These
+rules are decided on the segment after substitution:** a pref that writes a parameter into such a field (pref 14–17 on
+any verb, any code on verbs 4–6) is 5 at a PLAY, PLAY-AFTER, RETARGET, fire or COMMIT whose parameter there is not 0;
+a SET, which has no parameters, decides with every parameter 0.
 
 | verb | uses (besides verb, steps, ease, table, pref0, pref1) | opt bits allowed |
 |---|---|---|
@@ -1888,8 +1893,11 @@ the differential fuzz `--c3` generates only programs that keep it.
 
 **The none-backdrop rule for a version-2 record** (replaces §5.5's at its position, 2). A track *paints its whole area*
 when its backdrop is a level, `self` or `new`, or it is in place. A track whose backdrop is none and which does not paint
-its whole area must lie (both rects) inside an earlier track's area that does — except a REVEAL in an OWN program with a
-non-decreasing ease, whose uncovered part is the panel's picture the instance keeps. Otherwise 2.
+its whole area must lie (both rects) inside an earlier track's area that does — except, in an OWN program, **a track
+whose segments are WAITs and exactly one REVEAL, whose ease never falls** (ease 0 or 1, or a table whose E[0..n] never
+falls): its uncovered part is the panel's picture the instance keeps. Otherwise 2. (Two REVEAL segments in one such
+track are not excepted: the second's uncovered part would be the first's result, which a fold past the first's last
+step never drew — the lens would show what its fold pattern left.)
 
 **END** (§5.4): an OWN program writes no END (§7.3). A bound program has no in-place track, so its END is §5.4's: every
 track's state at step T painted in track order, a GLYPHS track's included.
@@ -1922,16 +1930,24 @@ walk (5) and values (12) positions, the step budget after their values.
   The mark is cleared by LAND (below), by every close or emptying of the instance (CLOSE, a close pass, a PLAY into its
   slot, a live keyframe, a cache write that meets its read ranges, PLAY-AFTER's deferred empty), on the stock path
   (§5.3: every instance turns done and owns nothing), at mode 11 and at every release point (the settlement).
-- **Meeting.** An owning instance meets another when the other's areas meet its owned rect; **two owning instances
-  meet when their owned rects intersect**. A PLAY's close pass, a COMMIT's close pass, close-on-meet and the fire's close
-  set use the owned rect for it (§5.5's "meets" otherwise).
-- **The held present.** `present_shadow` (the image worker, holding the gate) claims the engine word, reads each slot's
-  owns mark once and records the owned rect of every slot that owns — drawing, waiting or done — lets the word down,
-  then queues the present with the rects (they ride the job as the hint does). A claim that fails records no rect and
-  the copy is whole (by §5.11 the ui_task's claim does not fail; it is counted in field 33 if it does). **The copy
-  hook's direct path copies the shadow into the framebuffer except inside the job's rects**, read once. So a phone frame
-  that lands while an instance owns is written into the shadow and shown everywhere but its owned rect. Nothing new is
-  sent for it.
+- **Meeting: one box over both lenses.** An owning instance's **meeting box** is the bounding box of all its tracks'
+  pairs: for each track, the columns from the lesser of its two rects' left edges to the greater of their right edges,
+  over its one row range (a pair is one size and one row range, §5.5) — equally, the bounding box of its two owned
+  rects; a track with one rect counts it for both lenses. An owning instance meets another when its meeting box
+  intersects the bounding box of any track's pair of the other (§5.5's form); **two owning instances meet when their
+  meeting boxes intersect**. Every meeting decision uses the box — a PLAY's and a PLAY-AFTER's close pass, a COMMIT's
+  close pass, close-on-meet's area test, and the fire's close set (and so its 19) — so both lenses decide alike, and a box never
+  closes less than either lens's own rect would. **The held copy and LAND use each lens's own owned rect** (below).
+- **The held present.** `present_shadow` (the image worker, holding the gate) first reads each slot's owns mark once
+  without the engine word. **When no slot owns** it claims nothing and queues the present exactly as C2 does (no rects;
+  the copy is `copy_panel`'s) — that read is exact, because owners are made only by PLAY and PLAY-AFTER, on the task
+  that runs `present_shadow`. **When a slot owns** it claims the engine word, reads each slot's owns mark and this
+  lens's owned rect once under it and records the rect of every slot that owns — drawing, waiting or done — lets the
+  word down, then queues the present with the rects (they ride the job as the hint does). A claim that fails records no
+  rect and the copy is whole; **field 33 counts only such claims** — made while a slot owns (§5.8; by §5.11 the
+  ui_task's claim does not fail). **The copy hook's direct path copies the shadow into the framebuffer except inside
+  the job's rects**, read once. So a phone frame that lands while an instance owns is written into the shadow and shown
+  everywhere but its owned rect. Nothing new is sent for it.
 - **Steps.** An owning instance draws a step only when k > d, on every path (its owned rect still holds step d). A
   present on the direct path that draws no step may carry its mode-24 hint as §4 allows (the owned rect's rows show what
   the panel already shows).
@@ -1939,7 +1955,7 @@ walk (5) and values (12) positions, the step budget after their values.
   and, in field 8, RIGHT's CRC-32 of the shadow over the instance's areas (§5.6's form) taken right after the message's
   closes.
 - **Step T.** The last step's notify is owed as for any instance (outcome 0). **With LAND** the hook copies the shadow
-  into the owned rect in place of painting step T's tracks, clears the owns mark, and the instance is done; the present
+  into this lens's owned rect in place of painting step T's tracks, clears the owns mark, and the instance is done; the present
   that drew it goes whole and marks the panel stale (A.12). (A type-6 recovery redraw that lands on step T copies the
   shadow as it then is — possibly while the worker writes it — and nothing presents again until the phone does.)
   **Without LAND** the instance is done and keeps owning: the plan skips it, no path redraws it, its owned rect keeps
@@ -1951,6 +1967,23 @@ walk (5) and values (12) positions, the step budget after their values.
 - **The fire.** A fire whose close set holds an owning instance is refused **19**, nothing closed (§6.2 step 11, tested
   before 17's test; a report-only fire closes nothing and is not tested). A COMMIT's close pass closes an owning
   instance as any other.
+- **The shadow an owner reads is always the live one.** At every present, direct or preserve, the copy hook reads the
+  shadow — `new`, LAND's copy, rain's reveal 1 — through the pointer published with that present's job while its
+  publisher holds the gate: `present_shadow`'s, or the engine refresh's (which holds the gate from its try to the give
+  after the hook and publishes the live pointer with its job as `present_shadow` does). No pointer kept from an earlier
+  present is read through. **A rebuild of the container — stock freeing or replacing buffer A — ends every owning
+  instance:** ownership ends, the panel's stale mark is set, and each sends the 114 body a close gives (outcome 1 if it
+  was drawing; a done owner sends none). A lens sees the rebuild as the live pointer differing, under the gate, from the
+  one the last present used (kept for that comparison only, never read through), unless `C3-F2-facts.md` names a stock
+  signal for it, which §7.1 then cites; a rebuild that hands back the same block is read safely, and the warmup keyframe
+  (a live mode 6) the phone sends after a container start closes every instance (§5.8, R1.17). **The model's form:** §9's format
+  has no op for a container rebuild (its ops are `tick`, `lease`, `msg`, `wake`, `stock`, `input` and `page`), so no vector
+  carries one.
+  The fork's host pin covers it: the shim replaces buffer A (a new block, the old one overwritten with a marker) between
+  two presents while an owner draws, once on the direct path and once on the preserve path; the next present ends the
+  owner as above and reads no byte of the old block. The simulator: `GlassFirmwareSim`'s EvenHub CREATE handling, and
+  REBUILD's (acked unmodeled today), end every owning instance on both lenses as a close does; its shadow is one array a
+  CREATE does not replace, so nothing there reads a freed buffer.
 - **The source `new`** (DRAW, REVEAL, PIECES kind 4) and **the backdrop `new`**: this lens's track area of the live
   shadow, read by the copy hook under the engine word at every step it draws, as a source of the area's width and
   height whose pixel (c, r) is the shadow's pixel (l + c, t + r) of this lens's rect. A DRAW of `new` at rest (x, y = the
@@ -2111,7 +2144,7 @@ instance, owning; sets the engine's flag; the message's present).
   from t0 as for any instance, so a late start folds. A recorded instance the phone closed in between is not there to
   empty.
 - **A close of a waiting instance** (one that has drawn nothing) is a close of a drawing instance: outcome 1.
-- Telemetry 40 bits 4–7 show the slots opened by a PLAY-AFTER that have drawn nothing yet (d = 0).
+- Telemetry 40 bits 4–7 show the slots in state drawing, opened by a PLAY-AFTER, with d = 0 (§7.9).
 
 ### 7.8 The ring list and the cursor parameter
 
@@ -2142,7 +2175,8 @@ instance, owning; sets the engine's flag; the message's present).
 - **DamageCaps bit 11:** version-2 records, OWN and LAND, PIECES, SHRINK, GLYPHS, `new`, the two-axis DRAW, the source
   window, the step budget, the fast DRAW path, PLAY-AFTER,
   LIST-RING, kind 3, refusal 19, field 18 of the 115, telemetry 40, the plan's late step (§7.10). Features `0xdff`.
-- **Telemetry 40:** bits 0–3 the slots that own, bits 4–7 the slots opened by a PLAY-AFTER that have drawn nothing (d = 0); computed at each read
+- **Telemetry 40:** bits 0–3 the slots that own, bits 4–7 the slots in state drawing, opened by a PLAY-AFTER, with
+  d = 0 (a closed or emptied slot never shows); computed at each read
   without the word (a torn read costs one wrong bit); always sent on a bit-11 build; the record's compile-time bound
   grows by one two-byte-tag field.
 - **Reason 19:** a fire whose close set holds an owning instance (§7.3).
@@ -2349,12 +2383,14 @@ verbs, and gains the job's owned rects. **The v5 set** (`"features"` a list with
 `K`; inputs from `make_vectors.py`, expectations from the C, the simulator equal): `v5-own` (a phone frame shown outside
 the owned rect and held inside it; LAND; done-and-owning; CLOSE, a close pass, a keyframe, mode 11, a release point,
 `stock`, a cache write (taking effect at the next present) each ending the mark; a new out half closing an earlier
-owner and holding the area; meeting by the owned rect, two owners by their owned rects; a fire refused 19 with fields 10–14; OWN at a SET, a fire and a
+owner and holding the area; meeting by the meeting box — a per-lens owner (xL ≠ xR) and a PLAY meeting only one
+lens's owned rect, closed on both; a fire meeting one lens's only, 19 on both — two owners by their boxes; a fire refused 19 with fields 10–14; OWN at a SET, a fire and a
 COMMIT 5; RETARGET 12; the END CRC; the hint with an owner open) · `v5-after` (t0 from a drawing out half; a done owner
 recorded and emptied; a late out half (`W` one P ahead after t0); its step T and the in half's step 1 in separate
 presents whatever the slots; a slot played over in between; a close of a waiting instance; an in-place in half (rain,
 reveal 1) starting from the out half's last pose) · `v5-new` (DRAW and REVEAL
-of `new`, the backdrop `new`, per lens, `new` outside OWN 5) · `v5-pieces-old` (uniform per-lens dx with the vacate
+of `new`, the backdrop `new`, per lens, `new` outside OWN 5; the REVEAL exception — a REVEAL between WAITs over
+backdrop none accepted, two REVEAL segments in one such track 2) · `v5-pieces-old` (uniform per-lens dx with the vacate
 level; radial 4×3 and 8×6 tiles outward; random slices (gw 1); odd and even Δ; G with the vacate not dimmed; a fold and
 its `"pair"`; a later track over a moving in-place track 12; a dim with cells over it; PIECES kind 0 in a bound program 5
 at SET, fire and COMMIT) · `v5-pieces-new` (tiles with f0 4096 → f1 0, stagger 3 with its table at n − 3, stagger ≥ steps
@@ -2375,13 +2411,15 @@ the cap refused 12 with the instance unchanged; A'1's cells, whose 32-bit sum wr
 different sizes judged by the larger on both lenses; codes 0 and 32 not counted; a source window's L; a version-1
 instance counted and never refused) · `v5-order` (a refusal per reason
 in §7.2's order; a version-2 record without EFFECTS 5; each unused field 5; a FILL level 16 12; an eased level past 15
-12; a seed of 5,000 accepted; EFFECTS cleared mid-motion: the open instance draws on to step T, the next version-2
+12; a seed of 5,000 accepted; the header's reserved byte and u16 5; a pref 15 into a FILL's w1 — taken at a SET,
+5 at a fire and a PLAY whose parameter is not 0, taken at a PLAY whose parameter is 0; EFFECTS cleared mid-motion: the open instance draws on to step T, the next version-2
 PLAY refused 5). **The fast path's own proof:** the fork's runner runs every v3, v4 and v5 engine vector
 twice — the fast path forced on, then off, by a host door over the walk's choice — and both must equal the filled expectation; and the host differential test
 above. **Build-neutral:** every v1–v4 vector answers alike on a bit-11 build (27/3, 26/6 and 26/7 stay unknown subs; a
 version-2 record and kind 3 are refused as before while EFFECTS is clear); Damage's tooling adds `0xdff` to every v3 and
 v4 vector's `features` list (`make_vectors.py`), so the fork's runner runs them on the C3 build, and their expectations
-must come back byte-identical. **No self-test form** for v5. **The fold
+must come back byte-identical. **No self-test form** for v5. **No vector carries a container rebuild** (§7.3: the fork's host pin and the simulator's
+CREATE handling cover it). **The fold
 invariant** (both harnesses' own tests and the `"pair"` vectors): for every in-place program of the fuzz — generated to
 keep §7.2's fold condition — two wake schedules that draw different steps between the same two steps end with the same
 `P`. The differential fuzz gains `--c3`.
@@ -2394,9 +2432,10 @@ exactly one period under PLAY-AFTER; the fold rate with the late-step rule (fiel
 
 | new state, wait or guard | (a) cleared at | (b) a write that never lands | (c) keyed on | (d) other tasks, the other lens | (e) one read | (f) siblings checked |
 |---|---|---|---|---|---|---|
-| the owns mark and the owned rect | LAND, every close or emptying, PLAY-AFTER's deferred empty, a keyframe, mode 11, release points (the settlement), the stock path, a restart | a lost in-half PLAY: the out pose holds until the phone's CLOSE (its rule after every in half), a keyframe or a session; with no phone the lease lapses within 87.9 s and the stock path ends it | slot + tag + ordinal; the rect by the tracks' rects per lens | written on the ui_task under the word; read by the worker under the word for the job | once per job | the hint's publication; the three present paths; close-on-meet and the close passes (by the owned rect); the fire's close set (19) |
-| the job's owned rects | consumed with the job | a claim that fails: no rect, a whole copy, counted (33) | the job | written by the worker under the gate and the word, read once by the copy hook; a release point between them skips the copy in a rect once, then its stale mark and the stock repaint follow | once | the mode-24 hint, the direct-shadow pointer |
+| the owns mark, the owned rect (per lens) and the meeting box (both lenses) | LAND, every close or emptying, PLAY-AFTER's deferred empty, a keyframe, mode 11, release points (the settlement), the stock path, a container rebuild, a restart | a lost in-half PLAY: the out pose holds until the phone's CLOSE (its rule after every in half), a keyframe or a session; with no phone the lease lapses within 87.9 s and the stock path ends it | slot + tag + ordinal; the rect by the tracks' rects per lens; the box by both lenses' | written on the ui_task under the word; read by the worker first without the word (exact for "none owns": only that task makes an owner), then under it when one owns | once per job | the hint's publication; the three present paths; close-on-meet and the close passes (by the meeting box); the fire's close set (19, by the box) |
+| the job's owned rects | consumed with the job | a claim that fails (made only while a slot owns): no rect, a whole copy, counted (33) | the job | written by the worker under the gate and the word, read once by the copy hook; a release point between them skips the copy in a rect once, then its stale mark and the stock repaint follow | once | the mode-24 hint, the direct-shadow pointer |
 | LAND's copy | — | a folded step T stays due (C1) and lands at the next drawing present | the instance | display task under the word | once | A.12's stale mark |
+| the live shadow pointer and the last present's pointer (compared, never read through) | the last pointer replaced at every present; mode 11 and release points | a rebuild between presents: the next present ends every owner (a close's body, stale set); the same block handed back: read safely, the keyframe after the container start closes all | the job | published with each job under the gate (`present_shadow`, the engine's refresh); read by the copy hook | once per present | `new`, LAND, rain's reveal 1; the preserve path (no latched pointer) |
 | PLAY-AFTER's t0 and recorded triple | the first drawn step, a close, release points | lost: the out half holds until the phone's CLOSE; the phone's divergence path | (slot, tag, ordinal) | the thread reads t0 and the `after` slot's state without the word (a torn read costs a wake); the hook decides on the states as the present began | once per plan; once per present | the plan's k, the hook's k, PLAY's close pass, the stock path |
 | the in-place base (b = d, OWN only) | with the instance | — | d | display task under the word; each lens moves its own picture | once per present | the overlay (carried along when shown); later tracks (§7.2's fold rule) |
 | G(b → k) | built per present | — | (b, k) and the levels | — | once | DRAW's ramp |
@@ -2723,3 +2762,10 @@ phone's keeper applies the hold-back rule before re-arming.
   walked once (decisions F); a PLAY-AFTER's base is its out half's last pose; the phone's CLOSE after an in half not
   sent over a slot PLAYed again, its stuck-waiter CLOSE and the tag rule; two owners meet by their rects; the stagger
   table still walked at stagger ≥ steps; the window's wording; §5.8's CLOSE-all names EFFECTS. Nothing built.
+- 2026-11-19 — §7 on the fork lane's F0 + F1 report as ruled (`C3-decisions.md` H): **every meeting decided by one box
+  over both lenses' owned rects** (the held copy and LAND stay per lens); `present_shadow` reads the owns marks first and
+  claims the word only when a slot owns, field 33 counting only such claims (§5.8 pointer); **the shadow an owner reads
+  is always the live one, and a container rebuild ends every owning instance** (the model's and the vectors' form named);
+  the version-2 header's reserved bytes 0 (5); the field rules decided after substitution; the none-backdrop rule's
+  REVEAL exception narrowed to exactly one REVEAL between WAITs (the lane's "every non-WAIT segment" accepts two, which a
+  fold makes lens-dependent); telemetry 40 bits 4–7 count drawing slots only. Nothing built here.
