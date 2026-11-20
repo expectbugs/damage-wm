@@ -35,6 +35,9 @@ class LocalSkewRigTest {
         val h = LocalHarness(seed, Taps.REPORT, n0 = if (wrap) 8 else 12, tScroll = 6, period = 46)
         if (trace) h.trace = { println("rule $rule $it") }
         h.rules.holdStock = rule >= 1
+        // the session's start batch lands first (a notch racing it finds RIGHT with no entry: unreported, a start artifact
+        // that 2b holds to the burst's end — seen as LEFT a row ahead for ~0.9 s in every 2b burst before this rest)
+        h.rest()
         if (wrap) { repeat(5) { h.gesture(1, answer = true, band = "none"); h.runUntil(h.now + 600) }; h.rest() }
         h.stockFirst = 27.0 / 332; h.stockLeadMax = 60
         h.skewMax = skewMax; h.leftLate = leftLate
