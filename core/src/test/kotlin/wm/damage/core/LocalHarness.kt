@@ -614,8 +614,11 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
 
     private var lastDown = 0L
     private val lastDownArm = HashMap<Arm, Long>()
+    /** B083-real: added to every phone message's way down (both lenses, in order) — his 0.81 journal puts the wrap's start
+     *  a median 332 ms after the edge report (`C2-decisions.md` BI, measured), where the harness's link takes 25 ms. */
+    var downExtraMs = 0L
     private fun sendDown(image: ByteArray, perArm: Map<Arm, ByteArray?> = emptyMap(), inducedOn: Arm? = null) {
-        val arrive = maxOf(lastDown + 1, now + downLat())
+        val arrive = maxOf(lastDown + 1, now + downLat() + downExtraMs)
         lastDown = arrive
         sent++
         val skew = skewPair()

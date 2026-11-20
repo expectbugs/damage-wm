@@ -760,6 +760,104 @@ class LocalSequenceFuzzTest {
         h.rest()
     })
 
+    // ------------------------------------------------------------------------------------------- B083-real J-cases
+    /** B083-real (`private/build083/B083-real.md`): the shapes his 0.81 session of 11-19 22:57–23:22 shows, run as [seeded]
+     *  runs a case, returning what the invariants say instead of asserting none fail. A J-case that pins a defect asserts
+     *  the defect is seen (its name ends `_showsDefect`), so a correction turns it red and the case is then rewritten to
+     *  assert the cure. Everything here is the harness's model (modeled), not the glass. */
+    private fun observed(taps: Taps, rows: Int, script: (LocalHarness) -> Unit): Pair<LocalHarness, List<String>> {
+        val h = LocalHarness(42, taps)
+        h.fixed = true
+        if (System.getenv("LOCAL_FUZZ_TRACE") != null) h.trace = { println(it) }
+        repeat(rows) { h.gesture(1, answer = true, band = "none"); h.runUntil(h.now + 600) }
+        h.rest()
+        val before = h.moves.keys.toSet()
+        script(h)
+        val failed = ArrayList<String>()
+        atRest(h, failed, HashMap(), seeded = true)
+        scrollLiveness(h, failed)
+        for ((g, n) in h.moves) if (n > 1 && g !in before) failed += "(8) gesture $g moved the row $n times"
+        ringCount(h, failed, "")
+        println("J-case: row ${h.row}, ring ${h.ringRow()}, counts ${h.rules.counts.filterKeys { it in J_KEYS }}, failed ${failed.distinct()}")
+        return h to failed.distinct()
+    }
+    private val J_KEYS = setOf("unreported", "stockHeld", "stockPaired", "stockReleased", "owesAtSettle", "settles", "snapback.lost-report",
+        "snapback.edge", "repair", "commit")
+
+    /** J1 — his 23:17:20.163–21.731 (the run of eight; also 22:57:53.983, 23:16:40.458, 23:17:07.877, 23:17:26.480): RIGHT
+     *  takes a clump of notches back to back (his S694–S701: eight fires inside 39 ticks, four drawn and four edges at the
+     *  list's end) and the rubber band queues their scroll messages, one per band end (§6.1; the harness's band, 200 ms,
+     *  every message queued, none dropped). The queue drains past the burst's lone SETTLE, which clears the owes, so the
+     *  late echoes are applied as unreported (0.82) or held and then applied at Q (0.83): the phone's row runs past the
+     *  ring's count, one row per late echo, and each answer's DISCARD takes both lenses with it. ASSUMED where his journal
+     *  does not say: which reports his eight messages belonged to (their directions match S698–S705), the queue's length
+     *  and its drain rate (his eight came 194–240 ms apart). */
+    @Test fun j1_lateEchoesAfterTheLoneSettle_showsDefect() {
+        val (h, failed) = observed(Taps.REPORT, rows = 3, script = { h ->
+            h.bandDropScroll = 0.0
+            for (d in longArrayOf(10, 9, 7, 8, 1, 2, 2, 0)) { h.gesture(1, answer = true); h.runUntil(h.now + d) }
+            h.rest()
+        })
+        assertTrue((h.rules.counts["unreported"] ?: 0) > 0, "J1: no stock message applied as unreported (the shape did not happen): ${h.rules.counts}")
+        assertTrue(failed.any { it.startsWith("(9)") }, "J1: the row at rest equals the ring's count — the late echoes no longer move it: $failed")
+    }
+
+    /** J2 — his 22:57:53.983 and 23:16:40.458: a clump's last queued echo arrives just after its burst's lone SETTLE, and
+     *  the next notch (a new burst) comes right after it. On 0.82 the echo is unreported (its owe went at the SETTLE) and
+     *  the new notch's own message pays the new owe; on 0.83 the echo is held, the new report pairs it, and the new notch's
+     *  own message is held and applied at Q. Either way the row ends one past the ring's count. ASSUMED: the clump of five
+     *  (his were the reports of the burst before, S537–S541 and S564–S566), the second notch 650 ms after the clump. */
+    @Test fun j2_aLateEchoAcrossTheNextBurstsFirstReport_showsDefect() {
+        val (h, failed) = observed(Taps.REPORT, rows = 0, script = { h ->
+            h.bandDropScroll = 0.0
+            repeat(5) { h.gesture(1, answer = true); h.runUntil(h.now + 6) }
+            h.runUntil(h.now + 650)
+            h.gesture(1, answer = true)
+            h.rest()
+        })
+        assertTrue(failed.any { it.startsWith("(9)") }, "J2: the row at rest equals the ring's count: $failed")
+    }
+
+    /** J3 — his 23:16:36.266–37.126 (and 22:57:51.008–52.251, 23:16:38.446–39.084, 23:17:15.157–15.902): notches past the
+     *  list's end, the first answered at once by the wrap (`ms=3`), the later edges answered 250–345 ms after their reports
+     *  (`ms`), every answer reaching the lenses about 330 ms after it is decided (the wrap's measured start, BI); the next
+     *  drawn notch fires at +705 ms from cursor 0 (his S555, `cursor 1`). With two edges the notch is adopted one row
+     *  behind the ring's count: a notch lost with no snap-back. ASSUMED: the 330 ms is put on the link (where it sits —
+     *  the loop, the radio or RIGHT's lane — is not in his journal; 0.82's transport times say), the later answers'
+     *  decision lag is a 400 ms pump. */
+    @Test fun j3_twoEdgesWhoseLaterDiscardLandsAfterTheNextNotch_showsDefect() {
+        val (h, failed) = observed(Taps.REPORT, rows = 7, script = { h -> edgesThenANotch(h, longArrayOf(0, 7)) })
+        assertTrue(failed.any { it.startsWith("(9)") }, "J3: the row at rest equals the ring's count (the notch was not lost): $failed")
+    }
+
+    /** J3b — J3 with his four edges (0, +18, +35, +212 ms): the notch is a `lost-report` snap-back (the lens jumps from row 1
+     *  to the phone's row 4, as his did) and the row at rest is the ring's: what he sees is the jump, not a lost notch. */
+    @Test fun j3b_fourEdgesThenTheNotchIsASnapBackAndTheCountHolds() {
+        val (h, failed) = observed(Taps.REPORT, rows = 7, script = { h -> edgesThenANotch(h, longArrayOf(0, 18, 35, 212)) })
+        assertTrue((h.rules.counts["snapback.lost-report"] ?: 0) > 0, "J3b: no lost-report answer (the shape did not happen): ${h.rules.counts}")
+        assertTrue(failed.none { it.startsWith("(9)") }, "J3b: $failed")
+    }
+
+    private fun edgesThenANotch(h: LocalHarness, at: LongArray) {
+        h.downExtraMs = 330
+        val t0 = h.now
+        // the first edge is answered at once (its 115 at +28, the pump 3 ms later: the wrap); every later answer is decided
+        // 400 ms after its event (his `ms` of 250–345 for the later edges)
+        var lagged = false
+        fun lag() { if (!lagged) { h.runUntil(t0 + 32); h.pumpDelay = 400; lagged = true } }
+        for (t in at) {
+            if (t >= 32) lag()
+            h.runUntil(t0 + t)
+            h.gesture(1, answer = true, band = "none")
+        }
+        lag()
+        h.runUntil(t0 + 705)
+        h.gesture(1, answer = true, band = "none")
+        h.runUntil(h.now + 5)
+        h.pumpDelay = 3; h.downExtraMs = 0
+        h.rest()
+    }
+
     /** The coordinator's point 2 (DMS's finding): the transport's CLOSE rule reads only its mirror's instances, and a local
      *  instance never enters the mirror — the mirror applies the phone's bytes and no input (a COMMIT there opens nothing),
      *  and P9 sends no PLAY into a bound slot. So a cached draw outside a local's areas can never close it. */
