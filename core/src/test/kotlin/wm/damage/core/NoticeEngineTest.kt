@@ -166,11 +166,28 @@ class NoticeEngineTest {
             r.settle("a notice over the page")
             assertFalse(r.snap("over the page").engine, "with page staging in front the timer is the phone's steps")
             r.assertStripsIntact("the notice over the page")
+            // the one red (see the report): the notice's faces going live in the atlas make Page staging drop its strips and
+            // stage them again (`atlasLive`, §66 — the atlas's own rule, not the slice). The back to Main waits for that
+            // re-stage to end, ONE evaluation deciding: the strips counted again and no cache work on its way or unjudged
+            waitUntil(30_000, 10, { "the strips were not staged again: ${r.strips().map { it.third }}" }) { r.strips().count { it.third == "PROVEN" } >= strips }
+            r.calmCache("the strips staged again")
+            assertTrue(r.sample("the strips again") { r.strips().count { it.third == "PROVEN" } >= strips }, "the strips staged again, read on the loop")
             r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)        // the box unfocused: the doc's back, to Main
             r.settle("back")
             r.calmCache("idle on Main")                              // the programs' writes and their reading, if any, are over
             r.assertStripsIntact("back on Main, idle")
-            assertTrue(r.strips().count { it.third == "PROVEN" } >= strips, "the strips are still in the ring: ${r.strips().map { it.third }}")
+            val ring = r.sample("the ring") { r.strips().map { "${it.first}+${it.second.size}:${it.third}" } }
+            if (ring.count { it.endsWith("PROVEN") } < strips) {
+                // the diagnostic of the one red (the coordinator's ask): the ring, the cache work, and the journal's stage,
+                // count and notice notes from the doc's opening on — which strip, counted or not, what was sent and acked
+                val notes = r.journalNotes("stage", "atlas", "notice", "submit-STAGE", "done")
+                println("NoticeEngineTest DIAG step $step: ring $ring; ${r.shell.quiescenceReport()}; work ${r.shell.cacheWorkInFlight} unjudged ${r.shell.cacheCountUnjudged}\n" +
+                    notes.joinToString("\n"))
+            }
+            assertTrue(ring.count { it.endsWith("PROVEN") } >= strips, "the strips are still in the ring: $ring")
+            // and nothing but the atlas's own rule dropped a strip: no drop for the notice's slice or anything else
+            val drops = r.journalNotes("stage").mapNotNull { Regex("\"detail\":\"(dropped [^\"]*)").find(it)?.groupValues?.get(1) }
+            assertTrue(drops.all { "the live font set changed" in it }, "a strip dropped for another reason: $drops")
             // and the other way round: the notice holds no program a strip has written over — while the strips are in the
             // slice its programs are not counted there, and a notice on Main takes the phone's steps (no PLAY of them)
             val progs = r.sample("the programs") { r.shell.noticeProgramsForTest() }
@@ -386,7 +403,9 @@ class NoticeEngineTest {
             StartRig(sim, scope, c1StageFile = tmp.resolve("c1-stage").also { f -> Files.writeString(f, wm.damage.core.transport.LadderRecord(stage = 4, sessionKib = 256).encode()) })
             else SimTransport(sim, scope, SimTransport.Timing(instant = true)).also { it.devProbe("c1", stage) }
         val flaky = Flaky(transport)
-        val shell = Shell(wm.damage.core.comp.CachedText(FakeText()), flaky, store, null, scope) { Shell.LocalClock(12, 0, "12:00", "PM") }
+        /** The shell's journal (a diagnostic of the test: the stage lane's and the count's notes for a failure's message). */
+        val journal: java.nio.file.Path = tmp.resolve("journal.jsonl")
+        val shell = Shell(wm.damage.core.comp.CachedText(FakeText()), flaky, store, journal, scope) { Shell.LocalClock(12, 0, "12:00", "PM") }
         val flushes = AtomicInteger(0)
         private val failures = ArrayList<String>()
         /** The transport's notes (kind, detail): RIGHT's motion bodies and what the transport made of them. */
@@ -495,6 +514,15 @@ class NoticeEngineTest {
         }
 
         fun strips() = shell.pageStripsForTest()
+
+        /** The journal's lines of these kinds (a `note`'s kind, or the stage lane's submits and every completion). */
+        fun journalNotes(vararg kinds: String): List<String> = if (!Files.exists(journal)) emptyList() else Files.readAllLines(journal).filter { l ->
+            kinds.any { k -> when (k) {
+                "submit-STAGE" -> "\"ev\":\"submit\"" in l && "\"label\":\"STAGE\"" in l
+                "done" -> "\"ev\":\"done\"" in l
+                else -> "\"kind\":\"$k\"" in l
+            } }
+        }.map { it.take(400) }
 
         /** The notice PLAYs' tags RIGHT reported bodies for (slot 2). */
         fun noticeTags(): List<Int> = notes.filter { it.first == "motion" }.mapNotNull {
