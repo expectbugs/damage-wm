@@ -136,6 +136,7 @@ class LocalSequenceFuzzTest {
         val taps = Taps.entries[r.nextInt(3)]
         val h = LocalHarness(seed, taps)
         if (debug) h.trace = { println(it) }
+        h.noticeTimer = seed % 2 == 0L                 // build K1-4a: half the sequences cover the list with the notice's timer
         h.lose115 = r.nextDouble() * 0.15; h.dup115 = r.nextDouble() * 0.05
         h.bandDropScroll = r.nextDouble()              // inside a band: dropped, else queued to a band's end (§6.1)
         h.dropAnswer = r.nextDouble() * 0.1; h.actOpensWindow = r.nextDouble() * 0.5
@@ -191,6 +192,10 @@ class LocalSequenceFuzzTest {
         // decisions AZ.4: the wraps animated from the phone, and those a later batch's drawing in the list closed first
         if (h.wrapPlays > 0) counted["AZ.4: wrap PLAYs"] = (counted["AZ.4: wrap PLAYs"] ?: 0) + h.wrapPlays
         if (h.wrapCuts > 0) counted["AZ.4: wraps closed by a draw in the list"] = (counted["AZ.4: wraps closed by a draw in the list"] ?: 0) + h.wrapCuts
+        // build K1-4a: the notice's timer PLAYs over the list (a cover's, a gesture's restart) and those a draw in the band
+        // closed (the list returning to the front)
+        if (h.noticePlays > 0) counted["K1-4a: notice timer PLAYs"] = (counted["K1-4a: notice timer PLAYs"] ?: 0) + h.noticePlays
+        if (h.noticeCuts > 0) counted["K1-4a: notice timers closed by a draw in the band"] = (counted["K1-4a: notice timers closed by a draw in the band"] ?: 0) + h.noticeCuts
         val stats = "outcome %08x keyframes ${h.keyframes} ".format(h.outcome.value) + "taps ${h.rules.taps.word} events $n sent ${h.sent} commits ${h.commitsSent.size} held ${h.heldCommits} acts ${h.acts.size} " +
             "verdicts ${h.verdicts.groupingBy { it.second::class.simpleName }.eachCount()} counts ${h.rules.counts}"
         return Verdict(failed.distinct(), counted, stats)

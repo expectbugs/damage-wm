@@ -354,6 +354,19 @@ object CfwModes {
     fun mainRegion(cacheSize: Int, bind: Boolean): IntRange =
         if (ownRegion(cacheSize, bind)) (cacheSize - STAGE_RESERVE_BOUND - MAIN_REGION) until (cacheSize - STAGE_RESERVE_BOUND)
         else (cacheSize - STAGE_RESERVE) until cacheSize
+    /** Build K1-4a: the notice box's engine programs and its `self` capture (`FIRMWARE.md` §5.4: captures go into the
+     *  cache at the PLAY's `cap`, in space the phone reserves) — the top 16 KiB of the stage reserve on a 256 KiB session
+     *  with BIND in force, the notice's only while no window that stages pages is in front and none of Page staging's
+     *  strips lies in it (the coordinator's ruling: a notice costs Reader nothing; Page staging keeps its whole 32 KiB).
+     *  Programs at its start ([NOTICE_PROGRAMS] bytes), the capture after (the 248×104 box is 12,896 B a lens).
+     *  Elsewhere (160 KiB, or no BIND: stages 0–3) there is none, and the notice's timer is NT's phone steps. */
+    const val NOTICE_REGION = 16 * 1024
+    const val NOTICE_PROGRAMS = 3_200          // nine program slots of 352 B (`PopupPrograms.SLOT_BYTES`), 4-aligned
+
+    /** Where the notice's programs and capture lie, or null in a session that has no room for them. */
+    fun noticeRegion(cacheSize: Int, bind: Boolean): IntRange? =
+        if (ownRegion(cacheSize, bind)) (cacheSize - NOTICE_REGION) until cacheSize else null
+
     /** The largest offset a u16 in 4-byte units reaches. */
     const val OFF4_REACH = 0xFFFF * 4
 

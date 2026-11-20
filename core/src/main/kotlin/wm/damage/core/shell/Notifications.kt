@@ -78,6 +78,9 @@ class Notifications(private val text: TextRasterizer) {
         return was != 0
     }
 
+    /** K1-4a fix B1: the phone's steps take over a closed engine timer at the step it had reached (0..last before focus). */
+    fun graceStepAt(k: Int) { graceStep = k.coerceIn(0, GRACE_STEPS - 1) }
+
     /** One step of the timer; true when the bar is whole (the caller gives the box focus). */
     fun advanceGrace(): Boolean {
         if (graceStep < GRACE_STEPS) graceStep++
@@ -266,12 +269,37 @@ class Notifications(private val text: TextRasterizer) {
         if (n == null) { clearingRun = false; return false }
         current = n
         scroll = 0
-        unfurl = 0
         furling = false
         focused = clearingRun          // an actively-cleared queue skips the grace: bar whole, full ink
         graceStep = if (focused) GRACE_STEPS else 0
+        engine = false
+        // build K1-4a: how this box arrives — the phone's unfurl (as before), or at once (no style on, or the glasses
+        // draw its arrival: then the shell plays it, [arrival] says which)
+        arrival = if (focused) Arrival.UNFURL else arrivalFor(n)
+        unfurl = if (arrival == Arrival.UNFURL) 0 else 4
         return true
     }
+
+    /** Build K1-4a: a box's arrival (`MOTION.md` §7, the Popups tier) — the phone's frames, at once, or one the glasses
+     *  draw from the box's own pixels ([FADE], [SLIDE]: the shell sends the PLAY). */
+    enum class Arrival { UNFURL, NONE, FADE, SLIDE }
+
+    /** The arrival the shell picks for a box about to show (its rows, the engine's state); today's unfurl by default. */
+    var arrivalFor: (Notice) -> Arrival = { Arrival.UNFURL }
+
+    /** The current box's arrival, as picked at its show; the shell takes a FADE or SLIDE once ([takeArrival]). */
+    var arrival = Arrival.UNFURL
+        private set
+
+    fun takeArrival(): Arrival = arrival.also { if (it == Arrival.FADE || it == Arrival.SLIDE) arrival = Arrival.NONE }
+
+    /**
+     * Build K1-4a: the current box's timer runs on the glasses (one engine program, `PopupPrograms`): while unfocused
+     * the box is drawn as that program's END — full ink, the bar whole at [BAR_LIT] — which is what the glasses' shadow
+     * holds (`FIRMWARE.md` §5.6) and what each PLAY captures; the fade and the filling bar are the program's steps.
+     * Cleared at every show and by the shell's fallback to the phone's steps.
+     */
+    var engine = false
 
     /** Grace elapsed with no input: the box takes focus and steps forward. */
     fun takeFocus() {
@@ -399,7 +427,16 @@ class Notifications(private val text: TextRasterizer) {
             val h = srcH() + 8 + pitch() + 8                      // 56 at 100 %
             return Rect(Geometry.snapX(cx - SILENT_W / 2), Geometry.snapY(l.content.y + l.content.h / 2 - h / 2), SILENT_W, h)
         }
-        val lines = bodyLines(n, l).size.coerceIn(1, roomFor(l))
+        return windowBox(linesFor(n, l), l)
+    }
+
+    /** Build K1-4a: the window form's box rect for a body of [lines] visible lines at [l] (the engine's programs are
+     *  laid out per line count), the visible lines of [n], the most a box holds, and its top rule's row offset. */
+    fun linesFor(n: Notice, l: Layout): Int = bodyLines(n, l).size.coerceIn(1, roomFor(l))
+    fun maxLines(l: Layout): Int = roomFor(l)
+    fun ruleOffset(): Int = srcH()
+
+    fun windowBox(lines: Int, l: Layout): Rect {
         val h = srcH() + 2 + 6 + lines * pitch() + 6 + 2
         val m = l.notificationMax
         // CENTRED on its own height, the way the silent box two lines above
@@ -465,7 +502,7 @@ class Notifications(private val text: TextRasterizer) {
         val bright = if (focused) 1.0 else 0.6
         fun lv(base: Int) = when {
             silent -> (base * bright).toInt()
-            focused -> base
+            focused || engine -> base
             else -> graceInk(base, graceStep)
         }
         val srcH = srcH()
@@ -478,7 +515,7 @@ class Notifications(private val text: TextRasterizer) {
             if (silent || focused) g.fillRect(full.x, full.y + srcH, full.w, 2, lv(Level.DIM))
             else {
                 g.fillRect(full.x, full.y + srcH, full.w, 2, Level.FAINT)
-                g.fillRect(full.x + BAR_INSET, full.y + srcH, barShare(full.w - 2 * BAR_INSET), 2, BAR_LIT)
+                g.fillRect(full.x + BAR_INSET, full.y + srcH, if (engine) full.w - 2 * BAR_INSET else barShare(full.w - 2 * BAR_INSET), 2, BAR_LIT)
             }
         }
         if (box.h >= 16) {

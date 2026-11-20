@@ -19,7 +19,7 @@ import wm.damage.core.motion.TestPrograms
  */
 class MotionCheckTest {
     private fun files(dir: Path): List<String> = Files.list(dir).use { s -> s.map { it.fileName.toString() }.sorted().toList() }
-    private val expected = TestPrograms.NAMES.flatMap { listOf("$it.png", "$it.txt") }.sorted()
+    private val expected = (TestPrograms.NAMES + listOf("popup-timer", "popup-fade", "popup-slide")).flatMap { listOf("$it.png", "$it.txt") }.sorted()
 
     @Test
     fun theMotionCheckWritesOneStripPerProgramAndEveryProgramHolds_A15() {

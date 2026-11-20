@@ -123,6 +123,15 @@ data class ShellSettings(
     /** K1-1 (`MOTION.md` §7): `Scroll effect` — the Scroll tier's one effect (no randomness), a [wm.damage.core.motion.
      *  ScrollEffect] id: `none` · `depth` (the default, today's) · `slide` · `fall`. Additive, as the two above. */
     val scrollEffect: String = "depth",
+    /** Build K1-4a (`MOTION.md` §7's Popups tier; spec §2): the notice box's arrival — its length (ms) and steps (0 =
+     *  Auto: as many as the glasses draw in that length), and the styles a notice picks among at random (none = the box
+     *  appears at once). The focus timer stays 2.0 s whatever these say (his ruling). Fade and Slide are drawn by the
+     *  glasses' engine; Unfurl is the phone's frames, as before. Additive, as `scrollLength`. */
+    val popupLength: Int = 300,
+    val popupFrames: Int = 0,
+    val popupUnfurl: Boolean = true,
+    val popupFade: Boolean = false,
+    val popupSlide: Boolean = false,
 
     /** Battery alert mode for the <=20 % pulse (§4.1). */
     val batteryAlert: BatteryAlert = BatteryAlert.ON,
@@ -210,6 +219,8 @@ data class ShellSettings(
         scrollLength = SCROLL_LENGTHS.minByOrNull { kotlin.math.abs(it - scrollLength) } ?: 300,
         frames = if (frames in FRAME_COUNTS) frames else 0,
         scrollEffect = if (scrollEffect in SCROLL_EFFECTS) scrollEffect else "depth",
+        popupLength = SCROLL_LENGTHS.minByOrNull { kotlin.math.abs(it - popupLength) } ?: 300,
+        popupFrames = if (popupFrames in FRAME_COUNTS) popupFrames else 0,
         slideFill = if (slideFill in SLIDE_FILLS) slideFill else "auto",
         cachedText = if (cachedText in CACHED_TEXT) cachedText else "off",
         pageStaging = if (pageStaging in PAGE_STAGING) pageStaging else "on",

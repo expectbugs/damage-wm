@@ -137,6 +137,10 @@ class MainLocalShellTest {
             shell.updateSettings { it.copy(heightMode = 352, cachedText = "on", taps = taps) }
             until("the atlas goes live") { shell.cachedTextActive && shell.cachedFontsLive.isNotEmpty() }
             bound("up")
+            // build K1-4a: the notice's programs are written and counted at a stage-4 start too; a test begins after
+            // them (else a program's write lands in a test's window, or a count reading writes the counters' note
+            // after its first notch) — one evaluation on the loop deciding
+            until("the notice's programs counted") { onLoop { shell.noticeLaneDoneForTest() && !shell.cacheWorkInFlight } }
         }
 
         fun list(): BoundList = assertNotNull(onLoop { shell.mainBoundForTest().first })
@@ -161,6 +165,8 @@ class MainLocalShellTest {
             return g
         }
 
+        private val TIMER_DRAWING = "the notice's timer is drawing"
+
         /** Belief equals both lenses' panels, read ON the loop with nothing else pending. */
         suspend fun assertOracle(what: String) {
             var diff: String? = null
@@ -169,6 +175,10 @@ class MainLocalShellTest {
             while (!read && System.currentTimeMillis() < deadline) {
                 if (!shell.isQuiescent()) { delay(5); continue }
                 val r = shell.sampleIdle {
+                    // build K1-4a: the notice's timer still drawing on the glasses (a fault's box: the L1 throw raises one)
+                    // shows its step there and its END in belief — the panels are read once it has drawn its last step
+                    if (synchronized(sim) { listOf(sim.left, sim.right).any { it.motion.slots[wm.damage.core.motion.PopupPrograms.SLOT]?.drawing == true } })
+                        return@sampleIdle TIMER_DRAWING
                     val out = StringBuilder()
                     for (left in listOf(true, false)) {
                         val b = shell.comp.expectedLens(left); val g = panel(left)
@@ -177,7 +187,7 @@ class MainLocalShellTest {
                     }
                     out.toString()
                 }
-                if (r != null) { read = true; diff = r }
+                if (r == TIMER_DRAWING) delay(5) else if (r != null) { read = true; diff = r }
             }
             assertTrue(read, "$what: the shell never held still to be sampled — ${shell.quiescenceReport()}")
             assertTrue(diff.isNullOrEmpty(), "$what: $diff")

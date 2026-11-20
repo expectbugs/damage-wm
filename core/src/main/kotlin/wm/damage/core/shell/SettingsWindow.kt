@@ -171,6 +171,18 @@ class SettingsWindow(
             val fs = ShellSettings.FRAME_COUNTS
             s.copy(frames = fs[(fs.indexOf(s.frames).coerceAtLeast(0) + d).coerceIn(0, fs.size - 1)])
         }),
+        // build K1-4a: the notice box's arrival (the timer stays 2.0 s); a notice picks among the styles that are on
+        Entry("Popup length", { "${get().popupLength} ms" + if (get().popupLength == ShellSettings().popupLength) " (default)" else "" }, { s, d ->
+            val ls = ShellSettings.SCROLL_LENGTHS
+            s.copy(popupLength = ls[(ls.indexOf(s.popupLength).coerceAtLeast(0) + d).coerceIn(0, ls.size - 1)])
+        }),
+        Entry("Popup frames", { get().popupFrames.let { if (it == 0) "auto" else "$it" } }, { s, d ->
+            val fs = ShellSettings.FRAME_COUNTS
+            s.copy(popupFrames = fs[(fs.indexOf(s.popupFrames).coerceAtLeast(0) + d).coerceIn(0, fs.size - 1)])
+        }),
+        Entry("Popup · Unfurl", { onOff(get().popupUnfurl) }, { s, d -> s.copy(popupUnfurl = d > 0) }),
+        Entry("Popup · Fade", { onOff(get().popupFade) }, { s, d -> s.copy(popupFade = d > 0) }),
+        Entry("Popup · Slide", { onOff(get().popupSlide) }, { s, d -> s.copy(popupSlide = d > 0) }),
     )
 
     private fun onOff(b: Boolean) = if (b) "on" else "off"
