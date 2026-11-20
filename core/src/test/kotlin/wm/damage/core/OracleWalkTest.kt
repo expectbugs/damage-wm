@@ -76,13 +76,22 @@ class OracleWalkTest {
             else SimTransport(sim, scope, SimTransport.Timing(instant = true)).also { if (stage4) it.devProbe("c1", "4") }
         val clock = Shell.LocalClock(12, 0, "12:00", "PM")
         val text = if (cached) wm.damage.core.comp.CachedText(FakeText()) else FakeText()
-        val shell = Shell(text, transport, store, null, scope) { clock }
+        /** C3 X5T (the 44 of 45): the stage-5 walk keeps the shell's journal, read by [notWholeReport] only. */
+        val journalFile: java.nio.file.Path? = if (stage5) tmp.resolve("journal.jsonl") else null
+        val shell = Shell(text, transport, store, journalFile, scope) { clock }
         val rnd = java.util.Random(seed)
         // C3 X2T item 6 (decisions AM (2)): the shell's effect pick seeded from the scene's seed, so the stage-5 walk's
         // picks are the same at every run (a scripted scene pins its seed)
         init { if (stage5) shell.transitionRandom = java.util.Random(seed xor 0x7E57_5EEDL) }
         val flushFails = ArrayList<String>()
         val faults = ArrayList<String>()
+        /** C3 X5T: RIGHT's 114 bodies as the transport handed them (stage 5 only), when, and the wake loop's gaps past
+         *  [WAKE_GAP_MS] — what [notWholeReport] sets beside an act that did not run whole. */
+        val bodies = ArrayList<Pair<Long, TransportEvent.LocalBody>>()
+        val wakeGaps = ArrayList<Pair<Long, Long>>()
+        private val marks = ArrayList<Pair<Long, String>>()
+        /** The walk's own input, stamped (stage 5): which step an act came from, and whether input arrived inside it. */
+        fun mark(what: String) { if (stage5) synchronized(marks) { marks += System.currentTimeMillis() to what } }
 
         init {
             // DP2: every tier's every effect checked, at the shortest length, so the walk meets them all quickly
@@ -94,7 +103,15 @@ class OracleWalkTest {
             shell.register(SurfaceWindow())
             shell.register(WalkDocWindow())
             // the glasses' engine thread: a step due is drawn (the model draws only when woken, as `MainSeqTest`'s rig)
-            if (stage4 || stage5) scope.launch { while (true) { val now = System.currentTimeMillis(); for (a in Arm.entries) sim.conformanceWake(a, now); delay(4) } }
+            if (stage4 || stage5) scope.launch {
+                var last = 0L
+                while (true) {
+                    val now = System.currentTimeMillis()
+                    if (stage5 && last != 0L && now - last > WAKE_GAP_MS) synchronized(wakeGaps) { wakeGaps += now to (now - last) }
+                    last = now
+                    for (a in Arm.entries) sim.conformanceWake(a, now); delay(4)
+                }
+            }
             scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
                 transport.events.collect { e ->
                     when (e) {
@@ -102,6 +119,7 @@ class OracleWalkTest {
                             if (!e.ok) synchronized(flushFails) { flushFails.add("${e.id}: ${e.error}") }
                         is TransportEvent.Fault ->
                             if (e.what != "warmup") synchronized(faults) { faults.add("${e.what}: ${e.detail}") }
+                        is TransportEvent.LocalBody -> if (stage5) synchronized(bodies) { bodies += System.currentTimeMillis() to e }
                         else -> {}
                     }
                 }
@@ -222,6 +240,75 @@ class OracleWalkTest {
             if (shell.keyboardIsOpen) append("+kbd")
             if (shell.exclusiveMode) append("+excl")
             if (shell.notifications.active) append(if (shell.notifications.focused) "+notice!" else "+notice")
+        }
+
+        /**
+         * C3 X5T (the 44 of 45): for every act of this walk that did not run whole (no "in half's last step drawn"
+         * note), what ended it — its `transition` notes, the submits and acks of the flushes they name, RIGHT's 114
+         * bodies of its two tags (drawn / folded / outcome), every other note in its window, the walk's input before and
+         * inside it, and the engine loop's late wakes. Times are ms from the act's first note. Diagnostic print only.
+         */
+        fun notWholeReport(tag: String): String = buildString {
+            val f = journalFile ?: return "$tag: no journal kept"
+            class Line(val t: Long, val raw: String)
+            val all = Files.readAllLines(f).mapNotNull { l -> T_FIELD.find(l)?.let { Line(it.groupValues[1].toLong(), l) } }
+            fun detail(l: Line) = DETAIL_FIELD.find(l.raw)?.groupValues?.get(1) ?: l.raw
+            fun isTransition(l: Line) = "\"ev\":\"note\"" in l.raw && "\"kind\":\"transition\"" in l.raw
+            fun terminal(g: List<Line>) = g.any { detail(it).startsWith("owed:") || "is refused offline" in detail(it) }
+            // one group per act, in order (`transitionActs` counts from 0 in this shell): an act's notes begin with its
+            // pick's "left out", "a new act replaces", "owed:" or "refused offline", and a group closes at its "owed:" or refusal
+            val acts = ArrayList<MutableList<Line>>()
+            var cur = ArrayList<Line>()
+            for (n in all.filter(::isTransition)) {
+                val d = detail(n)
+                val begins = d.startsWith("left out of this act's pick") || d.startsWith("a new act replaces") ||
+                    d.startsWith("owed:") || "is refused offline" in d
+                if (begins && terminal(cur)) { acts += cur; cur = ArrayList() }
+                cur += n
+            }
+            if (cur.isNotEmpty()) acts += cur
+            val (owed, whole) = shell.transitionCountsForTest()
+            appendLine("$tag: the journal holds ${acts.size} act(s) (the shell counted $owed owed, $whole whole)")
+            // `DAMAGE_WALK_REPORT_ALL` (set by hand): every act's detail, whole or not — the report's own check;
+            // `DAMAGE_WALK_JOURNALS=DIR`: a height with an act not whole keeps its journal there
+            val showAll = System.getenv("DAMAGE_WALK_REPORT_ALL") != null
+            if (whole < owed) System.getenv("DAMAGE_WALK_JOURNALS")?.let { d ->
+                val to = java.nio.file.Path.of(d).resolve("${tag.replace(Regex("[^A-Za-z0-9=-]"), "_")}-${System.currentTimeMillis()}.jsonl")
+                Files.createDirectories(to.parent); Files.copy(f, to); appendLine("  its journal kept: $to")
+            }
+            for ((k, g) in acts.withIndex()) {
+                val isWhole = g.any { detail(it).startsWith("in half's last step drawn on RIGHT") }
+                if (isWhole && !showAll) continue
+                val t0 = g.first().t
+                val tEnd = acts.getOrNull(k + 1)?.first()?.t ?: Long.MAX_VALUE
+                appendLine("  act $k ${if (isWhole) "whole" else "NOT WHOLE"} (journal t0 $t0):")
+                synchronized(marks) {
+                    marks.lastOrNull { it.first <= t0 }?.let { appendLine("    the walk's input before it: ${it.second} at ${it.first - t0} ms") }
+                    marks.filter { it.first in (t0 + 1) until tEnd }.forEach { appendLine("    the walk's input INSIDE it: ${it.second} at ${it.first - t0} ms") }
+                }
+                g.forEach { appendLine("    note ${it.t - t0} ms: ${detail(it)}") }
+                val ids = g.flatMap { n -> FLUSH_ID.findAll(detail(n)).map { it.groupValues[1] }.toList() }.toSet()
+                for (l in all) {
+                    val id = ID_FIELD.find(l.raw)?.groupValues?.get(1) ?: continue
+                    if (id !in ids) continue
+                    if ("\"ev\":\"submit\"" in l.raw) appendLine("    submit ${l.t - t0} ms: flush $id label ${LABEL_FIELD.find(l.raw)?.groupValues?.get(1)} ops " +
+                        OP_FIELD.findAll(l.raw).map { it.groupValues[1] }.groupingBy { it }.eachCount())
+                    else if ("\"ev\":\"done\"" in l.raw) appendLine("    done ${l.t - t0} ms: ${l.raw.substringAfter("\"id\":").take(160)}")
+                }
+                all.filter { it.t in t0 until tEnd && "\"ev\":\"note\"" in it.raw && !isTransition(it) }.take(40)
+                    .forEach { appendLine("    other note ${it.t - t0} ms: ${KIND_FIELD.find(it.raw)?.groupValues?.get(1)}: ${detail(it).take(200)}") }
+                val tags = setOf(wm.damage.core.shell.TransitionRun.TAG_OUT + (k and 0xFFF), wm.damage.core.shell.TransitionRun.TAG_IN + (k and 0xFFF))
+                synchronized(bodies) {
+                    bodies.filter { it.second.tag in tags }.forEach { (t, b) ->
+                        appendLine("    114 ${t - t0} ms: slot ${b.slot} tag 0x%04x outcome ${b.outcome} reason ${b.reason} drawn ${b.drawn} folded ${b.folded} stepUs ${b.stepUs}".format(b.tag))
+                    }
+                }
+                synchronized(wakeGaps) {
+                    val late = wakeGaps.filter { it.first in (t0 - 100) until minOf(tEnd, t0 + 5_000) }
+                    appendLine("    engine wakes later than $WAKE_GAP_MS ms in its window: " + (if (late.isEmpty()) "none" else late.joinToString { "${it.second} ms at ${it.first - t0}" }))
+                }
+            }
+            synchronized(wakeGaps) { appendLine("  this height's late engine wakes in all: ${wakeGaps.size}, the longest ${wakeGaps.maxOfOrNull { it.second } ?: 0} ms") }
         }
 
         suspend fun stop() {
@@ -596,20 +683,24 @@ class OracleWalkTest {
                 for (step in 1..TRANSITION_STEPS) {
                     if (step % HANDOFF_EVERY == 0) {
                         val (win, target) = HANDOFFS[(step / HANDOFF_EVERY - 1) % HANDOFFS.size]
+                        rig.mark("step $step (open $win)")
                         rig.shell.services.runOnShell { rig.shell.services.openWindow(win, target) }
                         rig.settle("$tag step $step (open $win)")
                         rig.assertOracle("$tag step $step (open $win)")
                         continue
                     }
                     val g = if (rig.rnd.nextInt(3) == 0) EvenHubMsg.EV_DOUBLE_CLICK else GESTURES[rig.rnd.nextInt(GESTURES.size)]
+                    rig.mark("step $step (${EvenHubMsg.eventName(g)})")
                     rig.shell.postGesture(g)
-                    if (rig.rnd.nextInt(13) == 0) rig.shell.postNotice(Notifications.Notice("SMS · WALK", "t$step", "step $step", "12:00"))
+                    if (rig.rnd.nextInt(13) == 0) { rig.mark("step $step notice"); rig.shell.postNotice(Notifications.Notice("SMS · WALK", "t$step", "step $step", "12:00")) }
                     val where = "$tag step $step (${EvenHubMsg.eventName(g)})"
                     rig.settle(where)
                     rig.assertOracle(where)
                 }
                 val (acts, whole) = rig.shell.transitionCountsForTest()
                 println("$tag: $acts transition(s) owed, $whole ran whole (${rig.shell.transitionsWholeByEffectForTest().toSortedMap()}); ${rig.shell.divergencesReported} divergence(s) reported")
+                // C3 X5T (the 44 of 45): an act that did not run whole is named, with what ended it
+                println(rig.notWholeReport(tag))
                 rig.shell.transitionsWholeByEffectForTest().forEach { (k, v) -> byEffect.merge(k, v, Int::plus) }
                 assertTrue(whole >= 6, "$tag: $acts transition(s), $whole ran whole — the walk proves less than it claims")
                 assertEquals(0, rig.shell.divergencesReported, "$tag: no divergence")
@@ -629,6 +720,17 @@ class OracleWalkTest {
         /** The local walk's steps per height (each local event waits for its picture to be held). */
         const val LOCAL_STEPS = 120
         const val HANDOFF_EVERY = 17
+
+        /** C3 X5T: the engine loop sleeps 4 ms a turn; a turn later than this is printed beside an act not whole. */
+        const val WAKE_GAP_MS = 20L
+        /** The journal's fields [Rig.notWholeReport] reads (`Journal`'s line shapes). */
+        val T_FIELD = Regex(""""t":(\d+)""")
+        val ID_FIELD = Regex(""""id":(\d+)""")
+        val DETAIL_FIELD = Regex(""""detail":"((?:[^"\\]|\\.)*)"""")
+        val KIND_FIELD = Regex(""""kind":"([^"]*)"""")
+        val LABEL_FIELD = Regex(""""label":"([^"]*)"""")
+        val OP_FIELD = Regex(""""op":"([a-z0-9]+)"""")
+        val FLUSH_ID = Regex("""flush (\d+)""")
 
         /** The surfaces the walk visits deliberately, in rotation. */
         val HANDOFFS: List<Pair<String, String?>> = listOf(
