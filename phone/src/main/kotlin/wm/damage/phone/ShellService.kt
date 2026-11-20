@@ -490,8 +490,10 @@ class ShellService : Service() {
         // PC's filesystem browsed from the phone; theme icons fetched and
         // cached the same way. App-alone the window is honestly unavailable
         // (a filesystem does not cache) — the staleness line says so.
+        var filesOnChannel: wm.damage.core.windows.files.FilesGlasses? = null
         val fp = wm.damage.core.windows.files.RemoteFilesProvider(
             prefs.host, prefs.contentPort, prefs.token, scope,
+            onState = { s -> if (s.isEmpty()) filesOnChannel?.channelUp() },   // FILES (11-20): a failed listing again
             cacheDir = dataDir.resolve("wincache/files"))          // §47: the last answers, at once
         filesProvider = fp
         // S1-2 Q5: Files' records (the clipboard, sort, hidden, Size) read from the working copy, the filesystem calls
@@ -503,6 +505,7 @@ class ShellService : Service() {
             wm.damage.core.windows.files.FilesGlasses(text, core, src, fp, scope, AndroidImages(), device = wc.device)
         } else wm.damage.core.windows.files.FilesWindow(text, fp, scope, AndroidImages())
         filesGlasses = files
+        filesOnChannel = files
         sh.register(files)
         // Torrents (2026-09-01, TORRENTS.md): qBittorrent + TorrentLeech live on
         // the PC; the phone polls the host through the window channel at its

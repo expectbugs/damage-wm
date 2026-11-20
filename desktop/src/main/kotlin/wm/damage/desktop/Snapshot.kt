@@ -608,10 +608,12 @@ object Snapshot {
         // listing cache (the phone's own provider), as the phone builds it
         val filesCore = wm.damage.core.windows.files.FilesCore()
         val filesSource = wm.damage.core.app.LocalWindowSource(filesCore, wc)
+        var filesOnChannel: wm.damage.core.windows.files.FilesGlasses? = null
         val filesRemote = wm.damage.core.windows.files.RemoteFilesProvider("127.0.0.1", host.boundPort, token, scope,
-            cacheDir = tmp.resolve("wincache").resolve("files"))
+            onState = { s -> if (s.isEmpty()) filesOnChannel?.channelUp() }, cacheDir = tmp.resolve("wincache").resolve("files"))
         val filesWin = wm.damage.core.windows.files.FilesGlasses(text, filesCore, filesSource, filesRemote, scope, AwtImages(),
             initialBooksDir = cfg.booksDir, device = wc.device)
+        filesOnChannel = filesWin
         shell.register(filesWin)
         // build S1-2 Q4: the phone's Torrents over the window channel to the PC's provider, at today's paces; its core
         // over the working copy, and the PC's notices shown through the phone's mirror (`ShellService`'s arrangement)
