@@ -60,34 +60,74 @@ internal object ShipVectors {
     enum class Form { WHOLE, CUT, WRITE }
 
     /** One act: [tier]'s [effect] at layout height [height], Global Depth [depth]; [form] WHOLE (the act alone), CUT (a
-     *  second Select inside the in half) or WRITE (his scroll's frame written under the in half). */
+     *  second Select inside the in half) or WRITE (his scroll's frame written under the in half). C3 X3T: Encode and
+     *  Matrix ([Transitions.Effect.glyphs]) play on the rig's 256 KiB session with BIND ([kib256]: the session stage 5
+     *  has on his glasses, the only one Encode plays on), over the window's labelled rows ([labelsOf]; [dense]: a page
+     *  dense enough for two cell lists), every screen's text packed into the atlas before the act. */
     data class Spec(val name: String, val tier: Transitions.Tier, val effect: Transitions.Effect, val reversed: Boolean,
-                    val height: Int, val depth: Int = 8, val form: Form = Form.WHOLE)
+                    val height: Int, val depth: Int = 8, val form: Form = Form.WHOLE, val dense: Boolean = false) {
+        val kib256: Boolean get() = effect.glyphs
+    }
+
+    /** C3 X3T: the glyph effects whose programs differ between Global Depth 8 and 12 (Encode: each cell track takes its
+     *  plane's disparity on each lens; Matrix's rain is one rect on both lenses, its programs the same at both — measured
+     *  on the first dump, `C3-X3T-built.md`). */
+    private val GLYPHS_OFF4 = setOf(Transitions.Effect.ENCODE)
 
     /** Every effect of every tier (Back reversed; the Lock Screen entered forward and left reversed) at 352 and 480;
      *  Depth's per-lens offset at both values it takes (8 px at Global Depth 0..8, 4 px at 12 and 16); one act cut by a
-     *  second Select inside its in half; one with a write under its in half. */
+     *  second Select inside its in half; one with a write under its in half. X3D's 46 first, in X3D's order; then C3 X3T's
+     *  Encode and Matrix — every tier that offers them at 352 and 480, at Global Depth 12 too where the program differs
+     *  ([GLYPHS_OFF4]), Encode at 480 into and out of a page dense enough for two cell lists, and one Encode act with a
+     *  write under its in half. */
     fun specs(): List<Spec> {
         val out = ArrayList<Spec>()
         fun n(tier: String, e: Transitions.Effect, rev: Boolean, h: Int, extra: String = "") =
             "$PREFIX$tier-${e.id}${if (rev) "-rev" else ""}$extra-$h"
+        fun of(tier: Transitions.Tier, glyphs: Boolean) = Transitions.effectsOf(tier).filter { it.glyphs == glyphs }
         for (h in listOf(352, 480)) {
-            for (e in Transitions.effectsOf(Transitions.Tier.SELECT)) out += Spec(n("select", e, false, h), Transitions.Tier.SELECT, e, false, h)
-            for (e in Transitions.effectsOf(Transitions.Tier.BACK)) out += Spec(n("back", e, true, h), Transitions.Tier.BACK, e, true, h)
-            for (e in Transitions.effectsOf(Transitions.Tier.LOCK)) for (rev in listOf(false, true)) out += Spec(n("lock", e, rev, h), Transitions.Tier.LOCK, e, rev, h)
+            for (e in of(Transitions.Tier.SELECT, false)) out += Spec(n("select", e, false, h), Transitions.Tier.SELECT, e, false, h)
+            for (e in of(Transitions.Tier.BACK, false)) out += Spec(n("back", e, true, h), Transitions.Tier.BACK, e, true, h)
+            for (e in of(Transitions.Tier.LOCK, false)) for (rev in listOf(false, true)) out += Spec(n("lock", e, rev, h), Transitions.Tier.LOCK, e, rev, h)
             out += Spec(n("select", Transitions.Effect.DEPTH, false, h, "-off4"), Transitions.Tier.SELECT, Transitions.Effect.DEPTH, false, h, depth = 12)
             out += Spec(n("back", Transitions.Effect.DEPTH, true, h, "-off4"), Transitions.Tier.BACK, Transitions.Effect.DEPTH, true, h, depth = 12)
         }
         out += Spec("${PREFIX}cut-select-warp-352", Transitions.Tier.SELECT, Transitions.Effect.WARP, false, 352, form = Form.CUT)
         out += Spec("${PREFIX}write-select-depth-352", Transitions.Tier.SELECT, Transitions.Effect.DEPTH, false, 352, form = Form.WRITE)
+        // C3 X3T: Encode and Matrix
+        for (h in listOf(352, 480)) {
+            for (depth in listOf(8, 12)) {
+                val extra = if (depth == 8) "" else "-off4"
+                fun want(e: Transitions.Effect) = depth == 8 || e in GLYPHS_OFF4
+                for (e in of(Transitions.Tier.SELECT, true).filter { want(it) }) out += Spec(n("select", e, false, h, extra), Transitions.Tier.SELECT, e, false, h, depth)
+                for (e in of(Transitions.Tier.BACK, true).filter { want(it) }) out += Spec(n("back", e, true, h, extra), Transitions.Tier.BACK, e, true, h, depth)
+                for (e in of(Transitions.Tier.LOCK, true).filter { want(it) }) for (rev in listOf(false, true)) out += Spec(n("lock", e, rev, h, extra), Transitions.Tier.LOCK, e, rev, h, depth)
+            }
+            if (h == 480) {
+                out += Spec(n("select", Transitions.Effect.ENCODE, false, h, "-dense"), Transitions.Tier.SELECT, Transitions.Effect.ENCODE, false, h, dense = true)
+                out += Spec(n("back", Transitions.Effect.ENCODE, true, h, "-dense"), Transitions.Tier.BACK, Transitions.Effect.ENCODE, true, h, dense = true)
+            }
+        }
+        out += Spec("${PREFIX}write-select-encode-352", Transitions.Tier.SELECT, Transitions.Effect.ENCODE, false, 352, form = Form.WRITE)
         return out
+    }
+
+    /** C3 X3T: the window's labelled rows (its text through the shell's cached text: Encode's cells) — a typical window
+     *  (X2T's "typical at 352": one line), or a page dense enough for two cell lists at 480 (X2T's "dense at 480": 14
+     *  lines of 60 letters at the rows' 26-px pitch). */
+    private fun labelsOf(spec: Spec): List<Pair<String, wm.damage.core.text.FontSpec>> {
+        val f = wm.damage.core.text.FontSpec(wm.damage.core.text.Face.SYSTEM, 18)
+        if (!spec.dense) return listOf("Window zero" to f)
+        val prose = "the quick brown fox jumps over the lazy dog while five wizards box and jump quickly at dawn "
+        return (0 until 14).map { i -> (prose + prose).substring(i * 3 % 40, i * 3 % 40 + 60) to f }
     }
 
     // ------------------------------------------------------------------------------------------------- capture
     private class Event(val arm: Arm?, val msg: ByteArray?, val input: LongArray?, val progress: Int, val act: Boolean)
 
-    /** One act as the rig played it, and the vector made of it. */
-    class Captured(val spec: Spec, val vector: JsonObject, val owed: List<String>)
+    /** One act as the rig played it, and the vector made of it; [halves] (C3 X3T): the model's own §7.12 C of each
+     *  half it opened in slots 2 and 3 on RIGHT, as the vector is laid out (for the report). */
+    class Captured(val spec: Spec, val vector: JsonObject, val owed: List<String>, val halves: List<String> = emptyList())
 
     /** The act's engine progress on [arm]: the steps drawn by the transitions' instances (slots 2 and 3, the tags
      *  0xC000.. and 0xD000..), each instance counted at the largest d [seen] for it — a closed or emptied one keeps its
@@ -103,7 +143,9 @@ internal object ShipVectors {
     }
 
     suspend fun capture(spec: Spec): Captured {
-        val r = TransitionShellTest.Rig(stage = 5)
+        val r = TransitionShellTest.Rig(stage = 5, kib256 = spec.kib256)
+        val glyphs = spec.effect.glyphs
+        if (glyphs) r.rows[0].labels = labelsOf(spec)
         try {
             val events = java.util.Collections.synchronizedList(ArrayList<Event>())
             val act = java.util.concurrent.atomic.AtomicBoolean(false)
@@ -129,13 +171,36 @@ internal object ShipVectors {
             }
             fun effects(tier: Transitions.Tier, on: Boolean) =
                 r.shell.updateSettings { it.withTier(tier, effects = if (on) listOf(spec.effect.id) else emptyList()) }
+            /** C3 X3T: a double tap onto the silent clock ([on]) or off it, seen in the shell's power note. */
+            suspend fun clock(on: Boolean, what: String) {
+                r.doubleTap()
+                r.until(what) { r.notes("power").lastOrNull()?.startsWith("shell-silent") == on }
+            }
             // the tiers of the acts before the one under test play no transition (None): they are part of the session
+            // (X3T: a glyph effect's tier is checked only just before the act, below)
             r.up { s -> s.copy(heightMode = spec.height, depth = spec.depth)
-                .withTier(Transitions.Tier.SELECT, effects = if (spec.tier == Transitions.Tier.SELECT) listOf(spec.effect.id) else emptyList())
-                .withTier(Transitions.Tier.BACK, effects = if (spec.tier == Transitions.Tier.BACK) listOf(spec.effect.id) else emptyList())
-                .withTier(Transitions.Tier.LOCK, effects = if (spec.tier == Transitions.Tier.LOCK && !spec.reversed) listOf(spec.effect.id) else emptyList()) }
+                .withTier(Transitions.Tier.SELECT, effects = if (!glyphs && spec.tier == Transitions.Tier.SELECT) listOf(spec.effect.id) else emptyList())
+                .withTier(Transitions.Tier.BACK, effects = if (!glyphs && spec.tier == Transitions.Tier.BACK) listOf(spec.effect.id) else emptyList())
+                .withTier(Transitions.Tier.LOCK, effects = if (!glyphs && spec.tier == Transitions.Tier.LOCK && !spec.reversed) listOf(spec.effect.id) else emptyList()) }
             if (spec.form == Form.CUT) r.rows[0].levels = true
-            when {
+            if (glyphs) {
+                // C3 X3T: both screens' text packed before the act, with no transition on the way — an Encode or Matrix that
+                // meets an atlas chunk queued or in flight is left out of the act's pick, and Encode's cells come only from
+                // faces the glasses hold — then the act's effect checked
+                when {
+                    spec.tier == Transitions.Tier.SELECT -> {
+                        select("into w0 (its text packed)", "w0"); r.settle("in w0")
+                        doubleTap("out of w0", toMain = true); r.settle("on Main")
+                    }
+                    spec.tier == Transitions.Tier.BACK -> { select("into w0", "w0"); r.settle("in w0") }
+                    !spec.reversed -> {
+                        clock(true, "onto the silent clock (its text packed)"); r.settle("on the silent clock")
+                        clock(false, "back to Main"); r.settle("on Main")
+                    }
+                    else -> { clock(true, "onto the silent clock"); r.settle("on the silent clock") }
+                }
+                effects(spec.tier, true); r.settle("${spec.effect.label} checked in the ${spec.tier.title} tier")
+            } else when {
                 spec.tier == Transitions.Tier.BACK -> { select("into w0", "w0"); r.settle("in w0") }
                 spec.tier == Transitions.Tier.LOCK && spec.reversed -> {
                     doubleTap("onto the silent clock", toMain = false); r.settle("on the silent clock")
@@ -176,7 +241,8 @@ internal object ShipVectors {
             val st = r.t.state.value
             val finalCrc = synchronized(r.sim) { Arm.entries.associateWith { r.sim.shadowCrc32(it) } }
             val all = events.toList()
-            return Captured(spec, vector(spec, all, st.cacheSize / 1024, st.flagsInForce, finalCrc), owed)
+            val halves = ArrayList<String>()
+            return Captured(spec, vector(spec, all, st.cacheSize / 1024, st.flagsInForce, finalCrc, halves), owed, halves)
         } finally { r.close() }
     }
 
@@ -192,9 +258,11 @@ internal object ShipVectors {
      * The vector of one act from the rig's [events]: each lens's images (the same, checked), the inputs, the act's
      * events placed at their recorded progress. Run through the model as it is laid out — the plan's waits place the
      * wakes — and checked there: every act message taken on both lenses, the act's halves as the shell's notes say,
-     * the final shadows the rig's ([finalCrc]).
+     * the final shadows the rig's ([finalCrc]). [halves] receives the model's C of each transition instance RIGHT opens
+     * in slots 2 and 3 during the act (C3 X3T: the report's budget figure, `FIRMWARE.md` §7.12).
      */
-    private fun vector(spec: Spec, events: List<Event>, cacheKib: Int, flags: Int, finalCrc: Map<Arm, Long>): JsonObject {
+    private fun vector(spec: Spec, events: List<Event>, cacheKib: Int, flags: Int, finalCrc: Map<Arm, Long>,
+                       halves: MutableList<String> = ArrayList()): JsonObject {
         val left = events.filter { it.arm == Arm.LEFT }; val right = events.filter { it.arm == Arm.RIGHT }
         check(left.size == right.size && left.indices.all { left[it].msg!!.contentEquals(right[it].msg!!) }) {
             "${spec.name}: LEFT and RIGHT were handed different images (${left.size} and ${right.size}; first difference at " +
@@ -208,6 +276,11 @@ internal object ShipVectors {
         val bodies = ArrayList<DamageMsg.Motion>()
         val refused = ArrayList<String>()
         fun record(ops: List<JsonObject>) { steps += JsonObject(mapOf("ops" to JsonArray(ops), "expect" to JsonObject(emptyMap()))) }
+        val costed = HashSet<Int>()
+        /** The model's C of each transition instance newly open on RIGHT (slots 2 and 3), once each. */
+        fun costs() { for (s in listOf(2, 3)) { val i = sim.motionForTest(Arm.RIGHT).slots[s] ?: continue
+            if (i.tag and 0xE000 != 0xC000 || !costed.add((s shl 16) or i.tag)) continue
+            halves += "slot $s tag 0x${i.tag.toString(16)}: C ${i.cost} u (%.1f %% of the cap), T ${i.T}, P ${i.period}".format(i.cost * 100.0 / wm.damage.core.motion.Motion.BUDGET_CAP) } }
         fun notes() { for (b in sim.conformanceNotifies(Arm.RIGHT)) bodies += DamageMsg.parseMotion(Pb.l(DamageMsg.MOTION_FIELD, b))!!
             check(sim.conformanceSent(Arm.LEFT).isEmpty()) { "${spec.name}: LEFT sent a notify" } }
         fun apply(e: Event, act: Boolean): JsonObject = if (e.msg != null) {
@@ -247,7 +320,7 @@ internal object ShipVectors {
             val ops = ArrayList<JsonObject>()
             if (first) { now = maxOf(now, ACT_TICK); ops += op("tick", now); first = false }
             ops += apply(e, act = true)
-            notes(); progress(sim, Arm.RIGHT, seen)
+            notes(); progress(sim, Arm.RIGHT, seen); costs()
             record(ops)
         }
         guard = 0
