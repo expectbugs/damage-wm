@@ -1514,7 +1514,7 @@ abstract class CfwTransportBase(
         if (free >= DamageMsg.STACK_FREE_FINDING || free == stackFreeSaid) return
         stackFreeSaid = free
         emitNote("glass", "telemetry 41: the display task's stack has $free B never written, under ${DamageMsg.STACK_FREE_FINDING} B — " +
-            "a finding (FIRMWARE.md §7.9: the candidate's worst path is 1,924 of 2,048 B)")
+            "a finding (FIRMWARE.md §7.9: the candidate's worst path is 1,916 of 2,048 B)")
     }
 
     /** The `Local input` row's state in words (§6.3), and `Taps`, in [LinkState]. */
