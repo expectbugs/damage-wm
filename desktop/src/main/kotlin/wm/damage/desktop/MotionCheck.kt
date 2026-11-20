@@ -155,10 +155,20 @@ object MotionCheck {
 
     private fun crc(b: ByteArray) = java.util.zip.CRC32().also { it.update(b) }.value
 
+    /** Text as blocks of its level, 8 px a character (the tests' fake rasterizer's shape): no font is read. */
+    private object BlockText : wm.damage.core.text.TextRasterizer {
+        override fun measure(text: String, font: wm.damage.core.text.FontSpec): Int = text.length * 8
+        override fun metrics(font: wm.damage.core.text.FontSpec) = wm.damage.core.text.FontMetrics(12, 4, 16)
+        override fun draw(surface: wm.damage.core.gfx.Gray8, x: Int, y: Int, text: String, font: wm.damage.core.text.FontSpec, level: Int) {
+            for ((i, ch) in text.withIndex()) if (ch != ' ') surface.fillRect(x + i * 8, y + 2, 6, 10, level)
+        }
+        override fun covers(text: String, font: wm.damage.core.text.FontSpec) = true
+    }
+
     /**
      * Build K1-4a: one notice program played over a stage holding the box as the programs' END (the shell's paint with
      * the engine's timer: full ink, the bar whole) over a few rows, at disparity 0, in a 256 KiB cache with the records
-     * and the capture where the shell puts them (the notice region). An arrival is played with a hold of 2 steps (the
+     * and the capture where the shell puts them (the notice region), its text as blocks. An arrival is played with a hold of 2 steps (the
      * shell's is the rest of the 255 steps, replaced by the timer's PLAY at the arrival's end). Writes
      * `DIR/popup-STYLE.png` (every step, the left lens above the right, cropped to the box) and `.txt`; the same checks
      * as a test program's.
@@ -167,7 +177,9 @@ object MotionCheck {
         val name = "popup-${style.name.lowercase()}"
         val cacheSize = 256 * 1024
         val failures = ArrayList<String>()
-        val text = AwtText()
+        // A.15's bound: no font machinery (AwtText writes under the home directory) — the box's text as blocks, the
+        // motion is what the strip shows
+        val text = BlockText
         val n = wm.damage.core.shell.Notifications(text)
         val l = wm.damage.core.geom.Layout()
         val notice = wm.damage.core.shell.Notifications.Notice("SMS · MOM", "mom", "on my way, should be there in about twenty minutes", "2:32")
