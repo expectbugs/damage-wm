@@ -271,6 +271,51 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     /** When each lone SETTLE was sent (J1 and J2 read their late echoes against them). */
     val loneSettles = ArrayList<Long>()
 
+    // ---- decisions BQ: (10)'s declared shape — a front taken while a burst was open that had joined no carry, its notch
+    // paid by an owe of that burst's own
+    /** The open burst as the phone's rules hold it: when its first report was handled, and S_heard before it. */
+    private var burstFrom = Long.MIN_VALUE
+    private var burstS0 = 0
+    /** Session starts so far (a start ends every burst). */
+    private var starts = 0
+    /** A front that took the front while a burst was open with no carry joined: that burst's opening, its S_heard before,
+     *  and the lone SETTLEs and starts sent by then (the same burst while none has come since). */
+    private class InBurst(val from: Long, val s0: Int, val settles: Int, val starts: Int)
+    private val frontInBurst = HashMap<Int, InBurst>()
+    /** Scroll gestures RIGHT handled whose stock message the band dropped. */
+    private val bandDropped = HashSet<Int>()
+    /** (10)'s declared notches: gesture → (front kind, class); and the gestures already used to explain one (a dropped
+     *  echo or a lost report explains one swallowed notch at most). */
+    val frontDeclared = LinkedHashMap<Int, Pair<String, String>>()
+    private val explaining = HashSet<Int>()
+    private fun noteFrontInBurst() {
+        if (rules.burstOpen && rules.owesCarriedUntilMs == Long.MIN_VALUE) frontInBurst[frontGen] = InBurst(burstFrom, burstS0, loneSettles.size, starts)
+    }
+
+    /** (10)'s declaration for front notch [g] the phone did not apply ([os], [oa]: the scroll owes and the owes of either
+     *  kind before its message): the front took the front inside a burst that had joined no carry, that burst is still
+     *  open, and the message paid an owe of the burst's own — of its direction, where a report of that direction heard in
+     *  the burst had its message dropped by the band; or of either kind, where a report inside the burst's S span was
+     *  lost (the gap's owe). Null when the predicate does not hold: the notch is then an undeclared (10) failure. */
+    private fun declared10(g: Int, gen: Int, os: Int, oa: Int): String? {
+        val ib = frontInBurst[gen] ?: return null
+        if (!rules.burstOpen || loneSettles.size != ib.settles || starts != ib.starts) return null
+        val step = ringStep[g] ?: return null
+        if (rules.owesScroll < os) {
+            val src = reportHeardAt.entries.filter { (gk, t) -> t >= ib.from && t <= now && ringStep[gk] == step && gk in bandDropped && gk !in explaining }
+                .minByOrNull { it.value }?.key ?: return null
+            explaining += src
+            return "(10) a front's notch paid by its burst's own owe: a notch's echo the band dropped"
+        }
+        if (rules.owesAny < oa) {
+            val src = lost115.filter { gk -> gk !in explaining && fires[gk]?.sR?.let { s -> LocalRules.after(s, ib.s0) && !LocalRules.after(s, rules.sHeard) } == true }
+                .minOrNull() ?: return null
+            explaining += src
+            return "(10) a front's notch paid by its burst's own owe: a lost report's gap owe"
+        }
+        return null
+    }
+
     /** Refusals of the phone's messages (mode, reason, arm), those the harness induced kept apart. */
     val refusals = ArrayList<String>()
     val induced = ArrayList<String>()
@@ -433,7 +478,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
             }
             input(Arm.RIGHT)
             drainSent()
-            if (extra != null) up(now, extra, scroll = !tap) { phoneStock(st, g) }
+            if (extra != null) up(now, extra, scroll = !tap) { phoneStock(st, g) } else if (!tap) bandDropped += g
         }
         return g
     }
@@ -497,7 +542,9 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         if (g >= 0 && g !in reportHeardAt) reportHeardAt[g] = now
         if (g >= 0) ringHeard(g, "115")
         val before = row; val carried = carriedNow(); val heardBefore = rules.sHeard
+        val opening = !rules.burstOpen
         val v = rules.report(a, row, now)
+        if (opening && rules.burstOpen) { burstFrom = now; burstS0 = heardBefore }
         trace?.invoke("[$now] phone 115 g$g ${a.describe()} row $row → $v")
         verdicts += g to v
         val carries = carries(g, v, a, heardBefore)
@@ -510,14 +557,22 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     private fun phoneStock(st: LocalRules.Stock, g: Int) {
         if (!st.click) ringHeard(g, "stock")
         val before = row; val carried = carriedNow()
+        val os = rules.owesScroll; val oa = rules.owesAny
         val v = rules.stock(st, row, now)
         trace?.invoke("[$now] phone stock g$g $st row $row → $v (carried $carried)")
         verdicts += g to v
-        // invariant (10): a front's own notch, its message reaching the phone while that front still stands, is applied there
+        // invariant (10): a front's own notch, its message reaching the phone while that front still stands, is applied
+        // there — or carries decisions BQ's declaration
         frontNotchAt[g]?.let { (kind, gen) ->
             if (!st.click && gen == frontGen && !mainInFront()) {
                 frontMade[kind] = (frontMade[kind] ?: 0) + 1
-                if (v is LocalRules.Verdict.Apply) frontApplied[kind] = (frontApplied[kind] ?: 0) + 1 else frontMissed += "g$g ($kind, $v at $now)"
+                if (v is LocalRules.Verdict.Apply) frontApplied[kind] = (frontApplied[kind] ?: 0) + 1
+                else declared10(g, gen, os, oa)?.let { frontDeclared[g] = kind to it } ?: run {
+                    val ib = frontInBurst[gen]
+                    frontMissed += "g$g ($kind, $v at $now; front taken in an uncarried burst: ${ib != null}" +
+                        (if (ib != null) ", same burst open: ${rules.burstOpen && loneSettles.size == ib.settles && starts == ib.starts}" else "") +
+                        ", paid: ${if (rules.owesScroll < os) "a scroll owe" else if (rules.owesAny < oa) "an owe of either kind" else "none"})"
+                }
             }
         }
         apply(v, g, null)
@@ -547,7 +602,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     }
 
     // ---- covers, windows, re-stages, switches (the shell's own changes, each in the batch that draws it)
-    fun cover() { if (covered || window) return; covered = true; frontGen++; rules.front(null, row); pumpSoon() }
+    fun cover() { if (covered || window) return; covered = true; frontGen++; noteFrontInBurst(); rules.front(null, row); pumpSoon() }
     fun uncover() { if (!covered) return; covered = false; frontGen++; if (!window) rules.front(bound, row); pumpSoon() }
     fun openWindow() {
         if (window || covered) return
@@ -555,7 +610,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         // a CLOSE of the slot goes first, alone, ahead of the window's frame
         val inst = sim.motionForTest(Arm.RIGHT).slots[0]
         if (inst != null && inst.drawing && inst.local && inst.tag in commitsSent) { emit(listOf(CfwModes.motionClose(0)), emptyList()); windowCuts++ }
-        window = true; frontGen++; rules.front(null, row); pumpSoon()
+        window = true; frontGen++; noteFrontInBurst(); rules.front(null, row); pumpSoon()
     }
     /** Windows that cut a COMMITted motion (AW.3), for the fuzz's counted shapes. */
     var windowCuts = 0
@@ -976,6 +1031,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         // the ring's count (item 1): what the restart drops in flight
         for ((g, _) in ringAtFire) if (g !in ringHow && fires[g]?.sR != null) { ringHow[g] = "start"; ringLostAtStart += g
             trace?.invoke("[$now] ring: g$g not heard by the session start — counts nothing") }
+        starts++
         q.clear(); lastUp = now; lastScrollUp = now; lastDown = now; pumpAt = Long.MAX_VALUE
         deferAreas = emptyList()                        // the start's keyframe ends every motion's wait
         if (fresh) for (a in Arm.entries) { sim.conformanceLease(a, false, now); sim.conformanceLease(a, true, now) }

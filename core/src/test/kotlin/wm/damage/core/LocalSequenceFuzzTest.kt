@@ -222,11 +222,19 @@ class LocalSequenceFuzzTest {
         moved(h, failed, "")
         // (9)
         ringCount(h, failed, "", if (seeded) null else declaredNow)
-        // (10) — never declared: a front's own notch the phone did not apply is a notch lost there
+        // (10): a front's own notch the phone did not apply is a notch lost there. Decisions BQ: in random sequences the one
+        // declared shape ([LocalHarness.frontDeclared]: a front taken inside a burst that had joined no carry, its notch
+        // paid by that burst's own owe) lowers the front's expected count by that notch; every other notch is judged; a
+        // seeded case declares nothing
         for ((kind, made) in h.frontMade) {
             val applied = h.frontApplied[kind] ?: 0
-            if (applied != made) failed += "(10) $kind: ${made - applied} of its own $made notch(es) not applied there: ${h.frontMissed.filter { "($kind," in it }}"
+            val decl = h.frontDeclared.entries.filter { it.value.first == kind }
+            val undeclared = h.frontMissed.filter { "($kind," in it } + if (seeded) decl.map { "g${it.key} ($kind, ${it.value.second})" } else emptyList()
+            if (undeclared.isNotEmpty() || applied != made - (if (seeded) 0 else decl.size))
+                failed += "(10) $kind: ${made - applied} of its own $made notch(es) not applied there: $undeclared" +
+                    if (!seeded && decl.isNotEmpty()) " (declared: ${decl.map { "g${it.key}" }})" else ""
         }
+        if (!seeded) for ((g, d) in h.frontDeclared) declaredNow += d.second to g
         // (2)'s cause, read directly (decisions AA.1): a COMMIT never rides a batch whose drawing meets its areas
         if (h.commitOverDraw.isNotEmpty()) failed += "(2) a COMMIT rode a batch with a drawing sub inside its areas at ${h.commitOverDraw}"
         // the fix round's row for the lead (`C2-DP2-built.md`, the fix round, row A): after a COMMIT that did not land on
@@ -245,7 +253,7 @@ class LocalSequenceFuzzTest {
 
     /** (10)'s reach, counted (not failures): the fronts' own notches the sequence made and judged. */
     private fun frontChecked(h: LocalHarness, counted: MutableMap<String, Int>) {
-        for ((kind, made) in h.frontMade) counted["(10) checked: $kind notches"] = (counted["(10) checked: $kind notches"] ?: 0) + made
+        for ((kind, made) in h.frontMade) counted["front notches judged by (10): $kind"] = (counted["front notches judged by (10): $kind"] ?: 0) + made
     }
 
     /** (6): two taps a round trip apart, nothing lost; the second acted on. */
@@ -477,17 +485,18 @@ class LocalSequenceFuzzTest {
         val fails = ArrayList<String>()
         val counted = java.util.TreeMap<String, Int>()
         val declaredSeeds = java.util.TreeMap<String, MutableList<Long>>()
-        for (i in 0 until n) {
-            val seed = 5L * 100_000 + i
+        // decisions BQ: the gate-sized run also runs the profile's declared classes
+        val seeds = (0 until n).map { 5L * 100_000 + it } + if (System.getenv("LOCAL_FUZZ_HIS_N") == null) HIS_GATE_SEEDS else emptyList()
+        for (seed in seeds) {
             val v = try { hisSessionSequence(seed) } catch (e: Throwable) { Verdict(listOf("threw: $e"), emptyMap()) }
             for (f in v.failed) fails += "seed $seed: $f"
             for ((k, c) in v.counted) counted[k] = if (k == CARRY_MAX) maxOf(counted[k] ?: 0, c) else (counted[k] ?: 0) + c
-            for (k in v.counted.keys) if (k.startsWith("(9)") || k.startsWith("(1) S33") || k.startsWith("row A")) declaredSeeds.getOrPut(k) { ArrayList() } += seed
+            for (k in v.counted.keys) if (k.startsWith("(9)") || k.startsWith("(10)") || k.startsWith("(1) S33") || k.startsWith("row A")) declaredSeeds.getOrPut(k) { ArrayList() } += seed
         }
         for (f in fails) println("HISFAIL $f")
         val notches = (counted["profile: notches"] ?: 0).coerceAtLeast(1)
         fun per100(k: String) = "%.1f".format(100.0 * (counted[k] ?: 0) / notches)
-        println("his profile: $n sequences, ${counted["profile: notches"]} notches; the longest carry ${counted[CARRY_MAX]} ms; per 100 notches: owes never paid or paid late ${per100("profile: owes never paid or paid late")} " +
+        println("his profile: ${seeds.size} sequences, ${counted["profile: notches"]} notches; the longest carry ${counted[CARRY_MAX]} ms; per 100 notches: owes never paid or paid late ${per100("profile: owes never paid or paid late")} " +
             "(his 45.6), late echoes paid by a carry ${per100("profile: lateEcho")} (the harness's own count ${per100("profile: late echoes (harness)")}; his 13 late echoes: 3.7), lateEchoUnpaid ${per100("profile: lateEchoUnpaid")}, " +
             "unreported ${per100("profile: unreported")}, lost-report snap-backs ${per100("profile: snapback.lost-report")}, edge answers ${per100("profile: snapback.edge")}, repairs ${per100("profile: repair")}")
         println("his declared: " + declaredSeeds.entries.joinToString("; ") { (k, s) -> "$k ${counted[k]} gesture(s) in ${s.size} sequence(s): ${s.take(12).joinToString()}" })
@@ -1166,7 +1175,26 @@ class LocalSequenceFuzzTest {
         }
     }
 
-    /** Seeds 1 and 1001 (spec §5): `LOCAL_FUZZ_N=1000` per seed base for the instrument's run (2,000 sequences); 60 in the gate. */
+    /** Decisions BQ: the smallest set of the four bases' seeds (at 2,000 a base) holding one sequence of each declared class
+     *  of (9) and (10), run beside the gate's 60 + 60 so that a change turning a declared shape into an undeclared failure
+     *  shows in the gate, not only at 8,000 (an exact search over the 12 classes: 8 seeds, one of them — 100100059, a
+     *  stale-cursor adoption after an unreported stock message through a later reset — already the gate's own, index 59
+     *  of base 1001). */
+    private val GATE_SEEDS = listOf(
+        100101194L,   // (9) a stale-cursor adoption after a tap's DISCARD that set RIGHT back
+        424201353L,   // (9) J3
+        101265L,      // (9) an untaken notch's message paid by an owe; a lost report of a fire that drew, its message dropped
+        100100313L,   // (9) a stale-cursor adoption after a refused fire applied as today
+        100100382L,   // (9) a lost report of a fire that drew, its message paid by a carried owe
+        100100778L,   // (9) a stale-cursor adoption after an unreported message; a lost report of a fire that did not draw;
+                      //     one that drew, its message paid by an owe
+        100101280L)   // (10) both classes: a front's notch paid by its burst's own owe — a dropped echo, a lost report's gap owe
+    /** The fifth base's declared classes, which its first 60 sequences do not hold: J3 and J3 through a later reset, both
+     *  in 500854. */
+    private val HIS_GATE_SEEDS = listOf(500854L)
+
+    /** Seeds 1 and 1001 (spec §5): `LOCAL_FUZZ_N=1000` per seed base for the instrument's run (2,000 sequences); 60 in the
+     *  gate, with [GATE_SEEDS]. */
     @Test
     fun randomSequencesHoldTheEightInvariants() {
         val n = System.getenv("LOCAL_FUZZ_N")?.toInt() ?: 60
@@ -1177,13 +1205,15 @@ class LocalSequenceFuzzTest {
         val declaredSeeds = java.util.TreeMap<String, MutableList<Long>>()
         // `LOCAL_FUZZ_SEEDS=a,b`: exactly these seeds (reading a failure under one rule and another)
         val only = System.getenv("LOCAL_FUZZ_SEEDS")?.split(',')?.map { it.trim().toLong() }
-        val seeds = only ?: bases.flatMap { base -> (0 until n).map { i -> base * 100_000 + i } }
+        // decisions BQ: the gate-sized run also runs one sequence of each declared class of (9) and (10)
+        val gate = System.getenv("LOCAL_FUZZ_N") == null && System.getenv("LOCAL_FUZZ_BASES") == null
+        val seeds = only ?: (bases.flatMap { base -> (0 until n).map { i -> base * 100_000 + i } } + if (gate) GATE_SEEDS else emptyList())
         for (seed in seeds) {
             val v = try { randomSequence(seed) } catch (e: Throwable) { Verdict(listOf("threw: $e"), emptyMap()) }
             for (f in v.failed) fails += "seed $seed: $f"
             for ((k, c) in v.counted) counted[k] = (counted[k] ?: 0) + c
             // the declared shapes (row A, decisions W and BC's refused 27; (9)'s exact classes, B083 v2; S33), with their seeds
-            for (k in v.counted.keys) if (k.startsWith("row A: a batch") || k.startsWith("(9)") || k.startsWith("(1) S33")) declaredSeeds.getOrPut(k) { ArrayList() } += seed
+            for (k in v.counted.keys) if (k.startsWith("row A: a batch") || k.startsWith("(9)") || k.startsWith("(10)") || k.startsWith("(1) S33")) declaredSeeds.getOrPut(k) { ArrayList() } += seed
         }
         // every failure, one line each, for reading the shapes (the assertion's message keeps the first 30)
         for (f in fails) println("FAIL $f")
