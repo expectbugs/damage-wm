@@ -229,7 +229,7 @@ def main(paths, since_ms=0, glasslog=False):
             failed.append(r)
         elif ev == 'done' and r.get('ok') and 'bytes' in r:
             s = dict(sub.get(r['id'], {}))       # a copy: the completion's own facts ride it below
-            s['id'] = r['id']; s['doneT'] = r['t']; s['ackMs'] = r['ackMs']
+            s['id'] = r['id']; s['doneT'] = r['t']; s['ackMs'] = r['ackMs']; s['bytes'] = r['bytes']
             joined.append(s)                     # the submit THIS done was joined to, not the last per id
             done_in.append(s.get('in') if isinstance(s.get('in'), int) and s.get('in') >= 0 else None)
             done_inwait.append(s.get('inWaitMs') if isinstance(s.get('inWaitMs'), int) and s.get('inWaitMs') >= 0 else None)
@@ -362,6 +362,7 @@ def main(paths, since_ms=0, glasslog=False):
         print('\nno handleMs/assembleMs in this journal (written before §32)')
     loop_report(notes)
     local_report(notes)
+    whole_report(joined, notes)
     # §41: the cache's account — rects shipped as draws, and why the rest
     # were pixels (the compositor's own reasons, per flush)
     cached = [r.get('cached') for r in joined if isinstance(r.get('cached'), int) and r.get('cached') >= 0]
@@ -878,6 +879,89 @@ def loop_report(notes):
     handlers = sum(acc[k][1] for k in rest)
     print(f'  handlers {handlers / 1000:.1f} s + pumps {acc.get("pump", [0, 0.0])[1] / 1000:.1f} s on the loop')
 
+WHOLE_BOX = re.compile(r'\((-?\d+),(-?\d+) (\d+)x(\d+)\)')
+# a flush drawing at least this many pixels on one lens repaints a whole window or list: half of a 640x288 panel
+WHOLE_AREA = 640 * 288 // 2
+WHOLE_GAP_MS = 60_000
+UNNAMED = 'unnamed (a journal before 0.82)'
+
+def whole_cause(n):
+    """A keyframe's cause as a note before 0.82 named it: the note's kind and its first clause."""
+    d = re.sub(r'^keyframe: ', '', n.get('detail', ''))
+    return n['kind'] + ': ' + re.split(r' — |; |: |, ', d)[0]
+
+def whole_report(joined, notes):
+    """B082 (Adam, 2026-11-19: "it amuses me how often we catch the system needlessly redrawing whole frames instead
+    of just the damage, in the system we literally named 'damage'"): every whole repaint, by its cause, with counts and
+    bytes per hour painting (the time between acked flushes, each gap counted up to 60 s).
+      keyframe   a flush carrying a mode-6 keyframe; its cause the submit's `why` (0.82+), else the last note before it
+                 within 5 s that says it keyframes (its kind and first clause), else unnamed
+      reseed     a flush opening with a whole-panel fill (contract 2's keyframe); its cause the submit's `why`
+      repaint    any other flush drawing at least half a 640x288 panel on one lens (delta and stereo boxes); its cause the
+                 flush's label, whether a ring event started it (`in`) and the focused window (`win`)
+      staging    Main's full staging (`mainstage` "staged —"); its cause the `dropped —` note before it (its first clause),
+                 else the first staging since the process started
+      re-stage   a row's re-stage writing more than that row (`mainstage` "row N re-staged —" naming rows, plural: a tail
+                 laid out again); its cause the row's segment outgrown
+    Bytes: the flush's acked bytes; a staging's or re-stage's own count. Digits in a cause read N, so a cause groups.
+    Prints nothing when there is none."""
+    rows = []                                    # (kind, cause, bytes)
+    def norm(c): return re.sub(r'\d+', 'N', c).strip()
+    said = [n for n in notes if 'keyfram' in n.get('detail', '') or n.get('kind') in ('panic', 'divergence')]
+    said_t = [n['t'] for n in said]
+    for r in joined:
+        ops = r.get('ops') or []
+        b = r.get('bytes', 0) or 0
+        if any(o.get('op') == 'keyframe' for o in ops):
+            why = r.get('why')
+            if not why:
+                i = bisect.bisect_right(said_t, r.get('t', r.get('doneT', 0))) - 1
+                why = norm(whole_cause(said[i])) if i >= 0 and r.get('t', 0) - said_t[i] <= 5000 else UNNAMED
+            else: why = norm(why)
+            rows.append(('keyframe', why, b))
+            continue
+        fills = [WHOLE_BOX.match(o.get('l', '')) for o in ops if o.get('op') == 'fill']
+        if any(m and int(m.group(1)) == 0 and int(m.group(2)) == 0 and int(m.group(3)) >= 640 and int(m.group(4)) >= 288 for m in fills):
+            rows.append(('reseed', norm(r['why']) if r.get('why') else UNNAMED, b))
+            continue
+        area = 0
+        for o in ops:
+            m = WHOLE_BOX.match(o.get('box', '') if o.get('op') == 'delta' else o.get('l', '') if o.get('op') == 'stereopair' else '')
+            if m: area += int(m.group(3)) * int(m.group(4))
+        if area >= WHOLE_AREA:
+            inp = {1: ' (input)', 0: ' (no input)'}.get(r.get('in'), '')
+            win = f' · {r["win"]}' if r.get('win') else ''
+            rows.append(('repaint', f'{r.get("label", "?")}{inp}{win}', b))
+    dropped = None
+    for n in notes:
+        if n.get('kind') == 'keeper' and n.get('detail', '').startswith('starting'): dropped = None
+        if n.get('kind') != 'mainstage': continue
+        d = n.get('detail', '')
+        if d.startswith('dropped — '):
+            dropped = d[len('dropped — '):].split('; Main')[0].split(': ')[0]
+        elif d.startswith('staged — '):
+            m = re.match(r'staged — (\d+) B', d)
+            rows.append(('staging', norm(dropped or 'the first staging since the process started'), int(m.group(1)) if m else 0))
+            dropped = None
+        elif re.match(r'row \d+ re-staged — ', d):
+            m = re.match(r'row \d+ re-staged — (\d+) B in \d+ piece\(s\) \((.*?)\)(;|$)', d)
+            if m and re.search(r'\brows \d', m.group(2)):
+                rows.append(('re-stage', "a row outgrew its segment: the tail laid out again", int(m.group(1))))
+    if not rows: return
+    ts = sorted(r['doneT'] for r in joined if isinstance(r.get('doneT'), (int, float)))
+    hours = sum(min(b - a, WHOLE_GAP_MS) for a, b in zip(ts, ts[1:])) / 3.6e6
+    acc = collections.OrderedDict()
+    for k, c, b in rows:
+        a = acc.setdefault((k, c), [0, 0]); a[0] += 1; a[1] += b
+    order = ['keyframe', 'reseed', 'repaint', 'staging', 're-stage']
+    print(f'\nwhole repaints by cause ({len(rows)}; {hours:.2f} h painting — acked flushes, each gap counted up to 60 s):')
+    print(f'  {"kind":9s} {"n":>5s} {"n/h":>7s} {"bytes":>10s} {"B/h":>9s}  cause')
+    for (k, c), (n, b) in sorted(acc.items(), key=lambda kv: (order.index(kv[0][0]), -kv[1][1])):
+        per = (lambda v: f'{v / hours:7.1f}') if hours >= 0.05 else (lambda v: '      -')
+        print(f'  {k:9s} {n:5d} {per(n)} {b:10d} {per(b)[-9:] if hours < 0.05 else f"{b / hours:9.0f}"}  {c}')
+    print('  (keyframe and reseed: the cause the flush carries from 0.82 on, else the note before it; repaint: the flush\'s')
+    print('   label, `in` and window; staging: the `dropped` note before it; re-stage: one writing more than its row)')
+
 LOCAL_CAUSE = re.compile(r'\bcause=(\S+)')
 LOCAL_TAPS = re.compile(r'\btaps=(\S+)')
 
@@ -1045,6 +1129,20 @@ def selftest():
     i3 = run(['inwait-e3.jsonl'])[1]
     case('G §3: a gesture that waited 2,000 ms in the shell for a slot reads input->done 2900 beside its wait of 900',
          line(i3, 'WINDOW ').split()[5:9] == ['900', '/', '900', '2900'], line(i3, 'WINDOW '))
+    # B082: whole repaints by cause — synthetic lines written from the shell's own strings (`Compositor.wholeWhy`'s
+    # causes, the `mainstage` notes); one of each kind and one of each thing it must leave out
+    w = run(['whole-b082.jsonl'])[1]
+    wt = w[w.find('whole repaints by cause'):].split('\n\n')[0] if 'whole repaints by cause' in w else ''
+    def wrow(kind, cause):
+        l = next((l for l in wt.splitlines() if l.split()[:1] == [kind] and l.rstrip().endswith(cause)), '')
+        return [l.split()[1], l.split()[3]] if l else None          # [n, bytes]
+    case('B082: every kind prints by its cause with its count and bytes, and what is not a whole repaint is left out',
+         wrow('keyframe', 'session start') == ['1', '20000'] and wrow('keyframe', 'local: a COMMIT\'s body disagreed with the mirror') == ['1', '9000']
+         and wrow('reseed', 'the height changed') == ['1', '700'] and wrow('repaint', 'WINDOW (input) · tmux') == ['1', '5000']
+         and wrow('staging', 'a full staging is owed (a new mark)') == ['1', '19556']
+         and wrow('staging', 'the first staging since the process started') == ['1', '19000']
+         and wrow('re-stage', 'a row outgrew its segment: the tail laid out again') == ['1', '6628']
+         and 'whole repaints by cause (7; 0.08 h painting' in wt and 'MAIN (no input)' not in wt, wt[:600] or '(no table)')
     missed = 0
     for name, holds, said in results:
         print(('ok    ' if holds else 'MISS  ') + name + ('' if holds else '\n        said: ' + (said or '(no such line)')))

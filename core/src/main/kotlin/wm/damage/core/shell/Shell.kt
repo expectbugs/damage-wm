@@ -1308,7 +1308,7 @@ class Shell(
             mirrorSpanLo = Int.MAX_VALUE; mirrorSpanHi = -1; mirrorWhole = true    // P6 item 5: the first check is whole
             atlasAtSessionStart(adopted)
             composeFullSurface()
-            comp.requestKeyframe()
+            comp.requestKeyframe("session start")
             localSessionStart()                   // build C2 (P1): the start's bind batch rides the keyframe's tail
             // fix round 2 (R2.4): only an AWAKE start enables the atlas. A start that rests has no flags in force
             // (`draw2` false): it built a v1 atlas and moved the layout metric, every window re-wrapped while asleep,
@@ -2087,7 +2087,7 @@ class Shell(
         current?.let { w -> try { w.onExclusive(false) } catch (e: Exception) { Log.e("shell", "onExclusive(false) of ${w.id}", e) } }
         notifications.requeueCurrent()
         composeFullSurface()
-        comp.requestReseed()
+        comp.requestReseed("exclusive mode ended")
         if (notifications.showNextIfIdle()) {
             updatePlanes()
             paintNotification()
@@ -2693,7 +2693,7 @@ class Shell(
     /** The phone's rules P1–P11, the tap rule and the table repair (stage DP2). Idle unless BIND is in force at stage 4
      *  on a bit-10 build: below that nothing here sends a byte. Confined to the loop. */
     private val local = wm.damage.core.local.LocalRules({ kind, detail -> journal.note(kind, detail) },
-        { why -> journal.note("local", "keyframe: $why"); comp.requestKeyframe(); post(Msg.Pump) },
+        { why -> journal.note("local", "keyframe: $why"); comp.requestKeyframe("local input: $why"); post(Msg.Pump) },
         { why -> localTelemetryRead(why) })
 
     /** Decisions AA.2: ONE telemetry read of RIGHT, launched (nothing waits on it); its record reaches the rules as every
@@ -2898,7 +2898,7 @@ class Shell(
                     // fail-open fired: stock repainted; a keyframe is required on
                     // reacquire (§5.16) and the failure is surfaced loudly
                     raiseFault("lease", "framebuffer lease lost — ${ev.detail}", urgent = true)
-                    comp.requestKeyframe()
+                    comp.requestKeyframe("the lease was lost")
                     atlasLapsed()                // §40: the cache went with the lease
                     // a Damage build cleared the session's flags and the cache's size with the lease
                     // (`FIRMWARE.md` §3, §4): the renewal that follows is a fresh acquire nothing re-arms,
@@ -2930,7 +2930,7 @@ class Shell(
                     // any sticky flag is a HARD error: panic keyframe (§9.2b)
                     journal.note("panic", setFlags.joinToString())
                     raiseFault("diag", "divergence flags: $setFlags — keyframing", urgent = true)
-                    comp.requestKeyframe()
+                    comp.requestKeyframe("the shadow reported divergence flags")
                     scope.launch { transport.clearDiagFlags() }
                 }
             }
@@ -2966,7 +2966,7 @@ class Shell(
                 // build C1 (`FIRMWARE.md` §5.6, spec §6.4): RIGHT's END CRC in a motion notify disagrees with the
                 // mirror's — the shadow is not what belief holds there; one keyframe reseeds both (it also closes
                 // every instance on the glasses, decision A.8)
-                if (ev.kind == "divergence" && ev.detail.startsWith("motion")) comp.requestKeyframe()
+                if (ev.kind == "divergence" && ev.detail.startsWith("motion")) comp.requestKeyframe("a motion END CRC disagreed (${ev.detail})")
                 // build C1's ruling R1.16: the feel session's probe played a test program and its PLAY is acknowledged
                 // — END goes into belief as the glasses wrote it into their shadow, so when the instance ends the
                 // agreement check finds END on both sides (no divergence, no keyframe)
@@ -2988,7 +2988,7 @@ class Shell(
         // build C2 (§6.11): a tail-only flush that failed — an answer, a SETTLE or a re-send lost — is a divergence: keyframe
         if (localOnlyFlushes.remove(ev.id) && !ev.ok && !glassesSilent) {
             journal.note("local", "a flush of local-input messages only failed (${ev.error}) — keyframing (§6.11)")
-            comp.requestKeyframe()
+            comp.requestKeyframe("a local-input flush failed")
             post(Msg.Pump)
         }
         mainBind.tailDone(ev.id, ev.ok)                // AD.2: a strip switch's SETs landed on both lenses (or go again)
@@ -3054,7 +3054,7 @@ class Shell(
                 // damage and reset with a keyframe, loudly
                 journal.note("panic", "flush failure streak — keyframing")
                 raiseFault("resync", "repeated flush failures (${ev.error}) — keyframe resync", urgent = true, source = "compositor")
-                comp.requestKeyframe()
+                comp.requestKeyframe("three flushes failed in a row")
                 flushFailStreak = 0
             }
         } else {
@@ -3405,7 +3405,7 @@ class Shell(
                     // (`HANDOFF.md` §69: found when a fault notice's own hole was such a fill).
                     v2RefusedThisSession = true
                     journal.note("glass", "DRAW2 is not armed on the glasses — v1 shapes until the next session; keyframing")
-                    comp.requestKeyframe()
+                    comp.requestKeyframe("DRAW2 not armed")
                 }
                 raiseFault("atlas", "cached text is off for this session — the atlas check failed: $why")
                 Log.e("shell", "atlas check failed: $why")
@@ -3516,7 +3516,7 @@ class Shell(
         if (!keyframe) journal.note("atlas", "$what; no keyframe: nothing is sent while asleep, and the wake's session start keyframes")
         else {
             journal.note("atlas", "$what; keyframing")
-            comp.requestKeyframe()
+            comp.requestKeyframe("atlas: " + what.substringBefore(" —"))
         }
     }
 
@@ -3549,7 +3549,7 @@ class Shell(
             atlasUnproven.clear(); atlasResendMissing = 0L
             journal.note("atlas", "count ended — cached text is off for this session with $n atlas message(s) acked and not judged" +
                 (if (resend) " and a re-send owed" else "") + "; keyframing")
-            comp.requestKeyframe()
+            comp.requestKeyframe("atlas: the count ended")
         }
     }
 
@@ -3974,7 +3974,7 @@ class Shell(
         if (done?.resend == true && !ledgerJudges(st) && (atlas?.resendsQueued ?: 0) == 0) {
             atlasResendMissing = 0L
             journal.note("atlas", "re-send unjudged — a re-send was acked with the count off for this session: nothing judges it; keyframing")
-            comp.requestKeyframe()
+            comp.requestKeyframe("atlas: a re-send went unjudged")
         }
         countStateChanged(st)
         if (atlasQueue.isEmpty()) {
@@ -4562,7 +4562,7 @@ class Shell(
                             "cache writes are not judged by the count for the rest of this session" +
                             (if (hasCount) "" else " (this build's capabilities carry no telemetry: there is no count to read)") +
                             (if (reSendAcked) "; a re-send was acked and not yet judged: keyframing" else ""))
-                        if (reSendAcked) comp.requestKeyframe()
+                        if (reSendAcked) comp.requestKeyframe("atlas: the count went off")
                         if (!stageFailed) stageOff("the cache generation read did not answer $ledgerReadFailures times$because")
                         // 0.64 R1 (the lead's ruling on review 1a, RC-2): SAID, once per session. With the
                         // count off Page staging is off and the one check that says a cache write was not
@@ -4630,7 +4630,7 @@ class Shell(
                     journal.note("atlas", "count re-based — ${dropped.size} atlas message(s) acked before it are not judged (" +
                         (if (v.first) "the session's first reading" else "a write was lost before the reading") + ", generation ${v.gen})" +
                         (if (resent) "; a re-send among them: keyframing" else ""))
-                    if (resent) comp.requestKeyframe()
+                    if (resent) comp.requestKeyframe("atlas: the count was re-based")
                 }
             }
             is CacheLedger.Verdict.Proven -> {
@@ -4648,7 +4648,7 @@ class Shell(
                     // repaint would send nothing, so the lens is put right by one keyframe
                     atlasResendMissing = 0L
                     journal.note("atlas", "re-send counted — $again atlas message(s) sent a second time were counted by RIGHT; keyframing")
-                    comp.requestKeyframe()
+                    comp.requestKeyframe("atlas: a re-send was counted")
                 }
             }
             is CacheLedger.Verdict.Pending -> {
@@ -4724,7 +4724,7 @@ class Shell(
                         // re-send wrote it, and the lens keeps what was drawn meanwhile — the keyframe
                         journal.note("atlas", "re-send counted — $again atlas message(s) sent a second time were counted by RIGHT, " +
                             "and ${v.extra} of the $missing write(s) called short bumped late; keyframing")
-                        comp.requestKeyframe()
+                        comp.requestKeyframe("atlas: a re-send was counted")
                     }
                 }
             }
@@ -5311,7 +5311,7 @@ class Shell(
             Log.e("shell", "the wrap's END could not be painted", e)
             journal.note("assemble-error", "the wrap's END: $e")
             raiseFault("assemble", "the wrap's END could not be painted: ${e.message ?: e::class.simpleName} — keyframing", urgent = true, source = "compositor")
-            comp.requestKeyframe()
+            comp.requestKeyframe("the wrap's END could not be painted")
             return false
         }
         val tail = listOf(wrap.play) + local.tail(localRow(), nowMs, emptySet(), frame = false, wrapped = true)
@@ -5608,7 +5608,7 @@ class Shell(
             }
         } else {
             journal.note("mainseq", "notch ${p.index + 1}'s PLAY (tag 0x%04x) was not acknowledged ($error) — END is not put into belief; keyframing".format(p.tag))
-            comp.requestKeyframe()
+            comp.requestKeyframe("a scripted notch PLAY was not acknowledged")
             mainSeqEnd(run, "notch ${p.index + 1}'s PLAY was not acknowledged")
         }
         if (run.ending != null && run.unacked.isEmpty() && mainSeq === run) mainSeqRelease(run)
@@ -6472,7 +6472,7 @@ class Shell(
             "belief and mirror disagree — $report — keyframing" +
                 (if (divergenceRun == DIVERGE_EPISODES_MAX) " (last notice: further episodes go to the journal until agreement holds)" else ""),
             wallClock().hhmm, fault = true)))
-        comp.requestKeyframe()
+        comp.requestKeyframe("the mirror disagreed with belief")
     }
 
     private fun nibble(panel: ByteArray, stride: Int, x: Int, y: Int): Int {
@@ -6636,7 +6636,7 @@ class Shell(
         for (w in windows) w.onLayoutChanged()
         comp.composed.clear(0)
         composeFullSurface()
-        comp.requestReseed()     // a height change re-lays out the whole shell (§4.2); v2: a fill + draws
+        comp.requestReseed("the height changed")     // a height change re-lays out the whole shell (§4.2); v2: a fill + draws
         return true
     }
 
@@ -6680,7 +6680,7 @@ class Shell(
             for (w in windows) w.onLayoutChanged()
             comp.composed.clear(0)
             composeFullSurface()
-            comp.requestReseed()
+            comp.requestReseed("the font or the style changed")
         }
     }
 
@@ -7559,7 +7559,7 @@ class Shell(
                 // a throw mid-assembly can leave shadows seeded with nothing
                 // on the wire (R3s#7): a keyframe re-grounds belief — cheap
                 // insurance on a path that should never run
-                comp.requestKeyframe()
+                comp.requestKeyframe("a flush could not be assembled")
                 null
             }
             if (seq != null) {

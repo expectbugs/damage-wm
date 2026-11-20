@@ -115,7 +115,7 @@ class BaseMaskTest {
                     sim.conformanceControl(arm, DamageMsg.OP_FLAGS_SET, DamageMsg.FLAG_DRAW2, NOW)
                 }
             }
-            comp.requestKeyframe()
+            comp.requestKeyframe("test")
             flush("the keyframe")
         }
 

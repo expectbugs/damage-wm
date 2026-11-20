@@ -123,7 +123,7 @@ class Round3Test {
             Compositor.PlaneRegion(Rect(l.switcherPanel.x, l.switcherPanel.y + 44, l.switcherPanel.w, 88), 0),
             Compositor.PlaneRegion(box, 8),
         ) + islands
-        comp.requestKeyframe()
+        comp.requestKeyframe("test")
         var flushes = 0
         var fidTotal = 0
         var sawKeyframe = false
@@ -153,7 +153,7 @@ class Round3Test {
         val l = Layout()
         comp.composed.fillRect(l.content, 5 * 17)
         comp.planes = listOf(Compositor.PlaneRegion(l.content, 8), Compositor.PlaneRegion(l.lens, 0))
-        comp.requestKeyframe()
+        comp.requestKeyframe("test")
         while (comp.hasPending || comp.needsKeyframe) assertNotNull(comp.assembleFlush(5))
         assertEquals(null, comp.assembleFlush(5), "clean after the keyframe")
 

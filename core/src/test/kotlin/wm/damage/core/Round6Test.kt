@@ -107,7 +107,7 @@ class Round6Test {
                     Compositor.PlaneRegion(l.content, 8), Compositor.PlaneRegion(l.lens, 0),
                     Compositor.PlaneRegion(box, boxPlane),
                 )
-                comp.requestKeyframe()
+                comp.requestKeyframe("test")
                 val (n1, _) = rig.drain("keyframe box@$boxPlane")
                 assertTrue(n1 <= 12, "keyframe over cell noise took $n1 flushes")
                 rig.assertBeliefMatchesGlass("keyframe box@$boxPlane")
@@ -141,7 +141,7 @@ class Round6Test {
             val comp = rig.comp
             comp.composed.fillRect(l.content, 0)
             comp.planes = listOf(Compositor.PlaneRegion(l.content, 8), Compositor.PlaneRegion(l.lens, 0))
-            comp.requestKeyframe()
+            comp.requestKeyframe("test")
             rig.drain("keyframe")
             val rnd = java.util.Random(3)
             fun textLine(y: Int) {
@@ -199,7 +199,7 @@ class Round6Test {
             // screen plane, the lens on a depth plane — its stereo repaint is
             // the follow-up a bare keyframe cannot bundle
             comp.planes = listOf(Compositor.PlaneRegion(l.content, 0), Compositor.PlaneRegion(l.lens, 8))
-            comp.requestKeyframe()
+            comp.requestKeyframe("test")
             val (n, _) = rig.drain("grain keyframe", maxFlushes = 60)
             assertTrue(n >= 2, "an oversize keyframe must ship bare, follow-ups next flush")
             rig.assertBeliefMatchesGlass("grain keyframe")
@@ -230,7 +230,7 @@ class Round6Test {
             val comp = rig.comp
             comp.composed.fillRect(l.content, 3 * 17)
             comp.planes = listOf(Compositor.PlaneRegion(l.content, 8), Compositor.PlaneRegion(l.lens, 0))
-            comp.requestKeyframe()
+            comp.requestKeyframe("test")
             rig.drain("keyframe")
             val band = Rect(l.content.x, l.lens.bottom, l.content.w - Layout.RAIL_W, l.rowsBelow * Layout.ROW_H)
             // A: highlight a row inside the band — assembled, LOST
