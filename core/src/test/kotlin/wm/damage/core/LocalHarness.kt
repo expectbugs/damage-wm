@@ -276,13 +276,16 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     /** The open burst as the phone's rules hold it: when its first report was handled, and S_heard before it. */
     private var burstFrom = Long.MIN_VALUE
     private var burstS0 = 0
+    /** Bursts opened so far: a burst opened while a front stood is one numbered after that front's taking (a window a
+     *  tap's act opens is taken in the same instant its report opened or joined a burst, so time cannot tell them). */
+    private var burstSeq = 0
     /** Session starts so far (a start ends every burst). */
     private var starts = 0
     /** A burst, for (10)'s declaration: its opening, its S_heard before, and the lone SETTLEs and starts sent by then (the
      *  same burst while none has come since). */
     private class InBurst(val from: Long, val s0: Int, val settles: Int, val starts: Int)
-    /** Per front generation: when it took the front, and the burst open then if it had joined no carry. */
-    private val frontTakenAt = HashMap<Int, Long>()
+    /** Per front generation: the bursts opened by its taking, and the burst open then if it had joined no carry. */
+    private val frontTakenSeq = HashMap<Int, Int>()
     private val frontInBurst = HashMap<Int, InBurst>()
     /** Scroll gestures RIGHT handled whose stock message the band dropped. */
     private val bandDropped = HashSet<Int>()
@@ -291,7 +294,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     val frontDeclared = LinkedHashMap<Int, Pair<String, String>>()
     private val explaining = HashSet<Int>()
     private fun noteFrontInBurst() {
-        frontTakenAt[frontGen] = now
+        frontTakenSeq[frontGen] = burstSeq
         if (rules.burstOpen && rules.owesCarriedUntilMs == Long.MIN_VALUE) frontInBurst[frontGen] = InBurst(burstFrom, burstS0, loneSettles.size, starts)
     }
 
@@ -307,9 +310,9 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
      * is then an undeclared (10) failure (a burst that joined a carry, finding 1's shape, is never declared).
      */
     private fun declared10(g: Int, gen: Int, os: Int, oa: Int): String? {
-        val taken = frontTakenAt[gen] ?: return null
+        val taken = frontTakenSeq[gen] ?: return null
         val same = frontInBurst[gen]?.takeIf { rules.burstOpen && loneSettles.size == it.settles && starts == it.starts }
-        val ib = same ?: (if (rules.burstOpen && burstFrom >= taken) InBurst(burstFrom, burstS0, loneSettles.size, starts) else null) ?: return null
+        val ib = same ?: (if (rules.burstOpen && burstSeq > taken) InBurst(burstFrom, burstS0, loneSettles.size, starts) else null) ?: return null
         val under = if (same == null) " (the burst opened under the front)" else ""
         val step = ringStep[g] ?: return null
         if (rules.owesScroll < os) {
@@ -555,7 +558,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         val before = row; val carried = carriedNow(); val heardBefore = rules.sHeard
         val opening = !rules.burstOpen
         val v = rules.report(a, row, now)
-        if (opening && rules.burstOpen) { burstFrom = now; burstS0 = heardBefore }
+        if (opening && rules.burstOpen) { burstFrom = now; burstS0 = heardBefore; burstSeq++ }
         trace?.invoke("[$now] phone 115 g$g ${a.describe()} row $row → $v")
         verdicts += g to v
         val carries = carries(g, v, a, heardBefore)
