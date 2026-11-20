@@ -31,8 +31,8 @@ governs) → `FIRMWARE.md` (wins on the FIRMWARE CONTRACT)**.
 - `python3 design/render_shots.py` after any design change; read the numbers. Everything renders at **true 1× 640×480**:
   a 2× view flatters delicate type.
 - `python3 research/verify_cfw.py` before any flashing conversation (offline; the upstream a5d1c31 image — the rollback
-  behind Phase 1's — is reproducible from held sources, no Thumb-bit defect). The installed image is the fork's C1 build `0dab2154…` (flashed 2026-11-18, `HANDOFF.md` §88; before it `48172b62…`); for it at the fork's `c1` branch and
-  **for any fork candidate:** `(cd ~/damage-cfw && python3 tools/verify.py)` (and its `--selftest`) — the pin, reproducibility with our clang,
+  behind Phase 1's — is reproducible from held sources, no Thumb-bit defect). The installed image is the fork's C2 build `b3f04453…` (flashed 2026-11-19, `HANDOFF.md` §94; before it C1's `0dab2154…`); for it at the fork's `c2` branch and
+  **for any fork candidate:** `python3 tools/verify.py` (and its `--selftest`) **run in a tree at the candidate's branch** (a worktree; `~/damage-cfw`'s own checkout may sit on another branch — `HANDOFF.md` §98.4) — the pin, reproducibility with our clang,
   the Thumb-bit audit, the size guard and the list of changed sites, reviewed against `FORK.md` §3.1 (no new site on a
   boot-time path).
 - **The conformance vectors** (`FIRMWARE.md` §9): after any change to the fork's patch sources `(cd ~/damage-cfw &&
