@@ -230,8 +230,10 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     /** The phone's pump runs this long after an event (a busy link holds a batch back). */
     var pumpDelay = 3L
 
-    /** 2b: the gestures whose stock message is held, in arrival order (a release applies to the oldest). */
+    /** 2b: the gestures whose stock message is held, in arrival order (a release applies to the oldest); those held as
+     *  late echoes (their report heard before a SETTLE sent before the message came, decisions BC). */
     private val heldGesture = ArrayDeque<Int>()
+    private val lateHeld = HashSet<Int>()
     /** Ruled 11-19 (2b), his journals: the share of scroll gestures whose stock message reaches the phone before its 115 —
      *  the 115 then comes [stockLeadMax] ms or less after it. */
     var stockFirst = 0.0
@@ -352,6 +354,14 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         beforeReport?.let { beforeReport = null; it() }
         if (g >= 0 && g !in reportHeardAt) reportHeardAt[g] = now
         val v = rules.report(a, row, now)
+        // 2b: the held messages this report paired (or, naming no slot, applied) leave the hold — its own gesture's first
+        // when it is among them, else the oldest. A late echo (decisions BC) paired here leaves this report's own stock
+        // message to be held and applied as today: the BC shape, moved onto this gesture, so it is declared as BC
+        while (heldGesture.size > rules.stockHeldNow) {
+            val k = if (g in heldGesture) g else heldGesture.first()
+            heldGesture.remove(k)
+            if (k != g && k in lateHeld) lateEchoes += g
+        }
         trace?.invoke("[$now] phone 115 g$g ${a.describe()} row $row → $v")
         verdicts += g to v
         apply(v, g, a)
@@ -363,7 +373,11 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         val heldBefore = rules.counts["stockHeld"] ?: 0
         val v = rules.stock(st, row, now)
         // 2b: a held message is the gesture's, applied (if at all) at its release — its moves are counted against it there
-        if ((rules.counts["stockHeld"] ?: 0) > heldBefore) { heldGesture.addLast(g); rules.settleAt()?.let { s -> if (s > now) at(s) { pump() } } }
+        if ((rules.counts["stockHeld"] ?: 0) > heldBefore) {
+            heldGesture.addLast(g)
+            if (reportHeardAt[g]?.let { lastSettleAt > it } == true) lateHeld += g
+            rules.settleAt()?.let { s -> if (s > now) at(s) { pump() } }
+        }
         // decisions BC: a stock message applied as today whose own report was heard before a SETTLE that went before it —
         // an echo later than its burst's SETTLE (its owe was cleared there); the fuzz counts the (8) it causes apart
         if (v is LocalRules.Verdict.Apply && reportHeardAt[g]?.let { lastSettleAt > it } == true) lateEchoes += g
@@ -633,7 +647,12 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     fun pump() {
         if (!rules.active) return
         // ruled 11-19 (2b): the shell's pump releases held stock messages at the burst's end before anything else
-        for (v in rules.releaseHeld(row, now)) { verdicts += -1 to v; apply(v, heldGesture.removeFirstOrNull() ?: -1, null) }
+        for (v in rules.releaseHeld(row, now)) {
+            val g = heldGesture.removeFirstOrNull() ?: -1
+            // decisions BC: a late echo held and applied as today at the release is the declared shape still
+            if (g in lateHeld) lateEchoes += g
+            verdicts += g to v; apply(v, g, null)
+        }
         val t = truth()
         if (rollbackAll) { rollbackAll = false; java.util.Arrays.fill(model, 0x7F.toByte()); java.util.Arrays.fill(lastTruth, 0x7F.toByte()) }
         val changed = regions.filter { differs(t, lastTruth, it) }.toMutableSet()
@@ -752,6 +771,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     // ---- a session start (P1): keyframe, the arming, the start's bind batch
     fun start(fresh: Boolean) {
         q.clear(); lastUp = now; lastScrollUp = now; lastDown = now; pumpAt = Long.MAX_VALUE
+        heldGesture.clear()                             // 2b: the rules' start clears the hold
         if (fresh) for (a in Arm.entries) { sim.conformanceLease(a, false, now); sim.conformanceLease(a, true, now) }
         for (a in Arm.entries) sim.conformanceControl(a, DamageMsg.OP_FLAGS_SET, ARMED, now)
         val t = truth()

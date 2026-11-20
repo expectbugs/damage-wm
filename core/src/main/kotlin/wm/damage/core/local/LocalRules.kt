@@ -158,6 +158,8 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
     private val heldStock = ArrayDeque<Pair<Int, Long>>()
     /** When the held stock messages are released ([releaseHeld]); null with none held. */
     private fun holdEndAt(): Long? = heldStock.lastOrNull()?.let { (_, at) -> maxOf(if (burstOpen) lastReportMs else 0L, at) + q }
+    /** For the harnesses: the stock messages held now (2b). */
+    val stockHeldNow: Int get() = heldStock.size
 
     /** The list in front, uncovered (null: covered, another window, nothing bound). */
     var front: BoundList? = null; private set
@@ -397,7 +399,7 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         // ruled 11-19 (2b): stock messages held before this report are its echo — and those of the reports its gap lost
         while (heldStock.isNotEmpty() && (owesScroll > 0 || owesAny > 0)) {
             heldStock.removeFirst()
-            if (!tap && owesScroll > 0) owesScroll-- else if (owesAny > 0) owesAny-- else owesScroll--
+            if (owesScroll > 0) owesScroll-- else owesAny--
             count("stockPaired")
         }
         val st = slot(slotNo, heardBefore)
@@ -594,17 +596,19 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
 
     /** Ruled 11-19 (2b): at the burst's end ([holdEndAt]), the stock messages no report paired are applied as today, each
      *  an unreported message (P5's u; the snap-back of a moved slot; the table repair's evidence) — what [stock] did at
-     *  their arrival before the hold. Returns their verdicts, in arrival order; empty before that moment. */
-    fun releaseHeld(row: Int, nowMs: Long): List<Verdict> {
-        observe(row)
+     *  their arrival before the hold. Returns their verdicts, in arrival order; empty before that moment. [unbound]: the
+     *  rules' messages no longer go (BIND off, the lease or the link gone — the shell's `localOn` false): what is held goes
+     *  at once, as an unbound message goes (as today, nothing counted), so no gesture is lost with the session. */
+    fun releaseHeld(row: Int, nowMs: Long, unbound: Boolean = false): List<Verdict> {
         val end = holdEndAt() ?: return emptyList()
-        if (!active || nowMs < end) return emptyList()
+        if (!unbound && (!active || nowMs < end)) return emptyList()
+        observe(row)
         val out = ArrayList<Verdict>()
         while (heldStock.isNotEmpty()) {
             val (type, _) = heldStock.removeFirst()
             val f = front
             val e = f?.let { fl -> heldFor(fl.list, CfwModes.EV_UPROLL) ?: heldFor(fl.list, CfwModes.EV_DOWNROLL) }
-            if (f != null && e != null) {
+            if (!unbound && f != null && e != null) {
                 u++
                 val st = slot(f.slot)
                 st.list = f.list

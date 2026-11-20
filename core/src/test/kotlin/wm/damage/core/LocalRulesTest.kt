@@ -71,6 +71,8 @@ class LocalRulesTest {
             return r.report(DamageMsg.Applied(f), row, now).also { applyV(it, 0) }
         }
         fun stock(k: Stock): Verdict = r.stock(k, row, now).also { applyV(it, if (k == Stock.NEXT) 1 else if (k == Stock.PREV) -1 else 0) }
+        /** Ruled 11-19 (2b): Q later, the held stock messages no report paired go as today. */
+        fun release(): List<Verdict> { now += r.q; return r.releaseHeld(row, now).onEach { applyV(it, if ((it as Verdict.Apply).type == EvenHubMsg.EV_SCROLL_BOTTOM) 1 else -1) } }
         fun applyV(v: Verdict, step: Int) { when (v) {
             is Verdict.Adopt -> row = v.row
             is Verdict.Apply -> if (v.type != EvenHubMsg.EV_CLICK) row = (row + step + l.count) % l.count
@@ -103,7 +105,8 @@ class LocalRulesTest {
         val v = R(row = 3)
         assertEquals(Verdict.Act(5), v.tap(3, 5), "n = 2: two steps away is explained")
         val w = R(row = 3)
-        w.stock(Stock.NEXT)                                     // an unreported scroll message stood for one missing report
+        assertEquals(Verdict.Nothing, w.stock(Stock.NEXT), "2b: no report yet, a list bound — held")
+        w.release()                                             // an unreported scroll message stood for one missing report
         assertEquals(4, w.row)
         assertEquals(Verdict.Act(5), w.tap(3, 5), "g 2, u 1: n = 1, the cursor one step from the phone's row (4) — acted on")
     }
@@ -228,7 +231,8 @@ class LocalRulesTest {
         t.scroll(1, 4); t.batch()
         t.now += t.r.q
         t.r.loneSettle(t.row, t.now)                            // owes cleared, the band still held S 1's scroll message
-        assertEquals(Verdict.Apply(EvenHubMsg.EV_SCROLL_BOTTOM), t.stock(Stock.NEXT), "no owe left: applied as today")
+        assertEquals(Verdict.Nothing, t.stock(Stock.NEXT), "no owe left, a list bound: held (2b)")
+        assertEquals(listOf<Verdict>(Verdict.Apply(EvenHubMsg.EV_SCROLL_BOTTOM)), t.release(), "no report paired it: applied as today at the hold's end")
         assertEquals(5, t.row)
         assertEquals(1, t.r.u)
         val d = t.answer(t.batch())
@@ -245,14 +249,16 @@ class LocalRulesTest {
         assertEquals(Verdict.Nothing, a.stock(Stock.NEXT), "S1's scroll message pays S2's owe")
         assertEquals(Verdict.Nothing, a.stock(Stock.NEXT), "S2's pays the gap's")
         assertEquals(5, a.row, "two notches, two rows")
-        // 1(a) item 2: S1's scroll message first
+        // 1(a) item 2: S1's scroll message first — held (ruled 11-19, 2b), then paired by S2's report (its gap's owe)
         val b = R(row = 3)
-        assertEquals(Verdict.Apply(EvenHubMsg.EV_SCROLL_BOTTOM), b.stock(Stock.NEXT), "unreported: applied, u 1")
-        assertEquals(4, b.row)
-        assertEquals(Verdict.Adopt(5), b.scroll(2, 5), "g 1, u 1: n 0, one step from row 4")
+        assertEquals(Verdict.Nothing, b.stock(Stock.NEXT), "no report yet, a list bound: held")
+        assertEquals(3, b.row)
+        assertEquals(Verdict.Adopt(5), b.scroll(2, 5), "g 1, u 0: n 1, two steps from row 3 explained")
+        assertEquals(1, b.r.counts["stockPaired"], "the held message paired by the report")
         assertEquals(Verdict.Nothing, b.stock(Stock.NEXT))
         assertEquals(5, b.row)
         assertEquals(0, b.r.owesScroll + b.r.owesAny)
+        assertTrue(b.release().isEmpty(), "nothing left held")
     }
 
     @Test
