@@ -2044,7 +2044,10 @@ every other read of that table (the values' level check) the same; a source pixe
 set. `src` must be 0 (12).
 
 **Layer old (kind 0; in place; OWN programs only, §7.2).** `src` is the vacate level (0..15, 12). Opt bits 4 and 6 are 5. f0 = 0, and f1 ≥ 0 for
-the radial model (12): the displacement starts at home and only grows. Model random only with gw = 1 and dy = 0 (12). From base step b (§7.2) to step k, with Δ_p = D_p(k) − D_p(b) and the **base rect** of piece p =
+the radial model (12): the displacement starts at home and only grows. Model random only with gw = 1 and dy = 0 (12) — and for it the equality with every step drawn (§7.2) holds only
+while the displacement's product does not wrap: |dx·f| ≤ 2^28 at every step (§7.2's wrapped arithmetic; a dx near
+32,767 with a factor above 2 passes it, and D_p is then not monotone). The values do not bound that product (no 12):
+no designed program comes near it, and the phone's programs keep it. From base step b (§7.2) to step k, with Δ_p = D_p(k) − D_p(b) and the **base rect** of piece p =
 its home rect moved by D_p(b) (the home rect when b = 0), clipped to the area: every pixel q of the area becomes
 - if q lies in the home rect of some piece p moved by D_p(k) (clipped to the area) and q − Δ_p lies in p's base rect:
   **G(b → k)** of the base picture's pixel at q − Δ_p (when two pieces' moved rects contain q — no accepted input makes
@@ -2285,7 +2288,8 @@ one-period wait; with this it is drawn a few ms late.
   step) and at LAND otherwise, so nothing waits and **a transition plays in full** (`MOTION.md` §7; the first review
   pass of the transitions, 2026-11-20). They leave both owners open; a write meeting any OTHER owner's box closes
   that one first, as before; a second act replaces the run (its out PLAY's close pass ends what is left: the latest
-  input wins);
+  input wins), and so does any other PLAY whose close pass meets the owners — the phone's own wrap PLAY on Main under a
+  Back's in half is the one it sends: RIGHT's closed body ends the run, and the arriving frame is whole in the shadow;
   the panel model leaves an owned rect as it is through every held present, and takes the shadow there at LAND or at a
   close. **An owned rect stays out of the phone's agreement scan while its mark stands** — a done owner (an out
   half, the freeze) holds step T there while belief moves on beneath it; the scan reads the rect again after LAND or
@@ -2420,8 +2424,11 @@ pixel of a byte fill or copy, about eight times the measured copy's rate (I); 3 
 
 **What the terms do not carry** (the first review pass of the built code, 2026-11-20): each term bounds its verb's
 pixel and byte work at these rates; work per element that no term names is outside the budget. RAIN visits every
-cell of its area, lit or not (at cells of a few pixels that passes the area's term; the designed cells of 12×20 do
-not); PIECES layer new sets up each piece (≤ 256 a track); SHRINK builds its drop marks; GLYPHS walks a (font,
+cell of its cols × R grid, lit or not and inside the track's area or not (a column outside the area is walked row by
+row and skipped; at cells of a few pixels, or columns far wider than the area, that passes the area's term; the
+designed cells of 12×20 over their own area do not); a fill, a cell box or a piece one pixel wide costs a row's setup
+at every pixel (boxes and rain fills 1 px wide reach 4–5 times their term, layer-new pieces 1 px wide 3–4 times; the
+designed boxes and pieces are wider); PIECES layer new sets up each piece (≤ 256 a track); SHRINK builds its drop marks; GLYPHS walks a (font,
 code) pair once a walk only for a program's first four fonts (below). Layer old's destination row makes three row
 passes (5 u a pixel at these rates against the term's 3) and a SHRINK with its width unscaled two (4 against 3):
 both sit inside the copy rate's eightfold slack. This budget is the glasses' backstop against a step longer than
