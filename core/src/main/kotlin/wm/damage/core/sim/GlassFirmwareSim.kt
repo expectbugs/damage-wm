@@ -633,12 +633,12 @@ class GlassFirmwareSim() : LensPanels {
                 containerRebuilt(now)
                 ack(cmd, msgId, null)
             }
-            // §7.3 (C3, as ruled H): a REBUILD replaces the container's buffer as a CREATE does; acked, otherwise unmodeled
+            // §7.3 (C3, as ruled I): a REBUILD destroys the container as a CREATE does; acked, otherwise unmodeled
             EvenHubMsg.CMD_REBUILD -> { containerRebuilt(now); ack(cmd, msgId, null) }
             EvenHubMsg.CMD_IMAGE -> imageFragment(arm, fields, msgId, now)
             EvenHubMsg.CMD_TEXT_UPGRADE -> { textUpgradesSeen++; ack(cmd, msgId, null) }
             EvenHubMsg.CMD_KEEPALIVE -> { keepalivesSeen++; ack(cmd, msgId, null) }
-            EvenHubMsg.CMD_SHUTDOWN -> { layoutCreated = false; ack(cmd, msgId, null) }
+            EvenHubMsg.CMD_SHUTDOWN -> { containerRebuilt(now); layoutCreated = false; ack(cmd, msgId, null) }
             else -> diag.event("evenhub", "unmodeled Cmd $cmd — acked")
                 .also { ack(cmd, msgId, null) }
         }
@@ -1496,9 +1496,11 @@ class GlassFirmwareSim() : LensPanels {
         for (b in c.motion.takeOwed()) sendMotion(arm, c, b)
     }
 
-    /** §7.3 (C3, as ruled `C3-decisions.md` H): a rebuild of the container (CREATE, REBUILD) ends every owning instance
-     *  on both lenses as a close does — its 114 body (RIGHT sends), the stale mark. The model's shadow is one array a
-     *  CREATE does not replace, so nothing here reads a freed buffer. A bit-11 build only: owners exist nowhere else. */
+    /** §7.3 (C3, as ruled `C3-decisions.md` H and I, `359e2ed`): the container's destroy (a CREATE's or REBUILD's
+     *  rebuild, the SHUTDOWN teardown) passes C3's one new site, which keys on an owning instance being open, whatever
+     *  flag bit 6 says: with one open it ends every owner on that lens as a close does (its 114 body, RIGHT sends; the
+     *  stale mark); with none open the destroy is C2's. The model's shadow is one array a CREATE does not replace, so
+     *  nothing here reads a freed buffer. */
     private fun containerRebuilt(now: Long) {
         for (arm in Arm.entries) {
             val c = ctx(arm)

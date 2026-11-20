@@ -48,20 +48,19 @@ class EffectsSimTest {
     }
 
     // ------------------------------------------------------------------------- §7.4 a PIECES radial step by hand
-    /** A 8×4 area at (100, 50), 2×2 pieces, radial about (104, 52), f 0 → 4096 in one step. Centres (102, 51), (106, 51),
-     *  (102, 53), (106, 53); D = ((c − anchor)·4096 + 2048) >> 12 = (−2, −1), (2, −1), (−2, 1), (2, 1) (−1.5 floors to −2,
-     *  −0.5 to −1). Each piece keeps only the 2×1 corner of it still inside the area; every other pixel is the vacate. */
+    /** A 8×4 area at (100, 50), 2×2 pieces, radial about (103, 52), f 0 → 2048 in one step. Centres (102, 51), (106, 51),
+     *  (102, 53), (106, 53); D = ((c − anchor)·2048 + 2048) >> 12 = (0, 0), (2, 0), (0, 1), (2, 1) — the +2048 decides
+     *  (3·2048 = 1.5·4096 rounds to 2; 2048 = 0.5·4096 to 1). Pieces moved off their home leave the vacate (0). */
     @Test
     fun aPiecesRadialStepWorkedByHand_7_4() {
         val area = Rect(100, 50, 8, 4)
         val buf = ByteArray(320 * 480)
         for (y in 0 until 4) for (x in 0 until 8) EffectsSim.setNib(buf, 320, 100 + x, 50 + y, 1 + x + y)   // base: 1 + x + y
-        val a = EffectsSim.PiecesArgs(2, 2, EffectsSim.MODEL_RADIAL, 0, 0, 4096, 104, 52, 0, 0, 0, false, intArrayOf(0, 4096), null)
+        val a = EffectsSim.PiecesArgs(2, 2, EffectsSim.MODEL_RADIAL, 0, 0, 2048, 103, 52, 0, 0, 0, false, intArrayOf(0, 4096), null)
         EffectsSim.piecesOld(buf, 320, area, a, 0, 1, EffectsSim.gTable(intArrayOf(15, 15)), 0)
-        val want = Array(4) { IntArray(8) }
-        // p0 → [100,102)×[50,51) from (q + (2,1)); p1 → [106,108)×[50,51) from (q + (−2,1)); p2, p3 the bottom row from y − 1
-        want[0][0] = 1 + 2 + 1; want[0][1] = 1 + 3 + 1; want[0][6] = 1 + 4 + 1; want[0][7] = 1 + 5 + 1
-        want[3][0] = 1 + 2 + 2; want[3][1] = 1 + 3 + 2; want[3][6] = 1 + 4 + 2; want[3][7] = 1 + 5 + 2
+        // p0 stays; p1 two right (columns 4–5 vacated, 6–7 from 4–5); p2 one down (row 2 vacated); p3 both
+        val want = arrayOf(intArrayOf(1, 2, 3, 4, 0, 0, 5, 6), intArrayOf(2, 3, 4, 5, 0, 0, 6, 7),
+                           intArrayOf(0, 0, 0, 0, 0, 0, 0, 0), intArrayOf(3, 4, 5, 6, 0, 0, 7, 8))
         for (y in 0 until 4) for (x in 0 until 8) assertEquals(want[y][x], EffectsSim.nib(buf, 320, 100 + x, 50 + y), "pixel ($x, $y)")
     }
 
@@ -259,6 +258,22 @@ class EffectsSimTest {
         assertEquals(0, r.motion().field40())
     }
 
+    /** §7.3: an owner draws a step only at k > d — a phone frame's present while it owns does not redraw it, even where its
+     *  source is `new` (the live shadow): the owned rect keeps step d until the next step is due. */
+    @Test
+    fun anOwnerDrawsNoStepAtKNotPastD_7_3() {
+        val r = Rig()
+        r.write(64, prog2(OWN, track(rect(100, 100, 40, 20), BD_NEW, seg2(WAIT, 3))))
+        r.now = 1000
+        assertTrue(r.msg(play(0, 20, 64, 1)))
+        assertEquals(3, r.panel(110, 110), "step 1: the shadow's own picture")
+        r.now = 1005
+        assertTrue(r.msg(CfwModes.fill(Rect(100, 100, 40, 20), 12)))
+        assertEquals(3, r.panel(110, 110), "k = 1 = d: not redrawn from the new shadow")
+        r.wake(1020)
+        assertEquals(12, r.panel(110, 110), "step 2 reads the live shadow")
+    }
+
     @Test
     fun landCopiesTheShadowAtStepTAndEndsOwning_7_3() {
         val r = Rig()
@@ -352,6 +367,40 @@ class EffectsSimTest {
         assertNull(r.motion().slots[0]); assertNull(r.motion().slots[1])
         assertTrue(r.motion().slots[2] != null, "an instance that does not own stays")
         assertEquals(listOf(0L to 1L), r.sent().filter { it.first == 114 }.map { it.second[2] to it.second[4] }, "the drawing owner's outcome 1 only")
+        // the site keys on an owner being open, whatever flag bit 6 says: an owner left by a hand disarm (which closes
+        // nothing, §7.9) is ended by a REBUILD too
+        val q = Rig()
+        q.write(64, prog2(OWN, track(rect(100, 100, 40, 20), 6, seg2(WAIT, 3))))
+        assertTrue(q.msg(play(0, 20, 64, 1)))
+        q.flags(ARMED and EFFECTS.inv())
+        for (pk in wm.damage.core.wire.AaFrame.frame(1, wm.damage.core.wire.EvenHubMsg.SID, wm.damage.core.wire.EvenHubMsg.FLAG_REQUEST,
+                Pb.cat(Pb.v(1, wm.damage.core.wire.EvenHubMsg.CMD_REBUILD.toLong()), Pb.v(2, 3)))) q.sim.write(Arm.RIGHT, pk, q.now)
+        assertNull(q.motion().slots[0], "EFFECTS clear, an owner open: ended")
+    }
+
+    /** §7.6 as ruled: codes 0 and 32 name no glyph record — never walked — so a cell list whose codes and alphabet include
+     *  32 is taken though the font's entry 0 points outside the cache; the other codes' glyphs are walked as before. */
+    @Test
+    fun codes0And32AreNeverWalked_7_6() {
+        val cache = ByteArray(2048)
+        fun put16(at: Int, v: Int) { cache[at] = (v and 0xFF).toByte(); cache[at + 1] = (v shr 8).toByte() }
+        put16(0, 1); put16(4, 16)                                    // cell table at 0: n 1, entry 0 → the list at 64
+        put16(64, 2); put16(66, 32)                                  // list: count 2, alphabet at 128, noise 1
+        cache[68] = 1
+        // cells: (0,0) 2×2 font at 256: old 32 new 65 · old 0 new 32
+        intArrayOf(0, 0, 0, 0, 2, 2, 64, 0, 32, 65, 0xFF, 15).forEachIndexed { i, v -> cache[72 + i] = v.toByte() }
+        intArrayOf(0, 0, 0, 0, 2, 2, 64, 0, 0, 32, 0xFF, 15).forEachIndexed { i, v -> cache[84 + i] = v.toByte() }
+        cache[128] = 2; cache[129] = 32; cache[130] = 65              // alphabet: 32, 65
+        put16(256, 0x7FFF)                                           // font entry 0 (code 32): far outside the cache
+        put16(256 + 2 * (65 - 32), 200)                              // code 65 → a glyph at 800
+        cache[800] = 1; cache[801] = 1; cache[802] = 0x1F             // 1×1, one run of level 15
+        val reads = EffectsSim.Reads(0, 4)
+        val list = EffectsSim.walkCells(cache, 0, 0, reads)
+        assertTrue(list != null, "taken: code 32 is not walked")
+        assertEquals(setOf(65), list.glyphs[256]!!.keys, "only code 65's glyph")
+        assertEquals(803, reads.hi, "the read range ends at code 65's glyph, not code 32's entry")
+        put16(256 + 2 * (65 - 32), 0x7FFF)
+        assertNull(EffectsSim.walkCells(cache, 0, 0, EffectsSim.Reads(0, 4)), "code 65's glyph outside the cache: 5")
     }
 
     // -------------------------------------------------------------------------------------- §7.7 PLAY-AFTER

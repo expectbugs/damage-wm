@@ -205,8 +205,8 @@ object EffectsSim {
      *  names and every glyph record a cell's codes or the alphabet name in each of those fonts. Null for any fault
      *  (5, the walk's): a range, a reserved byte, anything outside the cache, an index at or past n. READING: the
      *  table's `0 u16`, the list's three zero bytes are reserved bytes and must be 0 (A.9), and padding to 4 B is not
-     *  read (not in the read range). Code 32 names entry 0 and its record is walked (§7.6: "code c (32..255) names entry
-     *  c − 32"; only the budget says codes 0 and 32 name no glyph "for this sum"). */
+     *  read (not in the read range). §7.6 (as ruled): codes 0 and 32 name no glyph record — never read, walked or put
+     *  in the read range, in CELLS and RAIN alike. */
     fun walkCells(cache: ByteArray, tab: Int, index: Int, reads: Reads): CellList? {
         if (tab + 4 > cache.size) return null
         val n = u16(cache, tab)
@@ -232,7 +232,7 @@ object EffectsSim {
         for (cell in cells) {
             val byFont = glyphs.getOrPut(cell.font) { HashMap() }
             for (code in listOf(cell.old, cell.new) + alphabet.toList()) {
-                if (code == 0 || code in byFont) continue
+                if (code == 0 || code == 32 || code in byFont) continue
                 byFont[code] = glyphOf(cache, cell.font, code, reads) ?: return null
             }
         }
@@ -240,9 +240,8 @@ object EffectsSim {
     }
 
     /** §7.6 RAIN: the 16-B rain record at byte [off] (ranges, reserved bytes 0), its alphabet, its font and every glyph
-     *  its alphabet names there. Null for any fault (5). READING (C3; with the contract's author, raised by the vector
-     *  lane: codes 0 and 32 in CELLS and RAIN alike): code 32 in an alphabet is walked here as in CELLS — the
-     *  conservative form (a malformed entry 0 refuses, its bytes are in the read range). */
+     *  its alphabet names there. Null for any fault (5). §7.6 (as ruled): code 32 in an alphabet names no glyph record
+     *  and is never walked. */
     fun walkRain(cache: ByteArray, off: Int, reads: Reads): Rain? {
         if (off + 16 > cache.size) return null
         val cols = u8(cache, off); val trail = u8(cache, off + 1); val cw = u8(cache, off + 2); val ch = u8(cache, off + 3)
@@ -254,7 +253,7 @@ object EffectsSim {
         val font = u16(cache, off + 4) * 4
         val alphabet = walkAlphabet(cache, u16(cache, off + 6) * 4, reads) ?: return null
         val glyphs = HashMap<Int, Glyph>()
-        for (code in alphabet) if (code !in glyphs) glyphs[code] = glyphOf(cache, font, code, reads) ?: return null
+        for (code in alphabet) if (code != 32 && code !in glyphs) glyphs[code] = glyphOf(cache, font, code, reads) ?: return null
         return Rain(cols, trail, cw, ch, alphabet, headLvl, tailLvl, reveal, fillLvl, u8(cache, off + 12), flicker, glyphs)
     }
 
