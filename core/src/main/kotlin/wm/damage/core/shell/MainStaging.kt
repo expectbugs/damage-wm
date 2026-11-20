@@ -102,7 +102,7 @@ class MainStaging private constructor(
     val wrap: Picture? = null,
     private val wrapRow: IntArray = IntArray(0),
     /** K1-1: what every pan is made from ([ScrollEffects.program]), kept for a re-make ([remake]). */
-    private val staged: ScrollEffects.Staged? = null,
+    private val staged: ScrollEffects.Staged,
     /** K1-1: the two pan slots' byte offsets — the pans in force in [activeProgs], the other free for a re-make — or null
      *  where the region holds only the pans' own (a change of the scroll rows is then a full staging, as before). */
     val progSlots: IntArray? = null,
@@ -586,14 +586,13 @@ class MainStaging private constructor(
      *  staging is then owed). */
     fun remake(want: ScrollMotion): Remake {
         val slots = progSlots ?: return Remake.NoRoom("Main's region holds no spare programs slot")
-        val s = staged ?: return Remake.NoRoom("the staging keeps no record of what its pans draw")
         val why = remakeOwed(want) ?: return Remake.NoRoom("nothing to re-make")
         val reset = motion != want
         val (pFit, tFit) = ScrollEffects.timing(want.effect, ScrollEffects.areaPx(want.effect, layout, listD, bandD), want)
         val pIn = if (reset) pFit else periodInForce
         val tNew = if (reset) tFit else ScrollEffects.stepsAt(want, pIn, t)
         val to = 1 - activeProgs
-        val (made, parts) = layPans(s, want.effect, tNew, slots[to], pans.map { PanSpec(it.k, it.kA, it.kB, it.step, it.strip) }, layout.rowsAbove) { recordOf(it) }
+        val (made, parts) = layPans(staged, want.effect, tNew, slots[to], pans.map { PanSpec(it.k, it.kA, it.kB, it.step, it.strip) }, layout.rowsAbove) { recordOf(it) }
         val bytes = joined(parts)
         if (bytes.size > progSlot) return Remake.NoRoom("the re-made pans (${bytes.size} B) do not fit the spare slot ($progSlot B)")
         return Remake.Owed(Programs(want, if (reset) pFit else period, tNew, pIn, to, slots[to], bytes, made, why, reset))
