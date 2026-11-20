@@ -105,11 +105,4 @@ object PopupPrograms {
             var left = steps
             while (left > 0) { val n = minOf(left, Motion.MAX_STEPS); wait(n); left -= n }
         }
-
-    /** The level the timer draws the box at step [k] (1..T): what `NoticeTimer` tests and the renders read. */
-    fun timerLevel(k: Int): Int = when {
-        k <= 1 -> LVL_START
-        k >= TIMER_STEPS -> 15
-        else -> Motion.eased(LVL_START, LVL_LAST - LVL_START, Motion.easeE(Motion.Ease.linear, TIMER_STEPS - 2)[k - 1])
-    }
 }

@@ -2674,13 +2674,16 @@ class Shell(
         if (prog != null) {
             if (!notifications.engine) { notifications.engine = true; paintNotification() }   // the box as the program's END
             noticePhase = if (prog.style == PopupPrograms.Style.TIMER) NoticePhase.TIMER else NoticePhase.ARRIVAL
-            noticePlay = noticePlayOf(prog)
+            // fix A1: a style is owed, not bytes — the PLAY is built in the pump that sends it, after the input's own
+            // act (a window with its own height, a depth change moves the box; the programs are the layout's)
+            noticeOwed = prog.style
             noticeArrivalMs = prog.periodMs * prog.f
             graceT0Ns = System.nanoTime()
             armGraceStep()
             return
         }
-        if (notifications.engine) noticeFallback(null)                  // the programs went (a new layout): the phone's steps
+        // the programs went (a new layout, the slice yielded): the phone's steps — one chain, armed below (fix B3)
+        if (notifications.engine) { notifications.engine = false; noticeOwed = null; paintNotification() }
         if (notifications.resetGrace()) paintNotification()
         graceT0Ns = System.nanoTime()
         armGraceStep()
@@ -2728,9 +2731,10 @@ class Shell(
     private var noticeProgs: List<NoticeProg> = emptyList()
     /** What [noticeProgs] were laid out for (the box's geometry, the depth, the cache, the arrival rows). */
     private var noticeProgsFor: List<Any>? = null
-    /** The PLAY owed to the next flush's tail (after its drawing subs: the shadow holds the box's END picture when the
-     *  PLAY captures it), the flush that carried the last one, and that PLAY's tag. */
-    private var noticePlay: ByteArray? = null
+    /** The PLAY owed to the next flush's tail, as the style it plays (fix A1: built from the layout in force when it
+     *  goes, after the drawing subs: the shadow holds the box's END picture when the PLAY captures it), the flush that
+     *  carried the last one, and that PLAY's tag. */
+    private var noticeOwed: PopupPrograms.Style? = null
     private var noticePlayFlush: Long? = null
     private var noticeTag = -1
     private var noticeTags = 0
@@ -2756,6 +2760,7 @@ class Shell(
             CfwModes.noticeRegion(st.cacheSize, st.bind) == null -> "no notice region in a ${st.cacheSize / 1024} KiB cache without BIND"
             // the coordinator's ruling (a): a notice costs Reader nothing — the slice is Page staging's while it pages
             pagingInFront() -> "page staging in front"
+            noticeCover(n) > Notifications.BAR_INSET -> "a nearer plane covers ${noticeCover(n)} of the box's edge columns (the bar's run starts ${Notifications.BAR_INSET} in)"
             sliceHeld(CfwModes.noticeRegion(st.cacheSize, st.bind)!!) -> "page staging's strips hold the slice"
             !st.draw2 || !st.leaseHeld || glassesSilent || sleep != null -> return null
             !ledgerReadable(st) -> "its programs cannot be counted on the glasses (Cached text off, or no count on this build)"
@@ -2789,7 +2794,7 @@ class Shell(
         val n = notifications.current ?: return
         val p = noticeProg(PopupPrograms.Style.TIMER, n) ?: run { noticeFallback("its timer program left the glasses during the arrival"); return }
         noticePhase = NoticePhase.TIMER
-        noticePlay = noticePlayOf(p)
+        noticeOwed = PopupPrograms.Style.TIMER
         graceT0Ns = System.nanoTime()
         armGraceStep()
     }
@@ -2797,7 +2802,7 @@ class Shell(
     /** The engine's timer cannot run for the box up: the phone's steps from the start, said once a session with [why]
      *  (null: said where it was decided). */
     private fun noticeFallback(why: String?) {
-        noticePlay = null
+        noticeOwed = null
         val n = notifications.current
         if (why != null) { noticeEngineOff = n; noticeStepsSay(why) }
         if (n == null || !notifications.engine) return
@@ -2812,18 +2817,51 @@ class Shell(
 
     /** The PLAY to put at the end of the batch about to go, or null: one is owed, and the batch leaves nothing of the
      *  frame behind (a split frame would capture half the box). */
-    private fun noticeTakePlay(leavesPending: Boolean): ByteArray? {
-        val play = noticePlay ?: return null
-        if (leavesPending) return null
-        if (!notifications.engine || !graceRuns()) { noticePlay = null; return null }
-        noticePlay = null
-        return play
+    /**
+     * Fix A1: the owed PLAY's program, resolved for the box as it is now — after the input's own act — before the frame
+     * is assembled (so a fallback's repaint rides this frame): the owed style's program, an arrival's falling to the
+     * timer's (its tick re-armed for the timer), or none — then the phone's steps from here, with the reason said.
+     */
+    private fun noticeResolve(): NoticeProg? {
+        val owed = noticeOwed ?: return null
+        val n = notifications.current
+        if (n == null || !notifications.engine || !graceRuns()) { noticeOwed = null; return null }
+        val p = noticeProg(owed, n) ?: if (owed != PopupPrograms.Style.TIMER) noticeProg(PopupPrograms.Style.TIMER, n) else null
+        if (p == null) { noticeFallback("its program for the box as it is now is not on the glasses"); return null }
+        if (p.style != owed) {                              // the arrival cannot play: the timer at once, its tick for 2.0 s
+            noticePhase = NoticePhase.TIMER; noticeOwed = PopupPrograms.Style.TIMER
+            stopGrace(); graceT0Ns = System.nanoTime(); armGraceStep()
+        }
+        return p
+    }
+
+    /** The PLAY of the resolved program, or null: none, or the batch leaves part of the frame behind (a split frame, or
+     *  cells held behind a local motion — fix B2 — would capture something other than the box). */
+    private fun noticeTakePlay(p: NoticeProg?, leavesPending: Boolean): ByteArray? {
+        if (p == null || leavesPending) return null
+        noticeOwed = null
+        return noticePlayOf(p)
     }
 
     /** RIGHT's motion notify ([detail], the transport's note): a refusal of the box's PLAY ends the engine's timer for it. */
     private fun noticeNotify(detail: String) {
         val n = MainSeqPlan.parseNotify(detail) ?: return
-        if (n.tag == noticeTag && n.outcome.startsWith("refused")) noticeFallback("RIGHT refused its PLAY (${n.outcome.removePrefix("refused: ")})")
+        if (n.tag != noticeTag) return                      // an older PLAY's (a restart's own PLAY closed it)
+        if (n.outcome.startsWith("refused")) { noticeFallback("RIGHT refused its PLAY (${n.outcome.removePrefix("refused: ")})"); return }
+        // fix B1: a phone write into the box closed the live timer on the glasses (a scroll's slide frames, a badge, a
+        // coalesced body, cached text beside it — the transport's CLOSE, §5.6): the box shows its END, full ink. The
+        // phone's steps take the rest of the grace from the step the timer had reached, on the same grid: focus at the
+        // same 2.0 s. (A restart's own PLAY closes an older tag; the focus CLOSE comes after the grace.)
+        if (n.outcome == "closed" && notifications.engine && graceRuns() && noticeOwed == null) {
+            val elapsedMs = (System.nanoTime() - graceT0Ns) / 1_000_000
+            stopGrace()
+            notifications.engine = false
+            if (noticePhase == NoticePhase.ARRIVAL) { graceT0Ns = System.nanoTime(); notifications.graceStepAt(0) }
+            else notifications.graceStepAt((elapsedMs / Notifications.GRACE_STEP_MS).toInt())
+            paintNotification()
+            armGraceStep()
+            noticeStepsSay("a write into the box closed its timer (the phone's steps take the rest of the grace)")
+        }
     }
 
     /**
@@ -2840,8 +2878,13 @@ class Shell(
         if (key != noticeProgsFor) noticeLayout(st, key)
         for (p in noticeProgs) if (p.rec.state == StagedRecord.State.SENT && stageInFlightRec !== p.rec) p.rec.state = StagedRecord.State.WANTED
         val rec = noticeProgs.firstOrNull { it.rec.state == StagedRecord.State.WANTED }?.rec ?: return false
-        if (atlasInFlight != null || stageInFlight != null || ledgerReadInFlight || st.inFlight != 0 || comp.hasPending || comp.needsKeyframe) return false
+        // Page staging's holds, every one (fix A2): the atlas's lane, the count's reading, a re-send owed, one unproven
+        // record at a time
+        if (atlasInFlight != null || atlasQueue.isNotEmpty() || atlasLapsedOwed || atlasCheckInFlight) return false
+        if (stageInFlight != null || ledgerReadInFlight || st.inFlight != 0 || comp.hasPending || comp.needsKeyframe) return false
         if (ledgerBaseOwed(st)) return tryLedgerRead(st)
+        if (stage.count(StagedRecord.State.ACKED) > 0 || noticeProgs.any { it.rec.state == StagedRecord.State.ACKED }) return false
+        if (atlasResendMissing > 0L) return false
         stageSubmit(rec, st)
         return true
     }
@@ -2877,6 +2920,32 @@ class Shell(
      * written over.
      */
     private fun pagingInFront(): Boolean = settings.pageStaging == "on" && stagedDoc() != null
+
+    /**
+     * Fix A3: how many of the box's edge columns a nearer plane covers on a lens at the depths in force — a region nearer
+     * than the box (disparity below the Global depth it sits at until focus) on its rows, within the depth's reach of its
+     * sides: its pieces beside the box render nearer and win over the box's shifted columns (Main's selection band covers
+     * 4 at the defaults; a nearer app depth or a window's own plane more). Only the `self` tracks reproduce what is there;
+     * the bar's run (8 in from each end) must not reach it.
+     */
+    private fun noticeCover(n: Notifications.Notice): Int {
+        val d = settings.depth
+        if (d <= 0) return 0
+        val box = notifications.fullRect(n, layout, false)
+        var near = d
+        // the box's neighbourhood on each side, as far as its shift reaches: every region there, and the remainder
+        // (plane 0, no region: "a plane at 0 needs no region") wherever no one region holds the strip whole
+        for (strip in listOf(Rect(box.x - d, box.y, d, box.h), Rect(box.right, box.y, d, box.h))) {
+            var held = false
+            for (p in comp.planes) {
+                if (p.rect == box || p.rect.intersect(strip) == null) continue
+                near = minOf(near, p.disparity)
+                if (p.rect.contains(strip)) held = true
+            }
+            if (!held) near = 0
+        }
+        return maxOf(0, d - near)
+    }
     private fun sliceHeld(region: IntRange): Boolean =
         stage.ring?.resident.orEmpty().any { it.off >= 0 && it.off <= region.last && it.off + it.size4 > region.first }
 
@@ -2888,14 +2957,14 @@ class Shell(
      */
     private fun noticeYield(why: String) {
         if (noticeProgs.isEmpty() && noticeProgsFor == null) return
-        noticeProgs = emptyList(); noticeProgsFor = null; noticePlay = null
+        noticeProgs = emptyList(); noticeProgsFor = null
         journal.note("notice", "the notice's programs leave the slice — $why")
     }
 
     /** A new session (a fresh lease frees the cache), a cache another writer touched: every program goes again. */
     private fun noticeReset() {
         noticeProgs = emptyList(); noticeProgsFor = null
-        noticePlay = null; noticePlayFlush = null; noticeEngineOff = null
+        noticeOwed = null; noticePlayFlush = null; noticeEngineOff = null
     }
 
     /** The arrival a box about to show takes ([Notifications.arrivalFor]): a random pick among the `Popup ·` rows that are
@@ -2911,7 +2980,8 @@ class Shell(
             Notifications.Arrival.SLIDE -> noticeProg(PopupPrograms.Style.SLIDE, n) != null
             else -> true
         } }
-        return ok.randomOrNull() ?: Notifications.Arrival.UNFURL
+        // fix B5: an engine style that cannot run gives what he left on — the unfurl if it is on, else at once
+        return ok.randomOrNull() ?: if (settings.popupUnfurl) Notifications.Arrival.UNFURL else Notifications.Arrival.NONE
     }
 
     private fun scheduleSilentDismiss() {
@@ -3036,8 +3106,6 @@ class Shell(
             "list in front ${f?.second?.list ?: "none"}, Taps ${settings.taps.word}")
     }
 
-    private var lastLocalOnlyId: Long? = null
-
     /** Build K1-4a: the notice's PLAY alone (an input with nothing else to draw: the restart is its whole flush). */
     private suspend fun submitNoticeOnly(play: ByteArray) {
         try {
@@ -3048,17 +3116,18 @@ class Shell(
     }
 
     /** A flush of the rules' messages alone (nothing to draw): one sub-message as its own image, more as a batch. */
-    private suspend fun submitLocalOnly(tail: List<ByteArray>, label: String) {
-        if (tail.isEmpty()) return
+    private suspend fun submitLocalOnly(tail: List<ByteArray>, label: String): Long? {
+        if (tail.isEmpty()) return null
         try {
             val id = transport.submit(FlushRequest(emptyList(), comp.epoch, label, tail = tail))
-            lastLocalOnlyId = id
             localOnlyFlushes += id
             localTailFlushes += id
             mainBind.tailSent(id, mainBindEntriesSent())
+            return id
         } catch (e: Exception) {
             // the link ended between the pump's gate and the submit: the next session's start sends the whole table
             journal.note("local", "a flush of local-input messages was not submitted: ${e.message ?: e::class.simpleName}")
+            return null
         }
     }
 
@@ -4757,6 +4826,8 @@ class Shell(
                 // nothing before this reading can be proven by counting: an acked record goes again
                 val unproven = stage.records.values.filter { it.state == StagedRecord.State.ACKED }
                 for (r in unproven) stage.remove(r)
+                // fix A2: the notice's programs too — written again, never proven by a count that cannot see them
+                for (p in noticeProgs) if (p.rec.state == StagedRecord.State.ACKED) p.rec.state = StagedRecord.State.WANTED
                 if (unproven.isNotEmpty()) journal.note("stage", "$from re-based the generation count at ${v.gen} — ${unproven.size} acked record(s) go again")
                 // the atlas's half: the messages acked before it leave the books unjudged; a re-send
                 // among them can no longer be read, so the lens is put right by a keyframe instead
@@ -4818,6 +4889,9 @@ class Shell(
             is CacheLedger.Verdict.Shortfall -> {
                 val lost = stage.records.values.filter { it.state == StagedRecord.State.ACKED && it.ackedAt > v.fromAcked && it.ackedAt <= v.toAcked }
                 for (r in lost) stage.remove(r)
+                // fix A2: a notice program of the short interval goes again
+                for (p in noticeProgs) if (p.rec.state == StagedRecord.State.ACKED && p.rec.ackedAt > v.fromAcked && p.rec.ackedAt <= v.toAcked)
+                    p.rec.state = StagedRecord.State.WANTED
                 // the atlas is NOT switched off on a shortfall (2026-09-16 21:xx, §66.1): the 0.57 ledger took
                 // cached text down for the evening on three lagged readings forty minutes apart. 0.64 (Adam's
                 // ruling, §75.1): no gate either — a shortfall is SAID, the atlas messages of its interval are
@@ -5849,16 +5923,18 @@ class Shell(
     fun graceState(): Pair<Int, Boolean> = notifications.graceStep to (graceJob != null)
     /** Build K1-4a, tests: the notice's programs as "STYLE lines STATE" (a wait's condition; read off the loop). */
     internal fun noticeProgramsForTest(): List<String> = noticeProgs.map { "${it.style} ${it.lines} ${it.rec.state}" }
+    /** Fix A2's pin, on the loop: the first notice program taken as acked now, then a Base or ([shortfall]) a Shortfall
+     *  over the interval that holds that ack, judged as the ledger judges it; the program's state after. */
+    internal fun noticeVerdictForTest(shortfall: Boolean): String {
+        val p = noticeProgs.firstOrNull() ?: return "none"
+        p.rec.state = StagedRecord.State.ACKED; p.rec.ackedAt = cacheLedger.acked
+        ledgerVerdict(if (shortfall) CacheLedger.Verdict.Shortfall(1, 0, p.rec.ackedAt - 1, p.rec.ackedAt)
+            else CacheLedger.Verdict.Base(0, false), "test", null, false)
+        return p.rec.state.name
+    }
     /** Build K1-4a, tests: Page staging's records in the ring (offset, bytes, state) — the strips a notice must leave alone. */
     internal fun pageStripsForTest(): List<Triple<Int, ByteArray, String>> =
         stage.ring?.resident.orEmpty().filter { it.key !is MainStageKey }.map { Triple(it.off, it.encoded, it.state.name) }
-    /** Build K1-4a, tests: why the programs are not written (one line; off the loop, a diagnosis only). */
-    internal fun noticeDiagForTest(): String = transport.state.value.let { st ->
-        "key ${noticeLayoutKey(st) != null} region ${CfwModes.noticeRegion(st.cacheSize, st.bind)} cache ${st.cacheSize} bind ${st.bind} " +
-            "flags 0x${st.flagsInForce.toString(16)} draw2 ${st.draw2} lease ${st.leaseHeld} ledger ${ledgerReadable(st)} stageFailed $stageFailed " +
-            "inFlight ${st.inFlight} pending ${comp.hasPending} stageInFlight $stageInFlight atlas $atlasInFlight/${atlasQueue.size} " +
-            "ledgerRead $ledgerReadInFlight progs ${noticeProgs.size}"
-    }
 
     /** A staging the region could not hold, by what it was painted for: not painted again until one of those changes. */
     private var mainBindRefusedFor: String? = null
@@ -7638,7 +7714,8 @@ class Shell(
         if (localOn) scheduleLocalSettle()
         if (localOn && local.settleDue(localNow) && !local.owed && !comp.hasPending && !comp.needsKeyframe) {
             submitLocalOnly(local.loneSettle(localRow(), localNow), "SETTLE")       // P7: alone, Q after the burst
-        } else if (comp.hasPending || comp.needsKeyframe || (localOn && local.owed) || noticePlay != null) {
+        } else if (comp.hasPending || comp.needsKeyframe || (localOn && local.owed) || noticeOwed != null) {
+            val noticeProg = noticeResolve()      // fix A1: before the frame is assembled, after the input acted
             comp.placements = stagePlacements()   // §66: what this frame may draw from the reserve
             // build C1's B-N5: room for the transport's CLOSE — asked of the mirror (and its lock) only while ENGINE is
             // in force, the one state in which the transport adds a CLOSE (ruling B-N4); elsewhere, today's firmware
@@ -7686,10 +7763,11 @@ class Shell(
                 else emptyList()
             // build K1-4a: the notice's PLAY after every drawing sub (the box's END picture is in the shadow when it is
             // captured) — this frame's, an input's own; never into a batch that leaves part of the frame for the next
-            val noticeTail = noticeTakePlay(leavesPending = assembled != null && comp.hasPending)
-            if (assembled == null && localTail.isNotEmpty()) submitLocalOnly(localTail + listOfNotNull(noticeTail), "LOCAL")
-                .also { if (noticeTail != null) noticePlayFlush = lastLocalOnlyId }
-            else if (assembled == null && noticeTail != null) submitNoticeOnly(noticeTail)
+            val noticeTail = noticeTakePlay(noticeProg, leavesPending = (assembled != null && comp.hasPending) || comp.deferring)
+            if (assembled == null && localTail.isNotEmpty()) {
+                val id = submitLocalOnly(localTail + listOfNotNull(noticeTail), "LOCAL")
+                if (noticeTail != null) { if (id != null) noticePlayFlush = id else noticeFallback("its PLAY's flush was not submitted") }
+            } else if (assembled == null && noticeTail != null) submitNoticeOnly(noticeTail)
             if (assembled != null) {
                 val assembleMs = (System.nanoTime() - assembleT0) / 1_000_000
                 // the loop stamped loopSince when it took the message this
@@ -7730,12 +7808,14 @@ class Shell(
                     journal.note("link", "flush dropped: ${e.message} — the session is restarting")
                     comp.rollback(assembled)
                     mirrorWhole = true                     // P6 item 5: a rolled-back flush — the next check is whole
+                    if (noticeTail != null) noticeFallback("its PLAY's flush was not submitted (${e.message})")   // fix B4
                 } catch (e: Exception) {
                     Log.e("shell", "submit failed", e)
                     journal.note("submit-error", e.toString())
                     raiseFault("submit", "a flush could not be submitted: ${e.message ?: e::class.simpleName}", urgent = true, source = "transport")
                     comp.rollback(assembled)
                     mirrorWhole = true                     // P6 item 5
+                    if (noticeTail != null) noticeFallback("its PLAY's flush was not submitted (${e.message})")   // fix B4
                 }
             }
         } else {

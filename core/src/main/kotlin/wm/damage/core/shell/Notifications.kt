@@ -78,6 +78,9 @@ class Notifications(private val text: TextRasterizer) {
         return was != 0
     }
 
+    /** K1-4a fix B1: the phone's steps take over a closed engine timer at the step it had reached (0..last before focus). */
+    fun graceStepAt(k: Int) { graceStep = k.coerceIn(0, GRACE_STEPS - 1) }
+
     /** One step of the timer; true when the bar is whole (the caller gives the box focus). */
     fun advanceGrace(): Boolean {
         if (graceStep < GRACE_STEPS) graceStep++

@@ -54,6 +54,7 @@ class NoticeEngineTest {
             assertEquals(12, first.sourceLevel, "the shadow holds the box at full ink (the END every PLAY captures)")
             var tag = tag0
             repeat(5) { i ->
+                r.calmCache("before restart ${i + 1}")             // no cache write lands inside the count (one evaluation decides)
                 val f0 = r.flushes.get()
                 r.shell.postGesture(EvenHubMsg.EV_RING_LONG_PRESS_RELEASE, 0)        // an input with nothing else to draw
                 r.settle("restart ${i + 1}")
@@ -167,17 +168,178 @@ class NoticeEngineTest {
             r.assertStripsIntact("the notice over the page")
             r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)        // the box unfocused: the doc's back, to Main
             r.settle("back")
-            delay(500); r.settle("idle")
+            r.calmCache("idle on Main")                              // the programs' writes and their reading, if any, are over
             r.assertStripsIntact("back on Main, idle")
             assertTrue(r.strips().count { it.third == "PROVEN" } >= strips, "the strips are still in the ring: ${r.strips().map { it.third }}")
             // and the other way round: the notice holds no program a strip has written over — while the strips are in the
             // slice its programs are not counted there, and a notice on Main takes the phone's steps (no PLAY of them)
-            assertTrue(r.shell.noticeProgramsForTest().none { it.endsWith("PROVEN") }, "a notice program counted under a strip: ${r.shell.noticeProgramsForTest()}")
+            val progs = r.sample("the programs") { r.shell.noticeProgramsForTest() }
+            assertTrue(progs.none { it.endsWith("PROVEN") }, "a notice program counted under a strip: $progs")
             r.shell.postNotice(Notifications.Notice("SMS · TEST", "t2", "on Main after reading", "12:00"))
             r.settle("a notice on Main")
             assertFalse(r.snap("on Main").engine, "while the strips hold the slice the timer is the phone's steps")
             r.assertStripsIntact("the notice on Main")
         } finally { r.close() }
+    }
+
+    // ------------------------------------------------------------------ fix stage 1 (review pass 1)
+
+    /** A1: a gesture that moves the box (a window with its own height) — the PLAY is built for the box where it is now. */
+    @Test
+    fun aGestureThatMovesTheBoxPlaysTheBoxWhereItIs_A1(): Unit = runBlocking {
+        val r = Rig()
+        try {
+            r.shell.register(Rows("tall", height = 416))
+            r.up()
+            r.shell.postNotice(Notifications.Notice("SMS · TEST", "t1", "one line of body", "12:00"))
+            r.settle("the box"); assertTrue(r.snap("the box").engine)
+            r.shell.postGesture(EvenHubMsg.EV_CLICK)                 // unfocused: Main's tap opens the 416-high window
+            r.settle("the window"); r.calmCache("the window")
+            assertEquals("tall", r.shell.currentWindowId())
+            r.assertShadowIsBelief("after the window's height moved the box")
+            r.assertTimerAlive("after the window's height moved the box")
+        } finally { r.close() }
+    }
+
+    /** B1: an input that DRAWS (a scroll under the box) — a write closing the timer hands the grace to the phone's steps. */
+    @Test
+    fun aScrollUnderTheBoxLeavesItsTimerAlive_B1(): Unit = runBlocking {
+        val r = Rig()
+        try {
+            r.shell.register(Rows("list"))
+            r.up()
+            r.shell.services.runOnShell { r.shell.services.openWindow("list", null) }; r.settle("the list"); r.calmCache("the list")
+            r.shell.postNotice(Notifications.Notice("SMS · TEST", "t1", "one line of body", "12:00"))
+            r.settle("the box"); assertTrue(r.snap("the box").engine)
+            repeat(3) { i ->
+                r.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM); r.settle("notch ${i + 1}"); r.calmCache("notch ${i + 1}")
+                r.assertTimerAlive("notch ${i + 1}")
+            }
+            r.assertShadowIsBelief("after the notches")
+        } finally { r.close() }
+    }
+
+    /** B1: a write that is no input (a second notice's badge) closes the timer — the phone's steps take over. */
+    @Test
+    fun aBadgeWrittenIntoTheBoxLeavesItsTimerAlive_B1(): Unit = runBlocking {
+        val r = Rig()
+        try {
+            r.up()
+            r.shell.postNotice(Notifications.Notice("SMS · ONE", "t1", "the first", "12:00"))
+            r.settle("the box"); assertTrue(r.snap("the box").engine)
+            r.shell.postNotice(Notifications.Notice("SMS · TWO", "t2", "queued behind it", "12:00"))
+            r.settle("the badge"); r.calmCache("the badge")
+            r.assertTimerAlive("after the badge")
+            r.assertShadowIsBelief("after the badge")
+        } finally { r.close() }
+    }
+
+    /** A3: a nearer plane over more of the box's edge than the bar's inset (Global Depth 16, a window at 0) — the
+     *  phone's steps for that notice, nothing drawn over the nearer plane. */
+    @Test
+    fun aNearerPlaneOverTheBarsRunTakesThePhonesSteps_A3(): Unit = runBlocking {
+        val r = Rig(ShellSettings(cachedText = "on", depth = 16, appStyles = mapOf("near" to ShellSettings.AppStyle(depth = 0))))
+        try {
+            r.shell.register(Rows("near"))
+            r.up()
+            r.shell.services.runOnShell { r.shell.services.openWindow("near", null) }; r.settle("the window"); r.calmCache("the window")
+            r.shell.postNotice(Notifications.Notice("SMS · TEST", "t1", "one line of body", "12:00"))
+            r.settle("the box"); r.calmCache("the box")
+            assertFalse(r.snap("the box").engine, "a 16-column cover: the phone's steps")
+            r.assertShadowIsBelief("the box over the nearer window")
+        } finally { r.close() }
+    }
+
+    /** A2: a Base or a Shortfall over a program's write sends it again; it is never taken as counted. */
+    @Test
+    fun aBaseOrAShortfallSendsTheProgramAgain_A2(): Unit = runBlocking {
+        val r = Rig()
+        try {
+            r.up()
+            assertEquals("WANTED", r.sample("a Base") { r.shell.noticeVerdictForTest(shortfall = false) }, "a Base")
+            r.calmCache("written again")
+            assertEquals("WANTED", r.sample("a Shortfall") { r.shell.noticeVerdictForTest(shortfall = true) }, "a Shortfall over its write")
+        } finally { r.close() }
+    }
+
+    /** B3: the fallback from inside a restart (the programs left the slice) arms ONE chain: focus 2.0 s after the input. */
+    @Test
+    fun theFallbackInsideARestartKeepsTheTwoSeconds_B3(): Unit = runBlocking {
+        val r = Rig(byHand = false)
+        try {
+            r.shell.register(Doc(9))
+            r.up()
+            r.shell.postNotice(Notifications.Notice("SMS · TEST", "t1", "one line of body", "12:00"))
+            r.settle("the box"); assertTrue(r.snap("the box").engine)
+            r.shell.services.runOnShell { r.shell.services.openWindow("doc", null) }   // no input: the slice yields to the page
+            r.settle("the doc"); r.calmCache("the doc")
+            assertTrue(r.sample("yielded") { r.shell.noticeProgramsForTest().isEmpty() }, "the programs left the books")
+            val t0 = System.currentTimeMillis()
+            r.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)           // a restart that falls back to the phone's steps
+            val t1 = r.firstTime("focus") { r.shell.notifications.focused }
+            println("NoticeEngineTest: focus ${t1 - t0} ms after the restart")
+            assertTrue(t1 - t0 >= 1_900, "focus came ${t1 - t0} ms after the restart — before the 2.0 s grace")
+        } finally { r.close() }
+    }
+
+    /** B4: a PLAY whose flush is not submitted — that notice takes the phone's steps, said. */
+    @Test
+    fun aPlayWhoseFlushIsNotSubmittedTakesThePhonesSteps_B4(): Unit = runBlocking {
+        val r = Rig()
+        try {
+            r.shell.register(Rows("list"))
+            r.up()
+            r.shell.postNotice(Notifications.Notice("SMS · TEST", "t1", "one line of body", "12:00"))
+            r.settle("the box"); assertTrue(r.snap("the box").engine); r.calmCache("the box")
+            r.flaky.failPlay = true
+            r.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)           // a restart in a flush that draws (Main's cursor moves)
+            r.settle("the failed submit"); r.calmCache("the failed submit")
+            r.assertTimerAlive("after the failed submit")
+        } finally { r.close() }
+    }
+
+    /** B5: Unfurl off, only an engine style on, and it cannot run (stage 3: no slice) — at once, never the unfurl. */
+    @Test
+    fun anEngineStyleThatCannotRunAppearsAtOnce_B5(): Unit = runBlocking {
+        val r = Rig(ShellSettings(cachedText = "on", popupUnfurl = false, popupFade = true), stage = "3")
+        try {
+            r.up(programs = false)
+            r.shell.postNotice(Notifications.Notice("SMS · TEST", "t1", "one line of body", "12:00"))
+            r.settle("the box")
+            assertEquals(Notifications.Arrival.NONE, r.sample("arrival") { r.shell.notifications.arrival }, "at once (the tier's None)")
+        } finally { r.close() }
+    }
+
+    /** The phone's own timer arithmetic, on the real clock: a Fade's end sends the timer's PLAY, focus 2.0 s after it. */
+    @Test
+    fun onTheRealClockTheArrivalThenTheTimer(): Unit = runBlocking {
+        val r = Rig(ShellSettings(cachedText = "on", popupUnfurl = false, popupFade = true), byHand = false)
+        try {
+            r.up()
+            r.shell.postNotice(Notifications.Notice("SMS · TEST", "t1", "one line of body", "12:00"))
+            var arrivalTag = -1
+            val tA = r.firstTime("the arrival plays") { r.sim.motionOpenIn(Arm.RIGHT, PopupPrograms.SLOT)?.first?.also { arrivalTag = it } != null }
+            val tT = r.firstTime("the timer plays") { r.sim.motionOpenIn(Arm.RIGHT, PopupPrograms.SLOT)?.first.let { it != null && it != arrivalTag } }
+            val tF = r.firstTime("focus") { r.shell.notifications.focused }
+            println("NoticeEngineTest: the arrival ${tT - tA} ms, focus ${tF - tT} ms after the timer's PLAY")
+            assertTrue(tT - tA in 150..1_500, "the timer's PLAY ${tT - tA} ms after the arrival's")
+            assertTrue(tF - tT in 1_850..4_000, "focus ${tF - tT} ms after the timer's PLAY")
+        } finally { r.close() }
+    }
+
+    private class Rows(id: String, private val height: Int? = null) :
+        wm.damage.core.shell.DamageWindow(id, id.replaceFirstChar { it.uppercase() }, wm.damage.core.gfx.IconKind.FILES) {
+        private val model = wm.damage.core.shell.ListModel()
+        private val tx = FakeText()
+        private val f = wm.damage.core.text.FontSpec(wm.damage.core.text.Face.SYSTEM, 18)
+        override val preferredHeight: Int? get() = height
+        override fun view(): wm.damage.core.shell.WindowView = wm.damage.core.shell.WindowView.ListView(model, { 30 },
+            paintRow = { g, i, rr, _ -> tx.draw(g, rr.x + 4, rr.y + 5, "Row $i of the list under the box", f, wm.damage.core.gfx.Level.BODY) },
+            paintLens = { g, rr, i -> tx.draw(g, rr.x + 4, rr.y + 8, "Row $i", f, wm.damage.core.gfx.Level.HEAD) },
+            onCommit = {})
+        override fun summary() = Summary("30 rows")
+        override fun saveState(): kotlinx.serialization.json.JsonObject = kotlinx.serialization.json.buildJsonObject {}
+        override fun restoreState(state: kotlinx.serialization.json.JsonObject) {}
     }
 
     private class Doc(private val step: Int) : wm.damage.core.shell.DamageWindow("doc", "Doc", wm.damage.core.gfx.IconKind.READER) {
@@ -194,10 +356,19 @@ class NoticeEngineTest {
 
     // ------------------------------------------------------------------ the rig
 
+    /** Fix B4's knob: the next submit carrying a mode-26 message throws, as a link ending between the pump and the send. */
+    private class Flaky(private val inner: wm.damage.core.transport.Transport) : wm.damage.core.transport.Transport by inner {
+        @Volatile var failPlay = false
+        override suspend fun submit(flush: wm.damage.core.transport.FlushRequest): Long {
+            if (failPlay && flush.tail.any { it.isNotEmpty() && it[0].toInt() == 26 }) { failPlay = false; throw IllegalStateException("test: the link ended") }
+            return inner.submit(flush)
+        }
+    }
+
     private class Snap(val engine: Boolean, val focused: Boolean, val animating: Boolean, val open: Pair<Int, Int>?,
         val capture: ByteArray, val shadowR: ByteArray, val sourceLevel: Int)
 
-    private class Rig(settings: ShellSettings = ShellSettings(cachedText = "on"), stage: String = "4") {
+    private class Rig(settings: ShellSettings = ShellSettings(cachedText = "on"), stage: String = "4", byHand: Boolean = true) {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val tmp: java.nio.file.Path = Files.createTempDirectory("damage-nengine")
         val store = Persistence(tmp.resolve("state.json"))
@@ -207,7 +378,8 @@ class NoticeEngineTest {
         val transport: wm.damage.core.transport.CfwTransportBase = if (stage == "4")
             StartRig(sim, scope, c1StageFile = tmp.resolve("c1-stage").also { f -> Files.writeString(f, wm.damage.core.transport.LadderRecord(stage = 4, sessionKib = 256).encode()) })
             else SimTransport(sim, scope, SimTransport.Timing(instant = true)).also { it.devProbe("c1", stage) }
-        val shell = Shell(wm.damage.core.comp.CachedText(FakeText()), transport, store, null, scope) { Shell.LocalClock(12, 0, "12:00", "PM") }
+        val flaky = Flaky(transport)
+        val shell = Shell(wm.damage.core.comp.CachedText(FakeText()), flaky, store, null, scope) { Shell.LocalClock(12, 0, "12:00", "PM") }
         val flushes = AtomicInteger(0)
         private val failures = ArrayList<String>()
         /** The transport's notes (kind, detail): RIGHT's motion bodies and what the transport made of them. */
@@ -228,7 +400,7 @@ class NoticeEngineTest {
 
         init {
             store.put("shell.settings", settings.toJson())
-            shell.graceByHand = true
+            shell.graceByHand = byHand
             // the glasses' engine thread: a step due is drawn (as OracleWalkTest's stage-4 rig)
             scope.launch { while (true) { val now = System.currentTimeMillis(); for (a in Arm.entries) sim.conformanceWake(a, now); delay(4) } }
             scope.launch(start = CoroutineStart.UNDISPATCHED) {
@@ -247,12 +419,21 @@ class NoticeEngineTest {
             throw AssertionError("$what: never idle — ${shell.quiescenceReport()}")
         }
 
+        suspend fun <T : Any> trySample(block: () -> T): T? = if (shell.isQuiescent()) shell.sampleIdle(block) else null
+
+        /** When [cond] first held on an idle loop (polled every 2 ms; the wall clock of the test). */
+        suspend fun firstTime(what: String, cond: () -> Boolean): Long {
+            val start = System.currentTimeMillis()
+            while (System.currentTimeMillis() - start < 15_000) { if (trySample(cond) == true) return System.currentTimeMillis(); delay(2) }
+            throw AssertionError("$what never held — ${shell.quiescenceReport()}")
+        }
+
         /** Up, the atlas live, and (with [programs]) the notice's programs counted on the glasses. */
         suspend fun up(programs: Boolean = true) {
             shell.start(); settle("start")
             waitUntil(20_000, 5, { "the atlas never came up" }) { shell.cachedTextActive && shell.cachedFontsLive.isNotEmpty() }
             settle("atlas")
-            if (programs) waitUntil(30_000, 10, { "the notice's programs were never counted: ${shell.noticeProgramsForTest()} — ${shell.noticeDiagForTest()}" }) {
+            if (programs) waitUntil(30_000, 10, { "the notice's programs were never counted: ${shell.noticeProgramsForTest()}" }) {
                 shell.noticeProgramsForTest().let { p -> p.isNotEmpty() && p.all { it.endsWith("PROVEN") } }
             }
             settle("programs")
@@ -307,6 +488,20 @@ class NoticeEngineTest {
         }
 
         fun strips() = shell.pageStripsForTest()
+
+        /** Settled with no cache work on its way or unjudged (the harness rule: one evaluation decides). */
+        suspend fun calmCache(what: String) {
+            repeat(2_000) { if (sample(what) { !shell.cacheWorkInFlight && shell.cacheCountUnjudged == 0L }) return; delay(10) }
+            throw AssertionError("$what: cache work never ended — ${shell.quiescenceReport()}")
+        }
+
+        /** The box after a write or an input: its timer running on the glasses (slot 2 open), or the phone's steps owed —
+         *  never the engine's END with no timer (fix B1's state). */
+        suspend fun assertTimerAlive(what: String) {
+            val (engine, open, owed) = sample(what) { Triple(shell.notifications.engine, sim.motionOpenIn(Arm.RIGHT, PopupPrograms.SLOT), shell.graceState().second) }
+            assertTrue(owed, "$what: a step is owed")
+            assertTrue(!engine || open != null, "$what: the box at full ink with no timer on the glasses and the engine's flag up")
+        }
 
         /** Every proven strip's bytes in RIGHT's cache are its record's (no notice program or capture over them). */
         suspend fun assertStripsIntact(what: String) {
