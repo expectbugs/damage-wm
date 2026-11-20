@@ -235,8 +235,8 @@ class Version2MotionTest {
         val files = Files.list(vectorDir()).use { s -> s.filter { it.fileName.toString().let { n -> n.startsWith("v5-") && n.endsWith(".json") } }.sorted().toList() }
         // stage X2D (decisions Y, C-3) added eight `v5-x2-*` files beside the 20: every one is read here too; stage X3D the
         // shipped transitions (`v5-ship-*`, their records written as mode 25 where ZWRITE is in force) and `v5-x3-hint`;
-        // stage X3T Encode's and Matrix's ship vectors (their cell lists and alphabets, rain records), unfilled until the
-        // fork's fill — the DSL reads inputs only, so they are rebuilt here as soon as they are committed
+        // stage X3T Encode's and Matrix's ship vectors (their cell lists and alphabets, rain records), filled at X5T's
+        // comparison — the DSL reads inputs only
         val x3t = ShipVectors.specs().count { it.effect.glyphs }
         assertEquals(28 + ShipVectors.specs().size + 1, files.size,
             "the 20 v5 vectors, X2D's 8, X3D's ${ShipVectors.specs().size - x3t} ship vectors and v5-x3-hint, X3T's $x3t ship vectors")
