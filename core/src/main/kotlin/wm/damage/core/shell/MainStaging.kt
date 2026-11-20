@@ -624,6 +624,10 @@ class MainStaging private constructor(
          *  `FIRMWARE.md` §5.6's step cost, measured 11-19). */
         fun roomFor(seen: Int): Int = (seen + maxOf(seen / 4, ROOM_MIN) + 3) and 3.inv()
         const val ROOM_MIN = 128
+        /** B082: the wrap record's layouts, in the order a short region gives them up ([assemble]'s `wrapFit`). */
+        const val WRAP_SLACK = 0
+        const val WRAP_TIGHT = 1
+        const val WRAP_NONE = 2
 
         /**
          * Main at [layout] staged for a session cache of [cacheSize] bytes, its records laid out from [regionStart] and
@@ -651,7 +655,10 @@ class MainStaging private constructor(
                      regionEnd: Int = cacheSize, widths: List<Int> = WIDTHS + WHOLE, twoStrips: Boolean = false,
                      motion: ScrollMotion? = null,
                      /** B082: per row, the segment room a row that changed in an earlier staging is given (0: none). */
-                     room: IntArray? = null): MainStaging {
+                     room: IntArray? = null,
+                     /** B082: how the wrap's record is laid out — [WRAP_SLACK] with its slot's eighth more, [WRAP_TIGHT] in
+                      *  a slot of its segments alone, [WRAP_NONE] left out (the wrap then goes as the shell's frames). */
+                     wrapFit: Int = WRAP_SLACK): MainStaging {
             val layout = paint.layout
             if (cacheSize < CfwModes.STAGE_RESERVE || cacheSize > CfwModes.CACHE2_MAX_RIDERS || cacheSize % 4 != 0)
                 throw LintError("no staging for a cache of $cacheSize B (a contract-2 session's 64..256 KiB)")
@@ -702,8 +709,8 @@ class MainStaging private constructor(
                 stripEnc.copyOf(), next(stripSlot), stripSlot, segOff.copyOf(), segLen.copyOf())
             // B082: the wrap's record — the rows a pan across either end shows, (n−1−mA … n−1, 0 … mB): a notch down from the
             // last row and a notch up from row 0 both slide over this same sequence — in segments as the strip, its own slot
-            val wrapRow = if (!wraps) IntArray(0) else IntArray(mA + mB + 2) { j -> (n - 1 - mA + j).mod(n) }
-            val wrapPic = if (!wraps) null else {
+            val wrapRow = if (!wraps || wrapFit == WRAP_NONE) IntArray(0) else IntArray(mA + mB + 2) { j -> (n - 1 - mA + j).mod(n) }
+            val wrapPic = if (!wraps || wrapFit == WRAP_NONE) null else {
                 val wg = Gray8(rowW, wrapRow.size * l.rowH)
                 for (j in wrapRow.indices) paint.rowForms[wrapRow[j]]!!.pix.copyInto(wg.pix, j * segPx)
                 val wlv = levelsOf(wg)
@@ -713,7 +720,7 @@ class MainStaging private constructor(
                 put16(wEnc, 0, rowW); put16(wEnc, 2, wg.h)
                 var wo = 4
                 for (j in wrapRow.indices) { wOff[j] = wo; rlePadded(wlv, j * segPx, (j + 1) * segPx, wLen[j])!!.copyInto(wEnc, wo); wo += wLen[j] }
-                val wSlot = (wEnc.size + wEnc.size / STRIP_EXTRA_DIV + 3) and 3.inv()
+                val wSlot = (wEnc.size + (if (wrapFit == WRAP_TIGHT) 0 else wEnc.size / STRIP_EXTRA_DIV) + 3) and 3.inv()
                 Picture("wrap", wg, wlv, wEnc, next(wSlot), wSlot, wOff, wLen)
             }
             // each row's band form, painted where the band is (the painters snap x and y to the panel's grid), in a slot
@@ -729,10 +736,14 @@ class MainStaging private constructor(
             // the item table: each row's band form (kind 1)
             val itemOffs = IntArray(n) { bands[it].off4 }
             val items4 = next(2 * n) / 4
-            // B082: room is given only where the region holds it — else the staging as it was without (here, and once the
-            // programs are laid out below)
-            if (room != null && room.any { it > 0 } && (at > regionEnd || bands.any { it.off4 > 0xFFFF } || spareOff / 4 > 0xFFFF || items4 > 0xFFFF))
-                return assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, room = null)
+            // B082: what the region cannot hold is given up in this order — the rows' room, then the wrap record's slack,
+            // then the wrap record itself (here, and once the programs are laid out below)
+            fun lessOrNull(): MainStaging? = when {
+                room != null && room.any { it > 0 } -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, null, wrapFit)
+                wrapPic != null -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, null, wrapFit + 1)
+                else -> null
+            }
+            if (at > regionEnd || bands.any { it.off4 > 0xFFFF } || spareOff / 4 > 0xFFFF || items4 > 0xFFFF) lessOrNull()?.let { return it }
             if (bands.any { it.off4 > 0xFFFF } || spareOff / 4 > 0xFFFF || items4 > 0xFFFF) throw LintError("Main's records pass the u16 off4 reach")
             // every slot a band form can be in is a record the programs know (a parameter names one of them)
             val records = listOfNotNull(strip.record, stripB?.record, wrapPic?.record) + bands.map { it.record } + Motion.Source.Record(spareOff / 4, rowW, l.lens.h, spareSlot)
@@ -798,8 +809,7 @@ class MainStaging private constructor(
             next(pressProg.bytes.size)
             progs += pressAt4 * 4 to pressProg.bytes
             val press = Press(pressD, pressProg, listOf(Rule(CfwModes.KIND_ITEM, 0), Rule(CfwModes.KIND_ARG, 0), Rule(CfwModes.KIND_ARG, 0), Rule(CfwModes.KIND_ARG, 0)))
-            if (at > regionEnd && room != null && room.any { it > 0 })
-                return assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, room = null)
+            if (at > regionEnd) lessOrNull()?.let { return it }
             if (at > regionEnd) throw LintError("Main's staging ends at $at, past its region's end $regionEnd: ${at - regionStart} B " +
                 "for a ${regionEnd - regionStart} B region (the strip ${strip.slot} B${if (stripB != null) " twice" else ""}, $n band forms ${bands.sumOf { it.slot }} B and a spare slot of $spareSlot B)")
             val progBytes = ByteArray(progs.last().let { (o2, b) -> o2 + b.size } - progs.first().first).also { out ->

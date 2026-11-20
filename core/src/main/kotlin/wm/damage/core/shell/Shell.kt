@@ -5997,7 +5997,9 @@ class Shell(
             "(${if (shared) "the shared reserve" else "Main's own region"}): the strip ${ms.blobs[0].bytes.size} B" +
             (if (ms.stripB != null) " and its second slot ${ms.blobs[1].bytes.size} B" else "") + ", ${ms.rows} band forms " +
             "${ms.blobs.drop(if (ms.stripB != null) 2 else 1).take(ms.rows).sumOf { it.bytes.size }} B, the item table and ${ms.pans.size + 1} programs ${ms.blobs.takeLast(2).sumOf { it.bytes.size }} B; " +
-            "planes $listD/$bandD, press to ${ms.press.pressD}; ${mainBind.stagings} staging(s) and ${mainBind.stagedBytes} B this process")
+            "planes $listD/$bandD, press to ${ms.press.pressD}; ${mainBind.stagings} staging(s) and ${mainBind.stagedBytes} B this process" +
+            (if (ms.wrap == null && ms.rows > ms.layout.rowsAbove + ms.layout.rowsBelow + 1) "; the wrap's own record left out (the region " +
+                "does not hold it): the wrap goes as the shell's frames" else ""))
         post(Msg.Pump)
         return true
     }

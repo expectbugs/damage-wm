@@ -314,6 +314,27 @@ class MainBindTest {
         val ms = MainStaging.assemble(paint, rig.listD, rig.bandD, CfwModes.CACHE2_MAX, region.first, region.last + 1, listOf(MainStaging.WHOLE),
             room = IntArray(plain.rows) { 8_000 })
         assertTrue(ms.strip.segLen!!.contentEquals(plain.strip.segLen!!), "the strip as it was: ${ms.strip.segLen!!.toList()}")
+        assertEquals(plain.wrap?.slot, ms.wrap?.slot, "the room goes first: the wrap's record kept as it was")
+    }
+
+    /** B082 (found by `--local-check` with the desktop's font: 288 at 160 KiB passed its region by 1,328 B): a region
+     *  that cannot hold the wrap's record with its slack takes it tight, and one that cannot hold it at all leaves it
+     *  out — the strips as they were, never a staging refused (Main unbound) for the wrap's sake. */
+    @Test
+    fun aWrapRecordTheRegionCannotHoldIsLaidTightThenLeftOut_B082() {
+        val rig = MainLocalCheck.MainRig(BoxFace, 288, MainLocalCheck.sampleRows())
+        val region = CfwModes.mainRegion(CfwModes.CACHE2_MAX, true)
+        val paint = MainStaging.Paint(rig.layout, rig.view, rig.kit).also { p -> while (!p.done) p.step { _, bb -> bb() } }
+        fun at(end: Int) = MainStaging.assemble(paint, rig.listD, rig.bandD, CfwModes.CACHE2_MAX, region.first, end, listOf(MainStaging.WHOLE))
+        val full = at(region.last + 1)
+        val wp = assertNotNull(full.wrap, "Main wraps at 288 with eight rows")
+        val extra = wp.slot - ((wp.encoded.size + 3) and 3.inv())
+        assertTrue(extra > 0, "the wrap's slot holds an eighth more: $extra B")
+        val tight = at(full.end - extra / 2)
+        assertTrue(tight.wrap != null && tight.wrap!!.slot == (tight.wrap!!.encoded.size + 3) and 3.inv(), "laid tight: ${tight.wrap?.slot}")
+        val none = at(full.end - wp.slot)
+        assertTrue(none.wrap == null && !none.wraps, "left out")
+        assertTrue(none.strip.segLen!!.contentEquals(full.strip.segLen!!), "the strip as it was")
     }
 
     /** B082 (the wrap's own record): a changed row that the wrap's record shows is written there too — its segment in the
