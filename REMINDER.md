@@ -1,8 +1,9 @@
 # Where we are, and what to do next
 
 **The entry point for a fresh session**: what is true now, what is next, where the records are; history lives in
-`HANDOFF.md`. Read `CLAUDE.md` → this file → **`HANDOFF.md` §95** (APK 0.79 and 0.80, the second trial, the notice's
-focus timer, the animation plan ruled, full throttle) → **§94** (C2 flashed on both lenses and armed at stage 4;
+`HANDOFF.md`. Read `CLAUDE.md` → this file → **`HANDOFF.md` §96** (the third look, APK 0.81, the animation plan's
+first phase specified, the effects build C3 designed and its contract read twice) → **§95** (APK 0.79 and 0.80, the
+second trial, the notice's focus timer, the animation plan ruled, full throttle) → **§94** (C2 flashed on both lenses and armed at stage 4;
 the first trial and its three defects) → §93 (0.77 on his phone; Music's answers; work goes on while a build waits)
 → **§92** (build C2: built, reviewed, a candidate image,
 nothing flashed; Main's scroll judged on glass; APK 0.77 staged) → **§91** (0.70 and 0.71 deployed, the ladder at
@@ -27,14 +28,16 @@ for firmware → earlier by number (§65 Phase 2 and the protocol, §48 the fork
   32 COMMITs, no fault or reset — and showed three defects in the phone's staging of Main (it stopped fitting after
   app visits and Main fell back to the old scroll; a font change dropped the staging; the period had no margin).
   **Their fixes are APK 0.78, in build** (`private/build072/C2-decisions.md` part AU).
-- **APK 0.80 is staged since 11-19 17:51 and the PC runs it; his phone runs 0.79 (14:40) until he installs**
-  (§95.4). 0.80: the loop at Main's ends animated (started by the phone), the notice's visible focus timer (his
-  ruling), `Scroll length` 300 ms by default (his choice on the glasses), the false-alarm fix for "belief and
-  mirror disagree", S_heard seeded from the lens at a session start, the rules' gap fix. **Owed on his face:** the
-  loop's start lag; a notice's bar and fade; the fold test (`Scroll length` 600 with `Frames` 10 for ten notches).
-- **The animation plan is ruled** (`MOTION.md` §7; §95.5): five tiers each with None and its own length and
-  frames; built with the motion kit's shell part, then one firmware build. Its phase-1 spec
-  (`private/build081/K1-spec.md`) and the firmware build's design (`private/c3-design/C3-design.md`) are in work.
+- **APK 0.81 is staged since 11-19 20:54 and the PC runs it; his phone runs 0.80 (18:51) until he installs**
+  (§96.4). 0.81 answers his third look (§96.1–2): the wrap's PLAY ahead of its frame, no keyframe for a local
+  motion's own closed report, the period following the measured step. **Owed on his face:** the wrap's start (modeled
+  80–160 ms); ten minutes of scrolling with Music playing (no jump, the eyes agreeing); a notice's bar and fade. NOT
+  the fold test with fixed `Frames` on 0.81 (§96.3). **0.82 is in build** (`wip/082`): the focused read's four
+  findings, the staged records split across flushes, slack on rows that change, the wrap's rows out of the strips.
+- **The animation plan** (`MOTION.md` §7; §95.5): its first phase is specified (`private/build081/K1-spec.md`,
+  §96.6) and the notice's timer on the engine is built on `wip/k1-4a`; **the effects build C3 is designed, its
+  contract (`FIRMWARE.md` §7 on `wip/c3d1`, not merged) read twice, nothing built** (§96.7; rulings
+  `private/c3-design/C3-decisions.md`). Open with him: Crush, flat or overlapping (§96.8).
 - **Main's scroll, his verdict on the glasses (§92.1):** only the whole list moving together looked good — "what
   moves, moves together" binds every later motion; the period is chosen so a step fits (P 42 ticks, T 5 at height
   352).
@@ -55,18 +58,19 @@ for firmware → earlier by number (§65 Phase 2 and the protocol, §48 the fork
 | C1-Q (the session's cache size) | `main` | **deployed: APK 0.71 installed 11-18 16:18** |
 | S1-4 (Music) | the lean spec and decisions (`private/build078/`); lane P (the PC's player process) done on `wip/s14-p` | **half A (J + K) in build since 11-19 on `wip/s14-k`** |
 | RA-1 (the shell loop's liveness supervisor, R-a) | `main` | deployed with 0.79 |
-| C2's staged records split across flushes | `wip/081-split` (from `wip/078-split`) | being brought onto today's tree for 0.81 |
-| The animation plan (`MOTION.md` §7) | — | ruled 11-19; phase-1 spec and the firmware design in work |
+| C2's staged records split across flushes | `wip/081-split` (from `wip/078-split`), into `wip/082` | in build for 0.82 |
+| The animation plan (`MOTION.md` §7) | `wip/k1-4a` (the notice's timer); `private/build081/K1-spec.md` | ruled 11-19; first phase specified; Select / Back / Lock wait for C3 |
+| C3 (the third flash: effects) | the contract on `wip/c3d1`; `private/c3-design/` | designed; the contract read twice; lanes not started; no flash without him |
 | the test motions (Main's rows staged, `hold`, `mainseq`) | `main` | deployed: APK 0.72 (18:54) and 0.74 (21:55) on 11-18; judged by him (§92.1) |
-| C2 (the second flash: local input) | fork `c2` `5c728bb` (pin `b3f04453…`); its phone half on `main` | **flashed 11-19, stage 4 armed 12:22; two trials (§94, §95); APK 0.79 installed, 0.80 staged** |
+| C2 (the second flash: local input) | fork `c2` `5c728bb` (pin `b3f04453…`); its phone half on `main` | **flashed 11-19, stage 4 armed 12:22; three looks (§94–§96); APK 0.80 installed, 0.81 staged** |
 
-The counts of APK 0.80's tree (simulator; §95.4): core 232 classes / 1,806 tests · desktop 14 classes / 53 ·
+The counts of APK 0.81's tree (simulator; §96.4): core 232 classes / 1,809 tests · desktop 14 classes / 53 ·
 `--selfcheck` 486 PASS ×2 · snapshot 94 renders + 66 in `phone/`, 0 px outside the mask · `--local-check` 64 cases ·
 the 66 conformance vectors in both forms · node 200 · lint 0 · wiring 79 ok. The fork at `c2`: `tools/verify.py` 38
 PASS, the self-test 78 of 78, host tests 310, its sweep 279 caught of 318. The phone half's mutation list:
-`research/mutations-c2.json`, 190 rows: the whole list was swept on 0.77's tree at 165 rows (161 caught, 4 with no pin
-by their own statement, none not caught — §92.11); the 25 rows added since were each watched to fail in their
-rounds; a sweep of the whole list on 0.80's tree is owed (machine time only).
+`research/mutations-c2.json`, 196 rows: the whole list was swept on 0.77's tree at 165 rows (161 caught, 4 with no pin
+by their own statement, none not caught — §92.11); the 31 rows added since were each watched to fail in their
+rounds (one of G4's is declared with no pin); a sweep of the whole list on the current tree is owed (machine time only).
 The judge's standing base is `private/build070/base-070/` (mask `base-070-mask/`). The briefs, rulings and reports of
 every stage are in the gitignored `private/build068` … `build072` (C2: `build072/C2-decisions.md`, parts A–AS),
 `lean`, `c1-design`, `c2-design`;
@@ -76,7 +80,7 @@ every stage are in the gitignored `private/build068` … `build072` (C2: `build0
 
 The order is `REPLAN.md` §17.3. **Every run: its size and what he gets for it first, both meters read before and
 after** (§17.6). New firmware features are armed and tested at once on his go, not over days (§91.3).
-1. **C2's trial goes on with APK 0.80** (§95.4; what is owed on his face is above), and what the trial still owes: the feel of Main's scroll and tap; fields 16, 33, 34, 37, 38; `tapdrop`, `snapback`; the 114
+1. **C2's trial goes on with APK 0.81** (§96.4; what is owed on his face is above), and what the trial still owes: the feel of Main's scroll and tap; fields 16, 33, 34, 37, 38; `tapdrop`, `snapback`; the 114
    and 115 gaps; LEFT's first step on 240 fps video; a gesture's WAIT right after a session start (each staged strip
    is one flush of about 20 KB — two windows of about 1.3 s, modeled; the cure, a record split across flushes, is the
    first build after if it is felt). The `mainseq` probe leaves in the first build after stage 4 is armed.
