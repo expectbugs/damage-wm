@@ -134,6 +134,22 @@ class NoticeEngineTest {
         } finally { r.close() }
     }
 
+    /** What the notice's slice costs Page staging: its ring (the stage reserve below the slice) at each cache layout. Only
+     *  a 256 KiB session with BIND in force has the slice — its ring 16 KiB of the 32 it had; 160 KiB, and 256 KiB
+     *  without BIND, keep the 64 KiB ring byte for byte. */
+    @Test
+    fun theSliceCostsPageStagingOnlyAtStage4() {
+        fun ring(cache: Int, bind: Boolean) = CfwModes.stageRingEnd(cache, bind) - (cache - CfwModes.stageReserve(cache, bind))
+        assertEquals(16 * 1024, ring(256 * 1024, true), "stage 4 at 256 KiB: the ring is 16 KiB (it was 32)")
+        assertEquals(64 * 1024, ring(256 * 1024, false), "256 KiB without BIND: the 64 KiB ring as before")
+        assertEquals(64 * 1024, ring(160 * 1024, true), "160 KiB: the 64 KiB ring as before")
+        assertEquals(64 * 1024, ring(160 * 1024, false), "160 KiB: the 64 KiB ring as before")
+        assertNull(CfwModes.noticeRegion(160 * 1024, true)); assertNull(CfwModes.noticeRegion(256 * 1024, false))
+        val r = assertNotNull(CfwModes.noticeRegion(256 * 1024, true))
+        assertEquals(256 * 1024 - CfwModes.NOTICE_REGION, r.first, "the slice is the top 16 KiB")
+        assertTrue(CfwModes.mainRegion(256 * 1024, true).last < CfwModes.stageRingEnd(256 * 1024, true), "Main's own region is below the ring")
+    }
+
     // ------------------------------------------------------------------ the rig
 
     private class Snap(val engine: Boolean, val focused: Boolean, val animating: Boolean, val open: Pair<Int, Int>?,
