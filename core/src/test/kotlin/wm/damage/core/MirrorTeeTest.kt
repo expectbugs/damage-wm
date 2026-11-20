@@ -277,7 +277,7 @@ class MirrorTeeTest {
 
             // keyframe, a delta, a declared shift (copy), a stereo plane map
             paintScene(comp.composed, l, 1)
-            comp.requestKeyframe()
+            comp.requestKeyframe("test")
             drain("keyframe")
             comp.composed.fillRect(l.lens, 12 * 17)
             comp.damage(l.lens)

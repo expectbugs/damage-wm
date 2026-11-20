@@ -117,12 +117,12 @@ class MainBindShellTest {
                 o.first != null
             }
             assertTrue(!offeredUncounted, "never offered before every record was counted (a sample on the loop)")
-            // the journal, written in order: Main's eleven records submitted, a reading of the count proving them, then the
+            // the journal, written in order: Main's twelve records (B082: the wrap's own among them) submitted, a reading of the count proving them, then the
             // offer — never the offer first (the sample above can miss a short window; the journal cannot)
             val all = r.allNotes()
             val offeredAt = all.indexOfFirst { it.first == "mainstage" && it.second.startsWith("offered") }
             val submits = all.withIndex().filter { (_, n) -> n.first == "stage" && n.second.startsWith("Main's") && "submitted as flush" in n.second }.map { it.index }
-            assertEquals(11, submits.count { it < offeredAt }, "Main's eleven records submitted before the offer: ${all.map { it.second.take(60) }}")
+            assertEquals(12, submits.count { it < offeredAt }, "Main's twelve records submitted before the offer: ${all.map { it.second.take(60) }}")
             assertTrue(all.withIndex().any { (i, n) -> i in (submits.max() + 1) until offeredAt && n.first == "stage" && "proved" in n.second },
                 "a reading proved them between the last write and the offer: ${all.filter { it.first == "stage" || it.first == "mainstage" }.map { it.second.take(70) }}")
             if (!seenUncounted) println("DM2-shell: no sample caught the records uncounted (the journal's order is the check)")

@@ -3780,7 +3780,7 @@ abstract class CfwTransportBase(
                     val w = work.request.writer
                     updateState { it.copy(cacheWriter = w) }
                 }
-                completeAsync(final, work.id, bytes, t0, done = null, sample = AckSample(alone, floor = false, epoch = work.epoch))
+                completeAsync(final, work.id, bytes, t0, done = null, sample = AckSample(alone, floor = false, epoch = work.epoch), wroteAt = nowMs())
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -3797,7 +3797,7 @@ abstract class CfwTransportBase(
                 if (!tailStillBound(t, alone = true)) { completeAsync(null, work.id, 0, t0, done = null); return }
                 val image = if (t.size == 1) t[0] else CfwModes.batch(t, engine = true, bind = true)
                 val final = writeImage(image, work.epoch)
-                completeAsync(final, work.id, image.size, t0, done = null, sample = AckSample(alone, floor = true, epoch = work.epoch))
+                completeAsync(final, work.id, image.size, t0, done = null, sample = AckSample(alone, floor = true, epoch = work.epoch), wroteAt = nowMs())
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -3855,7 +3855,7 @@ abstract class CfwTransportBase(
             // happens to the wrap clear below (round 7 D4). Build C2-FA (decisions AG.3): a bare keyframe and its tail
             // are judged by both acks — the keyframe's refusal fails the flush as the tail's would
             completeAsync(final, work.id, image.size, t0, done = null, sample = AckSample(alone, floor = true, epoch = work.epoch),
-                first = if (after != null) first else null)
+                first = if (after != null) first else null, wroteAt = nowMs())
             if (fids.wrapPending) {
                 // the flush ended EXACTLY on 0xFFFE: the mode-7 sub-0 clear
                 // resets the FIRMWARE's fid ring, flags and lastFid; the host
@@ -4147,13 +4147,15 @@ abstract class CfwTransportBase(
          *  refusal fails the flush as [final]'s does. Image acks come in order on one arm, so when [final]'s is in, this
          *  one's is in too — or was released as lost by it (§34), and then [final] decides alone, as for a fragment. */
         first: PendingAck? = null,
+        /** B082: when the last byte of the flush was handed to the radio (the `done` row's `wrote`). */
+        wroteAt: Long = 0,
     ) {
         val prev = lastCompletion
         if (final == null) {
             lastCompletion = scope.launch {
                 prev?.join()
                 done?.complete(Unit)
-                if (flushId >= 0) _events.emit(TransportEvent.FlushDone(flushId, true, 0, bytes))
+                if (flushId >= 0) _events.emit(TransportEvent.FlushDone(flushId, true, 0, bytes, tookAtMs = t0, wroteAtMs = wroteAt, ackAtMs = nowMs()))
             }
             return
         }
@@ -4174,18 +4176,20 @@ abstract class CfwTransportBase(
                 // the first refusal of the flush's images is its answer (the keyframe's, then the tail's)
                 val ack = firstAck?.takeIf { it.errorCode != null } ?: last
                 onImageDelivered()
-                val ackMs = nowMs() - t0
+                val ackAt = nowMs()
+                val ackMs = ackAt - t0
                 close()
                 if (ack.errorCode != null) {
                     sessionPenalty = true
                     val which = if (ack !== last) " on the flush's first image (its tail's ack: ${last.statusText})" else ""
                     done?.completeExceptionally(LintError("ImgResCmd ${ack.statusText} (${ack.errorCode})$which"))
                     if (flushId >= 0) _events.emit(TransportEvent.FlushDone(flushId, false, ackMs,
-                        bytes, "ImgResCmd ${ack.statusText} (${ack.errorCode})$which — damage recomputes with a fresh fid"))
+                        bytes, "ImgResCmd ${ack.statusText} (${ack.errorCode})$which — damage recomputes with a fresh fid",
+                        tookAtMs = t0, wroteAtMs = wroteAt, ackAtMs = ackAt))
                 } else {
                     updateEma(ackMs, bytes, sample)
                     done?.complete(Unit)
-                    if (flushId >= 0) _events.emit(TransportEvent.FlushDone(flushId, true, ackMs, bytes))
+                    if (flushId >= 0) _events.emit(TransportEvent.FlushDone(flushId, true, ackMs, bytes, tookAtMs = t0, wroteAtMs = wroteAt, ackAtMs = ackAt))
                     // build W: the session's first acknowledged flush is heap3's `first-frame` point (a launched read)
                     if (flushId >= 0 && sample != null) heapFirstFrame(sample.epoch)
                 }

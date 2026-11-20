@@ -15,12 +15,12 @@ import wm.damage.core.local.BoundList
  *   atlas reset or its live set changed, cached text off, the Page staging row off), at 160 KiB when a document's strips
  *   take the shared reserve (`Staging.retain`), and at a full re-stage ([drop]: the layout, the planes, the rows or the
  *   region changed, a row outgrew its slot). (b) Each write's wait is the stage lane's — its FlushDone and the count's
- *   reading — and a failed one leaves the registry: a base record's loss drops the staging (it is staged again), a
- *   re-stage's forces its row ([forced]). (c) Keyed on the staging object (`MainStageKey`) and the offsets it laid out;
+ *   reading — and a failed one leaves the registry: a base record's loss drops the staging (it is staged again), and so
+ *   does a re-stage's, booked or not (the focused read of B082, F1: an unbooked one may have left bytes the copy lacks). (c) Keyed on the staging object (`MainStageKey`) and the offsets it laid out;
  *   the list's [BoundList.mark] is the staging's identity. (d) The shell's loop only. (e) One read of the link state per
  *   pump. (f) Its siblings: Page staging (the same registry and lane), the `mainseq` probe (refused while BIND is in
  *   force: no PLAY into a bound slot, P9).
- * - A row's stale mark ([stale]: [dirty], [owed], [forced]). Set by a key change at a compose ([keysChanged]), the
+ * - A row's stale mark ([stale]: [dirty], [owed]). Set by a key change at a compose ([keysChanged]), the
  *   round-robin repaint ([verifyDue]) and a re-stage write that failed; cleared when its re-stage is submitted or a
  *   repaint shows nothing changed. It decides only what is re-staged: a row older than Main's truth is NOT a reason to
  *   discard (decisions X.1 — the phone's END is taken from its own copy of the staged records, so belief equals what
@@ -70,7 +70,6 @@ internal class MainBinding {
     /** Its pictures differ from what the glasses were sent: a re-stage is owed. */
     private var owed = BooleanArray(0)
     /** A re-stage write of it failed: what the glasses hold there is not known, so it is written again whatever it shows. */
-    private var forced = BooleanArray(0)
     /** When each row's re-stage became owed (its staleness, decisions AF.8: the stalest goes first). */
     private var owedSinceMs = LongArray(0)
     /** The last re-stage written, any row: ONE row per [RESTAGE_PACE_MS] in all (AF.8, the contract's wording). */
@@ -86,8 +85,27 @@ internal class MainBinding {
     var restagedBytes = 0L; private set
     var restageCount = 0; private set
 
+    /** B082 (row slack): the segment room each row's window has earned by changing — the largest picture it drew in a
+     *  staging and a margin ([MainStaging.roomFor]) — carried into the next staging by window, for this process. */
+    val roomById = HashMap<String, Int>()
+    private var ids: List<String?> = emptyList()
+
+    /** The current staging's changed rows into [roomById] (at a drop and before the next staging). */
+    private fun harvestRoom() {
+        val ms = staging ?: return
+        for (r in 0 until minOf(ms.rows, ids.size)) {
+            val id = ids[r] ?: continue
+            if (r < ms.changed.size && ms.changed[r]) roomById[id] = maxOf(roomById[id] ?: 0, MainStaging.roomFor(ms.seenMax[r]))
+        }
+    }
+
+    /** B082: the room each row of a staging about to be made gets, by the windows its rows show. */
+    fun roomFor(idsNow: List<String?>): IntArray { harvestRoom(); return IntArray(idsNow.size) { idsNow[it]?.let { id -> roomById[id] } ?: 0 } }
+
     /** A new staging and its base records (placed, WANTED): the list made now carries a fresh mark. */
-    fun begin(ms: MainStaging, recs: List<StagedRecord>, keysNow: List<Any?>, nowMs: Long) {
+    fun begin(ms: MainStaging, recs: List<StagedRecord>, keysNow: List<Any?>, nowMs: Long, idsNow: List<String?> = emptyList()) {
+        harvestRoom()
+        ids = idsNow
         staging = ms
         records = recs
         mark = markNext
@@ -96,7 +114,7 @@ internal class MainBinding {
         withdrawnFor = null
         patches.clear()
         keys = keysNow.toTypedArray()
-        dirty = BooleanArray(ms.rows); owed = BooleanArray(ms.rows); forced = BooleanArray(ms.rows)
+        dirty = BooleanArray(ms.rows); owed = BooleanArray(ms.rows)
         owedSinceMs = LongArray(ms.rows)
         verifyNext = 0
         verifyAtMs = nowMs + VERIFY_PACE_MS
@@ -108,10 +126,11 @@ internal class MainBinding {
     /** The staging goes (its records are the caller's to take out of the registry): [records] and [patches] as they
      *  were, for that. */
     fun drop(): List<StagedRecord> {
+        harvestRoom()
         val out = records + patches.map { it.record }
         staging = null; records = emptyList(); list = null; patches.clear(); withdrawnFor = null
         keys = emptyArray()
-        dirty = BooleanArray(0); owed = BooleanArray(0); forced = BooleanArray(0); owedSinceMs = LongArray(0)
+        dirty = BooleanArray(0); owed = BooleanArray(0); owedSinceMs = LongArray(0)
         paints = 0
         return out
     }
@@ -119,7 +138,7 @@ internal class MainBinding {
     /** Every base record counted (field 17): the list may be offered. */
     val counted: Boolean get() = records.isNotEmpty() && records.all { it.state == StagedRecord.State.PROVEN }
 
-    fun stale(row: Int): Boolean = row in dirty.indices && (dirty[row] || owed[row] || forced[row])
+    fun stale(row: Int): Boolean = row in dirty.indices && (dirty[row] || owed[row])
     val staleRows: List<Int> get() = dirty.indices.filter { stale(it) }
 
     /** The list is withdrawn so that row [row]'s strip segments can be written (no table names the strip then). */
@@ -145,7 +164,6 @@ internal class MainBinding {
 
     /** Decisions AU.2: every row painted again and compared (a live font set changed under the staging's pictures). */
     fun recheckAll() { if (staging != null) for (i in dirty.indices) dirty[i] = true }
-    fun isForced(row: Int) = forced[row]
 
     /** A repaint of [row] found its pictures what the glasses hold. */
     fun same(row: Int) { dirty[row] = false; owed[row] = false }
@@ -155,9 +173,9 @@ internal class MainBinding {
     /** The owed row to write at [nowMs], or null: ONE re-stage per [RESTAGE_PACE_MS] in all, the row owed longest first
      *  (decisions AF.8; `FIRMWARE.md` §6.7 P9 "one row per 5 s"); [dueInMs] says when one is. */
     fun nextOwed(nowMs: Long): Int? = if (nowMs < lastAnyWriteMs + RESTAGE_PACE_MS || patches.any { p -> !p.released }) null
-        else owed.indices.filter { owed[it] || forced[it] }.minByOrNull { owedSinceMs[it] }
+        else owed.indices.filter { owed[it] }.minByOrNull { owedSinceMs[it] }
 
-    fun dueInMs(nowMs: Long): Long? = if (owed.indices.none { owed[it] || forced[it] }) null
+    fun dueInMs(nowMs: Long): Long? = if (owed.indices.none { owed[it] }) null
         else (lastAnyWriteMs + RESTAGE_PACE_MS - nowMs).coerceAtLeast(0L)
     fun verifyInMs(nowMs: Long): Long? = if (staging == null) null else (verifyAtMs - nowMs).coerceAtLeast(0L)
 
@@ -179,7 +197,7 @@ internal class MainBinding {
         if (r.band != null || r.toStrip != null) list = ms.boundList(mark, previous = list)
         if (withdrawnFor == r.row) withdrawnFor = null
         patches += Patch(r.row, rec, r)
-        owed[r.row] = false; forced[r.row] = false; dirty[r.row] = false
+        owed[r.row] = false; dirty[r.row] = false
         lastAnyWriteMs = nowMs
         restagedBytes += r.bytes
         restageCount++

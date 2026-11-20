@@ -236,7 +236,10 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
      *  as well as field 39's bit (decisions M.4). Whether anything is SENT is the shell's gate (BIND in force and the
      *  lease held, P9), not this. */
     private var bindFlag = true
-    fun bindInForce(on: Boolean) { bindFlag = on; if (!on) tapsLive = false }
+    /** RIGHT's read of BIND. Off (a hand FLAGS_CLEAR inside a burst's wait): the burst can no longer close by its SETTLE
+     *  (no rule sends one while unbound), so it is closed here — else the save, a re-stage's pieces and the period waited
+     *  on it until the next session (the focused read of B082, N1). */
+    fun bindInForce(on: Boolean) { bindFlag = on; if (!on) { tapsLive = false; burstOpen = false } }
 
     // ---------------------------------------------------------------------------------------- the list in front
     /** The entries the phone SETs for [list] under the current `Taps` (§6.7): its scroll entries, and the tap entry in
