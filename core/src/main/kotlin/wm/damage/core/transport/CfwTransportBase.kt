@@ -3899,6 +3899,8 @@ abstract class CfwTransportBase(
      * B-N5: a CLOSE is added only while ENGINE is in force (RIGHT's flags) — a CLOSE the glasses refuse (15) ends the
      * batch and takes every write in it with it (§4); and the compositor keeps one sub-message of the count back while
      * the mirror holds an instance open ([LensPanels.motionOpen]), so one CLOSE of every instance always fits.
+     * Build C3, stage DP2: a slot in [FlushRequest.held] is left open — its owner holds the write in the shadow (a
+     * transition's arriving frame, `FIRMWARE.md` §7.3, §7.11).
      */
     private fun withMotionCloses(req: FlushRequest, image: ByteArray): ByteArray {
         if (_state.value.flagsInForce and DamageMsg.FLAG_ENGINE == 0) return image
@@ -3909,7 +3911,7 @@ abstract class CfwTransportBase(
         val slots = java.util.TreeSet<Int>()
         for (arm in Arm.entries) {
             val left = arm == Arm.LEFT
-            for (w in open.getValue(arm)) if (w.areas.any { a -> writes.any { (l, r) -> (if (left) l else r).overlaps(a) } }) slots += w.slot
+            for (w in open.getValue(arm)) if (w.slot !in req.held && w.areas.any { a -> writes.any { (l, r) -> (if (left) l else r).overlaps(a) } }) slots += w.slot
         }
         if (slots.isEmpty()) return image
         val subs = ArrayList<ByteArray>()

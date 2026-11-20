@@ -42,6 +42,9 @@ class SettingsWindow(
     private val bindBuild: () -> Boolean = { true },
     /** Build ANIM (AV): the motion in force at the height in force, in words ("10 frames × 45 ms"), for `Frames`. */
     private val motionHint: () -> String = { "" },
+    /** Build C3, stage DP2: ladder stage 5 is in force (DamageCaps bit 11, EFFECTS armed) — the transition tiers' rows
+     *  are shown only then (anywhere else a Select, a Back and the clock are cuts, and the rows would do nothing). */
+    private val effectsInForce: () -> Boolean = { false },
 ) : DamageWindow("settings", "Settings", IconKind.SETTINGS) {
 
     private val fRow = FontSpec(Face.SYSTEM, 18)
@@ -165,6 +168,34 @@ class SettingsWindow(
         }),
     )
 
+    /** Build C3, stage DP2 (`MOTION.md` §7): per transition tier its length, its frames (both halves) and one checkbox per
+     *  effect — a random pick among the checked at each use, none checked = None. After the scroll rows. */
+    private val transitionEntries: List<Entry> = wm.damage.core.motion.Transitions.Tier.entries.flatMap { t ->
+        listOf(
+            Entry("${t.word} length", { get().lengthOf(t).let { l -> "$l ms" + if (l == ShellSettings().lengthOf(t)) " (default)" else "" } }, { s, d ->
+                val ls = ShellSettings.SCROLL_LENGTHS
+                s.withTier(t, length = ls[(ls.indexOf(s.lengthOf(t)).coerceAtLeast(0) + d).coerceIn(0, ls.size - 1)])
+            }),
+            Entry("${t.word} frames", {
+                val f = get().framesOf(t)
+                val tm = wm.damage.core.motion.Transitions.timing(get().lengthOf(t), f)
+                (if (f == 0) "auto" else "$f") + " (${tm.steps} × ${"%.0f".format(tm.period * 1000.0 / 1024)} ms a half)" +
+                    if (f == ShellSettings().framesOf(t)) " (default)" else ""
+            }, { s, d ->
+                val fs = ShellSettings.FRAME_COUNTS
+                s.withTier(t, frames = fs[(fs.indexOf(s.framesOf(t)).coerceAtLeast(0) + d).coerceIn(0, fs.size - 1)])
+            }),
+        ) + wm.damage.core.motion.Transitions.effectsOf(t).map { e ->
+            Entry("${t.word} · ${e.label}", { onOff(e.id in get().effectsOf(t)) }, { s, d ->
+                s.withTier(t, effects = ShellSettings.tierEffects(t, if (d > 0) s.effectsOf(t) + e.id else s.effectsOf(t) - e.id))
+            })
+        }
+    }
+
+    /** Build C3 (DP2): the list level the shell's transitions read — the category list or a category's rows; entering and
+     *  leaving the adjust level changes one row, not the screen, so it is no level here. */
+    internal fun listLevel(): Int = 1 + (if (openCat >= 0) 1 else 0)
+
     private fun onOff(b: Boolean) = if (b) "on" else "off"
 
     private fun hostEntry(h: HostSetting) = Entry(h.name, {
@@ -186,7 +217,7 @@ class SettingsWindow(
     private fun cats(): List<Cat> {
         val out = ArrayList<Cat>()
         out.add(Cat("Global", (if (bindBuild()) entries else entries.filter { it.name !in BIND_ROWS }) + host().map(::hostEntry)))
-        if (bindBuild()) out.add(Cat("Animations", animEntries))
+        if (bindBuild()) out.add(Cat("Animations", animEntries + if (effectsInForce()) transitionEntries else emptyList()))
         for ((app, rows) in apps()) out.add(Cat(app, rows.map(::hostEntry)))
         return out
     }

@@ -19,7 +19,8 @@ import wm.damage.core.motion.TestPrograms
  */
 class MotionCheckTest {
     private fun files(dir: Path): List<String> = Files.list(dir).use { s -> s.map { it.fileName.toString() }.sorted().toList() }
-    private val expected = TestPrograms.NAMES.flatMap { listOf("$it.png", "$it.txt") }.sorted()
+    /** Build C3 (DP2): the transitions' strips beside the test programs'. */
+    private val expected = (TestPrograms.NAMES + MotionCheck.TRANSITION_NAMES).flatMap { listOf("$it.png", "$it.txt") }.sorted()
 
     @Test
     fun theMotionCheckWritesOneStripPerProgramAndEveryProgramHolds_A15() {
@@ -28,7 +29,11 @@ class MotionCheckTest {
             val out = ByteArrayOutputStream()
             assertEquals(0, MotionCheck.run(dir, out = PrintStream(out, true)), out.toString())
             assertTrue("ALL HOLD" in out.toString(), out.toString())
-            assertEquals(expected, files(dir), "one strip and one text per test program, nothing else")
+            assertEquals(expected, files(dir), "one strip and one text per test program and per transition, nothing else")
+            for (name in MotionCheck.TRANSITION_NAMES) {
+                val txt = Files.readString(dir.resolve("$name.txt"))
+                assertTrue("checks: the in half lands the arriving frame" in txt && "FAILED" !in txt, "$name:\n$txt")
+            }
             for (name in TestPrograms.NAMES) {
                 val steps = TestPrograms.build(name, 160 * 1024)!!.program.T
                 val txt = Files.readString(dir.resolve("$name.txt"))

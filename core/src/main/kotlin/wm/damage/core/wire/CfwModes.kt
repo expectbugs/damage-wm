@@ -340,6 +340,13 @@ object CfwModes {
      *  on it at stage 4). */
     const val STAGE_RESERVE_BOUND = 32 * 1024
 
+    /** Build C3, stage DP2: the transitions' records — two slots of [TRANSITION_SLOT] bytes taken in turn, so an act's
+     *  write never meets the read range of the act before it (§5.6: a write that meets an open instance's read range closes
+     *  it). On a session with EFFECTS in force they sit right above the atlas's layout, which is that much smaller
+     *  (`LinkState.atlasCapacity`); nothing else writes there. */
+    const val TRANSITION_SLOT = 2 * 1024
+    const val TRANSITION_REGION = 2 * TRANSITION_SLOT
+
     private fun ownRegion(cacheSize: Int, bind: Boolean) = bind && cacheSize >= CACHE2_MAX_RIDERS
 
     /** The stage reserve at the top of a session's cache: [STAGE_RESERVE], or [STAGE_RESERVE_BOUND] when Main has its own
