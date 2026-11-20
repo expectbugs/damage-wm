@@ -89,14 +89,10 @@ class ConformanceVectorTest {
      *  not-filled vector of [out], with its steps, becomes a problem when [dir] is [repo]. */
     private fun notFilledFailsInTheRepo(dir: Path, repo: Path?, out: Outcome) {
         if (repo == null || !Files.isSameFile(dir, repo)) return
-        // build C3's exception for the `v5-*` inputs (committed before the fork's runner filled them) ended with X2D's
-        // phase 2. Stage X3D's inputs — the shipped programs `v5-ship-*` and `v5-x3-hint` — are committed before the
-        // fork's runner fills them, as X2D's phase 1 did for `v5-x2-*`: reported "not filled" with a count and run
-        // through the model ([theUnfilledVectorsRunThroughTheModel]); every other file stays under R1.21. The comparison
-        // removes this exception.
-        val x3 = out.notFilled.filter { it.startsWith(ShipVectors.PREFIX) || it.startsWith("$X3_HINT ") }
-        if (x3.isNotEmpty()) println("ConformanceVectorTest: ${x3.size} X3D vector(s) not filled until the comparison: ${x3.joinToString("; ")}")
-        for (n in out.notFilled - x3.toSet()) out.problems += "$n: not filled — a step in firmware/vectors/ with no expectation fails the test (ruling R1.21)"
+        // build C3's exceptions for inputs committed before the fork's runner filled them — the `v5-*` set (ended with
+        // X2D's phase 2) and stage X3D's `v5-ship-*` and `v5-x3-hint` (ended with X3D's comparison) — are gone: every
+        // vector file in the repo is filled, and an unfilled one fails like any other
+        for (n in out.notFilled) out.problems += "$n: not filled — a step in firmware/vectors/ with no expectation fails the test (ruling R1.21)"
     }
 
     private fun vectorFiles(dir: Path): List<Path> =
@@ -792,13 +788,12 @@ class ConformanceVectorTest {
             Files.writeString(dir.resolve("a-one-unfilled.json"), unfilled.toString())
             // a `v5-` name too: build C3's exception for the v5 inputs ended with X2D's phase 2, so it fails like any other
             Files.writeString(dir.resolve("v5-one-unfilled.json"), JsonObject(unfilled + ("name" to JsonPrimitive("v5-one-unfilled"))).toString())
-            // stage X3D's exception is narrow: a `v5-ship-` file and `v5-x3-hint` are reported, a name that only begins
-            // like them (`v5-x3-hint2`) fails
+            // stage X3D's exception for `v5-ship-*` and `v5-x3-hint` ended with its comparison: they fail like any other
             for (n in listOf("v5-ship-one-unfilled", X3_HINT, "${X3_HINT}2"))
                 Files.writeString(dir.resolve("$n.json"), JsonObject(unfilled + ("name" to JsonPrimitive(n))).toString())
             // the only problems are the rule's own lines: the filled steps agree
             val asRepo = normalPath(dir, dir)
-            assertEquals(listOf("a-one-unfilled", "v5-one-unfilled", "${X3_HINT}2").map { "$it (steps $last..$last of ${steps.size}): not filled — a step in " +
+            assertEquals(listOf("a-one-unfilled", "v5-one-unfilled", "v5-ship-one-unfilled", X3_HINT, "${X3_HINT}2").map { "$it (steps $last..$last of ${steps.size}): not filled — a step in " +
                 "firmware/vectors/ with no expectation fails the test (ruling R1.21)" }, asRepo.problems, "the repo's own set: each unfilled step fails, by name")
             val asOther = normalPath(dir, other)
             assertEquals(emptyList(), asOther.problems, "another set (DAMAGE_VECTOR_DIR): reported, not failed")
@@ -817,6 +812,10 @@ class ConformanceVectorTest {
      * too. With `DAMAGE_SHIP_DUMP=DIR` the regenerated files are written into DIR (a file's expectations kept for the
      * steps whose inputs did not change) and nothing is compared. Under `DAMAGE_VECTOR_DIR` (another set) it compares
      * nothing and says so.
+     *
+     * The committed files are the firmware's answered sequences (filled at X3D's comparison): this row only reads them.
+     * When a shipped program changes and it fails, regenerate that file's inputs (`DAMAGE_SHIP_DUMP`), have the fork's
+     * runner fill them, and compare again before committing — never keep the old answers under new inputs, never hand-edit.
      */
     @Test
     fun theShipVectorsHoldTheProgramsTheShellSends_X3D(): Unit = kotlinx.coroutines.runBlocking {
@@ -865,7 +864,8 @@ class ConformanceVectorTest {
         const val C2_FEATURES = 0x5FF
         /** §7.9: C3 adds bit 11. */
         const val C3_FEATURES = 0xDFF
-        /** Stage X3D's model-follows-§7.3 file (`make_vectors.py`): a hinted present with an owner open. */
+        /** Stage X3D's model-follows-§7.3 file (`make_vectors.py`): a hinted present with an owner open (the R1.21 row's
+         *  names). */
         const val X3_HINT = "v5-x3-hint"
         /** §7.13's four fold pairs (`make_vectors.py`'s `"pair"` keys). */
         val FOLD_PAIRS = setOf("v5-fold-dim", "v5-fold-pieces", "v5-fold-rain", "v5-fold-shrink")

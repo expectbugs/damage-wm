@@ -48,7 +48,9 @@ import wm.damage.core.wire.Pb
  * bytes — the records' write and every PLAY and PLAY-AFTER of the act — with the committed file's: a changed effect
  * cannot keep a stale vector. The rest of a file (the session's atlas chunks, a chrome tick's throughput text) follows
  * the process's history and is not compared. `DAMAGE_SHIP_DUMP=DIR` writes the regenerated files into DIR, keeping a
- * file's expectations for the steps whose inputs did not change (`make_vectors.py`'s rule).
+ * file's expectations for the steps whose inputs did not change (`make_vectors.py`'s rule). Since X3D's comparison the
+ * committed files hold the firmware's answers to one run's placement: regenerate only a file whose program changed, and
+ * have the fork's runner fill its new inputs (a regenerated step after a moved image keeps no expectation).
  */
 internal object ShipVectors {
     const val PREFIX = "v5-ship-"
