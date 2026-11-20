@@ -25,7 +25,9 @@ import wm.damage.core.transport.Arm
  *  (6) with nothing lost from then on and the list uncovered, of two taps a round trip apart the second is acted on;
  *  (7) under the same conditions, of two notches a round trip apart away from the edge, the second is adopted and
  *      committed, and its local is never stopped before its COMMIT;
- *  (8) each gesture moves the phone's row at most once.
+ *  (8) each gesture moves the phone's row at most once;
+ *  (9) the row at rest equals the ring's net count (B083 fix stage, item 1; [LocalHarness.ringRow] states the rule): a
+ *      notch lost or applied twice fails here even when the phone and both lenses agree on the row. Never declared.
  * Every seeded case (spec §5's S1–S17, and S18 from the stage beside this one) is a scripted sequence here; each one is
  * watched to fail on the rule as it stood through `research/mutate_core.py` (`private/build072/work-DP2/seeded.json`).
  */
@@ -39,17 +41,27 @@ class LocalSequenceFuzzTest {
      *  burst's SETTLE (its owe cleared there) and was applied as today — a residual shape, counted with its seed; every
      *  other (8) fails. Random sequences only: a seeded case counts nothing apart. */
     private val lateEchoKey = "(8) BC: an echo later than its burst's SETTLE"
-    /** B083 (2b with decisions BB): a gap charged against a released message — the row right at rest, the move on a
-     *  bystander gesture (seed 100434); counted with its seed, random sequences only. */
+    /** B083 (2b with decisions BB): a gap charged against a released message — declared on the gesture whose report was
+     *  charged only (B083 fix stage, item 1; it was sequence-wide), random sequences only; (9) still judges the row. */
     private val gapOnReleasedKey = "(8) 2b+BB: a gap charged against a released message"
     private fun moved(h: LocalHarness, failed: MutableList<String>, counted: MutableMap<String, Int>, seeded: Boolean, suffix: String) {
         for ((g, n) in h.moves) {
             if (n <= 1) continue
             if (!seeded && g in h.lateEchoes) counted[lateEchoKey] = (counted[lateEchoKey] ?: 0) + 1
-            else if (!seeded && h.gapOnReleased) counted[gapOnReleasedKey] = (counted[gapOnReleasedKey] ?: 0) + 1
+            else if (!seeded && g in h.gapCharged) counted[gapOnReleasedKey] = (counted[gapOnReleasedKey] ?: 0) + 1
             else failed += "(8) gesture $g moved the row $n times$suffix"
         }
     }
+
+    /** (9): the row at rest against the ring's net count — on the phone; (2) and (3) carry it to both lenses. */
+    private fun ringCount(h: LocalHarness, failed: MutableList<String>, suffix: String) {
+        val want = h.ringRow()
+        if (h.row == want) return
+        val off = h.ringReleasedOffFront
+        val shape = if (off.isNotEmpty() && h.ringRow(off) == h.row) " — $offFrontShape (g${off.joinToString(",g")})" else ""
+        failed += "(9) the row at rest is ${h.row}, the ring's count says $want$suffix$shape"
+    }
+    val offFrontShape = "held message(s) released with Main not in front"
 
     // ----------------------------------------------------------------------------------------- the invariants
     /** (1)–(5) and (8) at rest; [lossy]: a mode-27 message was lost or refused this sequence. */
@@ -83,6 +95,8 @@ class LocalSequenceFuzzTest {
         }
         // (8) — decisions BC: an echo later than its burst's SETTLE is counted apart in random sequences
         moved(h, failed, counted, seeded, "")
+        // (9)
+        ringCount(h, failed, "")
         // (2)'s cause, read directly (decisions AA.1): a COMMIT never rides a batch whose drawing meets its areas
         if (h.commitOverDraw.isNotEmpty()) failed += "(2) a COMMIT rode a batch with a drawing sub inside its areas at ${h.commitOverDraw}"
         // the fix round's row for the lead (`C2-DP2-built.md`, the fix round, row A): after a COMMIT that did not land on
@@ -191,6 +205,9 @@ class LocalSequenceFuzzTest {
             counted[k] = (counted[k] ?: 0) + 1
         }
         moved(h, failed, counted, false, " (liveness)")
+        ringCount(h, failed, " (liveness)")
+        if (h.ringLostAtStart.isNotEmpty()) counted["(9) not counted: notches in flight or held at a session start"] =
+            (counted["(9) not counted: notches in flight or held at a session start"] ?: 0) + h.ringLostAtStart.size
         if (h.commitOverDraw.isNotEmpty()) failed += "(2) a COMMIT rode a batch with a drawing sub inside its areas at ${h.commitOverDraw} (liveness)"
         // decisions AA.1: the answers that are a COMMIT with the areas' drawing held back — each a DISCARD under the rule before
         if (h.heldCommits > 0) {
@@ -227,6 +244,7 @@ class LocalSequenceFuzzTest {
         failed += extra(h)
         if (live) { tapLiveness(h, failed); scrollLiveness(h, failed) }
         for ((g, n) in h.moves) if (n > 1 && g !in before) failed += "(8) gesture $g moved the row $n times"
+        ringCount(h, failed, " (after the liveness checks)")
         assertTrue(failed.isEmpty(), failed.distinct().joinToString("\n"))
     }
 
@@ -719,13 +737,17 @@ class LocalSequenceFuzzTest {
         java.nio.file.Files.write(java.nio.file.Paths.get(out), lines)
     }
 
-    /** One seed with its whole record (`LOCAL_FUZZ_SEED=<seed>`): for reading a failure. Passes when the variable is not set. */
+    /** Seeds with their whole record (`LOCAL_FUZZ_SEED=<seed>[,<seed>…]`): for reading a failure. Passes when the variable is
+     *  not set. */
     @Test
     fun oneSeedVerbose() {
-        val seed = System.getenv("LOCAL_FUZZ_SEED")?.toLong() ?: return
+        val seeds = System.getenv("LOCAL_FUZZ_SEED")?.split(',')?.map { it.trim().toLong() } ?: return
         debug = true
-        val v = randomSequence(seed)
-        println("seed $seed: ${v.stats}\n" + v.failed.joinToString("\n"))
+        for (seed in seeds) {
+            println("===== seed $seed")
+            val v = randomSequence(seed)
+            println("seed $seed: ${v.stats}\n" + v.failed.joinToString("\n"))
+        }
     }
 
     /** Seeds 1 and 1001 (spec §5): `LOCAL_FUZZ_N=1000` per seed base for the instrument's run (2,000 sequences); 60 in the gate. */
@@ -745,8 +767,10 @@ class LocalSequenceFuzzTest {
             for (f in v.failed) fails += "seed $seed: $f"
             for ((k, c) in v.counted) counted[k] = (counted[k] ?: 0) + c
             // decisions BC: the declared shapes, with their seeds
-            for (k in v.counted.keys) if (k.startsWith("(8) BC") || k.startsWith("(8) 2b") || k.startsWith("row A: a batch")) declaredSeeds.getOrPut(k) { ArrayList() } += seed
+            for (k in v.counted.keys) if (k.startsWith("(8) BC") || k.startsWith("(8) 2b") || k.startsWith("row A: a batch") || k.startsWith("(9)")) declaredSeeds.getOrPut(k) { ArrayList() } += seed
         }
+        // every failure, one line each, for reading the shapes (the assertion's message keeps the first 30)
+        for (f in fails) println("FAIL $f")
         println("declared (BC): " + declaredSeeds.entries.joinToString("; ") { (k, s) -> "$k ${s.size} sequence(s): ${s.joinToString()}" })
         println("sequence fuzz: ${seeds.size} sequences (${if (only != null) "seeds ${only.joinToString()}" else "bases ${bases.joinToString()}"}), ${fails.size} failures; counted $counted")
         if (fails.isNotEmpty()) fail(fails.take(30).joinToString("\n") + "\n(${fails.size} in all)")

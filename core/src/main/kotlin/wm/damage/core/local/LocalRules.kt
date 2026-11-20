@@ -160,6 +160,8 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
     private fun holdEndAt(): Long? = heldStock.lastOrNull()?.let { (_, at) -> maxOf(if (burstOpen) lastReportMs else 0L, at) + q }
     /** For the harnesses: the stock messages held now (2b). */
     val stockHeldNow: Int get() = heldStock.size
+    /** For the sequence fuzz's ring count: the held messages, each its type and arrival. */
+    internal val heldForTest: List<Pair<Int, Long>> get() = heldStock.toList()
     /** 2b in force (the default). False only in the skewed two-lens rig, which measures the rules before it (0.82): an
      *  unreported scroll message is then applied at its arrival. */
     internal var holdStock = true
