@@ -417,9 +417,10 @@ after ≈ 48.5 days), an instance with k > d is **due now**; otherwise its next 
 PLAY-AFTER's instance has nothing due; its due time is t0. Only PLAY-AFTER makes such a slot; with none, the rule
 changes nothing.)*
 When one is due now and no engine refresh is outstanding, the thread tries the gate and queues (below), then plans
-again and waits that plan's w — one refresh per wake (R1.13) *(C3, §7.10: on a bit-11 build, when that second plan
-finds a step due with nothing outstanding and every due slot's k is exactly d + 1, the wait is 1 tick instead of one
-period)*; when one is due now but a refresh is still outstanding,
+again and waits that plan's w — one refresh per wake (R1.13) *(C3, §7.10: on a bit-11 build with EFFECTS armed, when
+the present that followed the put drew a step and the second plan finds every due slot exactly one step late with
+nothing outstanding, the wait is 1 tick instead of one period; with EFFECTS clear the wait is this paragraph's)*; when
+one is due now but a refresh is still outstanding,
 or the try or the put failed, w is one period (the smallest P among the due instances); otherwise
 `w = max(1, (int32_t)(due − now))` over the earliest due time — signed, so a time already passed gives one tick,
 never a wait of 0 nor one of ≈ 2³² ticks (a guard only: k > d is tested first); with nothing drawing,
@@ -2093,11 +2094,22 @@ flag; the message's present).
 
 ### 7.10 The plan's late step
 
-On a bit-11 build, after the thread's successful put, when the second plan (§5.2) finds a step due with nothing
-outstanding and **every** due slot's k is exactly d + 1, the wait is **1 tick**; otherwise §5.2's rule stands (one period
-when due — so a step more than a period late, a real overrun, still yields to the ui_task). The pure plan, and so the
-vectors' `W`, are unchanged; a host test pins it. Why (`C3-design.md` §7.1): a step that ends a few ms past the next
-due time was passed over by the one-period wait; with this it is drawn a few ms late.
+On a bit-11 build, after the thread's successful put, the wait is **1 tick** — in place of §5.2's one period — when all
+of these hold, each decided from what one wake reads: (1) **EFFECTS** is armed (flag bit 6, read once by the wake,
+without the engine word, before its first plan); (2) **the present that followed the put drew a step:** some slot that
+was due in the plan before the put has a larger d in the plan after it (both plans read each slot's state and d once
+without the word, §5.2; the wake keeps the first plan's d values for the comparison — nothing is kept across wakes);
+(3) in the plan after the put a step is due with nothing outstanding, and **every** due slot's k is exactly d + 1. In
+every other case §5.2's rule stands: with EFFECTS clear the wake waits exactly as C2's; a put whose present drew nothing
+— the hook lost the engine word, the panel was off, the stock path, or the display task had not yet run the copy hook
+when the put returned — keeps the one-period wait (or §5.2's outstanding rule), so a word held elsewhere never turns into
+a present every few ticks; a slot at k ≥ d + 2 (a real overrun) keeps the one-period wait, which yields to the ui_task. A
+torn read of d costs one wrong wait (one tick or one period), never a wait of 0. The pure plan, and so the vectors' `W`,
+are unchanged. **Host pins** (the shim's synchronous `wake` runs the try, the put, the copy hook and the refresh, then
+the second plan; a host-only door returns the wake's wait): the 1-tick wait with progress and every due slot at d + 1;
+one period with no progress (a door makes the copy hook lose the engine word); one period at k ≥ d + 2; §5.2's wait with
+EFFECTS clear. Why (`C3-design.md` §7.1): a step that ends a few ms past the next due time was passed over by the
+one-period wait; with this it is drawn a few ms late.
 
 ### 7.11 The phone's rules (phone code; none of it is firmware)
 
@@ -2178,7 +2190,7 @@ late-step rule (field 33); Encode's legibility; the in-place pan's step time aga
 | the RING flag, the modular cursor, kind 3 | a plain LIST, release points (the empty table), a restart | a lost LIST-RING: the lens keeps the plain list, a wrap notch is the edge and the phone's PLAY draws it; the table repair re-sends | list + mark | ui_task only | once per fire | LIST's shift, COMMIT/DISCARD/SETTLE's cursors, the fire's edge test |
 | refusal 19 | — | the notch goes the stock path | the close set's owns marks | ui_task under the word | once | refusal 17's place |
 | EFFECTS | every release point; refused without the lease | not armed: the reply shows it; the phone plays version 1 | — | the settings task writes, unordered with the image lane (§5.7's class) | once per message | DRAW2, ENGINE, BIND |
-| the late-step wait | — | — | — | the thread only | one plan | the failed try's wait (unchanged) |
+| the late-step wait | — (decided per wake; nothing kept across wakes) | a present that drew nothing (the word lost, the panel off, the stock path, the hook not yet run): one period, as §5.2 | EFFECTS; each due slot's d in the plans before and after the put; k = d + 1 | the thread alone decides; d and the state words read without the word (a torn read costs one wrong wait, never 0); EFFECTS read once per wake | each plan reads each slot once | the failed try's wait and the outstanding rule (unchanged); C2's wait with EFFECTS clear |
 
 ### 7.15 Not in this contract
 
