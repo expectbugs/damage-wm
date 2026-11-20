@@ -73,6 +73,10 @@ class NoticeEngineTest {
             assertNull(f.open, "the focus repaint closed the timer (the transport's CLOSE, §5.6)")
             r.assertShadowIsBelief("focused")
             r.assertPanelIsBelief("focused")
+            // after G4 (0.81): the five restarts closed a drawing timer each (the new PLAY's close pass), the focus repaint
+            // closed the last (the transport's CLOSE, a write) — every body compared
+            val closed = r.noticeBodies("restarts and focus", "closed while drawing")
+            assertEquals(6, closed.size, "five timers closed by a restart and one by the focus repaint: $closed")
         } finally { r.close() }
     }
 
@@ -95,6 +99,8 @@ class NoticeEngineTest {
             assertTrue(timerTag != arrivalTag, "a second PLAY")
             assertContentEquals(a.shadowR, t.shadowR, "the arrival and the timer write the same END")
             r.assertShadowIsBelief("the timer after the arrival")
+            // the arrival closed by the timer's PLAY: its body compared (after G4)
+            assertTrue(r.noticeBodies("the arrival", "closed while drawing").any { "tag 0x%04x".format(arrivalTag) in it }, "the arrival's body: ${r.notes}")
         } finally { r.close() }
     }
 
@@ -146,6 +152,21 @@ class NoticeEngineTest {
         val shell = Shell(wm.damage.core.comp.CachedText(FakeText()), transport, store, null, scope) { Shell.LocalClock(12, 0, "12:00", "PM") }
         val flushes = AtomicInteger(0)
         private val failures = ArrayList<String>()
+        /** The transport's notes (kind, detail): RIGHT's motion bodies and what the transport made of them. */
+        val notes = java.util.concurrent.CopyOnWriteArrayList<Pair<String, String>>()
+
+        /** G4's rule (0.81, `CfwTransportBase.onMotionNotify`): a body with END CRC 0 under BIND is a local instance's own
+         *  and not compared. Every body of the notice's slot came with an END CRC other than 0, the transport compared it
+         *  (no "not compared" note names the slot) and found no divergence; returns the bodies of [outcome] ("closed while
+         *  drawing", "drew its last step"). */
+        fun noticeBodies(what: String, outcome: String): List<String> {
+            val slot = "slot ${PopupPrograms.SLOT} "
+            val bodies = notes.filter { (k, d) -> k == "motion" && d.contains(slot) && d.contains("endCrc") }.map { it.second }
+            for (b in bodies) assertFalse(b.endsWith("endCrc 00000000"), "$what: a notice body with END CRC 0 — G4's rule would not compare it: $b")
+            assertTrue(notes.none { (k, d) -> k == "motion" && d.contains(slot.trim()) && d.contains("not compared") }, "$what: a notice body was not compared: $notes")
+            assertTrue(notes.none { (k, _) -> k == "divergence" }, "$what: a divergence: ${notes.filter { it.first == "divergence" }}")
+            return bodies.filter { outcome in it }
+        }
 
         init {
             store.put("shell.settings", settings.toJson())
@@ -155,6 +176,7 @@ class NoticeEngineTest {
             scope.launch(start = CoroutineStart.UNDISPATCHED) {
                 transport.events.collect { e ->
                     if (e is TransportEvent.FlushDone) { flushes.incrementAndGet(); if (!e.ok) synchronized(failures) { failures += "${e.id}: ${e.error}" } }
+                    if (e is TransportEvent.Note) notes += e.kind to e.detail
                 }
             }
         }

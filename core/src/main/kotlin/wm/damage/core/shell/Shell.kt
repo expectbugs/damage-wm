@@ -7816,6 +7816,7 @@ class Shell(
         if (comp.hasPending) append("pending ")
         if (comp.needsKeyframe) append("keyframe ")
         if (inflightFlushes.isNotEmpty()) append("inflight=${inflightFlushes.size} ")
+        noticePlayFlush?.let { append("noticePlay=$it ") }
         if (notifications.animating) append("notice-anim ")
         if (slides.any { it.active }) append("slides ")
         if (switcher.spinning) append("spin ")
@@ -7831,6 +7832,7 @@ class Shell(
     /** Everything quiescence asks for EXCEPT the message queue. */
     private fun idleApartFromMessages(): Boolean =
         (glassesSilent || (!comp.hasPending && !comp.needsKeyframe && !comp.deferring)) && inflightFlushes.isEmpty() &&
+            noticePlayFlush == null &&                     // build K1-4a: the notice's PLAY alone in flight is a flush in flight
             !notifications.animating && slides.none { it.active } && !switcher.spinning
 
     /**

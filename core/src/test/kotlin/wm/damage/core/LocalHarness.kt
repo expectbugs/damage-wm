@@ -55,6 +55,9 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         const val PERIOD = 16
         /** Decisions AZ.4: the wrap's PLAY slot (`MainStaging.WRAP_SLOT`). */
         const val WRAP_SLOT = 1
+        /** Build K1-4a: the notice's timer (`PopupPrograms`) over the band: the box is the band, its top rule 2 rows down,
+         *  the bar's run 8 in from each end; flat (both lenses alike). */
+        val NOTICE_GEO = wm.damage.core.motion.PopupPrograms.Geo(BAND, 2, 8, 0)
         const val T_SCROLL = 3
         const val T_PRESS = 2
         const val W = 640; const val H = 480
@@ -108,7 +111,25 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         cacheWrites += write19(scroll2.at, scroll2.bytes)
         cacheWrites += write19(scroll.at, scroll.bytes)
         cacheWrites += write19(press.at, press.bytes)
+        notice = wm.damage.core.motion.PopupPrograms.timer(at4, NOTICE_GEO)
+        put(notice.bytes)
+        cacheWrites += write19(notice.at, notice.bytes)
+        noticeCap4 = at4; at4 += (notice.captureBytes + 3) / 4 + 1          // the capture's room, written by each PLAY
     }
+
+    // ------------------------------------------------------------------------------------------- build K1-4a: the notice
+    /** When set (half the random sequences, by the seed), a cover is the notice box with its focus timer on the engine,
+     *  as the shell builds it: the box drawn as the timer's END (MODAL, the bar's run lit), the timer's PLAY in slot 2 in
+     *  the batch that draws it and again in every gesture's batch while covered (the restart), closing whatever slot-0 or
+     *  slot-1 instance its areas meet (§5.5); a batch drawing in the band while the phone holds it open CLOSEs it first
+     *  (the transport's rule), as the uncover's does — the list returning to the front. */
+    var noticeTimer = false
+    lateinit var notice: MotionProgram
+    private var noticeCap4 = 0
+    private var noticeOwed = false
+    var noticeOpen = false
+    var noticePlays = 0
+    var noticeCuts = 0
 
     private fun write19(off4: Int, b: ByteArray) = byteArrayOf(19) + u16(off4) + u16(b.size) + b
     private fun u16(v: Int) = byteArrayOf((v and 0xFF).toByte(), ((v shr 8) and 0xFF).toByte())
@@ -143,6 +164,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         val t = ByteArray(W * H)
         fun fill(r: Rect, l: Int) { for (y in r.y until r.bottom) for (x in r.x until r.right) t[y * W + x] = l.toByte() }
         fill(BAND, if (covered || window) MODAL else level(ids[row]))
+        if (covered && noticeTimer) fill(NOTICE_GEO.rule, wm.damage.core.motion.PopupPrograms.BAR_LEVEL)
         if (badge && !covered && !window) fill(BADGE, BADGE_LEVEL)
         fill(CLOCK, 1 + clock % 13)
         return t
@@ -253,6 +275,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
                 val slot = m[2]?.toInt() ?: -1; val tag = if (m.containsKey(3)) m[3]!!.toInt() else -1; val outcome = m[4]?.toInt() ?: -1
                 bodies114 += Triple(slot, tag, outcome)
                 if (slot == WRAP_SLOT && outcome in 0..1) up(now) { wrapOpen = false }
+                if (slot == wm.damage.core.motion.PopupPrograms.SLOT && outcome in 0..1) up(now) { noticeOpen = false }
                 up(now) { rules.body114(slot, tag, outcome, m[10]?.toInt()) }
                 // a refused COMMIT names its S as the tag: the mirror took it, so the transport calls it a divergence
                 // and the shell keyframes (`CfwTransportBase.onMotionNotify`); a DISCARD's or SETTLE's names none
@@ -295,6 +318,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
             if (arm == Arm.LEFT && (covered || window) && sim.motionForTest(arm).slots.any { it?.local == true && it.tag == s }) localsUnderCover++
         }
         trace?.invoke("[$now] gesture g$g kind $kind answer $answer band $bandNow hold $holdWordOn")
+        if (covered && noticeTimer) { noticeOwed = true; pumpSoon() }           // K1-4a: the input restarts the notice's timer
         input(Arm.LEFT)
         drainSentLeftOnly()
         if (!answer) return g
@@ -379,7 +403,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     }
 
     // ---- covers, windows, re-stages, switches (the shell's own changes, each in the batch that draws it)
-    fun cover() { if (covered || window) return; covered = true; rules.front(null, row); pumpSoon() }
+    fun cover() { if (covered || window) return; covered = true; rules.front(null, row); if (noticeTimer) noticeOwed = true; pumpSoon() }
     fun uncover() { if (!covered) return; covered = false; if (!window) rules.front(bound, row); pumpSoon() }
     fun openWindow() {
         if (window || covered) return
@@ -529,6 +553,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     fun keyframe(why: String) {
         trace?.invoke("[$now] keyframe: $why")
         wrapOpen = false
+        noticeOpen = false                              // the keyframe closes every instance; the box shows END until its focus
         keyframes++
         val t = truth()
         val packed = ByteArray(320 * 480)
@@ -620,12 +645,13 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         if (rollbackAll) { rollbackAll = false; java.util.Arrays.fill(model, 0x7F.toByte()); java.util.Arrays.fill(lastTruth, 0x7F.toByte()) }
         val changed = regions.filter { differs(t, lastTruth, it) }.toMutableSet()
         changed += held
-        if (rules.settleDue(now) && changed.isEmpty() && !rules.owed) {
+        val noticeNow = noticeOwed && covered && noticeTimer
+        if (rules.settleDue(now) && changed.isEmpty() && !rules.owed && !noticeNow) {
             val subs = rules.loneSettle(row, now)
             if (subs.isNotEmpty()) emit(subs, emptyList())
             return
         }
-        if (changed.isEmpty() && !rules.owed) { rules.settleAt()?.let { s -> if (s > now) at(s) { pump() } }; return }
+        if (changed.isEmpty() && !rules.owed && !noticeNow) { rules.settleAt()?.let { s -> if (s > now) at(s) { pump() } }; return }
         val plan = rules.plan(row)
         val m2 = model.copyOf()
         val dirty = HashSet(changed)
@@ -648,10 +674,22 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         // the transport's rule (`CfwTransportBase.withMotionCloses`): a batch drawing inside the wrap's instance while the
         // phone holds it open CLOSEs it first
         if (wrapOpen && subs.any { it.second.overlaps(BAND) }) { subs = listOf(CfwModes.motionClose(WRAP_SLOT) to BAND) + subs; wrapOpen = false; wrapCuts++ }
+        if (noticeOpen && subs.any { it.second.overlaps(BAND) }) {
+            subs = listOf(CfwModes.motionClose(wm.damage.core.motion.PopupPrograms.SLOT) to BAND) + subs; noticeOpen = false; noticeCuts++
+        }
+        if (!covered || !noticeTimer) noticeOwed = false
+        // K1-4a: the notice's PLAY after every drawing sub (the band holds the box's END when it is captured); never in a
+        // batch that holds the band back
+        val noticePlay = if (noticeOwed && BAND !in (dirty intersect hold)) {
+            noticeOwed = false
+            Motion.play(notice, wm.damage.core.motion.PopupPrograms.SLOT, PERIOD, 0xC000 + (noticePlays and 0xFFF), noticeCap4, IntArray(4))
+        } else null
         held = (dirty intersect hold).filter { differs(m2, t, it) }.toSet()
         if (held.isNotEmpty()) heldBatches++
-        val tail = listOfNotNull(wrapPlay) + rules.tail(row, now, emptySet(), frame = subs.isNotEmpty(), wrapped = wrapPlay != null)
+        val tail = listOfNotNull(wrapPlay) + rules.tail(row, now, emptySet(), frame = subs.isNotEmpty(), wrapped = wrapPlay != null) +
+            listOfNotNull(noticePlay)
         if (wrapPlay != null) { wrapOpen = true; wrapPlays++ }
+        if (noticePlay != null) { noticeOpen = true; noticePlays++ }
         for (c in tail) if (c[0].toInt() == 26 && c[1].toInt() == 3) {
             commitBatches += ((c[3].toInt() and 0xFF) or ((c[4].toInt() and 0xFF) shl 8)) to subs.map { it.second }
             if (held.isNotEmpty()) heldCommits++
@@ -749,6 +787,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         model = t.copyOf(); lastTruth = t.copyOf(); held = emptySet()
         val s0 = if (fresh) 0 else sim.bindForTest(Arm.RIGHT).seq
         rules.sessionStart(true, s0, now, if (covered || window) null else bound, row, rules.taps)
+        noticeOpen = false; if (covered && noticeTimer) noticeOwed = true    // the start's keyframe closed it; the box shown again
         pump()
     }
 
