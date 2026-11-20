@@ -86,8 +86,27 @@ internal class MainBinding {
     var restagedBytes = 0L; private set
     var restageCount = 0; private set
 
+    /** B082 (row slack): the segment room each row's window has earned by changing — the largest picture it drew in a
+     *  staging and a margin ([MainStaging.roomFor]) — carried into the next staging by window, for this process. */
+    val roomById = HashMap<String, Int>()
+    private var ids: List<String?> = emptyList()
+
+    /** The current staging's changed rows into [roomById] (at a drop and before the next staging). */
+    private fun harvestRoom() {
+        val ms = staging ?: return
+        for (r in 0 until minOf(ms.rows, ids.size)) {
+            val id = ids[r] ?: continue
+            if (r < ms.changed.size && ms.changed[r]) roomById[id] = maxOf(roomById[id] ?: 0, MainStaging.roomFor(ms.seenMax[r]))
+        }
+    }
+
+    /** B082: the room each row of a staging about to be made gets, by the windows its rows show. */
+    fun roomFor(idsNow: List<String?>): IntArray { harvestRoom(); return IntArray(idsNow.size) { idsNow[it]?.let { id -> roomById[id] } ?: 0 } }
+
     /** A new staging and its base records (placed, WANTED): the list made now carries a fresh mark. */
-    fun begin(ms: MainStaging, recs: List<StagedRecord>, keysNow: List<Any?>, nowMs: Long) {
+    fun begin(ms: MainStaging, recs: List<StagedRecord>, keysNow: List<Any?>, nowMs: Long, idsNow: List<String?> = emptyList()) {
+        harvestRoom()
+        ids = idsNow
         staging = ms
         records = recs
         mark = markNext
@@ -108,6 +127,7 @@ internal class MainBinding {
     /** The staging goes (its records are the caller's to take out of the registry): [records] and [patches] as they
      *  were, for that. */
     fun drop(): List<StagedRecord> {
+        harvestRoom()
         val out = records + patches.map { it.record }
         staging = null; records = emptyList(); list = null; patches.clear(); withdrawnFor = null
         keys = emptyArray()

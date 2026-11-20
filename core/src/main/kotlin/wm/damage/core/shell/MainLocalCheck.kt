@@ -225,7 +225,7 @@ object MainLocalCheck {
         if (!inside) setup += "the staging ${ms.start}..${ms.end} leaves its region ${region.first}..${region.last + 1}"
         val tableLine = "$tag: ${ms.bytes} B at ${ms.start}..${ms.end} (${if (region.last + 1 == cacheSize) "shared reserve" else "Main's region"}), " +
             "strip ${ms.blobs[0].bytes.size} B in a ${ms.strip.slot} B slot${if (ms.stripB != null) " (and its second slot)" else ""}, band forms ${ms.blobs.drop(if (ms.stripB != null) 2 else 1).take(ms.rows).sumOf { it.bytes.size }} B in ${ms.bands.sumOf { it.slot }} B of slots, " +
-            "programs ${ms.blobs.last().bytes.size} B; whole list ${whole.kA}+${whole.kB} rows, ${whole.areaPx} px a step, P ${ms.period} T ${ms.t}, press ${ms.bandD}→${ms.press.pressD}"
+            "${ms.wrap?.let { "wrap record ${it.encoded.size} B in a ${it.slot} B slot, " } ?: ""}programs ${ms.blobs.last().bytes.size} B; whole list ${whole.kA}+${whole.kB} rows, ${whole.areaPx} px a step, P ${ms.period} T ${ms.t}, press ${ms.bandD}→${ms.press.pressD}"
         val cases = ArrayList<Case>()
         if (setup.isNotEmpty()) { cases += Case("$tag-setup", "the staging written and the list SET", Rect(0, 0, 1, 1), emptyList(), emptyList(), setup); return cases to tableLine }
 
@@ -345,7 +345,7 @@ object MainLocalCheck {
             val a = lens.fire(CfwModes.DEV_RING, e.eventId)
             s++
             if (a == null || a.outcome != DamageMsg.APPLIED_EDGE || a.cursor != c) fails += "$name from $c: the lens did not report the edge (${a?.describe()})"
-            val pan = ms.pan(MainStaging.WHOLE, e.step)
+            val pan = ms.wrapPan(e.step) ?: ms.pan(MainStaging.WHOLE, e.step)
             val p = ms.wrapParams(pan, cPrime)
             if (p == null) fails += "$name from $c: no parameters across the wrap"
             else {

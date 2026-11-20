@@ -187,8 +187,8 @@ class MainSeqTest {
                 assertEquals(46, b[3].toInt(), "PLAY ${i + 1}: the staging's period at 352 (decisions V, AU.3)")
                 tags += u16(b, 6)
                 progs.getOrPut(step) { HashSet() } += u16(b, 4)
-                // the strip's top margin: the rows shown above, and one more where Main wraps (decisions AZ.4; eight rows wrap at 352)
-                val sA = l.rowsAbove + 1
+                // the strip's top margin: the rows shown above (B082: the wrap's rows are a record of their own)
+                val sA = l.rowsAbove
                 assertEquals(listOf(l.lens.y - (from + sA) * l.rowH, bandOff.getValue(to), bandOff.getValue(from), l.lens.bottom - (from + 1 + sA) * l.rowH),
                     (0 until 4).map { s16(b, 10 + 2 * it) }, "PLAY ${i + 1} ($from→$to): P0..P3")
                 from = to
@@ -279,7 +279,7 @@ class MainSeqTest {
             val written = r.notes("stage").count { it.startsWith("Main's") }
             r.shell.devProbe("mainseq", "1")
             r.until("the second test plays") { r.plays.size > after }
-            assertTrue(r.notes("mainseq").any { it.startsWith("Main's 11 records are on the glasses already") }, "${r.notes("mainseq")}")
+            assertTrue(r.notes("mainseq").any { it.startsWith("Main's 12 records are on the glasses already") }, "${r.notes("mainseq")}")
             assertEquals(written, r.notes("stage").count { it.startsWith("Main's") }, "nothing of Main's written again: ${r.notes("stage")}")
             r.sim.injectGesture(EvenHubMsg.EV_SCROLL_TOP)
             r.until("the second test released by the input") { r.notes("mainseq").count { it.startsWith("released — an input event") } == 2 }

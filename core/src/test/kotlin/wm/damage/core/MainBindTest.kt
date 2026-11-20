@@ -2,11 +2,13 @@ package wm.damage.core
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import wm.damage.core.gfx.Rle
 import wm.damage.core.motion.BoxFace
 import wm.damage.core.shell.DamageWindow
+import wm.damage.core.shell.MainBinding
 import wm.damage.core.shell.MainLocalCheck
 import wm.damage.core.shell.MainStaging
 import wm.damage.core.shell.ShellSettings
@@ -226,7 +228,113 @@ class MainBindTest {
         println("DM2-restage torrents: ${r2.bytes} B in ${r2.writes.size} write(s): ${r2.writes.joinToString { "${it.what} ${it.bytes.size} B" }}")
         assertTrue(r2.writes.all { it.off % 4 == 0 && it.bytes.size % 4 == 0 }, "every write 4-aligned")
         val strip = r2.writes.filter { it.what.startsWith("strip") }
-        assertEquals(2, strip.size, "Torrents shows twice in the strip at 352: its row and one margin copy (each margin holds four rows since decisions AZ.4: three shown and the one a pan across the wrap shows)")
+        assertEquals(1, strip.size, "Torrents shows once in the strip at 352 (no margin copy; B082: the wrap's rows are a record of their own)")
+    }
+
+    /** B082 (row slack, G4 §2c): a row that changes gets segment room once its picture outgrows its segment — the tail is
+     *  laid out again ONCE with the changed row given the largest it has drawn and a quarter more — so its next change, a
+     *  little larger again (past what plain slack holds, inside the room), writes that row's segments alone, not the
+     *  strip's tail (13–16 KB on his glasses every paced 5 s). */
+    @Test
+    fun aChangingRowGetsRoomSoItsNextChangeIsItsSegmentAlone_B082() {
+        val rows = MainLocalCheck.sampleRows()
+        val rig = MainLocalCheck.MainRig(BoxFace, 352, rows)
+        val music = rows.indexOfFirst { it.id == "music" }
+        val sm = rows[music] as MainLocalCheck.SampleRow
+        // a short line to start from: the line is fitted to the row's width, so a long one has nowhere to grow
+        val base = sm.s.copy(line = "Night")
+        sm.s = base
+        val ms = rig.staging(CfwModes.CACHE2_MAX, CfwModes.mainRegion(CfwModes.CACHE2_MAX, true))
+        fun rleWith(line: String): Int {
+            sm.s = base.copy(line = line)
+            val g = MainStaging.paintStripRow(rig.view, rig.layout, music) { _, b -> b() }
+            val lv = ByteArray(g.pix.size) { wm.damage.core.gfx.Pack.level(g.pix[it].toInt() and 0xFF).toByte() }
+            return MainStaging.rleSize(lv, 0, lv.size)
+        }
+        val s0 = rleWith(base.line)
+        val seg0 = ms.strip.segLen!![rig.layout.rowsAbove + music]
+        // the first change: past its segment (the tail is laid out again once)
+        val t1 = (1..60).map { base.line + " " + "W".repeat(it) }.first { rleWith(it) > seg0 }
+        val s1 = rleWith(t1)
+        val r1 = ms.restage(music, rig.view, rig.kit, { _, b -> b() })
+        assertTrue(r1 is MainStaging.Restage.Changed && r1.relaid != null, "the first change outgrew its segment: $r1")
+        r1 as MainStaging.Restage.Changed
+        val tail = r1.writes.filter { it.what.startsWith("strip") }.sumOf { it.bytes.size }
+        ms.apply(r1)
+        r1.band?.let { ms.release(it.oldOff4) }   // the shell frees the old band slot at the switch's ack
+        // the second change: larger than plain slack would hold, inside the room
+        val room = MainStaging.roomFor(maxOf(s0, s1))
+        val t2 = (1..80).map { t1 + "W".repeat(it) }.firstOrNull { rleWith(it).let { n -> n > MainStaging.segSlack(s1) && n <= room } }
+        assertNotNull(t2, "a second change between the plain slack (${MainStaging.segSlack(s1)}) and the room ($room): " +
+            (1..80).joinToString { "${rleWith(t1 + "W".repeat(it))}" })
+        rleWith(t2!!)
+        val r2 = ms.restage(music, rig.view, rig.kit, { _, b -> b() })
+        assertTrue(r2 is MainStaging.Restage.Changed, "$r2")
+        r2 as MainStaging.Restage.Changed
+        val strip = r2.writes.filter { it.what.startsWith("strip") }
+        println("B082-room music: first change $s0 → $s1 B (tail ${tail} B), second → ${rleWith(t2)} B: ${strip.joinToString { "${it.what} ${it.bytes.size} B" }}")
+        assertTrue(r2.relaid == null && strip.none { "laid out again" in it.what || ".." in it.what }, "the second change wrote its segments alone: ${strip.map { it.what }}")
+        assertTrue(strip.sumOf { it.bytes.size } < tail / 3, "its bytes (${strip.sumOf { it.bytes.size }}) far under the tail's ($tail)")
+    }
+
+    /** B082 (row slack): the room a row earned by changing is carried by its window into the next staging (a font set,
+     *  a motion change, an outgrown tail all stage again): that row's segments start with room there, the others not. */
+    @Test
+    fun aChangedRowsRoomIsCarriedIntoTheNextStaging_B082() {
+        val rows = MainLocalCheck.sampleRows()
+        val rig = MainLocalCheck.MainRig(BoxFace, 352, rows)
+        val ms = rig.staging(CfwModes.CACHE2_MAX, CfwModes.mainRegion(CfwModes.CACHE2_MAX, true))
+        val b = MainBinding()
+        val ids = rows.map { it.id }
+        b.begin(ms, emptyList(), List(ms.rows) { null }, 0L, ids)
+        val music = rows.indexOfFirst { it.id == "music" }
+        (rows[music] as MainLocalCheck.SampleRow).s = rows[music].summary().copy(line = "Night Drive - Low Tide (live, 1998)")
+        assertTrue(ms.restage(music, rig.view, rig.kit, { _, bb -> bb() }) is MainStaging.Restage.Changed)
+        b.drop()
+        val room = b.roomFor(ids)
+        assertEquals(MainStaging.roomFor(ms.seenMax[music]), room[music], "Music's room carried by its window")
+        assertTrue(room.withIndex().all { (i, v) -> i == music || v == 0 }, "no other row given room: ${room.toList()}")
+        val region = CfwModes.mainRegion(CfwModes.CACHE2_MAX, true)
+        val ms2 = MainStaging.build(rig.layout, rig.view, rig.kit, rig.listD, rig.bandD, CfwModes.CACHE2_MAX,
+            region.first, region.last + 1, widths = listOf(MainStaging.WHOLE))
+        val ms3 = MainStaging.assemble(MainStaging.Paint(rig.layout, rig.view, rig.kit).also { p -> while (!p.done) p.step { _, bb -> bb() } },
+            rig.listD, rig.bandD, CfwModes.CACHE2_MAX, region.first, region.last + 1, listOf(MainStaging.WHOLE), room = room)
+        val s = rig.layout.rowsAbove + music
+        assertTrue(ms3.strip.segLen!![s] >= room[music] && ms3.strip.segLen!![s] > ms2.strip.segLen!![s], "Music's segment starts with its room: ${ms3.strip.segLen!![s]} vs ${ms2.strip.segLen!![s]}")
+    }
+
+    /** B082: room is given only where the region holds it — a room past the region leaves the staging as it was without
+     *  it, never a staging refused (Main unbound) for the sake of the room. */
+    @Test
+    fun aRoomTheRegionCannotHoldIsLeftOut_B082() {
+        val rig = MainLocalCheck.MainRig(BoxFace, 352, MainLocalCheck.sampleRows())
+        val region = CfwModes.mainRegion(CfwModes.CACHE2_MAX, true)
+        val paint = MainStaging.Paint(rig.layout, rig.view, rig.kit).also { p -> while (!p.done) p.step { _, bb -> bb() } }
+        val plain = MainStaging.assemble(paint, rig.listD, rig.bandD, CfwModes.CACHE2_MAX, region.first, region.last + 1, listOf(MainStaging.WHOLE))
+        val ms = MainStaging.assemble(paint, rig.listD, rig.bandD, CfwModes.CACHE2_MAX, region.first, region.last + 1, listOf(MainStaging.WHOLE),
+            room = IntArray(plain.rows) { 8_000 })
+        assertTrue(ms.strip.segLen!!.contentEquals(plain.strip.segLen!!), "the strip as it was: ${ms.strip.segLen!!.toList()}")
+    }
+
+    /** B082 (the wrap's own record): a changed row that the wrap's record shows is written there too — its segment in the
+     *  record's own slot, beside the strip's — and after the booking the record's row is the row's new picture. */
+    @Test
+    fun aRestageWritesTheRowIntoTheWrapRecordToo_B082() {
+        val rows = MainLocalCheck.sampleRows()
+        val rig = MainLocalCheck.MainRig(BoxFace, 352, rows)
+        val ms = rig.staging(CfwModes.CACHE2_MAX, CfwModes.mainRegion(CfwModes.CACHE2_MAX, true))
+        val wp = assertNotNull(ms.wrap, "Main wraps at 352 with eight rows")
+        val tor = rows.indexOfFirst { it.id == "torrents" }
+        val l = rig.layout
+        val j = (0 until l.rowsAbove + l.rowsBelow + 2).first { (ms.rows - 1 - l.rowsAbove + it).mod(ms.rows) == tor }
+        (rows[tor] as MainLocalCheck.SampleRow).s = rows[tor].summary().copy(line = "3 active, 3.4 MB/s", progress = 0.95)
+        val r = ms.restage(tor, rig.view, rig.kit, { _, b -> b() })
+        assertTrue(r is MainStaging.Restage.Changed, "$r")
+        r as MainStaging.Restage.Changed
+        assertTrue(r.wrapWrites.any { it.what.startsWith("wrap row $j") && it.off >= wp.off && it.off < wp.off + wp.slot }, "the wrap record's row $j written: ${r.wrapWrites.map { it.what }}")
+        ms.apply(r)
+        val g = MainStaging.paintStripRow(rig.view, l, tor) { _, b -> b() }
+        for (y in 0 until l.rowH) for (x in 0 until g.w) if (wp.raw[x, j * l.rowH + y] != g[x, y]) throw AssertionError("wrap row $j is not the new picture at ($x,$y)")
     }
 
     /** Decisions B.4: on a 256 KiB session with BIND in force the atlas lays out over 128 KiB, under Main's own region;

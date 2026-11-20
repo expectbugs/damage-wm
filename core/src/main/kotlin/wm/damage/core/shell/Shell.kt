@@ -5404,7 +5404,10 @@ class Shell(
         val w = local.wrapPlan(localRow()) ?: return null
         val ms = mainBind.staging ?: return null
         if (w.list.list != MainStaging.LIST || mainBind.list?.mark != w.list.mark) return null
-        val pan = ms.pan(MainStaging.WHOLE, w.step)
+        // B082: the wrap draws its own record, which a re-stage in pieces may be writing — no PLAY until it is booked (the
+        // edge goes as today)
+        if (stageCursor?.rec?.key is MainStageKey) return null
+        val pan = ms.wrapPan(w.step) ?: return null
         val p = ms.wrapParams(pan, w.cPrime) ?: return null
         val tag = WRAP_TAG + (wrapTags++ and 0xFFF)
         val play = try { wm.damage.core.motion.Motion.play(pan.program, MainStaging.WRAP_SLOT, ms.periodInForce, tag, 0, p) }
@@ -5950,14 +5953,16 @@ class Shell(
             return true
         }
         val shared0 = region.last + 1 == st.cacheSize
+        // B082: rows whose window changed in an earlier staging start with segment room
+        val room = mainBind.roomFor(List(pt.n) { main.rowIdentity(it) })
         val ms = try {
             // the bound list's pans only (AF.10); at 256 KiB Main's own region holds a second strip (AD.2)
-            try { MainStaging.assemble(pt, listD, bandD, st.cacheSize, region.first, region.last + 1, listOf(MainStaging.WHOLE), twoStrips = !shared0, motion = motionInForce()) }
+            try { MainStaging.assemble(pt, listD, bandD, st.cacheSize, region.first, region.last + 1, listOf(MainStaging.WHOLE), twoStrips = !shared0, motion = motionInForce(), room = room) }
             catch (e: wm.damage.core.geom.LintError) {
                 if (shared0) throw e
                 // decisions AU.1 (b): two strips do not fit Main's region — ONE strip is staged, and a row form's change
                 // withdraws the list as at 160 KiB; never "not staged" while one strip fits
-                MainStaging.assemble(pt, listD, bandD, st.cacheSize, region.first, region.last + 1, listOf(MainStaging.WHOLE), twoStrips = false, motion = motionInForce())
+                MainStaging.assemble(pt, listD, bandD, st.cacheSize, region.first, region.last + 1, listOf(MainStaging.WHOLE), twoStrips = false, motion = motionInForce(), room = room)
                     .also { journal.note("mainstage", "two strips do not fit Main's region (${e.message}) — one strip staged; a row form's change withdraws the list, as at 160 KiB") }
             }
         } catch (e: wm.damage.core.geom.LintError) {
@@ -5984,7 +5989,7 @@ class Shell(
             for ((i, r) in recs.withIndex()) { r.off = ms.blobs[i].off; stage.records[r.key] = r }
         }
         mainBindRefusedFor = null
-        mainBind.begin(ms, recs, List(ms.rows) { main.rowKey(it) }, now)
+        mainBind.begin(ms, recs, List(ms.rows) { main.rowKey(it) }, now, List(ms.rows) { main.rowIdentity(it) })
         stepWindow.clear(); periodSamplesSinceChange = 0          // decisions BF: a staging starts from the fit
         mainBindRefusalSaid = null
         stageRecount()

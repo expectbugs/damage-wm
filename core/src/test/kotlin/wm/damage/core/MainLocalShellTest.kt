@@ -971,7 +971,8 @@ class MainLocalShellTest {
         val batch = wrapBatch(r, at)!!
         val play = batch.first { isWrapPlay(it) }
         assertEquals(e.period, play[3].toInt() and 0xFF, "$what: the PLAY's period is the entry's (the Animations rows)")
-        assertEquals(e.prog4, r.u16(play, 4), "$what: the PLAY's program is the entry's pan")
+        assertEquals(r.onLoop { r.shell.mainBinding.staging!!.wrapPan(e.step)!!.prog4 }, r.u16(play, 4), "$what: the PLAY's program is the wrap's own pan (B082)")
+        assertEquals(e.program!!.T, r.onLoop { r.shell.mainBinding.staging!!.wrapPan(e.step)!!.program.T }, "$what: with the entry's T")
         val iPlay = batch.indexOfFirst { isWrapPlay(it) }
         val iDiscard = batch.indexOfFirst { r.isSub(it, 26, 4) }
         assertTrue(iDiscard > iPlay, "$what: the DISCARD follows the PLAY in its batch")
@@ -1374,17 +1375,16 @@ class MainLocalShellTest {
         } finally { r.close() }
     }
 
-    /** Build SPLIT on 0.80 (decisions AZ.4 beside AQ): a wrap whose edge report comes as a 256 KiB re-stage's first piece
-     *  (a row form changed: the other strip slot is being written) draws the strip the bound entries name — whole — not
-     *  the one in pieces: the re-stage is booked only after its pieces, and its later pieces wait for the wrap's burst.
-     *  At rest the re-stage is booked and belief equals both lenses. */
+    /** Build SPLIT on 0.81, B082 (the wrap's own record): a wrap whose edge report comes as a 256 KiB re-stage's first
+     *  piece goes out — the re-stage writes the changed row into the wrap's record too — sends no PLAY (that record may be
+     *  part-written): the edge goes as today, the row moves to the first, the re-stage's later pieces wait for the burst
+     *  and it is booked after. At rest belief equals both lenses. */
     @Test
     fun aWrapBetweenARestagesPiecesDrawsTheWholeStrip_SPLIT2(): Unit = runBlocking {
         val r = Rig(Taps.REPORT, kib256 = true)
         try {
             r.up()
             walkTo(r, r.list().count - 1)
-            val oldProg = assertNotNull(r.list().entryFor(CfwModes.EV_UPROLL)).prog4
             val regionStart = CfwModes.mainRegion(256 * 1024, true).first
             fun firstOff(img: ByteArray): Int = when (img[0].toInt() and 0x7F) {
                 19 -> r.u16(img, 1) * 4
@@ -1398,10 +1398,9 @@ class MainLocalShellTest {
             r.shell.services.requestRender(r.rows[3])
             r.until("the wrap fired as the re-stage's first piece went out", 15_000) { fired }
             r.onAnyImage = null
-            r.until("the wrap's PLAY on RIGHT") { wrapBatch(r, at) != null }
-            val play = wrapBatch(r, at)!!.first { isWrapPlay(it) }
-            assertEquals(oldProg, r.u16(play, 4), "the wrap draws the strip the bound entries name, not the one in pieces")
             r.until("the re-stage booked", 15_000) { r.notes("mainstage").any { it.startsWith("row 3 re-staged") } }
+            assertTrue(wrapBatch(r, at) == null, "no wrap PLAY while the re-stage was in pieces")
+            assertTrue(r.notes("snapback").last().let { "cause=edge" in it && "wrap=play" !in it }, r.notes("snapback").last())
             delay(r.q() + 200); r.settle("after")
             assertEquals(0, r.row(), "the wrap landed on the first row")
             assertTrue(r.notes("divergence").isEmpty(), "${r.notes("divergence")}")
@@ -1469,6 +1468,37 @@ class MainLocalShellTest {
                 delay(r.motionMs() + r.q() + 300); r.settle("fast notch $i")
             }
             assertEquals(62, r.onLoop { r.shell.periodInForceForTest() }, "never below the period his length and frames gave")
+        } finally { r.close() }
+    }
+
+    /** B082 (the split on 0.81): a re-stage that comes due while the wrap's held wait still runs — past the burst's lone
+     *  SETTLE by the wrap's start allowance — sends its first piece only once that wait has ended: a cache write meeting
+     *  a drawing instance's read range closes it (§5.6). */
+    @Test
+    fun aRestageWaitsForTheWrapsMotionNotJustItsBurst_B082(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, kib256 = true)
+        try {
+            r.up()
+            walkTo(r, r.list().count - 1)
+            val regionStart = CfwModes.mainRegion(256 * 1024, true).first
+            fun firstOff(img: ByteArray): Int = when (img[0].toInt() and 0x7F) {
+                19 -> r.u16(img, 1) * 4
+                25 -> java.util.zip.Inflater().run { setInput(img, 1, img.size - 1); val out = ByteArray(4); inflate(out); end(); r.u16(out, 0) * 4 }
+                else -> -1
+            }
+            val at = r.right.size
+            var pieceAt = 0L
+            r.onAnyImage = { a, img -> if (a == Arm.RIGHT && pieceAt == 0L && r.cacheWrite(img) && firstOff(img) >= regionStart) pieceAt = System.currentTimeMillis() }
+            r.fire(CfwModes.EV_UPROLL)                                       // the wrap
+            r.until("the wrap's PLAY on RIGHT") { wrapBatch(r, at) != null }
+            val until = r.onLoop { r.shell.comp.deferUntilMs }
+            r.rows[3].s = r.rows[3].s.copy(line = "summary 33")                // a re-stage owed now
+            r.shell.services.requestRender(r.rows[3])
+            r.until("the re-stage's first piece", 15_000) { pieceAt != 0L }
+            r.onAnyImage = null
+            assertTrue(pieceAt >= until, "the first piece went ${until - pieceAt} ms before the wrap's wait ended")
+            delay(r.q() + 300); r.settle("after")
+            r.assertOracle("after the wrap and the re-stage")
         } finally { r.close() }
     }
 }
