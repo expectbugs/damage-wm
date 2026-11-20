@@ -135,6 +135,8 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     private var noticeCap4 = 0
     private var noticeOwed = false
     var noticeOpen = false
+    /** The tag of the last notice PLAY sent ([wrapTagNow]'s twin): only a notify naming it clears [noticeOpen]. */
+    private var noticeTagNow = -1
     var noticePlays = 0
     var noticeCuts = 0
 
@@ -434,13 +436,17 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
             if (field == 114) {
                 val slot = m[2]?.toInt() ?: -1; val tag = if (m.containsKey(3)) m[3]!!.toInt() else -1; val outcome = m[4]?.toInt() ?: -1
                 bodies114 += Triple(slot, tag, outcome)
+                // decisions BS.2: each flag (and the wrap's release) by the notify of the instance it stands for — the tag
+                // of the last PLAY, compared when the notify reaches the phone ([wrapTagNow])
                 if (slot == WRAP_SLOT && outcome in 0..1) up(now) {
-                    wrapOpen = false
-                    // B083 (2c), the shell's `localBodyRead`: the wrap drew its last step — the cells held behind it go now
-                    // when no later motion holds them
-                    if (outcome == 0 && carryHold && deferAreas.isNotEmpty() && deferUntil <= wrapUntil) { deferAreas = emptyList(); pumpSoon() }
+                    if (tag == wrapTagNow) {
+                        wrapOpen = false
+                        // B083 (2c), the shell's `localBodyRead`: the wrap drew its last step — the cells held behind it go
+                        // now when no later motion holds them
+                        if (outcome == 0 && carryHold && deferAreas.isNotEmpty() && deferUntil <= wrapUntil) { deferAreas = emptyList(); pumpSoon() }
+                    }
                 }
-                if (slot == wm.damage.core.motion.PopupPrograms.SLOT && outcome in 0..1) up(now) { noticeOpen = false }
+                if (slot == wm.damage.core.motion.PopupPrograms.SLOT && outcome in 0..1) up(now) { if (tag == noticeTagNow) noticeOpen = false }
                 up(now) { rules.body114(slot, tag, outcome, m[10]?.toInt()) }
                 // a refused COMMIT names its S as the tag: the mirror took it, so the transport calls it a divergence
                 // and the shell keyframes (`CfwTransportBase.onMotionNotify`); a DISCARD's or SETTLE's names none
@@ -656,6 +662,15 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
      *  the batches that closed one to draw in its areas. */
     var wrapPlays = 0
     var wrapOpen = false
+    /** Decisions BS.2 (the 0.83 integration): the tag of the last wrap PLAY sent. An "instance open" flag is cleared only by
+     *  a notify naming the instance it stands for, read when the notify reaches the phone: a restart's own PLAY closes the
+     *  instance before it (and an older one may draw its last step), and that notify lands after the new PLAY went — read by
+     *  slot alone it cleared the flag of the instance still drawing, so the next draw in the band carried no CLOSE (14 of
+     *  8,000 fuzz sequences, every one with the notice's timer restarted). The product needs no such flag: its transport
+     *  closes by the open instances of its own mirror (`CfwTransportBase.withMotionCloses`, 3871–3895:
+     *  `mirrorSim.motionWindows(arm)` at 3873), and the shell's wrap release reads the tag (`Shell.localBodyRead`, 5710:
+     *  `ev.tag == wrapTagOut`). */
+    private var wrapTagNow = -1
     var wrapCuts = 0
     /** When the phone first handled each gesture's report. */
     val reportHeardAt = HashMap<Int, Long>()
@@ -987,8 +1002,8 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         if (held.isNotEmpty()) heldBatches++
         val tail = listOfNotNull(wrapPlay) + rules.tail(row, now, emptySet(), frame = subs.isNotEmpty(), wrapped = wrapPlay != null) +
             listOfNotNull(noticePlay)
-        if (wrapPlay != null) { wrapOpen = true; wrapPlays++; wrapUntil = deferUntil }
-        if (noticePlay != null) { noticeOpen = true; noticePlays++ }
+        if (wrapPlay != null) { wrapOpen = true; wrapTagNow = 0xB000 + (wrapPlays and 0xFFF); wrapPlays++; wrapUntil = deferUntil }
+        if (noticePlay != null) { noticeOpen = true; noticeTagNow = 0xC000 + (noticePlays and 0xFFF); noticePlays++ }
         for (c in tail) if (c[0].toInt() == 26 && c[1].toInt() == 3) {
             commitBatches += ((c[3].toInt() and 0xFF) or ((c[4].toInt() and 0xFF) shl 8)) to subs.map { it.second }
             if (held.isNotEmpty()) heldCommits++

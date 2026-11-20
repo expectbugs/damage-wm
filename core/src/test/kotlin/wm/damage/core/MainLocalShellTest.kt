@@ -1969,7 +1969,9 @@ class MainLocalShellTest {
             println("BP-3: the wake's frame (${wake.bytes} B) submitted ${wake.t - tap} ms after the tap, taken by the lane ${waited} ms later; the piece " +
                 "in flight (${piece.bytes} B) written in $pieceMs ms (done ${piece.doneT - tap} ms after the tap); STAGE after the wake ${fl.drop(n0).count { it.label == "STAGE" }}")
             assertTrue(piece.doneT > tap, "the piece was in flight at the tap (done ${piece.doneT - tap} ms after it)")
-            assertTrue(fl.none { it.label == "STAGE" && it.t in tap..wake.t }, "no piece submitted between the tap and the wake's frame")
+            // only the flushes after `n0`: the piece in flight at the tap is among the first `n0`, and its submit can be
+            // journaled in the very millisecond `tap` is read (the 0.83 integration: red 1 in 12 runs, that piece at tap + 0 ms)
+            assertTrue(fl.drop(n0).none { it.label == "STAGE" && it.t in tap..wake.t }, "no piece submitted between the tap and the wake's frame")
             assertTrue(waited <= pieceMs + 50, "the wake's frame waited $waited ms in the lane; one piece is written in $pieceMs ms")
             assertTrue(fl.drop(n0).any { it.label == "STAGE" && it.mode == "MAIN" }, "the rest of Main's pieces went after the wake")
             assertEquals(1, r.notes("mainstage").count { it.startsWith("staged") }, "carried on, not staged again: ${r.notes("mainstage")}")
