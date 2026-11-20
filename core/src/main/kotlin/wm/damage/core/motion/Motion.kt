@@ -1055,8 +1055,10 @@ class MotionProgram internal constructor(val at: Int, val bytes: ByteArray, val 
      *  the source window inside the record (5, at the walk — never a SET's: that is [Motion.checkBound]'s caller's). */
     private fun draw2(ti: Int, r: Resolved, e: IntArray, skip: (Array<out Motion.Field>) -> Boolean) {
         if (!skip(arrayOf(Motion.Field.W0, Motion.Field.W1)) && (r.w0 != 0 || r.w1 != 0)) {
-            if (r.w0 !in 1..2048 || r.w1 !in 1..2048) throw LintError("track $ti: DRAW's w0 ${r.w0} / w1 ${r.w1} are not both 0 or both 1..2048 (§7.5) — refused (12)")
-            if (e.any { Motion.eased(r.w0, r.w1 - r.w0, it) !in 1..2048 }) throw LintError("track $ti: DRAW's eased W leaves 1..2048 (§7.5) — refused (12)")
+            // E[0] = 0 and E[n] = 4096 for every ease, so W(0) = w0 and W(n) = w1: this one test is "both 1..2048 with every
+            // step's W inside" (one 0 and one not leaves it at an end); the pin watch found a separate end test redundant
+            if (e.any { Motion.eased(r.w0, r.w1 - r.w0, it) !in 1..2048 })
+                throw LintError("track $ti: DRAW's W (w0 ${r.w0} → w1 ${r.w1}) leaves 1..2048 along its ease — both 0, or both 1..2048 with every step's W inside (§7.5) — refused (12)")
         }
         val rec = r.record
         if (r.kind == Motion.KIND_RECORD && rec != null && !skip(arrayOf(Motion.Field.AUX0, Motion.Field.AUX1, Motion.Field.SRC))) {
