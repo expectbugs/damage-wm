@@ -1122,7 +1122,7 @@ class TransitionShellTest {
             // the first image after the tap is priced as DP2's: the out PLAY's flush is the gesture's first in the journal
             val outFlush = Regex("then the out PLAY as flush (\\d+)").find(r.notes("transition").joinToString("\n"))!!.groupValues[1]
             val firstIn = Files.readAllLines(r.journal).drop(lines0).filter { "\"ev\":\"submit\"" in it }.first { "\"in\":1" in it }
-            assertTrue("\"id\":$outFlush," in firstIn && "\"label\":\"TRANSITION\"" in firstIn, "the gesture's first flush is the out PLAY's: $firstIn")
+            assertTrue("\"id\":$outFlush," in firstIn && "\"label\":\"TRANSITION+select\"" in firstIn, "the gesture's first flush is the out PLAY's: $firstIn")
             r.assertOracle("after the Encode Select")
             println("DM-T Encode Select, RIGHT's images: " + imgs.joinToString("; ") { img ->
                 "${img.size} B [" + subs(img).joinToString(" ") { "${it[0].toInt() and 0x7F}/${if ((it[0].toInt() and 0x7F) in setOf(26, 27)) it[1].toInt() else it.size}" } + "]" })
