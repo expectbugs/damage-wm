@@ -69,6 +69,9 @@ class MainSurface(
     /** What a row's staged picture is drawn from, compared at every compose: a change marks the row for its re-stage
      *  (`MainBinding`). The theme's icons and the faces are not in it: a round-robin repaint catches those. The progress
      *  is the bar's lit blocks, as both forms draw it (decisions AL.1: a playing track's position moves at every read). */
+    /** B082: the window a row shows (its identity across stagings: a row that changed keeps its segment room). */
+    internal fun rowIdentity(index: Int): String? = windows().getOrNull(index)?.id
+
     internal fun rowKey(index: Int): Any? = windows().getOrNull(index)?.let { w ->
         val s = w.summary()
         listOf(w.name, w.icon, s.copy(progress = s.progress?.let { Icons.blocksLit(it).toDouble() }), w.needs.isNotEmpty())

@@ -1839,10 +1839,12 @@ track area of the live shadow) · 0xFF none; any other: 5. `pref` field codes: �
 aux0 · 17 aux1** (u16 fields take the whole value); above 17: 5.
 
 **Which fields each verb uses** (a field not listed for verbs 4–6, and w0, w1, aux0, aux1 for every verb that does
-not list them, must be 0, else 5; for verbs 0–3, §5.4's "a field a verb does not use is ignored" stands). **These
+not list them, must be 0, else 5; for verbs 0–3, §5.4's "a field a verb does not use is ignored" stands — REVEAL's lvl0
+and lvl1 among them, which the phone writes as 0). **These
 rules are decided on the segment after substitution:** a pref that writes a parameter into such a field (pref 14–17 on
 any verb, any code on verbs 4–6) is 5 at a PLAY, PLAY-AFTER, RETARGET, fire or COMMIT whose parameter there is not 0;
-a SET, which has no parameters, decides with every parameter 0.
+a SET, which has no parameters, decides with every parameter 0. (The phone's builders never write a parameter into a
+field its verb does not use; the rule is the glasses'.)
 
 | verb | uses (besides verb, steps, ease, table, pref0, pref1) | opt bits allowed |
 |---|---|---|
@@ -1905,7 +1907,9 @@ track are not excepted: the second's uncovered part would be the first's result,
 step never drew — the lens would show what its fold pattern left.)
 
 **END** (§5.4): an OWN program writes no END (§7.3). A bound program has no in-place track, so its END is §5.4's: every
-track's state at step T painted in track order, a GLYPHS track's included.
+track's state at step T painted in track order, a GLYPHS track's included — by the engine's own renderers (the two-axis
+DRAW, a source window, GLYPHS' settled cells and rain at step T), not by §4's ops; `new` never appears in it (a bound
+program cannot name it). The phone's model paints it with the model's renderers.
 
 **RETARGET on a bit-11 build:** its shape rule (12) also refuses an instance whose program is OWN or carries a PIECES,
 SHRINK or GLYPHS segment or a `new` source or backdrop. A DRAW's W is clamped to 1..2048 on its restart path as H is
@@ -2147,8 +2151,10 @@ the glyph alphabet[H3(seed, c, r·256 + ⌊t / flicker⌋) mod n_alpha] drawn at
 fills them with fillLvl, reveal 0 leaves them. Below the head nothing is painted. With reveal 1 or 2 the track is in
 place (§7.2: its base below the head is the picture it keeps).
 
-**Read range:** the program, the cell table and the list aux0 selects (or the rain record), the alphabet, every font
-named and every glyph record a cell's codes or the alphabet name in each of those fonts, codes 0 and 32 excepted (above)
+**Read range:** the program, the cell table and the list aux0 selects — no other list of the table is followed or read —
+(or the rain record), the alphabet (its n + 1 bytes; its padding is not read), **every font from which the walk reads a
+glyph entry, counted whole (its 448 B)** — a font named only through codes 0 and 32 is not read and not in the range —
+and every glyph record a cell's codes or the alphabet name in each of those fonts, codes 0 and 32 excepted (above)
 — all walked at the PLAY, the COMMIT or the fire (5), each (font, code) pair once per message. A cache write that meets it closes the instance (§5.6). **Cost (I):** ≈ 200 cells × (a box fill
 and a glyph of ≈ 200 px at the DRAW rate, its record decoded once) ≤ 15 ms a step at §7.12's rates; rain ≈ cols × trail glyphs, ≈ 13 ms for
 53 × 8; the walk at a fire ≈ 1–3 ms more in field 16.
@@ -2220,7 +2226,11 @@ instance, owning; sets the engine's flag; the message's present).
 - **Ladder stage 5 = EFFECTS** with stage 4's flags (flags 0x7c), set by hand as every stage (`probe c1=5`), never
   advanced by itself; a hand `flags=` probe cannot arm bit 6 beyond the stage; its rung is recorded before its
   FLAGS_SET. **Its hold-back is stage 4's (§6.8)** — a reset after stage 5 was armed holds it back to stage 4 until the
-  next case-in or calendar day, the row or `probe c1=5`; one stage, never more. Persisted as §6.8's record.
+  next case-in or calendar day, the row or `probe c1=5`; one stage, never more. Persisted as §6.8's record. **On a build
+  that cannot arm stage 5** (no DamageCaps bit 11) a stored stage 5 arms stage 4 and writes stage 4's record, and its
+  hold-back is one stage below what the build arms (3). **`probe c1=4`** with a stored, held-back stage 5 lifts the
+  hold-back as `probe c1=5` does (§6.8's "`c1=4` lifts") and sets stage 4. **EFFECTS is armed after BIND:** stage 5's
+  start is stage 4's with one rung appended — each arm's FLAGS_SET `0x7c` after its `0x3c`.
 
 ### 7.10 The plan's late step
 
@@ -2243,8 +2253,9 @@ one-period wait; with this it is drawn a few ms late.
 
 ### 7.11 The phone's rules (phone code; none of it is firmware)
 
-- **Owners in the mirror.** The mirror holds every owning instance and its owned rects per lens; a write the phone wants
-  shown inside an owned rect CLOSEs the owner in the same batch first (C1's rule for a write meeting an open instance);
+- **Owners in the mirror.** The mirror holds every owning instance and its owned rects per lens; a write that meets an
+  owner's **meeting box** (§7.3: both lenses' owned rects, as the glasses' own closes decide) CLOSEs the owner in the same
+  batch first (C1's rule for a write meeting an open instance);
   the panel model leaves an owned rect as it is through every held present, and takes the shadow there at LAND or at a
   close.
 - **A transition** is an out half (OWN, no LAND) played when the phone acts, the arriving frame in as many batches as it
@@ -2269,6 +2280,8 @@ one-period wait; with this it is drawn a few ms late.
 - **The ring list:** LIST-RING only while EFFECTS is in force; the strip's margins hold the other end's rows; without
   EFFECTS (or with LIST-RING refused) the wrap stays the phone's PLAY at the edge report (APK 0.80's).
 - **Version 2 only at stage 5**: a build or a session without EFFECTS keeps version-1 programs (today's pan and press).
+  The transport gates PLAY-AFTER, LIST-RING and kind 3; a version-2 program record travels in a cache write the transport
+  cannot tell from an image, so the builders keep version-2 records out below stage 5.
   EFFECTS is armed at the session start, before any PLAY, so every instance the phone opens at stage 5 runs the fast
   DRAW path (§7.12).
 - **A list whose programs use a source window** (Crush, Flip) stages with pitch = +row height and draws its strip tracks
@@ -2327,7 +2340,8 @@ G (§7.4) is built once per present as a 16-entry table; GLYPHS walks each (font
 
 **The step budget** (12, after the values, §7.2's order). At a **PLAY, a PLAY-AFTER, a RETARGET and a fire** on a
 bit-11 build the walk computes the opened or restarted instance's cost **C** and, for a version-2 program, judges the
-**sum** below; a **COMMIT** of a version-2 program, which opens no instance, judges its program's own C against the
+**sum** below (**a SET judges no budget**: it has no parameters, and a cost can hang on them — a CELLS index by kind 3;
+the fire judges the program with its own); a **COMMIT** of a version-2 program, which opens no instance, judges its program's own C against the
 cap. C is in units u (1 u ≈ 1/64 µs of the display task). **Every term is computed from both lenses' rects** — A is the larger of a track's two areas in pixels (one rect
 counts for both), Wa and Ha the larger widths and heights — so both lenses decide alike. C is the sum over the program's
 tracks of 1,024 + the backdrop's term + the largest of its segments' terms:
@@ -2851,3 +2865,8 @@ phone's keeper applies the hold-back rule before re-arming.
   every non-WAIT segment's ease of an in-place track at the walk; the none-backdrop rule's one containing track;
   overlapping pieces by both tests; RETARGET's W from the source's width; no field 18 when v = c'; the window's rules
   at the record walk only. Nothing built.
+- 2026-11-20 — the phone lane's seven readings and part N's (`C3-decisions.md` N; `C3-D2-report.md` "The seven"):
+  REVEAL's levels ignored in version 2 (the phone writes 0); the GLYPHS read range counts each font a glyph entry is read
+  from whole, not a 0/32-only font, not an alphabet's padding, no other list of a cell table; a SET judges no budget;
+  END painted by the engine's renderers; stage 5 on a build that cannot arm it, `probe c1=4` lifting its hold-back,
+  EFFECTS after BIND; the phone's CLOSE before a write reads the meeting box. Nothing built.

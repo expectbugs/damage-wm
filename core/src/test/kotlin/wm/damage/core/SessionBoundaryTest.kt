@@ -254,7 +254,7 @@ class SessionBoundaryTest {
         }
         t.start(Zl.encodeCfw(Pack.rect(Gray8(640, 480), Rect(0, 0, 640, 480))))
         val comp = Compositor()
-        comp.requestKeyframe()
+        comp.requestKeyframe("test")
         val a = comp.assembleFlush(Geometry.rectBudget(3))!!
         t.writeGate = kotlinx.coroutines.CompletableDeferred()
         val gate = t.writeGate!!

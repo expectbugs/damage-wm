@@ -111,7 +111,7 @@ class PendingAckReleaseTest {
             val l = Layout()
             val comp = rig.comp
             comp.composed.fillRect(l.content, 3 * 17)
-            comp.requestKeyframe()
+            comp.requestKeyframe("test")
             rig.drain("keyframe")
 
             // lose exactly ONE image ack: the next one the glasses send back
@@ -168,7 +168,7 @@ class PendingAckReleaseTest {
             val l = Layout()
             val comp = rig.comp
             comp.composed.fillRect(l.content, 3 * 17)
-            comp.requestKeyframe()
+            comp.requestKeyframe("test")
             rig.drain("keyframe")
 
             // lose exactly ONE image ack: A's
@@ -183,7 +183,7 @@ class PendingAckReleaseTest {
             val idA = rig.t.submit(FlushRequest(a.ops, a.epoch, "A", wide = a.wide))
             // B is a keyframe: wide, so it drains first
             comp.composed.fillRect(l.content, 5 * 17)
-            comp.requestKeyframe()
+            comp.requestKeyframe("test")
             val b = assertNotNull(comp.assembleFlush(5))
             assertTrue(b.wide, "B is wide")
             val idB = rig.t.submit(FlushRequest(b.ops, b.epoch, "B", wide = b.wide))
@@ -220,7 +220,7 @@ class PendingAckReleaseTest {
             val l = Layout()
             val comp = rig.comp
             comp.composed.fillRect(l.content, 3 * 17)
-            comp.requestKeyframe()
+            comp.requestKeyframe("test")
             rig.drain("keyframe")
             var dropped = 0
             rig.t.notifyFilter = { _: Arm, p: ByteArray ->
@@ -277,7 +277,7 @@ class PendingAckReleaseTest {
             val l = Layout()
             val comp = Compositor()
             comp.composed.fillRect(l.content, 3 * 17)
-            comp.requestKeyframe()
+            comp.requestKeyframe("test")
             val k = assertNotNull(comp.assembleFlush(5))
             assertTrue(await(t.submit(FlushRequest(k.ops, k.epoch, "K", wide = k.wide)), "K").ok, "the first keyframe")
 
@@ -292,7 +292,7 @@ class PendingAckReleaseTest {
             waitUntil(10_000, message = { "A's ack is on its way: held=${held.get() != null}" }) { held.get() != null }
             // B is a keyframe: wide, so it drains first — behind A's slot
             comp.composed.fillRect(l.content, 5 * 17)
-            comp.requestKeyframe()
+            comp.requestKeyframe("test")
             val b = assertNotNull(comp.assembleFlush(5))
             assertTrue(b.wide, "B is wide")
             val imagesBeforeB = images.get()
@@ -322,7 +322,7 @@ class PendingAckReleaseTest {
             val rig = Rig(scope); rig.start()
             val l = Layout()
             rig.comp.composed.fillRect(l.content, 3 * 17)
-            rig.comp.requestKeyframe()
+            rig.comp.requestKeyframe("test")
             rig.drain("keyframe")
             repeat(6) { i ->
                 val row = Rect(l.content.x, l.content.y + 20 * i, l.content.w - Layout.RAIL_W, 16)

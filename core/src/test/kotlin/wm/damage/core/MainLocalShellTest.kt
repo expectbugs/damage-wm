@@ -813,6 +813,18 @@ class MainLocalShellTest {
             val stripB = Regex("""its second slot (\d+) B""").find(staged)?.groupValues?.get(1)?.toInt()
             val switchB = Regex("""re-staged — (\d+) B""").find(restaged)!!.groupValues[1].toInt()
             assertTrue(stripB != null && switchB < stripB / 2, "the second slot staged with the base records ($staged); the switch's flush small ($restaged)")
+            // build SPLIT: the re-stage is booked (the list that names the other strip) only after every piece before its
+            // naming piece was acknowledged — each of those pieces' `done` line comes before the `re-staged` note
+            val ls = Files.readAllLines(r.journal)
+            val bookedAt = ls.indexOfFirst { "\"kind\":\"mainstage\"" in it && "\"detail\":\"row 3 re-staged" in it }
+            val pieceIds = ls.filter { "\"kind\":\"stage\"" in it && "re-stage" in it && "as flush " in it }
+                .map { it.substringAfter("as flush ").takeWhile { c -> c.isDigit() }.toLong() }
+            val n = Regex("""in (\d+) piece""").find(restaged)!!.groupValues[1].toInt()
+            val naming = if ("item table switched" in restaged) 1 else 0
+            assertEquals(n, pieceIds.size, "the re-stage's pieces: $pieceIds")
+            for (id in pieceIds.take(n - naming)) assertTrue(ls.indexOfFirst { "\"ev\":\"done\"" in it && "\"id\":$id," in it } in 0 until bookedAt,
+                "piece flush $id acknowledged before the booking (line $bookedAt)")
+            if (naming == 1) assertTrue(ls.any { "re-stage: piece $n of $n (4 B, naming the rest)" in it }, "the item word alone, last: ${ls.filter { "re-stage" in it && "\"kind\":\"stage\"" in it }}")
         } finally { r.close() }
     }
 
@@ -959,7 +971,8 @@ class MainLocalShellTest {
         val batch = wrapBatch(r, at)!!
         val play = batch.first { isWrapPlay(it) }
         assertEquals(e.period, play[3].toInt() and 0xFF, "$what: the PLAY's period is the entry's (the Animations rows)")
-        assertEquals(e.prog4, r.u16(play, 4), "$what: the PLAY's program is the entry's pan")
+        assertEquals(r.onLoop { r.shell.mainBinding.staging!!.wrapPan(e.step)!!.prog4 }, r.u16(play, 4), "$what: the PLAY's program is the wrap's own pan (B082)")
+        assertEquals(e.program!!.T, r.onLoop { r.shell.mainBinding.staging!!.wrapPan(e.step)!!.program.T }, "$what: with the entry's T")
         val iPlay = batch.indexOfFirst { isWrapPlay(it) }
         val iDiscard = batch.indexOfFirst { r.isSub(it, 26, 4) }
         assertTrue(iDiscard > iPlay, "$what: the DISCARD follows the PLAY in its batch")
@@ -1305,23 +1318,217 @@ class MainLocalShellTest {
             repeat(2) { r.fire(CfwModes.EV_DOWNROLL); delay(r.motionMs() + r.q() + 300); r.settle("notch at P 55") }
             val after = r.notes("motion").drop(bodies0).filter { "committed" in it }
             assertTrue(after.isNotEmpty() && after.all { "folded 0" in it }, "no fold at P 55: $after")
-            // steps a little faster (47 ms: 53 ticks, 2 under 55) for a whole window: no change — the hysteresis
+            // steps a little faster (47 ms: 53 ticks, 2 under 55) for a whole window, then quiet: no change — under 4 ticks
             for (a in Arm.entries) r.sim.motionForTest(a).stepUsForTest = 47_000L
             repeat(Shell.PERIOD_WINDOW + 1) { i ->
                 r.fire(if (i % 2 == 0) CfwModes.EV_UPROLL else CfwModes.EV_DOWNROLL)
                 delay(r.motionMs() + r.q() + 300); r.settle("47 ms notch $i")
             }
-            assertEquals(55, r.onLoop { r.shell.periodInForceForTest() }, "a two-tick gain does not bring it down (hysteresis ${Shell.PERIOD_HYSTERESIS})")
-            // fast steps: down only after eight motions since the change
+            delay(Shell.PERIOD_QUIET_MS + 600); r.settle("quiet after 47 ms notches")
+            assertEquals(55, r.onLoop { r.shell.periodInForceForTest() }, "a two-tick gain does not bring it down (under ${Shell.PERIOD_LOWER_MIN})")
+            // fast steps (his look at 0.81, ruled): not lowered while notches keep coming, only after 5 s with no input
             for (a in Arm.entries) r.sim.motionForTest(a).stepUsForTest = 30_000L
-            var n = 0
-            while (r.onLoop { r.shell.periodInForceForTest() } == 55 && n < 12) {
-                r.fire(if (n % 2 == 0) CfwModes.EV_UPROLL else CfwModes.EV_DOWNROLL); n++
+            repeat(Shell.PERIOD_WINDOW + 1) { n ->
+                r.fire(if (n % 2 == 0) CfwModes.EV_UPROLL else CfwModes.EV_DOWNROLL)
                 delay(r.motionMs() + r.q() + 300); r.settle("fast notch $n")
             }
-            assertEquals(34, r.onLoop { r.shell.periodInForceForTest() }, "30 ms × 1.10 → 34 ticks")
-            assertTrue(n >= Shell.PERIOD_WINDOW, "not before the slower steps left the window: $n fast motions")
+            assertEquals(55, r.onLoop { r.shell.periodInForceForTest() }, "not lowered while the notches keep coming")
+            delay(Shell.PERIOD_QUIET_MS + 1_000); r.settle("5 s with no input")
+            assertEquals(46, r.onLoop { r.shell.periodInForceForTest() }, "30 ms would need 34 ticks; the floor is the staging's own period, 46 (W1)")
             r.assertOracle("after the period came down")
+        } finally { r.close() }
+    }
+
+    /** Build SPLIT: a notch fired as a re-stage's first piece reaches the lens (Main bound at 256 KiB, a row form
+     *  changed) opens a burst; the re-stage's later pieces wait for its lone SETTLE — an instance's read ranges cover
+     *  both strip slots and the spare band slot (§5.6) — so the notch is adopted, COMMITted and drawn whole, with no
+     *  snap-back, and the oracle holds. */
+    @Test
+    fun aNotchBetweenARestagesPiecesHoldsTheRestUntilItsBurstEnds_SPLIT(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, kib256 = true)
+        try {
+            r.up()
+            val at = r.right.size
+            var fired: Int? = null
+            // the re-stage's first piece: a cache write into Main's own region (the atlas lies below it) — a mode 19 or its
+            // deflated form, mode 25 (ZWRITE is armed at stage 4)
+            val regionStart = CfwModes.mainRegion(256 * 1024, true).first
+            fun firstOff(img: ByteArray): Int = when (img[0].toInt() and 0x7F) {
+                19 -> r.u16(img, 1) * 4
+                25 -> java.util.zip.Inflater().run { setInput(img, 1, img.size - 1); val out = ByteArray(4); inflate(out); end(); r.u16(out, 0) * 4 }
+                else -> -1
+            }
+            r.onAnyImage = { a, img -> if (a == Arm.RIGHT && fired == null && r.cacheWrite(img) && firstOff(img) >= regionStart) fired = r.fire(CfwModes.EV_UPROLL) }
+            r.rows[3].s = r.rows[3].s.copy(line = "summary 33")
+            r.shell.services.requestRender(r.rows[3])
+            r.until("a notch fired as the re-stage's first piece went out", 15_000) { fired != null }
+            r.onAnyImage = null
+            r.until("the re-stage booked", 15_000) { r.notes("mainstage").any { it.startsWith("row 3 re-staged") } }
+            r.settle("the re-stage written")
+            val imgs = r.right.drop(at)
+            val writes = imgs.withIndex().filter { (_, img) -> r.cacheWrite(img) && firstOff(img) >= regionStart }.map { it.index }
+            assertTrue(writes.size >= 2, "the re-stage went in pieces: ${writes.size}")
+            val settleAt = imgs.withIndex().firstOrNull { (i, img) -> i > writes[0] && r.subs(img).any { r.isSub(it, 26, 5) } }?.index ?: -1
+            assertTrue(settleAt in writes[0] until writes[1], "the second piece after the burst's SETTLE: SETTLE at $settleAt, pieces at $writes")
+            assertTrue(imgs.any { img -> r.subs(img).any { r.isCommit(it, fired!!) } }, "the notch COMMITted")
+            assertTrue(r.notes("snapback").isEmpty(), "no snap-back: ${r.notes("snapback")}")
+            r.assertOracle("after the re-stage")
+        } finally { r.close() }
+    }
+
+    /** Build SPLIT on 0.81, B082 (the wrap's own record): a wrap whose edge report comes as a 256 KiB re-stage's first
+     *  piece goes out — the re-stage writes the changed row into the wrap's record too — sends no PLAY (that record may be
+     *  part-written): the edge goes as today, the row moves to the first, the re-stage's later pieces wait for the burst
+     *  and it is booked after. At rest belief equals both lenses. */
+    @Test
+    fun aWrapBetweenARestagesPiecesDrawsTheWholeStrip_SPLIT2(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, kib256 = true)
+        try {
+            r.up()
+            walkTo(r, r.list().count - 1)
+            val regionStart = CfwModes.mainRegion(256 * 1024, true).first
+            fun firstOff(img: ByteArray): Int = when (img[0].toInt() and 0x7F) {
+                19 -> r.u16(img, 1) * 4
+                25 -> java.util.zip.Inflater().run { setInput(img, 1, img.size - 1); val out = ByteArray(4); inflate(out); end(); r.u16(out, 0) * 4 }
+                else -> -1
+            }
+            val at = r.right.size
+            var fired = false
+            r.onAnyImage = { a, img -> if (a == Arm.RIGHT && !fired && r.cacheWrite(img) && firstOff(img) >= regionStart) { fired = true; r.fire(CfwModes.EV_UPROLL) } }
+            r.rows[3].s = r.rows[3].s.copy(line = "summary 33")
+            r.shell.services.requestRender(r.rows[3])
+            r.until("the wrap fired as the re-stage's first piece went out", 15_000) { fired }
+            r.onAnyImage = null
+            r.until("the re-stage booked", 15_000) { r.notes("mainstage").any { it.startsWith("row 3 re-staged") } }
+            assertTrue(wrapBatch(r, at) == null, "no wrap PLAY while the re-stage was in pieces")
+            assertTrue(r.notes("snapback").last().let { "cause=edge" in it && "wrap=play" !in it }, r.notes("snapback").last())
+            delay(r.q() + 200); r.settle("after")
+            assertEquals(0, r.row(), "the wrap landed on the first row")
+            assertTrue(r.notes("divergence").isEmpty(), "${r.notes("divergence")}")
+            r.assertOracle("after the wrap and the re-stage")
+        } finally { r.close() }
+    }
+    // ---------------------------------------------------------------------------------------------- the focused read of G4
+    /** The focused read's L1: a throw from the wrap's END paint (after the LEFT lens's) is said once and keyframes — the
+     *  half-applied END on LEFT is re-grounded — and the batch path answers with the DISCARD: no PLAY, no repeat at every
+     *  pump, the row at the first, belief equal to both lenses. */
+    @Test
+    fun aThrowFromTheWrapsEndPaintKeyframesOnce_L1(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, kib256 = true)
+        try {
+            r.up()
+            walkTo(r, r.list().count - 1)
+            val at = r.right.size
+            r.onLoop { r.shell.wrapPaintFailsForTest = true }
+            r.fire(CfwModes.EV_UPROLL)
+            r.until("the keyframe") { r.right.drop(at).any { (it[0].toInt() and 0x7F) == 6 || r.subs(it).any { s -> (s[0].toInt() and 0x7F) == 6 } } }
+            delay(r.motionMs() + r.q() + 300)
+            r.onLoop { r.shell.wrapPaintFailsForTest = false }
+            r.settle("after")
+            assertEquals(1, r.notes("assemble-error").count { "the wrap's END" in it }, "said once: ${r.notes("assemble-error")}")
+            assertTrue(wrapBatch(r, at) == null, "no wrap PLAY")
+            assertEquals(0, r.row(), "the edge moved the row as today")
+            r.assertOracle("after the failed wrap")
+        } finally { r.close() }
+    }
+
+    /** The focused read's W2: a cover over Main (a notice) asks the rules nothing before they know the front — no
+     *  `snapback` record, no DISCARD in the cover's frame. */
+    @Test
+    fun aCoverOverMainWritesNoSnapbackRecord_W2(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, kib256 = true)
+        try {
+            r.up()
+            notch(r, CfwModes.EV_UPROLL, "a notch first")
+            delay(r.q() + 300); r.settle("the burst closed")
+            val at = r.right.size
+            val snaps = r.notes("snapback").size
+            r.shell.postNotice(wm.damage.core.shell.Notifications.Notice("TEST · a", "t", "a notice over Main", "12:00"))
+            r.until("the notice up") { r.onLoop { r.shell.notificationsUpForTest() } }
+            delay(300); r.settle("under the notice")
+            assertEquals(snaps, r.notes("snapback").size, "no snap-back record: ${r.notes("snapback").takeLast(2)}")
+            assertTrue(r.right.drop(at).none { img -> r.subs(img).any { r.isSub(it, 26, 4) } }, "no DISCARD in the cover's frames")
+        } finally { r.close() }
+    }
+
+    /** The focused read's W1 (ruled): with `Frames` fixed, the measured period never goes below the staging's own — 600 ms
+     *  over 10 frames is P 62 — however fast the steps measure. */
+    @Test
+    fun aFixedFramesPeriodIsNeverLoweredBelowItsOwn_W1(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT)
+        try {
+            r.up()
+            val staged0 = r.notes("mainstage").count { it.startsWith("staged") }
+            r.shell.updateSettings { it.copy(scrollLength = 600, frames = 10) }
+            r.until("staged again with the new motion", 15_000) { r.notes("mainstage").count { it.startsWith("staged") } > staged0 }
+            r.bound("bound at 600 ms, 10 frames")
+            assertEquals(62, r.onLoop { r.shell.periodInForceForTest() }, "614 ticks over 10 frames")
+            for (a in Arm.entries) r.sim.motionForTest(a).stepUsForTest = 30_000L
+            repeat(Shell.PERIOD_WINDOW + 2) { i ->
+                r.fire(if (i % 2 == 0) CfwModes.EV_UPROLL else CfwModes.EV_DOWNROLL)
+                delay(r.motionMs() + r.q() + 300); r.settle("fast notch $i")
+            }
+            delay(Shell.PERIOD_QUIET_MS + 1_000); r.settle("5 s with no input")
+            assertEquals(62, r.onLoop { r.shell.periodInForceForTest() }, "never below the period his length and frames gave")
+        } finally { r.close() }
+    }
+
+    /** B082 (the split on 0.81): a re-stage that comes due while the wrap's held wait still runs — past the burst's lone
+     *  SETTLE by the wrap's start allowance — sends its first piece only once that wait has ended: a cache write meeting
+     *  a drawing instance's read range closes it (§5.6). */
+    @Test
+    fun aRestageWaitsForTheWrapsMotionNotJustItsBurst_B082(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, kib256 = true)
+        try {
+            r.up()
+            walkTo(r, r.list().count - 1)
+            val regionStart = CfwModes.mainRegion(256 * 1024, true).first
+            fun firstOff(img: ByteArray): Int = when (img[0].toInt() and 0x7F) {
+                19 -> r.u16(img, 1) * 4
+                25 -> java.util.zip.Inflater().run { setInput(img, 1, img.size - 1); val out = ByteArray(4); inflate(out); end(); r.u16(out, 0) * 4 }
+                else -> -1
+            }
+            val at = r.right.size
+            var pieceAt = 0L
+            r.onAnyImage = { a, img -> if (a == Arm.RIGHT && pieceAt == 0L && r.cacheWrite(img) && firstOff(img) >= regionStart) pieceAt = System.currentTimeMillis() }
+            r.fire(CfwModes.EV_UPROLL)                                       // the wrap
+            r.until("the wrap's PLAY on RIGHT") { wrapBatch(r, at) != null }
+            val until = r.onLoop { r.shell.comp.deferUntilMs }
+            r.rows[3].s = r.rows[3].s.copy(line = "summary 33")                // a re-stage owed now
+            r.shell.services.requestRender(r.rows[3])
+            r.until("the re-stage's first piece", 15_000) { pieceAt != 0L }
+            r.onAnyImage = null
+            assertTrue(pieceAt >= until, "the first piece went ${until - pieceAt} ms before the wrap's wait ended")
+            delay(r.q() + 300); r.settle("after")
+            r.assertOracle("after the wrap and the re-stage")
+        } finally { r.close() }
+    }
+    /** His look at 0.81 (the wrap's flush seemed to leave 180–590 ms after it was decided): the wrap's flush leaves the
+     *  lane at once however busy the loop is after it — a 300 ms load on the loop right after the submit — measured by the
+     *  transport's own times in the `done` row (`took`, `wrote`), not by the row's `t`, which is when the loop got to it. */
+    @Test
+    fun theWrapsFlushLeavesWhileTheLoopIsBusy_BI(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, kib256 = true)
+        try {
+            r.up()
+            walkTo(r, r.list().count - 1)
+            r.onLoop { r.shell.afterWrapSubmitForTest = { Thread.sleep(300) } }
+            r.fire(CfwModes.EV_UPROLL)
+            delay(r.motionMs() + r.q() + 600)
+            r.onLoop { r.shell.afterWrapSubmitForTest = null }
+            r.settle("after")
+            val lines = Files.readAllLines(r.journal).map { kotlinx.serialization.json.Json.parseToJsonElement(it) as kotlinx.serialization.json.JsonObject }
+            fun JsonObjectLong(o: kotlinx.serialization.json.JsonObject, k: String) = (o[k] as? kotlinx.serialization.json.JsonPrimitive)?.content?.toLongOrNull()
+            val note = lines.lastOrNull { (it["detail"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.contains("went ahead of its frame as flush") == true }
+            assertTrue(note != null, "the wrap went ahead: ${r.notes("local").takeLast(3)}")
+            val detail = (note!!["detail"] as kotlinx.serialization.json.JsonPrimitive).content
+            val id = Regex("as flush (\\d+)").find(detail)!!.groupValues[1].toLong()
+            val done = lines.last { (it["ev"] as? kotlinx.serialization.json.JsonPrimitive)?.content == "done" && JsonObjectLong(it, "id") == id }
+            val decided = JsonObjectLong(note, "t")!!
+            val took = JsonObjectLong(done, "took")!!; val wrote = JsonObjectLong(done, "wrote")!!; val handled = JsonObjectLong(done, "t")!!
+            println("BI-wrap-lane: took +${took - decided} ms, wrote +${wrote - decided} ms, done row +${handled - decided} ms after the decision")
+            assertTrue(took - decided < 60 && wrote - decided < 80, "the lane took it at once: took +${took - decided}, wrote +${wrote - decided}")
+            assertTrue(handled - decided >= 250, "the done row waited for the loaded loop (+${handled - decided}): the row's t is no send time")
         } finally { r.close() }
     }
 }

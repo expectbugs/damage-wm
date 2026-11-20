@@ -225,7 +225,7 @@ object MainLocalCheck {
         if (!inside) setup += "the staging ${ms.start}..${ms.end} leaves its region ${region.first}..${region.last + 1}"
         val tableLine = "$tag: ${ms.bytes} B at ${ms.start}..${ms.end} (${if (region.last + 1 == cacheSize) "shared reserve" else "Main's region"}), " +
             "strip ${ms.blobs[0].bytes.size} B in a ${ms.strip.slot} B slot${if (ms.stripB != null) " (and its second slot)" else ""}, band forms ${ms.blobs.drop(if (ms.stripB != null) 2 else 1).take(ms.rows).sumOf { it.bytes.size }} B in ${ms.bands.sumOf { it.slot }} B of slots, " +
-            "programs ${ms.blobs.last().bytes.size} B; whole list ${whole.kA}+${whole.kB} rows, ${whole.areaPx} px a step, P ${ms.period} T ${ms.t}, press ${ms.bandD}→${ms.press.pressD}"
+            "${ms.wrap?.let { "wrap record ${it.encoded.size} B in a ${it.slot} B slot, " } ?: ""}programs ${ms.blobs.last().bytes.size} B; whole list ${whole.kA}+${whole.kB} rows, ${whole.areaPx} px a step, P ${ms.period} T ${ms.t}, press ${ms.bandD}→${ms.press.pressD}"
         val cases = ArrayList<Case>()
         if (setup.isNotEmpty()) { cases += Case("$tag-setup", "the staging written and the list SET", Rect(0, 0, 1, 1), emptyList(), emptyList(), setup); return cases to tableLine }
 
@@ -345,7 +345,7 @@ object MainLocalCheck {
             val a = lens.fire(CfwModes.DEV_RING, e.eventId)
             s++
             if (a == null || a.outcome != DamageMsg.APPLIED_EDGE || a.cursor != c) fails += "$name from $c: the lens did not report the edge (${a?.describe()})"
-            val pan = ms.pan(MainStaging.WHOLE, e.step)
+            val pan = ms.wrapPan(e.step) ?: ms.pan(MainStaging.WHOLE, e.step)
             val p = ms.wrapParams(pan, cPrime)
             if (p == null) fails += "$name from $c: no parameters across the wrap"
             else {
@@ -496,7 +496,7 @@ object MainLocalCheck {
                 }
                 r.band?.let { ms.release(it.oldOff4) }; nl.previous = null
                 cur = nl
-                lines += "Music's row form switched to the other strip: ${r.bytes} B in one flush (${r.writes.joinToString { "${it.what} ${it.bytes.size} B" }}), then ${nl.entries.size} SETs; no withdrawal"
+                lines += "Music's row form switched to the other strip: ${r.bytes} B written (${r.writes.joinToString { "${it.what} ${it.bytes.size} B" }}), then ${nl.entries.size} SETs; no withdrawal"
             }
             else {
                 for (e in cur.entries) lens.send("CLEAR ${e.entry}", CfwModes.bindClear(e.entry), fails)
@@ -514,7 +514,7 @@ object MainLocalCheck {
                 }
                 r.band?.let { ms.release(it.oldOff4) }; nl.previous = null
                 cur = nl
-                lines += "Music's row form re-staged with the entries cleared: ${r.bytes} B in one flush (${r.writes.joinToString { "${it.what} ${it.bytes.size} B" }}), then ${nl.entries.size} SETs"
+                lines += "Music's row form re-staged with the entries cleared: ${r.bytes} B written (${r.writes.joinToString { "${it.what} ${it.bytes.size} B" }}), then ${nl.entries.size} SETs"
             }
             cases += Case("$tag-strip", if (ms.stripB != null) "a row form switched to the other strip (AD.2): notches before, during and after the switch, each named and committed; no withdrawal"
                 else "a row form re-staged with the list withdrawn: no notch matches meanwhile; after the SETs a notch is named and committed", Rect(0, 0, 1, 1), emptyList(), lines, fails)

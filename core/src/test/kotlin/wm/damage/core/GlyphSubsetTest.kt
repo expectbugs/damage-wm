@@ -591,7 +591,7 @@ class GlyphSubsetTest {
         val base = NoisyText()
         val ct = CachedText(base)
         val comp = wm.damage.core.comp.Compositor()
-        comp.requestKeyframe()
+        comp.requestKeyframe("test")
         kotlin.test.assertNotNull(comp.assembleFlush(5))
         val with = GlyphAtlas(base); assertTrue(with.add(f18, codes("abX")))
         val without = GlyphAtlas(base); assertTrue(without.add(f18, codes("ab")))
@@ -963,7 +963,7 @@ class GlyphSubsetTest {
         val ct = CachedText(base)
         val comp = wm.damage.core.comp.Compositor()
         comp.v2 = true
-        comp.requestKeyframe()
+        comp.requestKeyframe("test")
         assertNotNull(comp.assembleFlush(5))
         val with = GlyphAtlas(base, v2 = true, capacity = 96 * 1024); assertTrue(with.add(f18, codes("abX")))
         val without = GlyphAtlas(base, v2 = true, capacity = 96 * 1024); assertTrue(without.add(f18, codes("ab")))
@@ -1000,7 +1000,7 @@ class GlyphSubsetTest {
         ct.cacheMetric = true
         val comp = wm.damage.core.comp.Compositor()
         comp.v2 = true
-        comp.requestKeyframe()
+        comp.requestKeyframe("test")
         assertNotNull(comp.assembleFlush(5))
         val atlas = GlyphAtlas(base, v2 = true, capacity = 96 * 1024)
         assertTrue(atlas.add(f18, codes("T")))                 // o is the host's: tucked two columns into T's box

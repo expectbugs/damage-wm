@@ -9372,3 +9372,86 @@ Everything "on the glasses" is his phone's journal of the 0.80 session (18:51–
    the previous selection with a cool crush effect, then afterwards the list below moves down a notch expanding the
    crushed previous selection back to normal size." Answered: feasible; §7's DRAW gains a source window for it (it
    also gives Flip on lists with no band forms). Open with him: crushed flat, or the two phases overlapping.
+
+## 97. APK 0.82; his look at 0.81; the effects build C3 through its fourth fork package, its model and vectors; Music's first half complete; the notice's timer through two reviews (2026-11-19 evening to 11-20 02:40)
+
+Everything "on the glasses" is his phone's journal (saved under the gitignored `private/journal/pull-20261119/`); the
+rest is the simulator, the PC's host harness, or a model, and says so. Rulings: `private/build072/C2-decisions.md` parts
+BI, BJ; `private/c3-design/C3-decisions.md` parts D–P.
+
+1. **His look at APK 0.81 (22:57–23:00), his words:** "the wrap on Main is still noticably delayed but better than
+   before … if I scroll very quickly, the left and right lenses get out of sync and the behavior gets janky until I
+   stop." In that session: **no divergence, no keyframe** (0.80: five in ten minutes); the period adapted 46 → 55 →
+   49 → 51; 2 folds in 26 local motions. The wrap began a median 332 ms after the edge report by the journal's stamps
+   (n 8) — **but those stamps are written when the shell's loop reaches an event, so where that lag sits is not
+   known** (the lead first read it as "the flush leaves the phone 184–586 ms late" and corrected that to him); 0.82's
+   `done` rows carry the transport's own send and answer times. Fast scrolling: the journal hears RIGHT only. In it:
+   three period changes in 25 s, one closing a motion; two `lost-report` snap-backs (the stock scroll message handled
+   before its 115), one drawing a phone frame into a list the glasses were animating; edge reports in bursts (three
+   within 118 ms) where the wrap's motion is closed after one step. Open with him: a whole row apart, or the same row
+   at different positions.
+2. **APK 0.82 (the PC on it since 02:37; the APK staged 02:36; his phone runs 0.81 until he installs):** the staged
+   records split across flushes (the largest flush a gesture waits behind 3,069 B, modeled, where 20–24 KB went in
+   one); room on rows that change (a row's change about 1 KB plus about 1 KB in the wrap's record; 13 KB measured on
+   0.80); the wrap's rows in a record of their own, so the local steps walk the shorter strip again (modeled −3.8 ms
+   a step at 352); the period lowered only after 5 s with no input and by 4 ticks or more; no save on the loop
+   during a burst; the four findings of the read of 0.81 (§96.3); `tools/journal_report.py`'s table of whole repaints
+   by cause (on his 0.80 journal the largest class: 8 full stagings for a changed motion setting, 473 KB in 7.8 h).
+   **One focused read before the deploy** found one defect of the class not shipped knowingly — a re-stage that fails
+   or is abandoned before it is booked left half-written bytes that the next strip switch bound the list to — fixed
+   before the deploy (the staging is dropped at all five sites; a test now fails a piece), and four cosmetic items
+   listed for 0.83. **The battery, three runs, said as they were:** run 1 (before that fix): all green but one test of
+   the new pieces code, a race in the test (the pump after a piece's ack running before the shell has learned of the
+   session's end; 2 of 20 alone; the pin now reads what both lenses hold, 20 of 20). Run 2 (the final tree): all
+   green — desktop 53, `--selfcheck` twice, `--local-check`, `--motion-check`, the snapshot 94 + 66 renders with 0 px
+   outside the mask, lint 0, wiring, the tools' self-tests — but one core test of 1,828 in code 0.82 does not touch:
+   `WorkingCopyTest.aPhoneRestart_…` (the copy's asynchronous save had not landed before the close; the test waits on
+   the queue's file only; 0.81 has the same race; its rate is being measured; a clean close flushing the save is on
+   0.83's list). Run 3 of the core suite on the final tree: 233 classes / 1,828 tests / 0 failures, none from cache.
+   `research/mutations-c2.json`: 217 rows.
+3. **The effects build C3: its contract settled in six rounds, four fork packages built, nothing flashed.**
+   `FIRMWARE.md` §7 gained, from what each lane found building from the text alone: the meeting box over both lenses,
+   one REVEAL between WAITs, codes 0 and 32 neither drawn, walked nor budgeted, the plan's W, the budget's count of
+   waiters, and — from the fork lane's instruction-level reading that stock frees the container's image buffer under
+   no lock (`0x004DCB24`, one caller at `0x00493DAC`, three of the five ways in stock's own) — **one new patch site**
+   at that call: it passes straight to the stock function unless an owning instance is open, and then ends every
+   owner first, so the arriving half of a transition can read the picture behind between the phone's frames (without
+   it, arriving halves would be cuts). **Adam agreed to the site (2026-11-19: "I agree with your recommendation");
+   the flash stays his word per lens.** Built on the fork's branch `c3` (not pushed), host harness only: F1
+   (version-2 records, the owning instance, `new`; with no owner open the copy path is C2's, pinned first), F2 (the
+   fast DRAW path — 40,000 differential cases against the installed renderer, 0 bytes differ; the site), F3 (PIECES
+   and SHRINK in place for owning programs; the fold invariant over 210 random runs), F4 (GLYPHS; its text model
+   equal at every step; rain in place 194 runs alike). The display task's stack: the first grown compile put its
+   worst path at 2,438 B of 2,048 (the new verbs inlined; caught by the checker); ruled further that the engine's
+   chain under the copy hook be at most 1,000 B — it is 996 B (C2: 572) with every large buffer in scratch at the
+   context's tail, and the cost of an exception on that stack read at instruction level (212 B). Block 123,172 B
+   (+32,656 over C2). F5 (the two-axis DRAW with its source window, PLAY-AFTER, the ring list, the late step, the
+   budget, the checker round) is in its sweep. **Damage's side:** the vectors' inputs (20 `v5-*` files, the fuzz's
+   `--c3`; `wip/083-v`, not to be merged before the lanes meet), the simulator's model from the text alone
+   (`wip/083-s`: v1–v4 exact on 5,336 lens-steps at the widened feature bits), the phone's first package
+   (`wip/083-p1`: at ladder stages 0–4 a bit-11 build is sent byte for byte what APK 0.81 sends; stage 5 adds one
+   FLAGS_SET per arm; the motion DSL's version-2 records equal the vectors' bytes — 186 programs, 63 tables). The
+   lanes have not met.
+4. **His two answers:** the patch site (item 3); and Crush's form — "flat or sliver is so trivial I'd say go with
+   whatever is easiest in the code": the two phases one after the other, the squash down to one pixel row
+   (`MOTION.md` §7).
+5. **Music on the PC's record, first half (S1-4, packages J, K, P): built, reviewed once by two readers, fixed,
+   complete; not merged** (`wip/s14-k`). The readers found no path that makes sound at a start, a restore or a
+   migration, and no way for the new code to signal or end a process it did not start; fixed from them: an away
+   take-over ending in Spotify with the record still naming the PC; Spotify left playing after a move away; a
+   relayed Play failing with nothing shown; the named device given in a form the player may ignore (now
+   `pipewire/<node>` or a refusal in words); a missing upcoming file stalling the phone's Music link; the queue not
+   shown after the update. The upgrade check on a copy of his PC's files, twice: 50 of 50 existing items equal, the
+   old log's 520 lines byte-equal, his queue (1,415 entries) with the same ids in the same order, a second start
+   writing nothing. A track change now writes the small `now` item alone (the queue was rewritten whole at every
+   track); listed for before the page half: the queue as entries, not one value. It waits for its build and his
+   sitting (he names the output device, listens once).
+6. **The notice's timer on the engine (`wip/k1-4a`): two review passes.** The first found the picture he would have
+   seen most (any phone write beside the box closing the timer, the box then at full ink with the bar whole and no
+   focus) and a build defect its own ruling exposed (page strips and the notice's programs could overwrite each
+   other: the notice now uses its slice only while no paging window is in front, so Reader loses nothing). The
+   second explained the one red test of the fix stage (a race in the test) and found that an input put a handed-over
+   timer back on the engine. Fix stage 2 is in its gate. Listed from it: a face's first use drops Reader's staged
+   pages (Main's was cured in 0.79).
+7. **The weekly allowance** reached its cap at about 21:36 on 11-19 and he reset it; three agents had stopped
+   mid-step and went on from their saved work.

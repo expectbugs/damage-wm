@@ -25,7 +25,7 @@ class CompositorEndsTest {
     private fun fresh(): Compositor {
         val c = Compositor()
         c.composed.fillRect(band, 5 * 17)
-        c.requestKeyframe()
+        c.requestKeyframe("test")
         assertTrue(c.assembleFlush(Geometry.rectBudget(3)) != null, "the keyframe")
         return c
     }
@@ -142,7 +142,7 @@ class CompositorEndsTest {
     fun aKeyframesBatchDeniesTheCommit() {
         val c = fresh()
         c.composed.fillRect(band, 9 * 17); c.damage(band)
-        c.requestKeyframe()
+        c.requestKeyframe("test")
         val (a, denied) = c.assembleWithEnds(Geometry.rectBudget(3), listOf(end(9)))
         assertEquals(setOf(0), denied, "the keyframe's batch answers with DISCARD")
         assertTrue(a != null && a.keyframe, "the keyframe goes")
@@ -199,5 +199,24 @@ class CompositorEndsTest {
         assertEquals(5_000, c.deferUntilMs, "the new wait's own end")
         c.assembleWithEnds(Geometry.rectBudget(3), listOf(endUntil(9, 4_800)), nowMs = 4_100)
         assertEquals(5_000, c.deferUntilMs, "within the burst, the latest end")
+    }
+
+    /** B082 (`tools/journal_report.py`'s "whole repaints by cause"): a keyframe's flush carries the cause of its first ask
+     *  since the last one went (a second ask while it is owed is folded into it), and the journal's submit row writes it
+     *  as `why`; a flush with no keyframe carries none. */
+    @Test
+    fun aKeyframesFlushCarriesTheCauseItWasAskedFor_B082() {
+        val c = fresh()
+        c.requestKeyframe("the first cause")
+        c.requestKeyframe("a second ask while owed")
+        val a = c.assembleFlush(Geometry.rectBudget(3))
+        assertEquals("the first cause", a?.why)
+        c.composed.fillRect(band, 9 * 17); c.damage(band)
+        assertEquals(null, c.assembleFlush(Geometry.rectBudget(3))?.why, "a delta carries no cause")
+        val f = java.nio.file.Files.createTempFile("journal-why", ".jsonl")
+        try {
+            wm.damage.core.comp.Journal(f).use { it.flushSubmitted(7L, a!!, "MAIN") }
+            assertTrue("\"why\":\"the first cause\"" in java.nio.file.Files.readString(f), java.nio.file.Files.readString(f))
+        } finally { java.nio.file.Files.deleteIfExists(f) }
     }
 }

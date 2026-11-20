@@ -160,7 +160,7 @@ class L2ProbeTest {
             // Fully lit uniform frame: the only black anywhere is seam.
             comp.composed.clear(8 * 17)
             comp.planes = listOf(a, c, e)
-            comp.requestKeyframe()
+            comp.requestKeyframe("test")
             rig.drain("seed")
 
             // Sanity: the seeded state must be exactly right on both lenses.

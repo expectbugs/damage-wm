@@ -114,7 +114,7 @@ class ReplicaServerTest {
                 val comp = Compositor()
                 val l = Layout()
                 comp.composed.fillRect(l.lens, 12 * 17)
-                comp.requestKeyframe()
+                comp.requestKeyframe("test")
                 while (comp.hasPending || comp.needsKeyframe) {
                     val a = comp.assembleFlush(Geometry.rectBudget(3)) ?: break
                     val id = t.submit(FlushRequest(a.ops, a.epoch, "", wide = a.wide))
