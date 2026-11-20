@@ -58,7 +58,6 @@ class LocalSequenceFuzzTest {
     val lostEdgeKey = "(9) a lost report of a fire that did not draw, never applied"
     val lostDrewKey = "(9) a lost report of a fire that drew, never applied: its message"
     val swallowedKey = "(9) an untaken notch's message paid by an owe"
-    val doubledKey = "(9) a stock message applied after its own report"
     private fun signed(d: Int, size: Int): Int { val m = d.mod(size); return if (m > size / 2) m - size else m }
 
     /** Every part of every gesture's difference from the ring's count in [h]'s sequence, each with its class: the phone's
@@ -153,20 +152,17 @@ class LocalSequenceFuzzTest {
         }
     }
 
-    /** A step the phone applied once more than the ring counts. */
+    /** A step the phone applied once more than the ring counts: never declared — a stock message applied after its own
+     *  report is BC's shape, which C1 reverses (decisions BM.2): a late echo past its carry fails here, and (8) with it. */
     private fun extraKeyOf(h: LocalHarness, g: Int, m: LocalHarness.Move): String {
         val heard = h.reportHeardAt[g]
-        return if (!m.by115 && heard != null && heard < m.t) doubledKey else "$UNTAGGED: a step applied twice (${if (m.by115) "by its report" else "by its message"})"
+        return "$UNTAGGED: " + if (!m.by115 && heard != null && heard < m.t) "a stock message applied after its own report (BC's shape, reversed by C1)"
+            else "a step applied twice (${if (m.by115) "by its report" else "by its message"})"
     }
 
-    /** (8): a gesture moves the phone's row at most once — in random sequences one declared applied twice ([doubledKey]) is
-     *  judged by (9) instead; a seeded case declares nothing. */
+    /** (8): a gesture moves the phone's row at most once (never declared since C1 reversed BC). */
     private fun moved(h: LocalHarness, failed: MutableList<String>, counted: MutableMap<String, Int>, seeded: Boolean, suffix: String) {
-        val twice = if (seeded) emptySet() else declarations(h).filter { it.key == doubledKey }.map { it.g }.toSet()
-        for ((g, n) in h.moves) {
-            if (n <= 1 || (n == 2 && g in twice)) continue
-            failed += "(8) gesture $g moved the row $n times$suffix"
-        }
+        for ((g, n) in h.moves) if (n > 1) failed += "(8) gesture $g moved the row $n times$suffix"
     }
 
     /** (9): the row at rest against the ring's net count — on the phone; (2) and (3) carry it to both lenses. With
