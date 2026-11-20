@@ -111,6 +111,7 @@ class MusicGlasses(
         mmPeek = MusicCore.mm(r, "peek"); mmClock = MusicCore.mm(r, "clock"); mmLink = MusicCore.mm(r, "link")
         heightPref = MusicCore.size(r)?.takeIf { it in ShellSettings.HEIGHTS } ?: if (MusicCore.size(r) == null) null else 480
         rowsRead = r
+        offsetsAsked.entries.removeIf { (item, v) -> MusicCore.offset(r, item) == v }   // the record shows them now
     }
 
     /** The record as last read: the lyric offsets are read from it per paint. */
