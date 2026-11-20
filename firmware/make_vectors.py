@@ -3910,7 +3910,8 @@ def vectors_v5_x2(kf):
     # a PLAY-AFTER whose `after` slot still holds that other's recorded triple. Each instance counts f(i) = max(C_i, Σ f(w)
     # over the instances w that wait on i), and the sum runs over the instances that wait on none ... instances waiting on
     # one instance draw together once it is done, so they add. (Should the records form a cycle — only a reused tag can
-    # ... — its members count each by its own C.)"; §7.3 "an OWN program being opened meets by its own meeting box in its
+    # ... — it is cut before f is taken: for i = 0, 1, 2, 3 in order, if following *waits on* from slot i, with the cuts
+    # made so far, comes back to i, slot i's own wait is dropped ...)" (ruled from both sides' answers, 2026-11-20); §7.3 "an OWN program being opened meets by its own meeting box in its
     # PLAY's or PLAY-AFTER's close pass"; §6.2 step 10's budget before step 11's 19; the terms "DRAW or REVEAL of a record:
     # 26·L + 4·A" (a DRAW scaled in H only stays there) and "GLYPHS RAIN: A + cols·trail·(cw·ch + 64 + G), with G = ... 0"
     # for an alphabet of only code 32. Every program here is T 8, so each stays drawing through its group's messages.
@@ -3978,9 +3979,9 @@ def vectors_v5_x2(kf):
         st += [step(tk(t), msg(play(0, P, O, b))),
                step(tk(t + 5), msg(play_after(1, P, A4, b + 1, 0))),
                step(tk(t + 10), msg(play_after(0, P, n_, b, 1))),          # N with B's tag: slot 0 holds A's triple again, A waits
-                                                                           # on N and N on A — a cycle, each member by its own C:
-                                                                           # 4,000,000 + N, taken at the cap, one over 12 (as the
-                                                                           # larger, or counted nothing: taken)
+                                                                           # on N and N on A — a cycle, cut at slot 0 (N): the larger,
+                                                                           # taken at the cap and one over (each member by its own
+                                                                           # C, 4,000,000 + N: one over 12)
                step(tk(t + 15), msg(close(0xFF)))]
         t += 100
     for i, n_ in enumerate((N2, N2o)):
@@ -3989,9 +3990,10 @@ def vectors_v5_x2(kf):
                step(tk(t + 5), msg(play_after(1, P, A2, b + 1, 0))),       # A (2,000,000) waits on B
                step(tk(t + 6), msg(play_after(2, P, H4, b + 2, 1))),       # H (4,000,000) waits on A: f(B) = 4,000,000, taken
                step(tk(t + 10), msg(play_after(0, P, n_, b, 1))),          # the cycle A–N with H waiting on A (H neither a root nor a
-                                                                           # member): the text names the members only — READING
-                                                                           # (C3-X2D): H by its own C too, 2,000,000 + H + N: N
-                                                                           # 2,000,000 taken, one over 12
+                                                                           # member): cut at slot 0 (N), A waits on N, H on A — one
+                                                                           # group by f, 4,000,000: N 2,000,000 and one over taken
+                                                                           # (H and the members each by own C, 2,000,000 + H + N:
+                                                                           # one over 12)
                step(tk(t + 15), msg(close(0xFF)))]
         t += 100
     st += [step(tk(t), page(True), msg(bind_list(0, NONE, 8, 0, 10, 1)),

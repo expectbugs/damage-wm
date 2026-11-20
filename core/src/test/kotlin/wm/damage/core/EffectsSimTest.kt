@@ -611,17 +611,14 @@ class EffectsSimTest {
         }
     }
 
-    /** §7.12 (decisions Y, C-1, Reader C's case 2, and the text's cycle rule): B in slot 0, A waiting on it in slot 1
-     *  (4,000,000), Z apart in slot 2 (4,000,000); a PLAY-AFTER of N into slot 0 naming A closes B — A then waits on none,
-     *  N waits on A, and f(A) = max(4,000,000, C_N) with Z: N 4,000,001 is one over (12). With N tagged as B was, slot 0
-     *  holds A's recorded triple again and the records form a cycle: "its members count each by its own C" — A and N
-     *  without Z, 4,000,000 + C_N: N 4,000,000 at the cap (taken), 4,000,001 one over (12). */
+    /** §7.12 (decisions Y, C-1, Reader C's case 2): B in slot 0, A waiting on it in slot 1 (4,000,000), Z apart in slot 2
+     *  (4,000,000); a PLAY-AFTER of N into slot 0 naming A closes B — A then waits on none, N waits on A, and f(A) =
+     *  max(4,000,000, C_N) with Z: N 4,000,000 at the cap (taken), 4,000,001 one over (12). A cycle (N tagged as B was) is
+     *  [aCycleIsCutAtItsLowestNumberedMember_7_12]. */
     @Test
-    fun aReplacedSlotFormsNoCycleAndARealCycleCountsEachMember_7_12() {
-        for ((case, nRows, nTag, ok) in listOf(Quad("replaced, at the cap", 64, 0x55, true), Quad("replaced, one over", 65, 0x55, false),
-                                                Quad("a cycle at the cap", 64, 0x11, true), Quad("a cycle one over", 65, 0x11, false))) {
+    fun aReplacedSlotFormsNoCycle_7_12() {
+        for ((case, nRows, ok) in listOf(Triple("replaced, at the cap", 64, true), Triple("replaced, one over", 65, false))) {
             val r = Rig()
-            val cycle = nTag == 0x11
             r.write(16, prog2(OWN, track(rect(0, 0, 10, 10), 2, seg2(WAIT, 8))))
             r.write(64, half(0, 64))
             r.write(1024, half(320, 64))
@@ -629,11 +626,117 @@ class EffectsSimTest {
             assertTrue(r.msg(play(0, 20, 16, 0x11)), case)
             r.now += 5
             assertTrue(r.msg(after(1, 20, 64, 0x22, 0)), case)
-            if (!cycle) { r.now += 1; assertTrue(r.msg(play(2, 20, 1024, 0x44)), "$case: B/A as the larger with Z, exactly the cap") }
+            r.now += 1; assertTrue(r.msg(play(2, 20, 1024, 0x44)), "$case: B/A as the larger with Z, exactly the cap")
             r.now += 5
-            assertEquals(ok, r.msg(after(0, 20, 2048, nTag, 1)), case)
+            assertEquals(ok, r.msg(after(0, 20, 2048, 0x55, 1)), case)
             if (!ok) assertEquals(12, r.reason(), case)
-            if (ok && cycle) assertEquals(Triple(0, 0x11, 0), r.motion().slots[1]!!.rec, "$case: A's recorded triple names N")
+        }
+    }
+
+    /**
+     * §7.12's cycle rule as ruled from both sides' answers (2026-11-20; decisions AH): a cycle — only a reused tag makes
+     * one — "is cut before f is taken: for i = 0, 1, 2, 3 in order, if following *waits on* from slot i, with the cuts
+     * made so far, comes back to i, slot i's own wait is dropped … So only a cycle's lowest-numbered member is cut, and
+     * the cycle with everything waiting on it counts as one group by f — the largest C of a plain ring."
+     *
+     * Each case: a small OWN instance B (WAIT, 1,024 + 100) at the panel's corner, PLAY-AFTERs that wait on it and on each
+     * other, then a PLAY-AFTER of N with B's tag into B's slot, which closes B and forms the cycle (taken: the group by f
+     * is 4,000,000); then a PLAY of Z apart (slot 3) — 4,000,000 takes the sum exactly to the cap, 4,000,001 is one
+     * over (12). The instances (A TL, H or A2 TR, N BL, Z BR, quarter panels) meet none they do not wait on.
+     *  - a two-ring: A (slot 1, 4,000,000) on N (slot 0, 3,000,000) and N on A: max(3 M, 4 M) = 4 M (members each by
+     *    their own C: 7 M, and Z refused);
+     *  - a three-ring: A1 (1, 4 M) on N (0, 2 M), A2 (2, 3 M) on A1, N on A2: the largest C, 4 M (by own C: 9 M, N refused);
+     *  - a ring with a waiter on the cut member: A (slot 0, 3 M) and N (slot 1, the opened one, 2 M) on each other, H
+     *    (slot 2, 2 M) on A — slot 0 is cut, so f(A) = max(3 M, f(N) + f(H)) = 4 M (by own C: 7 M; cut at the opened
+     *    instance instead: max(2 M, max(3 M, 2 M)) = 3 M, Z one over taken);
+     *  - a ring with a waiter on another member: N (0, 3 M) and A (1, 2 M) on each other, H (2, 4 M) on A — slot 0 is cut,
+     *    f(N) = max(3 M, max(2 M, 4 M)) = 4 M (by own C: 9 M; cut at A instead: max(2 M, 3 M + 4 M) = 7 M, Z refused).
+     */
+    @Test
+    fun aCycleIsCutAtItsLowestNumberedMember_7_12() {
+        val tl = intArrayOf(0, 0); val tr = intArrayOf(320, 0); val bl = intArrayOf(0, 240)
+        // (slot, at, C, after, tag): the PLAY-AFTERs in order; the last is N, tagged as B was; B's slot is the first's after
+        class W(val slot: Int, val at: IntArray, val c: Long, val after: Int, val tag: Int)
+        val bTag = 0x11
+        val cases = listOf(
+            "a two-ring" to listOf(W(1, tl, 4_000_000, 0, 0x22), W(0, bl, 3_000_000, 1, bTag)),
+            "a three-ring" to listOf(W(1, tl, 4_000_000, 0, 0x22), W(2, tr, 3_000_000, 1, 0x33), W(0, bl, 2_000_000, 2, bTag)),
+            "a waiter on the cut member" to listOf(W(0, tl, 3_000_000, 1, 0x22), W(2, tr, 2_000_000, 0, 0x33), W(1, bl, 2_000_000, 0, bTag)),
+            "a waiter on another member" to listOf(W(1, tl, 2_000_000, 0, 0x22), W(2, tr, 4_000_000, 1, 0x33), W(0, bl, 3_000_000, 1, bTag)))
+        for ((case, ws) in cases) for ((zCost, ok) in listOf(4_000_000L to true, 4_000_001L to false)) {
+            val what = "$case, Z $zCost"
+            val r = Rig()
+            val bSlot = ws.first().after
+            r.write(16, prog2(OWN, track(rect(630, 470, 10, 10), 2, seg2(WAIT, 8))))
+            assertTrue(r.msg(play(bSlot, 20, 16, bTag)), "$what: B")
+            ws.forEachIndexed { k, w ->
+                r.write(512 * (k + 1), heavy(w.at[0], w.at[1], 320, 240, w.c))
+                r.now += 5
+                assertTrue(r.msg(after(w.slot, 20, 512 * (k + 1), w.tag, w.after)), "$what: the PLAY-AFTER into slot ${w.slot}")
+                assertEquals(w.c, r.motion().slots[w.slot]!!.cost, "$what: slot ${w.slot}'s C")
+            }
+            // the records form the cycle: every PLAY-AFTER's recorded triple names what its `after` slot now holds
+            for (w in ws) {
+                val held = r.motion().slots[w.after]!!
+                assertEquals(Triple(w.after, held.tag, held.ordinal), r.motion().slots[w.slot]!!.rec, "$what: slot ${w.slot} waits on slot ${w.after}")
+            }
+            r.write(2560, heavy(320, 240, 320, 240, zCost))
+            r.now += 5
+            assertEquals(ok, r.msg(play(3, 20, 2560, 0x44)), "$what: the group by f with Z")
+            if (!ok) assertEquals(12, r.reason(), "$what: one over")
+        }
+    }
+
+    /**
+     * §7.5 as ruled from both sides' answers (2026-11-20; decisions AJ): "RETARGET's restart path … restarts [W] from the
+     * width the track last drew — the source's own width when it drew unscaled, as C2's H from the source's height …
+     * 'The source' is the one the track DREW FROM: when the RETARGET's parameters name another record, W and H still start
+     * from what was last drawn on that lens, and on an axis the new segment does not scale the new source is drawn at its
+     * own size from the first restarted step."
+     *
+     * A DRAW whose record is P0 (pref 0 → src) draws R1 (40 × 30, level 9) unscaled for one step; then the RETARGET names
+     * R2 (60 × 20) and the segment scales — both axes (w 5 → 20, h 5 → 10), W only, or H only. A segment holds two prefs,
+     * and an unscaled-to-scaled change needs two per axis, so the scaling fields are changed in the program's bytes in the
+     * cache under the open instance (on the glasses a write there closes it; here it stands for further parameters). At
+     * every restarted step the panel equals a fresh PLAY of R2 eased from R1's 40 (W) and 30 (H) — where the restart
+     * does not scale an axis, R2's own size — and differs from one eased from R2's own 60 and 20 (the form that read the
+     * new record's size).
+     */
+    @Test
+    fun aRetargetNamingAnotherRecordRestartsFromWhatTheTrackDrew_7_5() {
+        fun level2(w: Int, h: Int, level: Int): ByteArray {
+            var left = w * h
+            var rle = ByteArray(0)
+            while (left > 0) { val n = minOf(15, left); rle += byteArrayOf(((n shl 4) or level).toByte()); left -= n }
+            return u16(w) + u16(h) + rle
+        }
+        val r1 = 16; val r2 = 64; val pr = 128
+        fun draw(src: Int, w0: Int, w1: Int, h0: Int, h1: Int, pref: Boolean) =
+            prog2(0, track(rect(100, 100, 100, 60), 2, seg2(DRAW, 4, src = src, xL = 100, xR = 100, y = 100, lvl0 = 15, lvl1 = 15,
+                h0 = h0, h1 = h1, w0 = w0, w1 = w1).also { if (pref) it[30] = 0x80.toByte() }))   // pref 0: field 0 (src) ← P0
+        fun rig() = Rig().also { it.write(r1, level2(40, 30, 9)); it.write(r2, level2(60, 20, 9)) }
+        // the panel at each of the 4 restarted steps; a fresh PLAY of [ref] at the RETARGET's tick gives the same steps
+        fun panels(r: Rig, t0: Long) = (1..4).map { k -> r.wake(t0 + 20L * k); r.sim.panelCrc32(r.arm) }
+        for ((case, w, h) in listOf(Triple("both axes", 5 to 20, 5 to 10), Triple("W only", 5 to 20, 0 to 0), Triple("H only", 0 to 0, 5 to 10))) {
+            val r = rig()
+            r.write(pr, draw(0, 0, 0, 0, 0, pref = true))
+            assertTrue(r.msg(play(0, 20, pr, 1, p = intArrayOf(r1))), "$case: R1 unscaled")
+            r.wake(1020)
+            assertEquals(40 to 30, r.motion().slots[0]!!.last[0]!!.let { it.sw to it.sh }, "$case: the track drew R1")
+            val seg = pr * 4 + 8 + 12                                         // the program's header, the track's header and area
+            val cache = r.lens.textureCache!!
+            for ((at, v) in listOf(24 to h.first, 26 to h.second, 32 to w.first, 34 to w.second)) { cache[seg + at] = v.toByte(); cache[seg + at + 1] = (v shr 8).toByte() }
+            r.now = 1025
+            assertTrue(r.msg(byteArrayOf(26, 1, 0) + params(intArrayOf(r2))), "$case: the RETARGET naming R2")
+            val got = panels(r, 1025)
+            fun ref(w0: Int, h0: Int) = rig().let { f ->
+                f.write(pr, draw(r2, if (w.second == 0) 0 else w0, w.second, if (h.second == 0) 0 else h0, h.second, pref = false))
+                f.now = 1025
+                assertTrue(f.msg(play(0, 20, pr, 2)), "$case: the reference PLAY")
+                panels(f, 1025)
+            }
+            assertEquals(ref(40, 30), got, "$case: W and H restart from R1's 40 and 30 (an unscaled axis at R2's own size)")
+            assertTrue(ref(60, 20)[0] != got[0], "$case: the form that restarts from R2's own size draws another first step")
         }
     }
 
