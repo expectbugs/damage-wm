@@ -78,6 +78,9 @@ class OracleWalkTest {
         val text = if (cached) wm.damage.core.comp.CachedText(FakeText()) else FakeText()
         val shell = Shell(text, transport, store, null, scope) { clock }
         val rnd = java.util.Random(seed)
+        // C3 X2T item 6 (decisions AM (2)): the shell's effect pick seeded from the scene's seed, so the stage-5 walk's
+        // picks are the same at every run (a scripted scene pins its seed)
+        init { if (stage5) shell.transitionRandom = java.util.Random(seed xor 0x7E57_5EEDL) }
         val flushFails = ArrayList<String>()
         val faults = ArrayList<String>()
 
@@ -614,8 +617,8 @@ class OracleWalkTest {
                 rig.stop()
             }
         }
-        // C3 DM-T: Encode and Matrix are among the walk's picks, and ran whole (over the four heights)
-        println("c3 stage 5: whole by effect over the four heights ${byEffect.toSortedMap()}")
+        // C3 DM-T: Encode and Matrix are among the walk's picks, and ran whole (over the four heights; the pick seeded, X2T)
+        println("c3 stage 5: whole by effect over the four heights ${byEffect.toSortedMap()} (${byEffect.values.sum()} in all)")
         assertTrue((byEffect["encode"] ?: 0) > 0 && (byEffect["matrix"] ?: 0) > 0, "Encode and Matrix in the walk: $byEffect")
     }
 

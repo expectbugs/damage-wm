@@ -171,7 +171,8 @@ class SettingsWindow(
         }),
         Entry("Scroll frames", {
             val f = get().frames
-            (if (f == 0) "auto" else "$f") + motionHint().let { if (it.isEmpty()) "" else " ($it)" }
+            (if (f == 0) "auto" else "$f") + motionHint().let { if (it.isEmpty()) "" else " ($it)" } +
+                if (f == ShellSettings().frames) " (default)" else ""
         }, { s, d ->
             val fs = ShellSettings.FRAME_COUNTS
             s.copy(frames = fs[(fs.indexOf(s.frames).coerceAtLeast(0) + d).coerceIn(0, fs.size - 1)])
@@ -179,14 +180,20 @@ class SettingsWindow(
     )
 
     /** Build C3, stage DP2 (`MOTION.md` §7): per transition tier its length, its frames (both halves) and one checkbox per
-     *  effect — a random pick among the checked at each use, none checked = None. After the scroll rows. */
+     *  effect — a random pick among the checked at each use, none checked = None. After the scroll rows. C3 X2T item 7: the
+     *  tiers named as his plan names them ([wm.damage.core.motion.Transitions.Tier.title]); every row says "(default)" at
+     *  its default as Scroll's rows do; `Length` says what really plays when the period's clamp changes it. */
     private val transitionEntries: List<Entry> = wm.damage.core.motion.Transitions.Tier.entries.flatMap { t ->
         listOf(
-            Entry("${t.word} length", { get().lengthOf(t).let { l -> "$l ms" + if (l == ShellSettings().lengthOf(t)) " (default)" else "" } }, { s, d ->
+            Entry("${t.title} length", {
+                val l = get().lengthOf(t)
+                "$l ms" + (wm.damage.core.motion.Transitions.clampedPlayMs(l, get().framesOf(t))?.let { " (plays $it ms)" } ?: "") +
+                    if (l == ShellSettings().lengthOf(t)) " (default)" else ""
+            }, { s, d ->
                 val ls = ShellSettings.SCROLL_LENGTHS
                 s.withTier(t, length = ls[(ls.indexOf(s.lengthOf(t)).coerceAtLeast(0) + d).coerceIn(0, ls.size - 1)])
             }),
-            Entry("${t.word} frames", {
+            Entry("${t.title} frames", {
                 val f = get().framesOf(t)
                 val tm = wm.damage.core.motion.Transitions.timing(get().lengthOf(t), f)
                 (if (f == 0) "auto" else "$f") + " (${tm.steps} × ${"%.0f".format(tm.period * 1000.0 / 1024)} ms a half)" +
@@ -196,7 +203,10 @@ class SettingsWindow(
                 s.withTier(t, frames = fs[(fs.indexOf(s.framesOf(t)).coerceAtLeast(0) + d).coerceIn(0, fs.size - 1)])
             }),
         ) + wm.damage.core.motion.Transitions.effectsOf(t).map { e ->
-            Entry("${t.word} · ${e.label}", { onOff(e.id in get().effectsOf(t)) }, { s, d ->
+            Entry("${t.title} · ${e.label}", {
+                val on = e.id in get().effectsOf(t)
+                onOff(on) + if (on == (e.id in ShellSettings().effectsOf(t))) " (default)" else ""
+            }, { s, d ->
                 s.withTier(t, effects = ShellSettings.tierEffects(t, if (d > 0) s.effectsOf(t) + e.id else s.effectsOf(t) - e.id))
             })
         }

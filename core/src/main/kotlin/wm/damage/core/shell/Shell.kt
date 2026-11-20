@@ -2818,6 +2818,7 @@ class Shell(
         localFrontNow = f?.second
         localOnlyFlushes.clear(); localTailFlushes.clear(); mainBind.tailsForgotten()
         transitionEnd("a session start"); transitionCloses = emptyList(); transitionWrites.clear()      // build C3 (DP2): the start's keyframe ends every instance
+        glyphHoldUntilMs = 0L                                       // X2T item 1: so nothing is left to land on either lens
         stepWindow.clear(); periodSamplesSinceChange = 0          // decisions BF: the measured window is the session's
         localNoteSaid = null
         localSettleAt = Long.MAX_VALUE
@@ -4236,7 +4237,7 @@ class Shell(
      *  and written. True when it did something. */
     private suspend fun pumpStage(st: LinkState): Boolean {
         if (settings.pageStaging != "on" || stageFailed || glassesSilent || !st.draw2 || !st.leaseHeld) return false
-        if (cacheWritesHeld() || reserveOwner != null) return false     // C3 DM-T: D6's hold; the reserve is Encode's
+        if (cacheWritesHeld()) return false     // C3 DM-T: D6's hold (an Encode run's lists lie in the stage reserve)
         if (!transport.cacheCheckSupported) return false     // no proof possible, so nothing is ever drawn from a record
         val ct = cachedText ?: return false
         if (settings.cachedText != "on" || atlasFailed || atlas == null) return false
@@ -4414,7 +4415,7 @@ class Shell(
             return false
         }
         if (stageFailed || glassesSilent || !st.draw2 || !st.leaseHeld) return false
-        if (cacheWritesHeld() || reserveOwner != null) return false     // C3 DM-T: D6's hold; the reserve is Encode's
+        if (cacheWritesHeld()) return false     // C3 DM-T: D6's hold (an Encode run's lists lie in the stage reserve)
         if (atlasInFlight != null || atlasCheckInFlight || stageInFlight != null || ledgerReadInFlight) return false
         if (st.inFlight != 0 || comp.hasPending || comp.needsKeyframe) return false
         if (ledgerBaseOwed(st)) return tryLedgerRead(st)
@@ -7228,6 +7229,7 @@ class Shell(
     private fun updatePlanes() {
         val d = settings.depth
         val planes = ArrayList<Compositor.PlaneRegion>()
+        noticePlane = null
         // content: the FOCUSED app's own depth when it set one, else the
         // Global row; Main is always the Global row
         val contentD = (if (mode == Mode.WINDOW) current?.let { appDepth(it) } else null) ?: d
@@ -7308,11 +7310,16 @@ class Shell(
                     notifications.focused -> 0
                     else -> d                                                // arrives with content
                 }
-                planes.add(Compositor.PlaneRegion(box, plane))
+                planes.add(Compositor.PlaneRegion(box, plane).also { noticePlane = it })
             }
         }
         comp.planes = planes   // a changed map re-renders + seam-cleans itself
     }
+
+    /** The notice box's plane in the map [updatePlanes] last set (null: none) — what Encode's cells leave out (X2T item 5). */
+    private var noticePlane: Compositor.PlaneRegion? = null
+    /** Tests only (on the loop): the notice box's region in the plane map. */
+    internal fun noticePlaneForTest(): Rect? = noticePlane?.rect
 
     // ------------------------------------------------------------------ slides
     private fun snapSlides() {
@@ -7815,28 +7822,58 @@ class Shell(
      *  row, not the screen). [bottom] is the layout's bottom at the time (not compared). */
     private data class ScreenKey(val mode: Mode, val window: String?, val level: Int) {
         var bottom = 0
-        /** C3 DM-T: the screen's cells as it stood before the act (Encode's out half), recorded only where Encode may be
-         *  picked; not compared. */
+        /** C3 X2T item 4: the act's effect, picked before its handler paints ([transitionPick]); null below stage 5 or with
+         *  nothing checked. Not compared. */
+        var pick: wm.damage.core.motion.Transitions.Effect? = null
+        /** The effects that left the pick before it (an Encode this session cannot play), each with its reason. */
+        val leftOut = ArrayList<Pair<wm.damage.core.motion.Transitions.Effect, String>>()
+        /** C3 DM-T: the screen's cells as it stood before the act (Encode's out half), recorded only when Encode is the
+         *  pick; not compared. */
         var cells: wm.damage.core.motion.CellLists.Screen? = null
     }
 
-    /** [tier]: the act this key stands before — the leaving screen's cells are recorded when Encode is checked there and
-     *  this session may play it (one paint into a scratch, [screenRuns]). */
+    /** [tier]: the act this key stands before — its effect is picked now, before the handler paints, and the leaving
+     *  screen's cells are recorded only when that pick is Encode (one paint into a scratch, [screenRuns]). */
     private fun screenKey(tier: wm.damage.core.motion.Transitions.Tier? = null): ScreenKey {
         val w = if (mode == Mode.WINDOW) current else null
         return ScreenKey(mode, w?.id, w?.let { if (it === settingsWindow) settingsWindow.listLevel() else it.levelDepth() } ?: 0)
             .also { k ->
                 k.bottom = layout.safe.bottom
-                if (tier != null && encodeMayPlay(tier)) k.cells = screenCells(screenRuns(), Rect(0, 0, comp.width, layout.safe.bottom))
+                if (tier != null) transitionPick(tier, k)
             }
     }
 
-    /** Encode is checked in [tier] and this session could play it: stage 5, a 256 KiB cache with BIND (the stage reserve
-     *  holds its lists, the DM spec's D5), cached text on. */
-    private fun encodeMayPlay(tier: wm.damage.core.motion.Transitions.Tier): Boolean {
+    /**
+     * C3 X2T item 4 (the review's 5, decisions AQ (4)): the act's pick, made before anything is painted — a random pick
+     * among the tier's checked effects (`MOTION.md` §7). An Encode this session cannot play ([encodeUnplayable]) leaves the
+     * pick with its reason and the pick is made again; when the pick is Encode the leaving screen is recorded, and only
+     * then. Nothing at all below stage 5.
+     */
+    private fun transitionPick(tier: wm.damage.core.motion.Transitions.Tier, k: ScreenKey) {
         val st = transport.state.value
-        return st.transitionRegion != null && st.bind && st.cacheSize >= CfwModes.CACHE2_MAX_RIDERS && atlas != null &&
-            cachedText != null && wm.damage.core.motion.Transitions.Effect.ENCODE.id in settings.effectsOf(tier)
+        if (st.transitionRegion == null) return                          // below stage 5: no pick, no recording
+        val pool = settings.effectsOf(tier).mapNotNull { wm.damage.core.motion.Transitions.Effect.of(it) }.toMutableList()
+        while (pool.isNotEmpty()) {
+            val e = pool[transitionRandom.nextInt(pool.size)]
+            if (e == wm.damage.core.motion.Transitions.Effect.ENCODE) {
+                val why = encodeUnplayable(st)
+                if (why != null) { pool.remove(e); k.leftOut += e to why; continue }
+                k.cells = screenCells(screenRuns(), Rect(0, 0, comp.width, layout.safe.bottom))
+            }
+            k.pick = e
+            return
+        }
+    }
+
+    /** Why this session cannot play Encode now (null: it can): a 256 KiB cache with BIND (the stage reserve holds its
+     *  lists, the DM spec's D5), cached text on, no atlas chunk queued or in flight (the fonts it reads could move). Read at
+     *  the pick (no recording for an Encode that cannot play) and again at the act, on the act's one read of the state. */
+    private fun encodeUnplayable(st: LinkState): String? = when {
+        st.cacheSize < CfwModes.CACHE2_MAX_RIDERS || !st.bind ->
+            "Encode plays on a 256 KiB session with BIND only (this one: ${st.cacheSize / 1024} KiB${if (st.bind) "" else ", no BIND"})"
+        atlas == null || cachedText == null -> "cached text is off"
+        atlasInFlight != null || atlasQueue.isNotEmpty() || atlasBusyForTest -> ATLAS_BUSY
+        else -> null
     }
 
     /** The transition in hand (`FIRMWARE.md` §7.11: the out half, the held frame, the in half); null when none. */
@@ -7883,12 +7920,17 @@ class Shell(
         // C3 DM-T (`MOTION.md` §7: a random pick among the checked): an Encode or Matrix whose preconditions this act does not
         // meet leaves the pick, said once with its reason, and the pick is made again among the rest; when nothing checked is
         // left, the tier's defaults play — never a refusal he sees
+        // X2T item 4: the pick made before the handler goes first ([transitionPick]); what left it then stays out
         val pool = ids.mapNotNull { wm.damage.core.motion.Transitions.Effect.of(it) }.toMutableList()
         val leftOut = ArrayList<String>()
+        for ((e, why) in before.leftOut) if (pool.remove(e)) leftOut += "${e.label} ($why)"
+        var next = before.pick
         var run: TransitionRun? = null
         var what = ""
         while (run == null) {
-            val effect = if (pool.isNotEmpty()) pool[transitionRandom.nextInt(pool.size)] else wm.damage.core.motion.Transitions.defaultsOf(tier).first()
+            val effect = next?.takeIf { it in pool }
+                ?: if (pool.isNotEmpty()) pool[transitionRandom.nextInt(pool.size)] else wm.damage.core.motion.Transitions.defaultsOf(tier).first()
+            next = null
             what = "${tier.word} ${effect.label}${if (reversed) " reversed" else ""}"
             try {
                 run = transitionRunOf(st, tier, effect, reversed, area, at4, k, tagOut, tagIn, before)
@@ -7901,10 +7943,9 @@ class Shell(
         }
         if (leftOut.isNotEmpty()) journal.note("transition", "left out of this act's pick: ${leftOut.joinToString("; ")} — $what plays")
         transition?.let { journal.note("transition", "a new act replaces ${it.tier.word}'s (${it.phase}): its PLAY closes what is left of it") }
-        // the stage reserve's owner: an Encode run takes it from page staging (whose strips there it overwrites), any other
-        // act that replaces one gives it back
-        if (run.built.effect == wm.damage.core.motion.Transitions.Effect.ENCODE) reserveTake(run)
-        else if (reserveOwner != null) reserveGiveBack("a new act replaced the Encode run")
+        // X2T item 3: an Encode run's lists overwrite only the page-staging strips whose bytes they meet; nothing writes the
+        // reserve while the run holds ([cacheWritesHeld])
+        run.built.listsRange?.let { stagePagesDropUnder(it) }
         // K1 §9: a box on screen goes back to the queue unread, and returns after the transition
         if (notifications.active) {
             if (notifications.furlingOut) {
@@ -7935,15 +7976,19 @@ class Shell(
                                 reversed: Boolean, area: Rect, at4: Int, k: Int, tagOut: Int, tagIn: Int, before: ScreenKey): TransitionRun {
         val fx = wm.damage.core.motion.Motion.effects(wm.damage.core.wire.DamageMsg.Caps(st.damageContract, st.damageFeatures), st.flagsInForce)
         val glyphs = if (!effect.glyphs) null else {
-            if (atlasInFlight != null || atlasQueue.isNotEmpty() || atlasBusyForTest)
-                throw wm.damage.core.geom.LintError("an atlas chunk is queued or in flight — the fonts it reads could move")
+            if (atlasInFlight != null || atlasQueue.isNotEmpty() || atlasBusyForTest) throw wm.damage.core.geom.LintError(ATLAS_BUSY)
             if (effect == wm.damage.core.motion.Transitions.Effect.MATRIX) wm.damage.core.motion.Transitions.Glyphs(rain = rainFace())
             else {
-                if (st.cacheSize < CfwModes.CACHE2_MAX_RIDERS || !st.bind)
-                    throw wm.damage.core.geom.LintError("Encode plays on a 256 KiB session with BIND only (this one: ${st.cacheSize / 1024} KiB${if (st.bind) "" else ", no BIND"})")
+                encodeUnplayable(st)?.let { throw wm.damage.core.geom.LintError(it) }
+                // X2T item 4: recorded only when Encode was the pick made before the handler (the arriving screen is not
+                // recorded for an Encode that cannot play)
+                val leaving = before.cells ?: throw wm.damage.core.geom.LintError("Encode: the leaving screen was not recorded (Encode was not this act's first pick)")
+                val arriving = screenCells(screenRuns(), Rect(0, 0, comp.width, layout.safe.bottom))
+                // X2T item 3: the lists go where they meet the fewest bytes of page staging's strips
                 val reserve = CfwModes.stageReserve(st.cacheSize, st.bind)
-                wm.damage.core.motion.Transitions.Glyphs(leaving = before.cells, arriving = screenCells(screenRuns(), Rect(0, 0, comp.width, layout.safe.bottom)),
-                    reserveAt4 = (st.cacheSize - reserve) / 4, reserveRoom = reserve)
+                val res = (st.cacheSize - reserve) until st.cacheSize
+                val at = encodeListsAt(res, wm.damage.core.motion.CellLists.bytes(leaving) + wm.damage.core.motion.CellLists.bytes(arriving))
+                wm.damage.core.motion.Transitions.Glyphs(leaving = leaving, arriving = arriving, reserveAt4 = at / 4, reserveRoom = res.last + 1 - at)
             }
         }
         val timing = wm.damage.core.motion.Transitions.timingFor(effect, settings.lengthOf(tier), settings.framesOf(tier), area, glyphs?.cells ?: 0)
@@ -7959,10 +8004,16 @@ class Shell(
             wm.damage.core.motion.Motion.playAfter(b.inn, TransitionRun.IN_SLOT, timing.period, tagIn, TransitionRun.OUT_SLOT,
                 IntArray(4), listOf(wm.damage.core.motion.Motion.Drawing(b.out.cost())), 0)
         } catch (e: wm.damage.core.geom.LintError) { throw wm.damage.core.geom.LintError("the in half's PLAY-AFTER: ${e.message}") }
-        // Encode: the out half's lists ride the records' write (one message); the in half's go after the out PLAY
-        return TransitionRun(tier, b, CfwModes.cacheUpdate2(listOfNotNull(CfwModes.CacheWrite2(at4, b.blob),
-            b.outLists?.let { CfwModes.CacheWrite2(it.at4, it.bytes) }), st.cacheSize), out, inn, tagOut, tagIn, System.currentTimeMillis(),
-            listWrite = b.inLists?.let { CfwModes.cacheUpdate2(listOf(CfwModes.CacheWrite2(it.at4, it.bytes)), st.cacheSize) })
+        // Encode: the out half's lists ride the records' write (one message). X2T item 2 (the review's 2, decisions AQ (2)):
+        // the in half's ride it too when the three fit one compressed message (ZWRITE in force, the list within mode 25's
+        // inflate) — the transport deflates one waiting message at a time, so a second write right behind it went raw;
+        // past that they go after the out PLAY, above the out lists, as before. No new wait either way.
+        val outAndRecords = listOfNotNull(CfwModes.CacheWrite2(at4, b.blob), b.outLists?.let { CfwModes.CacheWrite2(it.at4, it.bytes) })
+        val inWrite = b.inLists?.let { CfwModes.CacheWrite2(it.at4, it.bytes) }
+        val together = inWrite?.let { CfwModes.cacheUpdate2(outAndRecords + it, st.cacheSize) }
+            ?.takeIf { it.size - 1 <= CfwModes.ZWRITE_MAX && st.flagsInForce and wm.damage.core.wire.DamageMsg.FLAG_ZWRITE != 0 }
+        return TransitionRun(tier, b, together ?: CfwModes.cacheUpdate2(outAndRecords, st.cacheSize), out, inn, tagOut, tagIn, System.currentTimeMillis(),
+            listWrite = if (together != null) null else inWrite?.let { CfwModes.cacheUpdate2(listOf(it), st.cacheSize) })
     }
 
     /** Tests only: the atlas reads as busy (a chunk queued or in flight) at the act. */
@@ -7982,25 +8033,44 @@ class Shell(
     /** C3 DM-T, the DM spec's D6: no other cache write while an Encode or Matrix run is in hand — their read range runs from
      *  the atlas's fonts to their records (Encode's to its lists in the stage reserve, above Main's region), and a write
      *  that meets it closes the half on the glasses. The five writers read it ([pumpAtlas], [pumpMainStage], [pumpMainBind],
-     *  [pumpStagePiece], [pumpStage]); every end of a run goes through [transitionEnd] or a new act, each posting a pump. */
-    private fun cacheWritesHeld(): Boolean = transition?.holdsCache == true
+     *  [pumpStagePiece], [pumpStage]); every end of a run goes through [transitionEnd] or a new act, each posting a pump.
+     *  C3 X2T item 1 (the review's 1, decisions AQ (1)): and for one in-half period past RIGHT's in-half body of such a run
+     *  ([glyphHoldUntilMs]) — LEFT reports nothing, and a write released in the pump that sends the CLOSE could reach LEFT
+     *  before its in half has landed there (a close by a cache write, §7.3); the period's end posts a pump. */
+    private fun cacheWritesHeld(): Boolean = transition?.holdsCache == true || System.currentTimeMillis() < glyphHoldUntilMs
 
-    /** C3 DM-T, the stage reserve's owner (the DM spec's D5, minimal): null — page staging's; an Encode run takes it at
-     *  its act and gives it back at its end (every [transitionEnd]: its body, the deadline, a cut, the session start that
-     *  ends every run, the shell asleep) and when a non-Encode act replaces it — so it is only ever the run in hand. Page
-     *  staging stages again by itself when its document is in front and idle. */
-    private var reserveOwner: TransitionRun? = null
-    internal fun reserveOwnedForTest(): Boolean = reserveOwner != null
+    /** X2T item 1: the end of the hold's one period after a glyph run's in-half body (0: none); set by [transitionEnd] at
+     *  that body, cleared at a session start (its keyframe ends every instance on both lenses). */
+    private var glyphHoldUntilMs = 0L
+    /** Tests only (on the loop): the hold as the five writers read it; the run in hand's programs and lists; page staging's
+     *  records. */
+    internal fun cacheWritesHeldForTest(): Boolean = cacheWritesHeld()
+    internal fun transitionBuiltForTest(): wm.damage.core.motion.Transitions.Built? = transition?.built
+    internal fun stagedRecordsForTest(): List<StagedRecord> = stage.records.values.toList()
 
-    private fun reserveTake(run: TransitionRun) {
-        if (reserveOwner == null) stagePagesClear("an Encode transition takes the stage reserve for its cell lists")
-        reserveOwner = run
+    /** C3 X2T item 3 (the review's 3, decisions AQ (3)): where an Encode act's lists of [need] bytes go in the stage reserve
+     *  [res] — the 4-aligned start whose span meets the fewest bytes of page staging's strips (a strip met is counted
+     *  whole: it is written again whole), the lowest on a tie; the candidates are the reserve's start and the end of each
+     *  strip. */
+    private fun encodeListsAt(res: IntRange, need: Int): Int {
+        val strips = stage.records.values.filter { it.key !is MainStageKey && it.off >= 0 && it.off in res }
+        fun met(at: Int) = strips.filter { it.off < at + need && at < it.off + it.size4 }.sumOf { it.size4 }
+        return (listOf(res.first) + strips.map { it.off + it.size4 }).filter { it % 4 == 0 && it + need <= res.last + 1 }
+            .distinct().sorted().minByOrNull { met(it) } ?: res.first
     }
 
-    private fun reserveGiveBack(why: String) {
-        if (reserveOwner == null) return
-        reserveOwner = null
-        journal.note("transition", "the stage reserve is page staging's again ($why)")
+    /** X2T item 3: an Encode act's lists, laid over [lists] (bytes), drop the page-staging strips whose bytes they meet —
+     *  staged again when their document is in front and idle; every other strip stays proven and drawable (nothing
+     *  writes the reserve while the run holds, [cacheWritesHeld]). */
+    private fun stagePagesDropUnder(lists: IntRange) {
+        val met = stage.records.values.filter { it.key !is MainStageKey && it.off >= 0 && it.off <= lists.last && lists.first < it.off + it.size4 }
+        if (met.isEmpty()) return
+        val from = met.minOf { it.off }
+        for (r in met) stage.remove(r)
+        stage.ring?.rewind(from)                        // written back where they lay once the document is idle in front
+        comp.placements = emptyList()                   // rebuilt from the registry at the next assemble
+        stageRecount()
+        journal.note("stage", "dropped ${met.size} record(s) — an Encode transition's cell lists take bytes ${lists.first}..${lists.last} (${met.joinToString { it.key.toString() }})")
     }
 
     /** The pump's first step for an owed transition: the records' write (one mode-19 message, this shell's tag), then
@@ -8141,7 +8211,14 @@ class Shell(
         transition = null
         transitionDeadlineGen++
         if (why != null) journal.note("transition", "${tr.tier.word} ${tr.built.effect.label} ended in ${tr.phase}: $why")
-        if (reserveOwner === tr) reserveGiveBack("its Encode run ended")
+        // X2T item 1: RIGHT's in-half body of a glyph run holds the other cache writes one in-half period more (LEFT may
+        // land later and reports nothing); its end is asked back as a pump. Every other end releases the run's hold here
+        // (a period an earlier body set lapses by itself, its pump already asked).
+        if (why == null && tr.holdsCache) {
+            val p = Math.ceil(tr.built.timing.period * 1000.0 / 1024).toLong()
+            glyphHoldUntilMs = maxOf(glyphHoldUntilMs, System.currentTimeMillis() + p)
+            pumpAfter(p)
+        }
         val owners = tr.phase == TransitionRun.Phase.FRAME || tr.phase == TransitionRun.Phase.IN
         val closes = when {
             !owners || glassesSilent -> emptyList()
@@ -8166,19 +8243,19 @@ class Shell(
 
     // ------------------------------------------------------------------ build C3, stage DM-T: Encode's cells
     /**
-     * The text runs of the screen as it stands now: painted once into a scratch through [CachedText]'s relay — only runs
-     * of codes a face the glasses hold packs are recorded (the atlas's own split) — and the records taken out of the
-     * frame's again (by identity), so the compositor's proof never reads them. Content only: the chrome's few strings are
-     * not cells (they show with the backdrop). The content painters damage the content area as they always do; the
-     * screen being painted is the one on the panel or the one about to be, so that costs no byte.
+     * The text runs of the screen as it stands now: painted once into a scratch through [CachedText.survey] — only runs
+     * of codes a face the glasses hold packs are recorded (the atlas's own split), into a list of the survey's own, and
+     * nothing is counted (X2T item 4: no face seen, no use, no character noted, no icon use — a thumbnail shown once is
+     * not packed because a screen was recorded; no record in the frame's list). Content only: the chrome's few strings
+     * are not cells (they show with the backdrop). The content painters damage the content area as they always do; the
+     * screen being painted is the one on the panel or the one about to be, so that costs no byte. [screenRunCount] counts
+     * every call (the one entry of both recordings and the test seam).
      */
     private fun screenRuns(): List<wm.damage.core.comp.TextDraw> {
         val ct = cachedText ?: return emptyList()
+        screenRunCount++
         val g = Gray8(comp.width, comp.height)
-        val full = Rect(0, 0, comp.width, comp.height)
-        val draws0 = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<wm.damage.core.comp.TextDraw, Boolean>()).also { it.addAll(ct.frameDraws()) }
-        val images0 = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<wm.damage.core.comp.ImageDraw, Boolean>()).also { it.addAll(ct.frameImageDraws()) }
-        ct.via(g, 0, 0, full) {
+        return ct.survey(g) {
             if (mode == Mode.SILENT) wallClock().let { c -> SilentMode.paintAll(g, layout, c.hh, c.mm, settings.silentClock, silentSmallPainter(c)) }
             else when (val w = contentWindow()) {
                 null -> kit.paintList(g, layout, main.view(), resting = main.resting)
@@ -8189,19 +8266,23 @@ class Shell(
                 }
             }
         }
-        val added = ct.frameDraws().filter { it !in draws0 }
-        ct.dropOlderRecords(added, ct.frameImageDraws().filter { it !in images0 }, listOf(full))
-        return added
     }
+
+    /** C3 X2T item 4 (decisions AM (1), AQ (4)): the screens recorded this process — 0 below stage 5 and for every effect
+     *  but Encode, 2 per Encode act (the leaving screen at the pick, the arriving one at the act). */
+    private var screenRunCount = 0
+    internal fun screenRunsForTest(): Int = screenRunCount
 
     /** [runs] as Encode's cells over [area] ([CellLists.screen]): a face counts when the glasses hold it — live and acked
      *  (`GlyphAtlas.isAcked`) — and a run's track offsets are its plane's disparity (the compositor's last region holding
-     *  its rect, as `Compositor.disparityAt` reads it). */
+     *  its rect, as `Compositor.disparityAt` reads it), the notice box's region left out (X2T item 5, the review's 4(c):
+     *  the box is lifted at the act, so the text under it shows with its own plane's offset, not the box's). */
     private fun screenCells(runs: List<wm.damage.core.comp.TextDraw>, area: Rect): wm.damage.core.motion.CellLists.Screen {
         val ct = cachedText; val a = atlas
         if (ct == null || a == null) return wm.damage.core.motion.CellLists.Screen.NoFit("cached text is off")
         val live = ct.live
-        val planes = comp.planes
+        val box = noticePlane
+        val planes = comp.planes.filter { it !== box }
         return wm.damage.core.motion.CellLists.screen(runs, { s -> if (s in live && a.isAcked(s)) a.entry(s) else null }, { s -> ct.kernOf(s) },
             { r -> planes.lastOrNull { it.rect.contains(r) }?.disparity ?: 0 }, area)
     }
@@ -8665,6 +8746,8 @@ class Shell(
         /** §66: a relay keep that records nothing — a strip is painted the way a live paint is,
          *  but its draws are not this frame's. */
         private val NO_RECORDS = Rect(0, 0, 0, 0)
+        /** C3 DM-T: why Encode and Matrix leave an act's pick while the atlas is writing. */
+        private const val ATLAS_BUSY = "an atlas chunk is queued or in flight — the fonts it reads could move"
         const val ATLAS_RECENT_FRAMES = 12L
         const val ATLAS_REPACK_PACE_MS = 45_000L
         /** §73: the last of the cache a face nobody is drawing may not be packed into — the

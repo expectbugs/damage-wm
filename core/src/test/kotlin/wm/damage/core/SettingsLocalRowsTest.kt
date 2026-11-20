@@ -24,7 +24,7 @@ class SettingsLocalRowsTest {
         fun w(bit10: Boolean) = SettingsWindow(FakeText(), { st }, { st = it }, bindBuild = { bit10 }, motionHint = { "10 frames × 45 ms" })
         assertTrue("Animations" !in w(false).categoryNamesForTest(), "no bit 10: ${w(false).categoryNamesForTest()}")
         assertTrue("Animations" in w(true).categoryNamesForTest(), "bit 10: ${w(true).categoryNamesForTest()}")
-        assertEquals(listOf("Scroll effect" to "Depth (default)", "Scroll length" to "300 ms (default)", "Scroll frames" to "auto (10 frames × 45 ms)"),
+        assertEquals(listOf("Scroll effect" to "Depth (default)", "Scroll length" to "300 ms (default)", "Scroll frames" to "auto (10 frames × 45 ms) (default)"),
             w(true).rowsForTest("Animations"))
     }
 

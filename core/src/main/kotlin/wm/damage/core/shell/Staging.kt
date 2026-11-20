@@ -117,6 +117,11 @@ class StageRing(val start: Int, val end: Int) {
         if (held.remove(rec)) rec.off = -1
     }
 
+    /** C3 X2T item 3: the bump pointer back to [off] — the lowest offset of the strips an Encode act's cell lists dropped —
+     *  so a dropped strip is written back where it lay instead of waiting while a pinned strip holds the ring's start (the
+     *  pointer alone tries `next` and the start). */
+    fun rewind(off: Int) { if (off in start until end) next = off }
+
     fun clear() {
         for (r in held) r.off = -1
         held.clear()

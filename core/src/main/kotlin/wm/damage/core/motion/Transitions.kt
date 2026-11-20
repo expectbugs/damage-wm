@@ -27,8 +27,9 @@ import wm.damage.core.wire.CfwModes
  * cache write while one is in hand (the spec's D6), and Encode's cell lists live in the stage reserve.
  */
 object Transitions {
-    /** The tiers that play a transition. */
-    enum class Tier(val word: String) { SELECT("Select"), BACK("Back"), LOCK("Lock") }
+    /** The tiers that play a transition: [word] what the journal says, [title] what the Settings rows say — the tier's
+     *  name in `MOTION.md` §7 (C3 X2T item 7). */
+    enum class Tier(val word: String, val title: String) { SELECT("Select", "Select"), BACK("Back", "Close / Back"), LOCK("Lock", "Lock Screen") }
 
     /** `MOTION.md` §7's effects that this build draws. [glyphs]: Encode and Matrix (C3 DM-T), drawn from the atlas. */
     enum class Effect(val id: String, val label: String) {
@@ -57,10 +58,22 @@ object Transitions {
     }
 
     fun timing(lengthMs: Int, frames: Int): Timing {
-        val f = if (frames > 0) frames else (Math.round(lengthMs / 45.0).toInt().coerceIn(4, 16) + 1) / 2 * 2
-        val steps = maxOf(1, f / 2)
-        val p = Math.round(lengthMs / 2.0 / steps * 1.024).toInt().coerceIn(CfwModes.MOTION_PERIODS.first, CfwModes.MOTION_PERIODS.last)
+        val steps = stepsOf(lengthMs, frames)
+        val p = unclamped(lengthMs, steps).coerceIn(CfwModes.MOTION_PERIODS.first, CfwModes.MOTION_PERIODS.last)
         return Timing(steps, p)
+    }
+
+    private fun stepsOf(lengthMs: Int, frames: Int): Int =
+        maxOf(1, (if (frames > 0) frames else (Math.round(lengthMs / 45.0).toInt().coerceIn(4, 16) + 1) / 2 * 2) / 2)
+    private fun unclamped(lengthMs: Int, steps: Int): Int = Math.round(lengthMs / 2.0 / steps * 1.024).toInt()
+
+    /** C3 X2T item 7 (decisions AG (4), AM (3)): the ms a transition of [lengthMs] at [frames] really plays (both halves)
+     *  when the period's clamp to 16..128 ticks changes it — 600 ms at 4 frames plays 500 — else null (a length only
+     *  rounded to whole ticks is not said). Encode's and Matrix's "the length holds, frames give" is not a clamp. */
+    fun clampedPlayMs(lengthMs: Int, frames: Int): Long? {
+        val steps = stepsOf(lengthMs, frames)
+        if (unclamped(lengthMs, steps) in CfwModes.MOTION_PERIODS) return null
+        return 2 * timing(lengthMs, frames).halfMs
     }
 
     /**
@@ -140,8 +153,9 @@ object Transitions {
     /** A transition's two programs and the records that hold them, laid out from [at4] (4-byte units) in one blob. */
     class Built internal constructor(val effect: Effect, val reversed: Boolean, val area: Rect, val timing: Timing,
                                      val out: MotionProgram, val inn: MotionProgram, val at4: Int, val blob: ByteArray,
-                                     /** Encode: the out half's cell lists (written with the records) and the in half's (written
-                                      *  after the out PLAY, above the out lists: they meet no range the out half reads). */
+                                     /** Encode: the out half's cell lists (written with the records) and the in half's (above the
+                                      *  out lists: with the records when the three fit one compressed message, else after the
+                                      *  out PLAY, where they meet no range the out half reads). */
                                      val outLists: Write? = null, val inLists: Write? = null) {
         /** The out half's and the in half's C (§7.12, u) and the sum the PLAY-AFTER is judged by (the in half waits on
          *  the out half: the larger). */
@@ -151,6 +165,10 @@ object Transitions {
             "records ${blob.size} B at off4 $at4 (out ${out.bytes.size} B, in ${inn.bytes.size} B), C out ${outCost} / in ${inCost} u" +
             (outLists?.let { o -> ", cell lists ${o.bytes.size} B at off4 ${o.at4} (out) and ${inLists?.bytes?.size} B at off4 ${inLists?.at4} (in)" } ?: "") +
             (if (effect.glyphs) ", glyph walk ${maxOf(out.walkBytes(), inn.walkBytes())} B" else "")
+        /** C3 X2T item 3: the bytes Encode's lists take in the stage reserve, both halves' (null: none — every other
+         *  effect, or an Encode whose screens hold no cell). */
+        val listsRange: IntRange? get() = listOfNotNull(outLists, inLists).takeIf { it.isNotEmpty() }
+            ?.let { ws -> ws.minOf { it.at4 * 4 } until ws.maxOf { it.at4 * 4 + it.bytes.size } }
         /** The DM spec §3: each half at most [SHARE_MAX] of the step budget's cap, alone (the rest is for what else draws). */
         val withinShare: Boolean get() = maxOf(outCost, inCost) * 100 <= Motion.BUDGET_CAP * SHARE_MAX_PERCENT
     }
@@ -225,7 +243,8 @@ object Transitions {
      * backwards — the leaving picture whole, its letters turning to noise and masked (the dim's level held at 15) — and the
      * in half the out half backwards — the shadow brought up from black (DRAW `new`, level 0 → 15) with its letters
      * masked, noise, then revealed. Each list's track is offset by its plane's disparity (−d left, +d right). The out lists
-     * go in the stage reserve with the records' write; the in lists above them, after the out PLAY.
+     * go in the stage reserve with the records' write; the in lists above them — in that write too when the three fit one
+     * compressed message, else after the out PLAY (the shell's choice, C3 X2T item 2).
      */
     private fun encode(effects: Motion.Effects, reversed: Boolean, area: Rect, timing: Timing, at4: Int, room: Int, seed: Int, g: Glyphs): Built {
         val leaving = g.leaving as? CellLists.Screen.Cells ?: throw LintError("Encode: the leaving screen " + ((g.leaving as? CellLists.Screen.NoFit)?.why ?: "was not recorded"))

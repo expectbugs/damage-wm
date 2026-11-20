@@ -312,6 +312,38 @@ class CachedTextTest {
         assertEquals(chunks.size, atlas.takeUpload().size, "a lapse sends everything again")
     }
 
+    /**
+     * C3 X2T item 4 (the review's 5): a survey paints as the relay does and returns the text runs the atlas holds — and
+     * counts nothing: no face seen, no usage or use stamp, no character noted (no atlas cue), no unpacked count, no icon
+     * use (a thumbnail drawn once in a survey is not packed for it), nothing in the frame's records. The same paint
+     * through the plain relay, twice, moves those counters — what the survey must leave alone.
+     */
+    @Test
+    fun aSurveyRecordsTheRunsAndCountsNothing_X2T() {
+        val base = GlyphyText()
+        val ct = CachedText(base)
+        val atlas = GlyphAtlas(base)
+        val spec = FontSpec(Face.SYSTEM, 18)
+        assertTrue(atlas.add(spec, java.util.BitSet().also { b -> "Row 7 ".forEach { b.set(it.code) } }))
+        val key = "thumb"
+        val bm = Gray8(12, 12).also { it.fillRect(Rect(2, 2, 8, 8), 255) }
+        assertTrue(atlas.addImage(key, wm.damage.core.wire.TextureCache.Image(12, 12, ByteArray(144) { (if (it / 12 in 2..9 && it % 12 in 2..9) 15 else 0).toByte() })))
+        ct.atlas = atlas; ct.live = setOf(spec); ct.liveImages = setOf(key)
+        val tmp = Gray8(200, 60)
+        fun paint() { ct.draw(tmp, 4, 4, "Row 7 Qz", spec, 255); ct.drawIcon(tmp, key, bm, 120, 4, 255) }
+        fun counters() = listOf(ct.seenVersion.toLong(), ct.wantVersion.toLong(), ct.unpackedDrawn, ct.imageUses(key).toLong(),
+            ct.usageOf(spec), ct.lastUseOf(spec), ct.seenSpecs().size.toLong(), ct.frameDraws().size.toLong(), ct.frameImageDraws().size.toLong())
+        val c0 = counters()
+        val runs = ct.survey(tmp) { paint(); paint() }
+        assertEquals(c0, counters(), "a survey counts nothing")
+        assertTrue(runs.isNotEmpty() && runs.all { it.spec == spec } && runs.any { it.text.startsWith("Row 7") }, "the runs the atlas holds: ${runs.map { it.text }}")
+        // the plain relay, the same paint twice: the counters move (an icon drawn twice is cued for packing)
+        ct.via(tmp, 0, 0, Rect(0, 0, tmp.w, tmp.h)) { paint(); paint() }
+        val c1 = counters()
+        assertTrue(c1[0] > c0[0] && c1[1] > c0[1] && c1[2] > c0[2] && c1[3] == 2L && c1[7] > c0[7],
+            "the relay counts what the survey must not: $c0 -> $c1")
+    }
+
     @Test
     fun aCacheWriteNeverRidesABatch() {
         val flush = FlushRequest(listOf(DisplayOp.CacheWrite(byteArrayOf(12, 0, 0, 1, 0, 7)),

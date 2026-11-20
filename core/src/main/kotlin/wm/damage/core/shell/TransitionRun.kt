@@ -25,7 +25,8 @@ internal class TransitionRun(
     val write: ByteArray, val playOut: ByteArray, val playAfter: ByteArray,
     val tagOut: Int, val tagIn: Int,
     val actAtMs: Long,
-    /** C3 DM-T, Encode: the in half's cell lists' mode-19 message — written after the out PLAY, above the out lists. */
+    /** C3 DM-T, Encode: the in half's cell lists' mode-19 message — written after the out PLAY, above the out lists; null
+     *  when they ride [write] (C3 X2T item 2: the records and both halves' lists fit one compressed message). */
     val listWrite: ByteArray? = null,
 ) {
     enum class Phase { OWED, FRAME, IN, DONE }
@@ -48,7 +49,8 @@ internal class TransitionRun(
     private val periodMs: Double get() = built.timing.period * 1000.0 / 1024
 
     /** C3 DM-T, the DM spec's D6: an Encode or Matrix run reads the atlas's fonts (and Encode its lists in the stage
-     *  reserve) from the act to its end, so while it is in hand no other cache write goes ([Shell]'s five writers read it). */
+     *  reserve) from the act to its end, so while it is in hand no other cache write goes ([Shell]'s five writers read it;
+     *  C3 X2T item 1: and one in-half period past RIGHT's in-half body). */
     val holdsCache: Boolean get() = built.effect.glyphs
 
     /** The slots whose owners hold a flush assembled now: both halves', from the out PLAY to the run's end (§7.11). */

@@ -150,5 +150,9 @@ object CellLists {
         return Laid(table, screen.lists.map { it.disparity }, at4, blob)
     }
 
+    /** The bytes [screen]'s lists take as [lay] writes them (out or in alike: only codes differ), 0 for a screen with no
+     *  cells or one that does not fit — what the shell places in the stage reserve before the half is built. */
+    fun bytes(screen: Screen?): Int = (screen as? Screen.Cells)?.let { lay(it, 0, Int.MAX_VALUE, 3, out = true)?.blob?.size } ?: 0
+
     private fun words(bytes: Int) = (bytes + 3) / 4
 }

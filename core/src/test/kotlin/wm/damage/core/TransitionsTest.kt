@@ -283,14 +283,31 @@ class TransitionsTest {
         val names = rows.drop(3).map { it.first }
         // C3 DM-T: Encode and Matrix in `MOTION.md` §7's order (Select: … Glitch, Encode, Matrix, Explode; Lock: Fade,
         // Build, Matrix, Encode, Glitch, Explode)
+        // C3 X2T item 7: the tiers as his plan names them — "Close / Back", "Lock Screen"
         assertEquals(listOf("Select length", "Select frames", "Select · Depth", "Select · Warp", "Select · Flip", "Select · Fall", "Select · Glitch", "Select · Encode", "Select · Matrix", "Select · Explode",
-            "Back length", "Back frames", "Back · Depth", "Back · Warp", "Back · Flip", "Back · Fall", "Back · Glitch", "Back · Encode", "Back · Matrix", "Back · Explode",
-            "Lock length", "Lock frames", "Lock · Fade", "Lock · Build", "Lock · Matrix", "Lock · Encode", "Lock · Glitch", "Lock · Explode"), names)
+            "Close / Back length", "Close / Back frames", "Close / Back · Depth", "Close / Back · Warp", "Close / Back · Flip", "Close / Back · Fall", "Close / Back · Glitch", "Close / Back · Encode", "Close / Back · Matrix", "Close / Back · Explode",
+            "Lock Screen length", "Lock Screen frames", "Lock Screen · Fade", "Lock Screen · Build", "Lock Screen · Matrix", "Lock Screen · Encode", "Lock Screen · Glitch", "Lock Screen · Explode"), names)
         val v = rows.toMap()
+        // every tier row says "(default)" at its default, as Scroll's rows do (X2T item 7), the scroll rows included
         assertEquals("450 ms (default)", v["Select length"]); assertEquals("10 (5 × 45 ms a half) (default)", v["Select frames"])
-        assertEquals("on", v["Select · Depth"]); assertEquals("off", v["Select · Warp"]); assertEquals("on", v["Back · Depth"]); assertEquals("on", v["Lock · Fade"])
+        assertEquals("auto (10 frames × 45 ms) (default)", v["Scroll frames"])
+        assertEquals("on (default)", v["Select · Depth"]); assertEquals("off (default)", v["Select · Warp"])
+        assertEquals("on (default)", v["Close / Back · Depth"]); assertEquals("on (default)", v["Lock Screen · Fade"]); assertEquals("off (default)", v["Lock Screen · Encode"])
         st = st.withTier(Transitions.Tier.SELECT, effects = wm.damage.core.shell.ShellSettings.tierEffects(Transitions.Tier.SELECT, st.selectEffects + "warp"))
         assertEquals(listOf("depth", "warp"), st.selectEffects)
+        assertEquals("on", w(true).rowsForTest("Animations").toMap()["Select · Warp"], "a checkbox off its default says no default")
+        assertEquals("on (default)", w(true).rowsForTest("Animations").toMap()["Select · Depth"])
+        st = st.withTier(Transitions.Tier.SELECT, effects = listOf("warp"))
+        assertEquals("off", w(true).rowsForTest("Animations").toMap()["Select · Depth"])
+        // the Length row says what really plays when the period's clamp changes it (decisions AG (4); C3-X2P2-built.md item 7's
+        // table): 600 ms at 4 frames plays 500, 800 at 6 plays 750, 225 at 16 plays 250; 450 at 10 is only rounded (448)
+        for ((lf, want) in listOf((600 to 4) to "600 ms (plays 500 ms)", (800 to 6) to "800 ms (plays 750 ms)", (225 to 16) to "225 ms (plays 250 ms)",
+                (450 to 10) to "450 ms (default)", (600 to 10) to "600 ms", (800 to 0) to "800 ms")) {
+            st = st.withTier(Transitions.Tier.BACK, length = lf.first, frames = lf.second)
+            assertEquals(want, w(true).rowsForTest("Animations").toMap()["Close / Back length"], "length ${lf.first} at ${lf.second} frames")
+        }
+        assertEquals(500L, Transitions.clampedPlayMs(600, 4)); assertEquals(null, Transitions.clampedPlayMs(450, 10)); assertEquals(250L, Transitions.clampedPlayMs(225, 16))
+        st = st.withTier(Transitions.Tier.BACK, length = 450, frames = 10)
         fun stored(vararg ids: String) = wm.damage.core.shell.ShellSettings.fromJson(kotlinx.serialization.json.buildJsonObject {
             put("lockEffects", kotlinx.serialization.json.JsonArray(ids.map { kotlinx.serialization.json.JsonPrimitive(it) })) })
         val old = stored("matrix", "build")

@@ -341,9 +341,13 @@ object CfwModes {
     const val STAGE_RESERVE_BOUND = 32 * 1024
 
     /** Build C3, stage DP2: the transitions' records — two slots of [TRANSITION_SLOT] bytes taken in turn, so an act's
-     *  write never meets the read range of the act before it (§5.6: a write that meets an open instance's read range closes
-     *  it). On a session with EFFECTS in force they sit right above the atlas's layout, which is that much smaller
-     *  (`LinkState.atlasCapacity`); nothing else writes there. */
+     *  write never meets the read range of the act before it when that act's programs read only their own slot (every
+     *  path effect; §5.6: a write that meets an open instance's read range closes it). C3 DM-T (X2T item 8): an Encode or
+     *  Matrix run reads from the atlas's fonts below the region up to its own records — Matrix in slot 1 covers slot 0 —
+     *  or up to its cell lists in the stage reserve — Encode covers both slots — so the next act's records' write does
+     *  meet it and closes it on the glasses, one message before that act's out PLAY would (the latest input wins; that
+     *  PLAY's present holds the whole area). On a session with EFFECTS in force they sit right above the atlas's layout,
+     *  which is that much smaller (`LinkState.atlasCapacity`); nothing else writes there. */
     const val TRANSITION_SLOT = 2 * 1024
     const val TRANSITION_REGION = 2 * TRANSITION_SLOT
 

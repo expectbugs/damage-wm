@@ -62,16 +62,42 @@ class TransitionShellTest {
         /** C3 DM-T: strings the window draws through the shell's cached text (Encode's cells come from them; a face drawn
          *  for the first time is an atlas chunk queued). */
         @Volatile var labels: List<Pair<String, wm.damage.core.text.FontSpec>> = emptyList()
+        /** C3 X2T: the labels' line pitch (a dense page takes a smaller one). */
+        @Volatile var gap = 26
+        /** C3 X2T: no squares — the labels alone on black (the notice row reads every glyph's block on each lens). */
+        @Volatile var plain = false
         @Volatile var text: CachedText? = null
         override fun view(): WindowView = WindowView.CanvasView({ g, r ->
             g.fillRect(r, 0)
             if (noise) { val rnd = java.util.Random(7); for (y in r.y until r.bottom - 1 step 2) for (x in r.x until r.right - 3 step 4) g.fillRect(x, y, 4, 2, rnd.nextInt(16) * 17) }
-            for (k in 0 until 6) g.fillRect(r.x + 8 + k * (r.w - 24) / 5, r.y + 6 + k * (r.h - 20) / 5, 8, 8, (6 + k) * 17)
+            if (!plain) for (k in 0 until 6) g.fillRect(r.x + 8 + k * (r.w - 24) / 5, r.y + 6 + k * (r.h - 20) / 5, 8, 8, (6 + k) * 17)
             if (mark != 0) g.fillRect(r.x + 40 + mark * 8, r.y + r.h / 2, 24, 12, 15 * 17)
             if (big) g.fillRect(r.x + r.w / 2 - 60, r.y + r.h / 2 - 20, 120, 40, 15 * 17)
-            labels.forEachIndexed { i, (l, f) -> text?.draw(g, r.x + 40, r.y + 40 + 26 * i, l, f, 255) }
+            labels.forEachIndexed { i, (l, f) -> text?.draw(g, r.x + 40, r.y + 40 + gap * i, l, f, 255) }
         }, onScroll = { big = true })
         override fun summary() = s
+        override fun saveState(): JsonObject = JsonObject(emptyMap())
+        override fun restoreState(state: JsonObject) {}
+    }
+
+    /** C3 X2T item 3: a document (level 1: one layout for its life, so page staging stages its strips) whose tap opens an
+     *  actions level (2) and whose back returns to it; [chars] letters a line through the shell's cached text. */
+    private class Pages(val text: CachedText) : DamageWindow("pages", "Pages", IconKind.READER) {
+        val model = wm.damage.core.shell.DocModel()
+        @Volatile var level = 1
+        @Volatile var chars = 60
+        @Volatile var step = 6
+        private val f = wm.damage.core.text.FontSpec(wm.damage.core.text.Face.SYSTEM, 18)
+        private val actions = ListModel()
+        private val prose = "the quick brown fox jumps over the lazy dog while five wizards box and jump quickly at dawn ".repeat(3)
+        override fun view(): WindowView = if (level == 1) WindowView.DocView(model, { 200 }, 24,
+                { g, i, r -> text.draw(g, r.x + 4, r.y + 4, prose.substring(i * 7 % 60, i * 7 % 60 + chars), f, 255) }, { level = 2 },
+                stepLines = { step }, contentKey = { this })
+            else WindowView.ListView(actions, { 3 }, { g, i, r, _ -> text.draw(g, r.x + 8, r.y + 4, "Action $i", f, 255) },
+                { g, r, i -> text.draw(g, r.x + 8, r.y + 4, "Action $i", f, 255) }, {})
+        override fun back(): Boolean = if (level == 2) { level = 1; true } else false
+        override fun levelDepth() = level
+        override fun summary() = Summary("pages")
         override fun saveState(): JsonObject = JsonObject(emptyMap())
         override fun restoreState(state: JsonObject) {}
     }
@@ -120,9 +146,12 @@ class TransitionShellTest {
             return out.get(10, java.util.concurrent.TimeUnit.SECONDS)
         }
 
-        suspend fun up(settings: (wm.damage.core.shell.ShellSettings) -> wm.damage.core.shell.ShellSettings = { it }) {
+        suspend fun up(settings: (wm.damage.core.shell.ShellSettings) -> wm.damage.core.shell.ShellSettings = { it }) = upAt(352, settings)
+
+        /** C3 X2T: [up] at [height]. */
+        suspend fun upAt(height: Int, settings: (wm.damage.core.shell.ShellSettings) -> wm.damage.core.shell.ShellSettings = { it }) {
             shell.start(); settle("start")
-            shell.updateSettings { settings(it.copy(heightMode = 352, cachedText = "on", taps = taps)) }
+            shell.updateSettings { settings(it.copy(heightMode = height, cachedText = "on", taps = taps)) }
             until("the atlas goes live") { shell.cachedTextActive && shell.cachedFontsLive.isNotEmpty() }
             until("Main's list bound") { onLoop { shell.mainBoundForTest().first } != null }
             settle("up")
@@ -251,6 +280,53 @@ class TransitionShellTest {
     /** C3 DM-T: below stage 5 nothing changes — the same pin with Encode and Matrix stored in every tier's rows. */
     @Test
     fun withoutStage5EncodeAndMatrixStoredChangeNoByte_DMT(): Unit = runBlocking { fourActsBelowStage5(glyphsStored = true) }
+
+    /**
+     * C3 X2T item 4 (decisions AM (1), AQ (4)): below stage 5 no screen is recorded — the counter in `screenRuns()` stays
+     * at 0 through the four acts with Encode and Matrix stored in every tier, on the plain session (160 KiB) and on a
+     * 256 KiB session with BIND (stage 4 holds BIND: everything Encode needs but EFFECTS), where the stage-5 gate is the
+     * only one left. (DM-T's pin `below-stage5-capture` survived because no byte shows a recording; this is its observable.)
+     */
+    @Test
+    fun belowStage5NoScreenIsRecorded_X2T(): Unit = runBlocking {
+        for (kib256 in listOf(false, true)) {
+            val r = Rig(stage = 4, kib256 = kib256)
+            try {
+                r.up(only("encode", "matrix"))
+                assertEquals(kib256, r.t.state.value.cacheSize == CfwModes.CACHE2_MAX_RIDERS && r.t.state.value.bind, "the session asked for")
+                fourActs(r)
+                assertEquals(0, r.onLoop { r.shell.screenRunsForTest() }, "256 KiB $kib256: no screen recorded below stage 5")
+                assertTrue(r.notes("transition").isEmpty(), "256 KiB $kib256: no transition below stage 5: ${r.notes("transition")}")
+            } finally { r.close() }
+        }
+    }
+
+    /**
+     * C3 X2T item 4 (the review's 5, decisions AQ (4)): the act's effect is picked before anything is painted and the
+     * screens are recorded only when the pick is Encode — with Depth and Encode checked and the pick seeded, three
+     * Selects and three Backs: two recordings per act that played Encode, none for an act that played Depth.
+     */
+    @Test
+    fun theScreensAreRecordedOnlyForEncodePicks_X2T(): Unit = runBlocking {
+        val r = Rig(stage = 5, kib256 = true)
+        try {
+            r.rows[0].labels = listOf("Window zero" to wm.damage.core.text.FontSpec(wm.damage.core.text.Face.SYSTEM, 18))
+            r.up(only("depth", "encode"))
+            r.shell.transitionRandom = java.util.Random(0x5EED_0004L)
+            val runs0 = r.onLoop { r.shell.screenRunsForTest() }
+            repeat(3) {
+                selectAndSettle(r)
+                r.doubleTap(); r.until("back on Main") { r.onLoop { r.shell.currentWindowId() } == null }; runEnds(r, "the Back ends"); r.settle("on Main")
+            }
+            val owed = r.notes("transition").filter { it.startsWith("owed: ") }
+            val encode = owed.count { "Encode" in it.substringBefore(" over") }
+            val depth = owed.count { "Depth" in it.substringBefore(" over") }
+            println("X2T item 4: ${owed.map { it.removePrefix("owed: ").substringBefore(" over") }}; screens recorded ${r.onLoop { r.shell.screenRunsForTest() } - runs0}")
+            assertTrue(encode > 0 && depth > 0 && encode + depth == 6, "both effects among the six acts: $owed")
+            assertTrue(r.notes("transition").none { "left out" in it }, "${r.notes("transition")}")
+            assertEquals(2 * encode, r.onLoop { r.shell.screenRunsForTest() } - runs0, "two screens per Encode act, none per Depth act")
+        } finally { r.close() }
+    }
 
     private suspend fun fourActsBelowStage5(glyphsStored: Boolean) {
         val r = Rig(stage = 4)
@@ -1043,6 +1119,11 @@ class TransitionShellTest {
         return out
     }
 
+    /** When the shell's journal wrote each `transition` note starting with [prefix] (ms, the journal's own clock). */
+    private fun noteTimes(r: Rig, prefix: String): List<Long> = Files.readAllLines(r.journal)
+        .filter { "\"ev\":\"note\",\"kind\":\"transition\"" in it && "\"detail\":\"$prefix" in it }
+        .map { Regex("\"t\":(\\d+)").find(it)!!.groupValues[1].toLong() }
+
     private suspend fun runEnds(r: Rig, what: String) = r.until(what) { r.onLoop { r.shell.transitionPhaseForTest() } == null }
 
     /** The in half's notes: drawn + folded of the last body whose note was written. */
@@ -1080,14 +1161,14 @@ class TransitionShellTest {
     }
 
     /**
-     * Stage 3: an Encode Select on a 256 KiB session with BIND — RIGHT's images: the records' write (the slot's programs and
-     * the out lists in the stage reserve, ONE message), the out PLAY (the act's first visible image, journaled as the
-     * gesture's first flush), the in lists' write above the out lists, the frame with the PLAY-AFTER, the CLOSE of slot 2
-     * after RIGHT's in-half body; the reserve Encode's from the act to the run's end, page staging's again after; belief
-     * equals both lenses.
+     * Stage 3 and C3 X2T items 2 and 4: an Encode Select on a 256 KiB session with BIND — RIGHT's images: the records' write
+     * (the slot's programs, the out lists and, above them, the in lists in the stage reserve: ONE message, they fit one
+     * compressed message), the out PLAY (the act's first visible image, journaled as the gesture's first flush), the frame
+     * with the PLAY-AFTER, the CLOSE of slot 2 after RIGHT's in-half body; the other cache writes held from the act to one
+     * in-half period past that body; two screens recorded (the counter in `screenRuns()`); belief equals both lenses.
      */
     @Test
-    fun anEncodeSelectWritesItsListsAroundTheOutPlayAndRunsWhole_DMT(): Unit = runBlocking {
+    fun anEncodeSelectWritesBothHalvesListsWithItsRecordsAndRunsWhole_X2T(): Unit = runBlocking {
         val r = Rig(stage = 5, kib256 = true)
         try {
             r.rows[0].labels = listOf("Window zero" to wm.damage.core.text.FontSpec(wm.damage.core.text.Face.SYSTEM, 18))
@@ -1096,27 +1177,30 @@ class TransitionShellTest {
             assertTrue(st.cacheSize == CfwModes.CACHE2_MAX_RIDERS && st.bind, "a 256 KiB session with BIND: ${st.cacheSize} ${st.bind}")
             val reserve = (st.cacheSize - CfwModes.stageReserve(st.cacheSize, st.bind)) until st.cacheSize
             val lines0 = Files.readAllLines(r.journal).size
+            val runs0 = r.onLoop { r.shell.screenRunsForTest() }
             r.shell.transitionHoldInHalfForTest = true
             r.recording = true
             r.tap()
             r.until("the frame phase") { r.onLoop { r.shell.transitionPhaseForTest() } == "FRAME" }
-            assertTrue(r.onLoop { r.shell.reserveOwnedForTest() }, "the reserve is Encode's during the run")
+            assertTrue(r.onLoop { r.shell.cacheWritesHeldForTest() }, "the other cache writes are held during the run")
             r.shell.transitionHoldInHalfForTest = false
             r.shell.postIdleTick()
             runEnds(r, "the Encode Select ends")
             r.until("the CLOSE of slot 2 reaches RIGHT") { right(r).any { img -> subs(img).any { closeOf(it, 2) } } }
             r.settle("after"); r.recording = false
-            assertTrue(!r.onLoop { r.shell.reserveOwnedForTest() }, "given back at the run's end")
+            r.until("the hold released after its period") { !r.onLoop { r.shell.cacheWritesHeldForTest() } }
+            assertEquals(runs0 + 2, r.onLoop { r.shell.screenRunsForTest() }, "an Encode act records two screens: the leaving one and the arriving one")
             val imgs = right(r)
             val region = st.transitionRegion!!
             val write = imgs.indexOfFirst { img -> cacheWrites(img).any { it.first in region } }
             val out = imgs.indexOfFirst { img -> subs(img).any { playIn(it, 2) } }
             val lists = imgs.indexOfFirst { img -> cacheWrites(img).let { w -> w.isNotEmpty() && w.all { it.first in reserve } } }
             val pa = imgs.indexOfFirst { img -> subs(img).any { playAfter(it) } }
-            assertTrue(write in 0 until out && out < lists && lists < pa, "records $write, out PLAY $out, in lists $lists, PLAY-AFTER $pa")
+            assertTrue(write in 0 until out && out < pa && lists == -1, "records $write, out PLAY $out, PLAY-AFTER $pa, no list write of its own ($lists)")
             val w = cacheWrites(imgs[write])
-            assertTrue(w.size == 2 && w[0].first in region && w[1].first in reserve, "the records' write: the slot and the out lists, one message: $w")
-            assertTrue(cacheWrites(imgs[lists]).single().first >= w[1].first + w[1].second, "the in lists above the out lists")
+            assertTrue(w.size == 3 && w[0].first in region && w[1].first in reserve && w[2].first == w[1].first + w[1].second,
+                "the records' write: the slot, the out lists and the in lists right above them, one message: $w")
+            assertEquals(CfwModes.ZWRITE_MODE, imgs[write][0].toInt() and 0x7F, "the records' write went compressed (mode 25)")
             assertTrue(inHalfWhole(r), "${r.notes("transition")}")
             assertTrue(r.notes("transition").any { it.startsWith("owed: Select Encode") }, "${r.notes("transition")}")
             // the first image after the tap is priced as DP2's: the out PLAY's flush is the gesture's first in the journal
@@ -1130,20 +1214,100 @@ class TransitionShellTest {
         } finally { r.close() }
     }
 
+    /** Each image of [imgs] as the report reads it: its index, its bytes, what it is (a cache write's entries as
+     *  offset+length and its mode, the out PLAY, the PLAY-AFTER, a CLOSE of slot 2, or a frame's flush). */
+    private fun describeImages(imgs: List<ByteArray>, region: IntRange, reserve: IntRange): List<String> = imgs.mapIndexed { i, img ->
+        val w = cacheWrites(img)
+        val ss = subs(img)
+        val what = when {
+            w.isNotEmpty() -> "mode ${img[0].toInt() and 0x7F} write " + w.joinToString(" ") { (o, n) ->
+                (if (o in region) "slot" else if (o in reserve) "reserve" else "atlas") + "@$o+$n" }
+            ss.any { playIn(it, 2) } -> "out PLAY (${ss.size} sub(s))"
+            ss.any { playAfter(it) } -> "frame flush with the PLAY-AFTER (${ss.size} sub(s))"
+            ss.any { closeOf(it, 2) } -> "CLOSE of slot 2"
+            else -> "frame flush (${ss.size} sub(s))"
+        }
+        "#$i ${img.size} B $what"
+    }
+
     /**
-     * Stage 4, D6's hold (the DM spec §5.1): the arriving window draws a face the atlas does not hold, so an atlas chunk is
-     * queued during the run; it goes after RIGHT's in-half body (after the CLOSE of slot 2 the body sends), and the in half
-     * draws all its steps (no "ended in" note) — for Encode and for Matrix.
+     * C3 X2T item 2 (the review's 2, decisions AQ (2)): what an Encode Select sends — RIGHT's images in order, printed for
+     * the report — into a typical window at 352, into a dense page at 480 (14 lines of 60 letters) and into a page too
+     * dense for one compressed message (23 lines of 70 letters at a 16-px pitch). The first two send the records, the
+     * out lists and the in lists in ONE write before the out PLAY (compressed: mode 25); the third keeps the order DM-T
+     * built — the records and the out lists, the out PLAY, then the in lists' write right above the out lists, before the
+     * PLAY-AFTER. Each runs whole.
      */
     @Test
-    fun anAtlasChunkQueuedDuringAGlyphRunGoesAfterTheInHalfsBody_DMT(): Unit = runBlocking {
+    fun anEncodeSelectSendsItsInListsWithItsRecordsWhenTheyFit_X2T(): Unit = runBlocking {
+        val f = wm.damage.core.text.FontSpec(wm.damage.core.text.Face.SYSTEM, 18)
+        val prose = "the quick brown fox jumps over the lazy dog while five wizards box and jump quickly at dawn "
+        data class Case(val name: String, val h: Int, val lines: Int, val chars: Int, val gap: Int, val fits: Boolean)
+        for (c in listOf(Case("typical at 352", 352, 1, 11, 26, true), Case("dense at 480", 480, 14, 60, 26, true),
+                Case("too dense at 480", 480, 23, 70, 16, false))) {
+            val r = Rig(stage = 5, kib256 = true)
+            try {
+                r.rows[0].labels = if (c.lines == 1) listOf("Window zero" to f)
+                    else (0 until c.lines).map { i -> (prose + prose).substring(i * 3 % 40, i * 3 % 40 + c.chars) to f }
+                r.rows[0].gap = c.gap
+                r.upAt(c.h, only("depth"))
+                // one visit with Depth first, so the atlas packs every letter the page draws before the Encode act
+                selectAndSettle(r)
+                r.doubleTap(); r.until("back on Main") { r.onLoop { r.shell.currentWindowId() } == null }; runEnds(r, "the Back ends"); r.settle("on Main")
+                r.shell.updateSettings(only("encode")); r.settle("Encode checked")
+                r.recording = true
+                selectAndSettle(r)
+                r.until("the CLOSE of slot 2 reaches RIGHT") { right(r).any { img -> subs(img).any { closeOf(it, 2) } } }
+                r.settle("after"); r.recording = false
+                val st = r.t.state.value
+                val region = st.transitionRegion!!
+                val reserve = (st.cacheSize - CfwModes.stageReserve(st.cacheSize, st.bind)) until st.cacheSize
+                val imgs = right(r)
+                val owed = r.notes("transition").filter { it.startsWith("owed: ") }
+                println("X2T item 2, ${c.name}: ${owed.last()}\n  " + describeImages(imgs, region, reserve).joinToString("\n  "))
+                assertTrue(owed.last().startsWith("owed: Select Encode"), "${c.name}: Encode played: ${r.notes("transition")}")
+                assertTrue(inHalfWhole(r), "${c.name}: ran whole: ${r.notes("transition")}")
+                val write = imgs.indexOfFirst { img -> cacheWrites(img).any { it.first in region } }
+                val out = imgs.indexOfFirst { img -> subs(img).any { playIn(it, 2) } }
+                val lists = imgs.indexOfFirst { img -> cacheWrites(img).let { w -> w.isNotEmpty() && w.all { it.first in reserve } } }
+                val pa = imgs.indexOfFirst { img -> subs(img).any { playAfter(it) } }
+                val w = cacheWrites(imgs[write])
+                if (c.fits) {
+                    assertTrue(write in 0 until out && out < pa && lists == -1, "${c.name}: records $write, out PLAY $out, PLAY-AFTER $pa, no list write of its own ($lists)")
+                    assertTrue(w.size == 3 && w[0].first in region && w[1].first in reserve && w[2].first == w[1].first + w[1].second,
+                        "${c.name}: the slot, the out lists and the in lists right above them, one message: $w")
+                    assertEquals(CfwModes.ZWRITE_MODE, imgs[write][0].toInt() and 0x7F, "${c.name}: compressed (mode 25)")
+                } else {
+                    assertTrue(write in 0 until out && out < lists && lists < pa, "${c.name}: records $write, out PLAY $out, in lists $lists, PLAY-AFTER $pa")
+                    assertTrue(w.size == 2 && w[0].first in region && w[1].first in reserve, "${c.name}: the slot and the out lists, one message: $w")
+                    assertTrue(cacheWrites(imgs[lists]).single().first == w[1].first + w[1].second, "${c.name}: the in lists right above the out lists")
+                }
+                r.assertOracle("${c.name}: after the Encode Select")
+            } finally { r.close() }
+        }
+    }
+
+    /**
+     * Stage 4, D6's hold (the DM spec §5.1), and C3 X2T item 1: the arriving window draws a face the atlas does not hold,
+     * so an atlas chunk is queued during the run; it goes after RIGHT's in-half body (after the CLOSE of slot 2 the body
+     * sends) and no earlier than one in-half period after that body — and it does go; the in half draws all its steps (no
+     * "ended in" note) — for Encode and for Matrix, each seen to play (X2T item 6: a left-out act plays Depth, which holds
+     * nothing).
+     */
+    @Test
+    fun anAtlasChunkQueuedDuringAGlyphRunGoesOnePeriodAfterTheInHalfsBody_X2T(): Unit = runBlocking {
         for (effect in listOf("encode", "matrix")) {
             val r = Rig(stage = 5, kib256 = true)
             try {
                 val mono = wm.damage.core.text.FontSpec(wm.damage.core.text.Face.MONO, 16)
                 r.rows[0].labels = listOf("A new face here" to mono)
                 r.up(only(effect))
+                val atlasEnd0 = r.t.state.value.atlasCapacity
+                // when each atlas write reached RIGHT (the act's own writes lie above the atlas's layout)
+                val atlasAt = java.util.concurrent.CopyOnWriteArrayList<Long>()
+                r.onImage = { a, img -> if (a == Arm.RIGHT && cacheWrites(img).any { it.first < atlasEnd0 }) atlasAt += System.currentTimeMillis() }
                 r.recording = true
+                val t0 = System.currentTimeMillis()
                 selectAndSettle(r)
                 r.until("the CLOSE of slot 2 reaches RIGHT") { right(r).any { img -> subs(img).any { closeOf(it, 2) } } }
                 r.until("the new face is held") { mono in r.shell.cachedFontsLive }
@@ -1157,6 +1321,15 @@ class TransitionShellTest {
                 assertTrue(atlasWrites.isNotEmpty(), "$effect: the atlas wrote the new face after the act")
                 assertTrue(atlasWrites.all { it > close }, "$effect: every atlas write after RIGHT's in-half body (CLOSE at $close): $atlasWrites")
                 assertTrue(inHalfWhole(r) && r.notes("transition").none { " ended in " in it }, "$effect: the in half drew all its steps: ${r.notes("transition")}")
+                val label = if (effect == "encode") "Encode" else "Matrix"
+                val owed = r.notes("transition").firstOrNull { it.startsWith("owed: Select $label") }
+                assertNotNull(owed, "$effect: the act played $label: ${r.notes("transition")}")
+                // X2T item 1: the body's note is written just before the hold's period starts; no atlas write reached RIGHT
+                // within one in-half period of it
+                val periodMs = Regex("at P (\\d+)").find(owed)!!.groupValues[1].toInt() * 1000.0 / 1024
+                val bodyAt = noteTimes(r, "in half's last step drawn on RIGHT").single()
+                val after = atlasAt.filter { it >= t0 }
+                assertTrue(after.isNotEmpty() && after.all { it - bodyAt >= periodMs }, "$effect: the atlas wrote no earlier than one period (%.1f ms) after the body: %s".format(periodMs, after.map { it - bodyAt }))
             } finally { r.close() }
         }
     }
@@ -1186,15 +1359,17 @@ class TransitionShellTest {
             assertTrue(n.any { it.startsWith("left out of this act's pick: ") && "Encode (an atlas chunk" in it && "Matrix (an atlas chunk" in it }, "$n")
             assertTrue(n.any { it.startsWith("owed: Select Depth") }, "the default plays: $n")
         } finally { r.close() } }
-        // a half past the share
+        // a half past the share — the pick seeded so Encode is the first pick (X2T item 4: the leaving screen is recorded
+        // only for an Encode picked before the handler; Encode left out, the pick goes to Matrix, left out too)
         Rig(stage = 5, kib256 = true).let { r -> try {
             r.up(only("encode", "matrix"))
+            r.shell.transitionRandom = object : java.util.Random() { override fun nextInt(bound: Int) = 0 }     // the first checked: Encode
             r.shell.transitionShareForTest = 1
-            // the Depth that plays instead held at its frame phase: the reserve is read while that run is in hand
+            // the Depth that plays instead held at its frame phase: the hold is read while that run is in hand
             r.shell.transitionHoldInHalfForTest = true
             r.tap()
             r.until("the frame phase") { r.onLoop { r.shell.transitionPhaseForTest() } == "FRAME" }
-            assertTrue(!r.onLoop { r.shell.reserveOwnedForTest() }, "an act Encode does not play (left out: a refused half) takes no reserve")
+            assertTrue(!r.onLoop { r.shell.cacheWritesHeldForTest() }, "an act Encode does not play (left out: a refused half) holds no cache write")
             r.shell.transitionHoldInHalfForTest = false
             r.shell.postIdleTick()
             runEnds(r, "the Depth ends")
@@ -1218,17 +1393,161 @@ class TransitionShellTest {
         } finally { r.close() } }
     }
 
-    /** Stage 3, the reserve's owner given back at each end of an Encode run: the body (above), the deadline, a second act
-     *  (a Back with Depth over the run), a session start. */
+    /** The bytes [ctx]'s cache holds at [off] equal [bytes] (the glasses hold the record there). */
+    private fun holds(ctx: GlassFirmwareSim.LensCtx, off: Int, bytes: ByteArray): Boolean =
+        ctx.textureCache?.let { c -> off + bytes.size <= c.size && c.copyOfRange(off, off + bytes.size).contentEquals(bytes) } == true
+
+    /**
+     * C3 X2T item 3 (the review's 3, decisions AQ (3)): a document staged (four strips of six lines in the 32 KiB stage
+     * reserve), then an Encode Select (the document → its actions) and an Encode Back — each act's lists go where they
+     * meet the fewest strip bytes and drop only the strips they meet: the strips neither act met stay the same records,
+     * proven, at their offsets, the glasses hold their bytes there on both lenses and nothing wrote over them; the strips
+     * met are staged again once the document is in front and idle; a page turn then goes from the strips.
+     */
     @Test
-    fun theReserveIsGivenBackAtEveryEndOfAnEncodeRun_DMT(): Unit = runBlocking {
+    fun anEncodeActDropsOnlyTheStripsItsListsMeet_X2T(): Unit = runBlocking {
+        val r = Rig(stage = 5, kib256 = true)
+        val pages = Pages(r.ct)
+        r.shell.register(pages)
+        try {
+            r.up(only("depth"))
+            r.onLoop { r.shell.services.openWindow("pages", null) }
+            r.until("the document in front") { r.onLoop { r.shell.currentWindowId() } == "pages" }
+            r.settle("the document")
+            r.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM); r.settle("a notch down: the strip behind is wanted too")
+            r.until("four strips proven") { r.shell.stagedProvenCount >= 4 && r.shell.isQuiescent() }
+            val st = r.t.state.value
+            val reserve = (st.cacheSize - CfwModes.stageReserve(st.cacheSize, st.bind)) until st.cacheSize
+            val before = r.onLoop { r.shell.stagedRecordsForTest() }.filter { it.key !is wm.damage.core.shell.MainStageKey && it.state == wm.damage.core.shell.StagedRecord.State.PROVEN }
+            val offs = before.associateWith { it.off }
+            println("X2T item 3: the reserve ${reserve.first}..${reserve.last}; strips " + before.joinToString { "${it.key} ${it.size4} B at ${it.off}" })
+            r.shell.updateSettings(only("encode")); r.settle("Encode checked")
+            r.recording = true
+            // the Select: the document's letters out, the actions' in
+            val ranges = ArrayList<IntRange>()
+            for ((act, gesture) in listOf("Select" to EvenHubMsg.EV_CLICK, "Back" to EvenHubMsg.EV_DOUBLE_CLICK)) {
+                r.shell.transitionHoldInHalfForTest = true
+                r.shell.postGesture(gesture)
+                r.until("the $act's frame phase") { r.onLoop { r.shell.transitionPhaseForTest() } == "FRAME" }
+                assertTrue(r.notes("transition").last { it.startsWith("owed: ") }.startsWith("owed: ${if (act == "Select") "Select Encode" else "Back Encode reversed"}"),
+                    "$act: Encode played: ${r.notes("transition")}")
+                ranges += assertNotNull(r.onLoop { r.shell.transitionBuiltForTest()?.listsRange }, "$act: the run's lists")
+                r.shell.transitionHoldInHalfForTest = false
+                r.shell.postIdleTick()
+                runEnds(r, "the $act ends")
+                r.settle("after the $act")
+            }
+            val met = before.filter { b -> ranges.any { l -> offs.getValue(b) <= l.last && l.first < offs.getValue(b) + b.size4 } }
+            val kept = before - met.toSet()
+            println("X2T item 3: lists ${ranges.joinToString { "${it.first}..${it.last}" }}; met ${met.map { it.key }}, kept ${kept.map { it.key }}")
+            assertTrue(met.isNotEmpty() && kept.isNotEmpty(), "the row needs strips met and strips not met: met ${met.map { it.key }}, kept ${kept.map { it.key }}")
+            assertTrue(ranges.all { it.first in reserve && it.last in reserve }, "the lists lie in the stage reserve: $ranges")
+            // the first act's lists met the fewest strip bytes any start could (the reserve's start or a strip's end)
+            val need = ranges[0].last + 1 - ranges[0].first
+            fun cost(at: Int) = before.filter { offs.getValue(it) < at + need && at < offs.getValue(it) + it.size4 }.sumOf { it.size4 }
+            val best = (listOf(reserve.first) + before.map { offs.getValue(it) + it.size4 }).filter { it + need <= reserve.last + 1 }.minOf { cost(it) }
+            assertEquals(best, cost(ranges[0].first), "the Select's lists went where they meet the fewest strip bytes")
+            // the strips neither act met: the same records, proven, where they were, on the glasses; nothing wrote over them
+            val now = r.onLoop { r.shell.stagedRecordsForTest() }
+            for (k in kept) {
+                assertTrue(now.any { it === k } && k.state == wm.damage.core.shell.StagedRecord.State.PROVEN && k.off == offs[k], "${k.key} kept: ${now.map { it.toString() }}")
+                assertTrue(holds(r.sim.left, k.off, k.encoded) && holds(r.sim.right, k.off, k.encoded), "${k.key}: the glasses still hold its bytes at ${k.off}")
+                for (img in right(r)) for ((o, n) in cacheWrites(img)) assertTrue(o + n <= k.off || o >= k.off + k.size4, "a write [$o, ${o + n}) over ${k.key}")
+            }
+            // the strips met left the registry and are staged again with the document in front and idle
+            assertTrue(met.none { m -> now.any { it === m } && m.off >= 0 }, "the strips the lists met left the registry")
+            r.until("the strips met staged again") {
+                val recs = r.onLoop { r.shell.stagedRecordsForTest() }
+                met.all { m -> recs.any { it.key == m.key && it.state == wm.damage.core.shell.StagedRecord.State.PROVEN } }
+            }
+            r.settle("staged again")
+            val shipped = r.shell.stagedRectsShipped
+            r.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM); r.settle("a page turn")
+            assertTrue(r.shell.stagedRectsShipped > shipped, "the page turn went from a strip (${r.shell.stagedRectsShipped} vs $shipped)")
+            r.recording = false
+            r.assertOracle("after the page turn")
+        } finally { r.close() }
+    }
+
+    /**
+     * C3 X2T items 5 and 6 (the review's 4(c) and 6): every Encode cell sits on its glyph on each lens — read against the
+     * text run it came from as the leaving picture shows it on that lens before the act (FakeText's glyph: a 6 × 10 block
+     * two rows down its 8-px box, a 2-px gap after it) — with a notice box up over part of the text at the act. The
+     * window's own Depth (16) differs from the Global one (8) the arriving box takes before its grace ends, so a cell under
+     * the box placed with the box's offset sits 8 px off its glyph on each lens; a wrong sign or plane does too.
+     */
+    @Test
+    fun everyEncodeCellSitsOnItsGlyphOnEachLensUnderANotice_X2T(): Unit = runBlocking {
+        val r = Rig(stage = 5, kib256 = true)
+        try {
+            val f = wm.damage.core.text.FontSpec(wm.damage.core.text.Face.SYSTEM, 18)
+            // eight lines of words across the box's columns (the box sits in the middle of the content), all inside the
+            // content rect (a run across a plane's edge takes no plane's offset, and the compositor splits it there too)
+            r.rows[0].labels = (0 until 8).map { i -> "Ab${'c' + i}d efgh ijk lmnop qrs tuvw xyz Abc defg hij kl" to f }
+            r.rows[0].plain = true
+            r.up({ s -> s.withTier(Tier.SELECT, effects = listOf("depth")).withTier(Tier.BACK, effects = listOf("encode"))
+                .withAppStyle("w0") { it.copy(depth = 16) } })
+            selectAndSettle(r)
+            val l0 = r.panel(true); val r0 = r.panel(false)
+            // the notice once, so its text is packed before the act (no atlas chunk queued then); dismissed once it takes focus
+            r.shell.postNotice(wm.damage.core.shell.Notifications.Notice("SMS · test", "x1", "a message", "12:00"))
+            r.until("the first notice takes focus") { r.onLoop { r.shell.notificationsFocusedForTest() } }
+            r.doubleTap(); r.until("the first notice gone") { !r.onLoop { r.shell.notificationsUpForTest() } }
+            r.settle("after the first notice")
+            r.shell.postNotice(wm.damage.core.shell.Notifications.Notice("SMS · test", "x2", "a message", "12:00"))
+            r.until("the second box up, its grace running") { r.onLoop { r.shell.noticePlaneForTest() } != null && !r.shell.cacheWorkInFlight }
+            val box = r.onLoop { r.shell.noticePlaneForTest() }!!
+            r.shell.transitionHoldInHalfForTest = true
+            r.doubleTap()
+            r.until("the Back's frame phase") { r.onLoop { r.shell.transitionPhaseForTest() } == "FRAME" }
+            assertTrue(r.notes("transition").last { it.startsWith("owed: ") }.startsWith("owed: Back Encode reversed"), "Encode played: ${r.notes("transition")}")
+            val built = assertNotNull(r.onLoop { r.shell.transitionBuiltForTest() })
+            var cells = 0; var under = 0
+            val bad = ArrayList<String>()
+            for (t in built.out.tracks) for (seg in t.segments) {
+                val list = seg.cells?.lists?.get(seg.aux0) ?: continue
+                for (c in list.cells) {
+                    cells++
+                    if (wm.damage.core.geom.Rect(c.bx, c.by, c.bw, c.bh).overlaps(box)) under++
+                    for ((g, dx, lens) in listOf(Triple(l0, seg.xL, "LEFT"), Triple(r0, if (t.perLens) seg.xR else seg.xL, "RIGHT"))) {
+                        val x = c.bx + dx
+                        val lit = (0 until 6).all { i -> (2 until 12).all { j -> g[x + i, c.by + j] != 0 } }
+                        val gaps = g[x - 1, c.by + 6] == 0 && g[x + 6, c.by + 6] == 0
+                        if (!lit || !gaps) bad += "'${Char(c.old)}' at ${c.bx},${c.by} on $lens at x $x (offset $dx)"
+                    }
+                }
+            }
+            assertTrue(cells > 0 && under > 0, "cells $cells, under the box ($box) $under")
+            assertTrue(bad.isEmpty(), "${bad.size} of ${2 * cells} cell placements off their glyph: ${bad.take(8)}")
+            r.shell.transitionHoldInHalfForTest = false
+            r.shell.postIdleTick()
+            runEnds(r, "the Back ends")
+            r.until("the box back after the run") { r.onLoop { r.shell.notificationsUpForTest() } }
+        } finally { r.close() }
+    }
+
+    /** Stage 3 and C3 X2T items 1, 3 and 6: the hold on the other cache writes released at each end of an Encode run — the
+     *  body (plus its one period: the Encode Select row above), the deadline, a second act (a Back with Depth over the
+     *  run), a session start — with Encode seen to play in each (a left-out act plays Depth, which holds nothing). There is
+     *  no owner of the stage reserve any more: an Encode run's lists drop only the strips they meet and the hold covers
+     *  what the owner guarded. */
+    @Test
+    fun theHoldIsReleasedAtEveryEndOfAnEncodeRun_X2T(): Unit = runBlocking {
         // the deadline: RIGHT's body lost
         Rig(stage = 5, kib256 = true).let { r -> try {
             r.up(only("encode"))
             r.shell.transitionBodyLostForTest = true
-            selectAndSettle(r)
+            r.shell.transitionHoldInHalfForTest = true
+            r.tap()
+            r.until("the frame phase") { r.onLoop { r.shell.transitionPhaseForTest() } == "FRAME" }
+            assertTrue(r.onLoop { r.shell.cacheWritesHeldForTest() }, "held during the run")
+            r.shell.transitionHoldInHalfForTest = false
+            r.shell.postIdleTick()
+            runEnds(r, "the run ends at its deadline")
+            r.settle("after the deadline")
+            assertTrue(r.notes("transition").any { it.startsWith("owed: Select Encode") }, "Encode played: ${r.notes("transition")}")
             assertTrue(r.notes("transition").any { "no in-half body" in it }, "${r.notes("transition")}")
-            assertTrue(!r.onLoop { r.shell.reserveOwnedForTest() }, "given back at the deadline")
+            assertTrue(!r.onLoop { r.shell.cacheWritesHeldForTest() }, "released at the deadline")
         } finally { r.close() } }
         // a second act: a Back (Depth) while the Encode Select still runs
         Rig(stage = 5, kib256 = true).let { r -> try {
@@ -1236,10 +1555,11 @@ class TransitionShellTest {
             r.shell.transitionHoldInHalfForTest = true
             r.tap()
             r.until("the frame phase") { r.onLoop { r.shell.transitionPhaseForTest() } == "FRAME" }
-            assertTrue(r.onLoop { r.shell.reserveOwnedForTest() })
+            assertTrue(r.notes("transition").any { it.startsWith("owed: Select Encode") }, "Encode played: ${r.notes("transition")}")
+            assertTrue(r.onLoop { r.shell.cacheWritesHeldForTest() }, "held during the run")
             r.doubleTap()
             r.until("the Back owed or sent") { r.notes("transition").any { it.startsWith("owed: Back Depth") } }
-            assertTrue(!r.onLoop { r.shell.reserveOwnedForTest() }, "given back when a new act replaces the run")
+            assertTrue(!r.onLoop { r.shell.cacheWritesHeldForTest() }, "released when a new act replaces the run")
             r.shell.transitionHoldInHalfForTest = false
             r.shell.postIdleTick()
             runEnds(r, "the Back ends")
@@ -1250,11 +1570,12 @@ class TransitionShellTest {
             r.shell.transitionHoldInHalfForTest = true
             r.tap()
             r.until("the frame phase") { r.onLoop { r.shell.transitionPhaseForTest() } == "FRAME" }
-            assertTrue(r.onLoop { r.shell.reserveOwnedForTest() })
+            assertTrue(r.notes("transition").any { it.startsWith("owed: Select Encode") }, "Encode played: ${r.notes("transition")}")
+            assertTrue(r.onLoop { r.shell.cacheWritesHeldForTest() }, "held during the run")
             r.shell.transitionHoldInHalfForTest = false
             assertTrue(r.t.restartSession("test: a session start mid-run"), "the session restarts")
             r.until("the run ended at the start") { r.onLoop { r.shell.transitionPhaseForTest() } == null }
-            assertTrue(!r.onLoop { r.shell.reserveOwnedForTest() }, "given back at a session start")
+            assertTrue(!r.onLoop { r.shell.cacheWritesHeldForTest() }, "released at a session start")
         } finally { r.close() } }
     }
 }
