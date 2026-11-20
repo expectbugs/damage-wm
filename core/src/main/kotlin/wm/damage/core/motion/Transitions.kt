@@ -109,11 +109,12 @@ object Transitions {
      * The out and in programs of [effect] over [area] (both lenses), [reversed] in time or not, [depth] the content's
      * disparity (the Depth effect stays inside the 16-px budget), laid out from [at4] in at most [room] bytes: the easing
      * tables first, then the out program, then the in program, 4-byte aligned. [seed] seeds the random slices.
-     * Refused ([LintError]) where the glasses would refuse a program, or when the records do not fit [room]. With
-     * [freezeOut] the out half is §7.11's one-step freeze ([freeze]) in place of the effect's out program.
+     * Refused ([LintError], its message naming the half) where the glasses would refuse a program, or when the records
+     * do not fit [room]. No out half is ever replaced: every effect's out program is taken at every height, length and
+     * frame count (pinned offline), so §7.11's one-step freeze is not built.
      */
     fun build(effects: Motion.Effects, effect: Effect, reversed: Boolean, area: Rect, timing: Timing, at4: Int, room: Int,
-              depth: Int = 8, seed: Int = 0x5EED, freezeOut: Boolean = false): Built {
+              depth: Int = 8, seed: Int = 0x5EED): Built {
         val (o, i) = paths(effect, area, depth)
         // forward: out runs O on the panel, in runs I from the shadow; reversed in time: out runs I backwards on the
         // panel (identity → I's far pose, its ease reversed), in runs O backwards from the shadow
@@ -121,14 +122,13 @@ object Transitions {
         val inPath = if (!reversed) i else o.copy(ease = o.ease.reversed)
         val n = timing.steps
         var off = at4
-        val outTable = if (freezeOut) null else tableFor(outPath.ease, n, off)?.also { off += words(it.record.size) }
+        val outTable = tableFor(outPath.ease, n, off)?.also { off += words(it.record.size) }
         val inTable = tableFor(inPath.ease, if (inPath.stagger) n - stagger(n) else n, off)
         if (inPath.stagger && inTable != null) throw LintError("a staggered in half takes a built-in ease, not a table")
         inTable?.let { off += words(it.record.size) }
-        val out = if (freezeOut) freeze(effects, area, off)
-            else Motion.program2(off, effects, own = true) { inPlace(this, outPath, area, n, outTable ?: easeOf(outPath.ease), seed) }
+        val out = half("out") { Motion.program2(off, effects, own = true) { inPlace(this, outPath, area, n, outTable ?: easeOf(outPath.ease), seed) } }
         off += words(out.bytes.size)
-        val inn = Motion.program2(off, effects, own = true, land = true) { fromShadow(this, inPath, area, n, inTable ?: easeOf(inPath.ease), seed) }
+        val inn = half("in") { Motion.program2(off, effects, own = true, land = true) { fromShadow(this, inPath, area, n, inTable ?: easeOf(inPath.ease), seed) } }
         off += words(inn.bytes.size)
         val size = (off - at4) * 4
         if (size > room) throw LintError("the transition's records are $size B, past the $room B their slot holds")
@@ -137,10 +137,9 @@ object Transitions {
         return Built(effect, reversed, area, timing, out, inn, at4, blob)
     }
 
-    /** §7.11's one-step freeze (PIECES uniform, dx = dy = 0, T 1, OWN, not LAND): holds the panel's picture over [area]
-     *  so a several-batch frame shows nothing of itself before its in half, when there is no out half to hold it. */
-    fun freeze(effects: Motion.Effects, area: Rect, at4: Int): MotionProgram =
-        Motion.program2(at4, effects, own = true) { track(area, Motion.Backdrop.None) { pieces(Motion.LAYER_OLD, 1) } }
+    /** [build]'s refusal of one half, said with its name ("the out half: …"), so the journal says which half it was. */
+    private fun <T> half(name: String, f: () -> T): T =
+        try { f() } catch (e: LintError) { throw LintError("the $name half: ${e.message}") }
 
     /** The out half: one in-place track over [area] (backdrop none, its first and only track, §7.2). */
     private fun inPlace(b: Motion.ProgramBuilder, p: Path, area: Rect, n: Int, ease: Motion.Ease, seed: Int) {

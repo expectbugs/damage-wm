@@ -7413,6 +7413,7 @@ class Shell(
         if (!running || !st.started || !st.carrierUp) return
         // the `hold=on` dev probe: a hand-played test program's picture stays on the lenses until the hold ends
         if (testHold) return
+        if (pumpHeldForTest) return             // tests only: a link with no room at all (a transition stays owed)
         // the `mainseq` probe's plays: the frames wait, but for the one follow-up pump each notch opens
         val seq = mainSeq?.takeIf { it.playing }
         if (seq != null && !seq.followUpOpen) return
@@ -7576,18 +7577,20 @@ class Shell(
         // instance still draws there. A CLOSE of the slot goes first, alone, in stream order ahead of that frame (§5.6: it
         // presents the shadow, which holds END); the held cells are dropped and the areas made unknown, so the frame
         // repaints them from the truth now instead of after the motion's end. A notice box, the menu, the keyboard and the
-        // switcher cover part of the list or keep Main under them: their cells still wait (AF.7).
-        if (frontBefore != null && localFrontNow == null && (mode == Mode.WINDOW || mode == Mode.EXCLUSIVE) &&
-            st.bind && st.leaseHeld && comp.deferring && comp.deferUntilMs > localNow) {
+        // switcher cover part of the list or keep Main under them: their cells still wait (AF.7). The silent clock repaints
+        // every cell as a window does (X2P2: the class of the first review pass's finding 1 — AW.3 left it out). Build C3
+        // (DP2): with a transition owed none of this — its out PLAY, the act's first visible image, ends the same instance in
+        // its close pass, and `transitionFirst` cuts the held cells there (the review's findings 1 and 3).
+        if (frontBefore != null && localFrontNow == null && (mode == Mode.WINDOW || mode == Mode.EXCLUSIVE || mode == Mode.SILENT) &&
+            transition?.phase != TransitionRun.Phase.OWED && st.bind && st.leaseHeld && comp.deferring && comp.deferUntilMs > localNow) {
             submitLocalOnly(listOf(CfwModes.motionClose(frontBefore.slot)), "CLOSE")
             comp.cutDeferral()
-            journal.note("local", "a window over the list: slot ${frontBefore.slot}'s adopted motion closed ahead of its frame — its cells go now")
+            journal.note("local", "${if (mode == Mode.SILENT) "the silent clock" else "a window"} over the list: slot ${frontBefore.slot}'s adopted motion closed ahead of its frame — its cells go now")
         }
         // build C3, stage DP2 (`FIRMWARE.md` §7.11): a transition's out half goes now, ahead of the arriving frame's assemble —
-        // the records' write, then alone the rules' CLEARs, the out PLAY and their answers; in its in half every write that is
-        // not his input waits for its end (which posts a pump)
+        // the records' write, then alone the rules' CLEARs, the out PLAY and their answers. Nothing waits behind it: every
+        // flush from the out PLAY to the run's end is held by both owners and shows at the in half's next step or at LAND
         transitionFirst(st, localOn, localNow)
-        if (transition?.phase == TransitionRun.Phase.IN && !pumpPriority && (comp.hasPending || comp.needsKeyframe)) return
         // decisions AF.7: the cells held behind a COMMIT go once the adopted motion has ended on the glasses — the loop is
         // asked back then (pacing, never a wait on a send)
         comp.releaseDeferred(localNow)
@@ -7745,6 +7748,9 @@ class Shell(
     @Volatile internal var transitionBodyLostForTest = false
     /** Tests only: the in half's PLAY-AFTER is held back (the out half plays to done and keeps owning). */
     @Volatile internal var transitionHoldInHalfForTest = false
+    /** Tests only: every pump returns at once, as one does when the window has no room (§32) — an act's transition stays
+     *  owed while input arrives behind it. */
+    @Volatile internal var pumpHeldForTest = false
     internal fun transitionPhaseForTest(): String? = transition?.phase?.name
     /** Transitions that ran whole (RIGHT's in-half body, outcome 0) this process. */
     private var transitionsWhole = 0
@@ -7752,8 +7758,8 @@ class Shell(
 
     /**
      * An act changed the screen ([before] → now): with ladder stage 5 in force and an effect checked in [tier], the
-     * transition is owed — a random pick among the checked, both programs built (refused offline as the glasses would;
-     * an out program refused there gives way to the one-step freeze), the records laid out in the act's slot of the
+     * transition is owed — a random pick among the checked, both programs built (refused offline as the glasses would:
+     * then the screen lands at once and the note names the half refused), the records laid out in the act's slot of the
      * region (two, taken in turn), a box on screen requeued unread (it returns after). Anywhere else nothing happens: the
      * screen lands at once, as it always has.
      */
@@ -7775,20 +7781,18 @@ class Shell(
         val what = "${tier.word} ${effect.label}${if (reversed) " reversed" else ""}"
         val run = try {
             val fx = wm.damage.core.motion.Motion.effects(wm.damage.core.wire.DamageMsg.Caps(st.damageContract, st.damageFeatures), st.flagsInForce)
-            fun plan(freeze: Boolean): TransitionRun {
-                val b = wm.damage.core.motion.Transitions.build(fx, effect, reversed, area, timing, at4, CfwModes.TRANSITION_SLOT,
-                    settings.depth, seed = k and 0xFFFF, freezeOut = freeze)
-                val out = wm.damage.core.motion.Motion.play(b.out, TransitionRun.OUT_SLOT, timing.period, tagOut, 0, IntArray(4))
-                // the step budget (§7.12): the in half waits on the out half, which may still be drawing
-                val inn = wm.damage.core.motion.Motion.playAfter(b.inn, TransitionRun.IN_SLOT, timing.period, tagIn, TransitionRun.OUT_SLOT,
+            // each refusal names its half ("the out half: …", "the in half's PLAY-AFTER: …")
+            val b = wm.damage.core.motion.Transitions.build(fx, effect, reversed, area, timing, at4, CfwModes.TRANSITION_SLOT,
+                settings.depth, seed = k and 0xFFFF)
+            val out = try { wm.damage.core.motion.Motion.play(b.out, TransitionRun.OUT_SLOT, timing.period, tagOut, 0, IntArray(4)) }
+                catch (e: wm.damage.core.geom.LintError) { throw wm.damage.core.geom.LintError("the out half's PLAY: ${e.message}") }
+            // the step budget (§7.12): the in half waits on the out half, which may still be drawing
+            val inn = try {
+                wm.damage.core.motion.Motion.playAfter(b.inn, TransitionRun.IN_SLOT, timing.period, tagIn, TransitionRun.OUT_SLOT,
                     IntArray(4), listOf(wm.damage.core.motion.Motion.Drawing(b.out.cost())), 0)
-                return TransitionRun(tier, b, CfwModes.cacheUpdate2(listOf(CfwModes.CacheWrite2(at4, b.blob)), st.cacheSize), out, inn,
-                    tagOut, tagIn, freeze, System.currentTimeMillis())
-            }
-            try { plan(freeze = false) } catch (e: wm.damage.core.geom.LintError) {
-                journal.note("transition", "$what: its out half is refused offline (${e.message}) — the one-step freeze holds the panel instead")
-                plan(freeze = true)
-            }
+            } catch (e: wm.damage.core.geom.LintError) { throw wm.damage.core.geom.LintError("the in half's PLAY-AFTER: ${e.message}") }
+            TransitionRun(tier, b, CfwModes.cacheUpdate2(listOf(CfwModes.CacheWrite2(at4, b.blob)), st.cacheSize), out, inn,
+                tagOut, tagIn, System.currentTimeMillis())
         } catch (e: wm.damage.core.geom.LintError) {
             journal.note("transition", "$what is refused offline (${e.message}) — the screen lands at once, as without stage 5")
             return
@@ -7825,6 +7829,10 @@ class Shell(
         }
         val tr = transition ?: return
         if (tr.phase != TransitionRun.Phase.OWED) return
+        // the review's finding 1 (AW.3's own form): every act is a whole-panel change, so the out PLAY's close pass ends every
+        // instance in its area — an adopted motion whose cells the compositor holds included (or, when it does not go, the
+        // frame's own CLOSE does): nothing is left to wait for, and those cells go with the arriving frame
+        val cut = comp.cutDeferral()
         if (!st.effects || !st.bind || !st.leaseHeld || comp.needsKeyframe || st.transitionRegion?.let { r -> tr.built.at4 * 4 in r } != true) {
             transitionEnd("not sent: stage 5, BIND or the lease is no longer in force, a keyframe is owed, or the session changed — the screen lands at once")
             return
@@ -7840,19 +7848,30 @@ class Shell(
         tr.outId = submitLocalOnly(clears + listOf(tr.playOut) + tail.drop(clears.size), "TRANSITION")
         tr.phase = TransitionRun.Phase.FRAME
         tr.outSentAtMs = now
-        journal.note("transition", "out half sent: flushes ${tr.writeId} (records ${tr.write.size} B) and ${tr.outId} " +
-            "(${clears.size} CLEAR(s), the PLAY, ${tail.size - clears.size} answer(s)), ${now - tr.actAtMs} ms after the act")
+        tr.outId?.let { id ->
+            // the out PLAY is what he sees first: journaled as the gesture's first flush (`in`, the wait for a slot), so
+            // `tools/journal_report.py`'s WAIT column prices it; the frame under it no longer counts as the first
+            journal.flushSubmitted(id, comp.epoch, emptyList(), "TRANSITION", st.transportName, Journal.Timing(
+                input = (if (pumpPriority || inputAwaitsSlot) 1 else 0).also { inputAwaitsSlot = false },
+                inWaitMs = (if (pumpPriority || inputWaitSince >= 0) (if (inputWaitSince >= 0) System.currentTimeMillis() - inputWaitSince else 0L)
+                    else -1L).also { inputWaitSince = -1L },
+                win = current?.id ?: "", mode = mode.name))
+            if (pumpPriority) inputFlushPending = false
+        }
+        journal.note("transition", "out half sent: the records' write as flush ${tr.writeId} (${tr.write.size} B), then the out PLAY as flush ${tr.outId} " +
+            "(${clears.size} CLEAR(s), the PLAY, ${tail.size - clears.size} answer(s)) — the act's first visible image — ${now - tr.actAtMs} ms after the act" +
+            if (cut) "; the cells held behind an adopted motion go with the frame" else "")
     }
 
     /** A frame flush was submitted while a transition is in hand ([keyframe]: it ends every instance on the glasses;
-     *  [carried]: it carried the PLAY-AFTER). In the in half a flush is his input's, and its writes CLOSE the owners. */
+     *  [carried]: it carried the PLAY-AFTER). A flush in the in half — his input, a repaint, a chrome tick — is held by both
+     *  owners and ends nothing: it shows at the in half's next step or at LAND (§7.11). */
     private fun transitionSubmitted(id: Long, keyframe: Boolean, carried: Boolean) {
         val tr = transition ?: return
         when {
             keyframe && tr.phase != TransitionRun.Phase.OWED -> transitionEnd("a keyframe went: it ends every instance, the frame shows whole")
             carried -> { tr.phase = TransitionRun.Phase.IN; tr.inId = id; tr.inSentAtMs = System.currentTimeMillis()
                 journal.note("transition", "in half's PLAY-AFTER rides flush $id, ${tr.inSentAtMs - tr.outSentAtMs} ms after the out half's") }
-            tr.phase == TransitionRun.Phase.IN -> transitionEnd("his input's flush $id CLOSEs the owners it meets (the latest input wins)")
         }
     }
 
@@ -7871,10 +7890,13 @@ class Shell(
         val inFrame = tr.phase == TransitionRun.Phase.FRAME || tr.phase == TransitionRun.Phase.IN
         when (ev.id) {
             tr.writeId -> if (!ev.ok) transitionEnd("its records' write failed (${ev.error})", close = true)
+            // the deadline is armed at whichever of the two acks comes second (the review's finding 4: from the out PLAY's
+            // ack, not its submit, so a busy link cannot make it fall inside the in half)
             tr.outId -> if (!ev.ok) transitionEnd("its out half's flush failed (${ev.error})", close = true)
+                else { tr.outDoneAtMs = System.currentTimeMillis(); transitionDeadlineArm(tr) }
             tr.inId -> if (!ev.ok) transitionEnd("the flush carrying its PLAY-AFTER failed (${ev.error})", close = true)
                 else { tr.inDoneAtMs = System.currentTimeMillis(); transitionDeadlineArm(tr) }
-            else -> if (!ev.ok && inFrame && ev.id in inflightFlushes) transitionEnd("a flush of the arriving frame failed (${ev.error}) — its repaint goes now", close = true)
+            else -> if (!ev.ok && inFrame && ev.id in inflightFlushes) transitionEnd("a flush written under it failed (${ev.error}) — its repaint goes now", close = true)
         }
     }
 
@@ -8026,6 +8048,8 @@ class Shell(
         if (switcher.spinning) append("spin ")
         if (haltedEpoch != null) append("halted ")
         if (glassesSilent) append("glasses-silent ")
+        transition?.let { append("transition=${it.phase} ") }
+        if (transitionCloses.isNotEmpty()) append("closes=${transitionCloses.size} ")
         lastDivergence?.let { append("diverge[$it] ") }
         append("reports=$divergencesReported status='$statusWord'")
     }

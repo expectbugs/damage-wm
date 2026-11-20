@@ -506,6 +506,29 @@ class MotionTransportTest {
         t.stop()
     }
 
+    /** X2P2 item 1 (`FIRMWARE.md` §7.11 as amended 2026-11-20): from its out PLAY to its end a transition's flushes are
+     *  held by BOTH its owners — a flush writing inside the out half's, the in half's and a third owner's boxes CLOSEs
+     *  only the third, ahead of its writes, and leaves the transition's two open. Owners in slots 1, 2 and 3. */
+    @Test
+    fun aFlushHeldForBothHalvesLeavesThemOpenAndClosesAnyOtherOwnerFirst_X2P2(): Unit = runBlocking {
+        val (sim, t) = effectsSession()
+        val fx = Motion.effects(DamageMsg.Caps(2, 0xdff), t.state.value.flagsInForce)
+        val ps = listOf(100, 300, 500).mapIndexed { i, x -> Motion.program2(10_000 + 100 * i, fx, own = true) { track(Rect(x, 100, 40, 40), Motion.Backdrop.Level(3 + i)) { wait(200) } } }
+        assertTrue(t.sendMotion(listOf(CfwModes.cacheUpdate2(ps.flatMap { it.records }.map { (o, r) -> CfwModes.CacheWrite2(o, r) }, 256 * 1024)) +
+            ps.mapIndexed { i, p -> Motion.play(p, 1 + i, 128, 0x71 + i, 0, IntArray(4)) }))
+        waitUntil(10_000, message = { "three OWN PLAYs landed: refusal ${sim.refusalRecord(Arm.RIGHT)}" }) {
+            (1..3).all { sim.motionForTest(Arm.RIGHT).slots[it]?.owns == true } }
+        val batches = java.util.concurrent.CopyOnWriteArrayList<ByteArray>()
+        sim.imageObserver = { arm, img -> if (arm == Arm.RIGHT && img[0].toInt() == 8) batches += img }
+        t.submit(FlushRequest(listOf(100, 300, 500).map { x -> DisplayOp.Fill(Rect(x + 10, 110, 8, 4), Rect(x + 10, 110, 8, 4), 7) }, 0,
+            "held for both halves", held = setOf(2, 3)))
+        waitUntil(10_000, message = { "the held flush landed" }) { batches.size >= 1 }
+        assertEquals(listOf(4, 3, 0, 26, 2, 1), (1 until 7).map { batches[0][it].toInt() and 0xFF }, "one CLOSE, of slot 1, heads the batch")
+        assertTrue((2..3).all { sim.motionForTest(Arm.RIGHT).slots[it]?.owns == true }, "both halves the flush is held for stay open")
+        assertTrue(sim.motionForTest(Arm.RIGHT).slots[1] == null, "the other owner is closed")
+        t.stop()
+    }
+
     /** Build C3 (§7.9): below stage 5 no PLAY-AFTER, LIST-RING or kind-3 SET reaches the glasses — offered through the
      *  motion API at stage 4 on a bit-11 build — while at stage 5 the same PLAY-AFTER does (the gate is not a wall). */
     @Test
