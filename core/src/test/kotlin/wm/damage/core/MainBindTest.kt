@@ -50,9 +50,11 @@ class MainBindTest {
         for (line in r.table) println("DM2-staging $line")
         for (c in r.cases) for (l in c.lines.take(2)) println("DM2-case ${c.name}: $l")
         assertTrue(r.failures.isEmpty(), "failures:\n" + r.failures.take(40).joinToString("\n"))
-        // decisions AZ.4: and the wrap both ways where Main wraps (288 and 352 with the sample's eight rows), on both caches
-        assertEquals(4 * 2 * 7 + 2 * 2 * 2, r.cases.size, "every height and cache ran its seven cases, and the wrapping heights their two wraps")
-        assertEquals(8, r.cases.count { it.name.contains("-wrap-") }, "the wrap cases: ${r.cases.filter { it.name.contains("-wrap-") }.map { it.name }}")
+        // decisions AZ.4: and the wrap both ways where Main wraps (288 and 352 with the sample's eight rows), on both caches;
+        // K1-1: every other Scroll effect's pans both ways (and its wraps), and the pans re-made alone, at each height and cache
+        assertEquals(4 * 2 * (7 + 3 * 2 + 1) + 2 * 2 * 2 * 4, r.cases.size, "every height and cache ran its cases, and the wrapping heights their wraps per effect")
+        assertEquals(32, r.cases.count { it.name.contains("-wrap-") }, "the wrap cases: ${r.cases.filter { it.name.contains("-wrap-") }.map { it.name }}")
+        assertEquals(8, r.cases.count { it.name.endsWith("-reprogram") && it.lines.isNotEmpty() && it.lines.none { l -> l.startsWith("no spare") } }, "the re-make ran at every height and cache")
     }
 
     /** Decisions AF.4 (review V1Db §4, its probe turned into the pin): a report adopted before a band switch's

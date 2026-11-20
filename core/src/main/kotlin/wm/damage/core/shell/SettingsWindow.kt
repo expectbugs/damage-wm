@@ -150,13 +150,21 @@ class SettingsWindow(
     )
 
     /** Build ANIM (decisions AV, AW): the `Animations` category — a bound list's notch motion; shown with `Taps` on a
-     *  build that reports local input (bit 10). `Style` joins when there is more than one. */
+     *  build that reports local input (bit 10). K1-1 (`MOTION.md` §7): the Scroll tier's rows — `Scroll effect` (one, no
+     *  randomness), `Scroll length`, `Scroll frames` (the stored key stays `frames`). */
     private val animEntries: List<Entry> = listOf(
+        Entry("Scroll effect", {
+            val id = get().scrollEffect
+            (wm.damage.core.motion.ScrollEffect.byId(id) ?: wm.damage.core.motion.ScrollEffect.DEFAULT).word + if (id == ShellSettings().scrollEffect) " (default)" else ""
+        }, { s, d ->
+            val es = ShellSettings.SCROLL_EFFECTS
+            s.copy(scrollEffect = es[(es.indexOf(s.scrollEffect).coerceAtLeast(0) + d).mod(es.size)])
+        }),
         Entry("Scroll length", { "${get().scrollLength} ms" + if (get().scrollLength == ShellSettings().scrollLength) " (default)" else "" }, { s, d ->
             val ls = ShellSettings.SCROLL_LENGTHS
             s.copy(scrollLength = ls[(ls.indexOf(s.scrollLength).coerceAtLeast(0) + d).coerceIn(0, ls.size - 1)])
         }),
-        Entry("Frames", {
+        Entry("Scroll frames", {
             val f = get().frames
             (if (f == 0) "auto" else "$f") + motionHint().let { if (it.isEmpty()) "" else " ($it)" }
         }, { s, d ->

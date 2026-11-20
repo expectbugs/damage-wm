@@ -12,6 +12,7 @@ import wm.damage.core.gfx.Pack
 import wm.damage.core.gfx.Zl
 import wm.damage.core.local.BoundList
 import wm.damage.core.motion.Motion
+import wm.damage.core.motion.ScrollEffect
 import wm.damage.core.sim.GlassFirmwareSim
 import wm.damage.core.text.TextRasterizer
 import wm.damage.core.transport.Arm
@@ -38,6 +39,9 @@ import wm.damage.core.wire.Pb
  * - the report-only tap entry (`Taps · report`): a report with no fields 10–14 and nothing drawn;
  * - a re-staged row: Music's summary changes, the row is re-staged IN PLACE (its writes inside its own slots, the mark
  *   kept), and a notch onto it lands on its new paint.
+ * K1-1: every Scroll effect ([ScrollEffect]) staged on its own — the pans at every cursor both ways and the wrap, as
+ * above (END = Main's paint) — and the pans re-made alone ([reprogramCase]): written into the free slot (no strip, band
+ * form or table byte), switched by SETs, a notch before the SETs and one after each named and committed.
  * Each case keeps the frames of one notch for the strips the desktop writes.
  */
 object MainLocalCheck {
@@ -122,17 +126,34 @@ object MainLocalCheck {
                 widths = listOf(MainStaging.WHOLE), twoStrips = region.last + 1 < cacheSize, motion = motion)
     }
 
-    /** Runs every case at [heights] × [cachesKib]; [frames] keeps the strips' frames (the desktop writes them). */
+    /** Runs every case at [heights] × [cachesKib] for [effects]; [frames] keeps the strips' frames (the desktop writes them). */
     fun run(text: TextRasterizer, heights: List<Int> = ShellSettings.HEIGHTS, cachesKib: List<Int> = listOf(160, 256),
-            depth: Int = 8, frames: Boolean = true): Result {
+            depth: Int = 8, frames: Boolean = true, effects: List<ScrollEffect> = ScrollEffect.entries): Result {
         val cases = ArrayList<Case>()
         val table = ArrayList<String>()
         for (h in heights) for (kib in cachesKib) {
-            val r = runOne(text, h, kib, depth, frames)
-            cases += r.first
-            table += r.second
+            for (e in listOf(ScrollEffect.DEPTH) + effects.filter { it != ScrollEffect.DEPTH }) {
+                val r = runOne(text, h, kib, depth, frames, e)
+                cases += r.first
+                table += r.second
+            }
+            cases += reprogramCase(text, h, kib, depth)
         }
         for (h in heights) table += worstCase(text, h, depth)
+        return Result(cases, table)
+    }
+
+    /** K1-1: each effect's notches as strips (the middle row both ways, and the wrap where Main wraps) at [heights] on
+     *  256 KiB, his cache — `desktop --motion-check`'s scroll section, for the lead's look before his. */
+    fun effectStrips(text: TextRasterizer, heights: List<Int> = ShellSettings.HEIGHTS, depth: Int = 8): Result {
+        val cases = ArrayList<Case>()
+        val table = ArrayList<String>()
+        for (h in heights) for (e in ScrollEffect.entries) {
+            val r = runOne(text, h, 256, depth, true, e, pansOnly = true)
+            val tag = "h$h-256k" + if (e == ScrollEffect.DEPTH) "" else "-${e.id}"
+            cases += r.first.map { c -> Case("scroll-${e.id}-h$h-${c.name.removePrefix("$tag-")}", "${e.word}: ${c.about}", c.crop, c.frames, c.lines, c.failures) }
+            table += r.second
+        }
         return Result(cases, table)
     }
 
@@ -201,14 +222,15 @@ object MainLocalCheck {
         return n
     }
 
-    private fun runOne(text: TextRasterizer, height: Int, kib: Int, depth: Int, keepFrames: Boolean): Pair<List<Case>, String> {
+    private fun runOne(text: TextRasterizer, height: Int, kib: Int, depth: Int, keepFrames: Boolean,
+                       effect: ScrollEffect = ScrollEffect.DEPTH, pansOnly: Boolean = false): Pair<List<Case>, String> {
         val rows = sampleRows()
         val m = MainRig(text, height, rows, depth)
         val cacheSize = kib * 1024
         val region = CfwModes.mainRegion(cacheSize, bind = true)
-        val ms = m.staging(cacheSize, region)
+        val ms = m.staging(cacheSize, region, MainStaging.ScrollMotion.DEFAULT.copy(effect = effect))
         val list = ms.boundList(1)
-        val tag = "h$height-${kib}k"
+        val tag = "h$height-${kib}k" + if (effect == ScrollEffect.DEPTH) "" else "-${effect.id}"
         val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = FEATURES_C2; it.clockIsOsTick = true }
         val lens = Lens(sim, cacheSize)
         val setup = ArrayList<String>()
@@ -223,9 +245,10 @@ object MainLocalCheck {
         val whole = ms.pan(MainStaging.WHOLE, 1)
         val inside = region.first <= ms.start && ms.end <= region.last + 1
         if (!inside) setup += "the staging ${ms.start}..${ms.end} leaves its region ${region.first}..${region.last + 1}"
-        val tableLine = "$tag: ${ms.bytes} B at ${ms.start}..${ms.end} (${if (region.last + 1 == cacheSize) "shared reserve" else "Main's region"}), " +
+        val tableLine = "$tag: ${effect.word}, ${ms.bytes} B at ${ms.start}..${ms.end} (${if (region.last + 1 == cacheSize) "shared reserve" else "Main's region"}), " +
             "strip ${ms.blobs[0].bytes.size} B in a ${ms.strip.slot} B slot${if (ms.stripB != null) " (and its second slot)" else ""}, band forms ${ms.blobs.drop(if (ms.stripB != null) 2 else 1).take(ms.rows).sumOf { it.bytes.size }} B in ${ms.bands.sumOf { it.slot }} B of slots, " +
-            "${ms.wrap?.let { "wrap record ${it.encoded.size} B in a ${it.slot} B slot, " } ?: ""}programs ${ms.blobs.last().bytes.size} B; whole list ${whole.kA}+${whole.kB} rows, ${whole.areaPx} px a step, P ${ms.period} T ${ms.t}, press ${ms.bandD}→${ms.press.pressD}"
+            "${ms.wrap?.let { "wrap record ${it.encoded.size} B in a ${it.slot} B slot, " } ?: ""}programs ${ms.blobs.last().bytes.size} B${ms.progSlots?.let { " (pan slots of ${ms.progSlot} B at ${it[0]} and ${it[1]})" } ?: " (no spare pan slot)"}; " +
+            "whole list ${whole.kA}+${whole.kB} rows, ${whole.program.tracks.size} tracks, ${whole.areaPx} px a step, P ${ms.period} T ${ms.t}, press ${ms.bandD}→${ms.press.pressD}"
         val cases = ArrayList<Case>()
         if (setup.isNotEmpty()) { cases += Case("$tag-setup", "the staging written and the list SET", Rect(0, 0, 1, 1), emptyList(), emptyList(), setup); return cases to tableLine }
 
@@ -372,6 +395,9 @@ object MainLocalCheck {
             cases += Case("$tag-$name", "the wrap from row $c to row $to: the edge, then the phone's PLAY of the pan across it (decisions AZ.4)",
                 union(pan.areasL + pan.areasR), frames ?: emptyList(), lines, fails)
         }
+        // K1-1: another effect's staging is checked for its pans and its wrap; the press, the taps and keeping rows current
+        // are the effect's no more than Depth's (the same records, the same press)
+        if (effect != ScrollEffect.DEPTH || pansOnly) return cases to tableLine
 
         // ---- the report-only tap entry (Taps · report)
         run {
@@ -548,6 +574,112 @@ object MainLocalCheck {
                 union(pan.areasL + pan.areasR), frames ?: emptyList(), lines, fails)
         }
         return cases to tableLine
+    }
+
+    /**
+     * K1-1: the pans re-made alone. Main staged with Depth and its list SET; the scroll rows ask for Slide: the re-made pans
+     * go into the free pan slot — a range that meets no record of the staging (no strip, band form, item table or press
+     * byte) — then a notch fired BEFORE the SETs draws the old pan and is named (the list's previous) and committed from
+     * the old program; the SETs go; a notch after them draws the new pan, named and committed, its END Main's paint. The
+     * old pans released, Depth re-made back into the first slot gives that slot's bytes as staged, byte for byte.
+     */
+    fun reprogramCase(text: TextRasterizer, height: Int, kib: Int, depth: Int = 8): Case {
+        val m = MainRig(text, height, sampleRows(), depth)
+        val cacheSize = kib * 1024
+        val region = CfwModes.mainRegion(cacheSize, bind = true)
+        val ms = m.staging(cacheSize, region)
+        val tag = "h$height-${kib}k-reprogram"
+        val fails = ArrayList<String>(); val lines = ArrayList<String>()
+        val slots = ms.progSlots ?: return Case(tag, "the pans re-made alone", Rect(0, 0, 1, 1), emptyList(),
+            listOf("no spare pan slot in this region: a change of the scroll rows is a full staging (${ms.bytes} B)"), emptyList())
+        val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = FEATURES_C2; it.clockIsOsTick = true }
+        val lens = Lens(sim, cacheSize)
+        for (arm in Arm.entries) {
+            sim.conformanceLease(arm, true, lens.now)
+            sim.conformanceControl(arm, DamageMsg.OP_CACHE_SIZE, kib, lens.now)
+            sim.conformanceControl(arm, DamageMsg.OP_FLAGS_SET, DamageMsg.FLAG_DRAW2 or DamageMsg.FLAG_ENGINE or DamageMsg.FLAG_BIND, lens.now)
+        }
+        for (b in ms.blobs) lens.write(b.off, b.bytes, b.name, fails)
+        var cur = ms.boundList(1)
+        for (s in cur.sets()) lens.send("a SET", s, fails)
+        lens.send("the LIST", cur.listMessage(0), fails)
+        val down = cur.entryFor(CfwModes.EV_UPROLL)!!
+        val c0 = ms.rows / 2 - 1
+        fun fireHeld(c: Int, period: Int): DamageMsg.Applied? {
+            lens.now += 1_000
+            lens.keyframe(m.truth(c, true), m.truth(c, false))
+            lens.send("DISCARD to cursor $c", CfwModes.motionDiscard(MainStaging.SLOT, 1, MainStaging.LIST, c), fails)
+            lens.notifies()
+            val a = lens.fire(CfwModes.DEV_RING, down.eventId) ?: return null
+            val t0 = lens.now
+            if (a.outcome == DamageMsg.APPLIED_DREW && a.params != null && a.prog != null)
+                for (k in 1..ms.programAt(a.prog!!).stepsWith(a.params!!) + 1) lens.wake(t0 + (k - 1).toLong() * period)
+            return a
+        }
+        fun commit(a: DamageMsg.Applied?, what: String) {
+            if (a == null || a.outcome != DamageMsg.APPLIED_DREW) { fails += "$what: no drawn report (${a?.describe()})"; return }
+            val p = a.params!!; val prog = a.prog!!; val cP = a.cursor!!
+            if (!cur.names(cP, down, prog, p)) fails += "$what: the report is not named by the list as it stands (${a.describe()})"
+            lens.send("$what: COMMIT", Motion.commit(ms.programAt(prog), MainStaging.SLOT, a.s!!, MainStaging.LIST, cP, p), fails)
+            for (arm in Arm.entries) {
+                val left = arm == Arm.LEFT
+                val belief = m.truth(cP - down.step, left).copy().also { ms.paintEndOf(prog, p, left, it) }
+                differ(lens.shadow(arm), belief, null).let { if (it > 0) fails += "$what $arm: $it px where the shadow after the COMMIT is not belief" }
+                differ(lens.shadow(arm), m.truth(cP, left), ms.programAt(prog).tracks.map { it.area(left) }).let { if (it > 0) fails += "$what $arm: $it px of END not Main's paint at $cP" }
+                if (sim.panelCrc32(arm) != sim.shadowCrc32(arm)) fails += "$what $arm: after the COMMIT the lens does not show the shadow"
+            }
+            lens.notifies()
+        }
+        /** The re-make for [want] into the free slot, checked against every record's range, and written. */
+        fun remade(want: MainStaging.ScrollMotion): MainStaging.Programs? {
+            val p = (ms.remake(want) as? MainStaging.Remake.Owed)?.programs ?: run { fails += "no re-make for ${want.words()}: ${ms.remake(want)}"; return null }
+            if (p.off != slots[p.slot] || p.bytes.size > ms.progSlot) fails += "${want.words()}: ${p.bytes.size} B at ${p.off}, not inside slot ${p.slot} (${slots[p.slot]}, ${ms.progSlot} B)"
+            val press = ms.press.prog4 * 4
+            for (b in ms.blobs) {
+                // the programs record's own span holds the press and the first pan slot: only the press is a record there
+                val (lo, hi) = if (b.name == "programs") press to press + ms.press.program.bytes.size else b.off to b.off + b.bytes.size
+                if (p.off < hi && lo < p.off + p.bytes.size) fails += "${want.words()}: the re-make's write ${p.off}..${p.off + p.bytes.size} meets ${b.name} ($lo..$hi)"
+            }
+            lens.write(p.off, p.bytes, "the re-made pans", fails)
+            return p
+        }
+        val p1 = remade(MainStaging.ScrollMotion.DEFAULT.copy(effect = ScrollEffect.SLIDE))
+        if (p1 != null) {
+            val before = fireHeld(c0, down.period)                      // the lens still holds Depth's entries
+            commit(before, "a notch before the SETs")
+            ms.switchTo(p1)
+            val nl = ms.boundList(cur.mark, previous = cur)
+            val oldProg = before?.prog
+            cur = nl
+            // a report from before the switch, answered after it: named through the previous list, END from the old pan
+            val during = fireHeld(c0, down.period)
+            if (during?.prog != oldProg) fails += "a notch after the write, before the SETs, drew ${during?.describe()}, not the old pan $oldProg"
+            commit(during, "a notch after the write, before the SETs")
+            val sets = nl.sets()
+            for (s in sets) lens.send("a SET of the re-made pans", s, fails)
+            val after = fireHeld(c0, nl.entryFor(CfwModes.EV_UPROLL)!!.period)
+            if (after?.prog != nl.entryFor(CfwModes.EV_UPROLL)!!.prog4) fails += "a notch after the SETs drew ${after?.describe()}, not the re-made pan"
+            commit(after, "a notch after the SETs")
+            ms.releasePrograms(); nl.previous = null
+            if (runCatching { ms.programAt(oldProg ?: -1) }.isSuccess) fails += "the old pans are still named after their release"
+            lines += "Depth → Slide: ${p1.bytes.size} B into the free slot at ${p1.off} and ${sets.size} SETs ${sets.sumOf { it.size }} B, against a whole staging's ${ms.bytes} B"
+            // and back: Depth into the first slot is that slot's bytes as staged
+            val p2 = remade(MainStaging.ScrollMotion.DEFAULT)
+            if (p2 != null) {
+                val base = ms.blobs.first { it.name == "programs" }
+                val slot0 = base.bytes.copyOfRange(slots[0] - base.off, slots[0] - base.off + p2.bytes.size)
+                if (p2.slot != 0 || !p2.bytes.contentEquals(slot0)) fails += "Depth re-made into slot ${p2.slot} is not the first slot's bytes as staged"
+                ms.switchTo(p2)
+                val nl2 = ms.boundList(cur.mark, previous = cur)
+                cur = nl2
+                for (s in nl2.sets()) lens.send("a SET of Depth's pans again", s, fails)
+                commit(fireHeld(c0, nl2.entryFor(CfwModes.EV_UPROLL)!!.period), "a notch on Depth again")
+                ms.releasePrograms(); nl2.previous = null
+                lines += "Slide → Depth: ${p2.bytes.size} B into slot 0, the bytes it was staged with"
+            }
+        }
+        return Case(tag, "the pans re-made alone (Depth → Slide → Depth): the free slot only, then SETs; notches before and after each named and committed",
+            Rect(0, 0, 1, 1), emptyList(), lines, fails)
     }
 
     private fun union(rs: List<Rect>): Rect = rs.reduce { a, b -> a.union(b) }

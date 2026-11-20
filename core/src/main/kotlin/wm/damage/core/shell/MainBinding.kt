@@ -64,6 +64,57 @@ internal class MainBinding {
     }
     val patches = ArrayList<Patch>()
 
+    /**
+     * K1-1: a re-make of the pans alone (a change of the scroll rows, or Auto's steps following the period in force) — the
+     * six questions (`FORK.md` §3.8): (a) begun in the idle pump with no burst open and no motion of the list that may
+     * still draw, no row's re-stage unreleased and the base records counted; gone at the staging's drop. (b) [record] is
+     * written into the free pan slot (nothing names it there); the entries are SET only once it is counted (field 17) —
+     * a write that fails or is called short leaves the registry and the re-make is owed again from the start. (c) Keyed
+     * on the staging and the slot. (d) The shell's loop only. (e) One read of the record's state per poll. (f) Its
+     * sibling is the strip switch (AD.2: [Patch.setsLanded]): the old pans stay a staging a report may name ([BoundList.
+     * previous], [MainStaging.programAt]) until the SETs naming the new ones landed with no burst open; their slot is
+     * then the next re-make's (P9).
+     */
+    class Reprogram(val record: StagedRecord, val programs: MainStaging.Programs) {
+        var switched = false
+        var setsFlush: Long? = null
+        var setsLanded = false
+    }
+    var reprogram: Reprogram? = null
+        private set
+    /** Bytes of the pans' re-makes this session and how many (the trial reads them beside [restagedBytes]). */
+    var reprogramBytes = 0L; private set
+    var reprogramCount = 0; private set
+
+    /** The re-make's record was submitted. */
+    fun reprogramBegun(r: Reprogram) { reprogram = r; reprogramBytes += r.record.encoded.size; reprogramCount++ }
+
+    /** The re-make's record left the registry before its switch (a failed write, a short count): it is owed again. */
+    fun reprogramLost() { if (reprogram?.switched == false) reprogram = null }
+
+    /** The re-made pans were counted: they are the pans in force, and the list made now names them — the same mark, the
+     *  items as they are, its [BoundList.previous] the list before, until [reprogramReleaseIfDue]. */
+    fun reprogramSwitch(): BoundList? {
+        val r = reprogram ?: return null
+        val ms = staging ?: return null
+        if (r.switched) return list
+        ms.switchTo(r.programs)
+        r.switched = true
+        list = ms.boundList(mark, previous = list)
+        return list
+    }
+
+    /** The switch's old pans are released once the SETs naming the new ones landed on both lenses and no burst is open (a
+     *  report adopted before may still be COMMITted from them): the record leaves the books (returned, for the registry). */
+    fun reprogramReleaseIfDue(burstOpen: Boolean): StagedRecord? {
+        val r = reprogram ?: return null
+        if (!r.switched || !r.setsLanded || burstOpen) return null
+        staging?.releasePrograms()
+        list?.previous = null
+        reprogram = null
+        return r.record
+    }
+
     private var keys: Array<Any?> = emptyArray()
     /** The row's key changed or its round-robin repaint is due: its pictures are painted again before anything else. */
     private var dirty = BooleanArray(0)
@@ -113,6 +164,7 @@ internal class MainBinding {
         markNext = (markNext % 0xFF) + 1                 // a u8, never 0 twice in a row
         withdrawnFor = null
         patches.clear()
+        reprogram = null
         keys = keysNow.toTypedArray()
         dirty = BooleanArray(ms.rows); owed = BooleanArray(ms.rows)
         owedSinceMs = LongArray(ms.rows)
@@ -127,8 +179,8 @@ internal class MainBinding {
      *  were, for that. */
     fun drop(): List<StagedRecord> {
         harvestRoom()
-        val out = records + patches.map { it.record }
-        staging = null; records = emptyList(); list = null; patches.clear(); withdrawnFor = null
+        val out = records + patches.map { it.record } + listOfNotNull(reprogram?.record)
+        staging = null; records = emptyList(); list = null; patches.clear(); withdrawnFor = null; reprogram = null
         keys = emptyArray()
         dirty = BooleanArray(0); owed = BooleanArray(0); owedSinceMs = LongArray(0)
         paints = 0
@@ -172,7 +224,7 @@ internal class MainBinding {
 
     /** The owed row to write at [nowMs], or null: ONE re-stage per [RESTAGE_PACE_MS] in all, the row owed longest first
      *  (decisions AF.8; `FIRMWARE.md` §6.7 P9 "one row per 5 s"); [dueInMs] says when one is. */
-    fun nextOwed(nowMs: Long): Int? = if (nowMs < lastAnyWriteMs + RESTAGE_PACE_MS || patches.any { p -> !p.released }) null
+    fun nextOwed(nowMs: Long): Int? = if (nowMs < lastAnyWriteMs + RESTAGE_PACE_MS || patches.any { p -> !p.released } || reprogram != null) null
         else owed.indices.filter { owed[it] }.minByOrNull { owedSinceMs[it] }
 
     fun dueInMs(nowMs: Long): Long? = if (owed.indices.none { owed[it] }) null
@@ -215,16 +267,19 @@ internal class MainBinding {
      *  entries (their SETs were in it, or before it). A strip switch waiting for its SETs takes this flush as theirs. */
     fun tailSent(id: Long, entriesHeld: Boolean) {
         if (entriesHeld) for (p in patches) if (p.restage.toStrip != null && !p.setsLanded && p.setsFlush == null) p.setsFlush = id
+        // K1-1: a programs switch's SETs likewise
+        reprogram?.let { r -> if (entriesHeld && r.switched && !r.setsLanded && r.setsFlush == null) r.setsFlush = id }
     }
 
     /** The flush [id] completed: its strip switches' SETs landed ([ok]), or not — a later flush carries them again (the
      *  table sent again after a refusal, a new session's start). */
     fun tailDone(id: Long, ok: Boolean) {
         for (p in patches) if (p.setsFlush == id) { if (ok) p.setsLanded = true; p.setsFlush = null }
+        reprogram?.let { r -> if (r.setsFlush == id) { if (ok) r.setsLanded = true; r.setsFlush = null } }
     }
 
     /** A new session: the flushes in flight are not this session's; the start's own batch SETs the entries again. */
-    fun tailsForgotten() { for (p in patches) p.setsFlush = null }
+    fun tailsForgotten() { for (p in patches) p.setsFlush = null; reprogram?.setsFlush = null }
 
     /** A re-stage's flush was acknowledged: its band switch (if any) is released — the old slot is free again and the
      *  list forgets its [BoundList.previous]. */
@@ -255,5 +310,7 @@ internal class MainBinding {
         const val PAINTS_MAX = 3
         /** A re-stage's record's key index starts here (the base records take 0..n). */
         const val PATCH_KEY = 1_000
+        /** K1-1: a re-make's record's key index, plus its slot (below [PATCH_KEY]: no row re-stage's rules apply to it). */
+        const val PROGS_KEY = 900
     }
 }

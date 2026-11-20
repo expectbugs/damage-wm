@@ -9,6 +9,7 @@ import wm.damage.core.geom.Rect
 import wm.damage.core.gfx.Pack
 import wm.damage.core.gfx.Zl
 import wm.damage.core.motion.TestPrograms
+import wm.damage.core.shell.MainLocalCheck
 import wm.damage.core.sim.GlassFirmwareSim
 import wm.damage.core.sim.MotionSim
 import wm.damage.core.transport.Arm
@@ -30,6 +31,11 @@ import wm.damage.core.wire.Pb
  * does not hold: every message is taken by both lenses; RIGHT's one notify says the last step was drawn with T steps
  * drawn and none folded; after the last step nothing is planned and each lens shows exactly the shadow (END, §5.6).
  *
+ * K1-1: and Main's Scroll effects ([MainLocalCheck.effectStrips]: each effect's notch from the middle row both ways and
+ * the wrap where Main wraps, at the four heights on 256 KiB, fired through the simulator's input hook, the desktop's own
+ * faces) as `DIR/scroll-<effect>-h<height>-<notch>.png` and `.txt` beside `DIR/scroll-staging.txt` — the lead's look before
+ * Adam's; each case's checks (the last step and COMMIT's END against Main's paint) count as the programs' do.
+ *
  * The bounds A.15 sets: `main` hands this the directory before the config is read, so nothing under `~/.damage` is
  * read; no stack, transport, shell or scope is made, so no port is bound and no window opens (the JVM is set headless
  * first); the only files written are the two per program, in DIR.
@@ -44,18 +50,27 @@ object MotionCheck {
 
     /** Plays every test program into [outDir]; returns the exit status (0 all hold, 1 otherwise) after saying why.
      *  [features] is for the tool's own test (a build without the engine must fail every program). */
-    fun run(outDir: Path, features: Int = C1_FEATURES, out: java.io.PrintStream = System.out): Int {
+    fun run(outDir: Path, features: Int = C1_FEATURES, out: java.io.PrintStream = System.out, scroll: Boolean = true): Int {
         Files.createDirectories(outDir)
         val failures = ArrayList<String>()
         for (name in TestPrograms.NAMES) {
             val f = try { one(name, outDir, features, out) } catch (e: Exception) { listOf("$name: ${e.javaClass.simpleName}: ${e.message}") }
             failures += f
         }
-        out.println("motion-check: ${TestPrograms.NAMES.size} program(s) into $outDir")
+        if (scroll) failures += scrollEffects(outDir, out)
+        out.println("motion-check: ${TestPrograms.NAMES.size} program(s)${if (scroll) " and Main's scroll effects" else ""} into $outDir")
         if (failures.isEmpty()) { out.println("motion-check: ALL HOLD"); return 0 }
         out.println("motion-check: ${failures.size} FAILURE(S):")
         for (f in failures) out.println("  - $f")
         return 1
+    }
+
+    /** K1-1: Main's Scroll effects as strips (see the class's text); the failures. */
+    private fun scrollEffects(outDir: Path, out: java.io.PrintStream): List<String> {
+        val r = try { MainLocalCheck.effectStrips(AwtText()) } catch (e: Exception) { return listOf("scroll effects: ${e.javaClass.simpleName}: ${e.message}") }
+        for (c in r.cases) LocalCheck.writeCase(outDir, c, out)
+        Files.writeString(outDir.resolve("scroll-staging.txt"), r.table.joinToString("\n", postfix = "\n"))
+        return r.failures
     }
 
     private class Frame(val label: String, val tick: Long, val l: ByteArray, val r: ByteArray)

@@ -28,7 +28,11 @@ class MotionCheckTest {
             val out = ByteArrayOutputStream()
             assertEquals(0, MotionCheck.run(dir, out = PrintStream(out, true)), out.toString())
             assertTrue("ALL HOLD" in out.toString(), out.toString())
-            assertEquals(expected, files(dir), "one strip and one text per test program, nothing else")
+            assertEquals(expected, files(dir).filter { !it.startsWith("scroll-") }, "one strip and one text per test program, nothing else")
+            // K1-1: each Scroll effect's notches (both ways at four heights, the wrap at the two that wrap) as strips
+            assertEquals(4 * (4 * 2 + 2 * 2), files(dir).count { it.startsWith("scroll-") && it.endsWith(".png") }, "the scroll strips: ${files(dir).filter { it.startsWith("scroll-") }}")
+            for (f in files(dir).filter { it.startsWith("scroll-") && it.endsWith(".txt") && it != "scroll-staging.txt" })
+                assertTrue("checks: all hold" in Files.readString(dir.resolve(f)), "$f:\n${Files.readString(dir.resolve(f))}")
             for (name in TestPrograms.NAMES) {
                 val steps = TestPrograms.build(name, 160 * 1024)!!.program.T
                 val txt = Files.readString(dir.resolve("$name.txt"))
@@ -45,7 +49,7 @@ class MotionCheckTest {
         val dir = Files.createTempDirectory("damage-motion-check-0x7f")
         try {
             val out = ByteArrayOutputStream()
-            assertEquals(1, MotionCheck.run(dir, features = 0x7f, out = PrintStream(out, true)), out.toString())
+            assertEquals(1, MotionCheck.run(dir, features = 0x7f, out = PrintStream(out, true), scroll = false), out.toString())
             for (name in TestPrograms.NAMES) assertTrue(Regex("""(?m)^  - $name: (LEFT|RIGHT) refused the PLAY""").containsMatchIn(out.toString()),
                 "$name's refused PLAY is named:\n$out")
         } finally { dir.toFile().deleteRecursively() }
@@ -68,7 +72,8 @@ class MotionCheckTest {
         }
         try {
             assertEquals(emptyList(), files(home), "nothing under the home directory")
-            assertEquals(expected, files(dir), "the strips in DIR, nothing else")
+            assertEquals(expected, files(dir).filter { !it.startsWith("scroll-") }, "the strips in DIR, nothing else (and the scroll strips)")
+            assertTrue(files(dir).any { it.startsWith("scroll-") }, "the scroll strips in DIR")
         } finally { home.toFile().deleteRecursively(); dir.toFile().deleteRecursively() }
     }
 }
