@@ -5925,6 +5925,8 @@ class Shell(
     internal fun noticeProgramsForTest(): List<String> = noticeProgs.map { "${it.style} ${it.lines} ${it.rec.state}" }
     /** Fix A2's pin, on the loop: the first notice program taken as acked now, then a Base or ([shortfall]) a Shortfall
      *  over the interval that holds that ack, judged as the ledger judges it; the program's state after. */
+    /** Fix B3's pin: the slice yields (as Page staging's first strip would make it) with no write over the timer yet. */
+    internal fun noticeYieldForTest() = post(Msg.Run { noticeYield("test") })
     internal fun noticeVerdictForTest(shortfall: Boolean): String {
         val p = noticeProgs.firstOrNull() ?: return "none"
         p.rec.state = StagedRecord.State.ACKED; p.rec.ackedAt = cacheLedger.acked

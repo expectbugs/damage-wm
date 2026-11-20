@@ -193,9 +193,14 @@ class NoticeEngineTest {
             r.up()
             r.shell.postNotice(Notifications.Notice("SMS · TEST", "t1", "one line of body", "12:00"))
             r.settle("the box"); assertTrue(r.snap("the box").engine)
+            val before = assertNotNull(r.snap("the timer").open, "the timer plays").first
             r.shell.postGesture(EvenHubMsg.EV_CLICK)                 // unfocused: Main's tap opens the 416-high window
             r.settle("the window"); r.calmCache("the window")
             assertEquals("tall", r.shell.currentWindowId())
+            // the restart's PLAY is resolved for the box at 416, whose programs are not laid out yet: none goes (the phone's
+            // steps) — a PLAY of the program laid out for 480 would play the box's old place
+            val after = r.noticeTags().filter { it > before }
+            assertTrue(after.isEmpty(), "a PLAY after the gesture for programs of the old layout: tags ${after.map { "%04x".format(it) }}")
             r.assertShadowIsBelief("after the window's height moved the box")
             r.assertTimerAlive("after the window's height moved the box")
         } finally { r.close() }
@@ -204,7 +209,8 @@ class NoticeEngineTest {
     /** B1: an input that DRAWS (a scroll under the box) — a write closing the timer hands the grace to the phone's steps. */
     @Test
     fun aScrollUnderTheBoxLeavesItsTimerAlive_B1(): Unit = runBlocking {
-        val r = Rig()
+        // four slide frames, as a phone's link gives: the frames after the input's first write into the box
+        val r = Rig(ShellSettings(cachedText = "on", slideFrames = "4"))
         try {
             r.shell.register(Rows("list"))
             r.up()
@@ -267,14 +273,15 @@ class NoticeEngineTest {
     fun theFallbackInsideARestartKeepsTheTwoSeconds_B3(): Unit = runBlocking {
         val r = Rig(byHand = false)
         try {
-            r.shell.register(Doc(9))
+            r.shell.register(Rows("list"))
             r.up()
             r.shell.postNotice(Notifications.Notice("SMS · TEST", "t1", "one line of body", "12:00"))
             r.settle("the box"); assertTrue(r.snap("the box").engine)
-            r.shell.services.runOnShell { r.shell.services.openWindow("doc", null) }   // no input: the slice yields to the page
-            r.settle("the doc"); r.calmCache("the doc")
-            assertTrue(r.sample("yielded") { r.shell.noticeProgramsForTest().isEmpty() }, "the programs left the books")
+            // the slice yields (a paging window came to the front) and an input follows before any write over the timer
+            // has been answered: the engine's flag is still up and its programs are not counted, so the restart falls back
+            // inside the restart (both messages queued back to back, in this order)
             val t0 = System.currentTimeMillis()
+            r.shell.noticeYieldForTest()
             r.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)           // a restart that falls back to the phone's steps
             val t1 = r.firstTime("focus") { r.shell.notifications.focused }
             println("NoticeEngineTest: focus ${t1 - t0} ms after the restart")
@@ -488,6 +495,10 @@ class NoticeEngineTest {
         }
 
         fun strips() = shell.pageStripsForTest()
+
+        /** The notice PLAYs' tags RIGHT reported bodies for (slot 2). */
+        fun noticeTags(): List<Int> = notes.filter { it.first == "motion" }.mapNotNull {
+            Regex("""slot ${PopupPrograms.SLOT} tag 0x([0-9a-f]{4})""").find(it.second)?.groupValues?.get(1)?.toInt(16) }
 
         /** Settled with no cache work on its way or unjudged (the harness rule: one evaluation decides). */
         suspend fun calmCache(what: String) {
