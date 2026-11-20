@@ -118,6 +118,12 @@ interface Transport {
      *  (2026-09-15, the third review: all three arrived as one silent null). */
     val cacheCheckSupported: Boolean get() = false
 
+    /** Build C3, stage X4T (`C3-decisions.md` AT (2)): whether a cache-write message submitted now would go deflated as
+     *  mode 25 (`FIRMWARE.md` §5.9) — the shell reads it at an Encode act to choose the one combined message, and DM-T's
+     *  order (the in lists after the out PLAY) otherwise. False where this transport cannot say (a peer across the seam,
+     *  a path transport with nothing driving): that order is never worse than a raw combined message. */
+    fun nextListDeflates(): Boolean = false
+
     /** Hold or drop the framebuffer lease on demand (2026-09-05, `HANDOFF.md`
      *  §36): the shell drops it while it is asleep — the glasses in the firmware's
      *  Silent Mode (with the lease held nothing paints anyway, and without it the

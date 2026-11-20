@@ -1749,7 +1749,11 @@ abstract class CfwTransportBase(
      *  SWEEPING — lanes drop stale work LOUDLY, never execute it into the next
      *  driver's session (review round 3 D1/D8). */
     private sealed class ImgWork(val epoch: Long) {
-        class Flush(epoch: Long, val id: Long, val request: FlushRequest) : ImgWork(epoch)
+        class Flush(epoch: Long, val id: Long, val request: FlushRequest) : ImgWork(epoch) {
+            /** C3 X4T item 2: this flush holds a cache write the lane may deflate (mode 19 → 25), counted in [listsAhead]
+             *  until it leaves the lane ([listDone]: once, whichever way it leaves). */
+            val list = java.util.concurrent.atomic.AtomicBoolean(request.ops.any { it is DisplayOp.CacheWrite2 })
+        }
         class Raw(epoch: Long, val image: ByteArray, val done: CompletableDeferred<Unit>?) : ImgWork(epoch)
         /** Mode-7 sub-0: clears the firmware's flags, fid ring AND fid
          *  baseline — so the host's tracker and allocator resync with it
@@ -3493,7 +3497,9 @@ abstract class CfwTransportBase(
         // still connected — the cache the carry rule keeps would go with it.)
         check(started) { "the session is ending" }
         val id = flushIds.incrementAndGet()
-        imageQueue.trySend(ImgWork.Flush(sessionEpoch.get(), id, flush))
+        val work = ImgWork.Flush(sessionEpoch.get(), id, flush)
+        if (work.list.get()) listsAhead.incrementAndGet()
+        if (!imageQueue.trySend(work).isSuccess) listDone(work)
         return id
     }
 
@@ -3693,6 +3699,7 @@ abstract class CfwTransportBase(
     }
 
     private fun failImgWork(w: ImgWork, why: String) {
+        listDone(w)
         when (w) {
             is ImgWork.Flush -> {
                 if (!_events.tryEmit(TransportEvent.FlushDone(w.id, false, 0, 0, why)))
@@ -3762,7 +3769,7 @@ abstract class CfwTransportBase(
                 }
                 try {
                     when (work) {
-                        is ImgWork.Flush -> laneFlush(work)
+                        is ImgWork.Flush -> try { laneFlush(work) } finally { listDone(work) }
                         is ImgWork.Raw -> {
                             // R4 item 5: null = a re-sent copy whose wait had already ended — not written
                             val final = writeImage(work.image, work.epoch, unlessDone = work.done)
@@ -4019,6 +4026,27 @@ abstract class CfwTransportBase(
     private var zwriteOff = false
     /** RIGHT's refusal record as the last telemetry record carried it (fields 23–25; null: none on record). */
     private var zwRecord: Triple<Int, Int, Long>? = null
+
+    /** C3 X4T item 2: the flushes holding a cache write that are queued or in the image lane — each may take the one
+     *  compressed slot ([zwriteOrList]) before a write submitted now. */
+    private val listsAhead = java.util.concurrent.atomic.AtomicInteger(0)
+
+    /** C3 X4T item 2: [work] has left the image lane (written, failed, swept or dropped) — counted out of [listsAhead]
+     *  once. */
+    private fun listDone(work: ImgWork) {
+        if (work is ImgWork.Flush && work.list.compareAndSet(true, false)) listsAhead.decrementAndGet()
+    }
+
+    /**
+     * C3 X4T item 2 (`C3-V2T-review.md` 2, decisions AT (2)): a cache-write message submitted now goes deflated only when
+     * ZWRITE is in force, mode 25 is not withdrawn this session, no mode-25 message waits to be judged, and no cache write
+     * queued ahead of it would take that one slot first ([zwriteOrList]; a list past the inflate, or one that does not
+     * shrink, goes raw whatever this says — the shell checks the first).
+     */
+    override fun nextListDeflates(): Boolean {
+        if (_state.value.flagsInForce and DamageMsg.FLAG_ZWRITE == 0) return false
+        synchronized(zwLock) { return !zwriteOff && zwWaiting == null && listsAhead.get() == 0 }
+    }
 
     /** A session start: no mode-25 message waits, mode 25 is allowed again, the record is the reset check's. */
     private fun zwriteSessionStart() = synchronized(zwLock) { zwWaiting = null; zwriteOff = false }

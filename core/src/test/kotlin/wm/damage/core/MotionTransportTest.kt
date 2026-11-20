@@ -1758,6 +1758,39 @@ class MotionTransportTest {
         t.stop()
     }
 
+    /** C3 X4T item 2 (`C3-V2T-review.md` 2, decisions AT (2)): [CfwTransportBase.nextListDeflates] says whether a cache
+     *  write submitted now would go deflated — not while a cache write queued ahead of it would take the one compressed
+     *  slot first (the lane held on a keyframe's first packet, a list queued behind it), nor while that list, deflated,
+     *  waits for the read that judges it; yes again once it is judged. */
+    @Test
+    fun theNextListDeflatesOnlyWithNoListAheadOrWaiting_X4T(): Unit = runBlocking {
+        val glass = GlassFirmwareSim().apply { damageContract = 2; damageFeatures = 0x1ff }
+        val t = StartRig(glass, scope)
+        collect(t)
+        t.devProbe("c1", "1")
+        t.start(full)
+        assertEquals(0x24, t.state.value.flagsInForce, "stage 1: DRAW2 and ZWRITE")
+        assertTrue(t.nextListDeflates(), "nothing queued, nothing waiting: a write now goes deflated")
+        val right = java.util.concurrent.CopyOnWriteArrayList<ByteArray>()
+        glass.imageObserver = { arm, img -> if (arm == Arm.RIGHT && (img[0].toInt() == 19 || img[0].toInt() == 25)) right += img }
+        val gate = java.util.concurrent.CountDownLatch(1)
+        val held = java.util.concurrent.atomic.AtomicBoolean(false)
+        // the image lane held inside the keyframe's first packet (bounded: the gate opens below, or after 10 s)
+        t.onWrite = { _, p -> if (StartRig.sid(p) == EvenHubMsg.SID && held.compareAndSet(false, true)) gate.await(10, java.util.concurrent.TimeUnit.SECONDS); p }
+        t.submit(FlushRequest(listOf(DisplayOp.Keyframe(full)), 0, "FRAME"))
+        waitUntil(10_000, message = { "the lane held on the keyframe" }) { held.get() }
+        val list = CfwModes.cacheUpdate2(listOf(CfwModes.CacheWrite2(1000, ByteArray(2000) { (it / 100).toByte() })), 160 * 1024)
+        t.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(list)), 0, "ATLAS"))
+        assertTrue(!t.nextListDeflates(), "a list queued ahead takes the one compressed slot first")
+        gate.countDown()
+        waitUntil(10_000, message = { "the list reached RIGHT" }) { right.isNotEmpty() }
+        assertEquals(25, right[0][0].toInt(), "the queued list took the slot: mode 25")
+        assertTrue(!t.nextListDeflates(), "it waits for its judge")
+        t.devProbe("telemetry", "read")
+        waitUntil(10_000, message = { "the list judged: $notes" }) { t.nextListDeflates() }
+        t.stop()
+    }
+
     /** DM1 (`P-busy-reason-14`), A-S1: only reason 14 counts — cache writes refused in a row for another reason (5: an
      *  entry outside the session's cache) say nothing of a busy engine. */
     @Test

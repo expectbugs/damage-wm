@@ -184,7 +184,9 @@ object MotionCheck {
      * written as `DIR/transition-TIER-EFFECT[-reversed].png` — every frame from the one before the PLAY to the in half's
      * last step, the left lens above the right, the 640 × 352 area at true 1x — and its `.txt`. Checks, each a failure: the
      * in half lands the arriving frame on both lenses (panel = shadow = the frame), the frame shows nothing of itself
-     * before the in half, RIGHT's two bodies say every step was drawn.
+     * before the in half, RIGHT's two bodies say every step was drawn. C3 X4T item 5 (decisions AT (4)): Encode's strips
+     * are of the shell's NOT-compressed order (its in lists written after the out PLAY, [TransitionRehearsal]'s form); the
+     * shell's usual form puts them in the records' write, which changes no pixel.
      */
     /** The strips' base names, in [PLAYS]' order. */
     internal val TRANSITION_NAMES: List<String> get() = PLAYS.map { (t, e, rev) -> "transition-${t.word.lowercase()}-${e.id}${if (rev) "-reversed" else ""}" }

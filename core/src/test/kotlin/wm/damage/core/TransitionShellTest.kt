@@ -1478,62 +1478,232 @@ class TransitionShellTest {
         } finally { r.close() }
     }
 
+    /** FakeText's glyph at a cell whose box's left edge lies at [x] on one lens, top [y], in [g]: a 6 × 10 block two rows
+     *  down its box, lit, with a 2-px gap of black on each side (C3 X2T item 6). */
+    private fun onGlyph(g: Gray8, x: Int, y: Int): Boolean =
+        (0 until 6).all { i -> (2 until 12).all { j -> g[x + i, y + j] != 0 } } && g[x - 1, y + 6] == 0 && g[x + 6, y + 6] == 0
+
     /**
-     * C3 X2T items 5 and 6 (the review's 4(c) and 6): every Encode cell sits on its glyph on each lens — read against the
-     * text run it came from as the leaving picture shows it on that lens before the act (FakeText's glyph: a 6 × 10 block
-     * two rows down its 8-px box, a 2-px gap after it) — with a notice box up over part of the text at the act. The
-     * window's own Depth (16) differs from the Global one (8) the arriving box takes before its grace ends, so a cell under
-     * the box placed with the box's offset sits 8 px off its glyph on each lens; a wrong sign or plane does too.
+     * C3 X4T item 1 (`C3-V2T-review.md` 1, decisions AT (1)), with C3 X2T items 5 and 6: Encode acts while a notice box is
+     * up over a window's text, its grace running — the window at its own Depth (16), Main and the box at the Global one (8).
+     *  - A Back out of the window: its text under the box is no cell. No out cell's box meets the box's middle (its rect
+     *    less 24 px a side: room for a kept run's offset and the widest glyph's box) on either lens, and at every out step
+     *    the middle on each lens is the leaving picture there under ONE level map (the dim) — a cell's fill or glyph would
+     *    map one level two ways. Precondition: the window's text runs under the box.
+     *  - A Select back into it: its text under the box is cells at the window's own plane — the box is lifted at the act,
+     *    so the in half shows that text. Every in cell sits on its glyph on each lens in the picture LAND shows (FakeText's
+     *    glyph: a 6 × 10 block two rows down its 8-px box, a 2-px gap after it); one placed with the box's offset sits 8
+     *    px off (X2T item 5), a wrong sign 16 (item 6). Precondition: in cells under the box.
      */
     @Test
-    fun everyEncodeCellSitsOnItsGlyphOnEachLensUnderANotice_X2T(): Unit = runBlocking {
+    fun noLeavingCellUnderANoticeBoxAndEveryArrivingCellOnItsGlyph_X4T(): Unit = runBlocking {
         val r = Rig(stage = 5, kib256 = true)
         try {
             val f = wm.damage.core.text.FontSpec(wm.damage.core.text.Face.SYSTEM, 18)
-            // eight lines of words across the box's columns (the box sits in the middle of the content), all inside the
-            // content rect (a run across a plane's edge takes no plane's offset, and the compositor splits it there too); a
-            // soft hyphen (no cached code: the host draws it) ends each line's first run, so the second run — 208..312 —
-            // lies wholly inside the box on the lines it covers: a plane is taken by the region that holds a run's rect
-            r.rows[0].labels = (0 until 8).map { i -> "Ab${'c' + i}d efgh ijk lmno\u00ADpqrs tuvw xyz" to f }
+            // eight lines of words across the box's columns, all inside the content rect; a soft hyphen (no cached code: the
+            // host draws it) ends each line's first run, so the second run lies wholly inside the box on the lines it covers
+            r.rows[0].labels = (0 until 8).map { i -> "Ab${'c' + i}d efgh ijk lmno­pqrs tuvw xyz" to f }
             r.rows[0].plain = true
-            r.up({ s -> s.withTier(Tier.SELECT, effects = listOf("depth")).withTier(Tier.BACK, effects = listOf("encode"))
-                .withAppStyle("w0") { it.copy(depth = 16) } })
-            selectAndSettle(r)
-            val l0 = r.panel(true); val r0 = r.panel(false)
-            // the notice once, so its text is packed before the act (no atlas chunk queued then); dismissed once it takes focus
+            r.up({ s -> only("depth")(s).withAppStyle("w0") { it.copy(depth = 16) } })
+            selectAndSettle(r)                                     // the window once (Depth): its text packed; in it now
+            r.shell.updateSettings(only("encode")); r.settle("Encode checked")
+            // the notice once, so its text is packed too; dismissed once it takes focus; then again, its grace running
             r.shell.postNotice(wm.damage.core.shell.Notifications.Notice("SMS · test", "x1", "a message", "12:00"))
             r.until("the first notice takes focus") { r.onLoop { r.shell.notificationsFocusedForTest() } }
             r.doubleTap(); r.until("the first notice gone") { !r.onLoop { r.shell.notificationsUpForTest() } }
             r.settle("after the first notice")
             r.shell.postNotice(wm.damage.core.shell.Notifications.Notice("SMS · test", "x2", "a message", "12:00"))
-            r.until("the second box up, its grace running") { r.onLoop { r.shell.noticePlaneForTest() } != null && !r.shell.cacheWorkInFlight }
-            val box = r.onLoop { r.shell.noticePlaneForTest() }!!
-            r.shell.transitionHoldInHalfForTest = true
-            r.doubleTap()
-            r.until("the Back's frame phase") { r.onLoop { r.shell.transitionPhaseForTest() } == "FRAME" }
-            assertTrue(r.notes("transition").last { it.startsWith("owed: ") }.startsWith("owed: Back Encode reversed"), "Encode played: ${r.notes("transition")}")
-            val built = assertNotNull(r.onLoop { r.shell.transitionBuiltForTest() })
-            var cells = 0; var under = 0
-            val bad = ArrayList<String>()
-            for (t in built.out.tracks) for (seg in t.segments) {
-                val list = seg.cells?.lists?.get(seg.aux0) ?: continue
-                for (c in list.cells) {
-                    cells++
-                    if (box.contains(wm.damage.core.geom.Rect(c.bx, c.by, c.bw, c.bh))) under++
-                    for ((g, dx, lens) in listOf(Triple(l0, seg.xL, "LEFT"), Triple(r0, if (t.perLens) seg.xR else seg.xL, "RIGHT"))) {
-                        val x = c.bx + dx
-                        val lit = (0 until 6).all { i -> (2 until 12).all { j -> g[x + i, c.by + j] != 0 } }
-                        val gaps = g[x - 1, c.by + 6] == 0 && g[x + 6, c.by + 6] == 0
-                        if (!lit || !gaps) bad += "'${Char(c.old)}' at ${c.bx},${c.by} on $lens at x $x (offset $dx)"
-                    }
+            // every present on each lens: the box's middle at each out step (the in half not started), the panel at LAND
+            val atStep = java.util.concurrent.ConcurrentHashMap<Pair<Arm, Int>, IntArray>()
+            val landed = java.util.concurrent.ConcurrentHashMap<Arm, Gray8>()
+            val mid = java.util.concurrent.atomic.AtomicReference(wm.damage.core.geom.Rect(0, 0, 1, 1))
+            fun levels(arm: Arm, rect: wm.damage.core.geom.Rect): IntArray {
+                val ctx = if (arm == Arm.LEFT) r.sim.left else r.sim.right
+                return IntArray(rect.w * rect.h) { k -> val x = rect.x + k % rect.w; val y = rect.y + k / rect.w
+                    val b = ctx.panel[y * ctx.stride + (x shr 1)].toInt() and 0xFF; if (x and 1 == 0) b shr 4 else b and 0x0F }
+            }
+            val listener = object : GlassFirmwareSim.SimDiag {
+                override fun event(kind: String, detail: String) {}
+                override fun notify(arm: Arm, packet: ByteArray) {}
+                override fun panelChanged(arm: Arm) {
+                    val m = r.sim.motionForTest(arm)
+                    val out = m.slots[2]?.takeIf { it.tag and 0xF000 == 0xC000 }
+                    val inn = m.slots[3]?.takeIf { it.tag and 0xF000 == 0xD000 }
+                    if (out != null && (inn == null || inn.d == 0) && out.d >= 1) atStep[arm to out.d] = levels(arm, mid.get())
+                    if (inn != null && inn.d == inn.T && !landed.containsKey(arm)) landed[arm] = r.panel(arm == Arm.LEFT)
                 }
             }
-            assertTrue(cells > 0 && under > 0, "cells $cells, under the box ($box) $under")
-            assertTrue(bad.isEmpty(), "${bad.size} of ${2 * cells} cell placements off their glyph: ${bad.take(8)}")
-            r.shell.transitionHoldInHalfForTest = false
-            r.shell.postIdleTick()
-            runEnds(r, "the Back ends")
-            r.until("the box back after the run") { r.onLoop { r.shell.notificationsUpForTest() } }
+            r.sim.attachListener(listener)
+            class Act(val built: Transitions.Built, val box: wm.damage.core.geom.Rect, val runs: List<wm.damage.core.comp.TextDraw>, val before: Map<Arm, Gray8>)
+            /** One act ([act]: a double tap or a tap) with the box up, unfocused and still: the screen's text runs and each
+             *  lens's picture just before it, the run's records read at its frame phase. */
+            suspend fun withTheBoxUp(what: String, act: () -> Unit): Act {
+                r.until("$what: the box up, still, its grace running") { r.onLoop { r.shell.noticePlaneForTest() != null && !r.shell.notificationsFocusedForTest() &&
+                    !r.shell.notifications.animating } && !r.shell.cacheWorkInFlight }
+                r.settle("$what: the box painted")
+                val box = r.onLoop { r.shell.noticePlaneForTest() }!!
+                assertTrue(!r.onLoop { r.shell.notificationsFocusedForTest() }, "$what: the box still unfocused")
+                val runs = r.onLoop { r.shell.screenCellsForTest() }.first
+                val before = mapOf(Arm.LEFT to r.panel(true), Arm.RIGHT to r.panel(false))
+                mid.set(wm.damage.core.geom.Rect(box.x + 24, box.y, box.w - 48, box.h))
+                atStep.clear(); landed.clear()
+                r.shell.transitionHoldInHalfForTest = true
+                act()
+                r.until("$what: the frame phase") { r.onLoop { r.shell.transitionPhaseForTest() } == "FRAME" }
+                val built = assertNotNull(r.onLoop { r.shell.transitionBuiltForTest() })
+                r.until("$what: the out half drew its last step on both lenses") { Arm.entries.all { atStep.containsKey(it to built.timing.steps) } }
+                r.shell.transitionHoldInHalfForTest = false
+                r.shell.postIdleTick()
+                runEnds(r, "$what ends")
+                r.until("$what: LAND seen on both lenses") { landed.size == 2 }
+                return Act(built, box, runs, before)
+            }
+            // the Back: the window's text under the box is no cell of its out half
+            val a1 = withTheBoxUp("the Back") { r.doubleTap() }
+            val back = a1.built; val box1 = a1.box; val runs = a1.runs
+            assertTrue(r.notes("transition").last { it.startsWith("owed: ") }.startsWith("owed: Back Encode reversed"), "Encode played: ${r.notes("transition")}")
+            val mid1 = wm.damage.core.geom.Rect(box1.x + 24, box1.y, box1.w - 48, box1.h)
+            assertTrue(runs.any { it.rect.overlaps(mid1) }, "precondition: the window's text runs under the box ($box1)")
+            var outCells = 0
+            val inBox = ArrayList<String>()
+            for (t in back.out.tracks) for (seg in t.segments) {
+                val list = seg.cells?.lists?.get(seg.aux0) ?: continue
+                for (c in list.cells) {
+                    outCells++
+                    for ((dx, lens) in listOf(seg.xL to "LEFT", (if (t.perLens) seg.xR else seg.xL) to "RIGHT"))
+                        if (wm.damage.core.geom.Rect(c.bx + dx, c.by, c.bw, c.bh).overlaps(mid1)) inBox += "'${Char(c.old)}' at ${c.bx},${c.by} on $lens"
+                }
+            }
+            assertTrue(outCells > 0, "the out half has cells (the window's text beside the box)")
+            assertTrue(inBox.isEmpty(), "${inBox.size} out cells under the box ($box1): ${inBox.take(8)}")
+            val twoWays = ArrayList<String>()
+            for (arm in Arm.entries) {
+                val g0 = a1.before.getValue(arm)
+                val before = IntArray(mid1.w * mid1.h) { k -> g0[mid1.x + k % mid1.w, mid1.y + k / mid1.w] / 17 }
+                for (d in 1..back.timing.steps) {
+                    val now = atStep[arm to d] ?: continue
+                    val map = HashMap<Int, Int>()
+                    for (k in now.indices) { val was = map.putIfAbsent(before[k], now[k]); if (was != null && was != now[k]) { twoWays += "$arm out step $d: level ${before[k]} shows as $was and ${now[k]}"; break } }
+                }
+            }
+            assertTrue(Arm.entries.all { atStep.containsKey(it to 1) }, "out step 1 seen on both lenses: ${atStep.keys}")
+            assertTrue(twoWays.isEmpty(), "the box's middle is not the dimmed picture: $twoWays")
+            // the Select: the window's text under the box is cells at the window's own plane, each on its glyph at LAND
+            r.until("the box back after the Back") { r.onLoop { r.shell.notificationsUpForTest() } }
+            val a2 = withTheBoxUp("the Select") { r.tap() }
+            val sel = a2.built; val box2 = a2.box
+            assertTrue(r.notes("transition").last { it.startsWith("owed: ") }.startsWith("owed: Select Encode"), "Encode played: ${r.notes("transition")}")
+            var inCells = 0; var under = 0
+            val bad = ArrayList<String>()
+            for (t in sel.inn.tracks) for (seg in t.segments) {
+                val list = seg.cells?.lists?.get(seg.aux0) ?: continue
+                for (c in list.cells) {
+                    inCells++
+                    if (box2.contains(wm.damage.core.geom.Rect(c.bx, c.by, c.bw, c.bh))) under++
+                    for ((arm, dx) in listOf(Arm.LEFT to seg.xL, Arm.RIGHT to (if (t.perLens) seg.xR else seg.xL)))
+                        if (!onGlyph(landed.getValue(arm), c.bx + dx, c.by)) bad += "cell at ${c.bx},${c.by} on $arm at x ${c.bx + dx} (offset $dx)"
+                }
+            }
+            r.sim.detachListener(listener)
+            assertTrue(inCells > 0 && under > 0, "in cells $inCells, under the box ($box2) $under")
+            assertTrue(bad.isEmpty(), "${bad.size} of ${2 * inCells} in-cell placements off their glyph: ${bad.take(8)}")
+            r.until("the box back after the Select") { r.onLoop { r.shell.notificationsUpForTest() } }
+        } finally { r.close() }
+    }
+
+    /**
+     * C3 X4T item 2 (`C3-V2T-review.md` 2, decisions AT (2)): a second Encode act right after a first, into a dense page at
+     * 480 (14 lines of 60 letters: two cell lists). The first — a Back out of the page — writes its records and lists
+     * deflated (mode 25), and that message waits for the read that judges it, so a cache write submitted now goes raw (the
+     * transport says so: the precondition, read just before the second act). The second — a Select back into the page
+     * during the first's in half — then sends the small form first: its records and the out lists, then its out PLAY, then
+     * the in lists in a write of their own right above the out lists, before its PLAY-AFTER (DM-T's order) — never all
+     * three raw in front of the first image.
+     */
+    @Test
+    fun aQuickSecondEncodeActSendsItsInListsAfterItsOutPlay_X4T(): Unit = runBlocking {
+        val r = Rig(stage = 5, kib256 = true)
+        try {
+            val f = wm.damage.core.text.FontSpec(wm.damage.core.text.Face.SYSTEM, 18)
+            val prose = "the quick brown fox jumps over the lazy dog while five wizards box and jump quickly at dawn "
+            r.rows[0].labels = (0 until 14).map { i -> (prose + prose).substring(i * 3 % 40, i * 3 % 40 + 60) to f }
+            r.upAt(480, only("depth"))
+            selectAndSettle(r)                                                  // the page once: its letters packed
+            r.doubleTap(); r.until("back on Main") { r.onLoop { r.shell.currentWindowId() } == null }; runEnds(r, "the Back ends"); r.settle("on Main")
+            selectAndSettle(r)                                                  // into the page again (Depth)
+            r.shell.updateSettings(only("encode")); r.settle("Encode checked")
+            // from the first act until the second is made, the read that would judge the first act's mode-25 write gets no
+            // answer (the transport asks again 2 s on): the window a phone's round trip gives on the glasses' link
+            val dropReads = java.util.concurrent.atomic.AtomicBoolean(false)
+            (r.t as StartRig).onNotify = { _, p -> if (dropReads.get() && StartRig.telemetry(p) != null) null else p }
+            val region0 = r.t.state.value.transitionRegion!!
+            r.recording = true
+            dropReads.set(true)
+            r.doubleTap()                                                       // the first act: Back, Encode
+            r.until("the first act's in half drawing on RIGHT") { r.onLoop { r.shell.transitionPhaseForTest() } == "IN" &&
+                synchronized(r.sim) { r.sim.motionForTest(Arm.RIGHT).slots[3]?.let { it.drawing && it.d >= 1 && it.d < it.T } } == true }
+            assertTrue(r.notes("transition").last { it.startsWith("owed: ") }.startsWith("owed: Back Encode reversed"), "${r.notes("transition")}")
+            val first = right(r).first { img -> cacheWrites(img).any { it.first in region0 } }
+            assertEquals(CfwModes.ZWRITE_MODE, first[0].toInt() and 0x7F, "precondition: the first act's records' write went deflated (mode 25)")
+            assertTrue(!r.t.nextListDeflates(), "precondition: the first act's mode-25 write still waits for its judgment, so a write now goes raw")
+            r.images.clear()
+            val owed0 = r.notes("transition").count { it.startsWith("owed: ") }
+            r.tap()                                                             // the second act: Select, Encode
+            r.until("w0 opens") { r.onLoop { r.shell.currentWindowId() } == "w0" }
+            r.until("the second act owed") { r.notes("transition").count { it.startsWith("owed: ") } == owed0 + 1 }
+            dropReads.set(false)
+            runEnds(r, "the second act ends")
+            r.until("the CLOSE of slot 2 reaches RIGHT") { right(r).any { img -> subs(img).any { closeOf(it, 2) } } }
+            r.settle("after"); r.recording = false
+            val notes = r.notes("transition")
+            assertTrue(notes.last { it.startsWith("owed: ") }.startsWith("owed: Select Encode") && notes.any { it.startsWith("a new act replaces Back's (IN)") }, "$notes")
+            val st = r.t.state.value
+            val region = st.transitionRegion!!
+            val reserve = (st.cacheSize - CfwModes.stageReserve(st.cacheSize, st.bind)) until st.cacheSize
+            val imgs = right(r)
+            val write = imgs.indexOfFirst { img -> cacheWrites(img).any { it.first in region } }
+            val out = imgs.indexOfFirst { img -> subs(img).any { playIn(it, 2) } }
+            val lists = imgs.indexOfFirst { img -> cacheWrites(img).let { w -> w.isNotEmpty() && w.all { it.first in reserve } } }
+            val pa = imgs.indexOfFirst { img -> subs(img).any { playAfter(it) } }
+            val w = cacheWrites(imgs[write])
+            val said = "the second act's records' write #$write ${imgs[write].size} B (mode ${imgs[write][0].toInt() and 0x7F}, entries ${w.map { it.second }})" +
+                (if (lists >= 0) ", its in lists' write #$lists ${imgs[lists].size} B (mode ${imgs[lists][0].toInt() and 0x7F})" else "") + "; out PLAY #$out, PLAY-AFTER #$pa"
+            println("X4T item 2: $said\n  " + describeImages(imgs, region, reserve).joinToString("\n  "))
+            assertTrue(w.size == 2 && w[0].first in region && w[1].first in reserve, "the first write is the records and the out lists only: $said")
+            assertTrue(write in 0 until out && out < lists && lists < pa, "records, out PLAY, in lists, PLAY-AFTER in that order: $said")
+            assertTrue(cacheWrites(imgs[lists]).single().first == w[1].first + w[1].second, "the in lists right above the out lists: $said")
+            assertTrue(inHalfWhole(r), "$notes")
+            r.assertOracle("after the second act")
+        } finally { r.close() }
+    }
+
+    /**
+     * C3 X4T item 4 (`C3-V2T-review.md` 5, decisions AT (5)): a harness never finds the shell idle while the glyph hold's
+     * extra period stands (one in-half period after RIGHT's in-half body of an Encode or Matrix run, a held cache write
+     * waiting for its pump). Sampled on the loop from the act until the hold has gone, no idle sample sees the hold.
+     * Precondition: the hold was seen with the run ended (its extra period).
+     */
+    @Test
+    fun theShellIsNotIdleWhileTheGlyphHoldStands_X4T(): Unit = runBlocking {
+        val r = Rig(stage = 5, kib256 = true)
+        try {
+            r.rows[0].labels = listOf("Window zero" to wm.damage.core.text.FontSpec(wm.damage.core.text.Face.SYSTEM, 18))
+            r.up(only("encode"))
+            r.tap()
+            var idleHeld = 0; var extra = 0; var idle = 0
+            val t0 = System.currentTimeMillis()
+            while (true) {
+                when (r.shell.sampleIdle { r.shell.cacheWritesHeldForTest() }) { true -> idleHeld++; false -> idle++; null -> {} }
+                val (phase, held) = r.onLoop { r.shell.transitionPhaseForTest() to r.shell.cacheWritesHeldForTest() }
+                val body = r.notes("transition").any { it.startsWith("in half's last step drawn on RIGHT") }
+                if (phase == null && held && body) extra++
+                if (phase == null && !held && body) break
+                assertTrue(System.currentTimeMillis() - t0 < 30_000, "the run and its hold never ended: ${r.notes("transition").takeLast(4)}")
+                delay(1)
+            }
+            assertTrue(r.notes("transition").any { it.startsWith("owed: Select Encode") }, "Encode played: ${r.notes("transition")}")
+            assertTrue(extra > 0, "precondition: the hold's extra period was seen after the run had ended")
+            assertEquals(0, idleHeld, "idle samples taken while the hold stood ($extra looks inside the extra period, $idle idle samples without the hold)")
         } finally { r.close() }
     }
 

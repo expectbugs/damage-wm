@@ -209,6 +209,8 @@ class PathTransport(
         active?.transport?.setLinkPriority(name)
     }
 
+    override fun nextListDeflates(): Boolean = active?.transport?.nextListDeflates() ?: false
+
     override fun devProbe(name: String, value: String) {
         active?.transport?.devProbe(name, value)
             ?: wm.damage.core.util.Log.w("path", "probe $name=$value: no path is driving")

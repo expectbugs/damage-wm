@@ -59,13 +59,18 @@ internal object ShipVectors {
 
     enum class Form { WHOLE, CUT, WRITE }
 
+    /** C3 X3T, X4T: the window's labelled rows for a glyph effect ([labelsOf]) — a typical window, a page dense enough for
+     *  two cell lists, or (APART) one too dense for the records and both halves' lists in one compressed message, so the
+     *  in lists go in a second write under the out half (the shell's not-compressed order). */
+    enum class Page { TYPICAL, DENSE, APART }
+
     /** One act: [tier]'s [effect] at layout height [height], Global Depth [depth]; [form] WHOLE (the act alone), CUT (a
      *  second Select inside the in half) or WRITE (his scroll's frame written under the in half). C3 X3T: Encode and
      *  Matrix ([Transitions.Effect.glyphs]) play on the rig's 256 KiB session with BIND ([kib256]: the session stage 5
-     *  has on his glasses, the only one Encode plays on), over the window's labelled rows ([labelsOf]; [dense]: a page
-     *  dense enough for two cell lists), every screen's text packed into the atlas before the act. */
+     *  has on his glasses, the only one Encode plays on), over the window's labelled rows ([labelsOf], [page]), every
+     *  screen's text packed into the atlas before the act. */
     data class Spec(val name: String, val tier: Transitions.Tier, val effect: Transitions.Effect, val reversed: Boolean,
-                    val height: Int, val depth: Int = 8, val form: Form = Form.WHOLE, val dense: Boolean = false) {
+                    val height: Int, val depth: Int = 8, val form: Form = Form.WHOLE, val page: Page = Page.TYPICAL) {
         val kib256: Boolean get() = effect.glyphs
     }
 
@@ -79,7 +84,9 @@ internal object ShipVectors {
      *  second Select inside its in half; one with a write under its in half. X3D's 46 first, in X3D's order; then C3 X3T's
      *  Encode and Matrix — every tier that offers them at 352 and 480, at Global Depth 12 too where the program differs
      *  ([GLYPHS_OFF4]), Encode at 480 into and out of a page dense enough for two cell lists, and one Encode act with a
-     *  write under its in half. */
+     *  write under its in half; then C3 X4T's: one Encode Select into a page too dense for one compressed message (the in
+     *  lists apart, under the out half), and one Encode and one Matrix Select cut by a second Select inside their in half
+     *  (as `cut-select-warp-352`). */
     fun specs(): List<Spec> {
         val out = ArrayList<Spec>()
         fun n(tier: String, e: Transitions.Effect, rev: Boolean, h: Int, extra: String = "") =
@@ -104,23 +111,34 @@ internal object ShipVectors {
                 for (e in of(Transitions.Tier.LOCK, true).filter { want(it) }) for (rev in listOf(false, true)) out += Spec(n("lock", e, rev, h, extra), Transitions.Tier.LOCK, e, rev, h, depth)
             }
             if (h == 480) {
-                out += Spec(n("select", Transitions.Effect.ENCODE, false, h, "-dense"), Transitions.Tier.SELECT, Transitions.Effect.ENCODE, false, h, dense = true)
-                out += Spec(n("back", Transitions.Effect.ENCODE, true, h, "-dense"), Transitions.Tier.BACK, Transitions.Effect.ENCODE, true, h, dense = true)
+                out += Spec(n("select", Transitions.Effect.ENCODE, false, h, "-dense"), Transitions.Tier.SELECT, Transitions.Effect.ENCODE, false, h, page = Page.DENSE)
+                out += Spec(n("back", Transitions.Effect.ENCODE, true, h, "-dense"), Transitions.Tier.BACK, Transitions.Effect.ENCODE, true, h, page = Page.DENSE)
             }
         }
         out += Spec("${PREFIX}write-select-encode-352", Transitions.Tier.SELECT, Transitions.Effect.ENCODE, false, 352, form = Form.WRITE)
+        // C3 X4T (the coordinator's additions to item 6)
+        out += Spec(n("select", Transitions.Effect.ENCODE, false, 480, "-apart"), Transitions.Tier.SELECT, Transitions.Effect.ENCODE, false, 480, page = Page.APART)
+        for (e in listOf(Transitions.Effect.ENCODE, Transitions.Effect.MATRIX))
+            out += Spec("${PREFIX}cut-select-${e.id}-352", Transitions.Tier.SELECT, e, false, 352, form = Form.CUT)
         return out
     }
 
     /** C3 X3T: the window's labelled rows (its text through the shell's cached text: Encode's cells) — a typical window
      *  (X2T's "typical at 352": one line), or a page dense enough for two cell lists at 480 (X2T's "dense at 480": 14
-     *  lines of 60 letters at the rows' 26-px pitch). */
+     *  lines of 60 letters at the rows' 26-px pitch); C3 X4T: a page too dense for one compressed message (X2T's "too dense
+     *  at 480": 23 lines of 70 letters at a 16-px pitch, [gapOf]). */
     private fun labelsOf(spec: Spec): List<Pair<String, wm.damage.core.text.FontSpec>> {
         val f = wm.damage.core.text.FontSpec(wm.damage.core.text.Face.SYSTEM, 18)
-        if (!spec.dense) return listOf("Window zero" to f)
         val prose = "the quick brown fox jumps over the lazy dog while five wizards box and jump quickly at dawn "
-        return (0 until 14).map { i -> (prose + prose).substring(i * 3 % 40, i * 3 % 40 + 60) to f }
+        return when (spec.page) {
+            Page.TYPICAL -> listOf("Window zero" to f)
+            Page.DENSE -> (0 until 14).map { i -> (prose + prose).substring(i * 3 % 40, i * 3 % 40 + 60) to f }
+            Page.APART -> (0 until 23).map { i -> (prose + prose).substring(i * 3 % 40, i * 3 % 40 + 70) to f }
+        }
     }
+
+    /** The labelled rows' line pitch for [spec]'s page. */
+    private fun gapOf(spec: Spec): Int = if (spec.page == Page.APART) 16 else 26
 
     // ------------------------------------------------------------------------------------------------- capture
     private class Event(val arm: Arm?, val msg: ByteArray?, val input: LongArray?, val progress: Int, val act: Boolean)
@@ -145,7 +163,7 @@ internal object ShipVectors {
     suspend fun capture(spec: Spec): Captured {
         val r = TransitionShellTest.Rig(stage = 5, kib256 = spec.kib256)
         val glyphs = spec.effect.glyphs
-        if (glyphs) r.rows[0].labels = labelsOf(spec)
+        if (glyphs) { r.rows[0].labels = labelsOf(spec); r.rows[0].gap = gapOf(spec) }
         try {
             val events = java.util.Collections.synchronizedList(ArrayList<Event>())
             val act = java.util.concurrent.atomic.AtomicBoolean(false)

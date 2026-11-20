@@ -1974,8 +1974,13 @@ class Shell(
 
     private fun backFocused() {
         // build C3 (DP2): leaving a window or a level is a Back (Select reversed in time); entering the shell's silent
-        // clock and leaving it are the Lock tier, leaving it reversed
-        val before = screenKey(if (mode == Mode.WINDOW) wm.damage.core.motion.Transitions.Tier.BACK else wm.damage.core.motion.Transitions.Tier.LOCK)
+        // clock and leaving it are the Lock tier, leaving it reversed. C3 X4T item 3 (`C3-V2T-review.md` 3, decisions
+        // AT (3)): no tier in Exclusive mode — no act follows there, so nothing is picked or recorded
+        val before = screenKey(when (mode) {
+            Mode.WINDOW -> wm.damage.core.motion.Transitions.Tier.BACK
+            Mode.MAIN, Mode.SILENT -> wm.damage.core.motion.Transitions.Tier.LOCK
+            Mode.EXCLUSIVE -> null
+        })
         backFocusedInner()
         when (before.mode) {
             Mode.WINDOW -> transitionAct(before, wm.damage.core.motion.Transitions.Tier.BACK, reversed = true)
@@ -2819,6 +2824,7 @@ class Shell(
         localOnlyFlushes.clear(); localTailFlushes.clear(); mainBind.tailsForgotten()
         transitionEnd("a session start"); transitionCloses = emptyList(); transitionWrites.clear()      // build C3 (DP2): the start's keyframe ends every instance
         glyphHoldUntilMs = 0L                                       // X2T item 1: so nothing is left to land on either lens
+        glyphHoldPumpOwed = false
         stepWindow.clear(); periodSamplesSinceChange = 0          // decisions BF: the measured window is the session's
         localNoteSaid = null
         localSettleAt = Long.MAX_VALUE
@@ -7491,6 +7497,8 @@ class Shell(
     }
 
     private suspend fun pump() {
+        // C3 X4T item 4: the first pump after a glyph hold's period is the one that lets its writes go
+        if (glyphHoldPumpOwed && System.currentTimeMillis() >= glyphHoldUntilMs) glyphHoldPumpOwed = false
         val yieldReserve = reserveYield                 // P5 item 5: decided by this message's idle tick only
         reserveYield = false
         // ONE read (2026-09-16 review — the §62.3 item 9 / §63.3 item 8 class, in the hottest
@@ -7847,7 +7855,10 @@ class Shell(
      * C3 X2T item 4 (the review's 5, decisions AQ (4)): the act's pick, made before anything is painted — a random pick
      * among the tier's checked effects (`MOTION.md` §7). An Encode this session cannot play ([encodeUnplayable]) leaves the
      * pick with its reason and the pick is made again; when the pick is Encode the leaving screen is recorded, and only
-     * then. Nothing at all below stage 5.
+     * then. Nothing at all below stage 5. C3 X4T item 1 (`C3-V2T-review.md` 1, decisions AT (1)): a text run the notice box
+     * covers is not one of the leaving screen's cells — the box is on the panel the out half dims, and a cell would draw
+     * the hidden text over it for the out half; the box goes dark with the rest of the picture. (The arriving screen keeps
+     * its runs under the box: the box is lifted at the act, so the in half shows that text.)
      */
     private fun transitionPick(tier: wm.damage.core.motion.Transitions.Tier, k: ScreenKey) {
         val st = transport.state.value
@@ -7858,7 +7869,9 @@ class Shell(
             if (e == wm.damage.core.motion.Transitions.Effect.ENCODE) {
                 val why = encodeUnplayable(st)
                 if (why != null) { pool.remove(e); k.leftOut += e to why; continue }
-                k.cells = screenCells(screenRuns(), Rect(0, 0, comp.width, layout.safe.bottom))
+                // the box's own rect, not its plane: with Global and the window's Depth both 0 there is no plane map
+                val box = notifications.current?.let { notifications.fullRect(it, layout, silent = mode == Mode.SILENT) }
+                k.cells = screenCells(screenRuns().filter { box == null || !it.rect.overlaps(box) }, Rect(0, 0, comp.width, layout.safe.bottom))
             }
             k.pick = e
             return
@@ -8005,13 +8018,16 @@ class Shell(
                 IntArray(4), listOf(wm.damage.core.motion.Motion.Drawing(b.out.cost())), 0)
         } catch (e: wm.damage.core.geom.LintError) { throw wm.damage.core.geom.LintError("the in half's PLAY-AFTER: ${e.message}") }
         // Encode: the out half's lists ride the records' write (one message). X2T item 2 (the review's 2, decisions AQ (2)):
-        // the in half's ride it too when the three fit one compressed message (ZWRITE in force, the list within mode 25's
-        // inflate) — the transport deflates one waiting message at a time, so a second write right behind it went raw;
-        // past that they go after the out PLAY, above the out lists, as before. No new wait either way.
+        // the in half's ride it too when the three fit one compressed message (the list within mode 25's inflate) — the
+        // transport deflates one waiting message at a time, so a second write right behind it went raw; past that they go
+        // after the out PLAY, above the out lists, as before. No new wait either way. C3 X4T item 2 (`C3-V2T-review.md` 2,
+        // decisions AT (2)): and only when the transport says a write submitted now would go deflated — ZWRITE in force,
+        // nothing waiting to be judged, no cache write queued ahead of it ([Transport.nextListDeflates]); a quick second
+        // act sent the three raw before its out PLAY
         val outAndRecords = listOfNotNull(CfwModes.CacheWrite2(at4, b.blob), b.outLists?.let { CfwModes.CacheWrite2(it.at4, it.bytes) })
         val inWrite = b.inLists?.let { CfwModes.CacheWrite2(it.at4, it.bytes) }
         val together = inWrite?.let { CfwModes.cacheUpdate2(outAndRecords + it, st.cacheSize) }
-            ?.takeIf { it.size - 1 <= CfwModes.ZWRITE_MAX && st.flagsInForce and wm.damage.core.wire.DamageMsg.FLAG_ZWRITE != 0 }
+            ?.takeIf { it.size - 1 <= CfwModes.ZWRITE_MAX && transport.nextListDeflates() }
         return TransitionRun(tier, b, together ?: CfwModes.cacheUpdate2(outAndRecords, st.cacheSize), out, inn, tagOut, tagIn, System.currentTimeMillis(),
             listWrite = if (together != null) null else inWrite?.let { CfwModes.cacheUpdate2(listOf(it), st.cacheSize) })
     }
@@ -8042,6 +8058,9 @@ class Shell(
     /** X2T item 1: the end of the hold's one period after a glyph run's in-half body (0: none); set by [transitionEnd] at
      *  that body, cleared at a session start (its keyframe ends every instance on both lenses). */
     private var glyphHoldUntilMs = 0L
+    /** C3 X4T item 4: a glyph hold's period was set and no pump has run since it ended — the held writes have not been
+     *  let go yet (harnesses only: [idleApartFromMessages]). */
+    private var glyphHoldPumpOwed = false
     /** Tests only (on the loop): the hold as the five writers read it; the run in hand's programs and lists; page staging's
      *  records. */
     internal fun cacheWritesHeldForTest(): Boolean = cacheWritesHeld()
@@ -8125,7 +8144,7 @@ class Shell(
                 win = current?.id ?: "", mode = mode.name))
             if (pumpPriority) inputFlushPending = false
         }
-        journal.note("transition", "out half sent: the records' write as flush ${tr.writeId} (${tr.write.size} B), then the out PLAY as flush ${tr.outId} " +
+        journal.note("transition", "out half sent: the records' write as flush ${tr.writeId} (${tr.write.size} B raw; its size on the wire is noted at its ack), then the out PLAY as flush ${tr.outId} " +
             "(${clears.size} CLEAR(s), the PLAY, ${tail.size - clears.size} answer(s)) — the act's first visible image — ${now - tr.actAtMs} ms after the act" +
             if (cut) "; the cells held behind an adopted motion go with the frame" else "")
     }
@@ -8156,8 +8175,12 @@ class Shell(
         val tr = transition ?: return
         val inFrame = tr.phase == TransitionRun.Phase.FRAME || tr.phase == TransitionRun.Phase.IN
         when (ev.id) {
+            // C3 X4T item 5 (`C3-V2T-review.md` 6): the wire's size beside the raw list's — the transport deflates it as mode
+            // 25 when it can, so the submit's note (the raw size) is not what the link carried
             tr.writeId -> if (!ev.ok) transitionEnd("its records' write failed (${ev.error})", close = true)
+                else journal.note("transition", "the records' write (flush ${ev.id}) took ${ev.bytes} B on the wire (${tr.write.size} B raw)")
             tr.listId -> if (!ev.ok) transitionEnd("its in half's lists' write failed (${ev.error})", close = true)
+                else journal.note("transition", "the in half's lists' write (flush ${ev.id}) took ${ev.bytes} B on the wire (${tr.listWrite?.size} B raw)")
             // the deadline is armed at whichever of the two acks comes second (the review's finding 4: from the out PLAY's
             // ack, not its submit, so a busy link cannot make it fall inside the in half)
             tr.outId -> if (!ev.ok) transitionEnd("its out half's flush failed (${ev.error})", close = true)
@@ -8217,6 +8240,7 @@ class Shell(
         if (why == null && tr.holdsCache) {
             val p = Math.ceil(tr.built.timing.period * 1000.0 / 1024).toLong()
             glyphHoldUntilMs = maxOf(glyphHoldUntilMs, System.currentTimeMillis() + p)
+            glyphHoldPumpOwed = true
             pumpAfter(p)
         }
         val owners = tr.phase == TransitionRun.Phase.FRAME || tr.phase == TransitionRun.Phase.IN
@@ -8281,8 +8305,12 @@ class Shell(
         val ct = cachedText; val a = atlas
         if (ct == null || a == null) return wm.damage.core.motion.CellLists.Screen.NoFit("cached text is off")
         val live = ct.live
+        // C3 X4T item 1's class (the arriving screen): by value, not by identity — the compositor keeps its old list when
+        // a plane map comes in equal (`Compositor.planes`), so after a second [updatePlanes] with nothing changed the
+        // region in the map was not [noticePlane]'s object, the box's plane stayed and the arriving text under the box
+        // took the box's offset (8 px off its glyph on each lens, found by the X4T row)
         val box = noticePlane
-        val planes = comp.planes.filter { it !== box }
+        val planes = comp.planes.filter { it != box }
         return wm.damage.core.motion.CellLists.screen(runs, { s -> if (s in live && a.isAcked(s)) a.entry(s) else null }, { s -> ct.kernOf(s) },
             { r -> planes.lastOrNull { it.rect.contains(r) }?.disparity ?: 0 }, area)
     }
@@ -8390,10 +8418,20 @@ class Shell(
     /** True when nothing is pending anywhere — test/selfcheck introspection. */
     fun isQuiescent(): Boolean = queued.get() == 0 && idleApartFromMessages()
 
-    /** Everything quiescence asks for EXCEPT the message queue. */
+    /** Everything quiescence asks for EXCEPT the message queue. C3 X4T item 4 (`C3-V2T-review.md` 5, decisions AT (5)):
+     *  not idle while a glyph hold keeps cache writes back — its extra period ([glyphHoldUntilMs]), then until the pump
+     *  after it has run and what it let go has landed (the class: a harness that settled at the period's end acted just
+     *  as the held atlas chunk went, and the next act left Encode and Matrix out). Only in a session that played a glyph
+     *  run (the stamp is 0 otherwise). Read by the harnesses only (`isQuiescent`, [sampleIdle]); no product decision
+     *  reads it. */
     private fun idleApartFromMessages(): Boolean =
         (glassesSilent || (!comp.hasPending && !comp.needsKeyframe && !comp.deferring)) && inflightFlushes.isEmpty() &&
-            !notifications.animating && slides.none { it.active } && !switcher.spinning && transition == null && transitionCloses.isEmpty()
+            !notifications.animating && slides.none { it.active } && !switcher.spinning && transition == null && transitionCloses.isEmpty() &&
+            !glyphHoldKeepsWritesBack()
+
+    /** C3 X4T item 4: a glyph run's hold still keeps cache writes back, or what it let go is still on its way. */
+    private fun glyphHoldKeepsWritesBack(): Boolean = glyphHoldUntilMs != 0L &&
+        (System.currentTimeMillis() < glyphHoldUntilMs || glyphHoldPumpOwed || atlasQueue.isNotEmpty() || cacheWorkInFlight)
 
     /**
      * 🔴 An ATOMIC settled sample, for a harness that compares the shell's

@@ -28,7 +28,11 @@ import wm.damage.core.wire.Pb
  * C3 DM-T: Encode and Matrix draw from a font in the cache, so for them the rehearsal writes one (a face of its own, its
  * letters and digits as [face] draws them, packed as the atlas packs a face) and writes lines of text in it on both
  * pictures; Encode's cells are those lines' runs ([CellLists]), its out lists written with the records and its in lists
- * after the out PLAY, as the shell writes them.
+ * after the out PLAY. C3 X4T item 5 (`C3-V2T-review.md` 4, decisions AT (4)): that is the shell's NOT-compressed order —
+ * the one it takes when the transport would not deflate the combined message, or the three do not fit its inflate. When
+ * they fit and the transport would deflate them, the shell sends the in lists inside the records' write instead (C3 X2T
+ * item 2); the rehearsal does not play that form (no pixel differs: the out half never reads the in lists). Encode's
+ * conformance vectors come from the shell rig's own images (`ShipVectors`), so the C is compared on both forms.
  */
 object TransitionRehearsal {
     class Frame(val label: String, val tick: Long, val l: ByteArray, val r: ByteArray)
@@ -160,7 +164,8 @@ object TransitionRehearsal {
         val n = plan.timing.steps
         send("the out PLAY", Motion.play(b.out, OUT_SLOT, p, TAG_OUT, 0, IntArray(4)))
         notes(); take("out 1")
-        // Encode: the in half's lists after the out PLAY, above the out lists (they meet no range the out half reads)
+        // Encode: the in half's lists after the out PLAY, above the out lists (they meet no range the out half reads) — the
+        // shell's not-compressed order (X4T item 5)
         b.inLists?.let { send("the in half's lists", CfwModes.cacheUpdate2(listOf(CfwModes.CacheWrite2(it.at4, it.bytes)), CACHE_KIB * 1024)) }
         val playAfter = Motion.playAfter(b.inn, IN_SLOT, p, TAG_IN, OUT_SLOT, IntArray(4), listOf(Motion.Drawing(b.outCost)), 0)
         // the arriving frame as horizontal bands, one mode-3 batch each (fid 1, 2, ...), the first right after the PLAY,

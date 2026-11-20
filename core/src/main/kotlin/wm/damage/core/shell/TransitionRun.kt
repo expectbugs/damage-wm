@@ -29,7 +29,7 @@ internal class TransitionRun(
      *  when they ride [write] (C3 X2T item 2: the records and both halves' lists fit one compressed message). */
     val listWrite: ByteArray? = null,
 ) {
-    enum class Phase { OWED, FRAME, IN, DONE }
+    enum class Phase { OWED, FRAME, IN }
 
     var phase = Phase.OWED
     var writeId: Long? = null
