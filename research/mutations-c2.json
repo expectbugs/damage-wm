@@ -3953,5 +3953,41 @@
   ],
   "note": "his look at 0.81: a save inside a burst",
   "from": "B082"
+ },
+ {
+  "id": "FR2-F1-no-drop",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (c.booked || k.firstLine < MainBinding.PATCH_KEY || k.content !== mainBind.staging) return\n",
+    "        if (true) return\n"
+   ]
+  ],
+  "tests": [
+   "*StagePiecesTest.aFailedRestagePieceWithTheRowBackLeavesNoStaleBytes_F1"
+  ],
+  "expect": [
+   "aFailedRestagePieceWithTheRowBackLeavesNoStaleBytes_F1"
+  ],
+  "note": "the focused read of B082 (F1): an unbooked re-stage that failed keeps the staging (0.82 as built)",
+  "from": "B082"
+ },
+ {
+  "id": "FR2-N1-burst-kept",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "    fun bindInForce(on: Boolean) { bindFlag = on; if (!on) { tapsLive = false; burstOpen = false } }",
+    "    fun bindInForce(on: Boolean) { bindFlag = on; if (!on) { tapsLive = false } }"
+   ]
+  ],
+  "tests": [
+   "*LocalRulesTest.aBurstIsClosedWhenBindGoes_N1"
+  ],
+  "expect": [
+   "aBurstIsClosedWhenBindGoes_N1"
+  ],
+  "note": "the focused read of B082 (N1): a burst left open when BIND goes",
+  "from": "B082"
  }
 ]
