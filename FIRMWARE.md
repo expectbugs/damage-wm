@@ -1345,8 +1345,13 @@ is stated there.
   the band held back past the SETTLE pays its owe instead of being applied as an unreported notch (that session: 13
   such in 355 notches, each a second move of the row and a jump of both lenses — `HANDOFF.md` §98.6). A carry ends
   when it runs out (read at the next stock message, the next burst's first report and the next SETTLE), when the
-  list leaves the front, at BIND read off and at a session start; one still running when a new burst opens joins that
-  burst's owes. u clears at a session start and when S_heard advances. Until an owe clears, an unpaid one can swallow
+  list leaves the front — with no burst open, and inside a burst once that burst has joined a carry (a tap's report
+  opens a burst and its act opens a window, whose own notches the joined owes would otherwise swallow; the cost: a
+  scroll burst that joined a carry and is covered mid-burst loses its own scroll owes with it, and under a notice
+  without focus echoes still queued in the band then reach Main with no owe; a burst that joined no carry keeps its
+  owes through a cover) — at BIND read off and at a session start. One still running when a new burst opens joins
+  that burst's owes: they do not run out inside that burst, and its lone SETTLE carries what is left again for
+  250 ms each from then. The carry's length is not capped and is counted (`carryMaxMs`; decisions BO, BR). u clears at a session start and when S_heard advances. Until an owe clears, an unpaid one can swallow
   one later unowed stock message — an unreported scroll message, which the next report's cursor (P3) or the SETTLE
   repairs; inside a carry, the message of a notch the lens did not report, which is then lost (none in that session
   against the 13 late echoes); or a click whose 115 was lost, which is then neither acted on nor journaled
@@ -1363,10 +1368,8 @@ is stated there.
   phone sends carries one SETTLE** with the same fields — under a cover too, where it names no list (12 B with its
   length; the compositor keeps one sub back for it, as for a CLOSE while an instance is open, R2 B-N5) — so a gesture
   LEFT alone handled at idle is ended by the next frame. Constants: `age` ≥ the round trip's p90 plus one period; Q ≥
-  `age` plus the longest bound program's (T − 1)·P; and **Q's floor** is the p99 of "a burst's last 115 → that burst's
-  last scroll message" in the trial's journal (both are logged), so a scroll message the band held back still meets
-  its owe instead of being applied after the SETTLE as an unreported notch — until it is measured, Q ≥ `age` +
-  (T − 1)·P covers it (I) (values after §6.9). A fresh fire crossing a SETTLE has held for less than `age`, so it is
+  `age` plus the longest bound program's (T − 1)·P (values after §6.9). A scroll message the band holds back past the SETTLE meets a carried owe (P5), so Q has no
+  floor for it. A fresh fire crossing a SETTLE has held for less than `age`, so it is
   untouched and gets its own P3 answer.
 - **P8 stale reports.** A 115 whose S is not after S_heard (signed 16-bit), or whose uptime precedes this session's
   arming, is dropped and journaled.
@@ -1383,7 +1386,12 @@ is stated there.
   a COMMIT, and the ordinary repaint brings the changed cell; a report naming a staging the phone no longer holds is the
   only discard keeping rows current causes (`snapback cause=restaged`). The re-staging is paced: one row per 5 s in
   all, the row owed longest first, only while the list's window is in front, no burst is open and nothing is in
-  flight; its bytes are journaled (`mainstage` notes). **A change of a row's form in the strip** (its text or icon as
+  flight; **Main's base staging** — the atlas first, then its records, counted — **goes while BIND is in force and Main is
+  in front, or behind the shell's own clock screen** (which always wakes to Main; never behind a window's exclusive
+  screen, never asleep), painted for the layout the wake brings; **behind the clock the list stays unbound** — no
+  SET, LIST or entry — and no row is re-staged there; the wake's first flush binds it by the return rule, so the
+  first notch after the wake is local once that flush has landed (APK 0.83; his first notches after a session start
+  were phone-drawn for 12 s on 0.82, `HANDOFF.md` §99.3); its bytes are journaled (`mainstage` notes). **A change of a row's form in the strip** (its text or icon as
   every row shows it): on a 160 KiB session there is no room for a second strip, so the list is withdrawn (CLEAR), the
   strip written and the list bound again (about two flushes unbound; the return names the row, above); **on a 256 KiB
   session the phone's own region holds a second strip slot** (the atlas keeps 96 KiB, the bound list's region is
@@ -1761,7 +1769,7 @@ case-in (the journal; the calendar fallback covers a miss) · COMMIT CRCs equal 
 | phone: echo owes and u (P5) | click owes: every SETTLE sent; scroll owes: an idle SETTLE, a session start, and — carried past a burst's lone SETTLE — 250 ms each after it, the list leaving the front, BIND read off; u: a session start, S_heard advancing | an owe of either kind may never be paid (stock sends no scroll message for a notch inside its rubber band and no click for a single tap inside it, §6.1) and a paid scroll owe may come a band late; until the next SETTLE an unpaid owe can swallow one later unowed stock message — an unreported scroll message (repaired by the next report's cursor, P3, or the SETTLE) or a click whose 115 was lost (that tap is then neither acted on nor journaled `no-report`) | kind (scroll, click) | reader thread | once per message | P3's bound |
 | phone: the per-slot answer (P3): A, the reports handled since the slot's last answer and whether each was adopted, whether anything else moved its row | A at each answer (the last S it covered), := S_heard at a session start; the rest at each answer | a lost COMMIT or DISCARD: a missing ack or a refusal → a divergence and a keyframe; SETTLE ends what is left | slot; S (signed 16-bit) | the shell's loop composes it after the frame's drawing subs (and after a LIST of its list); the reader thread hands it the reports in order (P2) | once per slot per batch | P4's and P5's DISCARDs, the tap rule's answer and the unowed click's, now this one message; P10's diff with END applied |
 | phone: the entries and lists it holds, its marks, the staged records' places and the stagings it still holds (P9) | each start; each change of the list in front; a staging it switched away from, at the latest when it writes over that space (P9; DM2: as ruled; the built form may add detail) | a lost SET or CLEAR: P3 or the tap rule judge the report; the table repair re-sends the object its evidence names; a lost or refused LIST heals at the next answer (its LIST rides before it); the refusal record → the whole table again and one keyframe | entry, list, mark | the shell's loop builds them; the transport sends | — | the atlas planner (never overwrites a bound record in place while a burst is open) and the re-staging of a changed row (into fresh space, never under a table that still points at it, P9) |
-| phone: SETTLE's pacing (the last report's time, a burst open) | each report; each SETTLE sent alone | — (pacing: nothing waits on it). Q's floor (P7): a scroll message the band held back past the SETTLE that cleared its owe is applied as an unreported notch, so Q stays above the p99 of a burst's last 115 → its last scroll message (the trial's journal; until measured Q ≥ `age` + (T − 1)·P, I) | — | the shell's loop | — | C1's motion scheduler's nominal-end resume |
+| phone: SETTLE's pacing (the last report's time, a burst open) | each report; each SETTLE sent alone | — (pacing: nothing waits on it). a scroll message the band holds back past the lone SETTLE meets a carried owe (P5); Q has no floor for it | — | the shell's loop | — | C1's motion scheduler's nominal-end resume |
 | phone: `tapsLive` | session start; a release point it causes; CLEAR of the tap entry sent; a read without field 39 bit 0 or without BIND in field 3's flags in force | — | session | set by the reader thread; read by the shell once per unowed click on `report` and `glasses` (false: acted on, not counted in u, D1) | once per click | P8's session test |
 | phone: the tap rule and its DISCARD answer | — | a lost DISCARD: a missing ack → keyframe; SETTLE also ends the press | S, list, mark, cursor, the owes n | the shell's loop | each field once | P3 |
 | phone: the bound-list CLEAR/SET around covers (modals, popovers, other windows) | — | a lost CLEAR: a fire under the cover fails "in front" → DISCARD, and its 115 (an entry not held) re-sends the CLEAR; a lost SET: its scroll entries come back at the first unreported scroll message — one a carried owe paid (P5) is no evidence — (the table repair), the tap entry at the next return or start (taps act as today's clicks meanwhile) | entry | built in the cover's own batch | — | every cover: confirm, popover, keyboard, window switch |
