@@ -137,6 +137,10 @@ class MainLocalShellTest {
             shell.updateSettings { it.copy(heightMode = 352, cachedText = "on", taps = taps) }
             until("the atlas goes live") { shell.cachedTextActive && shell.cachedFontsLive.isNotEmpty() }
             bound("up")
+            // build K1-4a: the notice's programs are written and counted at a stage-4 start too; a test begins after
+            // them (else a program's write lands in a test's window, or a count reading writes the counters' note
+            // after its first notch) — one evaluation on the loop deciding
+            until("the notice's programs counted") { onLoop { shell.noticeLaneDoneForTest() && !shell.cacheWorkInFlight } }
         }
 
         fun list(): BoundList = assertNotNull(onLoop { shell.mainBoundForTest().first })

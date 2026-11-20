@@ -5923,6 +5923,13 @@ class Shell(
     fun graceState(): Pair<Int, Boolean> = notifications.graceStep to (graceJob != null)
     /** Build K1-4a, tests: the notice's programs as "STYLE lines STATE" (a wait's condition; read off the loop). */
     internal fun noticeProgramsForTest(): List<String> = noticeProgs.map { "${it.style} ${it.lines} ${it.rec.state}" }
+    /** Tests: the notice lane has nothing left to write this session — no programs here (no region, no engine), or every
+     *  one laid out for the box as it is and counted. A rig's start waits on it: its writes and their count readings
+     *  are the start's work. */
+    internal fun noticeLaneDoneForTest(): Boolean {
+        val key = noticeLayoutKey(transport.state.value) ?: return true
+        return key == noticeProgsFor && noticeProgs.all { it.rec.state == StagedRecord.State.PROVEN }
+    }
     /** Fix A2's pin, on the loop: the first notice program taken as acked now, then a Base or ([shortfall]) a Shortfall
      *  over the interval that holds that ack, judged as the ledger judges it; the program's state after. */
     /** Fix B3's pin: the slice yields (as Page staging's first strip would make it) with no write over the timer yet. */
