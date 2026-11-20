@@ -310,7 +310,10 @@ sealed class TransportEvent {
 
     /** Build C2 (§6.7 Counting): a notify-114 body from RIGHT while BIND is in force — the shell's rules count a local
      *  instance's stop after a SETTLE (`burst-end`) and a refused COMMIT, DISCARD or SETTLE (`refused`). */
-    data class LocalBody(val slot: Int, val tag: Int, val outcome: Int, val reason: Int?) : TransportEvent()
+    data class LocalBody(val slot: Int, val tag: Int, val outcome: Int, val reason: Int?,
+        /** G4: the body's steps drawn and passed over, its END CRC (0: no END written — a local instance's own body,
+         *  §6.4) and its largest step-drawing µs; null when the body carries none. */
+        val drawn: Long? = null, val folded: Long? = null, val endCrc: Long? = null, val stepUs: Long? = null) : TransportEvent()
 
     /** A typed line from a replica ([Transport.injectText]). */
     data class Text(val line: String) : TransportEvent()

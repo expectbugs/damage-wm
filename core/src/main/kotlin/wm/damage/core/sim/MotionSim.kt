@@ -452,6 +452,13 @@ class MotionSim(private val scaled: () -> Boolean = { false }) {
      * The copy hook's engine function (§5.2, §5.3): [draws] is false on the stock path, which draws no step and turns
      * every drawing instance done with no notify. It clears the outstanding mark on every run, claimed or not.
      */
+    /** Tests only (G4, decisions BF): a step's drawing time this lens reports in its bodies' field 9, which the model does
+     *  not otherwise know (0: none, as before). When it is longer than an instance's period, the step after step 1 is
+     *  passed over once per instance — the one fold per motion measured on his glasses when the steps outgrew P. */
+    @Volatile var stepUsForTest: Long = 0L
+
+    private fun slowFor(o: Instance): Boolean = stepUsForTest > 0L && stepUsForTest * 1024L > o.period * 1_000_000L
+
     fun hookPresent(fb: ByteArray, stride: Int, left: Boolean, tick: Long, draws: Boolean, uptime: Long, preserve: Boolean = false): Hook {
         outstanding = false
         if (!anyDrawing) return Hook(false, false)
@@ -460,7 +467,7 @@ class MotionSim(private val scaled: () -> Boolean = { false }) {
         var last = false
         for (o in slots) {
             if (o == null || !o.drawing) continue
-            val k = dueStep(o, tick)
+            val k = dueStep(o, tick).let { k0 -> if (slowFor(o) && o.d == 1 && k0 == 2 && o.T > 2) 3 else k0 }
             // §5.3: the preserve path draws an instance only when k > d (its framebuffer still holds step d — a HOLD's
             // step T too, §6.4); the direct path redraws every drawing one over the shadow it has just copied
             if (preserve && k <= o.d) continue
@@ -666,7 +673,7 @@ class MotionSim(private val scaled: () -> Boolean = { false }) {
             staleMarkOwed = true                            // "a close or an adoption sets the stale mark"
         } else if (o != null && !(o.local && seqAfter(o.tag, s) > 0)) close(slot, uptime)
         uiCommits[slot] = Pb.cat(Pb.v(1, ++sequence), Pb.v(2, slot), Pb.v(3, s), Pb.v(4, OUTCOME_COMMITTED), Pb.v(5, 0),
-            Pb.v(6, adopted?.drawn ?: 0), Pb.v(7, adopted?.folded ?: 0), Pb.v(8, crc), Pb.v(9, 0), Pb.v(10, 0), Pb.v(11, uptime))
+            Pb.v(6, adopted?.drawn ?: 0), Pb.v(7, adopted?.folded ?: 0), Pb.v(8, crc), Pb.v(9, if (adopted != null) stepUsForTest else 0), Pb.v(10, 0), Pb.v(11, uptime))
         return 0
     }
 
@@ -705,7 +712,7 @@ class MotionSim(private val scaled: () -> Boolean = { false }) {
     /** Decision A.2: outcomes 0 and 1 carry fields 1–11 (9, the step-drawing µs, is 0: the model has no clock). */
     private fun body(seq: Long, slot: Int, tag: Int, outcome: Int, o: Instance, reason: Int, uptime: Long): ByteArray =
         Pb.cat(Pb.v(1, seq), Pb.v(2, slot), Pb.v(3, tag), Pb.v(4, outcome), Pb.v(5, o.ordinal), Pb.v(6, o.drawn),
-            Pb.v(7, o.folded), Pb.v(8, o.endCrc), Pb.v(9, 0), Pb.v(10, reason), Pb.v(11, uptime))
+            Pb.v(7, o.folded), Pb.v(8, o.endCrc), Pb.v(9, stepUsForTest), Pb.v(10, reason), Pb.v(11, uptime))
 
     /** Telemetry field 30: open slots (bits 0-3), drawing (4-7), the thread exists (8). */
     fun field30(): Int {

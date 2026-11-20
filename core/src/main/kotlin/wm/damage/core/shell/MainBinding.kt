@@ -164,6 +164,15 @@ internal class MainBinding {
     /** [r]'s writes were submitted as [rec]: the pictures and the item table become [r]'s, the row is current; a band
      *  move makes a new list (same mark) whose [BoundList.previous] is the one before, until [switchAcked]; a withdrawal
      *  ends (the list is offered again: its SETs ride a later flush, after these writes in stream order). */
+    /** Decisions BF (G4): the staging's period in force changed — the same list (mark, items, programs) with its entries at
+     *  the new period, so the rules SET them again; a switch's [BoundList.previous] stays. */
+    fun relisted(): BoundList? {
+        val ms = staging ?: return null
+        val l = list ?: return null
+        list = ms.boundList(mark, previous = l.previous)
+        return list
+    }
+
     fun submitted(r: MainStaging.Restage.Changed, rec: StagedRecord, nowMs: Long) {
         val ms = staging!!
         ms.apply(r)

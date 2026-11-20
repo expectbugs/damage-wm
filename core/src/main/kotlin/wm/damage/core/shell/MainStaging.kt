@@ -145,6 +145,10 @@ class MainStaging private constructor(
         val prog4: Int get() = program.at
     }
 
+    /** Decisions BF (G4): the period the bound list's entries are SET with — the fit's [period] after a staging, then the
+     *  measured steps' ([Shell]'s adaptive period). The programs, their T and the records do not change with it. */
+    var periodInForce: Int = period
+
     val pitch: Int get() = -layout.rowH
     val start: Int get() = blobs.first().off
     val end: Int get() = blobs.last().let { it.off + it.bytes.size }
@@ -272,9 +276,9 @@ class MainStaging private constructor(
         val down = pan(WHOLE, 1); val up = pan(WHOLE, -1)
         fun params(rules: List<Rule>) = rules.map { CfwModes.BindParam(it.kind, it.arg) }
         val entries = listOf(
-            BoundList.Entry(ENTRY_DOWN, CfwModes.EV_UPROLL, BoundList.rowStep(CfwModes.EV_UPROLL), period, down.prog4, params(down.rules), down.program),
-            BoundList.Entry(ENTRY_UP, CfwModes.EV_DOWNROLL, BoundList.rowStep(CfwModes.EV_DOWNROLL), period, up.prog4, params(up.rules), up.program),
-            BoundList.Entry(ENTRY_TAP, CfwModes.EV_TAP, 0, period, press.prog4, params(press.rules), press.program),
+            BoundList.Entry(ENTRY_DOWN, CfwModes.EV_UPROLL, BoundList.rowStep(CfwModes.EV_UPROLL), periodInForce, down.prog4, params(down.rules), down.program),
+            BoundList.Entry(ENTRY_UP, CfwModes.EV_DOWNROLL, BoundList.rowStep(CfwModes.EV_DOWNROLL), periodInForce, up.prog4, params(up.rules), up.program),
+            BoundList.Entry(ENTRY_TAP, CfwModes.EV_TAP, 0, periodInForce, press.prog4, params(press.rules), press.program),
         )
         return BoundList(LIST, SLOT, rows, pitch, mark, items4, itemOffs.copyOf(), entries,
             paintEnd = { left, prog4, p, pic -> paintEndOf(prog4, p, left, pic) }).also { it.previous = previous }
