@@ -1819,7 +1819,7 @@ site, `0x00493DAC`, not on a start path** (the container's destroy, §7.3); cont
 | `present_shadow` publishes the mode-24 hint with the shadow pointer while the worker holds the gate; the copy hook latches it once | V-src `zlib_glue.c` 785–798, 1074–1080 |
 | The fire stamps c0 after the match, walks the program at step 10 and sets t0 at step 12 | V-src `damage_input.c` 340, 361, 381 |
 | A record DRAW is walked whole every step (validation, then the render), one nibble written per pixel through a clip test; a full-panel byte copy with its cache clean measures 0.54–0.62 ms | V-src `damage_draw.c` 120–145, 194–235; M (telemetry field 6) |
-| **Buffer A's one free, and the one new site.** Stock allocates buffer A in one place (`common_image_create` at `0x004DBEDE`: A = malloc at `0x004DC23E`, kept at the state's +0x8) and frees it in one (`common_image_destroy` `FUN_004DCA3C`: free(+0x8) at `0x004DCB24`), whose one caller is `evenhub_container_list_destroy` `FUN_00493D02`, by the call at **`0x00493DAC`**. Five ways lead there: the page rebuild and the cleanup of a failed build (`FUN_00493AB6`: `0x00493B0E`, `0x00493B86`, `0x00493C34`, `0x00493CAC`), the shutdown (`0x00496BA6`), the timeout page (`0x00496D2E`) and the main event handler (`0x004E1896`) — **the last three started by stock with the phone not involved**. No gate or lock covers the free, nothing the copy hook reads shows it, and a changed pointer is no test (the allocator hands a freed block back). The call at `0x00493DAC` is C3's one new site, on a page rebuild or exit only — not a start path (`FORK.md` §3.1); it acts only while an owning instance is open (§7.3). The image worker's gate take waits up to 1,000 ticks and reads its result (`0x0047383C`) | V (`private/c3-design/C3-F2-facts.md` points 1–4, 6, 7; the take at `0x0047383C` as the fork lane read it, `C3-F2-built.md`); I: every destroy runs on the ui_task (point 5); not every store at +0x8 in the image traced (point 2) |
+| **Buffer A's one free, and the one new site.** Stock allocates buffer A in one place (`common_image_create` at `0x004DBEDE`: A = malloc at `0x004DC23E`, kept at the state's +0x8) and frees it in one (`common_image_destroy` `FUN_004DCA3C`: free(+0x8) at `0x004DCB24`), whose one caller is `evenhub_container_list_destroy` `FUN_00493D02`, by the call at **`0x00493DAC`**. Five ways lead there: the page rebuild and the cleanup of a failed build (`FUN_00493AB6`: `0x00493B0E`, `0x00493B86`, `0x00493C34`, `0x00493CAC`), the reflash path (`0x00496BA6`: while not shutting down the handler destroys the container list and creates the page again; when shutting down it returns without a destroy — the flash-readiness review, 2026-11-20), the timeout page (`0x00496D2E`) and the main event handler (`0x004E1896`) — **the last three started by stock with the phone not involved**. No gate or lock covers the free, nothing the copy hook reads shows it, and a changed pointer is no test (the allocator hands a freed block back). The call at `0x00493DAC` is C3's one new site, on a page rebuild or exit only — not a start path (`FORK.md` §3.1); it acts only while an owning instance is open (§7.3). The image worker's gate take waits up to 1,000 ticks and reads its result (`0x0047383C`) | V (`private/c3-design/C3-F2-facts.md` points 1–4, 6, 7; the take at `0x0047383C` as the fork lane read it, `C3-F2-built.md`); I: every destroy runs on the ui_task (point 5); not every store at +0x8 in the image traced (point 2) |
 
 ### 7.2 Program records version 2, and where each program may run
 
@@ -2250,8 +2250,9 @@ instance, owning; sets the engine's flag; the message's present).
   only while bit 6 is armed); sent once it has been read this boot and kept at its last value after a disarm or a
   release, as 34 and 37 are (a stale figure after a disarm is not a fault; the next armed read replaces it); a
   second two-byte-tag field in the record's bound. It is the glasses' own reading of the stack figure of §7.12 (the
-  display task's worst path on the candidate is 1,924 B by `tools/verify.py` step 7: a reading under 124 is a
-  finding).
+  display task's worst path on the candidate is 1,916 B by `tools/verify.py` step 7 — the path through the copy hook's
+  in-frame stock copy with an estimated stock chain; on the paths real use takes it is 1,116 B with bit 6 clear and
+  1,320 B with it armed, the flash-readiness review, 2026-11-20: a reading under 132 is a finding).
 - **Reason 19:** a fire whose close set holds an owning instance (§7.3).
 - **Ladder stage 5 = EFFECTS** with stage 4's flags (flags 0x7c), set by hand as every stage (`probe c1=5`), never
   advanced by itself; a hand `flags=` probe cannot arm bit 6 beyond the stage; its rung is recorded before its
@@ -2495,7 +2496,7 @@ list's length.
 | LIST-RING, kind 3, field 18; the budget | ≈ 1 KB | a flag byte per list; each instance's C (8 B × 4) | — | the budget's terms at the walk and the sum over four slots: µs |
 
 The engine's chain under the copy hook grows from 572 B to ≈ 1,000–1,200 B against `tools/verify.py` step 7's ≈ 1,512-B
-bound (as built: 916 B, and the display task's worst path 1,924 of its 2,048 B, V by step 7 on the candidate; telemetry
+bound (as built: 916 B, and the display task's worst path 1,916 of its 2,048 B, V by step 7 on the candidate; telemetry
 41 reads it on the glasses, §7.9; the destroy site's root on the ui_task 5,524 of 49,152 B, the stock frames above
 its event handler not read; the context as built is 14,716 B a lens); the appended block grows ≈ 24–36 KB (≈ 250 KB stays below `0x7F0000`); the context grows ≈ 2.5 KB a lens (arena 20:
 69 KiB free with today's 6,684 B, M, `HANDOFF.md` §94). Field 34 per verb on the glasses decides the periods.
