@@ -633,14 +633,18 @@ class Version2MotionTest {
         assertEquals(emptyList(), bad, "rows:\n" + bad.joinToString("\n"))
     }
 
-    /** §7.12's sum: 64-bit (no wrap into an accept), waiters on one instance add, a chain counts as its largest. */
+    /** §7.12's sum: 64-bit (no wrap into an accept), waiters on one instance add, a chain counts as its largest; a cycle
+     *  of waits is the caller's defect and refused loudly (`C3-decisions.md` AP (3): the phone never builds one). */
     @Test
     fun theStepSumAddsWaitersAndNeverWraps_7_12() {
         assertEquals(10L, Motion.stepSum(listOf(Motion.Drawing(4), Motion.Drawing(6))))
         assertEquals(6L, Motion.stepSum(listOf(Motion.Drawing(4), Motion.Drawing(6, waitsOn = 0))), "an in half and its out half: the larger")
         assertEquals(9L, Motion.stepSum(listOf(Motion.Drawing(4), Motion.Drawing(6, waitsOn = 0), Motion.Drawing(3, waitsOn = 0))), "two waiters add")
         assertEquals(7L, Motion.stepSum(listOf(Motion.Drawing(4), Motion.Drawing(2, waitsOn = 0), Motion.Drawing(7, waitsOn = 1))), "a chain: its largest")
-        assertEquals(3L + 4L, Motion.stepSum(listOf(Motion.Drawing(3, waitsOn = 1), Motion.Drawing(4, waitsOn = 0))), "a cycle counts each by its own C")
+        for ((what, d) in listOf("a two-ring" to listOf(Motion.Drawing(3, waitsOn = 1), Motion.Drawing(4, waitsOn = 0)),
+                                 "one waiting on itself" to listOf(Motion.Drawing(4), Motion.Drawing(3, waitsOn = 1)),
+                                 "a waiter on a ring" to listOf(Motion.Drawing(5), Motion.Drawing(3, waitsOn = 2), Motion.Drawing(4, waitsOn = 1), Motion.Drawing(2, waitsOn = 1))))
+            assertTrue(assertFailsWith<LintError>(what) { Motion.stepSum(d) }.message!!.contains("waits in a cycle"), "$what: refused, saying so")
         assertEquals(2L * 4_296_298_453L, Motion.stepSum(listOf(Motion.Drawing(4_296_298_453L), Motion.Drawing(4_296_298_453L))), "no 32-bit wrap")
     }
 
