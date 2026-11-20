@@ -2135,9 +2135,8 @@ the periods; a step longer than P folds and holds the ui_task off (§5.3).
 
 ### 7.13 Vectors, and what only the glasses can show
 
-**The model** gains the framebuffer beside the panel (both start at 153,600 zero bytes; the copy hook writes the
-framebuffer; a full refresh copies it to the panel, a partial one its hinted rows; a stock repaint writes 0x5A into the
-framebuffer, §9) and the job's owned rects. **The v5 set** (`"features"` a list with bit 11, `"panel": true`, `N`, `W`,
+**The model** keeps the framebuffer beside the panel as it has since C1 (§9 states its rules), now read by the
+in-place verbs, and gains the job's owned rects. **The v5 set** (`"features"` a list with bit 11, `"panel": true`, `N`, `W`,
 `G`, `K`; inputs from `make_vectors.py`, expectations from the C, the simulator equal): `v5-own` (a phone frame shown
 outside the owned rect and held inside it; LAND; done-and-owning; CLOSE, a close pass, a keyframe, mode 11, a release
 point, the stock path, a cache write each ending the mark; a fire refused 19; OWN at a SET, a fire and a COMMIT 5;
@@ -2277,10 +2276,11 @@ content, the stock override gesture, stock fallback on any failure. Written afte
   a well-formed mode 15 with the lease held is never in a vector, the PC's host has no font) and `v1-batchmax` (3
   steps: a batch of exactly 153,718 B accepted, one byte more refused).
 - **v3 set (C1, 2026-11-15 → 17):** §5.10, with the counts at the build's end and the two fuzz sets.
-- **v4 set (C2):** §6.10. **v5 set (C3, contract 2026-11-19):** §7.13 — and from C3 on both harnesses model **the
-  framebuffer beside the panel** (in-place verbs read it): it starts at 153,600 zero bytes as the panel does, the copy
-  hook writes it (the shadow, outside a job's owned rects, then the steps), a full refresh copies it to the panel and a
-  partial one its hinted rows, and the `stock` op's repaint writes 0x5A into it before its refresh.
+- **v4 set (C2):** §6.10. **v5 set (C3, contract 2026-11-19):** §7.13. Both harnesses have modelled **the framebuffer
+  beside the panel** since C1 (the host's `HOST_FB`, the simulator's `fb`); from C3 the in-place verbs read it, so its
+  rules are the contract's: it starts at 153,600 zero bytes as the panel does, the copy hook writes it (the shadow,
+  outside a job's owned rects, then the steps), a full refresh copies it to the panel and a partial one its hinted rows,
+  and the `stock` op's repaint writes 0x5A into it before its refresh.
 
 ## 10. Lifecycle
 
