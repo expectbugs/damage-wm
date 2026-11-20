@@ -1,8 +1,9 @@
 # Where we are, and what to do next
 
 **The entry point for a fresh session**: what is true now, what is next, where the records are; history lives in
-`HANDOFF.md`. Read `CLAUDE.md` → this file → **`HANDOFF.md` §96** (the third look, APK 0.81, the animation plan's
-first phase specified, the effects build C3 designed and its contract read twice) → **§95** (APK 0.79 and 0.80, the
+`HANDOFF.md`. Read `CLAUDE.md` → this file → **`HANDOFF.md` §97** (APK 0.82, his look at 0.81, C3 through its fourth
+fork package with its model and vectors, Music's first half complete) → **§96** (the third look, APK 0.81, the
+animation plan's first phase specified, the effects build C3 designed and its contract read twice) → **§95** (APK 0.79 and 0.80, the
 second trial, the notice's focus timer, the animation plan ruled, full throttle) → **§94** (C2 flashed on both lenses and armed at stage 4;
 the first trial and its three defects) → §93 (0.77 on his phone; Music's answers; work goes on while a build waits)
 → **§92** (build C2: built, reviewed, a candidate image,
@@ -28,16 +29,21 @@ for firmware → earlier by number (§65 Phase 2 and the protocol, §48 the fork
   32 COMMITs, no fault or reset — and showed three defects in the phone's staging of Main (it stopped fitting after
   app visits and Main fell back to the old scroll; a font change dropped the staging; the period had no margin).
   **Their fixes are APK 0.78, in build** (`private/build072/C2-decisions.md` part AU).
-- **APK 0.81 is staged since 11-19 20:54 and the PC runs it; his phone runs 0.80 (18:51) until he installs**
-  (§96.4). 0.81 answers his third look (§96.1–2): the wrap's PLAY ahead of its frame, no keyframe for a local
-  motion's own closed report, the period following the measured step. **Owed on his face:** the wrap's start (modeled
-  80–160 ms); ten minutes of scrolling with Music playing (no jump, the eyes agreeing); a notice's bar and fade. NOT
-  the fold test with fixed `Frames` on 0.81 (§96.3). **0.82 is in build** (`wip/082`): the focused read's four
-  findings, the staged records split across flushes, slack on rows that change, the wrap's rows out of the strips.
-- **The animation plan** (`MOTION.md` §7; §95.5): its first phase is specified (`private/build081/K1-spec.md`,
-  §96.6) and the notice's timer on the engine is built on `wip/k1-4a`; **the effects build C3 is designed, its
-  contract (`FIRMWARE.md` §7, merged 11-19) read twice; its build lanes started 11-19, nothing flashed** (§96.7; rulings
-  `private/c3-design/C3-decisions.md`). Open with him: Crush, flat or overlapping (§96.8).
+- **APK 0.82 is staged since 11-20 02:36 and the PC runs it; his phone runs 0.81 (11-19 22:30) until he installs**
+  (§97.2). 0.82: the staged records in pieces, a row's change about 1 KB, the wrap's rows in their own record (the
+  local step's time back, modeled), the period lowered only when idle, the journal's true send and answer times.
+  **Owed on his face:** a fast-scroll pass and the wrap (his look at 0.81, §97.1: the wrap "still noticably
+  delayed but better"; the lenses out of sync in very fast scrolling) — and his answer: a whole row apart, or the
+  same row at different positions. **In build for 0.83** (`wip/083-scroll`): a stock scroll message before its
+  report is held; edge reports in a burst keep one motion whole; the two-lens rig with a skew; `WorkingCopy`'s
+  close against its pending save.
+- **The effects build C3** (`FIRMWARE.md` §7, merged; rulings `private/c3-design/C3-decisions.md`): the fork's
+  packages F1–F4 are built on its branch `c3` (not pushed), F5 is in its sweep; Damage's vectors (`wip/083-v`), model
+  (`wip/083-s`) and the phone's first package (`wip/083-p1`) are built; **the lanes have not met; nothing is flashed;
+  one new patch site, agreed by him** (§97.3). The animation plan (`MOTION.md` §7, with Crush) is built on it: the
+  phone's transition and scroll-effect packages start from 0.82's tree.
+- **Waiting for a build slot:** Music's first half (`wip/s14-k`; §97.5; then his sitting) and the notice's timer on
+  the engine (`wip/k1-4a`; §97.6).
 - **Main's scroll, his verdict on the glasses (§92.1):** only the whole list moving together looked good — "what
   moves, moves together" binds every later motion; the period is chosen so a step fits (P 42 ticks, T 5 at height
   352).
@@ -56,21 +62,21 @@ for firmware → earlier by number (§65 Phase 2 and the protocol, §48 the fork
 | C1 (motion programs) | fork `c1` `561f8b7` (pin `0dab2154…`); its Damage half on `main` | **flashed 11-18; stage 3 in force since 15:43** |
 | S1-3 (Feed, Tmux) + C1-P (the stored stage) | `main` | **deployed: APK 0.70 installed 11-18 14:29** |
 | C1-Q (the session's cache size) | `main` | **deployed: APK 0.71 installed 11-18 16:18** |
-| S1-4 (Music) | the lean spec and decisions (`private/build078/`); lane P (the PC's player process) done on `wip/s14-p` | **half A (J + K) in build since 11-19 on `wip/s14-k`** |
+| S1-4 (Music) | the lean spec and decisions (`private/build078/`); `wip/s14-k` | **half A built, reviewed, fixed, complete (§97.5); waits for its build and his sitting** |
 | RA-1 (the shell loop's liveness supervisor, R-a) | `main` | deployed with 0.79 |
-| C2's staged records split across flushes | `wip/081-split` (from `wip/078-split`), into `wip/082` | in build for 0.82 |
+| C2's staged records split across flushes | `main` | deployed with 0.82 |
 | The animation plan (`MOTION.md` §7) | `wip/k1-4a` (the notice's timer); `private/build081/K1-spec.md` | ruled 11-19; first phase specified; Select / Back / Lock wait for C3 |
-| C3 (the third flash: effects) | the contract on `wip/c3d1`; `private/c3-design/` | designed; the contract read twice; lanes not started; no flash without him |
+| C3 (the third flash: effects) | the contract `FIRMWARE.md` §7 on `main`; fork branch `c3`; `wip/083-v`, `-s`, `-p1`; `private/c3-design/` | F1–F4, the vectors, the model and the phone's first package built; F5 in its sweep; the lanes not met; no flash without him |
 | the test motions (Main's rows staged, `hold`, `mainseq`) | `main` | deployed: APK 0.72 (18:54) and 0.74 (21:55) on 11-18; judged by him (§92.1) |
-| C2 (the second flash: local input) | fork `c2` `5c728bb` (pin `b3f04453…`); its phone half on `main` | **flashed 11-19, stage 4 armed 12:22; three looks (§94–§96); APK 0.80 installed, 0.81 staged** |
+| C2 (the second flash: local input) | fork `c2` `5c728bb` (pin `b3f04453…`); its phone half on `main` | **flashed 11-19, stage 4 armed 12:22; four looks (§94–§97); APK 0.81 installed, 0.82 staged** |
 
-The counts of APK 0.81's tree (simulator; §96.4): core 232 classes / 1,809 tests · desktop 14 classes / 53 ·
+The counts of APK 0.82's tree (simulator; §97.2): core 233 classes / 1,828 tests · desktop 14 classes / 53 ·
 `--selfcheck` 486 PASS ×2 · snapshot 94 renders + 66 in `phone/`, 0 px outside the mask · `--local-check` 64 cases ·
 the 66 conformance vectors in both forms · node 200 · lint 0 · wiring 79 ok. The fork at `c2`: `tools/verify.py` 38
 PASS, the self-test 78 of 78, host tests 310, its sweep 279 caught of 318. The phone half's mutation list:
-`research/mutations-c2.json`, 196 rows: the whole list was swept on 0.77's tree at 165 rows (161 caught, 4 with no pin
-by their own statement, none not caught — §92.11); the 31 rows added since were each watched to fail in their
-rounds (one of G4's is declared with no pin); a sweep of the whole list on the current tree is owed (machine time only).
+`research/mutations-c2.json`, 217 rows: the whole list was swept on 0.77's tree at 165 rows (161 caught, 4 with no pin
+by their own statement, none not caught — §92.11); the rows added since were each watched to fail in their
+rounds (three of 0.82's are declared with no pin); a sweep of the whole list on the current tree is owed (machine time only).
 The judge's standing base is `private/build070/base-070/` (mask `base-070-mask/`). The briefs, rulings and reports of
 every stage are in the gitignored `private/build068` … `build072` (C2: `build072/C2-decisions.md`, parts A–AS),
 `lean`, `c1-design`, `c2-design`;
@@ -80,7 +86,7 @@ every stage are in the gitignored `private/build068` … `build072` (C2: `build0
 
 The order is `REPLAN.md` §17.3. **Every run: its size and what he gets for it first, both meters read before and
 after** (§17.6). New firmware features are armed and tested at once on his go, not over days (§91.3).
-1. **C2's trial goes on with APK 0.81** (§96.4; what is owed on his face is above), and what the trial still owes: the feel of Main's scroll and tap; fields 16, 33, 34, 37, 38; `tapdrop`, `snapback`; the 114
+1. **C2's trial goes on with APK 0.82** (§97.2; what is owed on his face is above), and what the trial still owes: the feel of Main's scroll and tap; fields 16, 33, 34, 37, 38; `tapdrop`, `snapback`; the 114
    and 115 gaps; LEFT's first step on 240 fps video; a gesture's WAIT right after a session start (each staged strip
    is one flush of about 20 KB — two windows of about 1.3 s, modeled; the cure, a record split across flushes, is the
    first build after if it is felt). The `mainseq` probe leaves in the first build after stage 4 is armed.
