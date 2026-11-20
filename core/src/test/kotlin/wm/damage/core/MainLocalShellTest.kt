@@ -1385,7 +1385,11 @@ class MainLocalShellTest {
         assertEquals(1, r.row(), "$what: the first notch was adopted")
         assertTrue(r.right.any { img -> r.subs(img).any { r.isCommit(it, s) } }, "$what: a COMMIT of S $s")
         val counters = r.notes("local").filter { it.startsWith("35=") }
-        assertTrue(counters.none { "gap=" in it || "owesAtSettle=" in it || "stale=" in it }, "$what: ${counters.lastOrNull()}")
+        // a gap is a value above 0: `LocalRules.report` writes `gap` at every report, 0 included (`count("gap", g)`), so the
+        // key's presence alone failed whenever any counters' note followed the first report; `owesAtSettle` and `stale`
+        // are written only when one occurs, so their presence stays the test
+        fun gapOf(c: String) = Regex("""\bgap=(\d+)""").find(c)?.groupValues?.get(1)?.toInt() ?: 0
+        assertTrue(counters.none { gapOf(it) > 0 || "owesAtSettle=" in it || "stale=" in it }, "$what: ${counters.lastOrNull()}")
     }
 
     /** Decisions AZ.3, the update case of 14:40:56: the lens kept S 37 and its lease (40 s left); the phone's lease record
