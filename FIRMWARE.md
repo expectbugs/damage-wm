@@ -15,7 +15,9 @@ on both sides (Adam's word on `HANDOFF.md` §57's decisions; fork pin `48172b62�
 host C, the simulator and the v2 vectors agree, and the on-glass self-test ran the same day (`CLAIMS.md`). **§5 is built on
 both sides by build C1 (2026-11-15 → 17): the host C, the simulator and the v3 vectors agree; the fork's build
 `0dab2154…` is installed on Adam's pair since 2026-11-18 (`HANDOFF.md` §88), with nothing of §5 armed.** §6 is in contract form since 2026-11-13, not yet challenged (the note above §5); §7 and §8
-are the decided shape only. **Only the RIGHT lens can send** (`CLAIMS.md`): every reply and notify is
+are the decided shape only. *(2026-11-19: §6 is built by C2 and installed since 2026-11-19 (pin `b3f04453…`,
+`HANDOFF.md` §94), stages 0–4 armed; **§7 is the effects build C3, in contract form since 2026-11-19, not built**; the
+two drafts that were §7 and §8 are §8.1 and §8.2.)* **Only the RIGHT lens can send** (`CLAIMS.md`): every reply and notify is
 RIGHT's; the left lens's state is inferred from the same writes. CACHE_KEEP stays unarmed (the atlas skip is the
 phone's bounded one, §3). A section marked *draft* may change until its phase's test stop passes; after that it
 changes only with a contract-version bump.
@@ -32,7 +34,8 @@ changes only with a contract-version bump.
   (contract 1, no features; the Phase 1 candidate ends `18 1f`).
   Damage requires the contract version it was built for and reads `features` for what is present
   (bit 0 telemetry, bit 1 flags, bit 2 the presented notify, bit 3 cache-keep, bit 4 the self-test;
-  later bits are added with their features; the C1 candidate reports `0x1ff`, §5.1). A response without
+  later bits are added with their features; the C1 candidate reports `0x1ff`, §5.1; bit 10 local input, §6.8;
+  bit 11 the effects build, §7.9 — a C3 build reports `0xdff`, bit 9 still out). A response without
   field 110 is upstream g2flash. Nothing is ever gated on a token that could be dropped for space
   (the `img576` lesson): the field is a few bytes and has its own number.
 - Contract versions are integers. A bump means an existing op changed shape or meaning; adding an
@@ -127,7 +130,8 @@ on it, and journals every sid-0x10 frame as a `wear` note; what op 7 answers wit
   - *Request* (phone → each arm): sid 0x09 `G2SettingPackage{ 1: commandId 1, 2: magic 0, 112: body }`,
     body = 6 bytes `['D','M', version 1, op, argLo, argHi]` (the shape of upstream's field-101 lease
     control). Ops: **1 TELEMETRY** (arg = a request id the reply echoes) · **2 FLAGS_SET** (arg = the
-    complete flag set wanted, low 16 bits; bit 0 PRESENTED, bit 1 CACHE_KEEP, bit 15 PROBE) · **3
+    complete flag set wanted, low 16 bits; bit 0 PRESENTED, bit 1 CACHE_KEEP, bit 15 PROBE; later bits: 2 DRAW2 §4,
+    3 ENGINE and 5 ZWRITE §5.8, 4 BIND §6.8, 6 EFFECTS §7.9) · **3
     FLAGS_CLEAR** (arg ignored) · **4 CACHE_INFO** (arg = a request id; the record adds field 19). Every op
     replies with the telemetry record; an unknown op replies with status 1. A body of the wrong length,
     marker or version gets no reply.
@@ -141,7 +145,8 @@ on it, and journals every sid-0x10 frame as a `wear` note; what op 7 answers wit
     15 the last Damage frame's panel-transfer µs · 16 direct presents since boot · 17 cache generation ·
     18 cache size in bytes (when allocated) · 19 cache CRC-32 (CACHE_INFO, when allocated) · 20
     self-test steps since the last begin · 21 the last step refused (0/1) and 22 the scratch CRC-32
-    after it (both after a step)` — all uint32 varints. **The status register (field 4)** holds the
+    after it (both after a step)` — all uint32 varints (later fields: 23–26 §4, 27–29 §5.9, 30–34 §5.8, 35–39
+    §6.8, 40 §7.9). **The status register (field 4)** holds the
     status recorded by the last op that records one: FLAGS_SET (0, or 2 for a bit this build lacks),
     FLAGS_CLEAR (0), a malformed or unknown request (1 — recorded even when, for a bad body, nothing is
     answered). TELEMETRY and CACHE_INFO record nothing, so a refusal the phone did not see is still
@@ -245,7 +250,8 @@ offset or table outside the cache or malformed (a v1 write past the 64 KiB windo
 neither an adjust nor a glyph · 7 scratch (a slot out of range, empty on restore, over budget; the self-test's scratch
 missing) · 8 a mode with no handler, or one not allowed where it sits (a nested batch, a cache write in a batch, a
 non-drawing self-test step) · 9 DRAW2 not armed · 10 a clip or hint outside a batch · 11 an allocation failed · 12
-a value outside its range (a fill's level, a sub-op) · 13 a zlib or RLE stream that does not decode to its size (an inflate whose state the heap would not give it reads the same way) · 14 the display was still busy with the previous frame when the gate came free: the message is dropped whole and nothing of it reaches the shadow; on a C1 build also a message that must claim the engine's busy word and cannot — a cache write (12, 19, 25), a mode 26, a live mode 6 over an open slot (§5.11; on a healthy boot it does not happen: the copy hook never blocks while it holds the word; a word left held is §5.9's survival case). The
+a value outside its range (a fill's level, a sub-op) · 13 a zlib or RLE stream that does not decode to its size (an inflate whose state the heap would not give it reads the same way) · 14 the display was still busy with the previous frame when the gate came free: the message is dropped whole and nothing of it reaches the shadow; on a C1 build also a message that must claim the engine's busy word and cannot — a cache write (12, 19, 25), a mode 26, a live mode 6 over an open slot (§5.11; on a healthy boot it does not happen: the copy hook never blocks while it holds the word; a word left held is §5.9's survival case). Later reasons: 15 and 16 (§5.8), 17 and 18 (§6.8), 19 a fire whose
+close set holds an owning instance (§7.3). The
 v1 modes' order as built (upstream's checks, each now recording its reason): mode 12 checks each entry's shape (1) and
 the 64 KiB window (5) entry by entry, accepts a list with no data, then the lease (3) and the allocation (11); modes 13,
 14 and 15: no shadow (4) → the header's length (1) → the lease (3) → the string's own length (1; 14 and 15) → the table
@@ -407,8 +413,13 @@ last step the hook drew** (written by the hook under the engine word, read here 
 16..128 is skipped, and one with d ≥ T has nothing left to draw and gives no due time). With
 `k = min(T, 1 + ⌊(now − t0) / P⌋)`, `now − t0` an unsigned 32-bit difference (the tick wraps
 after ≈ 48.5 days), an instance with k > d is **due now**; otherwise its next due time is `t0 + d·P`, never past step T.
+*(C3, §7.7: on a bit-11 build a slot whose t0 is ahead of now — `(int32_t)(now − t0) < 0` — or that waits on a
+PLAY-AFTER's instance has nothing due; its due time is t0. Only PLAY-AFTER makes such a slot; with none, the rule
+changes nothing.)*
 When one is due now and no engine refresh is outstanding, the thread tries the gate and queues (below), then plans
-again and waits that plan's w — one refresh per wake (R1.13); when one is due now but a refresh is still outstanding,
+again and waits that plan's w — one refresh per wake (R1.13) *(C3, §7.10: on a bit-11 build, when that second plan
+finds a step due with nothing outstanding and every due slot's k is exactly d + 1, the wait is 1 tick instead of one
+period)*; when one is due now but a refresh is still outstanding,
 or the try or the put failed, w is one period (the smallest P among the due instances); otherwise
 `w = max(1, (int32_t)(due − now))` over the earliest due time — signed, so a time already passed gives one tick,
 never a wait of 0 nor one of ≈ 2³² ticks (a guard only: k > d is tested first); with nothing drawing,
@@ -489,6 +500,8 @@ are, sharing the cache's budget. Little-endian; s16 coordinates; a per-lens pair
 | track | 12 or 20, then its segments | `segments u8 (1..8) · backdrop u8 (0..15 a level · 0x20 self · 0xFF none) · perLens u8 (0/1) · 0 · area rect (8) or pair (16)` |
 | segment | 32 | `verb u8 (0 WAIT · 1 FILL · 2 DRAW · 3 REVEAL) · steps u8 (1..255) · ease u8 (0 linear · 1 ease-out · 2 table) · kind u8 · src u16 · xL s16 · xR s16 · y s16 · dxL s16 · dxR s16 · dy s16 · lvl0 u8 · lvl1 u8 · opt u8 · 0 · table u16 · h0 u16 · h1 u16 · anchor u8 · 0 · pref0 u8 · pref1 u8` |
 | easing table | 2 + 2n | `n u8 (1..255) · 0 · E[1..n] s16`, E[n] = 4096 |
+| header, version 2 (C3) | 8 | `version u8 = 2 · tracks u8 · length u16 · flags u8 (bit 0 OWN, bit 1 LAND) · 0 u8 · 0 u16` — a version-2 record is malformed (5) unless EFFECTS is armed; §7.2 |
+| segment, version 2 (C3) | 40 | the 32 B above, then `w0 u16 · w1 u16 · aux0 u16 · aux1 u16`; verbs 4 PIECES · 5 SHRINK · 6 GLYPHS, source kind 4 `new`, backdrop 0x21 `new`, pref fields 14–17: §7.2 |
 
 - **kind / src:** FILL — kind is the level (0..15). DRAW — kind 0 a v2 image record at `src` (off4) · 2 `self`. REVEAL —
   0 a record · 2 `self` · 3 a solid level `src` (0..15) of width dxL and height dy (dxL on both lenses, a per-lens
@@ -512,7 +525,9 @@ are, sharing the cache's budget. Little-endian; s16 coordinates; a per-lens pair
   `v(n) = v0 + D` exactly. Bounces and overshoot are uploaded tables (E may leave 0..4096).
 - **Parameters:** a PLAY carries P0..P3 (s16). `pref` bit 7 = used, bits 0–1 = which parameter, bits 2–6 = the field
   it replaces: 0 src · 1 xL · 2 xR · 3 xL and xR · 4 y · 5 dxL · 6 dxR · 7 dxL and dxR · 8 dy · 9 lvl0 · 10 lvl1 ·
-  11 h0 · 12 h1 · 13 steps (u8 fields take the low byte; every check runs after substitution).
+  11 h0 · 12 h1 · 13 steps (u8 fields take the low byte; every check runs after substitution); in a version-2 record
+  also 14 w0 · 15 w1 · 16 aux0 · 17 aux1 (u16 fields take the whole value; a field above 13 in a version-1 record and
+  above 17 in a version-2 record is 5, §7.2).
 - **Per step, per track:** a track paints **its whole area at every step 1..T**: first its backdrop (a level fill;
   `self` = the capture; none = nothing), then its segment's state, clipped to the area. A track holds the state it
   reached: before its first non-WAIT segment, that segment's state at j = 0; after a segment, its final state; tracks
@@ -547,6 +562,8 @@ in §5.9 start at a message reached alone or admitted by its container.
 | 0 PLAY | `slot u8 (0..3) · period u8 (16..128) · prog u16 (off4) · tag u16 · cap u16 (off4; read only for a track whose backdrop or any segment is `self`) · P0..P3 s16` (16 B) | closes the slot's instance, every open instance whose areas meet this one's, and every open instance whose read ranges meet the capture range (one pass, in slot order: R1.20); writes the `self` captures into the cache at `cap`; **writes END into the shadow**; keeps the CRC; opens the instance and sets the engine's flag; step 1 drawn by this message's present |
 | 1 RETARGET | `slot u8 · P0..P3 s16` (9 B) | for an open instance (drawing or done): writes END(prog, new P) into the shadow; restarts the instance at step 1 now, each moving segment from the state this lens last drew (with nothing drawn yet, each track's start state: its first non-WAIT segment at j = 0 under the old parameters, A.13) to the new final state; a track with a leading WAIT runs the WAIT's steps again holding that state, then moves from it (R1.2); on this restart path a level is clamped to 0..15 and an extent to 0..F, so an overshoot never wraps (R1.10; the extent's lower clamp is reached by no input the checks accept, R3.1, and stays a guard); END ordinal + 1. Only for programs every track of which has the shape [W], [X] or [W, X] — one optional leading WAIT, at most one other segment, no trailing WAIT (else 12; R1.9) |
 | 2 CLOSE | `slot u8` (0xFF all) (1 B) | empties the slot whatever this lens was drawing (its captures are cache bytes: nothing is freed); a drawing instance's notify says outcome 1, a done one sends none — only the notify depends on timing; an accepted CLOSE presents like every gated message — alone its own present, in a batch the batch's — and a CLOSE that ends an open instance marks the panel stale, so that present shows the shadow, which holds END, whole (R1.1); an empty slot: nothing |
+| 3–5 | COMMIT · DISCARD · SETTLE | §6.5 (a bit-10 build) |
+| 8 PLAY-AFTER | `slot u8 · period u8 · prog u16 · tag u16 · after u8 · P0..P3 s16` (15 B) | a bit-11 build: an owning program's PLAY that starts when the owning instance in `after` has drawn its last step — §7.7; subs 6, 7 and 9..255 stay unknown |
 
 **Check order (the reason recorded is part of the contract):** no shadow (4; A.6) → length (1; an unknown sub must be
 3 bytes, R1.8) → the lease (3) → the engine's busy word claimed (14 if it cannot be, R1.15; the flags are read under
@@ -985,17 +1002,24 @@ version stays 2; DamageCaps bit 10 (§6.8).
      call. A guard only: the display task never blocks while it holds the word and at priority 45 is never preempted
      by the ui_task, and the stock start-up zeroes the context's slot word at every reset (`HANDOFF.md` §87).
   7. Under the word, each read once: DRAW2, ENGINE, BIND and `bind_live` — any clear → refused **15**; the entry and
-     its list (item table, count, cursor, pitch, mark, the S of its newest fire).
+     its list (item table, count, cursor, pitch, mark, the S of its newest fire, and on a bit-11 build its RING flag,
+     §7.8). On a bit-11 build a RING list, or an entry with a kind-3 parameter, with EFFECTS clear (read in the same
+     once) → refused **15**.
   8. The list's cursor lost (0xFFFF, §6.3) → refused **18**, nothing drawn.
   9. The new cursor c' = cursor + step (step 0 for a tap). Outside 0..count−1 → **edge** (§6.4). The parameters:
      Pi = arg (kind 0) · the item table's entry at c' + arg (kind 1; no table, or c' + arg outside 0..count−1 → edge)
-     · c' × pitch + arg (kind 2, computed in s32; outside s16 → refused **12**). The parameters are evaluated in index
+     · c' × pitch + arg (kind 2, computed in s32; outside s16 → refused **12**) · on a bit-11 build, cursor + arg
+     (kind 3: the cursor **before** the move; computed in s32, outside s16 → **12**). A RING list (§7.8) moves the
+     cursor modulo its count and takes kinds 1 and 2 at the virtual row instead. The parameters are evaluated in index
      order, and the first that gives an edge or 12 decides the fire.
   10. §5.5's checks from the walk onward, on (the entry's period, prog, P): the program record and every record and
-      table it names inside the cache and well formed, no `self` source or backdrop (**5**) → areas (**2**) → a `none`
+      table it names inside the cache and well formed, no `self` source or backdrop (**5**; on a bit-11 build also
+      §7.2's rules for a bound program: no OWN, no `new`, a version-2 record only with EFFECTS armed) → areas (**2**) → a `none`
       backdrop's area (**2**) → every step's values after substitution (**12**; with §6.6's H rule) → the thread and
       flags at first use (**11**: a null handle; both are made from static memory, §5.2).
-  11. The close set: the slot's instance and every open instance whose areas meet, in slot order. **A tap fire whose
+  11. The close set: the slot's instance and every open instance whose areas meet, in slot order. *(C3, §7.3: on a
+      bit-11 build a fire whose close set holds an owning instance is refused **19**, nothing closed — tested before
+      17's test; a report-only fire closes nothing and is not tested.)* **A tap fire whose
       close set holds a local instance is refused 17, nothing closed** (closing an uncommitted scroll would show the
       old row around the press). A local instance here is any open slot flagged local — drawing, holding at d = T,
       or done: a present on the stock path turns it done and leaves the flag (§5.3), which only its slot's emptying
@@ -1043,16 +1067,20 @@ whatever the message's length, as §5.5 states for mode 26. **Not gated:** it ta
 
 | sub | message body after `[27][sub]` | what it does |
 |---|---|---|
-| 0 SET | `entry u8 (0..7) · devType u8 · eventId u8 · list u8 (0..3) · step s8 · slot u8 (0..3) · period u8 (16..128) · prog u16 (off4) · 4 × {kind u8 (0..2), arg s16}` (21 B) | writes one entry. **Two shapes only:** a scroll entry — eventId 4 or 5, devType 0xFF (any), step ≠ 0; a tap entry — eventId 0, devType 4 (the ring), step 0. Anything else is refused 12. A tap entry whose prog is 0xFFFF (LIST's "none") is **report-only**: it names no program and its fire draws nothing (§6.2); its period and parameters are checked as any SET's and not used (D0). **An entry's presence is its own mark, never `prog`:** a report-only entry is a live tap entry whose `prog` is 0xFFFF, read under the word. Parameters as §6.2 step 9. **One slot per list:** an entry whose list another entry binds to a different slot is refused 12 (a tap entry shares its list's slot) |
+| 0 SET | `entry u8 (0..7) · devType u8 · eventId u8 · list u8 (0..3) · step s8 · slot u8 (0..3) · period u8 (16..128) · prog u16 (off4) · 4 × {kind u8 (0..2; 0..3 on a bit-11 build while EFFECTS is armed, §7.8), arg s16}` (21 B) | writes one entry. **Two shapes only:** a scroll entry — eventId 4 or 5, devType 0xFF (any), step ≠ 0; a tap entry — eventId 0, devType 4 (the ring), step 0. Anything else is refused 12. A tap entry whose prog is 0xFFFF (LIST's "none") is **report-only**: it names no program and its fire draws nothing (§6.2); its period and parameters are checked as any SET's and not used (D0). **An entry's presence is its own mark, never `prog`:** a report-only entry is a live tap entry whose `prog` is 0xFFFF, read under the word. Parameters as §6.2 step 9. **One slot per list:** an entry whose list another entry binds to a different slot is refused 12 (a tap entry shares its list's slot) |
 | 1 CLEAR | `entry u8` (0..7, 0xFF all) (1 B) | removes the entry (0xFF every entry); lists stay |
 | 2 LIST | `list u8 (0..3) · items u16 (off4 of a table of count u16 off4 entries, or 0xFFFF none) · count u16 (1..1024) · shift s16 · pitch s16 · mark u8` (10 B) | the staged range, **always applied**: items, count, pitch and mark replaced; the cursor becomes old + shift when that is inside 0..count−1, else **lost (0xFFFF)** — old is the list's cursor (0 for a list that is not live, count 0); a lost cursor stays lost. A fire on a lost cursor is refused 18 (§6.2 step 8); DISCARD and SETTLE set an absolute cursor and clear it (§6.5). The newest S is not touched. There is no absolute form: a resync is DISCARD's job |
+| 4 LIST-RING | LIST's body, then `flags u8` (bit 0 RING) (11 B) | a bit-11 build: LIST as above, and the list rings — its shift and its fires move the cursor modulo the count (§7.8); a plain LIST clears the flag. Sub 3 and 5..255 stay unknown subs |
 
 **Check order (the reason recorded is part of the contract):** the container's list (8) → length (1; SET 23 B, CLEAR
-3 B, LIST 12 B with the two header bytes; an unknown sub, 3..255, must be 3 B) → the lease (3) → **the engine's busy
-word claimed (14)** → DRAW2 (9) → ENGINE (15) → BIND (15) → values (12: every range in the table above, the two entry shapes, one slot
-per list; an unknown sub here) → LIST: the item table `[items·4, items·4 + 2·count)` inside the cache (5) → SET: the
+3 B, LIST 12 B with the two header bytes; an unknown sub, 3..255, must be 3 B; on a bit-11 build LIST-RING 13 B and the
+unknown subs are 3 and 5..255) → the lease (3) → **the engine's busy
+word claimed (14)** → DRAW2 (9) → ENGINE (15) → BIND (15) → *(a bit-11 build, LIST-RING only)* EFFECTS (15) → values (12: every range in the table above, the two entry shapes, one slot
+per list, LIST-RING's flag bits 1–7 zero, SET's kind 3 only while EFFECTS is armed; an unknown sub here) → LIST and
+LIST-RING: the item table `[items·4, items·4 + 2·count)` inside the cache (5) → SET: the
 program record's own structure — §5.4's header, tracks and segments, enumerations and reserved bytes — and no track's
-backdrop or segment `self` (5); none for a report-only tap entry, while a scroll entry naming 0xFFFF fails this check
+backdrop or segment `self` (5; on a bit-11 build also §7.2's rules for a bound program: no OWN flag, no `new` source or
+backdrop, a version-2 record only while EFFECTS is armed); none for a report-only tap entry, while a scroll entry naming 0xFFFF fails this check
 (5: no program fits there) (D0). What depends on the parameters (the records they name, areas, step values) is checked
 at every fire (§6.2 step 10), so a local draw depends only on the cursor and the cache. Only then is anything written.
 
@@ -1153,6 +1181,7 @@ at every fire (§6.2 step 10), so a local draw depends only on the cursor and th
 | 15 | uptime (OS ticks) at the fire |
 | 16 | the fire's µs inside the hook: from its entry to the let-down (the sends and the stock call excluded) |
 | 17 | the list's mark (the last LIST this lens applied) |
+| 18 | on a bit-11 build, 1 when a RING list's fire wrapped (the virtual row differs from the new cursor, §7.8); omitted otherwise |
 
 **Bodies:** refused 3 or 14 (decided before the read under the word) carry fields 1, 2, 3, 5, 6 and 15 only. Every
 other report carries 1–9 and 15–17 — **16 is left out when the cycle counter was not running at the fire's end**
@@ -1501,6 +1530,7 @@ that `tools/journal_report.py` counts by cause):
 - **DamageCaps bit 10:** the hook, mode 27 (the report-only tap entry included), mode 26's subs 3–5, notify 115 and
   114's outcome 3, mode 28 and DRAW's h0, h1 and anchor, telemetry 35–39, reasons 17 and 18, flag bit 4. The phone
   sends none of them without it.
+- **Stage 5 = EFFECTS** (flag bit 6, with stage 4's flags) is §7.9's; its hold-back is stage 4's below.
 - **The ladder gains stage 4 = BIND** (with stage 3's ENGINE and the rest), set by hand as C1's stages are (`probe
   c1=N`), never advanced by itself; a hand `flags=` probe cannot arm bit 4 beyond the stage. Its rung is recorded before
   its FLAGS_SET (R2 B-M1's shape). The tap entry is SET at stage 4 only: report-only with `Taps · report`, with its
@@ -1731,7 +1761,8 @@ case-in (the journal; the calendar fallback covers a miss) · COMMIT CRCs equal 
 - **The binding epoch** — the mark and P3's compare of the program and parameters do its work.
 - **Field 30's "local" bits** — SETTLE is blind; field 36 gives RIGHT's last S.
 - **Per-burst reports** — a clock on the input path, and a lost report would cost a burst.
-- **A wrap motion on Main** (the whole list sliding from the wrapped cursor) — a feel question for after the trial
+- **A wrap motion on Main** (the whole list sliding from the wrapped cursor) *(C3: the phone's PLAY at the edge report
+  since APK 0.80; the ring list fired by the glasses is §7.8)* — a feel question for after the trial
   week; until then Main's wrap is the staged edge (§6.4).
 - **A local bounce at a real list end** — Main has no real end (it wraps); lists with ends are bound in K.
 - **The hook consuming bound scrolls** — the dispatcher's other work for ids 4/5 is unread; field 33 first.
@@ -1742,21 +1773,433 @@ case-in (the journal; the calendar fallback covers a miss) · COMMIT CRCs equal 
 - **A gate take around the word's holders** (§6.4's fold, R2 A-S1 with HOLD) — a new wait.
 - **A notice on the glasses for each dropped tap** — on `glasses` the press going out is the signal; on `report` a
   dropped tap shows nothing (§6.7, what a dropped tap shows); the journal counts both, per `Taps` value.
-- **Local input with the phone away** — the offline home (step G, §8).
+- **Local input with the phone away** — the offline home (step G, §8.2).
 - **K's programs** beyond Main's pan and press (`MOTION.md`).
-- **A cheaper whole-list pan** (a framebuffer row-copy verb: a pan by whole rows is whole-byte row moves) — new
+- **A cheaper whole-list pan** *(C3: PIECES in place in a bound program, §7.4)* (a framebuffer row-copy verb: a pan by whole rows is whole-byte row moves) — new
   firmware; the motion kit's, not C2's (decisions V).
 - **C1's carried items** — a session identity on the image lane; the masked section for the scratch's and slots'
   release windows (A.14).
 
-## 7. v2 firmware-owned chrome (Phase 5; in the first flash only if its measurement says it pays, `REPLAN.md` §5) — *draft*
+## 7. v2 effects (the third flash, C3) — *contract 2026-11-19, from the C3 design pass as ruled (`private/c3-design/C3-design.md`, `C3-decisions.md` A–C); not built*
+
+Grades as §5 and §6: **V** read at instruction level (an address given), **V-src** read in the fork's source (branch
+`c2`), **M** measured on Adam's pair, **I** inferred or modeled, **U** unknown. This section is the only thing the
+fork's lane and Damage's lane share: every rule below is meant to be decided from the text alone. Where it extends a
+rule of §4–§6, the rule there carries a pointer to the paragraph here, and the rest of that rule stands.
+
+**What C3 carries, in seven lines.** (1) Program records of **version 2** (§7.2): an 8-B header with two flags and
+40-B segments, three new verbs, a source and a backdrop that read the shadow. (2) **The owning instance** (§7.3): a
+program flagged OWN holds its area of the panel; while it is open a phone frame's present leaves that area as it is,
+and with LAND its last step copies the shadow in — the transition between the panel's picture and the picture drawn
+behind it, with no staged copy of either. (3) **PIECES**, **SHRINK** and the **two-axis DRAW** (§7.4, §7.5): moves,
+slices, tiles and nested shrinks of the panel's picture **in place**, and the shadow drawn moved, ramped, sliced, tiled
+or scaled in both axes. (4) **GLYPHS** (§7.6): text cells and rain columns drawn from the atlas, with a stateless hash
+for randomness. (5) **PLAY-AFTER** (§7.7): an in half that starts on each lens when the out half has drawn its last
+step. (6) **The ring list** and SET's **kind 3** (§7.8). (7) **The plan's late step** (§7.10). One flag bit (6
+EFFECTS), one ladder stage (5), DamageCaps bit 11, refusal 19, telemetry 40, the 115's field 18. **No new patch
+site**; contract version stays 2.
+
+### 7.1 Facts C3 rests on
+
+| fact | grade, basis |
+|---|---|
+| Two full pictures exist per lens: the **shadow** (the container's display buffer A, 153,600 B packed 4bpp, written only by the image worker while it holds the display gate) and the **framebuffer** (`*0x200007B8`, the same size, written only on the display task by the copy hook: the copy, the engine's steps, the overlay, a data-cache clean). No third full-size buffer fits beside a 256 KiB cache (arena 13: 130 KiB free, largest block 114 KiB) | V-src `zlib_glue.c` 223, 779–799, 1013–1104; M (`HANDOFF.md` §94) |
+| Per type-3 message the display task runs the copy (the hook) at `0x00473C8E`, **gives the gate at `0x00473C92`**, tests the panel, then refreshes at `0x00473CE4` (the JBD4010's full refresh `0x00592DEA`, the record word `0x0070B04C`) | V |
+| The full refresh starts the transfer (`0x00592E2A` → `0x0059CE1E`) and waits on a semaphore-acquire-shaped call (`0x0059CEB2` → `FUN_0044994E`, 0xBB8 ticks), then calls an osDelay-shaped `FUN_00449376(2)` (`0x00592E92`): during every transfer and for 2 ticks after it the priority-44 tasks run | V for the instructions; the names: I |
+| `present_shadow` publishes the mode-24 hint with the shadow pointer while the worker holds the gate; the copy hook latches it once | V-src `zlib_glue.c` 785–798, 1074–1080 |
+| The fire stamps c0 after the match, walks the program at step 10 and sets t0 at step 12 | V-src `damage_input.c` 340, 361, 381 |
+| A record DRAW is walked whole every step (validation, then the render), one nibble written per pixel through a clip test; a full-panel byte copy with its cache clean measures 0.54–0.62 ms | V-src `damage_draw.c` 120–145, 194–235; M (telemetry field 6) |
+
+### 7.2 Program records version 2, and where each program may run
+
+**Header** (8 B): `version u8 = 2 · tracks u8 (1..8) · length u16 · flags u8 · 0 u8 · 0 u16`. Flags: bit 0 **OWN**
+(§7.3), bit 1 **LAND** (needs OWN), bits 2–7 zero. **Track:** as §5.4. **Segment** (40 B): §5.4's 32 B, then `w0 u16 ·
+w1 u16 · aux0 u16 · aux1 u16`. A version-2 record is **malformed (5) unless EFFECTS (flag bit 6) is armed**, read once
+where the program is walked; a version-1 record keeps §5.4's and §6.6's enumerations and rules exactly.
+
+**Verbs, kinds, backdrops, parameters.** Verbs 0 WAIT · 1 FILL · 2 DRAW · 3 REVEAL (§5.4, §6.6, extended below) ·
+**4 PIECES** (§7.4) · **5 SHRINK** (§7.5) · **6 GLYPHS** (§7.6); above 6: 5. Kinds — FILL: the level 0..15 · DRAW: 0 a
+record, 2 `self`, **4 `new`** · REVEAL: 0 a record, 2 `self`, 3 a level, **4 `new`** · PIECES: **0 old** (in place),
+**4 new** · SHRINK: **0** only · GLYPHS: **0 CELLS**, **1 RAIN**; any other kind: 5. Backdrops: 0..15 · 0x20 `self` ·
+**0x21 `new`** (this lens's track area of the live shadow) · 0xFF none; any other: 5. `pref` field codes: §5.4's 0..13,
+then **14 w0 · 15 w1 · 16 aux0 · 17 aux1** (u16 fields take the whole value); above 17: 5.
+
+**Which fields each verb uses** (a field not listed for verbs 4–6, and w0, w1, aux0, aux1 for every verb that does
+not list them, must be 0, else 5; for verbs 0–3, §5.4's "a field a verb does not use is ignored" and §6.6's h0/h1/anchor
+rules stand):
+
+| verb | uses (besides verb, steps, ease, table, pref0, pref1) | opt bits allowed |
+|---|---|---|
+| DRAW | kind, src, xL/xR, y, dxL/dxR, dy, lvl0, lvl1, h0, h1, **w0, w1**, anchor (bits 0–1 vertical, **bits 2–3 horizontal**) | 4 transparent, 5 inverse |
+| REVEAL | kind, src, xL/xR, y, dxL (a level source's width), dy (its height) | 0–2 as §5.4 |
+| PIECES | kind, src (the vacate level, layer old), xL/xR, y, dxL/dxR, dy, lvl0, lvl1, h0 (the seed), w0, w1 (read as s16: the factor's ends), aux0, aux1 | 4 transparent (layer new), 6 reseed every step (layer new), 7 mix the tag |
+| SHRINK | src (the vacate level), lvl0, lvl1, h0, h1, w0, w1, anchor (bits 0–3) | none |
+| GLYPHS | kind, src (a record), xL/xR, y, dxL/dxR, dy (offsets), lvl0, lvl1, h0 (the seed), aux0 (CELLS: the list's index) | 7 mix the tag |
+
+An anchor of 3 on either axis, or anchor bits 4–7, is 5. **The seed** of a PIECES or GLYPHS segment is its h0 after
+substitution, exclusive-or the instance's tag when opt bit 7 is set (a local fire's tag is its S).
+
+**In-place tracks.** A track is *in place* when its non-WAIT segment is PIECES kind 0, SHRINK, or GLYPHS kind 1 whose
+rain record has reveal 1 or 2. An in-place track reads the framebuffer and rewrites its whole area at every step it
+draws. Its rules: its backdrop is none (5); its segments are WAITs and exactly one non-WAIT segment (12); it is the
+program's **first** track and the only in-place track (12); its ease is non-decreasing — ease 0 or 1, or a table
+whose E[0..n] never falls (5). **Where a program may run** (each 5, checked in the walk):
+- an **OWN** program only by PLAY or PLAY-AFTER — a SET naming one, a fire, a COMMIT: 5 (RETARGET: 12, below);
+- `self` (source or backdrop) never in an OWN program;
+- `new` (source or backdrop), and a rain record with reveal 1, only in an OWN program;
+- an in-place track in a non-OWN program reached by PLAY or PLAY-AFTER: 5 (it may run in an OWN program and in a bound
+  program — SET, a fire, a COMMIT).
+
+**The base.** An in-place track at a present that draws step k starts from a *base step* b: the framebuffer holds the
+picture the instance left after step b. On the preserve path b = d. On the direct path b = 0 for a non-OWN instance (the
+copy just put the shadow into its area: for a local instance the pre-gesture picture) and b = d for an OWN instance
+(its owned rect was not copied, §7.3). A present on the direct path that copied the shadow and drew no step because it
+lost the engine word sets a **base-reset mark** (the display task's alone); the next present that draws treats every
+non-OWN in-place track's base as 0 and clears the mark. A fold therefore needs no rule of its own: an in-place track's
+result at step k is a function of the base picture, b and k (§7.4–§7.6 define it so), equal to the result of drawing
+every step between. Pixels other tracks of the same instance drew at step b inside an in-place track's area are part of
+its base; a program stays fold-independent when each later track repaints at every step every pixel it painted at the
+step before (the phone's rule, §7.11).
+
+**The none-backdrop rule for a version-2 record** (replaces §5.5's at its position, 2). A track *paints its whole area*
+when its backdrop is a level, `self` or `new`, or it is in place. A track whose backdrop is none and which does not paint
+its whole area must lie (both rects) inside an earlier track's area that does — except a REVEAL in an OWN program with a
+non-decreasing ease, whose uncovered part is the panel's picture the instance keeps. Otherwise 2.
+
+**END** (§5.4, for a COMMIT of a bound program): an in-place track's END is its result at step T from base 0 on this
+lens's shadow, written into the shadow; a GLYPHS track's END is its step T painted into the shadow. An OWN program writes
+no END (§7.3).
+
+**RETARGET on a bit-11 build:** its shape rule (12) also refuses an instance whose program is OWN or carries a PIECES,
+SHRINK or GLYPHS segment or a `new` source or backdrop. A DRAW's W is clamped to 1..2048 on its restart path as H is
+(R1.10), restarting from the width it last drew (§7.5).
+
+**The check order of a PLAY, PLAY-AFTER and RETARGET on a bit-11 build** (§5.5's, with C3's checks in place): no shadow (4) → length (1; PLAY-AFTER 17 B with the two header bytes) → the lease (3) → the engine's busy
+word (14) → DRAW2 (9) → ENGINE (15) → *PLAY-AFTER:* EFFECTS (15) → slot and period (12; *PLAY-AFTER:* `after` 0..3 and
+not `slot`, 12) → *RETARGET:* an empty slot (16), then the shape rule (12, above) → the walk (5): the header (version 2
+needs EFFECTS; flags), each segment's verb, kind, unused fields, anchor and opt bits, pref codes, the context rules
+above, the in-place backdrop and ease, then every record and table the program names inside the cache and well formed
+(§7.4–§7.6 name them; everything inside a named record is the walk's, 5) → areas (2) → the none-backdrop rule (2) →
+values (12): *PLAY-AFTER:* the program carries OWN; the in-place track's shape and place; then every segment field's
+range after substitution and every step's values (§5.5's list, §6.6's H rule, §7.4–§7.6's) → the capture range (5) →
+*RETARGET:* the new first range (5) → the thread and flags at first use (11). A COMMIT keeps §6.5's order, and a fire
+(§6.2 step 10) and a SET (§6.3) theirs: each applies the walk's version-2 and context rules at its own walk position and
+§7.4–§7.6's values at its own step-values position.
+
+### 7.3 The owning instance, the source `new`, and the held present
+
+- **Owning.** An instance opened by a PLAY or PLAY-AFTER of an OWN program carries an **owns** mark. Its **owned rect**
+  on each lens is the bounding box of its tracks' rects on that lens. The mark is cleared by LAND (below), by every close
+  or emptying of the instance (CLOSE, a close pass, a PLAY into its slot, a live keyframe, a cache write that meets its
+  read ranges), on the stock path (§5.3: every instance turns done and owns nothing), at mode 11 and at every release
+  point (the settlement).
+- **The held present.** `present_shadow` (the image worker, holding the gate) claims the engine word, reads each slot's
+  owns mark once and records the owned rect of every slot that owns, lets the word down, then queues the present with
+  the rects (they ride the job as the hint does). A claim that fails records no rect and the copy is whole (by §5.11 the
+  ui_task's claim does not fail; it is counted in field 33 if it does). **The copy hook's direct path copies the shadow
+  into the framebuffer except inside the job's rects**, read once. So a phone frame that lands while an instance owns is
+  written into the shadow and shown everywhere but its owned rect. Nothing new is sent for it.
+- **Steps.** An owning instance draws a step only when k > d, on every path (its owned rect still holds step d). A
+  present on the direct path that draws no step may carry its mode-24 hint as §4 allows (the owned rect's rows show what
+  the panel already shows).
+- **No END.** A PLAY or PLAY-AFTER of an OWN program writes nothing into the shadow. Its 114 bodies carry END ordinal 0
+  and, in field 8, RIGHT's CRC-32 of the shadow over the instance's areas (§5.6's form) taken right after the message's
+  closes.
+- **Step T.** The last step's notify is owed as for any instance (outcome 0). **With LAND** the hook copies the shadow
+  into the owned rect in place of painting step T's tracks, clears the owns mark, and the instance is done; the
+  present that drew it goes whole and marks the panel stale (A.12). **Without LAND** the instance is done and keeps
+  owning: the plan skips it, no path redraws it, its owned rect keeps step T until something ends the mark.
+- **What each close does.** Every close of an owning instance clears the mark and marks the panel stale (§5.3), so the
+  closing message's present — taken after its closes — copies the shadow into what was owned and goes whole.
+- **The fire.** A fire whose close set holds an owning instance is refused **19**, nothing closed (§6.2 step 11, tested
+  before 17's test; a report-only fire closes nothing and is not tested). A COMMIT's close pass closes an owning
+  instance as any other.
+- **The source `new`** (DRAW, REVEAL, PIECES kind 4) and **the backdrop `new`**: this lens's track area of the live
+  shadow, read by the copy hook under the engine word at every step it draws, as a source of the area's width and
+  height whose pixel (c, r) is the shadow's pixel (l + c, t + r) of this lens's rect. A DRAW of `new` at rest (x, y = the
+  rect's corner, no move, level 15, unscaled) paints the shadow's own picture. The type-6 recovery redraw runs the hook
+  with nobody holding the gate (§5.2): a step drawn there may read a shadow the worker is writing — one picture, which
+  the next present replaces (I).
+
+### 7.4 PIECES (verb 4)
+
+The track's area on this lens (l, t, w, h) is cut into a grid: **gw = aux0 & 0xFF, gh = aux0 >> 8**, each 1..64,
+gw·gh ≤ 256 (12). Piece p = j·gw + i (column i, row j) has its **home rect** columns `[l + ⌊i·w/gw⌋, l + ⌊(i+1)·w/gw⌋)`
+and rows `[t + ⌊j·h/gh⌋, t + ⌊(j+1)·h/gh⌋)`, and its centre c = ((left + right) >> 1, (top + bottom) >> 1) of the home
+rect. **model = aux1 & 3** (0 uniform · 1 radial · 2 random; 3: 5), aux1 bits 2–7 zero (5), **stagger = aux1 >> 8**.
+
+**The displacement at local step t** (e = E[t], 0..4096; x, dx per lens as §5.4; products in s32, `>>` arithmetic).
+The **factor** f = f0 + (((f1 − f0)·e + 2048) >> 12) in 1/4096, with f0 = w0 and f1 = w1 read as s16 (f0 = 0, f1 = 4096
+moves from home to the full displacement; f0 = 4096, f1 = 0 from the full displacement home):
+- *uniform* (aux0 must be 0x0101, else 12): D = ((dx·f + 2048) >> 12, (dy·f + 2048) >> 12) for the area as one piece.
+- *radial* (dxL, dxR and dy must be 0, else 12): D_p = (((c.x − x)·f + 2048) >> 12, ((c.y − y)·f + 2048) >> 12), (x, y)
+  this lens's anchor.
+- *random:* r = H3(seed, p, 0), or H3(seed, p, t) with opt bit 6; rx = r & 0xFFFF and ry = r >> 16, each read as s16;
+  DX = (dx·f + 2048) >> 12, DY = (dy·f + 2048) >> 12; D_p = ((rx·DX) >> 15, (ry·DY) >> 15).
+- *stagger* (layer new only; else 12): n' = steps − stagger ≥ 1 (12); δ_p = H3(seed, p, 1) mod (stagger + 1); the
+  piece's local step t_p = min(max(t − δ_p, 0), n') and e = the segment's ease at t_p over n' steps (ease 0 and 1 by
+  §5.4's formulas at n'; ease 2: the table's n must equal n', else 5). With stagger 0, e = E[t] over the segment's steps.
+
+**Layer new (kind 4; OWN programs only).** Over the track's backdrop, pieces in index order: the shadow's home rect
+of piece p (this lens) drawn at its home rect moved by D_p(t), clipped to the track's area, through the level ramp
+`make_lut(lvl(t))` with lvl(t) eased from lvl0 to lvl1 as DRAW's; a source pixel of 0 is not drawn when opt bit 4 is
+set. `src` must be 0 (12).
+
+**Layer old (kind 0; in place).** `src` is the vacate level (0..15, 12). Opt bits 4 and 6 are 5. f0 = 0, and f1 ≥ 0 for
+the radial model (12): the displacement starts at home and only grows. Model random only with gw = 1 and dy = 0 (12). From base step b (§7.2) to step k, with Δ_p = D_p(k) − D_p(b) and the **base rect** of piece p =
+its home rect moved by D_p(b) (the home rect when b = 0), clipped to the area: every pixel q of the area becomes
+- if q lies in the home rect of some piece p moved by D_p(k) (clipped to the area) and q − Δ_p lies in p's base rect:
+  **G(b → k)** of the base picture's pixel at q − Δ_p (when two pieces' moved rects contain q — no accepted input makes
+  that — the higher index wins);
+- otherwise `src`.
+**G(b → k)** = g_k ∘ … ∘ g_(b+1) (the identity when b = k), with L_t the track's level at instance step t (§5.4's
+state rule; L_0 = 15) and g_t(v) = 0 when L_(t−1) = 0, else min(15, ⌊v·L_t / L_(t−1)⌋). The vacate level is not passed
+through G. *(Informative, the in-place order the C can use, which the result above does not depend on: radial pieces
+moved in decreasing ring |i − ia| + |j − ja| from the piece holding the anchor clamped to the grid, ties in index
+order, each piece's rows in the order that never reads a row already written; since every displacement grows with the
+distance from the anchor and the floors are monotone, a piece's destination meets only its own source and the sources of
+pieces farther out, which have moved.)*
+
+**Read range:** the program record and its table, as §5.6. **Cost (I):** layer old ≈ the area's bytes moved once plus
+fills — ≈ 0.6 ms for the whole panel, about twice that when Δx is odd; layer new ≈ a copy and the table, 1–2 ms.
+
+### 7.5 SHRINK (verb 5) and the two-axis DRAW
+
+**SHRINK** (in place; kind 0). With Wa, Ha the track's area size: **w0 = w1 = 0** leaves the width unscaled (W(t) = Wa
+at every step), else
+**0 ≤ w1 ≤ w0 ≤ Wa** (12); the same for h0, h1 against Ha. W(t) = w0 + (((w1 − w0)·e + 2048) >> 12), H(t) likewise
+(e = E[t]); at instance step 0 the size is (Wa, Ha). `src` the vacate level (0..15, 12). Anchor bits 0–1 vertical
+(0 top · 1 centre · 2 bottom), bits 2–3 horizontal (0 left · 1 centre · 2 right).
+- **The drop order** of a size n ≥ 1: with m the least integer such that 2^m ≥ n, for t = 0 .. 2^m − 1, i = t with its m
+  low bits reversed; each i < n is the next index (n = 5: 0, 4, 2, 1, 3; n = 6: 0, 4, 2, 1, 5, 3; n = 12: 0, 8, 4, 2, 10, 6,
+  1, 9, 5, 3, 11, 7). **The rows kept at height H** are the first H indices of the order for Ha; the columns kept at
+  width W, the first W of the order for Wa (nested as the size falls).
+- **Placement** at size (W, H): the r-th kept row in increasing original index lies at area row a + r, with a = 0 (top),
+  (Ha − H) >> 1 (centre) or Ha − H (bottom); columns likewise.
+- **From base step b to step k:** every pixel q of the area becomes G(b → k) (§7.4) of the base picture's pixel at the
+  place, at size (W(b), H(b)), of the kept row and column q is the place of at size (W(k), H(k)); every pixel that is no
+  such place becomes `src`. *(Informative: rows moving up first in ascending order, then the rest in descending order;
+  columns through a 320-B row buffer per row.)*
+- **Cost (I):** rows ≈ 0.6 ms for the whole panel; columns ≈ 10–25 ms at full width, falling as the picture narrows.
+
+**DRAW, version 2.** **w0, w1** both 0 (unscaled) or both 1..2048 with every step's W(t) in 1..2048 (12; one 0 and one
+not: 12), W(t) eased as H. Output column c of a drawn width W takes source column ⌊(2c + 1)·w / (2W)⌋ (u32), w the
+source's width — the row map's form (§6.6); the horizontal anchor places the drawn rect at x (left), x + ((w − W) >> 1)
+(centre) or x + w − W (right), the vertical as §6.6. A source pixel (by both maps) is drawn through the level ramp, its
+transparency tested on the source, clipped to the area. Sources: a record (each output row's source row decoded from
+the stream, which is read front to back once), `new`, a level (REVEAL only); `self` only unscaled in both axes (12).
+RETARGET's restart path clamps W to 1..2048 and restarts it from the width the track last drew (the track's drawn state
+gains it, as C2 added H). **The wheel's sideways icons** are a DRAW v2 of their records with w0 → w1 and the centre
+anchor. No immediate mode for the two-axis draw is added.
+
+### 7.6 GLYPHS (verb 6) and the hash
+
+**The hash** (u32, wrapping): h(x): x ^= x >> 16; x *= 0x7FEB352D; x ^= x >> 15; x *= 0x846CA68B; x ^= x >> 16.
+H2(s, a) = h(s ^ h(a ^ 0x9E3779B9)); H3(s, a, b) = h(H2(s, a) ^ h(b ^ 0x85EBCA6B)). Values both models must give:
+h(0) = 0, h(1) = 0x688990C0, h(0xFFFFFFFF) = 0x6768824A, h(0x12345678) = 0xF5E71C96; H2(0, 0) = 0xAE6F80F1, H2(1, 0) =
+0xA07C7A97, H2(0x10001, 7) = 0x2EC199FE; H3(0, 0, 0) = 0xB015CF54, H3(5, 3, 9) = 0x848366AC, H3(0xBEEF, 12, 1) =
+0xB056A444. "mod" below is the unsigned remainder.
+
+**Positions.** A GLYPHS segment's x, y are **offsets**: X(t) = x + ((dx·e + 2048) >> 12) for this lens (x_L/dx_L or
+x_R/dx_R), Y(t) = y + ((dy·e + 2048) >> 12). Everything it draws is clipped to the track's area. **Glyphs.** A font is a
+224-entry v2 table (§4, 448 B at an off4); code c (32..255) names entry c − 32, an off4 to a v1 glyph record
+`[w u8][h u8][RLE]`. Every glyph record a step draws is validated again before it is drawn, as DRAW's source is (one
+that fails is not drawn; while the read-range close stands, none fails). A glyph is drawn at its cell's corner, through
+the cell's table, a source pixel of 0 not drawn.
+
+**Kind 0 CELLS.** `src` names a **cell table**: `n u16 (1..64) · 0 u16 · off4[n] u16`, padded to 4 B; **aux0** (after
+substitution) is the index, < n (12). The **cell list** it names: `count u16 (1..512) · alphabet off4 u16 · noise u8 · 0
+· 0 · 0`, then count × `{ x s16 · y s16 · w u8 · h u8 · font off4 u16 · old u8 · new u8 · fill u8 · opt u8 }` (12 B a
+cell); old and new 0 or 32..255; fill 0..15 or 0xFF (none); the cell's opt: level bits 0–3, bit 5 inverse, bits 4, 6
+and 7 zero (a glyph's 0 pixels are never drawn, so they leave the box as filled). The **alphabet**: `n u8 (1..224) · codes`
+(each 32..255), padded to 4 B. Any of these out of its range, or outside the cache: 5 (the walk's). With n the segment's
+steps after substitution and N = noise, n − N ≥ 1 (12). **The schedule** of cell c: s_c = 1 + (H2(seed, c) mod (n − N));
+at local step t the cell shows its **old** code for t < s_c, **alphabet[H3(seed, c, t) mod n_alpha]** for s_c ≤ t <
+s_c + N, its **new** code from s_c + N on. Each step, cells in list order: when fill is not 0xFF and the cell does not
+show a non-zero new code, its box `[x + X, x + X + w) × [y + Y, y + Y + h)` is filled with `fill`; then, unless the code
+shown is 0 or 32, its glyph is drawn at (x + X, y + Y) through `make_lut((opt & 0x20) | ⌊(opt & 15)·lvl(t) / 15⌋)`, lvl(t)
+eased from lvl0 to lvl1.
+
+**Kind 1 RAIN.** `src` names a **rain record** (16 B): `cols u8 (1..128) · trail u8 (1..32) · cw u8 (1..255) · ch u8
+(1..255) · font off4 u16 · alphabet off4 u16 · headLvl u8 · tailLvl u8 · reveal u8 (0..2) · fillLvl u8 · spread u8 ·
+flicker u8 (1..255) · 0 u16` (levels 0..15; out of range or reserved bytes: 5). With the track's area (l, top, Wa, Ha) on this lens, R = ⌈Ha / ch⌉.
+Column c lies at x_c = l + X(t) + c·cw, its cell row r at y_r = top + Y(t) + r·ch, its start offset o_c = H2(seed, c) mod (spread + 1)
+and its head at local step t `head_c = −o_c + ⌊(R + o_c + trail)·e / 4096⌋` (e = E[t]). **Lit cells** r with head_c −
+trail < r ≤ head_c and 0 ≤ r < R, u = head_c − r: the box `[x_c, x_c + cw) × [y_r, y_r + ch)` filled with fillLvl, then
+the glyph alphabet[H3(seed, c, r·256 + ⌊t / flicker⌋) mod n_alpha] drawn at (x_c, y_r) through `make_lut(⌊L_u·lvl(t) /
+15⌋)` with L_u = (headLvl·(trail − 1 − u) + tailLvl·u) / (trail − 1) (headLvl when trail = 1). **Above the trail**
+(0 ≤ r ≤ head_c − trail): reveal 1 paints the column's cell boxes from the shadow (`new`, OWN programs only), reveal 2
+fills them with fillLvl, reveal 0 leaves them. Below the head nothing is painted. With reveal 1 or 2 the track is in
+place (§7.2: its base below the head is the picture it keeps).
+
+**Read range:** the program, the cell table and the list aux0 selects (or the rain record), the alphabet, every font
+named and every glyph record a cell's codes or the alphabet name in each of those fonts — all walked at the PLAY, the
+COMMIT or the fire (5). A cache write that meets it closes the instance (§5.6). **Cost (I):** ≈ 200 cells × (a box fill
+and a glyph of ≈ 200 px at the DRAW rate, validated twice) ≈ 10–15 ms a step; rain ≈ cols × trail glyphs, ≈ 13 ms for
+53 × 8; the walk at a fire ≈ 1–3 ms more in field 16.
+
+### 7.7 PLAY-AFTER (mode 26 sub 8)
+
+`[26][8] slot u8 · period u8 · prog u16 · tag u16 · after u8 · P0..P3 s16` (15 B after the two header bytes) on a
+bit-11 build; allowed alone and in a batch, refused 8 in a self-test step; its order is §7.2's. **What it does:** PLAY's
+close pass, except that the instance in slot `after` is not closed when it owns; then, if slot `after` holds an owning
+instance that is drawing, the new instance records that instance's (slot, tag, ordinal) and takes t0 = the later
+(signed 32-bit compare) of now and t0_a + T_a·P_a (that instance's own t0, T and P); otherwise t0 = now and nothing is
+recorded. The rest is PLAY's (no END: the program is OWN; the END CRC; opens the instance, owning; sets the engine's
+flag; the message's present).
+- **When it is due:** a slot whose t0 is ahead of now (`(int32_t)(now − t0) < 0`) has nothing due and its due time is
+  t0 (§5.2); a slot that recorded an instance has nothing due while its `after` slot holds that same (slot, tag,
+  ordinal) in state drawing, and its due time is then one period ahead (the plan reads both without the word; a torn
+  read costs a wake). The copy hook applies the same test under the word.
+- **At its first drawn step** the hook empties the recorded instance — when the `after` slot still holds that same
+  triple, and it is done — silently (its notify went at its step T), then draws. k is computed from t0 as for any
+  instance, so a late start folds.
+- **A close of a waiting instance** (one that has drawn nothing) is a close of a drawing instance: outcome 1.
+- Telemetry 40 bits 4–7 show the waiting slots.
+
+### 7.8 The ring list and the cursor parameter
+
+- **Mode 27 sub 4 LIST-RING** (bit-11 build; §6.3's table and order carry it): LIST's body, then `flags u8` (bit 0
+  RING; bits 1–7 zero, 12). It applies LIST and sets the list's RING flag; a plain LIST clears it; the empty table
+  (§6.3) clears it. With RING the shift is applied modulo the count: cursor := (old + shift) mod count, mod Euclidean
+  (never negative), never lost by the shift; a lost cursor stays lost (DISCARD and SETTLE restore it).
+- **A fire on a RING list** (§6.2 step 9): count 1 → the edge; else c' = (cursor + step) mod count (Euclidean) and the
+  **virtual cursor** v = cursor + step (unwrapped). Parameters: kind 1 the item table's entry at (v + arg) mod count
+  (Euclidean; no item table → the edge); kind 2 v·pitch + arg (s32, outside s16 → 12); kinds 0 and 3 as on any list. The
+  list's cursor := c'. The 115 carries **field 18 = 1** when v ≠ c' (outcome drew only). EFFECTS clear at a fire on a
+  RING list → 15 (step 7). COMMIT, DISCARD and SETTLE are unchanged (absolute cursors; COMMIT's cursor below the count).
+- **SET's kind 3** (bit-11 build, while EFFECTS is armed; else 12): the parameter is cursor + arg, the cursor **before**
+  the move (s32, outside s16 → 12), on any list — the index a per-cursor record needs (a local Encode's cell list). A
+  fire on an entry with a kind-3 parameter while EFFECTS is clear (a hand disarm leaves entries) → 15 (step 7).
+- **The phone's staging guarantee** (§7.11): past each end the strip holds the other end's rows, so the picture at the
+  virtual row equals the picture at c', and the COMMIT of the fire's parameters writes the bytes the phone's model holds.
+
+### 7.9 Flags, telemetry, capabilities, reasons, the ladder
+
+- **Flag bit 6 EFFECTS** (needs DRAW2 and ENGINE; LIST-RING and kind 3 also BIND, as every mode 27 does): read once
+  under the word where §7.2, §7.7 and §7.8 name it. A FLAGS_SET of it alone is taken (status 0). It clears at every
+  release point, is refused without the lease (status 3), and a disarm closes nothing (§5.8's rule): open instances run
+  on, and the next version-2 PLAY is refused 5.
+- **DamageCaps bit 11:** version-2 records, OWN and LAND, PIECES, SHRINK, GLYPHS, `new`, the two-axis DRAW, PLAY-AFTER,
+  LIST-RING, kind 3, refusal 19, field 18 of the 115, telemetry 40, the plan's late step (§7.10). Features `0xdff`.
+- **Telemetry 40:** bits 0–3 the slots that own, bits 4–7 the slots waiting on a PLAY-AFTER; computed at each read
+  without the word (a torn read costs one wrong bit); always sent on a bit-11 build; the record's compile-time bound
+  grows by one two-byte-tag field.
+- **Reason 19:** a fire whose close set holds an owning instance (§7.3).
+- **Ladder stage 5 = EFFECTS** with stage 4's flags (flags 0x7c), set by hand as every stage (`probe c1=5`), never
+  advanced by itself; a hand `flags=` probe cannot arm bit 6 beyond the stage; its rung is recorded before its
+  FLAGS_SET. **Its hold-back is stage 4's (§6.8)** — a reset after stage 5 was armed holds it back to stage 4 until the
+  next case-in or calendar day, the row or `probe c1=5`; one stage, never more. Persisted as §6.8's record.
+
+### 7.10 The plan's late step
+
+On a bit-11 build, after the thread's successful put, when the second plan (§5.2) finds a step due with nothing
+outstanding and **every** due slot's k is exactly d + 1, the wait is **1 tick**; otherwise §5.2's rule stands (one period
+when due — so a step more than a period late, a real overrun, still yields to the ui_task). The pure plan, and so the
+vectors' `W`, are unchanged; a host test pins it. Why (`C3-design.md` §7.1): a step that ends a few ms past the next
+due time was passed over by the one-period wait; with this it is drawn a few ms late.
+
+### 7.11 The phone's rules (phone code; none of it is firmware)
+
+- **Owners in the mirror.** The mirror holds every owning instance and its owned rects per lens; a write the phone wants
+  shown inside an owned rect CLOSEs the owner in the same batch first (C1's rule for a write meeting an open instance);
+  the panel model leaves an owned rect as it is through every held present, and takes the shadow there at LAND or at a
+  close.
+- **A transition** is an out half (OWN, no LAND) played when the phone acts, the arriving frame in as many batches as it
+  takes, and the in half (OWN + LAND) by PLAY-AFTER naming the out half's slot in the last of them; an in half with no
+  out half and a frame of several batches is preceded by a one-step freeze (PIECES uniform, dx = dy = 0, T 1, OWN). The
+  cover's CLEAR of a bound list rides the out half's batch (§6.7).
+- **Pacing.** No PLAY-AFTER before the arriving frame is complete in the shadow; no cache write into an open owning or
+  GLYPHS instance's read ranges; atlas patches into a face a GLYPHS instance reads wait for its end.
+- **Bound in-place programs** (the pan): the entering content's DRAW track covers every place new content can occupy
+  over the whole motion; each later track repaints at every step what it painted at the step before; a host-side test of
+  the phone's own programs checks that two fold patterns end in the same picture.
+- **The ring list:** LIST-RING only while EFFECTS is in force; the strip's margins hold the other end's rows; without
+  EFFECTS (or with LIST-RING refused) the wrap stays the phone's PLAY at the edge report (APK 0.80's).
+- **Version 2 only at stage 5**: a build or a session without EFFECTS keeps version-1 programs (today's pan and press).
+
+### 7.12 Costs and budgets (modeled unless marked)
+
+| piece | code | context | stack (display task) | a step |
+|---|---|---|---|---|
+| OWN, LAND, `new`, the job's rects, PLAY-AFTER | 3–5 KB | 64 B of rects, 4 × 6 B of PLAY-AFTER records, the owns marks, the base-reset mark | ≈ 64 B | the direct path's copy less the owned part; DRAW `new` at rest ≈ 0.6 ms (M for the copy) |
+| PIECES | 4–6 KB | — | ≈ 100 B | 0.6–2 ms whole panel |
+| SHRINK, the two-axis DRAW | 4–6 KB | the drawn width per track | a 320-B row buffer and two 80-B bit marks | rows ≈ 0.6 ms; columns and two-axis 10–25 ms at full size |
+| GLYPHS | 5–8 KB | — | ≈ 100 B | 10–15 ms for 200 cells |
+| LIST-RING, kind 3, field 18 | < 0.5 KB | a flag byte per list | — | — |
+| the late step | a few lines | — | — | — |
+
+The engine's chain under the copy hook grows from 572 B to ≈ 1,000–1,200 B against `tools/verify.py` step 7's ≈ 1,512-B
+bound; the appended block grows ≈ 20–32 KB (≈ 250 KB stays below `0x7F0000`). Field 34 per verb on the glasses decides
+the periods; a step longer than P folds and holds the ui_task off (§5.3).
+
+### 7.13 Vectors, and what only the glasses can show
+
+**The model** gains the framebuffer beside the panel (both start at 153,600 zero bytes; the copy hook writes the
+framebuffer; a full refresh copies it to the panel, a partial one its hinted rows; a stock repaint writes 0x5A into the
+framebuffer, §9) and the job's owned rects. **The v5 set** (`"features"` a list with bit 11, `"panel": true`, `N`, `W`,
+`G`, `K`; inputs from `make_vectors.py`, expectations from the C, the simulator equal): `v5-own` (a phone frame shown
+outside the owned rect and held inside it; LAND; done-and-owning; CLOSE, a close pass, a keyframe, mode 11, a release
+point, the stock path, a cache write each ending the mark; a fire refused 19; OWN at a SET, a fire and a COMMIT 5;
+RETARGET 12; the END CRC; the hint with an owner open) · `v5-after` (t0 from the out half's schedule; an out half already
+done; a late out half (the wait on its step T); the deferred empty; a slot played over in between; a close of a waiting
+instance; `W` with a future t0) · `v5-new` (DRAW and REVEAL of `new`, the backdrop `new`, per lens, `new` outside OWN
+5) · `v5-pieces-old` (uniform, radial, random slices; odd and even Δ; the vacate level; G; a base-reset mark; a local
+in-place instance on the direct path, on the preserve path and after COMMIT; the ease table that falls 5; the shape
+and place rules 12) · `v5-pieces-new` (tiles, stagger, reseed every step, transparency) · `v5-shrink` (rows, columns,
+both, every anchor, to 0, the order at n = 1, 5, 6, 12) · `v5-draw2` (W on records and on `new`, each anchor, W with H,
+RETARGET's clamp, `self` scaled 12, W = 1, w, 2w, 2048) · `v5-cells` (the schedule at N = 0 and n = N + 1, codes 0 and
+32, fill none, a settled cell, the table index, per lens, a write over a glyph record closing it) · `v5-rain` (reveal 0,
+1, 2; trail 1; spread 0; flicker; a fold) · `v5-ring` (wraps both ways at kinds 1 and 2, count 1, LIST-RING's shift, a
+plain LIST clearing RING, EFFECTS cleared → 15, field 18, kind 3 at both ends and without EFFECTS 12) · `v5-order` (a
+refusal per reason in §7.2's order; a version-2 record without EFFECTS 5; each unused field 5). **Build-neutral:** every
+v1–v4 vector answers alike on a bit-11 build (27/3, 26/6 and 26/7 stay unknown subs; a version-2 record and kind 3 are
+refused as before while EFFECTS is clear). **No self-test form** for v5 (every piece is a mode-26 or mode-27 path).
+**The fold invariant** (both harnesses' own tests, not a vector key): for every in-place program of the fuzz, two wake
+schedules that draw different steps between the same two steps end with the same `P`. The differential fuzz gains
+`--c3`.
+
+**What only the glasses can show:** each effect's look at his settings; field 34 per verb against P; LEFT's in-place out
+half beside RIGHT's (the 240 fps video); the out pose held exactly one period under PLAY-AFTER; the fold rate with the
+late-step rule (field 33); Encode's legibility; the in-place pan's step time against today's 39–44 ms.
+
+### 7.14 The failure envelope (`FORK.md` §3.8)
+
+| new state, wait or guard | (a) cleared at | (b) a write that never lands | (c) keyed on | (d) other tasks, the other lens | (e) one read | (f) siblings checked |
+|---|---|---|---|---|---|---|
+| the owns mark and the owned rect | LAND, every close or emptying, a keyframe, mode 11, release points (the settlement), the stock path, a restart | a lost in-half PLAY: the out pose holds until the phone's CLOSE, keyframe or session; with no phone the lease lapses within 87.9 s and the stock path ends it | slot + tag + ordinal; the rect by the tracks' rects per lens | written on the ui_task under the word; read by the worker under the word for the job | once per job | the hint's publication; the three present paths; close-on-meet; the fire's close set (19); COMMIT's close pass |
+| the job's owned rects | consumed with the job | a claim that fails: no rect, a whole copy, counted (33) | the job | written by the worker under the gate and the word, read once by the copy hook; a release point between them skips the copy in a rect once, then its stale mark and the stock repaint follow | once | the mode-24 hint, the direct-shadow pointer |
+| LAND's copy | — | a folded step T stays due (C1) and lands at the next drawing present | the instance | display task under the word | once | A.12's stale mark |
+| PLAY-AFTER's t0 and recorded triple | the first drawn step, a close, release points | lost: the out half holds; the phone's divergence path | (slot, tag, ordinal) | the thread reads t0 and the `after` slot's state without the word (a torn read costs a wake); the hook decides under it | once per plan | the plan's k, the hook's k, PLAY's close pass, the stock path |
+| the base step and the base-reset mark | the mark: the next drawing present | — | d; the direct path's copy | the mark is the display task's alone | once per present | HOLD's redraw, COMMIT's adoption, folds, the overlay (carried along when shown) |
+| G(b → k) | — | — | (b, k) and the levels | — | once | DRAW's ramp (the shadow's layer uses it) |
+| GLYPHS: the schedule (stateless), the read range | with the instance | a write over a named record closes it | the read range | written by the ui_task under the word, read by the hook under it | once per step | mode 18's glyph check (reused); the atlas planner (phone) |
+| the seed and the tag | — | — | h0 after substitution, the tag | LEFT's S ahead after a dropped answer draws other noise on LEFT until SETTLE | once | the fire's S |
+| the RING flag, the modular cursor, kind 3 | a plain LIST, release points (the empty table), a restart | a lost LIST-RING: the lens keeps the plain list, a wrap notch is the edge and the phone's PLAY draws it; the table repair re-sends | list + mark | ui_task only | once per fire | LIST's shift, COMMIT/DISCARD/SETTLE's cursors, the fire's edge test |
+| refusal 19 | — | the notch goes the stock path | the close set's owns marks | ui_task under the word | once | refusal 17's place |
+| EFFECTS | every release point; refused without the lease | not armed: the reply shows it; the phone plays version 1 | — | the settings task writes, unordered with the image lane (§5.7's class) | once per message | DRAW2, ENGINE, BIND |
+| the late-step wait | — | — | — | the thread only | one plan | the failed try's wait (unchanged) |
+
+### 7.15 Not in this contract
+
+A capture of the panel at any size (the out half stays in place) · a crossfade, a dissolve, a zoom into the old picture,
+any upward re-sampling of it · per-step randomness of the old picture · rotation of pieces; more than 256 pieces · two
+in-place tracks in one program · RETARGET of OWN, in-place, PIECES or GLYPHS instances · text layout on the glasses
+(cells come from the phone) · an immediate two-axis draw mode · a Select out half started by the tap on the glasses
+(§6.12) · popover-tier verbs · a gate take around the engine word's holders · a change to stock's scroll adapter (a notch
+inside the rubber band has no scroll message, V `0x0049628E`–`0x004962D8`; the phone counts it, G3) · the failed try's
+wait (unchanged).
+
+## 8. Drafts: firmware-owned chrome and the offline home
+
+### 8.1 v2 firmware-owned chrome (Phase 5; in the first flash only if its measurement says it pays, `REPLAN.md` §5) — *draft*
 
 Rects the phone declares firmware-owned (the status bar's clock, battery and link cells; the
 silent-mode clock): the glasses draw them after the frame copy from cached fonts at the Global depth
 the phone sets; they are outside the shadow and the phone never paints them. RTC and fuel-gauge
 sources are stock functions (`FORK.md` R0.5).
 
-## 8. v2 offline home (Phase 7; step G, decided again, `REPLAN.md` §4) — *draft*
+### 8.2 v2 offline home (Phase 7; step G, decided again, `REPLAN.md` §4) — *draft*
 
 Placeholder: display ownership outside the EvenHub page, local input, the persisted flag, saved
 content, the stock override gesture, stock fallback on any failure. Written after the Phase 7 research.
@@ -1834,6 +2277,10 @@ content, the stock override gesture, stock fallback on any failure. Written afte
   a well-formed mode 15 with the lease held is never in a vector, the PC's host has no font) and `v1-batchmax` (3
   steps: a batch of exactly 153,718 B accepted, one byte more refused).
 - **v3 set (C1, 2026-11-15 → 17):** §5.10, with the counts at the build's end and the two fuzz sets.
+- **v4 set (C2):** §6.10. **v5 set (C3, contract 2026-11-19):** §7.13 — and from C3 on both harnesses model **the
+  framebuffer beside the panel** (in-place verbs read it): it starts at 153,600 zero bytes as the panel does, the copy
+  hook writes it (the shadow, outside a job's owned rects, then the steps), a full refresh copies it to the panel and a
+  partial one its hinted rows, and the `stock` op's repaint writes 0x5A into it before its refresh.
 
 ## 10. Lifecycle
 
@@ -1843,7 +2290,7 @@ time since predicts — a shortfall past the slack is a reset; a reset within `H
 last arming disarms the wanted set, journals it and raises a `holdback` fault — on a C1 build the ladder drops one
 stage instead when its own rungs are to blame, §5.8; a bit the build
 refuses as unsupported is dropped from the wish with a fault and the rest are still armed) → self-test when a new image is flashed →
-normal traffic. Lease lapse: flags clear, programs stop, bindings clear, the cache is kept if
+normal traffic. Lease lapse: flags clear, programs stop (owning instances own nothing, §7.3), bindings clear, the cache is kept if
 `CACHE_KEEP` was armed (its generation and CRC say whether it is still good; the latch carries the
 decision to the fresh acquire). Reset: uptime restarts (a boot count once it has a source); the
 phone's keeper applies the hold-back rule before re-arming.
@@ -2011,3 +2458,12 @@ phone's keeper applies the hold-back rule before re-arming.
   instruction level in the candidate image (the flash-readiness review).
 - 2026-11-19 — §4 (op 5), §5.8: the last session's cache size is kept across a restart of the phone's process as a
   lower bound of every lens's cache (decisions AD.1, AH.1); a new process's first start asks at most it.
+- 2026-11-19 — **§7 written: the effects build C3** in contract form from the C3 design pass as ruled
+  (`private/c3-design/C3-design.md`, `C3-decisions.md` A–C): program records of version 2 (an 8-B header with OWN and
+  LAND, 40-B segments), the owning instance and the held present, the source and backdrop `new`, PIECES, SHRINK, the
+  two-axis DRAW, GLYPHS with its hash, PLAY-AFTER (mode 26 sub 8), LIST-RING (mode 27 sub 4) and SET's kind 3, flag bit 6
+  EFFECTS, DamageCaps bit 11 (`0xdff`), refusal 19, telemetry 40, the 115's field 18, ladder stage 5, the plan's late
+  step. Updated where they live: §0 (bit 11), §3 (the flag and field indexes), §4 (the reason index), §5.2 (a future t0;
+  the late step), §5.4 (the version-2 rows, pref 14–17), §5.5 (subs 3–5 and 8), §6.2 (steps 7, 9, 10, 11), §6.3 (SET's
+  kind 3, LIST-RING, the order), §6.5 (field 18), §6.8 (stage 5), §6.12 (two pointers), §9 (the v5 set, the framebuffer
+  in the model), §10. The drafts that were §7 and §8 are §8.1 and §8.2 (§9–§11 keep their numbers). Nothing built.
