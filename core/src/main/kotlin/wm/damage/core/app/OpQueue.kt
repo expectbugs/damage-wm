@@ -6,6 +6,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardOpenOption
 import java.security.SecureRandom
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -341,8 +342,9 @@ class OpQueue(
         }
     }
 
-    /** Ends the writer after the lines handed to it. */
+    /** Ends the writer once the lines handed to it have landed (a clean close, bounded by the writes; WC). */
     fun close() {
+        drain(writer)
         (writer as? ExecutorService)?.shutdown()
     }
 
@@ -355,6 +357,18 @@ class OpQueue(
 
         fun defaultWriter(): ExecutorService = Executors.newSingleThreadExecutor { r ->
             Thread(r, "damage-queue-writer").apply { isDaemon = true }
+        }
+
+        /** Returns once every task handed to [to] before this call has run (one writer thread runs them in order); at
+         *  once when [to] has ended (the close that ended it waited). */
+        internal fun drain(to: Executor) {
+            val done = CountDownLatch(1)
+            try {
+                to.execute { done.countDown() }
+            } catch (e: java.util.concurrent.RejectedExecutionException) {
+                return
+            }
+            done.await()
         }
 
         /** A random 64-bit stream, as text (C§2.4: a browser's numbers hold 53 bits). */

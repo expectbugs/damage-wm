@@ -105,15 +105,19 @@ class WorkingCopy(
     /** Loads without a wire (a test; the phone uses [start]). */
     fun open() = executor.call { openNow() }
 
-    /** Ends the wire, saves what is not saved and ends the writers after what was handed to them. */
+    /** Ends the wire, saves what is not saved and returns once the copy's saves and the queue's lines handed to their
+     *  writers have landed — a clean close, bounded by the writes and never by a clock (WC, 2026-11-20) — then ends the
+     *  writers. Called from a thread of its own, never the core executor (it waits on the executor's "copy saved"). */
     override fun close() {
         try {
             // on the executor, behind [start]: a stop that comes before the start's task still ends the wire it builds
             executor.call {
                 client?.close()
                 client = null
-                if (dirty || unsaved.isNotEmpty()) save()
+                if (!saving && (dirty || unsaved.isNotEmpty())) save()
             }
+            // the save in flight lands, then any its end starts ([saved] on the executor, handed on by the saver)
+            while (executor.call { saving }) OpQueue.drain(saver)
         } catch (e: Exception) {
             Log.e(TAG, "the stop could not be handed to the core executor (${e::class.simpleName}: ${e.message})")
             client?.close()
