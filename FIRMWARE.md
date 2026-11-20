@@ -457,7 +457,8 @@ path's depth is bounded and checked at build.
 waits, §7.7)*. At every present while an instance draws — an engine
   refresh or any phone frame — the copy hook draws `k = min(T, 1 + ⌊(now − t0) / P⌋)`: on the direct path whenever an
   instance draws (k ≤ d again, since the phone frame's copy covered it — *C3: not an owning instance, whose owned rect is
-not copied: it draws only at k > d, §7.3*), on the preserve path only when k > d; steps
+not copied: it draws only at k > d, §7.3; and a slot with nothing due and nothing drawn yet, a PLAY-AFTER's whose t0 is
+ahead or that waits, is not drawn on any path, §7.7*), on the preserve path only when k > d; steps
   passed over are **folded** (not drawn, counted); step T is always drawn (a fold of step T leaves it due). The hook
   arms nothing; it records d, the last step it drew, which the thread plans from (§5.2); a PLAY or RETARGET sets d = 0
   with t0. **A present on the hook's stock path** (no live lease, `direct_active` 0, a failed copy — and a phone frame on
