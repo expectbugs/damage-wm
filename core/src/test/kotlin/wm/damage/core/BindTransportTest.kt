@@ -1172,10 +1172,11 @@ class BindTransportTest {
         t.stop()
     }
 
-    /** Build C3 (§7.9; decisions W, D-8): telemetry 41 under 124 B is a finding — one `glass` note for a reading, none
-     *  for the same reading again or for one at 124 or more. RIGHT's telemetry replies are given field 41 on the way. */
+    /** Build C3 (§7.9; decisions W, D-8, AP (4)): telemetry 41 under 132 B is a finding (the worst path's 1,916 of
+     *  2,048 B) — one `glass` note for a reading, none for the same reading again or for one at 132 or more; 128, under
+     *  the threshold before AP, is one. RIGHT's telemetry replies are given field 41 on the way. */
     @Test
-    fun telemetry41Under124IsOneNote_7_9(): Unit = runBlocking {
+    fun telemetry41Under132IsOneNote_7_9(): Unit = runBlocking {
         notes.clear()
         val sim = GlassFirmwareSim().apply { damageContract = 2; damageFeatures = 0xdff }
         val t = rig(sim) { System.currentTimeMillis() }
@@ -1185,14 +1186,17 @@ class BindTransportTest {
         t.start(full)
         val finding = "telemetry 41: the display task's stack has"
         assertTrue(!has("glass", finding), "1,000 B: no finding: ${said("glass")}")
-        free.set(124L)
+        free.set(132L)
         t.devProbe("telemetry", "read"); delay(300)
-        assertTrue(!has("glass", finding), "124 B: no finding")
+        assertTrue(!has("glass", finding), "132 B: no finding")
+        free.set(128L)
+        t.devProbe("telemetry", "read")
+        saw("glass", "$finding 128 B never written, under 132 B")
         free.set(96L)
         t.devProbe("telemetry", "read")
-        saw("glass", "$finding 96 B never written, under 124 B")
+        saw("glass", "$finding 96 B never written, under 132 B")
         t.devProbe("telemetry", "read"); delay(300)
-        assertEquals(1, count("glass", finding), "the same reading is said once: ${said("glass")}")
+        assertEquals(2, count("glass", finding), "the same reading is said once (128, then 96): ${said("glass")}")
         free.set(80L)
         t.devProbe("telemetry", "read")
         saw("glass", "$finding 80 B never written")

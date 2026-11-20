@@ -666,21 +666,19 @@ object Motion {
 
     /** §7.12's sum, unsigned 64-bit: over the instances that wait on none, f(i) = max(C_i, Σ f(w) over the instances w
      *  waiting on i) — an instance and its waiters never draw in one present, waiters on one instance draw together.
-     *  Members of a cycle (only a reused tag makes one, which the phone never sends) count each by its own C. */
+     *  A cycle of waits (an instance waiting on itself included) is refused loudly: on the glasses only a reused tag
+     *  makes one, which the phone never sends (§7.11), so a cycle here is a defect of the caller, not a program to price. */
     fun stepSum(d: List<Drawing>): Long {
-        val root = BooleanArray(d.size) { d[it].waitsOn !in d.indices || d[it].waitsOn == it }
-        val reached = BooleanArray(d.size)
-        fun f(i: Int, depth: Int): Long {
-            reached[i] = true
-            if (depth > d.size) return d[i].cost
-            var waiters = 0L
-            for (j in d.indices) if (!root[j] && d[j].waitsOn == i) waiters += f(j, depth + 1)
-            return maxOf(d[i].cost, waiters)
+        for (i in d.indices) {
+            var j = i
+            var n = 0
+            while (d[j].waitsOn in d.indices) {
+                j = d[j].waitsOn
+                if (++n > d.size) throw LintError("§7.12: instance $i of ${d.size} waits in a cycle — a defect of the caller (the phone never reuses a tag, §7.11)")
+            }
         }
-        var sum = 0L
-        for (i in d.indices) if (root[i]) sum += f(i, 0)
-        for (i in d.indices) if (!reached[i]) sum += d[i].cost
-        return sum
+        fun f(i: Int): Long = maxOf(d[i].cost, d.indices.filter { d[it].waitsOn == i }.sumOf { f(it) })
+        return d.indices.filter { d[it].waitsOn !in d.indices }.sumOf { f(it) }
     }
 
     private fun budget(d: List<Drawing>, what: String) {

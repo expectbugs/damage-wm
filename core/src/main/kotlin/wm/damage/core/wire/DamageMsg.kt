@@ -256,9 +256,10 @@ object DamageMsg {
         // build C3 (§7.9): the display task's never-written stack bytes
         41 to "stackFree")
 
-    /** §7.9 (build C3): telemetry 41 under this many bytes is a finding — the display task's worst path on the candidate
-     *  is 1,924 of its 2,048 B (`tools/verify.py` step 7, §7.12), so 124 B is what that figure leaves. */
-    const val STACK_FREE_FINDING = 124L
+    /** §7.9 (build C3): telemetry 41 under this many bytes is a finding — the display task's worst path on the final
+     *  candidate is 1,916 of its 2,048 B (`tools/verify.py` step 7, the path through the copy hook's in-frame stock copy,
+     *  §7.12; the flash-readiness review, 2026-11-20), so 132 B is what that figure leaves. */
+    const val STACK_FREE_FINDING = 132L
 
     /** One image-lane refusal as telemetry fields 23–25 report it. */
     data class Refusal(val mode: Int, val reason: Int, val seq: Long) {
