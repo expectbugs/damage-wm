@@ -2278,10 +2278,14 @@ one-period wait; with this it is drawn a few ms late.
 
 - **Owners in the mirror.** The mirror holds every owning instance and its owned rects per lens; a write that meets an
   owner's **meeting box** (§7.3: both lenses' owned rects, as the glasses' own closes decide) CLOSEs the owner in the same
-  batch first (C1's rule for a write meeting an open instance) — **except the batches of a transition's arriving
-  frame**, from its out half's PLAY to the PLAY-AFTER naming that slot (and those behind the one-step freeze, below):
-  they are written under the out half on purpose, the held present keeps them off the panel, and they leave that
-  owner open; any other write meeting the box closes it first, as before;
+  batch first (C1's rule for a write meeting an open instance) — **except the writes of a transition**, from its out half's PLAY to its end (RIGHT's body of the in half, or the
+  phone's CLOSEs of both slots): the arriving frame's batches are written under the out half on purpose and the
+  held present keeps them off the panel; a write under the in half — his next input's frame, a chrome tick, the
+  window's own repaint — shows at the in half's next step where it draws from `new` (the live shadow, read at every
+  step) and at LAND otherwise, so nothing waits and **a transition plays in full** (`MOTION.md` §7; the first review
+  pass of the transitions, 2026-11-20). They leave both owners open; a write meeting any OTHER owner's box closes
+  that one first, as before; a second act replaces the run (its out PLAY's close pass ends what is left: the latest
+  input wins);
   the panel model leaves an owned rect as it is through every held present, and takes the shadow there at LAND or at a
   close. **An owned rect stays out of the phone's agreement scan while its mark stands** — a done owner (an out
   half, the freeze) holds step T there while belief moves on beneath it; the scan reads the rect again after LAND or
@@ -2289,7 +2293,8 @@ one-period wait; with this it is drawn a few ms late.
 - **A transition** is an out half (OWN, no LAND) played when the phone acts, the arriving frame in as many batches as it
   takes, and the in half (OWN + LAND) by PLAY-AFTER naming the out half's slot in the last of them; **an in half's tracks
   cover its out half's owned rect**; an in half with no out half and a frame of several batches is preceded by a
-  one-step freeze (PIECES uniform, dx = dy = 0, T 1, OWN). The cover's CLEAR of a bound list rides the out half's batch
+  one-step freeze (PIECES uniform, dx = dy = 0, T 1, OWN) — a form no shipped effect needs (each has an out half at
+  every height, length and frame count), so the phone does not build it. The cover's CLEAR of a bound list rides the out half's batch
   (§6.7). **After RIGHT's outcome-0 body of an in half, the phone's next batch CLOSEs the out half's slot** (empty on
   RIGHT; it ends an owner a lens kept after losing the in half, which LEFT cannot report) — **unless the phone has PLAYed
   that slot again since** (that PLAY's close pass ended any leftover on both lenses). **With no in-half body by the in
