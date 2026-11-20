@@ -33,7 +33,10 @@ import wm.damage.core.wire.TextureCache
  *
  * Every hook a seeded case needs is here; the invariants are [LocalSequenceFuzzTest]'s.
  */
-class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, val freshAtStarts: Boolean = true) {
+class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, val freshAtStarts: Boolean = true,
+                   /** B083 (2d): the scroll program's steps and the entries' period — the fuzz's short motion by default, his
+                    *  phone's (T 6 at P 46, 0.81) in the skewed rig. */
+                   val tScroll: Int = T_SCROLL, val period: Int = PERIOD) {
     val rnd = java.util.Random(seed)
     val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = 0x5FF; it.clockIsOsTick = true }
     var now = 1000L
@@ -89,7 +92,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         val sAt = at4
         scroll = Motion.program(sAt, recSources, bit10 = true) {
             track(BAND, Motion.Backdrop.Level(0)) {
-                draw(recSources[0], BAND.x, BAND.y, n = T_SCROLL, prefs = listOf(Motion.Pref(0, Motion.Field.SRC)))
+                draw(recSources[0], BAND.x, BAND.y, n = tScroll, prefs = listOf(Motion.Pref(0, Motion.Field.SRC)))
             }
         }
         put(scroll.bytes)
@@ -103,7 +106,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         val s2At = at4
         scroll2 = Motion.program(s2At, recSources, bit10 = true) {
             track(BAND, Motion.Backdrop.Level(0)) {
-                draw(recSources[0], BAND.x, BAND.y, n = T_SCROLL, prefs = listOf(Motion.Pref(0, Motion.Field.SRC)))
+                draw(recSources[0], BAND.x, BAND.y, n = tScroll, prefs = listOf(Motion.Pref(0, Motion.Field.SRC)))
             }
         }
         put(scroll2.bytes)
@@ -131,9 +134,9 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         val items = IntArray(ids.size) { recs[ids[it]] }
         val p = listOf(CfwModes.BindParam(CfwModes.KIND_ITEM, 0), CfwModes.BindParam(0, 0), CfwModes.BindParam(0, 0), CfwModes.BindParam(0, 0))
         return BoundList(0, 0, ids.size, BAND.h, mark and 0xFF, at4, items, listOf(
-            BoundList.Entry(0, CfwModes.EV_UPROLL, +1, PERIOD, sp().at, p, sp()),
-            BoundList.Entry(1, CfwModes.EV_DOWNROLL, -1, PERIOD, sp().at, p, sp()),
-            BoundList.Entry(2, CfwModes.EV_TAP, 0, PERIOD, press.at, p, press)))
+            BoundList.Entry(0, CfwModes.EV_UPROLL, +1, period, sp().at, p, sp()),
+            BoundList.Entry(1, CfwModes.EV_DOWNROLL, -1, period, sp().at, p, sp()),
+            BoundList.Entry(2, CfwModes.EV_TAP, 0, period, press.at, p, press)))
     }
 
     private fun sp() = if (scrollAlt) scroll2 else scroll
@@ -238,6 +241,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
      *  late echoes (their report heard before a SETTLE sent before the message came, decisions BC). */
     private val heldGesture = ArrayDeque<Int>()
     private val lateHeld = HashSet<Int>()
+    private val standIn = HashMap<Int, Int>()
     /** Ruled 11-19 (2b), his journals: the share of scroll gestures whose stock message reaches the phone before its 115 —
      *  the 115 then comes [stockLeadMax] ms or less after it. */
     var stockFirst = 0.0
@@ -363,12 +367,13 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         if (g >= 0 && g !in reportHeardAt) reportHeardAt[g] = now
         val v = rules.report(a, row, now)
         // 2b: the held messages this report paired (or, naming no slot, applied) leave the hold — its own gesture's first
-        // when it is among them, else the oldest. A late echo (decisions BC) paired here leaves this report's own stock
-        // message to be held and applied as today: the BC shape, moved onto this gesture, so it is declared as BC
+        // when it is among them, else the oldest. Stock messages are alike on the wire: one paired for this report that
+        // was another gesture's (whose report never comes, or a late echo, decisions BC) is this report's own, and this
+        // gesture's message, when it comes, stands in for that one ([standIn]) — so a release moves that gesture's count
         while (heldGesture.size > rules.stockHeldNow) {
             val k = if (g in heldGesture) g else heldGesture.first()
             heldGesture.remove(k)
-            if (k != g && k in lateHeld) lateEchoes += g
+            if (k != g && g >= 0) standIn[g] = k
         }
         trace?.invoke("[$now] phone 115 g$g ${a.describe()} row $row → $v")
         verdicts += g to v
@@ -382,8 +387,9 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         val v = rules.stock(st, row, now)
         // 2b: a held message is the gesture's, applied (if at all) at its release — its moves are counted against it there
         if ((rules.counts["stockHeld"] ?: 0) > heldBefore) {
-            heldGesture.addLast(g)
-            if (reportHeardAt[g]?.let { lastSettleAt > it } == true) lateHeld += g
+            val k = standIn.remove(g) ?: g
+            heldGesture.addLast(k)
+            if (reportHeardAt[k]?.let { lastSettleAt > it } == true) lateHeld += k
             rules.settleAt()?.let { s -> if (s > now) at(s) { pump() } }
         }
         // decisions BC: a stock message applied as today whose own report was heard before a SETTLE that went before it —
@@ -734,7 +740,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
             val prog = w.list.entries.first { it.step == w.step }.program!!
             val p = intArrayOf(recs[ids[w.cPrime.mod(ids.size)]], 0, 0, 0)
             paint(m2, BAND, 0); paint(m2, BAND, level(ids[w.cPrime.mod(ids.size)])); dirty += BAND; dirty += BADGE
-            Motion.play(prog, WRAP_SLOT, PERIOD, 0xB000 + (wrapPlays and 0xFFF), 0, p)
+            Motion.play(prog, WRAP_SLOT, period, 0xB000 + (wrapPlays and 0xFFF), 0, p)
         }
         val wrapAreas = wrap?.list?.areas ?: emptyList()
         // decisions AA.1: with a COMMIT planned, a region meeting its areas is not drawn in this batch; what still differs
@@ -743,7 +749,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         // arrival plus T × P and a period) or the wrap's (its steps and the shell's start allowance) — across batches,
         // not only in the batch that carries the answer; a keyframe ends the wait
         if (deferAreas.isNotEmpty() && now >= deferUntil) deferAreas = emptyList()
-        val until = (plan.map { it.motionEndsMs } + listOfNotNull(wrap?.let { now + (T_SCROLL + 1L) * PERIOD + WRAP_START })).maxOrNull()
+        val until = (plan.map { it.motionEndsMs } + listOfNotNull(wrap?.let { now + (tScroll + 1L) * period * 1000 / 1024 + WRAP_START })).maxOrNull()
         if (until != null && until > now) { deferAreas = (deferAreas + plan.flatMap { it.areas } + wrapAreas).distinct(); deferUntil = maxOf(deferUntil, until) }
         val hold = if (plan.isEmpty() && wrap == null && deferAreas.isEmpty()) emptySet() else regions.filter { r -> plan.any { c -> LocalRules.meets(listOf(r), listOf(r), c.areas) } ||
             LocalRules.meets(listOf(r), listOf(r), wrapAreas) || (carryHold && LocalRules.meets(listOf(r), listOf(r), deferAreas)) }.toSet()
@@ -844,7 +850,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     // ---- a session start (P1): keyframe, the arming, the start's bind batch
     fun start(fresh: Boolean) {
         q.clear(); lastUp = now; lastScrollUp = now; lastDown = now; pumpAt = Long.MAX_VALUE
-        heldGesture.clear()                             // 2b: the rules' start clears the hold
+        heldGesture.clear(); standIn.clear()            // 2b: the rules' start clears the hold
         deferAreas = emptyList()                        // the start's keyframe ends every motion's wait
         if (fresh) for (a in Arm.entries) { sim.conformanceLease(a, false, now); sim.conformanceLease(a, true, now) }
         for (a in Arm.entries) sim.conformanceControl(a, DamageMsg.OP_FLAGS_SET, ARMED, now)

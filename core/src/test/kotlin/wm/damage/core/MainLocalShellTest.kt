@@ -1641,7 +1641,7 @@ class MainLocalShellTest {
         for (k in listOf(2, 3, 5)) {
             val r = Rig(Taps.REPORT, link = 20L to 30L)
             try {
-                r.up()
+                try { r.up() } catch (e: Throwable) { println("2c-$k: up failed — stage ${r.notes("stage").takeLast(8)}; faults ${r.allNotes().filter { it.first in setOf("fault", "atlas", "count") }.takeLast(8)}"); throw e }
                 walkTo(r, r.list().count - 1)
                 val m0 = r.notes("motion").size; val s0 = r.notes("snapback").size; val img0 = r.right.size
                 val frames = java.util.concurrent.CopyOnWriteArrayList<Pair<Long, Gray8>>()
@@ -1691,7 +1691,7 @@ class MainLocalShellTest {
  *  from the glasses — and, through [later], the ring's stock message behind its 115 — reaches the transport [upMs] later,
  *  in order (one queue). The glasses' clock and the engine are the rig's wall clock, as `StartRig`'s. */
 private class LinkRig(glass: GlassFirmwareSim, scope: CoroutineScope, c1: java.nio.file.Path, val downMs: Long, val upMs: Long) :
-    StartRig(glass, scope, c1StageFile = c1) {
+    StartRig(glass, scope, instantPacing = false, c1StageFile = c1) {
     private val up = kotlinx.coroutines.channels.Channel<Pair<Long, () -> Unit>>(kotlinx.coroutines.channels.Channel.UNLIMITED)
     init {
         onNotify = { arm, p -> later { deliver(arm, p) }; null }

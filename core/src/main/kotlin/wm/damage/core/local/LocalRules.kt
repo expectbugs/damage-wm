@@ -410,12 +410,15 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
             note("local", "a 115 naming no slot the phone knows — not answered; its stock message goes as today: ${a.describe()}")
             if (!tap && heldStock.isNotEmpty()) Verdict.Apply(heldStock.removeFirst().first) else Verdict.Nothing
         }
-        // ruled 11-19 (2b): stock messages held before this report are its echo — and those of the reports its gap lost
-        while (heldStock.isNotEmpty() && (owesScroll > 0 || owesAny > 0)) {
-            heldStock.removeFirst()
-            if (owesScroll > 0) owesScroll-- else owesAny--
-            count("stockPaired")
+        // ruled 11-19 (2b): stock messages held before this report are its echo — one of its own direction for its own owe
+        // (a held message of the other direction is a notch the lens did not report, which goes at the burst's end: paired
+        // here, the seed 100004 shape, a held PREV paid a NEXT's owe and the NEXT's own message moved the row a second
+        // time), and any for the owes of the reports its gap lost (their kind is not known)
+        val ownType = if (tap) null else a.eventId?.let { BoundList.stockEvent(it) }
+        if (ownType != null && owesScroll > 0) heldStock.indexOfFirst { it.first == ownType }.takeIf { it >= 0 }?.let { i ->
+            heldStock.removeAt(i); owesScroll--; count("stockPaired")
         }
+        while (heldStock.isNotEmpty() && owesAny > 0) { heldStock.removeFirst(); owesAny--; count("stockPaired") }
         val st = slot(slotNo, heardBefore)
         st.list = listId
         repair.onReport(a, this)

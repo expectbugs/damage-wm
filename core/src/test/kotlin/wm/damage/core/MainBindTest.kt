@@ -319,11 +319,11 @@ class MainBindTest {
         fun staged(change: String?): MainStaging {
             val ms = rig.staging(CfwModes.CACHE2_MAX, region)
             b.begin(ms, emptyList(), List(ms.rows) { null }, 0L, ids)
-            if (change != null) { row.s = plain.copy(line = change); assertTrue(ms.restage(music, rig.view, rig.kit, { _, bb -> bb() }) is MainStaging.Restage.Changed) }
+            if (change != null) { row.s = plain.copy(line = change); ms.restage(music, rig.view, rig.kit, { _, bb -> bb() }).let { assertTrue(it is MainStaging.Restage.Changed, "\"$change\" re-staged: $it") } }
             b.drop()
             return ms
         }
-        val long = staged("Night Drive - Low Tide (live at the Roundhouse, 1998, remastered)")
+        val long = staged("Night Drive - Low Tide (live, 1998)")
         val roomLong = b.roomFor(ids)[music]
         assertEquals(MainStaging.roomFor(long.seenMax[music]), roomLong, "the long title's room")
         row.s = plain

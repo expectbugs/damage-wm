@@ -111,7 +111,9 @@ class LocalSequenceFuzzTest {
         quiet(h)
         val dir = if (h.row + 2 < h.ids.size) 1 else 2
         h.gesture(dir, answer = true, band = "none")
-        h.runUntil(h.now + 400)
+        // ruled 11-19 (2b): a first notch the lens did not report (its scroll entries lost — S14) is held to its burst's end,
+        // Q after it, and only then applied and its table repaired; the second notch comes a round trip after that
+        h.runUntil(h.now + maxOf(400L, h.rules.q + 150))
         val stopped = h.stoppedBeforeCommit.size
         val g2 = h.gesture(dir, answer = true, band = "none")
         h.rest()
@@ -571,7 +573,7 @@ class LocalSequenceFuzzTest {
      *  0.81, one drawing a phone frame into a list the glasses were animating): three notches 80 ms apart whose stock
      *  messages each come 1–60 ms before their 115 — each is held, then paired by its report: the glasses' own motions
      *  stand, nothing is applied as today, no snap-back, the row moves once per notch. */
-    @Test fun seededS28_aStockMessageBeforeItsReportIsPairedNotApplied() = seeded(Taps.REPORT, rows = 6, script = { h ->
+    @Test fun seededS28_aStockMessageBeforeItsReportIsPairedNotApplied() = seeded(Taps.REPORT, rows = 0, script = { h ->
         h.stockFirst = 1.0; h.stockLeadMax = 60
         repeat(3) { h.gesture(1, answer = true, band = "none"); h.runUntil(h.now + 80) }
         h.rest()
@@ -582,16 +584,24 @@ class LocalSequenceFuzzTest {
         if (h.row != 3) "the row is ${h.row}, not 3" else null) })
 
     /** S29 (2b): a stock message whose 115 never comes (lost) is applied as today at the burst's end — never held for
-     *  good: the row moves once, the slot's snap-back is the old `lost-report` one, and the hold leaves nothing behind. */
-    @Test fun seededS29_aHeldStockMessageWithNoReportGoesAtTheBurstsEnd() = seeded(Taps.REPORT, rows = 6, script = { h ->
-        h.stockFirst = 1.0; h.stockLeadMax = 1
-        h.gesture(1, answer = true, band = "none"); h.runUntil(h.now + 200)       // a burst open, then one whose 115 is lost
-        h.loseNext115 = 1
-        h.gesture(1, answer = true, band = "none")
-        h.rest()
-    }, extra = { h -> listOfNotNull(
-        if (h.rules.counts["stockReleased"] != 1) "released ${h.rules.counts["stockReleased"]} (held ${h.rules.counts["stockHeld"]}, paired ${h.rules.counts["stockPaired"]})" else null,
-        if (h.row != 2) "the row is ${h.row}, not 2" else null) })
+     *  good: the row moves once, the slot's snap-back is the old `lost-report` one, and the hold leaves nothing behind.
+     *  The burst's SETTLE waits for the release: sent before it, it would name the row the message has not moved yet and
+     *  set the lens's cursor back under the motion it drew — RIGHT's row seen going back (2 → 1 → 2). */
+    @Test fun seededS29_aHeldStockMessageWithNoReportGoesAtTheBurstsEnd() {
+        val seen = ArrayList<Int>()
+        seeded(Taps.REPORT, rows = 0, script = { h ->
+            h.stockFirst = 1.0; h.stockLeadMax = 1
+            h.gesture(1, answer = true, band = "none"); h.runUntil(h.now + 200)       // a burst open, then one whose 115 is lost
+            h.loseNext115 = 1
+            h.sampler = { val id = h.shownOn(Arm.RIGHT); if (id >= 0 && seen.lastOrNull() != id) seen += id }
+            h.gesture(1, answer = true, band = "none")
+            h.rest()
+            h.sampler = null
+        }, extra = { h -> listOfNotNull(
+            if (h.rules.counts["stockReleased"] != 1) "released ${h.rules.counts["stockReleased"]} (held ${h.rules.counts["stockHeld"]}, paired ${h.rules.counts["stockPaired"]})" else null,
+            if (h.row != 2) "the row is ${h.row}, not 2" else null,
+            if (seen.windowed(3).any { (a, b, c) -> a == c && a != b }) "RIGHT's row went back and forth: $seen" else null) })
+    }
 
     /** S30 (B083, 2c; his look at 0.81: edge reports in a burst at Main's wrap): two notches past the end 20 ms apart, the
      *  second an edge too (the wrap's DISCARD has not landed): the wrap's PLAY draws whole on both lenses — the second
@@ -605,6 +615,34 @@ class LocalSequenceFuzzTest {
         if (h.wrapPlays != 1) "${h.wrapPlays} wrap PLAYs (the shape did not happen)" else null,
         if (h.wrapCuts != 0 || h.bodies114.any { it.first == LocalHarness.WRAP_SLOT && it.third == 1 }) "the wrap closed while drawing: cuts ${h.wrapCuts}, bodies ${h.bodies114.filter { it.first == LocalHarness.WRAP_SLOT }}" else null,
         if (h.row != 1) "the row is ${h.row}, not 1" else null) })
+
+    /** S31 (B083, 2b; the fuzz's seed 100004 on the first build of 2b): a NEXT the lens did not report (its entry's SET lost
+     *  at a return) is held; a PREV 100 ms later is reported and adopted. Its owe pairs a held message of its own direction
+     *  only — the held NEXT is applied at the burst's end — so the row ends where it began. Paired with the NEXT, the PREV's
+     *  own message was applied as unreported too: two rows down for one notch. */
+    @Test fun seededS31_aHeldMessageIsPairedOnlyByAReportOfItsDirection() = seeded(Taps.REPORT, script = { h ->
+        h.cover(); h.rest()
+        h.lose27 = "set" to setOf(Arm.LEFT, Arm.RIGHT)  // the return's first SET (entry 0, the NEXT entry) does not land
+        h.uncover(); h.rest()
+        h.gesture(1, answer = true, band = "none"); h.runUntil(h.now + 100)
+        h.gesture(2, answer = true, band = "none")
+        h.rest()
+    }, extra = { h -> listOfNotNull(
+        if ((h.rules.counts["stockHeld"] ?: 0) < 1) "nothing held (the shape did not happen): ${h.rules.counts}" else null,
+        if (h.row != 3) "the row is ${h.row}, not 3 (a NEXT and a PREV)" else null) })
+
+    /** S32 (B083, 2b): a notch whose 115 is lost — its stock message then has no owe and is held — and a second notch 60 ms
+     *  later, whose report finds the gap: the gap's owe pairs the held message (the lens drew that notch; the adopted
+     *  cursor counts it), so the row moves to 2 and no message is applied as today. */
+    @Test fun seededS32_aGapsOwePairsTheHeldMessageOfTheLostReport() = seeded(Taps.REPORT, rows = 0, script = { h ->
+        h.loseNext115 = 1
+        h.gesture(1, answer = true, band = "none"); h.runUntil(h.now + 60)
+        h.gesture(1, answer = true, band = "none")
+        h.rest()
+    }, extra = { h -> listOfNotNull(
+        if (h.rules.counts["stockPaired"] != 1) "paired ${h.rules.counts["stockPaired"]} (held ${h.rules.counts["stockHeld"]}): the shape did not happen?" else null,
+        if ((h.rules.counts["unreported"] ?: 0) != 0) "${h.rules.counts["unreported"]} applied as unreported" else null,
+        if (h.row != 2) "the row is ${h.row}, not 2" else null) })
 
     @Test fun seededS24_aRefusedTailOnRightIsSeenAtTheSettle() = seeded(Taps.REPORT, live = false, script = { h ->
         h.refuse27On = Arm.RIGHT

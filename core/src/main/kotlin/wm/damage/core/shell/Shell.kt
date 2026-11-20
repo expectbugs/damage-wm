@@ -4313,15 +4313,21 @@ class Shell(
      *  owner's gate, read afresh on every pump). [onBooked]: what makes the record nameable — run when the naming piece
      *  is submitted, else at the last piece's ack. The first piece goes now. */
     private suspend fun stageSubmit(rec: StagedRecord, st: LinkState, parts: List<Pair<Int, ByteArray>> = listOf(rec.off to rec.encoded),
-                                    namesLast: Boolean = false, mayGo: () -> Boolean = { true }, onBooked: (() -> Unit)? = null) {
-        stageCursor = StageCursor(rec, stagePieces(parts, namesLast, st.cacheSize), mayGo, onBooked)
+                                    namesLast: Boolean = false, mayGo: () -> Boolean = { true }, apartFrom: IntRange? = null,
+                                    onBooked: (() -> Unit)? = null) {
+        stageCursor = StageCursor(rec, stagePieces(parts, namesLast, st.cacheSize, apartFrom), mayGo, onBooked)
         stageSendPiece(st)
     }
 
     /** [parts] as pieces of one mode-19 message each: consecutive data parts packed at their own offsets, split so a
      *  message carries at most [STAGE_CHUNK] bytes of data (its entries' 4-byte headers beside them; parts are 4-byte
-     *  aligned, so a split keeps every offset aligned); with [namesLast] the last part alone, last. */
-    private fun stagePieces(parts: List<Pair<Int, ByteArray>>, namesLast: Boolean, cacheSize: Int): List<StagePiece> {
+     *  aligned, so a split keeps every offset aligned); with [namesLast] the last part alone, last. B083 (S1): with
+     *  [apartFrom] (the wraps' read ranges), the parts that miss it go first and no piece holds both kinds — a wrap may
+     *  play from the records as they stand until the first piece that meets it is written. */
+    private fun stagePieces(parts0: List<Pair<Int, ByteArray>>, namesLast: Boolean, cacheSize: Int, apartFrom: IntRange? = null): List<StagePiece> {
+        fun meets(p: Pair<Int, ByteArray>) = apartFrom != null && p.first <= apartFrom.last && apartFrom.first < p.first + p.second.size
+        val body = if (namesLast) parts0.dropLast(1) else parts0
+        val parts = if (apartFrom == null) parts0 else body.filter { !meets(it) } + body.filter { meets(it) } + (if (namesLast) parts0.takeLast(1) else emptyList())
         val out = ArrayList<StagePiece>()
         var entries = ArrayList<CfwModes.CacheWrite2>()
         var room = STAGE_CHUNK + 4                                  // header + data of the message's entries
@@ -4334,7 +4340,7 @@ class Shell(
         for ((i, part) in parts.withIndex()) {
             val (off, bytes) = part
             val naming = namesLast && i == parts.size - 1
-            if (naming) close(false)
+            if (naming || (i > 0 && meets(part) && !meets(parts[i - 1]))) close(false)
             var pos = 0
             while (pos < bytes.size) {
                 if (room < 4 + 4) close(false)
@@ -6085,7 +6091,11 @@ class Shell(
                 // list that names it, the patch — only when nothing unwritten remains: at the item word's submission (it
                 // goes alone, after every other piece was acknowledged), else at the last piece's ack
                 var pieces = 0
-                stageSubmit(rec, st, r.writes.map { it.off to it.bytes }, namesLast = r.band != null, mayGo = { !mainBindBurstOpen() && !mainMotionMayDraw() }) {
+                // B083 (S1): what the wraps read goes last, so a wrap during the pieces plays from the records as they stand
+                val wrapReads = listOf(-1, 1).mapNotNull { d -> ms.wrapPan(d)?.let { pan -> ms.wrapParams(pan, if (d > 0) ms.rows else -1)?.let { pan.program.firstRange(it) } } }
+                    .reduceOrNull { a, b -> minOf(a.first, b.first)..maxOf(a.last, b.last) }
+                stageSubmit(rec, st, r.writes.map { it.off to it.bytes }, namesLast = r.band != null, mayGo = { !mainBindBurstOpen() && !mainMotionMayDraw() },
+                    apartFrom = wrapReads) {
                     if (mainBind.staging !== ms) return@stageSubmit       // the staging went meanwhile (its drop said so)
                     mainBind.submitted(r, rec, System.currentTimeMillis())
                     stageRecount()

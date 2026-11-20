@@ -10,8 +10,9 @@ import wm.damage.core.transport.Arm
  * gets janky until I stop" (APK 0.81, 2026-11-19): [LocalHarness]'s rules, batch composer and the simulator's two lenses,
  * with the ring's event and each of the phone's messages delivered to each lens on its own — the later lens by a skew drawn
  * per notch and per message, 0..80 ms, LEFT later or RIGHT later — and fast bursts at 40–150 ms gaps. Sampled after every
- * event and every engine wake (8 ms): whether the two panels differ over the list's band, by a step (either lens
- * mid-motion) or by a whole row (each shows a row, not the same one), for how long, and what ran when they agreed again.
+ * event and every engine wake (8 ms): whether the two panels differ over the list's band, by a step (a motion still
+ * drawing on either lens) or by a whole row (both at rest, showing different rows), for how long, and what ran when they
+ * agreed again. The motion is his phone's (T 6 at P 46, 0.81's).
  *
  * Rule sets: 0.82's (an unreported scroll message applied at its arrival), 2b (held for its report). Each cell runs
  * [SEEDS] seeded bursts (seed = cell base + i, so a cell's numbers repeat exactly); his journals' share of stock messages
@@ -31,17 +32,16 @@ class LocalSkewRigTest {
     /** One burst: [NOTCHES] notches down, [gap] ms apart, from row 0 of 12 rows ([wrap] false) or across the end of 8 rows
      *  (from row 5: the third notch is the edge, Main's wrap). */
     private fun burst(seed: Long, rule: Int, leftLate: Boolean, skewMax: Int, gap: Int, wrap: Boolean, into: Result) {
-        val h = LocalHarness(seed, Taps.REPORT, n0 = if (wrap) 8 else 12)
+        val h = LocalHarness(seed, Taps.REPORT, n0 = if (wrap) 8 else 12, tScroll = 6, period = 46)
         h.rules.holdStock = rule >= 1
         if (wrap) { repeat(5) { h.gesture(1, answer = true, band = "none"); h.runUntil(h.now + 600) }; h.rest() }
         h.stockFirst = 27.0 / 332; h.stockLeadMax = 60
         h.skewMax = skewMax; h.leftLate = leftLate
         var state = 0; var since = h.now; var stretchFrom = -1L
-        fun classify(): Int {
-            if (!h.bandsDiffer()) return 0
-            val l = h.shownOn(Arm.LEFT); val r = h.shownOn(Arm.RIGHT)
-            return if (l >= 0 && r >= 0 && l != r) ROW else STEP
-        }
+        // the band's pictures are solid rows (a step draws the new row's record): "a step apart" is the panels differing
+        // while a motion still draws on either lens, "a row apart" differing with both at rest (or holding their last step)
+        fun moving(a: Arm) = h.sim.motionForTest(a).slots.any { it != null && it.drawing && it.d < it.T }
+        fun classify(): Int = if (!h.bandsDiffer()) 0 else if (moving(Arm.LEFT) || moving(Arm.RIGHT)) STEP else ROW
         h.sampler = {
             val s = classify()
             val dt = h.now - since
