@@ -2102,7 +2102,9 @@ decoded from the stream; a version-2 instance always runs the fast path, which d
 shows once and reuses it for every output row that takes it, §7.12), its source window (below), `new`; `self` only unscaled in
 both axes (12). RETARGET's restart path clamps W to 1..2048 and restarts it from the width the track last drew — the
 source's own width when it drew unscaled, as C2's H from the source's height (the track's drawn state gains it, as C2
-added H). **The wheel's sideways icons** are a DRAW v2 of their records with
+added H). "The source" is the one the track DREW FROM: when the RETARGET's parameters name another record, W and H
+still start from what was last drawn on that lens, and on an axis the new segment does not scale the new source is
+drawn at its own size from the first restarted step (ruled from both sides' answers, 2026-11-20). **The wheel's sideways icons** are a DRAW v2 of their records with
 w0 → w1 at the centre anchor.
 
 **The source window** (DRAW v2 of a record, kind 0): **aux0** the window's first source row, **aux1** its height in rows
