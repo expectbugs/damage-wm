@@ -5348,8 +5348,9 @@ class Shell(
      * instances and the wrap's) gives its largest step time; the last [PERIOD_WINDOW] are kept. The period in force is
      * raised as soon as the window's maximum × [PERIOD_MARGIN_MEASURED] needs more ticks, and lowered — to what it needs,
      * never below the staging's own period (W1) — only after [PERIOD_QUIET_MS] with no input, by [PERIOD_LOWER_MIN] ticks
-     * or more, with no instance open and no burst (his look at 0.81, ruled). Clamped to the engine's 16..128. Applied with no burst open: new SETs only (the programs, their T
-     * and the records are kept, so a longer period runs the motion longer); the next staging starts from the fit again.
+     * or more, with no instance open and no burst (his look at 0.81, ruled). Clamped to the engine's 16..128. Applied with no burst open: new SETs
+     * (the records kept); K1-1: under Auto the pans are then re-made in idle for the steps the new period gives
+     * (`mainBindReprogram`) — with no spare pan slot their T is kept and a longer period runs the motion longer.
      */
     private val stepWindow = ArrayDeque<Long>()
     private var periodSamplesSinceChange = 0
@@ -5755,6 +5756,8 @@ class Shell(
     internal fun mainBoundForTest(): Pair<wm.damage.core.local.BoundList?, Int> = main.bound() to main.row()
     /** Test introspection (build ANIM, AW.4): Q in force and the bound pan's motion in ms (T × P), loop-only. */
     internal fun localQForTest(): Long = local.q
+    /** K1-1: whether a burst is open (the rules' P7), loop-only. */
+    internal fun localBurstOpenForTest(): Boolean = local.burstOpen
     internal fun motionMsForTest(): Long = mainBind.staging?.let { it.t * it.periodInForce * 1000L / 1024 } ?: 0L
     /** G4 item 1: assembles the shell made between the last edge report's verdict and its wrap's PLAY (0: the PLAY went
      *  first); the period in force (BF); the measured window. Loop-only. */
@@ -5800,12 +5803,13 @@ class Shell(
         return if (own.last + 1 < st.cacheSize && a != null && a.capacity > own.first) CfwModes.mainRegion(st.cacheSize, false) else own
     }
 
-    /** Why Main's list is not staged now; null when it is wanted. */
-    private fun mainBindBlocked(st: LinkState): String? = when {
+    /** Why Main's list is not staged now; null when it is wanted. [front] false: every reason but Main being covered
+     *  (K1-1's fix stage: the pans' re-make runs then too). */
+    private fun mainBindBlocked(st: LinkState, front: Boolean = true): String? = when {
         !st.bind -> "BIND is not in force"
         !linkUpAndSteady(st) -> "the link is down or the session is rebuilding"
         sleep != null || glassesSilent -> "the glasses are asleep"
-        mode != Mode.MAIN -> "Main is not in front"
+        front && mode != Mode.MAIN -> "Main is not in front"
         testHold -> "hold=on is in force"
         stageFailed -> "staging is off for this session"
         !st.draw2 || !st.leaseHeld -> "DRAW2 or the lease is not in force"
@@ -5814,19 +5818,22 @@ class Shell(
     }
 
     /** Build ANIM (AV, AW.1): the motion the `Animations` rows ask for. */
-    private fun motionInForce() = MainStaging.ScrollMotion(settings.scrollLength, settings.frames)
+    private fun motionInForce() = MainStaging.ScrollMotion(settings.scrollLength, settings.frames,
+        wm.damage.core.motion.ScrollEffect.byId(settings.scrollEffect) ?: wm.damage.core.motion.ScrollEffect.DEFAULT)
 
-    /** [ms]'s motion in words ("10 frames × 45 ms"), as the `Frames` row's hint says it. */
-    private fun motionWords(ms: MainStaging): String = "${ms.t} frames × ${"%.0f".format(ms.periodInForce * 1000.0 / 1024)} ms"
+    /** [ms]'s motion in words ("10 frames × 45 ms"; None's "1 frame × 45 ms"), as the `Scroll frames` row's hint says it. */
+    private fun motionWords(ms: MainStaging): String = frameWords(ms.t, ms.periodInForce)
+    private fun frameWords(t: Int, p: Int): String = "$t ${if (t == 1) "frame" else "frames"} × ${"%.0f".format(p * 1000.0 / 1024)} ms"
 
-    /** The `Frames` row's hint: the motion in force at Main's height now — the staging's when it was made for these rows,
+    /** The `Scroll frames` row's hint: the motion in force at Main's height now — the staging's when it was made for these rows,
      *  else what they give at the current layout. */
     private fun motionHint(): String {
         val ms = mainBind.staging
         if (ms != null && ms.motion == motionInForce()) return motionWords(ms)
         val (listD, bandD) = mainBindPlanes()
-        val (p, t) = MainStaging.timing(MainStaging.wholeAreaPx(layout, listD, bandD), motionInForce())
-        return "$t frames × ${"%.0f".format(p * 1000.0 / 1024)} ms"
+        val m = motionInForce()
+        val (p, t) = wm.damage.core.motion.ScrollEffects.timing(m.effect, wm.damage.core.motion.ScrollEffects.areaPx(m.effect, layout, listD, bandD), m)
+        return frameWords(t, p)
     }
 
     /** The relay Main's pictures are painted through (Page staging's): a face the glasses hold blits from the atlas. */
@@ -5858,9 +5865,9 @@ class Shell(
             (ms.listD to ms.bandD) != mainBindPlanes() -> "Main's planes changed (${ms.listD}/${ms.bandD} staged, ${mainBindPlanes().let { "${it.first}/${it.second}" }} now)"
             ms.rows != mainRows().size -> "Main's rows changed (${ms.rows} staged, ${mainRows().size} now)"
             st.cacheSize != ms.cacheSize || mainBindRegion(st).first != ms.regionStart -> "the session's cache or Main's region changed"
-            // build ANIM (AV): the `Animations` rows changed — the pans are made again (the strips with them: no switch
-            // carries a programs record); a change in a burst waits for its SETTLE
-            ms.motion != motionInForce() && !mainBindBurstOpen() -> "the motion changed (${motionWords(ms)} → ${motionInForce().lengthMs} ms, " +
+            // build ANIM (AV): the `Animations` rows changed — K1-1: the pans alone are re-made into the spare slot
+            // (`mainBindReprogram`); a staging with none is made again whole, as before; a change in a burst waits for its SETTLE
+            ms.progSlots == null && ms.motion != motionInForce() && !mainBindBurstOpen() -> "the motion changed (${motionWords(ms)} → ${motionInForce().lengthMs} ms, " +
                 "${if (motionInForce().frames == 0) "Auto" else "${motionInForce().frames} frames"})"
             else -> null
         }
@@ -5883,6 +5890,7 @@ class Shell(
                 stageRecount()
             }
         }
+        mainBindReprogramPoll()
         val offer = if (st.bind && b.counted && b.withdrawnFor == null) b.list else null
         if (offer !== main.offered) {
             main.offered = offer
@@ -5922,7 +5930,10 @@ class Shell(
             mainBindBlockedSaid = blocked
             if (blocked != null) journal.note("mainstage", "not staged — $blocked; Main's scrolls and taps go as today until it is")
         }
-        if (blocked != null) return false
+        // K1-1's fix stage: with Main covered (Settings, where the scroll rows change) only the pans' re-make runs — it
+        // paints nothing of Main and writes a slot nothing names — so his return SETs the new pans directly
+        val covered = blocked != null && mode != Mode.MAIN && mainBindBlocked(st, front = false) == null
+        if (blocked != null && !covered) return false
         if (atlasInFlight != null || atlasQueue.isNotEmpty() || atlasLapsedOwed || atlasCheckInFlight) return false
         if (stageInFlight != null || stageCursor != null || ledgerReadInFlight) return false
         if (st.inFlight != 0 || comp.hasPending || comp.needsKeyframe) return false
@@ -5930,6 +5941,7 @@ class Shell(
         if (atlasResendMissing > 0L) return false
         val b = mainBind
         val now = System.currentTimeMillis()
+        if (covered) return b.staging?.takeIf { b.counted }?.let { mainBindReprogram(st, it) } ?: false
         val ms = b.staging ?: return mainBindStage(st, now)
         // the base records, back to back (one reading counts them all; the reading is [pumpLedger]'s)
         val rec = b.records.firstOrNull { it.state == StagedRecord.State.WANTED && stage.records[it.key] === it }
@@ -5941,6 +5953,7 @@ class Shell(
         // B082: a re-stage's first piece too waits while a motion of the list may still draw (its later ones: `mayGo`)
         b.withdrawnFor?.let { row -> return if (mainBindPumps > b.withdrawnAtPump && !mainMotionMayDraw()) mainBindRow(st, ms, row, write = true, now) else false }
         if (!mainBindBurstOpen() && !mainMotionMayDraw()) b.nextOwed(now)?.let { row -> return mainBindRow(st, ms, row, write = true, now) }
+        if (mainBindReprogram(st, ms)) return true
         listOfNotNull(b.dueInMs(now), b.verifyInMs(now)).minOrNull()?.let { wait ->
             if (mainBindWakeAtMs <= now || now + wait < mainBindWakeAtMs) { mainBindWakeAtMs = now + wait; pumpAfter(wait) }
         }
@@ -6037,6 +6050,60 @@ class Shell(
                 "does not hold it): the wrap goes as the shell's frames" else ""))
         post(Msg.Pump)
         return true
+    }
+
+    /**
+     * K1-1 (the idle step): the pans re-made alone when the scroll rows ask for others, or under Auto the period in force
+     * gives another step count (`MainStaging.remakeOwed`) — written into the free pan slot as one record, counted, then
+     * switched by the entries' SETs ([mainBindReprogramPoll]); never a strip. Only in idle: no burst open, no motion of the
+     * list that may still draw (a cache write meeting an instance's read range closes it, §5.6), no row's re-stage on its
+     * way. Pans that outgrow the slot owe a full staging (a new mark), said.
+     */
+    private suspend fun mainBindReprogram(st: LinkState, ms: MainStaging): Boolean {
+        val b = mainBind
+        if (b.reprogram != null || b.withdrawnFor != null || b.patches.isNotEmpty()) return false
+        if (mainBindBurstOpen() || mainMotionMayDraw()) return false
+        val want = motionInForce()
+        if (ms.remakeOwed(want) == null) return false
+        val p = when (val r = ms.remake(want)) {
+            is MainStaging.Remake.Owed -> r.programs
+            is MainStaging.Remake.NoRoom -> {
+                // Auto's steps alone stay as they are where there is no slot; a change of the rows is a full staging
+                if (ms.motion != want) mainBindDrop("the motion changed (${ms.motion?.words()} → ${want.words()}) and ${r.why}: a full staging is owed")
+                return ms.motion != want
+            }
+        }
+        val rec = StagedRecord(MainStageKey(ms, MainBinding.PROGS_KEY + p.slot, "pans in slot ${p.slot}"), Gray8(1, 1), p.bytes).also { it.off = p.off }
+        stage.records[rec.key] = rec
+        b.reprogramBegun(MainBinding.Reprogram(rec, p))
+        stageSubmit(rec, st, mayGo = { !mainBindBurstOpen() && !mainMotionMayDraw() })
+        journal.note("mainstage", "pans re-made — ${p.why}: ${p.motion.effect.word}, ${p.t} frames × ${"%.0f".format(p.periodInForce * 1000.0 / 1024)} ms, " +
+            "${p.bytes.size} B into the free slot at ${p.off}; the entries are SET to them once counted (no strip written); " +
+            "${b.reprogramCount} re-make(s), ${b.reprogramBytes} B this process")
+        if (rec.state != StagedRecord.State.SENT) b.reprogramLost()
+        return true
+    }
+
+    /** K1-1, each poll: the re-made pans' record — gone before its switch: owed again; counted, no burst open: switched
+     *  (the list made now names them, and the rules SET the entries); its SETs landed with no burst open: the old pans
+     *  released. */
+    private fun mainBindReprogramPoll() {
+        val b = mainBind
+        val r = b.reprogram ?: return
+        if (stage.records[r.record.key] !== r.record) {
+            if (!r.switched) { b.reprogramLost(); journal.note("mainstage", "the re-made pans' write did not land (the stage notes say why) — re-made again in idle") }
+            else mainBindDrop("the pans in force left the stage registry (the stage notes say why)")
+            return
+        }
+        // the switch waits for the burst's SETTLE, as the period's SETs do (`mainPeriodApply`: applied with no burst open)
+        if (!r.switched && r.record.state == StagedRecord.State.PROVEN && !local.burstOpen) {
+            b.reprogramSwitch()
+            val ms = b.staging ?: return
+            // a new effect draws other areas: its steps are measured afresh from its own fit (decisions BF)
+            if (r.programs.reset) { stepWindow.clear(); periodSamplesSinceChange = 0 }
+            journal.note("mainstage", "pans switched — ${r.programs.motion.words()}: ${motionWords(ms)}; the entries are SET to them, the old pans kept for reports until the SETs land")
+        }
+        b.reprogramReleaseIfDue(local.burstOpen)?.let { rec -> if (stage.records[rec.key] === rec) stage.remove(rec); stageRecount() }
     }
 
     /** Row [row] painted again: [write] false — the repaint after its key changed or its round-robin turn (it marks the row

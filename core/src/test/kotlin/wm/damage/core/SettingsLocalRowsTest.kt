@@ -24,7 +24,25 @@ class SettingsLocalRowsTest {
         fun w(bit10: Boolean) = SettingsWindow(FakeText(), { st }, { st = it }, bindBuild = { bit10 }, motionHint = { "10 frames × 45 ms" })
         assertTrue("Animations" !in w(false).categoryNamesForTest(), "no bit 10: ${w(false).categoryNamesForTest()}")
         assertTrue("Animations" in w(true).categoryNamesForTest(), "bit 10: ${w(true).categoryNamesForTest()}")
-        assertEquals(listOf("Scroll length" to "300 ms (default)", "Frames" to "auto (10 frames × 45 ms)"), w(true).rowsForTest("Animations"))
+        assertEquals(listOf("Scroll effect" to "Depth (default)", "Scroll length" to "300 ms (default)", "Scroll frames" to "auto (10 frames × 45 ms)"),
+            w(true).rowsForTest("Animations"))
+    }
+
+    /** K1-1: `Scroll effect` cycles None · Depth · Slide · Fall (Depth the default); an older record reads Depth, a value
+     *  no effect has reads Depth, and the key round-trips. */
+    @Test
+    fun theScrollEffectRowCyclesTheFourEffects_K11() {
+        assertEquals(listOf("none", "depth", "slide", "fall"), ShellSettings.SCROLL_EFFECTS)
+        assertEquals("depth", ShellSettings().scrollEffect)
+        assertEquals("depth", ShellSettings.fromJson(kotlinx.serialization.json.buildJsonObject { put("taps", kotlinx.serialization.json.JsonPrimitive("report")) }).scrollEffect)
+        assertEquals("depth", ShellSettings.fromJson(kotlinx.serialization.json.buildJsonObject { put("scrollEffect", kotlinx.serialization.json.JsonPrimitive("glitch")) }).scrollEffect)
+        assertEquals("fall", ShellSettings.fromJson(ShellSettings().copy(scrollEffect = "fall").toJson()).scrollEffect)
+        assertTrue("scrollEffect" !in ShellSettings().toJson(), "a default is not written")
+        var st = ShellSettings()
+        val w = SettingsWindow(FakeText(), { st }, { st = it }, bindBuild = { true })
+        val seen = ArrayList<String>()
+        repeat(4) { seen += w.rowsForTest("Animations").first().second; st = st.copy(scrollEffect = ShellSettings.SCROLL_EFFECTS[(ShellSettings.SCROLL_EFFECTS.indexOf(st.scrollEffect) + 1) % 4]) }
+        assertEquals(listOf("Depth (default)", "Slide", "Fall", "None"), seen)
     }
 
     /** An older record without the keys reads the defaults (300 ms since decisions AZ.7, Auto); a value off the ladder clamps

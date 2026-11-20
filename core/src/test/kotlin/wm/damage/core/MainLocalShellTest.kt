@@ -584,9 +584,9 @@ class MainLocalShellTest {
         } finally { r.close() }
     }
 
-    /** Build ANIM (AV): a change of the `Animations` rows makes the bound list's pans again — here by a re-staging (no
-     *  switch carries a programs record) — once no burst is open; the list is bound again with the new motion, and a
-     *  notch after it is COMMITted with it (its entry's T and P on RIGHT). */
+    /** Build ANIM (AV), K1-1: a change of the `Animations` rows makes the bound list's pans again — the pans alone, into
+     *  the free slot, then SETs — once no burst is open; the list is offered again with the new motion (the same staging,
+     *  no strip written), and a notch after it is COMMITted with it (its entry's T and P on RIGHT). */
     @Test
     fun anAnimationsChangeMakesThePansAgainAndANotchUsesThem_ANIM(): Unit = runBlocking {
         val r = Rig(Taps.REPORT)
@@ -594,15 +594,193 @@ class MainLocalShellTest {
             r.up()
             val before = r.list().entries.first { it.eventId == CfwModes.EV_UPROLL }
             assertEquals(46 to 6, before.period to before.program!!.T, "the defaults at 352 (300 ms, decisions AZ.7)")
-            val staged0 = r.notes("mainstage").count { it.startsWith("staged") }
+            val m = marks(r)
             r.shell.updateSettings { it.copy(scrollLength = 450, frames = 0) }
-            r.until("staged again with the new motion", 15_000) { r.notes("mainstage").count { it.startsWith("staged") } > staged0 }
-            r.bound("bound with the new motion")
+            remade(r, "450 ms", m)
             val after = r.list().entries.first { it.eventId == CfwModes.EV_UPROLL }
             assertEquals(46 to 10, after.period to after.program!!.T, "450 ms Auto at 352: T 10 at P 46")
             assertEquals(46, r.sim.bindForTest(Arm.RIGHT).entries.filterNotNull().first { it.eventId == CfwModes.EV_UPROLL }.period, "RIGHT's entry")
-            assertTrue(r.notes("mainstage").any { it.startsWith("dropped — the motion changed") }, "${r.notes("mainstage").takeLast(4)}")
             notch(r, CfwModes.EV_UPROLL, "a notch with the new motion")
+        } finally { r.close() }
+    }
+
+    /** K1-1: the counts of stagings, drops and programs switches so far, taken before what should re-make the pans. */
+    private class Marks(val staged: Int, val dropped: Int, val switched: Int)
+    private fun marks(r: Rig) = r.notes("mainstage").let { n -> Marks(n.count { it.startsWith("staged") }, n.count { it.startsWith("dropped") }, n.count { it.startsWith("pans switched") }) }
+
+    /** K1-1: waits for the pans re-made and switched since [m], and for RIGHT to hold the entries that name them; the
+     *  staging is the one there was (nothing staged again, nothing dropped since [m]). */
+    private suspend fun remade(r: Rig, what: String, m: Marks) {
+        val staged0 = m.staged
+        val switched0 = m.switched
+        r.until("$what: the pans switched", 15_000) { r.notes("mainstage").count { it.startsWith("pans switched") } > switched0 }
+        r.bound("$what: bound with the re-made pans")
+        r.until("$what: RIGHT holds the re-made pans") { val e = r.list().entryFor(CfwModes.EV_UPROLL)!!
+            r.sim.bindForTest(Arm.RIGHT).entries.filterNotNull().firstOrNull { it.eventId == CfwModes.EV_UPROLL }?.prog == e.prog4 }
+        assertEquals(staged0, r.notes("mainstage").count { it.startsWith("staged") }, "$what: no staging: ${r.notes("mainstage").takeLast(4)}")
+        assertEquals(m.dropped, r.notes("mainstage").count { it.startsWith("dropped") }, "$what: no drop: ${r.notes("mainstage").takeLast(4)}")
+    }
+
+    /** The byte ranges a cache-write image writes (mode 19, or 25 deflated), each [from, to). */
+    private fun writeRanges(img: ByteArray): List<IntRange> {
+        val body = when (img[0].toInt() and 0x7F) {
+            19 -> img.copyOfRange(1, img.size)
+            25 -> java.util.zip.Inflater().run { setInput(img, 1, img.size - 1); val out = java.io.ByteArrayOutputStream(); val buf = ByteArray(4096)
+                while (!finished()) { val n = inflate(buf); if (n == 0 && (needsInput() || needsDictionary())) break; out.write(buf, 0, n) }; end(); out.toByteArray() }
+            else -> return emptyList()
+        }
+        val out = ArrayList<IntRange>()
+        var i = 0
+        while (i + 4 <= body.size) {
+            val off = ((body[i].toInt() and 0xFF) or ((body[i + 1].toInt() and 0xFF) shl 8)) * 4
+            val len = (body[i + 2].toInt() and 0xFF) or ((body[i + 3].toInt() and 0xFF) shl 8)
+            out += off until off + len; i += 4 + len
+        }
+        return out
+    }
+
+    /**
+     * K1-1 item 4, the brief's pin "a programs-only change never writes a strip": a change of `Scroll effect` on a counted
+     * staging writes only into the free pan slot (every cache write since the change lies there — no strip, band form,
+     * wrap record, item table or press byte), the SETs naming the re-made pans go only after that write (counted first),
+     * the staging stays the same object, and a notch then draws the new effect (four tracks) and is committed, belief
+     * equal to both lenses. On both caches (160 KiB: the shared reserve, one strip; 256: Main's own region, two).
+     */
+    @Test
+    fun aScrollRowChangeWritesThePansAloneNeverAStrip_K11(): Unit = runBlocking {
+        for (big in listOf(false, true)) {
+            val r = Rig(Taps.REPORT, kib256 = big)
+            try {
+                r.up()
+                val ms = assertNotNull(r.onLoop { r.shell.mainBinding.staging })
+                val slots = assertNotNull(ms.progSlots, "a spare pan slot (${if (big) 256 else 160} KiB)")
+                val free = slots[1 - ms.activeProgs] until slots[1 - ms.activeProgs] + ms.progSlot
+                val at = r.right.size
+                val m = marks(r)
+                r.shell.updateSettings { it.copy(scrollEffect = "slide") }
+                remade(r, "Slide", m)
+                assertTrue(r.onLoop { r.shell.mainBinding.staging } === ms, "the same staging")
+                val imgs = r.right.drop(at)
+                val writes = imgs.withIndex().filter { r.cacheWrite(it.value) }
+                assertTrue(writes.isNotEmpty(), "the re-made pans were written")
+                for (w in writes) for (rg in writeRanges(w.value)) assertTrue(rg.first >= free.first && rg.last <= free.last,
+                    "a cache write at ${rg.first}..${rg.last + 1} outside the free pan slot ${free.first}..${free.last + 1}")
+                val prog = r.list().entryFor(CfwModes.EV_UPROLL)!!.prog4
+                val setAt = imgs.indexOfFirst { img -> r.subs(img).any { r.isSub(it, 27, 0) && r.u16(it, 9) == prog } }
+                assertTrue(setAt > writes.last().index, "the SETs naming the re-made pans after their write (set at $setAt, write at ${writes.last().index})")
+                // ... and only once the write was COUNTED (field 17): the stage's "proved" note comes between the write's
+                // submit and the switch that makes the list naming the re-made pans (the SETs' source)
+                val ns = r.allNotes()
+                val sub = ns.indexOfFirst { (k, d) -> k == "stage" && "Main's pans in slot" in d && "submitted" in d }
+                val sw = ns.indexOfFirst { (k, d) -> k == "mainstage" && " pans switched" in d }
+                val proved = ns.withIndex().indexOfFirst { (i, n) -> i > sub && n.first == "stage" && " proved " in n.second }
+                assertTrue(sub >= 0 && proved in (sub + 1) until sw, "the re-made pans were counted before the switch (submit $sub, proved $proved, switched $sw): ${ns.drop(maxOf(0, sub)).take(8)}")
+                println("K11-row-change ${if (big) 256 else 160} KiB: ${writes.sumOf { it.value.size }} B of cache writes in ${writes.size} flush(es), " +
+                    "SETs ${r.subs(imgs[setAt]).filter { r.isSub(it, 27, 0) }.sumOf { it.size }} B; the staging is ${ms.bytes} B")
+                assertEquals(4, r.list().entryFor(CfwModes.EV_UPROLL)!!.program!!.tracks.size, "Slide's pans")
+                notch(r, CfwModes.EV_UPROLL, "a notch with Slide")
+                r.assertOracle("after Slide")
+            } finally { r.close() }
+        }
+    }
+
+    /** K1-1, the brief's pin "no change in a burst": a change of the scroll rows inside a burst writes nothing and SETs
+     *  nothing until the burst's lone SETTLE has gone; then the pans are re-made. */
+    @Test
+    fun aScrollRowChangeInABurstWaitsForItsSettle_K11(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT)
+        try {
+            r.up()
+            var settleAt = -1
+            var firstWrite = -1
+            var firstSet = -1
+            val prog0 = r.list().entryFor(CfwModes.EV_UPROLL)!!.prog4
+            val n0 = r.right.size
+            r.onImage = { img ->
+                val i = r.right.size - 1
+                if (settleAt < 0 && r.subs(img).any { r.isSub(it, 26, 5) }) settleAt = i
+                if (firstWrite < 0 && r.cacheWrite(img)) firstWrite = i
+                if (firstSet < 0 && r.subs(img).any { r.isSub(it, 27, 0) && r.u16(it, 9) != prog0 && it[4].toInt() == CfwModes.EV_UPROLL }) firstSet = i
+            }
+            val m = marks(r)
+            r.fire(CfwModes.EV_UPROLL)
+            r.until("the burst opens") { r.onLoop { r.shell.localBurstOpenForTest() } }
+            r.shell.updateSettings { it.copy(scrollEffect = "fall") }
+            assertTrue(r.onLoop { r.shell.localBurstOpenForTest() }, "the change reached the loop while the burst was open")
+            remade(r, "Fall", m)
+            r.onImage = null
+            assertTrue(settleAt >= n0, "the burst's SETTLE went")
+            assertTrue(firstWrite > settleAt, "the re-make's write after the SETTLE (write $firstWrite, settle $settleAt)")
+            assertTrue(firstSet > settleAt, "the SETs after the SETTLE (set $firstSet, settle $settleAt)")
+            r.assertOracle("after Fall")
+        } finally { r.close() }
+    }
+
+    /** K1-1's fix stage (the review's finding 1): a change of `Scroll effect` made with Settings in front is re-made while
+     *  Main is covered (the spare slot is read by nothing), so back on Main the FIRST notch plays the new effect's
+     *  program on both lenses — the return batch SETs the new pans directly. */
+    @Test
+    fun aChangeMadeInSettingsPlaysOnTheFirstNotchBackOnMain_K11(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, kib256 = true)
+        try {
+            r.up()
+            val m = marks(r)
+            r.onLoop { r.shell.services.openWindow("settings", null) }
+            r.until("Settings open") { r.onLoop { r.shell.currentWindowId() } == "settings" }
+            r.shell.updateSettings { it.copy(scrollEffect = "slide") }
+            // a while in Settings, as he would spend there (not asserted here: the notch below says it)
+            val until = System.currentTimeMillis() + 5_000
+            while (System.currentTimeMillis() < until && r.notes("mainstage").count { it.startsWith("pans switched") } == m.switched) delay(20)
+            r.settle("in Settings")
+            assertEquals("settings", r.onLoop { r.shell.currentWindowId() }, "still in Settings")
+            val slide = r.onLoop { r.shell.mainBinding.staging!!.let { ms -> ms.motion?.effect to ms.pan(MainStaging.WHOLE, 1).prog4 } }
+            val at = r.right.size
+            r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+            r.until("back on Main and its list bound on RIGHT") { r.onLoop { r.shell.currentWindowId() } == null && r.sim.bindForTest(Arm.RIGHT).field39() == r.bound39 }
+            r.fire(CfwModes.EV_UPROLL)                                      // the first notch, at once
+            for (a in Arm.entries) r.until("$a plays the first notch") { r.sim.motionForTest(a).slots[MainStaging.SLOT] != null }
+            for (a in Arm.entries) assertEquals(wm.damage.core.motion.ScrollEffect.SLIDE to slide.second, slide.first to r.sim.motionForTest(a).slots[MainStaging.SLOT]!!.prog4,
+                "$a: the first notch back on Main plays Slide's pan")
+            val sets = r.right.drop(at).flatMap { r.subs(it) }.filter { r.isSub(it, 27, 0) && it[4].toInt() == CfwModes.EV_UPROLL }
+            assertTrue(sets.isNotEmpty() && sets.all { r.u16(it, 9) == slide.second }, "the return SETs Slide's pans directly: ${sets.map { r.u16(it, 9) }}")
+            delay(r.motionMs() + r.q() + 300); r.settle("after the notch")
+            assertEquals(m.staged, r.notes("mainstage").count { it.startsWith("staged") }, "no staging")
+            r.assertOracle("after the first notch")
+        } finally { r.close() }
+    }
+
+    /** K1-1 item 4: under Auto the steps follow the period in force — steps measured at 48 ms raise it 46 → 55 (decisions
+     *  BF), and the pans are then re-made alone with T 5 (300 ms at 55 ticks), in idle; the staging's own period stays the
+     *  floor, and five seconds with no input at fast steps bring both back (46, T 6). */
+    @Test
+    fun autosStepsFollowThePeriodInForce_K11(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT)
+        try {
+            r.up()
+            val m = marks(r)
+            for (a in Arm.entries) r.sim.motionForTest(a).stepUsForTest = 48_000L
+            var notches = 0
+            while (r.onLoop { r.shell.periodInForceForTest() } == 46 && notches < 4) {
+                r.fire(if (r.row() < r.list().count - 2) CfwModes.EV_UPROLL else CfwModes.EV_DOWNROLL); notches++
+                delay(r.motionMs() + r.q() + 300); r.settle("slow notch $notches")
+            }
+            assertEquals(55, r.onLoop { r.shell.periodInForceForTest() })
+            remade(r, "T at P 55", m)
+            val e = r.list().entryFor(CfwModes.EV_UPROLL)!!
+            assertEquals(55 to 5, e.period to e.program!!.T, "300 ms at P 55: T 5")
+            assertTrue(r.notes("mainstage").any { it.startsWith("pans re-made — the period in force 55 gives Auto 5 steps") }, "${r.notes("mainstage").takeLast(3)}")
+            notch(r, CfwModes.EV_DOWNROLL, "a notch at T 5")
+            val m2 = marks(r)
+            for (a in Arm.entries) r.sim.motionForTest(a).stepUsForTest = 30_000L
+            repeat(Shell.PERIOD_WINDOW + 1) { n ->
+                r.fire(if (n % 2 == 0) CfwModes.EV_UPROLL else CfwModes.EV_DOWNROLL)
+                delay(r.motionMs() + r.q() + 300); r.settle("fast notch $n")
+            }
+            delay(Shell.PERIOD_QUIET_MS + 1_000); r.settle("5 s with no input")
+            assertEquals(46, r.onLoop { r.shell.periodInForceForTest() })
+            remade(r, "T back at P 46", m2)
+            assertEquals(46 to 6, r.list().entryFor(CfwModes.EV_UPROLL)!!.let { it.period to it.program!!.T })
+            r.assertOracle("after")
         } finally { r.close() }
     }
 
@@ -912,10 +1090,9 @@ class MainLocalShellTest {
         val r = Rig(Taps.REPORT, kib256 = true)
         try {
             r.up()
-            val staged0 = r.notes("mainstage").count { it.startsWith("staged") }
+            val m = marks(r)
             r.shell.updateSettings { it.copy(scrollLength = 600, frames = 0) }
-            r.until("staged again with the new motion", 15_000) { r.notes("mainstage").count { it.startsWith("staged") } > staged0 }
-            r.bound("bound at 600 ms")
+            remade(r, "600 ms", m)
             val e = r.list().entries.first { it.eventId == CfwModes.EV_UPROLL }
             assertEquals(46 to 13, e.period to e.program!!.T, "600 ms Auto at 352: T 13 at P 46")
             val count = r.list().count
@@ -1115,10 +1292,9 @@ class MainLocalShellTest {
         val r = Rig(Taps.REPORT, kib256 = true)
         try {
             r.up()
-            val staged0 = r.notes("mainstage").count { it.startsWith("staged") }
+            val m = marks(r)
             r.shell.updateSettings { it.copy(scrollLength = 600, frames = 0) }
-            r.until("staged again with the new motion", 15_000) { r.notes("mainstage").count { it.startsWith("staged") } > staged0 }
-            r.bound("bound at 600 ms")
+            remade(r, "600 ms", m)
             walkTo(r, r.list().count - 1)
             val at = r.right.size
             val firedAt = System.currentTimeMillis()
@@ -1310,7 +1486,7 @@ class MainLocalShellTest {
             assertTrue(setAt >= 0, "the entries SET with P 55")
             val setSubs = r.subs(imgs[setAt]).filter { r.isSub(it, 27, 0) }
             println("BF-sets: ${setSubs.size} SET(s), ${setSubs.sumOf { it.size }} B")
-            assertTrue(imgs.none { r.cacheWrite(it) }, "no re-stage")
+            assertTrue(imgs.take(setAt + 1).none { r.cacheWrite(it) }, "no cache write before or with the SETs (K1-1: Auto's T follows in idle after them)")
             assertTrue(imgs.take(setAt).any { img -> r.subs(img).any { r.isSub(it, 26, 5) } }, "the SETs only once the burst's lone SETTLE went")
             assertTrue(r.subs(imgs[setAt]).none { r.isSub(it, 26, 3) }, "not in a COMMIT's batch (a burst's answer)")
             // the next notches: no fold at P 55
@@ -1458,10 +1634,9 @@ class MainLocalShellTest {
         val r = Rig(Taps.REPORT)
         try {
             r.up()
-            val staged0 = r.notes("mainstage").count { it.startsWith("staged") }
+            val m = marks(r)
             r.shell.updateSettings { it.copy(scrollLength = 600, frames = 10) }
-            r.until("staged again with the new motion", 15_000) { r.notes("mainstage").count { it.startsWith("staged") } > staged0 }
-            r.bound("bound at 600 ms, 10 frames")
+            remade(r, "600 ms, 10 frames", m)
             assertEquals(62, r.onLoop { r.shell.periodInForceForTest() }, "614 ticks over 10 frames")
             for (a in Arm.entries) r.sim.motionForTest(a).stepUsForTest = 30_000L
             repeat(Shell.PERIOD_WINDOW + 2) { i ->

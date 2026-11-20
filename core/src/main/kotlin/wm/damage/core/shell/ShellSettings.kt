@@ -120,6 +120,9 @@ data class ShellSettings(
      *  the phone's working copy, as `taps`; additive: an older record reads the defaults, an older reader ignores them. */
     val scrollLength: Int = 300,
     val frames: Int = 0,
+    /** K1-1 (`MOTION.md` §7): `Scroll effect` — the Scroll tier's one effect (no randomness), a [wm.damage.core.motion.
+     *  ScrollEffect] id: `none` · `depth` (the default, today's) · `slide` · `fall`. Additive, as the two above. */
+    val scrollEffect: String = "depth",
 
     /** Battery alert mode for the <=20 % pulse (§4.1). */
     val batteryAlert: BatteryAlert = BatteryAlert.ON,
@@ -206,6 +209,7 @@ data class ShellSettings(
         slideFrames = if (slideFrames in SLIDE_FRAMES) slideFrames else "auto",
         scrollLength = SCROLL_LENGTHS.minByOrNull { kotlin.math.abs(it - scrollLength) } ?: 300,
         frames = if (frames in FRAME_COUNTS) frames else 0,
+        scrollEffect = if (scrollEffect in SCROLL_EFFECTS) scrollEffect else "depth",
         slideFill = if (slideFill in SLIDE_FILLS) slideFill else "auto",
         cachedText = if (cachedText in CACHED_TEXT) cachedText else "off",
         pageStaging = if (pageStaging in PAGE_STAGING) pageStaging else "on",
@@ -244,6 +248,8 @@ data class ShellSettings(
         /** Build ANIM (AV): the `Scroll length` ladder (ms) and the `Frames` choices (0 = Auto). */
         val SCROLL_LENGTHS = listOf(225, 300, 450, 600, 800)
         val FRAME_COUNTS = listOf(0, 4, 6, 8, 10, 12, 16)
+        /** K1-1: the `Scroll effect` row's order (the stored ids). */
+        val SCROLL_EFFECTS: List<String> = wm.damage.core.motion.ScrollEffect.entries.map { it.id }
         val SLIDE_FILLS = listOf("auto", "split", "whole")
         /** The texture-cache switch (§40). */
         val CACHED_TEXT = listOf("off", "on")

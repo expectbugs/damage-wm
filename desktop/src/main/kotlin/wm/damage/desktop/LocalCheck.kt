@@ -36,16 +36,7 @@ object LocalCheck {
             out.println("local-check: FAILED to run: ${e.javaClass.simpleName}: ${e.message}")
             return 1
         }
-        for (c in r.cases) {
-            if (c.frames.isNotEmpty()) writeStrip(outDir.resolve("${c.name}.png"), c)
-            Files.writeString(outDir.resolve("${c.name}.txt"), buildString {
-                appendLine("${c.name}: ${c.about}")
-                if (c.frames.isNotEmpty()) appendLine("strip: ${c.frames.size} frames (${c.frames.joinToString { it.label }}), left lens above right, crop ${c.crop.x},${c.crop.y} ${c.crop.w}x${c.crop.h} at 1x")
-                for (l in c.lines) appendLine("  $l")
-                if (c.failures.isEmpty()) appendLine("checks: all hold") else for (f in c.failures) appendLine("FAILED: $f")
-            })
-            out.println("  ${if (c.failures.isEmpty()) "held" else "FAILED"}: ${c.name}${if (c.frames.isNotEmpty()) " -> ${c.name}.png" else ""}")
-        }
+        for (c in r.cases) writeCase(outDir, c, out)
         Files.writeString(outDir.resolve("staging.txt"), r.table.joinToString("\n", postfix = "\n"))
         for (l in r.table) out.println("  $l")
         out.println("local-check: ${r.cases.size} case(s) into $outDir")
@@ -54,6 +45,19 @@ object LocalCheck {
         for (f in r.failures.take(60)) out.println("  - $f")
         if (r.failures.size > 60) out.println("  - … ${r.failures.size - 60} more in the cases' .txt files")
         return 1
+    }
+
+    /** [c]'s strip (when it kept frames) and its text into [outDir] (K1-1: `--motion-check`'s scroll section writes its
+     *  cases this way too). */
+    internal fun writeCase(outDir: Path, c: MainLocalCheck.Case, out: java.io.PrintStream) {
+        if (c.frames.isNotEmpty()) writeStrip(outDir.resolve("${c.name}.png"), c)
+        Files.writeString(outDir.resolve("${c.name}.txt"), buildString {
+            appendLine("${c.name}: ${c.about}")
+            if (c.frames.isNotEmpty()) appendLine("strip: ${c.frames.size} frames (${c.frames.joinToString { it.label }}), left lens above right, crop ${c.crop.x},${c.crop.y} ${c.crop.w}x${c.crop.h} at 1x")
+            for (l in c.lines) appendLine("  $l")
+            if (c.failures.isEmpty()) appendLine("checks: all hold") else for (f in c.failures) appendLine("FAILED: $f")
+        })
+        out.println("  ${if (c.failures.isEmpty()) "held" else "FAILED"}: ${c.name}${if (c.frames.isNotEmpty()) " -> ${c.name}.png" else ""}")
     }
 
     private fun writeStrip(path: Path, c: MainLocalCheck.Case) {
