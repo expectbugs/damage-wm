@@ -325,8 +325,8 @@ object MainLocalCheck {
                 union(pan.areasL + pan.areasR), kept, lines, fails)
         }
 
-        // ---- the press at every cursor (Taps · glasses)
-        run {
+        // ---- the press at every cursor (Taps · glasses); K1-1: the press is no effect's, so Depth's staging alone checks it
+        if (effect == ScrollEffect.DEPTH && !pansOnly) run {
             val fails = ArrayList<String>(); val lines = ArrayList<String>()
             if (ms.press.pressD != m.pressD) fails += "the press goes to depth ${ms.press.pressD}, not one notch nearer than the band's ${ms.bandD} (${m.pressD})"
             var kept: List<Frame> = emptyList()
