@@ -1743,7 +1743,7 @@ def vectors_v3(kf):
     for vec_ in v:
         vec_["contract"] = 2                                            # §5.1: added ops and bits do not bump the contract
         vec_["start"] = "zero"
-        vec_["features"] = [FEATURES_C1, FEATURES_C2]                  # C2 B.2: build-neutral, run at both
+        vec_["features"] = [FEATURES_C1, FEATURES_C2, FEATURES_C3]     # C2 B.2, C3 E.4 A16 (§7.13): build-neutral, run at each
     return v
 
 # ---- C2: local input (`FIRMWARE.md` §6; build C2's spec §3 DV and §4, `C2-decisions.md` B.2, B.7) ---------------
@@ -1755,6 +1755,7 @@ def vectors_v3(kf):
 # explicitly in its first step, so none depends on a harness's default.
 BIND = 0x0010                              # §6.8 flag bit 4
 FEATURES_C2 = 0x5FF                        # §6.8: C1's 0x1ff plus bit 10 (bit 9, the link item, still out)
+FEATURES_C3 = 0xDFF                        # §7.9: C2's 0x5ff plus bit 11 (the v3/v4 sets answer alike on it, §7.13)
 TAP, DOUBLE, LONG, UP, DOWN, PRESS, RELEASE = 0, 1, 3, 4, 5, 0xD, 0xE    # §6.1 stock's event ids (4 UPROLL, 5 DOWNROLL)
 TOUCH_L, TOUCH_R, RING, ANY = 0, 1, 4, 0xFF                              # §6.1 devTypes; 0xFF a scroll entry's "any" (§6.3)
 NONE = 0xFFFF                              # §6.3 LIST's "none"; a tap entry's prog for the report-only form
@@ -2499,7 +2500,7 @@ def vectors_v4(kf):
         vec_["contract"] = 2
         vec_["start"] = "zero"
         vec_["panel"] = True
-        vec_["features"] = FEATURES_C2
+        vec_["features"] = [FEATURES_C2, FEATURES_C3]                  # C3 E.4 A16 (§7.13): build-neutral on a bit-11 build
     return v
 
 # ---- the self-check (spec §3 D1): every message decodes by its builder's inverse, every program walks to its
@@ -2558,6 +2559,23 @@ def check_neutral(vecs):
                     assert not (m[0] & 0x7F == 26 and len(m) >= 2 and m[1] in (3, 4, 5)), f"{where}: mode-26 sub {m[1]}"
     return n
 
+def check_neutral_c3(vecs):
+    """C3 E.4 A16 / `FIRMWARE.md` §7.13: the v1–v4 sets answer alike on a bit-11 build (their `features` lists carry
+    0xdff) only while none of them sends what bit 11 gives a meaning at any depth — mode 26 sub 8, mode 27 sub 4, flag
+    bit 6 (a version-2 record and kind 3 stay refused as before while EFFECTS is clear; 27/3, 26/6, 26/7 stay unknown)."""
+    n = 0
+    for vec in vecs:
+        for si, st in enumerate(vec["steps"]):
+            for op in st["ops"]:
+                where = f"{vec['name']} step {si}"
+                assert not ("flags" in op and op["flags"] & 0x0040), f"{where}: a FLAGS_SET with bit 6"
+                if "msg" not in op: continue
+                for m in walk_msgs(bytes.fromhex(op["msg"])):
+                    n += 1
+                    assert not (len(m) >= 2 and m[0] & 0x7F == 26 and m[1] == 8), f"{where}: mode-26 sub 8"
+                    assert not (len(m) >= 2 and m[0] & 0x7F == 27 and m[1] == 4), f"{where}: mode-27 sub 4"
+    return n
+
 def check_v3(vecs, c2=False):
     """Raise AssertionError on the first message, op or program that does not decode as built (C1's set, or with
     `c2` C2's: modes 26 subs 3..5, 27 and 28, the ops `input` and `page`, the programs SET and COMMIT name)."""
@@ -2585,7 +2603,7 @@ def check_v3(vecs, c2=False):
             if rec in WELL_FORMED:
                 assert walk_prog(cache, off) == len(rec); n_progs += 1
         if c2:
-            assert vec["features"] == FEATURES_C2 and vec["panel"] is True, f"{vec['name']}: features or panel"
+            assert vec["features"] == [FEATURES_C2, FEATURES_C3] and vec["panel"] is True, f"{vec['name']}: features or panel"
             assert any("page" in op for op in vec["steps"][0]["ops"] + vec["steps"][1]["ops"]) or \
                 not any("input" in op for st in vec["steps"] for op in st["ops"]), f"{vec['name']}: no page op at its start"
         last = None
@@ -2688,11 +2706,13 @@ def main():
     m4, p4, found4 = check_v3(v4, c2=True)
     check_found(found3 | found4)
     n_neutral = check_neutral(v12 + v3)
+    n_neutral3 = check_neutral_c3(v12 + v3 + v4)
     for build, got in ((vectors_v3, v3), (vectors_v4, v4)):
         assert json.dumps(build(kf)) == json.dumps(got), f"{build.__name__} is not deterministic"
     print(f"self-check: {len(v3)} C1 vectors, {n_msgs} mode-25/26 messages decoded, {n_progs} named programs walked; "
           f"{len(v4)} C2 vectors, {m4} mode-26/27/28 messages and inputs decoded, {p4} named programs walked; "
-          f"{n_neutral} v1/v2/v3 messages build-neutral; {len(WELL_FORMED)} programs built well formed, "
+          f"{n_neutral} v1/v2/v3 messages build-neutral; {n_neutral3} v1–v4 messages neutral on a bit-11 build; "
+          f"{len(WELL_FORMED)} programs built well formed, "
           f"{len(BAD_SHAPE)} malformed on purpose")
     if a.check: return
     prefixes = tuple(x for x in a.only.split(",") if x) if a.only else None
