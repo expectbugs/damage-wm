@@ -157,7 +157,7 @@ class TransitionsTest {
     }
 
     /**
-     * §7.2's fold invariant on every out program (Select's, Back's, Lock's both ways, and the freeze): drawn at every step
+     * §7.2's fold invariant on every out program (Select's, Back's, Lock's both ways): drawn at every step
      * (each from the step before as its base) and drawn at every second step and the last (each from the step it drew
      * before), the panel is the same at every step both drew and at the end — both lenses, over a busy picture.
      */
@@ -167,8 +167,7 @@ class TransitionsTest {
         val n = timing.steps
         val area = Rect(0, 0, Geometry.PANEL_W, 416)
         val pic = Pack.rect(oldScreen(), Rect(0, 0, Geometry.PANEL_W, Geometry.PANEL_H))
-        val outs = plays.map { (t, e, rev) -> "${t.word} ${e.label}${if (rev) " reversed" else ""}" to Transitions.build(fx, e, rev, area, timing, 1024, 2048).out } +
-            listOf("the freeze" to Transitions.freeze(fx, area, 1024))
+        val outs = plays.map { (t, e, rev) -> "${t.word} ${e.label}${if (rev) " reversed" else ""}" to Transitions.build(fx, e, rev, area, timing, 1024, 2048).out }
         for ((name, p) in outs) for (left in listOf(true, false)) {
             val t = p.T
             val every = HashMap<Int, ByteArray>()
@@ -221,6 +220,45 @@ class TransitionsTest {
             val b = Transitions.build(fx, e, rev, Rect(0, 0, Geometry.PANEL_W, h), Transitions.timing(len, f), 1024, wm.damage.core.wire.CfwModes.TRANSITION_SLOT)
             assertTrue(b.blob.size <= wm.damage.core.wire.CfwModes.TRANSITION_SLOT)
         }
+    }
+
+    /**
+     * X2P2 item 6 (the one-step freeze removed): no shipped effect needs it — at every height, every length of the tier
+     * rows' ladder and every frame count they offer (Auto included), and both values the Depth effect's offset takes
+     * (the content's Depth 0..8 and 12..16), every play's two programs are taken offline exactly as the shell asks for
+     * them: built into one record slot, the out half's PLAY and the in half's PLAY-AFTER judged by the step budget with
+     * the out half still drawing. So no setting leaves an in half without its out half. Printed for the lead (item 7):
+     * what each length and frame count really plays at — the period is clamped to 16..128 ticks, so a long length with
+     * few frames plays shorter than set.
+     */
+    @Test
+    fun everyPlaysTwoHalvesAreTakenAtEveryHeightLengthAndFrameCount_X2P2() {
+        val refused = ArrayList<String>()
+        var checked = 0
+        for (len in wm.damage.core.shell.ShellSettings.SCROLL_LENGTHS) for (f in wm.damage.core.shell.ShellSettings.FRAME_COUNTS) {
+            val timing = Transitions.timing(len, f)
+            for ((tier, e, rev) in plays) for (h in listOf(288, 352, 416, 480)) for (depth in listOf(0, 16)) {
+                val what = "${tier.word} ${e.label}${if (rev) " reversed" else ""} at $h, $len ms, ${if (f == 0) "Auto" else "$f"} frames, depth $depth"
+                try {
+                    val b = Transitions.build(fx, e, rev, Rect(0, 0, Geometry.PANEL_W, h), timing, 1024, wm.damage.core.wire.CfwModes.TRANSITION_SLOT, depth, seed = len * 31 + f)
+                    Motion.play(b.out, 2, timing.period, 0xC000, 0, IntArray(4))
+                    Motion.playAfter(b.inn, 3, timing.period, 0xD000, 2, IntArray(4), listOf(Motion.Drawing(b.out.cost())), 0)
+                    checked++
+                } catch (x: wm.damage.core.geom.LintError) { refused += "$what: ${x.message}" }
+            }
+        }
+        assertTrue(refused.isEmpty(), "${refused.size} refused:\n" + refused.take(20).joinToString("\n"))
+        assertEquals(5 * 7 * plays.size * 4 * 2, checked)
+        val table = StringBuilder("length \\ frames | " + wm.damage.core.shell.ShellSettings.FRAME_COUNTS.joinToString(" | ") { if (it == 0) "Auto" else "$it" } +
+            "   (each cell: what a transition plays, 2 × T × P, in ms — T steps a half at P ticks)\n")
+        for (len in wm.damage.core.shell.ShellSettings.SCROLL_LENGTHS) {
+            table.append("$len ms | ")
+            table.append(wm.damage.core.shell.ShellSettings.FRAME_COUNTS.joinToString(" | ") { f ->
+                val t = Transitions.timing(len, f); "${2 * t.halfMs} (${t.steps} × ${t.period})" })
+            table.append("\n")
+        }
+        println("X2P2 item 7, what each length and frame count plays (the same at every height):\n$table")
+        assertEquals(500L, 2 * Transitions.timing(800, 4).halfMs, "the review's example: 800 ms at 4 frames plays 500 ms")
     }
 
     /** DP2 item 3: the tier rows follow the scroll rows in `Animations` only where stage 5 is in force; Select 450 ms / 10

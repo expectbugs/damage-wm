@@ -51,12 +51,16 @@ class TransitionShellTest {
         @Volatile var mark = 0
         /** A busy picture (a level per 4 × 2 block): its frame takes several flushes. */
         @Volatile var noise = false
+        /** X2P2: a 120 × 40 box at full level in the middle of the content — what a scroll in this window (his input) or
+         *  a test (the window's own repaint) puts up. */
+        @Volatile var big = false
         override fun view(): WindowView = WindowView.CanvasView({ g, r ->
             g.fillRect(r, 0)
             if (noise) { val rnd = java.util.Random(7); for (y in r.y until r.bottom - 1 step 2) for (x in r.x until r.right - 3 step 4) g.fillRect(x, y, 4, 2, rnd.nextInt(16) * 17) }
             for (k in 0 until 6) g.fillRect(r.x + 8 + k * (r.w - 24) / 5, r.y + 6 + k * (r.h - 20) / 5, 8, 8, (6 + k) * 17)
             if (mark != 0) g.fillRect(r.x + 40 + mark * 8, r.y + r.h / 2, 24, 12, 15 * 17)
-        })
+            if (big) g.fillRect(r.x + r.w / 2 - 60, r.y + r.h / 2 - 20, 120, 40, 15 * 17)
+        }, onScroll = { big = true })
         override fun summary() = s
         override fun saveState(): JsonObject = JsonObject(emptyMap())
         override fun restoreState(state: JsonObject) {}
@@ -104,12 +108,17 @@ class TransitionShellTest {
             settle("up")
         }
 
-        /** A ring tap: the hook on both lenses, then its stock message through the transport. */
-        fun tap() {
+        /** A ring gesture: the hook on both lenses, then its stock message through the transport. */
+        fun fire(eventId: Int) {
             val now = System.currentTimeMillis()
-            for (a in Arm.entries) sim.conformanceInput(a, CfwModes.DEV_RING, CfwModes.EV_TAP.toLong(), 0, now)
-            t.injectInput(BoundList.stockEvent(CfwModes.EV_TAP)!!)
+            for (a in Arm.entries) sim.conformanceInput(a, CfwModes.DEV_RING, eventId.toLong(), 0, now)
+            t.injectInput(BoundList.stockEvent(eventId)!!)
         }
+
+        fun tap() = fire(CfwModes.EV_TAP)
+
+        /** Main's bound row as the shell holds it. */
+        fun row(): Int = onLoop { shell.mainBoundForTest().second }
 
         fun doubleTap() = shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
 
@@ -166,12 +175,14 @@ class TransitionShellTest {
     /**
      * The images as the pin compares them, measured on the recordings of the tree as it came from 0.82 (five runs: the
      * same drawing bytes every time, two readings that are not the act's varying): each image a lens took as its
-     * sub-messages (a lone image is one), less (1) an image holding only the rules' mode-26/27 messages — answers,
-     * SETTLEs, a table repair's re-send to RIGHT — whose moment follows the telemetry reads (in two runs of five one of
-     * them fell inside the recording), (2) a cache write (mode 12, 19, 25: the atlas's uploads in idle, whose chunks
-     * follow what the process's earlier shells drew — the class's own order gives other chunks than a lone run), and (3)
-     * a text draw holding "K/s", the link cell's measured throughput. What is not compared here is checked raw by the
-     * test: no C3 form at all.
+     * sub-messages (a lone image is one), less (1) an image holding only mode-26/27 messages — the rules' answers
+     * (COMMIT, DISCARD, SETTLE) and tables (SET, CLEAR, LIST), a table repair's re-send to RIGHT — whose moment follows
+     * the telemetry reads (in two runs of five one of them fell inside the recording); a lone CLOSE, PLAY or PLAY-AFTER
+     * would be dropped by this rule too, so the test reads every such image raw and refuses one that holds anything
+     * but the rules' answers and tables; (2) a lone cache write (mode 12, 19, 25: the atlas's uploads in idle, whose
+     * chunks follow what the process's earlier shells drew — the class's own order gives other chunks than a lone run),
+     * which the test reads raw for a version-2 program record (mode 25 inflated first); and (3) a text draw holding
+     * "K/s", the link cell's measured throughput.
      */
     private fun normal(images: List<String>): List<String> = images.mapNotNull { line ->
         val ss = subs(bytes(line.substring(2)))
@@ -205,7 +216,8 @@ class TransitionShellTest {
     /**
      * DP2 item 4: without stage 5 — a bit-11 build at stage 4 — a Select, a Back and the silent clock's enter and exit
      * write exactly APK 0.82's bytes (the file written by this test's first run, on the tree as it came from 0.82 before
-     * DP2's code, and the same again on a second run); no mode-26 sub 8 and no version-2 record among them.
+     * DP2's code, and the same again on a second run); no mode-26 sub 8 and no version-2 record among them — read raw in
+     * every image, inside every cache write too (X2P2 item 5).
      */
     @Test
     fun withoutStage5TheFourActsWrite082sBytes_DP2(): Unit = runBlocking {
@@ -213,10 +225,22 @@ class TransitionShellTest {
         try {
             r.up()
             val got = fourActs(r)
-            // raw, every image: nothing of C3 — no PLAY-AFTER, no PLAY into a transition's slots, no LIST-RING
-            for (line in got) for (s in subs(bytes(line.substring(2)))) {
-                assertTrue(!playAfter(s) && !playIn(s, 2) && !playIn(s, 3) && !isSub(s, 27, CfwModes.BIND_LIST_RING), "a C3 form below stage 5: $line")
+            // raw, every image: nothing of C3 — no PLAY-AFTER, no PLAY into a transition's slots, no LIST-RING, no CLOSE of
+            // a transition's slots, and no version-2 program record inside any cache write
+            var writes = 0
+            for (line in got) {
+                val ss = subs(bytes(line.substring(2)))
+                for (s in ss) {
+                    assertTrue(!playAfter(s) && !playIn(s, 2) && !playIn(s, 3) && !closeOf(s, 2) && !closeOf(s, 3) &&
+                        !isSub(s, 27, CfwModes.BIND_LIST_RING), "a C3 form below stage 5: $line")
+                    if ((s[0].toInt() and 0x7F) in setOf(19, 25)) writes++
+                    v2RecordIn(s)?.let { fail("a version-2 program record below stage 5 ($it): $line") }
+                }
+                // what `normal` drops as the rules' messages: their answers and tables only, never a CLOSE, PLAY or RETARGET
+                if (ss.all { (it[0].toInt() and 0x7F) == 26 || (it[0].toInt() and 0x7F) == 27 })
+                    assertTrue(ss.all { (it[0].toInt() and 0x7F) == 27 || (it[1].toInt() and 0xFF) in 3..5 }, "an image the comparison leaves out holds more than the rules' answers and tables: $line")
             }
+            assertTrue(writes > 0, "the recording holds cache writes (the check above read some)")
             assertWire("acts-0xdff-stage4.txt", got, "0xdff stage 4")
             // and the shell did not so much as plan one (no program built, no note): the act is today's cut
             assertTrue(r.notes("transition").isEmpty(), "no transition below stage 5: ${r.notes("transition")}")
@@ -235,9 +259,44 @@ class TransitionShellTest {
     }
     private fun isSub(s: ByteArray, mode: Int, sub: Int) = s.size >= 2 && s[0].toInt() == mode && s[1].toInt() == sub
     private fun drawing(s: ByteArray) = (s[0].toInt() and 0x7F) !in setOf(24, 26, 27, 19, 25)
+    /** An image the chrome's idle tick sent: it redraws the link cell, whose text holds "K/s" (X2P2: under the in half
+     *  it no longer waits, so it may fall there; nothing else repaints in these tests). */
+    private fun chromeTick(img: ByteArray) = subs(img).any { s -> s.joinToString("") { "%02x".format(it) }.let { h -> (0 until h.length - 5 step 2).any { h.startsWith("4b2f73", it) } } }
     private fun closeOf(s: ByteArray, slot: Int) = isSub(s, 26, CfwModes.MOTION_CLOSE) && (s[2].toInt() and 0xFF) == slot
     private fun playIn(s: ByteArray, slot: Int) = isSub(s, 26, CfwModes.MOTION_PLAY) && (s[2].toInt() and 0xFF) == slot
     private fun playAfter(s: ByteArray) = isSub(s, 26, CfwModes.MOTION_PLAY_AFTER)
+
+    /** X2P2 item 5: where [s], a cache write (mode 19, or 25 inflated), holds a version-2 program record (`FIRMWARE.md`
+     *  §7.2's header at a 4-byte-aligned cache offset — version 2, 1..8 tracks, flags bits 2–7 and the reserved bytes 0 —
+     *  whose tracks and 40-B segments walk to exactly its length); null when it holds none or is no cache write. */
+    private fun v2RecordIn(s: ByteArray): String? {
+        val list = when (s[0].toInt() and 0x7F) {
+            19 -> s.copyOfRange(1, s.size)
+            25 -> wm.damage.core.gfx.Zl.inflate(s.copyOfRange(1, s.size), CfwModes.ZWRITE_MAX)
+            else -> return null
+        }
+        var i = 0
+        while (i + 4 <= list.size) {
+            val off = u16(list, i) * 4; val n = u16(list, i + 2); val d = list.copyOfRange(i + 4, minOf(list.size, i + 4 + n))
+            for (o in d.indices) if ((off + o) % 4 == 0 && isV2Record(d, o)) return "cache offset ${off + o}"
+            i += 4 + n
+        }
+        return null
+    }
+
+    private fun isV2Record(d: ByteArray, o: Int): Boolean {
+        if (o + 8 > d.size || d[o].toInt() != 2) return false
+        val tracks = d[o + 1].toInt() and 0xFF; val len = u16(d, o + 2); val flags = d[o + 4].toInt() and 0xFF
+        if (tracks !in 1..8 || flags and 0xFC != 0 || d[o + 5].toInt() != 0 || u16(d, o + 6) != 0 || len < 8 || o + len > d.size) return false
+        var p = o + 8
+        repeat(tracks) {
+            if (p + 12 > o + len) return false
+            val segs = d[p].toInt() and 0xFF; val perLens = d[p + 2].toInt() and 0xFF
+            if (segs !in 1..8 || perLens > 1 || d[p + 3].toInt() != 0) return false
+            p += 4 + (if (perLens == 1) 16 else 8) + segs * 40
+        }
+        return p == o + len
+    }
 
     /** RIGHT's images since recording began, decoded. */
     private fun right(r: Rig): List<ByteArray> = r.images.filter { it.startsWith("R ") }.map { bytes(it.substring(2)) }
@@ -253,9 +312,10 @@ class TransitionShellTest {
      * DP2 items 1 and 6, at stage 5 on RIGHT's wire: a Select writes the records into the transition region (one mode-19
      * message), then — in an image of their own, nothing drawn — the cover's CLEARs, the out half's PLAY in slot 2 and
      * the tap's DISCARD after it; the window's frame follows with no CLOSE of slot 2, the last of its images carrying the
-     * PLAY-AFTER (slot 3, `after` 2) after its drawing subs and no drawing image after that until the in half ends; then a
-     * CLOSE of slot 2 alone (§7.11). The frame is not on RIGHT's panel when the PLAY-AFTER's image reaches it, and after
-     * the in half belief equals both lenses.
+     * PLAY-AFTER (slot 3, `after` 2) after its drawing subs and no CLOSE of either owner after that until the in half
+     * ends (a drawing image there is the chrome's idle tick, which no longer waits); then a CLOSE of slot 2 alone (§7.11).
+     * The frame is not on RIGHT's panel when the PLAY-AFTER's image reaches it, and after the in half belief equals both
+     * lenses. X2P2 item 3: the journal's first flush of the gesture is the out PLAY's (`in` 1, label TRANSITION).
      */
     @Test
     fun aSelectAtStage5IsAHeldTransition_DP2(): Unit = runBlocking {
@@ -265,6 +325,7 @@ class TransitionShellTest {
             r.settle("up")
             var panelAtPlayAfter: Gray8? = null
             r.onImage = { a, img -> if (a == Arm.RIGHT && panelAtPlayAfter == null && subs(img).any { playAfter(it) }) panelAtPlayAfter = r.panel(false) }
+            val lines0 = Files.readAllLines(r.journal).size
             r.recording = true
             selectAndSettle(r)
             // the CLOSE after the in half's body goes in a flush of its own: its image reaches the lens after the settle
@@ -280,6 +341,12 @@ class TransitionShellTest {
             val write = imgs.indexOfFirst { ((it[0].toInt() and 0x7F) == 19 && u16(it, 1) * 4 in region) || (it[0].toInt() and 0x7F) == 25 }
             val out = imgs.indexOfFirst { img -> subs(img).any { playIn(it, 2) } }
             assertTrue(write in 0 until out, "the records' write ($write) before the out PLAY ($out): ${imgs.map { "%02x".format(it[0]) }}")
+            // X2P2 item 5: the stage-4 pin's raw readers see these forms — the records' version-2 program inside their
+            // write, and the out PLAY's image (one the comparison leaves out) holding more than answers and tables
+            assertNotNull(v2RecordIn(imgs[write]), "the version-2 reader finds the records in their write")
+            assertTrue(subs(imgs[out]).any { (it[0].toInt() and 0x7F) == 26 && (it[1].toInt() and 0xFF) !in 3..5 }, "the out PLAY's image is not answers and tables only")
+            // X2P2 item 3(b): the contract lets no cache write ride a batch (§4 reason 8, §5.5, §6.5): two images
+            assertTrue(write != out && subs(imgs[out]).none { (it[0].toInt() and 0x7F) in setOf(12, 19, 25) }, "the records' write and the out PLAY are two images")
             val outSubs = subs(imgs[out])
             assertTrue(outSubs.none { drawing(it) }, "the out PLAY's image draws nothing")
             val p = outSubs.indexOfFirst { playIn(it, 2) }
@@ -294,8 +361,15 @@ class TransitionShellTest {
             assertTrue(imgs.subList(out + 1, pa).all { img -> subs(img).none { playAfter(it) } })
             val close = imgs.indexOfFirst { img -> subs(img).any { closeOf(it, 2) } }
             assertTrue(close > pa && subs(imgs[close]).size == 1, "a CLOSE of slot 2 alone after the PLAY-AFTER: $close")
-            assertTrue(imgs.subList(pa + 1, close).none { img -> subs(img).any { drawing(it) } }, "nothing drawn between the PLAY-AFTER and the CLOSE")
+            assertTrue(imgs.subList(pa + 1, close).none { img -> subs(img).any { closeOf(it, 2) || closeOf(it, 3) || closeOf(it, 0xFF) } }, "no CLOSE of an owner under the in half")
+            assertTrue(imgs.subList(pa + 1, close).filter { img -> subs(img).any { drawing(it) } }.all { chromeTick(it) }, "nothing of the frame drawn after the PLAY-AFTER")
             assertTrue(r.notes("transition").any { it.startsWith("in half's last step drawn on RIGHT") }, "${r.notes("transition")}")
+            // X2P2 item 3(c): the out PLAY's flush is the gesture's first flush in the journal, the frame's after it
+            val outFlush = Regex("then the out PLAY as flush (\\d+)").find(r.notes("transition").joinToString("\n"))?.groupValues?.get(1)
+            assertNotNull(outFlush, "the out-half note names the out PLAY's flush: ${r.notes("transition")}")
+            val submits = Files.readAllLines(r.journal).drop(lines0).filter { "\"ev\":\"submit\"" in it }
+            val firstIn = submits.first { "\"in\":1" in it }
+            assertTrue("\"id\":$outFlush," in firstIn && "\"label\":\"TRANSITION\"" in firstIn, "the gesture's first flush is the out PLAY's: $firstIn")
             r.assertOracle("after the Select")
             val final = r.panel(false)
             val seen = assertNotNull(panelAtPlayAfter, "RIGHT saw the PLAY-AFTER")
@@ -389,6 +463,31 @@ class TransitionShellTest {
         } finally { r.close() }
     }
 
+    /**
+     * X2P2 item 4 (the first review pass's finding 4): the deadline counts the out half's end from its PLAY's ACK, not
+     * its submit. A busy link held the out PLAY 300 ms after its submit, and the PLAY-AFTER's ack came 10 ms after the out
+     * PLAY's: the out PLAY reached the glasses no later than its ack, so the in half's last step falls no later than the
+     * later of the PLAY-AFTER's ack and the out half's end (from that ack), plus T − 1 periods — and the deadline falls two
+     * periods after that, never inside the in half. No deadline is set until both acks are in.
+     */
+    @Test
+    fun theDeadlineCountsFromTheOutPlaysAck_X2P2() {
+        val fx = wm.damage.core.motion.Motion.effects(wm.damage.core.wire.DamageMsg.Caps(2, 0xdff),
+            wm.damage.core.wire.DamageMsg.FLAG_DRAW2 or wm.damage.core.wire.DamageMsg.FLAG_ENGINE or wm.damage.core.wire.DamageMsg.FLAG_EFFECTS)
+        val timing = wm.damage.core.motion.Transitions.timing(450, 10)
+        val b = wm.damage.core.motion.Transitions.build(fx, wm.damage.core.motion.Transitions.Effect.DEPTH, false,
+            wm.damage.core.geom.Rect(0, 0, Geometry.PANEL_W, 352), timing, 1024, CfwModes.TRANSITION_SLOT)
+        val run = wm.damage.core.shell.TransitionRun(wm.damage.core.motion.Transitions.Tier.SELECT, b, ByteArray(1), ByteArray(1), ByteArray(1), 0xC000, 0xD000, 0L)
+        run.phase = wm.damage.core.shell.TransitionRun.Phase.IN
+        run.outSentAtMs = 10_000; run.inDoneAtMs = 10_310
+        assertTrue(run.deadlineMs() == null, "no deadline before the out PLAY's ack")
+        run.outDoneAtMs = 10_300
+        val p = timing.period * 1000.0 / 1024
+        val inLastLatest = maxOf(10_310.0, 10_300 + timing.steps * p) + (timing.steps - 1) * p
+        val deadline = assertNotNull(run.deadlineMs(), "a deadline once both acks are in")
+        assertTrue(deadline >= inLastLatest + 2 * p - 2, "the deadline $deadline falls two periods after the in half's latest last step ${inLastLatest.toLong()}")
+    }
+
     /** K1 §9: a notice that arrives during a transition waits until its end, then shows. */
     @Test
     fun aNoticeWaitsBehindATransition_DP2(): Unit = runBlocking {
@@ -410,31 +509,235 @@ class TransitionShellTest {
         } finally { r.close() }
     }
 
-    /** DP2 item 1: in the in half a write that is not his input (the window repaints by itself) waits for the
-     *  transition's end — no drawing image between the PLAY-AFTER and the CLOSE that ends it — and then goes. */
-    @Test
-    fun aWriteThatIsNotInputWaitsForTheInHalf_DP2(): Unit = runBlocking {
+    // ------------------------------------------------------------- X2P2 item 1: a transition plays in full
+    /** The big box's core in panel coordinates: its 120 × 40 less 24 px a side (Depth's in half draws `new` up to 8 px off
+     *  rest; the content's own disparity), so on each lens, at rest and at every step of that in half, it lies inside it. */
+    private fun core(r: Rig): wm.damage.core.geom.Rect {
+        val c = r.onLoop { r.shell.layout.content }
+        return wm.damage.core.geom.Rect(c.x + c.w / 2 - 36, c.y + c.h / 2 - 20, 72, 40)
+    }
+
+    /** Every pixel of [core] on one lens's shadow or panel passes [test] (a level 0..15). */
+    private fun every(r: Rig, left: Boolean, shadow: Boolean, core: wm.damage.core.geom.Rect, test: (Int) -> Boolean): Boolean {
+        val ctx = if (left) r.sim.left else r.sim.right
+        val buf = if (shadow) ctx.shadow else ctx.panel
+        for (y in core.y until core.bottom) for (x in core.x until core.right) {
+            val b = buf[y * ctx.stride + (x shr 1)].toInt() and 0xFF
+            if (!test(if (x and 1 == 0) b shr 4 else b and 0x0F)) return false
+        }
+        return true
+    }
+
+    /**
+     * The big box's write reaches both shadows, then [release] runs; on each lens the in half's next step shows it — its
+     * core lit on the panel once the in half has drawn a step past the [d0] it had drawn when the write was there, no later
+     * than the step after that (the window's background is 0 there and the in half paints its whole area) — or its LAND
+     * does. [openBefore]: the in half was open on both lenses before the write went (a write that CLOSEd it empties its
+     * slot in the same batch). Returns, per lens, where it showed.
+     */
+    private suspend fun shownByTheNextStep(r: Rig, core: wm.damage.core.geom.Rect, openBefore: Boolean, release: () -> Unit = {}): List<String> {
+        r.until("the box's write in both shadows") { listOf(true, false).all { every(r, it, true, core) { v -> v == 15 } } }
+        val arms = listOf(Arm.LEFT, Arm.RIGHT)
+        val d0 = arms.associateWith { r.sim.motionForTest(it).slots[3]?.d ?: 0 }
+        val open0 = arms.associateWith { openBefore || r.sim.motionForTest(it).slots[3] != null }
+        release()
+        val shown = HashMap<Arm, String>()
+        val unlitSince = HashMap<Arm, Long>()
+        val t0 = System.currentTimeMillis()
+        while (shown.size < 2) {
+            assertTrue(System.currentTimeMillis() - t0 < 20_000, "the in half never drew a step past the write: $shown, ${r.shell.quiescenceReport()}")
+            for (a in arms) if (a !in shown) {
+                val s = r.sim.motionForTest(a).slots[3]
+                val d = s?.d ?: 0
+                if (s == null && open0.getValue(a)) fail("$a: the in half's slot was emptied — closed — before it drew a step past the write (it had drawn ${d0.getValue(a)})")
+                if (s == null || (s.drawing && d <= d0.getValue(a))) continue           // its next step not drawn yet
+                if (every(r, a == Arm.LEFT, false, core) { it != 0 }) { shown[a] = if (s.drawing) "step $d (it had drawn ${d0.getValue(a)})" else "LAND"; continue }
+                assertTrue(!s.drawing || d < d0.getValue(a) + 2, "$a: the in half drew step $d and the box is not on the panel (it had drawn ${d0.getValue(a)} when the write was in the shadow)")
+                val since = unlitSince.getOrPut(a) { System.currentTimeMillis() }
+                assertTrue(s.drawing || System.currentTimeMillis() - since < 200, "$a: the in half landed and the box is not on the panel")
+            }
+            delay(1)
+        }
+        return arms.map { "$it ${shown[it]}" }
+    }
+
+    /** Both halves of the act [act] (counted from the first) ran whole on RIGHT: each body says it drew its last step,
+     *  with every step drawn or folded by the model's wake (a fold is the model's lateness, not the phone's) — never
+     *  "closed while drawing". */
+    private fun bothHalvesWhole(r: Rig, act: Int = 0) {
+        val owed = r.notes("transition").filter { it.startsWith("owed: ") }[act]
+        val (out, inn) = Regex("tags out 0x([0-9a-f]{4}) in 0x([0-9a-f]{4})").find(owed)!!.destructured
+        val steps = Regex("(\\d+) steps a half").find(owed)!!.groupValues[1].toInt()
+        for ((slot, tag) in listOf(2 to out, 3 to inn)) {
+            val ns = r.notes("motion").filter { "slot $slot tag 0x$tag " in it }
+            assertTrue(ns.none { "closed while drawing" in it }, "slot $slot tag 0x$tag was closed: $ns")
+            val n = ns.firstOrNull { "drew its last step" in it } ?: fail("slot $slot tag 0x$tag never drew its last step: $ns")
+            val (drawn, folded) = Regex("drawn (\\d+) folded (\\d+)").find(n)!!.destructured
+            assertEquals(steps, drawn.toInt() + folded.toInt(), "slot $slot: every step drawn or folded: $n")
+        }
+    }
+
+    /** RIGHT's images: no CLOSE of either owner (or of all) from the out PLAY to the CLOSE of slot 2 alone that follows the
+     *  in half's body. */
+    private fun noCloseUnderTheRun(r: Rig) {
+        val imgs = right(r)
+        val out = imgs.indexOfFirst { img -> subs(img).any { playIn(it, 2) } }
+        val end = imgs.indexOfFirst { img -> subs(img).let { it.size == 1 && closeOf(it[0], 2) } }
+        assertTrue(out in 0 until end, "the out PLAY ($out), then the CLOSE of slot 2 alone ($end)")
+        assertTrue(imgs.subList(out + 1, end).none { img -> subs(img).any { closeOf(it, 2) || closeOf(it, 3) || closeOf(it, 0xFF) } }, "a CLOSE of an owner under the transition")
+    }
+
+    private enum class At { OWED, FRAME, IN }
+
+    /**
+     * X2P2 item 1 (`FIRMWARE.md` §7.11 as amended 2026-11-20): a write during a transition — his input (a scroll in the
+     * arriving window puts the box up) or, with [input] false, the window's own repaint — in the phase [at]: the out
+     * half's PLAY still owed behind a full link (OWED), the arriving frame going in with the in half not yet sent (FRAME),
+     * or the in half sent (IN). Every flush is held by both owners: the transition's two halves each draw every step,
+     * the box is on both lenses by the in half's next step or at LAND, no CLOSE of an owner goes before the one after the
+     * in half's body, and at rest belief equals both lenses.
+     */
+    private suspend fun writeDuring(at: At, input: Boolean = true): List<String> {
         val r = Rig(stage = 5)
         try {
             r.up()
             r.recording = true
+            if (at == At.OWED) r.shell.pumpHeldForTest = true
+            if (at == At.FRAME) r.shell.transitionHoldInHalfForTest = true
             r.tap()
-            r.until("the in half sent") { r.onLoop { r.shell.transitionPhaseForTest() } == "IN" }
-            r.rows[0].mark = 3
-            r.shell.services.requestRender(r.rows[0])
+            r.until("w0 opens") { r.onLoop { r.shell.currentWindowId() } == "w0" }
+            when (at) {
+                At.OWED -> assertEquals("OWED", r.onLoop { r.shell.transitionPhaseForTest() }, "the out half owed behind the held link")
+                At.FRAME -> r.until("the frame in, the in half held back") { r.onLoop { r.shell.transitionPhaseForTest() == "FRAME" && !r.shell.comp.hasPending } &&
+                    r.sim.motionForTest(Arm.RIGHT).slots[2]?.owns == true }
+                // he scrolls as the window first shows: RIGHT's in half has drawn a step and is still drawing
+                At.IN -> r.until("RIGHT's in half drawing") { r.onLoop { r.shell.transitionPhaseForTest() } == "IN" &&
+                    r.sim.motionForTest(Arm.RIGHT).slots[3]?.let { it.drawing && it.d >= 1 } == true }
+            }
+            val core = core(r)
+            if (at != At.OWED) assertTrue(every(r, false, true, core) { it == 0 }, "the box is not in RIGHT's shadow before the write")
+            if (input) r.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)
+            else { r.rows[0].big = true; r.shell.services.requestRender(r.rows[0]) }
+            if (at == At.OWED) {
+                r.until("the box painted behind the owed out half") { r.onLoop { r.rows[0].big && r.shell.comp.hasPending } }
+                assertEquals("OWED", r.onLoop { r.shell.transitionPhaseForTest() }, "still owed when the write is painted")
+                // the link has room again: the out PLAY, then the frame with the box in it, held
+                r.shell.pumpHeldForTest = false; r.shell.postIdleTick()
+            }
+            val shown = shownByTheNextStep(r, core, openBefore = at == At.IN, release = {
+                if (at == At.FRAME) { r.shell.transitionHoldInHalfForTest = false; r.shell.postIdleTick() }
+            })
             r.until("the transition ends") { r.onLoop { r.shell.transitionPhaseForTest() } == null }
+            r.until("the CLOSE of slot 2 reaches RIGHT") { right(r).any { img -> subs(img).let { it.size == 1 && closeOf(it[0], 2) } } }
             r.settle("after")
-            r.until("the CLOSE of slot 2 and the window's repaint reach RIGHT") { right(r).let { im ->
-                val c = im.indexOfFirst { img -> subs(img).any { closeOf(it, 2) } }
-                c >= 0 && im.drop(c + 1).any { img -> subs(img).any { drawing(it) } } } }
+            r.recording = false
+            bothHalvesWhole(r)
+            noCloseUnderTheRun(r)
+            assertTrue(r.notes("transition").any { it.startsWith("in half's last step drawn on RIGHT") }, "${r.notes("transition")}")
+            assertTrue(r.notes("transition").none { "ended in" in it }, "the transition was not cut: ${r.notes("transition")}")
+            r.assertOracle("at rest after the write in $at")
+            assertTrue(every(r, true, false, core) { it == 15 } && every(r, false, false, core) { it == 15 }, "the box at full level on both lenses at rest")
+            println("X2P2 ${if (input) "input" else "repaint"} in $at: shown at ${shown.joinToString()}")
+            return shown
+        } finally { r.close() }
+    }
+
+    @Test
+    fun anInputWhileTheOutHalfIsOwedShowsAtTheInHalf_X2P2(): Unit = runBlocking { writeDuring(At.OWED) }
+
+    @Test
+    fun anInputWhileTheFrameGoesInShowsAtTheInHalf_X2P2(): Unit = runBlocking { writeDuring(At.FRAME) }
+
+    @Test
+    fun anInputDuringTheInHalfShowsAtItsNextStep_X2P2(): Unit = runBlocking { writeDuring(At.IN) }
+
+    /** X2P2 item 1 (was DP2's "a write that is not his input waits for the in half"): the window's own repaint during the
+     *  in half is held by both owners and shows at the in half's next step; the transition plays in full. */
+    @Test
+    fun aWriteThatIsNotInputIsHeldAndShownAtTheNextStep_DP2(): Unit = runBlocking { writeDuring(At.IN, input = false) }
+
+    // ------------------------------------------------------------- X2P2 item 2: the silent clock right after a notch
+    /** The silent clock entered by a double tap as soon as an adopted notch on Main is COMMITted and Main's cells
+     *  behind it are held (its motion ≈ 270 ms at the defaults; the review's case is a double tap within 100 ms).
+     *  Returns the moment the held cells' wait would have ended and RIGHT's truth (Main's) just before the double tap. */
+    private suspend fun lockRightAfterANotch(r: Rig): Pair<Long, ByteArray> {
+        // the notch must fire on the glasses (a fire RIGHT's table did not hold yet is drawn by the phone as a stock
+        // scroll, and holds nothing): its up, down and tap entries on RIGHT, as MainLocalShellTest's `bound` waits
+        r.until("Main's list bound on RIGHT") { r.sim.bindForTest(Arm.RIGHT).field39() == 0x31 }
+        r.fire(CfwModes.EV_UPROLL)
+        r.until("adopted") { r.row() == 1 }
+        r.until("Main's cells held behind the notch's motion", 2_000) { r.onLoop { r.shell.comp.deferring } }
+        val until = r.onLoop { r.shell.comp.deferUntilMs }
+        assertTrue(System.currentTimeMillis() < until - 100, "the double tap falls inside the wait (${until - System.currentTimeMillis()} ms left)")
+        val main = r.onLoop { r.shell.comp.truthForTest(false).pix.copyOf() }
+        r.doubleTap()
+        return until to main
+    }
+
+    /** The silent clock's truth against one lens's [shadow] or panel, every pixel; the first that differs, or null. */
+    private fun againstTruth(r: Rig, left: Boolean, shadow: Boolean): String? {
+        val truth = r.onLoop { r.shell.comp.truthForTest(left) }
+        val ctx = if (left) r.sim.left else r.sim.right
+        val buf = if (shadow) ctx.shadow else ctx.panel
+        for (y in 0 until Geometry.PANEL_H) for (x in 0 until Geometry.PANEL_W) {
+            val b = buf[y * ctx.stride + (x shr 1)].toInt() and 0xFF
+            val v = if (x and 1 == 0) b shr 4 else b and 0x0F
+            if (v != wm.damage.core.gfx.Pack.level(truth[x, y])) return "${if (left) "LEFT" else "RIGHT"} ${if (shadow) "shadow" else "panel"} differs from the clock's truth at ($x,$y): $v vs ${wm.damage.core.gfx.Pack.level(truth[x, y])}"
+        }
+        return null
+    }
+
+    /**
+     * X2P2 item 2 (the first review pass's finding 1): at stage 5 the Lock entry right after a notch — the transition's
+     * out PLAY ends the adopted motion, so Main's held cells go with the clock's frame: when the PLAY-AFTER has been taken
+     * (the frame complete in the shadow, §7.11) both shadows are the clock's truth, Main's rows nowhere; RIGHT's panel at
+     * the in half's LAND is the clock's truth; no lone CLOSE of the list's slot goes ahead of the out PLAY (X2P2 item
+     * 3(a)); at rest belief equals both lenses.
+     */
+    @Test
+    fun theSilentClockRightAfterANotchLandsWhole_X2P2(): Unit = runBlocking {
+        val r = Rig(stage = 5)
+        try {
+            r.up()
+            r.recording = true
+            lockRightAfterANotch(r)
+            r.until("the clock's in half taken on both lenses") { Arm.entries.all { r.sim.motionForTest(it).slots[3] != null } }
+            for (left in listOf(true, false)) againstTruth(r, left, shadow = true)?.let { fail("with the in half taken: $it") }
+            r.until("RIGHT's in half landed") { r.sim.motionForTest(Arm.RIGHT).slots[3]?.drawing == false }
+            delay(20)
+            againstTruth(r, false, shadow = false)?.let { fail("at the in half's LAND: $it") }
+            r.until("the transition ends") { r.onLoop { r.shell.transitionPhaseForTest() } == null }
+            r.settle("on the clock")
             r.recording = false
             val imgs = right(r)
-            val pa = imgs.indexOfFirst { img -> subs(img).any { playAfter(it) } }
-            val close = imgs.indexOfFirst { img -> subs(img).any { closeOf(it, 2) } }
-            assertTrue(pa in 0 until close, "PLAY-AFTER $pa, then the CLOSE $close")
-            assertTrue(imgs.subList(pa + 1, close).none { img -> subs(img).any { drawing(it) } }, "the window's own repaint waited")
-            assertTrue(imgs.drop(close + 1).any { img -> subs(img).any { drawing(it) } }, "and went after")
-            r.assertOracle("after")
+            val out = imgs.indexOfFirst { img -> subs(img).any { playIn(it, 2) } }
+            assertTrue(out >= 0 && imgs.subList(0, out).none { img -> subs(img).let { it.size == 1 && closeOf(it[0], 0) } }, "no lone CLOSE of slot 0 ahead of the out PLAY")
+            assertTrue(r.notes("transition").any { "the cells held behind an adopted motion go with the frame" in it }, "${r.notes("transition")}")
+            r.assertOracle("on the clock")
+        } finally { r.close() }
+    }
+
+    /**
+     * X2P2 item 2's class at stage 4 (no transition): the silent clock covers the whole list as a window does (decisions
+     * AW.3), so a CLOSE of the slot goes alone ahead of its frame and Main's held cells go with it — RIGHT's panel is the
+     * clock's truth well before the notch's motion would have ended; at rest belief equals both lenses.
+     */
+    @Test
+    fun theSilentClockRightAfterANotchLandsWholeAtStage4_X2P2(): Unit = runBlocking {
+        val r = Rig(stage = 4)
+        try {
+            r.up()
+            r.recording = true
+            val (until, main) = lockRightAfterANotch(r)
+            r.until("RIGHT's panel is the clock's truth") { !r.onLoop { r.shell.comp.truthForTest(false).pix.contentEquals(main) } && againstTruth(r, false, shadow = false) == null }
+            val at = System.currentTimeMillis()
+            assertTrue(at < until, "the clock landed whole ${until - at} ms before the notch's motion would have ended (not at its end)")
+            r.settle("on the clock")
+            r.recording = false
+            assertTrue(right(r).any { img -> subs(img).let { it.size == 1 && closeOf(it[0], 0) } }, "a lone CLOSE of slot 0 ahead of the clock's frame")
+            assertTrue(r.notes("local").any { it.startsWith("the silent clock over the list") }, "${r.notes("local").takeLast(3)}")
+            assertTrue(r.notes("transition").isEmpty(), "no transition at stage 4")
+            r.assertOracle("on the clock")
         } finally { r.close() }
     }
 
@@ -477,8 +780,8 @@ class TransitionShellTest {
     }
 
     /** DP2 items 1 and 6: a frame of several flushes — every one held (no CLOSE of slot 2), the PLAY-AFTER on the last
-     *  only (no drawing image after it before the CLOSE that ends the transition), and nothing of the frame on RIGHT's
-     *  panel when the PLAY-AFTER reaches it. */
+     *  only (no image of the frame after it before the CLOSE that ends the transition; the chrome's idle tick may fall
+     *  there), and nothing of the frame on RIGHT's panel when the PLAY-AFTER reaches it. */
     @Test
     fun aSeveralFlushFrameShowsNothingBeforeItsInHalf_DP2(): Unit = runBlocking {
         val r = Rig(stage = 5)
@@ -497,8 +800,9 @@ class TransitionShellTest {
             val out = imgs.indexOfFirst { img -> subs(img).any { playIn(it, 2) } }
             val pa = imgs.indexOfFirst { img -> subs(img).any { playAfter(it) } }
             val close = imgs.indexOfFirst { img -> subs(img).any { closeOf(it, 2) } }
-            // the frame: every drawing image between the out PLAY and the CLOSE that ends the transition
-            val frame = (out + 1 until close).filter { i -> subs(imgs[i]).any { drawing(it) } }
+            // the frame: every drawing image between the out PLAY and the CLOSE that ends the transition (the chrome's idle
+            // tick, which no longer waits for the in half, is not the frame)
+            val frame = (out + 1 until close).filter { i -> subs(imgs[i]).any { drawing(it) } && !chromeTick(imgs[i]) }
             assertTrue(frame.size >= 2, "the frame took ${frame.size} flush(es) — the test needs several")
             // after every image of the frame: in its last flush's batch after the drawing subs, or alone right after it (when
             // the compositor's pending damage turned out empty at the next assemble, `transitionAlone`)
@@ -506,8 +810,8 @@ class TransitionShellTest {
             assertTrue(pa >= last, "the PLAY-AFTER after the frame's last drawing image (PLAY-AFTER $pa, the frame's images $frame)")
             val paSubs = subs(imgs[pa])
             if (pa == last) assertTrue(paSubs.indexOfFirst { playAfter(it) } > paSubs.indexOfLast { drawing(it) }, "after its drawing subs")
-            assertTrue(imgs.subList(out, pa + 1).none { img -> subs(img).any { closeOf(it, 2) || closeOf(it, 0xFF) } }, "every frame flush held")
-            assertTrue(close > pa && imgs.subList(pa + 1, close).none { img -> subs(img).any { drawing(it) } })
+            assertTrue(imgs.subList(out, close).none { img -> subs(img).any { closeOf(it, 2) || closeOf(it, 3) || closeOf(it, 0xFF) } }, "every frame flush held, and nothing after it closes an owner")
+            assertTrue(close > pa)
             r.assertOracle("after")
             val seen = assertNotNull(panelAtPlayAfter)
             val final = r.panel(false)

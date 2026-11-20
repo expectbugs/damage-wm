@@ -2058,8 +2058,12 @@ order, each piece's rows in the order that never reads a row already written; si
 distance from the anchor and the floors are monotone, a piece's destination meets only its own source and the sources of
 pieces farther out, which have moved.)*
 
-**Read range:** the program record and its table, as §5.6. **Cost (I):** layer old ≈ the area's bytes moved once plus
-fills — ≈ 0.6 ms for the whole panel, about twice that when Δx is odd; layer new ≈ a copy and the table, 1–2 ms.
+**Read range:** the program record and its table, as §5.6. **Cost (I):** layer old ≈ three row passes over the area
+(the copy into the row buffer, the vacate fill, the byte-table pass) plus, on each destination row, about 11
+instructions for each piece of its band — a piece's displacement is computed once per row band into 384 B of
+call-scoped scratch a lens (the fix round after the first review pass; before it ≈ 160 instructions and 10 divisions
+a piece a row, which no term carried). The earlier "≈ 0.6 ms for the whole panel" was never measured and is
+withdrawn: field 34 on the glasses gives the figure. Layer new ≈ a copy and the table, 1–2 ms.
 
 ### 7.5 SHRINK (verb 5), the two-axis DRAW and the source window
 
@@ -2274,10 +2278,14 @@ one-period wait; with this it is drawn a few ms late.
 
 - **Owners in the mirror.** The mirror holds every owning instance and its owned rects per lens; a write that meets an
   owner's **meeting box** (§7.3: both lenses' owned rects, as the glasses' own closes decide) CLOSEs the owner in the same
-  batch first (C1's rule for a write meeting an open instance) — **except the batches of a transition's arriving
-  frame**, from its out half's PLAY to the PLAY-AFTER naming that slot (and those behind the one-step freeze, below):
-  they are written under the out half on purpose, the held present keeps them off the panel, and they leave that
-  owner open; any other write meeting the box closes it first, as before;
+  batch first (C1's rule for a write meeting an open instance) — **except the writes of a transition**, from its out half's PLAY to its end (RIGHT's body of the in half, or the
+  phone's CLOSEs of both slots): the arriving frame's batches are written under the out half on purpose and the
+  held present keeps them off the panel; a write under the in half — his next input's frame, a chrome tick, the
+  window's own repaint — shows at the in half's next step where it draws from `new` (the live shadow, read at every
+  step) and at LAND otherwise, so nothing waits and **a transition plays in full** (`MOTION.md` §7; the first review
+  pass of the transitions, 2026-11-20). They leave both owners open; a write meeting any OTHER owner's box closes
+  that one first, as before; a second act replaces the run (its out PLAY's close pass ends what is left: the latest
+  input wins);
   the panel model leaves an owned rect as it is through every held present, and takes the shadow there at LAND or at a
   close. **An owned rect stays out of the phone's agreement scan while its mark stands** — a done owner (an out
   half, the freeze) holds step T there while belief moves on beneath it; the scan reads the rect again after LAND or
@@ -2285,7 +2293,8 @@ one-period wait; with this it is drawn a few ms late.
 - **A transition** is an out half (OWN, no LAND) played when the phone acts, the arriving frame in as many batches as it
   takes, and the in half (OWN + LAND) by PLAY-AFTER naming the out half's slot in the last of them; **an in half's tracks
   cover its out half's owned rect**; an in half with no out half and a frame of several batches is preceded by a
-  one-step freeze (PIECES uniform, dx = dy = 0, T 1, OWN). The cover's CLEAR of a bound list rides the out half's batch
+  one-step freeze (PIECES uniform, dx = dy = 0, T 1, OWN) — a form no shipped effect needs (each has an out half at
+  every height, length and frame count), so the phone does not build it. The cover's CLEAR of a bound list rides the out half's batch
   (§6.7). **After RIGHT's outcome-0 body of an in half, the phone's next batch CLOSEs the out half's slot** (empty on
   RIGHT; it ends an owner a lens kept after losing the in half, which LEFT cannot report) — **unless the phone has PLAYed
   that slot again since** (that PLAY's close pass ended any leftover on both lenses). **With no in-half body by the in
@@ -2464,8 +2473,9 @@ list's length.
 | LIST-RING, kind 3, field 18; the budget | ≈ 1 KB | a flag byte per list; each instance's C (8 B × 4) | — | the budget's terms at the walk and the sum over four slots: µs |
 
 The engine's chain under the copy hook grows from 572 B to ≈ 1,000–1,200 B against `tools/verify.py` step 7's ≈ 1,512-B
-bound (as built: 908 B, and the display task's worst path 1,924 of its 2,048 B, V by step 7 on the candidate; telemetry
-41 reads it on the glasses, §7.9); the appended block grows ≈ 24–36 KB (≈ 250 KB stays below `0x7F0000`); the context grows ≈ 2.5 KB a lens (arena 20:
+bound (as built: 916 B, and the display task's worst path 1,924 of its 2,048 B, V by step 7 on the candidate; telemetry
+41 reads it on the glasses, §7.9; the destroy site's root on the ui_task 5,524 of 49,152 B, the stock frames above
+its event handler not read; the context as built is 14,716 B a lens); the appended block grows ≈ 24–36 KB (≈ 250 KB stays below `0x7F0000`); the context grows ≈ 2.5 KB a lens (arena 20:
 69 KiB free with today's 6,684 B, M, `HANDOFF.md` §94). Field 34 per verb on the glasses decides the periods.
 
 ### 7.13 Vectors, and what only the glasses can show
