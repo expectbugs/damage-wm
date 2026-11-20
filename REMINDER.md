@@ -1,7 +1,8 @@
 # Where we are, and what to do next
 
 **The entry point for a fresh session**: what is true now, what is next, where the records are; history lives in
-`HANDOFF.md`. Read `CLAUDE.md` → this file → **`HANDOFF.md` §98** (the effects build C3 to a final candidate and through its
+`HANDOFF.md`. Read `CLAUDE.md` → this file → **`HANDOFF.md` §99** (C3 FLASHED on both lenses on 11-20, APK 0.82 on his phone, the
+first sessions and the stage-4 trial) → **§98** (the effects build C3 to a final candidate and through its
 flash-readiness review — nothing flashed; the transitions; his fast-scroll session read against the rules: late
 echoes, not lost reports) → **§97** (APK 0.82, his look at 0.81, C3 through its fourth
 fork package with its model and vectors, Music's first half complete) → **§96** (the third look, APK 0.81, the
@@ -18,7 +19,13 @@ as corrected; §14 his rulings) → **`CONTRACT.md`** (before any window or inte
 for firmware → earlier by number (§65 Phase 2 and the protocol, §48 the fork). Firmware facts: `CLAIMS.md` →
 `research/fork-reads-2026-09-13.md`.
 
-## Where we are (2026-11-19)
+## Where we are (2026-11-20)
+
+- **The glasses run the fork's C3 build since 2026-11-20 12:33** (pin `58741c4a…`, `HANDOFF.md` §99; the image before it
+  is C2's `b3f04453…`, kept in `fws/`). **The ladder is at stage 4 again since 13:26 on his word, on APK 0.82** (his
+  install, 13:13). Stage 4 on C3 behaves as on C2 with a shorter local step (median 36.6 ms against about 43).
+  **Stage 5 (the effects) is NOT armed: it needs APK 0.83 with the C3 branch.** A rollback or any later flash from
+  these lenses reads telemetry fields 8 and 28 first (`FORK.md` §7).
 
 - **The glasses run the fork's C1 build since 2026-11-18** (pin `0dab2154…`, `HANDOFF.md` §88; the image before it
   `48172b62…`). **The C1 ladder is at stage 3 since 15:43 on his word** (§91.3: ZWRITE, the 256 KiB cache, ENGINE;

@@ -9534,3 +9534,45 @@ the PC's host harness, an instruction-level read or a model, and says so. Nothin
    runs 0.81; 0.82 is staged and waits for his install.**
 8. **The night.** The glasses' battery ran out at 23:23 on 11-19 (LEFT's link ended); the hold-back rule held
    stage 4 back as it would for a restart and lifted it at 03:43 after the case-in — as designed.
+
+## 99. C3 flashed on both lenses; APK 0.82 on his phone; the first sessions and the stage-4 trial (2026-11-20)
+
+Everything here is from the flash tool's logs (kept with the image in the gitignored `fws/2.2.6.10-cfw-58741c4a/`)
+and his phone's journal and log (under the gitignored `private/journal/pull-20261120-c3/`).
+
+1. **The flash, on his word** ("Ok phone Bluetooth is off, go ahead and flash. Don't wait for me to say go for each
+   step, just check each one to ensure it's good then do the next until the whole flash is complete."). The stored
+   stage set to 0 at 12:21:35 (his phone's link down since 12:18:20, so the lease had lapsed); the PC service stopped
+   and no build job running during the writes; link checks on both lenses 12:22–12:24. **LEFT 12:24:44–12:27:33: 6
+   components verified in 142 s, 0 resends, back in discovery 38 s later, authenticated 12:28:37. RIGHT
+   12:29:27–12:32:15: 143 s, 0 resends, authenticated 12:33:20.** Both logs equal the C2 sitting's line for line
+   but for the image's path, its 893 blocks and its CRC (`0x0fe99152`, the readiness review's figure). **The
+   installed image is the fork's C3 build, pin `58741c4a…`** (branch `c3` at `40100be`, not pushed); the rollback is
+   C2's `b3f04453…` in `fws/2.2.6.10-cfw-b3f04453/`.
+2. **The first session and a link loss that was not the firmware.** He had installed APK 0.82 at 13:13:28. 13:13:54,
+   stage 0: `DamageCaps contract 2 features 0xdff`; RIGHT's uptime 2,489 s (started at its flash's end); arena 20 at
+   61 KiB free with a largest block of 61 at the lease point (the review predicted about 62); 2M on both lenses; 11
+   flushes, none failed. 13:14:06.9: LEFT's link "ended by phone" — a first for LEFT — the app's disconnect of RIGHT
+   answered "Invalid request", and for 6.5 minutes the phone found LEFT and never RIGHT (the PC, listening only,
+   the same) while the glasses showed stock's menu. **The cause, found by him: a phone reboot that morning had
+   re-enabled the old G2CC app, which was taking the glasses' Bluetooth; he uninstalled it and restarted
+   Bluetooth.** 13:21:53: the session back — the same build value, RIGHT's uptime continuous through both sessions,
+   two page teardowns and the stock menu (the new site with no owner open, on stock's own paths), 57 flushes, none
+   failed. The lesson for the next "one lens invisible": ask first whether another app on the phone holds the
+   glasses.
+3. **Stage 4 again, on his word** ("let's enable all the new hotness"), 13:26:43 after a two-minute rest: the 256 KiB
+   cache asked and given, flags 0x4 → 0xc → 0x2c → 0x3c, each answered by RIGHT. **His trial (13:27–13:30), his
+   words:** "It took a minute before it went from old style delayed input and jank to the new animated hotness but
+   once it switched it worked pretty well. The wrap notch is still a little jank but the rest of the scrolling
+   works." In the journal: Main opened 13:27:26, its list offered 13:27:38 (the atlas first, then 65,468 B staged in
+   3 KB pieces — 0.82's form) — 12 s of phone-driven scroll once per session start, and the session had sat 42 s on
+   the clock before (staging Main behind the clock is proposed to him, not built); then 58 notches drawn by the
+   glasses, 13 edges, 2 taps, 248 flushes with none failed, no S skipped. **A local step took a median 36.6 ms
+   (p90 38.1, worst 39.3; 2 of 306 steps folded) where 0.81 on C2 had about 42–44 ms** — the C2-path renderers in
+   C3 cut runs and rows to the clip before walking them, as the readiness review read. 9 wrap motions: 5 whole, 4
+   closed by his next notch (two after 1 step of 6, two after 5) — the "little jank"; its cure is the ring list at
+   stage 5. Arena 13 at 130 KiB free with a largest block of 114, arena 20 at 62: C2's figures but for the larger
+   context. No restart of either lens since the flash.
+4. **Stage 5 is not armed.** It needs the phone build with the C3 branch (0.83). On the model's side its condition
+   is met: every transition the phone ships, as its shell sends it, was put into 46 vector files, answered by the
+   fork's C on the host and compared — 141 files, 9,338 lens-steps, 0 disagreements (`wip/083-c3` `65f85e3e`).
