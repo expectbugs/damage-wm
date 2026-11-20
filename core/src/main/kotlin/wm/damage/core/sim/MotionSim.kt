@@ -127,8 +127,9 @@ class MotionSim(private val scaled: () -> Boolean = { false }, private val effec
     }
 
     /** The values a track shows at one step, on this lens (§5.11 row 1's "last drawn values"); [h] a scaled DRAW's
-     *  eased H (§6.6), 0 for an unscaled one; [w] a two-axis DRAW's eased W (§7.5), 0 for an unscaled width. */
-    data class Vals(val x: Int, val y: Int, val lvl: Int, val e: Int, val h: Int = 0, val w: Int = 0)
+     *  eased H (§6.6), 0 for an unscaled one; [w] a two-axis DRAW's eased W (§7.5), 0 for an unscaled width; [sw], [sh]
+     *  a DRAW's source's own width and height — the source it drew from (§7.5: what an unscaled axis last drew). */
+    data class Vals(val x: Int, val y: Int, val lvl: Int, val e: Int, val h: Int = 0, val w: Int = 0, val sw: Int = 0, val sh: Int = 0)
 
     /** §5.11 row 1: one instance slot. */
     class Instance(val slot: Int, val tag: Int, val period: Int, val prog4: Int, var prog: Prog, val cap: Span?, val caps: Array<Img?>) {
@@ -705,9 +706,10 @@ class MotionSim(private val scaled: () -> Boolean = { false }, private val effec
      * "Still holds" is read against the table as it stands once the operation is done (decisions Y, C-1): slot [slot]
      * then holds the instance being opened or restarted — tag [tag], ordinal [ordinal] — so a waiter that recorded the
      * instance it replaced waits on none, and one whose recorded triple equals the new instance's (a reused tag) waits on
-     * it. Should the records form a cycle (only a reused tag can), its members count each by its own C; an instance no
-     * root reaches — a cycle's member, or one that waits on a member — counts by its own C (READING (C3-X2D): the text
-     * names the members only; counting the rest too is the larger sum).
+     * it. Should the records form a cycle (only a reused tag can), it is cut before f is taken (§7.12 as ruled from both
+     * sides' answers, 2026-11-20; decisions AH): for i = 0..3 in order, when following the waits from slot i, with the
+     * cuts made so far, comes back to i, slot i's own wait is dropped — so only a cycle's lowest-numbered member is cut,
+     * and the cycle with every instance waiting on it counts as one group by f.
      */
     private fun budgetOk(slot: Int, c: Long, tag: Int, ordinal: Int, closed: Set<Int>, newWaitsOn: Int?): Boolean {
         val cost = LongArray(SLOTS) { i -> slots[i]?.takeIf { i != slot && i !in closed && it.drawing }?.cost ?: -1L }
@@ -720,14 +722,18 @@ class MotionSim(private val scaled: () -> Boolean = { false }, private val effec
             if (cost[i] < 0) -1
             else (if (i == slot) newWaitsOn else slots[i]!!.rec?.takeIf { holds(it) }?.first)?.takeIf { cost[it] >= 0 } ?: -1
         }
-        val reached = BooleanArray(SLOTS)
-        fun f(i: Int): Long {
-            reached[i] = true
-            return maxOf(cost[i], (0 until SLOTS).filter { waitsOn[it] == i }.sumOf { f(it) })
+        // §7.12's cut, slot order: a wait that leads back to its own slot is dropped (one wait per slot, so a cycle
+        // through i comes back within SLOTS steps; a path into a cycle i is not on never does)
+        for (i in 0 until SLOTS) {
+            var j = waitsOn[i]
+            var n = 0
+            while (j >= 0 && j != i && n++ < SLOTS) j = waitsOn[j]
+            if (j == i) waitsOn[i] = -1
         }
+        // no cycle is left, so every counted instance is reached from exactly one root
+        fun f(i: Int): Long = maxOf(cost[i], (0 until SLOTS).filter { waitsOn[it] == i }.sumOf { f(it) })
         var sum = 0L
         for (i in 0 until SLOTS) if (cost[i] >= 0 && waitsOn[i] < 0) sum += f(i)
-        for (i in 0 until SLOTS) if (cost[i] >= 0 && !reached[i]) sum += cost[i]
         return sum <= BUDGET_CAP
     }
 
@@ -1099,20 +1105,29 @@ class MotionSim(private val scaled: () -> Boolean = { false }, private val effec
         // range between two in-range ends — it is clamped (0..15, 0..F); the validator holds a program's own path in
         // range, so the clamp changes nothing else. The clamped value is what this lens draws, and so what it last drew.
         // §6.6: a scaled DRAW's H eased from h0 to h1; on RETARGET's restart path from the H this lens last drew, clamped
-        // to 1..2048 as levels are (R1.10). READING: a restart from an unscaled draw eases from the source's own height
+        // to 1..2048 as levels are (R1.10) — from an unscaled draw, the height of the source it DREW FROM (§7.5 as ruled
+        // from both sides' answers, 2026-11-20; decisions AJ), never of a record the RETARGET's parameters name
         val h = if (s.verb != DRAW || !s.isScaled) 0
                 else if (f == null) eased(s.h0, s.h1 - s.h0, e)
-                else { val from = if (f.h > 0) f.h else s.source!!.h
+                else { val from = if (f.h > 0) f.h else f.sh
                        eased(from, s.h1 - from, e).coerceIn(1, H_MAX) }
-        // §7.5 (C3): W likewise, restarted from the width this lens last drew, clamped to 1..2048. Ruled (C3, the seventeen): a restart
-        // from an unscaled width eases from the source's own width (as C2's H from the source's own height)
+        // §7.5 (C3): W likewise, restarted from the width this lens last drew, clamped to 1..2048; from an unscaled width,
+        // the width of the source it drew from (as C2's H). An axis the new segment does not scale is 0 here: the new
+        // source drawn at its own size from the first restarted step
         val w = if (s.verb != DRAW || !s.isWScaled) 0
                 else if (f == null) eased(s.w0, s.w1 - s.w0, e)
-                else { val from = if (f.w > 0) f.w else s.source!!.w
+                else { val from = if (f.w > 0) f.w else f.sw
                        eased(from, s.w1 - from, e).coerceIn(1, H_MAX) }
+        // the source this DRAW draws from (paint's choice), kept so that a later restart starts from what was drawn
+        // (`self` is never scaled, 12, and a parameter cannot change a kind, so its size is never a restart's start)
+        val src = if (s.verb != DRAW) null else when (s.kind) {
+            KIND_SELF -> o.caps[i]?.let { it.w to it.h } ?: (0 to 0)
+            KIND_NEW -> t.rect(left).let { it.w to it.h }
+            else -> s.source!!.let { it.w to it.h }
+        }
         return when (s.verb) {
-            DRAW -> if (f == null) Vals(eased(x0, dx, e), eased(s.y, s.dy, e), eased(s.lvl0, s.lvl1 - s.lvl0, e).coerceIn(0, 15), 0, h, w)
-                    else Vals(eased(f.x, x0 + dx - f.x, e), eased(f.y, s.y + s.dy - f.y, e), eased(f.lvl, s.lvl1 - f.lvl, e).coerceIn(0, 15), 0, h, w)
+            DRAW -> if (f == null) Vals(eased(x0, dx, e), eased(s.y, s.dy, e), eased(s.lvl0, s.lvl1 - s.lvl0, e).coerceIn(0, 15), 0, h, w, src!!.first, src.second)
+                    else Vals(eased(f.x, x0 + dx - f.x, e), eased(f.y, s.y + s.dy - f.y, e), eased(f.lvl, s.lvl1 - f.lvl, e).coerceIn(0, 15), 0, h, w, src!!.first, src.second)
             REVEAL -> Vals(x0, s.y, 15, (if (f == null) eased(0, s.extentMax, e) else eased(f.e, s.extentMax - f.e, e)).coerceIn(0, s.extentMax))
             // §7.4–§7.6: PIECES' and GLYPHS' offsets and levels eased as DRAW's (never restarted: RETARGET refuses them)
             PIECES, SHRINK, GLYPHS -> Vals(eased(x0, dx, e), eased(s.y, s.dy, e), eased(s.lvl0, s.lvl1 - s.lvl0, e), e)
