@@ -663,7 +663,9 @@ class EffectsSimTest {
             "a three-ring" to listOf(W(1, tl, 4_000_000, 0, 0x22), W(2, tr, 3_000_000, 1, 0x33), W(0, bl, 2_000_000, 2, bTag)),
             "a waiter on the cut member" to listOf(W(0, tl, 3_000_000, 1, 0x22), W(2, tr, 2_000_000, 0, 0x33), W(1, bl, 2_000_000, 0, bTag)),
             "a waiter on another member" to listOf(W(1, tl, 2_000_000, 0, 0x22), W(2, tr, 4_000_000, 1, 0x33), W(0, bl, 3_000_000, 1, bTag)))
-        for ((case, ws) in cases) for ((zCost, ok) in listOf(4_000_000L to true, 4_000_001L to false)) {
+        // every case is run and its first failed assert kept, so one run shows each case's answer
+        val problems = ArrayList<String>()
+        for ((case, ws) in cases) for ((zCost, ok) in listOf(4_000_000L to true, 4_000_001L to false)) try {
             val what = "$case, Z $zCost"
             val r = Rig()
             val bSlot = ws.first().after
@@ -684,7 +686,8 @@ class EffectsSimTest {
             r.now += 5
             assertEquals(ok, r.msg(play(3, 20, 2560, 0x44)), "$what: the group by f with Z")
             if (!ok) assertEquals(12, r.reason(), "$what: one over")
-        }
+        } catch (e: AssertionError) { problems += e.message ?: "$case, Z $zCost" }
+        assertEquals(emptyList(), problems, "the cycle rule:\n" + problems.joinToString("\n"))
     }
 
     /**
@@ -717,7 +720,8 @@ class EffectsSimTest {
         fun rig() = Rig().also { it.write(r1, level2(40, 30, 9)); it.write(r2, level2(60, 20, 9)) }
         // the panel at each of the 4 restarted steps; a fresh PLAY of [ref] at the RETARGET's tick gives the same steps
         fun panels(r: Rig, t0: Long) = (1..4).map { k -> r.wake(t0 + 20L * k); r.sim.panelCrc32(r.arm) }
-        for ((case, w, h) in listOf(Triple("both axes", 5 to 20, 5 to 10), Triple("W only", 5 to 20, 0 to 0), Triple("H only", 0 to 0, 5 to 10))) {
+        val problems = ArrayList<String>()                                    // each case's first failed assert
+        for ((case, w, h) in listOf(Triple("both axes", 5 to 20, 5 to 10), Triple("W only", 5 to 20, 0 to 0), Triple("H only", 0 to 0, 5 to 10))) try {
             val r = rig()
             r.write(pr, draw(0, 0, 0, 0, 0, pref = true))
             assertTrue(r.msg(play(0, 20, pr, 1, p = intArrayOf(r1))), "$case: R1 unscaled")
@@ -737,7 +741,8 @@ class EffectsSimTest {
             }
             assertEquals(ref(40, 30), got, "$case: W and H restart from R1's 40 and 30 (an unscaled axis at R2's own size)")
             assertTrue(ref(60, 20)[0] != got[0], "$case: the form that restarts from R2's own size draws another first step")
-        }
+        } catch (e: AssertionError) { problems += e.message ?: case }
+        assertEquals(emptyList(), problems, "the restart's size:\n" + problems.joinToString("\n"))
     }
 
     /** §7.12 at a fire (§6.2 step 10) before step 11's 19 (decisions Y, C-1): an owner O in the entry's slot 0 with W
