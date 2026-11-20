@@ -119,6 +119,10 @@ class FilesGlasses(
     private var cwd: String = ""
     private var entries: List<FEntry> = emptyList()
     private var listState = ""                       // "" ok · "listing…" · error text
+    /** FILES (ruled 2026-11-20): the folder whose last listing failed — listed again when the window channel comes up
+     *  ([channelUp]) — and whether no cached rows stand in for it (its summary then says [NOT_LISTED]). */
+    private var failedListing: String? = null
+    private var failedUncached = false
     private var trashEntries: List<FTrashEntry> = emptyList()
     /** Ascend restores the parent's cursor (path → cursor). */
     private val browseStack = ArrayList<Pair<String, Int>>()
@@ -330,7 +334,8 @@ class FilesGlasses(
             Level_.LOCATIONS -> Summary("${locations.size} locations", more = locations.size > 1)
             Level_.TRASH -> Summary("trash · ${trashEntries.size}")
             Level_.BROWSE -> Summary(shortPath(cwd),
-                detail = "${entries.count { it.dir }} folders · ${entries.count { !it.dir }} files")
+                detail = if (failedListing == cwd && failedUncached) NOT_LISTED
+                    else "${entries.count { it.dir }} folders · ${entries.count { !it.dir }} files")
             Level_.VIEW -> Summary(viewer?.name ?: "", detail = shortPath(cwd))
         }
     }
@@ -671,6 +676,15 @@ class FilesGlasses(
         return rowsCache
     }
 
+    /** The window channel is up (the provider's state hook, from its own thread; FILES, ruled 2026-11-20): the folder on
+     *  screen whose last listing failed is listed again, on the loop, through [refreshList] (its seq/cwd guard). A
+     *  folder whose listing succeeded is not; one call per time the channel comes up, so no loop of its own. */
+    fun channelUp() {
+        services?.runOnShell("files.channel") {
+            if (level == Level_.BROWSE && failedListing == cwd) refreshList()
+        }
+    }
+
     private fun refreshList() {
         val seq = ++navSeq
         val dir = cwd
@@ -713,6 +727,8 @@ class FilesGlasses(
                 // folder's cached rows may stay, under the error line (§47)
                 entries = if (err == null) list else (cached ?: emptyList())
                 listState = err ?: ""
+                failedListing = if (err != null) dir else null
+                failedUncached = err != null && cached == null
                 if (err != null) { setNotice(err); pendingSelectName = null }
                 services?.setOperation("idle")
                 reseatKept()
@@ -1771,6 +1787,8 @@ class FilesGlasses(
     companion object {
         /** The browse cursor's name for the This-folder row (no entry holds a name with a NUL). */
         private const val THIS_FOLDER = "\u0000this folder"
+        /** The summary's detail for a folder whose listing failed with no cached rows (FILES, ruled 2026-11-20). */
+        internal const val NOT_LISTED = "not listed"
         private const val CHUNK = 128 * 1024
         private const val RETRY_PACING_MS = 5_000L
         private val MONO_EXTS = setOf("log", "json", "xml", "conf", "cfg", "ini", "toml", "yaml",

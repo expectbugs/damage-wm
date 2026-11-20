@@ -80,9 +80,12 @@ class FilesArrangementsTest {
         val wc = rig.phone(srv.boundPort)
         val core = FilesCore()
         val src = rig.keep(LocalWindowSource(core, wc))
-        val remote = rig.keep(RemoteFilesProvider("127.0.0.1", winPort ?: srv.boundPort, ReaderRig.TOKEN, scope))
+        var onChannel: FilesGlasses? = null                          // wired as the phone wires it (`ShellService`)
+        val remote = rig.keep(RemoteFilesProvider("127.0.0.1", winPort ?: srv.boundPort, ReaderRig.TOKEN, scope,
+            onState = { s -> if (s.isEmpty()) onChannel?.channelUp() }))
         val services = MenuServices()
         val g = FilesGlasses(FakeText(), core, src, remote, scope, device = wc.device).also { it.onRegistered(services) }
+        onChannel = g
         if (winPort == null) readerAwait("the Files window channel is up: ${remote.stateLine()}") { remote.stateLine().isEmpty() }
         return Arranged(h, pc, wc, g, services, remote)
     }
@@ -136,13 +139,13 @@ class FilesArrangementsTest {
         assertEquals("c.txt", a.cursorName())
     }
 
-    /** FILES (2026-11-20), the test above's order-dependent miss made certain: the lane is up, the Files window channel
-     *  is not yet, and the folder is opened. Its listing fails at once ("not reachable": logged, and on the glasses the
-     *  This-folder row's line), and nothing lists it again when the channel comes up: the presenter stays on "0
-     *  folders · 0 files" with the channel up and no notice, the state that test timed out on. Records today's
-     *  behaviour: the next activation or navigation lists it (a relist when the channel comes up is not built). */
+    /** Pin (FILES, ruled 2026-11-20), from the test above's order-dependent miss: the lane is up, the Files window
+     *  channel is not yet, and the folder is opened. Its listing fails at once ("not reachable": logged, and on the
+     *  glasses the This-folder row's line); the summary says "not listed", never an empty folder. When the channel
+     *  comes up the folder is listed again by itself (before the ruling it stayed on "0 folders · 0 files" until he
+     *  moved: the state that test timed out on). */
     @Test
-    fun aFolderOpenedBeforeTheWindowChannelIsUp_isNotListedAgainWhenItComesUp(): Unit = runBlocking {
+    fun aFolderOpenedBeforeTheWindowChannelIsUp_isListedWhenItComesUp(): Unit = runBlocking {
         val winPort = java.net.ServerSocket(0).use { it.localPort }              // nothing serves it yet
         val a = arrange(winPort)
         tree.file("w/a.txt", "1")
@@ -154,13 +157,14 @@ class FilesArrangementsTest {
             readerAwait("the lane is up") { a.wc.client?.contractState?.shared(FilesCore.WINDOW) == true }
             assertTrue(a.remote.stateLine().isNotEmpty(), "the window channel is not up yet: '${a.remote.stateLine()}'")
             assertTrue(a.services.onLoop { a.g.open("path:$dir/") })
-            await(a, "the listing failed") { failed.isNotEmpty() }
+            await(a, "the listing failed, said as such") { a.services.onLoop { a.g.summary().detail } == FilesGlasses.NOT_LISTED }
+            assertEquals(1, failed.size, "logged once: ${failed.toList()}")
             val win = ContentHostServer(LocalContent(java.nio.file.Files.createDirectories(rig.books)), winPort, ReaderRig.TOKEN,
                 bindAddress = InetAddress.getLoopbackAddress(), win = mapOf("files" to FilesService(a.pc.slotted)))
             win.start()
             rig.keep(win)
-            await(a, "the window channel is up") { a.remote.stateLine().isEmpty() }
-            assertEquals("0 folders · 0 files", a.services.onLoop { a.g.summary().detail }, "the folder is not listed again")
+            await(a, "listed once the channel is up") { a.services.onLoop { a.g.summary().detail } == "0 folders · 1 files" }
+            assertEquals("", a.remote.stateLine())
             assertEquals(emptyList(), a.services.notices.toList())
         } finally {
             wm.damage.core.util.Log.removeSink(sink)
