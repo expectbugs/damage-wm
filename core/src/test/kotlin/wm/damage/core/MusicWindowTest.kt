@@ -26,7 +26,6 @@ import wm.damage.core.sim.GlassFirmwareSim
 import wm.damage.core.transport.SimTransport
 import wm.damage.core.windows.music.Backend
 import wm.damage.core.windows.music.LyricsSync
-import wm.damage.core.windows.music.MirrorMusicPlayer
 import wm.damage.core.windows.music.Mode
 import wm.damage.core.windows.music.MusicPlayer
 import wm.damage.core.windows.music.MusicWindow
@@ -613,7 +612,7 @@ class MusicWindowTest {
         var skew = 0L
         val now: () -> Long = { System.currentTimeMillis() + skew }
         val player: MusicPlayer = player ?: SimMusicPlayer(lib, now)
-        val win = MusicWindow(FakeText(), lib, this.player, scope, mirror = player is MirrorMusicPlayer, clock = now)
+        val win = MusicWindow(FakeText(), lib, this.player, scope, clock = now)
         init {
             if (height != 480) store.put("shell.settings", ShellSettings(heightMode = height).toJson())
             shell.register(win)
@@ -862,21 +861,7 @@ class MusicWindowTest {
             awaitTrue("live records applied") { r3.win.levelDepth() == 2 && (r3.player as SimMusicPlayer).state.queue.size == 4 }
             assertEquals("track", r3.win.title())
             r3.stop()
-            // the desktop MIRROR shows the record and refuses transport loudly
-            val mirror = MirrorMusicPlayer()
-            val r4 = Rig(Files.createTempDirectory("damage-music-m"), 480, TestLib(), mirror)
-            r4.shell.start()
-            awaitTrue("mirror up") { r4.shell.isQuiescent() }
-            r4.shell.postSync("window.music.player", sub, stamp)
-            awaitTrue("mirror shows the queue") { mirror.state.queue.size == 4 && mirror.state.index == 2 }
-            assertEquals(sub, mirror.persist())                       // byte-equal: the store never re-stamps it
-            r4.shell.postGesture(EvenHubMsg.EV_CLICK)                 // into Music
-            awaitTrue("mirror window") { r4.shell.currentWindowId() == "music" }
-            r4.tap(); awaitTrue("mirror menu") { r4.shell.menuIsOpen }
-            r4.tap()                                                  // Pause → refused
-            awaitTrue("refusal said") { r4.win.title() == "playback needs the phone" }
-            assertTrue(r4.win.needs.contains(wm.damage.core.shell.DamageWindow.Need.HOST))
-            r4.stop()
+            // S1-4 K: the desktop mirror is gone (the PC plays through its own player on the record)
         } catch (e: Throwable) {
             r.stop(); throw e
         } finally {

@@ -279,11 +279,18 @@ object Snapshot {
      * the card read "1:05" or "1:06" by how long a run took to reach it. The window keeps the wall clock, with the skew,
      * for its card pace and notices.
      */
-    private class MusicScene(text: wm.damage.core.text.TextRasterizer, scope: CoroutineScope) {
+    private class MusicScene(text: wm.damage.core.text.TextRasterizer, scope: CoroutineScope,
+                             wc: wm.damage.core.app.RecordBackend? = null) {
         val lib = ScriptedMusic()
         val skew = java.util.concurrent.atomic.AtomicLong(0)
-        val player = wm.damage.core.windows.music.SimMusicPlayer(lib, now = { FEED_T0 + skew.get() })
-        val win = wm.damage.core.windows.music.MusicWindow(text, lib, player, scope, clock = { System.currentTimeMillis() + skew.get() })
+        private val clock: () -> Long = { System.currentTimeMillis() + skew.get() }
+        // build S1-4 K: over [wc] (the phone's working copy) the presenter and the stand-in player read and write Music's
+        // record as the phone builds them (`ShellService`): the converted path; without it, the factory's own record
+        val source = wc?.let { wm.damage.core.app.LocalWindowSource(wm.damage.core.windows.music.MusicCore(), it) }
+        val player = wm.damage.core.windows.music.SimMusicPlayer(lib, now = { FEED_T0 + skew.get() }, source = source)
+        val win: wm.damage.core.windows.music.MusicGlasses = if (source != null)
+            wm.damage.core.windows.music.MusicGlasses(text, lib, player, scope, source.core as wm.damage.core.windows.music.MusicCore, source, clock)
+        else wm.damage.core.windows.music.MusicWindow(text, lib, player, scope, clock = clock)
     }
 
     /** Open the Music menu (from the NOW PLAYING root, 2026-09-03) and
@@ -681,7 +688,7 @@ object Snapshot {
         shell.register(torrentsWin)
         // build S1-4 J: Music's world as the first arrangement builds it (the scripted library, the stand-in player, the
         // scene clock), so its scenes here are the same scenes
-        val music = MusicScene(text, scope)
+        val music = MusicScene(text, scope, wc)
         shell.register(music.win)
         val gamesWin = wm.damage.core.windows.games.GamesWindow(text, scope)
         gamesWin.roster.worldSeed = 20260905L
@@ -802,6 +809,8 @@ object Snapshot {
             torrentsWin.detach()
             torrentsSource.close()
             torrentsRemote.close()
+            music.win.detach()                                 // build S1-4 K: the presenter leaves the working copy's source
+            music.source?.close()
             phoneMirror.detach(shell.noticeSink)
             phoneMirror.close()
             pcTorrents.detachNotices()

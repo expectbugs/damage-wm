@@ -426,6 +426,10 @@ data class Config(
     val musicAcoustidKey: String = "",
     /** The enrichment package + viz.py (`audio/` in the repo, MUSIC.md §9.5). */
     val musicAudioDir: String = "/home/user/damagewm/audio",
+    /** S1-4 (the lean spec's §3.6): the PC's player program, started at the first open that needs sound on the PC. */
+    val musicPcPlayer: String = "/usr/bin/mpv",
+    /** S1-4 (answer 1): the one output device the PC plays to, as he names it; empty = PipeWire's default. */
+    val musicPcDevice: String = "",
     /** Feed (FEED.md §3.7, 2026-09-09): the sources (the day-one list when
      *  absent), the one user agent every fetch carries, and the engine's
      *  files (empty = `<dataDir>/feed`). Nothing here is a credential. */
@@ -917,6 +921,51 @@ private fun startMusic(cfg: Config, scope: CoroutineScope, reach: wm.damage.core
     null
 }
 
+/** S1-4 K: Music on the PC record — the window channel's service with the relay, the PC's player on the record as host
+ *  `pc`, and the door for the phone's verbs; the source every stack's glasses presenter reads (device `local`). */
+private class MusicParts(val service: wm.damage.core.windows.music.MusicService,
+                         val player: wm.damage.desktop.music.PcMusicPlayer,
+                         val core: wm.damage.core.windows.music.MusicCore,
+                         val source: wm.damage.core.app.WindowSource)
+
+/** S1-4 K: made once per process in both PC host builders, after Music's migration. Nothing here starts the player
+ *  program: a leftover one from an earlier process is stopped, said (lane P's `clearLeftover`). */
+private fun musicParts(cfg: Config, appNet: wm.damage.core.app.AppNet, appHost: wm.damage.core.app.AppHost,
+                       lib: wm.damage.core.windows.music.LocalMusicLibrary, notices: wm.damage.core.app.NoticeCore,
+                       journal: (String) -> Unit): MusicParts {
+    val dir = Files.createDirectories(Path.of(cfg.dataDir).resolve("music"))
+    val device = cfg.musicPcDevice.ifEmpty { null }
+    val process = wm.damage.desktop.music.MpvProcess(listOf(cfg.musicPcPlayer), dir, device)
+    try { process.clearLeftover() } catch (e: Exception) { Log.e("damage", "the PC player's leftover check failed", e) }
+    val service = wm.damage.core.windows.music.MusicService(lib)
+    service.phoneUp = { appNet.connected(wm.damage.core.app.Peer.PHONE.device) }
+    appNet.addEndListener { service.phoneEnded() }
+    val player = wm.damage.desktop.music.PcMusicPlayer(lib, process, device,
+        media = { t -> lib.resolveMedia(t.id, wm.damage.desktop.music.PcMusicPlayer.LOSSLESS).first.toString() },
+        notice = { text -> notices.raise("music", "output", text, wm.damage.core.windows.music.MusicCore.WINDOW, null, "Music") })
+    player.journal = { line -> journal("music $line") }
+    val core = wm.damage.core.windows.music.MusicCore()
+    val source = wm.damage.core.app.LocalWindowSource(core,
+        wm.damage.core.app.HostBackend(appHost, wm.damage.core.app.Peer.LOCAL.device, wm.damage.core.app.OpQueue.newStream()))
+    player.bind(source, wm.damage.core.windows.music.MusicCore.PC) { verb, args, done -> service.relay(verb, args, done) }
+    service.program = wm.damage.core.windows.music.MusicProgram(player, service::relay,
+        { appNet.connected(wm.damage.core.app.Peer.PHONE.device) }, note = { line -> journal("program $line") })
+    Log.i("damage", "Music's core on the PC record (${core.window}): the PC's player as host pc, the relay on the music channel")
+    return MusicParts(service, player, core, source)
+}
+
+/** S1-4 K: at the process's orderly end, the PC's player writes its exact place and its program is stopped; the record's
+ *  line is on disk before this returns. */
+private fun endMusic(parts: MusicParts?, appHost: wm.damage.core.app.AppHost) {
+    if (parts == null) return
+    try {
+        parts.player.close("the PC service stopped")
+        appHost.executor.call { }
+    } catch (e: Exception) {
+        Log.e("damage", "Music's orderly end failed", e)
+    }
+}
+
 private fun bleInfo() {
     try {
         val link = BlueZDbus()
@@ -982,6 +1031,13 @@ private suspend fun hostOnly(cfg: Config) {
     // runShell (host-only has no presenter)
     wm.damage.core.windows.tmux.TmuxMigration.onHost(appHost, store) { }
     tmuxParts(appNet, appHost, tmux, noticeCore)
+    // build S1-4 (K): Music's state from before its conversion, then its parts (the PC's player, the relay, the door);
+    // the player writes its place at the process's end
+    val musicParts = music?.let { lib ->
+        wm.damage.core.windows.music.MusicMigration.onHost(appHost, store) { }
+        musicParts(cfg, appNet, appHost, lib, noticeCore) { line -> Log.i("music", line) }
+    }
+    Runtime.getRuntime().addShutdownHook(Thread({ endMusic(musicParts, appHost) }, "damage-music-end"))
 
     // build S1-2 (Q5): Files' rows from before its conversion become record items where the record holds none, then
     // Files on the PC record: the one job slot every PC caller meets (the phone's glasses through the window channel,
@@ -1004,7 +1060,7 @@ private suspend fun hostOnly(cfg: Config) {
             "torrents" to wm.damage.core.windows.torrents.TorrentsService(torrents),
             "feed" to wm.damage.core.windows.feed.FeedService(feed),
             "bastion" to bastion) +
-            (music?.let { mapOf("music" to wm.damage.core.windows.music.MusicService(it)) } ?: emptyMap()),
+            (musicParts?.let { mapOf("music" to it.service) } ?: emptyMap()),
         icons = themeIcons, reach = reach, app = appNet, localSecret = web::localSecret)
     bindOrRetry(scope, "content host", cfg.contentPort) { host.start() }   // §72, as in the standby host
     startSetup(cfg, scope, reach)
@@ -1069,6 +1125,10 @@ class DesktopStack(
     /** Build S1-3 B16: Tmux's process-wide core and the source on the PC record its presenter reads (device `local`);
      *  null in tools, which build Tmux the way it was built before (`TmuxWindow`, a record in memory). */
     private val tmuxCore: Pair<wm.damage.core.windows.tmux.TmuxCore, wm.damage.core.app.WindowSource>? = null,
+    /** Build S1-4 K: the PC's player, Music's core and the source on the PC record its presenter reads (device `local`);
+     *  null in tools, which build no Music window. */
+    private val musicPc: Triple<wm.damage.core.windows.music.MusicPlayer, wm.damage.core.windows.music.MusicCore,
+        wm.damage.core.app.WindowSource>? = null,
 ) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private fun ble(): Transport = BlueZTransport(BlueZDbus(), scope,
@@ -1133,10 +1193,11 @@ class DesktopStack(
                 wm.damage.core.windows.torrents.TorrentsGlasses(text, p, scope, core, source, recordNotices = { notices != null })
             } ?: wm.damage.core.windows.torrents.TorrentsWindow(text, p, scope)).also(shell::register)
         }
-        // Music (MUSIC.md §3.1): the desktop shell MIRRORS the phone's player
-        // through the synced record and cannot play — it says so loudly
-        music?.let { musicWindow = wm.damage.core.windows.music.MusicWindow(text, it,
-            wm.damage.core.windows.music.MirrorMusicPlayer(), scope, mirror = true).also(shell::register) }
+        // Music (S1-4 K): the presenter over the PC record and the PC's player — it plays here while `out` names the PC,
+        // and shows and drives the phone's playing through the record and the relay otherwise
+        music?.let { lib -> musicPc?.let { (player, core, source) ->
+            musicWindow = wm.damage.core.windows.music.MusicGlasses(text, lib, player, scope, core, source).also(shell::register)
+        } }
         // Games (HOLDEM.md): pure Kotlin, no host — the first window in this
         // system that needs nothing outside itself
         shell.register(wm.damage.core.windows.games.GamesWindow(text, scope))
@@ -1157,7 +1218,7 @@ class DesktopStack(
 
     private var torrentsWindow: wm.damage.core.windows.torrents.TorrentsWindow? = null
 
-    private var musicWindow: wm.damage.core.windows.music.MusicWindow? = null
+    private var musicWindow: wm.damage.core.windows.music.MusicGlasses? = null
 
     private var feedWindow: wm.damage.core.windows.feed.FeedWindow? = null
 
@@ -1376,6 +1437,13 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
     val tmuxScopes = tmuxParts(appNet, appHost, tmuxProvider, noticeCore)
     val tmuxSource = wm.damage.core.app.LocalWindowSource(tmuxScopes.core,
         wm.damage.core.app.HostBackend(appHost, wm.damage.core.app.Peer.LOCAL.device, wm.damage.core.app.OpQueue.newStream()))
+    // build S1-4 (K): Music's state from before its conversion (a `migrate` note), then its parts: the PC's player on the
+    // record as host `pc` (its decisions `music` notes), the relay to the phone's player, the door for the phone's verbs;
+    // every stack's glasses presenter reads the same source and drives the same player
+    val musicParts = musicLibrary?.let { lib ->
+        wm.damage.core.windows.music.MusicMigration.onHost(appHost, store) { line -> Journal.appendNote(journalFile, "migrate", line) }
+        musicParts(cfg, appNet, appHost, lib, noticeCore) { line -> Journal.appendNote(journalFile, "music", line) }
+    }
 
     // build S1-2 (Q5): Files' rows from before its conversion become record items where the record holds none, then
     // Files on the PC record: the one job slot every PC caller meets (every stack's glasses, the phone's glasses
@@ -1397,7 +1465,7 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
             "torrents" to wm.damage.core.windows.torrents.TorrentsService(torrentsProvider),
             "feed" to wm.damage.core.windows.feed.FeedService(feedEngine),
             "bastion" to bastionService) +
-            (musicLibrary?.let { mapOf("music" to wm.damage.core.windows.music.MusicService(it)) } ?: emptyMap()),
+            (musicParts?.let { mapOf("music" to it.service) } ?: emptyMap()),
         icons = themeIcons, reach = reach, app = appNet, localSecret = web::localSecret)
     // §72: a busy port is retried on pacing until it frees (the stuck 10-20 JVM held all four
     // on 2026-11-07, and the instance started beside it served nothing while "started")
@@ -1469,7 +1537,8 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
         onSwitch = { switchTo(it) }, tmux = tmuxProvider, sharedStore = store,
         files = filesProvider, themeIcons = themeIcons, torrents = torrentsProvider, music = musicLibrary, feed = feedEngine,
         reader = readerCore to readerSource, notices = noticeMirror, torrentsCore = torrentsScopes.core to torrentsSource,
-        feedCore = feedScopes.core to feedSource, tmuxCore = tmuxScopes.core to tmuxSource) }
+        feedCore = feedScopes.core to feedSource, tmuxCore = tmuxScopes.core to tmuxSource,
+        musicPc = musicParts?.let { Triple(it.player, it.core, it.source) }) }
 
     if (mode != "auto") {
         val first = build(mode)
@@ -1532,7 +1601,10 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
             return
         }
         try { runBlocking { stack()?.stop() } } catch (e: Exception) { Log.w("damage", "stop at exit: ${e.message}") }
-        finally { ended.countDown() }
+        finally {
+            endMusic(musicParts, appHost)             // S1-4 K: the PC's place written, its player program stopped
+            ended.countDown()
+        }
     }
     Runtime.getRuntime().addShutdownHook(Thread({ endOrderly() }, "damage-shutdown"))
 
