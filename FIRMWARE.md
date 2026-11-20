@@ -1806,8 +1806,8 @@ for randomness. (5) **PLAY-AFTER** (§7.7): an in half that starts on each lens 
 step. (6) **The ring list** and SET's **kind 3** (§7.8). (7) **The plan's late step** (§7.10). (8) **The step budget and the fast DRAW path** (§7.12): a
 version-2 program is refused when the steps of every instance that could then draw would cost more than the largest
 period (about 125 ms) together, and DRAW reaches its pixels without walking a record whole at every step. One flag bit (6
-EFFECTS), one ladder stage (5), DamageCaps bit 11, refusal 19, telemetry 40, the 115's field 18. **No new patch
-site**; contract version stays 2.
+EFFECTS), one ladder stage (5), DamageCaps bit 11, refusal 19, telemetry 40, the 115's field 18. **One new patch
+site, `0x00493DAC`, not on a start path** (the container's destroy, §7.3); contract version stays 2.
 
 ### 7.1 Facts C3 rests on
 
@@ -1819,6 +1819,7 @@ site**; contract version stays 2.
 | `present_shadow` publishes the mode-24 hint with the shadow pointer while the worker holds the gate; the copy hook latches it once | V-src `zlib_glue.c` 785–798, 1074–1080 |
 | The fire stamps c0 after the match, walks the program at step 10 and sets t0 at step 12 | V-src `damage_input.c` 340, 361, 381 |
 | A record DRAW is walked whole every step (validation, then the render), one nibble written per pixel through a clip test; a full-panel byte copy with its cache clean measures 0.54–0.62 ms | V-src `damage_draw.c` 120–145, 194–235; M (telemetry field 6) |
+| **Buffer A's one free, and the one new site.** Stock allocates buffer A in one place (`common_image_create` at `0x004DBEDE`: A = malloc at `0x004DC23E`, kept at the state's +0x8) and frees it in one (`common_image_destroy` `FUN_004DCA3C`: free(+0x8) at `0x004DCB24`), whose one caller is `evenhub_container_list_destroy` `FUN_00493D02`, by the call at **`0x00493DAC`**. Five ways lead there: the page rebuild and the cleanup of a failed build (`FUN_00493AB6`: `0x00493B0E`, `0x00493B86`, `0x00493C34`, `0x00493CAC`), the shutdown (`0x00496BA6`), the timeout page (`0x00496D2E`) and the main event handler (`0x004E1896`) — **the last three started by stock with the phone not involved**. No gate or lock covers the free, nothing the copy hook reads shows it, and a changed pointer is no test (the allocator hands a freed block back). The call at `0x00493DAC` is C3's one new site, on a page rebuild or exit only — not a start path (`FORK.md` §3.1) | V (`private/c3-design/C3-F2-facts.md` points 1–4, 6, 7); I: every destroy runs on the ui_task (point 5); not every store at +0x8 in the image traced (point 2) |
 
 ### 7.2 Program records version 2, and where each program may run
 
@@ -1968,33 +1969,25 @@ walk (5) and values (12) positions, the step budget after their values.
 - **The fire.** A fire whose close set holds an owning instance is refused **19**, nothing closed (§6.2 step 11, tested
   before 17's test; a report-only fire closes nothing and is not tested). A COMMIT's close pass closes an owning
   instance as any other.
-- **The shadow an owner reads is always the live one.** At every present, direct or preserve, the copy hook reads the
-  shadow — `new`, LAND's copy, rain's reveal 1 — only through a pointer that names the live buffer A when it is read; no
-  pointer kept from an earlier present is read through. **A rebuild or teardown of the container ends every owning
-  instance:** ownership ends, the panel's stale mark is set, and each sends the 114 body a close gives (outcome 1 if it
-  was drawing; a done owner sends none). **What stock gives for it** (`private/c3-design/C3-F2-facts.md`; V at the
-  addresses, I where it says so): buffer A is allocated in one place (`common_image_create`, A = malloc at `0x004DC23E`,
-  kept at the state's +0x8) and freed in one (`common_image_destroy` `FUN_004DCA3C`, free(+0x8) at `0x004DCB24`), whose
-  only caller is `FUN_00493D02` at `0x00493DAC`, reached from five stock paths, three of them without the phone (the
-  shutdown, the timeout page, the main event handler); the display gate does not exclude the free, nothing the copy
-  hook reads shows it, and a changed pointer is no signal (the allocator often hands the freed block back, and a
-  teardown creates nothing). **So the rule needs one new patch site:** the call at `0x00493DAC` routed through a Damage
-  function on the ui_task that takes the display gate (a pending job is copied first), claims the engine word, ends
-  every owning instance and withdraws the published shadow pointer, lets both go, then runs the stock destroy (a page
-  rebuild or exit only — no boot-time path, `FORK.md` §3.1). §7's opening line "No new patch site" yields to it only on
-  Adam's word. **Without that site** (the fork's marked stage limit until then): the preserve path never reads the
-  shadow; an owner whose program reads it draws its steps only on direct presents, through that present's job pointer,
-  and the plan does not wake for it; `present_shadow` ends every owner whose opening pointer differs from the live one
-  (a moved buffer, at the next frame). In halves then play as cuts between phone frames, and the `wake` steps of a
-  shadow-reading owner in `v5-own`, `v5-new` and `v5-after` (and their `W`) answer differently — which of the two forms
-  the vectors' expectations encode is the lead's ruling. **The model's form:** §9's format has no op for a container
-  rebuild (its ops are `tick`, `lease`, `msg`, `wake`, `stock`, `input` and `page`), so no vector carries one. The
-  fork's host pin covers it: with the site, the shim runs the destroy path (the site's function, then a stand-in free
-  that overwrites the old block with a marker) between two presents while an owner draws, once before a direct present
-  and once before a preserve-path step; the owner ends at the destroy and no byte of the old block is read. The
-  simulator: `GlassFirmwareSim`'s EvenHub CREATE handling, and REBUILD's (acked unmodeled today), end every owning
-  instance on both lenses as a close does; its shadow is one array a CREATE does not replace, so nothing there reads a
-  freed buffer.
+- **The shadow an owner reads is always the live one, and a rebuild or teardown of the container ends every owning
+  instance — through C3's one new patch site.** Stock frees buffer A in one place, reached only by the call at
+  `0x00493DAC` (§7.1); that call goes to `damage_container_destroy`, which runs where stock runs the destroy (the
+  ui_task, on an EvenHub page rebuild or exit). **With EFFECTS clear** (stages 0–4) it does nothing but pass to the
+  stock function, so a C3 image below stage 5 destroys a container exactly as C2 does — **C2's own window included**:
+  a free can land between a job's publication and its copy while the display task waits out a panel transfer
+  (`C3-F2-facts.md` point 5), and below stage 5 that window is not closed. No owner exists with EFFECTS clear (version
+  2 needs it, a release point ends every instance, and the phone disarms only after a CLOSE-all that reached both
+  lenses, §5.8). **With EFFECTS armed** it takes the display gate as the image worker does (a pending job is copied
+  first), claims the engine word, ends every owning instance — the owns mark cleared, the panel's stale mark set, the
+  114 body a close gives (outcome 1 if it was drawing; a done owner sends none) — withdraws the published shadow
+  pointer, lets the word and the gate go, then calls the stock function. So at every present, direct or preserve, the
+  copy hook reads the shadow (`new`, LAND's copy, rain's reveal 1) only through the pointer `present_shadow` last
+  published, which names a live buffer A whenever it is read; after a withdrawal nothing reads the shadow until the next
+  `present_shadow` publishes the new one. **The model's form:** §9's format has no op for a container rebuild (its ops
+  are `tick`, `lease`, `msg`, `wake`, `stock`, `input` and `page`), so no vector carries one and no `v5` expectation
+  depends on it. The fork's host pin covers the site (§7.13). The simulator: `GlassFirmwareSim`'s EvenHub CREATE
+  handling, and REBUILD's (acked unmodeled today), end every owning instance on both lenses as the site does when
+  armed; its shadow is one array a CREATE does not replace, so nothing there reads a freed buffer.
 - **The source `new`** (DRAW, REVEAL, PIECES kind 4) and **the backdrop `new`**: this lens's track area of the live
   shadow, read by the copy hook under the engine word at every step it draws, as a source of the area's width and
   height whose pixel (c, r) is the shadow's pixel (l + c, t + r) of this lens's rect. A DRAW of `new` at rest (x, y = the
@@ -2451,8 +2444,13 @@ twice — the fast path forced on, then off, by a host door over the walk's choi
 above. **Build-neutral:** every v1–v4 vector answers alike on a bit-11 build (27/3, 26/6 and 26/7 stay unknown subs; a
 version-2 record and kind 3 are refused as before while EFFECTS is clear); Damage's tooling adds `0xdff` to every v3 and
 v4 vector's `features` list (`make_vectors.py`), so the fork's runner runs them on the C3 build, and their expectations
-must come back byte-identical. **No self-test form** for v5. **No vector carries a container rebuild** (§7.3: the fork's host pin and the simulator's
-CREATE handling cover it). **The fold
+must come back byte-identical. **No self-test form** for v5. **No vector carries a container rebuild** (§7.3). **The site's host pin:** the shim runs the
+destroy path — `damage_container_destroy`, then a stand-in for the stock function that overwrites the old buffer A with
+a marker before freeing it — with an owner open: with EFFECTS armed, once before a direct present and once before a
+preserve-path step, the owner ends at the destroy (its close's 114, the stale mark), the pointer is withdrawn before the
+free and no byte of the old block is read; with EFFECTS clear (the owner set up by a host door, since none exists then)
+the site calls the stock function and nothing else — no gate take, no claim, the owner untouched (the shim counts
+both). Both watched to fail one variant at a time. **The fold
 invariant** (both harnesses' own tests and the `"pair"` vectors): for every in-place program of the fuzz — generated to
 keep §7.2's fold condition — two wake schedules that draw different steps between the same two steps end with the same
 `P`. The differential fuzz gains `--c3`.
@@ -2468,7 +2466,7 @@ exactly one period under PLAY-AFTER; the fold rate with the late-step rule (fiel
 | the owns mark, the owned rect (per lens) and the meeting box (both lenses) | LAND, every close or emptying, PLAY-AFTER's deferred empty, a keyframe, mode 11, release points (the settlement), the stock path, a container rebuild, a restart | a lost in-half PLAY: the out pose holds until the phone's CLOSE (its rule after every in half), a keyframe or a session; with no phone the lease lapses within 87.9 s and the stock path ends it | slot + tag + ordinal; the rect by the tracks' rects per lens; the box by both lenses' | written on the ui_task under the word; read by the worker first without the word (exact for "none owns": only that task makes an owner), then under it when one owns | once per job | the hint's publication; the three present paths; close-on-meet and the close passes (by the meeting box); the fire's close set (19, by the box) |
 | the job's owned rects | consumed with the job | a claim that fails (made only while a slot owns): no rect, a whole copy, counted (33) | the job | written by the worker under the gate and the word, read once by the copy hook; a release point between them skips the copy in a rect once, then its stale mark and the stock repaint follow | once | the mode-24 hint, the direct-shadow pointer |
 | LAND's copy | — | a folded step T stays due (C1) and lands at the next drawing present | the instance | display task under the word | once | A.12's stale mark |
-| the shadow pointer an owner reads; the destroy site (needs Adam's word) | with the site: withdrawn at the destroy, every owner ended there; without it: a job's pointer only, live from its publication to its copy (C2's window aside) | without the site: a teardown between frames is seen at the next `present_shadow` by a changed opening pointer, or not at all when the block comes back; reads stay inside live blocks because the preserve path reads no shadow | the job; the owner's opening pointer | the site runs on the ui_task under the gate and the word; the copy hook reads the job's pointer under the word | once per present | `new`, LAND, rain's reveal 1; the preserve path; C2's direct-copy window (`C3-F2-facts.md` point 5) |
+| the destroy site `damage_container_destroy` (`0x00493DAC`) and the published shadow pointer | no state of its own: the pointer is withdrawn at each armed destroy and published again by the next `present_shadow` | the site always runs before the stock free (the redirect calls the stock function last); its gate take waits as the image worker's does, no time bound; a close's 114 that does not fit its buffer sets sticky bit 5 as any close's | EFFECTS (read once at entry; clear: straight to the stock function); every slot's owns mark | the ui_task, holding the gate (so the copy hook is not running, a pending job copied first) and the engine word; each lens ends its own owners — a stock-started destroy on one lens alone leaves the other's, which RIGHT's close bodies or the keyframe after the page's restart reach (§5.6's divergence path) | EFFECTS once; each slot's mark once under the word | the image worker's gate take (the same take); the stock path's ending of owners (§5.3); release points (the settlement); a close's body and stale mark (§7.3) |
 | PLAY-AFTER's t0 and recorded triple | the first drawn step, a close, release points | lost: the out half holds until the phone's CLOSE; the phone's divergence path | (slot, tag, ordinal) | the thread reads t0 and the `after` slot's state without the word (a torn read costs a wake); the hook decides on the states as the present began | once per plan; once per present | the plan's k, the hook's k, PLAY's close pass, the stock path |
 | the in-place base (b = d, OWN only) | with the instance | — | d | display task under the word; each lens moves its own picture | once per present | the overlay (carried along when shown); later tracks (§7.2's fold rule) |
 | G(b → k) | built per present | — | (b, k) and the levels | — | once | DRAW's ramp |
@@ -2484,7 +2482,8 @@ exactly one period under PLAY-AFTER; the fold rate with the late-step rule (fiel
 
 ### 7.15 Not in this contract
 
-A capture of the panel at any size (the out half stays in place) · **in-place verbs in a bound program** (a bound
+A capture of the panel at any size (the out half stays in place) · a build without the destroy site (§7.3): its preserve
+path could never read the shadow, so arriving halves would be drawn only on the phone's frames, as cuts — not built · **in-place verbs in a bound program** (a bound
 in-place pan would start from what the panel holds and end short after a notch that closes a motion mid-way, B1 of the
 contract read; bound programs stay absolute, the scroll's speed comes from the fast DRAW path) · two in-place tracks in
 one program · a crossfade, a dissolve, a zoom into the old picture, any upward re-sampling of it · per-step randomness
@@ -2811,3 +2810,8 @@ phone's keeper applies the hold-back rule before re-arming.
 - 2026-11-19 — §7.3's live-shadow paragraph corrected on `C3-F2-facts.md`: the display gate does not exclude stock's free
   of buffer A and nothing the copy hook reads shows it, so the rule needs one new patch site at `0x00493DAC` (Adam's
   word); the no-site form the fork builds until then, and its effect on the vectors, stated for the lead's ruling.
+- 2026-11-19 — **the one new patch site** as ruled (`C3-decisions.md` I): the call at `0x00493DAC` to
+  `damage_container_destroy`, inert below stage 5 (C2's window between a job's publication and its copy stays there),
+  armed: the gate, the word, every owner ended, the published pointer withdrawn, then the stock destroy. §7.1's facts,
+  §7.3's rule (the no-site form removed; §7.15 says why it is not built), §7.13's host pin, §7.14's row; "no new patch
+  site" became "one new site, `0x00493DAC`, not on a start path".
