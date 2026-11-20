@@ -2156,7 +2156,7 @@ place (§7.2: its base below the head is the picture it keeps).
 (or the rain record), the alphabet (its n + 1 bytes; its padding is not read), **every font from which the walk reads a
 glyph entry, counted whole (its 448 B)** — a font named only through codes 0 and 32 is not read and not in the range —
 and every glyph record a cell's codes or the alphabet name in each of those fonts, codes 0 and 32 excepted (above)
-— all walked at the PLAY, the COMMIT or the fire (5), each (font, code) pair once per message. A cache write that meets it closes the instance (§5.6). **Cost (I):** ≈ 200 cells × (a box fill
+— all walked at the PLAY, the COMMIT or the fire (5), each (font, code) pair once a walk for a program's first four fonts (a font past the fourth is walked once a segment: the same answers, a longer walk; the designed programs name one or two). A cache write that meets it closes the instance (§5.6). **Cost (I):** ≈ 200 cells × (a box fill
 and a glyph of ≈ 200 px at the DRAW rate, its record decoded once) ≤ 15 ms a step at §7.12's rates; rain ≈ cols × trail glyphs, ≈ 13 ms for
 53 × 8; the walk at a fire ≈ 1–3 ms more in field 16.
 
@@ -2350,7 +2350,7 @@ these forms):
   in the context (256 B a lens).
 - Glyphs, `self` (the capture blit), SHRINK's columns and every draw whose width scales: a pixel at a time, at C2's
   rate.
-G (§7.4) is built once per present as a 16-entry table; GLYPHS walks each (font, code) pair once per message.
+G (§7.4) is built once per present as a 16-entry table; GLYPHS walks each (font, code) pair once a walk for a program's first four fonts (§7.6).
 
 **The step budget** (12, after the values, §7.2's order). At a **PLAY, a PLAY-AFTER, a RETARGET and a fire** on a
 bit-11 build the walk computes the opened or restarted instance's cost **C** and, for a version-2 program, judges the
@@ -2398,6 +2398,15 @@ time (M, the step fit's slope); 16 u = 0.25 µs a walked byte (M-derived: 0.80's
 over four walks a step); 26 u a byte of a record = its walk and at most one run's setup at a pixel's cost (I); 1 u a
 pixel of a byte fill or copy, about eight times the measured copy's rate (I); 3 u a pixel of the byte-table pass (I);
 1,024 u a track's setup — its clip, ease, levels and tables (I). Field 34 on the glasses checks them.
+
+**What the terms do not carry** (the first review pass of the built code, 2026-11-20): each term bounds its verb's
+pixel and byte work at these rates; work per element that no term names is outside the budget. RAIN visits every
+cell of its area, lit or not (at cells of a few pixels that passes the area's term; the designed cells of 12×20 do
+not); PIECES layer new sets up each piece (≤ 256 a track); SHRINK builds its drop marks; GLYPHS walks a (font,
+code) pair once a walk only for a program's first four fonts (below). Layer old's destination row makes three row
+passes (5 u a pixel at these rates against the term's 3) and a SHRINK with its width unscaled two (4 against 3):
+both sit inside the copy rate's eightfold slack. This budget is the glasses' backstop against a step longer than
+the largest period; the phone may refuse more than it does, from field 34 per verb, and never sends what it refuses.
 
 **The worst legal step per verb** (one instance at the cap; ≤ 125 ms at the budget's rates; modeled):
 
@@ -2523,7 +2532,7 @@ exactly one period under PLAY-AFTER; the fold rate with the late-step rule (fiel
 | PLAY-AFTER's t0 and recorded triple | the first drawn step, a close, release points | lost: the out half holds until the phone's CLOSE; the phone's divergence path | (slot, tag, ordinal) | the thread reads t0 and the `after` slot's state without the word (a torn read costs a wake); the hook decides on the states as the present began | once per plan; once per present | the plan's k, the hook's k, PLAY's close pass, the stock path |
 | the in-place base (b = d, OWN only) | with the instance | — | d | display task under the word; each lens moves its own picture | once per present | the overlay (carried along when shown); later tracks (§7.2's fold rule) |
 | G(b → k) | built per present | — | (b, k) and the levels | — | once | DRAW's ramp |
-| GLYPHS: the schedule (stateless), the read range | with the instance | a write over a named record closes it | the read range | written by the ui_task under the word, read by the hook under it | once per step; each (font, code) walked once per message | mode 18's glyph check (reused); the atlas planner (phone) |
+| GLYPHS: the schedule (stateless), the read range | with the instance | a write over a named record closes it | the read range | written by the ui_task under the word, read by the hook under it | once per step; each (font, code) walked once a walk for the first four fonts (§7.6) | mode 18's glyph check (reused); the atlas planner (phone) |
 | the seed and the tag | — | — | h0 after substitution, the tag | LEFT's S ahead after a dropped answer draws other noise on LEFT until SETTLE | once | the fire's S |
 | the instance's path bit; the kept start per record segment and the kept record geometry | with the instance; the start and geometry recomputed at RETARGET (the path kept) | — (the walk that keeps them is the opening message's or the RETARGET's) | the instance; its record bytes are closed on meet | written on the ui_task under the word, read by the hook under it; a FLAGS_SET never touches them | once per present | every renderer of a record; an instance opened with EFFECTS clear runs C2's path to its end |
 | the byte table | built per track and step | — | the track's level ramp or G | display task only, under the word | once per track and step | the 16-entry LUT and G |
