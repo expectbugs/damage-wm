@@ -64,9 +64,9 @@ The counts of APK 0.80's tree (simulator; §95.4): core 232 classes / 1,806 test
 `--selfcheck` 486 PASS ×2 · snapshot 94 renders + 66 in `phone/`, 0 px outside the mask · `--local-check` 64 cases ·
 the 66 conformance vectors in both forms · node 200 · lint 0 · wiring 79 ok. The fork at `c2`: `tools/verify.py` 38
 PASS, the self-test 78 of 78, host tests 310, its sweep 279 caught of 318. The phone half's mutation list:
-`research/mutations-c2.json`, 165 rows — the whole list swept on the final tree on 11-19: 161 caught, 4 with no pin
-by their own statement (three seen only at the simulator's own tests or expected not to fail, one whose cost is one
-extra read), none not caught, none not judged (§92.11).
+`research/mutations-c2.json`, 190 rows: the whole list was swept on 0.77's tree at 165 rows (161 caught, 4 with no pin
+by their own statement, none not caught — §92.11); the 25 rows added since were each watched to fail in their
+rounds; a sweep of the whole list on 0.80's tree is owed (machine time only).
 The judge's standing base is `private/build070/base-070/` (mask `base-070-mask/`). The briefs, rulings and reports of
 every stage are in the gitignored `private/build068` … `build072` (C2: `build072/C2-decisions.md`, parts A–AS),
 `lean`, `c1-design`, `c2-design`;
