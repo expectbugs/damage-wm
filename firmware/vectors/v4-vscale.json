@@ -1069,5 +1069,8 @@
  "contract": 2,
  "start": "zero",
  "panel": true,
- "features": 1535
+ "features": [
+  1535,
+  3583
+ ]
 }
