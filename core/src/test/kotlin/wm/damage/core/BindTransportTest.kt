@@ -422,6 +422,19 @@ class BindTransportTest {
         assertWire("awake-start-c1-stage3.txt", startWire(0x5ff, 4, holdBack = true), "0x5ff stage 4 held back")
     }
 
+    /** Build C3 (spec DP1, `FIRMWARE.md` §7.9): on a bit-11 build (0xdff) the starts at stages 0–4 write exactly the
+     *  files APK 0.81 writes on a C2 build — nothing of C3 leaves the phone below stage 5; and a stage-4 hold-back leaves
+     *  stage 3's bytes. The files are the C2 pins' own (written by 0.80's transport, unchanged through 0.81); this test
+     *  was first run on 0.81's unchanged transport at 0xdff and passed there before stage 5 was built. */
+    @Test
+    fun aC3BuildAtStages0To4WritesTheC2Starts_7_9(): Unit = runBlocking {
+        for (stage in 0..4) {
+            val name = when (stage) { 0 -> "awake-start-contract2.txt"; 4 -> "awake-start-c2-stage4.txt"; else -> "awake-start-c1-stage$stage.txt" }
+            assertWire(name, startWire(0xdff, stage), "0xdff stage $stage")
+        }
+        assertWire("awake-start-c1-stage3.txt", startWire(0xdff, 4, holdBack = true), "0xdff stage 4 held back")
+    }
+
     /** Spec §6.2: below stage 4 — a C1 build (0x1ff) at stages 3 and 4, a C2 build (0x5ff) at 0..3 — a seeded walk of the
      *  shell, and the transport's raw doors (a self-test live write, a self-test step, the motion API) offered every C2
      *  form, put no mode 27, 28 or mode-26 sub 3..5 on the wire, top level, in a batch or in a step; each offer is a
