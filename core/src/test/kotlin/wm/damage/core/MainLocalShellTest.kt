@@ -1305,6 +1305,13 @@ class MainLocalShellTest {
             repeat(2) { r.fire(CfwModes.EV_DOWNROLL); delay(r.motionMs() + r.q() + 300); r.settle("notch at P 55") }
             val after = r.notes("motion").drop(bodies0).filter { "committed" in it }
             assertTrue(after.isNotEmpty() && after.all { "folded 0" in it }, "no fold at P 55: $after")
+            // steps a little faster (47 ms: 53 ticks, 2 under 55) for a whole window: no change — the hysteresis
+            for (a in Arm.entries) r.sim.motionForTest(a).stepUsForTest = 47_000L
+            repeat(Shell.PERIOD_WINDOW + 1) { i ->
+                r.fire(if (i % 2 == 0) CfwModes.EV_UPROLL else CfwModes.EV_DOWNROLL)
+                delay(r.motionMs() + r.q() + 300); r.settle("47 ms notch $i")
+            }
+            assertEquals(55, r.onLoop { r.shell.periodInForceForTest() }, "a two-tick gain does not bring it down (hysteresis ${Shell.PERIOD_HYSTERESIS})")
             // fast steps: down only after eight motions since the change
             for (a in Arm.entries) r.sim.motionForTest(a).stepUsForTest = 30_000L
             var n = 0
@@ -1313,7 +1320,7 @@ class MainLocalShellTest {
                 delay(r.motionMs() + r.q() + 300); r.settle("fast notch $n")
             }
             assertEquals(34, r.onLoop { r.shell.periodInForceForTest() }, "30 ms × 1.10 → 34 ticks")
-            assertTrue(n + 2 >= Shell.PERIOD_WINDOW, "not before a whole window since the change: ${n + 2} motions")
+            assertTrue(n >= Shell.PERIOD_WINDOW, "not before the slower steps left the window: $n fast motions")
             r.assertOracle("after the period came down")
         } finally { r.close() }
     }
