@@ -72,11 +72,15 @@ private object Fw {
     const val ZWRITE_MAX = 16384
     /** §5.5: a PLAY is 18 B, a RETARGET 11, a CLOSE 3 (READING: any other sub is held to 3, as mode 23's are); §6.5 on a
      *  bit-10 build: a COMMIT 18, a DISCARD 8, a SETTLE 10, an unknown sub (6..255) 3. */
-    fun motionLength(sub: Int, c2: Boolean) = when {
+    fun motionLength(sub: Int, c2: Boolean, c3: Boolean = false) = when {
         sub == 0 -> 18; sub == 1 -> 11
         c2 && sub == 3 -> 18; c2 && sub == 4 -> 8; c2 && sub == 5 -> 10
+        c3 && sub == 8 -> 17                                 // §7.7: PLAY-AFTER, 15 B after the two header bytes
         else -> 3
     }
+    /** §7.9 (build C3): DamageCaps bit 11 and flag bit 6 EFFECTS. */
+    const val FEATURE_EFFECTS = 1 shl 11
+    const val FLAG_EFFECTS = 1 shl 6
     /** §6.8 (build C2): DamageCaps bit 10 and flag bit 4 BIND. */
     const val FEATURE_BIND = 1 shl 10
     const val FLAG_BIND = 1 shl 4
@@ -152,7 +156,7 @@ class GlassFirmwareSim() : LensPanels {
         var recentPos = 0
     }
 
-    class LensCtx(scaled: () -> Boolean = { false }) {
+    class LensCtx(scaled: () -> Boolean = { false }, effects: () -> Boolean = { false }) {
         val stride = (Geometry.PANEL_W + 1) / 2
         /** Build C2 (§6.2 step 1): the context exists — made by this lens's first Damage message (an image message or a
          *  control op); the input hook's peek finds none before it. A reboot makes a fresh one (false). READING: which
@@ -253,9 +257,9 @@ class GlassFirmwareSim() : LensPanels {
         var directActive = false
         /** §5: this lens's motion engine — slots, counters, notify bodies; [scaled] says the build reads DRAW's h0, h1
          *  and anchor (§6.6). */
-        val motion = MotionSim(scaled)
-        /** §6 (build C2): this lens's binding table, S and input hook. */
-        val bind = BindSim(motion)
+        val motion = MotionSim(scaled, effects)
+        /** §6 (build C2): this lens's binding table, S and input hook; build C3 (§7.8) the ring list and kind 3. */
+        val bind = BindSim(motion, effects)
     }
 
     /** One captured rect (mode 23): the levels row-major, [bytes] what it takes in the pool. */
@@ -275,9 +279,9 @@ class GlassFirmwareSim() : LensPanels {
      *  know the heap either): JBD4010 by default, so a mode-24 hint takes the partial path. */
     @Volatile var panelRecord: Long = PANEL_JBD4010
 
-    var left = LensCtx(::bindBuild)
+    var left = LensCtx(::bindBuild, ::effectsBuild)
         private set
-    var right = LensCtx(::bindBuild)
+    var right = LensCtx(::bindBuild, ::effectsBuild)
         private set
     private fun ctx(arm: Arm) = if (arm == Arm.LEFT) left else right
 
@@ -286,7 +290,7 @@ class GlassFirmwareSim() : LensPanels {
      *  shadow, the lease, the texture cache, the flags — and RIGHT's uptime restarts. */
     @Synchronized
     fun rebootForTest(arm: Arm, now: Long) {
-        if (arm == Arm.LEFT) left = LensCtx(::bindBuild) else { right = LensCtx(::bindBuild); uptimeOffsetMs = now; wearCached = 0 }
+        if (arm == Arm.LEFT) left = LensCtx(::bindBuild, ::effectsBuild) else { right = LensCtx(::bindBuild, ::effectsBuild); uptimeOffsetMs = now; wearCached = 0 }
         diag.event("reboot", "$arm rebooted: RAM cleared")
     }
 
@@ -419,6 +423,9 @@ class GlassFirmwareSim() : LensPanels {
     /** §6.8: DamageCaps bit 10 — the hook, mode 27, mode 26's subs 3–5, notify 115, mode 28 and DRAW's h0/h1/anchor,
      *  telemetry 35–39, reasons 17 and 18, flag bit 4. */
     private fun bindBuild() = (damageContract ?: 0) >= 2 && features() and Fw.FEATURE_BIND != 0
+    /** §7.9 (build C3): DamageCaps bit 11 — version-2 records, OWN, PIECES, SHRINK, GLYPHS, PLAY-AFTER, the ring list,
+     *  kind 3, refusal 19, telemetry 40, flag bit 6. */
+    private fun effectsBuild() = (damageContract ?: 0) >= 2 && features() and Fw.FEATURE_EFFECTS != 0
 
     /** `FIRMWARE.md` §5.10: in the vectors the `tick` op's value IS the OS tick the engine reads (the C's `FW_MS_TICK`,
      *  a `uint32_t`); live, the clock is milliseconds and the tick runs 1.024 per ms. Only the engine reads it. */
@@ -623,12 +630,15 @@ class GlassFirmwareSim() : LensPanels {
                 carrierLost = false       // a new slot — the one thing that ends a §37.0 refusal
                 warmupPending = true      // the first image burst after CREATE is silently dropped
                 img = null
+                containerRebuilt(now)
                 ack(cmd, msgId, null)
             }
+            // §7.3 (C3, as ruled I): a REBUILD destroys the container as a CREATE does; acked, otherwise unmodeled
+            EvenHubMsg.CMD_REBUILD -> { containerRebuilt(now); ack(cmd, msgId, null) }
             EvenHubMsg.CMD_IMAGE -> imageFragment(arm, fields, msgId, now)
             EvenHubMsg.CMD_TEXT_UPGRADE -> { textUpgradesSeen++; ack(cmd, msgId, null) }
             EvenHubMsg.CMD_KEEPALIVE -> { keepalivesSeen++; ack(cmd, msgId, null) }
-            EvenHubMsg.CMD_SHUTDOWN -> { layoutCreated = false; ack(cmd, msgId, null) }
+            EvenHubMsg.CMD_SHUTDOWN -> { containerRebuilt(now); layoutCreated = false; ack(cmd, msgId, null) }
             else -> diag.event("evenhub", "unmodeled Cmd $cmd — acked")
                 .also { ack(cmd, msgId, null) }
         }
@@ -1397,7 +1407,7 @@ class GlassFirmwareSim() : LensPanels {
         // overlay sits in the framebuffer; otherwise this frame goes whole (the second review)
         val hide = !c.overlayShown
         // `FIRMWARE.md` §5.3: a present that draws a step goes whole (the hint is ignored for it)
-        val rows = batch?.hint?.takeIf { panelRecord == PANEL_JBD4010 && !c.panelStale && hide && !c.overlayInFb && !c.motion.anyDrawing }
+        val hinted = batch?.hint?.takeIf { panelRecord == PANEL_JBD4010 && !c.panelStale && hide && !c.overlayInFb }
         c.panelStale = false
         c.overlayInFb = !hide
         c.presented = true
@@ -1412,9 +1422,21 @@ class GlassFirmwareSim() : LensPanels {
         // Build C1's ruling R1.20: the hook draws a step only with a live lease, as §5.6 words it ("`direct_active` with
         // a live lease"); without one — a lapse no message has noticed yet, then a v1 frame, which reads no lease — it
         // takes the stock path: no step, every drawing instance done, no notify (§5.3)
-        c.shadow.copyInto(c.fb)
+        // §7.3 (C3): `present_shadow` claims the engine word, records the owned rect of every slot that owns and lets the
+        // word down; the direct path copies the shadow except inside those rects (read once). A claim that fails records
+        // none (the copy is whole) and is counted in field 33; the stock path's copy is whole
+        val left = fwSide(arm) == 2
+        // (as ruled, H) the marks are read first without the word: with no owner nothing is claimed and the copy is C2's;
+        // only a claim made while a slot owns can fail and be counted
+        val owned = if (!c.motion.anyOwns) emptyList()
+                    else if (c.motion.wordHeld) { c.motion.foldsSinceBoot++; emptyList() }
+                    else c.motion.jobRects(left)
+        if (!live || owned.isEmpty()) c.shadow.copyInto(c.fb) else copyOutside(c.shadow, c.fb, c.stride, owned)
         c.directActive = true
-        val hook = c.motion.hookPresent(c.fb, c.stride, fwSide(arm) == 2, osTick(now), live, uptimeTicks(now))
+        val hook = c.motion.hookPresent(c.fb, c.stride, left, osTick(now), live, uptimeTicks(now), shadow = c.shadow)
+        // `FIRMWARE.md` §5.3: a present that draws a step goes whole (the hint is ignored for it); §7.3 (C3): one on the
+        // direct path that draws no step (an owner not due, a PLAY-AFTER waiting) may carry its hint
+        val rows = hinted?.takeIf { !hook.whole }
         // decision N.4 (stage DP2): while a motion instance is open a whole present marks only the rows it really changed
         // (bookkeeping for the mirror's agreement scan; the panel gets every row as before)
         val span = if (rows == null && c.motion.slots.any { it != null }) changedSpan(c.fb, c.panel, c.stride) else null
@@ -1453,7 +1475,7 @@ class GlassFirmwareSim() : LensPanels {
     private fun noJobRefresh(arm: Arm, c: LensCtx, now: Long) {
         if (hookPreserves(c, now)) {
             // the preserve path: an instance is drawn only when its step is due past d (§5.3) — a HOLD is not (§6.4)
-            val hook = c.motion.hookPresent(c.fb, c.stride, fwSide(arm) == 2, osTick(now), true, uptimeTicks(now), preserve = true)
+            val hook = c.motion.hookPresent(c.fb, c.stride, fwSide(arm) == 2, osTick(now), true, uptimeTicks(now), preserve = true, shadow = c.shadow)
             // decision N.4: an engine step marks only the rows it changed
             val span = changedSpan(c.fb, c.panel, c.stride)
             c.fb.copyInto(c.panel)
@@ -1472,6 +1494,28 @@ class GlassFirmwareSim() : LensPanels {
         c.changedLo = 0; c.changedHi = Geometry.PANEL_H - 1
         diag.panelChanged(arm)
         for (b in c.motion.takeOwed()) sendMotion(arm, c, b)
+    }
+
+    /** §7.3 (C3, as ruled `C3-decisions.md` H and I, `359e2ed`): the container's destroy (a CREATE's or REBUILD's
+     *  rebuild, the SHUTDOWN teardown) passes C3's one new site, which keys on an owning instance being open, whatever
+     *  flag bit 6 says: with one open it ends every owner on that lens as a close does (its 114 body, RIGHT sends; the
+     *  stale mark); with none open the destroy is C2's. The model's shadow is one array a CREATE does not replace, so
+     *  nothing here reads a freed buffer. */
+    private fun containerRebuilt(now: Long) {
+        for (arm in Arm.entries) {
+            val c = ctx(arm)
+            if (!c.motion.anyOwns) continue
+            underWord(c) { c.motion.closeOwners(uptimeTicks(now)) }
+            for (b in c.motion.takeUiSends()) sendMotion(arm, c, b)
+        }
+    }
+
+    /** §7.3 (C3): the copy hook's direct path with owners open — [shadow] into [fb] everywhere but inside [rects]. */
+    private fun copyOutside(shadow: ByteArray, fb: ByteArray, stride: Int, rects: List<Rect>) {
+        for (y in 0 until Geometry.PANEL_H) for (x in 0 until Geometry.PANEL_W) {
+            if (rects.any { x >= it.x && x < it.right && y >= it.y && y < it.bottom }) continue
+            setNibble(fb, stride, x, y, getNibble(shadow, stride, x, y))
+        }
     }
 
     /** Decision N.4: the rows where [fb] differs from [panel] (null: none). */
@@ -1538,16 +1582,27 @@ class GlassFirmwareSim() : LensPanels {
     fun conformanceGen(arm: Arm): Long = ctx(arm).cacheGen
 
     /** One open instance as the phone's mirror needs it (`FIRMWARE.md` §5.6, spec §6.5): its slot, END ordinal and END
-     *  CRC, whether it still draws, its areas on [arm]'s lens, and its nominal end — the OS tick its step T is due. */
+     *  CRC, whether it still draws, its areas on [arm]'s lens (an owning instance's: its meeting box, build C3), and its
+     *  nominal end — the OS tick its step T is due. */
     data class MotionWindow(val slot: Int, val ordinal: Int, val endCrc: Long, val drawing: Boolean, val areas: List<Rect>, val nominalEndTick: Long)
 
     /** The open instances on [arm], slot order: the read side of the area-unknown window (the window itself is the
      *  transport's: it ends at the later of RIGHT's notify for (slot, ordinal) and the nominal end). */
     @Synchronized
     fun motionWindows(arm: Arm): List<MotionWindow> = ctx(arm).motion.slots.filterNotNull().map { o ->
-        MotionWindow(o.slot, o.ordinal, o.endCrc, o.drawing, o.prog.tracks.map { it.rect(fwSide(arm) == 2) },
+        MotionWindow(o.slot, o.ordinal, o.endCrc, o.drawing, if (o.owns) listOf(o.prog.ownedBoth) else areasOf(o, fwSide(arm) == 2),
             (o.t0 + (o.T - 1).toLong() * o.period) and MotionSim.U32)
     }
+    // build C3 (C3-DP1's reading 5, ruled: decisions N): an owning instance's window is its MEETING BOX, the one box over
+    // both lenses (§7.3) — the transport's CLOSE-before-a-write rule reads it, as the glasses' own meeting decisions do,
+    // so the phone expects the closes the glasses make; the area-unknown skip ([unknownAreas]) keeps each lens's own
+    // owned rect, the rect no present on that lens copies into
+
+    /** An open instance's areas on a lens as the shell's unknown-area skip reads them: its tracks' rects, or for an
+     *  owning instance (build C3, `FIRMWARE.md` §7.11) its owned rect on that lens — the rect no present copies into, so
+     *  the mirror's view of it waits for the instance's end. */
+    private fun areasOf(o: MotionSim.Instance, left: Boolean): List<Rect> =
+        if (o.owns) listOf(o.prog.owned(left)) else o.prog.tracks.map { it.rect(left) }
 
     // ---- build C1, D3a: the phone's side of the mirror (spec §2 rows 21–22, §6.5). Nothing here changes what the
     // model does with a message; it keeps what the phone's transport compares and what the shell's check skips.
@@ -1601,8 +1656,10 @@ class GlassFirmwareSim() : LensPanels {
             if (o == null) continue
             val end = (o.t0 + (o.T - 1).toLong() * o.period) and MotionSim.U32
             val past = ((now - end) and MotionSim.U32).toInt() >= 0
-            if (past && Triple(o.slot, o.tag, o.ordinal) in motionNotified && !o.drawing) continue
-            for (t in o.prog.tracks) out += t.rect(left)
+            // build C3 (D-4, ruled; `FIRMWARE.md` §7.11): an owned rect stays out of the scan while its mark stands — a done
+            // owner (an out half, the freeze) holds step T there while belief moves on beneath it
+            if (past && Triple(o.slot, o.tag, o.ordinal) in motionNotified && !o.drawing && !o.owns) continue
+            out += areasOf(o, left)
         }
         return out
     }
@@ -1660,8 +1717,9 @@ class GlassFirmwareSim() : LensPanels {
         // level. Reached with a step running only from inside a batch: the step's own list refuses a top-level 26.
         if (c.stActive) return no(REF_MODE)
         val c2 = bindBuild()
+        val c3 = effectsBuild()
         val sub = if (src.size >= 2) src[1].toInt() and 0xFF else -1
-        if (sub < 0 || src.size != Fw.motionLength(sub, c2)) return no(REF_LENGTH)
+        if (sub < 0 || src.size != Fw.motionLength(sub, c2, c3)) return no(REF_LENGTH)
         if (!fbLeaseActive(arm, now)) return no(REF_NO_LEASE)
         // §5.5 / R1.15: the busy word claimed after the lease (14) — in the model only a word a test plants is held
         if (e.wordHeld) return no(REF_BUSY)
@@ -1670,6 +1728,8 @@ class GlassFirmwareSim() : LensPanels {
         val slot = src[2].toInt() and 0xFF
         val left = fwSide(arm) == 2
         val tick = osTick(now)
+        // §7.2 (C3): EFFECTS read once per message, at its first use; every later test in it uses that value
+        val armed = c3 && c.damageFlags and Fw.FLAG_EFFECTS != 0
         fun params(at: Int) = IntArray(4) { rd16at(src, at + 2 * it).toShort().toInt() }
         // §6.5 (build C2): subs 3–5 carry S at 3, a list at 5 and a cursor at 6; slot and list 0xFF for DISCARD and
         // SETTLE; a named list's cursor below its count (12). BIND is not checked
@@ -1682,9 +1742,16 @@ class GlassFirmwareSim() : LensPanels {
             0 -> { val period = src[3].toInt() and 0xFF
                    if (slot >= MotionSim.SLOTS || period !in MotionSim.P_MIN..MotionSim.P_MAX) REF_VALUE
                    else underWord(c) { e.play(c.textureCache, c.shadow, c.stride, left, slot, period, rd16at(src, 4), rd16at(src, 6),
-                                              rd16at(src, 8), params(10), tick, uptimeTicks(now)) } }
+                                              rd16at(src, 8), params(10), tick, uptimeTicks(now), armed) } }
             1 -> if (slot >= MotionSim.SLOTS) REF_VALUE
-                 else underWord(c) { e.retarget(c.textureCache, c.shadow, c.stride, left, slot, params(3), tick) }
+                 else underWord(c) { e.retarget(c.textureCache, c.shadow, c.stride, left, slot, params(3), tick, armed) }
+            // §7.7 (C3) PLAY-AFTER: EFFECTS (15) → slot and period, `after` 0..3 and not `slot` (12) → [MotionSim.playAfter]
+            MotionSim.SUB_AFTER -> if (!c3) REF_VALUE
+                 else if (!armed) REF_UNARMED
+                 else { val period = src[3].toInt() and 0xFF; val after = src[8].toInt() and 0xFF
+                        if (slot >= MotionSim.SLOTS || period !in MotionSim.P_MIN..MotionSim.P_MAX || after >= MotionSim.SLOTS || after == slot) REF_VALUE
+                        else underWord(c) { e.playAfter(c.textureCache, c.shadow, c.stride, left, slot, period, rd16at(src, 4), rd16at(src, 6),
+                                                        after, params(9), tick, uptimeTicks(now), armed) } }
             // build C1's ruling R1.1: a CLOSE that ends an open instance (drawing or done) marks the panel stale ([underWord]
             // sets it), so the present that follows — its own alone, the batch's in a batch — goes whole and shows END
             2 -> if (slot >= MotionSim.SLOTS && slot != 0xFF) REF_VALUE
@@ -1694,7 +1761,7 @@ class GlassFirmwareSim() : LensPanels {
             3 -> if (!c2) REF_VALUE
                  else if (slot >= MotionSim.SLOTS || list >= BindSim.LISTS || !c.bind.cursorOk(list, cursor)) REF_VALUE
                  else underWord(c) {
-                     e.commit(c.textureCache, c.shadow, c.stride, left, slot, s, rd16at(src, 8), params(10), uptimeTicks(now))
+                     e.commit(c.textureCache, c.shadow, c.stride, left, slot, s, rd16at(src, 8), params(10), uptimeTicks(now), armed)
                          .also { if (it == 0) c.bind.commitCursor(list, s, cursor) }
                  }
             // §6.5 DISCARD: locals tagged at or after S stopped; the named list's cursor set, clearing lost
@@ -1718,7 +1785,7 @@ class GlassFirmwareSim() : LensPanels {
         // build C1, D3a (spec §2 row 21): the mirror's record of RIGHT's END CRC per (slot, tag, ordinal), for the
         // phone's compare with a notify that may arrive after the instance is gone; build C2: a COMMIT's END under
         // (slot, S, 0), the key outcome 3 and the adopted instance's outcome 0 carry
-        if (arm == Arm.RIGHT && sub in 0..1) e.slots[slot]?.let { o -> endCrcs[Triple(o.slot, o.tag, o.ordinal)] = o.endCrc }
+        if (arm == Arm.RIGHT && (sub in 0..1 || sub == MotionSim.SUB_AFTER)) e.slots[slot]?.let { o -> endCrcs[Triple(o.slot, o.tag, o.ordinal)] = o.endCrc }
         if (arm == Arm.RIGHT && sub == 3) endCrcs[Triple(slot, s, 0)] = e.lastCommitCrc
         // ruling R1.1: every accepted mode-26 message presents as the other gated modes do, a CLOSE too; §6.5: a SETTLE
         // only when it stopped one (alone, one that stopped nothing leaves the panel stale, [dispatchTop])
@@ -2202,7 +2269,7 @@ class GlassFirmwareSim() : LensPanels {
         // §6.8: a C2 build implements flag bit 4 BIND (feature bit 10) — a FLAGS_SET of BIND alone is taken, status 0
         val implemented = (if (contract2) DamageMsg.FLAGS_IMPLEMENTED else DamageMsg.FLAGS_IMPLEMENTED_V1) or
             (if (engineBuild()) Fw.FLAG_ENGINE else 0) or (if (ridersBuild()) Fw.FLAG_ZWRITE else 0) or
-            (if (bindBuild()) Fw.FLAG_BIND else 0)
+            (if (bindBuild()) Fw.FLAG_BIND else 0) or (if (effectsBuild()) Fw.FLAG_EFFECTS else 0)
         val cacheMaxKib = if (ridersBuild()) Fw.CACHE_MAX_KIB_RIDERS else DamageMsg.CACHE_BUDGET_KIB   // §5.9
         var requestId = 0
         var withCacheCrc = false
@@ -2253,6 +2320,8 @@ class GlassFirmwareSim() : LensPanels {
             // sends never fail), 39 the event ids with a live entry — always sent on a bit-10 build; 37 is a µs figure
             // the model does not know, left out as 34 is
             if (bindBuild()) Pb.cat(Pb.v(35, c.bind.matched), Pb.v(36, c.bind.seq), Pb.v(38, 0), Pb.v(39, c.bind.field39())) else ByteArray(0),
+            // §7.9 (build C3): 40 the owning slots (bits 0–3) and the PLAY-AFTER slots that have drawn nothing (4–7)
+            if (effectsBuild()) Pb.v(40, c.motion.field40()) else ByteArray(0),
         )
         diag.event("damage", "$arm op $op status ${c.damageStatus} flags 0x${c.damageFlags.toString(16)}")
         // only RIGHT can send: FUN_00475b14 refuses on the left lens (CLAIMS.md, 2026-09-14)

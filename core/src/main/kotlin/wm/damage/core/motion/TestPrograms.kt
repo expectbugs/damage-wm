@@ -97,6 +97,8 @@ object TestPrograms {
                     is Motion.Backdrop.Level -> fillLevel(pic, area, b.code)
                     is Motion.Backdrop.Self -> blit(pic, caps[i]!!, area.x, area.y, area, null)
                     is Motion.Backdrop.None -> {}
+                    // build C3: a version-2 backdrop never reaches a test program (they are version 1, built by [Motion.program])
+                    is Motion.Backdrop.New -> throw LintError("a test program carries the version-2 backdrop `new`")
                 }
                 // at step T every track has run all its segments: it holds its last non-WAIT segment's final state
                 val s = segs[i].lastOrNull { it.verb != Motion.WAIT } ?: return@forEachIndexed

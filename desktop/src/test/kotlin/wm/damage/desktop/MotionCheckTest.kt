@@ -19,7 +19,8 @@ import wm.damage.core.motion.TestPrograms
  */
 class MotionCheckTest {
     private fun files(dir: Path): List<String> = Files.list(dir).use { s -> s.map { it.fileName.toString() }.sorted().toList() }
-    private val expected = TestPrograms.NAMES.flatMap { listOf("$it.png", "$it.txt") }.sorted()
+    /** Build C3 (DP2): the transitions' strips beside the test programs'. */
+    private val expected = (TestPrograms.NAMES + MotionCheck.TRANSITION_NAMES).flatMap { listOf("$it.png", "$it.txt") }.sorted()
 
     @Test
     fun theMotionCheckWritesOneStripPerProgramAndEveryProgramHolds_A15() {
@@ -28,11 +29,15 @@ class MotionCheckTest {
             val out = ByteArrayOutputStream()
             assertEquals(0, MotionCheck.run(dir, out = PrintStream(out, true)), out.toString())
             assertTrue("ALL HOLD" in out.toString(), out.toString())
-            assertEquals(expected, files(dir).filter { !it.startsWith("scroll-") }, "one strip and one text per test program, nothing else")
+            assertEquals(expected, files(dir).filter { !it.startsWith("scroll-") }, "one strip and one text per test program and per transition, nothing else")
             // K1-1: each Scroll effect's notches (both ways at four heights, the wrap at the two that wrap) as strips
             assertEquals(4 * (4 * 2 + 2 * 2), files(dir).count { it.startsWith("scroll-") && it.endsWith(".png") }, "the scroll strips: ${files(dir).filter { it.startsWith("scroll-") }}")
             for (f in files(dir).filter { it.startsWith("scroll-") && it.endsWith(".txt") && it != "scroll-staging.txt" })
                 assertTrue("checks: all hold" in Files.readString(dir.resolve(f)), "$f:\n${Files.readString(dir.resolve(f))}")
+            for (name in MotionCheck.TRANSITION_NAMES) {
+                val txt = Files.readString(dir.resolve("$name.txt"))
+                assertTrue("checks: the in half lands the arriving frame" in txt && "FAILED" !in txt, "$name:\n$txt")
+            }
             for (name in TestPrograms.NAMES) {
                 val steps = TestPrograms.build(name, 160 * 1024)!!.program.T
                 val txt = Files.readString(dir.resolve("$name.txt"))

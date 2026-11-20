@@ -57,9 +57,9 @@ class TableRepair {
         // 2. a mark that is not the phone's current mark for its list: the answer's riding LIST (U.1) re-sends it
         if (a.mark != rules.markOf(list)) return
         val held = rules.heldEntry(entry)?.entry ?: return
-        // 3. a tap's form that disagrees with `Taps` (read on outcome 0 and refused 17, the two bodies that carry 10–14 for
-        //    an entry with a program)
-        if (a.isTap && (a.outcome == DamageMsg.APPLIED_DREW || (a.outcome == DamageMsg.APPLIED_REFUSED && a.reason == 17))) {
+        // 3. a tap's form that disagrees with `Taps` (read on outcome 0 and refused 17 or 19, the bodies that carry 10–14
+        //    for an entry with a program; 19 is 17's twin, §7.3, §7.14)
+        if (a.isTap && (a.outcome == DamageMsg.APPLIED_DREW || (a.outcome == DamageMsg.APPLIED_REFUSED && (a.reason == 17 || a.reason == 19)))) {
             val carried = a.params != null
             val wantPress = f?.let { rules.tapEntry(it) }?.reportOnly == false
             if (carried != wantPress) { if (f != null && f.list == list) owe(Owed.Set(entry), "tap form ${if (carried) "press" else "report-only"} under ${rules.taps.word}"); return }

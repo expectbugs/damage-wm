@@ -287,6 +287,11 @@ data class FlushRequest(
      *  local rules owe this batch, encoded — appended AFTER every drawing sub (and after the CLOSEs the transport puts at
      *  the head). With no ops, they go alone: one as its own image, more as a batch. Empty below stage 4. */
     val tail: List<ByteArray> = emptyList(),
+    /** Build C3, stage DP2 (`FIRMWARE.md` §7.11): the motion slots whose OWNER holds this flush's writes — a transition's
+     *  arriving frame, written into the shadow under its out half (§7.3's held present). The transport's CLOSE-before-a-
+     *  write rule leaves these slots open; every other open instance it meets is closed first, as before. Empty below
+     *  stage 5. */
+    val held: Set<Int> = emptySet(),
 )
 
 sealed class TransportEvent {
@@ -500,5 +505,20 @@ val LinkState.draw2: Boolean
  *  64 KiB otherwise — a size taken before an arming that did not happen (a hold-back, a refusal)
  *  is not a v1 atlas's (2026-09-15 review: the v1 builder refused it and cached text stayed off). */
 val LinkState.atlasCapacity: Int
-    // build C2 (decisions B.4): less Main's own region on a 256 KiB session with BIND in force (`CfwModes.reserveAbove`)
-    get() = if (draw2) cacheSize - wm.damage.core.wire.CfwModes.reserveAbove(cacheSize, bind) else wm.damage.core.wire.CfwModes.TEXTURE_CACHE_SIZE
+    // build C2 (decisions B.4): less Main's own region on a 256 KiB session with BIND in force (`CfwModes.reserveAbove`);
+    // build C3 (DP2): less the transitions' records under it while EFFECTS is in force (`CfwModes.transitionRegion`)
+    get() = if (draw2) cacheSize - wm.damage.core.wire.CfwModes.reserveAbove(cacheSize, bind) -
+        (if (effects) wm.damage.core.wire.CfwModes.TRANSITION_REGION else 0) else wm.damage.core.wire.CfwModes.TEXTURE_CACHE_SIZE
+
+/** Build C3 (`FIRMWARE.md` §7.9): ladder stage 5 in force — DamageCaps bit 11 reported and EFFECTS armed (with DRAW2 and
+ *  ENGINE, which it needs). Version-2 programs, PLAY-AFTER and the transitions only then (§7.11). */
+val LinkState.effects: Boolean
+    get() = damageFeatures and wm.damage.core.wire.DamageMsg.FEATURE_EFFECTS != 0 &&
+        flagsInForce and wm.damage.core.wire.DamageMsg.FLAG_EFFECTS != 0 && draw2 &&
+        flagsInForce and wm.damage.core.wire.DamageMsg.FLAG_ENGINE != 0
+
+/** Build C3 (DP2): where the transitions' records lie this session — the [wm.damage.core.wire.CfwModes.TRANSITION_REGION]
+ *  bytes right above the atlas's layout ([atlasCapacity]), below Main's region and the stage reserve; null without
+ *  EFFECTS. */
+val LinkState.transitionRegion: IntRange?
+    get() = if (!effects) null else atlasCapacity until atlasCapacity + wm.damage.core.wire.CfwModes.TRANSITION_REGION

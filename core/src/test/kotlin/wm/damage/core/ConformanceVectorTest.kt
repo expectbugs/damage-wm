@@ -89,7 +89,12 @@ class ConformanceVectorTest {
      *  not-filled vector of [out], with its steps, becomes a problem when [dir] is [repo]. */
     private fun notFilledFailsInTheRepo(dir: Path, repo: Path?, out: Outcome) {
         if (repo == null || !Files.isSameFile(dir, repo)) return
-        for (n in out.notFilled) out.problems += "$n: not filled — a step in firmware/vectors/ with no expectation fails the test (ruling R1.21)"
+        // build C3 (spec §3 package DS): the `v5-*` inputs are committed before the fork's runner fills them at the
+        // meeting (M), so until then they are reported "not filled" with a count and run through the model
+        // ([theUnfilledVectorsRunThroughTheModel]); every v1–v4 vector stays under R1.21. M removes this exception.
+        val v5 = out.notFilled.filter { it.startsWith("v5-") }
+        if (v5.isNotEmpty()) println("ConformanceVectorTest: ${v5.size} v5 vector(s) not filled until the meeting (C3): ${v5.joinToString("; ")}")
+        for (n in out.notFilled - v5.toSet()) out.problems += "$n: not filled — a step in firmware/vectors/ with no expectation fails the test (ruling R1.21)"
     }
 
     private fun vectorFiles(dir: Path): List<Path> =
@@ -399,6 +404,14 @@ class ConformanceVectorTest {
     fun everyVectorMatchesOnBothLenses() {
         val out = normalPath(vectorDir(), repoVectorDir())
         assertTrue(out.compared > 0, "no vector step was compared")
+        // §7.13 "build-neutral" (decisions Y, C-4): the repo's every v3 and v4 vector lists the bit-11 build, so the fork's
+        // runner runs it on the C3 build — a list that loses 0xdff would drop that comparison silently
+        if (isRepo(vectorDir())) for (f in vectorFiles(vectorDir())) {
+            val vec = Json.parseToJsonElement(Files.readString(f)).jsonObject
+            val name = vec["name"]!!.jsonPrimitive.content
+            if (name.startsWith("v3-") || name.startsWith("v4-"))
+                assertTrue(featureSets(vec)?.contains(C3_FEATURES) == true, "$name: its features ${vec["features"]} do not list 0xdff (§7.13)")
+        }
         assertEquals(emptyList(), out.problems, "the simulator disagrees with the firmware C:\n" + out.problems.joinToString("\n"))
     }
 
@@ -429,6 +442,97 @@ class ConformanceVectorTest {
         report("normal path, features 0x5ff", out)
         assertTrue(out.compared > 0, "no vector step was compared")
         assertEquals(emptyList(), out.problems, "a C2 build answers a v1/v2 vector differently:\n" + out.problems.joinToString("\n"))
+    }
+
+    /** Build C3 (`FIRMWARE.md` §7.13, "build-neutral"): the v1 and v2 vectors answer alike on a bit-11 build (features
+     *  0xdff) with EFFECTS clear; the v3 and v4 vectors carry 0xdff in their own `features` lists (`make_vectors.py`) and
+     *  are run there by [everyVectorMatchesOnBothLenses]. */
+    @Test
+    fun theV1AndV2VectorsAnswerTheSameOnAC3Build() {
+        val out = runNormal(vectorFiles(vectorDir()), featuresOverride = C3_FEATURES)
+        report("normal path, features 0xdff", out)
+        assertTrue(out.compared > 0, "no vector step was compared")
+        assertEquals(emptyList(), out.problems, "a C3 build answers a v1/v2 vector differently:\n" + out.problems.joinToString("\n"))
+    }
+
+    /** Build C3 (spec §5, the fold invariant; `FIRMWARE.md` §7.13): vectors that share a `"pair"` key hold the same
+     *  messages under two wake schedules of an in-place program, and each harness compares their final `P`. The model's
+     *  own final panels must be equal on each lens, filled or not; where both are filled, so must the C's; a key held by
+     *  one vector or by more than two is a problem. */
+    @Test
+    fun everyPairOfVectorsEndsOnTheSamePanel() {
+        val files = vectorFiles(vectorDir())
+        // decisions Y, C-4: in the repo the four fold pairs must be there — with none the comparison below holds nothing
+        if (isRepo(vectorDir())) {
+            val keys = files.mapNotNull { Json.parseToJsonElement(Files.readString(it)).jsonObject["pair"]?.jsonPrimitive?.content }.toSet()
+            assertTrue(keys.containsAll(FOLD_PAIRS), "the repo's fold pairs ${FOLD_PAIRS - keys} are missing (have $keys)")
+        }
+        val problems = pairProblems(files)
+        assertEquals(emptyList(), problems, "the fold pairs:\n" + problems.joinToString("\n"))
+    }
+
+    /** Whether [dir] is the repo's own `firmware/vectors/` (not a set `DAMAGE_VECTOR_DIR` names). */
+    private fun isRepo(dir: Path): Boolean = repoVectorDir()?.let { Files.isSameFile(dir, it) } == true
+
+    private fun pairProblems(files: List<Path>): List<String> {
+        val problems = ArrayList<String>()
+        val pairs = files.map { Json.parseToJsonElement(Files.readString(it)).jsonObject }.filter { it["pair"] != null }
+            .groupBy { it["pair"]!!.jsonPrimitive.content }
+        for ((key, vecs) in pairs) {
+            if (vecs.size != 2) { problems += "pair $key: ${vecs.size} vector(s), not two"; continue }
+            val finals = vecs.map { v ->
+                val answered = modelAnswers(v, problems)
+                val last = answered["steps"]!!.jsonArray.last().jsonObject["expect"]!!.jsonObject["P"]!!.jsonObject
+                val filled = v["steps"]!!.jsonArray.last().jsonObject.let { s -> if (filled(s)) s["expect"]!!.jsonObject["P"]?.jsonObject else null }
+                Triple(v["name"]!!.jsonPrimitive.content, last, filled)
+            }
+            for (lens in listOf("L", "R")) {
+                if (finals[0].second[lens] != finals[1].second[lens])
+                    problems += "pair $key lens $lens: the model ends ${finals[0].first} on ${finals[0].second[lens]} and ${finals[1].first} on ${finals[1].second[lens]}"
+                val c0 = finals[0].third?.get(lens); val c1 = finals[1].third?.get(lens)
+                if (c0 != null && c1 != null && c0 != c1) problems += "pair $key lens $lens: the C ends them on $c0 and $c1"
+            }
+        }
+        return problems
+    }
+
+    /** The pair rule itself on vectors built here (inputs this file's own, unfilled): one OWN SHRINK in both axes drawn
+     *  under two wake schedules ends on one panel (no problem); a "pair" over two different programs is a problem, and
+     *  so is a key held by one vector. */
+    @Test
+    fun aPairIsComparedOnItsFinalPanel() {
+        fun h(b: ByteArray) = b.joinToString("") { "%02x".format(it) }
+        fun u16(v: Int) = byteArrayOf((v and 0xFF).toByte(), ((v shr 8) and 0xFF).toByte())
+        // §7.2: version 2, OWN; one track (200, 100) 120 × 60, backdrop none; SHRINK 5 steps, w 120 → w1, h 60 → 15, centre
+        fun shrink(w1: Int): ByteArray {
+            val seg = byteArrayOf(5, 5, 0, 0) + u16(1) + ByteArray(12) + byteArrayOf(15, 9, 0, 0) + u16(0) + u16(60) + u16(15) +
+                byteArrayOf(5, 0, 0, 0) + u16(120) + u16(w1) + u16(0) + u16(0)
+            val track = byteArrayOf(1, 0xFF.toByte(), 0, 0) + u16(200) + u16(100) + u16(120) + u16(60) + seg
+            return byteArrayOf(2, 1) + u16(8 + track.size) + byteArrayOf(1, 0, 0, 0) + track
+        }
+        fun op(k: String, v: Any) = JsonObject(mapOf(k to when (v) { is String -> JsonPrimitive(v); is Boolean -> JsonPrimitive(v); else -> JsonPrimitive(v as Number) }))
+        fun step(vararg ops: JsonObject) = JsonObject(mapOf("ops" to JsonArray(ops.toList()), "expect" to JsonObject(emptyMap())))
+        val picture = ByteArray(320 * 480) { (it * 37 + it / 320 * 11).toByte() }
+        fun vec(name: String, pair: String, w1: Int, wakes: List<Long>) = JsonObject(mapOf("name" to JsonPrimitive(name), "contract" to JsonPrimitive(2),
+            "panel" to JsonPrimitive(true), "pair" to JsonPrimitive(pair), "features" to JsonArray(listOf(JsonPrimitive(C3_FEATURES))),
+            "steps" to JsonArray(listOf(step(op("tick", 1000), op("lease", "acquire"), op("flags", 0x7C),
+                op("msg", h(wm.damage.core.wire.CfwModes.keyframe(wm.damage.core.gfx.Zl.encodeCfw(picture)))),
+                op("msg", h(byteArrayOf(19) + u16(64) + u16(shrink(w1).size) + shrink(w1))), op("tick", 5000),
+                op("msg", h(byteArrayOf(26, 0, 0, 20) + u16(64) + u16(1) + u16(0) + ByteArray(8))))) +
+                wakes.map { step(op("tick", it), op("wake", true)) })))
+        val dir = Files.createTempDirectory("conformance-pair")
+        try {
+            val set = listOf(vec("a1", "a", 30, listOf(5020, 5040, 5060, 5080)), vec("a2", "a", 30, listOf(5040, 5080)),
+                vec("b1", "b", 30, listOf(5020, 5080)), vec("b2", "b", 60, listOf(5080)), vec("c1", "c", 30, listOf(5080)))
+            for (v in set) Files.writeString(dir.resolve("${v["name"]!!.jsonPrimitive.content}.json"), v.toString())
+            val problems = pairProblems(vectorFiles(dir))
+            assertTrue(problems.none { it.startsWith("pair a") }, "a fold pair ends on one panel: $problems")
+            assertTrue(problems.any { it.startsWith("pair b lens L: the model ends") }, "$problems")
+            assertTrue(problems.any { it == "pair c: 1 vector(s), not two" }, "$problems")
+        } finally {
+            Files.list(dir).use { s -> s.forEach { Files.delete(it) } }
+            Files.delete(dir)
+        }
     }
 
     /** The vectors nobody has answered yet still run through the model, every op of every step on both lenses: an op
@@ -705,5 +809,9 @@ class ConformanceVectorTest {
         /** §6.8: C2 adds bit 10 (bit 9, the link item, still out). */
         const val BIND_FEATURE = 1 shl 10
         const val C2_FEATURES = 0x5FF
+        /** §7.9: C3 adds bit 11. */
+        const val C3_FEATURES = 0xDFF
+        /** §7.13's four fold pairs (`make_vectors.py`'s `"pair"` keys). */
+        val FOLD_PAIRS = setOf("v5-fold-dim", "v5-fold-pieces", "v5-fold-rain", "v5-fold-shrink")
     }
 }

@@ -422,6 +422,32 @@ class BindTransportTest {
         assertWire("awake-start-c1-stage3.txt", startWire(0x5ff, 4, holdBack = true), "0x5ff stage 4 held back")
     }
 
+    /** Build C3 (spec DP1, `FIRMWARE.md` §7.9): on a bit-11 build (0xdff) the starts at stages 0–4 write exactly the
+     *  files APK 0.81 writes on a C2 build — nothing of C3 leaves the phone below stage 5; and a stage-4 hold-back leaves
+     *  stage 3's bytes. The files are the C2 pins' own (written by 0.80's transport, unchanged through 0.81); this test
+     *  was first run on 0.81's unchanged transport at 0xdff and passed there before stage 5 was built. */
+    @Test
+    fun aC3BuildAtStages0To4WritesTheC2Starts_7_9(): Unit = runBlocking {
+        for (stage in 0..4) {
+            val name = when (stage) { 0 -> "awake-start-contract2.txt"; 4 -> "awake-start-c2-stage4.txt"; else -> "awake-start-c1-stage$stage.txt" }
+            assertWire(name, startWire(0xdff, stage), "0xdff stage $stage")
+        }
+        assertWire("awake-start-c1-stage3.txt", startWire(0xdff, 4, holdBack = true), "0xdff stage 4 held back")
+    }
+
+    /** Build C3 (§7.9): stage 5 on a bit-11 build writes stage 4's start plus its EFFECTS rung — one FLAGS_SET 0x7c to
+     *  each arm after the 0x3c (the file written by this test's first run and read by hand against stage 4's); on a C2
+     *  build (bit 10 only) a stored stage 5 arms 4 and writes exactly stage 4's file; held back, stage 5 arms stage 3 and
+     *  writes exactly stage 3's file (§7.9 as ruled, decisions W, D-1 — changed from stage 4's file by that ruling). */
+    @Test
+    fun stage5AppendsTheEffectsRungOnABit11BuildAndArms4Elsewhere_7_9(): Unit = runBlocking {
+        assertWire("awake-start-c3-stage5.txt", startWire(0xdff, 5), "0xdff stage 5")
+        assertEquals(file("awake-start-c2-stage4.txt")!!.size + 2, file("awake-start-c3-stage5.txt")!!.size, "stage 5 is stage 4 and one FLAGS_SET to each arm")
+        assertWire("awake-start-c2-stage4.txt", startWire(0x5ff, 5), "0x5ff stage 5: this build can arm 4")
+        assertWire("awake-start-c1-stage3.txt", startWire(0xdff, 5, holdBack = true), "0xdff stage 5 held back: stage 3")
+        assertWire("awake-start-c1-stage3.txt", startWire(0x5ff, 5, holdBack = true), "0x5ff stage 5 held back: stage 3")
+    }
+
     /** Spec §6.2: below stage 4 — a C1 build (0x1ff) at stages 3 and 4, a C2 build (0x5ff) at 0..3 — a seeded walk of the
      *  shell, and the transport's raw doors (a self-test live write, a self-test step, the motion API) offered every C2
      *  form, put no mode 27, 28 or mode-26 sub 3..5 on the wire, top level, in a batch or in a step; each offer is a
@@ -514,7 +540,10 @@ class BindTransportTest {
         assertNotNull(stored().holdBackAt)
         assertTrue("a lens restarted at 15:00" in stored().holdBackWhy, stored().holdBackWhy)
         saw("fault", "holdback: local input held back until tomorrow's first start: a lens restarted at 15:00")
-        assertTrue(t.state.value.localInput.startsWith("held back until tomorrow: a lens restarted at 15:00"), t.state.value.localInput)
+        // §7.9 as ruled (decisions W, D-2): the row says the stage the session arms and what is held back
+        assertTrue(t.state.value.localInput.startsWith("held back until tomorrow: stage 3 armed, local input held — a lens restarted at 15:00"),
+            t.state.value.localInput)
+        saw("fault", "this session arms stage 3; Settings · Local input re-arms stage 4 (or probe c1=4)")
         assertTrue(t.restartSession("test: the next session")); clock += 60_000L
         t.start(full)
         assertEquals(0x2c, t.state.value.flagsInForce, "still held back the same day")
@@ -612,6 +641,88 @@ class BindTransportTest {
         assertTrue(t.restartSession("test: after the hand lift")); clock += 60_000L
         t.start(full)
         assertEquals(0x3c, t.state.value.flagsInForce, "stage 4 again: ${said()}")
+        t.stop()
+    }
+
+    /** Build C3 (§7.9 as ruled, decisions W, D-1 and D-2; the pin DP1 left): on a bit-11 build at stage 5 (0x7c), LEFT's
+     *  reboot-like end holds stage 5 back to stage 3 (0x2c, no input hook — it was stage 4, 0x3c, before the ruling) with
+     *  the stored stage kept at 5, and each of §6.8's lifts re-arms stage 5: a case-in after the hold-back (at the next
+     *  start), the first start on a later day, `probe c1=5`, the Settings row `Local input · re-arm` (`local=rearm`: it
+     *  keeps the stored 5), and `probe c1=4` by hand (which sets stage 4: it lifts and arms 4). The row and the notes say
+     *  the stage the session arms and what is held back. */
+    @Test
+    fun stage5sHoldBackLiftsAtACaseInTheNextDayAndByEitherProbe_7_9(): Unit = runBlocking {
+        var clock = day0
+        val sim = GlassFirmwareSim().apply { damageContract = 2; damageFeatures = 0xdff }
+        val t = rig(sim) { clock }
+        t.devProbe("c1", "5")
+        suspend fun holdBackByLeft() {
+            t.start(full)
+            assertEquals(0x7c, t.state.value.flagsInForce, "stage 5: ${said()}")
+            clock += 1_800_000L
+            sim.rebootForTest(Arm.LEFT, clock)
+            t.endLink("LEFT disconnected: supervision timeout")
+            waitUntil(10_000, message = { "LEFT's end is evidence: ${said()}" }) { stored().holdBackAt != null }
+            clock += 30_000L
+            t.start(full)
+            assertEquals(0x2c, t.state.value.flagsInForce, "held back to stage 3: ${said()}")
+            assertEquals(5, stored().stage, "the stored stage stays 5")
+            assertTrue(t.state.value.localInput.startsWith("held back until tomorrow: stage 3 armed, effects and local input held — "),
+                t.state.value.localInput)
+        }
+        // (1) a case-in after it, at the next start
+        holdBackByLeft()
+        // the probe's rule while held back (§6.8, §7.9): a hand `flags=0x7c` arms neither BIND nor EFFECTS — the session's
+        // stage is 3, so both bits are the ladder's
+        t.devProbe("flags", "0x7c")
+        saw("probe", "flags=0x7c: flag bit(s) 0x50 are the C1 ladder's (stage 5, held back to 3)")
+        clock += 60_000L; sim.pushCase(inCase = 1)
+        waitUntil(10_000, message = { "the case-in after the hold-back is kept" }) { stored().caseInAt == clock }
+        assertTrue(t.restartSession("test: the evening start")); clock += 60_000L
+        t.start(full)
+        assertEquals(0x7c, t.state.value.flagsInForce, "the case-in lifted it: ${said()}")
+        saw("keeper", "a case-in at")
+        // (2) the next day's first start (04:00 UTC)
+        assertTrue(t.restartSession("test: before the next hold-back")); clock += 60_000L
+        holdBackByLeft()
+        val day1 = java.time.LocalDate.ofEpochDay((clock + 86_400_000L) / 86_400_000L).atTime(3, 59).toInstant(java.time.ZoneOffset.UTC).toEpochMilli()
+        assertTrue(t.restartSession("test: before 04:00")); clock = day1
+        t.start(full)
+        assertEquals(0x2c, t.state.value.flagsInForce, "03:59 is still the same day: ${said()}")
+        saw("keeper", "effects and local input held back until tomorrow's first start")
+        saw("keeper", "this session arms stage 3; Settings · Local input re-arms stage 5 (or probe c1=5)")
+        assertTrue(t.restartSession("test: after 04:00")); clock = day1 + 120_000L
+        t.start(full)
+        assertEquals(0x7c, t.state.value.flagsInForce, "04:01 is a later day: ${said()}")
+        saw("keeper", "this is the first start on a later day")
+        // (3) probe c1=5 by hand
+        assertTrue(t.restartSession("test: before the third")); clock += 60_000L
+        holdBackByLeft()
+        t.devProbe("c1", "5")
+        assertNull(stored().holdBackAt, "c1=5 lifts it at once")
+        assertTrue(t.restartSession("test: after c1=5")); clock += 60_000L
+        t.start(full)
+        assertEquals(0x7c, t.state.value.flagsInForce, "stage 5 again: ${said()}")
+        // (4) the Settings row `Local input · re-arm` (the shell's `local=rearm`): lifts it and keeps the stored stage 5
+        assertTrue(t.restartSession("test: before the row")); clock += 60_000L
+        holdBackByLeft()
+        t.devProbe("local", "rearm")
+        assertNull(stored().holdBackAt, "the row lifts it at once")
+        assertEquals(5, stored().stage, "the row keeps the stored stage")
+        saw("keeper", "local input re-armed by the row")
+        assertTrue(t.restartSession("test: after the row")); clock += 60_000L
+        t.start(full)
+        assertEquals(0x7c, t.state.value.flagsInForce, "stage 5 again after the row: ${said()}")
+        // (5) probe c1=4 by hand: lifts it and sets stage 4
+        assertTrue(t.restartSession("test: before the fourth")); clock += 60_000L
+        holdBackByLeft()
+        t.devProbe("c1", "4")
+        assertNull(stored().holdBackAt, "c1=4 lifts it at once")
+        assertEquals(4, stored().stage)
+        assertTrue(t.restartSession("test: after c1=4")); clock += 60_000L
+        t.start(full)
+        assertEquals(0x3c, t.state.value.flagsInForce, "stage 4, not held back: ${said()}")
+        assertNull(stored().holdBackAt)
         t.stop()
     }
 
@@ -961,6 +1072,30 @@ class BindTransportTest {
         t.stop()
     }
 
+    /** §7.9 as ruled (decisions W, D-1), AM.1's form at stage 5: the hold-back decided INSIDE the arming — a reset first
+     *  seen by a reply after the start's own decision — leaves out BIND and EFFECTS both, a hand-wished `0x7c` included:
+     *  this session arms stage 3 (0x2c), where before the ruling it left out EFFECTS alone and armed stage 4 (0x3c). */
+    @Test
+    fun aStage5HoldBackInsideTheArmingArmsStage3_7_9(): Unit = runBlocking {
+        var clock = day0
+        val sim = GlassFirmwareSim().apply { damageContract = 2; damageFeatures = 0xdff }
+        Files.writeString(recordFile, "5\nsessionKib=160\n")
+        val t = rig(sim) { clock }
+        t.start(full)
+        assertEquals(0x7c, t.state.value.flagsInForce, "stage 5 at 160 KiB: ${said()}")
+        clock += 5_000L
+        t.devProbe("flags", "0x7c")                         // a hand wish within the stage
+        clock += 5_000L
+        assertTrue(t.restartSession("test: the session ends"))
+        clock += 5_000L
+        t.onWrite = { _, p -> if (StartRig.damageOp(p) == DamageMsg.OP_CACHE_SIZE) sim.uptimeOffsetMs = clock; p }
+        t.start(full)
+        saw("keeper", "after stage 5 was armed — this session arms stage 3 (flags 0x2c)")
+        delay(300)
+        assertEquals(0x2c, t.state.value.flagsInForce, "the session the note calls stage 3 arms neither BIND nor EFFECTS: ${said()}")
+        t.stop()
+    }
+
     /** AM.2 (the reader's V2Da test, turned round): a flush built while BIND was in force — its tail a SETTLE — that
      *  reaches the lane after BIND left the state, (a) at the sleep's release, (b) after a hand disarm: no `bind` fault,
      *  the drawing goes without its tail (it reaches the model), one `local` note says so. A tail-only flush in that state
@@ -1000,6 +1135,70 @@ class BindTransportTest {
         }
     }
 
+    /** Build C3 (decisions W, D-6), AM.2's form for a C3 form: at stage 5 a flush whose tail carries a LIST-RING reaches the
+     *  lane after a hand disarm of EFFECTS alone (BIND stays in force): no `effects` fault, its drawing reaches the model in
+     *  one batch with no tail image, one `local` note says EFFECTS left. A tail without a C3 form still goes (BIND covers it). */
+    @Test
+    fun aTailCarryingAC3FormIsDroppedWhenEffectsLeavesAndTheDrawingGoes_7_9(): Unit = runBlocking {
+        notes.clear()
+        val sim = GlassFirmwareSim().apply { damageContract = 2; damageFeatures = 0xdff }
+        val t = rig(sim) { System.currentTimeMillis() }
+        t.devProbe("c1", "5")
+        t.start(full)
+        assertEquals(0x7c, t.state.value.flagsInForce, "stage 5: ${said()}")
+        t.devProbe("flags", "0x3c")
+        waitUntil(10_000, message = { "the disarm of EFFECTS: ${said("local")}" }) { t.state.value.flagsInForce == 0x3c }
+        val reached = java.util.concurrent.CopyOnWriteArrayList<String>()
+        sim.imageObserver = { arm, img -> if (arm == Arm.LEFT) reached += img.hex() }
+        delay(200)
+        reached.clear(); events.clear()
+        fun drawing() = List(2) { wm.damage.core.transport.DisplayOp.Fill(Rect(0, 0, 8, 8), Rect(0, 0, 8, 8), 0) }
+        val ring = CfwModes.bindListRing(0, CfwModes.ITEMS_NONE, 8, 1, 32, 2, true)
+        val id = t.submit(wm.damage.core.transport.FlushRequest(drawing(), 0, "RING", tail = listOf(ring)))
+        waitUntil(10_000, message = { "the flush is answered: $events" }) { events.any { it is TransportEvent.FlushDone && it.id == id } }
+        assertTrue(events.filterIsInstance<TransportEvent.FlushDone>().first { it.id == id }.ok, "the flush went")
+        assertEquals(1, reached.size, "one image: ${reached.map { it.take(12) }}")
+        assertEquals("08", reached[0].take(2), "the drawing's batch")
+        assertTrue(ring.hex() !in reached[0], "the LIST-RING is not in it")
+        assertTrue(!has("fault", "effects: ") && !has("fault", "bind: "), "no gate fault: ${notes.filter { it.first == "fault" }}")
+        assertTrue(has("local", "a flush's 1 local-input message(s) not sent: EFFECTS is no longer in force") &&
+            has("local", "its drawing goes without them"), "one `local` note: ${said("local")}")
+        // a plain LIST rides as before: BIND covers it
+        reached.clear(); events.clear()
+        val list = CfwModes.bindList(0, CfwModes.ITEMS_NONE, 8, 1, 32, 3)
+        val id2 = t.submit(wm.damage.core.transport.FlushRequest(drawing(), 0, "LIST", tail = listOf(list)))
+        waitUntil(10_000, message = { "the second flush is answered: $events" }) { events.any { it is TransportEvent.FlushDone && it.id == id2 } }
+        assertTrue(reached.any { list.hex() in it }, "the plain LIST went with its drawing: ${reached.map { it.take(16) }}")
+        t.stop()
+    }
+
+    /** Build C3 (§7.9; decisions W, D-8): telemetry 41 under 124 B is a finding — one `glass` note for a reading, none
+     *  for the same reading again or for one at 124 or more. RIGHT's telemetry replies are given field 41 on the way. */
+    @Test
+    fun telemetry41Under124IsOneNote_7_9(): Unit = runBlocking {
+        notes.clear()
+        val sim = GlassFirmwareSim().apply { damageContract = 2; damageFeatures = 0xdff }
+        val t = rig(sim) { System.currentTimeMillis() }
+        val free = java.util.concurrent.atomic.AtomicLong(1_000L)
+        t.onNotify = { _, p -> if (StartRig.telemetry(p) != null) StartRig.withRecordField(p, 41, free.get()) else p }
+        t.devProbe("c1", "5")
+        t.start(full)
+        val finding = "telemetry 41: the display task's stack has"
+        assertTrue(!has("glass", finding), "1,000 B: no finding: ${said("glass")}")
+        free.set(124L)
+        t.devProbe("telemetry", "read"); delay(300)
+        assertTrue(!has("glass", finding), "124 B: no finding")
+        free.set(96L)
+        t.devProbe("telemetry", "read")
+        saw("glass", "$finding 96 B never written, under 124 B")
+        t.devProbe("telemetry", "read"); delay(300)
+        assertEquals(1, count("glass", finding), "the same reading is said once: ${said("glass")}")
+        free.set(80L)
+        t.devProbe("telemetry", "read")
+        saw("glass", "$finding 80 B never written")
+        t.stop()
+    }
+
     /** AM.3: a hand `flags=` naming a bit `FIRMWARE.md` does not define is refused at the phone — no FLAGS_SET, the state
      *  as it was (AG.2 believes nothing of it), said by a `probe` note; the same set without that bit goes. */
     @Test
@@ -1007,8 +1206,9 @@ class BindTransportTest {
         val (_, t) = armedSession()
         val sets = java.util.concurrent.CopyOnWriteArrayList<Int>()
         t.onWrite = { a, p -> if (a == Arm.RIGHT && StartRig.damageOp(p) == DamageMsg.OP_FLAGS_SET) sets += controlArg(p); p }
-        t.devProbe("flags", "0x6c")                         // 0x2c and bit 6, a typing error
-        saw("probe", "flags=0x6c not sent: bit(s) 0x40 are not flags")
+        // build C3 (§7.9) defines bit 6 (EFFECTS): the undefined bit of this example moves to bit 7, as the fork's own did
+        t.devProbe("flags", "0xac")                         // 0x2c and bit 7, a typing error
+        saw("probe", "flags=0xac not sent: bit(s) 0x80 are not flags")
         delay(300)
         assertEquals(emptyList(), sets.toList(), "nothing on the wire")
         assertEquals(0x3c, t.state.value.flagsInForce, "the state as it was")

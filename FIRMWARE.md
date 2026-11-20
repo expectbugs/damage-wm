@@ -146,7 +146,7 @@ on it, and journals every sid-0x10 frame as a `wear` note; what op 7 answers wit
     18 cache size in bytes (when allocated) · 19 cache CRC-32 (CACHE_INFO, when allocated) · 20
     self-test steps since the last begin · 21 the last step refused (0/1) and 22 the scratch CRC-32
     after it (both after a step)` — all uint32 varints (later fields: 23–26 §4, 27–29 §5.9, 30–34 §5.8, 35–39
-    §6.8, 40 §7.9). **The status register (field 4)** holds the
+    §6.8, 40 and 41 §7.9). **The status register (field 4)** holds the
     status recorded by the last op that records one: FLAGS_SET (0, or 2 for a bit this build lacks),
     FLAGS_CLEAR (0), a malformed or unknown request (1 — recorded even when, for a bad body, nothing is
     answered). TELEMETRY and CACHE_INFO record nothing, so a refusal the phone did not see is still
@@ -1556,7 +1556,7 @@ that `tools/journal_report.py` counts by cause):
   reboot-like link end** (not one the phone made), **and no `case` note with `in case 1` came between that arming and
   the reset.** It is lifted at the first start after a `case` note with `in case 1` received after the hold-back was
   set (the evening case-in), or failing that at the first start on a later calendar day (04:00 local), or by the
-  Settings row `Local input · re-arm` on the glasses or `probe c1=4` by hand (the same act). A reset that follows a case-in holds nothing back; a flash
+  Settings row `Local input · re-arm` on the glasses or `probe c1=4` by hand (the same act at a stored stage 4; at a stored 5 the row keeps the stage, §7.9). A reset that follows a case-in holds nothing back; a flash
   restarts the glasses outside the case and holds stage 4 back for that day (or until the row). It costs one stage
   (4 → 3), never more; stages 1–3 keep §5.8's rule. A plain radio drop of LEFT reads like a restart and costs local
   input for the rest of that day (none in the five days of his journal, M). The overnight charge does not restart the
@@ -1806,7 +1806,7 @@ for randomness. (5) **PLAY-AFTER** (§7.7): an in half that starts on each lens 
 step. (6) **The ring list** and SET's **kind 3** (§7.8). (7) **The plan's late step** (§7.10). (8) **The step budget and the fast DRAW path** (§7.12): a
 version-2 program is refused when the steps of every instance that could then draw would cost more than the largest
 period (about 125 ms) together, and DRAW reaches its pixels without walking a record whole at every step. One flag bit (6
-EFFECTS), one ladder stage (5), DamageCaps bit 11, refusal 19, telemetry 40, the 115's field 18. **One new patch
+EFFECTS), one ladder stage (5), DamageCaps bit 11, refusal 19, telemetry 40 and 41, the 115's field 18. **One new patch
 site, `0x00493DAC`, not on a start path** (the container's destroy, §7.3); contract version stays 2.
 
 ### 7.1 Facts C3 rests on
@@ -2058,8 +2058,12 @@ order, each piece's rows in the order that never reads a row already written; si
 distance from the anchor and the floors are monotone, a piece's destination meets only its own source and the sources of
 pieces farther out, which have moved.)*
 
-**Read range:** the program record and its table, as §5.6. **Cost (I):** layer old ≈ the area's bytes moved once plus
-fills — ≈ 0.6 ms for the whole panel, about twice that when Δx is odd; layer new ≈ a copy and the table, 1–2 ms.
+**Read range:** the program record and its table, as §5.6. **Cost (I):** layer old ≈ three row passes over the area
+(the copy into the row buffer, the vacate fill, the byte-table pass) plus, on each destination row, about 11
+instructions for each piece of its band — a piece's displacement is computed once per row band into 384 B of
+call-scoped scratch a lens (the fix round after the first review pass; before it ≈ 160 instructions and 10 divisions
+a piece a row, which no term carried). The earlier "≈ 0.6 ms for the whole panel" was never measured and is
+withdrawn: field 34 on the glasses gives the figure. Layer new ≈ a copy and the table, 1–2 ms.
 
 ### 7.5 SHRINK (verb 5), the two-axis DRAW and the source window
 
@@ -2156,7 +2160,7 @@ place (§7.2: its base below the head is the picture it keeps).
 (or the rain record), the alphabet (its n + 1 bytes; its padding is not read), **every font from which the walk reads a
 glyph entry, counted whole (its 448 B)** — a font named only through codes 0 and 32 is not read and not in the range —
 and every glyph record a cell's codes or the alphabet name in each of those fonts, codes 0 and 32 excepted (above)
-— all walked at the PLAY, the COMMIT or the fire (5), each (font, code) pair once per message. A cache write that meets it closes the instance (§5.6). **Cost (I):** ≈ 200 cells × (a box fill
+— all walked at the PLAY, the COMMIT or the fire (5), each (font, code) pair once a walk for a program's first four fonts (a font past the fourth is walked once a segment: the same answers, a longer walk; the designed programs name one or two). A cache write that meets it closes the instance (§5.6). **Cost (I):** ≈ 200 cells × (a box fill
 and a glyph of ≈ 200 px at the DRAW rate, its record decoded once) ≤ 15 ms a step at §7.12's rates; rain ≈ cols × trail glyphs, ≈ 13 ms for
 53 × 8; the walk at a fire ≈ 1–3 ms more in field 16.
 
@@ -2224,19 +2228,31 @@ instance, owning; sets the engine's flag; the message's present).
   open, which no message can open with bit 6 clear (§7.3).
 - **DamageCaps bit 11:** version-2 records, OWN and LAND, PIECES, SHRINK, GLYPHS, `new`, the two-axis DRAW, the source
   window, the step budget, the fast DRAW path, PLAY-AFTER,
-  LIST-RING, kind 3, refusal 19, field 18 of the 115, telemetry 40, the plan's late step (§7.10). Features `0xdff`.
+  LIST-RING, kind 3, refusal 19, field 18 of the 115, telemetry 40 and 41, the plan's late step (§7.10). Features `0xdff`.
 - **Telemetry 40:** bits 0–3 the slots that own, bits 4–7 the slots in state drawing, opened by a PLAY-AFTER, with
   d = 0 (a closed or emptied slot never shows); computed at each read
   without the word (a torn read costs one wrong bit); always sent on a bit-11 build; the record's compile-time bound
   grows by one two-byte-tag field.
+- **Telemetry 41:** the bytes of the display task's own 2,048-B stack that were never written, as that task last
+  read them (it reads its own stack only, upward from the stack's base to the first byte that is not the fill, and
+  only while bit 6 is armed); sent once it has been read this boot and kept at its last value after a disarm or a
+  release, as 34 and 37 are (a stale figure after a disarm is not a fault; the next armed read replaces it); a
+  second two-byte-tag field in the record's bound. It is the glasses' own reading of the stack figure of §7.12 (the
+  display task's worst path on the candidate is 1,924 B by `tools/verify.py` step 7: a reading under 124 is a
+  finding).
 - **Reason 19:** a fire whose close set holds an owning instance (§7.3).
 - **Ladder stage 5 = EFFECTS** with stage 4's flags (flags 0x7c), set by hand as every stage (`probe c1=5`), never
   advanced by itself; a hand `flags=` probe cannot arm bit 6 beyond the stage; its rung is recorded before its
-  FLAGS_SET. **Its hold-back is stage 4's (§6.8)** — a reset after stage 5 was armed holds it back to stage 4 until the
-  next case-in or calendar day, the row or `probe c1=5`; one stage, never more. Persisted as §6.8's record. **On a build
-  that cannot arm stage 5** (no DamageCaps bit 11) a stored stage 5 arms stage 4 and writes stage 4's record, and its
-  hold-back is one stage below what the build arms (3). **`probe c1=4`** with a stored, held-back stage 5 lifts the
-  hold-back as `probe c1=5` does (§6.8's "`c1=4` lifts") and sets stage 4. **EFFECTS is armed after BIND:** stage 5's
+  FLAGS_SET. **Its hold-back is stage 4's (§6.8) and lands where stage 4's does** — a reset after stage 5 was armed
+  holds it back to **stage 3** (no input hook) until the next case-in or calendar day, the row or `probe c1=5`: on a
+  bit-11 build stage 4 already runs this build's fire path (the budget's C at every fire, refusal 19's test, the RING
+  and kind-3 checks), so a fault there would come again at every bound gesture were BIND left armed (the first
+  review pass of the phone's wire, D-1, 2026-11-20). The stored stage stays 5; the lifts restore it. Persisted as
+  §6.8's record. **On a build that cannot arm stage 5** (no DamageCaps bit 11) a stored stage 5 arms stage 4 and
+  writes stage 4's record, and its hold-back arms stage 3 alike. **The Settings row `Local input · re-arm` lifts the
+  hold-back and keeps the stored stage** (a stored 5 arms 5 again); **`probe c1=4`** with a stored, held-back
+  stage 5 lifts the hold-back as `probe c1=5` does (§6.8's "`c1=4` lifts") and sets stage 4. While a hold-back is in
+  force the row and the keeper's note say the stage the session arms (3) and what is held back. **EFFECTS is armed after BIND:** stage 5's
   start is stage 4's with one rung appended — each arm's FLAGS_SET `0x7c` after its `0x3c`.
 
 ### 7.10 The plan's late step
@@ -2262,13 +2278,23 @@ one-period wait; with this it is drawn a few ms late.
 
 - **Owners in the mirror.** The mirror holds every owning instance and its owned rects per lens; a write that meets an
   owner's **meeting box** (§7.3: both lenses' owned rects, as the glasses' own closes decide) CLOSEs the owner in the same
-  batch first (C1's rule for a write meeting an open instance);
+  batch first (C1's rule for a write meeting an open instance) — **except the writes of a transition**, from its out half's PLAY to its end (RIGHT's body of the in half, or the
+  phone's CLOSEs of both slots): the arriving frame's batches are written under the out half on purpose and the
+  held present keeps them off the panel; a write under the in half — his next input's frame, a chrome tick, the
+  window's own repaint — shows at the in half's next step where it draws from `new` (the live shadow, read at every
+  step) and at LAND otherwise, so nothing waits and **a transition plays in full** (`MOTION.md` §7; the first review
+  pass of the transitions, 2026-11-20). They leave both owners open; a write meeting any OTHER owner's box closes
+  that one first, as before; a second act replaces the run (its out PLAY's close pass ends what is left: the latest
+  input wins);
   the panel model leaves an owned rect as it is through every held present, and takes the shadow there at LAND or at a
-  close.
+  close. **An owned rect stays out of the phone's agreement scan while its mark stands** — a done owner (an out
+  half, the freeze) holds step T there while belief moves on beneath it; the scan reads the rect again after LAND or
+  a close.
 - **A transition** is an out half (OWN, no LAND) played when the phone acts, the arriving frame in as many batches as it
   takes, and the in half (OWN + LAND) by PLAY-AFTER naming the out half's slot in the last of them; **an in half's tracks
   cover its out half's owned rect**; an in half with no out half and a frame of several batches is preceded by a
-  one-step freeze (PIECES uniform, dx = dy = 0, T 1, OWN). The cover's CLEAR of a bound list rides the out half's batch
+  one-step freeze (PIECES uniform, dx = dy = 0, T 1, OWN) — a form no shipped effect needs (each has an out half at
+  every height, length and frame count), so the phone does not build it. The cover's CLEAR of a bound list rides the out half's batch
   (§6.7). **After RIGHT's outcome-0 body of an in half, the phone's next batch CLOSEs the out half's slot** (empty on
   RIGHT; it ends an owner a lens kept after losing the in half, which LEFT cannot report) — **unless the phone has PLAYed
   that slot again since** (that PLAY's close pass ended any leftover on both lenses). **With no in-half body by the in
@@ -2343,7 +2369,7 @@ these forms):
   in the context (256 B a lens).
 - Glyphs, `self` (the capture blit), SHRINK's columns and every draw whose width scales: a pixel at a time, at C2's
   rate.
-G (§7.4) is built once per present as a 16-entry table; GLYPHS walks each (font, code) pair once per message.
+G (§7.4) is built once per present as a 16-entry table; GLYPHS walks each (font, code) pair once a walk for a program's first four fonts (§7.6).
 
 **The step budget** (12, after the values, §7.2's order). At a **PLAY, a PLAY-AFTER, a RETARGET and a fire** on a
 bit-11 build the walk computes the opened or restarted instance's cost **C** and, for a version-2 program, judges the
@@ -2392,6 +2418,15 @@ over four walks a step); 26 u a byte of a record = its walk and at most one run'
 pixel of a byte fill or copy, about eight times the measured copy's rate (I); 3 u a pixel of the byte-table pass (I);
 1,024 u a track's setup — its clip, ease, levels and tables (I). Field 34 on the glasses checks them.
 
+**What the terms do not carry** (the first review pass of the built code, 2026-11-20): each term bounds its verb's
+pixel and byte work at these rates; work per element that no term names is outside the budget. RAIN visits every
+cell of its area, lit or not (at cells of a few pixels that passes the area's term; the designed cells of 12×20 do
+not); PIECES layer new sets up each piece (≤ 256 a track); SHRINK builds its drop marks; GLYPHS walks a (font,
+code) pair once a walk only for a program's first four fonts (below). Layer old's destination row makes three row
+passes (5 u a pixel at these rates against the term's 3) and a SHRINK with its width unscaled two (4 against 3):
+both sit inside the copy rate's eightfold slack. This budget is the glasses' backstop against a step longer than
+the largest period; the phone may refuse more than it does, from field 34 per verb, and never sends what it refuses.
+
 **The worst legal step per verb** (one instance at the cap; ≤ 125 ms at the budget's rates; modeled):
 
 | verb | the most one instance's step can hold |
@@ -2438,7 +2473,9 @@ list's length.
 | LIST-RING, kind 3, field 18; the budget | ≈ 1 KB | a flag byte per list; each instance's C (8 B × 4) | — | the budget's terms at the walk and the sum over four slots: µs |
 
 The engine's chain under the copy hook grows from 572 B to ≈ 1,000–1,200 B against `tools/verify.py` step 7's ≈ 1,512-B
-bound; the appended block grows ≈ 24–36 KB (≈ 250 KB stays below `0x7F0000`); the context grows ≈ 2.5 KB a lens (arena 20:
+bound (as built: 916 B, and the display task's worst path 1,924 of its 2,048 B, V by step 7 on the candidate; telemetry
+41 reads it on the glasses, §7.9; the destroy site's root on the ui_task 5,524 of 49,152 B, the stock frames above
+its event handler not read; the context as built is 14,716 B a lens); the appended block grows ≈ 24–36 KB (≈ 250 KB stays below `0x7F0000`); the context grows ≈ 2.5 KB a lens (arena 20:
 69 KiB free with today's 6,684 B, M, `HANDOFF.md` §94). Field 34 per verb on the glasses decides the periods.
 
 ### 7.13 Vectors, and what only the glasses can show
@@ -2515,7 +2552,7 @@ exactly one period under PLAY-AFTER; the fold rate with the late-step rule (fiel
 | PLAY-AFTER's t0 and recorded triple | the first drawn step, a close, release points | lost: the out half holds until the phone's CLOSE; the phone's divergence path | (slot, tag, ordinal) | the thread reads t0 and the `after` slot's state without the word (a torn read costs a wake); the hook decides on the states as the present began | once per plan; once per present | the plan's k, the hook's k, PLAY's close pass, the stock path |
 | the in-place base (b = d, OWN only) | with the instance | — | d | display task under the word; each lens moves its own picture | once per present | the overlay (carried along when shown); later tracks (§7.2's fold rule) |
 | G(b → k) | built per present | — | (b, k) and the levels | — | once | DRAW's ramp |
-| GLYPHS: the schedule (stateless), the read range | with the instance | a write over a named record closes it | the read range | written by the ui_task under the word, read by the hook under it | once per step; each (font, code) walked once per message | mode 18's glyph check (reused); the atlas planner (phone) |
+| GLYPHS: the schedule (stateless), the read range | with the instance | a write over a named record closes it | the read range | written by the ui_task under the word, read by the hook under it | once per step; each (font, code) walked once a walk for the first four fonts (§7.6) | mode 18's glyph check (reused); the atlas planner (phone) |
 | the seed and the tag | — | — | h0 after substitution, the tag | LEFT's S ahead after a dropped answer draws other noise on LEFT until SETTLE | once | the fire's S |
 | the instance's path bit; the kept start per record segment and the kept record geometry | with the instance; the start and geometry recomputed at RETARGET (the path kept) | — (the walk that keeps them is the opening message's or the RETARGET's) | the instance; its record bytes are closed on meet | written on the ui_task under the word, read by the hook under it; a FLAGS_SET never touches them | once per present | every renderer of a record; an instance opened with EFFECTS clear runs C2's path to its end |
 | the byte table | built per track and step | — | the track's level ramp or G | display task only, under the word | once per track and step | the 16-entry LUT and G |

@@ -66,6 +66,11 @@ object DamageMsg {
      *  outcome 3, mode 28 and DRAW's h0/h1/anchor, telemetry 35–39, reasons 17 and 18, flag bit 4. The phone sends none
      *  of them without it. (Bit 9, the link item, is not in C2.) */
     const val FEATURE_BIND = 1 shl 10
+    /** Bit 11 (build C3, `FIRMWARE.md` §7.9): effects — version-2 records, OWN and LAND, PIECES, SHRINK, GLYPHS, `new`,
+     *  the two-axis DRAW and the source window, the step budget, the fast DRAW path, PLAY-AFTER (mode 26 sub 8),
+     *  LIST-RING (mode 27 sub 4), kind 3, refusal 19, the 115's field 18, telemetry 40, flag bit 6. Features 0xdff. The
+     *  phone sends none of it below ladder stage 5. */
+    const val FEATURE_EFFECTS = 1 shl 11
     const val PHASE1_FEATURES = FEATURE_TELEMETRY or FEATURE_FLAGS or FEATURE_PRESENTED or FEATURE_CACHE_KEEP or FEATURE_SELF_TEST
     const val PHASE2_FEATURES = PHASE1_FEATURES or FEATURE_DRAW2 or FEATURE_LINK
 
@@ -103,11 +108,15 @@ object DamageMsg {
     const val FLAG_BIND = 1 shl 4
     /** Bit 5 (build C1, §5.9): mode 25, the deflated cache write, answers. */
     const val FLAG_ZWRITE = 1 shl 5
+    /** Bit 6 (build C3, §7.9): EFFECTS — version-2 programs, PLAY-AFTER, LIST-RING and kind 3 answer; read once per
+     *  message or fire; cleared at every release point; refused without the lease; a disarm closes nothing. */
+    const val FLAG_EFFECTS = 1 shl 6
     /** Bit 15: no behaviour — it proves arming, the echo and the clear-on-lapse. */
     const val FLAG_PROBE = 1 shl 15
     /** Build C2-FD (decisions AM.3): every flag bit `FIRMWARE.md` defines (§3 bits 0, 1, 15; §4 bit 2; §5.8–§5.9 bits 3,
      *  5; §6.8 bit 4) — a hand `flags=` probe naming any other is refused at the phone. */
-    const val FLAGS_DEFINED = FLAG_PRESENTED or FLAG_CACHE_KEEP or FLAG_DRAW2 or FLAG_ENGINE or FLAG_BIND or FLAG_ZWRITE or FLAG_PROBE
+    const val FLAGS_DEFINED = FLAG_PRESENTED or FLAG_CACHE_KEEP or FLAG_DRAW2 or FLAG_ENGINE or FLAG_BIND or FLAG_ZWRITE or
+        FLAG_EFFECTS or FLAG_PROBE
     /** What the Phase 1 build implements; any other bit is refused with status 2. */
     const val FLAGS_IMPLEMENTED_V1 = FLAG_PRESENTED or FLAG_CACHE_KEEP or FLAG_PROBE
     /** What the Phase 2 build implements. */
@@ -134,7 +143,9 @@ object DamageMsg {
         // §5.8 (build C1): the op's own flag not armed (ENGINE for 26, ZWRITE for 25); no such instance
         15 to "unarmed", 16 to "no-instance",
         // §6.8 (build C2): a tap fire whose close set holds a local instance (nothing closed); a fire on a lost cursor
-        17 to "tap-over-local", 18 to "cursor-lost")
+        17 to "tap-over-local", 18 to "cursor-lost",
+        // §7.9 (build C3): a fire whose close set holds an owning instance (nothing closed)
+        19 to "fire-over-owner")
 
     /** Field 11, sticky diagnostic bit 5 (build C1, decision A.19): a telemetry reply that could not be sent. The
      *  journal names it after the hex; every other bit is journaled as the hex alone, as before. */
@@ -210,12 +221,19 @@ object DamageMsg {
         /** Field 39: the event ids with a live entry on RIGHT, bit n for id n (bit 0 the tap entry of either form, 4 and 5
          *  the scroll entries); 0 while `bind_live` is clear. */
         val boundIds get() = fields[39]
+        /** Field 40 (build C3, §7.9): bits 0–3 the slots that own, bits 4–7 the slots in state drawing opened by a
+         *  PLAY-AFTER with d = 0; always sent on a bit-11 build. */
+        val effectSlots get() = fields[40]
+        /** Field 41 (build C3, §7.9): the bytes of the display task's own 2,048-B stack never written, as that task last
+         *  read them (only while EFFECTS is armed; kept at its last value after a disarm or a release, as 34 and 37). A
+         *  reading under [STACK_FREE_FINDING] is a finding (§7.9, §7.12). */
+        val stackFree get() = fields[41]
 
         /** The journal's one-line form: named, in field order. */
         fun describe(): String = fields.toSortedMap().entries.joinToString(" ") { (k, v) ->
             val name = NAMES[k] ?: "f$k"
             when (k) {
-                3, 30, 39 -> "$name=0x${v.toString(16)}"
+                3, 30, 39, 40 -> "$name=0x${v.toString(16)}"
                 11 -> "$name=0x${v.toString(16)}" + (if (v and DIAG_REPLY_DROPPED.toLong() != 0L) "(reply-dropped)" else "")
                 10 -> "$name=0x${v.toString(16)}${PANELS[v]?.let { "($it)" } ?: ""}"
                 19, 22 -> "$name=%08x".format(v)
@@ -234,7 +252,13 @@ object DamageMsg {
         27 to "max13KiB", 28 to "max20KiB", 29 to "max27KiB", 30 to "motion", 31 to "motionSeq",
         32 to "engineFrames", 33 to "folds", 34 to "stepUs",
         // build C2 (§6.8): matched events, the last S, the last drawing fire's µs, failed report sends, the bound ids
-        35 to "matched", 36 to "lastS", 37 to "fireUs", 38 to "reportFails", 39 to "boundIds")
+        35 to "matched", 36 to "lastS", 37 to "fireUs", 38 to "reportFails", 39 to "boundIds", 40 to "effectSlots",
+        // build C3 (§7.9): the display task's never-written stack bytes
+        41 to "stackFree")
+
+    /** §7.9 (build C3): telemetry 41 under this many bytes is a finding — the display task's worst path on the candidate
+     *  is 1,924 of its 2,048 B (`tools/verify.py` step 7, §7.12), so 124 B is what that figure leaves. */
+    const val STACK_FREE_FINDING = 124L
 
     /** One image-lane refusal as telemetry fields 23–25 report it. */
     data class Refusal(val mode: Int, val reason: Int, val seq: Long) {
@@ -348,6 +372,10 @@ object DamageMsg {
         val uptimeTicks get() = fields[15]
         val fireUs get() = fields[16]
         val mark get() = fields[17]?.toInt()
+        /** §7.8 (build C3): field 18 = 1 — a ring fire whose virtual row is not c' (it wrapped). */
+        val wrapped get() = fields[18] == 1L
+        /** Field 18 as carried, whatever its value (decisions W, D-8: a value other than 1 is shown, not dropped). */
+        val field18 get() = fields[18]
         /** A tap's report (event id 0 from the ring, §6.1). */
         val isTap get() = eventId == 0
 
@@ -362,7 +390,9 @@ object DamageMsg {
             fun v(x: Int?) = x?.toString() ?: "-"
             return "S ${v(s)} dev ${v(devType)} id ${v(eventId)} entry ${v(entry)} $what list ${v(list)} cursor " +
                 (if (cursor == CURSOR_LOST) "lost" else v(cursor)) + " slot ${v(slot)} mark ${v(mark)}" +
-                (params?.let { p -> " P ${p.joinToString(",")} prog ${v(prog)}" } ?: "") + " uptime ${uptimeTicks ?: "-"}"
+                (params?.let { p -> " P ${p.joinToString(",")} prog ${v(prog)}" } ?: "") +
+                (field18?.let { if (it == 1L) " wrapped" else " field18=$it" } ?: "") +
+                " uptime ${uptimeTicks ?: "-"}"
         }
     }
 

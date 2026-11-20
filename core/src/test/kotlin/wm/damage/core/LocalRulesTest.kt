@@ -84,6 +84,17 @@ class LocalRulesTest {
     /** A DISCARD from [s] — named less [LocalRules.WIDE] on the wire (decisions U.2). */
     private fun isDiscard(b: ByteArray, s: Int, cursor: Int? = null) = b[1].toInt() == 4 && u16(b, 3) == ((s - LocalRules.WIDE) and 0xFFFF) && (cursor == null || u16(b, 6) == cursor)
 
+    /** Build C3 (decisions W, D-8): a tap refused 19 — an owner in its close set (§7.3), refusal 17's twin (§7.14) — is
+     *  acted on and counted `tapActedNoPress` as 17 is, though its body carries the press's parameters (fields 10–14). */
+    @Test
+    fun aTapRefused19CountsAsNoPressLike17_7_3() {
+        for (reason in listOf(17, 19)) {
+            val t = R(taps = Taps.GLASSES, row = 3)
+            assertEquals(Verdict.Act(3), t.tap(1, 3, outcome = DamageMsg.APPLIED_REFUSED, reason = reason, press = true), "reason $reason: ${t.notes}")
+            assertEquals(1, t.r.counts["tapActedNoPress"] ?: 0, "reason $reason: ${t.r.counts}")
+        }
+    }
+
     // ------------------------------------------------------------------------------- the tap rule's condition (4)
     @Test
     fun tapRuleCondition4AtN0() {
