@@ -239,7 +239,7 @@ class EffectsSimTest {
         fun row() = listOf(r.panel(100, 105), r.panel(101, 105), r.panel(102, 105), r.panel(121, 105), r.panel(122, 105), r.panel(139, 105))
         assertEquals(listOf(1, 1, 9, 9, 3, 3), row(), "step 1: D = 2")
         assertEquals(1, r.motion().field40(), "telemetry 40: slot 0 owns")
-        assertEquals(3, r.shadow(100, 105), "no END in the shadow")
+        assertEquals(listOf(9, 3), listOf(r.shadow(100, 105), r.shadow(125, 105)), "no END in the shadow: the fill's 9, the keyframe's 3")
         r.now = 2005
         assertTrue(r.msg(CfwModes.fill(Rect(90, 90, 60, 40), 12)))           // a phone frame over the owner
         assertEquals(listOf(1, 1, 9, 9, 3, 3), row(), "the owned rect held")
