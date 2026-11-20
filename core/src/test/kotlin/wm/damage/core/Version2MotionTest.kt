@@ -234,8 +234,8 @@ class Version2MotionTest {
     fun everyV5ProgramAndTableIsTheDslsByteForByte_7_2() {
         val files = Files.list(vectorDir()).use { s -> s.filter { it.fileName.toString().let { n -> n.startsWith("v5-") && n.endsWith(".json") } }.sorted().toList() }
         // stage X2D (decisions Y, C-3) added eight `v5-x2-*` files beside the 20: every one is read here too; stage X3D the
-        // shipped transitions (`v5-ship-*`, their records written as mode 25 where ZWRITE is in force)
-        assertEquals(28 + ShipVectors.specs().size, files.size, "the 20 v5 vectors, X2D's 8 and X3D's ship vectors")
+        // shipped transitions (`v5-ship-*`, their records written as mode 25 where ZWRITE is in force) and `v5-x3-hint`
+        assertEquals(28 + ShipVectors.specs().size + 1, files.size, "the 20 v5 vectors, X2D's 8, X3D's ship vectors and v5-x3-hint")
         val comparedProg = HashMap<String, Int>(); val comparedTab = HashMap<String, Int>()
         val seenProg = HashSet<String>(); val seenTab = HashSet<String>()
         val inexpressible = LinkedHashMap<String, String>(); val refusedByDsl = LinkedHashMap<String, String>()

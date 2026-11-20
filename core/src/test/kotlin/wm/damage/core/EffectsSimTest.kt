@@ -309,6 +309,30 @@ class EffectsSimTest {
         assertEquals(0, r.motion().field40())
     }
 
+    /** §7.3 Steps, as built (the second review pass, 2026-11-20; `C3-decisions.md` AP (2), `C3-V2D-review.md` point 2's
+     *  sequence): a present whose copy left an owned rect out leaves the stale mark set, so while any instance owns every
+     *  later present goes whole whatever its hint says; once nothing owns, a hint is honoured again (C2's rule). Each
+     *  hint here misses the rows its fill changed, so a model that honours it while an owner is open shows level 3 there. */
+    @Test
+    fun whileAnInstanceOwnsEveryPresentGoesWholeWhateverItsHint_7_3() {
+        val r = Rig()
+        r.write(64, prog2(OWN, track(rect(0, 0, 100, 100), 2, seg2(FILL, 1, kind = 9))))     // T 1, no LAND: done and owning
+        r.now = 2000
+        assertTrue(r.msg(play(0, 20, 64, 1)))
+        assertEquals(1, r.motion().field40(), "done and owning")
+        fun frame(y: Int, level: Int, hint: Int) = assertTrue(r.msg(CfwModes.batch(listOf(CfwModes.fill(Rect(0, y, 640, 10), level), CfwModes.presentHint(hint, hint + 9)))))
+        r.now = 2010; frame(200, 6, 200)                                       // whole in either reading (the last step's mark)
+        r.now = 2020; frame(300, 7, 400)
+        assertEquals(listOf(7, 3), listOf(r.panel(10, 305), r.panel(10, 405)), "an owner open: whole — the rows the hint missed are on the lens")
+        r.now = 2030; frame(320, 8, 420)
+        assertEquals(8, r.panel(10, 325), "every later present: whole again")
+        assertEquals(9, r.panel(10, 10), "the owned rect held")
+        assertTrue(r.msg(close(0)))
+        assertEquals(0, r.motion().field40())
+        r.now = 2040; frame(340, 11, 440)
+        assertEquals(listOf(3, 11), listOf(r.panel(10, 345), r.shadow(10, 345)), "nothing owns: the hint is honoured, rows 340–349 off the lens")
+    }
+
     /** §7.3: an owner draws a step only at k > d — a phone frame's present while it owns does not redraw it, even where its
      *  source is `new` (the live shadow): the owned rect keeps step d until the next step is due. */
     @Test
