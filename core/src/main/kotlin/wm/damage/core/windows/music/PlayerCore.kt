@@ -140,7 +140,8 @@ abstract class PlayerCore(
     protected fun snapshot(): PlayerState = PlayerState(
         backend = curBackend, play = play, queue = engine.entries.toList(), index = engine.index,
         posMs = positionMs(), posAtMs = clock(), durMs = if (curBackend == Backend.LIBRARY && !offHost()) sink.durationMs().takeIf { it > 0 } ?: (engine.current?.track?.durMs?.toLong() ?: 0L) else if (curBackend == Backend.LIBRARY) (engine.current?.track?.durMs?.toLong() ?: 0L) else (spotifyNow?.durMs ?: 0L),
-        mode = engine.mode, volume = volume, boost = curBoost, output = shownOutput(), outputs = safeOutputs(),
+        mode = engine.mode, volume = if (offHost()) askedVol ?: recNow?.vol ?: volume else volume, boost = curBoost,
+        output = shownOutput(), outputs = safeOutputs(),
         pcLink = pcLink, sleep = curSleep, holdVolume = curHold, profile = curProfile, label = engine.label,
         spotify = spotifyNow, spotifyAuto = spotifyAuto, problem = problem, listenerGranted = listenerGranted,
     )
@@ -476,7 +477,7 @@ abstract class PlayerCore(
     // ------------------------------------------------------------------ volume, curBoost, hold
     override fun setVolume(pct: Int, cause: String) = post {
         val v = pct.coerceIn(0, 100)
-        if (offHost()) { volume = v; send("volume", obj("pct" to v)); changed(); return@post }   // shown as asked until `now` moves
+        if (offHost()) { askedVol = v; send("volume", obj("pct" to v)); changed(); return@post }   // shown as asked until `now` moves
         Log.i("player", "volume $volume → $v ($cause)")
         ourVolume = v
         heldVolume = v
@@ -787,6 +788,8 @@ abstract class PlayerCore(
     @Volatile private var out = MusicCore.Out(MusicCore.PHONE, 0L)
     /** The record's `now` while another host plays (the place this host shows, extrapolated). */
     @Volatile private var recNow: MusicCore.Now? = null
+    /** The volume asked here for the other host, shown until its `now` moves (this host's own level is untouched). */
+    @Volatile private var askedVol: Int? = null
     private var lastQ: JsonObject? = null
     private var lastNowKey: List<Any?>? = null
     /** A stop's reason, written with the next `now`. */
@@ -837,7 +840,7 @@ abstract class PlayerCore(
             MusicCore.queueOf(st)?.let { engine.load(it, n?.e) }
             lastQ = engine.recordJson()
             if (n != null) {
-                lastPos = n.pos; volume = n.vol
+                lastPos = n.pos
                 if (out.host == host && n.state != MusicCore.STOPPED && n.state != MusicCore.PAUSED) {
                     nowWhy = "stopped when the $host's player ended; Play resumes at ${Fmt.mmss(n.pos)}"
                     decided("the record said playing at this start: $nowWhy")
@@ -908,7 +911,7 @@ abstract class PlayerCore(
         recNow = n
         if (n == null) return
         play = when (n.state) { MusicCore.PLAYING, MusicCore.BUFFERING -> PlayState.PLAYING; MusicCore.PAUSED -> PlayState.PAUSED; else -> PlayState.STOPPED }
-        volume = n.vol
+        if (n != before) askedVol = null
         lastPos = n.pos
         val e = engine.current
         if (e != null && e.qid != beforeQid && n.playing && before != null) emit(PlayerEvent.TrackChange(e.track, engine.index, engine.size))

@@ -75,6 +75,7 @@ class PcMusicPlayer(
     init {
         curProfile = LOSSLESS
         curOutput = Output.PC
+        volume = 100                    // answer 5: mpv's own volume from 100 %, the system level never touched
         // the sleep deadline and the 10 s state refresh run on ticks while playing (pacing, not a timer wrapper)
         thread.scheduleAtFixedRate({ run { if (play == PlayState.PLAYING) tick() } }, 1, 1, TimeUnit.SECONDS)
         changed()
