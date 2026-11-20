@@ -8028,6 +8028,54 @@ class Shell(
     /** The records' writes in flight (flush ids): booked in the cache ledger at their completion. */
     private val transitionWrites = HashSet<Long>()
 
+    // ------------------------------------------------------------------ build C3, stage DM-T: Encode's cells
+    /**
+     * The text runs of the screen as it stands now: painted once into a scratch through [CachedText]'s relay — only runs
+     * of codes a face the glasses hold packs are recorded (the atlas's own split) — and the records taken out of the
+     * frame's again (by identity), so the compositor's proof never reads them. Content only: the chrome's few strings are
+     * not cells (they show with the backdrop). The content painters damage the content area as they always do; the
+     * screen being painted is the one on the panel or the one about to be, so that costs no byte.
+     */
+    private fun screenRuns(): List<wm.damage.core.comp.TextDraw> {
+        val ct = cachedText ?: return emptyList()
+        val g = Gray8(comp.width, comp.height)
+        val full = Rect(0, 0, comp.width, comp.height)
+        val draws0 = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<wm.damage.core.comp.TextDraw, Boolean>()).also { it.addAll(ct.frameDraws()) }
+        val images0 = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<wm.damage.core.comp.ImageDraw, Boolean>()).also { it.addAll(ct.frameImageDraws()) }
+        ct.via(g, 0, 0, full) {
+            if (mode == Mode.SILENT) wallClock().let { c -> SilentMode.paintAll(g, layout, c.hh, c.mm, settings.silentClock, silentSmallPainter(c)) }
+            else when (val w = contentWindow()) {
+                null -> kit.paintList(g, layout, main.view(), resting = main.resting)
+                else -> when (val v = w.view()) {
+                    is WindowView.ListView -> kit.paintList(g, layout, v)
+                    is WindowView.DocView -> kit.paintDoc(g, layout, v)
+                    is WindowView.CanvasView -> v.paint(g, layout.content)
+                }
+            }
+        }
+        val added = ct.frameDraws().filter { it !in draws0 }
+        ct.dropOlderRecords(added, ct.frameImageDraws().filter { it !in images0 }, listOf(full))
+        return added
+    }
+
+    /** [runs] as Encode's cells over [area] ([CellLists.screen]): a face counts when the glasses hold it — live and acked
+     *  (`GlyphAtlas.isAcked`) — and a run's track offsets are its plane's disparity (the compositor's last region holding
+     *  its rect, as `Compositor.disparityAt` reads it). */
+    private fun screenCells(runs: List<wm.damage.core.comp.TextDraw>, area: Rect): wm.damage.core.motion.CellLists.Screen {
+        val ct = cachedText; val a = atlas
+        if (ct == null || a == null) return wm.damage.core.motion.CellLists.Screen.NoFit("cached text is off")
+        val live = ct.live
+        val planes = comp.planes
+        return wm.damage.core.motion.CellLists.screen(runs, { s -> if (s in live && a.isAcked(s)) a.entry(s) else null }, { s -> ct.kernOf(s) },
+            { r -> planes.lastOrNull { it.rect.contains(r) }?.disparity ?: 0 }, area)
+    }
+
+    /** Tests only: the screen on the panel as Encode's cells (on the loop). */
+    internal fun screenCellsForTest(): Pair<List<wm.damage.core.comp.TextDraw>, wm.damage.core.motion.CellLists.Screen> =
+        screenRuns().let { it to screenCells(it, Rect(0, 0, comp.width, layout.safe.bottom)) }
+    /** Tests only: the atlas's entry of [spec] as the glasses hold it. */
+    internal fun atlasEntryForTest(spec: FontSpec): GlyphAtlas.Entry? = atlas?.takeIf { it.isAcked(spec) && spec in cachedFontsLive }?.entry(spec)
+
     // ------------------------------------------------------------------ chrome
     private fun chromeState(): Chrome.State {
         val c = wallClock()

@@ -63,6 +63,10 @@ object Motion {
     const val FILL_NONE = 0xFF
     /** §7.12: the step budget's cap, in u (the largest period, 128 ticks). */
     const val BUDGET_CAP = 8_000_000L
+    /** C3 decisions AF: the most glyph bytes a GLYPHS program's walk may make the glasses read (≈ 0.25 s on the ui_task at
+     *  the measured walk rate of 0.25 µs a byte; the firmware itself bounds no walk, and a cell list naming tens of fonts of
+     *  the largest glyphs would walk for seconds). Refused offline, with the bytes counted ([MotionProgram.walkBytes]). */
+    const val WALK_BYTES_MAX = 1_000_000L
     /** §7.5: the two-axis and vertical scale's range. */
     private val SCALE = 1..2048
 
@@ -580,6 +584,9 @@ object Motion {
         val prog = MotionProgram(at, bytes, tracks, tables.map { it.off4 to it.record } + glyphTables.toList(), records.associateBy { it.off4 },
             version = 2, own = own, land = land)
         prog.resolve(IntArray(4), staticOnly = true)
+        // decisions AF: the walk bound, on the program whatever its parameters pick (every CELLS segment at its largest list)
+        prog.walkBytes().let { b -> if (b > WALK_BYTES_MAX) throw LintError("decisions AF: this program's GLYPHS walk would make the glasses read " +
+            "$b B of fonts and glyph records, past the $WALK_BYTES_MAX B bound (≈ ${b / 4000} ms on the ui_task at 0.25 µs a byte) — refused offline") }
         return prog
     }
 
@@ -885,6 +892,30 @@ class MotionProgram internal constructor(val at: Int, val bytes: ByteArray, val 
             s.rain?.let { r -> add(r.off4 * 4, r.off4 * 4 + 16); add(r.alphabet.off4 * 4, r.alphabet.off4 * 4 + r.alphabet.bytes.size); r.font.reads(r.alphabet.codes.toList(), ::add) }
         }
         return lo until hi
+    }
+
+    /**
+     * C3 decisions AF: the glyph bytes the glasses read at this program's walk (§7.6) — per GLYPHS segment, every font
+     * the walk reads an entry from, counted whole (448 B), and every glyph record a code names in it (`[w][h]` and its RLE),
+     * each (font, code) pair once a segment. §7.6 walks a pair once a walk for a program's first four fonts and once a
+     * segment past them: counted once a segment for every font, the larger of the two. A CELLS segment counts its largest
+     * list (a parameter may pick any); codes 0 and 32 name no record and a font named only through them is not read.
+     */
+    fun walkBytes(): Long {
+        var total = 0L
+        for (t in tracks) for (s in t.segments) {
+            val reads: List<List<Pair<Motion.Font, Collection<Int>>>> = when {
+                s.cells != null -> s.cells.lists.map { l ->
+                    l.cells.groupBy { it.font.off4 }.values.map { cs -> cs[0].font to (cs.flatMap { listOf(it.old, it.new) } + l.alphabet.codes.toList()).toSet() } }
+                s.rain != null -> listOf(listOf(s.rain.font to s.rain.alphabet.codes.toSet()))
+                else -> continue
+            }
+            total += reads.maxOf { fonts -> fonts.sumOf { (f, codes) ->
+                val glyphs = codes.mapNotNull { f.glyph(it) }
+                if (glyphs.isEmpty()) 0L else 448L + glyphs.sumOf { 2L + it.rle }
+            } }
+        }
+        return total
     }
 
     /**
