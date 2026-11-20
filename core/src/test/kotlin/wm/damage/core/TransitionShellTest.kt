@@ -532,12 +532,14 @@ class TransitionShellTest {
      * The big box's write reaches both shadows, then [release] runs; on each lens the in half's next step shows it — its
      * core lit on the panel once the in half has drawn a step past the [d0] it had drawn when the write was there, no later
      * than the step after that (the window's background is 0 there and the in half paints its whole area) — or its LAND
-     * does. Returns, per lens, where it showed.
+     * does. [openBefore]: the in half was open on both lenses before the write went (a write that CLOSEd it empties its
+     * slot in the same batch). Returns, per lens, where it showed.
      */
-    private suspend fun shownByTheNextStep(r: Rig, core: wm.damage.core.geom.Rect, release: () -> Unit = {}): List<String> {
+    private suspend fun shownByTheNextStep(r: Rig, core: wm.damage.core.geom.Rect, openBefore: Boolean, release: () -> Unit = {}): List<String> {
         r.until("the box's write in both shadows") { listOf(true, false).all { every(r, it, true, core) { v -> v == 15 } } }
         val arms = listOf(Arm.LEFT, Arm.RIGHT)
         val d0 = arms.associateWith { r.sim.motionForTest(it).slots[3]?.d ?: 0 }
+        val open0 = arms.associateWith { openBefore || r.sim.motionForTest(it).slots[3] != null }
         release()
         val shown = HashMap<Arm, String>()
         val unlitSince = HashMap<Arm, Long>()
@@ -547,6 +549,7 @@ class TransitionShellTest {
             for (a in arms) if (a !in shown) {
                 val s = r.sim.motionForTest(a).slots[3]
                 val d = s?.d ?: 0
+                if (s == null && open0.getValue(a)) fail("$a: the in half's slot was emptied — closed — before it drew a step past the write (it had drawn ${d0.getValue(a)})")
                 if (s == null || (s.drawing && d <= d0.getValue(a))) continue           // its next step not drawn yet
                 if (every(r, a == Arm.LEFT, false, core) { it != 0 }) { shown[a] = if (s.drawing) "step $d (it had drawn ${d0.getValue(a)})" else "LAND"; continue }
                 assertTrue(!s.drawing || d < d0.getValue(a) + 2, "$a: the in half drew step $d and the box is not on the panel (it had drawn ${d0.getValue(a)} when the write was in the shadow)")
@@ -621,7 +624,7 @@ class TransitionShellTest {
                 // the link has room again: the out PLAY, then the frame with the box in it, held
                 r.shell.pumpHeldForTest = false; r.shell.postIdleTick()
             }
-            val shown = shownByTheNextStep(r, core, release = {
+            val shown = shownByTheNextStep(r, core, openBefore = at == At.IN, release = {
                 if (at == At.FRAME) { r.shell.transitionHoldInHalfForTest = false; r.shell.postIdleTick() }
             })
             r.until("the transition ends") { r.onLoop { r.shell.transitionPhaseForTest() } == null }
@@ -654,15 +657,17 @@ class TransitionShellTest {
     fun aWriteThatIsNotInputIsHeldAndShownAtTheNextStep_DP2(): Unit = runBlocking { writeDuring(At.IN, input = false) }
 
     // ------------------------------------------------------------- X2P2 item 2: the silent clock right after a notch
-    /** The silent clock entered by a double tap 100 ms after an adopted notch on Main (its motion ≈ 270 ms at the
-     *  defaults): the notch is COMMITted, Main's cells behind it are held. Returns the moment the held cells' wait would
-     *  have ended and RIGHT's truth (Main's) just before the double tap. */
+    /** The silent clock entered by a double tap as soon as an adopted notch on Main is COMMITted and Main's cells
+     *  behind it are held (its motion ≈ 270 ms at the defaults; the review's case is a double tap within 100 ms).
+     *  Returns the moment the held cells' wait would have ended and RIGHT's truth (Main's) just before the double tap. */
     private suspend fun lockRightAfterANotch(r: Rig): Pair<Long, ByteArray> {
+        // the notch must fire on the glasses (a fire RIGHT's table did not hold yet is drawn by the phone as a stock
+        // scroll, and holds nothing): its up, down and tap entries on RIGHT, as MainLocalShellTest's `bound` waits
+        r.until("Main's list bound on RIGHT") { r.sim.bindForTest(Arm.RIGHT).field39() == 0x31 }
         r.fire(CfwModes.EV_UPROLL)
         r.until("adopted") { r.row() == 1 }
-        val (deferring, until) = r.onLoop { r.shell.comp.deferring to r.shell.comp.deferUntilMs }
-        assertTrue(deferring, "Main's cells wait for the notch's motion")
-        delay(100)
+        r.until("Main's cells held behind the notch's motion", 2_000) { r.onLoop { r.shell.comp.deferring } }
+        val until = r.onLoop { r.shell.comp.deferUntilMs }
         assertTrue(System.currentTimeMillis() < until - 100, "the double tap falls inside the wait (${until - System.currentTimeMillis()} ms left)")
         val main = r.onLoop { r.shell.comp.truthForTest(false).pix.copyOf() }
         r.doubleTap()
