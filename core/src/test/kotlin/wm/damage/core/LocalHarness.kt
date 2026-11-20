@@ -241,7 +241,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
      *  late echoes (their report heard before a SETTLE sent before the message came, decisions BC). */
     private val heldGesture = ArrayDeque<Int>()
     private val lateHeld = HashSet<Int>()
-    private val standIn = HashMap<Int, Int>()
+    private val orphans = ArrayDeque<Int>()
     /** Ruled 11-19 (2b), his journals: the share of scroll gestures whose stock message reaches the phone before its 115 —
      *  the 115 then comes [stockLeadMax] ms or less after it. */
     var stockFirst = 0.0
@@ -376,13 +376,17 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         if (g >= 0 && g !in reportHeardAt) reportHeardAt[g] = now
         val v = rules.report(a, row, now)
         // 2b: the held messages this report paired (or, naming no slot, applied) leave the hold — its own gesture's first
-        // when it is among them, else the oldest. Stock messages are alike on the wire: one paired for this report that
-        // was another gesture's (whose report never comes, or a late echo, decisions BC) is this report's own, and this
-        // gesture's message, when it comes, stands in for that one ([standIn]) — so a release moves that gesture's count
+        // when it is among them, else the oldest. Stock messages are alike on the wire: one paired here that was another
+        // gesture's stood for this report's own. If RIGHT never took that gesture (no S: no entry yet), its move is still
+        // owed, and the next message released — whichever gesture sent it — is its ([orphans]); if it was a late echo
+        // (decisions BC), this report's own message is left over: the BC shape, declared on this gesture
         while (heldGesture.size > rules.stockHeldNow) {
             val k = if (g in heldGesture) g else heldGesture.first()
             heldGesture.remove(k)
-            if (k != g && g >= 0) standIn[g] = k
+            if (k != g && g >= 0) {
+                if (fires[k]?.sR == null) orphans.addLast(k)
+                else if (k in lateHeld) lateEchoes += g
+            }
         }
         trace?.invoke("[$now] phone 115 g$g ${a.describe()} row $row → $v")
         verdicts += g to v
@@ -396,9 +400,8 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         val v = rules.stock(st, row, now)
         // 2b: a held message is the gesture's, applied (if at all) at its release — its moves are counted against it there
         if ((rules.counts["stockHeld"] ?: 0) > heldBefore) {
-            val k = standIn.remove(g) ?: g
-            heldGesture.addLast(k)
-            if (reportHeardAt[k]?.let { lastSettleAt > it } == true) lateHeld += k
+            heldGesture.addLast(g)
+            if (reportHeardAt[g]?.let { lastSettleAt > it } == true) lateHeld += g
             rules.settleAt()?.let { s -> if (s > now) at(s) { pump() } }
         }
         // decisions BC: a stock message applied as today whose own report was heard before a SETTLE that went before it —
@@ -723,9 +726,10 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         if (!rules.active) return
         // ruled 11-19 (2b): the shell's pump releases held stock messages at the burst's end before anything else
         for (v in rules.releaseHeld(row, now)) {
-            val g = heldGesture.removeFirstOrNull() ?: -1
+            val sent = heldGesture.removeFirstOrNull() ?: -1
+            val g = orphans.removeFirstOrNull() ?: sent
             // decisions BC: a late echo held and applied as today at the release is the declared shape still
-            if (g in lateHeld) lateEchoes += g
+            if (sent in lateHeld) lateEchoes += g
             verdicts += g to v; apply(v, g, null)
         }
         val t = truth()
@@ -864,7 +868,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     // ---- a session start (P1): keyframe, the arming, the start's bind batch
     fun start(fresh: Boolean) {
         q.clear(); lastUp = now; lastScrollUp = now; lastDown = now; pumpAt = Long.MAX_VALUE
-        heldGesture.clear(); standIn.clear()            // 2b: the rules' start clears the hold
+        heldGesture.clear(); orphans.clear()            // 2b: the rules' start clears the hold
         deferAreas = emptyList()                        // the start's keyframe ends every motion's wait
         if (fresh) for (a in Arm.entries) { sim.conformanceLease(a, false, now); sim.conformanceLease(a, true, now) }
         for (a in Arm.entries) sim.conformanceControl(a, DamageMsg.OP_FLAGS_SET, ARMED, now)
