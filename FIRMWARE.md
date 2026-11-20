@@ -146,7 +146,7 @@ on it, and journals every sid-0x10 frame as a `wear` note; what op 7 answers wit
     18 cache size in bytes (when allocated) · 19 cache CRC-32 (CACHE_INFO, when allocated) · 20
     self-test steps since the last begin · 21 the last step refused (0/1) and 22 the scratch CRC-32
     after it (both after a step)` — all uint32 varints (later fields: 23–26 §4, 27–29 §5.9, 30–34 §5.8, 35–39
-    §6.8, 40 §7.9). **The status register (field 4)** holds the
+    §6.8, 40 and 41 §7.9). **The status register (field 4)** holds the
     status recorded by the last op that records one: FLAGS_SET (0, or 2 for a bit this build lacks),
     FLAGS_CLEAR (0), a malformed or unknown request (1 — recorded even when, for a bad body, nothing is
     answered). TELEMETRY and CACHE_INFO record nothing, so a refusal the phone did not see is still
@@ -1806,7 +1806,7 @@ for randomness. (5) **PLAY-AFTER** (§7.7): an in half that starts on each lens 
 step. (6) **The ring list** and SET's **kind 3** (§7.8). (7) **The plan's late step** (§7.10). (8) **The step budget and the fast DRAW path** (§7.12): a
 version-2 program is refused when the steps of every instance that could then draw would cost more than the largest
 period (about 125 ms) together, and DRAW reaches its pixels without walking a record whole at every step. One flag bit (6
-EFFECTS), one ladder stage (5), DamageCaps bit 11, refusal 19, telemetry 40, the 115's field 18. **One new patch
+EFFECTS), one ladder stage (5), DamageCaps bit 11, refusal 19, telemetry 40 and 41, the 115's field 18. **One new patch
 site, `0x00493DAC`, not on a start path** (the container's destroy, §7.3); contract version stays 2.
 
 ### 7.1 Facts C3 rests on
@@ -1839,10 +1839,12 @@ track area of the live shadow) · 0xFF none; any other: 5. `pref` field codes: �
 aux0 · 17 aux1** (u16 fields take the whole value); above 17: 5.
 
 **Which fields each verb uses** (a field not listed for verbs 4–6, and w0, w1, aux0, aux1 for every verb that does
-not list them, must be 0, else 5; for verbs 0–3, §5.4's "a field a verb does not use is ignored" stands). **These
+not list them, must be 0, else 5; for verbs 0–3, §5.4's "a field a verb does not use is ignored" stands — REVEAL's lvl0
+and lvl1 among them, which the phone writes as 0). **These
 rules are decided on the segment after substitution:** a pref that writes a parameter into such a field (pref 14–17 on
 any verb, any code on verbs 4–6) is 5 at a PLAY, PLAY-AFTER, RETARGET, fire or COMMIT whose parameter there is not 0;
-a SET, which has no parameters, decides with every parameter 0.
+a SET, which has no parameters, decides with every parameter 0. (The phone's builders never write a parameter into a
+field its verb does not use; the rule is the glasses'.)
 
 | verb | uses (besides verb, steps, ease, table, pref0, pref1) | opt bits allowed |
 |---|---|---|
@@ -1855,8 +1857,9 @@ a SET, which has no parameters, decides with every parameter 0.
 An anchor of 3 on either axis, or anchor bits 4–7, is 5. **§6.6's H rule binds DRAW only**, and C1's "h0 and h1 are
 0" binds FILL, REVEAL and WAIT (12 there, as built); PIECES' and GLYPHS' h0 is a seed (any value; their h1 must be 0,
 5), SHRINK's h0 and h1 follow §7.5. **Every eased level** of DRAW, PIECES, SHRINK and GLYPHS is 0..15 at every j = 0..n
-after substitution (12) — SHRINK's levels feed G (§7.4). **On a track that is not per-lens** xR and dxR of every verb
-are ignored — the track uses xL and dxL on both lenses (§5.4) — PIECES' and GLYPHS' included. **The seed** of a PIECES or GLYPHS segment is its h0 after substitution, exclusive-or the instance's
+after substitution (12) — SHRINK's levels feed G (§7.4). **On a track that is not per-lens no rule reads xR or dxR:**
+for every verb of a version-2 record they are ignored before any verb's own rule — the track uses xL and dxL on both
+lenses (§5.4); every "dxR must be 0" below holds on a per-lens track only. **The seed** of a PIECES or GLYPHS segment is its h0 after substitution, exclusive-or the instance's
 tag when opt bit 7 is set (a local fire's tag is its S). **Every product** in §7.4–§7.6 is a 32-bit product that wraps,
 as §5.4's eased value: computed unsigned, read as s32, `>>` arithmetic. (§7.12's step budget is the exception: its
 terms and sums are 64-bit and never wrap.)
@@ -1870,8 +1873,8 @@ bound step paints is a function of its records, parameters and step alone. An in
 none (5); its segments are WAITs and exactly one non-WAIT segment (12); it is the program's **first** track and the only
 in-place track (12); its ease is non-decreasing — ease 0 or 1, or a table whose E[0..n] never falls — checked at the
 walk on **every** non-WAIT segment of the track (5), before the one-non-WAIT-segment shape (12, at the values); a rain track in
-place has dxL = dxR = dy = 0 (12); and **no later track of the program meets its area while it moves pixels (12)** — it
-moves pixels unless it is PIECES with f1 = 0, PIECES uniform or random with dxL = dxR = dy = 0, SHRINK with both axes
+place has dxL = dy = 0 and, on a per-lens track, dxR = 0 (12); and **no later track of the program meets its area while it moves pixels (12)** — it
+moves pixels unless it is PIECES with f1 = 0, PIECES uniform or random with dxL = dy = 0 (and dxR = 0 on a per-lens track), SHRINK with both axes
 unscaled, or a rain track.
 
 **Where a program may run** (each 5, checked in the walk):
@@ -1905,7 +1908,9 @@ track are not excepted: the second's uncovered part would be the first's result,
 step never drew — the lens would show what its fold pattern left.)
 
 **END** (§5.4): an OWN program writes no END (§7.3). A bound program has no in-place track, so its END is §5.4's: every
-track's state at step T painted in track order, a GLYPHS track's included.
+track's state at step T painted in track order, a GLYPHS track's included — by the engine's own renderers (the two-axis
+DRAW, a source window, GLYPHS' settled cells and rain at step T), not by §4's ops; `new` never appears in it (a bound
+program cannot name it). The phone's model paints it with the model's renderers.
 
 **RETARGET on a bit-11 build:** its shape rule (12) also refuses an instance whose program is OWN or carries a PIECES,
 SHRINK or GLYPHS segment or a `new` source or backdrop. A DRAW's W is clamped to 1..2048 on its restart path as H is
@@ -2019,7 +2024,7 @@ rect. **model = aux1 & 3** (0 uniform · 1 radial · 2 random; 3: 5), aux1 bits 
 The **factor** f = f0 + (((f1 − f0)·e + 2048) >> 12) in 1/4096, with f0 = w0 and f1 = w1 read as s16 (f0 = 0, f1 = 4096
 moves from home to the full displacement; f0 = 4096, f1 = 0 from the full displacement home):
 - *uniform* (aux0 must be 0x0101, else 12): D = ((dx·f + 2048) >> 12, (dy·f + 2048) >> 12) for the area as one piece.
-- *radial* (dxL, dxR and dy must be 0, else 12): D_p = (((c.x − x)·f + 2048) >> 12, ((c.y − y)·f + 2048) >> 12), (x, y)
+- *radial* (dxL and dy must be 0, and dxR on a per-lens track, else 12): D_p = (((c.x − x)·f + 2048) >> 12, ((c.y − y)·f + 2048) >> 12), (x, y)
   this lens's anchor.
 - *random:* r = H3(seed, p, 0), or H3(seed, p, t) with opt bit 6; rx = r & 0xFFFF and ry = r >> 16, each read as s16;
   DX = (dx·f + 2048) >> 12, DY = (dy·f + 2048) >> 12; D_p = ((rx·DX) >> 15, (ry·DY) >> 15).
@@ -2106,8 +2111,8 @@ h(0) = 0, h(1) = 0x688990C0, h(0xFFFFFFFF) = 0x6768824A, h(0x12345678) = 0xF5E71
 0xA07C7A97, H2(0x10001, 7) = 0x2EC199FE; H3(0, 0, 0) = 0xB015CF54, H3(5, 3, 9) = 0x848366AC, H3(0xBEEF, 12, 1) =
 0xB056A444. "mod" below is the unsigned remainder.
 
-**Positions.** A GLYPHS segment's x, y are **offsets**: X(t) = x + ((dx·e + 2048) >> 12) for this lens (x_L/dx_L or
-x_R/dx_R), Y(t) = y + ((dy·e + 2048) >> 12). Everything it draws is clipped to the track's area. **Glyphs.** A font is a
+**Positions.** A GLYPHS segment's x, y are **offsets**: X(t) = x + ((dx·e + 2048) >> 12) for this lens (x_L/dx_L,
+or x_R/dx_R on a per-lens track's right lens), Y(t) = y + ((dy·e + 2048) >> 12). Everything it draws is clipped to the track's area. **Glyphs.** A font is a
 224-entry v2 table (§4, 448 B at an off4); code c (32..255) names entry c − 32, an off4 to a v1 glyph record
 `[w u8][h u8][RLE]`. **A glyph record is walked once, at the walk that opens the instance; a step does not validate
 it again** (decisions F: a write over it closes the instance first, §5.6). Without a per-step walk the glyph renderer
@@ -2147,8 +2152,10 @@ the glyph alphabet[H3(seed, c, r·256 + ⌊t / flicker⌋) mod n_alpha] drawn at
 fills them with fillLvl, reveal 0 leaves them. Below the head nothing is painted. With reveal 1 or 2 the track is in
 place (§7.2: its base below the head is the picture it keeps).
 
-**Read range:** the program, the cell table and the list aux0 selects (or the rain record), the alphabet, every font
-named and every glyph record a cell's codes or the alphabet name in each of those fonts, codes 0 and 32 excepted (above)
+**Read range:** the program, the cell table and the list aux0 selects — no other list of the table is followed or read —
+(or the rain record), the alphabet (its n + 1 bytes; its padding is not read), **every font from which the walk reads a
+glyph entry, counted whole (its 448 B)** — a font named only through codes 0 and 32 is not read and not in the range —
+and every glyph record a cell's codes or the alphabet name in each of those fonts, codes 0 and 32 excepted (above)
 — all walked at the PLAY, the COMMIT or the fire (5), each (font, code) pair once per message. A cache write that meets it closes the instance (§5.6). **Cost (I):** ≈ 200 cells × (a box fill
 and a glyph of ≈ 200 px at the DRAW rate, its record decoded once) ≤ 15 ms a step at §7.12's rates; rain ≈ cols × trail glyphs, ≈ 13 ms for
 53 × 8; the walk at a fire ≈ 1–3 ms more in field 16.
@@ -2186,7 +2193,8 @@ instance, owning; sets the engine's flag; the message's present).
 ### 7.8 The ring list and the cursor parameter
 
 - **Mode 27 sub 4 LIST-RING** (bit-11 build; §6.3's table and order carry it): LIST's body, then `flags u8` (bit 0
-  RING; bits 1–7 zero, 12). It applies LIST and sets the list's RING flag to flags bit 0; a plain LIST clears it; the empty table
+  RING; bits 1–7 zero, 12). **With EFFECTS clear a LIST-RING is refused 15** — §6.3's order: … → BIND (15) → EFFECTS
+  (15, LIST-RING only) → values (12) — and changes nothing. It applies LIST and sets the list's RING flag to flags bit 0; a plain LIST clears it; the empty table
   (§6.3) clears it. With RING the shift is applied modulo the count: cursor := (old + shift) mod count, mod Euclidean
   (never negative), never lost by the shift; a lost cursor stays lost (DISCARD and SETTLE restore it).
 - **A fire on a RING list** (§6.2 step 9): count 1 with a step ≠ 0 → the edge (a tap on a one-item list is not an edge); else c' = (cursor + step) mod count (Euclidean) and the
@@ -2209,18 +2217,34 @@ instance, owning; sets the engine's flag; the message's present).
   §5.8, §6.8): open instances run on to their end, each on the renderer its walk chose (§7.12: the path is the
   instance's), and the next version-2 PLAY is refused 5. The phone CLOSEs all before it disarms EFFECTS (§5.8's rule,
   §7.11).
+- **Nothing of C3 is taken with flag bit 6 clear:** a version-2 record is 5 wherever it is walked (a PLAY, RETARGET,
+  fire, COMMIT or SET); PLAY-AFTER (26/8) is 15; LIST-RING (27/4) is 15; SET's kind 3 is 12; a fire on a RING list or on
+  an entry with a kind-3 parameter is 15 (§6.2 step 7). What is not a message follows: an instance opened with bit 6
+  clear runs C2's renderers (§7.12), the wake waits as C2's (§7.10), and the destroy site acts only while an owner is
+  open, which no message can open with bit 6 clear (§7.3).
 - **DamageCaps bit 11:** version-2 records, OWN and LAND, PIECES, SHRINK, GLYPHS, `new`, the two-axis DRAW, the source
   window, the step budget, the fast DRAW path, PLAY-AFTER,
-  LIST-RING, kind 3, refusal 19, field 18 of the 115, telemetry 40, the plan's late step (§7.10). Features `0xdff`.
+  LIST-RING, kind 3, refusal 19, field 18 of the 115, telemetry 40 and 41, the plan's late step (§7.10). Features `0xdff`.
 - **Telemetry 40:** bits 0–3 the slots that own, bits 4–7 the slots in state drawing, opened by a PLAY-AFTER, with
   d = 0 (a closed or emptied slot never shows); computed at each read
   without the word (a torn read costs one wrong bit); always sent on a bit-11 build; the record's compile-time bound
   grows by one two-byte-tag field.
+- **Telemetry 41:** the bytes of the display task's own 2,048-B stack that were never written, as that task last
+  read them (it reads its own stack only, upward from the stack's base to the first byte that is not the fill, and
+  only while bit 6 is armed); sent once it has been read this boot and kept at its last value after a disarm or a
+  release, as 34 and 37 are (a stale figure after a disarm is not a fault; the next armed read replaces it); a
+  second two-byte-tag field in the record's bound. It is the glasses' own reading of the stack figure of §7.12 (the
+  display task's worst path on the candidate is 1,924 B by `tools/verify.py` step 7: a reading under 124 is a
+  finding).
 - **Reason 19:** a fire whose close set holds an owning instance (§7.3).
 - **Ladder stage 5 = EFFECTS** with stage 4's flags (flags 0x7c), set by hand as every stage (`probe c1=5`), never
   advanced by itself; a hand `flags=` probe cannot arm bit 6 beyond the stage; its rung is recorded before its
   FLAGS_SET. **Its hold-back is stage 4's (§6.8)** — a reset after stage 5 was armed holds it back to stage 4 until the
-  next case-in or calendar day, the row or `probe c1=5`; one stage, never more. Persisted as §6.8's record.
+  next case-in or calendar day, the row or `probe c1=5`; one stage, never more. Persisted as §6.8's record. **On a build
+  that cannot arm stage 5** (no DamageCaps bit 11) a stored stage 5 arms stage 4 and writes stage 4's record, and its
+  hold-back is one stage below what the build arms (3). **`probe c1=4`** with a stored, held-back stage 5 lifts the
+  hold-back as `probe c1=5` does (§6.8's "`c1=4` lifts") and sets stage 4. **EFFECTS is armed after BIND:** stage 5's
+  start is stage 4's with one rung appended — each arm's FLAGS_SET `0x7c` after its `0x3c`.
 
 ### 7.10 The plan's late step
 
@@ -2243,8 +2267,9 @@ one-period wait; with this it is drawn a few ms late.
 
 ### 7.11 The phone's rules (phone code; none of it is firmware)
 
-- **Owners in the mirror.** The mirror holds every owning instance and its owned rects per lens; a write the phone wants
-  shown inside an owned rect CLOSEs the owner in the same batch first (C1's rule for a write meeting an open instance);
+- **Owners in the mirror.** The mirror holds every owning instance and its owned rects per lens; a write that meets an
+  owner's **meeting box** (§7.3: both lenses' owned rects, as the glasses' own closes decide) CLOSEs the owner in the same
+  batch first (C1's rule for a write meeting an open instance);
   the panel model leaves an owned rect as it is through every held present, and takes the shadow there at LAND or at a
   close.
 - **A transition** is an out half (OWN, no LAND) played when the phone acts, the arriving frame in as many batches as it
@@ -2269,6 +2294,8 @@ one-period wait; with this it is drawn a few ms late.
 - **The ring list:** LIST-RING only while EFFECTS is in force; the strip's margins hold the other end's rows; without
   EFFECTS (or with LIST-RING refused) the wrap stays the phone's PLAY at the edge report (APK 0.80's).
 - **Version 2 only at stage 5**: a build or a session without EFFECTS keeps version-1 programs (today's pan and press).
+  The transport gates PLAY-AFTER, LIST-RING and kind 3; a version-2 program record travels in a cache write the transport
+  cannot tell from an image, so the builders keep version-2 records out below stage 5.
   EFFECTS is armed at the session start, before any PLAY, so every instance the phone opens at stage 5 runs the fast
   DRAW path (§7.12).
 - **A list whose programs use a source window** (Crush, Flip) stages with pitch = +row height and draws its strip tracks
@@ -2327,7 +2354,8 @@ G (§7.4) is built once per present as a 16-entry table; GLYPHS walks each (font
 
 **The step budget** (12, after the values, §7.2's order). At a **PLAY, a PLAY-AFTER, a RETARGET and a fire** on a
 bit-11 build the walk computes the opened or restarted instance's cost **C** and, for a version-2 program, judges the
-**sum** below; a **COMMIT** of a version-2 program, which opens no instance, judges its program's own C against the
+**sum** below (**a SET judges no budget**: it has no parameters, and a cost can hang on them — a CELLS index by kind 3;
+the fire judges the program with its own); a **COMMIT** of a version-2 program, which opens no instance, judges its program's own C against the
 cap. C is in units u (1 u ≈ 1/64 µs of the display task). **Every term is computed from both lenses' rects** — A is the larger of a track's two areas in pixels (one rect
 counts for both), Wa and Ha the larger widths and heights — so both lenses decide alike. C is the sum over the program's
 tracks of 1,024 + the backdrop's term + the largest of its segments' terms:
@@ -2417,7 +2445,8 @@ list's length.
 | LIST-RING, kind 3, field 18; the budget | ≈ 1 KB | a flag byte per list; each instance's C (8 B × 4) | — | the budget's terms at the walk and the sum over four slots: µs |
 
 The engine's chain under the copy hook grows from 572 B to ≈ 1,000–1,200 B against `tools/verify.py` step 7's ≈ 1,512-B
-bound; the appended block grows ≈ 24–36 KB (≈ 250 KB stays below `0x7F0000`); the context grows ≈ 2.5 KB a lens (arena 20:
+bound (as built: 908 B, and the display task's worst path 1,924 of its 2,048 B, V by step 7 on the candidate; telemetry
+41 reads it on the glasses, §7.9); the appended block grows ≈ 24–36 KB (≈ 250 KB stays below `0x7F0000`); the context grows ≈ 2.5 KB a lens (arena 20:
 69 KiB free with today's 6,684 B, M, `HANDOFF.md` §94). Field 34 per verb on the glasses decides the periods.
 
 ### 7.13 Vectors, and what only the glasses can show
@@ -2851,3 +2880,12 @@ phone's keeper applies the hold-back rule before re-arming.
   every non-WAIT segment's ease of an in-place track at the walk; the none-backdrop rule's one containing track;
   overlapping pieces by both tests; RETARGET's W from the source's width; no field 18 when v = c'; the window's rules
   at the record walk only. Nothing built.
+- 2026-11-20 — the phone lane's seven readings and part N's (`C3-decisions.md` N; `C3-D2-report.md` "The seven"):
+  REVEAL's levels ignored in version 2 (the phone writes 0); the GLYPHS read range counts each font a glyph entry is read
+  from whole, not a 0/32-only font, not an alphabet's padding, no other list of a cell table; a SET judges no budget;
+  END painted by the engine's renderers; stage 5 on a build that cannot arm it, `probe c1=4` lifting its hold-back,
+  EFFECTS after BIND; the phone's CLOSE before a write reads the meeting box. Nothing built.
+- 2026-11-20 — the meeting's two causes as ruled (`C3-decisions.md` R): on a track that is not per-lens no rule reads xR
+  or dxR (§7.2 says it once; §7.4's radial rule, the in-place rain and "moves pixels" tests and GLYPHS' positions read the
+  R side on a per-lens track only); §7.8 repeats §6.3's check — a LIST-RING with EFFECTS clear is refused 15; §7.9 lists
+  every C3 sub, kind and record form with its refusal when bit 6 is clear. Nothing built.

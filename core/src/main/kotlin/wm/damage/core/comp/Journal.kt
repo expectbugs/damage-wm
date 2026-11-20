@@ -72,13 +72,15 @@ class Journal(private val path: Path?) : AutoCloseable {
 
     fun flushSubmitted(id: Long, a: Compositor.Assembled, label: String,
         via: String = "?", timing: Timing = Timing()) =
-        flushSubmitted(id, a.epoch, a.ops, label, via, timing)
+        flushSubmitted(id, a.epoch, a.ops, label, via, timing, a.why)
 
     /** The same line for a flush the compositor did not assemble — an atlas
      *  chunk (§42: those rode the journal as `atlas` notes only, so the report
      *  counted them as `via ?` with no label). */
     fun flushSubmitted(id: Long, epoch: Long, opList: List<DisplayOp>, label: String,
-        via: String = "?", timing: Timing = Timing()) {
+        via: String = "?", timing: Timing = Timing(),
+        /** B082: why the flush carries a keyframe or a reseed (`Compositor.wholeWhy`); written only then. */
+        why: String? = null) {
         val ops = opList.joinToString(",") { op ->
             when (op) {
                 is DisplayOp.Keyframe -> """{"op":"keyframe","bytes":${op.payload.size}}"""
@@ -105,11 +107,15 @@ class Journal(private val path: Path?) : AutoCloseable {
             """"assembleMs":${tm.assembleMs},"truthMs":${tm.truthMs},"compressMs":${tm.compressMs},"compressN":${tm.compressN},""" +
             """"slidesMs":${tm.slidesMs},"chromeMs":${tm.chromeMs},"overlaysMs":${tm.overlaysMs},"textMs":${tm.textMs},""" +
             """"cached":${tm.cached},"cacheMiss":${json(tm.cacheMiss)},"staged":${tm.staged},"unpacked":${tm.unpacked},"in":${tm.input},""" +
-            """"inWaitMs":${tm.inWaitMs},"win":${json(tm.win)},"mode":${json(tm.mode)},"ops":[$ops]}""")
+            """"inWaitMs":${tm.inWaitMs},"win":${json(tm.win)},"mode":${json(tm.mode)},""" +
+            (why?.let { """"why":${json(it)},""" } ?: "") + """"ops":[$ops]}""")
     }
 
-    fun flushDone(id: Long, ok: Boolean, ackMs: Long, bytes: Int, error: String?) {
+    /** [took], [wrote], [ack] (B082): the transport's own times for the flush — its lane took it, its last byte went
+     *  to the radio, its answer came — written when said (> 0). `t` is when the shell handled the completion. */
+    fun flushDone(id: Long, ok: Boolean, ackMs: Long, bytes: Int, error: String?, took: Long = 0, wrote: Long = 0, ack: Long = 0) {
         write("""{"t":${System.currentTimeMillis()},"ev":"done","id":$id,"ok":$ok,"ackMs":$ackMs,"bytes":$bytes""" +
+            (if (took > 0) ""","took":$took,"wrote":$wrote,"ack":$ack""" else "") +
             (error?.let { ""","error":${json(it)}""" } ?: "") + "}")
     }
 

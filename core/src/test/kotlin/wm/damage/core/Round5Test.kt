@@ -86,7 +86,7 @@ class Round5Test {
             comp.planes = listOf(Compositor.PlaneRegion(l.content, 8), Compositor.PlaneRegion(l.lens, 0))
             comp.composed.fillRect(l.content, 4 * 17)
             comp.composed.fillRect(l.lens, 12 * 17)
-            comp.requestKeyframe()
+            comp.requestKeyframe("test")
             suspend fun ship(a: Compositor.Assembled) {
                 val id = t.submit(FlushRequest(a.ops, a.epoch, "", wide = a.wide))
                 waitFor { synchronized(done) { id in done } }

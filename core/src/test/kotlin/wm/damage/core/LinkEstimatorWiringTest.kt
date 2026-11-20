@@ -147,7 +147,7 @@ class LinkEstimatorWiringTest {
         }
 
         fun keyframe(): FlushRequest {
-            comp.requestKeyframe()
+            comp.requestKeyframe("test")
             val a = assertNotNull(comp.assembleFlush(5))
             return FlushRequest(a.ops, a.epoch, "keyframe", wide = a.wide)
         }
