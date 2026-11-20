@@ -4359,6 +4359,7 @@ class Shell(
             stageCursor = null
             stage.remove(rec)
             stageRecount()
+            mainRestageEndedUnbooked(c, "could not be submitted")
             if (++stageWriteFailures >= STAGE_FAILURES_MAX) stageOff("$stageWriteFailures writes in a row could not be submitted, the last: ${e.message}")
             else journal.note("stage", "${rec.key} could not be submitted (${e.message}) at piece ${c.next + 1} of ${c.pieces.size} — it goes again later")
             return
@@ -4380,6 +4381,7 @@ class Shell(
         if (stage.records[c.rec.key] !== c.rec) {
             stageCursor = null
             journal.note("stage", "${c.rec.key} left the registry after ${c.next} of ${c.pieces.size} piece(s) — its write ends there, nothing names it")
+            mainRestageEndedUnbooked(c, "left the registry")
             return false
         }
         if (stageFailed || glassesSilent || !st.draw2 || !st.leaseHeld) return false
@@ -4398,6 +4400,17 @@ class Shell(
         stageCursor = null
         if (stage.records[c.rec.key] === c.rec) stage.remove(c.rec)
         journal.note("stage", "${c.rec.key} dropped after ${c.next} of ${c.pieces.size} piece(s) — $why; it goes again")
+        mainRestageEndedUnbooked(c, "was dropped by the count")
+    }
+
+    /** The focused read of B082 (F1): a Main re-stage that ends before it is booked — a piece that failed or could not be
+     *  submitted, a partial the count dropped, a record that left the registry — may have left bytes on the glasses that
+     *  the phone's copy does not hold (it takes the re-stage only at the booking), so a retry that finds the row back at
+     *  its old picture would write nothing over them. The staging is dropped and the next one writes whole. */
+    private fun mainRestageEndedUnbooked(c: StageCursor?, why: String) {
+        val k = c?.rec?.key as? MainStageKey ?: return
+        if (c.booked || k.firstLine < MainBinding.PATCH_KEY || k.content !== mainBind.staging) return
+        mainBindDrop("row ${k.firstLine - MainBinding.PATCH_KEY}'s re-stage $why before it was booked (its record may hold bytes the phone's copy does not)")
     }
 
     private fun stageDone(ev: TransportEvent.FlushDone) {
@@ -4415,6 +4428,7 @@ class Shell(
                 stage.remove(rec)
                 stageRecount()
             }
+            mainRestageEndedUnbooked(c, "failed (${ev.error})")
             if (++stageWriteFailures >= STAGE_FAILURES_MAX) stageOff("$stageWriteFailures writes in a row failed, the last: ${ev.error}")
             else journal.note("stage", "${rec?.key ?: "a record"}'s write ${ev.id}${c?.let { " (piece ${it.next + 1} of ${it.pieces.size})" } ?: ""} failed (${ev.error}) — it goes again later")
             post(Msg.Pump)
@@ -4427,7 +4441,7 @@ class Shell(
         if (c != null) {
             c.next++
             c.lastAckedAt = cacheLedger.acked
-            if (stage.records[c.rec.key] !== c.rec) stageCursor = null          // left the registry: abandoned, never named
+            if (stage.records[c.rec.key] !== c.rec) { stageCursor = null; mainRestageEndedUnbooked(c, "left the registry") }   // abandoned, never named
             else if (c.next < c.pieces.size) more = true                         // the next piece on the idle pump, input first
             else stageCursor = null
         }
@@ -5381,12 +5395,11 @@ class Shell(
         val p = ms.periodInForce
         return when {
             need > p -> need
-            // the focused read's W1 (ruled): never below the staging's own period — the fit with Auto, the length over the
-            // frames with a fixed count — the measurement only raises above it and comes back down to it
-            // (the floor itself is reached whatever the hysteresis says, so a small raise does not stay for good)
-            // his look at 0.81 (ruled): lowered only after [PERIOD_QUIET_MS] with no input, by at least [PERIOD_LOWER_MIN]
-            // ticks, never while an instance is open or a burst is ([mainPeriodApply] holds those) — each change is a SET
-            // flush landing on the two lenses at different moments; three came in 25 s of fast scrolling on 0.81
+            // ruled (W1; his look at 0.81): raised at once whenever the measured step × 1.10 needs more than the period in
+            // force; lowered only when idle — [PERIOD_QUIET_MS] with no input, nothing that may still draw, no burst
+            // ([mainPeriodApply] holds those) — by [PERIOD_LOWER_MIN] ticks or more, never below the staging's own period
+            // (the fit with Auto, length over frames with a fixed count). A raise of 1–3 ticks above that floor stays until
+            // the next staging: each change is a SET flush landing on the two lenses at different moments
             stepWindow.size >= PERIOD_WINDOW && maxOf(need, ms.period).let { t -> p - t >= PERIOD_LOWER_MIN } -> maxOf(need, ms.period)
             else -> null
         }
@@ -6031,7 +6044,7 @@ class Shell(
     private suspend fun mainBindRow(st: LinkState, ms: MainStaging, row: Int, write: Boolean, now: Long): Boolean {
         val ct = cachedText
         val want0 = ct?.wantVersion; val seen0 = ct?.seenVersion
-        val r = try { ms.restage(row, main.view(), kit, mainBindRelay(), force = mainBind.isForced(row)) }
+        val r = try { ms.restage(row, main.view(), kit, mainBindRelay()) }
             catch (e: wm.damage.core.geom.LintError) { mainBindDrop("Main's row $row cannot be painted again: ${e.message}"); return true }
         if (ct != null && (ct.wantVersion != want0 || ct.seenVersion != seen0)) {
             // the atlas first: the row stays marked, and is painted again once the atlas holds what it drew

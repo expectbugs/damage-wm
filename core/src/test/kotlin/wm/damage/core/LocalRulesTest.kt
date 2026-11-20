@@ -177,6 +177,18 @@ class LocalRulesTest {
         assertEquals(5, u16(b[di], 6), "naming the row in the LIST's staging")
     }
 
+    /** The focused read of B082 (N1): BIND cleared by hand inside a burst's wait — no SETTLE can close the burst any more
+     *  (none is sent unbound), so the read that says BIND is off closes it; else the save, a re-stage's pieces and the
+     *  period waited on it until the next session. */
+    @Test
+    fun aBurstIsClosedWhenBindGoes_N1() {
+        val t = R(row = 3)
+        t.scroll(1, 4); t.batch()
+        assertTrue(t.r.burstOpen, "a burst open after the report")
+        t.r.bindInForce(false)
+        assertTrue(!t.r.burstOpen, "closed once BIND is no longer in force")
+    }
+
     // ------------------------------------------------------------------------------------------ SETTLE (P7)
     /** P7 as ruled on DP2's report (decisions U.2): SETTLE names S_heard + 1 less 0x4000 (S_low decided no outcome once
      *  the bound was wide, so it is gone), its list's LIST riding before it (U.1). */
