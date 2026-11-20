@@ -119,7 +119,11 @@ class PcMusicPlayerTest {
             put("output", kotlinx.serialization.json.JsonPrimitive("17")); put("profile", kotlinx.serialization.json.JsonPrimitive("standard-mono-loudnorm"))
             put("backend", kotlinx.serialization.json.JsonPrimitive("SPOTIFY"))
         })
-        waitUntil("restored") { pc.state.output == wm.damage.core.windows.music.Output.PC }
+        // the player's thread in order: a verb posted after the restore answers once the restore has run
+        val after = java.util.concurrent.CompletableFuture<String?>()
+        pc.command("none", kotlinx.serialization.json.JsonObject(emptyMap())) { after.complete(it) }
+        after.get(5, java.util.concurrent.TimeUnit.SECONDS)
+        assertEquals(wm.damage.core.windows.music.Output.PC, pc.state.output)
         assertEquals(wm.damage.core.windows.music.Backend.LIBRARY, pc.state.backend)
         assertEquals(PcMusicPlayer.LOSSLESS, pc.state.profile)
     }

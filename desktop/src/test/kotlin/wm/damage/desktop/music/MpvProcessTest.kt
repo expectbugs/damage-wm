@@ -128,7 +128,7 @@ class MpvProcessTest {
 
     @Test fun `a device in another form is refused in words and starts nothing`() {
         val p = MpvProcess(fake, dir, "Desk speakers")
-        val e = assertFailsWith<java.io.IOException> { p.ensure(Owner()) }
+        val e = try { assertFailsWith<java.io.IOException> { p.ensure(Owner()) } } finally { p.stop("test") }
         assertTrue(e.message!!.contains("pipewire/<node name>"), e.message)
         assertNull(p.pid)
         assertEquals(0, fakesAlive())
