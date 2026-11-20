@@ -7655,7 +7655,7 @@ class Shell(
                     // build C3 (DP2): the arriving frame is held by the out half's owner; the flush that leaves nothing
                     // pending carries the in half's PLAY-AFTER after its drawing subs
                     val tr = transition
-                    val playAfter = tr?.takeIf { it.phase == TransitionRun.Phase.FRAME && !assembled.keyframe && !comp.hasPending && !comp.needsKeyframe }?.playAfter
+                    val playAfter = tr?.takeIf { it.phase == TransitionRun.Phase.FRAME && !transitionHoldInHalfForTest && !assembled.keyframe && !comp.hasPending && !comp.needsKeyframe }?.playAfter
                     val id = transport.submit(FlushRequest(assembled.ops, assembled.epoch, label,
                         wide = assembled.wide, tail = localTail + listOfNotNull(playAfter), held = tr?.held() ?: emptySet()))
                     transitionSubmitted(id, assembled.keyframe, playAfter != null)
@@ -7743,6 +7743,8 @@ class Shell(
     @Volatile internal var transitionRandom: java.util.Random = java.util.Random()
     /** Tests only: RIGHT's in-half body is not read (a lost body) — the deadline's CLOSE of both slots ends it. */
     @Volatile internal var transitionBodyLostForTest = false
+    /** Tests only: the in half's PLAY-AFTER is held back (the out half plays to done and keeps owning). */
+    @Volatile internal var transitionHoldInHalfForTest = false
     internal fun transitionPhaseForTest(): String? = transition?.phase?.name
     /** Transitions that ran whole (RIGHT's in-half body, outcome 0) this process. */
     private var transitionsWhole = 0
@@ -7857,7 +7859,7 @@ class Shell(
     /** The arriving frame drew nothing more and no flush carried the in half: its PLAY-AFTER goes alone. */
     private suspend fun transitionAlone() {
         val tr = transition ?: return
-        if (tr.phase != TransitionRun.Phase.FRAME || comp.hasPending || comp.needsKeyframe) return
+        if (tr.phase != TransitionRun.Phase.FRAME || transitionHoldInHalfForTest || comp.hasPending || comp.needsKeyframe) return
         val id = submitLocalOnly(listOf(tr.playAfter), "TRANSITION") ?: return transitionEnd("its PLAY-AFTER could not be submitted", close = true)
         transitionSubmitted(id, keyframe = false, carried = true)
     }

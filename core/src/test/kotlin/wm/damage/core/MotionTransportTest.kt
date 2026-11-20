@@ -475,6 +475,37 @@ class MotionTransportTest {
         t.stop()
     }
 
+    /** Build C3, D-3 (ruled; `FIRMWARE.md` §7.11): a flush held for an owner's slot — a transition's arriving frame —
+     *  leaves that owner open though it writes inside its meeting box (the held present keeps it off the panel); a write
+     *  in the same flush that meets ANOTHER owner closes that one first; and a flush held for nothing closes the owner it
+     *  meets, as before. Two owners side by side, slots 2 and 3. */
+    @Test
+    fun aFlushHeldForAnOwnerLeavesItOpenAndEveryOtherWriteStillClosesFirst_D3(): Unit = runBlocking {
+        val (sim, t) = effectsSession()
+        val fx = Motion.effects(DamageMsg.Caps(2, 0xdff), t.state.value.flagsInForce)
+        val a = Motion.program2(10_000, fx, own = true) { track(Rect(100, 100, 40, 40), Motion.Backdrop.Level(3)) { wait(200) } }
+        val b = Motion.program2(10_100, fx, own = true) { track(Rect(300, 100, 40, 40), Motion.Backdrop.Level(5)) { wait(200) } }
+        assertTrue(t.sendMotion(listOf(CfwModes.cacheUpdate2((a.records + b.records).map { (o, r) -> CfwModes.CacheWrite2(o, r) }, 256 * 1024),
+            Motion.play(a, 2, 128, 0x61, 0, IntArray(4)), Motion.play(b, 3, 128, 0x62, 0, IntArray(4)))))
+        waitUntil(10_000, message = { "both OWN PLAYs landed: refusal ${sim.refusalRecord(Arm.RIGHT)}" }) {
+            sim.motionForTest(Arm.RIGHT).slots[2]?.owns == true && sim.motionForTest(Arm.RIGHT).slots[3]?.owns == true }
+        val batches = java.util.concurrent.CopyOnWriteArrayList<ByteArray>()
+        sim.imageObserver = { arm, img -> if (arm == Arm.RIGHT && img[0].toInt() == 8) batches += img }
+        // held for slot 2, writing inside both boxes: slot 3's CLOSE heads the batch, slot 2 stays open
+        t.submit(FlushRequest(listOf(DisplayOp.Fill(Rect(110, 110, 8, 4), Rect(110, 110, 8, 4), 7),
+            DisplayOp.Fill(Rect(310, 110, 8, 4), Rect(310, 110, 8, 4), 7)), 0, "held for slot 2", held = setOf(2)))
+        waitUntil(10_000, message = { "the held flush landed" }) { batches.size >= 1 }
+        assertEquals(listOf(3, 3, 0, 26, 2, 3), (1 until 7).map { batches[0][it].toInt() and 0xFF }, "one CLOSE, of slot 3, heads the batch")
+        assertTrue(sim.motionForTest(Arm.RIGHT).slots[2]?.owns == true, "the owner the flush is held for stays open")
+        assertTrue(sim.motionForTest(Arm.RIGHT).slots[3] == null, "the other owner is closed")
+        // held for nothing, writing inside slot 2's box: its CLOSE heads the batch
+        t.submit(FlushRequest(listOf(DisplayOp.Fill(Rect(110, 110, 8, 4), Rect(110, 110, 8, 4), 9)), 0, "held for nothing"))
+        waitUntil(10_000, message = { "the second flush landed" }) { batches.size >= 2 }
+        assertEquals(listOf(2, 3, 0, 26, 2, 2), (1 until 7).map { batches[1][it].toInt() and 0xFF }, "the CLOSE of slot 2 heads the batch")
+        assertTrue(sim.motionForTest(Arm.RIGHT).slots[2] == null, "a flush not held for it closes the owner")
+        t.stop()
+    }
+
     /** Build C3 (§7.9): below stage 5 no PLAY-AFTER, LIST-RING or kind-3 SET reaches the glasses — offered through the
      *  motion API at stage 4 on a bit-11 build — while at stage 5 the same PLAY-AFTER does (the gate is not a wall). */
     @Test

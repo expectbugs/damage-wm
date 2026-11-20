@@ -438,6 +438,44 @@ class TransitionShellTest {
         } finally { r.close() }
     }
 
+    /**
+     * D-4 (ruled; `FIRMWARE.md` §7.11 "an owned rect stays out of the phone's agreement scan while its mark stands"): the
+     * in half held back (a test seam), the out half plays to done on RIGHT (notified, owning, its step T on the panel);
+     * the window then repaints three times beneath it — each a held flush whose completion runs the agreement scan with
+     * nothing pending — and no divergence is reported; let go, the in half lands and belief equals both lenses.
+     */
+    @Test
+    fun aDoneOutHalfStaysOutOfTheAgreementScanWhileItOwns_DP2(): Unit = runBlocking {
+        val r = Rig(stage = 5)
+        try {
+            r.up()
+            r.shell.transitionHoldInHalfForTest = true
+            r.recording = true
+            r.tap()
+            r.until("the out half done and still owning on RIGHT") {
+                r.onLoop { r.shell.transitionPhaseForTest() } == "FRAME" && r.sim.motionForTest(Arm.RIGHT).slots[2]?.let { !it.drawing && it.owns } == true }
+            val before = r.shell.divergencesReported
+            for (m in 1..3) {
+                val drawn = right(r).count { img -> subs(img).any { drawing(it) } }
+                r.rows[0].mark = m
+                r.shell.services.requestRender(r.rows[0])
+                r.until("repaint $m reaches RIGHT") { right(r).count { img -> subs(img).any { drawing(it) } } > drawn }
+                delay(150)                                   // its completion handled: the scan has run
+                assertTrue(r.sim.motionForTest(Arm.RIGHT).slots[2]?.owns == true, "repaint $m: the out half still owns (held, not closed)")
+            }
+            assertEquals(before, r.shell.divergencesReported, "no divergence while the done out half owns: ${r.notes("divergence")}")
+            r.shell.transitionHoldInHalfForTest = false
+            r.rows[0].mark = 4
+            r.shell.services.requestRender(r.rows[0])
+            r.until("the transition ends") { r.onLoop { r.shell.transitionPhaseForTest() } == null }
+            r.settle("after")
+            r.recording = false
+            assertTrue(r.notes("transition").any { it.startsWith("in half's last step drawn on RIGHT") }, "${r.notes("transition")}")
+            assertEquals(before, r.shell.divergencesReported, "no divergence at all: ${r.notes("divergence")}")
+            r.assertOracle("after the in half")
+        } finally { r.close() }
+    }
+
     /** DP2 items 1 and 6: a frame of several flushes — every one held (no CLOSE of slot 2), the PLAY-AFTER on the last
      *  only (no drawing image after it before the CLOSE that ends the transition), and nothing of the frame on RIGHT's
      *  panel when the PLAY-AFTER reaches it. */
