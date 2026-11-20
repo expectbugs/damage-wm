@@ -40,8 +40,9 @@ enum class ScrollEffect(val id: String, val word: String) {
  *   full level (the second track's backdrop is `none`: the two forms abut at every step, so nothing shows between them).
  * - [ScrollEffect.FALL]: Slide's tracks on an uploaded ease ([fallTable]): an ease-in that runs [FALL_OVERSHOOT_PCT] %
  *   past the end at step T − 1 and settles at T. No level is eased (the forms stay at 15), so the overshoot never takes
- *   a level outside 0..15; at the list's two ends the overshoot shows a few rows of the backdrop past the strip for one
- *   step (the strip ends there).
+ *   a level outside 0..15. At that one step (by the ease's arithmetic, at 352: 2 px past a 32 px pitch, 4 px past the
+ *   64 px band) the band shows its backdrop in the 4 px the entering form has passed, and at the list's two extreme
+ *   cursors the rows show 2 px of backdrop past the strip's end.
  */
 object ScrollEffects {
     /** Fall's overshoot at step T − 1, in percent of the travel (a pitch for the rows, the band's height for the band). */
