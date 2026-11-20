@@ -2950,6 +2950,8 @@ def vectors_v5(kf):
     s_r2 = gp(track(A0b, BD_NONE, gly(4, RAIN, rain2)))
     v2e = gp(track(rect(0, 200, 640, 60), 3, d2(6, pic, 0, 210, dx=500)))         # T 6
     v1e = c.add(prog(track(rect(0, 300, 640, 40), 4, drawrec(6, pic, 0, 305, dx=500))))
+    pw1 = c.add(prog2(track(A0b, 2, f2(4, 3, pref0=pref(0, F_W1)))))             # §7.2 (b24a110): a pref 15 into a FILL's w1
+    ph1 = c.add(prog2(track(OA, 2, pc(4, K_NEW, pref0=pref(0, F_H1))), fl=OWN))   # and a pref 12 into PIECES' h1 (unused there)
     st = [arm(c)]
     t = refusal_run(st, refusals, ok, 2000, 0x5000, c)
     st += [step(tk(t + 10 * i), msg(play(0, P, p_, 0x5100 + i))) for i, p_ in enumerate(taken)]   # each taken: its present draws step 1
@@ -2995,6 +2997,19 @@ def vectors_v5(kf):
     for i, p_ in enumerate([s_own, s_new, s_pcs, s_shr]):                           # OWN, `new`, PIECES kind 0, SHRINK at a COMMIT: 5
         st.append(step(tk(t + 30 + i), msg(commit(2, 0x7777, 0, 0, p_))))
     st.append(step(tk(t + 40), msg(commit(2, 0x7777, 0, 0, sp, (300,)))))            # the look-alike: taken
+    # §7.2 (b24a110) "These rules are decided on the segment after substitution: a pref that writes a parameter into
+    # such a field (pref 14–17 on any verb, any code on verbs 4–6) is 5 at a PLAY, PLAY-AFTER, RETARGET, fire or COMMIT
+    # whose parameter there is not 0; a SET, which has no parameters, decides with every parameter 0"
+    t += 200
+    st += [step(tk(t), msg(bind_set(0, ANY, UP, 0, 1, 1, P, pw1, [(K_ARG, 5)])), inp(RING, UP)),   # taken at the SET; the fire (P0 5): 5
+           step(tk(t + 10), msg(bind_set(0, ANY, UP, 0, 1, 1, P, pw1, [(K_ARG, 0)])), inp(RING, UP)),   # P0 0: drew
+           step(tk(t + 10), wake()),
+           step(tk(t + 20), msg(play(2, P, pw1, 0x5130, P=(5,)))),                 # a PLAY whose parameter is not 0: 5
+           step(tk(t + 30), msg(play(2, P, pw1, 0x5131, P=(0,)))),                 # 0: taken
+           step(tk(t + 40), msg(play(3, P, ph1, 0x5132, P=(3,)))),                 # PIECES' h1 by a pref, not 0: 5
+           step(tk(t + 50), msg(play(3, P, ph1, 0x5133, P=(0,)))),                 # 0: taken
+           step(tk(t + 60), msg(commit(2, 0x7777, 0, 0, pw1, (5,)))),              # at a COMMIT, not 0: 5
+           step(tk(t + 70), msg(close(0xFF)))]
     vec("v5-order", st)
 
     # ---------------------------------------------------------------------------------------------------------------
@@ -3026,6 +3041,9 @@ def vectors_v5(kf):
     ph_ob = c.add(prog(track(rect(380, 100, 40, 30), 12, fillseg(3, 13))))  # a phone PLAY meeting OB
     apart = c.add(prog(track(rect(560, 400, 60, 40), 6, fillseg(3, 2))))   # a phone PLAY apart from every owner
     band = c.add(prog(track(rect(120, 90, 120, 40), 2, drawrec(3, pic, 120, 0, pref0=pref(0, F_Y)))))   # a list program meeting OA
+    own_pl = c.add(prog2(track((rect(100, 260, 80, 40), rect(160, 260, 80, 40)), 3, w2(3)), fl=OWN))   # owned: L [100, 180), R [160, 240); box [100, 240)
+    m_left = c.add(prog(track(rect(110, 270, 30, 20), 6, fillseg(3, 9))))   # meets LEFT's owned rect only
+    m_right = c.add(prog(track(rect(200, 270, 30, 20), 2, drawrec(3, pic, 200, 0, pref0=pref(0, F_Y)))))   # RIGHT's only (a list program)
     st = [arm(c)]
     t = 2000
     st += [step(tk(t), msg(batch(fill(rect(110, 90, 80, 40), 12), play(0, P, out_, 0x7001)))),   # 1  owns OA: step 1 from the panel's picture, the fill held; no END
@@ -3105,6 +3123,19 @@ def vectors_v5(kf):
         step(stock()),
         step(tk(t + 2 * P + 20), {"lease": "acquire"}, flags(FULL5), msg(kf), *writes(c), tk(t + 2 * P + 20), msg(play(0, P, out_, 0x7063))),
         step(tk(t + 3 * P + 20), wake())]
+    # §7.3 (b24a110) "Meeting: one box over both lenses ... Every meeting decision uses the box — a PLAY's and a
+    # PLAY-AFTER's close pass, a COMMIT's close pass, close-on-meet's area test, and the fire's close set (and so its 19) —
+    # so both lenses decide alike"; "The held copy and LAND use each lens's own owned rect"
+    t += 400
+    st += play_to_end(0, own_pl, 0x7070, t, 3) + [
+        step(tk(t + 2 * P + 10), msg(batch(fill(rect(100, 262, 140, 30), 13)))),   # held per lens: LEFT's rect on LEFT, RIGHT's on RIGHT
+        step(tk(t + 2 * P + 20), msg(play(1, P, m_left, 0x7071)))]               # meets LEFT's owned rect only: closed on both lenses
+    t += 300
+    st += play_to_end(0, own_pl, 0x7072, t, 3) + [
+        step(tk(t + 2 * P + 10), page(True), msg(bind_list(1, NONE, 8, 4, 10, 2)),
+             msg(bind_set(2, ANY, DOWN, 1, -1, 3, P, m_right, [(K_ARG, 270)]))),   # the lowest DOWN entry; slot 3
+        step(tk(t + 2 * P + 20), inp(RING, DOWN)),                                 # its area meets RIGHT's owned rect only: 19 on both
+        step(tk(t + 2 * P + 30), msg(close(0xFF)))]
     vec("v5-own", st)
 
     # ---------------------------------------------------------------------------------------------------------------
@@ -3129,6 +3160,8 @@ def vectors_v5(kf):
              (c.add(prog2(track(PL, BD_NONE, r2(4, RIGHT, K_NEW, 300, 200, xR=316)), fl=OWN)), 4),
              (c.add(prog2(track(NA, 0, dnew(4, 40, 60, dy=-40)), fl=OWN | LAND)), 4)]
     nout = c.add(prog2(track(NA, 0, dnew(3, 40, 60)), bad=True))                                  # `new` outside OWN: 5
+    nrw = c.add(prog2(track(NA, BD_NONE, w2(1), r2(3, TOP, K_NEW, 40, 60), w2(1)), fl=OWN))       # one REVEAL between WAITs, none: taken
+    n2r = c.add(prog2(track(NA, BD_NONE, r2(2, TOP, K_NEW, 40, 60), r2(2, LEFT, K_NEW, 40, 60)), fl=OWN))   # two REVEALs in one such track: 2
     st = [arm(c), step(tk(1500), msg(fill_pair(rect(310, 210, 60, 40), rect(380, 230, 60, 40), 15)))]   # the two shadows differ in PL
     t = 2000
     st += [step(tk(t), msg(batch(fill(rect(50, 70, 60, 40), 12), play(0, P, nrest, 0x7101)))),   # at rest: step 1 is the shadow's picture
@@ -3144,6 +3177,11 @@ def vectors_v5(kf):
                                      play(i % 4, P, p_, 0x7110 + i))))]
         st += [step(tk(t + k * P), wake()) for k in range(1, T_)]
         st += [step(tk(t + T_ * P), msg(close(i % 4)))]
+    t += 400                                                                     # §7.2 (b24a110): the none-backdrop rule's exception
+    st += [step(tk(t), msg(batch(fill(rect(70, 90, 50, 30), 8), play(0, P, nrw, 0x7120)))),     # taken: WAIT, REVEAL, WAIT
+           *[step(tk(t + k * P), wake()) for k in range(1, 5)],
+           step(tk(t + 5 * P), msg(play(1, P, n2r, 0x7121))),                      # two REVEAL segments: 2
+           step(tk(t + 5 * P + 10), msg(close(0xFF)))]
     vec("v5-new", st)
 
     # ---------------------------------------------------------------------------------------------------------------
