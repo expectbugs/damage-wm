@@ -5728,6 +5728,13 @@ class Shell(
     fun graceState(): Pair<Int, Boolean> = notifications.graceStep to (graceJob != null)
     /** Build K1-4a, tests: the notice's programs as "STYLE lines STATE" (a wait's condition; read off the loop). */
     internal fun noticeProgramsForTest(): List<String> = noticeProgs.map { "${it.style} ${it.lines} ${it.rec.state}" }
+    /** Build K1-4a, tests: why the programs are not written (one line; off the loop, a diagnosis only). */
+    internal fun noticeDiagForTest(): String = transport.state.value.let { st ->
+        "key ${noticeLayoutKey(st) != null} region ${CfwModes.noticeRegion(st.cacheSize, st.bind)} cache ${st.cacheSize} bind ${st.bind} " +
+            "flags 0x${st.flagsInForce.toString(16)} draw2 ${st.draw2} lease ${st.leaseHeld} ledger ${ledgerReadable(st)} stageFailed $stageFailed " +
+            "inFlight ${st.inFlight} pending ${comp.hasPending} stageInFlight $stageInFlight atlas $atlasInFlight/${atlasQueue.size} " +
+            "ledgerRead $ledgerReadInFlight progs ${noticeProgs.size}"
+    }
 
     /** A staging the region could not hold, by what it was painted for: not painted again until one of those changes. */
     private var mainBindRefusedFor: String? = null

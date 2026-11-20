@@ -51,7 +51,11 @@ object MotionCheck {
             val f = try { one(name, outDir, features, out) } catch (e: Exception) { listOf("$name: ${e.javaClass.simpleName}: ${e.message}") }
             failures += f
         }
-        out.println("motion-check: ${TestPrograms.NAMES.size} program(s) into $outDir")
+        // build K1-4a: the notice box's programs (the timer, the Fade and Slide arrivals), for the lead's look
+        for (style in wm.damage.core.motion.PopupPrograms.Style.entries) {
+            failures += try { popup(style, outDir, features, out) } catch (e: Exception) { listOf("popup-${style.name.lowercase()}: ${e.javaClass.simpleName}: ${e.message}") }
+        }
+        out.println("motion-check: ${TestPrograms.NAMES.size} program(s) and 3 notice programs into $outDir")
         if (failures.isEmpty()) { out.println("motion-check: ALL HOLD"); return 0 }
         out.println("motion-check: ${failures.size} FAILURE(S):")
         for (f in failures) out.println("  - $f")
@@ -150,4 +154,90 @@ object MotionCheck {
     }
 
     private fun crc(b: ByteArray) = java.util.zip.CRC32().also { it.update(b) }.value
+
+    /**
+     * Build K1-4a: one notice program played over a stage holding the box as the programs' END (the shell's paint with
+     * the engine's timer: full ink, the bar whole) over a few rows, at disparity 0, in a 256 KiB cache with the records
+     * and the capture where the shell puts them (the notice region). An arrival is played with a hold of 2 steps (the
+     * shell's is the rest of the 255 steps, replaced by the timer's PLAY at the arrival's end). Writes
+     * `DIR/popup-STYLE.png` (every step, the left lens above the right, cropped to the box) and `.txt`; the same checks
+     * as a test program's.
+     */
+    private fun popup(style: wm.damage.core.motion.PopupPrograms.Style, outDir: Path, features: Int, out: java.io.PrintStream): List<String> {
+        val name = "popup-${style.name.lowercase()}"
+        val cacheSize = 256 * 1024
+        val failures = ArrayList<String>()
+        val text = AwtText()
+        val n = wm.damage.core.shell.Notifications(text)
+        val l = wm.damage.core.geom.Layout()
+        val notice = wm.damage.core.shell.Notifications.Notice("SMS · MOM", "mom", "on my way, should be there in about twenty minutes", "2:32")
+        n.post(notice, l)
+        repeat(6) { n.stepUnfurl(l, silent = false) }
+        n.engine = true
+        val stage = wm.damage.core.gfx.Gray8(Geometry.PANEL_W, Geometry.PANEL_H)
+        for (row in 0 until 8) text.draw(stage, 40, 120 + row * 32, "Row $row of the window under the box", wm.damage.core.text.FontSpec(wm.damage.core.text.Face.SYSTEM, 18), 8 * 17)
+        n.captureUnder(stage, n.fullRect(notice, l, false))
+        n.paint(stage, l, silent = false)
+        val geo = wm.damage.core.motion.PopupPrograms.Geo(n.fullRect(notice, l, false), n.ruleOffset(), wm.damage.core.shell.Notifications.BAR_INSET, 0)
+        val region = CfwModes.noticeRegion(cacheSize, true)!!
+        val at = region.first / 4
+        val (pa, fa) = wm.damage.core.shell.MainStaging.timing(geo.areaPx, wm.damage.core.shell.MainStaging.ScrollMotion(300, 0))
+        val program = if (style == wm.damage.core.motion.PopupPrograms.Style.TIMER) wm.damage.core.motion.PopupPrograms.timer(at, geo)
+            else wm.damage.core.motion.PopupPrograms.arrival(at, geo, style, fa, 2)
+        val period = if (style == wm.damage.core.motion.PopupPrograms.Style.TIMER) wm.damage.core.motion.PopupPrograms.TIMER_PERIOD else pa
+        val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = features; it.clockIsOsTick = true }
+        var now = 1000L
+        fun send(what: String, m: ByteArray) {
+            for (arm in Arm.entries) if (!sim.conformanceMessage(arm, m, now)) failures += "$name: $arm refused $what (refusal record ${sim.refusalRecord(arm)})"
+        }
+        for (arm in Arm.entries) {
+            sim.conformanceLease(arm, true, now)
+            sim.conformanceControl(arm, DamageMsg.OP_CACHE_SIZE, cacheSize / 1024, now)
+            sim.conformanceControl(arm, DamageMsg.OP_FLAGS_SET, DamageMsg.FLAG_DRAW2 or DamageMsg.FLAG_ENGINE, now)
+        }
+        send("the stage's keyframe", CfwModes.keyframe(Zl.encodeCfw(Pack.rect(stage, Rect(0, 0, Geometry.PANEL_W, Geometry.PANEL_H)))))
+        send("the program", CfwModes.cacheUpdate2(listOf(CfwModes.CacheWrite2(at, program.bytes)), cacheSize))
+        val frames = ArrayList<Frame>()
+        fun take(label: String) { frames += Frame(label, now, sim.snapshot(Arm.LEFT), sim.snapshot(Arm.RIGHT)) }
+        take("before")
+        now = 2000L
+        val t0 = now
+        send("the PLAY", wm.damage.core.motion.Motion.play(program, wm.damage.core.motion.PopupPrograms.SLOT, period, 1,
+            (region.first + CfwModes.NOTICE_PROGRAMS) / 4, IntArray(4)))
+        take("step 1")
+        val steps = program.T
+        for (k in 2..steps) {
+            now = t0 + (k - 1).toLong() * period
+            for (arm in Arm.entries) sim.conformanceWake(arm, now)
+            take("step $k")
+        }
+        for (arm in Arm.entries) if (sim.panelCrc32(arm) != sim.shadowCrc32(arm)) failures += "$name: $arm shows something other than END after the last step"
+        val crop = Rect(geo.box.x - PAD, geo.box.y - PAD, geo.box.w + 2 * PAD, geo.box.h + 2 * PAD)
+        val cols = minOf(COLS, frames.size)
+        val rows = (frames.size + cols - 1) / cols
+        val cellW = crop.w + GAP
+        val cellH = 2 * crop.h + GAP / 2 + GAP
+        val img = BufferedImage(cols * cellW + GAP, rows * cellH + GAP, BufferedImage.TYPE_INT_RGB)
+        for (y in 0 until img.height) for (x in 0 until img.width) img.setRGB(x, y, 0x502020)
+        val stride = (Geometry.PANEL_W + 1) / 2
+        frames.forEachIndexed { i, f ->
+            val ox = GAP + (i % cols) * cellW
+            val oy = GAP + (i / cols) * cellH
+            for ((lens, panel) in listOf(0 to f.l, 1 to f.r)) for (y in 0 until crop.h) for (x in 0 until crop.w) {
+                val px = crop.x + x; val py = crop.y + y
+                val b = panel[py * stride + (px shr 1)].toInt() and 0xFF
+                val v = (if (px and 1 == 0) b shr 4 else b and 0x0F) * 17
+                img.setRGB(ox + x, oy + lens * (crop.h + GAP / 2) + y, ((v * 0.16).toInt() shl 16) or (minOf(255, (v * 1.05).toInt()) shl 8) or (v * 0.34).toInt())
+            }
+        }
+        ImageIO.write(img, "png", outDir.resolve("$name.png").toFile())
+        Files.writeString(outDir.resolve("$name.txt"), buildString {
+            appendLine("$name: T $steps at period $period (${"%.1f".format(period * 1000.0 / 1024)} ms), ${program.bytes.size} B program at ${region.first}, " +
+                "${program.captureBytes} B capture at ${region.first + CfwModes.NOTICE_PROGRAMS}; the box ${geo.box}, one step paints ${geo.areaPx} px a lens")
+            appendLine("strip: ${frames.size} frames, $cols per row; in each frame the left lens above the right; crop $crop at 1x")
+            if (failures.isEmpty()) appendLine("checks: every message taken by both lenses; each lens shows END after the last step") else for (f in failures) appendLine("FAILED: $f")
+        })
+        out.println("  ${if (failures.isEmpty()) "held" else "FAILED"}: $name -> $name.png, $name.txt")
+        return failures
+    }
 }

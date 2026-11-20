@@ -16,8 +16,9 @@ import wm.damage.core.geom.Rect
  * Three tracks, per lens (the box sits at the content's disparity d until focus: left lens x − d, right x + d):
  *  1. the box above its bottom rule — backdrop 0 (the hole), DRAW `self` with its level eased: the timer 5 (≈ 30 %)
  *     at step 1, 5 → 14 (≈ 93 %) over steps 2..16, 15 at step 17 (= END, 2.0 s after step 1 at P 128);
- *  2. the top rule — backdrop level 1, REVEAL of a level-8 solid 232×2 from the left over steps 2..17 (empty at step 1,
- *     whole at END);
+ *  2. the top rule's bar run (8 px in from each end) — backdrop level 1, REVEAL of a level-8 solid 232×2 from the left
+ *     over steps 2..17 (empty at step 1, whole at END); the rule's ends are the box's own capture (track 1), so they
+ *     dim with the box (a level-1 mark is 0 below level 15) and are exact at END;
  *  3. the bottom rule — backdrop `self`, held (the v1 LUT draws a level-1 mark at 0 below level 15: §5.4's DRAW, so the
  *     rule is kept at its own level by its own capture instead).
  * The arrivals (Fade, Slide) run at their own period ([PopupPrograms.arrival]); one instance has one period (§5.3), so
@@ -48,7 +49,10 @@ object PopupPrograms {
      *  end, at disparity [d]. */
     data class Geo(val box: Rect, val ruleOff: Int, val barInset: Int, val d: Int) {
         val upper: Rect get() = Rect(box.x, box.y, box.w, box.h - 2)
-        val rule: Rect get() = Rect(box.x, box.y + ruleOff, box.w, 2)
+        /** The bar's run on the top rule (inset from both ends): the bar's track. Not the whole rule — where a nearer
+         *  plane covers the box's edge columns on a lens (Main's selection bar, one notch nearer, covers 4 of them) the
+         *  truth there is that plane's, which only a `self` track reproduces; the rule's ends come from the box's capture. */
+        val rule: Rect get() = Rect(box.x + barInset, box.y + ruleOff, box.w - 2 * barInset, 2)
         val bottom: Rect get() = Rect(box.x, box.bottom - 2, box.w, 2)
         val barW: Int get() = box.w - 2 * barInset
         fun l(r: Rect) = r.translate(-d, 0)
@@ -93,7 +97,7 @@ object PopupPrograms {
         track(g.l(g.rule), g.r(g.rule), Motion.Backdrop.Level(RULE_LEVEL)) {
             wait(lead)
             reveal(Motion.Source.level(BAR_LEVEL, g.barW, 2), Motion.Edge.LEFT, n = revealSteps,
-                x = g.l(g.rule).x + g.barInset, xR = g.r(g.rule).x + g.barInset, y = g.rule.y)
+                x = g.l(g.rule).x, xR = g.r(g.rule).x, y = g.rule.y)
         }
 
     private fun Motion.ProgramBuilder.bottomTrack(g: Geo, steps: Int) =
