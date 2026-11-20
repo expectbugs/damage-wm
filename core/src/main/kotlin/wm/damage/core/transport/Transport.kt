@@ -36,7 +36,8 @@ interface Transport {
 
     /** A gesture from a replica (mouse, touch, browser page) enters HERE, as a
      *  ring event on [events], so it reaches whichever shell drives this
-     *  transport — a phone touch during a PC takeover included. */
+     *  transport — a phone touch during a PC takeover included. Marked
+     *  [TransportEvent.Input.injected]: it is no lens's gesture. */
     fun injectInput(type: Int)
 
     /** A typed LINE from a replica (phone strip, browser page, desktop
@@ -290,8 +291,10 @@ data class FlushRequest(
 )
 
 sealed class TransportEvent {
-    /** A ring/temple gesture, already decoded. type = EvenHubMsg.EV_*, source = SRC_*. */
-    data class Input(val type: Int, val source: Int) : TransportEvent()
+    /** A ring/temple gesture, already decoded. type = EvenHubMsg.EV_*, source = SRC_*. [injected]: made on a screen (the
+     *  phone's mirror, the PC's preview: [Transport.injectInput]) and stamped as the ring's — no lens fired for it and no
+     *  report will come, so the local rules leave it alone (B083 fix stage; the focused read's 3). */
+    data class Input(val type: Int, val source: Int, val injected: Boolean = false) : TransportEvent()
 
     /** Build C2 (`FIRMWARE.md` §6.5, §6.7 P2): one notify-115 report of a gesture the glasses matched, in arrival order
      *  with the [Input] events (a stock message is handled after every report that preceded it on the link). */

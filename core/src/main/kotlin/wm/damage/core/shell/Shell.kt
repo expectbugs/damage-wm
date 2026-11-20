@@ -2830,9 +2830,11 @@ class Shell(
 
     // ------------------------------------------------------------------ transport
     /** A stock scroll message or click from the ring while the rules are active (§6.7 P2, P5): read against the echo owes
-     *  before it is handled. */
+     *  before it is handled. A gesture made on a screen ([TransportEvent.Input.injected]) is no stock message — no lens fired
+     *  for it — so it is handled at once as today, and the rules see the row move ([LocalRules] `observe`: the slot's
+     *  answer is a DISCARD naming it). */
     private fun localReads(ev: TransportEvent.Input): Boolean =
-        ev.source == EvenHubMsg.SRC_RING && local.active && wm.damage.core.local.LocalRules.Stock.of(ev.type) != null
+        !ev.injected && ev.source == EvenHubMsg.SRC_RING && local.active && wm.damage.core.local.LocalRules.Stock.of(ev.type) != null
 
     /** Whether a transport event's pump is a gesture's (its flush may take the window's last slot and is journaled as
      *  input): a typed line, or an Input — but not one the rules read, which is input only when their verdict applies or
@@ -5453,8 +5455,6 @@ class Shell(
     private var wrapTagOut = -1
     private var wrapHeldUntil = 0L
     private fun wrapSent(w: MainWrap) { wrapTagOut = w.tag; wrapHeldUntil = w.end.untilMs }
-    /** B083 (2c): the cells held are the wrap's (no later motion holds them) and its wait still runs. */
-    private fun wrapHolding(nowMs: Long) = comp.deferring && comp.deferUntilMs <= wrapHeldUntil && nowMs < comp.deferUntilMs
 
     /**
      * Decisions AZ.4: the pan across Main's wrap, when the rules found an edge at an end of the bound list with the row now
@@ -5791,6 +5791,8 @@ class Shell(
     internal fun mainBoundForTest(): Pair<wm.damage.core.local.BoundList?, Int> = main.bound() to main.row()
     /** Test introspection (build ANIM, AW.4): Q in force and the bound pan's motion in ms (T × P), loop-only. */
     internal fun localQForTest(): Long = local.q
+    /** The rules' counters (`unreported`, `stockHeld`, …), read on the loop. */
+    internal fun localCountsForTest(): Map<String, Int> = local.counts.toMap()
     internal fun motionMsForTest(): Long = mainBind.staging?.let { it.t * it.periodInForce * 1000L / 1024 } ?: 0L
     /** G4 item 1: assembles the shell made between the last edge report's verdict and its wrap's PLAY (0: the PLAY went
      *  first); the period in force (BF); the measured window. Loop-only. */
@@ -7656,8 +7658,11 @@ class Shell(
             // the wrap's PLAY goes ahead of the rules' answers (the DISCARD naming the wrapped row); a keyframe's batch
             // denies it (it closes every instance) and the row is drawn as today
             val wrapPlay = wrap?.takeIf { it.end.slot !in denied }?.also { wrapSent(it) }?.play
-            val localTail = if (localOn) listOfNotNull(wrapPlay) + local.tail(localRow(), localNow, denied, frame = assembled != null, wrapped = wrapPlay != null,
-                    waitCursor = wrapPlay == null && wrapHolding(localNow))
+            // B083 fix stage (the focused read's 1): no answer waits for the wrap's held cells — a DISCARD held with them let
+            // the next notch fire from the wrap's row and be adopted, a notch of an edge burst lost; a tap inside the wait
+            // acting on a row the panel does not show yet is the declared residual (his taps come ≥ 696 ms after a scroll
+            // message, `FIRMWARE.md` §6.1)
+            val localTail = if (localOn) listOfNotNull(wrapPlay) + local.tail(localRow(), localNow, denied, frame = assembled != null, wrapped = wrapPlay != null)
                 else emptyList()
             if (assembled == null && localTail.isNotEmpty()) submitLocalOnly(localTail, "LOCAL")
             if (assembled != null) {

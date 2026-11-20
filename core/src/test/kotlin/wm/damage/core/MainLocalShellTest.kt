@@ -154,7 +154,7 @@ class MainLocalShellTest {
             for (a in Arm.entries) sim.conformanceInput(a, CfwModes.DEV_RING, eventId.toLong(), 0, now)
             val stock = BoundList.stockEvent(eventId)!!
             // a link that takes time: the stock message rides the uplink behind the 115 the hook just sent (§6.1)
-            (t as? LinkRig)?.later { t.injectInput(stock) } ?: t.injectInput(stock)
+            (t as? LinkRig)?.later { t.ringStockForTest(stock) } ?: t.ringStockForTest(stock)
             return sim.bindForTest(Arm.RIGHT).seq
         }
 
@@ -1532,12 +1532,16 @@ class MainLocalShellTest {
     }
 
     /** B082 (the split on 0.81): a re-stage that comes due while the wrap's held wait still runs — past the burst's lone
-     *  SETTLE by the wrap's start allowance — sends its first piece only once that wait has ended: a cache write meeting
-     *  a drawing instance's read range closes it (§5.6). B083 (2c): the wait ends at the wrap's last-step report when that
-     *  comes first, so the pin reads the lens itself — the piece reaches RIGHT with the wrap's instance no longer drawing. */
+     *  SETTLE — sends its first piece only once that wait has ended: a cache write meeting a drawing instance's read range
+     *  closes it (§5.6). B083 fix stage (item 7; the focused read's area 6): a pin that bites. Over the per-packet link rig
+     *  the wrap's PLAY leaves behind a stall of [stall] ms on the downlink (a frame of several KB in flight when the edge's
+     *  report comes; his 0.81 journal: the wrap started 332–442 ms after the edge's report, measured), so the wrap draws
+     *  after the burst's SETTLE; a band-only row change is owed meanwhile. The first piece must reach RIGHT with the wrap's
+     *  instance no longer drawing; without the gate it goes at the SETTLE, once the PLAY is acknowledged, and meets it. */
     @Test
     fun aRestageWaitsForTheWrapsMotionNotJustItsBurst_B082(): Unit = runBlocking {
-        val r = Rig(Taps.REPORT, kib256 = true)
+        val r = Rig(Taps.REPORT, link = 20L to 30L)
+        val stall = 400L
         try {
             r.up()
             walkTo(r, r.list().count - 1)
@@ -1547,20 +1551,25 @@ class MainLocalShellTest {
                 25 -> java.util.zip.Inflater().run { setInput(img, 1, img.size - 1); val out = ByteArray(4); inflate(out); end(); r.u16(out, 0) * 4 }
                 else -> -1
             }
-            val at = r.right.size
-            var pieceAt = 0L
+            val t0 = System.currentTimeMillis()
+            var playAt = 0L; var pieceAt = 0L; var pieceBytes = 0
             var wrapDrawing: String? = null
-            r.onAnyImage = { a, img -> if (a == Arm.RIGHT && pieceAt == 0L && r.cacheWrite(img) && firstOff(img) >= regionStart) {
-                pieceAt = System.currentTimeMillis()
-                r.sim.motionForTest(Arm.RIGHT).slots[MainStaging.WRAP_SLOT]?.takeIf { it.drawing && it.d < it.T }?.let { wrapDrawing = "step ${it.d} of ${it.T}" } } }
+            r.onAnyImage = { a, img -> if (a == Arm.RIGHT) {
+                if (playAt == 0L && r.subs(img).any { isWrapPlay(it) }) playAt = System.currentTimeMillis()
+                if (pieceAt == 0L && r.cacheWrite(img) && firstOff(img) >= regionStart) {
+                    pieceAt = System.currentTimeMillis(); pieceBytes = img.size
+                    r.sim.motionForTest(Arm.RIGHT).slots[MainStaging.WRAP_SLOT]?.takeIf { it.drawing && it.d < it.T }?.let { wrapDrawing = "step ${it.d} of ${it.T}" } } } }
+            (r.t as LinkRig).stallNextMs = stall
             r.fire(CfwModes.EV_UPROLL)                                       // the wrap
-            r.until("the wrap's PLAY on RIGHT") { wrapBatch(r, at) != null }
-            val until = r.onLoop { r.shell.comp.deferUntilMs }
-            r.rows[3].s = r.rows[3].s.copy(line = "summary 33")                // a re-stage owed now
+            r.until("the wrap's PLAY decided") { r.notes("local").any { "went ahead of its frame" in it } }
+            r.rows[3].s = r.rows[3].s.copy(line = "summary 33")                // a band-only row change owed now
             r.shell.services.requestRender(r.rows[3])
             r.until("the re-stage's first piece", 15_000) { pieceAt != 0L }
             r.onAnyImage = null
-            assertTrue(wrapDrawing == null, "the first piece reached RIGHT while the wrap drew (${wrapDrawing}), ${until - pieceAt} ms before its allowance ended")
+            println("B082-pin: stall $stall ms; the PLAY on RIGHT +${playAt - t0} ms, the first piece ($pieceBytes B) +${pieceAt - t0} ms; " +
+                "Q ${r.q()} ms, the motion ${r.motionMs()} ms; ${wrapDrawing ?: "the wrap no longer drawing"}")
+            assertTrue(playAt - t0 >= stall, "the shape: the PLAY reached RIGHT behind the stall (+${playAt - t0} ms)")
+            assertTrue(wrapDrawing == null, "the first piece reached RIGHT while the wrap drew ($wrapDrawing)")
             delay(r.q() + 300); r.settle("after")
             r.assertOracle("after the wrap and the re-stage")
         } finally { r.close() }
@@ -1604,7 +1613,7 @@ class MainLocalShellTest {
             r.up()
             walkTo(r, 2)
             val s0 = r.notes("snapback").size; val at = r.right.size
-            r.t.injectInput(BoundList.stockEvent(CfwModes.EV_UPROLL)!!)
+            r.t.ringStockForTest(BoundList.stockEvent(CfwModes.EV_UPROLL)!!)
             delay(40)
             val now = System.currentTimeMillis()
             for (a in Arm.entries) r.sim.conformanceInput(a, CfwModes.DEV_RING, CfwModes.EV_UPROLL.toLong(), 0, now)
@@ -1626,13 +1635,85 @@ class MainLocalShellTest {
             r.up()
             walkTo(r, 2)
             val s0 = r.notes("snapback").size
-            r.t.injectInput(BoundList.stockEvent(CfwModes.EV_UPROLL)!!)
+            r.t.ringStockForTest(BoundList.stockEvent(CfwModes.EV_UPROLL)!!)
             delay(60)
             assertEquals(2, r.row(), "held: nothing applied yet")
             delay(r.q() + 300); r.settle("after")
             assertEquals(3, r.row(), "applied as today at the burst's end")
             assertTrue(r.notes("snapback").drop(s0).any { "cause=lost-report" in it }, "the lost-report snap-back: ${r.notes("snapback").drop(s0)}")
             r.assertOracle("after the release")
+        } finally { r.close() }
+    }
+
+    /** B083 fix stage (item 2; the focused read's 1, shown in this shell): over the slow link, k notches past the end 60 ms
+     *  apart — all edges, the wrap's DISCARD has not landed — and one notch more once the later edges' DISCARD has landed,
+     *  or 740 ms after the first at the latest. The DISCARD now goes when the link has room (its frame still waits behind
+     *  the wrap; it lands about +600 ms here), so that notch fires from the burst's row: the row at rest is the ring's, k.
+     *  With the DISCARD held for the wrap's wait it went with the frame and landed about +860 ms, the notch fired from the
+     *  wrap's row 0 and was adopted at the burst's row: k = 2 ended on row 1, k = 3 on row 1 (a forward notch moved the
+     *  row back). */
+    @Test
+    fun aNotchInsideTheWrapsWaitAfterAnEdgeBurst_B083F2(): Unit = runBlocking {
+        for (k in listOf(2, 3)) {
+            val r = Rig(Taps.REPORT, link = 20L to 30L, linkLatency = 250)
+            try {
+                r.up()
+                walkTo(r, r.list().count - 1)
+                val img0 = r.right.size
+                val t0 = System.currentTimeMillis()
+                repeat(k) { r.fire(CfwModes.EV_UPROLL); delay(60) }
+                while (System.currentTimeMillis() < t0 + 740 && r.sim.bindForTest(Arm.RIGHT).lists[0].cursor != k - 1) delay(4)
+                val firedAt = System.currentTimeMillis() - t0
+                val lensCursor = r.sim.bindForTest(Arm.RIGHT).lists[0].cursor
+                val rowBefore = r.row()
+                val wrapDrawing = r.sim.motionForTest(Arm.RIGHT).slots[MainStaging.WRAP_SLOT]?.drawing == true
+                r.fire(CfwModes.EV_UPROLL)
+                delay(r.motionMs() + r.q() + 1500); r.settle("after k=$k")
+                val told = r.right.drop(img0).flatMap { r.subs(it) }.filter { it[0].toInt() == 26 && it[1].toInt() in 3..5 && it.size >= 8 }
+                    .map { (if (it[1].toInt() == 3) "C" else if (it[1].toInt() == 4) "D" else "S") + ((it[6].toInt() and 0xFF) or ((it[7].toInt() and 0xFF) shl 8)) }
+                println("B083F2 k=$k: the extra notch at +$firedAt ms, the lens's cursor $lensCursor, the phone's row $rowBefore, the wrap drawing $wrapDrawing; " +
+                    "at rest row ${r.row()} (the ring says $k); told $told; the motion ${r.motionMs()} ms")
+                assertEquals(k, r.row(), "k=$k: the row at rest is the ring's")
+                r.assertOracle("after k=$k and the extra notch")
+            } finally { r.close() }
+        }
+    }
+
+    /** B083 fix stage (item 3; the focused read's 3): a drag on the phone's mirror of Main — three notches 25 ms apart
+     *  through `injectInput`, no lens firing — is no ring event: each is handled at once as today, nothing counts in u, no
+     *  table repair goes. Before, 2b held each as a possible echo for Q and released them together, each counted in u with
+     *  a `lost-report` snap-back, and the table repair re-sent the scroll SETs. */
+    @Test
+    fun aDragOnTheMirrorIsHandledAtOnce_B083F3(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT)
+        try {
+            r.up()
+            walkTo(r, 1)
+            val repairs0 = r.notes("repair").size
+            repeat(3) { r.t.injectInput(EvenHubMsg.EV_SCROLL_BOTTOM); delay(25) }
+            r.until("the drag applied at once, inside Q (${r.q()} ms)", 350) { r.row() == 4 }
+            delay(r.q() + 300); r.settle("after the drag")
+            assertEquals(4, r.row(), "three notches, three rows")
+            val c = r.onLoop { r.shell.localCountsForTest() }
+            assertEquals(null, c["unreported"], "nothing counted in u: $c")
+            assertEquals(null, c["stockHeld"], "nothing held: $c")
+            assertEquals(repairs0, r.notes("repair").size, "no table repair: ${r.notes("repair").drop(repairs0)}")
+            r.assertOracle("after the drag")
+        } finally { r.close() }
+    }
+
+    /** B083 fix stage (item 3): under `Taps · glasses`, with RIGHT known to hold the tap entry (a ring tap first), a tap on
+     *  the phone's screen acts — before, it was read as a click whose 115 was lost and dropped (`tapdrop no-report`). */
+    @Test
+    fun aScreenTapActsUnderTapsGlasses_B083F3(): Unit = runBlocking {
+        val r = Rig(Taps.GLASSES)
+        try {
+            r.up()
+            tap(r)                                                         // a ring tap: tapsLive, then back on Main
+            walkTo(r, 2)
+            r.t.injectInput(EvenHubMsg.EV_CLICK)
+            r.until("the screen tap opens row 2's window", 5_000) { r.onLoop { r.shell.currentWindowId() } == "w2" }
+            assertTrue(r.notes("tapdrop").isEmpty(), "no tap dropped: ${r.notes("tapdrop")}")
         } finally { r.close() }
     }
 
@@ -1722,7 +1803,12 @@ private class LinkRig(glass: GlassFirmwareSim, scope: CoroutineScope, c1: java.n
         for (ch in listOf(up, down)) scope.launch { for ((due, f) in ch) { val w = due - System.currentTimeMillis(); if (w > 0) delay(w); f() } }
     }
     fun later(f: () -> Unit) { up.trySend(System.currentTimeMillis() + upMs to f) }
+    /** B083 fix stage (item 7): the next packet written to LEFT (the image lane) waits this long first, and every later one
+     *  behind it (a frame of several KB in flight ahead of it, in one ordered lane). */
+    @Volatile var stallNextMs = 0L
     override suspend fun writeArm(arm: Arm, packet: ByteArray) {
+        val stall = stallNextMs
+        if (arm == Arm.LEFT && stall > 0) { stallNextMs = 0; delay(stall) }
         delay(downMs)
         if (latencyMs <= 0) { glass.write(arm, packet, nowMs()); return }
         down.trySend(System.currentTimeMillis() + latencyMs to { glass.write(arm, packet, nowMs()) })

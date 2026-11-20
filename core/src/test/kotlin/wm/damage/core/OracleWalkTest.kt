@@ -536,7 +536,7 @@ class OracleWalkTest {
                         val now = System.currentTimeMillis()
                         for (arm in Arm.entries) rig.sim.conformanceInput(arm, wm.damage.core.wire.CfwModes.DEV_RING, e.eventId.toLong(), 0, now)
                         val fired = rig.sim.bindForTest(Arm.RIGHT).seq != before
-                        rig.transport.injectInput(wm.damage.core.local.BoundList.stockEvent(e.eventId)!!)
+                        rig.transport.ringStockForTest(wm.damage.core.local.BoundList.stockEvent(e.eventId)!!)
                         if (fired && !e.isTap) { val f = list.predict(row, e); if (f is wm.damage.core.local.BoundList.Fire.Drew) drew++ }
                         if (fired && e.isTap) { acted++; if (taps == wm.damage.core.local.Taps.GLASSES) presses++ }
                         // the lens draws the local picture to its end (a period of steps and one more)

@@ -68,6 +68,8 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         const val BAND_MS = 200L
         /** A telemetry read's round trip, fixed (no draw from the sequence's random stream). */
         const val READ_MS = 60L
+        /** A released frame's way to the lens at the most: a pump and the longest downlink (S33's residual window). */
+        const val WRAP_FRAME_MS = 60L
     }
 
     // ------------------------------------------------------------------------------------------- the cache
@@ -197,7 +199,19 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     private val stockArrival = HashMap<Long, Int>()
     /** Gestures left out of the count by a session start (in flight, or held and cleared there), for the fuzz's count. */
     val ringLostAtStart = ArrayList<Int>()
+    /** Gestures counted by their stock message whose held message the burst's end released with Main no longer in front
+     *  (a cover or a window came meanwhile): the release applied the notch to what was in front then. The fuzz names
+     *  this shape in (9)'s failure when it is the whole difference — still a failure. */
     val ringReleasedOffFront = LinkedHashSet<Int>()
+    /** Gestures RIGHT took whose 115, an edge, was lost (the lens did not move; P5 counts every lost report as drawn). */
+    val ringLostEdge = LinkedHashSet<Int>()
+    /** Gestures RIGHT did not take whose held message a report paired as an echo (its notch is then never applied). */
+    val ringUntakenPaired = LinkedHashSet<Int>()
+    /** Gestures counted by their stock message whose held message the burst's end applied after a re-stage that came
+     *  while it was held: the phone moved from the re-staged row, the count from the row before it (each its step at the
+     *  release, for the fuzz's naming). */
+    val ringAppliedAfterRestage = LinkedHashMap<Int, Pair<Long, Long>>()
+    private var lastRestageAt = Long.MIN_VALUE
     private fun mainInFront() = !covered && !window
 
     /** The phone heard of scroll gesture [g] ([how]): the first time decides whether it counts. */
@@ -224,8 +238,9 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
      *    message was how the phone first heard of it (a held echo of a gesture already reported takes back nothing);
      *  - a re-stage maps the ring's row by identity, as the phone maps its own (the identity's new index, 0 when it left).
      */
-    fun ringRow(without: Set<Int> = emptySet()): Int {
-        val evs = ArrayList(ringLog.filter { it.g !in without })
+    fun ringRow(without: Set<Int> = emptySet(), late: Set<Int> = emptySet()): Int {
+        val evs = ArrayList(ringLog.filter { it.g !in without && it.g !in late })
+        for (g in late) if (g !in without) ringAppliedAfterRestage[g]?.let { (t, n) -> evs += RingEv(t, n, ringStep[g]!!, g = g) }
         for ((g, at) in ringAtFire) if (g !in ringHow && fires[g]?.sR != null && at.third && g !in without) evs += RingEv(at.first, at.second, ringStep[g]!!, g = g)
         evs.sortWith(compareBy<RingEv>({ it.t }, { it.n }))
         var ids = IntArray(n0) { it }
@@ -346,8 +361,8 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
             if (field == 115) {
                 val a = DamageMsg.Applied(m)
                 val g = a.s?.let { bySR[it] } ?: -1
-                if (loseNext115 > 0) { loseNext115--; continue }
-                if (rnd.nextDouble() < lose115) continue
+                if (loseNext115 > 0) { loseNext115--; if (a.outcome == DamageMsg.APPLIED_EDGE && g >= 0) ringLostEdge += g; continue }
+                if (rnd.nextDouble() < lose115) { if (a.outcome == DamageMsg.APPLIED_EDGE && g >= 0) ringLostEdge += g; continue }
                 val rev = reverse115At; reverse115At = null
                 // 2b: after its stock message, and in order with everything sent after it (RIGHT's one notify stream)
                 if (rev != null) { val t = maxOf(lastUp + 1, rev); lastUp = t; at(t) { phoneReport(a, g) } } else
@@ -407,6 +422,9 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
             val reversed = !tap && extra == 0L && stockFirst > 0 && rnd.nextDouble() < stockFirst
             if (reversed) up(now, 0, scroll = true) { phoneStock(st, g) }.let { t -> reverse115At = t + 1 + rnd.nextInt(stockLeadMax) }
             if (!tap) ringAtFire[g] = Triple(now, ringN++, mainInFront())
+            // B083 fix stage (item 2): a tap RIGHT takes while the last wrap's held wait — or the frame it released — can
+            // still stand between the lens's cursor and its panel: S33's shape, the declared residual
+            else if (wrapPlays > 0 && now < wrapUntil + WRAP_FRAME_MS) tapNearWrap += g
             input(Arm.RIGHT)
             drainSent()
             reverse115At = null
@@ -439,7 +457,10 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         if (g >= 0 && g !in reportHeardAt) reportHeardAt[g] = now
         if (g >= 0) ringHeard(g, "115")
         val uBefore = rules.u; val heardBefore = rules.sHeard
+        val heldAt = rules.heldForTest.map { it.second }; val pairedBefore = rules.counts["stockPaired"] ?: 0
         val v = rules.report(a, row, now)
+        if ((rules.counts["stockPaired"] ?: 0) > pairedBefore) { val left = rules.heldForTest.map { it.second }.toSet()
+            for (at in heldAt) if (at !in left) stockArrival[at]?.let { gm -> if (fires[gm]?.sR == null) ringUntakenPaired += gm } }
         // decisions BB with 2b: a gap charged against messages applied as unreported — since 2b, released at a burst's end,
         // whose notches need not be the gap's. B083 fix stage (item 1): the shape is declared on the gesture whose report
         // was charged, never on the whole sequence
@@ -552,7 +573,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         val shift = newRow - row
         tableSlot = 1 - tableSlot
         sendDown(write19(tableAt[tableSlot], itemTable(newIds)))
-        ringLog += RingEv(now, ringN++, to = newIds.copyOf())
+        ringLog += RingEv(now, ringN++, to = newIds.copyOf()); lastRestageAt = now
         ids = newIds
         row = newRow
         markBase++
@@ -796,10 +817,13 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     fun pump() {
         if (!rules.active) return
         // ruled 11-19 (2b): the shell's pump releases held stock messages at the burst's end before anything else
-        val physical = rules.heldForTest.map { stockArrival[it.second] }
+        val heldNow = rules.heldForTest
+        val physical = heldNow.map { stockArrival[it.second] }
         val released = rules.releaseHeld(row, now)
         if (released.isNotEmpty() && !mainInFront()) for (g in physical) if (g != null && ringHow[g] == "stock" && ringCounted[g] == true) {
             ringReleasedOffFront += g; trace?.invoke("[$now] ring: g$g's held message released with Main not in front") }
+        if (released.isNotEmpty() && mainInFront()) for ((g, at) in physical.zip(heldNow.map { it.second }))
+            if (g != null && ringHow[g] == "stock" && ringCounted[g] == true && lastRestageAt > at) ringAppliedAfterRestage[g] = now to ringN++
         for (v in released) {
             val sent = heldGesture.removeFirstOrNull() ?: -1
             val g = orphans.removeFirstOrNull() ?: sent
@@ -847,10 +871,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         if (wrapOpen && subs.any { it.second.overlaps(BAND) }) { subs = listOf(CfwModes.motionClose(WRAP_SLOT) to BAND) + subs; wrapOpen = false; wrapCuts++ }
         held = (dirty intersect hold).filter { differs(m2, t, it) }.toSet()
         if (held.isNotEmpty()) heldBatches++
-        // B083 (2c), the shell's `wrapHolding`: while the wrap's wait runs, no DISCARD or SETTLE sets the cursor ahead of the
-        // panel (the list's frame waits behind the wrap)
-        val waitCursor = wrapPlay == null && carryHold && deferAreas.isNotEmpty() && now < deferUntil && deferUntil <= wrapUntil
-        val tail = listOfNotNull(wrapPlay) + rules.tail(row, now, emptySet(), frame = subs.isNotEmpty(), wrapped = wrapPlay != null, waitCursor = waitCursor)
+        val tail = listOfNotNull(wrapPlay) + rules.tail(row, now, emptySet(), frame = subs.isNotEmpty(), wrapped = wrapPlay != null)
         if (wrapPlay != null) { wrapOpen = true; wrapPlays++; wrapUntil = deferUntil }
         for (c in tail) if (c[0].toInt() == 26 && c[1].toInt() == 3) {
             commitBatches += ((c[3].toInt() and 0xFF) or ((c[4].toInt() and 0xFF) shl 8)) to subs.map { it.second }
@@ -873,6 +894,8 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     private var deferUntil = 0L
     /** The end of the wait the last wrap PLAY was given (the shell's `wrapHeldUntil`). */
     private var wrapUntil = 0L
+    /** Taps RIGHT took inside the last wrap's held wait or within [WRAP_FRAME_MS] after it (S33's residual, item 2). */
+    val tapNearWrap = HashSet<Int>()
     /** The hold carried across batches (the shell's rule, the default); false: held in the answer's batch alone (the
      *  harness before B083 — the skewed rig's 0.82 rule set). */
     var carryHold = true
@@ -943,9 +966,11 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     // ---- a session start (P1): keyframe, the arming, the start's bind batch
     fun start(fresh: Boolean) {
         // the ring's count (item 1): what the restart drops in flight, and what its clearing of the hold takes back
-        for ((g, _) in ringAtFire) if (g !in ringHow && fires[g]?.sR != null) { ringHow[g] = "start"; ringCounted[g] = false; ringLostAtStart += g }
+        for ((g, _) in ringAtFire) if (g !in ringHow && fires[g]?.sR != null) { ringHow[g] = "start"; ringCounted[g] = false; ringLostAtStart += g
+            trace?.invoke("[$now] ring: g$g not heard by the session start — counts nothing") }
         for ((_, at) in rules.heldForTest) { val g = stockArrival[at] ?: continue
-            if (ringHow[g] == "stock" && ringCounted[g] == true) { ringLog += RingEv(now, ringN++, -ringStep[g]!!); ringLostAtStart += g } }
+            if (ringHow[g] == "stock" && ringCounted[g] == true) { ringLog += RingEv(now, ringN++, -ringStep[g]!!); ringLostAtStart += g
+                trace?.invoke("[$now] ring: g$g's held message cleared by the session start — its step taken back") } }
         q.clear(); lastUp = now; lastScrollUp = now; lastDown = now; pumpAt = Long.MAX_VALUE
         heldGesture.clear(); orphans.clear()            // 2b: the rules' start clears the hold
         deferAreas = emptyList()                        // the start's keyframe ends every motion's wait

@@ -136,9 +136,16 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
     /** P5: the echo owes per kind and of either kind — each for a stock message still to come, cleared at every SETTLE —
      *  and [u], the stock messages that arrived unreported for the bound list since S_heard last advanced (scroll messages
      *  and clicks alike: a gap says how many reports were missed, never their kinds). Decisions BB: [u] is kept across a
-     *  SETTLE and cleared only when S_heard advances, where a gap is charged against it first and only the remainder
-     *  becomes owes — a message that already came and was applied as today is owed nothing. */
+     *  SETTLE and cleared only when S_heard advances, where a gap is charged against it after the messages held since the
+     *  last report (the B083 fix stage) and only the remainder becomes owes — a message that already came and was applied
+     *  as today is owed nothing. */
     var owesScroll = 0; private set
+    /** [owesScroll] by the direction of the report that owes it (its stock type): a scroll message pays an owe of its own
+     *  direction (B083 fix stage, the focused read's 4 — S31's rule at arrival: a message of the other direction is a
+     *  notch the lens did not report, held to the burst's end, never another notch's echo). */
+    private val owesDir = HashMap<Int, Int>()
+    private fun owesDirInc(type: Int?) { if (type != null) owesDir[type] = (owesDir[type] ?: 0) + 1 }
+    private fun owesDirDec(type: Int?) { if (type != null) owesDir[type] = ((owesDir[type] ?: 0) - 1).coerceAtLeast(0) }
     var owesClick = 0; private set
     var owesAny = 0; private set
     var u = 0; private set
@@ -155,13 +162,17 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
      *  and arrival. Held as possible echoes until a report pairs them, else applied as today at the burst's end
      *  ([releaseHeld]): Q after the later of the last report and the last of these — the burst's own wait, no clock of its
      *  own. On the phone 27 of 332 stock messages came before their report (his 0.80/0.81 journals, measured). */
-    private val heldStock = ArrayDeque<Pair<Int, Long>>()
+    private val heldStock = ArrayDeque<HeldStock>()
+    /** One held stock message: its type, its arrival, and S_heard then — a report's gap is charged first against the
+     *  messages that arrived since the last report ([heard] equal to S_heard before it): they are its lost reports' echoes
+     *  (B083 fix stage, the focused read's 2). */
+    private data class HeldStock(val type: Int, val at: Long, val heard: Int)
     /** When the held stock messages are released ([releaseHeld]); null with none held. */
-    private fun holdEndAt(): Long? = heldStock.lastOrNull()?.let { (_, at) -> maxOf(if (burstOpen) lastReportMs else 0L, at) + q }
+    private fun holdEndAt(): Long? = heldStock.lastOrNull()?.let { maxOf(if (burstOpen) lastReportMs else 0L, it.at) + q }
     /** For the harnesses: the stock messages held now (2b). */
     val stockHeldNow: Int get() = heldStock.size
     /** For the sequence fuzz's ring count: the held messages, each its type and arrival. */
-    internal val heldForTest: List<Pair<Int, Long>> get() = heldStock.toList()
+    internal val heldForTest: List<Pair<Int, Long>> get() = heldStock.map { it.type to it.at }
     /** 2b in force (the default). False only in the skewed two-lens rig, which measures the rules before it (0.82): an
      *  unreported scroll message is then applied at its arrival. */
     internal var holdStock = true
@@ -238,7 +249,7 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         this.taps = taps
         active = bind
         sHeard = sHeard0 and 0xFFFF; this.armUptime = armUptime
-        owesScroll = 0; owesClick = 0; owesAny = 0; u = 0; heldStock.clear()
+        owesScroll = 0; owesClick = 0; owesAny = 0; u = 0; heldStock.clear(); owesDir.clear()
         tapsLive = false; burstOpen = false; bindFlag = true
         slots.clear(); held.clear(); pending.clear(); touchedSinceRead.clear(); lastRow.clear(); lastFront = front?.list ?: -1
         wireMark.fill(-1); staged.fill(null)
@@ -384,15 +395,27 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
             if (tap) tapdrop("stale", a, row)
             return Verdict.Nothing
         }
-        // P5: the gap g, the owes it adds (n: the gap less the unreported messages that already came since S_heard last
-        // advanced, decisions BB — those were applied as today, whatever SETTLE came between), then this report's own owe
+        // P5: the gap g — the reports missed since S_heard. B083 fix stage (the focused read's 2): it is charged first
+        // against the stock messages held since the last report (they came, so they are its echoes, paired now: k), then
+        // the remainder against the unreported messages that already came since S_heard last advanced (decisions BB — those
+        // were applied as today, whatever SETTLE came between), and only what is left becomes owes of either kind (n), for
+        // messages still to come. Charged against u first, a gap took a release that stood for a notch RIGHT never took
+        // and left its own echoes held, each applied again at the burst's end. P3's bound and the tap rule's (4) count every
+        // missed report the lens drew: k + n
         val g = s16(s - sHeard - 1).coerceAtLeast(0)
-        val n = (g - u).coerceAtLeast(0)
+        var k = 0
+        while (k < g) {
+            val i = heldStock.indexOfFirst { it.heard == heardBefore }
+            if (i < 0) break
+            heldStock.removeAt(i); k++; count("stockPaired")
+        }
+        val n = (g - k - u).coerceAtLeast(0)
         owesAny += n
         count("gap", g)
         u = 0
         sHeard = s
-        if (tap) owesClick++ else owesScroll++
+        val ownType = if (tap) null else a.eventId?.let { BoundList.stockEvent(it) }
+        if (tap) owesClick++ else { owesScroll++; owesDirInc(ownType) }
         burstOpen = true
         lastReportMs = nowMs
         if (tap) {
@@ -408,23 +431,21 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
             // decisions AF.5 (P4): a refused 3 or 14 body names no list, and with none in front it is nobody's to answer —
             // its own owe is taken back, so its stock message is applied as today (the gesture on a cover is not lost);
             // one that already came and is held (2b) goes now
-            if (tap) owesClick-- else owesScroll--
+            if (tap) owesClick-- else { owesScroll--; owesDirDec(ownType) }
             note("local", "a 115 naming no slot the phone knows — not answered; its stock message goes as today: ${a.describe()}")
-            if (!tap && heldStock.isNotEmpty()) Verdict.Apply(heldStock.removeFirst().first) else Verdict.Nothing
+            if (!tap && heldStock.isNotEmpty()) Verdict.Apply(heldStock.removeFirst().type) else Verdict.Nothing
         }
-        // ruled 11-19 (2b): stock messages held before this report are its echo — one of its own direction for its own owe
-        // (a held message of the other direction is a notch the lens did not report, which goes at the burst's end: paired
-        // here, the seed 100004 shape, a held PREV paid a NEXT's owe and the NEXT's own message moved the row a second
-        // time), and any for the owes of the reports its gap lost (their kind is not known)
-        val ownType = if (tap) null else a.eventId?.let { BoundList.stockEvent(it) }
-        if (ownType != null && owesScroll > 0) heldStock.indexOfFirst { it.first == ownType }.takeIf { it >= 0 }?.let { i ->
-            heldStock.removeAt(i); owesScroll--; count("stockPaired")
+        // ruled 11-19 (2b): a stock message held before this report is its own echo when it is of its own direction (a held
+        // message of the other direction is a notch the lens did not report, which goes at the burst's end: paired here,
+        // the seed 100004 shape, a held PREV paid a NEXT's owe and the NEXT's own message moved the row a second time).
+        // The gap's echoes were paired above; its owes left (n) are for messages still to come (decisions BB)
+        if (ownType != null && owesScroll > 0) heldStock.indexOfFirst { it.type == ownType }.takeIf { it >= 0 }?.let { i ->
+            heldStock.removeAt(i); owesScroll--; owesDirDec(ownType); count("stockPaired")
         }
-        while (heldStock.isNotEmpty() && owesAny > 0) { heldStock.removeFirst(); owesAny--; count("stockPaired") }
         val st = slot(slotNo, heardBefore)
         st.list = listId
         repair.onReport(a, this)
-        return if (tap) tapRule(a, st, n, row, nowMs) else scrollRule(a, st, n, row, nowMs)
+        return if (tap) tapRule(a, st, k + n, row, nowMs) else scrollRule(a, st, k + n, row, nowMs)
     }
 
     private fun scrollRule(a: DamageMsg.Applied, st: Slot, n: Int, row: Int, nowMs: Long): Verdict {
@@ -512,7 +533,11 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         if (!active) return Verdict.Apply(kind.type)
         if (!kind.click) lastScrollMsgMs = nowMs
         if (kind.click && owesClick > 0) { owesClick--; clickArrived(); return Verdict.Nothing }
-        if (!kind.click && owesScroll > 0) { owesScroll--; return Verdict.Nothing }
+        // B083 fix stage (the focused read's 4): a scroll message pays an owe of its own direction, else one of either kind,
+        // else it is held — S31's rule at arrival (seed 100100487: a notch made under a cover, its message held back by the
+        // rubber band past the uncover, paid a later notch's owe of the other direction, whose own message then moved the
+        // row a second time)
+        if (!kind.click && (owesDir[kind.type] ?: 0) > 0) { owesScroll--; owesDirDec(kind.type); return Verdict.Nothing }
         if (owesAny > 0) { owesAny--; if (kind.click) clickArrived(); return Verdict.Nothing }
         val f = front
         if (!kind.click) {
@@ -522,7 +547,7 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
             // ruled 11-19 (2b): no report yet, a list bound — a possible echo whose report is still on its way (the lens
             // always answers a bound notch with a 115: drew, edge or refused). Held until a report pairs it, or the burst
             // ends ([releaseHeld]); nothing is drawn for it meanwhile
-            heldStock.addLast(kind.type to nowMs)
+            heldStock.addLast(HeldStock(kind.type, nowMs, sHeard))
             count("stockHeld")
             return Verdict.Nothing
         }
@@ -625,7 +650,7 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         observe(row)
         val out = ArrayList<Verdict>()
         while (heldStock.isNotEmpty()) {
-            val (type, _) = heldStock.removeFirst()
+            val type = heldStock.removeFirst().type
             val f = front
             val e = f?.let { fl -> heldFor(fl.list, CfwModes.EV_UPROLL) ?: heldFor(fl.list, CfwModes.EV_DOWNROLL) }
             if (!unbound && f != null && e != null) unreported(f)
@@ -688,12 +713,7 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
      * Everything returned is taken as sent: the shell sends it in this batch or not at all (a rolled-back flush keyframes,
      * and the keyframe's start re-sends the table).
      */
-    fun tail(row: Int, nowMs: Long, denied: Set<Int> = emptySet(), frame: Boolean = true, wrapped: Boolean = false,
-             /** B083 (2c; the fuzz's seed 101032 once the harness held as the shell does): the wrap's held wait runs, so the
-              *  list's frame cannot go — a DISCARD or SETTLE would set the lens's cursor to a row its panel does not show
-              *  (the wrap's END stands there), and a tap then acts on a row he never saw. They wait with the frame (the
-              *  slot stays owed); a COMMIT, which writes its END with its cursor, goes. */
-             waitCursor: Boolean = false): List<ByteArray> {
+    fun tail(row: Int, nowMs: Long, denied: Set<Int> = emptySet(), frame: Boolean = true, wrapped: Boolean = false): List<ByteArray> {
         observe(row)
         if (!active) return emptyList()
         val out = ArrayList<ByteArray>()
@@ -712,7 +732,10 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         pending.clear()
         if (hadClearAll) tapsLive = false
         // 2. the table repair's re-sends (the 5th kind waits for a batch that carries a SETTLE)
-        val settleHere = !burstOpen && !waitCursor
+        // B083 fix stage (the focused read's 5): the idle batch's SETTLE waits for the release too, as the lone one does
+        // (S29) — sent while a message is held, it names the row that message has not moved yet and sets the lens's
+        // cursor back under the notch it drew; the batch that draws the release carries it
+        val settleHere = !burstOpen && heldStock.isEmpty()
         takeRepairs(out, settleHere, listed, setEntries, clearedEntries)
         // 3. the answers, one per owed slot
         for ((n, st) in slots.toSortedMap()) {
@@ -721,7 +744,6 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
             val commit = h != null && st.moved == null && st.discard == null && st.handled.all { it.adopted && !it.tap } &&
                 st.list !in listed && n !in denied && front?.let { it.list == h.list && it.slot == n } == true
             val list = st.list.takeIf { it in 0 until CfwModes.BIND_LISTS }
-            if (!commit && waitCursor) continue
             if (commit) {
                 ridingList(out, h!!.list, listed)
                 out += CfwModes.motionCommit(n, h.s, h.list, h.cursor, h.prog4, h.p!!)
@@ -824,7 +846,7 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         tapNoClick()
         // the owes go (a stock message still owed may never come: the rubber band); u stays until S_heard advances
         // (decisions BB: the next burst's first report charges its gap against the messages that already came)
-        owesScroll = 0; owesClick = 0; owesAny = 0
+        owesScroll = 0; owesClick = 0; owesAny = 0; owesDir.clear()
         repair.settleSent()
         discardSinceSettle.clear()
         unconfirmed.clear(); committed.clear()

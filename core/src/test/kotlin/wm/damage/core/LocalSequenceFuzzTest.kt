@@ -15,7 +15,9 @@ import wm.damage.core.transport.Arm
  * fire on one lens — through [LocalRules] and the batch composer against the simulator's two lenses ([LocalHarness]) —
  * and after every sequence the eight invariants:
  *  (1) every act is on the row RIGHT showed (its cursor at the tap's fire, under the staging its mark names); a click
- *      acted on as today is the stated residual — counted, not failed;
+ *      acted on as today is the stated residual — counted, not failed; so is a tap RIGHT took inside a wrap's held wait,
+ *      whose cursor a DISCARD set ahead of the frame held behind the wrap (S33's shape, declared by the B083 fix stage:
+ *      his taps come ≥ 696 ms after a scroll message, `FIRMWARE.md` §6.1) — per tap, never for a sequence;
  *  (2) at rest each lens's panel and shadow equal the phone's truth;
  *  (3) both lenses' cursors on the phone's row after a SETTLE (the list in front);
  *  (4) at rest: no owes, no burst open, no slot owing an answer, S_heard not ahead of RIGHT's S (u is not read: since
@@ -44,6 +46,8 @@ class LocalSequenceFuzzTest {
     /** B083 (2b with decisions BB): a gap charged against a released message — declared on the gesture whose report was
      *  charged only (B083 fix stage, item 1; it was sequence-wide), random sequences only; (9) still judges the row. */
     private val gapOnReleasedKey = "(8) 2b+BB: a gap charged against a released message"
+    /** B083 fix stage (item 2): S33's shape, a declared residual since the cursor wait was removed. */
+    val s33Key = "(1) S33: a tap inside a wrap's held wait acted on the row its cursor named"
     private fun moved(h: LocalHarness, failed: MutableList<String>, counted: MutableMap<String, Int>, seeded: Boolean, suffix: String) {
         for ((g, n) in h.moves) {
             if (n <= 1) continue
@@ -57,20 +61,37 @@ class LocalSequenceFuzzTest {
     private fun ringCount(h: LocalHarness, failed: MutableList<String>, suffix: String) {
         val want = h.ringRow()
         if (h.row == want) return
-        val off = h.ringReleasedOffFront
-        val shape = if (off.isNotEmpty() && h.ringRow(off) == h.row) " — $offFrontShape (g${off.joinToString(",g")})" else ""
-        failed += "(9) the row at rest is ${h.row}, the ring's count says $want$suffix$shape"
+        // the shapes named when they make the whole difference (still a failure each): 2b's hold across a cover or a
+        // window, a lost edge report counted as drawn, an untaken notch's message paired as a report's echo
+        val shapes = listOf(offFrontShape to h.ringReleasedOffFront, lostEdgeShape to h.ringLostEdge, untakenShape to h.ringUntakenPaired,
+            restagedShape to h.ringAppliedAfterRestage.keys).filter { it.second.isNotEmpty() }
+        var named = ""
+        search@ for (n in 1..shapes.size) for (pick in subsets(shapes.indices.toList(), n)) {
+            val gs = pick.filter { shapes[it].first != restagedShape }.flatMap { shapes[it].second }.toSet()
+            val late = if (pick.any { shapes[it].first == restagedShape }) h.ringAppliedAfterRestage.keys else emptySet()
+            if (h.ringRow(gs, late) == h.row) { named = " — " + pick.joinToString(" + ") { "${shapes[it].first} (g${shapes[it].second.joinToString(",g")})" }; break@search }
+        }
+        failed += "(9) the row at rest is ${h.row}, the ring's count says $want$suffix$named"
     }
+    private fun subsets(xs: List<Int>, n: Int): List<List<Int>> = if (n == 0) listOf(emptyList()) else if (xs.size < n) emptyList()
+        else subsets(xs.drop(1), n - 1).map { listOf(xs[0]) + it } + subsets(xs.drop(1), n)
+    /** The (9) shapes the harness can name. */
     val offFrontShape = "held message(s) released with Main not in front"
+    val lostEdgeShape = "lost edge report(s) counted as drawn"
+    val untakenShape = "untaken notch(es) paired as an echo"
+    val restagedShape = "held message(s) applied after a re-stage"
 
     // ----------------------------------------------------------------------------------------- the invariants
     /** (1)–(5) and (8) at rest; [lossy]: a mode-27 message was lost or refused this sequence. */
-    fun atRest(h: LocalHarness, failed: MutableList<String>, counted: MutableMap<String, Int>, seeded: Boolean = false) {
+    fun atRest(h: LocalHarness, failed: MutableList<String>, counted: MutableMap<String, Int>, seeded: Boolean = false,
+               /** S33's residual counted apart: every random sequence, and the one seeded case that pins it. */
+               residualS33: Boolean = !seeded) {
         val before = failed.size
         h.rest()
         // (1)
         for (a in h.acts) {
-            if (a.viaRule) { if (a.rightId != a.id) failed += "(1) gesture ${a.gesture}: acted on identity ${a.id}, RIGHT showed ${a.rightId}" }
+            if (residualS33 && a.viaRule && a.rightId != a.id && a.gesture in h.tapNearWrap) counted[s33Key] = (counted[s33Key] ?: 0) + 1
+            else if (a.viaRule) { if (a.rightId != a.id) failed += "(1) gesture ${a.gesture}: acted on identity ${a.id}, RIGHT showed ${a.rightId}" }
             else if (a.rightId != null && a.rightId != a.id) counted["(1) residual ${a.taps.word}"] = (counted["(1) residual ${a.taps.word}"] ?: 0) + 1
         }
         // (2) — strict for every shape: a lens numbered behind RIGHT (counted apart before decisions U.2) fails too
@@ -230,7 +251,8 @@ class LocalSequenceFuzzTest {
     // ----------------------------------------------------------------------------------------- the seeded cases
     /** A scripted sequence with fixed delays: [script] drives it, then every invariant at rest and, unless [live] is
      *  false, the two liveness checks; [extra] adds the case's own observable. Fails with every invariant that broke. */
-    private fun seeded(taps: Taps, live: Boolean = true, rows: Int = 3, script: (LocalHarness) -> Unit, extra: (LocalHarness) -> List<String> = { emptyList() }) {
+    private fun seeded(taps: Taps, live: Boolean = true, rows: Int = 3, residualS33: Boolean = false, script: (LocalHarness) -> Unit,
+                       extra: (LocalHarness) -> List<String> = { emptyList() }) {
         val h = LocalHarness(42, taps)
         h.fixed = true
         if (System.getenv("LOCAL_FUZZ_TRACE") != null) h.trace = { println(it) }
@@ -240,7 +262,7 @@ class LocalSequenceFuzzTest {
         script(h)
         val failed = ArrayList<String>()
         val counted = HashMap<String, Int>()
-        atRest(h, failed, counted, seeded = true)
+        atRest(h, failed, counted, seeded = true, residualS33 = residualS33)
         failed += extra(h)
         if (live) { tapLiveness(h, failed); scrollLiveness(h, failed) }
         for ((g, n) in h.moves) if (n > 1 && g !in before) failed += "(8) gesture $g moved the row $n times"
@@ -668,20 +690,60 @@ class LocalSequenceFuzzTest {
         if ((h.rules.counts["unreported"] ?: 0) != 0) "${h.rules.counts["unreported"]} applied as unreported" else null,
         if (h.row != 3) "the row is ${h.row}, not 3" else null) })
 
-    /** S33 (B083, 2c; the fuzz's seed 101032 once the harness held the wrap's cells as the shell does): a notch past the
-     *  end (the wrap) and, 15 ms later, a notch back that the lens draws before the wrap's PLAY lands — the phone moves
-     *  back (`lost-report`) and its frame waits behind the wrap. A tap 100 ms after the first notch, the wrap ended on the
-     *  glasses and its frame still held: its DISCARD waited with the frame, so the lens's cursor is still the wrap's row
-     *  under the wrap's picture and the tap is not acted on another row ((1)). Sent ahead of the frame, the DISCARD set
-     *  the cursor to row 7 under row 0's picture and the tap acted on row 7. */
-    @Test fun seededS33_noCursorAheadOfTheWrapsPicture() = seeded(Taps.REPORT, rows = 7, script = { h ->
+    /** S33 (B083, 2c; the fuzz's seed 101032 once the harness held the wrap's cells as the shell does) — since the B083 fix
+     *  stage the DECLARED RESIDUAL: a notch past the end (the wrap) and, 15 ms later, a notch back that the lens draws
+     *  before the wrap's PLAY lands — the phone moves back (`lost-report`), its frame waits behind the wrap, and its
+     *  DISCARD goes at once (the cursor wait that held it lost the notches of an edge burst, the focused read's 1). A tap
+     *  100 ms after the first notch acts on row 7, the row the lens's cursor names, while RIGHT's panel still shows the
+     *  wrap's row 0. Counted under (1)'s S33 key, per tap; the row at rest is the ring's ((9)). */
+    @Test fun seededS33_aTapInsideTheWrapsWaitIsTheDeclaredResidual() = seeded(Taps.REPORT, rows = 7, residualS33 = true, script = { h ->
         h.gesture(1, answer = true, band = "none"); h.runUntil(h.now + 15)
         h.gesture(2, answer = true, band = "none"); h.runUntil(h.now + 85)
         h.gesture(0, answer = true, band = "none")
         h.rest()
     }, extra = { h -> listOfNotNull(
         if (h.wrapPlays != 1) "${h.wrapPlays} wrap PLAYs (the shape did not happen)" else null,
-        if (h.rules.counts["snapback.lost-report"] == null) "no lost-report answer (the shape did not happen): ${h.rules.counts}" else null) })
+        if (h.rules.counts["snapback.lost-report"] == null) "no lost-report answer (the shape did not happen): ${h.rules.counts}" else null,
+        if (h.acts.none { it.viaRule && it.gesture in h.tapNearWrap && it.id == h.ids[7] && it.rightId == h.ids[0] })
+            "the residual's shape did not happen (acts ${h.acts.map { "g${it.gesture} id ${it.id} RIGHT ${it.rightId}" }})" else null) })
+
+    /** S34, S35 (B083 fix stage, item 2; the focused read's 1): k notches past the last row, the later ones edges too (the
+     *  wrap's DISCARD has not landed), then one notch more inside the wrap's held wait. With the later edges' DISCARD held
+     *  for the wait, that notch fired from the wrap's row 0 and was adopted at the burst's row: k = 2 lost one notch, k = 3
+     *  two (the row moved back on a forward notch). The ring says row k; (9) reads it. */
+    private fun edgeBurstThenANotch(k: Int, gap: Long) = seeded(Taps.REPORT, rows = 7, script = { h ->
+        val t0 = h.now
+        repeat(k) { h.gesture(1, answer = true, band = "none"); h.runUntil(h.now + gap) }
+        h.runUntil(t0 + 70)
+        h.gesture(1, answer = true, band = "none")
+        h.rest()
+    }, extra = { h -> listOfNotNull(
+        if (h.wrapPlays != 1) "${h.wrapPlays} wrap PLAYs (the shape did not happen)" else null,
+        if (h.row != k) "the row is ${h.row}, not $k (the ring's count)" else null) })
+    @Test fun seededS34_twoEdgesThenANotchInTheWrapsWait() = edgeBurstThenANotch(2, 20)
+    @Test fun seededS35_threeEdgesThenANotchInTheWrapsWait() = edgeBurstThenANotch(3, 10)
+
+    /** S37 (B083 fix stage, item 5; the focused read's 5): one notch whose 115 is lost — both lenses draw it, its stock
+     *  message is held, no burst opens — and an unrelated frame (the clock) 320 ms later. Its idle SETTLE waits for the
+     *  release: sent before it, it named the row the message had not moved yet and set RIGHT back a row under the notch it
+     *  drew (RIGHT's row 3 → 4 → 3 → 4); now the batch that draws the release carries it. */
+    @Test fun seededS37_theIdleSettleWaitsForTheRelease() {
+        val seen = ArrayList<Int>()
+        var released0 = 0
+        seeded(Taps.REPORT, script = { h ->
+            released0 = h.rules.counts["stockReleased"] ?: 0
+            h.sampler = { val id = h.shownOn(Arm.RIGHT); if (id >= 0 && seen.lastOrNull() != id) seen += id }
+            h.loseNext115 = 1
+            val t0 = h.now
+            h.gesture(1, answer = true, band = "none")
+            h.runUntil(t0 + 320)
+            h.tick()
+            h.rest()
+            h.sampler = null
+        }, extra = { h -> listOfNotNull(
+            if ((h.rules.counts["stockReleased"] ?: 0) - released0 != 1) "released ${(h.rules.counts["stockReleased"] ?: 0) - released0} (the shape did not happen)" else null,
+            if (seen.windowed(3).any { (a, b, c) -> a == c && a != b }) "RIGHT's row went back and forth: $seen" else null) })
+    }
 
     @Test fun seededS24_aRefusedTailOnRightIsSeenAtTheSettle() = seeded(Taps.REPORT, live = false, script = { h ->
         h.refuse27On = Arm.RIGHT
@@ -767,7 +829,7 @@ class LocalSequenceFuzzTest {
             for (f in v.failed) fails += "seed $seed: $f"
             for ((k, c) in v.counted) counted[k] = (counted[k] ?: 0) + c
             // decisions BC: the declared shapes, with their seeds
-            for (k in v.counted.keys) if (k.startsWith("(8) BC") || k.startsWith("(8) 2b") || k.startsWith("row A: a batch") || k.startsWith("(9)")) declaredSeeds.getOrPut(k) { ArrayList() } += seed
+            for (k in v.counted.keys) if (k.startsWith("(8) BC") || k.startsWith("(8) 2b") || k.startsWith("row A: a batch") || k.startsWith("(9)") || k.startsWith("(1) S33")) declaredSeeds.getOrPut(k) { ArrayList() } += seed
         }
         // every failure, one line each, for reading the shapes (the assertion's message keeps the first 30)
         for (f in fails) println("FAIL $f")

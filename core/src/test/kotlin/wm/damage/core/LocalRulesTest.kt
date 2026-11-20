@@ -261,6 +261,46 @@ class LocalRulesTest {
         assertTrue(b.release().isEmpty(), "nothing left held")
     }
 
+    /** B083 fix stage (item 4; the focused read's 4, the fuzz's seed 100100487): a scroll message pays an owe of its own
+     *  direction at arrival, else one of either kind, else it is held — S31's rule at arrival. A NEXT reported and adopted,
+     *  then a PREV message no report owns (a notch RIGHT did not take): held, not the NEXT's echo; the NEXT's own message
+     *  pays its owe; the PREV goes as today at the burst's end. Paid by the PREV, the NEXT's own message was held and
+     *  applied at the burst's end as well: the NEXT moved the row twice. */
+    @Test
+    fun aScrollMessagePaysAnOweOfItsOwnDirection_B083F4() {
+        val t = R(row = 3)
+        assertEquals(Verdict.Adopt(4), t.scroll(1, 4), "a NEXT adopted: one NEXT owe")
+        assertEquals(Verdict.Nothing, t.stock(Stock.PREV), "a PREV with no owe of its direction: held")
+        assertEquals(1, t.r.stockHeldNow, "the PREV held, not taken as the NEXT's echo")
+        assertEquals(Verdict.Nothing, t.stock(Stock.NEXT), "the NEXT's own message pays its owe")
+        assertEquals(1, t.r.stockHeldNow, "still only the PREV held")
+        t.release()
+        assertEquals(3, t.row, "a NEXT and a PREV: the row where it began")
+    }
+
+    /** B083 fix stage (item 6; the focused read's 2, the fuzz's seed 424200822): a report's gap is charged first against
+     *  the messages held since the last report — its lost reports' echoes — and only the remainder against u. A notch RIGHT
+     *  did not take, held and applied as today at its burst's end (u 1); then two notches whose 115s are lost, their
+     *  messages held; then a report with the gap of 2: both held messages are its gap's, and its own message, later, pays
+     *  its own owe. Charged against u first, the gap paired them through one owe and the report's own, and the report's
+     *  own message was held and applied again at the burst's end. */
+    @Test
+    fun aGapIsChargedAgainstItsHeldEchoesBeforeAnEarlierRelease_B083F6() {
+        val t = R(row = 3)
+        assertEquals(Verdict.Nothing, t.stock(Stock.NEXT), "RIGHT took no S (no entry yet): held")
+        assertEquals(listOf<Verdict>(Verdict.Apply(EvenHubMsg.EV_SCROLL_BOTTOM)), t.release(), "applied as today at the burst's end")
+        assertEquals(1, t.r.u, "one unreported message since S_heard last advanced")
+        assertEquals(4, t.row)
+        // the lens fires from the row the release's DISCARD named: two notches whose 115s are lost, their messages held
+        t.stock(Stock.NEXT); t.stock(Stock.PREV)
+        assertEquals(2, t.r.stockHeldNow)
+        assertEquals(Verdict.Adopt(3), t.scroll(3, 3, id = CfwModes.EV_DOWNROLL), "g 2 (S 1 and 2 lost): 4 +1 −1 −1")
+        assertEquals(0, t.r.stockHeldNow, "both held messages paired as the gap's echoes")
+        assertEquals(Verdict.Nothing, t.stock(Stock.PREV), "the report's own message pays its own owe")
+        assertTrue(t.release().isEmpty(), "nothing left to apply at the burst's end")
+        assertEquals(3, t.row, "the four notches from row 3: +1 +1 −1 −1")
+    }
+
     @Test
     fun staleReportsAreDropped_P8() {
         val t = R(row = 3)

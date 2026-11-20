@@ -135,7 +135,8 @@ class PathTransportTest {
 
             path.injectInput(EvenHubMsg.EV_CLICK)
             val t1 = System.currentTimeMillis()
-            fun input() = synchronized(events) { events.any { it is TransportEvent.Input && it.type == EvenHubMsg.EV_CLICK } }
+            // B083 fix stage (item 3): marked as a screen's gesture, so the local rules leave it alone
+            fun input() = synchronized(events) { events.any { it is TransportEvent.Input && it.type == EvenHubMsg.EV_CLICK && it.injected } }
             var ok2 = input()
             while (!ok2 && System.currentTimeMillis() - t1 < 5_000) { delay(5); ok2 = input() }
             assertTrue(ok2, "injected input reaches the path's events")
