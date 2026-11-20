@@ -165,7 +165,10 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     val moves = HashMap<Int, Int>()
     /** Per gesture: S taken on each lens, RIGHT's cursor and mark at its fire. */
     class Fire(val g: Int, val tap: Boolean, var sL: Int? = null, var sR: Int? = null, var cursorR: Int? = null, var markR: Int? = null,
-               var shownR: Int? = null)
+               var shownR: Int? = null,
+               /** B083 v2 (item 4): how many phone messages had reset RIGHT's cursor before its fire
+                *  ([LocalHarness.rightResets]), and the fire's time on RIGHT. */
+               var resetsAtFireR: Int = -1, var fireTimeR: Long = -1)
 
     /** The row identity RIGHT's panel shows in the band now (a press drawn inverse reads as its row; -1 anything else). */
     fun shownOnRight(): Int {
@@ -196,9 +199,6 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     private val ringAtFire = HashMap<Int, Triple<Long, Long, Boolean>>()
     /** Gestures left out of the count by a session start (in flight there), for the fuzz's count. */
     val ringLostAtStart = ArrayList<Int>()
-    /** Gestures RIGHT took whose 115 was lost for a fire that did not draw — an edge or a refusal: the lens did not move,
-     *  while P5 counts every lost report as one it drew. */
-    val ringLostEdge = LinkedHashSet<Int>()
     private fun mainInFront() = !covered && !window
 
     /** The phone heard of scroll gesture [g] ([how]): the first time decides whether it counts. */
@@ -219,13 +219,16 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
      *  - a scroll gesture RIGHT did not take (no entry there: a start race, a lost SET, a cover) counts its step when its
      *    stock message reached the phone with Main in front;
      *  - a band-dropped message of an untaken notch, a LEFT-only gesture and a tap count nothing;
+     *  - a gesture whose 115 was lost is heard by the adoption whose gap carries it, when RIGHT drew it and no phone message
+     *    reset RIGHT's cursor between its fire and the adopted one (B083 v2: the phone then holds its step);
      *  - a session start: a gesture RIGHT took that the phone had not heard of by then counts nothing (in flight at the
      *    restart, or lost before it);
      *  - a re-stage maps the ring's row by identity, as the phone maps its own (the identity's new index, 0 when it left).
      */
-    fun ringRow(without: Set<Int> = emptySet()): Int {
-        val evs = ArrayList(ringLog.filter { it.g !in without })
-        for ((g, at) in ringAtFire) if (g !in ringHow && fires[g]?.sR != null && at.third && g !in without) evs += RingEv(at.first, at.second, ringStep[g]!!, g = g)
+    fun ringRow(adjust: List<Triple<Long, Long, Int>> = emptyList()): Int {
+        val evs = ArrayList(ringEvents())
+        // B083 v2 (item 4): the exact declarations' adjustments, each (time, order, rows) where its gesture's move happened
+        for ((t, n, d) in adjust) evs += RingEv(t, n, d)
         evs.sortWith(compareBy<RingEv>({ it.t }, { it.n }))
         var ids = IntArray(n0) { it }
         var r = 0
@@ -235,6 +238,24 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         }
         return r
     }
+    /** The ring's count, one entry per counted gesture and per re-stage. */
+    private fun ringEvents(): List<RingEv> {
+        val evs = ArrayList(ringLog)
+        for ((g, at) in ringAtFire) if (g !in ringHow && fires[g]?.sR != null && at.third) evs += RingEv(at.first, at.second, ringStep[g]!!, g = g)
+        return evs
+    }
+    /** Where the ring's count took [g]'s step (time, order), or null when it counts nothing for it. */
+    fun ringCountedAt(g: Int): Pair<Long, Long>? = ringEvents().firstOrNull { it.g == g && it.to == null }?.let { it.t to it.n }
+    /** A scroll gesture's step (+1 id 4, −1 id 5); null for a tap. */
+    fun stepOf(g: Int): Int? = ringStep[g]
+    /** B083 v2 (item 4): RIGHT's outcome for each gesture's 115, sent or lost on the way; the gestures whose 115 was lost. */
+    val rightOutcome = HashMap<Int, Int>()
+    val lost115 = HashSet<Int>()
+    /** Phone messages that changed RIGHT's cursor so far: a lens-only draw before one (a lost report's) is gone from it. */
+    var rightResets = 0
+    /** When the phone decided each message that reset RIGHT's cursor: what moved the phone's row after it is unknown to RIGHT. */
+    val rightResetAt = ArrayList<Long>()
+    val rightResetLanded = ArrayList<Long>()
     /** Refusals of the phone's messages (mode, reason, arm), those the harness induced kept apart. */
     val refusals = ArrayList<String>()
     val induced = ArrayList<String>()
@@ -331,8 +352,9 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
             if (field == 115) {
                 val a = DamageMsg.Applied(m)
                 val g = a.s?.let { bySR[it] } ?: -1
-                if (loseNext115 > 0) { loseNext115--; if (a.outcome != DamageMsg.APPLIED_DREW && !a.isTap && g >= 0) ringLostEdge += g; continue }
-                if (rnd.nextDouble() < lose115) { if (a.outcome != DamageMsg.APPLIED_DREW && !a.isTap && g >= 0) ringLostEdge += g; continue }
+                if (g >= 0) a.outcome?.let { rightOutcome[g] = it }
+                if (loseNext115 > 0) { loseNext115--; if (g >= 0) lost115 += g; continue }
+                if (rnd.nextDouble() < lose115) { if (g >= 0) lost115 += g; continue }
                 up(now) { phoneReport(a, g) }
                 if (rnd.nextDouble() < dup115) up(now) { phoneReport(a, g) }
             }
@@ -357,7 +379,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
             val b = sim.bindForTest(arm)
             val before = b.seq
             if (holdWordOn == arm) sim.motionForTest(arm).holdWordForTest(true)
-            if (arm == Arm.RIGHT) f.shownR = shownOnRight()
+            if (arm == Arm.RIGHT) { f.shownR = shownOnRight(); f.resetsAtFireR = rightResets; f.fireTimeR = now }
             sim.conformanceInput(arm, dev, id.toLong(), 0, now)
             if (holdWordOn == arm) sim.motionForTest(arm).holdWordForTest(false)
             sim.conformanceStockCalls(arm)
@@ -400,12 +422,20 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
      *  band end, each starting the next band; a single tap inside a band sends no click. Returns the message's extra delay,
      *  or null for none. (I: the band's length and which of drop and queue happens are not measured.) */
     private var bandUntil = 0L
+    /** The band's length ([BAND_MS]; the fifth base: 225 ms, his queued messages' spacing). */
+    var bandMs = BAND_MS
+    /** The fifth base (his session's profile): a scroll message with no band running dropped with this probability (0: the
+     *  four bases' band exactly as before, no draw). */
+    var dropScrollIdle = 0.0
     fun band(tap: Boolean): Long? {
         if (tap) return if (now < bandUntil) null else 0L
-        if (now >= bandUntil) { bandUntil = now + BAND_MS; return 0L }
+        if (now >= bandUntil) {
+            if (dropScrollIdle > 0 && rnd.nextDouble() < dropScrollIdle) return null
+            bandUntil = now + bandMs; return 0L
+        }
         if (rnd.nextDouble() < bandDropScroll) return null
         val at = bandUntil
-        bandUntil = at + BAND_MS
+        bandUntil = at + bandMs
         return at - now
     }
 
@@ -414,27 +444,56 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     // ---- the phone's side of the link
     private fun move(g: Int, newRow: Int) { if (newRow != row) { moves[g] = (moves[g] ?: 0) + 1; row = newRow } }
 
+    // ---- B083 v2, item 4: what moved the phone's row, for (9)'s exact declarations
+    /** One verdict the phone applied: its gesture, from its 115 or its stock message, the row before and after, whether a
+     *  carry held owes (C1), the report's outcome, its place in the ring's order, the list's length then, and — for an
+     *  adoption or a tap's correction — the gap's notches RIGHT drew and still held at this report's fire (no phone message
+     *  reset its cursor between), which the move carries. */
+    class Move(val g: Int, val t: Long, val n: Long, val by115: Boolean, val v: LocalRules.Verdict, val before: Int, val after: Int,
+               val carried: Boolean, val outcome: Int?, val size: Int, val carries: List<Int> = emptyList())
+    val phoneMoves = ArrayList<Move>()
+    /** The notches in an adoption's (or a tap correction's) gap that RIGHT drew and still held at its fire — the move
+     *  carries them; the ring hears them there (B083 v2), as the verdict comes, before anything it opens. */
+    private fun carries(g: Int, v: LocalRules.Verdict, a: DamageMsg.Applied, heardBefore: Int): List<Int> {
+        val out = ArrayList<Int>()
+        val s = a.s ?: return out
+        if (v !is LocalRules.Verdict.Adopt && v !is LocalRules.Verdict.Act) return out
+        var k = (heardBefore + 1) and 0xFFFF
+        while (k != s && LocalRules.after(s, k)) {
+            bySR[k]?.let { gk -> if (rightOutcome[gk] == DamageMsg.APPLIED_DREW && ringStep[gk] != null && fires[gk]?.resetsAtFireR == fires[g]?.resetsAtFireR) out += gk }
+            k = (k + 1) and 0xFFFF
+        }
+        for (gk in out) ringHeard(gk, "carrying adoption")
+        return out
+    }
+    private fun record(g: Int, by115: Boolean, v: LocalRules.Verdict, before: Int, carried: Boolean, a: DamageMsg.Applied?, carries: List<Int> = emptyList()) {
+        phoneMoves += Move(g, now, ringN++, by115, v, before, row, carried, a?.outcome, ids.size, carries)
+    }
+    private fun carriedNow() = !rules.burstOpen && rules.owesCarriedUntilMs != Long.MIN_VALUE
+
     private fun phoneReport(a: DamageMsg.Applied, g: Int) {
         beforeReport?.let { beforeReport = null; it() }
         if (g >= 0 && g !in reportHeardAt) reportHeardAt[g] = now
         if (g >= 0) ringHeard(g, "115")
+        val before = row; val carried = carriedNow(); val heardBefore = rules.sHeard
         val v = rules.report(a, row, now)
         trace?.invoke("[$now] phone 115 g$g ${a.describe()} row $row → $v")
         verdicts += g to v
+        val carries = carries(g, v, a, heardBefore)
         apply(v, g, a)
+        record(g, true, v, before, carried, a, carries)
         afterReport?.let { afterReport = null; it() }
         pumpSoon()
     }
 
     private fun phoneStock(st: LocalRules.Stock, g: Int) {
         if (!st.click) ringHeard(g, "stock")
+        val before = row; val carried = carriedNow()
         val v = rules.stock(st, row, now)
-        // decisions BC: a stock message applied as today whose own report was heard before a SETTLE that went before it —
-        // an echo later than its burst's SETTLE (its owe was cleared there); the fuzz counts the (8) it causes apart
-        if (v is LocalRules.Verdict.Apply && reportHeardAt[g]?.let { lastSettleAt > it } == true) lateEchoes += g
-        trace?.invoke("[$now] phone stock g$g $st row $row → $v")
+        trace?.invoke("[$now] phone stock g$g $st row $row → $v (carried $carried)")
         verdicts += g to v
         apply(v, g, null)
+        record(g, false, v, before, carried, null)
         pumpSoon()
     }
 
@@ -477,11 +536,8 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     var wrapPlays = 0
     var wrapOpen = false
     var wrapCuts = 0
-    /** Decisions BC: when the phone handled each gesture's report; when it last sent a SETTLE; the gestures whose stock
-     *  message came after a SETTLE that followed their report and was applied as today. */
+    /** When the phone first handled each gesture's report. */
     val reportHeardAt = HashMap<Int, Long>()
-    var lastSettleAt = Long.MIN_VALUE
-    val lateEchoes = HashSet<Int>()
     fun back() { if (!window) return; window = false; if (!covered) rules.front(bound, row); pumpSoon() }
     fun toggleBadge() { badge = !badge; pumpSoon() }
     fun tick() { clock++; pumpSoon() }
@@ -554,12 +610,13 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         val arrive = maxOf(lastDown + 1, now + downLat() + downExtraMs)
         lastDown = arrive
         sent++
+        val decided = now
         val skew = skewPair()
         if (skew == null) at(arrive) {
             for (arm in listOf(Arm.LEFT, Arm.RIGHT)) {
                 val img = if (perArm.containsKey(arm)) perArm[arm] else image
                 if (img == null) continue
-                deliver(arm, img, inducedOn == arm)
+                deliver(arm, img, inducedOn == arm, decided)
             }
         } else for ((arm, d) in listOf(Arm.LEFT to skew.first, Arm.RIGHT to skew.second)) {
             // B083 (2d): each lens gets the message on its own, the later one by the drawn skew; each lens's stream stays
@@ -568,7 +625,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
             if (img == null) continue
             val t = maxOf((lastDownArm[arm] ?: 0L) + 1, arrive + d)
             lastDownArm[arm] = t
-            at(t) { what = "$arm gets ${subsOf(img).joinToString(" ") { kindOf(it) }}"; deliver(arm, img, inducedOn == arm) }
+            at(t) { what = "$arm gets ${subsOf(img).joinToString(" ") { kindOf(it) }}"; deliver(arm, img, inducedOn == arm, decided) }
         }
     }
 
@@ -613,7 +670,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         return false
     }
 
-    private fun deliver(arm: Arm, img: ByteArray, induce: Boolean) {
+    private fun deliver(arm: Arm, img: ByteArray, induce: Boolean, decided: Long = now) {
         // invariant (7)'s probe: a COMMIT landing finds its own local still open on RIGHT
         for (s in commitsIn(img)) {
             val g = bySR[s]
@@ -628,8 +685,10 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         val kept = listOf(lens.refSeen, lens.refMode, lens.refReason, lens.refSeq)
         lens.refSeen = false
         if (induce) sim.motionForTest(arm).holdWordForTest(true)
+        val cursor0 = if (arm == Arm.RIGHT) sim.bindForTest(arm).lists[0].cursor else 0
         sim.conformanceMessage(arm, img, now)
         if (induce) sim.motionForTest(arm).holdWordForTest(false)
+        if (arm == Arm.RIGHT && sim.bindForTest(arm).lists[0].cursor != cursor0) { rightResets++; rightResetAt += decided; rightResetLanded += now }
         val refusedNow = lens.refSeen
         if (!refusedNow) { lens.refSeen = kept[0] as Boolean; lens.refMode = kept[1] as Int; lens.refReason = kept[2] as Int; lens.refSeq = kept[3] as Long }
         trace?.invoke("[$now] $arm gets ${subsOf(img).joinToString(" ") { it.take(3).joinToString("") { b -> "%02x".format(b) } }}" +
@@ -827,7 +886,6 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         if (all.isEmpty()) return
         lastBatch = all
         for (s in tail) if (s[0].toInt() == 26 && s[1].toInt() == 3) commitsSent += (s[3].toInt() and 0xFF) or ((s[4].toInt() and 0xFF) shl 8)
-        if (tail.any { it[0].toInt() == 26 && it[1].toInt() == 5 }) lastSettleAt = now
         fun image(subs: List<ByteArray>): ByteArray? = when {
             subs.isEmpty() -> null
             subs.size == 1 && (subs[0][0].toInt() == 26 || subs[0][0].toInt() == 27) -> subs[0]
