@@ -3796,6 +3796,7 @@ def vectors_v5(kf):
     v1s = c.add(prog(track(TOPR, 2, drawrec(4, big, 0, 0))))
     v2s_at, v2s_over = exact([track(rect(0, 240, 640, 240), 3, f2(4, 9))], region=(0, 240, 640, 240), others=cost(c.buf, v1s, memo=M))
     one = c.add(prog2(track(rect(0, 300, 100, 40), 3, f2(4, 9))))                   # a small version-2 program apart from TOPR
+    bf_at, bf_over = exact([track(FULLR, 2, d2(4, big, 0, 0, pref0=pref(0, F_Y)))])  # bound-shaped: at a fire and a COMMIT (P0 = 0)
     lA = c.add(cell_list(alA, 1, [cellA] * 512))
     def wrap_parts(cc, m):                                                         # four tracks of 512 such cells and one of m
         lm = cc.add(cell_list(alA, 1, [cellA] * m)); ct = cc.add(cell_table([lA, lm]))
@@ -3849,6 +3850,13 @@ def vectors_v5(kf):
            step(tk(t + 40), msg(play(1, P, v2s_over, 0x7874))),                     # one over: 12
            step(tk(t + 50), msg(close(0xFF))),
            step(tk(t + 60), msg(play(0, P, wrap, 0x7875)))]                         # A'1's cells: 64-bit, over: 12
+    t += 200                                                                        # §7.12 "at a PLAY, a PLAY-AFTER, a RETARGET and a fire";
+    st += [step(tk(t), page(True), msg(bind_list(0, NONE, 8, 0, 10, 1)),           # "a COMMIT ... judges its program's own C against the cap"
+                msg(bind_set(0, ANY, UP, 0, 1, 0, P, bf_over, [(K_ARG, 0)])), inp(RING, UP)),   # a fire one over: 12
+           step(tk(t + 10), msg(bind_set(0, ANY, UP, 0, 1, 0, P, bf_at, [(K_ARG, 0)])), inp(RING, UP)),   # exactly the cap: drew
+           step(tk(t + 10), wake()),
+           step(tk(t + 20), msg(commit(1, 0x7777, 0, 0, bf_over, (0,)))),          # a COMMIT one over: 12
+           step(tk(t + 30), msg(commit(1, 0x7777, 0, 0, bf_at, (0,))))]            # exactly the cap: taken
     vec("v5-budget", st)
 
     for vec_ in v:
