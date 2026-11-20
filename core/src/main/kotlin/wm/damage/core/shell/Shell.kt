@@ -4014,6 +4014,32 @@ class Shell(
     private var stageInFlight: Long? = null
     private var stageInFlightRec: StagedRecord? = null
     private var stageInFlightWrites = 0
+
+    /** One mode-19 message of a record's write: at most [STAGE_CHUNK] bytes of data; [names]: it names the rest (a band
+     *  switch's item word), so it goes alone and only after every piece before it was acknowledged. */
+    private class StagePiece(val op: DisplayOp, val bytes: Int, val names: Boolean)
+
+    /**
+     * A record written piece by piece (build SPLIT): one piece per STAGE flush, the next only after the last one's ack,
+     * from the idle pump ([pumpStagePiece]) — so a gesture's flush waits behind one piece, never a whole ~20 KB record.
+     * The envelope (`FORK.md` §3.8): (a) cleared with the registry ([stageClear]: a session start, a lapse, a reset, a
+     * clear), by a failed or unsubmitted piece, by a reading that re-bases the count or calls the interval of an acked
+     * piece short, and when its record leaves the registry (a dropped staging, another layout) — then abandoned, never
+     * named; (b) a piece's wait is its FlushDone (ok, not ok, or the session's sweep); a piece that cannot go waits on the
+     * idle pump's own gates and [mayGo], each read afresh on every pump; (c) keyed on the record object itself (the
+     * registry's identity check); (d) the loop only; the image lane's writes stay in stream order, LEFT cannot report; (e)
+     * one read of the link state per pump; (f) every record [stageSubmit] sends — Page staging's strips, Main's base
+     * records and re-stages, the `mainseq` probe's — and the ledger's two verdicts that drop records.
+     */
+    private class StageCursor(val rec: StagedRecord, val pieces: List<StagePiece>, val mayGo: () -> Boolean, val onBooked: (() -> Unit)?) {
+        /** The next piece to send. */
+        var next = 0
+        /** The ledger's mark at the last acked piece's ack (-1: none acked yet). */
+        var lastAckedAt = -1L
+        /** [onBooked] has run (at the naming piece's submission, else at the last piece's ack). */
+        var booked = false
+    }
+    private var stageCursor: StageCursor? = null
     private var stageFailed = false
     /** Writes that could not be submitted or came back not ok, in a row (a success resets it). */
     private var stageWriteFailures = 0
@@ -4088,7 +4114,7 @@ class Shell(
      * and not for another thread: it reads four plain fields of the loop.
      */
     val cacheWorkInFlight: Boolean
-        get() = atlasInFlight != null || atlasCheckInFlight || stageInFlight != null || ledgerReadInFlight
+        get() = atlasInFlight != null || atlasCheckInFlight || stageInFlight != null || stageCursor != null || ledgerReadInFlight
     /** First-time atlas messages chosen to be written once more after a shortfall, so far (never reset). */
     @Volatile var atlasWritesChosenAgain = 0
         private set
@@ -4144,6 +4170,7 @@ class Shell(
         val had = stage.records.size
         stage.clear()
         stageInFlight = null; stageInFlightRec = null; stageInFlightWrites = 0
+        stageCursor = null                 // build SPLIT: a part-written record goes with the registry, never named
         // 0.64: NOT the count's reading. It is the cache's, about every acked write, and a clear of
         // the registry (the row off, a live-set change, a reset) leaves it valid; dropping its flag
         // here released both write lanes under a reading still on its way.
@@ -4179,7 +4206,7 @@ class Shell(
         val ct = cachedText ?: return false
         if (settings.cachedText != "on" || atlasFailed || atlas == null) return false
         if (atlasInFlight != null || atlasQueue.isNotEmpty() || atlasLapsedOwed || atlasCheckInFlight) return false
-        if (stageInFlight != null || ledgerReadInFlight) return false
+        if (stageInFlight != null || stageCursor != null || ledgerReadInFlight) return false
         if (st.inFlight != 0 || comp.hasPending || comp.needsKeyframe) return false
         val v = stagedDoc() ?: return false
         val key = v.contentKey() ?: return false
@@ -4272,34 +4299,99 @@ class Shell(
         return StagedRecord(key, g, padded)
     }
 
-    /** [rec]'s write as one flush; [parts] (build C2, stage DM2: a row of Main's re-staged in place) are its pieces at
-     *  their own offsets — by default the record whole at its place. */
-    private suspend fun stageSubmit(rec: StagedRecord, st: LinkState, parts: List<Pair<Int, ByteArray>> = listOf(rec.off to rec.encoded)) {
-        val ops = ArrayList<DisplayOp>()
-        for ((off, bytes) in parts) {
+    /** [rec]'s write, piece by piece (build SPLIT: one piece per flush, the idle pump between them, input first);
+     *  [parts] (build C2, stage DM2: a row of Main's re-staged) are its writes at their own offsets — by default the
+     *  record whole at its place. [namesLast]: the last part names the rest (a band switch's item word) and goes alone,
+     *  after every other piece was acknowledged. [mayGo]: whether a piece after the first may go now (the record's
+     *  owner's gate, read afresh on every pump). [onBooked]: what makes the record nameable — run when the naming piece
+     *  is submitted, else at the last piece's ack. The first piece goes now. */
+    private suspend fun stageSubmit(rec: StagedRecord, st: LinkState, parts: List<Pair<Int, ByteArray>> = listOf(rec.off to rec.encoded),
+                                    namesLast: Boolean = false, mayGo: () -> Boolean = { true }, onBooked: (() -> Unit)? = null) {
+        stageCursor = StageCursor(rec, stagePieces(parts, namesLast, st.cacheSize), mayGo, onBooked)
+        stageSendPiece(st)
+    }
+
+    /** [parts] as pieces of one mode-19 message each: consecutive data parts packed at their own offsets, split so a
+     *  message carries at most [STAGE_CHUNK] bytes of data (its entries' 4-byte headers beside them; parts are 4-byte
+     *  aligned, so a split keeps every offset aligned); with [namesLast] the last part alone, last. */
+    private fun stagePieces(parts: List<Pair<Int, ByteArray>>, namesLast: Boolean, cacheSize: Int): List<StagePiece> {
+        val out = ArrayList<StagePiece>()
+        var entries = ArrayList<CfwModes.CacheWrite2>()
+        var room = STAGE_CHUNK + 4                                  // header + data of the message's entries
+        fun close(names: Boolean) {
+            if (entries.isEmpty()) return
+            out += StagePiece(DisplayOp.CacheWrite2(CfwModes.cacheUpdate2(entries, cacheSize)), entries.sumOf { it.data.size }, names)
+            entries = ArrayList(); room = STAGE_CHUNK + 4
+        }
+        for ((i, part) in parts.withIndex()) {
+            val (off, bytes) = part
+            val naming = namesLast && i == parts.size - 1
+            if (naming) close(false)
             var pos = 0
             while (pos < bytes.size) {
-                val len = minOf(STAGE_CHUNK, bytes.size - pos)
-                val part = bytes.copyOfRange(pos, pos + len)
-                ops.add(DisplayOp.CacheWrite2(CfwModes.cacheUpdate2(listOf(CfwModes.CacheWrite2((off + pos) / 4, part)), st.cacheSize)))
+                if (room < 4 + 4) close(false)
+                val len = minOf(room - 4, bytes.size - pos)
+                entries += CfwModes.CacheWrite2((off + pos) / 4, bytes.copyOfRange(pos, pos + len))
+                room -= 4 + len
                 pos += len
             }
+            if (naming) close(true)
         }
+        close(false)
+        return out
+    }
+
+    /** The cursor's next piece as one STAGE flush; at the naming piece the record is booked. */
+    private suspend fun stageSendPiece(st: LinkState) {
+        val c = stageCursor ?: return
+        val rec = c.rec
+        val p = c.pieces[c.next]
         val id = try {
-            transport.submit(FlushRequest(ops, comp.epoch, "STAGE", writer = atlasTag))
+            transport.submit(FlushRequest(listOf(p.op), comp.epoch, "STAGE", writer = atlasTag))
         } catch (e: Exception) {
             Log.e("shell", "staged record submit failed", e)
+            stageCursor = null
             stage.remove(rec)
             stageRecount()
             if (++stageWriteFailures >= STAGE_FAILURES_MAX) stageOff("$stageWriteFailures writes in a row could not be submitted, the last: ${e.message}")
-            else journal.note("stage", "${rec.key} could not be submitted (${e.message}) — it goes again later")
+            else journal.note("stage", "${rec.key} could not be submitted (${e.message}) at piece ${c.next + 1} of ${c.pieces.size} — it goes again later")
             return
         }
         rec.state = StagedRecord.State.SENT
-        stageInFlight = id; stageInFlightRec = rec; stageInFlightWrites = ops.size
-        journal.flushSubmitted(id, comp.epoch, ops, "STAGE", st.transportName,
+        stageInFlight = id; stageInFlightRec = rec; stageInFlightWrites = 1
+        journal.flushSubmitted(id, comp.epoch, listOf(p.op), "STAGE", st.transportName,
             Journal.Timing(win = current?.id ?: "", mode = mode.name))     // package G (E4): on every submit record
-        journal.note("stage", "${rec.key} (${rec.encoded.size} B at ${rec.off}) submitted as flush $id in ${ops.size} write(s)")
+        if (c.next == 0) journal.note("stage", "${rec.key} (${rec.encoded.size} B at ${rec.off}) submitted as flush $id — piece 1 of ${c.pieces.size} (${p.bytes} B)")
+        else journal.note("stage", "${rec.key}: piece ${c.next + 1} of ${c.pieces.size} (${p.bytes} B${if (p.names) ", naming the rest" else ""}) as flush $id")
+        if (p.names && !c.booked) { c.booked = true; c.onBooked?.invoke() }
+    }
+
+    /** The idle pump's step for a part-written record (build SPLIT): its next piece, once the lane is idle — nothing in
+     *  flight, nothing pending (a gesture's flush goes first), no reading on its way — and its owner lets it go. True when
+     *  it did something. A record that left the registry meanwhile is abandoned: nothing names it. */
+    private suspend fun pumpStagePiece(st: LinkState): Boolean {
+        val c = stageCursor ?: return false
+        if (stage.records[c.rec.key] !== c.rec) {
+            stageCursor = null
+            journal.note("stage", "${c.rec.key} left the registry after ${c.next} of ${c.pieces.size} piece(s) — its write ends there, nothing names it")
+            return false
+        }
+        if (stageFailed || glassesSilent || !st.draw2 || !st.leaseHeld) return false
+        if (atlasInFlight != null || atlasCheckInFlight || stageInFlight != null || ledgerReadInFlight) return false
+        if (st.inFlight != 0 || comp.hasPending || comp.needsKeyframe) return false
+        if (ledgerBaseOwed(st)) return tryLedgerRead(st)
+        if (atlasResendMissing > 0L || !c.mayGo()) return false
+        stageSendPiece(st)
+        return true
+    }
+
+    /** Build SPLIT: a part-written record the count can no longer vouch for (its acked pieces fall in what a reading
+     *  re-based or called short) goes — abandoned, never named; its owner writes it again. */
+    private fun stagePartialDropped(why: String) {
+        val c = stageCursor ?: return
+        stageCursor = null
+        if (stage.records[c.rec.key] === c.rec) stage.remove(c.rec)
+        journal.note("stage", "${c.rec.key} dropped after ${c.next} of ${c.pieces.size} piece(s) — $why; it goes again")
     }
 
     private fun stageDone(ev: TransportEvent.FlushDone) {
@@ -4307,23 +4399,36 @@ class Shell(
         val writes = stageInFlightWrites
         stageInFlight = null; stageInFlightRec = null; stageInFlightWrites = 0
         journal.flushDone(ev.id, ev.ok, ev.ackMs, ev.bytes, ev.error)
+        val c = stageCursor?.takeIf { it.rec === rec }
         if (!ev.ok) {
             cacheLedger.writeLost()
+            // a failed piece fails its record: which earlier bytes survived is not known (a refusal for a lapse, a lost
+            // ack), so the record goes again whole — its owner's rule, as for a record written in one flush
+            if (c != null) stageCursor = null
             if (rec != null) {
                 stage.remove(rec)
                 stageRecount()
             }
             if (++stageWriteFailures >= STAGE_FAILURES_MAX) stageOff("$stageWriteFailures writes in a row failed, the last: ${ev.error}")
-            else journal.note("stage", "${rec?.key ?: "a record"}'s write ${ev.id} failed (${ev.error}) — it goes again later")
+            else journal.note("stage", "${rec?.key ?: "a record"}'s write ${ev.id}${c?.let { " (piece ${it.next + 1} of ${it.pieces.size})" } ?: ""} failed (${ev.error}) — it goes again later")
             post(Msg.Pump)
             return
         }
         stageWriteFailures = 0
         cacheLedger.writeAcked(writes, atlas = false)
         cacheWriteLastAckMs = System.currentTimeMillis()
-        if (rec != null && rec.state == StagedRecord.State.SENT && stage.records[rec.key] === rec) {
+        var more = false
+        if (c != null) {
+            c.next++
+            c.lastAckedAt = cacheLedger.acked
+            if (stage.records[c.rec.key] !== c.rec) stageCursor = null          // left the registry: abandoned, never named
+            else if (c.next < c.pieces.size) more = true                         // the next piece on the idle pump, input first
+            else stageCursor = null
+        }
+        if (!more && rec != null && rec.state == StagedRecord.State.SENT && stage.records[rec.key] === rec) {
             rec.state = StagedRecord.State.ACKED
             rec.ackedAt = cacheLedger.acked
+            if (c != null && !c.booked) { c.booked = true; c.onBooked?.invoke() }
         }
         stageRecount()
         countStateChanged(transport.state.value)
@@ -4507,6 +4612,8 @@ class Shell(
                 val unproven = stage.records.values.filter { it.state == StagedRecord.State.ACKED }
                 for (r in unproven) stage.remove(r)
                 if (unproven.isNotEmpty()) journal.note("stage", "$from re-based the generation count at ${v.gen} — ${unproven.size} acked record(s) go again")
+                // build SPLIT: a part-written record's acked pieces cannot be counted either
+                if ((stageCursor?.lastAckedAt ?: -1L) >= 0L) stagePartialDropped("$from re-based the count under its acked pieces")
                 // the atlas's half: the messages acked before it leave the books unjudged; a re-send
                 // among them can no longer be read, so the lens is put right by a keyframe instead
                 val dropped = atlasUnproven.toList()
@@ -4567,6 +4674,8 @@ class Shell(
             is CacheLedger.Verdict.Shortfall -> {
                 val lost = stage.records.values.filter { it.state == StagedRecord.State.ACKED && it.ackedAt > v.fromAcked && it.ackedAt <= v.toAcked }
                 for (r in lost) stage.remove(r)
+                // build SPLIT: a part-written record with a piece acked in the short interval may miss that piece
+                if ((stageCursor?.lastAckedAt ?: -1L) > v.fromAcked) stagePartialDropped("$from called the interval of an acked piece short")
                 // the atlas is NOT switched off on a shortfall (2026-09-16 21:xx, §66.1): the 0.57 ledger took
                 // cached text down for the evening on three lagged readings forty minutes apart. 0.64 (Adam's
                 // ruling, §75.1): no gate either — a shortfall is SAID, the atlas messages of its interval are
@@ -5379,7 +5488,7 @@ class Shell(
         if (run.playing || run.ending != null) return false
         if (stageFailed || glassesSilent || !st.draw2 || !st.leaseHeld) return false
         if (atlasInFlight != null || atlasQueue.isNotEmpty() || atlasLapsedOwed || atlasCheckInFlight) return false
-        if (stageInFlight != null || ledgerReadInFlight) return false
+        if (stageInFlight != null || stageCursor != null || ledgerReadInFlight) return false
         if (st.inFlight != 0 || comp.hasPending || comp.needsKeyframe) return false
         if (ledgerBaseOwed(st)) return tryLedgerRead(st)
         if (atlasResendMissing > 0L) return false
@@ -5665,6 +5774,11 @@ class Shell(
      *  a report until the lone SETTLE. */
     private fun mainBindBurstOpen(): Boolean = local.burstOpen
 
+    /** B082 (the split on 0.81): a motion of Main's list may still draw on the glasses — the cells held behind an adopted
+     *  motion or the wrap's PLAY wait until its end (AF.7, AZ.4: the wrap's wait runs past Q by its start allowance), and
+     *  a re-stage's next piece waits with them: a cache write meeting the instance's read range closes it (§5.6). */
+    private fun mainMotionMayDraw(): Boolean = comp.deferring && comp.deferUntilMs > System.currentTimeMillis()
+
     /** Each pump, before anything asks: the staging checked against Main as it is now, the re-stages the count has
      *  judged, and what `MainSurface` offers. */
     private fun mainBindPoll(st: LinkState) {
@@ -5720,6 +5834,8 @@ class Shell(
     /** The staging goes: its records leave the registry and the list is withdrawn. */
     private fun mainBindDrop(why: String) {
         for (r in mainBind.drop()) if (stage.records[r.key] === r) stage.remove(r)
+        // build SPLIT: a re-stage still in pieces (not booked) belongs to the staging that goes
+        stageCursor?.rec?.let { r -> if (r.key is MainStageKey && stage.records[r.key] === r) stage.remove(r) }
         main.offered = null
         stageRecount()
         journal.note("mainstage", "dropped — $why; Main's list is offered again once it is staged and counted")
@@ -5743,7 +5859,7 @@ class Shell(
         }
         if (blocked != null) return false
         if (atlasInFlight != null || atlasQueue.isNotEmpty() || atlasLapsedOwed || atlasCheckInFlight) return false
-        if (stageInFlight != null || ledgerReadInFlight) return false
+        if (stageInFlight != null || stageCursor != null || ledgerReadInFlight) return false
         if (st.inFlight != 0 || comp.hasPending || comp.needsKeyframe) return false
         if (ledgerBaseOwed(st)) return tryLedgerRead(st)
         if (atlasResendMissing > 0L) return false
@@ -5757,8 +5873,9 @@ class Shell(
         b.verifyDue(now)
         b.nextDirty()?.let { row -> return mainBindRow(st, ms, row, write = false, now) }
         // a withdrawn list's strip write, in a pump after the one that withdrew it (the rules' CLEAR went between)
-        b.withdrawnFor?.let { row -> return if (mainBindPumps > b.withdrawnAtPump) mainBindRow(st, ms, row, write = true, now) else false }
-        if (!mainBindBurstOpen()) b.nextOwed(now)?.let { row -> return mainBindRow(st, ms, row, write = true, now) }
+        // B082: a re-stage's first piece too waits while a motion of the list may still draw (its later ones: `mayGo`)
+        b.withdrawnFor?.let { row -> return if (mainBindPumps > b.withdrawnAtPump && !mainMotionMayDraw()) mainBindRow(st, ms, row, write = true, now) else false }
+        if (!mainBindBurstOpen() && !mainMotionMayDraw()) b.nextOwed(now)?.let { row -> return mainBindRow(st, ms, row, write = true, now) }
         listOfNotNull(b.dueInMs(now), b.verifyInMs(now)).minOrNull()?.let { wait ->
             if (mainBindWakeAtMs <= now || now + wait < mainBindWakeAtMs) { mainBindWakeAtMs = now + wait; pumpAfter(wait) }
         }
@@ -5882,13 +5999,22 @@ class Shell(
                 val bytes = ByteArray(r.bytes).also { out -> var o = 0; for (w in r.writes) { w.bytes.copyInto(out, o); o += w.bytes.size } }
                 val rec = StagedRecord(key, Gray8(1, 1), bytes).also { it.off = r.writes.first().off }
                 stage.records[key] = rec
-                stageSubmit(rec, st, r.writes.map { it.off to it.bytes })
+                // build SPLIT: the writes go in pieces (no piece while a burst is open: an instance's read ranges cover both
+                // strip slots and the spare band slot, §5.6); the books take the re-stage — the staging's pictures, the
+                // list that names it, the patch — only when nothing unwritten remains: at the item word's submission (it
+                // goes alone, after every other piece was acknowledged), else at the last piece's ack
+                var pieces = 0
+                stageSubmit(rec, st, r.writes.map { it.off to it.bytes }, namesLast = r.band != null, mayGo = { !mainBindBurstOpen() && !mainMotionMayDraw() }) {
+                    if (mainBind.staging !== ms) return@stageSubmit       // the staging went meanwhile (its drop said so)
+                    mainBind.submitted(r, rec, System.currentTimeMillis())
+                    stageRecount()
+                    journal.note("mainstage", "row $row re-staged — ${r.bytes} B in $pieces piece(s) (${r.writes.joinToString { "${it.what} ${it.bytes.size} B" }})" +
+                        (r.band?.let { m -> "; its band form moved to off4 ${m.off / 4}, the item table switched by one write after the rest was acknowledged, the old slot free once acknowledged" } ?: "") +
+                        "; mark kept; ${mainBind.restageCount} re-stage(s), ${mainBind.restagedBytes} B this process")
+                    post(Msg.Pump)
+                }
+                pieces = stageCursor?.takeIf { it.rec === rec }?.pieces?.size ?: 0
                 if (rec.state != StagedRecord.State.SENT) { mainBind.notWritten(row); return true }   // not submitted: said there, the row stays owed
-                mainBind.submitted(r, rec, now)
-                stageRecount()
-                journal.note("mainstage", "row $row re-staged — ${r.bytes} B in one flush (${r.writes.joinToString { "${it.what} ${it.bytes.size} B" }})" +
-                    (r.band?.let { m -> "; its band form moved to off4 ${m.off / 4}, the item table switched by one write, the old slot free once acknowledged" } ?: "") +
-                    "; mark kept; ${mainBind.restageCount} re-stage(s), ${mainBind.restagedBytes} B this process")
             }
         }
         return true
@@ -7482,7 +7608,7 @@ class Shell(
             }
             // the wheel's preview over Main before Main's staging step (decisions AL.1): a staging's paint turns are not
             // what the preview waits for
-            if (!animated && !pumpMainStage(st) && !pumpLedger(st) && !pumpAtlas(st) && !settlePreview() && !pumpMainBind(st)) pumpStage(st)
+            if (!animated && !pumpMainStage(st) && !pumpLedger(st) && !pumpAtlas(st) && !settlePreview() && !pumpStagePiece(st) && !pumpMainBind(st)) pumpStage(st)
         }
 
         // animations continue on the next completion or message; make sure one

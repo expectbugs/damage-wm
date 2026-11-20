@@ -210,7 +210,8 @@ class MainSeqTest {
             // the atlas went first (Page staging's rule): Main's rows drew a face's new characters, so nothing was written
             // until the atlas held them — no record written and then dropped when the live font set changed
             assertTrue(r.notes("mainseq").any { "the atlas goes first" in it }, "${r.notes("mainseq")}")
-            assertEquals(1, r.notes("stage").count { it.startsWith("Main's strip") }, "Main's strip written once: ${r.notes("stage")}")
+            // build SPLIT: a record's write is its first piece's note ("submitted as flush … piece 1 of n")
+            assertEquals(1, r.notes("stage").count { it.startsWith("Main's strip") && "submitted as flush" in it }, "Main's strip written once: ${r.notes("stage")}")
             assertTrue(r.notes("mainseq").none { "left the reserve" in it }, "${r.notes("mainseq")}")
             // END is in belief at each ack: no follow-up carries anything inside the pan's areas (the rows there did not
             // change, so with END in belief nothing there differs from the truth)

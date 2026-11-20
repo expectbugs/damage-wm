@@ -813,6 +813,18 @@ class MainLocalShellTest {
             val stripB = Regex("""its second slot (\d+) B""").find(staged)?.groupValues?.get(1)?.toInt()
             val switchB = Regex("""re-staged — (\d+) B""").find(restaged)!!.groupValues[1].toInt()
             assertTrue(stripB != null && switchB < stripB / 2, "the second slot staged with the base records ($staged); the switch's flush small ($restaged)")
+            // build SPLIT: the re-stage is booked (the list that names the other strip) only after every piece before its
+            // naming piece was acknowledged — each of those pieces' `done` line comes before the `re-staged` note
+            val ls = Files.readAllLines(r.journal)
+            val bookedAt = ls.indexOfFirst { "\"kind\":\"mainstage\"" in it && "\"detail\":\"row 3 re-staged" in it }
+            val pieceIds = ls.filter { "\"kind\":\"stage\"" in it && "re-stage" in it && "as flush " in it }
+                .map { it.substringAfter("as flush ").takeWhile { c -> c.isDigit() }.toLong() }
+            val n = Regex("""in (\d+) piece""").find(restaged)!!.groupValues[1].toInt()
+            val naming = if ("item table switched" in restaged) 1 else 0
+            assertEquals(n, pieceIds.size, "the re-stage's pieces: $pieceIds")
+            for (id in pieceIds.take(n - naming)) assertTrue(ls.indexOfFirst { "\"ev\":\"done\"" in it && "\"id\":$id," in it } in 0 until bookedAt,
+                "piece flush $id acknowledged before the booking (line $bookedAt)")
+            if (naming == 1) assertTrue(ls.any { "re-stage: piece $n of $n (4 B, naming the rest)" in it }, "the item word alone, last: ${ls.filter { "re-stage" in it && "\"kind\":\"stage\"" in it }}")
         } finally { r.close() }
     }
 
@@ -1322,6 +1334,78 @@ class MainLocalShellTest {
             assertEquals(34, r.onLoop { r.shell.periodInForceForTest() }, "30 ms × 1.10 → 34 ticks")
             assertTrue(n >= Shell.PERIOD_WINDOW, "not before the slower steps left the window: $n fast motions")
             r.assertOracle("after the period came down")
+        } finally { r.close() }
+    }
+
+    /** Build SPLIT: a notch fired as a re-stage's first piece reaches the lens (Main bound at 256 KiB, a row form
+     *  changed) opens a burst; the re-stage's later pieces wait for its lone SETTLE — an instance's read ranges cover
+     *  both strip slots and the spare band slot (§5.6) — so the notch is adopted, COMMITted and drawn whole, with no
+     *  snap-back, and the oracle holds. */
+    @Test
+    fun aNotchBetweenARestagesPiecesHoldsTheRestUntilItsBurstEnds_SPLIT(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, kib256 = true)
+        try {
+            r.up()
+            val at = r.right.size
+            var fired: Int? = null
+            // the re-stage's first piece: a cache write into Main's own region (the atlas lies below it) — a mode 19 or its
+            // deflated form, mode 25 (ZWRITE is armed at stage 4)
+            val regionStart = CfwModes.mainRegion(256 * 1024, true).first
+            fun firstOff(img: ByteArray): Int = when (img[0].toInt() and 0x7F) {
+                19 -> r.u16(img, 1) * 4
+                25 -> java.util.zip.Inflater().run { setInput(img, 1, img.size - 1); val out = ByteArray(4); inflate(out); end(); r.u16(out, 0) * 4 }
+                else -> -1
+            }
+            r.onAnyImage = { a, img -> if (a == Arm.RIGHT && fired == null && r.cacheWrite(img) && firstOff(img) >= regionStart) fired = r.fire(CfwModes.EV_UPROLL) }
+            r.rows[3].s = r.rows[3].s.copy(line = "summary 33")
+            r.shell.services.requestRender(r.rows[3])
+            r.until("a notch fired as the re-stage's first piece went out", 15_000) { fired != null }
+            r.onAnyImage = null
+            r.until("the re-stage booked", 15_000) { r.notes("mainstage").any { it.startsWith("row 3 re-staged") } }
+            r.settle("the re-stage written")
+            val imgs = r.right.drop(at)
+            val writes = imgs.withIndex().filter { (_, img) -> r.cacheWrite(img) && firstOff(img) >= regionStart }.map { it.index }
+            assertTrue(writes.size >= 2, "the re-stage went in pieces: ${writes.size}")
+            val settleAt = imgs.withIndex().firstOrNull { (i, img) -> i > writes[0] && r.subs(img).any { r.isSub(it, 26, 5) } }?.index ?: -1
+            assertTrue(settleAt in writes[0] until writes[1], "the second piece after the burst's SETTLE: SETTLE at $settleAt, pieces at $writes")
+            assertTrue(imgs.any { img -> r.subs(img).any { r.isCommit(it, fired!!) } }, "the notch COMMITted")
+            assertTrue(r.notes("snapback").isEmpty(), "no snap-back: ${r.notes("snapback")}")
+            r.assertOracle("after the re-stage")
+        } finally { r.close() }
+    }
+
+    /** Build SPLIT on 0.80 (decisions AZ.4 beside AQ): a wrap whose edge report comes as a 256 KiB re-stage's first piece
+     *  (a row form changed: the other strip slot is being written) draws the strip the bound entries name — whole — not
+     *  the one in pieces: the re-stage is booked only after its pieces, and its later pieces wait for the wrap's burst.
+     *  At rest the re-stage is booked and belief equals both lenses. */
+    @Test
+    fun aWrapBetweenARestagesPiecesDrawsTheWholeStrip_SPLIT2(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, kib256 = true)
+        try {
+            r.up()
+            walkTo(r, r.list().count - 1)
+            val oldProg = assertNotNull(r.list().entryFor(CfwModes.EV_UPROLL)).prog4
+            val regionStart = CfwModes.mainRegion(256 * 1024, true).first
+            fun firstOff(img: ByteArray): Int = when (img[0].toInt() and 0x7F) {
+                19 -> r.u16(img, 1) * 4
+                25 -> java.util.zip.Inflater().run { setInput(img, 1, img.size - 1); val out = ByteArray(4); inflate(out); end(); r.u16(out, 0) * 4 }
+                else -> -1
+            }
+            val at = r.right.size
+            var fired = false
+            r.onAnyImage = { a, img -> if (a == Arm.RIGHT && !fired && r.cacheWrite(img) && firstOff(img) >= regionStart) { fired = true; r.fire(CfwModes.EV_UPROLL) } }
+            r.rows[3].s = r.rows[3].s.copy(line = "summary 33")
+            r.shell.services.requestRender(r.rows[3])
+            r.until("the wrap fired as the re-stage's first piece went out", 15_000) { fired }
+            r.onAnyImage = null
+            r.until("the wrap's PLAY on RIGHT") { wrapBatch(r, at) != null }
+            val play = wrapBatch(r, at)!!.first { isWrapPlay(it) }
+            assertEquals(oldProg, r.u16(play, 4), "the wrap draws the strip the bound entries name, not the one in pieces")
+            r.until("the re-stage booked", 15_000) { r.notes("mainstage").any { it.startsWith("row 3 re-staged") } }
+            delay(r.q() + 200); r.settle("after")
+            assertEquals(0, r.row(), "the wrap landed on the first row")
+            assertTrue(r.notes("divergence").isEmpty(), "${r.notes("divergence")}")
+            r.assertOracle("after the wrap and the re-stage")
         } finally { r.close() }
     }
 }
