@@ -157,6 +157,8 @@ class TransitionShellTest {
             fail("no expectation for $name: this run's ${got.size} images written to ${out.toAbsolutePath()}")
         }
         val (w, g) = normal(want) to normal(got)
+        // every run's recording kept beside the build's results, for a reader of a failure
+        Paths.get("build", "transitions").also { Files.createDirectories(it) }.resolve("got-${System.nanoTime()}.txt").let { Files.write(it, got) }
         assertEquals(w.size, g.size, "$what: drawing image count against $name")
         for (i in w.indices) assertEquals(w[i], g[i], "$what: drawing image $i differs from $name")
     }
@@ -166,12 +168,15 @@ class TransitionShellTest {
      * same drawing bytes every time, two readings that are not the act's varying): each image a lens took as its
      * sub-messages (a lone image is one), less (1) an image holding only the rules' mode-26/27 messages — answers,
      * SETTLEs, a table repair's re-send to RIGHT — whose moment follows the telemetry reads (in two runs of five one of
-     * them fell inside the recording), and (2) a text draw holding "K/s", the link cell's measured throughput. What is not
-     * compared here is checked raw by the test: no C3 form at all.
+     * them fell inside the recording), (2) a cache write (mode 12, 19, 25: the atlas's uploads in idle, whose chunks
+     * follow what the process's earlier shells drew — the class's own order gives other chunks than a lone run), and (3)
+     * a text draw holding "K/s", the link cell's measured throughput. What is not compared here is checked raw by the
+     * test: no C3 form at all.
      */
     private fun normal(images: List<String>): List<String> = images.mapNotNull { line ->
         val ss = subs(bytes(line.substring(2)))
-        if (ss.all { (it[0].toInt() and 0x7F) == 26 || (it[0].toInt() and 0x7F) == 27 }) null
+        if (ss.all { (it[0].toInt() and 0x7F) == 26 || (it[0].toInt() and 0x7F) == 27 } ||
+            ss.size == 1 && (ss[0][0].toInt() and 0x7F) in setOf(12, 19, 25)) null
         else line.substring(0, 2) + ss.map { b -> b.joinToString("") { "%02x".format(it) } }
             .filter { h -> (0 until h.length - 5 step 2).none { h.startsWith("4b2f73", it) } }.joinToString("|")
     }
@@ -213,6 +218,8 @@ class TransitionShellTest {
                 assertTrue(!playAfter(s) && !playIn(s, 2) && !playIn(s, 3) && !isSub(s, 27, CfwModes.BIND_LIST_RING), "a C3 form below stage 5: $line")
             }
             assertWire("acts-0xdff-stage4.txt", got, "0xdff stage 4")
+            // and the shell did not so much as plan one (no program built, no note): the act is today's cut
+            assertTrue(r.notes("transition").isEmpty(), "no transition below stage 5: ${r.notes("transition")}")
         } finally { r.close() }
     }
 
@@ -260,6 +267,8 @@ class TransitionShellTest {
             r.onImage = { a, img -> if (a == Arm.RIGHT && panelAtPlayAfter == null && subs(img).any { playAfter(it) }) panelAtPlayAfter = r.panel(false) }
             r.recording = true
             selectAndSettle(r)
+            // the CLOSE after the in half's body goes in a flush of its own: its image reaches the lens after the settle
+            r.until("the CLOSE of slot 2 reaches RIGHT") { right(r).any { img -> subs(img).any { closeOf(it, 2) } } }
             r.recording = false
             val imgs = right(r)
             val st = r.t.state.value
@@ -292,6 +301,8 @@ class TransitionShellTest {
             val seen = assertNotNull(panelAtPlayAfter, "RIGHT saw the PLAY-AFTER")
             assertTrue(!seen.pix.contentEquals(final.pix), "the window's frame was not on RIGHT's panel before its in half")
             println("DP2 Select at stage 5: ${r.notes("transition").joinToString("\n")}")
+            println("DP2 Select at stage 5, RIGHT's images: " + imgs.joinToString("; ") { img ->
+                "${img.size} B [" + subs(img).joinToString(" ") { "${it[0].toInt() and 0x7F}/${if ((it[0].toInt() and 0x7F) in setOf(26, 27)) it[1].toInt() else it.size}" } + "]" })
         } finally { r.close() }
     }
 
@@ -366,6 +377,8 @@ class TransitionShellTest {
             val t0 = System.currentTimeMillis()
             selectAndSettle(r)
             val took = System.currentTimeMillis() - t0
+            // the CLOSEs go in a flush of their own: their image reaches the lens after the settle
+            r.until("CLOSE 2 and CLOSE 3 reach RIGHT") { right(r).any { img -> subs(img).let { s -> s.size == 2 && closeOf(s[0], 2) && closeOf(s[1], 3) } } }
             r.recording = false
             assertTrue(r.notes("transition").any { "no in-half body by its nominal end plus one period" in it }, "${r.notes("transition")}")
             val imgs = right(r)
@@ -411,6 +424,9 @@ class TransitionShellTest {
             r.shell.services.requestRender(r.rows[0])
             r.until("the transition ends") { r.onLoop { r.shell.transitionPhaseForTest() } == null }
             r.settle("after")
+            r.until("the CLOSE of slot 2 and the window's repaint reach RIGHT") { right(r).let { im ->
+                val c = im.indexOfFirst { img -> subs(img).any { closeOf(it, 2) } }
+                c >= 0 && im.drop(c + 1).any { img -> subs(img).any { drawing(it) } } } }
             r.recording = false
             val imgs = right(r)
             val pa = imgs.indexOfFirst { img -> subs(img).any { playAfter(it) } }
@@ -431,20 +447,27 @@ class TransitionShellTest {
         try {
             r.up()
             r.rows[0].noise = true
+            // a frame splits by bytes only past the batch's cap (a whole panel); the compositor's cap lowered for the test
+            r.onLoop { r.shell.comp.batchMax = 1500 }
             var panelAtPlayAfter: Gray8? = null
             r.onImage = { a, img -> if (a == Arm.RIGHT && panelAtPlayAfter == null && subs(img).any { playAfter(it) }) panelAtPlayAfter = r.panel(false) }
             r.recording = true
             selectAndSettle(r)
+            r.until("the CLOSE of slot 2 reaches RIGHT") { right(r).any { img -> subs(img).any { closeOf(it, 2) } } }
             r.recording = false
             val imgs = right(r)
             val out = imgs.indexOfFirst { img -> subs(img).any { playIn(it, 2) } }
             val pa = imgs.indexOfFirst { img -> subs(img).any { playAfter(it) } }
             val close = imgs.indexOfFirst { img -> subs(img).any { closeOf(it, 2) } }
-            val frame = (out + 1..pa).filter { i -> subs(imgs[i]).any { drawing(it) } }
+            // the frame: every drawing image between the out PLAY and the CLOSE that ends the transition
+            val frame = (out + 1 until close).filter { i -> subs(imgs[i]).any { drawing(it) } }
             assertTrue(frame.size >= 2, "the frame took ${frame.size} flush(es) — the test needs several")
-            assertEquals(pa, frame.last(), "the PLAY-AFTER rides the frame's last flush")
+            // after every image of the frame: in its last flush's batch after the drawing subs, or alone right after it (when
+            // the compositor's pending damage turned out empty at the next assemble, `transitionAlone`)
+            val last = frame.last()
+            assertTrue(pa >= last, "the PLAY-AFTER after the frame's last drawing image (PLAY-AFTER $pa, the frame's images $frame)")
             val paSubs = subs(imgs[pa])
-            assertTrue(paSubs.indexOfFirst { playAfter(it) } > paSubs.indexOfLast { drawing(it) }, "after its drawing subs")
+            if (pa == last) assertTrue(paSubs.indexOfFirst { playAfter(it) } > paSubs.indexOfLast { drawing(it) }, "after its drawing subs")
             assertTrue(imgs.subList(out, pa + 1).none { img -> subs(img).any { closeOf(it, 2) || closeOf(it, 0xFF) } }, "every frame flush held")
             assertTrue(close > pa && imgs.subList(pa + 1, close).none { img -> subs(img).any { drawing(it) } })
             r.assertOracle("after")

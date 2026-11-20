@@ -8034,7 +8034,7 @@ class Shell(
     /** Everything quiescence asks for EXCEPT the message queue. */
     private fun idleApartFromMessages(): Boolean =
         (glassesSilent || (!comp.hasPending && !comp.needsKeyframe && !comp.deferring)) && inflightFlushes.isEmpty() &&
-            !notifications.animating && slides.none { it.active } && !switcher.spinning && transition == null
+            !notifications.animating && slides.none { it.active } && !switcher.spinning && transition == null && transitionCloses.isEmpty()
 
     /**
      * 🔴 An ATOMIC settled sample, for a harness that compares the shell's
