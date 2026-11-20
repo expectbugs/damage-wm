@@ -186,7 +186,8 @@ class MusicWindowTest {
         val q2 = QueueEngine(); q2.fromJson(j)
         assertEquals(q.entries.map { it.qid }, q2.entries.map { it.qid }); assertEquals(q.index, q2.index); assertEquals(Mode.SHUFFLE, q2.mode); assertEquals("x", q2.label)
         val minted = q2.append(listOf(t(9)))
-        assertTrue(minted[0].qid > q.entries.maxOf { it.qid })
+        // S1-4 K: an id is a random 64-bit number minted by the adding device — distinct, not counted up
+        assertTrue(minted[0].qid > 0 && minted[0].qid !in q.entries.map { it.qid })
         q.clear(); assertTrue(q.isEmpty); assertFalse(q.needsFill())
     }
 

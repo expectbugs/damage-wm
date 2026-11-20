@@ -804,7 +804,7 @@ abstract class PlayerCore(
     val isOutput: Boolean get() = src == null || out.host == host
 
     /** Off the playing host and not taking over: verbs go to the host that plays. */
-    private fun offHost(): Boolean = src != null && out.host != host && takeover == null
+    protected fun offHost(): Boolean = src != null && out.host != host && takeover == null
 
     /** §3.4's guard at the calls that make sound: `out` names this host, or its own take-over is in flight. */
     protected fun mayPlay(): Boolean = src == null || out.host == host || takeover != null
@@ -866,7 +866,15 @@ abstract class PlayerCore(
         if (was.host == host && o.host != host) leave(o)
         if (o.host != host) follow(st)
         changed()
+        recordMoved()
     }
+
+    /** The record moved this player's state (the player's thread): a host whose ticks follow its own sink paces them
+     *  for the other host's playing too, so the card's place moves while that host plays ([following]). */
+    protected open fun recordMoved() {}
+
+    /** Off the playing host while it plays: the place shown moves on ticks. */
+    protected fun following(): Boolean = offHost() && play == PlayState.PLAYING
 
     /** §3.5 step 3: `out` left this host — a stop, not a pause; a move made while this host was out of reach is said. */
     private fun leave(o: MusicCore.Out) {
@@ -1064,8 +1072,8 @@ abstract class PlayerCore(
         writeOut(tk.t)
         lastQ = engine.recordJson()
         act(MusicCore.A_QUEUE, MusicCore.Q, lastQ!!)
-        out = MusicCore.Out(host, tk.t)                     // this host plays from here; the record's echo confirms it
-        takeover = null
+        // the take-over stays until the record shows this host's `out` (or a later one): a write of the old host's that
+        // lands first is not read as the output leaving this host
         writeNow()
         decided("took the output at ${Fmt.mmss(positionMs())}")
         tk.done(null)
@@ -1073,7 +1081,7 @@ abstract class PlayerCore(
     }
 
     private fun takeoverFailed(detail: String): Boolean {
-        val tk = takeover ?: return false
+        val tk = takeover?.takeIf { !it.written } ?: return false
         takeover = null
         stopHere("the take-over failed: $detail")
         emit(PlayerEvent.Error(detail))

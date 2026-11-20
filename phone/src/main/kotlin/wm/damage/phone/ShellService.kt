@@ -110,6 +110,10 @@ class ShellService : Service() {
     private var feedProvider: wm.damage.core.windows.feed.FeedProvider? = null
     private var musicLibrary: wm.damage.core.windows.music.RemoteMusicLibrary? = null
     private var musicPlayer: wm.damage.phone.music.AndroidMusicPlayer? = null
+    /** S1-4 K: Music's source on the working copy (the player's and every stack's presenter's), and this stack's
+     *  presenter (detached at the stack's stop; the player and library live with the service, ruling 9). */
+    private var musicSource: wm.damage.core.app.LocalWindowSource? = null
+    private var musicGlasses: wm.damage.core.windows.music.MusicGlasses? = null
     private var remoteIcons: RemoteIcons? = null
     private var remoteSync: wm.damage.core.sync.RemoteSync? = null
     /** Build W, package D: the bus watcher's phone side, per stack. [remoteBastion] is read by the Acknowledge
@@ -253,6 +257,8 @@ class ShellService : Service() {
         }
         // S1-1 P3: before the first stack, so the stack finds the copy (and reconnects its lane if the PC moved)
         startWorkingCopy(dir, journalFile)
+        // S1-4 K (ruling 9): the music player lives with the service, on the copy; no stack build reaches it
+        startMusicPlayer(dir, journalFile)
         try {
             startStack(Prefs(this).target, c1StepDown = lastRunEndedByError)
         } finally {
@@ -529,19 +535,18 @@ class ShellService : Service() {
         }
         torrentsGlasses = torWin
         sh.register(torWin)
-        // Music (2026-09-02, MUSIC.md): the library rides the window channel
-        // with its catalog/art/viz/lyrics cached on disk; the PLAYER is here —
-        // ExoPlayer + the media session the earbuds' taps route through
-        val musicDir = dataDir.resolve("music")
-        val mp = arrayOfNulls<wm.damage.phone.music.AndroidMusicPlayer>(1)
-        val ml = wm.damage.core.windows.music.RemoteMusicLibrary(prefs.host, prefs.contentPort, prefs.token, prefs.mediaPort, musicDir, scope,
-            onState = { line -> mp[0]?.onPcLinkLine(line) })
-        musicLibrary = ml
-        val player = wm.damage.phone.music.AndroidMusicPlayer(this, ml, scope, onEngaged = { promoteToMediaPlayback() })
-        player.journal = { line -> sh.journalNote("music", line) }      // M6: the player's decisions in the journal
-        mp[0] = player
-        musicPlayer = player
-        sh.register(wm.damage.core.windows.music.MusicWindow(text, ml, player, scope))
+        // Music (2026-09-02, MUSIC.md; S1-4 K): the library and the PLAYER live with the service (`startMusicPlayer`);
+        // this stack's presenter reads Music's record from the copy (the player's source) and drives that player
+        val ml = musicLibrary
+        val mplayer = musicPlayer
+        if (ml != null && mplayer != null) {
+            val msrc = musicSource
+            val mw = if (msrc != null) wm.damage.core.windows.music.MusicGlasses(text, ml, mplayer, scope,
+                msrc.core as wm.damage.core.windows.music.MusicCore, msrc)
+            else wm.damage.core.windows.music.MusicWindow(text, ml, mplayer, scope)
+            musicGlasses = mw
+            sh.register(mw)
+        }
         // Games is pure Kotlin — no provider, no channel, no `needs`. Its whole
         // world lives in its own synced records (HOLDEM.md §11.1).
         sh.register(wm.damage.core.windows.games.GamesWindow(text, scope))
@@ -794,10 +799,9 @@ class ShellService : Service() {
         try { feedProvider?.close() } catch (e: Exception) { Log.w("service", "feed provider close: ${e.message}") }
         feedProvider = null
         torrentsProvider = null
-        try { musicPlayer?.close() } catch (e: Exception) { Log.w("service", "music player close: ${e.message}") }
-        musicPlayer = null
-        try { musicLibrary?.close() } catch (e: Exception) { Log.w("service", "music library close: ${e.message}") }
-        musicLibrary = null
+        // S1-4 K (ruling 9): the presenter leaves; the player and library outlive the stack (closed at the service's end)
+        try { musicGlasses?.detach() } catch (e: Exception) { Log.w("service", "music detach: ${e.message}") }
+        musicGlasses = null
         filesProvider = null
         try { remoteIcons?.close() } catch (e: Exception) { Log.w("service", "icons close: ${e.message}") }
         remoteIcons = null
@@ -858,6 +862,40 @@ class ShellService : Service() {
             Log.e("workcopy", "the working copy could not be started (${e::class.simpleName}: ${e.message}); " +
                 "the stack starts without it", e)
         }
+    }
+
+    /**
+     * S1-4 K (ruling 9; the lean spec's §3.4): the music library on the window channel and the phone's player, once per
+     * service, on the working copy as host `phone`: off the playing host its verbs go to the PC (`request("player")`),
+     * and the PC's relayed verbs come back to it (`cmd`). Nothing here plays: a restore stages, never starts.
+     */
+    private fun startMusicPlayer(dir: java.nio.file.Path, journalFile: java.nio.file.Path) {
+        try {
+            val prefs = Prefs(this)
+            val ml = wm.damage.core.windows.music.RemoteMusicLibrary(prefs.host, prefs.contentPort, prefs.token, prefs.mediaPort,
+                dir.resolve("music"), serviceScope, onState = { line -> musicPlayer?.onPcLinkLine(line) })
+            musicLibrary = ml
+            val player = wm.damage.phone.music.AndroidMusicPlayer(this, ml, serviceScope, onEngaged = { promoteToMediaPlayback() })
+            player.journal = { line -> Journal.appendNote(journalFile, "music", line) }      // M6: the player's decisions
+            musicPlayer = player
+            val wc = workingCopy ?: return
+            val src = wm.damage.core.app.LocalWindowSource(wm.damage.core.windows.music.MusicCore(), wc)
+            musicSource = src
+            player.bind(src, wm.damage.core.windows.music.MusicCore.PHONE) { verb, args, done -> ml.player(verb, args, done) }
+            ml.onCmd = { verb, args, done -> player.command(verb, args, done) }
+        } catch (e: Exception) {
+            Log.e("music", "the music player could not be started (${e::class.simpleName}: ${e.message})", e)
+        }
+    }
+
+    /** S1-4 K: at the service's end, after the last stack and before the copy closes. */
+    private fun closeMusicPlayer() {
+        try { musicSource?.close() } catch (e: Exception) { Log.w("service", "music source close: ${e.message}") }
+        musicSource = null
+        try { musicPlayer?.close() } catch (e: Exception) { Log.w("service", "music player close: ${e.message}") }
+        musicPlayer = null
+        try { musicLibrary?.close() } catch (e: Exception) { Log.w("service", "music library close: ${e.message}") }
+        musicLibrary = null
     }
 
     /** The app lane to the PC [prefs] names, on the service's scope; the address it names is kept in [appLink]. */
@@ -1053,6 +1091,7 @@ class ShellService : Service() {
             // the disconnect must still reach the person (round 3, b3-1)
             try { stopStack() } catch (e: Exception) { Log.e("service", "shutdown failed", e) }
             finally {
+                closeMusicPlayer()
                 closeWorkingCopy()
                 sink?.let { Log.removeSink(it) }
             }
