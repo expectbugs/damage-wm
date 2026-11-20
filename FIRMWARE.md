@@ -2295,8 +2295,10 @@ one-period wait; with this it is drawn a few ms late.
   step) and at LAND otherwise, so nothing waits and **a transition plays in full** (`MOTION.md` §7; the first review
   pass of the transitions, 2026-11-20). They leave both owners open; a write meeting any OTHER owner's box closes
   that one first, as before; a second act replaces the run (its out PLAY's close pass ends what is left: the latest
-  input wins), and so does any other PLAY whose close pass meets the owners — the phone's own wrap PLAY on Main under a
-  Back's in half is the one it sends: RIGHT's closed body ends the run, and the arriving frame is whole in the shadow;
+  input wins). **The phone sends no other PLAY whose close pass would meet the owners while a transition is in hand**:
+  a notch at Main's end under a Back is applied without its wrap motion — the row shows at the in half's next step or
+  at LAND, and the transition plays in full (the second review pass of the transitions, 2026-11-20; were such a PLAY
+  sent, its close pass would end the run as a second act's does);
   the panel model leaves an owned rect as it is through every held present, and takes the shadow there at LAND or at a
   close. **An owned rect stays out of the phone's agreement scan while its mark stands** — a done owner (an out
   half, the freeze) holds step T there while belief moves on beneath it; the scan reads the rect again after LAND or
@@ -2938,8 +2940,8 @@ phone's keeper applies the hold-back rule before re-arming.
   R side on a per-lens track only); §7.8 repeats §6.3's check — a LIST-RING with EFFECTS clear is refused 15; §7.9 lists
   every C3 sub, kind and record form with its refusal when bit 6 is clear. Nothing built.
 - 2026-11-20 — the two review passes of the built code and their fix rounds (`C3-decisions.md` T–AH): §7.9 telemetry 41
-  and the hold-back to stage 3; §7.11 "a transition plays in full" (its writes leave both owners open; another PLAY
-  whose close pass meets them ends the run); §7.12 what the budget's terms do not carry and the cycle's cut at its
+  and the hold-back to stage 3; §7.11 "a transition plays in full" (its writes leave both owners open; the phone
+  sends no wrap PLAY while one is in hand); §7.12 what the budget's terms do not carry and the cycle's cut at its
   lowest slot; §7.4 the fold bound for random pieces; §7.3 and §7.14 as built after the second fix round — the destroy
   withdraws any pending job, a copy that left an owned rect out keeps the stale mark, so presents are whole while an
   instance owns.
