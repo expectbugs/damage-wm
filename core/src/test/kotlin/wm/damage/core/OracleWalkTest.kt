@@ -60,14 +60,16 @@ class OracleWalkTest {
      *  model keeping only the hinted rows on its panel — so a hint that misses a changed row fails
      *  the oracle here (2026-09-15, the second review: the standing gates had never run contract 2). */
     private class Rig(height: Int, seed: Long, contract: Int = 1, cached: Boolean = false, val stage4: Boolean = false,
-                      taps: wm.damage.core.local.Taps = wm.damage.core.local.Taps.REPORT) {
+                      taps: wm.damage.core.local.Taps = wm.damage.core.local.Taps.REPORT,
+                      /** Build C3 (DP2): a bit-11 build (0xdff) at the ladder's stage 5 — EFFECTS armed, transitions played. */
+                      val stage5: Boolean = false) {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val tmp: java.nio.file.Path = Files.createTempDirectory("damage-walk")
         val store = Persistence(tmp.resolve("state.json"))
         // build C2, stage DM2: a bit-10 build (DamageCaps 0x5ff) at the ladder's stage 4, so BIND is in force and the
         // shell stages Main's list
-        val sim = GlassFirmwareSim().also { if (contract > 1) it.damageContract = contract; if (stage4) it.damageFeatures = 0x5ff }
-        val transport = SimTransport(sim, scope, SimTransport.Timing(instant = true)).also { if (stage4) it.devProbe("c1", "4") }
+        val sim = GlassFirmwareSim().also { if (contract > 1) it.damageContract = contract; if (stage4) it.damageFeatures = 0x5ff; if (stage5) it.damageFeatures = 0xdff }
+        val transport = SimTransport(sim, scope, SimTransport.Timing(instant = true)).also { if (stage4) it.devProbe("c1", "4"); if (stage5) it.devProbe("c1", "5") }
         val clock = Shell.LocalClock(12, 0, "12:00", "PM")
         val text = if (cached) wm.damage.core.comp.CachedText(FakeText()) else FakeText()
         val shell = Shell(text, transport, store, null, scope) { clock }
@@ -76,13 +78,16 @@ class OracleWalkTest {
         val faults = ArrayList<String>()
 
         init {
-            store.put("shell.settings", ShellSettings(heightMode = height, cachedText = if (cached) "on" else "off", taps = taps).toJson())
+            // DP2: every tier's every effect checked, at the shortest length, so the walk meets them all quickly
+            store.put("shell.settings", ShellSettings(heightMode = height, cachedText = if (cached) "on" else "off", taps = taps).let { s ->
+                if (!stage5) s else wm.damage.core.motion.Transitions.Tier.entries.fold(s) { a, t ->
+                    a.withTier(t, length = 225, frames = 6, effects = wm.damage.core.motion.Transitions.effectsOf(t).map { it.id }) } }.toJson())
             // Games is the one real window core can build with no host at all
             shell.register(GamesWindow(FakeText(), scope) { 1_757_000_000_000L })
             shell.register(SurfaceWindow())
             shell.register(WalkDocWindow())
             // the glasses' engine thread: a step due is drawn (the model draws only when woken, as `MainSeqTest`'s rig)
-            if (stage4) scope.launch { while (true) { val now = System.currentTimeMillis(); for (a in Arm.entries) sim.conformanceWake(a, now); delay(4) } }
+            if (stage4 || stage5) scope.launch { while (true) { val now = System.currentTimeMillis(); for (a in Arm.entries) sim.conformanceWake(a, now); delay(4) } }
             scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
                 transport.events.collect { e ->
                     when (e) {
@@ -565,8 +570,50 @@ class OracleWalkTest {
         }
     }
 
+    /**
+     * Build C3, stage DP2: the contract-2 walk on a bit-11 build at stage 5, every transition tier's every effect checked
+     * (225 ms, 6 frames: a random pick at each act) — Selects into windows and levels, Backs, the silent clock both ways,
+     * notices arriving, the wheel, menus, a document — with the truth oracle at every settle (a settle waits for a
+     * transition's end) at the four heights. The walk must have played transitions that ran whole.
+     */
+    @Test
+    fun transitionsKeepTheOracleAtEveryHeight_DP2(): Unit = runBlocking {
+        for (h in ShellSettings.HEIGHTS) {
+            val rig = Rig(h, seed = 0xD9_7A_25L + h, contract = 2, cached = true, stage5 = true)
+            val tag = "c3 stage 5 h=$h"
+            try {
+                rig.shell.start()
+                rig.settle("$tag boot")
+                rig.assertOracle("$tag boot")
+                for (step in 1..TRANSITION_STEPS) {
+                    if (step % HANDOFF_EVERY == 0) {
+                        val (win, target) = HANDOFFS[(step / HANDOFF_EVERY - 1) % HANDOFFS.size]
+                        rig.shell.services.runOnShell { rig.shell.services.openWindow(win, target) }
+                        rig.settle("$tag step $step (open $win)")
+                        rig.assertOracle("$tag step $step (open $win)")
+                        continue
+                    }
+                    val g = if (rig.rnd.nextInt(3) == 0) EvenHubMsg.EV_DOUBLE_CLICK else GESTURES[rig.rnd.nextInt(GESTURES.size)]
+                    rig.shell.postGesture(g)
+                    if (rig.rnd.nextInt(13) == 0) rig.shell.postNotice(Notifications.Notice("SMS · WALK", "t$step", "step $step", "12:00"))
+                    val where = "$tag step $step (${EvenHubMsg.eventName(g)})"
+                    rig.settle(where)
+                    rig.assertOracle(where)
+                }
+                val (acts, whole) = rig.shell.transitionCountsForTest()
+                println("$tag: $acts transition(s) owed, $whole ran whole; ${rig.shell.divergencesReported} divergence(s) reported")
+                assertTrue(whole >= 6, "$tag: $acts transition(s), $whole ran whole — the walk proves less than it claims")
+                assertEquals(0, rig.shell.divergencesReported, "$tag: no divergence")
+            } finally {
+                rig.stop()
+            }
+        }
+    }
+
     internal companion object {
         const val STEPS = 240
+        /** DP2: the stage-5 walk's steps per height. */
+        const val TRANSITION_STEPS = 90
         /** The local walk's steps per height (each local event waits for its picture to be held). */
         const val LOCAL_STEPS = 120
         const val HANDOFF_EVERY = 17

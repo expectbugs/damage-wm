@@ -1656,7 +1656,9 @@ class GlassFirmwareSim() : LensPanels {
             if (o == null) continue
             val end = (o.t0 + (o.T - 1).toLong() * o.period) and MotionSim.U32
             val past = ((now - end) and MotionSim.U32).toInt() >= 0
-            if (past && Triple(o.slot, o.tag, o.ordinal) in motionNotified && !o.drawing) continue
+            // build C3 (D-4, ruled; `FIRMWARE.md` §7.11): an owned rect stays out of the scan while its mark stands — a done
+            // owner (an out half, the freeze) holds step T there while belief moves on beneath it
+            if (past && Triple(o.slot, o.tag, o.ordinal) in motionNotified && !o.drawing && !o.owns) continue
             out += areasOf(o, left)
         }
         return out

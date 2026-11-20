@@ -8,7 +8,10 @@ import wm.damage.core.geom.Geometry
 import wm.damage.core.geom.Rect
 import wm.damage.core.gfx.Pack
 import wm.damage.core.gfx.Zl
+import wm.damage.core.gfx.Gray8
 import wm.damage.core.motion.TestPrograms
+import wm.damage.core.motion.TransitionRehearsal
+import wm.damage.core.motion.Transitions
 import wm.damage.core.sim.GlassFirmwareSim
 import wm.damage.core.sim.MotionSim
 import wm.damage.core.transport.Arm
@@ -51,7 +54,8 @@ object MotionCheck {
             val f = try { one(name, outDir, features, out) } catch (e: Exception) { listOf("$name: ${e.javaClass.simpleName}: ${e.message}") }
             failures += f
         }
-        out.println("motion-check: ${TestPrograms.NAMES.size} program(s) into $outDir")
+        failures += try { transitions(outDir, out) } catch (e: Exception) { listOf("transitions: ${e.javaClass.simpleName}: ${e.message}") }
+        out.println("motion-check: ${TestPrograms.NAMES.size} program(s) and ${PLAYS.size} transition(s) into $outDir")
         if (failures.isEmpty()) { out.println("motion-check: ALL HOLD"); return 0 }
         out.println("motion-check: ${failures.size} FAILURE(S):")
         for (f in failures) out.println("  - $f")
@@ -150,4 +154,76 @@ object MotionCheck {
     }
 
     private fun crc(b: ByteArray) = java.util.zip.CRC32().also { it.update(b) }.value
+
+    // ------------------------------------------------------------------------------- build C3, stage DP2
+    /** Every transition a shell plays: Select's six forward and as Back (reversed), Lock's four entering and leaving. */
+    private val PLAYS: List<Triple<Transitions.Tier, Transitions.Effect, Boolean>> =
+        Transitions.effectsOf(Transitions.Tier.SELECT).flatMap { listOf(Triple(Transitions.Tier.SELECT, it, false), Triple(Transitions.Tier.BACK, it, true)) } +
+            Transitions.effectsOf(Transitions.Tier.LOCK).flatMap { listOf(Triple(Transitions.Tier.LOCK, it, false), Triple(Transitions.Tier.LOCK, it, true)) }
+
+    /**
+     * Build C3, stage DP2: each transition played on the model of a C3 build at height 352, 450 ms / 10 frames
+     * ([TransitionRehearsal]: the out half's PLAY, the arriving frame in two held batches, the in half by PLAY-AFTER),
+     * written as `DIR/transition-TIER-EFFECT[-reversed].png` — every frame from the one before the PLAY to the in half's
+     * last step, the left lens above the right, the 640 × 352 area at true 1x — and its `.txt`. Checks, each a failure: the
+     * in half lands the arriving frame on both lenses (panel = shadow = the frame), the frame shows nothing of itself
+     * before the in half, RIGHT's two bodies say every step was drawn.
+     */
+    /** The strips' base names, in [PLAYS]' order. */
+    internal val TRANSITION_NAMES: List<String> get() = PLAYS.map { (t, e, rev) -> "transition-${t.word.lowercase()}-${e.id}${if (rev) "-reversed" else ""}" }
+
+    private fun transitions(outDir: Path, out: java.io.PrintStream): List<String> {
+        val failures = ArrayList<String>()
+        val old = Gray8(Geometry.PANEL_W, Geometry.PANEL_H).also { g ->
+            for (r in 0 until 10) g.fillRect(Rect(40, 44 + r * 30, 300 + (r * 53) % 220, 20), ((r % 11) + 5) * 17)
+            g.fillRect(Rect(24, 164, 592, 60), 3 * 17); g.fillRect(Rect(40, 180, 260, 28), 15 * 17)
+            g.fillRect(Rect(0, 0, 640, 30), 2 * 17); g.fillRect(Rect(560, 6, 64, 18), 12 * 17)
+        }
+        val new = Gray8(Geometry.PANEL_W, Geometry.PANEL_H).also { g ->
+            for (j in 0 until 5) for (i in 0 until 8) g.fillRect(Rect(24 + i * 76, 40 + j * 60, 60, 44), (((i + 3 * j) % 14) + 2) * 17)
+            g.fillRect(Rect(0, 0, 640, 30), 2 * 17); g.fillRect(Rect(24, 6, 200, 18), 13 * 17)
+        }
+        val timing = Transitions.timing(450, 10)
+        for ((tier, e, rev) in PLAYS) {
+            val name = TRANSITION_NAMES[PLAYS.indexOf(Triple(tier, e, rev))]
+            val r = TransitionRehearsal.play(TransitionRehearsal.Plan(e, rev, HEIGHT, timing, batches = 2), old, new)
+            failures += r.failures.map { "$name: $it" }
+            val crop = Rect(0, 0, Geometry.PANEL_W, HEIGHT)
+            strip(outDir.resolve("$name.png"), r.frames.map { Triple(it.label, it.l, it.r) }, crop)
+            Files.writeString(outDir.resolve("$name.txt"), buildString {
+                appendLine("$name: ${tier.word} ${e.label}${if (rev) ", reversed in time" else ""} — ${r.built.describe()}")
+                appendLine("strip: ${r.frames.size} frames, $COLS per row; in each frame the left lens above the right; the 640x$HEIGHT area at 1x")
+                for ((i, f) in r.frames.withIndex()) appendLine("  frame $i (${f.label}) at tick ${f.tick}: L %08x R %08x".format(crc(f.l), crc(f.r)))
+                for (m in r.notifies) appendLine("notify: ${m.describe()}")
+                if (r.failures.isEmpty()) appendLine("checks: the in half lands the arriving frame on both lenses; nothing of it before; both bodies drew every step")
+                else for (f in r.failures) appendLine("FAILED: $f")
+            })
+            out.println("  ${if (r.failures.isEmpty()) "held" else "FAILED"}: $name -> $name.png, $name.txt")
+        }
+        return failures
+    }
+
+    private const val HEIGHT = 352
+
+    private fun strip(file: Path, frames: List<Triple<String, ByteArray, ByteArray>>, crop: Rect) {
+        val cols = minOf(COLS, frames.size)
+        val rows = (frames.size + cols - 1) / cols
+        val cellW = crop.w + GAP
+        val cellH = 2 * crop.h + GAP / 2 + GAP
+        val img = BufferedImage(cols * cellW + GAP, rows * cellH + GAP, BufferedImage.TYPE_INT_RGB)
+        for (y in 0 until img.height) for (x in 0 until img.width) img.setRGB(x, y, 0x502020)
+        val stride = (Geometry.PANEL_W + 1) / 2
+        frames.forEachIndexed { i, (_, l, r) ->
+            val ox = GAP + (i % cols) * cellW
+            val oy = GAP + (i / cols) * cellH
+            for ((lens, panel) in listOf(0 to l, 1 to r)) for (y in 0 until crop.h) for (x in 0 until crop.w) {
+                val px = crop.x + x; val py = crop.y + y
+                val b = panel[py * stride + (px shr 1)].toInt() and 0xFF
+                val v = (if (px and 1 == 0) b shr 4 else b and 0x0F) * 17
+                img.setRGB(ox + x, oy + lens * (crop.h + GAP / 2) + y,
+                    ((v * 0.16).toInt() shl 16) or (minOf(255, (v * 1.05).toInt()) shl 8) or (v * 0.34).toInt())
+            }
+        }
+        ImageIO.write(img, "png", file.toFile())
+    }
 }
