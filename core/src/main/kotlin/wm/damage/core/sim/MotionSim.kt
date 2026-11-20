@@ -290,6 +290,10 @@ class MotionSim(private val scaled: () -> Boolean = { false }, private val effec
                 val s = Seg(cache.copyOfRange(pos, pos + segBytes))
                 if (!structureOk(s)) return null
                 for (pr in intArrayOf(u8(s.raw, 30), u8(s.raw, 31))) if (pr and 0x80 != 0) substitute(s, (pr shr 2) and 0x1F, p[pr and 3])
+                // §7.2 as ruled at the meeting (`C3-decisions.md` R): on a track that is not per-lens no rule reads xR or
+                // dxR — the track uses xL and dxL on both lenses (§5.4) — so every check and painter after this sees those
+                // (the unused fields of SHRINK, the radial model, a rain in place, the moving test)
+                if (pl == 0) { s.xR = s.xL; s.dxR = s.dxL }
                 // §7.2 ("every check runs after substitution", §5.4): a version-2 segment's unused fields
                 if (v2 && !fieldsOk(s)) return null
                 segs += s
@@ -401,8 +405,8 @@ class MotionSim(private val scaled: () -> Boolean = { false }, private val effec
     /** §7.2's field rules for a version-2 segment, after substitution (5): a field verbs 4–6 do not list, and w0, w1,
      *  aux0, aux1 for every verb that does not list them, must be 0 (§5.4's "ignored" stands for verbs 0–3 otherwise).
      *  PIECES' model 3 and aux1 bits 2–7 (§7.4); DRAW of `self` or `new` takes no source window (§7.5). Ruled (C3, the seventeen):
-     *  RAIN's aux0 ("RAIN: 0" in the table) must be 0; xL/xR, listed for PIECES and GLYPHS, are not required 0 on a
-     *  track that is not per-lens. */
+     *  RAIN's aux0 ("RAIN: 0" in the table) must be 0. On a track that is not per-lens [walk] has already set xR and dxR
+     *  to xL and dxL (the meeting's ruling R), so SHRINK's xR and dxR are tested only on a per-lens track. */
     private fun fieldsOk(s: Seg): Boolean = when (s.verb) {
         WAIT, FILL, REVEAL -> s.w0 == 0 && s.w1 == 0 && s.aux0 == 0 && s.aux1 == 0
         DRAW -> s.kind == KIND_RECORD || (s.aux0 == 0 && s.aux1 == 0)

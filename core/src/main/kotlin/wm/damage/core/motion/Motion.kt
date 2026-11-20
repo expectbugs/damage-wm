@@ -420,7 +420,9 @@ object Motion {
             v2Only("SHRINK")
             if (anchor !in 0..2 || hAnchor !in 0..2) throw LintError("SHRINK's anchors $anchor / $hAnchor are not 0..2 — refused (5, §7.2)")
             if (listOf(w0, w1, h0, h1).any { it !in 0..0xFFFF }) throw LintError("SHRINK's w0/w1/h0/h1 are u16")
-            usesOnly("SHRINK", prefs, Field.XL, Field.XR, Field.X, Field.Y, Field.DXL, Field.DXR, Field.DX, Field.DY, Field.AUX0, Field.AUX1)
+            // xR and dxR are unused fields (5) only on a per-lens track: on one rect no rule reads them (the meeting's ruling R)
+            usesOnly("SHRINK", prefs, Field.XL, Field.X, Field.Y, Field.DXL, Field.DX, Field.DY, Field.AUX0, Field.AUX1,
+                *(if (perLens) arrayOf(Field.XR, Field.DXR) else emptyArray()))
             add(Segment(SHRINK, n, ease, 0, vacate, 0, 0, 0, 0, 0, 0, lvl0, lvl1, 0, prefs, null, h0, h1, anchor or (hAnchor shl 2), w0, w1))
         }
 
@@ -965,6 +967,9 @@ class MotionProgram internal constructor(val at: Int, val bytes: ByteArray, val 
                     Motion.Field.AUX0 -> r.aux0 = v and 0xFFFF; Motion.Field.AUX1 -> r.aux1 = v and 0xFFFF
                 }
             }
+            // §7.2 as ruled at the meeting (`C3-decisions.md` R): on a track that is not per-lens no rule reads xR or dxR
+            // (a parameter may still name them) — the glasses use xL and dxL on both lenses, and so does every check below
+            if (!t.perLens) { r.xR = r.xL; r.dxR = r.dxL }
             check(ti, r, touched, staticOnly)
             r
         } }

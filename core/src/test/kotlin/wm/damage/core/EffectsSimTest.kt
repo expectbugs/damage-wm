@@ -236,6 +236,44 @@ class EffectsSimTest {
         assertEquals(5, r.reason())
     }
 
+    /** §7.2 as ruled at the meeting (`C3-decisions.md` R; `fuzzc3-1020` step 12): on a track that is not per-lens no rule
+     *  reads xR or dxR. Each rule that names them, with a nonzero xR/dxR in the record's own bytes: on one rect the
+     *  program plays; on a per-lens track the rule still refuses. The radial row is the fuzz's record, which also draws
+     *  the same panel as with dxR 0. */
+    @Test
+    fun onATrackThatIsNotPerLensNoRuleReadsXrOrDxr_7_2() {
+        val bad = ArrayList<String>()
+        fun refused(prog: ByteArray): Int { val r = Rig(); r.write(64, prog); return if (r.msg(play(0, 20, 64, 1))) 0 else r.reason() }
+        fun want(code: Int, prog: ByteArray, row: String) { val got = refused(prog); if (got != code) bad += "$row: $got, not $code" }
+        val a = rect(132, 69, 88, 118); val b = rect(136, 69, 88, 118)
+        // §7.4 radial: "dxL, dxR and dy must be 0, else 12" — on a per-lens track
+        fun radial(dxR: Int) = seg2(PIECES, 3, ease = 1, kind = 4, xL = 206, xR = 210, y = 118, dxR = dxR, lvl0 = 5, lvl1 = 9, opt = 0x40, h0 = 9102,
+            w1 = 4096, aux0 = 0x010A, aux1 = 1)
+        want(0, prog2(OWN or LAND, track(a, 15, radial(7936))), "radial on one rect with dxR 7936 (the fuzz's record)")
+        want(12, prog2(OWN or LAND, trackPair(a, b, 15, radial(8))), "radial on a per-lens track with dxR 8")
+        fun drawn(dxR: Int): List<ByteArray>? {
+            val r = Rig(); r.write(64, prog2(OWN, track(a, 15, radial(dxR)))); r.now = 2000
+            assertTrue(r.msg(CfwModes.fill(Rect(150, 90, 30, 40), 11)), "a shape in the shadow for the pieces to carry")
+            if (!r.msg(play(0, 20, 64, 1))) return null
+            val step1 = r.lens.panel.copyOf(); r.wake(2020)
+            return listOf(step1, r.lens.panel.copyOf())
+        }
+        val zero = drawn(0)!!; val fuzz = drawn(7936)
+        if (fuzz == null || (0..1).any { !zero[it].contentEquals(fuzz[it]) }) bad += "radial on one rect: dxR 7936 draws ${if (fuzz == null) "nothing (refused)" else "another panel"} than dxR 0"
+        // §7.2: SHRINK does not use xR or dxR (5) — on a per-lens track
+        fun shrink(xR: Int, dxR: Int) = seg2(SHRINK, 2, xR = xR, dxR = dxR, w0 = 88, w1 = 20, lvl0 = 15, lvl1 = 15)
+        want(0, prog2(OWN, track(a, NONE, shrink(5, 3))), "SHRINK on one rect with xR 5, dxR 3")
+        want(5, prog2(OWN, trackPair(a, b, NONE, shrink(5, 0))), "SHRINK on a per-lens track with xR 5")
+        want(5, prog2(OWN, trackPair(a, b, NONE, shrink(0, 3))), "SHRINK on a per-lens track with dxR 3")
+        // §7.2: a later track may not meet an in-place track while it moves pixels (12); PIECES uniform with dxL = dxR =
+        // dy = 0 does not move them — on one rect dxR is not read
+        fun still(dxR: Int) = seg2(PIECES, 3, kind = 0, src = 1, dxR = dxR, lvl0 = 15, lvl1 = 15, w1 = 4096, aux0 = 0x0101)
+        val later = track(rect(150, 100, 20, 20), 3, seg2(FILL, 3, kind = 2))
+        want(0, prog2(OWN, track(a, NONE, still(9)), later), "uniform on one rect with dxR 9: still, a later track over it")
+        want(12, prog2(OWN, trackPair(a, b, NONE, still(9)), later), "uniform on a per-lens track with dxR 9: moving")
+        assertEquals(emptyList(), bad, "rows:\n" + bad.joinToString("\n"))
+    }
+
     // ------------------------------------------------------- §7.3 the owning instance, the held present, LAND
     /** A uniform layer-old PIECES moves the area right by D = ((8·f + 2048) >> 12): 2, 4, 6, 8 at f = 1024 … 4096 (linear,
      *  4 steps), from the panel's own picture, the vacate (1) behind it. A phone frame while it owns lands in the shadow
@@ -671,6 +709,9 @@ class EffectsSimTest {
                 u16(h0) + u16(h1) + byteArrayOf(anchor.toByte(), 0, 0, 0) + u16(w0) + u16(w1) + u16(aux0) + u16(aux1)
         fun track(area: ByteArray, backdrop: Int, vararg segs: ByteArray) =
             byteArrayOf(segs.size.toByte(), backdrop.toByte(), 0, 0) + area + segs.fold(ByteArray(0)) { a, s -> a + s }
+        /** A per-lens track: perLens 1, the left rect then the right. */
+        fun trackPair(left: ByteArray, right: ByteArray, backdrop: Int, vararg segs: ByteArray) =
+            byteArrayOf(segs.size.toByte(), backdrop.toByte(), 1, 0) + left + right + segs.fold(ByteArray(0)) { a, s -> a + s }
         fun prog(vararg tracks: ByteArray): ByteArray {
             val body = tracks.fold(ByteArray(0)) { a, t -> a + t }
             return byteArrayOf(1, tracks.size.toByte()) + u16(4 + body.size) + body

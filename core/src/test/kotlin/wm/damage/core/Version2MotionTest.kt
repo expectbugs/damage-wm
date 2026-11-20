@@ -580,6 +580,56 @@ class Version2MotionTest {
         println("Version2MotionTest refusals: ${rows.size} rows"); rows.forEach { println("  $it") }
     }
 
+    /** §7.2 as ruled at the meeting (`C3-decisions.md` R): on a track that is not per-lens no rule reads xR or dxR. Each
+     *  rule that names them, the R field set by a parameter: on one rect the DSL builds and plays the program and the
+     *  model's walk takes it; on a per-lens track both refuse it, the DSL naming the section. */
+    @Test
+    fun onAOneRectTrackNeitherTheDslNorTheModelReadsXrOrDxr_7_2() {
+        val env = Env()
+        val pair = a.translate(4, 0)
+        /** The DSL's refusal (its message, or null) for [build] played with [p], and the model's reason (0: taken) for the
+         *  record the DSL built — null when the DSL refused it at the build, so there are no bytes. */
+        fun both(p: IntArray, build: () -> MotionProgram): Pair<String?, Int?> {
+            val prog = try { build() } catch (e: LintError) { return e.message to null }
+            val dsl = try { Motion.play(prog, 0, 34, 1, 0, p); null } catch (e: LintError) { e.message }
+            val cache = env.cache.copyOf()
+            for ((o4, b) in prog.records) b.copyInto(cache, o4 * 4)
+            val v = model().validate(cache, prog.at, p, MotionSim.Op.PLAY, armed = true)
+            return dsl to (if (v is MotionSim.Prog) 0 else -(v as Int))
+        }
+        fun own(build: Motion.ProgramBuilder.() -> Unit) = Motion.program2(3000, fx, own = true, records = env.records, build = build)
+        val bad = ArrayList<String>()
+        fun row(rule: String, section: String, code: Int, p: IntArray, oneRect: () -> MotionProgram, perLens: () -> MotionProgram) {
+            val (dsl1, sim1) = both(p, oneRect)
+            if (dsl1 != null) bad += "$rule on one rect: the DSL refuses it: $dsl1"
+            if (sim1 != null && sim1 != 0) bad += "$rule on one rect: the model refuses it ($sim1)"
+            val (dsl, sim) = both(p, perLens)
+            if (dsl == null || section !in dsl || "($code)" !in dsl) bad += "$rule on a per-lens track: the DSL does not refuse it naming $section ($code): $dsl"
+            if (sim != null && sim != code) bad += "$rule on a per-lens track: the model's reason $sim, not $code"
+        }
+        val dxr = listOf(Pref(0, Field.DXR))
+        val p = intArrayOf(6, 0, 0, 0)
+        // §7.4 radial: dxL, dxR and dy must be 0 (12)
+        row("radial PIECES with dxR 6", "§7.4", 12, p,
+            { own { track(a, Backdrop.Level(0)) { pieces(Motion.LAYER_NEW, 3, gw = 2, gh = 2, model = Motion.RADIAL, prefs = dxr) } } },
+            { own { track(a, pair, Backdrop.Level(0)) { pieces(Motion.LAYER_NEW, 3, gw = 2, gh = 2, model = Motion.RADIAL, prefs = dxr) } } })
+        // §7.2: a rain track in place has dxL = dxR = dy = 0 (12)
+        val rain = Motion.Rain(30_000, 4, 3, 8, 12, env.font, env.alphaA, reveal = 2)
+        row("a rain in place with dxR 6", "§7.2", 12, p,
+            { own { track(a, Backdrop.None) { rain(rain, 3, prefs = dxr) } } },
+            { own { track(a, pair, Backdrop.None) { rain(rain, 3, prefs = dxr) } } })
+        // §7.2: a later track may not meet an in-place track while it moves pixels (12); uniform with dxL = dxR = dy = 0 is still
+        row("a later track over PIECES uniform with dxR 6", "§7.2", 12, p,
+            { own { track(a, Backdrop.None) { pieces(Motion.LAYER_OLD, 3, x = a.x, y = a.y, prefs = dxr) }; track(Rect(150, 150, 20, 20), Backdrop.Level(3)) { fill(2, 3) } } },
+            { own { track(a, pair, Backdrop.None) { pieces(Motion.LAYER_OLD, 3, x = a.x, y = a.y, prefs = dxr) }; track(Rect(150, 150, 20, 20), Backdrop.Level(3)) { fill(2, 3) } } })
+        // §7.2: SHRINK does not use xR or dxR (5)
+        val xrDxr = listOf(Pref(0, Field.XR), Pref(1, Field.DXR))
+        row("SHRINK with xR 6 and dxR 3", "§7.2", 5, intArrayOf(6, 3, 0, 0),
+            { own { track(a, Backdrop.None) { shrink(3, h0 = 120, h1 = 10, prefs = xrDxr) } } },
+            { own { track(a, pair, Backdrop.None) { shrink(3, h0 = 120, h1 = 10, prefs = xrDxr) } } })
+        assertEquals(emptyList(), bad, "rows:\n" + bad.joinToString("\n"))
+    }
+
     /** §7.12's sum: 64-bit (no wrap into an accept), waiters on one instance add, a chain counts as its largest. */
     @Test
     fun theStepSumAddsWaitersAndNeverWraps_7_12() {
