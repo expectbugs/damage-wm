@@ -127,7 +127,9 @@ class ConformanceVectorTest {
         println("ConformanceVectorTest ($form): ${out.ran.size} vector(s) run, ${out.compared} lens-step(s) compared, ${out.notFilled.size} not filled")
     }
 
-    private fun runNormal(files: List<Path>, featuresOverride: Int? = null): Outcome {
+    /** [atBuild] (C3, §7.13 "build-neutral"): run every vector that carries `features` at that build alone, against its
+     *  own expectations (a vector without `features` is skipped). */
+    private fun runNormal(files: List<Path>, featuresOverride: Int? = null, atBuild: Int? = null): Outcome {
         val out = Outcome()
         for (f in files) {
             val vec = Json.parseToJsonElement(Files.readString(f)).jsonObject
@@ -138,12 +140,13 @@ class ConformanceVectorTest {
             val contract = vec["contract"]?.jsonPrimitive?.int ?: 1
             val sets = featureSets(vec)
             if (featuresOverride != null && sets != null) continue      // the override is for vectors written without one
+            if (atBuild != null && sets == null) continue
             out.ran += name
             val c2Vector = sets != null && sets.all { it and BIND_FEATURE != 0 }
-            for (features in sets ?: listOf(featuresOverride)) for (arm in Arm.entries) {
+            for (features in (if (atBuild != null) listOf(atBuild) else sets ?: listOf(featuresOverride))) for (arm in Arm.entries) {
                 val lens = if (arm == Arm.LEFT) "L" else "R"
                 // one name per run: a vector run at two builds says which one disagreed
-                val name = if ((sets?.size ?: 0) > 1) "$name@0x${features!!.toString(16)}" else name
+                val name = if ((sets?.size ?: 0) > 1 || atBuild != null) "$name@0x${features!!.toString(16)}" else name
                 val sim = newSim(contract, features)
                 var now = 0L
                 steps.forEachIndexed { i, stepEl ->
@@ -431,6 +434,91 @@ class ConformanceVectorTest {
         assertEquals(emptyList(), out.problems, "a C2 build answers a v1/v2 vector differently:\n" + out.problems.joinToString("\n"))
     }
 
+    /** Build C3 (`FIRMWARE.md` §7.13, "build-neutral"): every v1–v4 vector answers alike on a bit-11 build with EFFECTS
+     *  clear — the v1 and v2 vectors at features 0xdff, and every vector that carries `features` (v3, v4) run at 0xdff
+     *  alone against the C's expectations, before `make_vectors.py` adds 0xdff to their lists. A model change for C3 that
+     *  leaks into today's behaviour shows here. */
+    @Test
+    fun theV1ToV4VectorsAnswerTheSameOnAC3Build() {
+        val v12 = runNormal(vectorFiles(vectorDir()), featuresOverride = C3_FEATURES)
+        report("normal path, v1/v2 at features 0xdff", v12)
+        val v34 = runNormal(vectorFiles(vectorDir()), atBuild = C3_FEATURES)
+        report("normal path, every features vector at 0xdff", v34)
+        assertTrue(v12.compared > 0 && v34.compared > 0, "no vector step was compared")
+        assertEquals(emptyList(), v12.problems + v34.problems, "a C3 build answers a v1–v4 vector differently:\n" + (v12.problems + v34.problems).joinToString("\n"))
+    }
+
+    /** Build C3 (spec §5, the fold invariant; `FIRMWARE.md` §7.13): vectors that share a `"pair"` key hold the same
+     *  messages under two wake schedules of an in-place program, and each harness compares their final `P`. The model's
+     *  own final panels must be equal on each lens, filled or not; where both are filled, so must the C's; a key held by
+     *  one vector or by more than two is a problem. */
+    @Test
+    fun everyPairOfVectorsEndsOnTheSamePanel() {
+        val problems = pairProblems(vectorFiles(vectorDir()))
+        assertEquals(emptyList(), problems, "the fold pairs:\n" + problems.joinToString("\n"))
+    }
+
+    private fun pairProblems(files: List<Path>): List<String> {
+        val problems = ArrayList<String>()
+        val pairs = files.map { Json.parseToJsonElement(Files.readString(it)).jsonObject }.filter { it["pair"] != null }
+            .groupBy { it["pair"]!!.jsonPrimitive.content }
+        for ((key, vecs) in pairs) {
+            if (vecs.size != 2) { problems += "pair $key: ${vecs.size} vector(s), not two"; continue }
+            val finals = vecs.map { v ->
+                val answered = modelAnswers(v, problems)
+                val last = answered["steps"]!!.jsonArray.last().jsonObject["expect"]!!.jsonObject["P"]!!.jsonObject
+                val filled = v["steps"]!!.jsonArray.last().jsonObject.let { s -> if (filled(s)) s["expect"]!!.jsonObject["P"]?.jsonObject else null }
+                Triple(v["name"]!!.jsonPrimitive.content, last, filled)
+            }
+            for (lens in listOf("L", "R")) {
+                if (finals[0].second[lens] != finals[1].second[lens])
+                    problems += "pair $key lens $lens: the model ends ${finals[0].first} on ${finals[0].second[lens]} and ${finals[1].first} on ${finals[1].second[lens]}"
+                val c0 = finals[0].third?.get(lens); val c1 = finals[1].third?.get(lens)
+                if (c0 != null && c1 != null && c0 != c1) problems += "pair $key lens $lens: the C ends them on $c0 and $c1"
+            }
+        }
+        return problems
+    }
+
+    /** The pair rule itself on vectors built here (inputs this file's own, unfilled): one OWN SHRINK in both axes drawn
+     *  under two wake schedules ends on one panel (no problem); a "pair" over two different programs is a problem, and
+     *  so is a key held by one vector. */
+    @Test
+    fun aPairIsComparedOnItsFinalPanel() {
+        fun h(b: ByteArray) = b.joinToString("") { "%02x".format(it) }
+        fun u16(v: Int) = byteArrayOf((v and 0xFF).toByte(), ((v shr 8) and 0xFF).toByte())
+        // §7.2: version 2, OWN; one track (200, 100) 120 × 60, backdrop none; SHRINK 5 steps, w 120 → w1, h 60 → 15, centre
+        fun shrink(w1: Int): ByteArray {
+            val seg = byteArrayOf(5, 5, 0, 0) + u16(1) + ByteArray(12) + byteArrayOf(15, 9, 0, 0) + u16(0) + u16(60) + u16(15) +
+                byteArrayOf(5, 0, 0, 0) + u16(120) + u16(w1) + u16(0) + u16(0)
+            val track = byteArrayOf(1, 0xFF.toByte(), 0, 0) + u16(200) + u16(100) + u16(120) + u16(60) + seg
+            return byteArrayOf(2, 1) + u16(8 + track.size) + byteArrayOf(1, 0, 0, 0) + track
+        }
+        fun op(k: String, v: Any) = JsonObject(mapOf(k to when (v) { is String -> JsonPrimitive(v); is Boolean -> JsonPrimitive(v); else -> JsonPrimitive(v as Number) }))
+        fun step(vararg ops: JsonObject) = JsonObject(mapOf("ops" to JsonArray(ops.toList()), "expect" to JsonObject(emptyMap())))
+        val picture = ByteArray(320 * 480) { (it * 37 + it / 320 * 11).toByte() }
+        fun vec(name: String, pair: String, w1: Int, wakes: List<Long>) = JsonObject(mapOf("name" to JsonPrimitive(name), "contract" to JsonPrimitive(2),
+            "panel" to JsonPrimitive(true), "pair" to JsonPrimitive(pair), "features" to JsonArray(listOf(JsonPrimitive(C3_FEATURES))),
+            "steps" to JsonArray(listOf(step(op("tick", 1000), op("lease", "acquire"), op("flags", 0x7C),
+                op("msg", h(wm.damage.core.wire.CfwModes.keyframe(wm.damage.core.gfx.Zl.encodeCfw(picture)))),
+                op("msg", h(byteArrayOf(19) + u16(64) + u16(shrink(w1).size) + shrink(w1))), op("tick", 5000),
+                op("msg", h(byteArrayOf(26, 0, 0, 20) + u16(64) + u16(1) + u16(0) + ByteArray(8))))) +
+                wakes.map { step(op("tick", it), op("wake", true)) })))
+        val dir = Files.createTempDirectory("conformance-pair")
+        try {
+            val set = listOf(vec("a1", "a", 30, listOf(5020, 5040, 5060, 5080)), vec("a2", "a", 30, listOf(5040, 5080)),
+                vec("b1", "b", 30, listOf(5020, 5080)), vec("b2", "b", 60, listOf(5080)), vec("c1", "c", 30, listOf(5080)))
+            for (v in set) Files.writeString(dir.resolve("${v["name"]!!.jsonPrimitive.content}.json"), v.toString())
+            val problems = pairProblems(vectorFiles(dir))
+            assertTrue(problems.none { it.startsWith("pair a") }, "a fold pair ends on one panel: $problems")
+            assertTrue(problems.any { it.startsWith("pair b lens L: the model ends") }, "$problems")
+            assertTrue(problems.any { it == "pair c: 1 vector(s), not two" }, "$problems")
+        } finally {
+            Files.list(dir).use { s -> s.forEach { Files.delete(it) } }
+            Files.delete(dir)
+        }
+    }
+
     /** The vectors nobody has answered yet still run through the model, every op of every step on both lenses: an op
      *  it does not know, or a fault inside it, is a problem now rather than at the meeting. With `DAMAGE_SIM_ANSWERS`
      *  set to a directory, the model's own answers are written there, one file per vector in the vectors' shape, for
@@ -705,5 +793,7 @@ class ConformanceVectorTest {
         /** §6.8: C2 adds bit 10 (bit 9, the link item, still out). */
         const val BIND_FEATURE = 1 shl 10
         const val C2_FEATURES = 0x5FF
+        /** §7.9: C3 adds bit 11. */
+        const val C3_FEATURES = 0xDFF
     }
 }
