@@ -196,7 +196,7 @@ class MpvSinkTest {
         assertEquals(listOf(MpvSink.OUTPUT_ID), sink.outputs().map { it.id })
         assertTrue(sink.setOutput(MpvSink.OUTPUT_ID)); assertFalse(sink.setOutput("buds"))
         assertFalse(sink.streamed()); assertFalse(sink.waitingForData())
-        assertEquals("Desk speakers", MpvSink(link, heard, "Desk speakers").outputs().single().name)
+        assertEquals("alsa_output.usb-desk.analog-stereo", MpvSink(link, heard, "pipewire/alsa_output.usb-desk.analog-stereo").outputs().single().name)
         assertEquals(0, link.ensures)
     }
 }

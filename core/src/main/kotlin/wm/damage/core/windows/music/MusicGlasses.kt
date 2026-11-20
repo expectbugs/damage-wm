@@ -123,6 +123,8 @@ class MusicGlasses(
 
     private val sourceListener = object : wm.damage.core.app.SourceListener {
         override fun changed(state: wm.damage.core.app.WindowState, keys: Set<String>) {
+            // the queue, the place and the output reach this presenter through its player: no row reads them here
+            if (keys.all { it in PLAYER_KEYS }) return
             onShell("rows") { readRows(state); invalidateRows(); if (active || exclusive) render() }
         }
     }
@@ -2143,6 +2145,8 @@ class MusicGlasses(
     }
 
     companion object {
+        /** The record items the player follows (S1-4): a write of only these redraws no row here. */
+        private val PLAYER_KEYS = setOf(MusicCore.Q, MusicCore.NOW, MusicCore.OUT).map { wm.damage.core.app.Record.key(MusicCore.WINDOW, it) }.toSet()
         const val CARD_PACE_MS = 5_000L
         /** The modeled display cost of a lyric repaint (`60 + bytes/50`, a few hundred bytes). */
         const val LYRIC_DISPLAY_MS = 70L

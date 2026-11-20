@@ -93,7 +93,8 @@ class MpvSink(
                 }
             } else {
                 entry = NONE; loaded = false
-                events.failed("the PC player refused the file: ${a.error}")
+                // the connection's end answers every pending command: the exit says the true reason (S1-4 review 2, F3)
+                if (c.open) events.failed("the PC player refused the file: ${a.error}")
             }
         }
     }
@@ -107,7 +108,7 @@ class MpvSink(
             return
         }
         paused = false
-        c.command("set_property", "pause", false) { if (!it.ok) events.failed("the PC player did not play: ${it.error}") }
+        c.command("set_property", "pause", false) { if (!it.ok && c.open) events.failed("the PC player did not play: ${it.error}") }
     }
 
     override fun pause() {
@@ -140,7 +141,7 @@ class MpvSink(
         if (pct != 100) throw UnsupportedOperationException("boost is not on the PC output")
     }
 
-    override fun outputs(): List<Output> = listOf(Output(OUTPUT_ID, device ?: "PC default output", "pc"))
+    override fun outputs(): List<Output> = listOf(Output(OUTPUT_ID, device?.removePrefix(MpvProcess.DEVICE_PREFIX) ?: "PC default output", "pc"))
     override fun setOutput(id: String): Boolean = id == OUTPUT_ID
     override fun prefetch(urls: List<Pair<Int, String>>) {}
     override fun isPlaying(): Boolean = loaded && !paused && live() != null

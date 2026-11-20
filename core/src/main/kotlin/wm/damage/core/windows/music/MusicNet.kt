@@ -49,7 +49,9 @@ class MusicService(private val lib: MusicLibrary) : WinService {
      *  this socket's state. Set by the PC's host builders. */
     @Volatile var phoneUp: () -> Boolean = { true }
 
-    private val relays = java.util.concurrent.ConcurrentHashMap<Long, (String?, Boolean) -> Unit>()
+    /** Each pending relay with the connection it went out on: ended with that connection (S1-4 review 1, 4.4). */
+    private class Pending(val push: WinService.Push, val done: (String?, Boolean) -> Unit)
+    private val relays = java.util.concurrent.ConcurrentHashMap<Long, Pending>()
     private val nextK = java.util.concurrent.atomic.AtomicLong(1)
     @Volatile private var phoneGoneAt = 0L
 
@@ -68,7 +70,7 @@ class MusicService(private val lib: MusicLibrary) : WinService {
             return
         }
         val k = nextK.getAndIncrement()
-        relays[k] = done
+        relays[k] = Pending(p, done)
         p.send("cmd", buildJsonObject { put("k", k); put("verb", verb); put("args", args) })
     }
 
@@ -79,9 +81,10 @@ class MusicService(private val lib: MusicLibrary) : WinService {
         endRelays()
     }
 
-    private fun endRelays() {
-        for (k in relays.keys.toList()) relays.remove(k)?.let { d ->
-            try { d(NOT_KNOWN, false) } catch (e: Exception) { Log.e("music-host", "a relay's answer failed", e) }
+    /** The pending relays [of] one connection (all of them when null) answered "not known". */
+    private fun endRelays(of: WinService.Push? = null) {
+        for ((k, p) in relays.entries.toList()) if (of == null || p.push === of) relays.remove(k)?.let { r ->
+            try { r.done(NOT_KNOWN, false) } catch (e: Exception) { Log.e("music-host", "a relay's answer failed", e) }
         }
     }
 
@@ -105,7 +108,8 @@ class MusicService(private val lib: MusicLibrary) : WinService {
     override fun attached(push: WinService.Push) { pushers.addIfAbsent(push); phoneGoneAt = 0L }
     override fun detached(push: WinService.Push) {
         pushers.remove(push)
-        if (pushers.isEmpty()) { phoneGoneAt = System.currentTimeMillis(); endRelays() }
+        endRelays(push)                                       // what went out on this connection ends with it
+        if (pushers.isEmpty()) phoneGoneAt = System.currentTimeMillis()
     }
 
     override fun request(op: String, args: JsonObject): WinService.Answer {
@@ -179,7 +183,7 @@ class MusicService(private val lib: MusicLibrary) : WinService {
             "cmd.done" -> {
                 val k = l("k", 0)
                 val why = if (b("ok", false)) null else (args["why"]?.jsonPrimitive?.contentOrNull ?: "refused")
-                relays.remove(k)?.invoke(why, false) ?: Log.w("music-host", "cmd.done for $k, which nothing waits for")
+                relays.remove(k)?.done?.invoke(why, false) ?: Log.w("music-host", "cmd.done for $k, which nothing waits for")
                 WinService.Answer()
             }
             else -> throw IllegalArgumentException("unknown music op '$op'")

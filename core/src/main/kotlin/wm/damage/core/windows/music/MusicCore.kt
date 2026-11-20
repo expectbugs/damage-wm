@@ -74,7 +74,6 @@ class MusicCore : WindowCore {
 
     companion object {
         const val WINDOW = "music"
-        const val STREAM = "music"
 
         // ---- the record's items ----
         const val Q = "q"

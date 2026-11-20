@@ -69,6 +69,61 @@ class PcMusicPlayerTest {
         assertTrue(now()!!.why!!.contains("Play resumes at"), "${now()}")
     }
 
+    /** The PC as the output at entry 9 (track 1), playing; [media] what mpv opens; [clock] the player's clock. */
+    private fun pcPlaying(media: (TrackRef) -> String, clock: () -> Long = { System.currentTimeMillis() }): PcMusicPlayer {
+        source.act(Draft(MusicCore.A_QUEUE, listOf(MusicCore.Q), MusicCore.queueJson(listOf(QueueEntry(9L, track)), Mode.QUEUE, "L")))
+        source.act(Draft(MusicCore.A_NOW, listOf(MusicCore.NOW), MusicCore.Now(9L, 0, System.currentTimeMillis(), MusicCore.PAUSED, 50).json()))
+        waitUntil("the record") { now() != null }
+        val pc = PcMusicPlayer(wm.damage.desktop.ScriptedMusic(), link, null, media = media, clock = clock)
+        pc.bind(source, MusicCore.PC) { _, _, done -> done("no phone here", true) }
+        return pc
+    }
+
+    @Test fun `a relayed playNow whose next file is missing is answered, and said`() {
+        // S1-4 review 2, F2 (its probe, inverted): the lookup for an upcoming entry threw out of the verb and the phone's
+        // music connection waited for an answer that never came
+        val missing = TrackRef(2, "Missing", durMs = 200_000)
+        val pc = pcPlaying({ t -> if (t.id == 2) throw IllegalStateException("track 2 source file missing: /x") else "/music/${t.id}.flac" })
+        val moved = java.util.concurrent.CompletableFuture<String?>()
+        pc.move(MusicCore.PC, buildArgs(9L, 0, true), System.currentTimeMillis()) { moved.complete(it) }
+        waitUntil("the open") { server.commands().any { it.startsWith("[\"loadfile\"") } }
+        server.emit("""{"event":"playback-restart"}""")
+        assertEquals(null, moved.get(5, java.util.concurrent.TimeUnit.SECONDS))
+        val answer = java.util.concurrent.CompletableFuture<String?>()
+        pc.command("playNow", kotlinx.serialization.json.buildJsonObject {
+            put("entries", MusicCore.queueJson(listOf(QueueEntry(11L, track), QueueEntry(12L, missing)), Mode.QUEUE, "A")["entries"]!!)
+        }) { answer.complete(it) }
+        assertEquals(null, answer.get(5, java.util.concurrent.TimeUnit.SECONDS), "answered")
+        pc.command("playNow", kotlinx.serialization.json.buildJsonObject { put("entries", kotlinx.serialization.json.JsonPrimitive("not a list")) }) { }
+        val bad = java.util.concurrent.CompletableFuture<String?>()
+        pc.command("moveEntry", kotlinx.serialization.json.buildJsonObject { put("e", kotlinx.serialization.json.JsonPrimitive(999L)) }) { bad.complete(it) }
+        assertTrue(bad.get(5, java.util.concurrent.TimeUnit.SECONDS)!!.contains("not in the queue"))
+    }
+
+    @Test fun `a take-over that never starts playing is ended and answered`() {
+        var t = System.currentTimeMillis()
+        val pc = pcPlaying({ x -> "/music/${x.id}.flac" }, clock = { t })
+        val answer = java.util.concurrent.CompletableFuture<String?>()
+        pc.move(MusicCore.PC, buildArgs(9L, 0, true), t) { answer.complete(it) }
+        waitUntil("the open") { server.commands().any { it.startsWith("[\"loadfile\"") } }
+        t += wm.damage.core.windows.music.PlayerCore.TAKEOVER_BOUND_MS + 1_000                    // mpv opened and never said playback-restart
+        val why = answer.get(10, java.util.concurrent.TimeUnit.SECONDS)
+        assertTrue(why!!.contains("did not start playing"), why)
+        assertEquals(MusicCore.PHONE, out().host)
+    }
+
+    @Test fun `the phone's old player record does not become the PC's output`() {
+        // S1-4 review 1, 3.1: the PC store's window.music.player was the phone's synced record
+        val pc = PcMusicPlayer(wm.damage.desktop.ScriptedMusic(), link, null, media = { "/x" })
+        pc.restore(kotlinx.serialization.json.buildJsonObject {
+            put("output", kotlinx.serialization.json.JsonPrimitive("17")); put("profile", kotlinx.serialization.json.JsonPrimitive("standard-mono-loudnorm"))
+            put("backend", kotlinx.serialization.json.JsonPrimitive("SPOTIFY"))
+        })
+        waitUntil("restored") { pc.state.output == wm.damage.core.windows.music.Output.PC }
+        assertEquals(wm.damage.core.windows.music.Backend.LIBRARY, pc.state.backend)
+        assertEquals(PcMusicPlayer.LOSSLESS, pc.state.profile)
+    }
+
     private fun buildArgs(e: Long, pos: Long, playing: Boolean) = kotlinx.serialization.json.buildJsonObject {
         put("e", kotlinx.serialization.json.JsonPrimitive(e)); put("pos", kotlinx.serialization.json.JsonPrimitive(pos))
         put("playing", kotlinx.serialization.json.JsonPrimitive(playing))

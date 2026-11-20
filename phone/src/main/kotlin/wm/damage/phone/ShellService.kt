@@ -883,6 +883,7 @@ class ShellService : Service() {
             musicSource = src
             player.bind(src, wm.damage.core.windows.music.MusicCore.PHONE) { verb, args, done -> ml.player(verb, args, done) }
             ml.onCmd = { verb, args, done -> player.command(verb, args, done) }
+            player.prepareSession()
         } catch (e: Exception) {
             Log.e("music", "the music player could not be started (${e::class.simpleName}: ${e.message})", e)
         }

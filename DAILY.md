@@ -52,6 +52,13 @@ staged): a pre-0.15 APK cannot be status-probed and a pre-0.10 one carries no sy
 notification access (Spotify's session and the OS volume-lowered notice ride on it). No RECORD_AUDIO is
 asked, ever. Then Settings → Music → Output (Auto follows the buds; the speaker plays only when chosen).
 
+**The PC as an output (S1-4):** Output → **PC** moves the music to the PC at the same place (Output → a phone route
+moves it back). The PC plays to PipeWire's default device until `musicPcDevice` in `~/.damage/config.json` names one,
+in the player's own form `pipewire/<node name>` as `mpv --audio-device=help` lists it (the listing opens no device;
+copy the quoted name). Any other form is refused at the next Play with the reason on the glasses, never played
+elsewhere. `musicPcPlayer` is the player program (default `/usr/bin/mpv`). A service restart while the PC plays stops
+it: "Play resumes at 2:13".
+
 🔊 **Playing but silent? Check the phone's media volume first** — the 2026-09-02 report was the level at 8 %
 with the whole chain working (`HANDOFF.md` §24.4). Now Playing shows the level HOT at or below 10 %, a start
 that quiet raises a notice, and **scrolling on Now Playing IS the volume**. Damage never sets the system level.

@@ -428,7 +428,9 @@ data class Config(
     val musicAudioDir: String = "/home/user/damagewm/audio",
     /** S1-4 (the lean spec's §3.6): the PC's player program, started at the first open that needs sound on the PC. */
     val musicPcPlayer: String = "/usr/bin/mpv",
-    /** S1-4 (answer 1): the one output device the PC plays to, as he names it; empty = PipeWire's default. */
+    /** S1-4 (answer 1): the one output device the PC plays to, in the player's own form `pipewire/<node name>` as
+     *  `mpv --audio-device=help` lists it (that listing opens no device); empty = PipeWire's default. Another form is
+     *  refused in words at the player's start (`MpvProcess`), never played elsewhere. */
     val musicPcDevice: String = "",
     /** Feed (FEED.md §3.7, 2026-09-09): the sources (the day-one list when
      *  absent), the one user agent every fetch carries, and the engine's
@@ -929,14 +931,13 @@ private class MusicParts(val service: wm.damage.core.windows.music.MusicService,
                          val source: wm.damage.core.app.WindowSource)
 
 /** S1-4 K: made once per process in both PC host builders, after Music's migration. Nothing here starts the player
- *  program: a leftover one from an earlier process is stopped, said (lane P's `clearLeftover`). */
+ *  program (it starts at the first open that needs sound, and ends with this JVM through its stdin). */
 private fun musicParts(cfg: Config, appNet: wm.damage.core.app.AppNet, appHost: wm.damage.core.app.AppHost,
                        lib: wm.damage.core.windows.music.LocalMusicLibrary, notices: wm.damage.core.app.NoticeCore,
                        journal: (String) -> Unit): MusicParts {
     val dir = Files.createDirectories(Path.of(cfg.dataDir).resolve("music"))
     val device = cfg.musicPcDevice.ifEmpty { null }
     val process = wm.damage.desktop.music.MpvProcess(listOf(cfg.musicPcPlayer), dir, device)
-    try { process.clearLeftover() } catch (e: Exception) { Log.e("damage", "the PC player's leftover check failed", e) }
     val service = wm.damage.core.windows.music.MusicService(lib)
     service.phoneUp = { appNet.connected(wm.damage.core.app.Peer.PHONE.device) }
     appNet.addEndListener { service.phoneEnded() }

@@ -3,7 +3,6 @@ package wm.damage.desktop.music
 import java.io.IOException
 import java.io.OutputStream
 import java.nio.file.Files
-import java.nio.file.NoSuchFileException
 import java.nio.file.Path
 import java.util.concurrent.TimeUnit
 import kotlinx.serialization.json.JsonElement
@@ -24,9 +23,9 @@ interface MpvLink {
  * - **Its life is the JVM's:** `--input-ipc-client=fd://0` on the stdin pipe the JVM holds and never writes; mpv
  *   quits when that connection closes (`man mpv`; seen in the hand run: quit 0.24 s after the close), so any end of
  *   the JVM ends it. [stop] closes the pipe first for the same reason.
- * - **The pidfile** `mpv.pid` (pid, start time, socket) backs the tie up: [clearLeftover], at the service's start,
- *   ends a live leftover ONLY when its pid, its start time and our socket path in its command line all match — never
- *   a process by its name (Adam runs mpv himself on this PC).
+ * - **No pidfile** (the S1-4 review, removal R1): the tie was measured (quit 0.24 s after its stdin closed) and the
+ *   kernel closes the pipe at every end of the JVM, so no code here signals a pid read from a file. Were a child ever
+ *   to outlive the service, nothing here would end it: he would hear it and see it in his process list.
  * - **The supervisor:** an exit nobody asked for is said ([Owner.exited]) and never restarted here — the next open
  *   or Play starts a fresh one; a command unanswered for [boundMs] (30 s), a socket not opened in that time, or a
  *   connection that ended while the process kept running ends the process (SIGKILL by its pid) and says why. Off the
@@ -48,7 +47,6 @@ class MpvProcess(
     }
 
     val socket: Path = dir.resolve("mpv.sock")
-    val pidfile: Path = dir.resolve("mpv.pid")
 
     init {
         require(socket.toString().toByteArray().size < 108) { "the player's socket path must stay under 108 bytes: $socket" }
@@ -68,11 +66,14 @@ class MpvProcess(
     private val lock = Object()
     private var run: Run? = null
 
-    /** The command line, as built (§3.6 checked against `man mpv` 0.41 and the hand run). */
+    /** The command line, as built (§3.6 checked against `man mpv` 0.41 and the hand run). A named device is
+     *  `--audio-device=pipewire/<node name>` — "the audio output name … followed by /, followed by the audio output
+     *  specific device name", as `mpv --audio-device=help` lists it — and then without `--ao` ("don't use --ao and
+     *  --audio-device together", `man mpv` 0.41); none named: `--ao=pipewire`, PipeWire's default device. */
     fun argv(): List<String> = program + listOf(
         "--no-config", "--idle=yes", "--terminal=no", "--vid=no", "--audio-display=no", "--volume=100",
-        "--audio-channels=stereo", "--ao=pipewire", "--input-ipc-server=$socket", "--input-ipc-client=fd://0",
-    ) + (device?.let { listOf("--audio-device=$it") } ?: emptyList())
+        "--audio-channels=stereo", "--input-ipc-server=$socket", "--input-ipc-client=fd://0",
+    ) + (device?.let { listOf("--audio-device=$it") } ?: listOf("--ao=pipewire"))
 
     /** The live child's pid, or null. */
     val pid: Long? get() = synchronized(lock) { run?.proc?.takeIf { it.isAlive }?.pid() }
@@ -89,6 +90,9 @@ class MpvProcess(
     }
 
     private fun start(owner: Owner): MpvIpc {
+        // a device in another form plays nowhere he chose: refused in words at the start, so the open says it
+        if (device != null && !device.startsWith(DEVICE_PREFIX)) throw IOException("the PC output device \"$device\" is not " +
+            "in the form ${DEVICE_PREFIX}<node name> (as `mpv --audio-device=help` lists it): set musicPcDevice to that form")
         Files.createDirectories(dir)
         Files.deleteIfExists(socket) // mpv leaves its socket file behind at exit (hand run): never connect to a stale one
         val argv = argv()
@@ -102,7 +106,6 @@ class MpvProcess(
         }
         val r = Run(proc, proc.outputStream, owner)
         run = r
-        writePidfile(proc)
         Log.i(TAG, "started the PC player, pid ${proc.pid()}")
         Thread({ waiter(r) }, "mpv-waiter").apply { isDaemon = true }.start()
         Thread({ supervise(r) }, "mpv-supervisor").apply { isDaemon = true }.start()
@@ -136,39 +139,11 @@ class MpvProcess(
         r.proc.waitFor()
     }
 
-    /** At the service's start: end OUR leftover player from an earlier run, recognised by the pidfile's pid, its
-     *  start time and our socket in its command line together. Anything else is left alone and said. */
-    fun clearLeftover() {
-        val text = try { Files.readString(pidfile) } catch (e: NoSuchFileException) { return }
-        Files.deleteIfExists(pidfile)
-        val f = text.lines().mapNotNull { l -> l.split('=', limit = 2).takeIf { it.size == 2 }?.let { it[0] to it[1] } }.toMap()
-        val pid = f["pid"]?.toLongOrNull()
-        val start = f["start"]?.toLongOrNull()
-        if (pid == null || start == null) { Log.w(TAG, "the player's pidfile was unreadable (removed): $text"); return }
-        val h = ProcessHandle.of(pid).orElse(null)
-        if (h == null || !h.isAlive) { Log.i(TAG, "no leftover player: pid $pid from the pidfile is not running"); return }
-        val startNow = h.info().startInstant().map { it.toEpochMilli() }.orElse(-1L)
-        val cmd = cmdline(pid)
-        val ours = startNow == start && cmd != null && "--input-ipc-server=$socket" in cmd
-        if (!ours) {
-            Log.w(TAG, "the pidfile names pid $pid, which is not our player (start time ${if (startNow == start) "matches" else "differs"}, " +
-                "our socket ${if (cmd != null && "--input-ipc-server=$socket" in cmd) "in" else "not in"} its command line): left alone")
-            return
-        }
-        Log.w(TAG, "a leftover PC player from an earlier run (pid $pid): SIGTERM")
-        h.destroy()
-        val until = MpvIpc.nowMs() + 3_000
-        while (h.isAlive && MpvIpc.nowMs() < until) Thread.sleep(20)
-        if (h.isAlive) Log.w(TAG, "the leftover PC player (pid $pid) is still running 3 s after SIGTERM")
-        else Log.i(TAG, "the leftover PC player (pid $pid) ended")
-    }
-
     private fun waiter(r: Run) {
         val code = r.proc.waitFor()
         r.ipc?.close()
         synchronized(lock) {
             if (run === r) run = null
-            removePidfileOf(r.proc.pid())
             val detail = "the PC player (pid ${r.proc.pid()}) ended: ${r.endedBy ?: "by itself"}, exit code $code" +
                 (if (code > 128) " (signal ${code - 128})" else "")
             when {
@@ -210,30 +185,14 @@ class MpvProcess(
         }
     }
 
-    private fun writePidfile(proc: Process) {
-        val start = proc.info().startInstant().map { it.toEpochMilli() }.orElse(-1L)
-        if (start < 0) Log.w(TAG, "the player's start time is not readable: a leftover of this run will not be recognised")
-        try {
-            Files.writeString(pidfile, "pid=${proc.pid()}\nstart=$start\nsocket=$socket\n")
-        } catch (e: IOException) {
-            Log.e(TAG, "the player's pidfile was not written (a leftover of this run will not be recognised)", e)
-        }
-    }
-
-    private fun removePidfileOf(pid: Long) {
-        try {
-            if (Files.exists(pidfile) && Files.readString(pidfile).lines().firstOrNull() == "pid=$pid") Files.delete(pidfile)
-        } catch (e: IOException) {
-            Log.w(TAG, "the player's pidfile was not removed: ${e.message}")
-        }
-    }
-
     companion object {
         private const val TAG = "music-pc"
         /** §2: a command unanswered this long ends the player. */
         const val UNANSWERED_MS = 30_000L
         /** A child whose connection ended gets this long to exit by itself (it quits 0.24 s after, in the hand run). */
         const val GRACE_MS = 2_000L
+        /** The one form of a named device: PipeWire's output, then its node name (`man mpv` 0.41, `--audio-device`). */
+        const val DEVICE_PREFIX = "pipewire/"
 
         /** `/proc/<pid>/cmdline` as its arguments, or null when unreadable. */
         fun cmdline(pid: Long): List<String>? = try {

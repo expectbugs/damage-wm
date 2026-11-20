@@ -165,8 +165,10 @@ class AndroidMusicPlayer(
             override fun seekToNextMediaItem() { this@AndroidMusicPlayer.next() }
             override fun seekToPrevious() { this@AndroidMusicPlayer.prev() }
             override fun seekToPreviousMediaItem() { this@AndroidMusicPlayer.prev() }
-            override fun play() { this@AndroidMusicPlayer.play() }
-            override fun pause() { this@AndroidMusicPlayer.pause() }
+            // S1-4 review 1, 1.3: with the PC as the output the idle ExoPlayer's playWhenReady says nothing of the PC,
+            // so both earbud keys are the core's toggle there
+            override fun play() { if (isOutput) this@AndroidMusicPlayer.play() else this@AndroidMusicPlayer.toggle() }
+            override fun pause() { if (isOutput) this@AndroidMusicPlayer.pause() else this@AndroidMusicPlayer.toggle() }
             override fun getAvailableCommands(): Player.Commands = super.getAvailableCommands().buildUpon()
                 .addAll(Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_PLAY_PAUSE).build()
             override fun isCommandAvailable(command: Int): Boolean =
@@ -431,6 +433,10 @@ class AndroidMusicPlayer(
         curOutput = "${d.id}"                  // the handle it has THIS session
         Log.i("music-android", "output restored: ${d.productName} (${kindOf(d)}) as id ${d.id}")
     }
+
+    /** S1-4 review 1, 1.3: the media session (and the idle ExoPlayer it wraps) made at the service's start, so earbud
+     *  taps reach the core before the phone's first local play; nothing is opened or played here. */
+    fun prepareSession() = post { player() }
 
     override fun close() {
         try { ctx.unregisterReceiver(volumeReceiver) } catch (e: Exception) { /* not registered */ }

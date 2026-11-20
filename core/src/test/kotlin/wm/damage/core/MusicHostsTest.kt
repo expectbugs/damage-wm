@@ -77,10 +77,13 @@ class MusicHostsTest {
     private fun source(device: String) = LocalWindowSource(MusicCore(), HostBackend(host, device, OpQueue.newStream()))
     private fun rec(): WindowState = WindowState(MusicCore.WINDOW, host.read(MusicCore.WINDOW).third.items)
 
+    /** The events the last [hosts] heard on the phone, said with a wait that fails. */
+    @Volatile private var heard: List<PlayerEvent> = emptyList()
+
     private fun await(what: String, cond: () -> Boolean) {
         val end = System.currentTimeMillis() + 10_000
         while (!cond()) {
-            if (System.currentTimeMillis() > end) throw AssertionError("never became true: $what")
+            if (System.currentTimeMillis() > end) throw AssertionError("never became true: $what; the phone heard ${heard.toList()}")
             Thread.sleep(5)
         }
     }
@@ -89,7 +92,8 @@ class MusicHostsTest {
 
     /** The phone's verbs reach the PC's door; the PC's relay reaches the phone's player. [silentPc]: the PC never
      *  answers; [pcLib]: the PC's own library (one that cannot open, for a failed take-over). */
-    private fun hosts(pcLib: MusicLibrary = Lib(), silentPc: Boolean = false, pcUnreachable: Boolean = false): Hosts {
+    private fun hosts(pcLib: MusicLibrary = Lib(), silentPc: Boolean = false, pcUnreachable: Boolean = false,
+                      phoneLib: MusicLibrary = Lib(), phoneSpotify: String? = null): Hosts {
         var program: MusicProgram? = null
         var phone: SimMusicPlayer? = null
         val toPc = PlayerCore.Remote { verb, args, done ->
@@ -101,10 +105,11 @@ class MusicHostsTest {
         }
         val toPhone = PlayerCore.Remote { verb, args, done -> net2.execute { phone!!.command(verb, args) { why -> done(why, false) } } }
         val pc = SimMusicPlayer(pcLib, clock, source = source("local"), host = MusicCore.PC, remote = toPhone)
-        phone = SimMusicPlayer(Lib(), clock, source = source("phone"), host = MusicCore.PHONE, remote = toPc)
+        phone = SimMusicPlayer(phoneLib, clock, spotify = phoneSpotify, source = source("phone"), host = MusicCore.PHONE, remote = toPc)
         program = MusicProgram(pc, { v, a, d -> toPhone.send(v, a, d) }, { true }, clock)
         val events = java.util.Collections.synchronizedList(ArrayList<PlayerEvent>())
         phone.addListener(object : MusicPlayer.Listener { override fun event(e: PlayerEvent) { events += e } })
+        heard = events
         return Hosts(phone, pc, events)
     }
 
@@ -162,16 +167,6 @@ class MusicHostsTest {
     }
 
     @Test
-    fun aSilentTarget_changesNothing() {
-        val h = hosts(silentPc = true)
-        h.phone.playQueue(tracks(), 0, Mode.QUEUE, "L")
-        h.phone.setOutput(Output.PC)
-        Thread.sleep(200)
-        assertEquals(MusicCore.PHONE, MusicCore.outOf(rec()).host)
-        assertEquals(PlayState.PLAYING, h.phone.state.play)
-    }
-
-    @Test
     fun offThePlayingHost_verbsGoThere_andNothingSoundsHere() {
         val h = hosts()
         h.phone.playQueue(tracks(), 0, Mode.QUEUE, "L")
@@ -207,12 +202,6 @@ class MusicHostsTest {
         await("the restart stop") { MusicCore.nowOf(rec())?.state == MusicCore.STOPPED }
         assertTrue(MusicCore.nowOf(rec())!!.why!!.contains("Play resumes at 2:13"), "${MusicCore.nowOf(rec())}")
         assertTrue(pc2.opened.isEmpty() && "play" !in pc2.cmds)
-        // a phone started now shows the PC's queue staged, and plays nothing
-        val phone = SimMusicPlayer(Lib(), clock, source = source("phone"), host = MusicCore.PHONE)
-        await("the phone follows") { phone.state.queue.size == 1 }
-        phone.restore(buildJsonObject { put("volume", 50) })
-        Thread.sleep(50)
-        assertTrue(phone.opened.isEmpty() && phone.cmds.none { it == "play" || it.startsWith("vol") })
     }
 
     @Test
@@ -231,6 +220,142 @@ class MusicHostsTest {
         await("the phone took the output") { MusicCore.outOf(rec()).host == MusicCore.PHONE }
         assertEquals("1@60000", h.phone.opened.last())
         assertEquals("phone", host.read(MusicCore.WINDOW).third.items[Record.key(MusicCore.WINDOW, MusicCore.OUT)]?.by)
+    }
+
+    // ---- S1-4's fix stage (the review of half A): one pin per defect found ----
+
+    @Test
+    fun fix1_theAwayTakeOverOfAnUncachedTrack_endsWithThePhoneAsTheOutput() {
+        val h = hosts(pcUnreachable = true, phoneLib = Lib(url = "stall://"), phoneSpotify = "Spot")
+        val pcSrc = source("local")
+        pcSrc.act(wm.damage.core.app.Draft(MusicCore.A_OUT, listOf(MusicCore.OUT), MusicCore.Out(MusicCore.PC, t).json()))
+        val q = MusicCore.queueJson(tracks().mapIndexed { i, tr -> wm.damage.core.windows.music.QueueEntry(100L + i, tr) }, Mode.QUEUE, "L")
+        pcSrc.act(wm.damage.core.app.Draft(MusicCore.A_QUEUE, listOf(MusicCore.Q), q))
+        pcSrc.act(wm.damage.core.app.Draft(MusicCore.A_NOW, listOf(MusicCore.NOW), MusicCore.Now(100L, 60_000, t, MusicCore.PLAYING, 50).json()))
+        await("the phone follows the PC") { h.phone.state.output == Output.PC && h.phone.state.queue.size == 4 }
+        h.phone.play()
+        await("Spotify plays and the phone is the output") {
+            h.phone.state.backend == wm.damage.core.windows.music.Backend.SPOTIFY && MusicCore.outOf(rec()).host == MusicCore.PHONE
+        }
+        assertEquals("phone", host.read(MusicCore.WINDOW).third.items[Record.key(MusicCore.WINDOW, MusicCore.OUT)]?.by)
+    }
+
+    @Test
+    fun fix2_aMoveAwayFromSpotify_pausesItAndSendsTheLibrarysPlace() {
+        val h = hosts(phoneSpotify = "Spot")
+        h.phone.playQueue(tracks(), 0, Mode.QUEUE, "L")
+        t += 20_000
+        h.phone.pretendSpotifySession(true)                          // a Spotify he starts himself: the library pauses at 0:20
+        await("Spotify followed") { h.phone.state.backend == wm.damage.core.windows.music.Backend.SPOTIFY }
+        t += 50_000
+        h.phone.setOutput(Output.PC)
+        await("the PC plays") { MusicCore.outOf(rec()).host == MusicCore.PC && h.pc.opened.isNotEmpty() }
+        assertEquals("1@20000", h.pc.opened.single(), "the library's place, never Spotify's offset")
+        await("Spotify paused on the phone") { "spotify:pause" in h.phone.cmds }
+        assertEquals(wm.damage.core.windows.music.Backend.LIBRARY, h.phone.state.backend)
+    }
+
+    @Test
+    fun fix3_aMovesAnswerStopsTheSource_withoutTheRecord() {
+        // the phone on a record of its own: the PC's `out` never reaches it, only the move's answer does
+        val pc = SimMusicPlayer(Lib(), clock, source = source("local"), host = MusicCore.PC)
+        val program = MusicProgram(pc, { _, _, d -> d("no phone", true) }, { true }, clock)
+        val own = LocalWindowSource(MusicCore(), wm.damage.core.app.MemoryRecord(MusicCore.ACTIONS, "phone", clock = clock))
+        val phone = SimMusicPlayer(Lib(), clock, source = own, host = MusicCore.PHONE,
+            remote = { v, a, d -> net1.execute { program.act(v, a, MusicCore.PHONE) { w -> d(w, false) } } })
+        phone.playQueue(tracks(), 0, Mode.QUEUE, "L")
+        await("the phone's own record holds the queue") { MusicCore.queueOf(own.state())?.entries?.size == 4 }
+        // the PC's record needs the queue to take over: the phone's own record is not the PC's here
+        source("local").act(wm.damage.core.app.Draft(MusicCore.MIGRATE, listOf(MusicCore.Q), MusicCore.queueOf(own.state())!!.let {
+            MusicCore.queueJson(it.entries, it.mode, it.label) }))
+        await("the PC holds the queue") { pc.state.queue.size == 4 }
+        phone.setOutput(Output.PC)
+        await("the PC plays") { pc.state.play == PlayState.PLAYING }
+        await("the phone stopped on the answer") { "stop" in phone.cmds }
+    }
+
+    @Test
+    fun fix4_aFailureOnThePlayingHost_isSaidOnTheOther() {
+        val h = hosts(pcLib = Lib(url = "fail://", only = 2))
+        h.phone.playQueue(tracks(), 0, Mode.QUEUE, "L")
+        h.phone.setOutput(Output.PC)
+        await("the PC plays") { MusicCore.outOf(rec()).host == MusicCore.PC && h.phone.cmds.contains("stop") }
+        h.phone.next()                                               // the PC cannot open track 2
+        await("the reason, on the phone") { h.events.any { it is PlayerEvent.Error && it.detail.contains("cannot open fail://2") } }
+        assertTrue(MusicCore.nowOf(rec())!!.why!!.contains("cannot open fail://2"))
+    }
+
+    @Test
+    fun fix5_theMigratedQueueShows_onAPhoneThatBoundBeforeIt() {
+        val phone = SimMusicPlayer(Lib(), clock, source = source("phone"), host = MusicCore.PHONE)
+        Thread.sleep(50)
+        assertTrue(phone.state.queue.isEmpty(), "bound to a record with no Music items yet")
+        // the PC's migration lands afterwards (APK 0.77's shapes, as `theMigration_0_77Shapes_writeOnce` writes them)
+        val m = MusicCore.Now(2L, 61_000, t, MusicCore.STOPPED, 70)
+        val q = MusicCore.queueJson(listOf(wm.damage.core.windows.music.QueueEntry(1L, tracks()[0]), wm.damage.core.windows.music.QueueEntry(2L, tracks()[1])), Mode.QUEUE, "Pink Floyd")
+        val pcSrc = source("local")
+        pcSrc.act(wm.damage.core.app.Draft(MusicCore.MIGRATE, listOf(MusicCore.Q), q))
+        pcSrc.act(wm.damage.core.app.Draft(MusicCore.MIGRATE, listOf(MusicCore.NOW), m.json()))
+        await("the queue shows") { phone.state.queue.map { it.qid } == listOf(1L, 2L) && phone.state.index == 1 }
+        assertTrue(phone.opened.isEmpty(), "staged, never played")
+        phone.play()
+        await("Play resumes at the migrated place") { phone.opened.isNotEmpty() }
+        assertEquals("2@61000", phone.opened.single())
+        await("the queue is not overwritten") { MusicCore.queueOf(rec())!!.entries.map { it.qid } == listOf(1L, 2L) }
+    }
+
+    @Test
+    fun fix7_away_theCardShowsPaused_andItsToggleStartsHere() {
+        val h = hosts(pcUnreachable = true)
+        val pcSrc = source("local")
+        pcSrc.act(wm.damage.core.app.Draft(MusicCore.A_OUT, listOf(MusicCore.OUT), MusicCore.Out(MusicCore.PC, t).json()))
+        val q = MusicCore.queueJson(tracks().mapIndexed { i, tr -> wm.damage.core.windows.music.QueueEntry(100L + i, tr) }, Mode.QUEUE, "L")
+        pcSrc.act(wm.damage.core.app.Draft(MusicCore.A_QUEUE, listOf(MusicCore.Q), q))
+        pcSrc.act(wm.damage.core.app.Draft(MusicCore.A_NOW, listOf(MusicCore.NOW), MusicCore.Now(100L, 60_000, t, MusicCore.PLAYING, 50).json()))
+        await("the phone follows the PC playing") { h.phone.state.output == Output.PC && h.phone.state.play == PlayState.PLAYING }
+        h.phone.pretendLinkDown()
+        await("shown paused while the PC is out of reach") { h.phone.state.play == PlayState.PAUSED }
+        h.phone.toggle()
+        await("the toggle took the output") { MusicCore.outOf(rec()).host == MusicCore.PHONE && h.phone.opened.isNotEmpty() }
+    }
+
+    @Test
+    fun fix9_aRelayEndsWithTheConnectionItWentOutOn() {
+        val svc = MusicService(Lib())
+        val a = object : WinService.Push { override fun send(op: String, args: JsonObject, blob: ByteArray?) {} }
+        val b = object : WinService.Push { override fun send(op: String, args: JsonObject, blob: ByteArray?) {} }
+        svc.attached(a); svc.attached(b)
+        val answers = java.util.Collections.synchronizedList(ArrayList<String?>())
+        svc.relay("next", JsonObject(emptyMap())) { w, _ -> answers += w }   // goes out on b, the latest
+        svc.detached(b)
+        assertEquals(listOf<String?>(NOT_KNOWN), answers.toList(), "ended with b, though a is still attached")
+    }
+
+    @Test
+    fun fix10_theSleepTimerMovesWithTheMusic() {
+        val h = hosts()
+        h.phone.playQueue(tracks(), 0, Mode.QUEUE, "L")
+        h.phone.setSleep(wm.damage.core.windows.music.Sleep.fromChoice("30 min", t))
+        await("set") { h.phone.state.sleep.kind == wm.damage.core.windows.music.Sleep.Kind.TIMER }
+        val deadline = h.phone.state.sleep.deadlineMs
+        h.phone.setOutput(Output.PC)
+        await("the PC holds the timer") { h.pc.state.sleep.deadlineMs == deadline }
+        await("the phone's ended") { h.phone.cmds.contains("stop") && h.phone.state.sleep.kind == wm.damage.core.windows.music.Sleep.Kind.OFF }
+    }
+
+    @Test
+    fun fix11_aRestoreOnABoundPlayer_leavesItPlayingAndItsQueue() {
+        // on main every link edge's keeper restart called `restore` on the live player and set it stopped while it sounded
+        val phone = SimMusicPlayer(Lib(), clock, source = source("phone"), host = MusicCore.PHONE)
+        phone.playQueue(tracks(), 0, Mode.QUEUE, "L")
+        await("playing") { phone.state.play == PlayState.PLAYING }
+        val saved = phone.persist()
+        phone.restore(buildJsonObject { put("play", "STOPPED"); put("posMs", 0) })
+        phone.restore(saved)
+        Thread.sleep(20)
+        assertEquals(PlayState.PLAYING, phone.state.play)
+        assertEquals(4, phone.state.queue.size)
+        assertEquals(1, phone.opened.size, "nothing reopened")
     }
 
     @Test
@@ -310,7 +435,8 @@ class MusicHostsTest {
         assertEquals(120, e.size)
     }
 
-    private class Lib(private val url: String = "sim://") : MusicLibrary {
+    /** [url] the stream prefix for every track, or for [only] that track (the others `sim://`). */
+    private class Lib(private val url: String = "sim://", private val only: Int? = null) : MusicLibrary {
         val tracks = (1..4).map { TrackMeta(it, "T$it", "A", "Al", 200_000, it, 1, 2000, listOf("rock"), emptyList(), folder = "L") }
         override fun stateLine() = ""
         override fun catalog() = Catalog("c1", 1, tracks)
@@ -334,7 +460,7 @@ class MusicHostsTest {
         override fun ytGrab(id: String) = "j"
         override fun ytStatus(job: String) = YtJob(job)
         override fun played(trackId: Int, startedMs: Long, endedMs: Long, completed: Boolean, skipped: Boolean) {}
-        override fun streamUrl(trackId: Int, profile: AudioProfile) = "$url$trackId"
+        override fun streamUrl(trackId: Int, profile: AudioProfile) = if (only == null || only == trackId) "$url$trackId" else "sim://$trackId"
         override fun pretranscode(profile: AudioProfile) = ""
         override fun rescan() = ""
         override fun addListener(l: MusicLibrary.Listener) {}

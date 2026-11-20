@@ -43,6 +43,17 @@ class PcMusicPlayer(
 
     override val sink: Sink = MpvSink(process, events, device)
     override val startsAsync: Boolean = true
+    /** Local files: nothing to fetch ahead, and no file lookups for it (S1-4 review 2, F2). */
+    override val prefetches: Boolean = false
+
+    /** The PC's store may hold the phone's old player record (the mirror kept it): its route, profile and backend are
+     *  never the PC's (S1-4 review 1, 3.1). */
+    override fun onRestored() {
+        curOutput = Output.PC
+        curProfile = LOSSLESS
+        curBackend = wm.damage.core.windows.music.Backend.LIBRARY
+        spotifyAuto = false
+    }
 
     override fun post(block: () -> Unit) {
         if (Thread.currentThread() === me) { run(block); return }

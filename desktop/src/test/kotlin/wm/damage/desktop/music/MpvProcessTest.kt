@@ -18,13 +18,12 @@ import kotlinx.serialization.json.longOrNull
 import org.junit.After
 
 /**
- * S1-4 lane P: [MpvProcess] with [FakeMpvMain] as the child (a test JVM, no player program, no sound device) and,
- * for the leftover cases, `/bin/sh` stand-ins started here. Pinned: nothing starts at construction; the start
- * writes the pidfile and passes the argv of §3.6 with the stdin tie; [MpvProcess.stop] ends the child through its
- * stdin; an exit nobody asked for is said and not restarted; a command unanswered past the bound and a socket never
- * opened end the child, said; a leftover is ended only when the pidfile's pid, its start time and our socket in its
- * command line all match — a stand-in named like a player without our socket, or with another start time, is left
- * alone. After each test no child of this JVM is left running and the temp directory is gone.
+ * S1-4 lane P: [MpvProcess] with [FakeMpvMain] as the child (a test JVM, no player program, no sound device).
+ * Pinned: nothing starts at construction; the start passes the argv of §3.6 with the stdin tie, and a named device
+ * only in the manual's form `pipewire/<node>` (without `--ao`; any other form refused in words, starting nothing);
+ * [MpvProcess.stop] ends the child through its stdin; an exit nobody asked for is said and not restarted; a command
+ * unanswered past the bound and a socket never opened end the child, said. (The pidfile and its leftover check were
+ * removed in S1-4's fix stage.) After each test no child of this JVM is left running and the temp directory is gone.
  */
 class MpvProcessTest {
     private val dir: Path = Files.createTempDirectory("mpvp")
@@ -65,10 +64,9 @@ class MpvProcessTest {
         return pid
     }
 
-    @Test fun `started lazily with the argv and the pidfile, and stop ends it through its stdin`() {
+    @Test fun `started lazily with the argv, and stop ends it through its stdin`() {
         val p = process()
         assertNull(p.pid, "nothing runs at construction")
-        assertFalse(Files.exists(p.pidfile))
         val owner = Owner()
         val ipc = p.ensure(owner)
         val pid = p.pid!!
@@ -77,15 +75,15 @@ class MpvProcessTest {
         val cmd = MpvProcess.cmdline(pid)!!
         assertEquals(p.argv().drop(fake.size), cmd.drop(fake.size))
         assertEquals(listOf("--no-config", "--idle=yes", "--terminal=no", "--vid=no", "--audio-display=no", "--volume=100",
-            "--audio-channels=stereo", "--ao=pipewire", "--input-ipc-server=${p.socket}", "--input-ipc-client=fd://0"), cmd.drop(fake.size))
-        val start = ProcessHandle.of(pid).get().info().startInstant().get().toEpochMilli()
-        assertEquals("pid=$pid\nstart=$start\nsocket=${p.socket}\n", Files.readString(p.pidfile))
-        assertTrue(MpvProcess(listOf("mpv"), dir, "Desk").argv().last() == "--audio-device=Desk")
+            "--audio-channels=stereo", "--input-ipc-server=${p.socket}", "--input-ipc-client=fd://0", "--ao=pipewire"), cmd.drop(fake.size))
+        // a named device: the manual's form, and then no `--ao` (S1-4 review 2, F1)
+        val named = MpvProcess(fake, dir, "pipewire/alsa_output.usb-desk.analog-stereo").argv()
+        assertEquals("--audio-device=pipewire/alsa_output.usb-desk.analog-stereo", named.last())
+        assertTrue(named.none { it.startsWith("--ao") }, "$named")
 
         p.stop("test")
         assertFalse(ProcessHandle.of(pid).map { it.isAlive }.orElse(false))
         assertTrue(Files.exists(p.socket.resolveSibling("fake-stdin-eof")), "it ended because its stdin closed")
-        waitUntil("the pidfile removed") { !Files.exists(p.pidfile) }
         assertTrue(owner.exits.isEmpty(), "an asked end is not said as a fault")
     }
 
@@ -100,7 +98,6 @@ class MpvProcessTest {
         Thread.sleep(300)
         assertNull(p.pid, "not restarted by itself")
         assertEquals(0, fakesAlive())
-        assertFalse(Files.exists(p.pidfile))
         val second = p.ensure(owner)
         assertNotEquals(pid1, p.pid)
         assertTrue(second.open)
@@ -129,40 +126,11 @@ class MpvProcessTest {
         assertTrue(owner.exits.isEmpty(), "said once, by the open")
     }
 
-    /** A `/bin/sh` that waits on its stdin, named like a player, with [socket] on its command line. */
-    private fun standIn(socket: String): Process =
-        ProcessBuilder("/bin/sh", "-c", "read x", "mpv", "--input-ipc-server=$socket").start().also { others.add(it) }
-
-    private fun startOf(p: Process): Long = p.info().startInstant().get().toEpochMilli()
-
-    @Test fun `a leftover is ended only when its pid, start time and our socket all match`() {
-        val p = process()
-        Files.createDirectories(p.pidfile.parent)
-
-        val elsewhere = standIn("/elsewhere/mpv.sock")
-        Files.writeString(p.pidfile, "pid=${elsewhere.pid()}\nstart=${startOf(elsewhere)}\nsocket=${p.socket}\n")
-        p.clearLeftover()
-        Thread.sleep(200)
-        assertTrue(elsewhere.isAlive, "named like a player, without our socket: left alone")
-        assertFalse(Files.exists(p.pidfile))
-
-        val reused = standIn(p.socket.toString())
-        Files.writeString(p.pidfile, "pid=${reused.pid()}\nstart=${startOf(reused) - 10_000}\nsocket=${p.socket}\n")
-        p.clearLeftover()
-        Thread.sleep(200)
-        assertTrue(reused.isAlive, "another start time (a reused pid): left alone")
-
-        val ours = standIn(p.socket.toString())
-        Files.writeString(p.pidfile, "pid=${ours.pid()}\nstart=${startOf(ours)}\nsocket=${p.socket}\n")
-        p.clearLeftover()
-        assertFalse(ours.isAlive, "ours: ended")
-        assertEquals(143, ours.waitFor(), "by SIGTERM")
-        assertFalse(Files.exists(p.pidfile))
-        p.clearLeftover() // no pidfile: nothing
-
-        for (o in listOf(elsewhere, reused)) {
-            o.outputStream.close() // its `read` meets the end of its input: it exits by itself, status 1
-            assertEquals(1, o.waitFor())
-        }
+    @Test fun `a device in another form is refused in words and starts nothing`() {
+        val p = MpvProcess(fake, dir, "Desk speakers")
+        val e = assertFailsWith<java.io.IOException> { p.ensure(Owner()) }
+        assertTrue(e.message!!.contains("pipewire/<node name>"), e.message)
+        assertNull(p.pid)
+        assertEquals(0, fakesAlive())
     }
 }

@@ -48,6 +48,7 @@ class SimMusicPlayer(
 
         override fun open(url: String, startMs: Long, playWhenReady: Boolean, track: TrackRef) {
             if (url.contains("fail")) throw IllegalStateException("cannot open $url")
+            if (url.contains("stall")) throw StalledException("not cached and the PC does not answer")   // S1-4 tests
             opened.add("${track.id}@$startMs${if (playWhenReady) "" else " (staged)"}")
             current = track; dur = track.durMs.toLong(); pos = startMs; posAt = now(); playing = playWhenReady
             streamedNow = track.id !in cachedTracks

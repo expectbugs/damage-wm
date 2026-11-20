@@ -59,8 +59,6 @@ abstract class PlayerCore(
         fun streamed(): Boolean
         /** The open item has no data to play from (the player is buffering), whether or not it should play. */
         fun waitingForData(): Boolean
-        /** S1-4: the host's end (the PC's player process is stopped by its host's shutdown hook, not here). */
-        fun close() {}
     }
 
     /** A sink that cannot open because the PC is down and the file is not
@@ -138,7 +136,9 @@ abstract class PlayerCore(
 
     // ------------------------------------------------------------------ state
     protected fun snapshot(): PlayerState = PlayerState(
-        backend = curBackend, play = play, queue = engine.entries.toList(), index = engine.index,
+        // S1-4 review 1, 2.2: off the playing host while it is out of reach, its last "playing" is shown paused, so the
+        // row says what a tap will do (a start here)
+        backend = curBackend, play = if (offHost() && !pcLink.up && play == PlayState.PLAYING) PlayState.PAUSED else play, queue = engine.entries.toList(), index = engine.index,
         posMs = positionMs(), posAtMs = clock(), durMs = if (curBackend == Backend.LIBRARY && !offHost()) sink.durationMs().takeIf { it > 0 } ?: (engine.current?.track?.durMs?.toLong() ?: 0L) else if (curBackend == Backend.LIBRARY) (engine.current?.track?.durMs?.toLong() ?: 0L) else (spotifyNow?.durMs ?: 0L),
         mode = engine.mode, volume = if (offHost()) askedVol ?: recNow?.vol ?: volume else volume, boost = curBoost,
         output = shownOutput(), outputs = safeOutputs(),
@@ -170,7 +170,8 @@ abstract class PlayerCore(
     }
 
     override fun positionMs(): Long {
-        if (offHost()) return recNow?.posAt(clock()) ?: lastPos           // S1-4: the playing host's place, extrapolated
+        // S1-4: the playing host's place, extrapolated — held while it is out of reach (shown paused, above)
+        if (offHost()) return recNow?.let { if (pcLink.up) it.posAt(clock()) else it.pos } ?: lastPos
         if (curBackend == Backend.SPOTIFY) return spotifyPos()
         return if (play == PlayState.PLAYING) {
             val p = try { sink.positionMs() } catch (e: Exception) { lastPos }
@@ -203,12 +204,14 @@ abstract class PlayerCore(
             else {
                 decided("stall of a staged track, not switched: ${ex.message}")
                 emit(PlayerEvent.Error("PC unreachable and no cached track — ${ex.message ?: "not cached"}"))
+                if (bound) { nowWhy = "PC unreachable and no cached track — ${ex.message ?: "not cached"}"; changed() }
             }
             return false
         } catch (ex: Exception) {
             Log.e("player", "open of track ${t.id} failed", ex)
             problem = "open failed: ${ex.message}"
             emit(PlayerEvent.Error("open failed: ${ex.message}"))
+            if (bound) nowWhy = "the ${hostName(host)} could not open the track: ${ex.message}"   // S1-4: said on every surface
             changed(); return false
         }
         play = if (playNow) PlayState.PLAYING else PlayState.PAUSED
@@ -254,13 +257,21 @@ abstract class PlayerCore(
     }
 
     protected fun prefetchAhead() {
-        val urls = ArrayList<Pair<Int, String>>()
-        for (i in engine.index + 1..minOf(engine.size - 1, engine.index + prefetchN)) {
-            val t = engine.entries[i].track
-            urls.add(t.id to currentUrl(t))
-        }
-        try { sink.prefetch(urls) } catch (e: Exception) { Log.w("player", "prefetch: ${e.message}") }
+        if (!prefetches) return
+        // S1-4 review 2, F2: the lookups inside the try — a track that cannot be resolved is said, never thrown out of a
+        // queue edit (which left a relayed verb unanswered)
+        try {
+            val urls = ArrayList<Pair<Int, String>>()
+            for (i in engine.index + 1..minOf(engine.size - 1, engine.index + prefetchN)) {
+                val t = engine.entries[i].track
+                urls.add(t.id to currentUrl(t))
+            }
+            sink.prefetch(urls)
+        } catch (e: Exception) { Log.w("player", "prefetch: ${e.message}") }
     }
+
+    /** False for a host that plays local files (the PC): no lookups for a prefetch that does nothing. */
+    protected open val prefetches: Boolean = true
 
     override fun play() = post {
         if (routed("play")) return@post
@@ -593,8 +604,13 @@ abstract class PlayerCore(
         val now = clock()
         val pos = positionMs()
         watchStream(now)
-        // sleep (verdict 28): a deadline checked on ticks — pacing, never a timer wrapper
-        if (curSleep.kind == Sleep.Kind.TIMER && now >= curSleep.deadlineMs && play == PlayState.PLAYING) {
+        // S1-4: a take-over that opened and never started playing is ended and said (a supervisor off the radio, render
+        // and input paths), so the asker always gets an answer
+        takeover?.takeIf { !it.written && now - it.since >= TAKEOVER_BOUND_MS }?.let {
+            takeoverFailed("the ${hostName(host)} did not start playing in ${TAKEOVER_BOUND_MS / 1000} s")
+        }
+        // sleep (verdict 28): a deadline checked on ticks — pacing, never a timer wrapper; only on the playing host
+        if (!offHost() && curSleep.kind == Sleep.Kind.TIMER && now >= curSleep.deadlineMs && play == PlayState.PLAYING) {
             curSleep = Sleep.OFF
             pause()
             emit(PlayerEvent.SleepEnded("sleep timer — paused"))
@@ -622,6 +638,7 @@ abstract class PlayerCore(
         // M1 (a): a stream the PC cannot serve switches like an open that cannot be served (the setting off: said)
         if (sourceFailed && streamWanted()) { streamStalled("the stream failed: $detail"); return@post }
         problem = detail
+        if (bound) nowWhy = detail                                // S1-4: the reason goes with `now` to every surface
         play = PlayState.PAUSED
         emit(PlayerEvent.Error(detail))
         changed()
@@ -744,6 +761,9 @@ abstract class PlayerCore(
         spotifyAuto = true
         decided("switched to Spotify (automatic): $why")
         emit(PlayerEvent.BackendChanged(Backend.SPOTIFY, automatic = true))
+        // S1-4 review 1, 1.1: a take-over in flight that ended in Spotify is this host's output now (today's away
+        // fallback), so a return stops the other host and says so
+        takeover?.takeIf { !it.written }?.let { started(it) }
         changed()
     }
 
@@ -795,7 +815,13 @@ abstract class PlayerCore(
     /** A stop's reason, written with the next `now`. */
     private var nowWhy: String? = null
     /** This host's take-over in flight (§3.5): the move's input time and who waits for its answer. */
-    private class Takeover(val t: Long, val playing: Boolean, val done: (String?) -> Unit) { var written = false }
+    private inner class Takeover(val t: Long, val playing: Boolean, val done: (String?) -> Unit) {
+        var written = false
+        /** When it opened: the tick ends one that never starts playing ([TAKEOVER_BOUND_MS]). */
+        val since = clock()
+    }
+    /** True once this host wrote `q` (or took over): the record's queue is then this host's own, never loaded again. */
+    private var wroteQ = false
     private var takeover: Takeover? = null
     /** Since when the other host has not answered a verb (0: it answers): the words "PC not answering since 14:02". */
     private var remoteDownSince = 0L
@@ -868,6 +894,7 @@ abstract class PlayerCore(
         }
         if (was.host == host && o.host != host) leave(o)
         if (o.host != host) follow(st)
+        else if (!wroteQ && play == PlayState.STOPPED) adopt(st)
         changed()
         recordMoved()
     }
@@ -875,6 +902,20 @@ abstract class PlayerCore(
     /** The record moved this player's state (the player's thread): a host whose ticks follow its own sink paces them
      *  for the other host's playing too, so the card's place moves while that host plays ([following]). */
     protected open fun recordMoved() {}
+
+    /** S1-4 review 1, 4.1: the playing host bound before its copy held Music's items (the phone at the update's first
+     *  start, before the lane caught up): the queue and place the record brings later (the migration's) are loaded once,
+     *  staged, as the binding loads them — until this host writes a queue of its own. */
+    private fun adopt(st: WindowState) {
+        val q = MusicCore.queueOf(st)?.takeIf { it.entries.isNotEmpty() } ?: return
+        val n = MusicCore.nowOf(st)
+        if (q.entries == engine.entries && engine.current?.qid == (n?.e ?: engine.current?.qid) && (n == null || n.pos == lastPos)) return
+        engine.load(q, n?.e)
+        lastQ = engine.recordJson()
+        n?.let { lastPos = it.pos }
+        lastNowKey = nowKey()
+        decided("the record's queue loaded (${q.entries.size} entries)")
+    }
 
     /** Off the playing host while it plays: the place shown moves on ticks. */
     protected fun following(): Boolean = offHost() && play == PlayState.PLAYING
@@ -889,13 +930,22 @@ abstract class PlayerCore(
     }
 
     private fun stopHere(why: String) {
-        if (play != PlayState.STOPPED || curBackend == Backend.SPOTIFY) {
+        if (curBackend == Backend.SPOTIFY) {
+            // S1-4 review 1, 1.2: Spotify is this host's sound too — paused, and the library is the backend again
+            spotifyCmd("pause")
+            curBackend = Backend.LIBRARY
+            spotifyAuto = false
+            play = PlayState.STOPPED
+            decided("Spotify paused: $why")
+        } else if (play != PlayState.STOPPED) {
             lastPos = positionMs()
             closeHistory("moved")
             try { sink.stop() } catch (e: Exception) { Log.w("player", "stop at a move: ${e.message}") }
             play = PlayState.STOPPED
             decided("stopped: $why")
         }
+        // a timer left here would pause the other host at its deadline: a move carries it ([move]), a stop ends it
+        if (curSleep.kind != Sleep.Kind.OFF) { curSleep = Sleep.OFF; decided("the sleep timer ended here: $why") }
     }
 
     /** A move made while this host was out of reach, said: the phone on the glasses; the PC raises its notice. */
@@ -916,6 +966,9 @@ abstract class PlayerCore(
         val e = engine.current
         if (e != null && e.qid != beforeQid && n.playing && before != null) emit(PlayerEvent.TrackChange(e.track, engine.index, engine.size))
         if (n.why == QUEUE_ENDED && before?.why != QUEUE_ENDED && before != null) emit(PlayerEvent.QueueEnd)
+        // S1-4 review 1, 2.1: the playing host's reason (a failed open, the player ended, "Play resumes at 2:13") is
+        // said here too
+        else if (n.why != null && n.why != before?.why && before != null) emit(PlayerEvent.Error(n.why))
     }
 
     /** On the playing host, after each change of the player: `q` when the queue differs from the last written, `now`
@@ -923,7 +976,7 @@ abstract class PlayerCore(
     private fun writeRecord() {
         if (src == null || out.host != host || takeover != null) return
         val q = engine.recordJson()
-        if (q != lastQ) { lastQ = q; act(MusicCore.A_QUEUE, MusicCore.Q, q) }
+        if (q != lastQ) { lastQ = q; wroteQ = true; act(MusicCore.A_QUEUE, MusicCore.Q, q) }
         if (nowKey() != lastNowKey || nowWhy != null) writeNow()
     }
 
@@ -942,11 +995,14 @@ abstract class PlayerCore(
     private fun writeNow() {
         val e = engine.current ?: return
         lastNowKey = nowKey()
-        val n = MusicCore.Now(e.qid, positionMs(), clock(), nowState(), volume,
+        val n = MusicCore.Now(e.qid, libraryPos(), clock(), nowState(), volume,
             curSleep.takeIf { it.kind != Sleep.Kind.OFF }?.choice(), curBoost.takeIf { it != 100 }, nowWhy)
         nowWhy = null
         act(MusicCore.A_NOW, MusicCore.NOW, n.json())
     }
+
+    /** The library's place: with Spotify as the backend, where the library left off, never Spotify's offset. */
+    private fun libraryPos(): Long = if (curBackend == Backend.SPOTIFY) lastPos else positionMs()
 
     private fun writeOut(t: Long) = act(MusicCore.A_OUT, MusicCore.OUT, MusicCore.Out(host, t).json(), at = t)
 
@@ -976,7 +1032,8 @@ abstract class PlayerCore(
     private fun answered(verb: String, args: JsonObject, why: String?, unreachable: Boolean) {
         if (why == null) { remoteDownSince = 0; return }
         if (unreachable && remoteDownSince == 0L) remoteDownSince = clock()
-        val starts = verb in setOf("play", "playNow", "playFrom") || (verb == "toggle" && play != PlayState.PLAYING)
+        // S1-4 review 1, 2.2: a toggle while the other host does not answer is a start here (the card shows it paused)
+        val starts = verb in setOf("play", "playNow", "playFrom", "toggle")
         if (unreachable && host == MusicCore.PHONE && starts && offHost()) {
             val n = recNow
             val (e, p) = when (verb) {
@@ -1024,25 +1081,54 @@ abstract class PlayerCore(
      * when it was sent by the host that played, else null. The target takes over; when this host is the one that
      * plays, it sends its exact place to the target and plays on until `out` moves. [done] gets null or the words.
      */
-    fun move(to: String, args: JsonObject?, t: Long, done: (String?) -> Unit) = post {
-        when {
-            to == host && out.host == host -> { writeOut(t); done(null) }   // the same output: `out` again, a newer time
-            to == host -> {
-                val e = args?.let { MusicCore.long(it["e"]) }
-                val (qe, p) = if (e != null) e to (MusicCore.long(args["pos"]) ?: 0L) else placeOf(recNow)
-                val playing = args?.let { MusicCore.bool(it["playing"]) } ?: (recNow?.playing ?: false)
-                takeOver(qe, p, playing, t, done)
+    fun move(to: String, args: JsonObject?, t: Long, done0: (String?) -> Unit) = post {
+        val done = once(done0)
+        try {
+            when {
+                to == host && out.host == host -> { writeOut(t); done(null) }   // the same output: `out` again, a newer time
+                to == host -> {
+                    val e = args?.let { MusicCore.long(it["e"]) }
+                    // the asker's queue comes with its place: the record's copy may not have reached this host yet
+                    (args?.get("q") as? JsonObject)?.let { q -> if (e != null && engine.indexOf(e) < 0) engine.load(MusicCore.queueOf(q), e) }
+                    val (qe, p) = if (e != null) e to (MusicCore.long(args["pos"]) ?: 0L) else placeOf(recNow)
+                    val playing = args?.let { MusicCore.bool(it["playing"]) } ?: (recNow?.playing ?: false)
+                    // the sleep timer comes with the music: exact from the host that played, else from `now`'s choice
+                    val sleep = args?.let { sleepOf(it) } ?: recNow?.sleep?.let { Sleep.fromChoice(it, clock()) }
+                    takeOver(qe, p, playing, t) { why -> if (why == null && sleep != null) { curSleep = sleep; changed() }; done(why) }
+                }
+                out.host == host -> {
+                    val e = engine.current ?: run { done("nothing is queued to move"); return@post }
+                    val r = remote ?: run { done("the ${hostName(to)} is not reachable from here"); return@post }
+                    val playing = play == PlayState.PLAYING
+                    r.send("move", obj("to" to to, "e" to e.qid, "pos" to libraryPos(), "playing" to playing, "t" to t,
+                        "q" to engine.recordJson(),
+                        "sleepKind" to curSleep.kind.name, "sleepAt" to curSleep.deadlineMs, "sleepMin" to curSleep.minutes)) { why, _ ->
+                        // S1-4 review 1, 4.2: the answer stops this host too, not only the record's `out` (two connections)
+                        if (why == null) post { stopHere("the output moved to the ${hostName(to)}") }
+                        done(why)
+                    }
+                }
+                else -> {
+                    val r = remote ?: run { done("the ${hostName(to)} is not reachable from here"); return@post }
+                    r.send("move", obj("to" to to, "t" to t)) { why, _ -> done(why) }
+                }
             }
-            out.host == host -> {
-                val e = engine.current ?: run { done("nothing is queued to move"); return@post }
-                val r = remote ?: run { done("the ${hostName(to)} is not reachable from here"); return@post }
-                r.send("move", obj("to" to to, "e" to e.qid, "pos" to positionMs(), "playing" to (play == PlayState.PLAYING), "t" to t)) { why, _ -> done(why) }
-            }
-            else -> {
-                val r = remote ?: run { done("the ${hostName(to)} is not reachable from here"); return@post }
-                r.send("move", obj("to" to to, "t" to t)) { why, _ -> done(why) }
-            }
+        } catch (e: Exception) {
+            Log.e("player", "the move to $to failed", e)
+            done("the move failed: ${e.message ?: e::class.simpleName}")
         }
+    }
+
+    /** The asker's exact sleep timer from a move's arguments, or null when it carries none. */
+    private fun sleepOf(a: JsonObject): Sleep? {
+        val k = Sleep.Kind.entries.firstOrNull { it.name == MusicCore.text(a["sleepKind"]) } ?: return null
+        return if (k == Sleep.Kind.OFF) Sleep.OFF else Sleep(k, MusicCore.long(a["sleepAt"]) ?: 0L, MusicCore.int(a["sleepMin"]) ?: 0)
+    }
+
+    /** [done] answered once, whatever path answers it (S1-4 review 2, F2: every relayed verb and move answers). */
+    private fun once(done: (String?) -> Unit): (String?) -> Unit {
+        var said = false
+        return { why -> if (!said) { said = true; done(why) } }
     }
 
     /** §3.5 steps 1–2 on the target: open [e] at [p], playing or staged; `out` and `now` are written when it plays
@@ -1053,7 +1139,9 @@ abstract class PlayerCore(
         val tk = Takeover(t, playing, done)
         takeover = tk
         if (!openCurrent(p, playing, "move")) {
+            if (tk.written) { changed(); return }            // the open ended in Spotify, which took the output (1.1)
             takeover = null
+            nowWhy = null                                       // said to the asker; never written later as this host's
             stopHere("the take-over did not open")
             done(problem.ifEmpty { "the ${hostName(host)} could not open the track" })
             changed(); return
@@ -1078,7 +1166,8 @@ abstract class PlayerCore(
         // the take-over stays until the record shows this host's `out` (or a later one): a write of the old host's that
         // lands first is not read as the output leaving this host
         writeNow()
-        decided("took the output at ${Fmt.mmss(positionMs())}")
+        wroteQ = true
+        decided("took the output at ${Fmt.mmss(libraryPos())}")
         tk.done(null)
         changed()
     }
@@ -1097,16 +1186,24 @@ abstract class PlayerCore(
      * A verb from another surface for this host (the relay's `cmd` on the phone, `MusicProgram` on the PC; §3.2):
      * applied while this host plays, else refused. A verb naming an entry this host does not hold is refused in words.
      */
-    fun command(verb: String, args: JsonObject, done: (String?) -> Unit) = post {
-        if (verb == "move") {
-            val to = MusicCore.text(args["to"]) ?: run { done("a move names its output"); return@post }
-            move(to, args.takeIf { it["e"] != null }, MusicCore.long(args["t"]) ?: clock(), done)
-            return@post
+    fun command(verb: String, args: JsonObject, done0: (String?) -> Unit) = post {
+        val done = once(done0)
+        try { commandNow(verb, args, done) } catch (e: Exception) {
+            Log.e("player", "the relayed $verb failed", e)
+            done("the ${hostName(host)} could not do $verb: ${e.message ?: e::class.simpleName}")
         }
-        if (src != null && out.host != host) { done("the ${hostName(host)} is not the output now"); return@post }
+    }
+
+    private fun commandNow(verb: String, args: JsonObject, done: (String?) -> Unit) {
+        if (verb == "move") {
+            val to = MusicCore.text(args["to"]) ?: run { done("a move names its output"); return }
+            move(to, args.takeIf { it["e"] != null }, MusicCore.long(args["t"]) ?: clock(), done)
+            return
+        }
+        if (src != null && out.host != host) { done("the ${hostName(host)} is not the output now"); return }
         val e = MusicCore.long(args["e"])
         if (verb in setOf("playFrom", "remove", "moveEntry") && (e == null || engine.indexOf(e) < 0)) {
-            done("that entry is not in the queue on the ${hostName(host)}"); return@post
+            done("that entry is not in the queue on the ${hostName(host)}"); return
         }
         fun entries(): List<QueueEntry> = MusicCore.queueOf(JsonObject(mapOf("entries" to (args["entries"] ?: JsonArray(emptyList()))))).entries
         when (verb) {
@@ -1125,7 +1222,7 @@ abstract class PlayerCore(
             "playNext" -> { engine.insertNextEntries(entries()); prefetchAhead(); changed() }
             "playNow" -> {
                 val es = entries()
-                if (es.isEmpty()) { done("nothing to play"); return@post }
+                if (es.isEmpty()) { done("nothing to play"); return }
                 if (curBackend == Backend.SPOTIFY && !spotifyAuto) curBackend = Backend.LIBRARY
                 queueGen++; advanceAfterFill = null
                 engine.setEntries(es, MusicCore.int(args["index"]) ?: 0,
@@ -1136,7 +1233,7 @@ abstract class PlayerCore(
             "remove" -> remove(e!!)
             "clear" -> clear()
             "shuffleRest" -> shuffleRest()
-            else -> { done("no such verb \"$verb\""); return@post }
+            else -> { done("no such verb \"$verb\""); return }
         }
         done(null)
     }
@@ -1257,6 +1354,8 @@ abstract class PlayerCore(
         const val MOVED_SAY_MS = 5_000L
         /** `now.why` at the queue's end (another host's presenter raises today's "queue ended" from it). */
         const val QUEUE_ENDED = "queue ended"
+        /** S1-4 review 2, F2: a take-over that opened and has not started playing after this long is ended and said. */
+        const val TAKEOVER_BOUND_MS = 30_000L
         const val RADIO_BATCH = 10
         /** At or below this the media stream is not going to be heard: an
          *  8 % session is what put this here (2026-09-02). */
