@@ -364,12 +364,20 @@ together; every movement and transition smooth and quick.
 
 | tier | effects | how one is chosen |
 |---|---|---|
-| **Scroll** | Depth (today's), Slide, Flip, Fall, Glitch, Scramble/Encode, Matrix | ONE effect, no randomness: a default in `Animations`, and a `Scroll effect` row with "default" in each app's own Settings category |
+| **Scroll** | Depth (today's), Slide, Flip, Fall, Glitch, Scramble/Encode, Matrix, Crush (added by him the same evening, below) | ONE effect, no randomness: a default in `Animations`, and a `Scroll effect` row with "default" in each app's own Settings category |
 | **Select** (a tap that opens) | Depth, Warp, Flip, Fall, Glitch, Encode, Matrix, Explode | checkboxes; a random pick among the checked at each use; one checked is always that one |
 | **Close / Back** | each Select effect in reverse | as Select |
 | **Lock Screen** (enter and exit) | Fade, Build/Assemble, Matrix, Encode, Glitch, Explode | as Select |
 | **Popups** | its own tier with several styles and options; the notice's timer bar and fade-in is its first | as Select |
 
+- **Crush** (his addition, 2026-11-19 about 20:00, "if not too difficult"): "first the next item in the list expands
+  like normal and the top items move down a notch but the bottom items don't move resulting in 'crushing' the previous
+  selection with a cool crush effect, then afterwards the list below moves down a notch expanding the crushed previous
+  selection back to normal size … Obviously scrolling the other way would be the same thing but in reverse." Whether
+  the old selection is crushed flat or to a sliver: "so trivial I'd say go with whatever is easiest in the code" —
+  so the two phases run one after the other and the squash goes to the scaled draw's smallest height (one pixel row),
+  then back to a row. It needs the DRAW's source window of the effects build (`FIRMWARE.md` §7.5); on Main alone
+  today's firmware could draw it with a swap at the last step.
 - **Scroll effects are styles of the same one-row move** (his words): Glitch is "the same as slide, but
   intentionally (and stylishly) glitchy"; Scramble is "a whole screen effect, where the rows and lines and stuff all
   stay in place but the letters change in random order to the new ones"; Matrix is "the random falling rain letter
