@@ -39,10 +39,14 @@ class LocalSequenceFuzzTest {
      *  burst's SETTLE (its owe cleared there) and was applied as today — a residual shape, counted with its seed; every
      *  other (8) fails. Random sequences only: a seeded case counts nothing apart. */
     private val lateEchoKey = "(8) BC: an echo later than its burst's SETTLE"
+    /** B083 (2b with decisions BB): a gap charged against a released message — the row right at rest, the move on a
+     *  bystander gesture (seed 100434); counted with its seed, random sequences only. */
+    private val gapOnReleasedKey = "(8) 2b+BB: a gap charged against a released message"
     private fun moved(h: LocalHarness, failed: MutableList<String>, counted: MutableMap<String, Int>, seeded: Boolean, suffix: String) {
         for ((g, n) in h.moves) {
             if (n <= 1) continue
             if (!seeded && g in h.lateEchoes) counted[lateEchoKey] = (counted[lateEchoKey] ?: 0) + 1
+            else if (!seeded && h.gapOnReleased) counted[gapOnReleasedKey] = (counted[gapOnReleasedKey] ?: 0) + 1
             else failed += "(8) gesture $g moved the row $n times$suffix"
         }
     }
@@ -739,7 +743,7 @@ class LocalSequenceFuzzTest {
             for (f in v.failed) fails += "seed $seed: $f"
             for ((k, c) in v.counted) counted[k] = (counted[k] ?: 0) + c
             // decisions BC: the declared shapes, with their seeds
-            for (k in v.counted.keys) if (k.startsWith("(8) BC") || k.startsWith("row A: a batch")) declaredSeeds.getOrPut(k) { ArrayList() } += seed
+            for (k in v.counted.keys) if (k.startsWith("(8) BC") || k.startsWith("(8) 2b") || k.startsWith("row A: a batch")) declaredSeeds.getOrPut(k) { ArrayList() } += seed
         }
         println("declared (BC): " + declaredSeeds.entries.joinToString("; ") { (k, s) -> "$k ${s.size} sequence(s): ${s.joinToString()}" })
         println("sequence fuzz: ${seeds.size} sequences (${if (only != null) "seeds ${only.joinToString()}" else "bases ${bases.joinToString()}"}), ${fails.size} failures; counted $counted")

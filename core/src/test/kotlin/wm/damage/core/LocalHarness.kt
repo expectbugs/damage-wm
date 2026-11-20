@@ -242,6 +242,8 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     private val heldGesture = ArrayDeque<Int>()
     private val lateHeld = HashSet<Int>()
     private val orphans = ArrayDeque<Int>()
+    /** A report's gap was charged against messages applied as unreported this sequence (decisions BB under 2b). */
+    var gapOnReleased = false
     /** Ruled 11-19 (2b), his journals: the share of scroll gestures whose stock message reaches the phone before its 115 —
      *  the 115 then comes [stockLeadMax] ms or less after it. */
     var stockFirst = 0.0
@@ -374,7 +376,12 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     private fun phoneReport(a: DamageMsg.Applied, g: Int) {
         beforeReport?.let { beforeReport = null; it() }
         if (g >= 0 && g !in reportHeardAt) reportHeardAt[g] = now
+        val uBefore = rules.u; val heardBefore = rules.sHeard
         val v = rules.report(a, row, now)
+        // decisions BB with 2b: a gap charged against messages applied as unreported — since 2b, released at a burst's end,
+        // whose notches need not be the gap's — leaves the gap's notch to a later release; the message released for it is
+        // another gesture's, so per-gesture counting cannot place it (seed 100434: the row right, (8) on the bystander)
+        a.s?.let { s -> if (uBefore > 0 && LocalRules.after(s, heardBefore) && ((s - heardBefore - 1) and 0xFFFF) in 1..0x7FFF) gapOnReleased = true }
         // 2b: the held messages this report paired (or, naming no slot, applied) leave the hold — its own gesture's first
         // when it is among them, else the oldest. Stock messages are alike on the wire: one paired here that was another
         // gesture's stood for this report's own. If RIGHT never took that gesture (no S: no entry yet), its move is still
