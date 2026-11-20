@@ -5348,8 +5348,9 @@ class Shell(
      * instances and the wrap's) gives its largest step time; the last [PERIOD_WINDOW] are kept. The period in force is
      * raised as soon as the window's maximum × [PERIOD_MARGIN_MEASURED] needs more ticks, and lowered — to what it needs,
      * never below the staging's own period (W1) — only after [PERIOD_QUIET_MS] with no input, by [PERIOD_LOWER_MIN] ticks
-     * or more, with no instance open and no burst (his look at 0.81, ruled). Clamped to the engine's 16..128. Applied with no burst open: new SETs only (the programs, their T
-     * and the records are kept, so a longer period runs the motion longer); the next staging starts from the fit again.
+     * or more, with no instance open and no burst (his look at 0.81, ruled). Clamped to the engine's 16..128. Applied with no burst open: new SETs
+     * (the records kept); K1-1: under Auto the pans are then re-made in idle for the steps the new period gives
+     * (`mainBindReprogram`) — with no spare pan slot their T is kept and a longer period runs the motion longer.
      */
     private val stepWindow = ArrayDeque<Long>()
     private var periodSamplesSinceChange = 0
@@ -5802,12 +5803,13 @@ class Shell(
         return if (own.last + 1 < st.cacheSize && a != null && a.capacity > own.first) CfwModes.mainRegion(st.cacheSize, false) else own
     }
 
-    /** Why Main's list is not staged now; null when it is wanted. */
-    private fun mainBindBlocked(st: LinkState): String? = when {
+    /** Why Main's list is not staged now; null when it is wanted. [front] false: every reason but Main being covered
+     *  (K1-1's fix stage: the pans' re-make runs then too). */
+    private fun mainBindBlocked(st: LinkState, front: Boolean = true): String? = when {
         !st.bind -> "BIND is not in force"
         !linkUpAndSteady(st) -> "the link is down or the session is rebuilding"
         sleep != null || glassesSilent -> "the glasses are asleep"
-        mode != Mode.MAIN -> "Main is not in front"
+        front && mode != Mode.MAIN -> "Main is not in front"
         testHold -> "hold=on is in force"
         stageFailed -> "staging is off for this session"
         !st.draw2 || !st.leaseHeld -> "DRAW2 or the lease is not in force"
@@ -5819,10 +5821,11 @@ class Shell(
     private fun motionInForce() = MainStaging.ScrollMotion(settings.scrollLength, settings.frames,
         wm.damage.core.motion.ScrollEffect.byId(settings.scrollEffect) ?: wm.damage.core.motion.ScrollEffect.DEFAULT)
 
-    /** [ms]'s motion in words ("10 frames × 45 ms"), as the `Frames` row's hint says it. */
-    private fun motionWords(ms: MainStaging): String = "${ms.t} frames × ${"%.0f".format(ms.periodInForce * 1000.0 / 1024)} ms"
+    /** [ms]'s motion in words ("10 frames × 45 ms"; None's "1 frame × 45 ms"), as the `Scroll frames` row's hint says it. */
+    private fun motionWords(ms: MainStaging): String = frameWords(ms.t, ms.periodInForce)
+    private fun frameWords(t: Int, p: Int): String = "$t ${if (t == 1) "frame" else "frames"} × ${"%.0f".format(p * 1000.0 / 1024)} ms"
 
-    /** The `Frames` row's hint: the motion in force at Main's height now — the staging's when it was made for these rows,
+    /** The `Scroll frames` row's hint: the motion in force at Main's height now — the staging's when it was made for these rows,
      *  else what they give at the current layout. */
     private fun motionHint(): String {
         val ms = mainBind.staging
@@ -5830,7 +5833,7 @@ class Shell(
         val (listD, bandD) = mainBindPlanes()
         val m = motionInForce()
         val (p, t) = wm.damage.core.motion.ScrollEffects.timing(m.effect, wm.damage.core.motion.ScrollEffects.areaPx(m.effect, layout, listD, bandD), m)
-        return "$t frames × ${"%.0f".format(p * 1000.0 / 1024)} ms"
+        return frameWords(t, p)
     }
 
     /** The relay Main's pictures are painted through (Page staging's): a face the glasses hold blits from the atlas. */
@@ -5927,7 +5930,10 @@ class Shell(
             mainBindBlockedSaid = blocked
             if (blocked != null) journal.note("mainstage", "not staged — $blocked; Main's scrolls and taps go as today until it is")
         }
-        if (blocked != null) return false
+        // K1-1's fix stage: with Main covered (Settings, where the scroll rows change) only the pans' re-make runs — it
+        // paints nothing of Main and writes a slot nothing names — so his return SETs the new pans directly
+        val covered = blocked != null && mode != Mode.MAIN && mainBindBlocked(st, front = false) == null
+        if (blocked != null && !covered) return false
         if (atlasInFlight != null || atlasQueue.isNotEmpty() || atlasLapsedOwed || atlasCheckInFlight) return false
         if (stageInFlight != null || stageCursor != null || ledgerReadInFlight) return false
         if (st.inFlight != 0 || comp.hasPending || comp.needsKeyframe) return false
@@ -5935,6 +5941,7 @@ class Shell(
         if (atlasResendMissing > 0L) return false
         val b = mainBind
         val now = System.currentTimeMillis()
+        if (covered) return b.staging?.takeIf { b.counted }?.let { mainBindReprogram(st, it) } ?: false
         val ms = b.staging ?: return mainBindStage(st, now)
         // the base records, back to back (one reading counts them all; the reading is [pumpLedger]'s)
         val rec = b.records.firstOrNull { it.state == StagedRecord.State.WANTED && stage.records[it.key] === it }
@@ -6088,7 +6095,7 @@ class Shell(
             else mainBindDrop("the pans in force left the stage registry (the stage notes say why)")
             return
         }
-        // the switch waits for the burst's SETTLE: no SET of a new program while a burst is open (P9)
+        // the switch waits for the burst's SETTLE, as the period's SETs do (`mainPeriodApply`: applied with no burst open)
         if (!r.switched && r.record.state == StagedRecord.State.PROVEN && !local.burstOpen) {
             b.reprogramSwitch()
             val ms = b.staging ?: return

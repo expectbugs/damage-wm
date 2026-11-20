@@ -178,7 +178,8 @@ class MainStaging private constructor(
     }
 
     /** Decisions BF (G4): the period the bound list's entries are SET with — the fit's [period] after a staging, then the
-     *  measured steps' ([Shell]'s adaptive period). The programs, their T and the records do not change with it. */
+     *  measured steps' ([Shell]'s adaptive period). The records do not change with it; K1-1: under Auto the pans are
+     *  re-made for its steps ([remakeOwed], [remake]) where a spare pan slot exists. */
     var periodInForce: Int = period
 
     val pitch: Int get() = -layout.rowH
@@ -833,13 +834,14 @@ class MainStaging private constructor(
             // B082: what the region cannot hold is given up in this order — K1-1's spare pan slot first (a change of the
             // scroll rows is then a full staging, as before), then the rows' room, then the wrap record's slack, then the wrap
             // record itself (here, and once the programs are laid out below)
-            fun lessOrNull(): MainStaging? = when {
-                progSpare -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, room, wrapFit, false)
+            fun lessOrNull(spareFirst: Boolean): MainStaging? = when {
+                spareFirst && progSpare -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, room, wrapFit, false)
                 room != null && room.any { it > 0 } -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, null, wrapFit, false)
                 wrapPic != null -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, null, wrapFit + 1, false)
                 else -> null
             }
-            if (at > regionEnd || bands.any { it.off4 > 0xFFFF } || spareOff / 4 > 0xFFFF || items4 > 0xFFFF) lessOrNull()?.let { return it }
+            // (before the programs are laid out the spare slot is not yet taken: the rungs after it)
+            if (at > regionEnd || bands.any { it.off4 > 0xFFFF } || spareOff / 4 > 0xFFFF || items4 > 0xFFFF) lessOrNull(spareFirst = false)?.let { return it }
             if (bands.any { it.off4 > 0xFFFF } || spareOff / 4 > 0xFFFF || items4 > 0xFFFF) throw LintError("Main's records pass the u16 off4 reach")
             // every slot a band form can be in is a record the programs know (a parameter names one of them)
             val records = listOfNotNull(strip.record, stripB?.record, wrapPic?.record) + bands.map { it.record } + Motion.Source.Record(spareOff / 4, rowW, l.lens.h, spareSlot)
@@ -887,7 +889,7 @@ class MainStaging private constructor(
                     joined(layPans(staged, e, te, slotA, specs, sA) { rec(it) }.second).size })
             next(progSlot)
             val progSlots = if (progSpare && motion != null) intArrayOf(slotA, next(progSlot)) else null
-            if (at > regionEnd) lessOrNull()?.let { return it }
+            if (at > regionEnd) lessOrNull(spareFirst = true)?.let { return it }
             if (at > regionEnd) throw LintError("Main's staging ends at $at, past its region's end $regionEnd: ${at - regionStart} B " +
                 "for a ${regionEnd - regionStart} B region (the strip ${strip.slot} B${if (stripB != null) " twice" else ""}, $n band forms ${bands.sumOf { it.slot }} B and a spare slot of $spareSlot B)")
             val progBytes = joined(progs)

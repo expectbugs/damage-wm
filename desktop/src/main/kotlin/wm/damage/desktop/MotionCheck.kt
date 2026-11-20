@@ -38,7 +38,9 @@ import wm.damage.core.wire.Pb
  *
  * The bounds A.15 sets: `main` hands this the directory before the config is read, so nothing under `~/.damage` is
  * read; no stack, transport, shell or scope is made, so no port is bound and no window opens (the JVM is set headless
- * first); the only files written are the two per program, in DIR.
+ * first); the only files Damage writes are in DIR — the two per program and the scroll section's (K1-1). The scroll
+ * strips draw Main's rows with the desktop's faces (AWT), and the JDK keeps its font configuration cache under the home
+ * directory (`~/.java/fonts/<version>/`), creating or refreshing it there on first use: that one path is the JDK's.
  */
 object MotionCheck {
     /** The build the programs are checked against: the engine and the riders (`FIRMWARE.md` §5.1, DamageCaps 7 and 8). */

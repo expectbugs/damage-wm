@@ -74,8 +74,10 @@ class MotionCheckTest {
             // K1-1: the scroll section draws Main's rows with the desktop's faces (AWT), and the JDK writes its font
             // configuration cache under user.home (`.java/fonts/<version>/fcinfo*.properties`) the first time; that is the
             // JDK's, not Damage's — nothing else may be there (the config, `~/.damage`, above all)
-            val under = Files.walk(home).use { s -> s.filter { Files.isRegularFile(it) }.map { home.relativize(it).toString() }.toList() }
-            assertTrue(under.all { it.startsWith(".java/fonts/") }, "nothing under the home directory but the JDK's font cache: $under")
+            // every path under home, directories included (an empty `~/.damage/` fails), is `.java`, `.java/fonts` or below it
+            val under = Files.walk(home).use { s -> s.filter { it != home }.map { home.relativize(it).toString() }.toList() }
+            assertTrue(under.all { it == ".java" || it == ".java/fonts" || it.startsWith(".java/fonts/") },
+                "nothing under the home directory but the JDK's font cache: $under")
             assertEquals(expected, files(dir).filter { !it.startsWith("scroll-") }, "the strips in DIR, nothing else (and the scroll strips)")
             assertTrue(files(dir).any { it.startsWith("scroll-") }, "the scroll strips in DIR")
         } finally { home.toFile().deleteRecursively(); dir.toFile().deleteRecursively() }

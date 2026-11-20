@@ -668,6 +668,13 @@ class MainLocalShellTest {
                 val prog = r.list().entryFor(CfwModes.EV_UPROLL)!!.prog4
                 val setAt = imgs.indexOfFirst { img -> r.subs(img).any { r.isSub(it, 27, 0) && r.u16(it, 9) == prog } }
                 assertTrue(setAt > writes.last().index, "the SETs naming the re-made pans after their write (set at $setAt, write at ${writes.last().index})")
+                // ... and only once the write was COUNTED (field 17): the stage's "proved" note comes between the write's
+                // submit and the switch that makes the list naming the re-made pans (the SETs' source)
+                val ns = r.allNotes()
+                val sub = ns.indexOfFirst { (k, d) -> k == "stage" && "Main's pans in slot" in d && "submitted" in d }
+                val sw = ns.indexOfFirst { (k, d) -> k == "mainstage" && " pans switched" in d }
+                val proved = ns.withIndex().indexOfFirst { (i, n) -> i > sub && n.first == "stage" && " proved " in n.second }
+                assertTrue(sub >= 0 && proved in (sub + 1) until sw, "the re-made pans were counted before the switch (submit $sub, proved $proved, switched $sw): ${ns.drop(maxOf(0, sub)).take(8)}")
                 println("K11-row-change ${if (big) 256 else 160} KiB: ${writes.sumOf { it.value.size }} B of cache writes in ${writes.size} flush(es), " +
                     "SETs ${r.subs(imgs[setAt]).filter { r.isSub(it, 27, 0) }.sumOf { it.size }} B; the staging is ${ms.bytes} B")
                 assertEquals(4, r.list().entryFor(CfwModes.EV_UPROLL)!!.program!!.tracks.size, "Slide's pans")
@@ -699,12 +706,46 @@ class MainLocalShellTest {
             r.fire(CfwModes.EV_UPROLL)
             r.until("the burst opens") { r.onLoop { r.shell.localBurstOpenForTest() } }
             r.shell.updateSettings { it.copy(scrollEffect = "fall") }
+            assertTrue(r.onLoop { r.shell.localBurstOpenForTest() }, "the change reached the loop while the burst was open")
             remade(r, "Fall", m)
             r.onImage = null
             assertTrue(settleAt >= n0, "the burst's SETTLE went")
             assertTrue(firstWrite > settleAt, "the re-make's write after the SETTLE (write $firstWrite, settle $settleAt)")
             assertTrue(firstSet > settleAt, "the SETs after the SETTLE (set $firstSet, settle $settleAt)")
             r.assertOracle("after Fall")
+        } finally { r.close() }
+    }
+
+    /** K1-1's fix stage (the review's finding 1): a change of `Scroll effect` made with Settings in front is re-made while
+     *  Main is covered (the spare slot is read by nothing), so back on Main the FIRST notch plays the new effect's
+     *  program on both lenses — the return batch SETs the new pans directly. */
+    @Test
+    fun aChangeMadeInSettingsPlaysOnTheFirstNotchBackOnMain_K11(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, kib256 = true)
+        try {
+            r.up()
+            val m = marks(r)
+            r.onLoop { r.shell.services.openWindow("settings", null) }
+            r.until("Settings open") { r.onLoop { r.shell.currentWindowId() } == "settings" }
+            r.shell.updateSettings { it.copy(scrollEffect = "slide") }
+            // a while in Settings, as he would spend there (not asserted here: the notch below says it)
+            val until = System.currentTimeMillis() + 5_000
+            while (System.currentTimeMillis() < until && r.notes("mainstage").count { it.startsWith("pans switched") } == m.switched) delay(20)
+            r.settle("in Settings")
+            assertEquals("settings", r.onLoop { r.shell.currentWindowId() }, "still in Settings")
+            val slide = r.onLoop { r.shell.mainBinding.staging!!.let { ms -> ms.motion?.effect to ms.pan(MainStaging.WHOLE, 1).prog4 } }
+            val at = r.right.size
+            r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+            r.until("back on Main and its list bound on RIGHT") { r.onLoop { r.shell.currentWindowId() } == null && r.sim.bindForTest(Arm.RIGHT).field39() == r.bound39 }
+            r.fire(CfwModes.EV_UPROLL)                                      // the first notch, at once
+            for (a in Arm.entries) r.until("$a plays the first notch") { r.sim.motionForTest(a).slots[MainStaging.SLOT] != null }
+            for (a in Arm.entries) assertEquals(wm.damage.core.motion.ScrollEffect.SLIDE to slide.second, slide.first to r.sim.motionForTest(a).slots[MainStaging.SLOT]!!.prog4,
+                "$a: the first notch back on Main plays Slide's pan")
+            val sets = r.right.drop(at).flatMap { r.subs(it) }.filter { r.isSub(it, 27, 0) && it[4].toInt() == CfwModes.EV_UPROLL }
+            assertTrue(sets.isNotEmpty() && sets.all { r.u16(it, 9) == slide.second }, "the return SETs Slide's pans directly: ${sets.map { r.u16(it, 9) }}")
+            delay(r.motionMs() + r.q() + 300); r.settle("after the notch")
+            assertEquals(m.staged, r.notes("mainstage").count { it.startsWith("staged") }, "no staging")
+            r.assertOracle("after the first notch")
         } finally { r.close() }
     }
 
