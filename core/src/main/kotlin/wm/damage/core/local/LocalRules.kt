@@ -370,9 +370,13 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
             // C1: a carry ends when its list leaves the front — a late echo then reaching a window is that window's notch
             // as today (decisions BM.2: counted, not ruled). Inside a burst too, once that burst has joined a carry
             // (decisions BO.1): a tap's report opens a burst and its act opens a window, whose first notch the joined owe
-            // swallowed. What it costs: a scroll burst that joined a carry and is covered mid-burst (a notice landing in a
-            // fast burst) loses its own scroll owes with it, so their on-time echoes go to the cover as today
-            // (`owesExpired`). A burst that joined no carry keeps its owes through a cover, as before.
+            // swallowed. What a drop costs (decisions BR): under a notice without focus — which takes no scroll, so a notch
+            // goes to Main — the echoes still queued in the band reach Main with no owe and move it a second time, as before
+            // the carry; the case is a notice arriving within the band's drain after a fast burst (counted `lateEchoUnpaid`
+            // and `lateEchoOtherFront`), and with BO.1 one arriving inside a burst that joined a carry (counted
+            // `lateEchoOtherFront` while the dropped carry's window lasts; `lateEchoUnpaid` reads only with no burst open);
+            // accepted; the dropped owes are counted `owesExpired`. A burst that joined no carry keeps its owes through a
+            // cover, as before.
             if (!burstOpen || owesCarriedUntil != Long.MIN_VALUE) {
                 // C4 (decisions BO.4): the window of the carry this change drops, for `lateEchoOtherFront`
                 if (owesCarriedUntil != Long.MIN_VALUE && owesScroll + owesAny > 0) { otherFrontUntil = carryWindowUntil; otherFrontList = old.list }

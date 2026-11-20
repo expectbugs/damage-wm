@@ -222,10 +222,10 @@ class LocalSequenceFuzzTest {
         moved(h, failed, "")
         // (9)
         ringCount(h, failed, "", if (seeded) null else declaredNow)
-        // (10): a front's own notch the phone did not apply is a notch lost there. Decisions BQ: in random sequences the one
-        // declared shape ([LocalHarness.frontDeclared]: a front taken inside a burst that had joined no carry, its notch
-        // paid by that burst's own owe) lowers the front's expected count by that notch; every other notch is judged; a
-        // seeded case declares nothing
+        // (10): a front's own notch the phone did not apply is a notch lost there. Decisions BQ, BR: in random sequences the
+        // one declared shape ([LocalHarness.frontDeclared]: its notch paid by an owe of a burst that joined no carry, open
+        // when the front took the front or opened while it stood) lowers the front's expected count by that notch; every
+        // other notch is judged; a seeded case declares nothing
         for ((kind, made) in h.frontMade) {
             val applied = h.frontApplied[kind] ?: 0
             val decl = h.frontDeclared.entries.filter { it.value.first == kind }
@@ -1177,9 +1177,9 @@ class LocalSequenceFuzzTest {
 
     /** Decisions BQ: the smallest set of the four bases' seeds (at 2,000 a base) holding one sequence of each declared class
      *  of (9) and (10), run beside the gate's 60 + 60 so that a change turning a declared shape into an undeclared failure
-     *  shows in the gate, not only at 8,000 (an exact search over the 12 classes: 8 seeds, one of them — 100100059, a
+     *  shows in the gate, not only at 8,000 (an exact search over the 12 classes of BQ: 8 seeds, one of them — 100100059, a
      *  stale-cursor adoption after an unreported stock message through a later reset — already the gate's own, index 59
-     *  of base 1001). */
+     *  of base 1001; BR's two classes add two). */
     private val GATE_SEEDS = listOf(
         100101194L,   // (9) a stale-cursor adoption after a tap's DISCARD that set RIGHT back
         424201353L,   // (9) J3
@@ -1188,7 +1188,9 @@ class LocalSequenceFuzzTest {
         100100382L,   // (9) a lost report of a fire that drew, its message paid by a carried owe
         100100778L,   // (9) a stale-cursor adoption after an unreported message; a lost report of a fire that did not draw;
                       //     one that drew, its message paid by an owe
-        100101280L)   // (10) both classes: a front's notch paid by its burst's own owe — a dropped echo, a lost report's gap owe
+        100101280L,   // (10) both classes: a front's notch paid by its burst's own owe — a dropped echo, a lost report's gap owe
+        100216L,      // (10) the same with the burst opened under the front (decisions BR): a dropped echo
+        101573L)      // (10) the same with the burst opened under the front: a lost report's gap owe
     /** The fifth base's declared classes, which its first 60 sequences do not hold: J3 and J3 through a later reset, both
      *  in 500854. */
     private val HIS_GATE_SEEDS = listOf(500854L)

@@ -271,16 +271,18 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     /** When each lone SETTLE was sent (J1 and J2 read their late echoes against them). */
     val loneSettles = ArrayList<Long>()
 
-    // ---- decisions BQ: (10)'s declared shape — a front taken while a burst was open that had joined no carry, its notch
-    // paid by an owe of that burst's own
+    // ---- decisions BQ, BR: (10)'s declared shape — a front's notch paid by an owe of a burst that joined no carry, the
+    // burst open when the front took the front (BQ) or opened while the front stood (BR)
     /** The open burst as the phone's rules hold it: when its first report was handled, and S_heard before it. */
     private var burstFrom = Long.MIN_VALUE
     private var burstS0 = 0
     /** Session starts so far (a start ends every burst). */
     private var starts = 0
-    /** A front that took the front while a burst was open with no carry joined: that burst's opening, its S_heard before,
-     *  and the lone SETTLEs and starts sent by then (the same burst while none has come since). */
+    /** A burst, for (10)'s declaration: its opening, its S_heard before, and the lone SETTLEs and starts sent by then (the
+     *  same burst while none has come since). */
     private class InBurst(val from: Long, val s0: Int, val settles: Int, val starts: Int)
+    /** Per front generation: when it took the front, and the burst open then if it had joined no carry. */
+    private val frontTakenAt = HashMap<Int, Long>()
     private val frontInBurst = HashMap<Int, InBurst>()
     /** Scroll gestures RIGHT handled whose stock message the band dropped. */
     private val bandDropped = HashSet<Int>()
@@ -289,29 +291,38 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     val frontDeclared = LinkedHashMap<Int, Pair<String, String>>()
     private val explaining = HashSet<Int>()
     private fun noteFrontInBurst() {
+        frontTakenAt[frontGen] = now
         if (rules.burstOpen && rules.owesCarriedUntilMs == Long.MIN_VALUE) frontInBurst[frontGen] = InBurst(burstFrom, burstS0, loneSettles.size, starts)
     }
 
-    /** (10)'s declaration for front notch [g] the phone did not apply ([os], [oa]: the scroll owes and the owes of either
-     *  kind before its message): the front took the front inside a burst that had joined no carry, that burst is still
-     *  open, and the message paid an owe of the burst's own — of its direction, where a report of that direction heard in
-     *  the burst had its message dropped by the band; or of either kind, where a report inside the burst's S span was
-     *  lost (the gap's owe). Null when the predicate does not hold: the notch is then an undeclared (10) failure. */
+    /**
+     * (10)'s declaration for front notch [g] the phone did not apply ([os], [oa]: the scroll owes and the owes of either
+     * kind before its message) — P5's stated residual reaching a front, in its two forms: the burst open at the swallow
+     * joined no carry and either (BQ) was open when the front took the front and is still open, or (BR) opened while the
+     * front stood (a 115 for a notch RIGHT took before the front's CLEAR landed — a carry never runs under a front); and
+     * the message paid an owe of that burst's own — of its direction, where a report of that direction heard in the burst
+     * had its echo dropped by the band; or of either kind, where a report inside the burst's S span was lost (the gap's
+     * owe). Each dropped echo or lost report explains one notch at most. A declared notch lowers its front's expected count
+     * by that notch; (10) still judges every other notch in that front. Null when the predicate does not hold: the notch
+     * is then an undeclared (10) failure (a burst that joined a carry, finding 1's shape, is never declared).
+     */
     private fun declared10(g: Int, gen: Int, os: Int, oa: Int): String? {
-        val ib = frontInBurst[gen] ?: return null
-        if (!rules.burstOpen || loneSettles.size != ib.settles || starts != ib.starts) return null
+        val taken = frontTakenAt[gen] ?: return null
+        val same = frontInBurst[gen]?.takeIf { rules.burstOpen && loneSettles.size == it.settles && starts == it.starts }
+        val ib = same ?: (if (rules.burstOpen && burstFrom >= taken) InBurst(burstFrom, burstS0, loneSettles.size, starts) else null) ?: return null
+        val under = if (same == null) " (the burst opened under the front)" else ""
         val step = ringStep[g] ?: return null
         if (rules.owesScroll < os) {
             val src = reportHeardAt.entries.filter { (gk, t) -> t >= ib.from && t <= now && ringStep[gk] == step && gk in bandDropped && gk !in explaining }
                 .minByOrNull { it.value }?.key ?: return null
             explaining += src
-            return "(10) a front's notch paid by its burst's own owe: a notch's echo the band dropped"
+            return "(10) a front's notch paid by its burst's own owe$under: a notch's echo the band dropped"
         }
         if (rules.owesAny < oa) {
             val src = lost115.filter { gk -> gk !in explaining && fires[gk]?.sR?.let { s -> LocalRules.after(s, ib.s0) && !LocalRules.after(s, rules.sHeard) } == true }
                 .minOrNull() ?: return null
             explaining += src
-            return "(10) a front's notch paid by its burst's own owe: a lost report's gap owe"
+            return "(10) a front's notch paid by its burst's own owe$under: a lost report's gap owe"
         }
         return null
     }
