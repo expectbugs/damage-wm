@@ -635,18 +635,20 @@ class LocalSequenceFuzzTest {
         if ((h.rules.counts["stockHeld"] ?: 0) < 1) "nothing held (the shape did not happen): ${h.rules.counts}" else null,
         if (h.row != 3) "the row is ${h.row}, not 3 (a NEXT and a PREV)" else null) })
 
-    /** S32 (B083, 2b): a notch whose 115 is lost — its stock message then has no owe and is held — and a second notch 60 ms
-     *  later, whose report finds the gap: the gap's owe pairs the held message (the lens drew that notch; the adopted
-     *  cursor counts it), so the row moves to 2 and no message is applied as today. */
+    /** S32 (B083, 2b): two notches whose 115s are lost — their stock messages then have no owe and are held — and a third
+     *  notch 60 ms later, whose report finds the gap of 2: its own owe pairs one held message, the gap's owes the other
+     *  (the lens drew those notches; the adopted cursor counts them), so the row moves to 3 and nothing is applied as today.
+     *  (With one lost report the report's own owe alone pairs it: the gap's pairing is watched only with two.) */
     @Test fun seededS32_aGapsOwePairsTheHeldMessageOfTheLostReport() = seeded(Taps.REPORT, rows = 0, script = { h ->
-        h.loseNext115 = 1
+        h.loseNext115 = 2
+        h.gesture(1, answer = true, band = "none"); h.runUntil(h.now + 60)
         h.gesture(1, answer = true, band = "none"); h.runUntil(h.now + 60)
         h.gesture(1, answer = true, band = "none")
         h.rest()
     }, extra = { h -> listOfNotNull(
-        if (h.rules.counts["stockPaired"] != 1) "paired ${h.rules.counts["stockPaired"]} (held ${h.rules.counts["stockHeld"]}): the shape did not happen?" else null,
+        if (h.rules.counts["stockPaired"] != 2) "paired ${h.rules.counts["stockPaired"]} (held ${h.rules.counts["stockHeld"]}): the shape did not happen?" else null,
         if ((h.rules.counts["unreported"] ?: 0) != 0) "${h.rules.counts["unreported"]} applied as unreported" else null,
-        if (h.row != 2) "the row is ${h.row}, not 2" else null) })
+        if (h.row != 3) "the row is ${h.row}, not 3" else null) })
 
     /** S33 (B083, 2c; the fuzz's seed 101032 once the harness held the wrap's cells as the shell does): a notch past the
      *  end (the wrap) and, 15 ms later, a notch back that the lens draws before the wrap's PLAY lands — the phone moves
