@@ -1531,4 +1531,23 @@ class MainLocalShellTest {
             assertTrue(handled - decided >= 250, "the done row waited for the loaded loop (+${handled - decided}): the row's t is no send time")
         } finally { r.close() }
     }
+    /** 2c (his look at 0.81: three edge reports within 118 ms, the wrap's motion closed after one step): k notches past the
+     *  end 60 ms apart — what the lenses are told and drawn. A record of today's behaviour (printed: `2c-k`), not yet a
+     *  guard: the slot-1 instance's outcome, the rows, the snap-backs. */
+    @Test
+    fun edgesInABurstPastTheEnd_2c(): Unit = runBlocking {
+        for (k in listOf(2, 3, 5)) {
+            val r = Rig(Taps.REPORT, kib256 = true)
+            try {
+                r.up()
+                walkTo(r, r.list().count - 1)
+                val m0 = r.notes("motion").size; val s0 = r.notes("snapback").size; val l0 = r.notes("local").size
+                repeat(k) { r.fire(CfwModes.EV_UPROLL); delay(60) }
+                delay(r.motionMs() + r.q() + 800); r.settle("after $k")
+                println("2c-$k: row ${r.row()} (wanted ${k - 1}); motions ${r.notes("motion").drop(m0).map { it.substringBefore(" ordinal").substringAfter("motion ") }}; " +
+                    "snapbacks ${r.notes("snapback").drop(s0).map { it.substringBefore(" mark") }}; local ${r.notes("local").drop(l0).filter { "wrap" in it || "CLOSE" in it }.map { it.take(90) }}")
+                r.assertOracle("after $k notches past the end")
+            } finally { r.close() }
+        }
+    }
 }

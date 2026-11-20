@@ -151,6 +151,13 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
     var q: Long = Q_MS
         private set
     private var lastReportMs = 0L
+    /** Ruled 11-19 (2b): stock scroll messages that came, a list bound, before any report could own them — each its type
+     *  and arrival. Held as possible echoes until a report pairs them, else applied as today at the burst's end
+     *  ([releaseHeld]): Q after the later of the last report and the last of these — the burst's own wait, no clock of its
+     *  own. On the phone 27 of 332 stock messages came before their report (his 0.80/0.81 journals, measured). */
+    private val heldStock = ArrayDeque<Pair<Int, Long>>()
+    /** When the held stock messages are released ([releaseHeld]); null with none held. */
+    private fun holdEndAt(): Long? = heldStock.lastOrNull()?.let { (_, at) -> maxOf(if (burstOpen) lastReportMs else 0L, at) + q }
 
     /** The list in front, uncovered (null: covered, another window, nothing bound). */
     var front: BoundList? = null; private set
@@ -213,7 +220,7 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         this.taps = taps
         active = bind
         sHeard = sHeard0 and 0xFFFF; this.armUptime = armUptime
-        owesScroll = 0; owesClick = 0; owesAny = 0; u = 0
+        owesScroll = 0; owesClick = 0; owesAny = 0; u = 0; heldStock.clear()
         tapsLive = false; burstOpen = false; bindFlag = true
         slots.clear(); held.clear(); pending.clear(); touchedSinceRead.clear(); lastRow.clear(); lastFront = front?.list ?: -1
         wireMark.fill(-1); staged.fill(null)
@@ -376,11 +383,19 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         val f = front
         val heldE = (a.entry?.let { held[it] }) ?: f?.let { fl -> a.eventId?.let { id -> heldFor(fl.list, id)?.let { held[it.entry] } } }
         val listId = a.list ?: heldE?.list ?: f?.list ?: -1
-        val slotNo = a.slot ?: f?.takeIf { it.list == listId }?.slot ?: return Verdict.Nothing.also {
+        val slotNo = a.slot ?: f?.takeIf { it.list == listId }?.slot ?: return run {
             // decisions AF.5 (P4): a refused 3 or 14 body names no list, and with none in front it is nobody's to answer —
-            // its own owe is taken back, so its stock message is applied as today (the gesture on a cover is not lost)
+            // its own owe is taken back, so its stock message is applied as today (the gesture on a cover is not lost);
+            // one that already came and is held (2b) goes now
             if (tap) owesClick-- else owesScroll--
             note("local", "a 115 naming no slot the phone knows — not answered; its stock message goes as today: ${a.describe()}")
+            if (!tap && heldStock.isNotEmpty()) Verdict.Apply(heldStock.removeFirst().first) else Verdict.Nothing
+        }
+        // ruled 11-19 (2b): stock messages held before this report are its echo — and those of the reports its gap lost
+        while (heldStock.isNotEmpty() && (owesScroll > 0 || owesAny > 0)) {
+            heldStock.removeFirst()
+            if (!tap && owesScroll > 0) owesScroll-- else if (owesAny > 0) owesAny-- else owesScroll--
+            count("stockPaired")
         }
         val st = slot(slotNo, heardBefore)
         st.list = listId
@@ -479,13 +494,12 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         if (!kind.click) {
             val e = f?.let { fl -> heldFor(fl.list, CfwModes.EV_UPROLL) ?: heldFor(fl.list, CfwModes.EV_DOWNROLL) }
             if (f == null || e == null) return Verdict.Apply(kind.type)                 // unbound: as today
-            u++
-            val st = slot(f.slot)
-            st.list = f.list
-            st.moved = st.moved ?: "lost-report"
-            count("unreported")
-            repair.onUnreportedScroll(f.list, this)
-            return Verdict.Apply(kind.type)
+            // ruled 11-19 (2b): no report yet, a list bound — a possible echo whose report is still on its way (the lens
+            // always answers a bound notch with a 115: drew, edge or refused). Held until a report pairs it, or the burst
+            // ends ([releaseHeld]); nothing is drawn for it meanwhile
+            heldStock.addLast(kind.type to nowMs)
+            count("stockHeld")
+            return Verdict.Nothing
         }
         val tapHeld = f?.let { heldFor(it.list, CfwModes.EV_TAP) } != null
         if (f == null || !tapHeld || !tapsLive) return Verdict.Apply(kind.type)        // no tap matched: as today, not in u
@@ -570,10 +584,36 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
     val owed: Boolean get() = active && (pending.isNotEmpty() || slots.values.any { it.owed } || repair.owedNow())
 
     /** P7: the lone SETTLE is due — a burst open, Q after its last report, every report answered. */
-    fun settleDue(nowMs: Long): Boolean = active && burstOpen && nowMs - lastReportMs >= q && slots.values.none { it.owed }
+    fun settleDue(nowMs: Long): Boolean = active && burstOpen && nowMs - lastReportMs >= q && slots.values.none { it.owed } && heldStock.isEmpty()
 
     /** When the lone SETTLE falls due ([settleDue]), on the phone's clock; null with no burst open. */
-    fun settleAt(): Long? = if (active && burstOpen) lastReportMs + q else null
+    fun settleAt(): Long? = if (!active) null else holdEndAt() ?: if (burstOpen) lastReportMs + q else null
+
+    /** Ruled 11-19 (2b): at the burst's end ([holdEndAt]), the stock messages no report paired are applied as today, each
+     *  an unreported message (P5's u; the snap-back of a moved slot; the table repair's evidence) — what [stock] did at
+     *  their arrival before the hold. Returns their verdicts, in arrival order; empty before that moment. */
+    fun releaseHeld(row: Int, nowMs: Long): List<Verdict> {
+        observe(row)
+        val end = holdEndAt() ?: return emptyList()
+        if (!active || nowMs < end) return emptyList()
+        val out = ArrayList<Verdict>()
+        while (heldStock.isNotEmpty()) {
+            val (type, _) = heldStock.removeFirst()
+            val f = front
+            val e = f?.let { fl -> heldFor(fl.list, CfwModes.EV_UPROLL) ?: heldFor(fl.list, CfwModes.EV_DOWNROLL) }
+            if (f != null && e != null) {
+                u++
+                val st = slot(f.slot)
+                st.list = f.list
+                st.moved = st.moved ?: "lost-report"
+                count("unreported")
+                repair.onUnreportedScroll(f.list, this)
+            }
+            count("stockReleased")
+            out += Verdict.Apply(type)
+        }
+        return out
+    }
 
     /** The lists a batch's tail will carry a LIST for. */
     private fun listsInTail(): Set<Int> = pending.filterIsInstance<Pending.ListMsg>().map { it.list.list }.toSet()

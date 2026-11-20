@@ -230,6 +230,14 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     /** The phone's pump runs this long after an event (a busy link holds a batch back). */
     var pumpDelay = 3L
 
+    /** 2b: the gestures whose stock message is held, in arrival order (a release applies to the oldest). */
+    private val heldGesture = ArrayDeque<Int>()
+    /** Ruled 11-19 (2b), his journals: the share of scroll gestures whose stock message reaches the phone before its 115 —
+     *  the 115 then comes [stockLeadMax] ms or less after it. */
+    var stockFirst = 0.0
+    var stockLeadMax = 150
+    private var reverseNext115: Long? = null
+
     // ---- the uplink: RIGHT's notifies and stock messages, FIFO
     private var lastUp = 0L
     var lose115 = 0.0; var dup115 = 0.0
@@ -263,6 +271,8 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
                 val g = a.s?.let { bySR[it] } ?: -1
                 if (loseNext115 > 0) { loseNext115--; continue }
                 if (rnd.nextDouble() < lose115) continue
+                val rev = reverseNext115; reverseNext115 = null
+                if (rev != null) up(now, extra = rev) { phoneReport(a, g) } else
                 up(now) { phoneReport(a, g) }
                 if (rnd.nextDouble() < dup115) up(now) { phoneReport(a, g) }
             }
@@ -300,8 +310,6 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         if (!answer) return g
         val tR = now + lensGap()
         at(tR) {
-            input(Arm.RIGHT)
-            drainSent()
             // stock's own message, after the 115 (one FIFO, §6.1): a scroll message after the exchange, a click in the turn
             val st = if (tap) LocalRules.Stock.CLICK else if (id == CfwModes.EV_UPROLL) LocalRules.Stock.NEXT else LocalRules.Stock.PREV
             val extra: Long? = when {
@@ -311,6 +319,11 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
                 bandNow != null -> 0L
                 else -> band(tap)
             }
+            // 2b: this gesture's 115 reaches the phone after its stock message (by up to [stockLeadMax] ms)
+            if (!tap && extra != null && stockFirst > 0 && rnd.nextDouble() < stockFirst) reverseNext115 = extra + 1 + rnd.nextInt(stockLeadMax)
+            input(Arm.RIGHT)
+            drainSent()
+            reverseNext115 = null
             if (extra != null) up(now, extra, scroll = !tap) { phoneStock(st, g) }
         }
         return g
@@ -347,7 +360,10 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     }
 
     private fun phoneStock(st: LocalRules.Stock, g: Int) {
+        val heldBefore = rules.counts["stockHeld"] ?: 0
         val v = rules.stock(st, row, now)
+        // 2b: a held message is the gesture's, applied (if at all) at its release — its moves are counted against it there
+        if ((rules.counts["stockHeld"] ?: 0) > heldBefore) { heldGesture.addLast(g); rules.settleAt()?.let { s -> if (s > now) at(s) { pump() } } }
         // decisions BC: a stock message applied as today whose own report was heard before a SETTLE that went before it —
         // an echo later than its burst's SETTLE (its owe was cleared there); the fuzz counts the (8) it causes apart
         if (v is LocalRules.Verdict.Apply && reportHeardAt[g]?.let { lastSettleAt > it } == true) lateEchoes += g
@@ -616,6 +632,8 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
 
     fun pump() {
         if (!rules.active) return
+        // ruled 11-19 (2b): the shell's pump releases held stock messages at the burst's end before anything else
+        for (v in rules.releaseHeld(row, now)) { verdicts += -1 to v; apply(v, heldGesture.removeFirstOrNull() ?: -1, null) }
         val t = truth()
         if (rollbackAll) { rollbackAll = false; java.util.Arrays.fill(model, 0x7F.toByte()); java.util.Arrays.fill(lastTruth, 0x7F.toByte()) }
         val changed = regions.filter { differs(t, lastTruth, it) }.toMutableSet()

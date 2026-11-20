@@ -7551,6 +7551,8 @@ class Shell(
         if (comp.deferring && comp.deferUntilMs > localNow && comp.deferUntilMs != deferWakeAt) {
             deferWakeAt = comp.deferUntilMs; pumpAfter(comp.deferUntilMs - localNow)
         }
+        // ruled 11-19 (2b): stock messages held for a report that did not come go as today at the burst's end
+        if (localOn) for (v in local.releaseHeld(localRow(), localNow)) localVerdict(v)
         if (localOn) scheduleLocalSettle()
         if (localOn && local.settleDue(localNow) && !local.owed && !comp.hasPending && !comp.needsKeyframe) {
             submitLocalOnly(local.loneSettle(localRow(), localNow), "SETTLE")       // P7: alone, Q after the burst

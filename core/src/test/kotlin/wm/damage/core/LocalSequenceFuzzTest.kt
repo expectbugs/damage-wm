@@ -135,10 +135,15 @@ class LocalSequenceFuzzTest {
         val r = java.util.Random(seed)
         val taps = Taps.entries[r.nextInt(3)]
         val h = LocalHarness(seed, taps)
+        val counted0 = ArrayList<String>()
         if (debug) h.trace = { println(it) }
         h.lose115 = r.nextDouble() * 0.15; h.dup115 = r.nextDouble() * 0.05
         h.bandDropScroll = r.nextDouble()              // inside a band: dropped, else queued to a band's end (§6.1)
         h.dropAnswer = r.nextDouble() * 0.1; h.actOpensWindow = r.nextDouble() * 0.5
+        // ruled 11-19 (2b): the stock message before its report, 0–150 ms, in a share of the scroll gestures (his journal:
+        // 27 of 332) — from a generator of its own, so a sequence with none (a third) runs exactly as before
+        h.stockFirst = java.util.Random(seed * 31 + 2_011).let { k -> if (k.nextInt(3) == 0) 0.0 else k.nextDouble() * 0.4 }
+        if (h.stockFirst > 0) counted0 += "2b: sequences with stock messages before their report"
         val n = 1 + r.nextInt(events)
         repeat(n) {
             val x = r.nextInt(100)
@@ -167,6 +172,7 @@ class LocalSequenceFuzzTest {
         }
         val failed = ArrayList<String>()
         val counted = HashMap<String, Int>()
+        for (k in counted0) counted[k] = (counted[k] ?: 0) + 1
         h.trace?.invoke("[${h.now}] --- quiet, then the invariants at rest")
         quiet(h)
         atRest(h, failed, counted)
@@ -190,6 +196,8 @@ class LocalSequenceFuzzTest {
         if (h.windowCuts > 0) counted["AW.3: windows that cut a COMMITted motion"] = (counted["AW.3: windows that cut a COMMITted motion"] ?: 0) + h.windowCuts
         // decisions AZ.4: the wraps animated from the phone, and those a later batch's drawing in the list closed first
         if (h.wrapPlays > 0) counted["AZ.4: wrap PLAYs"] = (counted["AZ.4: wrap PLAYs"] ?: 0) + h.wrapPlays
+        // ruled 11-19 (2b): stock messages held, paired by their report, released at a burst's end
+        for (k in listOf("stockHeld", "stockPaired", "stockReleased")) h.rules.counts[k]?.let { c -> counted["2b: $k"] = (counted["2b: $k"] ?: 0) + c }
         if (h.wrapCuts > 0) counted["AZ.4: wraps closed by a draw in the list"] = (counted["AZ.4: wraps closed by a draw in the list"] ?: 0) + h.wrapCuts
         val stats = "outcome %08x keyframes ${h.keyframes} ".format(h.outcome.value) + "taps ${h.rules.taps.word} events $n sent ${h.sent} commits ${h.commitsSent.size} held ${h.heldCommits} acts ${h.acts.size} " +
             "verdicts ${h.verdicts.groupingBy { it.second::class.simpleName }.eachCount()} counts ${h.rules.counts}"
@@ -558,6 +566,32 @@ class LocalSequenceFuzzTest {
                 "verdicts ${h.verdicts.filter { it.first == tap }.map { it.second }})" else null,
             if (h.rules.counts["gap"] != 2) "the gap counted ${h.rules.counts["gap"]}, not 2 (the shape did not happen)" else null) })
     }
+
+    /** S28 (ruled 11-19, 2b; his journals: 27 of 332 stock messages before their report, two `lost-report` snap-backs on
+     *  0.81, one drawing a phone frame into a list the glasses were animating): three notches 80 ms apart whose stock
+     *  messages each come 1–60 ms before their 115 — each is held, then paired by its report: the glasses' own motions
+     *  stand, nothing is applied as today, no snap-back, the row moves once per notch. */
+    @Test fun seededS28_aStockMessageBeforeItsReportIsPairedNotApplied() = seeded(Taps.REPORT, rows = 6, script = { h ->
+        h.stockFirst = 1.0; h.stockLeadMax = 60
+        repeat(3) { h.gesture(1, answer = true, band = "none"); h.runUntil(h.now + 80) }
+        h.rest()
+    }, extra = { h -> listOfNotNull(
+        if (h.rules.counts["stockPaired"] != 3) "paired ${h.rules.counts["stockPaired"]} of 3 (held ${h.rules.counts["stockHeld"]}; the shape did not happen?)" else null,
+        if ((h.rules.counts["unreported"] ?: 0) != 0) "${h.rules.counts["unreported"]} stock message(s) applied as unreported" else null,
+        if ((h.rules.counts["snapback.lost-report"] ?: 0) != 0) "a lost-report snap-back" else null,
+        if (h.row != 3) "the row is ${h.row}, not 3" else null) })
+
+    /** S29 (2b): a stock message whose 115 never comes (lost) is applied as today at the burst's end — never held for
+     *  good: the row moves once, the slot's snap-back is the old `lost-report` one, and the hold leaves nothing behind. */
+    @Test fun seededS29_aHeldStockMessageWithNoReportGoesAtTheBurstsEnd() = seeded(Taps.REPORT, rows = 6, script = { h ->
+        h.stockFirst = 1.0; h.stockLeadMax = 1
+        h.gesture(1, answer = true, band = "none"); h.runUntil(h.now + 200)       // a burst open, then one whose 115 is lost
+        h.loseNext115 = 1
+        h.gesture(1, answer = true, band = "none")
+        h.rest()
+    }, extra = { h -> listOfNotNull(
+        if (h.rules.counts["stockReleased"] != 1) "released ${h.rules.counts["stockReleased"]} (held ${h.rules.counts["stockHeld"]}, paired ${h.rules.counts["stockPaired"]})" else null,
+        if (h.row != 2) "the row is ${h.row}, not 2" else null) })
 
     @Test fun seededS24_aRefusedTailOnRightIsSeenAtTheSettle() = seeded(Taps.REPORT, live = false, script = { h ->
         h.refuse27On = Arm.RIGHT
