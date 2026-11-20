@@ -2464,7 +2464,9 @@ class Shell(
             Log.i("shell", "notification from '${n.source}' filtered by settings (§4.5)")
             return
         }
-        if (quiet) {   // silent AND exclusive: the small form, auto-dismissing (verdict 23)
+        // silent AND exclusive: the small form, auto-dismissing (verdict 23); behind a transition it waits as in every mode
+        // (K1 §9; the branch below queues it)
+        if (quiet && transition == null) {
             val shown = notifications.current
             notifications.post(n, layout)
             notifications.showNextIfIdle()
@@ -5460,9 +5462,17 @@ class Shell(
      * [MainStaging.WRAP_SLOT]: END is Main's paint at the wrapped row; the model takes it, and holds what Main repaints
      * inside the areas until the motion has ended — its start a flush after this one, so one allowance
      * ([WRAP_START_MS]) past the steps. The mirror holds the instance, so a later flush that meets it CLOSEs it first.
+     * Build C3 (`FIRMWARE.md` §7.11, the second review pass of the transitions): none while a transition is in hand, in
+     * its frame phase or its in half — the PLAY's close pass would end the run's owners; the edge is answered as today
+     * (the rules' DISCARD at the wrapped row), its row drawn, held, and shown at the in half's next step or at LAND. [say]:
+     * the caller that answers the edge (the batch path) writes the note.
      */
-    private fun mainWrapPlan(nowMs: Long): MainWrap? {
+    private fun mainWrapPlan(nowMs: Long, say: Boolean = false): MainWrap? {
         val w = local.wrapPlan(localRow()) ?: return null
+        transition?.let { tr ->
+            if (say) journal.note("local", "an edge at Main's end under ${tr.tier.word}'s transition (${tr.phase}): no wrap PLAY — the row is drawn and shows with its in half")
+            return null
+        }
         val ms = mainBind.staging ?: return null
         if (w.list.list != MainStaging.LIST || mainBind.list?.mark != w.list.mark) return null
         // B082: the wrap draws its own record, which a re-stage in pieces may be writing — no PLAY until it is booked (the
@@ -7615,7 +7625,7 @@ class Shell(
             val plans = if (localOn) local.plan(localRow()) else emptyList()
             // decisions AZ.4: an edge at an end of Main's wrapping list — the pan across the wrap, a phone PLAY in a free slot
             // whose END goes into the model as a COMMIT's does, its areas held until it ends
-            val wrap = if (localOn) mainWrapPlan(localNow) else null
+            val wrap = if (localOn) mainWrapPlan(localNow, say = true) else null
             assembleCalls++
             var denied: Set<Int> = emptySet()
             val assembled = try {
@@ -7831,8 +7841,9 @@ class Shell(
         val tr = transition ?: return
         if (tr.phase != TransitionRun.Phase.OWED) return
         // the review's finding 1 (AW.3's own form): every act is a whole-panel change, so the out PLAY's close pass ends every
-        // instance in its area — an adopted motion whose cells the compositor holds included (or, when it does not go, the
-        // frame's own CLOSE does): nothing is left to wait for, and those cells go with the arriving frame
+        // instance in its area — an adopted motion whose cells the compositor holds included; when the run is not sent, its
+        // reason ends the instance itself (a keyframe, a lease release, the CLOSE-all before a disarm, a new session).
+        // Nothing is left to wait for, and those cells go with the arriving frame
         val cut = comp.cutDeferral()
         if (!st.effects || !st.bind || !st.leaseHeld || comp.needsKeyframe || st.transitionRegion?.let { r -> tr.built.at4 * 4 in r } != true) {
             transitionEnd("not sent: stage 5, BIND or the lease is no longer in force, a keyframe is owed, or the session changed — the screen lands at once")
@@ -7852,7 +7863,7 @@ class Shell(
         tr.outId?.let { id ->
             // the out PLAY is what he sees first: journaled as the gesture's first flush (`in`, the wait for a slot), so
             // `tools/journal_report.py`'s WAIT column prices it; the frame under it no longer counts as the first
-            journal.flushSubmitted(id, comp.epoch, emptyList(), "TRANSITION", st.transportName, Journal.Timing(
+            journal.flushSubmitted(id, comp.epoch, emptyList(), "TRANSITION+${tr.tier.word.lowercase()}", st.transportName, Journal.Timing(
                 input = (if (pumpPriority || inputAwaitsSlot) 1 else 0).also { inputAwaitsSlot = false },
                 inWaitMs = (if (pumpPriority || inputWaitSince >= 0) (if (inputWaitSince >= 0) System.currentTimeMillis() - inputWaitSince else 0L)
                     else -1L).also { inputWaitSince = -1L },
@@ -7928,7 +7939,11 @@ class Shell(
                 transitionsWhole++
                 transitionEnd(null, closeOut = true)
             }
-            else -> transitionEnd("its in half ended on RIGHT with outcome ${ev.outcome}${ev.reason?.let { " (reason $it)" } ?: ""}")
+            // the second review pass's finding 2: a refusal whose body comes before its flush's failed ack closes both
+            // slots here, as the ack would (the out half, done and owning, holds its far pose until something ends it);
+            // a closed in half (outcome 1) met both boxes in its close pass
+            else -> transitionEnd("its in half ended on RIGHT with outcome ${ev.outcome}${ev.reason?.let { " (reason $it)" } ?: ""}",
+                close = ev.outcome == wm.damage.core.wire.DamageMsg.OUTCOME_REFUSED)
         }
     }
 
