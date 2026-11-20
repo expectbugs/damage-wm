@@ -1857,8 +1857,9 @@ field its verb does not use; the rule is the glasses'.)
 An anchor of 3 on either axis, or anchor bits 4–7, is 5. **§6.6's H rule binds DRAW only**, and C1's "h0 and h1 are
 0" binds FILL, REVEAL and WAIT (12 there, as built); PIECES' and GLYPHS' h0 is a seed (any value; their h1 must be 0,
 5), SHRINK's h0 and h1 follow §7.5. **Every eased level** of DRAW, PIECES, SHRINK and GLYPHS is 0..15 at every j = 0..n
-after substitution (12) — SHRINK's levels feed G (§7.4). **On a track that is not per-lens** xR and dxR of every verb
-are ignored — the track uses xL and dxL on both lenses (§5.4) — PIECES' and GLYPHS' included. **The seed** of a PIECES or GLYPHS segment is its h0 after substitution, exclusive-or the instance's
+after substitution (12) — SHRINK's levels feed G (§7.4). **On a track that is not per-lens no rule reads xR or dxR:**
+for every verb of a version-2 record they are ignored before any verb's own rule — the track uses xL and dxL on both
+lenses (§5.4); every "dxR must be 0" below holds on a per-lens track only. **The seed** of a PIECES or GLYPHS segment is its h0 after substitution, exclusive-or the instance's
 tag when opt bit 7 is set (a local fire's tag is its S). **Every product** in §7.4–§7.6 is a 32-bit product that wraps,
 as §5.4's eased value: computed unsigned, read as s32, `>>` arithmetic. (§7.12's step budget is the exception: its
 terms and sums are 64-bit and never wrap.)
@@ -1872,8 +1873,8 @@ bound step paints is a function of its records, parameters and step alone. An in
 none (5); its segments are WAITs and exactly one non-WAIT segment (12); it is the program's **first** track and the only
 in-place track (12); its ease is non-decreasing — ease 0 or 1, or a table whose E[0..n] never falls — checked at the
 walk on **every** non-WAIT segment of the track (5), before the one-non-WAIT-segment shape (12, at the values); a rain track in
-place has dxL = dxR = dy = 0 (12); and **no later track of the program meets its area while it moves pixels (12)** — it
-moves pixels unless it is PIECES with f1 = 0, PIECES uniform or random with dxL = dxR = dy = 0, SHRINK with both axes
+place has dxL = dy = 0 and, on a per-lens track, dxR = 0 (12); and **no later track of the program meets its area while it moves pixels (12)** — it
+moves pixels unless it is PIECES with f1 = 0, PIECES uniform or random with dxL = dy = 0 (and dxR = 0 on a per-lens track), SHRINK with both axes
 unscaled, or a rain track.
 
 **Where a program may run** (each 5, checked in the walk):
@@ -2023,7 +2024,7 @@ rect. **model = aux1 & 3** (0 uniform · 1 radial · 2 random; 3: 5), aux1 bits 
 The **factor** f = f0 + (((f1 − f0)·e + 2048) >> 12) in 1/4096, with f0 = w0 and f1 = w1 read as s16 (f0 = 0, f1 = 4096
 moves from home to the full displacement; f0 = 4096, f1 = 0 from the full displacement home):
 - *uniform* (aux0 must be 0x0101, else 12): D = ((dx·f + 2048) >> 12, (dy·f + 2048) >> 12) for the area as one piece.
-- *radial* (dxL, dxR and dy must be 0, else 12): D_p = (((c.x − x)·f + 2048) >> 12, ((c.y − y)·f + 2048) >> 12), (x, y)
+- *radial* (dxL and dy must be 0, and dxR on a per-lens track, else 12): D_p = (((c.x − x)·f + 2048) >> 12, ((c.y − y)·f + 2048) >> 12), (x, y)
   this lens's anchor.
 - *random:* r = H3(seed, p, 0), or H3(seed, p, t) with opt bit 6; rx = r & 0xFFFF and ry = r >> 16, each read as s16;
   DX = (dx·f + 2048) >> 12, DY = (dy·f + 2048) >> 12; D_p = ((rx·DX) >> 15, (ry·DY) >> 15).
@@ -2110,8 +2111,8 @@ h(0) = 0, h(1) = 0x688990C0, h(0xFFFFFFFF) = 0x6768824A, h(0x12345678) = 0xF5E71
 0xA07C7A97, H2(0x10001, 7) = 0x2EC199FE; H3(0, 0, 0) = 0xB015CF54, H3(5, 3, 9) = 0x848366AC, H3(0xBEEF, 12, 1) =
 0xB056A444. "mod" below is the unsigned remainder.
 
-**Positions.** A GLYPHS segment's x, y are **offsets**: X(t) = x + ((dx·e + 2048) >> 12) for this lens (x_L/dx_L or
-x_R/dx_R), Y(t) = y + ((dy·e + 2048) >> 12). Everything it draws is clipped to the track's area. **Glyphs.** A font is a
+**Positions.** A GLYPHS segment's x, y are **offsets**: X(t) = x + ((dx·e + 2048) >> 12) for this lens (x_L/dx_L,
+or x_R/dx_R on a per-lens track's right lens), Y(t) = y + ((dy·e + 2048) >> 12). Everything it draws is clipped to the track's area. **Glyphs.** A font is a
 224-entry v2 table (§4, 448 B at an off4); code c (32..255) names entry c − 32, an off4 to a v1 glyph record
 `[w u8][h u8][RLE]`. **A glyph record is walked once, at the walk that opens the instance; a step does not validate
 it again** (decisions F: a write over it closes the instance first, §5.6). Without a per-step walk the glyph renderer
@@ -2192,7 +2193,8 @@ instance, owning; sets the engine's flag; the message's present).
 ### 7.8 The ring list and the cursor parameter
 
 - **Mode 27 sub 4 LIST-RING** (bit-11 build; §6.3's table and order carry it): LIST's body, then `flags u8` (bit 0
-  RING; bits 1–7 zero, 12). It applies LIST and sets the list's RING flag to flags bit 0; a plain LIST clears it; the empty table
+  RING; bits 1–7 zero, 12). **With EFFECTS clear a LIST-RING is refused 15** — §6.3's order: … → BIND (15) → EFFECTS
+  (15, LIST-RING only) → values (12) — and changes nothing. It applies LIST and sets the list's RING flag to flags bit 0; a plain LIST clears it; the empty table
   (§6.3) clears it. With RING the shift is applied modulo the count: cursor := (old + shift) mod count, mod Euclidean
   (never negative), never lost by the shift; a lost cursor stays lost (DISCARD and SETTLE restore it).
 - **A fire on a RING list** (§6.2 step 9): count 1 with a step ≠ 0 → the edge (a tap on a one-item list is not an edge); else c' = (cursor + step) mod count (Euclidean) and the
@@ -2215,6 +2217,11 @@ instance, owning; sets the engine's flag; the message's present).
   §5.8, §6.8): open instances run on to their end, each on the renderer its walk chose (§7.12: the path is the
   instance's), and the next version-2 PLAY is refused 5. The phone CLOSEs all before it disarms EFFECTS (§5.8's rule,
   §7.11).
+- **Nothing of C3 is taken with flag bit 6 clear:** a version-2 record is 5 wherever it is walked (a PLAY, RETARGET,
+  fire, COMMIT or SET); PLAY-AFTER (26/8) is 15; LIST-RING (27/4) is 15; SET's kind 3 is 12; a fire on a RING list or on
+  an entry with a kind-3 parameter is 15 (§6.2 step 7). What is not a message follows: an instance opened with bit 6
+  clear runs C2's renderers (§7.12), the wake waits as C2's (§7.10), and the destroy site acts only while an owner is
+  open, which no message can open with bit 6 clear (§7.3).
 - **DamageCaps bit 11:** version-2 records, OWN and LAND, PIECES, SHRINK, GLYPHS, `new`, the two-axis DRAW, the source
   window, the step budget, the fast DRAW path, PLAY-AFTER,
   LIST-RING, kind 3, refusal 19, field 18 of the 115, telemetry 40, the plan's late step (§7.10). Features `0xdff`.
@@ -2870,3 +2877,7 @@ phone's keeper applies the hold-back rule before re-arming.
   from whole, not a 0/32-only font, not an alphabet's padding, no other list of a cell table; a SET judges no budget;
   END painted by the engine's renderers; stage 5 on a build that cannot arm it, `probe c1=4` lifting its hold-back,
   EFFECTS after BIND; the phone's CLOSE before a write reads the meeting box. Nothing built.
+- 2026-11-20 — the meeting's two causes as ruled (`C3-decisions.md` R): on a track that is not per-lens no rule reads xR
+  or dxR (§7.2 says it once; §7.4's radial rule, the in-place rain and "moves pixels" tests and GLYPHS' positions read the
+  R side on a per-lens track only); §7.8 repeats §6.3's check — a LIST-RING with EFFECTS clear is refused 15; §7.9 lists
+  every C3 sub, kind and record form with its refusal when bit 6 is clear. Nothing built.
