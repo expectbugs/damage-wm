@@ -9,6 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
@@ -20,6 +21,7 @@ import wm.damage.core.shell.Persistence
 import wm.damage.core.shell.Shell
 import wm.damage.core.sim.GlassFirmwareSim
 import wm.damage.core.transport.SimTransport
+import wm.damage.core.transport.effects
 import wm.damage.core.wire.EvenHubMsg
 
 /**
@@ -43,6 +45,7 @@ object Snapshot {
             runBlocking {
                 script(cfg, outDir)
                 feedRestartScenes(outDir)
+                animationsScenes(outDir)
                 phoneArrangement(cfg, outDir)
             }
         } catch (e: Throwable) {
@@ -1567,6 +1570,45 @@ object Snapshot {
                 save(sim, out, "80b-feed-binge-after-restart")
             }
         } finally {
+            snapShell = before
+            tmp.toFile().deleteRecursively()
+        }
+    }
+
+    /**
+     * C3 AS: Settings → Animations at ladder stage 5, every row at its default — the page of tiers (37h) and the Select
+     * tier's sub menu (37i). A shell of its own over the firmware model of a bit-11 build at stage 5 (the transition rigs'
+     * form: DamageCaps 0xdff, `probe c1=5`, the model's engine woken every 4 ms), reached by Settings' `cat:` deep link,
+     * one notch and one tap, so the sub menu is entered by the gesture he uses. Into the first arrangement's directory;
+     * no icon theme (the drawn icons).
+     */
+    private suspend fun animationsScenes(out: Path) {
+        val tmp = Files.createTempDirectory("damage-snap-anim")
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = 0xdff }
+        val transport = SimTransport(sim, scope, SimTransport.Timing(instant = true))
+        val persistence = Persistence(tmp.resolve("state.json"))
+        val shell = Shell(wm.damage.core.comp.CachedText(AwtText()), transport, persistence, tmp.resolve("journal.jsonl"), scope)
+        val before = snapShell
+        snapShell = shell
+        try {
+            transport.devProbe("c1", "5")
+            scope.launch { while (true) { val now = System.currentTimeMillis(); for (a in wm.damage.core.transport.Arm.entries) sim.conformanceWake(a, now); delay(4) } }
+            shell.start()
+            settle(shell, "anim-start")
+            waitFor("stage 5 in force") { transport.state.value.effects && shell.isQuiescent() }
+            settingsCategoryScene(shell, sim, out, "Animations", "37h-animations")
+            shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)          // Scroll → Select
+            settle(shell, "anim-select-row")
+            shell.postGesture(EvenHubMsg.EV_CLICK)                  // open its sub menu
+            // the window's saved state names the open tier (it is saved two seconds after the tap)
+            waitFor("Animations · Select open") {
+                persistence.get("window.settings")?.get("openSub")?.jsonPrimitive?.contentOrNull == "Select" && shell.isQuiescent() }
+            settle(shell, "anim-select")
+            save(sim, out, "37i-animations-select")
+        } finally {
+            shell.stop()
+            scope.cancel()
             snapShell = before
             tmp.toFile().deleteRecursively()
         }

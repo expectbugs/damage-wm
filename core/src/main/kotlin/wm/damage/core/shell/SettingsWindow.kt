@@ -2,6 +2,7 @@ package wm.damage.core.shell
 
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -22,7 +23,9 @@ import wm.damage.core.text.TextRasterizer
  * [DamageWindow.appSettings]) → that category's rows → the ADJUST level
  * where scrolling a value previews LIVE ("you cannot pick a comfortable
  * disparity from a number, you pick it by looking"): tap keeps, double-tap
- * reverts, and double-tap climbs back out level by level.
+ * reverts, and double-tap climbs back out level by level. C3 AS (2026-11-21): in
+ * `Animations` alone one more list level sits between a category's rows and the
+ * adjust level — a tier's row opens that tier's rows (its sub menu).
  */
 class SettingsWindow(
     private val text: TextRasterizer,
@@ -57,8 +60,12 @@ class SettingsWindow(
 
     private val catModel = ListModel()
     private val model = ListModel()
+    /** C3 AS: the cursor inside a tier's sub menu ([openSub]); [model] keeps the page's, so Back lands on the tier's row. */
+    private val subModel = ListModel()
     /** Which category is open: −1 = the category list. */
     private var openCat = -1
+    /** C3 AS: the tier row whose sub menu is open (one of the open category's rows), null = that category's own rows. */
+    private var openSub: Entry? = null
     private var adjusting: Entry? = null
     private var revertTo: ShellSettings? = null
     /** Size relayouts + keyframes, so it is the one setting that must NOT
@@ -76,6 +83,8 @@ class SettingsWindow(
         val hostRow: HostSetting? = null,
         /** A row a tap acts on (no adjusting): build C2's `Local input`. */
         val tap: (() -> Unit)? = null,
+        /** C3 AS: a tier's row on the `Animations` page — a tap opens these rows as one more list level. */
+        val sub: List<Entry>? = null,
     )
 
     private inner class Cat(val name: String, val entries: List<Entry>)
@@ -202,12 +211,12 @@ class SettingsWindow(
     )
 
     /** Build C3, stage DP2 (`MOTION.md` §7): per transition tier its length, its frames (both halves) and one checkbox per
-     *  effect — a random pick among the checked at each use, none checked = None. After the scroll rows, before the
-     *  Popups tier's. C3 X2T item 7: the
+     *  effect — a random pick among the checked at each use, none checked = None. C3 X2T item 7: the
      *  tiers named as his plan names them ([wm.damage.core.motion.Transitions.Tier.title]); every row says "(default)" at
-     *  its default as Scroll's rows do; `Length` says what really plays when the period's clamp changes it. */
-    private val transitionEntries: List<Entry> = wm.damage.core.motion.Transitions.Tier.entries.flatMap { t ->
-        listOf(
+     *  its default as Scroll's rows do; `Length` says what really plays when the period's clamp changes it. C3 AS: each
+     *  tier is one row of the page (between Scroll and Popups) and these rows are its sub menu. */
+    private val transitionTiers: List<Entry> = wm.damage.core.motion.Transitions.Tier.entries.map { t ->
+        Entry(t.title, { checked(wm.damage.core.motion.Transitions.effectsOf(t).filter { it.id in get().effectsOf(t) }.map { it.label }) }, null, sub = listOf(
             Entry("${t.title} length", {
                 val l = get().lengthOf(t)
                 "$l ms" + (wm.damage.core.motion.Transitions.clampedPlayMs(l, get().framesOf(t))?.let { " (plays $it ms)" } ?: "") +
@@ -232,12 +241,26 @@ class SettingsWindow(
             }, { s, d ->
                 s.withTier(t, effects = ShellSettings.tierEffects(t, if (d > 0) s.effectsOf(t) + e.id else s.effectsOf(t) - e.id))
             })
-        }
+        })
     }
 
-    /** Build C3 (DP2): the list level the shell's transitions read — the category list or a category's rows; entering and
-     *  leaving the adjust level changes one row, not the screen, so it is no level here. */
-    internal fun listLevel(): Int = 1 + (if (openCat >= 0) 1 else 0)
+    /** C3 AS (his word, 2026-11-21: "a sub menu for each tier, rather than dozens of options in one enormous list"): the
+     *  `Animations` page — one row per tier shown at this stage, in `MOTION.md` §7's order, its value what is set inside,
+     *  a tap opening the tier's rows. No row is global: every row belongs to a tier. A row added to a tier's list
+     *  ([scrollEntries], [transitionTiers], [popupEntries]) is in that tier's sub menu; there is no second list. */
+    private val scrollTier = Entry("Scroll", {
+        (wm.damage.core.motion.ScrollEffect.byId(get().scrollEffect) ?: wm.damage.core.motion.ScrollEffect.DEFAULT).word
+    }, null, sub = scrollEntries)
+    private val popupTier = Entry("Popups", {
+        checked(listOfNotNull("Unfurl".takeIf { get().popupUnfurl }, "Fade".takeIf { get().popupFade }, "Slide".takeIf { get().popupSlide }))
+    }, null, sub = popupEntries)
+
+    /** A checkbox tier's row value: the one effect checked, how many are, or None (nothing plays: it lands at once). */
+    private fun checked(on: List<String>): String = when (on.size) { 0 -> "None"; 1 -> on[0]; else -> "${on.size} on" }
+
+    /** Build C3 (DP2): the list level the shell's transitions read — the category list, a category's rows or (C3 AS) a
+     *  tier's sub menu; entering and leaving the adjust level changes one row, not the screen, so it is no level here. */
+    internal fun listLevel(): Int = 1 + (if (openCat >= 0) 1 else 0) + (if (openSub != null) 1 else 0)
 
     private fun onOff(b: Boolean) = if (b) "on" else "off"
 
@@ -260,27 +283,39 @@ class SettingsWindow(
     private fun cats(): List<Cat> {
         val out = ArrayList<Cat>()
         out.add(Cat("Global", (if (bindBuild()) entries else entries.filter { it.name !in BIND_ROWS }) + host().map(::hostEntry)))
-        if (bindBuild()) out.add(Cat("Animations", scrollEntries + (if (effectsInForce()) transitionEntries else emptyList()) + popupEntries))
+        if (bindBuild()) out.add(Cat("Animations", listOf(scrollTier) + (if (effectsInForce()) transitionTiers else emptyList()) + popupTier))
         for ((app, rows) in apps()) out.add(Cat(app, rows.map(::hostEntry)))
         return out
     }
 
-    /** The open category's rows; an out-of-range [openCat] (an app gone since
-     *  the state was saved) drops back to the category list. */
     /** Test introspection: the Global category's row names as shown now. */
     internal fun globalRowNamesForTest(): List<String> = cats().first().entries.map { it.name }
-    /** Test introspection (build ANIM): the categories' names, and one category's rows with their values as shown. */
+    /** Test introspection (build ANIM): the categories' names, and one category's rows with their values as shown — with
+     *  [tier] (C3 AS), the rows of that tier's sub menu instead. */
     internal fun categoryNamesForTest(): List<String> = cats().map { it.name }
-    internal fun rowsForTest(cat: String): List<Pair<String, String>> = cats().firstOrNull { it.name == cat }?.entries?.map { it.name to it.value() } ?: emptyList()
+    internal fun rowsForTest(cat: String, tier: String? = null): List<Pair<String, String>> =
+        cats().firstOrNull { it.name == cat }?.entries?.let { es -> if (tier == null) es else es.firstOrNull { it.name == tier }?.sub }
+            ?.map { it.name to it.value() } ?: emptyList()
 
-    private fun entriesAt(): List<Entry> {
+    /** The open category's rows; an out-of-range [openCat] (an app gone since
+     *  the state was saved) drops back to the category list. */
+    private fun pageAt(): List<Entry> {
         val cs = cats()
         if (openCat >= cs.size) openCat = -1
         return if (openCat < 0) emptyList() else cs[openCat].entries
     }
 
+    /** The rows of the list shown: the open tier's sub menu, else the open category's rows. A tier no longer on the page
+     *  (stage 5 no longer in force) drops back to the page. */
+    private fun entriesAt(): List<Entry> {
+        val page = pageAt()
+        val s = openSub ?: return page
+        if (s !in page) { openSub = null; return page }
+        return s.sub!!
+    }
+
     override fun view(): WindowView {
-        entriesAt()                       // clamps a stale openCat first
+        entriesAt()                       // clamps a stale openCat and openSub first
         if (openCat < 0) return WindowView.ListView(
             catModel,
             rowCount = { cats().size },
@@ -288,16 +323,19 @@ class SettingsWindow(
             paintLens = { g, r, i -> paintCatLens(g, r, i) },
             onCommit = { i ->
                 openCat = i
+                openSub = null
                 model.cursor = 0          // cursor rest on entry (§1.7)
             },
         )
         return WindowView.ListView(
-            model,
+            if (openSub != null) subModel else model,
             rowCount = { entriesAt().size },
             paintRow = { g, i, r, _ -> paintRow(g, i, r) },
             paintLens = { g, r, i -> paintLens(g, r, i) },
             onCommit = { i ->
                 val e = entriesAt().getOrNull(i) ?: return@ListView
+                // C3 AS: a tier's row opens its sub menu, the cursor at rest on its first row (§1.7)
+                e.sub?.let { openSub = e; subModel.cursor = 0; return@ListView }
                 e.tap?.let { it(); return@ListView }
                 if (e.step != null || e.name == "Size" || e.hostRow != null) {
                     adjusting = e
@@ -317,6 +355,7 @@ class SettingsWindow(
         if (from != ActivationSource.MAIN) return
         clearAdjust()
         openCat = -1
+        openSub = null
         catModel.cursor = 0
     }
 
@@ -352,13 +391,17 @@ class SettingsWindow(
         if (i < 0) return false
         clearAdjust()
         openCat = i
+        openSub = null
         catModel.cursor = i
         model.cursor = 0
         return true
     }
 
-    override fun title(): String =
-        if (openCat < 0) "" else cats().getOrNull(openCat)?.name?.lowercase() ?: ""
+    /** The category's name; in a tier's sub menu (C3 AS) the category's and the tier's: "animations · close / back". */
+    override fun title(): String {
+        val c = (if (openCat < 0) null else cats().getOrNull(openCat))?.name?.lowercase() ?: return ""
+        return openSub?.let { "$c · ${it.name.lowercase()}" } ?: c
+    }
 
     /** While adjusting, scroll steps the live value (Size only STAGES — §4.2:
      *  it previews on settle, not per notch). Returns true when consumed. */
@@ -414,6 +457,10 @@ class SettingsWindow(
             revertTo = null
             return true
         }
+        if (openSub != null) {
+            openSub = null               // C3 AS: back to the page, its cursor
+            return true                  // still on the tier's row
+        }
         if (openCat >= 0) {
             openCat = -1                 // climb out of the directory; the
             return true                  // category cursor stays where it was
@@ -421,14 +468,14 @@ class SettingsWindow(
         return false
     }
 
-    override fun levelDepth(): Int = 1 + (if (openCat >= 0) 1 else 0) + (if (adjusting != null) 1 else 0)
+    override fun levelDepth(): Int = listLevel() + (if (adjusting != null) 1 else 0)
 
     val isAdjusting: Boolean get() = adjusting != null
 
     private fun paintCatRow(g: Gray8, i: Int, r: Rect) {
         val c = cats().getOrNull(i) ?: return
         text.draw(g, r.x + 40, (r.y + 5) / 2 * 2, c.name, fRow, Level.BODY)
-        drawRight(g, r.right - 24, (r.y + 8) / 2 * 2, "${c.entries.size}", fSmall, Level.DIM)
+        drawRight(g, r.right - 24, (r.y + 8) / 2 * 2, "${settingsIn(c.entries)}", fSmall, Level.DIM)
     }
 
     private fun paintCatLens(g: Gray8, r: Rect, i: Int) {
@@ -436,8 +483,12 @@ class SettingsWindow(
         IconPaint.drawKind(g, IconKind.SETTINGS, r.x + 12, r.y + 10, 24, Level.HEAD)
         text.draw(g, r.x + 44, (r.y + 8) / 2 * 2, c.name, fRowB, Level.HEAD)
         text.draw(g, r.x + 44, Draw.lineBelow(text, fRowB, r.y + 8, r.y + 34) / 2 * 2,
-            "${c.entries.size} settings · tap to open", FontSpec(Face.SYSTEM, 14), Level.DIM)
+            "${settingsIn(c.entries)} settings · tap to open", FontSpec(Face.SYSTEM, 14), Level.DIM)
     }
+
+    /** The settings a list holds, a tier's row counting the rows of its sub menu (C3 AS): `Animations` says 36 at stage 5
+     *  as it did when it was one list. */
+    private fun settingsIn(es: List<Entry>): Int = es.sumOf { it.sub?.size ?: 1 }
 
     private fun drawRight(g: Gray8, xRight: Int, y: Int, s: String, f: FontSpec, lv: Int) {
         text.draw(g, (xRight - text.measure(s, f)) / 4 * 4, y, s, f, lv)
@@ -480,6 +531,8 @@ class SettingsWindow(
         // which is the shell describing a program that is not running. The
         // value already carries "(tap applies)"; the hint now agrees with it.
         val hint = when {
+            // C3 AS: a tier's row opens a list, in a category's words
+            e.sub != null -> "${e.sub.size} settings · tap to open"
             // build C2 (decisions AF.9): `Local input` is not adjusted — a tap re-arms it only while it is held back
             e.tap != null -> if (localInput().startsWith("held back")) "tap re-arms" else "state only"
             adjusting == null -> "tap to adjust"
@@ -500,14 +553,20 @@ class SettingsWindow(
         put("catCursor", catModel.cursor)
         put("openCat", openCat)
         put("cursor", model.cursor)
+        // C3 AS: the open tier by name, "" = none (a record without it reads none); by name, not place, since the page's
+        // rows depend on the stage, which a restore at a start may not know yet
+        put("openSub", openSub?.name ?: "")
+        put("subCursor", subModel.cursor)
     }
 
     override fun restoreState(state: JsonObject) {
         val cs = cats()
         catModel.cursor = (state["catCursor"]?.jsonPrimitive?.int ?: 0).coerceIn(0, maxOf(0, cs.size - 1))
         openCat = (state["openCat"]?.jsonPrimitive?.int ?: -1).coerceIn(-1, cs.size - 1)
-        val n = entriesAt().size
-        model.cursor = (state["cursor"]?.jsonPrimitive?.int ?: 0).coerceIn(0, maxOf(0, n - 1))
+        val page = pageAt()
+        model.cursor = (state["cursor"]?.jsonPrimitive?.int ?: 0).coerceIn(0, maxOf(0, page.size - 1))
+        openSub = state["openSub"]?.jsonPrimitive?.contentOrNull?.let { n -> page.firstOrNull { it.name == n && it.sub != null } }
+        subModel.cursor = (state["subCursor"]?.jsonPrimitive?.int ?: 0).coerceIn(0, maxOf(0, (openSub?.sub?.size ?: 1) - 1))
     }
 }
 

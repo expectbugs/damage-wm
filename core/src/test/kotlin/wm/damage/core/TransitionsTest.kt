@@ -277,14 +277,17 @@ class TransitionsTest {
             motionHint = { "10 frames × 45 ms" }, effectsInForce = { effects })
         // K1-1's Scroll tier rows (`private/build083/K1-1-built.md`: `Scroll effect`, `Scroll length`, `Scroll frames`) and
         // K1-4a's notice box rows (the Popups tier) on a bit-10 build; at stage 5 the transition tiers go between them —
-        // `MOTION.md` §7's order: Scroll, Select, Close / Back, Lock Screen, Popups (decisions BW (3))
+        // `MOTION.md` §7's order: Scroll, Select, Close / Back, Lock Screen, Popups (decisions BW (3)). C3 AS: the page is
+        // one row per tier and each tier's rows are its sub menu
         val scrollRows = listOf("Scroll effect", "Scroll length", "Scroll frames")
         val popupRows = listOf("Popup length", "Popup frames", "Popup · Unfurl", "Popup · Fade", "Popup · Slide")
-        assertEquals(scrollRows + popupRows, w(false).rowsForTest("Animations").map { it.first }, "no stage 5: the scroll and notice rows only")
-        val rows = w(true).rowsForTest("Animations")
-        assertEquals(scrollRows, rows.take(scrollRows.size).map { it.first }, "the scroll rows first")
-        assertEquals(popupRows, rows.takeLast(popupRows.size).map { it.first }, "the notice rows last")
-        val names = rows.drop(scrollRows.size).dropLast(popupRows.size).map { it.first }
+        assertEquals(listOf("Scroll", "Popups"), w(false).rowsForTest("Animations").map { it.first }, "no stage 5: the scroll and notice tiers only")
+        assertEquals(listOf("Scroll", "Select", "Close / Back", "Lock Screen", "Popups"), w(true).rowsForTest("Animations").map { it.first })
+        assertEquals(scrollRows, w(true).rowsForTest("Animations", "Scroll").map { it.first }, "the Scroll tier's rows")
+        assertEquals(popupRows, w(true).rowsForTest("Animations", "Popups").map { it.first }, "the Popups tier's rows")
+        fun tiers() = listOf("Select", "Close / Back", "Lock Screen").flatMap { w(true).rowsForTest("Animations", it) }
+        val rows = w(true).rowsForTest("Animations", "Scroll") + tiers()
+        val names = tiers().map { it.first }
         // C3 DM-T: Encode and Matrix in `MOTION.md` §7's order (Select: … Glitch, Encode, Matrix, Explode; Lock: Fade,
         // Build, Matrix, Encode, Glitch, Explode)
         // C3 X2T item 7: the tiers as his plan names them — "Close / Back", "Lock Screen"
@@ -299,16 +302,16 @@ class TransitionsTest {
         assertEquals("on (default)", v["Close / Back · Depth"]); assertEquals("on (default)", v["Lock Screen · Fade"]); assertEquals("off (default)", v["Lock Screen · Encode"])
         st = st.withTier(Transitions.Tier.SELECT, effects = wm.damage.core.shell.ShellSettings.tierEffects(Transitions.Tier.SELECT, st.selectEffects + "warp"))
         assertEquals(listOf("depth", "warp"), st.selectEffects)
-        assertEquals("on", w(true).rowsForTest("Animations").toMap()["Select · Warp"], "a checkbox off its default says no default")
-        assertEquals("on (default)", w(true).rowsForTest("Animations").toMap()["Select · Depth"])
+        assertEquals("on", tiers().toMap()["Select · Warp"], "a checkbox off its default says no default")
+        assertEquals("on (default)", tiers().toMap()["Select · Depth"])
         st = st.withTier(Transitions.Tier.SELECT, effects = listOf("warp"))
-        assertEquals("off", w(true).rowsForTest("Animations").toMap()["Select · Depth"])
+        assertEquals("off", tiers().toMap()["Select · Depth"])
         // the Length row says what really plays when the period's clamp changes it (decisions AG (4); C3-X2P2-built.md item 7's
         // table): 600 ms at 4 frames plays 500, 800 at 6 plays 750, 225 at 16 plays 250; 450 at 10 is only rounded (448)
         for ((lf, want) in listOf((600 to 4) to "600 ms (plays 500 ms)", (800 to 6) to "800 ms (plays 750 ms)", (225 to 16) to "225 ms (plays 250 ms)",
                 (450 to 10) to "450 ms (default)", (600 to 10) to "600 ms", (800 to 0) to "800 ms")) {
             st = st.withTier(Transitions.Tier.BACK, length = lf.first, frames = lf.second)
-            assertEquals(want, w(true).rowsForTest("Animations").toMap()["Close / Back length"], "length ${lf.first} at ${lf.second} frames")
+            assertEquals(want, tiers().toMap()["Close / Back length"], "length ${lf.first} at ${lf.second} frames")
         }
         assertEquals(500L, Transitions.clampedPlayMs(600, 4)); assertEquals(null, Transitions.clampedPlayMs(450, 10)); assertEquals(250L, Transitions.clampedPlayMs(225, 16))
         st = st.withTier(Transitions.Tier.BACK, length = 450, frames = 10)

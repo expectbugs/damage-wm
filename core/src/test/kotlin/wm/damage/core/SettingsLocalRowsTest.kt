@@ -24,17 +24,60 @@ class SettingsLocalRowsTest {
         fun w(bit10: Boolean) = SettingsWindow(FakeText(), { st }, { st = it }, bindBuild = { bit10 }, motionHint = { "10 frames × 45 ms" })
         assertTrue("Animations" !in w(false).categoryNamesForTest(), "no bit 10: ${w(false).categoryNamesForTest()}")
         assertTrue("Animations" in w(true).categoryNamesForTest(), "bit 10: ${w(true).categoryNamesForTest()}")
+        // C3 AS: below stage 5 the page is the Scroll tier's row and the Popups tier's (`MOTION.md` §7's order), each
+        // saying what is set inside
+        assertEquals(listOf("Scroll" to "Depth", "Popups" to "Unfurl"), w(true).rowsForTest("Animations"))
         // the Scroll tier's rows (K1-1; C3 X2T: "(default)" on `Scroll frames` too), then the notice box's (K1-4a: the
-        // Popups tier, last on the page as `MOTION.md` §7 orders it); every row says "(default)" at its default
-        // (decisions AM (3), BW (3))
-        assertEquals(listOf("Scroll effect" to "Depth (default)", "Scroll length" to "300 ms (default)", "Scroll frames" to "auto (10 frames × 45 ms) (default)",
-                "Popup length" to "300 ms (default)", "Popup frames" to "auto (default)", "Popup · Unfurl" to "on (default)",
+        // Popups tier); every row says "(default)" at its default (decisions AM (3), BW (3))
+        assertEquals(listOf("Scroll effect" to "Depth (default)", "Scroll length" to "300 ms (default)", "Scroll frames" to "auto (10 frames × 45 ms) (default)"),
+            w(true).rowsForTest("Animations", "Scroll"))
+        assertEquals(listOf("Popup length" to "300 ms (default)", "Popup frames" to "auto (default)", "Popup · Unfurl" to "on (default)",
                 "Popup · Fade" to "off (default)", "Popup · Slide" to "off (default)"),
-            w(true).rowsForTest("Animations"))
+            w(true).rowsForTest("Animations", "Popups"))
         // off its default a Popup row says no default
         st = st.copy(popupFrames = 6, popupUnfurl = false, popupFade = true)
         assertEquals(listOf("Popup frames" to "6", "Popup · Unfurl" to "off", "Popup · Fade" to "on", "Popup · Slide" to "off (default)"),
-            w(true).rowsForTest("Animations").filter { it.first in setOf("Popup frames", "Popup · Unfurl", "Popup · Fade", "Popup · Slide") })
+            w(true).rowsForTest("Animations", "Popups").filter { it.first in setOf("Popup frames", "Popup · Unfurl", "Popup · Fade", "Popup · Slide") })
+    }
+
+    /** C3 AS (his word, 2026-11-21: "a sub menu for each tier, rather than dozens of options in one enormous list"): at
+     *  stage 5 the `Animations` page is one row per tier, saying what is set inside (the Scroll effect; for a checkbox
+     *  tier the one effect checked, how many are, or None); a tap opens the tier's rows as one more list level, the
+     *  cursor on its first row and the title naming the tier; Back leaves the adjust level, then the sub menu with the
+     *  cursor on the tier's row, then the category; a saved state comes back in the sub menu, and a tier no longer on the
+     *  page (stage 5 no longer in force) drops back to the page. */
+    @Test
+    fun theAnimationsPageOpensOneSubMenuPerTier_AS() {
+        var st = ShellSettings()
+        var stage5 = true
+        fun w() = SettingsWindow(FakeText(), { st }, { st = it }, bindBuild = { true }, effectsInForce = { stage5 })
+        assertEquals(listOf("Scroll" to "Depth", "Select" to "Depth", "Close / Back" to "Depth", "Lock Screen" to "Fade", "Popups" to "Unfurl"),
+            w().rowsForTest("Animations"))
+        st = st.copy(scrollEffect = "none", popupUnfurl = false, popupFade = true, popupSlide = true)
+            .withTier(wm.damage.core.motion.Transitions.Tier.SELECT, effects = listOf("depth", "warp", "fall"))
+            .withTier(wm.damage.core.motion.Transitions.Tier.LOCK, effects = emptyList())
+        assertEquals(listOf("Scroll" to "None", "Select" to "3 on", "Close / Back" to "Depth", "Lock Screen" to "None", "Popups" to "2 on"),
+            w().rowsForTest("Animations"))
+        st = ShellSettings()
+        val win = w()
+        fun list() = win.view() as wm.damage.core.shell.WindowView.ListView
+        assertTrue(win.open("cat:Animations"))
+        assertEquals(Triple("animations", 2, 5), Triple(win.title(), win.levelDepth(), list().rowCount()))
+        list().model.cursor = 2; list().onCommit(2)                                   // Close / Back
+        assertEquals(Triple("animations · close / back", 3, 3), Triple(win.title(), win.levelDepth(), win.listLevel()))
+        assertEquals(0 to 10, list().model.cursor to list().rowCount(), "the cursor at rest on the sub menu's first of ten rows")
+        list().onCommit(0)                                                            // Close / Back length: adjust
+        assertEquals(Triple(true, 4, 3), Triple(win.isAdjusting, win.levelDepth(), win.listLevel()))
+        assertTrue(win.onScrollAdjust(1)); assertEquals(600, st.backLength, "the row steps its ladder as before")
+        assertTrue(win.back()); assertEquals(450, st.backLength, "double tap reverts"); assertEquals("animations · close / back", win.title())
+        val saved = win.saveState()
+        assertTrue(win.back())
+        assertEquals(Triple("animations", 2, 2), Triple(win.title(), win.levelDepth(), list().model.cursor), "back on the page, the cursor on the tier's row")
+        val back = w(); back.restoreState(saved); back.view()
+        assertEquals("animations · close / back", back.title(), "a saved state comes back in the sub menu")
+        stage5 = false; back.view()
+        assertEquals("animations" to 2, back.title() to back.levelDepth(), "the tier gone from the page takes its sub menu with it")
+        assertTrue(win.back()); assertEquals("" to 1, win.title() to win.levelDepth())
     }
 
     /** K1-1: `Scroll effect` cycles None · Depth · Slide · Fall (Depth the default); an older record reads Depth, a value
@@ -51,7 +94,7 @@ class SettingsLocalRowsTest {
         var st = ShellSettings()
         val w = SettingsWindow(FakeText(), { st }, { st = it }, bindBuild = { true })
         val seen = ArrayList<String>()
-        repeat(6) { seen += w.rowsForTest("Animations").first().second; st = st.copy(scrollEffect = ShellSettings.SCROLL_EFFECTS[(ShellSettings.SCROLL_EFFECTS.indexOf(st.scrollEffect) + 1) % 6]) }
+        repeat(6) { seen += w.rowsForTest("Animations", "Scroll").first().second; st = st.copy(scrollEffect = ShellSettings.SCROLL_EFFECTS[(ShellSettings.SCROLL_EFFECTS.indexOf(st.scrollEffect) + 1) % 6]) }
         assertEquals(listOf("Depth (default)", "Slide", "Flip", "Fall", "Crush", "None"), seen)
         assertEquals("crush", ShellSettings.fromJson(ShellSettings().copy(scrollEffect = "crush").toJson()).scrollEffect, "Crush round-trips")
     }
@@ -64,13 +107,13 @@ class SettingsLocalRowsTest {
         var st = ShellSettings().copy(scrollEffect = "crush")
         var plays = "plays Slide"
         val w = SettingsWindow(FakeText(), { st }, { st = it }, bindBuild = { true }, scrollPlays = { plays })
-        assertEquals("Scroll effect" to "Crush (plays Slide)", w.rowsForTest("Animations").first())
+        assertEquals("Scroll effect" to "Crush (plays Slide)", w.rowsForTest("Animations", "Scroll").first())
         st = st.copy(scrollEffect = "flip"); plays = wm.damage.core.motion.ScrollEffects.playsAt(wm.damage.core.motion.ScrollEffect.FLIP, false).words(wm.damage.core.motion.ScrollEffect.FLIP)
-        assertEquals("Scroll effect" to "Flip (plays its height turn)", w.rowsForTest("Animations").first())
+        assertEquals("Scroll effect" to "Flip (plays its height turn)", w.rowsForTest("Animations", "Scroll").first())
         plays = wm.damage.core.motion.ScrollEffects.playsAt(wm.damage.core.motion.ScrollEffect.FLIP, true).words(wm.damage.core.motion.ScrollEffect.FLIP)
-        assertEquals("Scroll effect" to "Flip", w.rowsForTest("Animations").first(), "at stage 5 Flip plays itself")
+        assertEquals("Scroll effect" to "Flip", w.rowsForTest("Animations", "Scroll").first(), "at stage 5 Flip plays itself")
         st = st.copy(scrollEffect = "crush"); plays = wm.damage.core.motion.ScrollEffects.playsAt(wm.damage.core.motion.ScrollEffect.CRUSH, false).words(wm.damage.core.motion.ScrollEffect.CRUSH)
-        assertEquals("Scroll effect" to "Crush (plays Slide)", w.rowsForTest("Animations").first(), "the words from what plays below stage 5")
+        assertEquals("Scroll effect" to "Crush (plays Slide)", w.rowsForTest("Animations", "Scroll").first(), "the words from what plays below stage 5")
     }
 
     /** An older record without the keys reads the defaults (300 ms since decisions AZ.7, Auto); a value off the ladder clamps
