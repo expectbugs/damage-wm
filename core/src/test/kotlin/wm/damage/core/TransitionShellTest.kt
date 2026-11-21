@@ -1200,6 +1200,8 @@ class TransitionShellTest {
             val reserve = (st.cacheSize - CfwModes.stageReserve(st.cacheSize, st.bind)) until st.cacheSize
             val lines0 = Files.readAllLines(r.journal).size
             val runs0 = r.onLoop { r.shell.screenRunsForTest() }
+            // FX-083 T1: what the idle lanes held when the recording began (read on the loop, one evaluation)
+            val lanes0 = r.onLoop { "notice lane done ${r.shell.noticeLaneDoneForTest()}, programs ${r.shell.noticeProgramsForTest()}, cache work in flight ${r.shell.cacheWorkInFlight}" }
             r.shell.transitionHoldInHalfForTest = true
             r.recording = true
             r.tap()
@@ -1218,7 +1220,20 @@ class TransitionShellTest {
             val out = imgs.indexOfFirst { img -> subs(img).any { playIn(it, 2) } }
             val lists = imgs.indexOfFirst { img -> cacheWrites(img).let { w -> w.isNotEmpty() && w.all { it.first in reserve } } }
             val pa = imgs.indexOfFirst { img -> subs(img).any { playAfter(it) } }
-            assertTrue(write in 0 until out && out < pa && lists == -1, "records $write, out PLAY $out, PLAY-AFTER $pa, no list write of its own ($lists)")
+            // FX-083 T1: when it fails, say what the image ahead held — its writes, the slice each lies in — and the journal since
+            val notice = CfwModes.noticeRegion(st.cacheSize, st.bind)
+            fun slice(off: Int) = when {
+                notice != null && off in notice.first until notice.first + CfwModes.NOTICE_PROGRAMS -> "the notice's programs (slot ${(off - notice.first) / wm.damage.core.motion.PopupPrograms.SLOT_BYTES})"
+                notice != null && off in notice -> "the notice's capture"
+                off in reserve -> "the stage reserve below the notice slice"
+                off in region -> "the transitions' region"
+                else -> "elsewhere"
+            }
+            fun said(i: Int) = if (i < 0) "" else " — image $i: " + cacheWrites(imgs[i]).joinToString { (o, n) -> "$o+$n (${slice(o)})" } +
+                "; at the recording's start: $lanes0; the journal since: " + Files.readAllLines(r.journal).drop(lines0)
+                    .filter { "\"ev\":\"note\"" in it && Regex("\"kind\":\"(notice|stage|atlas|mainstage)\"").containsMatchIn(it) }.take(14)
+                    .joinToString(" | ") { it.substringAfter("\"kind\":\"").substringBefore("\"") + ": " + it.substringAfter("\"detail\":\"").substringBefore("\"").take(150) }
+            assertTrue(write in 0 until out && out < pa && lists == -1, "records $write, out PLAY $out, PLAY-AFTER $pa, no list write of its own ($lists)${said(lists)}")
             val w = cacheWrites(imgs[write])
             assertTrue(w.size == 3 && w[0].first in region && w[1].first in reserve && w[2].first == w[1].first + w[1].second,
                 "the records' write: the slot, the out lists and the in lists right above them, one message: $w")
