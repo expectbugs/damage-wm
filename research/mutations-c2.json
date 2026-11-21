@@ -8752,7 +8752,7 @@
    "*MainLocalShellTest.aPitchSwitch*"
   ],
   "expect": [
-   "aPitchSwitchGoesAsOneBatchOnTheShellPath_DM1"
+   "(no pin, declared: with the mark kept, BoundList.names still refuses the old pitch's report once the previous list is released, and before that judges it against the previous list with its own program and P - never against the new form; the fresh mark refuses it earlier and closes names()'s split test (program and P judged against either list); a pin needs the report to land between the switch's batch and the release, a window the instant rig closes at once)"
   ],
   "note": "C3 DM-1 (S6): the switch's LIST keeps the wire mark - a report from a fire before the switch is no longer refused by P3's mark test (restaged) but judged against the stagings",
   "from": "C3-DM1"
