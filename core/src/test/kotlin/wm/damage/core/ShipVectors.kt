@@ -294,9 +294,9 @@ internal object ShipVectors {
     /** SV-083 item 1: how a scroll act moves Main's list. NOTCHES: a notch down and then a notch up from row 0, each fired on
      *  the hook (the input op) with its stock echo — the local pan in slot 0, the phone's COMMIT, the burst's SETTLE. WRAP:
      *  the list's two ends — from row 0 a notch up (to the last row), then from there a notch down (to row 0), each played
-     *  by the phone from the wrap's record (a PLAY in slot 1 ahead of the DISCARD); the region holds that record at 288 and
-     *  352 only (K1-1 §3: at 416 and 480 on 256 KiB the pan slots hold the two strips, and the phone's slide frames draw a
-     *  wrap there). BURST: three notches down from row 0, the second and the third fired while the pan before them is
+     *  by the phone from the wrap's record (a PLAY in slot 1 ahead of the DISCARD) — at 352 with his eight rows; at 480 they
+     *  all fit (the staging's `wraps` is false, no wrap record: decisions AZ.4) and the end keeps today's edge, the phone's
+     *  slide frames, no program (measured on this rig at SV's comparison). BURST: three notches down from row 0, the second and the third fired while the pan before them is
      *  drawing on RIGHT (its close set ends that pan, `FIRMWARE.md` §6.2 step 11). */
     enum class ScrollForm { NOTCHES, WRAP, BURST }
 
@@ -324,7 +324,7 @@ internal object ShipVectors {
 
     /**
      * SV-083 item 1: every effect at 352 and 480 (a notch down, a notch up); the wrap's record both ways for Depth and Fall
-     * (at 352: where the record is, [ScrollForm]); a burst of three for Depth and Fall at 480; every `Scroll length` and
+     * (at 352: at 480 his eight rows fit and do not wrap, [ScrollForm]); a burst of three for Depth and Fall at 480; every `Scroll length` and
      * `Scroll frames` value that changes a program's shape beyond its period, for Depth and Fall at 480; Depth at 480 at
      * stage 5. A program's shape is its steps T (Depth's swap, Fall's table and every segment's steps follow T); the
      * period alone changes no record. At 480 (Depth P 59, Slide and Fall P 65 at Global Depth 8): under Auto the length
