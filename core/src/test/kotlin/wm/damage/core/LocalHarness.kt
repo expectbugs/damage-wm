@@ -39,7 +39,10 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
                    val tScroll: Int = T_SCROLL, val period: Int = PERIOD,
                    /** C3 DM-0: a bit-11 build (0xdff) at stage 5 with the list bound as a ring list (LIST-RING): a wrap notch
                     *  fires on the lens like any other — the simulator's own model of a ring fire (`BindSim`), no copy here. */
-                   val ring: Boolean = false) {
+                   val ring: Boolean = false,
+                   /** C3 FZ5: the press's steps — the fuzz's short press by default; the shell's `MainStaging.PRESS_T` (3, at
+                    *  the entries' period) in the fuzz's real timings. */
+                   val tPress: Int = T_PRESS) {
     val rnd = java.util.Random(seed)
     val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = if (ring) 0xDFF else 0x5FF; it.clockIsOsTick = true }
     /** The flags each start arms: stage 4's, and EFFECTS at stage 5 (a ring list needs it, `FIRMWARE.md` §7.8). */
@@ -109,7 +112,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         val pAt = at4
         press = Motion.program(pAt, recSources, bit10 = true) {
             track(BAND, Motion.Backdrop.Level(15)) {
-                draw(recSources[0], BAND.x, BAND.y, n = T_PRESS, opt = 0x20, prefs = listOf(Motion.Pref(0, Motion.Field.SRC)))
+                draw(recSources[0], BAND.x, BAND.y, n = tPress, opt = 0x20, prefs = listOf(Motion.Pref(0, Motion.Field.SRC)))
             }
         }
         put(press.bytes)
@@ -144,6 +147,9 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     private var noticeTagNow = -1
     var noticePlays = 0
     var noticeCuts = 0
+    /** C3 FZ5: the notice timer's period — [PERIOD] by default (the fuzz's short motion); the shell's
+     *  (`PopupPrograms.TIMER_PERIOD`, 128 at every stage) in the fuzz's real timings. */
+    var noticePeriod = PERIOD
 
     private fun write19(off4: Int, b: ByteArray) = byteArrayOf(19) + u16(off4) + u16(b.size) + b
     private fun u16(v: Int) = byteArrayOf((v and 0xFF).toByte(), ((v shr 8) and 0xFF).toByte())
@@ -493,6 +499,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
             if (holdWordOn == arm) sim.motionForTest(arm).holdWordForTest(true)
             if (arm == Arm.RIGHT) { f.shownR = shownOnRight(); f.resetsAtFireR = rightResets; f.fireTimeR = now }
             if (arm == Arm.RIGHT) { f.awaitsPresentR = listRefusedPresentR == sim.right.presentSeq; f.shadowR = bandIdIn(sim.right.shadow) }
+            if (arm == Arm.RIGHT && !tap) { scrollFiresR++; if (sim.motionForTest(arm).slots.any { it != null && it.slot <= WRAP_SLOT && it.drawing && it.d < it.T }) scrollFiresInMotionR++ }
             sim.conformanceInput(arm, dev, id.toLong(), 0, now)
             if (holdWordOn == arm) sim.motionForTest(arm).holdWordForTest(false)
             sim.conformanceStockCalls(arm)
@@ -688,6 +695,14 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     val reportHeardAt = HashMap<Int, Long>()
     /** C3 DM-0: the gestures whose ring fire wrapped (field 18) and whose report the phone adopted. */
     val wrapAdopted = ArrayList<Int>()
+    /** C3 FZ5: the staging holds a wrap record (true: stage 4's plain list, the default). False: a plain list at stage 5,
+     *  where no staging holds one (`MainStaging`: `noWrapRecord` when `ring`, and a list whose paint does not wrap has
+     *  none) — an edge goes as the phone's frames, as on a ring list here. */
+    var wrapRecord = true
+    /** C3 FZ5: scroll notches RIGHT fired, and those fired while a motion of the list (slot 0 or the wrap's) was still
+     *  drawing on RIGHT (a step still to come) — the reach of the motion's length; read only, no draw. */
+    var scrollFiresR = 0
+    var scrollFiresInMotionR = 0
     fun back() { if (!window) return; window = false; frontGen++; if (!covered) rules.front(bound, row); pumpSoon() }
     fun toggleBadge() { badge = !badge; pumpSoon() }
     fun tick() { clock++; pumpSoon() }
@@ -1005,7 +1020,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         // decisions AZ.4 (the shell's `mainWrapPlan`): an edge at an end with the row now the other end — the scroll's PLAY
         // in slot 1 from the end to the row past it, END (the wrapped row's record) into the model, its areas held. None on
         // a ring list (C3 X2M0: a ring staging has no wrap pan; an edge there goes as the phone's frames)
-        val wrap = rules.wrapPlan(row)?.takeIf { !ring }
+        val wrap = rules.wrapPlan(row)?.takeIf { !ring && wrapRecord }
         val wrapPlay = wrap?.let { w ->
             val prog = w.list.entries.first { it.step == w.step }.program!!
             val p = intArrayOf(recs[ids[w.cPrime.mod(ids.size)]], 0, 0, 0)
@@ -1035,7 +1050,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         // batch that holds the band back
         val noticePlay = if (noticeOwed && BAND !in (dirty intersect hold)) {
             noticeOwed = false
-            Motion.play(notice, wm.damage.core.motion.PopupPrograms.SLOT, PERIOD, 0xC000 + (noticePlays and 0xFFF), noticeCap4, IntArray(4))
+            Motion.play(notice, wm.damage.core.motion.PopupPrograms.SLOT, noticePeriod, 0xC000 + (noticePlays and 0xFFF), noticeCap4, IntArray(4))
         } else null
         held = (dirty intersect hold).filter { differs(m2, t, it) }.toSet()
         if (held.isNotEmpty()) heldBatches++
@@ -1216,7 +1231,9 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     /** Lets everything outstanding land: the uplink and downlink drain, the lone SETTLE goes, the engine runs out, an idle
      *  frame (the clock) carries a SETTLE past `age`. */
     fun rest() {
-        runUntil(now + 600)
+        // C3 FZ5: the lone SETTLE goes in this first span — Q after the last report; Q is the floor at the short motion and
+        // follows the motion in force otherwise ([LocalRules.qFor]), so the span keeps its slack past Q (the same 600 at Q's floor)
+        runUntil(now + 600 + maxOf(0L, rules.q - LocalRules.Q_MS))
         readTelemetry()                                 // the poll reads RIGHT's telemetry (once a minute on the phone)
         runUntil(now + 600)
         tick()
