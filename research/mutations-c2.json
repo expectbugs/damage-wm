@@ -3190,8 +3190,8 @@
   "file": "shell/SettingsWindow.kt",
   "edits": [
    [
-    "        if (bindBuild()) out.add(Cat(\"Animations\", scrollEntries + (if (effectsInForce()) transitionEntries else emptyList()) + popupEntries))",
-    "        out.add(Cat(\"Animations\", scrollEntries + (if (effectsInForce()) transitionEntries else emptyList()) + popupEntries))"
+    "        if (bindBuild()) out.add(Cat(\"Animations\", listOf(scrollTier) + (if (effectsInForce()) transitionTiers else emptyList()) + popupTier))",
+    "        out.add(Cat(\"Animations\", listOf(scrollTier) + (if (effectsInForce()) transitionTiers else emptyList()) + popupTier))"
    ]
   ],
   "tests": [
@@ -3200,7 +3200,7 @@
   "expect": [
    "theAnimationsCategoryShowsOnlyOnABit10Build_ANIM"
   ],
-  "note": "ANIM: the category shown without bit 10 [re-pointed at the 0.83 integration, part 2: C3's tier rows join the category at stage 5] [re-pointed at MR-083: C1 (decisions BW (3)) splits the rows into Scroll, the tiers at stage 5, Popups]",
+  "note": "ANIM: the category shown without bit 10 [re-pointed at the 0.83 integration, part 2: C3's tier rows join the category at stage 5] [re-pointed at MR-083: C1 (decisions BW (3)) splits the rows into Scroll, the tiers at stage 5, Popups] [re-pointed at C3 AS: the page is one row per tier, each opening the tier's rows as a sub menu]",
   "from": "ANIM"
  },
  {
