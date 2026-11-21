@@ -325,7 +325,7 @@ class LocalSequenceFuzzTest {
      *  chosen by the seed with no draw from the sequence's stream; the other half are stage 4's plain list, as before. The
      *  named seeds of the plain classes stay plain ([GATE_SEEDS], [HIS_GATE_SEEDS], [BS3_SEEDS]: decisions AZ (4)); the
      *  ring half's own classes have [RING_GATE_SEEDS]. */
-    private fun ringOf(seed: Long) = seed !in GATE_SEEDS && seed !in HIS_GATE_SEEDS && seed !in BS3_SEEDS && (seed / 2) % 2 == 0L
+    private fun ringOf(seed: Long) = seed !in GATE_SEEDS.keys && seed !in HIS_GATE_SEEDS.keys && seed !in BS3_SEEDS.keys && (seed / 2) % 2 == 0L
 
     /** The counted key of a declared class, split by the list's form (C3 DM-0: J3 needs an edge on RIGHT, which a ring list
      *  gives only after a LIST-RING lost or refused there). */
@@ -540,13 +540,16 @@ class LocalSequenceFuzzTest {
         val counted = java.util.TreeMap<String, Int>()
         val declaredSeeds = java.util.TreeMap<String, MutableList<Long>>()
         // decisions BQ: the gate-sized run also runs the profile's declared classes
-        val seeds = (0 until n).map { 5L * 100_000 + it } + if (System.getenv("LOCAL_FUZZ_HIS_N") == null) HIS_GATE_SEEDS else emptyList()
+        val gate = System.getenv("LOCAL_FUZZ_HIS_N") == null
+        val seeds = (0 until n).map { 5L * 100_000 + it } + if (gate) HIS_GATE_SEEDS.keys else emptyList()
         for (seed in seeds) {
             val v = try { hisSessionSequence(seed) } catch (e: Throwable) { Verdict(listOf("threw: $e"), emptyMap()) }
             for (f in v.failed) fails += "seed $seed: $f"
             for ((k, c) in v.counted) counted[k] = if (k == CARRY_MAX) maxOf(counted[k] ?: 0, c) else (counted[k] ?: 0) + c
             for (k in v.counted.keys) if (k.startsWith("(9)") || k.startsWith("(10)") || k.startsWith("(1) S33") || k.startsWith("row A")) declaredSeeds.getOrPut(k) { ArrayList() } += seed
         }
+        // decisions BB (3): the gate-sized run fails when a named seed no longer declares a class it is named for
+        if (gate) fails += namedSeedsHoldTheirClasses(HIS_GATE_SEEDS, declaredSeeds) { "his profile" }
         for (f in fails) println("HISFAIL $f")
         val notches = (counted["profile: notches"] ?: 0).coerceAtLeast(1)
         fun per100(k: String) = "%.1f".format(100.0 * (counted[k] ?: 0) / notches)
@@ -1262,55 +1265,66 @@ class LocalSequenceFuzzTest {
         }
     }
 
+    /** (10)'s four classes as [LocalHarness] names them (`frontDeclared`). */
+    private val FRONT_ECHO = "(10) a front's notch paid by its burst's own owe: a notch's echo the band dropped"
+    private val FRONT_GAP = "(10) a front's notch paid by its burst's own owe: a lost report's gap owe"
+    private val FRONT_ECHO_UNDER = "(10) a front's notch paid by its burst's own owe (the burst opened under the front): a notch's echo the band dropped"
+    private val FRONT_GAP_UNDER = "(10) a front's notch paid by its burst's own owe (the burst opened under the front): a lost report's gap owe"
+
     /** Decisions BQ: the smallest set of the four bases' seeds (at 2,000 a base) holding one sequence of each declared class
      *  of (9) and (10), run beside the gate's 60 + 60 so that a change turning a declared shape into an undeclared failure
      *  shows in the gate, not only at 8,000 (an exact search over the 12 classes of BQ: 8 seeds, one of them — 100100059, a
      *  stale-cursor adoption after an unreported stock message through a later reset — already the gate's own, index 59
-     *  of base 1001; BR's two classes add two). */
-    private val GATE_SEEDS = listOf(
-        100101194L,   // (9) a stale-cursor adoption after a tap's DISCARD that set RIGHT back
-        424201353L,   // (9) J3
-        101265L,      // (9) an untaken notch's message paid by an owe; a lost report of a fire that drew, its message dropped
-        100100313L,   // (9) a stale-cursor adoption after a refused fire applied as today
-        100100382L,   // (9) a lost report of a fire that drew, its message paid by a carried owe
-        100100778L,   // (9) a stale-cursor adoption after an unreported message; a lost report of a fire that did not draw;
-                      //     one that drew, its message paid by an owe
-        100101280L,   // (10) both classes: a front's notch paid by its burst's own owe — a dropped echo, a lost report's gap owe
-        100100195L,   // (10) the same with the burst opened under the front (decisions BR): a dropped echo — in place of
-                      //     100216, which declares no class on 0.83's tree (C3 X2M0: f81afd38, the gate-sized run's pin)
-        101573L)      // (10) the same with the burst opened under the front: a lost report's gap owe
+     *  of base 1001; BR's two classes add two). C3 X3M0 (decisions BB (3)): each seed maps to the class keys it is named
+     *  for, exactly as the run counts them, and the gate-sized run fails when a named seed does not declare one of them
+     *  ([namedSeedsHoldTheirClasses]) — a seed that keeps another class no longer hides the one it was named for. */
+    private val GATE_SEEDS: Map<Long, List<String>> = mapOf(
+        100101194L to listOf("$staleKey a tap's DISCARD that set RIGHT back"),
+        424201353L to listOf("$j3Key [plain]"),
+        101265L to listOf(swallowedKey, "$lostDrewKey dropped"),
+        100100313L to listOf("$staleKey a refused fire applied as today"),
+        100100382L to listOf("$lostDrewKey paid by a carried owe"),
+        100100778L to listOf("$staleKey an unreported stock message", lostEdgeKey, "$lostDrewKey paid by an owe"),
+        100101280L to listOf(FRONT_ECHO, FRONT_GAP),
+        // in place of 100216, which declares no class on 0.83's tree (C3 X2M0: f81afd38, the gate-sized run's pin)
+        100100195L to listOf(FRONT_ECHO_UNDER),
+        101573L to listOf(FRONT_GAP_UNDER))
     /** The fifth base's declared classes, which its first 60 sequences do not hold: J3 and J3 through a later reset, both
-     *  in 500854. */
-    private val HIS_GATE_SEEDS = listOf(500854L)
+     *  in 500854 (as [GATE_SEEDS], decisions BB (3)). */
+    private val HIS_GATE_SEEDS: Map<Long, List<String>> = mapOf(500854L to listOf("$j3Key [plain]", "$j3Key$VIA [plain]"))
     /** C3 X2M0 (decisions AZ (4)): the ring half's own declared classes, which the gate's 60 + 60 do not hold, as BQ chose
      *  [GATE_SEEDS] — the smallest set of ring sequences of the four bases at 2,000 a base on the merged tree (`wip/084-dm0x`
      *  `2158f32e`) holding one sequence of each — and the review's stale-cursor adoption across the wrap. The profile's ring
-     *  half declares no class. */
-    private val RING_GATE_SEEDS = listOf(
-        101325L,      // (10) a front's notch paid by its burst's own owe: a dropped echo
-        700632L,      // (9) a stale-cursor adoption after a refused fire applied as today
-        701861L,      // (10) the same: a lost report's gap owe; (9) a lost report of a fire that drew, its message dropped
-        100101081L,   // (10) the same with the burst opened under the front: a lost report's gap owe; (9) a lost report of a
-                      //     fire that drew, its message paid by an owe
-        424201001L,   // (9) an untaken notch's message paid by an owe
-        424201644L,   // (9) the same, a carried owe; a lost report of a fire that drew, its message paid by a carried owe
-        101792L)      // (9) a stale-cursor adoption after an unreported stock message, across the wrap (the review's)
+     *  half declares no class. Keyed as [GATE_SEEDS] (decisions BB (3)). */
+    private val RING_GATE_SEEDS: Map<Long, List<String>> = mapOf(
+        101325L to listOf(FRONT_ECHO),
+        700632L to listOf("$staleKey a refused fire applied as today"),
+        701861L to listOf(FRONT_GAP, "$lostDrewKey dropped"),
+        100101081L to listOf(FRONT_GAP_UNDER, "$lostDrewKey paid by an owe"),
+        424201001L to listOf(swallowedKey),
+        424201644L to listOf("$swallowedKey (a carried one)", "$lostDrewKey paid by a carried owe"),
+        101792L to listOf("$staleKey an unreported stock message"))   // across the wrap (the review's)
+
+    /** Decisions BB (3): every named seed of [named] declared every class key it is named for in [declaredSeeds] (class
+     *  key → the seeds that declared it). */
+    private fun namedSeedsHoldTheirClasses(named: Map<Long, List<String>>, declaredSeeds: Map<String, List<Long>>, form: (Long) -> String): List<String> =
+        named.flatMap { (seed, keys) -> keys.filter { seed !in declaredSeeds[it].orEmpty() }.map { "seed $seed: a named gate seed does not declare the class it is named for ($it; ${form(seed)})" } }
 
     /** Decisions BS.3 (the 0.83 integration; cured by B083-rr): a refused engine message at the head of a batch on RIGHT.
      *  The notice's CLOSE leads an uncover's batch (the transport's close-first rule) and the harness's induced reason-14
      *  refusal meets it there (the sim refuses any mode 26 while the engine word is held, §5.5, R1.15), so the band's
      *  repaint and the table behind it do not run on RIGHT. Before the cure the phone repaired a refusal record only when
      *  it named mode 27 or a mode-8/14 drop, and RIGHT kept the timer's END over the band at rest in these two seeds. */
-    private val BS3_SEEDS = listOf(101440L, 424201458L)
     private val BS3_REPAIRED = "BS.3: mode-26 refusal records repaired"
+    private val BS3_SEEDS: Map<Long, List<String>> = mapOf(101440L to listOf(BS3_REPAIRED), 424201458L to listOf(BS3_REPAIRED))
 
     /** B083-rr pin 1: the two seeds hold every invariant — after the refusal the repair goes (a refusal record naming mode
      *  26, with the uncover's batch behind its CLOSE) and RIGHT's panel, shadow and cursor equal belief at rest. */
     @Test fun aRefusedEngineMessageAtABatchsHeadOnRight_isRepaired_BS3() {
-        for (seed in BS3_SEEDS) {
+        for ((seed, keys) in BS3_SEEDS) {
             val v = randomSequence(seed)
             assertTrue(v.failed.isEmpty(), "seed $seed: ${v.failed}")
-            assertTrue((v.counted[BS3_REPAIRED] ?: 0) >= 1, "seed $seed: no refusal record naming mode 26 was repaired: ${v.counted}")
+            for (k in keys) assertTrue((v.counted[k] ?: 0) >= 1, "seed $seed: no refusal record naming mode 26 was repaired ($k): ${v.counted}")
         }
     }
 
@@ -1471,7 +1485,7 @@ class LocalSequenceFuzzTest {
         val only = System.getenv("LOCAL_FUZZ_SEEDS")?.split(',')?.map { it.trim().toLong() }
         // decisions BQ: the gate-sized run also runs one sequence of each declared class of (9) and (10)
         val gate = System.getenv("LOCAL_FUZZ_N") == null && System.getenv("LOCAL_FUZZ_BASES") == null
-        val seeds = only ?: (bases.flatMap { base -> (0 until n).map { i -> base * 100_000 + i } } + if (gate) GATE_SEEDS + RING_GATE_SEEDS else emptyList())
+        val seeds = only ?: (bases.flatMap { base -> (0 until n).map { i -> base * 100_000 + i } } + if (gate) GATE_SEEDS.keys + RING_GATE_SEEDS.keys else emptyList())
         for (seed in seeds) {
             val v = try { randomSequence(seed) } catch (e: Throwable) { Verdict(listOf("threw: $e"), emptyMap()) }
             for (f in v.failed) fails += "seed $seed: $f"
@@ -1482,10 +1496,9 @@ class LocalSequenceFuzzTest {
         // every failure, one line each, for reading the shapes (the assertion's message keeps the first 30)
         for (f in fails) println("FAIL $f")
         println("declared: " + declaredSeeds.entries.joinToString("; ") { (k, s) -> "$k ${s.size} sequence(s): ${s.joinToString()}" })
-        // C3 X2M0 (the review of DM-0, finding 4): a named seed that declares nothing no longer holds the class it was named
-        // for — the gate-sized run would stop running that class without a word
-        if (gate && only == null) for (seed in GATE_SEEDS + RING_GATE_SEEDS)
-            if (declaredSeeds.values.none { seed in it }) fails += "seed $seed: a named gate seed declares no class (${if (ringOf(seed)) "ring" else "plain"})"
+        // C3 X2M0 (the review of DM-0, finding 4), C3 X3M0 (decisions BB (3)): a named seed that no longer declares a class
+        // it is named for — the gate-sized run would stop running that class without a word, even while the seed keeps another
+        if (gate && only == null) fails += namedSeedsHoldTheirClasses(GATE_SEEDS + RING_GATE_SEEDS, declaredSeeds) { if (ringOf(it)) "ring" else "plain" }
         println("sequence fuzz: ${seeds.size} sequences (${if (only != null) "seeds ${only.joinToString()}" else "bases ${bases.joinToString()}"}), ${fails.size} failures; " +
             "counted $counted")
         if (fails.isNotEmpty()) fail(fails.take(30).joinToString("\n") + "\n(${fails.size} in all)")

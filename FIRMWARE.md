@@ -1288,8 +1288,10 @@ is stated there.
   a batch dropped whole** (mode 8, reason 14: recorded so, never as 27, §4) re-sends each table object a batch carried
   since the previous telemetry read — or less than 2 × the cache count's settle window (4 s) before this read, since
   RIGHT can handle a batch after the read that followed it was answered (the lead's ruling A1 on FR-083) — in its current
-  form — a held entry's SET, a cleared one's CLEAR, a list's LIST with shift 0 — since the record does not say which batch
-  (ruled on the fork's first review pass).
+  form — a held entry's SET, a cleared one's CLEAR — since the record does not say which batch (ruled on the fork's first
+  review pass). It re-sends no LIST (C3 X3M0, decisions BB (1)): the LIST riding before the next answer and the idle
+  SETTLE (P9) carries the list's current mark, and their absolute cursor sets the cursor a dropped re-staging's shift
+  would have moved; a LIST of its own in that batch made an adopted notch's COMMIT a DISCARD (P3).
   **A refusal record naming mode 26** (decisions BS.3, 2026-11-20) gets the repair one naming 27 gets — the whole
   table again and ONE keyframe — when a message the phone wrote since the read before the last, or less than 2 × the
   cache count's settle window (4 s) before this read (A1: the count re-reads every 500 ms while RIGHT catches up, and
@@ -1534,8 +1536,10 @@ message's:
 - **A tap 115 whose form disagrees with `Taps`** — fields 10–14 carried under `report`, absent under `glasses`, read
   only on outcome 0 and refused 17, the two bodies that carry them for an entry with a program (D1) → the tap entry's
   SET in its current form.
-- **A 115 whose fields 10–14 differ from the phone's prediction** (P3's for a scroll, of any staging it still holds;
-  the tap rule's (5) for a tap),
+- **A 115 whose fields 10–14 differ from the phone's prediction** (P3's for a scroll, of any staging it still holds,
+  read only on outcome drew — a refused fire leaves field 8 the old cursor while 10–14 were computed at the new one
+  (§6.5), so a scroll refused 19 under a transition's owner is no evidence, C3 X3M0, decisions BB (2); the tap rule's (5)
+  for a tap),
   **or whose fire was refused 5 or 12**, with its mark and its form agreeing → the SET of the entry field 4 names: a
   SET that changed an entry's program and did not land leaves the old one on the lens, so every notch snaps back and
   every press tap is dropped (D1).
@@ -1564,7 +1568,8 @@ that `tools/journal_report.py` counts by cause):
   reports stopping something (a 114 outcome 1 for a local tag; a same-slot fire's close sends none, §6.2 step 11):
   `cause=` `lost-report` (P5, or an S gap) · `restaged` (mark or prediction differed: the report names a staging the
   phone no longer holds — never a row merely older than the window's truth, P9) · `focus` (list not in front, a
-  modal) · `link` (a start's keyframe closed local instances) · `burst-end` (SETTLE stopped one on RIGHT) · `refused`
+  modal) · `link` (a start's keyframe closed local instances) · `owner` (a fire refused 19: a transition's owner in its
+  close set, §7.3; C3 X3M0) · `burst-end` (SETTLE stopped one on RIGHT) · `refused`
   (COMMIT, DISCARD or SETTLE refused → keyframe) · `edge`; with `S`, `list`, `cursor`, `row`, `mark`/`markNow`, `ms`
   (115 receipt to answer), `frame` (yes/no).
 - **`tapdrop`** — every tap not acted on: `cause=` `stale` (1) · `focus` (2) · `restaged` (3) · `moved` (4: a
@@ -1804,12 +1809,12 @@ case-in (the journal; the calendar fallback covers a miss) · COMMIT CRCs equal 
 | phone: S_heard, the arming uptime | each session start (P1) | — | session | the transport's reader thread only | once per 115 | C1's 114 sequence |
 | phone: echo owes and u (P5) | click owes: every SETTLE sent; scroll owes: an idle SETTLE, a session start, and — carried past a burst's lone SETTLE — 250 ms each after it, the list leaving the front, BIND read off; u: a session start, S_heard advancing | an owe of either kind may never be paid (stock sends no scroll message for a notch inside its rubber band and no click for a single tap inside it, §6.1) and a paid scroll owe may come a band late; until the next SETTLE an unpaid owe can swallow one later unowed stock message — an unreported scroll message (repaired by the next report's cursor, P3, or the SETTLE) or a click whose 115 was lost (that tap is then neither acted on nor journaled `no-report`) | kind (scroll, click) | reader thread | once per message | P3's bound |
 | phone: the per-slot answer (P3): A, the reports handled since the slot's last answer and whether each was adopted, whether anything else moved its row | A at each answer (the last S it covered), := S_heard at a session start; the rest at each answer | a lost COMMIT or DISCARD: a missing ack or a refusal → a divergence and a keyframe; SETTLE ends what is left | slot; S (signed 16-bit); on a RING list the cursor's distance modulo the count and the prediction at v (field 18, §7.11) | the shell's loop composes it after the frame's drawing subs (and after a LIST of its list); the reader thread hands it the reports in order (P2) | once per slot per batch | P4's and P5's DISCARDs, the tap rule's answer and the unowed click's, now this one message; P10's diff with END applied |
-| phone: the entries and lists it holds, its marks, the staged records' places and the stagings it still holds (P9) | each start; each change of the list in front; a staging it switched away from, at the latest when it writes over that space (P9; DM2: as ruled; the built form may add detail) | a lost SET or CLEAR: P3 or the tap rule judge the report; the table repair re-sends the object its evidence names; a lost or refused LIST heals at the next answer (its LIST rides before it; LIST-RING on a ring list, from the one writer of every LIST, §7.11); the refusal record → the whole table again and one keyframe | entry, list, mark | the shell's loop builds them; the transport sends | — | the atlas planner (never overwrites a bound record in place while a burst is open) and the re-staging of a changed row (into fresh space, never under a table that still points at it, P9) |
+| phone: the entries and lists it holds, its marks, the staged records' places and the stagings it still holds (P9) | each start; each change of the list in front; a staging it switched away from, at the latest when it writes over that space (P9; DM2: as ruled; the built form may add detail) | a lost SET or CLEAR: P3 or the tap rule judge the report; the table repair re-sends the object its evidence names; a lost or refused LIST heals at the next answer (its LIST rides before it; LIST-RING on a ring list, from the one writer of every LIST, §7.11); a batch dropped whole → its entries' SETs and CLEARs again, never a LIST (C3 X3M0); the refusal record → the whole table again and one keyframe | entry, list, mark | the shell's loop builds them; the transport sends | — | the atlas planner (never overwrites a bound record in place while a burst is open) and the re-staging of a changed row (into fresh space, never under a table that still points at it, P9) |
 | phone: SETTLE's pacing (the last report's time, a burst open) | each report; each SETTLE sent alone | — (pacing: nothing waits on it). a scroll message the band holds back past the lone SETTLE meets a carried owe (P5); Q has no floor for it | — | the shell's loop | — | C1's motion scheduler's nominal-end resume |
 | phone: `tapsLive` | session start; a release point it causes; CLEAR of the tap entry sent; a read without field 39 bit 0 or without BIND in field 3's flags in force | — | session | set by the reader thread; read by the shell once per unowed click on `report` and `glasses` (false: acted on, not counted in u, D1) | once per click | P8's session test |
 | phone: the tap rule and its DISCARD answer | — | a lost DISCARD: a missing ack → keyframe; SETTLE also ends the press | S, list, mark, cursor, the owes n | the shell's loop | each field once | P3 |
 | phone: the bound-list CLEAR/SET around covers (modals, popovers, other windows) | — | a lost CLEAR: a fire under the cover fails "in front" → DISCARD, and its 115 (an entry not held) re-sends the CLEAR; a lost SET: its scroll entries come back at the first unreported scroll message — one a carried owe paid (P5) is no evidence — (the table repair), the tap entry at the next return or start (taps act as today's clicks meanwhile) | entry | built in the cover's own batch | — | every cover: confirm, popover, keyboard, window switch |
-| phone: the table repair (§6.7): the objects owed a re-send; per bound list, whether a scroll 115 was handled since the last SETTLE sent | the owed objects at the batch that carries them; the per-list mark at each SETTLE sent; all at a session start | a re-send that does not land: the next evidence re-sends again; refused: P1's paths | list (the scroll entries), entry (SET, CLEAR); a stale LIST is the riding LIST's (P9) | the reader thread hands the evidence over in order (P2); the shell's loop composes the re-sends after the batch's drawing subs and skips one whose object the batch already carries | once per 115 or unreported stock message | P1's re-sends (the refusal record naming 27 or a batch dropped whole, the refused flush); the cover's CLEAR and the return's SET; P3's and the tap rule's tests, which name the evidence |
+| phone: the table repair (§6.7): the objects owed a re-send; per bound list, whether a scroll 115 was handled since the last SETTLE sent | the owed objects at the batch that carries them; the per-list mark at each SETTLE sent; all at a session start | a re-send that does not land: the next evidence re-sends again; refused: P1's paths | list (the scroll entries), entry (SET, CLEAR); a stale LIST is the riding LIST's (P9); a scroll's fields 10–14 are evidence only on outcome drew (a fire refused 19 is none, C3 X3M0) | the reader thread hands the evidence over in order (P2); the shell's loop composes the re-sends after the batch's drawing subs and skips one whose object the batch already carries | once per 115 or unreported stock message | P1's re-sends (the refusal record naming 27 or a batch dropped whole, the refused flush); the cover's CLEAR and the return's SET; P3's and the tap rule's tests, which name the evidence |
 | phone: the refusal records' gate (§6.7 P1, decisions BS.3): each message carrying a mode 26 with a sub-message after it, over the last two read spans and at least 4 s after it was written (A1); one latch against a standing refusal, for records naming 26 and 27 | each session start, with the record's baseline; a message leaves the span at the first RIGHT record that finds two reads and 4 s passed since it was written; the latch clears at a read with the record unchanged | nothing waits; a repair that does not land takes P1's paths, and a new refusal at the next read meets the latch; the rules repair nothing at a read whose flags show BIND gone (A3) | the read count and the transport's clock; the record's (mode, reason, sequence) for "new" | written by the image writer, read by the notify thread, one lock; RIGHT's record only (LEFT cannot report) | once per record | P1's repair for 27 and its batch-14 re-send (not under the latch); B-S2's keyframe; the refused flush's re-send |
 | phone: batch order (26/27 after the drawing subs; a LIST before its slot's answer, D0) | — | a refused sub loses the present only | — | both lenses alike | — | every flush carrying COMMIT, DISCARD, SETTLE, SET, CLEAR or LIST; the LIST with shift 0 before every answer naming a list (LIST-RING on a ring list, §7.11) |
 | phone: the persisted stage, `Taps`, the last stage-4 arming, the last case-in, the hold-back | never by a restart of the process; the hold-back at its lifting | the record is written before the rung's first byte (R2 B-M1) | the restart reads: RIGHT's uptime, LEFT's end reasons | the transport | each end read once (R6 B6-2) | C1's stages 1–3 |
@@ -2395,12 +2400,15 @@ one-period wait; with this it is drawn a few ms late.
   measures a report's cursor against its row modulo the count (the shorter way round), in P3's bound and in the tap
   rule's condition 4, and predicts fields 10–14 at v = ((field 8 − step) mod count) + step when field 18 is 1** (S4); the
   answer is the COMMIT of the report's own parameters, naming the absolute cursor (field 8). **On a RING list the message
-  that rides before every answer naming it, and every re-send of its LIST (P1, the table repair), is LIST-RING with
-  shift 0 and flags 1** (S5: a plain LIST clears RING) — on the phone one writer makes every LIST, so the start's, a
-  front change's, the whole table again (a refusal record naming 27, one naming 26, a refused flush), the batch-14
-  re-send and the riding LIST all carry the list's form. **When a ring list's message does not land:** a new staging's
-  batch carries its LIST-RING ahead of its SETs, so a LIST-RING refused there leaves the SETs unrun too (a refused
-  sub-message ends its batch, §4); the phone writes no plain LIST for a ring list and stages no wrap record at stage 5,
+  that rides before every answer naming it, and the whole table's LIST (P1), is LIST-RING with shift 0 and flags 1** (S5: a plain
+  LIST clears RING) — on the phone one writer makes every LIST, so the start's, a front change's, the whole table again
+  (a refusal record naming 27, one naming 26, a refused flush) and the riding LIST all carry the list's form (a batch
+  dropped whole re-sends no LIST, P1). **When a ring list's message does not land:** a new staging's batch from a
+  change of the front carries its LIST-RING ahead of its SETs, so a LIST-RING refused there leaves the SETs unrun too (a
+  refused sub-message ends its batch, §4); the start's batch and the whole table again carry [CLEAR 0xFF, SETs,
+  LIST-RING], so a LIST-RING refused there leaves the SETs run under the list the lens held — the same ring list, or
+  count 0 after a release point, where every notch is an edge — until the LIST-RING riding before the next answer heals
+  it (C3 X3M0, decisions BB (5)); the phone writes no plain LIST for a ring list and stages no wrap record at stage 5,
   so an edge reported at a ring list's end is applied as today and its row drawn by the shell's frames, as at 416 and
   480, and the LIST-RING riding before that answer sets RING again with the cursor kept (§7.8: shift 0 over a plain
   list). A wrap notch is a notch for P5 (its 115 owes one scroll message of its id's direction, which stock sends
@@ -3053,3 +3061,8 @@ phone's keeper applies the hold-back rule before re-arming.
   is a ring fire refused 19, applied as today); the wrap notch's owe "outside its rubber band (§6.1)"; the pitch-form
   sentence (S6) back to its text before DM-0 (it comes with the stage that builds Crush); §7.14's RING row keeps the
   part the ring vectors back.
+- 2026-11-21 — DM-0's second review pass as ruled (`C3-decisions.md` BB), stage X3M0: §6.7 P1 — a batch dropped whole
+  re-sends its entries' SETs and CLEARs and no LIST (the riding LIST carries the mark; a LIST of its own made an adopted
+  notch's COMMIT a DISCARD); the table repair reads a scroll's fields 10–14 only on outcome drew (a fire refused 19 is
+  no evidence); the counting gains the cause `owner` (a fire refused 19); §6.11's two phone rows follow; §7.11 the
+  start's and the whole table's order [CLEAR, SETs, LIST-RING] and what a LIST-RING refused there leaves.
