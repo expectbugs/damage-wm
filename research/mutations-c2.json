@@ -8514,8 +8514,8 @@
   "file": "motion/ScrollEffects.kt",
   "edits": [
    [
-    "                wait(n1)\n                draw(strip, x = cx - dL, xR = cx + dL, y = if (down) l.lens.y - kA * rowH else l.lens.bottom - (kA + 2) * rowH,\n                    dy = -step * rowH, ease = ease, n = n2,",
-    "                draw(strip, x = cx - dL, xR = cx + dL, y = if (down) l.lens.y - kA * rowH else l.lens.bottom - (kA + 2) * rowH,\n                    dy = -step * rowH, ease = ease, n = t,"
+    "                wait(n1)\n                draw(strip, x = cx - dL, xR = cx + dL, y = if (down) l.lens.y - kA * rowH else l.lens.bottom - (kA + 2) * rowH,\n                    dy = -step * rowH, ease = e2, n = n2,",
+    "                draw(strip, x = cx - dL, xR = cx + dL, y = if (down) l.lens.y - kA * rowH else l.lens.bottom - (kA + 2) * rowH,\n                    dy = -step * rowH, ease = Motion.Ease.easeOut, n = t,"
    ]
   ],
   "tests": [
@@ -8524,7 +8524,7 @@
   "expect": [
    "crushRunsInTwoPhasesAndItsCoversLeaveNoGap_DM1"
   ],
-  "note": "C3 DM-1 (Crush's phases): the far side's rows move from step 1 with the entering side's (Slide's shape) - not his two phases",
+  "note": "C3 DM-1 (Crush's phases): the far side's rows move from step 1 with the entering side's (Slide's shape) - not his two phases. C3 X1DM1: re-pointed (T2 on phase 2's table e2; the mutant moves it over T on the built-in ease-out, a valid record)",
   "from": "C3-DM1"
  },
  {
@@ -8532,7 +8532,7 @@
   "file": "motion/ScrollEffects.kt",
   "edits": [
    [
-    "dy = -step * l.lens.h, ease = ease, n = n1,",
+    "dy = -step * l.lens.h, ease = e1, n = n1,",
     "dy = -step * l.lens.h, ease = Motion.Ease.linear, n = n1,"
    ]
   ],
@@ -8542,7 +8542,7 @@
   "expect": [
    "crushRunsInTwoPhasesAndItsCoversLeaveNoGap_DM1"
   ],
-  "note": "C3 DM-1 (Crush's covers, the first inequality): the entering band form on another ease than the squash - a row of the band between them mid-phase",
+  "note": "C3 DM-1 (Crush's covers, the first inequality): the entering band form on another ease than the squash - a row of the band between them mid-phase. C3 X1DM1: re-pointed (phase 1's movers on the table e1)",
   "from": "C3-DM1"
  },
  {
@@ -8550,8 +8550,8 @@
   "file": "motion/ScrollEffects.kt",
   "edits": [
    [
-    "anchor = if (down) 2 else 0, ease = ease, n = n2,",
-    "anchor = if (down) 0 else 2, ease = ease, n = n2,"
+    "anchor = if (down) 2 else 0, ease = e2, n = n2,",
+    "anchor = if (down) 0 else 2, ease = e2, n = n2,"
    ]
   ],
   "tests": [
@@ -8560,7 +8560,7 @@
   "expect": [
    "crushRunsInTwoPhasesAndItsCoversLeaveNoGap_DM1"
   ],
-  "note": "C3 DM-1 (Crush's covers, the second inequality): the leaving row grows from the far edge of its slot, away from the band - row c's rows the far side brings in are not covered (END unchanged)",
+  "note": "C3 DM-1 (Crush's covers, the second inequality): the leaving row grows from the far edge of its slot, away from the band - row c's rows the far side brings in are not covered (END unchanged). C3 X1DM1: re-pointed (phase 2's movers on the table e2)",
   "from": "C3-DM1"
  },
  {
@@ -9065,5 +9065,109 @@
   ],
   "note": "C3 X1W item 4 (decisions BK (3), BM (4)): both swap levels at O9's first value 6 — the leaving item drops and the arriving one jumps at the swap",
   "from": "C3-X1W"
+ },
+ {
+  "id": "X1DM1-crush-old-split",
+  "file": "motion/ScrollEffects.kt",
+  "edits": [
+   [
+    "val n1 = halfStep(t); val n2 = t - n1\n        val down = step > 0",
+    "val n1 = phase1(t); val n2 = t - n1\n        val down = step > 0"
+   ],
+   [
+    "        ScrollEffect.CRUSH -> easeOutParts(t).toList()",
+    "        ScrollEffect.CRUSH -> phase1(t).let { n1 -> listOf(n1, t - n1).map { n -> Motion.easeE(Motion.Ease.EaseOut, n).drop(1).toIntArray() } }"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.crushsTwoPhasesAreOneEaseOutSplitAtHalfItsTravel_X1DM1"
+  ],
+  "expect": [
+   "crushsTwoPhasesAreOneEaseOutSplitAtHalfItsTravel_X1DM1"
+  ],
+  "note": "C3 X1DM1 (decisions BP (1)): the old split - two ease-outs of T/2 each (phase 1 over ceil(T/2), each phase easing out to a near stop), as DM-1 built it; the split's pin sees phase 2 start at step 11 of 19, not 7",
+  "from": "C3-X1DM1"
+ },
+ {
+  "id": "X1DM1-crush-e1-own-ease",
+  "file": "motion/ScrollEffects.kt",
+  "edits": [
+   [
+    "        val e1 = IntArray(n1) { i -> Math.round(4096.0 * eo[i + 1] / eo[n1]).toInt() }",
+    "        val e1 = Motion.easeE(Motion.Ease.EaseOut, n1).drop(1).toIntArray()"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.crushsTwoPhasesAreOneEaseOutSplitAtHalfItsTravel_X1DM1"
+  ],
+  "expect": [
+   "crushsTwoPhasesAreOneEaseOutSplitAtHalfItsTravel_X1DM1"
+  ],
+  "note": "C3 X1DM1 (decisions BP (1)): the split at half the travel kept, but phase 1 on an ease-out of its own (it slows to a near stop before phase 2) - a mover on the two tables leaves one ease-out over T by more than a pixel",
+  "from": "C3-X1DM1"
+ },
+ {
+  "id": "X1DM1-flip-constant-turn",
+  "file": "motion/ScrollEffects.kt",
+  "edits": [
+   [
+    "        ScrollEffect.FLIP -> if (p.v2) flipOnRows(t).toList() else",
+    "        ScrollEffect.FLIP -> if (p.v2) halfStep(t).let { n1 -> listOf(flipOut(n1), flipIn(t - n1)) } else"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.flipsTurnFollowsTheRows_X1DM1"
+  ],
+  "expect": [
+   "flipsTurnFollowsTheRows_X1DM1"
+  ],
+  "note": "C3 X1DM1 (decisions BP (2)): Flip's width turn edge-on at the rows' half-travel step but at constant speed - the angle does not follow the rows (the one-column pin cannot see it)",
+  "from": "C3-X1DM1"
+ },
+ {
+  "id": "X1DM1-flip-old-split",
+  "file": "motion/ScrollEffects.kt",
+  "edits": [
+   [
+    "        val n1 = if (v2) halfStep(t) else phase1(t); val n2 = t - n1",
+    "        val n1 = phase1(t); val n2 = t - n1"
+   ],
+   [
+    "        ScrollEffect.FLIP -> if (p.v2) flipOnRows(t).toList() else",
+    "        ScrollEffect.FLIP -> if (false) flipOnRows(t).toList() else"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.flipsTurnFollowsTheRows_X1DM1",
+   "*ScrollEffectsTest.flipTurns*"
+  ],
+  "expect": [
+   "flipsTurnFollowsTheRows_X1DM1",
+   "flipTurnsTheBandToOneColumnAtTheMiddleStep_DM1"
+  ],
+  "note": "C3 X1DM1 (decisions BP (2)): Flip's width turn as DM-1 built it - edge-on at ceil(T/2), the rows nearly at rest for the second half of the turn",
+  "from": "C3-X1DM1"
+ },
+ {
+  "id": "X1DM1-flip-height-follows",
+  "file": "motion/ScrollEffects.kt",
+  "edits": [
+   [
+    "        val n1 = if (v2) halfStep(t) else phase1(t); val n2 = t - n1",
+    "        val n1 = halfStep(t); val n2 = t - n1"
+   ],
+   [
+    "        ScrollEffect.FLIP -> if (p.v2) flipOnRows(t).toList() else phase1(t).let { n1 -> listOf(flipOut(n1), flipIn(t - n1)) }",
+    "        ScrollEffect.FLIP -> flipOnRows(t).toList()"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.flipsTurnFollowsTheRows_X1DM1"
+  ],
+  "expect": [
+   "flipsTurnFollowsTheRows_X1DM1"
+  ],
+  "note": "C3 X1DM1 (decisions BP (2): no byte below stage 5): the height turn given the width turn's split and tables too - its version-1 bytes change below stage 5",
+  "from": "C3-X1DM1"
  }
 ]
