@@ -152,43 +152,87 @@ class WheelStage4Test {
         if (missing.isNotEmpty()) fail(missing.joinToString("\n"))
     }
 
-    /**
-     * C3 DW-0 (the DW spec §2.6, decisions BD's O2), the shell's half: on the same build at stage 5 (EFFECTS in force) the
-     * open wheel's hole has its margins — the composed columns of Global `Depth` either side of the panel are black — and
-     * the plane map holds the panel with them at that depth and the centre band at the screen plane as painted; at stage
-     * 4 neither (the recording above).
-     */
-    @Test
-    fun atStage5TheShellClearsTheMarginsAndMapsThePanelWithThem_DW0(): Unit = runBlocking {
-        val dir = Files.createTempDirectory(tmp, "s5")
+    /** A window whose content is rows across the whole content width (so the columns beside the wheel's panel hold ink). */
+    private class Striped(id: String) : DamageWindow(id, "Striped $id", IconKind.FILES) {
+        override fun view(): WindowView = WindowView.CanvasView({ g, r -> var y = r.y; while (y + 4 <= r.bottom) { g.fillRect(r.x, y, r.w, 4, 9 * 17); y += 8 } })
+        override fun summary() = Summary("rows")
+        override fun saveState(): JsonObject = JsonObject(emptyMap())
+        override fun restoreState(state: JsonObject) {}
+    }
+
+    /** FakeText with a neighbour face of 25 rows of ink and a name face of 32 (as the desktop's Clear Sans at 17 and 21 px
+     *  bold): the row below on an odd row, a centre band of 98. */
+    private class OddFace : wm.damage.core.text.TextRasterizer {
+        private val f = FakeText()
+        override fun measure(text: String, font: wm.damage.core.text.FontSpec) = f.measure(text, font)
+        override fun metrics(font: wm.damage.core.text.FontSpec) = when (font.sizePx) {
+            17 -> wm.damage.core.text.FontMetrics(17, 8, 27)
+            21 -> wm.damage.core.text.FontMetrics(24, 8, 34)              // the name's 32 rows of ink: a band of 98, as his face's
+            else -> f.metrics(font)
+        }
+        override fun draw(surface: wm.damage.core.gfx.Gray8, x: Int, y: Int, text: String, font: wm.damage.core.text.FontSpec, level: Int) = f.draw(surface, x, y, text, font, level)
+        override fun covers(text: String, font: wm.damage.core.text.FontSpec) = true
+    }
+
+    /** What the shell's loop holds with the wheel open at [stage] (five striped windows, the one below the cursor dirty):
+     *  the plane map, the composed columns of 8 either side of the panel that hold ink, the composed rows of the panel's
+     *  lower part that hold the dirty tick's columns. */
+    private suspend fun openWheel(stage: Int): Triple<List<wm.damage.core.comp.Compositor.PlaneRegion>, Int, Pair<wm.damage.core.geom.Rect, List<Int>>> {
+        val dir = Files.createTempDirectory(tmp, "s$stage")
         val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = 0xDFF }
         val t = SimTransport(sim, scope, SimTransport.Timing(instant = true))
-        t.devProbe("c1", "5")
+        t.devProbe("c1", "$stage")
         val p = Persistence(dir.resolve("s.json"))
         p.put("shell.settings", ShellSettings(heightMode = 352, depth = 8, cachedText = "on").toJson())
-        val shell = Shell(CachedText(FakeText()), t, p, null, scope) { Shell.LocalClock(12, 0, "12:00", "PM") }
-        for (i in 0 until 5) shell.register(Win("w$i", "Window $i", IconKind.FILES))
+        val shell = Shell(CachedText(OddFace()), t, p, null, scope) { Shell.LocalClock(12, 0, "12:00", "PM") }
+        val ws = (0 until 5).map { Striped("w$it") }
+        for (w in ws) shell.register(w)
         shell.start()
         suspend fun settle(what: String) = waitUntil(30_000, 10, { "$what: ${shell.quiescenceReport()}" }) { shell.isQuiescent() }
         settle("start")
-        for (i in 0 until 5) { shell.services.runOnShell { shell.services.openWindow("w$i", null) }; settle("open w$i") }
+        for (w in ws) { shell.services.runOnShell { shell.services.openWindow(w.id, null) }; settle("open ${w.id}") }
+        ws[2].dirty = true                        // the wheel opens on w3 (the most recent inactive); w2 is the row below
         for (g in listOf(EvenHubMsg.EV_RING_LONG_PRESS, EvenHubMsg.EV_RING_LONG_PRESS_RELEASE, EvenHubMsg.EV_DOUBLE_CLICK)) shell.postGesture(g)
         settle("the wheel")
-        assertTrue(shell.switcherIsOpen, "the chord opens the wheel")
-        var seen: Pair<List<wm.damage.core.comp.Compositor.PlaneRegion>, Int>? = null
+        assertTrue(shell.switcherIsOpen, "stage $stage: the chord opens the wheel")
+        var seen: Triple<List<wm.damage.core.comp.Compositor.PlaneRegion>, Int, Pair<wm.damage.core.geom.Rect, List<Int>>>? = null
         repeat(200) {
             if (seen == null) { settle("sample"); seen = shell.sampleIdle {
                 val pn = shell.layout.switcherPanel
+                val g = shell.comp.composed
                 var lit = 0
-                for (y in pn.y until pn.bottom) for (x in (pn.x - 8 until pn.x) + (pn.right until pn.right + 8)) if (shell.comp.composed[x, y] != 0) lit++
-                shell.comp.planes to lit
+                for (y in pn.y until pn.bottom) for (x in (pn.x - 8 until pn.x) + (pn.right until pn.right + 8)) if (g[x, y] != 0) lit++
+                // the dirty tick of the row below: 3 px wide, right of its name, in the panel's lower part
+                val tick = (pn.y + pn.h / 2 until pn.bottom - 2).filter { y -> (pn.x + 100 until pn.right - 4).any { x -> g[x, y] != 0 && g[x - 1, y] == 0 && g[x + 3, y] == 0 && g[x + 1, y] != 0 && g[x + 2, y] != 0 } }
+                Triple(shell.comp.planes, lit, pn to tick)
             } }
         }
-        val (planes, lit) = seen ?: fail("the shell never sat idle for a sample")
-        val pn = shell.layout.switcherPanel
-        assertEquals(0, lit, "the margins beside the panel are black at stage 5")
-        assertTrue(planes.any { it.rect == wm.damage.core.geom.Rect(pn.x - 8, pn.y, pn.w + 16, pn.h) && it.disparity == 8 }, "the panel with its margins at Depth 8: $planes")
-        assertTrue(planes.any { it.disparity == 0 && it.rect.x == pn.x && it.rect.w == pn.w && it.rect.y > pn.y && it.rect.bottom < pn.bottom }, "the centre band at the screen plane: $planes")
         shell.stop()
+        return seen ?: fail("stage $stage: the shell never sat idle for a sample")
+    }
+
+    /**
+     * C3 DW-0 (the DW spec §2.6, decisions BD's O2), the shell's half, on a face that puts the row below on an odd row (as
+     * his own does) with that row's window dirty, over a window with rows beside the panel: at stage 5 the composed columns
+     * of Global `Depth` either side of the panel are black, the plane map holds the panel with them at that depth and the
+     * centre band at the screen plane as painted, and the row below sits on the even row (its dirty tick from yB − 1 + 4); at
+     * stage 4 the window's rows stand beside the panel, the map is today's (the band's region the design's 44 / 88), and the
+     * tick hangs from the odd row as before.
+     */
+    @Test
+    fun atStage5TheShellClearsTheMarginsAndMapsThePanelWithThemAndStage4IsTodays_DW0(): Unit = runBlocking {
+        val (p5, lit5, t5) = openWheel(5)
+        val (p4, lit4, t4) = openWheel(4)
+        val pn = t5.first
+        assertEquals(0, lit5, "stage 5: the margins beside the panel are black")
+        assertTrue(lit4 > 0, "stage 4: the window's rows stand beside the panel ($lit4 px)")
+        assertTrue(p5.any { it.rect == wm.damage.core.geom.Rect(pn.x - 8, pn.y, pn.w + 16, pn.h) && it.disparity == 8 }, "stage 5: the panel with its margins at Depth 8: $p5")
+        assertTrue(p5.any { it.rect == wm.damage.core.geom.Rect(pn.x, pn.y + 38, pn.w, 98) && it.disparity == 0 }, "stage 5: the centre band at the screen plane as painted (98 rows from 38): $p5")
+        assertTrue(p4.any { it.rect == pn && it.disparity == 8 } && p4.any { it.rect == wm.damage.core.geom.Rect(pn.x, pn.y + 44, pn.w, 88) && it.disparity == 0 } &&
+            p4.none { it.rect == wm.damage.core.geom.Rect(pn.x - 8, pn.y, pn.w + 16, pn.h) }, "stage 4: today's map (the design's 44 / 88 band region whatever the face): $p4")
+        val yB = minOf(pn.bottom - 24, pn.bottom - 2 - 25)             // the odd face's row below
+        assertEquals(1, yB % 2)
+        assertEquals((yB + 4 until yB + 12).toList(), t4.second, "stage 4: the tick hangs from the odd row, as before")
+        assertEquals((yB + 3 until yB + 11).toList(), t5.second, "stage 5: the row on the even row above it, the tick one row up")
     }
 }

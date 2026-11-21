@@ -130,8 +130,8 @@ class WheelTest {
 
     /**
      * What moves, moves together: at the middle step every mover's centre (both axes, both lenses) has gone the fraction
-     * of its travel one ease-out over T gives (± 1 px) — through the swap too, where a cell changes form. The largest
-     * deviation at any step is printed. Three faces, d in {0, 4, 8, 16}, both programs.
+     * of its travel one ease-out over T gives (± 1 px), and at every step within 1.5 px — through the swap too, where a
+     * cell changes form. The largest deviations are printed. Three faces, d in {0, 4, 8, 16}, both programs.
      */
     @Test
     fun whatMovesMovesTogether_DW0() {
@@ -149,6 +149,7 @@ class WheelTest {
                         val (x, y) = centre(ts, k, left)
                         val dev = maxOf(Math.abs(x - (x0 + (xT - x0) * eo[k] / 4096.0)), Math.abs(y - (y0 + (yT - y0) * eo[k] / 4096.0)))
                         if (dev > worstAny) { worstAny = dev; worstAt = "$fname d $d step $step track $ti k $k left=$left" }
+                        assertTrue(dev <= 1.5, "$fname d $d step $step track $ti ${if (left) "left" else "right"}: at step $k its centre is $dev px off the shared ease-out (the rounding of up to three eased terms stays under 1.5)")
                         if (k == t / 2) {
                             worstMid = maxOf(worstMid, dev)
                             assertTrue(dev <= 1.0, "$fname d $d step $step track $ti ${if (left) "left" else "right"}: at the middle step $k its centre is $dev px off the shared ease-out")
