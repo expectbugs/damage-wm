@@ -1388,8 +1388,9 @@ abstract class CfwTransportBase(
     @Volatile private var resetCheckAskedMs = 0L
     @Volatile private var bindRefusalSeen: Triple<Int, Int, Long>? = null
     @Volatile private var bindRefusalBaseline = true
-    /** Decisions BS.3: which refusal records naming mode 26 the shell repairs ([bindTelemetry]); fed by [writeImage]. */
-    private val engineRefusals = wm.damage.core.local.EngineRefusals()
+    /** Decisions BS.3: which refusal records naming mode 26 the shell repairs ([bindTelemetry]); fed by [writeImage]. On
+     *  this transport's clock (A1's floor). */
+    private val engineRefusals = wm.damage.core.local.EngineRefusals { nowMs() }
 
     private fun bindSessionStart() {
         bindSHeard0 = 0

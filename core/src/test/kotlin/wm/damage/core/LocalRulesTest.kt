@@ -6,6 +6,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import wm.damage.core.geom.Rect
 import wm.damage.core.local.BoundList
+import wm.damage.core.local.EngineRefusals
 import wm.damage.core.local.LocalRules
 import wm.damage.core.local.LocalRules.Stock
 import wm.damage.core.local.LocalRules.Verdict
@@ -546,6 +547,28 @@ class LocalRulesTest {
         t.r.telemetry(null, null, DamageMsg.Refusal(8, 14, 9))
         val b = t.batch()
         assertTrue(b.any { it.contentEquals(t.l.set(t.l.entries[2])) }, "the press SET again")
+    }
+
+    /** The lead's ruling A1 on FR-083, the batch-14 re-send's span (its class): a batch carrying the press SET, then two
+     *  reads answered before RIGHT handled it (500 ms apart, the cache count's pace), then the read that shows the batch
+     *  dropped whole — the SET is still in the span and goes again. Without the floor the first read had emptied the
+     *  span and nothing was re-sent. Once a read has passed AND [EngineRefusals.SPAN_FLOOR_MS], the object leaves. */
+    @Test
+    fun aBatchDroppedWholeReadTwoReadsLaterStillResendsWhatItCarried_A1() {
+        val t = R(row = 3)
+        t.now += 10_000; t.r.telemetry(null, null, nowMs = t.now)            // the start's subs: read once, and long ago
+        t.r.taps(Taps.GLASSES); t.batch()                                    // a SET of the tap entry in its press form
+        t.now += 500; t.r.telemetry(null, null, nowMs = t.now)
+        t.now += 500; t.r.telemetry(null, null, nowMs = t.now)
+        t.now += 300; t.r.telemetry(null, null, DamageMsg.Refusal(8, 14, 9), nowMs = t.now)
+        val b = t.batch()
+        assertTrue(b.any { it.contentEquals(t.l.set(t.l.entries[2])) }, "the press SET again, two reads later")
+        assertTrue(b.none { it.contentEquals(t.l.set(t.l.entries[0])) || it.contentEquals(t.l.set(t.l.entries[1])) },
+            "not the start's scroll SETs, read once and past the floor: ${t.notes.filter { it.first == "repair" }}")
+        // the floor is a floor: a read past it, then a batch dropped whole re-sends nothing of that batch
+        t.now += EngineRefusals.SPAN_FLOOR_MS; t.r.telemetry(null, null, nowMs = t.now)
+        t.now += 100; t.r.telemetry(null, null, DamageMsg.Refusal(8, 14, 10), nowMs = t.now)
+        assertTrue(t.batch().none { it.contentEquals(t.l.set(t.l.entries[2])) }, "out of the span once a read and the floor have passed")
     }
 
     @Test

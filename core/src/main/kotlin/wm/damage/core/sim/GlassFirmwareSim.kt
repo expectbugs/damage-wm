@@ -726,8 +726,8 @@ class GlassFirmwareSim() : LensPanels {
                 diag.event("warmup", "first image burst after CREATE silently dropped (g2-kit gotcha)")
                 return
             }
-            // Cross-lens propagation: every completed image reaches BOTH lenses.
-            for (lensArm in Arm.entries) dispatchTop(lensArm, image, now)
+            // Cross-lens propagation: every completed image reaches BOTH lenses (unless a test holds RIGHT's copy).
+            for (lensArm in Arm.entries) if (lensArm == Arm.LEFT || rightForward?.invoke(image) != false) dispatchTop(lensArm, image, now)
         }
     }
 
@@ -2235,6 +2235,12 @@ class GlassFirmwareSim() : LensPanels {
         diag.notify(Arm.RIGHT, AaFrame.frame(nextSeq(), EvenHubMsg.SID, EvenHubMsg.FLAG_EVENT,
             payload, AaFrame.TYPE_RESPONSE).single())
     }
+
+    /** Test knob (the fix stage FX-083): called with each completed image before RIGHT's lens takes LEFT's copy of it (the
+     *  inter-lens forward; LEFT acks before either lens decodes, §4) — false keeps it from RIGHT: the test hands it on
+     *  later with [conformanceMessage] (RIGHT handling a batch after reads were answered), or never (a forward lost on
+     *  RIGHT alone). Null, the default: every image reaches both lenses. */
+    @Volatile var rightForward: ((ByteArray) -> Boolean)? = null
 
     /** Test knob (build C2, §6.1): drop RIGHT's inter-lens answer for this many gestures — LEFT alone runs them. */
     @Volatile var dropRightAnswers = 0

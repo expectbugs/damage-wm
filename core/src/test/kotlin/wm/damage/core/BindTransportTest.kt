@@ -891,6 +891,45 @@ class BindTransportTest {
         t.stop()
     }
 
+    /** The lead's ruling A1 on FR-083 (the gate's span has a time floor), on the real transport: a CLOSE-led batch reaches
+     *  LEFT (acked) while RIGHT has not handled it yet — LEFT's forward held — and two reads are answered meanwhile, the
+     *  record unchanged (the cache count asks again every 500 ms while RIGHT catches up). RIGHT then handles the batch
+     *  and refuses its CLOSE (the word held): the next read is a `Repair`. Without the floor the two reads had moved the
+     *  batch out of the span and the refusal read `Alone` — no table, no keyframe, RIGHT keeping the instance's END. */
+    @Test
+    fun aRefusalReadAfterTwoReadsThatCameBeforeRightHandledItsBatchIsRepaired_A1(): Unit = runBlocking {
+        val (sim, t) = armedSession()
+        val fill = CfwModes.fill(Rect(0, 400, 16, 8), 3)
+        val led = CfwModes.batch(listOf(CfwModes.motionClose(3), fill), engine = true)
+        suspend fun read(): TransportEvent.LocalRead {
+            events.clear()
+            t.devProbe("telemetry", "read")
+            waitUntil(10_000, message = { "a LocalRead: $events" }) { events.any { it is TransportEvent.LocalRead } }
+            return events.filterIsInstance<TransportEvent.LocalRead>().last()
+        }
+        val held = java.util.concurrent.CopyOnWriteArrayList<ByteArray>()
+        read()
+        sim.motionForTest(Arm.RIGHT).holdWordForTest(true)
+        try {
+            sim.rightForward = { img -> held += img; false }
+            t.devProbe("selftest", "live:" + led.hex())
+            waitUntil(10_000, message = { "LEFT's forward of the batch held" }) { held.isNotEmpty() }
+            assertNull(read().refusal26, "RIGHT has not handled the batch: nothing new on record")
+            assertNull(read().refusal26, "a second read before RIGHT handles it")
+            sim.rightForward = null
+            for (img in held) sim.conformanceMessage(Arm.RIGHT, img, System.currentTimeMillis())
+            assertEquals(listOf(26, 14), sim.refusalRecord(Arm.RIGHT).take(2), "RIGHT refused the CLOSE (the word held)")
+            val r = read().refusal26
+            assertNotNull(r, "the batch is still in the span two reads later: handed (${said("local")})")
+            assertTrue("CLOSE slot 3" in r.sent, r.sent)
+            saw("local", "with more of its batch behind it")
+        } finally {
+            sim.rightForward = null
+            sim.motionForTest(Arm.RIGHT).holdWordForTest(false)
+        }
+        t.stop()
+    }
+
     /** The lead's ruling on B083-rr: a record naming 27 under the gate's rule. The same SET (entry 9, refused 12 on both
      *  lenses — a table message the phone built wrongly) refused at two reads running is handed once, then journaled as
      *  standing; a read with nothing refused since re-arms it, and the next is handed again. A lone fill between makes

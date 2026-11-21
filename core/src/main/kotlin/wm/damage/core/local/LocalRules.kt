@@ -283,8 +283,13 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         class ListMsg(val list: BoundList, val shift: Int, val fresh: Boolean) : Pending()
     }
     private val pending = ArrayList<Pending>()
-    /** Mode-8/14 (decisions M.5): every table object a batch touched since the last telemetry read. */
-    private val touchedSinceRead = LinkedHashSet<Any>()
+    /** Mode-8/14 (decisions M.5): every table object a batch touched since the last telemetry read, and for at least
+     *  [EngineRefusals.SPAN_FLOOR_MS] after the batch (the lead's ruling A1 on FR-083: RIGHT can handle a batch after the
+     *  read that followed it was answered) — the object, when the newest batch carried it (the clock the batch was
+     *  composed on) and the reads since. Trimmed at a read. */
+    private class Touched(val atMs: Long) { var reads = 0 }
+    private val touchedSinceRead = LinkedHashMap<Any, Touched>()
+    private fun touch(o: Any) { touchedSinceRead[o] = Touched(clockMs) }
 
     val repair = TableRepair()
 
@@ -646,12 +651,17 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
     }
 
     /**
-     * A RIGHT telemetry read (P1, the tap rule): field 39 (null: not carried) and a new refusal record naming mode 27
-     * ([refusal27]), naming mode 26 with more of its batch behind it ([refusal26], decisions BS.3 — [EngineRefusals]
-     * decides which), or a batch dropped whole ([batch14], mode 8 reason 14 — decisions M.5).
+     * A RIGHT telemetry read (P1, the tap rule) at [nowMs] (the phone's clock, as [tail]'s): field 39 (null: not carried)
+     * and a new refusal record naming mode 27 ([refusal27]), naming mode 26 with more of its batch behind it
+     * ([refusal26], decisions BS.3 — [EngineRefusals] decides which), or a batch dropped whole ([batch14], mode 8
+     * reason 14 — decisions M.5).
      */
-    fun telemetry(boundIds: Long?, refusal27: DamageMsg.Refusal?, batch14: DamageMsg.Refusal? = null, refusal26: EngineRefusals.Repair? = null) {
+    fun telemetry(boundIds: Long?, refusal27: DamageMsg.Refusal?, batch14: DamageMsg.Refusal? = null, refusal26: EngineRefusals.Repair? = null,
+                  nowMs: Long = clockMs) {
         if (!active) { tapsLive = false; return }
+        clockMs = maxOf(clockMs, nowMs)
+        // A1: an object leaves the span once a read has passed since its batch AND the floor (RIGHT's lag behind the ack)
+        touchedSinceRead.values.removeIf { it.reads >= 1 && nowMs - it.atMs >= EngineRefusals.SPAN_FLOOR_MS }
         if (boundIds != null) tapsLive = bindFlag && boundIds and 1L != 0L
         if (refusal27 != null) {
             note("repair", "evidence=refusal mode=27 reason=${refusal27.reason} object=table")
@@ -674,16 +684,16 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
                 keyframe("RIGHT's refusal record names mode 26 (reason $r; sent ${refusal26.sent}): the rest of that batch did not run there")
             }
         } else if (batch14 != null && touchedSinceRead.isNotEmpty()) {
-            note("repair", "evidence=refusal mode=8 reason=14 object=batch(${touchedSinceRead.joinToString(",")})")
+            note("repair", "evidence=refusal mode=8 reason=14 object=batch(${touchedSinceRead.keys.joinToString(",")})")
             count("repair.batch")
-            for (o in touchedSinceRead.toList()) when (o) {
+            for (o in touchedSinceRead.keys.toList()) when (o) {
                 is Int -> { val f = front; val h = held[o]
                     if (h != null && f != null && h.list == f.list) pending += Pending.Set(f, h.entry) else if (h == null) pending += Pending.Clear(o) }
                 is String -> { val f = front; val l = o.removePrefix("list").toInt()
                     if (f != null && f.list == l) pending += Pending.ListMsg(f, 0, fresh = false) }
             }
         }
-        touchedSinceRead.clear()
+        for (t in touchedSinceRead.values) t.reads++
     }
 
     /**
@@ -785,9 +795,9 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         // 1. the owed table messages, in the order they were owed
         for (p in pending) when (p) {
             is Pending.ClearAll -> { out += CfwModes.bindClear(CfwModes.BIND_ALL); held.clear(); clearedEntries.addAll(0 until CfwModes.BIND_ENTRIES) }
-            is Pending.Clear -> { out += CfwModes.bindClear(p.entry); held.remove(p.entry); clearedEntries += p.entry; touchedSinceRead += p.entry
+            is Pending.Clear -> { out += CfwModes.bindClear(p.entry); held.remove(p.entry); clearedEntries += p.entry; touch(p.entry)
                 if (front?.let { f -> tapEntryNo(f) == p.entry } != false) tapsLive = false }
-            is Pending.Set -> { out += p.list.set(p.entry); held[p.entry.entry] = Held(p.list.list, p.entry); setEntries += p.entry.entry; touchedSinceRead += p.entry.entry }
+            is Pending.Set -> { out += p.list.set(p.entry); held[p.entry.entry] = Held(p.list.list, p.entry); setEntries += p.entry.entry; touch(p.entry.entry) }
             is Pending.ListMsg -> { out += listMsg(p.list, p.shift, p.fresh); listed += p.list.list }
         }
         val hadClearAll = pending.any { it is Pending.ClearAll }
@@ -844,12 +854,12 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
     /** The table repair's re-sends for this batch, each journaled ([TableRepair.take]). */
     private fun takeRepairs(out: MutableList<ByteArray>, settleHere: Boolean, listed: MutableSet<Int>, setEntries: Set<Int>, clearedEntries: Set<Int>) {
         for (o in repair.take(this, settleHere, listed, setEntries, clearedEntries)) when (o) {
-            is TableRepair.Owed.Clear -> { out += CfwModes.bindClear(o.entry); held.remove(o.entry); touchedSinceRead += o.entry
+            is TableRepair.Owed.Clear -> { out += CfwModes.bindClear(o.entry); held.remove(o.entry); touch(o.entry)
                 if (front?.let { tapEntryNo(it) } == o.entry) tapsLive = false }
             is TableRepair.Owed.Set -> { val f = front!!; val e = entriesOf(f).first { it.entry == o.entry }
-                out += f.set(e); held[e.entry] = Held(f.list, e); touchedSinceRead += e.entry }
+                out += f.set(e); held[e.entry] = Held(f.list, e); touch(e.entry) }
             is TableRepair.Owed.ScrollSets -> { val f = front!!
-                for (e in entriesOf(f).filter { !it.isTap }) { out += f.set(e); held[e.entry] = Held(f.list, e); touchedSinceRead += e.entry } }
+                for (e in entriesOf(f).filter { !it.isTap }) { out += f.set(e); held[e.entry] = Held(f.list, e); touch(e.entry) } }
         }
     }
 
@@ -858,7 +868,7 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
     private fun listMsg(f: BoundList, shift: Int, fresh: Boolean): ByteArray {
         if (fresh || wireMark[f.list] < 0) { markCounter = (markCounter + 1) and 0xFF; wireMark[f.list] = markCounter }
         staged[f.list] = f
-        touchedSinceRead += "list${f.list}"
+        touch("list${f.list}")
         return CfwModes.bindList(f.list, f.items4, f.count, shift, f.pitch, wireMark[f.list])
     }
 

@@ -1083,7 +1083,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     private var lastRef: Triple<Int, Int, Long>? = null
     private val telem = ArrayList<ByteArray>()
     /** Decisions BS.3: the transport's gate for refusal records naming mode 26 (`CfwTransportBase.bindTelemetry`). */
-    val engine = wm.damage.core.local.EngineRefusals()
+    val engine = wm.damage.core.local.EngineRefusals { now }
     /** Each read's decision on a record naming mode 26 or 27 (none: no entry), in order. */
     val engineDecisions = ArrayList<wm.damage.core.local.EngineRefusals.Decision>()
     fun readTelemetry() {
@@ -1101,7 +1101,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         if (e != null) { engineDecisions += e; trace?.invoke("[$now] mode-${e.ref.mode and 0x7F} refusal record: $e") }
         val repair = e as? wm.damage.core.local.EngineRefusals.Repair
         rules.telemetry(t.boundIds, repair?.takeIf { it.ref.mode and 0x7F == 27 }?.ref,
-            if (fresh && rec!!.first == 8 && rec.second == 14) ref else null, repair?.takeIf { it.ref.mode and 0x7F == 26 })
+            if (fresh && rec!!.first == 8 && rec.second == 14) ref else null, repair?.takeIf { it.ref.mode and 0x7F == 26 }, now)
         pumpSoon()
     }
 

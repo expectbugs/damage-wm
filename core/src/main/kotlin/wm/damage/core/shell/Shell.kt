@@ -3244,7 +3244,7 @@ class Shell(
             is TransportEvent.Applied -> { lastInputAtMs = System.currentTimeMillis(); localVerdict(local.report(ev.report, localRow(), ev.atMs), ev.report.eventId) }
             is TransportEvent.LocalRead -> {
                 ev.flagsInForce?.let { local.bindInForce(it and wm.damage.core.wire.DamageMsg.FLAG_BIND != 0) }
-                local.telemetry(ev.boundIds, ev.refusal27, ev.batch14, ev.refusal26)
+                local.telemetry(ev.boundIds, ev.refusal27, ev.batch14, ev.refusal26, ev.atMs)
                 // AU.4: the counters' note when a value changes (and once after a session start), not at every read
                 if (local.active) local.localNote(ev.fields).let { n -> if (n != localNoteSaid) { localNoteSaid = n; journal.note("local", n, ev.atMs) } }
                 post(Msg.Pump)
