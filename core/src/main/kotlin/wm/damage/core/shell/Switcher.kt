@@ -1,5 +1,6 @@
 package wm.damage.core.shell
 
+import wm.damage.core.comp.Compositor
 import wm.damage.core.geom.Layout
 import wm.damage.core.geom.Rect
 import wm.damage.core.gfx.Gray8
@@ -129,14 +130,69 @@ class Switcher(
         return spinFrame < spinFrames
     }
 
+    /** C3 DW-0: the open wheel's entries in the drum's order ([openWith]'s: Main, the current window, the rest by recency)
+     *  — what the wheel's item table follows (`motion/Wheel.kt`). Empty when closed. */
+    val entriesInOrder: List<Entry> get() = entries
+
+    /**
+     * C3 DW-0: the drum at rest, as [paint] lays it out with no spin — one definition for the paint, the plane map
+     * ([planes]) and the wheel's programs (`motion/Wheel.kt`, the DW spec §2.1's notation). [bandH] the centre band (the
+     * name's MEASURED ink, §4.3), [small] a neighbour band, [bandTop]/[bandBot] the centre band's rows (its rules at
+     * [bandTop] and [bandBot], 2 rows each), [smallInk] the neighbours' measured ink, [yA]/[yB] the tops of the
+     * neighbour rows above and below — at [stage5] each on an even row (see [neighbourY]).
+     */
+    data class Rest(val panel: Rect, val bandH: Int, val small: Int, val bandTop: Int, val bandBot: Int, val smallInk: Int,
+                    val yA: Int, val yB: Int)
+
+    fun rest(l: Layout, stage5: Boolean = false): Rest {
+        val p = l.switcherPanel
+        val nameInk = text.metrics(fBig).let { it.ascent + it.descent }
+        val bandH = maxOf(88, (64 + nameInk + 2 + 1) / 2 * 2)
+        val small = ((p.h - bandH) / 2) / 2 * 2
+        val smallInk = text.metrics(fBody).let { it.ascent + it.descent }
+        val bandTop = p.y + small
+        return Rest(p, bandH, small, bandTop, bandTop + bandH, smallInk,
+            neighbourY(minOf(p.y + 4, bandTop - smallInk).coerceAtLeast(p.y + 2), stage5), neighbourY(minOf(p.bottom - 24, p.bottom - 2 - smallInk), stage5))
+    }
+
+    /** C3 DW-0: a neighbour row's top — at stage 5 on the even row at or above [y]. A neighbour row draws its icon and name
+     *  at `y / 2 * 2` already; only its dirty tick hangs from `y` itself, so on an odd row the tick sat one row lower than in
+     *  the row above, and one neighbour form (`motion/Wheel.kt`) could not serve both rows: Adam's own face (the desktop's
+     *  Clear Sans, 25 rows of ink at 17 px) puts the row below on an odd row (239 at 352). At stage 5 the tick of a row on an
+     *  odd row moves up one row; nothing else moves. Below stage 5: [y], today's. */
+    private fun neighbourY(y: Int, stage5: Boolean) = if (stage5) y and 1.inv() else y
+
+    /** C3 DW-0 (the DW spec §2.6, decisions BD's O2): the hole the wheel clears — its panel, and at stage 5 a black
+     *  [margin] either side (the panel's disparity), so one rect per lens over the panel holds only the wheel. */
+    fun hole(l: Layout, margin: Int = 0): Rect = l.switcherPanel.let { p -> if (margin == 0) p else Rect(p.x - margin, p.y, p.w + 2 * margin, p.h) }
+
+    /**
+     * The plane regions of the open wheel (`Shell.updatePlanes`; §4.3: it owns the depth story while open): the centre
+     * band at the screen plane as painted ([rest]: the name's measured ink) at every stage, and [margin] 0: the panel at
+     * Global `Depth` [d] (none at 0: it lies in the content's plane). C3 DW-0, at stage 5 ([margin] the panel's disparity:
+     * Global `Depth`, or the content's plane when Global is 0 — 0 only when both are, and then `updatePlanes` adds no
+     * region at all): the panel with its margins at [margin]. C3 X1W (decisions BM (7)): below stage 5 the band's region
+     * was the design's fixed 44 / 88 rows on every face, so on a face with a taller band (his desktop face: 98) the centre
+     * icon's top rows were drawn at the panel's plane, a lens offset apart from the rest of the icon.
+     */
+    fun planes(l: Layout, d: Int, margin: Int): List<Compositor.PlaneRegion> {
+        val p = l.switcherPanel
+        val r = rest(l)
+        val band = Compositor.PlaneRegion(Rect(p.x, r.bandTop, p.w, r.bandH), 0)                       // the centre band forward
+        if (margin == 0) return listOfNotNull(if (d != 0) Compositor.PlaneRegion(p, d) else null, band)  // neighbours with content
+        return listOf(Compositor.PlaneRegion(hole(l, margin), margin), band)
+    }
+
     /**
      * Paint the drum into its fixed panel rect (the one place motion is free of
-     * the damage grid — the panel rect never moves, §4.3). Returns the panel.
+     * the damage grid — the panel rect never moves, §4.3). Returns the hole it
+     * cleared: the panel, and at stage 5 its [margin]s ([hole]); at [stage5] the neighbour rows on even rows ([neighbourY]).
      */
-    fun paint(g: Gray8, l: Layout): Rect {
+    fun paint(g: Gray8, l: Layout, margin: Int = 0, stage5: Boolean = false): Rect {
         val p = l.switcherPanel
-        g.fillRect(p, Level.BG)                    // the wheel clears its hole
-        if (entries.isEmpty()) return p
+        val hole = hole(l, margin)
+        g.fillRect(hole, Level.BG)                 // the wheel clears its hole
+        if (entries.isEmpty()) return hole
 
         val n = entries.size
         val frac = spinPos - kotlin.math.floor(spinPos)
@@ -152,14 +208,14 @@ class Switcher(
         // straight through the word (measured on the live wheel).
         // (the dirty mark and the overflow triangle hang at fixed offsets and
         // end by `bandTop + 80`, so the 88 floor already owes them nothing)
-        val nameInk = text.metrics(fBig).let { it.ascent + it.descent }
-        val bandH = maxOf(88, (64 + nameInk + 2 + 1) / 2 * 2)
-        val small = ((p.h - bandH) / 2) / 2 * 2
+        val rest = rest(l, stage5)
+        val bandH = rest.bandH
+        val small = rest.small
         val bandTop = p.y + (small * (1 - frac)).toInt() / 2 * 2
         val bandBot = bandTop + bandH
 
         // quantised tiers: centre full, neighbours ~50 %, edges ~25 % (§4.3)
-        val dimLv = Level.of(4)
+        val dimLv = Level.of(NEIGHBOUR_LEVEL)
         fun entryAt(k: Int) = entries[(centerIdx + k).mod(n)]
 
         // The wheel's frame (2026-08-31 — Adam: with rules only around the
@@ -179,13 +235,26 @@ class Switcher(
         // (review §30): `p.y + 4` is where it WANTS to sit, and the clamp is
         // what keeps its descenders off the band's own rule when a big face
         // makes the centre band tall.
-        val smallInk = text.metrics(fBody).let { it.ascent + it.descent }
-        if (n > 1) paintSmall(g, p, entryAt(-1), minOf(p.y + 4, bandTop - smallInk).coerceAtLeast(p.y + 2), dimLv)
-        // centre: full size, full brightness, plane 0. Names must stay inside
-        // the fixed panel rect — pixels past it would sit outside the damage
-        // rect (silent divergence); overflow gets the drawn continuation mark
-        // (marquee is the §4.3 upgrade path).
-        val ce = entryAt(if (frac > 0.5) 1 else 0)
+        val smallInk = rest.smallInk
+        if (n > 1) paintSmall(g, p, entryAt(-1), neighbourY(minOf(p.y + 4, bandTop - smallInk).coerceAtLeast(p.y + 2), stage5), dimLv)
+        paintCentre(g, p, entryAt(if (frac > 0.5) 1 else 0), bandTop)
+        // below neighbour — inside the panel whatever the face's ink
+        if (n > 2) paintSmall(g, p, entryAt(1), rest.yB, dimLv)
+        return hole
+    }
+
+    /** C3 DW-0: [e] in the centre band at rest — the wheel's cell record's centre form (`motion/Wheel.kt`), painted by
+     *  [paint]'s own code. */
+    fun paintCentreForm(g: Gray8, l: Layout, e: Entry) = paintCentre(g, l.switcherPanel, e, rest(l).bandTop)
+
+    /** C3 DW-0: [e] as a neighbour row at [y] — the cell record's neighbour form, [paint]'s own code. */
+    fun paintNeighbourForm(g: Gray8, l: Layout, e: Entry, y: Int) = paintSmall(g, l.switcherPanel, e, y, Level.of(NEIGHBOUR_LEVEL))
+
+    /** Centre: full size, full brightness, plane 0. Names must stay inside
+     *  the fixed panel rect — pixels past it would sit outside the damage
+     *  rect (silent divergence); overflow gets the drawn continuation mark
+     *  (marquee is the §4.3 upgrade path). */
+    private fun paintCentre(g: Gray8, p: Rect, ce: Entry, bandTop: Int) {
         val iconY = bandTop + 4
         wm.damage.core.gfx.IconPaint.draw(g, icons(), wm.damage.core.gfx.IconNames.forKind(ce.icon),
             p.x + (p.w - 56) / 2, iconY, 56, ce.icon, Level.HEAD)
@@ -196,9 +265,6 @@ class Switcher(
         text.draw(g, lx / 4 * 4, (iconY + 60) / 2 * 2, name, fBig, Level.HOT)
         if (name != ce.name) Icons.tri(g, p.right - 14, iconY + 64, 11, Level.DIM)
         if (ce.dirty) g.fillRect((lx + tw + 8).coerceAtMost(p.right - 8), iconY + 66, 4, 10, Level.HOT)
-        // below neighbour — inside the panel whatever the face's ink
-        if (n > 2) paintSmall(g, p, entryAt(1), minOf(p.bottom - 24, p.bottom - 2 - smallInk), dimLv)
-        return p
     }
 
     private fun paintSmall(g: Gray8, p: Rect, e: Entry, y: Int, lv: Int) {
@@ -214,4 +280,9 @@ class Switcher(
 
     private fun fitText(s: String, f: wm.damage.core.text.FontSpec, maxW: Int): String =
         Draw.prefix(text, s, f, maxW)
+
+    companion object {
+        /** The neighbour rows' level (§4.3's quantised tiers: about half the centre's). */
+        const val NEIGHBOUR_LEVEL = 4
+    }
 }

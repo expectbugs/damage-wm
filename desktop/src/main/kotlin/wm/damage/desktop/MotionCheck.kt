@@ -11,6 +11,7 @@ import wm.damage.core.gfx.Pack
 import wm.damage.core.gfx.Zl
 import wm.damage.core.motion.TestPrograms
 import wm.damage.core.motion.TransitionRehearsal
+import wm.damage.core.motion.WheelCheck
 import wm.damage.core.motion.Transitions
 import wm.damage.core.shell.MainLocalCheck
 import wm.damage.core.sim.GlassFirmwareSim
@@ -69,7 +70,8 @@ object MotionCheck {
         }
         failures += try { transitions(outDir, out) } catch (e: Exception) { listOf("transitions: ${e.javaClass.simpleName}: ${e.message}") }
         if (scroll) failures += scrollEffects(outDir, out)
-        out.println("motion-check: ${TestPrograms.NAMES.size} program(s), 3 notice programs and ${PLAYS.size} transition(s)${if (scroll) " and Main's scroll effects" else ""} into $outDir")
+        if (scroll) failures += wheel(outDir, out)
+        out.println("motion-check: ${TestPrograms.NAMES.size} program(s), 3 notice programs and ${PLAYS.size} transition(s)${if (scroll) ", Main's scroll effects and the switcher's wheel" else ""} into $outDir")
         if (failures.isEmpty()) { out.println("motion-check: ALL HOLD"); return 0 }
         out.println("motion-check: ${failures.size} FAILURE(S):")
         for (f in failures) out.println("  - $f")
@@ -82,6 +84,101 @@ object MotionCheck {
         val r = try { MainLocalCheck.effectStrips(AwtText()) { c -> LocalCheck.writeCase(outDir, c, out) } } catch (e: Exception) { return listOf("scroll effects: ${e.javaClass.simpleName}: ${e.message}") }
         Files.writeString(outDir.resolve("scroll-staging.txt"), r.table.joinToString("\n", postfix = "\n"))
         return r.failures
+    }
+
+    /**
+     * C3 DW-0 (the DW spec §7.2): the switcher's wheel as the glasses draw it ([WheelCheck.strips]: the desktop's faces, height
+     * 352, on a bit-11 build at stage 5 with a 256 KiB cache) — `DIR/wheel-d<D>-n<N>-<down|up|wrap-down|wrap-up>.png` (every
+     * step, the left lens above the right, 1x; the frame before the notch first) and `DIR/wheel-d8-n9-burst.png` (his
+     * sequence: six notches down at the ring's pace, a pause, six up; one row a notch), each with its `.txt`, and
+     * `DIR/wheel-staging.txt` (the block's bytes, timing and geometry per d and n). Each strip's checks (every message
+     * taken, END in the shadow, the switcher's paint over the area after the last step) count as the programs' do.
+     */
+    private fun wheel(outDir: Path, out: java.io.PrintStream): List<String> {
+        val (strips, table) = try { WheelCheck.strips(AwtText()) } catch (e: Exception) { return listOf("wheel: ${e.javaClass.simpleName}: ${e.message}") }
+        val failures = ArrayList<String>()
+        for (s in strips) {
+            if (s.rows.size <= 2) strip(outDir.resolve("${s.name}.png"), s.rows.flatten().map { Triple(it.label, it.l, it.r) }, s.crop)
+            else rowStrip(outDir.resolve("${s.name}.png"), s.rows, s.crop)
+            Files.writeString(outDir.resolve("${s.name}.txt"), buildString {
+                appendLine("${s.name}: ${s.about}")
+                appendLine("strip: ${s.rows.sumOf { it.size }} frames${if (s.rows.size > 2) ", one row a notch (the first the frame before)" else ", $COLS per row"}; " +
+                    "in each frame the left lens above the right; crop ${s.crop} at 1x")
+                for (l in s.lines) appendLine(l)
+                for (f in s.rows.flatten()) appendLine("  frame (${f.label}) at tick ${f.tick}: L %08x R %08x".format(crc(f.l), crc(f.r)))
+                if (s.failures.isEmpty()) appendLine("checks: all hold (every message taken by both lenses; after the last step each lens shows END, the switcher's paint over the area)")
+                else for (f in s.failures) appendLine("FAILED: $f")
+            })
+            failures += s.failures.map { "${s.name}: $it" }
+            out.println("  ${if (s.failures.isEmpty()) "held" else "FAILED"}: ${s.name} -> ${s.name}.png, ${s.name}.txt")
+        }
+        Files.writeString(outDir.resolve("wheel-staging.txt"), table.joinToString("\n", postfix = "\n"))
+        return failures
+    }
+
+    /** C3 X1W: the theme `--wheel-icons` reads — his, by `ThemeIcons`' own record (Papirus-Dark; the name is given, not read
+     *  from xfconf) — and the one directory it reads it from. */
+    private const val WHEEL_THEME = "Papirus-Dark"
+    private val SYSTEM_ICONS = listOf(Path.of("/usr/share/icons"))
+
+    /**
+     * C3 X1W (decisions BK (2)): `desktop --wheel-icons DIR` — the bytes of his nine windows' wheel cells (the desktop's faces,
+     * height 352, d 8; [WheelCheck.cellBytes]) painted with his theme's icons beside the drawn set's, and the block's at a
+     * quarter's and an eighth's slack a cell, into `DIR/wheel-icons.txt` (and on [out]). The theme is read through
+     * [ThemeIcons] from `/usr/share/icons` only, its bitmaps converted into `DIR/icons` (never `~/.damage/icons`); no config.
+     * The paint path returns null for a bitmap not yet resolved (the drawn icon paints that frame and the resolve runs on
+     * ThemeIcons' own thread), so each kind's names are first resolved with [ThemeIcons.resolve] — the blocking form the
+     * content host serves the phone through — at the two sizes the wheel draws (56 and 20), up to the first the theme holds,
+     * as the paint walks them; that the paint then asked for nothing more is checked ([ThemeIcons.pending] and
+     * [ThemeIcons.completions] unchanged). Exit 1 when it did.
+     */
+    fun wheelIcons(outDir: Path, out: java.io.PrintStream = System.out): Int {
+        Files.createDirectories(outDir)
+        val theme = ThemeIcons(AwtImages(), outDir.resolve("icons"), themeOverride = WHEEL_THEME, roots = SYSTEM_ICONS)
+        val lines = ArrayList<String>()
+        lines += "the wheel's cells with his theme's icons (C3 X1W, decisions BK (2); measured on the PC, M-PC): theme '$WHEEL_THEME' " +
+            "from ${SYSTEM_ICONS.joinToString()} through ThemeIcons, converted into ${outDir.resolve("icons")}; the desktop's faces, height 352, d 8"
+        lines += "how each window's icon resolves (the names of its chain in order, the first the theme holds wins; none: the drawn icon):"
+        for ((name, kind) in listOf("Main" to wm.damage.core.gfx.IconKind.SETTINGS) + WheelCheck.WINDOWS.take(8)) {
+            val chain = wm.damage.core.gfx.IconNames.forKind(kind)
+            lines += "  $name (${kind.name}, $chain): " + listOf(56, 20).joinToString("; ") { size ->
+                "$size px " + (chain.firstOrNull { theme.resolve(it, size) != null }?.let { "'$it'" } ?: "the drawn icon")
+            }
+        }
+        val drawn = WheelCheck.cellBytes(AwtText(), null)
+        val (pending0, done0) = theme.pending() to theme.completions()
+        val themed = WheelCheck.cellBytes(AwtText(), theme)
+        val asked = theme.pending() != pending0 || theme.completions() != done0
+        lines += "the cells (the drawn icons -> his theme's), in the switcher's order:"
+        for ((a, b) in drawn.cells.zip(themed.cells)) lines += "  ${a.entry.name}: ${a.encoded.size} B -> ${b.encoded.size} B"
+        lines += "  the nine: ${drawn.cells.sumOf { it.encoded.size }} B -> ${themed.cells.sumOf { it.encoded.size }} B"
+        lines += "the block (no spare slot; the rule, the item table and the programs' slot as built): a quarter's slack a cell (as built) " +
+            "${drawn.block} B -> ${themed.block} B; an eighth's (MainStaging.segSlack) ${drawn.blockEighth} B -> ${themed.blockEighth} B"
+        if (asked) lines += "FAILED: the paint asked ThemeIcons for a resolve after the warm-up (pending ${theme.pending()}, completions ${theme.completions()})"
+        Files.writeString(outDir.resolve("wheel-icons.txt"), lines.joinToString("\n", postfix = "\n"))
+        for (l in lines) out.println(l)
+        return if (asked) 1 else 0
+    }
+
+    /** [rows] of frames, one strip row each, the left lens above the right in each frame, cropped to [crop] at 1x. */
+    private fun rowStrip(file: Path, rows: List<List<WheelCheck.Frame>>, crop: Rect) {
+        val cols = rows.maxOf { it.size }
+        val cellW = crop.w + GAP
+        val cellH = 2 * crop.h + GAP / 2 + GAP
+        val img = BufferedImage(cols * cellW + GAP, rows.size * cellH + GAP, BufferedImage.TYPE_INT_RGB)
+        for (y in 0 until img.height) for (x in 0 until img.width) img.setRGB(x, y, 0x502020)
+        val stride = (Geometry.PANEL_W + 1) / 2
+        rows.forEachIndexed { ri, row -> row.forEachIndexed { ci, f ->
+            val ox = GAP + ci * cellW
+            val oy = GAP + ri * cellH
+            for ((lens, panel) in listOf(0 to f.l, 1 to f.r)) for (y in 0 until crop.h) for (x in 0 until crop.w) {
+                val px = crop.x + x; val py = crop.y + y
+                val b = panel[py * stride + (px shr 1)].toInt() and 0xFF
+                val v = (if (px and 1 == 0) b shr 4 else b and 0x0F) * 17
+                img.setRGB(ox + x, oy + lens * (crop.h + GAP / 2) + y, ((v * 0.16).toInt() shl 16) or (minOf(255, (v * 1.05).toInt()) shl 8) or (v * 0.34).toInt())
+            }
+        } }
+        ImageIO.write(img, "png", file.toFile())
     }
 
     private class Frame(val label: String, val tick: Long, val l: ByteArray, val r: ByteArray)

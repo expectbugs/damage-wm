@@ -96,6 +96,13 @@ fun main(args: Array<String>) {
             if (status != 0) kotlin.system.exitProcess(status)
             return@runCli
         }
+        // C3 X1W: the wheel's cells with the theme's icons likewise (it reads the theme under /usr/share/icons only)
+        if (cli is Cli.WheelIcons) {
+            System.setProperty("java.awt.headless", "true")
+            val status = MotionCheck.wheelIcons(Path.of(cli.dir))
+            if (status != 0) kotlin.system.exitProcess(status)
+            return@runCli
+        }
         // --no-preview: the all-day service mode (DAILY.md) — no Swing window, no
         // X needed; the phone screen and the browser replica are the views. Set
         // BEFORE any AWT class loads so the JVM commits to headless.
@@ -112,6 +119,7 @@ fun main(args: Array<String>) {
             is Cli.Snapshot -> Snapshot.run(cfg, Path.of(cli.dir))
             is Cli.MotionCheck -> throw IllegalStateException("--motion-check runs before the config is read (above), never here")
             is Cli.LocalCheck -> throw IllegalStateException("--local-check runs before the config is read (above), never here")
+            is Cli.WheelIcons -> throw IllegalStateException("--wheel-icons runs before the config is read (above), never here")
             is Cli.BleInfo -> bleInfo()
             is Cli.HostOnly -> runBlocking { hostOnly(cfg) }
             is Cli.Shell -> runShell(cfg, cli.mode, cli.remoteHost, preview = cli.preview)
@@ -156,6 +164,11 @@ internal sealed interface Cli {
     data class LocalCheck(val dir: String) : Run {
         override val headless: Boolean get() = true
     }
+    /** C3 X1W (decisions BK (2)): the wheel's cells and block with the theme's icons beside the drawn set's, into [dir].
+     *  Always headless; it reads no config. */
+    data class WheelIcons(val dir: String) : Run {
+        override val headless: Boolean get() = true
+    }
     data class BleInfo(override val headless: Boolean = false) : Run
     data class HostOnly(override val headless: Boolean = false) : Run
 
@@ -180,7 +193,7 @@ internal const val CLI_REFUSED = 2
 internal val CLI_FLAGS: List<String> = listOf(
     "--transport", "--remote", "--sim", "--ble", "--no-preview",
     "--selfcheck", "--snapshot", "--epub-check", "--music-check", "--games-check", "--feed-check", "--card-render",
-    "--motion-check", "--local-check", "--host-only", "--ble-info",
+    "--motion-check", "--local-check", "--wheel-icons", "--host-only", "--ble-info",
     "--devices", "--approve", "--deny", "--revoke",
     "--help", "-h")
 
@@ -216,6 +229,9 @@ internal val USAGE: String = """
       --local-check DIR          Main's bound list fired through the simulator's input hook at every
                                  cursor, both directions and the press, four heights, 160 and 256 KiB;
                                  a strip PNG per case into DIR; reads no config; exit 1 when one fails
+      --wheel-icons DIR          the switcher wheel's cells and block painted with the theme's icons
+                                 beside the drawn set's, bytes into DIR/wheel-icons.txt; reads only
+                                 /usr/share/icons, converts into DIR/icons; reads no config
       --host-only                the content host alone, no shell
       --ble-info                 the BlueZ adapter and the devices it knows, no discovery
 
@@ -283,6 +299,7 @@ internal fun parseArgs(args: Array<String>): Cli {
             "--card-render" -> Cli.CardRender(value() ?: Cli.CARD_DIR, headless)
             "--motion-check" -> Cli.MotionCheck(value() ?: return Cli.Refused("--motion-check needs a DIR to write its strips into"))
             "--local-check" -> Cli.LocalCheck(value() ?: return Cli.Refused("--local-check needs a DIR to write its strips into"))
+            "--wheel-icons" -> Cli.WheelIcons(value() ?: return Cli.Refused("--wheel-icons needs a DIR to write into"))
             "--host-only" -> Cli.HostOnly(headless)
             "--ble-info" -> Cli.BleInfo(headless)
             "--transport" -> {

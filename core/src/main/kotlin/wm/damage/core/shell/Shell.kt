@@ -2438,11 +2438,24 @@ class Shell(
     }
 
     private fun paintSwitcherFrame() {
-        retire(layout.switcherPanel)       // the previewed window's rows under the panel, the last spin frame's names
-        val panel = switcher.paint(comp.composed, layout)
+        val margin = switcherMargin()
+        retire(switcher.hole(layout, margin))   // the previewed window's rows under the panel (and its margins), the last spin frame's names
+        val panel = switcher.paint(comp.composed, layout, margin, stage5 = transport.state.value.effects)
         comp.damage(panel)
         chromeDirty = true        // the top bar previews too, snapping (§4.3)
     }
+
+    /** C3 DW-0 (the DW spec §2.6, decisions BD's O2): at stage 5 ([LinkState.effects]) the black margin the open wheel
+     *  clears either side of its panel — the panel's disparity (Global `Depth`, or the content's plane when Global is 0),
+     *  so one rect per lens over the panel holds only the wheel; 0 below stage 5 and with no planes (today's hole and plane
+     *  map). Read by the hole ([paintSwitcherFrame]) and the plane map ([updatePlanes]) alike, once per compose each. */
+    private fun switcherMargin(): Int {
+        if (!transport.state.value.effects || quiet) return 0
+        return if (settings.depth != 0) settings.depth else contentDepth()
+    }
+
+    /** The content's plane: the FOCUSED app's own depth when it set one, else the Global row; Main is always the Global row. */
+    private fun contentDepth(): Int = (if (mode == Mode.WINDOW) current?.let { appDepth(it) } else null) ?: settings.depth
 
     /** Live preview (§4.3): the window BEHIND the panel becomes the selected
      *  one — a RENDER, never an activation; lowest-priority, runs on settle. */
@@ -7741,7 +7754,7 @@ class Shell(
         noticePlane = null
         // content: the FOCUSED app's own depth when it set one, else the
         // Global row; Main is always the Global row
-        val contentD = (if (mode == Mode.WINDOW) current?.let { appDepth(it) } else null) ?: d
+        val contentD = contentDepth()
         if ((d != 0 || contentD != 0) && !quiet) {
             // §3.1 revised 2026-09-06 (Adam, on glass): the Global `Depth`
             // moves EVERYTHING — both bars with their dividers, Main, and every
@@ -7805,12 +7818,9 @@ class Shell(
                 // the keyboard owns the depth story while open (§4.8): plane 0
                 keyboard.rect(layout)?.let { planes.add(Compositor.PlaneRegion(it, 0)) }
             }
-            if (switcher.open) {
-                if (d != 0) planes.add(Compositor.PlaneRegion(layout.switcherPanel, d)) // neighbours with content
-                val centre = Rect(layout.switcherPanel.x, layout.switcherPanel.y + 44,
-                    layout.switcherPanel.w, 88)
-                planes.add(Compositor.PlaneRegion(centre, 0))               // centre band forward
-            }
+            // the panel with the neighbours at content depth, the centre band forward (C3 DW-0: at stage 5 the panel's
+            // margins and the band as painted, `Switcher.planes`)
+            if (switcher.open) planes.addAll(switcher.planes(layout, d, switcherMargin()))
             val n = notifications.current
             if (n != null) {
                 val box = notifications.fullRect(n, layout, silent = false)
