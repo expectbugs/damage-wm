@@ -1489,17 +1489,19 @@ class GlyphSubsetShellTest {
             r.spy.holdCountAnswers = null
             val fresh = CompletableDeferred<Unit>()
             r.spy.holdCounts = fresh                           // the next session's readings wait on their own gate
+            val asked = r.spy.countsAsked.get()
             r.clock += 20_000L
             r.lab.endLink("test: supervision timeout")
             r.until("the second session drives") { r.keeper.attempts == 2 && r.driving() }
             r.until("the glasses saw the second connect") { r.sim.preludeAcks == 2 }
+            // FX-083 B1: Q's message, acked and not yet judged when the link ended, goes again under the kept atlas — a
+            // cache write owed from the start, so the new session's base is asked at once (it was asked at Z's cut before)
+            r.until("the new session's base is asked for (and held)") { r.spy.countsAsked.get() == asked + 1 }
             r.settle("the second session")
-            val asked = r.spy.countsAsked.get()
             val queued = r.shell.atlasExtensionsQueued
             r.win.suffix = "abQZ"
             r.notch("a character new to the kept atlas")
             r.until("its extension is cut") { r.shell.atlasExtensionsQueued > queued }
-            r.until("the new session's base is asked for (and held)") { r.spy.countsAsked.get() == asked + 1 }
             r.settle("the base out")
             val sent = r.spy.atlasFlushes()
             val notes = r.notes("atlas").size
@@ -1715,6 +1717,78 @@ class GlyphSubsetShellTest {
         } finally { r.close() }
     }
 
+    /** B1: LEFT's forward of the NEXT cache-write message is lost on RIGHT alone — LEFT acks it (the ack precedes the
+     *  decode) and takes it; RIGHT never does. */
+    private fun loseNextCacheWriteOnRight(r: Rig) {
+        val armed = java.util.concurrent.atomic.AtomicBoolean(true)
+        r.sim.rightForward = { img -> !((img[0].toInt() and 0x7F) in setOf(12, 19, 25) && armed.getAndSet(false)) }
+    }
+
+    /** B1: the atlas writes so far (each ATLAS flush's offsets and lengths) whose bytes differ between the lenses' caches. */
+    private fun atlasApart(r: Rig): List<String> {
+        val l = r.sim.left.textureCache ?: return listOf("LEFT holds no cache")
+        val g = r.sim.right.textureCache ?: return listOf("RIGHT holds no cache")
+        return r.spy.atlasWrites().flatten().distinct().filter { (off, len) -> (off until off + len).any { l[it] != g[it] } }
+            .map { (off, len) -> "$off+$len" }
+    }
+
+    /**
+     * B1 (the lead's ruling on FR-083; older than X6T, from 0.64): an atlas message LEFT acked and RIGHT never took, and —
+     * before two settled readings — another booked cache write whose completion says not delivered: the books go unsure
+     * and the next reading re-bases at RIGHT's generation. The first-time messages acked and unjudged go again through the
+     * shortfall's re-send, so at rest RIGHT's cache holds every atlas write's bytes as LEFT's does, the count agrees, and
+     * the keyframe that follows a counted re-send leaves both lenses as believed. Before B1 the re-base dropped the
+     * message as "not judged", nothing ever called it short, and RIGHT drew its glyphs from bytes it never held.
+     * Mutation watched: the re-send at the re-base removed (`FX-B1-base-no-resend`).
+     */
+    @Test
+    fun anAtlasMessageRightNeverTookGoesAgainAfterAReBase_B1(): Unit = runBlocking {
+        val r = rig(2, pinClock = true)
+        try {
+            val n = warm(r)
+            loseNextCacheWriteOnRight(r)
+            reveal(r, "abQ", n)
+            assertTrue(atlasApart(r).isNotEmpty(), "RIGHT never took Q's message")
+            r.spy.failNextAtlas = true                         // the next ATLAS completion reads as not delivered
+            r.win.suffix = "abQZ"
+            r.notch("the notch that reveals Z")
+            r.until("the re-base after the lost write") { r.count("count re-based").any { "a write was lost before the reading" in it } }
+            r.atlasIdle("after the re-base")
+            assertEquals(emptyList<String>(), atlasApart(r), "RIGHT's cache holds every atlas write's bytes as LEFT's does: ${r.count("count re-based")}")
+            println("B1 (i): ${r.count("count re-based").lastOrNull()?.substringAfter("\"detail\":\"")?.substringBefore("\"")}; keyframes ${r.spy.keyframes()}")
+            r.notch("Q cached")
+            r.assertGlassMatchesBelief("after the re-base and the re-send")
+        } finally { r.sim.rightForward = null; r.close() }
+    }
+
+    /**
+     * B1, the carried rebuild: an atlas message LEFT acked and RIGHT never took, and the link ends before the count has
+     * judged it; the rebuild's acquire is a renewal, so the atlas is kept. The messages acked and unjudged at the link end
+     * go again under the kept atlas, and at rest RIGHT's cache holds every atlas write's bytes as LEFT's does. Before B1
+     * the kept atlas took them as live and the start's count reset dropped them unsent.
+     * Mutation watched: the re-send at the kept rebuild removed (`FX-B1-kept-no-resend`).
+     */
+    @Test
+    fun anAtlasMessageRightNeverTookGoesAgainUnderAKeptAtlas_B1(): Unit = runBlocking {
+        val r = rig(2, pinClock = true)
+        try {
+            val n = warm(r)
+            loseNextCacheWriteOnRight(r)
+            reveal(r, "abQ", n)
+            assertTrue(atlasApart(r).isNotEmpty(), "RIGHT never took Q's message")
+            r.clock += 20_000L
+            r.lab.endLink("test: supervision timeout")
+            r.until("the second session drives") { r.keeper.attempts == 2 && r.driving() }
+            r.until("the glasses saw the second connect") { r.sim.preludeAcks == 2 }
+            assertTrue(r.notes("atlas").any { "kept across the rebuild" in it }, "kept: ${r.notes("atlas").takeLast(5)}")
+            r.atlasIdle("after the kept rebuild")
+            assertEquals(emptyList<String>(), atlasApart(r), "RIGHT's cache holds every atlas write's bytes as LEFT's does: ${r.notes("atlas").takeLast(4)}")
+            println("B1 (ii): ${r.notes("atlas").lastOrNull { "kept across the rebuild" in it }?.substringAfter("\"detail\":\"")?.substringBefore("\"")}")
+            r.notch("Q cached")
+            r.assertGlassMatchesBelief("after the kept rebuild's re-send")
+        } finally { r.sim.rightForward = null; r.close() }
+    }
+
     /**
      * L13. A late bump that does not cover the shortfall still gets its keyframe. Two messages in
      * one interval: the first is refused on the glasses, the second lands and its bump is read
@@ -1786,9 +1860,12 @@ class GlyphSubsetShellTest {
                 r.count("count re-based — ").any { "a write was lost before the reading" in it && "a re-send among them: keyframing" in it } }
             r.until("a keyframe") { r.spy.keyframes() > kf }
             r.atlasIdle("after the re-base")
-            assertEquals(kf + 1, r.spy.keyframes(), "one keyframe")
-            assertTrue(r.count("re-send counted").isEmpty() && r.count("count short again").isEmpty(),
-                "no verdict is made up for the re-send: ${r.count("re-send") + r.count("count short again")}")
+            // FX-083 B1: Z — a first-time message acked and unjudged at the re-base (its first send was the lost one, its
+            // second acked) — goes once more, and its counted re-send keyframes as a shortfall's does: two keyframes here,
+            // the re-base's (for Q's re-send) and the counted re-send's (for Z's)
+            assertTrue(r.count("count re-based — ").any { "first-time message(s)" in it && "go once more" in it }, "Z goes once more: ${r.count("count re-based")}")
+            assertEquals(kf + 2, r.spy.keyframes(), "the re-base's keyframe and Z's counted re-send's")
+            assertTrue(r.count("count short again").isEmpty(), "no verdict is made up for Q's re-send: ${r.count("re-send") + r.count("count short again")}")
             assertEquals(1, r.count("count short —").size, "one shortfall")
             r.dismissNotices()
             r.assertGlassMatchesBelief("after the re-base's keyframe")

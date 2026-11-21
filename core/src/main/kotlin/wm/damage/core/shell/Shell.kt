@@ -3520,6 +3520,7 @@ class Shell(
      * construction.
      */
     private fun atlasAtSessionStart(adopted: Boolean) {
+        val unjudged = atlasUnproven.toList()   // B1: read before the start's count reset empties the books
         stageSessionStart()             // §66: staged records never cross a session boundary
         val ct = cachedText
         val a = atlas
@@ -3538,7 +3539,7 @@ class Shell(
                 (if (st.cacheWriter.isEmpty()) "" else " (${st.cacheWriter})")
             else -> null
         }
-        if (ct != null && a != null && reset == null) { atlasKeep(ct, a, st); return }
+        if (ct != null && a != null && reset == null) { atlasKeep(ct, a, st, unjudged); return }
         atlasReset()
         if (reset == null) return
         // the transport's gaps ride every reset note too, unless the reason already quotes them
@@ -3546,8 +3547,9 @@ class Shell(
         journal.note("atlas", "reset — $reset$facts")
     }
 
-    /** The kept path of [atlasAtSessionStart]: the glasses hold [a]'s acked bytes. */
-    private fun atlasKeep(ct: CachedText, a: GlyphAtlas, st: LinkState) {
+    /** The kept path of [atlasAtSessionStart]: the glasses hold [a]'s acked bytes — but for [unjudged], the messages acked
+     *  and not yet judged when the link ended, which may have reached LEFT alone: they go again (B1). */
+    private fun atlasKeep(ct: CachedText, a: GlyphAtlas, st: LinkState, unjudged: List<AtlasWrite>) {
         ct.target = comp.composed
         wm.damage.core.gfx.IconPaint.recorder = ct
         // §73: the frame stamps and the icons stay — cleared, every resident face and icon read
@@ -3580,8 +3582,10 @@ class Shell(
         ct.live = held
         ct.liveImages = heldImages
         comp.cachedText = if (held.isEmpty() && heldImages.isEmpty()) null else ct
+        val (again, bytes) = atlasResendUnjudged(unjudged)          // B1: after atlasCheckOwed's clears
         journal.note("atlas", "kept across the rebuild (${st.leaseCarry}): ${held.size} font(s) and " +
-            "${heldImages.size} icon(s) live, ${a.ackedBytes} B on the glasses, ${a.used - a.ackedBytes} B to go again")
+            "${heldImages.size} icon(s) live, ${a.ackedBytes} B on the glasses, ${a.used - a.ackedBytes} B to go again" +
+            (if (again > 0) "; $again message(s) acked and not judged when the link ended, $bytes B, go once more (the keyframe follows their count)" else ""))
     }
 
     private fun atlasReset() {
@@ -5035,8 +5039,12 @@ class Shell(
                 if ((atlas?.resendsQueued ?: 0) == 0) atlasResendMissing = 0L
                 if (dropped.isNotEmpty()) {
                     val resent = dropped.any { it.done?.resend == true }
+                    // B1 (the lead's ruling on FR-083): after a lost write a first-time message among them may be one LEFT
+                    // acked and RIGHT never took — nothing would ever call it short — so it goes again as a shortfall's do
+                    val (again, bytes) = if (v.first) 0 to 0 else atlasResendUnjudged(dropped)
                     journal.note("atlas", "count re-based — ${dropped.size} atlas message(s) acked before it are not judged (" +
                         (if (v.first) "the session's first reading" else "a write was lost before the reading") + ", generation ${v.gen})" +
+                        (if (again > 0) "; $again first-time message(s), $bytes B, go once more (the keyframe follows their count)" else "") +
                         (if (resent) "; a re-send among them: keyframing" else ""))
                     if (resent) comp.requestKeyframe("atlas: the count was re-based")
                 }
@@ -5210,6 +5218,26 @@ class Shell(
                 "a cache write sent twice was not counted either time — it is not sent again; text from the cache may draw wrong until the next session"
             else "the count is short again after a re-send (${again.size} re-sent, ${k - again.size} other write(s) read with it) — nothing more is sent for the re-sent message(s)",
                 source = "cache")
+    }
+
+    /**
+     * B1 (the lead's ruling on FR-083; older than X6T): [dropped] — atlas messages acked and never judged — leave the books
+     * at a re-base after a lost write or at a carried rebuild, and one of them may be a message LEFT acked and RIGHT never
+     * took: no later reading would call it short, and RIGHT would draw its glyphs from bytes it does not hold. The
+     * first-time ones are queued once more through the shortfall's re-send ([atlasShortfall]: a plain copy of the layout
+     * that stands, cut into messages of their own, never queued a third time); their count's verdict keyframes as a
+     * counted re-send does ([ledgerVerdict], Proven). A message that was itself a re-send is not queued again (the same
+     * bound). Returns the messages queued and their bytes.
+     */
+    private fun atlasResendUnjudged(dropped: List<AtlasWrite>): Pair<Int, Int> {
+        val a = atlas ?: return 0 to 0
+        val first = dropped.mapNotNull { it.done }.filter { !it.resend }
+        if (first.isEmpty()) return 0 to 0
+        val bytes = a.resend(first.flatMap { it.writes })
+        atlasWritesChosenAgain += first.size
+        atlasResendMissing = maxOf(atlasResendMissing, first.size.toLong())      // none known landed: as many as went again
+        atlasWantVersion = -1          // the grow's cue, as after a shortfall
+        return first.size to bytes
     }
 
     /** Build C1's ruling R1.16: END of the test program [name] — played by the `motion=NAME` dev probe, its PLAY

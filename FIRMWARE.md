@@ -1435,7 +1435,15 @@ is stated there.
   after every 115 heard is answered, waited to its ack (it reaches every local instance either lens can still hold;
   decisions AA.3); without one the disarm is not
   sent and a note says so (§5.8's rule for ENGINE). At a carried-lease start the start's FLAGS_SET may clear BIND with
-  no DISCARD (the warmup keyframe closes every instance, R1.17).
+  no DISCARD (the warmup keyframe closes every instance, R1.17). **The cache count (field 17) sees every write.** Every
+  cache write the phone sends — an atlas chunk, a staged record's piece, a transition's records' or lists' write — is
+  booked at its send and counted at its acknowledgement, and every such acknowledgement restarts the window in which a
+  short reading counts for nothing. A count reading is sent only when no booked write is unacknowledged; a cache write
+  sent while a reading is on its way voids that reading — its answer is dropped whole and the reading is asked again —
+  so no answer can hold a write its counts lack (C3 X6T, decisions AW). **An atlas write acknowledged and not yet judged
+  is never dropped unsent** (FX-083 B1): when the count re-bases after a lost write, and at a rebuild that keeps the
+  atlas, those writes go once more through the shortfall's re-send, and the keyframe that follows a counted re-send
+  follows them too — a write LEFT acknowledged may never have reached RIGHT, and no later reading would call it short.
 - **P10 the mirror.** A bound list's areas are unknown on the panel from the first report of a burst to the SETTLE that
   ends it; the model applies COMMIT's END only, in stream order, painted from the phone's own copy of the staged
   records the COMMIT's program and P0..P3 name — the pictures the fire drew, current or older than the window's truth
@@ -2383,6 +2391,7 @@ one-period wait; with this it is drawn a few ms late.
   cannot tell from an image, so the builders keep version-2 records out below stage 5.
   EFFECTS is armed at the session start, before any PLAY, so every instance the phone opens at stage 5 runs the fast
   DRAW path (§7.12).
+- **A transition's records' and lists' writes are cache writes under §6.7 P9's count rule.**
 - **A list whose programs use a source window** (Crush, Flip) stages with pitch = +row height and draws its strip tracks
   as windows at fixed y's; the strip carries margins (blank rows, or on a ring list the other end's rows, §7.8) so that no
   window leaves the record (5). The pitch follows the list's Scroll effect: changing the effect re-stages the list.
