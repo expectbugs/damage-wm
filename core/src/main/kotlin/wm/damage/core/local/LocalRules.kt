@@ -524,7 +524,8 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
             DamageMsg.APPLIED_REFUSED -> {
                 val r = a.reason ?: 0
                 if (r == 5 || r == 12) note("local", "a fire refused $r (P4): ${a.describe()}")
-                return asToday(if (r == 5 || r == 12 || r == 18) "restaged" else "link")
+                // C3 X3M0 (decisions BB (2)): 19, an owning instance in the fire's close set (§7.3), has a word of its own
+                return asToday(when (r) { 5, 12, 18 -> "restaged"; 19 -> "owner"; else -> "link" })
             }
             DamageMsg.APPLIED_EDGE -> return asToday("edge")
             DamageMsg.APPLIED_DREW -> {}

@@ -128,6 +128,32 @@ class LocalRulesTest {
         assertTrue(d > 0 && isListRing(eb[d - 1]), "the DISCARD naming row 0 behind a LIST-RING: ${eb.map { it.joinToString("") { x -> "%02x".format(x) } }}")
     }
 
+    /** C3 X3M0 (decisions BB (2)): a scroll fire refused 19 — a transition's owner in its close set (§7.3), field 8 the
+     *  cursor unchanged, fields 10–14 computed at the new cursor (§6.5; `v5-own` steps 59 and 98) — is applied as today
+     *  with the cause `owner` and is no evidence for the table repair: no SET owed, the batch [LIST, DISCARD naming the
+     *  row]. The same on a ring list at the wrap up from row 0 (fields 10–14 at v = −1). Before: "parameters differ from
+     *  the prediction", the entry's SET (25 B) and a `repair` note at every notch under a transition. */
+    @Test
+    fun aScrollRefused19IsNoRepairEvidence_X3M0() {
+        fun kinds(b: List<ByteArray>) = b.map { "${it[0].toInt() and 0xFF}/${it[1].toInt() and 0xFF}" }
+        val t = R(row = 3)
+        assertEquals(Verdict.Apply(EvenHubMsg.EV_SCROLL_BOTTOM), t.scroll(1, 3, outcome = DamageMsg.APPLIED_REFUSED, reason = 19, p = intArrayOf(recs[4], 0, 0, 0)))
+        assertEquals(emptySet(), t.r.repair.owedObjects(), "no SET owed: ${t.notes}")
+        val b = t.batch()
+        assertEquals(listOf("27/2", "26/4"), kinds(b), "the batch: the riding LIST and the DISCARD, no SET")
+        assertTrue(isDiscard(b[1], 1, cursor = 4), "the DISCARD names the row the notch moved to")
+        assertTrue(t.notes.none { it.first == "repair" }, "no repair note: ${t.notes}")
+        assertEquals("owner", t.notes.last { it.first == "snapback" }.second.substringAfter("cause=").substringBefore(' '))
+        val w = R(l = list(ring = true, params = PK2), row = 0)
+        assertEquals(Verdict.Apply(EvenHubMsg.EV_SCROLL_TOP), w.scroll(1, 0, id = CfwModes.EV_DOWNROLL, outcome = DamageMsg.APPLIED_REFUSED, reason = 19,
+            p = intArrayOf(recs[7], -8, 0, 0)))
+        assertEquals(emptySet(), w.r.repair.owedObjects(), "ring, at the wrap: no SET owed: ${w.notes}")
+        val wb = w.batch()
+        assertEquals(listOf("27/${CfwModes.BIND_LIST_RING}", "26/4"), kinds(wb), "ring: the riding LIST-RING and the DISCARD, no SET")
+        assertTrue(isDiscard(wb[1], 1, cursor = 7), "ring: the DISCARD names the wrapped row")
+        assertTrue(w.notes.none { it.first == "repair" }, "ring: no repair note: ${w.notes}")
+    }
+
     /** C3 DM-0 (S5, the class): on a ring list EVERY LIST the rules write is LIST-RING with flags 1 — the start's, the one
      *  riding before a COMMIT, a DISCARD, an idle SETTLE and the lone SETTLE, the whole table again (a refusal record
      *  naming 27, one naming 26 through the gate, a refused flush) and a re-staging's. A plain LIST clears RING on the
@@ -582,6 +608,7 @@ class LocalRulesTest {
         R().let { it.r.front(null, 3); it.scroll(1, 4); assertEquals("focus", cause(it)) }
         R().let { it.scroll(1, 4, outcome = 1); assertEquals("edge", cause(it)) }
         R().let { it.scroll(1, 4, outcome = 2, reason = 3); assertEquals("link", cause(it)) }
+        R().let { it.scroll(1, 3, outcome = 2, reason = 19, p = intArrayOf(recs[4], 0, 0, 0)); assertEquals("owner", cause(it)) }   // C3 X3M0
         R().let { it.scroll(1, 4); it.batch(denied = setOf(0))     // a drawing sub met the areas: the COMMIT turned
             assertEquals("focus", it.notes.last { n -> n.first == "snapback" }.second.substringAfter("cause=").substringBefore(' ')) }
         R().let { it.scroll(1, 4); it.batch(); it.now += it.r.q; it.r.loneSettle(it.row, it.now)
