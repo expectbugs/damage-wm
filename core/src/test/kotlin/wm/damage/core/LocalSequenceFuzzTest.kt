@@ -329,17 +329,15 @@ class LocalSequenceFuzzTest {
 
     /** C3 DM-1 (S6; the brief's item 8): half the plain sequences — never a named seed, chosen by the seed with no draw from
      *  the sequence's stream — switch the list between the two pitch forms mid-session ([LocalHarness.pitchSwitch], every
-     *  sixth driven event, no draw either), with the pitch probe drawn by a kind-2 parameter, on the staging's fitted T and
-     *  P ([PITCH_FIT]: decisions BE (8), for these sequences; the others keep theirs, so no named seed moves). Plain lists
-     *  only ([LocalHarness]'s `pitchProbe`: a ring fire's kind 2 at the virtual row needs Main's margins, which the
-     *  harness's static ruler cannot hold across its re-stagings — the local check's ring cases hold them for Crush). */
+     *  sixth driven event, no draw either), with the pitch probe drawn by a kind-2 parameter. Plain lists only
+     *  ([LocalHarness]'s `pitchProbe`: a ring fire's kind 2 at the virtual row needs Main's margins, which the harness's
+     *  static ruler cannot hold across its re-stagings — the local check's ring cases hold them for Crush). On the fuzz's
+     *  own short motion: the staging's fitted T and P (decisions BE (8)) put these sequences into a class invariant (1)
+     *  declares nothing for — a tap inside the held wait after a snap-back's DISCARD (seed 424201318, `C3-DM1-built.md`) —
+     *  whose declaration is invariant (1)'s classification, left to the stage after B7's merge. */
     private fun pitchOf(seed: Long) = !ringOf(seed) && seed !in GATE_SEEDS.keys && seed !in HIS_GATE_SEEDS.keys && seed !in BS3_SEEDS.keys &&
         seed !in RING_GATE_SEEDS.keys && (seed / 4) % 2 == 1L
 
-    /** The staging's fitted (period, T) for the pitch-switch sequences: Main at 352, Global Depth 8, 300 ms Auto, on C2's fit
-     *  (a plain list is stage 4's: `ScrollEffects.timing`), as the shell stages it — decisions BE (8). */
-    private val PITCH_FIT: Pair<Int, Int> = wm.damage.core.motion.ScrollEffects.timing(wm.damage.core.motion.ScrollEffect.DEPTH,
-        wm.damage.core.geom.Layout().withHeightMode(352, wm.damage.core.geom.VPos.TOP), 8, 4, wm.damage.core.shell.MainStaging.ScrollMotion.DEFAULT, false)
 
     /** The counted key of a declared class, split by the list's form (C3 DM-0: J3 needs an edge on RIGHT, which a ring list
      *  gives only after a LIST-RING lost or refused there). */
@@ -350,7 +348,7 @@ class LocalSequenceFuzzTest {
         val taps = Taps.entries[r.nextInt(3)]
         val pitch = pitchOf(seed)
         val h = if (!pitch) LocalHarness(seed, taps, ring = ringOf(seed))
-            else LocalHarness(seed, taps, tScroll = PITCH_FIT.second, period = PITCH_FIT.first, pitchProbe = true)
+            else LocalHarness(seed, taps, pitchProbe = true)
         declaredNow = HashSet()
         val counted0 = ArrayList<String>()
         if (debug) h.trace = { println(it) }

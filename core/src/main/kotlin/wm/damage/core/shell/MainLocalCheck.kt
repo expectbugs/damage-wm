@@ -152,14 +152,20 @@ object MainLocalCheck {
      *  256 KiB, his cache — `desktop --motion-check`'s scroll section, for the lead's look before his. C3 FF: and each at
      *  stage 5 (`scroll-<effect>-h<height>-s5-<notch>`), its programs on the fast DRAW path's fit, the wrap a ring fire
      *  where Main's paint wraps. */
-    fun effectStrips(text: TextRasterizer, heights: List<Int> = ShellSettings.HEIGHTS, depth: Int = 8): Result {
+    fun effectStrips(text: TextRasterizer, heights: List<Int> = ShellSettings.HEIGHTS, depth: Int = 8,
+                     /** C3 DM-1: each case handed over as it is made (the desktop writes its strip), the result then keeping
+                      *  it without its frames — six effects' strips held at once passed the desktop test's heap. */
+                     onCase: ((Case) -> Unit)? = null): Result {
         val cases = ArrayList<Case>()
         val table = ArrayList<String>()
         for (stage5 in listOf(false, true)) for (h in heights) for (e in ScrollEffect.entries) {
             val r = runOne(text, h, 256, depth, true, e, pansOnly = true, stage5 = stage5)
             val s5 = if (stage5) "-s5" else ""
             val tag = "h$h-256k" + (if (e == ScrollEffect.DEPTH) "" else "-${e.id}") + s5
-            cases += r.first.map { c -> Case("scroll-${e.id}-h$h$s5-${c.name.removePrefix("$tag-")}", "${e.word}${if (stage5) " at stage 5" else ""}: ${c.about}", c.crop, c.frames, c.lines, c.failures) }
+            for (c0 in r.first) {
+                val c = Case("scroll-${e.id}-h$h$s5-${c0.name.removePrefix("$tag-")}", "${e.word}${if (stage5) " at stage 5" else ""}: ${c0.about}", c0.crop, c0.frames, c0.lines, c0.failures)
+                if (onCase == null) cases += c else { onCase(c); cases += Case(c.name, c.about, c.crop, emptyList(), c.lines, c.failures) }
+            }
             table += (if (stage5) "stage 5: " else "") + r.second
         }
         return Result(cases, table)
