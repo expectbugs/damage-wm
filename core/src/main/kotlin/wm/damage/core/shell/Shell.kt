@@ -6318,6 +6318,11 @@ class Shell(
         else -> null
     }
 
+    /** Build C3, stage DM-0 (S2, decisions AD): Main's list takes the ring form — LIST-RING, the strip's margins holding
+     *  the other end's rows, no wrap record — at stage 5 (DamageCaps bit 11 and EFFECTS in force: the transport's state)
+     *  where Main's paint wraps ([MainStaging.ringFits]: 8 rows at 288 and 352). Elsewhere today's form, byte for byte. */
+    private fun mainBindRing(st: LinkState, lay: Layout, rows: Int): Boolean = st.effects && MainStaging.ringFits(lay, rows)
+
     /** Build ANIM (AV, AW.1): the motion the `Animations` rows ask for. */
     private fun motionInForce() = MainStaging.ScrollMotion(settings.scrollLength, settings.frames,
         wm.damage.core.motion.ScrollEffect.byId(settings.scrollEffect) ?: wm.damage.core.motion.ScrollEffect.DEFAULT)
@@ -6370,6 +6375,9 @@ class Shell(
             // (`mainBindReprogram`); a staging with none is made again whole, as before; a change in a burst waits for its SETTLE
             ms.progSlots == null && ms.motion != motionInForce() && !mainBindBurstOpen() -> "the motion changed (${motionWords(ms)} → ${motionInForce().lengthMs} ms, " +
                 "${if (motionInForce().frames == 0) "Auto" else "${motionInForce().frames} frames"})"
+            // build C3, stage DM-0: the staging's form follows EFFECTS in force — a ring staging is never bound without it
+            // (a LIST-RING would be refused 15), and a stage-4 form staged before EFFECTS landed gives way to the ring
+            st.bind && ms.ring != mainBindRing(st, ms.layout, ms.rows) -> "the stage-5 form ${if (ms.ring) "no longer matches: EFFECTS is not in force" else "is wanted: EFFECTS is in force"}"
             else -> null
         }
         if (why != null) { mainBindDrop(why); return }
@@ -6396,7 +6404,8 @@ class Shell(
         if (offer !== main.offered) {
             main.offered = offer
             if (offer != null) journal.note("mainstage", "offered — Main's ${ms.rows} rows counted on the glasses: list ${offer.list} slot ${offer.slot} " +
-                "mark ${offer.mark}, ${offer.entries.size} entries (the whole list, P ${ms.periodInForce} T ${ms.t}), items at off4 ${offer.items4}")
+                "mark ${offer.mark}, ${offer.entries.size} entries (the whole list, P ${ms.periodInForce} T ${ms.t}), items at off4 ${offer.items4}" +
+                if (offer.ring) ", a ring list (LIST-RING: the wrap notch fires on the glasses)" else "")
         }
     }
 
@@ -6482,7 +6491,8 @@ class Shell(
         val lay = mainBindLayout()                       // decisions BP: behind the clock, the layout its wake brings
         // decisions AF.6: the rows' content is part of what a refusal is keyed on — a staging that did not fit is tried
         // again when what it was sized for changes (and at every session start)
-        val what = "$lay $listD/$bandD $n ${region.first}..${region.last} ${st.cacheSize} ${motionInForce()} ${List(n) { main.rowKey(it) }.hashCode()}"
+        val ring = mainBindRing(st, lay, n)                // DM-0: the stage-5 form where Main wraps
+        val what = "$lay $listD/$bandD $n ${region.first}..${region.last} ${st.cacheSize} ${motionInForce()} ring=$ring ${List(n) { main.rowKey(it) }.hashCode()}"
         if (mainBindRefusedFor == what) return false
         val ct = cachedText
         // decisions AF.8: one row painted per loop turn (its row form and band form); the staging is laid out once every row
@@ -6512,12 +6522,12 @@ class Shell(
         val room = mainBind.roomFor(List(pt.n) { main.rowIdentity(it) })
         val ms = try {
             // the bound list's pans only (AF.10); at 256 KiB Main's own region holds a second strip (AD.2)
-            try { MainStaging.assemble(pt, listD, bandD, st.cacheSize, region.first, region.last + 1, listOf(MainStaging.WHOLE), twoStrips = !shared0, motion = motionInForce(), room = room) }
+            try { MainStaging.assemble(pt, listD, bandD, st.cacheSize, region.first, region.last + 1, listOf(MainStaging.WHOLE), twoStrips = !shared0, motion = motionInForce(), room = room, stage5 = ring) }
             catch (e: wm.damage.core.geom.LintError) {
                 if (shared0) throw e
                 // decisions AU.1 (b): two strips do not fit Main's region — ONE strip is staged, and a row form's change
                 // withdraws the list as at 160 KiB; never "not staged" while one strip fits
-                MainStaging.assemble(pt, listD, bandD, st.cacheSize, region.first, region.last + 1, listOf(MainStaging.WHOLE), twoStrips = false, motion = motionInForce(), room = room)
+                MainStaging.assemble(pt, listD, bandD, st.cacheSize, region.first, region.last + 1, listOf(MainStaging.WHOLE), twoStrips = false, motion = motionInForce(), room = room, stage5 = ring)
                     .also { journal.note("mainstage", "two strips do not fit Main's region (${e.message}) — one strip staged; a row form's change withdraws the list, as at 160 KiB") }
             }
         } catch (e: wm.damage.core.geom.LintError) {
@@ -6553,7 +6563,8 @@ class Shell(
             (if (ms.stripB != null) " and its second slot ${ms.blobs[1].bytes.size} B" else "") + ", ${ms.rows} band forms " +
             "${ms.blobs.drop(if (ms.stripB != null) 2 else 1).take(ms.rows).sumOf { it.bytes.size }} B, the item table and ${ms.pans.size + 1} programs ${ms.blobs.takeLast(2).sumOf { it.bytes.size }} B; " +
             "planes $listD/$bandD, press to ${ms.press.pressD}; ${mainBind.stagings} staging(s) and ${mainBind.stagedBytes} B this process" +
-            (if (ms.wrap == null && ms.rows > ms.layout.rowsAbove + ms.layout.rowsBelow + 1) "; the wrap's own record left out (the region " +
+            (if (ms.ring) "; the stage-5 form: a ring list (LIST-RING), the strip's margins ${ms.margin} rows of the other end, no wrap record " +
+                "— the wrap notch fires on the glasses" else if (ms.wrap == null && ms.rows > ms.layout.rowsAbove + ms.layout.rowsBelow + 1) "; the wrap's own record left out (the region " +
                 "does not hold it): the wrap goes as the shell's frames" else "") +
             (if (mainBehindClock()) " — behind the clock: the list is bound when Main is in front" else ""))
         post(Msg.Pump)

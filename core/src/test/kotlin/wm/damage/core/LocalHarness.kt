@@ -36,9 +36,14 @@ import wm.damage.core.wire.TextureCache
 class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, val freshAtStarts: Boolean = true,
                    /** B083 (2d): the scroll program's steps and the entries' period — the fuzz's short motion by default, his
                     *  phone's (T 6 at P 46, 0.81) in the skewed rig. */
-                   val tScroll: Int = T_SCROLL, val period: Int = PERIOD) {
+                   val tScroll: Int = T_SCROLL, val period: Int = PERIOD,
+                   /** C3 DM-0: a bit-11 build (0xdff) at stage 5 with the list bound as a ring list (LIST-RING): a wrap notch
+                    *  fires on the lens like any other — the simulator's own model of a ring fire (`BindSim`), no copy here. */
+                   val ring: Boolean = false) {
     val rnd = java.util.Random(seed)
-    val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = 0x5FF; it.clockIsOsTick = true }
+    val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = if (ring) 0xDFF else 0x5FF; it.clockIsOsTick = true }
+    /** The flags each start arms: stage 4's, and EFFECTS at stage 5 (a ring list needs it, `FIRMWARE.md` §7.8). */
+    private val armed = ARMED or (if (ring) DamageMsg.FLAG_EFFECTS else 0)
     var now = 1000L
     val notes = ArrayList<Pair<String, String>>()
     var trace: ((String) -> Unit)? = null
@@ -161,7 +166,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         return BoundList(0, 0, ids.size, BAND.h, mark and 0xFF, at4, items, listOf(
             BoundList.Entry(0, CfwModes.EV_UPROLL, +1, period, sp().at, p, sp()),
             BoundList.Entry(1, CfwModes.EV_DOWNROLL, -1, period, sp().at, p, sp()),
-            BoundList.Entry(2, CfwModes.EV_TAP, 0, period, press.at, p, press)))
+            BoundList.Entry(2, CfwModes.EV_TAP, 0, period, press.at, p, press)), ring = ring)
     }
 
     private fun sp() = if (scrollAlt) scroll2 else scroll
@@ -588,6 +593,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         val before = row; val carried = carriedNow(); val heardBefore = rules.sHeard
         val opening = !rules.burstOpen
         val v = rules.report(a, row, now)
+        if (v is LocalRules.Verdict.Adopt && a.wrapped) wrapAdopted += g        // C3 DM-0: a ring fire across the wrap, adopted
         if (opening && rules.burstOpen) { burstFrom = now; burstS0 = heardBefore; burstSeq++ }
         trace?.invoke("[$now] phone 115 g$g ${a.describe()} row $row → $v")
         verdicts += g to v
@@ -674,6 +680,8 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     var wrapCuts = 0
     /** When the phone first handled each gesture's report. */
     val reportHeardAt = HashMap<Int, Long>()
+    /** C3 DM-0: the gestures whose ring fire wrapped (field 18) and whose report the phone adopted. */
+    val wrapAdopted = ArrayList<Int>()
     fun back() { if (!window) return; window = false; frontGen++; if (!covered) rules.front(bound, row); pumpSoon() }
     fun toggleBadge() { badge = !badge; pumpSoon() }
     fun tick() { clock++; pumpSoon() }
@@ -786,7 +794,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     var sampler: (() -> Unit)? = null
     fun kindOf(sub: ByteArray): String = when (sub[0].toInt()) {
         26 -> when (sub[1].toInt()) { 0 -> "PLAY"; 2 -> "CLOSE"; 3 -> "COMMIT"; 4 -> "DISCARD"; 5 -> "SETTLE"; else -> "26/${sub[1]}" }
-        27 -> when (sub[1].toInt()) { 0 -> "SET"; 1 -> "CLEAR"; 2 -> "LIST"; else -> "27/${sub[1]}" }
+        27 -> when (sub[1].toInt()) { 0 -> "SET"; 1 -> "CLEAR"; 2 -> "LIST"; 4 -> "LIST-RING"; else -> "27/${sub[1]}" }
         6 -> "keyframe"; 19 -> "write"
         else -> "draw"
     }
@@ -1019,7 +1027,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         model = m2
         lastTruth = t
         // stagings by wire mark, for invariant (1)
-        for (s in tail) if (s[0].toInt() == 27 && s[1].toInt() == 2) stagings[s[11].toInt() and 0xFF] = ids.copyOf()
+        for (s in tail) if (s[0].toInt() == 27 && (s[1].toInt() == 2 || s[1].toInt() == CfwModes.BIND_LIST_RING)) stagings[s[11].toInt() and 0xFF] = ids.copyOf()
         emit(tail, subs.map { it.first })
         if (held.isNotEmpty()) { if (carryHold && deferAreas.isNotEmpty() && deferUntil > now) at(deferUntil) { pump() } else pumpSoon() }
         rules.settleAt()?.let { s -> if (s > now) at(s) { pump() } }
@@ -1050,7 +1058,8 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         val l27 = lose27
         if (l27 != null) {
             val code = when (l27.first) { "set" -> 0; "clear" -> 1; else -> 2 }
-            val idx = all.indices.filter { all[it][0].toInt() == 27 && all[it][1].toInt() == code }.let { if (lose27All) it else it.take(1) }
+            // DM-0: "list" names a LIST of either form (a ring list's is LIST-RING, sub 4)
+            val idx = all.indices.filter { all[it][0].toInt() == 27 && (all[it][1].toInt() == code || (code == 2 && all[it][1].toInt() == CfwModes.BIND_LIST_RING)) }.let { if (lose27All) it else it.take(1) }
             if (idx.isNotEmpty()) {
                 lose27 = null; lossyMessages++
                 for (a in l27.second) per[a] = image(all.filterIndexed { i, _ -> i !in idx })
@@ -1134,7 +1143,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         q.clear(); lastUp = now; lastScrollUp = now; lastDown = now; pumpAt = Long.MAX_VALUE
         deferAreas = emptyList()                        // the start's keyframe ends every motion's wait
         if (fresh) for (a in Arm.entries) { sim.conformanceLease(a, false, now); sim.conformanceLease(a, true, now) }
-        for (a in Arm.entries) sim.conformanceControl(a, DamageMsg.OP_FLAGS_SET, ARMED, now)
+        for (a in Arm.entries) sim.conformanceControl(a, DamageMsg.OP_FLAGS_SET, armed, now)
         val t = truth()
         val packed = ByteArray(320 * 480)
         for (y in 0 until H) for (x in 0 until W) { val l = t[y * W + x].toInt(); val i = y * 320 + x / 2

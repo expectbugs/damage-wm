@@ -106,6 +106,62 @@ class ScrollEffectsTest {
         println("K11-effects (modeled, the fit)\n" + table.joinToString("\n"))
     }
 
+    /**
+     * C3 DM-0 (the DM spec §1.1, §2; decisions AD's S2): the stage-5 form. Where Main's paint wraps (the sample's eight rows
+     * at 288 and 352) the strip's margins are k + 1 rows of the other end each side, no wrap record is built, the rules'
+     * P0 and P3 take that margin, and every effect's END is Main's own paint at the new cursor at EVERY cursor a notch
+     * lands on, the wrap included — at the virtual row v = −1 or n, as the glasses compute a ring fire (and as the
+     * fallback's PLAY from the ring strip does) — with its start state Main at the old cursor. At 416 and 480 the staging
+     * is today's form, byte for byte, at stage 5 too.
+     */
+    @Test
+    fun theStage5FormHoldsEveryEffectAcrossTheWrapAndIsTodaysWhereMainDoesNotWrap_DM0() {
+        val table = ArrayList<String>()
+        for (h in heights) {
+            val rig = MainLocalCheck.MainRig(BoxFace, h, MainLocalCheck.sampleRows())
+            for (cache in caches) for (e in ScrollEffect.entries) {
+                val m = MainStaging.ScrollMotion.DEFAULT.copy(effect = e)
+                val s5 = rig.staging(cache, CfwModes.mainRegion(cache, true), m, stage5 = true)
+                val s4 = rig.staging(cache, CfwModes.mainRegion(cache, true), m)
+                val what0 = "$h ${cache / 1024} KiB ${e.word} at stage 5"
+                val l = s5.layout
+                val wraps = MainStaging.ringFits(l, s5.rows)
+                assertEquals(wraps, s5.ring, "$what0: the ring form exactly where Main's paint wraps")
+                if (!wraps) {
+                    assertEquals(s4.blobs.map { it.off to it.bytes.toList() }, s5.blobs.map { it.off to it.bytes.toList() }, "$what0: today's form, byte for byte")
+                    continue
+                }
+                val k = l.rowsAbove
+                assertEquals(null, s5.wrap, "$what0: no wrap record")
+                assertEquals(k + 1, s5.margin, "$what0: margins of k + 1")
+                assertEquals((s5.rows + 2 * (k + 1)) * l.rowH, s5.strip.raw.h, "$what0: the strip's rows")
+                for (pan in s5.pans) assertEquals(listOf(l.lens.y + (pan.step - k - 1) * l.rowH, l.lens.bottom + (pan.step - 1 - k - 1) * l.rowH),
+                    listOf(pan.rules[0].arg, pan.rules[3].arg), "$what0: P0's and P3's rules take the margin")
+                var n = 0
+                for (pan in s5.pans) for (cPrime in -1..s5.rows) {
+                    val c = cPrime - pan.step
+                    if (c !in 0 until s5.rows) continue                 // no notch lands there from a row
+                    val p = s5.wrapParams(pan, cPrime) ?: s5.params(pan, cPrime) ?: continue
+                    val to = cPrime.mod(s5.rows)
+                    Motion.play(pan.program, MainStaging.SLOT, s5.period, 1, 0, p)
+                    for (left in listOf(true, false)) {
+                        val end = rig.truth(c, left).copy().also { s5.paintEnd(pan, p, left, it) }
+                        assertEquals(0, differ(end, rig.truth(to, left), pan.areas(left)), "$what0 strip ${pan.strip} step ${pan.step} $c→$cPrime left=$left: px where END is not Main's paint at $to")
+                        if (e != ScrollEffect.NONE) {
+                            val start = rig.truth(c, left).copy().also { s5.paintStart(pan, p, left, it) }
+                            assertEquals(0, differ(start, rig.truth(c, left), pan.areas(left)), "$what0 strip ${pan.strip} step ${pan.step} $c→$cPrime left=$left: px where the start state is not Main at $c")
+                        }
+                    }
+                    n++
+                }
+                assertEquals(s5.pans.size * s5.rows, n, "$what0: every cursor, the two wraps among them, on every pan")
+                if (e == ScrollEffect.DEPTH) table += "h$h ${cache / 1024} KiB: the strip ${s5.blobs[0].bytes.size} B (${s5.rows + 2 * (k + 1)} rows; " +
+                    "stage 4: ${s4.blobs[0].bytes.size} B and a wrap record ${s4.wrap?.encoded?.size ?: 0} B), the staging ${s5.end - s5.start} B (stage 4: ${s4.end - s4.start} B)"
+            }
+        }
+        println("DM0-staging (BoxFace, modeled)\n" + table.joinToString("\n"))
+    }
+
     /** Slide's and Fall's band: two tracks over the band's one area, the second with no backdrop (inside the first's, as
      *  §5.5 asks), the forms at the band's plane and full level throughout; Fall's table: E[T] = 4096, its peak 6 % past it
      *  at T − 1, rising to it; one table for every pan of the staging, placed in the pans' slot before them. */

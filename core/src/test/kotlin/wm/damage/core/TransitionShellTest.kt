@@ -862,13 +862,25 @@ class TransitionShellTest {
     // ------------------------------------------------------- X2P2 stage 2 item 1: no wrap PLAY under a transition
     /**
      * The second review pass's finding 1, ruled (`FIRMWARE.md` §7.11 at `81faf329`): a Back into Main from w0 (Main's first
-     * row) at height 480 with twelve windows — Main's list wraps there and is no ring list — then a notch past row 0 while
+     * row) at height 480 with twelve windows — Main's list wraps there (a ring list at stage 5 since DM-0, so the lenses are
+     * made to hold a plain list before each edge notch: the fallback, the one case left at stage 5) — then a notch past row 0 while
      * the Back's transition is in hand: in its frame phase ([frame]: Main's frame in several flushes, the in half held back
      * meanwhile) or inside its in half (RIGHT's in half drawing). The edge is answered as today without its wrap motion: no
      * slot-1 PLAY from the Back's out PLAY to its run's end, both halves drew their last step, the wrapped row on both
      * lenses at the in half's LAND, belief equals both lenses at rest; and the first edge notch after the run's end plays
      * its wrap as before.
      */
+    /** C3 DM-0: each lens's list as a plain LIST of the same range, cursor and mark — what a LIST-RING lost after a plain
+     *  LIST leaves there (§7.14) — written into the lens model directly (a lens state, not a phone message). */
+    private fun plainListOnTheLenses(r: Rig) {
+        for (a in Arm.entries) {
+            val l = r.sim.bindForTest(a).lists[MainStaging.LIST]
+            assertTrue(l.ring, "$a: Main's list rings at stage 5 before the lens is made to hold a plain one")
+            r.sim.conformanceMessage(a, CfwModes.bindList(MainStaging.LIST, l.items, l.count, 0, l.pitch, l.mark), System.currentTimeMillis())
+            assertTrue(!r.sim.bindForTest(a).lists[MainStaging.LIST].ring, "$a: the plain LIST cleared RING")
+        }
+    }
+
     private suspend fun edgeUnderABack(frame: Boolean) {
         val r = Rig(stage = 5, nRows = 12)
         try {
@@ -897,6 +909,10 @@ class TransitionShellTest {
                 r.onLoop { r.shell.comp.batchMax = batchMax }
                 for (left in listOf(true, false)) againstTruth(r, left, shadow = true, area = r.onLoop { r.shell.layout.content })?.let { fail("Main's frame whole in the shadow before the notch: $it") }
             }
+            // C3 DM-0: at stage 5 Main's wrapping list is a ring list, so the notch past row 0 fires on the glasses (refused 19
+            // under the in half's owner) and never reaches the wrap path; the case this test guards is now the fallback's — a
+            // lens holding a plain list (a LIST-RING lost) — so that list is put on both lenses before the notch
+            plainListOnTheLenses(r)
             r.fire(CfwModes.EV_DOWNROLL)
             r.until("the edge answered: the row is Main's last") { r.row() == count - 1 }
             // the edge's repaint (held) whole in both shadows, the run still in hand and its in half still to land
@@ -922,8 +938,10 @@ class TransitionShellTest {
             bothHalvesWhole(r, act = 1)
             assertTrue(r.notes("local").any { it.startsWith("an edge at Main's end under Back's transition (${if (frame) "FRAME" else "IN"})") }, "${r.notes("local").takeLast(4)}")
             r.assertOracle("at rest after the edge under the Back")
-            // the first edge notch after the run's end plays its wrap as before
+            // the first edge notch after the run's end plays its wrap as before (DM-0: on a lens holding a plain list — the
+            // answers since have made it ring again — the fallback's PLAY of the whole list's pan from the ring strip)
             val at = right(r).size
+            plainListOnTheLenses(r)
             r.fire(CfwModes.EV_UPROLL)
             r.until("the wrap's PLAY on RIGHT") { right(r).drop(at).any { img -> subs(img).any { playIn(it, MainStaging.WRAP_SLOT) } } }
             r.until("the row is Main's first again") { r.row() == 0 }

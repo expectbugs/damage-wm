@@ -2084,8 +2084,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    " ${st.cacheSize} ${motionInForce()} ${List(n) { main.rowKey(it) }.hashCode()}\"",
-    " ${st.cacheSize} ${motionInForce()}\""
+    " ${st.cacheSize} ${motionInForce()} ring=$ring ${List(n) { main.rowKey(it) }.hashCode()}\"",
+    " ${st.cacheSize} ${motionInForce()} ring=$ring\""
    ]
   ],
   "tests": [
@@ -2094,7 +2094,7 @@
   "expect": [
    "aStagingThatDidNotFitIsTriedAgainWhenItsContentChanges_AF6"
   ],
-  "note": "AF.6",
+  "note": "AF.6 [re-pointed by C3 DM-0 to its present text]",
   "from": "FB"
  },
  {
@@ -2156,8 +2156,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "listOf(MainStaging.WHOLE), twoStrips = !shared0, motion = motionInForce(), room = room)",
-    "MainStaging.WIDTHS + MainStaging.WHOLE, twoStrips = !shared0, motion = motionInForce(), room = room)"
+    "listOf(MainStaging.WHOLE), twoStrips = !shared0, motion = motionInForce(), room = room, stage5 = ring)",
+    "MainStaging.WIDTHS + MainStaging.WHOLE, twoStrips = !shared0, motion = motionInForce(), room = room, stage5 = ring)"
    ]
   ],
   "tests": [
@@ -2166,7 +2166,7 @@
   "expect": [
    "theBoundStagingHoldsOnlyTheWholeListsPans_AF10"
   ],
-  "note": "AF.10 [re-targeted at the 0.83 integration: B082 added the `room` argument]",
+  "note": "AF.10 [re-targeted at the 0.83 integration: B082 added the `room` argument] [re-pointed by C3 DM-0 to its present text]",
   "from": "FB"
  },
  {
@@ -3691,7 +3691,7 @@
   "file": "shell/MainStaging.kt",
   "edits": [
    [
-    "            val sA = mA; val sB = mB",
+    "            val sA = mA + (if (ring) 1 else 0); val sB = mB + (if (ring) 1 else 0)",
     "            val sA = if (wraps) mA + 1 else mA; val sB = if (wraps) mB + 1 else mB"
    ]
   ],
@@ -3701,7 +3701,7 @@
   "expect": [
    "theStripCarriesMainsRowsPastEitherEndAsMarginRows_DMS"
   ],
-  "note": "B082 step 3: the strips keep G2's extra rows (every step walks them)",
+  "note": "B082 step 3: the strips keep G2's extra rows (every step walks them) [re-pointed by C3 DM-0 to its present text]",
   "from": "B082"
  },
  {
@@ -3763,7 +3763,7 @@
   "file": "shell/MainStaging.kt",
   "edits": [
    [
-    "                room != null && room.any { it > 0 } -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, null, wrapFit, false)\n",
+    "                room != null && room.any { it > 0 } -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, null, wrapFit, false, stage5)",
     ""
    ]
   ],
@@ -3773,7 +3773,7 @@
   "expect": [
    "aRoomTheRegionCannotHoldIsLeftOut_B082"
   ],
-  "note": "B082 step 2: a room past the region gives up the wrap record's slack (or the record) instead of the room [re-targeted at the 0.83 integration: K1-1 added the `progSpare` argument (false on the ladder's later rungs)]",
+  "note": "B082 step 2: a room past the region gives up the wrap record's slack (or the record) instead of the room [re-targeted at the 0.83 integration: K1-1 added the `progSpare` argument (false on the ladder's later rungs)] [re-pointed by C3 DM-0 to its present text]",
   "from": "B082"
  },
  {
@@ -3781,8 +3781,8 @@
   "file": "shell/MainStaging.kt",
   "edits": [
    [
-    "                wrapPic != null -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, null, wrapFit + 1, false)",
-    "                wrapPic != null -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, null, WRAP_NONE, false)"
+    "                wrapPic != null -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, null, wrapFit + 1, false, stage5)",
+    "                wrapPic != null -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, null, WRAP_NONE, false, stage5)"
    ]
   ],
   "tests": [
@@ -3791,7 +3791,7 @@
   "expect": [
    "aWrapRecordTheRegionCannotHoldIsLaidTightThenLeftOut_B082"
   ],
-  "note": "B082 step 3: a short region leaves the wrap record out where it would fit tight [re-targeted at the 0.83 integration: K1-1 added the `progSpare` argument]",
+  "note": "B082 step 3: a short region leaves the wrap record out where it would fit tight [re-targeted at the 0.83 integration: K1-1 added the `progSpare` argument] [re-pointed by C3 DM-0 to its present text]",
   "from": "B082"
  },
  {
@@ -3799,7 +3799,7 @@
   "file": "shell/MainStaging.kt",
   "edits": [
    [
-    "                wrapPic != null -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, null, wrapFit + 1, false)\n",
+    "                wrapPic != null -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, null, wrapFit + 1, false, stage5)",
     ""
    ]
   ],
@@ -3809,7 +3809,7 @@
   "expect": [
    "aWrapRecordTheRegionCannotHoldIsLaidTightThenLeftOut_B082"
   ],
-  "note": "B082 step 3: a region that cannot hold the wrap record refuses the staging (288 at 160 KiB with the desktop's font) [re-targeted at the 0.83 integration: K1-1 added the `progSpare` argument]",
+  "note": "B082 step 3: a region that cannot hold the wrap record refuses the staging (288 at 160 KiB with the desktop's font) [re-targeted at the 0.83 integration: K1-1 added the `progSpare` argument] [re-pointed by C3 DM-0 to its present text]",
   "from": "B082"
  },
  {
@@ -8059,5 +8059,345 @@
   ],
   "note": "B1 (FR-083): a carried rebuild keeps an acked-and-unjudged atlas message live and unsent: RIGHT keeps drawing its glyphs from bytes it never took",
   "from": "FX-083"
+ },
+ {
+  "id": "DM0-list-plain",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "        return f.listMessage(shift, wireMark[f.list])",
+    "        return CfwModes.bindList(f.list, f.items4, f.count, shift, f.pitch, wireMark[f.list])"
+   ]
+  ],
+  "tests": [
+   "*LocalRulesTest.everyListTheRulesWriteForARingListIsListRing_DM0*",
+   "*LocalRulesTest.aWrapNotchOnARingListIsAdoptedModuloTheCountAndPredictedAtV_DM0*",
+   "*LocalSequenceFuzzTest.seededDM0_aWrapNotchOnARingListIsAdoptedBothWays*"
+  ],
+  "expect": [
+   "everyListTheRulesWriteForARingListIsListRing_DM0",
+   "aWrapNotchOnARingListIsAdoptedModuloTheCountAndPredictedAtV_DM0",
+   "seededDM0_aWrapNotchOnARingListIsAdoptedBothWays"
+  ],
+  "note": "C3 DM-0 (S5, the class): the one writer of a LIST writes a plain LIST for a ring list — the riding LIST clears RING at the first answer, the next wrap notch is the edge and the phone's PLAY",
+  "from": "C3-DM0"
+ },
+ {
+  "id": "DM0-p3-plain-distance",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "        if (f.distance(c, row) > (n + 1) * kotlin.math.abs(e.step)) return asToday(\"lost-report\")",
+    "        if (kotlin.math.abs(c - row) > (n + 1) * kotlin.math.abs(e.step)) return asToday(\"lost-report\")"
+   ]
+  ],
+  "tests": [
+   "*LocalRulesTest.aWrapNotchOnARingListIsAdoptedModuloTheCountAndPredictedAtV_DM0*",
+   "*LocalSequenceFuzzTest.seededDM0_aWrapNotchOnARingListIsAdoptedBothWays*"
+  ],
+  "expect": [
+   "aWrapNotchOnARingListIsAdoptedModuloTheCountAndPredictedAtV_DM0",
+   "seededDM0_aWrapNotchOnARingListIsAdoptedBothWays"
+  ],
+  "note": "C3 DM-0 (S4): P3's bound by the plain difference — a wrap notch's report (cursor 0 against row n - 1) is never adopted: lost-report, applied as today, a DISCARD at every wrap",
+  "from": "C3-DM0"
+ },
+ {
+  "id": "DM0-tap-plain-distance",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "        if (c != row && f.distance(c, row) > n * f.maxStep) return drop(\"moved\")",
+    "        if (c != row && kotlin.math.abs(c - row) > n * f.maxStep) return drop(\"moved\")"
+   ]
+  ],
+  "tests": [
+   "*LocalRulesTest.aWrapNotchOnARingListIsAdoptedModuloTheCountAndPredictedAtV_DM0*"
+  ],
+  "expect": [
+   "aWrapNotchOnARingListIsAdoptedModuloTheCountAndPredictedAtV_DM0"
+  ],
+  "note": "C3 DM-0 (S4): the tap rule's (4) by the plain difference — a tap at row 0 after a lost wrap notch from the last row is dropped `moved`",
+  "from": "C3-DM0"
+ },
+ {
+  "id": "DM0-predict-at-cprime",
+  "file": "local/BoundList.kt",
+  "edits": [
+   [
+    "l.paramsAt(c, le, l.virtualRow(c, le.step, wrapped))",
+    "l.paramsAt(c, le, c)"
+   ]
+  ],
+  "tests": [
+   "*LocalRulesTest.aWrapNotchOnARingListIsAdoptedModuloTheCountAndPredictedAtV_DM0*",
+   "*MainBindTest.theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2*"
+  ],
+  "expect": [
+   "aWrapNotchOnARingListIsAdoptedModuloTheCountAndPredictedAtV_DM0",
+   "theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2"
+  ],
+  "note": "C3 DM-0 (S4): P3's prediction of a wrapped ring fire made at c' instead of v — the report's kind-1 and kind-2 parameters (at v) differ: restaged, a snap-back at every wrap and a spurious SET re-send",
+  "from": "C3-DM0"
+ },
+ {
+  "id": "DM0-ring-kind1-at-cprime",
+  "file": "local/BoundList.kt",
+  "edits": [
+   [
+    "                    val k = if (ring) Math.floorMod(v + p.arg, count) else cPrime + p.arg",
+    "                    val k = cPrime + p.arg"
+   ]
+  ],
+  "tests": [
+   "*MainBindTest.theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2*"
+  ],
+  "expect": [
+   "theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2"
+  ],
+  "note": "C3 DM-0 (§7.8): the phone's kind 1 on a ring list at c' + arg — Main's leaving row (arg -step) at the wrap is outside the rows: the prediction says edge where the lens drew",
+  "from": "C3-DM0"
+ },
+ {
+  "id": "DM0-predict-no-modulo",
+  "file": "local/BoundList.kt",
+  "edits": [
+   [
+    "        val c = if (ring) Math.floorMod(v, count) else v",
+    "        val c = v"
+   ]
+  ],
+  "tests": [
+   "*MainBindTest.theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2*"
+  ],
+  "expect": [
+   "theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2"
+  ],
+  "note": "C3 DM-0 (§7.8): the phone's prediction of a ring fire without the modulo — the wrap notch predicted as the edge",
+  "from": "C3-DM0"
+ },
+ {
+  "id": "DM0-staging-kind2-at-cprime",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "            CfwModes.KIND_PITCH -> (v * pitch + r.arg)",
+    "            CfwModes.KIND_PITCH -> (cPrime * pitch + r.arg)"
+   ]
+  ],
+  "tests": [
+   "*MainBindTest.theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2*"
+  ],
+  "expect": [
+   "theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2"
+  ],
+  "note": "C3 DM-0 (the fallback): the staging's own kind-2 parameter at c' instead of v — the fallback's P is not what the glasses compute at v (the local check compares them); the PICTURE is the same, since from a ring strip the margin's copy at c' and the row at v draw alike (the staging guarantee), so ScrollEffectsTest's END and start checks cannot see it",
+  "from": "C3-DM0"
+ },
+ {
+  "id": "DM0-margin-k",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "            val sA = mA + (if (ring) 1 else 0); val sB = mB + (if (ring) 1 else 0)",
+    "            val sA = mA; val sB = mB"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.theStage5FormHoldsEveryEffectAcrossTheWrapAndIsTodaysWhereMainDoesNotWrap_DM0*",
+   "*MainBindTest.theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2*"
+  ],
+  "expect": [
+   "theStage5FormHoldsEveryEffectAcrossTheWrapAndIsTodaysWhereMainDoesNotWrap_DM0",
+   "theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2"
+  ],
+  "note": "C3 DM-0 (the DM spec §2): the ring strip's margins k, not k + 1 — at v = n the lower track's END reads past the strip (blank), at v = -1 the upper's",
+  "from": "C3-DM0"
+ },
+ {
+  "id": "DM0-remake-margin-k",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "PanSpec(it.k, it.kA, it.kB, it.step, it.strip) }, margin)",
+    "PanSpec(it.k, it.kA, it.kB, it.step, it.strip) }, layout.rowsAbove)"
+   ]
+  ],
+  "tests": [
+   "*MainBindTest.theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2*"
+  ],
+  "expect": [
+   "theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2"
+  ],
+  "note": "C3 DM-0 (the class of the strip's margin): the programs-only re-make's rules by layout.rowsAbove — on a ring strip one row short, every re-made pan's END a row off",
+  "from": "C3-DM0"
+ },
+ {
+  "id": "DM0-wrap-record-at-stage5",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "            val noWrapRecord = !wraps || wrapFit == WRAP_NONE || ring",
+    "            val noWrapRecord = !wraps || wrapFit == WRAP_NONE"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.theStage5FormHoldsEveryEffectAcrossTheWrapAndIsTodaysWhereMainDoesNotWrap_DM0*",
+   "*LocalStartTest.theStage5StartBindsMainAsARingListWhereItsPaintWraps_DM0*"
+  ],
+  "expect": [
+   "theStage5FormHoldsEveryEffectAcrossTheWrapAndIsTodaysWhereMainDoesNotWrap_DM0",
+   "theStage5StartBindsMainAsARingListWhereItsPaintWraps_DM0"
+  ],
+  "note": "C3 DM-0 (the DM spec §1.1): a wrap record staged in the ring form too — bytes nobody draws",
+  "from": "C3-DM0"
+ },
+ {
+  "id": "DM0-ring-below-stage5",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "            val ring = stage5 && wraps",
+    "            val ring = wraps"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.depthIsTodaysProgramsByteForByte_K11*",
+   "*LocalStartTest.theStage5StartBindsMainAsARingListWhereItsPaintWraps_DM0*"
+  ],
+  "expect": [
+   "depthIsTodaysProgramsByteForByte_K11",
+   "theStage5StartBindsMainAsARingListWhereItsPaintWraps_DM0"
+  ],
+  "note": "C3 DM-0 (S2): the ring form below stage 5 — the stage-4 staging is no longer today's byte for byte",
+  "from": "C3-DM0"
+ },
+ {
+  "id": "DM0-ring-where-no-wrap",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "            val ring = stage5 && wraps",
+    "            val ring = stage5"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.theStage5FormHoldsEveryEffectAcrossTheWrapAndIsTodaysWhereMainDoesNotWrap_DM0*"
+  ],
+  "expect": [
+   "theStage5FormHoldsEveryEffectAcrossTheWrapAndIsTodaysWhereMainDoesNotWrap_DM0"
+  ],
+  "note": "C3 DM-0 (S2): the staging's ring form where Main's paint does not wrap (416, 480) — the shell never asks it there (its `mainBindRing` reads the same fit first), so only a direct staging shows it",
+  "from": "C3-DM0"
+ },
+ {
+  "id": "DM0-ring-without-effects",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "private fun mainBindRing(st: LinkState, lay: Layout, rows: Int): Boolean = st.effects &&",
+    "private fun mainBindRing(st: LinkState, lay: Layout, rows: Int): Boolean = st.bind &&"
+   ]
+  ],
+  "tests": [
+   "*LocalStartTest.theStage5StartBindsMainAsARingListWhereItsPaintWraps_DM0*"
+  ],
+  "expect": [
+   "theStage5StartBindsMainAsARingListWhereItsPaintWraps_DM0"
+  ],
+  "note": "C3 DM-0: the ring form decided on BIND, not EFFECTS — a bit-11 build at stage 4 stages a ring list whose LIST-RING the transport's gate refuses to send",
+  "from": "C3-DM0"
+ },
+ {
+  "id": "DM0-poll-no-form-drop",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            st.bind && ms.ring != mainBindRing(st, ms.layout, ms.rows) ->",
+    "            false && ms.ring != mainBindRing(st, ms.layout, ms.rows) ->"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aHandDisarmOfEffectsStagesMainAgainInTodaysForm_DM0*"
+  ],
+  "expect": [
+   "aHandDisarmOfEffectsStagesMainAgainInTodaysForm_DM0"
+  ],
+  "note": "C3 DM-0: the staging's form not followed after a hand disarm of EFFECTS — the ring list stays bound, every LIST-RING and every fire on it refused 15",
+  "from": "C3-DM0"
+ },
+ {
+  "id": "DM0-s6-fresh-mark",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "            pending += Pending.ListMsg(list, 0, fresh = false)",
+    "            pending += Pending.ListMsg(list, 0, fresh = true)"
+   ]
+  ],
+  "tests": [
+   "*LocalRulesTest.aPitchFormChangeSendsTheListWithTheMarkKeptBesideTheSets_DM0*"
+  ],
+  "expect": [
+   "aPitchFormChangeSendsTheListWithTheMarkKeptBesideTheSets_DM0"
+  ],
+  "note": "C3 DM-0 (S6): a pitch-form change's LIST with a fresh mark — a fire before the switch's batch landed is `restaged`, not judged against the list before",
+  "from": "C3-DM0"
+ },
+ {
+  "id": "DM0-wrapPan-no-strip",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "    fun wrapPan(step: Int): Pan? = if (ring) pan(WHOLE, step) else pans.firstOrNull",
+    "    fun wrapPan(step: Int): Pan? = pans.firstOrNull"
+   ]
+  ],
+  "tests": [
+   "*MainBindTest.theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2*"
+  ],
+  "expect": [
+   "theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2"
+  ],
+  "note": "C3 DM-0 (the fallback): no wrap pan on a ring staging — a lens left with a plain list gets no wrap motion at all",
+  "from": "C3-DM0"
+ },
+ {
+  "id": "DM0-wrapParams-no-ring",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "        if (ring) return if ((cPrime != -1 && cPrime != rows)",
+    "        if (false) return if ((cPrime != -1 && cPrime != rows)"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.theStage5FormHoldsEveryEffectAcrossTheWrapAndIsTodaysWhereMainDoesNotWrap_DM0*",
+   "*MainBindTest.theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2*"
+  ],
+  "expect": [
+   "theStage5FormHoldsEveryEffectAcrossTheWrapAndIsTodaysWhereMainDoesNotWrap_DM0",
+   "theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2"
+  ],
+  "note": "C3 DM-0 (the fallback): wrapParams not re-pointed at the ring strip — no parameters across the wrap, the fallback draws nothing",
+  "from": "C3-DM0"
+ },
+ {
+  "id": "DM0-shell-ring-no-fit",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "private fun mainBindRing(st: LinkState, lay: Layout, rows: Int): Boolean = st.effects && MainStaging.ringFits(lay, rows)",
+    "private fun mainBindRing(st: LinkState, lay: Layout, rows: Int): Boolean = st.effects"
+   ]
+  ],
+  "tests": [
+   "*LocalStartTest.theStage5StartBindsMainAsARingListWhereItsPaintWraps_DM0*"
+  ],
+  "expect": [
+   "theStage5StartBindsMainAsARingListWhereItsPaintWraps_DM0"
+  ],
+  "note": "C3 DM-0 (S2): the shell asks the ring form where Main's paint does not wrap — the staging stays plain there (its own fit), the poll finds the form not the one asked and drops it at every pump: Main is never offered at 416 on a bit-11 build at stage 5",
+  "from": "C3-DM0"
  }
 ]

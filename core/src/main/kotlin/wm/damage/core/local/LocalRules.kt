@@ -398,11 +398,17 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         val mine = entriesOf(list).map { it.entry }.toSet()
         pending.removeAll { it is Pending.Clear && it.entry in mine && held[it.entry]?.list == list.list }
         val was = staged[list.list]
-        if (was == null || was.items4 != list.items4 || was.count != list.count || was.pitch != list.pitch || was.mark != list.mark) {
+        if (was == null || was.items4 != list.items4 || was.count != list.count || was.mark != list.mark) {
             // a staging the glasses do not hold (P9: a row's index or identity changed, a new mark): a LIST; a program's
             // change alone is its SET (below), a row's picture updated in place keeps its mark and sends nothing
             if (old != null && old.list == list.list) slot(list.slot).moved = slot(list.slot).moved ?: "restaged"
             pending += Pending.ListMsg(list, if (was == null) 0 else shift, fresh = true)
+        } else if (was.pitch != list.pitch || was.ring != list.ring) {
+            // build C3, stage DM-0 (S6): the Scroll effect changed between the two pitch forms (or the list's form changed)
+            // with the same rows — a LIST with the new pitch and the MARK KEPT, in the batch that SETs the entries (below):
+            // a fire before that batch lands names the old programs and parameters, judged against both stagings
+            // ([BoundList.previous]), not a re-staging's `restaged`
+            pending += Pending.ListMsg(list, 0, fresh = false)
         } else staged[list.list] = list
         // SETs for every entry the glasses do not hold in its current form
         for (e in entriesOf(list)) if (!holds(list.list, e)) pending += Pending.Set(list, e)
@@ -537,8 +543,10 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         val c = a.cursor ?: return asToday("restaged")
         // the prediction is the staging's own, before or after a band form's switch until that write is acknowledged
         // (decisions X.2, `BoundList.names`); the COMMIT carries the report's own prog and P, whose pictures the phone holds
-        if (!f.names(c, e, a.prog, a.params)) return asToday("restaged")
-        if (kotlin.math.abs(c - row) > (n + 1) * kotlin.math.abs(e.step)) return asToday("lost-report")
+        // build C3, stage DM-0 (S4): on a ring list the prediction is made at the virtual row a wrapped fire computed at
+        // (field 18), and the distance is taken modulo the count, the shorter way round — a wrap notch is one row
+        if (!f.names(c, e, a.prog, a.params, a.wrapped)) return asToday("restaged")
+        if (f.distance(c, row) > (n + 1) * kotlin.math.abs(e.step)) return asToday("lost-report")
         st.handled += Handled(s, true, false, f.list, c, a.prog!!, a.params!!, nowMs, "")
         rowSeen = c
         lastRow[f.list] = c
@@ -558,7 +566,7 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         if (a.mark != wireMark[f.list]) return drop("restaged")                                   // (3)
         val c = a.cursor ?: return drop("lost")
         if (c == BoundList.LOST) return drop("lost")
-        if (c != row && kotlin.math.abs(c - row) > n * f.maxStep) return drop("moved")            // (4)
+        if (c != row && f.distance(c, row) > n * f.maxStep) return drop("moved")                  // (4); DM-0 (S4): modulo on a ring
         val p = a.params
         if (p != null) {                                                                          // (5)
             // the phone's own tap entry under `Taps` now: under `report` and `phone` it has no program, so carried fields
@@ -868,11 +876,14 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
 
     private fun tapEntryNo(f: BoundList): Int? = tapEntry(f)?.entry ?: f.entries.firstOrNull { it.isTap }?.entry
 
+    /** The one writer of a LIST (every table message naming a list goes through it: the start, a front change, the whole
+     *  table again, the batch-14 re-send, the LIST riding before every answer). Build C3, stage DM-0 (S5): a ring list's
+     *  is LIST-RING with flags 1 — a plain LIST clears the RING flag on the glasses (§7.8). */
     private fun listMsg(f: BoundList, shift: Int, fresh: Boolean): ByteArray {
         if (fresh || wireMark[f.list] < 0) { markCounter = (markCounter + 1) and 0xFF; wireMark[f.list] = markCounter }
         staged[f.list] = f
         touch("list${f.list}")
-        return CfwModes.bindList(f.list, f.items4, f.count, shift, f.pitch, wireMark[f.list])
+        return f.listMessage(shift, wireMark[f.list])
     }
 
     private fun snapback(st: Slot, n: Int, row: Int, nowMs: Long, frame: Boolean, denied: Set<Int>, wrapped: Boolean = false) {
