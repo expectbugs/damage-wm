@@ -169,8 +169,9 @@ class Switcher(
     /**
      * The plane regions of the open wheel (`Shell.updatePlanes`; §4.3: it owns the depth story while open): the centre
      * band at the screen plane as painted ([rest]: the name's measured ink) at every stage, and [margin] 0: the panel at
-     * Global `Depth` [d] (none at 0: it lies in the content's plane). C3 DW-0, at stage 5 ([margin] the panel's disparity,
-     * never 0 there): the panel with its margins at [margin]. C3 X1W (decisions BM (7)): below stage 5 the band's region
+     * Global `Depth` [d] (none at 0: it lies in the content's plane). C3 DW-0, at stage 5 ([margin] the panel's disparity:
+     * Global `Depth`, or the content's plane when Global is 0 — 0 only when both are, and then `updatePlanes` adds no
+     * region at all): the panel with its margins at [margin]. C3 X1W (decisions BM (7)): below stage 5 the band's region
      * was the design's fixed 44 / 88 rows on every face, so on a face with a taller band (his desktop face: 98) the centre
      * icon's top rows were drawn at the panel's plane, a lens offset apart from the rest of the icon.
      */

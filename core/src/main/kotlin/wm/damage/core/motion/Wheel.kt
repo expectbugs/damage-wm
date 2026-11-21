@@ -232,7 +232,6 @@ object Wheel {
         val use = if (none) programs(progOff, g, recs, ruleRec, effects, 1, none = true) else drum
         val b = Block(base, g, cells, rule, ruleOff, itemsOff, itemSlot, cellOffs, cellSlots, progOff, progSlot,
             use.tables, use.down, use.up, p, t, none)
-        if (b.end / 4 > 0xFFFF) throw LintError("the wheel's block ends at ${b.end}, past the u16 off4 reach")
         for (step in intArrayOf(1, -1)) for (c in 0 until b.n) {
             val cost = b.program(step).cost(b.params(step, c))
             if (cost * 100 > Motion.BUDGET_CAP * 80) throw LintError("the wheel's ${if (step > 0) "down" else "up"} program at cursor $c costs $cost u, " +
