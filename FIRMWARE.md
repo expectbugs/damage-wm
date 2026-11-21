@@ -2357,10 +2357,11 @@ one-period wait; with this it is drawn a few ms late.
   step) and at LAND otherwise, so nothing waits and **a transition plays in full** (`MOTION.md` §7; the first review
   pass of the transitions, 2026-11-20). They leave both owners open; a write meeting any OTHER owner's box closes
   that one first, as before; a second act replaces the run (its out PLAY's close pass ends what is left: the latest
-  input wins). **The phone sends no other PLAY whose close pass would meet the owners while a transition is in hand**:
-  a notch at Main's end under a Back is applied without its wrap motion — the row shows at the in half's next step or
-  at LAND, and the transition plays in full (the second review pass of the transitions, 2026-11-20; were such a PLAY
-  sent, its close pass would end the run as a second act's does);
+  input wins). **No wrap PLAY meets a transition: at stage 5 no staging holds a wrap record** (where Main's paint wraps
+  its list is a ring list, below; where it does not, there is no wrap to play), so a notch at Main's end under a
+  transition is a ring fire refused 19 (§7.14) and applied as today — the row shows at the in half's next step or at
+  LAND, and the transition plays in full (C3 X2M0, decisions AZ (2); were a PLAY sent there, its close pass would end
+  the run as a second act's does);
   the panel model leaves an owned rect as it is through every held present, and takes the shadow there at LAND or at a
   close. **An owned rect stays out of the phone's agreement scan while its mark stands** — a done owner (an out
   half, the freeze) holds step T there while belief moves on beneath it; the scan reads the rect again after LAND or
@@ -2397,11 +2398,13 @@ one-period wait; with this it is drawn a few ms late.
   that rides before every answer naming it, and every re-send of its LIST (P1, the table repair), is LIST-RING with
   shift 0 and flags 1** (S5: a plain LIST clears RING) — on the phone one writer makes every LIST, so the start's, a
   front change's, the whole table again (a refusal record naming 27, one naming 26, a refused flush), the batch-14
-  re-send and the riding LIST all carry the list's form. **A LIST-RING lost or refused on a lens** leaves that lens's list
-  as it was — plain, or empty after the start's table: a wrap notch there is the edge, P4 applies it as today, and the
-  phone PLAYs the same pan in slot 1 from the ring strip (its parameters at v; no separate record); the LIST-RING riding
-  before the next answer heals a lost one. A wrap notch is a notch for P5 (its 115 owes one scroll message of its id's
-  direction, which stock sends whatever the hook did) and for the carry.
+  re-send and the riding LIST all carry the list's form. **When a ring list's message does not land:** a new staging's
+  batch carries its LIST-RING ahead of its SETs, so a LIST-RING refused there leaves the SETs unrun too (a refused
+  sub-message ends its batch, §4); the phone writes no plain LIST for a ring list and stages no wrap record at stage 5,
+  so an edge reported at a ring list's end is applied as today and its row drawn by the shell's frames, as at 416 and
+  480, and the LIST-RING riding before that answer sets RING again with the cursor kept (§7.8: shift 0 over a plain
+  list). A wrap notch is a notch for P5 (its 115 owes one scroll message of its id's direction, which stock sends
+  outside its rubber band (§6.1) whatever the hook did) and for the carry.
 - **Version 2 only at stage 5**: a build or a session without EFFECTS keeps version-1 programs (today's pan and press).
   The transport gates PLAY-AFTER, LIST-RING and kind 3; a version-2 program record travels in a cache write the transport
   cannot tell from an image, so the builders keep version-2 records out below stage 5.
@@ -2656,7 +2659,7 @@ exactly one period under PLAY-AFTER; the fold rate with the late-step rule (fiel
 | the instance's path bit; the kept start per record segment and the kept record geometry | with the instance; the start and geometry recomputed at RETARGET (the path kept) | — (the walk that keeps them is the opening message's or the RETARGET's) | the instance; its record bytes are closed on meet | written on the ui_task under the word, read by the hook under it; a FLAGS_SET never touches them | once per present | every renderer of a record; an instance opened with EFFECTS clear runs C2's path to its end |
 | the byte table | built per track and step | — | the track's level ramp or G | display task only, under the word | once per track and step | the 16-entry LUT and G |
 | the step budget and each instance's C | C with the instance (written at its walk, replaced at a RETARGET) | — (a refusal changes nothing) | the program, its parameters and its records as walked; both lenses' rects; the slots drawing after the closes and the recorded triples | ui_task under the word | once per walk; each slot's C read once per sum | the values checks before it; PLAY-AFTER's waiting test (the chain rule reads the same triple) |
-| the RING flag, the modular cursor, kind 3 | a plain LIST, release points (the empty table), a restart | a lost LIST-RING: the lens keeps the list it held, a wrap notch is the edge and the phone's PLAY draws it; the LIST-RING riding before the next answer heals it (§7.11) | list + mark | ui_task only | once per fire | LIST's shift, COMMIT/DISCARD/SETTLE's cursors, the fire's edge test |
+| the RING flag, the modular cursor, kind 3 | a plain LIST, release points (the empty table), a restart | a lost LIST-RING: the lens keeps the list it held (on a plain one a wrap notch is the edge); the LIST-RING riding before the next answer heals it, the cursor kept (§7.11) | list + mark | ui_task only | once per fire | LIST's shift, COMMIT/DISCARD/SETTLE's cursors, the fire's edge test |
 | refusal 19 | — | the notch goes the stock path | the close set's owns marks | ui_task under the word | once | refusal 17's place |
 | EFFECTS | every release point; refused without the lease | not armed: the reply shows it; the phone plays version 1 | — | the settings task writes, unordered with the image lane (§5.7's class) | once per message or fire, at its first use | DRAW2, ENGINE, BIND |
 | the late-step wait | — (decided per wake; nothing kept across wakes) | a present that drew nothing (the word lost, the panel off, the stock path, the hook not yet run): one period, as §5.2 | EFFECTS; each due slot's d in the plans before and after the put; k = d + 1 | the thread alone decides; d and the state words read without the word (a torn read costs one wrong wait, never 0); EFFECTS read once per wake | each plan reads each slot once | the failed try's wait and the outstanding rule (unchanged); C2's wait with EFFECTS clear |
@@ -3029,3 +3032,10 @@ phone's keeper applies the hold-back rule before re-arming.
   included), the fallback PLAY from the ring strip, a pitch-form change as one batch with the mark kept; §6.4's wrap
   sentence and §6.11's phone rows point there; §7.14's RING row says the riding LIST-RING heals a lost one (no table
   repair re-sends a LIST).
+- 2026-11-21 — DM-0's first review pass as ruled (`C3-decisions.md` AZ), stage X2M0: §7.11 the fallback PLAY on a ring
+  staging goes (no staging holds a wrap record at stage 5; an edge reported at a ring list's end goes as the shell's
+  frames), with it the empty-list sentence, replaced by what the phone does when a ring list's message does not land;
+  "no wrap PLAY while a transition is in hand" replaced by why none meets one (a notch at Main's end under a transition
+  is a ring fire refused 19, applied as today); the wrap notch's owe "outside its rubber band (§6.1)"; the pitch-form
+  sentence (S6) back to its text before DM-0 (it comes with the stage that builds Crush); §7.14's RING row keeps the
+  part the ring vectors back.
