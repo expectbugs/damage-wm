@@ -887,9 +887,9 @@
    "*BindTransportTest*"
   ],
   "expect": [
-   "field39AndANewMode27RefusalReachTheShell_P1"
+   "aMode27RefusalRecurringAtTheNextReadIsStanding"
   ],
-  "note": "a sticky mode-27 refusal handed at every read",
+  "note": "a sticky mode-27 refusal handed at every read [re-pointed at MR-083: run on the merged tree, `field39AndANewMode27RefusalReachTheShell_P1` passes under it — since B083-rr the standing latch also keeps the same sticky record from the shell at the third read; RR's row of standing records (and its 26 row) fail]",
   "from": "DP1"
  },
  {
@@ -3400,8 +3400,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "            val localTail = if (localOn) listOfNotNull(wrapPlay) + local.tail(localRow(), localNow, denied, frame = assembled != null, wrapped = wrapPlay != null)",
-    "            val localTail = if (localOn) local.tail(localRow(), localNow, denied, frame = assembled != null, wrapped = wrapPlay != null) + listOfNotNull(wrapPlay)"
+    "        val tail = listOf(wrap.play) + local.tail(localRow(), nowMs, emptySet(), frame = false, wrapped = true)",
+    "        val tail = local.tail(localRow(), nowMs, emptySet(), frame = false, wrapped = true) + listOf(wrap.play)"
    ]
   ],
   "tests": [
@@ -3410,7 +3410,7 @@
   "expect": [
    "theWrapSlidesOneRowBothWays_AZ4"
   ],
-  "note": "AZ.4: the PLAY behind the rules' answers (\u00a76.5's batch order)",
+  "note": "AZ.4: the PLAY behind the rules' answers (\u00a76.5's batch order) [re-pointed at MR-083: run on the merged tree at the pump's batch path it was NOT CAUGHT — since G4 the wrap's PLAY and the rules' answers go ahead of the frame in `mainWrapFirst`'s own flush, the path its pin drives; the batch path's order is row `AZ4-play-after-discard-batch`]",
   "from": "G2"
  },
  {
@@ -7099,10 +7099,9 @@
   ],
   "expect": [
    "aWaiterWhoseRecordedSlotIsPlayedOverWaitsOnNone_7_12",
-   "aReplacedSlotFormsNoCycle_7_12",
    "aFireOverAnOwnerWithAWaiterIsJudgedByTheBudgetBefore19_7_12"
   ],
-  "note": "C3-X2D: C-1 unfixed: waits read on the table before the operation (lane row `c1-read-before`) [re-pointed at MR-083: C3-X2D phase 2 renamed the phase-1 row `aReplacedSlotFormsNoCycle_7_12` (its replaced cases unchanged)]",
+  "note": "C3-X2D: C-1 unfixed: waits read on the table before the operation (lane row `c1-read-before`) [re-pointed at MR-083: its third expected row was renamed by C3-X2D phase 2 (`aReplacedSlotFormsNoCycle_7_12`, the true-cycle cases moved to the cut's row); run here, neither of those fails under this variant (under the cut no cycle forms, and the earlier reading only lowers the sum), so the row expects the two that do, each failing for C-1's reason (\"one over\", \"Z refused 12\")]",
   "from": "C3-X2D"
  },
  {
@@ -7118,10 +7117,9 @@
    "wm.damage.core.EffectsSimTest"
   ],
   "expect": [
-   "aWaiterWhoseRecordedSlotIsPlayedOverWaitsOnNone_7_12",
-   "aReplacedSlotFormsNoCycle_7_12"
+   "aWaiterWhoseRecordedSlotIsPlayedOverWaitsOnNone_7_12"
   ],
-  "note": "C3-X2D: C-1: the plain 'not the replaced slot' reading (wrong with a reused tag) (lane row `c1-not-this-slot`) [re-pointed at MR-083: C3-X2D phase 2 renamed the phase-1 row `aReplacedSlotFormsNoCycle_7_12` (its replaced cases unchanged)]",
+  "note": "C3-X2D: C-1: the plain 'not the replaced slot' reading (wrong with a reused tag) (lane row `c1-not-this-slot`) [re-pointed at MR-083: its second expected row was renamed by C3-X2D phase 2 (`aReplacedSlotFormsNoCycle_7_12`, the true-cycle cases moved to the cut's row); run here, neither of those fails under this variant, so the row expects the one that does, for its reason (\"a reused tag\")]",
   "from": "C3-X2D"
  },
  {
@@ -7869,8 +7867,7 @@
    "*TransitionShellTest.anEncodeActsListsWriteUnderACountReadingVoidsIt_X6T*"
   ],
   "expect": [
-   "aRecordsWriteUnderACountReadingVoidsIt_X6T",
-   "anEncodeActsListsWriteUnderACountReadingVoidsIt_X6T"
+   "(declared, no pin: the line before it (`atlasInFlight`, `stageInFlight`, the transport's in-flight count) holds a launch while any write is unacknowledged; this wait alone holds only between the transport's ack and the shell's own count of it, a step on the loop no test drives apart. C3-X6T watched it only with the void (`no-void`); split at MR-083 and watched alone: SURVIVED, A and B pass)"
   ],
   "note": "C3-X6T: rule 1 undone, the launch's wait for open writes (Shell.kt) (lane row `no-void(shell)`) [re-pointed at MR-083: C3-X6T's `no-void` undid rule 1 in two files at once; split into its two guards, one row each (this one: the launch's wait)]",
   "from": "C3-X6T"
@@ -7910,5 +7907,23 @@
   ],
   "note": "C3-X6T: every short reading voided (lane row `short-void`)",
   "from": "C3-X6T"
+ },
+ {
+  "id": "AZ4-play-after-discard-batch",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            val localTail = if (localOn) listOfNotNull(wrapPlay) + local.tail(localRow(), localNow, denied, frame = assembled != null, wrapped = wrapPlay != null)",
+    "            val localTail = if (localOn) local.tail(localRow(), localNow, denied, frame = assembled != null, wrapped = wrapPlay != null) + listOfNotNull(wrapPlay)"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.theWrapSlidesOneRowBothWays_AZ4"
+  ],
+  "expect": [
+   "(declared, no pin: since G4 the wrap's PLAY goes in `mainWrapFirst`'s own flush; the pump's batch path carries a wrap only when a COMMIT is planned in the same pump (or `mainWrapFirst` declines), which no pin drives — run at MR-083 on the merged tree: `theWrapSlidesOneRowBothWays_AZ4` passes under it)"
+  ],
+  "note": "AZ.4: the PLAY behind the rules' answers in the pump's batch path (the row `AZ4-play-after-discard` held before G4; split at MR-083)",
+  "from": "G2 (split at MR-083)"
  }
 ]
