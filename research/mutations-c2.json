@@ -7101,7 +7101,7 @@
    "aWaiterWhoseRecordedSlotIsPlayedOverWaitsOnNone_7_12",
    "aFireOverAnOwnerWithAWaiterIsJudgedByTheBudgetBefore19_7_12"
   ],
-  "note": "C3-X2D: C-1 unfixed: waits read on the table before the operation (lane row `c1-read-before`) [re-pointed at MR-083: its third expected row was renamed by C3-X2D phase 2 (`aReplacedSlotFormsNoCycle_7_12`, the true-cycle cases moved to the cut's row); run here, neither of those fails under this variant (under the cut no cycle forms, and the earlier reading only lowers the sum), so the row expects the two that do, each failing for C-1's reason (\"one over\", \"Z refused 12\")]",
+  "note": "C3-X2D: C-1 unfixed: waits read on the table before the operation (lane row `c1-read-before`) [re-pointed at MR-083: its third expected row was renamed by C3-X2D phase 2 (`aReplacedSlotFormsNoCycle_7_12`, the true-cycle cases moved to the cut's row); run here, neither of those fails under this variant (why not traced), so the row expects the two that do, each failing for C-1's reason (\"one over\", \"Z refused 12\")]",
   "from": "C3-X2D"
  },
  {
