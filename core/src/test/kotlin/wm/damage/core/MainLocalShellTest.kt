@@ -1340,6 +1340,77 @@ class MainLocalShellTest {
         } finally { r.close() }
     }
 
+    /** C3 FF (the fit follows the fact the ring form follows): at 480, where Main's paint does not wrap and the form is
+     *  today's at both stages, a hand disarm of EFFECTS drops the staging made on the fast DRAW path's fit (Depth P 16 T 19)
+     *  and Main is staged again on C2's (P 59 T 5) — the fast fit's programs never stay bound while fires run C2's path. A
+     *  notch on each lands with belief equal to both lenses. (A bit armed by hand is believed only when a start arms it,
+     *  decisions AG.2: a hand re-arm changes nothing on the phone until the next start, which stages the fast fit.) */
+    @Test
+    fun aHandDisarmOfEffectsAt480RestagesOnC2sFit_FF(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, stage = 5, kib256 = true, features = 0xdff)
+        try {
+            r.up()
+            r.shell.updateSettings { it.copy(heightMode = 480) }
+            fun staged(stage5: Boolean, pt: Pair<Int, Int>) = r.onLoop { r.shell.mainBinding.staging?.let { it.layout.rowsAbove == 5 && it.stage5 == stage5 &&
+                !it.ring && it.period to it.t == pt && it.periodInForce == pt.first } == true && r.shell.mainBoundForTest().first?.entryFor(CfwModes.EV_UPROLL)?.period == pt.first }
+            r.until("staged at 480 on the fast fit and bound") { staged(true, 16 to 19) }
+            r.bound("at 480, stage 5")
+            notch(r, CfwModes.EV_UPROLL, "a notch on the fast fit")
+            val drops = r.notes("mainstage").count { it.startsWith("dropped") }
+            r.t.devProbe("flags", "0x3c")                     // stage 4's flags: EFFECTS taken away by hand
+            r.until("staged again on C2's fit and bound") { staged(false, 59 to 5) }
+            r.bound("re-bound on C2's fit")
+            assertTrue(r.notes("mainstage").filter { it.startsWith("dropped") }.drop(drops).any { "stage-5 form and fit no longer match" in it },
+                "the drop said why: ${r.notes("mainstage").takeLast(3)}")
+            notch(r, CfwModes.EV_DOWNROLL, "a notch on C2's fit")
+            r.assertOracle("after")
+        } finally { r.close() }
+    }
+
+    /**
+     * C3 FF item 3 (decisions BF at stage 5): the measured period raises and lowers the fast fit's period as it does C2's.
+     * With the glasses' steps measured at 30 ms (against the fit's modeled 8.8 ms at 352), the first motion that ends whole
+     * (one sample in the window) raises P 16 → 34 (30 × 1.10 × 1.024, rounded up) and Auto's T follows through the programs-only re-make: 300 ms at
+     * P 34, T 9; steps measured at 8 ms over the window and 5 s of quiet bring it back to the fit's 16 (the staging's own
+     * period is the floor) and T 19. Belief equals both lenses after.
+     */
+    @Test
+    fun theMeasuredPeriodRaisesAndLowersTheFastFitAndAutosStepsFollow_FF(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, stage = 5, kib256 = true, features = 0xdff)
+        try {
+            r.up()
+            assertEquals(listOf(true, 16, 19), r.onLoop { r.shell.mainBinding.staging!!.let { listOf(it.stage5, it.period, it.t) } }, "the fast fit at 352")
+            val m = marks(r)
+            for (a in Arm.entries) r.sim.motionForTest(a).stepUsForTest = 30_000L
+            var notches = 0
+            while (r.onLoop { r.shell.periodInForceForTest() } == 16 && notches < 4) {
+                r.fire(if (r.row() < r.list().count - 2) CfwModes.EV_UPROLL else CfwModes.EV_DOWNROLL); notches++
+                delay(r.motionMs() + r.q() + 300); r.settle("slow notch $notches")
+            }
+            assertEquals(34, r.onLoop { r.shell.periodInForceForTest() })
+            // the raise is taken from the first motion that ended whole (one sample in the window); which notch the loop
+            // reads it after depends on when that motion's body arrived (at its close), so the window, not the loop, says it
+            assertTrue(r.notes("mainstage").any { it.startsWith("period 16 → 34") && "over the last 1 motion(s)" in it },
+                "the first motion that ends whole raises the period: ${r.notes("mainstage").filter { it.startsWith("period") }}")
+            remade(r, "T at P 34", m)
+            val e = r.list().entryFor(CfwModes.EV_UPROLL)!!
+            assertEquals(34 to 9, e.period to e.program!!.T, "300 ms at P 34: T 9")
+            assertTrue(r.notes("mainstage").any { it.startsWith("pans re-made — the period in force 34 gives Auto 9 steps") }, "${r.notes("mainstage").takeLast(3)}")
+            notch(r, CfwModes.EV_DOWNROLL, "a notch at T 9")
+            val m2 = marks(r)
+            for (a in Arm.entries) r.sim.motionForTest(a).stepUsForTest = 8_000L
+            repeat(Shell.PERIOD_WINDOW + 1) { n ->
+                r.fire(if (n % 2 == 0) CfwModes.EV_UPROLL else CfwModes.EV_DOWNROLL)
+                delay(r.motionMs() + r.q() + 300); r.settle("fast notch $n")
+            }
+            delay(Shell.PERIOD_QUIET_MS + 1_000); r.settle("5 s with no input")
+            assertEquals(16, r.onLoop { r.shell.periodInForceForTest() })
+            remade(r, "T back at P 16", m2)
+            assertEquals(16 to 19, r.list().entryFor(CfwModes.EV_UPROLL)!!.let { it.period to it.program!!.T })
+            r.assertOracle("after")
+        } finally { r.close() }
+    }
+
     /** Decisions AZ.4: a notch while the wrap's motion draws — the lens's fire in slot 0 closes the phone's instance in
      *  slot 1 (their areas meet) and draws from the wrapped row; adopted, COMMITted; belief equal to both lenses. And the
      *  same with the wrap at the end of a quick burst (the notches inside Q). */

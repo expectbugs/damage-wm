@@ -53,7 +53,7 @@ class LocalStartTest {
 
     private fun ByteArray.hex() = joinToString("") { "%02x".format(it) }
 
-    private class Run(val shell: Shell, val images: List<String>)
+    private class Run(val shell: Shell, val images: List<String>, val sim: GlassFirmwareSim)
 
     private suspend fun start(taps: Taps, features: Int = 0x5FF, stage: Int = 4, height: Int = 352, windows: Int = 5): Run {
         val dir = Files.createTempDirectory(tmp, "s")
@@ -68,7 +68,7 @@ class LocalStartTest {
         for (i in 0 until windows) shell.register(Row("w$i", "Win $i", DamageWindow.Summary("summary $i", detail = "detail of $i")))
         shell.start()
         waitUntil(30_000, 10, { "Main's list bound: ${images.size} images" }) { shell.isQuiescent() && images.any { binds(unhex(it)) } }
-        return Run(shell, images)
+        return Run(shell, images, sim)
     }
 
     /** A batch that SETs an entry (mode 27 sub 0). */
@@ -132,6 +132,11 @@ class LocalStartTest {
             assertTrue(bindList != null && ms != null, "$what: Main's list bound with its LIST")
             val ring = stage == 5 && height == 352
             assertEquals(ring, ms!!.ring, "$what: the staging's form")
+            // C3 FF: the fit follows the same fact at every height — the fast DRAW path's at stage 5 (Depth P 16 T 19 at 352
+            // and 416), C2's below (P 46 T 6 at 352)
+            assertEquals(stage == 5, ms.stage5, "$what: the staging made under EFFECTS in force")
+            assertEquals(if (stage == 5) 16 to 19 else 46 to 6, ms.period to ms.t, "$what: the fit")
+            assertTrue(r.sim.bindForTest(Arm.RIGHT).entries.filterNotNull().filter { it.eventId != CfwModes.EV_TAP }.all { it.period == ms.period }, "$what: the entries SET with the fit's period")
             assertEquals(!ring && height == 352, ms.wrap != null, "$what: a wrap record exactly where the form is today's and Main wraps")
             if (ring) {
                 assertTrue(bindList!![1].toInt() == CfwModes.BIND_LIST_RING && bindList.size == 13 && bindList[12].toInt() == 1, "$what: the binding batch's LIST is LIST-RING flags 1")

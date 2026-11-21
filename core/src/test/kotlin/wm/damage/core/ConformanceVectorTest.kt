@@ -92,10 +92,11 @@ class ConformanceVectorTest {
         // build C3's exceptions for inputs committed before the fork's runner filled them — the `v5-*` set (ended with
         // X2D's phase 2), stage X3D's `v5-ship-*` and `v5-x3-hint` (ended with X3D's comparison) and stage X3T's Encode
         // and Matrix ship vectors (ended with X5T's comparison) and APK 0.83 stage SV's scroll and notice ship vectors (ended
-        // with SV's comparison) — are gone. C3 stage SVR: Main's list as a ring list in ship vectors — exactly the names in
-        // [SVR_UNFILLED] — is committed before the fork's runner fills it: reported "not filled" with a count and run through
-        // the model ([theUnfilledVectorsRunThroughTheModel]); every other unfilled file in the repo fails like any other.
-        // The comparison removes this exception.
+        // with SV's comparison) — are gone. C3 stage SVR: Main's list as a ring list in ship vectors, and the one act whose
+        // inputs the fast-path fit's merge wrote again — exactly the names in [SVR_UNFILLED] — are committed before the
+        // fork's runner fills them: reported "not filled" with a count and run through the model
+        // ([theUnfilledVectorsRunThroughTheModel]); every other unfilled file in the repo fails like any other. The
+        // comparison removes this exception.
         val svr = out.notFilled.filter { it.substringBefore(" (") in SVR_UNFILLED }
         if (svr.isNotEmpty()) println("ConformanceVectorTest: ${svr.size} SVR vector(s) not filled until the comparison: ${svr.joinToString("; ")}")
         for (n in out.notFilled - svr.toSet()) out.problems += "$n: not filled — a step in firmware/vectors/ with no expectation fails the test (ruling R1.21)"
@@ -881,6 +882,8 @@ class ConformanceVectorTest {
             val want = project(Json.parseToJsonElement(Files.readString(f)).jsonObject)
             val now = project(got.vector)
             if (want.isEmpty()) problems += "${spec.name}: the file holds no program"
+            // (C3 FF's exception for the act the fast-path fit moved went with C3 SVR's merge: its inputs are written again,
+            // so it is compared as every act is; its file waits for the fill under [SVR_UNFILLED])
             if (want != now) problems += "${spec.name}: the program bytes the shell sends today differ from the file's inputs " +
                 "(${now.size} against ${want.size}; first difference at ${now.indices.firstOrNull { it >= want.size || now[it] != want[it] } ?: want.size}) — regenerate it"
         }
@@ -902,9 +905,10 @@ class ConformanceVectorTest {
          *  names). */
         const val X3_HINT = "v5-x3-hint"
         /** C3 stage SVR (`private/c3-design/briefs/C3-SVR-brief.md`): Main's list as a ring list in ship vectors
-         *  ([ShipVectors.ringSpecs]), reported "not filled" by exact name until the firmware lane's fill; the comparison
-         *  removes the exception ([notFilledFailsInTheRepo]). */
-        val SVR_UNFILLED: Set<String> by lazy { ShipVectors.ringSpecs().map { it.name }.toSet() }
+         *  ([ShipVectors.ringSpecs]) and the one shipped act whose inputs the merge of the fast-path fit (C3 FF) wrote again
+         *  (`v5-ship-scroll-depth-stage5-480`), reported "not filled" by exact name until the firmware lane's fill; the
+         *  comparison removes the exception ([notFilledFailsInTheRepo]). */
+        val SVR_UNFILLED: Set<String> by lazy { ShipVectors.ringSpecs().map { it.name }.toSet() + "v5-ship-scroll-depth-stage5-480" }
         /** §7.13's four fold pairs (`make_vectors.py`'s `"pair"` keys). */
         val FOLD_PAIRS = setOf("v5-fold-dim", "v5-fold-pieces", "v5-fold-rain", "v5-fold-shrink")
     }

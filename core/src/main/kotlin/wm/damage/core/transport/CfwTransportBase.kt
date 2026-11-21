@@ -1443,10 +1443,10 @@ abstract class CfwTransportBase(
         val baseline = bindRefusalBaseline
         bindRefusalBaseline = false
         bindRefusalSeen = rec
-        // decisions M.5: a batch dropped whole is recorded as mode 8 / reason 14, never 27 — the shell re-sends the table
-        // subs it sent since the last read
+        // decisions M.5: a batch dropped whole is recorded as mode 8 / reason 14, never 27 — the shell re-sends the entries'
+        // SETs and CLEARs it sent since the last read (a LIST rides the next answer, C3 X3M0)
         val batch14 = fresh && !baseline && rec!!.first == 8 && rec.second == 14
-        if (batch14) emitNote("local", "the glasses dropped a batch whole (${ref!!.describe()}) — the shell re-sends the table messages it sent since the last read")
+        if (batch14) emitNote("local", "the glasses dropped a batch whole (${ref!!.describe()}) — the shell re-sends the entries' SETs and CLEARs it sent since the last read")
         // decisions BS.3 and the lead's ruling on B083-rr: a record naming 27 (P1), or 26 with more of its batch behind it —
         // that rest did not run on RIGHT: the whole table again and one keyframe, once (the rule against repeating is the
         // gate's, one latch for both modes)

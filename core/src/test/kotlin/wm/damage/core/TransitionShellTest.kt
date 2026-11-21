@@ -900,6 +900,7 @@ class TransitionShellTest {
                 for (left in listOf(true, false)) againstTruth(r, left, shadow = true, area = r.onLoop { r.shell.layout.content })?.let { fail("Main's frame whole in the shadow before the notch: $it") }
             }
             val applied = r.notes("applied").size
+            val repairs = r.notes("repair").size
             r.fire(CfwModes.EV_DOWNROLL)
             r.until("the notch applied as today: the row is Main's last") { r.row() == count - 1 }
             r.until("RIGHT's report of the notch in the journal") { r.notes("applied").size > applied }
@@ -918,7 +919,8 @@ class TransitionShellTest {
                 assertTrue(Arm.entries.all { r.sim.motionForTest(it).slots[3]?.drawing == true },
                     "precondition: both in halves still drawing when the wrapped row was in the shadow (a run too loaded to exercise the hold)")
             }
-            r.until("both lenses' in halves landed") { Arm.entries.all { r.sim.motionForTest(it).slots[3]?.let { s -> !s.drawing && s.d >= 1 } == true } }
+            // C3 X3M0 (decisions BB (4)): landed is the half's own T — an emptied slot or a done one short of T is not
+            r.until("both lenses' in halves landed") { Arm.entries.all { r.sim.motionForTest(it).slots[3]?.let { s -> !s.drawing && s.d == s.T } == true } }
             delay(20)
             for (left in listOf(true, false)) againstTruth(r, left, shadow = false, area = content)?.let { fail("the wrapped row at the in half's LAND: $it") }
             r.until("the Back's run ends") { r.onLoop { r.shell.transitionPhaseForTest() } == null }
@@ -927,6 +929,8 @@ class TransitionShellTest {
             noCloseUnderTheRun(r, act = 0, alsoNot = { playIn(it, MainStaging.WRAP_SLOT) })
             bothHalvesWhole(r, act = 1)
             r.assertOracle("at rest after the wrap notch under the Back")
+            // C3 X3M0 (decisions BB (2)): a fire refused 19 is no evidence for the table repair — no SET, no `repair` note
+            assertEquals(emptyList(), r.notes("repair").drop(repairs), "no repair for the notch refused 19 under the Back")
             // after the run the list still rings: the next notch past the end is the glasses' own wrap, no PLAY in slot 1
             val at = right(r).size
             val after = r.notes("applied").size

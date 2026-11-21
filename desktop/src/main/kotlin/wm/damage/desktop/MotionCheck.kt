@@ -37,7 +37,8 @@ import wm.damage.core.wire.Pb
  * K1-1: and Main's Scroll effects ([MainLocalCheck.effectStrips]: each effect's notch from the middle row both ways and
  * the wrap where Main wraps, at the four heights on 256 KiB, fired through the simulator's input hook, the desktop's own
  * faces) as `DIR/scroll-<effect>-h<height>-<notch>.png` and `.txt` beside `DIR/scroll-staging.txt` — the lead's look before
- * Adam's; each case's checks (the last step and COMMIT's END against Main's paint) count as the programs' do.
+ * Adam's; each case's checks (the last step and COMMIT's END against Main's paint) count as the programs' do. C3 FF: and the
+ * same at stage 5, `DIR/scroll-<effect>-h<height>-s5-<notch>`, on the fast DRAW path's fit (the wrap a ring fire at 288/352).
  *
  * The bounds A.15 sets: `main` hands this the directory before the config is read, so nothing under `~/.damage` is
  * read; no stack, transport, shell or scope is made, so no port is bound and no window opens (the JVM is set headless

@@ -128,10 +128,36 @@ class LocalRulesTest {
         assertTrue(d > 0 && isListRing(eb[d - 1]), "the DISCARD naming row 0 behind a LIST-RING: ${eb.map { it.joinToString("") { x -> "%02x".format(x) } }}")
     }
 
+    /** C3 X3M0 (decisions BB (2)): a scroll fire refused 19 — a transition's owner in its close set (§7.3), field 8 the
+     *  cursor unchanged, fields 10–14 computed at the new cursor (§6.5; `v5-own` steps 59 and 98) — is applied as today
+     *  with the cause `owner` and is no evidence for the table repair: no SET owed, the batch [LIST, DISCARD naming the
+     *  row]. The same on a ring list at the wrap up from row 0 (fields 10–14 at v = −1). Before: "parameters differ from
+     *  the prediction", the entry's SET (25 B) and a `repair` note at every notch under a transition. */
+    @Test
+    fun aScrollRefused19IsNoRepairEvidence_X3M0() {
+        fun kinds(b: List<ByteArray>) = b.map { "${it[0].toInt() and 0xFF}/${it[1].toInt() and 0xFF}" }
+        val t = R(row = 3)
+        assertEquals(Verdict.Apply(EvenHubMsg.EV_SCROLL_BOTTOM), t.scroll(1, 3, outcome = DamageMsg.APPLIED_REFUSED, reason = 19, p = intArrayOf(recs[4], 0, 0, 0)))
+        assertEquals(emptySet(), t.r.repair.owedObjects(), "no SET owed: ${t.notes}")
+        val b = t.batch()
+        assertEquals(listOf("27/2", "26/4"), kinds(b), "the batch: the riding LIST and the DISCARD, no SET")
+        assertTrue(isDiscard(b[1], 1, cursor = 4), "the DISCARD names the row the notch moved to")
+        assertTrue(t.notes.none { it.first == "repair" }, "no repair note: ${t.notes}")
+        assertEquals("owner", t.notes.last { it.first == "snapback" }.second.substringAfter("cause=").substringBefore(' '))
+        val w = R(l = list(ring = true, params = PK2), row = 0)
+        assertEquals(Verdict.Apply(EvenHubMsg.EV_SCROLL_TOP), w.scroll(1, 0, id = CfwModes.EV_DOWNROLL, outcome = DamageMsg.APPLIED_REFUSED, reason = 19,
+            p = intArrayOf(recs[7], -8, 0, 0)))
+        assertEquals(emptySet(), w.r.repair.owedObjects(), "ring, at the wrap: no SET owed: ${w.notes}")
+        val wb = w.batch()
+        assertEquals(listOf("27/${CfwModes.BIND_LIST_RING}", "26/4"), kinds(wb), "ring: the riding LIST-RING and the DISCARD, no SET")
+        assertTrue(isDiscard(wb[1], 1, cursor = 7), "ring: the DISCARD names the wrapped row")
+        assertTrue(w.notes.none { it.first == "repair" }, "ring: no repair note: ${w.notes}")
+    }
+
     /** C3 DM-0 (S5, the class): on a ring list EVERY LIST the rules write is LIST-RING with flags 1 — the start's, the one
      *  riding before a COMMIT, a DISCARD, an idle SETTLE and the lone SETTLE, the whole table again (a refusal record
-     *  naming 27, one naming 26 through the gate, a refused flush), the batch-14 re-send and a re-staging's. A plain LIST
-     *  clears RING on the glasses (§7.8). */
+     *  naming 27, one naming 26 through the gate, a refused flush) and a re-staging's. A plain LIST clears RING on the
+     *  glasses (§7.8). (The batch-14 re-send writes no LIST since C3 X3M0, decisions BB (1).) */
     @Test
     fun everyListTheRulesWriteForARingListIsListRing_DM0() {
         val t = R(l = list(ring = true), row = 3)
@@ -145,8 +171,6 @@ class LocalRulesTest {
         t.r.tableAgain("a refused flush"); take(t.batch(), "the table again")
         t.r.telemetry(null, DamageMsg.Refusal(27, 12, 1)); take(t.batch(), "a refusal record naming 27")
         t.r.telemetry(null, null, null, wm.damage.core.local.EngineRefusals.Repair(DamageMsg.Refusal(26, 12, 2), "COMMIT slot 0 ×1")); take(t.batch(), "the gate's repair of a 26")
-        // (that batch touched the list: a record naming a batch dropped whole re-sends it)
-        t.r.telemetry(null, null, DamageMsg.Refusal(8, 14, 3)); take(t.batch(), "the batch-14 re-send")
         t.r.front(list(ring = true, mark = 2), t.row); take(t.batch(), "a re-staging")
         val lists = all.filter { isList(it) }
         assertTrue(lists.isNotEmpty() && lists.all { isListRing(it) }, "every LIST is LIST-RING flags 1: ${lists.map { it.joinToString("") { x -> "%02x".format(x) } }}")
@@ -584,6 +608,7 @@ class LocalRulesTest {
         R().let { it.r.front(null, 3); it.scroll(1, 4); assertEquals("focus", cause(it)) }
         R().let { it.scroll(1, 4, outcome = 1); assertEquals("edge", cause(it)) }
         R().let { it.scroll(1, 4, outcome = 2, reason = 3); assertEquals("link", cause(it)) }
+        R().let { it.scroll(1, 3, outcome = 2, reason = 19, p = intArrayOf(recs[4], 0, 0, 0)); assertEquals("owner", cause(it)) }   // C3 X3M0
         R().let { it.scroll(1, 4); it.batch(denied = setOf(0))     // a drawing sub met the areas: the COMMIT turned
             assertEquals("focus", it.notes.last { n -> n.first == "snapback" }.second.substringAfter("cause=").substringBefore(' ')) }
         R().let { it.scroll(1, 4); it.batch(); it.now += it.r.q; it.r.loneSettle(it.row, it.now)
@@ -614,6 +639,27 @@ class LocalRulesTest {
         t.r.telemetry(null, null, DamageMsg.Refusal(8, 14, 9))
         val b = t.batch()
         assertTrue(b.any { it.contentEquals(t.l.set(t.l.entries[2])) }, "the press SET again")
+    }
+
+    /** C3 X3M0 (decisions BB (1), a removal): a record naming a batch dropped whole, read while an adopted notch's answer
+     *  is owed, re-sends the entries it carried and no LIST of its own — the answer stays the COMMIT, behind the LIST that
+     *  rides before every answer (the list's current mark). With the LIST re-sent as a table object the batch carried a
+     *  LIST for the slot's list, P3 made the answer a DISCARD and the note said `snapback cause=lost-report`. */
+    @Test
+    fun aBatchDroppedWholeReadWhileAnAnswerIsOwedKeepsTheCommit_X3M0() {
+        for (ring in listOf(false, true)) {
+            val t = R(l = list(ring = ring), row = 3)
+            assertEquals(Verdict.Adopt(4), t.scroll(1, 4), "ring $ring: ${t.notes}")
+            t.r.telemetry(null, null, DamageMsg.Refusal(8, 14, 9))           // the start's batch is in the span
+            val b = t.batch()
+            val c = b.indexOfFirst { it[0].toInt() == 26 && isCommit(it, 1) }
+            assertTrue(c > 0, "ring $ring: the answer is the COMMIT: ${b.map { it.joinToString("") { x -> "%02x".format(x) } }}")
+            assertTrue(b.none { it[0].toInt() == 26 && it[1].toInt() == 4 }, "ring $ring: no DISCARD")
+            assertTrue(isList(b[c - 1]) && (b[c - 1][11].toInt() and 0xFF) == t.mark && b.count { isList(it) } == 1,
+                "ring $ring: one LIST, the riding one with the current mark, right before the COMMIT")
+            assertTrue(t.notes.none { it.first == "snapback" }, "ring $ring: no snap-back: ${t.notes}")
+            assertTrue(b.any { it.contentEquals(t.l.set(t.l.entries[0])) }, "ring $ring: the entries the dropped batch carried go again")
+        }
     }
 
     /** The lead's ruling A1 on FR-083, the batch-14 re-send's span (its class): a batch carrying the press SET, then two

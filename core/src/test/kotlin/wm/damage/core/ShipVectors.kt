@@ -354,7 +354,8 @@ internal object ShipVectors {
         for ((f, p) in listOf(4 to 77, 6 to 59, 8 to 59, 12 to 59, 16 to 59)) out += ScrollSpec(n(ScrollEffect.DEPTH, 480, "-frames$f"), ScrollEffect.DEPTH, 480, f, p, frames = f)
         for ((len, t) in listOf(225 to 3, 450 to 7, 600 to 9, 800 to 12)) out += ScrollSpec(n(ScrollEffect.FALL, 480, "-len$len"), ScrollEffect.FALL, 480, t, 65, lengthMs = len)
         for (f in listOf(6, 8, 10, 16)) out += ScrollSpec(n(ScrollEffect.FALL, 480, "-frames$f"), ScrollEffect.FALL, 480, f, 65, frames = f)
-        out += ScrollSpec(n(ScrollEffect.DEPTH, 480, "-stage5"), ScrollEffect.DEPTH, 480, at(ScrollEffect.DEPTH, 480).first, at(ScrollEffect.DEPTH, 480).second, stage = 5)
+        // C3 FF: at stage 5 the staging holds the fast DRAW path's fit — Depth at 480 P 16, T 19 (C2's P 59, T 5 above)
+        out += ScrollSpec(n(ScrollEffect.DEPTH, 480, "-stage5"), ScrollEffect.DEPTH, 480, 19, 16, stage = 5)
         return out
     }
 

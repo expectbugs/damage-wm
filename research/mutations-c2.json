@@ -2084,8 +2084,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    " ${st.cacheSize} ${motionInForce()} ring=$ring ${List(n) { main.rowKey(it) }.hashCode()}\"",
-    " ${st.cacheSize} ${motionInForce()} ring=$ring\""
+    " ${st.cacheSize} ${motionInForce()} stage5=$stage5 ${List(n) { main.rowKey(it) }.hashCode()}\"",
+    " ${st.cacheSize} ${motionInForce()} stage5=$stage5\""
    ]
   ],
   "tests": [
@@ -2094,7 +2094,7 @@
   "expect": [
    "aStagingThatDidNotFitIsTriedAgainWhenItsContentChanges_AF6"
   ],
-  "note": "AF.6 [re-pointed by C3 DM-0 to its present text]",
+  "note": "AF.6 [re-pointed by C3 DM-0 to its present text] [re-pointed by C3 FF: the key names EFFECTS in force]",
   "from": "FB"
  },
  {
@@ -2156,8 +2156,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "listOf(MainStaging.WHOLE), twoStrips = !shared0, motion = motionInForce(), room = room, stage5 = ring)",
-    "MainStaging.WIDTHS + MainStaging.WHOLE, twoStrips = !shared0, motion = motionInForce(), room = room, stage5 = ring)"
+    "listOf(MainStaging.WHOLE), twoStrips = !shared0, motion = motionInForce(), room = room, stage5 = stage5)",
+    "MainStaging.WIDTHS + MainStaging.WHOLE, twoStrips = !shared0, motion = motionInForce(), room = room, stage5 = stage5)"
    ]
   ],
   "tests": [
@@ -2166,7 +2166,7 @@
   "expect": [
    "theBoundStagingHoldsOnlyTheWholeListsPans_AF10"
   ],
-  "note": "AF.10 [re-targeted at the 0.83 integration: B082 added the `room` argument] [re-pointed by C3 DM-0 to its present text]",
+  "note": "AF.10 [re-targeted at the 0.83 integration: B082 added the `room` argument] [re-pointed by C3 DM-0 to its present text] [re-pointed by C3 FF: the shell passes EFFECTS in force]",
   "from": "FB"
  },
  {
@@ -8258,8 +8258,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "private fun mainBindRing(st: LinkState, lay: Layout, rows: Int): Boolean = st.effects &&",
-    "private fun mainBindRing(st: LinkState, lay: Layout, rows: Int): Boolean = st.bind &&"
+    "        val stage5 = st.effects\n",
+    "        val stage5 = st.bind\n"
    ]
   ],
   "tests": [
@@ -8268,7 +8268,7 @@
   "expect": [
    "theStage5StartBindsMainAsARingListWhereItsPaintWraps_DM0"
   ],
-  "note": "C3 DM-0: the ring form decided on BIND, not EFFECTS — a bit-11 build at stage 4 stages a ring list whose LIST-RING the transport's gate refuses to send",
+  "note": "C3 DM-0: the ring form decided on BIND, not EFFECTS — a bit-11 build at stage 4 stages a ring list whose LIST-RING the transport's gate refuses to send [re-pointed by C3 FF: the shell's one fact `stage5 = st.effects`, which the ring form and the fit both take; under it the stage-4 staging takes the stage-5 form and fit and the poll drops it at every pump]",
   "from": "C3-DM0"
  },
  {
@@ -8276,35 +8276,19 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "            st.bind && ms.ring != mainBindRing(st, ms.layout, ms.rows) ->",
-    "            false && ms.ring != mainBindRing(st, ms.layout, ms.rows) ->"
+    "            st.bind && ms.stage5 != st.effects ->",
+    "            false && ms.stage5 != st.effects ->"
    ]
   ],
   "tests": [
-   "*MainLocalShellTest.aHandDisarmOfEffectsStagesMainAgainInTodaysForm_DM0*"
+   "*MainLocalShellTest.aHandDisarmOfEffectsStagesMainAgainInTodaysForm_DM0*",
+   "*MainLocalShellTest.aHandDisarmOfEffectsAt480*"
   ],
   "expect": [
-   "aHandDisarmOfEffectsStagesMainAgainInTodaysForm_DM0"
+   "aHandDisarmOfEffectsStagesMainAgainInTodaysForm_DM0",
+   "aHandDisarmOfEffectsAt480RestagesOnC2sFit_FF"
   ],
-  "note": "C3 DM-0: the staging's form not followed after a hand disarm of EFFECTS — the ring list stays bound, every LIST-RING and every fire on it refused 15",
-  "from": "C3-DM0"
- },
- {
-  "id": "DM0-shell-ring-no-fit",
-  "file": "shell/Shell.kt",
-  "edits": [
-   [
-    "private fun mainBindRing(st: LinkState, lay: Layout, rows: Int): Boolean = st.effects && MainStaging.ringFits(lay, rows)",
-    "private fun mainBindRing(st: LinkState, lay: Layout, rows: Int): Boolean = st.effects"
-   ]
-  ],
-  "tests": [
-   "*LocalStartTest.theStage5StartBindsMainAsARingListWhereItsPaintWraps_DM0*"
-  ],
-  "expect": [
-   "theStage5StartBindsMainAsARingListWhereItsPaintWraps_DM0"
-  ],
-  "note": "C3 DM-0 (S2): the shell asks the ring form where Main's paint does not wrap — the staging stays plain there (its own fit), the poll finds the form not the one asked and drops it at every pump: Main is never offered at 416 on a bit-11 build at stage 5",
+  "note": "C3 DM-0: the staging's form not followed after a hand disarm of EFFECTS — the ring list stays bound, every LIST-RING and every fire on it refused 15 [re-pointed by C3 FF: one clause for the form and the fit — at 480 the fast fit's programs stay bound while fires run C2's path]",
   "from": "C3-DM0"
  },
  {
@@ -8332,8 +8316,8 @@
   "file": "local/LocalRules.kt",
   "edits": [
    [
-    "                return asToday(if (r == 5 || r == 12 || r == 18) \"restaged\" else \"link\")",
-    "                return if (r == 19) Verdict.Nothing else asToday(if (r == 5 || r == 12 || r == 18) \"restaged\" else \"link\")"
+    "                return asToday(when (r) { 5, 12, 18 -> \"restaged\"; 19 -> \"owner\"; else -> \"link\" })",
+    "                return if (r == 19) Verdict.Nothing else asToday(when (r) { 5, 12, 18 -> \"restaged\"; 19 -> \"owner\"; else -> \"link\" })"
    ]
   ],
   "tests": [
@@ -8343,7 +8327,164 @@
    "aWrapNotchInABacksFramePhaseIsRefused19AndAppliedAsToday_X2M0",
    "aWrapNotchInABacksInHalfIsRefused19AndAppliedAsToday_X2M0"
   ],
-  "note": "C3 X2M0 (decisions AZ (3)): a ring fire refused 19 under a transition's owner is not applied as today — the wrap notch at Main's end during a Back is lost (its stock message pays its own owe)",
-  "from": "C3-X2M0"
+  "note": "C3 X2M0 (decisions AZ (3)): a ring fire refused 19 under a transition's owner is not applied as today - the wrap notch at Main's end during a Back is lost (its stock message pays its own owe). Re-pointed by C3 X3M0: the line now names the cause owner",
+  "from": "C3-X2M0, re-pointed by C3-X3M0"
+ },
+ {
+  "id": "FF-fit-absent",
+  "file": "motion/ScrollEffects.kt",
+  "edits": [
+   [
+    "        val pt = if (stage5) MainStaging.timingOf(",
+    "        val pt = if (false) MainStaging.timingOf("
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.stage5TakesTheFastPathsFit*",
+   "*LocalStartTest.theStage5StartBindsMainAsARingList*"
+  ],
+  "expect": [
+   "stage5TakesTheFastPathsFitAndStaysInsideTheBudget_FF",
+   "theStage5StartBindsMainAsARingListWhereItsPaintWraps_DM0"
+  ],
+  "note": "C3 FF (the DM spec §5.1): the fast-path fit absent — stage 5 keeps C2's fit, Depth at 352 P 46, T 6 against the pin's P 16, T 19",
+  "from": "C3-FF"
+ },
+ {
+  "id": "FF-fast-below-stage5",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "                else ScrollEffects.timing(effect, l, listD, bandD, motion, stage5)",
+    "                else ScrollEffects.timing(effect, l, listD, bandD, motion, true)"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.depthIsTodaysProgramsByteForByte_K11",
+   "*ScrollEffectsTest.stage5TakesTheFastPathsFit*",
+   "*LocalStartTest.theStartsBindBatchPerTapsValue_P1"
+  ],
+  "expect": [
+   "depthIsTodaysProgramsByteForByte_K11",
+   "stage5TakesTheFastPathsFitAndStaysInsideTheBudget_FF",
+   "theStartsBindBatchPerTapsValue_P1"
+  ],
+  "note": "C3 FF: the fast fit reaches a staging made without EFFECTS — the stage-4 pans' records and the SETs' period are no longer today's bytes",
+  "from": "C3-FF"
+ },
+ {
+  "id": "FF-remake-c2-fit",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "        val (pFit, tFit) = ScrollEffects.timing(want.effect, layout, listD, bandD, want, stage5)",
+    "        val (pFit, tFit) = ScrollEffects.timing(want.effect, layout, listD, bandD, want, false)"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.stage5TakesTheFastPathsFit*",
+   "*MainBindTest.theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2"
+  ],
+  "expect": [
+   "stage5TakesTheFastPathsFitAndStaysInsideTheBudget_FF",
+   "theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2"
+  ],
+  "note": "C3 FF: the programs-only re-make of a stage-5 staging takes C2's fit — an effect change at stage 5 leaves the fast fit (Slide P 52 T 5 at 352 where the staging's fit gives P 16 T 19)",
+  "from": "C3-FF"
+ },
+ {
+  "id": "FF-shell-fit-by-ring",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        val stage5 = st.effects\n",
+    "        val stage5 = st.effects && MainStaging.ringFits(lay, n)\n"
+   ]
+  ],
+  "tests": [
+   "*LocalStartTest.theStage5StartBindsMainAsARingList*"
+  ],
+  "expect": [
+   "theStage5StartBindsMainAsARingListWhereItsPaintWraps_DM0"
+  ],
+  "note": "C3 FF: the shell's staging fact is DM-0's ring decision, not EFFECTS in force — at 416 and 480 the staging is made on C2's fit while every fire runs the fast path, the poll finds it not the fact in force and drops it at every pump: Main never bound there at stage 5",
+  "from": "C3-FF"
+ },
+ {
+  "id": "FF-s5-auto-steps-ignore-period",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "        val tp = ScrollEffects.stepsAt(want, periodInForce, t)\n",
+    "        val tp = t\n"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.theMeasuredPeriodRaisesAndLowersTheFastFit*"
+  ],
+  "expect": [
+   "theMeasuredPeriodRaisesAndLowersTheFastFitAndAutosStepsFollow_FF"
+  ],
+  "note": "C3 FF item 3: at stage 5 Auto's steps stay at the fit's 19 while the measured period raises P to 34 — the motion runs 19 × 34 ticks (≈ 631 ms) instead of T 9 in its 300 ms",
+  "from": "C3-FF"
+ },
+ {
+  "id": "X3M0-batch14-list",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "            val f = front\n            for (o in touchedSinceRead.keys.toList()) { val h = held[o]",
+    "            val f = front\n            if (f != null) pending += Pending.ListMsg(f, 0)\n            for (o in touchedSinceRead.keys.toList()) { val h = held[o]"
+   ]
+  ],
+  "tests": [
+   "*LocalRulesTest.aBatchDroppedWholeReadWhileAnAnswerIsOwedKeepsTheCommit_X3M0*"
+  ],
+  "expect": [
+   "aBatchDroppedWholeReadWhileAnAnswerIsOwedKeepsTheCommit_X3M0"
+  ],
+  "note": "C3 X3M0 (decisions BB (1), the removal): a record naming a batch dropped whole re-sends a LIST of its own again - the batch then carries a LIST for the slot's list and P3 makes the owed COMMIT a DISCARD (snapback cause=lost-report)",
+  "from": "C3-X3M0"
+ },
+ {
+  "id": "X3M0-refused19-evidence",
+  "file": "local/TableRepair.kt",
+  "edits": [
+   [
+    "        val differs = a.params?.takeIf { a.isTap || a.outcome == DamageMsg.APPLIED_DREW }?.let { p ->",
+    "        val differs = a.params?.let { p ->"
+   ]
+  ],
+  "tests": [
+   "*LocalRulesTest.aScrollRefused19IsNoRepairEvidence_X3M0*",
+   "*TransitionShellTest.aWrapNotchInABacks*"
+  ],
+  "expect": [
+   "aScrollRefused19IsNoRepairEvidence_X3M0",
+   "aWrapNotchInABacksFramePhaseIsRefused19AndAppliedAsToday_X2M0",
+   "aWrapNotchInABacksInHalfIsRefused19AndAppliedAsToday_X2M0"
+  ],
+  "note": "C3 X3M0 (decisions BB (2)): the table repair reads a scroll's fields 10-14 on a refused fire again - a notch refused 19 under a transition's owner (field 8 the old cursor, 10-14 at the new one) owes the entry's SET and a repair note at every notch",
+  "from": "C3-X3M0"
+ },
+ {
+  "id": "X3M0-owner-word",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "5, 12, 18 -> \"restaged\"; 19 -> \"owner\"; else -> \"link\"",
+    "5, 12, 18 -> \"restaged\"; else -> \"link\""
+   ]
+  ],
+  "tests": [
+   "*LocalRulesTest.eachSnapbackCause*",
+   "*LocalRulesTest.aScrollRefused19IsNoRepairEvidence_X3M0*"
+  ],
+  "expect": [
+   "eachSnapbackCause",
+   "aScrollRefused19IsNoRepairEvidence_X3M0"
+  ],
+  "note": "C3 X3M0 (decisions BB (2)): a fire refused 19 is noted with the cause link again (a start's keyframe), not owner",
+  "from": "C3-X3M0"
  }
 ]

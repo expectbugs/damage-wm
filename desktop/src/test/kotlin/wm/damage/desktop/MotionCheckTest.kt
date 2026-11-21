@@ -31,8 +31,10 @@ class MotionCheckTest {
             assertEquals(0, MotionCheck.run(dir, out = PrintStream(out, true)), out.toString())
             assertTrue("ALL HOLD" in out.toString(), out.toString())
             assertEquals(expected, files(dir).filter { !it.startsWith("scroll-") }, "one strip and one text per test program and per transition, nothing else")
-            // K1-1: each Scroll effect's notches (both ways at four heights, the wrap at the two that wrap) as strips
-            assertEquals(4 * (4 * 2 + 2 * 2), files(dir).count { it.startsWith("scroll-") && it.endsWith(".png") }, "the scroll strips: ${files(dir).filter { it.startsWith("scroll-") }}")
+            // K1-1: each Scroll effect's notches (both ways at four heights, the wrap at the two that wrap) as strips; C3 FF:
+            // and the same at stage 5 (the fast path's fit; the wrap a ring fire at the two that wrap)
+            assertEquals(2 * 4 * (4 * 2 + 2 * 2), files(dir).count { it.startsWith("scroll-") && it.endsWith(".png") }, "the scroll strips: ${files(dir).filter { it.startsWith("scroll-") }}")
+            assertEquals(4 * (4 * 2 + 2 * 2), files(dir).count { Regex("""scroll-\w+-h\d+-s5-.*\.png""").matches(it) }, "the stage-5 scroll strips: ${files(dir).filter { "-s5-" in it }}")
             for (f in files(dir).filter { it.startsWith("scroll-") && it.endsWith(".txt") && it != "scroll-staging.txt" })
                 assertTrue("checks: all hold" in Files.readString(dir.resolve(f)), "$f:\n${Files.readString(dir.resolve(f))}")
             for (name in MotionCheck.TRANSITION_NAMES) {

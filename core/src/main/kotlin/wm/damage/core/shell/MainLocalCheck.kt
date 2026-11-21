@@ -147,15 +147,18 @@ object MainLocalCheck {
     }
 
     /** K1-1: each effect's notches as strips (the middle row both ways, and the wrap where Main wraps) at [heights] on
-     *  256 KiB, his cache — `desktop --motion-check`'s scroll section, for the lead's look before his. */
+     *  256 KiB, his cache — `desktop --motion-check`'s scroll section, for the lead's look before his. C3 FF: and each at
+     *  stage 5 (`scroll-<effect>-h<height>-s5-<notch>`), its programs on the fast DRAW path's fit, the wrap a ring fire
+     *  where Main's paint wraps. */
     fun effectStrips(text: TextRasterizer, heights: List<Int> = ShellSettings.HEIGHTS, depth: Int = 8): Result {
         val cases = ArrayList<Case>()
         val table = ArrayList<String>()
-        for (h in heights) for (e in ScrollEffect.entries) {
-            val r = runOne(text, h, 256, depth, true, e, pansOnly = true)
-            val tag = "h$h-256k" + if (e == ScrollEffect.DEPTH) "" else "-${e.id}"
-            cases += r.first.map { c -> Case("scroll-${e.id}-h$h-${c.name.removePrefix("$tag-")}", "${e.word}: ${c.about}", c.crop, c.frames, c.lines, c.failures) }
-            table += r.second
+        for (stage5 in listOf(false, true)) for (h in heights) for (e in ScrollEffect.entries) {
+            val r = runOne(text, h, 256, depth, true, e, pansOnly = true, stage5 = stage5)
+            val s5 = if (stage5) "-s5" else ""
+            val tag = "h$h-256k" + (if (e == ScrollEffect.DEPTH) "" else "-${e.id}") + s5
+            cases += r.first.map { c -> Case("scroll-${e.id}-h$h$s5-${c.name.removePrefix("$tag-")}", "${e.word}${if (stage5) " at stage 5" else ""}: ${c.about}", c.crop, c.frames, c.lines, c.failures) }
+            table += (if (stage5) "stage 5: " else "") + r.second
         }
         return Result(cases, table)
     }
