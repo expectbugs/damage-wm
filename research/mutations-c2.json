@@ -8718,7 +8718,7 @@
   "expect": [
    "aPitchSwitchGoesAsOneBatchOnTheShellPath_DM1"
   ],
-  "note": "C3 DM-1 (S6): a pitch-only change sends the SETs and no LIST - the lenses keep the old pitch under Crush's entries",
+  "note": "C3 DM-1 (S6): a pitch-only change keeps the staged list and owes no LIST - the SETs go first and only the riding LIST-RING after them carries the new pitch, with the old mark (watched: the switch's flush [SET, SET, LIST-RING, SETTLE])",
   "from": "C3-DM1"
  },
  {
@@ -8737,6 +8737,24 @@
    "aPitchSwitchGoesAsOneBatchOnTheShellPath_DM1"
   ],
   "note": "C3 DM-1 (S6): the switch's SETs go ahead of its LIST in the batch - a refusal at the LIST would leave the new entries under the old pitch",
+  "from": "C3-DM1"
+ },
+ {
+  "id": "DM1-s6-mark-kept",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "is Pending.ListMsg -> { out += listMsg(p.list, p.shift, fresh = true); listed += p.list.list }",
+    "is Pending.ListMsg -> { out += listMsg(p.list, p.shift, fresh = false); listed += p.list.list }"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aPitchSwitch*"
+  ],
+  "expect": [
+   "aPitchSwitchGoesAsOneBatchOnTheShellPath_DM1"
+  ],
+  "note": "C3 DM-1 (S6): the switch's LIST keeps the wire mark - a report from a fire before the switch is no longer refused by P3's mark test (restaged) but judged against the stagings",
   "from": "C3-DM1"
  }
 ]

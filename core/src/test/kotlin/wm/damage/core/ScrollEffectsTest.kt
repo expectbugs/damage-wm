@@ -429,6 +429,17 @@ class ScrollEffectsTest {
                 val segs = pr.resolve(nt.p, staticOnly = false)
                 val down = nt.pan.step > 0
                 val what0 = "$h step ${nt.pan.step} ${nt.c}→${nt.to}"
+                // the phases on the model
+                for (left in listOf(true, false)) {
+                    val base = panel(rig.truth(nt.c, left))
+                    val far = pr.tracks[1].area(left); val enter = pr.tracks[0].area(left)
+                    for (k in 1..t) {
+                        val pic = Motion.stepOnModel(pr, nt.p, cacheImg, base, base, left, k = k)
+                        if (k <= n1) assertEquals(0, differModel(pic, rig.truth(nt.c, left), listOf(far)), "$what0 left=$left step $k: the far side is not Main at ${nt.c} in phase 1")
+                        else assertEquals(0, differModel(pic, rig.truth(nt.to, left), listOf(enter)), "$what0 left=$left step $k: the entering side is not at rest in phase 2")
+                        steps++
+                    }
+                }
                 // the squash: T3's height at n1 is one row, anchored at the far edge (top for a notch down)
                 val s3 = segs[2][0]
                 val e3 = Motion.easeE(s3.ease, s3.steps)
@@ -444,7 +455,7 @@ class ScrollEffectsTest {
                     val y4 = Motion.eased(s4.y, s4.dy, e4[j])
                     assertTrue(if (down) y4 <= block.last + 1 else y4 + l.lens.h >= block.first, "$what0 phase 1 step $j: the entering form ($y4) meets the squashed block $block")
                 }
-                val s2 = segs[1][1]; val s5 = segs[4][1]
+                val s2 = segs[1].last { it.verb == Motion.DRAW }; val s5 = segs[4].last { it.verb == Motion.DRAW }
                 val e2 = Motion.easeE(s2.ease, s2.steps); val e5 = Motion.easeE(s5.ease, s5.steps)
                 val f = pr.tracks[1].areaL
                 for (j in 0..t - n1) {
@@ -453,17 +464,6 @@ class ScrollEffectsTest {
                     val h5 = Motion.eased(s5.h0, s5.h1 - s5.h0, e5[j])
                     val grown = Motion.anchoredY(s5.y, l.rowH, h5, s5.anchor and 3).let { it until it + h5 }
                     assertTrue(inF.isEmpty() || (inF.first >= grown.first && inF.last <= grown.last), "$what0 phase 2 step $j: row c's rows in the far side $inF outside the growing row $grown")
-                }
-                // the phases on the model
-                for (left in listOf(true, false)) {
-                    val base = panel(rig.truth(nt.c, left))
-                    val far = pr.tracks[1].area(left); val enter = pr.tracks[0].area(left)
-                    for (k in 1..t) {
-                        val pic = Motion.stepOnModel(pr, nt.p, cacheImg, base, base, left, k = k)
-                        if (k <= n1) assertEquals(0, differModel(pic, rig.truth(nt.c, left), listOf(far)), "$what0 left=$left step $k: the far side is not Main at ${nt.c} in phase 1")
-                        else assertEquals(0, differModel(pic, rig.truth(nt.to, left), listOf(enter)), "$what0 left=$left step $k: the entering side is not at rest in phase 2")
-                        steps++
-                    }
                 }
             }
             // what the two phases look like at the fitted T (the brief, decisions BE (6)): each phase's ease-out over its steps
