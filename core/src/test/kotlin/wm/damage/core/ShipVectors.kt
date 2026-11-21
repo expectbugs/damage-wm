@@ -751,6 +751,7 @@ internal object ShipVectors {
                     r.until("${spec.name}: into w0") { r.onLoop { r.shell.currentWindowId() } == "w0" }
                     r.settle("${spec.name}: in w0"); idle(r, spec.name)
                     val before = owed()
+                    val repairs0 = r.notes("repair").size
                     rec.act.set(true)
                     r.doubleTap()                                           // the Back: a double tap reaches only the phone
                     r.until("${spec.name}: back on Main") { r.onLoop { r.shell.currentWindowId() } == null }
@@ -770,6 +771,9 @@ internal object ShipVectors {
                     r.until("${spec.name}: the Back's run ends") { owed() == before + 1 && r.onLoop { r.shell.transitionPhaseForTest() } == null }
                     r.until("${spec.name}: the Back's CLOSE of slot 2 reaches RIGHT") { rec.rightOfAct().any { ss -> ss.any { closeOf(it, 2) } } }
                     r.settle("${spec.name}: after the Back"); idle(r, spec.name)
+                    // C3 X3M0 (decisions BB (2)): the notch refused 19 is no table-repair evidence — no `repair` note, no SET
+                    // re-sent in the act's answer to it
+                    check(r.notes("repair").size == repairs0) { "${spec.name}: a table repair in the act: ${r.notes("repair").drop(repairs0)}" }
                     notch(CfwModes.EV_UPROLL, 0, "after the run, a wrap notch down from the last row")
                 }
                 RingForm.TABLE -> {
@@ -892,6 +896,8 @@ internal object ShipVectors {
             if (spec.form == RingForm.UNDER_BACK) check(act.any { ss -> ss.indexOfFirst { isSub(it, 26, CfwModes.MOTION_DISCARD) && u16(it, 6) == count - 1 }
                     .let { i -> i > 0 && ss.take(i).any { s -> isSub(s, 27, CfwModes.BIND_LIST_RING) } } }) {
                 "${spec.name}: no DISCARD naming row ${count - 1} behind a LIST-RING answers the refused fire" }
+            if (spec.form == RingForm.UNDER_BACK) act.filter { ss -> ss.any { isSub(it, 26, CfwModes.MOTION_DISCARD) && u16(it, 6) == count - 1 } }.let { b ->
+                check(b.none { ss -> ss.any { isSub(it, 27, CfwModes.BIND_SET) } }) { "${spec.name}: a SET rides the answer to the refused fire: ${b.map { shape(it) }}" } }
             // SWITCH (item i): an idle batch on Main — its frame, then [LIST-RING, SETTLE]
             if (spec.form == RingForm.SWITCH) check(act.any { ss -> ss.size >= 3 && (ss[0][0].toInt() and 0x7F) !in setOf(19, 25, 26, 27) &&
                     isSub(ss[ss.size - 2], 27, CfwModes.BIND_LIST_RING) && isSub(ss.last(), 26, CfwModes.MOTION_SETTLE) }) {
