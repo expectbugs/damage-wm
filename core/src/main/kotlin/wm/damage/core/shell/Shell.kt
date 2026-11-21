@@ -6335,14 +6335,16 @@ class Shell(
     private fun frameWords(t: Int, p: Int): String = "$t ${if (t == 1) "frame" else "frames"} × ${"%.0f".format(p * 1000.0 / 1024)} ms"
 
     /** The `Scroll frames` row's hint: the motion in force at Main's height now — the staging's when it was made for these rows,
-     *  else what they give at the current layout. */
+     *  else what they give at the current layout. C3 AS: in the row's short form, steps × period ("19 × 16 ms"), as the
+     *  tiers' `Frames` rows say theirs, so the value fits a row away from the cursor; the journal keeps [frameWords]. */
     private fun motionHint(): String {
         val ms = mainBind.staging
-        if (ms != null && ms.motion == motionInForce()) return motionWords(ms)
-        val (listD, bandD) = mainBindPlanes()
-        val m = motionInForce()
-        val (p, t) = wm.damage.core.motion.ScrollEffects.timing(m.effect, layout, listD, bandD, m, transport.state.value.effects)
-        return frameWords(t, p)
+        val (p, t) = if (ms != null && ms.motion == motionInForce()) ms.periodInForce to ms.t else {
+            val (listD, bandD) = mainBindPlanes()
+            val m = motionInForce()
+            wm.damage.core.motion.ScrollEffects.timing(m.effect, layout, listD, bandD, m, transport.state.value.effects)
+        }
+        return "$t × ${"%.0f".format(p * 1000.0 / 1024)} ms"
     }
 
     /** The relay Main's pictures are painted through (Page staging's): a face the glasses hold blits from the atlas. */
