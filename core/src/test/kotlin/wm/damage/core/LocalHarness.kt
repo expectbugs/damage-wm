@@ -733,10 +733,15 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     }
 
     // ---- the downlink
-    /** The mode-27 subs of [kind] ("set", "clear", "list") in the next batch that carries one do not land on [arms] (the
-     *  first of them, or every one with [lose27All]). */
+    /** The mode-27 subs of [kind] ("set", "clear") in the next batch that carries one do not land on [arms] (the first of
+     *  them, or every one with [lose27All]). "list" (C3 X3M0, decisions BB (7)): the batch's first LIST is refused on
+     *  [arms] — the subs before it run, the LIST and every sub after it do not, no present, the lens's record names
+     *  mode 27 (§4) — the shape a LIST refused on one lens for a shared reason leaves; a LIST lost with the subs after it
+     *  landing is a state no batch leaves. */
     var lose27: Pair<String, Set<Arm>>? = null
     var lose27All = false
+    /** The lenses whose copy of the batch being sent carries the refused LIST ([lose27] "list"). */
+    private val listRefusedOn = HashSet<Arm>()
     /** The next batch carrying a mode 27 is refused on [arm] (its word held at the sub). */
     var refuse27On: Arm? = null
     /** The next batch carrying any mode-27 or mode-26 sub 3..5 is refused on [arm] at its first such sub. */
@@ -750,7 +755,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     /** B083-real: added to every phone message's way down (both lenses, in order) — his 0.81 journal puts the wrap's start
      *  a median 332 ms after the edge report (`C2-decisions.md` BI, measured), where the harness's link takes 25 ms. */
     var downExtraMs = 0L
-    private fun sendDown(image: ByteArray, perArm: Map<Arm, ByteArray?> = emptyMap(), inducedOn: Arm? = null) {
+    private fun sendDown(image: ByteArray, perArm: Map<Arm, ByteArray?> = emptyMap(), inducedOn: Arm? = null, taggedOn: Set<Arm> = emptySet()) {
         engine.wrote(image)                             // decisions BS.3: the transport's one write path (`writeImage`)
         val arrive = maxOf(lastDown + 1, now + downLat() + downExtraMs)
         lastDown = arrive
@@ -764,7 +769,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
             for (arm in listOf(Arm.LEFT, Arm.RIGHT)) {
                 val img = if (perArm.containsKey(arm)) perArm[arm] else image
                 if (img == null) continue
-                deliver(arm, img, inducedOn == arm, decided, batch)
+                deliver(arm, img, inducedOn == arm, decided, batch, arm in taggedOn)
             }
         } else for ((arm, d) in listOf(Arm.LEFT to skew.first, Arm.RIGHT to skew.second)) {
             // B083 (2d): each lens gets the message on its own, the later one by the drawn skew; each lens's stream stays
@@ -773,7 +778,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
             if (img == null) continue
             val t = maxOf((lastDownArm[arm] ?: 0L) + 1, arrive + d)
             lastDownArm[arm] = t
-            at(t) { what = "$arm gets ${subsOf(img).joinToString(" ") { kindOf(it) }}"; deliver(arm, img, inducedOn == arm, decided, batch) }
+            at(t) { what = "$arm gets ${subsOf(img).joinToString(" ") { kindOf(it) }}"; deliver(arm, img, inducedOn == arm, decided, batch, arm in taggedOn) }
         }
     }
 
@@ -818,7 +823,8 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         return false
     }
 
-    private fun deliver(arm: Arm, img: ByteArray, induce: Boolean, decided: Long = now, batch: Int = -1) {
+    /** [tagged]: a refusal of [img] is the harness's own (the refused LIST of [lose27] "list") though no word is held. */
+    private fun deliver(arm: Arm, img: ByteArray, induce: Boolean, decided: Long = now, batch: Int = -1, tagged: Boolean = false) {
         // invariant (7)'s probe: a COMMIT landing finds its own local still open on RIGHT
         for (s in commitsIn(img)) {
             val g = bySR[s]
@@ -840,11 +846,11 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         val refusedNow = lens.refSeen
         if (!refusedNow) { lens.refSeen = kept[0] as Boolean; lens.refMode = kept[1] as Int; lens.refReason = kept[2] as Int; lens.refSeq = kept[3] as Long }
         trace?.invoke("[$now] $arm gets ${subsOf(img).joinToString(" ") { it.take(3).joinToString("") { b -> "%02x".format(b) } }}" +
-            (if (refusedNow) " REFUSED mode ${lens.refMode and 0x7F} reason ${lens.refReason}" else "") + if (induce) " (induced)" else "")
+            (if (refusedNow) " REFUSED mode ${lens.refMode and 0x7F} reason ${lens.refReason}" else "") + if (induce || tagged) " (induced)" else "")
         if (refusedNow) {
             val r = "$arm mode ${lens.refMode and 0x7F} reason ${lens.refReason}"
-            if (induce) induced += r else refusals += r
-            if (arm == Arm.RIGHT) rightRefusals += RightRefusal(lens.refMode and 0x7F, lens.refReason, lens.refSeq, induce, batch)
+            if (induce || tagged) induced += r else refusals += r
+            if (arm == Arm.RIGHT) rightRefusals += RightRefusal(lens.refMode and 0x7F, lens.refReason, lens.refSeq, induce || tagged, batch)
             // the image lane writes LEFT (`CfwTransportBase.writeImage`), so the flush's ack is LEFT's [I]: a refusal there
             // fails the flush — the shell rolls it back and, for a flush that carried the rules' messages, sends the table
             if (arm == Arm.LEFT) up(now) { failed(img, "refused ($r)") }
@@ -1063,7 +1069,15 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
             val idx = all.indices.filter { all[it][0].toInt() == 27 && (all[it][1].toInt() == code || (code == 2 && all[it][1].toInt() == CfwModes.BIND_LIST_RING)) }.let { if (lose27All) it else it.take(1) }
             if (idx.isNotEmpty()) {
                 lose27 = null; lossyMessages++
-                for (a in l27.second) per[a] = image(all.filterIndexed { i, _ -> i !in idx })
+                if (code == 2) {
+                    // the refusal is the simulator's own: that lens's copy carries the LIST with count 0 (values, 12), so it
+                    // ends the batch there with no present and records it; kept with the induced refusals (A8 judges them)
+                    val k = idx.first()
+                    val refused = all.toMutableList().also { it[k] = all[k].copyOf().also { b -> b[5] = 0; b[6] = 0 } }
+                    for (a in l27.second) { per[a] = image(refused); listRefusedOn += a }
+                    // a COMMIT behind it does not run on RIGHT alone: row A, as for [refuse27On]'s refusal at the same place
+                    if (l27.second == setOf(Arm.RIGHT) && all.drop(k + 1).any { it[0].toInt() == 26 && it[1].toInt() == 3 }) commitMissedRight = true
+                } else for (a in l27.second) per[a] = image(all.filterIndexed { i, _ -> i !in idx })
             }
         }
         var inducedOn: Arm? = null
@@ -1088,7 +1102,8 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
             for (a in la) per[a] = null
             if (Arm.LEFT in la) { val img = image(all)!!; up(now + downLat()) { failed(img, "lost") } }
         }
-        sendDown(image(all)!!, per, inducedOn)
+        sendDown(image(all)!!, per, inducedOn, listRefusedOn.toSet())
+        listRefusedOn.clear()
     }
 
     // ---- telemetry

@@ -740,8 +740,9 @@ class LocalSequenceFuzzTest {
         h.rest()
     })
 
-    /** S13 — `C2-D1-built.md` 0.3 (1): a re-stage whose LIST does not land: the next report's mark is stale and the LIST
-     *  goes again. */
+    /** S13 — `C2-D1-built.md` 0.3 (1): a re-stage whose LIST does not land — refused at its LIST on both lenses since
+     *  C3 X3M0 (decisions BB (7); the subs after it unrun, LEFT's refusal failing the flush): the next report's mark is
+     *  stale and the LIST goes again. */
     @Test fun seededS13_aStaleMarkResendsTheList() = seeded(Taps.REPORT, script = { h ->
         h.lose27 = "list" to setOf(Arm.LEFT, Arm.RIGHT)
         h.restage("top+")
@@ -838,13 +839,14 @@ class LocalSequenceFuzzTest {
         h.rest()
     })
 
-    /** S21 (decisions U.1): a LIST lost on one lens alone (a re-stage), then idle batches and notches. The batch that
-     *  carried the lost LIST may lose its own present on that lens (its SETTLE names a cursor past the old count); from
+    /** S21 (decisions U.1): a LIST refused on one lens alone (a re-stage; since C3 X3M0 a refusal at the LIST, the subs
+     *  after it unrun and no present there, decisions BB (7)), then idle batches and notches; from
      *  the next answer on, every answer carries its list's LIST before it, so the lens holds the current count when the
      *  answer is checked, refuses nothing more, keeps presenting, and both lenses agree at the next SETTLE. RIGHT is the
      *  lens nobody hears from (the image lane writes LEFT, so the flush's ack is LEFT's [I]; RIGHT's refused DISCARD or
      *  SETTLE sends a body naming no tag, which is no divergence): without the riding LIST it refuses every idle SETTLE
-     *  until a report's mark shows it. LEFT's refusal fails the flush's ack, so the table goes again anyway (S19). */
+     *  until a report's mark shows it. LEFT's refusal fails the flush's ack, so the table goes again anyway (S19); since
+     *  C3 X3M0 RIGHT's refusal is in its record too, so the next read repairs it (P1's whole table and a keyframe). */
     private fun listLostOn(arm: Arm) = seeded(Taps.REPORT, rows = 7, script = { h ->
         h.lose27 = "list" to setOf(arm)
         h.restage("top+")
