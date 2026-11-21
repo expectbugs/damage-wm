@@ -43,7 +43,8 @@ import wm.damage.core.wire.DamageMsg
  */
 class LocalSequenceFuzzTest {
 
-    private var debug = false
+    /** `LOCAL_FUZZ_TRACE=1` with `LOCAL_FUZZ_SEEDS`: each random sequence's trace on stdout. */
+    private var debug = System.getenv("LOCAL_FUZZ_TRACE") != null
 
     class Verdict(val failed: List<String>, val counted: Map<String, Int>, val stats: String = "")
 
