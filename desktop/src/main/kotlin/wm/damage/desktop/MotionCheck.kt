@@ -78,8 +78,8 @@ object MotionCheck {
 
     /** K1-1: Main's Scroll effects as strips (see the class's text); the failures. */
     private fun scrollEffects(outDir: Path, out: java.io.PrintStream): List<String> {
-        val r = try { MainLocalCheck.effectStrips(AwtText()) } catch (e: Exception) { return listOf("scroll effects: ${e.javaClass.simpleName}: ${e.message}") }
-        for (c in r.cases) LocalCheck.writeCase(outDir, c, out)
+        // C3 DM-1: each strip written as its case is made (six effects' frames held at once passed the test's heap)
+        val r = try { MainLocalCheck.effectStrips(AwtText()) { c -> LocalCheck.writeCase(outDir, c, out) } } catch (e: Exception) { return listOf("scroll effects: ${e.javaClass.simpleName}: ${e.message}") }
         Files.writeString(outDir.resolve("scroll-staging.txt"), r.table.joinToString("\n", postfix = "\n"))
         return r.failures
     }

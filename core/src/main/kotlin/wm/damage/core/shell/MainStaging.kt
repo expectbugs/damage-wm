@@ -116,6 +116,9 @@ class MainStaging private constructor(
      *  programs carry the fast DRAW path's fit ([ScrollEffects.timing]), and where Main's paint wraps its form is the ring
      *  ([ring]). False: C2's fit and today's form. The shell drops a staging whose [stage5] is not EFFECTS in force now. */
     val stage5: Boolean = false,
+    /** C3 DM-1 (D3): what the pans in force draw for the asked effect ([motion]'s) — Crush's or Flip's version-2 program
+     *  at stage 5, or the fallback with its reason ([ScrollEffects.Plays]). */
+    plays0: ScrollEffects.Plays = ScrollEffects.Plays(ScrollEffect.DEPTH, false),
 ) {
     /** B082: the rows whose picture changed since this staging's first paint (by what was painted, not by window). */
     val changed = BooleanArray(seenMax.size)
@@ -130,6 +133,10 @@ class MainStaging private constructor(
         private set
     /** Build ANIM (AW.1): the `Animations` rows the pans in force were made for; null: the fixed rule (the probes). */
     var motion: ScrollMotion? = motion0
+        private set
+    /** C3 DM-1: what the pans in force draw (their effect, version, and why a fallback plays) — the staging's, then a
+     *  programs switch's ([switchTo]). The list's pitch follows it ([pitch]). */
+    var plays: ScrollEffects.Plays = plays0
         private set
 
     /** Build ANIM (decisions AV, AW): one notch's motion on a bound list — [lengthMs] (`Scroll length`), [frames]
@@ -168,7 +175,9 @@ class MainStaging private constructor(
      *  move, [areasL] / [areasR] the tracks' areas on each lens. */
     class Pan(val k: Int, val kA: Int, val kB: Int, val step: Int, val program: MotionProgram, val rules: List<Rule>,
               /** The strip slot it draws (0 [strip], 1 [stripB]). */
-              val strip: Int = 0) {
+              val strip: Int = 0,
+              /** C3 DM-1: the list's pitch its kind-2 rules are made for (−rowH; +rowH for Crush, `ScrollEffects.pitch`). */
+              val pitch: Int) {
         val areasL: List<Rect> get() = program.tracks.map { it.areaL }
         val areasR: List<Rect> get() = program.tracks.map { it.areaR }
         fun areas(left: Boolean) = if (left) areasL else areasR
@@ -190,7 +199,8 @@ class MainStaging private constructor(
      *  re-made for its steps ([remakeOwed], [remake]) where a spare pan slot exists. */
     var periodInForce: Int = period
 
-    val pitch: Int get() = -layout.rowH
+    /** The list's pitch: the pans' in force (C3 DM-1: +rowH while Crush plays, −rowH otherwise; decisions AD's S6). */
+    val pitch: Int get() = pans.first().pitch
     /** The strip's rows before row 0 (and after the last): the rows Main shows past an end, k — one more on a ring strip
      *  (DM-0: at v = n the lower track reads strip row n + M + k; the DM spec §2). Every rule's P0 and P3 take it. */
     val margin: Int get() = layout.rowsAbove + if (ring) 1 else 0
@@ -219,7 +229,7 @@ class MainStaging private constructor(
 
     /** PLAY's P0..P3 for [pan] landing on the new cursor [cPrime], by each parameter's rule — null at an edge (a new
      *  cursor, or an item, outside the rows: no local motion there). A kind-2 value outside s16 is the firmware's 12. */
-    fun params(pan: Pan, cPrime: Int): IntArray? = paramsBy(pan.rules, cPrime)
+    fun params(pan: Pan, cPrime: Int): IntArray? = paramsBy(pan.rules, cPrime, pan.pitch)
 
     /** Decisions AZ.4: Main wraps here — its strip's margins hold the other end's rows (none blank), one more at each end.
      *  (A ring staging's wrap is the glasses' own: no wrap record, so false there.) */
@@ -242,9 +252,9 @@ class MainStaging private constructor(
     }
 
     /** The press's P0..P3 at the cursor [c] (a tap does not move it), or null outside the rows. */
-    fun pressParams(c: Int): IntArray? = paramsBy(press.rules, c)
+    fun pressParams(c: Int): IntArray? = paramsBy(press.rules, c, pitch)
 
-    private fun paramsBy(rules: List<Rule>, cPrime: Int): IntArray? {
+    private fun paramsBy(rules: List<Rule>, cPrime: Int, pitch: Int): IntArray? {
         if (cPrime !in 0 until rows) return null
         val p = IntArray(4)
         for ((i, r) in rules.withIndex()) p[i] = when (r.kind) {
@@ -289,7 +299,37 @@ class MainStaging private constructor(
             val x = (if (own) s.xR else s.xL) + (if (start) 0 else if (own) s.dxR else s.dxL)
             val y = s.y + (if (start) 0 else s.dy)
             val pc = pictureAt(s.src) ?: throw LintError("no picture of Main's at off4 ${s.src}")
-            blit(pic, pc, x, y, area, if (start) s.lvl0 else s.lvl1, s.opt)
+            // C3 DM-1: a version-2 DRAW's source window (`FIRMWARE.md` §7.5: rows aux0 .. aux0 + aux1 − 1, aux1 0 the whole
+            // record) and a scaled height (§6.6) or width (§7.5) at its first or last state, placed by its anchors
+            val r0 = if (s.aux1 != 0) s.aux0 else 0
+            val h = if (s.aux1 != 0) s.aux1 else pc.raw.h
+            val w = pc.raw.w
+            val hOut = if (s.h0 != 0 || s.h1 != 0) (if (start) s.h0 else s.h1) else h
+            val wOut = if (s.w0 != 0 || s.w1 != 0) (if (start) s.w0 else s.w1) else w
+            val lvl = if (start) s.lvl0 else s.lvl1
+            if (r0 == 0 && h == pc.raw.h && hOut == h && wOut == w) blit(pic, pc, x, y, area, lvl, s.opt)
+            else {
+                val x0 = when ((s.anchor shr 2) and 3) { 1 -> x + ((w - wOut) shr 1); 2 -> x + w - wOut; else -> x }
+                blitMapped(pic, pc, x0, Motion.anchoredY(y, h, hOut, s.anchor and 3), r0, h, wOut, hOut, area, lvl, s.opt)
+            }
+        }
+    }
+
+    /** [pc]'s rows [r0], [r0] + [h]) drawn [wOut] × [hOut] at ([x0], [y0]) clipped to [clip] (C3 DM-1): output row r takes
+     *  source row r0 + ⌊(2r + 1)·h / (2·hOut)⌋, output column c source column ⌊(2c + 1)·w / (2·wOut)⌋ (`FIRMWARE.md` §6.6,
+     *  §7.5's maps); levels as [blit]. */
+    private fun blitMapped(pic: Gray8, pc: Picture, x0: Int, y0: Int, r0: Int, h: Int, wOut: Int, hOut: Int, clip: Rect, lvl: Int, opt: Int) {
+        val raw = lvl == 15 && opt and 0x30 == 0
+        val w = pc.raw.w
+        for (yy in maxOf(clip.y, y0, 0) until minOf(clip.bottom, y0 + hOut, pic.h)) {
+            val sy = r0 + ((2L * (yy - y0) + 1) * h / (2L * hOut)).toInt()
+            for (xx in maxOf(clip.x, x0, 0) until minOf(clip.right, x0 + wOut, pic.w)) {
+                val sx = ((2L * (xx - x0) + 1) * w / (2L * wOut)).toInt()
+                if (raw) { pic[xx, yy] = pc.raw[sx, sy]; continue }
+                val c = pc.levels[sy * w + sx].toInt()
+                if (opt and 0x10 != 0 && c == 0) continue
+                pic[xx, yy] = ((if (opt and 0x20 != 0) 15 - c else c) * (lvl and 0x0F) / 15) * 17
+            }
         }
     }
 
@@ -334,7 +374,9 @@ class MainStaging private constructor(
             BoundList.Entry(ENTRY_UP, CfwModes.EV_DOWNROLL, BoundList.rowStep(CfwModes.EV_DOWNROLL), periodInForce, up.prog4, params(up.rules), up.program),
             BoundList.Entry(ENTRY_TAP, CfwModes.EV_TAP, 0, periodInForce, press.prog4, params(press.rules), press.program),
         )
-        return BoundList(LIST, SLOT, rows, pitch, mark, items4, itemOffs.copyOf(), entries,
+        // C3 DM-1 (S6): the pans' own pitch — a list made after a switch between the two pitch forms has the other one, so
+        // the rules write its LIST (a fresh mark) ahead of the SETs in the switch's batch (`LocalRules.front`)
+        return BoundList(LIST, SLOT, rows, down.pitch, mark, items4, itemOffs.copyOf(), entries,
             paintEnd = { left, prog4, p, pic -> paintEndOf(prog4, p, left, pic) }, ring = ring).also { it.previous = previous }
     }
 
@@ -580,7 +622,9 @@ class MainStaging private constructor(
     class Programs internal constructor(val motion: ScrollMotion, val period: Int, val t: Int, val periodInForce: Int,
         val slot: Int, val off: Int, val bytes: ByteArray, internal val pans: List<Pan>, val why: String,
         /** The motion changed (not only Auto's steps under the period in force): the measured window starts again. */
-        val reset: Boolean)
+        val reset: Boolean,
+        /** C3 DM-1: what these pans draw for [motion]'s effect (a fallback with its reason). */
+        val plays: ScrollEffects.Plays)
 
     sealed class Remake {
         class Owed(val programs: Programs) : Remake()
@@ -598,20 +642,20 @@ class MainStaging private constructor(
 
     /** The pans for [want] laid out in the free slot (the effect's own timing on a change of the rows; under Auto the
      *  steps at the period in force otherwise), or why they cannot be: no spare slot, or they do not fit it (a full
-     *  staging is then owed). */
-    fun remake(want: ScrollMotion): Remake {
+     *  staging is then owed). C3 DM-1: [fx] the gate's token as the link state gives it now (null below stage 5) — Crush
+     *  and Flip are made in version 2 with it and checked at every cursor, their fallback otherwise ([ScrollEffects.plays]). */
+    fun remake(want: ScrollMotion, fx: Motion.Effects? = null): Remake {
         val slots = progSlots ?: return Remake.NoRoom("Main's region holds no spare programs slot")
         val why = remakeOwed(want) ?: return Remake.NoRoom("nothing to re-make")
         val reset = motion != want
-        val (pFit, tFit) = ScrollEffects.timing(want.effect, layout, listD, bandD, want, stage5)
-        val pIn = if (reset) pFit else periodInForce
-        val tNew = if (reset) tFit else ScrollEffects.stepsAt(want, pIn, t)
         val to = 1 - activeProgs
+        val specs = pans.map { PanSpec(it.k, it.kA, it.kB, it.step, it.strip) }
         // DM-0: the rules' P0 and P3 by the strip's own margin (k + 1 on a ring strip; `layout.rowsAbove` was one row short there)
-        val (made, parts) = layPans(staged, want.effect, tNew, slots[to], pans.map { PanSpec(it.k, it.kA, it.kB, it.step, it.strip) }, margin) { recordOf(it) }
-        val bytes = joined(parts)
+        val made = lay(staged, ScrollEffects.plays(want.effect, fx), fx, slots[to], specs, margin, rows, ring, itemOffs, { recordOf(it) }) { pl ->
+            if (reset) ScrollEffects.timing(pl, layout, listD, bandD, want, stage5) else periodInForce to ScrollEffects.stepsAt(want, periodInForce, t) }
+        val bytes = joined(made.parts)
         if (bytes.size > progSlot) return Remake.NoRoom("the re-made pans (${bytes.size} B) do not fit the spare slot ($progSlot B)")
-        return Remake.Owed(Programs(want, if (reset) pFit else period, tNew, pIn, to, slots[to], bytes, made, why, reset))
+        return Remake.Owed(Programs(want, if (reset) made.period else period, made.t, made.period, to, slots[to], bytes, made.pans, why, reset, made.plays))
     }
 
     /** The re-made pans are counted on the glasses: they are the pans in force (the entries are SET to them next), the
@@ -619,7 +663,7 @@ class MainStaging private constructor(
     fun switchTo(p: Programs) {
         if (p.slot == activeProgs) throw LintError("a programs switch into the slot in force")
         retiredPans = pans
-        pans = p.pans; period = p.period; t = p.t; motion = p.motion
+        pans = p.pans; period = p.period; t = p.t; motion = p.motion; plays = p.plays
         // a new effect starts from its own fit; Auto's steps keep the period in force as it is now (a raise between the
         // re-make and its count stands, and owes the next re-make)
         if (p.reset) periodInForce = p.periodInForce
@@ -712,11 +756,16 @@ class MainStaging private constructor(
          * 39.8 and 43.6 ms measured on C2's path). At 352 Depth's pan comes to 8.8 ms (the spec's §1.6). The measured period
          * (decisions BF, the 114's field 9) raises the period from the glasses' own steps, as on C2's path.
          */
-        fun fastStepMs(areaPx: Int, walkBytes: Int): Double = FAST_STEP_MS + (FAST_US_PER_PX * areaPx + FAST_US_PER_BYTE * walkBytes) / 1000.0
+        fun fastStepMs(areaPx: Int, walkBytes: Int, pixelPx: Int = 0): Double =
+            FAST_STEP_MS + (FAST_US_PER_PX * areaPx + FAST_US_PER_PIXEL * pixelPx + FAST_US_PER_BYTE * walkBytes) / 1000.0
         /** FF (modeled, the DM spec §1.1): a step's fixed part on the fast path (ms). */
         const val FAST_STEP_MS = 0.5
         /** FF (modeled, the DM spec §1.1): µs per output pixel written as bytes on the fast path. */
         const val FAST_US_PER_PX = 0.036
+        /** C3 DM-1 (modeled, the DM spec §1.1's fourth figure: the measured step fit's slope, [STEP_MS_PER_KPX]): µs per
+         *  output pixel written a pixel at a time on the fast path — a draw whose width scales (Flip's turn, §7.12). The
+         *  [fastStepMs] of Depth, Slide, Fall, None and Crush has none: their figures are FF's, unchanged. */
+        const val FAST_US_PER_PIXEL = 0.156
         /** FF (modeled, the DM spec §1.1): µs per byte decoded on the fast path. */
         const val FAST_US_PER_BYTE = 0.20
         /** FF (the DM spec §1.6's assumptions, counted on the PC's renderer from K1-1's local-check staging with the
@@ -778,10 +827,10 @@ class MainStaging private constructor(
         fun build(layout: Layout, view: WindowView.ListView, kit: ContentKit, listD: Int, bandD: Int, cacheSize: Int,
                   regionStart: Int = cacheSize - CfwModes.STAGE_RESERVE, regionEnd: Int = cacheSize,
                   relay: (Gray8, () -> Unit) -> Unit = { _, b -> b() }, widths: List<Int> = WIDTHS + WHOLE, twoStrips: Boolean = false,
-                  motion: ScrollMotion? = null, stage5: Boolean = false): MainStaging {
+                  motion: ScrollMotion? = null, stage5: Boolean = false, fx: Motion.Effects? = null): MainStaging {
             val p = Paint(layout, view, kit)
             while (!p.done) p.step(relay)
-            return assemble(p, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, stage5 = stage5)
+            return assemble(p, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, stage5 = stage5, fx = fx)
         }
 
         /** DM-0 (S2, decisions AD): whether Main's rows at [layout] take the ring form at stage 5 — only where its own paint
@@ -808,7 +857,10 @@ class MainStaging private constructor(
                       *  ring form is staged: margins of k + 1 rows of the other end each side, no wrap record. Elsewhere,
                       *  or false, today's form byte for byte. C3 FF: and at every height the programs take the fast DRAW
                       *  path's fit ([ScrollEffects.timing]); false: C2's fit, every byte as before. */
-                     stage5: Boolean = false): MainStaging {
+                     stage5: Boolean = false,
+                     /** C3 DM-1: the gate's token ([Motion.effects]) as the link state gives it at this staging — Crush and Flip
+                      *  are staged in version 2 only with it; never kept (decisions W, D-6). */
+                     fx: Motion.Effects? = null): MainStaging {
             val layout = paint.layout
             if (cacheSize < CfwModes.STAGE_RESERVE || cacheSize > CfwModes.CACHE2_MAX_RIDERS || cacheSize % 4 != 0)
                 throw LintError("no staging for a cache of $cacheSize B (a contract-2 session's 64..256 KiB)")
@@ -894,9 +946,9 @@ class MainStaging private constructor(
             // scroll rows is then a full staging, as before), then the rows' room, then the wrap record's slack, then the wrap
             // record itself (here, and once the programs are laid out below)
             fun lessOrNull(spareFirst: Boolean): MainStaging? = when {
-                spareFirst && progSpare -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, room, wrapFit, false, stage5)
-                room != null && room.any { it > 0 } -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, null, wrapFit, false, stage5)
-                wrapPic != null -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, null, wrapFit + 1, false, stage5)
+                spareFirst && progSpare -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, room, wrapFit, false, stage5, fx)
+                room != null && room.any { it > 0 } -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, null, wrapFit, false, stage5, fx)
+                wrapPic != null -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, null, wrapFit + 1, false, stage5, fx)
                 else -> null
             }
             // (before the programs are laid out the spare slot is not yet taken: the rungs after it)
@@ -935,18 +987,21 @@ class MainStaging private constructor(
             fun rec(sx: Int) = when (sx) { 0 -> strip.record; 1 -> stripB!!.record; else -> wrapPic!!.record }
             // one period and one T for every program of the staging: the whole list's (decisions V), by the effect in force
             // (K1-1: its own tracks' area); the probes' fixed rule is Depth's on C2's fit. C3 FF: at stage 5 the fast DRAW
-            // path's fit, which every fire there runs (`FIRMWARE.md` §7.12)
-            val effect = motion?.effect ?: ScrollEffect.DEPTH
-            val (period, t) = if (motion == null) timing(ScrollEffects.areaPx(effect, l, listD, bandD), null)
-                else ScrollEffects.timing(effect, l, listD, bandD, motion, stage5)
+            // path's fit, which every fire there runs (`FIRMWARE.md` §7.12). C3 DM-1: by what plays — Crush and Flip in
+            // version 2 with the gate's token [fx] and checked at every cursor, else their fallback (D3), said
+            val askedEffect = motion?.effect ?: ScrollEffect.DEPTH
             val slotA = at
-            val (pans, panParts) = layPans(staged, effect, t, slotA, specs, sA) { rec(it) }
+            val laid = lay(staged, ScrollEffects.plays(askedEffect, fx), fx, slotA, specs, sA, n, ring, itemOffs, { rec(it) }) { pl ->
+                if (motion == null) timing(ScrollEffects.areaPx(pl.effect, l, listD, bandD), null) else ScrollEffects.timing(pl, l, listD, bandD, motion, stage5) }
+            val (period, t) = laid.period to laid.t
+            val pans = laid.pans
+            val panParts = laid.parts
             progs += panParts
-            // each pan slot holds the largest effect's pans and table at its own T for these rows, with slack: a re-make
-            // that outgrows it is a full staging (said)
+            // each pan slot holds the largest effect's pans and tables at its own T for these rows, with slack: a re-make
+            // that outgrows it is a full staging (said); C3 DM-1: each effect as it would play here (version 2 with [fx])
             val progSlot = if (!progSpare || motion == null) joined(panParts).size
-                else slack(ScrollEffect.entries.maxOf { e -> val te = ScrollEffects.timing(e, l, listD, bandD, motion.copy(effect = e), stage5).second
-                    joined(layPans(staged, e, te, slotA, specs, sA) { rec(it) }.second).size })
+                else slack(ScrollEffect.entries.maxOf { e -> val pl = ScrollEffects.plays(e, fx); val te = ScrollEffects.timing(pl, l, listD, bandD, motion.copy(effect = e), stage5).second
+                    joined(layPans(staged, pl, te, slotA, specs, sA, fx) { rec(it) }.second).size })
             next(progSlot)
             val progSlots = if (progSpare && motion != null) intArrayOf(slotA, next(progSlot)) else null
             if (at > regionEnd) lessOrNull(spareFirst = true)?.let { return it }
@@ -961,24 +1016,76 @@ class MainStaging private constructor(
                 Blob("items", items4 * 4, pad(itemBytes), null) +
                 Blob("programs", progs.first().first, pad(progBytes), null)
             return MainStaging(layout, listD, bandD, n, cacheSize, period, t, regionStart, regionEnd, strip, stripB, bands.toMutableList(), items4, itemOffs,
-                mutableMapOf(spareOff to spareSlot), pans, press, blobs, stripRow, motion, seen, wrapPic, wrapRow, staged, progSlots, progSlot, ring, stage5)
+                mutableMapOf(spareOff to spareSlot), pans, press, blobs, stripRow, motion, seen, wrapPic, wrapRow, staged, progSlots, progSlot, ring, stage5, laid.plays)
         }
 
-        /** K1-1: [effect]'s pans for [specs] over [t] steps laid out from the byte offset [off] — its ease table first (Fall),
-         *  then the programs back to back, each 4-byte aligned: the pans, and the (offset, bytes) to write. */
-        internal fun layPans(staged: ScrollEffects.Staged, effect: ScrollEffect, t: Int, off: Int, specs: List<PanSpec>, marginA: Int,
-                             rec: (Int) -> Motion.Source.Record): Pair<List<Pan>, List<Pair<Int, ByteArray>>> {
+        /** K1-1: what plays' ([plays]) pans for [specs] over [t] steps laid out from the byte offset [off] — its ease tables
+         *  first (Fall's one, Flip's two), then the programs back to back, each 4-byte aligned: the pans, and the (offset,
+         *  bytes) to write. [fx]: the gate's token, for a version-2 form. */
+        internal fun layPans(staged: ScrollEffects.Staged, plays: ScrollEffects.Plays, t: Int, off: Int, specs: List<PanSpec>, marginA: Int,
+                             fx: Motion.Effects?, rec: (Int) -> Motion.Source.Record): Pair<List<Pan>, List<Pair<Int, ByteArray>>> {
             var at = off
             val parts = ArrayList<Pair<Int, ByteArray>>()
-            val table = if (!ScrollEffects.usesTable(effect)) null else Motion.Ease.Table(at / 4, ScrollEffects.fallTable(t)).also { tb ->
-                parts += at to pad(tb.record); at += pad(tb.record).size }
+            val tables = ScrollEffects.tables(plays, t).map { e -> Motion.Ease.Table(at / 4, e).also { tb -> parts += at to pad(tb.record); at += pad(tb.record).size } }
+            val pitch = ScrollEffects.pitch(plays, staged.layout)
             val pans = specs.map { sp ->
-                val prog = ScrollEffects.program(effect, staged, rec(sp.strip), sp.kA, sp.kB, sp.step, t, at / 4, table)
+                val prog = ScrollEffects.program(plays, staged, rec(sp.strip), sp.kA, sp.kB, sp.step, t, at / 4, tables, fx)
                 parts += at to prog.bytes
                 at += (prog.bytes.size + 3) and 3.inv()
-                Pan(sp.k, sp.kA, sp.kB, sp.step, prog, ScrollEffects.rules(staged.layout, marginA, sp.step), sp.strip)
+                Pan(sp.k, sp.kA, sp.kB, sp.step, prog, ScrollEffects.rules(plays, staged.layout, marginA, sp.step), sp.strip, pitch)
             }
             return pans to parts
+        }
+
+        /** C3 DM-1: pans laid out ([layPans]) with their period and T, and what they draw. */
+        internal class Laid(val plays: ScrollEffects.Plays, val period: Int, val t: Int, val pans: List<Pan>, val parts: List<Pair<Int, ByteArray>>)
+
+        /**
+         * C3 DM-1 (D3 as ruled): the pans of [plays0] at the [timing] it gives, laid out from [off] — and a version-2 form
+         * checked at every cursor a notch lands on ([checkEveryCursor]); a form the check refuses gives way to its fallback
+         * (Crush → Slide, Flip → its height turn), the refusal said in [Laid.plays]. [n] rows, [ring] and [itemOffs] are the
+         * staging's (the parameters the glasses compute).
+         */
+        internal fun lay(staged: ScrollEffects.Staged, plays0: ScrollEffects.Plays, fx: Motion.Effects?, off: Int, specs: List<PanSpec>, marginA: Int,
+                         n: Int, ring: Boolean, itemOffs: IntArray, rec: (Int) -> Motion.Source.Record, timing: (ScrollEffects.Plays) -> Pair<Int, Int>): Laid {
+            fun once(p: ScrollEffects.Plays): Laid {
+                val (period, t) = timing(p)
+                val (pans, parts) = layPans(staged, p, t, off, specs, marginA, fx, rec)
+                if (p.v2) for (pan in pans) checkEveryCursor(pan, n, ring, itemOffs)
+                return Laid(p, period, t, pans, parts)
+            }
+            if (!plays0.v2) return once(plays0)
+            return try { once(plays0) } catch (e: LintError) {
+                once(ScrollEffects.fallback(plays0.effect, "the offline check refuses its version-2 pans: ${e.message}"))
+            }
+        }
+
+        /** C3 DM-1: the share of the step budget's cap one bound program may take at any cursor (the DM spec §1.6, §5.1:
+         *  20 % left for anything else drawing, the notice's timer among them). */
+        const val BUDGET_PCT = 80
+
+        /**
+         * C3 DM-1 (the DM spec §1.2's "windows inside the strip", §1.6's budget): [pan] with the parameters the glasses
+         * compute at EVERY cursor a notch of its step lands on (`FIRMWARE.md` §6.2 step 9; on a [ring] list kinds 1 and 2 at
+         * the virtual row, §7.8) — every source window inside its record (5), every value (12), and its step budget C at
+         * most [BUDGET_PCT] % of the cap (§7.12, the DSL's calculator). A [LintError] names the first that is not.
+         */
+        internal fun checkEveryCursor(pan: Pan, n: Int, ring: Boolean, itemOffs: IntArray) {
+            cursors@ for (c in 0 until n) {
+                val v = c + pan.step
+                if (!ring && v !in 0 until n) continue                   // the edge: nothing plays there
+                val p = IntArray(4)
+                for ((i, r) in pan.rules.withIndex()) p[i] = when (r.kind) {
+                    CfwModes.KIND_ARG -> r.arg
+                    CfwModes.KIND_ITEM -> { val j = if (ring) Math.floorMod(v + r.arg, n) else v + r.arg; if (j !in 0 until n) continue@cursors; s16(itemOffs[j]) }
+                    CfwModes.KIND_PITCH -> (v.toLong() * pan.pitch + r.arg).let { x ->
+                        if (x !in Short.MIN_VALUE..Short.MAX_VALUE) throw LintError("P$i = $x at cursor $c step ${pan.step} is outside s16 (12)"); x.toInt() }
+                    else -> throw LintError("a parameter rule of kind ${r.kind}")
+                }
+                val cost = pan.program.cost(p)                           // the walk: every window and value at these P
+                if (cost * 100 > Motion.BUDGET_CAP * BUDGET_PCT) throw LintError("§7.12: C ${"%,d".format(cost)} u at cursor $c step ${pan.step} " +
+                    "is past $BUDGET_PCT % of the cap ${"%,d".format(Motion.BUDGET_CAP)}")
+            }
         }
 
         /** (offset, bytes) parts as one span from the first part's offset to the last one's end. */

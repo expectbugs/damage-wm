@@ -347,7 +347,7 @@ internal object ShipVectors {
             352 to mapOf(ScrollEffect.NONE to (1 to 46), ScrollEffect.DEPTH to (6 to 46), ScrollEffect.SLIDE to (5 to 52), ScrollEffect.FALL to (5 to 52)),
             480 to mapOf(ScrollEffect.NONE to (1 to 59), ScrollEffect.DEPTH to (5 to 59), ScrollEffect.SLIDE to (4 to 65), ScrollEffect.FALL to (4 to 65)))
         fun at(e: ScrollEffect, h: Int) = base[h]!![e]!!
-        for (h in listOf(352, 480)) for (e in ScrollEffect.entries) out += ScrollSpec(n(e, h), e, h, at(e, h).first, at(e, h).second)
+        for (h in listOf(352, 480)) for (e in base.getValue(h).keys) out += ScrollSpec(n(e, h), e, h, at(e, h).first, at(e, h).second)
         for (e in listOf(ScrollEffect.DEPTH, ScrollEffect.FALL)) out += ScrollSpec(n(e, 352, "-wrap"), e, 352, at(e, 352).first, at(e, 352).second, ScrollForm.WRAP)
         for (e in listOf(ScrollEffect.DEPTH, ScrollEffect.FALL)) out += ScrollSpec(n(e, 480, "-burst"), e, 480, at(e, 480).first, at(e, 480).second, ScrollForm.BURST)
         for ((len, t) in listOf(225 to 3, 450 to 7, 600 to 10, 800 to 13)) out += ScrollSpec(n(ScrollEffect.DEPTH, 480, "-len$len"), ScrollEffect.DEPTH, 480, t, 59, lengthMs = len)
@@ -430,7 +430,9 @@ internal object ShipVectors {
     fun ringSpecs(): List<RingSpec> {
         val out = ArrayList<RingSpec>()
         for (h in listOf(288, 352)) {
-            for (e in ScrollEffect.entries) out += RingSpec("${PREFIX}ring-${e.id}-$h", e, h, RingForm.NOTCHES)
+            // the four effects whose ring acts are shipped and filled (SVR); Crush and Flip (DM-1) get acts of their own from
+            // the vector lane — iterating `ScrollEffect.entries` here would add acts with no files
+            for (e in listOf(ScrollEffect.NONE, ScrollEffect.DEPTH, ScrollEffect.SLIDE, ScrollEffect.FALL)) out += RingSpec("${PREFIX}ring-${e.id}-$h", e, h, RingForm.NOTCHES)
             for (t in listOf(Taps.REPORT, Taps.GLASSES)) for (last in listOf(false, true))
                 out += RingSpec("${PREFIX}ring-tap-${t.name.lowercase()}-${if (last) "last" else "row0"}-$h", ScrollEffect.DEPTH, h, RingForm.TAP, t, last)
         }

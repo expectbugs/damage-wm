@@ -1315,6 +1315,87 @@ class MainLocalShellTest {
         } finally { r.close() }
     }
 
+    /**
+     * C3 DM-1, the brief's item 5 (decisions AD's S6) on the SHELL path: at stage 5 on a bit-11 build (256 KiB, his cache;
+     * Main's eight rows at 352: a ring list), a Settings change Depth → Crush → Depth with Main in front and notches around
+     * each change:
+     * - each change is K1-1's re-make: every cache write since the change lies in the free pan slot (no strip, band form,
+     *   item table or press byte), and ONE flush then carries the list's LIST-RING with the new pitch (+rowH for Crush,
+     *   −rowH back) AHEAD of the three SETs naming the re-made pans (with the slot's DISCARD naming the row);
+     * - a notch fired on the lenses just before the change, its report held on the way until the switch's batch has landed
+     *   on both, is NOT adopted against the new form — P3 refuses it by its mark (`restaged`), it is applied as today (one
+     *   row), and belief equals both lenses;
+     * - the next notch plays the new effect's pan on both lenses (slot 0's program) and is COMMITted with no snap-back,
+     *   belief equal to both lenses.
+     */
+    @Test
+    fun aPitchSwitchGoesAsOneBatchOnTheShellPath_DM1(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, stage = 5, kib256 = true, features = 0xdff)
+        try {
+            r.up()
+            val rig = r.t as StartRig
+            val rowH = r.onLoop { r.shell.mainBinding.staging!!.layout.rowH }
+            assertTrue(r.list().ring && r.list().pitch == -rowH, "Depth at stage 5: a ring list at pitch −rowH")
+            notch(r, CfwModes.EV_UPROLL, "a notch on Depth")
+            for ((effect, pitch) in listOf("crush" to rowH, "depth" to -rowH)) {
+                val ms = assertNotNull(r.onLoop { r.shell.mainBinding.staging })
+                val slots = assertNotNull(ms.progSlots, "$effect: a spare pan slot at 256 KiB")
+                val free = slots[1 - ms.activeProgs] until slots[1 - ms.activeProgs] + ms.progSlot
+                r.settle("$effect: before")
+                val row0 = r.row()
+                // a notch on the lenses whose report is held on the way (the hook sends its 115 inside the fire)
+                val held = java.util.concurrent.CopyOnWriteArrayList<Pair<Arm, ByteArray>>()
+                val holding = java.util.concurrent.atomic.AtomicBoolean(true)
+                rig.onNotify = { a, p -> if (holding.get()) { held += a to p; null } else p }
+                val now = System.currentTimeMillis()
+                for (a in Arm.entries) r.sim.conformanceInput(a, CfwModes.DEV_RING, CfwModes.EV_UPROLL.toLong(), 0, now)
+                holding.set(false)
+                val s = r.sim.bindForTest(Arm.RIGHT).seq
+                assertTrue(held.isNotEmpty(), "$effect: the held notch's report")
+                val at = r.right.size
+                val m = marks(r)
+                r.shell.updateSettings { it.copy(scrollEffect = effect) }
+                remade(r, effect, m)
+                val imgs = r.right.drop(at)
+                for (w in imgs.filter { r.cacheWrite(it) }) for (rg in writeRanges(w)) assertTrue(rg.first >= free.first && rg.last <= free.last,
+                    "$effect: a cache write at ${rg.first}..${rg.last + 1} outside the free pan slot ${free.first}..${free.last + 1} (a strip or record write)")
+                val list = r.list()
+                assertEquals(pitch, list.pitch, "$effect: the list's pitch")
+                val progs = list.entries.filter { !it.isTap }.map { it.prog4 }.toSet()
+                fun isList(sub: ByteArray) = r.isSub(sub, 27, CfwModes.BIND_LIST_RING) || r.isSub(sub, 27, 2)
+                val switch = imgs.map { r.subs(it) }.filter { ss -> ss.any { r.isSub(it, 27, 0) && r.u16(it, 9) in progs } }
+                assertEquals(1, switch.size, "$effect: ONE flush carries the SETs naming the re-made pans")
+                val ss = switch.single()
+                val li = ss.indexOfFirst { isList(it) }
+                assertTrue(li >= 0 && r.isSub(ss[li], 27, CfwModes.BIND_LIST_RING), "$effect: the switch's flush carries the list's LIST-RING")
+                assertEquals(pitch, r.u16(ss[li], 9).toShort().toInt(), "$effect: the LIST-RING carries the new pitch")
+                val sets = ss.withIndex().filter { (_, x) -> r.isSub(x, 27, 0) && x[4].toInt() != CfwModes.EV_TAP }
+                assertTrue(sets.size == 2 && sets.all { it.index > li && r.u16(it.value, 9) in progs }, "$effect: the LIST ahead of the two scroll SETs naming the re-made pans: ${ss.map { "${it[0]}/${it[1]}" }}")
+                for (a in Arm.entries) r.sim.bindForTest(a).lists[0].let { l -> assertTrue(l.pitch == pitch && l.ring, "$effect: $a's list at pitch ${l.pitch}, ring ${l.ring}") }
+                // the held report, now: refused by its mark, applied as today
+                for ((a, p) in held) rig.deliver(a, p)
+                r.t.ringStockForTest(BoundList.stockEvent(CfwModes.EV_UPROLL)!!)
+                delay(r.motionMs() + r.q() + 300); r.settle("$effect: the held report answered")
+                assertTrue(r.notes("snapback").any { "cause=restaged S=$s " in it }, "$effect: the report from before the switch not adopted (restaged): ${r.notes("snapback").takeLast(3)}")
+                assertEquals((row0 + 1).mod(list.count), r.row(), "$effect: the held notch applied as today, one row")
+                r.assertOracle("$effect: after the held report")
+                // the next notch plays the new pan on both lenses and is committed
+                val snaps = r.notes("snapback").size
+                val at2 = r.right.size
+                val row1 = r.row()
+                val s2 = r.fire(CfwModes.EV_UPROLL)
+                val pan = list.entryFor(CfwModes.EV_UPROLL)!!.prog4
+                for (a in Arm.entries) r.until("$effect: $a plays the notch") { synchronized(r.sim) { r.sim.motionForTest(a).slots[MainStaging.SLOT]?.prog4 } == pan }
+                delay(r.motionMs() + r.q() + 300); r.settle("$effect: after the notch")
+                assertEquals((row1 + 1).mod(list.count), r.row(), "$effect: the notch moved one row")
+                assertTrue(r.right.drop(at2).any { img -> r.subs(img).any { r.isCommit(it, s2) } }, "$effect: a COMMIT of S $s2")
+                assertEquals(snaps, r.notes("snapback").size, "$effect: no snap-back: ${r.notes("snapback").takeLast(2)}")
+                r.assertOracle("$effect: after the notch")
+                rig.onNotify = null
+            }
+        } finally { r.close() }
+    }
+
     /** C3 DM-0 (the staging's form follows EFFECTS in force): a hand disarm of EFFECTS mid-session drops the ring staging
      *  and Main is staged again in today's form — its wrap record, a plain LIST, never a LIST-RING after it — so no ring
      *  list is ever bound without EFFECTS (a LIST-RING would be refused 15, and so would every fire on a ring list). */

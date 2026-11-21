@@ -46,6 +46,9 @@ class SettingsWindow(
     /** Build C3, stage DP2: ladder stage 5 is in force (DamageCaps bit 11, EFFECTS armed) — the transition tiers' rows
      *  are shown only then (anywhere else a Select, a Back and the clock are cuts, and the rows would do nothing). */
     private val effectsInForce: () -> Boolean = { false },
+    /** C3 DM-1 (D3): what plays for the `Scroll effect` row's choice when it is not its own program ("plays Slide" for
+     *  Crush below stage 5, "plays its height turn" for Flip), "" otherwise — the row keeps his choice and says it. */
+    private val scrollPlays: () -> String = { "" },
 ) : DamageWindow("settings", "Settings", IconKind.SETTINGS) {
 
     private val fRow = FontSpec(Face.SYSTEM, 18)
@@ -161,7 +164,8 @@ class SettingsWindow(
     private val scrollEntries: List<Entry> = listOf(
         Entry("Scroll effect", {
             val id = get().scrollEffect
-            (wm.damage.core.motion.ScrollEffect.byId(id) ?: wm.damage.core.motion.ScrollEffect.DEFAULT).word + if (id == ShellSettings().scrollEffect) " (default)" else ""
+            (wm.damage.core.motion.ScrollEffect.byId(id) ?: wm.damage.core.motion.ScrollEffect.DEFAULT).word +
+                scrollPlays().let { if (it.isEmpty()) "" else " ($it)" } + if (id == ShellSettings().scrollEffect) " (default)" else ""
         }, { s, d ->
             val es = ShellSettings.SCROLL_EFFECTS
             s.copy(scrollEffect = es[(es.indexOf(s.scrollEffect).coerceAtLeast(0) + d).mod(es.size)])
