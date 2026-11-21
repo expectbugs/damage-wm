@@ -581,7 +581,9 @@ class LocalSequenceFuzzTest {
      *  which rode behind a LIST-RING — a notch up across row 0 is adopted the same way, both lenses' lists still ringing.
      *  On the rule as it stood: P3's plain distance turns each wrap into `lost-report` (applied as today, a DISCARD); a
      *  riding plain LIST un-rings the list at the first answer, so the second wrap is the edge and the phone's PLAY. */
-    @Test fun seededDM0_aWrapNotchOnARingListIsAdoptedBothWays() = seeded(Taps.REPORT, rows = 7, ring = true, script = { h ->
+    @Test fun seededDM0_aWrapNotchOnARingListIsAdoptedBothWays() { var snapsBefore = 0; seeded(Taps.REPORT, rows = 7, ring = true, script = { h ->
+        // (the walk's first notch races the start's table — a snap-back of the seeded rig's own, before the script)
+        snapsBefore = h.rules.counts.filterKeys { it.startsWith("snapback.") }.values.sum()
         notch(h, 1); h.rest()
         notch(h, 2); h.rest()
     }, extra = { h ->
@@ -593,10 +595,10 @@ class LocalSequenceFuzzTest {
             if (h.fires[g]?.sR?.let { it in h.commitsSent } != true) out += "the wrap notch g$g was not committed"
         }
         if (h.wrapPlays != 0) out += "${h.wrapPlays} wrap PLAY(s) on a ring list"
-        if ((h.rules.counts["snapback.lost-report"] ?: 0) + (h.rules.counts["snapback.edge"] ?: 0) > 0) out += "snap-backs: ${h.rules.counts}"
+        if (h.rules.counts.filterKeys { it.startsWith("snapback.") }.values.sum() != snapsBefore) out += "snap-backs during the wraps: ${h.rules.counts}"
         for (a in Arm.entries) if (!h.sim.bindForTest(a).lists[0].ring) out += "$a: the list no longer rings after the answers"
         out
-    })
+    }) }
 
     /** C3 DM-0 (the fallback, S5): the start's LIST-RING lost on RIGHT — RIGHT holds the empty table's list (count 0), so its
      *  fire is the edge while LEFT's draws; the phone applies the notch as today and its DISCARD rides behind a LIST-RING,

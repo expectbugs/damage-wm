@@ -139,8 +139,9 @@ class ScrollEffectsTest {
                     listOf(pan.rules[0].arg, pan.rules[3].arg), "$what0: P0's and P3's rules take the margin")
                 var n = 0
                 for (pan in s5.pans) for (cPrime in -1..s5.rows) {
+                    val c = cPrime - pan.step
+                    if (c !in 0 until s5.rows) continue                 // no notch lands there from a row
                     val p = s5.wrapParams(pan, cPrime) ?: s5.params(pan, cPrime) ?: continue
-                    val c = (cPrime - pan.step).mod(s5.rows)
                     val to = cPrime.mod(s5.rows)
                     Motion.play(pan.program, MainStaging.SLOT, s5.period, 1, 0, p)
                     for (left in listOf(true, false)) {

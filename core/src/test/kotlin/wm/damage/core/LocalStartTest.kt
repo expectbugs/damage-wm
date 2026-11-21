@@ -132,7 +132,7 @@ class LocalStartTest {
             assertTrue(bindList != null && ms != null, "$what: Main's list bound with its LIST")
             val ring = stage == 5 && height == 352
             assertEquals(ring, ms!!.ring, "$what: the staging's form")
-            assertEquals(ring, ms.wrap == null, "$what: a wrap record exactly where the form is today's and Main wraps")
+            assertEquals(!ring && height == 352, ms.wrap != null, "$what: a wrap record exactly where the form is today's and Main wraps")
             if (ring) {
                 assertTrue(bindList!![1].toInt() == CfwModes.BIND_LIST_RING && bindList.size == 13 && bindList[12].toInt() == 1, "$what: the binding batch's LIST is LIST-RING flags 1")
                 assertTrue(lists.all { it[1].toInt() == CfwModes.BIND_LIST_RING }, "$what: no plain LIST in the session (a plain LIST clears RING)")
