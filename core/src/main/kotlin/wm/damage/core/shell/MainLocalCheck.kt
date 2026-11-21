@@ -123,7 +123,7 @@ object MainLocalCheck {
          *  Main's own region at 256 KiB (AD.2). */
         fun staging(cacheSize: Int, region: IntRange, motion: MainStaging.ScrollMotion? = MainStaging.ScrollMotion.DEFAULT, stage5: Boolean = false): MainStaging =
             MainStaging.build(layout, view, kit, listD, bandD, cacheSize, region.first, region.last + 1,
-                widths = listOf(MainStaging.WHOLE), twoStrips = region.last + 1 < cacheSize, motion = motion, stage5 = stage5)
+                widths = listOf(MainStaging.WHOLE), twoStrips = region.last + 1 < cacheSize, motion = motion, stage5 = stage5, fx = effectsAt(stage5))
     }
 
     /** Runs every case at [heights] × [cachesKib] for [effects]; [frames] keeps the strips' frames (the desktop writes them). */
@@ -140,6 +140,8 @@ object MainLocalCheck {
                     table += r.second
                 }
                 cases += reprogramCase(text, h, kib, depth, stage5)
+                // C3 DM-1 (S6): the switch between the two pitch forms, at stage 5
+                if (stage5) cases += pitchSwitchCase(text, h, kib, depth)
             }
         }
         for (h in heights) table += worstCase(text, h, depth)
@@ -184,6 +186,8 @@ object MainLocalCheck {
     private const val FEATURES_C3 = 0xdff
     private fun features(stage5: Boolean) = if (stage5) FEATURES_C3 else FEATURES_C2
     private fun flags(stage5: Boolean) = DamageMsg.FLAG_DRAW2 or DamageMsg.FLAG_ENGINE or DamageMsg.FLAG_BIND or (if (stage5) DamageMsg.FLAG_EFFECTS else 0)
+    /** C3 DM-1: the gate's token as the model's link state gives it — a bit-11 build with EFFECTS armed at stage 5; none below. */
+    fun effectsAt(stage5: Boolean): Motion.Effects? = if (stage5) Motion.effects(DamageMsg.Caps(2, FEATURES_C3), flags(true)) else null
 
     private class Lens(val sim: GlassFirmwareSim, val cacheSize: Int) {
         var now = 1_000L
@@ -700,6 +704,109 @@ object MainLocalCheck {
             }
         }
         return Case(tag, "the pans re-made alone (Depth → Slide → Depth): the free slot only, then SETs; notches before and after each named and committed",
+            Rect(0, 0, 1, 1), emptyList(), lines, fails)
+    }
+
+    /**
+     * C3 DM-1 (decisions AD's S6; the brief's item 5): a change between an effect of pitch −rowH and one of +rowH, at stage
+     * 5. Main staged with Depth and its list SET; the rows ask for Crush: K1-1's re-make writes Crush's pans into the free
+     * slot (a range that meets no record of the staging — no strip write); a notch fired BEFORE the switch draws Depth's
+     * pan with the old mark (P3 refuses its report: a mark that is not the phone's, `LocalRules.scrollRule`); then ONE
+     * batch carries the list's LIST (LIST-RING on a ring list) with pitch +rowH and a fresh mark AHEAD of the SETs naming
+     * Crush's pans — each lens applies it whole, its list at the new pitch, mark and the cursor kept; a notch after it
+     * draws Crush's pan, named by the new list and committed, its END Main's paint. And back to Depth the same way.
+     */
+    fun pitchSwitchCase(text: TextRasterizer, height: Int, kib: Int, depth: Int = 8): Case {
+        val m = MainRig(text, height, sampleRows(), depth)
+        val cacheSize = kib * 1024
+        val region = CfwModes.mainRegion(cacheSize, bind = true)
+        val fx = effectsAt(true)
+        val ms = m.staging(cacheSize, region, stage5 = true)
+        val tag = "h$height-${kib}k-s5-pitchswitch"
+        val fails = ArrayList<String>(); val lines = ArrayList<String>()
+        val slots = ms.progSlots ?: return Case(tag, "the switch between the pitch forms", Rect(0, 0, 1, 1), emptyList(),
+            listOf("no spare pan slot in this region: a change of the scroll rows is a full staging (${ms.bytes} B)"), emptyList())
+        val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = features(true); it.clockIsOsTick = true }
+        val lens = Lens(sim, cacheSize)
+        for (arm in Arm.entries) {
+            sim.conformanceLease(arm, true, lens.now)
+            sim.conformanceControl(arm, DamageMsg.OP_CACHE_SIZE, kib, lens.now)
+            sim.conformanceControl(arm, DamageMsg.OP_FLAGS_SET, flags(true), lens.now)
+        }
+        for (b in ms.blobs) lens.write(b.off, b.bytes, b.name, fails)
+        var mark = 1
+        var cur = ms.boundList(mark)
+        for (s in cur.sets()) lens.send("a SET", s, fails)
+        lens.send("the LIST", cur.listMessage(0), fails)
+        val c0 = ms.rows / 2 - 1
+        fun fireHeld(c: Int, e: BoundList.Entry): DamageMsg.Applied? {
+            lens.now += 1_000
+            lens.keyframe(m.truth(c, true), m.truth(c, false))
+            lens.send("DISCARD to cursor $c", CfwModes.motionDiscard(MainStaging.SLOT, 1, MainStaging.LIST, c), fails)
+            lens.notifies()
+            val a = lens.fire(CfwModes.DEV_RING, e.eventId) ?: return null
+            val t0 = lens.now
+            if (a.outcome == DamageMsg.APPLIED_DREW && a.params != null && a.prog != null)
+                for (k in 1..ms.programAt(a.prog!!).stepsWith(a.params!!) + 1) lens.wake(t0 + (k - 1).toLong() * e.period)
+            return a
+        }
+        fun commit(a: DamageMsg.Applied?, e: BoundList.Entry, what: String) {
+            if (a == null || a.outcome != DamageMsg.APPLIED_DREW) { fails += "$what: no drawn report (${a?.describe()})"; return }
+            val p = a.params!!; val prog = a.prog!!; val cP = a.cursor!!
+            if (a.mark != mark) fails += "$what: the report's mark ${a.mark}, not the list's $mark"
+            if (!cur.names(cP, e, prog, p, a.wrapped)) fails += "$what: the report is not named by the list as it stands (${a.describe()})"
+            lens.send("$what: the riding LIST and COMMIT", CfwModes.batch(listOf(cur.listMessage(0, mark), Motion.commit(ms.programAt(prog), MainStaging.SLOT, a.s!!, MainStaging.LIST, cP, p)), engine = true, bind = true), fails)
+            for (arm in Arm.entries) {
+                val left = arm == Arm.LEFT
+                val belief = m.truth((cP - e.step).mod(ms.rows), left).copy().also { ms.paintEndOf(prog, p, left, it) }
+                differ(lens.shadow(arm), belief, null).let { if (it > 0) fails += "$what $arm: $it px where the shadow after the COMMIT is not belief" }
+                differ(lens.shadow(arm), m.truth(cP, left), ms.programAt(prog).tracks.map { it.area(left) }).let { if (it > 0) fails += "$what $arm: $it px of END not Main's paint at $cP" }
+                if (sim.panelCrc32(arm) != sim.shadowCrc32(arm)) fails += "$what $arm: after the COMMIT the lens does not show the shadow"
+            }
+            lens.notifies()
+        }
+        /** The switch to [want]: re-made into the free slot (no record of the staging met), written; a notch before the
+         *  switch's batch (the old entries, the old mark); the batch; a notch after it. */
+        fun switchTo(want: MainStaging.ScrollMotion) {
+            val p = (ms.remake(want, fx) as? MainStaging.Remake.Owed)?.programs ?: run { fails += "no re-make for ${want.words()}: ${ms.remake(want, fx)}"; return }
+            if (p.off != slots[p.slot] || p.bytes.size > ms.progSlot) fails += "${want.words()}: ${p.bytes.size} B at ${p.off}, not inside slot ${p.slot}"
+            val press = ms.press.prog4 * 4
+            for (b in ms.blobs) {
+                val (lo, hi) = if (b.name == "programs") press to press + ms.press.program.bytes.size else b.off to b.off + b.bytes.size
+                if (p.off < hi && lo < p.off + p.bytes.size) fails += "${want.words()}: the re-make's write ${p.off}..${p.off + p.bytes.size} meets ${b.name} ($lo..$hi) — a strip or record write"
+            }
+            lens.write(p.off, p.bytes, "the re-made pans", fails)
+            val down0 = cur.entryFor(CfwModes.EV_UPROLL)!!
+            val before = fireHeld(c0, down0)                                     // the lens still holds the old form
+            val oldMark = mark
+            val oldPitch = cur.pitch
+            ms.switchTo(p)
+            mark++
+            val nl = ms.boundList(mark, previous = cur)
+            if (nl.pitch == oldPitch) fails += "${want.words()}: the list's pitch did not change (${nl.pitch})"
+            // P3's rule for a report computed at the old pitch: its mark is not the phone's — never adopted against the new form
+            if (before == null || before.mark != oldMark || before.mark == mark) fails += "${want.words()}: the notch before the switch reports mark ${before?.mark} (old $oldMark, new $mark)"
+            // ONE batch: the LIST with the new pitch and a fresh mark ahead of the SETs (the batch's order: a fire on a lens
+            // runs before it whole or after it whole; a refused LIST leaves the old entries with the old pitch)
+            val batch = CfwModes.batch(listOf(nl.listMessage(0, mark)) + nl.sets(), engine = true, bind = true)
+            lens.send("the switch's batch (LIST then SETs)", batch, fails)
+            for (arm in Arm.entries) sim.bindForTest(arm).lists[MainStaging.LIST].let { l ->
+                if (l.pitch != nl.pitch || l.mark != mark || l.ring != nl.ring) fails += "${want.words()} $arm: the lens's list after the batch: pitch ${l.pitch} mark ${l.mark} ring ${l.ring}, not ${nl.pitch} $mark ${nl.ring}"
+            }
+            lens.notifies()
+            cur = nl
+            val down = nl.entryFor(CfwModes.EV_UPROLL)!!
+            val after = fireHeld(c0, down)
+            if (after?.prog != down.prog4) fails += "${want.words()}: a notch after the switch drew ${after?.describe()}, not the new pan ${down.prog4}"
+            commit(after, down, "${want.words()}: a notch after the switch")
+            ms.releasePrograms(); nl.previous = null
+            lines += "${p.motion.effect.word} (pitch ${nl.pitch}, ${ms.plays.effect.word}${if (ms.plays.v2) " v2" else ""}): ${p.bytes.size} B into the free slot at ${p.off}, then ONE batch of ${batch.size} B " +
+                "(the LIST ${nl.listMessage(0, mark).size} B ahead of ${nl.sets().size} SETs); the notch before it reported mark ${before?.mark} (refused by P3), the one after committed"
+        }
+        switchTo(MainStaging.ScrollMotion.DEFAULT.copy(effect = ScrollEffect.CRUSH))
+        if (ms.plays != wm.damage.core.motion.ScrollEffects.Plays(ScrollEffect.CRUSH, true)) fails += "Crush does not play itself at stage 5: ${ms.plays}"
+        switchTo(MainStaging.ScrollMotion.DEFAULT)
+        return Case(tag, "the switch between the pitch forms (Depth → Crush → Depth, S6): the free slot only, then ONE batch with the LIST ahead of the SETs; a notch before refused by its mark, one after committed",
             Rect(0, 0, 1, 1), emptyList(), lines, fails)
     }
 

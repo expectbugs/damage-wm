@@ -121,7 +121,8 @@ data class ShellSettings(
     val scrollLength: Int = 300,
     val frames: Int = 0,
     /** K1-1 (`MOTION.md` §7): `Scroll effect` — the Scroll tier's one effect (no randomness), a [wm.damage.core.motion.
-     *  ScrollEffect] id: `none` · `depth` (the default, today's) · `slide` · `fall`. Additive, as the two above. */
+     *  ScrollEffect] id: `none` · `depth` (the default, today's) · `slide` · `flip` · `fall` · `crush` (C3 DM-1). Additive,
+     *  as the two above. */
     val scrollEffect: String = "depth",
     /** Build K1-4a (`MOTION.md` §7's Popups tier; spec §2): the notice box's arrival — its length (ms) and steps (0 =
      *  Auto: as many as the glasses draw in that length), and the styles a notice picks among at random (none = the box

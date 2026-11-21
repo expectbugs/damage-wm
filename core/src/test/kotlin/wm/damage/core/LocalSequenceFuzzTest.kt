@@ -327,6 +327,20 @@ class LocalSequenceFuzzTest {
      *  ring half's own classes have [RING_GATE_SEEDS]. */
     private fun ringOf(seed: Long) = seed !in GATE_SEEDS.keys && seed !in HIS_GATE_SEEDS.keys && seed !in BS3_SEEDS.keys && (seed / 2) % 2 == 0L
 
+    /** C3 DM-1 (S6; the brief's item 8): half the plain sequences — never a named seed, chosen by the seed with no draw from
+     *  the sequence's stream — switch the list between the two pitch forms mid-session ([LocalHarness.pitchSwitch], every
+     *  sixth driven event, no draw either), with the pitch probe drawn by a kind-2 parameter, on the staging's fitted T and
+     *  P ([PITCH_FIT]: decisions BE (8), for these sequences; the others keep theirs, so no named seed moves). Plain lists
+     *  only ([LocalHarness]'s `pitchProbe`: a ring fire's kind 2 at the virtual row needs Main's margins, which the
+     *  harness's static ruler cannot hold across its re-stagings — the local check's ring cases hold them for Crush). */
+    private fun pitchOf(seed: Long) = !ringOf(seed) && seed !in GATE_SEEDS.keys && seed !in HIS_GATE_SEEDS.keys && seed !in BS3_SEEDS.keys &&
+        seed !in RING_GATE_SEEDS.keys && (seed / 4) % 2 == 1L
+
+    /** The staging's fitted (period, T) for the pitch-switch sequences: Main at 352, Global Depth 8, 300 ms Auto, on C2's fit
+     *  (a plain list is stage 4's: `ScrollEffects.timing`), as the shell stages it — decisions BE (8). */
+    private val PITCH_FIT: Pair<Int, Int> = wm.damage.core.motion.ScrollEffects.timing(wm.damage.core.motion.ScrollEffect.DEPTH,
+        wm.damage.core.geom.Layout().withHeightMode(352, wm.damage.core.geom.VPos.TOP), 8, 4, wm.damage.core.shell.MainStaging.ScrollMotion.DEFAULT, false)
+
     /** The counted key of a declared class, split by the list's form (C3 DM-0: J3 needs an edge on RIGHT, which a ring list
      *  gives only after a LIST-RING lost or refused there). */
     private fun formKey(h: LocalHarness, k: String) = if (k.startsWith(j3Key)) "$k [${if (h.ring) "ring" else "plain"}]" else k
@@ -334,7 +348,9 @@ class LocalSequenceFuzzTest {
     fun randomSequence(seed: Long, events: Int = 40): Verdict {
         val r = java.util.Random(seed)
         val taps = Taps.entries[r.nextInt(3)]
-        val h = LocalHarness(seed, taps, ring = ringOf(seed))
+        val pitch = pitchOf(seed)
+        val h = if (!pitch) LocalHarness(seed, taps, ring = ringOf(seed))
+            else LocalHarness(seed, taps, tScroll = PITCH_FIT.second, period = PITCH_FIT.first, pitchProbe = true)
         declaredNow = HashSet()
         val counted0 = ArrayList<String>()
         if (debug) h.trace = { println(it) }
@@ -366,6 +382,8 @@ class LocalSequenceFuzzTest {
                 x < 90 -> h.readTelemetry()
                 else -> h.runUntil(h.now + 300 + r.nextInt(500))
             }
+            // C3 DM-1 (S6): a switch between the pitch forms, every sixth event of a pitch sequence (no draw)
+            if (pitch && it % 6 == 5) h.pitchSwitch()
             h.runUntil(h.now + 30 + r.nextInt(370))
         }
         val failed = ArrayList<String>()
@@ -396,6 +414,9 @@ class LocalSequenceFuzzTest {
             counted["AA.1: such COMMITs"] = (counted["AA.1: such COMMITs"] ?: 0) + h.heldCommits
         }
         if (h.telemetryAsked > 0) counted["AA.2: sequences with a read asked at a SETTLE"] = (counted["AA.2: sequences with a read asked at a SETTLE"] ?: 0) + 1
+        // C3 DM-1 (S6): the pitch sequences and the switches they made
+        if (h.pitchProbe) { counted["DM-1: pitch-switch sequences"] = (counted["DM-1: pitch-switch sequences"] ?: 0) + 1
+            counted["DM-1: pitch switches"] = (counted["DM-1: pitch switches"] ?: 0) + h.pitchSwitches }
         // decisions AW.3: windows that opened over a COMMITted motion still drawing, cut by a CLOSE ahead of their frame
         if (h.windowCuts > 0) counted["AW.3: windows that cut a COMMITted motion"] = (counted["AW.3: windows that cut a COMMITted motion"] ?: 0) + h.windowCuts
         // decisions AZ.4: the wraps animated from the phone, and those a later batch's drawing in the list closed first

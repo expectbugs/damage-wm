@@ -39,7 +39,13 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
                    val tScroll: Int = T_SCROLL, val period: Int = PERIOD,
                    /** C3 DM-0: a bit-11 build (0xdff) at stage 5 with the list bound as a ring list (LIST-RING): a wrap notch
                     *  fires on the lens like any other — the simulator's own model of a ring fire (`BindSim`), no copy here. */
-                   val ring: Boolean = false) {
+                   val ring: Boolean = false,
+                   /** C3 DM-1 (S6): the list switches between the two pitch forms mid-session ([pitchSwitch]) — its scroll
+                    *  programs also draw a ruler into [PROBE] by a kind-2 parameter (one pixel a row, pitch −1 with the ruler
+                    *  as it is, +1 with it reversed), so a lens whose pitch and entries disagree shows it (the probe shows the
+                    *  row index; the truth's [probeLevel]). Plain lists only: a ring fire reads kind 2 at the virtual row,
+                    *  which a static ruler cannot hold across the harness's re-stagings (Main's strip does: its margins). */
+                   val pitchProbe: Boolean = false) {
     val rnd = java.util.Random(seed)
     val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = if (ring) 0xDFF else 0x5FF; it.clockIsOsTick = true }
     /** The flags each start arms: stage 4's, and EFFECTS at stage 5 (a ring list needs it, `FIRMWARE.md` §7.8). */
@@ -78,6 +84,10 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         const val READ_MS = 60L
         /** A released frame's way to the lens at the most: a pump and the longest downlink (S33's residual window). */
         const val WRAP_FRAME_MS = 60L
+        /** C3 DM-1: where the pitch probe's ruler shows the cursor's row (one pixel row, four wide; outside the band). */
+        val PROBE = Rect(200, 120, 4, 1)
+        /** The probe's level for row [row] (1..14: never 0, the backdrop a wrong pitch leaves). */
+        fun probeLevel(row: Int) = 1 + row % 14
     }
 
     // ------------------------------------------------------------------------------------------- the cache
@@ -99,11 +109,21 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
             cacheWrites += write19(recs[id], b)
         }
         tableAt[0] = put(ByteArray(2 * IDS)); tableAt[1] = put(ByteArray(2 * IDS))
+        // C3 DM-1: the pitch probe's rulers — row r at level probeLevel(r), and the same reversed
+        val rulers = if (!pitchProbe) emptyList() else listOf(false, true).map { rev ->
+            val b = TextureCache.Image2(PROBE.w, IDS, ByteArray(PROBE.w * IDS) { i -> probeLevel(if (rev) IDS - 1 - i / PROBE.w else i / PROBE.w).toByte() }).encode()
+            val o = put(b); cacheWrites += write19(o, b); Motion.Source.record(o, b)
+        }
+        /** The probe's track: the ruler drawn at y ← P1 (kind 2), so the probe pixel shows ruler row y0 − y. */
+        fun Motion.ProgramBuilder.probe(rev: Boolean) {
+            if (pitchProbe) track(PROBE, Motion.Backdrop.Level(0)) { draw(rulers[if (rev) 1 else 0], PROBE.x, 0, n = tScroll, prefs = listOf(Motion.Pref(1, Motion.Field.Y))) }
+        }
         val sAt = at4
         scroll = Motion.program(sAt, recSources, bit10 = true) {
             track(BAND, Motion.Backdrop.Level(0)) {
                 draw(recSources[0], BAND.x, BAND.y, n = tScroll, prefs = listOf(Motion.Pref(0, Motion.Field.SRC)))
             }
+            probe(false)
         }
         put(scroll.bytes)
         val pAt = at4
@@ -118,9 +138,22 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
             track(BAND, Motion.Backdrop.Level(0)) {
                 draw(recSources[0], BAND.x, BAND.y, n = tScroll, prefs = listOf(Motion.Pref(0, Motion.Field.SRC)))
             }
+            probe(false)
         }
         put(scroll2.bytes)
         cacheWrites += write19(scroll2.at, scroll2.bytes)
+        if (pitchProbe) {
+            // C3 DM-1: the other pitch form's program (+1: the ruler reversed), already in the cache as a re-make leaves it
+            val bAt = at4
+            scrollB = Motion.program(bAt, recSources, bit10 = true) {
+                track(BAND, Motion.Backdrop.Level(0)) {
+                    draw(recSources[0], BAND.x, BAND.y, n = tScroll, prefs = listOf(Motion.Pref(0, Motion.Field.SRC)))
+                }
+                probe(true)
+            }
+            put(scrollB.bytes)
+            cacheWrites += write19(scrollB.at, scrollB.bytes)
+        }
         cacheWrites += write19(scroll.at, scroll.bytes)
         cacheWrites += write19(press.at, press.bytes)
         notice = wm.damage.core.motion.PopupPrograms.timer(at4, NOTICE_GEO)
@@ -163,9 +196,14 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     fun boundFor(ids: IntArray, mark: Int, at4: Int): BoundList {
         val items = IntArray(ids.size) { recs[ids[it]] }
         val p = listOf(CfwModes.BindParam(CfwModes.KIND_ITEM, 0), CfwModes.BindParam(0, 0), CfwModes.BindParam(0, 0), CfwModes.BindParam(0, 0))
-        return BoundList(0, 0, ids.size, BAND.h, mark and 0xFF, at4, items, listOf(
-            BoundList.Entry(0, CfwModes.EV_UPROLL, +1, period, sp().at, p, sp()),
-            BoundList.Entry(1, CfwModes.EV_DOWNROLL, -1, period, sp().at, p, sp()),
+        // C3 DM-1: with the pitch probe the scroll entries' P1 is the ruler's y by kind 2 — pitch −1 with the ruler as it is
+        // (y = PROBE.y − c'), +1 with it reversed (y = PROBE.y − (IDS − 1) + c'): the probe shows row c' in either form
+        val ps = if (!pitchProbe) p else listOf(p[0], CfwModes.BindParam(CfwModes.KIND_PITCH, if (pitchAlt) PROBE.y - (IDS - 1) else PROBE.y), p[2], p[3])
+        val pitch = if (!pitchProbe) BAND.h else if (pitchAlt) 1 else -1
+        val sc = if (pitchProbe && pitchAlt) scrollB else sp()
+        return BoundList(0, 0, ids.size, pitch, mark and 0xFF, at4, items, listOf(
+            BoundList.Entry(0, CfwModes.EV_UPROLL, +1, period, sc.at, ps, sc),
+            BoundList.Entry(1, CfwModes.EV_DOWNROLL, -1, period, sc.at, ps, sc),
             BoundList.Entry(2, CfwModes.EV_TAP, 0, period, press.at, p, press)), ring = ring)
     }
 
@@ -181,6 +219,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         if (covered && noticeTimer) fill(NOTICE_GEO.rule, wm.damage.core.motion.PopupPrograms.BAR_LEVEL)
         if (badge && !covered && !window) fill(BADGE, BADGE_LEVEL)
         fill(CLOCK, 1 + clock % 13)
+        if (pitchProbe) fill(PROBE, probeLevel(row))
         return t
     }
 
@@ -721,6 +760,24 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
      *  staging is the same, so no LIST. */
     lateinit var scroll2: MotionProgram
     var scrollAlt = false
+    /** C3 DM-1 (S6): the other pitch form's program ([pitchProbe]); [pitchAlt] the form in force; switches made. */
+    lateinit var scrollB: MotionProgram
+    var pitchAlt = false
+    var pitchSwitches = 0
+    /** C3 DM-1 (S6): the list switched between the two pitch forms, as K1-1's re-make switches when the effect changes (in
+     *  idle, the list in front): the other form's program (in the cache already) and the list made again at the other
+     *  pitch with the same identities and mark base — the rules owe its LIST (a fresh mark) ahead of the SETs in one
+     *  batch, and the slot's DISCARD naming the row. */
+    fun pitchSwitch(): Boolean {
+        if (!pitchProbe || rules.burstOpen || covered || window) return false
+        pitchAlt = !pitchAlt
+        bound = boundFor(ids, markBase, tableAt[tableSlot])
+        rules.front(bound, row)
+        pitchSwitches++
+        pumpSoon()
+        return true
+    }
+
     fun reprogram(): Boolean {
         if (rules.burstOpen || covered || window) return false
         scrollAlt = !scrollAlt
@@ -915,7 +972,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     fun pumpSoon() { val t = now + pumpDelay; if (t < pumpAt) { pumpAt = t; at(t) { pumpAt = Long.MAX_VALUE; pump() } } }
 
     /** The regions, in paint order; BADGE lies inside BAND. */
-    private val regions = listOf(BAND, BADGE, CLOCK)
+    private val regions = listOfNotNull(BAND, BADGE, CLOCK, PROBE.takeIf { pitchProbe })
 
     private fun levelAt(t: ByteArray, r: Rect) = t[r.y * W + r.x].toInt()
 
@@ -932,6 +989,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         val rec = c.p[0]
         val id = recs.indexOf(rec)
         paint(m, BAND, level(id))
+        if (pitchProbe) paint(m, PROBE, probeLevel(c.cursor))            // C3 DM-1: the ruler at the cursor
     }
 
     /** The drawing subs that make [m] equal [t] over [dirty] (in place on [m]), with their real rects. */
@@ -976,7 +1034,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         val plan = rules.plan(row)
         val m2 = model.copyOf()
         val dirty = HashSet(changed)
-        for (c in plan) { paintEnd(m2, c); dirty += BAND; dirty += BADGE }
+        for (c in plan) { paintEnd(m2, c); dirty += BAND; dirty += BADGE; if (pitchProbe) dirty += PROBE }
         // decisions AZ.4 (the shell's `mainWrapPlan`): an edge at an end with the row now the other end — the scroll's PLAY
         // in slot 1 from the end to the row past it, END (the wrapped row's record) into the model, its areas held. None on
         // a ring list (C3 X2M0: a ring staging has no wrap pan; an edge there goes as the phone's frames)
@@ -985,6 +1043,9 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
             val prog = w.list.entries.first { it.step == w.step }.program!!
             val p = intArrayOf(recs[ids[w.cPrime.mod(ids.size)]], 0, 0, 0)
             paint(m2, BAND, 0); paint(m2, BAND, level(ids[w.cPrime.mod(ids.size)])); dirty += BAND; dirty += BADGE
+            // C3 DM-1: the probe's ruler at the wrapped row (the phone's own PLAY: its parameters at c' mod n)
+            if (pitchProbe) { w.list.paramsAt(w.cPrime.mod(ids.size), w.list.entries.first { it.step == w.step })?.let { p[1] = it[1] }
+                paint(m2, PROBE, probeLevel(w.cPrime.mod(ids.size))); dirty += PROBE }
             Motion.play(prog, WRAP_SLOT, period, 0xB000 + (wrapPlays and 0xFFF), 0, p)
         }
         val wrapAreas = wrap?.list?.areas ?: emptyList()

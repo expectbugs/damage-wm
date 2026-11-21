@@ -770,7 +770,12 @@ object Motion {
      * reveal 1 read, and the truth a `self` capture takes. [tag] is the instance's (opt bit 7 mixes it into a seed). An
      * OWN program with LAND leaves this lens's owned rect the shadow's. Returns a new panel; [base] is not changed.
      */
-    fun endOnModel(program: MotionProgram, p: IntArray, cache: ByteArray, base: ByteArray, shadow: ByteArray, left: Boolean, tag: Int = 0): ByteArray {
+    fun endOnModel(program: MotionProgram, p: IntArray, cache: ByteArray, base: ByteArray, shadow: ByteArray, left: Boolean, tag: Int = 0): ByteArray =
+        stepOnModel(program, p, cache, base, shadow, left, tag, -1)
+
+    /** C3 DM-1: [endOnModel]'s picture at step [k] of a bound program (1..T; −1 its last) — what one step paints over
+     *  [base], every track in order at that step (a bound program is absolute: §7.2). For the step pins of Crush and Flip. */
+    fun stepOnModel(program: MotionProgram, p: IntArray, cache: ByteArray, base: ByteArray, shadow: ByteArray, left: Boolean, tag: Int = 0, k: Int): ByteArray {
         program.resolve(p, staticOnly = false)
         val stride = Geometry.PANEL_W / 2
         val model = MotionSim(scaled = { true }, effects = { true })
@@ -782,9 +787,10 @@ object Motion {
         val prog = v as? MotionSim.Prog
             ?: throw LintError("the model refuses the program the DSL built (reason ${-(v as Int)}) — the DSL's checks and the model's walk disagree, or [cache] does not hold what the program names")
         val out = base.copyOf()
-        if (prog.own && prog.land) { EffectsSim.copy(shadow, out, stride, prog.owned(left)); return out }
+        if (k < 0 && prog.own && prog.land) { EffectsSim.copy(shadow, out, stride, prog.owned(left)); return out }
+        if (k >= 0 && (prog.own || k !in 1..prog.T)) throw LintError("a step picture is a bound program's at 1..${prog.T}, not $k")
         val caps = Array(prog.tracks.size) { i -> prog.tracks[i].takeIf { it.usesSelf }?.rect(left)?.let { r -> MotionSim.Img(r.w, r.h, EffectsSim.grab(shadow, stride, r)) } }
-        model.paint(MotionSim.Instance(0, tag, PERIOD_30HZ, program.at, prog, null, caps), prog.T, out, stride, left, shadow, 0)
+        model.paint(MotionSim.Instance(0, tag, PERIOD_30HZ, program.at, prog, null, caps), if (k < 0) prog.T else k, out, stride, left, shadow, 0)
         return out
     }
 
