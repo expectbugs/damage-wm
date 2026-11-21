@@ -26,7 +26,7 @@
   "file": "sim/BindSim.kt",
   "edits": [
    [
-    "                for (l in lists) { l.items = NONE; l.count = 0; l.cursor = 0; l.pitch = 0; l.mark = 0; l.newest = null }\n",
+    "                for (l in lists) { l.items = NONE; l.count = 0; l.cursor = 0; l.pitch = 0; l.mark = 0; l.newest = null; l.ring = false }\n",
     ""
    ]
   ],
@@ -36,7 +36,7 @@
   "expect": [
    "theEmptyTableAfterAReleasePoint_6_3"
   ],
-  "note": "6.3: the empty table clears entries only",
+  "note": "6.3: the empty table clears entries only [re-pointed at the 0.83 integration, part 2: C3 clears each list's ring flag on the same line]",
   "from": "DS"
  },
  {
@@ -80,8 +80,8 @@
   "file": "sim/BindSim.kt",
   "edits": [
    [
-    "if (list >= LISTS || count !in 1..COUNT_MAX) REF_VALUE",
-    "if (list >= LISTS || count !in 1..COUNT_MAX || (lists[list].cursor + MotionSim.s16(src, 7)) !in 0 until count) REF_VALUE"
+    "if (list >= LISTS || count !in 1..COUNT_MAX || (sub == SUB_RING && u8(12) and 0xFE != 0)) REF_VALUE",
+    "if (list >= LISTS || count !in 1..COUNT_MAX || (sub == SUB_RING && u8(12) and 0xFE != 0) || (lists[list].cursor + MotionSim.s16(src, 7)) !in 0 until count) REF_VALUE"
    ]
   ],
   "tests": [
@@ -90,7 +90,7 @@
   "expect": [
    "listIsTotalAndALostCursorStaysLostUntilDiscardOrSettle_6_3"
   ],
-  "note": "6.3: LIST refused instead of lost",
+  "note": "6.3: LIST refused instead of lost [re-pointed at the 0.83 integration, part 2: C3's LIST-RING flag check joined the line]",
   "from": "DS"
  },
  {
@@ -278,8 +278,8 @@
   "file": "sim/MotionSim.kt",
   "edits": [
    [
-    "if (!draws) { for (o in slots) if (o != null) o.drawing = false; return Hook(false, false) }",
-    "if (!draws) { for (o in slots) if (o != null) { o.drawing = false; o.local = false }; return Hook(false, false) }"
+    "if (!draws) { for (o in slots) if (o != null) { o.drawing = false; o.owns = false }; return Hook(false, false, drawingAtEntry) }",
+    "if (!draws) { for (o in slots) if (o != null) { o.drawing = false; o.owns = false; o.local = false }; return Hook(false, false, drawingAtEntry) }"
    ]
   ],
   "tests": [
@@ -288,7 +288,7 @@
   "expect": [
    "holdStaysDrawingAtStepTOwesNoBodyAndIsRedrawnByAPhoneFrame_6_4"
   ],
-  "note": "6.4: the stock path clearing the local flag",
+  "note": "6.4: the stock path clearing the local flag [re-pointed at the 0.83 integration, part 2: C3's stock path ends owners on the same line and the hook returns what drew at entry]",
   "from": "DS"
  },
  {
@@ -386,8 +386,8 @@
   "file": "sim/BindSim.kt",
   "edits": [
    [
-    "if (v !in -32768..32767) return body(OUTCOME_REFUSED, REF_VALUE)",
-    ""
+    "v = c' off a ring\n                    if (v !in -32768..32767) return body(OUTCOME_REFUSED, REF_VALUE)\n",
+    "v = c' off a ring\n"
    ]
   ],
   "tests": [
@@ -396,7 +396,7 @@
   "expect": [
    "theParametersAndTheStagedEdge_6_2"
   ],
-  "note": "6.2 step 9: kind 2 outside s16 not refused 12",
+  "note": "6.2 step 9: kind 2 outside s16 not refused 12 [re-pointed at the 0.83 integration, part 2: C3's kind 3 has the same check: the kind-2 one is named by the line before it]",
   "from": "DS"
  },
  {
@@ -512,8 +512,8 @@
   "file": "sim/BindSim.kt",
   "edits": [
    [
-    "            if (f and FLAG_BIND == 0) return REF_UNARMED\n            fun u8",
-    "            fun u8"
+    "            if (f and FLAG_BIND == 0) return REF_UNARMED\n            // §6.3 (C3): LIST-RING",
+    "            // §6.3 (C3): LIST-RING"
    ]
   ],
   "tests": [
@@ -522,7 +522,7 @@
   "expect": [
    "mode27sCheckOrder_6_3"
   ],
-  "note": "6.3: mode 27 refused 15 with BIND clear",
+  "note": "6.3: mode 27 refused 15 with BIND clear [re-pointed at the 0.83 integration, part 2: C3's LIST-RING check follows the line]",
   "from": "DS"
  },
  {
@@ -566,8 +566,8 @@
   "file": "sim/MotionSim.kt",
   "edits": [
    [
-    "else if (sub == 3 && sub in known && msg.size >= 5)",
-    "else if (sub in 3..5 && sub in known && msg.size >= 5)"
+    "else if (sub == 3 && known && msg.size >= 5)",
+    "else if (sub in 3..5 && known && msg.size >= 5)"
    ]
   ],
   "tests": [
@@ -576,7 +576,7 @@
   "expect": [
    "aRefusalBodyNamesTheTagForACommitOnly_6_5"
   ],
-  "note": "I.3: field 3 carried for DISCARD and SETTLE too",
+  "note": "I.3: field 3 carried for DISCARD and SETTLE too [re-pointed at the 0.83 integration, part 2: the line reads `known` since C3]",
   "from": "DS"
  },
  {
@@ -621,8 +621,8 @@
   "file": "sim/MotionSim.kt",
   "edits": [
    [
-    "                        if (s.isScaled && s.kind == KIND_SELF) return false\n",
-    ""
+    "if ((s.isScaled || s.isWScaled) && s.kind == KIND_SELF) return false",
+    "if (s.isWScaled && s.kind == KIND_SELF) return false"
    ]
   ],
   "tests": [
@@ -631,7 +631,7 @@
   "expect": [
    "aScaledSelfDrawIsRefusedTwelve_6_6"
   ],
-  "note": "M.2 / FIRMWARE.md 6.6: a scaled `self` DRAW refused 12 at the values step",
+  "note": "M.2 / FIRMWARE.md 6.6: a scaled `self` DRAW refused 12 at the values step [re-pointed at the 0.83 integration, part 2: C3's two-axis scale joined the line; the vertical scale's part is taken out, the width's kept]",
   "from": "DX"
  },
  {
@@ -657,8 +657,8 @@
   "file": "transport/CfwTransportBase.kt",
   "edits": [
    [
-    "stage >= LADDER_TOP_STAGE && hasBind(caps) && caps!!.has",
-    "stage >= LADDER_TOP_STAGE && caps!!.has"
+    "stage >= BIND_STAGE && hasBind(caps) && caps!!.has(DamageMsg.FEATURE_ENGINE)) DamageMsg.FLAG_BIND",
+    "stage >= BIND_STAGE && caps!!.has(DamageMsg.FEATURE_ENGINE)) DamageMsg.FLAG_BIND"
    ]
   ],
   "tests": [
@@ -667,7 +667,7 @@
   "expect": [
    "aC1BuildAtStage4WritesStage3sStartUnderEachTaps_6_2"
   ],
-  "note": "stage 4 arms BIND on a build without bit 10",
+  "note": "stage 4 arms BIND on a build without bit 10 [re-pointed at the 0.83 integration, part 2: C3 names stage 4 BIND_STAGE (LADDER_TOP_STAGE is 5)]",
   "from": "DP1"
  },
  {
@@ -675,8 +675,8 @@
   "file": "transport/CfwTransportBase.kt",
   "edits": [
    [
-    "stage >= LADDER_TOP_STAGE && hasBind(caps) && caps!!.has",
-    "stage >= 3 && hasBind(caps) && caps!!.has"
+    "stage >= BIND_STAGE && hasBind(caps) && caps!!.has(DamageMsg.FEATURE_ENGINE)) DamageMsg.FLAG_BIND",
+    "stage >= 3 && hasBind(caps) && caps!!.has(DamageMsg.FEATURE_ENGINE)) DamageMsg.FLAG_BIND"
    ]
   ],
   "tests": [
@@ -685,7 +685,7 @@
   "expect": [
    "aC2BuildBelowStage4WritesTodaysStartsUnderEachTaps_6_2"
   ],
-  "note": "BIND leaks to stage 3",
+  "note": "BIND leaks to stage 3 [re-pointed at the 0.83 integration, part 2: C3 names stage 4 BIND_STAGE (LADDER_TOP_STAGE is 5)]",
   "from": "DP1"
  },
  {
@@ -693,8 +693,8 @@
   "file": "transport/CfwTransportBase.kt",
   "edits": [
    [
-    "val ARM_ORDER: List<Int> = (0 until 16).filter { it != 4 } + 4",
-    "val ARM_ORDER: List<Int> = (0 until 16).toList()"
+    "val ARM_ORDER: List<Int> = (0 until 16).filter { it != 4 && it != 6 } + 4 + 6",
+    "val ARM_ORDER: List<Int> = (0 until 16).filter { it != 6 } + 6"
    ]
   ],
   "tests": [
@@ -703,7 +703,7 @@
   "expect": [
    "aC2BuildAtStage4WritesStage3sStartPlusItsBindRung_6_2"
   ],
-  "note": "the bits armed lowest first: BIND before ZWRITE",
+  "note": "the bits armed lowest first: BIND before ZWRITE [re-pointed at the 0.83 integration, part 2: C3 arms EFFECTS (bit 6) after BIND; BIND alone goes back into the order]",
   "from": "DP1"
  },
  {
@@ -711,7 +711,7 @@
   "file": "transport/CfwTransportBase.kt",
   "edits": [
    [
-    "        return LADDER_TOP_STAGE - 1\n",
+    "        return C1_TOP_STAGE\n",
     "        return stage\n"
    ]
   ],
@@ -722,7 +722,7 @@
    "aResetDuringWearHoldsStage4BackAndSaysSoOnce_6_8",
    "aC2BuildAtStage4WritesStage3sStartPlusItsBindRung_6_2"
   ],
-  "note": "a hold-back in force arms stage 4 anyway",
+  "note": "a hold-back in force arms stage 4 anyway [re-pointed at the 0.83 integration, part 2: C3: a held-back stage 4 or 5 arms C1_TOP_STAGE (3)]",
   "from": "DP1"
  },
  {
@@ -748,7 +748,7 @@
   "file": "transport/CfwTransportBase.kt",
   "edits": [
    [
-    "if (ladderArmedStage == LADDER_TOP_STAGE && (resetAt != null || leftEnd != null)) {",
+    "if (ladderArmedStage >= BIND_STAGE && (resetAt != null || leftEnd != null)) {",
     "if (false) {"
    ]
   ],
@@ -758,7 +758,7 @@
   "expect": [
    "aResetSoonAfterTheArmingCostsOneStageAndKeepsTheStoredStage_6_8"
   ],
-  "note": "C1's 120-s rule lowers a stage-4 arming's stored stage",
+  "note": "C1's 120-s rule lowers a stage-4 arming's stored stage [re-pointed at the 0.83 integration, part 2: C3: stage 4 or 5 (>= BIND_STAGE)]",
   "from": "DP1"
  },
  {
@@ -820,7 +820,7 @@
   "file": "transport/CfwTransportBase.kt",
   "edits": [
    [
-    "holdBackAt = if (n == LADDER_TOP_STAGE) null else it.holdBackAt,",
+    "holdBackAt = if (n >= BIND_STAGE) null else it.holdBackAt,",
     "holdBackAt = it.holdBackAt,"
    ]
   ],
@@ -830,7 +830,7 @@
   "expect": [
    "theHoldBackLiftsAtACaseInTheNextDayAndByHand_6_8"
   ],
-  "note": "probe c1=4 does not lift",
+  "note": "probe c1=4 does not lift [re-pointed at the 0.83 integration, part 2: C3: stage 4 or 5 (>= BIND_STAGE)]",
   "from": "DP1"
  },
  {
@@ -838,12 +838,12 @@
   "file": "transport/CfwTransportBase.kt",
   "edits": [
    [
-    "if (ladderArmedStage == LADDER_TOP_STAGE) bindArmed(lastArmedAtMs!!)",
-    "Unit"
+    "if (ladderArmedStage >= BIND_STAGE) bindArmed(lastArmedAtMs!!)\n",
+    "Unit\n"
    ],
    [
     "        // only RIGHT answers, so RIGHT's reply says nothing about the other lens",
-    "        if (ladderArmedStage == LADDER_TOP_STAGE) bindArmed(nowMs())\n        // only RIGHT answers, so RIGHT's reply says nothing about the other lens"
+    "        if (ladderArmedStage >= BIND_STAGE) bindArmed(nowMs())\n        // only RIGHT answers, so RIGHT's reply says nothing about the other lens"
    ]
   ],
   "tests": [
@@ -852,7 +852,7 @@
   "expect": [
    "aResetDuringWearHoldsStage4BackAndSaysSoOnce_6_8"
   ],
-  "note": "stage 4's arming recorded after its reply, not before its first byte",
+  "note": "stage 4's arming recorded after its reply, not before its first byte [re-pointed at the 0.83 integration, part 2: C3: stage 4 or 5 (>= BIND_STAGE); the line's own end names it once]",
   "from": "DP1"
  },
  {
@@ -1568,7 +1568,7 @@
   "file": "sim/BindSim.kt",
   "edits": [
    [
-    "                for (l in lists) { l.items = NONE; l.count = 0; l.cursor = 0; l.pitch = 0; l.mark = 0; l.newest = null }\n",
+    "                for (l in lists) { l.items = NONE; l.count = 0; l.cursor = 0; l.pitch = 0; l.mark = 0; l.newest = null; l.ring = false }\n",
     ""
    ]
   ],
@@ -1578,7 +1578,7 @@
   "expect": [
    "(no pin at the rules' level: the sequence fuzz's invariants do not see this simulator mutant \u2014 the simulator's own test catches it, row empty-entries-only)"
   ],
-  "note": "1(d)5: the empty table clears entries only (the sim's mutant): spec says (2)",
+  "note": "1(d)5: the empty table clears entries only (the sim's mutant): spec says (2) [re-pointed at the 0.83 integration, part 2: C3 clears each list's ring flag on the same line]",
   "from": "FB"
  },
  {
@@ -1586,8 +1586,8 @@
   "file": "sim/BindSim.kt",
   "edits": [
    [
-    "if (list >= LISTS || count !in 1..COUNT_MAX) REF_VALUE",
-    "if (list >= LISTS || count !in 1..COUNT_MAX || (lists[list].cursor != LOST && (lists[list].cursor + MotionSim.s16(src, 7)) !in 0 until count)) REF_VALUE"
+    "if (list >= LISTS || count !in 1..COUNT_MAX || (sub == SUB_RING && u8(12) and 0xFE != 0)) REF_VALUE",
+    "if (list >= LISTS || count !in 1..COUNT_MAX || (sub == SUB_RING && u8(12) and 0xFE != 0) || (lists[list].cursor != LOST && (lists[list].cursor + MotionSim.s16(src, 7)) !in 0 until count)) REF_VALUE"
    ]
   ],
   "tests": [
@@ -1596,7 +1596,7 @@
   "expect": [
    "seededS7_aListIsAlwaysApplied"
   ],
-  "note": "1(e): LIST refused out of range (the sim's mutant, LEFT one ahead): spec says (3)",
+  "note": "1(e): LIST refused out of range (the sim's mutant, LEFT one ahead): spec says (3) [re-pointed at the 0.83 integration, part 2: C3's LIST-RING flag check joined the line]",
   "from": "FB"
  },
  {
@@ -2590,7 +2590,7 @@
   "file": "transport/CfwTransportBase.kt",
   "edits": [
    [
-    "                withheld = withheld or DamageMsg.FLAG_BIND      // build C2-FD (AM.1): and from a hand wish, as the start's withhold does\n",
+    "                withheld = withheld or topBits     // build C2-FD (AM.1): and from a hand wish, as the start's withhold does\n",
     ""
    ]
   ],
@@ -2600,7 +2600,7 @@
   "expect": [
    "aHandWishedBindIsWithheldByTheHoldBackInsideTheArming_AM1"
   ],
-  "note": "AM.1: the in-arming hold-back leaves a hand-wished BIND in the wish",
+  "note": "AM.1: the in-arming hold-back leaves a hand-wished BIND in the wish [re-pointed at the 0.83 integration, part 2: C3 withholds BIND and EFFECTS together (topBits)]",
   "from": "FD"
  },
  {
@@ -2662,7 +2662,7 @@
   "file": "transport/CfwTransportBase.kt",
   "edits": [
    [
-    "            st.started && r.stage >= LADDER_TOP_STAGE && st.flagsInForce and DamageMsg.FLAG_DRAW2 == 0 &&",
+    "            st.started && r.stage >= BIND_STAGE && st.flagsInForce and DamageMsg.FLAG_DRAW2 == 0 &&",
     "            false && st.flagsInForce and DamageMsg.FLAG_DRAW2 == 0 &&"
    ]
   ],
@@ -2672,7 +2672,7 @@
   "expect": [
    "theRowAndTheRecordSayTheirOwnSubjects_AM4"
   ],
-  "note": "AM.4: the row does not name a 64 KiB session",
+  "note": "AM.4: the row does not name a 64 KiB session [re-pointed at the 0.83 integration, part 2: C3: stage 4 or 5 (>= BIND_STAGE)]",
   "from": "FD"
  },
  {
@@ -3186,8 +3186,8 @@
   "file": "shell/SettingsWindow.kt",
   "edits": [
    [
-    "        if (bindBuild()) out.add(Cat(\"Animations\", animEntries))",
-    "        out.add(Cat(\"Animations\", animEntries))"
+    "        if (bindBuild()) out.add(Cat(\"Animations\", animEntries + if (effectsInForce()) transitionEntries else emptyList()))",
+    "        out.add(Cat(\"Animations\", animEntries + if (effectsInForce()) transitionEntries else emptyList()))"
    ]
   ],
   "tests": [
@@ -3196,7 +3196,7 @@
   "expect": [
    "theAnimationsCategoryShowsOnlyOnABit10Build_ANIM"
   ],
-  "note": "ANIM: the category shown without bit 10",
+  "note": "ANIM: the category shown without bit 10 [re-pointed at the 0.83 integration, part 2: C3's tier rows join the category at stage 5]",
   "from": "ANIM"
  },
  {
@@ -3244,8 +3244,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "            st.bind && st.leaseHeld && comp.deferring && comp.deferUntilMs > localNow) {",
-    "            st.bind && st.leaseHeld && comp.deferring && comp.deferUntilMs > localNow && false) {"
+    "st.bind && st.leaseHeld && comp.deferring && comp.deferUntilMs > localNow) {",
+    "st.bind && st.leaseHeld && comp.deferring && comp.deferUntilMs > localNow && false) {"
    ]
   ],
   "tests": [
@@ -3254,7 +3254,7 @@
   "expect": [
    "aWindowOpenedInsideTheWaitCutsTheMotion_AW3"
   ],
-  "note": "AW.3: no cut \u2014 the window's cells wait for the motion's end",
+  "note": "AW.3: no cut — the window's cells wait for the motion's end [re-pointed at the 0.83 integration, part 2: C3 leads the line with the owed transition's phase]",
   "from": "ANIM"
  },
  {
@@ -3262,7 +3262,7 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        if (frontBefore != null && localFrontNow == null && (mode == Mode.WINDOW || mode == Mode.EXCLUSIVE) &&",
+    "        if (frontBefore != null && localFrontNow == null && (mode == Mode.WINDOW || mode == Mode.EXCLUSIVE || mode == Mode.SILENT) &&",
     "        if (frontBefore != null && localFrontNow == null &&"
    ]
   ],
@@ -3272,7 +3272,7 @@
   "expect": [
    "aNoticeInsideTheWaitStillWaits_AW3"
   ],
-  "note": "AW.3: any cover cuts (a notice box too)",
+  "note": "AW.3: any cover cuts (a notice box too) [re-pointed at the 0.83 integration, part 2: C3 adds the clock (SILENT) to the screens that cut]",
   "from": "ANIM"
  },
  {
@@ -5222,5 +5222,59 @@
   ],
   "note": "the lead's ruling on B083-rr: a record naming 27 outside the rule against a standing refusal: a keyframe at every read while RIGHT refuses the re-sent table",
   "from": "B083-rr"
+ },
+ {
+  "id": "INT083-notice-lane-not-held",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (cacheWritesHeld()) return false     // C3 DM-T (D6), 0.83 integration: the notice's programs wait for a glyph run's end\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*TransitionShellTest.anEncodeActsListsInTheNoticeSlice*"
+  ],
+  "expect": [
+   "anEncodeActsListsInTheNoticeSliceTakeItsProgramsOutUntilTheRunEnds_INT083"
+  ],
+  "note": "0.83 integration, part 2 (D6 for K1-4a's lane): the notice's programs written while an Encode or Matrix run holds the other cache writes — into the slice its lists lie in, under its in half",
+  "from": "INT-083-part2"
+ },
+ {
+  "id": "INT083-lists-keep-notice-programs",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "?.let { noticeYield(\"an Encode transition's cell lists take bytes ${lists.first}..${lists.last}\") }",
+    "?.let { }"
+   ]
+  ],
+  "tests": [
+   "*TransitionShellTest.anEncodeActsListsInTheNoticeSlice*"
+  ],
+  "expect": [
+   "anEncodeActsListsInTheNoticeSliceTakeItsProgramsOutUntilTheRunEnds_INT083"
+  ],
+  "note": "0.83 integration, part 2 (the reserve's two lanes): an Encode act's cell lists laid over the notice's counted programs leave them counted — a later PLAY names bytes that are the lists'",
+  "from": "INT-083-part2"
+ },
+ {
+  "id": "INT083-notice-tags-shared",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        const val NOTICE_TAG = 0xE000",
+    "        const val NOTICE_TAG = 0xC000"
+   ]
+  ],
+  "tests": [
+   "*TransitionShellTest.aNoticeTimerThenTheSessionsFirstActRunsWhole*"
+  ],
+  "expect": [
+   "aNoticeTimerThenTheSessionsFirstActRunsWhole_INT083"
+  ],
+  "note": "0.83 integration, part 2 (slot 2's two lanes): the notice's PLAY tags back in the transitions' range — an act's out PLAY writes over a live notice timer's END record in the mirror, the timer's closed body reads as a divergence and its keyframe cuts the act",
+  "from": "INT-083-part2"
  }
 ]
