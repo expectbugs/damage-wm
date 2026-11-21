@@ -1303,7 +1303,7 @@
   "expect": [
    "aBandFormChangedInABurstWaitsForItsSettleAndItsNotchIsStillCommitted_DI"
   ],
-  "note": "re-stages during a burst (its pin exists since the rules were merged: named by the lead after the sweep of 2026-11-19 showed this test fails under it) [re-targeted at the 0.83 integration: B082 added the motion gate beside the burst gate on this line]",
+  "note": "re-stages during a burst (its pin exists since the rules were merged: named by the lead after the sweep of 2026-11-19 showed this test fails under it) [re-targeted at the 0.83 integration: B082 added the motion gate beside the burst gate on this line] [MR-083: the pin re-made — it reads every STAGE flush since the change, not only the books; with this gate removed the first piece went before B, between A's motion end and B, where only this gate holds]",
   "from": "DM2"
  },
  {
@@ -3186,8 +3186,8 @@
   "file": "shell/SettingsWindow.kt",
   "edits": [
    [
-    "        if (bindBuild()) out.add(Cat(\"Animations\", animEntries + if (effectsInForce()) transitionEntries else emptyList()))",
-    "        out.add(Cat(\"Animations\", animEntries + if (effectsInForce()) transitionEntries else emptyList()))"
+    "        if (bindBuild()) out.add(Cat(\"Animations\", scrollEntries + (if (effectsInForce()) transitionEntries else emptyList()) + popupEntries))",
+    "        out.add(Cat(\"Animations\", scrollEntries + (if (effectsInForce()) transitionEntries else emptyList()) + popupEntries))"
    ]
   ],
   "tests": [
@@ -3196,7 +3196,7 @@
   "expect": [
    "theAnimationsCategoryShowsOnlyOnABit10Build_ANIM"
   ],
-  "note": "ANIM: the category shown without bit 10 [re-pointed at the 0.83 integration, part 2: C3's tier rows join the category at stage 5]",
+  "note": "ANIM: the category shown without bit 10 [re-pointed at the 0.83 integration, part 2: C3's tier rows join the category at stage 5] [re-pointed at MR-083: C1 (decisions BW (3)) splits the rows into Scroll, the tiers at stage 5, Popups]",
   "from": "ANIM"
  },
  {
@@ -4354,7 +4354,7 @@
   "tests": [
    "*NoticeEngineTest*"
   ],
-  "expect": "(no pin: a notice at once inside a local COMMIT's hold needs the stage-4 local rig's fires; declared)",
+  "expect": ["(no pin: a notice at once inside a local COMMIT's hold needs the stage-4 local rig's fires; declared)"],
   "note": "the PLAY in a batch whose box cells are held behind a local motion",
   "from": "K1-4a fix 1"
  },
@@ -4570,7 +4570,7 @@
   "tests": [
    "*MainLocalShellTest.aWrapDuringARestagesPiecesPlaysFromTheRecordsAsTheyStand_S1"
   ],
-  "expect": "(declared, no pin: Main's re-stage lists its strip rows ahead of what the wraps read, so the sort changes nothing it writes today; it keeps that order for a list in any order)",
+  "expect": ["(declared, no pin: Main's re-stage lists its strip rows ahead of what the wraps read, so the sort changes nothing it writes today; it keeps that order for a list in any order)"],
   "note": "S1: a re-stage's parts in their own order",
   "from": "B083"
  },
@@ -5276,5 +5276,2639 @@
   ],
   "note": "0.83 integration, part 2 (slot 2's two lanes): the notice's PLAY tags back in the transitions' range — an act's out PLAY writes over a live notice timer's END record in the mirror, the timer's closed body reads as a divergence and its keyframe cuts the act",
   "from": "INT-083-part2"
+ },
+ {
+  "id": "C3DS-hash-constant",
+  "file": "sim/EffectsSim.kt",
+  "edits": [
+   [
+    "        x *= 0x7FEB352D\n",
+    "        x *= 0x7FEB352C\n"
+   ]
+  ],
+  "tests": [
+   "*EffectsSimTest*"
+  ],
+  "expect": [
+   "theHashGivesTheContractsTenValues_7_6"
+  ],
+  "note": "C3-DS: hash constant (lane row `hash constant`)",
+  "from": "C3-DS"
+ },
+ {
+  "id": "C3DS-umod-signed",
+  "file": "sim/EffectsSim.kt",
+  "edits": [
+   [
+    "((x.toLong() and 0xFFFFFFFFL) % n).toInt()",
+    "(x % n)"
+   ]
+  ],
+  "tests": [
+   "*EffectsSimTest*"
+  ],
+  "expect": [
+   "theHashGivesTheContractsTenValues_7_6"
+  ],
+  "note": "C3-DS: umod signed (lane row `umod signed`)",
+  "from": "C3-DS"
+ },
+ {
+  "id": "C3DS-drop-order-no-reversal",
+  "file": "sim/EffectsSim.kt",
+  "edits": [
+   [
+    "i = i or (1 shl (m - 1 - b))",
+    "i = i or (1 shl b)"
+   ]
+  ],
+  "tests": [
+   "*EffectsSimTest*"
+  ],
+  "expect": [
+   "theDropOrdersOfTheContract_7_5"
+  ],
+  "note": "C3-DS: drop order without the bit reversal (lane row `drop order without the bit reversal`)",
+  "from": "C3-DS"
+ },
+ {
+  "id": "C3DS-shrink-centre-no-halving",
+  "file": "sim/EffectsSim.kt",
+  "edits": [
+   [
+    "1 -> (size - kept) shr 1",
+    "1 -> (size - kept)"
+   ]
+  ],
+  "tests": [
+   "*EffectsSimTest*"
+  ],
+  "expect": [
+   "aShrinkCentreStepWorkedByHand_7_5"
+  ],
+  "note": "C3-DS: SHRINK centre >> 1 dropped (lane row `SHRINK centre >> 1 dropped`)",
+  "from": "C3-DS"
+ },
+ {
+  "id": "C3DS-pieces-radial-truncated",
+  "file": "sim/EffectsSim.kt",
+  "edits": [
+   [
+    "intArrayOf(((cx - a.x) * f + 2048) shr 12, ((cy - a.y) * f + 2048) shr 12)",
+    "intArrayOf(((cx - a.x) * f) / 4096, ((cy - a.y) * f) / 4096)"
+   ]
+  ],
+  "tests": [
+   "*EffectsSimTest*"
+  ],
+  "expect": [
+   "aPiecesRadialStepWorkedByHand_7_4"
+  ],
+  "note": "C3-DS: PIECES radial by truncation (lane row `PIECES radial by truncation`)",
+  "from": "C3-DS"
+ },
+ {
+  "id": "C3DS-vacate-through-g",
+  "file": "sim/EffectsSim.kt",
+  "edits": [
+   [
+    "        val out = IntArray(area.w * area.h) { vacate }",
+    "        val out = IntArray(area.w * area.h) { g[vacate] }"
+   ]
+  ],
+  "tests": [
+   "*EffectsSimTest*"
+  ],
+  "expect": [
+   "gIsTheComposedRampAndTheVacateIsNotDimmed_7_4"
+  ],
+  "note": "C3-DS: the vacate passed through G (lane row `the vacate passed through G`) [re-pointed at MR-083: C3-DP1 item 14 rewrote PIECES: the vacate is now the output's first value]",
+  "from": "C3-DS"
+ },
+ {
+  "id": "C3DS-schedule-mod-n",
+  "file": "sim/EffectsSim.kt",
+  "edits": [
+   [
+    "val span = n - list.noise",
+    "val span = n"
+   ]
+  ],
+  "tests": [
+   "*EffectsSimTest*"
+  ],
+  "expect": [
+   "aCellScheduleAndTheFillByPhase_7_6"
+  ],
+  "note": "C3-DS: schedule mod n (lane row `schedule mod n`)",
+  "from": "C3-DS"
+ },
+ {
+  "id": "C3DS-fill-by-code-shown",
+  "file": "sim/EffectsSim.kt",
+  "edits": [
+   [
+    "!(settled && cell.new != 0)",
+    "code == 0"
+   ]
+  ],
+  "tests": [
+   "*EffectsSimTest*"
+  ],
+  "expect": [
+   "aCellScheduleAndTheFillByPhase_7_6"
+  ],
+  "note": "C3-DS: fill by the code shown (lane row `fill by the code shown`)",
+  "from": "C3-DS"
+ },
+ {
+  "id": "C3DS-rain-head-truncated",
+  "file": "sim/EffectsSim.kt",
+  "edits": [
+   [
+    "(((rows + oc + r0.trail) * e) shr 12)",
+    "(((rows + oc + r0.trail) * e) / 4096)"
+   ]
+  ],
+  "tests": [
+   "*EffectsSimTest*"
+  ],
+  "expect": [
+   "aRainHeadItsTrailAndItsCellClip_7_6"
+  ],
+  "note": "C3-DS: rain head by truncation (lane row `rain head by truncation`)",
+  "from": "C3-DS"
+ },
+ {
+  "id": "C3DS-rain-glyph-unclipped",
+  "file": "sim/EffectsSim.kt",
+  "edits": [
+   [
+    "glyph(buf, stride, r0.glyphs[code]!!, xc, yr, box,",
+    "glyph(buf, stride, r0.glyphs[code]!!, xc, yr, area,"
+   ]
+  ],
+  "tests": [
+   "*EffectsSimTest*"
+  ],
+  "expect": [
+   "aRainHeadItsTrailAndItsCellClip_7_6"
+  ],
+  "note": "C3-DS: rain glyph not clipped to its cell (lane row `rain glyph not clipped to its cell`)",
+  "from": "C3-DS"
+ },
+ {
+  "id": "C3DS-budget-cap-strict",
+  "file": "sim/MotionSim.kt",
+  "edits": [
+   [
+    "        return sum <= BUDGET_CAP\n",
+    "        return sum < BUDGET_CAP\n"
+   ]
+  ],
+  "tests": [
+   "*EffectsSimTest*"
+  ],
+  "expect": [
+   "aProgramAtTheCapIsTakenAndOneUnitOverRefused_7_12"
+  ],
+  "note": "C3-DS: budget <= -> < (lane row `budget <= -> <`) [re-pointed at MR-083: C3-X2D (C-1) and phase 2 (the cycle cut) rewrote the budget's sum; the cap's comparison is its last line]",
+  "from": "C3-DS"
+ },
+ {
+  "id": "C3DS-budget-per-instance",
+  "file": "sim/MotionSim.kt",
+  "edits": [
+   [
+    "for (i in 0 until SLOTS) if (cost[i] >= 0 && waitsOn[i] < 0) sum += f(i)",
+    "for (i in 0 until SLOTS) if (cost[i] >= 0 && waitsOn[i] < 0) sum = maxOf(sum, f(i))"
+   ]
+  ],
+  "tests": [
+   "*EffectsSimTest*"
+  ],
+  "expect": [
+   "theBudgetJudgesTheSumOverTheDrawingInstances_7_12"
+  ],
+  "note": "C3-DS: budget per instance (lane row `budget per instance`) [re-pointed at MR-083: the budget's sum is over the roots' f since C3-DP1 item 5 and C3-X2D phase 2]",
+  "from": "C3-DS"
+ },
+ {
+  "id": "C3DS-ring-mod-not-euclidean",
+  "file": "sim/BindSim.kt",
+  "edits": [
+   [
+    "val c1 = if (l.ring) Math.floorMod(virt, l.count) else virt",
+    "val c1 = if (l.ring) virt % l.count else virt"
+   ]
+  ],
+  "tests": [
+   "*EffectsSimTest*"
+  ],
+  "expect": [
+   "theRingWrapsBothWaysAndKind3ReadsTheCursorBeforeTheMove_7_8"
+  ],
+  "note": "C3-DS: ring mod not Euclidean (lane row `ring mod not Euclidean`)",
+  "from": "C3-DS"
+ },
+ {
+  "id": "C3DS-kind3-at-c-prime",
+  "file": "sim/BindSim.kt",
+  "edits": [
+   [
+    "val v = l.cursor + e.args[i]",
+    "val v = c1 + e.args[i]"
+   ]
+  ],
+  "tests": [
+   "*EffectsSimTest*"
+  ],
+  "expect": [
+   "theRingWrapsBothWaysAndKind3ReadsTheCursorBeforeTheMove_7_8"
+  ],
+  "note": "C3-DS: kind 3 at c' (lane row `kind 3 at c'`)",
+  "from": "C3-DS"
+ },
+ {
+  "id": "C3DS-refusal19-removed",
+  "file": "sim/BindSim.kt",
+  "edits": [
+   [
+    "if (effects() && motion.holdsOwner(set))",
+    "if (false && motion.holdsOwner(set))"
+   ]
+  ],
+  "tests": [
+   "*EffectsSimTest*"
+  ],
+  "expect": [
+   "aFireWhoseCloseSetHoldsAnOwnerIsRefused19WithNothingClosed_7_3"
+  ],
+  "note": "C3-DS: 19 removed (lane row `19 removed`)",
+  "from": "C3-DS"
+ },
+ {
+  "id": "C3DS-copy-whole-while-owning",
+  "file": "sim/GlassFirmwareSim.kt",
+  "edits": [
+   [
+    "if (!live || owned.isEmpty()) c.shadow.copyInto(c.fb)",
+    "if (true) c.shadow.copyInto(c.fb)"
+   ]
+  ],
+  "tests": [
+   "*EffectsSimTest*"
+  ],
+  "expect": [
+   "anOwnerMovesThePanelsPictureAndHoldsItsAreaThroughPhoneFrames_7_3"
+  ],
+  "note": "C3-DS: the copy whole while owning (lane row `the copy whole while owning`)",
+  "from": "C3-DS"
+ },
+ {
+  "id": "C3DS-own-draws-at-k-le-d",
+  "file": "sim/MotionSim.kt",
+  "edits": [
+   [
+    "if ((preserve || o.owns) && k <= o.d) continue",
+    "if (preserve && k <= o.d) continue"
+   ]
+  ],
+  "tests": [
+   "*EffectsSimTest*"
+  ],
+  "expect": [
+   "anOwnerMovesThePanelsPictureAndHoldsItsAreaThroughPhoneFrames_7_3"
+  ],
+  "note": "C3-DS: OWN drawing at k <= d (lane row `OWN drawing at k <= d`)",
+  "from": "C3-DS"
+ },
+ {
+  "id": "C3DS-land-copy-dropped",
+  "file": "sim/MotionSim.kt",
+  "edits": [
+   [
+    "if (o.owns && o.prog.land && k == o.T)",
+    "if (false && o.prog.land && k == o.T)"
+   ]
+  ],
+  "tests": [
+   "*EffectsSimTest*"
+  ],
+  "expect": [
+   "landCopiesTheShadowAtStepTAndEndsOwning_7_3"
+  ],
+  "note": "C3-DS: LAND's copy dropped (lane row `LAND's copy dropped`)",
+  "from": "C3-DS"
+ },
+ {
+  "id": "C3DS-meeting-by-tracks",
+  "file": "sim/MotionSim.kt",
+  "edits": [
+   [
+    "        o.owns && prog.own -> o.prog.ownedBoth.overlaps(prog.ownedBoth)\n        o.owns -> prog.tracks.any { it.bbox.overlaps(o.prog.ownedBoth) }\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*EffectsSimTest*"
+  ],
+  "expect": [
+   "anOwnerMeetsByItsOwnedRect_7_3"
+  ],
+  "note": "C3-DS: meeting by the tracks (lane row `meeting by the tracks`)",
+  "from": "C3-DS"
+ },
+ {
+  "id": "C3DS-play-after-t0-not-later",
+  "file": "sim/MotionSim.kt",
+  "edits": [
+   [
+    "if (((end - now) and U32).toInt() > 0) inst.t0 = end",
+    "if (false) inst.t0 = end"
+   ]
+  ],
+  "tests": [
+   "*EffectsSimTest*"
+  ],
+  "expect": [
+   "playAfterStartsWhenItsOutHalfHasDrawnItsLastStep_7_7"
+  ],
+  "note": "C3-DS: PLAY-AFTER t0 without the later of (lane row `PLAY-AFTER t0 without the later of`)",
+  "from": "C3-DS"
+ },
+ {
+  "id": "C3DS-waiting-test-live-states",
+  "file": "sim/MotionSim.kt",
+  "edits": [
+   [
+    "if (o.after >= 0 && waits(o, tick, began)) continue",
+    "if (o.after >= 0 && waits(o, tick, slots.map { s -> s?.let { Triple(it.tag, it.ordinal, it.drawing) } })) continue"
+   ]
+  ],
+  "tests": [
+   "*EffectsSimTest*"
+  ],
+  "expect": [
+   "anOutHalfsLastStepAndItsInHalfsFirstAreNeverOnePresent_7_7"
+  ],
+  "note": "C3-DS: the waiting test on live states (lane row `the waiting test on live states`)",
+  "from": "C3-DS"
+ },
+ {
+  "id": "C3DS-plan-hold-ignored",
+  "file": "sim/MotionSim.kt",
+  "edits": [
+   [
+    "if (s.hold != null) {",
+    "if (s.hold != null && now < 0L) {"
+   ]
+  ],
+  "tests": [
+   "*EffectsSimTest*"
+  ],
+  "expect": [
+   "thePlanGivesAPlayAfterItsHoldAsItsDueTime_7_7"
+  ],
+  "note": "C3-DS: the plan's hold ignored (companion) (lane row `the plan's hold ignored (companion)`)",
+  "from": "C3-DS"
+ },
+ {
+  "id": "C3DS-no-hold-computed",
+  "file": "sim/MotionSim.kt",
+  "edits": [
+   [
+    "val hold = if (it.after < 0 || !waits(it, tick, now)) null",
+    "val hold: Long? = if (true) null"
+   ]
+  ],
+  "tests": [
+   "*EffectsSimTest*"
+  ],
+  "expect": [
+   "playAfterStartsWhenItsOutHalfHasDrawnItsLastStep_7_7"
+  ],
+  "note": "C3-DS: no hold computed (instance plan) (lane row `no hold computed (instance plan)`)",
+  "from": "C3-DS"
+ },
+ {
+  "id": "C3DS-code32-walked",
+  "file": "sim/EffectsSim.kt",
+  "edits": [
+   [
+    "if (code == 0 || code == 32 || code in byFont) continue",
+    "if (code == 0 || code in byFont) continue"
+   ]
+  ],
+  "tests": [
+   "*EffectsSimTest*"
+  ],
+  "expect": [
+   "codes0And32AreNeverWalked_7_6"
+  ],
+  "note": "C3-DS: code 32 walked (lane row `code 32 walked`)",
+  "from": "C3-DS"
+ },
+ {
+  "id": "C3DS-destroy-keyed-on-effects",
+  "file": "sim/GlassFirmwareSim.kt",
+  "edits": [
+   [
+    "            if (!c.motion.anyOwns) continue\n            underWord(c) { c.motion.closeOwners",
+    "            if (!c.motion.anyOwns || c.damageFlags and Fw.FLAG_EFFECTS == 0) continue\n            underWord(c) { c.motion.closeOwners"
+   ]
+  ],
+  "tests": [
+   "*EffectsSimTest*"
+  ],
+  "expect": [
+   "aContainerRebuildEndsEveryOwner_7_3"
+  ],
+  "note": "C3-DS: the destroy site keyed on EFFECTS (lane row `the destroy site keyed on EFFECTS`)",
+  "from": "C3-DS"
+ },
+ {
+  "id": "C3DS-g-one-ratio",
+  "file": "sim/EffectsSim.kt",
+  "edits": [
+   [
+    "for (t in 1 until levels.size) v = if (levels[t - 1] == 0) 0 else minOf(15, (v * levels[t]) / levels[t - 1])",
+    "v = if (levels[0] == 0) 0 else minOf(15, (v * levels.last()) / levels[0])"
+   ]
+  ],
+  "tests": [
+   "*EffectsSimTest*"
+  ],
+  "expect": [
+   "gIsTheComposedRampAndTheVacateIsNotDimmed_7_4"
+  ],
+  "note": "C3-DS: G as one ratio (lane row `G as one ratio`)",
+  "from": "C3-DS"
+ },
+ {
+  "id": "C3DP1-lost-claim-done-owners",
+  "file": "sim/MotionSim.kt",
+  "edits": [
+   [
+    "if (wordHeld) { foldsSinceBoot++;",
+    "if (wordHeld) { if (drawingAtEntry) foldsSinceBoot++;"
+   ]
+  ],
+  "tests": [
+   "*EffectsSimTest*"
+  ],
+  "expect": [
+   "theStockPathEndsADoneOwnerAndALostClaimThereIsCounted_7_3"
+  ],
+  "note": "C3-DP1: item 4: a lost claim with only done owners not counted (lane row `item 4: a lost claim with only done owners not counted`)",
+  "from": "C3-DP1"
+ },
+ {
+  "id": "C3DP1-waiters-as-larger",
+  "file": "sim/MotionSim.kt",
+  "edits": [
+   [
+    "(0 until SLOTS).filter { waitsOn[it] == i }.sumOf { f(it) })",
+    "(0 until SLOTS).filter { waitsOn[it] == i }.maxOfOrNull { f(it) } ?: 0L)"
+   ]
+  ],
+  "tests": [
+   "*EffectsSimTest*"
+  ],
+  "expect": [
+   "twoWaitersOnOneOutHalfAddInTheBudget_7_12"
+  ],
+  "note": "C3-DP1: item 5: waiters as the larger, not the sum (lane row `item 5: waiters as the larger, not the sum`) [re-pointed at MR-083: C3-X2D phase 2 rewrote f (no depth argument)]",
+  "from": "C3-DP1"
+ },
+ {
+  "id": "C3DP1-higher-piece-vacate",
+  "file": "sim/EffectsSim.kt",
+  "edits": [
+   [
+    "                if (sx >= baseRect.x && sx < baseRect.right && sy >= baseRect.y && sy < baseRect.bottom)\n                    out[(yy - area.y) * area.w + (xx - area.x)] = g[base[(sy - area.y) * area.w + (sx - area.x)].toInt()]",
+    "                out[(yy - area.y) * area.w + (xx - area.x)] = if (sx >= baseRect.x && sx < baseRect.right && sy >= baseRect.y && sy < baseRect.bottom)\n                    g[base[(sy - area.y) * area.w + (sx - area.x)].toInt()] else vacate"
+   ]
+  ],
+  "tests": [
+   "*EffectsSimTest*"
+  ],
+  "expect": [
+   "theHighestPieceThatPassesBothTestsWins_7_4"
+  ],
+  "note": "C3-DP1: item 14: a failing higher piece writes the vacate (lane row `item 14: a failing higher piece writes the vacate`)",
+  "from": "C3-DP1"
+ },
+ {
+  "id": "C3DP1-stage5-no-effects",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "(if (stage >= LADDER_TOP_STAGE && hasEffects(caps) && hasBind(caps) && caps!!.has(DamageMsg.FEATURE_ENGINE)) DamageMsg.FLAG_EFFECTS else 0)",
+    "0"
+   ]
+  ],
+  "tests": [
+   "*BindTransportTest*"
+  ],
+  "expect": [
+   "stage5AppendsTheEffectsRungOnABit11BuildAndArms4Elsewhere_7_9"
+  ],
+  "note": "C3-DP1: stage 5 adds no EFFECTS (lane row `stage 5 adds no EFFECTS`)",
+  "from": "C3-DP1"
+ },
+ {
+  "id": "C3DP1-effects-without-bit11",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "(if (stage >= LADDER_TOP_STAGE && hasEffects(caps) && hasBind(caps)",
+    "(if (stage >= LADDER_TOP_STAGE && hasBind(caps)"
+   ]
+  ],
+  "tests": [
+   "*BindTransportTest*"
+  ],
+  "expect": [
+   "stage5AppendsTheEffectsRungOnABit11BuildAndArms4Elsewhere_7_9"
+  ],
+  "note": "C3-DP1: EFFECTS asked of a build without bit 11 (lane row `EFFECTS asked of a build without bit 11`)",
+  "from": "C3-DP1"
+ },
+ {
+  "id": "C3DP1-effects-before-bind",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "(0 until 16).filter { it != 4 && it != 6 } + 4 + 6",
+    "(0 until 16).filter { it != 4 } + 4"
+   ]
+  ],
+  "tests": [
+   "*BindTransportTest*"
+  ],
+  "expect": [
+   "stage5AppendsTheEffectsRungOnABit11BuildAndArms4Elsewhere_7_9"
+  ],
+  "note": "C3-DP1: EFFECTS armed before BIND (lane row `EFFECTS armed before BIND`)",
+  "from": "C3-DP1"
+ },
+ {
+  "id": "C3DP1b-own-only-in-place",
+  "file": "motion/Motion.kt",
+  "edits": [
+   [
+    "            if (!own && t.inPlace) throw",
+    "            if (false && t.inPlace) throw"
+   ]
+  ],
+  "tests": [
+   "*Version2MotionTest*"
+  ],
+  "expect": [
+   "theDslRefusesWhatSection72Refuses_7_2"
+  ],
+  "note": "C3-DP1b: 7.2: an in-place track outside an OWN program not refused (lane row `own-only-in-place`)",
+  "from": "C3-DP1b"
+ },
+ {
+  "id": "C3DP1b-own-only-new",
+  "file": "motion/Motion.kt",
+  "edits": [
+   [
+    "            if (!own && t.usesNew) throw",
+    "            if (false && t.usesNew) throw"
+   ]
+  ],
+  "tests": [
+   "*Version2MotionTest*"
+  ],
+  "expect": [
+   "theDslRefusesWhatSection72Refuses_7_2"
+  ],
+  "note": "C3-DP1b: 7.2: `new` outside an OWN program not refused (lane row `own-only-new`)",
+  "from": "C3-DP1b"
+ },
+ {
+  "id": "C3DP1b-self-in-own",
+  "file": "motion/Motion.kt",
+  "edits": [
+   [
+    "            if (own && t.usesSelf) throw",
+    "            if (false && t.usesSelf) throw"
+   ]
+  ],
+  "tests": [
+   "*Version2MotionTest*"
+  ],
+  "expect": [
+   "theDslRefusesWhatSection72Refuses_7_2"
+  ],
+  "note": "C3-DP1b: 7.2: `self` in an OWN program not refused (lane row `self-in-own`)",
+  "from": "C3-DP1b"
+ },
+ {
+  "id": "C3DP1b-land-needs-own",
+  "file": "motion/Motion.kt",
+  "edits": [
+   [
+    "        if (land && !own) throw",
+    "        if (false && !own) throw"
+   ]
+  ],
+  "tests": [
+   "*Version2MotionTest*"
+  ],
+  "expect": [
+   "theDslRefusesWhatSection72Refuses_7_2"
+  ],
+  "note": "C3-DP1b: 7.2: LAND without OWN not refused (lane row `land-needs-own`)",
+  "from": "C3-DP1b"
+ },
+ {
+  "id": "C3DP1b-in-place-ease",
+  "file": "motion/Motion.kt",
+  "edits": [
+   [
+    "            if (t.segments.any { it.verb != WAIT && !nonDecreasing(it.ease) }) throw",
+    "            if (false) throw"
+   ]
+  ],
+  "tests": [
+   "*Version2MotionTest*"
+  ],
+  "expect": [
+   "theDslRefusesWhatSection72Refuses_7_2"
+  ],
+  "note": "C3-DP1b: 7.2: an in-place track's falling ease not refused (lane row `in-place-ease`)",
+  "from": "C3-DP1b"
+ },
+ {
+  "id": "C3DP1b-later-track-meets",
+  "file": "motion/Motion.kt",
+  "edits": [
+   [
+    "        if (moves && later >= 0) throw",
+    "        if (false && later >= 0) throw"
+   ]
+  ],
+  "tests": [
+   "*Version2MotionTest*"
+  ],
+  "expect": [
+   "theDslRefusesWhatSection72Refuses_7_2"
+  ],
+  "note": "C3-DP1b: 7.2: a later track meeting a moving in-place track not refused (lane row `later-track-meets`)",
+  "from": "C3-DP1b"
+ },
+ {
+  "id": "C3DP1b-none-backdrop-v2",
+  "file": "motion/Motion.kt",
+  "edits": [
+   [
+    "        for ((i, t) in tracks.withIndex()) if (!paintsWhole(t) &&",
+    "        for ((i, t) in tracks.withIndex()) if (false && !paintsWhole(t) &&"
+   ]
+  ],
+  "tests": [
+   "*Version2MotionTest*"
+  ],
+  "expect": [
+   "theDslRefusesWhatSection72Refuses_7_2"
+  ],
+  "note": "C3-DP1b: 7.2: the version-2 none-backdrop rule not applied (lane row `none-backdrop-v2`)",
+  "from": "C3-DP1b"
+ },
+ {
+  "id": "C3DP1b-pieces-grid",
+  "file": "motion/Motion.kt",
+  "edits": [
+   [
+    "        if (!skip(arrayOf(g)) && (gw !in 1..64 || gh !in 1..64 || gw * gh > 256)) no(",
+    "        if (false && (gw !in 1..64 || gh !in 1..64 || gw * gh > 256)) no("
+   ]
+  ],
+  "tests": [
+   "*Version2MotionTest*"
+  ],
+  "expect": [
+   "theDslRefusesWhatSection72Refuses_7_2"
+  ],
+  "note": "C3-DP1b: 7.4: the grid's range not checked (lane row `pieces-grid`)",
+  "from": "C3-DP1b"
+ },
+ {
+  "id": "C3DP1b-draw-w-rule",
+  "file": "motion/Motion.kt",
+  "edits": [
+   [
+    "            if (e.any { Motion.eased(r.w0, r.w1 - r.w0, it) !in 1..2048 })\n",
+    "            if (false)\n"
+   ]
+  ],
+  "tests": [
+   "*Version2MotionTest*"
+  ],
+  "expect": [
+   "theDslRefusesWhatSection72Refuses_7_2"
+  ],
+  "note": "C3-DP1b: 7.5: W eased from w0 to w1 not held to 1..2048 at every j = 0..n (both ends included) (lane row `draw-w-rule`)",
+  "from": "C3-DP1b"
+ },
+ {
+  "id": "C3DP1b-window-inside",
+  "file": "motion/Motion.kt",
+  "edits": [
+   [
+    "            if (r.aux0.toLong() + r.aux1 > rec.h) throw",
+    "            if (false) throw"
+   ]
+  ],
+  "tests": [
+   "*Version2MotionTest*"
+  ],
+  "expect": [
+   "theDslRefusesWhatSection72Refuses_7_2"
+  ],
+  "note": "C3-DP1b: 7.5: a source window past the record not refused (lane row `window-inside`)",
+  "from": "C3-DP1b"
+ },
+ {
+  "id": "C3DP1b-cells-index",
+  "file": "motion/Motion.kt",
+  "edits": [
+   [
+    "                if (r.aux0 >= tb.lists.size) throw",
+    "                if (false) throw"
+   ]
+  ],
+  "tests": [
+   "*Version2MotionTest*"
+  ],
+  "expect": [
+   "theDslRefusesWhatSection72Refuses_7_2"
+  ],
+  "note": "C3-DP1b: 7.6: a CELLS index at or past n not refused (lane row `cells-index`)",
+  "from": "C3-DP1b"
+ },
+ {
+  "id": "C3DP1b-budget-at-play",
+  "file": "motion/Motion.kt",
+  "edits": [
+   [
+    "        if (program.version == 2) budget(others + Drawing(program.cost(p)), \"PLAY\")",
+    ""
+   ]
+  ],
+  "tests": [
+   "*Version2MotionTest*"
+  ],
+  "expect": [
+   "theDslRefusesWhatSection72Refuses_7_2"
+  ],
+  "note": "C3-DP1b: 7.12: no step budget at a PLAY (lane row `budget-at-play`)",
+  "from": "C3-DP1b"
+ },
+ {
+  "id": "C3DP1b-waiters-as-larger",
+  "file": "motion/Motion.kt",
+  "edits": [
+   [
+    "        fun f(i: Int): Long = maxOf(d[i].cost, d.indices.filter { d[it].waitsOn == i }.sumOf { f(it) })",
+    "        fun f(i: Int): Long = maxOf(d[i].cost, d.indices.filter { d[it].waitsOn == i }.maxOfOrNull { f(it) } ?: 0L)"
+   ]
+  ],
+  "tests": [
+   "*Version2MotionTest*"
+  ],
+  "expect": [
+   "theStepSumAddsWaitersAndNeverWraps_7_12"
+  ],
+  "note": "C3-DP1b: 7.12: waiters on one instance as the larger, not the sum (lane row `waiters-as-larger`) [re-pointed at MR-083: C3-X3D item 3 rewrote `stepSum` (a cycle refused before f; f without roots or depth)]",
+  "from": "C3-DP1b"
+ },
+ {
+  "id": "C3DP1b-pieces-cost",
+  "file": "motion/Motion.kt",
+  "edits": [
+   [
+    "            Motion.PIECES -> 3 * a",
+    "            Motion.PIECES -> 2 * a"
+   ]
+  ],
+  "tests": [
+   "*Version2MotionTest*"
+  ],
+  "expect": [
+   "everyV5ProgramAndTableIsTheDslsByteForByte_7_2"
+  ],
+  "note": "C3-DP1b: 7.12: PIECES' term 2·A for 3·A (the vectors' and the model's C) (lane row `pieces-cost`)",
+  "from": "C3-DP1b"
+ },
+ {
+  "id": "C3DP1b-aux-order",
+  "file": "motion/Motion.kt",
+  "edits": [
+   [
+    "put16(b, 36, aux0); put16(b, 38, aux1)",
+    "put16(b, 36, aux1); put16(b, 38, aux0)"
+   ]
+  ],
+  "tests": [
+   "*Version2MotionTest*"
+  ],
+  "expect": [
+   "everyV5ProgramAndTableIsTheDslsByteForByte_7_2"
+  ],
+  "note": "C3-DP1b: 7.2: the segment's aux0/aux1 written in the wrong order (lane row `aux-order`)",
+  "from": "C3-DP1b"
+ },
+ {
+  "id": "C3DP1b-gate-flag",
+  "file": "motion/Motion.kt",
+  "edits": [
+   [
+    "        if (flagsInForce and DamageMsg.FLAG_EFFECTS == 0)",
+    "        if (false)"
+   ]
+  ],
+  "tests": [
+   "*Version2MotionTest*"
+  ],
+  "expect": [
+   "theDslRefusesWhatSection72Refuses_7_2"
+  ],
+  "note": "C3-DP1b: 7.11 reading 4: the gate builds version 2 with EFFECTS clear (lane row `gate-flag`)",
+  "from": "C3-DP1b"
+ },
+ {
+  "id": "C3DP1b-meeting-box",
+  "file": "sim/GlassFirmwareSim.kt",
+  "edits": [
+   [
+    "if (o.owns) listOf(o.prog.ownedBoth) else areasOf(o, fwSide(arm) == 2)",
+    "areasOf(o, fwSide(arm) == 2)"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": [
+   "aWriteInAnOwnersMeetingBoxClosesTheOwnerInItsBatch_7_11"
+  ],
+  "note": "C3-DP1b: reading 5: the CLOSE rule by each lens's own owned rect (lane row `meeting-box`)",
+  "from": "C3-DP1b"
+ },
+ {
+  "id": "C3DP1b-owner-crc-compared",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            want != crc -> motionDivergence(",
+    "            false -> motionDivergence("
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": [
+   "anOwnersEndCrcIsComparedWithTheMirrors_7_3"
+  ],
+  "note": "C3-DP1b: 7.3/5.8: an END CRC mismatch not reaching the divergence path (lane row `owner-crc-compared`)",
+  "from": "C3-DP1b"
+ },
+ {
+  "id": "C3DP1b-lift-case-in",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            r.caseInAt != null && r.caseInAt > at ->",
+    "            r.caseInAt != null && r.caseInAt > at && false ->"
+   ]
+  ],
+  "tests": [
+   "*BindTransportTest*"
+  ],
+  "expect": [
+   "stage5sHoldBackLiftsAtACaseInTheNextDayAndByEitherProbe_7_9"
+  ],
+  "note": "C3-DP1b: 7.9/6.8: a case-in after the hold-back lifts nothing (lane row `lift-case-in`)",
+  "from": "C3-DP1b"
+ },
+ {
+  "id": "C3DP1b-lift-next-day",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            localDay(now) > localDay(at) ->",
+    "            false ->"
+   ]
+  ],
+  "tests": [
+   "*BindTransportTest*"
+  ],
+  "expect": [
+   "stage5sHoldBackLiftsAtACaseInTheNextDayAndByEitherProbe_7_9"
+  ],
+  "note": "C3-DP1b: 7.9/6.8: a later day's first start lifts nothing (lane row `lift-next-day`)",
+  "from": "C3-DP1b"
+ },
+ {
+  "id": "C3DP1b-lift-c1-5",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "holdBackAt = if (n >= BIND_STAGE) null else it.holdBackAt",
+    "holdBackAt = if (n == BIND_STAGE) null else it.holdBackAt"
+   ]
+  ],
+  "tests": [
+   "*BindTransportTest*"
+  ],
+  "expect": [
+   "stage5sHoldBackLiftsAtACaseInTheNextDayAndByEitherProbe_7_9"
+  ],
+  "note": "C3-DP1b: 7.9: probe c1=5 does not lift a stage-5 hold-back (lane row `lift-c1-5`)",
+  "from": "C3-DP1b"
+ },
+ {
+  "id": "C3DP1b-lift-c1-4",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "holdBackAt = if (n >= BIND_STAGE) null else it.holdBackAt",
+    "holdBackAt = if (n == LADDER_TOP_STAGE) null else it.holdBackAt"
+   ]
+  ],
+  "tests": [
+   "*BindTransportTest*"
+  ],
+  "expect": [
+   "stage5sHoldBackLiftsAtACaseInTheNextDayAndByEitherProbe_7_9"
+  ],
+  "note": "C3-DP1b: 7.9/6.8: probe c1=4 does not lift a hold-back (lane row `lift-c1-4`)",
+  "from": "C3-DP1b"
+ },
+ {
+  "id": "C3DP2-held-exempt",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "if (w.slot !in req.held && w.areas.any",
+    "if (w.areas.any"
+   ]
+  ],
+  "tests": [
+   "*TransitionShellTest*"
+  ],
+  "expect": [
+   "aSelectAtStage5IsAHeldTransition_DP2"
+  ],
+  "note": "C3-DP2: 7.11: the arriving frame's flushes CLOSE the out half (no held exemption) (lane row `held-exempt`)",
+  "from": "C3-DP2"
+ },
+ {
+  "id": "C3DP2-play-after-last",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "!assembled.keyframe && !comp.hasPending && !comp.needsKeyframe }?.playAfter",
+    "!assembled.keyframe && !comp.needsKeyframe }?.playAfter"
+   ]
+  ],
+  "tests": [
+   "*TransitionShellTest*"
+  ],
+  "expect": [
+   "aSeveralFlushFrameShowsNothingBeforeItsInHalf_DP2"
+  ],
+  "note": "C3-DP2: 7.11: the PLAY-AFTER rides a frame flush that is not the last (lane row `play-after-last`)",
+  "from": "C3-DP2"
+ },
+ {
+  "id": "C3DP2-close-after-body",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                transitionEnd(null, closeOut = true)",
+    "                transitionEnd(null)"
+   ]
+  ],
+  "tests": [
+   "*TransitionShellTest*"
+  ],
+  "expect": [
+   "aSelectAtStage5IsAHeldTransition_DP2"
+  ],
+  "note": "C3-DP2: 7.11: no CLOSE of the out half's slot after RIGHT's in-half body (lane row `close-after-body`)",
+  "from": "C3-DP2"
+ },
+ {
+  "id": "C3DP2-body-tag",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "if (ev.slot != TransitionRun.IN_SLOT || ev.tag != tr.tagIn || transitionBodyLostForTest) return",
+    "if (ev.slot != TransitionRun.IN_SLOT || transitionBodyLostForTest) return"
+   ]
+  ],
+  "tests": [
+   "*TransitionShellTest*"
+  ],
+  "expect": [
+   "aQuickBackAfterASelectSendsNoCloseOverItsOutHalf_DP2"
+  ],
+  "note": "C3-DP2: 7.11/B'3: an earlier act's in-half body taken as this act's (lane row `body-tag`)",
+  "from": "C3-DP2"
+ },
+ {
+  "id": "C3DP2-deadline",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                else { tr.inDoneAtMs = System.currentTimeMillis(); transitionDeadlineArm(tr) }",
+    "                else { tr.inDoneAtMs = System.currentTimeMillis() }"
+   ]
+  ],
+  "tests": [
+   "*TransitionShellTest*"
+  ],
+  "expect": [
+   "aLostInHalfBodyEndsBothSlotsAtTheDeadline_DP2"
+  ],
+  "note": "C3-DP2: 7.11: no CLOSE of both slots at the in half's nominal end plus a period (lane row `deadline`)",
+  "from": "C3-DP2"
+ },
+ {
+  "id": "C3DP2-notice-wait",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "} else if (switcher.open || menu.open || keyboard.open || transition != null) {",
+    "} else if (switcher.open || menu.open || keyboard.open) {"
+   ]
+  ],
+  "tests": [
+   "*TransitionShellTest*"
+  ],
+  "expect": [
+   "aNoticeWaitsBehindATransition_DP2"
+  ],
+  "note": "C3-DP2: K1 9: a notice shows during a transition (lane row `notice-wait`)",
+  "from": "C3-DP2"
+ },
+ {
+  "id": "C3DP2-region-gate",
+  "file": "transport/Transport.kt",
+  "edits": [
+   [
+    "    get() = if (!effects) null else atlasCapacity until",
+    "    get() = if (false) null else atlasCapacity until"
+   ]
+  ],
+  "tests": [
+   "*TransitionShellTest*"
+  ],
+  "expect": [
+   "withoutStage5TheFourActsWriteTheBytesOf083int_DP2"
+  ],
+  "note": "C3-DP2: 7.11: the transition region (and so the act) without stage 5 — the DSL's gate is the second layer (lane row `region-gate`) [re-pointed at MR-083: its test renamed at the 0.83 integration (the recording made again on 083-int)]",
+  "from": "C3-DP2"
+ },
+ {
+  "id": "C3DP2-atlas-room",
+  "file": "transport/Transport.kt",
+  "edits": [
+   [
+    "        (if (effects) wm.damage.core.wire.CfwModes.TRANSITION_REGION else 0) else",
+    "        0 else"
+   ]
+  ],
+  "tests": [
+   "*TransitionShellTest*"
+  ],
+  "expect": [
+   "aSelectAtStage5IsAHeldTransition_DP2"
+  ],
+  "note": "C3-DP2: DP2: the atlas's layout not shortened by the region (it would overlap Main's region) (lane row `atlas-room`)",
+  "from": "C3-DP2"
+ },
+ {
+  "id": "C3DP2-ping-pong",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "val at4 = (region.first + (k and 1) * CfwModes.TRANSITION_SLOT) / 4",
+    "val at4 = (region.first + 0 * CfwModes.TRANSITION_SLOT) / 4"
+   ]
+  ],
+  "tests": [
+   "*TransitionShellTest*"
+  ],
+  "expect": [
+   "aBackAndTheClockAreTransitionsOfTheirTiers_DP2"
+  ],
+  "note": "C3-DP2: 5.6: every act's records in one slot (a write meets the act before it) (lane row `ping-pong`)",
+  "from": "C3-DP2"
+ },
+ {
+  "id": "C3DP2-reverse-swap",
+  "file": "motion/Transitions.kt",
+  "edits": [
+   [
+    "        val outPath = if (!reversed) o else i.copy(",
+    "        val outPath = if (true) o else i.copy("
+   ]
+  ],
+  "tests": [
+   "*TransitionsTest*"
+  ],
+  "expect": [
+   "eachBackIsItsSelectReversedInTime_DP2"
+  ],
+  "note": "C3-DP2: MOTION 7: Back's out half is Select's out, not Select's in reversed (lane row `reverse-swap`)",
+  "from": "C3-DP2"
+ },
+ {
+  "id": "C3DP2-reverse-ease",
+  "file": "motion/Transitions.kt",
+  "edits": [
+   [
+    "i.copy(ease = i.ease.reversed, reseed = false",
+    "i.copy(ease = i.ease, reseed = false"
+   ]
+  ],
+  "tests": [
+   "*TransitionsTest*"
+  ],
+  "expect": [
+   "eachBackIsItsSelectReversedInTime_DP2"
+  ],
+  "note": "C3-DP2: MOTION 7: Back's out half runs Select's in path with its ease not reversed in time (lane row `reverse-ease`)",
+  "from": "C3-DP2"
+ },
+ {
+  "id": "C3DP2-held-only-its-slot",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "if (w.slot !in req.held && w.areas.any",
+    "if (req.held.isEmpty() && w.areas.any"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": [
+   "aFlushHeldForAnOwnerLeavesItOpenAndEveryOtherWriteStillClosesFirst_D3"
+  ],
+  "note": "C3-DP2: D-3: a flush held for one owner skips every owner it meets (lane row `held-only-its-slot`)",
+  "from": "C3-DP2"
+ },
+ {
+  "id": "C3DP2-held-exempt-transport",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "if (w.slot !in req.held && w.areas.any",
+    "if (w.areas.any"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest*"
+  ],
+  "expect": [
+   "aFlushHeldForAnOwnerLeavesItOpenAndEveryOtherWriteStillClosesFirst_D3"
+  ],
+  "note": "C3-DP2: D-3: a flush held for an owner closes it (the transport's pin of the held-exempt row) (lane row `held-exempt-transport`)",
+  "from": "C3-DP2"
+ },
+ {
+  "id": "C3DP2-done-owner-skip",
+  "file": "sim/GlassFirmwareSim.kt",
+  "edits": [
+   [
+    "!o.drawing && !o.owns) continue",
+    "!o.drawing) continue"
+   ]
+  ],
+  "tests": [
+   "*TransitionShellTest*"
+  ],
+  "expect": [
+   "aDoneOutHalfStaysOutOfTheAgreementScanWhileItOwns_DP2"
+  ],
+  "note": "C3-DP2: D-4: a done owner's rect back in the agreement scan while it still owns (lane row `done-owner-skip`)",
+  "from": "C3-DP2"
+ },
+ {
+  "id": "C3X2P2-held-both",
+  "file": "shell/TransitionRun.kt",
+  "edits": [
+   [
+    "if (phase == Phase.FRAME || phase == Phase.IN) HELD else emptySet()",
+    "if (phase == Phase.FRAME) setOf(OUT_SLOT) else emptySet()"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.TransitionShellTest"
+  ],
+  "expect": [
+   "anInputDuringTheInHalfShowsAtItsNextStep_X2P2",
+   "aWriteThatIsNotInputIsHeldAndShownAtTheNextStep_DP2"
+  ],
+  "note": "C3-X2P2: item 1: DP2's held set (the out half's slot in the frame phase only): a write under the in half CLOSEs both owners (lane row `held-both`)",
+  "from": "C3-X2P2"
+ },
+ {
+  "id": "C3X2P2-held-in-slot",
+  "file": "shell/TransitionRun.kt",
+  "edits": [
+   [
+    "    private val HELD = setOf(OUT_SLOT, IN_SLOT)",
+    "    private val HELD = setOf(OUT_SLOT)"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.TransitionShellTest"
+  ],
+  "expect": [
+   "anInputDuringTheInHalfShowsAtItsNextStep_X2P2",
+   "aWriteThatIsNotInputIsHeldAndShownAtTheNextStep_DP2"
+  ],
+  "note": "C3-X2P2: item 1: held for the out half only: a write under the in half CLOSEs the in half (lane row `held-in-slot`)",
+  "from": "C3-X2P2"
+ },
+ {
+  "id": "C3X2P2-cut-at-out-play",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        val cut = comp.cutDeferral()\n",
+    "        val cut = false\n"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.TransitionShellTest"
+  ],
+  "expect": [
+   "theSilentClockRightAfterANotchLandsWhole_X2P2"
+  ],
+  "note": "C3-X2P2: item 2: no cut of the held cells when the out PLAY goes: the clock's frame leaves Main's rows in the list area (lane row `cut-at-out-play`)",
+  "from": "C3-X2P2"
+ },
+ {
+  "id": "C3X2P2-aw3-silent",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "(mode == Mode.WINDOW || mode == Mode.EXCLUSIVE || mode == Mode.SILENT) &&",
+    "(mode == Mode.WINDOW || mode == Mode.EXCLUSIVE) &&"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.TransitionShellTest"
+  ],
+  "expect": [
+   "theSilentClockRightAfterANotchLandsWholeAtStage4_X2P2"
+  ],
+  "note": "C3-X2P2: item 2's class at stage 4: the silent clock not a whole-list cover for AW.3: Main's rows until the motion's end (lane row `aw3-silent`)",
+  "from": "C3-X2P2"
+ },
+ {
+  "id": "C3X2P2-aw3-owed",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            transition?.phase != TransitionRun.Phase.OWED && st.bind && st.leaseHeld && comp.deferring",
+    "            st.bind && st.leaseHeld && comp.deferring"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.TransitionShellTest"
+  ],
+  "expect": [
+   "theSilentClockRightAfterANotchLandsWhole_X2P2"
+  ],
+  "note": "C3-X2P2: item 3(a): AW.3's lone CLOSE goes ahead of an owed transition's out PLAY (lane row `aw3-owed`)",
+  "from": "C3-X2P2"
+ },
+ {
+  "id": "C3X2P2-journal-first",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            journal.flushSubmitted(id, comp.epoch, emptyList(), \"TRANSITION+${tr.tier.word.lowercase()}\", st.transportName, Journal.Timing(",
+    "            if (false) journal.flushSubmitted(id, comp.epoch, emptyList(), \"TRANSITION+${tr.tier.word.lowercase()}\", st.transportName, Journal.Timing("
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.TransitionShellTest"
+  ],
+  "expect": [
+   "aSelectAtStage5IsAHeldTransition_DP2"
+  ],
+  "note": "C3-X2P2: item 3(c): the out PLAY's flush not journaled as the gesture's first (lane row `journal-first`)",
+  "from": "C3-X2P2"
+ },
+ {
+  "id": "C3X2P2-deadline-base",
+  "file": "shell/TransitionRun.kt",
+  "edits": [
+   [
+    "    fun outEndMs(): Long = outDoneAtMs + Math.round(steps * periodMs)",
+    "    fun outEndMs(): Long = outSentAtMs + Math.round(steps * periodMs)"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.TransitionShellTest"
+  ],
+  "expect": [
+   "theDeadlineCountsFromTheOutPlaysAck_X2P2"
+  ],
+  "note": "C3-X2P2: item 4: the out half's end from its PLAY's submit (DP2's base) (lane row `deadline-base`)",
+  "from": "C3-X2P2"
+ },
+ {
+  "id": "C3X2P2-out-ack-armed",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                else { tr.outDoneAtMs = System.currentTimeMillis(); transitionDeadlineArm(tr) }",
+    "                else { }"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.TransitionShellTest"
+  ],
+  "expect": [
+   "aLostInHalfBodyEndsBothSlotsAtTheDeadline_DP2"
+  ],
+  "note": "C3-X2P2: item 4: the out PLAY's ack not recorded: no deadline is ever armed (lane row `out-ack-armed`)",
+  "from": "C3-X2P2"
+ },
+ {
+  "id": "C3X2P2-wrap-under-run",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        transition?.let { tr ->\n            if (say) journal.note(",
+    "        (null as TransitionRun?)?.let { tr ->\n            if (say) journal.note("
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.TransitionShellTest"
+  ],
+  "expect": [
+   "anEdgeNotchInABacksFramePhaseSendsNoWrapPlay_X2P2",
+   "anEdgeNotchInABacksInHalfSendsNoWrapPlay_X2P2"
+  ],
+  "note": "C3-X2P2: stage 2 item 1: the wrap's PLAY goes while a transition is in hand (its close pass ends the run's owners) (lane row `wrap-under-run`)",
+  "from": "C3-X2P2"
+ },
+ {
+  "id": "C3X2P2-refused-body-close",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "close = ev.outcome == wm.damage.core.wire.DamageMsg.OUTCOME_REFUSED)",
+    "close = false)"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.TransitionShellTest"
+  ],
+  "expect": [
+   "aRefusedInHalfWhoseBodyComesFirstClosesBothSlots_X2P2"
+  ],
+  "note": "C3-X2P2: stage 2 item 2: a refusal body of the in half ends the run with no CLOSE (lane row `refused-body-close`)",
+  "from": "C3-X2P2"
+ },
+ {
+  "id": "C3X2P2-hold-in-half",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        transitionFirst(st, localOn, localNow)\n        // decisions AF.7",
+    "        transitionFirst(st, localOn, localNow)\n        if (transition?.phase == TransitionRun.Phase.IN && !pumpPriority && (comp.hasPending || comp.needsKeyframe)) return\n        // decisions AF.7"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.TransitionShellTest"
+  ],
+  "expect": [
+   "aWriteThatIsNotInputIsHeldAndShownAtTheNextStep_DP2"
+  ],
+  "note": "C3-X2P2: stage 2 item 3(a): DP2's in-half wait back (a write that is not input shows only after the run): the row must not pass at LAND (lane row `hold-in-half`)",
+  "from": "C3-X2P2"
+ },
+ {
+  "id": "C3X2P2-silent-notice",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (quiet && transition == null) {",
+    "        if (quiet) {"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.TransitionShellTest"
+  ],
+  "expect": [
+   "aNoticeOnTheSilentClockWaitsBehindItsTransition_X2P2"
+  ],
+  "note": "C3-X2P2: stage 2 item 4: a notice on the silent clock shows during its transition (lane row `silent-notice`)",
+  "from": "C3-X2P2"
+ },
+ {
+  "id": "C3DMT-d6-hold",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "    private fun cacheWritesHeld(): Boolean = transition?.holdsCache == true",
+    "    private fun cacheWritesHeld(): Boolean = false"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.TransitionShellTest"
+  ],
+  "expect": [
+   "anAtlasChunkQueuedDuringAGlyphRunGoesOnePeriodAfterTheInHalfsBody_X2T"
+  ],
+  "note": "C3-DM-T: D6: no hold — the atlas writes the new face under the run (and closes its half) (lane row `d6-hold`) [re-pointed at MR-083: C3-X2T re-made the D6 row (the hold one period past the in-half body)]",
+  "from": "C3-DM-T"
+ },
+ {
+  "id": "C3DMT-pre-atlas",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            if (atlasInFlight != null || atlasQueue.isNotEmpty() || atlasBusyForTest)",
+    "            if (false)"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.TransitionShellTest"
+  ],
+  "expect": [
+   "eachPreconditionLeavesEncodeAndMatrixOutAndSaysWhy_DMT"
+  ],
+  "note": "C3-DM-T: Encode and Matrix played with an atlas chunk queued or in flight (lane row `pre-atlas`)",
+  "from": "C3-DM-T"
+ },
+ {
+  "id": "C3DMT-pre-256",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        st.cacheSize < CfwModes.CACHE2_MAX_RIDERS || !st.bind ->",
+    "        false ->"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.TransitionShellTest"
+  ],
+  "expect": [
+   "eachPreconditionLeavesEncodeAndMatrixOutAndSaysWhy_DMT"
+  ],
+  "note": "C3-DM-T: Encode played on a 160 KiB session (its lists over the shared reserve) (lane row `pre-256`) [re-pointed at MR-083: C3-X2T moved the preconditions into `encodeUnplayable`]",
+  "from": "C3-DM-T"
+ },
+ {
+  "id": "C3DMT-pre-share",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (effect.glyphs && (!b.withinShare || maxOf(b.outCost, b.inCost) * 100 > wm.damage.core.motion.Motion.BUDGET_CAP * transitionShareForTest))",
+    "        if (false)"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.TransitionShellTest"
+  ],
+  "expect": [
+   "eachPreconditionLeavesEncodeAndMatrixOutAndSaysWhy_DMT"
+  ],
+  "note": "C3-DM-T: a half past the share played (lane row `pre-share`)",
+  "from": "C3-DM-T"
+ },
+ {
+  "id": "C3DMT-pre-fit",
+  "file": "motion/CellLists.kt",
+  "edits": [
+   [
+    "        if (lists.size > MAX_LISTS) return Screen.NoFit(",
+    "        if (false) return Screen.NoFit("
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.TransitionShellTest",
+   "wm.damage.core.CellListsTest"
+  ],
+  "expect": [
+   "eachPreconditionLeavesEncodeAndMatrixOutAndSaysWhy_DMT",
+   "aScreenThatDoesNotFitIsAValueTheCallerReads_DMT"
+  ],
+  "note": "C3-DM-T: eight lists not said as a screen that does not fit (lane row `pre-fit`)",
+  "from": "C3-DM-T"
+ },
+ {
+  "id": "C3DMT-walk-bound",
+  "file": "motion/Motion.kt",
+  "edits": [
+   [
+    "        prog.walkBytes().let { b -> if (b > WALK_BYTES_MAX) throw",
+    "        prog.walkBytes().let { b -> if (false) throw"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.CellListsTest"
+  ],
+  "expect": [
+   "aGlyphWalkPastTheBoundIsRefusedOffline_AF"
+  ],
+  "note": "C3-DM-T: decisions AF: a walk of 64 fonts of the largest glyphs built (lane row `walk-bound`)",
+  "from": "C3-DM-T"
+ },
+ {
+  "id": "C3DMT-in-above",
+  "file": "motion/Transitions.kt",
+  "edits": [
+   [
+    "        val inL = CellLists.lay(arriving, outL.end4, g.reserveRoom - outL.blob.size, n, out = false) { why = it }",
+    "        val inL = CellLists.lay(arriving, outL.at4, g.reserveRoom, n, out = false) { why = it }"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.TransitionShellTest"
+  ],
+  "expect": [
+   "anEncodeSelectWritesBothHalvesListsWithItsRecordsAndRunsWhole_X2T"
+  ],
+  "note": "C3-DM-T: the in lists over the out lists (their write meets the out half's read range) (lane row `in-above`) [re-pointed at MR-083: C3-X2T re-made the Encode Select row (both halves' lists with the records)]",
+  "from": "C3-DM-T"
+ },
+ {
+  "id": "C3DMT-effects-listed",
+  "file": "motion/Transitions.kt",
+  "edits": [
+   [
+    "        Tier.SELECT, Tier.BACK -> listOf(Effect.DEPTH, Effect.WARP, Effect.FLIP, Effect.FALL, Effect.GLITCH, Effect.ENCODE, Effect.MATRIX, Effect.EXPLODE)",
+    "        Tier.SELECT, Tier.BACK -> listOf(Effect.DEPTH, Effect.WARP, Effect.FLIP, Effect.FALL, Effect.GLITCH, Effect.EXPLODE)"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.TransitionShellTest",
+   "wm.damage.core.TransitionsTest"
+  ],
+  "expect": [
+   "theTierRowsShowOnlyAtStage5WithTheRuledDefaults_DP2"
+  ],
+  "note": "C3-DM-T (round 2): Encode and Matrix not offered by Select and Back: their rows are not shown (the shell plays a stored id either way) (lane row `effects-listed`)",
+  "from": "C3-DM-T (round 2)"
+ },
+ {
+  "id": "C3X2T-hold-period",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            glyphHoldUntilMs = maxOf(glyphHoldUntilMs, System.currentTimeMillis() + p)\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.TransitionShellTest"
+  ],
+  "expect": [
+   "anAtlasChunkQueuedDuringAGlyphRunGoesOnePeriodAfterTheInHalfsBody_X2T"
+  ],
+  "note": "C3-X2T: item 1: the hold released at RIGHT's body (no period) (lane row `x2t-hold-period`)",
+  "from": "C3-X2T"
+ },
+ {
+  "id": "C3X2T-in-lists-apart",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            ?.takeIf { it.size - 1 <= CfwModes.ZWRITE_MAX && transport.nextListDeflates() }",
+    "            ?.takeIf { false }"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.TransitionShellTest"
+  ],
+  "expect": [
+   "anEncodeSelectWritesBothHalvesListsWithItsRecordsAndRunsWhole_X2T",
+   "anEncodeSelectSendsItsInListsWithItsRecordsWhenTheyFit_X2T"
+  ],
+  "note": "C3-X2T: item 2: the in lists always a write of their own after the out PLAY (DM-T's order) (lane row `x2t-in-lists-apart`) [re-pointed at MR-083: C3-X4T item 2: the condition reads `transport.nextListDeflates()`]",
+  "from": "C3-X2T"
+ },
+ {
+  "id": "C3X2T-in-lists-limit",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            ?.takeIf { it.size - 1 <= CfwModes.ZWRITE_MAX && transport.nextListDeflates() }",
+    "            ?.takeIf { transport.nextListDeflates() }"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.TransitionShellTest"
+  ],
+  "expect": [
+   "anEncodeSelectSendsItsInListsWithItsRecordsWhenTheyFit_X2T"
+  ],
+  "note": "C3-X2T: item 2: the in lists ride the records' write past one compressed message (lane row `x2t-in-lists-limit`) [re-pointed at MR-083: C3-X4T item 2: the condition reads `transport.nextListDeflates()`]",
+  "from": "C3-X2T"
+ },
+ {
+  "id": "C3X2T-drop-all",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        val met = stage.records.values.filter { it.key !is MainStageKey && it.off >= 0 && it.off <= lists.last && lists.first < it.off + it.size4 }",
+    "        val met = stage.records.values.filter { it.key !is MainStageKey }"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.TransitionShellTest"
+  ],
+  "expect": [
+   "anEncodeActDropsOnlyTheStripsItsListsMeet_X2T"
+  ],
+  "note": "C3-X2T: item 3: every Encode act drops every page-staging strip (DM-T's take) (lane row `x2t-drop-all`)",
+  "from": "C3-X2T"
+ },
+ {
+  "id": "C3X2T-place-start",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            .distinct().sorted().minByOrNull { met(it) } ?: res.first",
+    "            .distinct().sorted().firstOrNull() ?: res.first"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.TransitionShellTest"
+  ],
+  "expect": [
+   "anEncodeActDropsOnlyTheStripsItsListsMeet_X2T"
+  ],
+  "note": "C3-X2T: item 3: the lists at the reserve's start, wherever the strips are (lane row `x2t-place-start`)",
+  "from": "C3-X2T"
+ },
+ {
+  "id": "C3X2T-ring-rewind",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        stage.ring?.rewind(from)                        // written back where they lay once the document is idle in front\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.TransitionShellTest"
+  ],
+  "expect": [
+   "anEncodeActDropsOnlyTheStripsItsListsMeet_X2T"
+  ],
+  "note": "C3-X2T: item 3: the ring's pointer left past a hole the lists made (a dropped strip waits while the start is pinned) (lane row `x2t-ring-rewind`)",
+  "from": "C3-X2T"
+ },
+ {
+  "id": "C3X2T-pick-below5",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (st.transitionRegion == null) return                          // below stage 5: no pick, no recording\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.TransitionShellTest"
+  ],
+  "expect": [
+   "belowStage5NoScreenIsRecorded_X2T"
+  ],
+  "note": "C3-X2T: item 4: the pick and the recording made below stage 5 too (DM-T's surviving pin's class) (lane row `x2t-pick-below5`)",
+  "from": "C3-X2T"
+ },
+ {
+  "id": "C3X2T-record-every-pick",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                k.cells = screenCells(screenRuns().filter { box == null || !it.rect.overlaps(box) }, Rect(0, 0, comp.width, layout.safe.bottom))\n            }\n            k.pick = e",
+    "                k.cells = screenCells(screenRuns().filter { box == null || !it.rect.overlaps(box) }, Rect(0, 0, comp.width, layout.safe.bottom))\n            } else k.cells = screenCells(screenRuns(), Rect(0, 0, comp.width, layout.safe.bottom))\n            k.pick = e"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.TransitionShellTest"
+  ],
+  "expect": [
+   "theScreensAreRecordedOnlyForEncodePicks_X2T"
+  ],
+  "note": "C3-X2T: item 4: the leaving screen recorded at every pick, not only Encode's (lane row `x2t-record-every-pick`) [re-pointed at MR-083: C3-X4T item 1 filters the recording under a notice box (the box is Encode's branch's own): the variant now records at every other pick too]",
+  "from": "C3-X2T"
+ },
+ {
+  "id": "C3X2T-survey-counts",
+  "file": "comp/CachedText.kt",
+  "edits": [
+   [
+    "        val quiet = onRelay && surveyed != null                 // [survey]: no use counted, nothing recorded",
+    "        val quiet = false"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.CachedTextTest"
+  ],
+  "expect": [
+   "aSurveyRecordsTheRunsAndCountsNothing_X2T"
+  ],
+  "note": "C3-X2T: item 4: a survey counts icon uses (a thumbnail shown once packed) (lane row `x2t-survey-counts`)",
+  "from": "C3-X2T"
+ },
+ {
+  "id": "C3X2T-encode-left-out",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        atlasInFlight != null || atlasQueue.isNotEmpty() || atlasBusyForTest -> ATLAS_BUSY\n        else -> null",
+    "        atlasInFlight != null || atlasQueue.isNotEmpty() || atlasBusyForTest -> ATLAS_BUSY\n        else -> \"left out by the pin\""
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.TransitionShellTest"
+  ],
+  "expect": [
+   "theHoldIsReleasedAtEveryEndOfAnEncodeRun_X2T",
+   "anAtlasChunkQueuedDuringAGlyphRunGoesOnePeriodAfterTheInHalfsBody_X2T"
+  ],
+  "note": "C3-X2T: item 6: Encode always left out (Depth plays): the rows that passed with Depth now fail (lane row `x2t-encode-left-out`)",
+  "from": "C3-X2T"
+ },
+ {
+  "id": "C3X2T-rows-default",
+  "file": "shell/SettingsWindow.kt",
+  "edits": [
+   [
+    "                onOff(on) + if (on == (e.id in ShellSettings().effectsOf(t))) \" (default)\" else \"\"",
+    "                onOff(on)"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.TransitionsTest"
+  ],
+  "expect": [
+   "theTierRowsShowOnlyAtStage5WithTheRuledDefaults_DP2"
+  ],
+  "note": "C3-X2T: item 7: the effect rows say no (default) (lane row `x2t-rows-default`)",
+  "from": "C3-X2T"
+ },
+ {
+  "id": "C3X2T-rows-plays",
+  "file": "shell/SettingsWindow.kt",
+  "edits": [
+   [
+    "                \"$l ms\" + (wm.damage.core.motion.Transitions.clampedPlayMs(l, get().framesOf(t))?.let { \" (plays $it ms)\" } ?: \"\") +",
+    "                \"$l ms\" +"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.TransitionsTest"
+  ],
+  "expect": [
+   "theTierRowsShowOnlyAtStage5WithTheRuledDefaults_DP2"
+  ],
+  "note": "C3-X2T: item 7: the Length row does not say what a clamped period plays (lane row `x2t-rows-plays`)",
+  "from": "C3-X2T"
+ },
+ {
+  "id": "C3X2D-c1-read-before",
+  "file": "sim/MotionSim.kt",
+  "edits": [
+   [
+    "        fun holds(r: Triple<Int, Int, Int>): Boolean =\n            if (r.first == slot) r.second == tag && r.third == ordinal\n            else slots[r.first]?.let { it.tag == r.second && it.ordinal == r.third } == true",
+    "        fun holds(r: Triple<Int, Int, Int>): Boolean = slots[r.first]?.let { it.tag == r.second && it.ordinal == r.third } == true"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.EffectsSimTest"
+  ],
+  "expect": [
+   "aWaiterWhoseRecordedSlotIsPlayedOverWaitsOnNone_7_12",
+   "aReplacedSlotFormsNoCycle_7_12",
+   "aFireOverAnOwnerWithAWaiterIsJudgedByTheBudgetBefore19_7_12"
+  ],
+  "note": "C3-X2D: C-1 unfixed: waits read on the table before the operation (lane row `c1-read-before`) [re-pointed at MR-083: C3-X2D phase 2 renamed the phase-1 row `aReplacedSlotFormsNoCycle_7_12` (its replaced cases unchanged)]",
+  "from": "C3-X2D"
+ },
+ {
+  "id": "C3X2D-c1-not-this-slot",
+  "file": "sim/MotionSim.kt",
+  "edits": [
+   [
+    "            if (r.first == slot) r.second == tag && r.third == ordinal",
+    "            if (r.first == slot) false"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.EffectsSimTest"
+  ],
+  "expect": [
+   "aWaiterWhoseRecordedSlotIsPlayedOverWaitsOnNone_7_12",
+   "aReplacedSlotFormsNoCycle_7_12"
+  ],
+  "note": "C3-X2D: C-1: the plain 'not the replaced slot' reading (wrong with a reused tag) (lane row `c1-not-this-slot`) [re-pointed at MR-083: C3-X2D phase 2 renamed the phase-1 row `aReplacedSlotFormsNoCycle_7_12` (its replaced cases unchanged)]",
+  "from": "C3-X2D"
+ },
+ {
+  "id": "C3X2D-d1-holdback-4",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        // armed; the stored stage stays and every lift restores it\n        return C1_TOP_STAGE",
+    "        // armed; the stored stage stays and every lift restores it\n        return minOf(stage, buildTop(caps)) - 1"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.BindTransportTest"
+  ],
+  "expect": [
+   "stage5sHoldBackLiftsAtACaseInTheNextDayAndByEitherProbe_7_9",
+   "stage5AppendsTheEffectsRungOnABit11BuildAndArms4Elsewhere_7_9"
+  ],
+  "note": "C3-X2D: D-1 unfixed: a stage-5 hold-back arms stage 4 (lane row `d1-holdback-4`)",
+  "from": "C3-X2D"
+ },
+ {
+  "id": "C3X2D-d1-midstart",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            val topBits = DamageMsg.FLAG_BIND or DamageMsg.FLAG_EFFECTS",
+    "            val topBits = if (ladderArmedStage == LADDER_TOP_STAGE) DamageMsg.FLAG_EFFECTS else DamageMsg.FLAG_BIND"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.BindTransportTest"
+  ],
+  "expect": [
+   "aStage5HoldBackInsideTheArmingArmsStage3_7_9"
+  ],
+  "note": "C3-X2D: D-1 unfixed: the mid-start hold-back leaves out EFFECTS alone (lane row `d1-midstart`)",
+  "from": "C3-X2D"
+ },
+ {
+  "id": "C3X2D-d1-effective",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "r.holdBackAt != null) C1_TOP_STAGE else r.stage }",
+    "r.holdBackAt != null) r.stage - 1 else r.stage }"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.BindTransportTest"
+  ],
+  "expect": [
+   "stage5sHoldBackLiftsAtACaseInTheNextDayAndByEitherProbe_7_9"
+  ],
+  "note": "C3-X2D: D-1 class: effectiveStage a stage below the stored one (lane row `d1-effective`)",
+  "from": "C3-X2D"
+ },
+ {
+  "id": "C3X2D-d2-rearm-sets-4",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "setRecord(\"local input: the row's re-arm\") { was = it; it.copy(holdBackAt = null, holdBackWhy = \"\") }",
+    "setRecord(\"local input: the row's re-arm\") { was = it; it.copy(stage = BIND_STAGE, holdBackAt = null, holdBackWhy = \"\") }"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.BindTransportTest"
+  ],
+  "expect": [
+   "stage5sHoldBackLiftsAtACaseInTheNextDayAndByEitherProbe_7_9"
+  ],
+  "note": "C3-X2D: D-2 unfixed: the row stores stage 4 (lane row `d2-rearm-sets-4`)",
+  "from": "C3-X2D"
+ },
+ {
+  "id": "C3X2D-d2-row-words",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "\"held back until tomorrow: stage 3 armed, ${heldBackWhat(r.stage, caps)} held — ${r.holdBackWhy}\"",
+    "\"held back until tomorrow: ${r.holdBackWhy}\""
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.BindTransportTest"
+  ],
+  "expect": [
+   "aResetDuringWearHoldsStage4BackAndSaysSoOnce_6_8",
+   "stage5sHoldBackLiftsAtACaseInTheNextDayAndByEitherProbe_7_9"
+  ],
+  "note": "C3-X2D: D-2 unfixed: the row's words (lane row `d2-row-words`)",
+  "from": "C3-X2D"
+ },
+ {
+  "id": "C3X2D-d2-note-words",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "\"this session arms stage 3; Settings · Local input re-arms stage $top (or probe c1=$stage)\"",
+    "\"Settings · Local input re-arms it (or probe c1=4) — this session arms stage 3\""
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.BindTransportTest"
+  ],
+  "expect": [
+   "aResetDuringWearHoldsStage4BackAndSaysSoOnce_6_8",
+   "stage5sHoldBackLiftsAtACaseInTheNextDayAndByEitherProbe_7_9"
+  ],
+  "note": "C3-X2D: D-2 unfixed: the keeper note's and the holdback fault's words (lane row `d2-note-words`)",
+  "from": "C3-X2D"
+ },
+ {
+  "id": "C3X2D-d5-gate-flags",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        if (hasEffects(damageCaps) && st.flagsInForce and DamageMsg.FLAG_EFFECTS != 0) return",
+    "        if (hasEffects(damageCaps)) return"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.MotionTransportTest.noEffectsFormReachesTheGlassesWithoutEffectsInForce_7_9"
+  ],
+  "expect": [
+   "noEffectsFormReachesTheGlassesWithoutEffectsInForce_7_9"
+  ],
+  "note": "C3-X2D: D-5: the gate's flags test opened (lane row `d5-gate-flags`)",
+  "from": "C3-X2D"
+ },
+ {
+  "id": "C3X2D-d5-gate-caps",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        if (hasEffects(damageCaps) && st.flagsInForce and DamageMsg.FLAG_EFFECTS != 0) return",
+    "        if (st.flagsInForce and DamageMsg.FLAG_EFFECTS != 0) return"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.MotionTransportTest.noEffectsFormReachesTheGlassesWithoutEffectsInForce_7_9"
+  ],
+  "expect": [
+   "(declared, no pin: EFFECTS is armed only by the ladder's stage 5, which needs DamageCaps bit 11, so the flags test already refuses every image the caps test would; C3-X2D watched it SURVIVE as expected — reading 5)"
+  ],
+  "note": "C3-X2D: D-5: the gate's caps test opened (expected to survive: EFFECTS is never in force on a build without bit 11 — say why) (lane row `d5-gate-caps`)",
+  "from": "C3-X2D"
+ },
+ {
+  "id": "C3X2D-d5-carries-26-8",
+  "file": "wire/CfwModes.kt",
+  "edits": [
+   [
+    "                mode == MOTION_MODE -> sub == MOTION_PLAY_AFTER",
+    "                mode == MOTION_MODE -> false"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.MotionTransportTest.noEffectsFormReachesTheGlassesWithoutEffectsInForce_7_9"
+  ],
+  "expect": [
+   "noEffectsFormReachesTheGlassesWithoutEffectsInForce_7_9"
+  ],
+  "note": "C3-X2D: D-5: carriesEffects misses 26/8 (lane row `d5-carries-26-8`)",
+  "from": "C3-X2D"
+ },
+ {
+  "id": "C3X2D-d5-carries-27-4",
+  "file": "wire/CfwModes.kt",
+  "edits": [
+   [
+    "                mode == BIND_MODE && sub == BIND_LIST_RING -> true",
+    "                mode == BIND_MODE && sub == BIND_LIST_RING -> false"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.MotionTransportTest.noEffectsFormReachesTheGlassesWithoutEffectsInForce_7_9"
+  ],
+  "expect": [
+   "noEffectsFormReachesTheGlassesWithoutEffectsInForce_7_9"
+  ],
+  "note": "C3-X2D: D-5: carriesEffects misses 27/4 (lane row `d5-carries-27-4`)",
+  "from": "C3-X2D"
+ },
+ {
+  "id": "C3X2D-d5-carries-kind3",
+  "file": "wire/CfwModes.kt",
+  "edits": [
+   [
+    "                mode == BIND_MODE && sub == BIND_SET -> to - from >= 23 && (0 until 4).any { (m[from + 11 + 3 * it].toInt() and 0xFF) == KIND_CURSOR }",
+    "                mode == BIND_MODE && sub == BIND_SET -> false"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.MotionTransportTest.noEffectsFormReachesTheGlassesWithoutEffectsInForce_7_9"
+  ],
+  "expect": [
+   "noEffectsFormReachesTheGlassesWithoutEffectsInForce_7_9"
+  ],
+  "note": "C3-X2D: D-5: carriesEffects misses a kind-3 SET (lane row `d5-carries-kind3`)",
+  "from": "C3-X2D"
+ },
+ {
+  "id": "C3X2D-d5-carries-batch",
+  "file": "wire/CfwModes.kt",
+  "edits": [
+   [
+    "                mode == 8 -> {\n                    var i = from + 2",
+    "                mode == 8 && false -> {\n                    var i = from + 2"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.MotionTransportTest.noEffectsFormReachesTheGlassesWithoutEffectsInForce_7_9"
+  ],
+  "expect": [
+   "noEffectsFormReachesTheGlassesWithoutEffectsInForce_7_9"
+  ],
+  "note": "C3-X2D: D-5: carriesEffects does not look inside a batch (lane row `d5-carries-batch`)",
+  "from": "C3-X2D"
+ },
+ {
+  "id": "C3X2D-d5-carries-step",
+  "file": "wire/CfwModes.kt",
+  "edits": [
+   [
+    "                mode == SELF_TEST_MODE && to - from >= 3 && sub == 1 -> one(m, from + 2, to)",
+    "                mode == SELF_TEST_MODE && to - from >= 3 && sub == 1 -> false"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.MotionTransportTest.noEffectsFormReachesTheGlassesWithoutEffectsInForce_7_9"
+  ],
+  "expect": [
+   "noEffectsFormReachesTheGlassesWithoutEffectsInForce_7_9"
+  ],
+  "note": "C3-X2D: D-5: carriesEffects does not look inside a self-test step (lane row `d5-carries-step`)",
+  "from": "C3-X2D"
+ },
+ {
+  "id": "C3X2D-d6-tail-effects",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        val effects = tail.none { CfwModes.carriesEffects(it) } || (hasEffects(damageCaps) && flags and DamageMsg.FLAG_EFFECTS != 0)",
+    "        val effects = true"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.BindTransportTest.aTailCarryingAC3FormIsDroppedWhenEffectsLeavesAndTheDrawingGoes_7_9"
+  ],
+  "expect": [
+   "aTailCarryingAC3FormIsDroppedWhenEffectsLeavesAndTheDrawingGoes_7_9"
+  ],
+  "note": "C3-X2D: D-6 unfixed: the tail tests BIND only (lane row `d6-tail-effects`)",
+  "from": "C3-X2D"
+ },
+ {
+  "id": "C3X2D-d7-pieces-aux1",
+  "file": "motion/Motion.kt",
+  "edits": [
+   [
+    "aux0 = gw or (gh shl 8), aux1 = model or (stagger shl 8)))",
+    "aux0 = gw or (gh shl 8), aux1 = stagger or (model shl 8)))"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.Version2MotionTest.endOnTheModelForTheOtherKinds_7_2"
+  ],
+  "expect": [
+   "endOnTheModelForTheOtherKinds_7_2"
+  ],
+  "note": "C3-X2D: D-7: PIECES' model and stagger bytes swapped (lane row `d7-pieces-aux1`)",
+  "from": "C3-X2D"
+ },
+ {
+  "id": "C3X2D-d7-shrink-anchor",
+  "file": "motion/Motion.kt",
+  "edits": [
+   [
+    "h0, h1, anchor or (hAnchor shl 2), w0, w1))",
+    "h0, h1, hAnchor or (anchor shl 2), w0, w1))"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.Version2MotionTest.endOnTheModelForTheOtherKinds_7_2"
+  ],
+  "expect": [
+   "endOnTheModelForTheOtherKinds_7_2"
+  ],
+  "note": "C3-X2D: D-7: SHRINK's two anchors swapped (lane row `d7-shrink-anchor`)",
+  "from": "C3-X2D"
+ },
+ {
+  "id": "C3X2D-d7-rain-xy",
+  "file": "motion/Motion.kt",
+  "edits": [
+   [
+    "add(Segment(GLYPHS, n, ease, RAIN, rain.off4, x, if (perLens) xR ?: x else 0, y, dx,",
+    "add(Segment(GLYPHS, n, ease, RAIN, rain.off4, y, if (perLens) xR ?: x else 0, x, dx,"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.Version2MotionTest.endOnTheModelForTheOtherKinds_7_2"
+  ],
+  "expect": [
+   "endOnTheModelForTheOtherKinds_7_2"
+  ],
+  "note": "C3-X2D: D-7: RAIN's offsets swapped (lane row `d7-rain-xy`)",
+  "from": "C3-X2D"
+ },
+ {
+  "id": "C3X2D-d7-window",
+  "file": "motion/Motion.kt",
+  "edits": [
+   [
+    "anchor or (hAnchor shl 2), w0, w1, windowFirst, windowRows))",
+    "anchor or (hAnchor shl 2), w0, w1, windowRows, windowFirst))"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.Version2MotionTest.endOnTheModelForTheOtherKinds_7_2"
+  ],
+  "expect": [
+   "endOnTheModelForTheOtherKinds_7_2"
+  ],
+  "note": "C3-X2D: D-7: the source window's first row and height swapped (lane row `d7-window`)",
+  "from": "C3-X2D"
+ },
+ {
+  "id": "C3X2D-d7-reveal-new",
+  "file": "motion/Motion.kt",
+  "edits": [
+   [
+    "                is Source.New -> listOf(KIND_NEW, 0, 0, 0)",
+    "                is Source.New -> listOf(KIND_LEVEL, 0, 0, 0)"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.Version2MotionTest.endOnTheModelForTheOtherKinds_7_2"
+  ],
+  "expect": [
+   "endOnTheModelForTheOtherKinds_7_2"
+  ],
+  "note": "C3-X2D: D-7: REVEAL of `new` written as a level (lane row `d7-reveal-new`)",
+  "from": "C3-X2D"
+ },
+ {
+  "id": "C3X2D-d8-reason19",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "(a.reason == 17 || a.reason == 19) || p == null) count(\"tapActedNoPress\")",
+    "a.reason == 17 || p == null) count(\"tapActedNoPress\")"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.LocalRulesTest"
+  ],
+  "expect": [
+   "aTapRefused19CountsAsNoPressLike17_7_3"
+  ],
+  "note": "C3-X2D: D-8 unfixed: reason 19 not read beside 17 (lane row `d8-reason19`)",
+  "from": "C3-X2D"
+ },
+ {
+  "id": "C3X2D-d8-stack41",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "                    t.stackFree?.let { noteStackFree(it) }\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.BindTransportTest.telemetry41Under132IsOneNote_7_9"
+  ],
+  "expect": [
+   "telemetry41Under132IsOneNote_7_9"
+  ],
+  "note": "C3-X2D: D-8 unfixed: telemetry 41 said nowhere (lane row `d8-stack41`) [re-pointed at MR-083: C3-X3D item 4 moved the threshold to 132 and renamed the row]",
+  "from": "C3-X2D"
+ },
+ {
+  "id": "C3X2D-d8-field18",
+  "file": "wire/DamageMsg.kt",
+  "edits": [
+   [
+    "                (field18?.let { if (it == 1L) \" wrapped\" else \" field18=$it\" } ?: \"\") +",
+    "                (if (wrapped) \" wrapped\" else \"\") +"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.DamageMsgTest"
+  ],
+  "expect": [
+   "telemetry41IsNamedAndThe115sField18IsShownWhateverItsValue_7_9"
+  ],
+  "note": "C3-X2D: D-8 unfixed: field 18 shown only as 1 (lane row `d8-field18`)",
+  "from": "C3-X2D"
+ },
+ {
+  "id": "C3X2D2-cycle-phase1",
+  "file": "sim/MotionSim.kt",
+  "edits": [
+   [
+    "        for (i in 0 until SLOTS) {\n            var j = waitsOn[i]\n            var n = 0\n            while (j >= 0 && j != i && n++ < SLOTS) j = waitsOn[j]\n            if (j == i) waitsOn[i] = -1\n        }\n        // no cycle is left, so every counted instance is reached from exactly one root\n        fun f(i: Int): Long = maxOf(cost[i], (0 until SLOTS).filter { waitsOn[it] == i }.sumOf { f(it) })\n        var sum = 0L\n        for (i in 0 until SLOTS) if (cost[i] >= 0 && waitsOn[i] < 0) sum += f(i)\n",
+    "        val reached = BooleanArray(SLOTS)\n        fun f(i: Int): Long {\n            reached[i] = true\n            return maxOf(cost[i], (0 until SLOTS).filter { waitsOn[it] == i }.sumOf { f(it) })\n        }\n        var sum = 0L\n        for (i in 0 until SLOTS) if (cost[i] >= 0 && waitsOn[i] < 0) sum += f(i)\n        for (i in 0 until SLOTS) if (cost[i] >= 0 && !reached[i]) sum += cost[i]\n"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.EffectsSimTest.aCycleIsCutAtItsLowestNumberedMember_7_12"
+  ],
+  "expect": [
+   "aCycleIsCutAtItsLowestNumberedMember_7_12"
+  ],
+  "note": "C3-X2D phase 2: cycle-phase1 (lane row `cycle-phase1`)",
+  "from": "C3-X2D phase 2"
+ },
+ {
+  "id": "C3X2D2-cycle-highest",
+  "file": "sim/MotionSim.kt",
+  "edits": [
+   [
+    "for (i in 0 until SLOTS) {\n            var j = waitsOn[i]",
+    "for (i in SLOTS - 1 downTo 0) {\n            var j = waitsOn[i]"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.EffectsSimTest.aCycleIsCutAtItsLowestNumberedMember_7_12"
+  ],
+  "expect": [
+   "aCycleIsCutAtItsLowestNumberedMember_7_12"
+  ],
+  "note": "C3-X2D phase 2: cycle-highest (lane row `cycle-highest`)",
+  "from": "C3-X2D phase 2"
+ },
+ {
+  "id": "C3X2D2-retarget-w-only",
+  "file": "sim/MotionSim.kt",
+  "edits": [
+   [
+    "val from = if (f.w > 0) f.w else f.sw",
+    "val from = if (f.w > 0) f.w else s.source!!.w"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.EffectsSimTest.aRetargetNamingAnotherRecordRestartsFromWhatTheTrackDrew_7_5"
+  ],
+  "expect": [
+   "aRetargetNamingAnotherRecordRestartsFromWhatTheTrackDrew_7_5"
+  ],
+  "note": "C3-X2D phase 2: retarget-w-only (lane row `retarget-w-only`)",
+  "from": "C3-X2D phase 2"
+ },
+ {
+  "id": "C3X2D2-retarget-h-only",
+  "file": "sim/MotionSim.kt",
+  "edits": [
+   [
+    "val from = if (f.h > 0) f.h else f.sh",
+    "val from = if (f.h > 0) f.h else s.source!!.h"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.EffectsSimTest.aRetargetNamingAnotherRecordRestartsFromWhatTheTrackDrew_7_5"
+  ],
+  "expect": [
+   "aRetargetNamingAnotherRecordRestartsFromWhatTheTrackDrew_7_5"
+  ],
+  "note": "C3-X2D phase 2: retarget-h-only (lane row `retarget-h-only`)",
+  "from": "C3-X2D phase 2"
+ },
+ {
+  "id": "C3X3D-item1-spread",
+  "file": "motion/Transitions.kt",
+  "edits": [
+   [
+    "private const val SPREAD = 6144",
+    "private const val SPREAD = 6145"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.ConformanceVectorTest.theShipVectorsHoldTheProgramsTheShellSends_X3D"
+  ],
+  "expect": [
+   "theShipVectorsHoldTheProgramsTheShellSends_X3D"
+  ],
+  "note": "C3-X3D: item1-spread (lane row `item1-spread`)",
+  "from": "C3-X3D"
+ },
+ {
+  "id": "C3X3D-item2-model-line",
+  "file": "sim/GlassFirmwareSim.kt",
+  "edits": [
+   [
+    "        if (live && owned.isNotEmpty()) c.panelStale = true\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.EffectsSimTest.whileAnInstanceOwnsEveryPresentGoesWholeWhateverItsHint_7_3"
+  ],
+  "expect": [
+   "whileAnInstanceOwnsEveryPresentGoesWholeWhateverItsHint_7_3"
+  ],
+  "note": "C3-X3D: item2-model-line (lane row `item2-model-line`)",
+  "from": "C3-X3D"
+ },
+ {
+  "id": "C3X3D-item3-cycle-fallback",
+  "file": "motion/Motion.kt",
+  "edits": [
+   [
+    "                if (++n > d.size) throw LintError(\"§7.12: instance $i of ${d.size} waits in a cycle — a defect of the caller (the phone never reuses a tag, §7.11)\")",
+    "                if (++n > d.size) return d.indices.sumOf { d[it].cost }"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.Version2MotionTest.theStepSumAddsWaitersAndNeverWraps_7_12"
+  ],
+  "expect": [
+   "theStepSumAddsWaitersAndNeverWraps_7_12"
+  ],
+  "note": "C3-X3D: item3-cycle-fallback (lane row `item3-cycle-fallback`)",
+  "from": "C3-X3D"
+ },
+ {
+  "id": "C3X3D-item4-threshold-124",
+  "file": "wire/DamageMsg.kt",
+  "edits": [
+   [
+    "const val STACK_FREE_FINDING = 132L",
+    "const val STACK_FREE_FINDING = 124L"
+   ]
+  ],
+  "tests": [
+   "wm.damage.core.DamageMsgTest.telemetry41IsNamedAndThe115sField18IsShownWhateverItsValue_7_9",
+   "wm.damage.core.BindTransportTest.telemetry41Under132IsOneNote_7_9"
+  ],
+  "expect": [
+   "telemetry41IsNamedAndThe115sField18IsShownWhateverItsValue_7_9",
+   "telemetry41Under132IsOneNote_7_9"
+  ],
+  "note": "C3-X3D: item4-threshold-124 (lane row `item4-threshold-124`)",
+  "from": "C3-X3D"
+ },
+ {
+  "id": "C3X3T-encode-seed",
+  "file": "motion/Transitions.kt",
+  "edits": [
+   [
+    "            cellTracks(this, inL, area, n, seed + 1)",
+    "            cellTracks(this, inL, area, n, seed + 2)"
+   ]
+  ],
+  "tests": [
+   "*ConformanceVectorTest.theShipVectorsHoldTheProgramsTheShellSends_X3D*"
+  ],
+  "expect": [
+   "theShipVectorsHoldTheProgramsTheShellSends_X3D"
+  ],
+  "note": "C3-X3T: Encode's in-half cell tracks seeded seed + 2 (lane row `encode-seed`)",
+  "from": "C3-X3T"
+ },
+ {
+  "id": "C3X4T-item1-filter",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "screenCells(screenRuns().filter { box == null || !it.rect.overlaps(box) }, ",
+    "screenCells(screenRuns(), "
+   ]
+  ],
+  "tests": [
+   "*TransitionShellTest.noLeavingCellUnderANoticeBoxAndEveryArrivingCellOnItsGlyph_X4T*"
+  ],
+  "expect": [
+   "noLeavingCellUnderANoticeBoxAndEveryArrivingCellOnItsGlyph_X4T"
+  ],
+  "note": "C3-X4T: item1-filter (lane row `item1-filter`)",
+  "from": "C3-X4T"
+ },
+ {
+  "id": "C3X4T-item2-flag",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "?.takeIf { it.size - 1 <= CfwModes.ZWRITE_MAX && transport.nextListDeflates() }",
+    "?.takeIf { it.size - 1 <= CfwModes.ZWRITE_MAX && st.flagsInForce and wm.damage.core.wire.DamageMsg.FLAG_ZWRITE != 0 }"
+   ]
+  ],
+  "tests": [
+   "*TransitionShellTest.aQuickSecondEncodeActSendsItsInListsAfterItsOutPlay_X4T*"
+  ],
+  "expect": [
+   "aQuickSecondEncodeActSendsItsInListsAfterItsOutPlay_X4T"
+  ],
+  "note": "C3-X4T: item2-flag (lane row `item2-flag`)",
+  "from": "C3-X4T"
+ },
+ {
+  "id": "C3X4T-item2-counter",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "return !zwriteOff && zwWaiting == null && listsAhead.get() == 0",
+    "return !zwriteOff && zwWaiting == null"
+   ]
+  ],
+  "tests": [
+   "*MotionTransportTest.theNextListDeflatesOnlyWithNoListAheadOrWaiting_X4T*"
+  ],
+  "expect": [
+   "theNextListDeflatesOnlyWithNoListAheadOrWaiting_X4T"
+  ],
+  "note": "C3-X4T: item2-counter (lane row `item2-counter`)",
+  "from": "C3-X4T"
+ },
+ {
+  "id": "C3X4T-item4-idle",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "transitionCloses.isEmpty() &&\n            !glyphHoldKeepsWritesBack()",
+    "transitionCloses.isEmpty()"
+   ]
+  ],
+  "tests": [
+   "*TransitionShellTest.theShellIsNotIdleWhileTheGlyphHoldStands_X4T*"
+  ],
+  "expect": [
+   "theShellIsNotIdleWhileTheGlyphHoldStands_X4T"
+  ],
+  "note": "C3-X4T: item4-idle (lane row `item4-idle`)",
+  "from": "C3-X4T"
+ },
+ {
+  "id": "C3X4T-x2t-notice-plane",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "val planes = comp.planes.filter { it != box }",
+    "val planes = comp.planes"
+   ]
+  ],
+  "tests": [
+   "*TransitionShellTest.noLeavingCellUnderANoticeBoxAndEveryArrivingCellOnItsGlyph_X4T*"
+  ],
+  "expect": [
+   "noLeavingCellUnderANoticeBoxAndEveryArrivingCellOnItsGlyph_X4T"
+  ],
+  "note": "C3-X4T: x2t-notice-plane (lane row `x2t-notice-plane`)",
+  "from": "C3-X4T"
+ },
+ {
+  "id": "C3X4T-plane-identity",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "val planes = comp.planes.filter { it != box }",
+    "val planes = comp.planes.filter { it !== box }"
+   ]
+  ],
+  "tests": [
+   "*TransitionShellTest.noLeavingCellUnderANoticeBoxAndEveryArrivingCellOnItsGlyph_X4T*"
+  ],
+  "expect": [
+   "noLeavingCellUnderANoticeBoxAndEveryArrivingCellOnItsGlyph_X4T"
+  ],
+  "note": "C3-X4T: plane-identity (lane row `plane-identity`)",
+  "from": "C3-X4T"
+ },
+ {
+  "id": "C3X4T-x2t-lens-sign",
+  "file": "motion/Transitions.kt",
+  "edits": [
+   [
+    "cells(table, i, n, x = -d, xR = d, seed = seed and 0xFFFF)",
+    "cells(table, i, n, x = d, xR = -d, seed = seed and 0xFFFF)"
+   ]
+  ],
+  "tests": [
+   "*TransitionShellTest.noLeavingCellUnderANoticeBoxAndEveryArrivingCellOnItsGlyph_X4T*"
+  ],
+  "expect": [
+   "noLeavingCellUnderANoticeBoxAndEveryArrivingCellOnItsGlyph_X4T"
+  ],
+  "note": "C3-X4T: x2t-lens-sign (lane row `x2t-lens-sign`)",
+  "from": "C3-X4T"
+ },
+ {
+  "id": "C3X6T-settle-only-atlas",
+  "file": "shell/Staging.kt",
+  "edits": [
+   [
+    "        if (ok) writeAcked(1, atlas, nowMs) else writeLost()",
+    "        if (ok) { if (atlas) writeAcked(1, atlas, nowMs) else acked += 1 } else writeLost()"
+   ]
+  ],
+  "tests": [
+   "*TransitionShellTest.aReadingRightAfterARecordsWritesAckIsNotSettled_X6T*",
+   "*StagingTest.noOrderingOfAReadingAndAWriteLeavesTheCountApart_X6T*"
+  ],
+  "expect": [
+   "aReadingRightAfterARecordsWritesAckIsNotSettled_X6T",
+   "noOrderingOfAReadingAndAWriteLeavesTheCountApart_X6T"
+  ],
+  "note": "C3-X6T: rule 2 undone for non-atlas writes (lane row `settle-only-atlas`)",
+  "from": "C3-X6T"
+ },
+ {
+  "id": "C3X6T-no-void",
+  "file": "shell/Staging.kt",
+  "edits": [
+   [
+    "        if (reading) readingVoid = true\n",
+    "\n"
+   ]
+  ],
+  "tests": [
+   "*TransitionShellTest.aRecordsWriteUnderACountReadingVoidsIt_X6T*",
+   "*TransitionShellTest.anEncodeActsListsWriteUnderACountReadingVoidsIt_X6T*",
+   "*StagingTest.noOrderingOfAReadingAndAWriteLeavesTheCountApart_X6T*"
+  ],
+  "expect": [
+   "aRecordsWriteUnderACountReadingVoidsIt_X6T",
+   "anEncodeActsListsWriteUnderACountReadingVoidsIt_X6T",
+   "noOrderingOfAReadingAndAWriteLeavesTheCountApart_X6T"
+  ],
+  "note": "C3-X6T: rule 1 undone, the void half (Staging.kt) (lane row `no-void(staging)`) [re-pointed at MR-083: C3-X6T's `no-void` undid rule 1 in two files at once; split into its two guards, one row each (this one: the void)]",
+  "from": "C3-X6T"
+ },
+ {
+  "id": "C3X6T-no-wait-open-writes",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (cacheLedger.writesOpen > 0) return false\n",
+    "\n"
+   ]
+  ],
+  "tests": [
+   "*TransitionShellTest.aRecordsWriteUnderACountReadingVoidsIt_X6T*",
+   "*TransitionShellTest.anEncodeActsListsWriteUnderACountReadingVoidsIt_X6T*"
+  ],
+  "expect": [
+   "aRecordsWriteUnderACountReadingVoidsIt_X6T",
+   "anEncodeActsListsWriteUnderACountReadingVoidsIt_X6T"
+  ],
+  "note": "C3-X6T: rule 1 undone, the launch's wait for open writes (Shell.kt) (lane row `no-void(shell)`) [re-pointed at MR-083: C3-X6T's `no-void` undid rule 1 in two files at once; split into its two guards, one row each (this one: the launch's wait)]",
+  "from": "C3-X6T"
+ },
+ {
+  "id": "C3X6T-all-void",
+  "file": "shell/Staging.kt",
+  "edits": [
+   [
+    "        val void = readingVoid\n",
+    "        val void = true\n"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.theMiscountProbeDrivesTheWholePathOnTheSimulator*"
+  ],
+  "expect": [
+   "theMiscountProbeDrivesTheWholePathOnTheSimulator"
+  ],
+  "note": "C3-X6T: every answer voided (lane row `all-void`)",
+  "from": "C3-X6T"
+ },
+ {
+  "id": "C3X6T-short-void",
+  "file": "shell/Staging.kt",
+  "edits": [
+   [
+    "            gen < expected && !settled -> Verdict.Pending(expected - gen)\n",
+    "            gen < expected -> Verdict.Void\n"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.theMiscountProbeDrivesTheWholePathOnTheSimulator*"
+  ],
+  "expect": [
+   "theMiscountProbeDrivesTheWholePathOnTheSimulator"
+  ],
+  "note": "C3-X6T: every short reading voided (lane row `short-void`)",
+  "from": "C3-X6T"
  }
 ]

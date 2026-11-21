@@ -343,6 +343,12 @@ class MainLocalShellTest {
      * names is rewritten during a burst — the item-table word that switches the form is). A notch onto that row inside the
      * burst draws its staged (older) form: the answer is still a COMMIT, with no snap-back (decisions X.1, AA.1), and the
      * row's repaint follows — belief equals both lenses at the end.
+     *
+     * MR-083 (`burst-gate`): not one piece of the re-stage goes while the burst is open — the first piece included (build
+     * SPLIT: an instance's read ranges cover both strip slots and the spare band slot, §5.6). Between A's motion's end
+     * and B the motion gate is open and only the burst gate holds the first piece (traced: with it removed the first
+     * piece went 12 ms before B, the later pieces and the books still after the SETTLE by their own `mayGo`). The burst
+     * closes no earlier than Q after B's report, so every STAGE flush since the change is submitted at tB + Q or later.
      */
     @Test
     fun aBandFormChangedInABurstWaitsForItsSettleAndItsNotchIsStillCommitted_DI(): Unit = runBlocking {
@@ -354,15 +360,20 @@ class MainLocalShellTest {
             val snaps = r.notes("snapback").size
             r.fire(CfwModes.EV_UPROLL)                              // A: row 1, the burst opens
             delay(20)
+            val changedAt = System.currentTimeMillis()
             r.rows[2].s = r.rows[2].s.copy(detail = "detail of 2, changed")
             r.shell.services.requestRender(r.rows[2])
             delay(r.motionMs() + 30)                               // B after A's motion (AW.4), still inside its burst (Q)
             val tB = System.currentTimeMillis()
             val sB = r.fire(CfwModes.EV_UPROLL)                     // B: onto row 2, whose staged band form is the old one
             r.until("row 2 re-staged", 10_000) { r.notes("mainstage").any { it.startsWith("row 2 re-staged") } }
-            // the re-stage waited for the burst's end: Q after B's report (the lone SETTLE), not between A and B
+            // the re-stage waited for the burst's end: Q after B's report (the lone SETTLE), not between A and B — its
+            // books (the last piece) and its first piece alike
             val restagedAt = assertNotNull(r.noteAt("mainstage", "row 2 re-staged"))
-            assertTrue(restagedAt >= tB + r.q() / 2, "row 2 re-staged ${restagedAt - tB} ms after B: not before the burst's SETTLE (Q ${r.q()} ms)")
+            assertTrue(restagedAt >= tB + r.q(), "row 2 re-staged ${restagedAt - tB} ms after B: not before the burst's SETTLE (Q ${r.q()} ms)")
+            val pieces = r.flushes().filter { it.label == "STAGE" && it.t >= changedAt }
+            assertTrue(pieces.isNotEmpty() && pieces.all { it.t >= tB + r.q() },
+                "no piece of the re-stage while the burst is open: STAGE flushes at ${pieces.map { it.t - tB }} ms after B (Q ${r.q()} ms)")
             delay(r.q() + 300)
             r.settle("after")
             val imgs = r.right.drop(at)
