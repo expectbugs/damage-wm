@@ -182,7 +182,22 @@ class OracleWalkTest {
 
         /** One settled reading of everything the assertions compare. */
         class Snap(val believedL: Gray8, val believedR: Gray8, val truthL: Gray8, val truthR: Gray8,
-            val glassL: Gray8, val glassR: Gray8, val planes: String)
+            val glassL: Gray8, val glassR: Gray8, val planes: String,
+            /** APK 0.83 (stage SV, item W): the areas the notice's timer is drawing in on each lens, left out of that lens's
+             *  comparison ([noticeTimerAreas]). */
+            val skipL: List<Rect> = emptyList(), val skipR: List<Rect> = emptyList())
+
+        /**
+         * APK 0.83 (stage SV, item W; `FR2-083-read.md` F1, decisions BX): the areas on [arm]'s lens of the notice's timer
+         * while it draws on the glasses' engine — its own tags in slot 2 (`Shell.NOTICE_TAG`), not any slot-2 instance. There
+         * the lens shows the timer's step and belief its END (`FIRMWARE.md` §5), as the shell's own mirror scan leaves an open
+         * instance's areas out (`unknownAreas`); the areas are the model's (`motionWindows`). Read under the model's lock.
+         */
+        private fun noticeTimerAreas(arm: Arm): List<Rect> {
+            val o = sim.motionForTest(arm).slots[wm.damage.core.motion.PopupPrograms.SLOT] ?: return emptyList()
+            if (!o.drawing || (o.tag and 0xF000) != Shell.NOTICE_TAG) return emptyList()
+            return sim.motionWindows(arm).firstOrNull { it.slot == wm.damage.core.motion.PopupPrograms.SLOT }?.areas ?: emptyList()
+        }
 
         /**
          * Both assertions, both lenses, plus the loud-failure surfaces.
@@ -194,8 +209,6 @@ class OracleWalkTest {
          * holds halves of two different frames. The same torn read failed the
          * `--selfcheck` oracle about one run in ten.
          */
-        private val TIMER_DRAWING = Any()
-
         suspend fun assertOracle(what: String) {
             synchronized(flushFails) { assertTrue(flushFails.isEmpty(), "$what: failed flushes $flushFails") }
             synchronized(faults) { assertTrue(faults.isEmpty(), "$what: transport faults $faults") }
@@ -203,36 +216,43 @@ class OracleWalkTest {
             val deadline = System.currentTimeMillis() + 30_000
             while (snap == null && System.currentTimeMillis() < deadline) {
                 if (!shell.isQuiescent()) { delay(5); continue }
-                val r: Any? = shell.sampleIdle<Any> {
-                    // 0.83 integration (K1-4a's notice timer on the engine meets the 256 KiB stage-5 walk): while the timer
-                    // draws, the glass shows its step and belief its END (`FIRMWARE.md` §5) — the panels are read once it
-                    // has drawn its last step, as `MainLocalShellTest`'s rig reads them (only the notice's tags in slot 2)
-                    if (synchronized(sim) { listOf(sim.left, sim.right).any { l -> l.motion.slots[wm.damage.core.motion.PopupPrograms.SLOT]
-                            ?.let { o -> o.drawing && (o.tag and 0xF000) == wm.damage.core.shell.Shell.NOTICE_TAG } == true } }) TIMER_DRAWING
-                    else Snap(quantised(shell.comp.expectedLens(true)), quantised(shell.comp.expectedLens(false)),
+                snap = shell.sampleIdle {
+                    // APK 0.83 (stage SV, item W; decisions BX): while the notice's timer draws on the glasses' engine, its areas
+                    // are left out of each lens's comparison and the rest is compared now — the walk steps on, so its next
+                    // gesture lands inside the box's grace, as on his glasses (the wait the integration put here outlasted the
+                    // 2.0 s grace: every box had taken focus before the next gesture, `FR2-083-read.md` F1). Once the timer
+                    // has ended the box is compared whole. One evaluation on the loop, the model read under its lock.
+                    val skip = synchronized(sim) { Arm.entries.associateWith { noticeTimerAreas(it) } }
+                    Snap(quantised(shell.comp.expectedLens(true)), quantised(shell.comp.expectedLens(false)),
                         quantised(truthOf(shell.comp.composed, shell.comp.planes, true)),
                         quantised(truthOf(shell.comp.composed, shell.comp.planes, false)),
                         lens(true), lens(false),
-                        shell.comp.planes.joinToString { p -> "${p.rect}@${p.disparity}" })
+                        shell.comp.planes.joinToString { p -> "${p.rect}@${p.disparity}" }, skip[Arm.LEFT]!!, skip[Arm.RIGHT]!!)
                 }
-                if (r === TIMER_DRAWING) { delay(5); continue }
-                snap = r as Snap?
             }
             val s = snap ?: throw AssertionError("$what: the shell never held still long enough to " +
                 "sample — ${shell.quiescenceReport()}")
+            if (s.skipL.isNotEmpty() || s.skipR.isNotEmpty()) timerReads++
             for (arm in Arm.entries) {
                 val left = arm == Arm.LEFT
                 val glass = if (left) s.glassL else s.glassR
-                firstDiff(if (left) s.believedL else s.believedR, glass)?.let {
-                    throw AssertionError("$what: ${arm.name} BELIEF != glass at $it")
+                val skip = if (left) s.skipL else s.skipR
+                val skipped = if (skip.isEmpty()) "" else " (the notice's timer drawing at $skip: left out)"
+                firstDiff(if (left) s.believedL else s.believedR, glass, skip)?.let {
+                    throw AssertionError("$what: ${arm.name} BELIEF != glass at $it$skipped")
                 }
-                firstDiff(if (left) s.truthL else s.truthR, glass)?.let {
-                    throw AssertionError("$what: ${arm.name} glass != TRUTH at $it — planes=${s.planes}")
+                firstDiff(if (left) s.truthL else s.truthR, glass, skip)?.let {
+                    throw AssertionError("$what: ${arm.name} glass != TRUTH at $it$skipped — planes=${s.planes}")
                 }
             }
             val flags = sim.flags(Arm.LEFT) + sim.flags(Arm.RIGHT)
             assertTrue(flags.none { it.value }, "$what: sticky diagnostic flags ${flags.filterValues { it }}")
         }
+
+        /** APK 0.83 (stage SV, item W): oracle reads taken while a notice's timer drew on the engine — the stage-5 walk's
+         *  proof that its gestures and acts meet a box in its grace again. */
+        var timerReads = 0
+            private set
 
         /** Flushes the model transferred through the partial path (mode 24) — only the contract-2
          *  ops produce one, so this is the walk's proof that it exercised them. */
@@ -682,6 +702,7 @@ class OracleWalkTest {
     @Test
     fun transitionsKeepTheOracleAtEveryHeight_DP2(): Unit = runBlocking {
         val byEffect = HashMap<String, Int>()
+        var timerReads = 0
         for (h in ShellSettings.HEIGHTS) {
             val rig = Rig(h, seed = 0xD9_7A_25L + h, contract = 2, cached = true, stage5 = true)
             val tag = "c3 stage 5 h=$h"
@@ -707,7 +728,9 @@ class OracleWalkTest {
                     rig.assertOracle(where)
                 }
                 val (acts, whole) = rig.shell.transitionCountsForTest()
-                println("$tag: $acts transition(s) owed, $whole ran whole (${rig.shell.transitionsWholeByEffectForTest().toSortedMap()}); ${rig.shell.divergencesReported} divergence(s) reported")
+                println("$tag: $acts transition(s) owed, $whole ran whole (${rig.shell.transitionsWholeByEffectForTest().toSortedMap()}); ${rig.shell.divergencesReported} divergence(s) reported; " +
+                    "${rig.timerReads} oracle read(s) with a notice timer drawing")
+                timerReads += rig.timerReads
                 // C3 X5T (the 44 of 45): an act that did not run whole is named, with what ended it
                 println(rig.notWholeReport(tag))
                 rig.shell.transitionsWholeByEffectForTest().forEach { (k, v) -> byEffect.merge(k, v, Int::plus) }
@@ -720,6 +743,9 @@ class OracleWalkTest {
         // C3 DM-T: Encode and Matrix are among the walk's picks, and ran whole (over the four heights; the pick seeded, X2T)
         println("c3 stage 5: whole by effect over the four heights ${byEffect.toSortedMap()} (${byEffect.values.sum()} in all)")
         assertTrue((byEffect["encode"] ?: 0) > 0 && (byEffect["matrix"] ?: 0) > 0, "Encode and Matrix in the walk: $byEffect")
+        // APK 0.83 (stage SV, item W): the walk reads the oracle while a notice's timer draws on the engine, so its next
+        // gesture lands in the box's grace (timer restarts, hand-overs, acts that lift a box whose timer runs)
+        assertTrue(timerReads > 0, "the stage-5 walk never read the oracle while a notice's timer drew — it no longer meets a box in its grace")
     }
 
     internal companion object {
@@ -770,6 +796,16 @@ class OracleWalkTest {
         fun firstDiff(a: Gray8, b: Gray8): String? {
             for (y in 0 until Geometry.PANEL_H) for (x in 0 until Geometry.PANEL_W) {
                 if (a[x, y] != b[x, y]) return "($x,$y) expected ${a[x, y]} got ${b[x, y]}"
+            }
+            return null
+        }
+
+        /** [firstDiff] with every pixel inside one of [skip] left out (APK 0.83, stage SV item W: a notice timer drawing). */
+        fun firstDiff(a: Gray8, b: Gray8, skip: List<Rect>): String? {
+            if (skip.isEmpty()) return firstDiff(a, b)
+            for (y in 0 until Geometry.PANEL_H) for (x in 0 until Geometry.PANEL_W) {
+                if (a[x, y] == b[x, y] || skip.any { x >= it.x && x < it.right && y >= it.y && y < it.bottom }) continue
+                return "($x,$y) expected ${a[x, y]} got ${b[x, y]}"
             }
             return null
         }
