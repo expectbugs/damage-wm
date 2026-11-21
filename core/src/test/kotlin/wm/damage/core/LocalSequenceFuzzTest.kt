@@ -1659,15 +1659,15 @@ class LocalSequenceFuzzTest {
     }
 
     /** The named seeds of each real timing (decisions BB (3)'s pin, per timing): the default timing's maps were picked at the
-     *  short motion and bind it alone. Picked from FZ5's 8,000 + 2,000 at each timing (`cb2ea5df`) for the classes real use
-     *  most often meets, none of which the gate's own 60 + 60 + 60 draw at that timing: J3 and J3 through a later reset (his
-     *  profile's one class at both timings, 84 and 41 gestures in 2,000), the front's notch paid by its burst's own owe
-     *  through a dropped echo (the random bases' most frequent declared class, 92 and 83 sequences), and at stage 4 S33 (10
-     *  in 8,000, none at the short motion: the wrap's held wait is 714 ms there, and his taps come from 696 ms after a
-     *  scroll message). */
-    private val STAGE4_GATE_SEEDS: Map<Long, List<String>> = mapOf(100322L to listOf(s33Key), 100062L to listOf(FRONT_ECHO))
-    private val STAGE5_GATE_SEEDS: Map<Long, List<String>> = mapOf(100062L to listOf(FRONT_ECHO))
-    private val STAGE4_HIS_SEEDS: Map<Long, List<String>> = mapOf(500308L to listOf("$j3Key [plain]", "$j3Key$VIA [plain]"))
+     *  short motion and bind it alone. Picked from the three runs of part BO (`78ee265e`, after `wip/084-int`'s merge and
+     *  the per-timing drop rate) for class A and the classes real use most often meets, none of which the gate's own
+     *  60 + 60 + 60 draw at that timing: A (6 and 14 sequences in 8,000); J3 and J3 through a later reset (his profile's one
+     *  class at both timings, 82 and 37 gestures in 2,000); the front's notch paid by its burst's own owe through a dropped
+     *  echo (the random bases' most frequent declared class, 87 and 78 sequences); and at stage 4 S33 (10 sequences, none
+     *  at the short motion: the wrap's held wait is 714 ms there, and his taps come from 696 ms after a scroll message). */
+    private val STAGE4_GATE_SEEDS: Map<Long, List<String>> = mapOf(100100675L to listOf(A_KEY), 100322L to listOf(s33Key), 100062L to listOf(FRONT_ECHO))
+    private val STAGE5_GATE_SEEDS: Map<Long, List<String>> = mapOf(100100675L to listOf(A_KEY), 100062L to listOf(FRONT_ECHO))
+    private val STAGE4_HIS_SEEDS: Map<Long, List<String>> = mapOf(501551L to listOf("$j3Key$VIA [plain]"), 500218L to listOf("$j3Key [plain]"))
     private val STAGE5_HIS_SEEDS: Map<Long, List<String>> = mapOf(501551L to listOf("$j3Key$VIA [plain]"), 500218L to listOf("$j3Key [plain]"))
     private fun gateSeedsFor(): Map<Long, List<String>> = when (timing) {
         null, Timing.DEFAULT -> GATE_SEEDS + RING_GATE_SEEDS; Timing.STAGE4 -> STAGE4_GATE_SEEDS; Timing.STAGE5 -> STAGE5_GATE_SEEDS }
