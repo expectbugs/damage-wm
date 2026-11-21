@@ -531,8 +531,10 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
             DamageMsg.APPLIED_DREW -> {}
             else -> return asToday("refused")
         }
-        // P3: in front, the mark, the prediction, the bound
-        if (f == null || a.list != f.list) return asToday("focus")
+        // P3: in front, the mark, the prediction, the bound. C3 X4M0 (decisions BI (1)): a report handed with no row (the
+        // shell's −1: a cover is up) is not in front, whatever front the rules were last told — between a cover's opening
+        // and the next pump with room they still hold the list, and the distance from −1 admitted cursors near an end
+        if (f == null || a.list != f.list || row < 0) return asToday("focus")
         if (a.mark != wireMark[f.list]) return asToday("restaged")
         val e = heldFor(f.list, id) ?: f.entryFor(id) ?: return asToday("restaged")
         val c = a.cursor ?: return asToday("restaged")
@@ -557,7 +559,7 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         }
         if (a.outcome == DamageMsg.APPLIED_REFUSED && (a.reason == 3 || a.reason == 14)) return drop("refused-${a.reason}")
         val f = front
-        if (f == null || a.list != f.list) return drop("focus")                                   // (2)
+        if (f == null || a.list != f.list || row < 0) return drop("focus")                        // (2); X4M0: −1 is a cover
         if (a.mark != wireMark[f.list]) return drop("restaged")                                   // (3)
         val c = a.cursor ?: return drop("lost")
         if (c == BoundList.LOST) return drop("lost")

@@ -877,4 +877,33 @@ class LocalRulesTest {
         assertEquals(Verdict.Apply(EvenHubMsg.EV_SCROLL_BOTTOM), r.stock(Stock.NEXT, 3, 0))
         assertTrue(r.tail(3, 0).isEmpty() && r.plan(3).isEmpty() && !r.owed)
     }
+
+    /** C3 X4M0 (decisions BI (1); the focused read RM0's question 6): between a cover's opening and the next pump with room
+     *  the rules still hold Main in front (the shell tells them in the pump that draws the change) while the shell hands
+     *  them row −1 (`Shell.localRow` under a cover). A report handled then is not in front: a notch is applied as today
+     *  with the cause `focus` (the cover takes it) and a tap is dropped as `focus`. Before: the distance from −1 admitted
+     *  cursors near an end — on a ring of 8 a notch at 7, 0 or 6 was adopted for Main under the cover and a tap at 7 acted
+     *  on as a click into it; on a plain list a notch at 0. With the front in place and a row, every case as before. */
+    @Test
+    fun aReportHandledUnderTheStaleFrontIsNotInFront_X4M0() {
+        fun snap(v: R): String { v.batch(); return v.notes.last { it.first == "snapback" }.second.substringAfter("cause=").substringBefore(' ') }
+        fun tapCause(v: R) = v.notes.last { it.first == "tapdrop" }.second.substringAfter("cause=").substringBefore(' ')
+        fun stale(l: BoundList, row: Int) = R(l = l, row = row).also { it.row = -1 }      // the cover is up; front() not yet told
+        val down = EvenHubMsg.EV_SCROLL_BOTTOM; val up = EvenHubMsg.EV_SCROLL_TOP
+        // a notch under the stale front: applied as today, `focus`, never adopted
+        stale(list(ring = true), 7).let { assertEquals(Verdict.Apply(down), it.scroll(1, 0, wrapped = true), "ring 7 -> 0: ${it.notes}"); assertEquals("focus", snap(it)) }
+        stale(list(ring = true), 0).let { assertEquals(Verdict.Apply(up), it.scroll(1, 7, id = CfwModes.EV_DOWNROLL, wrapped = true), "ring 0 -> 7"); assertEquals("focus", snap(it)) }
+        stale(list(ring = true), 7).let { assertEquals(Verdict.Apply(up), it.scroll(1, 6, id = CfwModes.EV_DOWNROLL), "ring 7 -> 6"); assertEquals("focus", snap(it)) }
+        stale(list(), 1).let { assertEquals(Verdict.Apply(up), it.scroll(1, 0, id = CfwModes.EV_DOWNROLL), "plain 1 -> 0"); assertEquals("focus", snap(it)) }
+        stale(list(ring = true), 3).let { assertEquals(Verdict.Apply(down), it.scroll(1, 4), "ring 3 -> 4"); assertEquals("focus", snap(it)) }
+        // a tap under the stale front: dropped, `focus` (the lens's cursor at 7 is distance 0 from −1 on a ring of 8)
+        stale(list(ring = true), 7).let { assertEquals(Verdict.Nothing, it.tap(1, 7), "ring tap at 7: ${it.notes}"); assertEquals("focus", tapCause(it)) }
+        stale(list(ring = true), 3).let { assertEquals(Verdict.Nothing, it.tap(1, 3), "ring tap at 3"); assertEquals("focus", tapCause(it)) }
+        // the same reports with the front in place and the row handed: as before
+        R(l = list(ring = true), row = 7).let { assertEquals(Verdict.Adopt(0), it.scroll(1, 0, wrapped = true)) }
+        R(l = list(ring = true), row = 0).let { assertEquals(Verdict.Adopt(7), it.scroll(1, 7, id = CfwModes.EV_DOWNROLL, wrapped = true)) }
+        R(l = list(ring = true), row = 7).let { assertEquals(Verdict.Adopt(6), it.scroll(1, 6, id = CfwModes.EV_DOWNROLL)) }
+        R(l = list(), row = 1).let { assertEquals(Verdict.Adopt(0), it.scroll(1, 0, id = CfwModes.EV_DOWNROLL)) }
+        R(l = list(ring = true), row = 7).let { assertEquals(Verdict.Act(7), it.tap(1, 7)) }
+    }
 }
