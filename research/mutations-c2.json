@@ -5154,18 +5154,20 @@
   "file": "local/EngineRefusals.kt",
   "edits": [
    [
-    "        val span = LinkedHashMap(before).also { m -> for ((k, n) in now) m[k] = (m[k] ?: 0) + n }",
-    "        val span = LinkedHashMap<String, Int>().also { m -> for ((k, n) in now) m[k] = (m[k] ?: 0) + n }"
+    "        booked.values.removeIf { it.reads >= 2 && nowMs - it.atMs >= SPAN_FLOOR_MS }",
+    "        booked.values.removeIf { it.reads >= 1 }"
    ]
   ],
   "tests": [
-   "*LocalSequenceFuzzTest.seededBS3_aReadAnsweredBeforeTheRefusedBatchLandsStillRepairs"
+   "*LocalSequenceFuzzTest.seededBS3_aReadAnsweredBeforeTheRefusedBatchLandsStillRepairs",
+   "*BindTransportTest.aRefusalReadAfterTwoReadsThatCameBeforeRightHandledItsBatchIsRepaired_A1"
   ],
   "expect": [
-   "seededBS3_aReadAnsweredBeforeTheRefusedBatchLandsStillRepairs"
+   "seededBS3_aReadAnsweredBeforeTheRefusedBatchLandsStillRepairs",
+   "aRefusalReadAfterTwoReadsThatCameBeforeRightHandledItsBatchIsRepaired_A1"
   ],
-  "note": "decisions BS.3: the span one read long: a batch written before a read and refused on RIGHT after it reads as alone, and is not repaired",
-  "from": "B083-rr"
+  "note": "decisions BS.3, the span one read long and no floor: a batch written before a read and refused on RIGHT after it reads as alone, and is not repaired [re-pointed at FX-083: the span's old line went with A1; the row takes out the second read and the floor]",
+  "from": "FX-083"
  },
  {
   "id": "BS3-gate-not-cleared-at-start",
@@ -7907,5 +7909,155 @@
   ],
   "note": "AZ.4: the PLAY behind the rules' answers in the pump's batch path (the row `AZ4-play-after-discard` held before G4; split at MR-083)",
   "from": "G2 (split at MR-083)"
+ },
+ {
+  "id": "FX-A1-gate-no-floor",
+  "file": "local/EngineRefusals.kt",
+  "edits": [
+   [
+    "        booked.values.removeIf { it.reads >= 2 && nowMs - it.atMs >= SPAN_FLOOR_MS }",
+    "        booked.values.removeIf { it.reads >= 2 }"
+   ]
+  ],
+  "tests": [
+   "*BindTransportTest.aRefusalReadAfterTwoReadsThatCameBeforeRightHandledItsBatchIsRepaired_A1"
+  ],
+  "expect": [
+   "aRefusalReadAfterTwoReadsThatCameBeforeRightHandledItsBatchIsRepaired_A1"
+  ],
+  "note": "A1 (FR-083): the gate's span without its time floor: two reads answered before RIGHT handled a CLOSE-led batch move it out, and the refusal reads Alone",
+  "from": "FX-083"
+ },
+ {
+  "id": "FX-A1-batch14-no-floor",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "        touchedSinceRead.values.removeIf { it.reads >= 1 && nowMs - it.atMs >= EngineRefusals.SPAN_FLOOR_MS }",
+    "        touchedSinceRead.values.removeIf { it.reads >= 1 }"
+   ]
+  ],
+  "tests": [
+   "*LocalRulesTest.aBatchDroppedWholeReadTwoReadsLaterStillResendsWhatItCarried_A1"
+  ],
+  "expect": [
+   "aBatchDroppedWholeReadTwoReadsLaterStillResendsWhatItCarried_A1"
+  ],
+  "note": "A1's class (FR-083): the batch-14 re-send's span without the floor: a read answered before RIGHT handled the batch empties it, and nothing goes again",
+  "from": "FX-083"
+ },
+ {
+  "id": "FX-A6-ahead-last-sub",
+  "file": "local/EngineRefusals.kt",
+  "edits": [
+   [
+    "                if (k < n - 1 && len >= 3 && at + 3 <= image.size && image[at].toInt() and 0x7F == CfwModes.MOTION_MODE) {",
+    "                if (len >= 3 && at + 3 <= image.size && image[at].toInt() and 0x7F == CfwModes.MOTION_MODE) {"
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.seededBS3_aRefusedMode26WithNothingBehindItSpendsNoKeyframe"
+  ],
+  "expect": [
+   "seededBS3_aRefusedMode26WithNothingBehindItSpendsNoKeyframe"
+  ],
+  "note": "A6 (FR-083): `k < n - 1` in ahead(): a mode 26 last in its batch counted as having something behind it — a lone SETTLE's refusal repaired with a keyframe (pin 4)",
+  "from": "FX-083"
+ },
+ {
+  "id": "FX-A6-no-rearm",
+  "file": "local/EngineRefusals.kt",
+  "edits": [
+   [
+    "        if (!fresh) { latched = false; return null }",
+    "        if (!fresh) return null"
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.seededBS3_theSameBatchRefusedTwiceRunningIsRepairedOnce",
+   "*LocalSequenceFuzzTest.seededBS3_aStanding27RefusalIsRepairedOnceThenReArmed",
+   "*BindTransportTest.aMode26RefusalIsHandedWhenMoreOfItsBatchLayBehindIt_BS3",
+   "*BindTransportTest.aMode27RefusalRecurringAtTheNextReadIsStanding"
+  ],
+  "expect": [
+   "seededBS3_theSameBatchRefusedTwiceRunningIsRepairedOnce",
+   "seededBS3_aStanding27RefusalIsRepairedOnceThenReArmed",
+   "aMode26RefusalIsHandedWhenMoreOfItsBatchLayBehindIt_BS3",
+   "aMode27RefusalRecurringAtTheNextReadIsStanding"
+  ],
+  "note": "A6 (FR-083): the latch never re-armed by a read with the record unchanged: after one repair every later refusal is standing for the session (pin 3, the 27 pin, both transport cases)",
+  "from": "FX-083"
+ },
+ {
+  "id": "FX-A6-no-baseline",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        val e = engineRefusals.read(ref, fresh && !baseline)",
+    "        val e = engineRefusals.read(ref, fresh)"
+   ]
+  ],
+  "tests": [
+   "*BindTransportTest.aRefusalRecordFromTheSessionBeforeIsTheNextStartsBaseline_A6"
+  ],
+  "expect": [
+   "aRefusalRecordFromTheSessionBeforeIsTheNextStartsBaseline_A6"
+  ],
+  "note": "A6 (FR-083): `!baseline` in bindTelemetry: an earlier session's refusal on the start's own record is handed as a repair (no test caught it; the pin is new on BindTransportTest's rig)",
+  "from": "FX-083"
+ },
+ {
+  "id": "FX-A3-repair-without-bind",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "        if (!bindFlag) {",
+    "        if (false) {"
+   ]
+  ],
+  "tests": [
+   "*LocalRulesTest.noRepairAtAReadWhoseFlagsShowBindGone_A3"
+  ],
+  "expect": [
+   "noRepairAtAReadWhoseFlagsShowBindGone_A3"
+  ],
+  "note": "A3 (FR-083): a read whose flags show BIND gone still repairs: the table queued and a keyframe asked into a pair whose lease has just gone on RIGHT",
+  "from": "FX-083"
+ },
+ {
+  "id": "FX-B1-base-no-resend",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                    val (again, bytes) = if (v.first) 0 to 0 else atlasResendUnjudged(dropped)",
+    "                    val (again, bytes) = 0 to 0"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.anAtlasMessageRightNeverTookGoesAgainAfterAReBase_B1"
+  ],
+  "expect": [
+   "anAtlasMessageRightNeverTookGoesAgainAfterAReBase_B1"
+  ],
+  "note": "B1 (FR-083): a re-base after a lost write drops an acked-and-unjudged atlas message unsent: RIGHT keeps drawing its glyphs from bytes it never took",
+  "from": "FX-083"
+ },
+ {
+  "id": "FX-B1-kept-no-resend",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        val (again, bytes) = atlasResendUnjudged(unjudged)          // B1: after atlasCheckOwed's clears",
+    "        val (again, bytes) = 0 to 0"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.anAtlasMessageRightNeverTookGoesAgainUnderAKeptAtlas_B1"
+  ],
+  "expect": [
+   "anAtlasMessageRightNeverTookGoesAgainUnderAKeptAtlas_B1"
+  ],
+  "note": "B1 (FR-083): a carried rebuild keeps an acked-and-unjudged atlas message live and unsent: RIGHT keeps drawing its glyphs from bytes it never took",
+  "from": "FX-083"
  }
 ]
