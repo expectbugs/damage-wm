@@ -50,6 +50,8 @@ class LocalSequenceFuzzTest {
 
     /** B083 fix stage (item 2): S33's shape, a declared residual since the cursor wait was removed. */
     val s33Key = "(1) S33: a tap inside a wrap's held wait acted on the row its cursor named"
+    /** A8: the latch's declared cost (the lead's ruling BV), counted apart by its exact shape. */
+    val A8_KEY = "A8: a standing judgement on an induced refusal of a message that was not the repair's own"
 
     // ------------------------------------------------- B083 v2, item 4: (9)'s exact per-gesture declarations
     /** One part of a gesture's difference from the ring's count: its class ([key]), the rows the phone's row moved for it
@@ -248,6 +250,23 @@ class LocalSequenceFuzzTest {
                 counted["row A: a batch that did not land on RIGHT alone"] = (counted["row A: a batch that did not land on RIGHT alone"] ?: 0) + 1
                 repeat(mine.size) { failed.removeAt(failed.size - 1) }
                 failed += mine - rowA.toSet()
+            }
+        }
+        // A8 (the lead's ruling BV; FX-083): the latch's declared cost, exactly — the gate judged `Standing` a record whose
+        // refusal the harness induced on a message that was not the repair's own (an independent refusal at the read after a
+        // repair, no read clean between: withheld, and RIGHT rests on what that message would have changed). The contract's
+        // sentence (`FIRMWARE.md` §6.7 P1): "on the firmware a mode 27 or 26 refused for a reason the two share is refused
+        // again at the next such message — 14 needs the engine word left held, 15, 3 and 9 come with a release point, 12, 5
+        // and 1 recur with the same message — so two independent transient refusals inside one read span are the model's
+        // induced ones". Only its (1) and RIGHT-side (2) lines are counted apart, in random sequences; every other failure
+        // still fails, and a standing cause that is the repair's own message is judged as before (the two BS.3 pins)
+        if (!seeded && h.standingDeclared.isNotEmpty()) {
+            val mine = failed.drop(before)
+            val shape = mine.filter { it.startsWith("(2) RIGHT") || it.startsWith("(1)") }
+            if (shape.isNotEmpty()) {
+                counted[A8_KEY] = (counted[A8_KEY] ?: 0) + 1
+                repeat(mine.size) { failed.removeAt(failed.size - 1) }
+                failed += mine - shape.toSet()
             }
         }
     }

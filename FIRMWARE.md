@@ -1308,6 +1308,11 @@ is stated there.
   too, so a 27 at the read after a 26's repair is that repair's own table refused. (Without it, a table message the
   phone builds wrongly — refused at every whole-table re-send — was a keyframe at every read; a table left not as
   believed on RIGHT is already the rules': a fire on the old table is judged by P3 or the tap rule and DISCARDed.)
+  **Its cost, declared** (decisions BV; FX-083 A8): an independent refusal at the read after a repair, with no read clean
+  between, is not repaired; on the firmware a mode 27 or 26 refused for a reason the two share is refused again at the
+  next such message — 14 needs the engine word left held, 15, 3 and 9 come with a release point, 12, 5 and 1 recur with
+  the same message — so two independent transient refusals inside one read span are the model's induced ones; the
+  sequence fuzz counts that exact shape apart and fails every other.
   Each case is a `local` note naming the record and the messages sent. Without DamageCaps bit 10, or below stage 4,
   the phone sends no mode 27, no COMMIT, DISCARD or SETTLE and applies scroll messages and clicks as today: byte for
   byte today's start. The start's bytes are pinned per stage and per `Taps` value.

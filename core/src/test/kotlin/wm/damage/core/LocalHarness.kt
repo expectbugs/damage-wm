@@ -747,13 +747,16 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         val arrive = maxOf(lastDown + 1, now + downLat() + downExtraMs)
         lastDown = arrive
         sent++
+        val batch = sent
+        // A8: the batch that carries the latest repair's whole table (its CLEAR 0xFF) is the repair's own
+        if (repairOwed && subsOf(image).any { it.contentEquals(CLEAR_ALL) }) { repairOwed = false; repairBatch = batch }
         val decided = now
         val skew = skewPair()
         if (skew == null) at(arrive) {
             for (arm in listOf(Arm.LEFT, Arm.RIGHT)) {
                 val img = if (perArm.containsKey(arm)) perArm[arm] else image
                 if (img == null) continue
-                deliver(arm, img, inducedOn == arm, decided)
+                deliver(arm, img, inducedOn == arm, decided, batch)
             }
         } else for ((arm, d) in listOf(Arm.LEFT to skew.first, Arm.RIGHT to skew.second)) {
             // B083 (2d): each lens gets the message on its own, the later one by the drawn skew; each lens's stream stays
@@ -762,7 +765,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
             if (img == null) continue
             val t = maxOf((lastDownArm[arm] ?: 0L) + 1, arrive + d)
             lastDownArm[arm] = t
-            at(t) { what = "$arm gets ${subsOf(img).joinToString(" ") { kindOf(it) }}"; deliver(arm, img, inducedOn == arm, decided) }
+            at(t) { what = "$arm gets ${subsOf(img).joinToString(" ") { kindOf(it) }}"; deliver(arm, img, inducedOn == arm, decided, batch) }
         }
     }
 
@@ -807,7 +810,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         return false
     }
 
-    private fun deliver(arm: Arm, img: ByteArray, induce: Boolean, decided: Long = now) {
+    private fun deliver(arm: Arm, img: ByteArray, induce: Boolean, decided: Long = now, batch: Int = -1) {
         // invariant (7)'s probe: a COMMIT landing finds its own local still open on RIGHT
         for (s in commitsIn(img)) {
             val g = bySR[s]
@@ -833,6 +836,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         if (refusedNow) {
             val r = "$arm mode ${lens.refMode and 0x7F} reason ${lens.refReason}"
             if (induce) induced += r else refusals += r
+            if (arm == Arm.RIGHT) rightRefusals += RightRefusal(lens.refMode and 0x7F, lens.refReason, lens.refSeq, induce, batch)
             // the image lane writes LEFT (`CfwTransportBase.writeImage`), so the flush's ack is LEFT's [I]: a refusal there
             // fails the flush — the shell rolls it back and, for a flush that carried the rules' messages, sends the table
             if (arm == Arm.LEFT) up(now) { failed(img, "refused ($r)") }
@@ -1084,6 +1088,17 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     val engine = wm.damage.core.local.EngineRefusals { now }
     /** Each read's decision on a record naming mode 26 or 27 (none: no entry), in order. */
     val engineDecisions = ArrayList<wm.damage.core.local.EngineRefusals.Decision>()
+    /** A8 (the lead's ruling BV, FX-083): each refusal RIGHT recorded — the record's mode, reason and sequence, whether the
+     *  harness induced it, and the number of the message it came on. */
+    class RightRefusal(val mode: Int, val reason: Int, val seq: Long, val induced: Boolean, val batch: Int)
+    val rightRefusals = ArrayList<RightRefusal>()
+    /** A8: the message that carried the latest repair's whole table (−1 until it is sent), and whether one is owed. */
+    private var repairBatch = -1
+    private var repairOwed = false
+    /** A8: each `Standing` decision on a record whose refusal the harness induced on a message that was not the latest
+     *  repair's own — the declared shape. */
+    val standingDeclared = ArrayList<String>()
+    private val CLEAR_ALL = CfwModes.bindClear(CfwModes.BIND_ALL)
     fun readTelemetry() {
         telem.clear()
         sim.conformanceControl(Arm.RIGHT, DamageMsg.OP_TELEMETRY, 9, now)
@@ -1097,6 +1112,11 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         // when it says so (the rule against a standing refusal)
         val e = engine.read(ref, fresh)
         if (e != null) { engineDecisions += e; trace?.invoke("[$now] mode-${e.ref.mode and 0x7F} refusal record: $e") }
+        if (e is wm.damage.core.local.EngineRefusals.Repair) { repairOwed = true; repairBatch = -1 }
+        if (e is wm.damage.core.local.EngineRefusals.Standing) {
+            val r = rightRefusals.lastOrNull { it.mode == e.ref.mode and 0x7F && it.reason == e.ref.reason && it.seq == e.ref.seq }
+            if (r != null && r.induced && r.batch != repairBatch) standingDeclared += "[$now] mode ${r.mode} reason ${r.reason} on message ${r.batch} (the repair's: $repairBatch)"
+        }
         val repair = e as? wm.damage.core.local.EngineRefusals.Repair
         rules.telemetry(t.boundIds, repair?.takeIf { it.ref.mode and 0x7F == 27 }?.ref,
             if (fresh && rec!!.first == 8 && rec.second == 14) ref else null, repair?.takeIf { it.ref.mode and 0x7F == 26 }, now)
@@ -1110,6 +1130,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
             trace?.invoke("[$now] ring: g$g not heard by the session start — counts nothing") }
         starts++
         engine.sessionStart()                           // the transport's `bindSessionStart`
+        repairOwed = false; repairBatch = -1
         q.clear(); lastUp = now; lastScrollUp = now; lastDown = now; pumpAt = Long.MAX_VALUE
         deferAreas = emptyList()                        // the start's keyframe ends every motion's wait
         if (fresh) for (a in Arm.entries) { sim.conformanceLease(a, false, now); sim.conformanceLease(a, true, now) }
