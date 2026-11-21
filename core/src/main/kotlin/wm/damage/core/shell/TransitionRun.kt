@@ -14,7 +14,7 @@ import wm.damage.core.motion.Transitions
  * write under the in half — his input's frame, a chrome tick, the window's own repaint — goes at once and shows at the
  * in half's next step (it draws `new` from the live shadow) or at LAND, so the transition plays in full (the first
  * review pass of the transitions, 2026-11-20). It ends at RIGHT's in-half body (outcome 0: the phone CLOSEs the out
- * half's slot, §7.11), at [deadlineMs] (no body by the in half's nominal end plus one period: both slots CLOSEd), or is
+ * half's slot, §7.11), at [deadlineMs] (no in-half body by its nominal end plus an allowance: both slots CLOSEd), or is
  * cut — a keyframe, a failed flush, a newer act (its out PLAY's close pass ends what is left), a session's end, the
  * glasses asleep.
  */
@@ -44,6 +44,9 @@ internal class TransitionRun(
     var outDoneAtMs = 0L
     /** When the flush carrying the PLAY-AFTER was acknowledged (0: not yet). */
     var inDoneAtMs = 0L
+    /** C3 TR1: when RIGHT's body of the out half (outcome 0: its last step drawn) reached the shell (0: not yet) — the in
+     *  half starts one period after that step on RIGHT, so this is where the in half's nominal end is measured from. */
+    var outBodyAtMs = 0L
 
     val steps: Int get() = built.timing.steps
     private val periodMs: Double get() = built.timing.period * 1000.0 / 1024
@@ -60,10 +63,21 @@ internal class TransitionRun(
      *  PLAY's ack). */
     fun outEndMs(): Long = outDoneAtMs + Math.round(steps * periodMs)
 
-    /** The in half's nominal end — it starts at the later of the PLAY-AFTER's ack and the out half's end — plus one
-     *  period: past it with no in-half body, the phone CLOSEs both slots (§7.11). Null until both acks are in. */
-    fun deadlineMs(): Long? = if (phase != Phase.IN || inDoneAtMs == 0L || outDoneAtMs == 0L) null
-        else maxOf(inDoneAtMs, outEndMs()) + Math.round((steps + 1) * periodMs)
+    /** Past this with no in-half body, the phone CLOSEs both slots (§7.11): the one rule that ends a waiter whose body
+     *  never comes. C3 TR1 (his first stage-5 session, 2026-11-21: RIGHT ran the out half about 150–200 ms after its
+     *  PLAY's ack, so the ack-based end fell before 119 of 139 in-half bodies): with RIGHT's out-half body in hand, the in
+     *  half's nominal end is that body plus T periods (it starts one period after the out half's last step on RIGHT),
+     *  never before the PLAY-AFTER's ack plus T periods, plus [BODY_ALLOWANCE_MS]. Until that body comes, the acks'
+     *  rule: the later of the PLAY-AFTER's ack and the out half's end from its PLAY's ack, plus T + 1 periods, plus
+     *  [ACKS_ALLOWANCE_MS] (decisions BV (2): a backstop in both branches — on his link the acks' rule alone fell before
+     *  the in-half body, and the out body beat it by as little as 27 ms). Null until both acks are in (the out-body rule
+     *  needs the PLAY-AFTER's). */
+    fun deadlineMs(): Long? = when {
+        phase != Phase.IN || inDoneAtMs == 0L -> null
+        outBodyAtMs != 0L -> maxOf(outBodyAtMs, inDoneAtMs) + Math.round(steps * periodMs) + BODY_ALLOWANCE_MS
+        outDoneAtMs == 0L -> null
+        else -> maxOf(inDoneAtMs, outEndMs()) + Math.round((steps + 1) * periodMs) + ACKS_ALLOWANCE_MS
+    }
 
     fun describe(): String = "${tier.word} ${built.describe()}; tags out 0x%04x in 0x%04x".format(tagOut, tagIn)
 
@@ -75,5 +89,19 @@ internal class TransitionRun(
         /** One tag per PLAY, cycling through 0x1000 apiece (§7.11: never reused while a PLAY-AFTER names the slot). */
         const val TAG_OUT = 0xC000
         const val TAG_IN = 0xD000
+        /** C3 TR1: what the backstop allows past the in half's nominal end measured from RIGHT's out-half body — RIGHT may
+         *  run the PLAY-AFTER late behind the arriving frame's batches, and the body has its way back. His first stage-5
+         *  session (measured, 132 in halves drawn whole): an in-half body at most 240 ms past that end (a Warp whose
+         *  PLAY-AFTER RIGHT ran late), median 19 ms before it; 500 ms is about twice the worst. Liveness only: it costs
+         *  nothing unless RIGHT's in-half body is lost. */
+        const val BODY_ALLOWANCE_MS = 500L
+        /** C3 TR1 after decisions BV and ML1: the acks' rule's allowance (no out-half body in hand). It differs from
+         *  [BODY_ALLOWANCE_MS] because what it counts from differs: the out body is an event on the right lens, while the
+         *  "acks" are the ends of the phone's own write calls ([outDoneAtMs], [inDoneAtMs]) — on his phone a flush with
+         *  a PLAY spends a median ~170 ms in that call after its bytes left (the mirror's apply), work being made cheaper,
+         *  so those stamps will come up to ~170 ms earlier and this rule with them. Replayed on his first stage-5
+         *  session (modeled): with every out body lost, 0 of the 132 whole in halves end early at 750 ms, both as
+         *  recorded (least margin 535 ms) and with every PLAY's ack 170 ms earlier (365 ms). */
+        const val ACKS_ALLOWANCE_MS = 750L
     }
 }

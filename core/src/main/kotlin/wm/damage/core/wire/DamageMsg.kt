@@ -317,7 +317,13 @@ object DamageMsg {
         val reason get() = fields[10]?.toInt()
         val uptimeTicks get() = fields[11]
 
-        /** The `motion` note's form: slot, tag, outcome, ordinal, drawn, folded, µs, reason, in that order. */
+        /** The `motion` note's form: slot, tag, outcome, ordinal, drawn, folded, µs, reason, in that order. C3 TR1
+         *  (decisions BV (3)): and `uptime N`, the body's field 11 as RIGHT wrote it — its uptime in OS ticks (1.024 per
+         *  ms, the clock its steps are paced on; `FIRMWARE.md` §5.8's "11 uptime"; "-" when absent). For a last step the
+         *  copy hook builds the body at that step and the refresh hook sends it later (§5.8); the contract does not say
+         *  at which of the two field 11 is read, so the note claims only "the body's field 11". Against the uptime in
+         *  the telemetry and 115 notes it places RIGHT's half on RIGHT's own clock and splits its start from the body's
+         *  way back. Before the END CRC, which stays last (a notice test reads the note's end). Journal text only. */
         fun describe(): String {
             val what = when (outcome) {
                 OUTCOME_DREW -> "drew its last step"
@@ -326,8 +332,9 @@ object DamageMsg {
                 OUTCOME_COMMITTED -> "committed"
                 else -> "outcome $outcome"
             }
+            val up = " uptime ${uptimeTicks ?: "-"}"
             return "seq ${seq ?: "-"} slot ${slot ?: "-"} tag ${tag?.let { "0x%04x".format(it) } ?: "-"} $what" +
-                (if (outcome == OUTCOME_REFUSED) "" else " ordinal $ordinal drawn $drawn folded $folded stepUs $stepUs" +
+                (if (outcome == OUTCOME_REFUSED) up else " ordinal $ordinal drawn $drawn folded $folded stepUs $stepUs" + up +
                     " endCrc ${endCrc?.let { "%08x".format(it) }}")
         }
     }
