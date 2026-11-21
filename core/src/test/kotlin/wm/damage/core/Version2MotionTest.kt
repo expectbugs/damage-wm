@@ -237,9 +237,12 @@ class Version2MotionTest {
         // shipped transitions (`v5-ship-*`, their records written as mode 25 where ZWRITE is in force) and `v5-x3-hint`;
         // stage X3T Encode's and Matrix's ship vectors (their cell lists and alphabets, rain records), filled at X5T's
         // comparison — the DSL reads inputs only
+        // SV-083: Main's scroll effects and the notice's programs as ship vectors too (their version-1 records, named by the
+        // session's SETs and the act's PLAYs and COMMITs)
         val x3t = ShipVectors.specs().count { it.effect.glyphs }
-        assertEquals(28 + ShipVectors.specs().size + 1, files.size,
-            "the 20 v5 vectors, X2D's 8, X3D's ${ShipVectors.specs().size - x3t} ship vectors and v5-x3-hint, X3T's $x3t ship vectors")
+        val sv = ShipVectors.acts().size - ShipVectors.specs().size
+        assertEquals(28 + ShipVectors.acts().size + 1, files.size,
+            "the 20 v5 vectors, X2D's 8, X3D's ${ShipVectors.specs().size - x3t} ship vectors and v5-x3-hint, X3T's $x3t ship vectors, SV-083's $sv")
         val comparedProg = HashMap<String, Int>(); val comparedTab = HashMap<String, Int>()
         val seenProg = HashSet<String>(); val seenTab = HashSet<String>()
         val inexpressible = LinkedHashMap<String, String>(); val refusedByDsl = LinkedHashMap<String, String>()

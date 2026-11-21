@@ -91,9 +91,14 @@ class ConformanceVectorTest {
         if (repo == null || !Files.isSameFile(dir, repo)) return
         // build C3's exceptions for inputs committed before the fork's runner filled them — the `v5-*` set (ended with
         // X2D's phase 2), stage X3D's `v5-ship-*` and `v5-x3-hint` (ended with X3D's comparison) and stage X3T's Encode
-        // and Matrix ship vectors (ended with X5T's comparison) — are gone: every vector file in the repo is filled, and
-        // an unfilled one fails like any other
-        for (n in out.notFilled) out.problems += "$n: not filled — a step in firmware/vectors/ with no expectation fails the test (ruling R1.21)"
+        // and Matrix ship vectors (ended with X5T's comparison) — are gone. APK 0.83's stage SV: Main's scroll effects and
+        // the notice's programs as ship vectors — exactly the names in [SV083_UNFILLED] — are committed before the fork's
+        // runner fills them: reported "not filled" with a count and run through the model
+        // ([theUnfilledVectorsRunThroughTheModel]); every other unfilled file in the repo fails like any other. The
+        // comparison removes this exception.
+        val sv = out.notFilled.filter { it.substringBefore(" (") in SV083_UNFILLED }
+        if (sv.isNotEmpty()) println("ConformanceVectorTest: ${sv.size} SV-083 vector(s) not filled until the comparison: ${sv.joinToString("; ")}")
+        for (n in out.notFilled - sv.toSet()) out.problems += "$n: not filled — a step in firmware/vectors/ with no expectation fails the test (ruling R1.21)"
     }
 
     private fun vectorFiles(dir: Path): List<Path> =
@@ -797,13 +802,19 @@ class ConformanceVectorTest {
             val x3t = "v5-ship-select-encode-352"
             for (n in listOf(x3t, "${x3t}2"))
                 Files.writeString(dir.resolve("$n.json"), JsonObject(unfilled + ("name" to JsonPrimitive(n))).toString())
+            // APK 0.83's stage SV: its exception is by exact name — one of its scroll vectors is reported, a name that only
+            // begins like it fails, and so does a scroll name no spec makes
+            val sv = "v5-ship-scroll-depth-480"
+            assertTrue(sv in SV083_UNFILLED, "$sv is one of SV-083's names")
+            for (n in listOf(sv, "${sv}2", "v5-ship-scroll-one-unfilled"))
+                Files.writeString(dir.resolve("$n.json"), JsonObject(unfilled + ("name" to JsonPrimitive(n))).toString())
             // the only problems are the rule's own lines: the filled steps agree
             val asRepo = normalPath(dir, dir)
-            assertEquals(listOf("a-one-unfilled", "v5-one-unfilled", "v5-ship-one-unfilled", x3t, "${x3t}2", X3_HINT, "${X3_HINT}2").map { "$it (steps $last..$last of ${steps.size}): not filled — a step in " +
+            assertEquals(listOf("a-one-unfilled", "v5-one-unfilled", "v5-ship-one-unfilled", "${sv}2", "v5-ship-scroll-one-unfilled", x3t, "${x3t}2", X3_HINT, "${X3_HINT}2").map { "$it (steps $last..$last of ${steps.size}): not filled — a step in " +
                 "firmware/vectors/ with no expectation fails the test (ruling R1.21)" }, asRepo.problems, "the repo's own set: each unfilled step fails, by name")
             val asOther = normalPath(dir, other)
             assertEquals(emptyList(), asOther.problems, "another set (DAMAGE_VECTOR_DIR): reported, not failed")
-            assertEquals(listOf("a-one-unfilled", "v5-one-unfilled", "v5-ship-one-unfilled", x3t, "${x3t}2", X3_HINT, "${X3_HINT}2").map { "$it (steps $last..$last of ${steps.size})" }, asOther.notFilled)
+            assertEquals(listOf("a-one-unfilled", "v5-one-unfilled", "v5-ship-one-unfilled", sv, "${sv}2", "v5-ship-scroll-one-unfilled", x3t, "${x3t}2", X3_HINT, "${X3_HINT}2").map { "$it (steps $last..$last of ${steps.size})" }, asOther.notFilled)
         } finally {
             Files.list(dir).use { s -> s.forEach { Files.delete(it) } }
             Files.delete(dir); Files.delete(other)
@@ -820,7 +831,9 @@ class ConformanceVectorTest {
      * nothing and says so.
      *
      * The committed files are the firmware's answered sequences (filled at X3D's comparison; Encode's and Matrix's at
-     * X5T's): this row only reads them.
+     * X5T's): this row only reads them. APK 0.83's stage SV: Main's scroll effects and the notice's programs are acts of
+     * the same row ([ShipVectors.acts]), compared on every record their SETs, PLAYs and COMMITs name
+     * ([ShipVectors.namedPrograms]); their inputs wait for the firmware lane's fill ([SV083_UNFILLED]).
      * When a shipped program changes and it fails, regenerate that file's inputs (`DAMAGE_SHIP_DUMP`), have the fork's
      * runner fill them, and compare again before committing — never keep the old answers under new inputs, never hand-edit.
      */
@@ -831,14 +844,20 @@ class ConformanceVectorTest {
         if (dump != null) Files.createDirectories(dump)
         // `DAMAGE_SHIP_ONLY=a,b`: only the specs whose names hold one of these (one file regenerated or looked at)
         val only = System.getenv("DAMAGE_SHIP_ONLY")?.split(',')?.filter { it.isNotEmpty() }
-        val specs = ShipVectors.specs().filter { s -> only == null || only.any { it in s.name } }
+        // SV-083: the transitions, then Main's scroll effects and the notice's programs ([ShipVectors.acts])
+        val specs = ShipVectors.acts().filter { s -> only == null || only.any { it in s.name } }
         val problems = ArrayList<String>()
         if (dump == null && only == null) {
             val files = vectorFiles(vectorDir()).map { it.fileName.toString().removeSuffix(".json") }.filter { it.startsWith(ShipVectors.PREFIX) }.toSet()
             for (n in files - specs.map { it.name }.toSet()) problems += "$n: a ship vector no spec makes"
         }
         for (spec in specs) {
-            val got = ShipVectors.capture(spec)
+            // a capture that fails its own checks is a problem of its act; the rest are still played (SV-083)
+            val got = try { ShipVectors.captureAct(spec) } catch (e: IllegalStateException) { problems += "${spec.name}: the capture failed — ${e.message}"; continue }
+                catch (e: AssertionError) { problems += "${spec.name}: the capture did not end — ${e.message}"; continue }
+            // a transition's program bytes as X3D compares them; a scroll or notice act's, every record its SETs, PLAYs and
+            // COMMITs name with the naming messages (SV-083: version-1 records, named from the session's table too)
+            val project: (JsonObject) -> List<String> = if (spec is ShipVectors.Spec) ShipVectors::programs else ShipVectors::namedPrograms
             val steps = got.vector["steps"]!!.jsonArray.size
             if (dump != null) {
                 val p = dump.resolve("${spec.name}.json")
@@ -846,13 +865,14 @@ class ConformanceVectorTest {
                 Files.writeString(p, ShipVectors.format(merged))
                 val kept = merged["steps"]!!.jsonArray.count { filled(it.jsonObject) }
                 println("ShipVectors: wrote ${p.fileName}: $steps steps ($kept expectations kept), ${Files.size(p)} B; " +
-                    "program records ${ShipVectors.programBytes(got.vector)} B; ${got.owed.joinToString(" | ")}; the model's C: ${got.halves.joinToString(" | ")}")
+                    "program records ${if (spec is ShipVectors.Spec) ShipVectors.programBytes(got.vector) else ShipVectors.namedProgramBytes(got.vector)} B; " +
+                    "${got.owed.joinToString(" | ")}; the model's C: ${got.halves.joinToString(" | ")}")
                 continue
             }
             val f = vectorDir().resolve("${spec.name}.json")
             if (!Files.exists(f)) { problems += "${spec.name}: no file — the act the shell plays is in no vector (DAMAGE_SHIP_DUMP writes it)"; continue }
-            val want = ShipVectors.programs(Json.parseToJsonElement(Files.readString(f)).jsonObject)
-            val now = ShipVectors.programs(got.vector)
+            val want = project(Json.parseToJsonElement(Files.readString(f)).jsonObject)
+            val now = project(got.vector)
             if (want.isEmpty()) problems += "${spec.name}: the file holds no program"
             if (want != now) problems += "${spec.name}: the program bytes the shell sends today differ from the file's inputs " +
                 "(${now.size} against ${want.size}; first difference at ${now.indices.firstOrNull { it >= want.size || now[it] != want[it] } ?: want.size}) — regenerate it"
@@ -874,6 +894,10 @@ class ConformanceVectorTest {
         /** Stage X3D's model-follows-§7.3 file (`make_vectors.py`): a hinted present with an owner open (the R1.21 row's
          *  names). */
         const val X3_HINT = "v5-x3-hint"
+        /** APK 0.83's stage SV (`private/build083/SV-083-brief.md`): Main's scroll effects and the notice's programs as ship
+         *  vectors, reported "not filled" by exact name until the firmware lane's fill; the comparison removes the exception
+         *  ([notFilledFailsInTheRepo]). */
+        val SV083_UNFILLED: Set<String> by lazy { (ShipVectors.scrollSpecs() + ShipVectors.noticeSpecs()).map { it.name }.toSet() }
         /** §7.13's four fold pairs (`make_vectors.py`'s `"pair"` keys). */
         val FOLD_PAIRS = setOf("v5-fold-dim", "v5-fold-pieces", "v5-fold-rain", "v5-fold-shrink")
     }
