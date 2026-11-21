@@ -11,6 +11,7 @@ import wm.damage.core.gfx.Pack
 import wm.damage.core.gfx.Zl
 import wm.damage.core.motion.TestPrograms
 import wm.damage.core.motion.TransitionRehearsal
+import wm.damage.core.motion.WheelCheck
 import wm.damage.core.motion.Transitions
 import wm.damage.core.shell.MainLocalCheck
 import wm.damage.core.sim.GlassFirmwareSim
@@ -69,7 +70,8 @@ object MotionCheck {
         }
         failures += try { transitions(outDir, out) } catch (e: Exception) { listOf("transitions: ${e.javaClass.simpleName}: ${e.message}") }
         if (scroll) failures += scrollEffects(outDir, out)
-        out.println("motion-check: ${TestPrograms.NAMES.size} program(s), 3 notice programs and ${PLAYS.size} transition(s)${if (scroll) " and Main's scroll effects" else ""} into $outDir")
+        if (scroll) failures += wheel(outDir, out)
+        out.println("motion-check: ${TestPrograms.NAMES.size} program(s), 3 notice programs and ${PLAYS.size} transition(s)${if (scroll) ", Main's scroll effects and the switcher's wheel" else ""} into $outDir")
         if (failures.isEmpty()) { out.println("motion-check: ALL HOLD"); return 0 }
         out.println("motion-check: ${failures.size} FAILURE(S):")
         for (f in failures) out.println("  - $f")
@@ -82,6 +84,57 @@ object MotionCheck {
         for (c in r.cases) LocalCheck.writeCase(outDir, c, out)
         Files.writeString(outDir.resolve("scroll-staging.txt"), r.table.joinToString("\n", postfix = "\n"))
         return r.failures
+    }
+
+    /**
+     * C3 DW-0 (the DW spec §7.2): the switcher's wheel as the glasses draw it ([WheelCheck.strips]: the desktop's faces, height
+     * 352, on a bit-11 build at stage 5 with a 256 KiB cache) — `DIR/wheel-d<D>-n<N>-<down|up|wrap-down|wrap-up>.png` (every
+     * step, the left lens above the right, 1x; the frame before the notch first) and `DIR/wheel-d8-n9-burst.png` (his
+     * sequence: six notches down at the ring's pace, a pause, six up; one row a notch), each with its `.txt`, and
+     * `DIR/wheel-staging.txt` (the block's bytes, timing and geometry per d and n). Each strip's checks (every message
+     * taken, END in the shadow, the switcher's paint over the area after the last step) count as the programs' do.
+     */
+    private fun wheel(outDir: Path, out: java.io.PrintStream): List<String> {
+        val (strips, table) = try { WheelCheck.strips(AwtText()) } catch (e: Exception) { return listOf("wheel: ${e.javaClass.simpleName}: ${e.message}") }
+        val failures = ArrayList<String>()
+        for (s in strips) {
+            if (s.rows.size <= 2) strip(outDir.resolve("${s.name}.png"), s.rows.flatten().map { Triple(it.label, it.l, it.r) }, s.crop)
+            else rowStrip(outDir.resolve("${s.name}.png"), s.rows, s.crop)
+            Files.writeString(outDir.resolve("${s.name}.txt"), buildString {
+                appendLine("${s.name}: ${s.about}")
+                appendLine("strip: ${s.rows.sumOf { it.size }} frames${if (s.rows.size > 2) ", one row a notch (the first the frame before)" else ", $COLS per row"}; " +
+                    "in each frame the left lens above the right; crop ${s.crop} at 1x")
+                for (l in s.lines) appendLine(l)
+                for (f in s.rows.flatten()) appendLine("  frame (${f.label}) at tick ${f.tick}: L %08x R %08x".format(crc(f.l), crc(f.r)))
+                if (s.failures.isEmpty()) appendLine("checks: all hold (every message taken by both lenses; after the last step each lens shows END, the switcher's paint over the area)")
+                else for (f in s.failures) appendLine("FAILED: $f")
+            })
+            failures += s.failures.map { "${s.name}: $it" }
+            out.println("  ${if (s.failures.isEmpty()) "held" else "FAILED"}: ${s.name} -> ${s.name}.png, ${s.name}.txt")
+        }
+        Files.writeString(outDir.resolve("wheel-staging.txt"), table.joinToString("\n", postfix = "\n"))
+        return failures
+    }
+
+    /** [rows] of frames, one strip row each, the left lens above the right in each frame, cropped to [crop] at 1x. */
+    private fun rowStrip(file: Path, rows: List<List<WheelCheck.Frame>>, crop: Rect) {
+        val cols = rows.maxOf { it.size }
+        val cellW = crop.w + GAP
+        val cellH = 2 * crop.h + GAP / 2 + GAP
+        val img = BufferedImage(cols * cellW + GAP, rows.size * cellH + GAP, BufferedImage.TYPE_INT_RGB)
+        for (y in 0 until img.height) for (x in 0 until img.width) img.setRGB(x, y, 0x502020)
+        val stride = (Geometry.PANEL_W + 1) / 2
+        rows.forEachIndexed { ri, row -> row.forEachIndexed { ci, f ->
+            val ox = GAP + ci * cellW
+            val oy = GAP + ri * cellH
+            for ((lens, panel) in listOf(0 to f.l, 1 to f.r)) for (y in 0 until crop.h) for (x in 0 until crop.w) {
+                val px = crop.x + x; val py = crop.y + y
+                val b = panel[py * stride + (px shr 1)].toInt() and 0xFF
+                val v = (if (px and 1 == 0) b shr 4 else b and 0x0F) * 17
+                img.setRGB(ox + x, oy + lens * (crop.h + GAP / 2) + y, ((v * 0.16).toInt() shl 16) or (minOf(255, (v * 1.05).toInt()) shl 8) or (v * 0.34).toInt())
+            }
+        } }
+        ImageIO.write(img, "png", file.toFile())
     }
 
     private class Frame(val label: String, val tick: Long, val l: ByteArray, val r: ByteArray)
