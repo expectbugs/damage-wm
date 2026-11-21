@@ -116,11 +116,11 @@ object ScrollEffects {
 
     /** C3 DM-1: [p]'s rules. Crush (pitch +rowH, the DM spec §1.2): P0 the strip window both row tracks share — its first
      *  strip row, Main's row c' − k − 1 (a notch down) or c' − k (up): (M − k − 1) × rowH, resp. (M − k) × rowH, with M
-     *  [marginA] and k the rows above; P1 the entering band form, P2 the leaving one (kind 1); P3 row c's own row in the
+     *  [marginA] and k the pan's rows above ([kA]); P1 the entering band form, P2 the leaving one (kind 1); P3 row c's own row in the
      *  strip, (M − step) × rowH. On a ring list kinds 1 and 2 take the virtual row (§7.8). Every other form: [rules]. */
-    fun rules(p: Plays, l: Layout, marginA: Int, step: Int): List<MainStaging.Rule> =
+    fun rules(p: Plays, l: Layout, marginA: Int, step: Int, kA: Int): List<MainStaging.Rule> =
         if (p.effect != ScrollEffect.CRUSH || !p.v2) rules(l, marginA, step) else listOf(
-            MainStaging.Rule(CfwModes.KIND_PITCH, (marginA - l.rowsAbove - (if (step > 0) 1 else 0)) * l.rowH),
+            MainStaging.Rule(CfwModes.KIND_PITCH, (marginA - kA - (if (step > 0) 1 else 0)) * l.rowH),
             MainStaging.Rule(CfwModes.KIND_ITEM, 0),
             MainStaging.Rule(CfwModes.KIND_ITEM, -step),
             MainStaging.Rule(CfwModes.KIND_PITCH, (marginA - step) * l.rowH))

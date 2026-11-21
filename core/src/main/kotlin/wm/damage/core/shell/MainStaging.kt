@@ -364,19 +364,20 @@ class MainStaging private constructor(
      * staging's identity (a full re-stage makes a new one; a row re-staged keeps it, P9). The item table is the one
      * as last sent ([itemOffs]); [BoundList.paintEnd] paints END from the picture each parameter names; [previous] (the
      * list before the last band switch, until its write is acknowledged) lets a report from a fire before the switch be
-     * named ([BoundList.names]).
+     * named ([BoundList.names]). K1-2 stage 0: the list's number and its entries' numbers are its binding's values
+     * ([list], [entryIds] in the order down, up, tap; Main's [LIST] and [ENTRIES]).
      */
-    fun boundList(mark: Int, previous: BoundList? = null): BoundList {
+    fun boundList(mark: Int, previous: BoundList? = null, list: Int = LIST, entryIds: IntArray = ENTRIES): BoundList {
         val down = pan(WHOLE, 1); val up = pan(WHOLE, -1)
         fun params(rules: List<Rule>) = rules.map { CfwModes.BindParam(it.kind, it.arg) }
         val entries = listOf(
-            BoundList.Entry(ENTRY_DOWN, CfwModes.EV_UPROLL, BoundList.rowStep(CfwModes.EV_UPROLL), periodInForce, down.prog4, params(down.rules), down.program),
-            BoundList.Entry(ENTRY_UP, CfwModes.EV_DOWNROLL, BoundList.rowStep(CfwModes.EV_DOWNROLL), periodInForce, up.prog4, params(up.rules), up.program),
-            BoundList.Entry(ENTRY_TAP, CfwModes.EV_TAP, 0, periodInForce, press.prog4, params(press.rules), press.program),
+            BoundList.Entry(entryIds[0], CfwModes.EV_UPROLL, BoundList.rowStep(CfwModes.EV_UPROLL), periodInForce, down.prog4, params(down.rules), down.program),
+            BoundList.Entry(entryIds[1], CfwModes.EV_DOWNROLL, BoundList.rowStep(CfwModes.EV_DOWNROLL), periodInForce, up.prog4, params(up.rules), up.program),
+            BoundList.Entry(entryIds[2], CfwModes.EV_TAP, 0, periodInForce, press.prog4, params(press.rules), press.program),
         )
         // C3 DM-1 (S6): the pans' own pitch — a list made after a switch between the two pitch forms has the other one, so
         // the rules write its LIST (a fresh mark) ahead of the SETs in the switch's batch (`LocalRules.front`)
-        return BoundList(LIST, SLOT, rows, down.pitch, mark, items4, itemOffs.copyOf(), entries,
+        return BoundList(list, SLOT, rows, down.pitch, mark, items4, itemOffs.copyOf(), entries,
             paintEnd = { left, prog4, p, pic -> paintEndOf(prog4, p, left, pic) }, ring = ring).also { it.previous = previous }
     }
 
@@ -786,6 +787,9 @@ class MainStaging private constructor(
         const val ENTRY_DOWN = 0
         const val ENTRY_UP = 1
         const val ENTRY_TAP = 2
+        /** K1-2 stage 0: Main's entries' numbers in [boundList]'s order (the pan down, the pan up, the tap) — a value its
+         *  binding passes (decisions BD: the window list's are 3–5, the wheel's 6–8). */
+        val ENTRIES: IntArray get() = intArrayOf(ENTRY_DOWN, ENTRY_UP, ENTRY_TAP)
         /** The press: T = 3 steps, then HOLD (spec §6.6; decisions B.10). */
         const val PRESS_T = 3
         /** A slot's slack (decisions B.4): a quarter of the picture's record, at least [SLACK_MIN] bytes — what a row's
@@ -1032,7 +1036,7 @@ class MainStaging private constructor(
                 val prog = ScrollEffects.program(plays, staged, rec(sp.strip), sp.kA, sp.kB, sp.step, t, at / 4, tables, fx)
                 parts += at to prog.bytes
                 at += (prog.bytes.size + 3) and 3.inv()
-                Pan(sp.k, sp.kA, sp.kB, sp.step, prog, ScrollEffects.rules(plays, staged.layout, marginA, sp.step), sp.strip, pitch)
+                Pan(sp.k, sp.kA, sp.kB, sp.step, prog, ScrollEffects.rules(plays, staged.layout, marginA, sp.step, sp.kA), sp.strip, pitch)
             }
             return pans to parts
         }
