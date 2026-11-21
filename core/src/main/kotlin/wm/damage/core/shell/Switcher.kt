@@ -167,17 +167,19 @@ class Switcher(
     fun hole(l: Layout, margin: Int = 0): Rect = l.switcherPanel.let { p -> if (margin == 0) p else Rect(p.x - margin, p.y, p.w + 2 * margin, p.h) }
 
     /**
-     * The plane regions of the open wheel (`Shell.updatePlanes`; §4.3: it owns the depth story while open). [margin] 0:
-     * today's — the panel at Global `Depth` [d] (none at 0: it lies in the content's plane), the centre band (the
-     * design's 44 / 88) at the screen plane. C3 DW-0, at stage 5 ([margin] the panel's disparity, never 0 there): the
-     * panel with its margins at [margin], and the centre band at the screen plane following the band as painted ([rest]).
+     * The plane regions of the open wheel (`Shell.updatePlanes`; §4.3: it owns the depth story while open): the centre
+     * band at the screen plane as painted ([rest]: the name's measured ink) at every stage, and [margin] 0: the panel at
+     * Global `Depth` [d] (none at 0: it lies in the content's plane). C3 DW-0, at stage 5 ([margin] the panel's disparity,
+     * never 0 there): the panel with its margins at [margin]. C3 X1W (decisions BM (7)): below stage 5 the band's region
+     * was the design's fixed 44 / 88 rows on every face, so on a face with a taller band (his desktop face: 98) the centre
+     * icon's top rows were drawn at the panel's plane, a lens offset apart from the rest of the icon.
      */
     fun planes(l: Layout, d: Int, margin: Int): List<Compositor.PlaneRegion> {
         val p = l.switcherPanel
-        if (margin == 0) return listOfNotNull(if (d != 0) Compositor.PlaneRegion(p, d) else null,   // neighbours with content
-            Compositor.PlaneRegion(Rect(p.x, p.y + 44, p.w, 88), 0))                             // centre band forward
         val r = rest(l)
-        return listOf(Compositor.PlaneRegion(hole(l, margin), margin), Compositor.PlaneRegion(Rect(p.x, r.bandTop, p.w, r.bandH), 0))
+        val band = Compositor.PlaneRegion(Rect(p.x, r.bandTop, p.w, r.bandH), 0)                       // the centre band forward
+        if (margin == 0) return listOfNotNull(if (d != 0) Compositor.PlaneRegion(p, d) else null, band)  // neighbours with content
+        return listOf(Compositor.PlaneRegion(hole(l, margin), margin), band)
     }
 
     /**
