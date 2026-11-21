@@ -836,6 +836,7 @@ class ConformanceVectorTest {
         // SV-083: the transitions, then Main's scroll effects and the notice's programs ([ShipVectors.acts])
         val specs = ShipVectors.acts().filter { s -> only == null || only.any { it in s.name } }
         val problems = ArrayList<String>()
+        val ffMoved = ArrayList<String>()
         if (dump == null && only == null) {
             val files = vectorFiles(vectorDir()).map { it.fileName.toString().removeSuffix(".json") }.filter { it.startsWith(ShipVectors.PREFIX) }.toSet()
             for (n in files - specs.map { it.name }.toSet()) problems += "$n: a ship vector no spec makes"
@@ -863,9 +864,20 @@ class ConformanceVectorTest {
             val want = project(Json.parseToJsonElement(Files.readString(f)).jsonObject)
             val now = project(got.vector)
             if (want.isEmpty()) problems += "${spec.name}: the file holds no program"
+            // C3 FF: an act the fast-path fit moved (its capture checked the staging's fitted T and P) is not compared until
+            // the vector lane writes its inputs again and the firmware lane fills them — named here, said below, and only
+            // while it still differs in its program bytes alone (as many records and messages as the file's)
+            if (spec.name in FF_MOVED) {
+                if (want == now) problems += "${spec.name}: equal to its file — the FF exception is stale, remove it"
+                else if (want.size != now.size) problems += "${spec.name}: ${now.size} records and messages against the file's ${want.size} — more moved than the fit"
+                else ffMoved += spec.name
+                continue
+            }
             if (want != now) problems += "${spec.name}: the program bytes the shell sends today differ from the file's inputs " +
                 "(${now.size} against ${want.size}; first difference at ${now.indices.firstOrNull { it >= want.size || now[it] != want[it] } ?: want.size}) — regenerate it"
         }
+        if (ffMoved.isNotEmpty()) println("ConformanceVectorTest: ${ffMoved.size} shipped act(s) moved by C3 FF's fitted P and T, NOT compared until their " +
+            "inputs are written again and filled: ${ffMoved.joinToString()}")
         println("ConformanceVectorTest: ${specs.size} shipped acts played again${dump?.let { ", written to $it" } ?: ", their programs compared with the files"}")
         assertEquals(emptyList(), problems, "the ship vectors:\n" + problems.joinToString("\n"))
     }
@@ -875,6 +887,10 @@ class ConformanceVectorTest {
     private companion object {
         /** `FIRMWARE.md` §5.1: today's 0x7f plus bit 7 ENGINE and bit 8 the riders (bit 9 is not in C1). */
         const val C1_FEATURES = 0x1FF
+        /** C3 FF (`private/c3-design/C3-FF-built.md` §7): the shipped acts whose programs the fast-path fit changed — Main
+         *  bound at stage 5 — not compared in [theShipVectorsHoldTheProgramsTheShellSends_X3D] until the vector lane writes
+         *  their inputs again (`DAMAGE_SHIP_DUMP`) and the firmware lane fills them; then this set goes. */
+        val FF_MOVED = setOf("v5-ship-scroll-depth-stage5-480")
         /** §6.8: C2 adds bit 10 (bit 9, the link item, still out). */
         const val BIND_FEATURE = 1 shl 10
         const val C2_FEATURES = 0x5FF
