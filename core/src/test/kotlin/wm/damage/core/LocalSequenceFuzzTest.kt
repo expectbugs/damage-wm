@@ -59,6 +59,17 @@ class LocalSequenceFuzzTest {
      *  ship vectors would show), it costs one tap acted on the row the left eye shows, and the next batch to RIGHT
      *  presents the shadow while the record is repaired at the next read. */
     val BH_KEY = "(1) BH: a tap acted on RIGHT's cursor while RIGHT's panel awaits the present its batch's refused LIST took"
+    /** C3 FZ5, part BO (A): S33's shape at any held wait — a tap RIGHT took before the latest wait for a motion's end (an
+     *  adopted notch's, AF.7) plus [LocalHarness.WRAP_FRAME_MS], acted on the row its cursor named (a DISCARD of a move
+     *  that was not an adoption set it ahead of the held frame); not built against: holding that DISCARD with the frame
+     *  would delay the lens's cursor to protect a picture at most 0.3 s late, and his taps come ≥ 696 ms after a scroll
+     *  message. Counted after S33 and BH, never where row A or A8 counts the sequence. */
+    val A_KEY = "(1) A: a tap inside a COMMIT's held wait acted on the row its cursor named"
+    /** C3 FZ5, part BO (D): liveness (6)'s second tap, its click sent with no 115 (`Taps · phone`, the repaired CLEAR
+     *  landed), paid an owe of either kind that the first tap's report added for a gap whose report was lost before the
+     *  check — P5's stated residual; not built against: it needs `phone`, a lost CLEAR and a lost report together, and no
+     *  report was lost in any of his pulls. */
+    val D_KEY = "(6) D: the second tap's click, sent with no 115, paid a gap owe for a report lost before the check"
 
     // ------------------------------------------------- B083 v2, item 4: (9)'s exact per-gesture declarations
     /** One part of a gesture's difference from the ring's count: its class ([key]), the rows the phone's row moved for it
@@ -204,6 +215,21 @@ class LocalSequenceFuzzTest {
         return a.viaRule && f.awaitsPresentR && f.shadowR == a.id && f.cursorIdR == a.id
     }
 
+    /** Part BO (A)'s predicate: RIGHT took the tap before the latest held wait's end plus a frame's way down, and the act is
+     *  on the row its cursor named after the fire. */
+    private fun inHeldWait(h: LocalHarness, a: LocalHarness.Act): Boolean {
+        val f = h.fires[a.gesture] ?: return false
+        return f.fireTimeR >= 0 && f.fireTimeR < f.holdEndR + LocalHarness.WRAP_FRAME_MS && f.cursorIdR == a.id
+    }
+
+    /** Part BO (D)'s predicate for (6)'s second tap [g2] (the first [g1]): no 115 of it reached the phone, its click paid an
+     *  owe of either kind, and [g1]'s report found in its gap a gesture whose 115 was lost, fired before [g1]. */
+    private fun paidOldGap(h: LocalHarness, g1: Int, g2: Int): Boolean {
+        val t1 = h.fires[g1]?.fireTimeR ?: return false
+        return g2 !in h.reportHeardAt && g2 in h.stockPaidAny &&
+            h.gapGestures[g1].orEmpty().any { gk -> gk in h.lost115 && (h.fires[gk]?.fireTimeR ?: Long.MAX_VALUE) in 0 until t1 }
+    }
+
     /** (1)–(5) and (8)–(10) at rest. */
     fun atRest(h: LocalHarness, failed: MutableList<String>, counted: MutableMap<String, Int>, seeded: Boolean = false,
                /** S33's residual counted apart: every random sequence, and the one seeded case that pins it. */
@@ -215,6 +241,7 @@ class LocalSequenceFuzzTest {
             if (residualS33 && a.viaRule && a.rightId != a.id && a.gesture in h.tapNearWrap) counted[s33Key] = (counted[s33Key] ?: 0) + 1
             else if (a.viaRule) { if (a.rightId != a.id) {
                 if (!seeded && awaitsPresent(h, a)) counted[BH_KEY] = (counted[BH_KEY] ?: 0) + 1      // part BH (2), exactly
+                else if (!seeded && !h.commitMissedRight && h.standingDeclared.isEmpty() && inHeldWait(h, a)) counted[A_KEY] = (counted[A_KEY] ?: 0) + 1
                 else failed += "(1) gesture ${a.gesture}: acted on identity ${a.id}, RIGHT showed ${a.rightId}" } }
             else if (a.rightId != null && a.rightId != a.id) counted["(1) residual ${a.taps.word}"] = (counted["(1) residual ${a.taps.word}"] ?: 0) + 1
         }
@@ -303,13 +330,15 @@ class LocalSequenceFuzzTest {
     }
 
     /** (6): two taps a round trip apart, nothing lost; the second acted on. */
-    fun tapLiveness(h: LocalHarness, failed: MutableList<String>) {
+    fun tapLiveness(h: LocalHarness, failed: MutableList<String>, counted: MutableMap<String, Int>? = null) {
         quiet(h)
-        h.gesture(0, answer = true, band = "none")
+        val g1 = h.gesture(0, answer = true, band = "none")
         h.runUntil(h.now + 300)
         val g2 = h.gesture(0, answer = true, band = "none")
         h.rest()
-        if (h.acts.none { it.gesture == g2 }) failed += "(6) the second of two taps was not acted on (taps ${h.rules.taps.word}; " +
+        // part BO (D): random sequences only (a seeded case passes no [counted])
+        if (h.acts.none { it.gesture == g2 } && counted != null && paidOldGap(h, g1, g2)) counted[D_KEY] = (counted[D_KEY] ?: 0) + 1
+        else if (h.acts.none { it.gesture == g2 }) failed += "(6) the second of two taps was not acted on (taps ${h.rules.taps.word}; " +
             "verdicts ${h.verdicts.filter { it.first == g2 }.map { it.second }}; notes ${h.notes.takeLast(4)})"
     }
 
@@ -407,7 +436,7 @@ class LocalSequenceFuzzTest {
         h.trace?.invoke("[${h.now}] --- quiet, then the invariants at rest")
         quiet(h)
         atRest(h, failed, counted)
-        tapLiveness(h, failed)
+        tapLiveness(h, failed, counted)
         scrollLiveness(h, failed)
         // row A's first trigger (declined, declared): does a batch lost on RIGHT alone heal once COMMITs land again?
         if (h.commitMissedRight) {
@@ -512,7 +541,7 @@ class LocalSequenceFuzzTest {
         val h = harnessFor(seed, Taps.REPORT)     // C3 DM-0: his Main at 352 is a ring list at stage 5
         declaredNow = HashSet()
         if (debug) h.trace = { println(it) }
-        h.bandMs = His.BAND; h.bandDropScroll = 0.0; h.dropScrollIdle = His.HIS_DROP; h.actOpensWindow = 0.5
+        h.bandMs = His.BAND; h.bandDropScroll = 0.0; h.dropScrollIdle = hisDropNow ?: timing?.hisDrop ?: His.HIS_DROP; h.actOpensWindow = 0.5
         h.rest()                                        // the start's table lands first: no start race beyond a real start
         var dir = 1
         var notches = 0
@@ -553,7 +582,7 @@ class LocalSequenceFuzzTest {
         counted["profile: late echoes (harness)"] = lateEchoes(h).size
         fz5Counted(h, counted)
         atRest(h, failed, counted)
-        tapLiveness(h, failed)
+        tapLiveness(h, failed, counted)
         scrollLiveness(h, failed)
         moved(h, failed, " (liveness)")
         ringCount(h, failed, " (liveness)", declaredNow)
@@ -583,7 +612,7 @@ class LocalSequenceFuzzTest {
             val v = try { hisSessionSequence(seed) } catch (e: Throwable) { Verdict(listOf("threw: $e"), emptyMap()) }
             for (f in v.failed) fails += "seed $seed: $f"
             for ((k, c) in v.counted) counted[k] = if (k == CARRY_MAX) maxOf(counted[k] ?: 0, c) else (counted[k] ?: 0) + c
-            for (k in v.counted.keys) if (k.startsWith("(9)") || k.startsWith("(10)") || k.startsWith("(1) S33") || k.startsWith("row A")) declaredSeeds.getOrPut(k) { ArrayList() } += seed
+            for (k in v.counted.keys) if (k.startsWith("(9)") || k.startsWith("(10)") || k.startsWith("(1) S33") || k.startsWith("row A") || k == A_KEY || k == D_KEY) declaredSeeds.getOrPut(k) { ArrayList() } += seed
         }
         // decisions BB (3): the gate-sized run fails when a named seed no longer declares a class it is named for
         if (gate) fails += namedSeedsHoldTheirClasses(hisGateSeedsFor(), declaredSeeds) { "his profile" }
@@ -1568,7 +1597,7 @@ class LocalSequenceFuzzTest {
             for (f in v.failed) fails += "seed $seed: $f"
             for ((k, c) in v.counted) counted[k] = (counted[k] ?: 0) + c
             // the declared shapes (row A, decisions W and BC's refused 27; (9)'s exact classes, B083 v2; S33), with their seeds
-            for (k in v.counted.keys) if (k.startsWith("row A: a batch") || k.startsWith("(9)") || k.startsWith("(10)") || k.startsWith("(1) S33") || k == A8_KEY || k == BH_KEY) declaredSeeds.getOrPut(k) { ArrayList() } += seed
+            for (k in v.counted.keys) if (k.startsWith("row A: a batch") || k.startsWith("(9)") || k.startsWith("(10)") || k.startsWith("(1) S33") || k == A8_KEY || k == BH_KEY || k == A_KEY || k == D_KEY) declaredSeeds.getOrPut(k) { ArrayList() } += seed
         }
         // every failure, one line each, for reading the shapes (the assertion's message keeps the first 30)
         for (f in fails) println("FAIL $f")
@@ -1589,10 +1618,15 @@ class LocalSequenceFuzzTest {
      *  press `MainStaging.PRESS_T` at P 46, the timer at `PopupPrograms.TIMER_PERIOD`, plain lists only; [STAGE5] the next
      *  build with the fast-path fit: T 19 at P 16 (his Main at 352), the press at P 16, the timer at 128, a ring list per
      *  [ringOf], and no wrap record on a plain list (no stage-5 staging holds one: its edge is the phone's frames). */
-    enum class Timing(val tScroll: Int, val period: Int, val tPress: Int, val noticePeriod: Int, val rings: Boolean, val wrapRecord: Boolean) {
-        DEFAULT(LocalHarness.T_SCROLL, LocalHarness.PERIOD, LocalHarness.T_PRESS, LocalHarness.PERIOD, true, true),
-        STAGE4(6, 46, wm.damage.core.shell.MainStaging.PRESS_T, wm.damage.core.motion.PopupPrograms.TIMER_PERIOD, false, true),
-        STAGE5(19, 16, wm.damage.core.shell.MainStaging.PRESS_T, wm.damage.core.motion.PopupPrograms.TIMER_PERIOD, true, false)
+    enum class Timing(val tScroll: Int, val period: Int, val tPress: Int, val noticePeriod: Int, val rings: Boolean, val wrapRecord: Boolean,
+                      /** Part BO: his profile's drop rate (`His.HIS_DROP` at the default), fitted at each timing as `HIS_DROP` was
+                       *  — to his owes never paid or paid late, 45.6 per 100 — by [hisDropSweep_FZ5] (0.30–0.65, 1,000 sequences a
+                       *  value): 0.58 at both real timings (44.4 and 45.1 at 0.57, 51.9 and 52.1 at 0.65). His late echoes (3.7)
+                       *  are out of this value's reach there: 3.0 and 3.2 at 0.30, with the owes at 23. */
+                      val hisDrop: Double) {
+        DEFAULT(LocalHarness.T_SCROLL, LocalHarness.PERIOD, LocalHarness.T_PRESS, LocalHarness.PERIOD, true, true, 0.57),
+        STAGE4(6, 46, wm.damage.core.shell.MainStaging.PRESS_T, wm.damage.core.motion.PopupPrograms.TIMER_PERIOD, false, true, 0.58),
+        STAGE5(19, 16, wm.damage.core.shell.MainStaging.PRESS_T, wm.damage.core.motion.PopupPrograms.TIMER_PERIOD, true, false, 0.58)
     }
 
     /** `LOCAL_FUZZ_TIMING=stage4|stage5|default` for the random bases and his profile; unset: the harness exactly as before
@@ -1649,7 +1683,7 @@ class LocalSequenceFuzzTest {
         val fails = ArrayList<String>()
         val counted = java.util.TreeMap<String, Int>()
         val declaredSeeds = java.util.TreeMap<String, MutableList<Long>>()
-        fun declares(k: String) = k.startsWith("row A: a batch") || k.startsWith("(9)") || k.startsWith("(10)") || k.startsWith("(1) S33") || k == A8_KEY || k == BH_KEY
+        fun declares(k: String) = k.startsWith("row A: a batch") || k.startsWith("(9)") || k.startsWith("(10)") || k.startsWith("(1) S33") || k == A8_KEY || k == BH_KEY || k == A_KEY || k == D_KEY
         val random = listOf(1L, 1001L).flatMap { b -> (0 until 60).map { b * 100_000 + it } } + gateSeedsFor().keys
         val his = (0 until 60).map { 5L * 100_000 + it } + hisGateSeedsFor().keys
         for ((seed, profile) in random.map { it to false } + his.map { it to true }) {
@@ -1664,6 +1698,29 @@ class LocalSequenceFuzzTest {
             declaredSeeds.entries.joinToString("; ") { (k, s) -> "$k ${s.size}: ${s.take(8).joinToString()}" } + "; counted $counted")
         fz5Reach("gate", counted)
         if (fails.isNotEmpty()) fail(fails.take(30).joinToString("\n") + "\n(${fails.size} in all)")
+    }
+
+    /** Part BO: the drop rate the sweep below sets for each profile sequence it runs (null: the timing's). */
+    private var hisDropNow: Double? = null
+
+    /** Part BO: his profile's drop rate swept at the timing in force (`LOCAL_FUZZ_HIS_DROP_SWEEP=0.4,0.5,…`, each over
+     *  `LOCAL_FUZZ_HIS_N` sequences, 1,000 by default) — the instrument the per-timing fit was read from. Passes when unset. */
+    @Test fun hisDropSweep_FZ5() {
+        val ps = System.getenv("LOCAL_FUZZ_HIS_DROP_SWEEP")?.split(',')?.map { it.trim().toDouble() } ?: return
+        val n = System.getenv("LOCAL_FUZZ_HIS_N")?.toInt() ?: 1000
+        // `LOCAL_FUZZ_SWEEP_TIMINGS=stage4,stage5`: each timing in turn (else the one in force)
+        val ts = System.getenv("LOCAL_FUZZ_SWEEP_TIMINGS")?.split(',')?.map { Timing.valueOf(it.trim().uppercase()) } ?: listOf(timing)
+        for (t in ts) for (p in ps) {
+            timing = t; hisDropNow = p
+            val c = HashMap<String, Int>()
+            for (i in 0 until n) for ((k, v) in hisSessionSequence(5L * 100_000 + i).counted) c[k] = (c[k] ?: 0) + v
+            val notches = maxOf(1, c["profile: notches"] ?: 0)
+            fun per100(k: String) = "%.2f".format(100.0 * (c[k] ?: 0) / notches)
+            println("FZ5 drop sweep at ${timing ?: "unset"}: p $p, $n sequences, $notches notches — owes never paid or paid late " +
+                "${per100("profile: owes never paid or paid late")} (his 45.6), late echoes ${per100("profile: late echoes (harness)")} " +
+                "(the rules' ${per100("profile: lateEcho")}; his 3.7), edge answers ${per100("profile: snapback.edge")}")
+        }
+        hisDropNow = null
     }
 
     @Test fun randomSequencesAndHisProfileAtStage4Timing_FZ5() = fz5Gate(Timing.STAGE4)
