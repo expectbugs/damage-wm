@@ -163,7 +163,7 @@ class WheelTest {
 
     /** The swap at half the travel: the swapping cells change form at n1 — the first step whose ease-out reaches 2048 —
      *  the centre leaving draws its centre form (aux0 0, aux1 hC) through step n1 and its neighbour form (aux0 hC, aux1
-     *  hN) from n1 + 1; the neighbour arriving the reverse; the brightness carried through the swap (decisions BK (3)). */
+     *  hN) from n1 + 1; the neighbour arriving the reverse. (The brightness across the swap: the next test, on pixels.) */
     @Test
     fun theFormsSwapAtHalfTheTravel_DW0() {
         for ((fname, face) in faces) for (d in ds) {
@@ -179,13 +179,67 @@ class WheelTest {
                 assertEquals(listOf(0 to g.hC, g.hC to g.hN), x.map { it.aux0 to it.aux1 }, "$fname d $d step $step: the centre leaving, C then N")
                 assertEquals(listOf(g.hC to g.hN, 0 to g.hC), y.map { it.aux0 to it.aux1 }, "$fname d $d step $step: the neighbour arriving, N then C")
                 assertEquals(n1, y[0].steps, "both swap at n1")
-                // decisions BK (3): the brightness is carried through the swap — the centre form scaled to the neighbour form's own
-                // level, the neighbour form unscaled, on both the cell that leaves the centre and the one that arrives
-                assertEquals(listOf(Wheel.LEVEL_SWAP_CENTRE, Wheel.LEVEL_SWAP_NEIGHBOUR), listOf(x[0].lvl1, y[0].lvl1), "the leaving centre and the arriving neighbour at n1")
-                assertEquals(listOf(Wheel.LEVEL_SWAP_NEIGHBOUR, Wheel.LEVEL_SWAP_CENTRE), listOf(x[1].lvl0, y[1].lvl0), "the forms that take over start where those ended")
-                assertEquals(wm.damage.core.shell.Switcher.NEIGHBOUR_LEVEL, Wheel.LEVEL_SWAP_CENTRE, "the centre form's swap level is the neighbour form's own")
             }
         }
+    }
+
+    /** A copy of [block]'s cache in which every cell but entry [keep]'s, and the rule record, is a blank record of the same
+     *  size (a transparent DRAW of it draws nothing): a step drawn from it holds [keep]'s ink alone. */
+    private fun onlyCell(block: Wheel.Block, keep: Int): ByteArray {
+        val c4 = block.cache(cache)
+        fun blank(off: Int, w: Int, h: Int, slot: Int) {
+            val b = wm.damage.core.shell.TextureCacheImage.encode(Gray8(w, h))
+            assertTrue(b.size <= slot, "a blank $w x $h record (${b.size} B) fits the slot of $slot B")
+            c4.fill(0, off, off + slot); b.copyInto(c4, off)
+        }
+        for (i in 0 until block.n) if (i != keep) blank(block.cellOffs[i], block.geo.w, block.geo.cellH, block.cellSlots[i])
+        blank(block.ruleOff, block.geo.w, 2, (block.rule.size + 3) and 3.inv())
+        return c4
+    }
+
+    /**
+     * C3 X1W (decisions BK (3), BM (4)): the brightness is carried through the swap, on the pixels the model draws — the four
+     * faces, both programs, d 0 and 8, each lens, the leaving item and the arriving one each drawn alone ([onlyCell]): the
+     * change of the item's brightest level across the swap (step n1 to n1 + 1) is at most one level more than its largest
+     * change in the step before (n1 − 1 to n1) or the step after (n1 + 1 to n1 + 2) — the form change adds at most one level
+     * to what the item's own ease moves it there (the arriving one brightens 4 → 15 from the swap on; the leaving one dims
+     * 15 → 4 up to it). With O9's first value (6 for both forms) the leaving item fell from 6 to about 2 there and the
+     * arriving one rose from about 2 to about 7. The levels are printed.
+     */
+    @Test
+    fun theBrightnessIsCarriedThroughTheSwapOnThePixels_X1W() {
+        val black = ByteArray(Geometry.PANEL_W / 2 * Geometry.PANEL_H)
+        val seen = LinkedHashSet<String>()
+        for ((fname, face) in faces) for (d in listOf(0, 8)) {
+            val rig = WheelCheck.Rig(face, 352, 9, d)
+            val block = rig.block()
+            val c = 4
+            for (step in intArrayOf(1, -1)) {
+                val prog = block.program(step)
+                val p = block.params(step, c)
+                val n1 = prog.resolve(p, staticOnly = false)[2][0].steps
+                for ((who, e) in listOf("leaving" to c, "arriving" to (c + step).mod(block.n))) {
+                    val c4 = onlyCell(block, e)
+                    for (left in listOf(true, false)) {
+                        val area = block.geo.area(left)
+                        val b = (n1 - 1..n1 + 2).map { k ->
+                            val f = Wheel.pictureOnModel(prog, p, c4, black, left, k)
+                            var m = 0
+                            for (y in area.y until area.bottom) for (x in area.x until area.right) m = maxOf(m, level(f, x, y))
+                            m
+                        }
+                        val across = Math.abs(b[2] - b[1])
+                        val around = maxOf(Math.abs(b[1] - b[0]), Math.abs(b[3] - b[2]))
+                        val what = "$fname d $d step $step the $who item ${if (left) "left" else "right"}"
+                        seen += "$who step $step: brightest level at steps ${n1 - 1}..${n1 + 2} = $b"
+                        assertTrue(b.all { it > 0 }, "$what: the item has ink at every step around the swap ($b)")
+                        assertTrue(across <= around + 1, "$what: across the swap (step $n1 to ${n1 + 1}) its brightest level moves $across levels " +
+                            "($b at steps ${n1 - 1}..${n1 + 2}), more than one beyond the $around its own ease moves it in the steps beside")
+                    }
+                }
+            }
+        }
+        println("WheelTest swap brightness (the four faces, d 0 and 8, both lenses):\n" + seen.joinToString("\n"))
     }
 
     /**
