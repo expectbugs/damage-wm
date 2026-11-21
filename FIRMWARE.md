@@ -1756,7 +1756,11 @@ case that must fail on the rule as it stood** — a pin watched to fail on the o
 repair without its re-send: the read before F1's switch whose SET is lost (`C2-F-focus.md` B1), which fails (6); a
 lost scroll-entry SET, which fails (7); a lost SET that changed an entry's program, which fails (7) and, for the press,
 (6) (D1); a lost cover CLEAR, which fails none of the eight and is pinned by its count of locals drawn under the cover
-(D1). So are the rules stage DP2 added: without the riding LIST a LIST lost on RIGHT alone fails (2) and (3); with the
+(D1). So are the rules stage DP2 added: without the riding LIST a re-stage's batch lost whole on RIGHT alone (nothing
+recorded on RIGHT, LEFT's ack arriving) leaves RIGHT on the old list, so its notches are never adopted again — the case
+that holds the riding LIST end to end (C3 X4M0); a LIST refused on one lens is repaired by RIGHT's refusal record or,
+in the harness, by the refused flush — on glass a refusal on LEFT fails no ack (the success ack precedes the decode,
+`CLAIMS.md`), so there the riding LIST is its only cure too; with the
 old S a SET landing between the two lenses' handling of one notch, or lost on LEFT alone, fails (2); without P1's
 keyframe a riding LIST refused 14 on RIGHT with a COMMIT behind it fails (2). **Three seeded cases are declared
 without a pin** (`LocalSequenceFuzzTest`), each with its reason: S4, an S taken after the lease and the claim — the
@@ -3066,3 +3070,9 @@ phone's keeper applies the hold-back rule before re-arming.
   notch's COMMIT a DISCARD); the table repair reads a scroll's fields 10–14 only on outcome drew (a fire refused 19 is
   no evidence); the counting gains the cause `owner` (a fire refused 19); §6.11's two phone rows follow; §7.11 the
   start's and the whole table's order [CLEAR, SETs, LIST-RING] and what a LIST-RING refused there leaves.
+- 2026-11-21 — the fast-path fit, the focused read and its fix (`C3-decisions.md` BE, BI; stages FF, X4M0): §7.12 gains
+  the phone's fit of a fast-path step (three modeled figures, the period rule as the phone has applied it since the
+  first trial, what the 114's field 9 corrects); §6.10's riding-LIST sentence says the case that now holds it end to
+  end (a re-stage's batch lost whole on RIGHT alone) and that on glass a refusal on LEFT fails no ack. No rule's text
+  changes for X4M0's first item: a report handled while a cover is up is "not in front" by §6.7's own words (the
+  phone's focus); the code now reads the shell's answer and not what the last pump told the rules.

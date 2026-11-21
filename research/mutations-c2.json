@@ -1811,13 +1811,15 @@
    "*LocalRulesTest.aBatchDroppedWholeReadWhileAnAnswerIsOwedKeepsTheCommit_X3M0*",
    "*LocalRulesTest.aWrapNotchOnARingListIsAdoptedModuloTheCountAndPredictedAtV_DM0*",
    "*LocalSequenceFuzzTest.seededS21_*",
-   "*LocalSequenceFuzzTest.seededS13_*"
+   "*LocalSequenceFuzzTest.seededS13_*",
+   "*LocalSequenceFuzzTest.seededX4M0_*"
   ],
   "expect": [
    "aBatchDroppedWholeReadWhileAnAnswerIsOwedKeepsTheCommit_X3M0",
-   "aWrapNotchOnARingListIsAdoptedModuloTheCountAndPredictedAtV_DM0"
+   "aWrapNotchOnARingListIsAdoptedModuloTheCountAndPredictedAtV_DM0",
+   "seededX4M0_aRestageLostWholeOnRightHealsByTheRidingList"
   ],
-  "note": "decisions U.1: no riding LIST — a LIST lost on RIGHT alone makes RIGHT refuse every idle SETTLE (S21); a re-stage's LIST lost on both lenses is never sent again now that the stale-mark repair is gone (S13). Re-pointed by C3 X3M0's follow-up (decisions BH (4); B7, the refusal at the LIST, stays): S21 (RIGHT) did not catch it already on ac0a77e7, and with B7 S13 does not either (the refused LIST is repaired by RIGHT's record or LEFT's failed flush first); the rules rows read the riding LIST before every answer (its presence, not the heal)",
+  "note": "decisions U.1: no riding LIST — a LIST lost on RIGHT alone makes RIGHT refuse every idle SETTLE (S21); a re-stage's LIST lost on both lenses is never sent again now that the stale-mark repair is gone (S13). Re-pointed by C3 X3M0's follow-up (decisions BH (4); B7, the refusal at the LIST, stays): S21 (RIGHT) did not catch it already on ac0a77e7, and with B7 S13 does not either (the refused LIST is repaired by RIGHT's record or LEFT's failed flush first); the rules rows read the riding LIST before every answer (its presence, not the heal). C3 X4M0 (decisions BI (2)): its end-to-end pin again - a re-stage's batch lost whole on RIGHT alone (no record, LEFT acks), where the riding LIST is the only cure (seededX4M0)",
   "from": "FB"
  },
  {
@@ -8488,5 +8490,41 @@
   ],
   "note": "C3 X3M0 (decisions BB (2)): a fire refused 19 is noted with the cause link again (a start's keyframe), not owner",
   "from": "C3-X3M0"
+ },
+ {
+  "id": "X4M0-stale-front-scroll",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "        if (f == null || a.list != f.list || row < 0) return asToday(\"focus\")",
+    "        if (f == null || a.list != f.list) return asToday(\"focus\")"
+   ]
+  ],
+  "tests": [
+   "*LocalRulesTest.aReportHandledUnderTheStaleFrontIsNotInFront_X4M0*"
+  ],
+  "expect": [
+   "aReportHandledUnderTheStaleFrontIsNotInFront_X4M0"
+  ],
+  "note": "C3 X4M0 (decisions BI (1)): P3 judges a scroll report handed with row -1 (a cover up, the rules' front not yet told) as in front again - the distance from -1 adopts a notch at Main's ring cursors 7, 0, 6 (a plain list's 0) under the cover",
+  "from": "C3-X4M0"
+ },
+ {
+  "id": "X4M0-stale-front-tap",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "        if (f == null || a.list != f.list || row < 0) return drop(\"focus\")",
+    "        if (f == null || a.list != f.list) return drop(\"focus\")"
+   ]
+  ],
+  "tests": [
+   "*LocalRulesTest.aReportHandledUnderTheStaleFrontIsNotInFront_X4M0*"
+  ],
+  "expect": [
+   "aReportHandledUnderTheStaleFrontIsNotInFront_X4M0"
+  ],
+  "note": "C3 X4M0 (decisions BI (1)): the tap rule's (2) passes a tap handed with row -1 again - a tap at a ring of 8's cursor 7 (distance 0 from -1) is acted on as a click into the cover the lens does not show yet",
+  "from": "C3-X4M0"
  }
 ]
