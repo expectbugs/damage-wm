@@ -859,33 +859,22 @@ class TransitionShellTest {
     @Test
     fun aWriteThatIsNotInputIsHeldAndShownAtTheNextStep_DP2(): Unit = runBlocking { writeDuring(At.IN, input = false) }
 
-    // ------------------------------------------------------- X2P2 stage 2 item 1: no wrap PLAY under a transition
+    // ------------------------------------- X2P2 stage 2 item 1, as C3 X2M0 rules it: a wrap notch under a transition
     /**
-     * The second review pass's finding 1, ruled (`FIRMWARE.md` §7.11 at `81faf329`): a Back into Main from w0 (Main's first
-     * row) at height 480 with twelve windows — Main's list wraps there (a ring list at stage 5 since DM-0, so the lenses are
-     * made to hold a plain list before each edge notch: the fallback, the one case left at stage 5) — then a notch past row 0 while
-     * the Back's transition is in hand: in its frame phase ([frame]: Main's frame in several flushes, the in half held back
-     * meanwhile) or inside its in half (RIGHT's in half drawing). The edge is answered as today without its wrap motion: no
-     * slot-1 PLAY from the Back's out PLAY to its run's end, both halves drew their last step, the wrapped row on both
-     * lenses at the in half's LAND, belief equals both lenses at rest; and the first edge notch after the run's end plays
-     * its wrap as before.
+     * Decisions AZ (3): the case he will meet. A Back into Main from w0 (Main's first row) at height 480 with twelve
+     * windows — Main's paint wraps there, so at stage 5 its list is bound as a ring list (LIST-RING) — then a notch past
+     * row 0 while the Back's transition is in hand: in its frame phase ([frame]: Main's frame in several flushes, the in
+     * half held back meanwhile) or inside its in half (RIGHT's in half drawing). The ring fire is refused 19 on RIGHT
+     * (a transition's owner in its close set, `FIRMWARE.md` §7.14) and the phone applies the notch as today (the DISCARD
+     * naming the wrapped row); no PLAY in slot 1 from the Back's out PLAY to its run's end, both halves drew their last
+     * step, the wrapped row on both lenses at the in half's LAND, belief equals both lenses at rest. After the run the list
+     * still rings: the next notch past the end is the glasses' own wrap (field 18), with no PLAY in slot 1.
      */
-    /** C3 DM-0: each lens's list as a plain LIST of the same range, cursor and mark — what a LIST-RING lost after a plain
-     *  LIST leaves there (§7.14) — written into the lens model directly (a lens state, not a phone message). */
-    private fun plainListOnTheLenses(r: Rig) {
-        for (a in Arm.entries) {
-            val l = r.sim.bindForTest(a).lists[MainStaging.LIST]
-            assertTrue(l.ring, "$a: Main's list rings at stage 5 before the lens is made to hold a plain one")
-            r.sim.conformanceMessage(a, CfwModes.bindList(MainStaging.LIST, l.items, l.count, 0, l.pitch, l.mark), System.currentTimeMillis())
-            assertTrue(!r.sim.bindForTest(a).lists[MainStaging.LIST].ring, "$a: the plain LIST cleared RING")
-        }
-    }
-
-    private suspend fun edgeUnderABack(frame: Boolean) {
+    private suspend fun wrapNotchUnderABack(frame: Boolean) {
         val r = Rig(stage = 5, nRows = 12)
         try {
             r.up { it.copy(heightMode = 480) }
-            assertTrue(r.onLoop { r.shell.mainBinding.staging?.wraps == true }, "Main's list wraps at 480 with twelve windows")
+            assertTrue(r.onLoop { r.shell.mainBinding.staging?.ring == true }, "Main's list is staged as a ring list at 480 with twelve windows")
             selectAndSettle(r)
             val count = r.onLoop { r.shell.mainBoundForTest().first }?.count ?: r.rows.size
             val batchMax = r.onLoop { r.shell.comp.batchMax }
@@ -900,33 +889,34 @@ class TransitionShellTest {
                 r.sim.motionForTest(Arm.RIGHT).slots[3]?.let { it.drawing && it.d >= 1 } == true }
             r.until("Main's list bound on RIGHT") { r.sim.bindForTest(Arm.RIGHT).field39() == 0x31 }
             assertEquals(0, r.row(), "back on Main's first row")
+            for (a in Arm.entries) assertTrue(r.sim.bindForTest(a).lists[MainStaging.LIST].ring, "$a: the list as bound rings")
             if (frame) {
                 val imgs = right(r)
                 val out = imgs.indexOfFirst { img -> subs(img).any { playIn(it, 2) } }
                 val frameImgs = imgs.drop(out + 1).filter { img -> subs(img).any { drawing(it) } }
                 assertTrue(frameImgs.size >= 2, "Main's frame took more than one flush: ${frameImgs.map { it.size }} B")
-                println("X2P2 stage 2: Main's frame under the Back in ${frameImgs.size} flushes, ${frameImgs.map { it.size }} B")
+                println("X2M0: Main's frame under the Back in ${frameImgs.size} flushes, ${frameImgs.map { it.size }} B")
                 r.onLoop { r.shell.comp.batchMax = batchMax }
                 for (left in listOf(true, false)) againstTruth(r, left, shadow = true, area = r.onLoop { r.shell.layout.content })?.let { fail("Main's frame whole in the shadow before the notch: $it") }
             }
-            // C3 DM-0: at stage 5 Main's wrapping list is a ring list, so the notch past row 0 fires on the glasses (refused 19
-            // under the in half's owner) and never reaches the wrap path; the case this test guards is now the fallback's — a
-            // lens holding a plain list (a LIST-RING lost) — so that list is put on both lenses before the notch
-            plainListOnTheLenses(r)
+            val applied = r.notes("applied").size
             r.fire(CfwModes.EV_DOWNROLL)
-            r.until("the edge answered: the row is Main's last") { r.row() == count - 1 }
-            // the edge's repaint (held) whole in both shadows, the run still in hand and its in half still to land
+            r.until("the notch applied as today: the row is Main's last") { r.row() == count - 1 }
+            r.until("RIGHT's report of the notch in the journal") { r.notes("applied").size > applied }
+            r.notes("applied").drop(applied).let { a -> assertTrue(a.size == 1 && a[0].contains("refused (fire-over-owner)") && !a[0].contains("wrapped"),
+                "RIGHT refused the ring fire 19 under the transition's owner: $a") }
+            // the notch's repaint (held) whole in both shadows, the run still in hand and its in half still to land
             val content = r.onLoop { r.shell.layout.content }
             r.until("the wrapped row in both shadows") {
                 r.onLoop { !r.shell.comp.hasPending && "slides " !in r.shell.quiescenceReport() && "inflight=" !in r.shell.quiescenceReport() } &&
                     listOf(true, false).all { againstTruth(r, it, shadow = true, area = content) == null } }
             if (frame) {
-                assertEquals("FRAME", r.onLoop { r.shell.transitionPhaseForTest() }, "still the frame phase when the edge's row is in the shadow")
+                assertEquals("FRAME", r.onLoop { r.shell.transitionPhaseForTest() }, "still the frame phase when the wrapped row is in the shadow")
                 r.shell.transitionHoldInHalfForTest = false; r.shell.postIdleTick()
             } else {
-                for (a in Arm.entries) assertTrue(r.sim.motionForTest(a).slots[3] != null, "$a: the in half's slot was emptied — closed — under the edge")
+                for (a in Arm.entries) assertTrue(r.sim.motionForTest(a).slots[3] != null, "$a: the in half's slot was emptied — closed — under the notch")
                 assertTrue(Arm.entries.all { r.sim.motionForTest(it).slots[3]?.drawing == true },
-                    "precondition: both in halves still drawing when the edge's row was in the shadow (a run too loaded to exercise the hold)")
+                    "precondition: both in halves still drawing when the wrapped row was in the shadow (a run too loaded to exercise the hold)")
             }
             r.until("both lenses' in halves landed") { Arm.entries.all { r.sim.motionForTest(it).slots[3]?.let { s -> !s.drawing && s.d >= 1 } == true } }
             delay(20)
@@ -936,27 +926,26 @@ class TransitionShellTest {
             r.settle("after the Back")
             noCloseUnderTheRun(r, act = 0, alsoNot = { playIn(it, MainStaging.WRAP_SLOT) })
             bothHalvesWhole(r, act = 1)
-            assertTrue(r.notes("local").any { it.startsWith("an edge at Main's end under Back's transition (${if (frame) "FRAME" else "IN"})") }, "${r.notes("local").takeLast(4)}")
-            r.assertOracle("at rest after the edge under the Back")
-            // the first edge notch after the run's end plays its wrap as before (DM-0: on a lens holding a plain list — the
-            // answers since have made it ring again — the fallback's PLAY of the whole list's pan from the ring strip)
+            r.assertOracle("at rest after the wrap notch under the Back")
+            // after the run the list still rings: the next notch past the end is the glasses' own wrap, no PLAY in slot 1
             val at = right(r).size
-            plainListOnTheLenses(r)
+            val after = r.notes("applied").size
             r.fire(CfwModes.EV_UPROLL)
-            r.until("the wrap's PLAY on RIGHT") { right(r).drop(at).any { img -> subs(img).any { playIn(it, MainStaging.WRAP_SLOT) } } }
             r.until("the row is Main's first again") { r.row() == 0 }
+            r.until("RIGHT's report of the wrap in the journal") { r.notes("applied").size > after }
             r.settle("after the wrap")
             r.recording = false
-            assertTrue(r.notes("local").any { it.startsWith("the wrap's PLAY went ahead of its frame") }, "${r.notes("local").takeLast(4)}")
+            r.notes("applied").drop(after).let { a -> assertTrue(a.size == 1 && a[0].contains(" drew ") && a[0].contains("wrapped"), "the glasses' own wrap (field 18): $a") }
+            assertTrue(right(r).drop(at).none { img -> subs(img).any { playIn(it, MainStaging.WRAP_SLOT) } }, "no PLAY in slot ${MainStaging.WRAP_SLOT} for the wrap")
             r.assertOracle("after the wrap")
         } finally { r.close() }
     }
 
     @Test
-    fun anEdgeNotchInABacksFramePhaseSendsNoWrapPlay_X2P2(): Unit = runBlocking { edgeUnderABack(frame = true) }
+    fun aWrapNotchInABacksFramePhaseIsRefused19AndAppliedAsToday_X2M0(): Unit = runBlocking { wrapNotchUnderABack(frame = true) }
 
     @Test
-    fun anEdgeNotchInABacksInHalfSendsNoWrapPlay_X2P2(): Unit = runBlocking { edgeUnderABack(frame = false) }
+    fun aWrapNotchInABacksInHalfIsRefused19AndAppliedAsToday_X2M0(): Unit = runBlocking { wrapNotchUnderABack(frame = false) }
 
     // --------------------------------------------- X2P2 stage 2 item 2: a refused in half whose body comes first
     /** In RIGHT's copy of a batch: the PLAY-AFTER's period made 0 (§5.5's check order: refused 12), in place, before RIGHT

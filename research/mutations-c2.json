@@ -8344,5 +8344,24 @@
   ],
   "note": "C3 X2M0 (decisions AZ (2), the removal): a ring staging gives the shell a wrap pan again (DM-0's fallback) — an edge reported there would PLAY in slot 1 instead of going as the shell's frames",
   "from": "C3-X2M0"
+ },
+ {
+  "id": "X2M0-refused19-dropped",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "                return asToday(if (r == 5 || r == 12 || r == 18) \"restaged\" else \"link\")",
+    "                return if (r == 19) Verdict.Nothing else asToday(if (r == 5 || r == 12 || r == 18) \"restaged\" else \"link\")"
+   ]
+  ],
+  "tests": [
+   "*TransitionShellTest.aWrapNotchInABacks*"
+  ],
+  "expect": [
+   "aWrapNotchInABacksFramePhaseIsRefused19AndAppliedAsToday_X2M0",
+   "aWrapNotchInABacksInHalfIsRefused19AndAppliedAsToday_X2M0"
+  ],
+  "note": "C3 X2M0 (decisions AZ (3)): a ring fire refused 19 under a transition's owner is not applied as today — the wrap notch at Main's end during a Back is lost (its stock message pays its own owe)",
+  "from": "C3-X2M0"
  }
 ]
