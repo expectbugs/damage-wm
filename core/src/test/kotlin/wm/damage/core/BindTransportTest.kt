@@ -960,6 +960,36 @@ class BindTransportTest {
         t.stop()
     }
 
+    /** FX-083 A6 (the row on `!baseline` in `bindTelemetry`): a session's first RIGHT record is the start's own reset-check
+     *  read, taken before the session wrote anything — a refusal it shows is an earlier session's, and the start sends the
+     *  whole table anyway. A SET refused on both lenses (a record naming 27) in one session, then a new session: its first
+     *  record still names that 27, and nothing is handed or journaled as a refusal to repair; a read after it, the record
+     *  unchanged, hands none either. */
+    @Test
+    fun aRefusalRecordFromTheSessionBeforeIsTheNextStartsBaseline_A6(): Unit = runBlocking {
+        val (sim, t) = armedSession()
+        suspend fun read(): TransportEvent.LocalRead {
+            events.clear()
+            t.devProbe("telemetry", "read")
+            waitUntil(10_000, message = { "a LocalRead: $events" }) { events.any { it is TransportEvent.LocalRead } }
+            return events.filterIsInstance<TransportEvent.LocalRead>().last()
+        }
+        read()
+        t.devProbe("selftest", "live:1b0009ff04000100222701000000000000000000000000"); delay(200)
+        assertEquals(27, read().refusal27?.mode, "this session's refusal: handed")
+        val record = sim.refusalRecord(Arm.RIGHT).take(3)
+        notes.clear(); events.clear()
+        assertTrue(t.restartSession("test: the next session"))
+        waitUntil(10_000, message = { "the next session armed: ${said()}" }) { t.state.value.started && t.state.value.bind }
+        delay(300)                                                           // the start's own read's events collected
+        assertEquals(record, sim.refusalRecord(Arm.RIGHT).take(3), "RIGHT's record still names the earlier session's 27")
+        assertTrue(events.filterIsInstance<TransportEvent.LocalRead>().none { it.refusal27 != null || it.refusal26 != null },
+            "the start's own record is the baseline: nothing handed (${events.filterIsInstance<TransportEvent.LocalRead>()})")
+        assertNull(read().refusal27, "the record unchanged at the next read")
+        assertTrue(!has("local", "the glasses refused a mode 27"), "nothing journaled as a refusal to repair: ${said("local")}")
+        t.stop()
+    }
+
     /** P9: a mid-session disarm of BIND by hand (`flags=0x2c`) goes out only after a DISCARD(0xFF, S − 0x4000, 0xFF, 0) has its
      *  ack — the DISCARD on the image lane, then the FLAGS_SET. S is S_heard + 1 as it stands at the disarm (decisions
      *  AA.3): two notches heard (S 1 and 2), so 3 − 0x4000 — the session's first S (1) reached only its first 16,384. */
