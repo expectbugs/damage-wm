@@ -5075,7 +5075,7 @@
   "edits": [
    [
     "        } else if (refusal26 != null) {",
-    "        } else if (false && refusal26 != null) {"
+    "        } else if (refusal26 != null && false) {"
    ]
   ],
   "tests": [
