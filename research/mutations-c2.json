@@ -8290,24 +8290,6 @@
   "from": "C3-DM0"
  },
  {
-  "id": "DM0-s6-fresh-mark",
-  "file": "local/LocalRules.kt",
-  "edits": [
-   [
-    "            pending += Pending.ListMsg(list, 0, fresh = false)",
-    "            pending += Pending.ListMsg(list, 0, fresh = true)"
-   ]
-  ],
-  "tests": [
-   "*LocalRulesTest.aPitchFormChangeSendsTheListWithTheMarkKeptBesideTheSets_DM0*"
-  ],
-  "expect": [
-   "aPitchFormChangeSendsTheListWithTheMarkKeptBesideTheSets_DM0"
-  ],
-  "note": "C3 DM-0 (S6): a pitch-form change's LIST with a fresh mark — a fire before the switch's batch landed is `restaged`, not judged against the list before",
-  "from": "C3-DM0"
- },
- {
   "id": "DM0-shell-ring-no-fit",
   "file": "shell/Shell.kt",
   "edits": [

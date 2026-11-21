@@ -186,8 +186,7 @@ class MainStaging private constructor(
      *  re-made for its steps ([remakeOwed], [remake]) where a spare pan slot exists. */
     var periodInForce: Int = period
 
-    /** The bound list's pitch: the effect in force's form (DM-0, S6: [ScrollEffects.pitch]). */
-    val pitch: Int get() = ScrollEffects.pitch(motion?.effect ?: ScrollEffect.DEPTH, layout)
+    val pitch: Int get() = -layout.rowH
     /** The strip's rows before row 0 (and after the last): the rows Main shows past an end, k — one more on a ring strip
      *  (DM-0: at v = n the lower track reads strip row n + M + k; the DM spec §2). Every rule's P0 and P3 take it. */
     val margin: Int get() = layout.rowsAbove + if (ring) 1 else 0
@@ -940,7 +939,7 @@ class MainStaging private constructor(
                 val prog = ScrollEffects.program(effect, staged, rec(sp.strip), sp.kA, sp.kB, sp.step, t, at / 4, table)
                 parts += at to prog.bytes
                 at += (prog.bytes.size + 3) and 3.inv()
-                Pan(sp.k, sp.kA, sp.kB, sp.step, prog, ScrollEffects.rules(effect, staged.layout, marginA, sp.step), sp.strip)
+                Pan(sp.k, sp.kA, sp.kB, sp.step, prog, ScrollEffects.rules(staged.layout, marginA, sp.step), sp.strip)
             }
             return pans to parts
         }

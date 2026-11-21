@@ -52,16 +52,11 @@ object ScrollEffects {
      *  a band form's record (any: P1 and P2 name the real one), [records] every record a parameter may name. */
     class Staged(val layout: Layout, val listD: Int, val bandD: Int, val band: Motion.Source.Record, val records: List<Motion.Source.Record>)
 
-    /** Build C3, stage DM-0 (the DM spec §1.1, S6): the bound list's pitch under [e] — kind 2's step. Every effect built
-     *  so far keeps K1-1's form, −rowH (P0 and P3 the strips' start y); a source-window effect (Crush, DM-1) takes +rowH.
-     *  A change between the two forms goes as a LIST with the new pitch beside the entries' SETs (`LocalRules.front`). */
-    fun pitch(@Suppress("UNUSED_PARAMETER") e: ScrollEffect, l: Layout): Int = -l.rowH
-
-    /** The four parameters' rules under [e] (`FIRMWARE.md` §6.2 step 9; c' the new cursor, [marginA] the strip's rows
-     *  before row 0 — k, or k + 1 on a ring strip): P0 lens.y − (c + marginA) × rowH and P3 lens.bottom − (c + 1 +
-     *  marginA) × rowH (kind 2 at [pitch], c = c' − step), P1 the entering row's band form and P2 the leaving row's (kind
-     *  1). The same for every effect built so far ([pitch]'s form −rowH). */
-    fun rules(@Suppress("UNUSED_PARAMETER") e: ScrollEffect, l: Layout, marginA: Int, step: Int): List<MainStaging.Rule> = listOf(
+    /** The four parameters' rules (`FIRMWARE.md` §6.2 step 9; c' the new cursor, [marginA] the strip's rows before row 0 —
+     *  k, or k + 1 on a ring strip, C3 DM-0): P0 lens.y − (c + marginA) × rowH and P3 lens.bottom − (c + 1 + marginA) ×
+     *  rowH (kind 2, c = c' − step), P1 the entering row's band form and P2 the leaving row's (kind 1). The same for every
+     *  effect. */
+    fun rules(l: Layout, marginA: Int, step: Int): List<MainStaging.Rule> = listOf(
         MainStaging.Rule(CfwModes.KIND_PITCH, l.lens.y + (step - marginA) * l.rowH),
         MainStaging.Rule(CfwModes.KIND_ITEM, 0),
         MainStaging.Rule(CfwModes.KIND_ITEM, -step),

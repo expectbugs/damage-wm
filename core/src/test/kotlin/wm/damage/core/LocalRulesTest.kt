@@ -12,7 +12,6 @@ import wm.damage.core.local.LocalRules.Stock
 import wm.damage.core.local.LocalRules.Verdict
 import wm.damage.core.local.Taps
 import wm.damage.core.motion.Motion
-import wm.damage.core.motion.MotionProgram
 import wm.damage.core.wire.CfwModes
 import wm.damage.core.wire.DamageMsg
 import wm.damage.core.wire.EvenHubMsg
@@ -38,16 +37,12 @@ class LocalRulesTest {
             track(BAND, Motion.Backdrop.Level(15)) { draw(sources[0], BAND.x, BAND.y, n = 2, opt = 0x20, prefs = listOf(Motion.Pref(0, Motion.Field.SRC))) }
         }
         val P = listOf(CfwModes.BindParam(CfwModes.KIND_ITEM, 0), CfwModes.BindParam(0, 0), CfwModes.BindParam(0, 0), CfwModes.BindParam(0, 0))
-        fun list(count: Int = 8, mark: Int = 1, ring: Boolean = false, pitch: Int = 8, params: List<CfwModes.BindParam> = P, prog: MotionProgram = scroll) =
-            BoundList(0, 0, count, pitch, mark, 400, IntArray(count) { recs[it] }, listOf(
-                BoundList.Entry(0, CfwModes.EV_UPROLL, +1, 16, prog.at, params, prog),
-                BoundList.Entry(1, CfwModes.EV_DOWNROLL, -1, 16, prog.at, params, prog),
+        fun list(count: Int = 8, mark: Int = 1, ring: Boolean = false, params: List<CfwModes.BindParam> = P) =
+            BoundList(0, 0, count, 8, mark, 400, IntArray(count) { recs[it] }, listOf(
+                BoundList.Entry(0, CfwModes.EV_UPROLL, +1, 16, scroll.at, params, scroll),
+                BoundList.Entry(1, CfwModes.EV_DOWNROLL, -1, 16, scroll.at, params, scroll),
                 BoundList.Entry(2, CfwModes.EV_TAP, 0, 16, press.at, P, press)), ring = ring)
-        /** C3 DM-0: a second scroll program (a programs-only re-make's), and a parameter set with a kind-2 value (P1 = c'
-         *  × pitch, or v × pitch on a ring fire that wrapped). */
-        val scrollB = Motion.program(320, sources, bit10 = true) {
-            track(BAND, Motion.Backdrop.Level(0)) { draw(sources[0], BAND.x, BAND.y, n = 4, prefs = listOf(Motion.Pref(0, Motion.Field.SRC))) }
-        }
+        /** C3 DM-0: a parameter set with a kind-2 value (P1 = c' × pitch, or v × pitch on a ring fire that wrapped). */
         val PK2 = listOf(CfwModes.BindParam(CfwModes.KIND_ITEM, 0), CfwModes.BindParam(CfwModes.KIND_PITCH, 0), CfwModes.BindParam(0, 0), CfwModes.BindParam(0, 0))
         fun u16(b: ByteArray, i: Int) = (b[i].toInt() and 0xFF) or ((b[i + 1].toInt() and 0xFF) shl 8)
     }
@@ -66,13 +61,13 @@ class LocalRulesTest {
             mark = start.first { it[0].toInt() == 27 && (it[1].toInt() == 2 || it[1].toInt() == CfwModes.BIND_LIST_RING) }[11].toInt() and 0xFF
         }
         /** A 115 from RIGHT: a scroll that drew lands at [cursor] with the phone's own prediction unless [p] says otherwise.
-         *  [wrapped]: field 18 = 1 (a ring fire across the wrap, C3 DM-0); [prog]: field 14. */
+         *  [wrapped]: field 18 = 1 (a ring fire across the wrap, C3 DM-0). */
         fun scroll(s: Int, cursor: Int, id: Int = CfwModes.EV_UPROLL, outcome: Int = 0, reason: Int? = null, m: Int = mark,
                    p: IntArray? = if (outcome == 0) intArrayOf(recs[cursor.coerceIn(0, 9)], 0, 0, 0) else null, list: Int = 0,
-                   wrapped: Boolean = false, prog: Int = scroll.at): Verdict {
+                   wrapped: Boolean = false): Verdict {
             val f = HashMap<Int, Long>(mapOf(1 to s.toLong(), 2 to 4L, 3 to id.toLong(), 4 to (if (id == CfwModes.EV_UPROLL) 0L else 1L),
                 5 to outcome.toLong(), 6 to (reason ?: 0).toLong(), 7 to list.toLong(), 8 to cursor.toLong(), 9 to 0L, 15 to 200L, 17 to m.toLong()))
-            if (p != null) { for (i in 0..3) f[10 + i] = (p[i] and 0xFFFF).toLong(); f[14] = prog.toLong() }
+            if (p != null) { for (i in 0..3) f[10 + i] = (p[i] and 0xFFFF).toLong(); f[14] = scroll.at.toLong() }
             if (wrapped) f[18] = 1L
             return r.report(DamageMsg.Applied(f), row, now).also { applyV(it, if (id == CfwModes.EV_UPROLL) 1 else -1) }
         }
@@ -155,28 +150,6 @@ class LocalRulesTest {
         t.r.front(list(ring = true, mark = 2), t.row); take(t.batch(), "a re-staging")
         val lists = all.filter { isList(it) }
         assertTrue(lists.isNotEmpty() && lists.all { isListRing(it) }, "every LIST is LIST-RING flags 1: ${lists.map { it.joinToString("") { x -> "%02x".format(x) } }}")
-    }
-
-    /** C3 DM-0 (S6, `FIRMWARE.md` §7.11): a change of the Scroll effect between the two pitch forms — the same rows and
-     *  mark, a new pitch and new programs — goes as ONE batch: the LIST with the new pitch and the MARK KEPT, then the
-     *  entries' SETs; a report from a fire before that batch landed (the old program, the old pitch's parameters, the mark
-     *  it kept) is judged against the list before (`previous`) and adopted — not a re-staging's `restaged`. */
-    @Test
-    fun aPitchFormChangeSendsTheListWithTheMarkKeptBesideTheSets_DM0() {
-        val old = list(params = PK2)
-        val t = R(l = old, row = 3)
-        val now = list(params = PK2, pitch = -8, prog = scrollB, mark = old.mark).also { it.previous = old }
-        t.r.front(now, t.row)
-        val b = t.batch()
-        val iList = b.indexOfFirst { isList(it) }
-        assertTrue(iList >= 0, "a LIST")
-        assertEquals(t.mark, b[iList][11].toInt() and 0xFF, "the mark kept")
-        assertEquals(-8, b[iList][9].toInt() or (b[iList][10].toInt() shl 8), "the new pitch")
-        val sets = b.withIndex().filter { (_, s) -> s[0].toInt() == 27 && s[1].toInt() == 0 }
-        assertTrue(sets.size == 2 && sets.all { it.index > iList }, "the scroll entries' SETs after it, in the same batch")
-        // a fire before the batch landed: the old program, P1 = 4 × 8 = 32 at the old pitch
-        assertEquals(Verdict.Adopt(4), t.scroll(1, 4, p = intArrayOf(recs[4], 32, 0, 0), prog = scroll.at), "${t.notes}")
-        assertTrue(t.batch().any { isCommit(it, 1) }, "committed from the old program")
     }
 
     /** Build C3 (decisions W, D-8): a tap refused 19 — an owner in its close set (§7.3), refusal 17's twin (§7.14) — is

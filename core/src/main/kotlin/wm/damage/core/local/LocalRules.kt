@@ -398,17 +398,11 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         val mine = entriesOf(list).map { it.entry }.toSet()
         pending.removeAll { it is Pending.Clear && it.entry in mine && held[it.entry]?.list == list.list }
         val was = staged[list.list]
-        if (was == null || was.items4 != list.items4 || was.count != list.count || was.mark != list.mark) {
+        if (was == null || was.items4 != list.items4 || was.count != list.count || was.pitch != list.pitch || was.mark != list.mark) {
             // a staging the glasses do not hold (P9: a row's index or identity changed, a new mark): a LIST; a program's
             // change alone is its SET (below), a row's picture updated in place keeps its mark and sends nothing
             if (old != null && old.list == list.list) slot(list.slot).moved = slot(list.slot).moved ?: "restaged"
             pending += Pending.ListMsg(list, if (was == null) 0 else shift, fresh = true)
-        } else if (was.pitch != list.pitch || was.ring != list.ring) {
-            // build C3, stage DM-0 (S6): the Scroll effect changed between the two pitch forms (or the list's form changed)
-            // with the same rows — a LIST with the new pitch and the MARK KEPT, in the batch that SETs the entries (below):
-            // a fire before that batch lands names the old programs and parameters, judged against both stagings
-            // ([BoundList.previous]), not a re-staging's `restaged`
-            pending += Pending.ListMsg(list, 0, fresh = false)
         } else staged[list.list] = list
         // SETs for every entry the glasses do not hold in its current form
         for (e in entriesOf(list)) if (!holds(list.list, e)) pending += Pending.Set(list, e)
