@@ -9169,5 +9169,241 @@
   ],
   "note": "C3 X1DM1 (decisions BP (2): no byte below stage 5): the height turn given the width turn's split and tables too - its version-1 bytes change below stage 5",
   "from": "C3-X1DM1"
+ },
+ {
+  "id": "MX2-out-dims",
+  "file": "motion/Transitions.kt",
+  "edits": [
+   [
+    "pieces(Motion.LAYER_OLD, n, Motion.Ease.Linear, lvl0 = 15, lvl1 = 15) }",
+    "pieces(Motion.LAYER_OLD, n, Motion.Ease.Linear, lvl0 = 15, lvl1 = 0) }"
+   ]
+  ],
+  "tests": [
+   "*TransitionsTest.matrixsDrops*"
+  ],
+  "expect": [
+   "matrixsDropsComeInOverTheOldScreenAndTheInHalfCarriesThemOn_R1"
+  ],
+  "note": "C3 MX2 item 3 (R1, decisions BU): Matrix's out half dims the old screen under its drops (the old picture changes below the heads)",
+  "from": "C3-MX2"
+ },
+ {
+  "id": "MX2-drops-pass-trail",
+  "file": "motion/Transitions.kt",
+  "edits": [
+   [
+    "val e1 = ((grid.trail - 1) * 4096) / (grid.rows + grid.trail)",
+    "val e1 = ((grid.trail + 2) * 4096) / (grid.rows + grid.trail)"
+   ]
+  ],
+  "tests": [
+   "*TransitionsTest.matrixsDrops*"
+  ],
+  "expect": [
+   "matrixsDropsComeInOverTheOldScreenAndTheInHalfCarriesThemOn_R1"
+  ],
+  "note": "C3 MX2 R1: the out half's heads come further than one trail (cells above a trail keep a smear: there is no new picture yet)",
+  "from": "C3-MX2"
+ },
+ {
+  "id": "MX2-bend-two-steps",
+  "file": "motion/Transitions.kt",
+  "edits": [
+   [
+    "if (j == n - 1) 4096 else (e1 * (j + 1) * (j + 1)) / ((n - 1) * (n - 1))",
+    "if (j >= n - 2) 4096 else (e1 * (j + 1) * (j + 1)) / ((n - 1) * (n - 1))"
+   ]
+  ],
+  "tests": [
+   "*TransitionsTest.matrixsDrops*"
+  ],
+  "expect": [
+   "matrixsDropsComeInOverTheOldScreenAndTheInHalfCarriesThemOn_R1"
+  ],
+  "note": "C3 MX2 R1: the out half's rain ends past the bottom a step early — §7.11's rule bent at two steps, not one",
+  "from": "C3-MX2"
+ },
+ {
+  "id": "MX2-out-seed",
+  "file": "motion/Transitions.kt",
+  "edits": [
+   [
+    "rain(drops, n, outEase, x = grid.xL, xR = grid.xR, seed = s)",
+    "rain(drops, n, outEase, x = grid.xL, xR = grid.xR, seed = (s + 7) and 0xFFFF)"
+   ]
+  ],
+  "tests": [
+   "*TransitionsTest.matrixsDrops*"
+  ],
+  "expect": [
+   "matrixsDropsComeInOverTheOldScreenAndTheInHalfCarriesThemOn_R1"
+  ],
+  "note": "C3 MX2 R1: the out half's drops on another seed than the in half's rain (other columns, other characters: the fall does not carry on)",
+  "from": "C3-MX2"
+ },
+ {
+  "id": "MX2-junction-back",
+  "file": "motion/Transitions.kt",
+  "edits": [
+   [
+    "IntArray(n) { j -> e1 + ((4096 - e1) * (j + 1)) / n }",
+    "IntArray(n) { j -> (4096 * (j + 1)) / n }"
+   ]
+  ],
+  "tests": [
+   "*TransitionsTest.matrixsDrops*"
+  ],
+  "expect": [
+   "matrixsDropsComeInOverTheOldScreenAndTheInHalfCarriesThemOn_R1"
+  ],
+  "note": "C3 MX2 R1: the in half starts its travel from the top again (the heads jump back up at the junction)",
+  "from": "C3-MX2"
+ },
+ {
+  "id": "MX2-junction-gap",
+  "file": "motion/Transitions.kt",
+  "edits": [
+   [
+    "IntArray(n) { j -> e1 + ((4096 - e1) * (j + 1)) / n }",
+    "IntArray(n) { j -> minOf(4096, e1 + ((4096 - e1) * (j + 2)) / n) }"
+   ]
+  ],
+  "tests": [
+   "*TransitionsTest.matrixsDrops*"
+  ],
+  "expect": [
+   "matrixsDropsComeInOverTheOldScreenAndTheInHalfCarriesThemOn_R1"
+  ],
+  "note": "C3 MX2 R1: the in half's first step lies two of its steps past the out half's last (a gap at the junction)",
+  "from": "C3-MX2"
+ },
+ {
+  "id": "MX2-in-reveal2",
+  "file": "motion/Transitions.kt",
+  "edits": [
+   [
+    "val rain = record(1)",
+    "val rain = record(2)"
+   ]
+  ],
+  "tests": [
+   "*TransitionsTest.matrixsColumns*"
+  ],
+  "expect": [
+   "matrixsColumnsTakeTheOldScreenAwayAndLeaveTheNew_MX2"
+  ],
+  "note": "C3 MX2 item 3: the rain fills above its trails (reveal 2) instead of leaving the new screen there (today's wash)",
+  "from": "C3-MX2"
+ },
+ {
+  "id": "MX2-in-short",
+  "file": "motion/Transitions.kt",
+  "edits": [
+   [
+    "track(area, area, Motion.Backdrop.None) { rain(rain, n, inEase,",
+    "track(Rect(area.x, area.y, area.w, area.h - 20), Rect(area.x, area.y, area.w, area.h - 20), Motion.Backdrop.None) { rain(rain, n, inEase,"
+   ]
+  ],
+  "tests": [
+   "*TransitionsTest.matrixsColumns*",
+   "*TransitionsTest.everyEffectsInHalf*"
+  ],
+  "expect": [
+   "matrixsColumnsTakeTheOldScreenAwayAndLeaveTheNew_MX2",
+   "everyEffectsInHalfLandsTheArrivingFrameAndHidesItUntilThen_DP2"
+  ],
+  "note": "C3 MX2 item 3 (END): the in half's rain stops 20 rows short of the area's bottom (the old screen's last rows are never wiped; END is not the new page)",
+  "from": "C3-MX2"
+ },
+ {
+  "id": "MX2-one-front",
+  "file": "motion/Transitions.kt",
+  "edits": [
+   [
+    "spread = grid.spread, flicker = RAIN_FLICKER",
+    "spread = 0, flicker = RAIN_FLICKER"
+   ]
+  ],
+  "tests": [
+   "*TransitionsTest.noStepOfMatrix*"
+  ],
+  "expect": [
+   "noStepOfMatrixIsAWashAndItsColumnsFallApart_MX2"
+  ],
+  "note": "C3 MX2 item 3: every column starts together (one front: a horizontal wipe, not rain)",
+  "from": "C3-MX2"
+ },
+ {
+  "id": "MX2-full-trail",
+  "file": "motion/Transitions.kt",
+  "edits": [
+   [
+    "return RainGrid(cw, ch, rows, ((rows + 2) / 3).coerceIn(4, 32),",
+    "return RainGrid(cw, ch, rows, rows.coerceIn(4, 32),"
+   ]
+  ],
+  "tests": [
+   "*TransitionsTest.noStepOfMatrix*"
+  ],
+  "expect": [
+   "noStepOfMatrixIsAWashAndItsColumnsFallApart_MX2"
+  ],
+  "note": "C3 MX2 item 3: trails the whole screen's height (a step lights most of the screen: a wash)",
+  "from": "C3-MX2"
+ },
+ {
+  "id": "MX2-screen-plane",
+  "file": "motion/Transitions.kt",
+  "edits": [
+   [
+    "-depth - k * cw, depth - k * cw)",
+    "-depth - k * cw, -depth - k * cw)"
+   ]
+  ],
+  "tests": [
+   "*TransitionsTest.matrixsRainSitsAtTheContentPlane*"
+  ],
+  "expect": [
+   "matrixsRainSitsAtTheContentPlane_MX2"
+  ],
+  "note": "C3 MX2 item 3: both lenses' rain grids at one offset (the column cuts fall on different content in each eye)",
+  "from": "C3-MX2"
+ },
+ {
+  "id": "MX2-narrow-cells",
+  "file": "motion/Transitions.kt",
+  "edits": [
+   [
+    "const val RAIN_CW_MIN = 14",
+    "const val RAIN_CW_MIN = 8"
+   ]
+  ],
+  "tests": [
+   "*TransitionsTest.matrixsHalvesKeepTheirShare*"
+  ],
+  "expect": [
+   "matrixsHalvesKeepTheirShareAtEveryHeightDepthAndStepCount_MX2"
+  ],
+  "note": "C3 MX2 item 3 (the budget and the fit): columns as narrow as a small face's letters — more lit cells than timingFor's fit counts",
+  "from": "C3-MX2"
+ },
+ {
+  "id": "MX2-stage4-region-gate",
+  "file": "transport/Transport.kt",
+  "edits": [
+   [
+    "    get() = if (!effects) null else atlasCapacity until",
+    "    get() = if (false) null else atlasCapacity until"
+   ]
+  ],
+  "tests": [
+   "*TransitionShellTest.withoutStage5EncodeAndMatrixStoredChangeNoByte_DMT*"
+  ],
+  "expect": [
+   "withoutStage5EncodeAndMatrixStoredChangeNoByte_DMT"
+  ],
+  "note": "C3 MX2 item 3 (the stage-4 path unchanged, with Matrix stored in every tier): the transitions' region reserved below stage 5",
+  "from": "C3-MX2"
  }
 ]
