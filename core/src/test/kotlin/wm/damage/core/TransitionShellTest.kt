@@ -113,13 +113,27 @@ class TransitionShellTest {
      *  (`MainLocalShellTest`'s form, decisions AD.1), so the first start asks 256 KiB — the session Encode plays on.
      *  [nRows] (X2P2 stage 2): Main's row count, for a frame that takes several flushes. The shell over the firmware
      *  model on the instant link; internal since X3D: `ShipVectors` takes the shipped programs from it. */
-    internal class Rig(val features: Int = 0xdff, val stage: Int = 4, val taps: Taps = Taps.REPORT, val kib256: Boolean = false, nRows: Int = 5) {
+    internal class Rig(val features: Int = 0xdff, val stage: Int = 4, val taps: Taps = Taps.REPORT, val kib256: Boolean = false, nRows: Int = 5,
+                       val paced: Boolean = false) {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val tmp = Files.createTempDirectory("damage-transition")
         val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = features }
-        val t: wm.damage.core.transport.CfwTransportBase = if (!kib256) SimTransport(sim, scope, SimTransport.Timing(instant = true))
+        val t: wm.damage.core.transport.CfwTransportBase = if (paced) StartRig(sim, scope)
+            else if (!kib256) SimTransport(sim, scope, SimTransport.Timing(instant = true))
             else StartRig(sim, scope, c1StageFile = tmp.resolve("c1-stage").also { f ->
                 Files.writeString(f, wm.damage.core.transport.LadderRecord(stage = stage, sessionKib = 256).encode()) })
+        /** C3 TR1, a [paced] rig: his link as his first stage-5 session measured it (2026-11-21), from the phone's side.
+         *  RIGHT's image acks reach the transport [ackDelayMs] after the model handled the image; its 114 bodies
+         *  [outBodyDelayMs] (slot 2) and [inBodyDelayMs] (slot 3) after the model drew the half's last step — where the
+         *  time went on his glasses (RIGHT ran the PLAY late after its ack, late steps, the body's way back) is one sum
+         *  seen from the phone; the bodies of [dropBodySlots] never come. All 0 until a test sets them: the rig's start
+         *  runs unpaced. Acks and bodies each keep their order. */
+        @Volatile var ackDelayMs = 0L
+        @Volatile var outBodyDelayMs = 0L
+        @Volatile var inBodyDelayMs = 0L
+        @Volatile var dropBodySlots: Set<Int> = emptySet()
+        private val lateAcks = kotlinx.coroutines.channels.Channel<Triple<Long, Arm, ByteArray>>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+        private val lateBodies = kotlinx.coroutines.channels.Channel<Triple<Long, Arm, ByteArray>>(kotlinx.coroutines.channels.Channel.UNLIMITED)
         val journal = tmp.resolve("journal.jsonl")
         val ct = CachedText(FakeText())
         val shell = Shell(ct, t, Persistence(tmp.resolve("state.json")), journal, scope) { Shell.LocalClock(12, 0, "12:00", "PM") }
@@ -141,6 +155,25 @@ class TransitionShellTest {
                 val line = "${a.name.first()} " + img.joinToString("") { "%02x".format(it) }
                 allImages += line; if (recording) images += line }
             scope.launch { while (true) { val now = System.currentTimeMillis(); for (a in Arm.entries) sim.conformanceWake(a, if (a == Arm.LEFT) now - leftEngineLagMs else now); delay(4) } }
+            if (paced) {
+                val rig = t as StartRig
+                rig.onNotify = { a, p ->
+                    val now = System.currentTimeMillis()
+                    val motion = if (StartRig.sid(p) == wm.damage.core.wire.SettingsMsg.SID && p.size >= wm.damage.core.wire.AaFrame.HEADER + wm.damage.core.wire.AaFrame.CRC)
+                        wm.damage.core.wire.DamageMsg.parseMotion(StartRig.body(p)) else null
+                    val slot = motion?.slot ?: -1
+                    when {
+                        slot >= 0 && slot in dropBodySlots -> null
+                        slot == 2 && outBodyDelayMs > 0 -> { lateBodies.trySend(Triple(now + outBodyDelayMs, a, p)); null }
+                        slot == 3 && inBodyDelayMs > 0 -> { lateBodies.trySend(Triple(now + inBodyDelayMs, a, p)); null }
+                        StartRig.sid(p) == EvenHubMsg.SID && ackDelayMs > 0 -> { lateAcks.trySend(Triple(now + ackDelayMs, a, p)); null }
+                        else -> p
+                    }
+                }
+                for (ch in listOf(lateAcks, lateBodies)) scope.launch {
+                    for ((due, a, p) in ch) { val w = due - System.currentTimeMillis(); if (w > 0) delay(w); rig.deliver(a, p) }
+                }
+            }
         }
 
         fun notes(kind: String): List<String> = if (!Files.exists(journal)) emptyList() else Files.readAllLines(journal)
@@ -627,7 +660,7 @@ class TransitionShellTest {
             // the CLOSEs go in a flush of their own: their image reaches the lens after the settle
             r.until("CLOSE 2 and CLOSE 3 reach RIGHT") { right(r).any { img -> subs(img).let { s -> s.size == 2 && closeOf(s[0], 2) && closeOf(s[1], 3) } } }
             r.recording = false
-            assertTrue(r.notes("transition").any { "no in-half body by its nominal end plus one period" in it }, "${r.notes("transition")}")
+            assertTrue(r.notes("transition").any { "no in-half body by its nominal end" in it }, "${r.notes("transition")}")
             val imgs = right(r)
             assertTrue(imgs.any { img -> subs(img).let { s -> s.size == 2 && closeOf(s[0], 2) && closeOf(s[1], 3) } }, "CLOSE 2 and CLOSE 3 in one image")
             val t = wm.damage.core.motion.Transitions.timing(450, 10)
@@ -659,6 +692,124 @@ class TransitionShellTest {
         val inLastLatest = maxOf(10_310.0, 10_300 + timing.steps * p) + (timing.steps - 1) * p
         val deadline = assertNotNull(run.deadlineMs(), "a deadline once both acks are in")
         assertTrue(deadline >= inLastLatest + 2 * p - 2, "the deadline $deadline falls two periods after the in half's latest last step ${inLastLatest.toLong()}")
+    }
+
+    // ------------------------------------------------------------- C3 TR1: the backstop on a link like his
+    /**
+     * C3 TR1 (`private/c3-design/C3-TR1-built.md`): once RIGHT's out-half body is in, the in half's nominal end is that
+     * body plus T periods — never before the PLAY-AFTER's ack plus T periods — and the backstop falls the allowance past
+     * it; until then (and when that body never comes) the acks' rule stands. No deadline without the PLAY-AFTER's ack.
+     */
+    @Test
+    fun theDeadlineCountsFromRightsOutHalfBodyOnceItCame_TR1() {
+        val fx = wm.damage.core.motion.Motion.effects(wm.damage.core.wire.DamageMsg.Caps(2, 0xdff),
+            wm.damage.core.wire.DamageMsg.FLAG_DRAW2 or wm.damage.core.wire.DamageMsg.FLAG_ENGINE or wm.damage.core.wire.DamageMsg.FLAG_EFFECTS)
+        val timing = wm.damage.core.motion.Transitions.timing(450, 10)
+        val b = wm.damage.core.motion.Transitions.build(fx, wm.damage.core.motion.Transitions.Effect.DEPTH, false,
+            wm.damage.core.geom.Rect(0, 0, Geometry.PANEL_W, 352), timing, 1024, CfwModes.TRANSITION_SLOT)
+        val run = wm.damage.core.shell.TransitionRun(wm.damage.core.motion.Transitions.Tier.SELECT, b, ByteArray(1), ByteArray(1), ByteArray(1), 0xC000, 0xD000, 0L)
+        val tp = Math.round(timing.steps * timing.period * 1000.0 / 1024)
+        val allow = wm.damage.core.shell.TransitionRun.BODY_ALLOWANCE_MS
+        run.phase = wm.damage.core.shell.TransitionRun.Phase.IN
+        run.outDoneAtMs = 10_200
+        run.outBodyAtMs = 10_600
+        assertTrue(run.deadlineMs() == null, "no deadline before the PLAY-AFTER's ack, the out body in hand or not")
+        run.inDoneAtMs = 10_400
+        assertEquals(10_600 + tp + allow, run.deadlineMs(), "from RIGHT's out-half body: T periods and the allowance")
+        run.inDoneAtMs = 10_700
+        assertEquals(10_700 + tp + allow, run.deadlineMs(), "never before the PLAY-AFTER's ack plus T periods")
+        run.outBodyAtMs = 0
+        run.inDoneAtMs = 10_400
+        assertEquals(maxOf(10_400, 10_200 + tp) + Math.round((timing.steps + 1) * timing.period * 1000.0 / 1024), run.deadlineMs(),
+            "no out-half body: the acks' rule")
+    }
+
+    /** C3 TR1: his link as the paced rig plays it — acks [ackMs] after RIGHT handled an image (his out PLAY's median
+     *  182–197 ms from submit), the out half's body [outLate] ms past the out PLAY's ack plus T − 1 periods (his median
+     *  194–197 ms, worst 297), the in half's body that plus T periods plus [inExtra] (his median −18/−23 ms, worst 240:
+     *  a PLAY-AFTER RIGHT ran late). */
+    private fun paceLikeHis(r: Rig, ackMs: Long = 190, outLate: Long = 195, inExtra: Long = 0) {
+        r.ackDelayMs = ackMs; r.outBodyDelayMs = ackMs + outLate; r.inBodyDelayMs = ackMs + outLate + inExtra
+    }
+
+    /** When the journal wrote each note of [kind] whose detail contains [part] (ms, the journal's own clock). */
+    private fun noteTimesOf(r: Rig, kind: String, part: String): List<Long> = Files.readAllLines(r.journal)
+        .filter { "\"ev\":\"note\",\"kind\":\"$kind\"" in it && part in it }
+        .map { it.substringAfter("\"t\":").substringBefore(",").toLong() }
+
+    /**
+     * C3 TR1: on a link paced like his first stage-5 session (at his median, and at his worst out-body lateness with the
+     * in half's body at its worst past the out body) a Select's transition ends at RIGHT's in-half body — no backstop,
+     * no CLOSE of slot 3 or of both under the run (the CLOSE that cut one in half of 119 on his glasses at step 3 of 5),
+     * both halves drawn whole, the CLOSE of slot 2 alone after the body — and belief equals both lenses after. On the
+     * tree before TR1 the backstop fired first in both (his session: 119 of 139).
+     */
+    @Test
+    fun onALinkLikeHisTheBackstopWaitsForTheInHalfsBody_TR1(): Unit = runBlocking {
+        for ((outLate, inExtra) in listOf(195L to 0L, 297L to 240L)) {
+            val r = Rig(stage = 5, paced = true)
+            try {
+                r.up()
+                paceLikeHis(r, outLate = outLate, inExtra = inExtra)
+                r.recording = true
+                selectAndSettle(r)
+                r.recording = false
+                val what = "out body +$outLate ms, in body +$inExtra ms"
+                assertTrue(r.notes("transition").none { "no in-half body" in it }, "$what: the backstop fired: ${r.notes("transition")}")
+                assertTrue(inHalfWhole(r), "$what: ended by RIGHT's in-half body: ${r.notes("transition")}")
+                bothHalvesWhole(r)
+                noCloseUnderTheRun(r)
+                r.assertOracle("after the Select on a link like his ($what)")
+            } finally { r.close() }
+        }
+    }
+
+    /** C3 TR1: on that link with RIGHT's in-half body lost, the backstop still ends the run — at RIGHT's out-half body
+     *  plus T periods and the allowance, both slots CLOSEd in one image — and belief equals both lenses after. */
+    @Test
+    fun onALinkLikeHisALostInHalfBodyEndsBothSlotsAfterTheAllowance_TR1(): Unit = runBlocking {
+        val r = Rig(stage = 5, paced = true)
+        try {
+            r.up()
+            paceLikeHis(r)
+            r.dropBodySlots = setOf(3)
+            r.recording = true
+            selectAndSettle(r)
+            r.until("CLOSE 2 and CLOSE 3 reach RIGHT") { right(r).any { img -> subs(img).let { s -> s.size == 2 && closeOf(s[0], 2) && closeOf(s[1], 3) } } }
+            r.recording = false
+            val ended = r.notes("transition").filter { "no in-half body" in it }
+            assertEquals(1, ended.size, "${r.notes("transition")}")
+            assertTrue("from RIGHT's out-half body" in ended[0], ended[0])
+            val owed = r.notes("transition").first { it.startsWith("owed: ") }
+            val (steps, period) = Regex("(\\d+) steps a half at P (\\d+)").find(owed)!!.destructured
+            val tp = Math.round(steps.toInt() * period.toInt() * 1000.0 / 1024)
+            val outBody = noteTimesOf(r, "motion", "slot 2 tag 0xc000 drew its last step").single()
+            val end = noteTimesOf(r, "transition", "no in-half body").single()
+            assertTrue(end - outBody >= tp + wm.damage.core.shell.TransitionRun.BODY_ALLOWANCE_MS - 5,
+                "the backstop ${end - outBody} ms after RIGHT's out-half body (T periods $tp + the allowance)")
+            r.assertOracle("after the backstop on a link like his")
+        } finally { r.close() }
+    }
+
+    /** C3 TR1: on that link with RIGHT's out-half body lost, the acks' rule stands (the later of the PLAY-AFTER's ack and
+     *  the out half's end from its PLAY's ack, plus T + 1 periods): on his link it ends the run before the in half's
+     *  body comes, as every backstop of his session did — the case TR1 leaves as it was. */
+    @Test
+    fun onALinkLikeHisALostOutHalfBodyLeavesTheAcksRule_TR1(): Unit = runBlocking {
+        val r = Rig(stage = 5, paced = true)
+        try {
+            r.up()
+            paceLikeHis(r)
+            r.dropBodySlots = setOf(2)
+            r.recording = true
+            selectAndSettle(r)
+            r.until("CLOSE 2 and CLOSE 3 reach RIGHT") { right(r).any { img -> subs(img).let { s -> s.size == 2 && closeOf(s[0], 2) && closeOf(s[1], 3) } } }
+            r.recording = false
+            val ended = r.notes("transition").filter { "no in-half body" in it }
+            assertEquals(1, ended.size, "${r.notes("transition")}")
+            assertTrue("from its acks plus one period" in ended[0], ended[0])
+            r.assertOracle("after the acks' backstop on a link like his")
+        } finally { r.close() }
     }
 
     /** K1 §9: a notice that arrives during a transition waits until its end, then shows — a Select's, and ([lock]) the
