@@ -1409,7 +1409,7 @@ class LocalSequenceFuzzTest {
             for (f in v.failed) fails += "seed $seed: $f"
             for ((k, c) in v.counted) counted[k] = (counted[k] ?: 0) + c
             // the declared shapes (row A, decisions W and BC's refused 27; (9)'s exact classes, B083 v2; S33), with their seeds
-            for (k in v.counted.keys) if (k.startsWith("row A: a batch") || k.startsWith("(9)") || k.startsWith("(10)") || k.startsWith("(1) S33")) declaredSeeds.getOrPut(k) { ArrayList() } += seed
+            for (k in v.counted.keys) if (k.startsWith("row A: a batch") || k.startsWith("(9)") || k.startsWith("(10)") || k.startsWith("(1) S33") || k == A8_KEY) declaredSeeds.getOrPut(k) { ArrayList() } += seed
         }
         // every failure, one line each, for reading the shapes (the assertion's message keeps the first 30)
         for (f in fails) println("FAIL $f")
