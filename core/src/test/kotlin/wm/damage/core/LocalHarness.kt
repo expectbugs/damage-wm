@@ -865,6 +865,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         sim.conformanceMessage(arm, img, now)
         if (induce) sim.motionForTest(arm).holdWordForTest(false)
         if (arm == Arm.RIGHT && sim.bindForTest(arm).lists[0].cursor != cursor0) { rightResets++; rightResetAt += decided; rightResetLanded += now }
+        else if (arm == Arm.RIGHT && !lens.refSeen && setBackUnderShift(img)) { rightResets++; rightResetAt += decided; rightResetLanded += now }
         val refusedNow = lens.refSeen
         if (!refusedNow) { lens.refSeen = kept[0] as Boolean; lens.refMode = kept[1] as Int; lens.refReason = kept[2] as Int; lens.refSeq = kept[3] as Long }
         trace?.invoke("[$now] $arm gets ${subsOf(img).joinToString(" ") { it.take(3).joinToString("") { b -> "%02x".format(b) } }}" +
@@ -893,6 +894,16 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         val subs = subsOf(img)
         val k = subs.indexOfFirst { it[0].toInt() == 27 && (it[1].toInt() == 2 || it[1].toInt() == CfwModes.BIND_LIST_RING) && it.size > 6 && it[5].toInt() == 0 && it[6].toInt() == 0 }
         return k > 0 && subs.take(k).any { it[0].toInt() == 27 && it[1].toInt() == 0 }
+    }
+    /** C3 FZ5 (seed 700697 at both real timings): RIGHT's cursor came out of [img] at the value it went in with although the
+     *  message's LIST moved it by a non-zero shift — a DISCARD or SETTLE behind that LIST set it back, a reset of RIGHT's
+     *  cursor that the value alone does not show (a lens-only draw's step it held is gone). Called only when the value did
+     *  not change. */
+    private fun setBackUnderShift(img: ByteArray): Boolean {
+        val subs = subsOf(img)
+        val k = subs.indexOfFirst { it[0].toInt() == 27 && (it[1].toInt() == 2 || it[1].toInt() == CfwModes.BIND_LIST_RING) && it.size > 8 && it[2].toInt() == 0 &&
+            ((it[7].toInt() and 0xFF) or (it[8].toInt() shl 8)).toShort().toInt() != 0 }
+        return k >= 0 && subs.drop(k + 1).any { it[0].toInt() == 26 && it.size > 5 && (it[1].toInt() == 4 || it[1].toInt() == 5) && it[5].toInt() == 0 }
     }
 
     /** A flush whose ack failed (`Shell.completeFlush`): rolled back — what it drew is unknown and painted again from the
