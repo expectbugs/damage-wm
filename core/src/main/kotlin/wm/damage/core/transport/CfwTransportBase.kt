@@ -1455,10 +1455,11 @@ abstract class CfwTransportBase(
         val sent = { s: String -> if (s.isEmpty()) "" else " (sent since the read before the last: $s)" }
         when (e) {
             is wm.damage.core.local.EngineRefusals.Repair -> emitNote("local", "the glasses refused a mode $mode (${e.ref.describe()})" +
-                (if (mode == CfwModes.MOTION_MODE) " with more of its batch behind it" else "") + sent(e.sent) + " — the shell sends the whole table again and keyframes")
+                (if (mode == CfwModes.MOTION_MODE) " with more of its batch behind it" else "") + sent(e.sent) + " — handed to the rules " +
+                "(what they send is their `repair` note)")
             is wm.damage.core.local.EngineRefusals.Standing -> emitNote("local", "the glasses refused a mode $mode again (${e.ref.describe()})" +
-                sent(e.sent) + " at a read after one was repaired, with no read clean between — a standing refusal: not repaired " +
-                "again until a read shows nothing refused since, or the next session")
+                sent(e.sent) + " at a read after one was repaired, with no read clean between — a standing refusal: this record is " +
+                "not repaired; a later one will be, once a read shows nothing refused since or a session starts")
             is wm.damage.core.local.EngineRefusals.Alone -> emitNote("local", "the glasses refused a mode 26 (${e.ref.describe()}); " +
                 "nothing sent since the read before the last had a sub-message behind a mode 26 — only it and its batch's present " +
                 "were lost (the next present goes whole): no repair")

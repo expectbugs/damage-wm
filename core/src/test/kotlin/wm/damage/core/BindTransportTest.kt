@@ -875,7 +875,7 @@ class BindTransportTest {
             saw("local", "with more of its batch behind it")
             send(fill); send(led)
             assertNull(read().refusal26, "the same batch refused again at the next read: not repaired again")
-            saw("local", "a standing refusal: not repaired again")
+            saw("local", "a standing refusal: this record is not repaired; a later one will be")
             assertNull(read().refusal26)                                   // nothing refused since: re-armed
             sim.motionForTest(Arm.RIGHT).holdWordForTest(false)
             send(CfwModes.motionPlay(1, 16, 0x8000, 0x4321, 0, IntArray(4)))   // alone: both lenses and the mirror take it
@@ -885,7 +885,7 @@ class BindTransportTest {
             val ret = read().refusal26
             assertNotNull(ret, "a RETARGET leading a batch: handed, though its body asked B-S2's keyframe")
             assertTrue("RETARGET slot 1" in ret.sent, ret.sent)
-            assertEquals(2, count("local", "— the shell sends the whole table again and keyframes"), "both repairs keyframe: ${said("local")}")
+            assertEquals(2, count("local", "— handed to the rules"), "both handed (the rules keyframe each): ${said("local")}")
         } finally {
             sim.motionForTest(Arm.RIGHT).holdWordForTest(false)
         }
@@ -953,7 +953,7 @@ class BindTransportTest {
         send(fill); send(set9)
         assertNull(read().refusal27, "the same refused at the next read: standing")
         saw("local", "the glasses refused a mode 27 again")
-        saw("local", "a standing refusal: not repaired again")
+        saw("local", "a standing refusal: this record is not repaired; a later one will be")
         assertNull(read().refusal27)                                       // nothing refused since: re-armed
         send(fill); send(set9)
         assertEquals(27, read().refusal27?.mode, "re-armed: handed again")

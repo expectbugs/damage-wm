@@ -42,7 +42,8 @@ class EngineRefusals(private val clock: () -> Long) {
     /** The shell re-sends the whole table and asks ONE keyframe. [sent]: what was written, for the notes (a 26's span;
      *  empty for a 27). */
     data class Repair(override val ref: DamageMsg.Refusal, val sent: String) : Decision()
-    /** A new refusal naming 26 or 27 at a read after one was repaired, with none clean between: not repaired again. */
+    /** A new refusal naming 26 or 27 at a read after one was repaired, with none clean between: this record is not
+     *  repaired; a later one will be, once a read shows nothing refused since or a session starts (A4). */
     data class Standing(override val ref: DamageMsg.Refusal, val sent: String) : Decision()
     /** Nothing written in the span had a sub-message behind a mode 26: no repair. */
     data class Alone(override val ref: DamageMsg.Refusal) : Decision()
