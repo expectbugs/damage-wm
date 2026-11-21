@@ -156,8 +156,9 @@ class SettingsWindow(
 
     /** Build ANIM (decisions AV, AW): the `Animations` category — a bound list's notch motion; shown with `Taps` on a
      *  build that reports local input (bit 10). K1-1 (`MOTION.md` §7): the Scroll tier's rows — `Scroll effect` (one, no
-     *  randomness), `Scroll length`, `Scroll frames` (the stored key stays `frames`). */
-    private val animEntries: List<Entry> = listOf(
+     *  randomness), `Scroll length`, `Scroll frames` (the stored key stays `frames`). The page reads in `MOTION.md` §7's
+     *  tier order (decisions BW (3)): Scroll, the transition tiers at stage 5, then Popups ([popupEntries]). */
+    private val scrollEntries: List<Entry> = listOf(
         Entry("Scroll effect", {
             val id = get().scrollEffect
             (wm.damage.core.motion.ScrollEffect.byId(id) ?: wm.damage.core.motion.ScrollEffect.DEFAULT).word + if (id == ShellSettings().scrollEffect) " (default)" else ""
@@ -177,22 +178,28 @@ class SettingsWindow(
             val fs = ShellSettings.FRAME_COUNTS
             s.copy(frames = fs[(fs.indexOf(s.frames).coerceAtLeast(0) + d).coerceIn(0, fs.size - 1)])
         }),
-        // build K1-4a: the notice box's arrival (the timer stays 2.0 s); a notice picks among the styles that are on
+    )
+
+    /** Build K1-4a: the notice box's arrival (the timer stays 2.0 s); a notice picks among the styles that are on. The
+     *  Popups tier, last on the page as `MOTION.md` §7 orders the tiers; every row says "(default)" at its default as
+     *  Scroll's and the tiers' rows do (decisions AM (3), BW (3)). */
+    private val popupEntries: List<Entry> = listOf(
         Entry("Popup length", { "${get().popupLength} ms" + if (get().popupLength == ShellSettings().popupLength) " (default)" else "" }, { s, d ->
             val ls = ShellSettings.SCROLL_LENGTHS
             s.copy(popupLength = ls[(ls.indexOf(s.popupLength).coerceAtLeast(0) + d).coerceIn(0, ls.size - 1)])
         }),
-        Entry("Popup frames", { get().popupFrames.let { if (it == 0) "auto" else "$it" } }, { s, d ->
+        Entry("Popup frames", { get().popupFrames.let { (if (it == 0) "auto" else "$it") + if (it == ShellSettings().popupFrames) " (default)" else "" } }, { s, d ->
             val fs = ShellSettings.FRAME_COUNTS
             s.copy(popupFrames = fs[(fs.indexOf(s.popupFrames).coerceAtLeast(0) + d).coerceIn(0, fs.size - 1)])
         }),
-        Entry("Popup · Unfurl", { onOff(get().popupUnfurl) }, { s, d -> s.copy(popupUnfurl = d > 0) }),
-        Entry("Popup · Fade", { onOff(get().popupFade) }, { s, d -> s.copy(popupFade = d > 0) }),
-        Entry("Popup · Slide", { onOff(get().popupSlide) }, { s, d -> s.copy(popupSlide = d > 0) }),
+        Entry("Popup · Unfurl", { get().popupUnfurl.let { onOff(it) + if (it == ShellSettings().popupUnfurl) " (default)" else "" } }, { s, d -> s.copy(popupUnfurl = d > 0) }),
+        Entry("Popup · Fade", { get().popupFade.let { onOff(it) + if (it == ShellSettings().popupFade) " (default)" else "" } }, { s, d -> s.copy(popupFade = d > 0) }),
+        Entry("Popup · Slide", { get().popupSlide.let { onOff(it) + if (it == ShellSettings().popupSlide) " (default)" else "" } }, { s, d -> s.copy(popupSlide = d > 0) }),
     )
 
     /** Build C3, stage DP2 (`MOTION.md` §7): per transition tier its length, its frames (both halves) and one checkbox per
-     *  effect — a random pick among the checked at each use, none checked = None. After the scroll rows. C3 X2T item 7: the
+     *  effect — a random pick among the checked at each use, none checked = None. After the scroll rows, before the
+     *  Popups tier's. C3 X2T item 7: the
      *  tiers named as his plan names them ([wm.damage.core.motion.Transitions.Tier.title]); every row says "(default)" at
      *  its default as Scroll's rows do; `Length` says what really plays when the period's clamp changes it. */
     private val transitionEntries: List<Entry> = wm.damage.core.motion.Transitions.Tier.entries.flatMap { t ->
@@ -249,7 +256,7 @@ class SettingsWindow(
     private fun cats(): List<Cat> {
         val out = ArrayList<Cat>()
         out.add(Cat("Global", (if (bindBuild()) entries else entries.filter { it.name !in BIND_ROWS }) + host().map(::hostEntry)))
-        if (bindBuild()) out.add(Cat("Animations", animEntries + if (effectsInForce()) transitionEntries else emptyList()))
+        if (bindBuild()) out.add(Cat("Animations", scrollEntries + (if (effectsInForce()) transitionEntries else emptyList()) + popupEntries))
         for ((app, rows) in apps()) out.add(Cat(app, rows.map(::hostEntry)))
         return out
     }
