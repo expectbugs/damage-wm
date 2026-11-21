@@ -192,6 +192,16 @@ class Staging {
  * Since 0.64 the count has ONE reader, wherever the shell is (`Shell.pumpLedger`, op 1 on RIGHT):
  * the base is read before a session's first cache write, and a reading is owed whenever writes are
  * acked past the last agreed one ([unjudged]). An interval is the batches since the last agreed reading.
+ *
+ * **The count's two rules, for every cache write the shell sends** (C3 X6T, decisions AW; the 44 of 45,
+ * `C3-X5T-compare.md`): each write is booked here at its send ([writeSent]) and at its completion
+ * ([writeDone]), whoever wrote it. (1) A reading is launched only when no booked write is open
+ * ([writesOpen] 0), and a write sent while a reading is on its way voids that reading ([Verdict.Void]:
+ * its answer may or may not hold the write, so it is dropped whole and asked again). (2) Every ack
+ * restarts the settle window ([lastAckMs]). Before X6T a transition's records' and lists' writes kept
+ * neither: one went under a reading and left the base one write behind, and its ack did not restart
+ * the window, so two "settled" readings later the shell called a shortfall, re-sent the atlas and
+ * keyframed in the middle of an act.
  */
 class CacheLedger {
     /** Non-empty cache writes acked this session, in lane order — atlas chunks and staged records. */
@@ -206,11 +216,46 @@ class CacheLedger {
      *  unknown, and the next reading can only re-base. */
     var unsure: Boolean = false; private set
     var shortReads: Int = 0; private set
+    /** When the last cache-write ack was counted (ms, the caller's clock): the settle window runs from here, restarted
+     *  by EVERY ack ([writeAcked] is the one place an ack is counted). */
+    var lastAckMs: Long = 0L; private set
+    /** The cache-write flushes sent and not yet completed, by flush id → whether the write is the atlas's. */
+    private val open = HashMap<Long, Boolean>()
+    /** Booked cache writes still on their way: no reading is launched while any is. */
+    val writesOpen: Int get() = open.size
+    /** A reading is on its way ([readingSent] until its answer or its drop). */
+    private var reading = false
+    /** A cache write was sent while the reading on its way was: its answer counts for nothing. */
+    var readingVoid: Boolean = false; private set
 
-    fun writeAcked(writes: Int, atlas: Boolean) {
+    /** A cache-write flush [id] (one non-empty mode-12/19/25 message) was sent; it voids a reading on its way. */
+    fun writeSent(id: Long, atlas: Boolean) {
+        open[id] = atlas
+        if (reading) readingVoid = true
+    }
+
+    /** Flush [id] completed. A booked write is counted when acked ([ok]) and makes the books unsure when not (what
+     *  landed is unknown); any other flush is no business of the count. True when [id] was a booked write. */
+    fun writeDone(id: Long, ok: Boolean, nowMs: Long): Boolean {
+        val atlas = open.remove(id) ?: return false
+        if (ok) writeAcked(1, atlas, nowMs) else writeLost()
+        return true
+    }
+
+    fun writeAcked(writes: Int, atlas: Boolean, nowMs: Long = System.currentTimeMillis()) {
         acked += writes
         if (atlas) atlasAcked += writes
+        lastAckMs = nowMs
     }
+
+    /** Whether a short reading sent at [nowMs] has given the acked writes [SETTLE_MS] to land. */
+    fun settled(nowMs: Long): Boolean = nowMs - lastAckMs >= SETTLE_MS
+
+    /** A reading was launched (its counts are taken by the caller now). */
+    fun readingSent() { reading = true; readingVoid = false }
+
+    /** The reading on its way stops meaning anything (its epoch ended, it was not answered): nothing of it is judged. */
+    fun readingDropped() { reading = false; readingVoid = false }
 
     /** Cache-write messages acked past the last agreed reading: what a reading is still owed for. */
     val unjudged: Long get() = acked - baseAcked
@@ -225,6 +270,9 @@ class CacheLedger {
         acked = 0L; atlasAcked = 0L
         baseGen = null; baseAcked = 0L; baseAtlasAcked = 0L
         unsure = false; shortReads = 0
+        lastAckMs = 0L
+        open.clear()                       // a write of the session that ended is no longer this count's (its ids never repeat)
+        readingDropped()
     }
 
     sealed class Verdict {
@@ -244,12 +292,18 @@ class CacheLedger {
         }
         /** More bumps than this shell's writes: something else wrote the cache. */
         class Foreign(val extra: Long, val fromAcked: Long, val toAcked: Long) : Verdict()
+        /** C3 X6T: a cache write was sent while the reading was on its way, so its generation may or may not hold it:
+         *  nothing is judged (no base moves, nothing proven or called short) and the reading is asked again. */
+        object Void : Verdict()
     }
 
     /** A reading of field 17 taken with [sendAcked] / [sendAtlasAcked] the counts at its send; [settled]
      *  = the send came at least [SETTLE_MS] after the last cache-write ack, so a short count is not a
      *  decode still on its way. */
     fun answer(gen: Long, sendAcked: Long, sendAtlasAcked: Long, settled: Boolean): Verdict {
+        val void = readingVoid
+        readingDropped()
+        if (void) return Verdict.Void
         val base = baseGen
         if (base == null || unsure) {
             rebase(gen, sendAcked, sendAtlasAcked)

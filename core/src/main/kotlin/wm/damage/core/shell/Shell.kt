@@ -2822,7 +2822,7 @@ class Shell(
         val f = localFront()
         localFrontNow = f?.second
         localOnlyFlushes.clear(); localTailFlushes.clear(); mainBind.tailsForgotten()
-        transitionEnd("a session start"); transitionCloses = emptyList(); transitionWrites.clear()      // build C3 (DP2): the start's keyframe ends every instance
+        transitionEnd("a session start"); transitionCloses = emptyList()      // build C3 (DP2): the start's keyframe ends every instance
         glyphHoldUntilMs = 0L                                       // X2T item 1: so nothing is left to land on either lens
         glyphHoldPumpOwed = false
         stepWindow.clear(); periodSamplesSinceChange = 0          // decisions BF: the measured window is the session's
@@ -2838,6 +2838,18 @@ class Shell(
 
     /** A flush of the rules' messages alone (nothing to draw): one sub-message as its own image, more as a batch. */
     /** The flush's id, or null when nothing went (an empty tail, or a submit the ended link refused). */
+    /**
+     * C3 X6T (decisions AW; the 44 of 45, `C3-X5T-compare.md`): the ONE door for a cache write — the atlas's chunks, the
+     * stage lane's pieces (page staging, Main's records, its programs-only re-make) and a transition's records' and lists'
+     * writes. Each goes as a flush of its own under the atlas's writer tag and is booked on the count's ledger at its send,
+     * which voids a reading on its way; [completeFlush] counts it at its completion (restarting the settle window), and no
+     * reading is launched while any is open ([CacheLedger]'s two rules). Throws as [Transport.submit] does.
+     */
+    private suspend fun submitCacheWrite(op: DisplayOp, label: String, atlas: Boolean): Long {
+        require(op is DisplayOp.CacheWrite || op is DisplayOp.CacheWrite2) { "not a cache write: $op" }
+        return transport.submit(FlushRequest(listOf(op), comp.epoch, label, writer = atlasTag)).also { cacheLedger.writeSent(it, atlas) }
+    }
+
     private suspend fun submitLocalOnly(tail: List<ByteArray>, label: String): Long? {
         if (tail.isEmpty()) return null
         return try {
@@ -3017,6 +3029,7 @@ class Shell(
 
     private fun completeFlush(ev: TransportEvent.FlushDone) {
         completionsSeen++                             // P5 item 5: a completion of any kind (content, atlas, stage)
+        cacheLedger.writeDone(ev.id, ev.ok, System.currentTimeMillis())   // X6T: a booked cache write counted (or lost) here, whoever wrote it
         if (ev.id == atlasInFlight) { atlasDone(ev); return }
         if (ev.id == stageInFlight) { stageDone(ev); return }
         transitionFlushDone(ev)                       // build C3 (DP2): the records' write, the out half, the PLAY-AFTER, a frame's
@@ -3946,7 +3959,7 @@ class Shell(
         val (chunk, gen) = atlasQueue.removeFirst()
         val write: DisplayOp = if (atlas?.v2 == true) DisplayOp.CacheWrite2(chunk) else DisplayOp.CacheWrite(chunk)
         val id = try {
-            transport.submit(FlushRequest(listOf(write), comp.epoch, "ATLAS", writer = atlasTag))
+            submitCacheWrite(write, "ATLAS", atlas = true)
         } catch (e: Exception) {
             Log.e("shell", "atlas chunk submit failed", e)
             atlasFailed = true
@@ -3969,7 +3982,7 @@ class Shell(
         journal.flushDone(ev.id, ev.ok, ev.ackMs, ev.bytes, ev.error, ev.tookAtMs, ev.wroteAtMs, ev.ackAtMs)
         val ct = cachedText ?: return
         if (!ev.ok) {
-            cacheLedger.writeLost()        // §66: what landed is unknown; the next reading re-bases
+            // §66: what landed is unknown; the next reading re-bases (booked as lost at [completeFlush], X6T)
             if (ev.error?.contains("ImgResCmd") != true && ++atlasUndelivered < ATLAS_UNDELIVERED_LIMIT) {
                 // §54: not the glasses' answer but the link's end or the session's
                 // sweep (the ack never came): the chunk may or may not have landed,
@@ -3995,8 +4008,8 @@ class Shell(
             return
         }
         atlasUndelivered = 0
-        cacheLedger.writeAcked(1, atlas = true)  // §66: one non-empty mode-12/19 message per atlas flush
-        cacheWriteLastAckMs = System.currentTimeMillis()
+        // §66: one non-empty mode-12/19 message per atlas flush — counted (and the settle window restarted) at
+        // [completeFlush], before this runs (X6T: every cache write's ack in one place)
         // null: a chunk of a layout a repack replaced, or of a cut since rewound — it moves no
         // watermark; it is counted all the same, and there is nothing of it to send again
         val done = atlas?.acked(atlasInFlightGen)
@@ -4054,7 +4067,6 @@ class Shell(
     private val cacheLedger = CacheLedger()
     private var stageInFlight: Long? = null
     private var stageInFlightRec: StagedRecord? = null
-    private var stageInFlightWrites = 0
 
     /** One mode-19 message of a record's write: at most [STAGE_CHUNK] bytes of data; [names]: it names the rest (a band
      *  switch's item word), so it goes alone and only after every piece before it was acknowledged. */
@@ -4091,9 +4103,6 @@ class Shell(
     private var stageShortfalls = 0
     /** Strips too large for the reserve this session — not re-rendered on every pump. */
     private val stageRefused = HashSet<StageKey>()
-    /** When the last cache write (atlas or stage) was acked: a generation reading sent within
-     *  `CacheLedger.SETTLE_MS` of it may be short for the decode still on its way (§66.1). */
-    private var cacheWriteLastAckMs = 0L
 
     // ---- the count's one reader (0.64). The envelope, `FORK.md` §3.8: (a) [ledgerReset] at a session
     // start and a lapse; [ledgerDropReading] at a sleep; [atlasCheckOwed] at a repack and a mid-session
@@ -4210,7 +4219,7 @@ class Shell(
     private fun stageClear(why: String?) {
         val had = stage.records.size
         stage.clear()
-        stageInFlight = null; stageInFlightRec = null; stageInFlightWrites = 0
+        stageInFlight = null; stageInFlightRec = null
         stageCursor = null                 // build SPLIT: a part-written record goes with the registry, never named
         // 0.64: NOT the count's reading. It is the cache's, about every acked write, and a clear of
         // the registry (the row off, a live-set change, a reset) leaves it valid; dropping its flag
@@ -4389,7 +4398,7 @@ class Shell(
         val rec = c.rec
         val p = c.pieces[c.next]
         val id = try {
-            transport.submit(FlushRequest(listOf(p.op), comp.epoch, "STAGE", writer = atlasTag))
+            submitCacheWrite(p.op, "STAGE", atlas = false)
         } catch (e: Exception) {
             Log.e("shell", "staged record submit failed", e)
             stageCursor = null
@@ -4401,7 +4410,7 @@ class Shell(
             return
         }
         rec.state = StagedRecord.State.SENT
-        stageInFlight = id; stageInFlightRec = rec; stageInFlightWrites = 1
+        stageInFlight = id; stageInFlightRec = rec
         journal.flushSubmitted(id, comp.epoch, listOf(p.op), "STAGE", st.transportName,
             Journal.Timing(win = current?.id ?: "", mode = mode.name))     // package G (E4): on every submit record
         if (c.next == 0) journal.note("stage", "${rec.key} (${rec.encoded.size} B at ${rec.off}) submitted as flush $id — piece 1 of ${c.pieces.size} (${p.bytes} B)")
@@ -4452,12 +4461,11 @@ class Shell(
 
     private fun stageDone(ev: TransportEvent.FlushDone) {
         val rec = stageInFlightRec
-        val writes = stageInFlightWrites
-        stageInFlight = null; stageInFlightRec = null; stageInFlightWrites = 0
+        stageInFlight = null; stageInFlightRec = null
         journal.flushDone(ev.id, ev.ok, ev.ackMs, ev.bytes, ev.error, ev.tookAtMs, ev.wroteAtMs, ev.ackAtMs)
         val c = stageCursor?.takeIf { it.rec === rec }
         if (!ev.ok) {
-            cacheLedger.writeLost()
+            // booked as lost at [completeFlush] (X6T)
             // a failed piece fails its record: which earlier bytes survived is not known (a refusal for a lapse, a lost
             // ack), so the record goes again whole — its owner's rule, as for a record written in one flush
             if (c != null) stageCursor = null
@@ -4472,8 +4480,7 @@ class Shell(
             return
         }
         stageWriteFailures = 0
-        cacheLedger.writeAcked(writes, atlas = false)
-        cacheWriteLastAckMs = System.currentTimeMillis()
+        // counted, and the settle window restarted, at [completeFlush] (X6T)
         var more = false
         if (c != null) {
             c.next++
@@ -4512,6 +4519,9 @@ class Shell(
         // three in a row (the bound that ends the asking for the session) were then one event
         if (System.currentTimeMillis() < ledgerRetryNotBeforeMs) return false
         if (atlasInFlight != null || stageInFlight != null || st.inFlight != 0) return false
+        // X6T (decisions AW): and by the count's own books — every cache write sent has completed, whoever sent it (the
+        // transport's in-flight count falls at the ack, before the shell has counted it)
+        if (cacheLedger.writesOpen > 0) return false
         launchLedgerRead()
         return true
     }
@@ -4550,7 +4560,6 @@ class Shell(
         atlasUnproven.clear()
         atlasResendMissing = 0L
         atlasLastAcked = null
-        cacheWriteLastAckMs = 0L
         cacheCountUnjudged = 0L
     }
 
@@ -4563,6 +4572,7 @@ class Shell(
     private fun ledgerDropReading() {
         ledgerEpoch++
         ledgerReadInFlight = false
+        cacheLedger.readingDropped()
         cacheCountUnjudged = 0L
     }
 
@@ -4573,7 +4583,8 @@ class Shell(
         val epoch = ledgerEpoch
         val sendAcked = cacheLedger.acked
         val sendAtlasAcked = cacheLedger.atlasAcked
-        val settled = System.currentTimeMillis() - cacheWriteLastAckMs >= CacheLedger.SETTLE_MS
+        val settled = cacheLedger.settled(System.currentTimeMillis())
+        cacheLedger.readingSent()                  // X6T: a cache write sent from here to the answer voids it
         // the journal's subject is true to what the reading is for: a strip acked and unproven
         // makes it the stage check (its notes are kind `stage`); otherwise it is the cache count's
         val staged = stage.count(StagedRecord.State.ACKED) > 0
@@ -4595,6 +4606,7 @@ class Shell(
                 val st = transport.state.value
                 val gen = t?.cacheGen
                 if (gen == null) {
+                    cacheLedger.readingDropped()       // X6T: nothing of an unanswered reading is judged
                     val because = why?.let { " ($it)" } ?: ""
                     if (++ledgerReadFailures >= STAGE_FAILURES_MAX) {
                         ledgerOff = true
@@ -4750,6 +4762,12 @@ class Shell(
                 atlasShortfall(v, lost.size, stagingOff,
                     t?.refusal?.let { "; the last refusal on record: ${it.describe()} (sticky)" } ?: "; no refusal on record")
             }
+            // X6T (decisions AW): a cache write went out while this reading was on its way — its generation may or may not
+            // hold that write, so nothing of it is used (no base moves, nothing proven, nothing short); the next pump asks
+            // again once every write sent has completed ([tryLedgerRead])
+            CacheLedger.Verdict.Void ->
+                journal.note(if (staged) "stage" else "atlas", (if (staged) "" else "count void — ") +
+                    "$from was voided: a cache write went out while it was on its way — asked again")
             is CacheLedger.Verdict.Foreign -> {
                 // more bumps than this shell's acked writes: the count is re-based and the acked records
                 // stand — an extra bump does not make them bad, and another writer's bytes are the
@@ -4873,8 +4891,7 @@ class Shell(
             else -> null
         }
         if (why != null || last == null) { journal.note("probe", "cache=miscount not run — $why"); return }
-        cacheLedger.writeAcked(1, atlas = true)
-        cacheWriteLastAckMs = System.currentTimeMillis()      // as a real ack would: the settle window runs from here
+        cacheLedger.writeAcked(1, atlas = true, nowMs = System.currentTimeMillis())   // as a real ack would: the settle window runs from here
         atlasUnproven.addLast(AtlasWrite(cacheLedger.acked, GlyphAtlas.Acked(last.n, last.writes, resend = false)))
         countStateChanged(st)
         journal.note("probe", "cache=miscount — one atlas ack the glasses never saw is on the ledger (the last acked message, ${last.bytes} B): the count reads one short from here")
@@ -8114,7 +8131,7 @@ class Shell(
             return
         }
         tr.writeId = try {
-            transport.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(tr.write)), comp.epoch, "TRANSITION", writer = atlasTag)).also { transitionWrites += it }
+            submitCacheWrite(DisplayOp.CacheWrite2(tr.write), "TRANSITION", atlas = false)
         } catch (e: Exception) {
             transitionEnd("its records could not be submitted (${e.message}) — the screen lands at once")
             return
@@ -8128,7 +8145,7 @@ class Shell(
         // reads), ahead of the frame and the PLAY-AFTER in stream order
         tr.listWrite?.let { lw ->
             tr.listId = try {
-                transport.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(lw)), comp.epoch, "TRANSITION", writer = atlasTag)).also { transitionWrites += it }
+                submitCacheWrite(DisplayOp.CacheWrite2(lw), "TRANSITION", atlas = false)
             } catch (e: Exception) {
                 transitionEnd("its in half's lists could not be submitted (${e.message})", close = true)
                 return
@@ -8170,8 +8187,8 @@ class Shell(
     }
 
     private fun transitionFlushDone(ev: TransportEvent.FlushDone) {
-        // the records' writes are the ledger's whether or not their act is still in hand (one mode-19 message each)
-        if (transitionWrites.remove(ev.id)) { if (ev.ok) cacheLedger.writeAcked(1, atlas = false) else cacheLedger.writeLost() }
+        // the records' and lists' writes are the ledger's whether or not their act is still in hand: booked at their send
+        // ([submitCacheWrite]) and counted at [completeFlush] (X6T)
         val tr = transition ?: return
         val inFrame = tr.phase == TransitionRun.Phase.FRAME || tr.phase == TransitionRun.Phase.IN
         when (ev.id) {
@@ -8262,8 +8279,6 @@ class Shell(
     /** CLOSEs a transition's end owes: the next pump sends them alone, ahead of its frame; a session's start drops them
      *  (its keyframe ends every instance). */
     private var transitionCloses: List<ByteArray> = emptyList()
-    /** The records' writes in flight (flush ids): booked in the cache ledger at their completion. */
-    private val transitionWrites = HashSet<Long>()
 
     // ------------------------------------------------------------------ build C3, stage DM-T: Encode's cells
     /**

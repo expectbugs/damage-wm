@@ -1759,4 +1759,160 @@ class TransitionShellTest {
             assertTrue(!r.onLoop { r.shell.cacheWritesHeldForTest() }, "released at a session start")
         } finally { r.close() } }
     }
+
+    // ------------------------------------------------------------------ C3 X6T: the count's two rules (decisions AW)
+    /** C3 X6T: RIGHT's count readings (op 1) held on their way while [hold] is set — the reading stays out — and handed to
+     *  the model by [release] once nothing else is in flight on the link (no message is cut in two on RIGHT's
+     *  characteristic): the glasses then answer with every write applied since the reading was sent. */
+    private class HeldReads(val r: Rig) {
+        val hold = java.util.concurrent.atomic.AtomicBoolean(false)
+        val held = java.util.concurrent.CopyOnWriteArrayList<ByteArray>()
+        init {
+            (r.t as StartRig).onWrite = { arm, p ->
+                if (hold.get() && arm == Arm.RIGHT && StartRig.damageOp(p) == wm.damage.core.wire.DamageMsg.OP_TELEMETRY) { held += p; null } else p
+            }
+        }
+        suspend fun release() {
+            hold.set(false)
+            r.until("the link idle before the held reading goes") { r.t.state.value.inFlight == 0 }
+            for (p in held) r.sim.write(Arm.RIGHT, p, System.currentTimeMillis())
+            held.clear()
+        }
+    }
+
+    /** Up at 352 with no transition checked, into w0 and back once — both screens' letters packed, so no atlas chunk goes
+     *  during the acts that follow. */
+    private suspend fun visitW0First(r: Rig) {
+        r.upAt(352, only())
+        selectAndSettle(r)
+        r.doubleTap(); r.until("back on Main") { r.onLoop { r.shell.currentWindowId() } == null }; r.settle("on Main")
+    }
+
+    /** The journal's keyframes (a submit carrying one). */
+    private fun keyframesIn(r: Rig): Int = Files.readAllLines(r.journal).count { "\"ev\":\"submit\"" in it && "\"op\":\"keyframe\"" in it }
+
+    /** The count's notes that say it went wrong: an extra bump, a short reading, a shortfall, a re-send, its keyframe. */
+    private fun countTrouble(r: Rig): List<String> = (r.notes("atlas") + r.notes("stage")).filter { n ->
+        listOf("count over", "count short", "short after the settle window", "never landed", "re-send", "keyframing", "more generation bump").any { it in n } }
+
+    /** The count's journal from the rig's start, for a failure's reader. */
+    private fun countNotes(r: Rig): String = (r.notes("atlas") + r.notes("stage")).filter { "count" in it || "check" in it }.takeLast(12).toString()
+
+    /**
+     * C3 X6T (decisions AW; the 44 of 45, `C3-X5T-compare.md`): run 22's shape made deterministic. The count's reading is
+     * on its way (RIGHT's request held) when an act's records' write goes, and RIGHT answers after that write's ack, with
+     * the write applied. The reading is voided and asked again: no extra bump read, no short reading, no shortfall, no
+     * atlas re-send, no keyframe; the count agrees after; both acts' halves draw every step.
+     * Watched to fail on `c637a67b` (the write was not booked, so the answer read one bump over and re-based the count one
+     * write behind: "count over", then short readings to a shortfall).
+     */
+    @Test
+    fun aRecordsWriteUnderACountReadingVoidsIt_X6T(): Unit = runBlocking {
+        val r = Rig(stage = 5, kib256 = true)
+        try {
+            visitW0First(r)
+            r.shell.updateSettings(only("fade")); r.settle("Fade checked")
+            r.until("the count agreed") { r.shell.cacheCountUnjudged == 0L && !r.shell.cacheWorkInFlight }
+            val reads = HeldReads(r)
+            val kf0 = keyframesIn(r)
+            reads.hold.set(true)
+            r.tap()                                                             // act 0: Select, Fade
+            r.until("w0 opens") { r.onLoop { r.shell.currentWindowId() } == "w0" }
+            runEnds(r, "act 0 ends")
+            // act 0's records' write was acked: the count's reading goes, and stays on its way
+            r.until("the count's reading on its way, held") { reads.held.isNotEmpty() && r.shell.cacheWorkInFlight }
+            r.doubleTap()                                                       // act 1: Back, Fade — its records' write goes under the reading
+            r.until("back on Main") { r.onLoop { r.shell.currentWindowId() } == null }
+            runEnds(r, "act 1 ends")
+            assertTrue(r.notes("transition").count { it.startsWith("owed: ") } == 2, "${r.notes("transition")}")
+            reads.release()                                                     // RIGHT answers now, act 1's write applied
+            r.until("the count agrees again", maxMs = 15_000) { r.shell.cacheCountUnjudged == 0L && !r.shell.cacheWorkInFlight }
+            r.settle("after")
+            assertEquals(emptyList(), countTrouble(r), "the count: ${countNotes(r)}")
+            assertTrue(r.notes("atlas").any { it.startsWith("count void") }, "the held reading was voided: ${countNotes(r)}")
+            assertEquals(kf0, keyframesIn(r), "no keyframe")
+            bothHalvesWhole(r, 0); bothHalvesWhole(r, 1)
+        } finally { r.close() }
+    }
+
+    /**
+     * C3 X6T: the same for an Encode act whose in lists go in a write of their own after the out PLAY (the page too dense
+     * for one compressed message, `select-encode-apart-480`'s): the count's reading is on its way (held) through the act's
+     * two writes, RIGHT answers after both acks. Voided and asked again; nothing over, short or re-sent, no keyframe, the
+     * count agrees, both halves of both acts draw every step. Watched to fail on `c637a67b` (two writes unbooked: two
+     * bumps over, the count two writes behind).
+     */
+    @Test
+    fun anEncodeActsListsWriteUnderACountReadingVoidsIt_X6T(): Unit = runBlocking {
+        val r = Rig(stage = 5, kib256 = true)
+        val f = wm.damage.core.text.FontSpec(wm.damage.core.text.Face.SYSTEM, 18)
+        val prose = "the quick brown fox jumps over the lazy dog while five wizards box and jump quickly at dawn "
+        r.rows[0].labels = (0 until 23).map { i -> (prose + prose).substring(i * 3 % 40, i * 3 % 40 + 70) to f }
+        r.rows[0].gap = 16
+        try {
+            r.upAt(480) { s -> s.withTier(Tier.SELECT, effects = emptyList()).withTier(Tier.BACK, effects = listOf("fade")).withTier(Tier.LOCK, effects = emptyList()) }
+            selectAndSettle(r)                                                  // into w0 with no act: its letters packed
+            r.shell.updateSettings { it.withTier(Tier.SELECT, effects = listOf("encode")) }; r.settle("Encode checked")
+            r.until("the count agreed") { r.shell.cacheCountUnjudged == 0L }
+            val reads = HeldReads(r)
+            val kf0 = keyframesIn(r)
+            reads.hold.set(true)
+            r.doubleTap()                                                       // act 0: Back, Fade — its write acked, the reading goes, held
+            r.until("back on Main") { r.onLoop { r.shell.currentWindowId() } == null }
+            runEnds(r, "act 0 ends")
+            r.until("the count's reading on its way, held") { reads.held.isNotEmpty() && r.shell.cacheWorkInFlight }
+            r.tap()                                                             // act 1: Select, Encode — records + out lists, then the in lists
+            r.until("w0 opens") { r.onLoop { r.shell.currentWindowId() } == "w0" }
+            runEnds(r, "act 1 ends")
+            val notes = r.notes("transition")
+            assertTrue(notes.last { it.startsWith("owed: ") }.startsWith("owed: Select Encode"), "$notes")
+            assertTrue(notes.any { it.startsWith("the in half's lists' write (flush") }, "precondition: the in lists went in a write of their own: $notes")
+            reads.release()
+            r.until("the count agrees again", maxMs = 15_000) { r.shell.cacheCountUnjudged == 0L && !r.shell.cacheWorkInFlight }
+            r.settle("after")
+            assertEquals(emptyList(), countTrouble(r), "the count: ${countNotes(r)}")
+            assertTrue(r.notes("atlas").any { it.startsWith("count void") }, "the held reading was voided: ${countNotes(r)}")
+            assertEquals(kf0, keyframesIn(r), "no keyframe")
+            bothHalvesWhole(r, 0); bothHalvesWhole(r, 1)
+        } finally { r.close() }
+    }
+
+    /**
+     * C3 X6T: every cache write's ack restarts the settle window. Every atlas and stage ack is more than a window old; an
+     * act's records' write is acked and the count's reading follows it within ms, answered one bump short (a decode still
+     * on its way, as the glasses' link gives it): the reading is pending (inside the window), not a settled short one.
+     * Watched to fail on `c637a67b` (a transition's ack did not restart the window: "count short (settled reading 1)").
+     */
+    @Test
+    fun aReadingRightAfterARecordsWritesAckIsNotSettled_X6T(): Unit = runBlocking {
+        val r = Rig(stage = 5, kib256 = true)
+        try {
+            visitW0First(r)
+            r.shell.updateSettings(only("fade")); r.settle("Fade checked")
+            r.until("the count agreed") { r.shell.cacheCountUnjudged == 0L && !r.shell.cacheWorkInFlight }
+            delay(wm.damage.core.shell.CacheLedger.SETTLE_MS + 300)
+            val lastWrite = Files.readAllLines(r.journal).filter { "\"ev\":\"submit\"" in it && ("\"label\":\"ATLAS\"" in it || "\"label\":\"STAGE\"" in it) }
+                .maxOfOrNull { Regex("\"t\":(\\d+)").find(it)!!.groupValues[1].toLong() } ?: 0L
+            assertTrue(System.currentTimeMillis() - lastWrite >= wm.damage.core.shell.CacheLedger.SETTLE_MS, "precondition: no atlas or stage write in the last window")
+            // the next count reading reads one bump short; after the count's first word on it, the answers are true again
+            val short = java.util.concurrent.atomic.AtomicBoolean(true)
+            (r.t as StartRig).onNotify = { _, p ->
+                val g = if (short.get()) StartRig.telemetry(p)?.cacheGen else null
+                if (g != null && g > 0) StartRig.withRecordField(p, 17, g - 1) else p
+            }
+            val atlas0 = r.notes("atlas").size
+            r.tap()                                                             // the act: Select, Fade
+            r.until("w0 opens") { r.onLoop { r.shell.currentWindowId() } == "w0" }
+            r.until("the count's word on the reading after the act's write") {
+                r.notes("atlas").drop(atlas0).any { it.startsWith("count pending") || it.startsWith("count short") } }
+            short.set(false)
+            runEnds(r, "the act ends")
+            r.until("the count agrees again", maxMs = 15_000) { r.shell.cacheCountUnjudged == 0L && !r.shell.cacheWorkInFlight }
+            val after = r.notes("atlas").drop(atlas0)
+            assertTrue(after.first { it.startsWith("count pending") || it.startsWith("count short") }.startsWith("count pending"),
+                "the reading after the act's write is inside the settle window: $after")
+            assertEquals(emptyList(), countTrouble(r), "the count: ${countNotes(r)}")
+            bothHalvesWhole(r, 0)
+        } finally { r.close() }
+    }
 }
