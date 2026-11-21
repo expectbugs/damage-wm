@@ -25,8 +25,10 @@ import wm.damage.core.wire.DamageMsg
  * wrongly: the repair's own batch is refused again); a read that shows nothing refused since (the record unchanged) or
  * a session start re-arms it. ONE latch for the two modes: the repair re-sends the whole table either way, and a condition that refuses a 26
  * refuses a 27 too (§6.3's checks hold §5.5's), so a 27 at the read after a 26's repair is that repair's own table
- * refused — standing. BIND, a lease gone and Silent Mode stop it before this: the rules act only while BIND is in force,
- * and the flags clear at every release point. The repair always asks its keyframe (the lead's ruling A2 on FR-083: a
+ * refused — standing. The gate decides on every fresh record; what is sent is the rules': they repair only at a read
+ * whose own flags show BIND in force (the lead's ruling A3 on FR-083: a release point on RIGHT clears them, and the
+ * session that follows starts with its warmup keyframe and P1's batch), and no read is made asleep (Silent Mode, a
+ * rest). The repair always asks its keyframe (the lead's ruling A2 on FR-083: a
  * flag saying the refusal's own motion body had asked one could speak for an earlier refusal; the compositor merges
  * keyframe requests not yet sent, so B-S2's and this one are one keyframe whenever the first has not gone yet).
  *

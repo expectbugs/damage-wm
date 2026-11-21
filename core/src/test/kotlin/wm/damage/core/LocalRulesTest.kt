@@ -571,6 +571,27 @@ class LocalRulesTest {
         assertTrue(t.batch().none { it.contentEquals(t.l.set(t.l.entries[2])) }, "out of the span once a read and the floor have passed")
     }
 
+    /** The lead's ruling A3 on FR-083: no repair at a read whose flags show BIND gone (a release point on RIGHT; the shell
+     *  hands the read's flags to `bindInForce` before `telemetry`) — a fresh record naming 26 with a batch behind it, one
+     *  naming 27, a batch dropped whole: no keyframe asked, nothing queued, each journaled. The control: with BIND in force
+     *  again the same kind of record is repaired. */
+    @Test
+    fun noRepairAtAReadWhoseFlagsShowBindGone_A3() {
+        val t = R(row = 3)
+        t.r.taps(Taps.GLASSES); t.batch()                                    // a table object in the batch-14 span
+        t.r.bindInForce(false)
+        t.r.telemetry(null, null, refusal26 = EngineRefusals.Repair(DamageMsg.Refusal(26, 3, 7), "CLOSE slot 2 ×1"))
+        t.r.telemetry(null, DamageMsg.Refusal(27, 3, 8))
+        t.r.telemetry(null, null, DamageMsg.Refusal(8, 14, 9))
+        assertEquals(emptyList<String>(), t.keyframes, "no keyframe asked with BIND gone")
+        assertFalse(t.r.owed, "nothing queued with BIND gone")
+        assertEquals(3, t.notes.count { it.first == "repair" && "object=none: BIND is not in force" in it.second }, "each said: ${t.notes}")
+        t.r.bindInForce(true)
+        t.r.telemetry(null, null, refusal26 = EngineRefusals.Repair(DamageMsg.Refusal(26, 14, 10), "CLOSE slot 2 ×1"))
+        assertEquals(1, t.keyframes.size, "with BIND in force: repaired")
+        assertTrue(t.r.owed, "the table queued")
+    }
+
     @Test
     fun aRefusedFlushSendsTheWholeTableAgain() {
         val t = R(row = 3)

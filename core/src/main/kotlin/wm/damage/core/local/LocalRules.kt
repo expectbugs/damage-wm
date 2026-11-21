@@ -654,7 +654,9 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
      * A RIGHT telemetry read (P1, the tap rule) at [nowMs] (the phone's clock, as [tail]'s): field 39 (null: not carried)
      * and a new refusal record naming mode 27 ([refusal27]), naming mode 26 with more of its batch behind it
      * ([refusal26], decisions BS.3 — [EngineRefusals] decides which), or a batch dropped whole ([batch14], mode 8
-     * reason 14 — decisions M.5).
+     * reason 14 — decisions M.5). None of the three is repaired at a read whose flags show BIND gone (the lead's ruling A3
+     * on FR-083: a release point on RIGHT — the shell hands those flags to [bindInForce] first; the session that follows
+     * starts with its warmup keyframe and P1's batch); a note says so.
      */
     fun telemetry(boundIds: Long?, refusal27: DamageMsg.Refusal?, batch14: DamageMsg.Refusal? = null, refusal26: EngineRefusals.Repair? = null,
                   nowMs: Long = clockMs) {
@@ -663,7 +665,10 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         // A1: an object leaves the span once a read has passed since its batch AND the floor (RIGHT's lag behind the ack)
         touchedSinceRead.values.removeIf { it.reads >= 1 && nowMs - it.atMs >= EngineRefusals.SPAN_FLOOR_MS }
         if (boundIds != null) tapsLive = bindFlag && boundIds and 1L != 0L
-        if (refusal27 != null) {
+        if (!bindFlag) {
+            (refusal27 ?: refusal26?.ref ?: batch14)?.let { r ->
+                note("repair", "evidence=refusal mode=${r.mode and 0x7F} reason=${r.reason} object=none: BIND is not in force at this read") }
+        } else if (refusal27 != null) {
             note("repair", "evidence=refusal mode=27 reason=${refusal27.reason} object=table")
             count("repair.table")
             wholeTable()
