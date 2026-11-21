@@ -1276,7 +1276,8 @@ class LocalSequenceFuzzTest {
         100100778L,   // (9) a stale-cursor adoption after an unreported message; a lost report of a fire that did not draw;
                       //     one that drew, its message paid by an owe
         100101280L,   // (10) both classes: a front's notch paid by its burst's own owe — a dropped echo, a lost report's gap owe
-        100216L,      // (10) the same with the burst opened under the front (decisions BR): a dropped echo
+        100100195L,   // (10) the same with the burst opened under the front (decisions BR): a dropped echo — in place of
+                      //     100216, which declares no class on 0.83's tree (C3 X2M0: f81afd38, the gate-sized run's pin)
         101573L)      // (10) the same with the burst opened under the front: a lost report's gap owe
     /** The fifth base's declared classes, which its first 60 sequences do not hold: J3 and J3 through a later reset, both
      *  in 500854. */
