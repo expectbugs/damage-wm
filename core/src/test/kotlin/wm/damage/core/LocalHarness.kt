@@ -858,8 +858,12 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
             val r = "$arm mode ${lens.refMode and 0x7F} reason ${lens.refReason}"
             if (induce || tagged) induced += r else refusals += r
             if (arm == Arm.RIGHT) rightRefusals += RightRefusal(lens.refMode and 0x7F, lens.refReason, lens.refSeq, induce || tagged, batch)
-            // the image lane writes LEFT (`CfwTransportBase.writeImage`), so the flush's ack is LEFT's [I]: a refusal there
-            // fails the flush — the shell rolls it back and, for a flush that carried the rules' messages, sends the table
+            // THE HARNESS'S CHOICE, NOT THE GLASSES' BEHAVIOUR (C3 X4M0, decisions BI (3)): a refusal on LEFT fails the flush
+            // here — the shell rolls it back and, for a flush that carried the rules' messages, sends the table. On the glasses
+            // the image success ack is sent before the decode is queued (`CLAIMS.md`, the row "The image success ack is sent
+            // BEFORE the decode/present step is queued", V), so a sub-message refused on LEFT fails no ack and nothing tells the
+            // phone; only a message LOST on LEFT fails the flush. Kept (decisions BI (3)): LEFT-only refusals of the rules'
+            // messages have no producer beyond the start's arming race; what heals such a LIST on glass is the riding LIST
             if (arm == Arm.LEFT) up(now) { failed(img, "refused ($r)") }
             refusalStreak = if (arm == Arm.LEFT) refusalStreak + 1 else refusalStreak
             maxRefusalStreak = maxOf(maxRefusalStreak, refusalStreak)

@@ -830,9 +830,11 @@ class LocalSequenceFuzzTest {
     })
 
     /** S19 (this stage's finding, kept after the rulings): a cover's batch refused on LEFT (its word held at the first
-     *  CLEAR) leaves LEFT holding the list's entries under the cover. The refused flush's ack (the image lane's is LEFT's)
-     *  makes the phone send the whole table again — under a cover, CLEAR 0xFF — so LEFT stops matching; without it LEFT
-     *  draws the list's motion over the cover at every notch (no riding message covers an entry). */
+     *  CLEAR) leaves LEFT holding the list's entries under the cover. In the harness a refusal on LEFT fails the flush (its
+     *  choice, not the glasses': on glass the success ack precedes the decode, `CLAIMS.md` V, so only a message LOST on
+     *  LEFT fails it — C3 X4M0, decisions BI (3)), and the phone sends the whole table again — under a cover, CLEAR
+     *  0xFF — so LEFT stops matching; without it LEFT draws the list's motion over the cover at every notch (no riding
+     *  message covers an entry). What this pins is the refused flush's repair, whatever made the flush fail. */
     @Test fun seededS19_aRefusedTableMessageSendsTheTableAgain() = seeded(Taps.REPORT, live = false, script = { h ->
         h.refuse27On = Arm.LEFT
         h.cover()
@@ -857,13 +859,14 @@ class LocalSequenceFuzzTest {
     })
 
     /** S21 (decisions U.1): a LIST refused on one lens alone (a re-stage; since C3 X3M0 a refusal at the LIST, the subs
-     *  after it unrun and no present there, decisions BB (7)), then idle batches and notches; from
-     *  the next answer on, every answer carries its list's LIST before it, so the lens holds the current count when the
-     *  answer is checked, refuses nothing more, keeps presenting, and both lenses agree at the next SETTLE. RIGHT is the
-     *  lens nobody hears from (the image lane writes LEFT, so the flush's ack is LEFT's [I]; RIGHT's refused DISCARD or
-     *  SETTLE sends a body naming no tag, which is no divergence): without the riding LIST it refuses every idle SETTLE
-     *  until a report's mark shows it. LEFT's refusal fails the flush's ack, so the table goes again anyway (S19); since
-     *  C3 X3M0 RIGHT's refusal is in its record too, so the next read repairs it (P1's whole table and a keyframe). */
+     *  after it unrun and no present there, decisions BB (7)), then idle batches and notches; from the next answer on,
+     *  every answer carries its list's LIST before it, so the lens holds the current count when the answer is checked,
+     *  refuses nothing more, keeps presenting, and both lenses agree at the next SETTLE. What each form models since
+     *  C3 X3M0's B7 (C3 X4M0, decisions BI (2), (3)): on RIGHT the refusal is in its record, so the next read repairs it
+     *  (P1's whole table and a keyframe) whether or not the riding LIST rode; on LEFT the harness fails the refused
+     *  flush — its choice, not the glasses' (`CLAIMS.md` V: the success ack precedes the decode, so a refusal on LEFT is
+     *  heard by nothing) — and the table goes again (S19). Neither is the case where the riding LIST is the only cure:
+     *  that is [seededX4M0_aRestageLostWholeOnRightHealsByTheRidingList] (a batch lost whole on RIGHT alone, no record). */
     private fun listLostOn(arm: Arm) = seeded(Taps.REPORT, rows = 7, script = { h ->
         h.lose27 = "list" to setOf(arm)
         h.restage("top+")
@@ -878,6 +881,38 @@ class LocalSequenceFuzzTest {
 
     @Test fun seededS21_aListLostOnRightHealsAtTheNextAnswer() = listLostOn(Arm.RIGHT)
     @Test fun seededS21L_aListLostOnLeftHealsAtTheNextAnswer() = listLostOn(Arm.LEFT)
+
+    /** C3 X4M0 (decisions BI (2); the focused read RM0's question 8): the case in which the riding LIST (decisions U.1) is
+     *  the only cure. A re-stage's batch — the LIST with the new mark and its shift, the slot's DISCARD, the idle SETTLE;
+     *  nothing drawn — is lost whole on RIGHT alone (the inter-lens path, `FIRMWARE.md` §6.11's COMMIT row, graded U):
+     *  RIGHT records nothing and LEFT's ack arrives, so no refusal record and no failed flush send the whole table, and the
+     *  table repair re-sends nothing for a stale mark. RIGHT keeps the old list until the next batch that names it: here the
+     *  rig's idle ticks, whose SETTLE rides behind the list's LIST (a notch's DISCARD would carry it the same way), so both
+     *  notches after them are adopted. Without the riding LIST every notch on RIGHT snaps back as `restaged` until a new
+     *  staging, a refusal or a session start. */
+    @Test fun seededX4M0_aRestageLostWholeOnRightHealsByTheRidingList() {
+        var lost = ""; var g1 = -1; var g2 = -1
+        seeded(Taps.REPORT, rows = 7, script = { h ->
+            h.loseAnswerOn = setOf(Arm.RIGHT)
+            h.restage("top+")
+            h.runUntil(h.now + 150)                     // the re-stage's batch: LEFT applies it, RIGHT never gets it
+            // the case's premise: RIGHT still holds the old list (else nothing here needs the riding LIST)
+            val mR = h.sim.bindForTest(Arm.RIGHT).lists[0].mark; val mL = h.sim.bindForTest(Arm.LEFT).lists[0].mark
+            if (mR == h.rules.markOf(0) || mL != h.rules.markOf(0)) lost = "X4M0: the re-stage's batch was not lost on RIGHT alone (RIGHT's mark $mR, LEFT's $mL, the phone's ${h.rules.markOf(0)})"
+            h.rest()
+            g1 = notch(h, kind = 2); h.runUntil(h.now + 400); g2 = notch(h)
+            h.rest()
+        }, extra = { h ->
+            val out = ArrayList<String>()
+            if (lost.isNotEmpty()) out += lost
+            for (g in listOf(g1, g2)) if (h.fires[g]?.markR != h.rules.markOf(0))
+                out += "X4M0: notch g$g fired on RIGHT's mark ${h.fires[g]?.markR}, not the phone's ${h.rules.markOf(0)}: the riding LIST never set RIGHT right"
+            val v = h.verdicts.filter { it.first == g2 }.map { it.second }
+            if (v.none { it is LocalRules.Verdict.Adopt }) out += "X4M0: the second notch after the re-stage lost on RIGHT was not adopted: $v " +
+                "(RIGHT's mark at it ${h.fires[g2]?.markR}, the phone's ${h.rules.markOf(0)}); notes ${h.notes.takeLast(3)}"
+            out
+        })
+    }
 
     /** S22a (decisions U.2): a SET landing between LEFT's and RIGHT's handling of one notch (a return from a cover with a
      *  notch inside the inter-lens skew) leaves LEFT numbered one behind; a later notch whose report is lost is answered
