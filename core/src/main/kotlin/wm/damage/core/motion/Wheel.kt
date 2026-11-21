@@ -29,7 +29,8 @@ import wm.damage.core.wire.CfwModes
  * `[p.x, p.right + d)`, rows inside the outer rules) — every DRAW of a record, transparent, width unscaled: the row
  * leaving squashes into the outer rule and fades (its track's level-0 backdrop paints the whole area every step), the
  * row entering grows out of the other one, the centre and the neighbour arriving change form at half the travel (the
- * first step whose ease-out reaches 2048, both dimmed to [LEVEL_SWAP] there) and move on one shared ease-out, and the
+ * first step whose ease-out reaches 2048, both showing the neighbour form's own brightness there: [LEVEL_SWAP_CENTRE],
+ * [LEVEL_SWAP_NEIGHBOUR]) and move on one shared ease-out, and the
  * three inner rules slide. Every mover's centre goes the same fraction of its travel at every step (what moves, moves
  * together); END is the switcher's paint at the new cursor on each lens, and the start pose its paint at the old one
  * (`WheelTest`). Parameters: four kind-1 rules ([rules]) on a ring list. `Switcher` = None: the same tracks in one step.
@@ -38,8 +39,13 @@ import wm.damage.core.wire.CfwModes
  * and the bytes it decodes, then K1-1's rule (`MainStaging.timingOf`) at the Scroll tier's length and frames.
  */
 object Wheel {
-    /** O9's starting value: both forms of a swapping cell at this level at the swap. */
-    const val LEVEL_SWAP = 6
+    /** The level a swapping cell's CENTRE form is scaled to at the swap: the neighbour form's own level, so the picture
+     *  that takes over there is as bright as the one that leaves (decisions BK (3), from the lead's look at DW-0's strips:
+     *  O9's first value, 6 for both forms, showed a centre at about 6 beside a neighbour at about 1.6 — its level-4 pixels
+     *  scaled by 6/15 — so the leaving item dropped and the arriving one faded out and then jumped in one step). */
+    const val LEVEL_SWAP_CENTRE = Switcher.NEIGHBOUR_LEVEL
+    /** The level a swapping cell's NEIGHBOUR form is scaled to at the swap: unscaled, its pixels are at their own level. */
+    const val LEVEL_SWAP_NEIGHBOUR = 15
     /** The rules' level: `Level.DIM` (the switcher's inner rules). */
     const val RULE_LEVEL = 3
     /** DRAW opt bit 4: a source pixel 0 is not drawn (§5.4's LUT), so the cells and rules never clear one another. */
@@ -300,21 +306,21 @@ object Wheel {
                 val cC = cTop + hC / 2
                 val mX = Math.round(cC + (toY + hN / 2 - cC) * f).toInt()
                 val mY = Math.round(fromY + hN / 2 + (cC - (fromY + hN / 2)) * f).toInt()
-                // X: the centre flattens and dims toward the slot, going back in depth; at the swap its neighbour form,
-                // which settles into the slot at its own brightness
+                // X: the centre flattens and dims toward the slot (to the neighbour form's own level), going back in depth; at
+                // the swap its neighbour form, which settles into the slot at its own brightness
                 track(g.areaL, g.areaR, Motion.Backdrop.None) {
-                    draw(cell, x = p.x, xR = p.x, y = cTop, dy = (mX - hC / 2) - cTop, dx = -dx1, dxR = dx1, lvl0 = 15, lvl1 = LEVEL_SWAP,
+                    draw(cell, x = p.x, xR = p.x, y = cTop, dy = (mX - hC / 2) - cTop, dx = -dx1, dxR = dx1, lvl0 = 15, lvl1 = LEVEL_SWAP_CENTRE,
                         ease = e1, n = n1, opt = TRANSPARENT, prefs = src(1), h0 = hC, h1 = hC / 2, anchor = 1, windowFirst = 0, windowRows = hC)
                     draw(cell, x = p.x - dx1, xR = p.x + dx1, y = mX - hN / 2, dy = toY - (mX - hN / 2), dx = -(d - dx1), dxR = d - dx1,
-                        lvl0 = LEVEL_SWAP, lvl1 = 15, ease = e2, n = n2, opt = TRANSPARENT, prefs = src(1), windowFirst = hC, windowRows = hN)
+                        lvl0 = LEVEL_SWAP_NEIGHBOUR, lvl1 = 15, ease = e2, n = n2, opt = TRANSPARENT, prefs = src(1), windowFirst = hC, windowRows = hN)
                 }
-                // Y: the neighbour rises and dims toward the centre; at the swap its centre form, which grows to full height,
-                // comes forward to the screen plane and brightens
+                // Y: the neighbour rises toward the centre at its own brightness; at the swap its centre form, which starts at
+                // that brightness, grows to full height, comes forward to the screen plane and brightens
                 track(g.areaL, g.areaR, Motion.Backdrop.None) {
-                    draw(cell, x = xl, xR = xr, y = fromY, dy = (mY - hN / 2) - fromY, dx = dx1, dxR = -dx1, lvl0 = 15, lvl1 = LEVEL_SWAP,
+                    draw(cell, x = xl, xR = xr, y = fromY, dy = (mY - hN / 2) - fromY, dx = dx1, dxR = -dx1, lvl0 = 15, lvl1 = LEVEL_SWAP_NEIGHBOUR,
                         ease = e1, n = n1, opt = TRANSPARENT, prefs = src(2), windowFirst = hC, windowRows = hN)
                     draw(cell, x = xl + dx1, xR = xr - dx1, y = mY - hC / 2, dy = cTop - (mY - hC / 2), dx = d - dx1, dxR = -(d - dx1),
-                        lvl0 = LEVEL_SWAP, lvl1 = 15, ease = e2, n = n2, opt = TRANSPARENT, prefs = src(2), h0 = hC / 2, h1 = hC, anchor = 1,
+                        lvl0 = LEVEL_SWAP_CENTRE, lvl1 = 15, ease = e2, n = n2, opt = TRANSPARENT, prefs = src(2), h0 = hC / 2, h1 = hC, anchor = 1,
                         windowFirst = 0, windowRows = hC)
                 }
             }

@@ -163,7 +163,7 @@ class WheelTest {
 
     /** The swap at half the travel: the swapping cells change form at n1 — the first step whose ease-out reaches 2048 —
      *  the centre leaving draws its centre form (aux0 0, aux1 hC) through step n1 and its neighbour form (aux0 hC, aux1
-     *  hN) from n1 + 1; the neighbour arriving the reverse; both at the swap level there. */
+     *  hN) from n1 + 1; the neighbour arriving the reverse; the brightness carried through the swap (decisions BK (3)). */
     @Test
     fun theFormsSwapAtHalfTheTravel_DW0() {
         for ((fname, face) in faces) for (d in ds) {
@@ -179,7 +179,11 @@ class WheelTest {
                 assertEquals(listOf(0 to g.hC, g.hC to g.hN), x.map { it.aux0 to it.aux1 }, "$fname d $d step $step: the centre leaving, C then N")
                 assertEquals(listOf(g.hC to g.hN, 0 to g.hC), y.map { it.aux0 to it.aux1 }, "$fname d $d step $step: the neighbour arriving, N then C")
                 assertEquals(n1, y[0].steps, "both swap at n1")
-                assertEquals(listOf(Wheel.LEVEL_SWAP, Wheel.LEVEL_SWAP), listOf(x[0].lvl1, y[0].lvl1), "both at the swap level at n1")
+                // decisions BK (3): the brightness is carried through the swap — the centre form scaled to the neighbour form's own
+                // level, the neighbour form unscaled, on both the cell that leaves the centre and the one that arrives
+                assertEquals(listOf(Wheel.LEVEL_SWAP_CENTRE, Wheel.LEVEL_SWAP_NEIGHBOUR), listOf(x[0].lvl1, y[0].lvl1), "the leaving centre and the arriving neighbour at n1")
+                assertEquals(listOf(Wheel.LEVEL_SWAP_NEIGHBOUR, Wheel.LEVEL_SWAP_CENTRE), listOf(x[1].lvl0, y[1].lvl0), "the forms that take over start where those ended")
+                assertEquals(wm.damage.core.shell.Switcher.NEIGHBOUR_LEVEL, Wheel.LEVEL_SWAP_CENTRE, "the centre form's swap level is the neighbour form's own")
             }
         }
     }
