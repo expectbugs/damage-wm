@@ -1041,6 +1041,7 @@ class Shell(
                 localRearm = { transport.devProbe("local", "rearm") },
                 bindBuild = { transport.state.value.damageFeatures and wm.damage.core.wire.DamageMsg.FEATURE_BIND != 0 },
                 motionHint = { motionHint() },
+                scrollPlays = { scrollPlaysWords() },
                 effectsInForce = { transport.state.value.effects })
             register(settingsWindow)
         }
@@ -6486,6 +6487,8 @@ class Shell(
         // its form (the ring where Main's paint wraps, `MainStaging.ringFits`: 8 rows at 288 and 352) and its fit (the fast
         // DRAW path's) from it; the poll drops a staging made under the other value
         val stage5 = st.effects
+        // C3 DM-1: the gate's token for Crush's and Flip's version-2 pans, made from the link state now and never kept
+        val fx = effectsToken(st)
         val what = "$lay $listD/$bandD $n ${region.first}..${region.last} ${st.cacheSize} ${motionInForce()} stage5=$stage5 ${List(n) { main.rowKey(it) }.hashCode()}"
         if (mainBindRefusedFor == what) return false
         val ct = cachedText
@@ -6516,12 +6519,12 @@ class Shell(
         val room = mainBind.roomFor(List(pt.n) { main.rowIdentity(it) })
         val ms = try {
             // the bound list's pans only (AF.10); at 256 KiB Main's own region holds a second strip (AD.2)
-            try { MainStaging.assemble(pt, listD, bandD, st.cacheSize, region.first, region.last + 1, listOf(MainStaging.WHOLE), twoStrips = !shared0, motion = motionInForce(), room = room, stage5 = stage5) }
+            try { MainStaging.assemble(pt, listD, bandD, st.cacheSize, region.first, region.last + 1, listOf(MainStaging.WHOLE), twoStrips = !shared0, motion = motionInForce(), room = room, stage5 = stage5, fx = fx) }
             catch (e: wm.damage.core.geom.LintError) {
                 if (shared0) throw e
                 // decisions AU.1 (b): two strips do not fit Main's region — ONE strip is staged, and a row form's change
                 // withdraws the list as at 160 KiB; never "not staged" while one strip fits
-                MainStaging.assemble(pt, listD, bandD, st.cacheSize, region.first, region.last + 1, listOf(MainStaging.WHOLE), twoStrips = false, motion = motionInForce(), room = room, stage5 = stage5)
+                MainStaging.assemble(pt, listD, bandD, st.cacheSize, region.first, region.last + 1, listOf(MainStaging.WHOLE), twoStrips = false, motion = motionInForce(), room = room, stage5 = stage5, fx = fx)
                     .also { journal.note("mainstage", "two strips do not fit Main's region (${e.message}) — one strip staged; a row form's change withdraws the list, as at 160 KiB") }
             }
         } catch (e: wm.damage.core.geom.LintError) {
@@ -6562,8 +6565,36 @@ class Shell(
                 "— the wrap notch fires on the glasses" else if (ms.wrap == null && ms.rows > ms.layout.rowsAbove + ms.layout.rowsBelow + 1) "; the wrap's own record left out (the region " +
                 "does not hold it): the wrap goes as the shell's frames" else "") +
             (if (mainBehindClock()) " — behind the clock: the list is bound when Main is in front" else ""))
+        mainBindPlaysNote(ms)
         post(Msg.Pump)
         return true
+    }
+
+    /** C3 DM-1: the gate's token ([wm.damage.core.motion.Motion.effects]) from [st] as it is now — null where version 2 is
+     *  not in force (below stage 5, a build without DamageCaps bit 11). Made at each staging and re-make, never kept
+     *  (decisions W, D-6). */
+    private fun effectsToken(st: LinkState): wm.damage.core.motion.Motion.Effects? = if (!st.effects) null else
+        try { wm.damage.core.motion.Motion.effects(wm.damage.core.wire.DamageMsg.Caps(st.damageContract, st.damageFeatures), st.flagsInForce) }
+        catch (e: wm.damage.core.geom.LintError) { journal.note("mainstage", "the version-2 gate refuses with EFFECTS in force: ${e.message} — Crush and Flip play their fallbacks"); null }
+
+    /** C3 DM-1 (D3): why the asked effect plays its fallback, said once per change of what plays and why (the row says
+     *  what plays: [scrollPlaysWords]). */
+    private var mainBindPlaysSaid: String? = null
+    private fun mainBindPlaysNote(ms: MainStaging) {
+        val asked = ms.motion?.effect ?: return
+        val words = ms.plays.words(asked)
+        val said = if (words.isEmpty()) null else "${asked.word} $words — ${ms.plays.why}"
+        if (said != null && said != mainBindPlaysSaid) journal.note("mainstage", "Scroll effect $said")
+        mainBindPlaysSaid = said
+    }
+
+    /** C3 DM-1: what the `Scroll effect` row adds — "plays Slide" while Crush's fallback plays, "plays its height turn"
+     *  for Flip's — from the staging made for the rows in force, or before one from the link state; "" otherwise. */
+    private fun scrollPlaysWords(): String {
+        val m = motionInForce()
+        val ms = mainBind.staging
+        val p = if (ms != null && ms.motion?.effect == m.effect) ms.plays else wm.damage.core.motion.ScrollEffects.playsAt(m.effect, transport.state.value.effects)
+        return p.words(m.effect)
     }
 
     /**
@@ -6579,7 +6610,7 @@ class Shell(
         if (mainBindBurstOpen() || mainMotionMayDraw()) return false
         val want = motionInForce()
         if (ms.remakeOwed(want) == null) return false
-        val p = when (val r = ms.remake(want)) {
+        val p = when (val r = ms.remake(want, effectsToken(st))) {
             is MainStaging.Remake.Owed -> r.programs
             is MainStaging.Remake.NoRoom -> {
                 // Auto's steps alone stay as they are where there is no slot; a change of the rows is a full staging
@@ -6615,7 +6646,9 @@ class Shell(
             val ms = b.staging ?: return
             // a new effect draws other areas: its steps are measured afresh from its own fit (decisions BF)
             if (r.programs.reset) { stepWindow.clear(); periodSamplesSinceChange = 0 }
-            journal.note("mainstage", "pans switched — ${r.programs.motion.words()}: ${motionWords(ms)}; the entries are SET to them, the old pans kept for reports until the SETs land")
+            journal.note("mainstage", "pans switched — ${r.programs.motion.words()}: ${motionWords(ms)}; the entries are SET to them, the old pans kept for reports until the SETs land" +
+                (b.list?.previous?.pitch?.takeIf { it != ms.pitch }?.let { was -> "; the list's pitch $was → ${ms.pitch}: its LIST goes ahead of the SETs in their batch, a new mark (S6)" } ?: ""))
+            mainBindPlaysNote(ms)
         }
         b.reprogramReleaseIfDue(local.burstOpen)?.let { rec -> if (stage.records[rec.key] === rec) stage.remove(rec); stageRecount() }
     }

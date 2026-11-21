@@ -2160,8 +2160,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "listOf(MainStaging.WHOLE), twoStrips = !shared0, motion = motionInForce(), room = room, stage5 = stage5)",
-    "MainStaging.WIDTHS + MainStaging.WHOLE, twoStrips = !shared0, motion = motionInForce(), room = room, stage5 = stage5)"
+    "listOf(MainStaging.WHOLE), twoStrips = !shared0, motion = motionInForce(), room = room, stage5 = stage5, fx = fx)",
+    "MainStaging.WIDTHS + MainStaging.WHOLE, twoStrips = !shared0, motion = motionInForce(), room = room, stage5 = stage5, fx = fx)"
    ]
   ],
   "tests": [
@@ -2170,7 +2170,7 @@
   "expect": [
    "theBoundStagingHoldsOnlyTheWholeListsPans_AF10"
   ],
-  "note": "AF.10 [re-targeted at the 0.83 integration: B082 added the `room` argument] [re-pointed by C3 DM-0 to its present text] [re-pointed by C3 FF: the shell passes EFFECTS in force]",
+  "note": "AF.10 [re-targeted at the 0.83 integration: B082 added the `room` argument] [re-pointed by C3 DM-0 to its present text] [re-pointed by C3 FF: the shell passes EFFECTS in force] [re-pointed by C3 DM-1 to its present text: the gate's token fx passed beside stage5; the pans laid out by what plays]",
   "from": "FB"
  },
  {
@@ -3767,7 +3767,7 @@
   "file": "shell/MainStaging.kt",
   "edits": [
    [
-    "                room != null && room.any { it > 0 } -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, null, wrapFit, false, stage5)",
+    "                room != null && room.any { it > 0 } -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, null, wrapFit, false, stage5, fx)",
     ""
    ]
   ],
@@ -3777,7 +3777,7 @@
   "expect": [
    "aRoomTheRegionCannotHoldIsLeftOut_B082"
   ],
-  "note": "B082 step 2: a room past the region gives up the wrap record's slack (or the record) instead of the room [re-targeted at the 0.83 integration: K1-1 added the `progSpare` argument (false on the ladder's later rungs)] [re-pointed by C3 DM-0 to its present text]",
+  "note": "B082 step 2: a room past the region gives up the wrap record's slack (or the record) instead of the room [re-targeted at the 0.83 integration: K1-1 added the `progSpare` argument (false on the ladder's later rungs)] [re-pointed by C3 DM-0 to its present text] [re-pointed by C3 DM-1 to its present text: the gate's token fx passed beside stage5; the pans laid out by what plays]",
   "from": "B082"
  },
  {
@@ -3785,8 +3785,8 @@
   "file": "shell/MainStaging.kt",
   "edits": [
    [
-    "                wrapPic != null -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, null, wrapFit + 1, false, stage5)",
-    "                wrapPic != null -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, null, WRAP_NONE, false, stage5)"
+    "                wrapPic != null -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, null, wrapFit + 1, false, stage5, fx)",
+    "                wrapPic != null -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, null, WRAP_NONE, false, stage5, fx)"
    ]
   ],
   "tests": [
@@ -3795,7 +3795,7 @@
   "expect": [
    "aWrapRecordTheRegionCannotHoldIsLaidTightThenLeftOut_B082"
   ],
-  "note": "B082 step 3: a short region leaves the wrap record out where it would fit tight [re-targeted at the 0.83 integration: K1-1 added the `progSpare` argument] [re-pointed by C3 DM-0 to its present text]",
+  "note": "B082 step 3: a short region leaves the wrap record out where it would fit tight [re-targeted at the 0.83 integration: K1-1 added the `progSpare` argument] [re-pointed by C3 DM-0 to its present text] [re-pointed by C3 DM-1 to its present text: the gate's token fx passed beside stage5; the pans laid out by what plays]",
   "from": "B082"
  },
  {
@@ -3803,7 +3803,7 @@
   "file": "shell/MainStaging.kt",
   "edits": [
    [
-    "                wrapPic != null -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, null, wrapFit + 1, false, stage5)",
+    "                wrapPic != null -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, null, wrapFit + 1, false, stage5, fx)",
     ""
    ]
   ],
@@ -3813,7 +3813,7 @@
   "expect": [
    "aWrapRecordTheRegionCannotHoldIsLaidTightThenLeftOut_B082"
   ],
-  "note": "B082 step 3: a region that cannot hold the wrap record refuses the staging (288 at 160 KiB with the desktop's font) [re-targeted at the 0.83 integration: K1-1 added the `progSpare` argument] [re-pointed by C3 DM-0 to its present text]",
+  "note": "B082 step 3: a region that cannot hold the wrap record refuses the staging (288 at 160 KiB with the desktop's font) [re-targeted at the 0.83 integration: K1-1 added the `progSpare` argument] [re-pointed by C3 DM-0 to its present text] [re-pointed by C3 DM-1 to its present text: the gate's token fx passed beside stage5; the pans laid out by what plays]",
   "from": "B082"
  },
  {
@@ -8186,8 +8186,8 @@
   "file": "shell/MainStaging.kt",
   "edits": [
    [
-    "PanSpec(it.k, it.kA, it.kB, it.step, it.strip) }, margin)",
-    "PanSpec(it.k, it.kA, it.kB, it.step, it.strip) }, layout.rowsAbove)"
+    "slots[to], specs, margin, rows, ring, itemOffs",
+    "slots[to], specs, layout.rowsAbove, rows, ring, itemOffs"
    ]
   ],
   "tests": [
@@ -8196,7 +8196,7 @@
   "expect": [
    "theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2"
   ],
-  "note": "C3 DM-0 (the class of the strip's margin): the programs-only re-make's rules by layout.rowsAbove — on a ring strip one row short, every re-made pan's END a row off",
+  "note": "C3 DM-0 (the class of the strip's margin): the programs-only re-make's rules by layout.rowsAbove — on a ring strip one row short, every re-made pan's END a row off [re-pointed by C3 DM-1 to its present text: the gate's token fx passed beside stage5; the pans laid out by what plays]",
   "from": "C3-DM0"
  },
  {
@@ -8359,8 +8359,8 @@
   "file": "shell/MainStaging.kt",
   "edits": [
    [
-    "                else ScrollEffects.timing(effect, l, listD, bandD, motion, stage5)",
-    "                else ScrollEffects.timing(effect, l, listD, bandD, motion, true)"
+    "else ScrollEffects.timing(pl, l, listD, bandD, motion, stage5) }",
+    "else ScrollEffects.timing(pl, l, listD, bandD, motion, true) }"
    ]
   ],
   "tests": [
@@ -8373,7 +8373,7 @@
    "stage5TakesTheFastPathsFitAndStaysInsideTheBudget_FF",
    "theStartsBindBatchPerTapsValue_P1"
   ],
-  "note": "C3 FF: the fast fit reaches a staging made without EFFECTS — the stage-4 pans' records and the SETs' period are no longer today's bytes",
+  "note": "C3 FF: the fast fit reaches a staging made without EFFECTS — the stage-4 pans' records and the SETs' period are no longer today's bytes [re-pointed by C3 DM-1 to its present text: the gate's token fx passed beside stage5; the pans laid out by what plays]",
   "from": "C3-FF"
  },
  {
@@ -8381,8 +8381,8 @@
   "file": "shell/MainStaging.kt",
   "edits": [
    [
-    "        val (pFit, tFit) = ScrollEffects.timing(want.effect, layout, listD, bandD, want, stage5)",
-    "        val (pFit, tFit) = ScrollEffects.timing(want.effect, layout, listD, bandD, want, false)"
+    "if (reset) ScrollEffects.timing(pl, layout, listD, bandD, want, stage5)",
+    "if (reset) ScrollEffects.timing(pl, layout, listD, bandD, want, false)"
    ]
   ],
   "tests": [
@@ -8393,7 +8393,7 @@
    "stage5TakesTheFastPathsFitAndStaysInsideTheBudget_FF",
    "theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2"
   ],
-  "note": "C3 FF: the programs-only re-make of a stage-5 staging takes C2's fit — an effect change at stage 5 leaves the fast fit (Slide P 52 T 5 at 352 where the staging's fit gives P 16 T 19)",
+  "note": "C3 FF: the programs-only re-make of a stage-5 staging takes C2's fit — an effect change at stage 5 leaves the fast fit (Slide P 52 T 5 at 352 where the staging's fit gives P 16 T 19) [re-pointed by C3 DM-1 to its present text: the gate's token fx passed beside stage5; the pans laid out by what plays]",
   "from": "C3-FF"
  },
  {
@@ -8490,6 +8490,276 @@
   ],
   "note": "C3 X3M0 (decisions BB (2)): a fire refused 19 is noted with the cause link again (a start's keyframe), not owner",
   "from": "C3-X3M0"
+ },
+ {
+  "id": "DM1-crush-end-short",
+  "file": "motion/ScrollEffects.kt",
+  "edits": [
+   [
+    "y = if (down) l.lens.y - rowH else l.lens.bottom, h0 = 1, h1 = rowH,",
+    "y = if (down) l.lens.y - rowH else l.lens.bottom, h0 = 1, h1 = rowH - 1,"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.crushAndFlipEnd*"
+  ],
+  "expect": [
+   "crushAndFlipEndAtMainsPaintOnTheModelAtEveryCursor_DM1"
+  ],
+  "note": "C3 DM-1 (the DM spec 5.1, every effect's END): Crush's leaving row grows to one row short of a row - END is not Main's paint",
+  "from": "C3-DM1"
+ },
+ {
+  "id": "DM1-crush-one-phase",
+  "file": "motion/ScrollEffects.kt",
+  "edits": [
+   [
+    "                wait(n1)\n                draw(strip, x = cx - dL, xR = cx + dL, y = if (down) l.lens.y - kA * rowH else l.lens.bottom - (kA + 2) * rowH,\n                    dy = -step * rowH, ease = ease, n = n2,",
+    "                draw(strip, x = cx - dL, xR = cx + dL, y = if (down) l.lens.y - kA * rowH else l.lens.bottom - (kA + 2) * rowH,\n                    dy = -step * rowH, ease = ease, n = t,"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.crushRunsInTwoPhases*"
+  ],
+  "expect": [
+   "crushRunsInTwoPhasesAndItsCoversLeaveNoGap_DM1"
+  ],
+  "note": "C3 DM-1 (Crush's phases): the far side's rows move from step 1 with the entering side's (Slide's shape) - not his two phases",
+  "from": "C3-DM1"
+ },
+ {
+  "id": "DM1-crush-gap",
+  "file": "motion/ScrollEffects.kt",
+  "edits": [
+   [
+    "dy = -step * l.lens.h, ease = ease, n = n1,",
+    "dy = -step * l.lens.h, ease = Motion.Ease.linear, n = n1,"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.crushRunsInTwoPhases*"
+  ],
+  "expect": [
+   "crushRunsInTwoPhasesAndItsCoversLeaveNoGap_DM1"
+  ],
+  "note": "C3 DM-1 (Crush's covers, the first inequality): the entering band form on another ease than the squash - a row of the band between them mid-phase",
+  "from": "C3-DM1"
+ },
+ {
+  "id": "DM1-crush-row-uncovered",
+  "file": "motion/ScrollEffects.kt",
+  "edits": [
+   [
+    "anchor = if (down) 2 else 0, ease = ease, n = n2,",
+    "anchor = if (down) 0 else 2, ease = ease, n = n2,"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.crushRunsInTwoPhases*"
+  ],
+  "expect": [
+   "crushRunsInTwoPhasesAndItsCoversLeaveNoGap_DM1"
+  ],
+  "note": "C3 DM-1 (Crush's covers, the second inequality): the leaving row grows from the far edge of its slot, away from the band - row c's rows the far side brings in are not covered (END unchanged)",
+  "from": "C3-DM1"
+ },
+ {
+  "id": "DM1-flip-full-width",
+  "file": "motion/ScrollEffects.kt",
+  "edits": [
+   [
+    "y = l.lens.y, w0 = s.band.w, w1 = 1, hAnchor = 1,",
+    "y = l.lens.y, w0 = s.band.w, w1 = s.band.w, hAnchor = 1,"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.flipTurns*"
+  ],
+  "expect": [
+   "flipTurnsTheBandToOneColumnAtTheMiddleStep_DM1"
+  ],
+  "note": "C3 DM-1 (Flip): the leaving form keeps its width through phase 1 - Depth's swap, no turn",
+  "from": "C3-DM1"
+ },
+ {
+  "id": "DM1-flip-height-no-turn",
+  "file": "motion/ScrollEffects.kt",
+  "edits": [
+   [
+    "y = l.lens.y, h0 = l.lens.h, h1 = 1, anchor = 1, ease = tables[0],",
+    "y = l.lens.y, h0 = l.lens.h, h1 = l.lens.h, anchor = 1, ease = tables[0],"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.flipTurns*"
+  ],
+  "expect": [
+   "flipTurnsTheBandToOneColumnAtTheMiddleStep_DM1"
+  ],
+  "note": "C3 DM-1 (Flip's height form at stage 4): the fallback keeps the band's height through phase 1 - no turn",
+  "from": "C3-DM1"
+ },
+ {
+  "id": "DM1-crush-falls-to-depth",
+  "file": "motion/ScrollEffects.kt",
+  "edits": [
+   [
+    "if (asked == ScrollEffect.CRUSH) Plays(ScrollEffect.SLIDE, false, why)",
+    "if (asked == ScrollEffect.CRUSH) Plays(ScrollEffect.DEPTH, false, why)"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.aStoredCrush*"
+  ],
+  "expect": [
+   "aStoredCrushAtStage4PlaysSlidesBytesExactly_DM1"
+  ],
+  "note": "C3 DM-1 (D3, the stage-5 form): a stored Crush below stage 5 plays Depth, not Slide's bytes",
+  "from": "C3-DM1"
+ },
+ {
+  "id": "DM1-pitch-fixed",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "return BoundList(LIST, SLOT, rows, down.pitch, mark,",
+    "return BoundList(LIST, SLOT, rows, -layout.rowH, mark,"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.crushAndFlipEnd*"
+  ],
+  "expect": [
+   "crushAndFlipEndAtMainsPaintOnTheModelAtEveryCursor_DM1"
+  ],
+  "note": "C3 DM-1 (S6): the bound list keeps pitch -rowH while Crush plays - its windows' first rows are computed at the wrong pitch",
+  "from": "C3-DM1"
+ },
+ {
+  "id": "DM1-check-off",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "                if (p.v2) for (pan in pans) checkEveryCursor(pan, n, ring, itemOffs)\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.aVersion2Form*"
+  ],
+  "expect": [
+   "aVersion2FormTheOfflineCheckRefusesPlaysItsFallback_DM1"
+  ],
+  "note": "C3 DM-1 (D3, the DSL refuses offline): no check at every cursor - a version-2 form whose window leaves the strip or whose budget passes 80 % is staged",
+  "from": "C3-DM1"
+ },
+ {
+  "id": "DM1-budget-share",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "const val BUDGET_PCT = 80",
+    "const val BUDGET_PCT = 100"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.aVersion2Form*"
+  ],
+  "expect": [
+   "aVersion2FormTheOfflineCheckRefusesPlaysItsFallback_DM1"
+  ],
+  "note": "C3 DM-1 (the budget's 80 %): a program up to the whole cap is staged - nothing left for another instance drawing",
+  "from": "C3-DM1"
+ },
+ {
+  "id": "DM1-row-silent",
+  "file": "shell/SettingsWindow.kt",
+  "edits": [
+   [
+    "scrollPlays().let { if (it.isEmpty()) \"\" else \" ($it)\" } + ",
+    ""
+   ]
+  ],
+  "tests": [
+   "*SettingsLocalRowsTest*"
+  ],
+  "expect": [
+   "theScrollEffectRowSaysWhatPlays_DM1"
+  ],
+  "note": "C3 DM-1 (D3): the Scroll effect row does not say what plays when a fallback plays",
+  "from": "C3-DM1"
+ },
+ {
+  "id": "DM1-fit-no-pixel-term",
+  "file": "motion/ScrollEffects.kt",
+  "edits": [
+   [
+    "if (p.effect == ScrollEffect.FLIP && p.v2) l.lens.h * (l.content.w - Layout.RAIL_W + kotlin.math.abs(listD - bandD)) else 0",
+    "0"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.crushAndFlipFit*"
+  ],
+  "expect": [
+   "crushAndFlipFitTheSpecsPeriodsAndStayInsideTheBudget_DM1"
+  ],
+  "note": "C3 DM-1 (the fit): Flip's width turn fitted as bytes, not a pixel at a time - P 16 T 19 at 352 against the spec's P 18 T 17",
+  "from": "C3-DM1"
+ },
+ {
+  "id": "DM1-s6-no-list",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "was.count != list.count || was.pitch != list.pitch || was.mark != list.mark",
+    "was.count != list.count || was.mark != list.mark"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aPitchSwitch*"
+  ],
+  "expect": [
+   "aPitchSwitchGoesAsOneBatchOnTheShellPath_DM1"
+  ],
+  "note": "C3 DM-1 (S6): a pitch-only change keeps the staged list and owes no LIST - the SETs go first and only the riding LIST-RING after them carries the new pitch, with the old mark (watched: the switch's flush [SET, SET, LIST-RING, SETTLE])",
+  "from": "C3-DM1"
+ },
+ {
+  "id": "DM1-s6-sets-first",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "        for (e in entriesOf(list)) if (!holds(list.list, e)) pending += Pending.Set(list, e)\n    }",
+    "        for (e in entriesOf(list)) if (!holds(list.list, e)) pending.add(pending.indexOfFirst { it is Pending.ListMsg }.let { if (it < 0) pending.size else it }, Pending.Set(list, e))\n    }"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aPitchSwitch*"
+  ],
+  "expect": [
+   "aPitchSwitchGoesAsOneBatchOnTheShellPath_DM1"
+  ],
+  "note": "C3 DM-1 (S6): the switch's SETs go ahead of its LIST in the batch - a refusal at the LIST would leave the new entries under the old pitch",
+  "from": "C3-DM1"
+ },
+ {
+  "id": "DM1-s6-mark-kept",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "is Pending.ListMsg -> { out += listMsg(p.list, p.shift, fresh = true); listed += p.list.list }",
+    "is Pending.ListMsg -> { out += listMsg(p.list, p.shift, fresh = false); listed += p.list.list }"
+   ]
+  ],
+  "tests": [
+   "*MainLocalShellTest.aPitchSwitch*"
+  ],
+  "expect": [
+   "(no pin, declared: with the mark kept, BoundList.names still refuses the old pitch's report once the previous list is released, and before that judges it against the previous list with its own program and P - never against the new form; the fresh mark refuses it earlier and closes names()'s split test (program and P judged against either list); a pin needs the report to land between the switch's batch and the release, a window the instant rig closes at once)"
+  ],
+  "note": "C3 DM-1 (S6): the switch's LIST keeps the wire mark - a report from a fire before the switch is no longer refused by P3's mark test (restaged) but judged against the stagings",
+  "from": "C3-DM1"
  },
  {
   "id": "X4M0-stale-front-scroll",

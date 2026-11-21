@@ -62,7 +62,9 @@ class OracleWalkTest {
     private class Rig(height: Int, seed: Long, contract: Int = 1, cached: Boolean = false, val stage4: Boolean = false,
                       taps: wm.damage.core.local.Taps = wm.damage.core.local.Taps.REPORT,
                       /** Build C3 (DP2): a bit-11 build (0xdff) at the ladder's stage 5 — EFFECTS armed, transitions played. */
-                      val stage5: Boolean = false) {
+                      val stage5: Boolean = false,
+                      /** C3 DM-1: Main's `Scroll effect` (the walk's local events then fire it on the glasses). */
+                      scrollEffect: String = ShellSettings().scrollEffect) {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val tmp: java.nio.file.Path = Files.createTempDirectory("damage-walk")
         val store = Persistence(tmp.resolve("state.json"))
@@ -95,7 +97,7 @@ class OracleWalkTest {
 
         init {
             // DP2: every tier's every effect checked, at the shortest length, so the walk meets them all quickly
-            store.put("shell.settings", ShellSettings(heightMode = height, cachedText = if (cached) "on" else "off", taps = taps).let { s ->
+            store.put("shell.settings", ShellSettings(heightMode = height, cachedText = if (cached) "on" else "off", taps = taps, scrollEffect = scrollEffect).let { s ->
                 if (!stage5) s else wm.damage.core.motion.Transitions.Tier.entries.fold(s) { a, t ->
                     a.withTier(t, length = 225, frames = 6, effects = wm.damage.core.motion.Transitions.effectsOf(t).map { it.id }) } }.toJson())
             // Games is the one real window core can build with no host at all
@@ -654,47 +656,80 @@ class OracleWalkTest {
             val taps = tapsByHeight[hi]
             val rig = Rig(h, seed = 0xD2_10CAL + h, contract = 2, cached = true, stage4 = true, taps = taps)
             val tag = "c2 stage 4 h=$h taps=${taps.word}"
-            var local = 0; var drew = 0; var presses = 0; var acted = 0
             try {
-                rig.shell.start()
-                rig.settle("$tag boot")
-                rig.assertOracle("$tag boot")
-                for (step in 1..LOCAL_STEPS) {
-                    rig.settle("$tag before step $step")
-                    val offer = if (rig.surface() == "main") rig.shell.sampleIdle { rig.shell.mainBoundForTest() } else null
-                    val list = offer?.first
-                    // the entries live on RIGHT (the rules' SETs landed): ids 4 and 5 at least
-                    val live = list != null && rig.sim.bindForTest(Arm.RIGHT).field39() and 0x30 == 0x30
-                    if (live && rig.rnd.nextInt(3) != 0) {
-                        val e = list!!.entries[rig.rnd.nextInt(list.entries.size)]
-                        val row = offer.second
-                        val before = rig.sim.bindForTest(Arm.RIGHT).seq
-                        val now = System.currentTimeMillis()
-                        for (arm in Arm.entries) rig.sim.conformanceInput(arm, wm.damage.core.wire.CfwModes.DEV_RING, e.eventId.toLong(), 0, now)
-                        val fired = rig.sim.bindForTest(Arm.RIGHT).seq != before
-                        rig.transport.ringStockForTest(wm.damage.core.local.BoundList.stockEvent(e.eventId)!!)
-                        if (fired && !e.isTap) { val f = list.predict(row, e); if (f is wm.damage.core.local.BoundList.Fire.Drew) drew++ }
-                        if (fired && e.isTap) { acted++; if (taps == wm.damage.core.local.Taps.GLASSES) presses++ }
-                        // the lens draws the local picture to its end (a period of steps and one more)
-                        val prog = e.program
-                        if (prog != null) delay(((prog.T + 1) * e.period * 1000L / 1024) + 20)
-                        local++
-                        val where = "$tag step $step (local ${if (e.isTap) "tap" else if (e.step > 0) "down" else "up"} from row $row)"
-                        rig.settle(where)
-                        rig.assertOracle(where)
-                        continue
-                    }
-                    // away from Main, a double tap back one level now and then: the local events are Main's
-                    val g = if (rig.surface() != "main" && rig.rnd.nextInt(3) == 0) EvenHubMsg.EV_DOUBLE_CLICK else GESTURES[rig.rnd.nextInt(GESTURES.size)]
-                    rig.shell.postGesture(g)
-                    val where = "$tag step $step (${EvenHubMsg.eventName(g)})"
-                    rig.settle(where)
-                    rig.assertOracle(where)
-                }
+                val (local, drew, presses, acted) = localWalk(rig, tag, taps)
                 println("$tag: $local local event(s), $drew notch(es) drew, $acted tap(s) fired the entry ($presses press(es)); " +
                     "${rig.shell.divergencesReported} divergence(s) reported")
                 assertTrue(drew >= 8, "$tag: the walk fired $local local event(s), $drew notches that drew — it proves less than it claims")
                 if (taps == wm.damage.core.local.Taps.GLASSES) assertTrue(presses >= 1, "$tag: no press drew")
+            } finally {
+                rig.stop()
+            }
+        }
+    }
+
+    /** One local walk of [LOCAL_STEPS] (stage DI's body, shared by the stage-4 and the C3 DM-1 stage-5 walks): (local events,
+     *  notches that drew, presses, taps that fired the entry). */
+    private suspend fun localWalk(rig: Rig, tag: String, taps: wm.damage.core.local.Taps): List<Int> {
+        var local = 0; var drew = 0; var presses = 0; var acted = 0
+        rig.shell.start()
+        rig.settle("$tag boot")
+        rig.assertOracle("$tag boot")
+        for (step in 1..LOCAL_STEPS) {
+            rig.settle("$tag before step $step")
+            val offer = if (rig.surface() == "main") rig.shell.sampleIdle { rig.shell.mainBoundForTest() } else null
+            val list = offer?.first
+            // the entries live on RIGHT (the rules' SETs landed): ids 4 and 5 at least
+            val live = list != null && rig.sim.bindForTest(Arm.RIGHT).field39() and 0x30 == 0x30
+            if (live && rig.rnd.nextInt(3) != 0) {
+                val e = list!!.entries[rig.rnd.nextInt(list.entries.size)]
+                val row = offer.second
+                val before = rig.sim.bindForTest(Arm.RIGHT).seq
+                val now = System.currentTimeMillis()
+                for (arm in Arm.entries) rig.sim.conformanceInput(arm, wm.damage.core.wire.CfwModes.DEV_RING, e.eventId.toLong(), 0, now)
+                val fired = rig.sim.bindForTest(Arm.RIGHT).seq != before
+                rig.transport.ringStockForTest(wm.damage.core.local.BoundList.stockEvent(e.eventId)!!)
+                if (fired && !e.isTap) { val f = list.predict(row, e); if (f is wm.damage.core.local.BoundList.Fire.Drew) drew++ }
+                if (fired && e.isTap) { acted++; if (taps == wm.damage.core.local.Taps.GLASSES) presses++ }
+                // the lens draws the local picture to its end (a period of steps and one more)
+                val prog = e.program
+                if (prog != null) delay(((prog.T + 1) * e.period * 1000L / 1024) + 20)
+                local++
+                val where = "$tag step $step (local ${if (e.isTap) "tap" else if (e.step > 0) "down" else "up"} from row $row)"
+                rig.settle(where)
+                rig.assertOracle(where)
+                continue
+            }
+            // away from Main, a double tap back one level now and then: the local events are Main's
+            val g = if (rig.surface() != "main" && rig.rnd.nextInt(3) == 0) EvenHubMsg.EV_DOUBLE_CLICK else GESTURES[rig.rnd.nextInt(GESTURES.size)]
+            rig.shell.postGesture(g)
+            val where = "$tag step $step (${EvenHubMsg.eventName(g)})"
+            rig.settle(where)
+            rig.assertOracle(where)
+        }
+        return listOf(local, drew, presses, acted)
+    }
+
+    /**
+     * C3 DM-1 (the brief's item 8): the local walk at stage 5 on a bit-11 build (256 KiB) with Crush and with Flip on Main —
+     * version-2 pans fired through the simulator's input hook on both lenses (Crush at pitch +rowH, its source windows; a
+     * ring list at 288 and 352, the wrap among the notches), the shell's own rules answering every report — the truth
+     * oracle at every settle, and the walk must have fired notches that drew.
+     */
+    @Test
+    fun localEventsWithCrushAndFlipKeepTheOracleAtStage5_DM1(): Unit = runBlocking {
+        for ((h, effect) in listOf(288 to "crush", 352 to "crush", 352 to "flip", 416 to "flip", 480 to "crush")) {
+            val taps = wm.damage.core.local.Taps.REPORT
+            val rig = Rig(h, seed = 0xD3_11CAL + h + effect.length, contract = 2, cached = true, stage5 = true, taps = taps, scrollEffect = effect)
+            val tag = "c3 stage 5 h=$h $effect"
+            try {
+                val (local, drew, _, _) = localWalk(rig, tag, taps)
+                val plays = rig.shell.mainBinding.staging?.plays
+                println("$tag: $local local event(s), $drew notch(es) drew; plays $plays; ${rig.shell.divergencesReported} divergence(s) reported")
+                assertEquals(wm.damage.core.motion.ScrollEffect.byId(effect), plays?.effect, "$tag: Main's staging plays $effect")
+                assertTrue(plays!!.v2, "$tag: in version 2")
+                assertTrue(drew >= 8, "$tag: the walk fired $local local event(s), $drew notches that drew — it proves less than it claims")
+                assertEquals(0, rig.shell.divergencesReported, "$tag: no divergence")
             } finally {
                 rig.stop()
             }
