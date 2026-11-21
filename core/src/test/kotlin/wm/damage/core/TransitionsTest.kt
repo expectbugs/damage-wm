@@ -275,12 +275,14 @@ class TransitionsTest {
         var st = wm.damage.core.shell.ShellSettings()
         fun w(effects: Boolean) = wm.damage.core.shell.SettingsWindow(FakeText(), { st }, { st = it }, bindBuild = { true },
             motionHint = { "10 frames × 45 ms" }, effectsInForce = { effects })
-        // K1-1's Scroll tier rows (`private/build083/K1-1-built.md`: `Scroll effect`, `Scroll length`, `Scroll frames`)
-        val scrollRows = listOf("Scroll effect", "Scroll length", "Scroll frames")
-        assertEquals(scrollRows, w(false).rowsForTest("Animations").map { it.first }, "no stage 5: the scroll rows only")
+        // K1-1's Scroll tier rows (`private/build083/K1-1-built.md`: `Scroll effect`, `Scroll length`, `Scroll frames`), then
+        // K1-4a's notice box rows on a bit-10 build (a test line where the two lanes met: 0.83 integration, part 2)
+        val scrollRows = listOf("Scroll effect", "Scroll length", "Scroll frames",
+            "Popup length", "Popup frames", "Popup · Unfurl", "Popup · Fade", "Popup · Slide")
+        assertEquals(scrollRows, w(false).rowsForTest("Animations").map { it.first }, "no stage 5: the scroll and notice rows only")
         val rows = w(true).rowsForTest("Animations")
-        assertEquals(scrollRows, rows.take(3).map { it.first }, "the tier rows after the scroll rows")
-        val names = rows.drop(3).map { it.first }
+        assertEquals(scrollRows, rows.take(scrollRows.size).map { it.first }, "the tier rows after the scroll and notice rows")
+        val names = rows.drop(scrollRows.size).map { it.first }
         // C3 DM-T: Encode and Matrix in `MOTION.md` §7's order (Select: … Glitch, Encode, Matrix, Explode; Lock: Fade,
         // Build, Matrix, Encode, Glitch, Explode)
         // C3 X2T item 7: the tiers as his plan names them — "Close / Back", "Lock Screen"

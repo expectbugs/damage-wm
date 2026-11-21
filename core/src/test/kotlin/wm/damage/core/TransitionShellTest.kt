@@ -165,11 +165,13 @@ class TransitionShellTest {
             settle("up")
         }
 
-        /** A ring gesture: the hook on both lenses, then its stock message through the transport. */
+        /** A ring gesture: the hook on both lenses, then its stock message through the transport — as the ring's own (the
+         *  0.83 integration: since the scroll package's fix stage [wm.damage.core.transport.Transport.injectInput] is a
+         *  screen's gesture the local rules leave alone, so the rig's echo goes as `MainLocalShellTest`'s does). */
         fun fire(eventId: Int) {
             val now = System.currentTimeMillis()
             for (a in Arm.entries) sim.conformanceInput(a, CfwModes.DEV_RING, eventId.toLong(), 0, now)
-            t.injectInput(BoundList.stockEvent(eventId)!!)
+            t.ringStockForTest(BoundList.stockEvent(eventId)!!)
         }
 
         fun tap() = fire(CfwModes.EV_TAP)
@@ -912,7 +914,8 @@ class TransitionShellTest {
      * The second review pass's finding 2, ruled: RIGHT refuses the in half's PLAY-AFTER (riding the frame's batch), LEFT
      * takes it, and RIGHT's outcome-2 body comes before the batch's failed ack. The run ends on the body with both slots
      * CLOSEd in the next flush — the out half's far pose does not wait for anything else; the arriving frame is whole on
-     * both lenses; no keyframe goes.
+     * both lenses; the run sends no keyframe (0.83 integration: the engine-refusal gate's repair at RIGHT's next read sends
+     * one, decisions BS.3 and BU A2).
      */
     @Test
     fun aRefusedInHalfWhoseBodyComesFirstClosesBothSlots_X2P2(): Unit = runBlocking {
@@ -926,6 +929,8 @@ class TransitionShellTest {
             r.until("w0 opens") { r.onLoop { r.shell.currentWindowId() } == "w0" }
             r.until("the run ends") { r.onLoop { r.shell.transitionPhaseForTest() } == null }
             r.until("CLOSE 2 and CLOSE 3 reach RIGHT") { right(r).any { img -> subs(img).let { s -> s.size == 2 && closeOf(s[0], 2) && closeOf(s[1], 3) } } }
+            // 0.83 integration (RR's gate meets this row): RIGHT's next read names the refused mode 26 — decided before the look
+            r.until("RIGHT's next read decided the refusal") { r.notes("local").any { "the glasses refused a mode 26" in it } }
             r.settle("after")
             r.recording = false
             assertTrue(refused.get(), "RIGHT's copy of the PLAY-AFTER was made refusable")
@@ -937,7 +942,14 @@ class TransitionShellTest {
             // the next image after the refused one that is not a cache write (the atlas's idle chunk may slip between)
             val next = imgs.drop(pa + 1).map { subs(it) }.first { s -> s.none { (it[0].toInt() and 0x7F) in setOf(12, 19, 25) } }
             assertTrue(next.size == 2 && closeOf(next[0], 2) && closeOf(next[1], 3), "the next image after the refused one: CLOSE 2 and CLOSE 3 alone, not ${next.map { "${it[0]}/${it[1]}" }}")
-            assertTrue(imgs.drop(pa).none { img -> subs(img).any { (it[0].toInt() and 0x7F) == 6 } }, "no keyframe")
+            // 0.83 integration, a test line where two lanes met (decisions BS.3/BU A2): the run itself sends no keyframe; the
+            // refusal record naming 26 at RIGHT's next read, with the out PLAY's batch (its answers behind the PLAY) and the
+            // CLOSEs' batch in the gate's span, is repaired as any is — the whole table and ONE keyframe, after the CLOSEs
+            val closes = imgs.indexOfFirst { img -> subs(img).let { s -> s.size == 2 && closeOf(s[0], 2) && closeOf(s[1], 3) } }
+            val kfs = imgs.withIndex().filter { (i, img) -> i > pa && subs(img).any { (it[0].toInt() and 0x7F) == 6 } }.map { it.index }
+            assertTrue(kfs.size == 1 && kfs.single() > closes, "the gate's one keyframe after the CLOSEs ($closes), none of the run's: $kfs")
+            assertTrue(Files.readAllLines(r.journal).any { "\"kind\":\"repair\"" in it && "evidence=refusal mode=26" in it && "keyframe=yes" in it },
+                "the keyframe is the gate's repair: ${r.notes("repair")}")
             for (left in listOf(true, false)) againstTruth(r, left, shadow = false)?.let { fail("the arriving frame whole: $it") }
             r.assertOracle("after the refused in half")
         } finally { r.close() }
@@ -1916,6 +1928,175 @@ class TransitionShellTest {
                 "the reading after the act's write is inside the settle window: $after")
             assertEquals(emptyList(), countTrouble(r), "the count: ${countNotes(r)}")
             bothHalvesWhole(r, 0)
+        } finally { r.close() }
+    }
+
+    // ------------------------------------------------------------------------- APK 0.83 integration, part 2
+    /**
+     * 0.83 integration, part 2, items 3b and 3d (K1-4a's notice slice meets X2T's cell lists in the stage reserve): an
+     * Encode Select into a page too dense for one compressed message (23 lines of 70 letters at 480,
+     * `select-encode-apart-480`'s), whose lists reach the notice's slice (the reserve's top 16 KiB at 256 KiB with BIND)
+     * while the notice's programs are counted there. The programs leave the books at the act (their bytes are the lists'
+     * now), are not written again while the run holds (D6: the notice lane reads [Shell]'s hold as every cache writer
+     * does) and go again after it: the in half draws every step, no write into the slice reaches RIGHT before one in-half
+     * period after its in-half body, and at rest every program the books count is on both lenses byte for byte.
+     */
+    @Test
+    fun anEncodeActsListsInTheNoticeSliceTakeItsProgramsOutUntilTheRunEnds_INT083(): Unit = runBlocking {
+        val r = Rig(stage = 5, kib256 = true)
+        val f = wm.damage.core.text.FontSpec(wm.damage.core.text.Face.SYSTEM, 18)
+        val prose = "the quick brown fox jumps over the lazy dog while five wizards box and jump quickly at dawn "
+        r.rows[0].labels = (0 until 23).map { i -> (prose + prose).substring(i * 3 % 40, i * 3 % 40 + 70) to f }
+        r.rows[0].gap = 16
+        try {
+            r.upAt(480, only("depth"))
+            // one visit with Depth first, so the atlas packs every letter the page draws before the Encode act
+            selectAndSettle(r)
+            r.doubleTap(); r.until("back on Main") { r.onLoop { r.shell.currentWindowId() } == null }; runEnds(r, "the Back ends"); r.settle("on Main")
+            r.shell.updateSettings(only("encode")); r.settle("Encode checked")
+            r.until("the notice's programs counted") { r.onLoop { r.shell.noticeLaneDoneForTest() && r.shell.noticeProgramRecordsForTest().isNotEmpty() } }
+            val st = r.t.state.value
+            val slice = CfwModes.noticeRegion(st.cacheSize, st.bind)!!
+            val before = r.onLoop { r.shell.noticeProgramRecordsForTest() }
+            // when each write that starts inside the slice (the notice lane's: the act's lists start below it) reached RIGHT
+            val sliceAt = java.util.concurrent.CopyOnWriteArrayList<Long>()
+            r.onImage = { a, img -> if (a == Arm.RIGHT && cacheWrites(img).any { it.first in slice }) sliceAt += System.currentTimeMillis() }
+            val t0 = System.currentTimeMillis()
+            selectAndSettle(r)
+            r.until("the Encode act's in-half body") { noteTimes(r, "in half's last step drawn on RIGHT").any { it >= t0 } }
+            r.until("the notice's programs counted again", maxMs = 20_000) { r.onLoop { r.shell.noticeLaneDoneForTest() && r.shell.noticeProgramRecordsForTest().isNotEmpty() } }
+            r.settle("after")
+            val owed = r.notes("transition").last { it.startsWith("owed: ") }
+            assertTrue(owed.startsWith("owed: Select Encode"), "Encode played: ${r.notes("transition")}")
+            val m = Regex("cell lists (\\d+) B at off4 (\\d+) \\(out\\) and (\\d+) B at off4 (\\d+) \\(in\\)").find(owed)!!.groupValues.drop(1).map { it.toInt() }
+            val lists = minOf(m[1], m[3]) * 4 until maxOf(m[1] * 4 + m[0], m[3] * 4 + m[2])
+            assertTrue(before.any { (off, b, _) -> off <= lists.last && lists.first < off + b.size },
+                "precondition: the lists ($lists) meet a counted notice program (${before.map { it.first until it.first + it.second.size }})")
+            val bodies = noteTimes(r, "in half's last step drawn on RIGHT").filter { it >= t0 }
+            assertTrue(bodies.size == 1 && r.notes("transition").none { " ended in " in it }, "the in half drew all its steps: ${r.notes("transition")}")
+            val periodMs = Regex("at P (\\d+)").find(owed)!!.groupValues[1].toInt() * 1000.0 / 1024
+            val bodyAt = bodies.single()
+            val after = sliceAt.filter { it >= t0 }
+            assertTrue(after.isNotEmpty() && after.all { it - bodyAt >= periodMs },
+                "the notice's programs went again no earlier than one in-half period (%.1f ms) after the body: %s".format(periodMs, after.map { it - bodyAt }))
+            val progs = r.onLoop { r.shell.noticeProgramRecordsForTest() }
+            for ((off, b, state) in progs) {
+                assertEquals("PROVEN", state, "every notice program counted at rest: $progs")
+                for (lens in listOf(r.sim.left, r.sim.right)) assertTrue(lens.textureCache!!.copyOfRange(off, off + b.size).contentEquals(b),
+                    "the notice program at $off (${b.size} B) is on ${if (lens === r.sim.left) "LEFT" else "RIGHT"} byte for byte")
+            }
+            r.assertOracle("after the Encode Select")
+        } finally { r.close() }
+    }
+
+    /**
+     * 0.83 integration, part 2, item 3e: the scroll package's rules across two acts. Neither instrument drives this (the
+     * stage-5 walk settles between gestures and fires nothing on the hook; the sequence fuzz's harness has no acts): a
+     * burst of four notches on Main's bound list — each fired on both lenses' hooks and reported, its stock echo held back
+     * — cut by a Select (the ring's tap: the hook and its click through the rules), the echoes then arriving late: one
+     * right after the act (the out half drawing), one under the in half, one under the Back's own transition (Main in
+     * front again, the run in hand: `FIRMWARE.md` §7.11) and one after the Back's run. Whatever the rules decide for each
+     * (an owe pays it, it reaches the window, it is a new notch on Main — `LocalRules.front`'s carry rule, decisions BM.2,
+     * BO.1, BR), at rest Main's row is the row their verdicts give (each Adopt's row, each scroll applied with Main in
+     * front ±1, the tap's Act), and belief equals both lenses. Seeded: the transition pick (Fade), the rig's order.
+     */
+    @Test
+    fun lateEchoesOfABurstCutByASelectLeaveMainOnTheRowTheRulesApplied_INT083(): Unit = runBlocking {
+        val r = Rig(stage = 5, nRows = 8)
+        try {
+            r.up(only("fade"))
+            r.shell.transitionRandom = java.util.Random(0x0083_3E5EL)
+            val log = java.util.Collections.synchronizedList(ArrayList<String>())
+            r.onLoop { r.shell.localVerdictsForTest = log }
+            r.until("Main's scroll entries live on RIGHT") { r.sim.bindForTest(Arm.RIGHT).field39() and 0x30 == 0x30 }
+            r.settle("before the burst")
+            val r0 = r.row()
+            val next = CfwModes.EV_UPROLL                                       // the next row (its stock message: SCROLL_BOTTOM)
+            fun hook(eventId: Int) { val now = System.currentTimeMillis(); for (a in Arm.entries) r.sim.conformanceInput(a, CfwModes.DEV_RING, eventId.toLong(), 0, now) }
+            fun echo(eventId: Int) = r.t.ringStockForTest(wm.damage.core.local.BoundList.stockEvent(eventId)!!)
+            val phases = ArrayList<String?>()
+            // the burst: four notches, 40 ms apart, their echoes held back by the band
+            repeat(4) { hook(next); delay(40) }
+            r.until("the burst's four reports read") { log.size >= 4 }
+            // cut by a Select: the ring's tap on the row reached, the hook's report and its click through the rules
+            hook(CfwModes.EV_TAP); r.t.ringStockForTest(EvenHubMsg.EV_CLICK)
+            r.until("a window opens") { r.onLoop { r.shell.currentWindowId() } != null }
+            phases += r.onLoop { r.shell.transitionPhaseForTest() }; echo(next)                     // 1: the out half drawing
+            r.until("the in half") { r.onLoop { r.shell.transitionPhaseForTest() } == "IN" }
+            val owed = r.notes("transition").last { it.startsWith("owed: ") }
+            val p = Regex("at P (\\d+)").find(owed)!!.groupValues[1].toInt()
+            val steps = Regex("(\\d+) steps a half").find(owed)!!.groupValues[1].toInt()
+            delay((steps + 1) * p * 1000L / 1024)                               // past the out half's last step
+            phases += r.onLoop { r.shell.transitionPhaseForTest() }; echo(next)                     // 2: under the in half
+            runEnds(r, "the Select ends"); r.settle("in the window")
+            r.doubleTap()                                                       // the Back
+            r.until("Main in front, the Back's transition in hand") { r.onLoop { r.shell.currentWindowId() == null && r.shell.transitionPhaseForTest() != null } }
+            phases += r.onLoop { r.shell.transitionPhaseForTest() }; echo(next)                     // 3: under the Back's run
+            runEnds(r, "the Back ends")
+            phases += r.onLoop { r.shell.transitionPhaseForTest() }; echo(next)                     // 4: after the Back's run
+            r.settle("at rest")
+            r.until("Main's list bound again") { r.onLoop { r.shell.mainBoundForTest().first } != null }
+            r.settle("at rest, bound")
+            val notes = r.notes("transition").filter { it.startsWith("owed: ") }
+            assertTrue(notes.size == 2 && notes[0].startsWith("owed: Select") && notes[1].startsWith("owed: Back"), "two acts played: $notes")
+            assertTrue(phases[0] != null && phases[1] == "IN" && phases[2] != null && phases[3] == null, "where the echoes arrived: $phases")
+            assertTrue(r.notes("transition").none { " ended in " in it }, "both acts ran whole: ${r.notes("transition")}")
+            // the row the rules' verdicts give, in their order (only Main's moves: a window's own notch moves the window)
+            var row = r0
+            val verdicts = synchronized(log) { log.toList() }
+            for (v in verdicts) {
+                val mode = v.substringBefore(' ')
+                Regex("Adopt\\(row=(\\d+)\\)").find(v)?.let { row = it.groupValues[1].toInt() }
+                Regex("Act\\(row=(\\d+)\\)").find(v)?.let { if (mode == "MAIN") row = it.groupValues[1].toInt() }
+                Regex("Apply\\(type=(\\d+)\\)").find(v)?.let { if (mode == "MAIN") when (it.groupValues[1].toInt()) {
+                    EvenHubMsg.EV_SCROLL_BOTTOM -> row++
+                    EvenHubMsg.EV_SCROLL_TOP -> row-- } }
+            }
+            println("0.83 integration 3e: from row $r0, verdicts $verdicts; echoes arrived at $phases; counters ${r.onLoop { r.shell.localCountsForTest() }}")
+            assertTrue(verdicts.count { "Adopt" in it } >= 1, "the burst's notches were adopted: $verdicts")
+            assertEquals(row, r.row(), "Main's row at rest is the row the rules applied (from $r0): $verdicts")
+            r.assertOracle("at rest")
+        } finally { r.close() }
+    }
+
+    /**
+     * 0.83 integration, part 2, item 3d (slot 2 is K1-4a's notice timer's and a transition's out half's, at different
+     * times): the two draw their tags from ranges of their own. The transport's mirror keeps one END record per (slot,
+     * tag) for the session (build C1's B-N11: a tag is one play's); with one range (0xC000 + a counter each) the
+     * session's first act inside its first notice's grace — both counters at 0 — had its out PLAY write over the live
+     * timer's record, the timer's closed body then read as a divergence, and its keyframe cut the act after one step.
+     * RIGHT's answers are held back 30 ms in order, as a link's round trip does (the mirror takes a PLAY before its body can
+     * come back; with none the body was compared first and the defect hid). The act runs whole, no divergence, no keyframe.
+     */
+    @Test
+    fun aNoticeTimerThenTheSessionsFirstActRunsWhole_INT083(): Unit = runBlocking {
+        val r = Rig(stage = 5, kib256 = true)
+        try {
+            r.up()
+            val q = kotlinx.coroutines.channels.Channel<Pair<Long, () -> Unit>>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+            r.scope.launch { for ((due, f) in q) { val w = due - System.currentTimeMillis(); if (w > 0) delay(w); f() } }
+            val link = r.t as StartRig
+            link.onNotify = { arm, p -> q.trySend(System.currentTimeMillis() + 30 to { link.deliver(arm, p) }); null }
+            r.until("the notice's programs counted") { r.onLoop { r.shell.noticeLaneDoneForTest() && r.shell.noticeProgramRecordsForTest().isNotEmpty() } }
+            r.settle("before the notice")
+            val kf0 = keyframesIn(r)
+            r.shell.postNotice(wm.damage.core.shell.Notifications.Notice("SMS · TEST", "t", "a notice before the act", "12:00"))
+            r.until("the notice's timer in slot 2 on both lenses", 10_000) { r.sim.motionForTest(Arm.RIGHT).slots[2] != null && r.sim.motionForTest(Arm.LEFT).slots[2] != null }
+            val noticeTag = r.sim.motionForTest(Arm.RIGHT).slots[2]!!.tag
+            r.tap()                                                             // the Select, inside the timer's grace
+            r.until("a window opens") { r.onLoop { r.shell.currentWindowId() } != null }
+            runEnds(r, "the Select ends")
+            r.settle("after")
+            val owed = r.notes("transition").last { it.startsWith("owed: ") }
+            assertTrue(owed.startsWith("owed: Select") && "tags out 0xc000 " in owed, "precondition: the session's first act ($owed)")
+            assertEquals(emptyList(), r.notes("divergence"), "no divergence (the notice's tag 0x%04x)".format(noticeTag))
+            assertEquals(kf0, keyframesIn(r), "no keyframe")
+            assertTrue(inHalfWhole(r) && r.notes("transition").none { " ended in " in it }, "the act ran whole: ${r.notes("transition")}")
+            // the box comes back after the run with its timer on the engine: the glass shows the timer's steps where belief
+            // holds its END (`FIRMWARE.md` §5) until the last one — the oracle reads after it, as `MainLocalShellTest`'s does
+            r.until("the returned box's timer drew its last step", 10_000) { Arm.entries.all { a -> r.sim.motionForTest(a).slots[2]?.drawing != true } }
+            r.settle("the timer's end")
+            r.assertOracle("after the act")
         } finally { r.close() }
     }
 }

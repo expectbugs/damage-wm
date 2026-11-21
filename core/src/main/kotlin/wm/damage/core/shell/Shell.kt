@@ -2909,6 +2909,7 @@ class Shell(
         val region = CfwModes.noticeRegion(st.cacheSize, st.bind) ?: return false
         if (pagingInFront()) { noticeYield("page staging in front"); return false }
         if (sliceHeld(region)) { noticeYield("page staging's strips hold the slice"); return false }
+        if (cacheWritesHeld()) return false     // C3 DM-T (D6), 0.83 integration: the notice's programs wait for a glyph run's end
         if (stageFailed || glassesSilent || !st.draw2 || !st.leaseHeld || !ledgerReadable(st)) return false
         if (key != noticeProgsFor) noticeLayout(st, key)
         for (p in noticeProgs) if (p.rec.state == StagedRecord.State.SENT && stageInFlightRec !== p.rec) p.rec.state = StagedRecord.State.WANTED
@@ -3091,6 +3092,7 @@ class Shell(
     /** What the shell does with one report or stock message (P3, P5, the tap rule). */
     /** [eventId]: the report's (a verdict on a 115), which says an adopted notch's direction. */
     private fun localVerdict(v: wm.damage.core.local.LocalRules.Verdict, eventId: Int? = null) {
+        localVerdictsForTest?.add("$mode $v")
         when (v) {
             wm.damage.core.local.LocalRules.Verdict.Nothing -> {}
             is wm.damage.core.local.LocalRules.Verdict.Apply -> { asInput(); edgeAssembleMark = assembleCalls; edgeAtMs = System.currentTimeMillis(); handleInput(v.type, EvenHubMsg.SRC_RING) }
@@ -3115,6 +3117,9 @@ class Shell(
         }
         post(Msg.Pump)
     }
+
+    /** 0.83 integration, tests: each verdict the rules gave, with the mode it met ("MAIN Adopt(row=3)"); null: not kept. */
+    @Volatile internal var localVerdictsForTest: MutableList<String>? = null
 
     /** Decisions AF.8: an act or a gesture applied from a 115 (not from the stock message, which is an input message of
      *  its own) is input — its first flush may take the reserved slot, and the journal marks it so the trial prices it. */
@@ -3154,7 +3159,7 @@ class Shell(
     /** The flush's id, or null when nothing went (an empty tail, or a submit the ended link refused). */
     /**
      * C3 X6T (decisions AW; the 44 of 45, `C3-X5T-compare.md`): the ONE door for a cache write — the atlas's chunks, the
-     * stage lane's pieces (page staging, Main's records, its programs-only re-make) and a transition's records' and lists'
+     * stage lane's pieces (page staging, Main's records, its programs-only re-make, the notice's programs) and a transition's records' and lists'
      * writes. Each goes as a flush of its own under the atlas's writer tag and is booked on the count's ledger at its send,
      * which voids a reading on its way; [completeFlush] counts it at its completion (restarting the settle window), and no
      * reading is launched while any is open ([CacheLedger]'s two rules). Throws as [Transport.submit] does.
@@ -6205,6 +6210,8 @@ class Shell(
     fun graceState(): Pair<Int, Boolean> = notifications.graceStep to (graceJob != null)
     /** Build K1-4a, tests: the notice's programs as "STYLE lines STATE" (a wait's condition; read off the loop). */
     internal fun noticeProgramsForTest(): List<String> = noticeProgs.map { "${it.style} ${it.lines} ${it.rec.state}" }
+    /** 0.83 integration, tests (on the loop): each notice program's cache offset, its bytes as written, its state. */
+    internal fun noticeProgramRecordsForTest(): List<Triple<Int, ByteArray, String>> = noticeProgs.map { Triple(it.rec.off, it.rec.encoded.copyOf(), it.rec.state.name) }
     /** Tests: the notice lane has nothing left to write this session — no programs here (no region, no engine), or every
      *  one laid out for the box as it is and counted. A rig's start waits on it: its writes and their count readings
      *  are the start's work. */
@@ -8408,7 +8415,14 @@ class Shell(
         transition?.let { journal.note("transition", "a new act replaces ${it.tier.word}'s (${it.phase}): its PLAY closes what is left of it") }
         // X2T item 3: an Encode run's lists overwrite only the page-staging strips whose bytes they meet; nothing writes the
         // reserve while the run holds ([cacheWritesHeld])
-        run.built.listsRange?.let { stagePagesDropUnder(it) }
+        run.built.listsRange?.let { lists ->
+            stagePagesDropUnder(lists)
+            // 0.83 integration (K1-4a's slice meets X2T's lists): the notice's programs and capture lie in the reserve's top
+            // 16 KiB; lists that reach them overwrite counted programs, so the programs leave the books (as a page strip's
+            // record does above) and the notice lane writes them again once the run lets cache writes go
+            CfwModes.noticeRegion(st.cacheSize, st.bind)?.takeIf { it.first <= lists.last && lists.first <= it.last }
+                ?.let { noticeYield("an Encode transition's cell lists take bytes ${lists.first}..${lists.last}") }
+        }
         // K1 §9: a box on screen goes back to the queue unread, and returns after the transition
         if (notifications.active) {
             if (notifications.furlingOut) {
@@ -8498,8 +8512,8 @@ class Shell(
 
     /** C3 DM-T, the DM spec's D6: no other cache write while an Encode or Matrix run is in hand — their read range runs from
      *  the atlas's fonts to their records (Encode's to its lists in the stage reserve, above Main's region), and a write
-     *  that meets it closes the half on the glasses. The five writers read it ([pumpAtlas], [pumpMainStage], [pumpMainBind],
-     *  [pumpStagePiece], [pumpStage]); every end of a run goes through [transitionEnd] or a new act, each posting a pump.
+     *  that meets it closes the half on the glasses. The six writers read it ([pumpAtlas], [pumpMainStage], [pumpMainBind],
+     *  [pumpStagePiece], [pumpStage], and K1-4a's [pumpNoticeStage] since the 0.83 integration); every end of a run goes through [transitionEnd] or a new act, each posting a pump.
      *  C3 X2T item 1 (the review's 1, decisions AQ (1)): and for one in-half period past RIGHT's in-half body of such a run
      *  ([glyphHoldUntilMs]) — LEFT reports nothing, and a write released in the pump that sends the CLOSE could reach LEFT
      *  before its in half has landed there (a close by a cache write, §7.3); the period's end posts a pump. */
@@ -9215,8 +9229,11 @@ class Shell(
          *  that carries it (the answer flushes' acks on his glasses, 2026-11-19: 50–400 ms), added to its steps for how long
          *  the cells inside its areas wait. */
         const val WRAP_TAG = 0xB000
-        /** Build K1-4a: the notice's PLAY tags (one per PLAY, cycling through 0x1000), apart from the wrap's. */
-        const val NOTICE_TAG = 0xC000
+        /** Build K1-4a: the notice's PLAY tags (one per PLAY, cycling through 0x1000), apart from the wrap's — and apart from
+         *  a transition's (0.83 integration: its out half plays in the notice's slot 2 from `TransitionRun.TAG_OUT`, 0xC000;
+         *  the mirror keeps one END record per (slot, tag) for the session, so a shared range let an act's out PLAY write
+         *  over a live notice timer's record and read its closed body as a divergence). */
+        const val NOTICE_TAG = 0xE000
         /** Decisions BF (G4): the measured period's window (complete motions), its margin over the largest step, and how
          *  many ticks lower a window must call for before the period comes down. */
         const val PERIOD_WINDOW = 8
