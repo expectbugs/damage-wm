@@ -720,8 +720,8 @@ class TransitionShellTest {
         assertEquals(10_700 + tp + allow, run.deadlineMs(), "never before the PLAY-AFTER's ack plus T periods")
         run.outBodyAtMs = 0
         run.inDoneAtMs = 10_400
-        assertEquals(maxOf(10_400, 10_200 + tp) + Math.round((timing.steps + 1) * timing.period * 1000.0 / 1024), run.deadlineMs(),
-            "no out-half body: the acks' rule")
+        assertEquals(maxOf(10_400, 10_200 + tp) + Math.round((timing.steps + 1) * timing.period * 1000.0 / 1024) + allow, run.deadlineMs(),
+            "no out-half body: the acks' rule, with the same allowance (decisions BV (2))")
     }
 
     /** C3 TR1: his link as the paced rig plays it — acks [ackMs] after RIGHT handled an image (his out PLAY's median
@@ -759,6 +759,10 @@ class TransitionShellTest {
                 assertTrue(inHalfWhole(r), "$what: ended by RIGHT's in-half body: ${r.notes("transition")}")
                 bothHalvesWhole(r)
                 noCloseUnderTheRun(r)
+                // decisions BV (3): each half's `motion` note carries the body's field 11, RIGHT's uptime in ticks
+                val halves = r.notes("motion").filter { "tag 0xc000 " in it || "tag 0xd000 " in it }
+                assertEquals(2, halves.size, "$what: $halves")
+                assertTrue(halves.all { Regex(" uptime \\d+ endCrc ").containsMatchIn(it) }, "$what: $halves")
                 r.assertOracle("after the Select on a link like his ($what)")
             } finally { r.close() }
         }
@@ -791,11 +795,11 @@ class TransitionShellTest {
         } finally { r.close() }
     }
 
-    /** C3 TR1: on that link with RIGHT's out-half body lost, the acks' rule stands (the later of the PLAY-AFTER's ack and
-     *  the out half's end from its PLAY's ack, plus T + 1 periods): on his link it ends the run before the in half's
-     *  body comes, as every backstop of his session did — the case TR1 leaves as it was. */
+    /** C3 TR1, decisions BV (2): on that link with RIGHT's out-half body lost, the acks' rule takes the same allowance,
+     *  so it waits for the in half's body as the out-body rule does — the run ends at that body, no CLOSE of slot 3 or of
+     *  both under it. (0.83's acks' rule fired first here, as on 119 of his 139.) */
     @Test
-    fun onALinkLikeHisALostOutHalfBodyLeavesTheAcksRule_TR1(): Unit = runBlocking {
+    fun onALinkLikeHisALostOutHalfBodyStillEndsAtTheInHalfsBody_TR1(): Unit = runBlocking {
         val r = Rig(stage = 5, paced = true)
         try {
             r.up()
@@ -803,12 +807,44 @@ class TransitionShellTest {
             r.dropBodySlots = setOf(2)
             r.recording = true
             selectAndSettle(r)
+            r.recording = false
+            assertTrue(r.notes("transition").none { "no in-half body" in it }, "the backstop fired: ${r.notes("transition")}")
+            assertTrue(inHalfWhole(r), "ended by RIGHT's in-half body: ${r.notes("transition")}")
+            noCloseUnderTheRun(r)
+            r.assertOracle("after the Select on a link like his, the out-half body lost")
+        } finally { r.close() }
+    }
+
+    /** C3 TR1, decisions BV (2): with both bodies lost, the acks' rule ends the run — the later of the PLAY-AFTER's ack
+     *  and the out half's end from its PLAY's ack, plus T + 1 periods and the allowance — both slots CLOSEd in one image;
+     *  no waiter stays. The acks are the shell's own `done` rows for the two flushes the run's notes name. */
+    @Test
+    fun onALinkLikeHisBothBodiesLostEndAtTheAcksRuleAndTheAllowance_TR1(): Unit = runBlocking {
+        val r = Rig(stage = 5, paced = true)
+        try {
+            r.up()
+            paceLikeHis(r)
+            r.dropBodySlots = setOf(2, 3)
+            r.recording = true
+            selectAndSettle(r)
             r.until("CLOSE 2 and CLOSE 3 reach RIGHT") { right(r).any { img -> subs(img).let { s -> s.size == 2 && closeOf(s[0], 2) && closeOf(s[1], 3) } } }
             r.recording = false
-            val ended = r.notes("transition").filter { "no in-half body" in it }
-            assertEquals(1, ended.size, "${r.notes("transition")}")
-            assertTrue("from its acks plus one period" in ended[0], ended[0])
-            r.assertOracle("after the acks' backstop on a link like his")
+            val notes = r.notes("transition")
+            val ended = notes.filter { "no in-half body" in it }
+            assertEquals(1, ended.size, "$notes")
+            assertTrue("from its acks plus one period and" in ended[0], ended[0])
+            val owed = notes.first { it.startsWith("owed: ") }
+            val (steps, period) = Regex("(\\d+) steps a half at P (\\d+)").find(owed)!!.destructured
+            val p = period.toInt() * 1000.0 / 1024
+            val outId = Regex("then the out PLAY as flush (\\d+)").find(notes.first { it.startsWith("out half sent") })!!.groupValues[1]
+            val inId = Regex("rides flush (\\d+)").find(notes.first { it.startsWith("in half's PLAY-AFTER rides") })!!.groupValues[1]
+            fun doneAt(id: String) = Files.readAllLines(r.journal).single { "\"ev\":\"done\"" in it && "\"id\":$id," in it }
+                .substringAfter("\"t\":").substringBefore(",").toLong()
+            val acksRule = maxOf(doneAt(inId), doneAt(outId) + Math.round(steps.toInt() * p)) + Math.round((steps.toInt() + 1) * p) +
+                wm.damage.core.shell.TransitionRun.BODY_ALLOWANCE_MS
+            val end = noteTimesOf(r, "transition", "no in-half body").single()
+            assertTrue(end >= acksRule - 5, "the backstop at ${end - acksRule} ms from the acks' rule plus the allowance")
+            r.assertOracle("after the acks' backstop on a link like his, both bodies lost")
         } finally { r.close() }
     }
 
