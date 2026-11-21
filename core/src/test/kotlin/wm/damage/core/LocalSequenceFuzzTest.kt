@@ -52,6 +52,13 @@ class LocalSequenceFuzzTest {
     val s33Key = "(1) S33: a tap inside a wrap's held wait acted on the row its cursor named"
     /** A8: the latch's declared cost (the lead's ruling BV), counted apart by its exact shape. */
     val A8_KEY = "A8: a standing judgement on an induced refusal of a message that was not the repair's own"
+    /** Part BH (2), declared, counted apart by its exact predicate ([awaitsPresent]): a tap acted on through the tap rule
+     *  while RIGHT's panel still shows what was there before a batch refused at its LIST after its SETs (no present), its
+     *  shadow, table and cursor current — not built against by the three tests: it needs a mode 27 refused on RIGHT alone
+     *  inside a return batch (14 the engine word left held, 15 RIGHT without BIND or EFFECTS, 1 or 12 a phone defect the
+     *  ship vectors would show), it costs one tap acted on the row the left eye shows, and the next batch to RIGHT
+     *  presents the shadow while the record is repaired at the next read. */
+    val BH_KEY = "(1) BH: a tap acted on RIGHT's cursor while RIGHT's panel awaits the present its batch's refused LIST took"
 
     // ------------------------------------------------- B083 v2, item 4: (9)'s exact per-gesture declarations
     /** One part of a gesture's difference from the ring's count: its class ([key]), the rows the phone's row moved for it
@@ -189,6 +196,14 @@ class LocalSequenceFuzzTest {
     /** The declared (class, gesture) pairs of the random sequence being judged. */
     private var declaredNow = HashSet<Pair<String, Int>>()
 
+    /** Part BH (2)'s predicate for an act that fails (1): its 115 passed the tap rule ([a] via the rule); at RIGHT's fire the
+     *  newest message RIGHT was handed was a batch refused at the harness's induced LIST after its SETs, with no present on
+     *  RIGHT since; RIGHT's SHADOW showed in the band the row acted on; and that row is the one RIGHT's cursor named. */
+    private fun awaitsPresent(h: LocalHarness, a: LocalHarness.Act): Boolean {
+        val f = h.fires[a.gesture] ?: return false
+        return a.viaRule && f.awaitsPresentR && f.shadowR == a.id && f.cursorIdR == a.id
+    }
+
     /** (1)–(5) and (8)–(10) at rest. */
     fun atRest(h: LocalHarness, failed: MutableList<String>, counted: MutableMap<String, Int>, seeded: Boolean = false,
                /** S33's residual counted apart: every random sequence, and the one seeded case that pins it. */
@@ -198,7 +213,9 @@ class LocalSequenceFuzzTest {
         // (1)
         for (a in h.acts) {
             if (residualS33 && a.viaRule && a.rightId != a.id && a.gesture in h.tapNearWrap) counted[s33Key] = (counted[s33Key] ?: 0) + 1
-            else if (a.viaRule) { if (a.rightId != a.id) failed += "(1) gesture ${a.gesture}: acted on identity ${a.id}, RIGHT showed ${a.rightId}" }
+            else if (a.viaRule) { if (a.rightId != a.id) {
+                if (!seeded && awaitsPresent(h, a)) counted[BH_KEY] = (counted[BH_KEY] ?: 0) + 1      // part BH (2), exactly
+                else failed += "(1) gesture ${a.gesture}: acted on identity ${a.id}, RIGHT showed ${a.rightId}" } }
             else if (a.rightId != null && a.rightId != a.id) counted["(1) residual ${a.taps.word}"] = (counted["(1) residual ${a.taps.word}"] ?: 0) + 1
         }
         // (2) — strict for every shape: a lens numbered behind RIGHT (counted apart before decisions U.2) fails too
@@ -325,7 +342,7 @@ class LocalSequenceFuzzTest {
      *  chosen by the seed with no draw from the sequence's stream; the other half are stage 4's plain list, as before. The
      *  named seeds of the plain classes stay plain ([GATE_SEEDS], [HIS_GATE_SEEDS], [BS3_SEEDS]: decisions AZ (4)); the
      *  ring half's own classes have [RING_GATE_SEEDS]. */
-    private fun ringOf(seed: Long) = seed !in GATE_SEEDS && seed !in HIS_GATE_SEEDS && seed !in BS3_SEEDS && (seed / 2) % 2 == 0L
+    private fun ringOf(seed: Long) = seed !in GATE_SEEDS.keys && seed !in HIS_GATE_SEEDS.keys && seed !in BS3_SEEDS.keys && (seed / 2) % 2 == 0L
 
     /** The counted key of a declared class, split by the list's form (C3 DM-0: J3 needs an edge on RIGHT, which a ring list
      *  gives only after a LIST-RING lost or refused there). */
@@ -540,13 +557,16 @@ class LocalSequenceFuzzTest {
         val counted = java.util.TreeMap<String, Int>()
         val declaredSeeds = java.util.TreeMap<String, MutableList<Long>>()
         // decisions BQ: the gate-sized run also runs the profile's declared classes
-        val seeds = (0 until n).map { 5L * 100_000 + it } + if (System.getenv("LOCAL_FUZZ_HIS_N") == null) HIS_GATE_SEEDS else emptyList()
+        val gate = System.getenv("LOCAL_FUZZ_HIS_N") == null
+        val seeds = (0 until n).map { 5L * 100_000 + it } + if (gate) HIS_GATE_SEEDS.keys else emptyList()
         for (seed in seeds) {
             val v = try { hisSessionSequence(seed) } catch (e: Throwable) { Verdict(listOf("threw: $e"), emptyMap()) }
             for (f in v.failed) fails += "seed $seed: $f"
             for ((k, c) in v.counted) counted[k] = if (k == CARRY_MAX) maxOf(counted[k] ?: 0, c) else (counted[k] ?: 0) + c
             for (k in v.counted.keys) if (k.startsWith("(9)") || k.startsWith("(10)") || k.startsWith("(1) S33") || k.startsWith("row A")) declaredSeeds.getOrPut(k) { ArrayList() } += seed
         }
+        // decisions BB (3): the gate-sized run fails when a named seed no longer declares a class it is named for
+        if (gate) fails += namedSeedsHoldTheirClasses(HIS_GATE_SEEDS, declaredSeeds) { "his profile" }
         for (f in fails) println("HISFAIL $f")
         val notches = (counted["profile: notches"] ?: 0).coerceAtLeast(1)
         fun per100(k: String) = "%.1f".format(100.0 * (counted[k] ?: 0) / notches)
@@ -737,8 +757,9 @@ class LocalSequenceFuzzTest {
         h.rest()
     })
 
-    /** S13 — `C2-D1-built.md` 0.3 (1): a re-stage whose LIST does not land: the next report's mark is stale and the LIST
-     *  goes again. */
+    /** S13 — `C2-D1-built.md` 0.3 (1): a re-stage whose LIST does not land — refused at its LIST on both lenses since
+     *  C3 X3M0 (decisions BB (7); the subs after it unrun, LEFT's refusal failing the flush): the next report's mark is
+     *  stale and the LIST goes again. */
     @Test fun seededS13_aStaleMarkResendsTheList() = seeded(Taps.REPORT, script = { h ->
         h.lose27 = "list" to setOf(Arm.LEFT, Arm.RIGHT)
         h.restage("top+")
@@ -809,9 +830,11 @@ class LocalSequenceFuzzTest {
     })
 
     /** S19 (this stage's finding, kept after the rulings): a cover's batch refused on LEFT (its word held at the first
-     *  CLEAR) leaves LEFT holding the list's entries under the cover. The refused flush's ack (the image lane's is LEFT's)
-     *  makes the phone send the whole table again — under a cover, CLEAR 0xFF — so LEFT stops matching; without it LEFT
-     *  draws the list's motion over the cover at every notch (no riding message covers an entry). */
+     *  CLEAR) leaves LEFT holding the list's entries under the cover. In the harness a refusal on LEFT fails the flush (its
+     *  choice, not the glasses': on glass the success ack precedes the decode, `CLAIMS.md` V, so only a message LOST on
+     *  LEFT fails it — C3 X4M0, decisions BI (3)), and the phone sends the whole table again — under a cover, CLEAR
+     *  0xFF — so LEFT stops matching; without it LEFT draws the list's motion over the cover at every notch (no riding
+     *  message covers an entry). What this pins is the refused flush's repair, whatever made the flush fail. */
     @Test fun seededS19_aRefusedTableMessageSendsTheTableAgain() = seeded(Taps.REPORT, live = false, script = { h ->
         h.refuse27On = Arm.LEFT
         h.cover()
@@ -835,13 +858,15 @@ class LocalSequenceFuzzTest {
         h.rest()
     })
 
-    /** S21 (decisions U.1): a LIST lost on one lens alone (a re-stage), then idle batches and notches. The batch that
-     *  carried the lost LIST may lose its own present on that lens (its SETTLE names a cursor past the old count); from
-     *  the next answer on, every answer carries its list's LIST before it, so the lens holds the current count when the
-     *  answer is checked, refuses nothing more, keeps presenting, and both lenses agree at the next SETTLE. RIGHT is the
-     *  lens nobody hears from (the image lane writes LEFT, so the flush's ack is LEFT's [I]; RIGHT's refused DISCARD or
-     *  SETTLE sends a body naming no tag, which is no divergence): without the riding LIST it refuses every idle SETTLE
-     *  until a report's mark shows it. LEFT's refusal fails the flush's ack, so the table goes again anyway (S19). */
+    /** S21 (decisions U.1): a LIST refused on one lens alone (a re-stage; since C3 X3M0 a refusal at the LIST, the subs
+     *  after it unrun and no present there, decisions BB (7)), then idle batches and notches; from the next answer on,
+     *  every answer carries its list's LIST before it, so the lens holds the current count when the answer is checked,
+     *  refuses nothing more, keeps presenting, and both lenses agree at the next SETTLE. What each form models since
+     *  C3 X3M0's B7 (C3 X4M0, decisions BI (2), (3)): on RIGHT the refusal is in its record, so the next read repairs it
+     *  (P1's whole table and a keyframe) whether or not the riding LIST rode; on LEFT the harness fails the refused
+     *  flush — its choice, not the glasses' (`CLAIMS.md` V: the success ack precedes the decode, so a refusal on LEFT is
+     *  heard by nothing) — and the table goes again (S19). Neither is the case where the riding LIST is the only cure:
+     *  that is [seededX4M0_aRestageLostWholeOnRightHealsByTheRidingList] (a batch lost whole on RIGHT alone, no record). */
     private fun listLostOn(arm: Arm) = seeded(Taps.REPORT, rows = 7, script = { h ->
         h.lose27 = "list" to setOf(arm)
         h.restage("top+")
@@ -856,6 +881,38 @@ class LocalSequenceFuzzTest {
 
     @Test fun seededS21_aListLostOnRightHealsAtTheNextAnswer() = listLostOn(Arm.RIGHT)
     @Test fun seededS21L_aListLostOnLeftHealsAtTheNextAnswer() = listLostOn(Arm.LEFT)
+
+    /** C3 X4M0 (decisions BI (2); the focused read RM0's question 8): the case in which the riding LIST (decisions U.1) is
+     *  the only cure. A re-stage's batch — the LIST with the new mark and its shift, the slot's DISCARD, the idle SETTLE;
+     *  nothing drawn — is lost whole on RIGHT alone (the inter-lens path, `FIRMWARE.md` §6.11's COMMIT row, graded U):
+     *  RIGHT records nothing and LEFT's ack arrives, so no refusal record and no failed flush send the whole table, and the
+     *  table repair re-sends nothing for a stale mark. RIGHT keeps the old list until the next batch that names it: here the
+     *  rig's idle ticks, whose SETTLE rides behind the list's LIST (a notch's DISCARD would carry it the same way), so both
+     *  notches after them are adopted. Without the riding LIST every notch on RIGHT snaps back as `restaged` until a new
+     *  staging, a refusal or a session start. */
+    @Test fun seededX4M0_aRestageLostWholeOnRightHealsByTheRidingList() {
+        var lost = ""; var g1 = -1; var g2 = -1
+        seeded(Taps.REPORT, rows = 7, script = { h ->
+            h.loseAnswerOn = setOf(Arm.RIGHT)
+            h.restage("top+")
+            h.runUntil(h.now + 150)                     // the re-stage's batch: LEFT applies it, RIGHT never gets it
+            // the case's premise: RIGHT still holds the old list (else nothing here needs the riding LIST)
+            val mR = h.sim.bindForTest(Arm.RIGHT).lists[0].mark; val mL = h.sim.bindForTest(Arm.LEFT).lists[0].mark
+            if (mR == h.rules.markOf(0) || mL != h.rules.markOf(0)) lost = "X4M0: the re-stage's batch was not lost on RIGHT alone (RIGHT's mark $mR, LEFT's $mL, the phone's ${h.rules.markOf(0)})"
+            h.rest()
+            g1 = notch(h, kind = 2); h.runUntil(h.now + 400); g2 = notch(h)
+            h.rest()
+        }, extra = { h ->
+            val out = ArrayList<String>()
+            if (lost.isNotEmpty()) out += lost
+            for (g in listOf(g1, g2)) if (h.fires[g]?.markR != h.rules.markOf(0))
+                out += "X4M0: notch g$g fired on RIGHT's mark ${h.fires[g]?.markR}, not the phone's ${h.rules.markOf(0)}: the riding LIST never set RIGHT right"
+            val v = h.verdicts.filter { it.first == g2 }.map { it.second }
+            if (v.none { it is LocalRules.Verdict.Adopt }) out += "X4M0: the second notch after the re-stage lost on RIGHT was not adopted: $v " +
+                "(RIGHT's mark at it ${h.fires[g2]?.markR}, the phone's ${h.rules.markOf(0)}); notes ${h.notes.takeLast(3)}"
+            out
+        })
+    }
 
     /** S22a (decisions U.2): a SET landing between LEFT's and RIGHT's handling of one notch (a return from a cover with a
      *  notch inside the inter-lens skew) leaves LEFT numbered one behind; a later notch whose report is lost is answered
@@ -1262,55 +1319,68 @@ class LocalSequenceFuzzTest {
         }
     }
 
+    /** (10)'s four classes as [LocalHarness] names them (`frontDeclared`). */
+    private val FRONT_ECHO = "(10) a front's notch paid by its burst's own owe: a notch's echo the band dropped"
+    private val FRONT_GAP = "(10) a front's notch paid by its burst's own owe: a lost report's gap owe"
+    private val FRONT_ECHO_UNDER = "(10) a front's notch paid by its burst's own owe (the burst opened under the front): a notch's echo the band dropped"
+    private val FRONT_GAP_UNDER = "(10) a front's notch paid by its burst's own owe (the burst opened under the front): a lost report's gap owe"
+
     /** Decisions BQ: the smallest set of the four bases' seeds (at 2,000 a base) holding one sequence of each declared class
      *  of (9) and (10), run beside the gate's 60 + 60 so that a change turning a declared shape into an undeclared failure
      *  shows in the gate, not only at 8,000 (an exact search over the 12 classes of BQ: 8 seeds, one of them — 100100059, a
      *  stale-cursor adoption after an unreported stock message through a later reset — already the gate's own, index 59
-     *  of base 1001; BR's two classes add two). */
-    private val GATE_SEEDS = listOf(
-        100101194L,   // (9) a stale-cursor adoption after a tap's DISCARD that set RIGHT back
-        424201353L,   // (9) J3
-        101265L,      // (9) an untaken notch's message paid by an owe; a lost report of a fire that drew, its message dropped
-        100100313L,   // (9) a stale-cursor adoption after a refused fire applied as today
-        100100382L,   // (9) a lost report of a fire that drew, its message paid by a carried owe
-        100100778L,   // (9) a stale-cursor adoption after an unreported message; a lost report of a fire that did not draw;
-                      //     one that drew, its message paid by an owe
-        100101280L,   // (10) both classes: a front's notch paid by its burst's own owe — a dropped echo, a lost report's gap owe
-        100100195L,   // (10) the same with the burst opened under the front (decisions BR): a dropped echo — in place of
-                      //     100216, which declares no class on 0.83's tree (C3 X2M0: f81afd38, the gate-sized run's pin)
-        101573L)      // (10) the same with the burst opened under the front: a lost report's gap owe
+     *  of base 1001; BR's two classes add two). C3 X3M0 (decisions BB (3)): each seed maps to the class keys it is named
+     *  for, exactly as the run counts them, and the gate-sized run fails when a named seed does not declare one of them
+     *  ([namedSeedsHoldTheirClasses]) — a seed that keeps another class no longer hides the one it was named for. */
+    private val GATE_SEEDS: Map<Long, List<String>> = mapOf(
+        100101194L to listOf("$staleKey a tap's DISCARD that set RIGHT back"),
+        // J3 [plain]: 424201353 left with C3 X3M0's B7 (decisions BH (3)) — no random sequence of the 8,000 declares it
+        // since; the profile's 500854 holds it ([HIS_GATE_SEEDS])
+        424201594L to listOf(swallowedKey),                        // in place of 101265 (B7 moved it), decisions BH (3)
+        100150L to listOf("$lostDrewKey dropped"),                 // the same
+        100100313L to listOf("$staleKey a refused fire applied as today"),
+        100100382L to listOf("$lostDrewKey paid by a carried owe"),
+        100100778L to listOf("$staleKey an unreported stock message", lostEdgeKey, "$lostDrewKey paid by an owe"),
+        100101280L to listOf(FRONT_ECHO, FRONT_GAP),
+        // in place of 100216, which declares no class on 0.83's tree (C3 X2M0: f81afd38, the gate-sized run's pin)
+        100100195L to listOf(FRONT_ECHO_UNDER),
+        100154L to listOf(FRONT_GAP_UNDER))                        // in place of 101573 (B7 moved it), decisions BH (3)
     /** The fifth base's declared classes, which its first 60 sequences do not hold: J3 and J3 through a later reset, both
-     *  in 500854. */
-    private val HIS_GATE_SEEDS = listOf(500854L)
+     *  in 500854 (as [GATE_SEEDS], decisions BB (3)). */
+    private val HIS_GATE_SEEDS: Map<Long, List<String>> = mapOf(500854L to listOf("$j3Key [plain]", "$j3Key$VIA [plain]"))
     /** C3 X2M0 (decisions AZ (4)): the ring half's own declared classes, which the gate's 60 + 60 do not hold, as BQ chose
      *  [GATE_SEEDS] — the smallest set of ring sequences of the four bases at 2,000 a base on the merged tree (`wip/084-dm0x`
      *  `2158f32e`) holding one sequence of each — and the review's stale-cursor adoption across the wrap. The profile's ring
-     *  half declares no class. */
-    private val RING_GATE_SEEDS = listOf(
-        101325L,      // (10) a front's notch paid by its burst's own owe: a dropped echo
-        700632L,      // (9) a stale-cursor adoption after a refused fire applied as today
-        701861L,      // (10) the same: a lost report's gap owe; (9) a lost report of a fire that drew, its message dropped
-        100101081L,   // (10) the same with the burst opened under the front: a lost report's gap owe; (9) a lost report of a
-                      //     fire that drew, its message paid by an owe
-        424201001L,   // (9) an untaken notch's message paid by an owe
-        424201644L,   // (9) the same, a carried owe; a lost report of a fire that drew, its message paid by a carried owe
-        101792L)      // (9) a stale-cursor adoption after an unreported stock message, across the wrap (the review's)
+     *  half declares no class. Keyed as [GATE_SEEDS] (decisions BB (3)). */
+    private val RING_GATE_SEEDS: Map<Long, List<String>> = mapOf(
+        101325L to listOf(FRONT_ECHO),
+        700632L to listOf("$staleKey a refused fire applied as today"),
+        701861L to listOf(FRONT_GAP, "$lostDrewKey dropped"),
+        100101081L to listOf(FRONT_GAP_UNDER, "$lostDrewKey paid by an owe"),
+        424201001L to listOf(swallowedKey),
+        424201644L to listOf("$swallowedKey (a carried one)", "$lostDrewKey paid by a carried owe"),
+        101792L to listOf("$staleKey an unreported stock message"))   // across the wrap (the review's)
+
+    /** Decisions BB (3): every named seed of [named] declared every class key it is named for in [declaredSeeds] (class
+     *  key → the seeds that declared it). */
+    private fun namedSeedsHoldTheirClasses(named: Map<Long, List<String>>, declaredSeeds: Map<String, List<Long>>, form: (Long) -> String): List<String> =
+        named.flatMap { (seed, keys) -> keys.filter { seed !in declaredSeeds[it].orEmpty() }.map { "seed $seed: a named gate seed does not declare the class it is named for ($it; ${form(seed)})" } }
 
     /** Decisions BS.3 (the 0.83 integration; cured by B083-rr): a refused engine message at the head of a batch on RIGHT.
      *  The notice's CLOSE leads an uncover's batch (the transport's close-first rule) and the harness's induced reason-14
      *  refusal meets it there (the sim refuses any mode 26 while the engine word is held, §5.5, R1.15), so the band's
      *  repaint and the table behind it do not run on RIGHT. Before the cure the phone repaired a refusal record only when
      *  it named mode 27 or a mode-8/14 drop, and RIGHT kept the timer's END over the band at rest in these two seeds. */
-    private val BS3_SEEDS = listOf(101440L, 424201458L)
     private val BS3_REPAIRED = "BS.3: mode-26 refusal records repaired"
+    private val BS3_SEEDS: Map<Long, List<String>> = mapOf(101440L to listOf(BS3_REPAIRED), 424201458L to listOf(BS3_REPAIRED))
 
     /** B083-rr pin 1: the two seeds hold every invariant — after the refusal the repair goes (a refusal record naming mode
      *  26, with the uncover's batch behind its CLOSE) and RIGHT's panel, shadow and cursor equal belief at rest. */
     @Test fun aRefusedEngineMessageAtABatchsHeadOnRight_isRepaired_BS3() {
-        for (seed in BS3_SEEDS) {
+        for ((seed, keys) in BS3_SEEDS) {
             val v = randomSequence(seed)
             assertTrue(v.failed.isEmpty(), "seed $seed: ${v.failed}")
-            assertTrue((v.counted[BS3_REPAIRED] ?: 0) >= 1, "seed $seed: no refusal record naming mode 26 was repaired: ${v.counted}")
+            for (k in keys) assertTrue((v.counted[k] ?: 0) >= 1, "seed $seed: no refusal record naming mode 26 was repaired ($k): ${v.counted}")
         }
     }
 
@@ -1471,21 +1541,20 @@ class LocalSequenceFuzzTest {
         val only = System.getenv("LOCAL_FUZZ_SEEDS")?.split(',')?.map { it.trim().toLong() }
         // decisions BQ: the gate-sized run also runs one sequence of each declared class of (9) and (10)
         val gate = System.getenv("LOCAL_FUZZ_N") == null && System.getenv("LOCAL_FUZZ_BASES") == null
-        val seeds = only ?: (bases.flatMap { base -> (0 until n).map { i -> base * 100_000 + i } } + if (gate) GATE_SEEDS + RING_GATE_SEEDS else emptyList())
+        val seeds = only ?: (bases.flatMap { base -> (0 until n).map { i -> base * 100_000 + i } } + if (gate) GATE_SEEDS.keys + RING_GATE_SEEDS.keys else emptyList())
         for (seed in seeds) {
             val v = try { randomSequence(seed) } catch (e: Throwable) { Verdict(listOf("threw: $e"), emptyMap()) }
             for (f in v.failed) fails += "seed $seed: $f"
             for ((k, c) in v.counted) counted[k] = (counted[k] ?: 0) + c
             // the declared shapes (row A, decisions W and BC's refused 27; (9)'s exact classes, B083 v2; S33), with their seeds
-            for (k in v.counted.keys) if (k.startsWith("row A: a batch") || k.startsWith("(9)") || k.startsWith("(10)") || k.startsWith("(1) S33") || k == A8_KEY) declaredSeeds.getOrPut(k) { ArrayList() } += seed
+            for (k in v.counted.keys) if (k.startsWith("row A: a batch") || k.startsWith("(9)") || k.startsWith("(10)") || k.startsWith("(1) S33") || k == A8_KEY || k == BH_KEY) declaredSeeds.getOrPut(k) { ArrayList() } += seed
         }
         // every failure, one line each, for reading the shapes (the assertion's message keeps the first 30)
         for (f in fails) println("FAIL $f")
         println("declared: " + declaredSeeds.entries.joinToString("; ") { (k, s) -> "$k ${s.size} sequence(s): ${s.joinToString()}" })
-        // C3 X2M0 (the review of DM-0, finding 4): a named seed that declares nothing no longer holds the class it was named
-        // for — the gate-sized run would stop running that class without a word
-        if (gate && only == null) for (seed in GATE_SEEDS + RING_GATE_SEEDS)
-            if (declaredSeeds.values.none { seed in it }) fails += "seed $seed: a named gate seed declares no class (${if (ringOf(seed)) "ring" else "plain"})"
+        // C3 X2M0 (the review of DM-0, finding 4), C3 X3M0 (decisions BB (3)): a named seed that no longer declares a class
+        // it is named for — the gate-sized run would stop running that class without a word, even while the seed keeps another
+        if (gate && only == null) fails += namedSeedsHoldTheirClasses(GATE_SEEDS + RING_GATE_SEEDS, declaredSeeds) { if (ringOf(it)) "ring" else "plain" }
         println("sequence fuzz: ${seeds.size} sequences (${if (only != null) "seeds ${only.joinToString()}" else "bases ${bases.joinToString()}"}), ${fails.size} failures; " +
             "counted $counted")
         if (fails.isNotEmpty()) fail(fails.take(30).joinToString("\n") + "\n(${fails.size} in all)")

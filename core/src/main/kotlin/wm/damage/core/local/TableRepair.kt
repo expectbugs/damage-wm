@@ -15,8 +15,9 @@ import wm.damage.core.wire.DamageMsg
  * The evidence for a 115, in this order (the first that holds names the object; a second difference shows at the next
  * report): an entry the phone does not hold → its CLEAR; a mark that is not the phone's → nothing more is read (the
  * answer's riding LIST repairs it, and fields 10–14 from another staging say nothing); a tap's form
- * that disagrees with `Taps` → the tap entry's SET; parameters that differ from the phone's prediction, or a fire refused
- * 5 or 12, with mark and form agreeing → the SET of the entry field 4 names. Then the stock message's: a scroll message
+ * that disagrees with `Taps` → the tap entry's SET; parameters that differ from the phone's prediction (a scroll's only on
+ * outcome drew), or a fire refused 5 or 12, with mark and form agreeing → the SET of the entry field 4 names. Then the
+ * stock message's: a scroll message
  * applied as unreported when no scroll 115 of that list was handled since the last SETTLE sent → the list's scroll
  * entries' SETs, in the batch that carries the next SETTLE.
  *
@@ -66,8 +67,11 @@ class TableRepair {
         }
         // 4. parameters that differ from the phone's prediction, or a fire refused 5 or 12
         val refused512 = a.outcome == DamageMsg.APPLIED_REFUSED && (a.reason == 5 || a.reason == 12)
-        // (judged as P3 judges it: the staging before or after a band form's switch, `BoundList.names`)
-        val differs = a.params?.let { p ->
+        // (judged as P3 judges it: the staging before or after a band form's switch, `BoundList.names`) — and only where
+        // fields 10–14 were computed at field 8's cursor: a scroll's on outcome drew; a tap's (step 0) on the bodies that
+        // carry them. A scroll refused 19 (a transition's owner, §7.3) leaves field 8 the old cursor while 10–14 were
+        // computed at the new one (§6.5), so it always "differed" and owed a SET (C3 X3M0, decisions BB (2))
+        val differs = a.params?.takeIf { a.isTap || a.outcome == DamageMsg.APPLIED_DREW }?.let { p ->
             val c = a.cursor ?: return@let false
             !(f != null && f.list == list && f.names(c, held, a.prog, p, a.wrapped))          // DM-0: at v when it wrapped
         } ?: false

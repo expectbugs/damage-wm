@@ -280,16 +280,16 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         object ClearAll : Pending()
         class Clear(val entry: Int) : Pending()
         class Set(val list: BoundList, val entry: BoundList.Entry) : Pending()
-        class ListMsg(val list: BoundList, val shift: Int, val fresh: Boolean) : Pending()
+        class ListMsg(val list: BoundList, val shift: Int) : Pending()          // always a fresh mark
     }
     private val pending = ArrayList<Pending>()
-    /** Mode-8/14 (decisions M.5): every table object a batch touched since the last telemetry read, and for at least
+    /** Mode-8/14 (decisions M.5): every entry a batch SET or CLEARed since the last telemetry read, and for at least
      *  [EngineRefusals.SPAN_FLOOR_MS] after the batch (the lead's ruling A1 on FR-083: RIGHT can handle a batch after the
-     *  read that followed it was answered) — the object, when the newest batch carried it (the clock the batch was
-     *  composed on) and the reads since. Trimmed at a read. */
+     *  read that followed it was answered) — the entry, when the newest batch carried it (the clock the batch was
+     *  composed on) and the reads since. Trimmed at a read. No LIST: [ridingList] carries its mark (C3 X3M0, BB (1)). */
     private class Touched(val atMs: Long) { var reads = 0 }
-    private val touchedSinceRead = LinkedHashMap<Any, Touched>()
-    private fun touch(o: Any) { touchedSinceRead[o] = Touched(clockMs) }
+    private val touchedSinceRead = LinkedHashMap<Int, Touched>()
+    private fun touch(entry: Int) { touchedSinceRead[entry] = Touched(clockMs) }
 
     val repair = TableRepair()
 
@@ -324,7 +324,7 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         rowSeen = row
         if (!bind) return
         pending += Pending.ClearAll
-        front?.let { f -> for (e in entriesOf(f)) pending += Pending.Set(f, e); pending += Pending.ListMsg(f, 0, fresh = true) }
+        front?.let { f -> for (e in entriesOf(f)) pending += Pending.Set(f, e); pending += Pending.ListMsg(f, 0) }
         count("starts")
     }
 
@@ -402,7 +402,7 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
             // a staging the glasses do not hold (P9: a row's index or identity changed, a new mark): a LIST; a program's
             // change alone is its SET (below), a row's picture updated in place keeps its mark and sends nothing
             if (old != null && old.list == list.list) slot(list.slot).moved = slot(list.slot).moved ?: "restaged"
-            pending += Pending.ListMsg(list, if (was == null) 0 else shift, fresh = true)
+            pending += Pending.ListMsg(list, if (was == null) 0 else shift)
         } else staged[list.list] = list
         // SETs for every entry the glasses do not hold in its current form
         for (e in entriesOf(list)) if (!holds(list.list, e)) pending += Pending.Set(list, e)
@@ -524,14 +524,17 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
             DamageMsg.APPLIED_REFUSED -> {
                 val r = a.reason ?: 0
                 if (r == 5 || r == 12) note("local", "a fire refused $r (P4): ${a.describe()}")
-                return asToday(if (r == 5 || r == 12 || r == 18) "restaged" else "link")
+                // C3 X3M0 (decisions BB (2)): 19, an owning instance in the fire's close set (§7.3), has a word of its own
+                return asToday(when (r) { 5, 12, 18 -> "restaged"; 19 -> "owner"; else -> "link" })
             }
             DamageMsg.APPLIED_EDGE -> return asToday("edge")
             DamageMsg.APPLIED_DREW -> {}
             else -> return asToday("refused")
         }
-        // P3: in front, the mark, the prediction, the bound
-        if (f == null || a.list != f.list) return asToday("focus")
+        // P3: in front, the mark, the prediction, the bound. C3 X4M0 (decisions BI (1)): a report handed with no row (the
+        // shell's −1: a cover is up) is not in front, whatever front the rules were last told — between a cover's opening
+        // and the next pump with room they still hold the list, and the distance from −1 admitted cursors near an end
+        if (f == null || a.list != f.list || row < 0) return asToday("focus")
         if (a.mark != wireMark[f.list]) return asToday("restaged")
         val e = heldFor(f.list, id) ?: f.entryFor(id) ?: return asToday("restaged")
         val c = a.cursor ?: return asToday("restaged")
@@ -556,7 +559,7 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         }
         if (a.outcome == DamageMsg.APPLIED_REFUSED && (a.reason == 3 || a.reason == 14)) return drop("refused-${a.reason}")
         val f = front
-        if (f == null || a.list != f.list) return drop("focus")                                   // (2)
+        if (f == null || a.list != f.list || row < 0) return drop("focus")                        // (2); X4M0: −1 is a cover
         if (a.mark != wireMark[f.list]) return drop("restaged")                                   // (3)
         val c = a.cursor ?: return drop("lost")
         if (c == BoundList.LOST) return drop("lost")
@@ -691,12 +694,10 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         } else if (batch14 != null && touchedSinceRead.isNotEmpty()) {
             note("repair", "evidence=refusal mode=8 reason=14 object=batch(${touchedSinceRead.keys.joinToString(",")})")
             count("repair.batch")
-            for (o in touchedSinceRead.keys.toList()) when (o) {
-                is Int -> { val f = front; val h = held[o]
-                    if (h != null && f != null && h.list == f.list) pending += Pending.Set(f, h.entry) else if (h == null) pending += Pending.Clear(o) }
-                is String -> { val f = front; val l = o.removePrefix("list").toInt()
-                    if (f != null && f.list == l) pending += Pending.ListMsg(f, 0, fresh = false) }
-            }
+            // entries only (C3 X3M0, BB (1)): a LIST here made an owed COMMIT a DISCARD (P3); the riding LIST carries the mark
+            val f = front
+            for (o in touchedSinceRead.keys.toList()) { val h = held[o]
+                if (h != null && f != null && h.list == f.list) pending += Pending.Set(f, h.entry) else if (h == null) pending += Pending.Clear(o) }
         }
         for (t in touchedSinceRead.values) t.reads++
     }
@@ -722,7 +723,7 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
     private fun wholeTable() {
         pending.clear()
         pending += Pending.ClearAll
-        front?.let { f -> for (e in entriesOf(f)) pending += Pending.Set(f, e); pending += Pending.ListMsg(f, 0, fresh = true) }
+        front?.let { f -> for (e in entriesOf(f)) pending += Pending.Set(f, e); pending += Pending.ListMsg(f, 0) }
     }
 
     // ------------------------------------------------------------------------------------------------ the batch
@@ -803,7 +804,7 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
             is Pending.Clear -> { out += CfwModes.bindClear(p.entry); held.remove(p.entry); clearedEntries += p.entry; touch(p.entry)
                 if (front?.let { f -> tapEntryNo(f) == p.entry } != false) tapsLive = false }
             is Pending.Set -> { out += p.list.set(p.entry); held[p.entry.entry] = Held(p.list.list, p.entry); setEntries += p.entry.entry; touch(p.entry.entry) }
-            is Pending.ListMsg -> { out += listMsg(p.list, p.shift, p.fresh); listed += p.list.list }
+            is Pending.ListMsg -> { out += listMsg(p.list, p.shift, fresh = true); listed += p.list.list }
         }
         val hadClearAll = pending.any { it is Pending.ClearAll }
         pending.clear()
@@ -871,12 +872,11 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
     private fun tapEntryNo(f: BoundList): Int? = tapEntry(f)?.entry ?: f.entries.firstOrNull { it.isTap }?.entry
 
     /** The one writer of a LIST (every table message naming a list goes through it: the start, a front change, the whole
-     *  table again, the batch-14 re-send, the LIST riding before every answer). Build C3, stage DM-0 (S5): a ring list's
-     *  is LIST-RING with flags 1 — a plain LIST clears the RING flag on the glasses (§7.8). */
+     *  table again, the LIST riding before every answer). Build C3, stage DM-0 (S5): a ring list's is LIST-RING with
+     *  flags 1 — a plain LIST clears the RING flag on the glasses (§7.8). */
     private fun listMsg(f: BoundList, shift: Int, fresh: Boolean): ByteArray {
         if (fresh || wireMark[f.list] < 0) { markCounter = (markCounter + 1) and 0xFF; wireMark[f.list] = markCounter }
         staged[f.list] = f
-        touch("list${f.list}")
         return f.listMessage(shift, wireMark[f.list])
     }
 

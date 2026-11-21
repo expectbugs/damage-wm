@@ -1808,14 +1808,18 @@
    ]
   ],
   "tests": [
+   "*LocalRulesTest.aBatchDroppedWholeReadWhileAnAnswerIsOwedKeepsTheCommit_X3M0*",
+   "*LocalRulesTest.aWrapNotchOnARingListIsAdoptedModuloTheCountAndPredictedAtV_DM0*",
    "*LocalSequenceFuzzTest.seededS21_*",
-   "*LocalSequenceFuzzTest.seededS13_*"
+   "*LocalSequenceFuzzTest.seededS13_*",
+   "*LocalSequenceFuzzTest.seededX4M0_*"
   ],
   "expect": [
-   "seededS21_aListLostOnRightHealsAtTheNextAnswer",
-   "seededS13_aStaleMarkResendsTheList"
+   "aBatchDroppedWholeReadWhileAnAnswerIsOwedKeepsTheCommit_X3M0",
+   "aWrapNotchOnARingListIsAdoptedModuloTheCountAndPredictedAtV_DM0",
+   "seededX4M0_aRestageLostWholeOnRightHealsByTheRidingList"
   ],
-  "note": "decisions U.1: no riding LIST \u2014 a LIST lost on RIGHT alone makes RIGHT refuse every idle SETTLE (S21); a re-stage's LIST lost on both lenses is never sent again now that the stale-mark repair is gone (S13)",
+  "note": "decisions U.1: no riding LIST — a LIST lost on RIGHT alone makes RIGHT refuse every idle SETTLE (S21); a re-stage's LIST lost on both lenses is never sent again now that the stale-mark repair is gone (S13). Re-pointed by C3 X3M0's follow-up (decisions BH (4); B7, the refusal at the LIST, stays): S21 (RIGHT) did not catch it already on ac0a77e7, and with B7 S13 does not either (the refused LIST is repaired by RIGHT's record or LEFT's failed flush first); the rules rows read the riding LIST before every answer (its presence, not the heal). C3 X4M0 (decisions BI (2)): its end-to-end pin again - a re-stage's batch lost whole on RIGHT alone (no record, LEFT acks), where the riding LIST is the only cure (seededX4M0)",
   "from": "FB"
  },
  {
@@ -8316,8 +8320,8 @@
   "file": "local/LocalRules.kt",
   "edits": [
    [
-    "                return asToday(if (r == 5 || r == 12 || r == 18) \"restaged\" else \"link\")",
-    "                return if (r == 19) Verdict.Nothing else asToday(if (r == 5 || r == 12 || r == 18) \"restaged\" else \"link\")"
+    "                return asToday(when (r) { 5, 12, 18 -> \"restaged\"; 19 -> \"owner\"; else -> \"link\" })",
+    "                return if (r == 19) Verdict.Nothing else asToday(when (r) { 5, 12, 18 -> \"restaged\"; 19 -> \"owner\"; else -> \"link\" })"
    ]
   ],
   "tests": [
@@ -8327,8 +8331,8 @@
    "aWrapNotchInABacksFramePhaseIsRefused19AndAppliedAsToday_X2M0",
    "aWrapNotchInABacksInHalfIsRefused19AndAppliedAsToday_X2M0"
   ],
-  "note": "C3 X2M0 (decisions AZ (3)): a ring fire refused 19 under a transition's owner is not applied as today — the wrap notch at Main's end during a Back is lost (its stock message pays its own owe)",
-  "from": "C3-X2M0"
+  "note": "C3 X2M0 (decisions AZ (3)): a ring fire refused 19 under a transition's owner is not applied as today - the wrap notch at Main's end during a Back is lost (its stock message pays its own owe). Re-pointed by C3 X3M0: the line now names the cause owner",
+  "from": "C3-X2M0, re-pointed by C3-X3M0"
  },
  {
   "id": "FF-fit-absent",
@@ -8427,5 +8431,100 @@
   ],
   "note": "C3 FF item 3: at stage 5 Auto's steps stay at the fit's 19 while the measured period raises P to 34 — the motion runs 19 × 34 ticks (≈ 631 ms) instead of T 9 in its 300 ms",
   "from": "C3-FF"
+ },
+ {
+  "id": "X3M0-batch14-list",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "            val f = front\n            for (o in touchedSinceRead.keys.toList()) { val h = held[o]",
+    "            val f = front\n            if (f != null) pending += Pending.ListMsg(f, 0)\n            for (o in touchedSinceRead.keys.toList()) { val h = held[o]"
+   ]
+  ],
+  "tests": [
+   "*LocalRulesTest.aBatchDroppedWholeReadWhileAnAnswerIsOwedKeepsTheCommit_X3M0*"
+  ],
+  "expect": [
+   "aBatchDroppedWholeReadWhileAnAnswerIsOwedKeepsTheCommit_X3M0"
+  ],
+  "note": "C3 X3M0 (decisions BB (1), the removal): a record naming a batch dropped whole re-sends a LIST of its own again - the batch then carries a LIST for the slot's list and P3 makes the owed COMMIT a DISCARD (snapback cause=lost-report)",
+  "from": "C3-X3M0"
+ },
+ {
+  "id": "X3M0-refused19-evidence",
+  "file": "local/TableRepair.kt",
+  "edits": [
+   [
+    "        val differs = a.params?.takeIf { a.isTap || a.outcome == DamageMsg.APPLIED_DREW }?.let { p ->",
+    "        val differs = a.params?.let { p ->"
+   ]
+  ],
+  "tests": [
+   "*LocalRulesTest.aScrollRefused19IsNoRepairEvidence_X3M0*",
+   "*TransitionShellTest.aWrapNotchInABacks*"
+  ],
+  "expect": [
+   "aScrollRefused19IsNoRepairEvidence_X3M0",
+   "aWrapNotchInABacksFramePhaseIsRefused19AndAppliedAsToday_X2M0",
+   "aWrapNotchInABacksInHalfIsRefused19AndAppliedAsToday_X2M0"
+  ],
+  "note": "C3 X3M0 (decisions BB (2)): the table repair reads a scroll's fields 10-14 on a refused fire again - a notch refused 19 under a transition's owner (field 8 the old cursor, 10-14 at the new one) owes the entry's SET and a repair note at every notch",
+  "from": "C3-X3M0"
+ },
+ {
+  "id": "X3M0-owner-word",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "5, 12, 18 -> \"restaged\"; 19 -> \"owner\"; else -> \"link\"",
+    "5, 12, 18 -> \"restaged\"; else -> \"link\""
+   ]
+  ],
+  "tests": [
+   "*LocalRulesTest.eachSnapbackCause*",
+   "*LocalRulesTest.aScrollRefused19IsNoRepairEvidence_X3M0*"
+  ],
+  "expect": [
+   "eachSnapbackCause",
+   "aScrollRefused19IsNoRepairEvidence_X3M0"
+  ],
+  "note": "C3 X3M0 (decisions BB (2)): a fire refused 19 is noted with the cause link again (a start's keyframe), not owner",
+  "from": "C3-X3M0"
+ },
+ {
+  "id": "X4M0-stale-front-scroll",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "        if (f == null || a.list != f.list || row < 0) return asToday(\"focus\")",
+    "        if (f == null || a.list != f.list) return asToday(\"focus\")"
+   ]
+  ],
+  "tests": [
+   "*LocalRulesTest.aReportHandledUnderTheStaleFrontIsNotInFront_X4M0*"
+  ],
+  "expect": [
+   "aReportHandledUnderTheStaleFrontIsNotInFront_X4M0"
+  ],
+  "note": "C3 X4M0 (decisions BI (1)): P3 judges a scroll report handed with row -1 (a cover up, the rules' front not yet told) as in front again - the distance from -1 adopts a notch at Main's ring cursors 7, 0, 6 (a plain list's 0) under the cover",
+  "from": "C3-X4M0"
+ },
+ {
+  "id": "X4M0-stale-front-tap",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "        if (f == null || a.list != f.list || row < 0) return drop(\"focus\")",
+    "        if (f == null || a.list != f.list) return drop(\"focus\")"
+   ]
+  ],
+  "tests": [
+   "*LocalRulesTest.aReportHandledUnderTheStaleFrontIsNotInFront_X4M0*"
+  ],
+  "expect": [
+   "aReportHandledUnderTheStaleFrontIsNotInFront_X4M0"
+  ],
+  "note": "C3 X4M0 (decisions BI (1)): the tap rule's (2) passes a tap handed with row -1 again - a tap at a ring of 8's cursor 7 (distance 0 from -1) is acted on as a click into the cover the lens does not show yet",
+  "from": "C3-X4M0"
  }
 ]
