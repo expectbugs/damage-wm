@@ -14,6 +14,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import wm.damage.core.gfx.Zl
+import wm.damage.core.local.Taps
 import wm.damage.core.motion.PopupPrograms
 import wm.damage.core.motion.ScrollEffect
 import wm.damage.core.motion.Transitions
@@ -62,6 +63,10 @@ import wm.damage.core.wire.Pb
  * shape) and the notice box's programs ([noticeSpecs]: the timer, its two arrivals, a notch under the box, a withdrawal),
  * played on his glasses' session (stage 4, 256 KiB with BIND) with Main's eight rows; the re-play row compares their
  * programs through [namedPrograms] (version-1 records, named from the session's table too).
+ *
+ * C3 stage SVR: Main's list as a ring list ([ringSpecs]: LIST-RING where Main's paint wraps — his eight rows at 288 and
+ * 352 — at ladder stage 5 with EFFECTS in force), played on the same session at stage 5; the re-play row compares their
+ * programs and their ring form through [ringForms].
  */
 internal object ShipVectors {
     const val PREFIX = "v5-ship-"
@@ -364,14 +369,88 @@ internal object ShipVectors {
         return out
     }
 
-    /** Every ship act: the transitions ([specs]), then SV-083's scroll and notice acts. */
-    fun acts(): List<Act> = specs() + scrollSpecs() + noticeSpecs()
+    // ------------------------------------------------------------------------------------------------- SVR
+    /**
+     * C3 stage SVR (`private/c3-design/briefs/C3-SVR-brief.md`; decisions AZ (8), BA (5)): how a ring act runs. Main's
+     * list is a ring list (LIST-RING with flags 1, `FIRMWARE.md` §7.8, §7.11) where its paint wraps — his eight rows at 288
+     * and 352 — at ladder stage 5 (flags 0x7c: EFFECTS in force) on the C3 build (DamageCaps 0xdff), 256 KiB with BIND;
+     * step 0 of every ring act holds the session's bind of it (the CLEAR, the strip's and programs' writes, the SETs of
+     * Main's pans, LIST-RING, in the batch order the shell sends). NOTCHES: from row 0 a notch down and a notch up in the
+     * middle of the list (no field 18), then a wrap notch up from row 0 (to the last row) and a wrap notch down from there
+     * (to row 0) — each on the hook (the input op) with its stock echo, the pan to its end, the phone's riding LIST-RING
+     * and its COMMIT of the report's own parameters, the burst's SETTLE. TAP: the ring's tap with the cursor on row 0 or
+     * on the last row (the walk there, one wrap notch up, is in the session), under `Taps · report` (the report-only
+     * entry) or `Taps · glasses` (the press), and the act the phone makes of it: the row's window opens with the Select
+     * tier's transition as set by default (Depth). Under `glasses` the phone's flushes wait for room on the link until the
+     * press holds its last step on both lenses (the round trip in which the glasses draw it; on the instant link the act's
+     * first flush would end the press before its first step), then the Select's out PLAY ends it; with the link full the
+     * tap's click is handled before the pump tells the rules Main left the front, so the tap's DISCARD names no list. UNDER_BACK: a Back from w0 into Main's row 0 (the Back tier's Depth;
+     * Select and the Lock Screen none) and, while RIGHT's in half draws, a wrap notch up — refused 19 on the lenses (a
+     * transition's owner in its close set, §7.9, §7.14) and applied by the phone as today (its frames and the DISCARD
+     * naming the last row behind the riding LIST-RING while both lenses' cursors are still on row 0) — then the run's end,
+     * and after it a wrap notch down on the glasses.
+     *
+     * The second review pass's additions (decisions BB (6)): TABLE — the act begins at the session's start, so the start's
+     * batch (CLEAR 0xFF and the idle SETTLE: Main is staged after the start, `FIRMWARE.md` §6.7 P9), the strip's and the
+     * programs' writes and the offer's bind batch as `LocalRules.front` sends it ([LIST-RING with a fresh mark, the three
+     * SETs, the DISCARD naming the row, the SETTLE]) are each a step of their own; then the whole table again as
+     * `LocalRules.wholeTable` sends it ([CLEAR 0xFF, the SETs, LIST-RING with a fresh mark], with its one keyframe) — made
+     * by the rig the one way the tree makes it with both lenses taking every message: RIGHT's telemetry reply edited on
+     * its way back to name a mode 27 refused 14 (P1's record), the lenses having refused nothing — then a wrap notch up on
+     * the re-sent table. BURST — from row 1 a notch up and, inside its motion, the wrap notch up (its fire closes the first
+     * local instance on both lenses), the two reports handed to the phone after both fires as a round trip would (RIGHT's
+     * 115s held back by the rig, then delivered one after the other) and the stock echoes after them as the rubber band
+     * sends a fast burst's — with no room on the link while both are handled (the shell's loop pumps after every message,
+     * so only a link with no room lets one flush answer two reports; the rig's `pumpHeldForTest`), then room: ONE batch
+     * answers them, ONE COMMIT, the newest's. BURST_EACH — the same with room on the link, as the shell does on the instant
+     * link by itself: each report answered by the flush after it, the first's COMMIT adopting nothing on the lenses (its
+     * instance closed by the wrap's fire; the wrap's newer instance left drawing, §6.5) and writing its END under the
+     * drawing pan, then the wrap's COMMIT. SWITCH — at 256 KiB a row's form changes (a window's summary
+     * line): the idle repaint's batch ([its frame, LIST-RING, SETTLE]), the changed row written into the strip slot no
+     * table names (its k + 1 margins of the other end already written with the base records, decisions AL.4) and the SETs
+     * naming that strip's pans; a wrap notch up fired as the first lens is handed the SETs' batch — between the write and
+     * the SETs, the old pan over the new item table (§6.7 P9) — adopted and COMMITted.
+     */
+    enum class RingForm { NOTCHES, TAP, UNDER_BACK, TABLE, BURST, BURST_EACH, SWITCH }
+
+    /** C3 SVR: a ring act — Main's scroll [effect] at layout height [height] in [form]; a TAP's [taps] value and whether
+     *  the cursor is on the last row ([atLast]) or on row 0. The steps and the period are the staging's at stage 5, read
+     *  at the capture and said (the fast-path fit changes them: the re-play row compares the programs). */
+    data class RingSpec(override val name: String, val effect: ScrollEffect, val height: Int, val form: RingForm,
+                        val taps: Taps = Taps.REPORT, val atLast: Boolean = false) : Act
+
+    /**
+     * C3 SVR: at 288 and 352 (the heights where his eight rows wrap, so Main is a ring list), each Scroll effect's NOTCHES
+     * act (None, Depth, Slide, Fall: their pans are four different programs at each height — no two give the same bytes);
+     * the tap under `report` and under `glasses`, each on row 0 and on the last row, with Depth (the tap's press is one
+     * program whatever the Scroll effect, `MainStaging.Press`); and one each of UNDER_BACK, TABLE, BURST, BURST_EACH and
+     * SWITCH at 352 (his height) with Depth. A LIST-RING whose shift wraps is not here: the shell sends none (every LIST it writes has
+     * shift 0 — `MainSurface.shift` is 0 — so the modular shift is `v5-ring`'s alone, the firmware's own vector).
+     */
+    fun ringSpecs(): List<RingSpec> {
+        val out = ArrayList<RingSpec>()
+        for (h in listOf(288, 352)) {
+            for (e in ScrollEffect.entries) out += RingSpec("${PREFIX}ring-${e.id}-$h", e, h, RingForm.NOTCHES)
+            for (t in listOf(Taps.REPORT, Taps.GLASSES)) for (last in listOf(false, true))
+                out += RingSpec("${PREFIX}ring-tap-${t.name.lowercase()}-${if (last) "last" else "row0"}-$h", ScrollEffect.DEPTH, h, RingForm.TAP, t, last)
+        }
+        out += RingSpec("${PREFIX}ring-back-wrap-352", ScrollEffect.DEPTH, 352, RingForm.UNDER_BACK)
+        out += RingSpec("${PREFIX}ring-table-352", ScrollEffect.DEPTH, 352, RingForm.TABLE)
+        out += RingSpec("${PREFIX}ring-burst-352", ScrollEffect.DEPTH, 352, RingForm.BURST)
+        out += RingSpec("${PREFIX}ring-burst-each-352", ScrollEffect.DEPTH, 352, RingForm.BURST_EACH)
+        out += RingSpec("${PREFIX}ring-switch-352", ScrollEffect.DEPTH, 352, RingForm.SWITCH)
+        return out
+    }
+
+    /** Every ship act: the transitions ([specs]), then SV-083's scroll and notice acts, then SVR's ring acts. */
+    fun acts(): List<Act> = specs() + scrollSpecs() + noticeSpecs() + ringSpecs()
 
     /** [act] as the rig plays it, and its vector. */
     suspend fun captureAct(act: Act): Captured = when (act) {
         is Spec -> capture(act)
         is ScrollSpec -> captureScroll(act)
         is NoticeSpec -> captureNotice(act)
+        is RingSpec -> captureRing(act)
     }
 
     private val ANY_TAG: (Int) -> Boolean = { true }
@@ -386,12 +465,14 @@ internal object ShipVectors {
     private class Recorder(val r: TransitionShellTest.Rig, val slots: List<Int>) {
         val events: MutableList<Event> = java.util.Collections.synchronizedList(ArrayList<Event>())
         val act = java.util.concurrent.atomic.AtomicBoolean(false)
+        /** C3 SVR: called with each image as a lens is handed it — before that lens applies it — after it is recorded. */
+        @Volatile var spy: ((Arm, ByteArray) -> Unit)? = null
         private val seenL = HashMap<Int, Int>()
         private val seenR = HashMap<Int, Int>()
         fun prog(a: Arm): Int = progress(r.sim, a, if (a == Arm.LEFT) seenL else seenR, slots, ANY_TAG)
         init {
             // inside the model's own dispatch: the progress as the message arrives; and every millisecond between
-            r.onImage = { a, img -> events += Event(a, img.copyOf(), null, prog(a), act.get()) }
+            r.onImage = { a, img -> events += Event(a, img.copyOf(), null, prog(a), act.get()); spy?.invoke(a, img) }
             r.scope.launch { while (true) { synchronized(r.sim) { prog(Arm.LEFT); prog(Arm.RIGHT) }; delay(1) } }
         }
         /** A gesture on the ring: the hook on both lenses, then its stock echo ([TransitionShellTest.Rig.fire]). */
@@ -400,6 +481,16 @@ internal object ShipVectors {
             events += Event(null, null, longArrayOf(CfwModes.DEV_RING.toLong(), eventId.toLong(), 0), p, act.get())
             r.fire(eventId)
         }
+        /** C3 SVR: the hook alone on both lenses — the stock echo goes later ([echo]), as the rubber band sends a fast
+         *  burst's queued scroll messages after it (`FIRMWARE.md` §6.1, §6.7 P5). */
+        fun hook(eventId: Int) {
+            val p = synchronized(r.sim) { prog(Arm.RIGHT) }
+            events += Event(null, null, longArrayOf(CfwModes.DEV_RING.toLong(), eventId.toLong(), 0), p, act.get())
+            val now = System.currentTimeMillis()
+            for (a in Arm.entries) r.sim.conformanceInput(a, CfwModes.DEV_RING, eventId.toLong(), 0, now)
+        }
+        /** C3 SVR: a gesture's stock echo alone (its hook went before, [hook]). */
+        fun echo(eventId: Int) = r.t.ringStockForTest(wm.damage.core.local.BoundList.stockEvent(eventId)!!)
         /** RIGHT's images from [from] on (an index into [events]), each as its sub-messages. */
         fun rightFrom(from: Int): List<List<ByteArray>> = events.toList().drop(from).filter { it.arm == Arm.RIGHT }.map { subs(it.msg!!) }
         /** RIGHT's images of the act, each as its sub-messages. */
@@ -582,6 +673,314 @@ internal object ShipVectors {
         } finally { r.close() }
     }
 
+    /** A batch's sub-messages as `mode/sub` words (a lone message is one). */
+    private fun shape(ss: List<ByteArray>): String = ss.joinToString(" ") { s -> "${s[0].toInt() and 0x7F}/${if (s.size > 1) s[1].toInt() and 0xFF else -1}" }
+
+    /** The list a COMMIT, DISCARD or SETTLE names (its fourth body byte; 0xFF none), or -1 for any other sub-message. */
+    private fun answerList(s: ByteArray): Int =
+        if ((isSub(s, 26, CfwModes.MOTION_COMMIT) || isSub(s, 26, CfwModes.MOTION_DISCARD) || isSub(s, 26, CfwModes.MOTION_SETTLE)) && s.size > 5) s[5].toInt() and 0xFF else -1
+
+    private fun s16(b: ByteArray, at: Int) = u16(b, at).toShort().toInt()
+
+    private suspend fun captureRing(spec: RingSpec): Captured {
+        val r = TransitionShellTest.Rig(stage = 5, kib256 = true, taps = spec.taps, nRows = MAIN_WINDOWS)
+        try {
+            // the slots whose instances place the act's events: Main's pans (0, 1); with a transition, its halves (2, 3) too
+            val slots = if (spec.form == RingForm.TAP || spec.form == RingForm.UNDER_BACK) listOf(0, 1, 2, 3) else listOf(0, 1)
+            val rec = Recorder(r, slots)
+            if (spec.form == RingForm.TABLE) rec.act.set(true)          // the act from the session's start
+            r.upAt(spec.height) { s -> s.copy(scrollEffect = spec.effect.id).let { if (spec.form != RingForm.UNDER_BACK) it else it
+                .withTier(Transitions.Tier.SELECT, effects = emptyList()).withTier(Transitions.Tier.LOCK, effects = emptyList())
+                .withTier(Transitions.Tier.BACK, effects = listOf(Transitions.Effect.DEPTH.id)) } }
+            ready(r, spec.name)
+            val staged = r.onLoop { r.shell.mainBinding.staging?.let { s -> listOf(s.ring, s.motion?.effect, s.t, s.period, s.periodInForce) } }
+            check(staged != null && staged[0] == true && staged[1] == spec.effect && staged[3] == staged[4]) {
+                "${spec.name}: Main's staging holds (ring, effect, T, P, P in force) $staged, not the ring form of ${spec.effect.word} with its period in force" }
+            val t = staged[2] as Int; val period = staged[3] as Int
+            val pressT = r.onLoop { r.shell.mainBinding.staging!!.press.program.T }
+            val list = r.onLoop { r.shell.mainBoundForTest().first } ?: error("${spec.name}: Main's list not bound")
+            val count = list.count
+            check(list.ring && count == MAIN_WINDOWS + 1) { "${spec.name}: Main's bound list ring=${list.ring}, $count rows — not his eight rows as a ring list" }
+            check(synchronized(r.sim) { Arm.entries.all { r.sim.bindForTest(it).lists[MainStaging.LIST].ring } }) { "${spec.name}: a lens's list does not ring at the start" }
+            check(r.row() == 0) { "${spec.name}: Main's row is ${r.row()} at the start, not 0" }
+            fun drawing(a: Arm, s: Int) = r.sim.motionForTest(a).slots[s]?.drawing == true
+            /** One gesture's end: its burst closed (the lone SETTLE sent) and RIGHT handed a SETTLE since [from], neither lens
+             *  draws in slot 0 or 1, the row is [to]. */
+            suspend fun ended(from: Int, to: Int, what: String) = r.until("${spec.name}: $what — its SETTLE on RIGHT, the engine idle, row $to") {
+                rec.rightFrom(from).any { ss -> ss.any { isSub(it, 26, CfwModes.MOTION_SETTLE) } } && !r.onLoop { r.shell.localBurstOpenForTest() } &&
+                    synchronized(r.sim) { Arm.entries.none { a -> drawing(a, 0) || drawing(a, 1) } } &&
+                    r.onLoop { r.shell.mainBoundForTest().second } == to && r.shell.isQuiescent()
+            }
+            suspend fun notch(eventId: Int, to: Int, what: String) { val from = rec.events.size; rec.fire(eventId); ended(from, to, what); r.settle("${spec.name}: $what") }
+            fun owed() = r.notes("transition").count { it.startsWith("owed: ") }
+            val words = ArrayList<String>()
+            when (spec.form) {
+                RingForm.NOTCHES -> {
+                    rec.act.set(true)
+                    notch(CfwModes.EV_UPROLL, 1, "a notch down in the middle")
+                    notch(CfwModes.EV_DOWNROLL, 0, "a notch up in the middle")
+                    notch(CfwModes.EV_DOWNROLL, count - 1, "a wrap notch up from row 0")
+                    notch(CfwModes.EV_UPROLL, 0, "a wrap notch down from the last row")
+                }
+                RingForm.TAP -> {
+                    if (spec.atLast) { notch(CfwModes.EV_DOWNROLL, count - 1, "the walk to the last row (a wrap notch up)"); idle(r, spec.name) }
+                    val want = if (spec.atLast) "settings" else "w0"
+                    val before = owed()
+                    val press = spec.taps == Taps.GLASSES
+                    val tag0 = synchronized(r.sim) { r.sim.motionForTest(Arm.RIGHT).slots[0]?.tag }
+                    rec.act.set(true)
+                    // the press: the phone's act waits for room on the link (`pumpHeldForTest`, as TransitionShellTest's
+                    // At.OWED row) until the press holds its last step on both lenses — the round trip in which the glasses
+                    // draw it — then the act's first flush (the Select's out PLAY, whose close pass ends the press) goes
+                    if (press) r.shell.pumpHeldForTest = true
+                    rec.fire(CfwModes.EV_TAP)
+                    if (press) {
+                        r.until("${spec.name}: the press holding its last step on both lenses") { synchronized(r.sim) { Arm.entries.all { a ->
+                            r.sim.motionForTest(a).slots[0]?.let { it.tag != tag0 && it.drawing && it.d >= it.T } == true } } }
+                        r.until("${spec.name}: the tap acted on by the phone (the link full)") { r.onLoop { r.shell.currentWindowId() } == want }
+                        r.shell.pumpHeldForTest = false; r.shell.postIdleTick()
+                    }
+                    r.until("${spec.name}: the tap's act — $want opens") { r.onLoop { r.shell.currentWindowId() } == want }
+                    r.until("${spec.name}: the Select's transition ends") { owed() == before + 1 && r.onLoop { r.shell.transitionPhaseForTest() } == null }
+                    r.until("${spec.name}: the CLOSE of slot 2 reaches RIGHT") { rec.rightOfAct().any { ss -> ss.any { closeOf(it, 2) } } }
+                    r.settle("${spec.name}: in $want")
+                }
+                RingForm.UNDER_BACK -> {
+                    // the session: into w0 by the ring's tap on row 0 (the Select tier none: no transition)
+                    rec.fire(CfwModes.EV_TAP)
+                    r.until("${spec.name}: into w0") { r.onLoop { r.shell.currentWindowId() } == "w0" }
+                    r.settle("${spec.name}: in w0"); idle(r, spec.name)
+                    val before = owed()
+                    val repairs0 = r.notes("repair").size
+                    rec.act.set(true)
+                    r.doubleTap()                                           // the Back: a double tap reaches only the phone
+                    r.until("${spec.name}: back on Main") { r.onLoop { r.shell.currentWindowId() } == null }
+                    r.until("${spec.name}: RIGHT's in half drawing") { r.onLoop { r.shell.transitionPhaseForTest() } == "IN" &&
+                        synchronized(r.sim) { r.sim.motionForTest(Arm.RIGHT).slots[3]?.let { it.drawing && it.d >= 1 && it.d < it.T } } == true }
+                    r.until("${spec.name}: Main's entries live on RIGHT") { r.sim.bindForTest(Arm.RIGHT).field39() and 0x30 == 0x30 }
+                    check(r.row() == 0) { "${spec.name}: back on Main's row ${r.row()}, not 0" }
+                    check(synchronized(r.sim) { Arm.entries.all { r.sim.bindForTest(it).lists[MainStaging.LIST].ring } }) { "${spec.name}: a lens's list does not ring under the Back" }
+                    val applied0 = r.notes("applied").size
+                    rec.fire(CfwModes.EV_DOWNROLL)
+                    r.until("${spec.name}: the notch applied as today — the row is Main's last") { r.row() == count - 1 }
+                    r.until("${spec.name}: RIGHT's report of the notch") { r.notes("applied").size > applied0 }
+                    val note = r.notes("applied").drop(applied0)
+                    // the reason's number is read on the model's own answer below (19); the journal's words may change
+                    check(note.size == 1 && " refused " in note[0] && "wrapped" !in note[0]) { "${spec.name}: RIGHT did not refuse the ring fire: $note" }
+                    words += "under the Back: $note"
+                    r.until("${spec.name}: the Back's run ends") { owed() == before + 1 && r.onLoop { r.shell.transitionPhaseForTest() } == null }
+                    r.until("${spec.name}: the Back's CLOSE of slot 2 reaches RIGHT") { rec.rightOfAct().any { ss -> ss.any { closeOf(it, 2) } } }
+                    r.settle("${spec.name}: after the Back"); idle(r, spec.name)
+                    // C3 X3M0 (decisions BB (2)): the notch refused 19 is no table-repair evidence — no `repair` note, no SET
+                    // re-sent in the act's answer to it
+                    check(r.notes("repair").size == repairs0) { "${spec.name}: a table repair in the act: ${r.notes("repair").drop(repairs0)}" }
+                    notch(CfwModes.EV_UPROLL, 0, "after the run, a wrap notch down from the last row")
+                }
+                RingForm.TABLE -> {
+                    // P1's record naming 27: RIGHT's next telemetry reply edited, once, on its way back (a mode 27 refused 14
+                    // at present 0x5A5A — the lenses refused nothing), then a read; the shell sends the whole table again
+                    val start = r.t as StartRig
+                    val edit = java.util.concurrent.atomic.AtomicBoolean(true)
+                    start.onNotify = { a, p -> if (a == Arm.RIGHT && StartRig.telemetry(p) != null && edit.getAndSet(false))
+                        StartRig.withRecordField(StartRig.withRecordField(StartRig.withRecordField(p, 23, CfwModes.BIND_MODE.toLong()), 24, 14), 25, 0x5A5A) else p }
+                    val from = rec.events.size
+                    r.t.devProbe("telemetry", "read")
+                    r.until("${spec.name}: the whole table again on RIGHT") { rec.rightFrom(from).any { ss ->
+                        ss.any { isSub(it, 27, CfwModes.BIND_CLEAR) && (it[2].toInt() and 0xFF) == 0xFF } && ss.any { isSub(it, 27, CfwModes.BIND_LIST_RING) } } }
+                    start.onNotify = null
+                    check(!edit.get() && r.notes("repair").any { "evidence=refusal mode=27" in it && "object=table" in it }) { "${spec.name}: no repair of a record naming 27: ${r.notes("repair")}" }
+                    r.settle("${spec.name}: the table again"); idle(r, spec.name)
+                    notch(CfwModes.EV_DOWNROLL, count - 1, "a wrap notch up on the re-sent table")
+                }
+                RingForm.BURST, RingForm.BURST_EACH -> {
+                    notch(CfwModes.EV_UPROLL, 1, "the walk to row 1"); idle(r, spec.name)
+                    // the two reports reach the phone after both fires, as over a round trip: RIGHT's 115s held by the rig and
+                    // handed over one after the other; the stock echoes after them, as the rubber band sends a fast burst's queued
+                    // scroll messages. BURST: no room on the link while both are handled, so one flush answers both;
+                    // BURST_EACH: room, so each report is answered by the flush after it
+                    val start = r.t as StartRig
+                    val held = java.util.Collections.synchronizedList(ArrayList<ByteArray>())
+                    val hold = java.util.concurrent.atomic.AtomicBoolean(true)
+                    start.onNotify = { a, p -> if (hold.get() && a == Arm.RIGHT && StartRig.sid(p) == wm.damage.core.wire.SettingsMsg.SID &&
+                        p.size >= wm.damage.core.wire.AaFrame.HEADER + wm.damage.core.wire.AaFrame.CRC && DamageMsg.parseApplied(StartRig.body(p)) != null) { held += p; null } else p }
+                    val from = rec.events.size
+                    rec.act.set(true)
+                    val tag0 = synchronized(r.sim) { r.sim.motionForTest(Arm.RIGHT).slots[0]?.tag }
+                    rec.hook(CfwModes.EV_DOWNROLL)                          // row 1 → row 0
+                    r.until("${spec.name}: the first pan drawing on RIGHT") { synchronized(r.sim) {
+                        r.sim.motionForTest(Arm.RIGHT).slots[0]?.let { it.tag != tag0 && it.drawing && it.d >= 1 && it.d < it.T } == true } }
+                    rec.hook(CfwModes.EV_DOWNROLL)                          // row 0 → the last row, inside the first's motion
+                    r.until("${spec.name}: both reports held") { held.size == 2 }
+                    hold.set(false); start.onNotify = null
+                    // the shell's loop pumps after every message, so a report is answered by the next flush whenever the link
+                    // has room: BURST gives the link no room while both reports are handled (`pumpHeldForTest`, the rig's
+                    // "a link with no room at all"), then room — one flush answers both
+                    val verdicts = java.util.Collections.synchronizedList(ArrayList<String>())
+                    if (spec.form == RingForm.BURST) { r.onLoop { r.shell.localVerdictsForTest = verdicts }; r.shell.pumpHeldForTest = true }
+                    for (p in synchronized(held) { held.toList() }) start.deliver(Arm.RIGHT, p)
+                    if (spec.form == RingForm.BURST) {
+                        r.until("${spec.name}: both reports handled with the link full") { verdicts.size >= 2 }
+                        r.onLoop { r.shell.localVerdictsForTest = null }
+                        words += "the two reports' verdicts with the link full: $verdicts"
+                        r.shell.pumpHeldForTest = false; r.shell.postIdleTick()
+                    }
+                    r.until("${spec.name}: the burst's answer on RIGHT") { rec.rightFrom(from).any { ss -> ss.any { isSub(it, 26, CfwModes.MOTION_COMMIT) } } }
+                    rec.echo(CfwModes.EV_DOWNROLL); rec.echo(CfwModes.EV_DOWNROLL)
+                    ended(from, count - 1, "a burst across the wrap")
+                    r.settle("${spec.name}: after the burst")
+                }
+                RingForm.SWITCH -> {
+                    check(r.onLoop { r.shell.mainBinding.staging?.stripB != null }) { "${spec.name}: Main's own region holds no second strip at 256 KiB" }
+                    val oldProgs = list.entries.filter { !it.isTap }.map { it.prog4 }.toSet()
+                    // the wrap notch as the first lens is handed the batch that SETs the other strip's pans (before it applies it)
+                    val firedAt = java.util.concurrent.atomic.AtomicInteger(-1)
+                    rec.act.set(true)
+                    rec.spy = { _, img -> if (firedAt.get() < 0 && subs(img).any { isSub(it, 27, CfwModes.BIND_SET) && it.size == 23 && u16(it, 9) !in oldProgs && u16(it, 9) != CfwModes.PROG_NONE } &&
+                        firedAt.compareAndSet(-1, rec.events.size)) rec.fire(CfwModes.EV_DOWNROLL) }
+                    r.rows[3].s = r.rows[3].s.copy(line = "summary 33")    // a row's form changes: every row shows its summary line
+                    r.shell.services.requestRender(r.rows[3])
+                    r.until("${spec.name}: a wrap notch fired between the strip's write and the SETs", 20_000) { firedAt.get() >= 0 }
+                    rec.spy = null
+                    ended(firedAt.get(), count - 1, "the wrap notch between the write and the SETs")
+                    r.settle("${spec.name}: after the switch")
+                    check(r.onLoop { r.shell.mainBinding.staging!!.activeStrip } == 1) { "${spec.name}: the strip did not switch" }
+                    val now = r.onLoop { r.shell.mainBoundForTest().first }!!.entries.filter { !it.isTap }.map { it.prog4 }.toSet()
+                    check(now.none { it in oldProgs }) { "${spec.name}: the list does not name the other strip's pans: $now against $oldProgs" }
+                    words += "the old pans $oldProgs, the other strip's ${now}"
+                }
+            }
+            idle(r, spec.name)
+            rec.act.set(false)
+            val recorded = rec.events.toList()
+            val firstAct = recorded.indexOfFirst { it.act }
+            check(firstAct >= 0 && recorded.drop(firstAct).all { it.act }) { "${spec.name}: an image or input of the session came after the act began (it would be laid in step 0)" }
+            // the act's ring form, as RIGHT was handed it
+            val act = rec.rightOfAct()
+            val subsOfAct = act.flatten()
+            val lists = subsOfAct.filter { isSub(it, 27, CfwModes.BIND_LIST) || isSub(it, 27, CfwModes.BIND_LIST_RING) }
+            // (a press's act with the link full answers the tap with a DISCARD naming no list, so it may carry no LIST)
+            check((lists.isNotEmpty() || spec.form == RingForm.TAP) && lists.all { isSub(it, 27, CfwModes.BIND_LIST_RING) && it.size == 13 && it[12].toInt() == 1 }) {
+                "${spec.name}: a LIST of the act is not LIST-RING with flags 1: ${lists.map { hex(it) }}; the act's batches ${act.map { "[${shape(it)}]" }}; " +
+                    "its answers ${subsOfAct.filter { answerList(it) >= 0 }.map { hex(it) }}" }
+            check(subsOfAct.none { playIn(it, MainStaging.WRAP_SLOT) }) { "${spec.name}: a PLAY in slot ${MainStaging.WRAP_SLOT} on a ring list" }
+            for (ss in act) for ((i, s) in ss.withIndex()) if (answerList(s).let { it >= 0 && it != 0xFF })
+                check(ss.take(i).any { isSub(it, 27, CfwModes.BIND_LIST_RING) }) { "${spec.name}: an answer naming the list without a LIST-RING before it in its batch: ${shape(ss)}" }
+            val commits = subsOfAct.filter { isSub(it, 26, CfwModes.MOTION_COMMIT) && it.size == 18 }
+            // the offer's bind of the ring list (items a, h): the first batch holding its LIST-RING and the SETs of Main's pans
+            // ([LIST-RING with a fresh mark, the SETs, the DISCARD naming the row, the SETTLE], as `LocalRules.front` sends it)
+            val rightAll = recorded.filter { it.arm == Arm.RIGHT }.map { subs(it.msg!!) }
+            fun clearAll(s: ByteArray) = isSub(s, 27, CfwModes.BIND_CLEAR) && s.size >= 3 && (s[2].toInt() and 0xFF) == 0xFF
+            val bindAt = rightAll.indexOfFirst { ss -> ss.any { isSub(it, 27, CfwModes.BIND_LIST_RING) } && ss.any { isSub(it, 27, CfwModes.BIND_SET) } }
+            check(bindAt >= 0) { "${spec.name}: no batch binds the ring list (LIST-RING beside the SETs)" }
+            val bind = rightAll[bindAt]
+            val bindTail = bind.filter { (it[0].toInt() and 0x7F) == 26 || (it[0].toInt() and 0x7F) == 27 }
+            check(isSub(bindTail.first(), 27, CfwModes.BIND_LIST_RING) && bindTail.drop(1).takeWhile { isSub(it, 27, CfwModes.BIND_SET) }.size == 3 &&
+                bindTail.any { isSub(it, 26, CfwModes.MOTION_DISCARD) && u16(it, 6) == 0 } && isSub(bindTail.last(), 26, CfwModes.MOTION_SETTLE)) {
+                "${spec.name}: the offer's bind batch is not [LIST-RING, SET × 3, DISCARD naming row 0, SETTLE]: [${shape(bind)}]" }
+            val startBatch = rightAll.take(bindAt).lastOrNull { ss -> ss.any { clearAll(it) } }
+            check(startBatch != null && startBatch.none { isSub(it, 27, CfwModes.BIND_SET) || isSub(it, 27, CfwModes.BIND_LIST_RING) }) {
+                "${spec.name}: the start's batch before the offer is not CLEAR 0xFF without a list: ${startBatch?.let { shape(it) }}" }
+            val plainBefore = rightAll.flatten().count { isSub(it, 27, CfwModes.BIND_LIST) }
+            if (plainBefore > 0) words += "the run sent $plainBefore plain LIST(s)"
+            words += "the start's batch [${shape(startBatch!!)}]"
+            // TABLE: the whole table again, [CLEAR 0xFF, the SETs, LIST-RING with a fresh mark], after the offer
+            val table = rightAll.drop(bindAt + 1).firstOrNull { ss -> ss.any { clearAll(it) } }
+            if (spec.form == RingForm.TABLE) {
+                val tail = table?.filter { (it[0].toInt() and 0x7F) == 26 || (it[0].toInt() and 0x7F) == 27 }
+                check(tail != null && clearAll(tail.first()) && tail.drop(1).takeWhile { isSub(it, 27, CfwModes.BIND_SET) }.size == 3 &&
+                    tail.getOrNull(4)?.let { l -> isSub(l, 27, CfwModes.BIND_LIST_RING) && l[11] != bind.first { isSub(it, 27, CfwModes.BIND_LIST_RING) }[11] } == true) {
+                    "${spec.name}: the whole table is not [CLEAR 0xFF, SET × 3, LIST-RING with a fresh mark]: ${table?.let { shape(it) }}" }
+                words += "the whole table again [${shape(table!!)}]"
+            } else check(table == null) { "${spec.name}: a whole table again where none was provoked: [${shape(table!!)}]" }
+            // UNDER_BACK (item l): the DISCARD answering the refused fire, naming the wrapped row behind the riding LIST-RING
+            if (spec.form == RingForm.UNDER_BACK) check(act.any { ss -> ss.indexOfFirst { isSub(it, 26, CfwModes.MOTION_DISCARD) && u16(it, 6) == count - 1 }
+                    .let { i -> i > 0 && ss.take(i).any { s -> isSub(s, 27, CfwModes.BIND_LIST_RING) } } }) {
+                "${spec.name}: no DISCARD naming row ${count - 1} behind a LIST-RING answers the refused fire" }
+            if (spec.form == RingForm.UNDER_BACK) act.filter { ss -> ss.any { isSub(it, 26, CfwModes.MOTION_DISCARD) && u16(it, 6) == count - 1 } }.let { b ->
+                check(b.none { ss -> ss.any { isSub(it, 27, CfwModes.BIND_SET) } }) { "${spec.name}: a SET rides the answer to the refused fire: ${b.map { shape(it) }}" } }
+            // SWITCH (item i): an idle batch on Main — its frame, then [LIST-RING, SETTLE]
+            if (spec.form == RingForm.SWITCH) check(act.any { ss -> ss.size >= 3 && (ss[0][0].toInt() and 0x7F) !in setOf(19, 25, 26, 27) &&
+                    isSub(ss[ss.size - 2], 27, CfwModes.BIND_LIST_RING) && isSub(ss.last(), 26, CfwModes.MOTION_SETTLE) }) {
+                "${spec.name}: no idle batch [its frame, LIST-RING, SETTLE] in the act" }
+            val st = r.t.state.value
+            check(st.flagsInForce == 0x7c) { "${spec.name}: flags in force 0x${st.flagsInForce.toString(16)}, not stage 5's 0x7c" }
+            val finalCrc = synchronized(r.sim) { Arm.entries.associateWith { r.sim.shadowCrc32(it) } }
+            val applied = ArrayList<DamageMsg.Applied>()
+            val vec = vector(spec.name, recorded, st.cacheSize / 1024, st.flagsInForce, finalCrc, ArrayList(), slots, ANY_TAG, applied) { _, bodies ->
+                check(bodies.none { it.outcome == DamageMsg.OUTCOME_REFUSED }) { "${spec.name}: a refusal on RIGHT: ${said(bodies, 0..3)}" }
+                check(bodies.filter { it.outcome == DamageMsg.OUTCOME_DREW }.all { (it.folded ?: 0L) == 0L }) { "${spec.name}: a step folded: ${said(bodies, 0..3)}" }
+                val pans = bodies.filter { it.slot == MainStaging.SLOT && it.tag?.let { g -> g and 0xC000 == 0 } == true }
+                val halves = bodies.filter { it.slot in 2..3 && it.outcome == DamageMsg.OUTCOME_DREW && ((it.tag ?: 0) and 0xE000) == 0xC000 }
+                /** Each pan of [n] notches to its last step: a DREW body at T, or (None, T 1) the COMMIT's body with its one step. */
+                fun pansWhole(n: Int) = pans.filter { it.outcome != DamageMsg.OUTCOME_CLOSED }.groupBy { it.tag }.let { g -> g.size == n && g.values.all { b -> b.maxOf { it.drawn ?: 0L } == t.toLong() } }
+                when (spec.form) {
+                    RingForm.NOTCHES -> check(pansWhole(4) && pans.none { it.outcome == DamageMsg.OUTCOME_CLOSED }) { "${spec.name}: not four pans whole on RIGHT: ${said(pans, 0..0)}" }
+                    RingForm.TAP -> check(halves.size == 2 && (spec.taps != Taps.GLASSES || pans.singleOrNull()?.let { it.outcome == DamageMsg.OUTCOME_CLOSED && it.drawn == pressT.toLong() } == true)) {
+                        "${spec.name}: not both halves of the Select whole${if (spec.taps == Taps.GLASSES) " and the press closed at its HOLD (drawn $pressT)" else ""} on RIGHT: ${said(bodies, 0..3)}" }
+                    RingForm.UNDER_BACK -> check(halves.size == 2 && pansWhole(1)) { "${spec.name}: not both halves of the Back and the wrap's pan whole on RIGHT: ${said(bodies, 0..3)}" }
+                    // the first local instance closed by the wrap's fire with no body (its own slot, §6.2 step 11); the wrap's pan whole
+                    RingForm.TABLE, RingForm.BURST, RingForm.SWITCH -> check(pansWhole(1) && pans.none { it.outcome == DamageMsg.OUTCOME_CLOSED }) {
+                        "${spec.name}: not one pan whole on RIGHT: ${said(pans, 0..0)}" }
+                    // BURST_EACH: the first report's COMMIT adopts nothing (its instance closed by the wrap's fire, the wrap's
+                    // newer instance left drawing: §6.5 COMMIT) — its one body outcome 3, drawn 0 — then the wrap's pan whole
+                    RingForm.BURST_EACH -> check(pans.groupBy { it.tag }.let { g -> g.size == 2 && g.values.first().singleOrNull()?.let { it.outcome == DamageMsg.OUTCOME_COMMITTED && it.drawn == 0L } == true &&
+                        g.values.last().maxOf { it.drawn ?: 0L } == t.toLong() } && pans.none { it.outcome == DamageMsg.OUTCOME_CLOSED }) {
+                        "${spec.name}: not the first COMMIT adopting nothing and the wrap's pan whole on RIGHT: ${said(pans, 0..0)}" }
+                }
+                words += "RIGHT's 114 bodies of the act: ${said(bodies, 0..3)}"
+            }
+            // RIGHT's 115s of the act, as the model laid out answers them
+            fun bad(what: String): Nothing = error("${spec.name}: $what — ${applied.map { it.describe() }}")
+            when (spec.form) {
+                RingForm.NOTCHES -> {
+                    if (applied.size != 4 || applied.any { it.isTap || it.outcome != DamageMsg.APPLIED_DREW }) bad("not four scroll fires that drew")
+                    if (applied.map { it.cursor } != listOf(1, 0, count - 1, 0)) bad("the cursors are not 1, 0, ${count - 1}, 0")
+                    if (applied.map { it.field18 } != listOf(null, null, 1L, 1L)) bad("field 18 is not absent in the middle and 1 at both wraps")
+                }
+                RingForm.TAP -> {
+                    val a = applied.singleOrNull() ?: bad("not one report")
+                    if (!a.isTap || a.outcome != DamageMsg.APPLIED_DREW || a.cursor != (if (spec.atLast) count - 1 else 0) || a.field18 != null) bad("not the tap's report at its row")
+                    if ((a.params != null) != (spec.taps == Taps.GLASSES)) bad("the tap's form is not ${spec.taps}'s")
+                }
+                RingForm.UNDER_BACK -> {
+                    if (applied.size != 2) bad("not two reports")
+                    val (a, b) = applied
+                    // §7.9 reason 19: a fire whose close set holds an owning instance; fields 10–14 carried (§6.5)
+                    if (a.outcome != DamageMsg.APPLIED_REFUSED || a.reason != 19 || a.params == null || a.field18 != null || a.cursor != 0) bad("the notch under the Back is not refused 19 at row 0")
+                    if (b.outcome != DamageMsg.APPLIED_DREW || b.cursor != 0 || b.field18 != 1L) bad("the notch after the run is not a wrap that drew")
+                }
+                RingForm.TABLE -> {
+                    val a = applied.singleOrNull() ?: bad("not one report")
+                    val fresh = table!!.first { isSub(it, 27, CfwModes.BIND_LIST_RING) }[11].toInt() and 0xFF
+                    if (a.outcome != DamageMsg.APPLIED_DREW || a.cursor != count - 1 || a.field18 != 1L || a.mark != fresh) bad("the wrap on the re-sent table did not draw at its fresh mark $fresh")
+                }
+                RingForm.BURST, RingForm.BURST_EACH -> {
+                    if (applied.size != 2 || applied.any { it.isTap || it.outcome != DamageMsg.APPLIED_DREW }) bad("not two scroll fires that drew")
+                    if (applied.map { it.cursor } != listOf(0, count - 1) || applied.map { it.field18 } != listOf(null, 1L)) bad("not a notch to row 0 and then the wrap")
+                    val want = if (spec.form == RingForm.BURST) 1 else 2
+                    if (commits.size != want) bad("not $want COMMIT(s) for the burst: ${commits.map { hex(it) }}")
+                }
+                RingForm.SWITCH -> {
+                    val a = applied.singleOrNull() ?: bad("not one report")
+                    val old = list.entries.filter { !it.isTap }.map { it.prog4 }
+                    if (a.outcome != DamageMsg.APPLIED_DREW || a.cursor != count - 1 || a.field18 != 1L || a.prog !in old) bad("the wrap between the write and the SETs did not draw the old pan")
+                }
+            }
+            // the phone's answer to each fire that drew: the COMMIT of the report's own parameters at the absolute cursor (a
+            // burst's: the newest's alone)
+            val drewScroll = applied.filter { !it.isTap && it.outcome == DamageMsg.APPLIED_DREW }
+            for (a in if (spec.form == RingForm.BURST) drewScroll.takeLast(1) else drewScroll) {
+                val c = commits.firstOrNull { u16(it, 3) == a.s } ?: bad("no COMMIT of S ${a.s}")
+                if (u16(c, 6) != a.cursor || (0..3).any { s16(c, 10 + 2 * it) != a.params!![it] }) bad("the COMMIT of S ${a.s} is not the report's parameters at its cursor: ${hex(c)}")
+            }
+            words += "RIGHT's 115s: ${applied.joinToString(" | ") { it.describe().substringBefore(" uptime") }}"
+            val answers = act.filter { ss -> ss.any { answerList(it) >= 0 } }.map { shape(it) }.distinct()
+            return Captured(spec, vec, listOf("${spec.effect.word} T $t P $period, ring at ${spec.height}, stage 5 (flags 0x${st.flagsInForce.toString(16)}), " +
+                "${spec.form.name.lowercase()}${if (spec.form == RingForm.TAP) " ${spec.taps.name.lowercase()} ${if (spec.atLast) "last row" else "row 0"}" else ""}: " +
+                "${commits.size} COMMIT(s); the bind batch [${shape(bind)}]; the act's answer batches ${answers.map { "[$it]" }}") + words)
+        } finally { r.close() }
+    }
+
     /**
      * SV-083: the program bytes of a scroll or notice vector, each once, in the order first named — the session's table
      * (each entry's last SET in step 0) as it stands when the act begins, then every SET, PLAY and PLAY-AFTER of the act;
@@ -634,6 +1033,25 @@ internal object ShipVectors {
         return out.toList()
     }
 
+    /**
+     * C3 SVR: a ring act's projection for the re-play row — [namedPrograms], then the act's ring form: every LIST the act
+     * sends (its sub, list, items, count, shift, pitch and flags; the mark, which follows how many stagings the session
+     * made, left out) and every COMMIT (the report's own parameters at the absolute cursor), each once, in the order first
+     * sent. A LIST-RING sent as a plain LIST, or a COMMIT at another row or other parameters, changes it.
+     */
+    fun ringForms(vec: JsonObject): List<String> {
+        val out = LinkedHashSet(namedPrograms(vec))
+        for (st in vec["steps"]!!.jsonArray.drop(1)) for (o in st.jsonObject["ops"]!!.jsonArray) {
+            val m = bytes(o.jsonObject["msg"]?.jsonPrimitive?.content ?: continue)
+            for (s in subs(m)) when {
+                (isSub(s, 27, CfwModes.BIND_LIST) || isSub(s, 27, CfwModes.BIND_LIST_RING)) && s.size >= 12 ->
+                    out += "LIST " + hex(s.copyOfRange(0, 11)) + "··" + hex(s.copyOfRange(12, s.size))
+                isSub(s, 26, CfwModes.MOTION_COMMIT) -> out += "COMMIT ${hex(s)}"
+            }
+        }
+        return out.toList()
+    }
+
     /** The bytes of the version-1 and version-2 program records [namedPrograms] holds (for the report). */
     fun namedProgramBytes(vec: JsonObject): Int = namedPrograms(vec).filter { it.startsWith("rec @") && !it.contains(" none ") }
         .sumOf { bytes(it.substringAfterLast(' ')).size }
@@ -664,9 +1082,11 @@ internal object ShipVectors {
         }
 
     /** [vector] for any act (SV-083): its events placed by the progress of the instances in [slots] whose tags [accept]
-     *  takes; [endCheck] reads RIGHT's 114 bodies — all of them, and the act's (those after the session's step 0). */
+     *  takes; [endCheck] reads RIGHT's 114 bodies — all of them, and the act's (those after the session's step 0).
+     *  C3 SVR: [applied], when given, receives RIGHT's 115 bodies of the act (after the session's step 0), in send order. */
     private fun vector(name: String, events: List<Event>, cacheKib: Int, flags: Int, finalCrc: Map<Arm, Long>,
                        halves: MutableList<String>, slots: List<Int> = TRANSITION_SLOTS, accept: (Int) -> Boolean = TRANSITION_TAG,
+                       applied: MutableList<DamageMsg.Applied>? = null,
                        endCheck: (all: List<DamageMsg.Motion>, act: List<DamageMsg.Motion>) -> Unit): JsonObject {
         val left = events.filter { it.arm == Arm.LEFT }; val right = events.filter { it.arm == Arm.RIGHT }
         check(left.size == right.size && left.indices.all { left[it].msg!!.contentEquals(right[it].msg!!) }) {
@@ -686,7 +1106,11 @@ internal object ShipVectors {
         fun costs() { for (s in listOf(2, 3)) { val i = sim.motionForTest(Arm.RIGHT).slots[s] ?: continue
             if (i.tag and 0xE000 != 0xC000 || !costed.add((s shl 16) or i.tag)) continue
             halves += "slot $s tag 0x${i.tag.toString(16)}: C ${i.cost} u (%.1f %% of the cap), T ${i.T}, P ${i.period}".format(i.cost * 100.0 / wm.damage.core.motion.Motion.BUDGET_CAP) } }
-        fun notes() { for (b in sim.conformanceNotifies(Arm.RIGHT)) bodies += DamageMsg.parseMotion(Pb.l(DamageMsg.MOTION_FIELD, b))!!
+        val reports = ArrayList<DamageMsg.Applied>()
+        fun notes() { for ((field, b) in sim.conformanceSent(Arm.RIGHT)) when (field) {
+                DamageMsg.MOTION_FIELD -> bodies += DamageMsg.parseMotion(Pb.l(DamageMsg.MOTION_FIELD, b))!!
+                DamageMsg.APPLIED_FIELD -> reports += DamageMsg.parseApplied(Pb.l(DamageMsg.APPLIED_FIELD, b))!!
+            }
             check(sim.conformanceSent(Arm.LEFT).isEmpty()) { "$name: LEFT sent a notify" } }
         fun apply(e: Event, act: Boolean): JsonObject = if (e.msg != null) {
             for (a in Arm.entries) if (!sim.conformanceMessage(a, e.msg, now) && act) refused += "$a refused act image ${hex(e.msg).take(24)}… (${sim.refusalRecord(a)})"
@@ -717,6 +1141,7 @@ internal object ShipVectors {
         var guard = 0
         while (wake()) check(++guard < 64) { "$name: the session's engine never went idle" }
         val sessionBodies = bodies.size
+        val sessionReports = reports.size
         // the act
         var first = true
         for (e in seq.filter { it.act }) {
@@ -735,6 +1160,7 @@ internal object ShipVectors {
         check(refused.isEmpty()) { "$name: ${refused.joinToString("; ")}" }
         for (a in Arm.entries) check(sim.shadowCrc32(a) == finalCrc[a]) { "$name: $a's shadow at the end is not the rig's" }
         for (a in Arm.entries) check(sim.shadowCrc32(a) == sim.panelCrc32(a)) { "$name: $a's panel is not its shadow at the end" }
+        applied?.addAll(reports.drop(sessionReports))
         endCheck(bodies, bodies.drop(sessionBodies))
         return JsonObject(mapOf("name" to JsonPrimitive(name), "steps" to JsonArray(steps), "contract" to JsonPrimitive(2),
             "start" to JsonPrimitive("zero"), "panel" to JsonPrimitive(true), "features" to JsonArray(listOf(JsonPrimitive(FEATURES)))))
