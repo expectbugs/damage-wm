@@ -1808,14 +1808,16 @@
    ]
   ],
   "tests": [
+   "*LocalRulesTest.aBatchDroppedWholeReadWhileAnAnswerIsOwedKeepsTheCommit_X3M0*",
+   "*LocalRulesTest.aWrapNotchOnARingListIsAdoptedModuloTheCountAndPredictedAtV_DM0*",
    "*LocalSequenceFuzzTest.seededS21_*",
    "*LocalSequenceFuzzTest.seededS13_*"
   ],
   "expect": [
-   "seededS21_aListLostOnRightHealsAtTheNextAnswer",
-   "seededS13_aStaleMarkResendsTheList"
+   "aBatchDroppedWholeReadWhileAnAnswerIsOwedKeepsTheCommit_X3M0",
+   "aWrapNotchOnARingListIsAdoptedModuloTheCountAndPredictedAtV_DM0"
   ],
-  "note": "decisions U.1: no riding LIST \u2014 a LIST lost on RIGHT alone makes RIGHT refuse every idle SETTLE (S21); a re-stage's LIST lost on both lenses is never sent again now that the stale-mark repair is gone (S13)",
+  "note": "decisions U.1: no riding LIST — a LIST lost on RIGHT alone makes RIGHT refuse every idle SETTLE (S21); a re-stage's LIST lost on both lenses is never sent again now that the stale-mark repair is gone (S13). Re-pointed by C3 X3M0's follow-up (decisions BH (4); B7, the refusal at the LIST, stays): S21 (RIGHT) did not catch it already on ac0a77e7, and with B7 S13 does not either (the refused LIST is repaired by RIGHT's record or LEFT's failed flush first); the rules rows read the riding LIST before every answer (its presence, not the heal)",
   "from": "FB"
  },
  {
