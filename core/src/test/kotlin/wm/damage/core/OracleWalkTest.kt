@@ -216,7 +216,14 @@ class OracleWalkTest {
             val deadline = System.currentTimeMillis() + 30_000
             while (snap == null && System.currentTimeMillis() < deadline) {
                 if (!shell.isQuiescent()) { delay(5); continue }
-                snap = shell.sampleIdle {
+                // 0.83, decisions CC: the shell learns a transition half's end from RIGHT's body alone, so it can be quiescent
+                // while LEFT's engine still has a step of that half to draw (`TransitionShellTest.Rig.assertOracle`: LEFT 30 ms
+                // behind on the model, read mid-way in 2 of 10 runs, right by itself 0.1–0.25 s later). A lens still drawing a
+                // half (the halves' own tags) is not at rest: asked in the evaluation that reads the panels, under the lock.
+                val read: Any? = shell.sampleIdle<Any> {
+                    if (synchronized(sim) { Arm.entries.any { a -> sim.motionForTest(a).slots.any { o ->
+                            o != null && o.drawing && (o.tag and 0xE000) == wm.damage.core.shell.TransitionRun.TAG_OUT } } })
+                        return@sampleIdle Unit
                     // APK 0.83 (stage SV, item W; decisions BX): while the notice's timer draws on the glasses' engine, its areas
                     // are left out of each lens's comparison and the rest is compared now — the walk steps on, so its next
                     // gesture lands inside the box's grace, as on his glasses (the wait the integration put here outlasted the
@@ -229,6 +236,7 @@ class OracleWalkTest {
                         lens(true), lens(false),
                         shell.comp.planes.joinToString { p -> "${p.rect}@${p.disparity}" }, skip[Arm.LEFT]!!, skip[Arm.RIGHT]!!)
                 }
+                if (read is Snap) snap = read else if (read != null) delay(5)
             }
             val s = snap ?: throw AssertionError("$what: the shell never held still long enough to " +
                 "sample — ${shell.quiescenceReport()}")

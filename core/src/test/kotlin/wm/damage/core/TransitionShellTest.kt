@@ -130,6 +130,9 @@ class TransitionShellTest {
         val allImages = java.util.concurrent.CopyOnWriteArrayList<String>()
         @Volatile var recording = false
         @Volatile var onImage: ((Arm, ByteArray) -> Unit)? = null
+        /** 0.83 (decisions CC): LEFT's engine sees the clock this many ms late — each lens draws on its own clock, and the
+         *  shell learns a half's end from RIGHT's body alone. */
+        @Volatile var leftEngineLagMs = 0L
 
         init {
             for (r in rows) shell.register(r)
@@ -137,7 +140,7 @@ class TransitionShellTest {
             sim.imageObserver = { a, img -> onImage?.invoke(a, img)
                 val line = "${a.name.first()} " + img.joinToString("") { "%02x".format(it) }
                 allImages += line; if (recording) images += line }
-            scope.launch { while (true) { val now = System.currentTimeMillis(); for (a in Arm.entries) sim.conformanceWake(a, now); delay(4) } }
+            scope.launch { while (true) { val now = System.currentTimeMillis(); for (a in Arm.entries) sim.conformanceWake(a, if (a == Arm.LEFT) now - leftEngineLagMs else now); delay(4) } }
         }
 
         fun notes(kind: String): List<String> = if (!Files.exists(journal)) emptyList() else Files.readAllLines(journal)
@@ -197,7 +200,16 @@ class TransitionShellTest {
             return g
         }
 
-        /** Belief equals both lenses' panels, read ON the loop with nothing else pending. */
+        /** A lens whose engine still has a step of a transition's half to draw (the halves' own tags). The shell learns a
+         *  half's end from RIGHT's body alone, so it can be quiescent while LEFT's engine is a step or more behind: on the
+         *  model with LEFT 30 ms late the quick-Back row's oracle read LEFT mid-way in 2 of 10 runs, the difference gone by
+         *  itself 0.1–0.25 s later (0.83, decisions CC; seen once without the lag, under four lanes' load). Under the
+         *  model's lock. */
+        fun aLensStillDrawsATransition(): Boolean = synchronized(sim) { Arm.entries.any { a ->
+            sim.motionForTest(a).slots.any { o -> o != null && o.drawing && (o.tag and 0xE000) == wm.damage.core.shell.TransitionRun.TAG_OUT } } }
+
+        /** Belief equals both lenses' panels, read ON the loop with nothing else pending and no lens still drawing a
+         *  transition's half ([aLensStillDrawsATransition]) — both asked in the one evaluation that reads the panels. */
         suspend fun assertOracle(what: String) {
             var diff: String? = null
             var read = false
@@ -205,6 +217,7 @@ class TransitionShellTest {
             while (!read && System.currentTimeMillis() < deadline) {
                 if (!shell.isQuiescent()) { delay(5); continue }
                 val r = shell.sampleIdle {
+                    if (aLensStillDrawsATransition()) return@sampleIdle STILL_DRAWING
                     val out = StringBuilder()
                     for (left in listOf(true, false)) {
                         val b = shell.comp.expectedLens(left); val g = panel(left)
@@ -213,13 +226,17 @@ class TransitionShellTest {
                     }
                     out.toString()
                 }
+                if (r === STILL_DRAWING) { delay(5); continue }
                 if (r != null) { read = true; diff = r }
             }
-            assertTrue(read, "$what: the shell never held still to be sampled — ${shell.quiescenceReport()}")
+            assertTrue(read, "$what: the shell never held still to be sampled, or a lens never drew its transition's last step — ${shell.quiescenceReport()}; " +
+                "engines ${Arm.entries.map { a -> "$a " + sim.motionWindows(a).map { "${it.slot}/${if (it.drawing) "drawing" else "done"}" } }}")
             assertTrue(diff.isNullOrEmpty(), "$what: $diff")
         }
 
         fun close() { scope.cancel(); tmp.toFile().deleteRecursively() }
+
+        private companion object { /** [assertOracle]: a lens still draws — sample again. */ val STILL_DRAWING = String(charArrayOf('~')) }
     }
 
     private fun file(name: String): List<String>? = javaClass.getResource("/transitions/$name")?.readText()?.lines()?.filter { it.isNotBlank() }
@@ -571,6 +588,27 @@ class TransitionShellTest {
             assertTrue(closes.all { it > backPa }, "no CLOSE of slot 2 between the Back's out PLAY and its PLAY-AFTER: closes $closes, PLAY-AFTER $backPa")
             assertTrue(closes.size <= 1, "one CLOSE after the Back's in half at most: $closes")
             r.assertOracle("after the quick Back")
+        } finally { r.close() }
+    }
+
+    /** 0.83, decisions CC: each lens draws on its own clock and only RIGHT reports. With LEFT's engine 30 ms behind
+     *  RIGHT's through a Select and a quick Back, the shell is quiescent while LEFT still draws the Back's in half; LEFT
+     *  then ends on the same frame — belief equals both lenses once no lens draws. (The rig's oracle asked only the
+     *  shell and read LEFT mid-way: 2 of 10 runs of this sequence, and once in the plain row under load.) */
+    @Test
+    fun aQuickBackWithLeftsEngineBehindRightsEndsOnTheSameFrame_CC(): Unit = runBlocking {
+        val r = Rig(stage = 5)
+        try {
+            r.up()
+            r.leftEngineLagMs = 30
+            r.tap()
+            r.until("w0 opens") { r.onLoop { r.shell.currentWindowId() } == "w0" }
+            r.until("the Select's in half sent") { r.onLoop { r.shell.transitionPhaseForTest() } == "IN" }
+            r.doubleTap()
+            r.until("back on Main") { r.onLoop { r.shell.currentWindowId() } == null }
+            r.until("the Back ends") { r.notes("transition").count { it.startsWith("owed: ") } == 2 && r.onLoop { r.shell.transitionPhaseForTest() } == null }
+            r.settle("after")
+            r.assertOracle("after the quick Back, LEFT's engine 30 ms behind")
         } finally { r.close() }
     }
 
