@@ -1370,7 +1370,7 @@ class MainLocalShellTest {
     /**
      * C3 FF item 3 (decisions BF at stage 5): the measured period raises and lowers the fast fit's period as it does C2's.
      * With the glasses' steps measured at 30 ms (against the fit's modeled 8.8 ms at 352), the first motion that ends whole
-     * raises P 16 → 34 (30 × 1.10 × 1.024, rounded up) and Auto's T follows through the programs-only re-make: 300 ms at
+     * (one sample in the window) raises P 16 → 34 (30 × 1.10 × 1.024, rounded up) and Auto's T follows through the programs-only re-make: 300 ms at
      * P 34, T 9; steps measured at 8 ms over the window and 5 s of quiet bring it back to the fit's 16 (the staging's own
      * period is the floor) and T 19. Belief equals both lenses after.
      */
@@ -1388,7 +1388,10 @@ class MainLocalShellTest {
                 delay(r.motionMs() + r.q() + 300); r.settle("slow notch $notches")
             }
             assertEquals(34, r.onLoop { r.shell.periodInForceForTest() })
-            assertEquals(1, notches, "the first motion that ends whole raises the period")
+            // the raise is taken from the first motion that ended whole (one sample in the window); which notch the loop
+            // reads it after depends on when that motion's body arrived (at its close), so the window, not the loop, says it
+            assertTrue(r.notes("mainstage").any { it.startsWith("period 16 → 34") && "over the last 1 motion(s)" in it },
+                "the first motion that ends whole raises the period: ${r.notes("mainstage").filter { it.startsWith("period") }}")
             remade(r, "T at P 34", m)
             val e = r.list().entryFor(CfwModes.EV_UPROLL)!!
             assertEquals(34 to 9, e.period to e.program!!.T, "300 ms at P 34: T 9")
