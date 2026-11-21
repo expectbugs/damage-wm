@@ -1075,6 +1075,75 @@ class StagingTest {
         assertTrue(firstBase is CacheLedger.Verdict.Base && firstBase.first)
     }
 
+    /**
+     * C3 X6T (decisions AW): the count's ledger and the glasses' generation cannot end up apart through any ordering of
+     * one reading and one cache write. The events: the reading sent (Rs, its counts taken; the shell sends one only when
+     * no booked write is open), the write sent (Ws), the glasses applying it (Wg), its ack counted (Wa), the glasses
+     * answering (Rg, the generation taken) and the answer judged (Ra); Ws before Wg and Wa (in either order: the ack
+     * precedes the decode), Rs before Rg before Ra, and never Rs between Ws and Wa. Every ordering gives Void (the write
+     * went under the reading), Proven or Pending (a bump still on its way, inside the window its ack restarted) — never
+     * an extra bump, a short or a base one write off — and a reading after it all proves the count at the new generation.
+     */
+    @Test
+    fun noOrderingOfAReadingAndAWriteLeavesTheCountApart_X6T() {
+        val events = listOf("Rs", "Ws", "Wg", "Wa", "Rg", "Ra")
+        fun perms(l: List<String>): List<List<String>> = if (l.size <= 1) listOf(l) else l.flatMap { e -> perms(l - e).map { listOf(e) + it } }
+        var n = 0
+        val seen = HashMap<String, Int>()
+        for (o in perms(events)) {
+            val at = o.withIndex().associate { it.value to it.index }
+            fun before(a: String, b: String) = at.getValue(a) < at.getValue(b)
+            if (!before("Ws", "Wg") || !before("Ws", "Wa") || !before("Rs", "Rg") || !before("Rg", "Ra")) continue
+            if (before("Ws", "Rs") && before("Rs", "Wa")) continue          // the shell's launch rule: no reading with a write open
+            n++
+            val l = CacheLedger()
+            assertTrue(l.answer(10, 0, 0, settled = true) is CacheLedger.Verdict.Base)
+            var gen = 10L; var sendAcked = -1L; var sendAtlas = -1L; var settled = false; var answered = -1L
+            var verdict: CacheLedger.Verdict? = null
+            for ((i, e) in o.withIndex()) {
+                val now = 100_000L + i * 10L                                  // every step 10 ms apart: inside one settle window
+                when (e) {
+                    "Rs" -> { assertEquals(0, l.writesOpen, "$o: a reading is sent only with no write open"); sendAcked = l.acked; sendAtlas = l.atlasAcked; settled = l.settled(now); l.readingSent() }
+                    "Ws" -> l.writeSent(7, atlas = false)
+                    "Wg" -> gen++
+                    "Wa" -> assertTrue(l.writeDone(7, ok = true, nowMs = now))
+                    "Rg" -> answered = gen
+                    "Ra" -> verdict = l.answer(answered, sendAcked, sendAtlas, settled)
+                }
+            }
+            val v = verdict!!
+            val want = when {
+                before("Rs", "Ws") && before("Ws", "Ra") -> "Void"
+                before("Ra", "Ws") -> "Proven"                                 // the reading ended before the write was sent
+                before("Wg", "Rg") -> "Proven"                                 // acked before the send and applied before the answer
+                else -> "Pending"                                              // acked, not yet applied: inside the window its ack restarted
+            }
+            assertEquals(want, v::class.simpleName, "$o")
+            seen.merge(want, 1, Int::plus)
+            // and afterwards the count and the generation agree: a reading sent now proves the count at 11
+            val v2 = l.answer(gen, l.acked, l.atlasAcked, settled = l.settled(200_000L))
+            assertTrue(v2 is CacheLedger.Verdict.Proven && l.baseGen == 11L && l.unjudged == 0L, "$o: then $v2 at base ${l.baseGen}")
+        }
+        assertEquals(25, n, "the orderings the launch rule allows")
+        assertEquals(mapOf("Pending" to 2, "Proven" to 5, "Void" to 18), seen.toSortedMap().toMap(), "the orderings' verdicts")
+        // a voided answer moves nothing: no base, no short read counted
+        val l = CacheLedger()
+        l.answer(10, 0, 0, settled = true)
+        l.writeSent(1, atlas = true); assertTrue(l.writeDone(1, ok = true, nowMs = 0L)); l.answer(11, 1, 1, settled = true)
+        l.readingSent(); l.writeSent(2, atlas = false)
+        assertTrue(l.answer(99, 1, 1, settled = true) is CacheLedger.Verdict.Void)
+        assertEquals(11L, l.baseGen); assertEquals(0, l.shortReads)
+        // a write that failed is no longer open and makes the books unsure; a flush that was no write is none of the count's
+        assertTrue(l.writeDone(2, ok = false, nowMs = 0L)); assertEquals(0, l.writesOpen); assertTrue(l.unsure)
+        assertTrue(!l.writeDone(3, ok = true, nowMs = 0L))
+        // every ack restarts the settle window, whoever wrote
+        l.writeSent(4, atlas = false); l.writeDone(4, ok = true, nowMs = 50_000L)
+        assertTrue(!l.settled(50_008L) && l.settled(50_000L + CacheLedger.SETTLE_MS))
+        // a dropped reading leaves nothing to void
+        l.readingSent(); l.readingDropped(); l.writeSent(5, atlas = false); l.writeDone(5, ok = true, nowMs = 60_000L)
+        assertTrue(l.answer(13, l.acked, l.atlasAcked, settled = true) !is CacheLedger.Verdict.Void)
+    }
+
     @Test
     fun aRecordKeyIsTheLayoutObjectAndItsLines() {
         val a = Any(); val b = Any()

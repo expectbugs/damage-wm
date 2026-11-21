@@ -1129,6 +1129,12 @@ def selftest():
     i3 = run(['inwait-e3.jsonl'])[1]
     case('G §3: a gesture that waited 2,000 ms in the shell for a slot reads input->done 2900 beside its wait of 900',
          line(i3, 'WINDOW ').split()[5:9] == ['900', '/', '900', '2900'], line(i3, 'WINDOW '))
+    # C3 X2P2 item 3(c): a transition's out PLAY is journaled as the gesture's first flush (`in` 1, label TRANSITION+<its
+    # tier>, no drawing op); the arriving frame after it and the records' write before it (no submit line) are not priced
+    tx = run(['transition-x2p2.jsonl'])[1]
+    case('X2P2: a Select at stage 5 is priced by its out PLAY (61 B, waited 148 ms), not by the frame under it',
+         line(tx, 'TRANSITION+select ').split()[1:3] == ['1', '61'] and line(tx, 'TRANSITION+select ').split()[5] == '148'
+         and not line(tx, 'WINDOW '), line(tx, 'TRANSITION+select ') + ' / ' + line(tx, 'WINDOW '))
     # B082: whole repaints by cause — synthetic lines written from the shell's own strings (`Compositor.wholeWhy`'s
     # causes, the `mainstage` notes); one of each kind and one of each thing it must leave out
     w = run(['whole-b082.jsonl'])[1]

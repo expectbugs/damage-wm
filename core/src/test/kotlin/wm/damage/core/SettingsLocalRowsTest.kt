@@ -24,8 +24,9 @@ class SettingsLocalRowsTest {
         fun w(bit10: Boolean) = SettingsWindow(FakeText(), { st }, { st = it }, bindBuild = { bit10 }, motionHint = { "10 frames × 45 ms" })
         assertTrue("Animations" !in w(false).categoryNamesForTest(), "no bit 10: ${w(false).categoryNamesForTest()}")
         assertTrue("Animations" in w(true).categoryNamesForTest(), "bit 10: ${w(true).categoryNamesForTest()}")
-        // the Scroll tier's rows (K1-1), then the notice box's (K1-4a: the Popups tier's first rows)
-        assertEquals(listOf("Scroll effect" to "Depth (default)", "Scroll length" to "300 ms (default)", "Scroll frames" to "auto (10 frames × 45 ms)",
+        // the Scroll tier's rows (K1-1; C3 X2T: "(default)" on `Scroll frames` too), then the notice box's (K1-4a: the
+        // Popups tier's first rows) — a test line where the two merged branches met (0.83 integration, part 2)
+        assertEquals(listOf("Scroll effect" to "Depth (default)", "Scroll length" to "300 ms (default)", "Scroll frames" to "auto (10 frames × 45 ms) (default)",
                 "Popup length" to "300 ms (default)", "Popup frames" to "auto", "Popup · Unfurl" to "on", "Popup · Fade" to "off", "Popup · Slide" to "off"),
             w(true).rowsForTest("Animations"))
     }

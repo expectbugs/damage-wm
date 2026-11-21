@@ -613,6 +613,8 @@ class RemoteTransportClient(
         // build C2: the batch's tail of mode-27 / mode-26 sub 3..5 sub-messages, one "tl" op each after the ops (an older
         // peer rejects the flush loudly as an unknown kind — never sends a batch without its answer)
         for (t in flush.tail) { ops.add(WireOp("tl", len = t.size)); blobLen += t.size }
+        // build C3 (DP2): the slots whose owner holds this flush, one "hd" op each carrying no bytes (only at stage 5)
+        for (s in flush.held) ops.add(WireOp("hd", len = 0, off = s))
         val blob = ByteArray(blobLen)
         var off = 0
         for (op in flush.ops) {
@@ -972,6 +974,7 @@ class RemoteTransportServer(
                     "flush" -> {
                         val ops = ArrayList<DisplayOp>(c.ops.size)
                         val tail = ArrayList<ByteArray>()
+                        val held = HashSet<Int>()
                         var off = 0
                         var bad = false
                         for (w in c.ops) {
@@ -1016,6 +1019,7 @@ class RemoteTransportServer(
                                 }
                                 "di" -> ops.add(DisplayOp.DrawImage(w.off, w.box[0], w.box[1], w.disp))
                                 "tl" -> { tail.add(blob!!.copyOfRange(off, off + w.len)); off += w.len }
+                                "hd" -> held.add(w.off)
                                 else -> {
                                     // an unknown kind desynchronizes the payload
                                     // offsets — every later op would carry the
@@ -1034,7 +1038,7 @@ class RemoteTransportServer(
                             val clientId = c.id
                             try {
                                 val innerId = runBlocking {
-                                    inner.submit(FlushRequest(ops, c.epoch, c.label, c.wide, c.writer, tail))
+                                    inner.submit(FlushRequest(ops, c.epoch, c.label, c.wide, c.writer, tail, held))
                                 }
                                 val prev = rendezvous.putIfAbsent(innerId, clientId)
                                 if (prev is TransportEvent.FlushDone) {

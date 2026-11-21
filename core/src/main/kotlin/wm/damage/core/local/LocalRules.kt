@@ -569,7 +569,8 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
         st.handled += Handled(s, false, true, f.list, c, -1, null, nowMs, "tap")
         count("tapActed")
         if (c != row) count("tapActedCorrected")
-        if (a.outcome == DamageMsg.APPLIED_REFUSED && a.reason == 17 || p == null) count("tapActedNoPress")
+        // build C3 (decisions W, D-8): reason 19 (an owner in the close set, §7.3) is 17's twin — refused, nothing pressed
+        if (a.outcome == DamageMsg.APPLIED_REFUSED && (a.reason == 17 || a.reason == 19) || p == null) count("tapActedNoPress")
         rowSeen = c
         lastRow[f.list] = c
         return Verdict.Act(c)

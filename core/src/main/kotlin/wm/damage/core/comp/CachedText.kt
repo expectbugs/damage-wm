@@ -749,7 +749,8 @@ class CachedText(val base: TextRasterizer) : TextRasterizer, wm.damage.core.gfx.
         val onRelay = !onTarget && rel != null && g === rel
         if (!onTarget && !onRelay) return false
         if (bm.w !in 1..CfwModes.MAX_TEXTURE_DIM || bm.h !in 1..CfwModes.MAX_TEXTURE_DIM) return false
-        synchronized(seen) {
+        val quiet = onRelay && surveyed != null                 // [survey]: no use counted, nothing recorded
+        if (!quiet) synchronized(seen) {
             val info = seenImages.getOrPut(key) {
                 // bounded: a thumbnail shelf scrolled through decodes a new
                 // bitmap per file, and the table must not grow with the shelf
@@ -765,7 +766,7 @@ class CachedText(val base: TextRasterizer) : TextRasterizer, wm.damage.core.gfx.
         val e = atlas?.image(key) ?: return false
         blitImage(g, x, y, e.image, lv)
         if (onTarget) recordImage(x, y, e.image, key, lv)
-        else if (onRelay) {
+        else if (onRelay && !quiet) {
             val box = Rect(x + relayDx, y + relayDy, e.image.w, e.image.h)
             if (relayKeep.contains(box)) recordImage(box.x, box.y, e.image, key, lv)
         }
@@ -1026,7 +1027,8 @@ class CachedText(val base: TextRasterizer) : TextRasterizer, wm.damage.core.gfx.
         val onTarget = surface === target
         val rel = relay
         val onRelay = !onTarget && rel != null && surface === rel
-        if (onTarget || onRelay) synchronized(seen) {
+        val quiet = onRelay && surveyed != null                 // [survey]: nothing counted, runs to the survey's list
+        if ((onTarget || onRelay) && !quiet) synchronized(seen) {
             if (seen.add(font)) seenVersion++
             val r = Rect(x, y, maxOf(1, base.measure(text, font)), base.metrics(font).let { it.ascent + it.descent })
             lastRect[font] = r
@@ -1079,7 +1081,7 @@ class CachedText(val base: TextRasterizer) : TextRasterizer, wm.damage.core.gfx.
                 // counted where the character goes out as PIXELS: the target, or a slide's strip on its
                 // way there — not a strip rendered for staging (the relay that keeps nothing,
                 // `Shell.NO_RECORDS`), which goes up inside a cache write
-                if (code >= 0 && (onTarget || (onRelay && relayKeep.w > 0))) unpacked++
+                if (code >= 0 && !quiet && (onTarget || (onRelay && relayKeep.w > 0))) unpacked++
             }
         }
         if (runStart >= 0) cachedRun(surface, x + runX, y, text.substring(runStart), e, font, level, kern, onTarget, onRelay,
@@ -1102,20 +1104,25 @@ class CachedText(val base: TextRasterizer) : TextRasterizer, wm.damage.core.gfx.
             // a draw ships. A box that leaves the band claims pixels the
             // blit never paints — dropped.
             val box = Rect(px + relayDx + inkL, y + relayDy, inkR - inkL, e.lineH)
-            if (relayKeep.contains(box)) record(px + relayDx, y + relayDy, inkL, inkR, e, run, font, level, keep, keepEnd)
+            if (relayKeep.contains(box)) record(px + relayDx, y + relayDy, inkL, inkR, e, run, font, level, keep, keepEnd, into = surveyed)
         }
     }
 
     /** [x] is the pen's start (what the draw carries); [inkL]..[inkR] is the ink's span around it
      *  ([CachedText.inkSpan]), which is what the rect promises. */
     private fun record(x: Int, y: Int, inkL: Int, inkR: Int, e: GlyphAtlas.Entry, text: String, font: FontSpec, level: Int,
-        keep: Int = 0, keepEnd: Int = 0) =
+        keep: Int = 0, keepEnd: Int = 0, into: ArrayList<TextDraw>? = null) {
+        val d = TextDraw(Rect(x + inkL, y, inkR - inkL, e.lineH), text, font, x, y, level, keep, keepEnd)
+        into?.let { it.add(d); return }                         // [survey]: its own list, never the frame's
         synchronized(draws) {
             if (draws.size >= MAX_DRAWS) draws.removeAt(0)
-            draws.add(TextDraw(Rect(x + inkL, y, inkR - inkL, e.lineH), text, font, x, y, level, keep, keepEnd))
+            draws.add(d)
         }
+    }
 
     private var relay: Gray8? = null
+    /** Set while [survey] runs: the relay's text runs go here and nothing is counted. */
+    private var surveyed: ArrayList<TextDraw>? = null
     private var relayDx = 0
     private var relayDy = 0
     private var relayKeep = Rect(0, 0, 0, 0)
@@ -1129,6 +1136,21 @@ class CachedText(val base: TextRasterizer) : TextRasterizer, wm.damage.core.gfx.
         val prev = relay; val pdx = relayDx; val pdy = relayDy; val pk = relayKeep
         relay = tmp; relayDx = dx; relayDy = dy; relayKeep = keep
         try { return block() } finally { relay = prev; relayDx = pdx; relayDy = pdy; relayKeep = pk }
+    }
+
+    /**
+     * C3 X2T item 4 (the review's 5): [block] paints into [tmp] as through [via] (whole, at no offset), and the text runs
+     * the atlas holds are returned in a list of their own — and NOTHING else changes: no face seen, no use or usage, no
+     * character noted (no atlas cue), no unpacked count, no icon use (an icon drawn here does not count towards its
+     * packing: a thumbnail shown once stays unpacked), no record in the frame's lists. What a screen's text is, for
+     * Encode's cells. On the loop, one at a time; a relay opened inside it (a row temp) is surveyed too.
+     */
+    fun survey(tmp: Gray8, block: () -> Unit): List<TextDraw> {
+        val prev = surveyed
+        val out = ArrayList<TextDraw>()
+        surveyed = out
+        try { via(tmp, 0, 0, Rect(0, 0, tmp.w, tmp.h), block) } finally { surveyed = prev }
+        return out
     }
 
     /** A temp painted INTO [parent] at ([dx], [dy]) — a row temp inside a

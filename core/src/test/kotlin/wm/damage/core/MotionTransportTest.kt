@@ -291,11 +291,12 @@ class MotionTransportTest {
     @Test
     fun aStoredStageThatCannotBeUsedReadsAs0AndIsSaid_C1P(): Unit = runBlocking {
         val base = startWire(0x1ff, 0)
-        for (text in listOf("5", "-1", "x", "")) {
+        // build C3 (§7.9) makes 5 a stage: the unusable example is 6
+        for (text in listOf("6", "-1", "x", "")) {
             Files.writeString(stageFile, text)
             assertEquals(base, startWire(0x1ff, 0, store = stageFile), "'$text' starts at stage 0")
             waitUntil(10_000, message = { "'$text' is said: $notes" }) { sayings("C1 ladder: the stored stage '$text'") > 0 }
-            assertEquals(1, sayings("C1 ladder: the stored stage '$text' is not 0..4 — stage 0"), "'$text' is said: $notes")
+            assertEquals(1, sayings("C1 ladder: the stored stage '$text' is not 0..5 — stage 0"), "'$text' is said: $notes")
         }
         Files.delete(stageFile); Files.createDirectory(stageFile)       // a name that cannot be read as a file
         assertEquals(base, startWire(0x1ff, 0, store = stageFile), "an unreadable store starts at stage 0")
@@ -437,6 +438,187 @@ class MotionTransportTest {
         t.stop()
     }
 
+    /** Build C3: a session at ladder stage [stage] on a bit-11 build (0xdff). */
+    private suspend fun effectsSession(stage: Int = 5): Pair<GlassFirmwareSim, SimTransport> {
+        val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = 0xdff }
+        val t = SimTransport(sim, scope, SimTransport.Timing(instant = true))
+        collect(t)
+        t.devProbe("c1", "$stage")
+        t.start(full)
+        assertEquals(if (stage == 5) 0x7c else 0x3c, t.state.value.flagsInForce, "stage $stage in force")
+        return sim to t
+    }
+
+    /** Build C3 (`FIRMWARE.md` §7.11, §7.3; C3-DP1's reading 5 as ruled, decisions N): a write the phone wants shown inside
+     *  an owning instance's MEETING BOX — the one box over both lenses, by which the glasses make every meeting decision —
+     *  carries a CLOSE of it at the head of its batch, even where it misses each lens's own owned rect: here a per-lens
+     *  track at x 100 on the left lens and 160 on the right, and the write at x 130 on both. A write outside the box goes
+     *  as the encoder made it. */
+    @Test
+    fun aWriteInAnOwnersMeetingBoxClosesTheOwnerInItsBatch_7_11(): Unit = runBlocking {
+        val (sim, t) = effectsSession()
+        val fx = Motion.effects(DamageMsg.Caps(2, 0xdff), t.state.value.flagsInForce)
+        val prog = Motion.program2(10_000, fx, own = true) { track(Rect(100, 100, 20, 20), Rect(160, 100, 20, 20), Motion.Backdrop.Level(3)) { wait(200) } }
+        assertTrue(t.sendMotion(listOf(CfwModes.cacheUpdate2(prog.records.map { (o, b) -> CfwModes.CacheWrite2(o, b) }, 256 * 1024),
+            Motion.play(prog, 1, 128, 0x51, 0, IntArray(4)))))
+        waitUntil(10_000, message = { "the OWN PLAY landed: refusal ${sim.refusalRecord(Arm.RIGHT)}, flags 0x${sim.damageFlags(Arm.RIGHT).toString(16)}, cache ${sim.cacheSize(Arm.RIGHT)}" }) {
+            sim.motionForTest(Arm.RIGHT).slots[1]?.owns == true }
+        val batches = java.util.concurrent.CopyOnWriteArrayList<ByteArray>()
+        sim.imageObserver = { arm, img -> if (arm == Arm.RIGHT && img[0].toInt() == 8) batches += img }
+        t.submit(FlushRequest(listOf(DisplayOp.Fill(Rect(400, 300, 8, 4), Rect(400, 300, 8, 4), 7)), 0, "elsewhere"))
+        waitUntil(10_000, message = { "the first flush landed" }) { batches.size >= 1 }
+        assertEquals(1, batches[0][1].toInt(), "a write outside the meeting box: one sub")
+        t.submit(FlushRequest(listOf(DisplayOp.Fill(Rect(130, 104, 8, 4), Rect(130, 104, 8, 4), 7)), 0, "between the lenses' rects"))
+        waitUntil(10_000, message = { "the second flush landed" }) { batches.size >= 2 }
+        assertEquals(listOf(2, 3, 0, 26, 2, 1), (1 until 7).map { batches[1][it].toInt() and 0xFF }, "the CLOSE of slot 1 heads the batch")
+        assertTrue(sim.motionForTest(Arm.RIGHT).slots[1] == null, "the owner is closed")
+        t.stop()
+    }
+
+    /** X2P2 item 1 (`FIRMWARE.md` §7.11 as amended 2026-11-20): from its out PLAY to its end a transition's flushes are
+     *  held by BOTH its owners — a flush writing inside the out half's, the in half's and a third owner's boxes CLOSEs
+     *  only the third, ahead of its writes, and leaves the transition's two open. Owners in slots 1, 2 and 3. */
+    @Test
+    fun aFlushHeldForBothHalvesLeavesThemOpenAndClosesAnyOtherOwnerFirst_X2P2(): Unit = runBlocking {
+        val (sim, t) = effectsSession()
+        val fx = Motion.effects(DamageMsg.Caps(2, 0xdff), t.state.value.flagsInForce)
+        val ps = listOf(100, 300, 500).mapIndexed { i, x -> Motion.program2(10_000 + 100 * i, fx, own = true) { track(Rect(x, 100, 40, 40), Motion.Backdrop.Level(3 + i)) { wait(200) } } }
+        assertTrue(t.sendMotion(listOf(CfwModes.cacheUpdate2(ps.flatMap { it.records }.map { (o, r) -> CfwModes.CacheWrite2(o, r) }, 256 * 1024)) +
+            ps.mapIndexed { i, p -> Motion.play(p, 1 + i, 128, 0x71 + i, 0, IntArray(4)) }))
+        waitUntil(10_000, message = { "three OWN PLAYs landed: refusal ${sim.refusalRecord(Arm.RIGHT)}" }) {
+            (1..3).all { sim.motionForTest(Arm.RIGHT).slots[it]?.owns == true } }
+        val batches = java.util.concurrent.CopyOnWriteArrayList<ByteArray>()
+        sim.imageObserver = { arm, img -> if (arm == Arm.RIGHT && img[0].toInt() == 8) batches += img }
+        t.submit(FlushRequest(listOf(100, 300, 500).map { x -> DisplayOp.Fill(Rect(x + 10, 110, 8, 4), Rect(x + 10, 110, 8, 4), 7) }, 0,
+            "held for both halves", held = setOf(2, 3)))
+        waitUntil(10_000, message = { "the held flush landed" }) { batches.size >= 1 }
+        assertEquals(listOf(4, 3, 0, 26, 2, 1), (1 until 7).map { batches[0][it].toInt() and 0xFF }, "one CLOSE, of slot 1, heads the batch")
+        assertTrue((2..3).all { sim.motionForTest(Arm.RIGHT).slots[it]?.owns == true }, "both halves the flush is held for stay open")
+        assertTrue(sim.motionForTest(Arm.RIGHT).slots[1] == null, "the other owner is closed")
+        t.stop()
+    }
+
+    /** Build C3, D-3 (ruled; `FIRMWARE.md` §7.11): a flush held for an owner's slot — a transition's arriving frame —
+     *  leaves that owner open though it writes inside its meeting box (the held present keeps it off the panel); a write
+     *  in the same flush that meets ANOTHER owner closes that one first; and a flush held for nothing closes the owner it
+     *  meets, as before. Two owners side by side, slots 2 and 3. */
+    @Test
+    fun aFlushHeldForAnOwnerLeavesItOpenAndEveryOtherWriteStillClosesFirst_D3(): Unit = runBlocking {
+        val (sim, t) = effectsSession()
+        val fx = Motion.effects(DamageMsg.Caps(2, 0xdff), t.state.value.flagsInForce)
+        val a = Motion.program2(10_000, fx, own = true) { track(Rect(100, 100, 40, 40), Motion.Backdrop.Level(3)) { wait(200) } }
+        val b = Motion.program2(10_100, fx, own = true) { track(Rect(300, 100, 40, 40), Motion.Backdrop.Level(5)) { wait(200) } }
+        assertTrue(t.sendMotion(listOf(CfwModes.cacheUpdate2((a.records + b.records).map { (o, r) -> CfwModes.CacheWrite2(o, r) }, 256 * 1024),
+            Motion.play(a, 2, 128, 0x61, 0, IntArray(4)), Motion.play(b, 3, 128, 0x62, 0, IntArray(4)))))
+        waitUntil(10_000, message = { "both OWN PLAYs landed: refusal ${sim.refusalRecord(Arm.RIGHT)}" }) {
+            sim.motionForTest(Arm.RIGHT).slots[2]?.owns == true && sim.motionForTest(Arm.RIGHT).slots[3]?.owns == true }
+        val batches = java.util.concurrent.CopyOnWriteArrayList<ByteArray>()
+        sim.imageObserver = { arm, img -> if (arm == Arm.RIGHT && img[0].toInt() == 8) batches += img }
+        // held for slot 2, writing inside both boxes: slot 3's CLOSE heads the batch, slot 2 stays open
+        t.submit(FlushRequest(listOf(DisplayOp.Fill(Rect(110, 110, 8, 4), Rect(110, 110, 8, 4), 7),
+            DisplayOp.Fill(Rect(310, 110, 8, 4), Rect(310, 110, 8, 4), 7)), 0, "held for slot 2", held = setOf(2)))
+        waitUntil(10_000, message = { "the held flush landed" }) { batches.size >= 1 }
+        assertEquals(listOf(3, 3, 0, 26, 2, 3), (1 until 7).map { batches[0][it].toInt() and 0xFF }, "one CLOSE, of slot 3, heads the batch")
+        assertTrue(sim.motionForTest(Arm.RIGHT).slots[2]?.owns == true, "the owner the flush is held for stays open")
+        assertTrue(sim.motionForTest(Arm.RIGHT).slots[3] == null, "the other owner is closed")
+        // held for nothing, writing inside slot 2's box: its CLOSE heads the batch
+        t.submit(FlushRequest(listOf(DisplayOp.Fill(Rect(110, 110, 8, 4), Rect(110, 110, 8, 4), 9)), 0, "held for nothing"))
+        waitUntil(10_000, message = { "the second flush landed" }) { batches.size >= 2 }
+        assertEquals(listOf(2, 3, 0, 26, 2, 2), (1 until 7).map { batches[1][it].toInt() and 0xFF }, "the CLOSE of slot 2 heads the batch")
+        assertTrue(sim.motionForTest(Arm.RIGHT).slots[2] == null, "a flush not held for it closes the owner")
+        t.stop()
+    }
+
+    /** Build C3 (§7.9, §7.11; decisions W, D-5): no PLAY-AFTER, LIST-RING or kind-3 SET leaves the phone unless DamageCaps
+     *  bit 11 is reported and EFFECTS is in force. Each form is offered through the transport's raw door (a self-test live
+     *  write, as C2's `noBindByteReachesTheWireBelowStage4_6_2` offers its forms): alone, a LIST-RING inside a batch, a
+     *  PLAY-AFTER inside a self-test step — and each refused offer is one `effects` fault, with BIND in force every time so
+     *  that the bind gate passes and this gate alone decides: at stage 4 on a bit-11 build; on a C2 build with a stored stage
+     *  5 (0x5ff: it arms 4); after a hand disarm of EFFECTS at stage 5; in a session restart before RIGHT's answer to the
+     *  0x7c FLAGS_SET is heard (BIND already in force). At stage 5 — and in that session once the answer is heard — every
+     *  offer reaches the glasses, each image seen on the wire. */
+    @Test
+    fun noEffectsFormReachesTheGlassesWithoutEffectsInForce_7_9(): Unit = runBlocking {
+        fun h(b: ByteArray) = b.joinToString("") { "%02x".format(it) }
+        fun unhex(x: String) = ByteArray(x.length / 2) { i -> x.substring(2 * i, 2 * i + 2).toInt(16).toByte() }
+        val playAfter = CfwModes.motionPlayAfter(1, 32, 10_000, 1, 0, IntArray(4))
+        val listRing = CfwModes.bindListRing(0, CfwModes.ITEMS_NONE, 4, 0, 8, 1, true)
+        val kind3 = CfwModes.bindSet(0, 0xFF, 4, 0, 1, 0, 34, 10_000, listOf(CfwModes.BindParam(CfwModes.KIND_CURSOR, 0)), effects = true)
+        val offers = listOf("live:" + h(playAfter), "live:" + h(listRing), "live:" + h(kind3),
+            "live:" + h(CfwModes.batch(listOf(CfwModes.fill(Rect(0, 470, 640, 10), 3), listRing), bind = true)),
+            "step:" + h(playAfter))
+        // the image each offer puts on the wire: a live write is the message itself, a step rides mode 16 sub 1
+        val images = offers.map { o -> if (o.startsWith("live:")) h(unhex(o.removePrefix("live:"))) else "1001" + o.removePrefix("step:") }
+        fun flagsArg(p: ByteArray): Int {
+            val b = StartRig.body(p); val i = StartRig.controlAt(b)
+            return (b[i + 4].toInt() and 0xFF) or ((b[i + 5].toInt() and 0xFF) shl 8)
+        }
+        class Session(val sim: GlassFirmwareSim, val t: StartRig, val seen: MutableSet<String>)
+        fun session(features: Int, stage: Int): Session {
+            val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = features }
+            val seen = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+            sim.imageObserver = { _, img -> if (CfwModes.carriesEffects(img)) seen += h(img) }
+            val t = StartRig(sim, scope)
+            notes.clear(); collect(t)
+            t.devProbe("c1", "$stage")
+            return Session(sim, t, seen)
+        }
+        suspend fun refused(s: Session, what: String) {
+            assertTrue(s.t.state.value.flagsInForce and DamageMsg.FLAG_BIND != 0, "$what: BIND in force, so the bind gate passes")
+            for (o in offers) s.t.devProbe("selftest", o)
+            waitUntil(10_000, message = { "$what: the offers decided: ${notes.filter { it.first == "fault" }}" }) {
+                notes.count { it.first == "fault" && it.second.startsWith("effects: ") } >= offers.size }
+            delay(200)
+            assertEquals(offers.size, notes.count { it.first == "fault" && it.second.startsWith("effects: ") }, "$what: one `effects` fault an offer")
+            assertEquals(emptySet(), s.seen.toSet(), "$what: nothing of C3 on the wire")
+        }
+        suspend fun taken(s: Session, what: String) {
+            for (o in offers) s.t.devProbe("selftest", o)
+            waitUntil(10_000, message = { "$what: every offer seen: ${s.seen} of $images" }) { s.seen.containsAll(images) }
+            assertEquals(0, notes.count { it.first == "fault" && it.second.startsWith("effects: ") }, "$what: no offer refused")
+        }
+        // stage 4 on a bit-11 build
+        session(0xdff, 4).let { s -> s.t.start(full); assertEquals(0x3c, s.t.state.value.flagsInForce); refused(s, "stage 4 on 0xdff"); s.t.stop() }
+        // a C2 build with a stored stage 5: it arms 4
+        session(0x5ff, 5).let { s -> s.t.start(full); assertEquals(0x3c, s.t.state.value.flagsInForce); refused(s, "stored 5 on 0x5ff"); s.t.stop() }
+        // stage 5: every form goes
+        session(0xdff, 5).let { s -> s.t.start(full); assertEquals(0x7c, s.t.state.value.flagsInForce); taken(s, "stage 5"); s.t.stop() }
+        // stage 5, then a hand disarm of EFFECTS (its CLOSE-all first, §7.11)
+        session(0xdff, 5).let { s ->
+            s.t.start(full)
+            assertEquals(0x7c, s.t.state.value.flagsInForce)
+            s.t.devProbe("flags", "0x3c")
+            waitUntil(10_000, message = { "the disarm went" }) { s.t.state.value.flagsInForce == 0x3c }
+            refused(s, "a hand disarm at stage 5")
+            s.t.stop()
+        }
+        // stage 5, a session restart, and RIGHT's answer to the 0x7c FLAGS_SET not yet heard (the write held back): BIND
+        // is in force but the session has not started, so the doors themselves hold every offer (the raw door and the
+        // motion door test the state's `started`) — nothing reaches the gate or the wire; once the answer is heard every
+        // form goes. (This case is the window's, not the gate's: the gate is not reached in it.)
+        session(0xdff, 5).let { s ->
+            s.t.start(full)
+            assertEquals(0x7c, s.t.state.value.flagsInForce)
+            assertTrue(s.t.restartSession("test: before the flags are heard again"))
+            val held = java.util.concurrent.atomic.AtomicInteger()
+            val holding = java.util.concurrent.atomic.AtomicBoolean(true)
+            s.t.onWrite = { _, p -> if (holding.get() && StartRig.damageOp(p) == DamageMsg.OP_FLAGS_SET && flagsArg(p) == 0x7c) { held.incrementAndGet(); null } else p }
+            val start = scope.launch { s.t.start(full) }
+            waitUntil(10_000, message = { "the restart reaches the EFFECTS rung: flags 0x${s.t.state.value.flagsInForce.toString(16)}" }) {
+                held.get() > 0 && s.t.state.value.flagsInForce == 0x3c }
+            for (o in offers) s.t.devProbe("selftest", o)
+            assertTrue(!s.t.sendMotion(listOf(playAfter)), "the motion door: no session yet")
+            delay(300)
+            assertEquals(emptySet(), s.seen.toSet(), "a restart before the flags are heard again: nothing of C3 on the wire")
+            holding.set(false)
+            start.join()
+            assertEquals(0x7c, s.t.state.value.flagsInForce, "the answer heard: EFFECTS in force")
+            notes.clear()
+            taken(s, "the same session once the answer is heard")
+            s.t.stop()
+        }
+    }
+
     /** Spec §6.4: a notify's END CRC equal to the mirror's is a `motion` note only; a different one is a `divergence`
      *  note (the shell keyframes on it); a sequence at or below field 31 that never came is journaled as a gap. */
     @Test
@@ -470,6 +652,38 @@ class MotionTransportTest {
         waitUntil(10_000, message = { "the third PLAY landed" }) { glass.motionForTest(Arm.RIGHT).sequence >= 3 }
         t.devProbe("telemetry", "read")
         waitUntil(10_000, message = { "the gap: $notes" }) { has("motion", "gap: notify sequence(s) 3 not received by the telemetry read (field 31 = 3)") }
+        t.stop()
+    }
+
+    /** Build C3 (`FIRMWARE.md` §7.3, §5.8; the pin DP1 left): an owning instance writes no END — its body's field 8 is
+     *  RIGHT's CRC of the shadow over its areas right after the PLAY's closes — and the mirror, which took the same PLAY,
+     *  keeps that CRC for (slot, tag, 0): an equal body is a `motion` note only; one altered on the way reaches the
+     *  divergence path once (one `divergence` note, on which the shell keyframes). */
+    @Test
+    fun anOwnersEndCrcIsComparedWithTheMirrors_7_3(): Unit = runBlocking {
+        val glass = GlassFirmwareSim().apply { damageContract = 2; damageFeatures = 0xdff }
+        val t = StartRig(glass, scope)
+        collect(t)
+        t.devProbe("c1", "5")
+        t.start(full)
+        assertEquals(0x7c, t.state.value.flagsInForce, "stage 5 in force")
+        t.onNotify = { arm, p ->
+            val m = if (StartRig.sid(p) == SettingsMsg.SID) DamageMsg.parseMotion(StartRig.body(p)) else null
+            val out = if (m?.tag == 0x72) { val f = java.util.TreeMap(m.fields).also { it[8] = it[8]!! xor 1L }
+                StartRig.reframe(p, Pb.cat(Pb.v(1, 3), Pb.v(2, 0), Pb.l(DamageMsg.MOTION_FIELD, Pb.cat(f.entries.map { Pb.v(it.key, it.value) })))) } else p
+            if (m == null) out else { scope.launch { delay(20); t.deliver(arm, out) }; null }
+        }
+        val fx = Motion.effects(DamageMsg.Caps(2, 0xdff), t.state.value.flagsInForce)
+        // T = 1: the PLAY's own present draws its last step; without LAND the owner is done and keeps owning
+        val own = Motion.program2(40_000, fx, own = true) { track(Rect(200, 200, 40, 20), Motion.Backdrop.Level(3)) { fill(9, 1) } }
+        assertTrue(t.sendMotion(messages(own, 0, 34, 0x71)))
+        waitUntil(10_000, message = { "the owner's notify: $notes" }) { has("motion", "tag 0x0071 drew its last step") }
+        assertTrue(notes.none { it.first == "divergence" || "not compared" in it.second }, "an equal END CRC, compared: no divergence: $notes")
+        assertTrue(glass.motionEndCrc(0, 0x71, 0) != null, "the mirror keeps the owner's CRC")
+        assertTrue(t.sendMotion(listOf(Motion.play(own, 0, 34, 0x72, 0, IntArray(4)))))
+        waitUntil(10_000, message = { "the altered notify: $notes" }) { has("divergence", "motion: slot 0 tag 0x0072 ordinal 0 END CRC") }
+        delay(300)
+        assertEquals(1, notes.count { it.first == "divergence" && "tag 0x0072" in it.second }, "one divergence for the altered body: $notes")
         t.stop()
     }
 
@@ -1541,6 +1755,39 @@ class MotionTransportTest {
         t.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(list(4000))), 0, "ATLAS"))
         waitUntil(10_000, message = { "the next write reached RIGHT" }) { right.size > seen }
         assertEquals(19, right[seen][0].toInt(), "mode 25 off for the session")
+        t.stop()
+    }
+
+    /** C3 X4T item 2 (`C3-V2T-review.md` 2, decisions AT (2)): [CfwTransportBase.nextListDeflates] says whether a cache
+     *  write submitted now would go deflated — not while a cache write queued ahead of it would take the one compressed
+     *  slot first (the lane held on a keyframe's first packet, a list queued behind it), nor while that list, deflated,
+     *  waits for the read that judges it; yes again once it is judged. */
+    @Test
+    fun theNextListDeflatesOnlyWithNoListAheadOrWaiting_X4T(): Unit = runBlocking {
+        val glass = GlassFirmwareSim().apply { damageContract = 2; damageFeatures = 0x1ff }
+        val t = StartRig(glass, scope)
+        collect(t)
+        t.devProbe("c1", "1")
+        t.start(full)
+        assertEquals(0x24, t.state.value.flagsInForce, "stage 1: DRAW2 and ZWRITE")
+        assertTrue(t.nextListDeflates(), "nothing queued, nothing waiting: a write now goes deflated")
+        val right = java.util.concurrent.CopyOnWriteArrayList<ByteArray>()
+        glass.imageObserver = { arm, img -> if (arm == Arm.RIGHT && (img[0].toInt() == 19 || img[0].toInt() == 25)) right += img }
+        val gate = java.util.concurrent.CountDownLatch(1)
+        val held = java.util.concurrent.atomic.AtomicBoolean(false)
+        // the image lane held inside the keyframe's first packet (bounded: the gate opens below, or after 10 s)
+        t.onWrite = { _, p -> if (StartRig.sid(p) == EvenHubMsg.SID && held.compareAndSet(false, true)) gate.await(10, java.util.concurrent.TimeUnit.SECONDS); p }
+        t.submit(FlushRequest(listOf(DisplayOp.Keyframe(full)), 0, "FRAME"))
+        waitUntil(10_000, message = { "the lane held on the keyframe" }) { held.get() }
+        val list = CfwModes.cacheUpdate2(listOf(CfwModes.CacheWrite2(1000, ByteArray(2000) { (it / 100).toByte() })), 160 * 1024)
+        t.submit(FlushRequest(listOf(DisplayOp.CacheWrite2(list)), 0, "ATLAS"))
+        assertTrue(!t.nextListDeflates(), "a list queued ahead takes the one compressed slot first")
+        gate.countDown()
+        waitUntil(10_000, message = { "the list reached RIGHT" }) { right.isNotEmpty() }
+        assertEquals(25, right[0][0].toInt(), "the queued list took the slot: mode 25")
+        assertTrue(!t.nextListDeflates(), "it waits for its judge")
+        t.devProbe("telemetry", "read")
+        waitUntil(10_000, message = { "the list judged: $notes" }) { t.nextListDeflates() }
         t.stop()
     }
 

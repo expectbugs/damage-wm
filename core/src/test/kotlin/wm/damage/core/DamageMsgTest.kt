@@ -504,6 +504,21 @@ class DamageMsgTest {
         assertTrue(!answers(DamageMsg.STATUS_MALFORMED, 1L, 5), "a malformed or unknown request")
     }
 
+    /** Build C3 (§7.9; decisions W, D-8): telemetry 41 is named in the journal's form, with the finding's bound; the
+     *  115's field 18 is shown whatever its value — 1 as `wrapped`, any other value as itself, absent as nothing. */
+    @Test
+    fun telemetry41IsNamedAndThe115sField18IsShownWhateverItsValue_7_9() {
+        val t = DamageMsg.Telemetry(mapOf(40 to 0x11L, 41 to 96L))
+        assertEquals(96L, t.stackFree)
+        assertEquals("effectSlots=0x11 stackFree=96", t.describe())
+        assertEquals(132L, DamageMsg.STACK_FREE_FINDING, "§7.9: the worst path's 1,916 of 2,048 B leaves 132")
+        fun applied(f18: Long?) = DamageMsg.Applied(mapOf(1 to 5L, 2 to 4L, 3 to 4L, 4 to 0L, 5 to 0L, 6 to 0L, 7 to 0L, 8 to 1L, 9 to 1L,
+            15 to 9L, 17 to 2L) + (f18?.let { mapOf(18 to it) } ?: emptyMap()))
+        assertTrue(" wrapped " in applied(1L).describe(), applied(1L).describe())
+        assertTrue(" field18=2 " in applied(2L).describe() && "wrapped" !in applied(2L).describe(), applied(2L).describe())
+        assertTrue("field18" !in applied(null).describe() && "wrapped" !in applied(null).describe(), applied(null).describe())
+    }
+
     private fun ByteArray.hex() = joinToString("") { "%02x".format(it) }
     private fun String.unhex() = ByteArray(length / 2) { i -> substring(2 * i, 2 * i + 2).toInt(16).toByte() }
 

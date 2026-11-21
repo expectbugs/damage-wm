@@ -340,6 +340,17 @@ object CfwModes {
      *  on it at stage 4). */
     const val STAGE_RESERVE_BOUND = 32 * 1024
 
+    /** Build C3, stage DP2: the transitions' records — two slots of [TRANSITION_SLOT] bytes taken in turn, so an act's
+     *  write never meets the read range of the act before it when that act's programs read only their own slot (every
+     *  path effect; §5.6: a write that meets an open instance's read range closes it). C3 DM-T (X2T item 8): an Encode or
+     *  Matrix run reads from the atlas's fonts below the region up to its own records — Matrix in slot 1 covers slot 0 —
+     *  or up to its cell lists in the stage reserve — Encode covers both slots — so the next act's records' write does
+     *  meet it and closes it on the glasses, one message before that act's out PLAY would (the latest input wins; that
+     *  PLAY's present holds the whole area). On a session with EFFECTS in force they sit right above the atlas's layout,
+     *  which is that much smaller (`LinkState.atlasCapacity`); nothing else writes there. */
+    const val TRANSITION_SLOT = 2 * 1024
+    const val TRANSITION_REGION = 2 * TRANSITION_SLOT
+
     private fun ownRegion(cacheSize: Int, bind: Boolean) = bind && cacheSize >= CACHE2_MAX_RIDERS
 
     /** The stage reserve at the top of a session's cache: [STAGE_RESERVE], or [STAGE_RESERVE_BOUND] when Main has its own
@@ -593,6 +604,8 @@ object CfwModes {
     const val MOTION_PLAY = 0
     const val MOTION_RETARGET = 1
     const val MOTION_CLOSE = 2
+    /** §7.7 (build C3): sub 8 PLAY-AFTER (subs 6, 7 and 9..255 stay unknown). */
+    const val MOTION_PLAY_AFTER = 8
     /** CLOSE's slot for every instance (§5.5). */
     const val MOTION_ALL = 0xFF
     const val MOTION_SLOTS = 4
@@ -610,6 +623,22 @@ object CfwModes {
         val out = byteArrayOf(MOTION_MODE.toByte(), MOTION_PLAY.toByte(), slot.toByte(), period.toByte()) + ByteArray(14)
         put16(out, 4, prog4); put16(out, 6, tag); put16(out, 8, cap4)
         putParams(out, 10, p)
+        return out
+    }
+
+    /** Mode 26 sub 8 PLAY-AFTER (build C3, `FIRMWARE.md` §7.7): `slot u8 · period u8 · prog u16 (off4) · tag u16 · after u8
+     *  · P0..P3 s16` — 17 B with the header. An OWN program's PLAY that starts on each lens when the owning instance in
+     *  [after] has drawn its last step; [after] is another slot. Sent only at ladder stage 5 (EFFECTS in force). */
+    fun motionPlayAfter(slot: Int, period: Int, prog4: Int, tag: Int, after: Int, p: IntArray): ByteArray {
+        if (slot !in 0 until MOTION_SLOTS) throw LintError("mode-26 PLAY-AFTER slot $slot is not 0..3")
+        if (period !in MOTION_PERIODS) throw LintError("mode-26 PLAY-AFTER period $period is not 16..128 ticks")
+        if (after !in 0 until MOTION_SLOTS || after == slot) throw LintError("mode-26 PLAY-AFTER after $after is not 0..3 and not the slot $slot (12)")
+        checkOff4(prog4, "mode-26 PLAY-AFTER program")
+        if (tag !in 0..0xFFFF) throw LintError("mode-26 PLAY-AFTER tag $tag is not a u16")
+        val out = byteArrayOf(MOTION_MODE.toByte(), MOTION_PLAY_AFTER.toByte(), slot.toByte(), period.toByte()) + ByteArray(13)
+        put16(out, 4, prog4); put16(out, 6, tag)
+        out[8] = after.toByte()
+        putParams(out, 9, p)
         return out
     }
 
@@ -653,6 +682,8 @@ object CfwModes {
     const val BIND_SET = 0
     const val BIND_CLEAR = 1
     const val BIND_LIST = 2
+    /** §7.8 (build C3): sub 4 LIST-RING (sub 3 and 5..255 stay unknown). */
+    const val BIND_LIST_RING = 4
     const val MOTION_COMMIT = 3
     const val MOTION_DISCARD = 4
     const val MOTION_SETTLE = 5
@@ -682,6 +713,8 @@ object CfwModes {
     const val KIND_ARG = 0
     const val KIND_ITEM = 1
     const val KIND_PITCH = 2
+    /** §7.8 (build C3): kind 3 — the cursor before the move + arg; only while EFFECTS is armed (else 12). */
+    const val KIND_CURSOR = 3
     /** §6.6: mode 28's and a scaled DRAW's output height. */
     val VSCALE_H = 1..2048
 
@@ -692,7 +725,7 @@ object CfwModes {
      *  4 × {kind u8, arg s16}` — 23 B with the header. Two shapes only: a scroll entry (eventId 4 or 5, devType 0xFF, step
      *  ≠ 0) and a tap entry (eventId 0, devType 4, step 0); a tap entry with prog [PROG_NONE] is report-only. */
     fun bindSet(entry: Int, devType: Int, eventId: Int, list: Int, step: Int, slot: Int, period: Int, prog4: Int,
-                params: List<BindParam>): ByteArray {
+                params: List<BindParam>, effects: Boolean = false): ByteArray {
         if (entry !in 0 until BIND_ENTRIES) throw LintError("mode-27 SET entry $entry is not 0..7")
         if (list !in 0 until BIND_LISTS) throw LintError("mode-27 SET list $list is not 0..3")
         if (slot !in 0 until MOTION_SLOTS) throw LintError("mode-27 SET slot $slot is not 0..3")
@@ -712,7 +745,9 @@ object CfwModes {
         put16(out, 9, prog4)
         for (i in 0 until 4) {
             val p = params.getOrElse(i) { BindParam(KIND_ARG, 0) }
-            if (p.kind !in KIND_ARG..KIND_PITCH) throw LintError("mode-27 SET parameter $i kind ${p.kind} is not 0..2")
+            // build C3 (§7.8): kind 3 only on an entry for a session with EFFECTS armed ([effects]); else 0..2
+            if (p.kind !in KIND_ARG..(if (effects) KIND_CURSOR else KIND_PITCH))
+                throw LintError("mode-27 SET parameter $i kind ${p.kind} is not 0..${if (effects) 3 else 2}")
             if (p.arg !in Short.MIN_VALUE..Short.MAX_VALUE) throw LintError("mode-27 SET parameter $i arg ${p.arg} is not an s16")
             out[11 + 3 * i] = p.kind.toByte()
             putS16(out, 12 + 3 * i, p.arg)
@@ -740,6 +775,41 @@ object CfwModes {
         put16(out, 3, items4); put16(out, 5, count); putS16(out, 7, shift); putS16(out, 9, pitch)
         out[11] = mark.toByte()
         return out
+    }
+
+    /** Mode 27 sub 4 LIST-RING (build C3, §7.8): LIST's body, then `flags u8` (bit 0 RING) — 13 B with the header. With
+     *  RING the list's shift and its fires move the cursor modulo the count; a plain LIST clears it. Stage 5 only. */
+    fun bindListRing(list: Int, items4: Int, count: Int, shift: Int, pitch: Int, mark: Int, ring: Boolean): ByteArray =
+        bindList(list, items4, count, shift, pitch, mark).also { it[1] = BIND_LIST_RING.toByte() } + byteArrayOf(if (ring) 1 else 0)
+
+    /** Build C3 (§7.9's gate): whether [image] carries a C3 form — mode 26 sub 8, mode 27 sub 4, or a SET with a kind-3
+     *  parameter — top level, in a batch or in a self-test step. A version-2 program record rides a cache write and is
+     *  the builder's to keep below stage 5 (the encoder cannot tell a record from an image there). */
+    fun carriesEffects(image: ByteArray): Boolean {
+        fun one(m: ByteArray, from: Int, to: Int): Boolean {
+            if (to - from < 2) return false
+            val mode = m[from].toInt() and 0x7F
+            val sub = m[from + 1].toInt() and 0xFF
+            return when {
+                mode == MOTION_MODE -> sub == MOTION_PLAY_AFTER
+                mode == BIND_MODE && sub == BIND_LIST_RING -> true
+                mode == BIND_MODE && sub == BIND_SET -> to - from >= 23 && (0 until 4).any { (m[from + 11 + 3 * it].toInt() and 0xFF) == KIND_CURSOR }
+                mode == 8 -> {
+                    var i = from + 2
+                    var k = 0
+                    val n = sub
+                    while (k < n && i + 2 <= to) {
+                        val len = (m[i].toInt() and 0xFF) or ((m[i + 1].toInt() and 0xFF) shl 8)
+                        if (one(m, i + 2, minOf(to, i + 2 + len))) return true
+                        i += 2 + len; k++
+                    }
+                    false
+                }
+                mode == SELF_TEST_MODE && to - from >= 3 && sub == 1 -> one(m, from + 2, to)
+                else -> false
+            }
+        }
+        return one(image, 0, image.size)
     }
 
     /** Mode 26 sub 3 COMMIT (§6.5): `slot u8 · S u16 · list u8 · cursor u16 · prog u16 · P0..P3 s16` — 18 B with the

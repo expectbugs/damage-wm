@@ -35,13 +35,17 @@ class SettingsWindow(
     private val apps: () -> List<Pair<String, List<HostSetting>>> = { emptyList() },
     /** Build C2 (§6.3): the `Local input` row's state in words, as the transport says it ("" before a session). */
     private val localInput: () -> String = { "" },
-    /** Build C2 (§6.8's lift): a tap on `Local input` while it is held back re-arms it — `probe c1=4`'s act. */
+    /** Build C2 (§6.8's lift): a tap on `Local input` while it is held back re-arms it. Build C3 (§7.9 as ruled,
+     *  decisions W, D-2): it lifts the hold-back and keeps the stored stage — `probe local=rearm`. */
     private val localRearm: () -> Unit = {},
     /** Build C2 (decisions AF.0): the build reports DamageCaps bit 10 — `Taps` and `Local input` are shown only then (on
      *  any other firmware they would be rows that do nothing). */
     private val bindBuild: () -> Boolean = { true },
     /** Build ANIM (AV): the motion in force at the height in force, in words ("10 frames × 45 ms"), for `Frames`. */
     private val motionHint: () -> String = { "" },
+    /** Build C3, stage DP2: ladder stage 5 is in force (DamageCaps bit 11, EFFECTS armed) — the transition tiers' rows
+     *  are shown only then (anywhere else a Select, a Back and the clock are cuts, and the rows would do nothing). */
+    private val effectsInForce: () -> Boolean = { false },
 ) : DamageWindow("settings", "Settings", IconKind.SETTINGS) {
 
     private val fRow = FontSpec(Face.SYSTEM, 18)
@@ -112,7 +116,8 @@ class SettingsWindow(
         Entry("Taps", {
             val t = get().taps
             t.word + (if (t == wm.damage.core.local.Taps.REPORT) " (default)" else "") +
-                (if (localInput() != "on") " (no effect: this firmware / stage)" else "")
+                (if (localInput().startsWith("held back")) " (no effect: local input held back, stage 3 armed)"
+                 else if (localInput() != "on") " (no effect: this firmware / stage)" else "")
         }, { s, d ->
             val ts = wm.damage.core.local.Taps.entries
             s.copy(taps = ts[(s.taps.ordinal + d).coerceIn(0, ts.size - 1)])
@@ -166,7 +171,8 @@ class SettingsWindow(
         }),
         Entry("Scroll frames", {
             val f = get().frames
-            (if (f == 0) "auto" else "$f") + motionHint().let { if (it.isEmpty()) "" else " ($it)" }
+            (if (f == 0) "auto" else "$f") + motionHint().let { if (it.isEmpty()) "" else " ($it)" } +
+                if (f == ShellSettings().frames) " (default)" else ""
         }, { s, d ->
             val fs = ShellSettings.FRAME_COUNTS
             s.copy(frames = fs[(fs.indexOf(s.frames).coerceAtLeast(0) + d).coerceIn(0, fs.size - 1)])
@@ -184,6 +190,43 @@ class SettingsWindow(
         Entry("Popup · Fade", { onOff(get().popupFade) }, { s, d -> s.copy(popupFade = d > 0) }),
         Entry("Popup · Slide", { onOff(get().popupSlide) }, { s, d -> s.copy(popupSlide = d > 0) }),
     )
+
+    /** Build C3, stage DP2 (`MOTION.md` §7): per transition tier its length, its frames (both halves) and one checkbox per
+     *  effect — a random pick among the checked at each use, none checked = None. After the scroll rows. C3 X2T item 7: the
+     *  tiers named as his plan names them ([wm.damage.core.motion.Transitions.Tier.title]); every row says "(default)" at
+     *  its default as Scroll's rows do; `Length` says what really plays when the period's clamp changes it. */
+    private val transitionEntries: List<Entry> = wm.damage.core.motion.Transitions.Tier.entries.flatMap { t ->
+        listOf(
+            Entry("${t.title} length", {
+                val l = get().lengthOf(t)
+                "$l ms" + (wm.damage.core.motion.Transitions.clampedPlayMs(l, get().framesOf(t))?.let { " (plays $it ms)" } ?: "") +
+                    if (l == ShellSettings().lengthOf(t)) " (default)" else ""
+            }, { s, d ->
+                val ls = ShellSettings.SCROLL_LENGTHS
+                s.withTier(t, length = ls[(ls.indexOf(s.lengthOf(t)).coerceAtLeast(0) + d).coerceIn(0, ls.size - 1)])
+            }),
+            Entry("${t.title} frames", {
+                val f = get().framesOf(t)
+                val tm = wm.damage.core.motion.Transitions.timing(get().lengthOf(t), f)
+                (if (f == 0) "auto" else "$f") + " (${tm.steps} × ${"%.0f".format(tm.period * 1000.0 / 1024)} ms a half)" +
+                    if (f == ShellSettings().framesOf(t)) " (default)" else ""
+            }, { s, d ->
+                val fs = ShellSettings.FRAME_COUNTS
+                s.withTier(t, frames = fs[(fs.indexOf(s.framesOf(t)).coerceAtLeast(0) + d).coerceIn(0, fs.size - 1)])
+            }),
+        ) + wm.damage.core.motion.Transitions.effectsOf(t).map { e ->
+            Entry("${t.title} · ${e.label}", {
+                val on = e.id in get().effectsOf(t)
+                onOff(on) + if (on == (e.id in ShellSettings().effectsOf(t))) " (default)" else ""
+            }, { s, d ->
+                s.withTier(t, effects = ShellSettings.tierEffects(t, if (d > 0) s.effectsOf(t) + e.id else s.effectsOf(t) - e.id))
+            })
+        }
+    }
+
+    /** Build C3 (DP2): the list level the shell's transitions read — the category list or a category's rows; entering and
+     *  leaving the adjust level changes one row, not the screen, so it is no level here. */
+    internal fun listLevel(): Int = 1 + (if (openCat >= 0) 1 else 0)
 
     private fun onOff(b: Boolean) = if (b) "on" else "off"
 
@@ -206,7 +249,7 @@ class SettingsWindow(
     private fun cats(): List<Cat> {
         val out = ArrayList<Cat>()
         out.add(Cat("Global", (if (bindBuild()) entries else entries.filter { it.name !in BIND_ROWS }) + host().map(::hostEntry)))
-        if (bindBuild()) out.add(Cat("Animations", animEntries))
+        if (bindBuild()) out.add(Cat("Animations", animEntries + if (effectsInForce()) transitionEntries else emptyList()))
         for ((app, rows) in apps()) out.add(Cat(app, rows.map(::hostEntry)))
         return out
     }

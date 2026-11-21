@@ -133,6 +133,21 @@ data class ShellSettings(
     val popupFade: Boolean = false,
     val popupSlide: Boolean = false,
 
+    /** Build C3, stage DP2 (`MOTION.md` §7): the full-screen transitions' tiers — Select (a tap that opens), Back (a
+     *  window or a level left; Select's effects reversed in time) and Lock (the shell's silent clock entered and left) —
+     *  each with its length (ms), its frames (both halves; 0 = Auto) and the effects checked (`Transitions.Effect` ids;
+     *  a random pick among them at each use, none = None). Shown and played only where ladder stage 5 is in force.
+     *  Additive: an older record reads the defaults, an older reader ignores them. */
+    val selectLength: Int = 450,
+    val selectFrames: Int = 10,
+    val selectEffects: List<String> = listOf("depth"),
+    val backLength: Int = 450,
+    val backFrames: Int = 10,
+    val backEffects: List<String> = listOf("depth"),
+    val lockLength: Int = 450,
+    val lockFrames: Int = 10,
+    val lockEffects: List<String> = listOf("fade"),
+
     /** Battery alert mode for the <=20 % pulse (§4.1). */
     val batteryAlert: BatteryAlert = BatteryAlert.ON,
 
@@ -197,6 +212,26 @@ data class ShellSettings(
         else -> slideFrames.toIntOrNull()
     }
 
+    /** Build C3 (DP2): a transition tier's length, frames and checked effects, and the same with one of them changed. */
+    fun lengthOf(t: wm.damage.core.motion.Transitions.Tier): Int = when (t) {
+        wm.damage.core.motion.Transitions.Tier.SELECT -> selectLength; wm.damage.core.motion.Transitions.Tier.BACK -> backLength
+        wm.damage.core.motion.Transitions.Tier.LOCK -> lockLength
+    }
+    fun framesOf(t: wm.damage.core.motion.Transitions.Tier): Int = when (t) {
+        wm.damage.core.motion.Transitions.Tier.SELECT -> selectFrames; wm.damage.core.motion.Transitions.Tier.BACK -> backFrames
+        wm.damage.core.motion.Transitions.Tier.LOCK -> lockFrames
+    }
+    fun effectsOf(t: wm.damage.core.motion.Transitions.Tier): List<String> = when (t) {
+        wm.damage.core.motion.Transitions.Tier.SELECT -> selectEffects; wm.damage.core.motion.Transitions.Tier.BACK -> backEffects
+        wm.damage.core.motion.Transitions.Tier.LOCK -> lockEffects
+    }
+    fun withTier(t: wm.damage.core.motion.Transitions.Tier, length: Int = lengthOf(t), frames: Int = framesOf(t),
+                 effects: List<String> = effectsOf(t)): ShellSettings = when (t) {
+        wm.damage.core.motion.Transitions.Tier.SELECT -> copy(selectLength = length, selectFrames = frames, selectEffects = effects)
+        wm.damage.core.motion.Transitions.Tier.BACK -> copy(backLength = length, backFrames = frames, backEffects = effects)
+        wm.damage.core.motion.Transitions.Tier.LOCK -> copy(lockLength = length, lockFrames = frames, lockEffects = effects)
+    }
+
     fun withAppStyle(id: String, f: (AppStyle) -> AppStyle): ShellSettings =
         copy(appStyles = appStyles + (id to f(appStyle(id)).clamped()))
 
@@ -221,6 +256,15 @@ data class ShellSettings(
         scrollEffect = if (scrollEffect in SCROLL_EFFECTS) scrollEffect else "depth",
         popupLength = SCROLL_LENGTHS.minByOrNull { kotlin.math.abs(it - popupLength) } ?: 300,
         popupFrames = if (popupFrames in FRAME_COUNTS) popupFrames else 0,
+        selectLength = SCROLL_LENGTHS.minByOrNull { kotlin.math.abs(it - selectLength) } ?: 450,
+        selectFrames = if (selectFrames in FRAME_COUNTS) selectFrames else 10,
+        selectEffects = storedEffects(wm.damage.core.motion.Transitions.Tier.SELECT, selectEffects),
+        backLength = SCROLL_LENGTHS.minByOrNull { kotlin.math.abs(it - backLength) } ?: 450,
+        backFrames = if (backFrames in FRAME_COUNTS) backFrames else 10,
+        backEffects = storedEffects(wm.damage.core.motion.Transitions.Tier.BACK, backEffects),
+        lockLength = SCROLL_LENGTHS.minByOrNull { kotlin.math.abs(it - lockLength) } ?: 450,
+        lockFrames = if (lockFrames in FRAME_COUNTS) lockFrames else 10,
+        lockEffects = storedEffects(wm.damage.core.motion.Transitions.Tier.LOCK, lockEffects),
         slideFill = if (slideFill in SLIDE_FILLS) slideFill else "auto",
         cachedText = if (cachedText in CACHED_TEXT) cachedText else "off",
         pageStaging = if (pageStaging in PAGE_STAGING) pageStaging else "on",
@@ -261,6 +305,13 @@ data class ShellSettings(
         val FRAME_COUNTS = listOf(0, 4, 6, 8, 10, 12, 16)
         /** K1-1: the `Scroll effect` row's order (the stored ids). */
         val SCROLL_EFFECTS: List<String> = wm.damage.core.motion.ScrollEffect.entries.map { it.id }
+        /** Build C3 (DP2): a tier's checked effects as stored — the ids that tier offers, once each, in its rows' order. */
+        fun tierEffects(t: wm.damage.core.motion.Transitions.Tier, ids: List<String>): List<String> =
+            wm.damage.core.motion.Transitions.effectsOf(t).map { it.id }.filter { it in ids }
+        /** C3 DM-T: a stored value as read — [tierEffects]; a value that named effects but none this build draws reads the
+         *  tier's defaults (an empty one stays None, his choice). Never a refusal he sees. */
+        fun storedEffects(t: wm.damage.core.motion.Transitions.Tier, ids: List<String>): List<String> =
+            tierEffects(t, ids).ifEmpty { if (ids.isEmpty()) emptyList() else wm.damage.core.motion.Transitions.defaultsOf(t).map { it.id } }
         val SLIDE_FILLS = listOf("auto", "split", "whole")
         /** The texture-cache switch (§40). */
         val CACHED_TEXT = listOf("off", "on")

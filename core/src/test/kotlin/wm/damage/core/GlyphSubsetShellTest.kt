@@ -1690,6 +1690,8 @@ class GlyphSubsetShellTest {
      * ranges, the count agreeing, one keyframe. Nothing new on the wire: the re-send is the bytes
      * the glasses already hold.
      * Mutation watched: the probe's route removed from the shell's note handler (nothing happens).
+     * C3 X6T (decisions AW): also the guard that the count's void rule hides no real miscount — watched with every short
+     * reading voided (fails at "the shortfall is in the journal") and with every answer voided (fails at the start).
      */
     @Test
     fun theMiscountProbeDrivesTheWholePathOnTheSimulator(): Unit = runBlocking {

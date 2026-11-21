@@ -48,6 +48,8 @@ import wm.damage.core.wire.CfwModes
 import wm.damage.core.wire.TextureCache
 import wm.damage.core.transport.draw2
 import wm.damage.core.transport.bind
+import wm.damage.core.transport.effects
+import wm.damage.core.transport.transitionRegion
 import wm.damage.core.transport.TransportEvent
 import wm.damage.core.util.Log
 import wm.damage.core.wire.EvenHubMsg
@@ -1035,9 +1037,11 @@ class Shell(
                 { globalFontRows + hostSettings },
                 { settingsApps() },
                 localInput = { transport.state.value.localInput },
-                localRearm = { transport.devProbe("c1", "4") },
+                // §7.9 as ruled (decisions W, D-2): the row lifts the hold-back and keeps the stored stage
+                localRearm = { transport.devProbe("local", "rearm") },
                 bindBuild = { transport.state.value.damageFeatures and wm.damage.core.wire.DamageMsg.FEATURE_BIND != 0 },
-                motionHint = { motionHint() })
+                motionHint = { motionHint() },
+                effectsInForce = { transport.state.value.effects })
             register(settingsWindow)
         }
         for (w in windows) w.onRegistered(services)
@@ -1684,7 +1688,11 @@ class Shell(
         // and double-tap must always mean wake.
         if (mode == Mode.SILENT) {
             chordArmedAtMs = 0L
-            if (type == EvenHubMsg.EV_DOUBLE_CLICK) exitSilent()
+            if (type == EvenHubMsg.EV_DOUBLE_CLICK) {
+                val before = screenKey(wm.damage.core.motion.Transitions.Tier.LOCK)   // build C3 (DP2): leaving the silent clock is the Lock tier, reversed
+                exitSilent()
+                transitionAct(before, wm.damage.core.motion.Transitions.Tier.LOCK, reversed = true)
+            }
             return
         }
         // §1.2/§1.3 revised 2026-08-30: with long-press OFF (the default) a
@@ -1933,6 +1941,7 @@ class Shell(
             scheduleSave()
             return
         }
+        val before = screenKey(wm.damage.core.motion.Transitions.Tier.SELECT)      // build C3 (DP2): a tap that changes the screen is a Select
         when (val v = focusedView()) {
             is WindowView.ListView -> v.onCommit(v.model.cursor)
             is WindowView.DocView -> v.onTap()
@@ -1940,6 +1949,7 @@ class Shell(
             else -> {}
         }
         composeContent()
+        transitionAct(before, wm.damage.core.motion.Transitions.Tier.SELECT, reversed = false)
         scheduleSave()
     }
 
@@ -1965,6 +1975,24 @@ class Shell(
     private val badPlaneSaid = HashSet<String>()
 
     private fun backFocused() {
+        // build C3 (DP2): leaving a window or a level is a Back (Select reversed in time); entering the shell's silent
+        // clock and leaving it are the Lock tier, leaving it reversed. C3 X4T item 3 (`C3-V2T-review.md` 3, decisions
+        // AT (3)): no tier in Exclusive mode — no act follows there, so nothing is picked or recorded
+        val before = screenKey(when (mode) {
+            Mode.WINDOW -> wm.damage.core.motion.Transitions.Tier.BACK
+            Mode.MAIN, Mode.SILENT -> wm.damage.core.motion.Transitions.Tier.LOCK
+            Mode.EXCLUSIVE -> null
+        })
+        backFocusedInner()
+        when (before.mode) {
+            Mode.WINDOW -> transitionAct(before, wm.damage.core.motion.Transitions.Tier.BACK, reversed = true)
+            Mode.MAIN -> transitionAct(before, wm.damage.core.motion.Transitions.Tier.LOCK, reversed = false)
+            Mode.SILENT -> transitionAct(before, wm.damage.core.motion.Transitions.Tier.LOCK, reversed = true)
+            Mode.EXCLUSIVE -> {}
+        }
+    }
+
+    private fun backFocusedInner() {
         when (mode) {
             Mode.WINDOW -> {
                 val w = current ?: return
@@ -2443,7 +2471,9 @@ class Shell(
             Log.i("shell", "notification from '${n.source}' filtered by settings (§4.5)")
             return
         }
-        if (quiet) {   // silent AND exclusive: the small form, auto-dismissing (verdict 23)
+        // silent AND exclusive: the small form, auto-dismissing (verdict 23); behind a transition it waits as in every mode
+        // (K1 §9; the branch below queues it)
+        if (quiet && transition == null) {
             val shown = notifications.current
             notifications.post(n, layout)
             notifications.showNextIfIdle()
@@ -2472,9 +2502,9 @@ class Shell(
                 notifications.requeueCurrent()
                 boxLifted = false
             }
-        } else if (switcher.open || menu.open || keyboard.open) {
+        } else if (switcher.open || menu.open || keyboard.open || transition != null) {
             // decision 6: wait behind the wheel — and behind the context menu
-            // (§16.11) — queued unshown until the surface closes
+            // (§16.11) — queued unshown until the surface closes; build C3 (DP2, K1 §9): behind a transition until its end
             notifications.post(n, layout, show = false)
             return
         }
@@ -3097,6 +3127,9 @@ class Shell(
         val f = localFront()
         localFrontNow = f?.second
         localOnlyFlushes.clear(); localTailFlushes.clear(); mainBind.tailsForgotten()
+        transitionEnd("a session start"); transitionCloses = emptyList()      // build C3 (DP2): the start's keyframe ends every instance
+        glyphHoldUntilMs = 0L                                       // X2T item 1: so nothing is left to land on either lens
+        glyphHoldPumpOwed = false
         stepWindow.clear(); periodSamplesSinceChange = 0          // decisions BF: the measured window is the session's
         localNoteSaid = null
         localSettleAt = Long.MAX_VALUE
@@ -3119,6 +3152,18 @@ class Shell(
 
     /** A flush of the rules' messages alone (nothing to draw): one sub-message as its own image, more as a batch. */
     /** The flush's id, or null when nothing went (an empty tail, or a submit the ended link refused). */
+    /**
+     * C3 X6T (decisions AW; the 44 of 45, `C3-X5T-compare.md`): the ONE door for a cache write — the atlas's chunks, the
+     * stage lane's pieces (page staging, Main's records, its programs-only re-make) and a transition's records' and lists'
+     * writes. Each goes as a flush of its own under the atlas's writer tag and is booked on the count's ledger at its send,
+     * which voids a reading on its way; [completeFlush] counts it at its completion (restarting the settle window), and no
+     * reading is launched while any is open ([CacheLedger]'s two rules). Throws as [Transport.submit] does.
+     */
+    private suspend fun submitCacheWrite(op: DisplayOp, label: String, atlas: Boolean): Long {
+        require(op is DisplayOp.CacheWrite || op is DisplayOp.CacheWrite2) { "not a cache write: $op" }
+        return transport.submit(FlushRequest(listOf(op), comp.epoch, label, writer = atlasTag)).also { cacheLedger.writeSent(it, atlas) }
+    }
+
     private suspend fun submitLocalOnly(tail: List<ByteArray>, label: String): Long? {
         if (tail.isEmpty()) return null
         return try {
@@ -3199,7 +3244,7 @@ class Shell(
                 if (local.active) local.localNote(ev.fields).let { n -> if (n != localNoteSaid) { localNoteSaid = n; journal.note("local", n, ev.atMs) } }
                 post(Msg.Pump)
             }
-            is TransportEvent.LocalBody -> { local.body114(ev.slot, ev.tag, ev.outcome, ev.reason); localBodyRead(ev) }
+            is TransportEvent.LocalBody -> { local.body114(ev.slot, ev.tag, ev.outcome, ev.reason); transitionBody(ev); localBodyRead(ev) }
             is TransportEvent.SilentMode ->
                 if (ev.on) enterSleep(SleepReason.SILENT, "the firmware's Silent Mode is on")
                 else when (sleep) {                                 // one read
@@ -3301,10 +3346,12 @@ class Shell(
 
     private fun completeFlush(ev: TransportEvent.FlushDone) {
         completionsSeen++                             // P5 item 5: a completion of any kind (content, atlas, stage)
+        cacheLedger.writeDone(ev.id, ev.ok, System.currentTimeMillis())   // X6T: a booked cache write counted (or lost) here, whoever wrote it
         if (ev.id == atlasInFlight) { atlasDone(ev); return }
         if (ev.id == stageInFlight) { stageDone(ev); return }
         // build K1-4a: the flush that carried the notice's PLAY failed — the phone's steps for that box
         if (ev.id == noticePlayFlush) { noticePlayFlush = null; if (!ev.ok && !glassesSilent) noticeFallback("the flush carrying its PLAY failed (${ev.error})") }
+        transitionFlushDone(ev)                       // build C3 (DP2): the records' write, the out half, the PLAY-AFTER, a frame's
         val a = inflightFlushes.remove(ev.id)
         journal.flushDone(ev.id, ev.ok, ev.ackMs, ev.bytes, ev.error, ev.tookAtMs, ev.wroteAtMs, ev.ackAtMs)
         // build C2 (§6.11): a tail-only flush that failed — an answer, a SETTLE or a re-send lost — is a divergence: keyframe
@@ -4187,6 +4234,7 @@ class Shell(
     private suspend fun pumpAtlas(st: LinkState): Boolean {
         val ct = cachedText ?: return false
         if (settings.cachedText != "on" || atlasFailed || glassesSilent) return false
+        if (cacheWritesHeld()) return false               // C3 DM-T (D6): an Encode or Matrix run reads the fonts
         // §73: nothing grows and nothing is sent while the lease is gone. The lapse path leaves
         // `atlasSeenVersion` alone on purpose (a grow there hands out the whole forgotten layout
         // and its first chunk is refused, which switches cached text off for the session) — and
@@ -4230,7 +4278,7 @@ class Shell(
         val (chunk, gen) = atlasQueue.removeFirst()
         val write: DisplayOp = if (atlas?.v2 == true) DisplayOp.CacheWrite2(chunk) else DisplayOp.CacheWrite(chunk)
         val id = try {
-            transport.submit(FlushRequest(listOf(write), comp.epoch, "ATLAS", writer = atlasTag))
+            submitCacheWrite(write, "ATLAS", atlas = true)
         } catch (e: Exception) {
             Log.e("shell", "atlas chunk submit failed", e)
             atlasFailed = true
@@ -4253,7 +4301,7 @@ class Shell(
         journal.flushDone(ev.id, ev.ok, ev.ackMs, ev.bytes, ev.error, ev.tookAtMs, ev.wroteAtMs, ev.ackAtMs)
         val ct = cachedText ?: return
         if (!ev.ok) {
-            cacheLedger.writeLost()        // §66: what landed is unknown; the next reading re-bases
+            // §66: what landed is unknown; the next reading re-bases (booked as lost at [completeFlush], X6T)
             if (ev.error?.contains("ImgResCmd") != true && ++atlasUndelivered < ATLAS_UNDELIVERED_LIMIT) {
                 // §54: not the glasses' answer but the link's end or the session's
                 // sweep (the ack never came): the chunk may or may not have landed,
@@ -4279,8 +4327,8 @@ class Shell(
             return
         }
         atlasUndelivered = 0
-        cacheLedger.writeAcked(1, atlas = true)  // §66: one non-empty mode-12/19 message per atlas flush
-        cacheWriteLastAckMs = System.currentTimeMillis()
+        // §66: one non-empty mode-12/19 message per atlas flush — counted (and the settle window restarted) at
+        // [completeFlush], before this runs (X6T: every cache write's ack in one place)
         // null: a chunk of a layout a repack replaced, or of a cut since rewound — it moves no
         // watermark; it is counted all the same, and there is nothing of it to send again
         val done = atlas?.acked(atlasInFlightGen)
@@ -4338,7 +4386,6 @@ class Shell(
     private val cacheLedger = CacheLedger()
     private var stageInFlight: Long? = null
     private var stageInFlightRec: StagedRecord? = null
-    private var stageInFlightWrites = 0
 
     /** One mode-19 message of a record's write: at most [STAGE_CHUNK] bytes of data; [names]: it names the rest (a band
      *  switch's item word), so it goes alone and only after every piece before it was acknowledged. */
@@ -4376,9 +4423,6 @@ class Shell(
     private var stageShortfalls = 0
     /** Strips too large for the reserve this session — not re-rendered on every pump. */
     private val stageRefused = HashSet<StageKey>()
-    /** When the last cache write (atlas or stage) was acked: a generation reading sent within
-     *  `CacheLedger.SETTLE_MS` of it may be short for the decode still on its way (§66.1). */
-    private var cacheWriteLastAckMs = 0L
 
     // ---- the count's one reader (0.64). The envelope, `FORK.md` §3.8: (a) [ledgerReset] at a session
     // start and a lapse; [ledgerDropReading] at a sleep; [atlasCheckOwed] at a repack and a mid-session
@@ -4495,7 +4539,7 @@ class Shell(
     private fun stageClear(why: String?) {
         val had = stage.records.size
         stage.clear()
-        stageInFlight = null; stageInFlightRec = null; stageInFlightWrites = 0
+        stageInFlight = null; stageInFlightRec = null
         stageCursor = null                 // build SPLIT: a part-written record goes with the registry, never named
         // 0.64: NOT the count's reading. It is the cache's, about every acked write, and a clear of
         // the registry (the row off, a live-set change, a reset) leaves it valid; dropping its flag
@@ -4528,6 +4572,7 @@ class Shell(
      *  and written. True when it did something. */
     private suspend fun pumpStage(st: LinkState): Boolean {
         if (settings.pageStaging != "on" || stageFailed || glassesSilent || !st.draw2 || !st.leaseHeld) return false
+        if (cacheWritesHeld()) return false     // C3 DM-T: D6's hold (an Encode run's lists lie in the stage reserve)
         if (!transport.cacheCheckSupported) return false     // no proof possible, so nothing is ever drawn from a record
         val ct = cachedText ?: return false
         if (settings.cachedText != "on" || atlasFailed || atlas == null) return false
@@ -4681,7 +4726,7 @@ class Shell(
         val rec = c.rec
         val p = c.pieces[c.next]
         val id = try {
-            transport.submit(FlushRequest(listOf(p.op), comp.epoch, "STAGE", writer = atlasTag))
+            submitCacheWrite(p.op, "STAGE", atlas = false)
         } catch (e: Exception) {
             Log.e("shell", "staged record submit failed", e)
             stageCursor = null
@@ -4693,7 +4738,7 @@ class Shell(
             return
         }
         rec.state = StagedRecord.State.SENT
-        stageInFlight = id; stageInFlightRec = rec; stageInFlightWrites = 1
+        stageInFlight = id; stageInFlightRec = rec
         journal.flushSubmitted(id, comp.epoch, listOf(p.op), "STAGE", st.transportName,
             Journal.Timing(win = current?.id ?: "", mode = mode.name))     // package G (E4): on every submit record
         if (c.next == 0) journal.note("stage", "${rec.key} (${rec.encoded.size} B at ${rec.off}) submitted as flush $id — piece 1 of ${c.pieces.size} (${p.bytes} B)")
@@ -4713,6 +4758,7 @@ class Shell(
             return false
         }
         if (stageFailed || glassesSilent || !st.draw2 || !st.leaseHeld) return false
+        if (cacheWritesHeld()) return false     // C3 DM-T: D6's hold (an Encode run's lists lie in the stage reserve)
         if (atlasInFlight != null || atlasCheckInFlight || stageInFlight != null || ledgerReadInFlight) return false
         if (st.inFlight != 0 || comp.hasPending || comp.needsKeyframe) return false
         if (ledgerBaseOwed(st)) return tryLedgerRead(st)
@@ -4747,12 +4793,11 @@ class Shell(
 
     private fun stageDone(ev: TransportEvent.FlushDone) {
         val rec = stageInFlightRec
-        val writes = stageInFlightWrites
-        stageInFlight = null; stageInFlightRec = null; stageInFlightWrites = 0
+        stageInFlight = null; stageInFlightRec = null
         journal.flushDone(ev.id, ev.ok, ev.ackMs, ev.bytes, ev.error, ev.tookAtMs, ev.wroteAtMs, ev.ackAtMs)
         val c = stageCursor?.takeIf { it.rec === rec }
         if (!ev.ok) {
-            cacheLedger.writeLost()
+            // booked as lost at [completeFlush] (X6T)
             // a failed piece fails its record: which earlier bytes survived is not known (a refusal for a lapse, a lost
             // ack), so the record goes again whole — its owner's rule, as for a record written in one flush
             if (c != null) stageCursor = null
@@ -4767,8 +4812,7 @@ class Shell(
             return
         }
         stageWriteFailures = 0
-        cacheLedger.writeAcked(writes, atlas = false)
-        cacheWriteLastAckMs = System.currentTimeMillis()
+        // counted, and the settle window restarted, at [completeFlush] (X6T)
         var more = false
         if (c != null) {
             c.next++
@@ -4807,6 +4851,9 @@ class Shell(
         // three in a row (the bound that ends the asking for the session) were then one event
         if (System.currentTimeMillis() < ledgerRetryNotBeforeMs) return false
         if (atlasInFlight != null || stageInFlight != null || st.inFlight != 0) return false
+        // X6T (decisions AW): and by the count's own books — every cache write sent has completed, whoever sent it (the
+        // transport's in-flight count falls at the ack, before the shell has counted it)
+        if (cacheLedger.writesOpen > 0) return false
         launchLedgerRead()
         return true
     }
@@ -4848,7 +4895,6 @@ class Shell(
         atlasUnproven.clear()
         atlasResendMissing = 0L
         atlasLastAcked = null
-        cacheWriteLastAckMs = 0L
         cacheCountUnjudged = 0L
     }
 
@@ -4861,6 +4907,7 @@ class Shell(
     private fun ledgerDropReading() {
         ledgerEpoch++
         ledgerReadInFlight = false
+        cacheLedger.readingDropped()
         cacheCountUnjudged = 0L
     }
 
@@ -4871,7 +4918,8 @@ class Shell(
         val epoch = ledgerEpoch
         val sendAcked = cacheLedger.acked
         val sendAtlasAcked = cacheLedger.atlasAcked
-        val settled = System.currentTimeMillis() - cacheWriteLastAckMs >= CacheLedger.SETTLE_MS
+        val settled = cacheLedger.settled(System.currentTimeMillis())
+        cacheLedger.readingSent()                  // X6T: a cache write sent from here to the answer voids it
         // the journal's subject is true to what the reading is for: a strip acked and unproven
         // makes it the stage check (its notes are kind `stage`); otherwise it is the cache count's
         val staged = stage.count(StagedRecord.State.ACKED) > 0
@@ -4893,6 +4941,7 @@ class Shell(
                 val st = transport.state.value
                 val gen = t?.cacheGen
                 if (gen == null) {
+                    cacheLedger.readingDropped()       // X6T: nothing of an unanswered reading is judged
                     val because = why?.let { " ($it)" } ?: ""
                     if (++ledgerReadFailures >= STAGE_FAILURES_MAX) {
                         ledgerOff = true
@@ -5053,6 +5102,12 @@ class Shell(
                 atlasShortfall(v, lost.size, stagingOff,
                     t?.refusal?.let { "; the last refusal on record: ${it.describe()} (sticky)" } ?: "; no refusal on record")
             }
+            // X6T (decisions AW): a cache write went out while this reading was on its way — its generation may or may not
+            // hold that write, so nothing of it is used (no base moves, nothing proven, nothing short); the next pump asks
+            // again once every write sent has completed ([tryLedgerRead])
+            CacheLedger.Verdict.Void ->
+                journal.note(if (staged) "stage" else "atlas", (if (staged) "" else "count void — ") +
+                    "$from was voided: a cache write went out while it was on its way — asked again")
             is CacheLedger.Verdict.Foreign -> {
                 // more bumps than this shell's acked writes: the count is re-based and the acked records
                 // stand — an extra bump does not make them bad, and another writer's bytes are the
@@ -5176,8 +5231,7 @@ class Shell(
             else -> null
         }
         if (why != null || last == null) { journal.note("probe", "cache=miscount not run — $why"); return }
-        cacheLedger.writeAcked(1, atlas = true)
-        cacheWriteLastAckMs = System.currentTimeMillis()      // as a real ack would: the settle window runs from here
+        cacheLedger.writeAcked(1, atlas = true, nowMs = System.currentTimeMillis())   // as a real ack would: the settle window runs from here
         atlasUnproven.addLast(AtlasWrite(cacheLedger.acked, GlyphAtlas.Acked(last.n, last.writes, resend = false)))
         countStateChanged(st)
         journal.note("probe", "cache=miscount — one atlas ack the glasses never saw is on the ledger (the last acked message, ${last.bytes} B): the count reads one short from here")
@@ -5331,6 +5385,7 @@ class Shell(
         }
         sleep = reason
         mainSeq?.let { mainSeqEnd(it, "the shell went to sleep ($why)") }
+        transitionEnd("the shell went to sleep ($why)")             // build C3 (DP2): the session's end or the wake re-grounds
         if (was == SleepReason.REST) {
             restWakeWanted = false
             chromeDirty = true
@@ -5791,9 +5846,17 @@ class Shell(
      * [MainStaging.WRAP_SLOT]: END is Main's paint at the wrapped row; the model takes it, and holds what Main repaints
      * inside the areas until the motion has ended — its start a flush after this one, so one allowance
      * ([WRAP_START_MS]) past the steps. The mirror holds the instance, so a later flush that meets it CLOSEs it first.
+     * Build C3 (`FIRMWARE.md` §7.11, the second review pass of the transitions): none while a transition is in hand, in
+     * its frame phase or its in half — the PLAY's close pass would end the run's owners; the edge is answered as today
+     * (the rules' DISCARD at the wrapped row), its row drawn, held, and shown at the in half's next step or at LAND. [say]:
+     * the caller that answers the edge (the batch path) writes the note.
      */
-    private fun mainWrapPlan(nowMs: Long): MainWrap? {
+    private fun mainWrapPlan(nowMs: Long, say: Boolean = false): MainWrap? {
         val w = local.wrapPlan(localRow()) ?: return null
+        transition?.let { tr ->
+            if (say) journal.note("local", "an edge at Main's end under ${tr.tier.word}'s transition (${tr.phase}): no wrap PLAY — the row is drawn and shows with its in half")
+            return null
+        }
         val ms = mainBind.staging ?: return null
         if (w.list.list != MainStaging.LIST || mainBind.list?.mark != w.list.mark) return null
         val pan = ms.wrapPan(w.step) ?: return null
@@ -5916,6 +5979,7 @@ class Shell(
         val run = mainSeq ?: return false
         if (run.playing || run.ending != null) return false
         if (stageFailed || glassesSilent || !st.draw2 || !st.leaseHeld) return false
+        if (cacheWritesHeld()) return false               // C3 DM-T (D6)
         if (atlasInFlight != null || atlasQueue.isNotEmpty() || atlasLapsedOwed || atlasCheckInFlight) return false
         if (stageInFlight != null || stageCursor != null || ledgerReadInFlight) return false
         if (st.inFlight != 0 || comp.hasPending || comp.needsKeyframe) return false
@@ -6337,6 +6401,7 @@ class Shell(
         // paints nothing of Main and writes a slot nothing names — so his return SETs the new pans directly
         val covered = blocked != null && mode != Mode.MAIN && mainBindBlocked(st, front = false) == null
         if (blocked != null && !covered) return false
+        if (cacheWritesHeld()) return false               // C3 DM-T (D6): its staging and its re-make wait for the run's end
         if (atlasInFlight != null || atlasQueue.isNotEmpty() || atlasLapsedOwed || atlasCheckInFlight) return false
         if (stageInFlight != null || stageCursor != null || ledgerReadInFlight) return false
         if (st.inFlight != 0 || comp.hasPending || comp.needsKeyframe) return false
@@ -7599,6 +7664,7 @@ class Shell(
     private fun updatePlanes() {
         val d = settings.depth
         val planes = ArrayList<Compositor.PlaneRegion>()
+        noticePlane = null
         // content: the FOCUSED app's own depth when it set one, else the
         // Global row; Main is always the Global row
         val contentD = (if (mode == Mode.WINDOW) current?.let { appDepth(it) } else null) ?: d
@@ -7679,11 +7745,16 @@ class Shell(
                     notifications.focused -> 0
                     else -> d                                                // arrives with content
                 }
-                planes.add(Compositor.PlaneRegion(box, plane))
+                planes.add(Compositor.PlaneRegion(box, plane).also { noticePlane = it })
             }
         }
         comp.planes = planes   // a changed map re-renders + seam-cleans itself
     }
+
+    /** The notice box's plane in the map [updatePlanes] last set (null: none) — what Encode's cells leave out (X2T item 5). */
+    private var noticePlane: Compositor.PlaneRegion? = null
+    /** Tests only (on the loop): the notice box's region in the plane map. */
+    internal fun noticePlaneForTest(): Rect? = noticePlane?.rect
 
     // ------------------------------------------------------------------ slides
     private fun snapSlides() {
@@ -7855,6 +7926,8 @@ class Shell(
     }
 
     private suspend fun pump() {
+        // C3 X4T item 4: the first pump after a glyph hold's period is the one that lets its writes go
+        if (glyphHoldPumpOwed && System.currentTimeMillis() >= glyphHoldUntilMs) glyphHoldPumpOwed = false
         val yieldReserve = reserveYield                 // P5 item 5: decided by this message's idle tick only
         reserveYield = false
         // ONE read (2026-09-16 review — the §62.3 item 9 / §63.3 item 8 class, in the hottest
@@ -7867,6 +7940,7 @@ class Shell(
         if (!running || !st.started || !st.carrierUp) return
         // the `hold=on` dev probe: a hand-played test program's picture stays on the lenses until the hold ends
         if (testHold) return
+        if (pumpHeldForTest) return             // tests only: a link with no room at all (a transition stays owed)
         // the `mainseq` probe's plays: the frames wait, but for the one follow-up pump each notch opens
         val seq = mainSeq?.takeIf { it.playing }
         if (seq != null && !seq.followUpOpen) return
@@ -8033,13 +8107,20 @@ class Shell(
         // instance still draws there. A CLOSE of the slot goes first, alone, in stream order ahead of that frame (§5.6: it
         // presents the shadow, which holds END); the held cells are dropped and the areas made unknown, so the frame
         // repaints them from the truth now instead of after the motion's end. A notice box, the menu, the keyboard and the
-        // switcher cover part of the list or keep Main under them: their cells still wait (AF.7).
-        if (frontBefore != null && localFrontNow == null && (mode == Mode.WINDOW || mode == Mode.EXCLUSIVE) &&
-            st.bind && st.leaseHeld && comp.deferring && comp.deferUntilMs > localNow) {
+        // switcher cover part of the list or keep Main under them: their cells still wait (AF.7). The silent clock repaints
+        // every cell as a window does (X2P2: the class of the first review pass's finding 1 — AW.3 left it out). Build C3
+        // (DP2): with a transition owed none of this — its out PLAY, the act's first visible image, ends the same instance in
+        // its close pass, and `transitionFirst` cuts the held cells there (the review's findings 1 and 3).
+        if (frontBefore != null && localFrontNow == null && (mode == Mode.WINDOW || mode == Mode.EXCLUSIVE || mode == Mode.SILENT) &&
+            transition?.phase != TransitionRun.Phase.OWED && st.bind && st.leaseHeld && comp.deferring && comp.deferUntilMs > localNow) {
             submitLocalOnly(listOf(CfwModes.motionClose(frontBefore.slot)), "CLOSE")
             comp.cutDeferral()
-            journal.note("local", "a window over the list: slot ${frontBefore.slot}'s adopted motion closed ahead of its frame — its cells go now")
+            journal.note("local", "${if (mode == Mode.SILENT) "the silent clock" else "a window"} over the list: slot ${frontBefore.slot}'s adopted motion closed ahead of its frame — its cells go now")
         }
+        // build C3, stage DP2 (`FIRMWARE.md` §7.11): a transition's out half goes now, ahead of the arriving frame's assemble —
+        // the records' write, then alone the rules' CLEARs, the out PLAY and their answers. Nothing waits behind it: every
+        // flush from the out PLAY to the run's end is held by both owners and shows at the in half's next step or at LAND
+        transitionFirst(st, localOn, localNow)
         // decisions AF.7: the cells held behind a COMMIT go once the adopted motion has ended on the glasses — the loop is
         // asked back then (pacing, never a wait on a send)
         comp.releaseDeferred(localNow)
@@ -8064,7 +8145,7 @@ class Shell(
             val plans = if (localOn) local.plan(localRow()) else emptyList()
             // decisions AZ.4: an edge at an end of Main's wrapping list — the pan across the wrap, a phone PLAY in a free slot
             // whose END goes into the model as a COMMIT's does, its areas held until it ends
-            val wrap = if (localOn) mainWrapPlan(localNow) else null
+            val wrap = if (localOn) mainWrapPlan(localNow, say = true) else null
             assembleCalls++
             var denied: Set<Int> = emptySet()
             val assembled = try {
@@ -8101,12 +8182,15 @@ class Shell(
             val localTail = if (localOn) listOfNotNull(wrapPlay) + local.tail(localRow(), localNow, denied, frame = assembled != null, wrapped = wrapPlay != null)
                 else emptyList()
             // build K1-4a: the notice's PLAY after every drawing sub (the box's END picture is in the shadow when it is
-            // captured) — this frame's, an input's own; never into a batch that leaves part of the frame for the next
+            // captured) — this frame's, an input's own; never into a batch that leaves part of the frame for the next.
+            // (0.83 integration: none is owed while a transition is in hand — the act requeues the box, so
+            // [noticeResolve] finds no current box, and a notice arriving under the run waits for its end)
             val noticeTail = noticeTakePlay(noticeProg, leavesPending = (assembled != null && comp.hasPending) || comp.deferring)
             if (assembled == null && localTail.isNotEmpty()) {
                 val id = submitLocalOnly(localTail + listOfNotNull(noticeTail), "LOCAL")
                 if (noticeTail != null) { if (id != null) noticePlayFlush = id else noticeFallback("its PLAY's flush was not submitted") }
             } else if (assembled == null && noticeTail != null) submitNoticeOnly(noticeTail)
+            if (assembled == null) transitionAlone()
             if (assembled != null) {
                 val assembleMs = (System.nanoTime() - assembleT0) / 1_000_000
                 // the loop stamped loopSince when it took the message this
@@ -8114,9 +8198,15 @@ class Shell(
                 val handleMs = System.currentTimeMillis() - loopSince
                 val label = "$mode${if (switcher.open) "+switcher" else ""}"
                 try {
+                    // build C3 (DP2): the arriving frame is held by the out half's owner; the flush that leaves nothing
+                    // pending carries the in half's PLAY-AFTER after its drawing subs
+                    val tr = transition
+                    val playAfter = tr?.takeIf { it.phase == TransitionRun.Phase.FRAME && !transitionHoldInHalfForTest && !assembled.keyframe && !comp.hasPending && !comp.needsKeyframe }?.playAfter
                     val id = transport.submit(FlushRequest(assembled.ops, assembled.epoch, label,
-                        wide = assembled.wide, tail = localTail + listOfNotNull(noticeTail)))
+                        wide = assembled.wide, tail = localTail + listOfNotNull(noticeTail) + listOfNotNull(playAfter),
+                        held = tr?.held() ?: emptySet()))
                     if (noticeTail != null) noticePlayFlush = id
+                    transitionSubmitted(id, assembled.keyframe, playAfter != null)
                     if (localTail.isNotEmpty()) { localTailFlushes += id; mainBind.tailSent(id, mainBindEntriesSent()) }
                     inflightFlushes[id] = assembled
                     flushesSubmitted++
@@ -8162,6 +8252,7 @@ class Shell(
             // all (or its paint went out with an earlier flush) — the flag is not left standing
             // for whatever flushes next (an idle tick, a push), which no ring event started
             inputAwaitsSlot = false; inputWaitSince = -1L
+            transitionAlone()                 // build C3 (DP2): a frame that drew nothing still gets its in half
             // 6. nothing pending: the lowest-priority work — the cache count's reading
             //    (0.64), the atlas's next chunk (§40), then a staged strip (§66), then
             //    the preview settle
@@ -8183,6 +8274,500 @@ class Shell(
             post(Msg.Pump)
         }
     }
+
+    // ------------------------------------------------------------------ build C3, stage DP2: transitions
+    /** What an act compares before and after: the mode, the window and its list level (Settings' adjust level changes a
+     *  row, not the screen). [bottom] is the layout's bottom at the time (not compared). */
+    private data class ScreenKey(val mode: Mode, val window: String?, val level: Int) {
+        var bottom = 0
+        /** C3 X2T item 4: the act's effect, picked before its handler paints ([transitionPick]); null below stage 5 or with
+         *  nothing checked. Not compared. */
+        var pick: wm.damage.core.motion.Transitions.Effect? = null
+        /** The effects that left the pick before it (an Encode this session cannot play), each with its reason. */
+        val leftOut = ArrayList<Pair<wm.damage.core.motion.Transitions.Effect, String>>()
+        /** C3 DM-T: the screen's cells as it stood before the act (Encode's out half), recorded only when Encode is the
+         *  pick; not compared. */
+        var cells: wm.damage.core.motion.CellLists.Screen? = null
+    }
+
+    /** [tier]: the act this key stands before — its effect is picked now, before the handler paints, and the leaving
+     *  screen's cells are recorded only when that pick is Encode (one paint into a scratch, [screenRuns]). */
+    private fun screenKey(tier: wm.damage.core.motion.Transitions.Tier? = null): ScreenKey {
+        val w = if (mode == Mode.WINDOW) current else null
+        return ScreenKey(mode, w?.id, w?.let { if (it === settingsWindow) settingsWindow.listLevel() else it.levelDepth() } ?: 0)
+            .also { k ->
+                k.bottom = layout.safe.bottom
+                if (tier != null) transitionPick(tier, k)
+            }
+    }
+
+    /**
+     * C3 X2T item 4 (the review's 5, decisions AQ (4)): the act's pick, made before anything is painted — a random pick
+     * among the tier's checked effects (`MOTION.md` §7). An Encode this session cannot play ([encodeUnplayable]) leaves the
+     * pick with its reason and the pick is made again; when the pick is Encode the leaving screen is recorded, and only
+     * then. Nothing at all below stage 5. C3 X4T item 1 (`C3-V2T-review.md` 1, decisions AT (1)): a text run the notice box
+     * covers is not one of the leaving screen's cells — the box is on the panel the out half dims, and a cell would draw
+     * the hidden text over it for the out half; the box goes dark with the rest of the picture. (The arriving screen keeps
+     * its runs under the box: the box is lifted at the act, so the in half shows that text.)
+     */
+    private fun transitionPick(tier: wm.damage.core.motion.Transitions.Tier, k: ScreenKey) {
+        val st = transport.state.value
+        if (st.transitionRegion == null) return                          // below stage 5: no pick, no recording
+        val pool = settings.effectsOf(tier).mapNotNull { wm.damage.core.motion.Transitions.Effect.of(it) }.toMutableList()
+        while (pool.isNotEmpty()) {
+            val e = pool[transitionRandom.nextInt(pool.size)]
+            if (e == wm.damage.core.motion.Transitions.Effect.ENCODE) {
+                val why = encodeUnplayable(st)
+                if (why != null) { pool.remove(e); k.leftOut += e to why; continue }
+                // the box's own rect, not its plane: with Global and the window's Depth both 0 there is no plane map
+                val box = notifications.current?.let { notifications.fullRect(it, layout, silent = mode == Mode.SILENT) }
+                k.cells = screenCells(screenRuns().filter { box == null || !it.rect.overlaps(box) }, Rect(0, 0, comp.width, layout.safe.bottom))
+            }
+            k.pick = e
+            return
+        }
+    }
+
+    /** Why this session cannot play Encode now (null: it can): a 256 KiB cache with BIND (the stage reserve holds its
+     *  lists, the DM spec's D5), cached text on, no atlas chunk queued or in flight (the fonts it reads could move). Read at
+     *  the pick (no recording for an Encode that cannot play) and again at the act, on the act's one read of the state. */
+    private fun encodeUnplayable(st: LinkState): String? = when {
+        st.cacheSize < CfwModes.CACHE2_MAX_RIDERS || !st.bind ->
+            "Encode plays on a 256 KiB session with BIND only (this one: ${st.cacheSize / 1024} KiB${if (st.bind) "" else ", no BIND"})"
+        atlas == null || cachedText == null -> "cached text is off"
+        atlasInFlight != null || atlasQueue.isNotEmpty() || atlasBusyForTest -> ATLAS_BUSY
+        else -> null
+    }
+
+    /** The transition in hand (`FIRMWARE.md` §7.11: the out half, the held frame, the in half); null when none. */
+    private var transition: TransitionRun? = null
+    private var transitionActs = 0
+    private var transitionDeadlineGen = 0
+    /** Tests only: the pick among a tier's checked effects (a random one at each use, `MOTION.md` §7). */
+    @Volatile internal var transitionRandom: java.util.Random = java.util.Random()
+    /** Tests only: RIGHT's in-half body is not read (a lost body) — the deadline's CLOSE of both slots ends it. */
+    @Volatile internal var transitionBodyLostForTest = false
+    /** Tests only: the in half's PLAY-AFTER is held back (the out half plays to done and keeps owning). */
+    @Volatile internal var transitionHoldInHalfForTest = false
+    /** Tests only: every pump returns at once, as one does when the window has no room (§32) — an act's transition stays
+     *  owed while input arrives behind it. */
+    @Volatile internal var pumpHeldForTest = false
+    internal fun transitionPhaseForTest(): String? = transition?.phase?.name
+    /** Transitions that ran whole (RIGHT's in-half body, outcome 0) this process. */
+    private var transitionsWhole = 0
+    internal fun transitionCountsForTest(): Pair<Int, Int> = transitionActs to transitionsWhole
+    /** C3 DM-T: the transitions that ran whole, by effect id (tests: the walk's picks). */
+    private val transitionsWholeBy = HashMap<String, Int>()
+    internal fun transitionsWholeByEffectForTest(): Map<String, Int> = HashMap(transitionsWholeBy)
+
+    /**
+     * An act changed the screen ([before] → now): with ladder stage 5 in force and an effect checked in [tier], the
+     * transition is owed — a random pick among the checked, both programs built (refused offline as the glasses would:
+     * then the screen lands at once and the note names the half refused), the records laid out in the act's slot of the
+     * region (two, taken in turn), a box on screen requeued unread (it returns after). Anywhere else nothing happens: the
+     * screen lands at once, as it always has.
+     */
+    private fun transitionAct(before: ScreenKey, tier: wm.damage.core.motion.Transitions.Tier, reversed: Boolean) {
+        val after = screenKey()
+        if (after == before || before.mode == Mode.EXCLUSIVE || after.mode == Mode.EXCLUSIVE) return
+        val st = transport.state.value                                   // ONE read for the decision
+        val region = st.transitionRegion ?: return                       // below stage 5: today's cut, byte for byte
+        if (!st.bind || !st.leaseHeld || glassesSilent || sleep != null || switcher.open) return
+        val ids = settings.effectsOf(tier)
+        if (ids.isEmpty()) return                                        // None: the screen lands at once
+        val k = transitionActs++
+        val area = Rect(0, 0, comp.width, maxOf(before.bottom, layout.safe.bottom))
+        val at4 = (region.first + (k and 1) * CfwModes.TRANSITION_SLOT) / 4
+        val tagOut = TransitionRun.TAG_OUT + (k and 0xFFF)
+        val tagIn = TransitionRun.TAG_IN + (k and 0xFFF)
+        // C3 DM-T (`MOTION.md` §7: a random pick among the checked): an Encode or Matrix whose preconditions this act does not
+        // meet leaves the pick, said once with its reason, and the pick is made again among the rest; when nothing checked is
+        // left, the tier's defaults play — never a refusal he sees
+        // X2T item 4: the pick made before the handler goes first ([transitionPick]); what left it then stays out
+        val pool = ids.mapNotNull { wm.damage.core.motion.Transitions.Effect.of(it) }.toMutableList()
+        val leftOut = ArrayList<String>()
+        for ((e, why) in before.leftOut) if (pool.remove(e)) leftOut += "${e.label} ($why)"
+        var next = before.pick
+        var run: TransitionRun? = null
+        var what = ""
+        while (run == null) {
+            val effect = next?.takeIf { it in pool }
+                ?: if (pool.isNotEmpty()) pool[transitionRandom.nextInt(pool.size)] else wm.damage.core.motion.Transitions.defaultsOf(tier).first()
+            next = null
+            what = "${tier.word} ${effect.label}${if (reversed) " reversed" else ""}"
+            try {
+                run = transitionRunOf(st, tier, effect, reversed, area, at4, k, tagOut, tagIn, before)
+            } catch (e: wm.damage.core.geom.LintError) {
+                if (effect.glyphs && pool.remove(effect)) { leftOut += "${effect.label} (${e.message})"; continue }
+                if (leftOut.isNotEmpty()) journal.note("transition", "left out of this act's pick: ${leftOut.joinToString("; ")}")
+                journal.note("transition", "$what is refused offline (${e.message}) — the screen lands at once, as without stage 5")
+                return
+            }
+        }
+        if (leftOut.isNotEmpty()) journal.note("transition", "left out of this act's pick: ${leftOut.joinToString("; ")} — $what plays")
+        transition?.let { journal.note("transition", "a new act replaces ${it.tier.word}'s (${it.phase}): its PLAY closes what is left of it") }
+        // X2T item 3: an Encode run's lists overwrite only the page-staging strips whose bytes they meet; nothing writes the
+        // reserve while the run holds ([cacheWritesHeld])
+        run.built.listsRange?.let { stagePagesDropUnder(it) }
+        // K1 §9: a box on screen goes back to the queue unread, and returns after the transition
+        if (notifications.active) {
+            if (notifications.furlingOut) {
+                notifications.restoreUnderFinished(comp.composed)?.let { retire(it); comp.damage(it) }
+                notifications.abandonFurl()
+            } else {
+                liftNotificationBox()
+                notifications.requeueCurrent()
+            }
+            boxLifted = false
+            stopGrace()
+            updatePlanes()
+        }
+        transition = run
+        transitionDeadlineGen++
+        journal.note("transition", "owed: ${run.describe()}")
+        post(Msg.Pump)
+    }
+
+    /**
+     * An act's run for [effect]: both programs built (each refusal names its half), the PLAY and the PLAY-AFTER judged
+     * offline. C3 DM-T, Encode and Matrix (the DM spec §3, §4): refused here — and so left out of the act's pick — when an
+     * atlas chunk is queued or in flight (the fonts it reads could move), on a session without 256 KiB and BIND (Encode:
+     * the stage reserve holds its lists), when a screen's lists do not fit, or when a half passes 80 % of the step budget;
+     * their period and frames follow "the length holds, frames give" ([wm.damage.core.motion.Transitions.timingFor]).
+     */
+    private fun transitionRunOf(st: LinkState, tier: wm.damage.core.motion.Transitions.Tier, effect: wm.damage.core.motion.Transitions.Effect,
+                                reversed: Boolean, area: Rect, at4: Int, k: Int, tagOut: Int, tagIn: Int, before: ScreenKey): TransitionRun {
+        val fx = wm.damage.core.motion.Motion.effects(wm.damage.core.wire.DamageMsg.Caps(st.damageContract, st.damageFeatures), st.flagsInForce)
+        val glyphs = if (!effect.glyphs) null else {
+            if (atlasInFlight != null || atlasQueue.isNotEmpty() || atlasBusyForTest) throw wm.damage.core.geom.LintError(ATLAS_BUSY)
+            if (effect == wm.damage.core.motion.Transitions.Effect.MATRIX) wm.damage.core.motion.Transitions.Glyphs(rain = rainFace())
+            else {
+                encodeUnplayable(st)?.let { throw wm.damage.core.geom.LintError(it) }
+                // X2T item 4: recorded only when Encode was the pick made before the handler (the arriving screen is not
+                // recorded for an Encode that cannot play)
+                val leaving = before.cells ?: throw wm.damage.core.geom.LintError("Encode: the leaving screen was not recorded (Encode was not this act's first pick)")
+                val arriving = screenCells(screenRuns(), Rect(0, 0, comp.width, layout.safe.bottom))
+                // X2T item 3: the lists go where they meet the fewest bytes of page staging's strips
+                val reserve = CfwModes.stageReserve(st.cacheSize, st.bind)
+                val res = (st.cacheSize - reserve) until st.cacheSize
+                val at = encodeListsAt(res, wm.damage.core.motion.CellLists.bytes(leaving) + wm.damage.core.motion.CellLists.bytes(arriving))
+                wm.damage.core.motion.Transitions.Glyphs(leaving = leaving, arriving = arriving, reserveAt4 = at / 4, reserveRoom = res.last + 1 - at)
+            }
+        }
+        val timing = wm.damage.core.motion.Transitions.timingFor(effect, settings.lengthOf(tier), settings.framesOf(tier), area, glyphs?.cells ?: 0)
+        val b = wm.damage.core.motion.Transitions.build(fx, effect, reversed, area, timing, at4, CfwModes.TRANSITION_SLOT,
+            settings.depth, seed = k and 0xFFFF, glyphs = glyphs)
+        if (effect.glyphs && (!b.withinShare || maxOf(b.outCost, b.inCost) * 100 > wm.damage.core.motion.Motion.BUDGET_CAP * transitionShareForTest))
+            throw wm.damage.core.geom.LintError("a half costs ${maxOf(b.outCost, b.inCost)} u, past " +
+                "${minOf(wm.damage.core.motion.Transitions.SHARE_MAX_PERCENT, transitionShareForTest)} % of the step budget's cap")
+        val out = try { wm.damage.core.motion.Motion.play(b.out, TransitionRun.OUT_SLOT, timing.period, tagOut, 0, IntArray(4)) }
+            catch (e: wm.damage.core.geom.LintError) { throw wm.damage.core.geom.LintError("the out half's PLAY: ${e.message}") }
+        // the step budget (§7.12): the in half waits on the out half, which may still be drawing
+        val inn = try {
+            wm.damage.core.motion.Motion.playAfter(b.inn, TransitionRun.IN_SLOT, timing.period, tagIn, TransitionRun.OUT_SLOT,
+                IntArray(4), listOf(wm.damage.core.motion.Motion.Drawing(b.out.cost())), 0)
+        } catch (e: wm.damage.core.geom.LintError) { throw wm.damage.core.geom.LintError("the in half's PLAY-AFTER: ${e.message}") }
+        // Encode: the out half's lists ride the records' write (one message). X2T item 2 (the review's 2, decisions AQ (2)):
+        // the in half's ride it too when the three fit one compressed message (the list within mode 25's inflate) — the
+        // transport deflates one waiting message at a time, so a second write right behind it went raw; past that they go
+        // after the out PLAY, above the out lists, as before. No new wait either way. C3 X4T item 2 (`C3-V2T-review.md` 2,
+        // decisions AT (2)): and only when the transport says a write submitted now would go deflated — ZWRITE in force,
+        // nothing waiting to be judged, no cache write queued ahead of it ([Transport.nextListDeflates]); a quick second
+        // act sent the three raw before its out PLAY
+        val outAndRecords = listOfNotNull(CfwModes.CacheWrite2(at4, b.blob), b.outLists?.let { CfwModes.CacheWrite2(it.at4, it.bytes) })
+        val inWrite = b.inLists?.let { CfwModes.CacheWrite2(it.at4, it.bytes) }
+        val together = inWrite?.let { CfwModes.cacheUpdate2(outAndRecords + it, st.cacheSize) }
+            ?.takeIf { it.size - 1 <= CfwModes.ZWRITE_MAX && transport.nextListDeflates() }
+        return TransitionRun(tier, b, together ?: CfwModes.cacheUpdate2(outAndRecords, st.cacheSize), out, inn, tagOut, tagIn, System.currentTimeMillis(),
+            listWrite = if (together != null) null else inWrite?.let { CfwModes.cacheUpdate2(listOf(it), st.cacheSize) })
+    }
+
+    /** Tests only: the atlas reads as busy (a chunk queued or in flight) at the act. */
+    @Volatile internal var atlasBusyForTest = false
+    /** Tests only: the share of the step budget an Encode or Matrix half may take, in percent (the rule's: 80). */
+    @Volatile internal var transitionShareForTest = wm.damage.core.motion.Transitions.SHARE_MAX_PERCENT
+
+    /** Matrix's face: of the faces the glasses hold, the one that packs the most of A–Z a–z 0–9 (the DM spec §3). */
+    private fun rainFace(): wm.damage.core.motion.CellLists.Face? {
+        val ct = cachedText ?: return null
+        val a = atlas ?: return null
+        return ct.live.filter { a.isAcked(it) }.mapNotNull { s -> a.entry(s)?.let { s to it } }
+            .maxByOrNull { (_, e) -> wm.damage.core.motion.CellLists.ALNUM.count { e.packs(it.toChar()) } }
+            ?.let { (s, e) -> wm.damage.core.motion.CellLists.face(s, e) }?.takeIf { it.alphabet.isNotEmpty() }
+    }
+
+    /** C3 DM-T, the DM spec's D6: no other cache write while an Encode or Matrix run is in hand — their read range runs from
+     *  the atlas's fonts to their records (Encode's to its lists in the stage reserve, above Main's region), and a write
+     *  that meets it closes the half on the glasses. The five writers read it ([pumpAtlas], [pumpMainStage], [pumpMainBind],
+     *  [pumpStagePiece], [pumpStage]); every end of a run goes through [transitionEnd] or a new act, each posting a pump.
+     *  C3 X2T item 1 (the review's 1, decisions AQ (1)): and for one in-half period past RIGHT's in-half body of such a run
+     *  ([glyphHoldUntilMs]) — LEFT reports nothing, and a write released in the pump that sends the CLOSE could reach LEFT
+     *  before its in half has landed there (a close by a cache write, §7.3); the period's end posts a pump. */
+    private fun cacheWritesHeld(): Boolean = transition?.holdsCache == true || System.currentTimeMillis() < glyphHoldUntilMs
+
+    /** X2T item 1: the end of the hold's one period after a glyph run's in-half body (0: none); set by [transitionEnd] at
+     *  that body, cleared at a session start (its keyframe ends every instance on both lenses). */
+    private var glyphHoldUntilMs = 0L
+    /** C3 X4T item 4: a glyph hold's period was set and no pump has run since it ended — the held writes have not been
+     *  let go yet (harnesses only: [idleApartFromMessages]). */
+    private var glyphHoldPumpOwed = false
+    /** Tests only (on the loop): the hold as the five writers read it; the run in hand's programs and lists; page staging's
+     *  records. */
+    internal fun cacheWritesHeldForTest(): Boolean = cacheWritesHeld()
+    internal fun transitionBuiltForTest(): wm.damage.core.motion.Transitions.Built? = transition?.built
+    internal fun stagedRecordsForTest(): List<StagedRecord> = stage.records.values.toList()
+
+    /** C3 X2T item 3 (the review's 3, decisions AQ (3)): where an Encode act's lists of [need] bytes go in the stage reserve
+     *  [res] — the 4-aligned start whose span meets the fewest bytes of page staging's strips (a strip met is counted
+     *  whole: it is written again whole), the lowest on a tie; the candidates are the reserve's start and the end of each
+     *  strip. */
+    private fun encodeListsAt(res: IntRange, need: Int): Int {
+        val strips = stage.records.values.filter { it.key !is MainStageKey && it.off >= 0 && it.off in res }
+        fun met(at: Int) = strips.filter { it.off < at + need && at < it.off + it.size4 }.sumOf { it.size4 }
+        return (listOf(res.first) + strips.map { it.off + it.size4 }).filter { it % 4 == 0 && it + need <= res.last + 1 }
+            .distinct().sorted().minByOrNull { met(it) } ?: res.first
+    }
+
+    /** X2T item 3: an Encode act's lists, laid over [lists] (bytes), drop the page-staging strips whose bytes they meet —
+     *  staged again when their document is in front and idle; every other strip stays proven and drawable (nothing
+     *  writes the reserve while the run holds, [cacheWritesHeld]). */
+    private fun stagePagesDropUnder(lists: IntRange) {
+        val met = stage.records.values.filter { it.key !is MainStageKey && it.off >= 0 && it.off <= lists.last && lists.first < it.off + it.size4 }
+        if (met.isEmpty()) return
+        val from = met.minOf { it.off }
+        for (r in met) stage.remove(r)
+        stage.ring?.rewind(from)                        // written back where they lay once the document is idle in front
+        comp.placements = emptyList()                   // rebuilt from the registry at the next assemble
+        stageRecount()
+        journal.note("stage", "dropped ${met.size} record(s) — an Encode transition's cell lists take bytes ${lists.first}..${lists.last} (${met.joinToString { it.key.toString() }})")
+    }
+
+    /** The pump's first step for an owed transition: the records' write (one mode-19 message, this shell's tag), then
+     *  alone the rules' CLEARs (the cover), the out half's PLAY and the rest of their tail (the tap's answer). Not with
+     *  stage 5, BIND or the lease gone since the act, or a keyframe owed (it would end every instance): then nothing of it
+     *  goes and the frame lands as a cut. */
+    private suspend fun transitionFirst(st: LinkState, localOn: Boolean, now: Long) {
+        if (transitionCloses.isNotEmpty()) {
+            val c = transitionCloses; transitionCloses = emptyList()
+            val id = submitLocalOnly(c, "TRANSITION")
+            journal.note("transition", "${c.size} CLOSE(s) sent alone as flush ${id ?: "(not submitted)"}")
+        }
+        val tr = transition ?: return
+        if (tr.phase != TransitionRun.Phase.OWED) return
+        // the review's finding 1 (AW.3's own form): every act is a whole-panel change, so the out PLAY's close pass ends every
+        // instance in its area — an adopted motion whose cells the compositor holds included; when the run is not sent, its
+        // reason ends the instance itself (a keyframe, a lease release, the CLOSE-all before a disarm, a new session).
+        // Nothing is left to wait for, and those cells go with the arriving frame
+        val cut = comp.cutDeferral()
+        if (!st.effects || !st.bind || !st.leaseHeld || comp.needsKeyframe || st.transitionRegion?.let { r -> tr.built.at4 * 4 in r } != true) {
+            transitionEnd("not sent: stage 5, BIND or the lease is no longer in force, a keyframe is owed, or the session changed — the screen lands at once")
+            return
+        }
+        tr.writeId = try {
+            submitCacheWrite(DisplayOp.CacheWrite2(tr.write), "TRANSITION", atlas = false)
+        } catch (e: Exception) {
+            transitionEnd("its records could not be submitted (${e.message}) — the screen lands at once")
+            return
+        }
+        val tail = if (localOn) local.tail(localRow(), now, emptySet(), frame = false) else emptyList()
+        val clears = tail.takeWhile { it.size == 3 && it[0].toInt() == CfwModes.BIND_MODE && it[1].toInt() == CfwModes.BIND_CLEAR }
+        tr.outId = submitLocalOnly(clears + listOf(tr.playOut) + tail.drop(clears.size), "TRANSITION")
+        tr.phase = TransitionRun.Phase.FRAME
+        tr.outSentAtMs = now
+        // C3 DM-T, Encode: the in half's lists after the out PLAY, above the out lists (they meet no range the out half
+        // reads), ahead of the frame and the PLAY-AFTER in stream order
+        tr.listWrite?.let { lw ->
+            tr.listId = try {
+                submitCacheWrite(DisplayOp.CacheWrite2(lw), "TRANSITION", atlas = false)
+            } catch (e: Exception) {
+                transitionEnd("its in half's lists could not be submitted (${e.message})", close = true)
+                return
+            }
+        }
+        tr.outId?.let { id ->
+            // the out PLAY is what he sees first: journaled as the gesture's first flush (`in`, the wait for a slot), so
+            // `tools/journal_report.py`'s WAIT column prices it; the frame under it no longer counts as the first
+            journal.flushSubmitted(id, comp.epoch, emptyList(), "TRANSITION+${tr.tier.word.lowercase()}", st.transportName, Journal.Timing(
+                input = (if (pumpPriority || inputAwaitsSlot) 1 else 0).also { inputAwaitsSlot = false },
+                inWaitMs = (if (pumpPriority || inputWaitSince >= 0) (if (inputWaitSince >= 0) System.currentTimeMillis() - inputWaitSince else 0L)
+                    else -1L).also { inputWaitSince = -1L },
+                win = current?.id ?: "", mode = mode.name))
+            if (pumpPriority) inputFlushPending = false
+        }
+        journal.note("transition", "out half sent: the records' write as flush ${tr.writeId} (${tr.write.size} B raw; its size on the wire is noted at its ack), then the out PLAY as flush ${tr.outId} " +
+            "(${clears.size} CLEAR(s), the PLAY, ${tail.size - clears.size} answer(s)) — the act's first visible image — ${now - tr.actAtMs} ms after the act" +
+            if (cut) "; the cells held behind an adopted motion go with the frame" else "")
+    }
+
+    /** A frame flush was submitted while a transition is in hand ([keyframe]: it ends every instance on the glasses;
+     *  [carried]: it carried the PLAY-AFTER). A flush in the in half — his input, a repaint, a chrome tick — is held by both
+     *  owners and ends nothing: it shows at the in half's next step or at LAND (§7.11). */
+    private fun transitionSubmitted(id: Long, keyframe: Boolean, carried: Boolean) {
+        val tr = transition ?: return
+        when {
+            keyframe && tr.phase != TransitionRun.Phase.OWED -> transitionEnd("a keyframe went: it ends every instance, the frame shows whole")
+            carried -> { tr.phase = TransitionRun.Phase.IN; tr.inId = id; tr.inSentAtMs = System.currentTimeMillis()
+                journal.note("transition", "in half's PLAY-AFTER rides flush $id, ${tr.inSentAtMs - tr.outSentAtMs} ms after the out half's") }
+        }
+    }
+
+    /** The arriving frame drew nothing more and no flush carried the in half: its PLAY-AFTER goes alone. */
+    private suspend fun transitionAlone() {
+        val tr = transition ?: return
+        if (tr.phase != TransitionRun.Phase.FRAME || transitionHoldInHalfForTest || comp.hasPending || comp.needsKeyframe) return
+        val id = submitLocalOnly(listOf(tr.playAfter), "TRANSITION") ?: return transitionEnd("its PLAY-AFTER could not be submitted", close = true)
+        transitionSubmitted(id, keyframe = false, carried = true)
+    }
+
+    private fun transitionFlushDone(ev: TransportEvent.FlushDone) {
+        // the records' and lists' writes are the ledger's whether or not their act is still in hand: booked at their send
+        // ([submitCacheWrite]) and counted at [completeFlush] (X6T)
+        val tr = transition ?: return
+        val inFrame = tr.phase == TransitionRun.Phase.FRAME || tr.phase == TransitionRun.Phase.IN
+        when (ev.id) {
+            // C3 X4T item 5 (`C3-V2T-review.md` 6): the wire's size beside the raw list's — the transport deflates it as mode
+            // 25 when it can, so the submit's note (the raw size) is not what the link carried
+            tr.writeId -> if (!ev.ok) transitionEnd("its records' write failed (${ev.error})", close = true)
+                else journal.note("transition", "the records' write (flush ${ev.id}) took ${ev.bytes} B on the wire (${tr.write.size} B raw)")
+            tr.listId -> if (!ev.ok) transitionEnd("its in half's lists' write failed (${ev.error})", close = true)
+                else journal.note("transition", "the in half's lists' write (flush ${ev.id}) took ${ev.bytes} B on the wire (${tr.listWrite?.size} B raw)")
+            // the deadline is armed at whichever of the two acks comes second (the review's finding 4: from the out PLAY's
+            // ack, not its submit, so a busy link cannot make it fall inside the in half)
+            tr.outId -> if (!ev.ok) transitionEnd("its out half's flush failed (${ev.error})", close = true)
+                else { tr.outDoneAtMs = System.currentTimeMillis(); transitionDeadlineArm(tr) }
+            tr.inId -> if (!ev.ok) transitionEnd("the flush carrying its PLAY-AFTER failed (${ev.error})", close = true)
+                else { tr.inDoneAtMs = System.currentTimeMillis(); transitionDeadlineArm(tr) }
+            else -> if (!ev.ok && inFrame && ev.id in inflightFlushes) transitionEnd("a flush written under it failed (${ev.error}) — its repaint goes now", close = true)
+        }
+    }
+
+    /** §7.11: with no in-half body by the in half's nominal end plus one period, the phone CLOSEs both slots — the one
+     *  rule that ends a waiter, so no pose is held until he acts. Pacing on the loop, never a wait on a send. */
+    private fun transitionDeadlineArm(tr: TransitionRun) {
+        val at = tr.deadlineMs() ?: return
+        val gen = transitionDeadlineGen
+        scope.launch {
+            delay(maxOf(1L, at - System.currentTimeMillis()))
+            if (running) post(Msg.Run(dropped = {}) {
+                if (transition === tr && gen == transitionDeadlineGen)
+                    transitionEnd("no in-half body by its nominal end plus one period — both slots are CLOSEd, the frame shows whole", close = true)
+            })
+        }
+    }
+
+    /** RIGHT's notify-114 bodies: the in half's outcome-0 body ends the transition, and the phone CLOSEs the out half's
+     *  slot (empty on RIGHT; it ends an owner LEFT kept after losing the in half). A body of an earlier act's in half (a
+     *  newer act PLAYed slot 2 since) is not this run's and CLOSEs nothing (§7.11, B'3). */
+    private fun transitionBody(ev: TransportEvent.LocalBody) {
+        val tr = transition ?: return
+        if (ev.slot != TransitionRun.IN_SLOT || ev.tag != tr.tagIn || transitionBodyLostForTest) return
+        when (ev.outcome) {
+            wm.damage.core.wire.DamageMsg.OUTCOME_DREW -> {
+                journal.note("transition", "in half's last step drawn on RIGHT (${ev.drawn ?: "?"} drawn, ${ev.folded ?: "?"} folded), " +
+                    "${System.currentTimeMillis() - tr.actAtMs} ms after the act")
+                transitionsWhole++
+                transitionsWholeBy.merge(tr.built.effect.id, 1, Int::plus)
+                transitionEnd(null, closeOut = true)
+            }
+            // the second review pass's finding 2: a refusal whose body comes before its flush's failed ack closes both
+            // slots here, as the ack would (the out half, done and owning, holds its far pose until something ends it);
+            // a closed in half (outcome 1) met both boxes in its close pass
+            else -> transitionEnd("its in half ended on RIGHT with outcome ${ev.outcome}${ev.reason?.let { " (reason $it)" } ?: ""}",
+                close = ev.outcome == wm.damage.core.wire.DamageMsg.OUTCOME_REFUSED)
+        }
+    }
+
+    /** The transition ends: [why] said (null: it ran whole), [close] both slots or [closeOut] the out half's in one flush
+     *  of their own, the writes that waited and the queued notices let go. */
+    private fun transitionEnd(why: String?, close: Boolean = false, closeOut: Boolean = false) {
+        val tr = transition ?: return
+        transition = null
+        transitionDeadlineGen++
+        if (why != null) journal.note("transition", "${tr.tier.word} ${tr.built.effect.label} ended in ${tr.phase}: $why")
+        // X2T item 1: RIGHT's in-half body of a glyph run holds the other cache writes one in-half period more (LEFT may
+        // land later and reports nothing); its end is asked back as a pump. Every other end releases the run's hold here
+        // (a period an earlier body set lapses by itself, its pump already asked).
+        if (why == null && tr.holdsCache) {
+            val p = Math.ceil(tr.built.timing.period * 1000.0 / 1024).toLong()
+            glyphHoldUntilMs = maxOf(glyphHoldUntilMs, System.currentTimeMillis() + p)
+            glyphHoldPumpOwed = true
+            pumpAfter(p)
+        }
+        val owners = tr.phase == TransitionRun.Phase.FRAME || tr.phase == TransitionRun.Phase.IN
+        val closes = when {
+            !owners || glassesSilent -> emptyList()
+            close -> listOf(CfwModes.motionClose(TransitionRun.OUT_SLOT), CfwModes.motionClose(TransitionRun.IN_SLOT))
+            closeOut -> listOf(CfwModes.motionClose(TransitionRun.OUT_SLOT))
+            else -> emptyList()
+        }
+        transitionCloses = transitionCloses + closes
+        // the notices that waited behind it (not behind the wheel, a menu or the keyboard, which keep them)
+        if (!switcher.open && !menu.open && !keyboard.open && notifications.showNextIfIdle()) {
+            updatePlanes(); paintNotification()
+            if (quiet) scheduleSilentDismiss() else scheduleGrace()
+        }
+        post(Msg.Pump)
+    }
+
+    /** CLOSEs a transition's end owes: the next pump sends them alone, ahead of its frame; a session's start drops them
+     *  (its keyframe ends every instance). */
+    private var transitionCloses: List<ByteArray> = emptyList()
+
+    // ------------------------------------------------------------------ build C3, stage DM-T: Encode's cells
+    /**
+     * The text runs of the screen as it stands now: painted once into a scratch through [CachedText.survey] — only runs
+     * of codes a face the glasses hold packs are recorded (the atlas's own split), into a list of the survey's own, and
+     * nothing is counted (X2T item 4: no face seen, no use, no character noted, no icon use — a thumbnail shown once is
+     * not packed because a screen was recorded; no record in the frame's list). Content only: the chrome's few strings
+     * are not cells (they show with the backdrop). The content painters damage the content area as they always do; the
+     * screen being painted is the one on the panel or the one about to be, so that costs no byte. [screenRunCount] counts
+     * every call (the one entry of both recordings and the test seam).
+     */
+    private fun screenRuns(): List<wm.damage.core.comp.TextDraw> {
+        val ct = cachedText ?: return emptyList()
+        screenRunCount++
+        val g = Gray8(comp.width, comp.height)
+        return ct.survey(g) {
+            if (mode == Mode.SILENT) wallClock().let { c -> SilentMode.paintAll(g, layout, c.hh, c.mm, settings.silentClock, silentSmallPainter(c)) }
+            else when (val w = contentWindow()) {
+                null -> kit.paintList(g, layout, main.view(), resting = main.resting)
+                else -> when (val v = w.view()) {
+                    is WindowView.ListView -> kit.paintList(g, layout, v)
+                    is WindowView.DocView -> kit.paintDoc(g, layout, v)
+                    is WindowView.CanvasView -> v.paint(g, layout.content)
+                }
+            }
+        }
+    }
+
+    /** C3 X2T item 4 (decisions AM (1), AQ (4)): the screens recorded this process — 0 below stage 5 and for every effect
+     *  but Encode, 2 per Encode act (the leaving screen at the pick, the arriving one at the act). */
+    private var screenRunCount = 0
+    internal fun screenRunsForTest(): Int = screenRunCount
+
+    /** [runs] as Encode's cells over [area] ([CellLists.screen]): a face counts when the glasses hold it — live and acked
+     *  (`GlyphAtlas.isAcked`) — and a run's track offsets are its plane's disparity (the compositor's last region holding
+     *  its rect, as `Compositor.disparityAt` reads it), the notice box's region left out (X2T item 5, the review's 4(c):
+     *  the box is lifted at the act, so the text under it shows with its own plane's offset, not the box's). */
+    private fun screenCells(runs: List<wm.damage.core.comp.TextDraw>, area: Rect): wm.damage.core.motion.CellLists.Screen {
+        val ct = cachedText; val a = atlas
+        if (ct == null || a == null) return wm.damage.core.motion.CellLists.Screen.NoFit("cached text is off")
+        val live = ct.live
+        // C3 X4T item 1's class (the arriving screen): by value, not by identity — the compositor keeps its old list when
+        // a plane map comes in equal (`Compositor.planes`), so after a second [updatePlanes] with nothing changed the
+        // region in the map was not [noticePlane]'s object, the box's plane stayed and the arriving text under the box
+        // took the box's offset (8 px off its glyph on each lens, found by the X4T row)
+        val box = noticePlane
+        val planes = comp.planes.filter { it != box }
+        return wm.damage.core.motion.CellLists.screen(runs, { s -> if (s in live && a.isAcked(s)) a.entry(s) else null }, { s -> ct.kernOf(s) },
+            { r -> planes.lastOrNull { it.rect.contains(r) }?.disparity ?: 0 }, area)
+    }
+
+    /** Tests only: the screen on the panel as Encode's cells (on the loop). */
+    internal fun screenCellsForTest(): Pair<List<wm.damage.core.comp.TextDraw>, wm.damage.core.motion.CellLists.Screen> =
+        screenRuns().let { it to screenCells(it, Rect(0, 0, comp.width, layout.safe.bottom)) }
+    /** Tests only: the atlas's entry of [spec] as the glasses hold it. */
+    internal fun atlasEntryForTest(spec: FontSpec): GlyphAtlas.Entry? = atlas?.takeIf { it.isAcked(spec) && spec in cachedFontsLive }?.entry(spec)
 
     // ------------------------------------------------------------------ chrome
     private fun chromeState(): Chrome.State {
@@ -8273,6 +8858,8 @@ class Shell(
         if (switcher.spinning) append("spin ")
         if (haltedEpoch != null) append("halted ")
         if (glassesSilent) append("glasses-silent ")
+        transition?.let { append("transition=${it.phase} ") }
+        if (transitionCloses.isNotEmpty()) append("closes=${transitionCloses.size} ")
         lastDivergence?.let { append("diverge[$it] ") }
         append("reports=$divergencesReported status='$statusWord'")
     }
@@ -8280,11 +8867,21 @@ class Shell(
     /** True when nothing is pending anywhere — test/selfcheck introspection. */
     fun isQuiescent(): Boolean = queued.get() == 0 && idleApartFromMessages()
 
-    /** Everything quiescence asks for EXCEPT the message queue. */
+    /** Everything quiescence asks for EXCEPT the message queue. C3 X4T item 4 (`C3-V2T-review.md` 5, decisions AT (5)):
+     *  not idle while a glyph hold keeps cache writes back — its extra period ([glyphHoldUntilMs]), then until the pump
+     *  after it has run and what it let go has landed (the class: a harness that settled at the period's end acted just
+     *  as the held atlas chunk went, and the next act left Encode and Matrix out). Only in a session that played a glyph
+     *  run (the stamp is 0 otherwise). Read by the harnesses only (`isQuiescent`, [sampleIdle]); no product decision
+     *  reads it. */
     private fun idleApartFromMessages(): Boolean =
         (glassesSilent || (!comp.hasPending && !comp.needsKeyframe && !comp.deferring)) && inflightFlushes.isEmpty() &&
             noticePlayFlush == null &&                     // build K1-4a: the notice's PLAY alone in flight is a flush in flight
-            !notifications.animating && slides.none { it.active } && !switcher.spinning
+            !notifications.animating && slides.none { it.active } && !switcher.spinning && transition == null && transitionCloses.isEmpty() &&
+            !glyphHoldKeepsWritesBack()
+
+    /** C3 X4T item 4: a glyph run's hold still keeps cache writes back, or what it let go is still on its way. */
+    private fun glyphHoldKeepsWritesBack(): Boolean = glyphHoldUntilMs != 0L &&
+        (System.currentTimeMillis() < glyphHoldUntilMs || glyphHoldPumpOwed || atlasQueue.isNotEmpty() || cacheWorkInFlight)
 
     /**
      * 🔴 An ATOMIC settled sample, for a harness that compares the shell's
@@ -8639,6 +9236,8 @@ class Shell(
         /** §66: a relay keep that records nothing — a strip is painted the way a live paint is,
          *  but its draws are not this frame's. */
         private val NO_RECORDS = Rect(0, 0, 0, 0)
+        /** C3 DM-T: why Encode and Matrix leave an act's pick while the atlas is writing. */
+        private const val ATLAS_BUSY = "an atlas chunk is queued or in flight — the fonts it reads could move"
         const val ATLAS_RECENT_FRAMES = 12L
         const val ATLAS_REPACK_PACE_MS = 45_000L
         /** §73: the last of the cache a face nobody is drawing may not be packed into — the
