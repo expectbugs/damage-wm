@@ -1286,9 +1286,25 @@ is stated there.
   lens that refused one of them ends its batch there, and on LEFT nothing else is heard of it. **A refusal record naming
   a batch dropped whole** (mode 8, reason 14: recorded so, never as 27, §4) re-sends each table object a batch carried
   since the previous telemetry read, in its current form — a held entry's SET, a cleared one's CLEAR, a list's LIST with
-  shift 0 — since the record does not say which batch (ruled on the fork's first review pass). Without DamageCaps bit
-  10, or below stage 4, the phone sends no mode 27, no COMMIT, DISCARD or SETTLE and applies scroll messages and clicks
-  as today: byte for byte today's start. The start's bytes are pinned per stage and per `Taps` value.
+  shift 0 — since the record does not say which batch (ruled on the fork's first review pass).
+  **A refusal record naming mode 26** (decisions BS.3, 2026-11-20) gets the repair one naming 27 gets — the whole
+  table again and ONE keyframe — when a message the phone wrote since the read before the last carried a mode 26 with
+  another sub-message after it (a CLOSE the close-first rule put at a batch's head, §5.6; the wrap's PLAY ahead of the
+  rules' tail; an answer with the SETTLE or the notice's PLAY behind it): the refused sub-message ended its batch on
+  RIGHT, so what followed did not run there. With no such message in that span (a mode 26 alone in its message, or
+  last in its batch) only that message and its batch's present were lost, the next present goes whole, and nothing is
+  sent. When the refusal's own outcome-2 body already asked a keyframe (§5.6: a play, a COMMIT or an open slot the
+  mirror took), the repair re-sends the table and asks no second keyframe. **Against a standing refusal** (the lead's
+  ruling on B083-rr, 2026-11-20), both repairs a refusal record asks — this one and the one for a record naming 27 —
+  share one rule: after a repair, a new record naming 26 or 27 at a later read, with no read between showing the
+  record unchanged, is journaled and not repaired; a read with the record unchanged, or a session start, re-arms it.
+  One latch serves both modes: either repair re-sends the whole table, and a condition that refuses a 26 refuses a 27
+  too, so a 27 at the read after a 26's repair is that repair's own table refused. (Without it, a table message the
+  phone builds wrongly — refused at every whole-table re-send — was a keyframe at every read; a table left not as
+  believed on RIGHT is already the rules': a fire on the old table is judged by P3 or the tap rule and DISCARDed.)
+  Each case is a `local` note naming the record and the messages sent. Without DamageCaps bit 10, or below stage 4,
+  the phone sends no mode 27, no COMMIT, DISCARD or SETTLE and applies scroll messages and clicks as today: byte for
+  byte today's start. The start's bytes are pinned per stage and per `Taps` value.
 - **P2 one ordered flow.** A 115 enters the shell through the same ordered event flow as the stock input events, in
   arrival order, so a stock message is handled after every 115 that preceded it on the link.
 - **P3 a scroll that drew.** The phone adopts the 115 only if all hold: it is fresh (P8); field 7 is the list in front
@@ -1774,6 +1790,7 @@ case-in (the journal; the calendar fallback covers a miss) · COMMIT CRCs equal 
 | phone: the tap rule and its DISCARD answer | — | a lost DISCARD: a missing ack → keyframe; SETTLE also ends the press | S, list, mark, cursor, the owes n | the shell's loop | each field once | P3 |
 | phone: the bound-list CLEAR/SET around covers (modals, popovers, other windows) | — | a lost CLEAR: a fire under the cover fails "in front" → DISCARD, and its 115 (an entry not held) re-sends the CLEAR; a lost SET: its scroll entries come back at the first unreported scroll message — one a carried owe paid (P5) is no evidence — (the table repair), the tap entry at the next return or start (taps act as today's clicks meanwhile) | entry | built in the cover's own batch | — | every cover: confirm, popover, keyboard, window switch |
 | phone: the table repair (§6.7): the objects owed a re-send; per bound list, whether a scroll 115 was handled since the last SETTLE sent | the owed objects at the batch that carries them; the per-list mark at each SETTLE sent; all at a session start | a re-send that does not land: the next evidence re-sends again; refused: P1's paths | list (the scroll entries), entry (SET, CLEAR); a stale LIST is the riding LIST's (P9) | the reader thread hands the evidence over in order (P2); the shell's loop composes the re-sends after the batch's drawing subs and skips one whose object the batch already carries | once per 115 or unreported stock message | P1's re-sends (the refusal record naming 27 or a batch dropped whole, the refused flush); the cover's CLEAR and the return's SET; P3's and the tap rule's tests, which name the evidence |
+| phone: the refusal records' gate (§6.7 P1, decisions BS.3): each message carrying a mode 26 with a sub-message after it, over the last two read spans; one latch against a standing refusal, for records naming 26 and 27; whether the newest outcome-2 body asked a keyframe | each session start, with the record's baseline; the spans move on at each RIGHT record; the latch clears at a read with the record unchanged | nothing waits; a repair that does not land takes P1's paths, and a new refusal at the next read meets the latch | the read count; the record's (mode, reason, sequence) for "new" | written by the image writer and the notify thread, read by the notify thread, one lock; RIGHT's record only (LEFT cannot report) | once per record | P1's repair for 27 and its batch-14 re-send (not under the latch); B-S2's keyframe; the refused flush's re-send |
 | phone: batch order (26/27 after the drawing subs; a LIST before its slot's answer, D0) | — | a refused sub loses the present only | — | both lenses alike | — | every flush carrying COMMIT, DISCARD, SETTLE, SET, CLEAR or LIST; the LIST with shift 0 before every answer naming a list |
 | phone: the persisted stage, `Taps`, the last stage-4 arming, the last case-in, the hold-back | never by a restart of the process; the hold-back at its lifting | the record is written before the rung's first byte (R2 B-M1) | the restart reads: RIGHT's uptime, LEFT's end reasons | the transport | each end read once (R6 B6-2) | C1's stages 1–3 |
 | phone: unknown bound areas (P10); the batch's diff taken with COMMIT's END applied | the SETTLE that ends the burst | — | slot | mirror lock (C1's) | — | C1's unknown drawing areas; the per-slot answer's "no drawing sub meets the areas" |

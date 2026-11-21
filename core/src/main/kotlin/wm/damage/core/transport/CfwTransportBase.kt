@@ -1389,7 +1389,8 @@ abstract class CfwTransportBase(
      *  and the image-lane refusal when it is new and names mode 27 (the record is sticky until the next refusal, so it is
      *  handed once; the session's first record — the start's reset check, before this session sent anything — is the
      *  baseline: what it shows is an earlier session's, and the start sends the whole table anyway). Decisions BS.3: a new
-     *  one naming mode 26 is handed as `refusal26` when [engineRefusals] says something of its batch lay behind it. */
+     *  one naming mode 26 is handed as `refusal26` when [engineRefusals] says something of its batch lay behind it; both
+     *  modes go through that gate, which holds the rule against a standing refusal (the lead's ruling on B083-rr). */
     private fun bindTelemetry(t: DamageMsg.Telemetry) {
         if (!hasBind(damageCaps)) return
         val ref = t.refusal
@@ -1398,29 +1399,31 @@ abstract class CfwTransportBase(
         val baseline = bindRefusalBaseline
         bindRefusalBaseline = false
         bindRefusalSeen = rec
-        val names27 = fresh && !baseline && rec!!.first == CfwModes.BIND_MODE
-        if (names27) emitNote("local", "the glasses refused a mode 27 (${ref!!.describe()}) — the shell sends the whole table again")
         // decisions M.5: a batch dropped whole is recorded as mode 8 / reason 14, never 27 — the shell re-sends the table
         // subs it sent since the last read
         val batch14 = fresh && !baseline && rec!!.first == 8 && rec.second == 14
         if (batch14) emitNote("local", "the glasses dropped a batch whole (${ref!!.describe()}) — the shell re-sends the table messages it sent since the last read")
-        // decisions BS.3: a mode 26 refused with more of its batch behind it — that rest did not run on RIGHT: the repair a
-        // 27's gets, once (the rule against repeating is the gate's)
-        val e26 = engineRefusals.read(ref, fresh && !baseline)
-        when (e26) {
-            is wm.damage.core.local.EngineRefusals.Repair -> emitNote("local", "the glasses refused a mode 26 (${e26.ref.describe()}) " +
-                "with more of its batch behind it (sent since the read before the last: ${e26.sent}) — the shell sends the whole table again" +
-                if (e26.keyframe) " and keyframes" else "; the refusal's own motion body already asked a keyframe")
-            is wm.damage.core.local.EngineRefusals.Standing -> emitNote("local", "the glasses refused a mode 26 again (${e26.ref.describe()}; " +
-                "sent: ${e26.sent}) at a read after one was repaired, with no read clean between — a standing refusal: not repaired " +
+        // decisions BS.3 and the lead's ruling on B083-rr: a record naming 27 (P1), or 26 with more of its batch behind it —
+        // that rest did not run on RIGHT: the whole table again and one keyframe, once (the rule against repeating is the
+        // gate's, one latch for both modes)
+        val e = engineRefusals.read(ref, fresh && !baseline)
+        val mode = e?.let { it.ref.mode and 0x7F }
+        val sent = { s: String -> if (s.isEmpty()) "" else " (sent since the read before the last: $s)" }
+        when (e) {
+            is wm.damage.core.local.EngineRefusals.Repair -> emitNote("local", "the glasses refused a mode $mode (${e.ref.describe()})" +
+                (if (mode == CfwModes.MOTION_MODE) " with more of its batch behind it" else "") + sent(e.sent) + " — the shell sends the whole table again" +
+                if (e.keyframe) " and keyframes" else "; the refusal's own motion body already asked a keyframe")
+            is wm.damage.core.local.EngineRefusals.Standing -> emitNote("local", "the glasses refused a mode $mode again (${e.ref.describe()})" +
+                sent(e.sent) + " at a read after one was repaired, with no read clean between — a standing refusal: not repaired " +
                 "again until a read shows nothing refused since, or the next session")
-            is wm.damage.core.local.EngineRefusals.Alone -> emitNote("local", "the glasses refused a mode 26 (${e26.ref.describe()}); " +
+            is wm.damage.core.local.EngineRefusals.Alone -> emitNote("local", "the glasses refused a mode 26 (${e.ref.describe()}); " +
                 "nothing sent since the read before the last had a sub-message behind a mode 26 — only it and its batch's present " +
                 "were lost (the next present goes whole): no repair")
             null -> {}
         }
-        if (!_events.tryEmit(TransportEvent.LocalRead(t.boundIds, if (names27) ref else null, batch14 = if (batch14) ref else null,
-                fields = t.fields, flagsInForce = t.flags?.toInt(), refusal26 = e26 as? wm.damage.core.local.EngineRefusals.Repair)))
+        val repair = e as? wm.damage.core.local.EngineRefusals.Repair
+        if (!_events.tryEmit(TransportEvent.LocalRead(t.boundIds, repair?.takeIf { mode == CfwModes.BIND_MODE }?.ref, batch14 = if (batch14) ref else null,
+                fields = t.fields, flagsInForce = t.flags?.toInt(), refusal26 = repair?.takeIf { mode == CfwModes.MOTION_MODE })))
             Log.e(name, "LocalRead event DROPPED (buffer full)")
     }
 

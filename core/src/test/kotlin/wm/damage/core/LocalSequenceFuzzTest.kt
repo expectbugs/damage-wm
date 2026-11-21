@@ -365,10 +365,11 @@ class LocalSequenceFuzzTest {
         // closed (the list returning to the front)
         if (h.noticePlays > 0) counted["K1-4a: notice timer PLAYs"] = (counted["K1-4a: notice timer PLAYs"] ?: 0) + h.noticePlays
         if (h.noticeCuts > 0) counted["K1-4a: notice timers closed by a draw in the band"] = (counted["K1-4a: notice timers closed by a draw in the band"] ?: 0) + h.noticeCuts
-        // decisions BS.3: the gate's decisions on refusal records naming mode 26 (repaired, standing, nothing behind it)
+        // decisions BS.3: the gate's decisions on refusal records naming mode 26 or 27 (repaired, standing, nothing behind)
         for (d in h.engineDecisions) {
-            val k = when (d) { is wm.damage.core.local.EngineRefusals.Repair -> BS3_REPAIRED
-                is wm.damage.core.local.EngineRefusals.Standing -> "BS.3: mode-26 refusal records standing"
+            val m = d.ref.mode and 0x7F
+            val k = when (d) { is wm.damage.core.local.EngineRefusals.Repair -> if (m == 26) BS3_REPAIRED else "BS.3: mode-$m refusal records repaired"
+                is wm.damage.core.local.EngineRefusals.Standing -> "BS.3: mode-$m refusal records standing"
                 is wm.damage.core.local.EngineRefusals.Alone -> "BS.3: mode-26 refusal records with nothing behind" }
             counted[k] = (counted[k] ?: 0) + 1
         }
@@ -1290,6 +1291,34 @@ class LocalSequenceFuzzTest {
             val all = h.engineDecisions.drop(d0).map { it::class.simpleName }
             if (all != listOf("Repair", "Standing", "Repair")) seen += "decisions: $all (re-armed by the clean read)"
             if (h.rules.counts["repair.engine"] != 2) seen += "repair.engine ${h.rules.counts["repair.engine"]} (two)"
+            h.rest()
+        }, extra = { seen })
+    }
+
+    /** B083-rr follow-up (the lead's ruling on its report): P1's own repair under the same rule. ENGINE cleared on RIGHT
+     *  alone with BIND in force — RIGHT refuses every mode 27 (15, §6.3's order: ENGINE before BIND) and every mode 26.
+     *  Four notches, each followed by a read: each answer's riding LIST is refused first, so every record names 27 — one
+     *  repair and its one keyframe, then standing (the repair's own table refused again), then the third and fourth
+     *  records unchanged (nothing presents on RIGHT): re-armed. A present on RIGHT (a keyframe, as a divergence would ask)
+     *  makes the next refusal's record new, and it is repaired. Before the rule: four keyframes in four reads. ENGINE comes
+     *  back before the invariants; the refusals are the case's own, so (5) counts them apart. */
+    @Test fun seededBS3_aStanding27RefusalIsRepairedOnceThenReArmed() {
+        val seen = ArrayList<String>()
+        seeded(Taps.REPORT, script = { h ->
+            h.lossyMessages++
+            h.sim.conformanceControl(Arm.RIGHT, DamageMsg.OP_FLAGS_SET, LocalHarness.ARMED and DamageMsg.FLAG_ENGINE.inv(), h.now)
+            val k0 = h.keyframes; val d0 = h.engineDecisions.size
+            fun notchAndRead() { notch(h); h.runUntil(h.now + 700); h.readTelemetry(); h.runUntil(h.now + 300) }
+            repeat(4) { notchAndRead() }
+            fun decisions() = h.engineDecisions.drop(d0).map { "${it::class.simpleName} ${it.ref.mode and 0x7F}" }
+            if (decisions() != listOf("Repair 27", "Standing 27")) seen += "decisions on four notches' records: ${decisions()} (Repair 27, then Standing 27)"
+            if (h.keyframes - k0 != 1) seen += "${h.keyframes - k0} keyframes in four reads while RIGHT refused every mode 27 (one: the repair's)"
+            h.keyframe("the case's own: a present on RIGHT")
+            notchAndRead()
+            if (decisions() != listOf("Repair 27", "Standing 27", "Repair 27")) seen += "after the clean reads and a present: ${decisions()} (re-armed)"
+            if (h.keyframes - k0 != 3) seen += "${h.keyframes - k0} keyframes (three: the repair's, the case's own, the re-armed repair's)"
+            h.sim.conformanceControl(Arm.RIGHT, DamageMsg.OP_FLAGS_SET, LocalHarness.ARMED, h.now)
+            h.tick()
             h.rest()
         }, extra = { seen })
     }

@@ -1084,7 +1084,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     private val telem = ArrayList<ByteArray>()
     /** Decisions BS.3: the transport's gate for refusal records naming mode 26 (`CfwTransportBase.bindTelemetry`). */
     val engine = wm.damage.core.local.EngineRefusals()
-    /** Each read's decision on a record naming mode 26 (null: none), in order. */
+    /** Each read's decision on a record naming mode 26 or 27 (none: no entry), in order. */
     val engineDecisions = ArrayList<wm.damage.core.local.EngineRefusals.Decision>()
     fun readTelemetry() {
         telem.clear()
@@ -1095,10 +1095,13 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         val rec = ref?.let { Triple(it.mode and 0x7F, it.reason, it.seq) }
         val fresh = rec != null && rec != lastRef
         lastRef = rec
-        val e26 = engine.read(ref, fresh)
-        if (e26 != null) { engineDecisions += e26; trace?.invoke("[$now] mode-26 refusal record: $e26") }
-        rules.telemetry(t.boundIds, if (fresh && rec!!.first == 27) ref else null,
-            if (fresh && rec!!.first == 8 && rec.second == 14) ref else null, e26 as? wm.damage.core.local.EngineRefusals.Repair)
+        // the transport's gate decides both modes (`CfwTransportBase.bindTelemetry`): a record naming 27 is repaired only
+        // when it says so (the rule against a standing refusal)
+        val e = engine.read(ref, fresh)
+        if (e != null) { engineDecisions += e; trace?.invoke("[$now] mode-${e.ref.mode and 0x7F} refusal record: $e") }
+        val repair = e as? wm.damage.core.local.EngineRefusals.Repair
+        rules.telemetry(t.boundIds, repair?.takeIf { it.ref.mode and 0x7F == 27 }?.ref,
+            if (fresh && rec!!.first == 8 && rec.second == 14) ref else null, repair?.takeIf { it.ref.mode and 0x7F == 26 })
         pumpSoon()
     }
 

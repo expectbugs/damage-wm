@@ -16,25 +16,30 @@ import wm.damage.core.wire.DamageMsg
  * still on its way to RIGHT when a read was answered is not dropped). A record naming 26 with no such message written
  * in that span was one of the lone ones.
  *
- * The rule against repeating: one repair, then none while each read shows a new mode-26 refusal (the engine word left
- * held, ENGINE gone on RIGHT alone: the repair's own batch is refused again); a read that shows nothing refused since
- * (the record unchanged) or a session start re-arms it. BIND, a lease gone and Silent Mode stop it before this: the
- * rules act only while BIND is in force, and the flags clear at every release point. When the refusal's own motion body
- * already asked a keyframe (build C1's ruling B-S2: a PLAY or COMMIT the mirror took, a slot the mirror holds open), the
- * repair re-sends the table and asks none of its own.
+ * The rule against repeating, for every repair a refusal record asks (the lead's ruling on B083-rr: a record naming 26,
+ * and one naming 27 — P1's own repair, which the gate decides too): one repair, then none while each read shows a new
+ * refusal of either mode (the engine word left held, ENGINE gone on RIGHT alone, a table message the phone builds
+ * wrongly: the repair's own batch is refused again); a read that shows nothing refused since (the record unchanged) or
+ * a session start re-arms it. ONE latch for the two modes: the repair re-sends the whole table either way, and a condition that refuses a 26
+ * refuses a 27 too (§6.3's checks hold §5.5's), so a 27 at the read after a 26's repair is that repair's own table
+ * refused — standing. BIND, a lease gone and Silent Mode stop it before this: the rules act only while BIND is in force,
+ * and the flags clear at every release point. When the refusal's own motion body already asked a keyframe (build C1's
+ * ruling B-S2: a PLAY or COMMIT the mirror took, a slot the mirror holds open), a 26's repair re-sends the table and asks
+ * none of its own; a refused 27 sends no body, so its repair always keyframes.
  *
  * State (`FORK.md` §3.8): (a) cleared at each session start, with the record's baseline; (b) nothing waits; (c) keyed on
  * the read count alone; (d) written by the image writer and the notify thread, read by the notify thread — one lock;
  * (e) each read decides once, on one snapshot; (f) RIGHT's record only — LEFT cannot report.
  */
 class EngineRefusals {
-    sealed class Decision
-    /** The shell re-sends the whole table and, when [keyframe], asks ONE keyframe. [sent]: what was written, for the notes. */
-    data class Repair(val ref: DamageMsg.Refusal, val sent: String, val keyframe: Boolean) : Decision()
-    /** A new mode-26 refusal at a read after one was repaired, with none clean between: not repaired again. */
-    data class Standing(val ref: DamageMsg.Refusal, val sent: String) : Decision()
+    sealed class Decision { abstract val ref: DamageMsg.Refusal }
+    /** The shell re-sends the whole table and, when [keyframe], asks ONE keyframe. [sent]: what was written, for the notes
+     *  (a 26's span; empty for a 27). */
+    data class Repair(override val ref: DamageMsg.Refusal, val sent: String, val keyframe: Boolean) : Decision()
+    /** A new refusal naming 26 or 27 at a read after one was repaired, with none clean between: not repaired again. */
+    data class Standing(override val ref: DamageMsg.Refusal, val sent: String) : Decision()
     /** Nothing written in the span had a sub-message behind a mode 26: no repair. */
-    data class Alone(val ref: DamageMsg.Refusal) : Decision()
+    data class Alone(override val ref: DamageMsg.Refusal) : Decision()
 
     /** Per read span: each mode-26 sub with something after it in its batch, as "SUB slot n", and how many messages. */
     private var now = LinkedHashMap<String, Int>()
@@ -56,12 +61,16 @@ class EngineRefusals {
         val keyframed = bodyKeyframed
         before = now; now = LinkedHashMap(); bodyKeyframed = false
         if (!fresh) { latched = false; return null }
-        if (ref == null || ref.mode and 0x7F != CfwModes.MOTION_MODE) return null
-        if (span.isEmpty()) return Alone(ref)
-        val sent = span.entries.joinToString { (k, n) -> "$k ×$n" }
+        if (ref == null) return null
+        val mode = ref.mode and 0x7F
+        if (mode != CfwModes.MOTION_MODE && mode != CfwModes.BIND_MODE) return null
+        // a record naming 27 (P1's own repair) has no span to read and always keyframes; it takes the same latch
+        val m26 = mode == CfwModes.MOTION_MODE
+        if (m26 && span.isEmpty()) return Alone(ref)
+        val sent = if (m26) span.entries.joinToString { (k, n) -> "$k ×$n" } else ""
         if (latched) return Standing(ref, sent)
         latched = true
-        return Repair(ref, sent, keyframe = !keyframed)
+        return Repair(ref, sent, keyframe = !m26 || !keyframed)
     }
 
     companion object {

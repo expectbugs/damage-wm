@@ -780,6 +780,35 @@ class BindTransportTest {
         t.stop()
     }
 
+    /** The lead's ruling on B083-rr: a record naming 27 under the gate's rule. The same SET (entry 9, refused 12 on both
+     *  lenses — a table message the phone built wrongly) refused at two reads running is handed once, then journaled as
+     *  standing; a read with nothing refused since re-arms it, and the next is handed again. A lone fill between makes
+     *  each record new (the record's sequence is RIGHT's present count, §4). */
+    @Test
+    fun aMode27RefusalRecurringAtTheNextReadIsStanding(): Unit = runBlocking {
+        val (_, t) = armedSession()
+        val set9 = "1b0009ff04000100222701000000000000000000000000"
+        val fill = CfwModes.fill(Rect(0, 400, 16, 8), 3).hex()
+        suspend fun read(): TransportEvent.LocalRead {
+            events.clear()
+            t.devProbe("telemetry", "read")
+            waitUntil(10_000, message = { "a LocalRead: $events" }) { events.any { it is TransportEvent.LocalRead } }
+            return events.filterIsInstance<TransportEvent.LocalRead>().last()
+        }
+        suspend fun send(hex: String) { t.devProbe("selftest", "live:$hex"); delay(200) }
+        read()
+        send(set9)
+        assertEquals(27, read().refusal27?.mode, "the first: handed")
+        send(fill); send(set9)
+        assertNull(read().refusal27, "the same refused at the next read: standing")
+        saw("local", "the glasses refused a mode 27 again")
+        saw("local", "a standing refusal: not repaired again")
+        assertNull(read().refusal27)                                       // nothing refused since: re-armed
+        send(fill); send(set9)
+        assertEquals(27, read().refusal27?.mode, "re-armed: handed again")
+        t.stop()
+    }
+
     /** P9: a mid-session disarm of BIND by hand (`flags=0x2c`) goes out only after a DISCARD(0xFF, S − 0x4000, 0xFF, 0) has its
      *  ack — the DISCARD on the image lane, then the FLAGS_SET. S is S_heard + 1 as it stands at the disarm (decisions
      *  AA.3): two notches heard (S 1 and 2), so 3 − 0x4000 — the session's first S (1) reached only its first 16,384. */

@@ -5096,8 +5096,8 @@
   "file": "transport/CfwTransportBase.kt",
   "edits": [
    [
-    "        val e26 = engineRefusals.read(ref, fresh && !baseline)",
-    "        val e26 = engineRefusals.read(ref, false)"
+    "        val e = engineRefusals.read(ref, fresh && !baseline)",
+    "        val e = engineRefusals.read(ref, false)"
    ]
   ],
   "tests": [
@@ -5106,7 +5106,7 @@
   "expect": [
    "aMode26RefusalIsHandedWhenMoreOfItsBatchLayBehindIt_BS3"
   ],
-  "note": "decisions BS.3: the transport never hands or journals a record naming mode 26 (the tree before B083-rr, the transport's half)",
+  "note": "decisions BS.3: the transport never hands or journals a record naming mode 26 (the tree before B083-rr, the transport's half) (re-targeted in the follow-up: the gate's decision is `e`, both modes)",
   "from": "B083-rr"
  },
  {
@@ -5134,8 +5134,8 @@
   "file": "local/EngineRefusals.kt",
   "edits": [
    [
-    "        if (span.isEmpty()) return Alone(ref)",
-    "        if (false && span.isEmpty()) return Alone(ref)"
+    "        if (m26 && span.isEmpty()) return Alone(ref)",
+    "        if (false && m26 && span.isEmpty()) return Alone(ref)"
    ]
   ],
   "tests": [
@@ -5146,7 +5146,7 @@
    "seededBS3_aRefusedMode26WithNothingBehindItSpendsNoKeyframe",
    "aMode26RefusalIsHandedWhenMoreOfItsBatchLayBehindIt_BS3"
   ],
-  "note": "decisions BS.3: a mode 26 with nothing behind it (alone, or last in its batch) repaired too: a keyframe and the table spent on a lost present",
+  "note": "decisions BS.3: a mode 26 with nothing behind it (alone, or last in its batch) repaired too: a keyframe and the table spent on a lost present (re-targeted in the follow-up: the guard reads `m26` since records naming 27 pass the gate)",
   "from": "B083-rr"
  },
  {
@@ -5172,7 +5172,7 @@
   "file": "local/EngineRefusals.kt",
   "edits": [
    [
-    "        return Repair(ref, sent, keyframe = !keyframed)",
+    "        return Repair(ref, sent, keyframe = !m26 || !keyframed)",
     "        return Repair(ref, sent, keyframe = true)"
    ]
   ],
@@ -5182,7 +5182,7 @@
   "expect": [
    "aMode26RefusalIsHandedWhenMoreOfItsBatchLayBehindIt_BS3"
   ],
-  "note": "decisions BS.3: the repair asks its own keyframe when the refusal's motion body already asked one (B-S2): two keyframes for one refusal",
+  "note": "decisions BS.3: the repair asks its own keyframe when the refusal's motion body already asked one (B-S2): two keyframes for one refusal (re-targeted in the follow-up: a 27's repair always keyframes)",
   "from": "B083-rr"
  },
  {
@@ -5201,6 +5201,26 @@
    "(no pin: a gate carried across a session start costs at most one repair withheld, or one spent, at the new session's first record naming mode 26 - and the start's warmup keyframe and P1 batch have just made both lenses whole)"
   ],
   "note": "decisions BS.3: the gate's spans and latch not cleared at a session start",
+  "from": "B083-rr"
+ },
+ {
+  "id": "BS3-27-no-latch",
+  "file": "local/EngineRefusals.kt",
+  "edits": [
+   [
+    "        if (latched) return Standing(ref, sent)",
+    "        if (latched && m26) return Standing(ref, sent)"
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.seededBS3_aStanding27RefusalIsRepairedOnceThenReArmed",
+   "*BindTransportTest.aMode27RefusalRecurringAtTheNextReadIsStanding"
+  ],
+  "expect": [
+   "seededBS3_aStanding27RefusalIsRepairedOnceThenReArmed",
+   "aMode27RefusalRecurringAtTheNextReadIsStanding"
+  ],
+  "note": "the lead's ruling on B083-rr: a record naming 27 outside the rule against a standing refusal: a keyframe at every read while RIGHT refuses the re-sent table",
   "from": "B083-rr"
  }
 ]
