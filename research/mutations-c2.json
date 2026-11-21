@@ -8796,5 +8796,274 @@
   ],
   "note": "C3 X4M0 (decisions BI (1)): the tap rule's (2) passes a tap handed with row -1 again - a tap at a ring of 8's cursor 7 (distance 0 from -1) is acted on as a click into the cover the lens does not show yet",
   "from": "C3-X4M0"
+ },
+ {
+  "id": "DW0-hole-without-margin",
+  "file": "shell/Switcher.kt",
+  "edits": [
+   [
+    "        g.fillRect(hole, Level.BG)                 // the wheel clears its hole\n",
+    "        g.fillRect(l.switcherPanel, Level.BG)      // the wheel clears its hole\n"
+   ]
+  ],
+  "tests": [
+   "*WheelTest.theAreaHoldsOnlyTheWheel*",
+   "*WheelTest.theEndOfEveryNotch*",
+   "*WheelStage4Test.atStage5*"
+  ],
+  "expect": [
+   "theAreaHoldsOnlyTheWheel_DW0",
+   "theEndOfEveryNotchIsTheSwitchersPaintAndItsStartThePaintBefore_DW0",
+   "atStage5TheShellClearsTheMarginsAndMapsThePanelWithThemAndStage4IsTodays_DW0"
+  ],
+  "note": "C3 DW-0 item 1 (O2): at stage 5 the wheel clears only its panel — the margins keep the window behind, which the area then shows",
+  "from": "C3-DW0"
+ },
+ {
+  "id": "DW0-band-region-fixed",
+  "file": "shell/Switcher.kt",
+  "edits": [
+   [
+    "        val band = Compositor.PlaneRegion(Rect(p.x, r.bandTop, p.w, r.bandH), 0)",
+    "        val band = Compositor.PlaneRegion(Rect(p.x, p.y + 44, p.w, 88), 0)"
+   ]
+  ],
+  "tests": [
+   "*WheelTest.theEndOfEveryNotch*",
+   "*WheelStage4Test.atStage5*"
+  ],
+  "expect": [
+   "theEndOfEveryNotchIsTheSwitchersPaintAndItsStartThePaintBefore_DW0",
+   "atStage5TheShellClearsTheMarginsAndMapsThePanelWithThemAndStage4IsTodays_DW0"
+  ],
+  "note": "C3 DW-0 item 1: at stage 5 the centre band's plane region stays the design's 44 / 88 instead of the band as painted (a face with a larger band: its rows at the wrong plane) — re-pointed by C3 X1W (one band region now serves every stage: the mutant holds the fixed band at stage 4 too)",
+  "from": "C3-DW0"
+ },
+ {
+  "id": "DW0-margin-below-stage5",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (!transport.state.value.effects || quiet) return 0\n",
+    "        if (quiet) return 0\n"
+   ]
+  ],
+  "tests": [
+   "*WheelStage4Test*"
+  ],
+  "expect": [
+   "theSwitchersBytesBelowStage5AreTheTreesBeforeDw_DW0",
+   "atStage5TheShellClearsTheMarginsAndMapsThePanelWithThemAndStage4IsTodays_DW0"
+  ],
+  "note": "C3 DW-0 item 1: the margins and the stage-5 map below stage 5 — the switcher's stage-4 bytes move",
+  "from": "C3-DW0"
+ },
+ {
+  "id": "DW0-even-rows-below-stage5",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "switcher.paint(comp.composed, layout, margin, stage5 = transport.state.value.effects)",
+    "switcher.paint(comp.composed, layout, margin, stage5 = true)"
+   ]
+  ],
+  "tests": [
+   "*WheelStage4Test.atStage5*"
+  ],
+  "expect": [
+   "atStage5TheShellClearsTheMarginsAndMapsThePanelWithThemAndStage4IsTodays_DW0"
+  ],
+  "note": "C3 DW-0 item 1: the neighbour rows on even rows below stage 5 — a dirty tick on an odd row moves at stage 4 (his face: the row below at 239)",
+  "from": "C3-DW0"
+ },
+ {
+  "id": "DW0-odd-row-kept",
+  "file": "shell/Switcher.kt",
+  "edits": [
+   [
+    "    private fun neighbourY(y: Int, stage5: Boolean) = if (stage5) y and 1.inv() else y\n",
+    "    private fun neighbourY(y: Int, stage5: Boolean) = y\n"
+   ]
+  ],
+  "tests": [
+   "*WheelTest.theEndOfEveryNotch*",
+   "*WheelTest.aRowOnAnOddRow*",
+   "*WheelStage4Test.atStage5*"
+  ],
+  "expect": [
+   "theEndOfEveryNotchIsTheSwitchersPaintAndItsStartThePaintBefore_DW0",
+   "aRowOnAnOddRowSitsOnTheEvenRowAtStage5AndTodaysBelow_DW0",
+   "atStage5TheShellClearsTheMarginsAndMapsThePanelWithThemAndStage4IsTodays_DW0"
+  ],
+  "note": "C3 DW-0 item 1: at stage 5 a neighbour row stays on its odd row — one neighbour form cannot serve both rows (a dirty window below: END off the paint by the tick's rows)",
+  "from": "C3-DW0"
+ },
+ {
+  "id": "DW0-swap-late",
+  "file": "motion/Wheel.kt",
+  "edits": [
+   [
+    "        val n1 = (1 until t).first { eo[it] >= 2048 || it == t - 1 }\n",
+    "        val n1 = minOf(t - 1, (1 until t).first { eo[it] >= 2048 || it == t - 1 } + 1)\n"
+   ]
+  ],
+  "tests": [
+   "*WheelTest.theFormsSwap*"
+  ],
+  "expect": [
+   "theFormsSwapAtHalfTheTravel_DW0"
+  ],
+  "note": "C3 DW-0 item 3: the forms swap one step after half the travel",
+  "from": "C3-DW0"
+ },
+ {
+  "id": "DW0-centre-own-ease",
+  "file": "motion/Wheel.kt",
+  "edits": [
+   [
+    "ease = e1, n = n1, opt = TRANSPARENT, prefs = src(1), h0 = hC",
+    "ease = Motion.Ease.EaseOut, n = n1, opt = TRANSPARENT, prefs = src(1), h0 = hC"
+   ]
+  ],
+  "tests": [
+   "*WheelTest.whatMovesMovesTogether*"
+  ],
+  "expect": [
+   "whatMovesMovesTogether_DW0"
+  ],
+  "note": "C3 DW-0 item 3: the leaving centre's first segment on its own ease-out over n1 steps, not the shared ease-out's first part — it lags then leads the other movers",
+  "from": "C3-DW0"
+ },
+ {
+  "id": "DW0-centre-depth-at-swap",
+  "file": "motion/Wheel.kt",
+  "edits": [
+   [
+    "dx = -dx1, dxR = dx1, lvl0 = 15, lvl1 = LEVEL_SWAP",
+    "dx = 0, dxR = 0, lvl0 = 15, lvl1 = LEVEL_SWAP"
+   ]
+  ],
+  "tests": [
+   "*WheelTest.whatMovesMovesTogether*"
+  ],
+  "expect": [
+   "whatMovesMovesTogether_DW0"
+  ],
+  "note": "C3 DW-0 item 3: the leaving centre stays at the screen plane until the swap, then jumps d·f back in depth",
+  "from": "C3-DW0"
+ },
+ {
+  "id": "DW0-start-pose",
+  "file": "motion/Wheel.kt",
+  "edits": [
+   [
+    "draw(cell, x = xl, xR = xr, y = fromY, dy = (mY - hN / 2) - fromY,",
+    "draw(cell, x = xl, xR = xr, y = fromY + 2, dy = (mY - hN / 2) - fromY - 2,"
+   ]
+  ],
+  "tests": [
+   "*WheelTest.theEndOfEveryNotch*"
+  ],
+  "expect": [
+   "theEndOfEveryNotchIsTheSwitchersPaintAndItsStartThePaintBefore_DW0"
+  ],
+  "note": "C3 DW-0 item 4: the arriving neighbour starts two rows off its rest place — a jump at every fire (END unchanged)",
+  "from": "C3-DW0"
+ },
+ {
+  "id": "DW0-none-two-forms",
+  "file": "motion/Wheel.kt",
+  "edits": [
+   [
+    "                    draw(cell, x = p.x, xR = p.x, y = cTop, n = 1, opt = TRANSPARENT, prefs = src(2), windowFirst = 0, windowRows = hC)\n",
+    "                    draw(cell, x = p.x, xR = p.x, y = cTop, n = 1, opt = TRANSPARENT, prefs = src(1), windowFirst = 0, windowRows = hC)\n"
+   ]
+  ],
+  "tests": [
+   "*WheelTest.noneLands*"
+  ],
+  "expect": [
+   "noneLandsTheDetentInOneStep_DW0"
+  ],
+  "note": "C3 DW-0 item 3: None's centre draws the leaving window's centre form (P1) instead of the arriving one's",
+  "from": "C3-DW0"
+ },
+ {
+  "id": "DW0-budget-80",
+  "file": "motion/Wheel.kt",
+  "edits": [
+   [
+    "            if (cost * 100 > Motion.BUDGET_CAP * 80) throw",
+    "            if (false && cost * 100 > Motion.BUDGET_CAP * 80) throw"
+   ]
+  ],
+  "tests": [
+   "*WheelTest*"
+  ],
+  "expect": [
+   "(declared: no wheel a real face makes comes near 80 % of the cap — 15.5 to 16.9 % measured at every d and face; the check is the phone's backstop, no pin)"
+  ],
+  "note": "C3 DW-0 item 3: the offline 80 % budget refusal",
+  "from": "C3-DW0"
+ },
+ {
+  "id": "DW0-ink-box",
+  "file": "motion/Wheel.kt",
+  "edits": [
+   [
+    "        inkOutside(n, nb)?.let { throw",
+    "        if (false) inkOutside(n, nb)?.let { throw"
+   ]
+  ],
+  "tests": [
+   "*WheelTest*"
+  ],
+  "expect": [
+   "(declared: no face here inks a neighbour row outside its box; were one to, the END pin sees the paint's ink the record lacks)"
+  ],
+  "note": "C3 DW-0 item 2: the neighbour form's ink inside its box (a rect a paint returns is a promise); C3 X1W (the V1W review's finding 8): its twin for the centre form (Wheel.cell's inkOutside(c, centre)) is declared under the same reasoning, no row of its own — no face here inks the centre band outside its rows, and were one to, END sees the paint's ink the record lacks",
+  "from": "C3-DW0"
+ },
+ {
+  "id": "X1W-band-region-fixed-below-stage5",
+  "file": "shell/Switcher.kt",
+  "edits": [
+   [
+    "if (margin == 0) return listOfNotNull(if (d != 0) Compositor.PlaneRegion(p, d) else null, band)",
+    "if (margin == 0) return listOfNotNull(if (d != 0) Compositor.PlaneRegion(p, d) else null, Compositor.PlaneRegion(Rect(p.x, p.y + 44, p.w, 88), 0))"
+   ]
+  ],
+  "tests": [
+   "*WheelStage4Test.theCentreIcon*",
+   "*WheelStage4Test.atStage5*"
+  ],
+  "expect": [
+   "theCentreIconIsDrawnAtOnePlaneOnEachLensAtEveryStage_X1W",
+   "atStage5TheShellClearsTheMarginsAndMapsThePanelWithThemAndStage4IsTodays_DW0"
+  ],
+  "note": "C3 X1W item 1 (decisions BM (7)): below stage 5 the centre band's plane region is the design's fixed 44 / 88 rows on every face (the tree before X1W) — on a face with a band of 98 the centre icon's top rows are drawn at the panel's plane, a lens offset from the rest",
+  "from": "C3-X1W"
+ },
+ {
+  "id": "X1W-swap-levels-6",
+  "file": "motion/Wheel.kt",
+  "edits": [
+   [
+    "    const val LEVEL_SWAP_CENTRE = Switcher.NEIGHBOUR_LEVEL\n",
+    "    const val LEVEL_SWAP_CENTRE = 6\n"
+   ],
+   [
+    "    const val LEVEL_SWAP_NEIGHBOUR = 15\n",
+    "    const val LEVEL_SWAP_NEIGHBOUR = 6\n"
+   ]
+  ],
+  "tests": [
+   "*WheelTest.theBrightnessIsCarriedThroughTheSwap*"
+  ],
+  "expect": [
+   "theBrightnessIsCarriedThroughTheSwapOnThePixels_X1W"
+  ],
+  "note": "C3 X1W item 4 (decisions BK (3), BM (4)): both swap levels at O9's first value 6 — the leaving item drops and the arriving one jumps at the swap",
+  "from": "C3-X1W"
  }
 ]
