@@ -21,7 +21,7 @@ class SettingsLocalRowsTest {
     @Test
     fun theAnimationsCategoryShowsOnlyOnABit10Build_ANIM() {
         var st = ShellSettings()
-        fun w(bit10: Boolean) = SettingsWindow(FakeText(), { st }, { st = it }, bindBuild = { bit10 }, motionHint = { "10 frames × 45 ms" })
+        fun w(bit10: Boolean) = SettingsWindow(FakeText(), { st }, { st = it }, bindBuild = { bit10 }, motionHint = { "10 × 45 ms" })
         assertTrue("Animations" !in w(false).categoryNamesForTest(), "no bit 10: ${w(false).categoryNamesForTest()}")
         assertTrue("Animations" in w(true).categoryNamesForTest(), "bit 10: ${w(true).categoryNamesForTest()}")
         // C3 AS: below stage 5 the page is the Scroll tier's row and the Popups tier's (`MOTION.md` §7's order), each
@@ -29,7 +29,7 @@ class SettingsLocalRowsTest {
         assertEquals(listOf("Scroll" to "Depth", "Popups" to "Unfurl"), w(true).rowsForTest("Animations"))
         // the Scroll tier's rows (K1-1; C3 X2T: "(default)" on `Scroll frames` too), then the notice box's (K1-4a: the
         // Popups tier); every row says "(default)" at its default (decisions AM (3), BW (3))
-        assertEquals(listOf("Scroll effect" to "Depth (default)", "Scroll length" to "300 ms (default)", "Scroll frames" to "auto (10 frames × 45 ms) (default)"),
+        assertEquals(listOf("Scroll effect" to "Depth (default)", "Scroll length" to "300 ms (default)", "Scroll frames" to "auto (10 × 45 ms) (default)"),
             w(true).rowsForTest("Animations", "Scroll"))
         assertEquals(listOf("Popup length" to "300 ms (default)", "Popup frames" to "auto (default)", "Popup · Unfurl" to "on (default)",
                 "Popup · Fade" to "off (default)", "Popup · Slide" to "off (default)"),
@@ -78,6 +78,31 @@ class SettingsLocalRowsTest {
         stage5 = false; back.view()
         assertEquals("animations" to 2, back.title() to back.levelDepth(), "the tier gone from the page takes its sub menu with it")
         assertTrue(win.back()); assertEquals("" to 1, win.title() to win.levelDepth())
+        // the lead's read: inside a sub menu a row is drawn without its tier's name (Popups': "Popup"); its name stays
+        val drawn = ArrayList<String>()
+        val rec = object : wm.damage.core.text.TextRasterizer {
+            override fun measure(text: String, font: wm.damage.core.text.FontSpec) = text.length * 8
+            override fun metrics(font: wm.damage.core.text.FontSpec) = wm.damage.core.text.FontMetrics(12, 4, 16)
+            override fun draw(surface: wm.damage.core.gfx.Gray8, x: Int, y: Int, text: String, font: wm.damage.core.text.FontSpec, level: Int) { drawn += text }
+            override fun covers(text: String, font: wm.damage.core.text.FontSpec) = true
+        }
+        stage5 = true
+        val rw = SettingsWindow(rec, { st }, { st = it }, bindBuild = { true }, effectsInForce = { stage5 })
+        fun names(tier: Int): List<String> {
+            assertTrue(rw.open("cat:Animations"))
+            if (tier >= 0) (rw.view() as wm.damage.core.shell.WindowView.ListView).onCommit(tier)
+            val v = rw.view() as wm.damage.core.shell.WindowView.ListView
+            val r = wm.damage.core.geom.Rect(0, 0, 640, 40)
+            return (0 until v.rowCount()).map { i -> drawn.clear(); v.paintRow(wm.damage.core.gfx.Gray8(640, 40), i, r, false); drawn.first() }
+        }
+        assertEquals(listOf("Scroll", "Select", "Close / Back", "Lock Screen", "Popups"), names(-1), "the page: the tiers' names")
+        assertEquals(listOf("Effect", "Length", "Frames"), names(0))
+        assertEquals(listOf("Length", "Frames", "Depth", "Warp", "Flip", "Fall", "Glitch", "Encode", "Matrix", "Explode"), names(2), "Close / Back")
+        assertEquals(listOf("Length", "Frames", "Fade", "Build", "Matrix", "Encode", "Glitch", "Explode"), names(3), "Lock Screen")
+        assertEquals(listOf("Length", "Frames", "Unfurl", "Fade", "Slide"), names(4), "Popups")
+        drawn.clear(); (rw.view() as wm.damage.core.shell.WindowView.ListView).paintLens(wm.damage.core.gfx.Gray8(640, 64), wm.damage.core.geom.Rect(0, 0, 640, 64), 2)
+        assertEquals(listOf("Unfurl", "on (default)", "tap to adjust"), drawn, "the lens draws the same name, the hint as before")
+        assertEquals("Popup · Unfurl", rw.rowsForTest("Animations", "Popups")[2].first, "the row's name stays")
     }
 
     /** K1-1: `Scroll effect` cycles None · Depth · Slide · Fall (Depth the default); an older record reads Depth, a value

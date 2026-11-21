@@ -274,7 +274,7 @@ class TransitionsTest {
     fun theTierRowsShowOnlyAtStage5WithTheRuledDefaults_DP2() {
         var st = wm.damage.core.shell.ShellSettings()
         fun w(effects: Boolean) = wm.damage.core.shell.SettingsWindow(FakeText(), { st }, { st = it }, bindBuild = { true },
-            motionHint = { "10 frames × 45 ms" }, effectsInForce = { effects })
+            motionHint = { "10 × 45 ms" }, effectsInForce = { effects })
         // K1-1's Scroll tier rows (`private/build083/K1-1-built.md`: `Scroll effect`, `Scroll length`, `Scroll frames`) and
         // K1-4a's notice box rows (the Popups tier) on a bit-10 build; at stage 5 the transition tiers go between them —
         // `MOTION.md` §7's order: Scroll, Select, Close / Back, Lock Screen, Popups (decisions BW (3)). C3 AS: the page is
@@ -297,7 +297,7 @@ class TransitionsTest {
         val v = rows.toMap()
         // every tier row says "(default)" at its default, as Scroll's rows do (X2T item 7), the scroll rows included
         assertEquals("450 ms (default)", v["Select length"]); assertEquals("10 (5 × 45 ms a half) (default)", v["Select frames"])
-        assertEquals("auto (10 frames × 45 ms) (default)", v["Scroll frames"])
+        assertEquals("auto (10 × 45 ms) (default)", v["Scroll frames"])
         assertEquals("on (default)", v["Select · Depth"]); assertEquals("off (default)", v["Select · Warp"])
         assertEquals("on (default)", v["Close / Back · Depth"]); assertEquals("on (default)", v["Lock Screen · Fade"]); assertEquals("off (default)", v["Lock Screen · Encode"])
         st = st.withTier(Transitions.Tier.SELECT, effects = wm.damage.core.shell.ShellSettings.tierEffects(Transitions.Tier.SELECT, st.selectEffects + "warp"))

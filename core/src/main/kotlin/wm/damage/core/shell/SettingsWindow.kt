@@ -44,7 +44,7 @@ class SettingsWindow(
     /** Build C2 (decisions AF.0): the build reports DamageCaps bit 10 — `Taps` and `Local input` are shown only then (on
      *  any other firmware they would be rows that do nothing). */
     private val bindBuild: () -> Boolean = { true },
-    /** Build ANIM (AV): the motion in force at the height in force, in words ("10 frames × 45 ms"), for `Frames`. */
+    /** Build ANIM (AV): the motion in force at the height in force, in words ("10 × 45 ms": steps × period), for `Frames`. */
     private val motionHint: () -> String = { "" },
     /** Build C3, stage DP2: ladder stage 5 is in force (DamageCaps bit 11, EFFECTS armed) — the transition tiers' rows
      *  are shown only then (anywhere else a Select, a Back and the clock are cuts, and the rows would do nothing). */
@@ -254,6 +254,15 @@ class SettingsWindow(
     private val popupTier = Entry("Popups", {
         checked(listOfNotNull("Unfurl".takeIf { get().popupUnfurl }, "Fade".takeIf { get().popupFade }, "Slide".takeIf { get().popupSlide }))
     }, null, sub = popupEntries)
+
+    /** The name a row is drawn with: inside a tier's sub menu (the title already names the tier) its [Entry.name] less the
+     *  tier row's name, or that name without its plural "s" (Popups' "Popup"), and the separator after it — "Select ·
+     *  Warp" reads "Warp", "Scroll effect" "Effect"; elsewhere the name. [Entry.name] itself stays: rows are found by it. */
+    private fun label(e: Entry): String {
+        val t = openSub?.name ?: return e.name
+        val p = listOf(t, t.removeSuffix("s")).firstOrNull { e.name.startsWith("$it ") } ?: return e.name
+        return e.name.removePrefix(p).trimStart(' ', '·').replaceFirstChar { it.uppercase() }
+    }
 
     /** A checkbox tier's row value: the one effect checked, how many are, or None (nothing plays: it lands at once). */
     private fun checked(on: List<String>): String = when (on.size) { 0 -> "None"; 1 -> on[0]; else -> "${on.size} on" }
@@ -503,7 +512,7 @@ class SettingsWindow(
         // unbounded draw put ink past the content rect the kit damages —
         // undamaged composed ink that shows up on the next keyframe out of
         // nowhere (review 2026-09-02)
-        Draw.fit(g, text, r.x + 40, r.y + 7, Draw.dynamic(text, e.name, fSmall), Level.DIM, fSmall, 232)
+        Draw.fit(g, text, r.x + 40, r.y + 7, Draw.dynamic(text, label(e), fSmall), Level.DIM, fSmall, 232)
         val vf = valueFont(e)
         Draw.fit(g, text, r.x + 280, r.y + 5, Draw.dynamic(text, e.value(), vf), Level.BODY, vf,
             r.right - 24 - (r.x + 280))
@@ -512,13 +521,14 @@ class SettingsWindow(
     private fun paintLens(g: Gray8, r: Rect, i: Int) {
         val e = entriesAt().getOrNull(i) ?: return
         IconPaint.drawKind(g, IconKind.SETTINGS, r.x + 12, r.y + 10, 24, Level.HEAD)
-        text.draw(g, r.x + 44, (r.y + 8) / 2 * 2, e.name, fRowB, Level.HEAD)
+        val name = label(e)
+        text.draw(g, r.x + 44, (r.y + 8) / 2 * 2, name, fRowB, Level.HEAD)
         val vf = valueFont(e)
         // right-aligned while it fits beside the name; past that it is drawn
         // FROM the name's end with the drawn continuation mark, so it can
         // never walk left over the name or off the row (the Main lens shape)
         val v = Draw.dynamic(text, e.value(), vf)
-        val nameEnd = r.x + 44 + text.measure(e.name, fRowB) + 16
+        val nameEnd = r.x + 44 + text.measure(name, fRowB) + 16
         val vMax = r.right - 16 - nameEnd
         if (text.measure(v, vf) <= vMax) {
             text.draw(g, (r.right - 16 - text.measure(v, vf)) / 4 * 4, (r.y + 8) / 2 * 2, v, vf, Level.BODY)
