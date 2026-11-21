@@ -151,4 +151,44 @@ class WheelStage4Test {
         }
         if (missing.isNotEmpty()) fail(missing.joinToString("\n"))
     }
+
+    /**
+     * C3 DW-0 (the DW spec §2.6, decisions BD's O2), the shell's half: on the same build at stage 5 (EFFECTS in force) the
+     * open wheel's hole has its margins — the composed columns of Global `Depth` either side of the panel are black — and
+     * the plane map holds the panel with them at that depth and the centre band at the screen plane as painted; at stage
+     * 4 neither (the recording above).
+     */
+    @Test
+    fun atStage5TheShellClearsTheMarginsAndMapsThePanelWithThem_DW0(): Unit = runBlocking {
+        val dir = Files.createTempDirectory(tmp, "s5")
+        val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = 0xDFF }
+        val t = SimTransport(sim, scope, SimTransport.Timing(instant = true))
+        t.devProbe("c1", "5")
+        val p = Persistence(dir.resolve("s.json"))
+        p.put("shell.settings", ShellSettings(heightMode = 352, depth = 8, cachedText = "on").toJson())
+        val shell = Shell(CachedText(FakeText()), t, p, null, scope) { Shell.LocalClock(12, 0, "12:00", "PM") }
+        for (i in 0 until 5) shell.register(Win("w$i", "Window $i", IconKind.FILES))
+        shell.start()
+        suspend fun settle(what: String) = waitUntil(30_000, 10, { "$what: ${shell.quiescenceReport()}" }) { shell.isQuiescent() }
+        settle("start")
+        for (i in 0 until 5) { shell.services.runOnShell { shell.services.openWindow("w$i", null) }; settle("open w$i") }
+        for (g in listOf(EvenHubMsg.EV_RING_LONG_PRESS, EvenHubMsg.EV_RING_LONG_PRESS_RELEASE, EvenHubMsg.EV_DOUBLE_CLICK)) shell.postGesture(g)
+        settle("the wheel")
+        assertTrue(shell.switcherIsOpen, "the chord opens the wheel")
+        var seen: Pair<List<wm.damage.core.comp.Compositor.PlaneRegion>, Int>? = null
+        repeat(200) {
+            if (seen == null) { settle("sample"); seen = shell.sampleIdle {
+                val pn = shell.layout.switcherPanel
+                var lit = 0
+                for (y in pn.y until pn.bottom) for (x in (pn.x - 8 until pn.x) + (pn.right until pn.right + 8)) if (shell.comp.composed[x, y] != 0) lit++
+                shell.comp.planes to lit
+            } }
+        }
+        val (planes, lit) = seen ?: fail("the shell never sat idle for a sample")
+        val pn = shell.layout.switcherPanel
+        assertEquals(0, lit, "the margins beside the panel are black at stage 5")
+        assertTrue(planes.any { it.rect == wm.damage.core.geom.Rect(pn.x - 8, pn.y, pn.w + 16, pn.h) && it.disparity == 8 }, "the panel with its margins at Depth 8: $planes")
+        assertTrue(planes.any { it.disparity == 0 && it.rect.x == pn.x && it.rect.w == pn.w && it.rect.y > pn.y && it.rect.bottom < pn.bottom }, "the centre band at the screen plane: $planes")
+        shell.stop()
+    }
 }
