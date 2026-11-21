@@ -6319,12 +6319,12 @@
    ]
   ],
   "tests": [
-   "*TransitionShellTest*"
+   "*TransitionShellTest.onALinkLikeHisBothBodiesLostEndAtTheAcksRuleAndTheAllowance*"
   ],
   "expect": [
-   "aLostInHalfBodyEndsBothSlotsAtTheDeadline_DP2"
+   "onALinkLikeHisBothBodiesLostEndAtTheAcksRuleAndTheAllowance_TR1"
   ],
-  "note": "C3-DP2: 7.11: no CLOSE of both slots at the in half's nominal end plus a period (lane row `deadline`)",
+  "note": "C3-DP2: 7.11: the PLAY-AFTER's ack does not arm the backstop — since C3 TR1 seen with both bodies lost: no CLOSE of both slots, a waiter that never ends (lane row `deadline`)",
   "from": "C3-DP2"
  },
  {
@@ -6627,12 +6627,12 @@
    ]
   ],
   "tests": [
-   "wm.damage.core.TransitionShellTest"
+   "*TransitionShellTest.onALinkLikeHisBothBodiesLostEndAtTheAcksRuleAndTheAllowance*"
   ],
   "expect": [
-   "aLostInHalfBodyEndsBothSlotsAtTheDeadline_DP2"
+   "onALinkLikeHisBothBodiesLostEndAtTheAcksRuleAndTheAllowance_TR1"
   ],
-  "note": "C3-X2P2: item 4: the out PLAY's ack not recorded: no deadline is ever armed (lane row `out-ack-armed`)",
+  "note": "C3-X2P2: item 4: the out PLAY's ack not recorded: the acks' rule is never armed — since C3 TR1 seen with both bodies lost (lane row `out-ack-armed`)",
   "from": "C3-X2P2"
  },
  {
@@ -9405,5 +9405,105 @@
   ],
   "note": "C3 MX2 item 3 (the stage-4 path unchanged, with Matrix stored in every tier): the transitions' region reserved below stage 5",
   "from": "C3-MX2"
+ },
+ {
+  "id": "TR1-anchor-off",
+  "file": "shell/TransitionRun.kt",
+  "edits": [
+   [
+    "        outBodyAtMs != 0L -> maxOf(outBodyAtMs, inDoneAtMs) + Math.round(steps * periodMs) + BODY_ALLOWANCE_MS\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*TransitionShellTest.onALinkLikeHisALostInHalfBodyEndsBothSlotsAfterTheAllowance*",
+   "*TransitionShellTest.theDeadlineCountsFromRightsOutHalfBodyOnceItCame*"
+  ],
+  "expect": [
+   "onALinkLikeHisALostInHalfBodyEndsBothSlotsAfterTheAllowance_TR1",
+   "theDeadlineCountsFromRightsOutHalfBodyOnceItCame_TR1"
+  ],
+  "note": "C3 TR1 item 3: RIGHT's out-half body never moves the backstop — the acks' rule (with the allowance since BV (2)) on every run: on his link about 100 ms before the out-body end",
+  "from": "C3-TR1"
+ },
+ {
+  "id": "TR1-out-body-not-armed",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            tr.outBodyAtMs = System.currentTimeMillis()\n            transitionDeadlineArm(tr)\n",
+    "            tr.outBodyAtMs = System.currentTimeMillis()\n"
+   ]
+  ],
+  "tests": [
+   "*TransitionShellTest.onALinkLikeHisALostInHalfBodyEndsBothSlotsAfterTheAllowance*"
+  ],
+  "expect": [
+   "onALinkLikeHisALostInHalfBodyEndsBothSlotsAfterTheAllowance_TR1"
+  ],
+  "note": "C3 TR1 item 3: the out-half body recorded but the backstop not armed again — the timer the PLAY-AFTER's ack armed on the acks' rule stands",
+  "from": "C3-TR1"
+ },
+ {
+  "id": "TR1-allowance-one-period",
+  "file": "shell/TransitionRun.kt",
+  "edits": [
+   [
+    "        const val BODY_ALLOWANCE_MS = 500L\n",
+    "        const val BODY_ALLOWANCE_MS = 45L\n"
+   ]
+  ],
+  "tests": [
+   "*TransitionShellTest.onALinkLikeHisTheBackstopWaitsForTheInHalfsBody*"
+  ],
+  "expect": [
+   "onALinkLikeHisTheBackstopWaitsForTheInHalfsBody_TR1"
+  ],
+  "note": "C3 TR1 item 3: the out-body rule's allowance at one period (0.83's margin) — the in-half body at his worst (240 ms past that end, a PLAY-AFTER RIGHT ran late) comes after the backstop",
+  "from": "C3-TR1"
+ },
+ {
+  "id": "TR1-acks-rule-off",
+  "file": "shell/TransitionRun.kt",
+  "edits": [
+   [
+    "        else -> maxOf(inDoneAtMs, outEndMs()) + Math.round((steps + 1) * periodMs) + ACKS_ALLOWANCE_MS\n",
+    "        else -> null\n"
+   ]
+  ],
+  "tests": [
+   "*TransitionShellTest.onALinkLikeHisBothBodiesLostEndAtTheAcksRuleAndTheAllowance*",
+   "*TransitionShellTest.theDeadlineCountsFromTheOutPlaysAck*",
+   "*TransitionShellTest.theDeadlineCountsFromRightsOutHalfBodyOnceItCame*"
+  ],
+  "expect": [
+   "onALinkLikeHisBothBodiesLostEndAtTheAcksRuleAndTheAllowance_TR1",
+   "theDeadlineCountsFromTheOutPlaysAck_X2P2",
+   "theDeadlineCountsFromRightsOutHalfBodyOnceItCame_TR1"
+  ],
+  "note": "C3 TR1 item 3: no backstop until RIGHT's out-half body comes — with both bodies lost, a waiter that never ends",
+  "from": "C3-TR1"
+ },
+ {
+  "id": "TR1-acks-allowance-off",
+  "file": "shell/TransitionRun.kt",
+  "edits": [
+   [
+    "        else -> maxOf(inDoneAtMs, outEndMs()) + Math.round((steps + 1) * periodMs) + ACKS_ALLOWANCE_MS\n",
+    "        else -> maxOf(inDoneAtMs, outEndMs()) + Math.round((steps + 1) * periodMs)\n"
+   ]
+  ],
+  "tests": [
+   "*TransitionShellTest.onALinkLikeHisALostOutHalfBodyStillEndsAtTheInHalfsBody*",
+   "*TransitionShellTest.onALinkLikeHisBothBodiesLostEndAtTheAcksRuleAndTheAllowance*",
+   "*TransitionShellTest.theDeadlineCountsFromRightsOutHalfBodyOnceItCame*"
+  ],
+  "expect": [
+   "onALinkLikeHisALostOutHalfBodyStillEndsAtTheInHalfsBody_TR1",
+   "onALinkLikeHisBothBodiesLostEndAtTheAcksRuleAndTheAllowance_TR1",
+   "theDeadlineCountsFromRightsOutHalfBodyOnceItCame_TR1"
+  ],
+  "note": "C3 TR1, decisions BV (2): the acks' rule without its allowance (0.83's) — with the out-half body lost it fires before the in-half body on his link",
+  "from": "C3-TR1"
  }
 ]
