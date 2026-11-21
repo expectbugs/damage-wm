@@ -144,6 +144,10 @@ class CliTest {
         assertEquals("--motion-check needs a DIR to write its strips into", refused("--motion-check"))
         assertEquals("--motion-check needs a DIR to write its strips into", refused("--motion-check", "--no-preview"))
         assertEquals(nothing, run("--motion-check").started, "--motion-check with no DIR starts nothing")
+        // C3 X1W: likewise --wheel-icons DIR
+        assertEquals<Cli>(Cli.WheelIcons("out"), parse("--wheel-icons", "out"))
+        assertTrue(Cli.WheelIcons("out").headless, "the wheel-icons tool never opens a window")
+        assertEquals("--wheel-icons needs a DIR to write into", refused("--wheel-icons"))
         // --no-preview beside a tool sets headless, as it did, on either side of the flag
         assertEquals<Cli>(Cli.SelfCheck(headless = true), parse("--selfcheck", "--no-preview"))
         assertEquals<Cli>(Cli.Snapshot("out", headless = true), parse("--no-preview", "--snapshot", "out"))
@@ -259,7 +263,8 @@ class CliTest {
      *
      * One line was added after the chain, for a flag born after it (build C1, dec. A.15): `--motion-check DIR`. The
      * chain sent it to the shell; its line here is what it means now, so the walk holds the rest of any list that
-     * carries it to the chain (one entry point, no shell flag beside it). Build C2's `--local-check DIR` the same way.
+     * carries it to the chain (one entry point, no shell flag beside it). Build C2's `--local-check DIR` the same way, and
+     * C3 X1W's `--wheel-icons DIR`.
      */
     private fun before(args: List<String>): Cli.Run {
         fun after(flag: String): String? = args.getOrNull(args.indexOf(flag) + 1)?.takeIf { !it.startsWith("-") }
@@ -275,6 +280,7 @@ class CliTest {
             "--snapshot" in args -> Cli.Snapshot(after("--snapshot") ?: "snapshots", headless)
             "--motion-check" in args -> Cli.MotionCheck(after("--motion-check") ?: "(none)")
             "--local-check" in args -> Cli.LocalCheck(after("--local-check") ?: "(none)")
+            "--wheel-icons" in args -> Cli.WheelIcons(after("--wheel-icons") ?: "(none)")
             "--ble-info" in args -> Cli.BleInfo(headless)
             "--host-only" in args -> Cli.HostOnly(headless)
             else -> {

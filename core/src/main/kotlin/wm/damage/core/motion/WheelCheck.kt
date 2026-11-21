@@ -8,6 +8,7 @@ import wm.damage.core.geom.Rect
 import wm.damage.core.geom.VPos
 import wm.damage.core.gfx.Gray8
 import wm.damage.core.gfx.IconKind
+import wm.damage.core.gfx.IconSource
 import wm.damage.core.gfx.Pack
 import wm.damage.core.gfx.Zl
 import wm.damage.core.shell.DamageWindow
@@ -45,14 +46,15 @@ object WheelCheck {
     /**
      * The open wheel of [n] entries (Main and [n] − 1 of [WINDOWS], the first the current window) at [height] with its
      * neighbour rows at disparity [d] (Global `Depth`; the stage-5 margin), over a window whose rows differ by [behind], the
-     * windows at the indices in [dirty] carrying the dirty tick:
+     * windows at the indices in [dirty] carrying the dirty tick, the icons from [icons] (null: the drawn set):
      * the planes `Shell.updatePlanes` gives it at stage 5 (both bars and the content at d, `Switcher.planes` with the
      * margin d; none at 0), and the per-lens truth the compositor renders under them.
      */
-    class Rig(text: TextRasterizer, val height: Int, val n: Int, val d: Int, val behind: Int = 0, dirty: Set<Int> = emptySet()) {
+    class Rig(text: TextRasterizer, val height: Int, val n: Int, val d: Int, val behind: Int = 0, dirty: Set<Int> = emptySet(),
+              icons: IconSource? = null) {
         val layout: Layout = Layout().let { if (height >= Geometry.PANEL_H) it else it.withHeightMode(height, VPos.TOP) }
         val comp = Compositor()
-        val sw = Switcher(text)
+        val sw = Switcher(text, { icons })
         private val windows: List<DamageWindow> = WINDOWS.take(n - 1).mapIndexed { i, (name, icon) ->
             MainLocalCheck.SampleRow("w$i", name, icon, DamageWindow.Summary(name)).also { it.dirty = i in dirty } }
         init {
@@ -220,5 +222,18 @@ object WheelCheck {
             "(the ring's least gap, 224 ms), a pause of $PAUSE_TICKS ticks, six up", 1, burst)
         table += "his nine windows' cells (the drawn icons): ${rig.cells().joinToString { "${it.entry.name} ${it.encoded.size} B" }}"
         return out to table
+    }
+
+    /** His nine windows' [cells] (the switcher's order) and the block's bytes with them: [block] as built (a quarter's slack
+     *  a cell, `MainStaging.slack`), [blockEighth] with an eighth's (`MainStaging.segSlack`), the rest as built. */
+    class CellBytes(val cells: List<Wheel.Cell>, val block: Int, val blockEighth: Int)
+
+    /** C3 X1W (decisions BK (2)): the wheel of his nine windows (Main and the first eight of [WINDOWS]) at [height], d 8, its
+     *  cells painted with the icons [icons] gives (null: the drawn set) — what `desktop --wheel-icons` measures. */
+    fun cellBytes(text: TextRasterizer, icons: IconSource?, height: Int = 352): CellBytes {
+        val rig = Rig(text, height, 9, 8, icons = icons)
+        val cells = rig.cells()
+        val block = rig.block(cells = cells)
+        return CellBytes(cells, block.size, block.size - block.cellSlots.sum() + cells.sumOf { MainStaging.segSlack(it.encoded.size) })
     }
 }

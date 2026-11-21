@@ -46,10 +46,12 @@ class ThemeIcons(
     private val cacheDir: Path,
     themeOverride: String? = null,
     private val onLoaded: () -> Unit = {},
+    /** Where themes are looked for (C3 X1W: `--wheel-icons` reads the system's directory only). */
+    roots: List<Path> = ICON_ROOTS,
 ) : IconSource, IconResolver {
 
     private val themeName: String = themeOverride ?: detectXfceTheme() ?: "hicolor"
-    private val chain: List<Path> = buildChain(themeName)
+    private val chain: List<Path> = buildChain(themeName, roots)
     private val mem = ConcurrentHashMap<String, Gray8>()
     /** Clean misses — permanent for the run. */
     private val missingKeys = ConcurrentHashMap.newKeySet<String>()

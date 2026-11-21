@@ -116,6 +116,50 @@ object MotionCheck {
         return failures
     }
 
+    /** C3 X1W: the theme `--wheel-icons` reads — his, by `ThemeIcons`' own record (Papirus-Dark; the name is given, not read
+     *  from xfconf) — and the one directory it reads it from. */
+    private const val WHEEL_THEME = "Papirus-Dark"
+    private val SYSTEM_ICONS = listOf(Path.of("/usr/share/icons"))
+
+    /**
+     * C3 X1W (decisions BK (2)): `desktop --wheel-icons DIR` — the bytes of his nine windows' wheel cells (the desktop's faces,
+     * height 352, d 8; [WheelCheck.cellBytes]) painted with his theme's icons beside the drawn set's, and the block's at a
+     * quarter's and an eighth's slack a cell, into `DIR/wheel-icons.txt` (and on [out]). The theme is read through
+     * [ThemeIcons] from `/usr/share/icons` only, its bitmaps converted into `DIR/icons` (never `~/.damage/icons`); no config.
+     * The paint path returns null for a bitmap not yet resolved (the drawn icon paints that frame and the resolve runs on
+     * ThemeIcons' own thread), so each kind's names are first resolved with [ThemeIcons.resolve] — the blocking form the
+     * content host serves the phone through — at the two sizes the wheel draws (56 and 20), up to the first the theme holds,
+     * as the paint walks them; that the paint then asked for nothing more is checked ([ThemeIcons.pending] and
+     * [ThemeIcons.completions] unchanged). Exit 1 when it did.
+     */
+    fun wheelIcons(outDir: Path, out: java.io.PrintStream = System.out): Int {
+        Files.createDirectories(outDir)
+        val theme = ThemeIcons(AwtImages(), outDir.resolve("icons"), themeOverride = WHEEL_THEME, roots = SYSTEM_ICONS)
+        val lines = ArrayList<String>()
+        lines += "the wheel's cells with his theme's icons (C3 X1W, decisions BK (2); measured on the PC, M-PC): theme '$WHEEL_THEME' " +
+            "from ${SYSTEM_ICONS.joinToString()} through ThemeIcons, converted into ${outDir.resolve("icons")}; the desktop's faces, height 352, d 8"
+        lines += "how each window's icon resolves (the names of its chain in order, the first the theme holds wins; none: the drawn icon):"
+        for ((name, kind) in listOf("Main" to wm.damage.core.gfx.IconKind.SETTINGS) + WheelCheck.WINDOWS.take(8)) {
+            val chain = wm.damage.core.gfx.IconNames.forKind(kind)
+            lines += "  $name (${kind.name}, $chain): " + listOf(56, 20).joinToString("; ") { size ->
+                "$size px " + (chain.firstOrNull { theme.resolve(it, size) != null }?.let { "'$it'" } ?: "the drawn icon")
+            }
+        }
+        val drawn = WheelCheck.cellBytes(AwtText(), null)
+        val (pending0, done0) = theme.pending() to theme.completions()
+        val themed = WheelCheck.cellBytes(AwtText(), theme)
+        val asked = theme.pending() != pending0 || theme.completions() != done0
+        lines += "the cells (the drawn icons -> his theme's), in the switcher's order:"
+        for ((a, b) in drawn.cells.zip(themed.cells)) lines += "  ${a.entry.name}: ${a.encoded.size} B -> ${b.encoded.size} B"
+        lines += "  the nine: ${drawn.cells.sumOf { it.encoded.size }} B -> ${themed.cells.sumOf { it.encoded.size }} B"
+        lines += "the block (no spare slot; the rule, the item table and the programs' slot as built): a quarter's slack a cell (as built) " +
+            "${drawn.block} B -> ${themed.block} B; an eighth's (MainStaging.segSlack) ${drawn.blockEighth} B -> ${themed.blockEighth} B"
+        if (asked) lines += "FAILED: the paint asked ThemeIcons for a resolve after the warm-up (pending ${theme.pending()}, completions ${theme.completions()})"
+        Files.writeString(outDir.resolve("wheel-icons.txt"), lines.joinToString("\n", postfix = "\n"))
+        for (l in lines) out.println(l)
+        return if (asked) 1 else 0
+    }
+
     /** [rows] of frames, one strip row each, the left lens above the right in each frame, cropped to [crop] at 1x. */
     private fun rowStrip(file: Path, rows: List<List<WheelCheck.Frame>>, crop: Rect) {
         val cols = rows.maxOf { it.size }
