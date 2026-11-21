@@ -235,18 +235,20 @@ object Transitions {
 
     /**
      * Matrix's travel tables over [n] steps a half for [grid] (C3 MX2 R1, decisions BU): E[1..n] of the out half's drops and
-     * of the in half's rain. The out half's heads come in over the old screen no further than one trail — up to e1 =
-     * ⌊(trail − 1)·4096 / (R + trail)⌋ by step n − 1, so no head passes its trail (no cell above a trail: the out half has
-     * no new picture to leave there) — and its last value is 4096 (§5.4's E[n]), where the rain lights nothing: its step n
-     * repeats step n − 1. The in half carries the same heads on from e1 at its own constant step, so its first value lies one
-     * of its steps past the out half's last drawn one. Null for one step a half (no step n − 1: the hold, then the rain).
+     * of the in half's rain. The out half's heads come in over the old screen from rest, gathering speed — e1·(t/(n − 1))²
+     * — no further than one trail: up to e1 = ⌊(trail − 1)·4096 / (R + trail)⌋ by step n − 1, so no head passes its trail
+     * (no cell above a trail: the out half has no new picture to leave there); its last value is 4096 (§5.4's E[n]), where
+     * the rain lights nothing: its step n repeats step n − 1. The in half carries the same heads on from e1 at its own
+     * constant step, so its first value lies one of its steps past the out half's last drawn one (the fall still gathering
+     * speed there: the out half's last step is about half the in half's). Null for one step a half (no step n − 1: the
+     * hold, then the rain).
      */
     class RainTravel(val out: IntArray, val inn: IntArray, val e1: Int)
 
     fun rainTravel(grid: RainGrid, n: Int): RainTravel? {
         if (n < 2) return null
         val e1 = ((grid.trail - 1) * 4096) / (grid.rows + grid.trail)
-        return RainTravel(IntArray(n) { j -> if (j == n - 1) 4096 else (e1 * (j + 1)) / (n - 1) },
+        return RainTravel(IntArray(n) { j -> if (j == n - 1) 4096 else (e1 * (j + 1) * (j + 1)) / ((n - 1) * (n - 1)) },
             IntArray(n) { j -> e1 + ((4096 - e1) * (j + 1)) / n }, e1)
     }
 
