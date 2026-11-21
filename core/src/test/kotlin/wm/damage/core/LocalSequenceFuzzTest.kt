@@ -322,8 +322,10 @@ class LocalSequenceFuzzTest {
 
     // ----------------------------------------------------------------------------------------- random sequences
     /** C3 DM-0: half the sequences bind the list as a ring list at stage 5 (LIST-RING; the wrap notch fires on the lens),
-     *  chosen by the seed with no draw from the sequence's stream; the other half are stage 4's plain list, as before. */
-    private fun ringOf(seed: Long) = (seed / 2) % 2 == 0L
+     *  chosen by the seed with no draw from the sequence's stream; the other half are stage 4's plain list, as before. The
+     *  named seeds of the plain classes stay plain ([GATE_SEEDS], [HIS_GATE_SEEDS], [BS3_SEEDS]: decisions AZ (4)); the
+     *  ring half's own classes have [RING_GATE_SEEDS]. */
+    private fun ringOf(seed: Long) = seed !in GATE_SEEDS && seed !in HIS_GATE_SEEDS && seed !in BS3_SEEDS && (seed / 2) % 2 == 0L
 
     /** The counted key of a declared class, split by the list's form (C3 DM-0: J3 needs an edge on RIGHT, which a ring list
      *  gives only after a LIST-RING lost or refused there). */
@@ -1279,6 +1281,19 @@ class LocalSequenceFuzzTest {
     /** The fifth base's declared classes, which its first 60 sequences do not hold: J3 and J3 through a later reset, both
      *  in 500854. */
     private val HIS_GATE_SEEDS = listOf(500854L)
+    /** C3 X2M0 (decisions AZ (4)): the ring half's own declared classes, which the gate's 60 + 60 do not hold, as BQ chose
+     *  [GATE_SEEDS] — the smallest set of ring sequences of the four bases at 2,000 a base on the merged tree (`wip/084-dm0x`
+     *  `2158f32e`) holding one sequence of each — and the review's stale-cursor adoption across the wrap. The profile's ring
+     *  half declares no class. */
+    private val RING_GATE_SEEDS = listOf(
+        101325L,      // (10) a front's notch paid by its burst's own owe: a dropped echo
+        700632L,      // (9) a stale-cursor adoption after a refused fire applied as today
+        701861L,      // (10) the same: a lost report's gap owe; (9) a lost report of a fire that drew, its message dropped
+        100101081L,   // (10) the same with the burst opened under the front: a lost report's gap owe; (9) a lost report of a
+                      //     fire that drew, its message paid by an owe
+        424201001L,   // (9) an untaken notch's message paid by an owe
+        424201644L,   // (9) the same, a carried owe; a lost report of a fire that drew, its message paid by a carried owe
+        101792L)      // (9) a stale-cursor adoption after an unreported stock message, across the wrap (the review's)
 
     /** Decisions BS.3 (the 0.83 integration; cured by B083-rr): a refused engine message at the head of a batch on RIGHT.
      *  The notice's CLOSE leads an uncover's batch (the transport's close-first rule) and the harness's induced reason-14
@@ -1455,7 +1470,7 @@ class LocalSequenceFuzzTest {
         val only = System.getenv("LOCAL_FUZZ_SEEDS")?.split(',')?.map { it.trim().toLong() }
         // decisions BQ: the gate-sized run also runs one sequence of each declared class of (9) and (10)
         val gate = System.getenv("LOCAL_FUZZ_N") == null && System.getenv("LOCAL_FUZZ_BASES") == null
-        val seeds = only ?: (bases.flatMap { base -> (0 until n).map { i -> base * 100_000 + i } } + if (gate) GATE_SEEDS else emptyList())
+        val seeds = only ?: (bases.flatMap { base -> (0 until n).map { i -> base * 100_000 + i } } + if (gate) GATE_SEEDS + RING_GATE_SEEDS else emptyList())
         for (seed in seeds) {
             val v = try { randomSequence(seed) } catch (e: Throwable) { Verdict(listOf("threw: $e"), emptyMap()) }
             for (f in v.failed) fails += "seed $seed: $f"
@@ -1466,6 +1481,10 @@ class LocalSequenceFuzzTest {
         // every failure, one line each, for reading the shapes (the assertion's message keeps the first 30)
         for (f in fails) println("FAIL $f")
         println("declared: " + declaredSeeds.entries.joinToString("; ") { (k, s) -> "$k ${s.size} sequence(s): ${s.joinToString()}" })
+        // C3 X2M0 (the review of DM-0, finding 4): a named seed that declares nothing no longer holds the class it was named
+        // for — the gate-sized run would stop running that class without a word
+        if (gate && only == null) for (seed in GATE_SEEDS + RING_GATE_SEEDS)
+            if (declaredSeeds.values.none { seed in it }) fails += "seed $seed: a named gate seed declares no class (${if (ringOf(seed)) "ring" else "plain"})"
         println("sequence fuzz: ${seeds.size} sequences (${if (only != null) "seeds ${only.joinToString()}" else "bases ${bases.joinToString()}"}), ${fails.size} failures; " +
             "counted $counted")
         if (fails.isNotEmpty()) fail(fails.take(30).joinToString("\n") + "\n(${fails.size} in all)")
