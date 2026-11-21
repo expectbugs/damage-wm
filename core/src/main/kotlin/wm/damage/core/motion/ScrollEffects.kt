@@ -342,7 +342,9 @@ object ScrollEffects {
      * - T5, F, backdrop none (inside T2): row c's own row (window ← P3, one row) parked unscaled outside F over n1, then
      *   grown from one pixel row to a row at the band's edge (anchor bottom for a notch down, top for up) over n2, covering
      *   every row T2 brings into F (pinned).
-     * At step T every track rests where Main's own paint at c' has it: END = Main's paint (pinned at every cursor).
+     * At step T every track rests where Main's own paint at c' has it: END = Main's paint (pinned at every cursor). T1, T3
+     * and T4 end with phase 1 and hold their last state to step T (`FIRMWARE.md` §5.4: tracks shorter than T hold to the
+     * end), so they carry no trailing WAIT (C3 X1DM1, decisions BP (3): 120 B a pan).
      */
     private fun crush(s: Staged, strip: Motion.Source.Record, kA: Int, kB: Int, step: Int, t: Int, at4: Int,
                       tables: List<Motion.Ease.Table>, fx: Motion.Effects): MotionProgram {
@@ -361,7 +363,6 @@ object ScrollEffects {
             track(eL, eR, Motion.Backdrop.Level(0)) {
                 draw(strip, x = cx - dL, xR = cx + dL, y = if (down) l.lens.bottom - (kA + 1) * rowH else l.lens.y - (kA + 1) * rowH,
                     dy = -step * rowH, ease = e1, n = n1, windowRows = (if (down) kA + kB + 2 else kA + 1) * rowH, prefs = window)
-                wait(n2)
             }
             track(fL, fR, Motion.Backdrop.Level(0)) {
                 wait(n1)
@@ -371,12 +372,10 @@ object ScrollEffects {
             track(r.nL, r.nR, Motion.Backdrop.Level(0)) {
                 draw(s.band, x = cx - dB, xR = cx + dB, y = l.lens.y, h0 = l.lens.h, h1 = 1, anchor = if (down) 0 else 2,
                     ease = e1, n = n1, prefs = listOf(Motion.Pref(2, Motion.Field.SRC)))
-                wait(n2)
             }
             track(r.nL, r.nR, Motion.Backdrop.None) {
                 draw(s.band, x = cx - dB, xR = cx + dB, y = l.lens.y + step * l.lens.h, dy = -step * l.lens.h, ease = e1, n = n1,
                     prefs = listOf(Motion.Pref(1, Motion.Field.SRC)))
-                wait(n2)
             }
             track(fL, fR, Motion.Backdrop.None) {
                 draw(strip, x = cx - dL, xR = cx + dL, y = if (down) l.lens.y else l.lens.bottom - rowH, n = n1, windowRows = rowH, prefs = leaving)
