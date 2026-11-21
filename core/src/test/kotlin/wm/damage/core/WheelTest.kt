@@ -218,7 +218,7 @@ class WheelTest {
 
     /**
      * The block (the DW spec §3.1; measured on the PC's renderer with the test faces, M-PC): every cell in a slot of its own
-     * size with slack and one spare slot of the largest, the item table's slot one entry larger, the programs' slot holding the drum's two
+     * size with slack, the slots back to back and the programs' slot right after them holding the drum's two
      * programs and tables with slack, its size the same at any base; inside 16 KiB for his nine windows. Prints the bytes,
      * the period and steps, and each program's largest C over every cursor beside the spec's §2.5.
      */
@@ -234,9 +234,7 @@ class WheelTest {
             // case, printed): his own face is measured by `desktop --motion-check` (`wheel-staging.txt`)
             if (fname != "ScalingText") assertTrue(block.size <= 16 * 1024, "$fname d $d: ${block.describe()} — past 16 KiB")
             assertEquals(block.cells.map { MainStaging.slack(it.encoded.size) }, block.cellSlots.toList(), "$fname: each cell's slot its size with slack")
-            assertEquals(block.cellSlots.toList(), (block.cellOffs.toList() + block.spareOff).zipWithNext().map { (x, y) -> y - x }, "$fname: the slots back to back, the spare last")
-            assertEquals(block.cellSlots.max(), block.spareSlot, "$fname: the spare holds the largest cell")
-            assertTrue(block.itemSlot >= 2 * (block.n + 1), "$fname: the item table's slot holds one entry more")
+            assertEquals(block.cellSlots.toList(), (block.cellOffs.toList() + block.progOff).zipWithNext().map { (x, y) -> y - x }, "$fname: the slots back to back, the programs' slot after them")
             val progs = block.tables.sumOf { (it.record.size + 3) / 4 * 4 } + (block.down.bytes.size + 3) / 4 * 4 + (block.up.bytes.size + 3) / 4 * 4
             assertTrue(block.progSlot >= progs, "$fname: the programs' slot holds them")
             assertEquals(block.down.at * 4, block.tables.last().off4 * 4 + (block.tables.last().record.size + 3) / 4 * 4, "$fname: the programs after their tables")

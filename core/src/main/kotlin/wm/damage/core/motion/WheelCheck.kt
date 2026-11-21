@@ -206,7 +206,7 @@ object WheelCheck {
         for (d in ds) for (n in ns) {
             val rig = Rig(text, height, n, d)
             val block = rig.block()
-            table += "d $d n $n: ${block.describe()}; without the spare slot ${block.size - block.spareSlot} B; ${rig.geo}"
+            table += "d $d n $n: ${block.describe()}; ${rig.geo}"
             val mid = n / 2
             fun one(kind: String, c0: Int, step: Int) {
                 out += play(rig, block, "wheel-d$d-n$n-$kind", "the wheel at d $d, $n entries: $kind from c $c0", c0, listOf(step to 0L))

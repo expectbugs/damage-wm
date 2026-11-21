@@ -158,14 +158,14 @@ object Wheel {
 
     // ------------------------------------------------------------------------------------------------- the block
     /**
-     * The wheel's records laid out from [base] (4-byte aligned) up: the rule record, the item table's slot (one entry
-     * more than [cells], for a window opened), the cells each in a slot of its own size with slack (`MainStaging.slack`),
-     * one spare cell slot of the largest, then the programs' slot — the drum's tables and two programs at this T,
-     * with slack, so `Switcher` = None ([none]: its one-step programs in the same slot) or a cell rewritten in place keeps
-     * every offset. Its [Block.size] does not depend on [base].
+     * The wheel's records laid out from [base] (4-byte aligned) up: the rule record, the item table's slot (an entry per
+     * cell), the cells each in a slot of its own size with slack (`MainStaging.slack`), then the programs' slot — the
+     * drum's tables and two programs at this T, with slack, so `Switcher` = None ([none]: its one-step programs in the same
+     * slot) or a cell rewritten in place keeps every offset. A window opened re-places the block (decisions BK (2): no spare
+     * slot). Its [Block.size] does not depend on [base].
      */
     class Block internal constructor(val base: Int, val geo: Geo, val cells: List<Cell>, val rule: ByteArray, val ruleOff: Int,
-        val itemsOff: Int, val itemSlot: Int, val cellOffs: IntArray, val cellSlots: IntArray, val spareOff: Int, val spareSlot: Int, val progOff: Int,
+        val itemsOff: Int, val itemSlot: Int, val cellOffs: IntArray, val cellSlots: IntArray, val progOff: Int,
         val progSlot: Int, val tables: List<Motion.Ease.Table>, val down: MotionProgram, val up: MotionProgram,
         val period: Int, val t: Int, val none: Boolean) {
         val n: Int get() = cells.size
@@ -197,7 +197,7 @@ object Wheel {
         fun cache(cacheSize: Int): ByteArray = ByteArray(cacheSize).also { c -> for ((o, b) in writes()) b.copyInto(c, o) }
 
         fun describe(): String = "the wheel's block at $base: $size B (cells ${cells.map { it.encoded.size }} B in slots of ${cellSlots.sum()} B, " +
-            "a spare slot of $spareSlot B, the rule ${rule.size} B, the item table $itemSlot B, programs ${down.bytes.size} + ${up.bytes.size} B and tables " +
+            "the rule ${rule.size} B, the item table $itemSlot B, programs ${down.bytes.size} + ${up.bytes.size} B and tables " +
             "${tables.sumOf { it.record.size }} B in a slot of $progSlot B); P $period T $t${if (none) " (None)" else ""}"
     }
 
@@ -216,14 +216,12 @@ object Wheel {
         fun next(size: Int): Int { val o = at; at += (size + 3) and 3.inv(); return o }
         val rule = ruleRecord(g.w)
         val ruleOff = next(rule.size)
-        val itemSlot = 2 * (cells.size + 1)
+        val itemSlot = 2 * cells.size
         val itemsOff = next(itemSlot)
         // each cell in a slot of its own size with slack (`MainStaging.slack`: a quarter, at least 64 B — a dirty tick or a
-        // rename rewrites it in place); the spare slot holds the largest
+        // rename rewrites it in place)
         val cellSlots = IntArray(cells.size) { MainStaging.slack(cells[it].encoded.size) }
         val cellOffs = IntArray(cells.size) { next(cellSlots[it]) }
-        val spareSlot = cellSlots.max()
-        val spareOff = next(spareSlot)
         val progOff = at
         val recs = cellOffs.indices.map { i -> Motion.Source.Record(cellOffs[i] / 4, g.w, g.cellH, cellSlots[i], cells[i].encoded) }
         val ruleRec = Motion.Source.Record(ruleOff / 4, g.w, 2, rule.size, rule)
@@ -232,7 +230,7 @@ object Wheel {
         val progSlot = MainStaging.slack(drum.size)
         val (p, t) = if (none) timing(g, cells, motion, none = true) else period to tDrum
         val use = if (none) programs(progOff, g, recs, ruleRec, effects, 1, none = true) else drum
-        val b = Block(base, g, cells, rule, ruleOff, itemsOff, itemSlot, cellOffs, cellSlots, spareOff, spareSlot, progOff, progSlot,
+        val b = Block(base, g, cells, rule, ruleOff, itemsOff, itemSlot, cellOffs, cellSlots, progOff, progSlot,
             use.tables, use.down, use.up, p, t, none)
         if (b.end / 4 > 0xFFFF) throw LintError("the wheel's block ends at ${b.end}, past the u16 off4 reach")
         for (step in intArrayOf(1, -1)) for (c in 0 until b.n) {
