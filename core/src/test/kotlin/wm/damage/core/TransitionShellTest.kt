@@ -720,8 +720,8 @@ class TransitionShellTest {
         assertEquals(10_700 + tp + allow, run.deadlineMs(), "never before the PLAY-AFTER's ack plus T periods")
         run.outBodyAtMs = 0
         run.inDoneAtMs = 10_400
-        assertEquals(maxOf(10_400, 10_200 + tp) + Math.round((timing.steps + 1) * timing.period * 1000.0 / 1024) + allow, run.deadlineMs(),
-            "no out-half body: the acks' rule, with the same allowance (decisions BV (2))")
+        assertEquals(maxOf(10_400, 10_200 + tp) + Math.round((timing.steps + 1) * timing.period * 1000.0 / 1024) +
+            wm.damage.core.shell.TransitionRun.ACKS_ALLOWANCE_MS, run.deadlineMs(), "no out-half body: the acks' rule, with its own allowance (decisions BV (2), ML1)")
     }
 
     /** C3 TR1: his link as the paced rig plays it — acks [ackMs] after RIGHT handled an image (his out PLAY's median
@@ -789,8 +789,9 @@ class TransitionShellTest {
             val tp = Math.round(steps.toInt() * period.toInt() * 1000.0 / 1024)
             val outBody = noteTimesOf(r, "motion", "slot 2 tag 0xc000 drew its last step").single()
             val end = noteTimesOf(r, "transition", "no in-half body").single()
-            assertTrue(end - outBody >= tp + wm.damage.core.shell.TransitionRun.BODY_ALLOWANCE_MS - 5,
-                "the backstop ${end - outBody} ms after RIGHT's out-half body (T periods $tp + the allowance)")
+            val want = tp + wm.damage.core.shell.TransitionRun.BODY_ALLOWANCE_MS
+            assertTrue(end - outBody in (want - 5)..(want + 100),
+                "the backstop ${end - outBody} ms after RIGHT's out-half body (T periods $tp + the allowance: $want, the loop's lateness allowed)")
             r.assertOracle("after the backstop on a link like his")
         } finally { r.close() }
     }
@@ -816,7 +817,7 @@ class TransitionShellTest {
     }
 
     /** C3 TR1, decisions BV (2): with both bodies lost, the acks' rule ends the run — the later of the PLAY-AFTER's ack
-     *  and the out half's end from its PLAY's ack, plus T + 1 periods and the allowance — both slots CLOSEd in one image;
+     *  and the out half's end from its PLAY's ack, plus T + 1 periods and its allowance (750 ms, ML1) — both slots CLOSEd in one image;
      *  no waiter stays. The acks are the shell's own `done` rows for the two flushes the run's notes name. */
     @Test
     fun onALinkLikeHisBothBodiesLostEndAtTheAcksRuleAndTheAllowance_TR1(): Unit = runBlocking {
@@ -841,9 +842,9 @@ class TransitionShellTest {
             fun doneAt(id: String) = Files.readAllLines(r.journal).single { "\"ev\":\"done\"" in it && "\"id\":$id," in it }
                 .substringAfter("\"t\":").substringBefore(",").toLong()
             val acksRule = maxOf(doneAt(inId), doneAt(outId) + Math.round(steps.toInt() * p)) + Math.round((steps.toInt() + 1) * p) +
-                wm.damage.core.shell.TransitionRun.BODY_ALLOWANCE_MS
+                wm.damage.core.shell.TransitionRun.ACKS_ALLOWANCE_MS
             val end = noteTimesOf(r, "transition", "no in-half body").single()
-            assertTrue(end >= acksRule - 5, "the backstop at ${end - acksRule} ms from the acks' rule plus the allowance")
+            assertTrue(end - acksRule in -5L..100L, "the backstop at ${end - acksRule} ms from the acks' rule plus its allowance")
             r.assertOracle("after the acks' backstop on a link like his, both bodies lost")
         } finally { r.close() }
     }

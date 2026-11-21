@@ -8740,7 +8740,7 @@ class Shell(
         val at = tr.deadlineMs() ?: return
         val gen = ++transitionDeadlineGen
         val from = if (tr.outBodyAtMs != 0L) "RIGHT's out-half body plus ${tr.steps} periods and ${TransitionRun.BODY_ALLOWANCE_MS} ms"
-            else "its acks plus one period and ${TransitionRun.BODY_ALLOWANCE_MS} ms (no out-half body yet)"
+            else "its acks plus one period and ${TransitionRun.ACKS_ALLOWANCE_MS} ms (no out-half body yet)"
         scope.launch {
             delay(maxOf(1L, at - System.currentTimeMillis()))
             if (running) post(Msg.Run(dropped = {}) {
