@@ -163,6 +163,12 @@ class TransitionShellTest {
             until("the atlas goes live") { shell.cachedTextActive && shell.cachedFontsLive.isNotEmpty() }
             until("Main's list bound") { onLoop { shell.mainBoundForTest().first } != null }
             settle("up")
+            // FX-083 T1 (as `MainLocalShellTest`'s up() since K1-4a): on a 256 KiB session with BIND the notice's programs
+            // are written and counted after the start, one at a time; a row begins once they are and no cache work is on
+            // its way — one evaluation on the loop deciding — else a program's write (mode 25 in the notice's slice, inside
+            // the stage reserve) lands in the row's recording ahead of its act (2 of 3 runs on the vector lane's branch)
+            until("the idle lanes at rest") { onLoop { shell.noticeLaneDoneForTest() && !shell.cacheWorkInFlight } }
+            settle("up, the idle lanes at rest")
         }
 
         /** A ring gesture: the hook on both lenses, then its stock message through the transport — as the ring's own (the
@@ -2003,6 +2009,130 @@ class TransitionShellTest {
             r.assertOracle("after the Encode Select")
         } finally { r.close() }
     }
+
+    /** FX-083 T1: from [on] the glasses' image acks wait on the link in order (the glasses applied the images; their acks
+     *  are late); [release] hands them over in the order they came, and nothing passes them meanwhile. */
+    private class HeldAcks(r: Rig) {
+        private val sr = r.t as StartRig
+        private val held = ArrayList<Pair<Arm, ByteArray>>()
+        private var holding = false
+        init {
+            sr.onNotify = { a, p ->
+                synchronized(held) { if (holding && StartRig.sid(p) == EvenHubMsg.SID && p[7].toInt() == EvenHubMsg.FLAG_ACK) { held += a to p; null } else p }
+            }
+        }
+        val count: Int get() = synchronized(held) { held.size }
+        fun on() = synchronized(held) { holding = true }
+        fun release() = synchronized(held) { for ((a, p) in held) sr.deliver(a, p); held.clear(); holding = false }
+    }
+
+    /**
+     * FX-083 T1, the product question: the notice lane's program write is sent and not yet acked when an act starts —
+     * real use reaches it, as the lane writes again right after an act's hold ends and a Select then a Back inside a second
+     * starts the next act there. With Encode ([effect] "encode", the 23 × 70 page at 480 whose lists reach the notice's
+     * slice) the programs leave the books at the act; the late ack marks nothing written; the lane writes them again after
+     * the run's hold with no further input; the count stays right (nothing called short, over or re-based); belief equals
+     * both lenses at rest; and a notice after the act PLAYs only programs the books count, whose bytes both lenses hold at
+     * that PLAY. Matrix ("matrix", no lists) is the control: nothing leaves the books, the late ack counts the program.
+     */
+    private fun aNoticeProgramsWriteInFlightAtAnAct(effect: String): Unit = runBlocking {
+        val r = Rig(stage = 5, kib256 = true)
+        val f = wm.damage.core.text.FontSpec(wm.damage.core.text.Face.SYSTEM, 18)
+        val prose = "the quick brown fox jumps over the lazy dog while five wizards box and jump quickly at dawn "
+        r.rows[0].labels = (0 until 23).map { i -> (prose + prose).substring(i * 3 % 40, i * 3 % 40 + 70) to f }
+        r.rows[0].gap = 16
+        try {
+            r.upAt(480, only("depth"))
+            selectAndSettle(r)
+            r.doubleTap(); r.until("back on Main") { r.onLoop { r.shell.currentWindowId() } == null }; runEnds(r, "the Back ends"); r.settle("on Main")
+            // every Popup style on: nine programs (three box heights × timer, fade, slide), written one at a time
+            r.shell.updateSettings { only(effect)(it).copy(popupFade = true, popupSlide = true) }; r.settle("$effect checked")
+            r.until("the notice's programs counted") { r.onLoop { r.shell.noticeLaneDoneForTest() && r.shell.noticeProgramRecordsForTest().isNotEmpty() } }
+            val st = r.t.state.value
+            val slice = CfwModes.noticeRegion(st.cacheSize, st.bind)!!
+            val acks = HeldAcks(r)
+            acks.on()
+            r.shell.noticeYieldForTest()                       // the programs go again: the lane's first write leaves, its ack held
+            r.until("a program's write sent, its ack held") { acks.count > 0 && r.onLoop { r.shell.noticeProgramsForTest().any { it.endsWith(" SENT") } } }
+            val lines0 = Files.readAllLines(r.journal).size
+            r.recording = true
+            r.tap()
+            r.until("the act is owed") { Files.readAllLines(r.journal).drop(lines0).any { "\"kind\":\"transition\"" in it && "owed: Select" in it } }
+            val yielded = Files.readAllLines(r.journal).drop(lines0).any { "the notice's programs leave the slice" in it }
+            delay(150)
+            acks.release()                                     // the program's ack lands after the act took the slice
+            runEnds(r, "the act ends")
+            r.recording = false
+            // the order the cache writes reached RIGHT, from the act's start: mode, entries (offset+length)
+            val order = right(r).mapNotNull { img -> cacheWrites(img).takeIf { it.isNotEmpty() }?.let { "${img[0].toInt() and 0x7F}:" + it.joinToString("/") { (o, n) -> "$o+$n" } } }
+            val notice = slice
+            r.until("the notice's programs counted again without an input", maxMs = 20_000) {
+                r.onLoop { r.shell.noticeLaneDoneForTest() && r.shell.noticeProgramRecordsForTest().isNotEmpty() && !r.shell.cacheWorkInFlight } }
+            r.settle("after")
+            val owed = r.notes("transition").last { it.startsWith("owed: ") }
+            assertTrue(owed.startsWith("owed: Select ${effect.replaceFirstChar { it.uppercase() }}"), "the act played $effect: $owed")
+            assertEquals(effect == "encode", yielded, "the programs leave the books at an Encode act whose lists take the slice, not at Matrix's")
+            val since = Files.readAllLines(r.journal).drop(lines0)
+            // (c) the count: booked at the send, counted at the late ack, nothing judged short, over or re-based
+            assertTrue(since.none { l -> listOf("count short", "count over", "never landed", "count re-based", "re-based the generation").any { it in l } },
+                "the count stayed right: ${since.filter { "\"kind\":\"atlas\"" in it || "\"kind\":\"stage\"" in it }.map { it.substringAfter("\"detail\":\"").take(120) }}")
+            assertEquals(0L, r.shell.cacheCountUnjudged, "every acked write judged")
+            // (a) the books: every counted program is on both lenses byte for byte (the late ack marked nothing written)
+            val progs = r.onLoop { r.shell.noticeProgramRecordsForTest() }
+            for ((off, b, state) in progs) {
+                assertEquals("PROVEN", state, "every notice program counted at rest: $progs")
+                for (lens in listOf(r.sim.left, r.sim.right)) assertTrue(lens.textureCache!!.copyOfRange(off, off + b.size).contentEquals(b),
+                    "the notice program at $off (${b.size} B) is on ${if (lens === r.sim.left) "LEFT" else "RIGHT"} byte for byte")
+            }
+            r.assertOracle("at rest after the act")
+            // (a), at the PLAY: a notice after the act, once with each Popup style (the pick forced, as it is random among the
+            // rows that are on), names counted programs whose bytes both lenses hold when it lands
+            val counted = progs.associate { (off, b, _) -> off to b }
+            val plays = java.util.concurrent.CopyOnWriteArrayList<String>()
+            r.onImage = { a, img ->
+                for (s in subs(img)) if (s.size >= 8 && s[0].toInt() == CfwModes.MOTION_MODE && s[1].toInt() == CfwModes.MOTION_PLAY && s[2].toInt() == 2 && u16(s, 6) >= 0xE000) {
+                    val off = u16(s, 4) * 4
+                    val want = counted[off]
+                    val lens = if (a == Arm.LEFT) r.sim.left else r.sim.right
+                    plays += "$a $off " + when {
+                        want == null -> "names no counted program"
+                        !lens.textureCache!!.copyOfRange(off, off + want.size).contentEquals(want) -> "names a program the lens does not hold"
+                        else -> "ok"
+                    }
+                }
+            }
+            val styles = r.onLoop { r.shell.noticeProgramsForTest() }.map { it.substringBefore(' ') }
+            val styleAt = progs.mapIndexed { i, (off, _, _) -> off to styles[i] }.toMap()
+            for (arrival in listOf(wm.damage.core.shell.Notifications.Arrival.FADE, wm.damage.core.shell.Notifications.Arrival.SLIDE,
+                    wm.damage.core.shell.Notifications.Arrival.NONE)) {
+                r.shell.notifications.arrivalFor = { arrival }
+                val p0 = plays.size
+                r.shell.postNotice(wm.damage.core.shell.Notifications.Notice("SMS · TEST", "t", "a notice after the act (${arrival.name.lowercase()})", "12:00"))
+                r.until("the $arrival box's timer PLAYed on both lenses", 10_000) {
+                    plays.drop(p0).count { styleAt[it.split(' ')[1].toInt()] == "TIMER" } >= 2 }
+                if (arrival != wm.damage.core.shell.Notifications.Arrival.NONE) assertTrue(plays.drop(p0).any { styleAt[it.split(' ')[1].toInt()] == arrival.name },
+                    "the $arrival box played its arrival program: ${plays.drop(p0)}")
+                r.until("the $arrival box's timer drew its last step", 10_000) { Arm.entries.all { a -> r.sim.motionForTest(a).slots[2]?.drawing != true } }
+                r.settle("the $arrival timer's end")
+                r.assertOracle("during the $arrival notice, its timer done")
+                val t0 = System.currentTimeMillis()
+                while (r.shell.notifications.current != null && System.currentTimeMillis() - t0 < 20_000) {
+                    if (r.shell.notifications.focused && !r.shell.notifications.animating) r.shell.postGesture(EvenHubMsg.EV_CLICK)
+                    delay(60)
+                }
+                assertEquals(null, r.shell.notifications.current, "the $arrival box dismissed")
+                r.settle("the $arrival box gone")
+            }
+            assertTrue(plays.all { it.endsWith(" ok") }, "every notice PLAY names a counted program both lenses hold: $plays")
+            assertTrue(r.notes("motion").none { "slot 2" in it && "refused" in it } && r.notes("divergence").isEmpty(),
+                "no refusal of the notice's PLAY, no divergence: ${r.notes("motion").filter { "slot 2" in it }.takeLast(3)} ${r.notes("divergence")}")
+            r.assertOracle("at rest after the three notices")
+            println("T1 $effect: yielded=$yielded programs=${progs.size} notice slice $notice; RIGHT's cache writes from the act on: $order; plays=$plays")
+        } finally { r.close() }
+    }
+
+    @Test fun aNoticeProgramsWriteInFlightWhenAnEncodeActTakesTheSlice_T1() = aNoticeProgramsWriteInFlightAtAnAct("encode")
+    @Test fun aNoticeProgramsWriteInFlightAtAMatrixAct_T1() = aNoticeProgramsWriteInFlightAtAnAct("matrix")
 
     /**
      * 0.83 integration, part 2, item 3e: the scroll package's rules across two acts. Neither instrument drives this (the
