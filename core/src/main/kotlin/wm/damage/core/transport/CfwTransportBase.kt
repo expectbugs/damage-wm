@@ -1446,7 +1446,9 @@ abstract class CfwTransportBase(
         // decisions M.5: a batch dropped whole is recorded as mode 8 / reason 14, never 27 — the shell re-sends the entries'
         // SETs and CLEARs it sent since the last read (a LIST rides the next answer, C3 X3M0)
         val batch14 = fresh && !baseline && rec!!.first == 8 && rec.second == 14
-        if (batch14) emitNote("local", "the glasses dropped a batch whole (${ref!!.describe()}) — the shell re-sends the entries' SETs and CLEARs it sent since the last read")
+        // C3 X4M0 (decisions BI (4)): the note says the drop, not a re-send — the rules re-send only the entries a batch SET or
+        // CLEARed in the span, and say so in their own `repair` note; a span with none re-sends nothing
+        if (batch14) emitNote("local", "the glasses dropped a batch whole (${ref!!.describe()}) — any entry SET or CLEARed since the last read goes again (the rules' repair note names them; none, no note)")
         // decisions BS.3 and the lead's ruling on B083-rr: a record naming 27 (P1), or 26 with more of its batch behind it —
         // that rest did not run on RIGHT: the whole table again and one keyframe, once (the rule against repeating is the
         // gate's, one latch for both modes)
