@@ -40,18 +40,15 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
                    /** C3 DM-0: a bit-11 build (0xdff) at stage 5 with the list bound as a ring list (LIST-RING): a wrap notch
                     *  fires on the lens like any other — the simulator's own model of a ring fire (`BindSim`), no copy here. */
                    val ring: Boolean = false,
-<<<<<<< ours
                    /** C3 FZ5: the press's steps — the fuzz's short press by default; the shell's `MainStaging.PRESS_T` (3, at
                     *  the entries' period) in the fuzz's real timings. */
-                   val tPress: Int = T_PRESS) {
-=======
+                   val tPress: Int = T_PRESS,
                    /** C3 DM-1 (S6): the list switches between the two pitch forms mid-session ([pitchSwitch]) — its scroll
                     *  programs also draw a ruler into [PROBE] by a kind-2 parameter (one pixel a row, pitch −1 with the ruler
                     *  as it is, +1 with it reversed), so a lens whose pitch and entries disagree shows it (the probe shows the
                     *  row index; the truth's [probeLevel]). Plain lists only: a ring fire reads kind 2 at the virtual row,
                     *  which a static ruler cannot hold across the harness's re-stagings (Main's strip does: its margins). */
                    val pitchProbe: Boolean = false) {
->>>>>>> theirs
     val rnd = java.util.Random(seed)
     val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = if (ring) 0xDFF else 0x5FF; it.clockIsOsTick = true }
     /** The flags each start arms: stage 4's, and EFFECTS at stage 5 (a ring list needs it, `FIRMWARE.md` §7.8). */

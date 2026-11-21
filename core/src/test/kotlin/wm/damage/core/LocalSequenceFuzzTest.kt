@@ -363,13 +363,8 @@ class LocalSequenceFuzzTest {
     fun randomSequence(seed: Long, events: Int = 40): Verdict {
         val r = java.util.Random(seed)
         val taps = Taps.entries[r.nextInt(3)]
-<<<<<<< ours
-        val h = harnessFor(seed, taps)
-=======
         val pitch = pitchOf(seed)
-        val h = if (!pitch) LocalHarness(seed, taps, ring = ringOf(seed))
-            else LocalHarness(seed, taps, pitchProbe = true)
->>>>>>> theirs
+        val h = harnessFor(seed, taps, pitch)
         declaredNow = HashSet()
         val counted0 = ArrayList<String>()
         if (debug) h.trace = { println(it) }
@@ -1604,9 +1599,10 @@ class LocalSequenceFuzzTest {
      *  (and nothing FZ5 adds is counted or printed). A gate-sized run of each real timing sets it for its own test. */
     private var timing: Timing? = System.getenv("LOCAL_FUZZ_TIMING")?.let { Timing.valueOf(it.trim().uppercase()) }
 
-    private fun harnessFor(seed: Long, taps: Taps): LocalHarness {
-        val t = timing ?: return LocalHarness(seed, taps, ring = ringOf(seed))
-        return LocalHarness(seed, taps, tScroll = t.tScroll, period = t.period, ring = t.rings && ringOf(seed), tPress = t.tPress)
+    /** [pitch]: a DM-1 pitch-switch sequence (plain, with the pitch probe; [pitchOf]). */
+    private fun harnessFor(seed: Long, taps: Taps, pitch: Boolean = false): LocalHarness {
+        val t = timing ?: return if (!pitch) LocalHarness(seed, taps, ring = ringOf(seed)) else LocalHarness(seed, taps, pitchProbe = true)
+        return LocalHarness(seed, taps, tScroll = t.tScroll, period = t.period, ring = !pitch && t.rings && ringOf(seed), tPress = t.tPress, pitchProbe = pitch)
             .also { it.noticePeriod = t.noticePeriod; it.wrapRecord = t.wrapRecord }
     }
 
