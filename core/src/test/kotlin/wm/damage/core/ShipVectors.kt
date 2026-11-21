@@ -380,7 +380,10 @@ internal object ShipVectors {
      * and its COMMIT of the report's own parameters, the burst's SETTLE. TAP: the ring's tap with the cursor on row 0 or
      * on the last row (the walk there, one wrap notch up, is in the session), under `Taps · report` (the report-only
      * entry) or `Taps · glasses` (the press), and the act the phone makes of it: the row's window opens with the Select
-     * tier's transition as set by default (Depth). UNDER_BACK: a Back from w0 into Main's row 0 (the Back tier's Depth;
+     * tier's transition as set by default (Depth). Under `glasses` the phone's flushes wait for room on the link until the
+     * press holds its last step on both lenses (the round trip in which the glasses draw it; on the instant link the act's
+     * first flush would end the press before its first step), then the Select's out PLAY ends it; with the link full the
+     * tap's click is handled before the pump tells the rules Main left the front, so the tap's DISCARD names no list. UNDER_BACK: a Back from w0 into Main's row 0 (the Back tier's Depth;
      * Select and the Lock Screen none) and, while RIGHT's in half draws, a wrap notch up — refused 19 on the lenses (a
      * transition's owner in its close set, §7.9, §7.14) and applied by the phone as today (its frames and the DISCARD
      * naming the last row behind the riding LIST-RING while both lenses' cursors are still on row 0) — then the run's end,
@@ -693,6 +696,7 @@ internal object ShipVectors {
             check(staged != null && staged[0] == true && staged[1] == spec.effect && staged[3] == staged[4]) {
                 "${spec.name}: Main's staging holds (ring, effect, T, P, P in force) $staged, not the ring form of ${spec.effect.word} with its period in force" }
             val t = staged[2] as Int; val period = staged[3] as Int
+            val pressT = r.onLoop { r.shell.mainBinding.staging!!.press.program.T }
             val list = r.onLoop { r.shell.mainBoundForTest().first } ?: error("${spec.name}: Main's list not bound")
             val count = list.count
             check(list.ring && count == MAIN_WINDOWS + 1) { "${spec.name}: Main's bound list ring=${list.ring}, $count rows — not his eight rows as a ring list" }
@@ -721,8 +725,20 @@ internal object ShipVectors {
                     if (spec.atLast) { notch(CfwModes.EV_DOWNROLL, count - 1, "the walk to the last row (a wrap notch up)"); idle(r, spec.name) }
                     val want = if (spec.atLast) "settings" else "w0"
                     val before = owed()
+                    val press = spec.taps == Taps.GLASSES
+                    val tag0 = synchronized(r.sim) { r.sim.motionForTest(Arm.RIGHT).slots[0]?.tag }
                     rec.act.set(true)
+                    // the press: the phone's act waits for room on the link (`pumpHeldForTest`, as TransitionShellTest's
+                    // At.OWED row) until the press holds its last step on both lenses — the round trip in which the glasses
+                    // draw it — then the act's first flush (the Select's out PLAY, whose close pass ends the press) goes
+                    if (press) r.shell.pumpHeldForTest = true
                     rec.fire(CfwModes.EV_TAP)
+                    if (press) {
+                        r.until("${spec.name}: the press holding its last step on both lenses") { synchronized(r.sim) { Arm.entries.all { a ->
+                            r.sim.motionForTest(a).slots[0]?.let { it.tag != tag0 && it.drawing && it.d >= it.T } == true } } }
+                        r.until("${spec.name}: the tap acted on by the phone (the link full)") { r.onLoop { r.shell.currentWindowId() } == want }
+                        r.shell.pumpHeldForTest = false; r.shell.postIdleTick()
+                    }
                     r.until("${spec.name}: the tap's act — $want opens") { r.onLoop { r.shell.currentWindowId() } == want }
                     r.until("${spec.name}: the Select's transition ends") { owed() == before + 1 && r.onLoop { r.shell.transitionPhaseForTest() } == null }
                     r.until("${spec.name}: the CLOSE of slot 2 reaches RIGHT") { rec.rightOfAct().any { ss -> ss.any { closeOf(it, 2) } } }
@@ -837,8 +853,10 @@ internal object ShipVectors {
             val act = rec.rightOfAct()
             val subsOfAct = act.flatten()
             val lists = subsOfAct.filter { isSub(it, 27, CfwModes.BIND_LIST) || isSub(it, 27, CfwModes.BIND_LIST_RING) }
-            check(lists.isNotEmpty() && lists.all { isSub(it, 27, CfwModes.BIND_LIST_RING) && it.size == 13 && it[12].toInt() == 1 }) {
-                "${spec.name}: a LIST of the act is not LIST-RING with flags 1: ${lists.map { hex(it) }}" }
+            // (a press's act with the link full answers the tap with a DISCARD naming no list, so it may carry no LIST)
+            check((lists.isNotEmpty() || spec.form == RingForm.TAP) && lists.all { isSub(it, 27, CfwModes.BIND_LIST_RING) && it.size == 13 && it[12].toInt() == 1 }) {
+                "${spec.name}: a LIST of the act is not LIST-RING with flags 1: ${lists.map { hex(it) }}; the act's batches ${act.map { "[${shape(it)}]" }}; " +
+                    "its answers ${subsOfAct.filter { answerList(it) >= 0 }.map { hex(it) }}" }
             check(subsOfAct.none { playIn(it, MainStaging.WRAP_SLOT) }) { "${spec.name}: a PLAY in slot ${MainStaging.WRAP_SLOT} on a ring list" }
             for (ss in act) for ((i, s) in ss.withIndex()) if (answerList(s).let { it >= 0 && it != 0xFF })
                 check(ss.take(i).any { isSub(it, 27, CfwModes.BIND_LIST_RING) }) { "${spec.name}: an answer naming the list without a LIST-RING before it in its batch: ${shape(ss)}" }
@@ -890,7 +908,8 @@ internal object ShipVectors {
                 fun pansWhole(n: Int) = pans.filter { it.outcome != DamageMsg.OUTCOME_CLOSED }.groupBy { it.tag }.let { g -> g.size == n && g.values.all { b -> b.maxOf { it.drawn ?: 0L } == t.toLong() } }
                 when (spec.form) {
                     RingForm.NOTCHES -> check(pansWhole(4) && pans.none { it.outcome == DamageMsg.OUTCOME_CLOSED }) { "${spec.name}: not four pans whole on RIGHT: ${said(pans, 0..0)}" }
-                    RingForm.TAP -> check(halves.size == 2) { "${spec.name}: not both halves of the Select whole on RIGHT: ${said(bodies, 0..3)}" }
+                    RingForm.TAP -> check(halves.size == 2 && (spec.taps != Taps.GLASSES || pans.singleOrNull()?.let { it.outcome == DamageMsg.OUTCOME_CLOSED && it.drawn == pressT.toLong() } == true)) {
+                        "${spec.name}: not both halves of the Select whole${if (spec.taps == Taps.GLASSES) " and the press closed at its HOLD (drawn $pressT)" else ""} on RIGHT: ${said(bodies, 0..3)}" }
                     RingForm.UNDER_BACK -> check(halves.size == 2 && pansWhole(1)) { "${spec.name}: not both halves of the Back and the wrap's pan whole on RIGHT: ${said(bodies, 0..3)}" }
                     // the first local instance closed by the wrap's fire with no body (its own slot, §6.2 step 11); the wrap's pan whole
                     RingForm.TABLE, RingForm.BURST, RingForm.SWITCH -> check(pansWhole(1) && pans.none { it.outcome == DamageMsg.OUTCOME_CLOSED }) {
