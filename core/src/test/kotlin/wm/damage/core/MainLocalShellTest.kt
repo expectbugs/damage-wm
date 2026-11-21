@@ -1323,7 +1323,7 @@ class MainLocalShellTest {
      *   item table or press byte), and ONE flush then carries the list's LIST-RING with the new pitch (+rowH for Crush,
      *   −rowH back) AHEAD of the three SETs naming the re-made pans (with the slot's DISCARD naming the row);
      * - a notch fired on the lenses just before the change, its report held on the way until the switch's batch has landed
-     *   on both, is NOT adopted against the new form — P3 refuses it by its mark (`restaged`), it is applied as today (one
+     *   on both, is NOT adopted against the new form — refused, `restaged`: the mark, or `names` behind it — applied as today (one
      *   row), and belief equals both lenses;
      * - the next notch plays the new effect's pan on both lenses (slot 0's program) and is COMMITted with no snap-back,
      *   belief equal to both lenses.

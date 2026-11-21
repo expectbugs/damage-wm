@@ -171,6 +171,157 @@ object MainLocalCheck {
         return Result(cases, table)
     }
 
+    /** C3 X1DM1: one sequence of notches — its frames in rows (the frame before, then a row a notch), the region they are
+     *  cropped to, what was checked and what failed. */
+    class Burst(val name: String, val about: String, val crop: Rect, val rows: List<List<Frame>>, val lines: List<String>, val failures: List<String>)
+
+    /** The ring's least scroll gap (`FIRMWARE.md` §6.1, M: 224 ms) in OS ticks — his fastest pace, the wheel's burst's. */
+    const val BURST_GAP_TICKS = 230L
+    /** The pause between his six notches down and his six up. */
+    const val BURST_PAUSE_TICKS = 820L
+    /** The fast three's gap: a notch that lands inside Crush's first phase as built at DM-1 (about 156 ms). */
+    const val FAST_GAP_TICKS = 120L
+
+    /**
+     * C3 X1DM1 (decisions BP (4)): what he judges — sequences, not single notches — at [height] on 256 KiB at stage 5,
+     * `desktop --motion-check`'s burst strips: for each of [effects] `scroll-<effect>-h<H>-s5-burst` (six notches down
+     * from row 1 [BURST_GAP_TICKS] apart, a pause of [BURST_PAUSE_TICKS], six up) and for each of [fast] `-fast` (three
+     * notches down from row 2 [FAST_GAP_TICKS] apart, then rest). Every notch fires through the simulator's input hook on
+     * both lenses, as on the glasses: a notch that lands while the one before still draws closes it (`FIRMWARE.md` §6.2
+     * step 11) and draws its own program from Main's paint at the new cursor of the one before; a frame after every step
+     * drawn until the next fire's tick. After the last notch's last step, the phone's answer: the riding LIST and the
+     * COMMIT of the last report. Checks, as the notch strips': every message taken by both lenses; each report as
+     * [BoundList.predict] says from the cursor the list holds; nothing notified before the answer; at HOLD the lens is
+     * Main's paint at the last cursor in the pan's areas and unchanged outside them; COMMIT's END in the shadow is
+     * belief's and Main's paint; the lens shows the shadow after it. Each notch's lines say where the next one cut it
+     * and the rows' travel it had left there (from the program's own segments: modeled).
+     */
+    fun effectBursts(text: TextRasterizer, height: Int = 352, depth: Int = 8,
+                     effects: List<ScrollEffect> = listOf(ScrollEffect.NONE, ScrollEffect.DEPTH, ScrollEffect.SLIDE, ScrollEffect.FALL, ScrollEffect.CRUSH, ScrollEffect.FLIP),
+                     fast: List<ScrollEffect> = listOf(ScrollEffect.DEPTH, ScrollEffect.CRUSH),
+                     /** Each burst handed over as it is made (the desktop writes its strip); the list then keeps it without frames. */
+                     onBurst: ((Burst) -> Unit)? = null): List<Burst> {
+        val out = ArrayList<Burst>()
+        fun keep(b: Burst) { if (onBurst == null) out += b else { onBurst(b); out += Burst(b.name, b.about, b.crop, emptyList(), b.lines, b.failures) } }
+        val burst = List(6) { 1 to BURST_GAP_TICKS } + listOf(-1 to BURST_PAUSE_TICKS) + List(5) { -1 to BURST_GAP_TICKS }
+        val three = List(3) { 1 to FAST_GAP_TICKS }
+        for (e in effects) {
+            keep(sequence(text, height, depth, e, "burst", 1, burst,
+                "six notches down $BURST_GAP_TICKS ticks apart (the ring's least gap, 224 ms), a pause of $BURST_PAUSE_TICKS ticks, six up"))
+            if (e in fast) keep(sequence(text, height, depth, e, "fast", 2, three, "three notches down $FAST_GAP_TICKS ticks apart, then rest"))
+        }
+        return out
+    }
+
+    /** [effectBursts]' one sequence: [notches] (+1 down or −1 up, and the ticks after the notch before: the first's is not
+     *  read) fired from row [c0]. */
+    private fun sequence(text: TextRasterizer, height: Int, depth: Int, effect: ScrollEffect, kind: String, c0: Int,
+                         notches: List<Pair<Int, Long>>, about: String): Burst {
+        val kib = 256
+        val m = MainRig(text, height, sampleRows(), depth)
+        val cacheSize = kib * 1024
+        val ms = m.staging(cacheSize, CfwModes.mainRegion(cacheSize, bind = true), MainStaging.ScrollMotion.DEFAULT.copy(effect = effect), stage5 = true)
+        val list = ms.boundList(1)
+        val name = "scroll-${effect.id}-h$height-s5-$kind"
+        val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = features(true); it.clockIsOsTick = true }
+        val lens = Lens(sim, cacheSize)
+        val fails = ArrayList<String>(); val lines = ArrayList<String>()
+        for (arm in Arm.entries) {
+            sim.conformanceLease(arm, true, lens.now)
+            sim.conformanceControl(arm, DamageMsg.OP_CACHE_SIZE, kib, lens.now)
+            sim.conformanceControl(arm, DamageMsg.OP_FLAGS_SET, flags(true), lens.now)
+        }
+        for (b in ms.blobs) lens.write(b.off, b.bytes, b.name, fails)
+        for (s in list.sets()) lens.send("a SET", s, fails)
+        lens.send("the LIST", list.listMessage(0), fails)
+        val pans = listOf(1, -1).associateWith { ms.pan(MainStaging.WHOLE, it) }
+        val crop = union(pans.values.flatMap { it.areasL + it.areasR })
+        lines += "${effect.word} at stage 5 (plays ${ms.plays.effect.word}${if (ms.plays.v2) " in version 2" else ""}), P ${ms.period} T ${ms.t}, " +
+            "${if (ms.ring) "a ring list" else "a plain list"} of ${ms.rows} rows, 256 KiB; $about"
+        if (fails.isNotEmpty()) return Burst(name, about, crop, emptyList(), lines, fails)
+        val rows = ArrayList<List<Frame>>()
+        lens.now += 1_000
+        lens.keyframe(m.truth(c0, true), m.truth(c0, false))
+        lens.send("DISCARD to cursor $c0", CfwModes.motionDiscard(MainStaging.SLOT, 1, MainStaging.LIST, c0), fails)
+        lens.notifies()
+        rows += listOf(Frame("before (row $c0)", lens.panel(Arm.LEFT), lens.panel(Arm.RIGHT)))
+        val down = list.entryFor(CfwModes.EV_UPROLL)!!; val up = list.entryFor(CfwModes.EV_DOWNROLL)!!
+        var c = c0; var s = 0
+        var tFire = lens.now + 1_000
+        var last: Triple<BoundList.Fire.Drew, Int, Int>? = null    // the last notch's prediction, the row it left and its period
+        for ((i, n) in notches.withIndex()) {
+            val (step, gap) = n
+            if (i > 0) tFire += gap
+            val e = if (step > 0) down else up
+            val what = "notch ${i + 1} (${if (step > 0) "down" else "up"} from row $c at tick $tFire)"
+            lens.now = tFire
+            val a = lens.fire(CfwModes.DEV_RING, e.eventId); s++
+            val f = list.predict(c, e) as? BoundList.Fire.Drew
+            if (a == null || f == null || f.p == null) { fails += "$what: ${if (a == null) "RIGHT sent no report" else "not a drawn notch (${a.describe()})"}"; break }
+            if (a.s != s || a.mark != list.mark || a.outcome != DamageMsg.APPLIED_DREW || a.cursor != f.cursor || a.prog != f.prog4 || !a.params.contentEquals(f.p)) {
+                fails += "$what: predicted S $s drew to ${f.cursor} prog ${f.prog4} P ${f.p.joinToString(",")}, the lens said ${a.describe()}"; break
+            }
+            val prog = ms.programAt(f.prog4)
+            val steps = prog.stepsWith(f.p)
+            val next = notches.getOrNull(i + 1)?.let { tFire + it.second }
+            val row = ArrayList<Frame>()
+            for (k in 1..steps) {
+                val at = tFire + (k - 1).toLong() * e.period
+                if (next != null && at >= next) break
+                lens.wake(at)
+                row += Frame("notch ${i + 1} step $k", lens.panel(Arm.LEFT), lens.panel(Arm.RIGHT))
+            }
+            rows += row
+            val cut = if (row.size < steps) "cut after step ${row.size} of $steps by notch ${i + 2}; the rows' travel left there: ${travelLeft(prog, ms.layout, row.size)}" else "all $steps steps drawn"
+            lines += "$what → row ${f.cursor}: prog ${f.prog4} P ${f.p.joinToString(",")}, period ${e.period}; $cut"
+            last = Triple(f, c, e.period)
+            c = f.cursor
+        }
+        val done = last
+        if (fails.isEmpty() && done != null) {
+            val (f, cBefore, period) = done
+            val p = f.p!!
+            val prog = ms.programAt(f.prog4)
+            val pan = pans.values.first { it.prog4 == f.prog4 }
+            lens.wake(tFire + prog.stepsWith(p).toLong() * period)          // a period past the last: the lens holds (HOLD)
+            lens.notifies().let { if (it.isNotEmpty()) fails += "RIGHT notified before the answer: ${it.map { b -> b.describe() }}" }
+            for (arm in Arm.entries) {
+                val left = arm == Arm.LEFT
+                val held = lens.panel(arm)
+                differ(held, m.truth(c, left), pan.areas(left)).let { if (it > 0) fails += "$arm: $it px at HOLD where the lens is not Main's paint at row $c" }
+                differ(held, m.truth(c0, left), null).let { n -> val inA = differ(held, m.truth(c0, left), pan.areas(left)); if (n - inA > 0) fails += "$arm: ${n - inA} px outside the areas changed at HOLD" }
+            }
+            lens.send("the riding LIST and COMMIT S $s", CfwModes.batch(listOf(list.listMessage(0), Motion.commit(prog, MainStaging.SLOT, s, MainStaging.LIST, c, p)), engine = true, bind = true), fails)
+            for (arm in Arm.entries) {
+                val left = arm == Arm.LEFT
+                val belief = m.truth(c0, left).copy().also { ms.paintEndOf(f.prog4, p, left, it) }
+                differ(lens.shadow(arm), belief, null).let { if (it > 0) fails += "$arm: $it px where COMMIT's END in the shadow is not what belief takes" }
+                differ(lens.shadow(arm), m.truth(c, left), pan.areas(left)).let { if (it > 0) fails += "$arm: $it px of END not Main's paint at row $c" }
+                if (sim.panelCrc32(arm) != sim.shadowCrc32(arm)) fails += "$arm: after the COMMIT the lens does not show the shadow"
+            }
+            val bodies = lens.notifies()
+            if (bodies.none { it.outcome == DamageMsg.OUTCOME_COMMITTED } || bodies.any { it.outcome == 2 }) fails += "RIGHT's notifies after the COMMIT ${bodies.map { it.describe() }}"
+            lines += "the answer to notch ${notches.size} (from row $cBefore): the riding LIST and COMMIT S $s; the last cursor row $c"
+        }
+        return Burst(name, about, crop, rows, lines, fails)
+    }
+
+    /** The travel [prog]'s two row tracks (0 and 1) have left after local step [k] (from their segments' own eases; the
+     *  track over the band's top is "above"): what a notch that cuts it there makes those rows jump. */
+    private fun travelLeft(prog: wm.damage.core.motion.MotionProgram, l: Layout, k: Int): String = (0..1).joinToString(", ") { ti ->
+        val tr = prog.tracks[ti]
+        var start = 0; var total = 0; var moved = 0
+        for (sg in tr.segments) {
+            if (sg.verb == Motion.DRAW && sg.dy != 0) {
+                total += sg.dy
+                val j = (k - start).coerceIn(0, sg.steps)
+                moved += Motion.eased(0, sg.dy, Motion.easeE(sg.ease, sg.steps)[j])
+            }
+            start += sg.steps
+        }
+        "rows ${if (tr.areaL.y < l.lens.y) "above" else "below"} ${kotlin.math.abs(total - moved)} px"
+    }
+
     /** Decisions AU.1: the fullest his eight rows can draw — every line and detail past the row's width (the ▸ mark), a
      *  bar on each, dense ink — staged at 256 KiB with two strips and with one, against Main's own region. */
     fun worstCase(text: TextRasterizer, height: Int, depth: Int = 8): String {

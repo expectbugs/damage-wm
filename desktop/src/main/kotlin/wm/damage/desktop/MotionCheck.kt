@@ -40,6 +40,10 @@ import wm.damage.core.wire.Pb
  * faces) as `DIR/scroll-<effect>-h<height>-<notch>.png` and `.txt` beside `DIR/scroll-staging.txt` — the lead's look before
  * Adam's; each case's checks (the last step and COMMIT's END against Main's paint) count as the programs' do. C3 FF: and the
  * same at stage 5, `DIR/scroll-<effect>-h<height>-s5-<notch>`, on the fast DRAW path's fit (the wrap a ring fire at 288/352).
+ * C3 X1DM1 (decisions BP (4)): and his sequences at 352, stage 5 ([MainLocalCheck.effectBursts]) — `DIR/scroll-<effect>-
+ * h352-s5-burst` for None, Depth, Slide, Fall, Crush and Flip (six notches down at the ring's least gap, a pause, six up)
+ * and `-fast` for Depth and Crush (three notches down 120 ticks apart): one strip row a notch, every step, each with its
+ * `.txt` (where each notch was cut and the rows' travel left there); their checks count as the strips' do.
  *
  * The bounds A.15 sets: `main` hands this the directory before the config is read, so nothing under `~/.damage` is
  * read; no stack, transport, shell or scope is made, so no port is bound and no window opens (the JVM is set headless
@@ -71,6 +75,7 @@ object MotionCheck {
         failures += try { transitions(outDir, out) } catch (e: Exception) { listOf("transitions: ${e.javaClass.simpleName}: ${e.message}") }
         if (scroll) failures += scrollEffects(outDir, out)
         if (scroll) failures += wheel(outDir, out)
+        if (scroll) failures += scrollBursts(outDir, out)
         out.println("motion-check: ${TestPrograms.NAMES.size} program(s), 3 notice programs and ${PLAYS.size} transition(s)${if (scroll) ", Main's scroll effects and the switcher's wheel" else ""} into $outDir")
         if (failures.isEmpty()) { out.println("motion-check: ALL HOLD"); return 0 }
         out.println("motion-check: ${failures.size} FAILURE(S):")
@@ -176,6 +181,54 @@ object MotionCheck {
                 val b = panel[py * stride + (px shr 1)].toInt() and 0xFF
                 val v = (if (px and 1 == 0) b shr 4 else b and 0x0F) * 17
                 img.setRGB(ox + x, oy + lens * (crop.h + GAP / 2) + y, ((v * 0.16).toInt() shl 16) or (minOf(255, (v * 1.05).toInt()) shl 8) or (v * 0.34).toInt())
+            }
+        } }
+        ImageIO.write(img, "png", file.toFile())
+    }
+
+    /** C3 X1DM1: his sequences (see the class's text) — each strip and its text written as it is made; the failures. */
+    private fun scrollBursts(outDir: Path, out: java.io.PrintStream): List<String> {
+        val failures = ArrayList<String>()
+        try {
+            MainLocalCheck.effectBursts(AwtText()) { b ->
+                if (b.rows.isNotEmpty()) burstStrip(outDir.resolve("${b.name}.png"), b.rows, b.crop)
+                Files.writeString(outDir.resolve("${b.name}.txt"), buildString {
+                    appendLine("${b.name}: ${b.about}")
+                    appendLine("strip: ${b.rows.sumOf { it.size }} frames, one row a notch (the first the frame before); in each frame the left lens " +
+                        "above the right; crop ${b.crop.x},${b.crop.y} ${b.crop.w}x${b.crop.h} (and $PAD px around) at 1x")
+                    for (l in b.lines) appendLine("  $l")
+                    for (f in b.rows.flatten()) appendLine("  frame (${f.label}): L %08x R %08x".format(crc(f.left), crc(f.right)))
+                    if (b.failures.isEmpty()) appendLine("checks: all hold (every message taken by both lenses; each report as predicted; " +
+                        "the last step Main's paint at the last cursor; COMMIT's END belief's)")
+                    else for (f in b.failures) appendLine("FAILED: $f")
+                })
+                failures += b.failures.map { "${b.name}: $it" }
+                out.println("  ${if (b.failures.isEmpty()) "held" else "FAILED"}: ${b.name} -> ${b.name}.png, ${b.name}.txt")
+            }
+        } catch (e: Exception) { return failures + "scroll bursts: ${e.javaClass.simpleName}: ${e.message}" }
+        return failures
+    }
+
+    /** [rows] of frames, one strip row each, the left lens above the right in each frame, cropped to [crop] and [PAD] px
+     *  around it at 1x. */
+    private fun burstStrip(file: Path, rows: List<List<MainLocalCheck.Frame>>, crop0: Rect) {
+        val full = Rect(0, 0, Geometry.PANEL_W, Geometry.PANEL_H)
+        val crop = Rect(crop0.x - PAD, crop0.y - PAD, crop0.w + 2 * PAD, crop0.h + 2 * PAD).intersect(full) ?: full
+        val cols = rows.maxOf { it.size }
+        val cellW = crop.w + GAP
+        val cellH = 2 * crop.h + GAP / 2 + GAP
+        val img = BufferedImage(cols * cellW + GAP, rows.size * cellH + GAP, BufferedImage.TYPE_INT_RGB)
+        for (y in 0 until img.height) for (x in 0 until img.width) img.setRGB(x, y, 0x502020)
+        val stride = (Geometry.PANEL_W + 1) / 2
+        rows.forEachIndexed { ri, row -> row.forEachIndexed { ci, f ->
+            val ox = GAP + ci * cellW
+            val oy = GAP + ri * cellH
+            for ((lens, panel) in listOf(0 to f.left, 1 to f.right)) for (y in 0 until crop.h) for (x in 0 until crop.w) {
+                val px = crop.x + x; val py = crop.y + y
+                val b = panel[py * stride + (px shr 1)].toInt() and 0xFF
+                val v = (if (px and 1 == 0) b shr 4 else b and 0x0F) * 17
+                img.setRGB(ox + x, oy + lens * (crop.h + GAP / 2) + y,
+                    ((v * 0.16).toInt() shl 16) or (minOf(255, (v * 1.05).toInt()) shl 8) or (v * 0.34).toInt())
             }
         } }
         ImageIO.write(img, "png", file.toFile())
