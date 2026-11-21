@@ -2516,6 +2516,20 @@ over four walks a step); 26 u a byte of a record = its walk and at most one run'
 pixel of a byte fill or copy, about eight times the measured copy's rate (I); 3 u a pixel of the byte-table pass (I);
 1,024 u a track's setup — its clip, ease, levels and tables (I). Field 34 on the glasses checks them.
 
+**The phone's fit of a fast-path step** (phone code, `MainStaging.fastStepMs`; none of it is firmware, and none of
+its three figures is a rate of this budget — the rates above are upper bounds, not a step's time): for a list's bound
+programs staged with EFFECTS in force, the phone takes a step's drawing time as **0.5 ms + 0.036 µs a pixel of the
+tracks' areas + 0.20 µs a byte the step decodes** (k + 1 strip rows a row track, one band form a band track), then
+the period P = ⌈⌈ms × 1.024⌉ × 1.10⌉ ticks inside 16..128 (the phone's rule since the first trial at stage 4: the
+fitted step plus 10 %; §6.9 has its earlier form) and, for `Scroll frames` Auto, ⌊length × 1.024 / P⌋ steps. All
+three figures are modeled (I: calibrated on the table's one modeled figure below, Main's pan at 352 ≈ 8 ms). With
+them Main's Depth
+comes to 6.9 / 8.8 / 10.8 / 12.7 ms a step at 288 / 352 / 416 / 480, P 16 and 19 steps at a 300-ms length at all four
+(C2's fit: P 39–59, 7–5 steps); Slide and Fall the same, at 480 P 17 and 18 steps. **The glasses correct it:** the
+114's field 9 (a step's measured time) raises the period for the staging in force, Auto's step count follows in idle,
+and a period is never lowered under the staging's own. Below stage 5, and for a staging made before EFFECTS was in
+force, C2's fit (§6.9) unchanged.
+
 **What the terms do not carry** (the first review pass of the built code, 2026-11-20): each term bounds its verb's
 pixel and byte work at these rates; work per element that no term names is outside the budget. RAIN visits every
 cell of its cols × R grid, lit or not and inside the track's area or not (a column outside the area is walked row by
