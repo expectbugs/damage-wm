@@ -40,6 +40,9 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
                    /** C3 DM-0: a bit-11 build (0xdff) at stage 5 with the list bound as a ring list (LIST-RING): a wrap notch
                     *  fires on the lens like any other — the simulator's own model of a ring fire (`BindSim`), no copy here. */
                    val ring: Boolean = false,
+                   /** C3 FZ5: the press's steps — the fuzz's short press by default; the shell's `MainStaging.PRESS_T` (3, at
+                    *  the entries' period) in the fuzz's real timings. */
+                   val tPress: Int = T_PRESS,
                    /** C3 DM-1 (S6): the list switches between the two pitch forms mid-session ([pitchSwitch]) — its scroll
                     *  programs also draw a ruler into [PROBE] by a kind-2 parameter (one pixel a row, pitch −1 with the ruler
                     *  as it is, +1 with it reversed), so a lens whose pitch and entries disagree shows it (the probe shows the
@@ -129,7 +132,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         val pAt = at4
         press = Motion.program(pAt, recSources, bit10 = true) {
             track(BAND, Motion.Backdrop.Level(15)) {
-                draw(recSources[0], BAND.x, BAND.y, n = T_PRESS, opt = 0x20, prefs = listOf(Motion.Pref(0, Motion.Field.SRC)))
+                draw(recSources[0], BAND.x, BAND.y, n = tPress, opt = 0x20, prefs = listOf(Motion.Pref(0, Motion.Field.SRC)))
             }
         }
         put(press.bytes)
@@ -177,6 +180,9 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     private var noticeTagNow = -1
     var noticePlays = 0
     var noticeCuts = 0
+    /** C3 FZ5: the notice timer's period — [PERIOD] by default (the fuzz's short motion); the shell's
+     *  (`PopupPrograms.TIMER_PERIOD`, 128 at every stage) in the fuzz's real timings. */
+    var noticePeriod = PERIOD
 
     private fun write19(off4: Int, b: ByteArray) = byteArrayOf(19) + u16(off4) + u16(b.size) + b
     private fun u16(v: Int) = byteArrayOf((v and 0xFF).toByte(), ((v shr 8) and 0xFF).toByte())
@@ -239,8 +245,12 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
                var resetsAtFireR: Int = -1, var fireTimeR: Long = -1,
                /** Part BH (invariant (1)'s declared class): at RIGHT's fire, whether the newest message RIGHT was handed is a
                 *  batch refused at the harness's induced LIST after its SETs with no present on RIGHT since; the row RIGHT's
-                *  SHADOW shows in the band; the row RIGHT's cursor names after the fire. */
-               var awaitsPresentR: Boolean = false, var shadowR: Int? = null, var cursorIdR: Int? = null)
+                *  SHADOW shows in the band (C3 FZ5, part BO (B): read without the badge's cells); the row RIGHT's cursor names
+                *  after the fire. */
+               var awaitsPresentR: Boolean = false, var shadowR: Int? = null, var cursorIdR: Int? = null,
+               /** C3 FZ5 (part BO (A)): at RIGHT's fire, the end of the latest wait for a motion's end on the glasses (the
+                *  harness's carried hold: an adopted motion's or the wrap's). */
+               var holdEndR: Long = Long.MIN_VALUE)
 
     /** The row identity RIGHT's panel shows in the band now (a press drawn inverse reads as its row; -1 anything else). */
     fun shownOnRight(): Int {
@@ -531,13 +541,15 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
             val before = b.seq
             if (holdWordOn == arm) sim.motionForTest(arm).holdWordForTest(true)
             if (arm == Arm.RIGHT) { f.shownR = shownOnRight(); f.resetsAtFireR = rightResets; f.fireTimeR = now }
-            if (arm == Arm.RIGHT) { f.awaitsPresentR = listRefusedPresentR == sim.right.presentSeq; f.shadowR = bandIdIn(sim.right.shadow) }
+            if (arm == Arm.RIGHT) { f.awaitsPresentR = listRefusedPresentR == sim.right.presentSeq; f.shadowR = bandIdIn(sim.right.shadow, BADGE) }
+            if (arm == Arm.RIGHT && !tap) { scrollFiresR++; if (sim.motionForTest(arm).slots.any { it != null && it.slot <= WRAP_SLOT && it.drawing && it.d < it.T }) scrollFiresInMotionR++ }
             sim.conformanceInput(arm, dev, id.toLong(), 0, now)
             if (holdWordOn == arm) sim.motionForTest(arm).holdWordForTest(false)
             sim.conformanceStockCalls(arm)
             val s = if (b.seq != before) b.seq else null
             if (arm == Arm.LEFT) f.sL = s else { f.sR = s; s?.let { bySR[it] = g }; f.cursorR = b.lists[0].cursor; f.markR = b.lists[0].mark }
             if (arm == Arm.RIGHT) f.cursorIdR = ids.getOrNull(b.lists[0].cursor)
+            if (arm == Arm.RIGHT && carryHold) f.holdEndR = deferUntil
             if (arm == Arm.LEFT && (covered || window) && sim.motionForTest(arm).slots.any { it?.local == true && it.tag == s }) localsUnderCover++
         }
         trace?.invoke("[$now] gesture g$g kind $kind answer $answer band $bandNow hold $holdWordOn")
@@ -638,6 +650,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         val before = row; val carried = carriedNow(); val heardBefore = rules.sHeard
         val opening = !rules.burstOpen
         val v = rules.report(a, row, now)
+        gapOf(g, a.s, heardBefore)
         if (v is LocalRules.Verdict.Adopt && a.wrapped) wrapAdopted += g        // C3 DM-0: a ring fire across the wrap, adopted
         if (opening && rules.burstOpen) { burstFrom = now; burstS0 = heardBefore; burstSeq++ }
         trace?.invoke("[$now] phone 115 g$g ${a.describe()} row $row → $v")
@@ -654,6 +667,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         val before = row; val carried = carriedNow()
         val os = rules.owesScroll; val oa = rules.owesAny
         val v = rules.stock(st, row, now)
+        if (rules.owesAny < oa) stockPaidAny += g
         trace?.invoke("[$now] phone stock g$g $st row $row → $v (carried $carried)")
         verdicts += g to v
         // invariant (10): a front's own notch, its message reaching the phone while that front still stands, is applied
@@ -727,6 +741,25 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     val reportHeardAt = HashMap<Int, Long>()
     /** C3 DM-0: the gestures whose ring fire wrapped (field 18) and whose report the phone adopted. */
     val wrapAdopted = ArrayList<Int>()
+    /** C3 FZ5 (part BO (D)): per report, the gestures whose S lay in its gap (RIGHT took them; their 115 never came
+     *  first); and the gestures whose stock message paid an owe of either kind. */
+    val gapGestures = HashMap<Int, List<Int>>()
+    val stockPaidAny = HashSet<Int>()
+    private fun gapOf(g: Int, s: Int?, heardBefore: Int) {
+        if (s == null || g < 0) return
+        val gs = ArrayList<Int>()
+        var k = (heardBefore + 1) and 0xFFFF
+        while (k != s && LocalRules.after(s, k)) { bySR[k]?.let { gs += it }; k = (k + 1) and 0xFFFF }
+        if (gs.isNotEmpty()) gapGestures[g] = gs
+    }
+    /** C3 FZ5: the staging holds a wrap record (true: stage 4's plain list, the default). False: a plain list at stage 5,
+     *  where no staging holds one (`MainStaging`: `noWrapRecord` when `ring`, and a list whose paint does not wrap has
+     *  none) — an edge goes as the phone's frames, as on a ring list here. */
+    var wrapRecord = true
+    /** C3 FZ5: scroll notches RIGHT fired, and those fired while a motion of the list (slot 0 or the wrap's) was still
+     *  drawing on RIGHT (a step still to come) — the reach of the motion's length; read only, no draw. */
+    var scrollFiresR = 0
+    var scrollFiresInMotionR = 0
     fun back() { if (!window) return; window = false; frontGen++; if (!covered) rules.front(bound, row); pumpSoon() }
     fun toggleBadge() { badge = !badge; pumpSoon() }
     fun tick() { clock++; pumpSoon() }
@@ -880,6 +913,18 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         val id = l0 - 2
         return if (id in 0 until IDS) id else -1
     }
+    /** C3 FZ5 (part BO (B)): [bandIdIn] with [hole]'s cells left out (the badge drawn over the row). */
+    fun bandIdIn(p: ByteArray, hole: Rect): Int {
+        var l0 = -1
+        for (y in BAND.y until BAND.bottom) for (x in BAND.x until BAND.right) {
+            if (x >= hole.x && x < hole.right && y >= hole.y && y < hole.bottom) continue
+            val b = p[y * 320 + x / 2].toInt() and 0xFF
+            val l = if (x % 2 == 0) b shr 4 else b and 0x0F
+            if (l0 < 0) l0 = l else if (l != l0) return -1
+        }
+        val id = l0 - 2
+        return if (id in 0 until IDS) id else -1
+    }
     /** Whether the two panels differ over the band. */
     fun bandsDiffer(): Boolean {
         val a = sim.left.panel; val b = sim.right.panel
@@ -907,6 +952,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         sim.conformanceMessage(arm, img, now)
         if (induce) sim.motionForTest(arm).holdWordForTest(false)
         if (arm == Arm.RIGHT && sim.bindForTest(arm).lists[0].cursor != cursor0) { rightResets++; rightResetAt += decided; rightResetLanded += now }
+        else if (arm == Arm.RIGHT && !lens.refSeen && setBackUnderShift(img)) { rightResets++; rightResetAt += decided; rightResetLanded += now }
         val refusedNow = lens.refSeen
         if (!refusedNow) { lens.refSeen = kept[0] as Boolean; lens.refMode = kept[1] as Int; lens.refReason = kept[2] as Int; lens.refSeq = kept[3] as Long }
         trace?.invoke("[$now] $arm gets ${subsOf(img).joinToString(" ") { it.take(3).joinToString("") { b -> "%02x".format(b) } }}" +
@@ -939,6 +985,16 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         val subs = subsOf(img)
         val k = subs.indexOfFirst { it[0].toInt() == 27 && (it[1].toInt() == 2 || it[1].toInt() == CfwModes.BIND_LIST_RING) && it.size > 6 && it[5].toInt() == 0 && it[6].toInt() == 0 }
         return k > 0 && subs.take(k).any { it[0].toInt() == 27 && it[1].toInt() == 0 }
+    }
+    /** C3 FZ5 (seed 700697 at both real timings): RIGHT's cursor came out of [img] at the value it went in with although the
+     *  message's LIST moved it by a non-zero shift — a DISCARD or SETTLE behind that LIST set it back, a reset of RIGHT's
+     *  cursor that the value alone does not show (a lens-only draw's step it held is gone). Called only when the value did
+     *  not change. */
+    private fun setBackUnderShift(img: ByteArray): Boolean {
+        val subs = subsOf(img)
+        val k = subs.indexOfFirst { it[0].toInt() == 27 && (it[1].toInt() == 2 || it[1].toInt() == CfwModes.BIND_LIST_RING) && it.size > 8 && it[2].toInt() == 0 &&
+            ((it[7].toInt() and 0xFF) or (it[8].toInt() shl 8)).toShort().toInt() != 0 }
+        return k >= 0 && subs.drop(k + 1).any { it[0].toInt() == 26 && it.size > 5 && (it[1].toInt() == 4 || it[1].toInt() == 5) && it[5].toInt() == 0 }
     }
 
     /** A flush whose ack failed (`Shell.completeFlush`): rolled back — what it drew is unknown and painted again from the
@@ -1067,7 +1123,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         // decisions AZ.4 (the shell's `mainWrapPlan`): an edge at an end with the row now the other end — the scroll's PLAY
         // in slot 1 from the end to the row past it, END (the wrapped row's record) into the model, its areas held. None on
         // a ring list (C3 X2M0: a ring staging has no wrap pan; an edge there goes as the phone's frames)
-        val wrap = rules.wrapPlan(row)?.takeIf { !ring }
+        val wrap = rules.wrapPlan(row)?.takeIf { !ring && wrapRecord }
         val wrapPlay = wrap?.let { w ->
             val prog = w.list.entries.first { it.step == w.step }.program!!
             val p = intArrayOf(recs[ids[w.cPrime.mod(ids.size)]], 0, 0, 0)
@@ -1100,7 +1156,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         // batch that holds the band back
         val noticePlay = if (noticeOwed && BAND !in (dirty intersect hold)) {
             noticeOwed = false
-            Motion.play(notice, wm.damage.core.motion.PopupPrograms.SLOT, PERIOD, 0xC000 + (noticePlays and 0xFFF), noticeCap4, IntArray(4))
+            Motion.play(notice, wm.damage.core.motion.PopupPrograms.SLOT, noticePeriod, 0xC000 + (noticePlays and 0xFFF), noticeCap4, IntArray(4))
         } else null
         held = (dirty intersect hold).filter { differs(m2, t, it) }.toSet()
         if (held.isNotEmpty()) heldBatches++
@@ -1281,7 +1337,9 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     /** Lets everything outstanding land: the uplink and downlink drain, the lone SETTLE goes, the engine runs out, an idle
      *  frame (the clock) carries a SETTLE past `age`. */
     fun rest() {
-        runUntil(now + 600)
+        // C3 FZ5: the lone SETTLE goes in this first span — Q after the last report; Q is the floor at the short motion and
+        // follows the motion in force otherwise ([LocalRules.qFor]), so the span keeps its slack past Q (the same 600 at Q's floor)
+        runUntil(now + 600 + maxOf(0L, rules.q - LocalRules.Q_MS))
         readTelemetry()                                 // the poll reads RIGHT's telemetry (once a minute on the phone)
         runUntil(now + 600)
         tick()
