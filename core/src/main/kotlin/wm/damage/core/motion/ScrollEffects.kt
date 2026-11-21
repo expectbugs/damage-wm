@@ -29,7 +29,7 @@ enum class ScrollEffect(val id: String, val word: String) {
  * the entering row's band form, P2 the leaving row's, P3 the lower strip's start y), so a fire, a report and a COMMIT
  * read alike whichever effect is in force. Every effect's END is Main's own paint at the new cursor (`ScrollEffectsTest`,
  * `desktop --local-check`). Each effect's period is fitted on its own tracks' painted area ([areaPx], the fit of
- * [MainStaging.timing]).
+ * [MainStaging.timing]; at stage 5 the fast DRAW path's, [timing]).
  *
  * - [ScrollEffect.NONE]: one step — the rows at their new place and the entering row's band form in the band.
  * - [ScrollEffect.DEPTH]: today's (stage DM0, decisions V; the programs of APK 0.82 byte for byte): the rows above and
@@ -72,11 +72,24 @@ object ScrollEffects {
         return (l.rowsAbove + l.rowsBelow) * l.rowH * rowW + bandTracks(e) * l.lens.h * (rowW + kotlin.math.abs(listD - bandD))
     }
 
-    /** [e]'s period (OS ticks) and steps for [motion] on [areaPx] pixels a step: [MainStaging.timing]'s fit, and one step
-     *  for None (at the fitted period: the swap at once). */
-    fun timing(e: ScrollEffect, areaPx: Int, motion: MainStaging.ScrollMotion): Pair<Int, Int> =
-        if (e == ScrollEffect.NONE) MainStaging.timing(areaPx, motion.copy(frames = 0)).first to 1
-        else MainStaging.timing(areaPx, motion)
+    /** The bytes one step of [e]'s pan decodes at [l] on the fast DRAW path (`FIRMWARE.md` §7.12: each DRAW of a record
+     *  decodes from its kept start to the last source row its output inside the area takes): k + 1 strip rows for each
+     *  of the two row tracks (a step between two places shows parts of k + 1 rows) and one band form per band track
+     *  (Depth's two band segments draw one at a time). Rows and forms at the DM spec's §1.6 sizes
+     *  ([MainStaging.FAST_ROW_BYTES], [MainStaging.FAST_BAND_FORM_BYTES]; M-PC). */
+    fun walkBytes(e: ScrollEffect, l: Layout): Int =
+        (l.rowsAbove + 1 + l.rowsBelow + 1) * MainStaging.FAST_ROW_BYTES + bandTracks(e) * MainStaging.FAST_BAND_FORM_BYTES
+
+    /** [e]'s period (OS ticks) and steps for [motion] at Main's [l] with the list at [listD] and the band at [bandD]: on
+     *  [areaPx] pixels a step, C2's fit ([MainStaging.timing]) — or, C3 FF, with EFFECTS in force ([stage5]: every fire
+     *  then runs the fast DRAW path, `FIRMWARE.md` §7.12), the fast path's ([MainStaging.fastStepMs] of the area and
+     *  [walkBytes]) — on K1-1's rule ([MainStaging.timingOf]); one step for None (at the fitted period: the swap at once). */
+    fun timing(e: ScrollEffect, l: Layout, listD: Int, bandD: Int, motion: MainStaging.ScrollMotion, stage5: Boolean): Pair<Int, Int> {
+        val area = areaPx(e, l, listD, bandD)
+        val m = if (e == ScrollEffect.NONE) motion.copy(frames = 0) else motion
+        val pt = if (stage5) MainStaging.timingOf(MainStaging.fastStepMs(area, walkBytes(e, l)), m) else MainStaging.timing(area, m)
+        return if (e == ScrollEffect.NONE) pt.first to 1 else pt
+    }
 
     /** Under Auto, the steps of [motion]'s length at the period in force [period] (decisions BF's measured period: K1-1
      *  item 4 — the steps follow it); a fixed count and None keep theirs. */

@@ -112,11 +112,13 @@ class ScrollEffectsTest {
      * P0 and P3 take that margin, and every effect's END is Main's own paint at the new cursor at EVERY cursor a notch
      * lands on, the wrap included — at the virtual row v = −1 or n, as the glasses compute a ring fire (the bound list's
      * prediction, `BoundList.predict`) — with its start state Main at the old cursor, and no wrap pan for the shell (C3
-     * X2M0). At 416 and 480 the staging is today's form, byte for byte, at stage 5 too.
+     * X2M0). At 416 and 480 the staging is today's form at stage 5 too — every record but the programs byte for byte (C3
+     * FF: the programs carry the fast DRAW path's fit at every height), END = Main's paint at every cursor a notch lands on.
      */
     @Test
     fun theStage5FormHoldsEveryEffectAcrossTheWrapAndIsTodaysWhereMainDoesNotWrap_DM0() {
         val table = ArrayList<String>()
+        var ends = 0
         for (h in heights) {
             val rig = MainLocalCheck.MainRig(BoxFace, h, MainLocalCheck.sampleRows())
             for (cache in caches) for (e in ScrollEffect.entries) {
@@ -127,17 +129,23 @@ class ScrollEffectsTest {
                 val l = s5.layout
                 val wraps = MainStaging.ringFits(l, s5.rows)
                 assertEquals(wraps, s5.ring, "$what0: the ring form exactly where Main's paint wraps")
-                if (!wraps) {
-                    assertEquals(s4.blobs.map { it.off to it.bytes.toList() }, s5.blobs.map { it.off to it.bytes.toList() }, "$what0: today's form, byte for byte")
-                    continue
-                }
+                assertTrue(s5.stage5 && !s4.stage5, "$what0: each staging records the EFFECTS it was made under")
                 val k = l.rowsAbove
-                assertEquals(null, s5.wrap, "$what0: no wrap record")
-                assertEquals(k + 1, s5.margin, "$what0: margins of k + 1")
-                assertEquals((s5.rows + 2 * (k + 1)) * l.rowH, s5.strip.raw.h, "$what0: the strip's rows")
-                for (pan in s5.pans) assertEquals(listOf(l.lens.y + (pan.step - k - 1) * l.rowH, l.lens.bottom + (pan.step - 1 - k - 1) * l.rowH),
-                    listOf(pan.rules[0].arg, pan.rules[3].arg), "$what0: P0's and P3's rules take the margin")
-                assertNull(s5.wrapPan(1) ?: s5.wrapPan(-1), "$what0: no wrap pan (the wrap notch fires on the glasses)")
+                if (!wraps) {
+                    // C3 FF: today's form — every record but the programs byte for byte (the programs take the fast fit's
+                    // T); END is checked below at every cursor a notch lands on, the ends being edges
+                    assertEquals(s4.blobs.dropLast(1).map { it.off to it.bytes.toList() }, s5.blobs.dropLast(1).map { it.off to it.bytes.toList() }, "$what0: today's form, byte for byte")
+                    assertEquals("programs", s5.blobs.last().name, "$what0: the programs last")
+                } else {
+                    assertEquals(null, s5.wrap, "$what0: no wrap record")
+                    assertEquals(k + 1, s5.margin, "$what0: margins of k + 1")
+                    assertEquals((s5.rows + 2 * (k + 1)) * l.rowH, s5.strip.raw.h, "$what0: the strip's rows")
+                    for (pan in s5.pans) assertEquals(listOf(l.lens.y + (pan.step - k - 1) * l.rowH, l.lens.bottom + (pan.step - 1 - k - 1) * l.rowH),
+                        listOf(pan.rules[0].arg, pan.rules[3].arg), "$what0: P0's and P3's rules take the margin")
+                    assertNull(s5.wrapPan(1) ?: s5.wrapPan(-1), "$what0: no wrap pan (the wrap notch fires on the glasses)")
+                }
+                assertEquals(ScrollEffects.timing(e, l, s5.listD, s5.bandD, m, true), s5.period to s5.t, "$what0: the fast DRAW path's fit")
+                assertEquals(if (e == ScrollEffect.NONE) 1 else s5.t, s5.pan(MainStaging.WHOLE, 1).program.T, "$what0: the pans' T is the fit's")
                 val list = s5.boundList(1)
                 var n = 0
                 for (pan in s5.pans) for (cPrime in -1..s5.rows) {
@@ -159,12 +167,68 @@ class ScrollEffectsTest {
                     }
                     n++
                 }
-                assertEquals(s5.pans.size * s5.rows, n, "$what0: every cursor, the two wraps among them, on every pan")
-                if (e == ScrollEffect.DEPTH) table += "h$h ${cache / 1024} KiB: the strip ${s5.blobs[0].bytes.size} B (${s5.rows + 2 * (k + 1)} rows; " +
+                assertEquals(s5.pans.size * (if (wraps) s5.rows else s5.rows - 1), n, "$what0: every cursor${if (wraps) ", the two wraps among them," else ""} on every pan")
+                ends += n
+                if (e == ScrollEffect.DEPTH) table += "h$h ${cache / 1024} KiB: the strip ${s5.blobs[0].bytes.size} B (${s5.strip.raw.h / l.rowH} rows; " +
                     "stage 4: ${s4.blobs[0].bytes.size} B and a wrap record ${s4.wrap?.encoded?.size ?: 0} B), the staging ${s5.end - s5.start} B (stage 4: ${s4.end - s4.start} B)"
             }
         }
-        println("DM0-staging (BoxFace, modeled)\n" + table.joinToString("\n"))
+        println("DM0-staging (BoxFace, modeled): END = paint at $ends notches at stage 5\n" + table.joinToString("\n"))
+    }
+
+    /**
+     * C3 FF (the DM spec §1.1 "The fast-path fit", §1.6, §5.1's pin; decisions AY (4), BA (6)): at stage 5 the pans take the
+     * fast DRAW path's fit, then K1-1's rule — Depth at 352 P 16, T 19 (C2's fit: P 46, T 6), at every height P 16 T 19 for
+     * Depth; a fixed frame count spread over the length, never under the fitted period; None one step; Auto uncapped (D8);
+     * the band's swap at its proportion. Below stage 5 C2's fit stands. Every pan at every cursor, both directions, four
+     * heights, both caches, every effect stays inside 80 % of the step budget's cap (§7.12, the DSL's calculator), and
+     * each effect's programs record is printed at the fitted T beside C2's.
+     */
+    @Test
+    fun stage5TakesTheFastPathsFitAndStaysInsideTheBudget_FF() {
+        val fit = ArrayList<String>()
+        val bytes = ArrayList<String>()
+        var worst = 0L; var worstAt = ""
+        for (h in heights) {
+            val rig = MainLocalCheck.MainRig(BoxFace, h, MainLocalCheck.sampleRows())
+            for (cache in caches) for (e in ScrollEffect.entries) {
+                val m = MainStaging.ScrollMotion.DEFAULT.copy(effect = e)
+                val s5 = rig.staging(cache, CfwModes.mainRegion(cache, true), m, stage5 = true)
+                val s4 = rig.staging(cache, CfwModes.mainRegion(cache, true), m)
+                val what = "$h ${cache / 1024} KiB ${e.word}"
+                if (e == ScrollEffect.DEPTH) assertEquals(16 to 19, s5.period to s5.t, "$what: the spec's §1.6 — Depth P 16, T 19 at stage 5")
+                assertEquals(ScrollEffects.timing(e, s4.layout, s4.listD, s4.bandD, m, false), s4.period to s4.t, "$what: C2's fit below stage 5")
+                if (e == ScrollEffect.NONE) assertEquals(1, s5.t, "$what: None one step")
+                // the band's swap keeps its 2-of-5 proportion at the fitted T (Depth's two band segments)
+                if (e == ScrollEffect.DEPTH) assertEquals(listOf(MainStaging.swapOf(s5.t), s5.t - MainStaging.swapOf(s5.t)),
+                    s5.pan(MainStaging.WHOLE, 1).program.tracks[2].segments.map { it.steps }, "$what: the swap's proportion")
+                for (pan in s5.pans) for (cPrime in -1..s5.rows) {
+                    val p = s5.params(pan, cPrime) ?: continue
+                    val c = pan.program.cost(p)
+                    if (c > worst) { worst = c; worstAt = "$what strip ${pan.strip} step ${pan.step} c' $cPrime" }
+                    assertTrue(c * 100 <= Motion.BUDGET_CAP * 80, "$what strip ${pan.strip} step ${pan.step} c' $cPrime: C $c past 80 % of the cap")
+                }
+                if (cache == CfwModes.CACHE2_MAX_RIDERS) {
+                    fit += "h$h ${e.word}: stage 5 P ${s5.period} (${"%.1f".format(s5.period * 1000.0 / 1024)} ms) T ${s5.t} = ${"%.0f".format(s5.t * s5.period * 1000.0 / 1024)} ms; " +
+                        "stage 4 P ${s4.period} T ${s4.t}; the fast step ${"%.1f".format(MainStaging.fastStepMs(ScrollEffects.areaPx(e, s5.layout, s5.listD, s5.bandD), ScrollEffects.walkBytes(e, s5.layout)))} ms (modeled)"
+                    bytes += "h$h ${e.word}: the programs record ${s5.blobs.last().bytes.size} B at T ${s5.t} (stage 4 ${s4.blobs.last().bytes.size} B at T ${s4.t}); " +
+                        "a pan slot ${s5.progSlot} B (${s4.progSlot}); the staging ${s5.end - s5.start} B of the region's ${s5.regionEnd - s5.regionStart} (${s4.end - s4.start})"
+                }
+            }
+        }
+        // a fixed count: spread over the length, never under the fitted period; Auto uncapped (D8: the `Scroll frames` row is his cap)
+        val rig = MainLocalCheck.MainRig(BoxFace, 352, MainLocalCheck.sampleRows())
+        val cache = CfwModes.CACHE2_MAX_RIDERS
+        fun at(m: MainStaging.ScrollMotion) = rig.staging(cache, CfwModes.mainRegion(cache, true), m, stage5 = true).let { it.period to it.t }
+        assertEquals(31 to 10, at(MainStaging.ScrollMotion(300, 10)), "10 frames over 300 ms: P ⌈307.2 / 10⌉, above the fit's 16")
+        assertEquals(16 to 40, at(MainStaging.ScrollMotion(300, 40)), "40 frames: never under the fitted period (the motion runs longer)")
+        assertEquals(16 to 51, at(MainStaging.ScrollMotion(800, 0)), "800 ms Auto: ⌊819.2 / 16⌋ steps, no cap")
+        // the programs-only re-make of a stage-5 staging (an effect changed) takes the same fit
+        val d5 = rig.staging(cache, CfwModes.mainRegion(cache, true), MainStaging.ScrollMotion.DEFAULT, stage5 = true)
+        val ps = assertNotNull((d5.remake(MainStaging.ScrollMotion.DEFAULT.copy(effect = ScrollEffect.SLIDE)) as? MainStaging.Remake.Owed)?.programs)
+        assertEquals(listOf(16, 19, 16), listOf(ps.period, ps.t, ps.periodInForce), "a re-make at stage 5: Slide on the fast fit")
+        println("FF-fit (modeled)\n" + fit.joinToString("\n") + "\nFF-bytes (BoxFace)\n" + bytes.joinToString("\n") +
+            "\nFF-budget: the largest C ${"%,d".format(worst)} u (${"%.1f".format(worst * 100.0 / Motion.BUDGET_CAP)} % of the cap) at $worstAt")
     }
 
     /** Slide's and Fall's band: two tracks over the band's one area, the second with no backdrop (inside the first's, as

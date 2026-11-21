@@ -112,6 +112,10 @@ class MainStaging private constructor(
      *  the other end each side, no [wrap] record, the list bound with LIST-RING ([boundList]); only where Main's paint wraps
      *  (more rows than it shows) and EFFECTS is in force. False: today's form, byte for byte. */
     val ring: Boolean = false,
+    /** Build C3, stage FF: EFFECTS was in force when this staging was made (the link state's, [build]'s `stage5`) — its
+     *  programs carry the fast DRAW path's fit ([ScrollEffects.timing]), and where Main's paint wraps its form is the ring
+     *  ([ring]). False: C2's fit and today's form. The shell drops a staging whose [stage5] is not EFFECTS in force now. */
+    val stage5: Boolean = false,
 ) {
     /** B082: the rows whose picture changed since this staging's first paint (by what was painted, not by window). */
     val changed = BooleanArray(seenMax.size)
@@ -599,7 +603,7 @@ class MainStaging private constructor(
         val slots = progSlots ?: return Remake.NoRoom("Main's region holds no spare programs slot")
         val why = remakeOwed(want) ?: return Remake.NoRoom("nothing to re-make")
         val reset = motion != want
-        val (pFit, tFit) = ScrollEffects.timing(want.effect, ScrollEffects.areaPx(want.effect, layout, listD, bandD), want)
+        val (pFit, tFit) = ScrollEffects.timing(want.effect, layout, listD, bandD, want, stage5)
         val pIn = if (reset) pFit else periodInForce
         val tNew = if (reset) tFit else ScrollEffects.stepsAt(want, pIn, t)
         val to = 1 - activeProgs
@@ -662,10 +666,17 @@ class MainStaging private constructor(
          * ms ≈ [STEP_MS_BASE] + 0.156 per 1,000 area pixels — gives the smallest period P0 that holds it and T, the whole
          * number of steps nearest to 200 ms at P0 (at least the band's swap plus one), times [stepsFactor] (AU.5: a longer
          * pan by more, smaller steps, never slower ones); the period sent is P0 with [PERIOD_MARGIN] on it (rounded up),
-         * inside 16..128 — a step's own time varies from motion to motion.
+         * inside 16..128 — a step's own time varies from motion to motion. This is the fit of C2's renderer (a step's time
+         * on the path an instance opened without EFFECTS runs); C3 FF's fast DRAW path is [fastStepMs], on the same rule
+         * ([timingOf]).
          */
-        fun timing(areaPx: Int, motion: ScrollMotion? = null): Pair<Int, Int> {
-            val stepMs = STEP_MS_BASE + STEP_MS_PER_KPX * areaPx / 1000.0
+        fun timing(areaPx: Int, motion: ScrollMotion? = null): Pair<Int, Int> =
+            timingOf(STEP_MS_BASE + STEP_MS_PER_KPX * areaPx / 1000.0, motion)
+
+        /** [timing]'s rule on a step's drawing time [stepMs] (ms) from either fit: P0 the smallest period that holds it, the
+         *  period sent P0 × [PERIOD_MARGIN] rounded up inside 16..128; Auto's T the most steps in the length at that period;
+         *  a fixed count spread over the length, never under it; the probes' fixed rule ([motion] null) T nearest 200 ms. */
+        fun timingOf(stepMs: Double, motion: ScrollMotion? = null): Pair<Int, Int> {
             val p0 = kotlin.math.ceil(stepMs * 1024.0 / 1000.0).toInt()
             val pFit = kotlin.math.ceil(p0 * PERIOD_MARGIN).toInt().coerceIn(CfwModes.MOTION_PERIODS.first, CfwModes.MOTION_PERIODS.last)
             // the fixed rule (T1; the `mainseq` probe keeps it, AW.4): T nearest 200 ms at P0
@@ -688,6 +699,30 @@ class MainStaging private constructor(
         const val STEP_MS_PER_KPX = 0.156
         /** AU.3: 13 of the first trial's 32 motions folded a step at P 42 (41.0 ms) — the period carries 10 % over the fit. */
         const val PERIOD_MARGIN = 1.10
+
+        /**
+         * Build C3, stage FF (the DM spec §1.1 "The fast-path fit", decisions AY (4)): a step's drawing time (ms) on the fast
+         * DRAW path (`FIRMWARE.md` §7.12) — the path of every instance opened with EFFECTS armed ("the path is the
+         * instance's"; the phone arms EFFECTS at the start before any fire, §7.11) — for [areaPx] output pixels written as
+         * bytes (an unscaled DRAW of a record writes runs of one level as whole bytes, §7.12 "Runs, not pixels"; Depth,
+         * Slide, Fall and None draw no scaled width) and [walkBytes] bytes decoded a step (each DRAW of a record decodes from
+         * its kept start to the last source row its output takes, §7.12). **Modeled (I): the contract states none of the
+         * three coefficients** (its budget rates, 4 u a pixel and 16 u a walked byte, are upper bounds, not the step's time);
+         * they are the DM spec's §1.1 figures, calibrated on §7.12's one modeled figure for Main's pan at 352 (≈ 8 ms against
+         * 39.8 and 43.6 ms measured on C2's path). At 352 Depth's pan comes to 8.8 ms (the spec's §1.6). The measured period
+         * (decisions BF, the 114's field 9) raises the period from the glasses' own steps, as on C2's path.
+         */
+        fun fastStepMs(areaPx: Int, walkBytes: Int): Double = FAST_STEP_MS + (FAST_US_PER_PX * areaPx + FAST_US_PER_BYTE * walkBytes) / 1000.0
+        /** FF (modeled, the DM spec §1.1): a step's fixed part on the fast path (ms). */
+        const val FAST_STEP_MS = 0.5
+        /** FF (modeled, the DM spec §1.1): µs per output pixel written as bytes on the fast path. */
+        const val FAST_US_PER_PX = 0.036
+        /** FF (modeled, the DM spec §1.1): µs per byte decoded on the fast path. */
+        const val FAST_US_PER_BYTE = 0.20
+        /** FF (the DM spec §1.6's assumptions, counted on the PC's renderer from K1-1's local-check staging with the
+         *  desktop's faces, M-PC): a real row of the strip ≈ 1,440 B (1,432–1,457), a band form 2,527 B. */
+        const val FAST_ROW_BYTES = 1_440
+        const val FAST_BAND_FORM_BYTES = 2_527
         /** The motion's length the steps are chosen for (≈ 200 ms: under the ring's least scroll gap, spec §6.6). */
         const val MOTION_MS = 200.0
         /** Main's list on the glasses and its engine slot (`FIRMWARE.md` §6.3: one slot per list). */
@@ -771,7 +806,8 @@ class MainStaging private constructor(
                      progSpare: Boolean = true,
                      /** DM-0: EFFECTS is in force (stage 5 on a bit-11 build) — where Main's paint wraps ([ringFits]) the
                       *  ring form is staged: margins of k + 1 rows of the other end each side, no wrap record. Elsewhere,
-                      *  or false, today's form byte for byte. */
+                      *  or false, today's form byte for byte. C3 FF: and at every height the programs take the fast DRAW
+                      *  path's fit ([ScrollEffects.timing]); false: C2's fit, every byte as before. */
                      stage5: Boolean = false): MainStaging {
             val layout = paint.layout
             if (cacheSize < CfwModes.STAGE_RESERVE || cacheSize > CfwModes.CACHE2_MAX_RIDERS || cacheSize % 4 != 0)
@@ -898,17 +934,18 @@ class MainStaging private constructor(
                 PanSpec(asked.first { minOf(it, mA) == kk.first && minOf(it, mB) == kk.second }, kk.first, kk.second, step, sx) } }
             fun rec(sx: Int) = when (sx) { 0 -> strip.record; 1 -> stripB!!.record; else -> wrapPic!!.record }
             // one period and one T for every program of the staging: the whole list's (decisions V), by the effect in force
-            // (K1-1: its own tracks' area); the probes' fixed rule is Depth's
+            // (K1-1: its own tracks' area); the probes' fixed rule is Depth's on C2's fit. C3 FF: at stage 5 the fast DRAW
+            // path's fit, which every fire there runs (`FIRMWARE.md` §7.12)
             val effect = motion?.effect ?: ScrollEffect.DEPTH
-            val area = ScrollEffects.areaPx(effect, l, listD, bandD)
-            val (period, t) = if (motion == null) timing(area, null) else ScrollEffects.timing(effect, area, motion)
+            val (period, t) = if (motion == null) timing(ScrollEffects.areaPx(effect, l, listD, bandD), null)
+                else ScrollEffects.timing(effect, l, listD, bandD, motion, stage5)
             val slotA = at
             val (pans, panParts) = layPans(staged, effect, t, slotA, specs, sA) { rec(it) }
             progs += panParts
             // each pan slot holds the largest effect's pans and table at its own T for these rows, with slack: a re-make
             // that outgrows it is a full staging (said)
             val progSlot = if (!progSpare || motion == null) joined(panParts).size
-                else slack(ScrollEffect.entries.maxOf { e -> val te = ScrollEffects.timing(e, ScrollEffects.areaPx(e, l, listD, bandD), motion.copy(effect = e)).second
+                else slack(ScrollEffect.entries.maxOf { e -> val te = ScrollEffects.timing(e, l, listD, bandD, motion.copy(effect = e), stage5).second
                     joined(layPans(staged, e, te, slotA, specs, sA) { rec(it) }.second).size })
             next(progSlot)
             val progSlots = if (progSpare && motion != null) intArrayOf(slotA, next(progSlot)) else null
@@ -924,7 +961,7 @@ class MainStaging private constructor(
                 Blob("items", items4 * 4, pad(itemBytes), null) +
                 Blob("programs", progs.first().first, pad(progBytes), null)
             return MainStaging(layout, listD, bandD, n, cacheSize, period, t, regionStart, regionEnd, strip, stripB, bands.toMutableList(), items4, itemOffs,
-                mutableMapOf(spareOff to spareSlot), pans, press, blobs, stripRow, motion, seen, wrapPic, wrapRow, staged, progSlots, progSlot, ring)
+                mutableMapOf(spareOff to spareSlot), pans, press, blobs, stripRow, motion, seen, wrapPic, wrapRow, staged, progSlots, progSlot, ring, stage5)
         }
 
         /** K1-1: [effect]'s pans for [specs] over [t] steps laid out from the byte offset [off] — its ease table first (Fall),
