@@ -9646,3 +9646,10 @@ gitignored `private/build072/C2-decisions.md` parts BU–CC and `private/c3-desi
    jump); `FORK.md` §7 gains one line (a stored stage 5 is lowered before the phone reconnects between the two lenses
    of a sitting that changes the capability bit). Its merge onto 0.83's tree and fix stage are running; then the
    second pass, ship vectors for the ring forms, and the fast-path fit as its own stage.
+9. **Reddit in Feed (§91.5's open question, answered 11-21).** Reddit ended its public RSS feeds on 2026-11-13
+   (announced 2026-09-30; read in two news reports) and is closing its public API. Measured from the PC on 11-21 with
+   a neutral client name, one request a minute: `https://www.reddit.com/r/popular/.rss` answers HTTP 404 with an Atom
+   body titled "Not Found" through the VPN and on the direct path alike (the two requests left by different public
+   addresses). So it is not this network path; the last good fetch (11-17 11:45) fits a staged shutdown (inferred).
+   Nothing changed: the Feed keeps its last Reddit items with their age and the engine asks again every 15 minutes.
+   What takes the source's place is Adam's call (`FEED.md` §2; the suspension of Feed work stands until he says).

@@ -90,8 +90,10 @@ for firmware → earlier by number (§65 Phase 2 and the protocol, §48 the fork
 - **The session's cache size:** 256 KiB at stage 2 and above; since 0.77 the last session's size is kept across a
   restart of the phone's process (§92.6), so an install no longer drops a 256 KiB session to 160 (the first session
   after 0.77's own install still asks 160; the first start after the next night in the case asks 256).
-- **Reddit in Feed is stale since 11-17 11:45** (§91.5): every subreddit feed answers "Not Found" to the PC, which is
-  the only fetcher since 0.70. Open.
+- **Reddit in Feed is stale since 11-17 11:45, and it is not his network** (§91.5, §100.9): Reddit ended its public
+  RSS feeds on 2026-11-13 (announced 09-30; two news reports). Measured 11-21 with a neutral client name on both of
+  the PC's network paths (the VPN and the direct one): HTTP 404 with an Atom body titled "Not Found". The service
+  still asks every 15 minutes and logs the refusal. His call: what takes the source's place (nothing built).
 - No browser of his is approved yet; he has not said he has used the pages, or looked at Feed and Tmux on 0.70.
 - Sessions run inside the memory-capped cgroup (`CLAUDE.md`, "Running builds on this machine"; §82); his lean
   correction of 11-17 governs what is built (§83).
@@ -134,7 +136,7 @@ after** (§17.6). New firmware features are armed and tested at once on his go, 
 2. **C1's numbers as he uses the glasses** (the 114 gap counts, field 33 under a working shell, the round trip's
    p90) feed C2's constants (`FIRMWARE.md` §6.9).
 3. **After C2: the motion kit's shell part** (`REPLAN.md` §17.3 item 6), before S2.
-4. **Reddit in Feed** (§91.5): which network path still gets a feed; then the fix.
+4. **Reddit in Feed** (§91.5, §100.9): no network path gets a feed — Reddit ended them; his word on what replaces the source, then the change.
 5. **S1-4** (Music: his five answers are in, `REPLAN.md` §17.3 item 7; the lean spec, then the build), **S1-5** (the alerts onto the notice record; the phone's caches), **R-b**
    (one health view on every surface, §17.4), then §16.1's order. His answer is owed on moving the motion kit's shell
    part ahead of S2.
