@@ -447,9 +447,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
                     }
                 }
                 if (slot == wm.damage.core.motion.PopupPrograms.SLOT && outcome in 0..1) up(now) { if (tag == noticeTagNow) noticeOpen = false }
-                // decisions BS.3 (`CfwTransportBase.onMotionNotify`): whether this refusal's body asked a keyframe of its own,
-                // set in the body's own delivery (no extra draw from the random stream)
-                up(now) { if (outcome == 2) engine.refusalBody(m.containsKey(3) && slot in 0..3); rules.body114(slot, tag, outcome, m[10]?.toInt()) }
+                up(now) { rules.body114(slot, tag, outcome, m[10]?.toInt()) }
                 // a refused COMMIT names its S as the tag: the mirror took it, so the transport calls it a divergence
                 // and the shell keyframes (`CfwTransportBase.onMotionNotify`); a DISCARD's or SETTLE's names none
                 if (outcome == 2 && m.containsKey(3) && slot in 0..3) up(now) { keyframe("a COMMIT refused on RIGHT") }

@@ -1455,8 +1455,7 @@ abstract class CfwTransportBase(
         val sent = { s: String -> if (s.isEmpty()) "" else " (sent since the read before the last: $s)" }
         when (e) {
             is wm.damage.core.local.EngineRefusals.Repair -> emitNote("local", "the glasses refused a mode $mode (${e.ref.describe()})" +
-                (if (mode == CfwModes.MOTION_MODE) " with more of its batch behind it" else "") + sent(e.sent) + " — the shell sends the whole table again" +
-                if (e.keyframe) " and keyframes" else "; the refusal's own motion body already asked a keyframe")
+                (if (mode == CfwModes.MOTION_MODE) " with more of its batch behind it" else "") + sent(e.sent) + " — the shell sends the whole table again and keyframes")
             is wm.damage.core.local.EngineRefusals.Standing -> emitNote("local", "the glasses refused a mode $mode again (${e.ref.describe()})" +
                 sent(e.sent) + " at a read after one was repaired, with no read clean between — a standing refusal: not repaired " +
                 "again until a read shows nothing refused since, or the next session")
@@ -1581,11 +1580,7 @@ abstract class CfwTransportBase(
             if (!_events.tryEmit(TransportEvent.LocalBody(m.slot!!, m.tag ?: -1, m.outcome!!, m.reason, m.drawn, m.folded, m.endCrc, m.stepUs)))
                 Log.e(name, "LocalBody event DROPPED (buffer full)")
         m.seq?.let { s -> synchronized(motionSeqs) { if (motionAccounted.let { it == null || s > it }) motionSeqs += s } }
-        if (m.outcome == DamageMsg.OUTCOME_REFUSED) {
-            // decisions BS.3: whether this refusal's body asked a keyframe of its own — the record's repair then asks none
-            engineRefusals.refusalBody(motionRefusalKeyframed(m))
-            return
-        }
+        if (m.outcome == DamageMsg.OUTCOME_REFUSED) { motionRefusal(m); return }
         if (m.outcome != DamageMsg.OUTCOME_DREW && m.outcome != DamageMsg.OUTCOME_CLOSED) return
         val slot = m.slot; val tag = m.tag; val ordinal = m.ordinal; val crc = m.endCrc
         if (slot == null || tag == null || ordinal == null || crc == null) {
@@ -1612,11 +1607,10 @@ abstract class CfwTransportBase(
         }
     }
 
-    /** An outcome-2 body (build C1's ruling B-S2): a divergence when the mirror took what RIGHT refused. True when it asked
-     *  a keyframe (not past the instance's cap). */
-    private fun motionRefusalKeyframed(m: DamageMsg.Motion): Boolean {
+    /** An outcome-2 body (build C1's ruling B-S2): a divergence when the mirror took what RIGHT refused. */
+    private fun motionRefusal(m: DamageMsg.Motion) {
         // an unknown sub's body names no slot (ruling R1.8), and 0xFF (a CLOSE of all) names none of the four
-        val slot = m.slot ?: return false
+        val slot = m.slot ?: return
         val reason = m.reason?.let { DamageMsg.REASONS[it] ?: "reason $it" } ?: "no reason"
         val tag = m.tag
         if (tag != null) {
@@ -1624,11 +1618,12 @@ abstract class CfwTransportBase(
             // its END for (slot, tag, ordinal 0), written when the mirror took it and kept for the session, a close
             // since included — not by what the slot holds when the notify arrives (a flush tee'd in between may
             // have closed it). Since B-N11 a tag is one play's.
-            synchronized(mirrorSim) { mirrorSim.motionEndCrc(slot, tag, 0) } ?: return false
-            return motionDivergence(slot to tag, "slot $slot refused by RIGHT ($reason) — the mirror took that PLAY (tag 0x%04x ordinal 0)".format(tag))
+            synchronized(mirrorSim) { mirrorSim.motionEndCrc(slot, tag, 0) } ?: return
+            motionDivergence(slot to tag, "slot $slot refused by RIGHT ($reason) — the mirror took that PLAY (tag 0x%04x ordinal 0)".format(tag))
+            return
         }
-        val open = synchronized(mirrorSim) { mirrorSim.motionOpenIn(Arm.RIGHT, slot) } ?: return false
-        return motionDivergence(slot to open.first, "slot $slot refused by RIGHT ($reason) " +
+        val open = synchronized(mirrorSim) { mirrorSim.motionOpenIn(Arm.RIGHT, slot) } ?: return
+        motionDivergence(slot to open.first, "slot $slot refused by RIGHT ($reason) " +
             "while the mirror holds tag 0x%04x ordinal ${open.second} open there".format(open.first))
     }
 
@@ -1643,9 +1638,8 @@ abstract class CfwTransportBase(
     private val motionKeyframes = HashMap<Pair<Int, Int>, Int>()
 
     /** A motion divergence on the instance [key]: a `divergence` note (the shell keyframes on it) while the instance has
-     *  had fewer than [MOTION_KEYFRAMES_PER_INSTANCE]; past that a `motion` note says so and nothing is asked. True when
-     *  the keyframe was asked. */
-    private fun motionDivergence(key: Pair<Int, Int>, what: String): Boolean {
+     *  had fewer than [MOTION_KEYFRAMES_PER_INSTANCE]; past that a `motion` note says so and nothing is asked. */
+    private fun motionDivergence(key: Pair<Int, Int>, what: String) {
         val had = synchronized(motionKeyframes) {
             val n = motionKeyframes[key] ?: 0
             if (n < MOTION_KEYFRAMES_PER_INSTANCE) motionKeyframes[key] = n + 1
@@ -1653,7 +1647,6 @@ abstract class CfwTransportBase(
         }
         if (had < MOTION_KEYFRAMES_PER_INSTANCE) emitNote("divergence", "motion: $what — keyframing")
         else emitNote("motion", "$what — not keyframed: this instance has had $MOTION_KEYFRAMES_PER_INSTANCE keyframes (the cap)")
-        return had < MOTION_KEYFRAMES_PER_INSTANCE
     }
 
     /** Sequences received above [motionAccounted]; every sequence at or below it is accounted for (received, or

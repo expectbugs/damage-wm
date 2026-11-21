@@ -842,12 +842,13 @@ class BindTransportTest {
 
     /** Decisions BS.3, the transport's half (B083-rr pins 3 and 4): RIGHT's engine word held, so RIGHT alone refuses every
      *  mode 26 (14, §5.5). A CLOSE alone in its message: nothing of a batch lay behind it — no repair (pin 4). A CLOSE put
-     *  first in a batch: handed as `refusal26` once, with a keyframe (its untagged body asked none); the same batch refused
-     *  again at the next read is a standing refusal, not handed (pin 3); after a read with nothing refused since, a
-     *  RETARGET of a slot the mirror holds open, leading the same way, is handed without a keyframe of its own, since its
-     *  body asked one (B-S2: the mirror took what RIGHT refused). A lone fill between makes each record new (the refusal
-     *  record's sequence is RIGHT's present count, §4). (Not a tagged PLAY's body: this rig hands the lens a packet
-     *  before the mirror's tee, so a refusal body can reach B-S2 before the mirror holds the PLAY it names.) */
+     *  first in a batch: handed as `refusal26` once (the repair keyframes); the same batch refused again at the next read
+     *  is a standing refusal, not handed (pin 3); after a read with nothing refused since, a RETARGET of a slot the mirror
+     *  holds open, leading the same way, is handed too, though its body asked B-S2's keyframe (the mirror took what RIGHT
+     *  refused): the repair asks its own as well (the lead's ruling A2 on FR-083; the compositor merges the two when the
+     *  first has not gone). A lone fill between makes each record new (the refusal record's sequence is RIGHT's present
+     *  count, §4). (Not a tagged PLAY's body: this rig hands the lens a packet before the mirror's tee, so a refusal body
+     *  can reach B-S2 before the mirror holds the PLAY it names.) */
     @Test
     fun aMode26RefusalIsHandedWhenMoreOfItsBatchLayBehindIt_BS3(): Unit = runBlocking {
         val (sim, t) = armedSession()
@@ -869,7 +870,7 @@ class BindTransportTest {
             send(fill); read()
             send(led)
             val first = read().refusal26
-            assertNotNull(first, "a CLOSE leading a batch: handed"); assertTrue(first.keyframe); assertEquals(26, first.ref.mode)
+            assertNotNull(first, "a CLOSE leading a batch: handed"); assertEquals(26, first.ref.mode)
             assertTrue("CLOSE slot 3" in first.sent, first.sent)
             saw("local", "with more of its batch behind it")
             send(fill); send(led)
@@ -882,9 +883,9 @@ class BindTransportTest {
             send(CfwModes.batch(listOf(CfwModes.motionRetarget(1, IntArray(4)), fill), engine = true))
             saw("divergence", "slot 1 refused by RIGHT")
             val ret = read().refusal26
-            assertNotNull(ret, "a RETARGET leading a batch: handed"); assertTrue(!ret.keyframe, "its body already asked a keyframe")
+            assertNotNull(ret, "a RETARGET leading a batch: handed, though its body asked B-S2's keyframe")
             assertTrue("RETARGET slot 1" in ret.sent, ret.sent)
-            saw("local", "the refusal's own motion body already asked a keyframe")
+            assertEquals(2, count("local", "— the shell sends the whole table again and keyframes"), "both repairs keyframe: ${said("local")}")
         } finally {
             sim.motionForTest(Arm.RIGHT).holdWordForTest(false)
         }

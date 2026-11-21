@@ -26,20 +26,20 @@ import wm.damage.core.wire.DamageMsg
  * a session start re-arms it. ONE latch for the two modes: the repair re-sends the whole table either way, and a condition that refuses a 26
  * refuses a 27 too (§6.3's checks hold §5.5's), so a 27 at the read after a 26's repair is that repair's own table
  * refused — standing. BIND, a lease gone and Silent Mode stop it before this: the rules act only while BIND is in force,
- * and the flags clear at every release point. When the refusal's own motion body already asked a keyframe (build C1's
- * ruling B-S2: a PLAY or COMMIT the mirror took, a slot the mirror holds open), a 26's repair re-sends the table and asks
- * none of its own; a refused 27 sends no body, so its repair always keyframes.
+ * and the flags clear at every release point. The repair always asks its keyframe (the lead's ruling A2 on FR-083: a
+ * flag saying the refusal's own motion body had asked one could speak for an earlier refusal; the compositor merges
+ * keyframe requests not yet sent, so B-S2's and this one are one keyframe whenever the first has not gone yet).
  *
  * State (`FORK.md` §3.8): (a) cleared at each session start, with the record's baseline; (b) nothing waits; (c) keyed on
- * the read count and the time each message was written ([clock], the transport's); (d) written by the image writer and
- * the notify thread, read by the notify thread — one lock; (e) each read decides once, on one snapshot; (f) RIGHT's
- * record only — LEFT cannot report.
+ * the read count and the time each message was written ([clock], the transport's); (d) written by the image writer,
+ * read and trimmed by the notify thread — one lock; (e) each read decides once, on one snapshot; (f) RIGHT's record
+ * only — LEFT cannot report.
  */
 class EngineRefusals(private val clock: () -> Long) {
     sealed class Decision { abstract val ref: DamageMsg.Refusal }
-    /** The shell re-sends the whole table and, when [keyframe], asks ONE keyframe. [sent]: what was written, for the notes
-     *  (a 26's span; empty for a 27). */
-    data class Repair(override val ref: DamageMsg.Refusal, val sent: String, val keyframe: Boolean) : Decision()
+    /** The shell re-sends the whole table and asks ONE keyframe. [sent]: what was written, for the notes (a 26's span;
+     *  empty for a 27). */
+    data class Repair(override val ref: DamageMsg.Refusal, val sent: String) : Decision()
     /** A new refusal naming 26 or 27 at a read after one was repaired, with none clean between: not repaired again. */
     data class Standing(override val ref: DamageMsg.Refusal, val sent: String) : Decision()
     /** Nothing written in the span had a sub-message behind a mode 26: no repair. */
@@ -51,7 +51,6 @@ class EngineRefusals(private val clock: () -> Long) {
     /** Each mode-26 sub with something after it in its batch, as "SUB slot n" (at most a few dozen keys). */
     private val booked = LinkedHashMap<String, Booked>()
     private var latched = false
-    private var bodyKeyframed = false
 
     /** Every image the phone writes ([wm.damage.core.transport.CfwTransportBase]'s one write path). */
     @Synchronized fun wrote(image: ByteArray) {
@@ -59,10 +58,7 @@ class EngineRefusals(private val clock: () -> Long) {
         for (k in ahead(image)) booked.getOrPut(k) { Booked(0, nowMs, 0) }.let { it.n++; it.atMs = nowMs; it.reads = 0 }
     }
 
-    /** Each outcome-2 motion body from RIGHT: whether it asked a keyframe of its own (B-S2). The newest one stands. */
-    @Synchronized fun refusalBody(keyframed: Boolean) { bodyKeyframed = keyframed }
-
-    @Synchronized fun sessionStart() { booked.clear(); latched = false; bodyKeyframed = false }
+    @Synchronized fun sessionStart() { booked.clear(); latched = false }
 
     /** One RIGHT telemetry read: [ref] its record, [fresh] new since the last read and not the session's baseline. A
      *  message leaves the span once two reads have passed since it was written AND [SPAN_FLOOR_MS]. */
@@ -71,8 +67,6 @@ class EngineRefusals(private val clock: () -> Long) {
         booked.values.removeIf { it.reads >= 2 && nowMs - it.atMs >= SPAN_FLOOR_MS }
         val span = LinkedHashMap<String, Int>().also { m -> for ((k, b) in booked) m[k] = b.n }
         for (b in booked.values) b.reads++
-        val keyframed = bodyKeyframed
-        bodyKeyframed = false
         if (!fresh) { latched = false; return null }
         if (ref == null) return null
         val mode = ref.mode and 0x7F
@@ -83,7 +77,7 @@ class EngineRefusals(private val clock: () -> Long) {
         val sent = if (m26) span.entries.joinToString { (k, n) -> "$k ×$n" } else ""
         if (latched) return Standing(ref, sent)
         latched = true
-        return Repair(ref, sent, keyframe = !m26 || !keyframed)
+        return Repair(ref, sent)
     }
 
     companion object {

@@ -5168,24 +5168,6 @@
   "from": "B083-rr"
  },
  {
-  "id": "BS3-second-keyframe",
-  "file": "local/EngineRefusals.kt",
-  "edits": [
-   [
-    "        return Repair(ref, sent, keyframe = !m26 || !keyframed)",
-    "        return Repair(ref, sent, keyframe = true)"
-   ]
-  ],
-  "tests": [
-   "*BindTransportTest.aMode26RefusalIsHandedWhenMoreOfItsBatchLayBehindIt_BS3"
-  ],
-  "expect": [
-   "aMode26RefusalIsHandedWhenMoreOfItsBatchLayBehindIt_BS3"
-  ],
-  "note": "decisions BS.3: the repair asks its own keyframe when the refusal's motion body already asked one (B-S2): two keyframes for one refusal (re-targeted in the follow-up: a 27's repair always keyframes)",
-  "from": "B083-rr"
- },
- {
   "id": "BS3-gate-not-cleared-at-start",
   "file": "transport/CfwTransportBase.kt",
   "edits": [

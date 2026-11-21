@@ -673,16 +673,14 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
             keyframe("RIGHT's refusal record names mode 27 (reason ${refusal27.reason}): the rest of that batch did not run there")
         } else if (refusal26 != null) {
             // decisions BS.3: a mode 26 refused on RIGHT ends its batch there as a 27 does — a CLOSE put first took the frame,
-            // the table messages and the answer behind it with it: the same repair. No second keyframe when the refusal's
-            // own body asked one (B-S2)
+            // the table messages and the answer behind it with it: the same repair, its keyframe always asked (A2: a request
+            // not yet sent merges with B-S2's)
             val r = refusal26.ref.reason
-            note("repair", "evidence=refusal mode=26 reason=$r sent=\"${refusal26.sent}\" object=table keyframe=${if (refusal26.keyframe) "yes" else "its-body"}")
+            note("repair", "evidence=refusal mode=26 reason=$r sent=\"${refusal26.sent}\" object=table keyframe=yes")
             count("repair.engine")
             wholeTable()
-            if (refusal26.keyframe) {
-                count("keyframe")
-                keyframe("RIGHT's refusal record names mode 26 (reason $r; sent ${refusal26.sent}): the rest of that batch did not run there")
-            }
+            count("keyframe")
+            keyframe("RIGHT's refusal record names mode 26 (reason $r; sent ${refusal26.sent}): the rest of that batch did not run there")
         } else if (batch14 != null && touchedSinceRead.isNotEmpty()) {
             note("repair", "evidence=refusal mode=8 reason=14 object=batch(${touchedSinceRead.keys.joinToString(",")})")
             count("repair.batch")
