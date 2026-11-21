@@ -110,9 +110,9 @@ class ScrollEffectsTest {
      * C3 DM-0 (the DM spec §1.1, §2; decisions AD's S2): the stage-5 form. Where Main's paint wraps (the sample's eight rows
      * at 288 and 352) the strip's margins are k + 1 rows of the other end each side, no wrap record is built, the rules'
      * P0 and P3 take that margin, and every effect's END is Main's own paint at the new cursor at EVERY cursor a notch
-     * lands on, the wrap included — at the virtual row v = −1 or n, as the glasses compute a ring fire (and as the
-     * fallback's PLAY from the ring strip does) — with its start state Main at the old cursor. At 416 and 480 the staging
-     * is today's form, byte for byte, at stage 5 too.
+     * lands on, the wrap included — at the virtual row v = −1 or n, as the glasses compute a ring fire (the bound list's
+     * prediction, `BoundList.predict`) — with its start state Main at the old cursor, and no wrap pan for the shell (C3
+     * X2M0). At 416 and 480 the staging is today's form, byte for byte, at stage 5 too.
      */
     @Test
     fun theStage5FormHoldsEveryEffectAcrossTheWrapAndIsTodaysWhereMainDoesNotWrap_DM0() {
@@ -137,11 +137,16 @@ class ScrollEffectsTest {
                 assertEquals((s5.rows + 2 * (k + 1)) * l.rowH, s5.strip.raw.h, "$what0: the strip's rows")
                 for (pan in s5.pans) assertEquals(listOf(l.lens.y + (pan.step - k - 1) * l.rowH, l.lens.bottom + (pan.step - 1 - k - 1) * l.rowH),
                     listOf(pan.rules[0].arg, pan.rules[3].arg), "$what0: P0's and P3's rules take the margin")
+                assertNull(s5.wrapPan(1) ?: s5.wrapPan(-1), "$what0: no wrap pan (the wrap notch fires on the glasses)")
+                val list = s5.boundList(1)
                 var n = 0
                 for (pan in s5.pans) for (cPrime in -1..s5.rows) {
                     val c = cPrime - pan.step
                     if (c !in 0 until s5.rows) continue                 // no notch lands there from a row
-                    val p = s5.wrapParams(pan, cPrime) ?: s5.params(pan, cPrime) ?: continue
+                    // what the glasses compute for this pan's step from row c — at v = c' unwrapped across the wrap (the
+                    // two strips' pans share their rules; only their programs differ)
+                    val le = list.entries.first { !it.isTap && it.step == pan.step }
+                    val p = (list.predict(c, le) as? wm.damage.core.local.BoundList.Fire.Drew)?.p ?: continue
                     val to = cPrime.mod(s5.rows)
                     Motion.play(pan.program, MainStaging.SLOT, s5.period, 1, 0, p)
                     for (left in listOf(true, false)) {

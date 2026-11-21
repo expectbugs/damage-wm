@@ -371,7 +371,7 @@ object MainLocalCheck {
         // ---- decisions AZ.4: the wrap where Main wraps — the edge at each end, then the phone's PLAY of the same pan in
         //      the wrap's slot beside the DISCARD naming the other end: every step drawn, the last one Main's paint at the
         //      wrapped row, END in the shadow as belief takes it, RIGHT's cursor there, the instance's last step notified
-        if (ms.wraps && !ms.ring) for ((e, name) in listOf(down to "wrap-down", up to "wrap-up")) {
+        if (ms.wraps) for ((e, name) in listOf(down to "wrap-down", up to "wrap-up")) {
             val fails = ArrayList<String>(); val lines = ArrayList<String>()
             val c = if (e.step > 0) ms.rows - 1 else 0
             val cPrime = c + e.step
@@ -704,10 +704,8 @@ object MainLocalCheck {
      * C3 DM-0: the ring list's wrap (the DM spec §2, §5.1). At each end the notch fires through the input hook like any
      * other — a local instance draws, the 115 says drew with field 18 = 1 and the other end's cursor, nothing is PLAYed in
      * slot 1; every step drawn, the last one Main's paint at the wrapped row; the answer (the LIST-RING riding before the
-     * COMMIT of the report's own parameters) leaves both lenses' lists ringing, END in the shadow belief's. Then the
-     * fallback: a lens left with a plain list (a LIST-RING lost or refused after a plain one) reports the edge, and the
-     * phone's PLAY of the same pan in slot 1 from the ring strip ([MainStaging.wrapParams] at v), the riding LIST-RING and the
-     * DISCARD naming the other end draw the same wrap and make the list ring again.
+     * COMMIT of the report's own parameters) leaves both lenses' lists ringing, END in the shadow belief's. A ring staging
+     * has no wrap pan (no phone PLAY across its wrap: C3 X2M0, decisions AZ (2)).
      */
     private fun ringCases(ms: MainStaging, m: MainRig, list: BoundList, lens: Lens, keepFrames: Boolean, tag: String, nextS: () -> Int, cases: MutableList<Case>) {
         val sim = lens.sim
@@ -744,6 +742,9 @@ object MainLocalCheck {
                 from(c, fails, frames)
                 val a = lens.fire(CfwModes.DEV_RING, e.eventId)
                 val s = nextS()
+                // C3 X2M0 (decisions AZ (2)): the shell finds no wrap pan on a ring staging — an edge reported there would go as
+                // its frames, as at 416 and 480
+                if (ms.wrapPan(e.step) != null) fails += "$name: a ring staging gives the shell a wrap pan for step ${e.step}"
                 if (a == null || a.outcome != DamageMsg.APPLIED_DREW || a.cursor != to || a.field18 != 1L) fails += "$name from $c: not a drawn ring fire to $to with field 18 = 1 (${a?.describe()})"
                 else if (want == null || want.cursor != to || a.prog != want.prog4 || !a.params.contentEquals(want.p)) fails += "$name from $c: the report ${a.describe()} is not the prediction at v (${want?.p?.joinToString(",")})"
                 else {
@@ -766,41 +767,6 @@ object MainLocalCheck {
                     lines += "$name from $c → $to on the glasses: field 18 = 1, prog ${pan.prog4} P ${p.joinToString(",")}, $steps steps at P ${e.period}; slot ${MainStaging.WRAP_SLOT} empty"
                 }
                 cases += Case("$tag-$name", "the wrap from row $c to row $to on a ring list: fired through the hook like any notch (field 18), committed (DM-0)",
-                    union(pan.areasL + pan.areasR), frames ?: emptyList(), lines, fails)
-            }
-            // ---- the fallback: a plain list on the lens, the edge, the phone's PLAY from the ring strip
-            run {
-                val name = "ring-fallback-$dir"
-                val fails = ArrayList<String>(); val lines = ArrayList<String>()
-                val frames: MutableList<Frame>? = if (keepFrames) ArrayList() else null
-                lens.send("a plain LIST (a LIST-RING lost or refused after one)", CfwModes.bindList(list.list, list.items4, list.count, 0, list.pitch, list.mark), fails)
-                for (arm in Arm.entries) if (sim.bindForTest(arm).lists[MainStaging.LIST].ring) fails += "$name $arm: a plain LIST left the RING flag set"
-                from(c, fails, frames)
-                val a = lens.fire(CfwModes.DEV_RING, e.eventId)
-                val s = nextS()
-                if (a == null || a.outcome != DamageMsg.APPLIED_EDGE || a.cursor != c || a.field18 != null) fails += "$name from $c: the plain list did not report the edge (${a?.describe()})"
-                val wp = ms.wrapPan(e.step)
-                val p = wp?.let { ms.wrapParams(it, c + e.step) }
-                if (wp == null || p == null) fails += "$name from $c: no pan or parameters across the wrap"
-                else {
-                    if (wp.prog4 != pan.prog4) fails += "$name: the fallback's pan ${wp.prog4} is not the whole list's own ${pan.prog4} (no separate record)"
-                    if (want == null || !p.contentEquals(want.p)) fails += "$name: the fallback's P ${p.joinToString(",")} is not what the glasses compute at v (${want?.p?.joinToString(",")})"
-                    val play = Motion.play(wp.program, MainStaging.WRAP_SLOT, ms.period, Shell.WRAP_TAG, 0, p)
-                    lens.send("the wrap's PLAY, the riding LIST-RING and the DISCARD", CfwModes.batch(listOf(play, list.listMessage(0),
-                        CfwModes.motionDiscard(MainStaging.SLOT, (s + 1 - 0x4000) and 0xFFFF, MainStaging.LIST, to)), engine = true, bind = true), fails)
-                    val t0 = lens.now
-                    frames?.add(Frame("step 1", lens.panel(Arm.LEFT), lens.panel(Arm.RIGHT)))     // the PLAY's own present
-                    for (k in 2..ms.t) { lens.wake(t0 + (k - 1).toLong() * ms.period); frames?.add(Frame("step $k", lens.panel(Arm.LEFT), lens.panel(Arm.RIGHT))) }
-                    lens.wake(t0 + ms.t.toLong() * ms.period)
-                    for (arm in Arm.entries) differ(lens.panel(arm), m.truth(to, arm == Arm.LEFT), wp.areas(arm == Arm.LEFT))
-                        .let { if (it > 0) fails += "$name $arm: $it px of the last step not Main's paint at $to" }
-                    ended(name, c, to, wp, p, fails)
-                    val bodies = lens.notifies()
-                    if (bodies.none { it.slot == MainStaging.WRAP_SLOT && it.outcome == DamageMsg.OUTCOME_DREW } || bodies.any { it.outcome == 2 })
-                        fails += "$name: RIGHT's notifies ${bodies.map { it.describe() }}"
-                    lines += "$name from $c → $to: the edge on a plain list, then PLAY slot ${MainStaging.WRAP_SLOT} prog ${wp.prog4} P ${p.joinToString(",")} from the ring strip; the list rings again"
-                }
-                cases += Case("$tag-$name", "the fallback from row $c to row $to: a plain list on the lens reports the edge; the phone's PLAY of the same pan from the ring strip, the riding LIST-RING heals it (DM-0)",
                     union(pan.areasL + pan.areasR), frames ?: emptyList(), lines, fails)
             }
         }

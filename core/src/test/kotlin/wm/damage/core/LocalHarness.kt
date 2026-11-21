@@ -978,8 +978,9 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         val dirty = HashSet(changed)
         for (c in plan) { paintEnd(m2, c); dirty += BAND; dirty += BADGE }
         // decisions AZ.4 (the shell's `mainWrapPlan`): an edge at an end with the row now the other end — the scroll's PLAY
-        // in slot 1 from the end to the row past it, END (the wrapped row's record) into the model, its areas held
-        val wrap = rules.wrapPlan(row)
+        // in slot 1 from the end to the row past it, END (the wrapped row's record) into the model, its areas held. None on
+        // a ring list (C3 X2M0: a ring staging has no wrap pan; an edge there goes as the phone's frames)
+        val wrap = rules.wrapPlan(row)?.takeIf { !ring }
         val wrapPlay = wrap?.let { w ->
             val prog = w.list.entries.first { it.step == w.step }.program!!
             val p = intArrayOf(recs[ids[w.cPrime.mod(ids.size)]], 0, 0, 0)

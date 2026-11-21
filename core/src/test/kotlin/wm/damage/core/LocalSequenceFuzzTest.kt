@@ -271,14 +271,13 @@ class LocalSequenceFuzzTest {
         }
     }
 
-    /** C3 DM-0's reach, counted (not failures): ring sequences, their wrap notches adopted (a ring fire's 115 with field 18
-     *  the phone adopted) and the wraps the phone PLAYed there (the fallback: an edge on a lens whose LIST-RING was lost). */
+    /** C3 DM-0's reach, counted (not failures): ring sequences and their wrap notches adopted (a ring fire's 115 with
+     *  field 18 the phone adopted). */
     private fun ringCounted(h: LocalHarness, counted: MutableMap<String, Int>) {
         if (!h.ring) return
         fun add(k: String, n: Int) { if (n > 0) counted[k] = (counted[k] ?: 0) + n }
         add("DM-0: ring sequences", 1)
         add("DM-0: wrap notches adopted on a ring list", h.wrapAdopted.size)
-        add("DM-0: wrap PLAYs on a ring list (the fallback)", h.wrapPlays)
     }
 
     /** (10)'s reach, counted (not failures): the fronts' own notches the sequence made and judged. */
@@ -599,7 +598,8 @@ class LocalSequenceFuzzTest {
      *  adopted (field 18; the distance taken modulo the count) and COMMITted, with no wrap PLAY; then — after that answer,
      *  which rode behind a LIST-RING — a notch up across row 0 is adopted the same way, both lenses' lists still ringing.
      *  On the rule as it stood: P3's plain distance turns each wrap into `lost-report` (applied as today, a DISCARD); a
-     *  riding plain LIST un-rings the list at the first answer, so the second wrap is the edge and the phone's PLAY. */
+     *  riding plain LIST un-rings the list at the first answer, so the second wrap is the edge. (No wrap PLAY on a ring
+     *  list: the harness, as the shell, has no wrap pan there since C3 X2M0.) */
     @Test fun seededDM0_aWrapNotchOnARingListIsAdoptedBothWays() { var snapsBefore = 0; seeded(Taps.REPORT, rows = 7, ring = true, script = { h ->
         // (the walk's first notch races the start's table — a snap-back of the seeded rig's own, before the script)
         snapsBefore = h.rules.counts.filterKeys { it.startsWith("snapback.") }.values.sum()
@@ -613,29 +613,10 @@ class LocalSequenceFuzzTest {
             if (g !in h.wrapAdopted) out += "the wrap notch g$g's report did not say it wrapped (field 18)"
             if (h.fires[g]?.sR?.let { it in h.commitsSent } != true) out += "the wrap notch g$g was not committed"
         }
-        if (h.wrapPlays != 0) out += "${h.wrapPlays} wrap PLAY(s) on a ring list"
         if (h.rules.counts.filterKeys { it.startsWith("snapback.") }.values.sum() != snapsBefore) out += "snap-backs during the wraps: ${h.rules.counts}"
         for (a in Arm.entries) if (!h.sim.bindForTest(a).lists[0].ring) out += "$a: the list no longer rings after the answers"
         out
     }) }
-
-    /** C3 DM-0 (the fallback, S5): the start's LIST-RING lost on RIGHT — RIGHT holds the empty table's list (count 0), so its
-     *  fire is the edge while LEFT's draws; the phone applies the notch as today and its DISCARD rides behind a LIST-RING,
-     *  which heals RIGHT; the next notch is adopted. */
-    @Test fun seededDM0_aLostListRingHealsAtTheNextAnswer() = seeded(Taps.REPORT, ring = true, script = { h ->
-        h.lose27 = "list" to setOf(Arm.RIGHT)
-        h.start(fresh = true)
-        h.runUntil(h.now + 200)
-        notch(h); h.rest()
-        notch(h); h.rest()
-    }, extra = { h ->
-        val out = ArrayList<String>()
-        val (first, second) = h.fires.keys.sorted().takeLast(2)
-        if (h.rightOutcome[first] != DamageMsg.APPLIED_EDGE) out += "RIGHT did not hold the empty list at the first notch (outcome ${h.rightOutcome[first]})"
-        if (h.verdicts.none { it.first == second && it.second is LocalRules.Verdict.Adopt }) out += "the notch after the healing answer was not adopted: ${h.verdicts.filter { it.first == second }}"
-        if (!h.sim.bindForTest(Arm.RIGHT).lists[0].ring) out += "RIGHT's list does not ring"
-        out
-    })
 
     /** S1 — `C2-focus.md` 1(a) 1: a lost 115 overtaken. S1's report lost and its scroll message held a band, S2's report
      *  before it: S2 adopted two rows on; the two scroll messages pay its owe and the gap's. Pairing a stock message with
@@ -1196,7 +1177,7 @@ class LocalSequenceFuzzTest {
         val (h, failed) = observed(Taps.REPORT, rows = 7, ring = true, script = { h -> edgesThenANotch(h, longArrayOf(0, 7)) })
         assertTrue(failed.isEmpty(), "J3 on a ring list: $failed")
         assertTrue(declarations(h).isEmpty(), "J3 on a ring list declares nothing: ${declarations(h).map { "${it.key} g${it.g} ${it.rows}" }}")
-        assertTrue(h.wrapAdopted.isNotEmpty() && h.wrapPlays == 0, "the wraps adopted ${h.wrapAdopted}, wrap PLAYs ${h.wrapPlays}")
+        assertTrue(h.wrapAdopted.isNotEmpty(), "the wraps adopted ${h.wrapAdopted}")
     }
 
     /** J3b — J3 with his four edges (0, +18, +35, +212 ms): the notch is a `lost-report` snap-back (the lens jumps from row 1

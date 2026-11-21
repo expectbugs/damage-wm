@@ -5879,17 +5879,11 @@ class Shell(
      * [MainStaging.WRAP_SLOT]: END is Main's paint at the wrapped row; the model takes it, and holds what Main repaints
      * inside the areas until the motion has ended — its start a flush after this one, so one allowance
      * ([WRAP_START_MS]) past the steps. The mirror holds the instance, so a later flush that meets it CLOSEs it first.
-     * Build C3 (`FIRMWARE.md` §7.11, the second review pass of the transitions): none while a transition is in hand, in
-     * its frame phase or its in half — the PLAY's close pass would end the run's owners; the edge is answered as today
-     * (the rules' DISCARD at the wrapped row), its row drawn, held, and shown at the in half's next step or at LAND. [say]:
-     * the caller that answers the edge (the batch path) writes the note.
+     * None on a ring staging (stage 5 where Main's paint wraps: no wrap record, [MainStaging.wrapPan] null), and no
+     * other staging at stage 5 holds a wrap record, so no wrap PLAY meets a transition (C3 X2M0, decisions AZ (2)).
      */
-    private fun mainWrapPlan(nowMs: Long, say: Boolean = false): MainWrap? {
+    private fun mainWrapPlan(nowMs: Long): MainWrap? {
         val w = local.wrapPlan(localRow()) ?: return null
-        transition?.let { tr ->
-            if (say) journal.note("local", "an edge at Main's end under ${tr.tier.word}'s transition (${tr.phase}): no wrap PLAY — the row is drawn and shows with its in half")
-            return null
-        }
         val ms = mainBind.staging ?: return null
         if (w.list.list != MainStaging.LIST || mainBind.list?.mark != w.list.mark) return null
         val pan = ms.wrapPan(w.step) ?: return null
@@ -8191,7 +8185,7 @@ class Shell(
             val plans = if (localOn) local.plan(localRow()) else emptyList()
             // decisions AZ.4: an edge at an end of Main's wrapping list — the pan across the wrap, a phone PLAY in a free slot
             // whose END goes into the model as a COMMIT's does, its areas held until it ends
-            val wrap = if (localOn) mainWrapPlan(localNow, say = true) else null
+            val wrap = if (localOn) mainWrapPlan(localNow) else null
             assembleCalls++
             var denied: Set<Int> = emptySet()
             val assembled = try {

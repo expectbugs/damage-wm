@@ -123,6 +123,14 @@ class LocalRulesTest {
         // the tap rule's (4): a tap at the other end after a lost wrap notch (n = 1) is one row away, corrected and acted on
         val tp = R(l = list(ring = true), row = 7)
         assertEquals(Verdict.Act(0), tp.tap(2, 0), "${tp.notes}")
+        // C3 X2M0 (decisions AZ (2)): an edge reported at the end of a ring list — a lens state no single lost or refused
+        // message leaves on RIGHT — is answered as at 416 and 480: applied as today, the DISCARD naming the wrapped row
+        // behind the riding LIST-RING; the shell's ring staging gives no wrap pan, so its frames draw the row
+        val ed = R(l = list(ring = true), row = 7)
+        assertEquals(Verdict.Apply(EvenHubMsg.EV_SCROLL_BOTTOM), ed.scroll(1, 7, outcome = DamageMsg.APPLIED_EDGE), "${ed.notes}")
+        val eb = ed.batch()
+        val d = eb.indexOfFirst { it[0].toInt() == 26 && it[1].toInt() == 4 && u16(it, 6) == 0 }
+        assertTrue(d > 0 && isListRing(eb[d - 1]), "the DISCARD naming row 0 behind a LIST-RING: ${eb.map { it.joinToString("") { x -> "%02x".format(x) } }}")
     }
 
     /** C3 DM-0 (S5, the class): on a ring list EVERY LIST the rules write is LIST-RING with flags 1 — the start's, the one

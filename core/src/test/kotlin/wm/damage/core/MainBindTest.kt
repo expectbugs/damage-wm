@@ -53,11 +53,10 @@ class MainBindTest {
         // decisions AZ.4: and the wrap both ways where Main wraps (288 and 352 with the sample's eight rows), on both caches;
         // K1-1: every other Scroll effect's pans both ways (and its wraps), and the pans re-made alone, at each height and cache
         // C3 DM-0: every one of them again at stage 5 on a bit-11 build — at 288 and 352 (Main wraps) the ring form, whose wrap
-        // fires through the hook (`ring-wrap-`) and whose fallback PLAYs from the ring strip (`ring-fallback-`), per effect
-        assertEquals(2 * (4 * 2 * (7 + 3 * 2 + 1)) + 2 * 2 * 2 * 4 + 2 * 2 * 4 * 4, r.cases.size, "every height and cache ran its cases at stage 4 and 5, and the wrapping heights their wraps per effect")
+        // fires through the hook (`ring-wrap-`), per effect
+        assertEquals(2 * (4 * 2 * (7 + 3 * 2 + 1)) + 2 * 2 * 2 * 4 + 2 * 2 * 2 * 4, r.cases.size, "every height and cache ran its cases at stage 4 and 5, and the wrapping heights their wraps per effect")
         assertEquals(32, r.cases.count { it.name.contains("-wrap-") && !it.name.contains("-s5-") }, "the stage-4 wrap cases: ${r.cases.filter { it.name.contains("-wrap-") }.map { it.name }}")
         assertEquals(32, r.cases.count { it.name.contains("-s5-") && it.name.contains("-ring-wrap-") }, "the ring wraps, both ways, every effect, at 288 and 352 on both caches")
-        assertEquals(32, r.cases.count { it.name.contains("-s5-") && it.name.contains("-ring-fallback-") }, "the fallbacks, likewise")
         assertEquals(0, r.cases.count { it.name.contains("-s5-") && it.name.contains("-wrap-") && !it.name.contains("-ring-") }, "no phone-played wrap case on a ring staging")
         assertEquals(16, r.cases.count { it.name.endsWith("-reprogram") && it.lines.isNotEmpty() && it.lines.none { l -> l.startsWith("no spare") } }, "the re-make ran at every height and cache, at both stages")
     }

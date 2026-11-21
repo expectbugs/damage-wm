@@ -209,18 +209,18 @@ class MainStaging private constructor(
             ?: throw LintError("Main's staging holds no pan of $kA/$kB rows in step $step")
     }
 
-    /** B082: the wrap's pan in [step] — the whole list's tracks drawing [wrap] — or null where Main does not wrap. DM-0
-     *  (the fallback at stage 5): on a ring strip the whole list's own pan of the active strip, whose margins hold the rows
-     *  a pan across either end shows (no separate record). */
-    fun wrapPan(step: Int): Pan? = if (ring) pan(WHOLE, step) else pans.firstOrNull { it.strip == WRAP_STRIP && it.step == step }
+    /** B082: the wrap's pan in [step] — the whole list's tracks drawing [wrap] — or null where Main does not wrap. Null on
+     *  a ring staging too (C3 X2M0, decisions AZ (2)): it holds no wrap record, its wrap notch fires on the glasses, and an
+     *  edge reported there goes as the shell's frames, as at 416 and 480. */
+    fun wrapPan(step: Int): Pan? = pans.firstOrNull { it.strip == WRAP_STRIP && it.step == step }
 
     /** PLAY's P0..P3 for [pan] landing on the new cursor [cPrime], by each parameter's rule — null at an edge (a new
      *  cursor, or an item, outside the rows: no local motion there). A kind-2 value outside s16 is the firmware's 12. */
     fun params(pan: Pan, cPrime: Int): IntArray? = paramsBy(pan.rules, cPrime)
 
     /** Decisions AZ.4: Main wraps here — its strip's margins hold the other end's rows (none blank), one more at each end.
-     *  DM-0: a ring strip wraps (on the glasses, or by the phone's PLAY from the strip when the lens holds a plain list). */
-    val wraps: Boolean get() = wrap != null || ring
+     *  (A ring staging's wrap is the glasses' own: no wrap record, so false there.) */
+    val wraps: Boolean get() = wrap != null
 
     /**
      * Decisions AZ.4: PLAY's P0..P3 for [pan] across the wrap — from the end row to the row just past it, [cPrime] −1 (an
@@ -230,10 +230,6 @@ class MainStaging private constructor(
      * picture slides one row as at every other notch, and the lens's cursor is the answer's to set (its DISCARD names it).
      */
     fun wrapParams(pan: Pan, cPrime: Int): IntArray? {
-        // DM-0 (the fallback, the DM spec §2): on a ring strip the pan's own rules at the virtual row v = [cPrime] — kind 1
-        // the item at v mod n, kind 2 at v unwrapped — as the glasses compute a ring fire (§7.8); the margins hold the rows
-        if (ring) return if ((cPrime != -1 && cPrime != rows) || cPrime - pan.step !in 0 until rows) null
-            else paramsBy(pan.rules, cPrime.mod(rows), cPrime)
         if (wrap == null || pan.strip != WRAP_STRIP || (cPrime != -1 && cPrime != rows) || cPrime - pan.step !in 0 until rows) return null
         val c = cPrime - pan.step
         // B082: the wrap record holds rows (n−1−rowsAbove … n−1, 0 … rowsBelow); the start cursor's row sits at index
@@ -245,14 +241,13 @@ class MainStaging private constructor(
     /** The press's P0..P3 at the cursor [c] (a tap does not move it), or null outside the rows. */
     fun pressParams(c: Int): IntArray? = paramsBy(press.rules, c)
 
-    /** [v]: the virtual row on a ring strip (DM-0, §7.8: kind 1 at (v + arg) mod n, kind 2 at v); [cPrime] elsewhere. */
-    private fun paramsBy(rules: List<Rule>, cPrime: Int, v: Int = cPrime): IntArray? {
+    private fun paramsBy(rules: List<Rule>, cPrime: Int): IntArray? {
         if (cPrime !in 0 until rows) return null
         val p = IntArray(4)
         for ((i, r) in rules.withIndex()) p[i] = when (r.kind) {
             CfwModes.KIND_ARG -> r.arg
-            CfwModes.KIND_ITEM -> { val j = if (ring) (v + r.arg).mod(rows) else cPrime + r.arg; if (j !in 0 until rows) return null; s16(itemOffs[j]) }
-            CfwModes.KIND_PITCH -> (v * pitch + r.arg).also { if (it !in Short.MIN_VALUE..Short.MAX_VALUE) throw LintError("P$i = $it is outside s16 — refused (12)") }
+            CfwModes.KIND_ITEM -> { val j = cPrime + r.arg; if (j !in 0 until rows) return null; s16(itemOffs[j]) }
+            CfwModes.KIND_PITCH -> (cPrime * pitch + r.arg).also { if (it !in Short.MIN_VALUE..Short.MAX_VALUE) throw LintError("P$i = $it is outside s16 — refused (12)") }
             else -> throw LintError("a parameter rule of kind ${r.kind}")
         }
         return p

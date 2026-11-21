@@ -6632,25 +6632,6 @@
   "from": "C3-X2P2"
  },
  {
-  "id": "C3X2P2-wrap-under-run",
-  "file": "shell/Shell.kt",
-  "edits": [
-   [
-    "        transition?.let { tr ->\n            if (say) journal.note(",
-    "        (null as TransitionRun?)?.let { tr ->\n            if (say) journal.note("
-   ]
-  ],
-  "tests": [
-   "wm.damage.core.TransitionShellTest"
-  ],
-  "expect": [
-   "anEdgeNotchInABacksFramePhaseSendsNoWrapPlay_X2P2",
-   "anEdgeNotchInABacksInHalfSendsNoWrapPlay_X2P2"
-  ],
-  "note": "C3-X2P2: stage 2 item 1: the wrap's PLAY goes while a transition is in hand (its close pass ends the run's owners) (lane row `wrap-under-run`)",
-  "from": "C3-X2P2"
- },
- {
   "id": "C3X2P2-refused-body-close",
   "file": "shell/Shell.kt",
   "edits": [
@@ -8177,24 +8158,6 @@
   "from": "C3-DM0"
  },
  {
-  "id": "DM0-staging-kind2-at-cprime",
-  "file": "shell/MainStaging.kt",
-  "edits": [
-   [
-    "            CfwModes.KIND_PITCH -> (v * pitch + r.arg)",
-    "            CfwModes.KIND_PITCH -> (cPrime * pitch + r.arg)"
-   ]
-  ],
-  "tests": [
-   "*MainBindTest.theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2*"
-  ],
-  "expect": [
-   "theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2"
-  ],
-  "note": "C3 DM-0 (the fallback): the staging's own kind-2 parameter at c' instead of v — the fallback's P is not what the glasses compute at v (the local check compares them); the PICTURE is the same, since from a ring strip the margin's copy at c' and the row at v draw alike (the staging guarantee), so ScrollEffectsTest's END and start checks cannot see it",
-  "from": "C3-DM0"
- },
- {
   "id": "DM0-margin-k",
   "file": "shell/MainStaging.kt",
   "edits": [
@@ -8345,44 +8308,6 @@
   "from": "C3-DM0"
  },
  {
-  "id": "DM0-wrapPan-no-strip",
-  "file": "shell/MainStaging.kt",
-  "edits": [
-   [
-    "    fun wrapPan(step: Int): Pan? = if (ring) pan(WHOLE, step) else pans.firstOrNull",
-    "    fun wrapPan(step: Int): Pan? = pans.firstOrNull"
-   ]
-  ],
-  "tests": [
-   "*MainBindTest.theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2*"
-  ],
-  "expect": [
-   "theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2"
-  ],
-  "note": "C3 DM-0 (the fallback): no wrap pan on a ring staging — a lens left with a plain list gets no wrap motion at all",
-  "from": "C3-DM0"
- },
- {
-  "id": "DM0-wrapParams-no-ring",
-  "file": "shell/MainStaging.kt",
-  "edits": [
-   [
-    "        if (ring) return if ((cPrime != -1 && cPrime != rows)",
-    "        if (false) return if ((cPrime != -1 && cPrime != rows)"
-   ]
-  ],
-  "tests": [
-   "*ScrollEffectsTest.theStage5FormHoldsEveryEffectAcrossTheWrapAndIsTodaysWhereMainDoesNotWrap_DM0*",
-   "*MainBindTest.theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2*"
-  ],
-  "expect": [
-   "theStage5FormHoldsEveryEffectAcrossTheWrapAndIsTodaysWhereMainDoesNotWrap_DM0",
-   "theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2"
-  ],
-  "note": "C3 DM-0 (the fallback): wrapParams not re-pointed at the ring strip — no parameters across the wrap, the fallback draws nothing",
-  "from": "C3-DM0"
- },
- {
   "id": "DM0-shell-ring-no-fit",
   "file": "shell/Shell.kt",
   "edits": [
@@ -8399,5 +8324,25 @@
   ],
   "note": "C3 DM-0 (S2): the shell asks the ring form where Main's paint does not wrap — the staging stays plain there (its own fit), the poll finds the form not the one asked and drops it at every pump: Main is never offered at 416 on a bit-11 build at stage 5",
   "from": "C3-DM0"
+ },
+ {
+  "id": "X2M0-ring-wrap-pan",
+  "file": "shell/MainStaging.kt",
+  "edits": [
+   [
+    "    fun wrapPan(step: Int): Pan? = pans.firstOrNull { it.strip == WRAP_STRIP && it.step == step }",
+    "    fun wrapPan(step: Int): Pan? = if (ring) pan(WHOLE, step) else pans.firstOrNull { it.strip == WRAP_STRIP && it.step == step }"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.theStage5FormHoldsEveryEffectAcrossTheWrapAndIsTodaysWhereMainDoesNotWrap_DM0*",
+   "*MainBindTest.theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2*"
+  ],
+  "expect": [
+   "theStage5FormHoldsEveryEffectAcrossTheWrapAndIsTodaysWhereMainDoesNotWrap_DM0",
+   "theLocalCheckHoldsAtEveryHeightOnBothCaches_DM2"
+  ],
+  "note": "C3 X2M0 (decisions AZ (2), the removal): a ring staging gives the shell a wrap pan again (DM-0's fallback) — an edge reported there would PLAY in slot 1 instead of going as the shell's frames",
+  "from": "C3-X2M0"
  }
 ]
