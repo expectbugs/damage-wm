@@ -9576,3 +9576,73 @@ and his phone's journal and log (under the gitignored `private/journal/pull-2026
 4. **Stage 5 is not armed.** It needs the phone build with the C3 branch (0.83). On the model's side its condition
    is met: every transition the phone ships, as its shell sends it, was put into 46 vector files, answered by the
    fork's C on the host and compared — 141 files, 9,338 lens-steps, 0 disagreements (`wip/083-c3` `65f85e3e`).
+
+## 100. APK 0.83: the scroll rules, Main's scroll effects, the notice on the engine and the transitions in one build, staged; the ring list built and read once (2026-11-20 evening to 11-21)
+
+Everything here ran on the simulator's model unless it says otherwise; nothing was flashed. The rulings are in the
+gitignored `private/build072/C2-decisions.md` parts BU–CC and `private/c3-design/C3-decisions.md` parts AY–AZ.
+
+1. **What 0.83 is.** §98.6–§98.7's lanes (the scroll owes carried past a burst's SETTLE, Main's `Scroll effect`
+   row with None, Depth, Slide and Fall, Main staged behind the clock, the Files relist, `WorkingCopy`'s close), the
+   notice box's timer and arrivals as programs the glasses play (`Popup ·` rows), and the C3 branch: the transitions
+   of §98.5 (Select, Close / Back, Lock Screen; Depth, Warp, Flip, Fall, Glitch, Explode, Fade, Build, Encode,
+   Matrix), which play at stage 5 only. With them two repairs: **the engine-refusal gate** (a refused engine message
+   with more of its batch behind it is answered by the whole table again and one keyframe) and **the cache count's
+   two rules on every cache write** (booked at send, counted at ack; the false keyframe a race in the count had
+   produced is gone). The `Animations` page reads in `MOTION.md` §7's order: Scroll, the three tiers at stage 5, Popups.
+2. **The integration's three joins, each pinned and read once.** Where the shell lanes met the effects lanes: the
+   notice lane's cache writes wait while a glyph run holds the cache; Encode's lists, when they take the notice's
+   slice of the reserve, make its programs leave the books and they are written again after the hold; **the notice's
+   tags moved to `0xE000 + n`** — in the shared `0xC000` range a transition's END record could close on a live notice
+   timer's tag whenever the two counters matched (they live as long as the shell, not one session). The read's one
+   finding was a test's: the stage-5 walk had been made to wait out each notice's timer, so no gesture landed inside
+   one (161 acts → 133); it now compares with the timer's areas left out while it draws, and holds 39/45/35/42 again.
+3. **The focused read of the gate and the count, and its fix stage.** The gate's span and the batch-14 re-send's span
+   keep a time floor (two reads can be answered before RIGHT handles a batch, and the refusal then read as alone); a
+   mode-26 repair always asks its keyframe (the flag that tried to save one is removed: a transition half refused on
+   RIGHT costs two keyframes on the link's order, one on an instant link); no repair at a read whose flags show BIND
+   gone; **an acked atlas write RIGHT never took is sent again at a re-base and at a carried rebuild** — before, such a
+   glyph could stay wrong on RIGHT alone until the atlas was next reset; after, about 0.5–3 s (modeled), one 136 B
+   message and a keyframe in the typical case. The sequence fuzz's one red sequence (424201267) is declared exactly
+   (a standing judgement on an induced refusal of a message that was not the repair's own): 8,000 sequences at the
+   four bases and 2,000 on his profile, 0 failures. `FIRMWARE.md` §6.7 (P1, P9), §6.11 and §7.11 say what the code does.
+4. **Ship vectors for what 0.83 sends at stage 4.** Main's scroll effects and the notice's programs, as the shell
+   really sends them: 38 files (30 scroll, 8 notice; 910 steps), filled by the fork's C on the host — no refusal, the
+   other 171 byte-identical, `tools/verify.py` 45 of 45 at `58741c4a…` — and compared: **209 files, 12,064
+   lens-steps, 0 disagreements**; the re-play row holds 114 acts. What the files showed against the brief's
+   expectations: at 480 his eight rows fit and Main does not wrap there (the wrap's programs are at 288 and 352); the
+   uncover of a notice carries no CLOSE; a notch under a notice box is passed on by the hook; None's one-step pan
+   sends the COMMIT's body only.
+5. **Two tests failed once each under four lanes' load; neither was left on "load".** (a) An Encode Select row: the
+   transition rig's `up()` returned with the notice lane mid-way and a program's write landed in the recording (3 of
+   20 alone; 20 of 20 once the rig waits for the idle lanes). The product question behind it — a notice program's
+   write sent and not yet acked when an Encode act's lists take its slice — was built as a deterministic sequence and
+   holds (the late ack marks nothing written, the programs are written again after the hold with no input, the count
+   stays right); two rows keep it. (b) A quick-Back row, "LEFT belief != glass at (18,6)": not reproduced by CPU
+   contention (60 of 60), **reproduced with LEFT's engine 30 ms behind RIGHT's (2 of 10, one with the same message)
+   and gone by itself after 0.1–0.25 s** — the shell learns a half's end from RIGHT's body alone, and the two rigs
+   that play transitions compared panels at the shell's quiescence. Both now ask, in the evaluation that reads the
+   panels, that no lens still draws a transition's half. **The lesson (§30's class): a rig that compares the glass
+   asks the glass's engines too, per lens; a one-time red is traced to a mechanism before a build goes on.**
+6. **The mutation list is one list of 438 rows, every one applying** (the effects lanes' 145 rows in; 52 run at the
+   merge, five not caught as written and corrected — two of them older rows that had stopped seeing their guard at
+   earlier stages; the fix lane's nine). `burst-gate` stays: after a burst's last adopted notch about 250 ms are
+   held by it alone (caught on a re-made pin).
+7. **The gate on `f81afd38`:** core 243 classes / 2,032 tests, desktop 14 / 53, 0 failed; `--selfcheck` twice;
+   `--motion-check` (8 programs, 3 notice programs, 28 transitions, Main's scroll effects) and `--local-check` (128
+   cases) hold; the snapshot's 94 + 66 scenes at 0 px outside the mask; lint 0; the node tests 200; the APK's wiring
+   check; the tools' self-tests. **Deployed: the PC runs 0.83 since 11-21 06:00; APK 0.83 is staged for his install;
+   his phone runs 0.82 until then.** Stage 5 is armed only on his word after that install (`FORK.md` §7's checks).
+8. **The ring list (stage DM-0, for the build after 0.83).** Built on `wip/084-dm0`: at stage 5, where Main's paint
+   wraps (his eight rows: 288 and 352), the list is bound with LIST-RING, the strip carries margins of the other
+   end's rows and no wrap record, and the phone's adoption and tap rules measure the cursor modulo the count. On the
+   model: 4,000 ring sequences, 3,123 wrap notches fired on the lens and adopted, no wrap PLAY; his profile's ring
+   half has no lost or snapped-back notch at the list's end against 47 in the plain half; the staging writes 3.4–4.8
+   KB less at 256 KiB. **Its first review pass: nothing that should stop it; no tap can act on a row he does not
+   see.** Ruled from it: the fallback wrap PLAY on a ring staging and the "no wrap PLAY while a transition is in
+   hand" guard are unreachable (LIST-RING goes ahead of the SETs, no plain LIST is written for a ring staging) and
+   come out; a pitch-only LIST built ahead of its use comes out; the stale-cursor adoptions that rose on a ring list
+   are the rig's start race showing in both directions (the phone follows RIGHT's cursor; one notch uncounted, no
+   jump); `FORK.md` §7 gains one line (a stored stage 5 is lowered before the phone reconnects between the two lenses
+   of a sitting that changes the capability bit). Its merge onto 0.83's tree and fix stage are running; then the
+   second pass, ship vectors for the ring forms, and the fast-path fit as its own stage.

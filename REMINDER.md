@@ -1,7 +1,8 @@
 # Where we are, and what to do next
 
 **The entry point for a fresh session**: what is true now, what is next, where the records are; history lives in
-`HANDOFF.md`. Read `CLAUDE.md` → this file → **`HANDOFF.md` §99** (C3 FLASHED on both lenses on 11-20, APK 0.82 on his phone, the
+`HANDOFF.md`. Read `CLAUDE.md` → this file → **`HANDOFF.md` §100** (APK 0.83 integrated and STAGED on 11-21: the scroll rules, Main's scroll
+effects, the notice on the engine and the transitions in one build; the ring list built and read once) → **§99** (C3 FLASHED on both lenses on 11-20, APK 0.82 on his phone, the
 first sessions and the stage-4 trial) → **§98** (the effects build C3 to a final candidate and through its
 flash-readiness review — nothing flashed; the transitions; his fast-scroll session read against the rules: late
 echoes, not lost reports) → **§97** (APK 0.82, his look at 0.81, C3 through its fourth
@@ -19,12 +20,39 @@ as corrected; §14 his rulings) → **`CONTRACT.md`** (before any window or inte
 for firmware → earlier by number (§65 Phase 2 and the protocol, §48 the fork). Firmware facts: `CLAIMS.md` →
 `research/fork-reads-2026-09-13.md`.
 
-## Where we are (2026-11-20)
+## Where we are (2026-11-21)
+
+- **APK 0.83 is staged and the PC runs it since 2026-11-21 06:00; his phone runs 0.82 (his install, 11-20 13:13)
+  until he installs** (`HANDOFF.md` §100; `main` `f81afd38` + this record). On install: Main ready at once (staged
+  behind the clock), fast scrolling no longer walks on by itself (the owes carried past a burst's SETTLE — modeled on
+  his 0.81 session's 13 late echoes), Main's `Scroll effect` row (None, Depth, Slide, Fall), the notice's timer bar and
+  arrivals played by the glasses (`Popup ·` rows), the Files relist, the engine-refusal repair and the cache count's
+  rules. **Stage 5 (the transitions: Select, Close / Back, Lock Screen) is armed only on his word after that install**
+  (`probe c1=5`), then `FORK.md` §7's stage-5 checks: one transition with telemetry 40 showing the owner and then 0,
+  telemetry 41 at 132 or more, a page rebuild and a both-temple long press during a transition, the hold-back to
+  stage 3 after any reset. **For his eye at stage 5** (each modeled, none seen on glass): LEFT may lag RIGHT by more
+  than a step; with `Popup · Fade` or `Slide` checked a notice arriving right at a transition's end may cut LEFT's
+  last step or two; Encode's boxes are black on light backgrounds, text in a face the glasses do not hold and the
+  default clock's bars do not scramble, an Encode Select's first image comes about 69 ms later on a dense page; the
+  period clamp (600 or 800 ms at 4 frames plays 500; 800 at 6 plays 750; 225 at 16 plays 250) and the Frames row
+  showing the set count where a dense page plays fewer; Slide and Fall at 5 frames against Depth's 6, Fall's
+  overshoot, the band travelling 64 px while rows travel 32; Warp, Flip and Explode centred on the larger height; a
+  notice arriving within about 2 s after a fast burst can still double-move Main. **At his next fast-scroll session
+  pull the phone's `/log` early** (the late echoes' cause is inferred until a stock message's arrival is read there).
+- **Not in 0.83, in build for the one after:** the ring list for Main's wrap (stage DM-0: built, read once, its
+  merge onto 0.83's tree and fix stage running — §100.8; it cures the wrap notch's delay and the jumps at the list's
+  end at 288 and 352); then Crush, Flip, Scramble and Matrix as scroll effects, the switcher's wheel, scroll effects
+  in other windows; Music's first half waits for a build slot and his sitting.
+- **The gate's counts (0.83, `f81afd38`):** core 243 classes / 2,032 tests, desktop 14 / 53; 209 vector files, 12,064
+  lens-steps, 0 disagreements, 114 shipped acts re-played; the mutation list 438 rows; the sequence fuzz 8,000 + 2,000
+  sequences, 0 failures (one declared class of one sequence); `--local-check` 128 cases, `--motion-check` 8 + 3 + 28.
+
+## Where we were (2026-11-20)
 
 - **The glasses run the fork's C3 build since 2026-11-20 12:33** (pin `58741c4a…`, `HANDOFF.md` §99; the image before it
   is C2's `b3f04453…`, kept in `fws/`). **The ladder is at stage 4 again since 13:26 on his word, on APK 0.82** (his
   install, 13:13). Stage 4 on C3 behaves as on C2 with a shorter local step (median 36.6 ms against about 43).
-  **Stage 5 (the effects) is NOT armed: it needs APK 0.83 with the C3 branch.** A rollback or any later flash from
+  **Stage 5 (the effects) is NOT armed: it waits for his install of APK 0.83 and his word.** A rollback or any later flash from
   these lenses reads telemetry fields 8 and 28 first (`FORK.md` §7).
 
 - **The glasses run the fork's C1 build since 2026-11-18** (pin `0dab2154…`, `HANDOFF.md` §88; the image before it
