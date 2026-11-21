@@ -194,6 +194,8 @@ class OracleWalkTest {
          * holds halves of two different frames. The same torn read failed the
          * `--selfcheck` oracle about one run in ten.
          */
+        private val TIMER_DRAWING = Any()
+
         suspend fun assertOracle(what: String) {
             synchronized(flushFails) { assertTrue(flushFails.isEmpty(), "$what: failed flushes $flushFails") }
             synchronized(faults) { assertTrue(faults.isEmpty(), "$what: transport faults $faults") }
@@ -201,13 +203,20 @@ class OracleWalkTest {
             val deadline = System.currentTimeMillis() + 30_000
             while (snap == null && System.currentTimeMillis() < deadline) {
                 if (!shell.isQuiescent()) { delay(5); continue }
-                snap = shell.sampleIdle {
-                    Snap(quantised(shell.comp.expectedLens(true)), quantised(shell.comp.expectedLens(false)),
+                val r: Any? = shell.sampleIdle<Any> {
+                    // 0.83 integration (K1-4a's notice timer on the engine meets the 256 KiB stage-5 walk): while the timer
+                    // draws, the glass shows its step and belief its END (`FIRMWARE.md` §5) — the panels are read once it
+                    // has drawn its last step, as `MainLocalShellTest`'s rig reads them (only the notice's tags in slot 2)
+                    if (synchronized(sim) { listOf(sim.left, sim.right).any { l -> l.motion.slots[wm.damage.core.motion.PopupPrograms.SLOT]
+                            ?.let { o -> o.drawing && (o.tag and 0xF000) == wm.damage.core.shell.Shell.NOTICE_TAG } == true } }) TIMER_DRAWING
+                    else Snap(quantised(shell.comp.expectedLens(true)), quantised(shell.comp.expectedLens(false)),
                         quantised(truthOf(shell.comp.composed, shell.comp.planes, true)),
                         quantised(truthOf(shell.comp.composed, shell.comp.planes, false)),
                         lens(true), lens(false),
                         shell.comp.planes.joinToString { p -> "${p.rect}@${p.disparity}" })
                 }
+                if (r === TIMER_DRAWING) { delay(5); continue }
+                snap = r as Snap?
             }
             val s = snap ?: throw AssertionError("$what: the shell never held still long enough to " +
                 "sample — ${shell.quiescenceReport()}")
