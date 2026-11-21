@@ -447,7 +447,9 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
                     }
                 }
                 if (slot == wm.damage.core.motion.PopupPrograms.SLOT && outcome in 0..1) up(now) { if (tag == noticeTagNow) noticeOpen = false }
-                up(now) { rules.body114(slot, tag, outcome, m[10]?.toInt()) }
+                // decisions BS.3 (`CfwTransportBase.onMotionNotify`): whether this refusal's body asked a keyframe of its own,
+                // set in the body's own delivery (no extra draw from the random stream)
+                up(now) { if (outcome == 2) engine.refusalBody(m.containsKey(3) && slot in 0..3); rules.body114(slot, tag, outcome, m[10]?.toInt()) }
                 // a refused COMMIT names its S as the tag: the mirror took it, so the transport calls it a divergence
                 // and the shell keyframes (`CfwTransportBase.onMotionNotify`); a DISCARD's or SETTLE's names none
                 if (outcome == 2 && m.containsKey(3) && slot in 0..3) up(now) { keyframe("a COMMIT refused on RIGHT") }
@@ -743,6 +745,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
      *  a median 332 ms after the edge report (`C2-decisions.md` BI, measured), where the harness's link takes 25 ms. */
     var downExtraMs = 0L
     private fun sendDown(image: ByteArray, perArm: Map<Arm, ByteArray?> = emptyMap(), inducedOn: Arm? = null) {
+        engine.wrote(image)                             // decisions BS.3: the transport's one write path (`writeImage`)
         val arrive = maxOf(lastDown + 1, now + downLat() + downExtraMs)
         lastDown = arrive
         sent++
@@ -1079,6 +1082,10 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     // ---- telemetry
     private var lastRef: Triple<Int, Int, Long>? = null
     private val telem = ArrayList<ByteArray>()
+    /** Decisions BS.3: the transport's gate for refusal records naming mode 26 (`CfwTransportBase.bindTelemetry`). */
+    val engine = wm.damage.core.local.EngineRefusals()
+    /** Each read's decision on a record naming mode 26 (null: none), in order. */
+    val engineDecisions = ArrayList<wm.damage.core.local.EngineRefusals.Decision>()
     fun readTelemetry() {
         telem.clear()
         sim.conformanceControl(Arm.RIGHT, DamageMsg.OP_TELEMETRY, 9, now)
@@ -1088,8 +1095,10 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         val rec = ref?.let { Triple(it.mode and 0x7F, it.reason, it.seq) }
         val fresh = rec != null && rec != lastRef
         lastRef = rec
+        val e26 = engine.read(ref, fresh)
+        if (e26 != null) { engineDecisions += e26; trace?.invoke("[$now] mode-26 refusal record: $e26") }
         rules.telemetry(t.boundIds, if (fresh && rec!!.first == 27) ref else null,
-            if (fresh && rec!!.first == 8 && rec.second == 14) ref else null)
+            if (fresh && rec!!.first == 8 && rec.second == 14) ref else null, e26 as? wm.damage.core.local.EngineRefusals.Repair)
         pumpSoon()
     }
 
@@ -1099,6 +1108,7 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
         for ((g, _) in ringAtFire) if (g !in ringHow && fires[g]?.sR != null) { ringHow[g] = "start"; ringLostAtStart += g
             trace?.invoke("[$now] ring: g$g not heard by the session start — counts nothing") }
         starts++
+        engine.sessionStart()                           // the transport's `bindSessionStart`
         q.clear(); lastUp = now; lastScrollUp = now; lastDown = now; pumpAt = Long.MAX_VALUE
         deferAreas = emptyList()                        // the start's keyframe ends every motion's wait
         if (fresh) for (a in Arm.entries) { sim.conformanceLease(a, false, now); sim.conformanceLease(a, true, now) }

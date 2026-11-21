@@ -1345,6 +1345,8 @@ abstract class CfwTransportBase(
     @Volatile private var resetCheckAskedMs = 0L
     @Volatile private var bindRefusalSeen: Triple<Int, Int, Long>? = null
     @Volatile private var bindRefusalBaseline = true
+    /** Decisions BS.3: which refusal records naming mode 26 the shell repairs ([bindTelemetry]); fed by [writeImage]. */
+    private val engineRefusals = wm.damage.core.local.EngineRefusals()
 
     private fun bindSessionStart() {
         bindSHeard0 = 0
@@ -1354,6 +1356,7 @@ abstract class CfwTransportBase(
         resetCheckLeaseTicks = null
         bindRefusalSeen = null
         bindRefusalBaseline = true
+        engineRefusals.sessionStart()
     }
 
     /**
@@ -1385,7 +1388,8 @@ abstract class CfwTransportBase(
     /** A RIGHT telemetry record on a bit-10 build (§6.7 P1, the tap rule's `tapsLive`): field 39 to the shell every time,
      *  and the image-lane refusal when it is new and names mode 27 (the record is sticky until the next refusal, so it is
      *  handed once; the session's first record — the start's reset check, before this session sent anything — is the
-     *  baseline: what it shows is an earlier session's, and the start sends the whole table anyway). */
+     *  baseline: what it shows is an earlier session's, and the start sends the whole table anyway). Decisions BS.3: a new
+     *  one naming mode 26 is handed as `refusal26` when [engineRefusals] says something of its batch lay behind it. */
     private fun bindTelemetry(t: DamageMsg.Telemetry) {
         if (!hasBind(damageCaps)) return
         val ref = t.refusal
@@ -1400,8 +1404,23 @@ abstract class CfwTransportBase(
         // subs it sent since the last read
         val batch14 = fresh && !baseline && rec!!.first == 8 && rec.second == 14
         if (batch14) emitNote("local", "the glasses dropped a batch whole (${ref!!.describe()}) — the shell re-sends the table messages it sent since the last read")
+        // decisions BS.3: a mode 26 refused with more of its batch behind it — that rest did not run on RIGHT: the repair a
+        // 27's gets, once (the rule against repeating is the gate's)
+        val e26 = engineRefusals.read(ref, fresh && !baseline)
+        when (e26) {
+            is wm.damage.core.local.EngineRefusals.Repair -> emitNote("local", "the glasses refused a mode 26 (${e26.ref.describe()}) " +
+                "with more of its batch behind it (sent since the read before the last: ${e26.sent}) — the shell sends the whole table again" +
+                if (e26.keyframe) " and keyframes" else "; the refusal's own motion body already asked a keyframe")
+            is wm.damage.core.local.EngineRefusals.Standing -> emitNote("local", "the glasses refused a mode 26 again (${e26.ref.describe()}; " +
+                "sent: ${e26.sent}) at a read after one was repaired, with no read clean between — a standing refusal: not repaired " +
+                "again until a read shows nothing refused since, or the next session")
+            is wm.damage.core.local.EngineRefusals.Alone -> emitNote("local", "the glasses refused a mode 26 (${e26.ref.describe()}); " +
+                "nothing sent since the read before the last had a sub-message behind a mode 26 — only it and its batch's present " +
+                "were lost (the next present goes whole): no repair")
+            null -> {}
+        }
         if (!_events.tryEmit(TransportEvent.LocalRead(t.boundIds, if (names27) ref else null, batch14 = if (batch14) ref else null,
-                fields = t.fields, flagsInForce = t.flags?.toInt())))
+                fields = t.fields, flagsInForce = t.flags?.toInt(), refusal26 = e26 as? wm.damage.core.local.EngineRefusals.Repair)))
             Log.e(name, "LocalRead event DROPPED (buffer full)")
     }
 
@@ -1484,22 +1503,8 @@ abstract class CfwTransportBase(
                 Log.e(name, "LocalBody event DROPPED (buffer full)")
         m.seq?.let { s -> synchronized(motionSeqs) { if (motionAccounted.let { it == null || s > it }) motionSeqs += s } }
         if (m.outcome == DamageMsg.OUTCOME_REFUSED) {
-            // an unknown sub's body names no slot (ruling R1.8), and 0xFF (a CLOSE of all) names none of the four
-            val slot = m.slot ?: return
-            val reason = m.reason?.let { DamageMsg.REASONS[it] ?: "reason $it" } ?: "no reason"
-            val tag = m.tag
-            if (tag != null) {
-                // build C1's ruling B-N2: a body with a tag (a PLAY's) is matched by the mirror's record of THAT play —
-                // its END for (slot, tag, ordinal 0), written when the mirror took it and kept for the session, a close
-                // since included — not by what the slot holds when the notify arrives (a flush tee'd in between may
-                // have closed it). Since B-N11 a tag is one play's.
-                synchronized(mirrorSim) { mirrorSim.motionEndCrc(slot, tag, 0) } ?: return
-                motionDivergence(slot to tag, "slot $slot refused by RIGHT ($reason) — the mirror took that PLAY (tag 0x%04x ordinal 0)".format(tag))
-                return
-            }
-            val open = synchronized(mirrorSim) { mirrorSim.motionOpenIn(Arm.RIGHT, slot) } ?: return
-            motionDivergence(slot to open.first, "slot $slot refused by RIGHT ($reason) " +
-                "while the mirror holds tag 0x%04x ordinal ${open.second} open there".format(open.first))
+            // decisions BS.3: whether this refusal's body asked a keyframe of its own — the record's repair then asks none
+            engineRefusals.refusalBody(motionRefusalKeyframed(m))
             return
         }
         if (m.outcome != DamageMsg.OUTCOME_DREW && m.outcome != DamageMsg.OUTCOME_CLOSED) return
@@ -1528,6 +1533,26 @@ abstract class CfwTransportBase(
         }
     }
 
+    /** An outcome-2 body (build C1's ruling B-S2): a divergence when the mirror took what RIGHT refused. True when it asked
+     *  a keyframe (not past the instance's cap). */
+    private fun motionRefusalKeyframed(m: DamageMsg.Motion): Boolean {
+        // an unknown sub's body names no slot (ruling R1.8), and 0xFF (a CLOSE of all) names none of the four
+        val slot = m.slot ?: return false
+        val reason = m.reason?.let { DamageMsg.REASONS[it] ?: "reason $it" } ?: "no reason"
+        val tag = m.tag
+        if (tag != null) {
+            // build C1's ruling B-N2: a body with a tag (a PLAY's) is matched by the mirror's record of THAT play —
+            // its END for (slot, tag, ordinal 0), written when the mirror took it and kept for the session, a close
+            // since included — not by what the slot holds when the notify arrives (a flush tee'd in between may
+            // have closed it). Since B-N11 a tag is one play's.
+            synchronized(mirrorSim) { mirrorSim.motionEndCrc(slot, tag, 0) } ?: return false
+            return motionDivergence(slot to tag, "slot $slot refused by RIGHT ($reason) — the mirror took that PLAY (tag 0x%04x ordinal 0)".format(tag))
+        }
+        val open = synchronized(mirrorSim) { mirrorSim.motionOpenIn(Arm.RIGHT, slot) } ?: return false
+        return motionDivergence(slot to open.first, "slot $slot refused by RIGHT ($reason) " +
+            "while the mirror holds tag 0x%04x ordinal ${open.second} open there".format(open.first))
+    }
+
     /** Build C1's ruling B-N11: the probe's play counter, one tag per play. */
     private val motionPlayTags = java.util.concurrent.atomic.AtomicInteger(0)
 
@@ -1539,8 +1564,9 @@ abstract class CfwTransportBase(
     private val motionKeyframes = HashMap<Pair<Int, Int>, Int>()
 
     /** A motion divergence on the instance [key]: a `divergence` note (the shell keyframes on it) while the instance has
-     *  had fewer than [MOTION_KEYFRAMES_PER_INSTANCE]; past that a `motion` note says so and nothing is asked. */
-    private fun motionDivergence(key: Pair<Int, Int>, what: String) {
+     *  had fewer than [MOTION_KEYFRAMES_PER_INSTANCE]; past that a `motion` note says so and nothing is asked. True when
+     *  the keyframe was asked. */
+    private fun motionDivergence(key: Pair<Int, Int>, what: String): Boolean {
         val had = synchronized(motionKeyframes) {
             val n = motionKeyframes[key] ?: 0
             if (n < MOTION_KEYFRAMES_PER_INSTANCE) motionKeyframes[key] = n + 1
@@ -1548,6 +1574,7 @@ abstract class CfwTransportBase(
         }
         if (had < MOTION_KEYFRAMES_PER_INSTANCE) emitNote("divergence", "motion: $what — keyframing")
         else emitNote("motion", "$what — not keyframed: this instance has had $MOTION_KEYFRAMES_PER_INSTANCE keyframes (the cap)")
+        return had < MOTION_KEYFRAMES_PER_INSTANCE
     }
 
     /** Sequences received above [motionAccounted]; every sequence at or below it is accounted for (received, or
@@ -4181,6 +4208,7 @@ abstract class CfwTransportBase(
     private suspend fun writeImage(image: ByteArray, atEpoch: Long, unlessDone: CompletableDeferred<Unit>? = null): PendingAck? {
         require(image.isNotEmpty()) { "empty image buffer" }
         bindGate(image)                    // build C2: no mode 27, 28 or 26 sub 3..5 without bit 10 and BIND in force
+        engineRefusals.wrote(image)        // decisions BS.3: a mode 26 with more of its batch behind it, for the next reads
         lastImageAtMs = nowMs()
         if (sessionPenalty) {
             sessionPenalty = false

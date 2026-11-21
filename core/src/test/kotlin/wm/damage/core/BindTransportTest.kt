@@ -729,6 +729,57 @@ class BindTransportTest {
         t.stop()
     }
 
+    /** Decisions BS.3, the transport's half (B083-rr pins 3 and 4): RIGHT's engine word held, so RIGHT alone refuses every
+     *  mode 26 (14, §5.5). A CLOSE alone in its message: nothing of a batch lay behind it — no repair (pin 4). A CLOSE put
+     *  first in a batch: handed as `refusal26` once, with a keyframe (its untagged body asked none); the same batch refused
+     *  again at the next read is a standing refusal, not handed (pin 3); after a read with nothing refused since, a
+     *  RETARGET of a slot the mirror holds open, leading the same way, is handed without a keyframe of its own, since its
+     *  body asked one (B-S2: the mirror took what RIGHT refused). A lone fill between makes each record new (the refusal
+     *  record's sequence is RIGHT's present count, §4). (Not a tagged PLAY's body: this rig hands the lens a packet
+     *  before the mirror's tee, so a refusal body can reach B-S2 before the mirror holds the PLAY it names.) */
+    @Test
+    fun aMode26RefusalIsHandedWhenMoreOfItsBatchLayBehindIt_BS3(): Unit = runBlocking {
+        val (sim, t) = armedSession()
+        val fill = CfwModes.fill(Rect(0, 400, 16, 8), 3)
+        val led = CfwModes.batch(listOf(CfwModes.motionClose(3), fill), engine = true)
+        suspend fun read(): TransportEvent.LocalRead {
+            events.clear()
+            t.devProbe("telemetry", "read")
+            waitUntil(10_000, message = { "a LocalRead: $events" }) { events.any { it is TransportEvent.LocalRead } }
+            return events.filterIsInstance<TransportEvent.LocalRead>().last()
+        }
+        suspend fun send(image: ByteArray) { t.devProbe("selftest", "live:" + image.hex()); delay(200) }
+        read()
+        sim.motionForTest(Arm.RIGHT).holdWordForTest(true)
+        try {
+            send(CfwModes.motionClose(3))
+            assertNull(read().refusal26, "a CLOSE alone in its message: no repair")
+            saw("local", "only it and its batch's present were lost (the next present goes whole): no repair")
+            send(fill); read()
+            send(led)
+            val first = read().refusal26
+            assertNotNull(first, "a CLOSE leading a batch: handed"); assertTrue(first.keyframe); assertEquals(26, first.ref.mode)
+            assertTrue("CLOSE slot 3" in first.sent, first.sent)
+            saw("local", "with more of its batch behind it")
+            send(fill); send(led)
+            assertNull(read().refusal26, "the same batch refused again at the next read: not repaired again")
+            saw("local", "a standing refusal: not repaired again")
+            assertNull(read().refusal26)                                   // nothing refused since: re-armed
+            sim.motionForTest(Arm.RIGHT).holdWordForTest(false)
+            send(CfwModes.motionPlay(1, 16, 0x8000, 0x4321, 0, IntArray(4)))   // alone: both lenses and the mirror take it
+            sim.motionForTest(Arm.RIGHT).holdWordForTest(true)
+            send(CfwModes.batch(listOf(CfwModes.motionRetarget(1, IntArray(4)), fill), engine = true))
+            saw("divergence", "slot 1 refused by RIGHT")
+            val ret = read().refusal26
+            assertNotNull(ret, "a RETARGET leading a batch: handed"); assertTrue(!ret.keyframe, "its body already asked a keyframe")
+            assertTrue("RETARGET slot 1" in ret.sent, ret.sent)
+            saw("local", "the refusal's own motion body already asked a keyframe")
+        } finally {
+            sim.motionForTest(Arm.RIGHT).holdWordForTest(false)
+        }
+        t.stop()
+    }
+
     /** P9: a mid-session disarm of BIND by hand (`flags=0x2c`) goes out only after a DISCARD(0xFF, S − 0x4000, 0xFF, 0) has its
      *  ack — the DISCARD on the image lane, then the FLAGS_SET. S is S_heard + 1 as it stands at the disarm (decisions
      *  AA.3): two notches heard (S 1 and 2), so 3 − 0x4000 — the session's first S (1) reached only its first 16,384. */

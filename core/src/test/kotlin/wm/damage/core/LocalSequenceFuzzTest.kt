@@ -365,6 +365,13 @@ class LocalSequenceFuzzTest {
         // closed (the list returning to the front)
         if (h.noticePlays > 0) counted["K1-4a: notice timer PLAYs"] = (counted["K1-4a: notice timer PLAYs"] ?: 0) + h.noticePlays
         if (h.noticeCuts > 0) counted["K1-4a: notice timers closed by a draw in the band"] = (counted["K1-4a: notice timers closed by a draw in the band"] ?: 0) + h.noticeCuts
+        // decisions BS.3: the gate's decisions on refusal records naming mode 26 (repaired, standing, nothing behind it)
+        for (d in h.engineDecisions) {
+            val k = when (d) { is wm.damage.core.local.EngineRefusals.Repair -> BS3_REPAIRED
+                is wm.damage.core.local.EngineRefusals.Standing -> "BS.3: mode-26 refusal records standing"
+                is wm.damage.core.local.EngineRefusals.Alone -> "BS.3: mode-26 refusal records with nothing behind" }
+            counted[k] = (counted[k] ?: 0) + 1
+        }
         val stats = "outcome %08x keyframes ${h.keyframes} ".format(h.outcome.value) + "taps ${h.rules.taps.word} events $n sent ${h.sent} commits ${h.commitsSent.size} held ${h.heldCommits} acts ${h.acts.size} " +
             "verdicts ${h.verdicts.groupingBy { it.second::class.simpleName }.eachCount()} counts ${h.rules.counts}"
         return Verdict(failed.distinct(), counted, stats)
@@ -1200,29 +1207,115 @@ class LocalSequenceFuzzTest {
      *  in 500854. */
     private val HIS_GATE_SEEDS = listOf(500854L)
 
-    /** Decisions BS.3 (the 0.83 integration), ruled a product correction for the next builder: a refused engine message at
-     *  the head of a batch on RIGHT. The notice's CLOSE leads an uncover's batch (the transport's close-first rule), the
-     *  harness's induced reason-14 refusal meets it there (the sim refuses any mode 26 while the engine word is held, §5.5,
-     *  R1.15), so the band's repaint and the table behind it do not run on RIGHT; the phone repairs a refusal record only
-     *  when it names mode 27 or a mode-8/14 drop (`CfwTransportBase.bindTelemetry`, `LocalRules.telemetry`), and RIGHT keeps
-     *  the timer's END over the band at rest. Until the correction these two seeds fail by name, with exactly that shape
-     *  (`aRefusedEngineMessageAtABatchsHeadOnRight_showsDefect`); the four bases report them apart and nothing else. */
-    private val KNOWN_DEFECT_SEEDS = listOf(101440L, 424201458L)
+    /** Decisions BS.3 (the 0.83 integration; cured by B083-rr): a refused engine message at the head of a batch on RIGHT.
+     *  The notice's CLOSE leads an uncover's batch (the transport's close-first rule) and the harness's induced reason-14
+     *  refusal meets it there (the sim refuses any mode 26 while the engine word is held, §5.5, R1.15), so the band's
+     *  repaint and the table behind it do not run on RIGHT. Before the cure the phone repaired a refusal record only when
+     *  it named mode 27 or a mode-8/14 drop, and RIGHT kept the timer's END over the band at rest in these two seeds. */
+    private val BS3_SEEDS = listOf(101440L, 424201458L)
+    private val BS3_REPAIRED = "BS.3: mode-26 refusal records repaired"
 
-    /** The shape BS.3 names: (2) on RIGHT's panel and shadow at the band's corner, with the notice's instance in slot 2. */
-    private fun knownDefectShape(failed: List<String>): Boolean = failed.isNotEmpty() &&
-        failed.any { it.startsWith("(2) RIGHT panel (64,120)") && "slots [2:" in it } &&
-        failed.all { it.startsWith("(2) RIGHT panel (64,120)") || it.startsWith("(2) RIGHT shadow (64,120)") }
-
-    /** Decisions BS.3, the J-cases' form: asserts the defect as it is today, so the product correction turns this red —
-     *  then rewrite it to assert the cure and empty [KNOWN_DEFECT_SEEDS]. */
-    @Test fun aRefusedEngineMessageAtABatchsHeadOnRight_showsDefect() {
-        for (seed in KNOWN_DEFECT_SEEDS) {
+    /** B083-rr pin 1: the two seeds hold every invariant — after the refusal the repair goes (a refusal record naming mode
+     *  26, with the uncover's batch behind its CLOSE) and RIGHT's panel, shadow and cursor equal belief at rest. */
+    @Test fun aRefusedEngineMessageAtABatchsHeadOnRight_isRepaired_BS3() {
+        for (seed in BS3_SEEDS) {
             val v = randomSequence(seed)
-            assertTrue(knownDefectShape(v.failed), "seed $seed: RIGHT keeps the notice timer's END over the band at rest after its uncover's " +
-                "batch was refused at the notice's CLOSE, with no repair (decisions BS.3). Not so any more: ${v.failed} — if the correction " +
-                "landed, rewrite this case to assert the cure and drop the seed from KNOWN_DEFECT_SEEDS")
+            assertTrue(v.failed.isEmpty(), "seed $seed: ${v.failed}")
+            assertTrue((v.counted[BS3_REPAIRED] ?: 0) >= 1, "seed $seed: no refusal record naming mode 26 was repaired: ${v.counted}")
         }
+    }
+
+    /** The lens's table as the hook reads it: field 39, each entry (id, list, program) and list 0's count, mark and items. */
+    private fun tableOn(h: LocalHarness, a: Arm): String = h.sim.bindForTest(a).let { b ->
+        "39=${b.field39()} " + b.entries.withIndex().filter { it.value != null }.joinToString(",") { (i, e) -> "$i:${e!!.eventId}/${e.list}/${e.prog}" } +
+            " list0=${b.lists[0].count}/${b.lists[0].mark}/${b.lists[0].items}"
+    }
+
+    /** B083-rr pin 2: the notice's timer runs over the list; the uncover's batch — the notice's CLOSE first, the band's
+     *  repaint, the list's SETs and LIST, the answer — is refused on RIGHT at the CLOSE. The read's refusal record names
+     *  mode 26: the table goes again and one keyframe; RIGHT's table is then whole (LEFT's, with entries) and the next
+     *  notch is a local fire on RIGHT. */
+    @Test fun seededBS3_aCloseRefusedAtTheHeadOfAnUncoverIsRepairedWithTheTable() {
+        val seen = ArrayList<String>()
+        seeded(Taps.REPORT, script = { h ->
+            h.noticeTimer = true
+            h.cover()
+            h.runUntil(h.now + 120)                     // the timer's PLAY landed; it runs on (17 steps of 16 ticks)
+            h.refuseTailOn = Arm.RIGHT                  // RIGHT's word held for the uncover's batch: its first engine sub, the CLOSE
+            h.uncover()
+            h.runUntil(h.now + 200)
+            if ("RIGHT mode 26 reason 14" !in h.induced) seen += "the uncover's batch was not refused on RIGHT at its CLOSE: ${h.induced}"
+            h.readTelemetry()
+            h.runUntil(h.now + 300)
+            if (h.engineDecisions.none { it is wm.damage.core.local.EngineRefusals.Repair }) seen += "no repair: ${h.engineDecisions}"
+            val l = tableOn(h, Arm.LEFT); val r = tableOn(h, Arm.RIGHT)
+            if (r != l || h.sim.bindForTest(Arm.RIGHT).field39() == 0) seen += "RIGHT's table after the repair: $r; LEFT's: $l"
+            val g = notch(h)
+            h.runUntil(h.now + 300)
+            if (h.fires[g]?.sR == null || h.rightOutcome[g] != DamageMsg.APPLIED_DREW)
+                seen += "the next notch was no local fire on RIGHT (S ${h.fires[g]?.sR}, outcome ${h.rightOutcome[g]})"
+            h.rest()
+        }, extra = { seen })
+    }
+
+    /** The notice's timer over the list, then the uncover with its batch refused on RIGHT at the notice's CLOSE (the
+     *  harness's induced 14), then one read. */
+    private fun refusedUncover(h: LocalHarness) {
+        h.cover()
+        h.runUntil(h.now + 120)                         // the timer's PLAY landed; it runs on (17 steps of 16 ticks)
+        h.refuseTailOn = Arm.RIGHT
+        h.uncover()
+        h.runUntil(h.now + 200)
+        h.readTelemetry()
+        h.runUntil(h.now + 300)
+    }
+
+    /** B083-rr pin 3: the same batch refused twice running — the uncover's, at its CLOSE on RIGHT, read after each with
+     *  no read clean between: one repair (its one keyframe), then the gate's rule — the second record is a standing
+     *  refusal and is not repaired (no stream). A read showing nothing refused since re-arms it: the third such refusal is
+     *  repaired, and its keyframe makes RIGHT whole for the invariants. */
+    @Test fun seededBS3_theSameBatchRefusedTwiceRunningIsRepairedOnce() {
+        val seen = ArrayList<String>()
+        seeded(Taps.REPORT, script = { h ->
+            h.noticeTimer = true
+            val k0 = h.keyframes; val d0 = h.engineDecisions.size
+            refusedUncover(h)
+            refusedUncover(h)
+            val two = h.engineDecisions.drop(d0).map { it::class.simpleName }
+            if (two != listOf("Repair", "Standing")) seen += "decisions on the first two records: $two (Repair, then Standing)"
+            if (h.keyframes - k0 != 1) seen += "${h.keyframes - k0} keyframes for two refusals running (one: the repair's)"
+            h.readTelemetry()                           // nothing refused since: re-armed
+            h.runUntil(h.now + 100)
+            refusedUncover(h)
+            val all = h.engineDecisions.drop(d0).map { it::class.simpleName }
+            if (all != listOf("Repair", "Standing", "Repair")) seen += "decisions: $all (re-armed by the clean read)"
+            if (h.rules.counts["repair.engine"] != 2) seen += "repair.engine ${h.rules.counts["repair.engine"]} (two)"
+            h.rest()
+        }, extra = { seen })
+    }
+
+    /** B083-rr pin 4: a refusal record naming mode 26 for a message with nothing behind it — under a cover the idle
+     *  batch's tail is the SETTLE alone, last in its batch; refused 14 on RIGHT, with no message of the span carrying
+     *  anything after a mode 26 — is not repaired: no keyframe. The lost present is the next present's (it goes whole). */
+    @Test fun seededBS3_aRefusedMode26WithNothingBehindItSpendsNoKeyframe() {
+        val seen = ArrayList<String>()
+        seeded(Taps.REPORT, script = { h ->
+            h.cover()
+            h.rest()
+            h.readTelemetry(); h.readTelemetry()         // two reads with nothing new: the span holds no mode 26 with a sub after it
+            val k0 = h.keyframes; val d0 = h.engineDecisions.size
+            h.refuseTailOn = Arm.RIGHT
+            h.tick()
+            h.runUntil(h.now + 200)
+            if ("RIGHT mode 26 reason 14" !in h.induced) seen += "the idle batch was not refused on RIGHT at its SETTLE: ${h.induced}"
+            h.readTelemetry()
+            h.runUntil(h.now + 300)
+            val d = h.engineDecisions.drop(d0)
+            if (d.size != 1 || d[0] !is wm.damage.core.local.EngineRefusals.Alone) seen += "decisions: $d (one Alone)"
+            if (h.keyframes != k0) seen += "${h.keyframes - k0} keyframe(s) spent on a refused SETTLE with nothing behind it"
+            h.uncover()
+            h.rest()
+        }, extra = { seen })
     }
 
     /** Seeds 1 and 1001 (spec §5): `LOCAL_FUZZ_N=1000` per seed base for the instrument's run (2,000 sequences); 60 in the
@@ -1240,12 +1333,9 @@ class LocalSequenceFuzzTest {
         // decisions BQ: the gate-sized run also runs one sequence of each declared class of (9) and (10)
         val gate = System.getenv("LOCAL_FUZZ_N") == null && System.getenv("LOCAL_FUZZ_BASES") == null
         val seeds = only ?: (bases.flatMap { base -> (0 until n).map { i -> base * 100_000 + i } } + if (gate) GATE_SEEDS else emptyList())
-        val known = ArrayList<Long>()
         for (seed in seeds) {
             val v = try { randomSequence(seed) } catch (e: Throwable) { Verdict(listOf("threw: $e"), emptyMap()) }
-            // decisions BS.3: the two seeds of the known defect, apart and by name, while they show exactly its shape
-            if (seed in KNOWN_DEFECT_SEEDS && knownDefectShape(v.failed)) known += seed
-            else for (f in v.failed) fails += "seed $seed: $f"
+            for (f in v.failed) fails += "seed $seed: $f"
             for ((k, c) in v.counted) counted[k] = (counted[k] ?: 0) + c
             // the declared shapes (row A, decisions W and BC's refused 27; (9)'s exact classes, B083 v2; S33), with their seeds
             for (k in v.counted.keys) if (k.startsWith("row A: a batch") || k.startsWith("(9)") || k.startsWith("(10)") || k.startsWith("(1) S33")) declaredSeeds.getOrPut(k) { ArrayList() } += seed
@@ -1254,7 +1344,7 @@ class LocalSequenceFuzzTest {
         for (f in fails) println("FAIL $f")
         println("declared: " + declaredSeeds.entries.joinToString("; ") { (k, s) -> "$k ${s.size} sequence(s): ${s.joinToString()}" })
         println("sequence fuzz: ${seeds.size} sequences (${if (only != null) "seeds ${only.joinToString()}" else "bases ${bases.joinToString()}"}), ${fails.size} failures; " +
-            "${known.size} known (decisions BS.3), by name: ${known.joinToString()}; counted $counted")
+            "counted $counted")
         if (fails.isNotEmpty()) fail(fails.take(30).joinToString("\n") + "\n(${fails.size} in all)")
     }
 }

@@ -306,10 +306,12 @@ sealed class TransportEvent {
      *  event ids with a live entry on RIGHT; null when the record does not carry it) and, when the record's image-lane
      *  refusal is new and names mode 27, that refusal (the shell sends the whole table again); when it is new and names
      *  a batch dropped whole (mode 8, reason 14 — decisions M.5), [batch14] (the shell re-sends the table subs it sent
-     *  since the last read). [fields] the record's varints (the `local` note's 35, 36, 38, 39). */
+     *  since the last read). [fields] the record's varints (the `local` note's 35, 36, 38, 39). [refusal26] (decisions
+     *  BS.3): a new one naming mode 26 with more of its batch behind it — the shell repairs it as a 27's. */
     data class LocalRead(val boundIds: Long?, val refusal27: wm.damage.core.wire.DamageMsg.Refusal?,
         val atMs: Long = System.currentTimeMillis(), val batch14: wm.damage.core.wire.DamageMsg.Refusal? = null,
-        val fields: Map<Int, Long> = emptyMap(), val flagsInForce: Int? = null) : TransportEvent()
+        val fields: Map<Int, Long> = emptyMap(), val flagsInForce: Int? = null,
+        val refusal26: wm.damage.core.local.EngineRefusals.Repair? = null) : TransportEvent()
 
     /** Build C2 (§6.7 Counting): a notify-114 body from RIGHT while BIND is in force — the shell's rules count a local
      *  instance's stop after a SETTLE (`burst-end`) and a refused COMMIT, DISCARD or SETTLE (`refused`). */

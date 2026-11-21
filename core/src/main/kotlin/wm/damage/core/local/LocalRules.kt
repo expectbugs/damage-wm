@@ -46,7 +46,8 @@ interface BoundSurface {
 class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _, _ -> },
                  /** The rules ask the compositor for ONE keyframe ([why] for the journal): the tap rule's (5) divergence (§6.7)
                   *  and a refusal record naming mode 27 (decisions on DP2's fix round: the batch's later subs did not run on
-                  *  RIGHT, so its shadow is not what the phone believes). */
+                  *  RIGHT, so its shadow is not what the phone believes), or mode 26 with more of its batch behind it
+                  *  (decisions BS.3). */
                  private val keyframe: (why: String) -> Unit = {},
                  /** The rules ask for ONE telemetry read of RIGHT (the existing read; decisions AA.2): at a burst's lone
                   *  SETTLE a COMMIT sent since the last SETTLE has had no outcome-3 body, so a refused tail may lie behind
@@ -645,9 +646,10 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
 
     /**
      * A RIGHT telemetry read (P1, the tap rule): field 39 (null: not carried) and a new refusal record naming mode 27
-     * ([refusal27]) or a batch dropped whole ([batch14], mode 8 reason 14 — decisions M.5).
+     * ([refusal27]), naming mode 26 with more of its batch behind it ([refusal26], decisions BS.3 — [EngineRefusals]
+     * decides which), or a batch dropped whole ([batch14], mode 8 reason 14 — decisions M.5).
      */
-    fun telemetry(boundIds: Long?, refusal27: DamageMsg.Refusal?, batch14: DamageMsg.Refusal? = null) {
+    fun telemetry(boundIds: Long?, refusal27: DamageMsg.Refusal?, batch14: DamageMsg.Refusal? = null, refusal26: EngineRefusals.Repair? = null) {
         if (!active) { tapsLive = false; return }
         if (boundIds != null) tapsLive = bindFlag && boundIds and 1L != 0L
         if (refusal27 != null) {
@@ -658,6 +660,18 @@ class LocalRules(private val note: (kind: String, detail: String) -> Unit = { _,
             // did not run there, so RIGHT's shadow is not what the phone believes (row A's second trigger, ruled): one keyframe
             count("keyframe")
             keyframe("RIGHT's refusal record names mode 27 (reason ${refusal27.reason}): the rest of that batch did not run there")
+        } else if (refusal26 != null) {
+            // decisions BS.3: a mode 26 refused on RIGHT ends its batch there as a 27 does — a CLOSE put first took the frame,
+            // the table messages and the answer behind it with it: the same repair. No second keyframe when the refusal's
+            // own body asked one (B-S2)
+            val r = refusal26.ref.reason
+            note("repair", "evidence=refusal mode=26 reason=$r sent=\"${refusal26.sent}\" object=table keyframe=${if (refusal26.keyframe) "yes" else "its-body"}")
+            count("repair.engine")
+            wholeTable()
+            if (refusal26.keyframe) {
+                count("keyframe")
+                keyframe("RIGHT's refusal record names mode 26 (reason $r; sent ${refusal26.sent}): the rest of that batch did not run there")
+            }
         } else if (batch14 != null && touchedSinceRead.isNotEmpty()) {
             note("repair", "evidence=refusal mode=8 reason=14 object=batch(${touchedSinceRead.joinToString(",")})")
             count("repair.batch")
