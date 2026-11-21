@@ -5068,5 +5068,139 @@
   ],
   "note": "decisions BP: the paint on the shell's layout: an unbounded loop of stage then drop behind the clock (12,153 stagings in the test's 30 s on its run; ended by the test's own wait)",
   "from": "B083-ms"
+ },
+ {
+  "id": "BS3-rules-no-engine-repair",
+  "file": "local/LocalRules.kt",
+  "edits": [
+   [
+    "        } else if (refusal26 != null) {",
+    "        } else if (false && refusal26 != null) {"
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.aRefusedEngineMessageAtABatchsHeadOnRight_isRepaired_BS3",
+   "*LocalSequenceFuzzTest.seededBS3_*"
+  ],
+  "expect": [
+   "aRefusedEngineMessageAtABatchsHeadOnRight_isRepaired_BS3",
+   "seededBS3_aCloseRefusedAtTheHeadOfAnUncoverIsRepairedWithTheTable",
+   "seededBS3_theSameBatchRefusedTwiceRunningIsRepairedOnce",
+   "seededBS3_aReadAnsweredBeforeTheRefusedBatchLandsStillRepairs"
+  ],
+  "note": "decisions BS.3: a refusal record naming mode 26 handed to the rules and not repaired (the tree before B083-rr, as the shell sees it): RIGHT keeps the notice timer's END over the band, no table behind the CLOSE",
+  "from": "B083-rr"
+ },
+ {
+  "id": "BS3-transport-not-handed",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        val e26 = engineRefusals.read(ref, fresh && !baseline)",
+    "        val e26 = engineRefusals.read(ref, false)"
+   ]
+  ],
+  "tests": [
+   "*BindTransportTest.aMode26RefusalIsHandedWhenMoreOfItsBatchLayBehindIt_BS3"
+  ],
+  "expect": [
+   "aMode26RefusalIsHandedWhenMoreOfItsBatchLayBehindIt_BS3"
+  ],
+  "note": "decisions BS.3: the transport never hands or journals a record naming mode 26 (the tree before B083-rr, the transport's half)",
+  "from": "B083-rr"
+ },
+ {
+  "id": "BS3-no-latch",
+  "file": "local/EngineRefusals.kt",
+  "edits": [
+   [
+    "        if (latched) return Standing(ref, sent)",
+    "        if (false && latched) return Standing(ref, sent)"
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.seededBS3_theSameBatchRefusedTwiceRunningIsRepairedOnce",
+   "*BindTransportTest.aMode26RefusalIsHandedWhenMoreOfItsBatchLayBehindIt_BS3"
+  ],
+  "expect": [
+   "seededBS3_theSameBatchRefusedTwiceRunningIsRepairedOnce",
+   "aMode26RefusalIsHandedWhenMoreOfItsBatchLayBehindIt_BS3"
+  ],
+  "note": "decisions BS.3, the rule against repeating: a refusal recurring at the next read is repaired again (a keyframe per read under a standing refusal)",
+  "from": "B083-rr"
+ },
+ {
+  "id": "BS3-alone-repaired",
+  "file": "local/EngineRefusals.kt",
+  "edits": [
+   [
+    "        if (span.isEmpty()) return Alone(ref)",
+    "        if (false && span.isEmpty()) return Alone(ref)"
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.seededBS3_aRefusedMode26WithNothingBehindItSpendsNoKeyframe",
+   "*BindTransportTest.aMode26RefusalIsHandedWhenMoreOfItsBatchLayBehindIt_BS3"
+  ],
+  "expect": [
+   "seededBS3_aRefusedMode26WithNothingBehindItSpendsNoKeyframe",
+   "aMode26RefusalIsHandedWhenMoreOfItsBatchLayBehindIt_BS3"
+  ],
+  "note": "decisions BS.3: a mode 26 with nothing behind it (alone, or last in its batch) repaired too: a keyframe and the table spent on a lost present",
+  "from": "B083-rr"
+ },
+ {
+  "id": "BS3-span-one-read",
+  "file": "local/EngineRefusals.kt",
+  "edits": [
+   [
+    "        val span = LinkedHashMap(before).also { m -> for ((k, n) in now) m[k] = (m[k] ?: 0) + n }",
+    "        val span = LinkedHashMap<String, Int>().also { m -> for ((k, n) in now) m[k] = (m[k] ?: 0) + n }"
+   ]
+  ],
+  "tests": [
+   "*LocalSequenceFuzzTest.seededBS3_aReadAnsweredBeforeTheRefusedBatchLandsStillRepairs"
+  ],
+  "expect": [
+   "seededBS3_aReadAnsweredBeforeTheRefusedBatchLandsStillRepairs"
+  ],
+  "note": "decisions BS.3: the span one read long: a batch written before a read and refused on RIGHT after it reads as alone, and is not repaired",
+  "from": "B083-rr"
+ },
+ {
+  "id": "BS3-second-keyframe",
+  "file": "local/EngineRefusals.kt",
+  "edits": [
+   [
+    "        return Repair(ref, sent, keyframe = !keyframed)",
+    "        return Repair(ref, sent, keyframe = true)"
+   ]
+  ],
+  "tests": [
+   "*BindTransportTest.aMode26RefusalIsHandedWhenMoreOfItsBatchLayBehindIt_BS3"
+  ],
+  "expect": [
+   "aMode26RefusalIsHandedWhenMoreOfItsBatchLayBehindIt_BS3"
+  ],
+  "note": "decisions BS.3: the repair asks its own keyframe when the refusal's motion body already asked one (B-S2): two keyframes for one refusal",
+  "from": "B083-rr"
+ },
+ {
+  "id": "BS3-gate-not-cleared-at-start",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        bindRefusalBaseline = true\n        engineRefusals.sessionStart()\n",
+    "        bindRefusalBaseline = true\n"
+   ]
+  ],
+  "tests": [
+   "*BindTransportTest.aMode26RefusalIsHandedWhenMoreOfItsBatchLayBehindIt_BS3"
+  ],
+  "expect": [
+   "(no pin: a gate carried across a session start costs at most one repair withheld, or one spent, at the new session's first record naming mode 26 - and the start's warmup keyframe and P1 batch have just made both lenses whole)"
+  ],
+  "note": "decisions BS.3: the gate's spans and latch not cleared at a session start",
+  "from": "B083-rr"
  }
 ]

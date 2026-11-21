@@ -1294,6 +1294,28 @@ class LocalSequenceFuzzTest {
         }, extra = { seen })
     }
 
+    /** B083-rr, the gate's span: a read answered while the uncover's batch is still on its way down (written before the
+     *  read, refused on RIGHT after it). The record at the next read names mode 26 and the batch is in the span of the
+     *  last two reads — repaired; a span of one read would hold nothing and leave RIGHT with the timer's END. */
+    @Test fun seededBS3_aReadAnsweredBeforeTheRefusedBatchLandsStillRepairs() {
+        val seen = ArrayList<String>()
+        seeded(Taps.REPORT, script = { h ->
+            h.noticeTimer = true
+            h.cover()
+            h.runUntil(h.now + 120)
+            h.refuseTailOn = Arm.RIGHT
+            h.uncover()
+            h.runUntil(h.now + 10)                      // the batch went at +3 and lands at +28 (the fixed downlink)
+            h.readTelemetry()                           // nothing refused yet
+            h.runUntil(h.now + 200)
+            if ("RIGHT mode 26 reason 14" !in h.induced) seen += "the uncover's batch was not refused on RIGHT at its CLOSE: ${h.induced}"
+            val d0 = h.engineDecisions.size
+            h.readTelemetry()
+            if (h.engineDecisions.drop(d0).map { it::class.simpleName } != listOf("Repair")) seen += "decisions: ${h.engineDecisions.drop(d0)} (one Repair)"
+            h.rest()
+        }, extra = { seen })
+    }
+
     /** B083-rr pin 4: a refusal record naming mode 26 for a message with nothing behind it — under a cover the idle
      *  batch's tail is the SETTLE alone, last in its batch; refused 14 on RIGHT, with no message of the span carrying
      *  anything after a mode 26 — is not repaired: no keyframe. The lost present is the next present's (it goes whole). */
