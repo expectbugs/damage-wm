@@ -34,6 +34,10 @@ class BoundList(
      *  the compositor's shadow) exactly as the lens writes it into its shadow — the staging owner's (DM: Main's own row
      *  painters, pinned END = paint). Null: the compositor cannot follow a COMMIT here, so the rules answer with DISCARD. */
     val paintEnd: ((left: Boolean, prog4: Int, p: IntArray, pic: wm.damage.core.gfx.Gray8) -> Unit)? = null,
+    /** Build C3, stage DM-0 (`FIRMWARE.md` §7.8, §7.11): a ring list — bound with LIST-RING (flags 1), so its shift and
+     *  its fires move the cursor modulo [count] and kinds 1 and 2 take the virtual row v (the cursor plus the step,
+     *  unwrapped). Only where the staging's margins hold the other end's rows (Main's paint wraps), at stage 5. */
+    val ring: Boolean = false,
 ) {
     /** One SET (§6.3). [program] is the program at [prog4] as the DSL built it — null for the report-only tap entry
      *  ([prog4] = [CfwModes.PROG_NONE]). [params] are the entry's four {kind, arg}. */
@@ -72,17 +76,30 @@ class BoundList(
      *  staging the phone holds — this list's prediction, or [previous]'s (decisions X.2: a report that names a staging
      *  the phone no longer holds is the only `restaged` discard). The answer's COMMIT carries the report's own (prog, P),
      *  and [paintEnd] paints the pictures they name. */
-    fun names(c: Int, e: Entry, prog: Int?, p: IntArray?): Boolean {
+    fun names(c: Int, e: Entry, prog: Int?, p: IntArray?, wrapped: Boolean = false): Boolean {
         // the program and the parameters each judged against both stagings (AD.2): a strip switch at 256 KiB writes the
         // other strip with the band form's move and its item word in one flush, then SETs the scroll entries to the pans
         // of that strip — a fire between the two draws the OLD pan with the NEW item table. Each list's own entry for the
         // event ([e] when it holds none); the two pans' rules are the same, only their programs and the table differ.
+        // Build C3, stage DM-0 (S4): a ring fire that wrapped (field 18 = 1) computed kinds 1 and 2 at the virtual row
+        // v = ((c − step) mod count) + step, so the prediction is made there
         if (p == null) return false
         val lists = listOfNotNull(this, previous)
         val progOk = lists.any { (it.entryFor(e.eventId) ?: e).prog4 == prog }
-        val pOk = lists.any { l -> c in 0 until l.count && l.paramsAt(c, l.entryFor(e.eventId) ?: e).let { it != null && it !== REFUSED_12 && it.contentEquals(p) } }
+        val pOk = lists.any { l -> val le = l.entryFor(e.eventId) ?: e
+            c in 0 until l.count && l.paramsAt(c, le, l.virtualRow(c, le.step, wrapped)).let { it != null && it !== REFUSED_12 && it.contentEquals(p) } }
         return progOk && pOk
     }
+
+    /** Build C3, stage DM-0 (S4, `FIRMWARE.md` §7.8): the virtual row a fire of [step] that landed on [c] computed its
+     *  parameters at — [c] itself unless the 115 said it wrapped (field 18 = 1, [wrapped]): then the row before the move,
+     *  unwrapped by the step, ((c − step) mod count) + step (−1 for an up notch from row 0, [count] for a down notch from
+     *  the last row). */
+    fun virtualRow(c: Int, step: Int, wrapped: Boolean): Int = if (!wrapped) c else Math.floorMod(c - step, count) + step
+
+    /** Build C3, stage DM-0 (S4): how far the cursor [a] lies from the row [b] — on a ring list modulo the count, the
+     *  shorter way round (a wrap notch from the last row to row 0 is one row); else the plain difference. */
+    fun distance(a: Int, b: Int): Int = if (!ring) kotlin.math.abs(a - b) else Math.floorMod(a - b, count).let { minOf(it, count - it) }
 
     /** The entry an event id fires, or null. */
     fun entryFor(eventId: Int): Entry? = entries.firstOrNull { it.eventId == eventId }
@@ -96,8 +113,10 @@ class BoundList(
     /** Every entry's SET, in entry order. */
     fun sets(): List<ByteArray> = entries.sortedBy { it.entry }.map { set(it) }
 
-    /** The LIST of this staging with [shift] (0: the cursor kept, or lost when out of range). */
-    fun listMessage(shift: Int = 0): ByteArray = CfwModes.bindList(list, items4, count, shift, pitch, mark)
+    /** The LIST of this staging with [shift] (0: the cursor kept, or lost when out of range) at [mark]; a ring list's is
+     *  LIST-RING with flags 1 (DM-0, S5: a plain LIST clears the RING flag on the glasses, §7.8). */
+    fun listMessage(shift: Int = 0, mark: Int = this.mark): ByteArray =
+        if (ring) CfwModes.bindListRing(list, items4, count, shift, pitch, mark, true) else CfwModes.bindList(list, items4, count, shift, pitch, mark)
 
     /** The item table's bytes as the cache holds them (`count u16 off4 entries`), or null with none. */
     fun itemTable(): ByteArray? = items?.let { t -> ByteArray(2 * t.size).also { b ->
@@ -121,9 +140,13 @@ class BoundList(
     fun predict(cursor: Int, entry: Entry): Fire {
         if (cursor == LOST) return Fire.Refused(18)
         if (entry.reportOnly) return Fire.Drew(cursor, CfwModes.PROG_NONE, null)
-        val c = cursor + entry.step
+        // DM-0 (§7.8): on a ring list one row with a step is the edge; else c' = (cursor + step) mod count, the parameters
+        // at the virtual row v = cursor + step
+        if (ring && count == 1 && entry.step != 0) return Fire.Edge
+        val v = cursor + entry.step
+        val c = if (ring) Math.floorMod(v, count) else v
         if (c !in 0 until count) return Fire.Edge
-        val r = paramsAt(c, entry)
+        val r = paramsAt(c, entry, v)
         return when {
             r == null -> Fire.Edge
             r === REFUSED_12 -> Fire.Refused(12)
@@ -133,15 +156,16 @@ class BoundList(
 
     /** The parameters a fire of [entry] that lands at [cPrime] computes (P3's prediction "at the 115's cursor"), in index
      *  order, the first that gives the edge or 12 deciding (§6.2 step 9, ruled 2026-11-18): null for the edge,
-     *  [REFUSED_12] (the one array of that identity) for a kind-2 value outside s16. */
-    fun paramsAt(cPrime: Int, entry: Entry): IntArray? {
+     *  [REFUSED_12] (the one array of that identity) for a kind-2 value outside s16. [v]: the virtual row (DM-0, §7.8) —
+     *  a ring list takes kind 1 at (v + arg) mod count and kind 2 at v × pitch + arg; [cPrime] elsewhere. */
+    fun paramsAt(cPrime: Int, entry: Entry, v: Int = cPrime): IntArray? {
         val out = IntArray(4)
         for ((i, p) in entry.params.withIndex()) {
             out[i] = when (p.kind) {
                 CfwModes.KIND_ARG -> p.arg
                 CfwModes.KIND_ITEM -> {
                     val t = items ?: return null
-                    val k = cPrime + p.arg
+                    val k = if (ring) Math.floorMod(v + p.arg, count) else cPrime + p.arg
                     if (k !in 0 until count) return null
                     // the lens carries the entry's 16 bits as an s16 P (§6.2 step 9, §6.5 fields 10–13; `parseApplied`
                     // reads them so): an off4 past 32767 — a record in the top half of a 256 KiB cache — is negative
@@ -149,9 +173,9 @@ class BoundList(
                     t[k].toShort().toInt()
                 }
                 else -> {
-                    val v = cPrime.toLong() * pitch + p.arg
-                    if (v !in Short.MIN_VALUE..Short.MAX_VALUE) return REFUSED_12
-                    v.toInt()
+                    val x = v.toLong() * pitch + p.arg
+                    if (x !in Short.MIN_VALUE..Short.MAX_VALUE) return REFUSED_12
+                    x.toInt()
                 }
             }
         }

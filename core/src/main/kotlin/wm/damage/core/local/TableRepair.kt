@@ -69,7 +69,7 @@ class TableRepair {
         // (judged as P3 judges it: the staging before or after a band form's switch, `BoundList.names`)
         val differs = a.params?.let { p ->
             val c = a.cursor ?: return@let false
-            !(f != null && f.list == list && f.names(c, held, a.prog, p))
+            !(f != null && f.list == list && f.names(c, held, a.prog, p, a.wrapped))          // DM-0: at v when it wrapped
         } ?: false
         if ((refused512 || differs) && f != null && f.list == list)
             owe(Owed.Set(entry), if (refused512) "fire refused ${a.reason}" else "parameters differ from the prediction")

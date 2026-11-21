@@ -55,17 +55,17 @@ class LocalStartTest {
 
     private class Run(val shell: Shell, val images: List<String>)
 
-    private suspend fun start(taps: Taps): Run {
+    private suspend fun start(taps: Taps, features: Int = 0x5FF, stage: Int = 4, height: Int = 352, windows: Int = 5): Run {
         val dir = Files.createTempDirectory(tmp, "s")
-        val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = 0x5FF }
+        val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = features }
         val images = java.util.concurrent.CopyOnWriteArrayList<String>()
         sim.imageObserver = { a, img -> if (a == Arm.RIGHT) images += img.hex() }
         val t = SimTransport(sim, scope, SimTransport.Timing(instant = true))
-        t.devProbe("c1", "4")
+        t.devProbe("c1", "$stage")
         val p = Persistence(dir.resolve("s.json"))
-        p.put("shell.settings", ShellSettings(taps = taps, heightMode = 352, cachedText = "on").toJson())
+        p.put("shell.settings", ShellSettings(taps = taps, heightMode = height, cachedText = "on").toJson())
         val shell = Shell(CachedText(FakeText()), t, p, null, scope) { Shell.LocalClock(12, 0, "12:00", "PM") }
-        for (i in 0 until 5) shell.register(Row("w$i", "Win $i", DamageWindow.Summary("summary $i", detail = "detail of $i")))
+        for (i in 0 until windows) shell.register(Row("w$i", "Win $i", DamageWindow.Summary("summary $i", detail = "detail of $i")))
         shell.start()
         waitUntil(30_000, 10, { "Main's list bound: ${images.size} images" }) { shell.isQuiescent() && images.any { binds(unhex(it)) } }
         return Run(shell, images)
@@ -109,6 +109,38 @@ class LocalStartTest {
                 "$taps: one CLEAR 0xFF in the session")
         }
         if (missing.isNotEmpty()) fail(missing.joinToString("\n"))
+    }
+
+    /**
+     * C3 DM-0 (the DM spec §2, decisions AD's S2): on a bit-11 build at stage 5, Main's eight rows at 352 — its paint wraps
+     * (it shows seven) — bind as a ring list: the binding batch carries LIST-RING with flags 1 and no plain LIST, the
+     * staging is the ring form (margins of k + 1 rows, no wrap record). At 416 (all eight shown) the same build binds a
+     * plain LIST with today's staging; at stage 4 the same rows bind today's plain LIST and wrap record — no C3 form
+     * anywhere below stage 5.
+     */
+    @Test
+    fun theStage5StartBindsMainAsARingListWhereItsPaintWraps_DM0(): Unit = runBlocking {
+        for ((stage, height) in listOf(5 to 352, 5 to 416, 4 to 352)) {
+            val r = start(Taps.REPORT, features = 0xDFF, stage = stage, height = height, windows = 7)
+            val imgs = r.images.toList()
+            val ms = r.shell.mainBinding.staging
+            r.shell.stop()
+            val what = "stage $stage at $height"
+            val lists = imgs.flatMap { subs(unhex(it)) }.filter { it[0].toInt() == 27 && (it[1].toInt() == 2 || it[1].toInt() == CfwModes.BIND_LIST_RING) }
+            val inBind = subs(unhex(imgs[imgs.indexOfFirst { binds(unhex(it)) }]))
+            val bindList = inBind.firstOrNull { it[0].toInt() == 27 && (it[1].toInt() == 2 || it[1].toInt() == CfwModes.BIND_LIST_RING) }
+            assertTrue(bindList != null && ms != null, "$what: Main's list bound with its LIST")
+            val ring = stage == 5 && height == 352
+            assertEquals(ring, ms!!.ring, "$what: the staging's form")
+            assertEquals(ring, ms.wrap == null, "$what: a wrap record exactly where the form is today's and Main wraps")
+            if (ring) {
+                assertTrue(bindList!![1].toInt() == CfwModes.BIND_LIST_RING && bindList.size == 13 && bindList[12].toInt() == 1, "$what: the binding batch's LIST is LIST-RING flags 1")
+                assertTrue(lists.all { it[1].toInt() == CfwModes.BIND_LIST_RING }, "$what: no plain LIST in the session (a plain LIST clears RING)")
+            } else {
+                assertTrue(lists.all { it[1].toInt() == 2 }, "$what: plain LISTs only")
+                assertTrue(imgs.none { CfwModes.carriesEffects(unhex(it)) } || stage == 5, "$what: no C3 form below stage 5")
+            }
+        }
     }
 
     @Test

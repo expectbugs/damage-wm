@@ -108,6 +108,10 @@ class MainStaging private constructor(
     val progSlots: IntArray? = null,
     /** K1-1: each pan slot's size: the largest effect's pans and table at this staging's T, with slack ([slack]). */
     val progSlot: Int = 0,
+    /** Build C3, stage DM-0 (the DM spec §1.1, §2): the stage-5 form — a ring strip, its margins [margin] = k + 1 rows of
+     *  the other end each side, no [wrap] record, the list bound with LIST-RING ([boundList]); only where Main's paint wraps
+     *  (more rows than it shows) and EFFECTS is in force. False: today's form, byte for byte. */
+    val ring: Boolean = false,
 ) {
     /** B082: the rows whose picture changed since this staging's first paint (by what was painted, not by window). */
     val changed = BooleanArray(seenMax.size)
@@ -182,7 +186,11 @@ class MainStaging private constructor(
      *  re-made for its steps ([remakeOwed], [remake]) where a spare pan slot exists. */
     var periodInForce: Int = period
 
-    val pitch: Int get() = -layout.rowH
+    /** The bound list's pitch: the effect in force's form (DM-0, S6: [ScrollEffects.pitch]). */
+    val pitch: Int get() = ScrollEffects.pitch(motion?.effect ?: ScrollEffect.DEPTH, layout)
+    /** The strip's rows before row 0 (and after the last): the rows Main shows past an end, k — one more on a ring strip
+     *  (DM-0: at v = n the lower track reads strip row n + M + k; the DM spec §2). Every rule's P0 and P3 take it. */
+    val margin: Int get() = layout.rowsAbove + if (ring) 1 else 0
     val start: Int get() = blobs.first().off
     /** The byte past the staging's layout: its last record, or the spare pan slot past it (K1-1). */
     val end: Int get() = maxOf(blobs.last().let { it.off + it.bytes.size }, progSlots?.let { it[1] + progSlot } ?: 0)
@@ -201,15 +209,18 @@ class MainStaging private constructor(
             ?: throw LintError("Main's staging holds no pan of $kA/$kB rows in step $step")
     }
 
-    /** B082: the wrap's pan in [step] — the whole list's tracks drawing [wrap] — or null where Main does not wrap. */
-    fun wrapPan(step: Int): Pan? = pans.firstOrNull { it.strip == WRAP_STRIP && it.step == step }
+    /** B082: the wrap's pan in [step] — the whole list's tracks drawing [wrap] — or null where Main does not wrap. DM-0
+     *  (the fallback at stage 5): on a ring strip the whole list's own pan of the active strip, whose margins hold the rows
+     *  a pan across either end shows (no separate record). */
+    fun wrapPan(step: Int): Pan? = if (ring) pan(WHOLE, step) else pans.firstOrNull { it.strip == WRAP_STRIP && it.step == step }
 
     /** PLAY's P0..P3 for [pan] landing on the new cursor [cPrime], by each parameter's rule — null at an edge (a new
      *  cursor, or an item, outside the rows: no local motion there). A kind-2 value outside s16 is the firmware's 12. */
     fun params(pan: Pan, cPrime: Int): IntArray? = paramsBy(pan.rules, cPrime)
 
-    /** Decisions AZ.4: Main wraps here — its strip's margins hold the other end's rows (none blank), one more at each end. */
-    val wraps: Boolean get() = wrap != null
+    /** Decisions AZ.4: Main wraps here — its strip's margins hold the other end's rows (none blank), one more at each end.
+     *  DM-0: a ring strip wraps (on the glasses, or by the phone's PLAY from the strip when the lens holds a plain list). */
+    val wraps: Boolean get() = wrap != null || ring
 
     /**
      * Decisions AZ.4: PLAY's P0..P3 for [pan] across the wrap — from the end row to the row just past it, [cPrime] −1 (an
@@ -219,6 +230,10 @@ class MainStaging private constructor(
      * picture slides one row as at every other notch, and the lens's cursor is the answer's to set (its DISCARD names it).
      */
     fun wrapParams(pan: Pan, cPrime: Int): IntArray? {
+        // DM-0 (the fallback, the DM spec §2): on a ring strip the pan's own rules at the virtual row v = [cPrime] — kind 1
+        // the item at v mod n, kind 2 at v unwrapped — as the glasses compute a ring fire (§7.8); the margins hold the rows
+        if (ring) return if ((cPrime != -1 && cPrime != rows) || cPrime - pan.step !in 0 until rows) null
+            else paramsBy(pan.rules, cPrime.mod(rows), cPrime)
         if (wrap == null || pan.strip != WRAP_STRIP || (cPrime != -1 && cPrime != rows) || cPrime - pan.step !in 0 until rows) return null
         val c = cPrime - pan.step
         // B082: the wrap record holds rows (n−1−rowsAbove … n−1, 0 … rowsBelow); the start cursor's row sits at index
@@ -230,13 +245,14 @@ class MainStaging private constructor(
     /** The press's P0..P3 at the cursor [c] (a tap does not move it), or null outside the rows. */
     fun pressParams(c: Int): IntArray? = paramsBy(press.rules, c)
 
-    private fun paramsBy(rules: List<Rule>, cPrime: Int): IntArray? {
+    /** [v]: the virtual row on a ring strip (DM-0, §7.8: kind 1 at (v + arg) mod n, kind 2 at v); [cPrime] elsewhere. */
+    private fun paramsBy(rules: List<Rule>, cPrime: Int, v: Int = cPrime): IntArray? {
         if (cPrime !in 0 until rows) return null
         val p = IntArray(4)
         for ((i, r) in rules.withIndex()) p[i] = when (r.kind) {
             CfwModes.KIND_ARG -> r.arg
-            CfwModes.KIND_ITEM -> { val j = cPrime + r.arg; if (j !in 0 until rows) return null; s16(itemOffs[j]) }
-            CfwModes.KIND_PITCH -> (cPrime * pitch + r.arg).also { if (it !in Short.MIN_VALUE..Short.MAX_VALUE) throw LintError("P$i = $it is outside s16 — refused (12)") }
+            CfwModes.KIND_ITEM -> { val j = if (ring) (v + r.arg).mod(rows) else cPrime + r.arg; if (j !in 0 until rows) return null; s16(itemOffs[j]) }
+            CfwModes.KIND_PITCH -> (v * pitch + r.arg).also { if (it !in Short.MIN_VALUE..Short.MAX_VALUE) throw LintError("P$i = $it is outside s16 — refused (12)") }
             else -> throw LintError("a parameter rule of kind ${r.kind}")
         }
         return p
@@ -321,7 +337,7 @@ class MainStaging private constructor(
             BoundList.Entry(ENTRY_TAP, CfwModes.EV_TAP, 0, periodInForce, press.prog4, params(press.rules), press.program),
         )
         return BoundList(LIST, SLOT, rows, pitch, mark, items4, itemOffs.copyOf(), entries,
-            paintEnd = { left, prog4, p, pic -> paintEndOf(prog4, p, left, pic) }).also { it.previous = previous }
+            paintEnd = { left, prog4, p, pic -> paintEndOf(prog4, p, left, pic) }, ring = ring).also { it.previous = previous }
     }
 
     // -------------------------------------------------------------------------------------- re-staging a row
@@ -593,7 +609,8 @@ class MainStaging private constructor(
         val pIn = if (reset) pFit else periodInForce
         val tNew = if (reset) tFit else ScrollEffects.stepsAt(want, pIn, t)
         val to = 1 - activeProgs
-        val (made, parts) = layPans(staged, want.effect, tNew, slots[to], pans.map { PanSpec(it.k, it.kA, it.kB, it.step, it.strip) }, layout.rowsAbove) { recordOf(it) }
+        // DM-0: the rules' P0 and P3 by the strip's own margin (k + 1 on a ring strip; `layout.rowsAbove` was one row short there)
+        val (made, parts) = layPans(staged, want.effect, tNew, slots[to], pans.map { PanSpec(it.k, it.kA, it.kB, it.step, it.strip) }, margin) { recordOf(it) }
         val bytes = joined(parts)
         if (bytes.size > progSlot) return Remake.NoRoom("the re-made pans (${bytes.size} B) do not fit the spare slot ($progSlot B)")
         return Remake.Owed(Programs(want, if (reset) pFit else period, tNew, pIn, to, slots[to], bytes, made, why, reset))
@@ -732,11 +749,15 @@ class MainStaging private constructor(
         fun build(layout: Layout, view: WindowView.ListView, kit: ContentKit, listD: Int, bandD: Int, cacheSize: Int,
                   regionStart: Int = cacheSize - CfwModes.STAGE_RESERVE, regionEnd: Int = cacheSize,
                   relay: (Gray8, () -> Unit) -> Unit = { _, b -> b() }, widths: List<Int> = WIDTHS + WHOLE, twoStrips: Boolean = false,
-                  motion: ScrollMotion? = null): MainStaging {
+                  motion: ScrollMotion? = null, stage5: Boolean = false): MainStaging {
             val p = Paint(layout, view, kit)
             while (!p.done) p.step(relay)
-            return assemble(p, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion)
+            return assemble(p, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, stage5 = stage5)
         }
+
+        /** DM-0 (S2, decisions AD): whether Main's rows at [layout] take the ring form at stage 5 — only where its own paint
+         *  wraps, more rows ([rows]) than it shows (`ContentKit.wrapIndex`): 8 rows at 288 and 352, never at 416 and 480. */
+        fun ringFits(layout: Layout, rows: Int): Boolean = rows > layout.rowsAbove + layout.rowsBelow + 1
 
         /**
          * [paint]'s pictures laid out from [regionStart] and refused past [regionEnd], with the programs of [widths] (the
@@ -753,7 +774,11 @@ class MainStaging private constructor(
                      wrapFit: Int = WRAP_SLACK,
                      /** K1-1: a second pan slot of one size for a re-make of the pans alone (given up first where the
                       *  region is short: a change of the scroll rows is then a full staging, as before). */
-                     progSpare: Boolean = true): MainStaging {
+                     progSpare: Boolean = true,
+                     /** DM-0: EFFECTS is in force (stage 5 on a bit-11 build) — where Main's paint wraps ([ringFits]) the
+                      *  ring form is staged: margins of k + 1 rows of the other end each side, no wrap record. Elsewhere,
+                      *  or false, today's form byte for byte. */
+                     stage5: Boolean = false): MainStaging {
             val layout = paint.layout
             if (cacheSize < CfwModes.STAGE_RESERVE || cacheSize > CfwModes.CACHE2_MAX_RIDERS || cacheSize % 4 != 0)
                 throw LintError("no staging for a cache of $cacheSize B (a contract-2 session's 64..256 KiB)")
@@ -768,8 +793,11 @@ class MainStaging private constructor(
             val rowW = l.content.w - Layout.RAIL_W
             val mA = l.rowsAbove; val mB = l.rowsBelow
             val wraps = n > l.rowsAbove + l.rowsBelow + 1             // `ContentKit.wrapIndex`
+            // DM-0 (the DM spec §1.1, §2): at stage 5 where Main wraps, the ring form — one more row of the other end each
+            // side (M = k + 1: at v = n the lower track's END reads strip row n + M + k), no wrap record
+            val ring = stage5 && wraps
             // the strip's margins: the rows Main shows past either end (B082: the wrap's rows are a record of their own)
-            val sA = mA; val sB = mB
+            val sA = mA + (if (ring) 1 else 0); val sB = mB + (if (ring) 1 else 0)
             val stripRows = sA + n + sB
             if (stripRows * l.rowH > CfwModes.MAX_IMAGE2_H) throw LintError("Main's strip of $stripRows rows is taller than a record (${CfwModes.MAX_IMAGE2_H})")
             var at = regionStart
@@ -804,8 +832,9 @@ class MainStaging private constructor(
                 stripEnc.copyOf(), next(stripSlot), stripSlot, segOff.copyOf(), segLen.copyOf())
             // B082: the wrap's record — the rows a pan across either end shows, (n−1−mA … n−1, 0 … mB): a notch down from the
             // last row and a notch up from row 0 both slide over this same sequence — in segments as the strip, its own slot
-            val wrapRow = if (!wraps || wrapFit == WRAP_NONE) IntArray(0) else IntArray(mA + mB + 2) { j -> (n - 1 - mA + j).mod(n) }
-            val wrapPic = if (!wraps || wrapFit == WRAP_NONE) null else {
+            val noWrapRecord = !wraps || wrapFit == WRAP_NONE || ring
+            val wrapRow = if (noWrapRecord) IntArray(0) else IntArray(mA + mB + 2) { j -> (n - 1 - mA + j).mod(n) }
+            val wrapPic = if (noWrapRecord) null else {
                 val wg = Gray8(rowW, wrapRow.size * l.rowH)
                 for (j in wrapRow.indices) paint.rowForms[wrapRow[j]]!!.pix.copyInto(wg.pix, j * segPx)
                 val wlv = levelsOf(wg)
@@ -835,9 +864,9 @@ class MainStaging private constructor(
             // scroll rows is then a full staging, as before), then the rows' room, then the wrap record's slack, then the wrap
             // record itself (here, and once the programs are laid out below)
             fun lessOrNull(spareFirst: Boolean): MainStaging? = when {
-                spareFirst && progSpare -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, room, wrapFit, false)
-                room != null && room.any { it > 0 } -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, null, wrapFit, false)
-                wrapPic != null -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, null, wrapFit + 1, false)
+                spareFirst && progSpare -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, room, wrapFit, false, stage5)
+                room != null && room.any { it > 0 } -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, null, wrapFit, false, stage5)
+                wrapPic != null -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, twoStrips, motion, null, wrapFit + 1, false, stage5)
                 else -> null
             }
             // (before the programs are laid out the spare slot is not yet taken: the rungs after it)
@@ -901,7 +930,7 @@ class MainStaging private constructor(
                 Blob("items", items4 * 4, pad(itemBytes), null) +
                 Blob("programs", progs.first().first, pad(progBytes), null)
             return MainStaging(layout, listD, bandD, n, cacheSize, period, t, regionStart, regionEnd, strip, stripB, bands.toMutableList(), items4, itemOffs,
-                mutableMapOf(spareOff to spareSlot), pans, press, blobs, stripRow, motion, seen, wrapPic, wrapRow, staged, progSlots, progSlot)
+                mutableMapOf(spareOff to spareSlot), pans, press, blobs, stripRow, motion, seen, wrapPic, wrapRow, staged, progSlots, progSlot, ring)
         }
 
         /** K1-1: [effect]'s pans for [specs] over [t] steps laid out from the byte offset [off] — its ease table first (Fall),
@@ -916,7 +945,7 @@ class MainStaging private constructor(
                 val prog = ScrollEffects.program(effect, staged, rec(sp.strip), sp.kA, sp.kB, sp.step, t, at / 4, table)
                 parts += at to prog.bytes
                 at += (prog.bytes.size + 3) and 3.inv()
-                Pan(sp.k, sp.kA, sp.kB, sp.step, prog, ScrollEffects.rules(staged.layout, marginA, sp.step), sp.strip)
+                Pan(sp.k, sp.kA, sp.kB, sp.step, prog, ScrollEffects.rules(effect, staged.layout, marginA, sp.step), sp.strip)
             }
             return pans to parts
         }

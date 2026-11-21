@@ -252,6 +252,16 @@ class LocalSequenceFuzzTest {
         }
     }
 
+    /** C3 DM-0's reach, counted (not failures): ring sequences, their wrap notches adopted (a ring fire's 115 with field 18
+     *  the phone adopted) and the wraps the phone PLAYed there (the fallback: an edge on a lens whose LIST-RING was lost). */
+    private fun ringCounted(h: LocalHarness, counted: MutableMap<String, Int>) {
+        if (!h.ring) return
+        fun add(k: String, n: Int) { if (n > 0) counted[k] = (counted[k] ?: 0) + n }
+        add("DM-0: ring sequences", 1)
+        add("DM-0: wrap notches adopted on a ring list", h.wrapAdopted.size)
+        add("DM-0: wrap PLAYs on a ring list (the fallback)", h.wrapPlays)
+    }
+
     /** (10)'s reach, counted (not failures): the fronts' own notches the sequence made and judged. */
     private fun frontChecked(h: LocalHarness, counted: MutableMap<String, Int>) {
         for ((kind, made) in h.frontMade) counted["front notches judged by (10): $kind"] = (counted["front notches judged by (10): $kind"] ?: 0) + made
@@ -293,10 +303,18 @@ class LocalSequenceFuzzTest {
     }
 
     // ----------------------------------------------------------------------------------------- random sequences
+    /** C3 DM-0: half the sequences bind the list as a ring list at stage 5 (LIST-RING; the wrap notch fires on the lens),
+     *  chosen by the seed with no draw from the sequence's stream; the other half are stage 4's plain list, as before. */
+    private fun ringOf(seed: Long) = (seed / 2) % 2 == 0L
+
+    /** The counted key of a declared class, split by the list's form (C3 DM-0: J3 needs an edge on RIGHT, which a ring list
+     *  gives only after a LIST-RING lost or refused there). */
+    private fun formKey(h: LocalHarness, k: String) = if (k.startsWith(j3Key)) "$k [${if (h.ring) "ring" else "plain"}]" else k
+
     fun randomSequence(seed: Long, events: Int = 40): Verdict {
         val r = java.util.Random(seed)
         val taps = Taps.entries[r.nextInt(3)]
-        val h = LocalHarness(seed, taps)
+        val h = LocalHarness(seed, taps, ring = ringOf(seed))
         declaredNow = HashSet()
         val counted0 = ArrayList<String>()
         if (debug) h.trace = { println(it) }
@@ -346,10 +364,11 @@ class LocalSequenceFuzzTest {
         }
         moved(h, failed, " (liveness)")
         ringCount(h, failed, " (liveness)", declaredNow)
-        for ((k, _) in declaredNow) counted[k] = (counted[k] ?: 0) + 1
+        for ((k, _) in declaredNow) counted[formKey(h, k)] = (counted[formKey(h, k)] ?: 0) + 1
         h.trace?.invoke("declared: " + declarations(h).joinToString("; ") { "${it.key} g${it.g} ${it.rows} at ${it.t}" })
         if (h.ringLostAtStart.isNotEmpty()) counted["(9) not counted: notches in flight at a session start"] = h.ringLostAtStart.size
         frontChecked(h, counted)
+        ringCounted(h, counted)
         if (h.commitOverDraw.isNotEmpty()) failed += "(2) a COMMIT rode a batch with a drawing sub inside its areas at ${h.commitOverDraw} (liveness)"
         // decisions AA.1: the answers that are a COMMIT with the areas' drawing held back — each a DISCARD under the rule before
         if (h.heldCommits > 0) {
@@ -434,7 +453,7 @@ class LocalSequenceFuzzTest {
 
     fun hisSessionSequence(seed: Long): Verdict {
         val r = java.util.Random(seed)
-        val h = LocalHarness(seed, Taps.REPORT)
+        val h = LocalHarness(seed, Taps.REPORT, ring = ringOf(seed))     // C3 DM-0: his Main at 352 is a ring list at stage 5
         declaredNow = HashSet()
         if (debug) h.trace = { println(it) }
         h.bandMs = His.BAND; h.bandDropScroll = 0.0; h.dropScrollIdle = His.HIS_DROP; h.actOpensWindow = 0.5
@@ -481,9 +500,10 @@ class LocalSequenceFuzzTest {
         scrollLiveness(h, failed)
         moved(h, failed, " (liveness)")
         ringCount(h, failed, " (liveness)", declaredNow)
-        for ((k, _) in declaredNow) counted[k] = (counted[k] ?: 0) + 1
+        for ((k, _) in declaredNow) counted[formKey(h, k)] = (counted[formKey(h, k)] ?: 0) + 1
         h.trace?.invoke("declared: " + declarations(h).joinToString("; ") { "${it.key} g${it.g} ${it.rows} at ${it.t}" })
         frontChecked(h, counted)
+        ringCounted(h, counted)
         // J3's adjustments in steps of its own gesture: −1 a notch adopted where the phone stood, −2 adopted a row back, …
         for (d in declarations(h)) if (d.key.startsWith(j3Key)) h.stepOf(d.g)?.let { st -> val key = "profile: J3 adjusted by ${d.rows * st} step(s)"; counted[key] = (counted[key] ?: 0) + 1 }
         if (h.ringLostAtStart.isNotEmpty()) counted["(9) not counted: notches in flight at a session start"] = h.ringLostAtStart.size
@@ -534,9 +554,9 @@ class LocalSequenceFuzzTest {
     // ----------------------------------------------------------------------------------------- the seeded cases
     /** A scripted sequence with fixed delays: [script] drives it, then every invariant at rest and, unless [live] is
      *  false, the two liveness checks; [extra] adds the case's own observable. Fails with every invariant that broke. */
-    private fun seeded(taps: Taps, live: Boolean = true, rows: Int = 3, residualS33: Boolean = false, script: (LocalHarness) -> Unit,
+    private fun seeded(taps: Taps, live: Boolean = true, rows: Int = 3, residualS33: Boolean = false, ring: Boolean = false, script: (LocalHarness) -> Unit,
                        extra: (LocalHarness) -> List<String> = { emptyList() }) {
-        val h = LocalHarness(42, taps)
+        val h = LocalHarness(42, taps, ring = ring)
         h.fixed = true
         if (System.getenv("LOCAL_FUZZ_TRACE") != null) h.trace = { println(it) }
         repeat(rows) { h.gesture(1, answer = true, band = "none"); h.runUntil(h.now + 600) }
@@ -555,6 +575,46 @@ class LocalSequenceFuzzTest {
 
     private fun notch(h: LocalHarness, kind: Int = 1, answer: Boolean = true, band: String = "none", hold: Arm? = null) =
         h.gesture(kind, answer = answer, band = band, holdWordOn = hold)
+
+    /** C3 DM-0 (S4, S5): on a ring list the wrap notch fires on the lens like any other. From the last row a notch down is
+     *  adopted (field 18; the distance taken modulo the count) and COMMITted, with no wrap PLAY; then — after that answer,
+     *  which rode behind a LIST-RING — a notch up across row 0 is adopted the same way, both lenses' lists still ringing.
+     *  On the rule as it stood: P3's plain distance turns each wrap into `lost-report` (applied as today, a DISCARD); a
+     *  riding plain LIST un-rings the list at the first answer, so the second wrap is the edge and the phone's PLAY. */
+    @Test fun seededDM0_aWrapNotchOnARingListIsAdoptedBothWays() = seeded(Taps.REPORT, rows = 7, ring = true, script = { h ->
+        notch(h, 1); h.rest()
+        notch(h, 2); h.rest()
+    }, extra = { h ->
+        val out = ArrayList<String>()
+        val wraps = h.fires.keys.sorted().takeLast(2)
+        for (g in wraps) {
+            if (h.verdicts.none { it.first == g && it.second is LocalRules.Verdict.Adopt }) out += "the wrap notch g$g was not adopted: ${h.verdicts.filter { it.first == g }.map { it.second }}"
+            if (g !in h.wrapAdopted) out += "the wrap notch g$g's report did not say it wrapped (field 18)"
+            if (h.fires[g]?.sR?.let { it in h.commitsSent } != true) out += "the wrap notch g$g was not committed"
+        }
+        if (h.wrapPlays != 0) out += "${h.wrapPlays} wrap PLAY(s) on a ring list"
+        if ((h.rules.counts["snapback.lost-report"] ?: 0) + (h.rules.counts["snapback.edge"] ?: 0) > 0) out += "snap-backs: ${h.rules.counts}"
+        for (a in Arm.entries) if (!h.sim.bindForTest(a).lists[0].ring) out += "$a: the list no longer rings after the answers"
+        out
+    })
+
+    /** C3 DM-0 (the fallback, S5): the start's LIST-RING lost on RIGHT — RIGHT holds the empty table's list (count 0), so its
+     *  fire is the edge while LEFT's draws; the phone applies the notch as today and its DISCARD rides behind a LIST-RING,
+     *  which heals RIGHT; the next notch is adopted. */
+    @Test fun seededDM0_aLostListRingHealsAtTheNextAnswer() = seeded(Taps.REPORT, ring = true, script = { h ->
+        h.lose27 = "list" to setOf(Arm.RIGHT)
+        h.start(fresh = true)
+        h.runUntil(h.now + 200)
+        notch(h); h.rest()
+        notch(h); h.rest()
+    }, extra = { h ->
+        val out = ArrayList<String>()
+        val (first, second) = h.fires.keys.sorted().takeLast(2)
+        if (h.rightOutcome[first] != DamageMsg.APPLIED_EDGE) out += "RIGHT did not hold the empty list at the first notch (outcome ${h.rightOutcome[first]})"
+        if (h.verdicts.none { it.first == second && it.second is LocalRules.Verdict.Adopt }) out += "the notch after the healing answer was not adopted: ${h.verdicts.filter { it.first == second }}"
+        if (!h.sim.bindForTest(Arm.RIGHT).lists[0].ring) out += "RIGHT's list does not ring"
+        out
+    })
 
     /** S1 — `C2-focus.md` 1(a) 1: a lost 115 overtaken. S1's report lost and its scroll message held a band, S2's report
      *  before it: S2 adopted two rows on; the two scroll messages pay its owe and the gap's. Pairing a stock message with
@@ -1020,8 +1080,8 @@ class LocalSequenceFuzzTest {
      *  runs a case, returning what the invariants say instead of asserting none fail. A J-case that pins a defect asserts
      *  the defect is seen (its name ends `_showsDefect`), so a correction turns it red and the case is then rewritten to
      *  assert the cure. Everything here is the harness's model (modeled), not the glass. */
-    private fun observed(taps: Taps, rows: Int, script: (LocalHarness) -> Unit): Pair<LocalHarness, List<String>> {
-        val h = LocalHarness(42, taps)
+    private fun observed(taps: Taps, rows: Int, ring: Boolean = false, script: (LocalHarness) -> Unit): Pair<LocalHarness, List<String>> {
+        val h = LocalHarness(42, taps, ring = ring)
         h.fixed = true
         if (System.getenv("LOCAL_FUZZ_TRACE") != null) h.trace = { println(it) }
         repeat(rows) { h.gesture(1, answer = true, band = "none"); h.runUntil(h.now + 600) }
@@ -1107,6 +1167,15 @@ class LocalSequenceFuzzTest {
         // B083 v2 (item 4): the declared J3 class explains it exactly — one notch adopted a step behind, nothing else
         val d = declarations(h)
         assertTrue(d.size == 1 && d[0].key == j3Key && d[0].rows == -1 && h.ringRow(d.map { Triple(it.t, it.n, it.rows) }) == h.row, "J3: ${d.map { "${it.key} g${it.g} ${it.rows}" }}")
+    }
+
+    /** C3 DM-0: J3's script on a ring list (stage 5, his Main at 352) — each notch past the end is a wrap the lens fires
+     *  and the phone adopts: no edge, no notch lost, nothing declared, every invariant holding (modeled). */
+    @Test fun j3OnARingList_theEdgesAreWrapsAndNoNotchIsLost_DM0() {
+        val (h, failed) = observed(Taps.REPORT, rows = 7, ring = true, script = { h -> edgesThenANotch(h, longArrayOf(0, 7)) })
+        assertTrue(failed.isEmpty(), "J3 on a ring list: $failed")
+        assertTrue(declarations(h).isEmpty(), "J3 on a ring list declares nothing: ${declarations(h).map { "${it.key} g${it.g} ${it.rows}" }}")
+        assertTrue(h.wrapAdopted.isNotEmpty() && h.wrapPlays == 0, "the wraps adopted ${h.wrapAdopted}, wrap PLAYs ${h.wrapPlays}")
     }
 
     /** J3b — J3 with his four edges (0, +18, +35, +212 ms): the notch is a `lost-report` snap-back (the lens jumps from row 1

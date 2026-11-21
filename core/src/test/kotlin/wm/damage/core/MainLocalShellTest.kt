@@ -74,12 +74,12 @@ class MainLocalShellTest {
      *  AD.1, `LadderRecord.sessionKib`), so its first start asks 256 KiB and Main stages into its own region; the start
      *  rig's mirror is its own model of the phone's bytes, as on glass (not the lens, as `SimTransport`'s is). */
     private class Rig(val taps: Taps, val stage: Int = 4, nRows: Int = 7, val kib256: Boolean = false, val link: Pair<Long, Long>? = null,
-                      val linkLatency: Long = 0) {
+                      val linkLatency: Long = 0, /** C3 DM-0: 0xdff for a bit-11 build (stage 5 arms EFFECTS). */ features: Int = 0x5ff) {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val tmp = Files.createTempDirectory("damage-mainlocal")
-        val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = 0x5ff }
+        val sim = GlassFirmwareSim().also { it.damageContract = 2; it.damageFeatures = features }
         private fun c1(): java.nio.file.Path = tmp.resolve("c1-stage").also { f ->
-            Files.writeString(f, wm.damage.core.transport.LadderRecord(stage = 4, sessionKib = 256).encode()) }
+            Files.writeString(f, wm.damage.core.transport.LadderRecord(stage = stage, sessionKib = 256).encode()) }
         val t: wm.damage.core.transport.CfwTransportBase = when {
             link != null -> LinkRig(sim, scope, c1(), link.first, link.second, linkLatency)
             !kib256 -> SimTransport(sim, scope, SimTransport.Timing(instant = true))
@@ -1270,6 +1270,62 @@ class MainLocalShellTest {
             assertTrue(r.notes("local").none { "wrap's PLAY is refused" in it }, "none was even made: ${r.notes("local").takeLast(2)}")
             assertTrue(r.notes("snapback").last().let { "cause=edge" in it && "wrap=play" !in it }, r.notes("snapback").last())
             r.assertOracle("after the edge")
+        } finally { r.close() }
+    }
+
+    /** C3 DM-0 (the DM spec §2, S4, S5): at stage 5 on a bit-11 build Main's eight rows at 352 are a ring list — the notch
+     *  past the last row fires on the glasses like any notch: adopted (no snap-back), COMMITted, no PLAY in slot 1, the
+     *  row the other end, both lenses' lists still ringing after the answers, every LIST LIST-RING; and back up past row 0.
+     *  Belief equals both lenses at rest. */
+    @Test
+    fun aWrapNotchOnARingListFiresOnTheGlassesAndIsCommitted_DM0(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, stage = 5, kib256 = true, features = 0xdff)
+        try {
+            r.up()
+            assertTrue(r.onLoop { r.shell.mainBinding.staging!!.ring } && r.list().ring, "the ring form at 352 with eight rows at stage 5")
+            val count = r.list().count
+            walkTo(r, count - 1)
+            for (dir in listOf(+1, -1)) {
+                val what = if (dir > 0) "down past the last row" else "up past row 0"
+                val to = if (dir > 0) 0 else count - 1
+                val at = r.right.size
+                val snaps = r.notes("snapback").size
+                val s = r.fire(if (dir > 0) CfwModes.EV_UPROLL else CfwModes.EV_DOWNROLL)
+                delay(r.motionMs() + r.q() + 300); r.settle("$what: after")
+                assertEquals(to, r.row(), "$what: the row is the other end")
+                assertTrue(r.right.drop(at).any { img -> r.subs(img).any { r.isCommit(it, s) } }, "$what: a COMMIT of S $s")
+                assertTrue(wrapBatch(r, at) == null, "$what: no wrap PLAY in slot ${MainStaging.WRAP_SLOT}")
+                assertEquals(snaps, r.notes("snapback").size, "$what: no snap-back: ${r.notes("snapback").takeLast(2)}")
+                val lists = r.right.drop(at).flatMap { r.subs(it) }.filter { r.isSub(it, 27, 2) || r.isSub(it, 27, CfwModes.BIND_LIST_RING) }
+                assertTrue(lists.isNotEmpty() && lists.all { r.isSub(it, 27, CfwModes.BIND_LIST_RING) }, "$what: every LIST is LIST-RING (S5)")
+                for (a in Arm.entries) assertTrue(r.sim.bindForTest(a).lists[0].ring && r.sim.bindForTest(a).lists[0].cursor == to, "$what: $a's list rings, its cursor at $to")
+                r.assertOracle(what)
+            }
+        } finally { r.close() }
+    }
+
+    /** C3 DM-0 (the staging's form follows EFFECTS in force): a hand disarm of EFFECTS mid-session drops the ring staging
+     *  and Main is staged again in today's form — its wrap record, a plain LIST, never a LIST-RING after it — so no ring
+     *  list is ever bound without EFFECTS (a LIST-RING would be refused 15, and so would every fire on a ring list). */
+    @Test
+    fun aHandDisarmOfEffectsStagesMainAgainInTodaysForm_DM0(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, stage = 5, kib256 = true, features = 0xdff)
+        try {
+            r.up()
+            assertTrue(r.onLoop { r.shell.mainBinding.staging!!.ring }, "the ring form first")
+            r.t.devProbe("flags", "0x3c")                     // stage 4's flags: EFFECTS taken away by hand
+            r.until("staged again in today's form and bound") { r.onLoop { r.shell.mainBinding.staging?.let { !it.ring && it.wrap != null } == true &&
+                r.shell.mainBoundForTest().first?.ring == false } }
+            r.settle("re-bound")
+            val at = r.right.size
+            assertTrue(r.notes("mainstage").any { "dropped" in it && "stage-5 form" in it }, "the drop said why: ${r.notes("mainstage").takeLast(3)}")
+            walkTo(r, r.list().count - 1)
+            r.fire(CfwModes.EV_UPROLL)
+            r.until("the wrap's PLAY (today's)") { wrapBatch(r, at) != null }
+            delay(r.motionMs() + r.q() + 300); r.settle("after the wrap")
+            assertTrue(r.right.drop(at).flatMap { r.subs(it) }.none { r.isSub(it, 27, CfwModes.BIND_LIST_RING) }, "no LIST-RING after the disarm")
+            for (a in Arm.entries) assertTrue(!r.sim.bindForTest(a).lists[0].ring, "$a's list is plain")
+            r.assertOracle("after the wrap")
         } finally { r.close() }
     }
 
