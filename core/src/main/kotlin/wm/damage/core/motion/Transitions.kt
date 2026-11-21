@@ -20,8 +20,11 @@ import wm.damage.core.wire.CfwModes
  * Every program is built through [Motion.program2] — the one gate, so nothing here is built below stage 5 — and so is
  * refused offline where the glasses would refuse it, the step budget at the PLAY and the PLAY-AFTER included.
  *
- * C3 stage DM-T: Encode and Matrix (GLYPHS, §7.6) are not paths: Matrix is rain over the panel's picture (reveal 2: the
- * area above the trail filled, in place) and then over the shadow (reveal 1: the shadow above the trail, in place, LAND);
+ * C3 stage DM-T: Encode and Matrix (GLYPHS, §7.6) are not paths. C3 MX2 (his word, 2026-11-21: "rain-like vertical lines
+ * of characters … [that] wash away the screen we transition from and create the one we are transitioning to"): Matrix is
+ * one fall of rain from the act — its heads come in over the held picture in the out half while the arriving frame lands
+ * (R1, decisions BU), and in the in half its columns take the old screen away below their heads and leave the shadow
+ * above their trails (reveal 1, in place, LAND);
  * Encode a dim with the leaving screen's letters turning to noise and gone over it, then the arriving screen with its
  * letters masked, turning to noise and revealed ([CellLists]). Both read the atlas's fonts, so the shell holds every other
  * cache write while one is in hand (the spec's D6), and Encode's cell lists live in the stage reserve.
@@ -183,7 +186,7 @@ object Transitions {
      */
     fun build(effects: Motion.Effects, effect: Effect, reversed: Boolean, area: Rect, timing: Timing, at4: Int, room: Int,
               depth: Int = 8, seed: Int = 0x5EED, glyphs: Glyphs? = null): Built {
-        if (effect == Effect.MATRIX) return matrix(effects, reversed, area, timing, at4, room, seed, glyphs)
+        if (effect == Effect.MATRIX) return matrix(effects, reversed, area, timing, at4, room, seed, glyphs, depth)
         if (effect == Effect.ENCODE) return encode(effects, reversed, area, timing, at4, room, seed,
             glyphs ?: throw LintError("Encode: no cells were recorded for it"))
         val (o, i) = paths(effect, area, depth)
@@ -209,27 +212,90 @@ object Transitions {
     }
 
     /**
-     * Matrix (C3 DM-T; the DM spec §3): the out half rain with reveal 2 over the panel's picture — the area above the trail
-     * filled with level 0, in place — and the in half rain with reveal 1 — the shadow above the trail, in place, then
-     * LAND — both [rainCols] columns of [RAIN_CW] × [RAIN_CH] cells (the panel's width covered), trail [RAIN_TRAIL], the
-     * columns' starts spread over half the rows, the glyphs changing every step, in the atlas face [Glyphs.rain] with its
-     * letters and digits. RAIN falls one way (the spec's S1, ruled): reversed in time the pair is the same — the out half
-     * eases in, the in half out, and swapping them and reversing each ease gives that again.
+     * Matrix's rain over an area for one face at one disparity (C3 MX2): cells [cw] × [ch] — a column 1.5 times the face's
+     * widest letter (at least [RAIN_CW_MIN]) so its characters stand in separate vertical lines, a row the face's box
+     * height (at least [RAIN_CH_MIN]) — [rows] = R, a trail of a third of them, the columns' start offsets spread over R
+     * rows, [cols] columns from [xL] on the left lens and [xR] on the right: −d and +d (the content plane's offsets, so a
+     * column's cut between the new and the old picture falls on the same content in both eyes) moved left by whole columns
+     * until both grids start at or left of the area, and enough of them to reach its right edge on both.
      */
-    private fun matrix(effects: Motion.Effects, reversed: Boolean, area: Rect, timing: Timing, at4: Int, room: Int, seed: Int, g: Glyphs?): Built {
+    class RainGrid(val cw: Int, val ch: Int, val rows: Int, val trail: Int, val spread: Int, val cols: Int, val xL: Int, val xR: Int) {
+        val perLens: Boolean get() = xL != xR
+    }
+
+    fun rainGrid(area: Rect, face: CellLists.Face, depth: Int): RainGrid {
+        val cw = maxOf(RAIN_CW_MIN, (3 * face.widestAlpha + 1) / 2).coerceAtMost(RAIN_CELL_MAX)
+        val ch = maxOf(RAIN_CH_MIN, face.lineH).coerceAtMost(RAIN_CELL_MAX)
+        val rows = (area.h + ch - 1) / ch
+        val d = kotlin.math.abs(depth)
+        val k = (d + cw - 1) / cw
+        val cols = ((area.w + d + k * cw + cw - 1) / cw).coerceIn(1, 128)
+        return RainGrid(cw, ch, rows, ((rows + 2) / 3).coerceIn(4, 32), rows.coerceAtMost(255), cols, -depth - k * cw, depth - k * cw)
+    }
+
+    /**
+     * Matrix's travel tables over [n] steps a half for [grid] (C3 MX2 R1, decisions BU): E[1..n] of the out half's drops and
+     * of the in half's rain. The out half's heads come in over the old screen from rest, gathering speed — e1·(t/(n − 1))²
+     * — no further than one trail: up to e1 = ⌊(trail − 1)·4096 / (R + trail)⌋ by step n − 1, so no head passes its trail
+     * (no cell above a trail: the out half has no new picture to leave there); its last value is 4096 (§5.4's E[n]), where
+     * the rain lights nothing: its step n repeats step n − 1. The in half carries the same heads on from e1 at its own
+     * constant step, so its first value lies one of its steps past the out half's last drawn one (the fall still gathering
+     * speed there: the out half's last step is about half the in half's). Null for one step a half (no step n − 1: the
+     * hold, then the rain).
+     */
+    class RainTravel(val out: IntArray, val inn: IntArray, val e1: Int)
+
+    fun rainTravel(grid: RainGrid, n: Int): RainTravel? {
+        if (n < 2) return null
+        val e1 = ((grid.trail - 1) * 4096) / (grid.rows + grid.trail)
+        return RainTravel(IntArray(n) { j -> if (j == n - 1) 4096 else (e1 * (j + 1) * (j + 1)) / ((n - 1) * (n - 1)) },
+            IntArray(n) { j -> e1 + ((4096 - e1) * (j + 1)) / n }, e1)
+    }
+
+    /**
+     * Matrix (C3 MX2; his word of 2026-11-21, decisions BS; R1, decisions BU). The out half holds the panel's picture —
+     * PIECES layer old, uniform, no move, level 15 → 15 (§7.2: it moves no pixel; §7.4: G is the identity) — and over it
+     * the rain's heads come in from the top edge ([rainTravel]: reveal 0, nothing above any trail, so the old picture stays
+     * but for the lit cells), while the arriving frame lands behind it. A rain segment ends past the bottom at its last
+     * step (its heads reach R + trail at E = 4096, §7.6), so the out half's step T paints nothing and repeats step T − 1:
+     * the one step at which it does not repaint what the step before painted (§7.11's phone rule, bent there and only
+     * there, decisions BU: a lens that folds step T − 1 shows step T − 2's shorter trails for one period; the in half's
+     * first step covers every cell either drew). The in half is the same rain carried on — the same seed, grid and
+     * characters — with reveal 1, in place: below each head the old picture, above each trail the shadow; LAND at step T,
+     * where the rain would paint the shadow everywhere. Each column its own start and a constant speed in each half, the
+     * late starters faster; fill 0 behind each character, the head at 15 fading to [RAIN_TAIL_LVL], each cell keeping one
+     * character ([RAIN_FLICKER]) through both halves. RAIN falls one way (the DM spec's S1, ruled): Back's records are
+     * Select's.
+     */
+    private fun matrix(effects: Motion.Effects, reversed: Boolean, area: Rect, timing: Timing, at4: Int, room: Int, seed: Int, g: Glyphs?,
+                       depth: Int): Built {
         val face = g?.rain ?: throw LintError("Matrix: no face the glasses hold has a letter or a digit")
         if (face.alphabet.isEmpty()) throw LintError("Matrix: the face ${face.spec} holds no letter or digit")
         val n = timing.steps
+        val grid = rainGrid(area, face, depth)
+        val travel = rainTravel(grid, n)
         var off = at4
         val alphabet = Motion.Alphabet(off, face.alphabet).also { off += words(it.bytes.size) }
-        val rows = (area.h + RAIN_CH - 1) / RAIN_CH
-        fun rainRecord(reveal: Int) = Motion.Rain(off, rainCols(area), RAIN_TRAIL, RAIN_CW, RAIN_CH, face.font, alphabet,
-            headLvl = 15, tailLvl = 4, reveal = reveal, fillLvl = 0, spread = (rows / 2).coerceIn(0, 255), flicker = 1).also { off += 4 }
-        val rainOut = rainRecord(2); val rainIn = rainRecord(1)
-        val outTable = tableFor(EaseKind.IN, n, off)?.also { off += words(it.record.size) }
-        val out = half("out") { Motion.program2(off, effects, own = true) { track(area, Motion.Backdrop.None) { rain(rainOut, n, outTable!!, seed = seed and 0xFFFF) } } }
+        fun record(reveal: Int) = Motion.Rain(off, grid.cols, grid.trail, grid.cw, grid.ch, face.font, alphabet, headLvl = 15, tailLvl = RAIN_TAIL_LVL,
+            reveal = reveal, fillLvl = 0, spread = grid.spread, flicker = RAIN_FLICKER).also { off += 4 }
+        val drops = travel?.let { record(0) }
+        val rain = record(1)
+        fun table(e: IntArray) = Motion.Ease.Table(off, e).also { off += words(it.record.size) }
+        val outEase = travel?.let { table(it.out) }
+        val inEase: Motion.Ease = travel?.let { table(it.inn) } ?: Motion.Ease.Linear
+        val s = (seed + 1) and 0xFFFF
+        val out = half("out") { Motion.program2(off, effects, own = true) {
+            track(area, Motion.Backdrop.None) { pieces(Motion.LAYER_OLD, n, Motion.Ease.Linear, lvl0 = 15, lvl1 = 15) }
+            if (drops != null && outEase != null) {
+                if (grid.perLens) track(area, area, Motion.Backdrop.None) { rain(drops, n, outEase, x = grid.xL, xR = grid.xR, seed = s) }
+                else track(area, Motion.Backdrop.None) { rain(drops, n, outEase, x = grid.xL, seed = s) }
+            }
+        } }
         off += words(out.bytes.size)
-        val inn = half("in") { Motion.program2(off, effects, own = true, land = true) { track(area, Motion.Backdrop.None) { rain(rainIn, n, Motion.Ease.EaseOut, seed = (seed + 1) and 0xFFFF) } } }
+        val inn = half("in") { Motion.program2(off, effects, own = true, land = true) {
+            if (grid.perLens) track(area, area, Motion.Backdrop.None) { rain(rain, n, inEase, x = grid.xL, xR = grid.xR, seed = s) }
+            else track(area, Motion.Backdrop.None) { rain(rain, n, inEase, x = grid.xL, seed = s) }
+        } }
         off += words(inn.bytes.size)
         return Built(Effect.MATRIX, reversed, area, timing, out, inn, at4, blobOf(at4, off, room, out, inn))
     }
@@ -294,7 +360,10 @@ object Transitions {
         return blob
     }
 
-    /** Matrix's columns over [area]: enough [RAIN_CW]-px columns to cover its width (§7.6: at most 128). */
+    /** The step fit's count of Matrix's lit cells over [area]: [rainCols] × [RAIN_TRAIL] — §7.12's designed 12-px columns
+     *  and trail of 8, which bounds what [rainGrid] lights at every face and depth (C3 MX2: columns ≥ [RAIN_CW_MIN] px,
+     *  rows ≥ [RAIN_CH_MIN] px, so at most ⌈(W + 16 + 28)/14⌉ columns and a trail of ⌈⌈H/20⌉/3⌉ ≤ 8), so the period rule
+     *  is DM-T's. */
     fun rainCols(area: Rect): Int = ((area.w + RAIN_CW - 1) / RAIN_CW).coerceIn(1, 128)
 
     /** [build]'s refusal of one half, said with its name ("the out half: …"), so the journal says which half it was. */
@@ -357,10 +426,17 @@ object Transitions {
     private const val TEAR_PX = 48
     /** Explode's spread: an edge piece flies 1.5 times its distance from the centre further out. */
     private const val SPREAD = 6144
-    /** Matrix's rain (§7.12's designed form): 12 × 20 cells, a trail of 8. */
+    /** §7.12's designed rain, 12-px columns and a trail of 8: what the step fit counts ([rainCols]). */
     const val RAIN_CW = 12
-    const val RAIN_CH = 20
     const val RAIN_TRAIL = 8
+    /** C3 MX2: Matrix's cells are at least this wide and tall (and at most [RAIN_CELL_MAX]). */
+    const val RAIN_CW_MIN = 14
+    const val RAIN_CH_MIN = 20
+    const val RAIN_CELL_MAX = 64
+    /** C3 MX2: a trail's top character's level (its head's is 15), and a flicker past any half's steps (each cell keeps
+     *  one character while the light runs down its column). */
+    const val RAIN_TAIL_LVL = 3
+    const val RAIN_FLICKER = 255
     /** The DM spec §3: an Encode or Matrix half takes at most this share of the step budget's cap. */
     const val SHARE_MAX_PERCENT = 80L
 }

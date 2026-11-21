@@ -179,14 +179,22 @@ class TransitionsTest {
             val every = HashMap<Int, ByteArray>()
             var buf = pic.copyOf()
             for (k in 1..t) { buf = step(p, k, buf, pic, left, b = k - 1); every[k] = buf }
+            // C3 MX2 R1 (decisions BU): Matrix's out half bends §7.11's rule at its step T and only there — its drops' rain is
+            // past the bottom and paints nothing, so a fold of step T − 1 shows T − 2's shorter trails; its own pin
+            // (`matrixsDropsComeInOverTheOldScreenAndTheInHalfCarriesThemOn_R1`) holds it to that one step. Here: every
+            // step but T, and step T painting nothing over T − 1.
+            val bent = name.contains("Matrix")
             var b2 = pic.copyOf(); var last = 0
-            val skips = (1..t).filter { it % 2 == 0 || it == t }
+            val skips = (1..t).filter { (it % 2 == 0 || it == t) && !(bent && it == t) }
             for (k in skips) {
                 b2 = step(p, k, b2, pic, left, b = last); last = k
                 assertTrue(b2.contentEquals(every[k]!!), "$name (${if (left) "L" else "R"}): step $k drawn from step ${skips.getOrNull(skips.indexOf(k) - 1) ?: 0} differs from every step drawn")
             }
-            val once = step(p, t, pic, pic, left, b = 0)
-            assertTrue(once.contentEquals(every[t]!!), "$name (${if (left) "L" else "R"}): step T drawn at once differs from every step drawn")
+            if (bent) assertTrue(every[t]!!.contentEquals(every[t - 1]!!), "$name (${if (left) "L" else "R"}): step T paints something over step T − 1")
+            else {
+                val once = step(p, t, pic, pic, left, b = 0)
+                assertTrue(once.contentEquals(every[t]!!), "$name (${if (left) "L" else "R"}): step T drawn at once differs from every step drawn")
+            }
         }
         assertEquals(n, Transitions.build(fx, Transitions.Effect.FALL, false, area, timing, 1024, 2048).out.T)
     }
@@ -401,10 +409,257 @@ class TransitionsTest {
             val mt = Transitions.timingFor(Transitions.Effect.MATRIX, 450, 10, area)
             val m = Transitions.build(fx, Transitions.Effect.MATRIX, false, area, mt, 4096, wm.damage.core.wire.CfwModes.TRANSITION_SLOT, glyphs = mg)
             assertTrue(m.withinShare, "Matrix at $h: ${m.outCost} / ${m.inCost} u within 80 %")
-            rows.append("$h | Matrix | ${Transitions.rainCols(area)} × ${Transitions.RAIN_TRAIL} lit | %.2f / %.2f (%.0f %%) | %.1f ms | ${mt.period} | ${2 * mt.steps} | ${m.out.walkBytes()} / ${m.inn.walkBytes()} B\n".format(
+            // C3 MX2: the rain's own grid (the face's cells) under the fit's count
+            val grid = Transitions.rainGrid(area, face, 8)
+            rows.append("$h | Matrix | ${grid.cols} × ${grid.trail} lit (the fit counts ${Transitions.rainCols(area)} × ${Transitions.RAIN_TRAIL}) | %.2f / %.2f (%.0f %%) | %.1f ms | ${mt.period} | ${2 * mt.steps} | ${m.out.walkBytes()} / ${m.inn.walkBytes()} B\n".format(
                 m.outCost / 1e6, m.inCost / 1e6, 100.0 * maxOf(m.outCost, m.inCost) / Motion.BUDGET_CAP,
                 0.5 + 0.036e-3 * area.w * area.h + 0.065 * Transitions.rainCols(area) * Transitions.RAIN_TRAIL))
         }
         println("DM-T budget table (modeled):\n$rows")
+    }
+
+    // ------------------------------------------------------------------------------- C3 MX2: Matrix as a wipe
+    /** His step counts today (decisions BR): 5 and 8 steps a half, both at P 46. */
+    private val mx2Timings = listOf(Transitions.timing(450, 10), Transitions.timing(720, 16))
+
+    /** One walk of Matrix's two halves on the model, one lens: what [matrixWalk] saw — the out half's and the junction's
+     *  failures apart from the in half's, the share of cells lit at each step of each half, the heads' span per in step. */
+    private class Walk(val outFailures: List<String>, val inFailures: List<String>, val outShare: List<Double>, val inShare: List<Double>,
+                       val headSpan: Map<Int, Int>, val rows: Int, val junction: String)
+
+    /** A rain segment of [prog] as the program holds it, on [left]'s lens: its record, seed, offset, area and ease values
+     *  E[0..n], and §7.6's head formula on them (o_c = H2(seed, c) mod (spread + 1), head = −o_c + (((R + o_c + trail)·e)
+     *  >> 12)). */
+    private class RainSeg(prog: MotionProgram, left: Boolean) {
+        val track = prog.tracks.single { t -> t.segments.any { it.verb == Motion.GLYPHS } }
+        val seg = track.segments.single()
+        val rain = seg.rain!!
+        val x = if (left || !track.perLens) seg.xL else seg.xR
+        val area = track.areaL
+        val rows = (area.h + rain.ch - 1) / rain.ch
+        val n = seg.steps
+        val e = IntArray(n + 1) { k ->
+            if (k == 0) 0 else when (val es = seg.ease) { is Motion.Ease.Table -> es.e[k - 1]; Motion.Ease.Linear -> (4096 * k) / n; else -> error("ease ${es.code}") }
+        }
+        fun head(c: Int, k: Int): Int {
+            val o = wm.damage.core.sim.EffectsSim.umod(wm.damage.core.sim.EffectsSim.h2(seg.h0, c), rain.spread + 1)
+            return -o + (((rows + o + rain.trail) * e[k]) shr 12)
+        }
+        fun box(c: Int, r: Int, clip: Rect): Rect? = Rect(area.x + x + c * rain.cw, area.y + r * rain.ch, rain.cw, rain.ch).intersect(clip)
+    }
+
+    /**
+     * Matrix at height [h], [timing], Global depth [depth] over the rehearsal's face and text-bearing pictures, drawn on
+     * [left]'s lens, every step from the one before. The out half (C3 MX2 R1, decisions BU): its drops are the in half's
+     * rain — the same seed, grid, characters and offsets — with reveal 0; at every step before T no head passes its trail
+     * and every pixel outside the lit cells' boxes is the old picture's (so no cell below a head changes); each of those
+     * steps drawn over the picture two steps back (a fold of the one between) is the same picture — it repaints what the
+     * step before painted; step T paints nothing (the one bent step of §7.11's rule). The junction: the in half's first
+     * travel lies one of its own table steps past the out half's step T − 1, and no column's head goes back up. The in half:
+     * at every step each column's cells below its head are the old picture's and those above its trail the new's; the last
+     * step is the new picture (END); drawn at every second step it gives the same picture where both drew (the fold, §7.2);
+     * both lenses' grids cover the area.
+     */
+    private fun matrixWalk(h: Int, timing: Transitions.Timing, depth: Int, left: Boolean): Walk {
+        val area = Rect(0, 0, Geometry.PANEL_W, h)
+        val (g, o, nw) = TransitionRehearsal.glyphInputs(h, oldScreen(), newScreen())
+        val full = Rect(0, 0, Geometry.PANEL_W, Geometry.PANEL_H)
+        val old = Pack.rect(o, full); val new = Pack.rect(nw, full)
+        val b = Transitions.build(fx, Transitions.Effect.MATRIX, false, area, timing, 4096, wm.damage.core.wire.CfwModes.TRANSITION_SLOT, depth, glyphs = g)
+        val at = "$h/${timing.steps}/d$depth ${if (left) "L" else "R"}"
+        val of = ArrayList<String>(); val inf = ArrayList<String>()
+        val n = timing.steps
+        val drops = RainSeg(b.out, left); val rain = RainSeg(b.inn, left)
+        if (b.out.tracks.size != 2 || b.out.tracks[0].segments.single().verb != Motion.PIECES || drops.rain.reveal != 0 || drops.n != n)
+            of += "$at: the out half is not the hold, then a reveal-0 rain of $n steps"
+        if (drops.seg.h0 != rain.seg.h0 || drops.x != rain.x || drops.rows != rain.rows || listOf(drops.rain.cols, drops.rain.cw, drops.rain.ch, drops.rain.trail, drops.rain.spread, drops.rain.flicker) !=
+            listOf(rain.rain.cols, rain.rain.cw, rain.rain.ch, rain.rain.trail, rain.rain.spread, rain.rain.flicker)) of += "$at: the out half's drops are not the in half's rain"
+        val outShare = ArrayList<Double>(); val inShare = ArrayList<Double>(); val span = HashMap<Int, Int>()
+        val outAt = HashMap<Int, ByteArray>().also { it[0] = old }
+        var buf = old.copyOf()
+        for (k in 1..n) {
+            val prev = buf
+            buf = step(b.out, k, buf, new, left, b = k - 1); outAt[k] = buf
+            if (k == n) { if (!buf.contentEquals(prev)) of += "$at: out step $n paints something (its rain is past the bottom)"; break }
+            var lit = 0; var cells = 0
+            columns@ for (c in 0 until drops.rain.cols) {
+                val head = drops.head(c, k)
+                if (head - drops.rain.trail >= 0) of += "$at: out step $k, column $c's head $head passes its trail ${drops.rain.trail}"
+                for (r in 0 until drops.rows) {
+                    val box = drops.box(c, r, area) ?: continue
+                    cells++
+                    if (r <= head) { lit++; continue }
+                    for (yy in box.y until box.bottom) for (xx in box.x until box.right) if (lvl(buf, xx, yy) != lvl(old, xx, yy)) {
+                        of += "$at: out step $k, column $c row $r below its head $head: pixel ($xx, $yy) is ${lvl(buf, xx, yy)}, not the old picture's ${lvl(old, xx, yy)}"
+                        continue@columns
+                    }
+                }
+            }
+            outShare += lit.toDouble() / cells
+            if (k >= 2 && !step(b.out, k, outAt[k - 2]!!, new, left, b = k - 2).contentEquals(buf)) of += "$at: out step $k drawn over step ${k - 2} differs from it drawn over step ${k - 1}"
+        }
+        val junction = "out T − 1 at ${drops.e[n - 1]}, in 1 at ${rain.e[1]}, the in half's step ${if (n >= 2) rain.e[2] - rain.e[1] else 0}"
+        if (n >= 2) {
+            val gap = rain.e[1] - drops.e[n - 1]
+            if (gap <= 0 || kotlin.math.abs(gap - (rain.e[2] - rain.e[1])) > 1) of += "$at: the junction is not one in-half step: $junction"
+            for (c in 0 until rain.rain.cols) if (rain.head(c, 1) < drops.head(c, n - 1)) of += "$at: column $c goes back up at the junction (${drops.head(c, n - 1)} → ${rain.head(c, 1)})"
+        }
+        if (rain.seg.verb != Motion.GLYPHS || rain.rain.reveal != 1 || b.inn.T != n || (rain.seg.ease as? Motion.Ease.Table)?.nonDecreasing == false)
+            inf += "$at: the in half is not one reveal-1 rain of $n steps with a travel that never falls"
+        val ta = rain.area
+        if (ta.x + rain.x > area.x || ta.x + rain.x + rain.rain.cols * rain.rain.cw < area.right) inf += "$at: the grid from x ${rain.x} leaves part of the area uncovered"
+        val inBase = buf
+        val every = HashMap<Int, ByteArray>()
+        for (k in 1..n) {
+            buf = step(b.inn, k, buf, new, left, b = k - 1); every[k] = buf
+            var lit = 0; var cells = 0; var lo = Int.MAX_VALUE; var hi = Int.MIN_VALUE
+            columns@ for (c in 0 until rain.rain.cols) {
+                val head = rain.head(c, k)
+                if (rain.box(c, 0, area) == null) continue
+                if (head >= 0 && head - rain.rain.trail < rain.rows - 1) { lo = minOf(lo, head); hi = maxOf(hi, head) }
+                for (r in 0 until rain.rows) {
+                    val box = rain.box(c, r, area) ?: continue
+                    cells++
+                    val want = when {
+                        r > head -> old
+                        r <= head - rain.rain.trail -> new
+                        else -> { lit++; null }
+                    } ?: continue
+                    for (yy in box.y until box.bottom) for (xx in box.x until box.right) if (lvl(buf, xx, yy) != lvl(want, xx, yy)) {
+                        inf += "$at: in step $k, column $c row $r (head $head, trail ${rain.rain.trail}): pixel ($xx, $yy) is ${lvl(buf, xx, yy)}, " +
+                            "not the ${if (want === old) "old" else "new"} picture's ${lvl(want, xx, yy)}"
+                        continue@columns
+                    }
+                }
+            }
+            inShare += lit.toDouble() / cells
+            if (lo <= hi) span[k] = hi - lo
+        }
+        for (yy in area.y until area.bottom) for (xx in area.x until area.right) if (lvl(buf, xx, yy) != lvl(new, xx, yy)) {
+            inf += "$at: the last step is not the new picture at ($xx, $yy)"; break
+        }
+        var b2 = inBase.copyOf(); var last = 0
+        for (k in (1..n).filter { it % 2 == 0 || it == n }) {
+            b2 = step(b.inn, k, b2, new, left, b = last); last = k
+            if (!b2.contentEquals(every[k]!!)) inf += "$at: in step $k drawn from step ${k - 2} differs from every step drawn"
+        }
+        return Walk(of, inf, outShare, inShare, span, rain.rows, junction)
+    }
+
+    private val mx2Heights = listOf(288, 352, 416, 480)
+
+    /**
+     * R1 (decisions BU): the rain starts at the act. On the model at the four heights, his two step counts and depths 0, 8,
+     * 16, both lenses: the out half's drops are the in half's rain; until its last step no head passes its trail and the
+     * old picture is untouched but for the lit cells and their boxes (no cell below a head changes); each step repaints
+     * what the one before painted (a fold of it draws the same) and step T paints nothing — §7.11's rule bent at that one
+     * step; the in half's first travel is one of its own steps past the out half's step T − 1, no head going back up.
+     */
+    @Test
+    fun matrixsDropsComeInOverTheOldScreenAndTheInHalfCarriesThemOn_R1() {
+        val failures = ArrayList<String>(); val rows = StringBuilder("H | steps | the junction (travel in 1/4096)\n")
+        for (h in mx2Heights) for (t in mx2Timings) for (d in listOf(0, 8, 16)) for (left in listOf(true, false)) {
+            val w = matrixWalk(h, t, d, left)
+            failures += w.outFailures
+            if (d == 8 && left) rows.append("$h | ${t.steps} | ${w.junction}\n")
+        }
+        println("MX2 R1 junctions (modeled):\n$rows")
+        assertTrue(failures.isEmpty(), failures.take(20).joinToString("\n"))
+    }
+
+    /**
+     * His words (decisions BS): the columns "wash away the screen we transition from and create the one we are
+     * transitioning to". On the model at the four heights, his two step counts and depths 0, 8, 16, both lenses: at every
+     * in step the old picture is untouched below every column's head and the new picture shows above every trail; the last
+     * step is the new picture (END); a fold draws the same. (The out half's drops: the R1 pin above.)
+     */
+    @Test
+    fun matrixsColumnsTakeTheOldScreenAwayAndLeaveTheNew_MX2() {
+        val failures = ArrayList<String>()
+        for (h in mx2Heights) for (t in mx2Timings) for (d in listOf(0, 8, 16)) for (left in listOf(true, false))
+            failures += matrixWalk(h, t, d, left).inFailures
+        assertTrue(failures.isEmpty(), failures.take(20).joinToString("\n"))
+    }
+
+    /**
+     * No step is a wash, and the rain is columns, not one front: at every step of either half at most [WASH_MAX] of the
+     * area's cells are lit (the rest are the old or the new picture, by the pins above), and at the in half's middle step
+     * the heads of the columns on screen lie at least a quarter of the rows apart (each column its own start).
+     */
+    @Test
+    fun noStepOfMatrixIsAWashAndItsColumnsFallApart_MX2() {
+        val rows = StringBuilder("H | steps | lit share per out step | per in step | head span at the in half's middle step (rows)\n")
+        for (h in mx2Heights) for (t in mx2Timings) {
+            val w = matrixWalk(h, t, 8, true)
+            assertTrue(w.outFailures.isEmpty() && w.inFailures.isEmpty(), (w.outFailures + w.inFailures).joinToString("\n"))
+            for ((k, s) in w.outShare.withIndex()) assertTrue(s <= WASH_MAX, "$h/${t.steps}: out step ${k + 1} lights ${"%.2f".format(s)} of the cells")
+            for ((k, s) in w.inShare.withIndex()) assertTrue(s <= WASH_MAX, "$h/${t.steps}: in step ${k + 1} lights ${"%.2f".format(s)} of the cells")
+            val mid = (t.steps + 1) / 2
+            val span = w.headSpan[mid] ?: -1
+            assertTrue(span >= w.rows / 4, "$h/${t.steps}: at in step $mid the heads span $span rows of ${w.rows} — one front, not rain")
+            rows.append("$h | ${t.steps} | ${w.outShare.joinToString(" ") { "%.2f".format(it) }} | ${w.inShare.joinToString(" ") { "%.2f".format(it) }} | $span of ${w.rows}\n")
+        }
+        println("MX2 wash table (modeled):\n$rows")
+    }
+
+    /** The rain sits at the content plane: its grid is −d on the left lens and +d on the right, moved by whole columns,
+     *  one rect at depth 0, in both halves (C3 MX2; `CLAUDE.md`: never different content per eye). */
+    @Test
+    fun matrixsRainSitsAtTheContentPlane_MX2() {
+        for (d in listOf(0, 4, 8, 12, 16)) for (h in listOf(288, 480)) {
+            val (g, _, _) = TransitionRehearsal.glyphInputs(h, oldScreen(), newScreen())
+            val b = Transitions.build(fx, Transitions.Effect.MATRIX, false, Rect(0, 0, Geometry.PANEL_W, h), Transitions.timing(450, 10), 4096,
+                wm.damage.core.wire.CfwModes.TRANSITION_SLOT, d, glyphs = g)
+            for ((half, p) in listOf("in" to b.inn, "out" to b.out)) {
+                val track = p.tracks.single { t -> t.segments.any { it.verb == Motion.GLYPHS } }; val seg = track.segments.single()
+                val xR = if (track.perLens) seg.xR else seg.xL
+                assertEquals(2 * d, xR - seg.xL, "depth $d at $h, the $half half: the right lens's grid against the left's")
+                assertEquals(d != 0, track.perLens, "depth $d, the $half half: a pair only where the lenses differ")
+                assertEquals(0, (-d - seg.xL) % seg.rain!!.cw, "depth $d, the $half half: moved by whole columns")
+            }
+        }
+    }
+
+    /**
+     * §7.12 and the DM spec's share: each half alone within 80 % of the cap — and the PLAY-AFTER judged with the out half
+     * still drawing — at the four heights, his two step counts, every depth 0..16 and three faces (the rehearsal's, 12 ×
+     * 20 letters, and 6 × 12 letters: the most columns and rows); the rain never lights more cells than `timingFor`'s
+     * fit counts. Printed for the report.
+     */
+    @Test
+    fun matrixsHalvesKeepTheirShareAtEveryHeightDepthAndStepCount_MX2() {
+        val faces = listOf("rehearsal" to TransitionRehearsal.glyphInputs(288, oldScreen(), newScreen()).first.rain!!,
+            "12x20" to testFace(12, 20), "6x12" to testFace(6, 12))
+        val rows = StringBuilder("face | H | depth | steps | cells cw×ch | cols × trail | C out / in (M u, % of cap)\n")
+        for ((name, face) in faces) for (h in listOf(288, 352, 416, 480)) for (d in listOf(0, 4, 8, 12, 16)) for (t in mx2Timings) {
+            val area = Rect(0, 0, Geometry.PANEL_W, h)
+            val b = Transitions.build(fx, Transitions.Effect.MATRIX, false, area, t, 4096, wm.damage.core.wire.CfwModes.TRANSITION_SLOT, d,
+                glyphs = Transitions.Glyphs(rain = face))
+            assertTrue(b.withinShare, "$name at $h, depth $d, ${t.steps} steps: ${b.outCost} / ${b.inCost} u past 80 %")
+            Motion.playAfter(b.inn, 3, t.period, 0xD001, 2, IntArray(4), listOf(Motion.Drawing(b.outCost)))
+            val grid = Transitions.rainGrid(area, face, d)
+            assertTrue(grid.cols * grid.trail <= Transitions.rainCols(area) * Transitions.RAIN_TRAIL, "$name at $h, depth $d: ${grid.cols} × ${grid.trail} lit cells past the fit's count")
+            if (d == 8 || (name == "6x12" && d == 16)) rows.append("$name | $h | $d | ${t.steps} | ${grid.cw}×${grid.ch} | ${grid.cols} × ${grid.trail} | %.2f / %.2f (%.0f %%)\n".format(
+                b.outCost / 1e6, b.inCost / 1e6, 100.0 * maxOf(b.outCost, b.inCost) / Motion.BUDGET_CAP))
+        }
+        println("MX2 budget table (modeled):\n$rows")
+    }
+
+    /** A face whose letters and digits are [w] × [h] (each pixel nonzero somewhere), as the atlas packs one. */
+    private fun testFace(w: Int, h: Int): wm.damage.core.motion.CellLists.Face {
+        val glyphs = (('A'..'Z') + ('a'..'z') + ('0'..'9')).associateWith { ch ->
+            wm.damage.core.wire.TextureCache.Image(w, h, ByteArray(w * h) { i -> (((i * 7 + ch.code) % 5) * 3 + (i / w) % 2).toByte() })
+        }
+        val tofu = wm.damage.core.wire.TextureCache.Image(6, h, ByteArray(6 * h) { 5 })
+        val builder = wm.damage.core.wire.TextureCache.Builder(v2 = true, capacity = 160 * 1024)
+        val font = builder.addFont(glyphs, tofu)
+        val entry = wm.damage.core.comp.GlyphAtlas.Entry(font, Array(224) { glyphs[(32 + it).toChar()] ?: tofu }, h, glyphs, tofu,
+            builder.content().size, BooleanArray(224) { (32 + it).toChar() in glyphs }, builder.content().size)
+        return wm.damage.core.motion.CellLists.face(wm.damage.core.text.FontSpec(wm.damage.core.text.Face.READER, h), entry)!!
+    }
+
+    private companion object {
+        /** C3 MX2: the most of the area's cells a step of Matrix's rain may light — a trail is a third of the rows. */
+        const val WASH_MAX = 0.40
     }
 }

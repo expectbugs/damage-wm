@@ -1208,7 +1208,7 @@ class TransitionShellTest {
 
     /**
      * Stage 2: Matrix as a transition — Select, Back (Select reversed: the same rain, S1) and the silent clock both ways,
-     * each its records in one write into the act's slot (programs, two rain records, an alphabet), the out PLAY, the frame
+     * each its records in one write into the act's slot (programs, a rain record, an alphabet — C3 MX2), the out PLAY, the frame
      * held, the PLAY-AFTER, RIGHT's in half drawn to its last step, and belief equal to both lenses after each.
      */
     @Test
