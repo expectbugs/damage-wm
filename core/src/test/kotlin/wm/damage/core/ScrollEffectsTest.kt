@@ -526,7 +526,8 @@ class ScrollEffectsTest {
      * C3 DM-1, the DM spec §5.1's "Flip": at the middle of the turn (step n1) the band shows only one column of the band
      * form at the band's centre — the rest of the band its backdrop — at stage 5 (the width turn, version 2); and the same
      * on the height below stage 5 (its fallback: one row at the band's middle, version 1). Rows and band start and end
-     * together (T steps each).
+     * together (T steps each). C3 X1DM1: n1 is the rows' half-travel step at stage 5 ([ScrollEffects.halfStep]), ⌈T/2⌉
+     * below it ([ScrollEffects.phase1]).
      */
     @Test
     fun flipTurnsTheBandToOneColumnAtTheMiddleStep_DM1() {
@@ -538,7 +539,7 @@ class ScrollEffectsTest {
                 assertEquals(ScrollEffects.Plays(ScrollEffect.FLIP, st5, if (st5) null else ScrollEffects.NOT_STAGE5), ms.plays, "$h stage ${if (st5) 5 else 4}: Flip's form")
                 val cacheImg = cacheOf(ms)
                 val l = ms.layout
-                val n1 = ScrollEffects.phase1(ms.t)
+                val n1 = if (st5) ScrollEffects.halfStep(ms.t) else ScrollEffects.phase1(ms.t)
                 for (nt in notches(ms, activeOnly = true)) {
                     val pr = nt.pan.program
                     assertEquals(if (st5) 2 else 1, pr.version, "the version")
@@ -560,6 +561,54 @@ class ScrollEffectsTest {
                 }
             }
         }
+    }
+
+    /**
+     * C3 X1DM1 (decisions BP (2), his "what moves, moves together"): Flip's width turn follows the rows. On every pan at
+     * stage 5 (the four heights, his 256 KiB, both strips, both directions), from the program's own segments: the band is
+     * edge-on (one column) at the step where the rows' ease-out over T reaches half their travel, and at every step its
+     * drawn width is within a pixel of 1 + (wF − 1) |cos θ|, θ the rows' eased progress (0 at the start, π/2 at that step,
+     * π at the end). Below stage 5 the height turn keeps DM-1's tables (⌈T/2⌉, [ScrollEffects.flipOut] and
+     * [ScrollEffects.flipIn]). Printed for the report: the band's width a step beside the rows' pixels a step.
+     */
+    @Test
+    fun flipsTurnFollowsTheRows_X1DM1() {
+        val shapes = ArrayList<String>()
+        for (h in heights) {
+            val rig = MainLocalCheck.MainRig(BoxFace, h, MainLocalCheck.sampleRows())
+            val ms = stage5(h, CfwModes.CACHE2_MAX_RIDERS, ScrollEffect.FLIP, rig)
+            val t = ms.t
+            var widths = emptyList<Int>(); var rowsPx = emptyList<Int>(); var half = 0
+            for (pan in ms.pans) {
+                val tr = pan.program.tracks
+                val what = "$h strip ${pan.strip} step ${pan.step} T $t"
+                val rows = tr[0].segments.single()
+                val er = Motion.easeE(rows.ease, rows.steps)
+                assertEquals(t, rows.steps, "$what: the rows over T")
+                half = (1 until t).first { er[it] >= 2048 }
+                val (out, inn) = tr[2].segments.also { assertEquals(2, it.size, "$what: the band's two segments") }.let { it[0] to it[1] }
+                assertEquals(half to t - half, out.steps to inn.steps, "$what: the band edge-on where the rows reach half their travel (step $half)")
+                val wF = out.w0
+                val eOut = Motion.easeE(out.ease, out.steps); val eIn = Motion.easeE(inn.ease, inn.steps)
+                widths = (1..t).map { j -> if (j <= half) Motion.eased(out.w0, out.w1 - out.w0, eOut[j]) else Motion.eased(inn.w0, inn.w1 - inn.w0, eIn[j - half]) }
+                rowsPx = (1..t).map { j -> Motion.eased(0, ms.layout.rowH, er[j]) - Motion.eased(0, ms.layout.rowH, er[j - 1]) }
+                assertEquals(1, widths[half - 1], "$what: one column at step $half")
+                for (j in 1..t) {
+                    val theta = if (j <= half) Math.PI / 2 * er[j] / er[half] else Math.PI / 2 * (1.0 + (er[j] - er[half]).toDouble() / (4096 - er[half]))
+                    val want = 1 + (wF - 1) * kotlin.math.abs(kotlin.math.cos(theta))
+                    assertTrue(kotlin.math.abs(widths[j - 1] - want) <= 1.0, "$what step $j: the band ${widths[j - 1]} px wide where the rows' progress puts the turn at ${"%.1f".format(want)}")
+                }
+            }
+            val ms4 = staging(h, CfwModes.CACHE2_MAX_RIDERS, ScrollEffect.FLIP, rig)
+            val n4 = ScrollEffects.phase1(ms4.t)
+            for (pan in ms4.pans) {
+                val band = pan.program.tracks[2].segments
+                assertEquals(listOf(ScrollEffects.flipOut(n4).toList(), ScrollEffects.flipIn(ms4.t - n4).toList()), band.map { (it.ease as Motion.Ease.Table).e.toList() },
+                    "$h stage 4: the height turn keeps DM-1's tables")
+            }
+            shapes += "h$h T $t P ${ms.period}: edge-on at step $half; band width a step $widths; rows px a step $rowsPx"
+        }
+        println("X1DM1-flip (modeled; BoxFace)\n" + shapes.joinToString("\n"))
     }
 
     /**
@@ -621,7 +670,7 @@ class ScrollEffectsTest {
                 if (cache == CfwModes.CACHE2_MAX_RIDERS) assertNotNull(ms.progSlots, "$what: the spare pan slot at 256 KiB")
                 val ms4 = staging(h, cache, e, rig)
                 val step = MainStaging.fastStepMs(ScrollEffects.areaPx(e, ms.layout, ms.listD, ms.bandD), ScrollEffects.walkBytes(e, ms.layout), ScrollEffects.pixelPx(ms.plays, ms.layout, ms.listD, ms.bandD))
-                table += "h$h ${cache / 1024} KiB ${e.word}: step ${"%.1f".format(step)} ms, P ${ms.period} T ${ms.t} (n1 ${if (e == ScrollEffect.CRUSH) ScrollEffects.halfStep(ms.t) else ScrollEffects.phase1(ms.t)}); " +
+                table += "h$h ${cache / 1024} KiB ${e.word}: step ${"%.1f".format(step)} ms, P ${ms.period} T ${ms.t} (n1 ${ScrollEffects.halfStep(ms.t)}); " +
                     "C worst ${"%,d".format(worst)} u (${"%.1f".format(worst * 100.0 / Motion.BUDGET_CAP)} %) at $at; one pan ${ms.pan(MainStaging.WHOLE, 1).program.bytes.size} B, " +
                     "programs record ${ms.blobs.last().bytes.size} B, pan slot ${ms.progSlot} B ${if (ms.progSlots != null) "×2" else "(no spare slot)"}, staging ${ms.end - ms.start} B of the region's " +
                     "${ms.regionEnd - ms.regionStart}; stage 4: ${ms4.plays.effect.word}${if (ms4.plays.v2) "" else " v1"} P ${ms4.period} T ${ms4.t}, pan slot ${ms4.progSlot} B"

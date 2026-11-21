@@ -57,9 +57,11 @@ enum class ScrollEffect(val id: String, val word: String) {
  *   at speed instead of easing out to a near stop between them. Below stage 5, or when the offline check refuses it,
  *   Slide plays.
  * - [ScrollEffect.FLIP]: the rows as Depth's; the band turns about its vertical axis — the leaving form narrows to one
- *   column at the band's centre over phase 1, the entering one widens from one column over phase 2, each on its table
- *   ([flipOut], [flipIn]) so the width goes as the cosine of a turn at constant speed. Version 2's width scale at stage
- *   5; below it (or refused) the same turn on the height ([Plays.v2] false: C2's vertical scale, a version-1 record).
+ *   column at the band's centre over phase 1, the entering one widens from one column over phase 2, each on its table.
+ *   Version 2's width scale at stage 5, C3 X1DM1 (decisions BP (2), his "what moves, moves together"): the turn follows
+ *   the rows — edge-on at the step where the rows' ease-out reaches half their travel ([halfStep]), the angle the rows'
+ *   eased progress ([flipOnRows]). Below stage 5 (or refused) the turn on the height ([Plays.v2] false: C2's vertical
+ *   scale, a version-1 record) at constant speed, split at [phase1] ([flipOut], [flipIn]; its bytes as DM-1 built them).
  * Both are functions of the layout, the planes, the strip's margin and the step alone (K1-2 moves them to window lists:
  * the band forms, P1 and P2 by kind 1, are what is Main's).
  */
@@ -128,8 +130,8 @@ object ScrollEffects {
             MainStaging.Rule(CfwModes.KIND_ITEM, -step),
             MainStaging.Rule(CfwModes.KIND_PITCH, (marginA - step) * l.rowH))
 
-    /** Flip's split of [t] steps: phase 1 takes ⌈t / 2⌉ (the leaving form turned to its edge), phase 2 the rest. Crush
-     *  splits at [halfStep] (C3 X1DM1). */
+    /** Flip's height turn's split of [t] steps (version 1, below stage 5 or refused): phase 1 takes ⌈t / 2⌉ (the leaving
+     *  form turned to its edge), phase 2 the rest. Crush and Flip's width turn split at [halfStep] (C3 X1DM1). */
     fun phase1(t: Int): Int = (t + 1) / 2
 
     /** C3 X1DM1 (decisions BP (1)): the first step at which one ease-out over [t] steps (`FIRMWARE.md` §5.4: E[j] = 4096 −
@@ -222,11 +224,24 @@ object ScrollEffects {
      *  to wF as the rest of the turn. */
     fun flipIn(n: Int): IntArray = IntArray(n) { i -> Math.round(4096.0 * kotlin.math.sin(Math.PI * (i + 1) / (2.0 * n))).toInt() }
 
+    /** C3 X1DM1 (decisions BP (2)), Flip's width turn on the rows' ease over [t] steps: the band edge-on at [halfStep] n1,
+     *  the angle θ the rows' eased progress (E_r their ease-out over t) — phase 1 E[j] = round(4096 × (1 − cos(π/2 × E_r[j]
+     *  / E_r[n1]))), phase 2 E[i] = round(4096 × sin(π/2 × (E_r[n1 + i] − E_r[n1]) / (4096 − E_r[n1]))) — so the drawn width
+     *  goes as 1 + (wF − 1) × |cos θ| with θ from 0 to π over the rows' travel (pinned within a pixel). E[n] = 4096 each. */
+    fun flipOnRows(t: Int): Pair<IntArray, IntArray> {
+        val eo = Motion.easeE(Motion.Ease.EaseOut, t)
+        val n1 = halfStep(t)
+        val out = IntArray(n1) { i -> Math.round(4096.0 * (1.0 - kotlin.math.cos(Math.PI / 2 * eo[i + 1] / eo[n1]))).toInt() }
+        val inn = IntArray(t - n1) { i -> Math.round(4096.0 * kotlin.math.sin(Math.PI / 2 * (eo[n1 + i + 1] - eo[n1]) / (4096 - eo[n1]))).toInt() }
+        return out to inn
+    }
+
     /** The ease tables what plays uploads at [t] steps (placed by the caller before its programs, in this order): Fall's
-     *  one; Flip's two (phase 1's, phase 2's), either form; Crush's two ([easeOutParts]: E1, E2); none for the rest. */
+     *  one; Flip's two (phase 1's, phase 2's: [flipOnRows] for the width turn, [flipOut] and [flipIn] for the height
+     *  turn); Crush's two ([easeOutParts]: E1, E2); none for the rest. */
     fun tables(p: Plays, t: Int): List<IntArray> = when (p.effect) {
         ScrollEffect.FALL -> listOf(fallTable(t))
-        ScrollEffect.FLIP -> phase1(t).let { n1 -> listOf(flipOut(n1), flipIn(t - n1)) }
+        ScrollEffect.FLIP -> if (p.v2) flipOnRows(t).toList() else phase1(t).let { n1 -> listOf(flipOut(n1), flipIn(t - n1)) }
         ScrollEffect.CRUSH -> easeOutParts(t).toList()
         else -> emptyList()
     }
@@ -374,17 +389,18 @@ object ScrollEffects {
     /**
      * C3 DM-1, Flip (the DM spec §1.3; decisions AD's D2): the rows as Depth's (T1 above, y ← P0; T2 below, y ← P3; ease 1
      * over T), and the band (level 0) turning about its vertical axis at the band's plane — the leaving form (← P2) from
-     * its own width wF to one column at the band's centre over phase 1 on [flipOut], then the entering one (← P1) from one
-     * column back to wF over phase 2 on [flipIn] ([tables], placed). [v2]: the width (version 2, stage 5); else the same
-     * turn on the height (version 1, C2's vertical scale, anchor centre) — Flip's fallback. END: the second segment ends at
-     * the source's own size, column c of source column c — Depth's END.
+     * its own width wF to one column at the band's centre over phase 1, then the entering one (← P1) from one column back
+     * to wF over phase 2, on its two tables ([tables], placed). [v2]: the width (version 2, stage 5), C3 X1DM1: split at
+     * [halfStep] on [flipOnRows], so the turn follows the rows; else the same turn on the height (version 1, C2's vertical
+     * scale, anchor centre) split at [phase1] on [flipOut] and [flipIn] — Flip's fallback, its bytes unchanged. END: the
+     * second segment ends at the source's own size, column c of source column c — Depth's END.
      */
     private fun flip(v2: Boolean, s: Staged, strip: Motion.Source.Record, kA: Int, kB: Int, step: Int, t: Int, at4: Int,
                      tables: List<Motion.Ease.Table>, fx: Motion.Effects?): MotionProgram {
         val l = s.layout
         val r = Rects(l, kA, kB, s.listD, s.bandD)
         val cx = r.cx; val dL = s.listD; val dB = s.bandD
-        val n1 = phase1(t); val n2 = t - n1
+        val n1 = if (v2) halfStep(t) else phase1(t); val n2 = t - n1
         if (tables.size != 2) throw LintError("Flip's band turns on its two uploaded tables")
         val ease = Motion.Ease.easeOut
         val build: Motion.ProgramBuilder.() -> Unit = {
