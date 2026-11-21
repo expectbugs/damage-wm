@@ -1,7 +1,10 @@
 # Where we are, and what to do next
 
 **The entry point for a fresh session**: what is true now, what is next, where the records are; history lives in
-`HANDOFF.md`. Read `CLAUDE.md` → this file → **`HANDOFF.md` §97** (APK 0.82, his look at 0.81, C3 through its fourth
+`HANDOFF.md`. Read `CLAUDE.md` → this file → **`HANDOFF.md` §99** (C3 FLASHED on both lenses on 11-20, APK 0.82 on his phone, the
+first sessions and the stage-4 trial) → **§98** (the effects build C3 to a final candidate and through its
+flash-readiness review — nothing flashed; the transitions; his fast-scroll session read against the rules: late
+echoes, not lost reports) → **§97** (APK 0.82, his look at 0.81, C3 through its fourth
 fork package with its model and vectors, Music's first half complete) → **§96** (the third look, APK 0.81, the
 animation plan's first phase specified, the effects build C3 designed and its contract read twice) → **§95** (APK 0.79 and 0.80, the
 second trial, the notice's focus timer, the animation plan ruled, full throttle) → **§94** (C2 flashed on both lenses and armed at stage 4;
@@ -16,7 +19,13 @@ as corrected; §14 his rulings) → **`CONTRACT.md`** (before any window or inte
 for firmware → earlier by number (§65 Phase 2 and the protocol, §48 the fork). Firmware facts: `CLAIMS.md` →
 `research/fork-reads-2026-09-13.md`.
 
-## Where we are (2026-11-19)
+## Where we are (2026-11-20)
+
+- **The glasses run the fork's C3 build since 2026-11-20 12:33** (pin `58741c4a…`, `HANDOFF.md` §99; the image before it
+  is C2's `b3f04453…`, kept in `fws/`). **The ladder is at stage 4 again since 13:26 on his word, on APK 0.82** (his
+  install, 13:13). Stage 4 on C3 behaves as on C2 with a shorter local step (median 36.6 ms against about 43).
+  **Stage 5 (the effects) is NOT armed: it needs APK 0.83 with the C3 branch.** A rollback or any later flash from
+  these lenses reads telemetry fields 8 and 28 first (`FORK.md` §7).
 
 - **The glasses run the fork's C1 build since 2026-11-18** (pin `0dab2154…`, `HANDOFF.md` §88; the image before it
   `48172b62…`). **The C1 ladder is at stage 3 since 15:43 on his word** (§91.3: ZWRITE, the 256 KiB cache, ENGINE;
@@ -34,13 +43,16 @@ for firmware → earlier by number (§65 Phase 2 and the protocol, §48 the fork
   local step's time back, modeled), the period lowered only when idle, the journal's true send and answer times.
   **Owed on his face:** a fast-scroll pass and the wrap (his look at 0.81, §97.1: the wrap "still noticably
   delayed but better"; the lenses out of sync in very fast scrolling) — and his answer: a whole row apart, or the
-  same row at different positions. **In build for 0.83** (`wip/083-scroll`): a stock scroll message before its
-  report is held; edge reports in a burst keep one motion whole; the two-lens rig with a skew; `WorkingCopy`'s
-  close against its pending save.
-- **The effects build C3** (`FIRMWARE.md` §7, merged; rulings `private/c3-design/C3-decisions.md`): the fork's
-  packages F1–F4 are built on its branch `c3` (not pushed), F5 is in its sweep; Damage's vectors (`wip/083-v`), model
-  (`wip/083-s`) and the phone's first package (`wip/083-p1`) are built; **the lanes have not met; nothing is flashed;
-  one new patch site, agreed by him** (§97.3). The animation plan (`MOTION.md` §7, with Crush) is built on it: the
+  same row at different positions. **In build for 0.83** (§98.6, §98.7): the scroll owes carried past the burst's SETTLE (his session's late
+  echoes; the hold built on the lost-report premise is removed), the row-count gate, `WorkingCopy`'s close, Main's
+  `Scroll effect` row, the Files relist, the notice's timer — on `wip/083-int` or behind the scroll gate.
+- **The effects build C3** (`FIRMWARE.md` §7, merged; rulings `private/c3-design/C3-decisions.md`): **the fork's
+  candidate is final — `c3` at `40100be`, pin `58741c4a…`, kept in `fws/2.2.6.10-cfw-58741c4a/` — through two review
+  passes, two fix rounds, a focused read, a 537-variant sweep and the flash-readiness review (two readers: nothing
+  that should stop a flash); NOTHING IS FLASHED — the flash is his word per lens** (§98.1–§98.4; one new patch site,
+  agreed by him, §97.3). Damage's side: the model and wire met the C at 0 mismatches and are in their fix round's
+  comparison; the transitions are built and read twice; Encode and Matrix are built (`wip/083-c3`, `wip/084-dmt`;
+  §98.5). A C3 image at stage 4 behaves as C2; stage 5 needs both lenses on C3 and the phone build with this branch. The animation plan (`MOTION.md` §7, with Crush) is built on it: the
   phone's transition and scroll-effect packages start from 0.82's tree.
 - **Waiting for a build slot:** Music's first half (`wip/s14-k`; §97.5; then his sitting) and the notice's timer on
   the engine (`wip/k1-4a`; §97.6).

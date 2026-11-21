@@ -9455,3 +9455,124 @@ BI, BJ; `private/c3-design/C3-decisions.md` parts D–P.
    pages (Main's was cured in 0.79).
 7. **The weekly allowance** reached its cap at about 21:36 on 11-19 and he reset it; three agents had stopped
    mid-step and went on from their saved work.
+
+## 98. The effects build C3 to a final candidate and through its flash-readiness review; the transitions read twice; his fast-scroll session read against the rules (2026-11-20)
+
+Everything "on the glasses" is his phone's journal (kept under the gitignored `private/`); the rest is the simulator,
+the PC's host harness, an instruction-level read or a model, and says so. Nothing was flashed. Rulings:
+`private/c3-design/C3-decisions.md` parts Q–AM; `private/build072/C2-decisions.md` parts BK–BM.
+
+1. **The fork's side of C3, finished.** F5 built (the two-axis draw with its source window, PLAY-AFTER, the ring
+   list, the late step, the budget); the model built from the text alone met the C on every vector at 0 mismatches
+   after two causes were ruled against the text. **Two general passes (four readers) found nothing that should stop
+   a flash**; what they found went into two fix rounds: the budget's close set by the meeting box; PIECES layer
+   old's pieces set up once a band; a copy that left an owned rect out keeps the stale mark; the destroy withdraws
+   any pending job; RAIN's glyph loop stops at the cell's bottom (8.1 M inner iterations a step for a 1×255 glyph in
+   1×1 cells → 63 k, counted on the host); one redundant check removed. Declined and listed: a firmware cap on a
+   glyph program's walk (the phone's DSL refuses it offline instead), a clear of telemetry 41, RAIN's per-cell
+   term. **One focused read of the ten invented mechanisms and of every line the fix rounds changed: nothing.** It
+   found the C cutting a wait cycle at its lowest slot where the text counted each member; ruled to the C (a cycle
+   needs a reused tag, which the phone never sends, and its members never draw) — `FIRMWARE.md` §7.12.
+2. **The instruments.** The mutation tool repaired for C3 and its whole default sweep run: **537 variants — 480
+   caught, 57 not, none unbuilt, none ran away**, each uncaught row with its reason, each reason read again by the
+   focused read (no row it would not flash without a pin). The sweep found three checks on the fast drawing path
+   that nothing tested — there the only validation of a record — now pinned, and a fourth clause pinned after the
+   read. 94 conformance vector files (the 86 before byte-identical, 8 new ones filled by the C: 222 steps) and four
+   fuzz seed sets; host checks 562 pass; `tools/verify.py` 45 of 45, its self-test 108 of 108.
+   **The candidate: fork `c3` at `40100be` (not pushed), pin
+   `58741c4a70719f167202281afe7b3470f32c57e1fb9403fed527904bb004030b`**; the appended block 131,892 B; the display
+   task's worst path 1,916 of 2,048 B (1,116 with bit 6 clear and 1,320 armed on the paths real use takes); the
+   context 14,716 B a lens.
+3. **Two stock facts read at instruction level.** The processor's watchdog is fed only by the idle task and
+   restarts a lens after about 16 s with no idle moment across all tasks (the seconds from the nominal clock:
+   inferred); a blocking wait costs nothing; a busy second or five costs a late picture. And address 0 is 256 KB of
+   writable memory, so a store through a null pointer does not fault there: every new or changed store's base was
+   read in the built image and is checked first.
+4. **The flash-readiness review (two readers, the installed image against the candidate): nothing that should stop
+   a flash.** Both pins reproduce. **The whole difference C2 → C3 is 6 header fields, 16 branch words and the
+   appended block**; the boot program and the flash-receiving ranges hash the same in stock, C2 and C3; nothing new
+   runs at start; nothing of C3 survives a restart (bit 6 is clear after every start). The one new site
+   (`0x00493DAC`), read instruction by instruction: reached only for an image container of a page built from the
+   phone's layout — not a start path, not the flash path; with no owner open it reads a few bytes, writes and calls
+   nothing and tail-calls the stock destroy with its registers kept. With bit 6 clear a version-1 program takes
+   C2's renderers, the budget passes it at once, the late step is C2's, the copy hook copies as C2's. What it asked
+   of the ritual is in `FORK.md` §7 now: the capability value `0xdff`, a page change at stage 0, the stage-4 and
+   stage-5 checks, no stage 5 before both lenses and the phone are ready, and **before any flash run on a lens that
+   is already on C3: a read of that lens's heap figures** (the flash tool's storage test allocates from the heap
+   the larger context uses, and formats the storage chip if it cannot). The candidate and the lead's green offline
+   gates are kept in `fws/2.2.6.10-cfw-58741c4a/` beside the rollback `fws/2.2.6.10-cfw-b3f04453/`.
+5. **Damage's side of C3.** The model and wire: one general pass (two readers), a fix round (the budget's waits
+   after an operation's closes, the hold-back to stage 3 with the row keeping the stored stage, every C3 form
+   refused by name with bit 6 clear, eight new vector files, two seed sets), its comparison with the C's answers
+   running. **The transitions (Select, Back, the Lock Screen's clock; an out half and an in half, stage 5 only):**
+   built, read twice, fixed twice — a transition plays in full (its writes leave both owners open and show at the
+   in half's next step or at LAND), no wrap animation starts while one plays, a refused half closes at once, the
+   out half's PLAY is the gesture's first flush in the journal; at stages 0–4 the acts write what the tree without
+   them writes (a recorded comparison). A Select at stage 5 is four flushes, 367 B (modeled). **Encode and Matrix as
+   transitions built** (cell lists from a screen's text runs, the reserve's owner, no other cache write during
+   such a run, an offline bound on a glyph program's walk). The contract gained, from all of it: §7.3, §7.4, §7.5,
+   §7.9, §7.11, §7.12, §7.13, §7.14 (`e33d8338` … `71c414b0`). The next package's spec is ruled (Crush, Flip,
+   Scramble, Matrix as scroll effects; **the ring list for Main's wrap, now its first stage**).
+6. **His fast-scroll session on 0.81, read against the code (355 notches; counts measured, the mechanism
+   inferred — 0.81 does not journal a stock message's arrival).** No report was lost, there or in any older pull:
+   **"a lost report about every ten minutes" in §97 and the rulings before it was a misreading of the cause NAME
+   `lost-report`, and §97.1's "the stock scroll message handled before its 115" is not what the data shows either.**
+   What he saw: **13 late echoes** — in a fast burst the stock firmware delivers its scroll messages late and paced
+   (a run of eight 194–240 ms apart, up to 2.3 s after the last report); the phone has cleared their owes at the
+   burst's SETTLE and counts each as a new notch, so the list walked on by itself (6 rows after his last notch) —
+   and **edge bursts**: 17 of 19 jumps where a lens goes on from the cursor before the wrap. The table repair only
+   re-sent entries; the lens kept its list. **Ruled:** the mechanism built for 0.83 on the lost-report premise (an
+   unowed message held until a report pairs it) is removed whole; the scroll owes are carried past the SETTLE for
+   as long as the queue can deliver (about 20 lines on 0.82's rules); two counters for the next sitting; the fuzz
+   gains the row at rest against the ring's count as a gate, with a base on his session's profile. The edge bursts
+   have no small phone-side rule: the ring list at stage 5 is their cure.
+7. **0.83's other lanes.** `WorkingCopy`'s close flushes a pending save (the one red test of §97.2). The `Scroll
+   effect` row for Main (None, Depth, Slide, Fall; a programs-only re-make) built, read once, fixed. A Files test's
+   order dependence was a race in the test; with it, a folder opened before the PC's channel is up is listed again
+   when it comes, and a failed listing no longer reads as an empty folder. The notice's timer through its second
+   fix stage. All on `wip/083-int` or waiting behind the scroll gate; nothing of 0.83 is staged — **his phone still
+   runs 0.81; 0.82 is staged and waits for his install.**
+8. **The night.** The glasses' battery ran out at 23:23 on 11-19 (LEFT's link ended); the hold-back rule held
+   stage 4 back as it would for a restart and lifted it at 03:43 after the case-in — as designed.
+
+## 99. C3 flashed on both lenses; APK 0.82 on his phone; the first sessions and the stage-4 trial (2026-11-20)
+
+Everything here is from the flash tool's logs (kept with the image in the gitignored `fws/2.2.6.10-cfw-58741c4a/`)
+and his phone's journal and log (under the gitignored `private/journal/pull-20261120-c3/`).
+
+1. **The flash, on his word** ("Ok phone Bluetooth is off, go ahead and flash. Don't wait for me to say go for each
+   step, just check each one to ensure it's good then do the next until the whole flash is complete."). The stored
+   stage set to 0 at 12:21:35 (his phone's link down since 12:18:20, so the lease had lapsed); the PC service stopped
+   and no build job running during the writes; link checks on both lenses 12:22–12:24. **LEFT 12:24:44–12:27:33: 6
+   components verified in 142 s, 0 resends, back in discovery 38 s later, authenticated 12:28:37. RIGHT
+   12:29:27–12:32:15: 143 s, 0 resends, authenticated 12:33:20.** Both logs equal the C2 sitting's line for line
+   but for the image's path, its 893 blocks and its CRC (`0x0fe99152`, the readiness review's figure). **The
+   installed image is the fork's C3 build, pin `58741c4a…`** (branch `c3` at `40100be`, not pushed); the rollback is
+   C2's `b3f04453…` in `fws/2.2.6.10-cfw-b3f04453/`.
+2. **The first session and a link loss that was not the firmware.** He had installed APK 0.82 at 13:13:28. 13:13:54,
+   stage 0: `DamageCaps contract 2 features 0xdff`; RIGHT's uptime 2,489 s (started at its flash's end); arena 20 at
+   61 KiB free with a largest block of 61 at the lease point (the review predicted about 62); 2M on both lenses; 11
+   flushes, none failed. 13:14:06.9: LEFT's link "ended by phone" — a first for LEFT — the app's disconnect of RIGHT
+   answered "Invalid request", and for 6.5 minutes the phone found LEFT and never RIGHT (the PC, listening only,
+   the same) while the glasses showed stock's menu. **The cause, found by him: a phone reboot that morning had
+   re-enabled the old G2CC app, which was taking the glasses' Bluetooth; he uninstalled it and restarted
+   Bluetooth.** 13:21:53: the session back — the same build value, RIGHT's uptime continuous through both sessions,
+   two page teardowns and the stock menu (the new site with no owner open, on stock's own paths), 57 flushes, none
+   failed. The lesson for the next "one lens invisible": ask first whether another app on the phone holds the
+   glasses.
+3. **Stage 4 again, on his word** ("let's enable all the new hotness"), 13:26:43 after a two-minute rest: the 256 KiB
+   cache asked and given, flags 0x4 → 0xc → 0x2c → 0x3c, each answered by RIGHT. **His trial (13:27–13:30), his
+   words:** "It took a minute before it went from old style delayed input and jank to the new animated hotness but
+   once it switched it worked pretty well. The wrap notch is still a little jank but the rest of the scrolling
+   works." In the journal: Main opened 13:27:26, its list offered 13:27:38 (the atlas first, then 65,468 B staged in
+   3 KB pieces — 0.82's form) — 12 s of phone-driven scroll once per session start, and the session had sat 42 s on
+   the clock before (staging Main behind the clock is proposed to him, not built); then 58 notches drawn by the
+   glasses, 13 edges, 2 taps, 248 flushes with none failed, no S skipped. **A local step took a median 36.6 ms
+   (p90 38.1, worst 39.3; 2 of 306 steps folded) where 0.81 on C2 had about 42–44 ms** — the C2-path renderers in
+   C3 cut runs and rows to the clip before walking them, as the readiness review read. 9 wrap motions: 5 whole, 4
+   closed by his next notch (two after 1 step of 6, two after 5) — the "little jank"; its cure is the ring list at
+   stage 5. Arena 13 at 130 KiB free with a largest block of 114, arena 20 at 62: C2's figures but for the larger
+   context. No restart of either lens since the flash.
+4. **Stage 5 is not armed.** It needs the phone build with the C3 branch (0.83). On the model's side its condition
+   is met: every transition the phone ships, as its shell sends it, was put into 46 vector files, answered by the
+   fork's C on the host and compared — 141 files, 9,338 lens-steps, 0 disagreements (`wip/083-c3` `65f85e3e`).
