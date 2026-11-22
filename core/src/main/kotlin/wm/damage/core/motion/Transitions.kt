@@ -84,7 +84,10 @@ object Transitions {
      * at short lengths and many frames, so their period is the larger of that one and the step's fit, and their frames the
      * fewer of the tier's and what the length holds at that period (even, at least 2). The step (I, the spec's model on
      * §7.12's fast-path figure): 0.5 ms + 0.036 µs a pixel of the area + 0.058 ms a cell (Encode, the larger half) or 0.065
-     * ms a lit rain cell (Matrix); the period ⌈⌈ms·1.024⌉·1.10⌉ ticks in 16..128. Every other effect: [timing].
+     * ms a lit rain cell (Matrix); the period ⌈⌈ms·1.024⌉·1.10⌉ ticks in 16..128. C3 X1MX2 item 3 (decisions BV): Warp and
+     * Flip too, on the step his glasses measured ([WARP_STEP_MS_352], [FLIP_STEP_MS_352]: the larger half's, since both
+     * halves share one period), carried to the area by the same form — 0.5 ms + a rate per pixel of the area, the rate
+     * his 640 × 352 gives (modeled at the other heights). Every other effect: [timing].
      */
     fun timingFor(effect: Effect, lengthMs: Int, frames: Int, area: Rect, cells: Int = 0): Timing {
         val base = timing(lengthMs, frames)
@@ -92,13 +95,27 @@ object Transitions {
         val ms = when (effect) {
             Effect.ENCODE -> 0.5 + 0.036e-3 * px + 0.058 * cells
             Effect.MATRIX -> 0.5 + 0.036e-3 * px + 0.065 * rainCols(area) * RAIN_TRAIL
+            Effect.WARP -> 0.5 + (WARP_STEP_MS_352 - 0.5) * px / MEASURED_PX
+            Effect.FLIP -> 0.5 + (FLIP_STEP_MS_352 - 0.5) * px / MEASURED_PX
             else -> return base
         }
         val fit = Math.ceil(Math.ceil(ms * 1.024) * 1.10).toInt().coerceIn(CfwModes.MOTION_PERIODS.first, CfwModes.MOTION_PERIODS.last)
-        val p = maxOf(base.period, fit)
-        val f = (minOf(base.steps * 2, Math.floor(lengthMs * 1.024 / p).toInt()) / 2 * 2).coerceAtLeast(2)
-        return Timing(f / 2, p)
+        // C3 X1MX2 item 3's class: the frames give only to a longer period — at the setting's own period (rounded to whole
+        // ticks, so 2·T·P may pass the length by under a tick a step) the setting's frames play, as for every other effect
+        if (fit <= base.period) return base
+        val f = (minOf(base.steps * 2, Math.floor(lengthMs * 1.024 / fit).toInt()) / 2 * 2).coerceAtLeast(2)
+        return Timing(f / 2, fit)
     }
+
+    /** C3 X1MX2 item 3: Warp's step on his glasses, measured (APK 0.83, 2026-11-21, his glasses at stage 5, height 352,
+     *  5 steps a half at P 46): the largest step-drawing time RIGHT reported for its out half, 58.5–58.8 ms over 5 Selects,
+     *  each folding one step; its in half 11.5–48.5 ms. */
+    const val WARP_STEP_MS_352 = 58.8
+    /** C3 X1MX2 item 3: Flip's step on his glasses, measured (as [WARP_STEP_MS_352]): its out half 60.3 ms over 2
+     *  Selects, each folding one step; its in half 20.0–20.1 ms. */
+    const val FLIP_STEP_MS_352 = 60.3
+    /** The area those two were measured over: 640 × 352. */
+    private const val MEASURED_PX = 640.0 * 352
 
     /** What Encode and Matrix draw from (C3 DM-T): [rain] the atlas face the rain draws (Matrix); the leaving and the
      *  arriving screens' cells (Encode), whose lists are laid out from [reserveAt4] in at most [reserveRoom] bytes. */

@@ -250,8 +250,9 @@ class TransitionsTest {
         val refused = ArrayList<String>()
         var checked = 0
         for (len in wm.damage.core.shell.ShellSettings.SCROLL_LENGTHS) for (f in wm.damage.core.shell.ShellSettings.FRAME_COUNTS) {
-            val timing = Transitions.timing(len, f)
             for ((tier, e, rev) in pathPlays) for (h in listOf(288, 352, 416, 480)) for (depth in listOf(0, 16)) {
+                // C3 X1MX2 item 3: the timing the shell asks for (Warp's and Flip's fitted to their measured step)
+                val timing = Transitions.timingFor(e, len, f, Rect(0, 0, Geometry.PANEL_W, h))
                 val what = "${tier.word} ${e.label}${if (rev) " reversed" else ""} at $h, $len ms, ${if (f == 0) "Auto" else "$f"} frames, depth $depth"
                 try {
                     val b = Transitions.build(fx, e, rev, Rect(0, 0, Geometry.PANEL_W, h), timing, 1024, wm.damage.core.wire.CfwModes.TRANSITION_SLOT, depth, seed = len * 31 + f)
@@ -273,6 +274,40 @@ class TransitionsTest {
         }
         println("X2P2 item 7, what each length and frame count plays (the same at every height):\n$table")
         assertEquals(500L, 2 * Transitions.timing(800, 4).halfMs, "the review's example: 800 ms at 4 frames plays 500 ms")
+    }
+
+    /**
+     * C3 X1MX2 item 3 (decisions BV): Warp's and Flip's step fit follows the glass. At 352 — where his session measured
+     * them (Warp's out half 58.8 ms a step, Flip's 60.3 ms) — every tier length and frame setting gives a period of at
+     * least the measured step plus 10 %, and the length holds while the frames give (2·T·P within the length, unless one
+     * step a half already passes it) — only to a longer period: where the fit is not above the setting's period the
+     * setting's timing plays; never more steps than the setting's. Every other path effect keeps [Transitions.timing].
+     * Printed for the report: every length and frame setting at the four heights, before → after (the heights other than
+     * 352 modeled from the fit's form).
+     */
+    @Test
+    fun warpAndFlipFitTheirMeasuredStep_X1MX2() {
+        val heights = listOf(288, 352, 416, 480)
+        val table = StringBuilder()
+        for ((e, ms) in listOf(Transitions.Effect.WARP to Transitions.WARP_STEP_MS_352, Transitions.Effect.FLIP to Transitions.FLIP_STEP_MS_352)) {
+            table.append("${e.label} (measured ${ms} ms a step at 352): length / frames | ${heights.joinToString(" | ")}   (T steps a half × P ticks, before → after)\n")
+            for (len in wm.damage.core.shell.ShellSettings.SCROLL_LENGTHS) for (f in wm.damage.core.shell.ShellSettings.FRAME_COUNTS) {
+                val base = Transitions.timing(len, f)
+                val cells = heights.map { h ->
+                    val t = Transitions.timingFor(e, len, f, Rect(0, 0, Geometry.PANEL_W, h))
+                    if (h == 352) assertTrue(t.period * 1000.0 / 1024 >= ms * 1.10, "${e.label} at $len ms / $f: P ${t.period} under ${ms} ms + 10 %")
+                    assertTrue(t.steps <= base.steps, "${e.label} at $h, $len ms / $f: ${t.steps} steps, more than the setting's ${base.steps}")
+                    assertTrue(t == base || (t.period > base.period && (2L * t.steps * t.period <= Math.ceil(len * 1.024).toLong() || t.steps == 1)),
+                        "${e.label} at $h, $len ms / $f: ${t.steps} × ${t.period} against the setting's ${base.steps} × ${base.period} — frames give only to a longer period, inside the length")
+                    if (t == base) "${t.steps}×${t.period}" else "${base.steps}×${base.period} → ${t.steps}×${t.period}"
+                }
+                table.append("$len / ${if (f == 0) "Auto" else "$f"} | ${cells.joinToString(" | ")}\n")
+            }
+        }
+        for ((_, e, _) in pathPlays.filter { it.second != Transitions.Effect.WARP && it.second != Transitions.Effect.FLIP }.distinctBy { it.second })
+            for (len in wm.damage.core.shell.ShellSettings.SCROLL_LENGTHS) for (f in wm.damage.core.shell.ShellSettings.FRAME_COUNTS) for (h in heights)
+                assertEquals(Transitions.timing(len, f), Transitions.timingFor(e, len, f, Rect(0, 0, Geometry.PANEL_W, h)), "${e.label} keeps its timing")
+        println("X1MX2 item 3, Warp's and Flip's timings (352 measured, the other heights modeled):\n$table")
     }
 
     /** DP2 item 3: the tier rows follow the scroll rows in `Animations` only where stage 5 is in force; Select 450 ms / 10
