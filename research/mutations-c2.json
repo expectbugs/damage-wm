@@ -2088,7 +2088,7 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    " ${st.cacheSize} ${motionInForce()} stage5=$stage5 ${List(n) { main.rowKey(it) }.hashCode()}\"",
+    " ${st.cacheSize} ${motionInForce()} stage5=$stage5 ${List(n) { rowKey(it) }.hashCode()}\"",
     " ${st.cacheSize} ${motionInForce()} stage5=$stage5\""
    ]
   ],
@@ -2098,7 +2098,7 @@
   "expect": [
    "aStagingThatDidNotFitIsTriedAgainWhenItsContentChanges_AF6"
   ],
-  "note": "AF.6 [re-pointed by C3 DM-0 to its present text] [re-pointed by C3 FF: the key names EFFECTS in force]",
+  "note": "AF.6 [re-pointed by C3 DM-0 to its present text] [re-pointed by C3 FF: the key names EFFECTS in force] [re-pointed by K1-2 stage 0: the line is a method of the ListBind holder now]",
   "from": "FB"
  },
  {
@@ -3082,7 +3082,7 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "            stagePagesClear(\"the live font set changed\")\n            mainBind.recheckAll()",
+    "            stagePagesClear(\"the live font set changed\")\n            mainList.mainBind.recheckAll()",
     "            stageClear(\"the live font set changed\")"
    ]
   ],
@@ -3092,7 +3092,7 @@
   "expect": [
    "aFontSetChangeInAnotherWindowLeavesMainsRegionIntact_AU2"
   ],
-  "note": "AU.2: a live font set change drops Main's staging (as before T1)",
+  "note": "AU.2: a live font set change drops Main's staging (as before T1) [re-pointed by K1-2 stage 0: the line is a method of the ListBind holder now]",
   "from": "T1"
  },
  {
@@ -3531,8 +3531,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "    private fun mainPeriodApply() {\n        if (local.burstOpen) return\n",
-    "    private fun mainPeriodApply() {\n"
+    "    private fun ListBind.mainPeriodApply() {\n        if (local.burstOpen) return\n",
+    "    private fun ListBind.mainPeriodApply() {\n"
    ]
   ],
   "tests": [
@@ -3541,7 +3541,7 @@
   "expect": [
    "thePeriodFollowsTheMeasuredSteps_BF"
   ],
-  "note": "BF: the SETs go inside an open burst",
+  "note": "BF: the SETs go inside an open burst [re-pointed by K1-2 stage 0: the line is a method of the ListBind holder now]",
   "from": "G4"
  },
  {
@@ -3911,7 +3911,7 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        if (c.booked || k.firstLine < MainBinding.PATCH_KEY || k.content !== mainBind.staging) return\n",
+    "        if (c.booked || k.firstLine < MainBinding.PATCH_KEY || k.content !== mainList.mainBind.staging) return\n",
     "        if (true) return\n"
    ]
   ],
@@ -3921,7 +3921,7 @@
   "expect": [
    "aFailedRestagePieceWithTheRowBackLeavesNoStaleBytes_F1"
   ],
-  "note": "the focused read of B082 (F1): an unbooked re-stage that failed keeps the staging (0.82 as built)",
+  "note": "the focused read of B082 (F1): an unbooked re-stage that failed keeps the staging (0.82 as built) [re-pointed by K1-2 stage 0: the line is a method of the ListBind holder now]",
   "from": "B082"
  },
  {
@@ -4117,7 +4117,7 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        val covered = blocked != null && mode != Mode.MAIN && mainBindBlocked(st, front = false) == null\n",
+    "        val covered = blocked != null && !inFront() && mainBindBlocked(st, front = false) == null\n",
     "        val covered = false\n"
    ]
   ],
@@ -4127,7 +4127,7 @@
   "expect": [
    "aChangeMadeInSettingsPlaysOnTheFirstNotchBackOnMain_K11"
   ],
-  "note": "the review's finding 1, the unfixed tree: the re-make waits for Main in front, so the first notch back plays the old effect",
+  "note": "the review's finding 1, the unfixed tree: the re-make waits for Main in front, so the first notch back plays the old effect [re-pointed by K1-2 stage 0: the line is a method of the ListBind holder now]",
   "from": "K1-1 fix stage"
  },
  {
@@ -4988,8 +4988,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "private fun mainBehindClock(): Boolean = mode == Mode.SILENT",
-    "private fun mainBehindClock(): Boolean = mode == Mode.SILENT || mode == Mode.EXCLUSIVE"
+    "override fun mainBehindClock(): Boolean = mode == Mode.SILENT",
+    "override fun mainBehindClock(): Boolean = mode == Mode.SILENT || mode == Mode.EXCLUSIVE"
    ]
   ],
   "tests": [
@@ -4998,7 +4998,7 @@
   "expect": [
    "aWakeThatReturnsToAWindowStagesNothingOfMain_BP"
   ],
-  "note": "decisions BP: a window's exclusive screen counted as behind the clock: Main staged behind it",
+  "note": "decisions BP: a window's exclusive screen counted as behind the clock: Main staged behind it [re-pointed by K1-2 stage 0: the line is a method of the ListBind holder now]",
   "from": "B083-ms"
  },
  {
@@ -5024,8 +5024,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "private fun mainBindLayout(): Layout = if (mainBehindClock()) effectiveLayout() else layout",
-    "private fun mainBindLayout(): Layout = layout"
+    "override fun mainBindLayout(): Layout = if (mainBehindClock()) effectiveLayout() else layout",
+    "override fun mainBindLayout(): Layout = layout"
    ]
   ],
   "tests": [
@@ -5034,7 +5034,7 @@
   "expect": [
    "aHeightSetBehindTheClockIsStagedForAndKeptAtTheWake_BP"
   ],
-  "note": "decisions BP: behind the clock the shell's layout, not the one the wake brings (both sites)",
+  "note": "decisions BP: behind the clock the shell's layout, not the one the wake brings (both sites) [re-pointed by K1-2 stage 0: the line is a method of the ListBind holder now]",
   "from": "B083-ms"
  },
  {
@@ -5060,8 +5060,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "            MainStaging.Paint(lay, main.view(), kit).also { mainBindPaint = it }",
-    "            MainStaging.Paint(layout, main.view(), kit).also { mainBindPaint = it }"
+    "            MainStaging.Paint(lay, surface.view(), kit).also { mainBindPaint = it }",
+    "            MainStaging.Paint(layout, surface.view(), kit).also { mainBindPaint = it }"
    ]
   ],
   "tests": [
@@ -5070,7 +5070,7 @@
   "expect": [
    "aHeightSetBehindTheClockIsStagedForAndKeptAtTheWake_BP"
   ],
-  "note": "decisions BP: the paint on the shell's layout: an unbounded loop of stage then drop behind the clock (12,153 stagings in the test's 30 s on its run; ended by the test's own wait)",
+  "note": "decisions BP: the paint on the shell's layout: an unbounded loop of stage then drop behind the clock (12,153 stagings in the test's 30 s on its run; ended by the test's own wait) [re-pointed by K1-2 stage 0: the line is a method of the ListBind holder now]",
   "from": "B083-ms"
  },
  {
@@ -8622,8 +8622,8 @@
   "file": "shell/MainStaging.kt",
   "edits": [
    [
-    "return BoundList(LIST, SLOT, rows, down.pitch, mark,",
-    "return BoundList(LIST, SLOT, rows, -layout.rowH, mark,"
+    "return BoundList(list, SLOT, rows, down.pitch, mark,",
+    "return BoundList(list, SLOT, rows, -layout.rowH, mark,"
    ]
   ],
   "tests": [
@@ -8632,7 +8632,7 @@
   "expect": [
    "crushAndFlipEndAtMainsPaintOnTheModelAtEveryCursor_DM1"
   ],
-  "note": "C3 DM-1 (S6): the bound list keeps pitch -rowH while Crush plays - its windows' first rows are computed at the wrong pitch",
+  "note": "C3 DM-1 (S6): the bound list keeps pitch -rowH while Crush plays - its windows' first rows are computed at the wrong pitch [re-pointed by K1-2 stage 0: the list number is its binding's value]",
   "from": "C3-DM1"
  },
  {

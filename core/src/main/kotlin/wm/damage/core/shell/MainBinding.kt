@@ -36,7 +36,10 @@ import wm.damage.core.local.BoundList
  *   each pass and asks the loop back when the next row is due; writes only while Main is in front (never behind the clock), no burst is open
  *   (P9) and nothing else is in flight (the stage lane's own rule).
  */
-internal class MainBinding {
+internal class MainBinding(
+    /** K1-2 stage 0: the list's number on the glasses and its entries' numbers (down, up, tap) — values its holder gives
+     *  (Main: [MainStaging.LIST], [MainStaging.ENTRIES]; decisions BD). */
+    private val listNo: Int = MainStaging.LIST, private val entryIds: IntArray = MainStaging.ENTRIES) {
     var staging: MainStaging? = null
         private set
     /** The base records (the registry's own objects), in [MainStaging.blobs]' order. */
@@ -101,7 +104,7 @@ internal class MainBinding {
         if (r.switched) return list
         ms.switchTo(r.programs)
         r.switched = true
-        list = ms.boundList(mark, previous = list)
+        list = ms.boundList(mark, previous = list, list = listNo, entryIds = entryIds)
         return list
     }
 
@@ -164,7 +167,7 @@ internal class MainBinding {
         staging = ms
         records = recs
         mark = markNext
-        list = ms.boundList(mark)
+        list = ms.boundList(mark, list = listNo, entryIds = entryIds)
         markNext = (markNext % 0xFF) + 1                 // a u8, never 0 twice in a row
         withdrawnFor = null
         patches.clear()
@@ -243,14 +246,14 @@ internal class MainBinding {
     fun relisted(): BoundList? {
         val ms = staging ?: return null
         val l = list ?: return null
-        list = ms.boundList(mark, previous = l.previous)
+        list = ms.boundList(mark, previous = l.previous, list = listNo, entryIds = entryIds)
         return list
     }
 
     fun submitted(r: MainStaging.Restage.Changed, rec: StagedRecord, nowMs: Long) {
         val ms = staging!!
         ms.apply(r)
-        if (r.band != null || r.toStrip != null) list = ms.boundList(mark, previous = list)
+        if (r.band != null || r.toStrip != null) list = ms.boundList(mark, previous = list, list = listNo, entryIds = entryIds)
         if (withdrawnFor == r.row) withdrawnFor = null
         patches += Patch(r.row, rec, r)
         owed[r.row] = false; dirty[r.row] = false

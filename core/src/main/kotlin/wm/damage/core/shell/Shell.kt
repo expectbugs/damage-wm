@@ -3152,16 +3152,16 @@ class Shell(
         val st = transport.state.value
         val f = localFront()
         localFrontNow = f?.second
-        localOnlyFlushes.clear(); localTailFlushes.clear(); mainBind.tailsForgotten()
+        localOnlyFlushes.clear(); localTailFlushes.clear(); mainList.mainBind.tailsForgotten()
         transitionEnd("a session start"); transitionCloses = emptyList()      // build C3 (DP2): the start's keyframe ends every instance
         glyphHoldUntilMs = 0L                                       // X2T item 1: so nothing is left to land on either lens
         glyphHoldPumpOwed = false
-        stepWindow.clear(); periodSamplesSinceChange = 0          // decisions BF: the measured window is the session's
+        mainList.stepWindow.clear(); mainList.periodSamplesSinceChange = 0          // decisions BF: the measured window is the session's
         localNoteSaid = null
         localSettleAt = Long.MAX_VALUE
-        mainBindRefusedFor = null                         // AF.6: a staging that did not fit is tried again at every start
-        mainBindBlockedSaid = null
-        mainBindRefusalSaid = null
+        mainList.mainBindRefusedFor = null                         // AF.6: a staging that did not fit is tried again at every start
+        mainList.mainBindBlockedSaid = null
+        mainList.mainBindRefusalSaid = null
         local.sessionStart(st.bind && st.leaseHeld, st.bindSHeard0, st.bindArmUptime, f?.second, f?.first?.row() ?: -1, settings.taps)
         if (st.bind) journal.note("local", "session start: S_heard ${st.bindSHeard0}, armed at uptime ${st.bindArmUptime}, " +
             "list in front ${f?.second?.list ?: "none"}, Taps ${settings.taps.word}")
@@ -3196,7 +3196,7 @@ class Shell(
             val id = transport.submit(FlushRequest(emptyList(), comp.epoch, label, tail = tail))
             localOnlyFlushes += id
             localTailFlushes += id
-            mainBind.tailSent(id, mainBindEntriesSent())
+            mainList.mainBind.tailSent(id, mainList.mainBindEntriesSent())
             id
         } catch (e: Exception) {
             // the link ended between the pump's gate and the submit: the next session's start sends the whole table
@@ -3386,7 +3386,7 @@ class Shell(
             comp.requestKeyframe("a local-input flush failed")
             post(Msg.Pump)
         }
-        mainBind.tailDone(ev.id, ev.ok)                // AD.2: a strip switch's SETs landed on both lenses (or go again)
+        mainList.mainBind.tailDone(ev.id, ev.ok)                // AD.2: a strip switch's SETs landed on both lenses (or go again)
         // a refused flush that carried the rules' messages: the whole table again (`LocalRules.tableAgain`, marked)
         if (localTailFlushes.remove(ev.id) && !ev.ok && ev.error?.contains("ImgResCmd") == true && !glassesSilent) {
             local.tableAgain("a flush carrying local-input messages was refused (${ev.error})")
@@ -4247,7 +4247,7 @@ class Shell(
             // paint may now differ (a face it draws went live): every row is painted again and compared, and only a row
             // that differs is re-staged, by the paced re-stage path
             stagePagesClear("the live font set changed")
-            mainBind.recheckAll()
+            mainList.mainBind.recheckAll()
         }
         ct.live = specs
         ct.liveImages = images
@@ -4813,8 +4813,8 @@ class Shell(
      *  its old picture would write nothing over them. The staging is dropped and the next one writes whole. */
     private fun mainRestageEndedUnbooked(c: StageCursor?, why: String) {
         val k = c?.rec?.key as? MainStageKey ?: return
-        if (c.booked || k.firstLine < MainBinding.PATCH_KEY || k.content !== mainBind.staging) return
-        mainBindDrop("row ${k.firstLine - MainBinding.PATCH_KEY}'s re-stage $why before it was booked (its record may hold bytes the phone's copy does not)")
+        if (c.booked || k.firstLine < MainBinding.PATCH_KEY || k.content !== mainList.mainBind.staging) return
+        mainList.mainBindDrop("row ${k.firstLine - MainBinding.PATCH_KEY}'s re-stage $why before it was booked (its record may hold bytes the phone's copy does not)")
     }
 
     /** The stage lane's record [r] is still owned: Page staging's or Main's (the registry), or one of the notice's programs
@@ -5793,17 +5793,6 @@ class Shell(
         return true
     }
 
-    /**
-     * Decisions BF (G4): the period follows the MEASURED step. Each complete motion of Main's bound list (its slot's local
-     * instances and the wrap's) gives its largest step time; the last [PERIOD_WINDOW] are kept. The period in force is
-     * raised as soon as the window's maximum × [PERIOD_MARGIN_MEASURED] needs more ticks, and lowered — to what it needs,
-     * never below the staging's own period (W1) — only after [PERIOD_QUIET_MS] with no input, by [PERIOD_LOWER_MIN] ticks
-     * or more, with no instance open and no burst (his look at 0.81, ruled). Clamped to the engine's 16..128. Applied with no burst open: new SETs
-     * (the records kept); K1-1: under Auto the pans are then re-made in idle for the steps the new period gives
-     * (`mainBindReprogram`) — with no spare pan slot their T is kept and a longer period runs the motion longer.
-     */
-    private val stepWindow = ArrayDeque<Long>()
-    private var periodSamplesSinceChange = 0
     /** His look at 0.81: the last ring event or glasses' report, for the period's quiet rule. */
     private var lastInputAtMs = 0L
     private var periodRecheckGen = 0
@@ -5824,8 +5813,9 @@ class Shell(
                 post(Msg.Pump)
             }
         }
-        val ms = mainBind.staging ?: return
-        val list = mainBind.list ?: return
+        val b = mainList
+        val ms = b.mainBind.staging ?: return
+        val list = b.mainBind.list ?: return
         if (ev.slot != list.slot && ev.slot != MainStaging.WRAP_SLOT) return
         val steps = (ev.drawn ?: 0L) + (ev.folded ?: 0L)
         val complete = ev.outcome == wm.damage.core.wire.DamageMsg.OUTCOME_DREW || steps >= ms.t
@@ -5843,13 +5833,13 @@ class Shell(
         }
         val us = ev.stepUs ?: return
         if (!complete || steps != ms.t.toLong() || us <= 0L) return
-        stepWindow.addLast(us)
-        while (stepWindow.size > PERIOD_WINDOW) stepWindow.removeFirst()
-        periodSamplesSinceChange++
-        if (mainPeriodWanted() != null) post(Msg.Pump)
+        b.stepWindow.addLast(us)
+        while (b.stepWindow.size > PERIOD_WINDOW) b.stepWindow.removeFirst()
+        b.periodSamplesSinceChange++
+        if (b.mainPeriodWanted() != null) post(Msg.Pump)
     }
 
-    private fun mainPeriodWanted(): Int? {
+    private fun ListBind.mainPeriodWanted(): Int? {
         val ms = mainBind.staging ?: return null
         val max = stepWindow.maxOrNull() ?: return null
         val need = kotlin.math.ceil(max / 1000.0 * PERIOD_MARGIN_MEASURED * 1.024).toInt()
@@ -5867,7 +5857,7 @@ class Shell(
         }
     }
 
-    private fun mainPeriodApply() {
+    private fun ListBind.mainPeriodApply() {
         if (local.burstOpen) return
         val ms = mainBind.staging ?: return
         val want = mainPeriodWanted() ?: return
@@ -5905,8 +5895,8 @@ class Shell(
      */
     private fun mainWrapPlan(nowMs: Long): MainWrap? {
         val w = local.wrapPlan(localRow()) ?: return null
-        val ms = mainBind.staging ?: return null
-        if (w.list.list != MainStaging.LIST || mainBind.list?.mark != w.list.mark) return null
+        val ms = mainList.mainBind.staging ?: return null
+        if (w.list.list != MainStaging.LIST || mainList.mainBind.list?.mark != w.list.mark) return null
         val pan = ms.wrapPan(w.step) ?: return null
         val p = ms.wrapParams(pan, w.cPrime) ?: return null
         // B082: the wrap draws its own record, which a re-stage in pieces may be writing. B083 (the focused read of 0.82,
@@ -6225,10 +6215,112 @@ class Shell(
      * the planes, the rows or the region changed, a row outgrew its slot) withdraws the list the same way. The envelope
      * is [MainBinding]'s.
      */
-    private val mainBind = MainBinding()
+    private val mainList: ListBind = object : ListBind(main, MainStaging.LIST, MainStaging.ENTRIES) {
+        override fun rows(): Int = mainRows().size
+        override fun rowKey(index: Int): Any? = main.rowKey(index)
+        override fun rowIdentity(index: Int): String? = main.rowIdentity(index)
+        override fun inFront(): Boolean = mode == Mode.MAIN
+
+        /** Main's planes as `updatePlanes` gives them while Main is in front with nothing over it: the list at the Global
+         *  `Depth`, the band one notch nearer, never nearer than the screen plane (0 / 0 at Depth 0). Read from the setting,
+         *  not the plane map, so a cover that drops the band's plane does not re-stage Main. */
+        override fun mainBindPlanes(): Pair<Int, Int> = settings.depth.let { d -> if (d == 0) 0 to 0 else d to maxOf(0, d - 4) }
+
+        /** Where Main's records lie this session: its own region on a 256 KiB session with BIND in force — unless the atlas
+         *  was laid out over it (an atlas made before BIND was armed: the shared reserve then); else the shared reserve. */
+        override fun mainBindRegion(st: LinkState): IntRange {
+            val own = CfwModes.mainRegion(st.cacheSize, st.bind)
+            val a = atlas
+            return if (own.last + 1 < st.cacheSize && a != null && a.capacity > own.first) CfwModes.mainRegion(st.cacheSize, false) else own
+        }
+
+        /** Decisions BP (his 0.82 start of 11-20 13:26: 42 s on the clock with nothing of Main written, then 12.4 s of notches
+         *  drawn by the phone after the wake): the shell's own clock screen wakes to Main — its double tap always lands there
+         *  (`exitSilent`, `DESIGN.md` §1.5) — so Main's base staging goes behind it, painted for the layout the wake brings
+         *  ([mainBindLayout]). The list stays unbound until Main is in front: the rules' list in front needs `Mode.MAIN`, and
+         *  the wake's first flush SETs it (the return rule, AF.2). A window's exclusive screen wakes to that window (§4.9):
+         *  nothing of Main is staged there. */
+        override fun mainBehindClock(): Boolean = mode == Mode.SILENT
+
+        /** The layout Main's staging is painted and kept for: the shell's own while Main is in front; behind the clock the one
+         *  its wake brings (`exitSilent`'s `syncLayout`: a height set while the clock shows is applied only there), so the
+         *  staging is not dropped at the wake. */
+        override fun mainBindLayout(): Layout = if (mainBehindClock()) effectiveLayout() else layout
+
+        /** Build ANIM (AV, AW.1): the motion the `Animations` rows ask for. */
+        override fun motionInForce() = MainStaging.ScrollMotion(settings.scrollLength, settings.frames,
+            wm.damage.core.motion.ScrollEffect.byId(settings.scrollEffect) ?: wm.damage.core.motion.ScrollEffect.DEFAULT)
+    }
+
+    /**
+     * K1-2 stage 0 (`K1-2-spec.md` §7; decisions BC, BD, BQ): one list the glasses hold for local scroll, as the shell keeps
+     * it — its staging and binding ([mainBind]), the [surface] that offers it, the space its records take this session
+     * ([mainBindRegion]), its planes, its motion and the key a staging is painted and refused for ([mainBindPaintFor],
+     * [mainBindRefusedFor]) — with the shell's paths over it as its methods, at their places below: the poll
+     * ([mainBindPoll]), the pump ([pumpMainBind]), the staging ([mainBindStage]), a row's re-stage ([mainBindRow]), the
+     * pans' re-make and its poll ([mainBindReprogram], [mainBindReprogramPoll]), the drop ([mainBindDrop]) and the period's
+     * apply ([mainPeriodApply]). Main ([mainList]) is its only instance. The list's number and its entries' numbers are
+     * values (Main: list 0, entries 0–2; the window list is to be list 1 with entries 3–5, the wheel list 2 with 6–8), and
+     * the space is any range of the cache it is given, from the region's start or below another tenant. What is Main's alone
+     * is its instance's: the clock screen it is staged behind, its rows' keys and identities; its staging's form
+     * ([MainStaging]: the band forms, the item table, the press, the stage-4 wrap record), the wrap's PLAY and the probe stay
+     * outside. Today's names until the rename (O9). Nothing here is new state: the six questions are [MainBinding]'s, the
+     * measured period's are BF's ([stepWindow]). Loop-confined.
+     */
+    private abstract inner class ListBind(val surface: MainSurface, list: Int, entries: IntArray) {
+        val mainBind = MainBinding(list, entries)
+        /** The rows it lists now. */
+        abstract fun rows(): Int
+        /** A row's key ([MainSurface.rowKey]: what a compose compares) and identity ([MainSurface.rowIdentity]: what carries
+         *  its segment room into the next staging). */
+        abstract fun rowKey(index: Int): Any?
+        abstract fun rowIdentity(index: Int): String?
+        /** Its window is in front. */
+        abstract fun inFront(): Boolean
+        /** Its records' space this session. */
+        abstract fun mainBindRegion(st: LinkState): IntRange
+        /** Its planes: the list's disparity and the band's. */
+        abstract fun mainBindPlanes(): Pair<Int, Int>
+        /** It is staged behind a screen that wakes to it: the base staging only, the list bound at the wake. */
+        abstract fun mainBehindClock(): Boolean
+        /** The layout its staging is painted and kept for. */
+        abstract fun mainBindLayout(): Layout
+        /** The motion its pans play. */
+        abstract fun motionInForce(): MainStaging.ScrollMotion
+
+        /** A staging the region could not hold, by what it was painted for: not painted again until one of those changes. */
+        var mainBindRefusedFor: String? = null
+        /** The staging being painted a row per loop turn (AF.8), the key it is painted for, and the atlas's versions at its
+         *  start (a change means the paint met characters the atlas did not hold: painted again once it does). */
+        var mainBindPaint: MainStaging.Paint? = null
+        var mainBindPaintFor: String? = null
+        var mainBindPaintVersions: Pair<Any?, Any?>? = null
+        /** The last reason it was not staged that the journal was told (AF.9), cleared at a session start. */
+        var mainBindBlockedSaid: String? = null
+        /** The last "cannot be staged" note (AF.6), said once per change of its reason; cleared at a session start and when
+         *  it is staged (decisions AL.1). */
+        var mainBindRefusalSaid: String? = null
+        var mainBindWakeAtMs = 0L
+        /** Pumps so far: a strip write goes in a later pump than the withdrawal that let the rules' CLEAR go first. */
+        var mainBindPumps = 0L
+        /** C3 DM-1 (D3): the last "plays its fallback" note ([mainBindPlaysNote]). */
+        var mainBindPlaysSaid: String? = null
+
+        /**
+         * Decisions BF (G4): the period follows the MEASURED step. Each complete motion of the bound list (its slot's local
+         * instances and the wrap's) gives its largest step time; the last [PERIOD_WINDOW] are kept. The period in force is
+         * raised as soon as the window's maximum × [PERIOD_MARGIN_MEASURED] needs more ticks, and lowered — to what it needs,
+         * never below the staging's own period (W1) — only after [PERIOD_QUIET_MS] with no input, by [PERIOD_LOWER_MIN] ticks
+         * or more, with no instance open and no burst (his look at 0.81, ruled). Clamped to the engine's 16..128. Applied with no burst open: new SETs
+         * (the records kept); K1-1: under Auto the pans are then re-made in idle for the steps the new period gives
+         * (`mainBindReprogram`) — with no spare pan slot their T is kept and a longer period runs the motion longer.
+         */
+        val stepWindow = ArrayDeque<Long>()
+        var periodSamplesSinceChange = 0
+    }
 
     /** Test introspection, LOOP-ONLY (read inside [sampleIdle]): Main's staging and its counts; what Main offers and its row. */
-    internal val mainBinding: MainBinding get() = mainBind
+    internal val mainBinding: MainBinding get() = mainList.mainBind
     internal fun mainBoundForTest(): Pair<wm.damage.core.local.BoundList?, Int> = main.bound() to main.row()
     /** Test introspection (build ANIM, AW.4): Q in force and the bound pan's motion in ms (T × P), loop-only. */
     internal fun localQForTest(): Long = local.q
@@ -6236,11 +6328,11 @@ class Shell(
     internal fun localBurstOpenForTest(): Boolean = local.burstOpen
     /** The rules' counters (`unreported`, `lateEcho`, …), read on the loop. */
     internal fun localCountsForTest(): Map<String, Int> = local.counts.toMap()
-    internal fun motionMsForTest(): Long = mainBind.staging?.let { it.t * it.periodInForce * 1000L / 1024 } ?: 0L
+    internal fun motionMsForTest(): Long = mainList.mainBind.staging?.let { it.t * it.periodInForce * 1000L / 1024 } ?: 0L
     /** G4 item 1: assembles the shell made between the last edge report's verdict and its wrap's PLAY (0: the PLAY went
      *  first); the period in force (BF); the measured window. Loop-only. */
     internal fun wrapAssemblesBeforeForTest(): Int = lastWrapAssemblesBefore
-    internal fun periodInForceForTest(): Int = mainBind.staging?.periodInForce ?: 0
+    internal fun periodInForceForTest(): Int = mainList.mainBind.staging?.periodInForce ?: 0
     internal fun mainRestingForTest(): Boolean = main.resting
     internal fun notificationsUpForTest(): Boolean = notifications.active || notifications.animating
     internal fun notificationsFocusedForTest(): Boolean = notifications.active && notifications.focused
@@ -6277,65 +6369,19 @@ class Shell(
     internal fun pageStripsForTest(): List<Triple<Int, ByteArray, String>> =
         stage.ring?.resident.orEmpty().filter { it.key !is MainStageKey }.map { Triple(it.off, it.encoded, it.state.name) }
 
-    /** A staging the region could not hold, by what it was painted for: not painted again until one of those changes. */
-    private var mainBindRefusedFor: String? = null
-    /** The staging being painted a row per loop turn (AF.8), the key it is painted for, and the atlas's versions at its
-     *  start (a change means the paint met characters the atlas did not hold: painted again once it does). */
-    private var mainBindPaint: MainStaging.Paint? = null
-    private var mainBindPaintFor: String? = null
-    private var mainBindPaintVersions: Pair<Any?, Any?>? = null
-    /** The last reason Main was not staged that the journal was told (AF.9), cleared at a session start. */
-    private var mainBindBlockedSaid: String? = null
-    /** The last "cannot be staged" note (AF.6), said once per change of its reason; cleared at a session start and when
-     *  Main is staged (decisions AL.1). */
-    private var mainBindRefusalSaid: String? = null
-    private var mainBindWakeAtMs = 0L
-    /** Pumps so far: a strip write goes in a later pump than the withdrawal that let the rules' CLEAR go first. */
-    private var mainBindPumps = 0L
-
-    /** Main's planes as `updatePlanes` gives them while Main is in front with nothing over it: the list at the Global
-     *  `Depth`, the band one notch nearer, never nearer than the screen plane (0 / 0 at Depth 0). Read from the setting,
-     *  not the plane map, so a cover that drops the band's plane does not re-stage Main. */
-    private fun mainBindPlanes(): Pair<Int, Int> = settings.depth.let { d -> if (d == 0) 0 to 0 else d to maxOf(0, d - 4) }
-
-    /** Where Main's records lie this session: its own region on a 256 KiB session with BIND in force — unless the atlas
-     *  was laid out over it (an atlas made before BIND was armed: the shared reserve then); else the shared reserve. */
-    private fun mainBindRegion(st: LinkState): IntRange {
-        val own = CfwModes.mainRegion(st.cacheSize, st.bind)
-        val a = atlas
-        return if (own.last + 1 < st.cacheSize && a != null && a.capacity > own.first) CfwModes.mainRegion(st.cacheSize, false) else own
-    }
-
-    /** Decisions BP (his 0.82 start of 11-20 13:26: 42 s on the clock with nothing of Main written, then 12.4 s of notches
-     *  drawn by the phone after the wake): the shell's own clock screen wakes to Main — its double tap always lands there
-     *  (`exitSilent`, `DESIGN.md` §1.5) — so Main's base staging goes behind it, painted for the layout the wake brings
-     *  ([mainBindLayout]). The list stays unbound until Main is in front: the rules' list in front needs `Mode.MAIN`, and
-     *  the wake's first flush SETs it (the return rule, AF.2). A window's exclusive screen wakes to that window (§4.9):
-     *  nothing of Main is staged there. */
-    private fun mainBehindClock(): Boolean = mode == Mode.SILENT
-
-    /** The layout Main's staging is painted and kept for: the shell's own while Main is in front; behind the clock the one
-     *  its wake brings (`exitSilent`'s `syncLayout`: a height set while the clock shows is applied only there), so the
-     *  staging is not dropped at the wake. */
-    private fun mainBindLayout(): Layout = if (mainBehindClock()) effectiveLayout() else layout
-
     /** Why Main's list is not staged now; null when it is wanted. [front] false: every reason but Main being covered
      *  (K1-1's fix stage: the pans' re-make runs then too). */
-    private fun mainBindBlocked(st: LinkState, front: Boolean = true): String? = when {
+    private fun ListBind.mainBindBlocked(st: LinkState, front: Boolean = true): String? = when {
         !st.bind -> "BIND is not in force"
         !linkUpAndSteady(st) -> "the link is down or the session is rebuilding"
         sleep != null || glassesSilent -> "the glasses are asleep"
-        front && mode != Mode.MAIN && !mainBehindClock() -> "Main is not in front"
+        front && !inFront() && !mainBehindClock() -> "Main is not in front"
         testHold -> "hold=on is in force"
         stageFailed -> "staging is off for this session"
         !st.draw2 || !st.leaseHeld -> "DRAW2 or the lease is not in force"
         !transport.cacheCheckSupported || !ledgerReadable(st) -> "the cache count cannot be read here"
         else -> null
     }
-
-    /** Build ANIM (AV, AW.1): the motion the `Animations` rows ask for. */
-    private fun motionInForce() = MainStaging.ScrollMotion(settings.scrollLength, settings.frames,
-        wm.damage.core.motion.ScrollEffect.byId(settings.scrollEffect) ?: wm.damage.core.motion.ScrollEffect.DEFAULT)
 
     /** [ms]'s motion in words ("10 frames × 45 ms"; None's "1 frame × 45 ms"), as the `Scroll frames` row's hint says it. */
     private fun motionWords(ms: MainStaging): String = frameWords(ms.t, ms.periodInForce)
@@ -6345,10 +6391,10 @@ class Shell(
      *  else what they give at the current layout. C3 AS: in the row's short form, steps × period ("19 × 16 ms"), as the
      *  tiers' `Frames` rows say theirs, so the value fits a row away from the cursor; the journal keeps [frameWords]. */
     private fun motionHint(): String {
-        val ms = mainBind.staging
-        val (p, t) = if (ms != null && ms.motion == motionInForce()) ms.periodInForce to ms.t else {
-            val (listD, bandD) = mainBindPlanes()
-            val m = motionInForce()
+        val ms = mainList.mainBind.staging
+        val (p, t) = if (ms != null && ms.motion == mainList.motionInForce()) ms.periodInForce to ms.t else {
+            val (listD, bandD) = mainList.mainBindPlanes()
+            val m = mainList.motionInForce()
             wm.damage.core.motion.ScrollEffects.timing(m.effect, layout, listD, bandD, m, transport.state.value.effects)
         }
         return "$t × ${"%.0f".format(p * 1000.0 / 1024)} ms"
@@ -6371,17 +6417,17 @@ class Shell(
 
     /** Each pump, before anything asks: the staging checked against Main as it is now, the re-stages the count has
      *  judged, and what `MainSurface` offers. */
-    private fun mainBindPoll(st: LinkState) {
+    private fun ListBind.mainBindPoll(st: LinkState) {
         mainBindPumps++
         val b = mainBind
         val ms = b.staging
-        if (ms == null) { main.offered = null; return }
+        if (ms == null) { surface.offered = null; return }
         val gone = b.records.firstOrNull { stage.records[it.key] !== it }
         val why = when {
             gone != null -> "$gone left the stage registry (the stage notes say why)"
             ms.layout != mainBindLayout() -> "Main's layout changed"
             (ms.listD to ms.bandD) != mainBindPlanes() -> "Main's planes changed (${ms.listD}/${ms.bandD} staged, ${mainBindPlanes().let { "${it.first}/${it.second}" }} now)"
-            ms.rows != mainRows().size -> "Main's rows changed (${ms.rows} staged, ${mainRows().size} now)"
+            ms.rows != rows() -> "Main's rows changed (${ms.rows} staged, ${rows()} now)"
             st.cacheSize != ms.cacheSize || mainBindRegion(st).first != ms.regionStart -> "the session's cache or Main's region changed"
             // build ANIM (AV): the `Animations` rows changed — K1-1: the pans alone are re-made into the spare slot
             // (`mainBindReprogram`); a staging with none is made again whole, as before; a change in a burst waits for its SETTLE
@@ -6415,8 +6461,8 @@ class Shell(
         }
         mainBindReprogramPoll()
         val offer = if (st.bind && b.counted && b.withdrawnFor == null) b.list else null
-        if (offer !== main.offered) {
-            main.offered = offer
+        if (offer !== surface.offered) {
+            surface.offered = offer
             if (offer != null) journal.note("mainstage", "offered — Main's ${ms.rows} rows counted on the glasses: list ${offer.list} slot ${offer.slot} " +
                 "mark ${offer.mark}, ${offer.entries.size} entries (the whole list, P ${ms.periodInForce} T ${ms.t}), items at off4 ${offer.items4}" +
                 if (offer.ring) ", a ring list (LIST-RING: the wrap notch fires on the glasses)" else "")
@@ -6425,39 +6471,39 @@ class Shell(
 
     /** The rules hold the scroll entries of the list Main offers now (their SETs were sent): a strip switch's old pans can
      *  no longer be named by a fire after them in stream order (AD.2). */
-    private fun mainBindEntriesSent(): Boolean = main.offered?.let { l ->
+    private fun ListBind.mainBindEntriesSent(): Boolean = surface.offered?.let { l ->
         l.entries.filter { !it.isTap }.all { e -> local.heldFor(l.list, e.eventId)?.prog4 == e.prog4 } } == true
 
     /** The staging goes: its records leave the registry and the list is withdrawn. */
-    private fun mainBindDrop(why: String) {
+    private fun ListBind.mainBindDrop(why: String) {
         for (r in mainBind.drop()) if (stage.records[r.key] === r) stage.remove(r)
         // build SPLIT: a re-stage still in pieces (not booked) belongs to the staging that goes
         stageCursor?.rec?.let { r -> if (r.key is MainStageKey && stage.records[r.key] === r) stage.remove(r) }
-        main.offered = null
+        surface.offered = null
         stageRecount()
         journal.note("mainstage", "dropped — $why; Main's list is offered again once it is staged and counted")
         post(Msg.Pump)
     }
 
     /** At a compose of Main: rows whose key changed are marked for their repaint. */
-    private fun mainBindKeys() {
+    private fun ListBind.mainBindKeys() {
         val ms = mainBind.staging ?: return
-        mainBind.keysChanged(List(ms.rows) { main.rowKey(it) })
+        mainBind.keysChanged(List(ms.rows) { rowKey(it) })
     }
 
     /** The idle pump's step for Main's list, after the atlas's: a staging painted and placed, one record written, a row
      *  painted again, or a row's re-stage written. True when it did something. */
-    private suspend fun pumpMainBind(st: LinkState): Boolean {
+    private suspend fun ListBind.pumpMainBind(st: LinkState): Boolean {
         val blocked = mainBindBlocked(st)
         // decisions AF.9: why Main is not staged, once per reason, while BIND is in force and Main is in front (or behind
         // the clock, decisions BP)
-        if (st.bind && (mode == Mode.MAIN || mainBehindClock()) && blocked != mainBindBlockedSaid) {
+        if (st.bind && (inFront() || mainBehindClock()) && blocked != mainBindBlockedSaid) {
             mainBindBlockedSaid = blocked
             if (blocked != null) journal.note("mainstage", "not staged — $blocked; Main's scrolls and taps go as today until it is")
         }
         // K1-1's fix stage: with Main covered (Settings, where the scroll rows change) only the pans' re-make runs — it
         // paints nothing of Main and writes a slot nothing names — so his return SETs the new pans directly
-        val covered = blocked != null && mode != Mode.MAIN && mainBindBlocked(st, front = false) == null
+        val covered = blocked != null && !inFront() && mainBindBlocked(st, front = false) == null
         if (blocked != null && !covered) return false
         if (cacheWritesHeld()) return false               // C3 DM-T (D6): its staging and its re-make wait for the run's end
         if (atlasInFlight != null || atlasQueue.isNotEmpty() || atlasLapsedOwed || atlasCheckInFlight) return false
@@ -6491,17 +6537,17 @@ class Shell(
 
     /** A staging refused for [what] (AF.6: tried again when it changes); its [note] said once per change of the reason —
      *  the note without its numbers (the sizes move with the rows' content, the reason does not: decisions AL.1). */
-    private fun mainBindRefused(what: String, note: String) {
+    private fun ListBind.mainBindRefused(what: String, note: String) {
         mainBindRefusedFor = what
         val reason = note.replace(Regex("\\d+"), "#")
         if (reason != mainBindRefusalSaid) { mainBindRefusalSaid = reason; journal.note("mainstage", note) }
     }
 
     /** Paints Main's staging and puts its records in the registry at their offsets (WANTED). */
-    private fun mainBindStage(st: LinkState, now: Long): Boolean {
+    private fun ListBind.mainBindStage(st: LinkState, now: Long): Boolean {
         val region = mainBindRegion(st)
         val (listD, bandD) = mainBindPlanes()
-        val n = mainRows().size
+        val n = rows()
         val lay = mainBindLayout()                       // decisions BP: behind the clock, the layout its wake brings
         // decisions AF.6: the rows' content is part of what a refusal is keyed on — a staging that did not fit is tried
         // again when what it was sized for changes (and at every session start)
@@ -6511,14 +6557,14 @@ class Shell(
         val stage5 = st.effects
         // C3 DM-1: the gate's token for Crush's and Flip's version-2 pans, made from the link state now and never kept
         val fx = effectsToken(st)
-        val what = "$lay $listD/$bandD $n ${region.first}..${region.last} ${st.cacheSize} ${motionInForce()} stage5=$stage5 ${List(n) { main.rowKey(it) }.hashCode()}"
+        val what = "$lay $listD/$bandD $n ${region.first}..${region.last} ${st.cacheSize} ${motionInForce()} stage5=$stage5 ${List(n) { rowKey(it) }.hashCode()}"
         if (mainBindRefusedFor == what) return false
         val ct = cachedText
         // decisions AF.8: one row painted per loop turn (its row form and band form); the staging is laid out once every row
         // is painted for this same key — a change of layout, planes, rows or their content starts the paint again
         val pt = mainBindPaint?.takeIf { mainBindPaintFor == what && it.n == n } ?: run {
             mainBindPaintFor = what; mainBindPaintVersions = ct?.wantVersion to ct?.seenVersion
-            MainStaging.Paint(lay, main.view(), kit).also { mainBindPaint = it }
+            MainStaging.Paint(lay, surface.view(), kit).also { mainBindPaint = it }
         }
         if (!pt.done) {
             try { pt.step(mainBindRelay()) } catch (e: wm.damage.core.geom.LintError) {
@@ -6538,7 +6584,7 @@ class Shell(
         }
         val shared0 = region.last + 1 == st.cacheSize
         // B082: rows whose window changed in an earlier staging start with segment room
-        val room = mainBind.roomFor(List(pt.n) { main.rowIdentity(it) })
+        val room = mainBind.roomFor(List(pt.n) { rowIdentity(it) })
         val ms = try {
             // the bound list's pans only (AF.10); at 256 KiB Main's own region holds a second strip (AD.2)
             try { MainStaging.assemble(pt, listD, bandD, st.cacheSize, region.first, region.last + 1, listOf(MainStaging.WHOLE), twoStrips = !shared0, motion = motionInForce(), room = room, stage5 = stage5, fx = fx) }
@@ -6573,7 +6619,7 @@ class Shell(
             for ((i, r) in recs.withIndex()) { r.off = ms.blobs[i].off; stage.records[r.key] = r }
         }
         mainBindRefusedFor = null
-        mainBind.begin(ms, recs, List(ms.rows) { main.rowKey(it) }, now, List(ms.rows) { main.rowIdentity(it) })
+        mainBind.begin(ms, recs, List(ms.rows) { rowKey(it) }, now, List(ms.rows) { rowIdentity(it) })
         stepWindow.clear(); periodSamplesSinceChange = 0          // decisions BF: a staging starts from the fit
         mainBindRefusalSaid = null
         stageRecount()
@@ -6601,8 +6647,7 @@ class Shell(
 
     /** C3 DM-1 (D3): why the asked effect plays its fallback, said once per change of what plays and why (the row says
      *  what plays: [scrollPlaysWords]). */
-    private var mainBindPlaysSaid: String? = null
-    private fun mainBindPlaysNote(ms: MainStaging) {
+    private fun ListBind.mainBindPlaysNote(ms: MainStaging) {
         val asked = ms.motion?.effect ?: return
         val words = ms.plays.words(asked)
         val said = if (words.isEmpty()) null else "${asked.word} $words — ${ms.plays.why}"
@@ -6613,8 +6658,8 @@ class Shell(
     /** C3 DM-1: what the `Scroll effect` row adds — "plays Slide" while Crush's fallback plays, "plays its height turn"
      *  for Flip's — from the staging made for the rows in force, or before one from the link state; "" otherwise. */
     private fun scrollPlaysWords(): String {
-        val m = motionInForce()
-        val ms = mainBind.staging
+        val m = mainList.motionInForce()
+        val ms = mainList.mainBind.staging
         val p = if (ms != null && ms.motion?.effect == m.effect) ms.plays else wm.damage.core.motion.ScrollEffects.playsAt(m.effect, transport.state.value.effects)
         return p.words(m.effect)
     }
@@ -6626,7 +6671,7 @@ class Shell(
      * list that may still draw (a cache write meeting an instance's read range closes it, §5.6), no row's re-stage on its
      * way. Pans that outgrow the slot owe a full staging (a new mark), said.
      */
-    private suspend fun mainBindReprogram(st: LinkState, ms: MainStaging): Boolean {
+    private suspend fun ListBind.mainBindReprogram(st: LinkState, ms: MainStaging): Boolean {
         val b = mainBind
         if (b.reprogram != null || b.withdrawnFor != null || b.patches.isNotEmpty()) return false
         if (mainBindBurstOpen() || mainMotionMayDraw()) return false
@@ -6654,7 +6699,7 @@ class Shell(
     /** K1-1, each poll: the re-made pans' record — gone before its switch: owed again; counted, no burst open: switched
      *  (the list made now names them, and the rules SET the entries); its SETs landed with no burst open: the old pans
      *  released. */
-    private fun mainBindReprogramPoll() {
+    private fun ListBind.mainBindReprogramPoll() {
         val b = mainBind
         val r = b.reprogram ?: return
         if (stage.records[r.record.key] !== r.record) {
@@ -6677,10 +6722,10 @@ class Shell(
 
     /** Row [row] painted again: [write] false — the repaint after its key changed or its round-robin turn (it marks the row
      *  owed or current); true — its re-stage, painted at the write so what goes is what Main shows now. */
-    private suspend fun mainBindRow(st: LinkState, ms: MainStaging, row: Int, write: Boolean, now: Long): Boolean {
+    private suspend fun ListBind.mainBindRow(st: LinkState, ms: MainStaging, row: Int, write: Boolean, now: Long): Boolean {
         val ct = cachedText
         val want0 = ct?.wantVersion; val seen0 = ct?.seenVersion
-        val r = try { ms.restage(row, main.view(), kit, mainBindRelay()) }
+        val r = try { ms.restage(row, surface.view(), kit, mainBindRelay()) }
             catch (e: wm.damage.core.geom.LintError) { mainBindDrop("Main's row $row cannot be painted again: ${e.message}"); return true }
         if (ct != null && (ct.wantVersion != want0 || ct.seenVersion != seen0)) {
             // the atlas first: the row stays marked, and is painted again once the atlas holds what it drew
@@ -6696,7 +6741,7 @@ class Shell(
             else if (r.strip.isNotEmpty() && r.toStrip == null && mainBind.withdrawnFor != row) {
                 // the strip is named only inside the pan programs: its segments are written with no entry live (X.2)
                 mainBind.withdraw(row, mainBindPumps)
-                main.offered = null
+                surface.offered = null
                 journal.note("mainstage", "withdrawn — row $row's row form changed: its strip segment(s) go once the entries are cleared, and the list is offered again after them")
                 post(Msg.Pump)
             } else {
@@ -7573,7 +7618,7 @@ class Shell(
         // swap it back to the current window under a settled preview
         // (review 2026-09-01 F7). Render-only, never an activation.
         paintContentOf(contentWindow())
-        if (mode == Mode.MAIN) mainBindKeys()             // build C2, stage DM2: a row whose key changed is re-staged
+        if (mode == Mode.MAIN) mainList.mainBindKeys()             // build C2, stage DM2: a row whose key changed is re-staged
         if (switcher.open) paintSwitcherFrame()
         if (menu.open) {
             menu.invalidateUnder()        // recapture over the fresh content
@@ -8053,9 +8098,9 @@ class Shell(
             atlasReset()
         }
         // decisions BF (G4): a period the measured steps call for, set with no burst open (before the offer below)
-        mainPeriodApply()
+        mainList.mainPeriodApply()
         // build C2, stage DM2: what Main offers the rules is decided before anything below asks for it
-        mainBindPoll(st)
+        mainList.mainBindPoll(st)
         // G4 item 1: the wrap's PLAY goes now, alone and small, ahead of this pump's frame (whose assemble behind the held
         // cells took 100–170 ms on his phone) and whatever the window holds — the transport queues it in stream order
         mainWrapFirst(st, System.currentTimeMillis())
@@ -8306,7 +8351,7 @@ class Shell(
                         held = tr?.held() ?: emptySet()))
                     if (noticeTail != null) noticePlayFlush = id
                     transitionSubmitted(id, assembled.keyframe, playAfter != null)
-                    if (localTail.isNotEmpty()) { localTailFlushes += id; mainBind.tailSent(id, mainBindEntriesSent()) }
+                    if (localTail.isNotEmpty()) { localTailFlushes += id; mainList.mainBind.tailSent(id, mainList.mainBindEntriesSent()) }
                     inflightFlushes[id] = assembled
                     flushesSubmitted++
                     seq?.followUpFor?.let { it.followUp = "flush $id (${assembled.ops.size} op(s))" }
@@ -8363,7 +8408,7 @@ class Shell(
             }
             // the wheel's preview over Main before Main's staging step (decisions AL.1): a staging's paint turns are not
             // what the preview waits for
-            if (!animated && !pumpMainStage(st) && !pumpLedger(st) && !pumpAtlas(st) && !settlePreview() && !pumpStagePiece(st) && !pumpMainBind(st) &&
+            if (!animated && !pumpMainStage(st) && !pumpLedger(st) && !pumpAtlas(st) && !settlePreview() && !pumpStagePiece(st) && !mainList.pumpMainBind(st) &&
                 !pumpNoticeStage(st)) pumpStage(st)
         }
 
