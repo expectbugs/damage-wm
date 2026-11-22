@@ -1,6 +1,8 @@
 package wm.damage.desktop
 
 import java.awt.image.BufferedImage
+import java.awt.image.DataBufferByte
+import java.awt.image.IndexColorModel
 import java.nio.file.Files
 import java.nio.file.Path
 import javax.imageio.ImageIO
@@ -41,9 +43,11 @@ import wm.damage.core.wire.Pb
  * Adam's; each case's checks (the last step and COMMIT's END against Main's paint) count as the programs' do. C3 FF: and the
  * same at stage 5, `DIR/scroll-<effect>-h<height>-s5-<notch>`, on the fast DRAW path's fit (the wrap a ring fire at 288/352).
  * C3 X1DM1 (decisions BP (4)): and his sequences at 352, stage 5 ([MainLocalCheck.effectBursts]) — `DIR/scroll-<effect>-
- * h352-s5-burst` for None, Depth, Slide, Fall, Crush and Flip (six notches down at the ring's least gap, a pause, six up)
- * and `-fast` for Depth and Crush (three notches down 120 ticks apart): one strip row a notch, every step, each with its
- * `.txt` (where each notch was cut and the rows' travel left there); their checks count as the strips' do.
+ * h352-s5-burst` for None, Depth, Slide, Fall, Crush and Flip (six notches down 230 ticks apart — 224 ms, the floor of the
+ * stock scroll messages that reach the phone, not his fastest fires —, a pause, six up) and `-fast` and, C3 X2DM1a,
+ * `-fast45` for Depth and Crush (three notches down 120 or 45 ticks apart: his 100–150 ms gaps and his commonest under
+ * 224 ms): one strip row a notch, every step, each with its `.txt` (where each notch was cut and the rows' travel left
+ * there); their checks count as the strips' do.
  *
  * The bounds A.15 sets: `main` hands this the directory before the config is read, so nothing under `~/.damage` is
  * read; no stack, transport, shell or scope is made, so no port is bound and no window opens (the JVM is set headless
@@ -58,6 +62,24 @@ object MotionCheck {
     private const val COLS = 9           // frames per row of a strip
     private const val GAP = 4            // px between frames
     private const val PAD = 8            // px around the program's areas
+    /** The gaps' entry in [PALETTE]. */
+    private const val GAP_INDEX = 16
+
+    /** C3 X2DM1a: every strip's colours — entries 0..15 a lens level on Snapshot's lens tint, so a strip reads as the
+     *  scenes do (v = level × 17: red ⌊0.16 v⌋, green min(255, ⌊1.05 v⌋), blue ⌊0.34 v⌋), entry [GAP_INDEX] the gaps
+     *  between frames (0x502020: not a lens colour). */
+    private val PALETTE: IndexColorModel = run {
+        val r = ByteArray(GAP_INDEX + 1); val g = ByteArray(GAP_INDEX + 1); val b = ByteArray(GAP_INDEX + 1)
+        for (l in 0 until GAP_INDEX) { val v = l * 17; r[l] = (v * 0.16).toInt().toByte(); g[l] = minOf(255, (v * 1.05).toInt()).toByte(); b[l] = (v * 0.34).toInt().toByte() }
+        r[GAP_INDEX] = 0x50; g[GAP_INDEX] = 0x20; b[GAP_INDEX] = 0x20
+        IndexColorModel(8, GAP_INDEX + 1, r, g, b)
+    }
+
+    /** A strip's image, [w] × [h] px at one byte a pixel on [PALETTE] (a pixel is its lens level, or [GAP_INDEX]), filled
+     *  with the gaps. C3 X2DM1a: the RGB form, four bytes a pixel, did not fit the desktop test's default heap (a burst strip
+     *  is 12,012 × 7,154 px: 344 MB). */
+    private fun stripImage(w: Int, h: Int): BufferedImage =
+        BufferedImage(w, h, BufferedImage.TYPE_BYTE_INDEXED, PALETTE).also { (it.raster.dataBuffer as DataBufferByte).data.fill(GAP_INDEX.toByte()) }
 
     /** Plays every test program into [outDir]; returns the exit status (0 all hold, 1 otherwise) after saying why.
      *  [features] is for the tool's own test (a build without the engine must fail every program). */
@@ -170,8 +192,7 @@ object MotionCheck {
         val cols = rows.maxOf { it.size }
         val cellW = crop.w + GAP
         val cellH = 2 * crop.h + GAP / 2 + GAP
-        val img = BufferedImage(cols * cellW + GAP, rows.size * cellH + GAP, BufferedImage.TYPE_INT_RGB)
-        for (y in 0 until img.height) for (x in 0 until img.width) img.setRGB(x, y, 0x502020)
+        val img = stripImage(cols * cellW + GAP, rows.size * cellH + GAP)
         val stride = (Geometry.PANEL_W + 1) / 2
         rows.forEachIndexed { ri, row -> row.forEachIndexed { ci, f ->
             val ox = GAP + ci * cellW
@@ -179,8 +200,8 @@ object MotionCheck {
             for ((lens, panel) in listOf(0 to f.l, 1 to f.r)) for (y in 0 until crop.h) for (x in 0 until crop.w) {
                 val px = crop.x + x; val py = crop.y + y
                 val b = panel[py * stride + (px shr 1)].toInt() and 0xFF
-                val v = (if (px and 1 == 0) b shr 4 else b and 0x0F) * 17
-                img.setRGB(ox + x, oy + lens * (crop.h + GAP / 2) + y, ((v * 0.16).toInt() shl 16) or (minOf(255, (v * 1.05).toInt()) shl 8) or (v * 0.34).toInt())
+                val lv = if (px and 1 == 0) b shr 4 else b and 0x0F
+                img.raster.setSample(ox + x, oy + lens * (crop.h + GAP / 2) + y, 0, lv)
             }
         } }
         ImageIO.write(img, "png", file.toFile())
@@ -217,8 +238,7 @@ object MotionCheck {
         val cols = rows.maxOf { it.size }
         val cellW = crop.w + GAP
         val cellH = 2 * crop.h + GAP / 2 + GAP
-        val img = BufferedImage(cols * cellW + GAP, rows.size * cellH + GAP, BufferedImage.TYPE_INT_RGB)
-        for (y in 0 until img.height) for (x in 0 until img.width) img.setRGB(x, y, 0x502020)
+        val img = stripImage(cols * cellW + GAP, rows.size * cellH + GAP)
         val stride = (Geometry.PANEL_W + 1) / 2
         rows.forEachIndexed { ri, row -> row.forEachIndexed { ci, f ->
             val ox = GAP + ci * cellW
@@ -226,9 +246,8 @@ object MotionCheck {
             for ((lens, panel) in listOf(0 to f.left, 1 to f.right)) for (y in 0 until crop.h) for (x in 0 until crop.w) {
                 val px = crop.x + x; val py = crop.y + y
                 val b = panel[py * stride + (px shr 1)].toInt() and 0xFF
-                val v = (if (px and 1 == 0) b shr 4 else b and 0x0F) * 17
-                img.setRGB(ox + x, oy + lens * (crop.h + GAP / 2) + y,
-                    ((v * 0.16).toInt() shl 16) or (minOf(255, (v * 1.05).toInt()) shl 8) or (v * 0.34).toInt())
+                val lv = if (px and 1 == 0) b shr 4 else b and 0x0F
+                img.raster.setSample(ox + x, oy + lens * (crop.h + GAP / 2) + y, 0, lv)
             }
         } }
         ImageIO.write(img, "png", file.toFile())
@@ -295,8 +314,7 @@ object MotionCheck {
         val rows = (frames.size + cols - 1) / cols
         val cellW = crop.w + GAP
         val cellH = 2 * crop.h + GAP / 2 + GAP
-        val img = BufferedImage(cols * cellW + GAP, rows * cellH + GAP, BufferedImage.TYPE_INT_RGB)
-        for (y in 0 until img.height) for (x in 0 until img.width) img.setRGB(x, y, 0x502020)      // the gaps: not a lens colour
+        val img = stripImage(cols * cellW + GAP, rows * cellH + GAP)
         val stride = (Geometry.PANEL_W + 1) / 2
         frames.forEachIndexed { i, f ->
             val ox = GAP + (i % cols) * cellW
@@ -304,10 +322,8 @@ object MotionCheck {
             for ((lens, panel) in listOf(0 to f.l, 1 to f.r)) for (y in 0 until crop.h) for (x in 0 until crop.w) {
                 val px = crop.x + x; val py = crop.y + y
                 val b = panel[py * stride + (px shr 1)].toInt() and 0xFF
-                val v = (if (px and 1 == 0) b shr 4 else b and 0x0F) * 17
-                // Snapshot's lens tint, so a strip reads as the scenes do
-                img.setRGB(ox + x, oy + lens * (crop.h + GAP / 2) + y,
-                    ((v * 0.16).toInt() shl 16) or (minOf(255, (v * 1.05).toInt()) shl 8) or (v * 0.34).toInt())
+                val lv = if (px and 1 == 0) b shr 4 else b and 0x0F
+                img.raster.setSample(ox + x, oy + lens * (crop.h + GAP / 2) + y, 0, lv)
             }
         }
         ImageIO.write(img, "png", outDir.resolve("${tp.name}.png").toFile())
@@ -401,8 +417,7 @@ object MotionCheck {
         val rows = (frames.size + cols - 1) / cols
         val cellW = crop.w + GAP
         val cellH = 2 * crop.h + GAP / 2 + GAP
-        val img = BufferedImage(cols * cellW + GAP, rows * cellH + GAP, BufferedImage.TYPE_INT_RGB)
-        for (y in 0 until img.height) for (x in 0 until img.width) img.setRGB(x, y, 0x502020)
+        val img = stripImage(cols * cellW + GAP, rows * cellH + GAP)
         val stride = (Geometry.PANEL_W + 1) / 2
         frames.forEachIndexed { i, f ->
             val ox = GAP + (i % cols) * cellW
@@ -410,8 +425,8 @@ object MotionCheck {
             for ((lens, panel) in listOf(0 to f.l, 1 to f.r)) for (y in 0 until crop.h) for (x in 0 until crop.w) {
                 val px = crop.x + x; val py = crop.y + y
                 val b = panel[py * stride + (px shr 1)].toInt() and 0xFF
-                val v = (if (px and 1 == 0) b shr 4 else b and 0x0F) * 17
-                img.setRGB(ox + x, oy + lens * (crop.h + GAP / 2) + y, ((v * 0.16).toInt() shl 16) or (minOf(255, (v * 1.05).toInt()) shl 8) or (v * 0.34).toInt())
+                val lv = if (px and 1 == 0) b shr 4 else b and 0x0F
+                img.raster.setSample(ox + x, oy + lens * (crop.h + GAP / 2) + y, 0, lv)
             }
         }
         ImageIO.write(img, "png", outDir.resolve("$name.png").toFile())
@@ -499,8 +514,7 @@ object MotionCheck {
         val rows = (frames.size + cols - 1) / cols
         val cellW = crop.w + GAP
         val cellH = 2 * crop.h + GAP / 2 + GAP
-        val img = BufferedImage(cols * cellW + GAP, rows * cellH + GAP, BufferedImage.TYPE_INT_RGB)
-        for (y in 0 until img.height) for (x in 0 until img.width) img.setRGB(x, y, 0x502020)
+        val img = stripImage(cols * cellW + GAP, rows * cellH + GAP)
         val stride = (Geometry.PANEL_W + 1) / 2
         frames.forEachIndexed { i, (_, l, r) ->
             val ox = GAP + (i % cols) * cellW
@@ -508,9 +522,8 @@ object MotionCheck {
             for ((lens, panel) in listOf(0 to l, 1 to r)) for (y in 0 until crop.h) for (x in 0 until crop.w) {
                 val px = crop.x + x; val py = crop.y + y
                 val b = panel[py * stride + (px shr 1)].toInt() and 0xFF
-                val v = (if (px and 1 == 0) b shr 4 else b and 0x0F) * 17
-                img.setRGB(ox + x, oy + lens * (crop.h + GAP / 2) + y,
-                    ((v * 0.16).toInt() shl 16) or (minOf(255, (v * 1.05).toInt()) shl 8) or (v * 0.34).toInt())
+                val lv = if (px and 1 == 0) b shr 4 else b and 0x0F
+                img.raster.setSample(ox + x, oy + lens * (crop.h + GAP / 2) + y, 0, lv)
             }
         }
         ImageIO.write(img, "png", file.toFile())

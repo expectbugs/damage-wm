@@ -233,7 +233,9 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
     private var lastTruth = ByteArray(W * H)
 
     // ------------------------------------------------------------------------------------------- what is recorded
-    class Act(val gesture: Int, val id: Int, val viaRule: Boolean, val rightId: Int?, val taps: Taps)
+    class Act(val gesture: Int, val id: Int, val viaRule: Boolean, val rightId: Int?, val taps: Taps,
+              /** C3 X2DM1a (decisions CA (5)): the phone's row before the act's verdict moved it, and the row acted on. */
+              val rowBefore: Int = -1, val row: Int = -1)
     val acts = ArrayList<Act>()
     /** Gesture → the number of times it moved the phone's row (invariant (8)). */
     val moves = HashMap<Int, Int>()
@@ -697,16 +699,16 @@ class LocalHarness(val seed: Long, taps0: Taps = Taps.REPORT, val n0: Int = 8, v
                 EvenHubMsg.EV_SCROLL_BOTTOM -> if (!covered && !window) move(g, (row + 1) % ids.size)
                 EvenHubMsg.EV_SCROLL_TOP -> if (!covered && !window) move(g, (row - 1 + ids.size) % ids.size)
             }
-            is LocalRules.Verdict.Act -> { move(g, v.row); act(g, v.row, viaRule = true) }
+            is LocalRules.Verdict.Act -> { val was = row; move(g, v.row); act(g, v.row, viaRule = true, rowBefore = was) }
             LocalRules.Verdict.Nothing -> {}
         }
     }
 
     var actOpensWindow = 0.0
-    private fun act(g: Int, r: Int, viaRule: Boolean) {
+    private fun act(g: Int, r: Int, viaRule: Boolean, rowBefore: Int = r) {
         val f = fires[g]
         val rightId = f?.shownR
-        acts += Act(g, ids[r], viaRule, rightId, rules.taps)
+        acts += Act(g, ids[r], viaRule, rightId, rules.taps, rowBefore, r)
         if (rnd.nextDouble() < actOpensWindow) openWindow()
     }
 

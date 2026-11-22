@@ -175,18 +175,25 @@ object MainLocalCheck {
      *  cropped to, what was checked and what failed. */
     class Burst(val name: String, val about: String, val crop: Rect, val rows: List<List<Frame>>, val lines: List<String>, val failures: List<String>)
 
-    /** The ring's least scroll gap (`FIRMWARE.md` §6.1, M: 224 ms) in OS ticks — his fastest pace, the wheel's burst's. */
+    /** 230 OS ticks: the floor of the stock scroll messages that reach the phone (`FIRMWARE.md` §6.1, M: no scroll-to-scroll
+     *  gap under 224 ms in 565 messages; the rubber band paces them) — NOT his fastest fires: the glasses fire at the ring's
+     *  own pace (C3 X2DM1a, decisions CA (1)). The wheel's burst's pace too. */
     const val BURST_GAP_TICKS = 230L
     /** The pause between his six notches down and his six up. */
     const val BURST_PAUSE_TICKS = 820L
-    /** The fast three's gap: a notch that lands inside Crush's first phase as built at DM-1 (about 156 ms). */
+    /** The fast three's gap, 120 ticks (117 ms): his fires 100–150 ms apart (15 of 288 gaps in his fast session of 11-19,
+     *  M: RIGHT's report stamps, `private/build083/B083-real.md`), past Crush's first phase (94 ms). */
     const val FAST_GAP_TICKS = 120L
+    /** C3 X2DM1a (decisions CA (1)): the second fast three's gap, 45 ticks (44 ms): his commonest gap under 224 ms in that
+     *  session (23 of 288 in 30–60 ms, M), inside Crush's first phase. */
+    const val FAST45_GAP_TICKS = 45L
 
     /**
      * C3 X1DM1 (decisions BP (4)): what he judges — sequences, not single notches — at [height] on 256 KiB at stage 5,
      * `desktop --motion-check`'s burst strips: for each of [effects] `scroll-<effect>-h<H>-s5-burst` (six notches down
      * from row 1 [BURST_GAP_TICKS] apart, a pause of [BURST_PAUSE_TICKS], six up) and for each of [fast] `-fast` (three
-     * notches down from row 2 [FAST_GAP_TICKS] apart, then rest). Every notch fires through the simulator's input hook on
+     * notches down from row 2 [FAST_GAP_TICKS] apart, then rest) and, C3 X2DM1a, `-fast45` (the same [FAST45_GAP_TICKS]
+     * apart). Every notch fires through the simulator's input hook on
      * both lenses, as on the glasses: a notch that lands while the one before still draws closes it (`FIRMWARE.md` §6.2
      * step 11) and draws its own program from Main's paint at the new cursor of the one before; a frame after every step
      * drawn until the next fire's tick. After the last notch's last step, the phone's answer: the riding LIST and the
@@ -205,10 +212,15 @@ object MainLocalCheck {
         fun keep(b: Burst) { if (onBurst == null) out += b else { onBurst(b); out += Burst(b.name, b.about, b.crop, emptyList(), b.lines, b.failures) } }
         val burst = List(6) { 1 to BURST_GAP_TICKS } + listOf(-1 to BURST_PAUSE_TICKS) + List(5) { -1 to BURST_GAP_TICKS }
         val three = List(3) { 1 to FAST_GAP_TICKS }
+        val three45 = List(3) { 1 to FAST45_GAP_TICKS }
         for (e in effects) {
             keep(sequence(text, height, depth, e, "burst", 1, burst,
-                "six notches down $BURST_GAP_TICKS ticks apart (the ring's least gap, 224 ms), a pause of $BURST_PAUSE_TICKS ticks, six up"))
-            if (e in fast) keep(sequence(text, height, depth, e, "fast", 2, three, "three notches down $FAST_GAP_TICKS ticks apart, then rest"))
+                "six notches down $BURST_GAP_TICKS ticks apart (224 ms: the floor of the stock scroll messages that reach the phone, " +
+                    "not his fastest fires, which come 13-150 ms apart for one gap in six in his fast session), a pause of $BURST_PAUSE_TICKS ticks, six up"))
+            if (e in fast) {
+                keep(sequence(text, height, depth, e, "fast", 2, three, "three notches down $FAST_GAP_TICKS ticks apart (his 100-150 ms gaps), then rest"))
+                keep(sequence(text, height, depth, e, "fast45", 2, three45, "three notches down $FAST45_GAP_TICKS ticks apart (his commonest gap under 224 ms, 30-60 ms), then rest"))
+            }
         }
         return out
     }

@@ -140,11 +140,13 @@ object Wheel {
 
     /** The two ease tables of the swapping cells over [t] steps (the DW spec §2.1): the swap's step n1 — the first step
      *  whose ease-out reaches 2048, at most t − 1 — then E1 the ease-out's first n1 steps rescaled to end at 4096 and E2 its
-     *  last t − n1 rescaled from 0, so a centre moved by E1 then E2 is where one ease-out over t puts it. */
-    fun swapTables(t: Int): Pair<IntArray, IntArray> {
+     *  last t − n1 rescaled from 0, so a centre moved by E1 then E2 is where one ease-out over t puts it. C3 X2DM1a
+     *  (decisions CA (4)): the one copy of this arithmetic — Crush's phases pass their own [split]
+     *  (`ScrollEffects.halfStep`, the step nearest half); the wheel keeps the first step past half. */
+    fun swapTables(t: Int, split: Int? = null): Pair<IntArray, IntArray> {
         if (t < 2) throw LintError("the drum's swap needs two steps or more, not $t")
         val eo = Motion.easeE(Motion.Ease.EaseOut, t)
-        val n1 = (1 until t).first { eo[it] >= 2048 || it == t - 1 }
+        val n1 = split ?: (1 until t).first { eo[it] >= 2048 || it == t - 1 }
         val e1 = IntArray(n1) { i -> Math.round(4096.0 * eo[i + 1] / eo[n1]).toInt() }
         val e2 = IntArray(t - n1) { i -> Math.round(4096.0 * (eo[n1 + i + 1] - eo[n1]) / (4096 - eo[n1])).toInt() }
         return e1 to e2
