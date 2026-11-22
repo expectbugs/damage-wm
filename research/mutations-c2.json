@@ -9193,8 +9193,8 @@
   "file": "motion/Transitions.kt",
   "edits": [
    [
-    "val e1 = ((grid.trail - 1) * 4096) / (grid.rows + grid.trail)",
-    "val e1 = ((grid.trail + 2) * 4096) / (grid.rows + grid.trail)"
+    "val eHi = ((tr + oa) * 4096 + (r + oa + tr) - 1) / (r + oa + tr) - 1",
+    "val eHi = ((tr + 2 + oa) * 4096 + (r + oa + tr) - 1) / (r + oa + tr) - 1"
    ]
   ],
   "tests": [
@@ -9203,16 +9203,16 @@
   "expect": [
    "matrixsDropsComeInOverTheOldScreenAndTheInHalfCarriesThemOn_R1"
   ],
-  "note": "C3 MX2 R1: the out half's heads come further than one trail (cells above a trail keep a smear: there is no new picture yet)",
-  "from": "C3-MX2"
+  "note": "C3 MX2 R1 (re-pointed by C3 X1MX2 item 1: the built out half is the act's own table, `rainOutShaped`): the out half's heads come further than one trail (cells above a trail keep a smear: there is no new picture yet)",
+  "from": "C3-MX2, re-pointed C3-X1MX2"
  },
  {
   "id": "MX2-bend-two-steps",
   "file": "motion/Transitions.kt",
   "edits": [
    [
-    "if (j == n - 1) 4096 else (e1 * (j + 1) * (j + 1)) / ((n - 1) * (n - 1))",
-    "if (j >= n - 2) 4096 else (e1 * (j + 1) * (j + 1)) / ((n - 1) * (n - 1))"
+    "if (j == n - 1) 4096\n            else idx[j]",
+    "if (j >= n - 2) 4096\n            else idx[j]"
    ]
   ],
   "tests": [
@@ -9221,8 +9221,8 @@
   "expect": [
    "matrixsDropsComeInOverTheOldScreenAndTheInHalfCarriesThemOn_R1"
   ],
-  "note": "C3 MX2 R1: the out half's rain ends past the bottom a step early — §7.11's rule bent at two steps, not one",
-  "from": "C3-MX2"
+  "note": "C3 MX2 R1 (re-pointed by C3 X1MX2 item 1 to the built table): the out half's rain ends past the bottom a step early — §7.11's rule bent at two steps, not one",
+  "from": "C3-MX2, re-pointed C3-X1MX2"
  },
  {
   "id": "MX2-out-seed",
@@ -9357,8 +9357,8 @@
   "file": "motion/Transitions.kt",
   "edits": [
    [
-    "-depth - k * cw, depth - k * cw)",
-    "-depth - k * cw, -depth - k * cw)"
+    "-depth - k * cw, depth - k * cw, area.w)",
+    "-depth - k * cw, -depth - k * cw, area.w)"
    ]
   ],
   "tests": [
@@ -9367,8 +9367,8 @@
   "expect": [
    "matrixsRainSitsAtTheContentPlane_MX2"
   ],
-  "note": "C3 MX2 item 3: both lenses' rain grids at one offset (the column cuts fall on different content in each eye)",
-  "from": "C3-MX2"
+  "note": "C3 MX2 item 3 (its anchor moved by C3 X1MX2: the grid now carries the area's width): both lenses' rain grids at one offset (the column cuts fall on different content in each eye)",
+  "from": "C3-MX2, re-pointed C3-X1MX2"
  },
  {
   "id": "MX2-narrow-cells",
@@ -9809,5 +9809,209 @@
   ],
   "note": "C3 X2DM1a (decisions CA (4)): Crush's phase 2 on a table that differs - the built-in ease-out over its n2 steps (equal to the tail of the ease-out over T within 2/4096) in place of that tail; it draws the far rows or the growing row a pixel apart at 10, 12, 34 and 45 steps (Frames 10 and 12, 600 and 800 ms at 480), so the table is kept and pinned whole",
   "from": "C3-X2DM1a"
+ },
+ {
+  "id": "X1MX2-start-as-built",
+  "file": "motion/Transitions.kt",
+  "edits": [
+   [
+    "val RAIN_START = RainStart.SETTLING",
+    "val RAIN_START = RainStart.AS_BUILT"
+   ]
+  ],
+  "tests": [
+   "*TransitionsTest.matrixsFirstStep*"
+  ],
+  "expect": [
+   "matrixsFirstStepAnswersTheTapOnEverySeed_X1MX2"
+  ],
+  "note": "C3 X1MX2 item 1 (decisions CB (1)): the rain's out half from rest as MX2 built it — at 8 steps its first frames are one picture and on some seeds the tap shows nothing",
+  "from": "C3-X1MX2"
+ },
+ {
+  "id": "X1MX2-no-own-change",
+  "file": "motion/Transitions.kt",
+  "edits": [
+   [
+    "for (t in idx.indices) { idx[t] = maxOf(idx[t], prev + 1); prev = idx[t] }",
+    "for (t in idx.indices) { idx[t] = maxOf(idx[t], 0); prev = idx[t] }"
+   ]
+  ],
+  "tests": [
+   "*TransitionsTest.matrixsFirstStep*"
+  ],
+  "expect": [
+   "matrixsFirstStepAnswersTheTapOnEverySeed_X1MX2"
+  ],
+  "note": "C3 X1MX2 item 1: the shaped values are not moved to a change of picture of their own — on some seeds two drawn out steps are one picture",
+  "from": "C3-X1MX2"
+ },
+ {
+  "id": "X1MX2-first-cell-unread",
+  "file": "motion/Transitions.kt",
+  "edits": [
+   [
+    "val eLo = at[0]",
+    "val eLo = 0"
+   ],
+   [
+    "target[j].coerceIn(at[i], if",
+    "target[j].coerceIn(0, if"
+   ]
+  ],
+  "tests": [
+   "*TransitionsTest.matrixsFirstStep*"
+  ],
+  "expect": [
+   "matrixsFirstStepAnswersTheTapOnEverySeed_X1MX2"
+  ],
+  "note": "C3 X1MX2 item 1: the table does not read where the act's earliest column enters its first row — on some seeds step 1 lights nothing",
+  "from": "C3-X1MX2"
+ },
+ {
+  "id": "X1MX2-no-next-seed",
+  "file": "motion/Transitions.kt",
+  "edits": [
+   [
+    "(0 until RAIN_SEED_TRIES).firstNotNullOfOrNull",
+    "(0 until 1).firstNotNullOfOrNull"
+   ]
+  ],
+  "tests": [
+   "*TransitionsTest.matrixsFirstStep*"
+  ],
+  "expect": [
+   "matrixsFirstStepAnswersTheTapOnEverySeed_X1MX2"
+  ],
+  "note": "C3 X1MX2 item 1: the act's own seed only — on 1 seed in 65,536 at 288 with 18-px columns two drawn out steps are one picture (the earliest column at an edge)",
+  "from": "C3-X1MX2"
+ },
+ {
+  "id": "X1MX2-plane-global",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "val plane = minOf(before.plane, after.plane)",
+    "val plane = settings.depth"
+   ]
+  ],
+  "tests": [
+   "*TransitionShellTest.matrixsTwoHalvesShareOneGrid*"
+  ],
+  "expect": [
+   "matrixsTwoHalvesShareOneGridAtTheNearerScreensPlane_X1MX2"
+  ],
+  "note": "C3 X1MX2 item 2 (decisions CB (2)): the rain at Global Depth as before (behind the silent clock; off the content under an app's own Depth row)",
+  "from": "C3-X1MX2"
+ },
+ {
+  "id": "X1MX2-plane-leaving",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "val plane = minOf(before.plane, after.plane)",
+    "val plane = before.plane"
+   ]
+  ],
+  "tests": [
+   "*TransitionShellTest.matrixsTwoHalvesShareOneGrid*"
+  ],
+  "expect": [
+   "matrixsTwoHalvesShareOneGridAtTheNearerScreensPlane_X1MX2"
+  ],
+  "note": "C3 X1MX2 item 2: the leaving screen's plane alone (entering the clock the rain sits at Main's plane, behind the clock)",
+  "from": "C3-X1MX2"
+ },
+ {
+  "id": "X1MX2-depth-effect-reads-plane",
+  "file": "motion/Transitions.kt",
+  "edits": [
+   [
+    "val (o, i) = paths(effect, area, depth)",
+    "val (o, i) = paths(effect, area, plane)"
+   ]
+  ],
+  "tests": [
+   "*TransitionShellTest.matrixsTwoHalvesShareOneGrid*"
+  ],
+  "expect": [
+   "matrixsTwoHalvesShareOneGridAtTheNearerScreensPlane_X1MX2"
+  ],
+  "note": "C3 X1MX2 item 2: the Depth effect takes the act's plane instead of Global Depth (its bytes move under an app's own Depth row)",
+  "from": "C3-X1MX2"
+ },
+ {
+  "id": "X1MX2-halves-two-grids",
+  "file": "motion/Transitions.kt",
+  "edits": [
+   [
+    "rain(drops, n, outEase, x = grid.xL, xR = grid.xR, seed = s)",
+    "rain(drops, n, outEase, x = grid.xL - grid.cw, xR = grid.xR - grid.cw, seed = s)"
+   ]
+  ],
+  "tests": [
+   "*TransitionShellTest.matrixsTwoHalvesShareOneGrid*",
+   "*TransitionsTest.matrixsDrops*"
+  ],
+  "expect": [
+   "matrixsTwoHalvesShareOneGridAtTheNearerScreensPlane_X1MX2",
+   "matrixsDropsComeInOverTheOldScreenAndTheInHalfCarriesThemOn_R1"
+  ],
+  "note": "C3 X1MX2 item 2: the out half's drops on a grid of their own, a column off the in half's (the in half's first step no longer covers the cells the drops lit)",
+  "from": "C3-X1MX2"
+ },
+ {
+  "id": "X1MX2-warp-unfit",
+  "file": "motion/Transitions.kt",
+  "edits": [
+   [
+    "            Effect.WARP -> 0.5 + (WARP_STEP_MS_352 - 0.5) * px / MEASURED_PX\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*TransitionsTest.warpAndFlipFit*"
+  ],
+  "expect": [
+   "warpAndFlipFitTheirMeasuredStep_X1MX2"
+  ],
+  "note": "C3 X1MX2 item 3 (decisions BV): Warp keeps the tier's period, under its measured step (one step folded in each of his Selects)",
+  "from": "C3-X1MX2"
+ },
+ {
+  "id": "X1MX2-flip-unfit",
+  "file": "motion/Transitions.kt",
+  "edits": [
+   [
+    "            Effect.FLIP -> 0.5 + (FLIP_STEP_MS_352 - 0.5) * px / MEASURED_PX\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*TransitionsTest.warpAndFlipFit*"
+  ],
+  "expect": [
+   "warpAndFlipFitTheirMeasuredStep_X1MX2"
+  ],
+  "note": "C3 X1MX2 item 3: Flip keeps the tier's period, under its measured step",
+  "from": "C3-X1MX2"
+ },
+ {
+  "id": "X1MX2-frames-give-at-base",
+  "file": "motion/Transitions.kt",
+  "edits": [
+   [
+    "        if (fit <= base.period) return base\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*TransitionsTest.warpAndFlipFit*"
+  ],
+  "expect": [
+   "warpAndFlipFitTheirMeasuredStep_X1MX2"
+  ],
+  "note": "C3 X1MX2 item 3's class: the frames give at the setting's own period (a step lost to whole-tick rounding, e.g. Warp at 300 ms / 4 frames plays one step a half)",
+  "from": "C3-X1MX2"
  }
 ]
