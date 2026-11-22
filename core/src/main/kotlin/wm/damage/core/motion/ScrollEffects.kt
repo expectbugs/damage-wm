@@ -52,14 +52,14 @@ enum class ScrollEffect(val id: String, val word: String) {
  *   side's rows move one pitch and the entering band form slides into the band, squashing the leaving one to one pixel
  *   row against the band's far edge, the far side's rows still; phase 2: the far side's rows move one pitch and the
  *   leaving row grows from one pixel row to a row, as its row picture. Each phase's movers share one ease and one step
- *   count; C3 X1DM1 (decisions BP (1)): the two phases are the two parts of ONE ease-out over T, split where it reaches
- *   half its travel ([halfStep], [easeOutParts]: the wheel's swap form), so the motion hands from one side to the other
+ *   count; C3 X1DM1 (decisions BP (1)): the two phases are the two parts of ONE ease-out over T, split at the step where
+ *   it is nearest half its travel ([halfStep], C3 X2DM1a; [easeOutParts]: the wheel's swap form), so the motion hands from one side to the other
  *   at speed instead of easing out to a near stop between them. Below stage 5, or when the offline check refuses it,
  *   Slide plays.
  * - [ScrollEffect.FLIP]: the rows as Depth's; the band turns about its vertical axis — the leaving form narrows to one
  *   column at the band's centre over phase 1, the entering one widens from one column over phase 2, each on its table.
  *   Version 2's width scale at stage 5, C3 X1DM1 (decisions BP (2), his "what moves, moves together"): the turn follows
- *   the rows — edge-on at the step where the rows' ease-out reaches half their travel ([halfStep]), the angle the rows'
+ *   the rows — edge-on at the step where the rows' ease-out is nearest half their travel ([halfStep]), the angle the rows'
  *   eased progress ([flipOnRows]). Below stage 5 (or refused) the turn on the height ([Plays.v2] false: C2's vertical
  *   scale, a version-1 record) at constant speed, split at [phase1] ([flipOut], [flipIn]; its bytes as DM-1 built them).
  * Both are functions of the layout, the planes, the strip's margin and the step alone (K1-2 moves them to window lists:
@@ -134,18 +134,20 @@ object ScrollEffects {
      *  form turned to its edge), phase 2 the rest. Crush and Flip's width turn split at [halfStep] (C3 X1DM1). */
     fun phase1(t: Int): Int = (t + 1) / 2
 
-    /** C3 X1DM1 (decisions BP (1)): the first step at which one ease-out over [t] steps (`FIRMWARE.md` §5.4: E[j] = 4096 −
-     *  ⌊4096 (t − j)² / t²⌋) reaches half its travel, E[j] ≥ 2048 (at most t − 1) — where Crush's second phase starts.
-     *  The arithmetic of the wheel's `Wheel.swapTables` (its n1), copied beside it: the scroll code does not take the
-     *  wheel's file. */
+    /** C3 X1DM1 (decisions BP (1)), X2DM1a (CA (3)): the step at which one ease-out over [t] steps (`FIRMWARE.md` §5.4:
+     *  E[j] = 4096 − ⌊4096 (t − j)² / t²⌋) is NEAREST half its travel, |E[j] − 2048| least over 1..t − 1 (the earlier of
+     *  two equal; no two are equal at 3..51 steps) — where Crush's second phase starts and Flip's width turn is edge-on.
+     *  The first step past half made the rows move faster after the hand-off than before it at 4, 5, 7, 8 and 14 steps
+     *  (2–11 px a step); at 19 and 17 steps the two are the same step. The wheel's swap keeps the first step past half
+     *  (`Wheel.swapTables`' own split: it would move at 4, 8, 14, 28 and 38 steps, which the wheel can get). */
     fun halfStep(t: Int): Int {
         if (t < 2) throw LintError("an ease-out split at half its travel needs two steps or more, not $t")
         val eo = Motion.easeE(Motion.Ease.EaseOut, t)
-        return (1 until t).first { eo[it] >= 2048 || it == t - 1 }
+        return (1 until t).minBy { kotlin.math.abs(eo[it] - 2048) }
     }
 
     /** C3 X1DM1 (decisions BP (1)): one ease-out over [t] steps as two tables (`FIRMWARE.md` §5.4: E[1..n], E[n] = 4096),
-     *  split at [halfStep] n1 — E1 its first n1 steps rescaled to end at 4096, E2 its last t − n1 rescaled from 0 — so a
+     *  split at [halfStep] n1 (the step nearest half, C3 X2DM1a) — E1 its first n1 steps rescaled to end at 4096, E2 its last t − n1 rescaled from 0 — so a
      *  mover that goes the first part of a travel on E1 and the rest on E2 is where one ease-out over t puts it, within a
      *  pixel (pinned). Crush's phase 1 runs on E1, its phase 2 on E2. The wheel's `Wheel.swapTables` arithmetic, copied. */
     fun easeOutParts(t: Int): Pair<IntArray, IntArray> {

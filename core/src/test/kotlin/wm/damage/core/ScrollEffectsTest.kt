@@ -330,6 +330,10 @@ class ScrollEffectsTest {
 
     // ------------------------------------------------------------------------------- C3 DM-1: Crush and Flip
 
+    /** C3 X2DM1a: motions at whose T the step nearest half is not the first step past it, for Crush at 352 (225 ms Auto: 14
+     *  steps; `Scroll frames` 4 and 8). */
+    private val otherSplits = listOf(MainStaging.ScrollMotion(225, 0), MainStaging.ScrollMotion(300, 4), MainStaging.ScrollMotion(300, 8))
+
     private fun stage5(h: Int, cache: Int, e: ScrollEffect, rig: MainLocalCheck.MainRig,
                        m: MainStaging.ScrollMotion = MainStaging.ScrollMotion.DEFAULT.copy(effect = e)) =
         rig.staging(cache, CfwModes.mainRegion(cache, true), m, stage5 = true)
@@ -411,14 +415,16 @@ class ScrollEffectsTest {
      * growing row covers every row of row c that the far rows have brought into the far side (the two inequalities of
      * §1.2, read from the program's own segments at its own eases). C3 X1DM1: phase 1 is [ScrollEffects.halfStep]'s steps
      * (the split's own pin is [crushsTwoPhasesAreOneEaseOutSplitAtHalfItsTravel_X1DM1], which prints the step tables).
+     * C3 X2DM1a: and at 352 at the motions whose T the step nearest half splits elsewhere than the first step past it
+     * ([otherSplits]: 14, 4 and 8 steps), with the last step Main's paint at the new cursor in every track's area.
      */
     @Test
     fun crushRunsInTwoPhasesAndItsCoversLeaveNoGap_DM1() {
         var steps = 0
-        for (h in heights) {
+        for ((h, m) in heights.map { it to MainStaging.ScrollMotion.DEFAULT } + otherSplits.map { 352 to it }) {
             val rig = MainLocalCheck.MainRig(BoxFace, h, MainLocalCheck.sampleRows())
             val cache = CfwModes.CACHE2_MAX_RIDERS
-            val ms = stage5(h, cache, ScrollEffect.CRUSH, rig)
+            val ms = stage5(h, cache, ScrollEffect.CRUSH, rig, m.copy(effect = ScrollEffect.CRUSH))
             val cacheImg = cacheOf(ms)
             val l = ms.layout
             val t = ms.t
@@ -427,7 +433,7 @@ class ScrollEffectsTest {
                 val pr = nt.pan.program
                 val segs = pr.resolve(nt.p, staticOnly = false)
                 val down = nt.pan.step > 0
-                val what0 = "$h step ${nt.pan.step} ${nt.c}→${nt.to}"
+                val what0 = "$h ${m.copy(effect = ScrollEffect.CRUSH).words()} T $t step ${nt.pan.step} ${nt.c}→${nt.to}"
                 // the phases on the model
                 for (left in listOf(true, false)) {
                     val base = panel(rig.truth(nt.c, left))
@@ -436,6 +442,7 @@ class ScrollEffectsTest {
                         val pic = Motion.stepOnModel(pr, nt.p, cacheImg, base, base, left, k = k)
                         if (k <= n1) assertEquals(0, differModel(pic, rig.truth(nt.c, left), listOf(far)), "$what0 left=$left step $k: the far side is not Main at ${nt.c} in phase 1")
                         else assertEquals(0, differModel(pic, rig.truth(nt.to, left), listOf(enter)), "$what0 left=$left step $k: the entering side is not at rest in phase 2")
+                        if (k == t) assertEquals(0, differModel(pic, rig.truth(nt.to, left), pr.tracks.map { it.area(left) }), "$what0 left=$left: the last step is not Main's paint at ${nt.to}")
                         steps++
                     }
                 }
@@ -472,7 +479,8 @@ class ScrollEffectsTest {
     /**
      * C3 X1DM1 (decisions BP (1)): Crush's two phases are the two parts of ONE ease-out over T — the wheel's swap form. On
      * every pan at stage 5 (the four heights, his 256 KiB, both strips, both directions), read from the program's own
-     * segments: phase 2 starts at the first step whose ease-out over T reaches half its travel (§5.4: E ≥ 2048); the
+     * segments: phase 2 starts at the step whose ease-out over T is nearest half its travel (§5.4: |E − 2048| least; C3
+     * X2DM1a, decisions CA (3) — at T 19 and 17 the first step past half); the
      * phase-1 movers (T1, T3, T4) share one table over those steps and the phase-2 movers (T2 after its WAIT, T5's growth)
      * another over the rest; a mover that goes the first part of a travel on the first and the rest on the second is
      * within a pixel of one ease-out over T at every step, for every travel up to twice the band's height; and the rows'
@@ -488,14 +496,14 @@ class ScrollEffectsTest {
             val ms = stage5(h, CfwModes.CACHE2_MAX_RIDERS, ScrollEffect.CRUSH, rig)
             val t = ms.t; val l = ms.layout
             val eo = Motion.easeE(Motion.Ease.easeOut, t)
-            val half = (1 until t).first { eo[it] >= 2048 }
+            val half = (1 until t).minBy { kotlin.math.abs(eo[it] - 2048) }
             var e1 = IntArray(0); var e2 = IntArray(0)
             for (pan in ms.pans) {
                 val tr = pan.program.tracks
                 val what = "$h strip ${pan.strip} step ${pan.step} T $t"
                 fun draws(i: Int) = tr[i].segments.filter { it.verb == Motion.DRAW }
                 val p1 = draws(0).single(); val p2 = draws(1).single()
-                assertEquals(half, p1.steps, "$what: phase 2 starts at the first step whose ease-out over T reaches half its travel (${half + 1}), not at ${p1.steps + 1}")
+                assertEquals(half, p1.steps, "$what: phase 2 starts at the step whose ease-out over T is nearest half its travel (${half + 1}), not at ${p1.steps + 1}")
                 assertEquals(listOf(Motion.WAIT to half, Motion.DRAW to t - half), tr[1].segments.map { it.verb to it.steps }, "$what: T2 waits phase 1, then moves over the rest")
                 assertEquals(half, tr[4].segments.first().steps, "$what: T5 parked over phase 1")
                 e1 = Motion.easeE(p1.ease, p1.steps); e2 = Motion.easeE(p2.ease, p2.steps)
@@ -527,15 +535,16 @@ class ScrollEffectsTest {
      * form at the band's centre — the rest of the band its backdrop — at stage 5 (the width turn, version 2); and the same
      * on the height below stage 5 (its fallback: one row at the band's middle, version 1). Rows and band start and end
      * together (T steps each). C3 X1DM1: n1 is the rows' half-travel step at stage 5 ([ScrollEffects.halfStep]), ⌈T/2⌉
-     * below it ([ScrollEffects.phase1]).
+     * below it ([ScrollEffects.phase1]). C3 X2DM1a: and at 352, stage 5, at `Scroll frames` 4 and 8 (the step nearest half
+     * is not the first past it there).
      */
     @Test
     fun flipTurnsTheBandToOneColumnAtTheMiddleStep_DM1() {
-        for (h in heights) {
+        for ((h, m) in heights.map { it to MainStaging.ScrollMotion.DEFAULT } + otherSplits.drop(1).map { 352 to it }) {
             val rig = MainLocalCheck.MainRig(BoxFace, h, MainLocalCheck.sampleRows())
             val cache = CfwModes.CACHE2_MAX_RIDERS
-            for (st5 in listOf(true, false)) {
-                val ms = if (st5) stage5(h, cache, ScrollEffect.FLIP, rig) else staging(h, cache, ScrollEffect.FLIP, rig)
+            for (st5 in if (m == MainStaging.ScrollMotion.DEFAULT) listOf(true, false) else listOf(true)) {
+                val ms = if (st5) stage5(h, cache, ScrollEffect.FLIP, rig, m.copy(effect = ScrollEffect.FLIP)) else staging(h, cache, ScrollEffect.FLIP, rig)
                 assertEquals(ScrollEffects.Plays(ScrollEffect.FLIP, st5, if (st5) null else ScrollEffects.NOT_STAGE5), ms.plays, "$h stage ${if (st5) 5 else 4}: Flip's form")
                 val cacheImg = cacheOf(ms)
                 val l = ms.layout
@@ -566,7 +575,8 @@ class ScrollEffectsTest {
     /**
      * C3 X1DM1 (decisions BP (2), his "what moves, moves together"): Flip's width turn follows the rows. On every pan at
      * stage 5 (the four heights, his 256 KiB, both strips, both directions), from the program's own segments: the band is
-     * edge-on (one column) at the step where the rows' ease-out over T reaches half their travel, and at every step its
+     * edge-on (one column) at the step where the rows' ease-out over T is nearest half their travel (C3 X2DM1a: at 416,
+     * T 15, step 4 — the first step past half was 5), and at every step its
      * drawn width is within a pixel of 1 + (wF − 1) |cos θ|, θ the rows' eased progress (0 at the start, π/2 at that step,
      * π at the end). Below stage 5 the height turn keeps DM-1's tables (⌈T/2⌉, [ScrollEffects.flipOut] and
      * [ScrollEffects.flipIn]). Printed for the report: the band's width a step beside the rows' pixels a step.
@@ -585,7 +595,7 @@ class ScrollEffectsTest {
                 val rows = tr[0].segments.single()
                 val er = Motion.easeE(rows.ease, rows.steps)
                 assertEquals(t, rows.steps, "$what: the rows over T")
-                half = (1 until t).first { er[it] >= 2048 }
+                half = (1 until t).minBy { kotlin.math.abs(er[it] - 2048) }
                 val (out, inn) = tr[2].segments.also { assertEquals(2, it.size, "$what: the band's two segments") }.let { it[0] to it[1] }
                 assertEquals(half to t - half, out.steps to inn.steps, "$what: the band edge-on where the rows reach half their travel (step $half)")
                 val wF = out.w0
@@ -609,6 +619,52 @@ class ScrollEffectsTest {
             shapes += "h$h T $t P ${ms.period}: edge-on at step $half; band width a step $widths; rows px a step $rowsPx"
         }
         println("X1DM1-flip (modeled; BoxFace)\n" + shapes.joinToString("\n"))
+    }
+
+    /**
+     * C3 X2DM1a (decisions CA (3); the second review's finding 3): Crush's phases and Flip's width turn split at the step
+     * whose ease-out over T is NEAREST half its travel (computed here: |E[j] − 2048| least, the earlier of two equal), at
+     * every height, at 300 ms Auto (Flip at 416: 15 steps, where the first step past half is not the nearest) and at the
+     * motions where the two rules part for Crush ([otherSplits]: 14 steps at 288–416, Frames 4 and 8). From each pan's
+     * own segments at stage 5 (256 KiB): Crush's phase 2 starts at that step and its rows (one pitch on phase 1's table,
+     * one on phase 2's) never move more than a pixel faster in a step than in the step before — the speed carries across
+     * the hand-off, where the first step past half made them 2–11 px a step faster at 4, 8 and 14 steps; Flip's band is
+     * edge-on at that step. Printed for the report: the rows' px a step at each motion.
+     */
+    @Test
+    fun theSplitIsAtTheStepNearestHalfAtEveryStepCount_X2DM1a() {
+        val shapes = ArrayList<String>()
+        for (h in heights) {
+            val rig = MainLocalCheck.MainRig(BoxFace, h, MainLocalCheck.sampleRows())
+            for (m0 in listOf(MainStaging.ScrollMotion.DEFAULT) + otherSplits) for (e in listOf(ScrollEffect.CRUSH, ScrollEffect.FLIP)) {
+                val m = m0.copy(effect = e)
+                val ms = stage5(h, CfwModes.CACHE2_MAX_RIDERS, e, rig, m)
+                val t = ms.t
+                val eo = Motion.easeE(Motion.Ease.easeOut, t)
+                val half = (1 until t).minBy { kotlin.math.abs(eo[it] - 2048) }
+                val what0 = "$h ${m.words()} T $t"
+                assertEquals(ScrollEffects.Plays(e, true), ms.plays, "$what0: plays itself in version 2")
+                var rows = emptyList<Int>()
+                for (pan in ms.pans) {
+                    val tr = pan.program.tracks
+                    val what = "$what0 strip ${pan.strip} step ${pan.step}"
+                    if (e == ScrollEffect.FLIP) {
+                        assertEquals(half to t - half, tr[2].segments.let { it[0].steps to it[1].steps }, "$what: the band edge-on at the step nearest half the rows' travel ($half)")
+                        continue
+                    }
+                    val p1 = tr[0].segments.single { it.verb == Motion.DRAW }; val p2 = tr[1].segments.single { it.verb == Motion.DRAW }
+                    assertEquals(half, p1.steps, "$what: phase 2 starts at the step whose ease-out over T is nearest half its travel (${half + 1}), not at ${p1.steps + 1}")
+                    val e1 = Motion.easeE(p1.ease, p1.steps); val e2 = Motion.easeE(p2.ease, p2.steps)
+                    fun px(e: IntArray) = (1 until e.size).map { j -> Motion.eased(0, ms.layout.rowH, e[j]) - Motion.eased(0, ms.layout.rowH, e[j - 1]) }
+                    rows = px(e1) + px(e2)
+                    for (j in 1 until t) assertTrue(rows[j] <= rows[j - 1] + 1, "$what: the rows move ${rows[j - 1]} px at step $j, then ${rows[j]} at step ${j + 1}" +
+                        (if (j == half) " (the hand-off)" else ""))
+                }
+                shapes += if (e == ScrollEffect.FLIP) "h$h ${m.words()}: P ${ms.period} T $t, the band edge-on at step $half"
+                    else "h$h ${m.words()}: P ${ms.period} T $t, phase 1 $half steps; the rows' px a step ${rows.take(half)} | ${rows.drop(half)}"
+            }
+        }
+        println("X2DM1a-split (modeled; BoxFace)\n" + shapes.joinToString("\n"))
     }
 
     /**
