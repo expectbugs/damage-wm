@@ -1853,10 +1853,17 @@ class Shell(
     }
 
     private fun scrollFocused(delta: Int) {
-        if (mode == Mode.WINDOW && current === settingsWindow && settingsWindow.onScrollAdjust(delta)) {
-            composeContent()
-            scheduleSave()
-            return
+        // C3 SC1 (the lead's part CD): a row that applies per notch goes through [applySettings], which composes the
+        // content with the new value — the notch's one composition; a row that stages (Size, a host row: applied on the
+        // tap) changes only its own text, composed here. Composing after both painted every applied notch twice (his
+        // stage-5 session: an adjust notch's handler 56 ms against 28–30 for the acts that paint once, measured)
+        if (mode == Mode.WINDOW && current === settingsWindow) {
+            val staged = settingsWindow.adjustingStages
+            if (settingsWindow.onScrollAdjust(delta)) {
+                if (staged) composeContent()
+                scheduleSave()
+                return
+            }
         }
         when (val v = focusedView()) {
             is WindowView.ListView -> {
@@ -7558,6 +7565,7 @@ class Shell(
     private fun composeContent() {
         if (mode == Mode.EXCLUSIVE) { paintExclusiveFull(); return }
         if (mode == Mode.SILENT) return
+        contentComposes++
         slides = emptyList()
         notifications.invalidateUnder()   // the content beneath is repainting
         // while the wheel is open the backdrop belongs to the PREVIEWED entry
@@ -7579,6 +7587,11 @@ class Shell(
         if (notifications.active) paintNotification()
         chromeDirty = true
     }
+
+    /** C3 SC1 (the lead's part CD): the content's compositions this process ([composeContent] past its mode checks) — the
+     *  pin that a Settings adjust notch composes the content once reads it. Loop-only. */
+    private var contentComposes = 0
+    internal fun contentComposesForTest(): Int = contentComposes
 
     /** The window whose content [composeContent] paints — null for Main's rows. One definition for the compose and
      *  for [showsRequestOf], so the two cannot disagree. R4 item 4 (review 3A-2): while the wheel is open it is the

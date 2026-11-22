@@ -481,6 +481,11 @@ class SettingsWindow(
 
     val isAdjusting: Boolean get() = adjusting != null
 
+    /** C3 SC1 (the lead's part CD): the row being adjusted STAGES its value (Size, a host row: applied on the tap), so the
+     *  shell composes the content after its notch; any other row's notch goes through [apply], whose repaint is the
+     *  notch's one. Read before [onScrollAdjust] (a notch never changes which row is adjusted). */
+    val adjustingStages: Boolean get() = adjusting?.let(::stages) == true
+
     private fun paintCatRow(g: Gray8, i: Int, r: Rect) {
         val c = cats().getOrNull(i) ?: return
         text.draw(g, r.x + 40, (r.y + 5) / 2 * 2, c.name, fRow, Level.BODY)
