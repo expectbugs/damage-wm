@@ -439,10 +439,28 @@ object MotionCheck {
      * in half lands the arriving frame on both lenses (panel = shadow = the frame), the frame shows nothing of itself
      * before the in half, RIGHT's two bodies say every step was drawn. C3 X4T item 5 (decisions AT (4)): Encode's strips
      * are of the shell's NOT-compressed order (its in lists written after the out PLAY, [TransitionRehearsal]'s form); the
-     * shell's usual form puts them in the records' write, which changes no pixel.
+     * shell's usual form puts them in the records' write, which changes no pixel. C3 MX2: Matrix's plays also at 480 and
+     * at 8 steps a half ([STRIPS]).
      */
-    /** The strips' base names, in [PLAYS]' order. */
-    internal val TRANSITION_NAMES: List<String> get() = PLAYS.map { (t, e, rev) -> "transition-${t.word.lowercase()}-${e.id}${if (rev) "-reversed" else ""}" }
+    /** One strip: its base name, the play, the area's height and the timing. */
+    private class Strip(val name: String, val tier: Transitions.Tier, val e: Transitions.Effect, val rev: Boolean, val h: Int, val timing: Transitions.Timing)
+
+    /** Every play at 352 and 450 ms / 10 frames (5 steps a half) under today's names; C3 MX2: and Matrix's plays at 352 and
+     *  480 at both of his step counts (5 and 8 a half, P 46), named `…-matrix[-reversed]-h<H>-s<steps>` (352 at 5 steps is
+     *  the plain name). */
+    private val STRIPS: List<Strip> get() {
+        fun base(t: Transitions.Tier, e: Transitions.Effect, rev: Boolean) = "transition-${t.word.lowercase()}-${e.id}${if (rev) "-reversed" else ""}"
+        val plain = PLAYS.map { (t, e, rev) -> Strip(base(t, e, rev), t, e, rev, HEIGHT, Transitions.timing(450, 10)) }
+        val matrix = PLAYS.filter { it.second == Transitions.Effect.MATRIX }.flatMap { (t, e, rev) ->
+            listOf(352 to Transitions.timing(720, 16), 480 to Transitions.timing(450, 10), 480 to Transitions.timing(720, 16)).map { (h, tm) ->
+                Strip("${base(t, e, rev)}-h$h-s${tm.steps}", t, e, rev, h, tm)
+            }
+        }
+        return plain + matrix
+    }
+
+    /** The strips' base names, in [STRIPS]' order. */
+    internal val TRANSITION_NAMES: List<String> get() = STRIPS.map { it.name }
 
     private fun transitions(outDir: Path, out: java.io.PrintStream): List<String> {
         val failures = ArrayList<String>()
@@ -455,16 +473,15 @@ object MotionCheck {
             for (j in 0 until 5) for (i in 0 until 8) g.fillRect(Rect(24 + i * 76, 40 + j * 60, 60, 44), (((i + 3 * j) % 14) + 2) * 17)
             g.fillRect(Rect(0, 0, 640, 30), 2 * 17); g.fillRect(Rect(24, 6, 200, 18), 13 * 17)
         }
-        val timing = Transitions.timing(450, 10)
-        for ((tier, e, rev) in PLAYS) {
-            val name = TRANSITION_NAMES[PLAYS.indexOf(Triple(tier, e, rev))]
-            val r = TransitionRehearsal.play(TransitionRehearsal.Plan(e, rev, HEIGHT, timing, batches = 2), old, new)
+        for (s in STRIPS) {
+            val name = s.name; val tier = s.tier; val e = s.e; val rev = s.rev
+            val r = TransitionRehearsal.play(TransitionRehearsal.Plan(e, rev, s.h, s.timing, batches = 2), old, new)
             failures += r.failures.map { "$name: $it" }
-            val crop = Rect(0, 0, Geometry.PANEL_W, HEIGHT)
+            val crop = Rect(0, 0, Geometry.PANEL_W, s.h)
             strip(outDir.resolve("$name.png"), r.frames.map { Triple(it.label, it.l, it.r) }, crop)
             Files.writeString(outDir.resolve("$name.txt"), buildString {
                 appendLine("$name: ${tier.word} ${e.label}${if (rev) ", reversed in time" else ""} — ${r.built.describe()}")
-                appendLine("strip: ${r.frames.size} frames, $COLS per row; in each frame the left lens above the right; the 640x$HEIGHT area at 1x")
+                appendLine("strip: ${r.frames.size} frames, $COLS per row; in each frame the left lens above the right; the 640x${s.h} area at 1x")
                 for ((i, f) in r.frames.withIndex()) appendLine("  frame $i (${f.label}) at tick ${f.tick}: L %08x R %08x".format(crc(f.l), crc(f.r)))
                 for (m in r.notifies) appendLine("notify: ${m.describe()}")
                 if (r.failures.isEmpty()) appendLine("checks: the in half lands the arriving frame on both lenses; nothing of it before; both bodies drew every step")

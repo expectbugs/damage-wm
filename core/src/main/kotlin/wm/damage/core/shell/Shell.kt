@@ -8779,16 +8779,20 @@ class Shell(
         }
     }
 
-    /** §7.11: with no in-half body by the in half's nominal end plus one period, the phone CLOSEs both slots — the one
-     *  rule that ends a waiter, so no pose is held until he acts. Pacing on the loop, never a wait on a send. */
+    /** §7.11: with no in-half body by the in half's nominal end plus its allowance ([TransitionRun.deadlineMs]), the phone
+     *  CLOSEs both slots — the one rule that ends a waiter, so no pose is held until he acts. Pacing on the loop, never a
+     *  wait on a send. C3 TR1: armed again at each fact that moves the end (each ack, RIGHT's out-half body); each arm
+     *  supersedes the one before. */
     private fun transitionDeadlineArm(tr: TransitionRun) {
         val at = tr.deadlineMs() ?: return
-        val gen = transitionDeadlineGen
+        val gen = ++transitionDeadlineGen
+        val from = if (tr.outBodyAtMs != 0L) "RIGHT's out-half body plus ${tr.steps} periods and ${TransitionRun.BODY_ALLOWANCE_MS} ms"
+            else "its acks plus one period and ${TransitionRun.ACKS_ALLOWANCE_MS} ms (no out-half body yet)"
         scope.launch {
             delay(maxOf(1L, at - System.currentTimeMillis()))
             if (running) post(Msg.Run(dropped = {}) {
                 if (transition === tr && gen == transitionDeadlineGen)
-                    transitionEnd("no in-half body by its nominal end plus one period — both slots are CLOSEd, the frame shows whole", close = true)
+                    transitionEnd("no in-half body by its nominal end from $from — both slots are CLOSEd, the frame shows whole", close = true)
             })
         }
     }
@@ -8798,6 +8802,13 @@ class Shell(
      *  newer act PLAYed slot 2 since) is not this run's and CLOSEs nothing (§7.11, B'3). */
     private fun transitionBody(ev: TransportEvent.LocalBody) {
         val tr = transition ?: return
+        // C3 TR1: RIGHT's out half drew its last step — the in half's nominal end is measured from here (the backstop moves)
+        if (ev.slot == TransitionRun.OUT_SLOT && ev.tag == tr.tagOut && ev.outcome == wm.damage.core.wire.DamageMsg.OUTCOME_DREW &&
+            tr.outBodyAtMs == 0L) {
+            tr.outBodyAtMs = System.currentTimeMillis()
+            transitionDeadlineArm(tr)
+            return
+        }
         if (ev.slot != TransitionRun.IN_SLOT || ev.tag != tr.tagIn || transitionBodyLostForTest) return
         when (ev.outcome) {
             wm.damage.core.wire.DamageMsg.OUTCOME_DREW -> {
