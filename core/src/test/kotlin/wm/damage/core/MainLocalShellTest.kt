@@ -798,10 +798,12 @@ class MainLocalShellTest {
             while (System.currentTimeMillis() < until && r.notes("mainstage").count { it.startsWith("pans switched") } == m.switched) delay(20)
             r.settle("in Settings")
             assertEquals("settings", r.onLoop { r.shell.currentWindowId() }, "still in Settings")
-            val slide = r.onLoop { r.shell.mainBinding.staging!!.let { ms -> ms.motion?.effect to ms.pan(MainStaging.WHOLE, 1).prog4 } }
             val at = r.right.size
             r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
             r.until("back on Main and its list bound on RIGHT") { r.onLoop { r.shell.currentWindowId() } == null && r.sim.bindForTest(Arm.RIGHT).field39() == r.bound39 }
+            // C3 X3 (decisions CA (2)): the re-made pans are switched by the return's poll (none is switched under a cover),
+            // so Slide's pan is the staging's from the return on
+            val slide = r.onLoop { r.shell.mainBinding.staging!!.let { ms -> ms.motion?.effect to ms.pan(MainStaging.WHOLE, 1).prog4 } }
             r.fire(CfwModes.EV_UPROLL)                                      // the first notch, at once
             for (a in Arm.entries) r.until("$a plays the first notch") { r.sim.motionForTest(a).slots[MainStaging.SLOT] != null }
             for (a in Arm.entries) assertEquals(wm.damage.core.motion.ScrollEffect.SLIDE to slide.second, slide.first to r.sim.motionForTest(a).slots[MainStaging.SLOT]!!.prog4,
@@ -813,6 +815,82 @@ class MainLocalShellTest {
             r.assertOracle("after the first notch")
         } finally { r.close() }
     }
+
+    /**
+     * C3 X3 (decisions CA (2), `C3-V2DM1-review.md` finding 2): `Scroll effect` stepped through several values with Main
+     * covered by Settings (the row adjusts live per notch) — Depth → Slide → Crush → Flip → Crush at stage 5 (256 KiB, a
+     * ring list at 352), [gapMs] between the steps (each re-make written and counted before the next on the instant rig)
+     * or none; then back on Main, the return's transition landed, a notch:
+     * - ONE flush since the first step carries scroll SETs — the return's — with the list's LIST-RING at Crush's pitch (+rowH)
+     *   ahead of them: nothing was switched under the cover, and nothing after the return;
+     * - those SETs name the pans in force, Crush's (version 2, five tracks), whose records both lenses hold byte for byte;
+     * - the notch plays that pan on both lenses, moves one row, is COMMITted with no snap-back; END Main's paint (belief
+     *   equals both lenses);
+     * - the journal names ONE switch since the first step, to Crush; the steps between were dropped unswitched.
+     * [steps] of one ("crush") is the one-step path, which passed before this fix too.
+     */
+    private suspend fun stepsUnderACover(steps: List<String>, gapMs: Long) {
+        val r = Rig(Taps.REPORT, stage = 5, kib256 = true, features = 0xdff)
+        try {
+            r.up()
+            val rowH = r.onLoop { r.shell.mainBinding.staging!!.layout.rowH }
+            assertTrue(r.list().ring && r.list().pitch == -rowH, "Depth at stage 5: a ring list at pitch −rowH")
+            r.onLoop { r.shell.services.openWindow("settings", null) }
+            r.until("Settings open") { r.onLoop { r.shell.currentWindowId() } == "settings" }
+            r.until("Settings' transition landed") { r.onLoop { r.shell.transitionPhaseForTest() } == null }
+            r.settle("in Settings")
+            val n0 = r.allNotes().size
+            val at = r.right.size
+            for (e in steps) { r.shell.updateSettings { it.copy(scrollEffect = e) }; if (gapMs > 0) delay(gapMs) }
+            delay(2_000)                                                   // a while in Settings, as he would spend there
+            r.settle("after the steps")
+            assertEquals("settings", r.onLoop { r.shell.currentWindowId() }, "still in Settings")
+            r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+            r.until("back on Main and its list bound on RIGHT") { r.onLoop { r.shell.currentWindowId() } == null && r.sim.bindForTest(Arm.RIGHT).field39() == r.bound39 }
+            r.until("the return's transition landed") { r.onLoop { r.shell.transitionPhaseForTest() } == null }
+            r.settle("back on Main")
+            val (ms, pan) = r.onLoop { r.shell.mainBinding.staging!!.let { it to it.pan(MainStaging.WHOLE, 1) } }
+            assertEquals(wm.damage.core.motion.ScrollEffect.CRUSH, ms.motion?.effect, "the pans in force are asked for Crush")
+            assertTrue(ms.plays.effect == wm.damage.core.motion.ScrollEffect.CRUSH && ms.plays.v2 && ms.pitch == rowH && pan.program.tracks.size == 5,
+                "Crush plays (version 2, pitch +rowH, five tracks): ${ms.plays.effect} v2=${ms.plays.v2} pitch ${ms.pitch} ${pan.program.tracks.size} tracks")
+            fun isList(sub: ByteArray) = r.isSub(sub, 27, CfwModes.BIND_LIST_RING) || r.isSub(sub, 27, 2)
+            val sets = r.right.drop(at).map { r.subs(it) }.filter { ss -> ss.any { r.isSub(it, 27, 0) && it[4].toInt() == CfwModes.EV_UPROLL } }
+            assertEquals(1, sets.size, "ONE flush since the first step carries scroll SETs (the return's), not ${sets.size}: " +
+                "${sets.map { ss -> ss.filter { r.isSub(it, 27, 0) && it[4].toInt() == CfwModes.EV_UPROLL }.map { r.u16(it, 9) } }}")
+            val ss = sets.single()
+            val li = ss.indexOfFirst { isList(it) }
+            assertTrue(li >= 0 && r.isSub(ss[li], 27, CfwModes.BIND_LIST_RING) && r.u16(ss[li], 9).toShort().toInt() == rowH,
+                "the return carries the list's LIST-RING at Crush's pitch +$rowH: ${if (li >= 0) r.u16(ss[li], 9).toShort().toInt() else "none"}")
+            val up = ss.withIndex().first { (_, x) -> r.isSub(x, 27, 0) && x[4].toInt() == CfwModes.EV_UPROLL }
+            assertTrue(up.index > li && r.u16(up.value, 9) == pan.prog4, "the return's SET names Crush's pan ${pan.prog4} after the LIST-RING: ${r.u16(up.value, 9)}")
+            for (a in Arm.entries) {
+                assertEquals(pan.prog4, r.sim.bindForTest(a).entries.filterNotNull().first { it.eventId == CfwModes.EV_UPROLL }.prog, "$a holds the SET naming Crush's pan")
+                assertTrue(r.sim.bindForTest(a).lists[0].let { it.pitch == rowH && it.ring }, "$a's list at Crush's pitch, ring")
+                for ((off4, bytes) in pan.program.records) {
+                    val held = synchronized(r.sim) { (if (a == Arm.LEFT) r.sim.left else r.sim.right).textureCache!!.copyOfRange(off4 * 4, off4 * 4 + bytes.size) }
+                    assertTrue(held.contentEquals(bytes), "$a holds Crush's record at off4 $off4 byte for byte")
+                }
+            }
+            val row0 = r.row()
+            val snaps = r.notes("snapback").size
+            val at2 = r.right.size
+            val s = r.fire(CfwModes.EV_UPROLL)
+            for (a in Arm.entries) r.until("$a plays the notch") { synchronized(r.sim) { r.sim.motionForTest(a).slots[MainStaging.SLOT]?.prog4 } == pan.prog4 }
+            delay(r.motionMs() + r.q() + 300); r.settle("after the notch")
+            assertEquals((row0 + 1).mod(r.list().count), r.row(), "the notch moved one row")
+            assertTrue(r.right.drop(at2).any { img -> r.subs(img).any { r.isCommit(it, s) } }, "a COMMIT of S $s")
+            assertEquals(snaps, r.notes("snapback").size, "no snap-back: ${r.notes("snapback").takeLast(2)}")
+            r.assertOracle("after the notch")
+            val ns = r.allNotes().drop(n0).filter { it.first == "mainstage" }.map { it.second.substringAfter(' ') }
+            val switched = ns.filter { it.startsWith("pans switched") }
+            assertTrue(switched.size == 1 && switched.single().startsWith("pans switched — Crush "), "ONE switch since the first step, to Crush: $switched")
+            println("X3 ${steps.joinToString("→")} gap $gapMs: ${ns.filter { it.startsWith("pans") || it.startsWith("re-made") }.map { it.take(70) }}")
+        } finally { r.close() }
+    }
+
+    @Test fun stepsUnderACoverSwitchOnceToTheLastOnTheReturn_X3(): Unit = runBlocking { stepsUnderACover(listOf("slide", "crush", "flip", "crush"), 300) }
+    @Test fun stepsUnderACoverAtOnceSwitchOnceToTheLastOnTheReturn_X3(): Unit = runBlocking { stepsUnderACover(listOf("slide", "crush", "flip", "crush"), 0) }
+    @Test fun oneStepUnderACoverStillSwitchesOnTheReturn_X3(): Unit = runBlocking { stepsUnderACover(listOf("crush"), 300) }
 
     /** K1-1 item 4: under Auto the steps follow the period in force — steps measured at 48 ms raise it 46 → 55 (decisions
      *  BF), and the pans are then re-made alone with T 5 (300 ms at 55 ticks), in idle; the staging's own period stays the
