@@ -139,8 +139,11 @@ and holds only the contract (`FIRMWARE.md`). **Never flash without Adam's in-the
 **Topology, ruled 2026-11-12 (`REPLAN.md` §14; `CONTRACT.md` §2): the PC is the system** — it owns every window's state
 and every interface connects to it; the phone keeps a working copy, draws the glasses and carries on when the PC is out
 of reach; **PC-direct BLE is a manual choice, never automatic.** The alert watcher made PC-direct BLE manual in code
-(APK 0.66, `HANDOFF.md` §79); step S1 brings the rest (`REPLAN.md` §15, §16): its first piece, S1-1, converted Reader
-onto the PC record and built the web listener at APK 0.67 (`HANDOFF.md` §80). **What runs until then (`HANDOFF.md` §19,
+(APK 0.66, `HANDOFF.md` §79); step S1 brings the rest (`REPLAN.md` §15, §16): S1-1 converted Reader onto the PC record and
+built the web listener (APK 0.67, `HANDOFF.md` §80); Torrents, Files, Feed and Tmux followed with their pages (S1-2 and
+S1-3, deployed by APK 0.70, §89, §91); Music's first half is built and not merged (§97); Games, Main and Settings are
+S1-5. The firmware side: the fork's builds C1 (the motion engine), C2 (local input) and C3 (the effects) are flashed, the
+ladder at stage 5 since 2026-11-21 (§88, §94, §99, §101). **What runs until S1 closes (`HANDOFF.md` §19,
 §79):** the **phone APK drives** (radio and shell); the OpenRC `damage` service on beardos is the **data provider** (and
 the bus alert watcher) and never drives by itself — PC-direct BLE only by hand (the replica probe `drive=ble`, back with
 `drive=auto`; the PC shell's `Target` row; `--transport ble`); `--transport remote` is the dev override. Detect the CFW
@@ -249,7 +252,8 @@ applies; stock 2.2.2.20 is gone and not in the public archive.
 
 - **Never guess a CFW display mode byte, rect encoding or batch layout.** `g2flash/patches/zlib_glue.c`'s header is the
   mode contract (modes 3/5/6/7/8/9/10/11/12/13/14/15 and the high-bit "lenses differ" flag); `patches/texture_cache.c`
-  for modes 12–15; `FIRMWARE.md` §3 for 16 (the self-test), §4 for 17–24. Guessing produces garbage on the lens,
+  for modes 12–15; `FIRMWARE.md` §3 for 16 (the self-test), §4 for 17–24, §5 for 25 (the deflated cache write) and 26
+  (motion control), §6.3 for 27 (lists and bindings), §7 for the effects' verbs. Guessing produces garbage on the lens,
   silently.
 - **Never gate a feature on a capability token that could be dropped for space** (a5d1c31 dropped `img576` and
   `compass10` from the 127-byte string; both features remain). Require only `SettingsMsg.REQUIRED_CAPS`; check
@@ -309,7 +313,8 @@ got into the world).
   per-app `preferredHeight`; Adam's fit loses the bottom. The 64 columns of width headroom are the stereo-shift budget —
   full-640-wide spends depth on pixels.
 - **No off-panel scratch space.** Overlays repaint the covered region with mode 3.
-- **The texture cache** (a5d1c31) is lease-scoped: 64 KiB on contract 1 (64..160 KiB by op 5 on contract 2). Mode 12
+- **The texture cache** (a5d1c31) is lease-scoped: 64 KiB on contract 1 (by op 5 on contract 2: 64..160 KiB, up to 256 KiB since
+  C1 — the session's size at ladder stage 2 and above, `FIRMWARE.md` §5.9). Mode 12
   writes, 13 draws a cached image, 14 draws a string through a 96-entry glyph table, 11 tears down; a v1 record is
   `[w:u8][h:u8][4bpp RLE of w*h]`, no row pad nibble (`overview.md` §4); contract 2's modes 17–24 and its u16 records are
   `FIRMWARE.md` §4. Freed on expiry, FB_RELEASE, a fresh acquire and mode 11; kept across a renewal — the atlas is
