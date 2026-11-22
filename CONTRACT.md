@@ -784,6 +784,11 @@ window through `tools/glassdrive.py` when he is there (`REMINDER.md`: every glas
 | the watcher's phone half (`RemoteBastion`, its Android reconcile), built before S1 | the generic mirror and notice delivery | the watcher is built to this contract's rules where they are already fixed: its table, notification tags and `ack{id, episode}` as an action on the alert in §7.1's shape; its epoch kept in the alert store, never the process start (§9.3); the phone's rows (`Phone · alerts`, `Home unreachable`, and from package F `Presence · location`) in the phone's own preferences from the start (§6); the one shared Quiet hours row (§6), built once, in Global beside `Notify · Damage` — so S1 swaps the carrier and keeps the model (built in W, APK 0.66, `HANDOFF.md` §79) |
 | the web client, window by window | S2 lays it out for the TV and the phone screen | one client rendering the vocabulary kind by kind, its data behind the `WindowSource` seam (§9.1); per-window code only for canvases |
 
+*Status 2026-11-22:* K1 is in progress — the motion kit's shell part (Main's scroll effects, the notice on the
+engine, the transitions; APK 0.83, 0.84 staged; `HANDOFF.md` §100, §101) and one list holder for Main's staging and
+binding (`ListBind`, `S/Shell.kt`, merged `f75d5838`). Every converted window still draws through its `XGlasses`
+adapter and menus through `MenuSurface`, so the rows above stand.
+
 ### 11.3 Mapping today's contract to the new one (`S/WindowContract.kt`)
 
 | today | stays with the glasses presenter | moves to the core | replaced by |

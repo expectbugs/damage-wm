@@ -45,6 +45,9 @@ are converted; Music's first half is on a branch (§97); Games, Main and Setting
   ledger beside the local copy (`window.<id>.conv`) so a downgrade's later writes are offered again;
   `ReaderMigrationTest`'s two deploy orders and its fourth case (a web write after the PC's conversion) are the proof's
   shape; the window's keys leave the sync channel (`Persistence.CONVERTED`) with the phone's inbound filter.
+  *2026-11-22: L1 removed Reader's migration whole, its ledger and `ReaderMigrationTest` with it (C5, `76a8e5e2`; out
+  with APK 0.68, `HANDOFF.md` §84.3); S1-2's migrations are one PC-only pass with no ledger (`core/…/app/Migrate.kt`),
+  and the keys leave the channel by the window registry (`Windows.converted`, since S1-2's Q2).*
 - **The defect classes the reviews found** (§80.6): a write no input made (a relayout, a reload, a page load), a loss
   told to no one, what clears a standing offer (`Go there`), a number used twice in one stream (two tabs). The
   continuity test of §3 step 6 becomes the arrangements test (`ReaderArrangementsTest`).

@@ -319,7 +319,9 @@ the service before any `:desktop:run` dev session, are `DAILY.md`'s.
   phone's `startStack`) reconnects keeper-style and re-handshakes every 5 min. `shell.settings` + `window.<id>`
   sync; `shell.state` (per-device UI) never does. **Since S1-1 `window.reader` and `window.reader.*` do not**
   (`Persistence.CONVERTED`; the phone applies only syncable inbound keys, an older peer's said once per key per
-  connection): Reader runs on the PC record (the S1-1 section).
+  connection): Reader runs on the PC record (the S1-1 section). *2026-11-22: since S1-2 the filter is the window
+  registry (`Persistence.syncable` → `Windows.converted`): Reader's, Notices', Tmux's, Files', Torrents' and Feed's
+  keys stay off the channel; `shell.settings` and the other windows' blobs (Music, Games among them) still sync.*
 - **`Shell.postSync`** applies a record on the loop: a record the store already holds ends at the first statement;
   otherwise freshen the key from the LIVE window first, then apply, then live-apply. The driving shell's state is newest by construction, so sync flows driver → idle.
 - **The seam status probe** (`SeamProbe` / `Ctl t="status"`): a non-claiming "does the APK want the radio?"; an

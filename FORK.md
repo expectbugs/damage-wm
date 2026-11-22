@@ -389,7 +389,7 @@ in `fws/` (each candidate in its own `fws/<version>-cfw-<pin8>/` with its patch 
 | free heap is enough for a bigger cache, scratch and staged content | **measured for today's set: arena 13 226 KiB free at cache 160 + the shadow; a 256 KiB cache leaves ≈ 130, ≈ 82 with save-under full (modeled); arena 20 has 71–75 (`HANDOFF.md` §67)**; Phase 3's programs and scratch unknown | Phase 3's budget |
 | the panel can present at 30–60 Hz | **measured 2026-09-15: transfer 2.0 ms median / 12.2 max, worker 3.2 / 17.7 max (`HANDOFF.md` §56) — the link is the ceiling** | F1.3 (done) |
 | the two lenses can start a program together with no visible mismatch | inferred (stock does it over the UART sync) | T3 |
-| local input can be handled on both lenses via stock's mirror | inferred | R0.1, Phase 4 |
+| local input can be handled on both lenses via stock's mirror | inferred | R0.1, Phase 4; C2, in use since 2026-11-19 — LEFT cannot report (`HANDOFF.md` §94); his account of both lenses moving, at times a moment apart (§95, §96), fits it but is not a reading |
 | the ack precedes render on 2.2.6.10 | verified (decompile) | — |
 | the refresh queue carries a rect | verified (decompile); honoured by the async refresh: **no** (verified, instruction level, 2026-09-13); a JBD4010 partial path exists, untimed | F1.3 (done); F1.7 in Phase 2 (Adam, 2026-09-15) |
 | the glasses' idle link request can be gated on the lease | inferred (policy object mapped) | R0.4; F1.6 superseded by Phase 2's link edits, which bind the slow request to the fast record (§58) |

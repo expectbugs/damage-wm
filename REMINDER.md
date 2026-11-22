@@ -33,6 +33,11 @@ for firmware → earlier by number (§65 Phase 2 and the protocol, §48 the fork
 - **Planned on 2026-11-22 (his ask, no code): Music's motion update** — `MUSIC.md` §14 (the bar and timer, the
   visualizers and the lyrics as programs the glasses play, sent ahead of the playhead; a Global beat pulse as a
   firmware item); placed at K3 (`REPLAN.md` §17.3 item 9).
+- **The documents were brought to date on 2026-11-22 (his ask):** every document's statements about the present
+  (the README, the plan's status block under `REPLAN.md` §16.1, `FORK.md`, the window and spec records), and
+  seventeen listed passages settled against the code. **Owed:** the bodies read line by line against the code, and
+  a section in `IMPLEMENTATION.md` for the phone's halves of C1–C3 (the motion programs, the scroll effects, the
+  transitions) — it has none.
 - **Stopped at his word on the week's usage (93 %), work in progress committed:** `wip/084-x3b` (the stale re-make;
   Encode's plan once), `wip/084-k12s1` (Main on one strip, per-row band slots). The vector lane's inputs
   (`wip/084-sv2`) then ONE fork fill and the comparison are the first thing owed.

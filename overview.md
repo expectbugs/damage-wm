@@ -819,6 +819,8 @@ into a UI event code posted via `FUN_0045fc80(ctx, code, data)`.
   dialog**. g2flash **replaces that call** ⇒ SysEvent **9**. ⚠ The `source == ring` gate was the
   PRE-a5d1c31 build: **the installed firmware raises event 9 from either temple as well as the
   ring** (the §1.2 bare-long-press no-op keeps the extra accidental sources harmless).
+  *(2026-11-22: "installed" meant a5d1c31; the fork's builds keep its long-press sites, and C2's input hook, on the
+  installed C3, wraps the dispatcher and leaves them as they are — `FIRMWARE.md` §6.1.)*
 - **ring release-long-press = subtype 0xe** → `FUN_0045fc80(ctx, 0x4a, coords)`, which the
   EvenHub UI handler **drops** (no 0x4a case). g2flash intercepts ⇒ SysEvent **10**
   `RING_LONG_PRESS_RELEASE_EVENT`. True press-and-hold / hold-to-confirm. **Proven.**
@@ -897,7 +899,8 @@ At work Adam wears gloves. The failure chain on stock G2CC (historical since 202
 which our app ignores in silent mode; the chain stops at step 2. A specific shipped patch, not a
 model. *(The pre-a5d1c31 build gated it on `source == ring`; the installed a5d1c31 raises event 9
 from either temple too, and the shell's bare-long-press no-op keeps every source harmless —
-confirmed in daily use since 2026-08-31, `DESIGN.md` §0/§1.2.)*
+confirmed in daily use since 2026-08-31, `DESIGN.md` §0/§1.2. 2026-11-22: the fork's builds, C3 installed, keep
+those sites — `FIRMWARE.md` §6.1.)*
 
 ---
 
@@ -1316,7 +1319,7 @@ The spec has a hybrid power policy and no measured budget.
    > **multiple screens' worth of available or reclaimable memory**, but there's a bit of reverse
    > engineering and plumbing work left."
 
-   ✅ **It LANDED in the installed a5d1c31 (2026-08-30)**: modes 12/13/14 (+11 teardown, 15
+   ✅ **It LANDED in a5d1c31, installed then (2026-08-30; the fork's builds carry it, `FIRMWARE.md` §4)**: modes 12/13/14 (+11 teardown, 15
    refused), lease-scoped 64 KiB, documented in §4. **Adopted 2026-09-06 behind the Global `Cached
    text` row (`HANDOFF.md` §40.6)** — plane-0 text as mode-14 draws under a byte-exact proof; off
    until the on-glass checks have run (they have: in daily use since, `CLAIMS.md`). ⚠ Modes 13/14 draw one x into both

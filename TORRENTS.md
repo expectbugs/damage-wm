@@ -183,6 +183,9 @@ for its page; the transfers row — by hash, by the wrap-end menu row, or by ind
 snapshot, once). A live-synced record reloads its open document at once only while focused;
 unfocused, on the next activation. No per-item state, so no sub-records. `open("t:<hash>")` and
 `open("tl:<fid>")` synthesize the level path so back behaves as if navigated by hand (§16.1).
+*2026-11-22, as built since S1-2 (APK 0.68): the PC record holds the search recents, the two Notify rows and the
+glasses' Size (`TorrentsCore.kt` header); `window.torrents` keeps the rest per device and no longer syncs
+(`Persistence.syncable`, `Windows.converted`).*
 
 ## 4. Providers (§16.10)
 
@@ -230,7 +233,9 @@ reads at most one host interval behind — simpler than an on-demand `maxAge` po
   the host's own (`qBittorrent unreachable Ns`, `host answer not understood`) second.
   App-alone the window is honestly unavailable — a torrent client does not cache. (As built; from
   S1 the phone keeps the last snapshot and shows it with its age, actions dim — `REPLAN.md` §14.3
-  #2, `CONTRACT.md` §12.)
+  #2, `CONTRACT.md` §12.) *2026-11-22: the phone has kept the last snapshot across restarts since §47 (`TorrentsNet.kt`
+  110, `wincache/torrents`), shown under the channel's `PC unreachable since H:MM`; no dimming of actions while away
+  is in `TorrentsGlasses.kt`.*
 
 ## 5. Failure discipline (the absolute rules, applied)
 
