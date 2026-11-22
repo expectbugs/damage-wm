@@ -1142,23 +1142,14 @@ class MotionSim(private val scaled: () -> Boolean = { false }, private val effec
     private fun startVals(o: Instance, i: Int, left: Boolean): Vals? =
         o.prog.tracks[i].segs.firstOrNull { it.verb != WAIT }?.let { vals(o, i, it, 0, left) }
 
-    private fun fill(buf: ByteArray, stride: Int, r: Rect, level: Int) {
-        for (yy in r.y until r.bottom) for (xx in r.x until r.right) setNib(buf, stride, xx, yy, level)
-    }
+    private fun fill(buf: ByteArray, stride: Int, r: Rect, level: Int) = PixelLoops.current().fill(buf, stride, r, level)
 
     /** A source at (x0, y0), clipped to [clip]; [options] null draws the levels as they are, else §2's v1 LUT
      *  (level bits 0-3, bit 4 transparent tested on the source, bit 5 inverse). */
     private fun blit(buf: ByteArray, stride: Int, img: Img, x0: Int, y0: Int, clip: Rect, options: Int?) {
-        val top = (options ?: 15) and 0x0F
-        val inverse = options != null && options and 0x20 != 0
-        val transparent = options != null && options and 0x10 != 0
         val yA = maxOf(clip.y, y0); val yB = minOf(clip.bottom, y0 + img.h)
         val xA = maxOf(clip.x, x0); val xB = minOf(clip.right, x0 + img.w)
-        for (yy in yA until yB) for (xx in xA until xB) {
-            val c = img.px[(yy - y0) * img.w + (xx - x0)].toInt()
-            if (transparent && c == 0) continue
-            setNib(buf, stride, xx, yy, if (options == null) c else ((if (inverse) 15 - c else c) * top) / 15)
-        }
+        PixelLoops.current().blit(buf, stride, img.px, img.w, x0, y0, xA, xB, yA, yB, options)      // C3 ML1: by rows
     }
 
     /** §6.6: [img] drawn [hOut] rows tall at (x0, y0) — output row r takes source row [scaledRow] — columns as they
@@ -1402,29 +1393,14 @@ class MotionSim(private val scaled: () -> Boolean = { false }, private val effec
         /** §5.4: `v(j) = v0 + ((D · E[j] + 2048) >> 12)`, a signed 32-bit product, `>>` arithmetic. */
         fun eased(v0: Int, d: Int, e: Int): Int = v0 + ((d * e + 2048) shr 12)
 
-        /** §5.6: tight packed rows, (w+1)/2 bytes, high nibble first. */
-        fun tightPack(buf: ByteArray, stride: Int, r: Rect): ByteArray {
-            val rb = (r.w + 1) / 2
-            val out = ByteArray(rb * r.h)
-            for (yy in 0 until r.h) for (xx in 0 until r.w) {
-                val v = nib(buf, stride, r.x + xx, r.y + yy)
-                val i = yy * rb + xx / 2
-                out[i] = (if (xx and 1 == 0) v shl 4 else (out[i].toInt() and 0xF0) or v).toByte()
-            }
-            return out
-        }
+        /** §5.6: tight packed rows, (w+1)/2 bytes, high nibble first. C3 ML1: by rows ([PixelLoops]). */
+        fun tightPack(buf: ByteArray, stride: Int, r: Rect): ByteArray = PixelLoops.current().tightPack(buf, stride, r)
 
         /** §5.6: RIGHT's CRC-32 of its shadow over the instance's areas, each tight packed, in track order. */
         fun endCrc(buf: ByteArray, stride: Int, prog: Prog, left: Boolean): Long =
             java.util.zip.CRC32().also { c -> for (t in prog.tracks) c.update(tightPack(buf, stride, t.rect(left))) }.value
 
-        private fun unpack(cache: ByteArray, off: Int, w: Int, h: Int): Img {
-            val rb = (w + 1) / 2
-            return Img(w, h, ByteArray(w * h) { p ->
-                val b = cache[off + (p / w) * rb + (p % w) / 2].toInt() and 0xFF
-                (if ((p % w) and 1 == 0) b shr 4 else b and 0x0F).toByte()
-            })
-        }
+        private fun unpack(cache: ByteArray, off: Int, w: Int, h: Int): Img = Img(w, h, PixelLoops.current().unpack(cache, off, w, h))
 
         /** A v2 image record at byte [off] (`[w u16][h u16][RLE]`, §4) and the end of its RLE stream, as the walk
          *  finds it; null when it is not one inside the cache. */
@@ -1460,7 +1436,7 @@ class MotionSim(private val scaled: () -> Boolean = { false }, private val effec
                     }
                 }
                 if (cnt > px.size - n) return null
-                repeat(cnt) { px[n++] = (op and 0x0F).toByte() }
+                PixelLoops.current().levels(px, n, cnt, (op and 0x0F).toByte()); n += cnt
                 pos += used
                 ends?.add(n); bytes?.add(used)
             }
@@ -1471,10 +1447,6 @@ class MotionSim(private val scaled: () -> Boolean = { false }, private val effec
         fun u8(b: ByteArray, i: Int) = b[i].toInt() and 0xFF
         fun u16(b: ByteArray, i: Int) = u8(b, i) or (u8(b, i + 1) shl 8)
         fun s16(b: ByteArray, i: Int) = u16(b, i).toShort().toInt()
-        private fun nib(buf: ByteArray, stride: Int, x: Int, y: Int): Int {
-            val b = buf[y * stride + (x shr 1)].toInt() and 0xFF
-            return if (x and 1 == 0) b shr 4 else b and 0x0F
-        }
         private fun setNib(buf: ByteArray, stride: Int, x: Int, y: Int, v: Int) {
             val i = y * stride + (x shr 1)
             val b = buf[i].toInt() and 0xFF

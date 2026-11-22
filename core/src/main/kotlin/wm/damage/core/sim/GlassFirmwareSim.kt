@@ -840,7 +840,7 @@ class GlassFirmwareSim() : LensPanels {
                 // the firmware decodes STRAIGHT INTO the shadow, so a stream that fails part-way
                 // leaves the rows it had already written — not the previous frame (2026-09-16
                 // review: the model rolled back, the glasses cannot)
-                if (!Zl.inflateRleInto(src.copyOfRange(1, src.size), c.shadow, 0, c.stride, c.stride, Geometry.PANEL_H)) {
+                if (!Zl.inflateRleInto(src.copyOfRange(1, src.size), c.shadow, 0, c.stride, c.stride, Geometry.PANEL_H, PixelLoops.current().rleRun)) {
                     diag.event("decode", "$arm mode-6 stream did not decode to the frame — " +
                         "refused with the rows it had already written left in the shadow")
                     return refuse(c, src, REF_STREAM)
@@ -891,7 +891,7 @@ class GlassFirmwareSim() : LensPanels {
                 // part-way leaves the pixels it had already written (2026-09-16 review).
                 val rowBytes = w / 2
                 if (!Zl.inflateRleInto(src.copyOfRange(zOff, src.size), c.shadow,
-                        t * c.stride + l / 2, c.stride, rowBytes, h)) {
+                        t * c.stride + l / 2, c.stride, rowBytes, h, PixelLoops.current().rleRun)) {
                     diag.event("decode", "$arm mode-3 stream did not decode to the box — " +
                         "refused with the pixels it had already written left in the shadow")
                     return refuse(c, src, REF_STREAM)
@@ -1513,13 +1513,10 @@ class GlassFirmwareSim() : LensPanels {
         }
     }
 
-    /** §7.3 (C3): the copy hook's direct path with owners open — [shadow] into [fb] everywhere but inside [rects]. */
-    private fun copyOutside(shadow: ByteArray, fb: ByteArray, stride: Int, rects: List<Rect>) {
-        for (y in 0 until Geometry.PANEL_H) for (x in 0 until Geometry.PANEL_W) {
-            if (rects.any { x >= it.x && x < it.right && y >= it.y && y < it.bottom }) continue
-            setNibble(fb, stride, x, y, getNibble(shadow, stride, x, y))
-        }
-    }
+    /** §7.3 (C3): the copy hook's direct path with owners open — [shadow] into [fb] everywhere but inside [rects]. C3 ML1:
+     *  by row spans ([PixelLoops]; the per-pixel test made this the largest share of the phone mirror's apply). */
+    private fun copyOutside(shadow: ByteArray, fb: ByteArray, stride: Int, rects: List<Rect>) =
+        PixelLoops.current().copyOutside(shadow, fb, stride, rects)
 
     /** Decision N.4: the rows where [fb] differs from [panel] (null: none). */
     private fun changedSpan(fb: ByteArray, panel: ByteArray, stride: Int): IntRange? {
