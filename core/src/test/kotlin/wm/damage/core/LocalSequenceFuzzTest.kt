@@ -63,7 +63,8 @@ class LocalSequenceFuzzTest {
      *  adopted notch's, AF.7) plus [LocalHarness.WRAP_FRAME_MS], acted on the row its cursor named (a DISCARD of a move
      *  that was not an adoption set it ahead of the held frame); not built against: holding that DISCARD with the frame
      *  would delay the lens's cursor to protect a picture at most 0.3 s late, and his taps come ≥ 696 ms after a scroll
-     *  message. Counted after S33 and BH, never where row A or A8 counts the sequence. */
+     *  message. Counted after S33 and BH, never where row A or A8 counts the sequence. C3 X2DM1a: only an act that did not
+     *  move the phone's row (RIGHT's cursor where the phone's last answer put it). */
     val A_KEY = "(1) A: a tap inside a COMMIT's held wait acted on the row its cursor named"
     /** C3 FZ5, part BO (D): liveness (6)'s second tap, its click sent with no 115 (`Taps · phone`, the repaired CLEAR
      *  landed), paid an owe of either kind that the first tap's report added for a gap whose report was lost before the
@@ -216,10 +217,12 @@ class LocalSequenceFuzzTest {
     }
 
     /** Part BO (A)'s predicate: RIGHT took the tap before the latest held wait's end plus a frame's way down, and the act is
-     *  on the row its cursor named after the fire. */
+     *  on the row its cursor named after the fire — C3 X2DM1a (decisions CA (5)): and the act did not move the phone's row,
+     *  so that cursor was where the phone's last answer put it (a defect that set RIGHT's cursor on another row while a held
+     *  wait ran would otherwise be counted here). */
     private fun inHeldWait(h: LocalHarness, a: LocalHarness.Act): Boolean {
         val f = h.fires[a.gesture] ?: return false
-        return f.fireTimeR >= 0 && f.fireTimeR < f.holdEndR + LocalHarness.WRAP_FRAME_MS && f.cursorIdR == a.id
+        return f.fireTimeR >= 0 && f.fireTimeR < f.holdEndR + LocalHarness.WRAP_FRAME_MS && f.cursorIdR == a.id && a.rowBefore == a.row
     }
 
     /** Part BO (D)'s predicate for (6)'s second tap [g2] (the first [g1]): no 115 of it reached the phone, its click paid an
