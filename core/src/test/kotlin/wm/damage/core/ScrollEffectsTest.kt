@@ -629,7 +629,10 @@ class ScrollEffectsTest {
      * own segments at stage 5 (256 KiB): Crush's phase 2 starts at that step and its rows (one pitch on phase 1's table,
      * one on phase 2's) never move more than a pixel faster in a step than in the step before — the speed carries across
      * the hand-off, where the first step past half made them 2–11 px a step faster at 4, 8 and 14 steps; Flip's band is
-     * edge-on at that step. Printed for the report: the rows' px a step at each motion.
+     * edge-on at that step. C3 X2DM1a (decisions CA (4)): Crush's two tables are exactly the two parts of one ease-out over
+     * T at that step (the arithmetic computed here) — phase 2's is that ease-out's tail, kept: the built-in ease-out over its
+     * steps equals it within 2/4096 but draws a row a pixel apart at 10, 12, 34 and 45 steps. Printed for the report: the
+     * rows' px a step at each motion.
      */
     @Test
     fun theSplitIsAtTheStepNearestHalfAtEveryStepCount_X2DM1a() {
@@ -655,6 +658,10 @@ class ScrollEffectsTest {
                     val p1 = tr[0].segments.single { it.verb == Motion.DRAW }; val p2 = tr[1].segments.single { it.verb == Motion.DRAW }
                     assertEquals(half, p1.steps, "$what: phase 2 starts at the step whose ease-out over T is nearest half its travel (${half + 1}), not at ${p1.steps + 1}")
                     val e1 = Motion.easeE(p1.ease, p1.steps); val e2 = Motion.easeE(p2.ease, p2.steps)
+                    val w1 = IntArray(half) { i -> Math.round(4096.0 * eo[i + 1] / eo[half]).toInt() }
+                    val w2 = IntArray(t - half) { i -> Math.round(4096.0 * (eo[half + i + 1] - eo[half]) / (4096 - eo[half])).toInt() }
+                    assertEquals(w1.toList() to w2.toList(), e1.drop(1) to e2.drop(1), "$what: the two tables are the two parts of one ease-out over T " +
+                        "at step $half (phase 2's that ease-out's tail, not the built-in ease-out over its ${t - half} steps)")
                     fun px(e: IntArray) = (1 until e.size).map { j -> Motion.eased(0, ms.layout.rowH, e[j]) - Motion.eased(0, ms.layout.rowH, e[j - 1]) }
                     rows = px(e1) + px(e2)
                     for (j in 1 until t) assertTrue(rows[j] <= rows[j - 1] + 1, "$what: the rows move ${rows[j - 1]} px at step $j, then ${rows[j]} at step ${j + 1}" +
