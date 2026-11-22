@@ -8366,6 +8366,9 @@ class Shell(
      *  row, not the screen). [bottom] is the layout's bottom at the time (not compared). */
     private data class ScreenKey(val mode: Mode, val window: String?, val level: Int) {
         var bottom = 0
+        /** C3 X1MX2 item 2 (decisions CB (2)): the screen's content plane at the time — 0 on the silent clock (no plane
+         *  map), else the focused app's own Depth or Global ([contentDepth], as [updatePlanes] lays it). Not compared. */
+        var plane = 0
         /** C3 X2T item 4: the act's effect, picked before its handler paints ([transitionPick]); null below stage 5 or with
          *  nothing checked. Not compared. */
         var pick: wm.damage.core.motion.Transitions.Effect? = null
@@ -8383,6 +8386,7 @@ class Shell(
         return ScreenKey(mode, w?.id, w?.let { if (it === settingsWindow) settingsWindow.listLevel() else it.levelDepth() } ?: 0)
             .also { k ->
                 k.bottom = layout.safe.bottom
+                k.plane = if (quiet) 0 else contentDepth()
                 if (tier != null) transitionPick(tier, k)
             }
     }
@@ -8466,6 +8470,9 @@ class Shell(
         val at4 = (region.first + (k and 1) * CfwModes.TRANSITION_SLOT) / 4
         val tagOut = TransitionRun.TAG_OUT + (k and 0xFFF)
         val tagIn = TransitionRun.TAG_IN + (k and 0xFFF)
+        // C3 X1MX2 item 2 (decisions CB (2)): ONE plane for both halves, the nearer of the two screens' (the hand-over
+        // between the halves needs one grid) — the silent clock's 0 both ways
+        val plane = minOf(before.plane, after.plane)
         // C3 DM-T (`MOTION.md` §7: a random pick among the checked): an Encode or Matrix whose preconditions this act does not
         // meet leaves the pick, said once with its reason, and the pick is made again among the rest; when nothing checked is
         // left, the tier's defaults play — never a refusal he sees
@@ -8482,7 +8489,7 @@ class Shell(
             next = null
             what = "${tier.word} ${effect.label}${if (reversed) " reversed" else ""}"
             try {
-                run = transitionRunOf(st, tier, effect, reversed, area, at4, k, tagOut, tagIn, before)
+                run = transitionRunOf(st, tier, effect, reversed, area, at4, k, tagOut, tagIn, before, plane)
             } catch (e: wm.damage.core.geom.LintError) {
                 if (effect.glyphs && pool.remove(effect)) { leftOut += "${effect.label} (${e.message})"; continue }
                 if (leftOut.isNotEmpty()) journal.note("transition", "left out of this act's pick: ${leftOut.joinToString("; ")}")
@@ -8527,9 +8534,11 @@ class Shell(
      * atlas chunk is queued or in flight (the fonts it reads could move), on a session without 256 KiB and BIND (Encode:
      * the stage reserve holds its lists), when a screen's lists do not fit, or when a half passes 80 % of the step budget;
      * their period and frames follow "the length holds, frames give" ([wm.damage.core.motion.Transitions.timingFor]).
+     * C3 X1MX2 item 2: [plane] is the act's one plane (the nearer of the two screens'), which Matrix's rain takes in both
+     * halves; the Depth effect keeps Global `Depth` (its push back inside the 16-px budget, bytes as before).
      */
     private fun transitionRunOf(st: LinkState, tier: wm.damage.core.motion.Transitions.Tier, effect: wm.damage.core.motion.Transitions.Effect,
-                                reversed: Boolean, area: Rect, at4: Int, k: Int, tagOut: Int, tagIn: Int, before: ScreenKey): TransitionRun {
+                                reversed: Boolean, area: Rect, at4: Int, k: Int, tagOut: Int, tagIn: Int, before: ScreenKey, plane: Int): TransitionRun {
         val fx = wm.damage.core.motion.Motion.effects(wm.damage.core.wire.DamageMsg.Caps(st.damageContract, st.damageFeatures), st.flagsInForce)
         val glyphs = if (!effect.glyphs) null else {
             if (atlasInFlight != null || atlasQueue.isNotEmpty() || atlasBusyForTest) throw wm.damage.core.geom.LintError(ATLAS_BUSY)
@@ -8549,7 +8558,7 @@ class Shell(
         }
         val timing = wm.damage.core.motion.Transitions.timingFor(effect, settings.lengthOf(tier), settings.framesOf(tier), area, glyphs?.cells ?: 0)
         val b = wm.damage.core.motion.Transitions.build(fx, effect, reversed, area, timing, at4, CfwModes.TRANSITION_SLOT,
-            settings.depth, seed = k and 0xFFFF, glyphs = glyphs)
+            settings.depth, seed = k and 0xFFFF, glyphs = glyphs, plane = plane)
         if (effect.glyphs && (!b.withinShare || maxOf(b.outCost, b.inCost) * 100 > wm.damage.core.motion.Motion.BUDGET_CAP * transitionShareForTest))
             throw wm.damage.core.geom.LintError("a half costs ${maxOf(b.outCost, b.inCost)} u, past " +
                 "${minOf(wm.damage.core.motion.Transitions.SHARE_MAX_PERCENT, transitionShareForTest)} % of the step budget's cap")

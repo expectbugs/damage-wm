@@ -182,11 +182,14 @@ object Transitions {
      * tables first, then the out program, then the in program, 4-byte aligned. [seed] seeds the random slices.
      * Refused ([LintError], its message naming the half) where the glasses would refuse a program, or when the records
      * do not fit [room]. No out half is ever replaced: every effect's out program is taken at every height, length and
-     * frame count (pinned offline), so §7.11's one-step freeze is not built. [start]: the rain's out-half travel (C3 X1MX2 item 1; the built one unless a comparison names another).
+     * frame count (pinned offline), so §7.11's one-step freeze is not built. C3 X1MX2 item 2 (decisions CB (2)): [plane]
+     * is the transition's one plane — the nearer of the leaving and the arriving screen's content planes, the shell's —
+     * and Matrix's rain grid sits at it in both halves; [depth] stays Global `Depth`, which only the Depth effect reads.
+     * [start]: the rain's out-half travel (C3 X1MX2 item 1; the built one unless a comparison names another).
      */
     fun build(effects: Motion.Effects, effect: Effect, reversed: Boolean, area: Rect, timing: Timing, at4: Int, room: Int,
-              depth: Int = 8, seed: Int = 0x5EED, glyphs: Glyphs? = null, start: RainStart = RAIN_START): Built {
-        if (effect == Effect.MATRIX) return matrix(effects, reversed, area, timing, at4, room, seed, glyphs, depth, start)
+              depth: Int = 8, seed: Int = 0x5EED, glyphs: Glyphs? = null, plane: Int = depth, start: RainStart = RAIN_START): Built {
+        if (effect == Effect.MATRIX) return matrix(effects, reversed, area, timing, at4, room, seed, glyphs, plane, start)
         if (effect == Effect.ENCODE) return encode(effects, reversed, area, timing, at4, room, seed,
             glyphs ?: throw LintError("Encode: no cells were recorded for it"))
         val (o, i) = paths(effect, area, depth)
