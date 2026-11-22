@@ -289,8 +289,8 @@ object Zl {
      * stream, an RLE that runs short and one that runs long — the shapes a defect on our
      * own side produces — are all exact.
      */
-    fun inflateRleInto(z: ByteArray, dst: ByteArray, off: Int, stride: Int, rowBytes: Int, rows: Int): Boolean {
-        val rs = RleSink(dst, off, stride, rowBytes, rows)
+    fun inflateRleInto(z: ByteArray, dst: ByteArray, off: Int, stride: Int, rowBytes: Int, rows: Int, run: NibbleRun = FAST_RUN): Boolean {
+        val rs = RleSink(dst, off, stride, rowBytes, rows, run)
         val inf = Inflater()
         var ended = false
         try {
@@ -308,6 +308,49 @@ object Zl {
         }
         return ended && rs.done
     }
+
+    /**
+     * C3 ML1 (decisions BZ): one RLE run of [n] nibbles of [v] written from nibble [pos] of a frame [rowNibbles] wide and
+     * [lastNibble] nibbles long, at [off] of [dst] with rows [stride] bytes apart. Returns the next nibble's position, or
+     * -1 where the run reaches past the frame's last nibble (what it wrote up to there stays, as the firmware's writes do).
+     * The firmware model passes its own (`PixelLoops`); a test passes the plain per-nibble loop to compare.
+     */
+    fun interface NibbleRun {
+        fun write(dst: ByteArray, off: Int, stride: Int, rowNibbles: Long, lastNibble: Long, pos: Long, v: Int, n: Int): Long
+    }
+
+    /** [NibbleRun] by rows: within a row an odd first nibble and an even last one alone, the bytes between whole. */
+    val FAST_RUN = NibbleRun { dst, off, stride, rowNibbles, lastNibble, pos, v, n ->
+        var p = pos
+        var k = n
+        var out = 0L
+        while (k > 0) {
+            if (p >= lastNibble) { out = -1L; break }
+            val row = (p / rowNibbles).toInt()
+            val inRow = (p - row * rowNibbles).toInt()
+            val m = minOf(k.toLong(), rowNibbles - inRow).toInt()
+            val base = off + row * stride
+            val a = inRow; val b = inRow + m
+            if (base + (a shr 1) < 0 || base + ((b - 1) shr 1) >= dst.size) {
+                for (x in a until b) {
+                    val i = base + (x shr 1)
+                    dst[i] = if (x and 1 == 0) (((v shl 4) or (dst[i].toInt() and 0x0F)).toByte()) else (((dst[i].toInt() and 0xF0) or v).toByte())
+                }
+            } else {
+                var x = a
+                if (x and 1 == 1) { val i = base + (x shr 1); dst[i] = ((dst[i].toInt() and 0xF0) or v).toByte(); x++ }
+                val bytes = (b - x) shr 1
+                if (bytes > 0) {
+                    java.util.Arrays.fill(dst, base + (x shr 1), base + (x shr 1) + bytes, (((v shl 4) and 0xF0) or v).toByte())
+                    x += bytes shl 1
+                }
+                if (x < b) { val i = base + (x shr 1); dst[i] = ((v shl 4) or (dst[i].toInt() and 0x0F)).toByte() }
+            }
+            p += m; k -= m
+            out = p
+        }
+        if (n <= 0) pos else out
+    }
 }
 
 /**
@@ -319,6 +362,7 @@ object Zl {
 private class RleSink(
     private val dst: ByteArray, private val off: Int,
     private val stride: Int, private val rowBytes: Int, rows: Int,
+    private val run: Zl.NibbleRun,
 ) {
     private var left = rowBytes.toLong() * rows * 2       // nibbles still expected
     private var pos = 0L                                  // nibbles written
@@ -337,16 +381,8 @@ private class RleSink(
     private fun emit(v: Int, n: Int) {
         if (n > left) { err = true; return }
         left -= n
-        var k = n
-        while (k > 0) {
-            if (pos >= lastNibble) { err = true; return }
-            val row = (pos / rowNibbles).toInt()
-            val inRow = (pos - row * rowNibbles).toInt()
-            val i = off + row * stride + (inRow shr 1)
-            dst[i] = if (inRow and 1 == 0) (((v shl 4) or (dst[i].toInt() and 0x0F)).toByte())
-                     else (((dst[i].toInt() and 0xF0) or v).toByte())
-            pos++; k--
-        }
+        val p = run.write(dst, off, stride, rowNibbles, lastNibble, pos, v, n)
+        if (p < 0) err = true else pos = p
     }
 
     fun feed(p: ByteArray, n: Int) {

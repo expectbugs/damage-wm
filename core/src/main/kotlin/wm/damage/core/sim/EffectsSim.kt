@@ -348,17 +348,14 @@ object EffectsSim {
     /** cfw_texture_make_lut (§2's v1 LUT): level bits 0–3, bit 5 inverse. */
     fun lut(options: Int): IntArray = IntArray(16) { i -> ((if (options and 0x20 != 0) 15 - i else i) * (options and 15)) / 15 }
 
-    fun fill(buf: ByteArray, stride: Int, r: Rect, level: Int) {
-        for (yy in r.y until r.bottom) for (xx in r.x until r.right) setNib(buf, stride, xx, yy, level)
-    }
+    // C3 ML1: the three by rows ([PixelLoops]), the same nibbles written
+    fun fill(buf: ByteArray, stride: Int, r: Rect, level: Int) = PixelLoops.current().fill(buf, stride, r, level)
 
     /** [r] of [from] into the same place of [to]. */
-    fun copy(from: ByteArray, to: ByteArray, stride: Int, r: Rect) {
-        for (yy in r.y until r.bottom) for (xx in r.x until r.right) setNib(to, stride, xx, yy, nib(from, stride, xx, yy))
-    }
+    fun copy(from: ByteArray, to: ByteArray, stride: Int, r: Rect) = PixelLoops.current().copy(from, to, stride, r)
 
     /** [r] of [buf] as levels, row-major. */
-    fun grab(buf: ByteArray, stride: Int, r: Rect): ByteArray = ByteArray(r.w * r.h) { nib(buf, stride, r.x + it % r.w, r.y + it / r.w).toByte() }
+    fun grab(buf: ByteArray, stride: Int, r: Rect): ByteArray = PixelLoops.current().grab(buf, stride, r)
 
     const val MODEL_UNIFORM = 0; const val MODEL_RADIAL = 1; const val MODEL_RANDOM = 2
     /** §7.6 a font: a 224-entry v2 table, 448 B. */
