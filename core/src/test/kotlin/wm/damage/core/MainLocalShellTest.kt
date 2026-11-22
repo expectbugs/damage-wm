@@ -1323,8 +1323,11 @@ class MainLocalShellTest {
      *   item table or press byte), and ONE flush then carries the list's LIST-RING with the new pitch (+rowH for Crush,
      *   −rowH back) AHEAD of the three SETs naming the re-made pans (with the slot's DISCARD naming the row);
      * - a notch fired on the lenses just before the change, its report held on the way until the switch's batch has landed
-     *   on both, is NOT adopted against the new form — refused, `restaged`: the mark, or `names` behind it — applied as today (one
-     *   row), and belief equals both lenses;
+     *   on both, is NOT adopted against the new form — refused, `restaged`, by the switch's fresh mark — applied as today (one
+     *   row), and belief equals both lenses. (C3 X2DM1a, decisions CA (6): the mark gives no protection `names` does not —
+     *   `names` judges each list with its own entry and pitch, so a report from a lens holding the new pitch with the old
+     *   entry matches neither list and `names` refuses it; what the mark changes is that the held report, which `names`
+     *   would adopt against the previous list it was drawn from — right too — is applied as today instead);
      * - the next notch plays the new effect's pan on both lenses (slot 0's program) and is COMMITted with no snap-back,
      *   belief equal to both lenses.
      */
