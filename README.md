@@ -13,32 +13,34 @@ own interface on it.
 last frame (the X11 DAMAGE extension). Batching a frame's damage into one Bluetooth message
 instead of one per region is the whole thesis: the round-trip cost is per message, not per region.
 
-## Status (2026-11-14)
+## Status (2026-11-22)
 
 **Built and in daily use since 2026-08-31** (on the author's glasses since first light, 2026-08-30):
-- **The phone APK (0.65)** drives the glasses: the radio and the shell. **The PC service** (OpenRC, headless)
-  serves the content, tmux, the state sync and the window channel, and stands by to drive the glasses over
-  PC-direct BlueZ while the APK is away. How it runs: [`IMPLEMENTATION.md`](IMPLEMENTATION.md); operations:
-  `DAILY.md`.
+- **The phone APK (0.83 on the phone; 0.84 staged, the PC runs it)** drives the glasses: the radio and the shell.
+  **The PC service** (OpenRC, headless) owns the converted windows' state, serves the content, tmux, the state sync
+  and the window channel, and watches the bus's alerts; it never drives the glasses by itself — PC-direct BlueZ is a
+  manual choice (`HANDOFF.md` §79). How it runs: [`IMPLEMENTATION.md`](IMPLEMENTATION.md); operations: `DAILY.md`;
+  the state today: [`REMINDER.md`](REMINDER.md).
 - **Nine windows:** Main, Settings, Reader, Tmux, Files, Torrents, Music (with Music Mode), Games (Texas
   Hold'em against a persistent cast) and Feed (Reddit, Slashdot, webcomics). Per-window records: `TMUX.md`,
   `TORRENTS.md`, `MUSIC.md`, `HOLDEM.md`, `FEED.md`.
-- **A browser interface, the first of four more** (built 2026-11-14, APK 0.67; not yet in daily use): Reader's shelf
-  and books in a browser on the author's own networks, the reading place shared with the glasses. The PC owns
-  Reader's state behind an operation log; the phone keeps a working copy (`CONTRACT.md`, `HANDOFF.md` §80).
+- **A browser interface, the first of four more** (not yet in daily use): Reader (APK 0.67, `HANDOFF.md` §80),
+  Torrents and Files (0.68, §84), Feed and Tmux (0.70, §89) in a browser on the author's own networks. The PC owns
+  those windows' state behind an operation log; the phone keeps a working copy (`CONTRACT.md`).
 - **A Damage build of the custom firmware** (`~/damage-cfw`, GPL-3.0, its own repository; `FORK.md`) on both
-  lenses since 2026-09-16: telemetry, a self-test, and the drawing contract v2 — per-lens cached draws, fills,
-  clips, a partial panel refresh, LE 2M (`FIRMWARE.md` §3, §4).
+  lenses since 2026-09-16; the installed build is C3 (since 2026-11-20, `HANDOFF.md` §99): telemetry, a self-test,
+  the drawing contract v2 — per-lens cached draws, fills, clips, a partial panel refresh, LE 2M (`FIRMWARE.md` §3,
+  §4) — and, from builds C1–C3, motion programs the glasses play on their own clock, local ring input and the
+  transition effects (`FIRMWARE.md` §5–§7; the animation plan is `MOTION.md` §7).
 
-**Designed, not built** — the order of work is [`REPLAN.md`](REPLAN.md): the PC becomes the one owner of every
-window's state (Reader's since APK 0.67); four more interfaces present the same windows (the desktop, the phone app's own screen, a TV,
+**Designed, not built** — the order of work is [`REPLAN.md`](REPLAN.md) §17: the PC becomes the one owner of every
+window's state (Music's first half is built on a branch; Games, Main and Settings follow); four more interfaces present the same windows (the desktop, the phone app's own screen, a TV,
 any browser — `INTERFACES.md`), beside a dashboard and control system (`BASTION.md`) and a reminders window
-(`REMINDERS.md`); [`CONTRACT.md`](CONTRACT.md) is the app contract they share. Two batched firmware
-flashes bring motion and local ring input to the glasses (`FIRMWARE.md` §5, §6; `MOTION.md`). New windows
-follow.
+(`REMINDERS.md`); [`CONTRACT.md`](CONTRACT.md) is the app contract they share. The glasses kit redraws every window
+on the new firmware (its motion part is under way). New windows follow.
 
 [`HANDOFF.md`](HANDOFF.md) holds the dated records (§10–§26 install, first light and the app wave; §27–§47
-reviews and latency; §48 onward the firmware fork; §78 the re-plan).
+reviews and latency; §48 onward the firmware fork; §78 the re-plan; §79 onward the builds since).
 
 ## Start here
 
@@ -46,12 +48,12 @@ reviews and latency; §48 onward the firmware fork; §78 the re-plan).
 |---|---|
 | **[`REMINDER.md`](REMINDER.md)** | orientation — project state, what is next, what is still unmeasured |
 | **[`REPLAN.md`](REPLAN.md)** | the order of work as the author ruled it (2026-11-12), and his rulings since |
-| **[`CONTRACT.md`](CONTRACT.md)** | the app contract: one description per window, every interface a presenter of it (Reader is built on it; the other windows follow) |
+| **[`CONTRACT.md`](CONTRACT.md)** | the app contract: one description per window, every interface a presenter of it (Reader, Torrents, Files, Feed and Tmux are built on it; the other windows follow) |
 | [`FORK.md`](FORK.md) | the firmware fork: its protocol (§3), decisions, the design of each firmware piece, the flash ritual (§7) |
 | [`FIRMWARE.md`](FIRMWARE.md) | the firmware contract both the fork (C) and Damage's simulator (Kotlin) implement; the conformance vectors (§9) |
-| [`MOTION.md`](MOTION.md) | the motion explosion (every animation candidate per surface and window) and its refinery, ruled 2026-11-13 (§6) |
+| [`MOTION.md`](MOTION.md) | the motion explosion (every animation candidate per surface and window) and its refinery, ruled 2026-11-13 (§6); the animation plan, ruled 2026-11-19 (§7) |
 | `INTERFACES.md`, `BASTION.md`, `REMINDERS.md` | the explosions of the new interfaces, the dashboard and control system, and the reminders window (ruled in `REPLAN.md` §15) |
-| [`HANDOFF.md`](HANDOFF.md) | the dated session records (§78 is the latest; `REMINDER.md` is the entry point) |
+| [`HANDOFF.md`](HANDOFF.md) | the dated session records (§101 is the latest; `REMINDER.md` is the entry point) |
 | [`WINDOWS.md`](WINDOWS.md) | how a G2CC app becomes a DamageWM window — the checklist new windows are built with, after `REPLAN.md`'s steps |
 | [`EXPLOSION.md`](EXPLOSION.md) | the graded app backlog, the §16 contract record, the refinery verdicts |
 | [`TORRENTS.md`](TORRENTS.md) | Torrents: verdicts, the verified qBittorrent and TorrentLeech facts, design, plan |
@@ -79,9 +81,9 @@ Three facts about this display shape most of the design:
 ## Building and verifying
 
 ```
-./gradlew :core:test                                  # 1,355 tests, incl. the per-lens oracle and the conformance vectors
-./gradlew :desktop:test                               # 45 tests: the BlueZ glue over a fake link, the standby policy, the setup server, the config file, the xkcd PNG decoder, the status cell's fit
-./gradlew :desktop:run --args="--selfcheck"           # the 484-check whole-stack gate, run twice (both contracts); run it more than once
+./gradlew :core:test                                  # 2,032 tests at APK 0.83 (HANDOFF §100), incl. the per-lens oracle and the conformance vectors
+./gradlew :desktop:test                               # 53 tests: the BlueZ glue over a fake link, the standby policy, the setup server, the config file, the xkcd PNG decoder, the status cell's fit
+./gradlew :desktop:run --args="--selfcheck"           # the 486-check whole-stack gate, run twice (both contracts); run it more than once
 ./gradlew :desktop:run --args="--snapshot DIR"        # lens-truth PNGs of every surface
 ./gradlew :desktop:run --args="--epub-check"          # parse every book; chapters + image decode
 ./gradlew :desktop:run --args="--music-check"         # the real music library, read-only (counts, catalog, lanes, cache keys, Qdrant, viz)

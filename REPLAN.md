@@ -13,6 +13,9 @@ first. §1–§13 stand as written on 2026-11-12 (the proposal); the recommendat
 facts come from two read-only inventories of that day (rough where marked "≈") and a third reader's challenge
 (§13). Nothing here was measured on the glasses unless it says so.
 
+**Status 2026-11-22:** the order is §17.3 (the lean correction of 11-17 wins over §14 and §16 where they differ);
+which steps are done, in progress and not started is the status block under §16.1's order line.
+
 ---
 
 ## 1. Where Damage is going (Adam, 2026-11-12)
@@ -523,6 +526,15 @@ inventories of the code behind the contract, kept in the private folder with ste
 (S1-1 alone; S1-2 with S1-3; S1-4 with S1-5); C1's phone half rides the second, C2's the third. Each build's size is put
 to him at the sitting before it (the previous deploy), so a "go" costs no sitting of its own.
 
+**Status 2026-11-22** (the order as corrected is §17.3; the state today is `REMINDER.md`). **Done:** W (APK 0.66,
+`HANDOFF.md` §79) · S1-1 (0.67, §80) · L0 and L1 with S1-2 inside it (0.68, deployed 11-17, §84) · C1 (flashed
+11-18, §88) · S1-3 (0.70, installed 11-18, §89, §91) · C2 (flashed 11-19, armed at ladder stage 4, §94) · C3, the
+effects build of §17.3 item 8 (flashed 11-20, §99; not the offline-home C3 of row G), ladder stage 5 armed 11-21
+(§101). **In progress:** K1, the motion kit's shell part (§17.3 items 6 and 8): APK 0.83 (§100), 0.84 staged 11-22
+with the PC on it and his phone on 0.83 (§101) · S1-4's first half (Music) built and reviewed on `wip/s14-k`, not
+merged (§97) · Music's motion update planned (`MUSIC.md` §14, §17.3 item 9). **Not started:** S1-5, S2, K2–K4,
+Reminders, S3, G.
+
 | build | contains | he sees in daily use | needs from him (sittings) | before it starts | gate |
 |---|---|---|---|---|---|
 | **W** the alert watcher | its design pass as amended (§15 "the alert watcher's size"): the hub reader on one GET path, rules with severity, the alert store keeping its own epoch, delivery to the glasses and the phone with Acknowledge as an action, the host Settings category and `gatedBy`, the one Quiet hours row, "home unreachable", PC-direct Bluetooth made manual, the nightly copy, listener reach (§15 A1). Rider: the free-memory read at three points of a start (C1's need) | bus alerts on the glasses and the phone, an urgent one repeating every ten minutes until acknowledged; "home unreachable"; the PC never takes the glasses by itself | 1: the APK install (the PC deploy is the lead's); a look at the first rules and his quiet hours | his go (§16.5 #1) | the battery; the design's 19 tests and its mutation list; lint RO001; a day of the journal read |
@@ -728,7 +740,8 @@ what an actor may do; the snapshot judge; one look at every page in a real brows
    is built for mixed builds, downgrades or deploy orders.
 3. **Access is frozen as built.** No further pairing, secret or policy work; a policy that blocks a thing he would
    use gives way (the browser terminal: the lead recommends allowing inline styles for the page so that the emulator
-   can run; his word is still owed).
+   can run; his word is still owed). *2026-11-22: built in L1 as the lead's call, his to reverse (`HANDOFF.md` §84,
+   84.2).*
 4. **The app layer's process is lean** (`CLAUDE.md`, protocol item 7): one review pass, the three tests, no mutation
    lists, removal as welcome as addition. A build over its planned size says so, with what the extra lines are for, and goes on (Adam, 2026-11-18:
    absolute size is irrelevant within reason as long as it has purpose); the three tests judge the lines, not their count.

@@ -7,6 +7,9 @@ the app wave after Files (`EXPLOSION.md` §20); not a G2CC conversion — Reader
 are the precedents. `IMPLEMENTATION.md` → "Torrents + the keyboard" is what runs; the keyboard's
 design is `DESIGN.md` §4.8.
 
+**Status since build S1-2 (APK 0.68, deployed 2026-11-17, inside the cleanup L1; `HANDOFF.md` §84 the record,
+`CONTRACT.md` §12 the contract): Torrents is on the PC's record, with a page;** its notices are raised once on the PC.
+
 His intent, verbatim (§19): *"the ability to log into and browse my private torrent site and
 add torrents to qbittorrent all within G2. Especially useful for things like linux distros I
 want to try and other large downloads better done via torrent."* And the build rule set here

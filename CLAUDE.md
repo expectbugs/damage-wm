@@ -140,8 +140,8 @@ and holds only the contract (`FIRMWARE.md`). **Never flash without Adam's in-the
 and every interface connects to it; the phone keeps a working copy, draws the glasses and carries on when the PC is out
 of reach; **PC-direct BLE is a manual choice, never automatic.** The alert watcher made PC-direct BLE manual in code
 (APK 0.66, `HANDOFF.md` §79); step S1 brings the rest (`REPLAN.md` §15, §16): S1-1 converted Reader onto the PC record and
-built the web listener (APK 0.67, `HANDOFF.md` §80); Torrents, Files, Feed and Tmux followed with their pages (S1-2 and
-S1-3, deployed by APK 0.70, §89, §91); Music's first half is built and not merged (§97); Games, Main and Settings are
+built the web listener (APK 0.67, `HANDOFF.md` §80); Torrents and Files followed with their pages (S1-2, inside
+the cleanup L1, APK 0.68, §84), then Feed and Tmux (S1-3, APK 0.70, §89, §91); Music's first half is built and not merged (§97); Games, Main and Settings are
 S1-5. The firmware side: the fork's builds C1 (the motion engine), C2 (local input) and C3 (the effects) are flashed, the
 ladder at stage 5 since 2026-11-21 (§88, §94, §99, §101). **What runs until S1 closes (`HANDOFF.md` §19,
 §79):** the **phone APK drives** (radio and shell); the OpenRC `damage` service on beardos is the **data provider** (and

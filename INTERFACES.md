@@ -9,6 +9,9 @@ the list. Plain wording throughout (`CLAUDE.md`).
 
 **Status: an EXPLOSION written 2026-11-12/13 for Adam's refinery. Nothing in it is built or in force. The decisions
 put to him are in `REPLAN.md` §15; his rulings are recorded there.** `REPLAN.md` §14 wins wherever this differs.
+*Status 2026-11-22:* the web interface is partly built — the listener, §4's device approval and the web rows that
+`REPLAN.md` §16.1 placed in S1-1 to S1-3 (Reader, Torrents, Files, Feed, Tmux; `HANDOFF.md` §80, §84, §89); the
+phone's own screen (P rows) and the XFCE4 piece (X rows) are S2, not started. "Today" in §1 means 2026-11-13.
 Grades: **read** (file:line or URL), **reported**, **inferred**, **unknown**. Nothing here was measured on his
 devices. R1–R6 are step A's research reports, kept in the private folder (`private/stepA/`, out of the repository);
 details of his home and of today's listeners are in its annex (`private/BASTION-annex.md`). §4 holds the rules

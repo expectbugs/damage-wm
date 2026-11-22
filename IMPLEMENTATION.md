@@ -1,7 +1,10 @@
 # Damage — implementation notes
 
 What runs and how, as built for APK 0.67 (`HANDOFF.md` §80; the PC service runs it since 2026-11-14, the APK is staged —
-§80.13).
+§80.13). *Status 2026-11-22:* each section is dated by the build that wrote it; the code is at APK 0.84 (staged
+2026-11-22, the PC runs it; his phone runs 0.83 — `REMINDER.md`). The phone halves of C1–C3 (motion programs, local
+input, the scroll effects and transitions) have no section here yet: `FIRMWARE.md` §5–§7, `MOTION.md` §7 and
+`HANDOFF.md` §85–§101 hold them; C2's appears under "Review hardening".
 Each build's record is `HANDOFF.md`; the current battery counts are `REMINDER.md`'s; operations are `DAILY.md`.
 
 **The topology as built** (`HANDOFF.md` §19, §79): **the phone shell drives (radio and shell, while the APK is up); the
@@ -10,8 +13,9 @@ bus alert watcher — and since W it never drives by itself: PC-direct BLE is a 
 replica probe `drive=ble`, the PC shell's `Target` row). **Ruled to change (`REPLAN.md` §14, 2026-11-12):** the PC
 owns every window's state and the phone keeps a working copy (the two-way stamped sync is replaced — `CONTRACT.md`
 §9.7); the code reaches that at step S1 (`REPLAN.md` §16.1). S1-1 (APK 0.67, §80) put Reader on the PC record with
-the phone's working copy and added the web listener (the section below); every other window still runs as this file
-says.
+the phone's working copy and added the web listener (the section below); S1-2 (APK 0.68, §84) did the same for
+Torrents and Files and S1-3 (APK 0.70, §89) for Feed and Tmux; every other window (Music, Games, Main, Settings)
+still runs as this file says.
 
 One `:core` library holds the shell, the byte-exact glass simulator, the compositor and every window (Main · Settings
 · Reader · Tmux · Files · Torrents · Music · Games · Feed) on the CFW display contract (modes 3/6/8/9, the 11–15
@@ -1261,9 +1265,9 @@ These mechanisms are load-bearing and easy to break by accident:
 
 ## Verification
 
-The battery is `CLAUDE.md`'s list; **the current counts are `REMINDER.md`'s** (at APK 0.68's gate, simulator:
-core 1,499 · desktop 51 · `--selfcheck` 484 PASS lines ×3 · 67 snapshot renders + 31 in
-`phone/` · node 118 · lint 0). The phone build runs in its own gradle call
+The battery is `CLAUDE.md`'s list; **the current counts are `REMINDER.md`'s** (at APK 0.82's gate, simulator,
+`HANDOFF.md` §97.2: core 1,828 · desktop 53 · `--selfcheck` 486 PASS ×2 · 94 snapshot renders + 66 in `phone/` ·
+node 200 · lint 0; at 0.83's, core 2,032, §100). The phone build runs in its own gradle call
 (`:phone:assembleDebug` — `:phone:stageApk` STAGES the APK for install and is never a battery step). The fork:
 `tools/verify.py` · `host/run_vectors.py` · `host/run_self_test.py` · `host/test_damage_ext.py`.
 Every review's pins were run against the unfixed tree and watched to fail before they counted.

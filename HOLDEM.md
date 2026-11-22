@@ -1,6 +1,7 @@
 # Games · Texas Hold'em — the design record and build plan
 
-**Status: BUILT 2026-09-04** (M1–M6, two review passes and a live session — `HANDOFF.md` §26).
+**Status: BUILT 2026-09-04** (M1–M6, two review passes and a live session — `HANDOFF.md` §26). *2026-11-22:* its
+move onto the PC's record (`CONTRACT.md` §2.7, §12) is build S1-5, not started (`REPLAN.md` §16.1).
 Verdicts first, then the design, then the build order, then **§17: what the build did and where
 it departed from this design. Where §17 and an earlier section disagree, §17 is what runs.**
 

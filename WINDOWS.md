@@ -21,13 +21,15 @@ PUSH slice, a second endpoint (:7404) for media bytes, per-height layouts and th
 stereo planes via `contentPlanes`; a kit under `windows/games/kit/` that names no card game; the persisted
 record is an ACTION LOG the engine replays) · `FeedWindow` (`FEED.md`: ONE engine class on both hosts, the
 phone's parked and switching back only by hand — as built; the phone's engine retires at step S1, `CONTRACT.md`
-§14 (a) row 1; the Reader grammar over nine levels; synced reading state with a union rule for read marks; an
+§14 (a) row 1 — retired in S1-3, APK 0.70, `HANDOFF.md` §89.1; the Reader grammar over nine levels; synced reading state with a union rule for read marks; an
 endless archive Document; strips on demand from `view()`).
 
 **What changes at step S1** (`REPLAN.md` §14, `CONTRACT.md` §11): everything below describes the contract as built.
 From S1 the PC owns every window's state, each window splits into a core and a glasses presenter, and the sync
 these sections rely on is replaced (`CONTRACT.md` §2, §9.7); `CONTRACT.md` §11.3 maps today's contract row by row.
 A window built after the re-plan's steps is described once for every interface (`CONTRACT.md` §3, §12).
+*Status 2026-11-22:* S1 is under way — Reader (S1-1, §80), Torrents and Files (S1-2, §84), Feed and Tmux (S1-3, §89)
+are converted; Music's first half is on a branch (§97); Games, Main and Settings are S1-5 (`REPLAN.md` §16.1).
 
 **What converting Reader taught** (S1-1, APK 0.67, `HANDOFF.md` §80; how it runs: `IMPLEMENTATION.md`'s S1-1 section):
 - **A converted window is a core plus a glasses presenter.** `ReaderCore` (a `WindowCore`: describe, level, actions,

@@ -3,7 +3,9 @@
 **Status: BUILT 2026-09-01/02 (M1–M6, a commit per milestone; `HANDOFF.md` §24 is the build
 record); §4 closed; reviewed three ways the same day (§24.2, §24.3) and in the 2026-09-03 review
 (§25).** What remains: the on-phone checks (`DAILY.md` → Music). **§14 (2026-11-22): the motion update — the
-bar and timer, the visualizers and the lyrics as programs the glasses play — planned, not built.** `EXPLOSION.md` §3 is the idea
+bar and timer, the visualizers and the lyrics as programs the glasses play — planned, not built.** **S1-4's first half (Music on the PC's record: the queue, the output moves, the PC's player)
+is built and reviewed on `wip/s14-k`, not merged (`HANDOFF.md` §97.5); his five answers to its spec are
+`REPLAN.md` §17.3 item 7. Until it merges, this file's as-built sections are what runs.** `EXPLOSION.md` §3 is the idea
 record; `/home/user/G2CC/docs/MUSIC_SPEC.md` the previous player's decisions (facts only — the
 G2CC music *system* is Damage's now; code ported, never pasted). Where §3 (the design) and §7–§9
 (as built) overlap, the as-built section is what runs.

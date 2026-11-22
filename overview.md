@@ -15,7 +15,14 @@ Hold'em 2026-09-04 (§26, `HOLDEM.md`). App layer: Main · Settings · Reader ·
 Torrents · Music · Games. This file is **the fact record** — read it with
 [`CLAIMS.md`](CLAIMS.md) for grades; the app wave's records are `EXPLOSION.md`, `WINDOWS.md`,
 `TORRENTS.md`. ⚠ Facts below marked "our firmware is 2.2.2.20" are historical: **the pair now
-runs the CFW** (g2flash `a5d1c31`, reporting `2.2.6.10`; detect by `EVENCFW/`, never the version).
+runs the CFW** (g2flash `a5d1c31` from 2026-08-30, reporting `2.2.6.10`; since 2026-09-15 the Damage fork of it,
+`FORK.md`; detect by `EVENCFW/`, never the version).
+
+**Status 2026-11-22** (the state today is `REMINDER.md`; this file's research facts stand as dated): the pair runs
+the fork's build C3 (pin `58741c4a…`, both lenses since 2026-11-20, `HANDOFF.md` §99; C2's `b3f04453…` is the
+rollback), with motion programs, local ring input and the transition effects armed at ladder stage 5 (§101). The
+phone APK drives (0.83; 0.84 staged, the PC on it); the PC owns Reader's, Torrents', Files', Feed's and Tmux's
+state and serves them to a browser (§80, §84, §89); Feed is in the app layer since 2026-09-09 (§43).
 
 What closed the phase: both BTSnoop captures recovered and re-decoded against Even's own 27
 protobuf schemas; the CFW image verified reproducible offline; Faceclaw read for prior art;
@@ -147,7 +154,8 @@ Measured from Adam's own BTSnoop captures of his own glasses. Canonical source:
 
 **Our firmware — HISTORICAL (superseded 2026-08-30):** the captures in this section were taken
 on stock **`2.2.2.20`** (ring `2.2.0.0014`). The pair now runs the CFW (g2flash `a5d1c31`,
-reporting `2.2.6.10`) and the ring `2.2.6.0009` — `HANDOFF.md` §10/§10.13.
+reporting `2.2.6.10`) and the ring `2.2.6.0009` — `HANDOFF.md` §10/§10.13. *(2026-11-22: since 2026-09-15 the
+Damage fork of that CFW; the installed build is C3, `HANDOFF.md` §99.)*
 
 ### 🔴🔴 THE CANVAS IS 640×480, NOT 576×288 (2026-08-17, from the CFW author)
 
@@ -1546,7 +1554,8 @@ by grepping `adam` in the public g2cc repo — hygiene note below).
 - **His current work:** (a) **EvenHub compatibility** — EvenHub apps in a webview, the layout
   rasterised to an image and sent, plus extensions over the stock API; (b) **font
   configurability** (he prefers small fonts, ships Terminus 6×12); (c) 🔑 **a texture cache in the
-  firmware protocol** — §11 #2; LANDED in a5d1c31 (2026-08-30), the installed firmware.
+  firmware protocol** — §11 #2; LANDED in a5d1c31 (2026-08-30), the installed firmware then (the fork's
+  builds carry it, `FIRMWARE.md` §4).
 - **Adam's stated position:** personal use, no Hub compatibility wanted, **PC-powered with the
   phone as a Tailscale bridge** — flagged to Babcock as possibly incompatible with Faceclaw's
   phone-resident design. The seam: **Faceclaw runs on the phone, Damage on the PC.** Collaborate

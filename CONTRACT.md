@@ -7,7 +7,8 @@ describes what it shows and can do, so that the glasses, a web page, the phone a
 desktop each present it, and how every interface connects to the PC that holds the state. Plain wording throughout
 (`CLAUDE.md`). Documents only; what S1-1 built (APK 0.67, `HANDOFF.md` §80) and what S1-2 built, as the cleanup L1
 left both (APK 0.68, `HANDOFF.md` §84), and what S1-3 built (Feed and Tmux, APK 0.70, `HANDOFF.md` §89) is corrected
-below as built.
+below as built. *2026-11-22:* S1-4's first half (Music) is built on a branch and not merged (`HANDOFF.md` §97); its
+rows below still read as designed. S1-5 is not started.
 
 **Status: IN FORCE for the build plan (2026-11-13; brought to the code after L1, 2026-11-17).** The three rows of §14
 (a) are taken as recommended on Adam's word of that day ("I trust your recommendations for the open stuff") and were
