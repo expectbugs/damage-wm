@@ -9505,5 +9505,23 @@
   ],
   "note": "C3 TR1, decisions BV (2): the acks' rule without its allowance (0.83's) — with the out-half body lost it fires before the in-half body on his link",
   "from": "C3-TR1"
+ },
+ {
+  "id": "SC1-notch-composes-twice",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                if (staged) composeContent()\n",
+    "                composeContent()\n"
+   ]
+  ],
+  "tests": [
+   "*SettingsAdjustPaintTest*"
+  ],
+  "expect": [
+   "anAdjustNotchComposesTheContentOnce_SC1"
+  ],
+  "note": "SC1 (part CD): an applied row's adjust notch composes again after applySettings's composition (the tree before SC1; watched: 2 compositions, the pin fails)",
+  "from": "SC1"
  }
 ]
