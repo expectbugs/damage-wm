@@ -8756,9 +8756,9 @@
    "*MainLocalShellTest.aPitchSwitch*"
   ],
   "expect": [
-   "(no pin, declared: with the mark kept, BoundList.names still refuses the old pitch's report once the previous list is released, and before that judges it against the previous list with its own program and P - never against the new form; the fresh mark refuses it earlier and closes names()'s split test (program and P judged against either list); a pin needs the report to land between the switch's batch and the release, a window the instant rig closes at once)"
+   "(no pin, declared: the fresh mark gives no protection BoundList.names does not - names judges each list with its own entry and pitch, so a report from a lens holding the new pitch with the old entry matches neither list and names refuses it; with the mark kept a report from a fire before the switch is judged against the previous list it was drawn from and adopted there, which is right too, where the fresh mark makes it applied as today; a pin needs the report to land between the switch's batch and the release, a window the instant rig closes at once. The mutant turns off freshness for every LIST (new stagings and the whole table again), not only the pitch switch; 'not caught' was read on the S6 pin alone and no other row covers the fresh mark)"
   ],
-  "note": "C3 DM-1 (S6): the switch's LIST keeps the wire mark - a report from a fire before the switch is no longer refused by P3's mark test (restaged) but judged against the stagings",
+  "note": "C3 DM-1 (S6): the switch's LIST keeps the wire mark - a report from a fire before the switch is no longer refused by P3's mark test (restaged) but judged against the stagings. C3 X2DM1a (decisions CA (6)): the recorded reason corrected (V2DM1's finding 6: the fresh mark does not close names()'s split test)",
   "from": "C3-DM1"
  },
  {
@@ -8903,8 +8903,8 @@
   "file": "motion/Wheel.kt",
   "edits": [
    [
-    "        val n1 = (1 until t).first { eo[it] >= 2048 || it == t - 1 }\n",
-    "        val n1 = minOf(t - 1, (1 until t).first { eo[it] >= 2048 || it == t - 1 } + 1)\n"
+    "        val n1 = split ?: (1 until t).first { eo[it] >= 2048 || it == t - 1 }\n",
+    "        val n1 = split ?: minOf(t - 1, (1 until t).first { eo[it] >= 2048 || it == t - 1 } + 1)\n"
    ]
   ],
   "tests": [
@@ -8913,7 +8913,7 @@
   "expect": [
    "theFormsSwapAtHalfTheTravel_DW0"
   ],
-  "note": "C3 DW-0 item 3: the forms swap one step after half the travel",
+  "note": "C3 DW-0 item 3: the forms swap one step after half the travel. C3 X2DM1a: re-pointed (swapTables takes the scroll effects' split as an argument; the wheel's own split unchanged)",
   "from": "C3-DW0"
  },
  {
@@ -9075,7 +9075,7 @@
     "val n1 = phase1(t); val n2 = t - n1\n        val down = step > 0"
    ],
    [
-    "        ScrollEffect.CRUSH -> easeOutParts(t).toList()",
+    "        ScrollEffect.CRUSH -> Wheel.swapTables(t, halfStep(t)).toList()",
     "        ScrollEffect.CRUSH -> phase1(t).let { n1 -> listOf(n1, t - n1).map { n -> Motion.easeE(Motion.Ease.EaseOut, n).drop(1).toIntArray() } }"
    ]
   ],
@@ -9085,12 +9085,12 @@
   "expect": [
    "crushsTwoPhasesAreOneEaseOutSplitAtHalfItsTravel_X1DM1"
   ],
-  "note": "C3 X1DM1 (decisions BP (1)): the old split - two ease-outs of T/2 each (phase 1 over ceil(T/2), each phase easing out to a near stop), as DM-1 built it; the split's pin sees phase 2 start at step 11 of 19, not 7",
+  "note": "C3 X1DM1 (decisions BP (1)): the old split - two ease-outs of T/2 each (phase 1 over ceil(T/2), each phase easing out to a near stop), as DM-1 built it; the split's pin sees phase 2 start at step 11 of 19, not 7. C3 X2DM1a: re-pointed (Crush's tables now come from Wheel.swapTables, the one copy of the arithmetic)",
   "from": "C3-X1DM1"
  },
  {
   "id": "X1DM1-crush-e1-own-ease",
-  "file": "motion/ScrollEffects.kt",
+  "file": "motion/Wheel.kt",
   "edits": [
    [
     "        val e1 = IntArray(n1) { i -> Math.round(4096.0 * eo[i + 1] / eo[n1]).toInt() }",
@@ -9103,7 +9103,7 @@
   "expect": [
    "crushsTwoPhasesAreOneEaseOutSplitAtHalfItsTravel_X1DM1"
   ],
-  "note": "C3 X1DM1 (decisions BP (1)): the split at half the travel kept, but phase 1 on an ease-out of its own (it slows to a near stop before phase 2) - a mover on the two tables leaves one ease-out over T by more than a pixel",
+  "note": "C3 X1DM1 (decisions BP (1)): the split at half the travel kept, but phase 1 on an ease-out of its own (it slows to a near stop before phase 2) - a mover on the two tables leaves one ease-out over T by more than a pixel. C3 X2DM1a: re-pointed to Wheel.swapTables, the one copy of the arithmetic (the mutant also moves the wheel's E1; this row runs the scroll pin only)",
   "from": "C3-X1DM1"
  },
  {
@@ -9771,5 +9771,43 @@
   ],
   "note": "C3 ML1: the seam ignores the test's plain loops — the replay would compare the fast loops with themselves; its call count says so",
   "from": "C3-ML1"
+ },
+ {
+  "id": "X2DM1a-old-split",
+  "file": "motion/ScrollEffects.kt",
+  "edits": [
+   [
+    "        return (1 until t).minBy { kotlin.math.abs(eo[it] - 2048) }",
+    "        return (1 until t).first { eo[it] >= 2048 || it == t - 1 }"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.theSplitIsAtTheStepNearestHalf*",
+   "*ScrollEffectsTest.flipsTurnFollowsTheRows_X1DM1"
+  ],
+  "expect": [
+   "theSplitIsAtTheStepNearestHalfAtEveryStepCount_X2DM1a",
+   "flipsTurnFollowsTheRows_X1DM1"
+  ],
+  "note": "C3 X2DM1a (decisions CA (3)): the old split - Crush's phase 2 and Flip's edge-on at the FIRST step whose ease-out reaches half (X1DM1's), not the nearest; the rows speed up 2-11 px a step at the hand-off at 4, 8 and 14 steps; Flip at 416 (T 15, 300 ms Auto) edge-on at step 5, not 4",
+  "from": "C3-X2DM1a"
+ },
+ {
+  "id": "X2DM1a-crush-e2-builtin",
+  "file": "motion/ScrollEffects.kt",
+  "edits": [
+   [
+    "        ScrollEffect.CRUSH -> Wheel.swapTables(t, halfStep(t)).toList()",
+    "        ScrollEffect.CRUSH -> Wheel.swapTables(t, halfStep(t)).let { (e1, _) -> listOf(e1, Motion.easeE(Motion.Ease.EaseOut, t - e1.size).drop(1).toIntArray()) }"
+   ]
+  ],
+  "tests": [
+   "*ScrollEffectsTest.theSplitIsAtTheStepNearestHalf*"
+  ],
+  "expect": [
+   "theSplitIsAtTheStepNearestHalfAtEveryStepCount_X2DM1a"
+  ],
+  "note": "C3 X2DM1a (decisions CA (4)): Crush's phase 2 on a table that differs - the built-in ease-out over its n2 steps (equal to the tail of the ease-out over T within 2/4096) in place of that tail; it draws the far rows or the growing row a pixel apart at 10, 12, 34 and 45 steps (Frames 10 and 12, 600 and 800 ms at 480), so the table is kept and pinned whole",
+  "from": "C3-X2DM1a"
  }
 ]
