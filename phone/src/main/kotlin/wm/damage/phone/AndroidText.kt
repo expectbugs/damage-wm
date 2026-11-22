@@ -161,10 +161,21 @@ class AndroidText(
         return wm.damage.core.text.GlyphMask(w, h, cov)
     }
 
+    /** C3 SC1 (the lead's part CD): what `Paint.hasGlyph` answered, per typeface (face and weight) and code point — asked
+     *  once, not on every call. [covers] is reached through `Draw.dynamic` for every painted row's label and value, the
+     *  chrome's strings, Main's rows and the menus — hundreds of code points a list page's paint (counted on the desktop's
+     *  path, C3-SC1-built.md), each a `hasGlyph` before. The answer depends on the typeface alone (the size and the
+     *  synthesized slant change no glyph's presence), and the typefaces are loaded once, in [init], and never replaced: the
+     *  table lives as long as they do, and a new instance (the service's next start) begins empty. Bound: the distinct code
+     *  points the session draws, per typeface — a few thousand at most, eight typefaces; no eviction. A race asks twice
+     *  and stores the same answer. */
+    private val coverage = java.util.concurrent.ConcurrentHashMap<Pair<Face, Boolean>, java.util.concurrent.ConcurrentHashMap<Int, Boolean>>()
+
     override fun covers(text: String, font: FontSpec): Boolean {
         // Typeface has no cmap query; approximate by comparing against tofu
         // width — Paint.hasGlyph exists on API 23+ and is the real check.
-        val p = paint(font)
+        val known = coverage.getOrPut(font.face to font.bold) { java.util.concurrent.ConcurrentHashMap() }
+        var p: Paint? = null
         // by CODE POINT (review 2026-09-01 R4-K aside): a supplementary
         // character (an emoji) is two UTF-16 units, and asking for each half
         // said "uncovered" for every glyph the face actually has
@@ -172,7 +183,8 @@ class AndroidText(
         while (i < text.length) {
             val cp = text.codePointAt(i)
             i += Character.charCount(cp)
-            if (!p.hasGlyph(String(Character.toChars(cp)))) return false
+            val has = known[cp] ?: (p ?: paint(font).also { p = it }).hasGlyph(String(Character.toChars(cp))).also { known[cp] = it }
+            if (!has) return false
         }
         return true
     }
