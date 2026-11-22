@@ -2731,6 +2731,12 @@ silent-mode clock): the glasses draw them after the frame copy from cached fonts
 the phone sets; they are outside the shadow and the phone never paints them. RTC and fuel-gauge
 sources are stock functions (`FORK.md` R0.5).
 
+Two candidates for the same build, from Music's motion update (`MUSIC.md` §14.2 E; asked 2026-11-22, not
+designed): a cell whose digits count by themselves from a start value and a rate (the track timer — the clock
+cell's mechanism with another source), and a brightness schedule for the whole panel (tempo, phase, depth,
+length) that each lens follows on its own tick (the Global `Pulse`). Open before either is designed: the stock
+panel-brightness path read at instruction level, and whether it writes to storage on each change.
+
 ### 8.2 v2 offline home (Phase 7; step G, decided again, `REPLAN.md` §4) — *draft*
 
 Placeholder: display ownership outside the EvenHub page, local input, the persisted flag, saved

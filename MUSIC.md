@@ -2,7 +2,8 @@
 
 **Status: BUILT 2026-09-01/02 (M1–M6, a commit per milestone; `HANDOFF.md` §24 is the build
 record); §4 closed; reviewed three ways the same day (§24.2, §24.3) and in the 2026-09-03 review
-(§25).** What remains: the on-phone checks (`DAILY.md` → Music). `EXPLOSION.md` §3 is the idea
+(§25).** What remains: the on-phone checks (`DAILY.md` → Music). **§14 (2026-11-22): the motion update — the
+bar and timer, the visualizers and the lyrics as programs the glasses play — planned, not built.** `EXPLOSION.md` §3 is the idea
 record; `/home/user/G2CC/docs/MUSIC_SPEC.md` the previous player's decisions (facts only — the
 G2CC music *system* is Damage's now; code ported, never pasted). Where §3 (the design) and §7–§9
 (as built) overlap, the as-built section is what runs.
@@ -554,3 +555,105 @@ radio, pre-transcode) · **M6** docs + staging (APK 19/0.19). The later rounds a
 ## 13. Kickoff for the build session
 
 Spent (§11). What remains: the on-phone checks (`DAILY.md` → Music) and §12's measured items.
+
+## 14. The motion update — PLANNED (asked by Adam, 2026-11-22; nothing built)
+
+His ask: the progress bar with its timer, and the visualizer, are the two rough parts of Music ("super jank"). Now
+that the glasses play motion programs themselves, both become smooth and locked to the music: visualizers that use
+the track's known data "to correctly predict and sync them … perhaps even pre-empting the music very very
+slightly", more of them ("nice ones that people really like, and maybe a couple custom ones"), a beat pulse that
+can run globally outside Music, and animated lyrics (a ball that jumps from word to word, a move on each word as
+it is sung, "both plus more options"). The design below is the lead's, agreed in conversation the same day; each
+item still gets its design pass before its build.
+
+### 14.1 The principle: choreography sent ahead, played on the glasses' clock
+
+Why today's are rough: the card repaints at a track change and every 5 % of progress (§8.3 — one jump every 12 s
+of a four-minute track), and every visualizer frame is drawn on the phone and sent as pixels at 4, 8 or 12 a
+second, each arriving late by the link's cost. The data side is already right: the envelope and the beats are
+precomputed on the PC (§3.8, §6.4) and `positionMs()` is exact (§6.2).
+
+The change: for these surfaces the phone sends no frames. It stages records in the cache and sends short programs
+for the NEXT stretch of the track, chained (`FIRMWARE.md` §7.7, PLAY-AFTER), so the link's delay falls before the
+moment and not on it. Each program is scheduled against the lens's own tick and shifted earlier by two known
+delays: the display's, and the output device's audio delay (§3.7's per-device offset stays the one knob he sets).
+The target is picture and sound within about 100 ms (the lead's estimate; judged on the glasses with tracks he
+knows).
+
+Play and pause, a seek, a track change, an output move and a route loss each cancel what is queued and plan again
+from the new position. That envelope (`FORK.md` §3.8's six questions for the queue, the clock relation and the
+slot) is the first item of the design pass.
+
+### 14.2 What is built, in order
+
+**A. The bar and the timer** (no firmware change). The bar grows by itself: a REVEAL over a staged bar, one
+program a stretch (`FIRMWARE.md` §5.4; the notice's timer bar on the engine is the precedent to read). The digits:
+one small cached-text update a second while Music is in front; digits that count by themselves are item E.
+
+**B. Lyrics with line timing** (no firmware change; works with every source of §9.4). `Wipe`: the bright copy of
+the line revealed left to right across the line's duration; a line change is a pan, as a list notch is.
+
+**C. Visualizers as programs** (no firmware change). The engine moves, scales, fades, reveals and tiles records
+(`FIRMWARE.md` §5.4, §6.6, §7.4–§7.6); it draws no free geometry, so each one is built from those:
+
+| name | what he sees | built from (to confirm in the design pass) |
+|---|---|---|
+| Bars, Mirror bars | spectrum bars eased between keyframes, about ten a second | one track a band and the vertical-scale draw; at most 8 tracks a program (§5.4) |
+| LED matrix | segmented bars on a grid of small tiles | the cell lists the Encode transition uses |
+| Scope | the waveform scrolling past a fixed playhead | the waveform staged as a strip, in sections ahead of the playhead, panned at a constant rate |
+| Waterfall | the track's spectrogram scrolling, 16 levels | as Scope |
+| Meter | two level bars with peak-hold ticks | two tracks and two ticks |
+| Pulse | the card swelling in brightness and depth on the beat | a DRAW's level ramp and per-lens shift |
+| Depth spectrum (ours) | bass, mids and highs on three depth planes, each coming forward on its hits | per-lens shifts by band group |
+| Rain in tempo (ours) | the Matrix rain, its speed and density following the track's energy | the rain record of §7.6 |
+| Speaker ring (ours) | rings that widen and come forward on the bass | a few pre-drawn frames, scaled |
+
+Out: anything that needs free geometry every frame (rotating shapes, fluid styles) beyond a small set of
+pre-drawn frames.
+
+**D. Lyrics by the word.** Word times from a source where it has them (the model's `words` slot, §6.4); else the
+PC aligns the lyric text to the audio once a track and caches the result beside the visualizer data (§9.5; the
+tool is chosen by a trial on a dozen of his tracks — its quality on sung vocals is unknown until then). Then
+`Bounce` (the word hops and settles as it is sung), `Pop` (it swells and brightens), `Forward` (it steps nearer
+in depth) and `Ball` (a dot arcing from word to word). No word effect plays on guessed times: a track without
+word times keeps B.
+
+**E. Two firmware items, for the next firmware build** (each needs its design pass; a flash only on his
+in-the-moment go). **Global `Pulse`:** the panel's own brightness follows a beat schedule the phone sends (tempo,
+phase, depth, length) on each lens's own tick — about one small message every several seconds. A swell of 10–20 %
+that decays, never an on/off flash; at most three a second (the common limit for flashing content, WCAG 2.3.1),
+every other beat above that; off by default, one Global row, only while Damage's own player is the source.
+**Digits that count by themselves:** the timer as a firmware-owned cell (`FIRMWARE.md` §8.1).
+
+### 14.3 Rules and settings
+
+- Programs flow only while Music is the active window or in Music Mode (the latency standard: a live window keeps
+  the link busy only while active). Global `Pulse` is the exception by construction: its schedule runs on the
+  glasses.
+- A source the PC cannot decode (Spotify, §3.10) gets the bar and the timer; no visualizer, no word effects.
+- Settings → Music: `Visualizer` gains the new entries (Off stays); `Visualizer rate` goes once the renderers are
+  programs (the fit decides the keyframes); a new `Lyrics effect` row (None = today's · Wipe · Bounce · Pop ·
+  Forward · Ball — whether effects combine, and as entries or checkboxes, is his call). Global gains `Pulse` with
+  item E.
+
+### 14.4 Open before the build (reads and measurements; none needs a flash)
+
+1. The engine's instances: four (`FIRMWARE.md` §5.7), shared with the lists, the wrap, the transitions and the
+   notice — what Music holds in its window and in Music Mode, and what gives way.
+2. Tracks a program (8 in version 1, §5.4; version 2 in §7.2): the number of bands, or two programs.
+3. The clock: the player's position against each lens's tick, its drift and the re-sync period (the two lenses
+   run separate clocks).
+4. The audio delay the player reports per output, against §3.7's calibrated offset.
+5. Strip sizes for Scope and Waterfall at each height, in sections, beside the atlas in the 256 KiB cache.
+6. For `Pulse`: the stock panel-brightness path at instruction level (`research/fwread.py`), and whether it
+   writes to storage on each change (if it does, another path).
+7. Word alignment's quality on his own tracks.
+8. Each visualizer's link cost a second; each tuned from strips before it reaches the glasses, as the
+   transitions were.
+
+### 14.5 Its place in the order (`REPLAN.md` §17.3 item 9)
+
+With Music's turn in the glasses kit (K3), after S1-4's first half is merged (the position then lives on the PC's
+record every surface reads). The PC's precompute for C and D (strips, the beat schedule, word times) depends on
+no device and may be built ahead. E rides the next firmware build. On his word the two cheapest pieces — A's bar
+and Scope — come first as a showpiece.
