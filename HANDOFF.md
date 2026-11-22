@@ -9653,3 +9653,72 @@ gitignored `private/build072/C2-decisions.md` parts BU–CC and `private/c3-desi
    addresses). So it is not this network path; the last good fetch (11-17 11:45) fits a staged shutdown (inferred).
    Nothing changed: the Feed keeps its last Reddit items with their age and the engine asks again every 15 minutes.
    What takes the source's place is Adam's call (`FEED.md` §2; the suspension of Feed work stands until he says).
+
+## 101. Stage 5 on his glasses; APK 0.84: the ring list, the fast-path fit, Crush and Flip, a new Matrix, sub menus for Animations, the transitions' end rule (2026-11-21)
+
+Everything here ran on the simulator's model unless it says "measured"; nothing was flashed. The rulings are in the
+gitignored `private/c3-design/C3-decisions.md` parts BA–CI; each stage's report is beside it.
+
+1. **Stage 5 armed on his word** (12:41, APK 0.83 installed that morning): `c1=5` and a session start; RIGHT's flags
+   0x3c → 0x7c. **Measured over his first 22 minutes:** 139 transitions; flags 0x7c on all 333 telemetry reads; field
+   40 (the effect slots' owner) 0 at rest and 0x4 / 0x8 / 0x8c during transitions; field 41 (stack free) 776–944
+   against the 132 it needs; no reset, no hold-back, no refusal, no failed report. His verdict the same hour: the
+   effects are approved as they look, with two amendments (items 6 and 7).
+2. **What that session showed, each measured in the phone's journal:**
+   - **119 of the 139 transitions ended by the phone's backstop** ("no in-half body by its nominal end plus one
+     period"), the in half's report arriving a median 75 ms after it; 118 had drawn every step, one was closed at
+     step 3 of 5. RIGHT's out half ends about 195 ms later than the rule counted from the out PLAY's ack. **The rule
+     now counts from RIGHT's out-half body** (plus T periods and 500 ms; without that body the acks' rule with 750
+     ms): replayed on his times it ends none of the 132 whole in halves early (stage TR1; `FIRMWARE.md` §7.11).
+   - **A flush that carries a motion PLAY spent a median 170–216 ms inside the phone's own write call** (10–15 ms for
+     other flushes): after the bytes leave, the phone's mirror re-runs the glasses' engine per pixel and the serial
+     image lane waits. The mirror's loops are cheaper now with byte-identical output, pinned against the plain loops
+     by a replay (stage ML1; on this PC an out PLAY's apply 3.4 → 1.35 ms, a PLAY-AFTER frame 2.9 → 0.2). The same
+     loops run 70–93 times slower on his phone than on the PC; the debug build is suspected (not measured): **the
+     APK's `release` variant (same key, not minified) is the next thing to try, with him there.**
+   - **Warp's and Flip's out halves took 58.6 and 60.3 ms a step in a 45-ms period** (one step folded each time, and
+     the glasses' message task starved: 7 in halves started late, the worst 240 ms). Their fit is raised to those
+     figures: at his Select (450 ms, 10 frames) they play 3 even steps a half (stage X1MX2).
+   - **Two acts of 262 and 299 ms of the phone's loop** were Selects with Encode, whose plan is built in the act's
+     handler with each program's cost worked out about seven times. Listed for the next stage (item 9). An adjust
+     notch in Settings painted the content twice — once now; the phone's glyph-coverage answers are kept per face.
+3. **The ring list for Main's wrap is through the protocol** (two general passes, two fix stages and a follow-up, one
+   focused read and its fix): the batch-14 re-send writes no LIST; a scroll refused 19 is no repair evidence (cause
+   `owner`); a report handled while a cover is up is not "in front" whatever the last pump told the rules; the
+   riding LIST has an end-to-end case again. **The fork's C filled 22 more ship vectors and the model equals it: 230
+   files, 14,120 lens-steps, 0 disagreements.**
+4. **The fast-path fit** (`FIRMWARE.md` §7.12): at stage 5 Main's Depth plays 19 steps at a 16-tick period where C2's
+   fit gave 5–7 at 39–59 (three modeled coefficients; the 114's field 9 corrects the period on glass).
+5. **The sequence fuzz ran a 47-ms motion in every sequence; it now also runs his two real timings** (6 steps at 46
+   ticks; 19 at 16): 8,000 + 2,000 sequences each, 0 failures, with three more exactly-declared classes (a tap inside
+   a COMMIT's held wait acts on the row the cursor names — S33's shape at every such wait; the badge in the refused
+   LIST's shadow read; a stated residual reaching liveness). No rule changed for them.
+6. **`Animations` in Settings is one row per tier, each opening that tier's sub menu** (his word: "a sub menu for
+   each tier, rather than dozens of options in one enormous list"); inside one a row drops the tier's name. No
+   stored key, default or row behaviour changed (`DESIGN.md` §4.2).
+7. **Matrix is rain that wipes** (his word: "rain-like vertical lines of characters … those lines should wash away
+   the screen we transition from and create the one we are transitioning to"): on the installed verbs — drops
+   enter over the old screen from the act, then the same columns fall on with the old screen below every head and
+   the new one above every trail. One phone rule is bent at one step (`FIRMWARE.md` §7.11). The rain sits at the
+   nearer of the two screens' planes (the Lock Screen's 0).
+8. **Also in the tree:** Crush (his design) and Flip as Main's scroll effects at stage 5, on one shared ease-out
+   split at the step nearest half, with the pitch switch between program forms; the switcher's wheel, its offline
+   half only (cell records, the drum's programs, strips — nothing bound; at stage 5 the switcher's panel gains a
+   black margin of its depth, and below stage 5 the centre band's plane region now follows the band as painted:
+   the old fixed region put the top inner rule 8 px apart between the lenses on a face whose band is not 88
+   rows); the list holder (`ListBind`, Main its only instance — a refactor that changes no byte, shown on the
+   shipped acts, the goldens, the local check's files and the fuzz key for key); `tools/ladder.py` (item 10).
+9. **Not done, said plainly.** (a) **No filled vector holds Crush's, Flip's or the new Matrix's programs, nor
+   Warp's and Flip's at the raised fit: 18 shipped acts are under a named exception (`MX2_MOVED`) and the vector
+   lane's inputs were being written when this record was made** — on his glasses those effects are checked by the
+   model and its pins only. (b) Owed reviews: Matrix's second general pass, the focused reads after Crush's and
+   Flip's two fix stages, any pass of the list holder beyond its instruments. (c) A known defect: a scroll effect
+   changed through several values in one go under a cover comes back as the first value for a moment; its fix
+   and Encode's plan computed once are a stopped stage (`wip/084-x3b`, work in progress). (d) Main on one strip
+   with per-row band slots (`wip/084-k12s1`, work in progress), window lists, the wheel bound: the builds after.
+   (e) Four tests fail about once in a hundred runs or once in a whole-suite run with no change of theirs
+   (`MotionTransportTest` AH1 and `aDraw2HoldBack…_C1Q`, one transition shell test, `GlyphSubsetShellTest.
+   aReBaseThatSwallowsAReSendKeyframes` — 12 of 12 passes alone): their rigs decide on a race; not yet read.
+10. **`python3 tools/ladder.py state|4|5`** sets the phone's ladder stage and arms it without a Claude session
+    (`DAILY.md`): stage 4 is the way back if stage 5 misbehaves on a day nobody can send the probe.
+

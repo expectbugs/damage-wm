@@ -2427,6 +2427,23 @@ one-period wait; with this it is drawn a few ms late.
   as windows at fixed y's; the strip carries margins (blank rows, or on a ring list the other end's rows, §7.8) so that no
   window leaves the record (5). The pitch follows the list's Scroll effect: changing the effect re-stages the list.
 
+**Phone rules added or changed on 2026-11-21** (`HANDOFF.md` §101; the stages' reports carry the detail):
+- **The transitions' backstop counts from what RIGHT reported.** Once RIGHT's out-half body is in, the phone ends a
+  run whose in-half body has not come by `max(out body, PLAY-AFTER's ack) + T·P + 500 ms`; without the out body, by
+  the acks' rule plus 750 ms (the acks it reads are the ends of the phone's own write calls). Measured on his
+  glasses the in half follows the out half on time, but the out half ends about 195 ms later than a rule counted
+  from the out PLAY's ack: the old rule ("its nominal end plus one period") fired on six transitions in seven.
+- **Matrix's out half may end on a step that paints nothing.** Its rain brings the drops in over the old screen no
+  further than one trail and, as a rain segment must end at E[n] = 4096, its step T lights nothing: the out half's
+  last picture is step T − 1's, so "later tracks over a still in-place track repaint at every step what they
+  painted at the step before" does not hold at that one step — a lens that folds step T − 1 shows step T − 2's
+  shorter trails for one period, inside the owned area; the in half's first step covers every cell either drew.
+  Both halves' grid sits at one plane, the nearer of the leaving and the arriving screen's.
+- **The pitch switch (S6).** A change between a scroll effect of pitch −rowH and one of pitch +rowH (Crush) goes as
+  the programs-only re-make with the LIST (LIST-RING on a ring list) carrying the new pitch ahead of the SETs in
+  one image; the fresh mark and the report's own program and parameters both refuse a report computed at the old
+  pitch. Crush on any list; Flip on a list with no band forms.
+
 ### 7.12 Costs, the step budget and the fast DRAW path
 
 **Renderers visit only the output pixels inside their area.** Every renderer of §5, §6 and §7 clips its output rect
@@ -3076,3 +3093,6 @@ phone's keeper applies the hold-back rule before re-arming.
   end (a re-stage's batch lost whole on RIGHT alone) and that on glass a refusal on LEFT fails no ack. No rule's text
   changes for X4M0's first item: a report handled while a cover is up is "not in front" by §6.7's own words (the
   phone's focus); the code now reads the shell's answer and not what the last pump told the rules.
+- 2026-11-21 — his first stage-5 session and the build after it (`HANDOFF.md` §101): §7.11 gains the transitions'
+  backstop counted from RIGHT's out-half body, Matrix's one bent step with its reason, and the pitch switch; no
+  firmware change — every sentence is phone code against the installed C3 build.

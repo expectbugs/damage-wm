@@ -20,7 +20,28 @@ as corrected; §14 his rulings) → **`CONTRACT.md`** (before any window or inte
 for firmware → earlier by number (§65 Phase 2 and the protocol, §48 the fork). Firmware facts: `CLAIMS.md` →
 `research/fork-reads-2026-09-13.md`.
 
-## Where we are (2026-11-21)
+## Where we are (2026-11-21, late evening)
+
+- **His glasses run stage 5 since 2026-11-21 12:41 on APK 0.83** (armed on his word; `HANDOFF.md` §101.1). **APK 0.84
+  is staged and the PC runs it** (§101): the ring list for Main's wrap, the fast-path fit (Depth 19 steps a notch),
+  the transitions' end rule counted from RIGHT's own report, the mirror's cheaper loops, `Animations` as one row
+  per tier with sub menus, Matrix as rain that wipes, Warp's and Flip's fit raised to the glass, Crush and Flip as
+  scroll effects, the wheel's stage-5 margins. **Told to him at the staging, and still true:** Crush, Flip, the new
+  Matrix and Warp/Flip at the new fit have no filled vector yet (model and pins only); a scroll effect stepped
+  through several values at once comes back as the first for a moment; the wheel is still phone-drawn.
+- **The way back from stage 5 without a session:** `python3 tools/ladder.py 4` (`DAILY.md`).
+- **Stopped at his word on the week's usage (93 %), work in progress committed:** `wip/084-x3b` (the stale re-make;
+  Encode's plan once), `wip/084-k12s1` (Main on one strip, per-row band slots). The vector lane's inputs
+  (`wip/084-sv2`) then ONE fork fill and the comparison are the first thing owed.
+- **Owed before more is built on them** (§101.9): Matrix's second pass; the focused reads of Crush's and Flip's fix
+  stages; the four tests whose rigs decide on a race; the APK's `release` variant tried with him there (the phone
+  runs the mirror's loops 70–93 times slower than the PC — the debug build is suspected, not measured).
+- **For his eye on 0.84** (each modeled): Warp and Flip play 3 even steps a half at his Select (they were about 4
+  uneven ones); Matrix's drops gather for a few frames, hold one, then fall; in his fastest bursts (about 120 ms
+  between notches) Crush's far rows jump about 23 px at each notch — the installed firmware starts every notch
+  from the rest before it; at stage 5 the switcher's panel has a black margin of its depth.
+
+## Where we were (2026-11-21, morning)
 
 - **APK 0.83 is staged and the PC runs it since 2026-11-21 06:00; his phone runs 0.82 (his install, 11-20 13:13)
   until he installs** (`HANDOFF.md` §100; `main` `f81afd38` + this record). On install: Main ready at once (staged
