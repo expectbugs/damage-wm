@@ -844,6 +844,7 @@ class ConformanceVectorTest {
         // SV-083: the transitions, then Main's scroll effects and the notice's programs ([ShipVectors.acts])
         val specs = ShipVectors.acts().filter { s -> only == null || only.any { it in s.name } }
         val problems = ArrayList<String>()
+        val mx2Moved = ArrayList<String>()
         if (dump == null && only == null) {
             val files = vectorFiles(vectorDir()).map { it.fileName.toString().removeSuffix(".json") }.filter { it.startsWith(ShipVectors.PREFIX) }.toSet()
             for (n in files - specs.map { it.name }.toSet()) problems += "$n: a ship vector no spec makes"
@@ -878,9 +879,20 @@ class ConformanceVectorTest {
             if (want.isEmpty()) problems += "${spec.name}: the file holds no program"
             // (C3 FF's exception for the act the fast-path fit moved went with C3 SVR's merge: its inputs are written again,
             // so it is compared as every act is; its file was filled at SVR's comparison, X8T)
+            // C3 MX2: Matrix's acts carry its new programs (the out half a hold, the in half one pass of rain) — not compared
+            // until the vector lane writes their inputs again and the firmware lane fills them; named here, said below, and
+            // only while they still differ in their program bytes alone (as many writes and PLAYs as the file's)
+            if (spec.name in MX2_MOVED) {
+                if (want == now) problems += "${spec.name}: equal to its file — the MX2 exception is stale, remove it"
+                else if (want.size != now.size) problems += "${spec.name}: ${now.size} writes and PLAYs against the file's ${want.size} — more moved than Matrix's programs"
+                else mx2Moved += spec.name
+                continue
+            }
             if (want != now) problems += "${spec.name}: the program bytes the shell sends today differ from the file's inputs " +
                 "(${now.size} against ${want.size}; first difference at ${now.indices.firstOrNull { it >= want.size || now[it] != want[it] } ?: want.size}) — regenerate it"
         }
+        if (mx2Moved.isNotEmpty()) println("ConformanceVectorTest: ${mx2Moved.size} shipped act(s) moved by C3 MX2's Matrix, NOT compared until their " +
+            "inputs are written again and filled: ${mx2Moved.joinToString()}")
         println("ConformanceVectorTest: ${specs.size} shipped acts played again${dump?.let { ", written to $it" } ?: ", their programs compared with the files"}")
         assertEquals(emptyList(), problems, "the ship vectors:\n" + problems.joinToString("\n"))
     }
@@ -890,6 +902,12 @@ class ConformanceVectorTest {
     private companion object {
         /** `FIRMWARE.md` §5.1: today's 0x7f plus bit 7 ENGINE and bit 8 the riders (bit 9 is not in C1). */
         const val C1_FEATURES = 0x1FF
+        /** C3 MX2 (`private/c3-design/C3-MX2-built.md`): the shipped acts whose programs Matrix's new form changed, not
+         *  compared in [theShipVectorsHoldTheProgramsTheShellSends_X3D] until the vector lane writes their inputs again
+         *  (`DAMAGE_SHIP_DUMP`, `DAMAGE_SHIP_ONLY=matrix`) and the firmware lane fills them; then this set goes. */
+        val MX2_MOVED = setOf("v5-ship-select-matrix-352", "v5-ship-select-matrix-480", "v5-ship-back-matrix-rev-352",
+            "v5-ship-back-matrix-rev-480", "v5-ship-lock-matrix-352", "v5-ship-lock-matrix-480", "v5-ship-lock-matrix-rev-352",
+            "v5-ship-lock-matrix-rev-480", "v5-ship-cut-select-matrix-352")
         /** §6.8: C2 adds bit 10 (bit 9, the link item, still out). */
         const val BIND_FEATURE = 1 shl 10
         const val C2_FEATURES = 0x5FF
