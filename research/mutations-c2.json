@@ -9523,5 +9523,253 @@
   ],
   "note": "SC1 (part CD): an applied row's adjust notch composes again after applySettings's composition (the tree before SC1; watched: 2 compositions, the pin fails)",
   "from": "SC1"
+ },
+ {
+  "id": "ML1-copyspan-odd-first",
+  "file": "sim/PixelLoops.kt",
+  "edits": [
+   [
+    "            dst[i] = ((dst[i].toInt() and 0xF0) or (src[i].toInt() and 0x0F)).toByte()\n            x++\n",
+    "            x++\n"
+   ]
+  ],
+  "tests": [
+   "*MirrorLoopsReplayTest.eachFastLoopWritesWhatThePlainOneWrites*"
+  ],
+  "expect": [
+   "eachFastLoopWritesWhatThePlainOneWrites_ML1"
+  ],
+  "note": "C3 ML1: a span's odd first pixel left uncopied (copyOutside, the LAND copy, a NEW backdrop)",
+  "from": "C3-ML1"
+ },
+ {
+  "id": "ML1-copyoutside-into-owned",
+  "file": "sim/PixelLoops.kt",
+  "edits": [
+   [
+    "                if (b > x) x = b\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*MirrorLoopsReplayTest.eachFastLoopWritesWhatThePlainOneWrites*",
+   "*MirrorLoopsReplayTest.theFastLoopsLeaveTheMirrorAsThePlainOnesDoOverASession*"
+  ],
+  "expect": [
+   "eachFastLoopWritesWhatThePlainOneWrites_ML1",
+   "theFastLoopsLeaveTheMirrorAsThePlainOnesDoOverASession_ML1"
+  ],
+  "note": "C3 ML1: copyOutside copies into the owned rects too (the held step overwritten by the shadow)",
+  "from": "C3-ML1"
+ },
+ {
+  "id": "ML1-copyoutside-unordered",
+  "file": "sim/PixelLoops.kt",
+  "edits": [
+   [
+    "                while (k > 0 && spans[2 * (k - 1)] > a) { spans[2 * k] = spans[2 * (k - 1)]; spans[2 * k + 1] = spans[2 * (k - 1) + 1]; k-- }\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*MirrorLoopsReplayTest.eachFastLoopWritesWhatThePlainOneWrites*"
+  ],
+  "expect": [
+   "eachFastLoopWritesWhatThePlainOneWrites_ML1"
+  ],
+  "note": "C3 ML1: copyOutside's covered columns not put in order (two owners met out of order leave a span uncopied or copy a covered one)",
+  "from": "C3-ML1"
+ },
+ {
+  "id": "ML1-fill-short",
+  "file": "sim/PixelLoops.kt",
+  "edits": [
+   [
+    "                java.util.Arrays.fill(buf, row + (x shr 1), row + (x shr 1) + bytes, whole)\n",
+    "                java.util.Arrays.fill(buf, row + (x shr 1), row + (x shr 1) + bytes - 1, whole)\n"
+   ]
+  ],
+  "tests": [
+   "*MirrorLoopsReplayTest.eachFastLoopWritesWhatThePlainOneWrites*",
+   "*MirrorLoopsReplayTest.theFastLoopsLeaveTheMirrorAsThePlainOnesDoOverASession*"
+  ],
+  "expect": [
+   "eachFastLoopWritesWhatThePlainOneWrites_ML1",
+   "theFastLoopsLeaveTheMirrorAsThePlainOnesDoOverASession_ML1"
+  ],
+  "note": "C3 ML1: a fill leaves the last whole byte of each row unwritten (backdrops, effect fills)",
+  "from": "C3-ML1"
+ },
+ {
+  "id": "ML1-tightpack-odd-x",
+  "file": "sim/PixelLoops.kt",
+  "edits": [
+   [
+    "                    out[o + k] = (((buf[j].toInt() and 0x0F) shl 4) or ((buf[j + 1].toInt() and 0xFF) shr 4)).toByte()\n",
+    "                    out[o + k] = ((buf[j].toInt() and 0xF0) or ((buf[j + 1].toInt() and 0xFF) shr 4)).toByte()\n"
+   ]
+  ],
+  "tests": [
+   "*MirrorLoopsReplayTest.eachFastLoopWritesWhatThePlainOneWrites*"
+  ],
+  "expect": [
+   "eachFastLoopWritesWhatThePlainOneWrites_ML1"
+  ],
+  "note": "C3 ML1: tightPack of a rect at an odd x takes the wrong nibble of each pair",
+  "from": "C3-ML1"
+ },
+ {
+  "id": "ML1-tightpack-even-short",
+  "file": "sim/PixelLoops.kt",
+  "edits": [
+   [
+    "                System.arraycopy(buf, first, out, o, r.w shr 1)\n",
+    "                System.arraycopy(buf, first, out, o, (r.w shr 1) - 1)\n"
+   ]
+  ],
+  "tests": [
+   "*MirrorLoopsReplayTest.eachFastLoopWritesWhatThePlainOneWrites*",
+   "*MirrorLoopsReplayTest.theFastLoopsLeaveTheMirrorAsThePlainOnesDoOverASession*"
+  ],
+  "expect": [
+   "eachFastLoopWritesWhatThePlainOneWrites_ML1",
+   "theFastLoopsLeaveTheMirrorAsThePlainOnesDoOverASession_ML1"
+  ],
+  "note": "C3 ML1: tightPack of an even rect drops each row's last byte (the END CRC and the captures move)",
+  "from": "C3-ML1"
+ },
+ {
+  "id": "ML1-unpack-pair-swapped",
+  "file": "sim/PixelLoops.kt",
+  "edits": [
+   [
+    "                px[o + x] = (b shr 4).toByte()\n                px[o + x + 1] = (b and 0x0F).toByte()\n",
+    "                px[o + x] = (b and 0x0F).toByte()\n                px[o + x + 1] = (b shr 4).toByte()\n"
+   ]
+  ],
+  "tests": [
+   "*MirrorLoopsReplayTest.eachFastLoopWritesWhatThePlainOneWrites*"
+  ],
+  "expect": [
+   "eachFastLoopWritesWhatThePlainOneWrites_ML1"
+  ],
+  "note": "C3 ML1: a capture unpacked with each pair's nibbles swapped — the loop test pins it; the session replay does not (its one `self` capture, the notice's, is a uniform area a pair swap leaves unchanged: NOT CAUGHT BY the replay in mut-run1)",
+  "from": "C3-ML1"
+ },
+ {
+  "id": "ML1-grab-pair-swapped",
+  "file": "sim/PixelLoops.kt",
+  "edits": [
+   [
+    "                out[o++] = ((v shr 4) and 0x0F).toByte()\n                out[o++] = (v and 0x0F).toByte()\n",
+    "                out[o++] = (v and 0x0F).toByte()\n                out[o++] = ((v shr 4) and 0x0F).toByte()\n"
+   ]
+  ],
+  "tests": [
+   "*MirrorLoopsReplayTest.eachFastLoopWritesWhatThePlainOneWrites*",
+   "*MirrorLoopsReplayTest.theFastLoopsLeaveTheMirrorAsThePlainOnesDoOverASession*"
+  ],
+  "expect": [
+   "eachFastLoopWritesWhatThePlainOneWrites_ML1",
+   "theFastLoopsLeaveTheMirrorAsThePlainOnesDoOverASession_ML1"
+  ],
+  "note": "C3 ML1: grab takes each byte's two pixels in the wrong order (a NEW source mirrored per pair)",
+  "from": "C3-ML1"
+ },
+ {
+  "id": "ML1-blit-pair-swapped",
+  "file": "sim/PixelLoops.kt",
+  "edits": [
+   [
+    "                    } else buf[i] = (((v0 shl 4) and 0xF0) or v1).toByte()\n",
+    "                    } else buf[i] = (((v1 shl 4) and 0xF0) or v0).toByte()\n"
+   ]
+  ],
+  "tests": [
+   "*MirrorLoopsReplayTest.eachFastLoopWritesWhatThePlainOneWrites*",
+   "*MirrorLoopsReplayTest.theFastLoopsLeaveTheMirrorAsThePlainOnesDoOverASession*"
+  ],
+  "expect": [
+   "eachFastLoopWritesWhatThePlainOneWrites_ML1",
+   "theFastLoopsLeaveTheMirrorAsThePlainOnesDoOverASession_ML1"
+  ],
+  "note": "C3 ML1: blit's whole bytes written with the pair swapped (records and pans drawn wrong)",
+  "from": "C3-ML1"
+ },
+ {
+  "id": "ML1-blit-transparent-pairs",
+  "file": "sim/PixelLoops.kt",
+  "edits": [
+   [
+    "                    if (transparent && (c0 == 0 || c1 == 0)) {\n",
+    "                    if (transparent && c0 == 0 && c1 == 0) {\n"
+   ]
+  ],
+  "tests": [
+   "*MirrorLoopsReplayTest.eachFastLoopWritesWhatThePlainOneWrites*"
+  ],
+  "expect": [
+   "eachFastLoopWritesWhatThePlainOneWrites_ML1"
+  ],
+  "note": "C3 ML1: a transparent blit writes a pair whole when only one of its pixels is level 0 (that pixel drawn over what is under it)",
+  "from": "C3-ML1"
+ },
+ {
+  "id": "ML1-levels-short",
+  "file": "sim/PixelLoops.kt",
+  "edits": [
+   [
+    "        java.util.Arrays.fill(px, from, from + count, v)\n",
+    "        java.util.Arrays.fill(px, from, from + count - 1, v)\n"
+   ]
+  ],
+  "tests": [
+   "*MirrorLoopsReplayTest.eachFastLoopWritesWhatThePlainOneWrites*",
+   "*MirrorLoopsReplayTest.theFastLoopsLeaveTheMirrorAsThePlainOnesDoOverASession*"
+  ],
+  "expect": [
+   "eachFastLoopWritesWhatThePlainOneWrites_ML1",
+   "theFastLoopsLeaveTheMirrorAsThePlainOnesDoOverASession_ML1"
+  ],
+  "note": "C3 ML1: a record's RLE token one level short (every record the walk decodes)",
+  "from": "C3-ML1"
+ },
+ {
+  "id": "ML1-rle-past-row",
+  "file": "gfx/Codec.kt",
+  "edits": [
+   [
+    "            val m = minOf(k.toLong(), rowNibbles - inRow).toInt()\n",
+    "            val m = minOf(k.toLong(), rowNibbles - inRow + 1).toInt()\n"
+   ]
+  ],
+  "tests": [
+   "*MirrorLoopsReplayTest.eachFastLoopWritesWhatThePlainOneWrites*",
+   "*MirrorLoopsReplayTest.theFastLoopsLeaveTheMirrorAsThePlainOnesDoOverASession*"
+  ],
+  "expect": [
+   "eachFastLoopWritesWhatThePlainOneWrites_ML1",
+   "theFastLoopsLeaveTheMirrorAsThePlainOnesDoOverASession_ML1"
+  ],
+  "note": "C3 ML1: a frame's RLE run runs one nibble past its row's end (a mode-3 box writes outside itself)",
+  "from": "C3-ML1"
+ },
+ {
+  "id": "ML1-reference-not-installed",
+  "file": "sim/PixelLoops.kt",
+  "edits": [
+   [
+    "        fun current(): PixelLoops = plain.get() ?: FastPixelLoops\n",
+    "        fun current(): PixelLoops = FastPixelLoops\n"
+   ]
+  ],
+  "tests": [
+   "*MirrorLoopsReplayTest.theFastLoopsLeaveTheMirrorAsThePlainOnesDoOverASession*"
+  ],
+  "expect": [
+   "theFastLoopsLeaveTheMirrorAsThePlainOnesDoOverASession_ML1"
+  ],
+  "note": "C3 ML1: the seam ignores the test's plain loops — the replay would compare the fast loops with themselves; its call count says so",
+  "from": "C3-ML1"
  }
 ]
