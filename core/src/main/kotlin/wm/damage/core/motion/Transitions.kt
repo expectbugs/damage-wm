@@ -84,7 +84,10 @@ object Transitions {
      * at short lengths and many frames, so their period is the larger of that one and the step's fit, and their frames the
      * fewer of the tier's and what the length holds at that period (even, at least 2). The step (I, the spec's model on
      * §7.12's fast-path figure): 0.5 ms + 0.036 µs a pixel of the area + 0.058 ms a cell (Encode, the larger half) or 0.065
-     * ms a lit rain cell (Matrix); the period ⌈⌈ms·1.024⌉·1.10⌉ ticks in 16..128. Every other effect: [timing].
+     * ms a lit rain cell (Matrix); the period ⌈⌈ms·1.024⌉·1.10⌉ ticks in 16..128. C3 X1MX2 item 3 (decisions BV): Warp and
+     * Flip too, on the step his glasses measured ([WARP_STEP_MS_352], [FLIP_STEP_MS_352]: the larger half's, since both
+     * halves share one period), carried to the area by the same form — 0.5 ms + a rate per pixel of the area, the rate
+     * his 640 × 352 gives (modeled at the other heights). Every other effect: [timing].
      */
     fun timingFor(effect: Effect, lengthMs: Int, frames: Int, area: Rect, cells: Int = 0): Timing {
         val base = timing(lengthMs, frames)
@@ -92,13 +95,27 @@ object Transitions {
         val ms = when (effect) {
             Effect.ENCODE -> 0.5 + 0.036e-3 * px + 0.058 * cells
             Effect.MATRIX -> 0.5 + 0.036e-3 * px + 0.065 * rainCols(area) * RAIN_TRAIL
+            Effect.WARP -> 0.5 + (WARP_STEP_MS_352 - 0.5) * px / MEASURED_PX
+            Effect.FLIP -> 0.5 + (FLIP_STEP_MS_352 - 0.5) * px / MEASURED_PX
             else -> return base
         }
         val fit = Math.ceil(Math.ceil(ms * 1.024) * 1.10).toInt().coerceIn(CfwModes.MOTION_PERIODS.first, CfwModes.MOTION_PERIODS.last)
-        val p = maxOf(base.period, fit)
-        val f = (minOf(base.steps * 2, Math.floor(lengthMs * 1.024 / p).toInt()) / 2 * 2).coerceAtLeast(2)
-        return Timing(f / 2, p)
+        // C3 X1MX2 item 3's class: the frames give only to a longer period — at the setting's own period (rounded to whole
+        // ticks, so 2·T·P may pass the length by under a tick a step) the setting's frames play, as for every other effect
+        if (fit <= base.period) return base
+        val f = (minOf(base.steps * 2, Math.floor(lengthMs * 1.024 / fit).toInt()) / 2 * 2).coerceAtLeast(2)
+        return Timing(f / 2, fit)
     }
+
+    /** C3 X1MX2 item 3: Warp's step on his glasses, measured (APK 0.83, 2026-11-21, his glasses at stage 5, height 352,
+     *  5 steps a half at P 46): the largest step-drawing time RIGHT reported for its out half, 58.5–58.8 ms over 5 Selects,
+     *  each folding one step; its in half 11.5–48.5 ms. */
+    const val WARP_STEP_MS_352 = 58.8
+    /** C3 X1MX2 item 3: Flip's step on his glasses, measured (as [WARP_STEP_MS_352]): its out half 60.3 ms over 2
+     *  Selects, each folding one step; its in half 20.0–20.1 ms. */
+    const val FLIP_STEP_MS_352 = 60.3
+    /** The area those two were measured over: 640 × 352. */
+    private const val MEASURED_PX = 640.0 * 352
 
     /** What Encode and Matrix draw from (C3 DM-T): [rain] the atlas face the rain draws (Matrix); the leaving and the
      *  arriving screens' cells (Encode), whose lists are laid out from [reserveAt4] in at most [reserveRoom] bytes. */
@@ -182,11 +199,14 @@ object Transitions {
      * tables first, then the out program, then the in program, 4-byte aligned. [seed] seeds the random slices.
      * Refused ([LintError], its message naming the half) where the glasses would refuse a program, or when the records
      * do not fit [room]. No out half is ever replaced: every effect's out program is taken at every height, length and
-     * frame count (pinned offline), so §7.11's one-step freeze is not built.
+     * frame count (pinned offline), so §7.11's one-step freeze is not built. C3 X1MX2 item 2 (decisions CB (2)): [plane]
+     * is the transition's one plane — the nearer of the leaving and the arriving screen's content planes, the shell's —
+     * and Matrix's rain grid sits at it in both halves; [depth] stays Global `Depth`, which only the Depth effect reads.
+     * [start]: the rain's out-half travel (C3 X1MX2 item 1; the built one unless a comparison names another).
      */
     fun build(effects: Motion.Effects, effect: Effect, reversed: Boolean, area: Rect, timing: Timing, at4: Int, room: Int,
-              depth: Int = 8, seed: Int = 0x5EED, glyphs: Glyphs? = null): Built {
-        if (effect == Effect.MATRIX) return matrix(effects, reversed, area, timing, at4, room, seed, glyphs, depth)
+              depth: Int = 8, seed: Int = 0x5EED, glyphs: Glyphs? = null, plane: Int = depth, start: RainStart = RAIN_START): Built {
+        if (effect == Effect.MATRIX) return matrix(effects, reversed, area, timing, at4, room, seed, glyphs, plane, start)
         if (effect == Effect.ENCODE) return encode(effects, reversed, area, timing, at4, room, seed,
             glyphs ?: throw LintError("Encode: no cells were recorded for it"))
         val (o, i) = paths(effect, area, depth)
@@ -219,8 +239,16 @@ object Transitions {
      * column's cut between the new and the old picture falls on the same content in both eyes) moved left by whole columns
      * until both grids start at or left of the area, and enough of them to reach its right edge on both.
      */
-    class RainGrid(val cw: Int, val ch: Int, val rows: Int, val trail: Int, val spread: Int, val cols: Int, val xL: Int, val xR: Int) {
+    class RainGrid(val cw: Int, val ch: Int, val rows: Int, val trail: Int, val spread: Int, val cols: Int, val xL: Int, val xR: Int,
+                   /** The area's width (C3 X1MX2: which columns lie whole inside it on both lenses). */
+                   val areaW: Int) {
         val perLens: Boolean get() = xL != xR
+        /** §7.6: the columns' start offsets o_c = H2(seed, c) mod (spread + 1) for the rain record's hash seed [s]. */
+        fun offsets(s: Int): IntArray = IntArray(cols) { c -> wm.damage.core.sim.EffectsSim.umod(wm.damage.core.sim.EffectsSim.h2(s, c), spread + 1) }
+        /** Column [c]'s cells lie whole inside the area on both lenses: a head that enters a row there changes both pictures. */
+        fun wholeOnBoth(c: Int): Boolean = whole(xL, c) && whole(xR, c)
+        /** Column [c]'s cells lie whole inside the area on the lens whose grid starts at [x]. */
+        fun whole(x: Int, c: Int): Boolean = x + c * cw >= 0 && x + (c + 1) * cw <= areaW
     }
 
     fun rainGrid(area: Rect, face: CellLists.Face, depth: Int): RainGrid {
@@ -230,26 +258,97 @@ object Transitions {
         val d = kotlin.math.abs(depth)
         val k = (d + cw - 1) / cw
         val cols = ((area.w + d + k * cw + cw - 1) / cw).coerceIn(1, 128)
-        return RainGrid(cw, ch, rows, ((rows + 2) / 3).coerceIn(4, 32), rows.coerceAtMost(255), cols, -depth - k * cw, depth - k * cw)
+        return RainGrid(cw, ch, rows, ((rows + 2) / 3).coerceIn(4, 32), rows.coerceAtMost(255), cols, -depth - k * cw, depth - k * cw, area.w)
     }
 
     /**
-     * Matrix's travel tables over [n] steps a half for [grid] (C3 MX2 R1, decisions BU): E[1..n] of the out half's drops and
-     * of the in half's rain. The out half's heads come in over the old screen from rest, gathering speed — e1·(t/(n − 1))²
-     * — no further than one trail: up to e1 = ⌊(trail − 1)·4096 / (R + trail)⌋ by step n − 1, so no head passes its trail
-     * (no cell above a trail: the out half has no new picture to leave there); its last value is 4096 (§5.4's E[n]), where
-     * the rain lights nothing: its step n repeats step n − 1. The in half carries the same heads on from e1 at its own
-     * constant step, so its first value lies one of its steps past the out half's last drawn one (the fall still gathering
-     * speed there: the out half's last step is about half the in half's). Null for one step a half (no step n − 1: the
-     * hold, then the rain).
+     * Matrix's travel tables over [n] steps a half for [grid] and the rain's hash seed [s] (C3 MX2 R1, decisions BU): E[1..n]
+     * of the out half's drops and of the in half's rain. The out half's heads come in over the old screen no further than
+     * one trail by step n − 1, so no head passes its trail (no cell above a trail: the out half has no new picture to leave
+     * there); its last value is 4096 (§5.4's E[n]), where the rain lights nothing: its step n repeats step n − 1. How they
+     * come in is [start]'s ([RAIN_START], C3 X1MX2 item 1). The in half carries the same heads on from e1, the out half's
+     * last drawn value, at its own constant step, so its first value lies one of its steps past it. [seed] is the hash seed
+     * both halves' rain records take: [s], or for B and C the first after it whose columns give every drawn out step a
+     * picture of its own (a narrow grid whose earliest column sits at an edge: 1 seed in 65,536 at 288 with 18-px columns
+     * at depth 8, modeled — `TransitionsTest`). Null for one step a half (no step n − 1: the hold, then the rain).
      */
-    class RainTravel(val out: IntArray, val inn: IntArray, val e1: Int)
+    class RainTravel(val out: IntArray, val inn: IntArray, val e1: Int, val seed: Int)
 
-    fun rainTravel(grid: RainGrid, n: Int): RainTravel? {
+    fun rainTravel(grid: RainGrid, n: Int, s: Int, start: RainStart = RAIN_START): RainTravel? {
         if (n < 2) return null
+        val shape: ((Double) -> Double)? = when (start) {
+            RainStart.AS_BUILT -> null
+            RainStart.GATHERING -> { u -> RAIN_LIFT + (1 - RAIN_LIFT) * u * Math.sqrt(u) }
+            RainStart.SETTLING -> { u -> (1 - u).let { v -> RAIN_LIFT + (1 - RAIN_LIFT) * (1 - v * Math.sqrt(v)) } }
+        }
+        var seed = s
+        val out = if (shape == null) rainOutAsBuilt(grid, n)
+            else (0 until RAIN_SEED_TRIES).firstNotNullOfOrNull { i -> rainOutShaped(grid, n, (s + i) and 0xFFFF, shape, strict = true)?.also { seed = (s + i) and 0xFFFF } }
+                ?: rainOutShaped(grid, n, s, shape, strict = false)!!
+        val e1 = out[n - 2]
+        return RainTravel(out, IntArray(n) { j -> e1 + ((4096 - e1) * (j + 1)) / n }, e1, seed)
+    }
+
+    /**
+     * C3 X1MX2 item 1 (decisions CB (1): "the start must answer the tap"): the out half's travel, three candidates for the
+     * lead's eye; [RAIN_START] is the one built. [AS_BUILT] (A, MX2 R1): from rest, gathering speed, e1·(t/(n − 1))² — at 8
+     * steps its first three frames are one picture and on some seeds its first step lights nothing. [GATHERING] (B) and
+     * [SETTLING] (C) read the act's own start offsets ([rainOutShaped]): their first step lights the earliest column whole
+     * on both lenses on every seed, about a quarter of the way in, and every drawn step changes the picture; B then
+     * gathers speed into the hold at the join (a stop), C slows into it (the drops settle, then fall).
+     */
+    enum class RainStart { AS_BUILT, GATHERING, SETTLING }
+    val RAIN_START = RainStart.SETTLING
+    /** B's and C's first step: this share of the way from the first cell to the last value no head passes its trail at. */
+    private const val RAIN_LIFT = 0.25
+    /** B and C: the seeds tried after the act's own for one whose drawn out steps each show a picture of their own. */
+    private const val RAIN_SEED_TRIES = 16
+
+    /** A (MX2 R1): E[t] = ⌊e1·t² / (n − 1)²⌋ to e1 = ⌊(trail − 1)·4096 / (R + trail)⌋, then 4096. */
+    private fun rainOutAsBuilt(grid: RainGrid, n: Int): IntArray {
         val e1 = ((grid.trail - 1) * 4096) / (grid.rows + grid.trail)
-        return RainTravel(IntArray(n) { j -> if (j == n - 1) 4096 else (e1 * (j + 1) * (j + 1)) / ((n - 1) * (n - 1)) },
-            IntArray(n) { j -> e1 + ((4096 - e1) * (j + 1)) / n }, e1)
+        return IntArray(n) { j -> if (j == n - 1) 4096 else (e1 * (j + 1) * (j + 1)) / ((n - 1) * (n - 1)) }
+    }
+
+    /**
+     * B and C: the out half's E[1..n − 1] between eLo — where the earliest column whole on both lenses enters its first row
+     * (§7.6: head_c ≥ j from e = ⌈(j + o_c)·4096 / (R + o_c + trail)⌉) — and eHi, the last value at which no column's head
+     * passes its trail (its least offset's head at trail − 1), at eLo + (eHi − eLo)·[shape](u), u = (t − 1)/(n − 2), the
+     * shape 0.25 at u = 0 and 1 at u = 1; then E[n] = 4096. The picture changes only where a head enters a row, so each value
+     * is moved inside the run between two such changes the fewest steps that give every drawn step a change of its own (a
+     * forward pass, then a backward one inside eHi). On every seed step 1 lights at least one cell on both lenses. Where the
+     * columns whole on both lenses enter fewer rows below eHi than there are drawn steps, [strict] answers null (the caller
+     * tries the next seed); else those steps share a picture.
+     */
+    private fun rainOutShaped(grid: RainGrid, n: Int, s: Int, shape: (Double) -> Double, strict: Boolean): IntArray? {
+        val o = grid.offsets(s)
+        val r = grid.rows; val tr = grid.trail
+        val oa = o.min()
+        val eHi = ((tr + oa) * 4096 + (r + oa + tr) - 1) / (r + oa + tr) - 1
+        val found = IntArray(grid.cols * minOf(tr, r))
+        var k = 0
+        for (c in 0 until grid.cols) if (grid.wholeOnBoth(c)) for (j in 0 until minOf(tr, r)) {
+            val e = ((j + o[c]) * 4096 + (r + o[c] + tr) - 1) / (r + o[c] + tr)
+            if (e <= eHi) found[k++] = e
+        }
+        if (k == 0) return if (strict) null else IntArray(n) { j -> if (j == n - 1) 4096 else eHi }
+        found.sort(0, k)
+        var m = 0
+        for (i in 0 until k) if (m == 0 || found[i] != found[m - 1]) found[m++] = found[i]
+        if (strict && m < n - 1) return null
+        val at = found.copyOf(m)
+        val eLo = at[0]
+        val target = IntArray(n - 1) { t -> eLo + ((eHi - eLo) * shape(if (n <= 2) 1.0 else t.toDouble() / (n - 2))).toInt() }
+        // the last change at or below each target, then each step its own change, inside the m there are
+        val idx = IntArray(n - 1) { t -> at.count { it <= target[t] } - 1 }
+        var prev = -1
+        for (t in idx.indices) { idx[t] = maxOf(idx[t], prev + 1); prev = idx[t] }
+        var next = m
+        for (t in idx.indices.reversed()) { idx[t] = minOf(idx[t], next - 1); next = idx[t] }
+        return IntArray(n) { j ->
+            if (j == n - 1) 4096
+            else idx[j].coerceAtLeast(0).let { i -> target[j].coerceIn(at[i], if (i + 1 < m) at[i + 1] - 1 else eHi) }
+        }
     }
 
     /**
@@ -268,12 +367,13 @@ object Transitions {
      * Select's.
      */
     private fun matrix(effects: Motion.Effects, reversed: Boolean, area: Rect, timing: Timing, at4: Int, room: Int, seed: Int, g: Glyphs?,
-                       depth: Int): Built {
+                       plane: Int, start: RainStart): Built {
         val face = g?.rain ?: throw LintError("Matrix: no face the glasses hold has a letter or a digit")
         if (face.alphabet.isEmpty()) throw LintError("Matrix: the face ${face.spec} holds no letter or digit")
         val n = timing.steps
-        val grid = rainGrid(area, face, depth)
-        val travel = rainTravel(grid, n)
+        val grid = rainGrid(area, face, plane)
+        val travel = rainTravel(grid, n, (seed + 1) and 0xFFFF, start)
+        val s = travel?.seed ?: ((seed + 1) and 0xFFFF)
         var off = at4
         val alphabet = Motion.Alphabet(off, face.alphabet).also { off += words(it.bytes.size) }
         fun record(reveal: Int) = Motion.Rain(off, grid.cols, grid.trail, grid.cw, grid.ch, face.font, alphabet, headLvl = 15, tailLvl = RAIN_TAIL_LVL,
@@ -283,7 +383,6 @@ object Transitions {
         fun table(e: IntArray) = Motion.Ease.Table(off, e).also { off += words(it.record.size) }
         val outEase = travel?.let { table(it.out) }
         val inEase: Motion.Ease = travel?.let { table(it.inn) } ?: Motion.Ease.Linear
-        val s = (seed + 1) and 0xFFFF
         val out = half("out") { Motion.program2(off, effects, own = true) {
             track(area, Motion.Backdrop.None) { pieces(Motion.LAYER_OLD, n, Motion.Ease.Linear, lvl0 = 15, lvl1 = 15) }
             if (drops != null && outEase != null) {

@@ -41,7 +41,9 @@ object TransitionRehearsal {
                  val control: List<Frame>)
 
     data class Plan(val effect: Transitions.Effect, val reversed: Boolean, val height: Int, val timing: Transitions.Timing,
-                    val batches: Int = 2, val lateBy: Int = -1, val depth: Int = 8)
+                    val batches: Int = 2, val lateBy: Int = -1, val depth: Int = 8,
+                    /** C3 X1MX2 item 1: Matrix's out-half travel (the lead's comparison of the candidates). */
+                    val start: Transitions.RainStart = Transitions.RAIN_START)
 
     const val OUT_SLOT = 2
     const val IN_SLOT = 3
@@ -147,7 +149,8 @@ object TransitionRehearsal {
         val area = Rect(0, 0, Geometry.PANEL_W, plan.height)
         if (glyphs != null) send("the rehearsal's font", CfwModes.cacheUpdate2(listOf(CfwModes.CacheWrite2(0, face.second)), CACHE_KIB * 1024))
         val at4 = if (glyphs != null) GLYPH_AT4 else AT4
-        val b = Transitions.build(effects, plan.effect, plan.reversed, area, plan.timing, at4, CfwModes.TRANSITION_SLOT, plan.depth, glyphs = glyphs)
+        val b = Transitions.build(effects, plan.effect, plan.reversed, area, plan.timing, at4, CfwModes.TRANSITION_SLOT, plan.depth, glyphs = glyphs,
+            start = plan.start)
         // the records' write: the slot's records and, for Encode, the out half's lists, in one message (the shell's form)
         send("the records", CfwModes.cacheUpdate2(listOfNotNull(CfwModes.CacheWrite2(at4, b.blob), b.outLists?.let { CfwModes.CacheWrite2(it.at4, it.bytes) }), CACHE_KIB * 1024))
         val frames = ArrayList<Frame>()

@@ -904,10 +904,15 @@ class ConformanceVectorTest {
         const val C1_FEATURES = 0x1FF
         /** C3 MX2 (`private/c3-design/C3-MX2-built.md`): the shipped acts whose programs Matrix's new form changed, not
          *  compared in [theShipVectorsHoldTheProgramsTheShellSends_X3D] until the vector lane writes their inputs again
-         *  (`DAMAGE_SHIP_DUMP`, `DAMAGE_SHIP_ONLY=matrix`) and the firmware lane fills them; then this set goes. */
+         *  (`DAMAGE_SHIP_DUMP`, `DAMAGE_SHIP_ONLY=matrix`) and the firmware lane fills them; then this set goes. C3 X1MX2
+         *  (`C3-X1MX2-built.md`): the same nine again (the rain's start; the Lock Screen's at plane 0), and Warp's and
+         *  Flip's nine, whose period and steps follow their measured step (`DAMAGE_SHIP_ONLY=warp`, `=flip`) — 18 in all. */
         val MX2_MOVED = setOf("v5-ship-select-matrix-352", "v5-ship-select-matrix-480", "v5-ship-back-matrix-rev-352",
             "v5-ship-back-matrix-rev-480", "v5-ship-lock-matrix-352", "v5-ship-lock-matrix-480", "v5-ship-lock-matrix-rev-352",
-            "v5-ship-lock-matrix-rev-480", "v5-ship-cut-select-matrix-352")
+            "v5-ship-lock-matrix-rev-480", "v5-ship-cut-select-matrix-352",
+            "v5-ship-select-warp-352", "v5-ship-select-warp-480", "v5-ship-back-warp-rev-352", "v5-ship-back-warp-rev-480",
+            "v5-ship-select-flip-352", "v5-ship-select-flip-480", "v5-ship-back-flip-rev-352", "v5-ship-back-flip-rev-480",
+            "v5-ship-cut-select-warp-352")
         /** §6.8: C2 adds bit 10 (bit 9, the link item, still out). */
         const val BIND_FEATURE = 1 shl 10
         const val C2_FEATURES = 0x5FF

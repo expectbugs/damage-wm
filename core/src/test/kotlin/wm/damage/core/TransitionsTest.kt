@@ -250,8 +250,9 @@ class TransitionsTest {
         val refused = ArrayList<String>()
         var checked = 0
         for (len in wm.damage.core.shell.ShellSettings.SCROLL_LENGTHS) for (f in wm.damage.core.shell.ShellSettings.FRAME_COUNTS) {
-            val timing = Transitions.timing(len, f)
             for ((tier, e, rev) in pathPlays) for (h in listOf(288, 352, 416, 480)) for (depth in listOf(0, 16)) {
+                // C3 X1MX2 item 3: the timing the shell asks for (Warp's and Flip's fitted to their measured step)
+                val timing = Transitions.timingFor(e, len, f, Rect(0, 0, Geometry.PANEL_W, h))
                 val what = "${tier.word} ${e.label}${if (rev) " reversed" else ""} at $h, $len ms, ${if (f == 0) "Auto" else "$f"} frames, depth $depth"
                 try {
                     val b = Transitions.build(fx, e, rev, Rect(0, 0, Geometry.PANEL_W, h), timing, 1024, wm.damage.core.wire.CfwModes.TRANSITION_SLOT, depth, seed = len * 31 + f)
@@ -273,6 +274,40 @@ class TransitionsTest {
         }
         println("X2P2 item 7, what each length and frame count plays (the same at every height):\n$table")
         assertEquals(500L, 2 * Transitions.timing(800, 4).halfMs, "the review's example: 800 ms at 4 frames plays 500 ms")
+    }
+
+    /**
+     * C3 X1MX2 item 3 (decisions BV): Warp's and Flip's step fit follows the glass. At 352 — where his session measured
+     * them (Warp's out half 58.8 ms a step, Flip's 60.3 ms) — every tier length and frame setting gives a period of at
+     * least the measured step plus 10 %, and the length holds while the frames give (2·T·P within the length, unless one
+     * step a half already passes it) — only to a longer period: where the fit is not above the setting's period the
+     * setting's timing plays; never more steps than the setting's. Every other path effect keeps [Transitions.timing].
+     * Printed for the report: every length and frame setting at the four heights, before → after (the heights other than
+     * 352 modeled from the fit's form).
+     */
+    @Test
+    fun warpAndFlipFitTheirMeasuredStep_X1MX2() {
+        val heights = listOf(288, 352, 416, 480)
+        val table = StringBuilder()
+        for ((e, ms) in listOf(Transitions.Effect.WARP to Transitions.WARP_STEP_MS_352, Transitions.Effect.FLIP to Transitions.FLIP_STEP_MS_352)) {
+            table.append("${e.label} (measured ${ms} ms a step at 352): length / frames | ${heights.joinToString(" | ")}   (T steps a half × P ticks, before → after)\n")
+            for (len in wm.damage.core.shell.ShellSettings.SCROLL_LENGTHS) for (f in wm.damage.core.shell.ShellSettings.FRAME_COUNTS) {
+                val base = Transitions.timing(len, f)
+                val cells = heights.map { h ->
+                    val t = Transitions.timingFor(e, len, f, Rect(0, 0, Geometry.PANEL_W, h))
+                    if (h == 352) assertTrue(t.period * 1000.0 / 1024 >= ms * 1.10, "${e.label} at $len ms / $f: P ${t.period} under ${ms} ms + 10 %")
+                    assertTrue(t.steps <= base.steps, "${e.label} at $h, $len ms / $f: ${t.steps} steps, more than the setting's ${base.steps}")
+                    assertTrue(t == base || (t.period > base.period && (2L * t.steps * t.period <= Math.ceil(len * 1.024).toLong() || t.steps == 1)),
+                        "${e.label} at $h, $len ms / $f: ${t.steps} × ${t.period} against the setting's ${base.steps} × ${base.period} — frames give only to a longer period, inside the length")
+                    if (t == base) "${t.steps}×${t.period}" else "${base.steps}×${base.period} → ${t.steps}×${t.period}"
+                }
+                table.append("$len / ${if (f == 0) "Auto" else "$f"} | ${cells.joinToString(" | ")}\n")
+            }
+        }
+        for ((_, e, _) in pathPlays.filter { it.second != Transitions.Effect.WARP && it.second != Transitions.Effect.FLIP }.distinctBy { it.second })
+            for (len in wm.damage.core.shell.ShellSettings.SCROLL_LENGTHS) for (f in wm.damage.core.shell.ShellSettings.FRAME_COUNTS) for (h in heights)
+                assertEquals(Transitions.timing(len, f), Transitions.timingFor(e, len, f, Rect(0, 0, Geometry.PANEL_W, h)), "${e.label} keeps its timing")
+        println("X1MX2 item 3, Warp's and Flip's timings (352 measured, the other heights modeled):\n$table")
     }
 
     /** DP2 item 3: the tier rows follow the scroll rows in `Animations` only where stage 5 is in force; Select 450 ms / 10
@@ -425,7 +460,10 @@ class TransitionsTest {
     /** One walk of Matrix's two halves on the model, one lens: what [matrixWalk] saw — the out half's and the junction's
      *  failures apart from the in half's, the share of cells lit at each step of each half, the heads' span per in step. */
     private class Walk(val outFailures: List<String>, val inFailures: List<String>, val outShare: List<Double>, val inShare: List<Double>,
-                       val headSpan: Map<Int, Int>, val rows: Int, val junction: String)
+                       val headSpan: Map<Int, Int>, val rows: Int, val junction: String,
+                       /** C3 X1MX2 item 1: the out half's drawn steps that show the picture of the step before (step 1: the
+                        *  old picture — the tap shows nothing). */
+                       val startFailures: List<String>)
 
     /** A rain segment of [prog] as the program holds it, on [left]'s lens: its record, seed, offset, area and ease values
      *  E[0..n], and §7.6's head formula on them (o_c = H2(seed, c) mod (spread + 1), head = −o_c + (((R + o_c + trail)·e)
@@ -460,14 +498,15 @@ class TransitionsTest {
      * step is the new picture (END); drawn at every second step it gives the same picture where both drew (the fold, §7.2);
      * both lenses' grids cover the area.
      */
-    private fun matrixWalk(h: Int, timing: Transitions.Timing, depth: Int, left: Boolean): Walk {
+    private fun matrixWalk(h: Int, timing: Transitions.Timing, depth: Int, left: Boolean, seed: Int = 0x5EED): Walk {
         val area = Rect(0, 0, Geometry.PANEL_W, h)
         val (g, o, nw) = TransitionRehearsal.glyphInputs(h, oldScreen(), newScreen())
         val full = Rect(0, 0, Geometry.PANEL_W, Geometry.PANEL_H)
         val old = Pack.rect(o, full); val new = Pack.rect(nw, full)
-        val b = Transitions.build(fx, Transitions.Effect.MATRIX, false, area, timing, 4096, wm.damage.core.wire.CfwModes.TRANSITION_SLOT, depth, glyphs = g)
-        val at = "$h/${timing.steps}/d$depth ${if (left) "L" else "R"}"
-        val of = ArrayList<String>(); val inf = ArrayList<String>()
+        val b = Transitions.build(fx, Transitions.Effect.MATRIX, false, area, timing, 4096, wm.damage.core.wire.CfwModes.TRANSITION_SLOT, depth,
+            seed = seed, glyphs = g)
+        val at = "$h/${timing.steps}/d$depth ${if (left) "L" else "R"}" + if (seed != 0x5EED) " seed $seed" else ""
+        val of = ArrayList<String>(); val inf = ArrayList<String>(); val sf = ArrayList<String>()
         val n = timing.steps
         val drops = RainSeg(b.out, left); val rain = RainSeg(b.inn, left)
         if (b.out.tracks.size != 2 || b.out.tracks[0].segments.single().verb != Motion.PIECES || drops.rain.reveal != 0 || drops.n != n)
@@ -481,6 +520,7 @@ class TransitionsTest {
             val prev = buf
             buf = step(b.out, k, buf, new, left, b = k - 1); outAt[k] = buf
             if (k == n) { if (!buf.contentEquals(prev)) of += "$at: out step $n paints something (its rain is past the bottom)"; break }
+            if (buf.contentEquals(prev)) sf += "$at: out step $k is the picture of ${if (k == 1) "the old screen (the tap shows nothing)" else "step ${k - 1}"}"
             var lit = 0; var cells = 0
             columns@ for (c in 0 until drops.rain.cols) {
                 val head = drops.head(c, k)
@@ -543,7 +583,7 @@ class TransitionsTest {
             b2 = step(b.inn, k, b2, new, left, b = last); last = k
             if (!b2.contentEquals(every[k]!!)) inf += "$at: in step $k drawn from step ${k - 2} differs from every step drawn"
         }
-        return Walk(of, inf, outShare, inShare, span, rain.rows, junction)
+        return Walk(of, inf, outShare, inShare, span, rain.rows, junction, sf)
     }
 
     private val mx2Heights = listOf(288, 352, 416, 480)
@@ -565,6 +605,70 @@ class TransitionsTest {
         }
         println("MX2 R1 junctions (modeled):\n$rows")
         assertTrue(failures.isEmpty(), failures.take(20).joinToString("\n"))
+    }
+
+    /** C3 X1MX2 item 1: the out half of [start]'s travel on [grid] for the act's rain seed [s] (the seed the travel takes), by §7.6's head formula on each
+     *  lens's columns whose cells lie whole inside the area: the cells lit at step 1 (the fewer lens's), the drawn steps
+     *  2..T − 1 whose picture is the step before's on either lens (no head there entered a row), and the largest
+     *  head − (trail − 1) of any column at any drawn step (above 0: a head past its trail). */
+    private fun outStart(grid: Transitions.RainGrid, n: Int, s: Int, start: Transitions.RainStart): Triple<Int, Int, Int> {
+        val travel = Transitions.rainTravel(grid, n, s, start)!!
+        val e = travel.out
+        val o = grid.offsets(travel.seed)
+        fun head(c: Int, t: Int) = -o[c] + (((grid.rows + o[c] + grid.trail) * e[t - 1]) shr 12)
+        val lenses = intArrayOf(grid.xL, grid.xR)
+        var first = Int.MAX_VALUE
+        for (x in lenses) {
+            var lit = 0
+            for (c in 0 until grid.cols) if (grid.whole(x, c)) head(c, 1).let { hd -> if (hd >= 0) lit += minOf(hd, grid.rows - 1) - maxOf(0, hd - grid.trail + 1) + 1 }
+            first = minOf(first, lit)
+        }
+        var repeats = 0
+        for (t in 2 until n) if (lenses.any { x -> (0 until grid.cols).none { c -> grid.whole(x, c) && head(c, t) >= 0 && head(c, t) != head(c, t - 1) } }) repeats++
+        var past = Int.MIN_VALUE
+        for (t in 1 until n) for (c in 0 until grid.cols) past = maxOf(past, head(c, t) - (grid.trail - 1))
+        return Triple(first, repeats, past)
+    }
+
+    /**
+     * C3 X1MX2 item 1 (decisions CB (1): "the start must answer the tap"). The built table ([Transitions.RAIN_START]) and both
+     * of the lead's candidates B and C: by §7.6's head formula, at the four heights, depths 0–16, 2–8 steps a half and three
+     * faces (the rehearsal's, 12 × 20 letters, 6 × 12), the first step lights at least one cell whole on both lenses, no
+     * drawn out step repeats the step before's picture on either lens, and no head passes its trail — on EVERY one of the
+     * 65,536 seeds at depths 0 and 8 (Lock and Select as he plays them) and his step counts 5 and 8 for the built table
+     * (the rehearsal's face and 12 × 20), every 61st elsewhere — the act's seed or, for B and C, the next one the travel
+     * takes where the act's own would leave two drawn steps one picture. On the model's pixels: at the four heights, 5 and 8 steps,
+     * both lenses and six seeds, every drawn out step changes the panel (step 1 against the old screen). Prints A, B and C
+     * side by side for the report.
+     */
+    @Test
+    fun matrixsFirstStepAnswersTheTapOnEverySeed_X1MX2() {
+        val faces = listOf("rehearsal" to TransitionRehearsal.glyphInputs(288, oldScreen(), newScreen()).first.rain!!,
+            "12x20" to testFace(12, 20), "6x12" to testFace(6, 12))
+        val fails = ArrayList<String>()
+        val rows = StringBuilder("face | H | depth | steps | cand | step-1 cells (median, least) | seeds lighting nothing | seeds with a repeated step (most) | most head − (trail − 1) | seeds\n")
+        for ((name, face) in faces) for (h in mx2Heights) for (d in listOf(0, 4, 8, 12, 16)) for (n in 2..8) {
+            val grid = Transitions.rainGrid(Rect(0, 0, Geometry.PANEL_W, h), face, d)
+            for (start in Transitions.RainStart.entries) {
+                val every = start == Transitions.RAIN_START && name != "6x12" && (d == 0 || d == 8) && (n == 5 || n == 8)
+                val firsts = ArrayList<Int>(); var none = 0; var rep = 0; var repMost = 0; var past = Int.MIN_VALUE
+                for (s in if (every) 0..0xFFFF else 0..0xFFFF step 61) {
+                    val (f, r, p) = outStart(grid, n, s, start)
+                    firsts += f; if (f == 0) none++; if (r > 0) rep++; repMost = maxOf(repMost, r); past = maxOf(past, p)
+                }
+                val at = "$name $h/d$d/$n ${start.name}"
+                if (start != Transitions.RainStart.AS_BUILT || start == Transitions.RAIN_START) {
+                    if (none > 0) fails += "$at: step 1 lights nothing on $none of ${firsts.size} seeds"
+                    if (rep > 0) fails += "$at: a drawn step repeats the step before on $rep of ${firsts.size} seeds (at most $repMost)"
+                    if (past > 0) fails += "$at: a head passes its trail by $past"
+                }
+                if ((n == 5 || n == 8) && d == 8 && name != "6x12") rows.append("$name | $h | $d | $n | ${start.name} | ${firsts.sorted()[firsts.size / 2]}, ${firsts.min()} | $none | $rep ($repMost) | $past | ${firsts.size}\n")
+            }
+        }
+        println("X1MX2 the rain's start, by §7.6's head formula (modeled):\n$rows")
+        for (h in mx2Heights) for (t in mx2Timings) for (seed in listOf(0x5EED, 0, 1, 0xFFFF, 4242, 31337))
+            for (left in listOf(true, false)) fails += matrixWalk(h, t, if (seed % 2 == 0) 8 else 0, left, seed).startFailures
+        assertTrue(fails.isEmpty(), fails.take(20).joinToString("\n"))
     }
 
     /**
