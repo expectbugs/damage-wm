@@ -285,13 +285,14 @@ class MotionDslTest {
         val m = DamageMsg.parseMotion(wm.damage.core.wire.Pb.cat(wm.damage.core.wire.Pb.v(1, 3), wm.damage.core.wire.Pb.v(2, 0),
             wm.damage.core.wire.Pb.l(DamageMsg.MOTION_FIELD, body)))!!
         assertEquals(listOf<Any?>(9L, 1, null, 2, null, null, 15), listOf(m.seq, m.slot, m.tag, m.outcome, m.ordinal, m.endCrc, m.reason))
-        assertEquals("seq 9 slot 1 tag - refused (unarmed)", m.describe())
+        // C3 TR1 (decisions BV (3)): the note ends with the body's field 11, RIGHT's uptime in OS ticks
+        assertEquals("seq 9 slot 1 tag - refused (unarmed) uptime 1234", m.describe())
         assertEquals(null, DamageMsg.parseMotion(wm.damage.core.wire.Pb.cat(wm.damage.core.wire.Pb.v(1, 3))), "no field 114: not a notify")
         // build C1's ruling R1.15: reason 14 also names a write, PLAY, RETARGET or live mode 6 that could not claim the
         // engine's busy word — the refusal table says so in the journal's line and in a refused notify's
         val busy = wm.damage.core.wire.Pb.cat(wm.damage.core.wire.Pb.v(1, 10), wm.damage.core.wire.Pb.v(2, 0), wm.damage.core.wire.Pb.v(4, 2),
             wm.damage.core.wire.Pb.v(10, 14), wm.damage.core.wire.Pb.v(11, 1))
-        assertEquals("seq 10 slot 0 tag - refused (display-or-engine-busy)", DamageMsg.parseMotion(wm.damage.core.wire.Pb.cat(
+        assertEquals("seq 10 slot 0 tag - refused (display-or-engine-busy) uptime 1", DamageMsg.parseMotion(wm.damage.core.wire.Pb.cat(
             wm.damage.core.wire.Pb.v(1, 3), wm.damage.core.wire.Pb.v(2, 0), wm.damage.core.wire.Pb.l(DamageMsg.MOTION_FIELD, busy)))!!.describe())
     }
 
