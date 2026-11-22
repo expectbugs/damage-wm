@@ -38,8 +38,10 @@ class MotionCheckTest {
             // K1-1: each Scroll effect's notches (both ways at four heights, the wrap at the two that wrap) as strips; C3 FF:
             // and the same at stage 5 (the fast path's fit; the wrap a ring fire at the two that wrap). C3 DM-1: six effects —
             // Crush and Flip at stage 5 in version 2 (`scroll-<crush|flip>-h<H>-s5-…`), at stage 4 their fallbacks. C3 X1DM1: and
-            // his sequences at 352, stage 5 — a burst for six effects, the fast three for Depth and Crush
-            val bursts = listOf("none", "depth", "slide", "fall", "crush", "flip").map { "scroll-$it-h352-s5-burst" } + listOf("depth", "crush").map { "scroll-$it-h352-s5-fast" }
+            // his sequences at 352, stage 5 — a burst for six effects, the fast three for Depth and Crush (C3 X2DM1a: at 120 and
+            // at 45 ticks)
+            val bursts = listOf("none", "depth", "slide", "fall", "crush", "flip").map { "scroll-$it-h352-s5-burst" } +
+                listOf("depth", "crush").flatMap { listOf("scroll-$it-h352-s5-fast", "scroll-$it-h352-s5-fast45") }
             assertEquals(2 * 4 * (6 * 2 + 3 * 2) + bursts.size, files(dir).count { it.startsWith("scroll-") && it.endsWith(".png") }, "the scroll strips: ${files(dir).filter { it.startsWith("scroll-") }}")
             assertEquals(4 * (6 * 2 + 3 * 2) + bursts.size, files(dir).count { Regex("""scroll-\w+-h\d+-s5-.*\.png""").matches(it) }, "the stage-5 scroll strips: ${files(dir).filter { "-s5-" in it }}")
             for (e in listOf("crush", "flip")) for (h in listOf(288, 352, 416, 480)) for (n in listOf("down", "up"))
