@@ -847,7 +847,8 @@ class ConformanceVectorTest {
         val mx2Moved = ArrayList<String>()
         if (dump == null && only == null) {
             val files = vectorFiles(vectorDir()).map { it.fileName.toString().removeSuffix(".json") }.filter { it.startsWith(ShipVectors.PREFIX) }.toSet()
-            for (n in files - specs.map { it.name }.toSet()) problems += "$n: a ship vector no spec makes"
+            for (n in files - specs.map { it.name }.toSet() - K12S1_GONE) problems += "$n: a ship vector no spec makes"
+            for (n in K12S1_GONE) if (n !in files) problems += "$n: gone from the files — the K1-2 stage-1 exception is stale, remove it"
         }
         for (spec in specs) {
             // a capture that fails its own checks is a problem of its act; the rest are still played (SV-083)
@@ -913,6 +914,10 @@ class ConformanceVectorTest {
             "v5-ship-select-warp-352", "v5-ship-select-warp-480", "v5-ship-back-warp-rev-352", "v5-ship-back-warp-rev-480",
             "v5-ship-select-flip-352", "v5-ship-select-flip-480", "v5-ship-back-flip-rev-352", "v5-ship-back-flip-rev-480",
             "v5-ship-cut-select-warp-352")
+        /** K1-2 stage 1 (`private/build083/K1-2-S1-built.md` §2; decisions BC O1): the shipped acts whose spec went with
+         *  AD.2's strip switch — Main on one strip at 256 KiB, a row form's change withdraws the list — their files kept
+         *  until the vector lane removes them; no spec makes them. */
+        val K12S1_GONE = setOf("v5-ship-ring-switch-352")
         /** §6.8: C2 adds bit 10 (bit 9, the link item, still out). */
         const val BIND_FEATURE = 1 shl 10
         const val C2_FEATURES = 0x5FF

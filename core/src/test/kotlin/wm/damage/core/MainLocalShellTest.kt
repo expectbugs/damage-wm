@@ -586,9 +586,9 @@ class MainLocalShellTest {
         } finally { r.close() }
     }
 
-    /** Decisions AU.1 (b): at 256 KiB, rows fuller than two strips' room (eighteen dense rows) stage with ONE strip —
-     *  never "cannot be staged" while one fits — the list bound; a row form's change then withdraws and returns, as at
-     *  160 KiB. (Two strips when they fit: `aRowFormChangeAt256KiBSwitchesStripsWithNoWithdrawal_AD2`.) */
+    /** Decisions AU.1 (b): at 256 KiB, rows fuller than two strips' room (eighteen dense rows) stage — never "cannot be
+     *  staged" while one strip fits (since K1-2 stage 1 one strip at every size, decisions BC O1) — the list bound; a row
+     *  form's change then withdraws and returns, as at 160 KiB. */
     @Test
     fun fullerRowsStageWithOneStripAt256KiB_AU1(): Unit = runBlocking {
         val r = Rig(Taps.REPORT, nRows = 18, kib256 = true)
@@ -596,8 +596,7 @@ class MainLocalShellTest {
             for (w in r.rows) w.s = w.s.copy(line = "W".repeat(80), detail = "W".repeat(80))
             r.up()
             assertTrue(r.notes("mainstage").none { it.startsWith("Main's rows cannot be staged") }, "${r.notes("mainstage")}")
-            assertTrue(r.notes("mainstage").any { it.startsWith("two strips do not fit Main's region") }, "one strip staged: ${r.notes("mainstage")}")
-            assertTrue(r.onLoop { r.shell.mainBinding.staging!!.stripB == null }, "no second strip")
+            assertTrue(r.notes("mainstage").any { it.startsWith("staged") && "Main's own region" in it }, "staged in Main's own region: ${r.notes("mainstage")}")
             r.rows[3].s = r.rows[3].s.copy(line = "short 3")
             r.shell.services.requestRender(r.rows[3])
             r.until("withdrawn for the row form's change", 15_000) { r.notes("mainstage").any { it.startsWith("withdrawn") } }
@@ -1002,72 +1001,65 @@ class MainLocalShellTest {
     }
 
     /**
-     * Decisions AD.2 in the shell (follow-up FC), on a 256 KiB session with BIND in force (the stored record's last size,
-     * AD.1): Main's own region holds a second strip, and a row form's change writes the new strip there and SETs the
-     * entries to the pans that name it — no CLEAR of the entries, no unbound moment. A notch before the switch, one fired
-     * between the write and the SETs (when the first lens is handed the batch that SETs the new pans: both lenses then hold
-     * the new strip and the old entries), and one after: each adopted and COMMITted, belief equal to both lenses after
-     * each, the staging's active strip the other one, RIGHT's entries naming its pans. (The same at 160 KiB withdraws and
-     * returns on the right row: `aRowFormChangeWithdrawsTheListAndANotchInBetweenGoesAsToday_DI`.)
+     * K1-2 stage 1 (decisions BC O1): on a 256 KiB session with BIND in force (the stored record's last size, AD.1) Main is
+     * staged on ONE strip in its own region, and a row form's change withdraws the list as at 160 KiB — the rules' CLEAR
+     * reaches RIGHT before the strip's write, the LIST and the SETs after it, naming the same pans (no strip switch). A
+     * notch fired while the write is on its way matches no entry (no S taken) and goes as today; the return names the
+     * phone's row on RIGHT; once bound again a notch is adopted and committed. Prints the path's flushes and bytes (the
+     * report's count; the rig's link is the start rig's, so the times are the model's).
      */
     @Test
-    fun aRowFormChangeAt256KiBSwitchesStripsWithNoWithdrawal_AD2(): Unit = runBlocking {
+    fun aRowFormChangeAt256KiBWithdrawsTheListAndReturnsOnItsRow_O1(): Unit = runBlocking {
         val r = Rig(Taps.REPORT, kib256 = true)
         try {
             r.up()
             assertEquals(256 * 1024, r.t.state.value.cacheSize, "a 256 KiB session from the stored record")
-            assertTrue(r.onLoop { r.shell.mainBinding.staging?.stripB != null }, "Main's own region holds a second strip")
+            val staged = r.notes("mainstage").first { it.startsWith("staged") }
+            assertTrue("Main's own region" in staged && "second slot" !in staged, "one strip in Main's own region: $staged")
+            // the region's free span as the note says it: the region less what is staged, from Main's end to the region's
+            val span = Regex("""the region's free span (\d+) B at (\d+)\.\.(\d+)""").find(staged)?.groupValues?.drop(1)?.map { it.toInt() }
+            val (end, regionEnd, start) = r.onLoop { r.shell.mainBinding.staging!!.let { Triple(it.end, it.regionEnd, it.start) } }
+            assertEquals(listOf(regionEnd - end, end, regionEnd), span, "the free span said: $staged")
+            assertEquals(CfwModes.mainRegion(256 * 1024, true).let { it.last + 1 - it.first } - (end - start), span!![0], "the region less the staging")
+            assertEquals(0, r.row())
             val list0 = r.list()
-            val oldProgs = list0.entries.filter { !it.isTap }.map { it.prog4 }.toSet()
-            notch(r, CfwModes.EV_UPROLL, "the notch before the switch")
-            delay(r.q() + 200); r.settle("the burst closed")
+            val progs0 = list0.entries.filter { !it.isTap }.map { it.prog4 }.toSet()
             val at = r.right.size
-            var between: Int? = null
-            r.onAnyImage = { _, img ->
-                if (between == null && r.subs(img).any { r.isSub(it, 27, 0) && r.u16(it, 9) !in oldProgs && r.u16(it, 9) != 0xFFFF })
-                    between = r.fire(CfwModes.EV_UPROLL)
+            val t0 = System.currentTimeMillis()
+            var between: Pair<Int, Int>? = null                 // RIGHT's S before and after the notch in between
+            r.onImage = { img ->
+                if (between == null && r.cacheWrite(img) && r.sim.bindForTest(Arm.RIGHT).field39() == 0) {
+                    val s0 = r.sim.bindForTest(Arm.RIGHT).seq
+                    between = s0 to r.fire(CfwModes.EV_UPROLL)
+                }
             }
             r.rows[3].s = r.rows[3].s.copy(line = "summary 33")
             r.shell.services.requestRender(r.rows[3])
-            r.until("a notch fired between the strip's write and the SETs", 15_000) { between != null }
-            r.onAnyImage = null
-            val sB = between!!
-            delay(((list0.entries.first { it.eventId == CfwModes.EV_UPROLL }.let { (it.program!!.T + 1) * it.period }) * 1000L) / 1024 + r.q() + 200)
-            r.settle("after the notch between")
-            assertEquals(2, r.row(), "the notch between was adopted")
-            assertTrue(r.right.drop(at).any { img -> r.subs(img).any { r.isCommit(it, sB) } }, "the notch between was COMMITted (S $sB): " +
-                "applied ${r.notes("applied").takeLast(2)}; snapback ${r.notes("snapback").takeLast(2)}; mainstage ${r.notes("mainstage").takeLast(3)}; " +
-                "answers ${r.right.drop(at).flatMap { img -> r.subs(img).filter { it[0].toInt() == 26 || it[0].toInt() == 27 }.map { x -> x.joinToString("") { "%02x".format(it) } } }.take(12)}")
-            r.assertOracle("after the notch between the write and the SETs")
-            notch(r, CfwModes.EV_UPROLL, "the notch after the switch")
+            r.until("withdrawn", 15_000) { r.notes("mainstage").any { it.startsWith("withdrawn — row 3") } }
+            r.until("re-staged", 15_000) { r.notes("mainstage").any { it.startsWith("row 3 re-staged") } }
+            r.bound("offered again")
+            r.onImage = null
+            val b = assertNotNull(between, "a notch was fired while the strip's write was on its way, with no entry on RIGHT")
+            assertEquals(b.first, b.second, "the notch in between matched no entry (no S taken)")
+            assertEquals(1, r.row(), "the notch in between moved the row as today")
+            // decisions AF.2: the return named the phone's current row — RIGHT's list cursor is where the frame is
+            assertEquals(r.row(), r.sim.bindForTest(Arm.RIGHT).lists[0].cursor, "the return named the current row on RIGHT")
+            // the path on RIGHT: the CLEAR of Main's entries first, then the strip's write, then the SETs (the same pans)
+            val imgs = r.right.drop(at)
+            val clearAt = imgs.indexOfFirst { img -> r.subs(img).any { r.isSub(it, 27, CfwModes.BIND_CLEAR) } }
+            val writeAt = imgs.indexOfFirst { r.cacheWrite(it) }
+            val setAt = imgs.indices.firstOrNull { it > writeAt && r.subs(imgs[it]).any { s -> r.isSub(s, 27, CfwModes.BIND_SET) } } ?: -1
+            assertTrue(clearAt in 0 until writeAt && setAt > writeAt, "CLEAR at $clearAt, the write at $writeAt, the SETs at $setAt of RIGHT's images")
             val list1 = r.list()
-            val newDown = list1.entries.first { it.eventId == CfwModes.EV_UPROLL }.prog4
-            assertTrue(newDown !in oldProgs, "the offered list names the other strip's pans")
-            assertEquals(1, r.onLoop { r.shell.mainBinding.staging!!.activeStrip }, "the strip switched")
-            assertEquals(newDown, r.sim.bindForTest(Arm.RIGHT).entries.filterNotNull().first { it.eventId == CfwModes.EV_UPROLL }.prog, "RIGHT's entry names the new pan")
-            assertTrue(r.notes("applied").last().contains("prog $newDown"), "the last notch drew the new strip's pan: ${r.notes("applied").last()}")
-            assertTrue(r.right.drop(at).none { img -> r.subs(img).any { r.isSub(it, 27, 1) } }, "no CLEAR of the entries: no unbound moment")
-            assertTrue(r.notes("mainstage").none { it.startsWith("withdrawn") }, "no withdrawal: ${r.notes("mainstage").filter { it.startsWith("withdrawn") }}")
-            assertTrue(r.notes("snapback").isEmpty() && r.notes("repair").isEmpty(), "no snap-back and no table repair: " +
-                "${r.notes("snapback")} ${r.notes("repair")}")
-            // AL.4: the second strip slot went with the base records, so the switch's flush carries only the changed row
-            val staged = r.notes("mainstage").first { it.startsWith("staged") }
+            assertEquals(progs0, list1.entries.filter { !it.isTap }.map { it.prog4 }.toSet(), "the same pans: no strip switch")
+            assertEquals(list0.mark, list1.mark, "the mark kept (P9: a row re-staged keeps it)")
             val restaged = r.notes("mainstage").first { it.startsWith("row 3 re-staged") }
-            val stripB = Regex("""its second slot (\d+) B""").find(staged)?.groupValues?.get(1)?.toInt()
-            val switchB = Regex("""re-staged — (\d+) B""").find(restaged)!!.groupValues[1].toInt()
-            assertTrue(stripB != null && switchB < stripB / 2, "the second slot staged with the base records ($staged); the switch's flush small ($restaged)")
-            // build SPLIT: the re-stage is booked (the list that names the other strip) only after every piece before its
-            // naming piece was acknowledged — each of those pieces' `done` line comes before the `re-staged` note
-            val ls = Files.readAllLines(r.journal)
-            val bookedAt = ls.indexOfFirst { "\"kind\":\"mainstage\"" in it && "\"detail\":\"row 3 re-staged" in it }
-            val pieceIds = ls.filter { "\"kind\":\"stage\"" in it && "re-stage" in it && "as flush " in it }
-                .map { it.substringAfter("as flush ").takeWhile { c -> c.isDigit() }.toLong() }
-            val n = Regex("""in (\d+) piece""").find(restaged)!!.groupValues[1].toInt()
-            val naming = if ("item table switched" in restaged) 1 else 0
-            assertEquals(n, pieceIds.size, "the re-stage's pieces: $pieceIds")
-            for (id in pieceIds.take(n - naming)) assertTrue(ls.indexOfFirst { "\"ev\":\"done\"" in it && "\"id\":$id," in it } in 0 until bookedAt,
-                "piece flush $id acknowledged before the booking (line $bookedAt)")
-            if (naming == 1) assertTrue(ls.any { "re-stage: piece $n of $n (4 B, naming the rest)" in it }, "the item word alone, last: ${ls.filter { "re-stage" in it && "\"kind\":\"stage\"" in it }}")
+            val bytes = Regex("""re-staged — (\d+) B in (\d+) piece""").find(restaged)!!.groupValues
+            println("O1 FACT: a row form's change at 256 KiB: RIGHT's images from the CLEAR to the SETs ${setAt - clearAt + 1} " +
+                "(the CLEAR's ${clearAt - 0}, the write's ${writeAt}, the SETs' ${setAt} after the change), the re-stage ${bytes[1]} B in ${bytes[2]} piece(s), " +
+                "${System.currentTimeMillis() - t0} ms on the rig to the re-offer; the notch in between drawn by the phone; $restaged")
+            r.assertOracle("bound again")
+            notch(r, CfwModes.EV_UPROLL, "a notch after the re-bind")
         } finally { r.close() }
     }
 

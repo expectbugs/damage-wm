@@ -77,10 +77,10 @@ class BoundList(
      *  the phone no longer holds is the only `restaged` discard). The answer's COMMIT carries the report's own (prog, P),
      *  and [paintEnd] paints the pictures they name. */
     fun names(c: Int, e: Entry, prog: Int?, p: IntArray?, wrapped: Boolean = false): Boolean {
-        // the program and the parameters each judged against both stagings (AD.2): a strip switch at 256 KiB writes the
-        // other strip with the band form's move and its item word in one flush, then SETs the scroll entries to the pans
-        // of that strip — a fire between the two draws the OLD pan with the NEW item table. Each list's own entry for the
-        // event ([e] when it holds none); the two pans' rules are the same, only their programs and the table differ.
+        // the program and the parameters each judged against both stagings: a band switch changes the item table under the
+        // same pans, and a programs switch (K1-1) the pans under the same table once they are counted — a fire before the
+        // SETs naming the new pans land draws the OLD pan with the table as it is then (AD.2's strip switch, which made
+        // this first, is gone since K1-2 stage 1). Each list's own entry for the event ([e] when it holds none).
         // Build C3, stage DM-0 (S4): a ring fire that wrapped (field 18 = 1) computed kinds 1 and 2 at the virtual row
         // v = ((c − step) mod count) + step, so the prediction is made there
         if (p == null) return false

@@ -34,7 +34,9 @@ import wm.damage.core.wire.CfwModes
  *   programs (no parameter is free to name it), so that write goes only while the list is withdrawn — its entries
  *   CLEARed first, SET again after (decisions X.2: never rewritten under a table that still points at it).
  * - **The band forms:** row i in the lens band as `ContentKit.paintLensBand` paints it with i at the cursor, the rail's
- *   columns aside, each in a slot with slack ([slack]); and one spare slot. A row whose band form changes is written
+ *   columns aside, each in a slot of its own size with slack ([slack]; K1-2 stage 1, decisions BQ (5): the largest
+ *   slot only for a row whose band form changed in the last staging, [assemble]'s `bandRoom`); and one spare slot of
+ *   the largest size. A row whose band form changes is written
  *   into a free slot and switched by ONE write of its item-table word — the report's P1/P2 (fields 11–12) then name the
  *   slot the lens drew from, before the switch and after it; the old slot is retired ([retired]) until that write is
  *   acknowledged and then is the next spare (decisions X.2).
@@ -119,6 +121,11 @@ class MainStaging private constructor(
 ) {
     /** B082: the rows whose picture changed since this staging's first paint (by what was painted, not by window). */
     val changed = BooleanArray(seenMax.size)
+
+    /** K1-2 stage 1 (O12): per row, the largest band form (encoded bytes) it has drawn in this staging once its band form
+     *  changed — its first paint's included — or 0 while it has not changed: carried into the next staging by window
+     *  ([MainBinding.bandRoomFor]), where that row's band slot is the largest one. */
+    val bandSeen = IntArray(rows)
 
     /** Every program's period in OS ticks and the pans' steps — the staging's, then a programs switch's ([switchTo]). */
     var period: Int = period0
@@ -205,6 +212,10 @@ class MainStaging private constructor(
     /** The byte past the staging's layout: its last record, or the spare pan slot past it (K1-1). */
     val end: Int get() = maxOf(blobs.last().let { it.off + it.bytes.size }, progSlots?.let { it[1] + progSlot } ?: 0)
     val bytes: Int get() = blobs.sumOf { it.bytes.size }
+    /** K1-2 stage 1: the region's bytes past Main's layout, `[end, regionEnd)` — nothing of Main's is ever written there (a
+     *  re-stage writes inside its slots, a re-make into the spare pan slot), so it is constant for the staging's life:
+     *  what a window list (stage 3) and the wheel's block (DW-1) may be laid out in. */
+    val freeSpan: Int get() = regionEnd - end
 
     /** The pan for width [k] (capped as built) and [step], drawing the strip (not the wrap's record). */
     fun pan(k: Int, step: Int): Pan {
@@ -414,6 +425,13 @@ class MainStaging private constructor(
         val segOff = c.segOff!!
         val g = paintStripRow(view, l, row, relay)
         val lv = levelsOf(g)
+        // its band form painted here too: K1-2 stage 1 (O12) — a row whose band form changes keeps the largest it has drawn,
+        // before any `Outgrown` below (the full staging it owes is where that row's slot is made the largest)
+        val bg = paintBandForm(view, kit, l, row, relay)
+        val old = bands[row]
+        val bandChanged = !bg.pix.contentEquals(old.raw.pix)
+        val bandEnc = if (force || bandChanged) TextureCacheImage.encode(bg) else null
+        if (bandChanged) bandSeen[row] = maxOf(bandSeen[row], old.encoded.size, bandEnc!!.size)
         var outgrown = -1
         val rle = rleSize(lv, 0, lv.size)
         for (s in stripRow.indices) {
@@ -495,11 +513,12 @@ class MainStaging private constructor(
                 wRelaid = lens
             }
         }
-        val bg = paintBandForm(view, kit, l, row, relay)
-        val old = bands[row]
         var band: BandMove? = null
-        if (force || !bg.pix.contentEquals(old.raw.pix)) {
-            val enc = TextureCacheImage.encode(bg)
+        if (bandEnc != null) {
+            val enc = bandEnc
+            // a free slot that holds it — one at a time (K1-2 stage 1, O12: the spare, or the slot the last move freed once
+            // its switch was acknowledged), and with slots per row it may be a row's own size: what does not fit it owes a
+            // full staging, in which the row's slot is the largest
             val (off, slot) = spares.entries.filter { it.value >= enc.size }.minByOrNull { it.value }?.toPair()
                 ?: return Restage.Outgrown("no free slot holds band form $row's ${enc.size} B (free: ${spares.values.sorted()})")
             // the item table's 4-byte word holding entry [row] and its neighbour (zero past the last: the table's pad)
@@ -817,7 +836,10 @@ class MainStaging private constructor(
                      stage5: Boolean = false,
                      /** C3 DM-1: the gate's token ([Motion.effects]) as the link state gives it at this staging — Crush and Flip
                       *  are staged in version 2 only with it; never kept (decisions W, D-6). */
-                     fx: Motion.Effects? = null): MainStaging {
+                     fx: Motion.Effects? = null,
+                     /** K1-2 stage 1 (O12): per row, the largest band form a row whose band form changed in the last staging
+                      *  drew ([bandSeen], carried by window; 0: none) — that row gets the largest slot. */
+                     bandRoom: IntArray? = null): MainStaging {
             val layout = paint.layout
             if (cacheSize < CfwModes.STAGE_RESERVE || cacheSize > CfwModes.CACHE2_MAX_RIDERS || cacheSize % 4 != 0)
                 throw LintError("no staging for a cache of $cacheSize B (a contract-2 session's 64..256 KiB)")
@@ -882,25 +904,29 @@ class MainStaging private constructor(
                 val wSlot = (wEnc.size + (if (wrapFit == WRAP_TIGHT) 0 else wEnc.size / STRIP_EXTRA_DIV) + 3) and 3.inv()
                 Picture("wrap", wg, wlv, wEnc, next(wSlot), wSlot, wOff, wLen)
             }
-            // each row's band form, painted where the band is (the painters snap x and y to the panel's grid), in a slot
-            // every band slot one size — the largest band form's with its slack — so a row's moved band form fits any free
-            // slot, the spare or one a switch freed (a smaller row has the difference as its headroom besides)
+            // each row's band form, painted where the band is (the painters snap x and y to the panel's grid), in a slot of
+            // its own size with a quarter's slack (K1-2 stage 1, decisions BQ (5) — the wheel's cells' pattern); a row whose
+            // band form changed in the last staging ([bandRoom]) in the largest slot — the largest band form drawn, this
+            // staging's or a changing row's last one, with its slack — so a row that changes moves between slots of that
+            // one size, the spare and its own, as when every slot had it
             val bandPics = (0 until n).map { i -> paint.bandForms[i]!!.let { g -> g to TextureCacheImage.encode(g) } }
-            val bandMax = bandPics.maxOf { it.second.size }
-            val bandSlot = slack(bandMax)
-            val bands = bandPics.mapIndexed { i, (g, enc) -> Picture("band $i", g, levelsOf(g), enc, next(bandSlot), bandSlot) }
-            // one spare band slot, the largest band form's: a re-stage writes there and switches the item table to it
-            val spareSlot = bandSlot
+            val bandMax = maxOf(bandPics.maxOf { it.second.size }, bandRoom?.maxOrNull() ?: 0)
+            val bigSlot = slack(bandMax)
+            val bands = bandPics.mapIndexed { i, (g, enc) -> val sz = if ((bandRoom?.getOrNull(i) ?: 0) > 0) bigSlot else slack(enc.size)
+                Picture("band $i", g, levelsOf(g), enc, next(sz), sz) }
+            // one spare band slot, the largest: a row's first change writes there and switches the item table to it
+            val spareSlot = bigSlot
             val spareOff = next(spareSlot)
             // the item table: each row's band form (kind 1)
             val itemOffs = IntArray(n) { bands[it].off4 }
             val items4 = next(2 * n) / 4
             // B082: what the region cannot hold is given up in this order — K1-1's spare pan slot first (a change of the
-            // scroll rows is then a full staging, as before), then the rows' room, then the wrap record's slack, then the wrap
+            // scroll rows is then a full staging, as before), then the rows' room (the strip's and, K1-2 stage 1, the band
+            // slots'), then the wrap record's slack, then the wrap
             // record itself (here, and once the programs are laid out below)
             fun lessOrNull(spareFirst: Boolean): MainStaging? = when {
-                spareFirst && progSpare -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, motion, room, wrapFit, false, stage5, fx)
-                room != null && room.any { it > 0 } -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, motion, null, wrapFit, false, stage5, fx)
+                spareFirst && progSpare -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, motion, room, wrapFit, false, stage5, fx, bandRoom)
+                room != null && room.any { it > 0 } || bandRoom?.any { it > 0 } == true -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, motion, null, wrapFit, false, stage5, fx)
                 wrapPic != null -> assemble(paint, listD, bandD, cacheSize, regionStart, regionEnd, widths, motion, null, wrapFit + 1, false, stage5, fx)
                 else -> null
             }

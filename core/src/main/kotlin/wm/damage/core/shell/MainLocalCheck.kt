@@ -119,11 +119,11 @@ object MainLocalCheck {
         /** Forgets the truths (a row's summary changed). */
         fun repainted() = truths.clear()
 
-        /** The staging as the shell builds it for the bound list: the whole list's pans only (AF.10), and a second strip in
-         *  Main's own region at 256 KiB (AD.2). */
+        /** The staging as the shell builds it for the bound list: the whole list's pans only (AF.10), one strip at every
+         *  cache size (K1-2 stage 1, decisions BC O1). */
         fun staging(cacheSize: Int, region: IntRange, motion: MainStaging.ScrollMotion? = MainStaging.ScrollMotion.DEFAULT, stage5: Boolean = false): MainStaging =
             MainStaging.build(layout, view, kit, listD, bandD, cacheSize, region.first, region.last + 1,
-                widths = listOf(MainStaging.WHOLE), twoStrips = region.last + 1 < cacheSize, motion = motion, stage5 = stage5, fx = effectsAt(stage5))
+                widths = listOf(MainStaging.WHOLE), motion = motion, stage5 = stage5, fx = effectsAt(stage5))
     }
 
     /** Runs every case at [heights] × [cachesKib] for [effects]; [frames] keeps the strips' frames (the desktop writes them). */
@@ -335,19 +335,16 @@ object MainLocalCheck {
     }
 
     /** Decisions AU.1: the fullest his eight rows can draw — every line and detail past the row's width (the ▸ mark), a
-     *  bar on each, dense ink — staged at 256 KiB with two strips and with one, against Main's own region. */
+     *  bar on each, dense ink — staged at 256 KiB (one strip since K1-2 stage 1), against Main's own region. */
     fun worstCase(text: TextRasterizer, height: Int, depth: Int = 8): String {
         val ink = "M@W#".repeat(24)
         val rows = sampleRows().onEach { it.s = DamageWindow.Summary(ink, detail = ink, more = true, progress = 0.5) }
         val m = MainRig(text, height, rows, depth)
         val cache = CfwModes.CACHE2_MAX_RIDERS
         val region = CfwModes.mainRegion(cache, bind = true)
-        fun bytes(two: Boolean): Int = MainStaging.build(m.layout, m.view, m.kit, m.listD, m.bandD, cache, 0, cache,
-            widths = listOf(MainStaging.WHOLE), twoStrips = two).let { it.end - it.start }
+        val one = MainStaging.build(m.layout, m.view, m.kit, m.listD, m.bandD, cache, 0, cache, widths = listOf(MainStaging.WHOLE)).let { it.end - it.start }
         val size = region.last + 1 - region.first
-        val two = bytes(true); val one = bytes(false)
-        return "worst case h$height at 256 KiB (Main's region $size B): two strips $two B (${if (two <= size) "fit" else "do not fit"}), " +
-            "one strip $one B (${if (one <= size) "fits" else "DOES NOT FIT"})"
+        return "worst case h$height at 256 KiB (Main's region $size B): one strip $one B (${if (one <= size) "fits" else "DOES NOT FIT"})"
     }
 
     private const val FEATURES_C2 = 0x5ff
@@ -433,9 +430,10 @@ object MainLocalCheck {
         val inside = region.first <= ms.start && ms.end <= region.last + 1
         if (!inside) setup += "the staging ${ms.start}..${ms.end} leaves its region ${region.first}..${region.last + 1}"
         val tableLine = "$tag: ${effect.word}, ${ms.bytes} B at ${ms.start}..${ms.end} (${if (region.last + 1 == cacheSize) "shared reserve" else "Main's region"}), " +
-            "strip ${ms.blobs[0].bytes.size} B in a ${ms.strip.slot} B slot${if (ms.stripB != null) " (and its second slot)" else ""}, band forms ${ms.blobs.drop(if (ms.stripB != null) 2 else 1).take(ms.rows).sumOf { it.bytes.size }} B in ${ms.bands.sumOf { it.slot }} B of slots, " +
+            "strip ${ms.blobs[0].bytes.size} B in a ${ms.strip.slot} B slot, band forms ${ms.blobs.drop(1).take(ms.rows).sumOf { it.bytes.size }} B in ${ms.bands.sumOf { it.slot }} B of slots, " +
             "${ms.wrap?.let { "wrap record ${it.encoded.size} B in a ${it.slot} B slot, " } ?: ""}programs ${ms.blobs.last().bytes.size} B${ms.progSlots?.let { " (pan slots of ${ms.progSlot} B at ${it[0]} and ${it[1]})" } ?: " (no spare pan slot)"}; " +
-            "whole list ${whole.kA}+${whole.kB} rows, ${whole.program.tracks.size} tracks, ${whole.areaPx} px a step, P ${ms.period} T ${ms.t}, press ${ms.bandD}→${ms.press.pressD}"
+            "whole list ${whole.kA}+${whole.kB} rows, ${whole.program.tracks.size} tracks, ${whole.areaPx} px a step, P ${ms.period} T ${ms.t}, press ${ms.bandD}→${ms.press.pressD}; " +
+            "the region's free span ${ms.freeSpan} B"
         val cases = ArrayList<Case>()
         if (setup.isNotEmpty()) { cases += Case("$tag-setup", "the staging written and the list SET", Rect(0, 0, 1, 1), emptyList(), emptyList(), setup); return cases to tableLine }
 
@@ -690,34 +688,6 @@ object MainLocalCheck {
             m.repainted()
             val r = ms.restage(music, m.view, m.kit, relay0)
             if (r !is MainStaging.Restage.Changed || r.strip.isEmpty()) fails += "a change of Music's line: ${(r as? MainStaging.Restage.Outgrown)?.why ?: r}, not its strip segment"
-            else if (ms.stripB != null) {
-                // AD.2: Main's own region at 256 KiB holds a second strip — the new strip is written there and the entries are
-                // SET to its pans, with no withdrawal: notches before, during (written, not yet SET) and after the switch are
-                // each named by their report and committed
-                if (r.toStrip == null) fails += "a row-form change at 256 KiB is not switched to the other strip"
-                val before = fireHeld(down, c0, fails)
-                if (!named(cur, before, down)) fails += "the notch before the switch is not named: ${before?.describe()}"
-                before?.let { commitReport(it, c0, fails, "the notch before the switch") }
-                for (w in r.writes) lens.write(w.off, w.bytes, w.what, fails)
-                ms.apply(r)
-                val nl = ms.boundList(cur.mark, previous = cur)
-                if (nl.entries.filter { !it.isTap }.any { e -> cur.entryFor(e.eventId)?.prog4 == e.prog4 }) fails += "the switched list's pans are the old ones"
-                val during = fireHeld(down, c0, fails)
-                if (!named(nl, during, down)) fails += "the notch after the write, before the SETs, is not named: ${during?.describe()}"
-                during?.let { commitReport(it, c0, fails, "the notch during the switch") }
-                for (b in nl.sets()) lens.send("a SET of the other strip's pans", b, fails)
-                val after = fireHeld(down, c0, fails)
-                if (!named(nl, after, down)) fails += "the notch after the switch is not named: ${after?.describe()}"
-                if (after != null) {
-                    if (after.prog == before?.prog) fails += "the notch after the switch drew the old strip's pan"
-                    commitReport(after, c0, fails, "the notch after the switch")
-                    for (arm in Arm.entries) differ(lens.shadow(arm), m.truth(music, arm == Arm.LEFT), ms.pan(MainStaging.WHOLE, 1).areas(arm == Arm.LEFT))
-                        .let { if (it > 0) fails += "after the switch $arm: $it px of END not Main's paint" }
-                }
-                r.band?.let { ms.release(it.oldOff4) }; nl.previous = null
-                cur = nl
-                lines += "Music's row form switched to the other strip: ${r.bytes} B written (${r.writes.joinToString { "${it.what} ${it.bytes.size} B" }}), then ${nl.entries.size} SETs; no withdrawal"
-            }
             else {
                 for (e in cur.entries) lens.send("CLEAR ${e.entry}", CfwModes.bindClear(e.entry), fails)
                 if (fireHeld(down, c0, fails) != null) fails += "a notch while the entries are cleared still matched an entry"
@@ -736,8 +706,8 @@ object MainLocalCheck {
                 cur = nl
                 lines += "Music's row form re-staged with the entries cleared: ${r.bytes} B written (${r.writes.joinToString { "${it.what} ${it.bytes.size} B" }}), then ${nl.entries.size} SETs"
             }
-            cases += Case("$tag-strip", if (ms.stripB != null) "a row form switched to the other strip (AD.2): notches before, during and after the switch, each named and committed; no withdrawal"
-                else "a row form re-staged with the list withdrawn: no notch matches meanwhile; after the SETs a notch is named and committed", Rect(0, 0, 1, 1), emptyList(), lines, fails)
+            cases += Case("$tag-strip", "a row form re-staged with the list withdrawn: no notch matches meanwhile; after the SETs a notch is named and committed",
+                Rect(0, 0, 1, 1), emptyList(), lines, fails)
         }
 
         // (c) a row stale by several changes: the notch is named and committed, belief equal to both lenses; the ordinary
