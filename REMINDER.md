@@ -36,9 +36,14 @@ for firmware → earlier by number (§65 Phase 2 and the protocol, §48 the fork
   firmware item); placed at K3 (`REPLAN.md` §17.3 item 9).
 - **The documents were brought to date on 2026-11-22 (his ask):** every document's statements about the present
   (the README, the plan's status block under `REPLAN.md` §16.1, `FORK.md`, the window and spec records), and
-  seventeen listed passages settled against the code. **Owed:** the bodies read line by line against the code, and
-  a section in `IMPLEMENTATION.md` for the phone's halves of C1–C3 (the motion programs, the scroll effects, the
-  transitions) — it has none.
+  seventeen listed passages settled against the code. **On 2026-11-23 every body was read against the code** (six
+  lanes; `IMPLEMENTATION.md` gained its section on the phone's halves of C1–C3). What that read found that no
+  document can fix is "Open from the documents' audit" below. Since then every document's status is swept at the
+  close of each build, the README first.
+- **2026-11-23, 15:00 — his usage reset and the work resumed on his word.** The fork filled the 34 new ship vectors
+  (Crush, Flip, the new Matrix, Warp and Flip at the raised fit: no refusal, 246 of 246 on its side); their
+  comparison with the model, the two stopped stages (`wip/084-x3b`, `wip/084-k12s1`), Matrix's second pass and the
+  wheel's spec amendment for DW-1 are in work. Nothing new is on his devices: 0.84 is still the one staged build.
 - **Stopped at his word on the week's usage (93 %), work in progress committed:** `wip/084-x3b` (the stale re-make;
   Encode's plan once), `wip/084-k12s1` (Main on one strip, per-row band slots). The vector lane's inputs
   (`wip/084-sv2`) then ONE fork fill and the comparison are the first thing owed.
@@ -49,6 +54,27 @@ for firmware → earlier by number (§65 Phase 2 and the protocol, §48 the fork
   uneven ones); Matrix's drops gather for a few frames, hold one, then fall; in his fastest bursts (about 120 ms
   between notches) Crush's far rows jump about 23 px at each notch — the installed firmware starts every notch
   from the rest before it; at stage 5 the switcher's panel has a black margin of its depth.
+
+## Open from the documents' audit (2026-11-23)
+
+Where the code does not do what a ruled design or the contract says; each document carries a dated note at the place.
+- **His to decide** (put to him 11-23): four Global rows have no reader — `Profiler`, `Diag overlay`, `Battery
+  alert`, `Head tracking` (`DESIGN.md` §4.2; the lead would remove the first, second and fourth when Settings is
+  next touched); the battery cell's pulse at 20 % or below was never driven (§4.1; the lead would build it when the
+  status cells go to the firmware and hide the row until then); `Slide frames` and `Slide fill` still sit in Global
+  beside `Animations` (they drive the phone-drawn slides); §6.2's rule on what a transition may cost reads as
+  general while the engine's effects exist.
+- **The lead's to place:** `Quiet hours` holds only the notices raised on the PC (Torrents, Feed, Tmux, the
+  watcher, "home unreachable") — it closes as Music, Games, Reader and the shell's own notices move (S1-4, S1-5) ·
+  Tmux and Torrents do not dim their keys and actions while the PC is out of reach (`CONTRACT.md` §12, `REPLAN.md`
+  §14.3 #2), a press is sent and fails — with S1-5's cross-window pieces unless he wants it sooner · `CONTRACT.md`
+  §3.1's vocabulary against what the cores send (`min`; `availability` loading · waiting · away; no window sends
+  `stale{since}` or `attention`) — ruled at S1's close · the moved-book alias (`CONTRACT.md` §5, §14 (b)) was never
+  built: a moved book gets a new id — placed or dropped at S1's close · the switcher's centre title is cut with the
+  drawn mark where the design says marquee, its icon is 56 px where §4.3 says 64, the notice's source icon is not
+  drawn — with DW-1 and K1's notice.
+- **Small, for whoever next touches the code:** the `mainseq` probe (refused at stages 4 and 5) · the comment in
+  `LadderRecord.kt` that says stage 0..4 · the comment in the service's init script that describes the old standby.
 
 ## Where we were (2026-11-21, morning)
 
@@ -168,6 +194,8 @@ shell part is in build (0.83, 0.84 staged; §100, §101). What is owed first is 
    and 115 gaps; LEFT's first step on 240 fps video; a gesture's WAIT right after a session start (each staged strip
    is one flush of about 20 KB — two windows of about 1.3 s, modeled; the cure, a record split across flushes, is the
    first build after if it is felt). The `mainseq` probe leaves in the first build after stage 4 is armed.
+   *2026-11-23: it is still in 0.83 and 0.84; it is refused while BIND is in force (stages 4 and 5), and it goes when
+   that code is next touched.*
    **Recommended to him, not built:** a liveness supervisor for the phone's shell loop (§92.10) — built since as RA-1
    (`core/…/shell/LoopWatch.kt`), deployed with 0.79.
 2. **C1's numbers as he uses the glasses** (the 114 gap counts, field 33 under a working shell, the round trip's

@@ -23,6 +23,8 @@ row or answer (§14.1 R3, §14.3 #2, §15 A2); this file's own decisions are cit
 and each window's recorded verdicts are not re-opened. Grades: **read** (cites `file:line`: `S/` =
 `core/src/main/kotlin/wm/damage/core/shell/`, `C/` = `core/…/core/`, `W/` = `C/windows/`, `D/` = the desktop module's
 sources), **inferred**, **unknown**. Nothing here was measured on his devices.
+*2026-11-23: the `file:line` citations are as of each section's date; file and class names are kept current, line
+numbers are not.*
 
 ---
 
@@ -250,6 +252,10 @@ one copy (§14.2). The line, fixed here for every window (§12 gives each field)
 | `levels` | kinds `collection` · `document` · `canvas` · `form` · `actions` | instances fetched by address (§5); each names its `rest` row, the harmless cursor rest (`DESIGN.md` §1.7) |
 | `current`, `settings`, `jobs`, `search` | anchor · rows (§6) · Job (§3.2) · index name | `current` is the shared item where one exists (the book read most recently, now playing); `jobs` replaces `setOperation`'s text; `search` serves `INTERFACES.md` W-05 |
 
+*2026-11-23: as built (S1-1 to S1-3) the level field is `min`; `availability` is `live` or `unavailable` (Reader,
+Files; Reader also `loading`) and `live`, `waiting` or `away` (Torrents, Feed, Tmux), with a `reason` when not live; no window
+sends `stale{since}` or `attention` (`C/app/PcScopes.kt`, each `XCore`'s describe).*
+
 ### 3.2 Content kinds
 
 | kind | fields | for |
@@ -389,7 +395,8 @@ percent-encoded. Cursors and scroll are stored only as anchors, never as indices
 Identities: Reader's book id hashes the PC path (`C/content/Content.kt:94-97`) and a moved file keeps its records
 through a content-hash alias recorded at rescan (§14 (b)); Files rows are folder + name; Tmux sessions (host, name);
 Torrents the hash; Feed items the 16-hex hash of source + guid (`W/feed/FeedModel.kt:151`); queue entries
-`<stream>.<n>.<k>`.
+`<stream>.<n>.<k>`. *2026-11-23: the content-hash alias is not built (cut from S1-1, `HANDOFF.md` §80.8, and not in the
+code since): a moved book gets a new id.*
 
 ## 6. Settings
 
@@ -473,7 +480,7 @@ Tmux has no `Phone ·` row; as built (S1-3, the lead's call, `HANDOFF.md` §89.5
 desk's rows. **What a record carries is readable at level view**, so Tmux's says only "`<name>`[ · host] wants input",
 never the pane's content; the glasses' presenter adds the pane's last line from the session it reads at full, and the
 PC raises the record right after the status push that carries the waiting session. Feed's records say "N new · <source> · <newest title>"
-(one per source); a first sight of a source raises nothing, and a browsed source that is not pinned raises none.
+("<source> · <title>" for one new item; one per source); a first sight of a source raises nothing, and a browsed source that is not pinned raises none.
 
 ### 7.4 Raised on the phone
 
@@ -644,8 +651,8 @@ written whole and asynchronously (`S/Persistence.kt:290-315`), 2 s after an inpu
    match (its subscriptions and ops are refused `contract`; each host runs it from its own copy). Nothing more is built
    for different builds, downgrades or deploy orders: a conversion is deployed as one of his sittings, the PC deploy and
    the APK install together. Reader's migration ran once on both hosts (S1-1) and is removed (L1). Torrents' and Files'
-   rows from before their conversion are written once, on the PC, where the record holds none, from the PC store's
-   synced `window.torrents` / `window.files` records, as ops of device `migration` stamped with the record's time (L1);
+   (since S1-3 also Feed's and Tmux's) rows from before their conversion are written once, on the PC, where the record holds none, from the PC store's
+   synced `window.<id>` records, as ops of device `migration` stamped with the record's time (L1);
    no ledger, no phone half. Unconverted windows sync as today; nothing new is built into the sync channel.
 3. **The last conversion** removes `SyncNet`, `RemoteSync` and the stamps; `shell.settings` is split by scope (§6) and
    `shell.state` is the glasses' interface row (§2.6). `SyncTest`, `SyncToleranceTest` and the stamp parts of
