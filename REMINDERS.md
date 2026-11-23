@@ -7,7 +7,8 @@ events), the always-on Claude Code helper on the PC that keeps the lists current
 later. Documents only; nothing is built, started or probed. Plain wording throughout (`CLAUDE.md`).
 
 **Status: an EXPLOSION written 2026-11-12/13 for Adam's refinery. Nothing in it is built or in force. The decisions
-put to him are in `REPLAN.md` §15; his rulings are recorded there.** The list is wide on purpose, so he can cut it.
+put to him are in `REPLAN.md` §15; his rulings are recorded there.** *2026-11-22: still nothing built; Reminders
+follows K and S2 (`REPLAN.md` §16.1).* The list is wide on purpose, so he can cut it.
 The "lean" column is the writer's; the rulings are Adam's (`REPLAN.md` §14 wins). Grades: **read** (file:line or
 report), **reported**, **inferred**, **unknown**. No number here was measured for this document; figures tagged "his
 note" are his own earlier measurements as recorded in his projects. R1–R6 are step A's research reports

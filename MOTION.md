@@ -208,6 +208,10 @@ whatever content had to be staged, not N frames on the wire.
 | U8 | enter/exit Music Mode | the window surfaces stack in / the panel clears | PB | the surfaces cached | P3 | exclusive mode entrance |
 | U9 | boost/limiter badge | the boost badge appears; a notice on max+boost | CB + N | — | P3 | low value |
 
+**Planned on 2026-11-22 (Adam's ask): Music's motion update** — the bar and timer, the visualizers and the
+lyrics as programs sent ahead of the playhead, new visualizers, lyric effects by the word, a Global beat pulse.
+The design and its open reads are `MUSIC.md` §14; its place in the order `REPLAN.md` §17.3 item 9.
+
 ### 2.6 Feed (`FEED.md`)
 
 | # | trigger | candidate motion | verbs | staged on glass | phase | notes |
@@ -415,3 +419,12 @@ together; every movement and transition smooth and quick.
 
 Measured today, for the budget of any effect over Main's whole list at height 352: a step draws in 39–41 ms (about
 22 a second); an effect on the selected row alone is about half that area (modeled).
+
+**Amended by Adam on 2026-11-21, after his first session with the transitions on glass** (he approved every effect as
+it looks but Matrix; `HANDOFF.md` §101): (1) **the Animations settings are one row per tier, each opening that
+tier's sub menu** — "Global options (if any) can ride the main animations settings page, but tier-specific options
+should be in that tier's sub menu"; no row is global today. (2) **Matrix is rain that wipes:** "rain-like vertical
+lines of characters like the actual matrix movie, and those lines should wash away the screen we transition from
+and create the one we are transitioning to, rather than just smashing over the previous screen, then disappearing
+and the new screen just appearing." The reading kept for every later effect (the lead's, not his words): an effect
+turns the old picture INTO the new one as one motion; a cover and then a reveal read to him as two beats.

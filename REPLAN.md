@@ -13,6 +13,9 @@ first. §1–§13 stand as written on 2026-11-12 (the proposal); the recommendat
 facts come from two read-only inventories of that day (rough where marked "≈") and a third reader's challenge
 (§13). Nothing here was measured on the glasses unless it says so.
 
+**Status 2026-11-22:** the order is §17.3 (the lean correction of 11-17 wins over §14 and §16 where they differ);
+which steps are done, in progress and not started is the status block under §16.1's order line.
+
 ---
 
 ## 1. Where Damage is going (Adam, 2026-11-12)
@@ -523,6 +526,15 @@ inventories of the code behind the contract, kept in the private folder with ste
 (S1-1 alone; S1-2 with S1-3; S1-4 with S1-5); C1's phone half rides the second, C2's the third. Each build's size is put
 to him at the sitting before it (the previous deploy), so a "go" costs no sitting of its own.
 
+**Status 2026-11-22** (the order as corrected is §17.3; the state today is `REMINDER.md`). **Done:** W (APK 0.66,
+`HANDOFF.md` §79) · S1-1 (0.67, §80) · L0 and L1 with S1-2 inside it (0.68, deployed 11-17, §84) · C1 (flashed
+11-18, §88) · S1-3 (0.70, installed 11-18, §89, §91) · C2 (flashed 11-19, armed at ladder stage 4, §94) · C3, the
+effects build of §17.3 item 8 (flashed 11-20, §99; not the offline-home C3 of row G), ladder stage 5 armed 11-21
+(§101). **In progress:** K1, the motion kit's shell part (§17.3 items 6 and 8): APK 0.83 (§100), 0.84 staged 11-22
+with the PC on it and his phone on 0.83 (§101) · S1-4's first half (Music) built and reviewed on `wip/s14-k`, not
+merged (§97) · Music's motion update planned (`MUSIC.md` §14, §17.3 item 9). **Not started:** S1-5, S2, K2–K4,
+Reminders, S3, G.
+
 | build | contains | he sees in daily use | needs from him (sittings) | before it starts | gate |
 |---|---|---|---|---|---|
 | **W** the alert watcher | its design pass as amended (§15 "the alert watcher's size"): the hub reader on one GET path, rules with severity, the alert store keeping its own epoch, delivery to the glasses and the phone with Acknowledge as an action, the host Settings category and `gatedBy`, the one Quiet hours row, "home unreachable", PC-direct Bluetooth made manual, the nightly copy, listener reach (§15 A1). Rider: the free-memory read at three points of a start (C1's need) | bus alerts on the glasses and the phone, an urgent one repeating every ten minutes until acknowledged; "home unreachable"; the PC never takes the glasses by itself | 1: the APK install (the PC deploy is the lead's); a look at the first rules and his quiet hours | his go (§16.5 #1) | the battery; the design's 19 tests and its mutation list; lint RO001; a day of the journal read |
@@ -534,7 +546,7 @@ to him at the sitting before it (the previous deploy), so a "go" costs no sittin
 | **C2** the second flash's build | `FIRMWARE.md` §6 (the hook, bindings and lists, the applied-state event, the vertical-scale draw); its design pass with reads a1, a7, a8; the simulator's local events and the oracle walk with them, `v4-*`; the APK half (SET/LIST, field 115 → the working-copy op, COMMIT/DISCARD) inside deploy 3 | nothing in daily use until K: local input on test surfaces | the flash (perhaps two) with calls b1 and b3 and the local-latency target (D7): 1–2; then a work week of wear | C1's numbers (field 34 by area, folded steps, 27–29 at 256, the period, the lens-match verdict) | vectors, fuzz, sweep; zero divergence over the work week; the latency target |
 | **S1-5** Games, Main, Settings; S1 closed | Games (C§12, the lease of C§2.7, the per-viewer projection) with W-46; Main's and Settings' glasses sides moved onto the core (C§3.1, C§6) with W-49; the cross-window pieces W-03, W-05, W-06, W-09, W-10; the last conversion's removals (C§9.7 item 3); the watcher's phone half moved onto the generic mirror and notice delivery (C§11.2) | Hold'em at the desk; every setting as a form; search, continue here, send to, three windows side by side; one copy of everything, the old sync gone | deploy 3 — 1 sitting: install, the verdicts, glassdrive passes | S1-4 and C2's phone half built | as S1-1; tests of §2.4 replacing `SyncTest` and `SyncToleranceTest` |
 | **S2** the other interface pieces | `INTERFACES.md` §2.3–§2.4 rows marked in (P-01–P-08, P-10, P-11, P-16–P-18; X-01–X-05, X-08–X-12); the TV's frame (`BASTION.md` T-09, T-12, T-14's zones with the reminders zone reserved, T-30; the host as the visit decides). Built in C2's work week, deployed after it so the week's APK does not change | Damage on the phone by touch, away from home on the working copy; notification buttons; the lock-screen player for both outputs; the panel item, desktop notifications, media keys and shortcuts | the ten-minute TV visit; 1 sitting: install, verdicts at the phone and the desk, the helper's token run (for Reminders) | deploy 3 live; C2 flashed | the battery; `check_apk_wiring.py`; the TV test page at the visit |
-| **K1–K4** the glasses kit, once | K1: lists, documents, the popover family (`POPOVER.md`), notices, the keyboard, staging, motion programs, bindings for local input; Main, the wheel, Settings, Silent Mode. K2: Reader, Files, Torrents. K3: Music, Tmux, Feed. K4: Games (`FORK.md` Phase 6a–6d with Phases 3–4's Damage halves) | the glasses redrawn: motion, local input, the popover family; each window at its latency profile | 4 verdict stops on the glasses | C2's numbers; S1-5 deployed; K's own design pass | Phase 6's stops: the battery ×3, `--motion-check`, glassdrive walks, the WAIT column per gesture, a soak day, his verdict |
+| **K1–K4** the glasses kit, once | K1: lists, documents, the popover family (`POPOVER.md`), notices, the keyboard, staging, motion programs, bindings for local input; Main, the wheel, Settings, Silent Mode. K2: Reader, Files, Torrents. K3: Music (with its motion update, `MUSIC.md` §14), Tmux, Feed. K4: Games (`FORK.md` Phase 6a–6d with Phases 3–4's Damage halves) | the glasses redrawn: motion, local input, the popover family; each window at its latency profile | 4 verdict stops on the glasses | C2's numbers; S1-5 deployed; K's own design pass | Phase 6's stops: the battery ×3, `--motion-check`, glassdrive walks, the WAIT column per gesture, a soak day, his verdict |
 | **Reminders** | `REMINDERS.md` §2.1–§2.5 rows marked in, on every interface at once: lists, occurrences and delivery, the quick-add parser, the web editor, the phone's notification and quick add, the TV zone's headline, the glasses window on K's kit (L-24–L-26, L-28), the helper (the H rows) | Buy, Do and Calendar on every screen; due notices with Done and Snooze; the helper keeping the lists | 1 sitting: install, verdict (the three probe runs use the token taken at S2) | K1 and S2 built; §16.5 #3 | the battery; delivery tests (one occurrence, "may repeat"); the probes; a week of due items read |
 | **S3** the bus system | `BASTION.md` §3–§5 rows marked in; the hub's scripts written as files for him (`BASTION.md` §6); the TV into use | the bus pages, graphs, cameras and guarded actions; the kitchen dashboard | 2: the scripts reviewed and applied; install, the TV and his verdict | S2's TV frame; the scripts applied | the battery; the writer's own lint rule and the allowlist test (B-23, B-26); a soak |
 | **G** last | the offline home decided again (C3 or dropped); the closing consistency pass (`FORK.md` Phase 8) | — | the C3 ruling; its flash and phone-off sessions if kept: 1–3 | S3 done; C3's research | Phase 8's battery ×3 and one full live walk |
@@ -728,7 +740,8 @@ what an actor may do; the snapshot judge; one look at every page in a real brows
    is built for mixed builds, downgrades or deploy orders.
 3. **Access is frozen as built.** No further pairing, secret or policy work; a policy that blocks a thing he would
    use gives way (the browser terminal: the lead recommends allowing inline styles for the page so that the emulator
-   can run; his word is still owed).
+   can run; his word is still owed). *2026-11-22: built in L1 as the lead's call, his to reverse (`HANDOFF.md` §84,
+   84.2).*
 4. **The app layer's process is lean** (`CLAUDE.md`, protocol item 7): one review pass, the three tests, no mutation
    lists, removal as welcome as addition. A build over its planned size says so, with what the extra lines are for, and goes on (Adam, 2026-11-18:
    absolute size is irrelevant within reason as long as it has purpose); the three tests judge the lines, not their count.
@@ -787,6 +800,14 @@ what an actor may do; the snapshot judge; one look at every page in a real brows
    today's engine draws, then ONE firmware build and flash for Scramble/Encode, Matrix, Explode, Warp, sideways
    scaling and the list's ring cursor. Polish by his word ("none of it is super critical"): it does not jump the order.
 
+9. **Music's motion update, asked by Adam on 2026-11-22** (`MUSIC.md` §14): the progress bar and timer, the
+   visualizers and the lyrics become programs the glasses play on their own clock, sent ahead of the playhead; new
+   visualizers; lyric effects by the line and by the word; a Global beat pulse. Its place: Music's turn in the kit
+   (§16.1's K3), after S1-4's first half is merged. The PC's precompute (strips, the beat schedule, word times)
+   depends on no device and may be built ahead (item 7). Its two firmware items (the pulse's brightness schedule,
+   timer digits that count by themselves) ride the next firmware build beside `FIRMWARE.md` §8.1's chrome, with
+   that build's design pass and his go for the flash. It does not jump the order.
+
 ### 17.4 Robustness items (each small; sized when its turn comes)
 
 R-a every "until a restart" state gets a supervisor that ends the stuck thing, says so and carries on (the record log
@@ -795,6 +816,23 @@ attached, hub reachable, last backup, the memory cap in force). R-c a hardware w
 itself (his call; the freeze of 2026-11-16 is the case). R-d the always-on core kept apart from heavy work on the same
 machine (done for build work: the `claude-work` cgroup; the later agents get the same). R-e a usage record for the
 later agents: what he opens, acts on and dismisses, on which surface, when (small; designed with L0).
+
+**R-b, the health view, as shaped on 2026-11-23** (the lead's recommendations; Adam: "I like your recommendations.
+Go ahead and add them"). Not designed further than this; its design pass comes with its turn.
+- **One record on the PC**, described and presented like a window's, its lines in `CONTRACT.md`'s `value` shape (a
+  state of live, stale or last known, the source's time, a reason), so that every surface and the later agents read
+  the same thing. The pieces that exist are gathered into it, not rebuilt: the per-source health lines inside
+  windows, the phone's reach and its count of waiting changes, the TV's health zone (`BASTION.md` T-27; T-35 later).
+- **Quiet when healthy.** On the glasses one line that says all is well and stays out of the way, and a notice when
+  a line has been wrong for longer than a short while (the length is set in its design); on the web and the TV a
+  small zone.
+- **Each line says three things:** its state, since when, and what the system is doing about it ("phone unreachable
+  4 min, retrying").
+- **Its lines:** the five above (service up, phone attached, hub reachable, last backup, the memory cap in force),
+  and the glasses' link, battery and firmware ladder stage; whether the phone and the PC run the same build; free
+  disk space (the PC's root disk reached 99 % on 2026-11-21 and nothing said so); the service's last error.
+- **Its place:** after S1 closes, when every window's state is on the PC. It is small and may move without
+  disturbing the order.
 
 ### 17.5 Sizes
 

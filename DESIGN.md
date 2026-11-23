@@ -748,6 +748,12 @@ the panel where it was under a line claiming otherwise.
 Scrolling stays under the 1,936 B the ack floor buys, so it is ack-bound — the list pans at the
 protocol floor, not the bandwidth floor.
 
+
+**Settings, one more level in one category (Adam, 2026-11-21).** `Animations` lists one row per tier (Scroll, and at
+ladder stage 5 Select, Close / Back and Lock Screen, then Popups), each saying what is set inside and opening that
+tier's rows on a tap; inside, a row is drawn without the tier's name, the title reads "animations · <tier>", Back
+returns to the tier's row. It is a list level like a category's; no other category is split (asked of him first).
+
 ### 4.3 Switcher — the wheel
 
 🔴 **Bespoke, not a generic overlay** (Adam, 2026-08-17; §0 — since 2026-09-12 a bespoke PRESENTATION on

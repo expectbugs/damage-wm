@@ -4,7 +4,9 @@
 calls it (verdict 7); nothing ships before §8's last milestone. Its place in the order: the glasses
 kit, built once after the second flash (`REPLAN.md` §4 K; `CONTRACT.md` §11.2). Precedence as always: `overview.md`
 on facts, `CLAUDE.md` on rules, `DESIGN.md` on shell design (§4.11 is the design summary; this file
-is the record). `HANDOFF.md` §46 is the session record.
+is the record). `HANDOFF.md` §46 is the session record. *2026-11-22:* still not built; its place is K1, whose
+motion part is under way (`REPLAN.md` §16.1's status block); today's notice playing on the glasses' engine since
+APK 0.83 (`HANDOFF.md` §100) is not this family.
 
 ## 1. Verdicts (Adam)
 
