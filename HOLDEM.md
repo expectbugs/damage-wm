@@ -317,6 +317,11 @@ core/src/test/…/games/                   engine, oracle, persistence, activati
 core/src/test/resources/holdem/sidepots.json   the corpus we own                      §13.2
 ```
 
+*2026-11-23, as built: `holdem/` holds `HoldemTable · HoldemRules · HoldemBot · HoldemView · Equity` (the
+Monte-Carlo equity); there is no `HoldemLevels` — the levels are `GamesWindow`'s; the tests sit flat in
+`core/src/test/kotlin/wm/damage/core/` (`GamesKitTest`, `GamesWindowTest`, `HoldemEngineTest`, `HoldemBotTest`, …),
+beside `holdem/hands.json`.*
+
 `holdem/` is the only package that knows what Hold'em is — the seam that makes blackjack and
 the trick-takers cheap later (verdict 2).
 

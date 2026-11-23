@@ -158,19 +158,22 @@ torrent (38 on 2026-09-01); after a restart whatever finished meanwhile announce
 reconnecting shell replays events since its last sequence (`truncated` past the host's 200-deep
 ring). New host epoch: a previously-connected phone replays the fresh log; a first-contact phone
 adopts the current sequence with no replay, so an app restart never re-shows old announcements.
+*2026-11-23: since S1-2 the PC raises them into its notice record (`TorrentsCore.attachNotices`); on the phone the
+events only mark the window dirty while the PC shares `torrents` and `notices` (`TorrentsGlasses.kt` header).*
 
 ### 3.3 Settings → Torrents
 
 `Notify · done` · `Notify · errors` · `Poll` (1 s / 2 s / 5 s while focused; idle is always
 15 s) · `Size` (global / 288 / 352 / 416 / 480). Font / Font size / Font style / Depth rows are
-added by the shell. Persisted in the window's main record (synced, last-write-wins).
+added by the shell. Persisted in the window's main record (synced, last-write-wins). (Since S1-2 the Notify rows
+and Size are the PC record's; Poll stays per device, unsynced — §3.5's dated line.)
 
 ### 3.4 Main summary (cheap, cached — §4.6)
 
 Line 1: `2 downloading · 1.2 MB/s` (or `31 seeding · 420 KB/s up` when nothing downloads,
 `idle` when empty); line 2: `31 seeding · 5 stopped · 1 error`; `progress` = the most advanced
 active download (Main's block bar); `more` while transfers exist. A provider state line (`PC
-unreachable 40s`, `qBittorrent unreachable 12s`, `TorrentLeech: login failed`) replaces line 1
+unreachable 40s` — since S1-3 `PC unreachable since 14:02`, `bf4644cf` —, `qBittorrent unreachable 12s`, `TorrentLeech: login failed`) replaces line 1
 — staleness is said with duration (§10.5).
 
 ### 3.5 State

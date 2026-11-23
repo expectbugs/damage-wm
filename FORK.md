@@ -265,6 +265,8 @@ private SID on Phase 4) — after the glyph-subset packing has been read for a d
 Global `Motion` row (off · subtle · full, and speed) replacing `Slide frames` and `Slide fill`; first
 programs: list slide with ease-out, bounce at the edges, Main's recede/pan/advance (phone-started for
 now), wheel spin, popover reveal/cover, Hold'em deal slide and flip.
+*2026-11-23: as built (APK 0.83–0.84) the motion settings are the `Animations` category with a sub menu per tier
+(`MOTION.md` §7, `SettingsWindow.kt` 295); `Slide frames` and `Slide fill` remain as rows (`Shell.kt` 7449–7455).*
 *Ruled 2026-11-14 (`HANDOFF.md` §81): the firmware holds no phone write back — the phone CLOSEs an instance, in the
 same batch, before a write that meets its area (waiting for RIGHT's last-step notify stays an option); the firmware
 contract is `FIRMWARE.md` §5.*

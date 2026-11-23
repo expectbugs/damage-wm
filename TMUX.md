@@ -29,7 +29,7 @@ need a terminal to be entirely live, it's just text."* The FLOW view replaced it
 
 **Status since build S1-3 (APK 0.70, 2026-11-18; `HANDOFF.md` §89 the record; `CONTRACT.md` §3.4 and §12 the
 contract): Tmux is on the PC's record, with a page**, built and gated on the simulator, the PC and in headless
-Firefox; not yet deployed or used by him. What changed against the sections below:
+Firefox; deployed 2026-11-18 (`HANDOFF.md` §91.1), his use not yet reported. What changed against the sections below:
 - **The record holds only** Alerts, the mutes (`mute.<host>/<name>`), Size and Context rows — one copy with every
   browser; the glasses' Update stays theirs (one capture pace per PC). Sessions, windows, host health and the served
   keys are the PC's; frames, the stream and history are live, never stored. His 0.69 rows were carried once at the
@@ -139,7 +139,7 @@ three replicas (confirm-to-run) and, since 2026-09-01, the ring-driven §4.8 key
 
 `TmuxProvider` interface in core; three implementations mirroring Content's (`DESIGN.md`
 §10.1: content = PC): **LocalTmuxProvider** (`ProcessBuilder` exec of `tmux`);
-**HostTmuxServer** (the local provider over the EXISTING content port/token — new message types
+**HostTmuxServer** (as built `TmuxNet.serve`; the local provider over the EXISTING content port/token — new message types
 on the length-prefixed JSON protocol, `ignoreUnknownKeys` keeps old peers decoding; one
 persistent subscription per driving shell, `capture-pane` polled per subscribed target, **pushed
 only on change**); **RemoteTmuxProvider** (the phone side).
@@ -147,7 +147,9 @@ only on change**); **RemoteTmuxProvider** (the phone side).
 The phone already knows beardos (host/port/token in Prefs). **The window declares `Need.HOST`**
 (§10.5): PC unreachable ⇒ Main marks it unavailable, the window shows the last frame with the
 staleness surface (as built; from S1 the phone keeps the session list and each session's last
-frame on disk and shows them with their age, keys dim — `CONTRACT.md` §2.7, §12). **The
+frame on disk and shows them with their age, keys dim — `CONTRACT.md` §2.7, §12; *2026-11-23: as built in S1-3 the
+phone keeps the last list and frame in memory only (the disk copy is S1-5, `CONTRACT.md` §12), under the title's `PC
+unreachable since H:MM` (`TmuxNet.kt` 293); no key dims while away*). **The
 staleness surface reaches EVERY level** (`HANDOFF.md` §30): the live pane paints it; the
 sessions list, history, keys and Main's row carry it in the title as `· ! <what is wrong>`.
 
@@ -173,7 +175,8 @@ LIVE GRID ── tap ──▶ KEYS (ListView): Enter · y · n · 1 · 2 · 3 �
 - **Tap descends** (§4.6): live → keys; a key sends and DROPS BACK TO LIVE. Double-tap backs. In history a tap does
   nothing (APK 0.69).
 - Quick keys are config-driven (host-side, served with the session list). Session
-  end/rename/detach shipped with the §5 closure.
+  end/rename/detach shipped with the §5 closure. (As built the keys level ends `Snippets… · Type… · Windows… ·
+  Session…` — `TmuxGlasses.keysRows`.)
 
 ### 3.3 Rendering *(⚠ superseded for normal panes: the grid below survives ONLY for `#{alternate_on}` TUIs — the SGR mapping paragraph serves flow and grid alike)*
 
@@ -229,7 +232,8 @@ Per-session mute in that session's actions. The workday loop is glance → tap �
 
 - `summary()`: cached from the provider's last push, side-effect-free ("3 sessions · claude2 ⚠").
 - State blob: session, mode, history offset (§9.1/§4.3); the switcher preview draws the last
-  cached frame.
+  cached frame. (As built since S1-3: the level, the target and the capture pace, no history offset —
+  `TmuxGlasses.saveState`.)
 - `appSettings()`: Tmux directory — Update (0.5/1/2/5 s) beside the Font / Font size /
   Font style / Depth rows every app category carries (`HANDOFF.md` §17).
 - Icon: `IconKind.TERMINAL`.
@@ -257,5 +261,5 @@ replicas (confirm-to-run), multi-host over ssh, window targeting/select-window, 
 end/rename, per-session mute. Still deliberately unbuilt: scrollback SEARCH (typing prerequisite
 met since the §4.8 keyboard, 2026-09-01), history reading filters, session-output→Reader
 hand-off. (The texture-cache path, once on this list, came shell-wide — `HANDOFF.md` §41.4; Tmux's
-text rides it through `styledText(text)`, `TmuxWindow.kt:76`.) ❌ never: blinking cursor (kept
+text rides it through `styledText(text)`, `TmuxGlasses.kt:102` since S1-3.) ❌ never: blinking cursor (kept
 out again 2026-11-13, `MOTION.md` §6 B5), bell sound (§0).
