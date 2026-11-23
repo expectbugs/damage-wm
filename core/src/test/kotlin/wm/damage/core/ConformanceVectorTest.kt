@@ -845,10 +845,11 @@ class ConformanceVectorTest {
         val specs = ShipVectors.acts().filter { s -> only == null || only.any { it in s.name } }
         val problems = ArrayList<String>()
         val mx2Moved = ArrayList<String>()
+        val k12Moved = ArrayList<String>()
         if (dump == null && only == null) {
             val files = vectorFiles(vectorDir()).map { it.fileName.toString().removeSuffix(".json") }.filter { it.startsWith(ShipVectors.PREFIX) }.toSet()
-            for (n in files - specs.map { it.name }.toSet() - K12S1_GONE) problems += "$n: a ship vector no spec makes"
-            for (n in K12S1_GONE) if (n !in files) problems += "$n: gone from the files — the K1-2 stage-1 exception is stale, remove it"
+            for (n in files - specs.map { it.name }.toSet() - ShipVectors.GONE) problems += "$n: a ship vector no spec makes"
+            for (n in ShipVectors.GONE) if (n !in files) problems += "$n: gone from the files — the K1-2 stage-1 exception is stale, remove it"
         }
         for (spec in specs) {
             // a capture that fails its own checks is a problem of its act; the rest are still played (SV-083)
@@ -889,11 +890,23 @@ class ConformanceVectorTest {
                 else mx2Moved += spec.name
                 continue
             }
+            // K1-2 stage 1 (O1, O12): every act that stages Main — its records laid out again (one strip at 256 KiB, band
+            // slots per row and two spares), so the records its messages name sit at other offsets — not compared until
+            // the vector lane writes their inputs again and the firmware lane fills them; only while they still differ
+            // with as many writes and PLAYs as the file's
+            if (spec.name in K12S1_MOVED) {
+                if (want == now) problems += "${spec.name}: equal to its file — the K1-2 stage-1 exception is stale, remove it"
+                else if (want.size != now.size) problems += "${spec.name}: ${now.size} writes and PLAYs against the file's ${want.size} — more moved than Main's offsets"
+                else k12Moved += spec.name
+                continue
+            }
             if (want != now) problems += "${spec.name}: the program bytes the shell sends today differ from the file's inputs " +
                 "(${now.size} against ${want.size}; first difference at ${now.indices.firstOrNull { it >= want.size || now[it] != want[it] } ?: want.size}) — regenerate it"
         }
         if (mx2Moved.isNotEmpty()) println("ConformanceVectorTest: ${mx2Moved.size} shipped act(s) moved by C3 MX2's Matrix, NOT compared until their " +
             "inputs are written again and filled: ${mx2Moved.joinToString()}")
+        if (k12Moved.isNotEmpty()) println("ConformanceVectorTest: ${k12Moved.size} shipped act(s) moved by K1-2 stage 1 (Main's records at other " +
+            "offsets), NOT compared until their inputs are written again and filled: ${k12Moved.joinToString()}")
         println("ConformanceVectorTest: ${specs.size} shipped acts played again${dump?.let { ", written to $it" } ?: ", their programs compared with the files"}")
         assertEquals(emptyList(), problems, "the ship vectors:\n" + problems.joinToString("\n"))
     }
@@ -914,10 +927,29 @@ class ConformanceVectorTest {
             "v5-ship-select-warp-352", "v5-ship-select-warp-480", "v5-ship-back-warp-rev-352", "v5-ship-back-warp-rev-480",
             "v5-ship-select-flip-352", "v5-ship-select-flip-480", "v5-ship-back-flip-rev-352", "v5-ship-back-flip-rev-480",
             "v5-ship-cut-select-warp-352")
-        /** K1-2 stage 1 (`private/build083/K1-2-S1-built.md` §2; decisions BC O1): the shipped acts whose spec went with
-         *  AD.2's strip switch — Main on one strip at 256 KiB, a row form's change withdraws the list — their files kept
-         *  until the vector lane removes them; no spec makes them. */
-        val K12S1_GONE = setOf("v5-ship-ring-switch-352")
+        /** K1-2 stage 1 (`private/build083/K1-2-S1-built.md` §2): the shipped acts that stage Main — SV-083's 30 scroll acts
+         *  and 8 notice acts, SVR's 20 ring acts — whose records Main's staging lays out again (O1: one strip at 256 KiB; O12:
+         *  band slots per row, two spares), so the records their messages name sit at other offsets; as many writes and
+         *  PLAYs as their files'. Not compared in [theShipVectorsHoldTheProgramsTheShellSends_X3D] until the vector lane
+         *  writes their inputs again (`DAMAGE_SHIP_DUMP`) and the firmware lane fills them; then this set goes. */
+        val K12S1_MOVED = setOf("v5-ship-scroll-none-352", "v5-ship-scroll-depth-352", "v5-ship-scroll-slide-352", "v5-ship-scroll-fall-352",
+            "v5-ship-scroll-none-480", "v5-ship-scroll-depth-480", "v5-ship-scroll-slide-480", "v5-ship-scroll-fall-480",
+            "v5-ship-scroll-depth-wrap-352", "v5-ship-scroll-fall-wrap-352", "v5-ship-scroll-depth-burst-480",
+            "v5-ship-scroll-fall-burst-480", "v5-ship-scroll-depth-len225-480", "v5-ship-scroll-depth-len450-480",
+            "v5-ship-scroll-depth-len600-480", "v5-ship-scroll-depth-len800-480", "v5-ship-scroll-depth-frames4-480",
+            "v5-ship-scroll-depth-frames6-480", "v5-ship-scroll-depth-frames8-480", "v5-ship-scroll-depth-frames12-480",
+            "v5-ship-scroll-depth-frames16-480", "v5-ship-scroll-fall-len225-480", "v5-ship-scroll-fall-len450-480",
+            "v5-ship-scroll-fall-len600-480", "v5-ship-scroll-fall-len800-480", "v5-ship-scroll-fall-frames6-480",
+            "v5-ship-scroll-fall-frames8-480", "v5-ship-scroll-fall-frames10-480", "v5-ship-scroll-fall-frames16-480",
+            "v5-ship-scroll-depth-stage5-480", "v5-ship-notice-timer-352", "v5-ship-notice-fade-352",
+            "v5-ship-notice-slide-352", "v5-ship-notice-timer-480", "v5-ship-notice-fade-480", "v5-ship-notice-slide-480",
+            "v5-ship-notice-timer-notch-480", "v5-ship-notice-timer-withdraw-480", "v5-ship-ring-none-288",
+            "v5-ship-ring-depth-288", "v5-ship-ring-slide-288", "v5-ship-ring-fall-288", "v5-ship-ring-tap-report-row0-288",
+            "v5-ship-ring-tap-report-last-288", "v5-ship-ring-tap-glasses-row0-288", "v5-ship-ring-tap-glasses-last-288",
+            "v5-ship-ring-none-352", "v5-ship-ring-depth-352", "v5-ship-ring-slide-352", "v5-ship-ring-fall-352",
+            "v5-ship-ring-tap-report-row0-352", "v5-ship-ring-tap-report-last-352", "v5-ship-ring-tap-glasses-row0-352",
+            "v5-ship-ring-tap-glasses-last-352", "v5-ship-ring-back-wrap-352", "v5-ship-ring-table-352",
+            "v5-ship-ring-burst-352", "v5-ship-ring-burst-each-352")
         /** §6.8: C2 adds bit 10 (bit 9, the link item, still out). */
         const val BIND_FEATURE = 1 shl 10
         const val C2_FEATURES = 0x5FF

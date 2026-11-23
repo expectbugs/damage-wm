@@ -1697,7 +1697,9 @@ class MainLocalShellTest {
     /** G4 item 2 (his glasses, 18:53:34, five keyframes in ten minutes): a re-stage's write closes a notch's local
      *  instance on the lens (§5.6: a cache write meeting its read range) before the notch's COMMIT lands, and RIGHT's
      *  "closed while drawing" body — END CRC 0, no END written (§6.4) — reaches the phone after the COMMIT went. That is
-     *  no divergence: no keyframe; the closed instance's areas are repainted; belief equals both lenses after. */
+     *  no divergence: no keyframe; the closed instance's areas are repainted; belief equals both lenses after. K1-2 stage 1:
+     *  the re-stage is a band form's move (a row form's change withdraws the list at 256 KiB too, so no notch is local
+     *  while its write goes); a spare band slot lies inside the pan's read range. */
     @Test
     fun aLocalClosedBeforeItsCommitLandsIsNoDivergence_G4(): Unit = runBlocking {
         val r = Rig(Taps.REPORT, kib256 = true)
@@ -1721,7 +1723,7 @@ class MainLocalShellTest {
                 if (a == Arm.RIGHT && s != null && held.isNotEmpty() && r.subs(img).any { r.isCommit(it, s!!) })
                     r.scope.launch { delay(20); for (p in held) rig.deliver(Arm.RIGHT, p); held.clear() }
             }
-            r.rows[3].s = r.rows[3].s.copy(line = "summary 33")
+            r.rows[3].s = r.rows[3].s.copy(detail = "the detail of 3, longer now")
             r.shell.services.requestRender(r.rows[3])
             r.until("a notch fired as the re-stage's write went out", 15_000) { s != null }
             r.until("the closed body delivered after the COMMIT", 15_000) { r.notes("motion").any { "tag 0x%04x".format(s) in it && "closed while drawing" in it } }
@@ -1845,15 +1847,15 @@ class MainLocalShellTest {
         pan.program.firstRange(ms.wrapParams(pan, ms.rows)!!)
     }
 
-    /** B083 (the focused read of 0.82, S1): a wrap whose edge comes as a 256 KiB re-stage's first piece goes out, that
-     *  piece missing the wrap's read range (a row in the middle of 12: not in the wrap's record; K1-2 stage 1: its band
-     *  form — a row form's change withdraws the list at 256 KiB too, so no wrap fires while its pieces go), plays from the records
-     *  as they stand — its END is the phone's copy, which takes the re-stage only at the booking — and the re-stage's later
-     *  pieces wait for its motion. At rest: the row on the first, the re-stage booked, no divergence, belief equal to both
-     *  lenses. Before S1 every wrap during a Main re-stage's pieces went as today (the row jumped). */
+    /** Build SPLIT on 0.81, B082 (the wrap's own record): a wrap whose edge report comes as a 256 KiB re-stage's piece that
+     *  meets the wrap's read range goes out sends no PLAY (what it reads may be part-written): the edge goes as today, the
+     *  row moves to the first, the re-stage's later pieces wait for the burst and it is booked after. At rest belief
+     *  equals both lenses. K1-2 stage 1: the re-stage is a band form's move (a row form's change withdraws the list at
+     *  256 KiB too, so no wrap fires while its pieces go); its pieces — a spare band slot and the item word — lie inside
+     *  the wrap's read range (from the wrap's record to its program), as every band move's do. */
     @Test
-    fun aWrapDuringARestagesPiecesPlaysFromTheRecordsAsTheyStand_S1(): Unit = runBlocking {
-        val r = Rig(Taps.REPORT, nRows = 12, kib256 = true)
+    fun aWrapBetweenARestagesPiecesDrawsTheWholeStrip_SPLIT2(): Unit = runBlocking {
+        val r = Rig(Taps.REPORT, kib256 = true)
         try {
             r.up()
             walkTo(r, r.list().count - 1)
@@ -1861,19 +1863,16 @@ class MainLocalShellTest {
             val range = wrapRange(r)
             val at = r.right.size
             var fired = false
-            var first: List<IntRange>? = null
-            r.onAnyImage = { a, img -> if (a == Arm.RIGHT && !fired && r.cacheWrite(img) && writeRanges(r, img).let { w -> w.isNotEmpty() && w.first().first >= regionStart }) {
-                fired = true; first = writeRanges(r, img); r.fire(CfwModes.EV_UPROLL) } }
-            r.rows[6].s = r.rows[6].s.copy(detail = "the detail of 6, longer now")
-            r.shell.services.requestRender(r.rows[6])
-            r.until("the wrap fired as the re-stage's first piece went out", 15_000) { fired }
+            r.onAnyImage = { a, img -> if (a == Arm.RIGHT && !fired && r.cacheWrite(img) && writeRanges(r, img).let { w -> w.isNotEmpty() && w.first().first >= regionStart &&
+                w.any { it.first <= range.last && range.first <= it.last } }) { fired = true; r.fire(CfwModes.EV_UPROLL) } }
+            r.rows[3].s = r.rows[3].s.copy(detail = "the detail of 3, longer now")
+            r.shell.services.requestRender(r.rows[3])
+            r.until("the wrap fired as a re-stage piece meeting its range went out", 15_000) { fired }
             r.onAnyImage = null
-            val f = first!!
-            println("S1: the wrap's read range $range; the first piece writes $f")
-            assertTrue(f.none { it.first <= range.last && range.first <= it.last }, "the case: the first piece misses the wrap's range $range: $f")
-            r.until("the re-stage booked", 15_000) { r.notes("mainstage").any { it.startsWith("row 6 re-staged") } }
-            assertTrue(wrapBatch(r, at) != null, "the wrap PLAYed while the re-stage was in pieces: snapbacks ${r.notes("snapback").takeLast(2)}")
-            delay(r.motionMs() + r.q() + 300); r.settle("after")
+            r.until("the re-stage booked", 15_000) { r.notes("mainstage").any { it.startsWith("row 3 re-staged") } }
+            assertTrue(wrapBatch(r, at) == null, "no wrap PLAY while the re-stage was in pieces")
+            assertTrue(r.notes("snapback").last().let { "cause=edge" in it && "wrap=play" !in it }, r.notes("snapback").last())
+            delay(r.q() + 200); r.settle("after")
             assertEquals(0, r.row(), "the wrap landed on the first row")
             assertTrue(r.notes("divergence").isEmpty(), "${r.notes("divergence")}")
             r.assertOracle("after the wrap and the re-stage")

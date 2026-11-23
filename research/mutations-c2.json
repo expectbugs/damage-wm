@@ -4400,12 +4400,12 @@
    ]
   ],
   "tests": [
-   "*MainLocalShellTest.aWrapDuringARestagesPiecesPlaysFromTheRecordsAsTheyStand_S1"
+   "*MainLocalShellTest.aWrapBetweenARestagesPiecesDrawsTheWholeStrip_SPLIT2"
   ],
   "expect": [
-   "aWrapDuringARestagesPiecesPlaysFromTheRecordsAsTheyStand_S1"
+   "(declared, no pin since K1-2 stage 1: a piece that misses the wrap's read range is a strip write of a row outside the wrap's record, and those go only with the list withdrawn — no entry live, so no edge report, and the pieces wait for the CLEAR's flush to complete; a band move's pieces lie inside the range (from the wrap's record to its program). Its pin `aWrapDuringARestagesPiecesPlaysFromTheRecordsAsTheyStand_S1` went with the case)"
   ],
-  "note": "S1: every wrap during a Main re-stage's pieces goes as today (0.82)",
+  "note": "S1: every wrap during a Main re-stage's pieces goes as today (0.82) [K1-2 stage 1: declared — its case went with AD.2]",
   "from": "B083"
  },
  {
@@ -4418,12 +4418,12 @@
    ]
   ],
   "tests": [
-   "*MainLocalShellTest.aWrapDuringARestagesPiecesPlaysFromTheRecordsAsTheyStand_S1"
+   "*MainLocalShellTest.aWrapBetweenARestagesPiecesDrawsTheWholeStrip_SPLIT2"
   ],
   "expect": [
-   "aWrapDuringARestagesPiecesPlaysFromTheRecordsAsTheyStand_S1"
+   "(declared, no pin since K1-2 stage 1: a piece that misses the wrap's read range is a strip write of a row outside the wrap's record, and those go only with the list withdrawn — no entry live, so no edge report, and the pieces wait for the CLEAR's flush to complete; a band move's pieces lie inside the range (from the wrap's record to its program). Its pin `aWrapDuringARestagesPiecesPlaysFromTheRecordsAsTheyStand_S1` went with the case)"
   ],
-  "note": "S1: a piece holding both a part the wraps read and one they do not (0.82: the strip's row and the band form in one message)",
+  "note": "S1: a piece holding both a part the wraps read and one they do not (0.82: the strip's row and the band form in one message) [K1-2 stage 1: declared — its case went with AD.2]",
   "from": "B083"
  },
  {
@@ -4436,7 +4436,7 @@
    ]
   ],
   "tests": [
-   "*MainLocalShellTest.aWrapDuringARestagesPiecesPlaysFromTheRecordsAsTheyStand_S1"
+   "*MainLocalShellTest.aWrapBetweenARestagesPiecesDrawsTheWholeStrip_SPLIT2"
   ],
   "expect": ["(declared, no pin: Main's re-stage lists its strip rows ahead of what the wraps read, so the sort changes nothing it writes today; it keeps that order for a list in any order)"],
   "note": "S1: a re-stage's parts in their own order",
@@ -4452,12 +4452,12 @@
    ]
   ],
   "tests": [
-   "*MainLocalShellTest.aWrapDuringARestagesPiecesPlaysFromTheRecordsAsTheyStand_S1"
+   "*MainLocalShellTest.aWrapBetweenARestagesPiecesDrawsTheWholeStrip_SPLIT2"
   ],
   "expect": [
-   "(declared, no pin since K1-2 stage 1: a piece that meets the wrap's read range is a strip or wrap-record write, and those go only with the list withdrawn — its entries cleared, so no edge report, and the pieces wait for the CLEAR's flush to complete, after any report from a fire before it; a band move's pieces never meet the range. Its pin `aWrapBetweenARestagesPiecesDrawsTheWholeStrip_SPLIT2` went with the case)"
+   "aWrapBetweenARestagesPiecesDrawsTheWholeStrip_SPLIT2"
   ],
-  "note": "S1: a wrap plays while a piece meeting its read range is written or on its way [K1-2 stage 1: declared — its case (a 256 KiB strip switch in pieces under a bound list) went with AD.2]",
+  "note": "S1: a wrap plays while a piece meeting its read range is written or on its way [K1-2 stage 1: its pin SPLIT2 now on a band move — a row form withdraws the list at 256 KiB]",
   "from": "B083"
  },
  {
