@@ -596,4 +596,5 @@ Shipped and polishing outside the list: Reader, Tmux.
 
 **The order since 2026-11-12** (`REPLAN.md` §4, §14.3 #7, §14.4): new windows wait for the
 re-plan's steps; **Reminders** is built first, then this order resumes from #6 ("For now, yes"),
-each window built once for every interface.
+each window built once for every interface. *2026-11-22:* the re-plan's steps are under way (`REPLAN.md` §16.1's
+status block); no new window is started.

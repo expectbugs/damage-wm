@@ -7,7 +7,8 @@ describes what it shows and can do, so that the glasses, a web page, the phone a
 desktop each present it, and how every interface connects to the PC that holds the state. Plain wording throughout
 (`CLAUDE.md`). Documents only; what S1-1 built (APK 0.67, `HANDOFF.md` §80) and what S1-2 built, as the cleanup L1
 left both (APK 0.68, `HANDOFF.md` §84), and what S1-3 built (Feed and Tmux, APK 0.70, `HANDOFF.md` §89) is corrected
-below as built.
+below as built. *2026-11-22:* S1-4's first half (Music) is built on a branch and not merged (`HANDOFF.md` §97); its
+rows below still read as designed. S1-5 is not started.
 
 **Status: IN FORCE for the build plan (2026-11-13; brought to the code after L1, 2026-11-17).** The three rows of §14
 (a) are taken as recommended on Adam's word of that day ("I trust your recommendations for the open stuff") and were
@@ -782,6 +783,11 @@ window through `tools/glassdrive.py` when he is there (`REMINDER.md`: every glas
 | the sync channel, kept for unconverted windows | removed at S1's end | nothing new built into it, and no bridge between old and new keys (§9.7) |
 | the watcher's phone half (`RemoteBastion`, its Android reconcile), built before S1 | the generic mirror and notice delivery | the watcher is built to this contract's rules where they are already fixed: its table, notification tags and `ack{id, episode}` as an action on the alert in §7.1's shape; its epoch kept in the alert store, never the process start (§9.3); the phone's rows (`Phone · alerts`, `Home unreachable`, and from package F `Presence · location`) in the phone's own preferences from the start (§6); the one shared Quiet hours row (§6), built once, in Global beside `Notify · Damage` — so S1 swaps the carrier and keeps the model (built in W, APK 0.66, `HANDOFF.md` §79) |
 | the web client, window by window | S2 lays it out for the TV and the phone screen | one client rendering the vocabulary kind by kind, its data behind the `WindowSource` seam (§9.1); per-window code only for canvases |
+
+*Status 2026-11-22:* K1 is in progress — the motion kit's shell part (Main's scroll effects, the notice on the
+engine, the transitions; APK 0.83, 0.84 staged; `HANDOFF.md` §100, §101) and one list holder for Main's staging and
+binding (`ListBind`, `S/Shell.kt`, merged `f75d5838`). Every converted window still draws through its `XGlasses`
+adapter and menus through `MenuSurface`, so the rows above stand.
 
 ### 11.3 Mapping today's contract to the new one (`S/WindowContract.kt`)
 

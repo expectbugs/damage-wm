@@ -21,13 +21,15 @@ PUSH slice, a second endpoint (:7404) for media bytes, per-height layouts and th
 stereo planes via `contentPlanes`; a kit under `windows/games/kit/` that names no card game; the persisted
 record is an ACTION LOG the engine replays) · `FeedWindow` (`FEED.md`: ONE engine class on both hosts, the
 phone's parked and switching back only by hand — as built; the phone's engine retires at step S1, `CONTRACT.md`
-§14 (a) row 1; the Reader grammar over nine levels; synced reading state with a union rule for read marks; an
+§14 (a) row 1 — retired in S1-3, APK 0.70, `HANDOFF.md` §89.1; the Reader grammar over nine levels; synced reading state with a union rule for read marks; an
 endless archive Document; strips on demand from `view()`).
 
 **What changes at step S1** (`REPLAN.md` §14, `CONTRACT.md` §11): everything below describes the contract as built.
 From S1 the PC owns every window's state, each window splits into a core and a glasses presenter, and the sync
 these sections rely on is replaced (`CONTRACT.md` §2, §9.7); `CONTRACT.md` §11.3 maps today's contract row by row.
 A window built after the re-plan's steps is described once for every interface (`CONTRACT.md` §3, §12).
+*Status 2026-11-22:* S1 is under way — Reader (S1-1, §80), Torrents and Files (S1-2, §84), Feed and Tmux (S1-3, §89)
+are converted; Music's first half is on a branch (§97); Games, Main and Settings are S1-5 (`REPLAN.md` §16.1).
 
 **What converting Reader taught** (S1-1, APK 0.67, `HANDOFF.md` §80; how it runs: `IMPLEMENTATION.md`'s S1-1 section):
 - **A converted window is a core plus a glasses presenter.** `ReaderCore` (a `WindowCore`: describe, level, actions,
@@ -43,6 +45,9 @@ A window built after the re-plan's steps is described once for every interface (
   ledger beside the local copy (`window.<id>.conv`) so a downgrade's later writes are offered again;
   `ReaderMigrationTest`'s two deploy orders and its fourth case (a web write after the PC's conversion) are the proof's
   shape; the window's keys leave the sync channel (`Persistence.CONVERTED`) with the phone's inbound filter.
+  *2026-11-22: L1 removed Reader's migration whole, its ledger and `ReaderMigrationTest` with it (C5, `76a8e5e2`; out
+  with APK 0.68, `HANDOFF.md` §84.3); S1-2's migrations are one PC-only pass with no ledger (`core/…/app/Migrate.kt`),
+  and the keys leave the channel by the window registry (`Windows.converted`, since S1-2's Q2).*
 - **The defect classes the reviews found** (§80.6): a write no input made (a relayout, a reload, a page load), a loss
   told to no one, what clears a standing offer (`Go there`), a number used twice in one stream (two tabs). The
   continuity test of §3 step 6 becomes the arrangements test (`ReaderArrangementsTest`).

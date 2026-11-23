@@ -9,6 +9,11 @@ the list. Plain wording throughout (`CLAUDE.md`).
 
 **Status: an EXPLOSION written 2026-11-12/13 for Adam's refinery. Nothing in it is built or in force. The decisions
 put to him are in `REPLAN.md` §15; his rulings are recorded there.** `REPLAN.md` §14 wins wherever this differs.
+*Status 2026-11-22:* the web interface is partly built — the listener, §4's device approval and the web rows that
+`REPLAN.md` §16.1 placed in S1-1 to S1-3 (Reader, Torrents, Files, Feed, Tmux; `HANDOFF.md` §80, §84, §89: W-01, -02,
+-04, -07, -11, -12, -18, -21, -22, -24, -25, -30; W-20, -34, -35, -37, -38; W-32, -33, -47 — L1 trimmed pieces of
+them, no whole row, §84.3; the "lean" column stays the writer's of 11-13); the
+phone's own screen (P rows) and the XFCE4 piece (X rows) are S2, not started. "Today" in §1 means 2026-11-13.
 Grades: **read** (file:line or URL), **reported**, **inferred**, **unknown**. Nothing here was measured on his
 devices. R1–R6 are step A's research reports, kept in the private folder (`private/stepA/`, out of the repository);
 details of his home and of today's listeners are in its annex (`private/BASTION-annex.md`). §4 holds the rules
@@ -22,7 +27,7 @@ every interface shares; `BASTION.md` and `REMINDERS.md` refer to it.
 | Already independent of the glasses: summary, settings rows, menu and keyboard specs, notice, deep links, sync records, the PC's content services, the engines; `POPOVER.md` has a block vocabulary (heading, text, bullets, kv, table, chart, image, rule, page) and row types | read | `REPLAN.md:51-54`; `POPOVER.md:84-85` |
 | Deep-link targets exist per window: `t:<hash>`, `tl:<fid>`, `session:<host>:<name>`, `path:…`, `cat:<Name>` (opaque strings today) | read | `TORRENTS.md:182`; `TMUX.md:186-187`; `WINDOWS.md:209-210` |
 | Positions: Reader keeps a character offset; Files, Torrents, Feed, Music and Games keep indices into lines wrapped at the glasses' width | read | `REPLAN.md:45-49` (F3) |
-| Summaries over the window channel are still unbuilt | read | `WINDOWS.md:143` |
+| Summaries over the window channel are still unbuilt *(2026-11-22: built for the converted windows — `desc/main`, one card each with its summary, S1-1 and S1-2, `core/…/app/PcScopes.kt` 14–29; the rest move at S1-5)* | read | `WINDOWS.md:143` |
 | The PC already runs a dependency-free HTTP/1.1 + WebSocket server (the replica), gated today by one shared token that §4.1 replaces; which addresses today's servers answer on, and how they check the token, is in the private annex ("Today's listeners") | read | R1 §0; R2 §C |
 | One of today's servers (the setup page) already gates by network interface: the pattern §4.2's rule reuses per listener | read | R2 §C (`SetupServer.kt:21-33`) |
 | The service (running as `user`) can ask tailscaled who a tailnet peer is (device + user) without being operator; a LAN peer gets 404; `tailscale serve` hides the peer (arrives from 127.0.0.1). The answer names the device, not the page that connects from it (§4.1) | read / inferred | R2 C rows 6-12 |

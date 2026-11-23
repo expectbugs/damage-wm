@@ -14,6 +14,9 @@ until acknowledged and passes quiet hours (R6 is amended so). What is specific t
 value feeds which tile, the cameras, his thresholds, what is in place today, today's listeners — is in the private
 annex (`private/BASTION-annex.md`, kept out of the repository). **Nothing in this file was measured on his
 hardware**: spec-sheet and bench figures say so where they appear.
+*Status 2026-11-22:* the alert watcher (R6 with that amendment) is built — build W, APK 0.66 (`HANDOFF.md` §79),
+trimmed in L1 (§84) — with its host Settings category (`core/…/bastion/BastionRows.kt`); the B and T rows, the bus
+pages and the TV are S2 and S3, not started (`REPLAN.md` §16.1).
 
 Columns: **size** S/M/L, relative as `FORK.md` uses them · **lean** in / later / out, the lead's first opinion for the
 refinery to override · **conflicts** names a ruling, an exclusion or another row. `DESIGN.md` §0's exclusions bind

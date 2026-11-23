@@ -386,6 +386,9 @@ clears the phone's working copy and queue — pull the phone's journal before, `
 - **The session's cache size** is the stored last one after an app install or restart (since 0.77); it rises to the
   stage's 256 KiB only at a start after about 103 s with no lease renewal — in daily use the first start after a
   night in the case.
+- **Without a Claude session:** `python3 tools/ladder.py state` says what RIGHT reports now; `python3 tools/ladder.py
+  4` (or `5`) stores the stage and starts a session so it arms — the display blanks for about two seconds. Stage 5
+  (EFFECTS: the transitions, the ring list, the fast DRAW path) is stage 4's bytes plus one flag; 4 is the way back.
 - **Other probes** (same door): `local=state` (what is armed and why not), `taps=phone|report|glasses` (also the
   Settings row, shown on a C2 build), `hold=on|off` and `mainseq=1|2|3|all` (test pictures; both refused at stage 4),
   `flags=0xNNNN` (refuses a bit `FIRMWARE.md` does not define, and any ladder bit beyond the stage), `rest=on|off`.

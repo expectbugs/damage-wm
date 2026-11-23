@@ -3,7 +3,10 @@
 **Status: DESIGN SETTLED with Adam 2026-09-09 (fifteen verdicts, §1); BUILT the same day, M1–M5
 (§8 as built; `HANDOFF.md` §43 the build's account); ON GLASS that evening, five findings fixed
 that night (§8.2); the measured walk (§3.8 → §8.4) still owed; polish suspended until the
-re-plan's steps close (`CLAUDE.md`, `REMINDER.md`).** #5 in the
+re-plan's steps close (`CLAUDE.md`, `REMINDER.md`).** **Status since build S1-3 (APK 0.70, 2026-11-18;
+`HANDOFF.md` §89): Feed is on the PC's record, with a page; the phone's own fetching is retired on his ruling of 11-12
+(§89.1), so the phone-alone fetching below no longer runs. Reddit's public RSS feeds ended on 2026-11-13: the source is stale since 11-17
+and what replaces it is his call (§91.5, §100.9).** #5 in the
 `EXPLOSION.md` §20 wow order; no G2CC ancestor. Precedents: Reader (one tap opens; the page's tap
 is the actions level), Files (image strips), Torrents (a live list over the channel, the keyboard,
 paging), Music (one window, two hosts, a deliberate switchback).
@@ -445,7 +448,7 @@ this section says what RUNS.
   is Alegreya 17, not 20 (item 4).
 - **The phone engine adopts the PC's list.** `SourceStatus.cfg` carries each configured source over
   the channel and `FeedEngine.adopt` takes on the ones the phone lacks; nothing is ever removed on
-  the phone.
+  the phone. *(Removed in S1-3, APK 0.70, with the phone's own fetching — `4466b66f`, `HANDOFF.md` §89.1.)*
 - **Over the channel a strip is deflate(packed nibbles)** with its dimensions in the answer's data
   — the compositor's own bytes, no JSON of a byte array; the tests pin them byte-identical.
 - **`ScriptedFeed` lives in core's main sources** (the `SimMusicPlayer` precedent) so the core tests
@@ -515,7 +518,7 @@ them:
    archive is an endless document with its actions on tap. Ask before adding one.
 8. **The phone fallback is tested over a loopback host, not over Tailscale with the service
    stopped.** One deliberate try, with the journal read after, is owed (moot if S1 retires the
-   phone engine, verdict 15's note).
+   phone engine, verdict 15's note). *(Moot since S1-3, APK 0.70: the phone engine is retired, `HANDOFF.md` §89.1.)*
 9. **`Notify` rows are off** (verdict 13) and untried on glass; the first-sight baseline means the
    first fetch after turning a row on announces nothing.
 10. **The measured walk is owed** (§8.4): every number in §2.6 and §3.8 is modeled.
