@@ -243,8 +243,10 @@ class Version2MotionTest {
         val x3t = ShipVectors.specs().count { it.effect.glyphs }
         val sv = ShipVectors.scrollSpecs().size + ShipVectors.noticeSpecs().size
         val svr = ShipVectors.ringSpecs().size
+        // C3 SV2: Crush's, Flip's and the new Matrix's acts (their version-2 pans with source windows, the drops and the rain)
+        val sv2 = ShipVectors.sv2Acts().size
         assertEquals(28 + ShipVectors.acts().size + 1, files.size,
-            "the 20 v5 vectors, X2D's 8, X3D's ${ShipVectors.specs().size - x3t} ship vectors and v5-x3-hint, X3T's $x3t ship vectors, SV-083's $sv, SVR's $svr")
+            "the 20 v5 vectors, X2D's 8, X3D's ${ShipVectors.specs().size - x3t} ship vectors and v5-x3-hint, X3T's $x3t ship vectors, SV-083's $sv, SVR's $svr, SV2's $sv2")
         val comparedProg = HashMap<String, Int>(); val comparedTab = HashMap<String, Int>()
         val seenProg = HashSet<String>(); val seenTab = HashSet<String>()
         val inexpressible = LinkedHashMap<String, String>(); val refusedByDsl = LinkedHashMap<String, String>()

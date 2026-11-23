@@ -73,7 +73,10 @@ internal object ShipVectors {
     private const val FEATURES = 0xDFF
     private const val ACT_TICK = 2000L
 
-    enum class Form { WHOLE, CUT, WRITE }
+    /** C3 SV2: LATE — the window's frame takes several flushes and the link has no room from its first one until the out
+     *  half has drawn its last step on both lenses, so the rest of the frame and the PLAY-AFTER riding its last flush land
+     *  after the out half's end (the in half then starts from the out half's last pose). */
+    enum class Form { WHOLE, CUT, WRITE, LATE }
 
     /** C3 X3T, X4T: the window's labelled rows for a glyph effect ([labelsOf]) — a typical window, a page dense enough for
      *  two cell lists, or (APART) one too dense for the records and both halves' lists in one compressed message, so the
@@ -84,15 +87,19 @@ internal object ShipVectors {
      *  second Select inside the in half) or WRITE (his scroll's frame written under the in half). C3 X3T: Encode and
      *  Matrix ([Transitions.Effect.glyphs]) play on the rig's 256 KiB session with BIND ([kib256]: the session stage 5
      *  has on his glasses, the only one Encode plays on), over the window's labelled rows ([labelsOf], [page]), every
-     *  screen's text packed into the atlas before the act. */
+     *  screen's text packed into the atlas before the act. C3 SV2: [length] and [frames] the tier's `Length` and `Frames`
+     *  when not the default (450 ms, 10 frames: 5 steps a half). */
     data class Spec(override val name: String, val tier: Transitions.Tier, val effect: Transitions.Effect, val reversed: Boolean,
-                    val height: Int, val depth: Int = 8, val form: Form = Form.WHOLE, val page: Page = Page.TYPICAL) : Act {
+                    val height: Int, val depth: Int = 8, val form: Form = Form.WHOLE, val page: Page = Page.TYPICAL,
+                    val length: Int? = null, val frames: Int? = null) : Act {
         val kib256: Boolean get() = effect.glyphs
     }
 
     /** C3 X3T: the glyph effects whose programs differ between Global Depth 8 and 12 (Encode: each cell track takes its
      *  plane's disparity on each lens; Matrix's rain is one rect on both lenses, its programs the same at both — measured
-     *  on the first dump, `C3-X3T-built.md`). */
+     *  on the first dump, `C3-X3T-built.md`). C3 SV2: since X1MX2 Matrix's grid sits at the act's plane (the nearer of the
+     *  two screens' content planes), so its Select and Back differ at 12 — their acts are [sv2Acts]'s; the Lock Screen's
+     *  plane is 0 at every Global Depth, so its acts do not differ and none is added. */
     private val GLYPHS_OFF4 = setOf(Transitions.Effect.ENCODE)
 
     /** Every effect of every tier (Back reversed; the Lock Screen entered forward and left reversed) at 352 and 480;
@@ -190,8 +197,27 @@ internal object ShipVectors {
             val events = java.util.Collections.synchronizedList(ArrayList<Event>())
             val act = java.util.concurrent.atomic.AtomicBoolean(false)
             val seenL = HashMap<Int, Int>(); val seenR = HashMap<Int, Int>()
+            // C3 SV2, LATE: the link is held from the out PLAY — set as the first lens is handed it, before its ack can let the
+            // next pump go (the pump that sent the out PLAY sent the frame's first flush beside it) — and RIGHT's out half as
+            // the PLAY-AFTER reaches it (read inside the model's dispatch)
+            val heldAt = java.util.concurrent.atomic.AtomicBoolean(false)
+            val afterOnRight = java.util.concurrent.atomic.AtomicReference<String?>(null)
+            val afterSeen = java.util.concurrent.atomic.AtomicBoolean(false)
+            /** RIGHT's frame flushes between the out PLAY and the PLAY-AFTER (under the drawing out half). */
+            val framesEarly = java.util.concurrent.atomic.AtomicInteger(0)
+            fun drawsPixels(ss: List<ByteArray>) = ss.any { (it[0].toInt() and 0x7F) !in setOf(19, 25, 26, 27) }
+            fun lateSpy(a: Arm, img: ByteArray) {
+                val ss = subs(img)
+                if (ss.any { isSub(it, 26, CfwModes.MOTION_PLAY_AFTER) }) afterSeen.set(true)
+                if (ss.any { playIn(it, 2) } && heldAt.compareAndSet(false, true)) r.shell.pumpHeldForTest = true
+                else if (a == Arm.RIGHT && heldAt.get() && !afterSeen.get() && drawsPixels(ss)) framesEarly.incrementAndGet()
+                if (a == Arm.RIGHT && ss.any { isSub(it, 26, CfwModes.MOTION_PLAY_AFTER) })
+                    afterOnRight.set(r.sim.motionForTest(Arm.RIGHT).slots[2]?.let { "${if (it.drawing) "drawing" else "done"} d ${it.d} of T ${it.T}; " +
+                        "the PLAY-AFTER's image ${if (ss.any { s -> (s[0].toInt() and 0x7F) !in setOf(19, 25, 26, 27) }) "carries" else "carries no"} drawing sub" } ?: "slot 2 empty")
+            }
             // inside the model's own lock (the observer runs in its dispatch): the progress as the message arrives
-            r.onImage = { a, img -> events += Event(a, img.copyOf(), null, progress(r.sim, a, if (a == Arm.LEFT) seenL else seenR), act.get()) }
+            r.onImage = { a, img -> events += Event(a, img.copyOf(), null, progress(r.sim, a, if (a == Arm.LEFT) seenL else seenR), act.get())
+                if (spec.form == Form.LATE && act.get()) lateSpy(a, img) }
             // and every millisecond between, so a step drawn with no message after it (the out half's last, before the
             // PLAY-AFTER's deferred empty takes the slot) is counted: each instance holds its d for a period (~45 ms)
             r.scope.launch { while (true) { synchronized(r.sim) { progress(r.sim, Arm.LEFT, seenL); progress(r.sim, Arm.RIGHT, seenR) }; delay(1) } }
@@ -221,7 +247,9 @@ internal object ShipVectors {
             r.up { s -> s.copy(heightMode = spec.height, depth = spec.depth)
                 .withTier(Transitions.Tier.SELECT, effects = if (!glyphs && spec.tier == Transitions.Tier.SELECT) listOf(spec.effect.id) else emptyList())
                 .withTier(Transitions.Tier.BACK, effects = if (!glyphs && spec.tier == Transitions.Tier.BACK) listOf(spec.effect.id) else emptyList())
-                .withTier(Transitions.Tier.LOCK, effects = if (!glyphs && spec.tier == Transitions.Tier.LOCK && !spec.reversed) listOf(spec.effect.id) else emptyList()) }
+                .withTier(Transitions.Tier.LOCK, effects = if (!glyphs && spec.tier == Transitions.Tier.LOCK && !spec.reversed) listOf(spec.effect.id) else emptyList())
+                // C3 SV2: the tier's own length and frames when the act names them
+                .let { if (spec.length == null) it else it.withTier(spec.tier, length = spec.length, frames = spec.frames ?: it.framesOf(spec.tier)) } }
             if (spec.form == Form.CUT) r.rows[0].levels = true
             if (glyphs) {
                 // C3 X3T: both screens' text packed before the act, with no transition on the way — an Encode or Matrix that
@@ -248,6 +276,10 @@ internal object ShipVectors {
                 }
             }
             val transitionsBefore = r.notes("transition").count { it.startsWith("owed: ") }
+            // C3 SV2, LATE: the window's frame in several flushes — the batch cap lowered for the act (as X2M0's Back row lowers
+            // it for Main's frame; every op of this window's frame is smaller), put back once the frame is in
+            val batchMax = r.onLoop { r.shell.comp.batchMax }
+            if (spec.form == Form.LATE) r.onLoop { r.shell.comp.batchMax = 400 }
             act.set(true)
             when (spec.tier) {
                 Transitions.Tier.SELECT -> select("the act", "w0")
@@ -261,6 +293,15 @@ internal object ShipVectors {
                     r.until("RIGHT's in half drawing") { r.onLoop { r.shell.transitionPhaseForTest() } == "IN" &&
                         synchronized(r.sim) { r.sim.motionForTest(Arm.RIGHT).slots[3]?.let { it.drawing && it.d >= 1 && it.d < it.T } } == true }
                     if (spec.form == Form.CUT) fire(CfwModes.EV_TAP) else r.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)
+                }
+                Form.LATE -> {
+                    r.until("the out PLAY in, the link held") { heldAt.get() }
+                    r.until("the out half's last step drawn on both lenses, the rest of the frame still held") {
+                        synchronized(r.sim) { Arm.entries.all { a -> r.sim.motionForTest(a).slots[2]?.let { !it.drawing && it.d == it.T } == true } } &&
+                            r.onLoop { r.shell.comp.hasPending && r.shell.transitionPhaseForTest() == "FRAME" } }
+                    r.shell.pumpHeldForTest = false; r.shell.postIdleTick()
+                    r.until("the rest of the frame and the PLAY-AFTER sent") { r.onLoop { r.shell.transitionPhaseForTest() != "FRAME" } }
+                    r.onLoop { r.shell.comp.batchMax = batchMax }
                 }
             }
             val acts = if (spec.form == Form.CUT) 2 else 1
@@ -278,11 +319,16 @@ internal object ShipVectors {
             check(notes.count { it.startsWith("in half's last step drawn on RIGHT") } == 1) { "${spec.name}: not one whole in half on RIGHT: $notes" }
             if (spec.form == Form.CUT) check(notes.any { it.startsWith("a new act replaces Select's (IN)") }) { "${spec.name}: the second Select did not cut the first in its in half: $notes" }
             if (spec.form == Form.WRITE) check(r.onLoop { r.rows[0].big }) { "${spec.name}: the scroll did not reach the window" }
+            // C3 SV2, LATE: the PLAY-AFTER rode a frame flush that reached RIGHT after its out half's last step
+            if (spec.form == Form.LATE) check(afterOnRight.get()?.let { it.startsWith("done d") && "carries drawing" in it } == true && framesEarly.get() >= 1) {
+                "${spec.name}: not late — RIGHT's out half when the PLAY-AFTER reached it: ${afterOnRight.get()}; frame flushes before it ${framesEarly.get()}" }
             val st = r.t.state.value
             val finalCrc = synchronized(r.sim) { Arm.entries.associateWith { r.sim.shadowCrc32(it) } }
             val all = events.toList()
             val halves = ArrayList<String>()
-            return Captured(spec, vector(spec, all, st.cacheSize / 1024, st.flagsInForce, finalCrc, halves), owed, halves)
+            val vec = vector(spec, all, st.cacheSize / 1024, st.flagsInForce, finalCrc, halves)
+            if (spec.form == Form.LATE) halves += "late: ${framesEarly.get()} frame flush(es) under the drawing out half; RIGHT's out half when the PLAY-AFTER reached it ${afterOnRight.get()}"
+            return Captured(spec, vec, owed, halves)
         } finally { r.close() }
     }
 
@@ -410,8 +456,21 @@ internal object ShipVectors {
      * table names (its k + 1 margins of the other end already written with the base records, decisions AL.4) and the SETs
      * naming that strip's pans; a wrap notch up fired as the first lens is handed the SETs' batch — between the write and
      * the SETs, the old pan over the new item table (§6.7 P9) — adopted and COMMITted.
+     *
+     * C3 SV2 (DM-1's acts, decisions BN, BP (4), CA (1)): FAST — from row 0 three notches down about 120 ticks apart (each
+     * fired when RIGHT's pan has drawn its step [FAST_STEP], so each fire closes the pan before it mid-program, §6.2 step
+     * 11), each with its stock echo, the reports answered as the shell answers them; the last pan whole. PITCH — the
+     * pitch switch (decisions AD's S6, the DM-1 report's §2 item 5) with Main in front: Depth → Crush → Depth, each change
+     * K1-1's re-make (the free pan slot's write, then ONE batch [LIST-RING with the new pitch and a fresh mark, the SETs,
+     * the DISCARD naming the row]); before each change a notch on the lenses whose report the rig holds on its way until
+     * the switch's batch has landed (applied as today, `restaged`: no COMMIT), and after it a notch on the new pans
+     * (COMMITted).
      */
-    enum class RingForm { NOTCHES, TAP, UNDER_BACK, TABLE, BURST, BURST_EACH, SWITCH }
+    enum class RingForm { NOTCHES, TAP, UNDER_BACK, TABLE, BURST, BURST_EACH, SWITCH, FAST, PITCH }
+
+    /** C3 SV2: the step RIGHT's pan has drawn when FAST's next notch fires — at P 16 step 8 is drawn 112 ticks after its
+     *  fire and step 9 falls due at 128, so the notches go about 120 ticks apart (the motion check's fast three, X1DM1). */
+    private const val FAST_STEP = 8
 
     /** C3 SVR: a ring act — Main's scroll [effect] at layout height [height] in [form]; a TAP's [taps] value and whether
      *  the cursor is on the last row ([atLast]) or on row 0. The steps and the period are the staging's at stage 5, read
@@ -430,8 +489,8 @@ internal object ShipVectors {
     fun ringSpecs(): List<RingSpec> {
         val out = ArrayList<RingSpec>()
         for (h in listOf(288, 352)) {
-            // the four effects whose ring acts are shipped and filled (SVR); Crush and Flip (DM-1) get acts of their own from
-            // the vector lane — iterating `ScrollEffect.entries` here would add acts with no files
+            // the four effects whose ring acts are shipped and filled (SVR); Crush's and Flip's are C3 SV2's ([sv2Acts]) —
+            // iterating `ScrollEffect.entries` here would name them twice
             for (e in listOf(ScrollEffect.NONE, ScrollEffect.DEPTH, ScrollEffect.SLIDE, ScrollEffect.FALL)) out += RingSpec("${PREFIX}ring-${e.id}-$h", e, h, RingForm.NOTCHES)
             for (t in listOf(Taps.REPORT, Taps.GLASSES)) for (last in listOf(false, true))
                 out += RingSpec("${PREFIX}ring-tap-${t.name.lowercase()}-${if (last) "last" else "row0"}-$h", ScrollEffect.DEPTH, h, RingForm.TAP, t, last)
@@ -444,8 +503,47 @@ internal object ShipVectors {
         return out
     }
 
-    /** Every ship act: the transitions ([specs]), then SV-083's scroll and notice acts, then SVR's ring acts. */
-    fun acts(): List<Act> = specs() + scrollSpecs() + noticeSpecs() + ringSpecs()
+    /**
+     * C3 stage SV2 (`private/c3-design/briefs/C3-SV2-brief.md`): the program shapes no filled vector held after DM-1 and
+     * MX2 with its fix stages, as the shell sends them —
+     * - Matrix (MX2 with R1, X1MX2: the out half's drops with their bent last step, the in half's rain with reveal 1, one
+     *   grid at the act's plane): at Global Depth 12 (the grid ±12 per lens) and 0 (one rect) for a Select and a Back
+     *   (Back's records are Select's); 8 steps a half — a Select at 480 at 720 ms / 16 frames, and the Lock Screen both
+     *   ways at his Lock tier, 800 ms / 16 frames (plane 0: one rect); a Select whose window's frame lands after the out
+     *   half's end ([Form.LATE]). The default acts at 5 steps and Global Depth 8 are [specs]' own (written again here).
+     * - Crush and Flip on Main at stage 5 (DM-1, X1DM1, X2DM1a): Crush's ring NOTCHES at 288 and 352 (its source windows
+     *   read the ring's margins at v = −1 and n) and Flip's at 352 (its rows are Depth's; at 288 its T is the only
+     *   change); both on a plain list at 480 (margins of blank rows); Flip's height turn at stage 4 (version 1, the
+     *   fallback's bytes); Crush's FAST burst; the PITCH switch.
+     * Not here: Crush at stage 4 (it plays Slide's bytes exactly — `v5-ship-scroll-slide-352`'s programs, pinned by DM-1),
+     * a window refused 5 (the phone never stages it: every Crush and Flip program is checked at every cursor offline).
+     */
+    fun sv2Acts(): List<Act> {
+        val m = Transitions.Effect.MATRIX
+        val sel = Transitions.Tier.SELECT; val back = Transitions.Tier.BACK; val lock = Transitions.Tier.LOCK
+        return listOf(
+            Spec("${PREFIX}select-matrix-off4-352", sel, m, false, 352, depth = 12),
+            Spec("${PREFIX}back-matrix-rev-off4-352", back, m, true, 352, depth = 12),
+            Spec("${PREFIX}select-matrix-depth0-352", sel, m, false, 352, depth = 0),
+            Spec("${PREFIX}back-matrix-rev-depth0-352", back, m, true, 352, depth = 0),
+            Spec("${PREFIX}select-matrix-s8-480", sel, m, false, 480, length = 720, frames = 16),
+            Spec("${PREFIX}lock-matrix-s8-352", lock, m, false, 352, length = 800, frames = 16),
+            Spec("${PREFIX}lock-matrix-rev-s8-352", lock, m, true, 352, length = 800, frames = 16),
+            Spec("${PREFIX}select-matrix-late-352", sel, m, false, 352, form = Form.LATE),
+            RingSpec("${PREFIX}ring-crush-288", ScrollEffect.CRUSH, 288, RingForm.NOTCHES),
+            RingSpec("${PREFIX}ring-crush-352", ScrollEffect.CRUSH, 352, RingForm.NOTCHES),
+            RingSpec("${PREFIX}ring-flip-352", ScrollEffect.FLIP, 352, RingForm.NOTCHES),
+            // (T, P) at 300 ms Auto, the fast path's fit at 480 (the DM-1 report's §3 table; checked at the capture)
+            ScrollSpec("${PREFIX}scroll-crush-stage5-480", ScrollEffect.CRUSH, 480, 17, 18, stage = 5),
+            ScrollSpec("${PREFIX}scroll-flip-stage5-480", ScrollEffect.FLIP, 480, 13, 22, stage = 5),
+            // stage 4: Flip's height turn (version 1) at C2's fit, P 46 T 6 at 352
+            ScrollSpec("${PREFIX}scroll-flip-352", ScrollEffect.FLIP, 352, 6, 46),
+            RingSpec("${PREFIX}ring-crush-fast-352", ScrollEffect.CRUSH, 352, RingForm.FAST),
+            RingSpec("${PREFIX}ring-pitch-352", ScrollEffect.DEPTH, 352, RingForm.PITCH))
+    }
+
+    /** Every ship act: the transitions ([specs]), then SV-083's scroll and notice acts, then SVR's ring acts, then SV2's. */
+    fun acts(): List<Act> = specs() + scrollSpecs() + noticeSpecs() + ringSpecs() + sv2Acts()
 
     /** [act] as the rig plays it, and its vector. */
     suspend fun captureAct(act: Act): Captured = when (act) {
@@ -528,6 +626,7 @@ internal object ShipVectors {
             val staged = r.onLoop { r.shell.mainBinding.staging?.let { s -> listOf(s.motion?.effect, s.t, s.period, s.periodInForce) } }
             check(staged == listOf(spec.effect, spec.t, spec.period, spec.period)) {
                 "${spec.name}: Main's staging holds (effect, T, P, P in force) $staged, not ${spec.effect.word} T ${spec.t} P ${spec.period}" }
+            checkPlays(r, spec.name, spec.effect, spec.stage == 5)
             val count = r.onLoop { r.shell.mainBoundForTest().first?.count } ?: error("${spec.name}: Main's list not bound")
             check(count >= 4) { "${spec.name}: Main's list holds $count rows, a burst needs 4" }
             fun drawing(a: Arm, s: Int) = r.sim.motionForTest(a).slots[s]?.drawing == true
@@ -684,6 +783,15 @@ internal object ShipVectors {
 
     private fun s16(b: ByteArray, at: Int) = u16(b, at).toShort().toInt()
 
+    /** C3 SV2: Crush and Flip play their own programs — version 2 at stage 5, Flip's height turn (version 1) below it —
+     *  not a fallback (the staging keeps the asked effect in `motion` whatever plays). */
+    private fun checkPlays(r: TransitionShellTest.Rig, name: String, effect: ScrollEffect, stage5: Boolean) {
+        if (effect != ScrollEffect.CRUSH && effect != ScrollEffect.FLIP) return
+        val plays = r.onLoop { r.shell.mainBinding.staging?.plays }
+        check(plays != null && plays.effect == effect && plays.v2 == stage5) {
+            "$name: Main's staging plays $plays, not ${effect.word} in version ${if (stage5) 2 else 1}" }
+    }
+
     private suspend fun captureRing(spec: RingSpec): Captured {
         val r = TransitionShellTest.Rig(stage = 5, kib256 = true, taps = spec.taps, nRows = MAIN_WINDOWS)
         try {
@@ -699,6 +807,7 @@ internal object ShipVectors {
             check(staged != null && staged[0] == true && staged[1] == spec.effect && staged[3] == staged[4]) {
                 "${spec.name}: Main's staging holds (ring, effect, T, P, P in force) $staged, not the ring form of ${spec.effect.word} with its period in force" }
             val t = staged[2] as Int; val period = staged[3] as Int
+            checkPlays(r, spec.name, spec.effect, stage5 = true)
             val pressT = r.onLoop { r.shell.mainBinding.staging!!.press.program.T }
             val list = r.onLoop { r.shell.mainBoundForTest().first } ?: error("${spec.name}: Main's list not bound")
             val count = list.count
@@ -716,6 +825,8 @@ internal object ShipVectors {
             suspend fun notch(eventId: Int, to: Int, what: String) { val from = rec.events.size; rec.fire(eventId); ended(from, to, what); r.settle("${spec.name}: $what") }
             fun owed() = r.notes("transition").count { it.startsWith("owed: ") }
             val words = ArrayList<String>()
+            /** C3 SV2, PITCH: the steps of the pans in force after each switch. */
+            val pitchTs = ArrayList<Int>()
             when (spec.form) {
                 RingForm.NOTCHES -> {
                     rec.act.set(true)
@@ -850,6 +961,58 @@ internal object ShipVectors {
                     check(now.none { it in oldProgs }) { "${spec.name}: the list does not name the other strip's pans: $now against $oldProgs" }
                     words += "the old pans $oldProgs, the other strip's ${now}"
                 }
+                RingForm.FAST -> {
+                    rec.act.set(true)
+                    val from = rec.events.size
+                    for (k in 1..3) {
+                        val tag0 = synchronized(r.sim) { r.sim.motionForTest(Arm.RIGHT).slots[MainStaging.SLOT]?.tag }
+                        rec.fire(CfwModes.EV_UPROLL)
+                        // the next notch as RIGHT's pan holds its step FAST_STEP: inside its motion, past Crush's phase 1
+                        if (k < 3) r.until("${spec.name}: pan $k at its step $FAST_STEP on RIGHT") { synchronized(r.sim) {
+                            r.sim.motionForTest(Arm.RIGHT).slots[MainStaging.SLOT]?.let { it.tag != tag0 && it.drawing && it.d >= FAST_STEP && it.d < it.T } == true } }
+                    }
+                    ended(from, 3, "three notches down about 120 ticks apart")
+                    r.settle("${spec.name}: after the three")
+                }
+                RingForm.PITCH -> {
+                    val start = r.t as StartRig
+                    val rowH = r.onLoop { r.shell.mainBinding.staging!!.layout.rowH }
+                    check(list.pitch == -rowH) { "${spec.name}: Depth's ring list at pitch ${list.pitch}, not −$rowH" }
+                    rec.act.set(true)
+                    for ((effect, pitch) in listOf(ScrollEffect.CRUSH to rowH, ScrollEffect.DEPTH to -rowH)) {
+                        val row0 = r.row()
+                        // a notch on the lenses whose report (RIGHT's 115) the rig holds on its way until the switch has landed
+                        val held = java.util.Collections.synchronizedList(ArrayList<ByteArray>())
+                        val hold = java.util.concurrent.atomic.AtomicBoolean(true)
+                        start.onNotify = { a, p -> if (hold.get() && a == Arm.RIGHT && StartRig.sid(p) == wm.damage.core.wire.SettingsMsg.SID &&
+                            p.size >= wm.damage.core.wire.AaFrame.HEADER + wm.damage.core.wire.AaFrame.CRC && DamageMsg.parseApplied(StartRig.body(p)) != null) { held += p; null } else p }
+                        val switched0 = r.notes("mainstage").count { it.startsWith("pans switched") }
+                        val from = rec.events.size
+                        rec.hook(CfwModes.EV_UPROLL)
+                        r.until("${spec.name}: ${effect.word}: the notch's report held") { held.size == 1 }
+                        r.shell.updateSettings { it.copy(scrollEffect = effect.id) }
+                        r.until("${spec.name}: ${effect.word}: the pans re-made and switched", 15_000) { r.notes("mainstage").count { it.startsWith("pans switched") } > switched0 }
+                        r.until("${spec.name}: ${effect.word}: both lenses hold the list at pitch $pitch and the re-made pans") {
+                            val l = r.onLoop { r.shell.mainBoundForTest().first }
+                            l != null && l.pitch == pitch && synchronized(r.sim) { Arm.entries.all { a -> r.sim.bindForTest(a).let { b -> b.lists[MainStaging.LIST].let { it.pitch == pitch && it.ring } &&
+                                b.entries.filterNotNull().firstOrNull { it.eventId == CfwModes.EV_UPROLL }?.prog == l.entryFor(CfwModes.EV_UPROLL)!!.prog4 } } } }
+                        hold.set(false); start.onNotify = null
+                        // the held report now, and its stock echo: refused by the switch's fresh mark (`restaged`), applied as today
+                        val snaps0 = r.notes("snapback").size
+                        for (p in synchronized(held) { held.toList() }) start.deliver(Arm.RIGHT, p)
+                        rec.echo(CfwModes.EV_UPROLL)
+                        ended(from, (row0 + 1).mod(count), "${effect.word}: the notch from before the switch applied as today")
+                        val snaps = r.notes("snapback").drop(snaps0)
+                        check(snaps.any { "cause=restaged" in it }) { "${spec.name}: ${effect.word}: the report from before the switch was not refused restaged: $snaps" }
+                        r.settle("${spec.name}: ${effect.word}: the held report answered"); idle(r, spec.name)
+                        checkPlays(r, spec.name, effect, stage5 = true)
+                        val staging = r.onLoop { r.shell.mainBinding.staging!!.let { it.t to it.period } }
+                        pitchTs += staging.first
+                        words += "${effect.word} (T ${staging.first} P ${staging.second}, pitch $pitch): the held notch's answer — ${snaps.joinToString()}"
+                        notch(CfwModes.EV_UPROLL, (row0 + 2).mod(count), "${effect.word}: a notch on the new pans")
+                        idle(r, spec.name)
+                    }
+                }
             }
             idle(r, spec.name)
             rec.act.set(false)
@@ -928,6 +1091,18 @@ internal object ShipVectors {
                     RingForm.BURST_EACH -> check(pans.groupBy { it.tag }.let { g -> g.size == 2 && g.values.first().singleOrNull()?.let { it.outcome == DamageMsg.OUTCOME_COMMITTED && it.drawn == 0L } == true &&
                         g.values.last().maxOf { it.drawn ?: 0L } == t.toLong() } && pans.none { it.outcome == DamageMsg.OUTCOME_CLOSED }) {
                         "${spec.name}: not the first COMMIT adopting nothing and the wrap's pan whole on RIGHT: ${said(pans, 0..0)}" }
+                    // C3 SV2 (a local instance is tagged its fire's S, §6.2 step 12). FAST: the first two pans cut by the next
+                    // fire's close (silently, §6.2 step 11), none of them whole; the last pan whole
+                    RingForm.FAST -> applied.filter { !it.isTap }.map { it.s }.let { s ->
+                        fun most(tag: Int?) = pans.filter { it.tag == tag }.maxOfOrNull { it.drawn ?: 0L } ?: 0L
+                        check(s.size == 3 && s.dropLast(1).all { most(it) < t } && most(s.last()) == t.toLong()) {
+                            "${spec.name}: not two pans cut and the last whole on RIGHT: ${said(pans, 0..0)}" } }
+                    // PITCH: each notch after a switch whole at the new pans' T; those before it never adopted
+                    RingForm.PITCH -> applied.filter { !it.isTap }.map { it.s }.let { s ->
+                        fun most(tag: Int?) = pans.filter { it.tag == tag }.maxOfOrNull { it.drawn ?: 0L } ?: 0L
+                        check(s.size == 4 && pitchTs.size == 2 && most(s[1]) == pitchTs[0].toLong() && most(s[3]) == pitchTs[1].toLong() &&
+                            pans.none { (it.tag == s[0] || it.tag == s[2]) && it.outcome == DamageMsg.OUTCOME_COMMITTED }) {
+                            "${spec.name}: not each notch after a switch whole (T $pitchTs) with those before it unadopted on RIGHT: ${said(pans, 0..0)}" } }
                 }
                 words += "RIGHT's 114 bodies of the act: ${said(bodies, 0..3)}"
             }
@@ -967,13 +1142,43 @@ internal object ShipVectors {
                     val old = list.entries.filter { !it.isTap }.map { it.prog4 }
                     if (a.outcome != DamageMsg.APPLIED_DREW || a.cursor != count - 1 || a.field18 != 1L || a.prog !in old) bad("the wrap between the write and the SETs did not draw the old pan")
                 }
+                RingForm.FAST -> {
+                    if (applied.size != 3 || applied.any { it.isTap || it.outcome != DamageMsg.APPLIED_DREW }) bad("not three scroll fires that drew")
+                    if (applied.map { it.cursor } != listOf(1, 2, 3) || applied.any { it.field18 != null }) bad("the cursors are not 1, 2, 3 with no field 18")
+                }
+                RingForm.PITCH -> {
+                    if (applied.size != 4 || applied.any { it.isTap || it.outcome != DamageMsg.APPLIED_DREW }) bad("not four scroll fires that drew")
+                    if (applied.map { it.cursor } != listOf(1, 2, 3, 4) || applied.any { it.field18 != null }) bad("the cursors are not 1, 2, 3, 4 with no field 18")
+                }
             }
             // the phone's answer to each fire that drew: the COMMIT of the report's own parameters at the absolute cursor (a
-            // burst's: the newest's alone)
+            // burst's: the newest's alone). C3 SV2: FAST — the newest's at least, and every COMMIT of the act its own report's;
+            // PITCH — each notch after a switch, and none for a notch from before it (refused `restaged`)
             val drewScroll = applied.filter { !it.isTap && it.outcome == DamageMsg.APPLIED_DREW }
-            for (a in if (spec.form == RingForm.BURST) drewScroll.takeLast(1) else drewScroll) {
+            val owedCommits = when (spec.form) {
+                RingForm.BURST, RingForm.FAST -> drewScroll.takeLast(1)
+                RingForm.PITCH -> drewScroll.filterIndexed { i, _ -> i % 2 == 1 }
+                else -> drewScroll
+            }
+            for (a in owedCommits) {
                 val c = commits.firstOrNull { u16(it, 3) == a.s } ?: bad("no COMMIT of S ${a.s}")
                 if (u16(c, 6) != a.cursor || (0..3).any { s16(c, 10 + 2 * it) != a.params!![it] }) bad("the COMMIT of S ${a.s} is not the report's parameters at its cursor: ${hex(c)}")
+            }
+            if (spec.form == RingForm.FAST) for (c in commits) {
+                val a = drewScroll.firstOrNull { it.s == u16(c, 3) } ?: bad("a COMMIT of no report of the act: ${hex(c)}")
+                if (u16(c, 6) != a.cursor || (0..3).any { s16(c, 10 + 2 * it) != a.params!![it] }) bad("the COMMIT of S ${a.s} is not the report's parameters at its cursor: ${hex(c)}")
+            }
+            if (spec.form == RingForm.PITCH) for (a in drewScroll.filterIndexed { i, _ -> i % 2 == 0 })
+                if (commits.any { u16(it, 3) == a.s }) bad("a COMMIT of S ${a.s}, the notch from before a switch")
+            // PITCH: each switch's ONE batch — the LIST-RING (its pitch, a fresh mark) ahead of the SETs naming the re-made pans
+            if (spec.form == RingForm.PITCH) {
+                val switches = act.filter { ss -> ss.any { isSub(it, 27, CfwModes.BIND_LIST_RING) } && ss.any { isSub(it, 27, CfwModes.BIND_SET) } }
+                if (switches.size != 2) bad("not two batches each carrying a LIST-RING and SETs: ${switches.map { shape(it) }}")
+                for (ss in switches) {
+                    val li = ss.indexOfFirst { isSub(it, 27, CfwModes.BIND_LIST_RING) }
+                    if (ss.withIndex().any { (i, s) -> isSub(s, 27, CfwModes.BIND_SET) && i < li }) bad("a SET ahead of the switch's LIST-RING: [${shape(ss)}]")
+                    words += "a switch's batch [${shape(ss)}], its LIST-RING's pitch ${s16(ss[li], 9)} mark ${ss[li][11].toInt() and 0xFF}"
+                }
             }
             words += "RIGHT's 115s: ${applied.joinToString(" | ") { it.describe().substringBefore(" uptime") }}"
             val answers = act.filter { ss -> ss.any { answerList(it) >= 0 } }.map { shape(it) }.distinct()
