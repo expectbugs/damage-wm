@@ -793,9 +793,11 @@ class MainLocalShellTest {
             r.onLoop { r.shell.services.openWindow("settings", null) }
             r.until("Settings open") { r.onLoop { r.shell.currentWindowId() } == "settings" }
             r.shell.updateSettings { it.copy(scrollEffect = "slide") }
-            // a while in Settings, as he would spend there (not asserted here: the notch below says it)
+            // a while in Settings, as he would spend there (not asserted here: the notch below says it) — C3 X3: until the
+            // re-made pans are counted (switched there before X3, on the return since)
             val until = System.currentTimeMillis() + 5_000
-            while (System.currentTimeMillis() < until && r.notes("mainstage").count { it.startsWith("pans switched") } == m.switched) delay(20)
+            while (System.currentTimeMillis() < until && r.notes("mainstage").count { it.startsWith("pans switched") } == m.switched &&
+                r.onLoop { r.shell.mainBinding.reprogram?.record?.state } != wm.damage.core.shell.StagedRecord.State.PROVEN) delay(20)
             r.settle("in Settings")
             assertEquals("settings", r.onLoop { r.shell.currentWindowId() }, "still in Settings")
             val at = r.right.size

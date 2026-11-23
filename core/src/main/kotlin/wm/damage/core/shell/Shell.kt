@@ -6699,7 +6699,7 @@ class Shell(
     /** K1-1, each poll: the re-made pans' record — gone before its switch: owed again; counted, no burst open: switched
      *  (the list made now names them, and the rules SET the entries); its SETs landed with no burst open: the old pans
      *  released. C3 X3 (decisions CA (2)): counted pans the scroll rows no longer ask for are dropped, never switched, and
-     *  none are switched while the list is not in front — a change in several steps under a cover goes on the return. */
+     *  none are switched while the list is covered — a change in several steps under a cover goes on the return. */
     private fun ListBind.mainBindReprogramPoll() {
         val b = mainBind
         val r = b.reprogram ?: return
@@ -6708,18 +6708,20 @@ class Shell(
             else mainBindDrop("the pans in force left the stage registry (the stage notes say why)")
             return
         }
-        // C3 X3: the row stepped on while these were written — the free slot is named by nothing, so the idle step re-makes
-        // into it for the motion asked now (one re-make in flight at a time)
-        if (!r.switched && r.record.state == StagedRecord.State.PROVEN && r.programs.motion != motionInForce()) {
+        val counted = !r.switched && r.record.state == StagedRecord.State.PROVEN
+        // C3 X3: the rows changed again while these were written — the free slot is named by nothing, so they are dropped
+        // unswitched and the idle step re-makes into it for the motion asked now (one re-make in flight at a time)
+        if (counted && r.programs.motion != motionInForce()) {
             stage.remove(r.record); stageRecount(); b.reprogramLost()
-            journal.note("mainstage", "re-made pans dropped — ${r.programs.motion.words()} is no longer asked (${motionInForce().words()}): re-made for it in idle")
+            journal.note("mainstage", "re-made pans dropped unswitched — ${r.programs.motion.words()} is no longer asked (${motionInForce().words()}): re-made for it in idle")
             post(Msg.Pump)
             return
         }
         // the switch waits for the burst's SETTLE, as the period's SETs do (`mainPeriodApply`: applied with no burst open);
-        // C3 X3: and for the list in front — the return's poll runs before its frame, so the return's batch SETs these pans
-        // (with their LIST where the pitch changes, S6) and the first notch back plays them
-        if (!r.switched && r.record.state == StagedRecord.State.PROVEN && !local.burstOpen && inFront()) {
+        // C3 X3: and for the list uncovered — a switch under a cover kept the old pans' slot until the return (their release
+        // needs the SETs, which go only with the list in front), so a second change made there played only after it. The
+        // return's poll runs before its frame: the return's batch SETs these pans (their LIST ahead where the pitch changes, S6)
+        if (counted && !local.burstOpen && localUncovered()) {
             b.reprogramSwitch()
             val ms = b.staging ?: return
             // a new effect draws other areas: its steps are measured afresh from its own fit (decisions BF)
