@@ -964,8 +964,8 @@ fork's C (`~/damage-cfw`).
   the fork's `host/run_vectors.py --write` fills the expectations from its C; `ConformanceVectorTest` runs
   every file through `GlassFirmwareSim` per lens (shadow CRC-32 and every return code): 34 vectors, 342 steps
   since the vector pass (2026-11-12, `HANDOFF.md` §77.4), matching on both lenses. *2026-11-23: C1–C3 added theirs
-  and the ship vectors (what the shell sends at stages 4 and 5, `ShipVectors.kt`); 230 files, 0 disagreements at
-  `HANDOFF.md` §101.3; the count is `REMINDER.md`'s.*
+  and the ship vectors (what the shell sends at stages 4 and 5, `ShipVectors.kt`); 246 files, 0 disagreements since
+  the fill of 2026-11-23 (230 at `HANDOFF.md` §101.3); the count is `REMINDER.md`'s.*
 - **`DamageMsg` + the simulator's `damageContract`** — the Phase 1 settings extension from the contract text:
   DamageCaps parsed at the capability gate, telemetry parsed on any sid-0x09 frame before the §47 answer
   matching, flags modeled with the texture cache's release points, field 4 a status register (the last

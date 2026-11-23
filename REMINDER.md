@@ -30,6 +30,10 @@ for firmware → earlier by number (§65 Phase 2 and the protocol, §48 the fork
   scroll effects, the wheel's stage-5 margins. **Told to him at the staging, and still true:** Crush, Flip, the new
   Matrix and Warp/Flip at the new fit have no filled vector yet (model and pins only); a scroll effect stepped
   through several values at once comes back as the first for a moment; the wheel is still phone-drawn.
+  ***2026-11-23: the first of the three is closed*** — the 34 files are filled by the fork's C and the model agrees
+  on all 246 files, 15,230 lens-steps, 0 disagreements (`main` `d4eeaaba`; 0.84's product code is unchanged by it;
+  the whole core suite 2,090 / 0 on that head). Matrix has had its second and last general pass: nothing stops it;
+  a small fix stage follows (Warp and Flip to fill the tier's length, the rain's plane against Global `Depth`).
 - **The way back from stage 5 without a session:** `python3 tools/ladder.py 4` (`DAILY.md`).
 - **Planned on 2026-11-22 (his ask, no code): Music's motion update** — `MUSIC.md` §14 (the bar and timer, the
   visualizers and the lyrics as programs the glasses play, sent ahead of the playhead; a Global beat pulse as a

@@ -2841,8 +2841,10 @@ content, the stock override gesture, stock fallback on any failure. Written afte
   rules are the contract's: it starts at 153,600 zero bytes as the panel does, the copy hook writes it (the shadow,
   outside a job's owned rects, then the steps), a full refresh copies it to the panel and a partial one its hinted rows,
   and the `stock` op's repaint writes 0x5A into it before its refresh.
-- *2026-11-23, the set on `main`:* 230 files, every one filled (the fork's runner and the model agree: 14,120
-  lens-steps, 0 disagreements, `HANDOFF.md` §101.3) — v1 13, v2 21 (§4's list, `v2-panel`, and the review sets'
+- *2026-11-23, the set on `main`:* 246 files, every one filled (the fork's runner and the model agree: 15,230
+  lens-steps, 0 disagreements — 230 files and 14,120 lens-steps at `HANDOFF.md` §101.3, then the 34 ship files for
+  Crush, Flip, the rebuilt Matrix and Warp and Flip at the raised fit, 16 new and 18 written again, filled and
+  compared on 2026-11-23) — v1 13, v2 21 (§4's list, `v2-panel`, and the review sets'
   `v2-badrec`, `v2-gates`, `v2-order`, `v2-reach`), v3 17, v4 15 (§6.10's twelve, `v4-param-order`,
   `v4-scaled-self`, `v4-vscale-draw`), v5 164: §7.13's twelve, four fold pairs (`v5-fold-*`, 8 files), the fix rounds'
   `v5-x2-*` (8) and `v5-x3-hint`, and 135 `v5-ship-*` — the shipped programs played as acts (transitions, scroll
