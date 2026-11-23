@@ -3,8 +3,8 @@
 What runs and how, as built for APK 0.67 (`HANDOFF.md` §80; the PC service runs it since 2026-11-14, the APK is staged —
 §80.13). *Status 2026-11-22:* each section is dated by the build that wrote it; the code is at APK 0.84 (staged
 2026-11-22, the PC runs it; his phone runs 0.83 — `REMINDER.md`). The phone halves of C1–C3 (motion programs, local
-input, the scroll effects and transitions) have no section here yet: `FIRMWARE.md` §5–§7, `MOTION.md` §7 and
-`HANDOFF.md` §85–§101 hold them; C2's appears under "Review hardening".
+input, the scroll effects and transitions) are the section "The phone's halves of C1–C3" (2026-11-23); C2's guards
+also appear under "Review hardening".
 Each build's record is `HANDOFF.md`; the current battery counts are `REMINDER.md`'s; operations are `DAILY.md`.
 
 **The topology as built** (`HANDOFF.md` §19, §79): **the phone shell drives (radio and shell, while the APK is up); the
@@ -19,8 +19,8 @@ still runs as this file says.
 
 One `:core` library holds the shell, the byte-exact glass simulator, the compositor and every window (Main · Settings
 · Reader · Tmux · Files · Torrents · Music · Games · Feed) on the CFW display contract (modes 3/6/8/9, the 11–15
-texture-cache layer, the FB lease, the capability gate; on the fork's build contract 2's modes 17–24, `FIRMWARE.md`
-§4). Per-window records: `TMUX.md`, `TORRENTS.md`, `MUSIC.md`, `HOLDEM.md`, `FEED.md`; Files is `HANDOFF.md` §22 — it
+texture-cache layer, the FB lease, the capability gate; on the fork's builds contract 2's modes 17–24, `FIRMWARE.md`
+§4, and C1–C3's 25–27, §5–§7). Per-window records: `TMUX.md`, `TORRENTS.md`, `MUSIC.md`, `HOLDEM.md`, `FEED.md`; Files is `HANDOFF.md` §22 — it
 brought the shared machinery `WINDOWS.md` §4 lists (`MenuSurface`, the WinNet channel, theme icons via desktop
 `ThemeIcons` + phone `RemoteIcons` with the drawn set as fallback and release path, the §16.4 state substrate, deep
 links, the notification signature, `Draw.fit` / `Draw.dynamic`).
@@ -38,7 +38,7 @@ x-height-normalised to the §Type measurements on both.
 ```
 shell  ──FlushRequest{ops, epoch, label, wide, writer}──────────────────────────────▶  transport
        ◀──TransportEvent{Input, Text, FlushDone, Lease, Link, DiagFlags, Battery, Fault,
-                         Note, SilentMode, Wear, Presented}──
+                         Note, SilentMode, Wear, Presented, Applied, LocalRead, LocalBody}──
 ```
 `DisplayOp` (`transport/Transport.kt`): Keyframe · Delta · Copy · CopyPair · StereoPair · CacheWrite · DrawText ·
 DrawImage, and contract 2's DrawText2 · DrawImage2 · Fill · Clip · PresentHint · CacheWrite2.
@@ -66,7 +66,7 @@ core/       wm.damage.core.geom       panel constants, Rect, the runtime lint ga
             wm.damage.core.gfx        Gray8 compose surface, firmware-exact nibble RLE (pinned to fbfeas.py),
                                       4bpp pack, level-6 deflate, drawn icons/shapes (§4.5b)
             wm.damage.core.wire       CRC-16, protobuf, AA envelope + reassembly, EvenHub carrier messages,
-                                      sid-0x09 lease + capability, mode 3/6/8/9 builders, CfwModes (11–15),
+                                      sid-0x09 lease + capability, mode 3/6/8/9 builders, CfwModes (11–27),
                                       TextureCache (byte layouts from zlib_glue.c / texture_cache.c),
                                       LoggerMsg (sid 0x0F, the Phase 0 log probe), DamageMsg (FIRMWARE.md
                                       §0/§3: DamageCaps, the control ops, the telemetry record), LaunchMsg
@@ -75,15 +75,23 @@ core/       wm.damage.core.geom       panel constants, Rect, the runtime lint ga
                                       ring + flags, warmup drop, msgId-255 silence, lease fail-open, the
                                       texture cache, silent rejects made loud; the overlay toggle and the
                                       log switch; a Damage build behind `damageContract`; the conformance
-                                      doors (`conformanceMessage`, `conformanceLease`, `shadowCrc32`)
+                                      doors (`conformanceMessage`, `conformanceLease`, `shadowCrc32`); MotionSim,
+                                      BindSim, EffectsSim (C1–C3's engine, local input and effects per lens),
+                                      PixelLoops (the mirror's fast loops)
             wm.damage.core.transport  the seam + Emit + CfwTransportBase + SimTransport + Remote client/server
                                       + LensPanels (the mirror) + LinkEstimator + PathTransport (unused, below)
+                                      + LadderRecord (the firmware ladder's stored record, C2)
+            wm.damage.core.motion     (C1–C3) Motion (the DSL), TestPrograms, MainPan, ScrollEffects, PopupPrograms,
+                                      Transitions, TransitionRehearsal, CellLists, Wheel, WheelCheck
+            wm.damage.core.local      (C2) BoundList, LocalRules, TableRepair, EngineRefusals
             wm.damage.core.comp       the compositor (one mode-8 flush per frame, §5), CachedText, CanvasShift,
                                       the JSONL journal
             wm.damage.core.shell      Shell, input grammar, chrome, Main, switcher, notifications, silent mode,
                                       ContentKit (lens/list/document), slides, persistence, settings,
                                       MenuSurface, KeyboardSurface (§4.8), ShellKeeper, Staging, Status,
-                                      BatteryLatch, WindowContract (`DamageWindow`), AnchorCursor (S1-1)
+                                      BatteryLatch, WindowContract (`DamageWindow`), AnchorCursor (S1-1),
+                                      QuietHours (W), LoopWatch (RA-1), MainSurface + MainStaging + MainBinding +
+                                      MainLocalCheck (C2), TransitionRun (C3)
             wm.damage.core.app        (build S1-1) the PC record, operation log, core executor, the merge rule
                                       (Merge: the latest input wins); + the `app` lane (AppWire, AppNet, AppClient,
                                       Contracts), served on the content port by both PC builders; the record opens at
@@ -95,7 +103,8 @@ core/       wm.damage.core.geom       panel constants, Rect, the runtime lint ga
                                       notice record), Viewers, Paged, Program (ops into an outside program), Migrate
                                       (the one PC pass of Torrents' and Files' old rows), Windows (the registry)
             wm.damage.core.web        (build S1-1) WebServer, Access, Devices, LocalSecret, Blobs, Bundle, WebAccess;
-                                      (S1-2) Uploads; the access state opens at a process start only; the web client in
+                                      (S1-2) Uploads; (S1-3) Vendor (the terminal library); the access state opens at a
+                                      process start only; the web client in
                                       `core/src/main/resources/web/` (plain ES modules, `files.txt` lists them),
                                       `node --test` over its pure modules in `core/src/test/js/` (P7)
             wm.damage.core.windows.reader   ReaderCore (shelf, record items, actions, description) on the PC record
@@ -105,11 +114,12 @@ core/       wm.damage.core.geom       panel constants, Rect, the runtime lint ga
                                       shared with `Epub.load`), ReaderIndex (the PC's per-book facts on disk),
                                       ReaderDocs (the last two parsed books); EPUB extraction
             wm.damage.core.windows.files    (S1-2) FilesCore, FilesGlasses, FilesPc, FilesScopes, FilesBlobs,
-                                      FilesJobs (the PC's one job slot and its supervisor), SlottedFiles; the
+                                      FilesJobs (the PC's one job slot and its supervisor), SlottedFiles, FilesMigration; the
                                       Local/Remote providers, FilesService, the trash manifest, ListingCache (the
                                       phone's copy of the last listings, §47)
-            wm.damage.core.windows.tmux     Tmux window + providers + TmuxNet
-            wm.damage.core.windows.torrents (S1-2) TorrentsCore, TorrentsGlasses, TorrentsScopes; QbtClient (Web API
+            wm.damage.core.windows.tmux     (S1-3) TmuxCore, TmuxGlasses, TmuxScopes, TmuxStream, TmuxMigration;
+                                      FlowRender, TermRender, Sgr, the providers, TmuxNet
+            wm.damage.core.windows.torrents (S1-2) TorrentsCore, TorrentsGlasses, TorrentsScopes, TorrentsMigration; QbtClient (Web API
                                       2.11), TorrentLeech + Html, providers, TorrentsNet
             wm.damage.core.windows.music    MusicModel (the MusicLibrary/MusicPlayer contracts), Db + MusicDb,
                                       Qdrant, MediaCache + MediaServer, Art, LibraryScan, AdaptivePlaylists,
@@ -122,8 +132,9 @@ core/       wm.damage.core.geom       panel constants, Rect, the runtime lint ga
                                       HoldemTable (an action LOG replayed), Equity, HoldemBot, HoldemView ·
                                       roster/ — Character, Mood, Roster, Background
             wm.damage.core.windows.feed     FeedModel, FeedHttp (+ PacedHttp), FeedXml, Fetchers, Extract,
-                                      Strips, FeedStore, FeedEngine (both hosts), FeedProvider, FeedNet,
-                                      FeedWindow, ScriptedFeed
+                                      Strips, FeedStore, FeedEngine (the PC since S1-3), FeedProvider, FeedNet,
+                                      (S1-3) FeedCore, FeedGlasses (`FeedWindow(…)` the factory), FeedScopes,
+                                      FeedBlobs, FeedAnchor, FeedMigration; ScriptedFeed
             wm.damage.core.net        WinNet — the §16.10 window channel (wreq/wres + blob answers + wpush);
                                       Reach + ReachGate — the listeners' reach gate (build W)
             wm.damage.core.bastion    the bus alert watcher (build W): HaReader, AlertRule, RuleEval,
@@ -132,7 +143,8 @@ core/       wm.damage.core.geom       panel constants, Rect, the runtime lint ga
             wm.damage.core.sync       SyncNet/RemoteSync — LWW state sync (Reader's keys left it in S1-1)
             wm.damage.core.util       Log · Exec (subprocess runner, stderr drained concurrently) · Http
                                       (HttpURLConnection, no timeouts, multipart) · InstanceLock ·
-                                      UncaughtRecord · Secrets (constant-time compares, S1-1)
+                                      UncaughtRecord · Secrets (constant-time compares, S1-1) · DayLog (the phone's
+                                      log kept 10 days, build Q)
             wm.damage.core.replica    ReplicaServer — the browser replica, the journal, the log, the probes;
                                       HttpWs (the HTTP/WebSocket codec it shares with the web listener)
             wm.damage.core.content    library providers: local dir, TCP host, remote client with copy-on-open
@@ -143,13 +155,15 @@ desktop/    AWT rasterizer · Swing lens preview (integer-scaled, default 4×; k
             MusicPlugins · MusicCheck · ScriptedMusic · ScriptedTmux · ScriptedTorrents · GamesCheck ·
             CardSheet · FeedCheck · SelfCheck · Snapshot · SetupServer (/setup + /damage-apk on :7300) ·
             BlueZLink/BlueZTransport (PC-direct BLE, manual) · StandbyPolicy (the data host's probe of
-            the phone; never drives) · NightlyCopy (build W)
+            the phone; never drives) · NightlyCopy (build W) · MotionCheck + LocalCheck (C1–C3) · FilesThumbs ·
+            SceneFiles · SceneFeed · JvmLoopClock
 audio/      the enrichment package taken over from G2CC (Adam's code) + viz.py — run on G2CC's venv for now
 phone/      foreground ShellService, on-screen lens view (touch = ring), AndroidText (bundled OFL/Apache
             fonts), BleTransport (LIVE since 2026-08-31), transport seam server, wakelock + Doze exemption +
             BootReceiver, DamageApp (the uncaught-error record), §9.3 urgent phone notifications, RemoteIcons,
             AndroidMusicPlayer, MusicListener, SpotifyRemote, TrackCache · build W: the three bus-alert
-            channels + Acknowledge, NetState, AndroidPlaceSource, the "location" button (MainActivity)
+            channels + Acknowledge, NetState, AndroidPlaceSource, the "location" button (MainActivity) ·
+            AndroidLoopClock · AndroidImages
 ```
 
 ## The mirror, the keeper and the replicas (the finishing build, `HANDOFF.md` §8)
@@ -229,15 +243,19 @@ Desktop (the sim standing in for glass; also serves `~/books` to the phone):
 ./gradlew :desktop:run --args="--transport ble"   # PC-direct BLE only (manual) — stop the service first (exit 4 otherwise)
 ./gradlew :desktop:run --args="--remote HOST"     # = --transport remote: claim the phone's transport and drive through it — the EXPLICIT dev override; stop the service first (exit 4 otherwise)
 ./gradlew :desktop:run --args="--ble-info"    # the BlueZ adapter and the devices it knows (no discovery)
-./gradlew :desktop:run --args="--selfcheck"   # the 485-check scripted gate: two passes (contract 1 with a gain-in-place step at boot, then contract 2 with cached text on), every window's walk, the truth oracle on every settle
-./gradlew :desktop:run --args="--snapshot DIR"  # lens-truth PNGs of every surface (57 scenes)
+./gradlew :desktop:run --args="--selfcheck"   # the scripted gate (486 checks at 0.82's gate; REMINDER.md carries the count): two passes (contract 1 with a gain-in-place step at boot, then contract 2 with cached text on), every window's walk, the truth oracle on every settle
+./gradlew :desktop:run --args="--snapshot DIR"  # lens-truth PNGs of every surface (94 renders + 66 in DIR/phone/ at 0.82's gate)
+./gradlew :desktop:run --args="--motion-check DIR"  # C1–C3: the test programs, the notice's programs, the transitions, Main's scroll effects and the wheel on the simulator, a strip PNG each; exit 1 when one does not hold
+./gradlew :desktop:run --args="--local-check DIR"   # C2: Main's bound list fired through the simulator's input hook at every cursor, both directions and the press, four heights, 160 and 256 KiB
+./gradlew :desktop:run --args="--wheel-icons DIR"   # the switcher wheel's cells painted with the theme's icons beside the drawn set's
 ./gradlew :desktop:run --args="--epub-check [DIR]"  # parse every book in DIR (default: the config's booksDir); exit 1 on zero books, a DIR that is not a directory or a failing book
 ./gradlew :desktop:run --args="--music-check" # the real g2cc library, read-only bar the additive schema migration: counts, catalog, lanes, cache keys, Qdrant, one viz blob, the adaptive-playlist derivation
 ./gradlew :desktop:run --args="--games-check" # the Hold'em ecology over hundreds of simulated tournaments (pure in-memory; add `deep` for a longer run)
 ./gradlew :desktop:run --args="--card-render" # the card sheets into design/shots/cards/ at true 1x
 ./gradlew :desktop:run --args="--feed-check [DIR] [live]"  # the feed engine over the captured fixtures; `live` = one paced fetch per source, read-only, temp dir
 ./gradlew :desktop:run --args="--host-only"   # content host alone (books + tmux + sync + setup page, no stack ever) — stop the service first (exit 4 otherwise)
-./gradlew :desktop:test                       # 44 tests: the BlueZ glue over the fake link, the argument parser (CliTest), the config file's safety, SetupServer, the standby policy, the nightly copy, the status cell's fit, the epub check, theme icons, the xkcd PNG through the decoder
+./gradlew :desktop:run --args="--devices"     # S1-1: also --approve CODE LEVEL · --deny CODE · --revoke ID — asks the running service on loopback; exit 0 / 1 / 3
+./gradlew :desktop:test                       # 53 tests in 14 classes (0.82's gate): the BlueZ glue over the fake link, the argument parser (CliTest), the config file's safety, SetupServer, the standby policy, the nightly copy, the status cell's fit, the epub check, theme icons, the xkcd PNG through the decoder, Files' thumbnails, the notice timer's render, the terminal library's pin, the motion check
 ```
 
 Preview: mouse wheel scroll · left click tap · right click double-tap · press-and-hold long-press · keys
@@ -247,7 +265,9 @@ replica link is printed at start (`http://<host>:7403/?token=…`); the same ser
 whole lines that start inside the last N bytes — `tools/journal_report.py -` reads it from stdin; before APK 0.61
 the route read the whole file into memory and ended the phone's process, `HANDOFF.md` §71), since 0.64 `GET /journals`
 (the archives) and `&name=journal-YYYYMMDD-HHMMSS.jsonl` on `/journal` (one archive; `tools/journal_pull.py` copies
-them), and `GET /log?token=…[&tail=N]` (the process's last 4,000 log lines, `Log.recent`).
+them), and `GET /log?token=…[&tail=N]` (the process's last 4,000 log lines, `Log.recent`); since build Q (APK 0.69)
+on the phone `GET /logs` (its day files, `util/DayLog.kt`: 10 days, 32 MiB a day) and `&name=log-YYYYMMDD.txt` on
+`/log` (one day).
 
 **The journal and the record of an uncaught error (APK 0.64, `HANDOFF.md` §76.1).** At a process start a journal past
 64 MiB is renamed to `journal-YYYYMMDD-HHMMSS.jsonl` and the fresh file starts with a `journal` note naming it; nothing
@@ -274,7 +294,8 @@ hosts/quick keys/snippets/wait patterns, `qbtUrl` + the TorrentLeech credentials
 `MUSIC.md` §9.7 and `mediaPort`, `feedSources`/`feedUserAgent`/`feedDataDir`, `setupPort`/`setupToken`; the bus
 watcher's `haUrl`/`haTokenFile` (a path: the token is read from that file, never a value here)/`haRulesFile`
 (default `<dataDir>/bastion-rules.json`)/`haPollSec`/`haSilentMin`, the nightly copy's
-`backupDir`/`backupKeep`/`backupAt`, and `reachOpen` (true turns the listeners' reach gate off) — each defaults off
+`backupDir`/`backupKeep`/`backupAt`, `reachOpen` (true turns the listeners' reach gate off), the web listener's
+`webPort`/`webHosts` (S1-1) and `simContract` (the sim stack's firmware contract) — each defaults off
 or to the value `DAILY.md` names; the `Config` class in `desktop/Main.kt` is the key list. An UNREADABLE file runs
 defaults for that start, loudly, and is never rewritten.
 
@@ -495,7 +516,7 @@ working copy; a browser is a third presenter (`CONTRACT.md` §2, §9, §10, §12
   record holds); a place the record holds as this device's own, equal to the local one, counts as sent; an own
   bookmark is taken from the record when the view holds none for that book. A place is `ReaderAnchor`
   `@c<offset>.<extractor>~<quote>` over `Epub.load`'s text (`EXTRACTOR = 1`). Reader's keys are off the sync channel
-  (`Persistence.CONVERTED`); the glasses' row stays local (`window.reader`, unsynced). `ReaderWindow(…)` is the
+  (`Persistence.syncable` over the registry's `Windows.converted` since S1-2); the glasses' row stays local (`window.reader`, unsynced). `ReaderWindow(…)` is the
   compatibility factory over a `MemoryRecord` that tools, `SelfCheck` and tests build. Reader's migration ran on both
   hosts at 0.67 and is removed; the old `window.reader.conv` key stays in his stores, unread.
 - **The notice record** (S1-2; `Notices`, `NoticeCore`, `NoticeMirror`): items `rec.notices.<source>:<thread>`, raised
@@ -717,6 +738,8 @@ deviations). To work on it:
   replica-typed line through it. Requesters: Torrents Search, Tmux "Type…", Files Rename / New folder.
 - **Harnesses**: `ScriptedTorrents` (ink budgets: transfers 9.0 %, details 6.4 %; snapshot scenes 15–22);
   `TorrentsTest` ×9, `KeyboardTest` ×22.
+- *2026-11-23: since S1-2 the window is `TorrentsGlasses` over `TorrentsCore` (`TorrentsWindow(…)` the factory), its
+  notices raised on the PC; "The shared window core" above.*
 
 ## Tmux (2026-08-31, TMUX.md — all refinery verdicts locked, built in one pass)
 
@@ -746,6 +769,9 @@ targeting, no `-C` attach). `wm.damage.core.windows.tmux`; `TMUX.md` is the reco
   accepts, `Transport.injectText` → `TransportEvent.Text` across every transport and the seam (`"typed"`); entry
   points: the desktop preview (key T), the browser replica's text bar, the phone strip's `type` button.
 - **Harnesses**: `ScriptedTmux` (the tmux selfcheck checks, snapshot scenes 09b–09e); `TmuxTest.kt` (32, six classes).
+- *2026-11-23: since S1-3 the window is `TmuxGlasses` over `TmuxCore` (`TmuxWindow(…)` the factory); the glasses still
+  use discrete commands, while the desk's terminal attaches one `tmux -C` client per viewed session (`TmuxStream`,
+  "The shared window core" above). `TmuxTest.kt` holds 33 in seven classes since build Q (`TmuxScrollbackTapTest`).*
 
 On-glass verdicts still owed (`REMINDER.md` → Suspended work): the flow view's default size/wrap feel,
 quick-key order, alert-pattern tuning against real Claude sessions, ssh-host latency feel.
@@ -769,6 +795,8 @@ ladder (`DESIGN.md` §3): the Global row moves everything with the selection bar
 The firmware's **64 KiB lease-scoped texture cache** and three draw modes (on contract 2 the cache is sized by op 5,
 160 KiB a session, and modes 17–19 draw and write it — `FIRMWARE.md` §4); wire and model layers built 2026-08-30,
 adopted by the compositor behind the Global `Cached text` row 2026-09-06.
+*2026-11-23: on a C1 build or later the ladder's stage 2 and up asks 256 KiB (`CfwModes.CACHE2_MAX_RIDERS`); what
+lies above the atlas there is `CfwModes.reserveAbove` (the section "The phone's halves of C1–C3").*
 
 - `wire/CfwModes.kt` — `cleanup()` (11), `cacheUpdate()` (12), `drawImage()` (13), `drawCachedText()` (14),
   `options()`, `xAdjust()`; every builder refuses what the firmware would reject in silence (mode 13's exact
@@ -912,6 +940,9 @@ The focused document's next and previous strips as v2 image records in the cache
 - Gates: `StagingTest` (21: §66's ten, §73's four — the two re-read paces on a paced link, a stopped shell, a strip
   after its glyphs — 0.64's six and 0.65's one), the contract-2 oracle walk (the document keyed), `--selfcheck`'s contract-2 pass (a Reader
   notch that shipped a staged draw, counted where the flush is assembled).
+- *2026-11-23: `StagingTest` holds 22; on a 256 KiB session with BIND in force the reserve is 32 KiB
+  (`CfwModes.stageReserve`) with Main's region below it; since 0.82 a record goes as pieces of one mode-19 message
+  each (`Shell.STAGE_CHUNK`, `StagePiecesTest`).*
 
 ## The fork's Phase 0 pieces (`HANDOFF.md` §49, `FORK.md`)
 
@@ -932,7 +963,9 @@ fork's C (`~/damage-cfw`).
 - **Conformance vectors** — `firmware/make_vectors.py` writes the inputs (the documented v1 message formats);
   the fork's `host/run_vectors.py --write` fills the expectations from its C; `ConformanceVectorTest` runs
   every file through `GlassFirmwareSim` per lens (shadow CRC-32 and every return code): 34 vectors, 342 steps
-  since the vector pass (2026-11-12, `HANDOFF.md` §77.4), matching on both lenses.
+  since the vector pass (2026-11-12, `HANDOFF.md` §77.4), matching on both lenses. *2026-11-23: C1–C3 added theirs
+  and the ship vectors (what the shell sends at stages 4 and 5, `ShipVectors.kt`); 230 files, 0 disagreements at
+  `HANDOFF.md` §101.3; the count is `REMINDER.md`'s.*
 - **`DamageMsg` + the simulator's `damageContract`** — the Phase 1 settings extension from the contract text:
   DamageCaps parsed at the capability gate, telemetry parsed on any sid-0x09 frame before the §47 answer
   matching, flags modeled with the texture cache's release points, field 4 a status register (the last
@@ -969,6 +1002,94 @@ fork's C (`~/damage-cfw`).
   truncated self-test step, and §53's FLAGS_SET with no lease and FB_RELEASE after a settled lapse),
   `ConformanceVectorTest` (2 — the normal path and the self-test form over the drawing vectors),
   `DevProbeTest` (4). The fork's side: `host/test_damage_ext.py` (76 checks), `host/run_self_test.py`.
+  *2026-11-23: at 0.84 `DamageMsgTest` holds 17 and `ConformanceVectorTest` 13 (the v1/v2 pairs at C1, C2 and C3, the
+  C1–C3 comparisons, the ship vectors).*
+
+## The phone's halves of C1–C3 (APK 0.84; `HANDOFF.md` §85, §90–§92, §98–§101; written 2026-11-23 from the code)
+
+The contract is `FIRMWARE.md` §5 (C1, the engine), §6 (C2, local input) and §7 (C3, effects); the plan is `MOTION.md`
+§7; operating the ladder is `DAILY.md`. Nothing here is sent unless its ladder stage is armed on a build that reports
+its DamageCaps bit (7–8 C1, 10 C2, 11 C3). C2's guards are under "Review hardening"; what 0.84 leaves open, §101.9.
+
+- **The ladder** (`CfwTransportBase`: `ladderFlags`, `ladderKib`, `buildTop`, the probe `c1=N`): stage 0 nothing ·
+  1 ZWRITE (mode 25, a deflated cache write) · 2 and the 256 KiB cache · 3 and ENGINE · 4 and BIND (C2) · 5 and
+  EFFECTS (C3; RIGHT's flags 0x7c). Set only by `c1=N`, armed at the next session start, never above the build's top
+  stage; a reset within `HOLD_BACK_MS` of an arming (RIGHT's uptime, or LEFT's link ending) drops stages 1–3 one stage
+  and arms a stored 4 or 5 as 3 without lowering it. `transport/LadderRecord.kt` keeps the stage, the last stage-4
+  arming, the case-in, the hold-back and the session's cache size in the phone's files, so an install keeps them.
+  `MotionTransportTest` (each stage adds only its own change; stage 0 writes the awake start byte for byte),
+  `BindTransportTest`, `LocalStartTest`.
+- **`tools/ladder.py state|4|5`** (0.84): `state` reads RIGHT's newest flags from the phone's `/log` (0x3c stage 4,
+  0x7c stage 5) and sends nothing; `4` or `5` sends `c1=N`, `rest=on`, `rest=off` over the phone's replica WebSocket,
+  so a session start arms it. Reads `token`, `phoneHost`, `replicaPort` from the config; the system Python's
+  `websockets`; no self-test. Stage 4 is the way back from 5 without a Claude session.
+- **The motion DSL and its encoders** (`motion/Motion.kt`, from §5's and §7's text, never the fork's C):
+  `Motion.program` builds a version-1 program (tracks, segments, eases; FILL · DRAW · REVEAL · WAIT), `program2`
+  version 2 (OWN, LAND; PIECES, SHRINK, GLYPHS) only through the gate's token `Motion.effects` (EFFECTS in force);
+  `play` · `playAfter` · `retarget` · `close` · `commit` encode mode 26 (`CfwModes.motion*`), `CfwModes.bind*` mode 27,
+  `CfwModes.zwrite` mode 25; `Motion.end` is the END applied to the shell's belief (§5.6); `MotionProgram.cost` is
+  §7.12's cost. What §5.5 would refuse offline is refused loudly (`LintError`). `MotionDslTest`, `Version2MotionTest`,
+  `C3WireTest` (the encoders against `make_vectors.py`'s messages, byte for byte), `ConformanceVectorTest`.
+- **The model and the mirror** (`sim/MotionSim.kt`, `BindSim.kt`, `EffectsSim.kt`, from the contract's text alone):
+  one lens's engine, binding table and effect verbs inside `GlassFirmwareSim`. The phone's mirror runs them on every
+  message it writes, since 0.84 through `sim/PixelLoops.kt`'s row-span loops (ML1: the plain loops ran 70–93 times
+  slower on his phone than on the PC; `MirrorLoopsReplayTest` compares the two on the same messages); an open
+  instance's areas are left out of the agreement check, as spans (`MirrorScanMotionTest`). `MotionSimTest`,
+  `BindSimTest`, `EffectsSimTest`.
+- **Who plays what.** Each motion has its owner in the shell's pump, on fixed slots (`TransitionRun`'s companion: 0
+  the bound list, 1 the wrap's PLAY, 2 a transition's out half or the notice, 3 the in half); the period and steps are
+  the fit below. C1's test programs (`motion/TestPrograms.kt`: list, popover, recede, flip; Main's pans from
+  `MainPan.kt`) play only by hand (`probe motion=NAME`, `Transport.sendMotion`, ENGINE in force; their cache write is
+  another writer's, so the shell drops its atlas for that session); `mainseq` is his scroll test on Main's staged rows.
+  `TestProgramsTest`, `MainSeqTest`, `MotionCheckTest`.
+- **Main's list staged** (C2; `shell/MainStaging.kt`, `MainBinding.kt`, `Shell.pumpMainStage`): the records from Main's
+  own painters — the strip (every row's row form, margin rows past each end), each row's band form, the item table,
+  the programs — in Main's own 128 KiB region on a 256 KiB session with BIND, else the shared stage reserve
+  (`CfwModes.mainRegion`); written as pieces of one mode-19 message (`STAGE_CHUNK`, 0.82), proven by the cache count,
+  staged behind the shell's clock screen too (the base records only). `local/BoundList.kt` is the list as bound: its LIST
+  and mark, one SET per event id (the two scroll entries and the press), `predict` (§6.2 steps 8–9). One holder,
+  `Shell.ListBind` (Main its only instance, 0.84). `MainStagingTest`, `MainBindTest`, `MainBindShellTest`,
+  `StagePiecesTest`, `desktop --local-check` (`MainLocalCheck`).
+- **The local scroll** (C2, stage 4): a ring notch fires on the glasses from its SET; RIGHT's report (notify 115,
+  `TransportEvent.Applied`) is answered by the phone's rules (`local/LocalRules.kt`: COMMIT · DISCARD · SETTLE, one
+  answer per bound slot per batch; `Taps` phone · report (the default) · glasses); a mode 27 that did not land is
+  repaired by evidence (`TableRepair`), a refused mode 26 with more of its batch behind it by the whole table and one
+  keyframe (`EngineRefusals`, 0.83). `LocalRulesTest`, `LocalSequenceFuzzTest`, `LocalSkewRigTest`,
+  `MainLocalShellTest`.
+- **The scroll effects and the fit** (`motion/ScrollEffects.kt`, K1-1; the `Scroll effect` row): None · Depth (the
+  default) · Slide · Fall in version 1 from stage 4; Crush and Flip's width turn in version 2 at stage 5 (below it Crush
+  plays Slide and Flip its height turn, and the row says so). A notch's period is fitted on the effect's painted area:
+  C2's fit `MainStaging.timing` (P0 with a margin, inside 16..128 ticks), at stage 5 the fast DRAW path's
+  `MainStaging.fastStepMs` (§7.12; four modeled figures, the fourth for Flip's scaled turn), both through `timingOf`; Auto frames take the steps
+  that fit `Scroll length`, and the glasses' measured period (notify 114 field 9) raises the period. `ScrollEffectsTest`.
+- **The ring list** (C3 DM-0, 0.84): at stage 5, where Main's paint wraps (his eight rows at 288 and 352), the list is
+  bound with LIST-RING (`CfwModes.bindListRing`, `BoundList.ring`); the strip carries the other end's rows as margins
+  and no wrap record, and the phone measures the cursor modulo the count (`BoundList.distance`). `LocalRulesTest`,
+  `MainLocalShellTest`, `LocalSequenceFuzzTest`, the ship vectors.
+- **The transitions** (C3; `motion/Transitions.kt`, `shell/TransitionRun.kt`; stage 5 only): Select, Close / Back
+  (Select's effects reversed in time) and Lock Screen (the silent clock entered and left); Depth · Warp · Flip · Fall ·
+  Glitch · Explode · Fade · Build · Encode · Matrix, one picked at random among those checked at each act. Two halves
+  over one area: the out half (an OWN program, slot 2) moves the leaving picture in place; the arriving frame goes in
+  as many flushes as it takes, and the last carries the in half's PLAY-AFTER (slot 3, `after` 2; OWN + LAND, drawn
+  from the shadow). Every flush from the out PLAY to the end is held by both owners, so it plays in full. **The end
+  rule** (TR1, 0.84): RIGHT's in-half body ends it; else the phone CLOSEs both slots at RIGHT's out-half body plus T
+  periods plus `BODY_ALLOWANCE_MS` (500), or, with no out-half body, the acks' rule plus `ACKS_ALLOWANCE_MS` (750).
+  Records in two 2 KiB slots above the atlas (`CfwModes.TRANSITION_SLOT`); Encode and Matrix draw from the atlas's
+  fonts (`motion/CellLists.kt`) and hold every other cache write while they run (`TransitionRun.holdsCache`).
+  `TransitionsTest`, `TransitionShellTest`, `CellListsTest`, `TransitionRehearsal` (`--motion-check`'s frames).
+- **The notice on the engine** (`motion/PopupPrograms.kt`, K1-4a; a 256 KiB session with BIND in force): the focus
+  timer as one program in slot 2 (17 steps at 128 ticks, 2.0 s) and the Fade and Slide arrivals as their own PLAYs,
+  written into the top 16 KiB of the stage reserve (`CfwModes.NOTICE_REGION`, `Shell.pumpNoticeStage`) and counted by
+  the ledger; tags `0xE000 + n` (0.83). Elsewhere the timer is the phone's own steps; Unfurl is always the phone's.
+  `NoticeEngineTest`, `NoticeTimerTest`, `NoticeTimerRenderTest` (desktop).
+- **`Animations`** (`shell/SettingsWindow.kt`; the fields in `ShellSettings`, on the PC record): a category on a BIND
+  build, one row per tier opening its sub menu (0.84): Scroll (`Scroll effect`, `Scroll length` 300 ms, `Scroll
+  frames` Auto); at stage 5 Select, Close / Back, Lock Screen (450 ms, 10 frames, a checkbox per effect; Depth, Depth,
+  Fade by default); Popups (`Popup length`, `Popup frames`, `Popup · Unfurl` on, `· Fade`, `· Slide`). `Taps` is in
+  Global on a BIND build. `SettingsLocalRowsTest`, `TransitionsTest`.
+- **The wheel** (C3 DW-0, its offline half only): `motion/Wheel.kt` (the cells from the switcher's own painters, the
+  drum's programs), `WheelCheck.kt` (`--motion-check`'s strips), `desktop --wheel-icons`; nothing bound; below stage 5
+  the switcher sends what it did before. `WheelTest`, `WheelStage4Test`.
 
 ## Review hardening (rounds 2–8, 2026-08-24)
 
@@ -1171,7 +1292,8 @@ These mechanisms are load-bearing and easy to break by accident:
   desktop's `StatusCellFitTest` (the real faces) pin it. When the atlas check finds DRAW2 not armed on the
   glasses the compositor drops to v1 shapes for the session (`v2RefusedThisSession`) and keyframes.
 - **An event notice a tap should answer carries `appId` and a `target`** and coalesces per ITEM
-  (`TmuxWindow.alert` → `open("session:<host>:<name>")`, §29).
+  (`TmuxWindow.alert` → `open("session:<host>:<name>")`, §29). *2026-11-23: since S1-3 `TmuxCore` raises it into the
+  notice record with that target (`TmuxCore.sessionTarget`).*
 - **The context menu's box follows the row face** (`MenuSurface.boxW`, §29): the design's 248 at 100 %, grown by
   the ratio the row pitch grew; a detail cut at its head carries the drawn mark on that edge.
 - **The list rhythm is measured, with the design as the floor** (§29): `Layout.rowH` / `lensH` (defaults 32 /
@@ -1290,12 +1412,16 @@ Every review's pins were run against the unfixed tree and watched to fail before
   walk of the §1 grammar at all four heights, belief = glass = per-lens TRUTH after every settle);
   `Review28Test`, `Review29Test`, `Review30Test`; `WrapEstimateTest` and the §40 pins; `SilentGlassesTest` and
   the §42 pins; `TextureCacheTest`, `AckStatusTest`; `FeedTest`, `FeedWindowTest`, `FeedNetTest`; `DevProbeTest`,
-  `ConformanceVectorTest`, `DamageMsgTest` (§49). ⚠ `FeedWindowTest.deepLinksResolveEveryForm` misses in some
+  `ConformanceVectorTest`, `DamageMsgTest` (§49); C1–C3's sets (the section "The phone's halves of C1–C3").
+  ⚠ `FeedWindowTest.deepLinksResolveEveryForm` misses in some
   full runs (§49.6: the window flips to comic #1, which `ScriptedFeed` cannot serve; the trigger is unknown).
 - `./gradlew :desktop:test` — the BlueZ glue over a fake link (`BlueZTransportTest`), `CliTest` (the argument list),
   `ConfigTest` (an unreadable `config.json` is left untouched, a tokenless one completed), `SetupServerTest`,
   `StandbyPolicyTest`, `NightlyCopyTest` (build W), `StatusCellFitTest`, `EpubCheckTest`, `ThemeIconsTest`,
-  `FeedStripsTest` (the real xkcd PNG through the decoder).
+  `FeedStripsTest` (the real xkcd PNG through the decoder), `FilesThumbsTest`, `NoticeTimerRenderTest`,
+  `TerminalLibraryTest` (S1-3's pin), `MotionCheckTest` (C1).
+- `--motion-check DIR` and `--local-check DIR` (C1–C3; the section "The phone's halves of C1–C3") — part of a C build's
+  gate (`HANDOFF.md` §100.7).
 - `--selfcheck` — the whole stack scripted end to end with real fonts: ink budgets, input grammar, persistence
   byte-behaviour, zero faults/failed flushes/sticky flags. **The per-lens TRUTH oracle runs on EVERY settle**
   (`oracleRuns >= 100` keeps it from quietly stopping); it found the Music Mode card's overrun and both chrome
