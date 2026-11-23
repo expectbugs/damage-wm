@@ -17,7 +17,8 @@ both sides by build C1 (2026-11-15 → 17): the host C, the simulator and the v3
 `0dab2154…` is installed on Adam's pair since 2026-11-18 (`HANDOFF.md` §88), with nothing of §5 armed.** §6 is in contract form since 2026-11-13, not yet challenged (the note above §5); §7 and §8
 are the decided shape only. *(2026-11-19: §6 is built by C2 and installed since 2026-11-19 (pin `b3f04453…`,
 `HANDOFF.md` §94), stages 0–4 armed; **§7 is the effects build C3, in contract form since 2026-11-19, not built**; the
-two drafts that were §7 and §8 are §8.1 and §8.2.)* **Only the RIGHT lens can send** (`CLAIMS.md`): every reply and notify is
+two drafts that were §7 and §8 are §8.1 and §8.2.)* *(2026-11-23: §7 is built by C3 and installed on both lenses since
+2026-11-20 (pin `58741c4a…`, `HANDOFF.md` §99); the ladder at stage 5, EFFECTS armed, since 2026-11-21 (§101).)* **Only the RIGHT lens can send** (`CLAIMS.md`): every reply and notify is
 RIGHT's; the left lens's state is inferred from the same writes. CACHE_KEEP stays unarmed (the atlas skip is the
 phone's bounded one, §3). A section marked *draft* may change until its phase's test stop passes; after that it
 changes only with a contract-version bump.
@@ -305,6 +306,9 @@ Damage build, the shell rebuilds the session to arm it again, and an atlas of th
 strips go there as v2 image records (mode 19, 3,064 B messages, off the gesture path), are proven by field 17 — the
 phone counts its acked non-empty writes and a reading must show exactly that many bumps — and a notch then ships
 one mode-17 pair under a mode-20 clip (and a clip reset) instead of the strip's pixels.
+*2026-11-23: since C1 the start asks up to 256 KiB at ladder stage 2 and above on a riders build (§5.8); on a 256 KiB session
+with BIND in force the reserve is 32 KiB, with Main's own 128 KiB region below it (`CfwModes.STAGE_RESERVE_BOUND`,
+`MAIN_REGION`, since 2026-11-19).*
 
 **Vectors (the v2 set, built; expectations from the C, the simulator equal on every step):** `v2-perlens` (17/18
 with two x's, negative x and y) · `v2-image16` (300×300 and 640×600 records across the 64 KiB line in a 160 KiB
@@ -354,7 +358,7 @@ A2DP margin; upstream measured ~41 KiB/s on his phone.
 > **§5 since then:** challenged 2026-11-14 (`HANDOFF.md` §81) and built by C1, whose rulings are written into it
 > (2026-11-17). The link item is left out of C1 (the lead's recommendation in §81, which Adam's "continue" followed).
 
-## 5. v2 motion programs (the first flash, C1) — *contract 2026-11-13, from `MOTION.md` §6 as ruled; built with C1, its rulings written in 2026-11-17; not flashed*
+## 5. v2 motion programs (the first flash, C1) — *contract 2026-11-13, from `MOTION.md` §6 as ruled; built with C1, its rulings written in 2026-11-17; flashed on both lenses 2026-11-18 (`HANDOFF.md` §88)*
 
 Grades as `CLAIMS.md`: **V** read (instruction level or the decompile of bytes that hash SAME, `fwread.py sha`), **M**
 measured on Adam's pair, **I** inferred, **U** unknown. "Read 11-13" = `research/fwread.py` this sitting. A tag such as
@@ -938,8 +942,9 @@ takes the allocation under the engine word, which heap 13's lock forbids.
 
 ### 5.12 Not in this contract yet
 
-The default P (feel session) · a hint for small step areas (after field 34's numbers) · a string source for DRAW
-(today: draw the text, then DRAW from `self`) · more than 4 instances, 8 tracks or 255 steps · LEFT's verification
+The default P (feel session) *(2026-11-23: the phone's P comes from its step fit, §6.9, §7.12)* · a hint for small
+step areas (after field 34's numbers) · a string source for DRAW (today: draw the text, then DRAW from `self`) *(C3:
+GLYPHS draws text cells from the atlas as a verb of its own, §7.6)* · more than 4 instances, 8 tracks or 255 steps · LEFT's verification
 (an inter-lens report: LEFT's END, its cache, and §5.7's one-lens refusals) · the pool and cache numbers (after §5.7's
 readings; the cache plan now includes the phone's capture reservation) · a compression context kept across messages
 (`HANDOFF.md` §68: re-measure first; it would also take mode 25's per-message inflate out of §5.7's class) ·
@@ -947,7 +952,7 @@ on-glasses compaction (§74 item 8) · a session identity on the image lane (it 
 §5.11's release-and-acquire case; new state) · a gate take around a cache write (§5.6's case; a new wait) · the
 masked section for the scratch's and the slots' release windows (A.14).
 
-## 6. v2 local input and bindings (the second flash, C2) — *contract 2026-11-18, from the C2 design pass as ruled; not built: nothing of C2 is built before C1 is flashed and its numbers are read (§6.9)*
+## 6. v2 local input and bindings (the second flash, C2) — *contract 2026-11-18, from the C2 design pass as ruled; built by C2 and flashed on both lenses 2026-11-19 (`HANDOFF.md` §94)*
 
 Grades as §5: **V** read at instruction level (an address given) or in the decompile of bytes that hash SAME, **V-src**
 read in the fork's source (branch `c1`), **M** measured on Adam's pair or counted in his journal, **I** inferred, **U**
@@ -1429,7 +1434,9 @@ is stated there.
   item word, and the entries are SET to the programs that name it — no withdrawal; a fire between the write and the
   SETs draws the old pan with the new item table and is judged against both stagings (P3); the old strip's programs
   are released only when no burst is open and the SETs have landed on both lenses (ruled 2026-11-19, decisions AD.2,
-  AL.3). A staging that did not fit is tried again at each session start and when the rows' drawn content changes
+  AL.3). *2026-11-23: since decisions AU.1 (2026-11-19, `57f58f43`) the atlas keeps 96 KiB (less the 4 KiB transition
+  region with EFFECTS in force), the bound list's region is 128 KiB and the stage reserve 32 KiB — `CfwModes.MAIN_REGION`,
+  `STAGE_RESERVE_BOUND`, `TRANSITION_REGION`; `LinkState.atlasCapacity`.* A staging that did not fit is tried again at each session start and when the rows' drawn content changes
   (decisions AF.6, AL.1: the key is what the rows draw, never a value that moves without the picture). COMMIT, DISCARD and SETTLE only while the lease is held and BIND is in force — never in Silent Mode, never
   into a released lease. Each of them that names a list rides behind that list's LIST with shift 0 (12 B, idempotent),
   so a lens that missed a LIST — lost, or refused there — holds the current count and mark whenever an answer is checked
@@ -1610,7 +1617,8 @@ that `tools/journal_report.py` counts by cause):
   so a restart of the phone's process — every APK install, M — loses nothing): the ladder stage (0..4), the `Taps`
   row, the time of the last session in which stage 4 was armed, the last `case` note with `in case 1`, and the
   hold-back (its time and reason). Each start re-arms what is persisted. **This extends §5.8's stored stage (build
-  C1-P) with the rest of this list.**
+  C1-P) with the rest of this list.** *2026-11-23: the stored stage is 0..5 since C3 (§7.9) —
+  `CfwTransportBase.LADDER_TOP_STAGE = 5`.*
 - **The hold-back for stage 4** (a fault in the hook comes at a gesture, any time, so C1's 120-s window does not apply
   to this stage): at a start the phone holds stage 4 back — it arms stage 3 and says so once, as a `keeper` note and a
   `holdback` fault ("local input held back until tomorrow's first start: a lens restarted at HH:MM while it was on;
@@ -1654,7 +1662,10 @@ good." His rule for every later motion: what moves, moves together.
 least the fitted step time plus 2 ms, T the step count nearest 200 ms. At heights 288 / 352 / 416 / 480 the moving area
 is 114,688 / 152,832 / 190,976 / 229,120 px a step per lens, the fitted step time 32.3 / 38.2 / 44.2 / 50.1 ms (M at
 352, I at the other three), P 36 / 42 / 48 / 54 ticks (35.2 / 41.0 / 46.9 / 52.7 ms) and T 6 / 5 / 4 / 4; the press
-plays T 3 at the same P (stage DM2; decisions V and X).
+plays T 3 at the same P (stage DM2; decisions V and X). *2026-11-23: this paragraph and the table's period row are the
+earlier form; since decisions AU.3 (2026-11-19) the phone's rule is §7.12's: step ms = 15.66 + 0.156 per 1,000 area
+pixels, P = ⌈⌈ms × 1.024⌉ × 1.10⌉ ticks inside 16..128 — at 352 (152,832 px) 39.5 ms, P 46, and 6 steps at the
+default 300 ms / Auto — `MainStaging.timing`, `timingOf`.*
 
 **What it costs** (I, from the measured step and §5.2's priorities): the display task draws a step at priority 45 and
 the ui_task (44) — the hook, every image message, the stock dispatcher — runs between steps. At 352 a step is about
@@ -1678,7 +1689,9 @@ Depth 8 it comes forward (`DESIGN.md` §3.1; decisions X).
 the item table and the programs, 35.6–43.7 KB at the four heights (43,700 B at 352), inside 64 KiB at every height —
 at 160 KiB in the shared stage reserve (from byte 98,304, staged when Main comes to the front; Reader stages again on
 its return), at 256 KiB in a region of Main's own below the reserve (from byte 131,072, with the atlas over the
-128 KiB below it; an atlas made before BIND was armed leaves Main in the shared reserve). The list is offered — its
+128 KiB below it; an atlas made before BIND was armed leaves Main in the shared reserve). *2026-11-23: since
+decisions AU.1 (2026-11-19, `57f58f43`) Main's region at 256 KiB is [98,304, 229,376), with the atlas over the 96 KiB
+below it — `CfwModes.mainRegion`.* The list is offered — its
 SETs sent — only after field 17 counts every write; the first staging is about 44 KB, about 5–6 s on the phone's link
 before the first local notch (I). Rows are kept current as P9 says.
 
@@ -1850,13 +1863,15 @@ case-in (the journal; the calendar fallback covers a miss) · COMMIT CRCs equal 
 - **A notice on the glasses for each dropped tap** — on `glasses` the press going out is the signal; on `report` a
   dropped tap shows nothing (§6.7, what a dropped tap shows); the journal counts both, per `Taps` value.
 - **Local input with the phone away** — the offline home (step G, §8.2).
-- **K's programs** beyond Main's pan and press (`MOTION.md`).
+- **K's programs** beyond Main's pan and press (`MOTION.md`) *(K1, APK 0.83–0.84: the notice's timer and arrivals,
+  Main's scroll effects and the transitions, phone programs on §5's and §7's ops; `MOTION.md` §7, `HANDOFF.md` §100,
+  §101)*.
 - **A cheaper whole-list pan** *(C3: the fast DRAW path, §7.12; in-place verbs stay out of bound programs)* (a framebuffer row-copy verb: a pan by whole rows is whole-byte row moves) — new
   firmware; the motion kit's, not C2's (decisions V).
 - **C1's carried items** — a session identity on the image lane; the masked section for the scratch's and slots'
   release windows (A.14).
 
-## 7. v2 effects (the third flash, C3) — *contract 2026-11-19, from the C3 design pass as ruled (`private/c3-design/C3-design.md`, `C3-decisions.md` A–C); not built*
+## 7. v2 effects (the third flash, C3) — *contract 2026-11-19, from the C3 design pass as ruled (`private/c3-design/C3-design.md`, `C3-decisions.md` A–C); built by C3 and flashed on both lenses 2026-11-20 (`HANDOFF.md` §99)*
 
 Grades as §5 and §6: **V** read at instruction level (an address given), **V-src** read in the fork's source (branch
 `c2`), **M** measured on Adam's pair, **I** inferred or modeled, **U** unknown. This section is the only thing the
@@ -2384,6 +2399,8 @@ one-period wait; with this it is drawn a few ms late.
   RIGHT; it ends an owner a lens kept after losing the in half, which LEFT cannot report) — **unless the phone has PLAYed
   that slot again since** (that PLAY's close pass ended any leftover on both lenses). **With no in-half body by the in
   half's nominal end plus one period**, the phone CLOSEs both slots (the one rule that ends a waiter if one ever stays).
+  *2026-11-23: replaced on 2026-11-21 by the block below (the backstop counted from RIGHT's out-half body), the rule in
+  force — `TransitionRun.deadlineMs`.*
   **A tag is not reused in a slot while a PLAY-AFTER names that slot** (a later instance matching a recorded triple
   would be waited on and then emptied).
 - **Pacing.** No PLAY-AFTER before the arriving frame is complete in the shadow; no cache write into an open owning or
@@ -2557,7 +2574,9 @@ comes to 6.9 / 8.8 / 10.8 / 12.7 ms a step at 288 / 352 / 416 / 480, P 16 and 19
 (C2's fit: P 39–59, 7–5 steps); Slide and Fall the same, at 480 P 17 and 18 steps. **The glasses correct it:** the
 114's field 9 (a step's measured time) raises the period for the staging in force, Auto's step count follows in idle,
 and a period is never lowered under the staging's own. Below stage 5, and for a staging made before EFFECTS was in
-force, C2's fit (§6.9) unchanged.
+force, C2's fit (§6.9) unchanged. *2026-11-23: since C3 DM-1 (`18dcd355`, 2026-11-21) a fourth figure: 0.156 µs a pixel
+for a draw written a pixel at a time (Flip's width-scaled turn; Depth, Slide, Fall, None and Crush have none) —
+`MainStaging.FAST_US_PER_PIXEL` in `fastStepMs`.*
 
 **What the terms do not carry** (the first review pass of the built code, 2026-11-20): each term bounds its verb's
 pixel and byte work at these rates; work per element that no term names is outside the budget. RAIN visits every
@@ -2726,6 +2745,8 @@ counts it, G3) · the failed try's wait (unchanged).
 
 ### 8.1 v2 firmware-owned chrome (Phase 5; in the first flash only if its measurement says it pays, `REPLAN.md` §5) — *draft*
 
+*2026-11-23: in none of C1–C3; a candidate for the next firmware build (`FORK.md` Phase 5).*
+
 Rects the phone declares firmware-owned (the status bar's clock, battery and link cells; the
 silent-mode clock): the glasses draw them after the frame copy from cached fonts at the Global depth
 the phone sets; they are outside the shadow and the phone never paints them. RTC and fuel-gauge
@@ -2820,6 +2841,12 @@ content, the stock override gesture, stock fallback on any failure. Written afte
   rules are the contract's: it starts at 153,600 zero bytes as the panel does, the copy hook writes it (the shadow,
   outside a job's owned rects, then the steps), a full refresh copies it to the panel and a partial one its hinted rows,
   and the `stock` op's repaint writes 0x5A into it before its refresh.
+- *2026-11-23, the set on `main`:* 230 files, every one filled (the fork's runner and the model agree: 14,120
+  lens-steps, 0 disagreements, `HANDOFF.md` §101.3) — v1 13, v2 21 (§4's list, `v2-panel`, and the review sets'
+  `v2-badrec`, `v2-gates`, `v2-order`, `v2-reach`), v3 17, v4 15 (§6.10's twelve, `v4-param-order`,
+  `v4-scaled-self`, `v4-vscale-draw`), v5 164: §7.13's twelve, four fold pairs (`v5-fold-*`, 8 files), the fix rounds'
+  `v5-x2-*` (8) and `v5-x3-hint`, and 135 `v5-ship-*` — the shipped programs played as acts (transitions, scroll
+  effects, the notice, the ring list; C3 X3D and SVR). Files a branch is still filling are not counted here.
 
 ## 10. Lifecycle
 
@@ -3102,3 +3129,7 @@ phone's keeper applies the hold-back rule before re-arming.
 - 2026-11-21 — his first stage-5 session and the build after it (`HANDOFF.md` §101): §7.11 gains the transitions'
   backstop counted from RIGHT's out-half body, Matrix's one bent step with its reason, and the pitch switch; no
   firmware change — every sentence is phone code against the installed C3 build.
+- 2026-11-22 — §8.1: two candidates for the same build from Music's motion update (`MUSIC.md` §14.2 E), not designed.
+- 2026-11-23 — the documentation audit (no rule's text changed): the status line and the headers of §5–§7 say each
+  build flashed (C1 2026-11-18, C2 11-19, C3 11-20; `HANDOFF.md` §88, §94, §99); dated pointers in §4's phone side
+  (the 256 KiB ask, the reserve with BIND), §5.12, §6.12 and §8.1; §9 counts the set on `main`.
