@@ -817,6 +817,23 @@ itself (his call; the freeze of 2026-11-16 is the case). R-d the always-on core 
 machine (done for build work: the `claude-work` cgroup; the later agents get the same). R-e a usage record for the
 later agents: what he opens, acts on and dismisses, on which surface, when (small; designed with L0).
 
+**R-b, the health view, as shaped on 2026-11-23** (the lead's recommendations; Adam: "I like your recommendations.
+Go ahead and add them"). Not designed further than this; its design pass comes with its turn.
+- **One record on the PC**, described and presented like a window's, its lines in `CONTRACT.md`'s `value` shape (a
+  state of live, stale or last known, the source's time, a reason), so that every surface and the later agents read
+  the same thing. The pieces that exist are gathered into it, not rebuilt: the per-source health lines inside
+  windows, the phone's reach and its count of waiting changes, the TV's health zone (`BASTION.md` T-27; T-35 later).
+- **Quiet when healthy.** On the glasses one line that says all is well and stays out of the way, and a notice when
+  a line has been wrong for longer than a short while (the length is set in its design); on the web and the TV a
+  small zone.
+- **Each line says three things:** its state, since when, and what the system is doing about it ("phone unreachable
+  4 min, retrying").
+- **Its lines:** the five above (service up, phone attached, hub reachable, last backup, the memory cap in force),
+  and the glasses' link, battery and firmware ladder stage; whether the phone and the PC run the same build; free
+  disk space (the PC's root disk reached 99 % on 2026-11-21 and nothing said so); the service's last error.
+- **Its place:** after S1 closes, when every window's state is on the PC. It is small and may move without
+  disturbing the order.
+
 ### 17.5 Sizes
 
 §16.2's rows and the re-fitted rate stand as measures of the old shape. L0's ruling re-sizes S1-3 to S1-5; the
