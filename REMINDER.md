@@ -62,7 +62,9 @@ for firmware → earlier by number (§65 Phase 2 and the protocol, §48 the fork
 ## Open from the documents' audit (2026-11-23)
 
 Where the code does not do what a ruled design or the contract says; each document carries a dated note at the place.
-- **His to decide** (put to him 11-23): four Global rows have no reader — `Profiler`, `Diag overlay`, `Battery
+- **His to decide** (put to him 11-23; **the four rows answered the same day, "All your recommendations above are
+  good":** `Profiler`, `Diag overlay` and `Head tracking` are removed and `Battery alert` hidden until its pulse
+  exists — S1-5's Settings stage does it): four Global rows have no reader — `Profiler`, `Diag overlay`, `Battery
   alert`, `Head tracking` (`DESIGN.md` §4.2; the lead would remove the first, second and fourth when Settings is
   next touched); the battery cell's pulse at 20 % or below was never driven (§4.1; the lead would build it when the
   status cells go to the firmware and hide the row until then); `Slide frames` and `Slide fill` still sit in Global

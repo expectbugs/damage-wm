@@ -808,6 +808,14 @@ what an actor may do; the snapshot judge; one look at every page in a real brows
    timer digits that count by themselves) ride the next firmware build beside `FIRMWARE.md` §8.1's chrome, with
    that build's design pass and his go for the flash. It does not jump the order.
 
+10. **S1-5's five questions, answered by Adam on 2026-11-23: "All your recommendations above are good."** Hold'em's
+    page in the browser waits until he asks (Games still moves onto the PC's record); the desk pieces (side by
+    side, search, shortcuts, send to, continue here) wait until he has used the pages; every setting becomes a
+    form in the browser now; the Global rows `Profiler`, `Diag overlay` and `Head tracking` are removed and
+    `Battery alert` hidden until its pulse exists; bus alerts move onto the one notice record with S2. The lean
+    spec is the lead's (`private/build084/S1-5-lean-spec.md`: five stages, the tree ends smaller); its first two
+    stages follow the merge of S1-4's first half, its Settings stage follows K1-2's stage 3.
+
 ### 17.4 Robustness items (each small; sized when its turn comes)
 
 R-a every "until a restart" state gets a supervisor that ends the stuck thing, says so and carries on (the record log
