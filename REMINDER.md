@@ -1,7 +1,8 @@
 # Where we are, and what to do next
 
 **The entry point for a fresh session**: what is true now, what is next, where the records are; history lives in
-`HANDOFF.md`. Read `CLAUDE.md` → this file → **`HANDOFF.md` §100** (APK 0.83 integrated and STAGED on 11-21: the scroll rules, Main's scroll
+`HANDOFF.md`. Read `CLAUDE.md` → this file → **`HANDOFF.md` §101** (stage 5 on his glasses; APK 0.84 staged) →
+**§100** (APK 0.83 integrated and STAGED on 11-21: the scroll rules, Main's scroll
 effects, the notice on the engine and the transitions in one build; the ring list built and read once) → **§99** (C3 FLASHED on both lenses on 11-20, APK 0.82 on his phone, the
 first sessions and the stage-4 trial) → **§98** (the effects build C3 to a final candidate and through its
 flash-readiness review — nothing flashed; the transitions; his fast-scroll session read against the rules: late
@@ -141,6 +142,10 @@ for firmware → earlier by number (§65 Phase 2 and the protocol, §48 the fork
 | the test motions (Main's rows staged, `hold`, `mainseq`) | `main` | deployed: APK 0.72 (18:54) and 0.74 (21:55) on 11-18; judged by him (§92.1) |
 | C2 (the second flash: local input) | fork `c2` `5c728bb` (pin `b3f04453…`); its phone half on `main` | **flashed 11-19, stage 4 armed 12:22; four looks (§94–§97); APK 0.81 installed, 0.82 staged** |
 
+*2026-11-23: the table stands as of 11-20. Since: C3 flashed on both lenses 11-20 (§99) and stage 5 armed 11-21
+(§101.1); APK 0.83 (the transitions, the scroll effects, the notice on the engine) on his phone, 0.84 staged and on the
+PC (§100, §101); S1-4 still waits. The state is "Where we are" above.*
+
 The counts of APK 0.82's tree (simulator; §97.2): core 233 classes / 1,828 tests · desktop 14 classes / 53 ·
 `--selfcheck` 486 PASS ×2 · snapshot 94 renders + 66 in `phone/`, 0 px outside the mask · `--local-check` 64 cases ·
 the 66 conformance vectors in both forms · node 200 · lint 0 · wiring 79 ok. The fork at `c2`: `tools/verify.py` 38
@@ -157,22 +162,26 @@ every stage are in the gitignored `private/build068` … `build072` (C2: `build0
 
 The order is `REPLAN.md` §17.3. **Every run: its size and what he gets for it first, both meters read before and
 after** (§17.6). New firmware features are armed and tested at once on his go, not over days (§91.3).
+*2026-11-23: items 1–3 are as of 11-20; since, C3 and stage 5 are on his glasses with APK 0.83, and the motion kit's
+shell part is in build (0.83, 0.84 staged; §100, §101). What is owed first is in "Where we are" above.*
 1. **C2's trial goes on with APK 0.82** (§97.2; what is owed on his face is above), and what the trial still owes: the feel of Main's scroll and tap; fields 16, 33, 34, 37, 38; `tapdrop`, `snapback`; the 114
    and 115 gaps; LEFT's first step on 240 fps video; a gesture's WAIT right after a session start (each staged strip
    is one flush of about 20 KB — two windows of about 1.3 s, modeled; the cure, a record split across flushes, is the
    first build after if it is felt). The `mainseq` probe leaves in the first build after stage 4 is armed.
-   **Recommended to him, not built:** a liveness supervisor for the phone's shell loop (§92.10).
+   **Recommended to him, not built:** a liveness supervisor for the phone's shell loop (§92.10) — built since as RA-1
+   (`core/…/shell/LoopWatch.kt`), deployed with 0.79.
 2. **C1's numbers as he uses the glasses** (the 114 gap counts, field 33 under a working shell, the round trip's
    p90) feed C2's constants (`FIRMWARE.md` §6.9).
 3. **After C2: the motion kit's shell part** (`REPLAN.md` §17.3 item 6), before S2.
 4. **Reddit in Feed** (§91.5, §100.9): no network path gets a feed — Reddit ended them; his word on what replaces the source, then the change.
 5. **S1-4** (Music: his five answers are in, `REPLAN.md` §17.3 item 7; the lean spec, then the build), **S1-5** (the alerts onto the notice record; the phone's caches), **R-b**
-   (one health view on every surface, §17.4), then §16.1's order. His answer is owed on moving the motion kit's shell
-   part ahead of S2.
+   (one health view on every surface, §17.4), then §16.1's order. The motion kit's shell part goes ahead of S2 (his yes, §91.8; `REPLAN.md` §17.3
+   item 6).
 6. **The first days of 0.66 and 0.67** (§79.9, §80.10) are still unread on his devices.
 
-**What waits on him:** the 0.70 sitting (the PC deploy and his install together, `DAILY.md`); each C1 stage's arming;
-**his go per lens for C2's flash** (prepared: §93.4). Also his, whenever he likes: the lead's
+**What waits on him:** his install of APK 0.84 (staged 11-22, §101); any change of the ladder's stage (at its top,
+5, since 11-21) and any flash, per lens (C3 installed since 11-20, §99; the 0.70 sitting and C2's flash are done,
+§91, §94). Also his, whenever he likes: the lead's
 calls in §84.2 and S1-3's four in §89.5 (each reversible); a hardware watchdog for the PC (R-c); the fork's push and
 its records' move to `c1`; "delete" for the stray private page (§79.8); which alerts are urgent; deleting the phone's
 old `feed/` folder after 0.70.
@@ -289,7 +298,8 @@ his shelf's titles in a tracked file; tests use made-up ids such as `sensor.fres
   `retry="SIGTERM/30/SIGKILL/5"`; the original is `~/.damage/backup/init.d-damage.pre-72` (never in `/etc/init.d`).
 - `/etc/local.d/tailscale-bypass.start` (§47): Tailscale's marked traffic (fwmark 0x80000) via the LAN gateway (table
   100, pref 5200), not the VPN; after a change `sudo rc-service tailscale restart`. `~/damage-cfw` (`FORK.md` §10 and its
-  remotes; `origin` = upstream, fetch only, never pushed to) is from `reference/g2flash` at `a5d1c31`, branch `damage`;
+  remotes; `origin` = upstream, fetch only, never pushed to) is from `reference/g2flash` at `a5d1c31`, branch `damage`
+(then `c1`, `c2`, `c3`; the installed image is `c3`'s);
   its `g2_2.2.6.10.bin` links to `fws/2.2.6.10/e287…bin`. `~/.local/bin/yt-dlp` updates itself (`-U`).
 
 ## How to resume
@@ -297,8 +307,8 @@ his shelf's titles in a tracked file; tests use made-up ids such as `sensor.fres
 **`aphone` does not resolve on beardos: use the phone's Tailscale address (`tailscale status | grep aphone`). Every
 `glassdrive.py` line drives or writes to his glasses through his phone: only when he asked or is there to watch. The
 `curl` reads are read-only.** "Scanning forever" while the OS shows Connected: toggle the phone's Bluetooth. Gates:
-`CLAUDE.md`; the ops crib, the watcher, the web listener and the drive lines: `DAILY.md`. Kept builds: `~/.damage/backup/` (the 0.67 and 0.68 jars and
-APKs; the data files as they stood before 0.68's first start in `pre-068/`; from the 0.70 sitting the 0.69 ones and
+`CLAUDE.md`; the ops crib, the watcher, the web listener and the drive lines: `DAILY.md`. Kept builds: `~/.damage/backup/` (the jar and APK of each deploy, 0.62–0.63 to
+0.83; the data files as they stood before 0.68's first start in `pre-068/`; from the 0.70 sitting the 0.69 ones and
 `pre-070/`).
 
 ```

@@ -25,9 +25,9 @@ every interface shares; `BASTION.md` and `REMINDERS.md` refer to it.
 |---|---|---|
 | Every window paints pixels for 640×480; no route serves a window's structure, so today another screen can only show the glasses picture | read | `REPLAN.md:34-37` (F1) |
 | Already independent of the glasses: summary, settings rows, menu and keyboard specs, notice, deep links, sync records, the PC's content services, the engines; `POPOVER.md` has a block vocabulary (heading, text, bullets, kv, table, chart, image, rule, page) and row types | read | `REPLAN.md:51-54`; `POPOVER.md:84-85` |
-| Deep-link targets exist per window: `t:<hash>`, `tl:<fid>`, `session:<host>:<name>`, `path:…`, `cat:<Name>` (opaque strings today) | read | `TORRENTS.md:182`; `TMUX.md:186-187`; `WINDOWS.md:209-210` |
+| Deep-link targets exist per window: `t:<hash>`, `tl:<fid>`, `session:<host>:<name>`, `path:…`, `cat:<Name>` (opaque strings today) | read | `TORRENTS.md:182`; `TMUX.md:186-187`; `WINDOWS.md` §5 ("A row's DETAIL is a promise") |
 | Positions: Reader keeps a character offset; Files, Torrents, Feed, Music and Games keep indices into lines wrapped at the glasses' width | read | `REPLAN.md:45-49` (F3) |
-| Summaries over the window channel are still unbuilt *(2026-11-22: built for the converted windows — `desc/main`, one card each with its summary, S1-1 and S1-2, `core/…/app/PcScopes.kt` 14–29; the rest move at S1-5)* | read | `WINDOWS.md:143` |
+| Summaries over the window channel are still unbuilt *(2026-11-22: built for the converted windows — `desc/main`, one card each with its summary, S1-1 and S1-2, `core/…/app/PcScopes.kt` 14–29; the rest move at S1-5)* | read | `WINDOWS.md` §4 item 2 |
 | The PC already runs a dependency-free HTTP/1.1 + WebSocket server (the replica), gated today by one shared token that §4.1 replaces; which addresses today's servers answer on, and how they check the token, is in the private annex ("Today's listeners") | read | R1 §0; R2 §C |
 | One of today's servers (the setup page) already gates by network interface: the pattern §4.2's rule reuses per listener | read | R2 §C (`SetupServer.kt:21-33`) |
 | The service (running as `user`) can ask tailscaled who a tailnet peer is (device + user) without being operator; a LAN peer gets 404; `tailscale serve` hides the peer (arrives from 127.0.0.1). The answer names the device, not the page that connects from it (§4.1) | read / inferred | R2 C rows 6-12 |
@@ -44,7 +44,7 @@ every interface shares; `BASTION.md` and `REMINDERS.md` refer to it.
 | The phone app: one activity locked to landscape, one process, a ReplicaServer of its own, no androidx.webkit; a WebView renderer loss ends the app process unless handled, and with it the glasses' session | read / inferred | R2 B rows 1-4, R2:84-85 |
 | The WebView's asset loader serves in-app files on an https origin, with path handlers for assets, resources and internal storage; pages bundled in the APK change only with an APK update and drift from the server's | read | R2:78-79 |
 | A page from the APK's https asset origin that opens `ws://` to the PC is blocked as mixed content | inferred | R2:81 |
-| The phone's notifications today: the permanent one, urgent (behind Global `Phone notifications`), glasses battery, re-grant; none has an action button | read | `ShellService.kt:410-425`; no `addAction` in `phone/` |
+| The phone's notifications today: the permanent one, urgent (behind Global `Phone notifications`), glasses battery, re-grant; none has an action button *(2026-11-23: W, APK 0.66, built the same day, added the bus alerts' channels and their `Acknowledge` button — `ShellService.kt`, `addAction`)* | read | `ShellService.kt:410-425` (as of 11-13); no `addAction` in `phone/` then |
 | A media3 `MediaSession` exists for the phone player; whether the lock screen shows its controls today | read; unknown | `phone/…/music/AndroidMusicPlayer.kt:22,39` |
 | The PC already streams transcoded tracks to the phone with Range requests (the media endpoint) | read | R2 C row 1; `MUSIC.md:54-58` |
 
