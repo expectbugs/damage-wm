@@ -1949,7 +1949,10 @@ class Shell(
             scheduleSave()
             return
         }
-        val before = screenKey(wm.damage.core.motion.Transitions.Tier.SELECT)      // build C3 (DP2): a tap that changes the screen is a Select
+        // build C3 (DP2): a tap that changes the screen is a Select. C3 X3 (decisions CD (b)): a tap Settings says changes no
+        // screen (a row entering its adjust level, a row with nothing to open) plays no transition, so nothing is recorded
+        val before = screenKey(wm.damage.core.motion.Transitions.Tier.SELECT,
+            record = !(mode == Mode.WINDOW && current === settingsWindow && !settingsWindow.tapChangesScreen()))
         when (val v = focusedView()) {
             is WindowView.ListView -> v.onCommit(v.model.cursor)
             is WindowView.DocView -> v.onTap()
@@ -1985,12 +1988,13 @@ class Shell(
     private fun backFocused() {
         // build C3 (DP2): leaving a window or a level is a Back (Select reversed in time); entering the shell's silent
         // clock and leaving it are the Lock tier, leaving it reversed. C3 X4T item 3 (`C3-V2T-review.md` 3, decisions
-        // AT (3)): no tier in Exclusive mode — no act follows there, so nothing is picked or recorded
+        // AT (3)): no tier in Exclusive mode — no act follows there, so nothing is picked or recorded. C3 X3 (decisions CD
+        // (b)): a Back that leaves Settings' adjust level changes one row, not the screen — nothing is recorded for it
         val before = screenKey(when (mode) {
             Mode.WINDOW -> wm.damage.core.motion.Transitions.Tier.BACK
             Mode.MAIN, Mode.SILENT -> wm.damage.core.motion.Transitions.Tier.LOCK
             Mode.EXCLUSIVE -> null
-        })
+        }, record = !(mode == Mode.WINDOW && current === settingsWindow && settingsWindow.adjustingNow()))
         backFocusedInner()
         when (before.mode) {
             Mode.WINDOW -> transitionAct(before, wm.damage.core.motion.Transitions.Tier.BACK, reversed = true)
@@ -8451,14 +8455,16 @@ class Shell(
     }
 
     /** [tier]: the act this key stands before — its effect is picked now, before the handler paints, and the leaving
-     *  screen's cells are recorded only when that pick is Encode (one paint into a scratch, [screenRuns]). */
-    private fun screenKey(tier: wm.damage.core.motion.Transitions.Tier? = null): ScreenKey {
+     *  screen's cells are recorded only when that pick is Encode (one paint into a scratch, [screenRuns]). C3 X3 (decisions
+     *  CD (b)): [record] false for an act known to change no screen (it plays no transition: [transitionAct] finds the same
+     *  key after it) — the pick is made as always, so the picks' draws stay in step, and nothing is recorded. */
+    private fun screenKey(tier: wm.damage.core.motion.Transitions.Tier? = null, record: Boolean = true): ScreenKey {
         val w = if (mode == Mode.WINDOW) current else null
         return ScreenKey(mode, w?.id, w?.let { if (it === settingsWindow) settingsWindow.listLevel() else it.levelDepth() } ?: 0)
             .also { k ->
                 k.bottom = layout.safe.bottom
                 k.plane = if (quiet) 0 else contentDepth()
-                if (tier != null) transitionPick(tier, k)
+                if (tier != null) transitionPick(tier, k, record)
             }
     }
 
@@ -8471,7 +8477,7 @@ class Shell(
      * the hidden text over it for the out half; the box goes dark with the rest of the picture. (The arriving screen keeps
      * its runs under the box: the box is lifted at the act, so the in half shows that text.)
      */
-    private fun transitionPick(tier: wm.damage.core.motion.Transitions.Tier, k: ScreenKey) {
+    private fun transitionPick(tier: wm.damage.core.motion.Transitions.Tier, k: ScreenKey, record: Boolean) {
         val st = transport.state.value
         if (st.transitionRegion == null) return                          // below stage 5: no pick, no recording
         val pool = settings.effectsOf(tier).mapNotNull { wm.damage.core.motion.Transitions.Effect.of(it) }.toMutableList()
@@ -8482,7 +8488,7 @@ class Shell(
                 if (why != null) { pool.remove(e); k.leftOut += e to why; continue }
                 // the box's own rect, not its plane: with Global and the window's Depth both 0 there is no plane map
                 val box = notifications.current?.let { notifications.fullRect(it, layout, silent = mode == Mode.SILENT) }
-                k.cells = screenCells(screenRuns().filter { box == null || !it.rect.overlaps(box) }, Rect(0, 0, comp.width, layout.safe.bottom))
+                if (record) k.cells = screenCells(screenRuns().filter { box == null || !it.rect.overlaps(box) }, Rect(0, 0, comp.width, layout.safe.bottom))
             }
             k.pick = e
             return
@@ -8618,7 +8624,8 @@ class Shell(
                 encodeUnplayable(st)?.let { throw wm.damage.core.geom.LintError(it) }
                 // X2T item 4: recorded only when Encode was the pick made before the handler (the arriving screen is not
                 // recorded for an Encode that cannot play)
-                val leaving = before.cells ?: throw wm.damage.core.geom.LintError("Encode: the leaving screen was not recorded (Encode was not this act's first pick)")
+                val leaving = before.cells ?: throw wm.damage.core.geom.LintError("Encode: the leaving screen was not recorded (Encode was not this act's first pick, " +
+                    "or the act was taken for one that changes no screen)")
                 val arriving = screenCells(screenRuns(), Rect(0, 0, comp.width, layout.safe.bottom))
                 // X2T item 3: the lists go where they meet the fewest bytes of page staging's strips
                 val reserve = CfwModes.stageReserve(st.cacheSize, st.bind)
@@ -8633,12 +8640,13 @@ class Shell(
         if (effect.glyphs && (!b.withinShare || maxOf(b.outCost, b.inCost) * 100 > wm.damage.core.motion.Motion.BUDGET_CAP * transitionShareForTest))
             throw wm.damage.core.geom.LintError("a half costs ${maxOf(b.outCost, b.inCost)} u, past " +
                 "${minOf(wm.damage.core.motion.Transitions.SHARE_MAX_PERCENT, transitionShareForTest)} % of the step budget's cap")
-        val out = try { wm.damage.core.motion.Motion.play(b.out, TransitionRun.OUT_SLOT, timing.period, tagOut, 0, IntArray(4)) }
+        // C3 X3 (decisions CD (a)): both halves' C as the plan keeps them (worked out once an act)
+        val out = try { wm.damage.core.motion.Motion.play(b.out, TransitionRun.OUT_SLOT, timing.period, tagOut, 0, IntArray(4), cost = b.outCost) }
             catch (e: wm.damage.core.geom.LintError) { throw wm.damage.core.geom.LintError("the out half's PLAY: ${e.message}") }
         // the step budget (§7.12): the in half waits on the out half, which may still be drawing
         val inn = try {
             wm.damage.core.motion.Motion.playAfter(b.inn, TransitionRun.IN_SLOT, timing.period, tagIn, TransitionRun.OUT_SLOT,
-                IntArray(4), listOf(wm.damage.core.motion.Motion.Drawing(b.out.cost())), 0)
+                IntArray(4), listOf(wm.damage.core.motion.Motion.Drawing(b.outCost)), 0, cost = b.inCost)
         } catch (e: wm.damage.core.geom.LintError) { throw wm.damage.core.geom.LintError("the in half's PLAY-AFTER: ${e.message}") }
         // Encode: the out half's lists ride the records' write (one message). X2T item 2 (the review's 2, decisions AQ (2)):
         // the in half's ride it too when the three fit one compressed message (the list within mode 25's inflate) — the

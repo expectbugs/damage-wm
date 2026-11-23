@@ -178,9 +178,10 @@ object Transitions {
                                       *  out PLAY, where they meet no range the out half reads). */
                                      val outLists: Write? = null, val inLists: Write? = null) {
         /** The out half's and the in half's C (§7.12, u) and the sum the PLAY-AFTER is judged by (the in half waits on
-         *  the out half: the larger). */
-        val outCost: Long get() = out.cost()
-        val inCost: Long get() = inn.cost()
+         *  the out half: the larger). C3 X3 (decisions CD (a)): each worked out once a plan, at its first read, and kept —
+         *  the share check, the PLAY, the PLAY-AFTER and the `owed:` line read these. */
+        val outCost: Long by lazy { out.cost() }
+        val inCost: Long by lazy { inn.cost() }
         fun describe(): String = "${effect.label}${if (reversed) " reversed" else ""} over $area, ${timing.steps} steps a half at P ${timing.period}, " +
             "records ${blob.size} B at off4 $at4 (out ${out.bytes.size} B, in ${inn.bytes.size} B), C out ${outCost} / in ${inCost} u" +
             (outLists?.let { o -> ", cell lists ${o.bytes.size} B at off4 ${o.at4} (out) and ${inLists?.bytes?.size} B at off4 ${inLists?.at4} (in)" } ?: "") +
