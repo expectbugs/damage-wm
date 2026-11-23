@@ -345,7 +345,7 @@ class MainLocalShellTest {
      * row's repaint follows — belief equals both lenses at the end.
      *
      * MR-083 (`burst-gate`): not one piece of the re-stage goes while the burst is open — the first piece included (build
-     * SPLIT: an instance's read ranges cover both strip slots and the spare band slot, §5.6). Between A's motion's end
+     * SPLIT: an instance's read ranges cover the strip and the spare band slots, §5.6). Between A's motion's end
      * and B the motion gate is open and only the burst gate holds the first piece (traced: with it removed the first
      * piece went 12 ms before B, the later pieces and the books still after the SETTLE by their own `mayGo`). The burst
      * closes no earlier than Q after B's report, so every STAGE flush since the change is submitted at tB + Q or later.
@@ -1787,10 +1787,11 @@ class MainLocalShellTest {
         } finally { r.close() }
     }
 
-    /** Build SPLIT: a notch fired as a re-stage's first piece reaches the lens (Main bound at 256 KiB, a row form
-     *  changed) opens a burst; the re-stage's later pieces wait for its lone SETTLE — an instance's read ranges cover
-     *  both strip slots and the spare band slot (§5.6) — so the notch is adopted, COMMITted and drawn whole, with no
-     *  snap-back, and the oracle holds. */
+    /** Build SPLIT: a notch fired as a re-stage's first piece reaches the lens (Main bound at 256 KiB, a band form
+     *  changed — K1-2 stage 1: a row form's change withdraws the list there too, so no notch is local while its pieces
+     *  go) opens a burst; the re-stage's later pieces wait for its lone SETTLE — an instance's read ranges cover the
+     *  strip and the spare band slots (§5.6) — so the notch is adopted, COMMITted and drawn whole, with no snap-back,
+     *  and the oracle holds. */
     @Test
     fun aNotchBetweenARestagesPiecesHoldsTheRestUntilItsBurstEnds_SPLIT(): Unit = runBlocking {
         val r = Rig(Taps.REPORT, kib256 = true)
@@ -1807,7 +1808,7 @@ class MainLocalShellTest {
                 else -> -1
             }
             r.onAnyImage = { a, img -> if (a == Arm.RIGHT && fired == null && r.cacheWrite(img) && firstOff(img) >= regionStart) fired = r.fire(CfwModes.EV_UPROLL) }
-            r.rows[3].s = r.rows[3].s.copy(line = "summary 33")
+            r.rows[3].s = r.rows[3].s.copy(detail = "the detail of 3, longer now")
             r.shell.services.requestRender(r.rows[3])
             r.until("a notch fired as the re-stage's first piece went out", 15_000) { fired != null }
             r.onAnyImage = null
@@ -1844,38 +1845,9 @@ class MainLocalShellTest {
         pan.program.firstRange(ms.wrapParams(pan, ms.rows)!!)
     }
 
-    /** Build SPLIT on 0.81, B082 (the wrap's own record): a wrap whose edge report comes as a 256 KiB re-stage's piece that
-     *  meets the wrap's read range goes out — the re-stage writes the changed row into the wrap's record too — sends no
-     *  PLAY (that record may be part-written): the edge goes as today, the row moves to the first, the re-stage's later
-     *  pieces wait for the burst and it is booked after. At rest belief equals both lenses. (B083, S1: the trigger is the
-     *  first piece that meets the range — before it the wrap plays, `aWrapDuringARestagesPiecesPlaysFromTheRecordsAsTheyStand_S1`.) */
-    @Test
-    fun aWrapBetweenARestagesPiecesDrawsTheWholeStrip_SPLIT2(): Unit = runBlocking {
-        val r = Rig(Taps.REPORT, kib256 = true)
-        try {
-            r.up()
-            walkTo(r, r.list().count - 1)
-            val regionStart = CfwModes.mainRegion(256 * 1024, true).first
-            val range = wrapRange(r)
-            val at = r.right.size
-            var fired = false
-            r.onAnyImage = { a, img -> if (a == Arm.RIGHT && !fired && r.cacheWrite(img) && writeRanges(r, img).let { w -> w.isNotEmpty() && w.first().first >= regionStart &&
-                w.any { it.first <= range.last && range.first <= it.last } }) { fired = true; r.fire(CfwModes.EV_UPROLL) } }
-            r.rows[3].s = r.rows[3].s.copy(line = "summary 33")
-            r.shell.services.requestRender(r.rows[3])
-            r.until("the wrap fired as a re-stage piece meeting its range went out", 15_000) { fired }
-            r.onAnyImage = null
-            r.until("the re-stage booked", 15_000) { r.notes("mainstage").any { it.startsWith("row 3 re-staged") } }
-            assertTrue(wrapBatch(r, at) == null, "no wrap PLAY while the re-stage was in pieces")
-            assertTrue(r.notes("snapback").last().let { "cause=edge" in it && "wrap=play" !in it }, r.notes("snapback").last())
-            delay(r.q() + 200); r.settle("after")
-            assertEquals(0, r.row(), "the wrap landed on the first row")
-            assertTrue(r.notes("divergence").isEmpty(), "${r.notes("divergence")}")
-            r.assertOracle("after the wrap and the re-stage")
-        } finally { r.close() }
-    }
     /** B083 (the focused read of 0.82, S1): a wrap whose edge comes as a 256 KiB re-stage's first piece goes out, that
-     *  piece missing the wrap's read range (a row in the middle of 12: not in the wrap's record), plays from the records
+     *  piece missing the wrap's read range (a row in the middle of 12: not in the wrap's record; K1-2 stage 1: its band
+     *  form — a row form's change withdraws the list at 256 KiB too, so no wrap fires while its pieces go), plays from the records
      *  as they stand — its END is the phone's copy, which takes the re-stage only at the booking — and the re-stage's later
      *  pieces wait for its motion. At rest: the row on the first, the re-stage booked, no divergence, belief equal to both
      *  lenses. Before S1 every wrap during a Main re-stage's pieces went as today (the row jumped). */
@@ -1892,7 +1864,7 @@ class MainLocalShellTest {
             var first: List<IntRange>? = null
             r.onAnyImage = { a, img -> if (a == Arm.RIGHT && !fired && r.cacheWrite(img) && writeRanges(r, img).let { w -> w.isNotEmpty() && w.first().first >= regionStart }) {
                 fired = true; first = writeRanges(r, img); r.fire(CfwModes.EV_UPROLL) } }
-            r.rows[6].s = r.rows[6].s.copy(line = "summary 66")
+            r.rows[6].s = r.rows[6].s.copy(detail = "the detail of 6, longer now")
             r.shell.services.requestRender(r.rows[6])
             r.until("the wrap fired as the re-stage's first piece went out", 15_000) { fired }
             r.onAnyImage = null

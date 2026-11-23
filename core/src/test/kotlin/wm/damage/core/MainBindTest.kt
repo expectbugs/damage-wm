@@ -460,10 +460,10 @@ class MainBindTest {
         val second = b.list!!
         assertTrue(second !== first && second.mark == first.mark && second.previous === first, "a new list, the same mark, the old one as previous")
         assertEquals(mv.off / 4, second.items!![tor]); assertEquals(mv.oldOff4, first.items!![tor])
-        assertTrue(ms.free.isEmpty() && mv.oldOff4 in ms.retired, "the spare taken, the old slot retired")
+        assertTrue(ms.free.size == 1 && mv.off !in ms.free && mv.oldOff4 in ms.retired, "a spare taken (K1-2 stage 1: two), the old slot retired")
         b.switchAcked(b.patches.single())
         assertNull(second.previous, "previous forgotten once acknowledged")
-        assertEquals(setOf(mv.oldOff4 * 4), ms.free.keys, "the old slot is the spare now")
+        assertTrue(ms.free.size == 2 && mv.oldOff4 * 4 in ms.free, "the old slot is free again beside the other spare: ${ms.free}")
         // a row-form change: withdrawn until its write is submitted
         rows[tor].s = rows[tor].s.copy(line = "3 active, 14.0 MB/s")
         val r2 = ms.restage(tor, rig.view, rig.kit, { _, f -> f() }) as MainStaging.Restage.Changed

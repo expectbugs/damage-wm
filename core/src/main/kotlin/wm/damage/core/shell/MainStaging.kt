@@ -35,7 +35,7 @@ import wm.damage.core.wire.CfwModes
  *   CLEARed first, SET again after (decisions X.2: never rewritten under a table that still points at it).
  * - **The band forms:** row i in the lens band as `ContentKit.paintLensBand` paints it with i at the cursor, the rail's
  *   columns aside, each in a slot of its own size with slack ([slack]; K1-2 stage 1, decisions BQ (5): the largest
- *   slot only for a row whose band form changed in the last staging, [assemble]'s `bandRoom`); and one spare slot of
+ *   slot only for a row whose band form changed in the last staging, [assemble]'s `bandRoom`); and two spare slots of
  *   the largest size. A row whose band form changes is written
  *   into a free slot and switched by ONE write of its item-table word — the report's P1/P2 (fields 11–12) then name the
  *   slot the lens drew from, before the switch and after it; the old slot is retired ([retired]) until that write is
@@ -516,9 +516,10 @@ class MainStaging private constructor(
         var band: BandMove? = null
         if (bandEnc != null) {
             val enc = bandEnc
-            // a free slot that holds it — one at a time (K1-2 stage 1, O12: the spare, or the slot the last move freed once
-            // its switch was acknowledged), and with slots per row it may be a row's own size: what does not fit it owes a
-            // full staging, in which the row's slot is the largest
+            // the smallest free slot that holds it (K1-2 stage 1, O12): two are free between moves — the two spares, or one
+            // and the slot a move freed once its switch was acknowledged, which may be a row's own size — so the largest
+            // stays free while a smaller one fits; what neither holds owes a full staging, where its row's slot is the
+            // largest
             val (off, slot) = spares.entries.filter { it.value >= enc.size }.minByOrNull { it.value }?.toPair()
                 ?: return Restage.Outgrown("no free slot holds band form $row's ${enc.size} B (free: ${spares.values.sorted()})")
             // the item table's 4-byte word holding entry [row] and its neighbour (zero past the last: the table's pad)
@@ -908,15 +909,19 @@ class MainStaging private constructor(
             // its own size with a quarter's slack (K1-2 stage 1, decisions BQ (5) — the wheel's cells' pattern); a row whose
             // band form changed in the last staging ([bandRoom]) in the largest slot — the largest band form drawn, this
             // staging's or a changing row's last one, with its slack — so a row that changes moves between slots of that
-            // one size, the spare and its own, as when every slot had it
+            // one size, the spares and its own, as when every slot had it
             val bandPics = (0 until n).map { i -> paint.bandForms[i]!!.let { g -> g to TextureCacheImage.encode(g) } }
             val bandMax = maxOf(bandPics.maxOf { it.second.size }, bandRoom?.maxOrNull() ?: 0)
             val bigSlot = slack(bandMax)
             val bands = bandPics.mapIndexed { i, (g, enc) -> val sz = if ((bandRoom?.getOrNull(i) ?: 0) > 0) bigSlot else slack(enc.size)
                 Picture("band $i", g, levelsOf(g), enc, next(sz), sz) }
-            // one spare band slot, the largest: a row's first change writes there and switches the item table to it
+            // two spare band slots, the largest (K1-2 stage 1, O12): a change writes into a free one and switches the item
+            // table to it. Two, so a row whose own slot is its own size keeps a free slot of the largest size after its first
+            // move — its second change in one staging (a longer title after a detail) moves, not a full staging — while
+            // the free slot it left is taken by what fits it ([restage]: the smallest free slot that holds it)
             val spareSlot = bigSlot
-            val spareOff = next(spareSlot)
+            val spareOffs = listOf(next(spareSlot), next(spareSlot))
+            val spareOff = spareOffs.last()
             // the item table: each row's band form (kind 1)
             val itemOffs = IntArray(n) { bands[it].off4 }
             val items4 = next(2 * n) / 4
@@ -934,7 +939,7 @@ class MainStaging private constructor(
             if (at > regionEnd || bands.any { it.off4 > 0xFFFF } || spareOff / 4 > 0xFFFF || items4 > 0xFFFF) lessOrNull(spareFirst = false)?.let { return it }
             if (bands.any { it.off4 > 0xFFFF } || spareOff / 4 > 0xFFFF || items4 > 0xFFFF) throw LintError("Main's records pass the u16 off4 reach")
             // every slot a band form can be in is a record the programs know (a parameter names one of them)
-            val records = listOfNotNull(strip.record, wrapPic?.record) + bands.map { it.record } + Motion.Source.Record(spareOff / 4, rowW, l.lens.h, spareSlot)
+            val records = listOfNotNull(strip.record, wrapPic?.record) + bands.map { it.record } + spareOffs.map { Motion.Source.Record(it / 4, rowW, l.lens.h, spareSlot) }
             val staged = ScrollEffects.Staged(l, listD, bandD, bands[0].record, records)
 
             // the programs after the item table: the press first (no scroll row changes it), then the pans' slot and, where
@@ -985,7 +990,7 @@ class MainStaging private constructor(
             val progSlots = if (progSpare && motion != null) intArrayOf(slotA, next(progSlot)) else null
             if (at > regionEnd) lessOrNull(spareFirst = true)?.let { return it }
             if (at > regionEnd) throw LintError("Main's staging ends at $at, past its region's end $regionEnd: ${at - regionStart} B " +
-                "for a ${regionEnd - regionStart} B region (the strip ${strip.slot} B, $n band forms ${bands.sumOf { it.slot }} B and a spare slot of $spareSlot B)")
+                "for a ${regionEnd - regionStart} B region (the strip ${strip.slot} B, $n band forms ${bands.sumOf { it.slot }} B and two spare slots of $spareSlot B)")
             val progBytes = joined(progs)
             val itemBytes = ByteArray(2 * n).also { b -> itemOffs.forEachIndexed { i, v -> put16(b, 2 * i, v) } }
             val blobs = listOf(Blob(strip.name, strip.off, pad(strip.encoded), strip.raw)) +
@@ -995,7 +1000,7 @@ class MainStaging private constructor(
                 Blob("items", items4 * 4, pad(itemBytes), null) +
                 Blob("programs", progs.first().first, pad(progBytes), null)
             return MainStaging(layout, listD, bandD, n, cacheSize, period, t, regionStart, regionEnd, strip, bands.toMutableList(), items4, itemOffs,
-                mutableMapOf(spareOff to spareSlot), pans, press, blobs, stripRow, motion, seen, wrapPic, wrapRow, staged, progSlots, progSlot, ring, stage5, laid.plays)
+                spareOffs.associateWith { spareSlot }.toMutableMap(), pans, press, blobs, stripRow, motion, seen, wrapPic, wrapRow, staged, progSlots, progSlot, ring, stage5, laid.plays)
         }
 
         /** K1-1: what plays' ([plays]) pans for [specs] over [t] steps laid out from the byte offset [off] — its ease tables

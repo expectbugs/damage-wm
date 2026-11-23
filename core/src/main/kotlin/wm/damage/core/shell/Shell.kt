@@ -6619,7 +6619,7 @@ class Shell(
         journal.note("mainstage", "staged — ${ms.bytes} B in ${ms.blobs.size} record(s) at ${ms.start}..${ms.end} of the ${st.cacheSize / 1024} KiB cache " +
             "(${if (shared) "the shared reserve" else "Main's own region"}): the strip ${ms.blobs[0].bytes.size} B, ${ms.rows} band forms " +
             "${ms.blobs.drop(1).take(ms.rows).sumOf { it.bytes.size }} B in ${ms.bands.sumOf { it.slot }} B of slots each its own size " +
-            "(the spare's ${ms.free.values.single()} B, the largest; ${ms.bands.count { it.slot == ms.free.values.single() }} row(s) at that size), " +
+            "(two spares of ${ms.free.values.max()} B, the largest; ${ms.bands.count { it.slot == ms.free.values.max() }} row(s) at that size), " +
             "the item table and ${ms.pans.size + 1} programs ${ms.blobs.takeLast(2).sumOf { it.bytes.size }} B; " +
             "the region's free span ${ms.freeSpan} B at ${ms.end}..${ms.regionEnd}; " +
             "planes $listD/$bandD, press to ${ms.press.pressD}; ${mainBind.stagings} staging(s) and ${mainBind.stagedBytes} B this process; " +
